@@ -1,0 +1,17 @@
+{
+  "name": "gpta-6",
+  "private": true,
+  "type": "module",
+  "description": "Feasibility probe: procedural open-world driving/on-foot vertical slice in Three.js",
+  "scripts": {
+    "serve": "npx http-server -p 8123 -s .",
+    "test:physics": "node tools/physics-test.mjs",
+    "probe": "node tools/probe.mjs",
+    "bake": "node tools/bake/fetch-osm.mjs && node tools/bake/bake.mjs",
+    "bake:local": "node tools/bake/bake.mjs",
+    "test:golden": "node tools/golden-trace.mjs",
+    "drive": "node tools/drive-through.mjs",
+    "drive:traffic": "node tools/drive-through.mjs --traffic",
+    "sweep": "node tools/daynight-sweep.mjs"
+  }
+}

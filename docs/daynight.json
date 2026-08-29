@@ -1,0 +1,72 @@
+{
+ "camera": {
+  "pos": [
+   19.07,
+   9.5,
+   -6.33
+  ],
+  "tgt": [
+   422.84297026898486,
+   6,
+   -121.94742290918586
+  ],
+  "from": {
+   "name": "Marlin St @ Tarpon Row",
+   "x": 19.07,
+   "z": -6.33,
+   "snapDist": 0.4
+  },
+  "to": {
+   "name": "Marlin St east",
+   "x": 569.25,
+   "z": -163.87,
+   "snapDist": 1.5
+  }
+ },
+ "presets": [
+  {
+   "tod": "noon",
+   "sunLux": 100000,
+   "skyLux": 20000,
+   "litLamps": 0,
+   "lampCandela": 0,
+   "exposure": "1/78000",
+   "toneMapping": "ACESFilmic",
+   "lights": 235,
+   "shadowCasters": 256,
+   "drawCalls": 195,
+   "triangles": 7786,
+   "implausible": []
+  },
+  {
+   "tod": "dusk",
+   "sunLux": 1200,
+   "skyLux": 900,
+   "litLamps": 233,
+   "lampCandela": 900,
+   "exposure": "1/330",
+   "toneMapping": "ACESFilmic",
+   "lights": 235,
+   "shadowCasters": 256,
+   "drawCalls": 195,
+   "triangles": 7786,
+   "implausible": []
+  },
+  {
+   "tod": "night",
+   "sunLux": 0.6,
+   "skyLux": 3.5,
+   "litLamps": 233,
+   "lampCandela": 900,
+   "exposure": "1/2",
+   "toneMapping": "ACESFilmic",
+   "lights": 235,
+   "shadowCasters": 256,
+   "drawCalls": 195,
+   "triangles": 7786,
+   "implausible": []
+  }
+ ],
+ "anyImplausible": false,
+ "errors": []
+}
