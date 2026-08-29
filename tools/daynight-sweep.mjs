@@ -32,24 +32,25 @@ const CAM = await page.evaluate(() => {
   const len = Math.hypot(dx, dz);
   // Sit ON the road vertex looking down the corridor: offsetting backwards put
   // the camera inside a building footprint.
-  const pos = [a.x, 9.5, a.z];
-  const tgt = [a.x + (dx / len) * 420, 6, a.z + (dz / len) * 420];
-  __district.freeCam(pos, tgt, 52);
+  const nx = -dz / len, nz = dx / len;      // across the carriageway
+  const pos = [a.x - (dx / len) * 26 + nx * 5.5, 5.2, a.z - (dz / len) * 26 + nz * 5.5];
+  const tgt = [a.x + (dx / len) * 300, 14, a.z + (dz / len) * 300];
+  __district.freeCam(pos, tgt, 48);
   return { pos, tgt, from: a, to: b };
 });
 
 // Let the streamer fill in around the parked camera.
 await page.evaluate(() => { for (let i = 0; i < 200; i++) __district.world.update(__district.vehicle.position); });
-await page.waitForTimeout(9000);
+await page.waitForTimeout(20000);
 
 const results = [];
 for (const tod of ['noon', 'dusk', 'night']) {
   await page.evaluate((t) => __district.setTimeOfDay(t), tod);
-  await page.waitForTimeout(9000);
+  await page.waitForTimeout(16000);
   const audit = await page.evaluate(() => __district.audit());
   const render = await page.evaluate(() => __district.renderStats());
   const world = await page.evaluate(() => __district.worldReport());
-  await page.screenshot({ path: `${OUT}/tod-${tod}.png` });
+  await page.screenshot({ path: `${OUT}/tod-${tod}.png`, timeout: 150000 });
   results.push({ tod, audit, render, chunks: world.chunksLoaded });
   console.log(`\n=== ${tod.toUpperCase()} ===`);
   console.log(JSON.stringify(audit, null, 1));

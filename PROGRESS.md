@@ -12,13 +12,13 @@ at night, bloom + height fog in.
 
 | System | Owner | State |
 |---|---|---|
-| Engine shell + post-processing | sequential (lead) | in progress |
-| World streaming | sequential (lead) | Phase 1b baseline, being textured |
+| Engine shell + post-processing | sequential (lead) | **done** — HDR, bloom, height fog, ACES, dither |
+| World streaming | sequential (lead) | **textured + resumable builds**; holds the stall gate |
 | Vehicle physics | sequential (lead) | done, gated by golden trace |
-| Player controller + camera + anim FSM | sequential (lead) | Phase 1 baseline |
+| Player controller + camera + anim FSM | sequential (lead) | anim FSM done; on-foot integration pending |
 | Traffic AI | sequential (lead) | Phase 1b stub, M2 |
-| Materials library | parallel | queued |
-| Facade / building kit | parallel | queued |
+| Materials library | parallel | **landed + wired** — 18 materials, 20 textures / 34 array layers, 28.7 MB, 1.8 s |
+| Facade / building kit | parallel | **landed + wired** — 7 recipes, near-LOD only, lit windows |
 | Sky + weather | parallel | queued |
 | Signage + branding | parallel | queued |
 | HUD | parallel | queued |
@@ -30,7 +30,12 @@ at night, bloom + height fog in.
 
 | Date | Gate | Result | Evidence |
 |---|---|---|---|
-| 2026-08-29 | **chase harness** (60 civilian + 10 pursuit, dusk, 2 laps) | **PASS** — draw p95 **90**, tris 20.6k, stall 4.4 ms, heap −2 MB, 77.5% headroom | `docs/chase-harness.json` |
+| 2026-08-29 | **chase harness, textured** (60 + 10, dusk, 2 laps) | **PASS** — draw p95 **114**, tris 60.9k, stall **6.5 ms**, heap +3 MB, 71.5% headroom | `docs/chase-harness.json` |
+| 2026-08-29 | chase harness, textured, first attempt | **FAIL** — stall 40.8 ms | fixed in 3 measured rounds; see below |
+| 2026-08-29 | **chase harness, textured, new thresholds** | **PASS on fail / WARN on warn** — draw 116, tris 41.7k, stall **9.3 ms**, heap −4 MB, 41.9% headroom to fail | `docs/chase-harness.json` |
+| 2026-08-29 | syntax gate | PASS — 38 modules parse | `npm run test:syntax` |
+| 2026-08-29 | drive-through + 30 traffic, textured | PASS — draw p95 111, max 121 | `docs/drive-traffic.json` |
+| 2026-08-29 | chase harness (untextured, 60 + 10) | PASS — draw p95 90, stall 4.4 ms, 77.5% headroom | superseded by the textured run |
 | 2026-08-29 | chase harness, first run | **WARN** — draw p95 **325**, only 18.8% headroom | superseded; see Risk 5 findings below |
 | 2026-08-29 | golden-trace | PASS (30 samples, ±0.25 m / ±0.5 km/h) | Phase 1b, re-verified after minified-three swap |
 | 2026-08-29 | budget (no traffic) | PASS — draw p95 141, stall 4.8 ms, heap −1 MB | `docs/drive.json` |
@@ -43,7 +48,32 @@ first fully textured chunk lands (binding constraint 4).
 
 ## Threshold change log
 
-_No changes yet. Any change must be re-derived from measurements and recorded here._
+### 2026-08-29 — re-derived against the first fully textured district (binding constraint 4)
+
+| Metric | Was | Now | Direction |
+|---|---|---|---|
+| Draw calls | warn 260 / fail 400 | **warn 200 / fail 320** | tightened |
+| Triangles | warn 900k / fail 1.8M | **warn 400k / fail 900k** | tightened |
+| Chunk stall | warn 8 / fail 16 ms | unchanged | — |
+| Heap growth | warn 40 / fail 120 MB | unchanged | — |
+
+**Measurements the new values are derived from** — all with 60 civilian + 10 pursuit units,
+materials + facade kit + post stack live:
+
+| Source | Draw calls | Triangles |
+|---|---|---|
+| Chase harness, 2 laps at speed | p95 114, max ~125 | 60.9k p95 |
+| Drive-through + traffic, 3 laps | p95 111, max 121 | — |
+| 9 static route cameras @ 1920×1080 | max 112 | max 37.1k |
+
+**Rationale.** The old values were set in Phase 1b against *untextured* extrusions and were
+never a real budget. warn ≈ 1.6× and fail ≈ 2.5× the measured textured worst case leaves
+room for the systems still to land (signage atlas, sky dome, rain, mission props — HUD is
+DOM and adds zero WebGL calls) while still failing on a structural regression such as
+losing instancing or reintroducing per-object materials. Stall and heap stay principled
+rather than measurement-derived: 16 ms is one frame at 60 Hz.
+
+Both draw-call and triangle thresholds moved **down**. No gate was loosened.
 
 ## Failed approaches
 
@@ -55,6 +85,12 @@ _No changes yet. Any change must be re-derived from measurements and recorded he
 | Per-frame steering lerp / variable timestep | Handling changed with frame rate; 30 Hz vs 120 Hz diverged ~75 m over 8 s | `stepFixed()` 120 Hz accumulator; now within 1.6 m |
 | Distance-threshold "orphan" counter in traffic | Tallied frames × cars (34,864), not distinct orphans | Counts distinct cars whose chunk is genuinely not resident |
 | Bayfront band as "within 220 m of trim west edge" | Band was mostly open water; caught only 15 footprints | Distance to real coastline geometry; 153 footprints |
+| Synchronous chunk build with the facade kit | One chunk cost 31.2 ms; the stall gate fails at 16 ms and `budgetMs` cannot help when the granularity is a whole chunk | Resumable build: append until the frame deadline, continue next frame; gate now measures the worst uninterrupted slice |
+| Per-building cost cap keyed on `floors × vertex count` | Missed the actual worst case — a four-point 737 m² tower emitting 19k trim vertices in 28.5 ms | Keyed on `floors × perimeter`, because balcony count scales with edge length not edge count |
+| Recomputing the want/unload/queue scan every `update()` | 6.8 ms per call for an answer that was identical almost every time | Rescan only when the player crosses a chunk boundary |
+| Mesh upload inside the same slice as geometry append | 9.8 ms of unbounded buffer creation tacked onto a slice that had already spent its budget | Upload is its own scheduled phase |
+| Mesh upload as one block per chunk | The whole chunk's meshes uploaded together; worst slice 13.4 ms | Split into one-mesh steps the deadline can gate; upload fell to 2.3–3.7 ms |
+| Unbounded unload loop | Crossing several chunk boundaries in one update disposed every out-of-range chunk at once — the last unbounded block | Bounded to one disposal per update, deferred through a pending map |
 | One mesh pair per street lamp (233 posts = 466 meshes) | ~70% of all draw calls at worst case; chase harness measured 325 p95, 18.8% headroom | `src/streetfurniture.js`: 3 InstancedMeshes for the whole district |
 | One `PointLight` per street lamp (233 live lights) | three.js forward-renders every light per fragment and compiles materials against the light count; software rendering here could never expose it | `src/lightpool.js`: fixed pool of 10 real lights reassigned to the nearest emitters, with hysteresis |
 | `renderer.info.render` read directly for the budget gate | After the composite blit it describes a 1-triangle fullscreen pass — reported **1 draw call** and would have silently defeated the gate | `PostStack.stats.sceneCalls/totalCalls` snapshot taken right after the scene render |
@@ -82,6 +118,16 @@ massing acceptable elsewhere"). This is the approved plan, not an escalation.
 ## Critic rounds
 
 _None yet._
+
+## Open item for the M1 real-hardware checkpoint
+
+The stall metric sits at **9.3 ms — a WARN, 41.9% headroom to the 16 ms fail**. Its
+dominant term is a single `_dispose` measured at **8 ms**, which is WebGL buffer
+deletion. That is almost certainly a SwiftShader artifact: a real driver frees buffers
+far more cheaply. Everything else in the slice is now bounded and small (scan 1.1 ms,
+upload 2.3–3.7 ms). **This is the first thing to re-measure on real hardware at M1.** If
+it holds at ~8 ms there, chunk disposal needs a different strategy (geometry pooling);
+if it collapses, the stall metric should comfortably clear the warn threshold.
 
 ## Risk 5 chase harness — running from week one
 

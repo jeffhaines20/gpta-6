@@ -36,10 +36,17 @@ export class StreamingWorld {
     this.queue = [];
     this.job = null;
     this._want = null;
+    this._pendingUnload = new Map();
+    // One chunk per update. Measured under the chase harness, a single _dispose is
+    // ~8 ms and is now the dominant term in the stall budget. That is almost
+    // certainly a SwiftShader artifact - it is GL buffer deletion, which a real
+    // driver does far more cheaply - so it is flagged for the real-hardware
+    // checkpoint rather than engineered around any further.
+    this.unloadsPerUpdate = opts.unloadsPerUpdate ?? 1;
     this._lastCx = NaN; this._lastCz = NaN;
     this.stats = { loads: 0, unloads: 0, lodSwaps: 0, worstBuildMs: 0, lastBuildMs: 0,
-      queued: 0, sliceMs: 0, worstSliceMs: 0, scanMs: 0, worstScanMs: 0,
-      lastFinishMs: 0, worstFinishMs: 0, worstDisposeMs: 0 };
+      queued: 0, pendingUnload: 0, sliceMs: 0, worstSliceMs: 0, scanMs: 0, worstScanMs: 0,
+      lastFinishMs: 0, worstFinishMs: 0, worstDisposeMs: 0, worstUploadMs: 0 };
 
     // One shared registry for the whole district: N buildings share M materials,
     // and M is a number the budget gate can hold.
@@ -113,6 +120,14 @@ export class StreamingWorld {
     if (!moved && this._want) {
       const t0q = performance.now();
       this.stats.scanMs = 0;
+      let ub = this.unloadsPerUpdate;
+      for (const [key, entry] of this._pendingUnload) {
+        if (ub-- <= 0) break;
+        this._dispose(entry);
+        this.loaded.delete(key);
+        this._pendingUnload.delete(key);
+        this.stats.unloads++;
+      }
       const built = this._drainQueue(this._want, pcx, pcz, t0q);
       this.stats.sliceMs = performance.now() - t0q;
       if (this.stats.sliceMs > this.stats.worstSliceMs) this.stats.worstSliceMs = this.stats.sliceMs;
@@ -131,13 +146,19 @@ export class StreamingWorld {
       }
     }
 
-    // Unload anything outside the ring.
+    // Unload anything outside the ring, bounded. Disposal is invisible work on
+    // chunks the player has already left, so spreading it over frames costs
+    // nothing and keeps it out of the stall budget.
     for (const [key, entry] of this.loaded) {
-      if (!want.has(key)) {
-        this._dispose(entry);
-        this.loaded.delete(key);
-        this.stats.unloads++;
-      }
+      if (!want.has(key)) this._pendingUnload.set(key, entry);
+    }
+    let unloadBudget = this.unloadsPerUpdate;
+    for (const [key, entry] of this._pendingUnload) {
+      if (unloadBudget-- <= 0) break;
+      this._dispose(entry);
+      this.loaded.delete(key);
+      this._pendingUnload.delete(key);
+      this.stats.unloads++;
     }
 
     // Queue loads and LOD swaps, nearest first so the player never outruns detail.
@@ -183,9 +204,9 @@ export class StreamingWorld {
       if (!this.job.appended) {
         if (!this._stepBuild(this.job, deadline)) break;   // still appending
         this.job.appended = true;
-        break;                                             // upload next slice
+        continue;
       }
-      this._finishBuild(this.job);
+      if (!this._stepUploads(this.job, deadline)) break;   // still uploading
       this.loaded.set(this.job.key, { lod: this.job.lod, group: this.job.group });
       this.stats.lastBuildMs = this.job.ms;
       if (this.job.ms > this.stats.worstBuildMs) this.stats.worstBuildMs = this.job.ms;
@@ -338,17 +359,43 @@ export class StreamingWorld {
     return true;
   }
 
-  _finishBuild(job) {
-    const tf0 = performance.now();
-    const { chunk, lod, group } = job;
-    if (lod === LOD.NEAR) {
+  // Build the list of one-mesh upload steps. Each is small and independently
+  // gateable, which is what keeps the worst slice bounded.
+  _planUploads(job) {
+    const steps = [];
+    if (job.lod === LOD.NEAR) {
       for (const [recipe, buf] of job.byRecipe) {
-        const mesh = this._meshFromBuffers(buf, facadeMaterial(recipe, { time: this.facadeTime }), true);
-        if (mesh) group.add(mesh);
+        steps.push(() => this._meshFromBuffers(buf, facadeMaterial(recipe, { time: this.facadeTime }), true));
       }
-      const trimMesh = this._meshFromBuffers(job.trim, trimMaterial(), true);
-      if (trimMesh) group.add(trimMesh);
-    } else if (job.merged && job.merged.pos.length) {
+      steps.push(() => this._meshFromBuffers(job.trim, trimMaterial(), true));
+    } else {
+      steps.push(() => this._mergedMesh(job));
+    }
+    steps.push(() => this._roadMesh(job.chunk));
+    return steps;
+  }
+
+  _stepUploads(job, deadline) {
+    if (!job.uploads) { job.uploads = this._planUploads(job); job.up = 0; }
+    while (job.up < job.uploads.length) {
+      const t0 = performance.now();
+      const mesh = job.uploads[job.up]();
+      if (mesh) job.group.add(mesh);
+      job.up++;
+      const cost = performance.now() - t0;
+      job.ms += cost;
+      if (cost > (this.stats.worstUploadMs ?? 0)) this.stats.worstUploadMs = cost;
+      if (job.up < job.uploads.length && performance.now() >= deadline) return false;
+    }
+    job.group.name = `chunk:${job.key}:lod${job.lod}`;
+    this.root.add(job.group);
+    return true;
+  }
+
+  _mergedMesh(job) {
+    if (!job.merged || !job.merged.pos.length) return null;
+    const { lod } = job;
+    {
       const m = job.merged;
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(m.pos, 3));
@@ -358,10 +405,11 @@ export class StreamingWorld {
       geo.setAttribute('color', new THREE.Float32BufferAttribute(m.col, 3));
       geo.setIndex(m.idx);
       geo.computeBoundingSphere();
-      group.add(new THREE.Mesh(geo, this.materials.building[lod]));
+      return new THREE.Mesh(geo, this.materials.building[lod]);
     }
+  }
 
-    // Roads are cheap and always finish in one slice.
+  _roadMesh(chunk) {
     if (chunk.edges.length) {
       const pos = [], nrm = [], uv = [], idx = [];
       for (const ei of chunk.edges) {
@@ -379,14 +427,9 @@ export class StreamingWorld {
       geo.computeBoundingSphere();
       const mesh = new THREE.Mesh(geo, this.materials.markings ?? this.materials.road);
       mesh.receiveShadow = true;
-      group.add(mesh);
+      return mesh;
     }
-
-    group.name = `chunk:${job.key}:lod${lod}`;
-    this.root.add(group);
-    const fm = performance.now() - tf0;
-    this.stats.lastFinishMs = fm;
-    if (fm > (this.stats.worstFinishMs ?? 0)) this.stats.worstFinishMs = fm;
+    return null;
   }
 
   _buildUnused(key, lod) {
@@ -468,6 +511,7 @@ export class StreamingWorld {
     return {
       chunksLoaded: this.loaded.size, lodNear: lods[0], lodFar: lods[1],
       meshes, triangles: Math.round(tris), ...this.stats,
+      pendingUnload: this._pendingUnload.size,
       materials: this.registry ? this.registry.report() : null,
     };
   }

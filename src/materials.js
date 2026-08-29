@@ -42,11 +42,8 @@ function mulberry32(seed) {
 }
 
 function makeCanvas(w, h = w) {
-  const __t0 = performance.now(); const __P = (globalThis.__matProf ||= {});
-  __P.canvasN = (__P.canvasN || 0) + 1;
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
-  __P.canvas = (__P.canvas || 0) + performance.now() - __t0;
   return c;
 }
 
@@ -79,7 +76,6 @@ function valueNoise(size, cells, rand) {
 }
 
 function fbm(size, cells, octaves, rand, gain = 0.5) {
-  const __t0 = performance.now(); const __P = (globalThis.__matProf ||= {});
   const out = new Float32Array(size * size);
   let amp = 1, total = 0;
   for (let o = 0; o < octaves; o++) {
@@ -88,35 +84,63 @@ function fbm(size, cells, octaves, rand, gain = 0.5) {
     total += amp; amp *= gain;
   }
   for (let i = 0; i < out.length; i++) out[i] /= total;
-  __P.fbm = (__P.fbm || 0) + performance.now() - __t0;
   return out;
 }
 
-// Blit a tileable field across a canvas. The field is emitted at (n+1)² with the
-// last row/column duplicating the first, then drawn half a lattice cell to the
-// left and up — that makes the browser's bilinear upscale land node 0 on pixel 0
-// and node n on pixel size, so the blown-up noise wraps exactly.
+// Blend a tileable field across a canvas, in pixel space.
+//
+// The first version upscaled a small noise canvas with drawImage. It looked
+// right and it cost the project 1.4 s of load time. Measured here: ONE
+// drawImage onto a 2D canvas makes every subsequent path fill on that canvas
+// 10-20x slower (43 ms of arc fills became 793 ms); getImageData and
+// putImageData have no such effect. So nothing in this file composites through
+// drawImage — the upsample and the blend are a single loop over the pixels.
+//
+// The lattice index wraps and pixel 0 lands exactly on node 0, so the blown-up
+// field tiles with no seam.
+const BLEND = { 'source-over': 0, multiply: 1, overlay: 2 };
+
 function drawField(g, size, n, field, colorAt, alpha = 1, composite = 'source-over') {
-  const __t0 = performance.now(); const __P = (globalThis.__matProf ||= {});
-  const src = makeCanvas(n + 1);
-  const sg = src.getContext('2d');
-  const img = sg.createImageData(n + 1, n + 1);
-  for (let y = 0; y <= n; y++) {
-    for (let x = 0; x <= n; x++) {
-      const v = field[(y % n) * n + (x % n)];
-      const i = (y * (n + 1) + x) * 4;
-      colorAt(v, img.data, i);
+  const mode = BLEND[composite];
+  const img = g.getImageData(0, 0, size, size);
+  const d = img.data;
+
+  // 256-entry colour LUT: colorAt is a closure, and calling it a quarter of a
+  // million times costs more than the quantisation it saves.
+  const lut = new Uint8ClampedArray(256 * 4);
+  for (let i = 0; i < 256; i++) colorAt(i / 255, lut, i * 4);
+
+  const i0 = new Int32Array(size), i1 = new Int32Array(size), w = new Float32Array(size);
+  const step = n / size;
+  for (let x = 0; x < size; x++) {
+    const f = x * step, a = Math.floor(f);
+    i0[x] = ((a % n) + n) % n;
+    i1[x] = (i0[x] + 1) % n;
+    w[x] = f - a;
+  }
+  for (let y = 0; y < size; y++) {
+    const r0 = i0[y] * n, r1 = i1[y] * n, wy = w[y];
+    let p = y * size * 4;
+    for (let x = 0; x < size; x++, p += 4) {
+      const a = i0[x], b = i1[x], wx = w[x];
+      const top = field[r0 + a] + (field[r0 + b] - field[r0 + a]) * wx;
+      const bot = field[r1 + a] + (field[r1 + b] - field[r1 + a]) * wx;
+      const li = (((top + (bot - top) * wy) * 255) & 255) * 4;
+      const s0 = lut[li], s1 = lut[li + 1], s2 = lut[li + 2];
+      const b0 = d[p], b1 = d[p + 1], b2 = d[p + 2];
+      let v0, v1, v2;
+      if (mode === 1) { v0 = b0 * s0 / 255; v1 = b1 * s1 / 255; v2 = b2 * s2 / 255; }
+      else if (mode === 2) {
+        v0 = b0 < 128 ? 2 * b0 * s0 / 255 : 255 - 2 * (255 - b0) * (255 - s0) / 255;
+        v1 = b1 < 128 ? 2 * b1 * s1 / 255 : 255 - 2 * (255 - b1) * (255 - s1) / 255;
+        v2 = b2 < 128 ? 2 * b2 * s2 / 255 : 255 - 2 * (255 - b2) * (255 - s2) / 255;
+      } else { v0 = s0; v1 = s1; v2 = s2; }
+      d[p] = b0 + (v0 - b0) * alpha;
+      d[p + 1] = b1 + (v1 - b1) * alpha;
+      d[p + 2] = b2 + (v2 - b2) * alpha;
     }
   }
-  sg.putImageData(img, 0, 0);
-  const s = (size * (n + 1)) / n, off = -0.5 * (size / n);
-  g.save();
-  g.globalAlpha = alpha;
-  g.globalCompositeOperation = composite;
-  g.drawImage(src, off, off, s, s);
-  g.restore();
-  __P.drawField = (__P.drawField || 0) + performance.now() - __t0;
-  __P.drawFieldN = (__P.drawFieldN || 0) + 1;
+  g.putImageData(img, 0, 0);
 }
 
 const greyField = (lo, hi) => (v, d, i) => {
@@ -154,36 +178,28 @@ function seamlessStroke(g, size, axis, base, wobble, steps, rand) {
   g.stroke();
 }
 
-// Scattered grain, written straight into a pixel buffer and composited once.
-// Issuing thousands of 2 px fillRects costs hundreds of milliseconds because
-// every canvas call carries its own state and blend setup; this is the same
-// picture roughly fifty times cheaper, and the modulo wrap tiles for free.
-// `colorAt(t, out)` fills out with r,g,b in 0..255 and alpha in 0..1.
+// Scattered grain, blended straight into the pixel buffer. `colorAt(t, out)`
+// fills out with r,g,b in 0..255 and alpha in 0..1; the modulo wrap tiles it.
 function speckle(g, size, count, rand, colorAt, maxR = 2.4) {
-  const __t0 = performance.now(); const __P = (globalThis.__matProf ||= {});
-  const c = makeCanvas(size);
-  const sg = c.getContext('2d');
-  const img = sg.createImageData(size, size);
+  const img = g.getImageData(0, 0, size, size);
   const d = img.data;
-  const rgba = [0, 0, 0, 0];
+  const c = [0, 0, 0, 0];
   for (let i = 0; i < count; i++) {
-    colorAt(rand(), rgba);
-    const a = rgba[3] * 255;
+    colorAt(rand(), c);
+    const a = c[3];
     const w = 1 + ((rand() * maxR) | 0);
     const x0 = (rand() * size) | 0, y0 = (rand() * size) | 0;
     for (let dy = 0; dy < w; dy++) {
       const row = ((y0 + dy) % size) * size;
       for (let dx = 0; dx < w; dx++) {
-        const q = (row + ((x0 + dx) % size)) * 4;
-        if (d[q + 3] > a) continue;
-        d[q] = rgba[0]; d[q + 1] = rgba[1]; d[q + 2] = rgba[2]; d[q + 3] = a;
+        const p = (row + ((x0 + dx) % size)) * 4;
+        d[p] += (c[0] - d[p]) * a;
+        d[p + 1] += (c[1] - d[p + 1]) * a;
+        d[p + 2] += (c[2] - d[p + 2]) * a;
       }
     }
   }
-  sg.putImageData(img, 0, 0);
-  g.drawImage(c, 0, 0);
-  __P.speckle = (__P.speckle || 0) + performance.now() - __t0;
-  __P.speckleN = (__P.speckleN || 0) + 1;
+  g.putImageData(img, 0, 0);
 }
 
 // Add a disc to the current path, plus whatever wrapped copies it needs, so a
@@ -201,7 +217,6 @@ function arcWrapped(g, size, x, y, r) {
 // image and CanvasTexture flips Y, so increasing the array row index is
 // decreasing v, and the sign of the y gradient flips out of that.
 function sobelNormalRough(height, rough, size, strength) {
-  const __t0 = performance.now(); const __P = (globalThis.__matProf ||= {});
   const px = new Uint8ClampedArray(size * size * 4);
   for (let y = 0; y < size; y++) {
     const ym = ((y + size - 1) % size) * size, yc = y * size, yp = ((y + 1) % size) * size;
@@ -220,7 +235,6 @@ function sobelNormalRough(height, rough, size, strength) {
       px[i + 3] = rough ? rough[yc + x] * 255 : 255;
     }
   }
-  __P.sobel = (__P.sobel || 0) + performance.now() - __t0;
   return px;
 }
 
@@ -247,11 +261,11 @@ function hsl(h, s, l, a = 1) { return `hsla(${h},${s}%,${l}%,${a})`; }
 const asphaltSurface = {
   tile: 3, albedo: 512, detail: 256, normalStrength: 1.4,
   paintAlbedo(g, S, rand) {
-    g.fillStyle = '#43464b'; g.fillRect(0, 0, S, S);
-    drawField(g, S, 32, fbm(32, 4, 3, rand), greyField(0.25, 0.75), 0.30, 'overlay');
+    g.fillStyle = '#54575d'; g.fillRect(0, 0, S, S);
+    drawField(g, S, 32, fbm(32, 4, 3, rand), greyField(0.34, 0.82), 0.30, 'overlay');
     // Aggregate. Real asphalt reads as thousands of 1-2 cm stones in a dark binder.
     speckle(g, S, 9000, rand, (r, o) => {
-      const v = 52 + r * 92;
+      const v = 62 + r * 96;
       o[0] = v; o[1] = v + 2; o[2] = v + 6; o[3] = 0.20 + r * 0.45;
     }, 2.6);
     speckle(g, S, 900, rand, (r, o) => {
@@ -418,12 +432,12 @@ const concreteSurface = {
 const parkingSurface = {
   // 10.8 m tile: four 2.7 m bays across, two 5.4 m rows back to back. Integer
   // bays on both axes is what lets a painted lot tile at all.
-  tile: 10.8, albedo: 512, detail: 256, normalStrength: 1.0,
+  tile: 10.8, albedo: 512, detail: 160, normalStrength: 1.0,
   paintAlbedo(g, S, rand) {
-    g.fillStyle = '#474a4f'; g.fillRect(0, 0, S, S);
-    drawField(g, S, 24, fbm(24, 3, 3, rand), greyField(0.28, 0.72), 0.34, 'overlay');
+    g.fillStyle = '#585b61'; g.fillRect(0, 0, S, S);
+    drawField(g, S, 24, fbm(24, 3, 3, rand), greyField(0.36, 0.80), 0.34, 'overlay');
     speckle(g, S, 6000, rand, (r, o) => {
-      const v = 56 + r * 80;
+      const v = 66 + r * 86;
       o[0] = v; o[1] = v + 2; o[2] = v + 6; o[3] = 0.16 + r * 0.34;
     }, 2.0);
     for (let i = 0; i < 10; i++) {
@@ -443,7 +457,7 @@ const parkingSurface = {
     }
     g.beginPath(); g.moveTo(0, S / 2); g.lineTo(S, S / 2); g.stroke();
     // Worn paint: scrub some of it back out with the asphalt colour.
-    speckle(g, S, 2400, rand, (r, o) => { o[0] = 71; o[1] = 74; o[2] = 79; o[3] = 0.55; }, 3.4);
+    speckle(g, S, 2400, rand, (r, o) => { o[0] = 88; o[1] = 91; o[2] = 97; o[3] = 0.55; }, 3.4);
   },
   paintHeight(g, S, rand) {
     g.fillStyle = '#808080'; g.fillRect(0, 0, S, S);
@@ -471,7 +485,7 @@ const parkingSurface = {
 };
 
 const grassSurface = {
-  tile: 4, albedo: 512, detail: 256, normalStrength: 1.1,
+  tile: 4, albedo: 320, detail: 160, normalStrength: 1.1,
   // St Augustine turf: coarse, blue-green, and patchy where it burns off.
   paintAlbedo(g, S, rand) {
     g.fillStyle = hsl(92, 26, 30); g.fillRect(0, 0, S, S);
@@ -512,7 +526,7 @@ const grassSurface = {
 };
 
 const dirtSurface = {
-  tile: 4, albedo: 512, detail: 256, normalStrength: 1.5,
+  tile: 4, albedo: 320, detail: 160, normalStrength: 1.5,
   paintAlbedo(g, S, rand) {
     g.fillStyle = hsl(32, 22, 40); g.fillRect(0, 0, S, S);
     drawField(g, S, 32, fbm(32, 4, 4, rand), (v, d, i) => {
@@ -549,7 +563,7 @@ const dirtSurface = {
 };
 
 const sandSurface = {
-  tile: 6, albedo: 512, detail: 256, normalStrength: 1.0,
+  tile: 6, albedo: 320, detail: 160, normalStrength: 1.0,
   paintAlbedo(g, S, rand) {
     g.fillStyle = hsl(42, 28, 76); g.fillRect(0, 0, S, S);
     drawField(g, S, 48, fbm(48, 6, 3, rand), greyField(0.55, 0.95), 0.45, 'overlay');
@@ -590,8 +604,9 @@ const stuccoSurface = {
   uvTile: 3, normalStrength: 1.0,
   paintAlbedo(g, S, rand) {
     g.fillStyle = '#f2eee4'; g.fillRect(0, 0, S, S);
-    drawField(g, S, 24, fbm(24, 3, 3, rand), greyField(0.62, 1.0), 0.55, 'multiply');
-    drawField(g, S, 96, fbm(96, 12, 3, rand), greyField(0.80, 1.0), 0.40, 'multiply');
+    // One field spanning trowel-scale down to sand-scale: two full-size blends
+    // cost twice as much as six octaves of noise on a 96-cell lattice.
+    drawField(g, S, 96, fbm(96, 3, 6, rand), greyField(0.58, 1.0), 0.70, 'multiply');
     speckle(g, S, 6000, rand, (r, o) => {
       o[0] = 196 + r * 50; o[1] = 190 + r * 50; o[2] = 178 + r * 50; o[3] = 0.06 + r * 0.14;
     }, 1.6);
@@ -628,7 +643,6 @@ const brickSurface = {
   paintAlbedo(g, S, rand) {
     const cols = 10, rows = 32, bw = S / cols, bh = S / rows, m = Math.max(1.6, S / 240);
     g.fillStyle = '#b8b2a6'; g.fillRect(0, 0, S, S);      // mortar
-    drawField(g, S, 64, fbm(64, 8, 2, rand), greyField(0.7, 1.0), 0.4, 'multiply');
     for (let r = 0; r < rows; r++) {
       const off = (r % 2) * bw * 0.5;
       for (let c = -1; c < cols; c++) {
@@ -641,7 +655,7 @@ const brickSurface = {
         }
       }
     }
-    drawField(g, S, 32, fbm(32, 4, 3, rand), greyField(0.72, 1.0), 0.34, 'multiply');
+    drawField(g, S, 64, fbm(64, 4, 4, rand), greyField(0.68, 1.0), 0.42, 'multiply');
     speckle(g, S, 4000, rand, (r, o) => {
       o[0] = 190 + r * 60; o[1] = 186 + r * 58; o[2] = 176 + r * 54; o[3] = 0.05 + r * 0.14;
     }, 1.4);
@@ -744,20 +758,20 @@ const panelSurface = {
 // Terracotta rainscreen: 30 cm clay planks with open shadow joints. Reads very
 // differently from brick at range because the joints are dark, not pale.
 const terracottaSurface = {
-  uvTile: 3, normalStrength: 2.6,
+  uvTile: 3, normalStrength: 2.2,
   paintAlbedo(g, S, rand) {
     const rows = 10, rh = S / rows, gap = Math.max(2.5, S / 170);
-    g.fillStyle = '#3a2a20'; g.fillRect(0, 0, S, S);      // shadow behind the joint
+    g.fillStyle = '#3f3833'; g.fillRect(0, 0, S, S);      // shadow behind the joint
     for (let r = 0; r < rows; r++) {
       const y = r * rh;
-      const h = 20 + (rand() - 0.5) * 6, l = 62 + (rand() - 0.5) * 12;
+      const h = 24 + (rand() - 0.5) * 8, l = 74 + (rand() - 0.5) * 10;
       const grd = g.createLinearGradient(0, y, 0, y + rh - gap);
-      grd.addColorStop(0, hsl(h, 34, l + 6));
-      grd.addColorStop(0.75, hsl(h, 32, l));
-      grd.addColorStop(1, hsl(h, 30, l - 10));
+      grd.addColorStop(0, hsl(h, 11, l + 5));
+      grd.addColorStop(0.75, hsl(h, 10, l));
+      grd.addColorStop(1, hsl(h, 9, l - 9));
       g.fillStyle = grd;
       g.fillRect(0, y, S, rh - gap);
-      g.fillStyle = `rgba(255,236,214,${0.10 + rand() * 0.08})`;   // top arris
+      g.fillStyle = `rgba(255,248,240,${0.10 + rand() * 0.08})`;   // top arris
       g.fillRect(0, y, S, 2);
     }
     drawField(g, S, 48, fbm(48, 6, 3, rand), greyField(0.7, 1.0), 0.35, 'multiply');
@@ -886,29 +900,29 @@ const membraneSurface = {
 
 // Barrel tile: 15 pans across a 3 m repeat, staggered courses, lichen in the valleys.
 const roofTileSurface = {
-  uvTile: 0.75, normalStrength: 2.8,
+  uvTile: 0.75, normalStrength: 2.0,
   paintAlbedo(g, S, rand) {
     const cols = 15, rows = 7, cw = S / cols, rh = S / rows;
-    g.fillStyle = '#8a4a2c'; g.fillRect(0, 0, S, S);
+    g.fillStyle = '#8f827a'; g.fillRect(0, 0, S, S);
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const x = c * cw, y = r * rh;
-        const h = 16 + (rand() - 0.5) * 12, l = 44 + (rand() - 0.5) * 16;
+        const h = 20 + (rand() - 0.5) * 12, l = 60 + (rand() - 0.5) * 12;
         const grd = g.createLinearGradient(x, 0, x + cw, 0);
-        grd.addColorStop(0, hsl(h, 40, l - 14));
-        grd.addColorStop(0.35, hsl(h, 46, l + 12));
-        grd.addColorStop(0.75, hsl(h, 44, l));
-        grd.addColorStop(1, hsl(h, 38, l - 20));
+        grd.addColorStop(0, hsl(h, 12, l - 16));
+        grd.addColorStop(0.35, hsl(h, 15, l + 12));
+        grd.addColorStop(0.75, hsl(h, 14, l));
+        grd.addColorStop(1, hsl(h, 11, l - 22));
         g.fillStyle = grd;
         g.fillRect(x, y, cw, rh);
-        g.fillStyle = 'rgba(30,16,10,0.5)';                // course shadow line
+        g.fillStyle = 'rgba(44,36,30,0.45)';               // course shadow line
         g.fillRect(x, y, cw, Math.max(2, rh * 0.07));
       }
     }
     for (let i = 0; i < 26; i++) {                         // lichen
       const x = rand() * S, y = rand() * S, r = 3 + rand() * 12;
       wrapped(g, S, x, y, r + 1, (c) => {
-        c.fillStyle = `rgba(${140 + rand() * 50},${146 + rand() * 40},${112 + rand() * 40},${0.15 + rand() * 0.28})`;
+        c.fillStyle = `rgba(${168 + rand() * 40},${172 + rand() * 34},${146 + rand() * 34},${0.15 + rand() * 0.24})`;
         c.beginPath(); c.ellipse(0, 0, r, r * 0.7, rand() * TAU, 0, TAU); c.fill();
       });
     }
@@ -971,6 +985,8 @@ const gravelRoofSurface = {
 
 // Order is the texture-array layer order and is part of the public contract:
 // a merged chunk geometry writes these indices into its `aLayer` attribute.
+export const __BENCH = { SURFACE_SET: () => SURFACE_SET, drawField, fbm, mulberry32, makeCanvas, arcWrapped, speckle, greyField };
+
 export const SURFACE_LAYERS = [
   'stucco', 'brick', 'panel', 'terracotta', 'block',
   'roofMembrane', 'roofTile', 'roofGravel',
@@ -1028,7 +1044,7 @@ const YELLOW = 'rgba(232,186,58,';
 function paintMarkingAtlas(rand) {
   const W = MARKING_COLUMNS * MARKING_COL_PX, H = MARKING_H_PX;
   const c = makeCanvas(W, H);
-  const g = c.getContext('2d');
+  const g = c.getContext('2d', { willReadFrequently: true });
   g.clearRect(0, 0, W, H);
 
   // Paint is never crisp on a real street: scrub it with the wear mask so the
@@ -1036,10 +1052,12 @@ function paintMarkingAtlas(rand) {
   const wear = (x0, w) => {
     g.save();
     g.globalCompositeOperation = 'destination-out';
-    for (let i = 0; i < 900; i++) {
-      const x = x0 + rand() * w, y = rand() * H, r = 1 + rand() * 4;
-      g.fillStyle = `rgba(0,0,0,${0.15 + rand() * 0.5})`;
-      g.fillRect(x, y, r, r * (0.6 + rand()));
+    for (let b = 0; b < 8; b++) {
+      g.fillStyle = `rgba(0,0,0,${0.15 + (b / 8) * 0.5})`;
+      for (let i = 0; i < 90; i++) {
+        const r = 1 + rand() * 4;
+        g.fillRect(x0 + rand() * w, rand() * H, r, r * (0.6 + rand()));
+      }
     }
     g.restore();
   };
@@ -1370,11 +1388,15 @@ function applyWater(material, time) {
   vec3 wave1 = texture2D( normalMap, vWorldXZ * 0.055 + vec2( 0.013, 0.009 ) * uTime ).xyz * 2.0 - 1.0;
   vec3 wave2 = texture2D( normalMap, vWorldXZ * 0.017 - vec2( 0.007, 0.011 ) * uTime ).xyz * 2.0 - 1.0;
   vec3 mapN = normalize( vec3( wave1.xy * normalScale + wave2.xy * normalScale * 0.75, 1.0 ) );
-  mat3 veranoTbn = mat3(
-    normalize( ( viewMatrix * vec4( 1.0, 0.0, 0.0, 0.0 ) ).xyz ),
-    normalize( ( viewMatrix * vec4( 0.0, 0.0, 1.0, 0.0 ) ).xyz ),
-    normalize( ( viewMatrix * vec4( 0.0, 1.0, 0.0, 0.0 ) ).xyz ) );
-  normal = normalize( veranoTbn * mapN );`);
+  // Tangent frame from the surface normal itself rather than from screen-space
+  // derivatives of the UV: the UV is being animated, and a 1 km water plane's
+  // mesh UV derivatives underflow anyway.
+  vec3 waterN = normalize( ( vec4( nonPerturbedNormal, 0.0 ) * viewMatrix ).xyz );
+  vec3 waterT = normalize( cross(
+    abs( waterN.y ) > 0.99 ? vec3( 0.0, 0.0, 1.0 ) : vec3( 0.0, 1.0, 0.0 ), waterN ) );
+  vec3 waterB = cross( waterN, waterT );
+  vec3 waterWorld = normalize( waterT * mapN.x + waterB * mapN.y + waterN * mapN.z );
+  normal = normalize( ( viewMatrix * vec4( waterWorld, 0.0 ) ).xyz );`);
   });
 }
 
@@ -1434,7 +1456,8 @@ export class MaterialRegistry {
     const seed = this.seed + hashName(name);
     const A = surface.albedo, D = surface.detail;
     const albedoCanvas = makeCanvas(A);
-    surface.paintAlbedo(albedoCanvas.getContext('2d'), A, mulberry32(seed));
+    surface.paintAlbedo(
+      albedoCanvas.getContext('2d', { willReadFrequently: true }), A, mulberry32(seed));
     const albedo = new THREE.CanvasTexture(albedoCanvas);
     albedo.wrapS = albedo.wrapT = THREE.RepeatWrapping;
     albedo.colorSpace = THREE.SRGBColorSpace;
@@ -1546,25 +1569,18 @@ export class MaterialRegistry {
       const seed = this.seed + hashName(name);
       scales[i] = 1 / s.uvTile;
 
-      let _t = performance.now();
       const ac = makeCanvas(A);
       s.paintAlbedo(ac.getContext('2d', { willReadFrequently: true }), A, mulberry32(seed));
-      const _tp = performance.now() - _t; _t = performance.now();
-      const ad = ac.getContext('2d').getImageData(0, 0, A, A).data;
-      copyFlipped(ad, albedoData, i * A * A * 4, A, A);
-      const _tr = performance.now() - _t; _t = performance.now();
+      copyFlipped(ac.getContext('2d').getImageData(0, 0, A, A).data,
+        albedoData, i * A * A * 4, A, A);
 
       const hc = makeCanvas(D);
       s.paintHeight(hc.getContext('2d', { willReadFrequently: true }), D, mulberry32(seed));
       const rc = makeCanvas(D);
       s.paintRough(rc.getContext('2d', { willReadFrequently: true }), D, mulberry32(seed));
-      const _th = performance.now() - _t; _t = performance.now();
       const px = sobelNormalRough(
         luminanceField(hc, D), luminanceField(rc, D), D, s.normalStrength * D * 0.02);
       copyFlipped(px, normalData, i * D * D * 4, D, D);
-      const _ts = performance.now() - _t;
-      (this.timings.detail || (this.timings.detail = {}))[name] =
-        `paint ${_tp.toFixed(0)} read ${_tr.toFixed(0)} hr ${_th.toFixed(0)} sobel ${_ts.toFixed(0)}`;
     }
 
     const albedo = new THREE.DataArrayTexture(albedoData, A, A, n);
@@ -1670,7 +1686,7 @@ export class MaterialRegistry {
     grime.repeat.set(0.5, 0.5);
 
     // Two glazing options on purpose. `glassTinted` is opaque and therefore
-    // mergeable and sortable-free; use it for anything that ships in a chunk.
+    // mergeable and free of sorting; use it for anything that ships in a chunk.
     const storefront = new THREE.MeshStandardMaterial({
       color: 0xa9c2bd, normalMap: grime, normalScale: new THREE.Vector2(0.35, 0.35),
       roughness: 1, metalness: 0.02, transparent: true, opacity: 0.32,
@@ -1679,15 +1695,18 @@ export class MaterialRegistry {
     applyPackedRoughness(storefront);
     this._put('glassStorefront', storefront);
 
+    // Reflective-coated curtain wall. A pure dielectric reflects 4% head-on and
+    // reads as a black hole in daylight; the metallic term stands in for the
+    // coating, which is what makes a tower's glazing a mirror of the sky.
     const tinted = new THREE.MeshStandardMaterial({
-      color: 0x1d262b, normalMap: grime, normalScale: new THREE.Vector2(0.35, 0.35),
-      roughness: 1, metalness: 0.12, envMapIntensity: 2.4,
+      color: 0x54646e, normalMap: grime, normalScale: new THREE.Vector2(0.35, 0.35),
+      roughness: 1, metalness: 0.62, envMapIntensity: 2.2,
     });
     applyPackedRoughness(tinted);
     this._put('glassTinted', tinted);
 
     const mc = makeCanvas(D);
-    const mg = mc.getContext('2d');
+    const mg = mc.getContext('2d', { willReadFrequently: true });
     mg.fillStyle = '#c8c8c8'; mg.fillRect(0, 0, D, D);
     drawField(mg, D, 32, fbm(32, 4, 3, rand), greyField(0.72, 1.0), 0.5, 'multiply');
     speckle(mg, D, 900, rand, (r, o) => {
@@ -1699,14 +1718,18 @@ export class MaterialRegistry {
     metalAlbedo.repeat.set(2, 2);
     this._track(metalAlbedo, D, D);
 
+    // Paint is a dielectric, so painted steel is NOT metallic: giving it
+    // metalness with a dark colour drops F0 to nothing and the lamp posts
+    // render as black cutouts in full sun. Only bare metal is metallic, and
+    // bare metal needs a bright colour because that colour IS its F0.
     this._put('metalPainted', new THREE.MeshStandardMaterial({
-      map: metalAlbedo, color: 0x2c3a34, roughness: 0.42, metalness: 0.55, envMapIntensity: 1.2,
+      map: metalAlbedo, color: 0x33423b, roughness: 0.38, metalness: 0.0, envMapIntensity: 1.0,
     }));
     this._put('metalGalvanised', new THREE.MeshStandardMaterial({
-      map: metalAlbedo, color: 0x9aa0a2, roughness: 0.52, metalness: 0.9, envMapIntensity: 1.2,
+      map: metalAlbedo, color: 0xc6cacc, roughness: 0.44, metalness: 1.0, envMapIntensity: 1.2,
     }));
     this._put('metalAnodised', new THREE.MeshStandardMaterial({
-      map: metalAlbedo, color: 0x6e7276, roughness: 0.28, metalness: 0.92, envMapIntensity: 1.4,
+      map: metalAlbedo, color: 0xa8adb2, roughness: 0.26, metalness: 1.0, envMapIntensity: 1.3,
     }));
   }
 

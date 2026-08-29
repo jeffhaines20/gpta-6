@@ -1,14 +1,14 @@
 {
  "camera": {
   "pos": [
-   19.07,
-   9.5,
-   -6.33
+   -4.411431907126392,
+   5.2,
+   6.114772219329165
   ],
   "tgt": [
-   422.84297026898486,
-   6,
-   -121.94742290918586
+   307.4792644778463,
+   14,
+   -88.91387350656133
   ],
   "from": {
    "name": "Marlin St @ Tarpon Row",
@@ -31,39 +31,39 @@
    "litLamps": 0,
    "lampCandela": 0,
    "exposure": "1/78000",
-   "toneMapping": "ACESFilmic",
-   "lights": 235,
-   "shadowCasters": 256,
-   "drawCalls": 195,
-   "triangles": 7786,
+   "toneMapping": "ACESFilmic (post composite)",
+   "lights": 12,
+   "shadowCasters": 65,
+   "drawCalls": 97,
+   "triangles": 33772,
    "implausible": []
   },
   {
    "tod": "dusk",
    "sunLux": 1200,
    "skyLux": 900,
-   "litLamps": 233,
+   "litLamps": 7,
    "lampCandela": 900,
    "exposure": "1/330",
-   "toneMapping": "ACESFilmic",
-   "lights": 235,
-   "shadowCasters": 256,
-   "drawCalls": 195,
-   "triangles": 7786,
+   "toneMapping": "ACESFilmic (post composite)",
+   "lights": 12,
+   "shadowCasters": 65,
+   "drawCalls": 97,
+   "triangles": 33772,
    "implausible": []
   },
   {
    "tod": "night",
    "sunLux": 0.6,
    "skyLux": 3.5,
-   "litLamps": 233,
+   "litLamps": 7,
    "lampCandela": 900,
    "exposure": "1/2",
-   "toneMapping": "ACESFilmic",
-   "lights": 235,
-   "shadowCasters": 256,
-   "drawCalls": 195,
-   "triangles": 7786,
+   "toneMapping": "ACESFilmic (post composite)",
+   "lights": 12,
+   "shadowCasters": 65,
+   "drawCalls": 97,
+   "triangles": 33772,
    "implausible": []
   }
  ],

@@ -326,6 +326,8 @@ export const RECIPES = {
 
 export const RECIPE_NAMES = Object.keys(RECIPES);
 export const TIMES = ['noon', 'dusk', 'night'];
+// The hours that actually carry lit windows; see facadeMaps.
+export const LIT_TIMES = ['dusk', 'night'];
 
 // Emissive intensity per time of day, multiplied by a recipe's `interior`.
 // These are not free parameters: they are set against daynight.js exposures
@@ -1147,12 +1149,16 @@ function toTexture(c, { srgb = false, repeatU = 1, repeatV = 1 } = {}) {
  */
 export function facadeMaps(name) {
   return memo(`facade:${name}`, () => {
-    const p = buildPanel(name);
+    const p = buildPanel(name, { times: LIT_TIMES });
     const rec = p.recipe;
     const tileU = rec.tileU, tileV = rec.floors * rec.floorM;
     const ru = 1 / tileU, rv = 1 / tileV;
+    // Only dusk and night get an emissive map. EMISSIVE_INTENSITY.noon is 0 —
+    // at 1/78000 s a lit window is invisible anyway — so a noon variant would be
+    // 7 more megabytes of VRAM that never reaches a pixel. setFacadeTime falls
+    // back to the night map and zeroes the intensity.
     const emissive = {};
-    for (const t of TIMES) {
+    for (const t of LIT_TIMES) {
       emissive[t] = toTexture(p.emissive[t], { srgb: true, repeatU: ru, repeatV: rv });
     }
     return {

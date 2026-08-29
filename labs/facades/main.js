@@ -152,7 +152,7 @@ function groundPlane(buf, x0, x1, z0, z1, y, cell, step) {
 }
 const X0 = -80, X1 = rowLength + 80;
 groundPlane(envBuf, X0, X1, -60, 7.4, -0.02, TRIM.concrete, 5);      // sidewalk
-groundPlane(envBuf, X0, X1, 7.4, 46, -0.14, TRIM.asphalt, 6);        // carriageway
+groundPlane(envBuf, X0, X1, 7.4, 240, -0.14, TRIM.asphalt, 8);       // carriageway
 const kerbArgs = { cell: TRIM.concrete, col: envBuf.col, tint: [1, 1, 1] };
 box((X0 + X1) / 2, -0.07, 7.4, X1 - X0, 0.16, 0.34,
   envBuf.pos, envBuf.nrm, envBuf.uv, envBuf.idx, kerbArgs);

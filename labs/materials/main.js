@@ -64,10 +64,10 @@ function skyEquirect(p, w = 512) {
       const dx = -Math.cos(phi) * c, dz = Math.sin(phi) * c;
       let r, g, b;
       if (dy >= 0) {
-        const horizon = Math.pow(1 - dy, 3.0);          // brighter towards the rim
-        const k = skyRad * (0.62 + 0.55 * horizon);
-        r = skyC.r * k * (1 + horizon * 0.55);
-        g = skyC.g * k * (1 + horizon * 0.35);
+        const horizon = Math.pow(1 - dy, 2.4);          // brighter towards the rim
+        const k = skyRad * (0.85 + 1.5 * horizon);
+        r = skyC.r * k * (1 + horizon * 0.5);
+        g = skyC.g * k * (1 + horizon * 0.3);
         b = skyC.b * k;
       } else {
         const k = grdRad * (1 - Math.min(1, -dy * 0.7));
@@ -130,7 +130,7 @@ for (const [k, l] of [
 const mergedMat = registry.buildingMerged();
 
 // ---------------------------------------------------------------- grid
-const PAD = 4.2, PITCH = 5.0, COLS = 7;
+const PAD = 3.9, PITCH = 4.55, COLS = 8;
 const gridRoot = new THREE.Group();
 scene.add(gridRoot);
 
@@ -147,15 +147,30 @@ function padGeometry(size, uvScale = 1) {
   return g;
 }
 const padGeo = padGeometry(PAD);
-const sphereGeo = new THREE.SphereGeometry(0.95, 40, 28);
-// Wall/roof materials read `uv` in metres; a sphere's 0..1 UV would show a
-// single stretched texel, so the showcase sphere is re-UVed to metres too.
-const sphereMeshUv = sphereGeo.clone();
-{
-  const uv = sphereMeshUv.attributes.uv;
-  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 6, uv.getY(i) * 3);
+const roadPadGeo = (() => {
+  const g = padGeometry(PAD);
+  const uv = g.attributes.uv;
+  const pos = g.attributes.position;
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, pos.getX(i) / PAD + 0.5, pos.getZ(i) / 8);   // u across, v in 8 m units
+  }
+  applyMarkingUV(uv.array, 0, uv.count, MARKINGS.lane2, { vRepeat: 1 });
   uv.needsUpdate = true;
+  return g;
+})();
+// Roof layers are authored for the UV extrudeFootprint gives a roof (world x
+// 0.25), so their pads and spheres carry the same 0.25 or they tile 4x too fine.
+const padGeoRoof = padGeometry(PAD, 0.25);
+const sphereGeo = new THREE.SphereGeometry(0.85, 40, 28);
+function sphereWithMetreUv(k) {
+  const g = sphereGeo.clone();
+  const uv = g.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 5.3 * k, uv.getY(i) * 2.7 * k);
+  uv.needsUpdate = true;
+  return g;
 }
+const sphereMeshUv = sphereWithMetreUv(1);
+const sphereRoofUv = sphereWithMetreUv(0.25);
 
 const rows = Math.ceil((cells.length + 1) / COLS);
 const gridW = (COLS - 1) * PITCH, gridD = (rows - 1) * PITCH;
@@ -169,9 +184,9 @@ gridRoot.add(deck);
 
 const labelLayer = document.getElementById('labels');
 const labels = [];
-function addLabel(text, anchor, dim = false) {
+function addLabel(text, anchor, dim = false, below = false) {
   const el = document.createElement('div');
-  el.className = 'lbl' + (dim ? ' dim' : '');
+  el.className = 'lbl' + (dim ? ' dim' : '') + (below ? ' below' : '');
   el.textContent = text;
   labelLayer.appendChild(el);
   labels.push({ el, anchor });
@@ -182,18 +197,23 @@ cells.forEach((cell, i) => {
   const cz = Math.floor(i / COLS) * PITCH - gridD / 2;
   const planar = cell.group === 'ground';
 
-  const pad = new THREE.Mesh(padGeo, cell.mat);
+  const roof = cell.group === 'roof';
+  const pad = new THREE.Mesh(
+    cell.key === 'road' ? roadPadGeo : roof ? padGeoRoof : padGeo, cell.mat);
   pad.position.set(cx, 0.01, cz);
   pad.receiveShadow = true;
   gridRoot.add(pad);
 
-  const ball = new THREE.Mesh(planar ? sphereGeo : sphereMeshUv, cell.mat);
-  ball.position.set(cx, 1.25, cz);
+  const ball = new THREE.Mesh(
+    planar ? sphereGeo : roof ? sphereRoofUv : sphereMeshUv, cell.mat);
+  ball.position.set(cx, 1.12, cz);
   ball.castShadow = true;
   ball.receiveShadow = true;
   gridRoot.add(ball);
 
-  addLabel(cell.label, new THREE.Vector3(cx, 2.5, cz));
+  // Caption under the front edge of the pad: above the sphere would collide
+  // with the row behind at this camera angle.
+  addLabel(cell.label, new THREE.Vector3(cx, 0.05, cz + PAD / 2 + 0.25), false, true);
 });
 
 // Last cell: the merged material driving four different layers off one geometry.
@@ -230,7 +250,8 @@ cells.forEach((cell, i) => {
   const m = new THREE.Mesh(geo, mergedMat);
   m.receiveShadow = true;
   gridRoot.add(m);
-  addLabel('buildingMerged — 4 layers, 1 draw call', new THREE.Vector3(cx, 1.1, cz));
+  addLabel('buildingMerged — 4 layers, 1 draw call',
+    new THREE.Vector3(cx, 0.05, cz + PAD / 2 + 0.25), false, true);
 }
 
 // ---------------------------------------------------------------- street context
@@ -307,6 +328,11 @@ const V = (x, z) => ({ x, z });
     w.receiveShadow = true;
     street.add(w);
   }
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 160), registry.get('land'));
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(0, -0.02, 0);
+  ground.receiveShadow = true;
+  street.add(ground);
   const verge = new THREE.Mesh(new THREE.BoxGeometry(120, 0.12, 12), registry.get('grass'));
   verge.position.set(0, 0.06, -19);
   verge.receiveShadow = true;
@@ -366,10 +392,10 @@ const V = (x, z) => ({ x, z });
 // Storefront glazing and street furniture, so glass and metal have context.
 {
   const glass = new THREE.Mesh(new THREE.BoxGeometry(19, 4.2, 0.3), registry.get('glassStorefront'));
-  glass.position.set(-16, 2.2, -24.8);
+  glass.position.set(-16, 2.2, -24.6);
   street.add(glass);
   const tint = new THREE.Mesh(new THREE.BoxGeometry(23, 16, 0.3), registry.get('glassTinted'));
-  tint.position.set(14, 12, -23.3);
+  tint.position.set(14, 12, -23.2);
   street.add(tint);
   const postGeo = new THREE.CylinderGeometry(0.11, 0.13, 7, 10);
   const armGeo = new THREE.BoxGeometry(0.5, 0.18, 1.9);
@@ -417,7 +443,7 @@ const V = (x, z) => ({ x, z });
 
 // ---------------------------------------------------------------- lighting
 const tod = new TimeOfDay(scene, renderer);
-scene.environmentIntensity = 0.35;   // the hemisphere light already carries sky diffuse
+scene.environmentIntensity = 0.9;    // hemisphere light already carries some sky diffuse
 
 let todName = 'dusk';
 function setTod(name) {
@@ -431,8 +457,8 @@ function setTod(name) {
 
 // ---------------------------------------------------------------- camera
 const VIEWS = {
-  grid: { pos: [0, 17.5, 30], target: [0, 1.4, 0] },
-  road: { pos: [-26, 9.5, 176], target: [4, 2.5, 132] },
+  grid: { pos: [0, 33.5, 30], target: [0, 0.4, -1.0] },
+  road: { pos: [-30, 22, 214], target: [2, 3.5, 132] },
   atlas: { pos: [0, 6.2, 196], target: [0, 5.0, 182] },
 };
 let view = 'grid';
@@ -510,6 +536,7 @@ drag to orbit`;
 
 // ---------------------------------------------------------------- loop
 const v3 = new THREE.Vector3();
+const fwd = new THREE.Vector3();
 let last = performance.now();
 let frames = 0;
 
@@ -522,7 +549,9 @@ function frame() {
 
   for (const l of labels) {
     v3.copy(l.anchor).project(camera);
-    const on = v3.z < 1 && Math.abs(v3.x) < 1.15 && Math.abs(v3.y) < 1.15;
+    const behind = v3.copy(l.anchor).sub(camera.position).dot(camera.getWorldDirection(fwd)) <= 0;
+    v3.copy(l.anchor).project(camera);
+    const on = !behind && Math.abs(v3.x) < 1.15 && Math.abs(v3.y) < 1.15;
     l.el.style.display = on ? 'block' : 'none';
     if (on) {
       l.el.style.left = `${(v3.x * 0.5 + 0.5) * innerWidth}px`;
@@ -545,6 +574,11 @@ window.__lab = {
   get stats() {
     return {
       ...report, tod: todName, view,
+      env: scene.environment ? scene.environment.constructor.name + ':' + scene.environment.image?.width : 'NONE',
+      envIntensity: scene.environmentIntensity,
+      bg: scene.background ? scene.background.constructor.name : 'NONE',
+      floatRT: !!renderer.extensions.get('EXT_color_buffer_float'),
+      halfFloatLinear: !!renderer.extensions.get('OES_texture_float_linear'),
       drawCalls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
       programs: renderer.info.programs.length,
