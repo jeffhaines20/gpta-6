@@ -130,79 +130,79 @@ export function sidewalk() {
 
 // --- Building facade atlas. One canvas holds a whole tower's window grid:
 //     floors, mullions, spandrel panels, per-window lit/unlit state and blinds.
-export function facade(opts = {}) {
+//
+//     Albedo and emissive mask are produced in ONE pass. Deriving the mask
+//     afterwards by scanning pixels cost 2088 ms per 1024px texture (a 1M-iteration
+//     getImageData loop); drawing lit windows to a second context as we go is
+//     effectively free and cannot drift out of sync with the albedo.
+function buildFacade(opts) {
   const {
-    key = 'f0', cols = 6, rows = 8, lit = 0.35, hue = 32, sat = 8, light = 46,
+    cols = 6, rows = 8, lit = 0.35, hue = 32, sat = 8, light = 46,
     warm = '255,214,150', night = true,
   } = opts;
-  return memo('facade:' + key, () => {
-    const S = 1024, [c, g] = canvas(S);
-    const cw = S / cols, ch = S / rows;
-    g.fillStyle = `hsl(${hue},${sat}%,${light}%)`; g.fillRect(0, 0, S, S);
-    g.globalAlpha = 0.35; g.drawImage(noiseCanvas(S, 64, 1.3), 0, 0, S, S); g.globalAlpha = 1;
+  const S = 1024;
+  const [c, g] = canvas(S);      // albedo
+  const [e, eg] = canvas(S);     // emissive mask
+  const cw = S / cols, ch = S / rows;
 
-    for (let r = 0; r < rows; r++) {
-      // Spandrel band between floors.
-      g.fillStyle = `hsl(${hue},${sat}%,${light - 9}%)`;
-      g.fillRect(0, r * ch + ch * 0.74, S, ch * 0.26);
-      g.fillStyle = `rgba(255,255,255,0.05)`;
-      g.fillRect(0, r * ch + ch * 0.72, S, 2);
+  g.fillStyle = `hsl(${hue},${sat}%,${light}%)`; g.fillRect(0, 0, S, S);
+  g.globalAlpha = 0.35; g.drawImage(noiseCanvas(S, 64, 1.3), 0, 0, S, S); g.globalAlpha = 1;
+  eg.fillStyle = '#000'; eg.fillRect(0, 0, S, S);
 
-      for (let cI = 0; cI < cols; cI++) {
-        const x = cI * cw + cw * 0.16, y = r * ch + ch * 0.12;
-        const w = cw * 0.68, h = ch * 0.58;
-        const isLit = night && Math.random() < lit;
-        if (isLit) {
-          const a = 0.55 + Math.random() * 0.45;
-          const gr = g.createLinearGradient(x, y, x, y + h);
-          gr.addColorStop(0, `rgba(${warm},${a})`);
-          gr.addColorStop(1, `rgba(${warm},${a * 0.55})`);
-          g.fillStyle = gr;
-        } else {
-          const gr = g.createLinearGradient(x, y, x, y + h);
-          gr.addColorStop(0, 'rgba(96,122,145,0.92)');   // sky reflection at top
-          gr.addColorStop(0.55, 'rgba(38,50,62,0.95)');
-          gr.addColorStop(1, 'rgba(22,28,36,0.95)');
-          g.fillStyle = gr;
-        }
+  for (let r = 0; r < rows; r++) {
+    g.fillStyle = `hsl(${hue},${sat}%,${light - 9}%)`;
+    g.fillRect(0, r * ch + ch * 0.74, S, ch * 0.26);
+    g.fillStyle = 'rgba(255,255,255,0.05)';
+    g.fillRect(0, r * ch + ch * 0.72, S, 2);
+
+    for (let cI = 0; cI < cols; cI++) {
+      const x = cI * cw + cw * 0.16, y = r * ch + ch * 0.12;
+      const w = cw * 0.68, h = ch * 0.58;
+      const isLit = night && Math.random() < lit;
+
+      if (isLit) {
+        const a = 0.55 + Math.random() * 0.45;
+        const gr = g.createLinearGradient(x, y, x, y + h);
+        gr.addColorStop(0, `rgba(${warm},${a})`);
+        gr.addColorStop(1, `rgba(${warm},${a * 0.55})`);
+        g.fillStyle = gr;
         g.fillRect(x, y, w, h);
-        // Blinds / occupancy variation.
-        if (Math.random() < 0.3) {
-          g.fillStyle = 'rgba(15,18,22,0.75)';
-          g.fillRect(x, y, w, h * (0.2 + Math.random() * 0.5));
-        }
-        // Mullion + sill.
-        g.strokeStyle = `hsl(${hue},${sat}%,${light - 20}%)`; g.lineWidth = 3;
-        g.strokeRect(x, y, w, h);
-        g.fillStyle = `hsl(${hue},${sat}%,${light + 7}%)`;
-        g.fillRect(x - 2, y + h, w + 4, 4);
+        const egr = eg.createLinearGradient(x, y, x, y + h);
+        egr.addColorStop(0, `rgba(${warm},${a})`);
+        egr.addColorStop(1, `rgba(${warm},${a * 0.55})`);
+        eg.fillStyle = egr;
+        eg.fillRect(x, y, w, h);
+      } else {
+        const gr = g.createLinearGradient(x, y, x, y + h);
+        gr.addColorStop(0, 'rgba(96,122,145,0.92)');   // sky reflection at the top
+        gr.addColorStop(0.55, 'rgba(38,50,62,0.95)');
+        gr.addColorStop(1, 'rgba(22,28,36,0.95)');
+        g.fillStyle = gr;
+        g.fillRect(x, y, w, h);
       }
+
+      // Blinds / occupancy variation, masked from the emissive too so a covered
+      // window does not glow.
+      if (Math.random() < 0.3) {
+        const bh = h * (0.2 + Math.random() * 0.5);
+        g.fillStyle = 'rgba(15,18,22,0.75)';
+        g.fillRect(x, y, w, bh);
+        if (isLit) { eg.fillStyle = 'rgba(0,0,0,0.75)'; eg.fillRect(x, y, w, bh); }
+      }
+
+      g.strokeStyle = `hsl(${hue},${sat}%,${light - 20}%)`; g.lineWidth = 3;
+      g.strokeRect(x, y, w, h);
+      g.fillStyle = `hsl(${hue},${sat}%,${light + 7}%)`;
+      g.fillRect(x - 2, y + h, w + 4, 4);
     }
-    return c;
-  });
+  }
+  return { albedo: c, emissive: e };
 }
 
-// --- Emissive mask matching a facade: only the lit windows glow.
-export function facadeEmissive(opts = {}) {
-  const { key = 'f0', cols = 6, rows = 8 } = opts;
-  return memo('facadeE:' + key, () => {
-    const src = facade(opts);
-    const S = 1024, [c, g] = canvas(S);
-    g.fillStyle = '#000'; g.fillRect(0, 0, S, S);
-    // Re-read the facade and keep only warm pixels: cheap, and guarantees the
-    // emissive mask can never drift out of sync with the albedo.
-    const [tmp, tg] = canvas(S);
-    tg.drawImage(src, 0, 0);
-    const d = tg.getImageData(0, 0, S, S);
-    const o = g.getImageData(0, 0, S, S);
-    for (let i = 0; i < d.data.length; i += 4) {
-      const r = d.data[i], gg = d.data[i + 1], b = d.data[i + 2];
-      if (r > 150 && r > b + 40) { o.data[i] = r; o.data[i + 1] = gg; o.data[i + 2] = b; }
-      o.data[i + 3] = 255;
-    }
-    g.putImageData(o, 0, 0);
-    return c;
-  });
+function facadePair(opts = {}) {
+  return memo('facadePair:' + (opts.key ?? 'f0'), () => buildFacade(opts));
 }
+export function facade(opts = {}) { return facadePair(opts).albedo; }
+export function facadeEmissive(opts = {}) { return facadePair(opts).emissive; }
 
 export { tex, noiseCanvas };

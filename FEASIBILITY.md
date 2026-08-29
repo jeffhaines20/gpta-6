@@ -173,8 +173,18 @@ shadow-casting sun, and per-lamp point lights.
 
 ![Procedural street corner at dusk](docs/shots/visual-street-corner.png)
 
-**Cost:** 545 draw calls · 8,514 triangles · 14 textures · 631 geometries.
-The draw-call figure is the headline number, and it is Risk 1.
+**Cost:** 568 draw calls · 8,790 triangles · 14 textures · 633 geometries.
+The draw-call figure is the headline number, and it is Risk 1 — 568 calls for *one
+corner*, at a trivial 8.8 k triangles.
+
+**A second finding, found by profiling and then fixed.** Generating one 1024 px facade
+plus its emissive mask cost **2,219 ms**: the mask was derived by reading back a million
+pixels with `getImageData` and scanning them in JavaScript. At 20 facade variants that
+is ~44 s of startup before anything renders. Rewriting it to draw albedo and emissive in
+a single pass brought it to **143 ms** — a 15× reduction, and the emissive mask can no
+longer drift out of sync with the albedo. This is worth recording as a pattern: with
+100% procedural assets, **texture generation is a startup-time budget that has to be
+profiled like any other**, and the naive readback approach is a trap.
 
 ### Blind critic verdict
 
@@ -184,4 +194,101 @@ The draw-call figure is the headline number, and it is Risk 1.
 
 ## 5. Budget estimate and recommended spec changes
 
-<!--BUDGET-->
+### What the probe actually cost
+
+| Activity | Time |
+|---|---|
+| Repo setup, vendoring Three.js, static-serve harness | ~5 min |
+| Walking skeleton — input, controller, vehicle, camera, ground, glue | ~15 min |
+| Playwright probe harness + fixing module-loading | ~6 min |
+| Deterministic physics rig, **finding and fixing 3 bugs**, tuning | ~12 min |
+| Procedural texture library + street-corner scene | ~13 min |
+| Two visual iterations (layout, shopfronts, framing, materials) | ~8 min |
+| Texture-generation profiling + single-pass refactor | ~6 min |
+| **Total** | **~65 min** |
+
+The most informative number is the split: **writing** the vehicle took ~10 minutes,
+**making it correct** took ~12 more, and it is still only a car on an infinite flat
+plane. That ratio is the basis for everything below.
+
+### Phase 2 estimate
+
+Units are *focused engineering hours* — the probe's own unit. A small human team
+(3 sequential owners + 3–4 parallel builders) maps this to roughly **7–10 calendar weeks**.
+
+| Piece | Mode | Hours |
+|---|---|---:|
+| Engine shell, fixed-step scheduler, budget instrumentation | SEQ | 6 |
+| **World streaming, city layout, road graph, LOD** | SEQ | 32 |
+| Vehicle physics → shipped (collision, damage, gearbox, 3–4 vehicle classes) | SEQ | 20 |
+| Player controller + animation state machine | SEQ | 18 |
+| Skinned character meshes + procedural animation clips | PAR | 14 |
+| Camera polish (geometry collision, aim mode, cinematic transitions) | SEQ | 6 |
+| Building kit-of-parts + facade recipe library | PAR | 16 |
+| Material / texture library at production breadth | PAR | 10 |
+| Traffic + pedestrian AI | SEQ (after road graph) | 24 |
+| Wanted / police response | PAR | 14 |
+| Mission scripting + the one playable mission | PAR | 12 |
+| Day/night, weather, atmosphere | PAR | 12 |
+| Procedural audio (engine, tyres, sirens, ambience, music) | PAR | 14 |
+| HUD, minimap, menus | PAR | 8 |
+| Post-processing stack | SEQ | 8 |
+| **Performance work — instancing, atlasing, culling** | SEQ | 20 |
+| Integration, tuning, bug-fix, art-direction pass | all | 30 |
+| **Subtotal** | | **264** |
+| Uncertainty allowance (×1.5, driven by Risks 1 and 5) | | **~400** |
+
+**Estimate: 260 h if things go well, ~400 h realistically.** Confidence is moderate
+for the simulation half (I have measurements) and low for streaming and traffic
+(I have none — nothing in this probe touched either).
+
+### Changes I recommend to the project spec
+
+**1. Retarget the visual bar from "GTA VI trailer" to "GTA V on PC." — recommended cut.**
+This is the one spec change I would push hardest for. The trailer's look rests on
+offline-baked global illumination, virtualised geometry, volumetric atmospherics and a
+deferred renderer with a full post stack — none of which are available at playable frame
+rates in WebGL2 in a browser tab. GTA V-on-PC is a defensible, reachable target and is
+still far above what browser open-world games typically look like. Keeping the GTA VI
+wording in the spec guarantees the project is judged as a failure at the end no matter
+how good it gets.
+
+**2. Shrink the district footprint; spend the savings on density. — recommended change.**
+"One dense, fully explorable district" is the right instinct, but *dense* and *large*
+trade directly against Risk 1. A compact district with a genuinely dense hero corridor
+reads far better in motion than a large sparse grid, and it is what the mission and the
+chase actually use.
+
+**3. Keep procedural audio. — no change.**
+This is the cheapest procedural win in the project. WebAudio synthesis for engine notes,
+tyre squeal, sirens and ambience is well-trodden and needs no art pipeline.
+
+**4. Reduce weather to rain + fog. — recommended cut.**
+Wet-surface materials are already carrying a large share of the visual quality in the
+sample above, at almost no cost. Dynamic storms, snow and a full weather state machine
+are a lot of work for a vertical slice that is set over a single evening.
+
+**5. Add two CI gates that the spec does not currently ask for. — recommended addition.**
+Given Risks 1 and 3, these are not optional: a **draw-call/triangle budget gate** that
+fails the build when a representative camera exceeds budget, and **golden-trace physics
+tests** that assert vehicle positions after a fixed input script. Both harnesses already
+exist in `tools/`.
+
+**6. Commit the minified Three.js build. — minor.**
+The vendored unminified build is 2.0 MB of the 2.1 MB payload. Minified is ~0.7 MB.
+The "no build step" constraint is about *our* code; the vendored library is just a file.
+
+**7. Decide how procedurally generated textures are cached. — open question for you.**
+Runtime generation currently costs ~143 ms per facade variant (down from 2,219 ms after
+the single-pass refactor). Twenty variants is ~3 s of first-load work. Options: accept it
+behind a loading screen; cache generated textures to IndexedDB after first run; or bake
+at author time into committed files. The third is fastest but arguably violates
+"generated procedurally in code from scratch" — I did not want to make that call for you.
+
+### Anything I would not change
+
+The **static / no-server / no-runtime-build** constraint cost essentially nothing. The
+whole probe is plain ES modules served from disk, and it would deploy to GitHub Pages
+as-is. The **all-original-branding** constraint likewise costs nothing, since every
+asset is generated anyway.
+
