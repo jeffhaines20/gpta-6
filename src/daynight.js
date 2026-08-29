@@ -21,6 +21,8 @@ export const PRESETS = {
     exposure: 1 / 78000,      // camera stop, not a brightness fudge
     lampsOn: false,
     fog: { color: 0xa8c2dc, density: 0.0016 },
+    post: { fogColor: 0xa9c3e0, inscatter: 0xfff0d0, density: 0.0016,
+            heightFalloff: 0.020, bloomThreshold: 1.7, bloomStrength: 0.30 },
   },
   dusk: {
     label: 'Dusk',
@@ -31,6 +33,8 @@ export const PRESETS = {
     exposure: 1 / 330,
     lampsOn: true,
     fog: { color: 0x6a6480, density: 0.0034 },
+    post: { fogColor: 0x6d6a88, inscatter: 0xff9a52, density: 0.0032,
+            heightFalloff: 0.016, bloomThreshold: 0.85, bloomStrength: 0.62 },
   },
   night: {
     label: 'Night',
@@ -41,6 +45,8 @@ export const PRESETS = {
     exposure: 1 / 2.2,
     lampsOn: true,
     fog: { color: 0x141a2a, density: 0.0042 },
+    post: { fogColor: 0x18203a, inscatter: 0x3b4a78, density: 0.0038,
+            heightFalloff: 0.014, bloomThreshold: 0.55, bloomStrength: 0.85 },
   },
 };
 
@@ -73,11 +79,52 @@ export class TimeOfDay {
     scene.add(this.hemi);
 
     this.lamps = [];          // registered by whoever builds street furniture
+    this.post = null;         // optional PostStack; see attachPost()
+    this.skyDome = null;      // set once src/sky.js provides a real dome
+    this.weather = { wetness: 0, fogBoost: 0 };
     this.preset = null;
     this.apply('dusk');
   }
 
   registerLamp(light, candela) { this.lamps.push({ light, candela }); }
+
+  // Preferred over registerLamp: one instanced fixture set plus a nearest-N pool.
+  setFurniture(furniture, lightPool) {
+    this.furniture = furniture;
+    this.lightPool = lightPool;
+    this.apply(this.presetName);
+  }
+
+  // When a PostStack is attached it takes over tonemapping and exposure, and
+  // scene.fog is dropped in favour of the depth-based height fog in the composite
+  // pass (per-vertex fog cannot do aerial perspective or fog the sky).
+  attachPost(post) {
+    this.post = post;
+    this.apply(this.presetName);
+  }
+
+  // Weather drives fog density and surface wetness without disturbing the
+  // photometric values, so the plausibility gate stays meaningful in the rain.
+  setWeather({ wetness = 0, fogBoost = 0 } = {}) {
+    this.weather.wetness = wetness;
+    this.weather.fogBoost = fogBoost;
+    this._applyPost();
+  }
+
+  _applyPost() {
+    if (!this.post) return;
+    const p = this.preset, pp = p.post;
+    const q = this.post.params;
+    q.exposure = p.exposure;
+    q.fogColor.setHex(pp.fogColor);
+    q.fogInscatter.setHex(pp.inscatter);
+    q.fogDensity = pp.density * (1 + this.weather.fogBoost * 3);
+    q.fogHeightFalloff = pp.heightFalloff;
+    q.bloomThreshold = pp.bloomThreshold;
+    q.bloomStrength = pp.bloomStrength;
+    q.wetness = this.weather.wetness;
+    q.sunDirection.copy(this.sun.position).normalize();
+  }
 
   apply(name) {
     const p = PRESETS[name];
@@ -98,15 +145,28 @@ export class TimeOfDay {
     this.hemi.color.setHex(p.skyColor);
     this.hemi.groundColor.setHex(p.groundColor);
 
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = p.exposure;
-
-    this.scene.fog = new THREE.FogExp2(p.fog.color, p.fog.density);
-    this.scene.background = new THREE.Color(p.fog.color);
+    if (this.post) {
+      // The post stack tonemaps; the renderer must stay linear.
+      this.renderer.toneMapping = THREE.NoToneMapping;
+      this.scene.fog = null;
+      this._applyPost();
+    } else {
+      this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      this.renderer.toneMappingExposure = p.exposure;
+      this.scene.fog = new THREE.FogExp2(p.fog.color, p.fog.density);
+    }
+    // Approximate sky radiance from the preset's sky illuminance (L = E / pi).
+    // src/sky.js replaces this with a real dome; without the scale the background
+    // is an sRGB colour multiplied by a camera stop, i.e. black.
+    if (!this.skyDome) {
+      this.scene.background = new THREE.Color(p.fog.color).multiplyScalar(p.skyLux / Math.PI);
+    }
 
     for (const { light, candela } of this.lamps) {
       light.intensity = p.lampsOn ? candela : 0;
     }
+    if (this.furniture) this.furniture.setLit(p.lampsOn);
+    if (this.lightPool) this.lightPool.update({ x: 0, y: 0, z: 0 }, p.lampsOn ? 1 : 0);
     return p;
   }
 
@@ -119,6 +179,7 @@ export class TimeOfDay {
     );
     this.sun.target.position.copy(pos);
     this.sun.target.updateMatrixWorld();
+    if (this.post) this.post.params.sunDirection.copy(this.sun.position).sub(pos).normalize();
   }
 
   // Scene-graph audit: what is ACTUALLY in the graph, with units, so a visual
@@ -168,13 +229,24 @@ export class TimeOfDay {
 
     return {
       timeOfDay: this.presetName,
-      exposure: this.renderer.toneMappingExposure,
-      exposureAsStop: `1/${Math.round(1 / this.renderer.toneMappingExposure)}`,
-      toneMapping: this.renderer.toneMapping === THREE.ACESFilmicToneMapping ? 'ACESFilmic' : String(this.renderer.toneMapping),
+      exposure: this.post ? this.post.params.exposure : this.renderer.toneMappingExposure,
+      exposureAsStop: `1/${Math.round(1 / (this.post ? this.post.params.exposure : this.renderer.toneMappingExposure))}`,
+      toneMapping: this.post ? 'ACESFilmic (post composite)'
+        : this.renderer.toneMapping === THREE.ACESFilmicToneMapping ? 'ACESFilmic (renderer)'
+        : String(this.renderer.toneMapping),
+      postProcessing: this.post ? {
+        bloomThreshold: this.post.params.bloomThreshold,
+        bloomStrength: this.post.params.bloomStrength,
+        fogDensity: +this.post.params.fogDensity.toFixed(5),
+        fogHeightFalloff: this.post.params.fogHeightFalloff,
+        wetness: this.post.params.wetness,
+        passes: this.post.stats.passes,
+      } : null,
       shadowMapEnabled: this.renderer.shadowMap.enabled,
       lightCount: lights.length, lightsByType: byType,
       sunLux: sun?.intensity, skyLux: hemi?.intensity,
       litPointLights: lights.filter((l) => l.type === 'PointLight' && l.intensity > 0).length,
+      lightPool: this.lightPool ? this.lightPool.report() : null,
       samplePointLightCandela: lights.find((l) => l.type === 'PointLight' && l.intensity > 0)?.intensity ?? 0,
       shadowCasters, shadowReceivers,
       implausible: flags,

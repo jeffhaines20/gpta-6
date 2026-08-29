@@ -184,12 +184,14 @@ export class TrafficStub {
       this.mesh.setMatrixAt(i, this._m);
     }
     // Overlaps: pairs closer than a car length. O(n^2) over 30 is trivial.
-    for (let a = 0; a < positions.length; a++) {
+    let overlapped = false;
+    for (let a = 0; a < positions.length && !overlapped; a++) {
       for (let b = a + 1; b < positions.length; b++) {
         const d = Math.hypot(positions[a].x - positions[b].x, positions[a].z - positions[b].z);
-        if (d < 2.5) { this.stats.overlapFrames++; break; }
+        if (d < 2.5) { overlapped = true; break; }
       }
     }
+    if (overlapped) this.stats.overlapFrames++;
     if (orphansThisFrame > this.stats.maxSimultaneousOrphans) {
       this.stats.maxSimultaneousOrphans = orphansThisFrame;
     }

@@ -12,6 +12,8 @@
     "test:golden": "node tools/golden-trace.mjs",
     "drive": "node tools/drive-through.mjs",
     "drive:traffic": "node tools/drive-through.mjs --traffic",
-    "sweep": "node tools/daynight-sweep.mjs"
+    "sweep": "node tools/daynight-sweep.mjs",
+    "chase": "node tools/chase-harness.mjs",
+    "progress": "node tools/progress-page.mjs"
   }
 }

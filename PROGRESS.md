@@ -30,6 +30,8 @@ at night, bloom + height fog in.
 
 | Date | Gate | Result | Evidence |
 |---|---|---|---|
+| 2026-08-29 | **chase harness** (60 civilian + 10 pursuit, dusk, 2 laps) | **PASS** — draw p95 **90**, tris 20.6k, stall 4.4 ms, heap −2 MB, 77.5% headroom | `docs/chase-harness.json` |
+| 2026-08-29 | chase harness, first run | **WARN** — draw p95 **325**, only 18.8% headroom | superseded; see Risk 5 findings below |
 | 2026-08-29 | golden-trace | PASS (30 samples, ±0.25 m / ±0.5 km/h) | Phase 1b, re-verified after minified-three swap |
 | 2026-08-29 | budget (no traffic) | PASS — draw p95 141, stall 4.8 ms, heap −1 MB | `docs/drive.json` |
 | 2026-08-29 | budget (30 stubs) | PASS — draw p95 145, stall 6.6 ms, heap −2 MB | `docs/drive-traffic.json` |
@@ -53,6 +55,10 @@ _No changes yet. Any change must be re-derived from measurements and recorded he
 | Per-frame steering lerp / variable timestep | Handling changed with frame rate; 30 Hz vs 120 Hz diverged ~75 m over 8 s | `stepFixed()` 120 Hz accumulator; now within 1.6 m |
 | Distance-threshold "orphan" counter in traffic | Tallied frames × cars (34,864), not distinct orphans | Counts distinct cars whose chunk is genuinely not resident |
 | Bayfront band as "within 220 m of trim west edge" | Band was mostly open water; caught only 15 footprints | Distance to real coastline geometry; 153 footprints |
+| One mesh pair per street lamp (233 posts = 466 meshes) | ~70% of all draw calls at worst case; chase harness measured 325 p95, 18.8% headroom | `src/streetfurniture.js`: 3 InstancedMeshes for the whole district |
+| One `PointLight` per street lamp (233 live lights) | three.js forward-renders every light per fragment and compiles materials against the light count; software rendering here could never expose it | `src/lightpool.js`: fixed pool of 10 real lights reassigned to the nearest emitters, with hysteresis |
+| `renderer.info.render` read directly for the budget gate | After the composite blit it describes a 1-triangle fullscreen pass — reported **1 draw call** and would have silently defeated the gate | `PostStack.stats.sceneCalls/totalCalls` snapshot taken right after the scene render |
+| Traffic overlap metric with an inner-loop `break` | Several outer iterations counted the same frame; reported **119.9%** of frames | Single `overlapped` flag, counted once per frame |
 
 ## Cut-list status
 
@@ -77,7 +83,27 @@ massing acceptable elsewhere"). This is the approved plan, not an escalation.
 
 _None yet._
 
+## Risk 5 chase harness — running from week one
+
+`tools/chase-harness.mjs` (`npm run chase`). Spawns the worst case — 60 civilian stubs +
+10 pursuit units + the route driven at speed, forcing continuous streaming churn on the
+real road graph — and asserts against the budget gate. It found three real defects on its
+first run, all listed under Failed approaches above, and one of them (the
+`renderer.info` read) would have silently disabled the draw-call gate for the rest of
+Phase 2.
+
+| | First run | After fixes |
+|---|---|---|
+| Draw calls p95 | 325 (WARN, 18.8% headroom) | **90 (PASS, 77.5% headroom)** |
+| Live point lights | 233 | **10** (fixed pool over 233 emitters) |
+| Lamp draw calls | ~466 meshes | **3** InstancedMeshes |
+
+Pursuit behaviour over 2 laps: 10 active, 35 spawns, 9 lost beyond the give-up radius,
+752 junction reroutes, 16 one-way dead-ends. Civilian traffic at 60 units: 659 spawns,
+549 despawns, 50 dead-ends, **0 orphans**, overlap 68.7% of frames (vs 35.4% at 30 units —
+the honest scaling of a stub with no following distance; M2's job).
+
 ## Next action
 
-Build the engine shell + post-processing stack (bloom, height fog, HDR tonemap) and fan
-out the six independent M1 builders.
+Integrate the six M1 builder modules as they land, then re-derive the draw-call
+thresholds against the first fully textured chunk and log the change here.

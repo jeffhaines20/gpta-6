@@ -9,7 +9,11 @@ import { Vehicle } from '../src/vehicle.js';
 import { ChaseCamera } from '../src/camera.js';
 import { StreamingWorld } from '../src/streaming.js';
 import { TrafficStub } from '../src/traffic.js';
+import { PursuitUnits } from '../src/pursuit.js';
+import { StreetFurniture } from '../src/streetfurniture.js';
+import { LightPool } from '../src/lightpool.js';
 import { TimeOfDay, PRESETS } from '../src/daynight.js';
+import { PostStack } from '../src/post.js';
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -29,48 +33,46 @@ hud.textContent = 'loading district…';
 const district = await (await fetch('../data/district.json')).json();
 const world = new StreamingWorld(scene, district, { nearRadius: 2, farRadius: 5, budgetMs: 4 });
 const tod = new TimeOfDay(scene, renderer);
+const post = new PostStack(renderer, scene, camera);
+tod.attachPost(post);
 
-// Street lamps along the main corridor, in candela. Registered with the
-// time-of-day system so they switch with the cycle instead of being always-on.
-const lampGeo = new THREE.CylinderGeometry(0.12, 0.16, 8, 8);
-const lampMat = new THREE.MeshStandardMaterial({ color: 0x2b2e33, roughness: 0.5, metalness: 0.7 });
-const headMat = new THREE.MeshStandardMaterial({ color: 0x1e2126, emissive: 0xffd9a0, emissiveIntensity: 2.2 });
-const lampRoot = new THREE.Group();
-scene.add(lampRoot);
+// Street lamps: instanced geometry plus a nearest-N light pool.
+//
+// The chase harness measured 233 individually-meshed posts as ~70% of all draw
+// calls, and 233 simultaneous PointLights would be a per-fragment loop of 233 on
+// real hardware. Geometry is instanced (3 draw calls total) and only the nearest
+// LIGHT_POOL_SIZE emitters are ever real lights.
+const furniture = new StreetFurniture(scene, { max: 400 });
+const lightPool = new LightPool(scene, { size: 10, maxDistance: 130 });
 {
-  // Place lamps along the highest-rank named edges: the arterial corridor.
   const arterials = district.edges
     .map((e, i) => ({ e, i }))
     .filter(({ e }) => e.r <= 6 && e.n)
     .slice(0, 240);
   let placed = 0;
   for (const { e } of arterials) {
-    for (let k = 0; k < e.v.length - 1 && placed < 260; k++) {
+    for (let k = 0; k < e.v.length - 1 && placed < 320; k++) {
       const a = district.verts[e.v[k]], b = district.verts[e.v[k + 1]];
       const len = Math.hypot(b.x - a.x, b.z - a.z);
       const n = Math.floor(len / 30);
-      for (let s = 1; s <= n && placed < 260; s++) {
+      for (let s = 1; s <= n && placed < 320; s++) {
         const f = s / (n + 1);
         const x = a.x + (b.x - a.x) * f, z = a.z + (b.z - a.z) * f;
-        const off = (e.w / 2 + 1.4) * (s % 2 ? 1 : -1);
+        const side = s % 2 ? 1 : -1;
         const nx = -(b.z - a.z) / len, nz = (b.x - a.x) / len;
-        const g = new THREE.Group();
-        const pole = new THREE.Mesh(lampGeo, lampMat);
-        pole.position.y = 4; pole.castShadow = true; g.add(pole);
-        const head = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.2, 0.4), headMat);
-        head.position.y = 7.9; g.add(head);
-        const light = new THREE.PointLight(0xffc98a, 0, 40, 2);
-        light.position.y = 7.6;
-        g.add(light);
-        tod.registerLamp(light, 900);       // 900 cd ~= a 12 klm street lamp
-        g.position.set(x + nx * off, 0, z + nz * off);
-        lampRoot.add(g);
+        const off = (e.w / 2 + 1.4) * side;
+        // Point the arm back over the roadway.
+        const yaw = Math.atan2(-nx * side, -nz * side);
+        const head = furniture.addLamp(x + nx * off, z + nz * off, yaw);
+        if (head) lightPool.addEmitter(head.x, head.y, head.z, 900, 0xffc98a, 46);
         placed++;
       }
     }
   }
-  console.log(`placed ${placed} street lamps`);
+  furniture.commit();
+  console.log(`placed ${placed} street lamps (${furniture.report().drawCalls} draw calls, pool ${lightPool.size})`);
 }
+tod.setFurniture(furniture, lightPool);
 
 // ------------------------------------------------------------------ vehicle
 // The Phase 1 Vehicle, unmodified, driving on the streamed world through the
@@ -103,10 +105,19 @@ const carMesh = (() => {
   return { group: g, wheels };
 })();
 
+let pursuit = null;
+// Risk 5 chase harness: max traffic + active pursuit + streaming churn, run
+// against the budget gate long before the mission exists.
+function setPursuit(n) {
+  if (pursuit) { scene.remove(pursuit.mesh); scene.remove(pursuit.bars); pursuit = null; }
+  if (n > 0) pursuit = new PursuitUnits(scene, district, { count: n });
+  return !!pursuit;
+}
+
 let traffic = null;
 function setTraffic(on) {
   if (on && !traffic) {
-    traffic = new TrafficStub(scene, district, { count: 30 });
+    traffic = new TrafficStub(scene, district, { count: typeof on === 'number' ? on : 30 });
     // Let traffic ask the streamer whether a car's chunk is actually resident,
     // so "orphan" means something real rather than a distance guess.
     traffic.isChunkLoaded = (x, z) => world.loaded.has(world.keyOf(x, z));
@@ -122,7 +133,9 @@ const metrics = {
   heapStart: null, heapSamples: [],
 };
 function sample(dt) {
-  const r = renderer.info.render;
+  // Read the post stack's snapshot, never renderer.info directly: after the
+  // composite blit renderer.info describes a 1-triangle fullscreen pass.
+  const r = { calls: post.stats.totalCalls, triangles: post.stats.sceneTriangles };
   const w = world.report();
   metrics.samples.push({
     t: +simTime.toFixed(2),
@@ -165,9 +178,11 @@ function animate(now) {
     vehicle.stepFixed(dt, world);
     world.update(vehicle.position);
     if (traffic) traffic.update(dt, vehicle.position);
+    if (pursuit) pursuit.update(dt, vehicle.position);
     simTime += dt;
   }
   tod.follow(vehicle.position);
+  lightPool.update(camera.position, tod.preset.lampsOn ? 1 : 0);
 
   const q = vehicle.quaternion;
   const carYaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
@@ -184,17 +199,18 @@ function animate(now) {
     carMesh.wheels[i].rotateX(w.spinAngle);
   }
 
-  renderer.render(scene, camera);
+  post.render();
   if (metrics.recording) sample(dt);
   metrics.frames++;
 
   const w = world.report();
   hud.textContent =
     `${district.meta.city}  ·  ${PRESETS[tod.presetName].label}  ·  ${(vehicle.speed * 3.6).toFixed(0)} km/h\n` +
-    `chunks ${w.chunksLoaded} (near ${w.lodNear} / far ${w.lodFar})  draw ${renderer.info.render.calls}  ` +
-    `tris ${(renderer.info.render.triangles / 1000).toFixed(1)}k\n` +
+    `chunks ${w.chunksLoaded} (near ${w.lodNear} / far ${w.lodFar})  draw ${post.stats.totalCalls}  ` +
+    `tris ${(post.stats.sceneTriangles / 1000).toFixed(1)}k  post ${post.stats.passes}\n` +
     `loads ${w.loads}  unloads ${w.unloads}  worst chunk build ${w.worstBuildMs.toFixed(1)}ms` +
-    (traffic ? `  ·  traffic ${traffic.report().alive}/30` : '');
+    (traffic ? `  ·  traffic ${traffic.report().alive}` : '') +
+    (pursuit ? `  ·  PURSUIT ${pursuit.report().active}` : '');
 
   input.endFrame();
 }
@@ -203,6 +219,7 @@ function resize() {
   renderer.setSize(innerWidth, innerHeight, false);
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
+  post.setSize(innerWidth, innerHeight);
 }
 addEventListener('resize', resize);
 resize();
@@ -210,13 +227,17 @@ requestAnimationFrame(animate);
 
 // ------------------------------------------------------------------ test hooks
 window.__district = {
-  district, world, vehicle, traffic: () => traffic, tod, renderer, scene, camera, chase, metrics,
+  district, world, vehicle, traffic: () => traffic, tod, post, renderer, scene, camera, chase, metrics,
+  furniture, lightPool,
   get frames() { return metrics.frames; },
   setTraffic,
+  setPursuit,
+  pursuitReport: () => (pursuit ? pursuit.report() : null),
   setTimeOfDay: (n) => tod.apply(n),
   audit: () => tod.audit(),
   placeAt,
-  renderStats: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }),
+  renderStats: () => ({ calls: post.stats.totalCalls, sceneCalls: post.stats.sceneCalls,
+    postPasses: post.stats.passes, triangles: post.stats.sceneTriangles }),
   worldReport: () => world.report(),
   trafficReport: () => (traffic ? traffic.report() : null),
   startRecording() { metrics.recording = true; metrics.samples.length = 0; world.stats.worstBuildMs = 0; },
@@ -224,6 +245,8 @@ window.__district = {
   setAutopilot(fn) { autopilot = fn; },
   setTimeScale(n) { timeScale = Math.max(1, n | 0); },
   get simTime() { return simTime; },
+  setWeather: (w) => tod.setWeather(w),
+  postParams: () => post.params,
   freeCam(pos, target, fov) {
     autopilot = () => {};
     camera.position.set(...pos);
