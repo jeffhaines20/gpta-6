@@ -190,7 +190,7 @@ export const RECIPES = {
 
   midOffice: {
     label: 'Mid-rise office',
-    tileU: 18.0, floors: 4, floorM: 3.6, panel: 1024,
+    tileU: 18.0, floors: 5, floorM: 3.6, panel: 1024,
     rhythm: [1, 1, 1, 0.42, 1, 1],          // the narrow bay is the service riser
     wall: { h: 34, s: 6, l: 62 },
     trimHue: 34,
@@ -234,7 +234,7 @@ export const RECIPES = {
 
   bayTower: {
     label: 'Bayfront residential tower',
-    tileU: 19.2, floors: 4, floorM: 3.15, panel: 1024,
+    tileU: 19.2, floors: 6, floorM: 3.15, panel: 1024,
     rhythm: [1.35, 1, 1, 1.35],
     wall: { h: 38, s: 10, l: 84 },
     trimHue: 36,
@@ -256,7 +256,7 @@ export const RECIPES = {
 
   parking: {
     label: 'Parking structure',
-    tileU: 17.6, floors: 3, floorM: 3.0, panel: 1024,
+    tileU: 17.6, floors: 4, floorM: 3.0, panel: 1024,
     rhythm: [1, 1, 1, 1],
     wall: { h: 40, s: 3, l: 58 },
     trimHue: 34,
@@ -845,7 +845,7 @@ function buildPanel(name, opts = {}) {
       // stacks along a corridor, and a retail strip lights as one unit.
       const own = r();
       if (rec.litPattern === 'floorBands') cell.rank = bandRank[rr] * 0.72 + own * 0.28;
-      else if (rec.litPattern === 'stacks') cell.rank = stackRank[cc] * 0.55 + own * 0.45;
+      else if (rec.litPattern === 'stacks') cell.rank = stackRank[cc] * 0.34 + own * 0.66;
       else if (rec.litPattern === 'strip') cell.rank = own * 0.35 + bandRank[rr] * 0.15;
       else cell.rank = own;
       for (const t of TIMES) cell.lit[t] = cell.rank < rec.lit[t];
@@ -901,6 +901,36 @@ export function trimCell(cell) {
     u0: ix * s + TRIM_PAD, u1: (ix + 1) * s - TRIM_PAD,
     v0: 1 - (iy + 1) * s + TRIM_PAD, v1: 1 - iy * s - TRIM_PAD,
   };
+}
+
+// A mip chain built by downscaling every cell INDEPENDENTLY and re-packing it,
+// instead of letting the GPU average the whole atlas. Auto-generated mips mix
+// neighbouring cells together: at a grazing angle the sidewalk five metres in
+// front of the camera is already sampling mip 5, where a 128 px cell is 4 texels
+// and the brick swatch two cells away is bleeding into the concrete. Packing each
+// level from per-cell downscales removes that entirely and costs ~1 ms.
+function packedMips(cells, grid, cellSize) {
+  const mips = [];
+  let cs = cellSize;
+  while (cs >= 1) {
+    const c = canvas(grid * cs), g = c.getContext('2d');
+    g.imageSmoothingQuality = 'high';
+    for (let i = 0; i < cells.length; i++) {
+      g.drawImage(cells[i], (i % grid) * cs, ((i / grid) | 0) * cs, cs, cs);
+    }
+    mips.push(c);
+    cs = Math.floor(cs / 2);
+  }
+  // Below one texel per cell the atlas is 4 px across and nothing can bleed that
+  // is not already a single average colour, so finish the chain conventionally.
+  let last = mips[mips.length - 1];
+  while (last.width > 1) {
+    const c = canvas(Math.max(1, last.width >> 1));
+    c.getContext('2d').drawImage(last, 0, 0, c.width, c.height);
+    mips.push(c);
+    last = c;
+  }
+  return mips;
 }
 
 function buildTrimAtlas() {
@@ -1055,7 +1085,24 @@ function buildTrimAtlas() {
     for (let i = 0; i < 4; i++) ag.fillRect(x, y + (C * (i + 0.5)) / 4, C, 4);
   }
 
-  return { albedo: al, rm };
+  // Split the finished atlas back into cells so the mip chain can be packed
+  // per-cell rather than across cell boundaries.
+  const cut = (src) => {
+    const out = [];
+    for (let iy = 0; iy < TRIM_GRID; iy++) {
+      for (let ix = 0; ix < TRIM_GRID; ix++) {
+        const c = canvas(C);
+        c.getContext('2d').drawImage(src, ix * C, iy * C, C, C, 0, 0, C, C);
+        out.push(c);
+      }
+    }
+    return out;
+  };
+  return {
+    albedo: al, rm,
+    albedoMips: packedMips(cut(al), TRIM_GRID, C),
+    rmMips: packedMips(cut(rm), TRIM_GRID, C),
+  };
 }
 
 // ------------------------------------------------------------------- textures
@@ -1098,7 +1145,18 @@ export function facadeMaps(name) {
 export function trimMaps() {
   return memo('trim', () => {
     const a = buildTrimAtlas();
-    return { map: toTexture(a.albedo, { srgb: true }), rmMap: toTexture(a.rm) };
+    const mk = (c, mips, srgb) => {
+      const t = toTexture(c, { srgb });
+      t.mipmaps = mips;
+      t.generateMipmaps = false;
+      t.minFilter = THREE.LinearMipmapLinearFilter;
+      t.magFilter = THREE.LinearFilter;
+      return t;
+    };
+    return {
+      map: mk(a.albedo, a.albedoMips, true),
+      rmMap: mk(a.rm, a.rmMips, false),
+    };
   });
 }
 
@@ -1361,6 +1419,24 @@ export function edgesOf(ring, { minLen = 1.5, longest = 0 } = {}) {
     return out.slice().sort((p, q) => q.len - p.len).slice(0, longest);
   }
   return out;
+}
+
+/**
+ * Edges whose outward normal faces a given direction, longest first. The streamer
+ * can pass the direction of the nearest road; without one, callers fall back to
+ * the longest edges, which is right often enough for a block interior.
+ *
+ * @param {Array<[number,number]>} ring
+ * @param {number} dx  street direction x (the way the front should face)
+ * @param {number} dz  street direction z
+ */
+export function facingEdges(ring, dx, dz, { minLen = 3, max = 2, cone = 0.35 } = {}) {
+  const len = Math.hypot(dx, dz) || 1;
+  const ux = dx / len, uz = dz / len;
+  return edgesOf(ring, { minLen })
+    .filter((e) => e.nx * ux + e.nz * uz > cone)
+    .sort((a, b) => b.len - a.len)
+    .slice(0, max);
 }
 
 function inRing(ring, x, z) {
@@ -1752,8 +1828,15 @@ export function extrudeFacade(ring, height, pos, nrm, uv, idx, opts = {}) {
       uv.push(lerp(roofCell.u0, roofCell.u1, fu), lerp(roofCell.v0, roofCell.v1, fv));
       pushCol(col, t, 1);
     }
+    // Emit each triangle in the order that faces up. A roof polygon whose winding
+    // is taken on trust is back-facing for one of the two windings OSM produces,
+    // and a back-facing roof is invisible from a helicopter and from the shadow
+    // pass while still looking fine from the street — so it survives review.
     for (let i = 0; i < tris.length; i += 3) {
-      idx.push(start + tris[i], start + tris[i + 1], start + tris[i + 2]);
+      const a = ring[tris[i]], b = ring[tris[i + 1]], c = ring[tris[i + 2]];
+      const up = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+      if (up < 0) idx.push(start + tris[i], start + tris[i + 1], start + tris[i + 2]);
+      else idx.push(start + tris[i + 2], start + tris[i + 1], start + tris[i]);
     }
   }
 }
@@ -1808,10 +1891,12 @@ function triangulateRing(ring) {
  * @param {number} height                 metres
  * @param {Object} style                  from buildingStyle()
  */
-export function appendBuilding(ring, height, style, wall, trim) {
+export function appendBuilding(ring, height, style, wall, trim, opts = {}) {
   const rec = style.rec;
   const t = style.tint;
-  const streetEdges = edgesOf(ring, { minLen: 4, longest: 2 });
+  const streetEdges = opts.street
+    ? facingEdges(ring, opts.street[0], opts.street[1], { minLen: 4, max: opts.faces ?? 2 })
+    : edgesOf(ring, { minLen: 4, longest: opts.faces ?? 2 });
 
   extrudeFacade(ring, height, wall.pos, wall.nrm, wall.uv, wall.idx, {
     tileU: rec.tileU, tint: t, col: wall.col,

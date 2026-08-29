@@ -8,7 +8,7 @@ import * as THREE from '../../vendor/three.module.min.js';
 import { TimeOfDay } from '../../src/daynight.js';
 import {
   RECIPES, RECIPE_NAMES, generateFacadeLibrary, facadeMaterial, trimMaterial,
-  trimMaps, trimCell, TRIM, buildingStyle, pickRecipe, buffers, appendBuilding,
+  trimMaps, trimCell, TRIM, buildingStyle, buffers, appendBuilding, box,
   setAllFacadeTimes,
 } from '../../src/facades.js';
 
@@ -60,24 +60,26 @@ const LOT = [
 ];
 
 // Lay them along +X against a common street line at z = 0, so every ground floor
-// faces the camera and the storefront recesses are visible.
+// faces the camera and the storefront recesses are visible. Gaps are uneven on
+// purpose: a downtown block is party walls interrupted by the occasional lot.
+const GAPS = [1, 8, 1, 6, 12, 6, 8];
 let cursor = 0;
-const lots = LOT.map((l) => {
-  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity, area = 0;
+const lots = LOT.map((l, i) => {
+  let x0 = Infinity, x1 = -Infinity, z1 = -Infinity, area = 0;
   for (const [x, z] of l.ring) {
-    if (x < x0) x0 = x; if (x > x1) x1 = x; if (z < z0) z0 = z; if (z > z1) z1 = z;
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (z > z1) z1 = z;
   }
-  for (let i = 0, j = l.ring.length - 1; i < l.ring.length; j = i++) {
-    area += (l.ring[j][0] + l.ring[i][0]) * (l.ring[j][1] - l.ring[i][1]);
+  for (let a = 0, j = l.ring.length - 1; a < l.ring.length; j = a++) {
+    area += (l.ring[j][0] + l.ring[a][0]) * (l.ring[j][1] - l.ring[a][1]);
   }
   const ox = cursor - x0, oz = -z1;             // front face on the street line
-  cursor += (x1 - x0) + 7;
+  cursor += (x1 - x0) + (GAPS[i] ?? 0);
   return {
     p: l.ring.map(([x, z]) => [+(x + ox).toFixed(2), +(z + oz).toFixed(2)]),
     h: l.h, z: l.z, k: l.k, a: Math.round(Math.abs(area / 2)), d: 1,
   };
 });
-const rowLength = cursor - 7;
+const rowLength = cursor;
 
 // ---------------------------------------------------------------- generation
 const gen = generateFacadeLibrary();
@@ -98,7 +100,7 @@ for (const b of lots) {
   const style = buildingStyle(b);
   picked.push({ recipe: style.recipe, h: b.h, floors: style.floors, k: b.k });
   const wall = (wallBufs[style.recipe] ??= buffers());
-  appendBuilding(b.p, b.h, style, wall, trimBuf);
+  appendBuilding(b.p, b.h, style, wall, trimBuf, { street: [0, 1] });
 }
 const buildMs = performance.now() - tBuild0;
 
@@ -126,61 +128,61 @@ trimMesh.name = 'trim';
 city.add(trimMesh);
 scene.add(city);
 
-// ------------------------------------------------------------------- ground
-// Built from the same trim atlas as the kit, as a grid of quads so the cell tiles
-// instead of stretching. It costs no extra draw call and no extra texture.
-function groundPlane(x0, x1, z0, z1, y, cell, step) {
-  const c = trimCell(cell), pos = [], nrm = [], uv = [], idx = [], col = [];
+// -------------------------------------------------------- ground and furniture
+// Street, kerb and lamp posts all come out of the same trim atlas as the kit and
+// append into one buffer, so the whole environment costs a single draw call and
+// no texture of its own.
+const envBuf = buffers();
+function groundPlane(buf, x0, x1, z0, z1, y, cell, step) {
+  const c = trimCell(cell);
   const nx = Math.max(1, Math.round((x1 - x0) / step));
   const nz = Math.max(1, Math.round((z1 - z0) / step));
   for (let i = 0; i < nx; i++) {
     for (let j = 0; j < nz; j++) {
       const ax = x0 + ((x1 - x0) * i) / nx, bx = x0 + ((x1 - x0) * (i + 1)) / nx;
       const az = z0 + ((z1 - z0) * j) / nz, bz = z0 + ((z1 - z0) * (j + 1)) / nz;
-      const v = pos.length / 3;
-      pos.push(ax, y, bz, bx, y, bz, bx, y, az, ax, y, az);
-      for (let k = 0; k < 4; k++) { nrm.push(0, 1, 0); col.push(1, 1, 1); }
-      uv.push(c.u0, c.v0, c.u1, c.v0, c.u1, c.v1, c.u0, c.v1);
-      idx.push(v, v + 1, v + 2, v, v + 2, v + 3);
+      const v = buf.pos.length / 3;
+      buf.pos.push(ax, y, bz, bx, y, bz, bx, y, az, ax, y, az);
+      for (let k = 0; k < 4; k++) { buf.nrm.push(0, 1, 0); buf.col.push(1, 1, 1); }
+      buf.uv.push(c.u0, c.v0, c.u1, c.v0, c.u1, c.v1, c.u0, c.v1);
+      buf.idx.push(v, v + 1, v + 2, v, v + 2, v + 3);
     }
   }
-  return toGeometry({ pos, nrm, uv, idx, col });
 }
-const ground = new THREE.Mesh(
-  groundPlane(-70, rowLength + 70, -70, 6, -0.02, TRIM.concrete, 5), trimMat);
-ground.receiveShadow = true;
-ground.name = 'sidewalk';
-scene.add(ground);
-const road = new THREE.Mesh(
-  groundPlane(-70, rowLength + 70, 6, 90, -0.06, TRIM.asphalt, 6), trimMat);
-road.receiveShadow = true;
-road.name = 'road';
-scene.add(road);
+const X0 = -80, X1 = rowLength + 80;
+groundPlane(envBuf, X0, X1, -60, 7.4, -0.02, TRIM.concrete, 5);      // sidewalk
+groundPlane(envBuf, X0, X1, 7.4, 46, -0.14, TRIM.asphalt, 6);        // carriageway
+const kerbArgs = { cell: TRIM.concrete, col: envBuf.col, tint: [1, 1, 1] };
+box((X0 + X1) / 2, -0.07, 7.4, X1 - X0, 0.16, 0.34,
+  envBuf.pos, envBuf.nrm, envBuf.uv, envBuf.idx, kerbArgs);
 
 // ------------------------------------------------------------------ lighting
 const tod = new TimeOfDay(scene, renderer);
-const lampGeo = new THREE.CylinderGeometry(0.09, 0.11, 8, 6);
-const lampMat = new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.6, metalness: 0.8 });
-for (let i = 0; i < 6; i++) {
-  const x = 14 + (rowLength / 6) * i;
-  const post = new THREE.Mesh(lampGeo, lampMat);
-  post.position.set(x, 4, 8.5);
-  post.castShadow = true;
-  scene.add(post);
-  const light = new THREE.PointLight(0xffd9a8, 0, 46, 2);
-  light.position.set(x, 8.2, 8.5);
+const lampArgs = { cell: TRIM.metalDark, col: envBuf.col, tint: [1, 1, 1] };
+for (let i = 0; i < 7; i++) {
+  const x = 10 + (rowLength / 6.5) * i;
+  box(x, 4.1, 8.6, 0.2, 8.2, 0.2, envBuf.pos, envBuf.nrm, envBuf.uv, envBuf.idx, lampArgs);
+  box(x - 0.55, 8.1, 8.6, 1.3, 0.16, 0.16, envBuf.pos, envBuf.nrm, envBuf.uv, envBuf.idx, lampArgs);
+  box(x - 1.1, 7.86, 8.6, 0.6, 0.34, 0.44, envBuf.pos, envBuf.nrm, envBuf.uv, envBuf.idx, lampArgs);
+  const light = new THREE.PointLight(0xffd2a0, 0, 44, 2);
+  light.position.set(x - 1.1, 7.6, 8.6);
   scene.add(light);
   tod.registerLamp(light, 900);
 }
+const env = new THREE.Mesh(toGeometry(envBuf), trimMat);
+env.receiveShadow = true;
+env.castShadow = true;
+env.name = 'street';
+scene.add(env);
 
 // ------------------------------------------------------------------- camera
 // Three framings: down the row (the one that shows depth and lit windows),
 // straight elevation (for judging the texture itself), and a close 3/4 on the
 // deco block and the tower (for judging reveals, cornices and storefronts).
 const SHOTS = [
-  { pos: [-46, 13.5, 54], look: [rowLength * 0.55, 16, -6], fov: 48 },
-  { pos: [rowLength / 2, 26, 168], look: [rowLength / 2, 20, 0], fov: 42 },
-  { pos: [46, 8.5, 44], look: [88, 17, -4], fov: 42 },
+  { pos: [-30, 10.5, 44], look: [rowLength * 0.48, 17, -6], fov: 46 },
+  { pos: [rowLength / 2, 28, 205], look: [rowLength / 2, 22, 0], fov: 40 },
+  { pos: [32, 6.5, 31], look: [76, 13, -3], fov: 40 },
 ];
 let shot = 0, yaw = 0, pitch = 0, dist = 1;
 function applyShot() {

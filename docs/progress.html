@@ -1,0 +1,159 @@
+<title>Port Verano — Phase 2 progress</title>
+<style>
+  :root{--bg:#0d1017;--panel:#151a23;--line:#232b38;--fg:#e8edf5;--dim:#8d9bb0;--acc:#6fa8f5;
+    color-scheme:dark}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.6 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}
+  header{padding:34px 26px 20px;border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#141b28,#0d1017)}
+  h1{margin:0 0 4px;font-size:25px;letter-spacing:-.02em}
+  .sub{color:var(--dim);font-size:14px}
+  main{max-width:1180px;margin:0 auto;padding:26px 22px 70px}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.14em;color:var(--dim);
+    margin:34px 0 12px;font-weight:600}
+  table{width:100%;border-collapse:collapse;background:var(--panel);
+    border:1px solid var(--line);border-radius:8px;overflow:hidden;font-size:13.5px}
+  th{text-align:left;padding:9px 12px;background:#1a212c;color:var(--dim);
+    font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.07em}
+  td{padding:8px 12px;border-top:1px solid var(--line)}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .muted{color:var(--dim)}
+  .pill{display:inline-block;padding:1px 9px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.05em}
+  .pill.pass{background:#12351f;color:#63d98a}
+  .pill.warn{background:#3a2f10;color:#e8bd52}
+  .pill.fail{background:#3d1519;color:#ff7b7b}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
+  figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  figure img{display:block;width:100%;height:auto;background:#000}
+  figcaption{padding:7px 11px;font-size:12px;color:var(--dim);
+    display:flex;justify-content:space-between;gap:8px}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:6px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+  .stat .v{font-size:21px;font-weight:650;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .stat .k{font-size:11.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.07em;margin-top:2px}
+  a{color:var(--acc)}
+  code{background:#1c2431;padding:1px 5px;border-radius:4px;font-size:12.5px}
+</style>
+<header>
+  <h1>Port Verano — Phase 2 progress</h1>
+  <div class="sub">Auto-generated from the gate artifacts and screenshots in this repo.
+    Regenerate with <code>npm run progress</code>. Ledger: <a href="../PROGRESS.md">PROGRESS.md</a></div>
+</header>
+<main>
+
+<h2>District bake</h2>
+<div class="stats">
+  
+  <div class="stat"><div class="v">1.437 km²</div><div class="k">district area</div></div>
+  <div class="stat"><div class="v">304.1 KB</div><div class="k">baked JSON</div></div>
+  <div class="stat"><div class="v">523</div><div class="k">footprints</div></div>
+  <div class="stat"><div class="v">935</div><div class="k">road edges</div></div>
+  <div class="stat"><div class="v">28.1%</div><div class="k">deliberate massing</div></div>
+  <div class="stat"><div class="v">117</div><div class="k">authored heights</div></div>
+  
+</div>
+
+<h2>Budget gates</h2>
+<table>
+  <tr><th>Run</th><th>Metric</th><th>Value</th><th>Warn</th><th>Fail</th><th>Status</th></tr>
+  <tr>
+    <td>Chase harness (worst case)</td><td>draw calls</td>
+    <td class="num">90</td><td class="num muted">260</td><td class="num muted">400</td>
+    <td><span class="pill pass">PASS</span></td></tr><tr>
+    <td>Chase harness (worst case)</td><td>triangles</td>
+    <td class="num">20588</td><td class="num muted">900000</td><td class="num muted">1800000</td>
+    <td><span class="pill pass">PASS</span></td></tr><tr>
+    <td>Chase harness (worst case)</td><td>chunk stall ms</td>
+    <td class="num">4.4</td><td class="num muted">8</td><td class="num muted">16</td>
+    <td><span class="pill pass">PASS</span></td></tr><tr>
+    <td>Chase harness (worst case)</td><td>heap growth MB</td>
+    <td class="num">-2</td><td class="num muted">40</td><td class="num muted">120</td>
+    <td><span class="pill pass">PASS</span></td></tr><tr>
+    <td>Drive-through + 30 traffic</td><td>draw calls</td>
+    <td class="num">145</td><td class="num muted">260</td><td class="num muted">400</td>
+    <td><span class="pill pass">PASS</span></td></tr><tr>
+    <td>Drive-through + 30 traffic</td><td>triangles</td>
+    <td class="num">8416</td><td class="num muted">900000</td><td class="num muted">1800000</td>
+    <td><span class="pill pass">PASS</span></td></tr><tr>
+    <td>Drive-through + 30 traffic</td><td>chunk stall ms</td>
+    <td class="num">6.6</td><td class="num muted">8</td><td class="num muted">16</td>
+    <td><span class="pill pass">PASS</span></td></tr><tr>
+    <td>Drive-through + 30 traffic</td><td>heap growth MB</td>
+    <td class="num">-2</td><td class="num muted">40</td><td class="num muted">120</td>
+    <td><span class="pill pass">PASS</span></td></tr><tr>
+    <td>Drive-through, no traffic</td><td>draw calls</td>
+    <td class="num">141</td><td class="num muted">260</td><td class="num muted">400</td>
+    <td><span class="pill pass">PASS</span></td></tr><tr>
+    <td>Drive-through, no traffic</td><td>triangles</td>
+    <td class="num">7959</td><td class="num muted">900000</td><td class="num muted">1800000</td>
+    <td><span class="pill pass">PASS</span></td></tr><tr>
+    <td>Drive-through, no traffic</td><td>chunk stall ms</td>
+    <td class="num">4.8</td><td class="num muted">8</td><td class="num muted">16</td>
+    <td><span class="pill pass">PASS</span></td></tr><tr>
+    <td>Drive-through, no traffic</td><td>heap growth MB</td>
+    <td class="num">-1</td><td class="num muted">40</td><td class="num muted">120</td>
+    <td><span class="pill pass">PASS</span></td></tr>
+</table>
+
+<h2>Lighting sweep — physical units</h2>
+<table>
+  <tr><th>Time</th><th>Sun (lux)</th><th>Sky (lux)</th><th>Lamps lit</th><th>Lamp (cd)</th><th>Exposure</th><th>Plausible</th></tr>
+  <tr>
+    <td>noon</td><td class="num">100000</td><td class="num">20000</td>
+    <td class="num">0</td><td class="num">0</td><td class="num">1/78000</td>
+    <td><span class="pill pass">OK</span></td>
+  </tr><tr>
+    <td>dusk</td><td class="num">1200</td><td class="num">900</td>
+    <td class="num">233</td><td class="num">900</td><td class="num">1/330</td>
+    <td><span class="pill pass">OK</span></td>
+  </tr><tr>
+    <td>night</td><td class="num">0.6</td><td class="num">3.5</td>
+    <td class="num">233</td><td class="num">900</td><td class="num">1/2</td>
+    <td><span class="pill pass">OK</span></td>
+  </tr>
+</table>
+
+<h2>District — time of day</h2><div class="grid">
+    <figure><img src="shots/tod-night.png" alt="tod-night.png" loading="lazy">
+    <figcaption><span>tod-night</span><span>67 KB</span></figcaption></figure>
+    <figure><img src="shots/tod-dusk.png" alt="tod-dusk.png" loading="lazy">
+    <figcaption><span>tod-dusk</span><span>33 KB</span></figcaption></figure>
+    <figure><img src="shots/tod-noon.png" alt="tod-noon.png" loading="lazy">
+    <figcaption><span>tod-noon</span><span>183 KB</span></figcaption></figure></div><h2>Chase harness (Risk 5)</h2><div class="grid">
+    <figure><img src="shots/chase-harness.png" alt="chase-harness.png" loading="lazy">
+    <figcaption><span>chase-harness</span><span>286 KB</span></figcaption></figure></div><h2>District drive-through</h2><div class="grid">
+    <figure><img src="shots/district-drive-traffic.png" alt="district-drive-traffic.png" loading="lazy">
+    <figcaption><span>district-drive-traffic</span><span>73 KB</span></figcaption></figure></div><h2>Builder labs</h2><div class="grid">
+    <figure><img src="shots/lab-facades.png" alt="lab-facades.png" loading="lazy">
+    <figcaption><span>lab-facades</span><span>560 KB</span></figcaption></figure></div><h2>Phase 1 / 1b reference</h2><div class="grid">
+    <figure><img src="shots/visual-street-corner-lit.png" alt="visual-street-corner-lit.png" loading="lazy">
+    <figcaption><span>visual-street-corner-lit</span><span>1246 KB</span></figcaption></figure>
+    <figure><img src="shots/visual-street-corner.png" alt="visual-street-corner.png" loading="lazy">
+    <figcaption><span>visual-street-corner</span><span>966 KB</span></figcaption></figure>
+    <figure><img src="shots/skeleton-driving.png" alt="skeleton-driving.png" loading="lazy">
+    <figcaption><span>skeleton-driving</span><span>50 KB</span></figcaption></figure>
+    <figure><img src="shots/skeleton-onfoot.png" alt="skeleton-onfoot.png" loading="lazy">
+    <figcaption><span>skeleton-onfoot</span><span>67 KB</span></figcaption></figure>
+    <figure><img src="shots/07-exited.png" alt="07-exited.png" loading="lazy">
+    <figcaption><span>07-exited</span><span>66 KB</span></figcaption></figure>
+    <figure><img src="shots/06-cornering.png" alt="06-cornering.png" loading="lazy">
+    <figcaption><span>06-cornering</span><span>54 KB</span></figcaption></figure>
+    <figure><img src="shots/05-driving.png" alt="05-driving.png" loading="lazy">
+    <figcaption><span>05-driving</span><span>56 KB</span></figcaption></figure>
+    <figure><img src="shots/04-in-vehicle.png" alt="04-in-vehicle.png" loading="lazy">
+    <figcaption><span>04-in-vehicle</span><span>54 KB</span></figcaption></figure>
+    <figure><img src="shots/03-near-vehicle.png" alt="03-near-vehicle.png" loading="lazy">
+    <figcaption><span>03-near-vehicle</span><span>56 KB</span></figcaption></figure>
+    <figure><img src="shots/02-running.png" alt="02-running.png" loading="lazy">
+    <figcaption><span>02-running</span><span>69 KB</span></figcaption></figure>
+    <figure><img src="shots/01-onfoot.png" alt="01-onfoot.png" loading="lazy">
+    <figcaption><span>01-onfoot</span><span>65 KB</span></figcaption></figure></div>
+
+
+
+<h2>Notes</h2>
+<p class="muted">This container renders through SwiftShader (software). Frame rate is never
+reported anywhere in this project; every metric above is either frame-rate independent or
+measured against simulated time. Map data © OpenStreetMap contributors (ODbL).</p>
+</main>

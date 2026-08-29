@@ -434,7 +434,7 @@ const grassSurface = {
     drawField(g, S, 24, fbm(24, 3, 3, rand), (v, d, i) => {
       d[i] = 110 + v * 70; d[i + 1] = 130 + v * 60; d[i + 2] = 60 + v * 40; d[i + 3] = 255;
     }, 0.5, 'overlay');
-    for (let i = 0; i < 14000; i++) {
+    for (let i = 0; i < 8000; i++) {
       const x = rand() * S, y = rand() * S, a = rand() * TAU, len = 3 + rand() * 6;
       const h = 78 + rand() * 34, s = 22 + rand() * 26, l = 20 + rand() * 24;
       g.strokeStyle = hsl(h, s, l, 0.5 + rand() * 0.4);
@@ -874,7 +874,7 @@ const gravelRoofSurface = {
   paintAlbedo(g, S, rand) {
     g.fillStyle = '#5c574d'; g.fillRect(0, 0, S, S);
     drawField(g, S, 32, fbm(32, 4, 3, rand), greyField(0.5, 1.0), 0.4, 'overlay');
-    for (let i = 0; i < 5200; i++) {                       // ballast
+    for (let i = 0; i < 3400; i++) {                       // ballast
       const x = rand() * S, y = rand() * S, r = 1.6 + rand() * 3.6;
       const v = 96 + rand() * 96, warm = rand() * 22;
       g.fillStyle = `rgba(${v + warm},${v + warm * 0.6},${v * 0.92},${0.5 + rand() * 0.45})`;
@@ -885,7 +885,7 @@ const gravelRoofSurface = {
   },
   paintHeight(g, S, rand) {
     g.fillStyle = '#4a4a4a'; g.fillRect(0, 0, S, S);
-    for (let i = 0; i < 5200; i++) {
+    for (let i = 0; i < 3400; i++) {
       const x = rand() * S, y = rand() * S, r = 1.6 + rand() * 3.6;
       const v = 150 + rand() * 100;
       g.fillStyle = `rgb(${v},${v},${v})`;
@@ -951,7 +951,7 @@ export const MARKINGS = {
 const MARKING_COLUMNS = 8;
 const MARKING_COL_PX = 256;
 const MARKING_H_PX = 256;      // one column height == 8 m of road
-const MARKING_GUARD = 0.035;   // transparent margin so mip levels bleed nothing
+const MARKING_GUARD = 5 / MARKING_COL_PX;  // transparent margin so mips bleed nothing
 
 const WHITE = 'rgba(240,238,228,';
 const YELLOW = 'rgba(232,186,58,';
@@ -981,7 +981,7 @@ function paintMarkingAtlas(rand) {
   // column addresses — a tiling asphalt texture cannot express them.
   const carriageway = (x0, lanes) => {
     g.fillStyle = 'rgba(28,28,30,0.20)';
-    g.fillRect(x0, 0, 10, H); g.fillRect(x0 + MARKING_COL_PX - 10, 0, 10, H);
+    g.fillRect(x0 + 5, 0, 12, H); g.fillRect(x0 + MARKING_COL_PX - 17, 0, 12, H);
     const lw = MARKING_COL_PX / lanes;
     for (let l = 0; l < lanes; l++) {
       for (const t of [0.3, 0.7]) {
@@ -996,8 +996,8 @@ function paintMarkingAtlas(rand) {
   };
   const edgeLines = (x0, w) => {
     g.fillStyle = WHITE + '0.85)';
-    g.fillRect(x0 + 9, 0, w, H);
-    g.fillRect(x0 + MARKING_COL_PX - 9 - w, 0, w, H);
+    g.fillRect(x0 + 8, 0, w, H);
+    g.fillRect(x0 + MARKING_COL_PX - 8 - w, 0, w, H);
   };
   const dashes = (x, w, style, onPx, offPx, phase = 0) => {
     g.fillStyle = style;
@@ -1039,14 +1039,14 @@ function paintMarkingAtlas(rand) {
   {
     const x0 = col(4);
     g.fillStyle = WHITE + '0.86)';
-    for (let i = 0; i < 8; i++) g.fillRect(x0 + 8 + i * 30, 0, 17, H);
+    for (let i = 0; i < 8; i++) g.fillRect(x0 + 7 + i * 30, 0, 17, H);
     wear(x0, MARKING_COL_PX);
   }
   // 5: stop bar. One bar per column, so the caller scales v to the segment.
   {
     const x0 = col(5);
     g.fillStyle = WHITE + '0.86)';
-    g.fillRect(x0 + 9, H * 0.10, MARKING_COL_PX - 18, H * 0.09);
+    g.fillRect(x0 + 8, H * 0.10, MARKING_COL_PX - 16, H * 0.09);
     wear(x0, MARKING_COL_PX);
   }
   // 6 / 7: lane arrows. The column is ONE lane wide here, not the carriageway.
@@ -1325,70 +1325,68 @@ export class MaterialRegistry {
       rough = luminanceField(rc, D);
     }
     const px = sobelNormalRough(height, rough, D, surface.normalStrength * D * 0.02);
-    flipRows(px, D, D);      // DataTexture has flipY off; CanvasTexture has it on
-    const normal = new THREE.DataTexture(px, D, D, THREE.RGBAFormat);
-    normal.wrapS = normal.wrapT = THREE.RepeatWrapping;
-    normal.minFilter = THREE.LinearMipmapLinearFilter;
-    normal.magFilter = THREE.LinearFilter;
-    normal.generateMipmaps = true;
-    normal.needsUpdate = true;
-    this._track(normal, D, D);
+    const normal = this._normalTexture(px, D);
     return { albedo, normal, packedRough: !!rough };
   }
 
-  _groundMaterial(key, surface, extra = {}) {
-    const maps = this._groundMaps(key, surface);
+  // Normal maps ship as DataTextures, not CanvasTextures, because the roughness
+  // rides in the alpha channel and canvas 2D would premultiply it into the RGB.
+  _normalTexture(px, size) {
+    flipRows(px, size, size);   // DataTexture has flipY off; CanvasTexture has it on
+    const t = new THREE.DataTexture(new Uint8Array(px.buffer), size, size, THREE.RGBAFormat);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.minFilter = THREE.LinearMipmapLinearFilter;
+    t.magFilter = THREE.LinearFilter;
+    t.generateMipmaps = true;
+    t.needsUpdate = true;
+    return this._track(t, size, size);
+  }
+
+  // Materials are never cloned: Material.clone() does not carry onBeforeCompile
+  // or customProgramCacheKey, so a cloned material silently loses its patches and
+  // renders with the wrong UVs. Variants are built from the same cached maps.
+  _groundMaterial(key, maps, tileMetres, extra = {}) {
     const m = new THREE.MeshStandardMaterial({
       map: maps.albedo,
       normalMap: maps.normal,
       normalScale: new THREE.Vector2(1, 1),
-      roughness: surface.roughness ?? 1,
-      metalness: 0.0,
+      roughness: 1, metalness: 0.0,
       ...extra,
     });
-    applyPlanarUV(m, 1 / (extra.tileMetres ?? surface.tile));
+    applyPlanarUV(m, 1 / tileMetres);
     if (maps.packedRough) applyPackedRoughness(m);
-    delete m.tileMetres;
     return this._put(key, m);
   }
 
   _buildGround() {
-    this._groundMaterial('road', asphaltSurface);
-    this._groundMaterial('sidewalk', sidewalkSurface);
-    this._groundMaterial('parkingLot', parkingSurface);
-    this._groundMaterial('grass', grassSurface);
-    this._groundMaterial('dirt', dirtSurface);
-    this._groundMaterial('sand', sandSurface);
-
-    // Kerbs are vertical faces as much as horizontal ones, so they keep mesh UVs
-    // and a plain repeat instead of the world-planar patch.
-    const maps = this._groundMaps('concrete', concreteSurface);
-    maps.albedo.repeat.set(1 / concreteSurface.tile, 1 / concreteSurface.tile);
-    maps.normal.repeat.copy(maps.albedo.repeat);
-    const kerb = new THREE.MeshStandardMaterial({
-      map: maps.albedo, normalMap: maps.normal, color: 0xd8d4cb,
-      roughness: 1, metalness: 0,
-    });
-    applyPackedRoughness(kerb);
-    this._put('kerb', kerb);
-
-    const painted = kerb.clone();
-    painted.color.setHex(0xe8b53a);       // faded yellow kerb paint over concrete
-    painted.roughness = 0.86;
-    applyPackedRoughness(painted);
-    this._put('kerbPainted', painted);
-
-    const concrete = kerb.clone();
-    concrete.color.setHex(0xc4c0b6);
-    applyPackedRoughness(concrete);
-    this._put('concrete', concrete);
+    const maps = {};
+    for (const [key, s] of Object.entries({
+      road: asphaltSurface, sidewalk: sidewalkSurface, parkingLot: parkingSurface,
+      grass: grassSurface, dirt: dirtSurface, sand: sandSurface, concrete: concreteSurface,
+    })) {
+      maps[key] = this._groundMaps(key, s);
+      if (key !== 'concrete') this._groundMaterial(key, maps[key], s.tile, { roughness: s.roughness ?? 1 });
+    }
 
     // The district's land pad: bare urban ground between roads and footprints.
-    const land = this._materials.get('dirt').clone();
-    land.color.setHex(0x9fa08c);
-    applyPlanarUV(land, 1 / 7);
-    applyPackedRoughness(land);
-    this._put('land', land);
+    // Same maps as dirt, greyer and at a coarser repeat so the two do not read as
+    // one continuous surface where they meet.
+    this._groundMaterial('land', maps.dirt, 7, { color: 0x9fa08c, roughness: 0.97 });
+
+    // Kerbs are vertical faces as much as horizontal ones, so world-planar XZ
+    // would smear them: they keep mesh UVs and a plain repeat.
+    const c = maps.concrete;
+    c.albedo.repeat.set(1 / concreteSurface.tile, 1 / concreteSurface.tile);
+    c.normal.repeat.copy(c.albedo.repeat);
+    for (const [key, color, rough] of [
+      ['kerb', 0xd8d4cb, 1], ['kerbPainted', 0xe8b53a, 0.9], ['concrete', 0xc4c0b6, 1],
+    ]) {
+      const m = new THREE.MeshStandardMaterial({
+        map: c.albedo, normalMap: c.normal, color, roughness: rough, metalness: 0,
+      });
+      applyPackedRoughness(m);
+      this._put(key, m);
+    }
   }
 
   // -------------------------------------------------------------- markings
@@ -1456,7 +1454,7 @@ export class MaterialRegistry {
 
   _surfaceMaterial(key, layerBias, extra = {}) {
     const m = new THREE.MeshStandardMaterial({
-      map: this._stub, normalMap: this._stub, roughnessMap: this._stub,
+      map: this._stub, normalMap: this._stub,
       normalScale: new THREE.Vector2(1, 1),
       roughness: 1, metalness: 0, ...extra,
     });
@@ -1502,14 +1500,7 @@ export class MaterialRegistry {
     g.fillStyle = '#808080'; g.fillRect(0, 0, D, D);
     drawField(g, D, 32, fbm(32, 4, 4, rand), greyField(0.2, 0.8), 1);
     drawField(g, D, 64, fbm(64, 8, 3, rand), greyField(0.35, 0.65), 0.5);
-    const px = sobelNormalRough(luminanceField(hc, D), null, D, 1.4);
-    flipRows(px, D, D);
-    const normal = new THREE.DataTexture(px, D, D, THREE.RGBAFormat);
-    normal.wrapS = normal.wrapT = THREE.RepeatWrapping;
-    normal.minFilter = THREE.LinearMipmapLinearFilter;
-    normal.generateMipmaps = true;
-    normal.needsUpdate = true;
-    this._track(normal, D, D);
+    const normal = this._normalTexture(sobelNormalRough(luminanceField(hc, D), null, D, 1.4), D);
 
     // Verano Bay is shallow Gulf water over sand: green, not navy, and it is the
     // sky reflection that carries it, so scene.environment matters here.
@@ -1539,15 +1530,9 @@ export class MaterialRegistry {
       rg.fillStyle = `rgba(190,190,190,${0.1 + rand() * 0.25})`;
       rg.fillRect(x, 0, 1 + rand() * 4, D);
     }
-    const px = sobelNormalRough(luminanceField(hc, D), luminanceField(rc, D), D, 0.6);
-    flipRows(px, D, D);
-    const grime = new THREE.DataTexture(px, D, D, THREE.RGBAFormat);
-    grime.wrapS = grime.wrapT = THREE.RepeatWrapping;
-    grime.minFilter = THREE.LinearMipmapLinearFilter;
-    grime.generateMipmaps = true;
-    grime.needsUpdate = true;
+    const grime = this._normalTexture(
+      sobelNormalRough(luminanceField(hc, D), luminanceField(rc, D), D, 0.6), D);
     grime.repeat.set(0.5, 0.5);
-    this._track(grime, D, D);
 
     // Two glazing options on purpose. `glassTinted` is opaque and therefore
     // mergeable and sortable-free; use it for anything that ships in a chunk.

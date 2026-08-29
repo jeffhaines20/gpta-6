@@ -11,6 +11,10 @@
 
 import * as THREE from '../vendor/three.module.min.js';
 import { extrudeFootprint, ribbon } from './geom.js';
+import {
+  getMaterials, wallFamilyFor, roofFor, markingForEdge, applyMarkingUV,
+  SURFACE_LAYERS, SURFACE_TINTS,
+} from './materials.js';
 
 export const LOD = { NEAR: 0, FAR: 1 };
 
@@ -28,7 +32,10 @@ export class StreamingWorld {
     this.queue = [];
     this.stats = { loads: 0, unloads: 0, lodSwaps: 0, worstBuildMs: 0, lastBuildMs: 0, queued: 0 };
 
-    this.materials = opts.materials ?? defaultMaterials();
+    // One shared registry for the whole district: N buildings share M materials,
+    // and M is a number the budget gate can hold.
+    this.registry = opts.registry ?? getMaterials(opts.materialOpts);
+    this.materials = opts.materials ?? this.registry.streamingMaterials();
     this.root = new THREE.Group();
     this.root.name = 'district';
     scene.add(this.root);
@@ -158,9 +165,20 @@ export class StreamingWorld {
 
     // --- buildings, all merged into one geometry
     if (chunk.buildings.length) {
-      const pos = [], nrm = [], uv = [], idx = [];
+      const pos = [], nrm = [], uv = [], idx = [], layer = [], col = [];
+      // Walls and roof get different surface families, so the vertex streams are
+      // filled per sub-range rather than per building.
+      const tag = (from, to, family, tintName) => {
+        const li = SURFACE_LAYERS.indexOf(family);
+        const hex = SURFACE_TINTS[family][tintName] ?? Object.values(SURFACE_TINTS[family])[0];
+        const r = ((hex >> 16) & 255) / 255, g = ((hex >> 8) & 255) / 255, bl = (hex & 255) / 255;
+        for (let v = from; v < to; v++) { layer.push(li); col.push(r, g, bl); }
+      };
       for (const bi of chunk.buildings) {
         const b = this.d.buildings[bi];
+        const wall = wallFamilyFor(b, bi);
+        const roof = roofFor(b, bi);
+        const before = pos.length / 3;
         if (lod === LOD.NEAR) {
           extrudeFootprint(b.p, b.h, pos, nrm, uv, idx);
         } else {
@@ -173,12 +191,20 @@ export class StreamingWorld {
           }
           extrudeFootprint([[x0, z0], [x1, z0], [x1, z1], [x0, z1]], b.h, pos, nrm, uv, idx);
         }
+        // extrudeFootprint appends walls first, then exactly one roof vertex per
+        // footprint point — so the roof is the last ring.length vertices.
+        const after = pos.length / 3;
+        const roofVerts = lod === LOD.NEAR ? b.p.length : 4;
+        tag(before, after - roofVerts, wall.family, wall.tint);
+        tag(after - roofVerts, after, roof.family, roof.tint);
       }
       if (pos.length) {
         const geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
         geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
         geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+        geo.setAttribute('aLayer', new THREE.Float32BufferAttribute(layer, 1));
+        geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
         geo.setIndex(idx);
         geo.computeBoundingSphere();
         const mesh = new THREE.Mesh(geo, this.materials.building[lod]);
@@ -195,7 +221,11 @@ export class StreamingWorld {
       for (const ei of chunk.edges) {
         const e = this.d.edges[ei];
         const pts = e.v.map((vi) => this.d.verts[vi]);
+        const vStart = pos.length / 3;
         ribbon(pts, e.w, this.groundY + 0.02, pos, nrm, uv, idx);
+        // ribbon() writes u across the carriageway and v as metres along it;
+        // remap u into this edge's column of the marking atlas.
+        applyMarkingUV(uv, vStart, pos.length / 3 - vStart, markingForEdge(e), { vRepeat: 1 });
       }
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -203,7 +233,7 @@ export class StreamingWorld {
       geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
       geo.setIndex(idx);
       geo.computeBoundingSphere();
-      const mesh = new THREE.Mesh(geo, this.materials.road);
+      const mesh = new THREE.Mesh(geo, this.materials.markings ?? this.materials.road);
       mesh.receiveShadow = true;
       group.add(mesh);
     }
@@ -222,6 +252,7 @@ export class StreamingWorld {
     return {
       chunksLoaded: this.loaded.size, lodNear: lods[0], lodFar: lods[1],
       meshes, triangles: Math.round(tris), ...this.stats,
+      materials: this.registry ? this.registry.report() : null,
     };
   }
 }
