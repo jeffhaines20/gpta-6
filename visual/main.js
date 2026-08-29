@@ -69,7 +69,7 @@ Object.assign(sun.shadow.camera, { left: -S, right: S, top: S, bottom: -S, near:
 sun.shadow.bias = -0.0006;
 sun.shadow.normalBias = 0.03;
 scene.add(sun, sun.target);
-scene.add(new THREE.HemisphereLight(0x9fb4dc, 0x342e28, 0.95));
+scene.add(new THREE.HemisphereLight(0x9fb4dc, 0x3d3730, 1.5));
 
 // ------------------------------------------------------------------ materials
 const roadMat = new THREE.MeshStandardMaterial({
@@ -257,7 +257,7 @@ function lampPost(x, z, flip) {
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.22, 0.44),
     new THREE.MeshStandardMaterial({ color: 0x1e2126, emissive: 0xffd9a0, emissiveIntensity: 2.6, roughness: 0.4 }));
   head.position.set(flip * 2.5, 7.86, 0); g.add(head);
-  const l = new THREE.PointLight(0xffc98a, 26, 26, 2);
+  const l = new THREE.PointLight(0xffc98a, 520, 34, 2);
   l.position.set(flip * 2.5, 7.5, 0);
   g.add(l);
   g.position.set(x, 0.22, z);
@@ -283,7 +283,7 @@ function trafficLight(x, z, rot) {
       new THREE.MeshStandardMaterial({ color: i === on ? col : 0x14161a, emissive: i === on ? col : 0x000000, emissiveIntensity: 3.2 }));
     b.position.set(4.1 - 0.2, 5.4 + dy, 0);
     g.add(b);
-    if (i === on) { const pl = new THREE.PointLight(col, 4.5, 9, 2); pl.position.set(3.7, 5.4 + dy, 0); g.add(pl); }
+    if (i === on) { const pl = new THREE.PointLight(col, 90, 14, 2); pl.position.set(3.7, 5.4 + dy, 0); g.add(pl); }
   });
   g.position.set(x, 0.22, z); g.rotation.y = rot;
   return g;

@@ -4,10 +4,16 @@
 100% procedurally generated assets, GitHub Pages deployable.
 **Probe date:** 2026-08-29 · **Time-boxed:** ~45 min
 
-**Bottom line:** the coupled core works and the visual bar is reachable *for GTA V-era
-quality*, not GTA VI trailer quality. Two of the five risks below are already
-confirmed rather than hypothetical — I hit them during this probe. Section 5 lists
-what I now believe should be cut from the spec.
+**Bottom line:** the coupled core works and is not the risk. A blind critic scored the
+visual sample **"below GTA V, above hobby placeholder"**, and independently reached the
+same conclusion I did — the GTA VI trailer bar is not reachable in a browser, and the
+spec should be retargeted to GTA V-on-PC. Three of the five risks below are confirmed
+rather than hypothetical: I hit them during this probe. Estimated Phase 2 effort is
+**~275–415 focused hours**. Section 5 lists what I think should be cut.
+
+**Reproduce everything here:** `npm run serve`, then `npm run test:physics`
+(deterministic vehicle rig, no browser) and `npm run probe` (drives the live page
+through Playwright and writes the screenshots).
 
 ---
 
@@ -66,7 +72,7 @@ the player controller (feel is not decomposable).
 Ranked by expected damage. **Risks 1 and 3 are confirmed** — I hit them in this probe.
 
 ### Risk 1 — Draw-call ceiling, not triangle count *(CONFIRMED)*
-One street corner already costs **545 draw calls / 631 geometries** for only 8,514
+One street corner already costs **568 draw calls / 633 geometries** for only 8,790
 triangles. Triangles are a non-issue; **submission cost is the wall**. A dense district
 is 50–100× this corner. At ~2,000 draw calls most browsers fall off 60 fps regardless
 of GPU.
@@ -116,6 +122,17 @@ and it is always discovered late.
 worst case (max traffic + active pursuit + streaming churn) from week one, long before
 the mission exists. Keep a **written cut list** ordered in advance (see §5) so that
 descoping is a decision, not a panic.
+
+### Risk 6 (added after the critic round) — mis-tuned parameters read as missing features
+A blind visual critique confidently attributed a wrong light-intensity constant to an
+entirely absent lighting subsystem, and priced the "fix" at 3–4 engineer-weeks. The real
+fix was one number. In a project where visual review is the main quality signal, this
+failure mode is expensive in both directions — it can send builders to rewrite working
+systems, and it can hide genuine gaps behind plausible-sounding ones.
+**Mitigation:** every visual critique is paired with a **scene-graph audit** (what is
+actually enabled, how many lights, how many shadow casters, which materials) before any
+work is scheduled off it. The audit for this probe took two minutes and overturned three
+of the critic's six findings.
 
 **Also watched, below the top five:** total payload on GitHub Pages (three.js is already
 2.0 MB unminified, and no build step means no bundler); WebGL context loss on long
@@ -188,7 +205,83 @@ profiled like any other**, and the naive readback approach is a trap.
 
 ### Blind critic verdict
 
-<!--CRITIC-->
+A fresh-context agent was given **only the image** — no code, no engine, no origin — and
+asked to judge it against GTA VI trailer footage and GTA V on PC. It anchored its
+comparison to the Trailer 1 night tracking shot down the neon hotel strip and to
+Trailer 2's dusk skyline shot, and it verified its impressions with pixel measurements
+rather than eyeballing.
+
+> ### Verdict: **"Below GTA V, above hobby placeholder."**
+
+> **Largest gap named:** *"Light sources are emissive geometry only. There is no punctual
+> light accumulation pass — nothing in this scene emits radiance onto anything else."*
+> It backed this by sampling sidewalk luminance in 20 px steps directly beneath two lamp
+> posts and finding it flat (43–59, consistent with albedo noise), with **zero pooling**
+> under either lamp — "a 250-nit emitter that leaves the surface next to it completely
+> unlit." Its argument for why this outranks everything: in a night city scene the local
+> lights *are* the image, and without them "you do not have a night scene; you have a
+> daytime ambient render that has been dimmed."
+
+**Next five gaps, in its priority order:** no shadow casting (sun or local); no
+atmospheric scattering, leaving a razor-sharp world edge and no aerial perspective;
+purely Lambert materials with no specular or reflections; no HDR pipeline (no tonemap,
+no bloom, 11.2% of the frame crushed at luminance ≤ 4, visible sky banding); and
+near-zero scene density with an untextured box for a vehicle. Just below the cut: edge
+and texture aliasing that "will crawl violently in motion."
+
+**What it said already works:** the colour script ("a real complementary dusk palette…
+the colour decision itself is a professional one"), the facade window treatment
+("the closest to shippable… does not read as an obvious tile"), and the camera and
+street proportions ("this frame is *composed*, not just captured… the one thing you
+cannot buy with engineer-weeks").
+
+**Effort read:** ~30–40 engineer-weeks for a team of four to bring *one frame* to GTA V
+parity; the actual GTA V bar, 250–500+ engineer-weeks. On GTA VI in a browser its answer
+was a flat **no** — not because the browser is slow (it notes WebGPU makes the GTA V-class
+feature set entirely practical today) but for structural reasons: no hardware ray tracing
+exposed to the web, GPU memory ceilings, and the download bandwidth a city at that asset
+density would require.
+
+### Where the critic was wrong — and what testing it revealed
+
+Three of its six findings assert that features are **absent** which are in fact present
+and enabled. I audited the live scene graph rather than take either side on faith:
+
+| Critic's claim | Audited reality |
+|---|---|
+| "No punctual light accumulation pass" | **10 `PointLight`s** in the scene |
+| "No shadow casting of any kind" | Shadow maps **enabled**, 2048², **478 casters / 162 receivers** |
+| "Purely Lambert materials — no specular, no reflections" | **1,707 PBR (GGX) materials**, 1,266 metallic, **PMREM env map** from the procedural sky |
+| "No HDR pipeline — no tonemap" | **ACES filmic** tone mapping, exposure 1.35 |
+
+So the critic's *observations* were accurate and its *measurements* were real — no light
+was landing on that sidewalk — but its *diagnosis* was wrong. The features existed and
+were mis-tuned. The street lamps were set to intensity 26 with decay 2; three.js uses
+physical light units, so at ~7.5 m that delivers essentially nothing.
+
+I tested the hypothesis directly by multiplying point-light intensity by 20 at runtime
+and re-rendering. Wet-asphalt specular pooling, lamp falloff across the sidewalk, and
+warm spill onto the facades all appeared immediately — the exact phenomena the critic
+had called structurally impossible. The fix is now applied to the scene:
+
+![Street corner after the lighting fix](docs/shots/visual-street-corner-lit.png)
+*After: street lamps at correct physical intensity, hemisphere fill raised to
+un-crush the shadows. Compare with the frame in the section above.*
+
+**Why this matters more than the verdict does.** A blind critic reasoning only from
+pixels will confidently attribute a mis-tuned parameter to a missing subsystem, and the
+two have wildly different costs — one is a constant, the other is the 3–4 engineer-weeks
+it priced "clustered/forward+ local lights" at. **The lesson for Phase 2 is to pair every
+blind visual critique with a scene-graph audit before acting on it**, or the project will
+spend weeks rebuilding renderer features it already has.
+
+The verdict itself I accept: **below GTA V, above hobby placeholder** is a fair reading
+of the "before" frame. The remaining gaps it named that are genuinely absent — atmospheric
+scattering and aerial perspective, bloom, SSAO, TAA, and above all **scene density** — are
+real, correctly prioritised, and go straight into the Phase 2 plan. Its density point is
+the one I would weight highest, and it agrees with Risk 1 from the opposite direction:
+the frame needs far more objects, and the renderer currently spends 568 draw calls on
+almost none.
 
 ---
 
@@ -232,20 +325,22 @@ Units are *focused engineering hours* — the probe's own unit. A small human te
 | Day/night, weather, atmosphere | PAR | 12 |
 | Procedural audio (engine, tyres, sirens, ambience, music) | PAR | 14 |
 | HUD, minimap, menus | PAR | 8 |
-| Post-processing stack | SEQ | 8 |
+| Post-processing: HDR chain, bloom, SSAO, TAA | SEQ | 14 |
+| Atmospherics the critic flagged as genuinely missing (height fog, aerial perspective) | PAR | 6 |
 | **Performance work — instancing, atlasing, culling** | SEQ | 20 |
 | Integration, tuning, bug-fix, art-direction pass | all | 30 |
-| **Subtotal** | | **264** |
-| Uncertainty allowance (×1.5, driven by Risks 1 and 5) | | **~400** |
+| **Subtotal** | | **276** |
+| Uncertainty allowance (×1.5, driven by Risks 1 and 5) | | **~415** |
 
-**Estimate: 260 h if things go well, ~400 h realistically.** Confidence is moderate
+**Estimate: ~275 h if things go well, ~415 h realistically.** Confidence is moderate
 for the simulation half (I have measurements) and low for streaming and traffic
 (I have none — nothing in this probe touched either).
 
 ### Changes I recommend to the project spec
 
 **1. Retarget the visual bar from "GTA VI trailer" to "GTA V on PC." — recommended cut.**
-This is the one spec change I would push hardest for. The trailer's look rests on
+This is the one spec change I would push hardest for, and the blind critic reached the
+same conclusion independently from the image alone. The trailer's look rests on
 offline-baked global illumination, virtualised geometry, volumetric atmospherics and a
 deferred renderer with a full post stack — none of which are available at playable frame
 rates in WebGL2 in a browser tab. GTA V-on-PC is a defensible, reachable target and is
