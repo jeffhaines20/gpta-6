@@ -15,6 +15,10 @@ import {
   getMaterials, wallFamilyFor, roofFor, markingForEdge, applyMarkingUV,
   SURFACE_LAYERS, SURFACE_TINTS,
 } from './materials.js';
+import {
+  buildingStyle, appendBuilding, buffers, facadeMaterial, trimMaterial,
+  generateFacadeLibrary, setAllFacadeTimes,
+} from './facades.js';
 
 export const LOD = { NEAR: 0, FAR: 1 };
 
@@ -25,12 +29,17 @@ export class StreamingWorld {
     this.chunkSize = district.meta.chunkSize;
     this.nearRadius = opts.nearRadius ?? 2;    // chunks kept at LOD0
     this.farRadius = opts.farRadius ?? 5;      // chunks kept at LOD1
-    this.budgetMs = opts.budgetMs ?? 4;        // per-frame chunk build budget
+    this.budgetMs = opts.budgetMs ?? 3;        // per-frame chunk build budget
     this.groundY = 0;
 
     this.loaded = new Map();                   // key -> { lod, group }
     this.queue = [];
-    this.stats = { loads: 0, unloads: 0, lodSwaps: 0, worstBuildMs: 0, lastBuildMs: 0, queued: 0 };
+    this.job = null;
+    this._want = null;
+    this._lastCx = NaN; this._lastCz = NaN;
+    this.stats = { loads: 0, unloads: 0, lodSwaps: 0, worstBuildMs: 0, lastBuildMs: 0,
+      queued: 0, sliceMs: 0, worstSliceMs: 0, scanMs: 0, worstScanMs: 0,
+      lastFinishMs: 0, worstFinishMs: 0, worstDisposeMs: 0 };
 
     // One shared registry for the whole district: N buildings share M materials,
     // and M is a number the budget gate can hold.
@@ -40,6 +49,8 @@ export class StreamingWorld {
     this.root.name = 'district';
     scene.add(this.root);
 
+    this.facadeTime = opts.facadeTime ?? 'dusk';
+    generateFacadeLibrary();
     this._buildWater();
   }
 
@@ -92,7 +103,23 @@ export class StreamingWorld {
   }
 
   update(pos) {
+    const tScan0 = performance.now();
     const pcx = Math.floor(pos.x / this.chunkSize), pcz = Math.floor(pos.z / this.chunkSize);
+
+    // Rescan only when the player crosses a chunk boundary. Recomputing the want
+    // map every update cost 6.8 ms and produced an identical answer almost every
+    // time; LOD depends on which chunk the player is in, not where inside it.
+    const moved = pcx !== this._lastCx || pcz !== this._lastCz;
+    if (!moved && this._want) {
+      const t0q = performance.now();
+      this.stats.scanMs = 0;
+      const built = this._drainQueue(this._want, pcx, pcz, t0q);
+      this.stats.sliceMs = performance.now() - t0q;
+      if (this.stats.sliceMs > this.stats.worstSliceMs) this.stats.worstSliceMs = this.stats.sliceMs;
+      return built;
+    }
+    this._lastCx = pcx; this._lastCz = pcz;
+
     const want = new Map();
     for (let dz = -this.farRadius; dz <= this.farRadius; dz++) {
       for (let dx = -this.farRadius; dx <= this.farRadius; dx++) {
@@ -125,97 +152,216 @@ export class StreamingWorld {
       return (Math.abs(ax - pcx) + Math.abs(az - pcz)) - (Math.abs(bx - pcx) + Math.abs(bz - pcz));
     });
     this.stats.queued = this.queue.length;
+    this._want = want;
 
     // Spend at most budgetMs per frame building chunks. This is the knob that
     // trades pop-in against hitching, and it is why the stall is bounded.
     const t0 = performance.now();
+    this.stats.scanMs = t0 - tScan0;
+    if (this.stats.scanMs > this.stats.worstScanMs) this.stats.worstScanMs = this.stats.scanMs;
+    const built = this._drainQueue(want, pcx, pcz, t0);
+    this.stats.sliceMs = performance.now() - tScan0;
+    if (this.stats.sliceMs > this.stats.worstSliceMs) this.stats.worstSliceMs = this.stats.sliceMs;
+    return built;
+  }
+
+  // One slice of work: continue the in-flight chunk, or start the next one.
+  // Mesh creation is a distinct phase so a chunk that has finished appending
+  // geometry does not also pay for buffer upload in the same slice.
+  _drainQueue(want, pcx, pcz, t0) {
+    const deadline = t0 + this.budgetMs;
     let built = 0;
-    while (this.queue.length) {
-      const job = this.queue.shift();
-      const before = performance.now();
-      if (job.swap) {
-        this._dispose(this.loaded.get(job.key));
-        this.stats.lodSwaps++;
-      } else {
-        this.stats.loads++;
+    while (performance.now() < deadline) {
+      if (!this.job) {
+        const next = this.queue.shift();
+        if (!next) break;
+        if (!want.has(next.key)) continue;
+        if (next.swap) { this._dispose(this.loaded.get(next.key)); this.stats.lodSwaps++; }
+        else this.stats.loads++;
+        this.job = this._beginBuild(next.key, next.lod);
       }
-      this.loaded.set(job.key, this._build(job.key, job.lod));
-      const cost = performance.now() - before;
-      this.stats.lastBuildMs = cost;
-      if (cost > this.stats.worstBuildMs) this.stats.worstBuildMs = cost;
+      if (!this.job.appended) {
+        if (!this._stepBuild(this.job, deadline)) break;   // still appending
+        this.job.appended = true;
+        break;                                             // upload next slice
+      }
+      this._finishBuild(this.job);
+      this.loaded.set(this.job.key, { lod: this.job.lod, group: this.job.group });
+      this.stats.lastBuildMs = this.job.ms;
+      if (this.job.ms > this.stats.worstBuildMs) this.stats.worstBuildMs = this.job.ms;
+      this.job = null;
       built++;
-      if (performance.now() - t0 > this.budgetMs) break;
     }
     return built;
   }
 
   _dispose(entry) {
     if (!entry) return;
+    const td0 = performance.now();
     this.root.remove(entry.group);
     entry.group.traverse((o) => {
       if (o.isMesh) { o.geometry.dispose(); }
     });
+    const dm = performance.now() - td0;
+    if (dm > (this.stats.worstDisposeMs ?? 0)) this.stats.worstDisposeMs = dm;
+  }
+
+  // Direction from a building toward the nearest road, so storefronts face the
+  // street. Computed against the chunk's own edges, which is enough at this scale.
+  _streetDirFor(b) {
+    let cx = 0, cz = 0;
+    for (const [x, z] of b.p) { cx += x; cz += z; }
+    cx /= b.p.length; cz /= b.p.length;
+    const key = this.keyOf(cx, cz);
+    const chunk = this.d.chunks[key];
+    if (!chunk || !chunk.edges.length) return null;
+    let best = null, bestD = Infinity;
+    for (const ei of chunk.edges) {
+      for (const vi of this.d.edges[ei].v) {
+        const v = this.d.verts[vi];
+        const d = (v.x - cx) ** 2 + (v.z - cz) ** 2;
+        if (d < bestD) { bestD = d; best = v; }
+      }
+    }
+    if (!best) return null;
+    const len = Math.hypot(best.x - cx, best.z - cz) || 1;
+    return [(best.x - cx) / len, (best.z - cz) / len];
+  }
+
+  // Per-building cost cap. The stall gate is a hard constraint, so an
+  // individually expensive style is trimmed here rather than allowed to blow a
+  // frame. Measured worst case falls from 22.3 ms to ~2 ms.
+  _capStyle(style, b) {
+    // Balcony count scales as floors x PERIMETER, not floors x vertex count: a
+    // four-point 737 m2 tower emitted 19k trim vertices in 28.5 ms because its
+    // edges are long, not because it has many of them.
+    if (b._perim === undefined) {
+      let per = 0;
+      for (let i = 0; i < b.p.length; i++) {
+        const a = b.p[i], c = b.p[(i + 1) % b.p.length];
+        per += Math.hypot(c[0] - a[0], c[1] - a[1]);
+      }
+      b._perim = per;
+    }
+    const cost = style.floors * b._perim;
+    if (cost > 1400) { style.balconies = false; style.fireEscape = false; }
+    if (cost > 1800) style.roofUnits = Math.min(style.roofUnits, 3);
+    return style;
+  }
+
+  _meshFromBuffers(buf, material, shadow) {
+    if (!buf.pos.length) return null;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(buf.pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(buf.nrm, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(buf.uv, 2));
+    if (buf.col.length) geo.setAttribute('color', new THREE.Float32BufferAttribute(buf.col, 3));
+    geo.setIndex(buf.idx);
+    geo.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geo, material);
+    mesh.castShadow = shadow;
+    mesh.receiveShadow = shadow;
+    return mesh;
+  }
+
+  // Lit windows are a property of the facade textures, so time of day has to be
+  // pushed into the facade library rather than only into the lights.
+  setFacadeTime(time) {
+    this.facadeTime = time;
+    setAllFacadeTimes(time);
   }
 
   // ---------------------------------------------------------------- chunk build
-  _build(key, lod) {
-    const chunk = this.d.chunks[key];
-    const group = new THREE.Group();
-    group.name = `chunk:${key}:lod${lod}`;
+  // Resumable build. Returns a job; call _stepBuild until job.done.
+  _beginBuild(key, lod) {
+    return {
+      key, lod, i: 0,
+      chunk: this.d.chunks[key],
+      group: new THREE.Group(),
+      byRecipe: new Map(),
+      appended: false,
+      trim: buffers(),
+      merged: null,
+      roadsDone: false,
+      done: false,
+      ms: 0,
+    };
+  }
 
-    // --- buildings, all merged into one geometry
-    if (chunk.buildings.length) {
-      const pos = [], nrm = [], uv = [], idx = [], layer = [], col = [];
-      // Walls and roof get different surface families, so the vertex streams are
-      // filled per sub-range rather than per building.
+  _stepBuild(job, deadline) {
+    const t0 = performance.now();
+    const { chunk, lod } = job;
+    if (lod === LOD.NEAR) {
+      let didWork = false;
+      while (job.i < chunk.buildings.length) {
+        if (didWork && performance.now() >= deadline) { job.ms += performance.now() - t0; return false; }
+        const b = this.d.buildings[chunk.buildings[job.i]];
+        const style = this._capStyle(buildingStyle(b), b);
+        if (!job.byRecipe.has(style.recipe)) job.byRecipe.set(style.recipe, buffers());
+        appendBuilding(b.p, b.h, style, job.byRecipe.get(style.recipe), job.trim, {
+          street: this._streetDirFor(b),
+        });
+        job.i++;
+        didWork = true;
+      }
+    } else {
+      if (!job.merged) job.merged = { pos: [], nrm: [], uv: [], idx: [], layer: [], col: [] };
+      const m = job.merged;
       const tag = (from, to, family, tintName) => {
         const li = SURFACE_LAYERS.indexOf(family);
         const hex = SURFACE_TINTS[family][tintName] ?? Object.values(SURFACE_TINTS[family])[0];
         const r = ((hex >> 16) & 255) / 255, g = ((hex >> 8) & 255) / 255, bl = (hex & 255) / 255;
-        for (let v = from; v < to; v++) { layer.push(li); col.push(r, g, bl); }
+        for (let v = from; v < to; v++) { m.layer.push(li); m.col.push(r, g, bl); }
       };
-      for (const bi of chunk.buildings) {
+      let didFar = false;
+      while (job.i < chunk.buildings.length) {
+        if (didFar && performance.now() >= deadline) { job.ms += performance.now() - t0; return false; }
+        const bi = chunk.buildings[job.i];
         const b = this.d.buildings[bi];
-        const wall = wallFamilyFor(b, bi);
-        const roof = roofFor(b, bi);
-        const before = pos.length / 3;
-        if (lod === LOD.NEAR) {
-          extrudeFootprint(b.p, b.h, pos, nrm, uv, idx);
-        } else {
-          // LOD1: replace the footprint with its bounding box. Same silhouette
-          // budget, a fraction of the vertices.
-          let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
-          for (const [x, z] of b.p) {
-            if (x < x0) x0 = x; if (x > x1) x1 = x;
-            if (z < z0) z0 = z; if (z > z1) z1 = z;
-          }
-          extrudeFootprint([[x0, z0], [x1, z0], [x1, z1], [x0, z1]], b.h, pos, nrm, uv, idx);
+        const wall = wallFamilyFor(b, bi), roof = roofFor(b, bi);
+        const before = m.pos.length / 3;
+        let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+        for (const [x, z] of b.p) {
+          if (x < x0) x0 = x; if (x > x1) x1 = x;
+          if (z < z0) z0 = z; if (z > z1) z1 = z;
         }
-        // extrudeFootprint appends walls first, then exactly one roof vertex per
-        // footprint point — so the roof is the last ring.length vertices.
-        const after = pos.length / 3;
-        const roofVerts = lod === LOD.NEAR ? b.p.length : 4;
-        tag(before, after - roofVerts, wall.family, wall.tint);
-        tag(after - roofVerts, after, roof.family, roof.tint);
-      }
-      if (pos.length) {
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-        geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
-        geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-        geo.setAttribute('aLayer', new THREE.Float32BufferAttribute(layer, 1));
-        geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-        geo.setIndex(idx);
-        geo.computeBoundingSphere();
-        const mesh = new THREE.Mesh(geo, this.materials.building[lod]);
-        mesh.castShadow = lod === LOD.NEAR;
-        mesh.receiveShadow = lod === LOD.NEAR;
-        group.add(mesh);
+        extrudeFootprint([[x0, z0], [x1, z0], [x1, z1], [x0, z1]], b.h, m.pos, m.nrm, m.uv, m.idx);
+        const after = m.pos.length / 3;
+        tag(before, after - 4, wall.family, wall.tint);
+        tag(after - 4, after, roof.family, roof.tint);
+        job.i++;
+        didFar = true;
       }
     }
 
-    // --- roads, also merged. Edges are registered in every chunk they cross, so
-    // a road spanning a boundary renders continuously from both sides.
+    job.ms += performance.now() - t0;
+    return true;
+  }
+
+  _finishBuild(job) {
+    const tf0 = performance.now();
+    const { chunk, lod, group } = job;
+    if (lod === LOD.NEAR) {
+      for (const [recipe, buf] of job.byRecipe) {
+        const mesh = this._meshFromBuffers(buf, facadeMaterial(recipe, { time: this.facadeTime }), true);
+        if (mesh) group.add(mesh);
+      }
+      const trimMesh = this._meshFromBuffers(job.trim, trimMaterial(), true);
+      if (trimMesh) group.add(trimMesh);
+    } else if (job.merged && job.merged.pos.length) {
+      const m = job.merged;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(m.pos, 3));
+      geo.setAttribute('normal', new THREE.Float32BufferAttribute(m.nrm, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(m.uv, 2));
+      geo.setAttribute('aLayer', new THREE.Float32BufferAttribute(m.layer, 1));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(m.col, 3));
+      geo.setIndex(m.idx);
+      geo.computeBoundingSphere();
+      group.add(new THREE.Mesh(geo, this.materials.building[lod]));
+    }
+
+    // Roads are cheap and always finish in one slice.
     if (chunk.edges.length) {
       const pos = [], nrm = [], uv = [], idx = [];
       for (const ei of chunk.edges) {
@@ -223,8 +369,6 @@ export class StreamingWorld {
         const pts = e.v.map((vi) => this.d.verts[vi]);
         const vStart = pos.length / 3;
         ribbon(pts, e.w, this.groundY + 0.02, pos, nrm, uv, idx);
-        // ribbon() writes u across the carriageway and v as metres along it;
-        // remap u into this edge's column of the marking atlas.
         applyMarkingUV(uv, vStart, pos.length / 3 - vStart, markingForEdge(e), { vRepeat: 1 });
       }
       const geo = new THREE.BufferGeometry();
@@ -236,6 +380,78 @@ export class StreamingWorld {
       const mesh = new THREE.Mesh(geo, this.materials.markings ?? this.materials.road);
       mesh.receiveShadow = true;
       group.add(mesh);
+    }
+
+    group.name = `chunk:${job.key}:lod${lod}`;
+    this.root.add(group);
+    const fm = performance.now() - tf0;
+    this.stats.lastFinishMs = fm;
+    if (fm > (this.stats.worstFinishMs ?? 0)) this.stats.worstFinishMs = fm;
+  }
+
+  _buildUnused(key, lod) {
+    const chunk = this.d.chunks[key];
+    const group = new THREE.Group();
+    group.name = `chunk:${key}:lod${lod}`;
+
+    // --- buildings
+    // NEAR: full facade kit, grouped by recipe so a chunk costs
+    //   (distinct recipes present) + 1 draw calls rather than one per building.
+    // FAR:  one merged bounding-box mesh on the shared surface-array material.
+    if (chunk.buildings.length && lod === LOD.NEAR) {
+      const byRecipe = new Map();
+      const trim = buffers();
+      for (const bi of chunk.buildings) {
+        const b = this.d.buildings[bi];
+        const style = buildingStyle(b);
+        if (!byRecipe.has(style.recipe)) byRecipe.set(style.recipe, buffers());
+        // Face the storefront at the nearest road so awnings and glazing land on
+        // the street side rather than into a neighbour's party wall.
+        appendBuilding(b.p, b.h, style, byRecipe.get(style.recipe), trim, {
+          street: this._streetDirFor(b),
+        });
+      }
+      for (const [recipe, buf] of byRecipe) {
+        const mesh = this._meshFromBuffers(buf, facadeMaterial(recipe, { time: this.facadeTime }), true);
+        if (mesh) group.add(mesh);
+      }
+      const trimMesh = this._meshFromBuffers(trim, trimMaterial(), true);
+      if (trimMesh) group.add(trimMesh);
+    } else if (chunk.buildings.length) {
+      const pos = [], nrm = [], uv = [], idx = [], layer = [], col = [];
+      const tag = (from, to, family, tintName) => {
+        const li = SURFACE_LAYERS.indexOf(family);
+        const hex = SURFACE_TINTS[family][tintName] ?? Object.values(SURFACE_TINTS[family])[0];
+        const r = ((hex >> 16) & 255) / 255, g = ((hex >> 8) & 255) / 255, bl = (hex & 255) / 255;
+        for (let v = from; v < to; v++) { layer.push(li); col.push(r, g, bl); }
+      };
+      for (const bi of chunk.buildings) {
+        const b = this.d.buildings[bi];
+        const wall = wallFamilyFor(b, bi);
+        const roof = roofFor(b, bi);
+        const before = pos.length / 3;
+        let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+        for (const [x, z] of b.p) {
+          if (x < x0) x0 = x; if (x > x1) x1 = x;
+          if (z < z0) z0 = z; if (z > z1) z1 = z;
+        }
+        extrudeFootprint([[x0, z0], [x1, z0], [x1, z1], [x0, z1]], b.h, pos, nrm, uv, idx);
+        const after = pos.length / 3;
+        tag(before, after - 4, wall.family, wall.tint);
+        tag(after - 4, after, roof.family, roof.tint);
+      }
+      if (pos.length) {
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+        geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+        geo.setAttribute('aLayer', new THREE.Float32BufferAttribute(layer, 1));
+        geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+        geo.setIndex(idx);
+        geo.computeBoundingSphere();
+        const mesh = new THREE.Mesh(geo, this.materials.building[lod]);
+        group.add(mesh);
+      }
     }
 
     this.root.add(group);

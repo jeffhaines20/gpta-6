@@ -31,8 +31,9 @@ const hud = document.getElementById('hud');
 hud.textContent = 'loading district…';
 
 const district = await (await fetch('../data/district.json')).json();
-const world = new StreamingWorld(scene, district, { nearRadius: 2, farRadius: 5, budgetMs: 4 });
+const world = new StreamingWorld(scene, district, { nearRadius: 2, farRadius: 5, budgetMs: 3 });
 const tod = new TimeOfDay(scene, renderer);
+tod.setWorld(world);
 const post = new PostStack(renderer, scene, camera);
 tod.attachPost(post);
 
@@ -142,7 +143,7 @@ function sample(dt) {
     calls: r.calls, tris: r.triangles,
     chunks: w.chunksLoaded, near: w.lodNear, far: w.lodFar,
     loads: w.loads, unloads: w.unloads, swaps: w.lodSwaps,
-    stall: +w.lastBuildMs.toFixed(2),
+    stall: +w.sliceMs.toFixed(2),
     heap: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null,
     x: +vehicle.position.x.toFixed(1), z: +vehicle.position.z.toFixed(1),
     kmh: +(vehicle.speed * 3.6).toFixed(1),
@@ -208,7 +209,7 @@ function animate(now) {
     `${district.meta.city}  ·  ${PRESETS[tod.presetName].label}  ·  ${(vehicle.speed * 3.6).toFixed(0)} km/h\n` +
     `chunks ${w.chunksLoaded} (near ${w.lodNear} / far ${w.lodFar})  draw ${post.stats.totalCalls}  ` +
     `tris ${(post.stats.sceneTriangles / 1000).toFixed(1)}k  post ${post.stats.passes}\n` +
-    `loads ${w.loads}  unloads ${w.unloads}  worst chunk build ${w.worstBuildMs.toFixed(1)}ms` +
+    `loads ${w.loads}  unloads ${w.unloads}  worst slice ${w.worstSliceMs.toFixed(1)}ms  queued ${w.queued}` +
     (traffic ? `  ·  traffic ${traffic.report().alive}` : '') +
     (pursuit ? `  ·  PURSUIT ${pursuit.report().active}` : '');
 

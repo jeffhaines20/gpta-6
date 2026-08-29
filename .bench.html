@@ -1,0 +1,11 @@
+<!doctype html><meta charset=utf-8><body><pre id=o></pre><script type="module">
+import { MaterialRegistry } from '/src/materials.js';
+const runs = [];
+for (let i = 0; i < 3; i++) {
+  const r = new MaterialRegistry({ seed: 1337 });
+  runs.push({ run: i, gen: +r.generationMs.toFixed(1), t: r.timings });
+  r.dispose();
+}
+window.__bench = runs.map(r => JSON.stringify(r));
+document.getElementById('o').textContent = window.__bench.join('\n\n');
+</script></body>

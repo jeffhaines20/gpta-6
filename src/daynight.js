@@ -89,6 +89,10 @@ export class TimeOfDay {
   registerLamp(light, candela) { this.lamps.push({ light, candela }); }
 
   // Preferred over registerLamp: one instanced fixture set plus a nearest-N pool.
+  // The streamer owns the facade library; time of day has to reach it so lit
+  // windows switch with the cycle.
+  setWorld(world) { this.world = world; this.apply(this.presetName); }
+
   setFurniture(furniture, lightPool) {
     this.furniture = furniture;
     this.lightPool = lightPool;
@@ -166,6 +170,7 @@ export class TimeOfDay {
       light.intensity = p.lampsOn ? candela : 0;
     }
     if (this.furniture) this.furniture.setLit(p.lampsOn);
+    if (this.world && this.world.setFacadeTime) this.world.setFacadeTime(name);
     if (this.lightPool) this.lightPool.update({ x: 0, y: 0, z: 0 }, p.lampsOn ? 1 : 0);
     return p;
   }

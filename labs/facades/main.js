@@ -6,6 +6,7 @@
 
 import * as THREE from '../../vendor/three.module.min.js';
 import { TimeOfDay } from '../../src/daynight.js';
+import { PostStack } from '../../src/post.js';
 import {
   RECIPES, RECIPE_NAMES, generateFacadeLibrary, facadeMaterial, trimMaterial,
   trimMaps, trimCell, TRIM, buildingStyle, buffers, appendBuilding, box,
@@ -180,7 +181,7 @@ scene.add(env);
 // straight elevation (for judging the texture itself), and a close 3/4 on the
 // deco block and the tower (for judging reveals, cornices and storefronts).
 const SHOTS = [
-  { pos: [-30, 10.5, 44], look: [rowLength * 0.48, 17, -6], fov: 46 },
+  { pos: [-40, 17, 52], look: [rowLength * 0.44, 20, -10], fov: 44 },
   { pos: [rowLength / 2, 28, 205], look: [rowLength / 2, 22, 0], fov: 40 },
   { pos: [32, 6.5, 31], look: [76, 13, -3], fov: 40 },
 ];
@@ -216,6 +217,31 @@ canvas.addEventListener('wheel', (e) => {
 
 function setShot(i) { shot = i; yaw = pitch = 0; dist = 1; applyShot(); }
 
+// Draw calls are measured from a direct scene render with every mesh in frame,
+// BEFORE the post stack takes over — renderer.info afterwards reports the last
+// fullscreen pass and would flatter the number to 1.
+setShot(1);
+renderer.setSize(1600, 900, false);
+renderer.render(scene, camera);
+const scenePass = {
+  calls: renderer.info.render.calls,
+  triangles: renderer.info.render.triangles,
+  meshes: (() => { let n = 0; scene.traverse((o) => { if (o.isMesh) n++; }); return n; })(),
+};
+
+// The project's HDR chain owns tonemapping, and daynight.js hands it the exposure
+// and bloom settings for the hour. Lit windows only read as emitters once bloom is
+// in, so the lab uses it — but it belongs to another module, so a failure here
+// falls back to rendering straight to the canvas rather than taking the lab down.
+let post = null;
+try {
+  post = new PostStack(renderer, scene, camera);
+  tod.attachPost(post);
+} catch (err) {
+  errors.push('PostStack unavailable: ' + err.message);
+  post = null;
+}
+
 // ------------------------------------------------------------- time of day
 let timeName = 'night';
 function setTime(name) {
@@ -231,6 +257,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key === '4') { setShot(0); draw(); }
   if (e.key === '5') { setShot(1); draw(); }
   if (e.key === '6') { setShot(2); draw(); }
+  if (e.key === 'p' && post) { dropPost(); }
 });
 
 // ----------------------------------------------------------------- reporting
@@ -246,11 +273,13 @@ function stats() {
   });
   return {
     genMs: gen.ms, perRecipeMs: gen.per, chunkBuildMs: +buildMs.toFixed(2),
-    drawCalls: r.render.calls, triangles: r.render.triangles,
+    drawCalls: scenePass.calls, triangles: scenePass.triangles,
+    meshes: scenePass.meshes,
     geometries: r.memory.geometries, textures: r.memory.textures,
     materials: mats.size, sceneTextures: texs.size,
     programs: renderer.info.programs?.length ?? 0,
-    time: timeName, exposure: renderer.toneMappingExposure,
+    time: timeName, post: !!post,
+    exposure: post ? post.params.exposure : renderer.toneMappingExposure,
     buildings: picked, errors,
   };
 }
@@ -262,21 +291,33 @@ function updateHud() {
 `FACADE LAB — ${RECIPE_NAMES.length} recipes, ${lots.length} buildings
 generation    ${s.genMs.toFixed(1)} ms   (every texture, once)
 kit geometry  ${s.chunkBuildMs} ms for ${lots.length} buildings
-draw calls    ${s.drawCalls}   triangles ${s.triangles.toLocaleString()}
+draw calls    ${s.drawCalls} for ${s.meshes} meshes   triangles ${s.triangles.toLocaleString()}
 materials     ${s.materials}   textures ${s.textures}   programs ${s.programs}
-time of day   ${s.time}  exposure 1/${Math.round(1 / s.exposure)}
+time of day   ${s.time}  exposure 1/${Math.round(1 / s.exposure)}  post ${s.post ? 'on' : 'off'}
 ${rec}`;
 }
 
 function draw() {
-  renderer.render(scene, camera);
+  if (post) {
+    try { post.render(); } catch (err) { errors.push('post.render: ' + err.message); dropPost(); }
+  } else {
+    renderer.render(scene, camera);
+  }
   updateHud();
+}
+
+function dropPost() {
+  post = null;
+  tod.post = null;
+  tod.apply(timeName);
+  renderer.render(scene, camera);
 }
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
+  if (post) post.setSize(w, h);
   applyShot();
   draw();
 }
@@ -292,5 +333,6 @@ document.getElementById('load').remove();
 window.__lab = {
   ready: true, stats, setTime, setShot: (i) => { setShot(i); draw(); },
   recipes: RECIPES, trimAtlas: () => trimMaps(),
+  renderer, scene, camera, tod, THREE, draw,
 };
 draw();

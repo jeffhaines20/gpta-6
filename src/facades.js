@@ -82,11 +82,11 @@ function canvas(w, h = w) {
 // value noise at the full 1024 px panel size is a million-iteration JS loop per
 // texture; at 192 px it is 28x cheaper and, composited in overlay at low alpha,
 // indistinguishable at the frequencies a facade actually needs.
-function grainTile(seed) {
-  return memo(`grain:${seed}`, () => {
+function grainTile(slot) {
+  return memo(`grain:${slot}`, () => {
     const S = 192, c = canvas(S), g = c.getContext('2d');
     const img = g.createImageData(S, S);
-    const grid = 24, r = rng(seed);
+    const grid = 24, r = rng(hash32('grain', slot));
     const base = new Float32Array(grid * grid);
     for (let i = 0; i < base.length; i++) base[i] = r();
     const at = (x, y) => base[(((y % grid) + grid) % grid) * grid + (((x % grid) + grid) % grid)];
@@ -235,7 +235,7 @@ export const RECIPES = {
   bayTower: {
     label: 'Bayfront residential tower',
     tileU: 19.2, floors: 6, floorM: 3.15, panel: 1024,
-    rhythm: [1.35, 1, 1, 1.35],
+    rhythm: [1.2, 0.85, 1, 1, 0.85, 1.2],
     wall: { h: 38, s: 10, l: 84 },
     trimHue: 36,
     palette: [{ h: 38, s: 10, l: 84 }, { h: 196, s: 8, l: 80 }, { h: 30, s: 12, l: 88 }],
@@ -244,7 +244,7 @@ export const RECIPES = {
     spandrel: { l: -5, h: 0.24 },
     stringCourse: { at: 0.0, l: 8, thick: 7 },
     glass: ['128,158,182', '58,82,102', '28,40,54'],
-    lit: { noon: 0.04, dusk: 0.40, night: 0.42 },
+    lit: { noon: 0.04, dusk: 0.40, night: 0.40 },
     litPattern: 'stacks',
     ct: [[CT.k2700, 5], [CT.k2200, 2], [CT.k3000, 3], [CT.tv, 2], [CT.k4000, 1]],
     interior: 0.8,
@@ -533,13 +533,15 @@ function drawAccents(L, rec, cells, cols, rows, r, ex) {
         // Deco: full-height ribs on the bay divisions, brighter than the wall,
         // with a shadow on one side. Drawn wrapped so the tile seam is invisible.
         for (let i = 0; i < ex.length; i++) {
-          const x = ex[i], pw = 13 * s;
+          const x = ex[i], pw = 24 * s;
           for (const off of [0, -P, P]) {
             if (x + off < -pw || x + off > P + pw) continue;
-            al.g.fillStyle = hsl(rec.wall.h, rec.wall.s, rec.wall.l + 7);
+            al.g.fillStyle = hsl(rec.wall.h, rec.wall.s, rec.wall.l + 10);
             al.g.fillRect(x + off - pw / 2, 0, pw, P);
-            al.g.fillStyle = 'rgba(0,0,0,0.22)';
-            al.g.fillRect(x + off + pw / 2 - 3 * s, 0, 3 * s, P);
+            al.g.fillStyle = 'rgba(255,250,238,0.30)';
+            al.g.fillRect(x + off - pw / 2, 0, 4 * s, P);
+            al.g.fillStyle = 'rgba(0,0,0,0.34)';
+            al.g.fillRect(x + off + pw / 2 - 5 * s, 0, 5 * s, P);
           }
         }
         break;
@@ -791,11 +793,14 @@ function buildPanel(name, opts = {}) {
   // same value before a single window is drawn.
   L.al.g.fillStyle = hsl(rec.wall.h, rec.wall.s, rec.wall.l);
   L.al.g.fillRect(0, 0, P, P);
+  // Two octaves of the shared grain pool at different scales and offsets. The
+  // pool is three tiles for the whole library, not two per recipe: the tile is
+  // the only per-pixel JS loop left in here and it is worth amortising.
   L.al.g.globalCompositeOperation = 'overlay';
-  L.al.g.globalAlpha = 0.42;
-  L.al.g.drawImage(grainTile(seed ^ 0x9e37), 0, 0, P, P);
-  L.al.g.globalAlpha = 0.20;
-  L.al.g.drawImage(grainTile(seed ^ 0x1b3f), 0, 0, P * 2.7, P * 2.7);
+  L.al.g.globalAlpha = 0.34;
+  L.al.g.drawImage(grainTile(seed % 3), 0, 0, P, P);
+  L.al.g.globalAlpha = 0.09;
+  L.al.g.drawImage(grainTile((seed >>> 3) % 3), -P * 0.9, -P * 0.55, P * 5.5, P * 5.5);
   L.al.g.globalAlpha = 1;
   L.al.g.globalCompositeOperation = 'source-over';
 
@@ -939,13 +944,22 @@ function buildTrimAtlas() {
   const rm = canvas(S), rg = rm.getContext('2d');
   const r = rng(hash32('trim'));
 
+  // Every cell draws inside a clip of its own rect. Without it a swatch that
+  // overruns — the brick course below is deliberately drawn wider than the cell
+  // so the bond does not end on a seam — silently paints its neighbour, and the
+  // result is a sidewalk with bricks in it.
   const at = (cell) => ({ x: cell[0] * C, y: cell[1] * C });
   const fill = (cell, colour, rough, metal) => {
     const { x, y } = at(cell);
+    ag.restore(); ag.save();
+    ag.beginPath(); ag.rect(x, y, C, C); ag.clip();
+    rg.restore(); rg.save();
+    rg.beginPath(); rg.rect(x, y, C, C); rg.clip();
     ag.fillStyle = colour; ag.fillRect(x, y, C, C);
     rg.fillStyle = rmColor(rough, metal, 1); rg.fillRect(x, y, C, C);
     return { x, y };
   };
+  ag.save(); rg.save();
   const speck = (x, y, n, lo, hi, a) => {
     for (let i = 0; i < n; i++) {
       const v = lo + r() * (hi - lo);
@@ -958,7 +972,13 @@ function buildTrimAtlas() {
   // parapet band picks up a profile without any extra geometry.
   {
     const { x, y } = fill(TRIM.stone, 'rgb(206,198,180)', 0.78, 0);
-    speck(x, y, 900, 170, 225, 0.35);
+    // Horizontal streaks only: a cornice band is tiled every 2 m along the wall,
+    // and any feature with horizontal structure would seam at every repeat.
+    for (let i = 0; i < 130; i++) {
+      const v = 168 + r() * 62, yy = y + r() * C;
+      ag.fillStyle = `rgba(${v | 0},${(v * 0.98) | 0},${(v * 0.93) | 0},${0.12 + r() * 0.3})`;
+      ag.fillRect(x, yy, C, 0.6 + r() * 2.2);
+    }
     for (const [t, h, sh] of [[0.14, 0.10, 0.28], [0.42, 0.16, 0.34], [0.76, 0.09, 0.30]]) {
       ag.fillStyle = 'rgba(255,252,240,0.5)';
       ag.fillRect(x, y + C * t, C, C * h);
@@ -1084,6 +1104,8 @@ function buildTrimAtlas() {
     ag.fillStyle = 'rgba(90,90,92,0.25)';
     for (let i = 0; i < 4; i++) ag.fillRect(x, y + (C * (i + 0.5)) / 4, C, 4);
   }
+
+  ag.restore(); rg.restore();
 
   // Split the finished atlas back into cells so the mip chain can be packed
   // per-cell rather than across cell boundaries.
@@ -1355,16 +1377,26 @@ function pushCol(col, tint, n) {
 // order for each of those cases is exactly the kind of bug that only shows up as
 // a hole in a facade seen from one side, so it is computed instead.
 function quad(pos, nrm, uv, idx, a, b, c, d, n, uvq, col, tint) {
+  let ua = [uvq[0], uvq[1]], ub = [uvq[2], uvq[1]];
+  const uc = [uvq[2], uvq[3]];
+  let ud = [uvq[0], uvq[3]];
   const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
   const e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
   const gx = e1[1] * e2[2] - e1[2] * e2[1];
   const gy = e1[2] * e2[0] - e1[0] * e2[2];
   const gz = e1[0] * e2[1] - e1[1] * e2[0];
-  if (gx * n[0] + gy * n[1] + gz * n[2] < 0) { const t = b; b = d; d = t; }
+  if (gx * n[0] + gy * n[1] + gz * n[2] < 0) {
+    // Reversing the winding has to carry the UVs with it. Swapping only the
+    // positions transposes the mapping — u ends up running up the wall and v
+    // across it — which on a square-ish tile still looks like windows, so it
+    // survives a glance and only shows up as vertical banding on a tall tower.
+    const tp = b; b = d; d = tp;
+    const tu = ub; ub = ud; ud = tu;
+  }
   const v = pos.length / 3;
   pos.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2], d[0], d[1], d[2]);
   for (let i = 0; i < 4; i++) nrm.push(n[0], n[1], n[2]);
-  uv.push(uvq[0], uvq[1], uvq[2], uvq[1], uvq[2], uvq[3], uvq[0], uvq[3]);
+  uv.push(ua[0], ua[1], ub[0], ub[1], uc[0], uc[1], ud[0], ud[1]);
   idx.push(v, v + 1, v + 2, v, v + 2, v + 3);
   pushCol(col, tint, 4);
 }
@@ -1453,7 +1485,11 @@ function inRing(ring, x, z) {
 function bandAlong(e, y0, y1, outset, cell, pos, nrm, uv, idx, opts, cellM = 2.0) {
   const c = trimCell(cell);
   const col = opts.col, t = opts.tint ?? [1, 1, 1];
-  const segs = Math.max(1, Math.round(e.len / cellM));
+  // cellM = 0 stretches one cell over the whole edge. That is the right choice
+  // for a swatch with no horizontal structure — the cornice stone is drawn as
+  // horizontal streaks precisely so this is possible — and it turns a 40 m
+  // cornice from 20 quads into 1.
+  const segs = cellM > 0 ? Math.max(1, Math.round(e.len / cellM)) : 1;
   const ox = e.nx * outset, oz = e.nz * outset;
   for (let s = 0; s < segs; s++) {
     const t0 = s / segs, t1 = (s + 1) / segs;
@@ -1488,13 +1524,13 @@ export function parapet(ring, y, pos, nrm, uv, idx, opts = {}) {
     quad(pos, nrm, uv, idx,
       [bx, cornice, bz], [ax, cornice, az], [ax + ox, cornice, az + oz], [bx + ox, cornice, bz + oz],
       [0, -1, 0], [c.u0, c.v0, c.u1, c.v1], col, t);
-    bandAlong(e, cornice, y, proj, cell, pos, nrm, uv, idx, opts);
+    bandAlong(e, cornice, y, proj, cell, pos, nrm, uv, idx, opts, 0);
     quad(pos, nrm, uv, idx,
       [ax + ox, y, az + oz], [bx + ox, y, bz + oz], [bx, y, bz], [ax, y, az],
       [0, 1, 0], [c.u0, c.v0, c.u1, c.v1], col, t);
     // Parapet above the cornice: outer face, cap, inner face.
     const top = y + h;
-    bandAlong(e, y, top, 0, cell, pos, nrm, uv, idx, opts);
+    bandAlong(e, y, top, 0, cell, pos, nrm, uv, idx, opts, 0);
     const ix = -e.nx * 0.26, iz = -e.nz * 0.26;
     quad(pos, nrm, uv, idx,
       [ax, top, az], [bx, top, bz], [bx + ix, top, bz + iz], [ax + ix, top, az + iz],
@@ -1647,7 +1683,7 @@ export function roofUnits(ring, y, pos, nrm, uv, idx, opts = {}) {
   // Rejection-sample inside the footprint. Bounded so a pathological concave
   // footprint cannot spin here during a chunk build.
   const spots = [];
-  for (let tries = 0; tries < n * 24 && spots.length < n; tries++) {
+  for (let tries = 0; tries < n * 8 + 12 && spots.length < n; tries++) {
     const x = lerp(x0 + 1.2, x1 - 1.2, r()), z = lerp(z0 + 1.2, z1 - 1.2, r());
     if (!inRing(ring, x, z)) continue;
     if (spots.some((s) => Math.hypot(s[0] - x, s[1] - z) < 2.4)) continue;
@@ -1733,6 +1769,10 @@ export function balconies(ring, pos, nrm, uv, idx, opts = {}) {
   const col = opts.col, t = opts.tint ?? [1, 1, 1];
   const edges = opts.edges ?? edgesOf(ring, { minLen: 6, longest: opts.faces ?? 2 });
   const r = rng(opts.seed ?? 11);
+  const con = trimCell(TRIM.concrete), gls = trimCell(TRIM.glass), met = trimCell(TRIM.metalDark);
+  const cq = [con.u0, con.v0, con.u1, con.v1];
+  const gq = [gls.u0, gls.v0, gls.u1, gls.v1];
+  const mq = [met.u0, met.v0, met.u1, met.v1];
 
   for (const e of edges) {
     const runs = Math.max(1, Math.floor(e.len / (opts.bayM ?? 6.5)));
@@ -1742,23 +1782,34 @@ export function balconies(ring, pos, nrm, uv, idx, opts = {}) {
       for (let i = 0; i < runs; i++) {
         if (r() < 0.12) continue;             // a few units are enclosed instead
         const s0 = i * rw + 0.35, s1 = (i + 1) * rw - 0.35;
-        const mx = e.a[0] + e.tx * ((s0 + s1) / 2) + e.nx * (depth / 2);
-        const mz = e.a[1] + e.tz * ((s0 + s1) / 2) + e.nz * (depth / 2);
-        const w = s1 - s0;
-        const bx = Math.abs(e.tx) * w + Math.abs(e.nx) * depth;
-        const bz = Math.abs(e.tz) * w + Math.abs(e.nz) * depth;
-        box(mx, y + 0.09, mz, bx, 0.18, bz, pos, nrm, uv, idx,
-          { cell: TRIM.concrete, col, tint: t });
-        // Balustrade: three sides, glass panel with a metal cap rail.
-        const rail = (ox, oz, sx, sz) => {
-          box(mx + ox, y + 0.62, mz + oz, sx, 0.88, sz, pos, nrm, uv, idx,
-            { cell: TRIM.glass, col, tint: t });
-          box(mx + ox, y + 1.09, mz + oz, sx + 0.05, 0.07, sz + 0.05, pos, nrm, uv, idx,
-            { cell: TRIM.metalDark, col, tint: t });
-        };
-        rail(e.nx * (depth / 2), e.nz * (depth / 2), bx * Math.abs(e.tx) + 0.08, bz * Math.abs(e.tz) + 0.08);
-        rail(e.tx * (w / 2), e.tz * (w / 2), Math.abs(e.nx) * depth + 0.08, Math.abs(e.nz) * depth + 0.08);
-        rail(-e.tx * (w / 2), -e.tz * (w / 2), Math.abs(e.nx) * depth + 0.08, Math.abs(e.nz) * depth + 0.08);
+        // Six quads, not seven boxes. A tower carries around a hundred of these
+        // and the difference is 24 vertices each against 168 — the single
+        // largest vertex cost in the kit before this was written out.
+        const A = [e.a[0] + e.tx * s0, e.a[1] + e.tz * s0];
+        const B = [e.a[0] + e.tx * s1, e.a[1] + e.tz * s1];
+        const D = [A[0] + e.nx * depth, A[1] + e.nz * depth];
+        const C = [B[0] + e.nx * depth, B[1] + e.nz * depth];
+        const yb = y, yt = y + 0.18, yr = y + 1.06;
+        // Slab: top, soffit, front edge.
+        quad(pos, nrm, uv, idx, [A[0], yt, A[1]], [B[0], yt, B[1]], [C[0], yt, C[1]], [D[0], yt, D[1]],
+          [0, 1, 0], cq, col, t);
+        quad(pos, nrm, uv, idx, [A[0], yb, A[1]], [B[0], yb, B[1]], [C[0], yb, C[1]], [D[0], yb, D[1]],
+          [0, -1, 0], cq, col, t);
+        quad(pos, nrm, uv, idx, [D[0], yb, D[1]], [C[0], yb, C[1]], [C[0], yt, C[1]], [D[0], yt, D[1]],
+          [e.nx, 0, e.nz], cq, col, t);
+        // Glass balustrade, drawn both ways because it is seen from above too.
+        const gi = 0.06;
+        const D2 = [D[0] - e.nx * gi, D[1] - e.nz * gi], C2 = [C[0] - e.nx * gi, C[1] - e.nz * gi];
+        quad(pos, nrm, uv, idx, [D2[0], yt, D2[1]], [C2[0], yt, C2[1]], [C2[0], yr, C2[1]], [D2[0], yr, D2[1]],
+          [e.nx, 0, e.nz], gq, col, t);
+        quad(pos, nrm, uv, idx, [C2[0], yt, C2[1]], [D2[0], yt, D2[1]], [D2[0], yr, D2[1]], [C2[0], yr, C2[1]],
+          [-e.nx, 0, -e.nz], gq, col, t);
+        // Cap rail.
+        const cr = 0.05;
+        quad(pos, nrm, uv, idx,
+          [D2[0] - e.nx * cr, yr, D2[1] - e.nz * cr], [C2[0] - e.nx * cr, yr, C2[1] - e.nz * cr],
+          [C2[0] + e.nx * cr, yr, C2[1] + e.nz * cr], [D2[0] + e.nx * cr, yr, D2[1] + e.nz * cr],
+          [0, 1, 0], mq, col, t);
       }
     }
   }

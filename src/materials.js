@@ -42,8 +42,11 @@ function mulberry32(seed) {
 }
 
 function makeCanvas(w, h = w) {
+  const __t0 = performance.now(); const __P = (globalThis.__matProf ||= {});
+  __P.canvasN = (__P.canvasN || 0) + 1;
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
+  __P.canvas = (__P.canvas || 0) + performance.now() - __t0;
   return c;
 }
 
@@ -76,6 +79,7 @@ function valueNoise(size, cells, rand) {
 }
 
 function fbm(size, cells, octaves, rand, gain = 0.5) {
+  const __t0 = performance.now(); const __P = (globalThis.__matProf ||= {});
   const out = new Float32Array(size * size);
   let amp = 1, total = 0;
   for (let o = 0; o < octaves; o++) {
@@ -84,6 +88,7 @@ function fbm(size, cells, octaves, rand, gain = 0.5) {
     total += amp; amp *= gain;
   }
   for (let i = 0; i < out.length; i++) out[i] /= total;
+  __P.fbm = (__P.fbm || 0) + performance.now() - __t0;
   return out;
 }
 
@@ -92,6 +97,7 @@ function fbm(size, cells, octaves, rand, gain = 0.5) {
 // left and up — that makes the browser's bilinear upscale land node 0 on pixel 0
 // and node n on pixel size, so the blown-up noise wraps exactly.
 function drawField(g, size, n, field, colorAt, alpha = 1, composite = 'source-over') {
+  const __t0 = performance.now(); const __P = (globalThis.__matProf ||= {});
   const src = makeCanvas(n + 1);
   const sg = src.getContext('2d');
   const img = sg.createImageData(n + 1, n + 1);
@@ -109,6 +115,8 @@ function drawField(g, size, n, field, colorAt, alpha = 1, composite = 'source-ov
   g.globalCompositeOperation = composite;
   g.drawImage(src, off, off, s, s);
   g.restore();
+  __P.drawField = (__P.drawField || 0) + performance.now() - __t0;
+  __P.drawFieldN = (__P.drawFieldN || 0) + 1;
 }
 
 const greyField = (lo, hi) => (v, d, i) => {
@@ -146,15 +154,45 @@ function seamlessStroke(g, size, axis, base, wobble, steps, rand) {
   g.stroke();
 }
 
+// Scattered grain, written straight into a pixel buffer and composited once.
+// Issuing thousands of 2 px fillRects costs hundreds of milliseconds because
+// every canvas call carries its own state and blend setup; this is the same
+// picture roughly fifty times cheaper, and the modulo wrap tiles for free.
+// `colorAt(t, out)` fills out with r,g,b in 0..255 and alpha in 0..1.
 function speckle(g, size, count, rand, colorAt, maxR = 2.4) {
+  const __t0 = performance.now(); const __P = (globalThis.__matProf ||= {});
+  const c = makeCanvas(size);
+  const sg = c.getContext('2d');
+  const img = sg.createImageData(size, size);
+  const d = img.data;
+  const rgba = [0, 0, 0, 0];
   for (let i = 0; i < count; i++) {
-    const x = rand() * size, y = rand() * size, r = 0.6 + rand() * maxR;
-    g.fillStyle = colorAt(rand());
-    if (x < r || y < r || x > size - r || y > size - r) {
-      wrapped(g, size, x, y, r + 1, (c) => c.fillRect(-r / 2, -r / 2, r, r));
-    } else {
-      g.fillRect(x - r / 2, y - r / 2, r, r);
+    colorAt(rand(), rgba);
+    const a = rgba[3] * 255;
+    const w = 1 + ((rand() * maxR) | 0);
+    const x0 = (rand() * size) | 0, y0 = (rand() * size) | 0;
+    for (let dy = 0; dy < w; dy++) {
+      const row = ((y0 + dy) % size) * size;
+      for (let dx = 0; dx < w; dx++) {
+        const q = (row + ((x0 + dx) % size)) * 4;
+        if (d[q + 3] > a) continue;
+        d[q] = rgba[0]; d[q + 1] = rgba[1]; d[q + 2] = rgba[2]; d[q + 3] = a;
+      }
     }
+  }
+  sg.putImageData(img, 0, 0);
+  g.drawImage(c, 0, 0);
+  __P.speckle = (__P.speckle || 0) + performance.now() - __t0;
+  __P.speckleN = (__P.speckleN || 0) + 1;
+}
+
+// Add a disc to the current path, plus whatever wrapped copies it needs, so a
+// whole bucket of stones can be filled in one call.
+function arcWrapped(g, size, x, y, r) {
+  const xs = x < r + 1 ? [0, size] : x > size - r - 1 ? [0, -size] : [0];
+  const ys = y < r + 1 ? [0, size] : y > size - r - 1 ? [0, -size] : [0];
+  for (const dx of xs) {
+    for (const dy of ys) { g.moveTo(x + dx + r, y + dy); g.arc(x + dx, y + dy, r, 0, TAU); }
   }
 }
 
@@ -163,6 +201,7 @@ function speckle(g, size, count, rand, colorAt, maxR = 2.4) {
 // image and CanvasTexture flips Y, so increasing the array row index is
 // decreasing v, and the sign of the y gradient flips out of that.
 function sobelNormalRough(height, rough, size, strength) {
+  const __t0 = performance.now(); const __P = (globalThis.__matProf ||= {});
   const px = new Uint8ClampedArray(size * size * 4);
   for (let y = 0; y < size; y++) {
     const ym = ((y + size - 1) % size) * size, yc = y * size, yp = ((y + 1) % size) * size;
@@ -181,6 +220,7 @@ function sobelNormalRough(height, rough, size, strength) {
       px[i + 3] = rough ? rough[yc + x] * 255 : 255;
     }
   }
+  __P.sobel = (__P.sobel || 0) + performance.now() - __t0;
   return px;
 }
 
@@ -210,11 +250,13 @@ const asphaltSurface = {
     g.fillStyle = '#43464b'; g.fillRect(0, 0, S, S);
     drawField(g, S, 32, fbm(32, 4, 3, rand), greyField(0.25, 0.75), 0.30, 'overlay');
     // Aggregate. Real asphalt reads as thousands of 1-2 cm stones in a dark binder.
-    speckle(g, S, 9000, rand, (r) => {
+    speckle(g, S, 9000, rand, (r, o) => {
       const v = 52 + r * 92;
-      return `rgba(${v},${v + 2},${v + 6},${0.20 + r * 0.45})`;
+      o[0] = v; o[1] = v + 2; o[2] = v + 6; o[3] = 0.20 + r * 0.45;
     }, 2.6);
-    speckle(g, S, 900, rand, (r) => `rgba(${140 + r * 60},${128 + r * 55},${110 + r * 45},0.35)`, 2.0);
+    speckle(g, S, 900, rand, (r, o) => {
+      o[0] = 140 + r * 60; o[1] = 128 + r * 55; o[2] = 110 + r * 45; o[3] = 0.35;
+    }, 2.0);
     // Tar seams: crack-sealing compound, proud of the surface and near-black.
     g.lineCap = 'round';
     for (let i = 0; i < 2; i++) {
@@ -239,7 +281,7 @@ const asphaltSurface = {
   paintHeight(g, S, rand) {
     g.fillStyle = '#808080'; g.fillRect(0, 0, S, S);
     drawField(g, S, 32, fbm(32, 4, 3, rand), greyField(0.35, 0.65), 0.7);
-    speckle(g, S, 4500, rand, (r) => `rgba(255,255,255,${0.10 + r * 0.28})`, 1.6);
+    speckle(g, S, 4500, rand, (r, o) => { o[0] = o[1] = o[2] = 255; o[3] = 0.10 + r * 0.28; }, 1.6);
     g.lineCap = 'round';
     for (let i = 0; i < 2; i++) {
       g.strokeStyle = 'rgba(235,235,235,0.8)'; g.lineWidth = 7 + rand() * 6;
@@ -279,7 +321,9 @@ const sidewalkSurface = {
       }
     }
     drawField(g, S, 64, fbm(64, 8, 3, rand), greyField(0.35, 0.72), 0.34, 'overlay');
-    speckle(g, S, 7000, rand, (r) => `rgba(${170 + r * 60},${166 + r * 58},${152 + r * 55},${0.10 + r * 0.22})`, 1.8);
+    speckle(g, S, 7000, rand, (r, o) => {
+      o[0] = 170 + r * 60; o[1] = 166 + r * 58; o[2] = 152 + r * 55; o[3] = 0.10 + r * 0.22;
+    }, 1.8);
     // Joints, then the dirt that collects in them.
     g.strokeStyle = 'rgba(74,70,63,0.55)'; g.lineWidth = 2.6;
     for (const p of [0, half]) {
@@ -338,7 +382,9 @@ const concreteSurface = {
   paintAlbedo(g, S, rand) {
     g.fillStyle = hsl(36, 6, 64); g.fillRect(0, 0, S, S);
     drawField(g, S, 48, fbm(48, 6, 4, rand), greyField(0.3, 0.8), 0.36, 'overlay');
-    speckle(g, S, 5000, rand, (r) => `rgba(${160 + r * 70},${156 + r * 66},${146 + r * 60},${0.08 + r * 0.2})`, 1.6);
+    speckle(g, S, 5000, rand, (r, o) => {
+      o[0] = 160 + r * 70; o[1] = 156 + r * 66; o[2] = 146 + r * 60; o[3] = 0.08 + r * 0.2;
+    }, 1.6);
     for (let i = 0; i < 40; i++) {                    // air bubbles from the pour
       const x = rand() * S, y = rand() * S, r = 1 + rand() * 3;
       wrapped(g, S, x, y, r + 1, (c) => {
@@ -376,9 +422,9 @@ const parkingSurface = {
   paintAlbedo(g, S, rand) {
     g.fillStyle = '#474a4f'; g.fillRect(0, 0, S, S);
     drawField(g, S, 24, fbm(24, 3, 3, rand), greyField(0.28, 0.72), 0.34, 'overlay');
-    speckle(g, S, 6000, rand, (r) => {
+    speckle(g, S, 6000, rand, (r, o) => {
       const v = 56 + r * 80;
-      return `rgba(${v},${v + 2},${v + 6},${0.16 + r * 0.34})`;
+      o[0] = v; o[1] = v + 2; o[2] = v + 6; o[3] = 0.16 + r * 0.34;
     }, 2.0);
     for (let i = 0; i < 10; i++) {
       const x = rand() * S, y = rand() * S, r = 8 + rand() * 26;
@@ -397,14 +443,12 @@ const parkingSurface = {
     }
     g.beginPath(); g.moveTo(0, S / 2); g.lineTo(S, S / 2); g.stroke();
     // Worn paint: scrub some of it back out with the asphalt colour.
-    g.globalAlpha = 0.55;
-    speckle(g, S, 2400, rand, () => '#474a4f', 3.4);
-    g.globalAlpha = 1;
+    speckle(g, S, 2400, rand, (r, o) => { o[0] = 71; o[1] = 74; o[2] = 79; o[3] = 0.55; }, 3.4);
   },
   paintHeight(g, S, rand) {
     g.fillStyle = '#808080'; g.fillRect(0, 0, S, S);
     drawField(g, S, 24, fbm(24, 3, 3, rand), greyField(0.36, 0.64), 0.8);
-    speckle(g, S, 3000, rand, (r) => `rgba(255,255,255,${0.08 + r * 0.22})`, 1.4);
+    speckle(g, S, 3000, rand, (r, o) => { o[0] = o[1] = o[2] = 255; o[3] = 0.08 + r * 0.22; }, 1.4);
     const lw = Math.max(3, (S / 10.8) * 0.1);
     g.strokeStyle = 'rgba(220,220,220,0.7)'; g.lineWidth = lw;
     for (let i = 0; i < 4; i++) {
@@ -434,13 +478,18 @@ const grassSurface = {
     drawField(g, S, 24, fbm(24, 3, 3, rand), (v, d, i) => {
       d[i] = 110 + v * 70; d[i + 1] = 130 + v * 60; d[i + 2] = 60 + v * 40; d[i + 3] = 255;
     }, 0.5, 'overlay');
-    for (let i = 0; i < 8000; i++) {
-      const x = rand() * S, y = rand() * S, a = rand() * TAU, len = 3 + rand() * 6;
-      const h = 78 + rand() * 34, s = 22 + rand() * 26, l = 20 + rand() * 24;
-      g.strokeStyle = hsl(h, s, l, 0.5 + rand() * 0.4);
-      g.lineWidth = 1 + rand() * 0.8;
+    // Blades in colour buckets: one path and one stroke per bucket instead of
+    // 8000 individual stroke calls, which is the difference between 6 ms and 300.
+    const buckets = 24;
+    for (let b = 0; b < buckets; b++) {
+      const t = (b + 0.5) / buckets;
+      g.strokeStyle = hsl(78 + t * 34, 22 + ((b * 7) % 26), 20 + ((b * 11) % 24), 0.55 + t * 0.35);
+      g.lineWidth = 1 + (b % 3) * 0.35;
       g.beginPath();
-      g.moveTo(x, y); g.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
+      for (let i = 0; i < 340; i++) {
+        const x = rand() * S, y = rand() * S, a = rand() * TAU, len = 3 + rand() * 6;
+        g.moveTo(x, y); g.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
+      }
       g.stroke();
     }
     for (let i = 0; i < 9; i++) {                    // sun-burnt patches
@@ -456,7 +505,7 @@ const grassSurface = {
   paintHeight(g, S, rand) {
     g.fillStyle = '#808080'; g.fillRect(0, 0, S, S);
     drawField(g, S, 32, fbm(32, 4, 3, rand), greyField(0.25, 0.75), 0.9);
-    speckle(g, S, 5000, rand, (r) => `rgba(255,255,255,${0.1 + r * 0.3})`, 2.2);
+    speckle(g, S, 5000, rand, (r, o) => { o[0] = o[1] = o[2] = 255; o[3] = 0.1 + r * 0.3; }, 2.2);
   },
   paintRough: null,
   roughness: 0.94,
@@ -469,7 +518,9 @@ const dirtSurface = {
     drawField(g, S, 32, fbm(32, 4, 4, rand), (v, d, i) => {
       d[i] = 120 + v * 74; d[i + 1] = 98 + v * 62; d[i + 2] = 70 + v * 48; d[i + 3] = 255;
     }, 0.72, 'overlay');
-    speckle(g, S, 5200, rand, (r) => `rgba(${150 + r * 70},${126 + r * 58},${96 + r * 46},${0.12 + r * 0.3})`, 2.6);
+    speckle(g, S, 5200, rand, (r, o) => {
+      o[0] = 150 + r * 70; o[1] = 126 + r * 58; o[2] = 96 + r * 46; o[3] = 0.12 + r * 0.3;
+    }, 2.6);
     for (let i = 0; i < 90; i++) {                    // pebbles
       const x = rand() * S, y = rand() * S, r = 1.4 + rand() * 3.4;
       wrapped(g, S, x, y, r + 1, (c) => {
@@ -509,8 +560,12 @@ const sandSurface = {
       g.lineWidth = 2 + rand() * 3;
       seamlessStroke(g, S, 'x', (i / 26) * S + (rand() - 0.5) * 6, 12, 14, rand);
     }
-    speckle(g, S, 5000, rand, (r) => `rgba(${226 + r * 24},${212 + r * 24},${186 + r * 30},${0.1 + r * 0.24})`, 1.4);
-    speckle(g, S, 260, rand, () => 'rgba(252,250,244,0.85)', 2.2);   // shell fragments
+    speckle(g, S, 5000, rand, (r, o) => {
+      o[0] = 226 + r * 24; o[1] = 212 + r * 24; o[2] = 186 + r * 30; o[3] = 0.1 + r * 0.24;
+    }, 1.4);
+    speckle(g, S, 260, rand, (r, o) => {         // shell fragments
+      o[0] = 252; o[1] = 250; o[2] = 244; o[3] = 0.85;
+    }, 2.2);
   },
   paintHeight(g, S, rand) {
     g.fillStyle = '#808080'; g.fillRect(0, 0, S, S);
@@ -537,7 +592,9 @@ const stuccoSurface = {
     g.fillStyle = '#f2eee4'; g.fillRect(0, 0, S, S);
     drawField(g, S, 24, fbm(24, 3, 3, rand), greyField(0.62, 1.0), 0.55, 'multiply');
     drawField(g, S, 96, fbm(96, 12, 3, rand), greyField(0.80, 1.0), 0.40, 'multiply');
-    speckle(g, S, 6000, rand, (r) => `rgba(${196 + r * 50},${190 + r * 50},${178 + r * 50},${0.06 + r * 0.14})`, 1.6);
+    speckle(g, S, 6000, rand, (r, o) => {
+      o[0] = 196 + r * 50; o[1] = 190 + r * 50; o[2] = 178 + r * 50; o[3] = 0.06 + r * 0.14;
+    }, 1.6);
     for (let i = 0; i < 5; i++) {                   // hairline cracks and patches
       g.strokeStyle = 'rgba(150,142,128,0.4)'; g.lineWidth = 1.1;
       seamlessStroke(g, S, rand() < 0.5 ? 'x' : 'y', rand() * S, 90, 10, rand);
@@ -585,7 +642,9 @@ const brickSurface = {
       }
     }
     drawField(g, S, 32, fbm(32, 4, 3, rand), greyField(0.72, 1.0), 0.34, 'multiply');
-    speckle(g, S, 4000, rand, (r) => `rgba(${190 + r * 60},${186 + r * 58},${176 + r * 54},${0.05 + r * 0.14})`, 1.4);
+    speckle(g, S, 4000, rand, (r, o) => {
+      o[0] = 190 + r * 60; o[1] = 186 + r * 58; o[2] = 176 + r * 54; o[3] = 0.05 + r * 0.14;
+    }, 1.4);
     for (let i = 0; i < 4; i++) {                          // efflorescence
       const x = rand() * S, y = rand() * S, r = 16 + rand() * 40;
       wrapped(g, S, x, y, r, (c) => {
@@ -654,7 +713,9 @@ const panelSurface = {
       g.fillStyle = `rgba(110,105,96,${0.05 + rand() * 0.08})`;
       g.fillRect(x, 0, 8 + rand() * 26, S);
     }
-    speckle(g, S, 3500, rand, (r) => `rgba(${180 + r * 60},${176 + r * 56},${164 + r * 52},${0.06 + r * 0.14})`, 1.4);
+    speckle(g, S, 3500, rand, (r, o) => {
+      o[0] = 180 + r * 60; o[1] = 176 + r * 56; o[2] = 164 + r * 52; o[3] = 0.06 + r * 0.14;
+    }, 1.4);
   },
   paintHeight(g, S, rand) {
     g.fillStyle = '#9a9a9a'; g.fillRect(0, 0, S, S);
@@ -700,7 +761,9 @@ const terracottaSurface = {
       g.fillRect(0, y, S, 2);
     }
     drawField(g, S, 48, fbm(48, 6, 3, rand), greyField(0.7, 1.0), 0.35, 'multiply');
-    speckle(g, S, 3200, rand, (r) => `rgba(${200 + r * 46},${164 + r * 44},${132 + r * 40},${0.06 + r * 0.16})`, 1.4);
+    speckle(g, S, 3200, rand, (r, o) => {
+      o[0] = 200 + r * 46; o[1] = 164 + r * 44; o[2] = 132 + r * 40; o[3] = 0.06 + r * 0.16;
+    }, 1.4);
     for (let i = 0; i < 6; i++) {                          // vertical panel breaks
       const x = Math.floor(rand() * 6) * (S / 6);
       g.fillStyle = 'rgba(58,42,32,0.55)';
@@ -747,7 +810,9 @@ const blockSurface = {
     }
     // Paint sits ON the block, so grain crosses the joints instead of stopping.
     drawField(g, S, 32, fbm(32, 4, 3, rand), greyField(0.74, 1.0), 0.42, 'multiply');
-    speckle(g, S, 5000, rand, (r) => `rgba(${196 + r * 50},${192 + r * 48},${182 + r * 46},${0.05 + r * 0.14})`, 1.8);
+    speckle(g, S, 5000, rand, (r, o) => {
+      o[0] = 196 + r * 50; o[1] = 192 + r * 48; o[2] = 182 + r * 46; o[3] = 0.05 + r * 0.14;
+    }, 1.8);
     for (let i = 0; i < 4; i++) {
       const x = rand() * S;
       g.fillStyle = `rgba(150,144,130,${0.05 + rand() * 0.09})`;
@@ -796,7 +861,9 @@ const membraneSurface = {
         c.fillStyle = grd; c.beginPath(); c.arc(0, 0, r, 0, TAU); c.fill();
       });
     }
-    speckle(g, S, 2600, rand, (r) => `rgba(${140 + r * 60},${140 + r * 58},${130 + r * 56},${0.06 + r * 0.16})`, 1.6);
+    speckle(g, S, 2600, rand, (r, o) => {
+      o[0] = 140 + r * 60; o[1] = 140 + r * 58; o[2] = 130 + r * 56; o[3] = 0.06 + r * 0.16;
+    }, 1.6);
   },
   paintHeight(g, S, rand) {
     g.fillStyle = '#808080'; g.fillRect(0, 0, S, S);
@@ -874,24 +941,26 @@ const gravelRoofSurface = {
   paintAlbedo(g, S, rand) {
     g.fillStyle = '#5c574d'; g.fillRect(0, 0, S, S);
     drawField(g, S, 32, fbm(32, 4, 3, rand), greyField(0.5, 1.0), 0.4, 'overlay');
-    for (let i = 0; i < 3400; i++) {                       // ballast
-      const x = rand() * S, y = rand() * S, r = 1.6 + rand() * 3.6;
-      const v = 96 + rand() * 96, warm = rand() * 22;
-      g.fillStyle = `rgba(${v + warm},${v + warm * 0.6},${v * 0.92},${0.5 + rand() * 0.45})`;
-      if (x < r + 1 || y < r + 1 || x > S - r - 1 || y > S - r - 1) {
-        wrapped(g, S, x, y, r + 1, (c) => { c.beginPath(); c.arc(0, 0, r, 0, TAU); c.fill(); });
-      } else { g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill(); }
+    for (let b = 0; b < 18; b++) {                         // ballast, one fill per tone
+      const t = (b + 0.5) / 18, v = 96 + t * 96, warm = ((b * 5) % 22);
+      g.fillStyle = `rgba(${v + warm},${v + warm * 0.6},${v * 0.92},${0.55 + t * 0.4})`;
+      g.beginPath();
+      for (let i = 0; i < 190; i++) {
+        arcWrapped(g, S, rand() * S, rand() * S, 1.6 + rand() * 3.6);
+      }
+      g.fill();
     }
   },
   paintHeight(g, S, rand) {
     g.fillStyle = '#4a4a4a'; g.fillRect(0, 0, S, S);
-    for (let i = 0; i < 3400; i++) {
-      const x = rand() * S, y = rand() * S, r = 1.6 + rand() * 3.6;
-      const v = 150 + rand() * 100;
+    for (let b = 0; b < 18; b++) {
+      const v = 150 + ((b + 0.5) / 18) * 100;
       g.fillStyle = `rgb(${v},${v},${v})`;
-      if (x < r + 1 || y < r + 1 || x > S - r - 1 || y > S - r - 1) {
-        wrapped(g, S, x, y, r + 1, (c) => { c.beginPath(); c.arc(0, 0, r, 0, TAU); c.fill(); });
-      } else { g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill(); }
+      g.beginPath();
+      for (let i = 0; i < 190; i++) {
+        arcWrapped(g, S, rand() * S, rand() * S, 1.6 + rand() * 3.6);
+      }
+      g.fill();
     }
   },
   paintRough(g, S, rand) {
@@ -1133,6 +1202,16 @@ export function wallFamilyFor(b, index) {
   return { family, tint: names[Math.floor(r() * names.length) % names.length] };
 }
 
+/**
+ * The tint for a family/name pair as three floats, in the sRGB convention that
+ * `buildingMerged` expects in its `color` vertex attribute.
+ */
+export function surfaceTintRGB(family, tint) {
+  const tints = SURFACE_TINTS[family];
+  const hex = tints[tint] ?? Object.values(tints)[0];
+  return [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
+}
+
 /** Roof kind for a baked building, on the same deterministic seed. */
 export function roofFor(b, index) {
   const r = mulberry32(index * 40503 + 991);
@@ -1170,7 +1249,14 @@ function applyPlanarUV(material, uvPerMetre) {
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nuniform float uPlanarScale;')
       .replace('#include <fog_vertex>', `#include <fog_vertex>
-  vec2 veranoPlanarUv = ( modelMatrix * vec4( transformed, 1.0 ) ).xz * uPlanarScale;
+  vec3 veranoWorldPos = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;
+  vec3 veranoAxis = abs( normalize( mat3( modelMatrix ) * objectNormal ) );
+  vec2 veranoPlanarUv = ( veranoAxis.y >= max( veranoAxis.x, veranoAxis.z ) )
+    ? veranoWorldPos.xz
+    : ( veranoAxis.x > veranoAxis.z
+        ? vec2( veranoWorldPos.z, - veranoWorldPos.y )
+        : vec2( veranoWorldPos.x, - veranoWorldPos.y ) );
+  veranoPlanarUv *= uPlanarScale;
   #ifdef USE_MAP
     vMapUv = veranoPlanarUv;
   #endif
@@ -1180,6 +1266,29 @@ function applyPlanarUV(material, uvPerMetre) {
   #ifdef USE_ROUGHNESSMAP
     vRoughnessMapUv = veranoPlanarUv;
   #endif`);
+  });
+}
+
+// Lane paint composited into the road's own shader instead of a second
+// transparent mesh. The asphalt comes from the world-planar UV and the paint
+// from the mesh UV, so roads stay ONE opaque draw call per chunk with no
+// sorting, no depth-write games and no polygon offset.
+function applyRoadMarkings(material, atlas) {
+  return patch(material, 'roadPaint', (shader) => {
+    shader.uniforms.tMarkings = { value: atlas };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vMeshUv;')
+      .replace('#include <uv_vertex>', '#include <uv_vertex>\n  vMeshUv = uv;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vMeshUv;\nuniform sampler2D tMarkings;')
+      .replace('#include <map_fragment>', `#include <map_fragment>
+  vec4 veranoPaint = texture2D( tMarkings, vMeshUv );
+  diffuseColor.rgb = mix( diffuseColor.rgb, veranoPaint.rgb, veranoPaint.a );`)
+      .replace('#include <roughnessmap_fragment>', `float roughnessFactor = roughness;
+  #ifdef USE_NORMALMAP
+    roughnessFactor *= texture2D( normalMap, vNormalMapUv ).a;
+  #endif
+  roughnessFactor = mix( roughnessFactor, 0.58, veranoPaint.a );`);
   });
 }
 
@@ -1234,7 +1343,14 @@ vec3 veranoSrgb( vec3 c ) {
       .replace('#include <normal_fragment_maps>', `
   vec3 mapN = texture( tSurfaceNormal, veranoUvw ).xyz * 2.0 - 1.0;
   mapN.xy *= normalScale;
-  normal = normalize( tbn * mapN );`);
+  normal = normalize( tbn * mapN );`)
+      // Vertex colours on this material are sRGB, not linear: they come straight
+      // from a SURFACE_TINTS hex divided by 255, which is what every caller
+      // naturally writes. Decoding here keeps that convention honest.
+      .replace('#include <color_fragment>', `
+  #ifdef USE_COLOR
+    diffuseColor.rgb *= veranoSrgb( vColor );
+  #endif`);
   });
 }
 
@@ -1278,16 +1394,25 @@ export class MaterialRegistry {
     this._bytes = 0;
     this.time = { value: 0 };
 
-    this._buildSurfaceArray();
-    this._buildGround();
-    this._buildMarkings();
-    this._buildWater();
-    this._buildGlassAndMetal();
+    // Texture generation is a startup budget and is profiled like any other.
+    this.timings = {};
+    this._phase('surfaces', () => this._buildSurfaceArray());
+    this._phase('markings', () => this._buildMarkings());
+    this._phase('ground', () => this._buildGround());
+    this._phase('water', () => this._buildWater());
+    this._phase('trim', () => this._buildGlassAndMetal());
 
     this.generationMs = performance.now() - t0;
   }
 
   // -------------------------------------------------------------- book-keeping
+  _phase(name, fn) {
+    const t = performance.now();
+    const r = fn();
+    this.timings[name] = +(performance.now() - t).toFixed(1);
+    return r;
+  }
+
   _track(texture, w, h, layers = 1) {
     texture.anisotropy = this.anisotropy;
     // Mip chain adds a third; count it, because the GPU allocates it.
@@ -1365,7 +1490,9 @@ export class MaterialRegistry {
       grass: grassSurface, dirt: dirtSurface, sand: sandSurface, concrete: concreteSurface,
     })) {
       maps[key] = this._groundMaps(key, s);
-      if (key !== 'concrete') this._groundMaterial(key, maps[key], s.tile, { roughness: s.roughness ?? 1 });
+      if (key === 'concrete') continue;
+      const m = this._groundMaterial(key, maps[key], s.tile, { roughness: s.roughness ?? 1 });
+      if (key === 'road') applyRoadMarkings(m, this._markingTexture);
     }
 
     // The district's land pad: bare urban ground between roads and footprints.
@@ -1397,6 +1524,7 @@ export class MaterialRegistry {
     t.wrapT = THREE.RepeatWrapping;          // ...but the profile repeats along the road
     t.colorSpace = THREE.SRGBColorSpace;
     this._track(t, canvas.width, canvas.height);
+    this._markingTexture = t;
     const m = new THREE.MeshStandardMaterial({
       map: t, transparent: true, depthWrite: false,
       roughness: 0.55, metalness: 0,
@@ -1418,18 +1546,25 @@ export class MaterialRegistry {
       const seed = this.seed + hashName(name);
       scales[i] = 1 / s.uvTile;
 
+      let _t = performance.now();
       const ac = makeCanvas(A);
       s.paintAlbedo(ac.getContext('2d', { willReadFrequently: true }), A, mulberry32(seed));
+      const _tp = performance.now() - _t; _t = performance.now();
       const ad = ac.getContext('2d').getImageData(0, 0, A, A).data;
       copyFlipped(ad, albedoData, i * A * A * 4, A, A);
+      const _tr = performance.now() - _t; _t = performance.now();
 
       const hc = makeCanvas(D);
       s.paintHeight(hc.getContext('2d', { willReadFrequently: true }), D, mulberry32(seed));
       const rc = makeCanvas(D);
       s.paintRough(rc.getContext('2d', { willReadFrequently: true }), D, mulberry32(seed));
+      const _th = performance.now() - _t; _t = performance.now();
       const px = sobelNormalRough(
         luminanceField(hc, D), luminanceField(rc, D), D, s.normalStrength * D * 0.02);
       copyFlipped(px, normalData, i * D * D * 4, D, D);
+      const _ts = performance.now() - _t;
+      (this.timings.detail || (this.timings.detail = {}))[name] =
+        `paint ${_tp.toFixed(0)} read ${_tr.toFixed(0)} hr ${_th.toFixed(0)} sobel ${_ts.toFixed(0)}`;
     }
 
     const albedo = new THREE.DataArrayTexture(albedoData, A, A, n);
@@ -1555,7 +1690,9 @@ export class MaterialRegistry {
     const mg = mc.getContext('2d');
     mg.fillStyle = '#c8c8c8'; mg.fillRect(0, 0, D, D);
     drawField(mg, D, 32, fbm(32, 4, 3, rand), greyField(0.72, 1.0), 0.5, 'multiply');
-    speckle(mg, D, 900, rand, (r) => `rgba(${150 + r * 70},${146 + r * 66},${140 + r * 62},${0.1 + r * 0.3})`, 2.2);
+    speckle(mg, D, 900, rand, (r, o) => {
+      o[0] = 150 + r * 70; o[1] = 146 + r * 66; o[2] = 140 + r * 62; o[3] = 0.1 + r * 0.3;
+    }, 2.2);
     const metalAlbedo = new THREE.CanvasTexture(mc);
     metalAlbedo.wrapS = metalAlbedo.wrapT = THREE.RepeatWrapping;
     metalAlbedo.colorSpace = THREE.SRGBColorSpace;
@@ -1587,7 +1724,9 @@ export class MaterialRegistry {
   /**
    * Drop-in for StreamingWorld's `opts.materials`. `building` is the same merged
    * material at both LODs — the far LOD keeps the texture so a block does not
-   * change colour when it swaps.
+   * change colour when it swaps. There is deliberately no separate `markings`
+   * entry: `road` paints the lane atlas in its own shader, so a chunk's roads
+   * stay one opaque draw call.
    */
   streamingMaterials() {
     const merged = this.buildingMerged();
@@ -1596,7 +1735,6 @@ export class MaterialRegistry {
       road: this.get('road'),
       land: this.get('land'),
       water: this.get('water'),
-      markings: this.get('roadMarkings'),
     };
   }
 
@@ -1612,6 +1750,7 @@ export class MaterialRegistry {
       textureMemoryMB: +(this._bytes / (1024 * 1024)).toFixed(2),
       generationMs: +this.generationMs.toFixed(1),
       surfaceLayers: SURFACE_LAYERS.length,
+      timingsMs: this.timings,
       keys: this.keys(),
     };
   }
