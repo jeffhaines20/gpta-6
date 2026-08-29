@@ -1,0 +1,10 @@
+{
+ "injectedCandela": 26,
+ "caught": true,
+ "flags": [
+  "point light 26 cd outside plausible 300-3000",
+  "point light 26 cd outside plausible 300-3000",
+  "point light 26 cd outside plausible 300-3000"
+ ],
+ "totalFlags": 233
+}

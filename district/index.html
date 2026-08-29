@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Port Verano — streaming district probe</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#10131a;
+    font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#fff}
+  #c{display:block;width:100%;height:100%}
+  #hud{position:fixed;left:12px;top:10px;padding:7px 11px;border-radius:5px;
+    background:rgba(8,12,18,.68);white-space:pre;letter-spacing:.02em}
+  #attr{position:fixed;right:10px;bottom:8px;padding:5px 9px;border-radius:4px;
+    background:rgba(8,12,18,.55);opacity:.85;font-size:11px}
+  #attr a{color:#8fc4ff}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">loading…</div>
+<div id="attr">Map data © OpenStreetMap contributors (ODbL) · names fictional · <a href="./credits.html">credits</a></div>
+<script type="module" src="./main.js"></script>
+</body></html>
