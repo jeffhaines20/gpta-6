@@ -1,4 +1,4 @@
-import * as THREE from '../vendor/three.module.js';
+import * as THREE from '../vendor/three.module.min.js';
 import { Input } from '../src/input.js';
 import { Player } from '../src/player.js';
 import { Vehicle } from '../src/vehicle.js';

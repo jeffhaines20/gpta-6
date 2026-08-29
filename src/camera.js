@@ -2,7 +2,7 @@
 // shortens when it would clip geometry, and a smoothed follow target.
 // One camera rig serves both modes; only its tuning constants swap.
 
-import * as THREE from '../vendor/three.module.js';
+import * as THREE from '../vendor/three.module.min.js';
 
 const FOOT = { dist: 4.6, height: 1.55, lag: 14, fov: 62, shoulder: 0.55 };
 const CAR  = { dist: 8.2, height: 2.55, lag: 5.5, fov: 68, shoulder: 0.0 };

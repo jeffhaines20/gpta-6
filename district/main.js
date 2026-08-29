@@ -3,7 +3,7 @@
 //
 // Map data © OpenStreetMap contributors (ODbL). All names are invented.
 
-import * as THREE from '../vendor/three.module.js';
+import * as THREE from '../vendor/three.module.min.js';
 import { Input } from '../src/input.js';
 import { Vehicle } from '../src/vehicle.js';
 import { ChaseCamera } from '../src/camera.js';

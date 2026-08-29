@@ -3,7 +3,7 @@
 // distance, no signals, no avoidance. The point of this probe is the streaming
 // interaction (spawn, despawn, boundary crossing, orphans), not the driving.
 
-import * as THREE from '../vendor/three.module.js';
+import * as THREE from '../vendor/three.module.min.js';
 
 export class TrafficStub {
   constructor(scene, district, opts = {}) {

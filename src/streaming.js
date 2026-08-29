@@ -9,7 +9,7 @@
 // It implements the Phase 1 ground.js interface (heightAt / raycastDown) so the
 // existing vehicle drives on it with no changes.
 
-import * as THREE from '../vendor/three.module.js';
+import * as THREE from '../vendor/three.module.min.js';
 import { extrudeFootprint, ribbon } from './geom.js';
 
 export const LOD = { NEAR: 0, FAR: 1 };

@@ -9,7 +9,7 @@
 //   PointLight.intensity       -> candela (luminous intensity)
 //   HemisphereLight.intensity  -> lux (sky illuminance)
 
-import * as THREE from '../vendor/three.module.js';
+import * as THREE from '../vendor/three.module.min.js';
 
 export const PRESETS = {
   noon: {
