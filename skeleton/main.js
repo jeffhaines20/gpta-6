@@ -4,6 +4,7 @@ import { Player } from '../src/player.js';
 import { Vehicle } from '../src/vehicle.js';
 import { ChaseCamera } from '../src/camera.js';
 import { FlatGround } from '../src/ground.js';
+import { buildPlayerCar } from '../src/carbody.js';
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -108,33 +109,10 @@ function buildCharacter() {
 const char = buildCharacter();
 scene.add(char.group);
 
-function buildCar() {
-  const g = new THREE.Group();
-  const body = new THREE.MeshStandardMaterial({ color: 0xb4322c, roughness: 0.35, metalness: 0.5 });
-  const glass = new THREE.MeshStandardMaterial({ color: 0x1a2430, roughness: 0.12, metalness: 0.7 });
-
-  const lower = new THREE.Mesh(new THREE.BoxGeometry(1.86, 0.62, 4.3), body);
-  lower.position.y = 0.20; g.add(lower);
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.66, 0.56, 2.1), glass);
-  cabin.position.set(0, 0.74, -0.15); g.add(cabin);
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.1, 1.7), body);
-  roof.position.set(0, 1.03, -0.2); g.add(roof);
-
-  const wheels = [];
-  const tyre = new THREE.MeshStandardMaterial({ color: 0x16181b, roughness: 0.95 });
-  const rim = new THREE.MeshStandardMaterial({ color: 0xb8bcc2, roughness: 0.3, metalness: 0.85 });
-  for (let i = 0; i < 4; i++) {
-    const wg = new THREE.Group();
-    const t = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.26, 18), tyre);
-    t.rotation.z = Math.PI / 2; wg.add(t);
-    const r = new THREE.Mesh(new THREE.CylinderGeometry(0.20, 0.20, 0.28, 12), rim);
-    r.rotation.z = Math.PI / 2; wg.add(r);
-    g.add(wg); wheels.push(wg);
-  }
-  g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-  return { group: g, wheels };
-}
-const car = buildCar();
+// The same procedural shell the district page uses, so the walking skeleton and
+// the real thing never drift apart. src/carbody.js is visual only; the raycast
+// vehicle below is unchanged.
+const car = buildPlayerCar({ paint: 0x9e2b20 });
 scene.add(car.group);
 
 // ---------------------------------------------------------------- state
@@ -218,13 +196,7 @@ function animate(now) {
 
   car.group.position.copy(vehicle.position);
   car.group.quaternion.copy(vehicle.quaternion);
-  for (let i = 0; i < 4; i++) {
-    const w = vehicle.wheels[i];
-    car.group.worldToLocal(car.wheels[i].position.copy(w.worldPos));
-    car.wheels[i].rotation.set(0, 0, 0);
-    car.wheels[i].rotateY(w.steer ? vehicle.steer : 0);
-    car.wheels[i].rotateX(w.spinAngle);
-  }
+  car.updateWheels(vehicle);
 
   const focus = mode === 'car' ? vehicle.position : player.position;
   sun.position.set(focus.x + 30, 48, focus.z + 18);

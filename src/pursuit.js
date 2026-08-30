@@ -10,6 +10,7 @@
 // harness as its load test.
 
 import * as THREE from '../vendor/three.module.min.js';
+import { buildTrafficCarGeometry, trafficCarMaterial, lampEmissive } from './carbody.js';
 
 export class PursuitUnits {
   constructor(scene, district, opts = {}) {
@@ -20,11 +21,10 @@ export class PursuitUnits {
 
     this._buildAdjacency();
 
-    const geo = new THREE.BoxGeometry(1.9, 1.4, 4.5);
-    geo.translate(0, 0.8, 0);
-    this.mesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({
-      color: 0xe8eaee, roughness: 0.35, metalness: 0.4,
-    }), this.count);
+    // Same instanced car shell as civilian traffic (src/carbody.js), painted
+    // white by the material's base colour rather than per-instance.
+    const geo = buildTrafficCarGeometry({ groundY: 0 });
+    this.mesh = new THREE.InstancedMesh(geo, trafficCarMaterial({ color: 0xe8eaee }), this.count);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.castShadow = true;
     this.mesh.frustumCulled = false;
@@ -33,8 +33,8 @@ export class PursuitUnits {
     // Light bars are the expensive part of a pursuit: two point lights per unit
     // would be 16 extra lights. One emissive instanced bar plus a single shared
     // flashing light keeps the budget honest.
-    const barGeo = new THREE.BoxGeometry(1.5, 0.18, 0.34);
-    barGeo.translate(0, 1.62, 0);
+    const barGeo = new THREE.BoxGeometry(1.42, 0.16, 0.32);
+    barGeo.translate(0, 1.50, 0);
     this.barMat = new THREE.MeshStandardMaterial({
       color: 0x101216, emissive: 0xff2020, emissiveIntensity: 4,
     });
@@ -176,6 +176,13 @@ export class PursuitUnits {
     }
     this.mesh.instanceMatrix.needsUpdate = true;
     this.bars.instanceMatrix.needsUpdate = true;
+  }
+
+  setLights(on, exposure) {
+    const e = lampEmissive(on, exposure, 1.5);
+    if (e === this._lit) return;
+    this._lit = e;
+    this.mesh.material.emissive.setScalar(e);
   }
 
   report() {

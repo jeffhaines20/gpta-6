@@ -15,6 +15,7 @@
 // breaks the draw-call budget.
 
 import * as THREE from '../vendor/three.module.min.js';
+import { buildTrafficCarGeometry, trafficCarMaterial, lampEmissive } from './carbody.js';
 
 // Intelligent Driver Model. Standard, stable, and it produces the stop-and-go
 // platooning that makes traffic read as traffic rather than as beads on a wire.
@@ -41,11 +42,14 @@ export class Traffic {
 
     this._buildAdjacency();
 
-    const geo = new THREE.BoxGeometry(1.85, 1.35, CAR_LENGTH);
-    geo.translate(0, 0.78, 0);
-    this.mesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({
-      roughness: 0.4, metalness: 0.5,
-    }), this.count);
+    // One geometry, one material, one InstancedMesh — same as the box it replaces.
+    // Body panels are authored WHITE because InstancedMesh colour multiplies the
+    // vertex colour, so white takes the per-car paint while the glass, tyres and
+    // lamps are authored dark and stay dark whatever the car is painted. Finish
+    // (roughness/metalness) rides on a palette texture, so one material still
+    // gives rubber, glass and steel. See src/carbody.js.
+    const geo = buildTrafficCarGeometry({ groundY: 0 });
+    this.mesh = new THREE.InstancedMesh(geo, trafficCarMaterial(), this.count);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.castShadow = true;
     this.mesh.frustumCulled = false;
@@ -441,6 +445,16 @@ export class Traffic {
       this.stats.maxSimultaneousOrphans = orphansThisFrame;
     }
     this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  // Lamps on the whole fleet at once: the emissive palette texel already knows
+  // which triangles are headlamps and which are tail lamps, so one uniform does
+  // 60 cars without costing a draw call.
+  setLights(on, exposure) {
+    const e = lampEmissive(on, exposure, 1.5);
+    if (e === this._lit) return;
+    this._lit = e;
+    this.mesh.material.emissive.setScalar(e);
   }
 
   report() {
