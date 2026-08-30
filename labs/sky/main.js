@@ -37,20 +37,34 @@ const MAT = {
   ground: new THREE.MeshStandardMaterial({ color: 0x55595f, roughness: 0.92, metalness: 0.0 }),
   concrete: new THREE.MeshStandardMaterial({ color: 0x8d8a83, roughness: 0.85, metalness: 0.0 }),
   painted: new THREE.MeshStandardMaterial({ color: 0x2e4c63, roughness: 0.55, metalness: 0.05 }),
-  // A mirror probe, deliberately NOT a PBR metal. three's GGX peak is
-  // 1/(pi*roughness^4); a smooth metal under the noon preset's 100,000 lux sun
-  // reaches ~4e7 nits, overflows the half-float HDR target as NaN, and post.js's
-  // bloom blur smears that one texel into a 52 px black block. Measured: 761 NaN
-  // texels at noon from three spheres. A basic material with an envMap answers
-  // the question this probe is here to answer — is the sky in the IBL — without
-  // taking a direct specular hit at all.
-  metalChrome: new THREE.MeshBasicMaterial({ color: 0xffffff, reflectivity: 1, combine: THREE.MixOperation }),
+  metalChrome: new THREE.MeshStandardMaterial({ color: 0xd8dce0, roughness: 0.14, metalness: 1.0 }),
 };
 // bindMaterials keys off material.name, exactly as it will in the district.
 MAT.ground.name = 'ground';
 MAT.concrete.name = 'building';
 MAT.painted.name = 'metalPainted';
-MAT.metalChrome.name = 'metalGalvanised';
+// 'glass*' is zero in weather.js's SURFACE_WETTING: a mirror probe has no
+// microstructure for water to fill, and darkening it would corrupt the readout.
+MAT.metalChrome.name = 'glassProbe';
+
+// The one shader patch in this lab, and worth the space it takes to explain.
+//
+// three's GGX peak is D = 1/(pi * roughness^4). A metal at roughness 0.14 under
+// the noon preset's 100,000 lux sun reaches ~4e7 nits. The HDR target is
+// half-float, ceiling 65,504, so the highlight lands as Inf and then NaN — and
+// post.js's bloom is a 9-tap gaussian run four times at half resolution, which
+// turns ONE NaN texel into a 52-pixel BLACK SQUARE in the final frame. Measured
+// here before this clamp: 1 Inf and 761 NaN texels at noon, three black squares
+// on screen; after it, zero.
+//
+// The clamp belongs in post.js's bright pass, where it would cover every metal,
+// wet road and headlight in the district instead of three spheres in a lab. It
+// is here because that file has another owner.
+MAT.metalChrome.onBeforeCompile = (shader) => {
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <opaque_fragment>',
+    '#include <opaque_fragment>\n  gl_FragColor.rgb = clamp(gl_FragColor.rgb, vec3(0.0), vec3(6.0e4));');
+};
 
 // The plane has to reach PAST the far plane. At 3 km across its edge sits at
 // 1.5 km, inside the 1.8 km far plane, and shows up as a bright arc where fully
@@ -61,19 +75,25 @@ ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
 
-// Everything below is laid out down local -Z and then swung so the avenue runs
-// along the dusk sun's azimuth: aerial perspective is only worth looking at when
-// the thing receding and the thing lighting it are in the same frame.
-const SUN_AZIMUTH = 2.72;                       // daynight.js PRESETS.dusk
-// Camera yaw whose forward vector, -(sin yaw, 0, cos yaw), is the sun's
-// horizontal direction (cos az, 0, sin az).
-// Offset off the sun's own azimuth: dead-on, post.js's pow(dot, 6) inscatter
-// lobe fills most of the frame and everything nearer than 200 m blows out, which
-// is true of looking into a sunset and useless for judging anything else.
-const VIEW_YAW = Math.atan2(-Math.cos(SUN_AZIMUTH), -Math.sin(SUN_AZIMUTH)) + 0.40;
+// Everything below is laid out down local -Z, and the whole group swings to the
+// current preset's azimuth whenever the time of day changes. Aerial perspective
+// is only worth looking at when the thing receding and the thing lighting it are
+// in the same frame, and swinging the set rather than the sun keeps the three
+// times of day framed identically so they can be compared.
 const avenue = new THREE.Group();
-avenue.rotation.y = VIEW_YAW;
 scene.add(avenue);
+
+// Camera yaw whose forward vector, -(sin yaw, 0, cos yaw), is the sun's
+// horizontal direction (cos az, 0, sin az). Offset off the azimuth itself,
+// because dead-on the pow(dot, 6) inscatter lobe in post.js fills the frame and
+// everything nearer than 200 m blows out — true of looking into a sunset, and
+// useless for judging anything else.
+let viewYaw = 0;
+function orient(azimuth) {
+  viewYaw = Math.atan2(-Math.cos(azimuth), -Math.sin(azimuth)) + 0.40;
+  avenue.rotation.y = viewYaw;
+  setShot(shotName);
+}
 
 // Two instanced fields of boxes marching to the far plane. Heights and spacing
 // grow with distance so the row at 900 m still subtends something.
@@ -128,11 +148,6 @@ avenue.add(posts);
 // is not in the IBL these are flat grey; if the IBL is an sRGB colour they are
 // black at a 1/78000 stop.
 //
-// They sit on layer 1, which no light in this scene is on, so they are lit ONLY
-// by scene.environment. That is not an aesthetic choice: three's GGX peak is
-// 1/(pi*roughness^4), and a mirror metal under the noon preset's 100,000 lux sun
-// reaches ~4e7 nits, overflows the half-float HDR target and lands as NaN, which
-// post.js's bloom then smears into a 52 px black block. See the report.
 const spheres = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 24, 16), MAT.metalChrome, 3);
 {
   const mtx = new THREE.Matrix4(), q = new THREE.Quaternion();
@@ -187,15 +202,16 @@ const SHOTS = {
   elevated: { eye: [0, 46, 96],  pitch: -0.075 },
 };
 let shotName = 'street';
-let yaw = VIEW_YAW, pitch = SHOTS.street.pitch, dist = 1;
+let yaw = 0, pitch = SHOTS.street.pitch, dist = 1;
 const eye = new THREE.Vector3();
+const UP = new THREE.Vector3(0, 1, 0);
 function setShot(name) {
   shotName = name;
   const sh = SHOTS[name] ?? SHOTS.street;
-  eye.set(...sh.eye).applyAxisAngle(new THREE.Vector3(0, 1, 0), VIEW_YAW);
+  eye.set(...sh.eye).applyAxisAngle(UP, viewYaw);
   eye.y = sh.eye[1];
   pitch = sh.pitch;
-  yaw = VIEW_YAW;
+  yaw = viewYaw;
 }
 function applyCamera() {
   camera.position.copy(eye).multiplyScalar(dist);
@@ -229,6 +245,7 @@ let snap = false;
 function setTime(name) {
   timeName = name;
   tod.apply(name);            // this calls into sky.setTimeOfDay + refresh + applyToPost
+  orient(tod.preset.azimuth); // at night that azimuth is the moon's
 }
 function setWeather(name) {
   weatherName = name;
@@ -250,16 +267,6 @@ window.addEventListener('keydown', (e) => {
 // Draw calls are read from PostStack.stats.sceneCalls, not renderer.info: after
 // the composite blit renderer.info describes a 1-triangle fullscreen pass.
 let sceneCalls = 0, sceneTris = 0, worstFrameMs = 0, frames = 0;
-
-// The PMREM target is rebuilt in place, so the texture identity is stable after
-// the first build; re-assigning is a no-op that costs nothing and survives a
-// future change to that.
-function syncProbeEnv() {
-  if (MAT.metalChrome.envMap !== sky.environment) {
-    MAT.metalChrome.envMap = sky.environment;
-    MAT.metalChrome.needsUpdate = true;
-  }
-}
 
 // One-shot, on demand: a full read-back of the HDR target is a GPU sync and has
 // no business in a frame. It exists because a single non-finite pixel is
@@ -364,7 +371,6 @@ function frame(now) {
   // frame on purpose — it is the ordering that used to be wrong, not the values.
   tod.setWeather({ wetness: weather.wetness, fogBoost: weather.current.fogBoost });
   sky.update(camera);
-  syncProbeEnv();
 
   if (post) {
     try { post.render(); } catch (err) { errors.push('post.render: ' + err.message); post = null; }
@@ -382,6 +388,7 @@ function frame(now) {
 }
 
 resize();
+setShot('street');
 setTime('dusk');
 weather.set('clear', { immediate: true });
 updateHud();

@@ -315,6 +315,8 @@ export class StreamingWorld {
       group: new THREE.Group(),
       byRecipe: new Map(),
       appended: false,
+      zoneIdx: 0,
+      zoneBuf: new Map(),        // materialKey -> {pos,nrm,uv,idx}
       trim: buffers(),
       merged: null,
       roadsDone: false,
@@ -369,6 +371,32 @@ export class StreamingWorld {
       }
     }
 
+    // Zones, one polygon per iteration so a chunk full of car parks cannot blow
+    // the slice the way it did when they were triangulated in a single step.
+    const zoneList = chunk.zones ?? [];
+    while (job.zoneIdx < zoneList.length) {
+      if (performance.now() >= deadline) { job.ms += performance.now() - t0; return false; }
+      const z = this.d.zones[zoneList[job.zoneIdx]];
+      job.zoneIdx++;
+      const key = ZONE_MATERIAL[z.z];
+      if (!key) continue;
+      if (!job.zoneBuf.has(key)) job.zoneBuf.set(key, { pos: [], nrm: [], uv: [], idx: [] });
+      const buf = job.zoneBuf.get(key);
+      const start = buf.pos.length / 3;
+      const tris = triangulate(z.p);
+      if (!tris.length) continue;
+      for (const [x, zz] of z.p) {
+        // Just above the land plane and below the road ribbons, so a car park
+        // never z-fights the street it opens onto.
+        buf.pos.push(x, this.groundY + 0.012, zz);
+        buf.nrm.push(0, 1, 0);
+        buf.uv.push(x * 0.12, zz * 0.12);
+      }
+      for (let i = 0; i < tris.length; i += 3) {
+        buf.idx.push(start + tris[i], start + tris[i + 1], start + tris[i + 2]);
+      }
+    }
+
     job.ms += performance.now() - t0;
     return true;
   }
@@ -386,8 +414,8 @@ export class StreamingWorld {
       steps.push(() => this._mergedMesh(job));
     }
     steps.push(() => this._roadMesh(job.chunk));
-    for (const [key, group] of this._zoneGroups(job.chunk)) {
-      steps.push(() => this._zoneMesh(group, key));
+    for (const [key, buf] of job.zoneBuf) {
+      steps.push(() => this._zoneMeshFromBuffer(buf, key));
     }
     return steps;
   }
@@ -426,46 +454,15 @@ export class StreamingWorld {
     }
   }
 
-  // Group a chunk's zone polygons by the material they want, so a chunk pays one
-  // draw call per distinct ground type present rather than one per polygon.
-  _zoneGroups(chunk) {
-    const groups = new Map();
-    for (const zi of chunk.zones ?? []) {
-      const z = this.d.zones[zi];
-      const key = ZONE_MATERIAL[z.z];
-      if (!key) continue;                       // zones with no distinct surface
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(z);
-    }
-    return groups;
-  }
-
-  _zoneMesh(zones, materialKey) {
-    const pos = [], nrm = [], uv = [], idx = [];
-    for (const z of zones) {
-      const start = pos.length / 3;
-      const tris = triangulate(z.p);
-      if (!tris.length) continue;
-      for (const [x, zz] of z.p) {
-        // Just above the land plane, below the road ribbons, so a car park never
-        // z-fights the street it opens onto.
-        pos.push(x, this.groundY + 0.012, zz);
-        nrm.push(0, 1, 0);
-        uv.push(x * 0.12, zz * 0.12);
-      }
-      for (let i = 0; i < tris.length; i += 3) {
-        idx.push(start + tris[i], start + tris[i + 1], start + tris[i + 2]);
-      }
-    }
-    if (!pos.length) return null;
+  _zoneMeshFromBuffer(buf, materialKey) {
+    if (!buf.pos.length) return null;
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
-    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-    geo.setIndex(idx);
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(buf.pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(buf.nrm, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(buf.uv, 2));
+    geo.setIndex(buf.idx);
     geo.computeBoundingSphere();
-    const mat = this.registry.get(materialKey) ?? this.materials.land;
-    const mesh = new THREE.Mesh(geo, mat);
+    const mesh = new THREE.Mesh(geo, this.registry.get(materialKey) ?? this.materials.land);
     mesh.receiveShadow = true;
     return mesh;
   }

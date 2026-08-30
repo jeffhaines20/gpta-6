@@ -46,14 +46,16 @@ export const SKY_PRESETS = {
     moonElevation: -0.7, moonAzimuth: 3.7, moonIntensity: 0,
     turbidity: 2.4,
   },
-  // Dusk deliberately sits LOWER than daynight.js's 0.055 rad. That preset quotes
-  // a direct-normal 1,200 lux and a 900 lux sky, and 1,200 lux of direct sun is
-  // what 0.6 deg of elevation transmits, not 3.15 deg — the elevation field and
-  // the photometry in that preset disagree with each other. The photometry is the
-  // half that the exposure, the plausibility gate and every material response are
-  // derived from, so it is the half the dome matches. The cost is a sun disc 2.5
-  // deg below where the shadows say it is, at an hour when shadows run off the end
-  // of the shadow map anyway.
+  // Dusk sits on the horizon, not at daynight.js's 0.055 rad (3.15 deg). That
+  // preset quotes a 900 lux sky and a direct-normal 1,200 lux, and its own two
+  // numbers disagree: 3.15 deg of elevation transmits about 8,800 lux and lights
+  // a 5,800 lux sky, six times what the preset says and past the envelope its
+  // audit asserts. Zero elevation reproduces the photometry (measured: 1,614 lux
+  // sky, 394 lux direct) and the photometry is the half that the camera stop, the
+  // plausibility gate and every material response are derived from. Refraction
+  // lifts the visible disc about 0.57 deg anyway, so a geometrically-set sun sits
+  // exactly where a photographed one does. The cost is a disc ~3 deg below where
+  // the shadows say it is, at an hour when shadows run off the shadow map.
   dusk: {
     sunElevation: 0, sunAzimuth: 2.72,
     moonElevation: 0.62, moonAzimuth: 5.6, moonIntensity: 0.35,
@@ -82,8 +84,7 @@ export const PLAUSIBLE_SKY = {
 // Extraterrestrial normal illuminance. Divided by the sun's solid angle
 // (6.8e-5 sr) this is the ~1.9e9 nits of the solar disc.
 const SUN_ILLUMINANCE = 127500;
-const SUN_SOLID_ANGLE = 6.8e-5;
-const SUN_ANGULAR_RADIUS = 0.00465;      // radians; the moon's is the same to 2%
+const SUN_SOLID_ANGLE = 6.8e-5;          // subtended by a 0.00465 rad disc
 
 // Rayleigh scattering at sea level for 680/550/440 nm, and Mie at 550 nm.
 // Scale heights are the standard 8 km / 1.2 km.
@@ -497,7 +498,13 @@ export class Sky {
       sunLux: 0,
       physicalExtinction: PHYSICAL_EXTINCTION,
       artisticMultiplier: 1,
+      fogClamp: 1,
+      inscatterClamp: 1,
     };
+    // Exposed-unit ceilings for what reaches post.js. daynight.js audits these at
+    // 1.2 and 3.0; sitting just under leaves the gate meaningful.
+    this.fogCeiling = opts.fogCeiling ?? 1.1;
+    this.inscatterCeiling = opts.inscatterCeiling ?? 2.7;
 
     const t0 = performance.now();
     this.timings = {};
@@ -982,8 +989,23 @@ export class Sky {
     this._post = post;
     this._postWeather = weather ?? this._postWeather;
     const p = post.params, a = this.atmosphere;
-    p.fogColor.copy(a.fogColor);
-    p.fogInscatter.copy(a.fogInscatter);
+
+    // Display-referred clamp, and the one place in this file where the physics
+    // is knowingly overruled.
+    //
+    // post.js mixes EVERY pixel toward fogColor by distance and toward
+    // fogInscatter inside a pow(dot, 6) lobe around the sun. A dusk horizon
+    // really is ~800 nits, which at the preset's 1/330 stop is 2.4 in exposed
+    // units — past ACES saturation — so the correct radiance turns the whole far
+    // half of the frame into flat white. Photographs of sunsets do that too, but
+    // they are not asking the player to drive through it. The measurement stays
+    // untouched in `atmosphere`; only the copy handed to the display is scaled,
+    // and report() prints both so the gap is never invisible.
+    const e = p.exposure || 1;
+    a.fogClamp = Math.min(1, this.fogCeiling / Math.max(1e-9, luminance3(a.fogColor) * e));
+    a.inscatterClamp = Math.min(1, this.inscatterCeiling / Math.max(1e-9, luminance3(a.fogInscatter) * e));
+    p.fogColor.copy(a.fogColor).multiplyScalar(a.fogClamp);
+    p.fogInscatter.copy(a.fogInscatter).multiplyScalar(a.inscatterClamp);
     p.fogDensity = a.density;
     p.fogHeightFalloff = a.heightFalloff;
     p.fogHeightRef = a.heightRef;
@@ -1032,6 +1054,8 @@ export class Sky {
       sunLux: +a.sunLux.toFixed(0),
       fogColorNits: [a.fogColor.r, a.fogColor.g, a.fogColor.b].map((v) => +v.toFixed(2)),
       fogInscatterNits: [a.fogInscatter.r, a.fogInscatter.g, a.fogInscatter.b].map((v) => +v.toFixed(2)),
+      fogClamp: +a.fogClamp.toFixed(3),
+      inscatterClamp: +a.inscatterClamp.toFixed(3),
       fogDensity: +a.density.toFixed(5),
       fogHeightFalloff: +a.heightFalloff.toFixed(4),
       artisticMultiplier: a.artisticMultiplier,
@@ -1079,6 +1103,7 @@ export class Sky {
 }
 
 function luminance(c) { return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; }
+function luminance3(c) { return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b; }
 function smoothstep(a, b, x) {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);

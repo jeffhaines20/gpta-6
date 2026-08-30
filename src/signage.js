@@ -455,8 +455,9 @@ function plateFill(L, x, y, w, h, colour, rough, metal) {
   L.em.g.fillRect(x - p, y - p, w + p * 2, h + p * 2);
 }
 
-// A soft, slightly uneven wash so a plate is never a flat fill.
-function weather(g, x, y, w, h, r, strength = 0.06) {
+// A soft, slightly uneven wash so a plate is never a flat fill. Named for what
+// it is, not for src/weather.js, which is a different thing entirely.
+function patina(g, x, y, w, h, r, strength = 0.06) {
   for (let i = 0; i < 22; i++) {
     const a = strength * (0.3 + r() * 0.7);
     g.fillStyle = `rgba(0,0,0,${a.toFixed(3)})`;
@@ -518,7 +519,7 @@ function drawWordmark(L, x, y, w, h, biz, r, opts = {}) {
       g.fillStyle = '#f7f4ec';
       drawTracked(g, t, x + w / 2 + h * 0.36, y + h * 0.5, fit, 0);
       drawMark(g, biz.m, x + pad + h * 0.3, y + h * 0.5, h * 0.62, hsl(hue, 28, 86), null, markArgs);
-      weather(g, x, y, w, h, r, 0.05);
+      patina(g, x, y, w, h, r, 0.05);
       break;
     }
 
@@ -536,7 +537,7 @@ function drawWordmark(L, x, y, w, h, biz, r, opts = {}) {
       g.fillRect(x + w / 2 - tw / 2 - 8, y + h * 0.76, tw + 16, Math.max(1.5, h * 0.018));
       g.fillRect(x + w / 2 - tw / 2 - 8, y + h * 0.18, tw + 16, Math.max(1.5, h * 0.018));
       drawMark(g, biz.m, x + w / 2, y + h * 0.9, h * 0.2, ink, null, markArgs);
-      weather(g, x, y, w, h, r, 0.09);
+      patina(g, x, y, w, h, r, 0.09);
       break;
     }
 
@@ -558,7 +559,7 @@ function drawWordmark(L, x, y, w, h, biz, r, opts = {}) {
       drawTracked(g, t, x + w / 2 + 3, y + h * 0.53 + 3, fit, 0);
       g.fillStyle = `hsl(${(hue + 40) % 360},58%,84%)`;
       drawTracked(g, t, x + w / 2, y + h * 0.5, fit, 0);
-      weather(g, x, y, w, h, r, 0.12);
+      patina(g, x, y, w, h, r, 0.12);
       break;
     }
 
@@ -702,7 +703,7 @@ function drawWordmark(L, x, y, w, h, biz, r, opts = {}) {
       g.fillStyle = '#f2ece0';
       drawTracked(g, text, x + w / 2, y + h * 0.74, fit, 0);
       drawMark(g, biz.m, x + w * 0.5, y + h * 0.24, h * 0.34, hsl(hue, 46, 78), null, markArgs);
-      weather(g, x, y, w, h, r, 0.07);
+      patina(g, x, y, w, h, r, 0.07);
       break;
     }
 
@@ -716,7 +717,7 @@ function drawWordmark(L, x, y, w, h, biz, r, opts = {}) {
       g.fillStyle = '#22262c';
       drawTracked(g, text, x + w * 0.5, y + h * 0.44, fit, 0);
       drawMark(g, biz.m, x + w * 0.5, y + h * 0.16, h * 0.2, hsl(hue, 58, 44), null, markArgs);
-      weather(g, x, y, w, h, r, 0.04);
+      patina(g, x, y, w, h, r, 0.04);
     }
   }
   g.restore(); e.restore();
@@ -747,7 +748,7 @@ function drawValance(L, x, y, w, h, biz, r) {
     g.arc(x + (w / scallops) * (i + 0.5), y + h * 0.84, h * 0.15, 0, Math.PI);
     g.fill();
   }
-  weather(g, x, y, w, h, r, 0.07);
+  patina(g, x, y, w, h, r, 0.07);
   g.restore();
 }
 
@@ -786,7 +787,7 @@ function drawBlade(L, x, y, w, h, biz, r) {
     e.strokeStyle = hsl(biz.h, 88, 58); e.lineWidth = 3;
     e.strokeRect(x + 4, y + 4, w - 8, h - 8);
   }
-  weather(g, x, y, w, h, r, lit ? 0.03 : 0.08);
+  patina(g, x, y, w, h, r, lit ? 0.03 : 0.08);
   g.restore(); e.restore();
 }
 
@@ -823,7 +824,7 @@ function drawStripe(L, x, y, size, i, r) {
   grad.addColorStop(0, 'rgba(255,255,255,0.12)');
   grad.addColorStop(1, 'rgba(0,0,0,0.20)');
   g.fillStyle = grad; g.fillRect(x, y, size, size);
-  weather(g, x, y, size, size, r, 0.05);
+  patina(g, x, y, size, size, r, 0.05);
 }
 
 function drawMisc(L, key, x, y, size) {
