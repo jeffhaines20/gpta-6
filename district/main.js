@@ -9,6 +9,7 @@ import { Vehicle } from '../src/vehicle.js';
 import { ChaseCamera } from '../src/camera.js';
 import { StreamingWorld } from '../src/streaming.js';
 import { TrafficStub } from '../src/traffic.js';
+import { Pedestrians } from '../src/pedestrians.js';
 import { PursuitUnits } from '../src/pursuit.js';
 import { StreetFurniture } from '../src/streetfurniture.js';
 import { LightPool } from '../src/lightpool.js';
@@ -259,6 +260,35 @@ function setTraffic(on) {
   return !!traffic;
 }
 
+// ------------------------------------------------------------------ crowd
+// Pedestrians are ON BY DEFAULT, unlike traffic. "No pedestrians" was named by
+// every blind critic across both review rounds, and a system that only appears
+// when a harness passes a flag is not a system - the audit already caught two
+// modules in this project that existed but were never imported by the live app.
+// The whole crowd is four InstancedMeshes (src/pedestrians.js explains why), so
+// switching it on costs a measured 4 scene draw calls whatever the population -
+// 125 -> 129 on the hero corridor, against a gate that warns at 200. That fixed
+// cost is the only reason it can be default-on at all.
+//
+// The radii are tighter than traffic's on purpose. Traffic spawns 90-340 m out because
+// cars cross that in seconds; people walk, so a crowd seeded that far away never
+// reaches the player and the pavement in front of the camera stays empty. These
+// numbers keep the population concentrated in the block the player is actually
+// standing in, which is where "living streets" has to be true.
+const PED_OPTS = { despawnRadius: 125, spawnMin: 12, spawnMax: 90 };
+let peds = null;
+function setPedestrians(n) {
+  if (peds) { peds.dispose(); peds = null; }
+  if (n > 0) {
+    peds = new Pedestrians(scene, district, { ...PED_OPTS, count: n, ground: world });
+    // Same hook traffic uses: "orphan" then means a ped simulated in a chunk the
+    // streamer has not loaded, rather than a guess from distance.
+    peds.isChunkLoaded = (x, z) => world.loaded.has(world.keyOf(x, z));
+  }
+  return !!peds;
+}
+setPedestrians(96);
+
 // ------------------------------------------------------------------ metrics
 const metrics = {
   frames: 0, samples: [], recording: false,
@@ -321,6 +351,10 @@ function animate(now) {
     vehicle.stepFixed(dt, world);
     world.update(mode === 'foot' ? player.position : vehicle.position);
     if (traffic) traffic.update(dt, vehicle.position);
+    // Peds follow whatever the camera is actually near, not the parked car:
+    // on foot the crowd has to be around the player or the pavement is empty
+    // exactly where it is most visible.
+    if (peds) peds.update(dt, mode === 'foot' ? player.position : vehicle.position);
     if (pursuit) pursuit.update(dt, vehicle.position);
     simTime += dt;
   }
@@ -398,6 +432,7 @@ function animate(now) {
     `tris ${(post.stats.sceneTriangles / 1000).toFixed(1)}k  post ${post.stats.passes}\n` +
     `loads ${w.loads}  unloads ${w.unloads}  worst slice ${w.worstSliceMs.toFixed(1)}ms  queued ${w.queued}` +
     (traffic ? `  ·  traffic ${traffic.report().alive}` : '') +
+    (peds ? `  ·  peds ${peds.aliveCount}` : '') +
     (pursuit ? `  ·  PURSUIT ${pursuit.report().active}` : '');
 
   input.endFrame();
@@ -421,6 +456,10 @@ window.__district = {
   get frames() { return metrics.frames; },
   setTraffic,
   setPursuit,
+  pedestrians: () => peds,
+  setPedestrians,
+  pedestrianReport: () => (peds ? peds.report() : null),
+  pedestrianPositions: () => (peds ? peds.positions() : []),
   player, character, fsm, input,
   // Headless harnesses drive the game through these rather than synthesising key
   // events, which pointer-lock and focus rules make unreliable in a headless page.

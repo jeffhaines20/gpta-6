@@ -1,0 +1,1147 @@
+// Pedestrians: a walking crowd on the sidewalks of the baked street graph.
+//
+// Mirrors src/traffic.js structurally on purpose - one instanced representation,
+// a spawn/despawn radius around the player, routing over the baked graph, and a
+// stats object the harnesses can gate on - because that architecture is the one
+// this project has already proved stays inside the draw-call budget.
+//
+// ---------------------------------------------------------------------------
+// REPRESENTATION: three InstancedMeshes, eight rigid bones per ped. Why.
+// ---------------------------------------------------------------------------
+// The budget gate is warn 200 / fail 320 draw calls and the district already
+// spends ~110-125 of them. That is the whole constraint, so cost drove this:
+//
+//   * A Character (src/character.js) per ped is a Group of ~11 meshes over four
+//     materials. Three-ish draw calls each: 60 peds is ~200 calls of pedestrian
+//     alone and the gate fails on the spot. Not viable at any quality.
+//   * A skinned mesh per ped is one call each (still 60), needs a rigged asset
+//     this project has no pipeline for, and adds per-ped skinning on the CPU.
+//   * A billboard impostor is the cheapest thing that exists, and it is wrong
+//     here: this is a third-person game where the player walks around people at
+//     two metres. An impostor survives being looked at, not being circled.
+//
+// What ships is the middle option the brief called out: a small number of
+// instanced body-part meshes whose per-instance matrices are driven by the
+// stride phase.
+//
+//   torso  - 1 instance per ped
+//   head   - 1 instance per ped
+//   limb   - 8 instances per ped (thigh + shank, upper arm + forearm, x2 sides)
+//   shadow - 1 instance per ped, a contact blob on the pavement (see below)
+//
+// Four InstancedMeshes for the entire population: 4 draw calls in the scene pass
+// and 3 more in the shadow pass, FIXED, whatever the population is. Measured on
+// the hero corridor: 122 -> 125 scene calls for the bodies, one more for the
+// contact blobs, against a gate that warns at 200. Colour variety comes from
+// per-instance colour (skin, shirt, trousers all multiply the one material), so
+// a varied crowd costs no extra materials; height and build come from
+// per-instance scale.
+//
+// The trade-off, stated plainly: rigid capsule bones mean no shoulder twist, no
+// foot roll, no cloth and no face. Peds read as people on the far pavement and
+// as mannequins if you stand nose-to-nose with one. That is the right side of
+// the trade when the alternative that looks better up close costs 60 draw calls
+// and an asset pipeline. Eight bones is the fewest that still gives a real gait,
+// and gait - not polygons - is what makes a crowd read as alive.
+//
+// ---------------------------------------------------------------------------
+// GAIT: phase advances by distance, and the stance foot is PROVABLY planted.
+// ---------------------------------------------------------------------------
+// src/animfsm.js established the rule that matters: the stride phase accumulates
+// with distance travelled, never with wall-clock time, so feet cannot slide.
+// This file follows it and then closes the remaining gap, because it can.
+//
+// Driving joint ANGLES from a sine, which is what the player's rig does, only
+// approximates a planted foot: the foot traces an arc while the body moves in a
+// straight line, and the difference is the residual slip. So peds specify the
+// FOOT TRAJECTORY instead and solve the leg backwards from it:
+//
+//   * Each foot is in stance for DUTY of the gait cycle and in swing for the
+//     rest. Over one cycle the body advances one stride S, so during stance the
+//     foot must move backward relative to the hip at exactly the rate the hip
+//     moves forward: rel = DUTY*S*(0.5 - a). Because the phase advances with
+//     distance (dPhase = 2*pi * v*dt / S), that cancels to ZERO world motion for
+//     the stance foot - not approximately, algebraically. No slip is possible.
+//   * The swing foot arcs forward with a sine lift for ground clearance.
+//   * The leg is then solved by two-link IK. Thigh and shank are equal length,
+//     which collapses the general solution to one acos: the thigh and shank sit
+//     at +/-beta about the hip-to-foot line, beta = acos(d / legLength). The
+//     knee therefore bends the way a knee bends, by construction, rather than by
+//     a sign convention that has to be argued about.
+//   * The hip rides a softened compass-gait curve (lowest at double support,
+//     highest at mid-stance - the bob real walking has). Where the softening
+//     asks the leg to reach further than it can, the FOOT rises to meet it
+//     instead of the ankle stretching: that reads as heel-off, and it keeps the
+//     horizontal foot position - the part slip is visible in - exact.
+//
+// The upshot is a walk whose contact is correct by construction at any speed,
+// any leg length and any frame rate.
+
+import * as THREE from '../vendor/three.module.min.js';
+
+// ------------------------------------------------------------------ skeleton
+// Metres, at height scale 1: a 1.70 m adult. Per-ped scale spreads the
+// population over roughly 1.56-1.87 m.
+//
+// Bone lengths are JOINT CENTRE to JOINT CENTRE, and the capsule for a bone is
+// authored so its instance pivot is the centre of its top cap. Adjacent bones
+// therefore INTERPENETRATE by a cap radius at every joint instead of meeting at
+// a tangent point. The first close-up of this crowd had a visible break at every
+// knee, elbow, shoulder and neck for exactly that reason: two rounded ends
+// touching at one point read as a body that has come apart.
+const LEG_LEN = 0.838;              // hip joint -> ankle joint
+// Equal segments, and _solveLeg depends on it: with THIGH === SHANK the two-link
+// IK collapses to a single acos. Changing one without the other breaks the solve.
+const THIGH = LEG_LEN / 2;
+const SHANK = LEG_LEN / 2;
+// The shank capsule's bottom cap IS the foot, so the ankle joint sits one cap
+// radius above the sole and the sole lands on the pavement.
+const ANKLE_H = 0.062;
+const TORSO_H = 0.475;              // hip -> shoulder
+const HEAD_Y = 0.56;                // hip -> head pivot; the head sinks into the
+                                    // torso from here, which is what gives a neck
+const HIP_X = 0.095;                // half hip width
+const SHOULDER_X = 0.205;
+const UPPER_ARM = 0.29;             // shoulder -> elbow
+const FOREARM = 0.26;               // elbow -> wrist (the cap is the hand)
+
+// streaming.js reports ground as groundY through heightAt(), but the pavement
+// the player actually sees is drawn at groundY - 0.05 so road ribbons (+0.02)
+// and zone polygons (+0.012) can stack on it without z-fighting. A ped whose
+// soles sit at exactly heightAt() therefore hovers 50 mm above the pavement -
+// the same trap street furniture fell into with its lamp posts. Everything this
+// system puts on the ground is placed against the PAD, not against groundY.
+const GROUND_PAD_DROP = 0.05;
+const FOOT_SINK = GROUND_PAD_DROP + 0.005;      // sole 5 mm inside the pavement
+const SHADOW_Y = -(GROUND_PAD_DROP - 0.008);    // contact blob 8 mm above it
+
+// Base geometry sizes. Instance scale converts these to per-bone lengths, so the
+// limb capsule is authored once and stretched.
+const LIMB_R = 0.072, LIMB_CYL = 0.50;
+const LIMB_BASE = LIMB_CYL;                // pivot -> far joint centre
+const TORSO_R = 0.158, TORSO_CYL = 0.30;
+const TORSO_BASE = TORSO_CYL + 2 * TORSO_R;
+
+// ------------------------------------------------------------------ crowd look
+const SKIN = [0xd8ab84, 0xc79a72, 0xa8734c, 0x8d5f43, 0x6f4630, 0x4b2f20, 0xefc9a6];
+const SHIRT = [
+  0x2f4a63, 0x7a3b34, 0x3d5b45, 0xb8a068, 0x2b2f38, 0x6d4e7a, 0xd9d3c6,
+  0x1f6f78, 0xa8562f, 0x39434f, 0x8f9aa6, 0x5c2f3a,
+];
+const PANTS = [0x22262c, 0x3a3f4a, 0x5a4636, 0x2e3b30, 0x4a4f58, 0x1b2733, 0x6b6152];
+const HAIR_MUL = 0.28;              // hair = skin tone x this, baked as vertex colour
+
+// ------------------------------------------------------------------ gait
+const DUTY = 0.62;              // fraction of the cycle each foot is on the ground
+const STRIDE_K = 1.52;          // stride per cycle, as a multiple of leg length
+const SWING_LIFT = 0.075;       // foot clearance at mid-swing, m
+const BOB_FRACTION = 0.86;       // how much of the compass-gait hip drop to keep
+const REACH = 0.985;            // usable leg length; knees never lock straight
+const ARM_AMP = 0.34;           // shoulder swing at full walking speed, rad
+const GAIT_FADE = 0.35;         // below this speed (m/s) the gait folds away
+
+// ------------------------------------------------------------------ behaviour
+const WALK_MIN = 1.1, WALK_MAX = 1.6;      // m/s, per the brief
+const MAX_TURN = 2.6;                      // rad/s - corners get turned, not snapped
+const ARRIVE = 1.1;                        // waypoint capture radius, m
+const SEP_RADIUS = 1.25;                   // personal space, m
+const SEP_CELL = 2.0;                      // neighbour hash cell, m
+// Two separation thresholds, because one number cannot answer both questions.
+// CLOSE_PASS is shoulder width: people brush past each other in a real crowd and
+// a system that never gets this close is a system whose peds are on rails.
+// BODY_OVERLAP is two torso radii: getting inside THAT is walking through
+// someone, and it is the number that must stay at zero.
+const OVERLAP_DIST = 0.55;
+const BODY_OVERLAP = 0.34;
+const BUILDING_MARGIN = 0.28;              // keep this far off a wall
+const STUCK_TURN_S = 2.5;                  // blocked this long -> turn around
+const STUCK_DESPAWN_S = 7.0;               // still blocked -> give the slot back
+const SPAWN_SLOTS_PER_FRAME = 20;          // bounded refill work per frame
+const SPAWN_TRIES = 6;                     // attempts per slot
+
+// Candidate sidewalk insets outward from the kerb, widest first. The kerb is at
+// half the baked street width; street lamps stand at +1.4 (district/main.js), so
+// 1.9 puts peds behind the lamp line against the shopfronts and 0.8 puts them at
+// the kerb edge. Whichever is clear of the buildings on that side wins.
+const INSETS = [1.9, 1.45, 1.05, 0.8];
+const BLOCKED_TOLERANCE = 0.15;            // fraction of samples allowed to clip
+
+const TAU = Math.PI * 2;
+
+function pick(list) { return list[(Math.random() * list.length) | 0]; }
+
+export class Pedestrians {
+  constructor(scene, district, opts = {}) {
+    this.d = district;
+    this.count = opts.count ?? 72;
+    this.ground = opts.ground ?? null;               // StreamingWorld: heightAt(x, z)
+    this.despawnRadius = opts.despawnRadius ?? 140;
+    this.spawnMin = opts.spawnMin ?? 18;
+    this.spawnMax = opts.spawnMax ?? 100;
+    this.overlapDistance = opts.overlapDistance ?? OVERLAP_DIST;
+    this.avoidPlayer = opts.avoidPlayer ?? true;
+
+    this._buildAdjacency();
+    this._buildBuildingIndex();
+
+    // --- geometry, authored so the instance matrix pivot is the JOINT CENTRE.
+    // The capsule keeps a cap radius of material above its pivot and below its
+    // far end, which is what makes neighbouring bones overlap at the joint.
+    const limbGeo = new THREE.CapsuleGeometry(LIMB_R, LIMB_CYL, 2, 6);
+    limbGeo.translate(0, -LIMB_CYL / 2, 0);
+
+    const torsoGeo = new THREE.CapsuleGeometry(TORSO_R, TORSO_CYL, 2, 8);
+    torsoGeo.translate(0, TORSO_CYL / 2 + TORSO_R, 0);        // pivot at the hips
+    torsoGeo.scale(1, 1, 0.72);                               // chests are not round
+
+    const headGeo = new THREE.SphereGeometry(0.105, 7, 5);
+    headGeo.scale(1, 1.14, 0.95);
+    // Hair without a fourth draw call: a vertex-colour cap over the crown that
+    // multiplies the per-instance skin tone down to a dark scalp. A head with no
+    // hair at all reads as an egg on a stick at any distance.
+    {
+      const p = headGeo.attributes.position;
+      const col = new Float32Array(p.count * 3);
+      for (let i = 0; i < p.count; i++) {
+        const shade = p.getY(i) > 0.018 ? HAIR_MUL : 1;
+        col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = shade;
+      }
+      headGeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    }
+    // The head centre sits well above its pivot so the skull sinks into the top
+    // of the torso capsule: overlap, not tangency, is what reads as a neck.
+    headGeo.translate(0, 0.125, 0);
+
+    // Contact shadow.
+    //
+    // The sun's shadow map is 2048 texels over a 520 m ortho box: 0.25 m per
+    // texel. A pedestrian is about 1.5 texels wide, so the real shadow pass
+    // cannot resolve one however correctly it is set up, and the first hero shot
+    // showed people pasted onto the pavement with nothing under them. A soft
+    // blob is the standard answer and it is honest here: it reads as contact
+    // occlusion rather than pretending to be a cast shadow. One more instanced
+    // mesh, 12 triangles per ped, and alpha carried in a 4-component vertex
+    // colour so it needs no texture.
+    const blobGeo = new THREE.CircleGeometry(1, 12);
+    blobGeo.rotateX(-Math.PI / 2);
+    {
+      const n = blobGeo.attributes.position.count;
+      const rgba = new Float32Array(n * 4);
+      for (let i = 0; i < n; i++) {
+        // Vertex 0 is the centre of a CircleGeometry fan; the rim fades out.
+      // Opacity was measured, not guessed: at 0.5 the blob was invisible under a
+      // ped standing on dusk-lit pavement, and 0.7 is where it reads as contact
+      // without reading as a hole.
+        rgba[i * 4 + 3] = i === 0 ? 1 : 0;
+      }
+      blobGeo.setAttribute('color', new THREE.BufferAttribute(rgba, 4));
+    }
+
+    const cloth = new THREE.MeshStandardMaterial({ roughness: 0.86, metalness: 0 });
+    const skin = new THREE.MeshStandardMaterial({
+      roughness: 0.74, metalness: 0, vertexColors: true,
+    });
+    const blobMat = new THREE.MeshBasicMaterial({
+      color: 0x000000, transparent: true, opacity: 0.7,
+      depthWrite: false, vertexColors: true, fog: false,
+    });
+    this.materials = [cloth, skin, blobMat];
+
+    this.root = new THREE.Group();
+    this.root.name = 'pedestrians';
+    scene.add(this.root);
+
+    this.shadows = this._instanced(blobGeo, blobMat, this.count, false);
+    this.shadows.renderOrder = 1;      // after the opaque pavement it darkens
+    this.torsos = this._instanced(torsoGeo, cloth, this.count);
+    this.heads = this._instanced(headGeo, skin, this.count);
+    this.limbs = this._instanced(limbGeo, cloth, this.count * 8);
+
+    // --- state
+    this.peds = new Array(this.count).fill(null);
+    this._shown = new Uint8Array(this.count);
+    this.aliveCount = 0;
+    this._nextId = 0;
+    this._walks = new Map();          // edge*2+side -> baked sidewalk polyline
+    this._hash = new Map();           // neighbour hash, rebuilt each frame
+    this._colorDirty = true;
+
+    // Scratch, reused every frame: this loop runs count*10 times a frame and has
+    // no business allocating.
+    this._m = new THREE.Matrix4();
+    this._hidden = new THREE.Matrix4().makeScale(0, 0, 0);
+    this._q = new THREE.Quaternion();
+    this._qy = new THREE.Quaternion();
+    this._qx = new THREE.Quaternion();
+    this._v = new THREE.Vector3();
+    this._s = new THREE.Vector3();
+    this._col = new THREE.Color();
+    this._axisY = new THREE.Vector3(0, 1, 0);
+    this._axisX = new THREE.Vector3(1, 0, 0);
+    this._tipOut = [0, 0, 0];
+    this._fL = { rel: 0, y: 0, stance: true };
+    this._fR = { rel: 0, y: 0, stance: true };
+    this._legs = [0, 0, 0, 0];        // thighL, shankL, thighR, shankR
+    this._focus = { x: 0, z: 0 };
+    this._tgt = { x: 0, z: 0 };
+
+    this.stats = {
+      spawns: 0, despawns: 0, spawnFailures: 0, frames: 0, pedFrames: 0,
+      corners: 0, deadEndTurns: 0, uTurnsWhenStuck: 0, stuckDespawns: 0,
+      buildingPushes: 0, avoidBrakeFrames: 0, orphanPedFrames: 0,
+      overlapFrames: 0, bodyOverlapFrames: 0, closestApproachM: Infinity,
+      sidewalksBaked: 0, sidewalksRejected: 0,
+    };
+    this._minHist = new Array(6).fill(0);   // closest pair per frame, 0.25 m buckets
+  }
+
+  _instanced(geo, mat, n, shadow = true) {
+    const m = new THREE.InstancedMesh(geo, mat, n);
+    m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    m.castShadow = shadow;
+    m.receiveShadow = shadow;
+    // The crowd is spread over a 140 m radius around the player and its instance
+    // bounding sphere is the geometry's, not the crowd's; culling it would hide
+    // everyone. Same reasoning as traffic.js and streetfurniture.js.
+    m.frustumCulled = false;
+    for (let i = 0; i < n; i++) m.setMatrixAt(i, new THREE.Matrix4().makeScale(0, 0, 0));
+    this.root.add(m);
+    return m;
+  }
+
+  // ------------------------------------------------------------------ graph
+  // Adjacency for people, not cars. One-way restrictions (edge.o) are deliberately
+  // ignored: a one-way street still has two pavements and people walk both ways
+  // along both of them. Service alleys (r > 6) are excluded - they are the strips
+  // between buildings, where a "sidewalk" offset has nowhere to go.
+  _buildAdjacency() {
+    this.out = new Map();
+    const add = (v, e, forward) => {
+      if (!this.out.has(v)) this.out.set(v, []);
+      this.out.get(v).push({ e, forward });
+    };
+    this._lenCache = new Map();
+    this.walkableEdges = [];
+    this.d.edges.forEach((e, i) => {
+      if (e.r > 6) return;
+      this.walkableEdges.push(i);
+      add(e.v[0], i, true);
+      add(e.v[e.v.length - 1], i, false);
+    });
+    this.spawnable = this.walkableEdges.filter((i) => this._len(i) > 18);
+    this._spawnSet = new Set(this.spawnable);
+    this._nearKey = null;
+    this._nearEdges = this.spawnable;
+  }
+
+  // Walkable edges in the chunks around a point.
+  //
+  // Traffic can sample the whole district at random because it spawns out to
+  // 340 m; peds spawn inside 100 m, where a random draw from all 405 spawnable
+  // edges lands in range about 3% of the time. Measured: 24 attempts produced
+  // ZERO pedestrians and an empty pavement. The baked chunk index already lists
+  // the edges per 128 m cell, so sample from the 3x3 block around the player and
+  // the hit rate becomes the useful one. Cached until the player changes chunk.
+  _edgesNear(x, z) {
+    const cs = this.d.meta.chunkSize;
+    const cx = Math.floor(x / cs), cz = Math.floor(z / cs);
+    const key = `${cx},${cz}`;
+    if (this._nearKey === key) return this._nearEdges;
+    const span = Math.max(1, Math.ceil(this.spawnMax / cs));
+    const seen = new Set();
+    for (let dz = -span; dz <= span; dz++) {
+      for (let dx = -span; dx <= span; dx++) {
+        const c = this.d.chunks[`${cx + dx},${cz + dz}`];
+        if (!c) continue;
+        for (const ei of c.edges) if (this._spawnSet.has(ei)) seen.add(ei);
+      }
+    }
+    this._nearKey = key;
+    // Off the edge of the mapped area there may be nothing local; fall back to
+    // the district-wide list rather than stopping the crowd dead.
+    this._nearEdges = seen.size ? [...seen] : this.spawnable;
+    return this._nearEdges;
+  }
+
+  _len(i) {
+    if (this._lenCache.has(i)) return this._lenCache.get(i);
+    const e = this.d.edges[i];
+    let l = 0;
+    for (let k = 0; k < e.v.length - 1; k++) {
+      const a = this.d.verts[e.v[k]], b = this.d.verts[e.v[k + 1]];
+      l += Math.hypot(b.x - a.x, b.z - a.z);
+    }
+    this._lenCache.set(i, l);
+    return l;
+  }
+
+  // ------------------------------------------------------- building avoidance
+  // A uniform grid over the footprints. Peds test against the real polygon, not
+  // the bounding box: OSM footprints are L-shaped and courtyarded often enough
+  // that a box test would push people into the roadway on 12% of edge-sides.
+  _buildBuildingIndex() {
+    this.BCELL = 64;
+    this._bgrid = new Map();
+    this._bboxes = [];
+    this.d.buildings.forEach((b, i) => {
+      let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+      for (const [x, z] of b.p) {
+        if (x < x0) x0 = x; if (x > x1) x1 = x;
+        if (z < z0) z0 = z; if (z > z1) z1 = z;
+      }
+      this._bboxes.push({ x0, x1, z0, z1, ring: b.p });
+      for (let cx = Math.floor(x0 / this.BCELL); cx <= Math.floor(x1 / this.BCELL); cx++) {
+        for (let cz = Math.floor(z0 / this.BCELL); cz <= Math.floor(z1 / this.BCELL); cz++) {
+          const k = this._cellKey(cx, cz);
+          if (!this._bgrid.has(k)) this._bgrid.set(k, []);
+          this._bgrid.get(k).push(i);
+        }
+      }
+    });
+  }
+
+  _cellKey(cx, cz) { return (cx + 4096) * 8192 + (cz + 4096); }
+
+  _bucketAt(x, z) {
+    return this._bgrid.get(this._cellKey(Math.floor(x / this.BCELL), Math.floor(z / this.BCELL)));
+  }
+
+  static _pointInRing(x, z, ring) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0], zi = ring[i][1], xj = ring[j][0], zj = ring[j][1];
+      if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi + 1e-12) + xi) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
+
+  // Squared distance from a point to a ring's boundary, plus the closest point.
+  static _distToRing(x, z, ring, out) {
+    let best = Infinity;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const ax = ring[j][0], az = ring[j][1], bx = ring[i][0], bz = ring[i][1];
+      const dx = bx - ax, dz = bz - az;
+      const l2 = dx * dx + dz * dz;
+      let t = l2 > 1e-9 ? ((x - ax) * dx + (z - az) * dz) / l2 : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const px = ax + dx * t, pz = az + dz * t;
+      const d2 = (x - px) * (x - px) + (z - pz) * (z - pz);
+      if (d2 < best) { best = d2; if (out) { out.x = px; out.z = pz; } }
+    }
+    return best;
+  }
+
+  // Is this point inside a building, or within `margin` of one?
+  _blocked(x, z, margin) {
+    const list = this._bucketAt(x, z);
+    if (!list) return false;
+    for (const i of list) {
+      const b = this._bboxes[i];
+      if (x < b.x0 - margin || x > b.x1 + margin || z < b.z0 - margin || z > b.z1 + margin) continue;
+      if (Pedestrians._pointInRing(x, z, b.ring)) return true;
+      if (margin > 0 && Pedestrians._distToRing(x, z, b.ring, null) < margin * margin) return true;
+    }
+    return false;
+  }
+
+  // Shove a ped that has ended up inside a wall out to the nearest facade. The
+  // baked sidewalk offsets keep this rare; corner-cutting at junctions is what
+  // still triggers it, and "rare" is not "never".
+  _pushOut(ped) {
+    const list = this._bucketAt(ped.x, ped.z);
+    if (!list) return false;
+    for (const i of list) {
+      const b = this._bboxes[i];
+      if (ped.x < b.x0 || ped.x > b.x1 || ped.z < b.z0 || ped.z > b.z1) continue;
+      if (!Pedestrians._pointInRing(ped.x, ped.z, b.ring)) continue;
+      const p = { x: 0, z: 0 };
+      Pedestrians._distToRing(ped.x, ped.z, b.ring, p);
+      let ox = p.x - ped.x, oz = p.z - ped.z;
+      const l = Math.hypot(ox, oz);
+      if (l < 1e-4) { ox = 1; oz = 0; } else { ox /= l; oz /= l; }
+      ped.x = p.x + ox * BUILDING_MARGIN;
+      ped.z = p.z + oz * BUILDING_MARGIN;
+      this.stats.buildingPushes++;
+      return true;
+    }
+    return false;
+  }
+
+  // ----------------------------------------------------------- sidewalk bake
+  // The sidewalk for (edge, side) is the street centreline pushed sideways by
+  // half the baked width plus an inset. The widest inset whose samples clear the
+  // buildings on that side wins; if even the tightest is mostly inside a
+  // building, that pavement does not exist and nobody is routed onto it.
+  //
+  // Baked lazily and cached: 582 walkable edges x 2 sides is 1164 possible
+  // pavements, and a session touches a fraction of them. Doing it all at load
+  // would be a startup stall for nothing.
+  _walk(ei, side) {
+    const key = ei * 2 + side;
+    if (this._walks.has(key)) return this._walks.get(key);
+    const e = this.d.edges[ei];
+    const base = [];
+    for (const vi of e.v) {
+      const v = this.d.verts[vi];
+      const last = base[base.length - 1];
+      if (last && Math.abs(last.x - v.x) < 1e-4 && Math.abs(last.z - v.z) < 1e-4) continue;
+      base.push({ x: v.x, z: v.z });
+    }
+    let best = null;
+    if (base.length >= 2) {
+      for (const inset of INSETS) {
+        const pts = this._offsetPolyline(base, (e.w / 2 + inset) * (side ? -1 : 1));
+        const blocked = this._blockedFraction(pts);
+        if (!best || blocked < best.blocked) best = { pts, blocked, inset };
+        if (blocked === 0) break;
+      }
+    }
+    const walk = best && best.blocked <= BLOCKED_TOLERANCE
+      ? { pts: best.pts, inset: best.inset } : null;
+    this._walks.set(key, walk);
+    if (walk) this.stats.sidewalksBaked++; else this.stats.sidewalksRejected++;
+    return walk;
+  }
+
+  // Mitred offset: each vertex moves along the bisector of its two segment
+  // normals, so the pavement stays parallel to the kerb through a bend instead
+  // of pinching in and cutting the corner off.
+  _offsetPolyline(base, off) {
+    const n = base.length;
+    const seg = [];
+    for (let i = 0; i < n - 1; i++) {
+      const dx = base[i + 1].x - base[i].x, dz = base[i + 1].z - base[i].z;
+      const l = Math.hypot(dx, dz) || 1;
+      seg.push({ nx: -dz / l, nz: dx / l });
+    }
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const a = seg[Math.max(0, i - 1)], b = seg[Math.min(seg.length - 1, i)];
+      let nx = a.nx + b.nx, nz = a.nz + b.nz;
+      const l = Math.hypot(nx, nz);
+      if (l < 1e-4) { nx = b.nx; nz = b.nz; } else { nx /= l; nz /= l; }
+      const cos = Math.max(0.4, nx * b.nx + nz * b.nz);
+      const k = Math.min(2.4, 1 / cos) * off;
+      out.push({ x: base[i].x + nx * k, z: base[i].z + nz * k });
+    }
+    return out;
+  }
+
+  _blockedFraction(pts) {
+    let total = 0, bad = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const l = Math.hypot(b.x - a.x, b.z - a.z);
+      const steps = Math.max(1, Math.ceil(l / 4));
+      for (let s = 0; s <= steps; s++) {
+        const f = s / steps;
+        total++;
+        if (this._blocked(a.x + (b.x - a.x) * f, a.z + (b.z - a.z) * f, BUILDING_MARGIN)) bad++;
+      }
+    }
+    return total ? bad / total : 1;
+  }
+
+  _endVertex(ei, forward) {
+    const e = this.d.edges[ei];
+    return forward ? e.v[e.v.length - 1] : e.v[0];
+  }
+
+  // Waypoint `k` of a traversal, in travel order.
+  _node(ped, k) {
+    return Pedestrians._at(ped.walk, ped.forward, k);
+  }
+
+  _nodeCount(ped) { return ped.walk.pts.length; }
+
+  // ---------------------------------------------------------------- routing
+  // At a junction, pick the next pavement. Two things decide it: keep going
+  // roughly straight, and stay on the SAME CORNER - the candidate whose first
+  // waypoint is nearest is the one that does not require crossing the road we
+  // just walked along. That is what turns peds around corners instead of
+  // marching them over the carriageway, and it is why side is chosen here rather
+  // than carried over.
+  _chooseNext(ped) {
+    const v = this._endVertex(ped.edge, ped.forward);
+    const opts = this.out.get(v) ?? [];
+    const here = this._node(ped, this._nodeCount(ped) - 1) ?? { x: ped.x, z: ped.z };
+    const fx = Math.sin(ped.yaw), fz = Math.cos(ped.yaw);
+
+    let best = null, bestScore = -Infinity;
+    for (const o of opts) {
+      const straightBack = o.e === ped.edge && o.forward !== ped.forward;
+      for (let side = 0; side < 2; side++) {
+        const walk = this._walk(o.e, side);
+        if (!walk || walk.pts.length < 2) continue;
+        const q = o.forward ? walk.pts[0] : walk.pts[walk.pts.length - 1];
+        const corner = Math.hypot(q.x - here.x, q.z - here.z);
+        // Anything this far away is on the far pavement across the road.
+        if (corner > 16) continue;
+        const q2 = o.forward ? walk.pts[1] : walk.pts[walk.pts.length - 2];
+        const dx = q2.x - q.x, dz = q2.z - q.z;
+        const l = Math.hypot(dx, dz) || 1;
+        const straight = fx * (dx / l) + fz * (dz / l);
+        const score = straight * 0.9 - corner * 0.32 + Math.random() * 0.55
+          - (straightBack ? 1.6 : 0);
+        if (score > bestScore) { bestScore = score; best = { e: o.e, forward: o.forward, side }; }
+      }
+    }
+    if (best) return best;
+    // Dead end, or every continuation is across the road: about-face on the
+    // pavement we are already standing on and walk back out. Peds must never
+    // simply stop existing at a cul-de-sac.
+    this.stats.deadEndTurns++;
+    return { e: ped.edge, forward: !ped.forward, side: ped.side, uTurn: true };
+  }
+
+  _enter(ped, next) {
+    const walk = this._walk(next.e, next.side);
+    if (!walk) return false;
+    ped.edge = next.e;
+    ped.forward = next.forward;
+    ped.side = next.side;
+    ped.walk = walk;
+    ped.node = 0;
+    ped.lateral = this._laneOf(ped);
+    return true;
+  }
+
+  // Personal lane across the width of the pavement.
+  //
+  // Every ped on a given (edge, side) follows the SAME baked polyline, and the
+  // first hero shot showed the result: a conga line hugging the kerb, one
+  // pedestrian deep. Displacing each ped sideways by its own fixed amount
+  // spreads the crowd over the pavement instead.
+  //
+  // The displacement always points AWAY from the carriageway (the same sign the
+  // sidewalk itself was offset by), so nobody can be nudged into the road; the
+  // building side is covered by _pushOut. Peds walking the two directions take
+  // separate bands, which is both what people do and what stops head-on pairs
+  // from having to resolve every meeting through avoidance alone.
+  _laneOf(ped) {
+    const away = ped.side ? -1 : 1;
+    const band = ped.forward ? ped.laneJitter * 0.42 : 0.48 + ped.laneJitter * 0.42;
+    return away * band;
+  }
+
+  // The waypoint a ped is actually steering for: the polyline node pushed into
+  // that ped's lane, perpendicular to the direction of travel there.
+  _targetAt(ped, k, out) {
+    const p = this._node(ped, k);
+    if (!p) return null;
+    const n = this._nodeCount(ped);
+    const a = k > 0 ? this._node(ped, k - 1) : p;
+    const b = k > 0 ? p : this._node(ped, Math.min(1, n - 1));
+    let dx = b.x - a.x, dz = b.z - a.z;
+    const l = Math.hypot(dx, dz);
+    if (l < 1e-4) { out.x = p.x; out.z = p.z; return out; }
+    out.x = p.x + (-dz / l) * ped.lateral;
+    out.z = p.z + (dx / l) * ped.lateral;
+    return out;
+  }
+
+  // ---------------------------------------------------------------- spawning
+  _appearance(ped) {
+    ped.skin = pick(SKIN);
+    ped.shirt = pick(SHIRT);
+    ped.pants = pick(PANTS);
+    ped.bare = Math.random() < 0.45;       // short sleeves -> forearms are skin
+    ped.hscale = 0.92 + Math.random() * 0.18;
+    ped.build = 0.86 + Math.random() * 0.32;
+    ped.desired = WALK_MIN + Math.random() * (WALK_MAX - WALK_MIN);
+    ped.laneJitter = Math.random();
+  }
+
+  // Waypoint `k` of a walk in TRAVEL order, which is the polyline forwards or
+  // backwards depending on which way the ped is going along it.
+  static _at(walk, forward, k) {
+    return forward ? walk.pts[k] : walk.pts[walk.pts.length - 1 - k];
+  }
+
+  _spawn(i, focus, budget) {
+    const pool = this._edgesNear(focus.x, focus.z);
+    if (!pool.length) { this.stats.spawnFailures++; return false; }
+    for (let a = 0; a < budget; a++) {
+      const ei = pool[(Math.random() * pool.length) | 0];
+      const side = Math.random() < 0.5 ? 0 : 1;
+      const walk = this._walk(ei, side);
+      if (!walk || walk.pts.length < 2) continue;
+      const forward = Math.random() < 0.5;
+      const k = 1 + ((Math.random() * (walk.pts.length - 1)) | 0);
+      const from = Pedestrians._at(walk, forward, k - 1);
+      const to = Pedestrians._at(walk, forward, k);
+      const f = Math.random();
+      const x = from.x + (to.x - from.x) * f, z = from.z + (to.z - from.z) * f;
+
+      const dist = Math.hypot(x - focus.x, z - focus.z);
+      if (dist < this.spawnMin || dist > this.spawnMax) continue;
+      if (this._blocked(x, z, BUILDING_MARGIN)) continue;
+
+      // Never materialise inside somebody. Traffic learned this the expensive way.
+      let clash = false;
+      for (const other of this.peds) {
+        if (!other) continue;
+        if (Math.hypot(other.x - x, other.z - z) < 1.4) { clash = true; break; }
+      }
+      if (clash) continue;
+
+      const ped = {
+        id: ++this._nextId, edge: ei, side, forward, walk, node: k,
+        x, z, yaw: Math.atan2(to.x - from.x, to.z - from.z),
+        v: 0, phase: Math.random() * TAU, stuck: 0, turned: false, lateral: 0,
+      };
+      this._appearance(ped);
+      ped.lateral = this._laneOf(ped);
+      this.peds[i] = ped;
+      this._writeColors(i, ped);
+      this.stats.spawns++;
+      return true;
+    }
+    this.stats.spawnFailures++;
+    return false;
+  }
+
+  _writeColors(i, ped) {
+    const c = this._col;
+    c.setHex(ped.shirt); this.torsos.setColorAt(i, c);
+    c.setHex(ped.skin); this.heads.setColorAt(i, c);
+    const b = i * 8;
+    c.setHex(ped.pants);
+    this.limbs.setColorAt(b + 0, c);
+    this.limbs.setColorAt(b + 2, c);
+    // Shanks a touch darker: trouser break and shoe in one instance.
+    c.setHex(ped.pants).multiplyScalar(0.62);
+    this.limbs.setColorAt(b + 1, c);
+    this.limbs.setColorAt(b + 3, c);
+    // Sleeves a shade under the shirt. Identical tones made the whole upper body
+    // read as one blob in the first close-up, because the arms hang close enough
+    // to the torso that only a value break separates them.
+    c.setHex(ped.shirt).multiplyScalar(0.84);
+    this.limbs.setColorAt(b + 4, c);
+    this.limbs.setColorAt(b + 6, c);
+    if (ped.bare) c.setHex(ped.skin); else c.setHex(ped.shirt).multiplyScalar(0.78);
+    this.limbs.setColorAt(b + 5, c);
+    this.limbs.setColorAt(b + 7, c);
+    this._colorDirty = true;
+  }
+
+  // Empty slots collapse to a zero-scale matrix, the same trick traffic uses.
+  // Written once on the transition, not every frame: an idle slot should cost
+  // nothing at all.
+  _hide(i) {
+    if (!this._shown[i]) return;
+    this._shown[i] = 0;
+    this.shadows.setMatrixAt(i, this._hidden);
+    this.torsos.setMatrixAt(i, this._hidden);
+    this.heads.setMatrixAt(i, this._hidden);
+    for (let k = 0; k < 8; k++) this.limbs.setMatrixAt(i * 8 + k, this._hidden);
+  }
+
+  // ------------------------------------------------------------------ update
+  update(dt, focus) {
+    this.stats.frames++;
+    const fx = focus?.x ?? 0, fz = focus?.z ?? 0;
+
+    // --- fill empty slots. Bounded two ways: at most SPAWN_SLOTS_PER_FRAME
+    // slots are attempted and each gets SPAWN_TRIES attempts, so a frame where
+    // every candidate is rejected still costs a fixed amount of work. The
+    // per-frame cap has to be generous because it is measured in FRAMES: under
+    // the software renderer the harnesses run at a few frames a second, and a
+    // stingy cap left the pavement visibly half-empty in a 20 s capture.
+    this._focus.x = fx; this._focus.z = fz;
+    let slots = SPAWN_SLOTS_PER_FRAME;
+    for (let i = 0; i < this.count && slots > 0; i++) {
+      if (this.peds[i]) continue;
+      slots--;
+      this._spawn(i, this._focus, SPAWN_TRIES);
+    }
+
+    // --- neighbour hash from this frame's positions, so every ped steers
+    // against the same snapshot and the result does not depend on slot order.
+    this._hash.clear();
+    for (const p of this.peds) {
+      if (!p) continue;
+      const k = this._cellKey(Math.floor(p.x / SEP_CELL), Math.floor(p.z / SEP_CELL));
+      let list = this._hash.get(k);
+      if (!list) { list = []; this._hash.set(k, list); }
+      list.push(p);
+    }
+
+    let minPair = Infinity;
+
+    for (let i = 0; i < this.count; i++) {
+      const ped = this.peds[i];
+      if (!ped) { this._hide(i); continue; }
+      this.stats.pedFrames++;
+
+      // --- waypoint following
+      let target = this._targetAt(ped, ped.node, this._tgt);
+      if (!target) {
+        const next = this._chooseNext(ped);
+        if (!this._enter(ped, next)) { this.peds[i] = null; this._hide(i); continue; }
+        this.stats.corners++;
+        target = this._targetAt(ped, ped.node, this._tgt);
+        if (!target) { this.peds[i] = null; this._hide(i); continue; }
+      }
+      let tx = target.x - ped.x, tz = target.z - ped.z;
+      let td = Math.hypot(tx, tz);
+      const fwdX = Math.sin(ped.yaw), fwdZ = Math.cos(ped.yaw);
+      if (td < ARRIVE || (td < 3 && (tx * fwdX + tz * fwdZ) < 0)) {
+        ped.node++;
+        if (ped.node >= this._nodeCount(ped)) {
+          const next = this._chooseNext(ped);
+          if (!this._enter(ped, next)) { this.peds[i] = null; this._hide(i); continue; }
+          this.stats.corners++;
+        }
+        target = this._targetAt(ped, ped.node, this._tgt);
+        if (!target) { this.peds[i] = null; this._hide(i); continue; }
+        tx = target.x - ped.x; tz = target.z - ped.z; td = Math.hypot(tx, tz) || 1;
+      }
+      let wishX = tx / (td || 1), wishZ = tz / (td || 1);
+
+      // --- separation. Cheap reciprocal avoidance: push sideways off anyone
+      // close, and brake for anyone directly in front. Two peds on a collision
+      // course each veer, so they pass rather than interpenetrate.
+      let brake = 1;
+      const cx = Math.floor(ped.x / SEP_CELL), cz = Math.floor(ped.z / SEP_CELL);
+      for (let ox = -1; ox <= 1; ox++) {
+        for (let oz = -1; oz <= 1; oz++) {
+          const list = this._hash.get(this._cellKey(cx + ox, cz + oz));
+          if (!list) continue;
+          for (const o of list) {
+            if (o === ped) continue;
+            const dx = ped.x - o.x, dz = ped.z - o.z;
+            const d = Math.hypot(dx, dz);
+            if (d < minPair) minPair = d;
+            if (d > SEP_RADIUS || d < 1e-4) continue;
+            const w = (1 - d / SEP_RADIUS);
+            wishX += (dx / d) * w * 1.9;
+            wishZ += (dz / d) * w * 1.9;
+            // Ahead and close: slow down instead of shouldering through.
+            if (d < 0.95 && (-dx * fwdX - dz * fwdZ) / d > 0.55) brake = Math.min(brake, 0.25);
+          }
+        }
+      }
+      if (this.avoidPlayer) {
+        const dx = ped.x - fx, dz = ped.z - fz;
+        const d = Math.hypot(dx, dz);
+        if (d < 1.6 && d > 1e-4) {
+          const w = 1 - d / 1.6;
+          wishX += (dx / d) * w * 2.6;
+          wishZ += (dz / d) * w * 2.6;
+        }
+      }
+      if (brake < 1) this.stats.avoidBrakeFrames++;
+
+      // --- steer. Yaw slews at a bounded rate, which is what makes a corner
+      // look walked round rather than teleported through.
+      const wl = Math.hypot(wishX, wishZ) || 1;
+      const wantYaw = Math.atan2(wishX / wl, wishZ / wl);
+      let dy = wantYaw - ped.yaw;
+      while (dy > Math.PI) dy -= TAU;
+      while (dy < -Math.PI) dy += TAU;
+      const maxStep = MAX_TURN * dt;
+      ped.yaw += Math.max(-maxStep, Math.min(maxStep, dy));
+
+      // Slow into a sharp turn; nobody walks a right angle at full pace.
+      const turnScale = 1 - Math.min(0.55, Math.abs(dy) * 0.45);
+      const targetV = ped.desired * brake * turnScale;
+      ped.v += (targetV - ped.v) * (1 - Math.exp(-6 * dt));
+
+      const nx = Math.sin(ped.yaw), nz = Math.cos(ped.yaw);
+      ped.x += nx * ped.v * dt;
+      ped.z += nz * ped.v * dt;
+      if (this._pushOut(ped)) ped.v *= 0.5;
+
+      // --- stride phase advances with DISTANCE, never with time (animfsm.js).
+      // Stride scales with the ped's own legs, so a tall ped covers ground in
+      // fewer, longer steps at the same cadence, and stretches slightly at pace.
+      const legLen = LEG_LEN * ped.hscale;
+      ped.stride = legLen * STRIDE_K * (0.86 + 0.14 * (ped.v / 1.35));
+      ped.phase = (ped.phase + (TAU * ped.v * dt) / ped.stride) % TAU;
+
+      // --- stuck handling. A ped that is not making progress turns around, and
+      // if that does not free it, gives its slot back. Neither piling up nor
+      // vanishing on the spot is acceptable; this bounds both.
+      if (ped.v < 0.2) {
+        ped.stuck += dt;
+        if (ped.stuck > STUCK_DESPAWN_S) {
+          this.peds[i] = null; this._hide(i);
+          this.stats.stuckDespawns++; this.stats.despawns++;
+          continue;
+        }
+        if (ped.stuck > STUCK_TURN_S && !ped.turned) {
+          ped.turned = true;
+          this.stats.uTurnsWhenStuck++;
+          if (this._enter(ped, { e: ped.edge, forward: !ped.forward, side: ped.side })) {
+            // Restart on the pavement we are standing on, walking the other way.
+            let nearest = 0, nd = Infinity;
+            for (let k = 0; k < this._nodeCount(ped); k++) {
+              const p = this._node(ped, k);
+              const d = Math.hypot(p.x - ped.x, p.z - ped.z);
+              if (d < nd) { nd = d; nearest = k; }
+            }
+            ped.node = Math.min(this._nodeCount(ped) - 1, nearest + 1);
+          }
+        }
+      } else { ped.stuck = 0; ped.turned = false; }
+
+      // --- despawn out of range
+      if (Math.hypot(ped.x - fx, ped.z - fz) > this.despawnRadius) {
+        this.peds[i] = null; this._hide(i);
+        this.stats.despawns++;
+        continue;
+      }
+      if (this.isChunkLoaded && !this.isChunkLoaded(ped.x, ped.z)) this.stats.orphanPedFrames++;
+
+      this._writePose(i, ped, legLen);
+    }
+
+    if (Number.isFinite(minPair)) {
+      this._minHist[Math.min(5, Math.floor(minPair / 0.25))]++;
+      if (minPair < this.stats.closestApproachM) this.stats.closestApproachM = +minPair.toFixed(2);
+      if (minPair < this.overlapDistance) this.stats.overlapFrames++;
+      if (minPair < BODY_OVERLAP) this.stats.bodyOverlapFrames++;
+    }
+
+    // Kept as a plain counter so the HUD can read it every frame without going
+    // through report(), which allocates.
+    let alive = 0;
+    for (const p of this.peds) if (p) alive++;
+    this.aliveCount = alive;
+
+    this.shadows.instanceMatrix.needsUpdate = true;
+    this.torsos.instanceMatrix.needsUpdate = true;
+    this.heads.instanceMatrix.needsUpdate = true;
+    this.limbs.instanceMatrix.needsUpdate = true;
+    if (this._colorDirty) {
+      for (const m of [this.torsos, this.heads, this.limbs]) {
+        if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      }
+      this._colorDirty = false;
+    }
+  }
+
+  // ---------------------------------------------------------- forward kinematics
+  // Eight bones, written straight into the instance matrices. Conventions:
+  //   * local +Z is the direction of travel (yaw = atan2(dx, dz)), matching
+  //     traffic.js and character.js.
+  //   * a limb pivots at its TOP, and a POSITIVE X rotation swings its far end
+  //     BACKWARD. Knees and elbows therefore only ever add in the direction that
+  //     folds the joint the way a joint actually folds - the shank swings back
+  //     under the body, the forearm swings forward. Getting that sign wrong is
+  //     what makes procedural walks look like broken marionettes.
+  _writePose(i, ped, legLen) {
+    const yaw = ped.yaw;
+    const cy = Math.cos(yaw), sy = Math.sin(yaw);
+    const s = ped.hscale, b = ped.build;
+
+    // Below walking pace the gait folds away, so a ped held up by a crowd stands
+    // upright with its feet together instead of shuffling on the spot.
+    const move = Math.min(1, ped.v / GAIT_FADE);
+    const S = (ped.stride ?? legLen * STRIDE_K) * move;
+    const reach = REACH * legLen;
+    const thighLen = THIGH * s, shankLen = SHANK * s;
+
+    // Feet first: where each ankle wants to be, relative to the hip, in the
+    // sagittal plane. Left leads, right is half a cycle behind.
+    const ankle = ANKLE_H * s;
+    const u = ped.phase / TAU;
+    const fL = this._footTarget(u, S, ankle, this._fL);
+    const fR = this._footTarget((u + 0.5) % 1, S, ankle, this._fR);
+
+    // Hip height: the compass-gait solution (hip on a circle about the planted
+    // foot) softened toward level, because a rigid straight leg bobs about twice
+    // as much as a person does. Whatever the softening then over-reaches is paid
+    // for by lifting the foot inside _solveLeg, never by sliding it.
+    let relStance = 0;
+    if (fL.stance) relStance = Math.abs(fL.rel);
+    if (fR.stance) relStance = Math.max(relStance, Math.abs(fR.rel));
+    const compass = Math.sqrt(Math.max(0.01, reach * reach - relStance * relStance));
+    const hipY = ankle + reach - BOB_FRACTION * (reach - compass);
+
+    const legs = this._legs;
+    this._solveLeg(fL, hipY, reach, thighLen, legs, 0);
+    this._solveLeg(fR, hipY, reach, thighLen, legs, 2);
+    const thighL = legs[0], shankL = legs[1];
+    const thighR = legs[2], shankR = legs[3];
+
+    // Arms counter-swing the legs: the left leg is furthest forward at phase 0,
+    // so the left arm is furthest back there. Elbows carry a constant angle plus
+    // a little more at speed, which is what stops the arms reading as planks.
+    const cp = Math.cos(ped.phase);
+    const armL = ARM_AMP * move * cp, armR = -ARM_AMP * move * cp;
+    const elbow = (0.13 + 0.16 * move) + Math.abs(cp) * 0.10 * move;
+
+    const ground = this.ground ? this.ground.heightAt(ped.x, ped.z) : 0;
+    const rootY = ground - FOOT_SINK;
+
+    // Girth tracks height as well as build, so a tall ped is not a stretched
+    // thin one; combined the population spans roughly 0.8x to 1.3x in section.
+    const g = b * s;
+    const hipXL = -HIP_X * g, hipXR = HIP_X * g;
+    const shX = SHOULDER_X * g;
+    const shY = hipY + TORSO_H * s;
+    const neckY = hipY + HEAD_Y * s;
+
+    // --- contact shadow, flat on the pavement under the hips
+    this._qy.setFromAxisAngle(this._axisY, yaw);
+    this._v.set(ped.x, ground + SHADOW_Y, ped.z);
+    this._s.set(0.40 * g, 1, 0.34 * g);
+    this._m.compose(this._v, this._qy, this._s);
+    this.shadows.setMatrixAt(i, this._m);
+
+    // --- torso and head
+    this._v.set(ped.x, rootY + hipY, ped.z);
+    this._s.set(g, ((HEAD_Y + 0.06) * s) / TORSO_BASE, g);
+    this._m.compose(this._v, this._qy, this._s);
+    this.torsos.setMatrixAt(i, this._m);
+
+    this._v.set(ped.x, rootY + neckY, ped.z);
+    this._s.set(s, s, s);
+    this._m.compose(this._v, this._qy, this._s);
+    this.heads.setMatrixAt(i, this._m);
+
+    // --- limbs. Each shank/forearm hangs off the tip of the bone above it, so
+    // the chain never comes apart however the joints are driven.
+    const base = i * 8;
+    const hipYW = rootY + hipY, shYW = rootY + shY;
+    const t = this._tipOut;
+
+    this._bone(base + 0, ped.x + hipXL * cy, hipYW, ped.z - hipXL * sy, yaw, thighL, thighLen, 1.02 * g);
+    this._tip(ped.x + hipXL * cy, hipYW, ped.z - hipXL * sy, thighL, thighLen, cy, sy);
+    this._bone(base + 1, t[0], t[1], t[2], yaw, shankL, shankLen, 0.86 * g);
+
+    this._bone(base + 2, ped.x + hipXR * cy, hipYW, ped.z - hipXR * sy, yaw, thighR, thighLen, 1.02 * g);
+    this._tip(ped.x + hipXR * cy, hipYW, ped.z - hipXR * sy, thighR, thighLen, cy, sy);
+    this._bone(base + 3, t[0], t[1], t[2], yaw, shankR, shankLen, 0.86 * g);
+
+    this._bone(base + 4, ped.x - shX * cy, shYW, ped.z + shX * sy, yaw, armL, UPPER_ARM * s, 0.78 * g);
+    this._tip(ped.x - shX * cy, shYW, ped.z + shX * sy, armL, UPPER_ARM * s, cy, sy);
+    this._bone(base + 5, t[0], t[1], t[2], yaw, armL - elbow, FOREARM * s, 0.68 * g);
+
+    this._bone(base + 6, ped.x + shX * cy, shYW, ped.z - shX * sy, yaw, armR, UPPER_ARM * s, 0.78 * g);
+    this._tip(ped.x + shX * cy, shYW, ped.z - shX * sy, armR, UPPER_ARM * s, cy, sy);
+    this._bone(base + 7, t[0], t[1], t[2], yaw, armR - elbow, FOREARM * s, 0.68 * g);
+
+    this._shown[i] = 1;
+  }
+
+  // Where one sole should be, relative to the hip, at cycle position u in [0,1).
+  //
+  //   stance (u < DUTY): the foot is planted. Relative to the hip it slides back
+  //     at exactly the rate the hip advances - DUTY*S of travel over the stance
+  //     window - so its WORLD position does not move at all. This is the whole
+  //     no-slip guarantee, and it holds only because the phase is advanced by
+  //     distance rather than by time.
+  //   swing:  the foot returns forward over the remaining (1 - DUTY) of the
+  //     cycle, arcing over a sine lift so it clears the pavement.
+  _footTarget(u, S, ankle, out) {
+    if (u < DUTY) {
+      const a = u / DUTY;
+      out.rel = DUTY * S * (0.5 - a);
+      out.y = ankle;
+      out.stance = true;
+    } else {
+      const b = (u - DUTY) / (1 - DUTY);
+      out.rel = DUTY * S * (b - 0.5);
+      out.y = ankle + SWING_LIFT * Math.sin(Math.PI * b);
+      out.stance = false;
+    }
+    return out;
+  }
+
+  // Two-link IK for one leg. Working in the sagittal plane with the hip at the
+  // origin, the foot wants to be `foot.rel` ahead of it and `hipY - foot.y`
+  // below it. Thigh and shank are the same length `segment`, so the general
+  // two-link solution collapses to one deviation, beta = acos(d / (2*segment)),
+  // taken either side of the hip-to-foot line - knee forward, which is the only
+  // way a knee goes. Writes [thighAngle, shankAngle] into `out` at `at`, in the
+  // file's rotation convention (positive swings the far end backward).
+  _solveLeg(foot, hipY, reach, segment, out, at) {
+    let drop = hipY - foot.y;
+    let d = Math.hypot(foot.rel, drop);
+    if (d > reach) {
+      // The hip is further from the ground than this leg can span. Raise the
+      // FOOT to meet it - a heel coming off the pavement - rather than letting
+      // the sole skate to where the leg can reach.
+      drop = Math.sqrt(Math.max(1e-4, reach * reach - foot.rel * foot.rel));
+      d = reach;
+    }
+    if (d < 0.06) d = 0.06;
+    const alpha = Math.atan2(foot.rel, drop);            // + = foot ahead of hip
+    const beta = Math.acos(Math.min(1, d / (2 * segment)));
+    out[at] = -alpha - beta;                             // thigh
+    out[at + 1] = -alpha + beta;                         // shank
+  }
+
+  // World position of the far end of a bone: R_y(yaw) * R_x(angle) applied to
+  // (0, -len, 0), added to the pivot. Written into a reused array - this runs
+  // four times per ped per frame and must not allocate.
+  _tip(px, py, pz, angle, len, cy, sy) {
+    const lz = -len * Math.sin(angle);
+    this._tipOut[0] = px + lz * sy;
+    this._tipOut[1] = py - len * Math.cos(angle);
+    this._tipOut[2] = pz + lz * cy;
+  }
+
+  _bone(slot, px, py, pz, yaw, angle, len, thick) {
+    this._qy.setFromAxisAngle(this._axisY, yaw);
+    this._qx.setFromAxisAngle(this._axisX, angle);
+    this._q.copy(this._qy).multiply(this._qx);
+    this._v.set(px, py, pz);
+    this._s.set(thick, len / LIMB_BASE, thick);
+    this._m.compose(this._v, this._q, this._s);
+    this.limbs.setMatrixAt(slot, this._m);
+  }
+
+  // ------------------------------------------------------------------ report
+  report() {
+    const alive = this.peds.filter(Boolean);
+    const f = Math.max(1, this.stats.frames);
+    return {
+      population: this.count,
+      alive: alive.length,
+      ...this.stats,
+      closestApproachM: Number.isFinite(this.stats.closestApproachM)
+        ? this.stats.closestApproachM : null,
+      // Any pair in the whole crowd within CLOSE_PASS this frame. In a dense
+      // crowd this is SUPPOSED to fire often; it is a liveliness reading, not a
+      // fault count. bodyOverlapPctOfFrames is the fault count.
+      closePassPctOfFrames: +((this.stats.overlapFrames / f) * 100).toFixed(1),
+      bodyOverlapPctOfFrames: +((this.stats.bodyOverlapFrames / f) * 100).toFixed(1),
+      avoidBrakePctOfPedFrames:
+        +((this.stats.avoidBrakeFrames / Math.max(1, this.stats.pedFrames)) * 100).toFixed(1),
+      meanSpeedMs: alive.length
+        ? +(alive.reduce((a, p) => a + p.v, 0) / alive.length).toFixed(2) : 0,
+      // Closest pair per frame in 0.25 m buckets: separates "brushed past" from
+      // "walked through", which a single overlap percentage cannot.
+      closestPairHistogram: this._minHist,
+      sidewalksCached: this._walks.size,
+      // Fixed, whatever the population is - that is the whole point of the
+      // representation. 3 body meshes plus the contact-shadow blob in the scene
+      // pass; the 3 body meshes again in the sun's shadow pass.
+      drawCalls: 4,
+      shadowDrawCalls: 3,
+    };
+  }
+
+  // Live positions, for harnesses that need to prove peds are where they claim.
+  positions() {
+    return this.peds.filter(Boolean).map((p) => ({
+      x: +p.x.toFixed(2), z: +p.z.toFixed(2), v: +p.v.toFixed(2), edge: p.edge, side: p.side,
+    }));
+  }
+
+  dispose() {
+    for (const m of [this.shadows, this.torsos, this.heads, this.limbs]) {
+      this.root.remove(m);
+      m.geometry.dispose();
+      m.dispose();
+    }
+    for (const m of this.materials) m.dispose();
+    this.root.parent?.remove(this.root);
+  }
+}
