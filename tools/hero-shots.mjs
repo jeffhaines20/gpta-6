@@ -22,7 +22,15 @@ await page.goto('http://127.0.0.1:8123/district/', { waitUntil: 'networkidle' })
 await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
 
 // Hide the debug overlay: it is not part of what is being judged.
-await page.addStyleTag({ content: '#hud,#attr{display:none!important}' });
+await page.addStyleTag({ content: '#attr{display:none!important}' });
+if (process.env.HERO_HIDE_HUD === '1') {
+  await page.addStyleTag({ content: '#hud,.pv-hud{display:none!important}' });
+}
+const HERO_TRAFFIC = Number(process.env.HERO_TRAFFIC ?? 0);
+if (HERO_TRAFFIC > 0) {
+  await page.evaluate((n) => __district.setTraffic(n), HERO_TRAFFIC);
+  await page.waitForTimeout(6000);
+}
 
 // Stand in the carriageway on the Marlin Street corridor looking east toward
 // Five Points, which is the district's hero view.
