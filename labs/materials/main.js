@@ -70,8 +70,13 @@ function skyEquirect(p, w = 512) {
         g = skyC.g * k * (1 + horizon * 0.3);
         b = skyC.b * k;
       } else {
-        const k = grdRad * (1 - Math.min(1, -dy * 0.7));
-        r = grdC.r * k; g = grdC.g * k; b = grdC.b * k;
+        // Below the horizon stands in for hazy terrain, so it fades from the
+        // horizon sky colour rather than dropping to a black band.
+        const t = Math.min(1, -dy * 2.2);
+        const kk = skyRad * (2.35 * (1 - t) + 0.25 * t);
+        r = (skyC.r * (1 - t) + grdC.r * t) * kk;
+        g = (skyC.g * (1 - t) + grdC.g * t) * kk;
+        b = (skyC.b * (1 - t) + grdC.b * t) * kk;
       }
       const d = dx * sx + dy * sy + dz * sz;
       if (d > 0) {
@@ -184,12 +189,13 @@ gridRoot.add(deck);
 
 const labelLayer = document.getElementById('labels');
 const labels = [];
-function addLabel(text, anchor, dim = false, below = false) {
+let labelView = 'grid';
+function addLabel(text, anchor, dim = false, below = false, forView = 'grid') {
   const el = document.createElement('div');
   el.className = 'lbl' + (dim ? ' dim' : '') + (below ? ' below' : '');
   el.textContent = text;
   labelLayer.appendChild(el);
-  labels.push({ el, anchor });
+  labels.push({ el, anchor, forView });
 }
 
 cells.forEach((cell, i) => {
@@ -256,7 +262,8 @@ cells.forEach((cell, i) => {
 
 // ---------------------------------------------------------------- street context
 const street = new THREE.Group();
-street.position.set(0, 0, 140);
+const STREET_X = 520;
+street.position.set(STREET_X, 0, 0);
 scene.add(street);
 
 const V = (x, z) => ({ x, z });
@@ -328,7 +335,7 @@ const V = (x, z) => ({ x, z });
     w.receiveShadow = true;
     street.add(w);
   }
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 160), registry.get('land'));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(900, 700), registry.get('land'));
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(0, -0.02, 0);
   ground.receiveShadow = true;
@@ -359,13 +366,21 @@ const V = (x, z) => ({ x, z });
     { x: 6, z: 30, w: 26, d: 14, h: 9, wall: ['block', 'flamingo'], roof: ['roofTile', 'bleached'] },
   ];
   for (const b of blocks) {
+    // Clockwise in (x, z). geom.js's extrudeFootprint derives its wall normal
+    // and its triangle winding from opposite conventions, so exactly one of the
+    // two is right for any given ring: this winding is the one that renders
+    // (the other is entirely backface-culled), and the walls then need their
+    // normals negated. Flagged for the streaming owner.
     const ring = [
-      [b.x - b.w / 2, b.z - b.d / 2], [b.x + b.w / 2, b.z - b.d / 2],
-      [b.x + b.w / 2, b.z + b.d / 2], [b.x - b.w / 2, b.z + b.d / 2],
+      [b.x - b.w / 2, b.z - b.d / 2], [b.x - b.w / 2, b.z + b.d / 2],
+      [b.x + b.w / 2, b.z + b.d / 2], [b.x + b.w / 2, b.z - b.d / 2],
     ];
     const before = pos.length / 3;
     extrudeFootprint(ring, b.h, pos, nrm, uv, idx);
     const after = pos.length / 3;
+    for (let v = before; v < after - ring.length; v++) {
+      nrm[v * 3] = -nrm[v * 3]; nrm[v * 3 + 2] = -nrm[v * 3 + 2];
+    }
     // extrudeFootprint appends walls first, then one roof vertex per ring point.
     const tag = (from, to, [family, tint]) => {
       const li = SURFACE_LAYERS.indexOf(family), rgb = surfaceTintRGB(family, tint);
@@ -386,16 +401,16 @@ const V = (x, z) => ({ x, z });
   mesh.castShadow = true; mesh.receiveShadow = true;
   street.add(mesh);
   addLabel('6 buildings · 5 wall families · 3 roofs · ONE draw call',
-    new THREE.Vector3(0, 26, 140 - 31), true);
+    new THREE.Vector3(STREET_X, 27, -31), true, false, 'road');
 }
 
 // Storefront glazing and street furniture, so glass and metal have context.
 {
-  const glass = new THREE.Mesh(new THREE.BoxGeometry(19, 4.2, 0.3), registry.get('glassStorefront'));
-  glass.position.set(-16, 2.2, -24.6);
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(16, 3.6, 0.25), registry.get('glassStorefront'));
+  glass.position.set(-16, 2.0, -24.8);
   street.add(glass);
-  const tint = new THREE.Mesh(new THREE.BoxGeometry(23, 16, 0.3), registry.get('glassTinted'));
-  tint.position.set(14, 12, -23.2);
+  const tint = new THREE.Mesh(new THREE.BoxGeometry(20, 19, 0.25), registry.get('glassTinted'));
+  tint.position.set(14, 11.5, -23.4);
   street.add(tint);
   const postGeo = new THREE.CylinderGeometry(0.11, 0.13, 7, 10);
   const armGeo = new THREE.BoxGeometry(0.5, 0.18, 1.9);
@@ -416,29 +431,29 @@ const V = (x, z) => ({ x, z });
 
 // The bay, and a board showing the raw marking atlas.
 {
-  const water = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1400), registry.get('water'));
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(3000, 1300), registry.get('water'));
   water.rotation.x = -Math.PI / 2;
-  water.position.set(0, -0.45, 140 + 420);
+  water.position.set(0, -0.5, -520);
   scene.add(water);
 
   const atlasTex = registry.get('roadMarkings').map;
   const board = new THREE.Mesh(
     new THREE.PlaneGeometry(24, 3),
-    new THREE.MeshBasicMaterial({ map: atlasTex, transparent: true }));
+    new THREE.MeshBasicMaterial({ map: atlasTex, transparent: true, toneMapped: false }));
   const backing = new THREE.Mesh(
     new THREE.PlaneGeometry(24.4, 3.4),
-    new THREE.MeshBasicMaterial({ color: 0x2a2d31 }));
+    new THREE.MeshBasicMaterial({ color: 0x3d4148, toneMapped: false }));
   board.position.set(0, 4.6, -0.02);
   backing.position.set(0, 4.6, -0.05);
   const holder = new THREE.Group();
   holder.add(backing, board);
-  holder.position.set(0, 0, 42);
+  holder.position.set(0, 0, 44);
   street.add(holder);
   const names = ['none', 'lane2', 'lane2solid', 'lane4', 'crosswalk', 'stopbar', 'through', 'turn'];
   names.forEach((n, i) => addLabel(n,
-    new THREE.Vector3((i + 0.5) * 3 - 12, 6.4, 140 + 42), true));
+    new THREE.Vector3(STREET_X + (i + 0.5) * 3 - 12, 2.75, 44), true, false, 'atlas'));
   addLabel('road-marking atlas — 8 columns x 256 px, wrapT repeats along the road',
-    new THREE.Vector3(0, 7.2, 140 + 42));
+    new THREE.Vector3(STREET_X, 6.9, 44), false, false, 'atlas');
 }
 
 // ---------------------------------------------------------------- lighting
@@ -458,13 +473,14 @@ function setTod(name) {
 // ---------------------------------------------------------------- camera
 const VIEWS = {
   grid: { pos: [0, 33.5, 30], target: [0, 0.4, -1.0] },
-  road: { pos: [-30, 22, 214], target: [2, 3.5, 132] },
-  atlas: { pos: [0, 6.2, 196], target: [0, 5.0, 182] },
+  road: { pos: [STREET_X - 58, 34, 72], target: [STREET_X + 4, 3.0, -8] },
+  atlas: { pos: [STREET_X, 4.6, 58], target: [STREET_X, 4.6, 44] },
 };
 let view = 'grid';
 const target = new THREE.Vector3();
 function setView(name) {
   view = name;
+  labelView = name;
   const v = VIEWS[name];
   camera.position.set(...v.pos);
   target.set(...v.target);
@@ -551,7 +567,8 @@ function frame() {
     v3.copy(l.anchor).project(camera);
     const behind = v3.copy(l.anchor).sub(camera.position).dot(camera.getWorldDirection(fwd)) <= 0;
     v3.copy(l.anchor).project(camera);
-    const on = !behind && Math.abs(v3.x) < 1.15 && Math.abs(v3.y) < 1.15;
+    const on = l.forView === labelView && !behind
+      && Math.abs(v3.x) < 1.15 && Math.abs(v3.y) < 1.15;
     l.el.style.display = on ? 'block' : 'none';
     if (on) {
       l.el.style.left = `${(v3.x * 0.5 + 0.5) * innerWidth}px`;

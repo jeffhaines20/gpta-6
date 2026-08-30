@@ -12,6 +12,9 @@ import { TrafficStub } from '../src/traffic.js';
 import { PursuitUnits } from '../src/pursuit.js';
 import { StreetFurniture } from '../src/streetfurniture.js';
 import { LightPool } from '../src/lightpool.js';
+import { Player } from '../src/player.js';
+import { Character } from '../src/character.js';
+import { LocomotionFSM, STATE } from '../src/animfsm.js';
 import { TimeOfDay, PRESETS } from '../src/daynight.js';
 import { PostStack } from '../src/post.js';
 
@@ -115,6 +118,72 @@ function setPursuit(n) {
   return !!pursuit;
 }
 
+// ------------------------------------------------------------------ on foot
+// The player controller, character and animation state machine share one owner
+// (FEASIBILITY.md 8b): feel is a joint property of controller, camera and
+// animation, and splitting them produces three half-tunings.
+const player = new Player();
+const character = new Character();
+scene.add(character.root);
+const fsm = new LocomotionFSM();
+
+let mode = 'car';                 // 'car' | 'foot'
+let enterCooldown = 0;
+const ENTER_RANGE = 3.6;
+const ENTER_TIME = 0.45;
+
+// The car is a moving obstacle while on foot.
+const carCollider = { x: 0, z: 0, y: 0, hx: 1.25, hy: 1.5, hz: 2.4 };
+// Buildings near the player, refreshed only when the player changes chunk:
+// rebuilding this from the district every frame is pointless work.
+let footColliders = [];
+let footColliderKey = '';
+function refreshFootColliders(pos) {
+  const key = world.keyOf(pos.x, pos.z);
+  if (key === footColliderKey) return;
+  footColliderKey = key;
+  footColliders = [];
+  const [cx, cz] = key.split(',').map(Number);
+  for (let dz = -1; dz <= 1; dz++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const c = district.chunks[`${cx + dx},${cz + dz}`];
+      if (!c) continue;
+      for (const bi of c.buildings) {
+        const b = district.buildings[bi];
+        let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+        for (const [x, z] of b.p) {
+          if (x < x0) x0 = x; if (x > x1) x1 = x;
+          if (z < z0) z0 = z; if (z > z1) z1 = z;
+        }
+        footColliders.push({ x: (x0 + x1) / 2, z: (z0 + z1) / 2, y: 0,
+          hx: (x1 - x0) / 2, hy: b.h, hz: (z1 - z0) / 2 });
+      }
+    }
+  }
+}
+
+function toggleVehicle() {
+  if (enterCooldown > 0 || fsm.locked) return false;
+  if (mode === 'foot') {
+    if (player.position.distanceTo(vehicle.position) > ENTER_RANGE) return false;
+    fsm.lockTransition(STATE.ENTER_VEHICLE, ENTER_TIME);
+    mode = 'car';
+    chase.mode = 'car';
+    enterCooldown = ENTER_TIME;
+  } else {
+    fsm.lockTransition(STATE.EXIT_VEHICLE, ENTER_TIME);
+    mode = 'foot';
+    chase.mode = 'foot';
+    const side = new THREE.Vector3(-1, 0, 0).applyQuaternion(vehicle.quaternion);
+    player.position.copy(vehicle.position).addScaledVector(side, 1.9);
+    player.position.y = world.heightAt();
+    player.velocity.set(0, 0, 0);
+    player.yaw = Math.atan2(side.x, side.z);
+    enterCooldown = ENTER_TIME;
+  }
+  return true;
+}
+
 let traffic = null;
 function setTraffic(on) {
   if (on && !traffic) {
@@ -162,8 +231,13 @@ function animate(now) {
   last = now;
 
   chase.handleMouse(input);
+  enterCooldown = Math.max(0, enterCooldown - dt);
+  if (input.hit('KeyF')) toggleVehicle();
 
-  if (!autopilot) {
+  if (!autopilot && mode === 'foot') {
+    // On foot the vehicle idles on its springs rather than sinking.
+    vehicle.setControls({ throttle: 0, brake: 1, steer: 0 });
+  } else if (!autopilot) {
     const axis = input.moveAxis();
     let throttle = 0, brake = 0;
     if (axis.y > 0) { if (vehicle.forwardSpeed < -0.5) brake = 1; else throttle = 1; }
@@ -176,18 +250,46 @@ function animate(now) {
   // 2.6 km route. Every rate metric is reported against simulated time.
   for (let s = 0; s < timeScale; s++) {
     if (autopilot) autopilot(dt);
+    if (mode === 'foot') {
+      carCollider.x = vehicle.position.x; carCollider.z = vehicle.position.z;
+      refreshFootColliders(player.position);
+      player.update(dt, input, chase.yaw, world, [...footColliders, carCollider]);
+    }
     vehicle.stepFixed(dt, world);
-    world.update(vehicle.position);
+    world.update(mode === 'foot' ? player.position : vehicle.position);
     if (traffic) traffic.update(dt, vehicle.position);
     if (pursuit) pursuit.update(dt, vehicle.position);
     simTime += dt;
   }
-  tod.follow(vehicle.position);
+  const focus = mode === 'foot' ? player.position : vehicle.position;
+  tod.follow(focus);
   lightPool.update(camera.position, tod.preset.lampsOn ? 1 : 0);
+
+  // --- character
+  fsm.update(dt, {
+    speed: Math.hypot(player.velocity.x, player.velocity.z),
+    grounded: player.grounded,
+    verticalVelocity: player.velocity.y,
+    inVehicle: mode === 'car',
+    running: input.down('ShiftLeft') || input.down('ShiftRight'),
+    sprinting: input.down('ShiftLeft') || input.down('ShiftRight'),
+    wishLength: Math.hypot(input.moveAxis().x, input.moveAxis().y),
+    turnRate: 0,
+  });
+  character.root.visible = mode === 'foot' || fsm.locked;
+  if (mode === 'foot') {
+    character.root.position.copy(player.position);
+    character.root.rotation.y = player.yaw;
+    character.applyPose(fsm.pose());
+  } else if (fsm.locked) {
+    character.root.position.copy(vehicle.position);
+    character.applySeated();
+  }
 
   const q = vehicle.quaternion;
   const carYaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
-  chase.update(dt, vehicle.position, world, carYaw + Math.PI, vehicle.forwardSpeed > 3 ? 1.6 : 0);
+  if (mode === 'foot') chase.update(dt, player.position, world);
+  else chase.update(dt, vehicle.position, world, carYaw + Math.PI, vehicle.forwardSpeed > 3 ? 1.6 : 0);
 
   carMesh.group.position.copy(vehicle.position);
   carMesh.group.quaternion.copy(vehicle.quaternion);
@@ -205,8 +307,11 @@ function animate(now) {
   metrics.frames++;
 
   const w = world.report();
+  const near = mode === 'foot' && player.position.distanceTo(vehicle.position) <= ENTER_RANGE;
   hud.textContent =
-    `${district.meta.city}  ·  ${PRESETS[tod.presetName].label}  ·  ${(vehicle.speed * 3.6).toFixed(0)} km/h\n` +
+    `${district.meta.city}  ·  ${PRESETS[tod.presetName].label}  ·  ` +
+    (mode === 'car' ? `${(vehicle.speed * 3.6).toFixed(0)} km/h  [F] exit`
+      : `ON FOOT ${fsm.state}${near ? '   [F] ENTER VEHICLE' : ''}`) + `\n` +
     `chunks ${w.chunksLoaded} (near ${w.lodNear} / far ${w.lodFar})  draw ${post.stats.totalCalls}  ` +
     `tris ${(post.stats.sceneTriangles / 1000).toFixed(1)}k  post ${post.stats.passes}\n` +
     `loads ${w.loads}  unloads ${w.unloads}  worst slice ${w.worstSliceMs.toFixed(1)}ms  queued ${w.queued}` +
@@ -233,6 +338,14 @@ window.__district = {
   get frames() { return metrics.frames; },
   setTraffic,
   setPursuit,
+  player, character, fsm, input,
+  // Headless harnesses drive the game through these rather than synthesising key
+  // events, which pointer-lock and focus rules make unreliable in a headless page.
+  press: (code) => { input.keys.add(code); input.pressed.add(code); },
+  release: (code) => input.keys.delete(code),
+  get mode() { return mode; },
+  toggleVehicle,
+  setMode(m) { if (m !== mode) toggleVehicle(); },
   pursuitReport: () => (pursuit ? pursuit.report() : null),
   setTimeOfDay: (n) => tod.apply(n),
   audit: () => tod.audit(),

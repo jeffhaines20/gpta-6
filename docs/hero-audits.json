@@ -1,0 +1,337 @@
+{
+ "results": [
+  {
+   "shot": "corridor",
+   "tod": "dusk",
+   "file": "docs/shots/hero-corridor-dusk.png",
+   "audit": {
+    "timeOfDay": "dusk",
+    "exposure": 0.0030303030303030303,
+    "exposureAsStop": "1/330",
+    "toneMapping": "ACESFilmic (post composite)",
+    "postProcessing": {
+     "bloomThreshold": 0.85,
+     "bloomStrength": 0.62,
+     "fogDensity": 0.0032,
+     "fogHeightFalloff": 0.016,
+     "wetness": 0,
+     "passes": 6
+    },
+    "shadowMapEnabled": true,
+    "lightCount": 12,
+    "lightsByType": {
+     "DirectionalLight": 1,
+     "HemisphereLight": 1,
+     "PointLight": 10
+    },
+    "sunLux": 1200,
+    "skyLux": 900,
+    "litPointLights": 9,
+    "lightPool": {
+     "emitters": 233,
+     "poolSize": 10,
+     "active": 9
+    },
+    "samplePointLightCandela": 900,
+    "shadowCasters": 65,
+    "shadowReceivers": 151,
+    "implausible": [],
+    "drawCalls": 104,
+    "sceneCalls": 98,
+    "postPasses": 6,
+    "triangles": 38947,
+    "chunks": 89,
+    "lodNear": 16,
+    "lodFar": 73,
+    "plainMeshes": 203,
+    "instancedMeshes": 3,
+    "distinctMaterialsInScene": 15,
+    "materialLibrary": {
+     "materials": 18,
+     "textures": 20,
+     "textureLayers": 34,
+     "textureMemoryMB": 25.42,
+     "generationMs": 342.8,
+     "surfaceLayers": 8,
+     "timingsMs": {
+      "surfaces": 211.4,
+      "markings": 4.4,
+      "ground": 112.2,
+      "water": 5,
+      "trim": 9.8
+     },
+     "keys": [
+      "roadMarkings",
+      "road",
+      "sidewalk",
+      "parkingLot",
+      "grass",
+      "dirt",
+      "sand",
+      "land",
+      "kerb",
+      "kerbPainted",
+      "concrete",
+      "water",
+      "glassStorefront",
+      "glassTinted",
+      "metalPainted",
+      "metalGalvanised",
+      "metalAnodised",
+      "buildingMerged"
+     ]
+    }
+   }
+  },
+  {
+   "shot": "corridor",
+   "tod": "night",
+   "file": "docs/shots/hero-corridor-night.png",
+   "audit": {
+    "timeOfDay": "night",
+    "exposure": 0.45454545454545453,
+    "exposureAsStop": "1/2",
+    "toneMapping": "ACESFilmic (post composite)",
+    "postProcessing": {
+     "bloomThreshold": 0.55,
+     "bloomStrength": 0.85,
+     "fogDensity": 0.0038,
+     "fogHeightFalloff": 0.014,
+     "wetness": 0,
+     "passes": 6
+    },
+    "shadowMapEnabled": true,
+    "lightCount": 12,
+    "lightsByType": {
+     "DirectionalLight": 1,
+     "HemisphereLight": 1,
+     "PointLight": 10
+    },
+    "sunLux": 0.6,
+    "skyLux": 3.5,
+    "litPointLights": 9,
+    "lightPool": {
+     "emitters": 233,
+     "poolSize": 10,
+     "active": 9
+    },
+    "samplePointLightCandela": 900,
+    "shadowCasters": 65,
+    "shadowReceivers": 151,
+    "implausible": [],
+    "drawCalls": 104,
+    "sceneCalls": 98,
+    "postPasses": 6,
+    "triangles": 38947,
+    "chunks": 89,
+    "lodNear": 16,
+    "lodFar": 73,
+    "plainMeshes": 203,
+    "instancedMeshes": 3,
+    "distinctMaterialsInScene": 15,
+    "materialLibrary": {
+     "materials": 18,
+     "textures": 20,
+     "textureLayers": 34,
+     "textureMemoryMB": 25.42,
+     "generationMs": 342.8,
+     "surfaceLayers": 8,
+     "timingsMs": {
+      "surfaces": 211.4,
+      "markings": 4.4,
+      "ground": 112.2,
+      "water": 5,
+      "trim": 9.8
+     },
+     "keys": [
+      "roadMarkings",
+      "road",
+      "sidewalk",
+      "parkingLot",
+      "grass",
+      "dirt",
+      "sand",
+      "land",
+      "kerb",
+      "kerbPainted",
+      "concrete",
+      "water",
+      "glassStorefront",
+      "glassTinted",
+      "metalPainted",
+      "metalGalvanised",
+      "metalAnodised",
+      "buildingMerged"
+     ]
+    }
+   }
+  },
+  {
+   "shot": "fivepoints",
+   "tod": "dusk",
+   "file": "docs/shots/hero-fivepoints-dusk.png",
+   "audit": {
+    "timeOfDay": "dusk",
+    "exposure": 0.0030303030303030303,
+    "exposureAsStop": "1/330",
+    "toneMapping": "ACESFilmic (post composite)",
+    "postProcessing": {
+     "bloomThreshold": 0.85,
+     "bloomStrength": 0.62,
+     "fogDensity": 0.0032,
+     "fogHeightFalloff": 0.016,
+     "wetness": 0,
+     "passes": 6
+    },
+    "shadowMapEnabled": true,
+    "lightCount": 12,
+    "lightsByType": {
+     "DirectionalLight": 1,
+     "HemisphereLight": 1,
+     "PointLight": 10
+    },
+    "sunLux": 1200,
+    "skyLux": 900,
+    "litPointLights": 7,
+    "lightPool": {
+     "emitters": 233,
+     "poolSize": 10,
+     "active": 7
+    },
+    "samplePointLightCandela": 900,
+    "shadowCasters": 66,
+    "shadowReceivers": 146,
+    "implausible": [],
+    "drawCalls": 84,
+    "sceneCalls": 78,
+    "postPasses": 6,
+    "triangles": 30343,
+    "chunks": 83,
+    "lodNear": 16,
+    "lodFar": 67,
+    "plainMeshes": 198,
+    "instancedMeshes": 3,
+    "distinctMaterialsInScene": 15,
+    "materialLibrary": {
+     "materials": 18,
+     "textures": 20,
+     "textureLayers": 34,
+     "textureMemoryMB": 25.42,
+     "generationMs": 342.8,
+     "surfaceLayers": 8,
+     "timingsMs": {
+      "surfaces": 211.4,
+      "markings": 4.4,
+      "ground": 112.2,
+      "water": 5,
+      "trim": 9.8
+     },
+     "keys": [
+      "roadMarkings",
+      "road",
+      "sidewalk",
+      "parkingLot",
+      "grass",
+      "dirt",
+      "sand",
+      "land",
+      "kerb",
+      "kerbPainted",
+      "concrete",
+      "water",
+      "glassStorefront",
+      "glassTinted",
+      "metalPainted",
+      "metalGalvanised",
+      "metalAnodised",
+      "buildingMerged"
+     ]
+    }
+   }
+  },
+  {
+   "shot": "fivepoints",
+   "tod": "night",
+   "file": "docs/shots/hero-fivepoints-night.png",
+   "audit": {
+    "timeOfDay": "night",
+    "exposure": 0.45454545454545453,
+    "exposureAsStop": "1/2",
+    "toneMapping": "ACESFilmic (post composite)",
+    "postProcessing": {
+     "bloomThreshold": 0.55,
+     "bloomStrength": 0.85,
+     "fogDensity": 0.0038,
+     "fogHeightFalloff": 0.014,
+     "wetness": 0,
+     "passes": 6
+    },
+    "shadowMapEnabled": true,
+    "lightCount": 12,
+    "lightsByType": {
+     "DirectionalLight": 1,
+     "HemisphereLight": 1,
+     "PointLight": 10
+    },
+    "sunLux": 0.6,
+    "skyLux": 3.5,
+    "litPointLights": 7,
+    "lightPool": {
+     "emitters": 233,
+     "poolSize": 10,
+     "active": 7
+    },
+    "samplePointLightCandela": 900,
+    "shadowCasters": 66,
+    "shadowReceivers": 146,
+    "implausible": [],
+    "drawCalls": 84,
+    "sceneCalls": 78,
+    "postPasses": 6,
+    "triangles": 30343,
+    "chunks": 83,
+    "lodNear": 16,
+    "lodFar": 67,
+    "plainMeshes": 198,
+    "instancedMeshes": 3,
+    "distinctMaterialsInScene": 15,
+    "materialLibrary": {
+     "materials": 18,
+     "textures": 20,
+     "textureLayers": 34,
+     "textureMemoryMB": 25.42,
+     "generationMs": 342.8,
+     "surfaceLayers": 8,
+     "timingsMs": {
+      "surfaces": 211.4,
+      "markings": 4.4,
+      "ground": 112.2,
+      "water": 5,
+      "trim": 9.8
+     },
+     "keys": [
+      "roadMarkings",
+      "road",
+      "sidewalk",
+      "parkingLot",
+      "grass",
+      "dirt",
+      "sand",
+      "land",
+      "kerb",
+      "kerbPainted",
+      "concrete",
+      "water",
+      "glassStorefront",
+      "glassTinted",
+      "metalPainted",
+      "metalGalvanised",
+      "metalAnodised",
+      "buildingMerged"
+     ]
+    }
+   }
+  }
+ ],
+ "errors": []
+}

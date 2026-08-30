@@ -16,6 +16,7 @@
     "chase": "node tools/chase-harness.mjs",
     "progress": "node tools/progress-page.mjs",
     "test:syntax": "node tools/check-syntax.mjs",
-    "gates": "npm run test:syntax && npm run test:golden && npm run test:physics >/dev/null && echo ALL-STATIC-GATES-PASS"
+    "gates": "npm run test:syntax && npm run test:golden && npm run test:physics >/dev/null && echo ALL-STATIC-GATES-PASS",
+    "hero": "node tools/hero-shots.mjs"
   }
 }

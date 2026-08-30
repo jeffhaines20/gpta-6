@@ -6,6 +6,7 @@
 // counts, chunk load/unload rates, the worst synchronous chunk-build stall, and
 // JS heap growth — none of which depend on GPU speed.
 import { chromium } from 'playwright';
+import { ensureServer } from './serve.mjs';
 import fs from 'node:fs';
 import { BUDGET, gate, printGate } from './budget.mjs';
 
@@ -14,6 +15,7 @@ const CIRCUITS = 3;
 const OUT = 'docs/shots';
 fs.mkdirSync(OUT, { recursive: true });
 
+await ensureServer();
 const browser = await chromium.launch({
   executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',

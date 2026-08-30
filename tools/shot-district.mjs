@@ -1,6 +1,8 @@
 // Deliberate illustrative capture. The drive-through's own end-of-run screenshot
 // lands wherever the route happens to stop, which is not a usable frame.
 import { chromium } from 'playwright';
+import { ensureServer } from './serve.mjs';
+await ensureServer();
 const browser = await chromium.launch({
   executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--no-sandbox'],
