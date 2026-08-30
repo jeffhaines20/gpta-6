@@ -34,7 +34,7 @@
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 12,
    "shadowCasters": 87,
-   "drawCalls": 125,
+   "drawCalls": 127,
    "triangles": 63856,
    "implausible": []
   },
@@ -48,7 +48,7 @@
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 12,
    "shadowCasters": 87,
-   "drawCalls": 125,
+   "drawCalls": 127,
    "triangles": 63856,
    "implausible": []
   },
@@ -62,7 +62,7 @@
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 12,
    "shadowCasters": 87,
-   "drawCalls": 125,
+   "drawCalls": 127,
    "triangles": 63856,
    "implausible": []
   }
