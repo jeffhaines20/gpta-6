@@ -134,4 +134,68 @@ const viaAccumulator = (hz) => {
   }
   return { wall_hz: hz, kmh: +(v.speed * 3.6).toFixed(1), x: +v.position.x.toFixed(2), z: +v.position.z.toFixed(2) };
 };
-console.log('FIXED-STEP:', JSON.stringify([15, 30, 60, 144].map(viaAccumulator)));
+const fixedStep = [15, 30, 60, 144].map(viaAccumulator);
+console.log('FIXED-STEP:', JSON.stringify(fixedStep));
+
+// ---------------------------------------------------------------------------
+// Gate. Until 2026-08-30 this file computed everything above and asserted none
+// of it: no comparison, no threshold, no process.exit, and `npm run gates` piped
+// its output to /dev/null. It could not fail. The property its own comment calls
+// "the #1 way vehicle physics rots later" was printed and ignored.
+//
+// Every bound below is derived from a measured value, with the measurement and
+// the headroom stated. Bands are wide enough not to flake on a software
+// rasteriser and tight enough to catch real rot. Loosening one is a threshold
+// change and belongs in the PROGRESS.md ledger like any other.
+// ---------------------------------------------------------------------------
+const checks = [];
+const check = (name, ok, detail) => checks.push({ name, ok: !!ok, detail });
+const finite = (o) => Object.values(o).every((v) =>
+  typeof v === 'number' ? Number.isFinite(v) : (typeof v === 'object' && v !== null ? finite(v) : true));
+
+// 1. THE headline property. The fixed-step accumulator must put the car in the
+//    same place regardless of wall-clock frame rate. Measured spread across
+//    15/30/60/144 Hz: 1.67 m. Bound 2.5 m leaves ~1.5x headroom.
+let worstPair = 0, worstLabel = '';
+for (let i = 0; i < fixedStep.length; i++) {
+  for (let j = i + 1; j < fixedStep.length; j++) {
+    const d = Math.hypot(fixedStep[i].x - fixedStep[j].x, fixedStep[i].z - fixedStep[j].z);
+    if (d > worstPair) { worstPair = d; worstLabel = `${fixedStep[i].wall_hz}Hz vs ${fixedStep[j].wall_hz}Hz`; }
+  }
+}
+check('fixed-step position convergence < 2.5 m', worstPair < 2.5,
+  `worst ${worstPair.toFixed(2)} m (${worstLabel})`);
+
+// 2. Speed must converge too. Measured spread: 0.0 km/h.
+const kmhSpread = Math.max(...fixedStep.map((f) => f.kmh)) - Math.min(...fixedStep.map((f) => f.kmh));
+check('fixed-step speed convergence < 1.0 km/h', kmhSpread < 1.0, `spread ${kmhSpread.toFixed(2)} km/h`);
+
+// 3. Nothing anywhere may go non-finite. This includes the deliberately-bad raw
+//    step() path, which is allowed to diverge but not to produce NaN.
+check('all outputs finite', finite(out) && finite({ fixedStep }), 'no NaN/Infinity');
+
+// 4. Handling envelope. Measured: 112.6 km/h at 10 s, top 129.2, ride height
+//    0.717 m, 4 wheels down, turn radius 17.6 m, stops from 112.5 within 4 s.
+check('reaches 80-140 km/h at 10 s', out.acceleration.kmh_at_10s >= 80 && out.acceleration.kmh_at_10s <= 140,
+  `${out.acceleration.kmh_at_10s} km/h`);
+check('top speed 100-170 km/h', out.acceleration.top_kmh >= 100 && out.acceleration.top_kmh <= 170,
+  `${out.acceleration.top_kmh} km/h`);
+check('brakes to rest within 4 s', out.braking.after_4s === 0, `${out.braking.after_4s} km/h`);
+check('ride height 0.4-1.2 m', out.stability.final_y >= 0.4 && out.stability.final_y <= 1.2,
+  `${out.stability.final_y} m`);
+check('4 wheels grounded under power', out.acceleration.wheels_on_ground === 4,
+  `${out.acceleration.wheels_on_ground}`);
+check('turn radius 8-40 m', out.cornering.turn_radius_m >= 8 && out.cornering.turn_radius_m <= 40,
+  `${out.cornering.turn_radius_m} m`);
+
+// 5. Cost. Measured 2.32 us per vehicle-step. Bound 10 us catches a 4x
+//    regression without flaking on a loaded container.
+check('step cost < 10 us', out.cost_per_vehicle_step_us < 10, `${out.cost_per_vehicle_step_us} us`);
+
+const failed = checks.filter((c) => !c.ok);
+console.log();
+for (const c of checks) console.log(`  ${c.ok ? 'PASS' : 'FAIL'} ${c.name} - ${c.detail}`);
+console.log(failed.length
+  ? `PHYSICS: FAIL - ${failed.length} of ${checks.length} checks failed`
+  : `PHYSICS: PASS - ${checks.length} checks`);
+process.exit(failed.length ? 1 : 0);

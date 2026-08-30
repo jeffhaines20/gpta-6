@@ -45,12 +45,91 @@ at night, bloom + height fog in.
 | 2026-08-29 | budget (no traffic) | PASS — draw p95 141, stall 4.8 ms, heap −1 MB | `docs/drive.json` |
 | 2026-08-29 | budget (30 stubs) | PASS — draw p95 145, stall 6.6 ms, heap −2 MB | `docs/drive-traffic.json` |
 
-**Thresholds in force** (`tools/budget.mjs`): draw calls warn 260 / fail 400; triangles
-warn 900k / fail 1.8M; chunk stall warn 8 ms / fail 16 ms; heap growth warn 40 / fail 120 MB.
-Set against *untextured* extrusions in Phase 1b. **Scheduled re-derivation at M1** once the
-first fully textured chunk lands (binding constraint 4).
+**Thresholds in force** (`tools/budget.mjs`): draw calls warn **200** / fail **320**;
+triangles warn **400k** / fail **900k**; chunk stall warn 8 ms / fail 16 ms; heap growth
+warn 40 / fail 120 MB.
+
+> Corrected 2026-08-30. This block previously published the superseded Phase 1b values
+> (260/400 and 900k/1.8M) as current, contradicting both `tools/budget.mjs` and the
+> Threshold change log below it. The re-derivation at M1 happened and **tightened** both;
+> the stale text understated how tight the real gate is. Found by the independent
+> constraint audit, not by me — see `MILESTONE-REVIEW.md` §6.
 
 ## Threshold change log
+
+### 2026-08-30 — BACKFILL: the gated quantity was redefined at `02ccfdf` and never logged
+
+Thresholds are only half of gate strictness. The other half is *what gets compared to
+them*, and that changed without an entry here. `02ccfdf` switched the gated field:
+
+```
+- worst_chunk_build_ms: +world.worstBuildMs.toFixed(2),   // summed cost of building a chunk
++ worst_chunk_build_ms: +world.worstSliceMs.toFixed(2),   // worst uninterrupted main-thread slice
++ worst_chunk_total_ms: +world.worstBuildMs.toFixed(2),
+```
+
+The gate reads `worst_chunk_build_ms`, so this **redefined the number the 16 ms threshold
+judges**. Measured across eight runs by the independent gate verifier, the redefinition
+reduces the gated value by **20–45%**, and three of those eight runs would have read FAIL
+under the old definition.
+
+**The engineering case is sound and stands:** chunk building is genuinely resumable, so
+the worst *uninterrupted* slice is the number a player actually feels as a hitch, and the
+superseded value is still printed beside it as `worst_chunk_total_ms` in every artifact.
+It was disclosed in the commit message, in code comments in both harnesses, and in the
+Failed approaches table. But it was not disclosed *here*, and redefining what is measured
+is a strictness change of exactly the class constraint 4 says is never silent. Logging it
+retroactively rather than leaving the ledger incomplete. Found by the independent gate
+verifier, not by me — see `MILESTONE-REVIEW.md` §6.
+
+### 2026-08-30 — stall gate moves from one sample to a statistic (methodology, not threshold)
+
+Eleven serial harness runs on two frozen commits established that the stall metric spans
+the entire verdict range on unchanged code:
+
+| Code | Stall samples (ms) | Range | Verdicts spanned |
+|---|---|---|---|
+| M2 HEAD, chase | 7.6, 12.0, 24.2 (doc: 18.5) | **3.2x** | PASS, WARN, FAIL |
+| M1 `441faee`, chase | 8.4, 5.3 (doc: 6.4) | 1.6x | PASS, WARN |
+
+Draw calls and triangles reproduce to within 4% across every run; only the timing metric
+is unstable. **A single sample cannot decide a 16 ms threshold with this variance**, and
+both milestone documents decided it with one. M1 drew the favourable tail and declared
+"all four gates PASS"; M2 drew the unfavourable tail and escalated.
+
+**No threshold moved.** The 8/16 ms bounds are unchanged. What changes is that a stall
+verdict now requires **N>=5 runs reported as median and p80**, and milestone claims quote
+the statistic, not a sample. Measurement sets live in `docs/measurements/`.
+
+### 2026-08-30 — `physics-test.mjs` made into an actual gate (strictness INCREASED)
+
+The file computed acceleration, braking, cornering, handbrake, stability, timestep
+independence and step cost — and asserted **none of it**. No comparison, no threshold, no
+`process.exit` in 137 lines. It could not fail, and `npm run gates` piped its output to
+`/dev/null` before printing `ALL-STATIC-GATES-PASS` unconditionally. The property its own
+comment calls "the #1 way vehicle physics rots later" was printed and ignored.
+
+Ten assertions added, every bound derived from a measured value with its headroom stated:
+
+| Check | Measured | Bound | Headroom |
+|---|---|---|---|
+| fixed-step position convergence, 15–144 Hz | **1.67 m** | < 2.5 m | 1.5x |
+| fixed-step speed convergence | 0.00 km/h | < 1.0 km/h | — |
+| all outputs finite | finite | no NaN/Inf | — |
+| speed at 10 s | 112.6 km/h | 80–140 | — |
+| top speed | 129.2 km/h | 100–170 | — |
+| brakes to rest | 0 km/h by 4 s | == 0 | — |
+| ride height | 0.717 m | 0.4–1.2 | — |
+| wheels grounded under power | 4 | == 4 | — |
+| turn radius | 17.6 m | 8–40 m | — |
+| step cost | 2.4 us | < 10 us | 4x |
+
+Verified it can fail: with two bounds artificially tightened it reports
+`PHYSICS: FAIL - 2 of 10 checks failed` and exits 1.
+
+`npm run gates` now runs **all four** gates — syntax, golden trace, physics, lighting
+sweep and the budget gate — with no output suppression and no unconditional success echo.
+The budget gate and lighting sweep were previously in no aggregate script at all.
 
 ### 2026-08-30 — measurement-window correction (NOT a threshold change)
 
@@ -146,7 +225,15 @@ massing acceptable elsewhere"). This is the approved plan, not an escalation.
 
 ## Critic rounds
 
-_None yet._
+| Round | Frames | Verdict | Record |
+|---|---|---|---|
+| M1 blind critic round (`wf_1186b7f8`) | dusk + night, 4 critics | **all `GTA_V_BETTER`** | `MILESTONE-1.md` §6, `docs/m1-critique.json` |
+| M1/M2 reviewer verification, 2026-08-30 | dusk + night, 4 blind critics + 3 auditors | **all `GTA_V_BETTER`; neither milestone passes** | `MILESTONE-REVIEW.md` |
+
+An earlier attempt (`wf_1fa8d5ce`) died entirely to a session limit and returned nothing.
+
+> This section previously read "_None yet._" while the M1 round was documented in
+> MILESTONE-1 §6 and its artifacts were committed. Corrected 2026-08-30.
 
 ## Sky integration — calibration RESOLVED, refresh cost OPEN
 

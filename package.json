@@ -16,8 +16,12 @@
     "chase": "node tools/chase-harness.mjs",
     "progress": "node tools/progress-page.mjs",
     "test:syntax": "node tools/check-syntax.mjs",
-    "gates": "npm run test:syntax && npm run test:golden && npm run test:physics >/dev/null && echo ALL-STATIC-GATES-PASS",
+    "gates": "npm run gates:static && npm run gates:lighting && npm run gates:budget",
     "hero": "node tools/hero-shots.mjs",
-    "test:lighting": "node tools/daynight-sweep.mjs"
+    "test:lighting": "node tools/daynight-sweep.mjs",
+    "gates:static": "node tools/check-syntax.mjs && node tools/golden-trace.mjs && node tools/physics-test.mjs",
+    "gates:budget": "node tools/drive-through.mjs --traffic",
+    "gates:lighting": "node tools/daynight-sweep.mjs",
+    "test": "npm run gates"
   }
 }
