@@ -258,21 +258,24 @@ builder work in the wrong direction:
 
 ## 9. What has to happen before either milestone can be re-claimed
 
-Ordered by dependency, not by size:
+Ordered by dependency, not by size. Status as of 2026-08-30.
 
-1. Fix the junction reservation leak — release before overwrite, release on despawn.
-   Cheap, and it invalidates a headline number until it is done.
-2. Re-measure overlap through `drive-through --traffic` against the drive-through
-   baseline, N>=5 runs, and restate the criterion with the harness named.
-3. Make the stall gate a statistic over N>=5 runs; log as a methodology change.
-4. Put the budget gate and lighting sweep into an aggregate script; give
-   `physics-test.mjs` real assertions or stop calling it a gate; make WARN visible.
-5. Extend the saturation check to the sky dome, then rebalance night skyglow toward the
-   zenith and desaturate the sodium horizon; re-derive dusk exposure.
-6. Add AO / contact shadows — the most-cited gap across two critic rounds.
-7. Fix the confirmed geometry defects: floating cuboid, postless blade, unsupported
-   canopy and awnings, untethered rooftop slab, sidewalk decal UV.
-8. Ledger corrections in §8.
+| # | Item | Status |
+|---|---|---|
+| 1 | Junction reservation leak — release before overwrite, release on despawn | **DONE** — `holds` is now an array; `_releaseBehind` keeps the junction ahead. `junctionsHeld` 139→median 15 against 30 alive |
+| 2 | Re-measure overlap through the drive-through harness, N>=5, restate with harness named | **DONE** — median 7.1% vs the stub's 27.0% in the same harness, −74%. Same-edge 0 across all five. `docs/measurements/junction-leak-fix.json` |
+| 3 | Stall gate as a statistic over N>=5 | **PARTIAL** — methodology derived, logged in the ledger, and applied to both re-measurements (chase N=5: median 8.5 ms, p80 8.7, no FAIL in five). The harness still emits one sample per run; aggregating N runs inside the gate is not yet automated |
+| 4 | Budget gate + lighting sweep into an aggregate script; real assertions in `physics-test.mjs`; WARN visible | **MOSTLY DONE** — `npm run gates` now runs all four gates with no output suppression and no unconditional success echo; `npm test` defined. `physics-test.mjs` has 10 derived assertions and was verified to fail when it should. **WARN still exits 0** and is not yet visible to automation |
+| 5 | Saturation check on the sky dome; rebalance night skyglow; re-derive dusk exposure | **DONE** — mid-sky check added and verified to fire (1.70× at the old exposure). Night sky saturation 68.7%→14.5% against ground 44.3%. Dusk exposure re-derived 1/330→1/660; plaza 214→174, asphalt 173→134. Starfield reworked: density −40%, magnitude distribution steepened, horizon extinction added, gain derived against the bloom knee |
+| 6 | AO / contact shadows | **OPEN** — the most-cited gap across both critic rounds |
+| 7 | Geometry defects: floating cuboid, postless blade, unsupported canopy and awnings, untethered rooftop slab, sidewalk decal UV | **OPEN** |
+| 8 | Ledger corrections | **DONE** — stale thresholds block, stale critic-rounds section, and the backfilled `02ccfdf` gated-quantity redefinition |
+| 9 | CI (constraint 4) | **BLOCKED ON OWNER** — needs a decision on Actions minutes; see below |
+
+**Still not signed off.** Items 6 and 7 are unaddressed, no critic has seen the
+post-fix frames, and CI does not exist. What has changed is that both critical
+measurement failures are corrected and the two M2 acceptance criteria that failed
+now hold on evidence rather than on assertion.
 
 **CI (constraint 4) needs your decision before I build it.** Adding `.github/workflows/`
 starts consuming Actions minutes on your account, which the escalation rule puts to you.
