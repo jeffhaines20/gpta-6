@@ -17,6 +17,7 @@ import { Character } from '../src/character.js';
 import { LocomotionFSM, STATE } from '../src/animfsm.js';
 import { TimeOfDay, PRESETS } from '../src/daynight.js';
 import { PostStack } from '../src/post.js';
+import { LoadingScreen } from '../src/loading.js';
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -33,12 +34,26 @@ chase.mode = 'car';
 const hud = document.getElementById('hud');
 hud.textContent = 'loading district…';
 
-const district = await (await fetch('../data/district.json')).json();
-const world = new StreamingWorld(scene, district, { nearRadius: 2, farRadius: 5, budgetMs: 3 });
-const tod = new TimeOfDay(scene, renderer);
-tod.setWorld(world);
-const post = new PostStack(renderer, scene, camera);
-tod.attachPost(post);
+const loading = new LoadingScreen({ title: 'PORT VERANO' });
+let district, world, tod, post;
+let loadReport = null;
+
+await loading
+  .add('reading district', async () => {
+    district = await (await fetch('../data/district.json')).json();
+  })
+  .add('generating materials', async () => {
+    // Constructing the world builds the material registry and facade library.
+    world = new StreamingWorld(scene, district, { nearRadius: 2, farRadius: 5, budgetMs: 3 });
+  })
+  .add('lighting', async () => {
+    tod = new TimeOfDay(scene, renderer);
+    tod.setWorld(world);
+    post = new PostStack(renderer, scene, camera);
+    tod.attachPost(post);
+  })
+  .run()
+  .then((r) => { loadReport = r; });
 
 // Street lamps: instanced geometry plus a nearest-N light pool.
 //
@@ -334,6 +349,7 @@ requestAnimationFrame(animate);
 // ------------------------------------------------------------------ test hooks
 window.__district = {
   district, world, vehicle, traffic: () => traffic, tod, post, renderer, scene, camera, chase, metrics,
+  loadReport: () => loadReport,
   furniture, lightPool,
   get frames() { return metrics.frames; },
   setTraffic,
@@ -370,3 +386,5 @@ window.__district = {
   },
 };
 hud.textContent = 'ready';
+loading.hide();
+console.log('load report', JSON.stringify(loadReport));

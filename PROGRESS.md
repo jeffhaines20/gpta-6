@@ -19,10 +19,12 @@ at night, bloom + height fog in.
 | Traffic AI | sequential (lead) | Phase 1b stub, M2 |
 | Materials library | parallel | **landed + wired** — 18 materials, 20 textures / 34 array layers, 28.7 MB, 1.8 s |
 | Facade / building kit | parallel | **landed + wired** — 7 recipes, near-LOD only, lit windows |
-| Sky + weather | parallel | queued |
-| Signage + branding | parallel | queued |
-| HUD | parallel | queued |
-| Audio | parallel | queued |
+| Sky + weather | parallel | wave 2 running |
+| Signage + branding | parallel | wave 2 running |
+| HUD | parallel | wave 2 running |
+| Audio | parallel | wave 2 running |
+| Loading screen | sequential (lead) | **done** — 760 ms measured first load |
+| On-foot player + character | sequential (lead) | **done** — walk/sprint/idle, F to enter/exit |
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
@@ -118,6 +120,27 @@ massing acceptable elsewhere"). This is the approved plan, not an escalation.
 ## Critic rounds
 
 _None yet._
+
+## Sub-agent capacity interruption (2026-08-29 23:0x – 00:00 UTC)
+
+The first builder wave lost four of six agents and the entire four-critic panel to
+`You've hit your session limit · resets 12am (UTC)`. **facades** completed and verified;
+**materials** produced a complete, working module before its agent died (it is integrated
+and the syntax gate passes); **sky, signage, HUD and audio never ran**, and no critic
+round happened. Wave 2 was relaunched after the reset with those four builders.
+
+This is a capacity interruption, not a spec problem, and it did not stop sequential work —
+the engine shell, post stack, streaming integration, chase harness, threshold
+re-derivation, on-foot mode and loading screen were all built in that window. It is
+recorded because it moved the first critic round later than planned.
+
+## Constraint 7 — first-load measurement
+
+Measured through the real loading path (`src/loading.js`): **760 ms total** — 12.3 ms
+reading the district, 596.3 ms generating materials and the facade library, 2.5 ms
+lighting. **Well under the 8 s threshold, so no IndexedDB cache is adopted.** Caveat: this
+is SwiftShader; texture generation is CPU canvas work so it should be broadly
+representative, but this number is on the list to confirm at the M1 real-hardware check.
 
 ## Open item for the M1 real-hardware checkpoint
 
