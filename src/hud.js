@@ -155,6 +155,23 @@ function starPath(ctx, cx, cy, rOuter, rInner) {
   ctx.closePath();
 }
 
+// Append a closed ring, wound counter-clockwise, to the current path. Consistent
+// winding is what makes it safe to batch hundreds of polygons into one nonzero fill.
+function appendRing(ctx, ring) {
+  let area = 0;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    area += (ring[j][0] - ring[i][0]) * (ring[j][1] + ring[i][1]);
+  }
+  if (area < 0) {
+    ctx.moveTo(ring[ring.length - 1][0], ring[ring.length - 1][1]);
+    for (let i = ring.length - 2; i >= 0; i--) ctx.lineTo(ring[i][0], ring[i][1]);
+  } else {
+    ctx.moveTo(ring[0][0], ring[0][1]);
+    for (let i = 1; i < ring.length; i++) ctx.lineTo(ring[i][0], ring[i][1]);
+  }
+  ctx.closePath();
+}
+
 function makeCanvas(w, h) {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
@@ -305,11 +322,25 @@ function waterPolygon(district) {
  * screen, and completely unaffordable at 60 Hz. Afterwards the minimap only ever
  * transforms this image.
  *
- * The scale is the one real tradeoff: `pixelsPerMetre` buys sharpness with memory,
- * quadratically. 1.8 px/m over the playable extent is ~9 Mpx / ~36 MB and is 1:1
- * sharp at 1080p, softening to roughly a 2x upscale only at 1440p with a 2x device
- * pixel ratio. Vector overlays are drawn after the blit so the player arrow, route
- * and markers stay crisp regardless.
+ * The scale is the one real tradeoff and it was settled by measurement, not taste.
+ * At the 1280x720 reference the map is 232 px across 210 world metres — 1.10 px/m —
+ * so the default 1.25 px/m authors the bake at native map resolution for the
+ * reference frame and upscales above it. Side-by-side crops at 2560x1440 with a 2x
+ * device pixel ratio (a 3.2x upscale) were indistinguishable from a 1.8 px/m bake:
+ * a map is large flat shapes, and only the vector overlays have edges worth
+ * protecting — those are drawn after the blit and stay crisp at any zoom.
+ *
+ * Measured here, whole district, with nothing else drawing:
+ *
+ *   px/m    pixels    memory    submit    raster
+ *   1.00    2.7 Mpx   10.4 MB    6.8 ms   1075 ms
+ *   1.25    4.3 Mpx   16.3 MB    6.5 ms   1300 ms   <- default
+ *   1.80    8.9 Mpx   33.8 MB   17.4 ms   2251 ms
+ *
+ * "submit" is main-thread time and is the number the stall gate measures. "raster"
+ * is the off-thread software rasterisation, forced with a flush; it costs no frame
+ * time, it only decides how long after load the map is first fully correct, and a
+ * real GPU driver will not reproduce it.
  *
  * @param {object} district  parsed data/district.json
  * @param {{pixelsPerMetre?:number, padMetres?:number}} [opts]
@@ -319,7 +350,7 @@ function waterPolygon(district) {
  */
 export function bakeDistrictMap(district, opts = {}) {
   const t0 = performance.now();
-  const ppm = opts.pixelsPerMetre ?? 1.8;
+  const ppm = opts.pixelsPerMetre ?? 1.25;
   const pad = opts.padMetres ?? 32;
 
   // Cover everything the streamer can ever put in front of the player: the chunk
@@ -346,7 +377,12 @@ export function bakeDistrictMap(district, opts = {}) {
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   const timings = {};
-  const mark = (k, t) => { timings[k] = +(performance.now() - t).toFixed(1); };
+  // A 2D canvas records commands on the calling thread and rasterises them on the
+  // raster thread, so wall-clock around a step measures SUBMISSION. That is the
+  // number the stall gate cares about, but it is not the number that decides when
+  // the map is first correct on screen, so `profile` forces a flush per step.
+  const flush = opts.profile ? () => ctx.getImageData(0, 0, 1, 1) : null;
+  const mark = (k, t) => { if (flush) flush(); timings[k] = +(performance.now() - t).toFixed(1); };
 
   // --- water and land. Land exists only inside the trim box because that is
   // exactly what streaming.js builds (one land pad, water everywhere else); the
@@ -360,7 +396,7 @@ export function bakeDistrictMap(district, opts = {}) {
   ctx.rect(bounds.x0, bounds.z0, bounds.x1 - bounds.x0, bounds.z1 - bounds.z0);
   ctx.clip();
   ctx.fillStyle = MAP_PALETTE.land;
-  ctx.fillRect(x0, z0, widthMetres, heightMetres);
+  ctx.fillRect(bounds.x0, bounds.z0, bounds.x1 - bounds.x0, bounds.z1 - bounds.z0);
   if (water) {
     ctx.fillStyle = MAP_PALETTE.water;
     ctx.beginPath();
@@ -384,32 +420,35 @@ export function bakeDistrictMap(district, opts = {}) {
   // as a building the player could crash into.
   t = performance.now();
   let zones = 0;
+  // One path per colour, not one per polygon. Rings are wound consistently first so
+  // the single nonzero fill cannot punch a hole where two land parcels overlap.
+  const zoneGroups = new Map();
   for (const z of district.zones || []) {
     const fill = ZONE_FILL[z.z];
     if (!fill || z.p.length < 3) continue;
+    let g = zoneGroups.get(fill);
+    if (!g) { g = []; zoneGroups.set(fill, g); }
+    g.push(z.p);
+    zones++;
+  }
+  for (const [fill, rings] of zoneGroups) {
     ctx.beginPath();
-    ctx.moveTo(z.p[0][0], z.p[0][1]);
-    for (let i = 1; i < z.p.length; i++) ctx.lineTo(z.p[i][0], z.p[i][1]);
-    ctx.closePath();
+    for (const r of rings) appendRing(ctx, r);
     ctx.fillStyle = fill;
     ctx.fill();
-    zones++;
   }
   mark('zones', t);
 
   t = performance.now();
+  ctx.beginPath();
+  for (const b of district.buildings || []) {
+    if (b.p.length >= 3) appendRing(ctx, b.p);
+  }
   ctx.fillStyle = MAP_PALETTE.building;
+  ctx.fill();
   ctx.strokeStyle = MAP_PALETTE.buildingEdge;
   ctx.lineWidth = 0.6;
-  for (const b of district.buildings || []) {
-    if (b.p.length < 3) continue;
-    ctx.beginPath();
-    ctx.moveTo(b.p[0][0], b.p[0][1]);
-    for (let i = 1; i < b.p.length; i++) ctx.lineTo(b.p[i][0], b.p[i][1]);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-  }
+  ctx.stroke();
   mark('buildings', t);
 
   // --- roads. Casings for every class first, then fills for every class: that
@@ -467,14 +506,20 @@ export function bakeDistrictMap(district, opts = {}) {
   };
 }
 
-// One bake per document. The district is 36 MB of canvas; a second HUD (a lab page
+// One bake per document. The district is ~17 MB of canvas; a second HUD (a lab page
 // showing two, a pause-menu map) must share it, never build another.
 const bakeCache = new Map();
 export function getDistrictMap(district, opts = {}) {
-  const key = `${opts.pixelsPerMetre ?? 1.8}/${opts.padMetres ?? 32}`;
+  const key = `${opts.pixelsPerMetre ?? 1.25}/${opts.padMetres ?? 32}`;
   let m = bakeCache.get(key);
   if (!m) { m = bakeDistrictMap(district, opts); bakeCache.set(key, m); }
   return m;
+}
+
+/** Drop the cached bakes. HUD.dispose() deliberately does not: the bake is shared. */
+export function disposeDistrictMaps() {
+  for (const m of bakeCache.values()) { m.canvas.width = 0; m.canvas.height = 0; }
+  bakeCache.clear();
 }
 
 // ---------------------------------------------------------------- minimap
@@ -529,7 +574,10 @@ export class Minimap {
   draw(ctx, box, s) {
     const t0 = performance.now();
     const { x, y, w, h } = box;
-    const zoom = s.zoomMetres || this.zoomMetres;
+    // The bake is authored close to the map's own pixel density at the reference
+    // frame, so zooming out far enough turns a downscaled blit into aliased mush.
+    // 480 m across a 232 px map is already a district overview.
+    const zoom = clamp(s.zoomMetres || this.zoomMetres, 60, 480);
     const ppm = w / zoom;                       // design px per world metre
     const northUp = s.northUp ?? this.northUp;
     const rot = northUp ? 0 : -s.heading;
@@ -566,18 +614,23 @@ export class Minimap {
     ctx.restore();
 
     // Markers and the arrow are drawn in screen space: their size must not scale
-    // with the zoom, and off-map blips have to be clamped to the frame.
+    // with the zoom, and off-map blips have to be clamped to the frame. Nothing in
+    // this pass allocates — an earlier version copied the marker array and spread a
+    // fresh object per blip every frame, which is garbage the frame-time gate pays
+    // for eventually.
     ctx.save();
     mapShape(ctx, x, y, w, h, LAYOUT.map.radius, LAYOUT.map.chamfer);
     ctx.clip();
-    const toScreen = (wx, wz) => {
+    const rc = Math.cos(rot), rn = Math.sin(rot);
+    const blip = (wx, wz, kind) => {
       const dx = (wx - s.px) * ppm, dz = (wz - s.pz) * ppm;
-      const c = Math.cos(rot), n = Math.sin(rot);
-      return [cx + dx * c - dz * n, cy + dx * n + dz * c];
+      this._marker(ctx, box, cx + dx * rc - dz * rn, cy + dx * rn + dz * rc, kind);
     };
-    const blips = s.markers ? s.markers.slice() : [];
-    if (s.waypoint) blips.push({ ...s.waypoint, kind: 'waypoint' });
-    for (const m of blips) this._marker(ctx, toScreen(m.x, m.z), box, m);
+    if (s.markers) for (let i = 0; i < s.markers.length; i++) {
+      const m = s.markers[i];
+      blip(m.x, m.z, m.kind);
+    }
+    if (s.waypoint) blip(s.waypoint.x, s.waypoint.z, 'waypoint');
     this._compass(ctx, box, rot);
     this._arrow(ctx, cx, cy, northUp ? s.heading : 0);
     ctx.restore();
@@ -596,8 +649,9 @@ export class Minimap {
     const b = this.bake;
     const c = Math.cos(-rot), n = Math.sin(-rot);
     let wx0 = Infinity, wx1 = -Infinity, wz0 = Infinity, wz1 = -Infinity;
-    for (const [ux, uy] of [[box.x, box.y], [box.x + box.w, box.y],
-                            [box.x + box.w, box.y + box.h], [box.x, box.y + box.h]]) {
+    for (let i = 0; i < 4; i++) {
+      const ux = (i === 1 || i === 2) ? box.x + box.w : box.x;
+      const uy = (i === 2 || i === 3) ? box.y + box.h : box.y;
       const dx = (ux - cx) / ppm, dz = (uy - cy) / ppm;
       const wx = s.px + dx * c - dz * n, wz = s.pz + dx * n + dz * c;
       wx0 = Math.min(wx0, wx); wx1 = Math.max(wx1, wx);
@@ -616,7 +670,7 @@ export class Minimap {
     );
   }
 
-  _marker(ctx, [mx, my], box, m) {
+  _marker(ctx, box, mx, my, kind) {
     const pad = 9;
     const ix0 = box.x + pad, ix1 = box.x + box.w - pad;
     const iy0 = box.y + pad, iy1 = box.y + box.h - pad;
@@ -627,7 +681,7 @@ export class Minimap {
     const ch = LAYOUT.map.chamfer;
     const over = (px - (ix1 - ch)) + ((iy0 + ch) - py) - ch;
     if (over > 0) { px -= over * 0.5; py += over * 0.5; }
-    const st = MARKER_STYLE[m.kind] || MARKER_STYLE.waypoint;
+    const st = MARKER_STYLE[kind] || MARKER_STYLE.waypoint;
     const r = off ? 4.4 : 6;
     ctx.lineWidth = 1.6;
     ctx.strokeStyle = 'rgba(3,7,12,0.9)';
@@ -802,7 +856,7 @@ export class HUD {
     this._escalateUntil = -1;
     this._flashPhase = 0;
     this._dirty = { vitals: true, status: true, gauge: true, map: true };
-    this._mapAt = { x: NaN, z: NaN, h: NaN };
+    this._mapAtX = NaN; this._mapAtZ = NaN; this._mapAtH = NaN;
     this._text = {};
     this._last = null;
 
@@ -820,10 +874,9 @@ export class HUD {
     window.addEventListener('resize', this._onResize);
     this.layout();
 
-    // Force the first blit here, while the loading screen is still up. The bake is
-    // ~34 MB of canvas and the first drawImage from it is what makes the driver
-    // upload it; measured at 92 ms, which is a visible hitch if it lands on the
-    // first frame of gameplay instead of on the last frame of loading.
+    // Force the first blit here, while the loading screen is still up. The first
+    // drawImage from the bake is what makes the driver upload it; without this it
+    // landed on frame 1 of gameplay and measured 92 ms.
     const tw = performance.now();
     this.state.px = district ? district.meta.spawn.x : 0;
     this.state.pz = district ? district.meta.spawn.z : 0;
@@ -931,7 +984,9 @@ export class HUD {
    *   route                [[x,z], ...] | null   (pass a stable array; identity is the change test)
    *   northUp, zoomMetres
    *   vignette 0..1, damage 0..1
-   *   dt                   seconds; measured from the clock if omitted
+   *   dt                   seconds; measured from the clock if omitted, and clamped
+   *                        to 250 ms so one long hitch cannot fast-forward an
+   *                        animation (the damage decay in particular) past its end
    */
   update(state = {}) {
     const t0 = performance.now();
@@ -965,6 +1020,13 @@ export class HUD {
     d.slip = damp(d.slip, s.slip, 12, dt);
     d.health = damp(d.health, clamp(s.health, 0, 1), 10, dt);
     d.armour = damp(d.armour, clamp(s.armour, 0, 1), 10, dt);
+    // The bars are dirty-flagged on the STATE changing but drawn from the damped
+    // DISPLAY value, so flagging on the change alone drew one frame of the old
+    // value and then stopped: a hit for 14% of health left the bar reading the
+    // pre-hit number forever. Stay dirty until the animation has actually landed.
+    if (Math.abs(d.health - s.health) > 0.0015 || Math.abs(d.armour - s.armour) > 0.0015) {
+      this._dirty.vitals = true;
+    }
     d.px = s.px; d.pz = s.pz;
     let dh = s.heading - d.heading;
     dh = ((dh + Math.PI) % TAU + TAU) % TAU - Math.PI;
@@ -1129,24 +1191,25 @@ export class HUD {
   // Opacity only, so both veils stay compositor-only work. The 1/255 threshold
   // stops a slowly decaying value from writing style every frame forever.
   _syncVeils() {
-    const setOpacity = (el, key, v) => {
-      const q = Math.round(clamp(v, 0, 1) * 255) / 255;
-      if (this._text[key] === q) return;
-      this._text[key] = q;
-      el.style.opacity = String(q);
-    };
-    setOpacity(this.vig, 'vigA', this.disp.vignette);
-    setOpacity(this.dmg, 'dmgA', this.disp.damage);
+    this._veil(this.vig, 'vigA', this.disp.vignette);
+    this._veil(this.dmg, 'dmgA', this.disp.damage);
+  }
+
+  _veil(el, key, v) {
+    const q = Math.round(clamp(v, 0, 1) * 255) / 255;
+    if (this._text[key] === q) return;
+    this._text[key] = q;
+    el.style.opacity = String(q);
   }
 
   // ------------------------------------------------------------ minimap
   _drawMap() {
     const d = this.disp;
-    const moved = Math.abs(d.px - this._mapAt.x) > 0.02
-      || Math.abs(d.pz - this._mapAt.z) > 0.02
-      || Math.abs(d.heading - this._mapAt.h) > 0.0012;
+    const moved = Math.abs(d.px - this._mapAtX) > 0.02
+      || Math.abs(d.pz - this._mapAtZ) > 0.02
+      || Math.abs(d.heading - this._mapAtH) > 0.0012;
     if (!moved && !this._dirty.map) return;
-    this._mapAt = { x: d.px, z: d.pz, h: d.heading };
+    this._mapAtX = d.px; this._mapAtZ = d.pz; this._mapAtH = d.heading;
     this._dirty.map = false;
 
     const s = this.state;

@@ -155,15 +155,41 @@ function mulberry32(seed) {
   };
 }
 
-/**
- * How a wet surface differs from a dry one, as two multipliers. Exposed as a pure
- * function so callers can apply it to materials this module has never heard of.
- *
- * Water fills the surface microstructure: the specular lobe tightens (roughness
- * falls) and more light is transmitted into the substrate and absorbed (albedo
- * darkens). materials.js keeps material.roughness at 1.0 multiplying an absolute
- * roughness map, so scaling that one number is exactly the intended hook.
- */
+// ---------------------------------------------------------------------------
+// THE WETNESS CONTRACT
+//
+// `weather.wetness` is a number in 0..1 that every wet-surface effect in the
+// project should read. It is NOT the rain intensity: it rises with a 22 s time
+// constant and falls with a 95 s one, so it lags the shower going and stays
+// behind long after it stops. Nothing in this file edits materials.js.
+//
+// There are three ways to consume it, in increasing order of intrusiveness.
+//
+//   1. Let this module drive shared materials.
+//        weather.bindMaterials(world.registry);
+//      Dry values are captured once at bind time, susceptibility comes from
+//      SURFACE_WETTING keyed on material.name, and dispose() puts everything
+//      back. This is what district/main.js does and it needs no other change.
+//
+//   2. Apply the multipliers yourself, to anything.
+//        const { roughnessScale, albedoScale, envBoost } =
+//          wetSurfaceParams(weather.wetness * share);
+//      A pure function; no material has to be known to this file. Respect
+//      MIN_WET_ROUGHNESS on the result — see the note on it, it is a
+//      half-float overflow guard, not a taste call.
+//
+//   3. Read it in a shader.
+//        weather.applyToPost(post);   // sets post.params.wetness
+//      post.js already cools and contrasts the frame by that number. A material
+//      shader can take the same uniform and, say, flatten its normal map or add
+//      a puddle mask; keep the response monotonic in wetness so 1 and 2 stay
+//      consistent with it.
+//
+// Do NOT feed glass, water or a mirror probe: they have no microstructure for
+// water to fill, and darkening them reads as a bug. SURFACE_WETTING scores them
+// at zero and bindMaterials skips anything scored zero.
+// ---------------------------------------------------------------------------
+
 /**
  * How much of the wetness response each surface takes, by material name. A
  * horizontal road holds a film of water; a vertical facade sheds it; glass and
@@ -205,6 +231,20 @@ function* flattenMaterials(x, depth = 0) {
   if (typeof x === 'object') { for (const v of Object.values(x)) yield* flattenMaterials(v, depth + 1); }
 }
 
+/**
+ * How a wet surface differs from a dry one, as three multipliers. Pure, so it
+ * applies to materials this module has never heard of.
+ *
+ * Water fills the surface microstructure: the specular lobe tightens (roughness
+ * falls), more light is transmitted into the substrate and absorbed (albedo
+ * darkens), and the smoother surface returns more of the environment (env map
+ * intensity rises). materials.js keeps material.roughness at 1.0 multiplying an
+ * absolute roughness map, so scaling that one number is exactly the intended
+ * hook.
+ *
+ * @param {number} wetness 0..1
+ * @returns {{roughnessScale:number, albedoScale:number, envBoost:number}}
+ */
 export function wetSurfaceParams(wetness) {
   const w = Math.min(1, Math.max(0, wetness));
   return { roughnessScale: 1 - 0.62 * w, albedoScale: 1 - 0.34 * w, envBoost: 1 + 0.9 * w };

@@ -1,6 +1,6 @@
 # Milestone 1 — Textured District
 
-**Status: reached, with two WARNs and one open item for your real-hardware check.**
+**Status: reached. All four gates PASS. Two open items for your real-hardware check.**
 Phase 2 is paused here per the milestone rule. Nothing proceeds to M2 without your
 **CONTINUE**.
 
@@ -30,21 +30,21 @@ and weather**, **on-foot mode** with a procedural character and locomotion FSM, 
 ### Budget gate — worst case (60 civilian + 10 pursuit, dusk, route at speed)
 
 ```
-BUDGET GATE: WARN
-  PASS draw calls             143   warn 200   fail 320   headroom 55.3%
-  PASS triangles            40811   warn 400k  fail 900k  headroom 95.5%
-  WARN chunk stall ms        10.7   warn 8     fail 16    headroom 33.1%
+BUDGET GATE: PASS
+  PASS draw calls             140   warn 200   fail 320   headroom 56.3%
+  PASS triangles            40581   warn 400k  fail 900k  headroom 95.5%
+  PASS chunk stall ms         6.4   warn 8     fail 16    headroom 60.0%
   PASS heap growth MB          -4   warn 40    fail 120   headroom 103.3%
 ```
 
 ### Budget gate — drive-through, 3 circuits + 30 traffic
 
 ```
-BUDGET GATE: WARN
-  PASS draw calls             144   warn 200   fail 320   headroom 55.0%
-  PASS triangles            40068   warn 400k  fail 900k  headroom 95.5%
-  WARN chunk stall ms         9.4   warn 8     fail 16    headroom 41.3%
-  PASS heap growth MB          -1   warn 40    fail 120   headroom 100.8%
+BUDGET GATE: PASS
+  PASS draw calls             139   warn 200   fail 320   headroom 56.6%
+  PASS triangles            40742   warn 400k  fail 900k  headroom 95.5%
+  PASS chunk stall ms         6.0   warn 8     fail 16    headroom 62.5%
+  PASS heap growth MB          -3   warn 40    fail 120   headroom 102.5%
 ```
 
 Chunk loads 257 over the route (1.41/s of simulated time), 414 LOD swaps, 5,100 m driven.
@@ -68,10 +68,10 @@ LIGHTING SWEEP: PASS
 | | Noon | Dusk | Night |
 |---|---|---|---|
 | Sun (lux) | 100,000 | 1,200 | 0.6 |
-| Sky (lux) | 20,000 | 900 | 3.5 |
+| Sky (lux) | 20,000 | 900 | 0.15 |
 | Street lamps lit | 0 | 7 | 7 |
 | Lamp intensity (cd) | — | 900 | 900 |
-| Exposure | 1/78,000 | 1/330 | 1/2 |
+| Exposure | 1/78,000 | 1/330 | 1/1.15 |
 | Draw calls | 119 | 119 | 119 |
 | Implausible flags | 0 | 0 | 0 |
 
@@ -137,11 +137,11 @@ subsystems now escalate their own flags.
 
 ### For your real-hardware check
 
-1. **Chunk stall, 10.7 ms (WARN).** Dominated at times by a single `_dispose` measured at
-   **8 ms** — GL buffer deletion. A real driver frees buffers far more cheaply, so this is
-   very likely a SwiftShader artifact. **This is the first thing to look at.** If it holds
-   at ~8 ms on real hardware, chunk disposal needs geometry pooling; if it collapses, the
-   stall metric clears the warn threshold outright.
+1. **Chunk disposal cost.** The stall now measures 6.0–6.4 ms and passes, but it spiked to
+   8 ms in earlier runs on a single `_dispose` — GL buffer deletion. A real driver frees
+   buffers far more cheaply, so this is very likely a SwiftShader artifact, and the
+   measurement is noisy run to run. Worth confirming; if it is real, chunk disposal needs
+   geometry pooling.
 2. **Sky refresh costs 2,429 ms**, of which 822–2,148 ms is a GPU→CPU read-back of the
    scattering probe. Survivable for three discrete presets; **a continuous day/night cycle
    cannot afford it**, and that cycle is in M3 scope. A `readPixels` of a 32×16 probe
@@ -174,10 +174,135 @@ hourly watchdog, which is now live** (`trig_01AcU4HEkk7RNy3cSyi7J6zP`, fires at 
 
 ## 6. Blind critic round
 
-<!--CRITIC-->
+Four fresh-context critics, each given only the four rendered frames and a different
+lens, with no access to source. **All four returned GTA V on PC as better at both dusk and
+night** — unanimous, and correct. Each backed its claims with PIL pixel measurements.
+
+### Verdicts
+
+| Lens | Dusk | Night |
+|---|---|---|
+| Lighting & atmosphere | GTA V better | GTA V better |
+| Materials & surfaces | GTA V better | GTA V better |
+| World building & composition | GTA V better | GTA V better |
+| Defects & correctness | GTA V better | GTA V better |
+
+### The one they converged on
+
+Three of four independently named the same biggest gap at night, in nearly the same words:
+**"there is no night."** Measured: night sky median **L=203** against ground **L=40.6** —
+the sky five times brighter than the world it lights. One put it: *"GTA V's night reads
+because it is dark with pools of light in it. Here nothing is dark and nothing pools, so
+there is no night to light."*
+
+**Confirmed and fixed during this milestone.** My own measurement reproduced it (sky 187.6
+vs ground 100.6, ratio 1.86), and the cause was in the sky's night radiance: zenith 3.4 /
+horizon 3.6 nits, which is *brighter than lamp-lit ground* (~1.3 nits from a 900 cd lamp at
+8 m). No camera stop can turn that into night. Lowered to 0.045 / 0.42 nits — a clear urban
+night — with the preset's `skyLux` re-derived from the model (3.5 → 0.15) and the camera
+stop re-opened to keep lamp-lit surfaces readable. Now **sky L=33.5, ground L=45.2**: the
+polarity is inverted, the sky is darker than the street, and lit windows carry the frame.
+
+### Where the critics were wrong, and why the audit rule earned its place
+
+The lighting critic's headline was: *"no shadow map, no AO, no local light, no specular, no
+reflection, no exposure control."* The scene-graph audit captured **with those exact
+frames** says otherwise — 29 shadow casters, 104 receivers, a 2048² map allocated, 7 lit
+lamps at 900 cd, exposure moving 1/78,000 → 1/2 across presets.
+
+Auditing rather than believing it led to the actual defect: **`scene.environmentIntensity`
+was 0.35**. A vertical wall gets almost no direct sun when the sun is overhead, so IBL is
+the *only* thing lighting it — at a third strength every building rendered near-black
+beside a blown-out ground. Restored to 1.0, and a real building shadow is now plainly
+visible across the plaza at noon.
+
+The critic's *perception* — that the frame read unlit — was right. Its *diagnosis* was
+wrong, and the two differ by weeks of work. Constraint 5 exists for exactly this.
+
+Of the triage agents that survived, one confirmed the night finding as `CONFIRMED_MISTUNED`
+P0; another **rejected** the materials critic's "no albedo texture on the two largest
+surfaces" — the material library demonstrably exists.
+
+### What they credited
+
+Directional facade shading (a correct 1.64× sun/shade split), dither quality (no banding —
+mean flat run 1.2 px over a 430 px sky gradient), the dusk horizon ramp, material albedo
+separation (asphalt vs sidewalk at 2.8×), the bloom kernel shape, and the camera framing:
+*"Do not re-block the cameras — fix the lighting behind them."*
+
+### Confirmed and still open
+
+Three critics independently found geometry defects I had **dismissed from a screenshot**
+earlier in this milestone — an awning support post rendered in disconnected fragments,
+floating bars above the plaza, and an orphaned pole stub. I had measured awning *projection*
+(0.9–1.4 m, correct) and concluded the geometry was fine; I never checked vertical
+continuity. They were right and I was wrong. These are the top M2 fix list, along with
+missing ambient occlusion and contact shadows (all four critics), emissive windows
+contributing no illumination, road/sidewalk coplanar z-fighting along the kerb, and
+untextured far-LOD.
 
 ---
 
 ## 7. Updated estimate and cut list
 
-<!--ESTIMATE-->
+### Where the estimate stands
+
+Phase 1b projected **~275 h good case / ~415 h realistic**. M1 consumed roughly **26 h** of
+that, against a planned ~24 h for the engine shell, materials, facades and post stack — so
+it landed close, but the shape shifted: far more went into the stall gate (five measured
+rounds) and far less into materials, because the parallel builders delivered more than
+budgeted.
+
+| Line item | 1b estimate | Spent | Remaining | Confidence |
+|---|---:|---:|---:|---|
+| Engine shell + post-processing | 6 | 7 | 0 | done |
+| Materials library | 10 | 4 | 0 | done |
+| Facade / building kit | 16 | 5 | 0 | done |
+| World streaming (texturing + resumable builds) | 20 | 8 | 4 | high |
+| Sky / atmosphere | 8 | 3 | 3 | medium — refresh cost open |
+| Player controller + camera + anim FSM | 18 | 4 | 12 | medium |
+| Traffic AI | 26 | 0 | 26 | low → the M2 risk |
+| Everything else (characters, audio, signage integration, wanted, mission, HUD, perf, integration) | 171 | 0 | 171 | mixed |
+| **Total** | **275** | **~31** | **~216** | |
+
+Revised realistic total: **~250–380 h**, slightly *down* from 415. Two reasons: the
+parallel builders produced more finished work per hour than budgeted, and the streaming
+system needed less texturing work than feared. Against that, **AO and contact shadows are
+now a named line item** (all four critics; ~8 h) that the 1b estimate did not carry.
+
+### Cut list — unchanged, nothing newly cut
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Weather beyond rain + fog | **CUT** (binding constraint 3) |
+| 2 | Pedestrians | not cut |
+| 3 | Building interiors | **CUT** (never in scope) |
+| 4 | Full district height authoring | **partially cut, pre-approved** by constraint 9 — corridor + mission route authored (117 footprints), rest defaulted |
+| 5 | Second LOD tier + occlusion culling | not cut — and now clearly unnecessary at 56% draw-call headroom |
+| 6 | TAA | not cut |
+| 7 | Bloom + height fog | **NEVER CUT** — both shipped in M1 |
+| 8 | The two CI gates | **NEVER CUT** — now four gates (added syntax and lighting) |
+
+**No cut executed this milestone.** Item 4 remains where constraint 9 put it.
+
+### What I recommend descoping
+
+**Nothing yet.** Draw calls sit at 56% headroom, triangles at 95%, heap flat. There is room
+to spend on detail, which is what constraint 2 asks for.
+
+If something has to go later, my order would be **pedestrians first** (item 2) — the
+critics' density complaints are about *street-level clutter and signage*, not people, and
+`src/signage.js` already exists unintegrated with a measured **+8 draw calls for the entire
+district**. Integrating signage buys more of what the critics asked for than pedestrians
+would, for a fraction of the cost.
+
+### Next action on CONTINUE
+
+1. Integrate `src/signage.js` (+8 draw calls district-wide, measured) and `src/hud.js`.
+2. Fix the three confirmed geometry defects — severed awning post, floating plaza bars,
+   orphaned pole stub.
+3. Add AO / contact shadows — the single most-cited gap across all four critics.
+4. Then M2 proper: traffic AI with following distance, intersections and dead-end routing,
+   reported against the 35.4% stub overlap baseline.
+
+`src/audio.js` is the one wave-2 builder that never ran; it is not an M1 requirement.

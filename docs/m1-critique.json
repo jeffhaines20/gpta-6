@@ -1,0 +1,193 @@
+[
+ {
+  "lens": "LIGHTING & ATMOSPHERE",
+  "dusk": "GTA_V_BETTER",
+  "night": "GTA_V_BETTER",
+  "gapDusk": "NOTHING CASTS A SHADOW. There is a sun — it is visible as a horizon glow in m1-corridor-dusk (x=1120, y=435 reads RGB 239,223,142 / L=220.6 against the adjacent building silhouette at x=1050, y=435 which reads L=77.3), and its directional term is working on facades (near tower camera-face at (120,12",
+  "gapNight": "THERE IS NO NIGHT. The \"night\" sky is the dusk sunset dome with stars stamped on top and a global warm multiply over the whole frame — it is a colour grade, not a lighting state. Sky column at x=900 in m1-corridor-dusk vs m1-corridor-night, zenith to horizon:\n\n  night y=10  RGB 208,155,149  L=165.8\n",
+  "defects": [
+   "Emissive windows contribute zero illumination — nothing pools at night",
+   "The ground plane is excluded from aerial perspective; the entire fog ramp is compressed into 30 px at the vani",
+   "Crack and joint decal has inverted polarity and behaves as an emissive",
+   "No ambient occlusion anywhere — every wall meets the ground on a bright line",
+   "m1-corridor-dusk has no blacks and almost no chroma — the frame is exposure-veiled",
+   "Dusk sky has no Rayleigh gradient — the zenith is achromatic white and it brightens downward",
+   "No specular and no reflections on any surface",
+   "Night white balance is a single global multiply — no cool ambient / warm practical separation",
+   "Vehicle floats — no contact shadow, and the ground under it is brighter than beside it",
+   "No anti-aliasing on geometric silhouettes",
+   "No sun disc and no bloom response on the brightest thing in frame",
+   "Stars are stamped over a bright sky with no horizon extinction",
+   "Floating slabs and an orphaned pole stub on the corridor plaza",
+   "Road decal terminates in a hook in the middle of the plaza",
+   "Night blacks are crushed and unlit glass renders as a void"
+  ],
+  "broken": [
+   "VEHICLE IS NOT GROUNDED — and inverts. m1-corridor-dusk: paving directly under the car body at (800,545) L=78.8 vs paving beside it at (700,",
+   "FLOATING GEOMETRY ON THE CORRIDOR PLAZA. m1-corridor-dusk, thin grey bars sitting proud of the paving with a visible gap beneath and no cont",
+   "ORPHANED POLE STUB. m1-corridor-dusk at x≈448, y≈577-594: a ~17 px dark vertical stick terminating in mid-air with nothing above it and noth",
+   "ROAD DECAL TERMINATES IN A HOOK MID-PLAZA. m1-corridor-dusk around x=1118-1143, y=500-512: the asphalt strip crossing behind the mid-block b",
+   "CRACK/JOINT DECAL IS SIGN-FLIPPED — it emits. Ground ROI x 700-1100 / y 700-880, m1-fivepoints-night: paving field median L=35.3 RGB 52,27,3",
+   "TWO MEMBERS OF THE SAME OVERHEAD STRUCTURE RENDER AT COMPLETELY DIFFERENT LUMINANCE. m1-corridor-dusk skybridge/beam over x 540-900, y 0-230",
+   "NO ANTI-ALIASING ON GEOMETRIC SILHOUETTES AT ALL. m1-fivepoints-dusk, row y=200 across the near-right building corner: x=1433 L=58.6, x=1434",
+   "NO HEADLIGHTS, TAILLIGHTS OR BRAKE LIGHTS. The vehicle sits mid-carriageway in both night frames as a completely unlit red-and-black box. It",
+   "A NEUTRAL-WHITE WINDOW PANE IN A FULLY WARM-GRADED NIGHT FRAME. m1-fivepoints-night at (1420,490): RGB 223,216,208, R−B = +15, L=216.9 — in "
+  ],
+  "works": [
+   "Directional facade shading (N·L) is correct and reads well at dusk. m1-corridor-dusk near tower: camera-facing",
+   "Gradient dithering is properly done — there is no banding anywhere. Sky column at x=1300 in m1-corridor-dusk: ",
+   "The dusk horizon band hue and its vertical ramp are right. m1-corridor-dusk through the glow at x=1120: y=435 ",
+   "Material albedo separation on the ground is clean. m1-fivepoints-dusk: asphalt (300,700) RGB 55,60,71 / L=59.7",
+   "m1-fivepoints-dusk's exposure and black point are healthy and should be the reference for the other three. min",
+   "The bloom kernel on emissive windows is well-shaped. In m1-fivepoints-night the halo around the lit pane at (1",
+   "Distance-fog HUE tracks the sky. m1-fivepoints-dusk far block at (770,470) RGB 194,166,101 vs sky immediately ",
+   "Camera and composition. Both are legible one-point-perspective street plates with a strong vanishing point, th"
+  ]
+ },
+ {
+  "lens": "MATERIALS AND SURFACES",
+  "dusk": "GTA_V_BETTER",
+  "night": "GTA_V_BETTER",
+  "gapDusk": "NO ALBEDO TEXTURE AND NO TEXEL DENSITY ON THE TWO LARGEST SURFACES IN FRAME — the pavement and the building walls are untextured flat colour, and they do not change with distance. Pavement, m1-corridor-dusk, column x=700: an 11x11 patch at y=880 (roughly 3 m from camera) reads L=169.65, sd=2.48, cv=",
+  "gapNight": "TOTAL CHROMATIC COLLAPSE — every material in the frame is the same hue, so there is exactly one material at night. m1-fivepoints-night contains ZERO pixels where B > R+8, out of 1,440,000. Not one. (The same frame at dusk has 321,458 such pixels, 22.3%.) 98.4% of night pixels are chromatic (sat>0.15",
+  "defects": [
+   "Car paint is a mathematically constant colour — the hero asset has no material at all",
+   "Glass is not glass — windows are randomly tinted opaque decals",
+   "Pavement base texture is a woodgrain/marble noise, and its joint layer goes emissive at night",
+   "Zero ambient occlusion or contact darkening anywhere in the frame",
+   "No specular, no gloss, no wetness on any surface in any frame — everything is pure lambert",
+   "Night road is crushed to near-black while the sky is the brightest thing in frame — contrast polarity is inver",
+   "Distant buildings LOD to untextured solid boxes in a single step",
+   "Dusk ambient is a near-clipped neutral white dome, and the ground receives no warm sun — this is what erases t",
+   "Awnings clad in construction hazard-stripe material, cantilevered over open roadway",
+   "Nothing casts a usable shadow — car, awnings and posts all fail",
+   "Facade texture resolution fails by roughly 80 m, with visible vertical streaking in the near field",
+   "Buildings have no ground floor — extruded boxes that simply stop at the ground plane",
+   "Wheels are spheres with no tyre material and no wheel arches",
+   "A support post is rendered in three disconnected fragments plus an orphan sliver",
+   "Dense star field drawn over a near-daylight sky dome",
+   "Car has no lights at night"
+  ],
+  "broken": [
+   "FLOATING SLAB IN THE SKY. m1-corridor-dusk and m1-corridor-night, top-centre: a chamfered light-grey slab with three parallel ridge profiles",
+   "AWNING CANTILEVERED OVER OPEN ROADWAY. m1-corridor-dusk, canopy spanning x~480-605 at y 370-435 extends past the building corner at x~542 wi",
+   "SUPPORT POST RENDERED IN DISCONNECTED FRAGMENTS. m1-corridor-dusk and -night at x~449: visible y 420-440, gone y 440-472, visible y 472-540,",
+   "THE VEHICLE IS A PLACEHOLDER PRIMITIVE STACK. Cuboid body plus cuboid cabin plus sphere wheels. Car-paint flank in m1-fivepoints-night is a ",
+   "PAVEMENT JOINTS ARE EMISSIVE AT NIGHT. m1-corridor-night (250,760)-(650,900) at 4x: the tan joint ribbons are brighter and hotter in hue tha",
+   "TWO INCOMPATIBLE JOINT TESSELLATIONS SUPERIMPOSED ON THE PAVEMENT. An irregular Voronoi net of raised cream ribbons overlaid on a rectilinea",
+   "HAZARD-STRIPE BARRIER TEXTURE ON SHOP AWNINGS. m1-corridor-dusk/night y 370-435: four shopfront canopies clad in black-and-yellow constructi",
+   "DISTANT BUILDINGS ARE UNTEXTURED SOLID BOXES. m1-fivepoints-dusk x 730-790 / y 455-490: plain tan cuboids with no fenestration at all, poppi",
+   "STARS OVER A DAYLIGHT-BRIGHT SKY. Both night frames render a dense star field across a dome at L=178-218. Physically impossible and it reads",
+   "ZERO COOL PIXELS AT NIGHT. m1-fivepoints-night contains not a single pixel where B > R+8, out of 1,440,000. A night city frame with literall"
+  ],
+  "works": [
+   "The asphalt. It is the only material in these frames that reads as its actual substance, and it is good enough",
+   "The dusk aerial-perspective curve on the road. Sampling m1-fivepoints-dusk down the road centreline, L climbs ",
+   "The directional building shadow across the plaza in m1-corridor-dusk. Lit pavement at (560,650) L=173.5 versus",
+   "The facade geometry vocabulary. Real modelled sills, transoms, string courses, pilaster returns and window rev",
+   "Composition and the dusk colour intent. The corridor perspective with the gold horizon sitting just right of t",
+   "The handful of cool window panes in m1-corridor-night — 1,525 blue-dominant pixels, all inside x 461-1097 / y "
+  ]
+ },
+ {
+  "lens": "World building and composition",
+  "dusk": "GTA_V_BETTER",
+  "night": "GTA_V_BETTER",
+  "gapDusk": "THE STREET HAS NO STREET LEVEL. This is a set of empty extruded boxes with the ground plane left bare, and it is measurable. (1) In m1-corridor-dusk, rows 540-900 — the bottom 40% of the frame, i.e. everything inside roughly 30 m of camera and the best-lit, highest-resolution real estate in the shot",
+  "gapNight": "THE CITY EMITS NO LIGHT — \"night\" is the dusk frame with an orange grade laid over it. Two measurements make this unarguable. (1) In m1-corridor-night, the sidewalk directly beneath a run of lit shopfront windows (windows at x60-500 y440-500 read meanL=77.2) measures meanL=31.9 at x60-500 y620-700 —",
+  "defects": [
+   "Street proportions are wrong by a factor of ~6 — this is a business park, not a downtown",
+   "No directional sun at dusk — facades pointing in opposite directions are equally lit",
+   "Building massing has no silhouette — every mass is one extruded rectangle with a flat cap",
+   "Zero ambient occlusion anywhere — nothing is grounded",
+   "No aerial perspective, then a fog wall that amputates the city",
+   "Distant LOD is untextured cardboard with no intermediate step",
+   "The pavement decal is a road-network map graphic, not concrete weathering",
+   "Night crack decal glows — recessed cracks are brighter than the surface they are cut into",
+   "Both dusk skies have zero cloud — a mathematically pure gradient",
+   "Night sky is the dusk sky re-tinted with stars composited on top",
+   "The nearest surface in the frame is the least detailed one",
+   "No traffic control or road furniture at what are supposed to be junctions"
+  ],
+  "broken": [
+   "FLOATING ORPHANED BEAM OVER THE STREET (both corridor frames, x~330-700, y~40-230). Crop at 4x: a large moulded box section runs left-to-rig",
+   "DETACHED WIRE/MEMBER ENDING IN MID-AIR (m1-corridor-dusk, roughly from (0,110) to (560,165)). A thin dark member starts inside the tower fac",
+   "AWNING POLE THAT DOES NOT REACH THE GROUND (m1-corridor-dusk, x~447). Crop x60-660 y560-660 at 3x: a thin vertical sliver descends from the ",
+   "CAST SHADOWS PERSIST AT NIGHT, WHEN THERE IS NO SUN. Sampling the pavement band x100-400: at dusk the awning's shadow occupies rows y=604-62",
+   "INVERTED CONTACT / LIGHT LEAK AT WALL-GROUND JUNCTIONS (m1-fivepoints-dusk, x1060-1300 y560-760, crop at 4x; and m1-fivepoints-night x1100-1",
+   "TWO THIN VERTICAL SLABS STANDING IN THE ROADWAY AT THE VANISHING POINT (m1-fivepoints-dusk, approximately (792, 470-500) and (816, 468-500);"
+  ],
+  "works": [
+   "The dusk sky colour ramp. m1-fivepoints-dusk runs from a deep warm yellow at the horizon (RGB ~(251,250,238) r",
+   "The camera rig and lens. The one-point perspective in the fivepoints frames is geometrically clean, the horizo",
+   "The window emissive material and its bloom at night. m1-fivepoints-night x1150-1520 y430-700 (crop at 2x) is t",
+   "Material value separation between roadway and sidewalk. m1-fivepoints-dusk row y=700: asphalt L~60-90 against ",
+   "The road markings that exist. Yellow centre dashes and the white edge line in m1-fivepoints-dusk (x100-500, y6",
+   "Stepped massing on the right block of m1-corridor-dusk (x1200-1600). Its roofline fits a straight line with re"
+  ]
+ },
+ {
+  "lens": "Defects and correctness",
+  "dusk": "GTA_V_BETTER",
+  "night": "GTA_V_BETTER",
+  "gapDusk": "NOTHING IS GROUNDED — no object in either dusk frame casts a correct shadow, no surface has contact darkening, and the one shadow that IS drawn is detached from the thing casting it. Hard evidence: in m1-corridor-dusk the awning post at x=594 has its foot at y=591 (column x=594 reads L≈152 down to y",
+  "gapNight": "IT IS NOT NIGHT — it is the dusk sky with an exposure cut applied to the geometry only, and a starfield pasted on top of it. Measured on m1-corridor-night: sky median L=203.3 (p10=174.3, p90=217.9, RGB ~237,203,179) against ground median L=40.6. The sky is 5.0x brighter than the world it is supposed",
+  "defects": [
+   "Cast shadow is physically detached from its caster; contact AO is inverted",
+   "Night sky is 5x brighter than the ground and carries a full starfield across the horizon glow",
+   "Road and sidewalk are coplanar — z-fighting stipple along the entire kerb line",
+   "Awning post is a degenerate 1-px sliver, sliced in half by the road quad it stands on",
+   "The road is a decal ribbon floating on the plaza with rounded ends, and kerbs exist on one side of the street ",
+   "Hero vehicle is a blockout with impossible proportions and a collapsed wheel track",
+   "Glass has no reflection at all — windows render as matte black holes",
+   "Mip/LOD selection is inverted — the nearest surfaces are the blurriest in frame",
+   "Overbright hairline leaking at the wall/pavement seam",
+   "Sidewalk crack decals are additive — they get brighter than the paving at night",
+   "Two far-end street posts at a 4:1 depth ratio project to the same screen height",
+   "Awnings are unbraced single-post cantilevers that intersect the facade",
+   "Night palette collapses to a single hue — a global orange multiply",
+   "Dusk sky is blown out — no sun, no clouds, no gradient",
+   "No aerial perspective on light surfaces — the ground plane has no depth falloff",
+   "Walls are flat unlit albedo swatches",
+   "Facade textures are repeating stamps with smeared window bands",
+   "Emissive window bloom is box-clamped to the polygon, not radial",
+   "The world is empty and the world edge is in shot"
+  ],
+  "broken": [
+   "Detached shadow. m1-corridor-dusk: post foot at (594,591), its shadow bar ends at x=523 on row y=600. 71 px of unshaded paving at L=170-175 ",
+   "Coplanar road/sidewalk depth tie. m1-corridor-dusk: 28% of columns across x=1000..1600 show a bright sidewalk pixel 1-3 px inside the asphal",
+   "Awning post cut in half by the ground plane. m1-corridor-dusk x≈448: present y 472-541, missing y 541-576, present again y 576-593. The gap ",
+   "Starfield composited over a bright sky. m1-corridor-night: 4,037 star specks over sky at L>120, including across the cream horizon glow at (",
+   "Night sky brighter than the world. Sky median L=203.3 vs ground median L=40.6 in m1-corridor-night — 5.0x, and still 82% of the dusk sky val",
+   "Inverted contact AO. m1-fivepoints-dusk: road under the car (560,600) L=65.5 is brighter than the same road with nothing on it (430,640) L=5",
+   "Detail layer applied after lighting. Sidewalk crack decals are 0.98x paving luminance at dusk and 1.47x at night — they glow orange in the d",
+   "Light leak at the wall/pavement seam. m1-fivepoints-dusk x=1450: a 12 px band at L≈153 between a wall base at L=13 and paving at L=97.",
+   "Inverted mip selection. The largest, nearest wall in m1-fivepoints-dusk (x1450-1590) measures 3.06 gradient energy per px; a facade 4x furth",
+   "Vehicle at the wrong scale. m1-fivepoints-dusk: 37 of 84 px of total vehicle height (44%) is air between the sill and the road, with road de",
+   "Two far-end posts at a 4:1 apparent depth ratio (1 px vs 4 px wide) projecting to the same 29/31 px height with bases at the same screen y. ",
+   "Firefly pixels baked into walls: 252 isolated hot pixels in m1-fivepoints-dusk, e.g. (385,92) L=131 and (1155,92) L=153 on the tan facade.",
+   "Emissive bloom clamped to polygon bounds — hard-edged rectangular halos on the lit panes at (1140-1360, 420-680) in m1-fivepoints-night, wit",
+   "Ground plane terminates in a hard horizontal edge at y≈500 in both Five Points frames — the world edge is in shot, with untextured LOD boxes"
+  ],
+  "works": [
+   "Both camera setups. The Five Points one-point perspective straight down the canyon with the light source parke",
+   "The asphalt albedo. m1-fivepoints-dusk road (100-400, 750-880) has the highest gradient energy in the whole se",
+   "Building massing and silhouette in Five Points. Floor heights, setbacks, the varied cornice line and the way t",
+   "The dusk colour script as an intent — warm horizon into cool-neutral paving is a legitimate Los Santos read. T",
+   "Fog colour matching sky colour at the vanishing point in m1-fivepoints-dusk — the road lightens 51.3 to 110.7 ",
+   "The scatter pattern of lit vs unlit windows at night. The irregular distribution is the right instinct even th"
+  ]
+ },
+ {
+  "TRIAGE": "CONFIRMED_MISTUNED",
+  "claim": "[night, major] \"THERE IS NO NIGHT. The night sky is the dusk sunset dome with stars stampe",
+  "fix": "Six numbers, two files. Do NOT touch exposure — the lamp pools are already correctly placed at 1/2.2 (lit sidewalk L=46.5, lit window L=160.",
+  "pri": "P0"
+ },
+ {
+  "TRIAGE": "REJECTED",
+  "claim": "[dusk] No albedo texture and no texel density on the two largest surfaces in frame — pavem",
+  "fix": "No fix is required for the claim as stated — the textures, the metric UV scaling and the mip falloff all exist and are visible in the suppli",
+  "pri": "P2"
+ }
+]

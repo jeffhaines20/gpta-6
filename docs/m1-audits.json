@@ -36,44 +36,44 @@
     "hasEnvironment": true,
     "sky": {
      "preset": "dusk",
-     "generationMs": 2783.5,
+     "generationMs": 1152,
      "generationMsByPhase": {
-      "setup": 13.2,
-      "lutAndCompile": 2482.6,
-      "probeReadback": 225.8,
-      "environment": 61.9,
-      "total": 2783.5
+      "setup": 3.4,
+      "lutAndCompile": 1024.8,
+      "probeReadback": 100.2,
+      "environment": 23.6,
+      "total": 1152
      },
      "lut": "256x128 RGBA16F",
      "envMap": "PMREM 336x256",
      "refreshes": 4,
-     "lastRefreshMs": 17415.8,
-     "worstRefreshMs": 17415.8,
-     "envMs": 2.6,
-     "readbackMs": 17412.7,
+     "lastRefreshMs": 2608.4,
+     "worstRefreshMs": 2608.4,
+     "envMs": 0.9,
+     "readbackMs": 2607.1,
      "drawCalls": 1,
      "triangles": 1,
      "turbidity": 2.6,
      "overcast": 0,
-     "zenithNits": 258,
-     "horizonNits": 962,
-     "skyLux": 1529,
-     "sunLux": 209,
+     "zenithNits": 265,
+     "horizonNits": 1185,
+     "skyLux": 1612,
+     "sunLux": 394,
      "fogColorNits": [
-      952.68,
-      624.12,
-      200.26
+      1195.3,
+      748.21,
+      227.21
      ],
      "fogInscatterNits": [
-      4179.15,
-      1461.13,
-      434.26
+      5393.43,
+      1801.46,
+      502.54
      ],
-     "fogClamp": 0.547,
-     "inscatterClamp": 0.453,
-     "fogDensity": 0.0018,
+     "fogClamp": 0.451,
+     "inscatterClamp": 0.361,
+     "fogDensity": 0.0013,
      "fogHeightFalloff": 0.011,
-     "artisticMultiplier": 28.2,
+     "artisticMultiplier": 20.3,
      "implausible": []
     },
     "weather": {
@@ -91,7 +91,7 @@
      "maxDrops": 12000,
      "drawCalls": 0,
      "boundMaterials": 15,
-     "generationMs": 22.2
+     "generationMs": 4.2
     },
     "samplePointLightCandela": 900,
     "shadowCasters": 79,
@@ -112,14 +112,14 @@
      "textures": 20,
      "textureLayers": 34,
      "textureMemoryMB": 25.42,
-     "generationMs": 761.6,
+     "generationMs": 372.9,
      "surfaceLayers": 8,
      "timingsMs": {
-      "surfaces": 519,
-      "markings": 11,
-      "ground": 200.6,
-      "water": 12.3,
-      "trim": 18.6
+      "surfaces": 236,
+      "markings": 5.1,
+      "ground": 115.3,
+      "water": 7.1,
+      "trim": 9.4
      },
      "keys": [
       "roadMarkings",
@@ -150,8 +150,8 @@
    "file": "docs/shots/m1-corridor-night.png",
    "audit": {
     "timeOfDay": "night",
-    "exposure": 0.45454545454545453,
-    "exposureAsStop": "1/2",
+    "exposure": 0.8695652173913044,
+    "exposureAsStop": "1/1",
     "toneMapping": "ACESFilmic (post composite)",
     "postProcessing": {
      "bloomThreshold": 0.55,
@@ -169,7 +169,7 @@
      "PointLight": 10
     },
     "sunLux": 0.6,
-    "skyLux": 3.5,
+    "skyLux": 0.15,
     "litPointLights": 9,
     "lightPool": {
      "emitters": 233,
@@ -180,44 +180,44 @@
     "hasEnvironment": true,
     "sky": {
      "preset": "night",
-     "generationMs": 2783.5,
+     "generationMs": 1152,
      "generationMsByPhase": {
-      "setup": 13.2,
-      "lutAndCompile": 2482.6,
-      "probeReadback": 225.8,
-      "environment": 61.9,
-      "total": 2783.5
+      "setup": 3.4,
+      "lutAndCompile": 1024.8,
+      "probeReadback": 100.2,
+      "environment": 23.6,
+      "total": 1152
      },
      "lut": "256x128 RGBA16F",
      "envMap": "PMREM 336x256",
      "refreshes": 5,
-     "lastRefreshMs": 13060.6,
-     "worstRefreshMs": 17415.8,
-     "envMs": 3.1,
-     "readbackMs": 13057,
+     "lastRefreshMs": 2839.5,
+     "worstRefreshMs": 2839.5,
+     "envMs": 0.5,
+     "readbackMs": 2838.4,
      "drawCalls": 1,
      "triangles": 1,
      "turbidity": 2.6,
      "overcast": 0,
-     "zenithNits": 0.511,
-     "horizonNits": 2.073,
-     "skyLux": 2.48,
+     "zenithNits": 0.007,
+     "horizonNits": 0.189,
+     "skyLux": 0.123,
      "sunLux": 0,
      "fogColorNits": [
-      3.38,
-      1.74,
-      1.48
+      0.36,
+      0.15,
+      0.07
      ],
      "fogInscatterNits": [
-      3.38,
-      1.74,
-      1.48
+      0.36,
+      0.15,
+      0.07
      ],
      "fogClamp": 1,
      "inscatterClamp": 1,
-     "fogDensity": 0.0018,
+     "fogDensity": 0.0013,
      "fogHeightFalloff": 0.011,
-     "artisticMultiplier": 28.2,
+     "artisticMultiplier": 20.3,
      "implausible": []
     },
     "weather": {
@@ -235,7 +235,7 @@
      "maxDrops": 12000,
      "drawCalls": 0,
      "boundMaterials": 15,
-     "generationMs": 22.2
+     "generationMs": 4.2
     },
     "samplePointLightCandela": 900,
     "shadowCasters": 79,
@@ -256,14 +256,14 @@
      "textures": 20,
      "textureLayers": 34,
      "textureMemoryMB": 25.42,
-     "generationMs": 761.6,
+     "generationMs": 372.9,
      "surfaceLayers": 8,
      "timingsMs": {
-      "surfaces": 519,
-      "markings": 11,
-      "ground": 200.6,
-      "water": 12.3,
-      "trim": 18.6
+      "surfaces": 236,
+      "markings": 5.1,
+      "ground": 115.3,
+      "water": 7.1,
+      "trim": 9.4
      },
      "keys": [
       "roadMarkings",
@@ -324,44 +324,44 @@
     "hasEnvironment": true,
     "sky": {
      "preset": "dusk",
-     "generationMs": 2783.5,
+     "generationMs": 1152,
      "generationMsByPhase": {
-      "setup": 13.2,
-      "lutAndCompile": 2482.6,
-      "probeReadback": 225.8,
-      "environment": 61.9,
-      "total": 2783.5
+      "setup": 3.4,
+      "lutAndCompile": 1024.8,
+      "probeReadback": 100.2,
+      "environment": 23.6,
+      "total": 1152
      },
      "lut": "256x128 RGBA16F",
      "envMap": "PMREM 336x256",
      "refreshes": 6,
-     "lastRefreshMs": 4300.1,
-     "worstRefreshMs": 17415.8,
-     "envMs": 0.9,
-     "readbackMs": 4298.8,
+     "lastRefreshMs": 2472.5,
+     "worstRefreshMs": 2839.5,
+     "envMs": 0.5,
+     "readbackMs": 2471.5,
      "drawCalls": 1,
      "triangles": 1,
      "turbidity": 2.6,
      "overcast": 0,
-     "zenithNits": 258,
-     "horizonNits": 962,
-     "skyLux": 1529,
-     "sunLux": 209,
+     "zenithNits": 265,
+     "horizonNits": 1185,
+     "skyLux": 1612,
+     "sunLux": 394,
      "fogColorNits": [
-      952.68,
-      624.12,
-      200.26
+      1195.3,
+      748.21,
+      227.21
      ],
      "fogInscatterNits": [
-      4179.15,
-      1461.13,
-      434.26
+      5393.43,
+      1801.46,
+      502.54
      ],
-     "fogClamp": 0.547,
-     "inscatterClamp": 0.453,
-     "fogDensity": 0.0018,
+     "fogClamp": 0.451,
+     "inscatterClamp": 0.361,
+     "fogDensity": 0.0013,
      "fogHeightFalloff": 0.011,
-     "artisticMultiplier": 28.2,
+     "artisticMultiplier": 20.3,
      "implausible": []
     },
     "weather": {
@@ -379,7 +379,7 @@
      "maxDrops": 12000,
      "drawCalls": 0,
      "boundMaterials": 15,
-     "generationMs": 22.2
+     "generationMs": 4.2
     },
     "samplePointLightCandela": 900,
     "shadowCasters": 80,
@@ -400,14 +400,14 @@
      "textures": 20,
      "textureLayers": 34,
      "textureMemoryMB": 25.42,
-     "generationMs": 761.6,
+     "generationMs": 372.9,
      "surfaceLayers": 8,
      "timingsMs": {
-      "surfaces": 519,
-      "markings": 11,
-      "ground": 200.6,
-      "water": 12.3,
-      "trim": 18.6
+      "surfaces": 236,
+      "markings": 5.1,
+      "ground": 115.3,
+      "water": 7.1,
+      "trim": 9.4
      },
      "keys": [
       "roadMarkings",
@@ -438,8 +438,8 @@
    "file": "docs/shots/m1-fivepoints-night.png",
    "audit": {
     "timeOfDay": "night",
-    "exposure": 0.45454545454545453,
-    "exposureAsStop": "1/2",
+    "exposure": 0.8695652173913044,
+    "exposureAsStop": "1/1",
     "toneMapping": "ACESFilmic (post composite)",
     "postProcessing": {
      "bloomThreshold": 0.55,
@@ -457,7 +457,7 @@
      "PointLight": 10
     },
     "sunLux": 0.6,
-    "skyLux": 3.5,
+    "skyLux": 0.15,
     "litPointLights": 7,
     "lightPool": {
      "emitters": 233,
@@ -468,44 +468,44 @@
     "hasEnvironment": true,
     "sky": {
      "preset": "night",
-     "generationMs": 2783.5,
+     "generationMs": 1152,
      "generationMsByPhase": {
-      "setup": 13.2,
-      "lutAndCompile": 2482.6,
-      "probeReadback": 225.8,
-      "environment": 61.9,
-      "total": 2783.5
+      "setup": 3.4,
+      "lutAndCompile": 1024.8,
+      "probeReadback": 100.2,
+      "environment": 23.6,
+      "total": 1152
      },
      "lut": "256x128 RGBA16F",
      "envMap": "PMREM 336x256",
      "refreshes": 7,
-     "lastRefreshMs": 9107.1,
-     "worstRefreshMs": 17415.8,
-     "envMs": 2.1,
-     "readbackMs": 9104.6,
+     "lastRefreshMs": 3542.1,
+     "worstRefreshMs": 3542.1,
+     "envMs": 1.5,
+     "readbackMs": 3540.3,
      "drawCalls": 1,
      "triangles": 1,
      "turbidity": 2.6,
      "overcast": 0,
-     "zenithNits": 0.511,
-     "horizonNits": 2.073,
-     "skyLux": 2.48,
+     "zenithNits": 0.007,
+     "horizonNits": 0.189,
+     "skyLux": 0.123,
      "sunLux": 0,
      "fogColorNits": [
-      3.38,
-      1.74,
-      1.48
+      0.36,
+      0.15,
+      0.07
      ],
      "fogInscatterNits": [
-      3.38,
-      1.74,
-      1.48
+      0.36,
+      0.15,
+      0.07
      ],
      "fogClamp": 1,
      "inscatterClamp": 1,
-     "fogDensity": 0.0018,
+     "fogDensity": 0.0013,
      "fogHeightFalloff": 0.011,
-     "artisticMultiplier": 28.2,
+     "artisticMultiplier": 20.3,
      "implausible": []
     },
     "weather": {
@@ -523,7 +523,7 @@
      "maxDrops": 12000,
      "drawCalls": 0,
      "boundMaterials": 15,
-     "generationMs": 22.2
+     "generationMs": 4.2
     },
     "samplePointLightCandela": 900,
     "shadowCasters": 80,
@@ -544,14 +544,14 @@
      "textures": 20,
      "textureLayers": 34,
      "textureMemoryMB": 25.42,
-     "generationMs": 761.6,
+     "generationMs": 372.9,
      "surfaceLayers": 8,
      "timingsMs": {
-      "surfaces": 519,
-      "markings": 11,
-      "ground": 200.6,
-      "water": 12.3,
-      "trim": 18.6
+      "surfaces": 236,
+      "markings": 5.1,
+      "ground": 115.3,
+      "water": 7.1,
+      "trim": 9.4
      },
      "keys": [
       "roadMarkings",

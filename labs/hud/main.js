@@ -453,7 +453,11 @@ function bench(n = 400) {
       minimapMs: +hud.stats.avgMinimapMs.toFixed(3),
       worstFrameMs: +hud.stats.worstUpdateMs.toFixed(3) };
   };
+  // The worst-case pass drives wanted/health/armour itself, so put the caller's
+  // state back before returning — otherwise a benchmark silently edits the scene.
+  const before = { wanted: hud.state.wanted, health: hud.state.health, armour: hud.state.armour };
   const out = { frames: n, steady: run('steady', false), worst: run('worst', true) };
+  hud.update(before);
   hud.resetStats();
   return out;
 }
@@ -475,6 +479,7 @@ let last = performance.now();
 let ready = false;
 const statsEl = $('stats');
 let statAcc = 0;
+let control = 0;
 
 function frame() {
   const now = performance.now();
@@ -507,6 +512,14 @@ function frame() {
     markers, waypoint, northUp: ui.north,
   });
 
+  // Control: the worst gap between two adjacent performance.now() calls, doing no
+  // work at all. Under SwiftShader the main thread is preempted often enough that a
+  // "worst frame" number is meaningless without knowing the floor.
+  {
+    const a = performance.now(), b = performance.now();
+    control = Math.max(control, b - a);
+  }
+
   statAcc += dt;
   if (statAcc > 0.4) {
     statAcc = 0;
@@ -519,6 +532,7 @@ function frame() {
       `route      ${routePts.length} pts  ${routeMs} ms\n` +
       `update     avg ${s.avgUpdateMs.toFixed(2)} ms  worst ${s.worstUpdateMs.toFixed(2)}\n` +
       `minimap    avg ${s.avgMinimapMs.toFixed(2)} ms  worst ${s.worstMinimapMs.toFixed(2)}\n` +
+      `noop floor worst ${control.toFixed(2)} ms\n` +
       (lastBench
         ? `bench      steady ${lastBench.steady.msPerFrame} ms/f\n` +
           `           worst  ${lastBench.worst.msPerFrame} ms/f\n` +
@@ -539,7 +553,7 @@ window.__lab = {
   stats() {
     return {
       ...hud.stats,
-      hudConstructMs, bakeFlushed,
+      hudConstructMs, bakeFlushed, controlWorstMs: +control.toFixed(2),
       routePoints: routePts.length, routeMs,
       bake: hud.bake ? {
         ms: hud.bake.ms, megabytes: hud.bake.megabytes,
@@ -585,9 +599,13 @@ window.__lab = {
       },
     };
     (set[name] || set.cruise)();
-    $('s-wanted').value = String(ui.wanted);
-    $('s-health').value = String(Math.round(ui.health * 100));
-    $('s-armour').value = String(Math.round(ui.armour * 100));
+    for (const [id, v] of [['s-wanted', ui.wanted], ['s-health', Math.round(ui.health * 100)],
+                           ['s-armour', Math.round(ui.armour * 100)],
+                           ['s-vig', Math.round(ui.vig * 100)]]) {
+      const el = $(id);
+      el.value = String(v);
+      el.dispatchEvent(new Event('input'));   // keeps the readouts honest
+    }
   },
   setNorthUp(v) { ui.north = v; $('b-north').classList.toggle('on', v); hud.setNorthUp(v); },
   seek(s) { placeOnRoute(s); },
@@ -605,4 +623,5 @@ window.__lab = {
   /** Draw one frame with dt = 0, leaving every animation phase exactly where it is. */
   step(state = {}) { hud.update({ dt: 0, ...state }); },
   setFlashPhase(v) { hud._flashPhase = v; hud._dirty.status = true; },
+  resetControl() { control = 0; },
 };

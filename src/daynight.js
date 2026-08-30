@@ -39,10 +39,11 @@ export const PRESETS = {
   night: {
     label: 'Night',
     sunLux: 0.6,              // full moon is ~0.25 lux; this is moon + skyglow
-    skyLux: 3.5,              // urban skyglow, not true dark-sky
+    skyLux: 0.15,             // measured from the sky model, not guessed at
     elevation: 0.9, azimuth: 4.1,
     sunColor: 0x9fb6e0, skyColor: 0x35406b, groundColor: 0x14161f,
-    exposure: 1 / 2.2,
+    exposure: 1 / 1.15,       // dark sky, lamp-lit surfaces readable. At 1/3.2 the
+                              // polarity was right but the frame was unplayably dark
     lampsOn: true,
     fog: { color: 0x141a2a, density: 0.0042 },
     post: { fogColor: 0x18203a, inscatter: 0x3b4a78, density: 0.0038,
@@ -55,7 +56,7 @@ export const PRESETS = {
 export const PLAUSIBLE = {
   noon:  { sunLux: [50000, 130000], skyLux: [8000, 30000] },
   dusk:  { sunLux: [200, 4000],     skyLux: [100, 2500] },
-  night: { sunLux: [0, 3],          skyLux: [0.5, 12] },
+  night: { sunLux: [0, 3],          skyLux: [0.03, 1.5] },
   lampCandela: [300, 3000],         // a street lamp is ~10-20 klm over a sphere
   shopCandela: [40, 600],
 };

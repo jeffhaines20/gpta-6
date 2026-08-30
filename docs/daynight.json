@@ -55,10 +55,10 @@
   {
    "tod": "night",
    "sunLux": 0.6,
-   "skyLux": 3.5,
+   "skyLux": 0.15,
    "litLamps": 7,
    "lampCandela": 900,
-   "exposure": "1/2",
+   "exposure": "1/1",
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 12,
    "shadowCasters": 79,

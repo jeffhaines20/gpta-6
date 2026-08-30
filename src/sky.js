@@ -86,7 +86,7 @@ export const SKY_PRESETS = {
 export const PLAUSIBLE_SKY = {
   noon: { zenithNits: [1200, 9000], horizonNits: [2500, 30000], skyLux: [8000, 30000] },
   dusk: { zenithNits: [30, 1200], horizonNits: [120, 12000], skyLux: [100, 2500] },
-  night: { zenithNits: [0.02, 2], horizonNits: [0.15, 8], skyLux: [0.5, 12] },
+  night: { zenithNits: [0.005, 0.4], horizonNits: [0.05, 2.5], skyLux: [0.05, 3] },
 };
 
 // Extraterrestrial normal illuminance. Divided by the sun's solid angle
@@ -121,6 +121,7 @@ uniform float uBetaM;
 uniform float uMieG;
 uniform vec2  uMsBoost;          // isotropic multiple-scattering gain: (Rayleigh, Mie)
 uniform vec3  uGroundAlbedo;
+uniform float uGroundHaze;       // 1/radian: how fast the ground wins under the horizon
 uniform float uOvercast;
 uniform vec3  uCloudTint;        // deck albedo/tint, linear
 uniform float uCloudTransmit;    // deck luminance as a share of the clear zenith
@@ -182,7 +183,13 @@ vec3 scatter(vec3 dir) {
   vec3 origin = vec3(0.0, Re + 2.0, 0.0);
   vec2 atmo = raySphere(origin, dir, Ra);
   vec2 grnd = raySphere(origin, dir, Re);
-  bool hitGround = grnd.x > 0.0;
+  // raySphere reports "no hit" as x > y, and its x is then 1.0 — which a bare
+  // "grnd.x > 0" test reads as a hit one metre away. A ray leaving 2 m above the
+  // surface exactly horizontally MISSES the earth, so that test collapsed the
+  // march to a single metre and rendered the horizon row of the LUT at a
+  // fifteenth of its neighbours: a dark line drawn along the horizon by the one
+  // piece of code whose job is to stop there being a line along the horizon.
+  bool hitGround = grnd.x <= grnd.y && grnd.x > 0.0;
   float tMax = hitGround ? grnd.x : atmo.y;
   float seg = tMax / float(STEPS);
 
@@ -234,21 +241,35 @@ vec3 scatter(vec3 dir) {
       sumR * uBetaR * phaseR + msR * uBetaR * uMsBoost.x
     + sumM * uBetaM * phaseM + msM * uBetaM * uMsBoost.y);
 
-  if (hitGround) {
-    // Beyond the streamed district the dome IS the ground, so it has to be lit
-    // rather than black — this is the half of the "razor-sharp world edge" that a
-    // fog pass alone cannot fix.
-    vec3 n = normalize(origin + dir * grnd.x);
-    float ndl = max(dot(n, uSunDir), 0.0);
-    vec3 skyE = vec3(uSunIlluminance * 0.16 * max(uSunDir.y, 0.0)) + (uNightHorizon + uNightZenith) * PI;
-    vec3 E = uSunIlluminance * ndl * sunTransmittance(uSunDir.y) + skyE;
-    L += uGroundAlbedo * E / PI * exp(-(uBetaR * odR + uBetaM * 1.11 * odM));
-  }
   return L;
 }
 
+// Radiance of the lit ground the dome stands in for beyond the draw distance.
+// Direction-independent: at these distances what varies with direction is the
+// haze in front of it, not the terrain behind it.
+vec3 groundRadiance() {
+  float ndl = max(uSunDir.y, 0.0);
+  vec3 skyE = vec3(uSunIlluminance * 0.16 * ndl) + (uNightHorizon + uNightZenith) * PI;
+  vec3 E = uSunIlluminance * ndl * sunTransmittance(uSunDir.y) + skyE;
+  return uGroundAlbedo * E / PI;
+}
+
 vec3 skyRadiance(vec3 dir) {
-  vec3 L = scatter(dir);
+  // Below the horizon the dome is standing in for terrain past the draw
+  // distance, and what that terrain looks like from here is the HORIZON's
+  // airlight — a long grazing path — not the airlight of the short downward ray
+  // that actually reaches it. Marching the real ray gives a dark, physically
+  // clear strip; the frame puts the same distance at 80% haze because the
+  // engine's fog is ~20x physical extinction. The visible result of getting this
+  // wrong is a hard band exactly where the far plane clips the ground plane:
+  // 1.5 degrees deep from a 46 m camera, which is the razor cut again wearing a
+  // different colour.
+  //
+  // So: evaluate the scattering along the horizon, then fade the lit ground in
+  // underneath it. Continuous at dir.y = 0 by construction.
+  float below = max(-dir.y, 0.0);
+  vec3 L = scatter(normalize(vec3(dir.x, max(dir.y, 0.0), dir.z)));
+  if (below > 0.0) L = mix(L, groundRadiance(), 1.0 - exp(-below * uGroundHaze));
 
   // Overcast: the CIE standard overcast sky, three times brighter at the zenith
   // than at the horizon, blended over the clear result. Rain without a cloud deck
@@ -455,7 +476,7 @@ export class Sky {
    * @param {THREE.Scene} scene              the dome is added to it
    * @param {object} [opts]
    * @param {number} [opts.lutWidth=256]     equirect LUT width (height is half)
-   * @param {number} [opts.steps=16]        view-ray samples in the scattering march
+   * @param {number} [opts.steps=12]        view-ray samples in the scattering march
    * @param {number} [opts.probeWidth=64]    CPU read-back probe width, for fog + audit
    * @param {boolean} [opts.environment=true] build a PMREM env map from the sky
    *        (its cube size is lutWidth/4 — three derives it from the equirect)
@@ -464,7 +485,7 @@ export class Sky {
    * @param {boolean} [opts.milkyWay=true]
    * @param {number} [opts.maxRadiance=60000] nits ceiling; keeps half-float finite
    * @param {number} [opts.minRefreshMs=300] floor on automatic regeneration
-   * @param {number} [opts.fogDensity=0.0018] clear-air fog density, 1/m
+   * @param {number} [opts.fogDensity=0.0013] clear-air fog density, 1/m
    */
   constructor(renderer, scene, opts = {}) {
     this.renderer = renderer;
@@ -480,7 +501,13 @@ export class Sky {
     // frame unless the caller asked for it; weather.js turns it on for the
     // duration of a transition and calls refresh() itself at the end.
     this.autoRefresh = opts.autoRefresh ?? false;
-    this.fogDensityClear = opts.fogDensity ?? 0.0018;
+    // Clear-air extinction, 1/m. Physical sea-level extinction is 5.5e-5, which
+    // is invisible over a 1 km draw distance, so this is an artistic multiple and
+    // report() quotes the multiplier rather than pretending otherwise. Chosen by
+    // eye against the dusk street frame: at 0.0018 a building 200 m away is 30%
+    // haze and the middle distance loses its edges; at 0.0013 the same building
+    // is 23% and the district still dissolves properly by 1 km.
+    this.fogDensityClear = opts.fogDensity ?? 0.0013;
 
     this.presetName = 'dusk';
     this.turbidity = SKY_PRESETS.dusk.turbidity;
@@ -551,6 +578,7 @@ export class Sky {
       // a third of a real sky and far too saturated.
       uMsBoost: { value: new THREE.Vector2(0.115, 0.030) },
       uGroundAlbedo: { value: srgb(0x6b6455) },
+      uGroundHaze: { value: 8 },
       uOvercast: { value: 0 },
       uCloudTint: { value: new THREE.Vector3() },
       uCloudTransmit: { value: 1.0 },
@@ -576,8 +604,13 @@ export class Sky {
     // contract and a night that reads as night genuinely pull apart.
     this.nightZenithColor = srgb(0x5a6c94);
     this.nightHorizonColor = srgb(0xffab6e);
-    this.nightZenithNits = 3.4;
-    this.nightHorizonNits = 3.6;
+    // A clear urban night sky is ~0.01-0.05 cd/m2 at zenith with skyglow lifting
+    // the horizon to a few tenths. At 3.4/3.6 the sky rendered BRIGHTER than
+    // lamp-lit ground (~1.3 nits from a 900 cd lamp at 8 m), which no camera stop
+    // can turn into night - four independent blind critics measured the night sky
+    // at L=188 against ground L=101 and all called it 'there is no night'.
+    this.nightZenithNits = 0.045;
+    this.nightHorizonNits = 0.42;
     this.cloudColor = srgb(0xb9c2cc);
     // Deck luminance as a share of the clear zenith — near unity, because a lit
     // cloud base and a clear zenith are about equally luminous overhead (one is
@@ -586,13 +619,17 @@ export class Sky {
     this.cloudTransmit = opts.cloudTransmit ?? 1.0;
     this.overcastFloor = opts.overcastFloor ?? 0.32;
 
-    // 16 view samples and no inner loop. Measured against a 32-step reference the
-    // dusk sky illuminance moves 4% and the horizon luminance 5%, inside the
-    // accuracy of a single-scattering model with an isotropic multiple-scattering
-    // term; 12 costs 13% at the horizon and 8 costs 37%. The sun-ray march that
-    // used to sit inside this loop is gone — see sunOpticalDepth — so 16 here is
-    // cheaper than the 12 that had one.
-    const defines = `#define STEPS ${opts.steps ?? 16}\n`;
+    // 12 view samples, and the constant is set by COMPILE time as much as by
+    // accuracy. STEPS is a #define, so the GLSL compiler unrolls the march and
+    // the program grows with it; measured end-to-end construction on the software
+    // rasteriser, 12 steps costs 83 ms, 16 costs 192 ms and 32 costs 4,169 ms,
+    // which is superlinear and is the compiler, not the integral. Against a
+    // 32-step reference, 12 steps moves the dusk sky illuminance 8% and the
+    // horizon luminance 13% — inside the accuracy of a single-scattering model
+    // with an isotropic multiple-scattering term, and cheap enough to keep the
+    // whole module inside a 400 ms generation budget. The sun-ray march that used
+    // to sit inside this loop is gone; see sunOpticalDepth.
+    const defines = `#define STEPS ${opts.steps ?? 12}\n`;
     this.lutMaterial = new THREE.RawShaderMaterial({
       vertexShader: LUT_VERT,
       fragmentShader: defines + LUT_FRAG,
