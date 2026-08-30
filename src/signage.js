@@ -43,7 +43,6 @@ import { hash32, rng, seedOf, edgesOf, facingEdges, TRIM, box } from './facades.
 // bug that puts a wordmark on a blank party wall.
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
-const lerp = (a, b, t) => a + (b - a) * t;
 
 // ------------------------------------------------------------------- branding
 //
@@ -103,7 +102,7 @@ export const SIGN_EMISSIVE = { noon: 0, dusk: 430, night: 7.4 };
 // along the axis it arrived on. A constant dim glow is the standard cheat and it
 // is deliberately kept BELOW the bloom threshold — a stop sign that blooms reads
 // as a lamp, which is worse than one that reads as slightly self-lit.
-export const STREET_EMISSIVE = { noon: 0, dusk: 120, night: 0.9 };
+export const STREET_EMISSIVE = { noon: 0, dusk: 150, night: 1.15 };
 
 export const TIMES = ['noon', 'dusk', 'night'];
 
@@ -127,6 +126,14 @@ class ShelfPacker {
     this.x = 0; this.y = 0; this.shelfH = 0;
     this.rects = new Map();
     this.used = 0;
+  }
+  // Close the current shelf. Callers break between runs of different cell sizes:
+  // letting a 192 px blade land on the tail of a 48 px valance shelf raises that
+  // whole shelf to 192 and wastes 2048x144 texels. Measured: 70% utilisation
+  // without the breaks, 77% with, and 2240 px of atlas height instead of 2048.
+  newShelf() {
+    if (this.x === 0) return;
+    this.y += this.shelfH; this.x = 0; this.shelfH = 0;
   }
   add(key, w, h) {
     const aw = w + this.pad * 2, ah = h + this.pad * 2;
@@ -183,12 +190,25 @@ function uvOf(r, W, H) {
 //   wide     224x64   x4    one-way, wayfinding, address plate
 //   misc      32x32   x4    sign backs and post bands
 
-const SHOP_W = 2048, STREET_W = 1024, PAD = 4;
+// One knob for the whole signage budget. Every cell and both atlas widths scale
+// by it, so 0.5 quarters the VRAM in one edit if the real-hardware checkpoint
+// says texture memory is the binding constraint rather than draw calls. Cell
+// sizes are chosen so the runs pack without a horizontal tail: four 400 px
+// fascias fill 2048, eighteen 104 px blades fill it, thirty-two 56 px marks
+// fill it exactly.
+export const ATLAS_SCALE = 1;
+
+const sc = (n) => Math.round(n * ATLAS_SCALE);
+const SHOP_W = sc(2048), STREET_W = sc(1024), PAD = Math.max(2, sc(4));
+const cell = (w, h) => [sc(w), sc(h)];
 const CELL = {
-  fascia: [448, 112], valance: [448, 48], blade: [112, 192],
-  mark: [56, 56], stripe: [112, 112], misc: [32, 32],
+  fascia: cell(400, 100), valance: cell(400, 44), blade: cell(104, 176),
+  mark: cell(56, 56), stripe: cell(104, 104), misc: cell(32, 32),
 };
-const SCELL = { blade: [240, 36], reg: [128, 128], tall: [96, 128], wide: [224, 64], misc: [32, 32] };
+const SCELL = {
+  blade: cell(248, 32), reg: cell(128, 128), tall: cell(96, 128),
+  wide: cell(224, 64), misc: cell(32, 32),
+};
 
 const STRIPES = 10;
 const MISC = ['plateEdge', 'steel', 'darkVinyl', 'whiteEnamel'];
@@ -431,7 +451,7 @@ function weather(g, x, y, w, h, r, strength = 0.06) {
 // Glass tube: pale unlit trace on the albedo, saturated core plus halo on the
 // emissive. Both are written here, in one function, so a change to one is a
 // change to the other.
-function tube(L, drawPath, hue, x, y, w, h, width, glow = 10) {
+function tube(L, drawPath, hue, width, glow = 10) {
   const a = L.al.g, e = L.em.g;
   a.save(); e.save();
   a.lineCap = e.lineCap = 'round';
@@ -551,24 +571,23 @@ function drawWordmark(L, x, y, w, h, biz, r, opts = {}) {
       g.strokeStyle = 'rgba(150,160,175,0.35)'; g.lineWidth = Math.max(1, h * 0.02);
       g.strokeRect(x + 3, y + 3, w - 6, h - 6);
       const fit = fitLine(g, text, boxW * 0.94, boxH * 0.62, FONT.italicSerif(700), 0.04, 0.7);
-      g.font = FONT.italicSerif(700)(fit.size);
-      e.font = FONT.italicSerif(700)(fit.size);
       const stroke = Math.max(2.2, fit.size * 0.085);
       const path = (ctx) => {
-        ctx.font = (ctx === e ? e : g).font;
-        ctx.save(); ctx.translate(x + w / 2, y + h * 0.46);
+        ctx.save();
+        ctx.font = FONT.italicSerif(700)(fit.size);
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineWidth = stroke;
+        ctx.translate(x + w / 2, y + h * 0.46);
         ctx.scale(fit.scaleX, 1);
-        ctx.textAlign = 'center'; ctx.lineWidth = stroke;
         ctx.strokeText(text, 0, 0);
         ctx.restore();
       };
-      tube(L, path, hue, x, y, w, h, stroke, 11);
+      tube(L, path, hue, stroke, 11);
       const rule = (ctx) => {
         ctx.beginPath();
         ctx.moveTo(x + w * 0.2, y + h * 0.82); ctx.lineTo(x + w * 0.8, y + h * 0.82);
         ctx.stroke();
       };
-      tube(L, rule, (hue + 150) % 360, x, y, w, h, Math.max(2, h * 0.035), 8);
+      tube(L, rule, (hue + 150) % 360, Math.max(2, h * 0.035), 8);
       break;
     }
 
@@ -580,16 +599,16 @@ function drawWordmark(L, x, y, w, h, biz, r, opts = {}) {
       const stroke = Math.max(2.4, fit.size * 0.1);
       const path = (ctx) => {
         ctx.save(); ctx.font = FONT.sans(800)(fit.size);
-        ctx.textAlign = 'left'; ctx.lineWidth = stroke;
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.lineWidth = stroke;
         ctx.translate(x + w / 2 - (trackedWidth(ctx, t, fit.track) * fit.scaleX) / 2, y + h * 0.46);
         ctx.scale(fit.scaleX, 1);
         let cx = 0;
         for (const ch of t) { ctx.strokeText(ch, cx, 0); cx += ctx.measureText(ch).width + fit.track; }
         ctx.restore();
       };
-      tube(L, path, hue, x, y, w, h, stroke, 12);
+      tube(L, path, hue, stroke, 12);
       const frame = (ctx) => { ctx.strokeRect(x + h * 0.13, y + h * 0.11, w - h * 0.26, h - h * 0.22); };
-      tube(L, frame, (hue + 40) % 360, x, y, w, h, Math.max(2, h * 0.03), 8);
+      tube(L, frame, (hue + 40) % 360, Math.max(2, h * 0.03), 8);
       break;
     }
 
@@ -694,16 +713,18 @@ function drawValance(L, x, y, w, h, biz, r) {
   g.font = FONT.sans(700)(fit.size);
   g.fillStyle = dark ? '#f4efe4' : hsl(biz.h, 52, 26);
   drawTracked(g, t, x + w / 2, y + h * 0.52, fit, 0);
-  // Scalloped lower edge: the detail that separates an awning from a plank.
-  g.fillStyle = 'rgba(0,0,0,0.001)';
+  // Scalloped lower edge, printed rather than cut. A composite-erased scallop
+  // would punch a transparent hole through a SHARED atlas, taking the gutter and
+  // whatever is packed behind it with it; a contrasting band reads the same at
+  // the distance a valance is ever seen from.
   const scallops = 14;
-  g.globalCompositeOperation = 'destination-out';
+  g.fillStyle = dark ? hsl(biz.h, 30, 16) : hsl(biz.h, 34, 60);
+  g.fillRect(x, y + h * 0.84, w, h * 0.16);
   for (let i = 0; i <= scallops; i++) {
     g.beginPath();
-    g.arc(x + (w / scallops) * i, y + h, h * 0.17, 0, 7);
-    g.fillStyle = '#000'; g.fill();
+    g.arc(x + (w / scallops) * (i + 0.5), y + h * 0.84, h * 0.15, 0, Math.PI);
+    g.fill();
   }
-  g.globalCompositeOperation = 'source-over';
   weather(g, x, y, w, h, r, 0.07);
   g.restore();
 }
@@ -875,7 +896,6 @@ function drawRegulatory(L, key, x, y, w, h) {
   g.save(); e.save();
   g.textAlign = 'center'; g.textBaseline = 'middle';
   e.textAlign = 'center'; e.textBaseline = 'middle';
-  const glow = (fn) => { fn(e); };
 
   const poly = (ctx, n, rad, rot) => {
     ctx.beginPath();
@@ -944,7 +964,6 @@ function drawRegulatory(L, key, x, y, w, h) {
         ctx.moveTo(cx - w * 0.3, cy - w * 0.3); ctx.lineTo(cx + w * 0.3, cy + w * 0.3); ctx.stroke();
       }
   }
-  glow(() => {});
   g.restore(); e.restore();
 }
 
@@ -1002,21 +1021,37 @@ function drawWideSign(L, key, x, y, w, h) {
   g.save(); e.save();
   g.textAlign = 'center'; g.textBaseline = 'middle';
   if (key === 'oneWayLeft' || key === 'oneWayRight') {
+    // The legend sits INSIDE the arrow shaft rather than under it. A one-way
+    // plate is 1.05 m wide in world and read at speed; two stacked elements
+    // halve the height of both and neither survives the distance.
     const dir = key === 'oneWayLeft' ? -1 : 1;
     plateFill(L, x, y, w, h, '#15171b', 0.44, 0.5);
-    g.fillStyle = '#f2efe9';
-    const ax = x + w * 0.5, aw = w * 0.34, ah = h * 0.2;
-    g.fillRect(ax - dir * aw * 0.5, cy - ah * 0.22, aw, ah * 0.44);
-    g.beginPath();
-    g.moveTo(ax + dir * (aw * 0.5 + w * 0.1), cy);
-    g.lineTo(ax + dir * aw * 0.5, cy - ah * 0.75);
-    g.lineTo(ax + dir * aw * 0.5, cy + ah * 0.75);
-    g.closePath(); g.fill();
-    g.font = FONT.sans(700)(Math.round(h * 0.3));
-    g.fillText('ONE WAY', x + w * 0.5, cy + h * 0.3);
-    e.fillStyle = 'rgba(40,44,44,1)'; e.fillRect(x, y, w, h);
-    e.fillStyle = 'rgba(206,212,206,1)';
-    e.fillRect(ax - dir * aw * 0.5, cy - ah * 0.22, aw, ah * 0.44);
+    const arrow = (ctx, fill) => {
+      const shaftH = h * 0.56, headW = w * 0.2;
+      const tipX = x + w * (dir > 0 ? 0.94 : 0.06);
+      const baseX = x + w * (dir > 0 ? 0.06 : 0.94);
+      const neckX = tipX - dir * headW;
+      ctx.fillStyle = fill;
+      ctx.beginPath();
+      ctx.moveTo(baseX, cy - shaftH / 2);
+      ctx.lineTo(neckX, cy - shaftH / 2);
+      ctx.lineTo(neckX, cy - shaftH * 0.92);
+      ctx.lineTo(tipX, cy);
+      ctx.lineTo(neckX, cy + shaftH * 0.92);
+      ctx.lineTo(neckX, cy + shaftH / 2);
+      ctx.lineTo(baseX, cy + shaftH / 2);
+      ctx.closePath(); ctx.fill();
+    };
+    arrow(g, '#f2efe9');
+    g.font = FONT.sans(700)(Math.round(h * 0.34));
+    g.fillStyle = '#15171b';
+    g.textBaseline = 'middle';
+    g.fillText('ONE WAY', x + w * (dir > 0 ? 0.42 : 0.58), cy + h * 0.02);
+    e.fillStyle = 'rgba(36,40,40,1)'; e.fillRect(x, y, w, h);
+    arrow(e, 'rgba(210,216,210,1)');
+    e.font = FONT.sans(700)(Math.round(h * 0.34));
+    e.fillStyle = 'rgba(40,44,44,1)'; e.textAlign = 'center'; e.textBaseline = 'middle';
+    e.fillText('ONE WAY', x + w * (dir > 0 ? 0.42 : 0.58), cy + h * 0.02);
   } else if (key === 'wayfind') {
     plateFill(L, x, y, w, h, '#1b4256', 0.46, 0.4);
     g.fillStyle = '#eef4f6';
@@ -1044,9 +1079,16 @@ function buildShopAtlas() {
   const p = new ShelfPacker(SHOP_W, PAD);
   const n = BUSINESSES.length;
   for (let i = 0; i < n; i++) p.add(`fascia:${i}`, ...CELL.fascia);
+  p.newShelf();
   for (let i = 0; i < n; i++) p.add(`valance:${i}`, ...CELL.valance);
+  p.newShelf();
   for (let i = 0; i < n; i++) p.add(`blade:${i}`, ...CELL.blade);
+  p.newShelf();
   for (let i = 0; i < n; i++) p.add(`mark:${i}`, ...CELL.mark);
+  p.newShelf();
+  // The misc swatches are 32 px and ride in the tail of the stripe shelf: ten
+  // stripes leave eight free slots there, and a dedicated shelf for four
+  // 32 px squares would cost 40 px of atlas for 4096 texels of content.
   for (let i = 0; i < STRIPES; i++) p.add(`stripe:${i}`, ...CELL.stripe);
   for (const k of MISC) p.add(`misc:${k}`, ...CELL.misc);
   const H = p.finish();
@@ -1086,9 +1128,14 @@ function buildStreetAtlas(streetNames) {
   const names = streetNames.slice();
   const p = new ShelfPacker(STREET_W, PAD);
   for (let i = 0; i < names.length; i++) p.add(`street:${i}`, ...SCELL.blade);
+  p.newShelf();
+  // reg and tall are the same cell height, so they share a shelf; breaking
+  // between them would cost a whole 136 px row for four signs.
   for (const k of REG_SIGNS) p.add(`reg:${k}`, ...SCELL.reg);
   for (const k of TALL_SIGNS) p.add(`reg:${k}`, ...SCELL.tall);
+  p.newShelf();
   for (const k of WIDE_SIGNS) p.add(`reg:${k}`, ...SCELL.wide);
+  p.newShelf();
   for (const k of SMISC) p.add(`misc:${k}`, ...SCELL.misc);
   const H = p.finish();
 
@@ -1244,9 +1291,11 @@ export function generateSignageLibrary({ streetNames } = {}) {
     street: { w: street.W, h: street.H, cells: street.rects.size, util: +(street.util * 100).toFixed(1),
               names: street.names.length },
     businesses: BUSINESSES.length,
-    // Albedo full res, emissive half, roughness/metalness quarter — a glow and a
-    // material mask carry no high-frequency detail worth paying for.
-    vramMB: +(mb(shop.W, shop.H) * 1.3125 + mb(street.W, street.H) * 1.3125).toFixed(1),
+    // Albedo full res, emissive half (a quarter of the texels), rm quarter (a
+    // sixteenth) — a glow and a material mask carry no high-frequency detail
+    // worth paying for. x4/3 for the mip chain. This is the whole district's
+    // signage: every wordmark, awning, blade and street sign it will ever show.
+    vramMB: +((mb(shop.W, shop.H) + mb(street.W, street.H)) * 1.3125 * (4 / 3)).toFixed(1),
   };
 }
 
@@ -1508,7 +1557,12 @@ export function postSign(x, z, yaw, yMid, w, h, rect, sign, trim, opts = {}) {
   const nx = Math.sin(yaw), nz = Math.cos(yaw);
   const rt = [nz, 0, -nx];
   const off = opts.offset ?? 0;
-  const c = [x + rt[0] * off, yMid, z + rt[2] * off];
+  // Stand the face off the post. A zero-thickness quad through the post's axis
+  // puts the post's front half IN FRONT of the sign, which reads as a dark bar
+  // straight down the middle of every plate — and it is exactly how a sign is
+  // really mounted: bolted to the front of the channel, pole visible behind.
+  const stand = opts.standoff ?? 0.06;
+  const c = [x + rt[0] * off + nx * stand, yMid, z + rt[2] * off + nz * stand];
   signPanel(c, rt, [0, 1, 0], w, h, rect, sign.pos, sign.nrm, sign.uv, sign.idx,
     { col: sign.col, tint: opts.tint, doubleSided: opts.doubleSided !== false,
       normal: [nx, 0, nz] });
@@ -1615,7 +1669,10 @@ export function signPlanFor(b, style, opts = {}) {
       // A tenant either awns or plates its fascia, never both: an awning at
       // 1.3 m projection hides the wall behind it, which is exactly why the
       // valance exists. Choosing one keeps the name readable either way.
-      const awn = style.awnings !== false && r() < 0.48 && span > 2.4;
+      // Whether a tenant awns is decided HERE, not read off style.awnings. The
+      // integration turns the facade kit's own awnings off (they carry no name),
+      // so reading that flag would silently delete every awning on the street.
+      const awn = opts.awnings !== false && r() < 0.48 && span > 2.4;
       const blade = r() < 0.38;
       plan.tenants.push({
         e, s0, s1: s0 + span, mid: (s0 + s0 + span) / 2, span, biz, slot,
@@ -1639,10 +1696,10 @@ export function signPlanFor(b, style, opts = {}) {
  * Append every sign a building carries. Mirrors facades.js appendBuilding: takes
  * the two caller-owned buffer bundles it writes into and allocates nothing.
  *
- * Integration: call after facades.js appendBuilding for the same building, with
- * `style.awnings` left as the facade kit set it — signage.js emits the awnings
- * itself (see awning() above), so set `style.awnings = false` before calling
- * appendBuilding to avoid two layers of fabric on the same bay.
+ * Integration: set `style.awnings = false` before calling facades.js
+ * appendBuilding, then call this. signage.js emits the awnings itself so the
+ * fabric can carry a valance wordmark; leaving both on puts two layers of cloth
+ * on the same bay. Pass `{ awnings: false }` here to opt out entirely.
  *
  * @param {Object} b      district.json building
  * @param {Object} style  facades.js buildingStyle result
@@ -1792,10 +1849,10 @@ export function planStreetSignage(district, opts = {}) {
     const p = verts[v];
     const [dx, dz] = dirOf(best.e, best.end);
     // Set the pole back on the corner, off the carriageway of both approaches.
-    const off = widest / 2 + 1.6;
+    const off = (widest / 2 + 1.6) * 0.707;   // diagonal, so both approaches clear
     const yaw = Math.atan2(dx, dz);
     blades.push({
-      x: p.x + dx * off - dz * off, z: p.z + dz * off + dx * off,
+      x: p.x + (dx - dz) * off, z: p.z + (dz + dx) * off,
       yaw, names: names.slice(0, 2), vertex: v,
     });
 
@@ -1816,15 +1873,21 @@ export function planStreetSignage(district, opts = {}) {
     }
   }
 
+  // One-way plates face across the street at the head of the edge. The bake
+  // stores `o` as a flag, not a sign, so the arrow direction comes from the
+  // geometry: mount on the right kerb and the travel direction runs left-to-right
+  // across the plate; mount on the left and it runs the other way. Alternating
+  // the kerb by hash uses both arrow cells and avoids a street of identical posts.
   edges.forEach((e, ei) => {
     if (!e.o || oneWays.length >= maxS) return;
-    const head = e.o > 0 ? 0 : e.v.length - 1;
-    const p = verts[e.v[head]];
-    const [dx, dz] = dirOf(e, head);
+    const p = verts[e.v[0]];
+    const [dx, dz] = dirOf(e, 0);
+    const off = e.w / 2 + 1.3;
+    const right = hash32('ow', ei) % 2 === 0;
     oneWays.push({
-      x: p.x + dz * (e.w / 2 + 1.3), z: p.z - dx * (e.w / 2 + 1.3),
-      yaw: Math.atan2(-dz, dx), edge: ei,
-      key: e.o > 0 ? 'oneWayRight' : 'oneWayLeft',
+      x: p.x + (right ? dz : -dz) * off, z: p.z + (right ? -dx : dx) * off,
+      yaw: right ? Math.atan2(-dz, dx) : Math.atan2(dz, -dx), edge: ei,
+      key: right ? 'oneWayRight' : 'oneWayLeft',
     });
   });
 
@@ -1865,9 +1928,12 @@ export function planStreetSignage(district, opts = {}) {
 export function appendStreetSignage(plan, sign, trim, opts = {}) {
   let n = 0;
   for (const b of plan.blades) {
-    streetBladeAssembly(b.x, b.z, b.yaw, b.names.filter(hasStreetName).length ? b.names : [],
-      sign, trim, opts);
-    n += Math.min(2, b.names.length);
+    // Only names the atlas actually baked: streetNameRect falls back to cell 0,
+    // and a blade confidently labelled with the wrong street is worse than none.
+    const names = b.names.filter((nm) => hasStreetName(nm));
+    if (!names.length) continue;
+    streetBladeAssembly(b.x, b.z, b.yaw, names, sign, trim, opts);
+    n += Math.min(2, names.length);
   }
   for (const s of plan.stops) { regulatorySign(s.x, s.z, s.yaw, 'stop', sign, trim, opts); n++; }
   for (const o of plan.oneWays) { wideSign(o.x, o.z, o.yaw, o.key, sign, trim, opts); n++; }

@@ -55,7 +55,7 @@ export const SKY_PRESETS = {
   // deg below where the shadows say it is, at an hour when shadows run off the end
   // of the shadow map anyway.
   dusk: {
-    sunElevation: 0.0105, sunAzimuth: 2.72,
+    sunElevation: 0, sunAzimuth: 2.72,
     moonElevation: 0.62, moonAzimuth: 5.6, moonIntensity: 0.35,
     turbidity: 3.2,
   },
@@ -69,7 +69,10 @@ export const SKY_PRESETS = {
 // Plausibility envelope for the dome, in the same spirit as daynight.js PLAUSIBLE.
 // Sky illuminance is the range daynight.js already asserts for its hemisphere
 // light, so a mismatch between the dome and the lights is a measurable failure
-// rather than a matter of taste.
+// rather than a matter of taste. These describe a CLEAR sky; audit() opens the
+// floor in proportion to the cloud deck, because a downpour legitimately takes
+// the horizon down by an order of magnitude and a gate that fires on correct
+// behaviour gets ignored.
 export const PLAUSIBLE_SKY = {
   noon: { zenithNits: [1200, 9000], horizonNits: [2500, 30000], skyLux: [8000, 30000] },
   dusk: { zenithNits: [30, 1200], horizonNits: [120, 12000], skyLux: [100, 2500] },
@@ -110,7 +113,9 @@ uniform float uMieG;
 uniform vec2  uMsBoost;          // isotropic multiple-scattering gain: (Rayleigh, Mie)
 uniform vec3  uGroundAlbedo;
 uniform float uOvercast;
-uniform vec3  uOvercastLum;      // cloud-deck zenith luminance, nits
+uniform vec3  uCloudTint;        // deck albedo/tint, linear
+uniform float uCloudTransmit;    // deck luminance as a share of the clear zenith
+uniform float uOvercastFloor;    // deck may not go below this share of the clear sky
 uniform vec3  uNightZenith;      // nits
 uniform vec3  uNightHorizon;     // nits
 uniform float uMaxRadiance;
@@ -131,6 +136,7 @@ vec2 raySphere(vec3 o, vec3 d, float r) {
 // a grazing ray comes back UNATTENUATED unless something else handles it. That
 // something is sunOpticalDepth below.
 #define KY_HORIZON 37.92
+#define MS_PATH 0.45          // effective extinction share seen by multiple scattering
 float airMass(float sinElevation) {
   float z = degrees(acos(clamp(sinElevation, -1.0, 1.0)));
   return 1.0 / (max(sinElevation, 0.0) + 0.50572 * pow(max(96.07995 - z, 0.001), -1.6364));
@@ -173,6 +179,7 @@ vec3 scatter(vec3 dir) {
 
   float odR = 0.0, odM = 0.0;
   vec3 sumR = vec3(0.0), sumM = vec3(0.0);
+  vec3 msR = vec3(0.0), msM = vec3(0.0);
   for (int i = 0; i < STEPS; i++) {
     vec3 p = origin + dir * (seg * (float(i) + 0.5));
     float h = length(p) - Re;
@@ -195,9 +202,18 @@ vec3 scatter(vec3 dir) {
     float cosChi = dot(p / rp, uSunDir);
     float odRs = sunOpticalDepth(Hr, h, rp, cosChi);
     float odMs = sunOpticalDepth(Hm, h, rp, cosChi);
-    vec3 atten = exp(-(uBetaR * (odR + odRs) + uBetaM * 1.11 * (odM + odMs)));
+    vec3 tau = uBetaR * (odR + odRs) + uBetaM * 1.11 * (odM + odMs);
+    vec3 atten = exp(-tau);
+    // Multiply-scattered light did not take this one long path — it took an
+    // ensemble of shorter ones, so it is neither as dim nor as red as exp(-tau)
+    // says. Without this the whole twilight dome, anti-solar horizon included,
+    // comes out the colour of the sunset, which is the one direction that is
+    // definitely grey-violet in every photograph of one.
+    vec3 attenMs = exp(-tau * MS_PATH);
     sumR += dR * atten;
     sumM += dM * atten;
+    msR += dR * attenMs;
+    msM += dM * attenMs;
   }
 
   float mu = dot(dir, uSunDir);
@@ -206,8 +222,8 @@ vec3 scatter(vec3 dir) {
   float phaseM = (1.0 - g * g) / (4.0 * PI * pow(max(1.0 + g * g - 2.0 * g * mu, 1e-4), 1.5));
 
   vec3 L = uSunIlluminance * (
-      sumR * uBetaR * (phaseR + uMsBoost.x)
-    + sumM * uBetaM * (phaseM + uMsBoost.y));
+      sumR * uBetaR * phaseR + msR * uBetaR * uMsBoost.x
+    + sumM * uBetaM * phaseM + msM * uBetaM * uMsBoost.y);
 
   if (hitGround) {
     // Beyond the streamed district the dome IS the ground, so it has to be lit
@@ -228,10 +244,26 @@ vec3 skyRadiance(vec3 dir) {
   // Overcast: the CIE standard overcast sky, three times brighter at the zenith
   // than at the horizon, blended over the clear result. Rain without a cloud deck
   // reads as a bug, and the deck is also what makes the wet-weather fog grey.
+  //
+  // The deck's absolute luminance is the CLEAR ZENITH times the deck's
+  // transmittance — a second march, paid for only while it is raining. The
+  // alternative is an analytic estimate from the sun's elevation, and every one
+  // of those has to be re-fitted whenever the turbidity or the scattering
+  // constants move: at noon a direct-illuminance estimate is close, and at a sun
+  // elevation of half a degree, where the diffuse term is 300x the direct one, it
+  // is out by two orders of magnitude and the rain arrives with a black sky.
   if (uOvercast > 0.0) {
     float cie = (1.0 + 2.0 * max(dir.y, 0.0)) / 3.0;
     float below = mix(0.34, 1.0, smoothstep(-0.22, 0.02, dir.y));
-    L = mix(L, uOvercastLum * cie * below, uOvercast);
+    vec3 deck = scatter(vec3(0.0, 1.0, 0.0)) * uCloudTint * uCloudTransmit * cie * below;
+    // Floor. Physically a dusk downpour is six times darker than a clear dusk,
+    // and daynight.js holds the camera stop and the hemisphere light fixed across
+    // weather and audits the dome against them to within 2x. Six times darker at
+    // a fixed 1/330 is both correct and unviewable, so the deck may take any
+    // direction down by at most this factor of the clear sky in that direction.
+    // It binds only at dusk; at noon the deck is already brighter than the floor.
+    deck = max(deck, L * uOvercastFloor);
+    L = mix(L, deck, uOvercast);
   }
 
   // Urban skyglow. Orange near the horizon from sodium and warm LED, much dimmer
@@ -484,8 +516,16 @@ export class Sky {
       minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
       depthBuffer: false, stencilBuffer: false, generateMipmaps: false,
     });
+    // Two buffers and a generation counter, because the async read-back and a
+    // later synchronous one otherwise share storage: a queued read of the OLD
+    // sky lands after a forced refresh of the new one, overwrites the buffer and
+    // re-derives the fog colour from it. That reads as "weather changes the fog
+    // one state late", which looks like a transition bug and is not one.
     this._probeBuffer = new Uint16Array(this.probeWidth * this.probeHeight * 4);
+    this._probeBufferAsync = new Uint16Array(this.probeWidth * this.probeHeight * 4);
     this._probeRGB = new Float32Array(this.probeWidth * this.probeHeight * 3);
+    this._probeGen = 0;
+    this._derivedGen = -1;
 
     this._uniforms = {
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
@@ -499,7 +539,9 @@ export class Sky {
       uMsBoost: { value: new THREE.Vector2(0.115, 0.030) },
       uGroundAlbedo: { value: srgb(0x6b6455) },
       uOvercast: { value: 0 },
-      uOvercastLum: { value: new THREE.Vector3() },
+      uCloudTint: { value: new THREE.Vector3() },
+      uCloudTransmit: { value: 1.0 },
+      uOvercastFloor: { value: 0.32 },
       uNightZenith: { value: new THREE.Vector3() },
       uNightHorizon: { value: new THREE.Vector3() },
       uMaxRadiance: { value: this.maxRadiance },
@@ -512,9 +554,15 @@ export class Sky {
     this.msBoost = new THREE.Vector2(0.115, 0.030);
     this.nightZenithColor = srgb(0x4c5f8e);
     this.nightHorizonColor = srgb(0xff9c50);
-    this.nightZenithNits = 1.6;
-    this.nightHorizonNits = 5.0;
+    this.nightZenithNits = 2.1;
+    this.nightHorizonNits = 6.6;
     this.cloudColor = srgb(0xb9c2cc);
+    // Deck luminance as a share of the clear zenith — near unity, because a lit
+    // cloud base and a clear zenith are about equally luminous overhead (one is
+    // white and dim-lit, the other blue and bright-lit). What collapses under a
+    // deck is the HORIZON, and the CIE 1:3 gradient in the shader does that part.
+    this.cloudTransmit = opts.cloudTransmit ?? 1.0;
+    this.overcastFloor = opts.overcastFloor ?? 0.32;
 
     const defines = `#define STEPS ${opts.steps ?? 12}\n#define SUN_STEPS ${opts.sunSteps ?? 5}\n`;
     this.lutMaterial = new THREE.RawShaderMaterial({
@@ -701,16 +749,26 @@ export class Sky {
     r.render(this.quadScene, this.quadCamera);
 
     const tRead = performance.now();
+    const gen = ++this._probeGen;
     if (sync || !this._canReadAsync) {
+      // three's readRenderTargetPixelsAsync binds a PIXEL_PACK_BUFFER and leaves
+      // it bound for the lifetime of its fence. A synchronous readPixels into a
+      // typed array while that binding is live is an INVALID_OPERATION: it writes
+      // nothing and leaves the previous contents in place, so the fog colour
+      // trails the weather by exactly one state and looks like a transition bug.
+      // The async read re-binds its own buffer after the await, so clearing the
+      // binding here cannot disturb it.
+      const gl = r.getContext();
+      if (gl.PIXEL_PACK_BUFFER !== undefined) gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
       r.readRenderTargetPixels(this.probe, 0, 0, this.probeWidth, this.probeHeight, this._probeBuffer);
-      this._deriveFromProbe();
+      this._deriveFromProbe(this._probeBuffer, gen);
     } else if (!this._probePending) {
       // A synchronous readPixels of a render target the GPU has not finished
       // writing costs a full pipeline flush — 30 ms here, and it would land in
       // the frame slice the stall gate measures. The async path fences instead.
       this._probePending = true;
-      r.readRenderTargetPixelsAsync(this.probe, 0, 0, this.probeWidth, this.probeHeight, this._probeBuffer)
-        .then(() => { this._deriveFromProbe(); })
+      r.readRenderTargetPixelsAsync(this.probe, 0, 0, this.probeWidth, this.probeHeight, this._probeBufferAsync)
+        .then(() => { this._deriveFromProbe(this._probeBufferAsync, gen); })
         .catch(() => { this._canReadAsync = false; })
         .finally(() => { this._probePending = false; });
     }
@@ -755,13 +813,9 @@ export class Sky {
     const msW = this._msWeight();
     u.uMsBoost.value.set(this.msBoost.x * msW, this.msBoost.y * msW);
 
-    // Overcast zenith luminance from the illuminance actually arriving above the
-    // deck: E_above * cloud transmittance / pi, with the CIE 1:3 horizon:zenith
-    // ratio applied per direction in the shader.
-    const sunY = Math.max(this.sunDirection.y, 0);
-    const meanT = Math.exp(-0.10 * this._airMass(sunY));
-    const lz = (SUN_ILLUMINANCE * sunY * meanT * 0.30) / Math.PI + 12 * sunY;
-    u.uOvercastLum.value.set(this.cloudColor.r * lz, this.cloudColor.g * lz, this.cloudColor.b * lz);
+    u.uCloudTint.value.set(this.cloudColor.r, this.cloudColor.g, this.cloudColor.b);
+    u.uCloudTransmit.value = this.cloudTransmit;
+    u.uOvercastFloor.value = this.overcastFloor;
 
     const nz = this.nightZenithNits, nh = this.nightHorizonNits;
     u.uNightZenith.value.set(this.nightZenithColor.r * nz, this.nightZenithColor.g * nz, this.nightZenithColor.b * nz);
@@ -834,14 +888,16 @@ export class Sky {
 
   // Read the probe once per refresh and derive every CPU-side number from it, so
   // the fog colour, the audit and the shader can never drift apart.
-  _deriveFromProbe() {
+  _deriveFromProbe(buffer, gen) {
+    if (gen < this._derivedGen) return;      // a stale async read landing late
+    this._derivedGen = gen;
     const W = this.probeWidth, H = this.probeHeight;
     const rgb = this._probeRGB;
     const half = THREE.DataUtils.fromHalfFloat;
     for (let i = 0, n = W * H; i < n; i++) {
-      rgb[i * 3] = half(this._probeBuffer[i * 4]);
-      rgb[i * 3 + 1] = half(this._probeBuffer[i * 4 + 1]);
-      rgb[i * 3 + 2] = half(this._probeBuffer[i * 4 + 2]);
+      rgb[i * 3] = half(buffer[i * 4]);
+      rgb[i * 3 + 1] = half(buffer[i * 4 + 1]);
+      rgb[i * 3 + 2] = half(buffer[i * 4 + 2]);
     }
 
     // Horizon band: the first two rows above elevation 0, weighted toward the
@@ -864,7 +920,7 @@ export class Sky {
       // Weight by how close this azimuth is to the sun's; the post stack blends
       // the two with pow(dot(view, sun), 6), so these must be the two extremes.
       const w = Math.pow(Math.max(0, Math.cos(dPhi)), 4);
-      const wa = Math.pow(Math.max(0, -Math.cos(dPhi)), 1) + 0.25;
+      const wa = Math.pow(Math.max(0, -Math.cos(dPhi)), 2) + 0.04;
       twSum += w; awSum += wa;
       for (let k = 0; k < 3; k++) { towards[k] += c[k] * w; away[k] += c[k] * wa; }
     }
@@ -893,7 +949,7 @@ export class Sky {
     // Direct sun illuminance on a surface facing it, after extinction. daynight.js
     // quotes 100,000 lux at noon; this is the same quantity measured off the model.
     const t = this._transmittance(this.sunDirection.y);
-    a.sunLux = this.sunDirection.y > 0
+    a.sunLux = this.sunDirection.y > -0.02
       ? SUN_ILLUMINANCE * luminance(t) * (1 - this.overcast * 0.93) : 0;
 
     // The post stack's inscatter lobe points at whatever is lighting the scene,
@@ -904,8 +960,7 @@ export class Sky {
     // Fog density: an artistic multiple of the physical ground extinction. A real
     // 5.5e-5 /m is invisible over a 1 km draw distance, so games exaggerate it;
     // quoting the multiplier keeps that an explicit decision.
-    const wet = 1 + this.fogBoost;
-    a.density = this.fogDensityClear * (1 + this.overcast * 0.9) * wet;
+    a.density = this.fogDensityClear * (1 + this.overcast * 0.45) * (1 + this.fogBoost * 0.55);
     a.artisticMultiplier = +(a.density / PHYSICAL_EXTINCTION).toFixed(1);
     // Haze layer thickness: ~90 m clear, compressing toward ~55 m in rain.
     a.heightFalloff = 0.011 * (1 + this.overcast * 0.35) * (1 + this.fogBoost * 0.25);
@@ -989,8 +1044,13 @@ export class Sky {
     const a = this.atmosphere;
     const flags = [];
     if (env) {
+      const dim = 1 - 0.92 * this.overcast;
       const check = (name, v, [lo, hi], unit) => {
-        if (v < lo || v > hi) flags.push(`${name} ${v.toPrecision(3)} ${unit} outside plausible ${lo}-${hi} for ${this.presetName}`);
+        const min = lo * dim;
+        if (v < min || v > hi) {
+          flags.push(`${name} ${v.toPrecision(3)} ${unit} outside plausible ${+min.toPrecision(3)}-${hi}`
+            + ` for ${this.presetName}${this.overcast > 0 ? ` at overcast ${this.overcast.toFixed(2)}` : ''}`);
+        }
       };
       check('zenith luminance', a.zenithNits, env.zenithNits, 'nits');
       check('horizon luminance', a.horizonNits, env.horizonNits, 'nits');

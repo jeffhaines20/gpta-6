@@ -27,12 +27,16 @@ import * as THREE from '../vendor/three.module.min.js';
  *   wetness   target surface wetness 0..1 (materials consume this)
  *   overcast  cloud deck for src/sky.js, 0..1
  *   fogBoost  multiplier added to the sky's clear-air fog density
- *   turbidity Mie load; rain air is dirty air
+ *   turbidity Mie load. Raised, but only a little: falling water and spray do
+ *             scatter, while rainfall also scavenges the aerosol that made the
+ *             air hazy in the first place, so a downpour is not six-turbidity
+ *             industrial smog. Overstating it costs two stops at low sun, where
+ *             every extra unit of Mie is multiplied by 38 air masses.
  */
 export const WEATHER_STATES = {
   clear: { rain: 0, wetness: 0, overcast: 0, fogBoost: 0, turbidity: 2.6, splash: 0 },
-  lightRain: { rain: 0.32, wetness: 0.55, overcast: 0.62, fogBoost: 0.55, turbidity: 4.2, splash: 0.35 },
-  heavyRain: { rain: 1, wetness: 1, overcast: 1, fogBoost: 1.7, turbidity: 6.4, splash: 1 },
+  lightRain: { rain: 0.32, wetness: 0.55, overcast: 0.62, fogBoost: 0.55, turbidity: 3.4, splash: 0.35 },
+  heavyRain: { rain: 1, wetness: 1, overcast: 1, fogBoost: 1.7, turbidity: 4.4, splash: 1 },
 };
 
 // Transitions walk this line; clear -> heavyRain goes through lightRain rather

@@ -1,3 +1,9 @@
 node_modules/
 package-lock.json
 docs/drive*.json.bak
+
+# Builder scratch: diagnostic scripts and probe captures that agents write while
+# iterating. Underscore-prefixed by convention so they are easy to exclude.
+.signage-shots.mjs
+labs/**/_*
+docs/shots/_*.png
