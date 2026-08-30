@@ -602,15 +602,27 @@ export class Sky {
     // biased toward the zenith and the sodium tint is pulled back off full
     // saturation. See the report — this preset is the one place the photometric
     // contract and a night that reads as night genuinely pull apart.
-    this.nightZenithColor = srgb(0x5a6c94);
-    this.nightHorizonColor = srgb(0xffab6e);
+    // 2026-08-30: these two constants used to contradict the paragraph above them.
+    // The horizon carried 0.42 nits against the zenith's 0.045 - energy biased 9.3:1
+    // TOWARD the horizon, at 0xffab6e (57% saturation) - which is the opposite of
+    // "biased toward the zenith and the sodium tint pulled back off full saturation".
+    // sky.js:1017 samples the horizon as post's fogColor AND the dome feeds the PMREM
+    // environment at envIntensity 1.0, so that orange became the fog, the ambient, and
+    // therefore every surface in the district. Four blind critics independently measured
+    // the night frames as monochromatic with no warm/cool contrast; all four blamed a
+    // missing lighting system. The lighting system was fine. This was the cause.
+    this.nightZenithColor = srgb(0x54689c);
+    this.nightHorizonColor = srgb(0xd8b89a);
     // A clear urban night sky is ~0.01-0.05 cd/m2 at zenith with skyglow lifting
     // the horizon to a few tenths. At 3.4/3.6 the sky rendered BRIGHTER than
     // lamp-lit ground (~1.3 nits from a 900 cd lamp at 8 m), which no camera stop
     // can turn into night - four independent blind critics measured the night sky
     // at L=188 against ground L=101 and all called it 'there is no night'.
-    this.nightZenithNits = 0.045;
-    this.nightHorizonNits = 0.42;
+    // Rebalanced 2026-08-30 from 0.045 / 0.42 (9.3:1 horizon) to 2:1, which is a mild
+    // light-pollution gradient rather than a sodium flood. Total hemispherical
+    // illuminance stays inside the 0.05-3 lux night envelope PLAUSIBLE_SKY asserts.
+    this.nightZenithNits = 0.10;
+    this.nightHorizonNits = 0.20;
     this.cloudColor = srgb(0xb9c2cc);
     // Deck luminance as a share of the clear zenith — near unity, because a lit
     // cloud base and a clear zenith are about equally luminous overhead (one is
@@ -1082,6 +1094,7 @@ export class Sky {
     // untouched in `atmosphere`; only the copy handed to the display is scaled,
     // and report() prints both so the gap is never invisible.
     const e = p.exposure || 1;
+    a.exposure = e;
     a.fogClamp = Math.min(1, this.fogCeiling / Math.max(1e-9, luminance3(a.fogColor) * e));
     a.inscatterClamp = Math.min(1, this.inscatterCeiling / Math.max(1e-9, luminance3(a.fogInscatter) * e));
     p.fogColor.copy(a.fogColor).multiplyScalar(a.fogClamp);
@@ -1160,6 +1173,26 @@ export class Sky {
       check('zenith luminance', a.zenithNits, env.zenithNits, 'nits');
       check('horizon luminance', a.horizonNits, env.horizonNits, 'nits');
       check('sky illuminance', a.skyLux, env.skyLux, 'lux');
+    }
+    // Saturation is radiance x exposure, not illuminance. This gate previously
+    // checked only nits and lux, so a dome rendering at 3.6x ACES saturation reported
+    // `implausible: []` at dusk while the frame was a flat white sheet - the sky
+    // illuminance (1612 lux) sat comfortably inside its 100-2500 envelope the whole
+    // time. The same correction was already applied to fogColor and fogInscatter
+    // above and was never extended to the dome itself.
+    //
+    // Mid-sky is the geometric mean of zenith and horizon: roughly what fills the
+    // upper half of a street-level frame. The zenith is the darkest part of a clear
+    // sky, so if MID-sky clips, most of the visible sky is gone. Some clipping in the
+    // sun's immediate lobe is correct and is deliberately not gated here.
+    if (a.exposure) {
+      const midSky = Math.sqrt(Math.max(0, a.zenithNits) * Math.max(0, a.horizonNits)) * a.exposure;
+      a.midSkyExposed = +midSky.toFixed(3);
+      if (midSky > 1.0) {
+        flags.push(`mid-sky renders at ${midSky.toFixed(2)}x ACES saturation for ${this.presetName}`
+          + ` (zenith ${a.zenithNits.toPrecision(3)} nits, horizon ${a.horizonNits.toPrecision(3)} nits`
+          + ` at a 1/${Math.round(1 / a.exposure)} stop) — the sky is blown, not merely bright`);
+      }
     }
     if (!isFinite(a.fogColor.r) || a.fogColor.r > this.maxRadiance) {
       flags.push('fog colour is not finite — a half-float target has overflowed');
