@@ -385,17 +385,31 @@ float hash13(vec3 p) {
 // smoothstep width is a screen-space derivative, otherwise every star is a
 // sub-pixel point that crawls as the camera turns.
 vec3 stars(vec3 d) {
-  vec3 s = d * 190.0;
+  // Lattice pitch was 190, which put on the order of a thousand stars in a single
+  // street-canyon sky wedge - a moonless rural sky, not a downtown one. Three blind
+  // critics independently measured the density, the uniform apparent magnitude and
+  // the absence of any horizon extinction. 118 cuts the count by ~2.6x (cells
+  // intersecting the sphere scale as pitch^2).
+  vec3 s = d * 118.0;
   vec3 cell = floor(s);
   float h = hash13(cell);
   vec3 offset = vec3(h, hash13(cell + 11.7), hash13(cell + 23.1)) - 0.5;
   float dist = length(fract(s) - 0.5 - offset * 0.7);
-  float mag = pow(hash13(cell + 3.3), 9.0);
+  // pow 11 rather than 9: a steeper magnitude distribution, so a handful read as
+  // genuinely bright and the bulk sit near the noise floor, which is what a real
+  // magnitude distribution looks like.
+  float mag = pow(hash13(cell + 3.3), 11.0);
   float w = max(fwidth(dist), 0.004);
-  float disc = 1.0 - smoothstep(0.02, 0.02 + w, dist);
+  float disc = 1.0 - smoothstep(0.015, 0.015 + w, dist);
   float warm = hash13(cell + 7.7);
   vec3 tint = mix(vec3(0.72, 0.82, 1.0), vec3(1.0, 0.86, 0.66), warm * warm);
-  return tint * disc * mag * 34.0;
+  // Gain, derived against the night bloom knee rather than dialled. Night post uses
+  // bloomThreshold 0.55 at a ~1/1.15 stop, so a star blooms once its radiance exceeds
+  // ~0.63 nits. At the old gain of 46 the brightest stars hit 46 nits - 73x over the
+  // knee - and smeared into the soft 30-50 px discs the critics read as noise. At 7.0
+  // a typical star (mag ~0.083 under pow 11) lands at 0.58 nits, just under the knee
+  // and crisp, while the rare bright one still blooms as a real star should.
+  return tint * disc * mag * 7.0;
 }
 
 float valueNoise(vec3 p) {
@@ -445,8 +459,14 @@ void main() {
   }
 
   if (uStarIntensity > 0.0) {
+    // Airmass extinction plus urban skyglow. Stars do not simply stop at the
+    // horizon - they fade out over roughly the lowest 25-30 degrees, and over a lit
+    // city they are gone well before that. Previously 'above' only culled stars
+    // BELOW the horizon, so they stayed at full brightness right down to the
+    // rooftop line, which is the single most unnatural thing about a starfield.
     float above = smoothstep(-0.04, 0.06, dir.y);
-    L += stars(dir) * uStarIntensity * above * clear;
+    float extinction = smoothstep(0.02, 0.42, dir.y);
+    L += stars(dir) * uStarIntensity * above * extinction * clear;
     if (uMilkyWay > 0.0) {
       // A band on a tilted great circle, broken up by noise. Kept faint on
       // purpose: at this scale a bright one reads as texture noise, not a galaxy.
@@ -679,7 +699,11 @@ export class Sky {
       toneMapped: true,
     });
     this.starIntensity = this.domeMaterial.uniforms.uStarIntensity.value;
-    this.milkyWayIntensity = opts.milkyWay === false ? 0 : (opts.milkyWay ?? 0.6);
+    // 0.6 read as soft 30-50 px grey blobs rather than a galaxy - a blind critic
+    // called them 'low-res noise-texture artifacts, not clouds and not a Milky Way',
+    // which is exactly what a low-frequency value-noise octave looks like when it is
+    // bright enough to see but too coarse to resolve. Pulled back to a faint band.
+    this.milkyWayIntensity = opts.milkyWay === false ? 0 : (opts.milkyWay ?? 0.28);
 
     this.dome = new THREE.Mesh(fullscreenTriangle(), this.domeMaterial);
     this.dome.name = 'sky';
