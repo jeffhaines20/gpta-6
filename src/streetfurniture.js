@@ -24,8 +24,17 @@ export class StreetFurniture {
       color: 0x1a1c20, emissive: 0xffd9a0, emissiveIntensity: 0,
     });
 
-    const poleGeo = new THREE.CylinderGeometry(0.11, 0.16, 8.2, 8);
-    poleGeo.translate(0, 4.1, 0);
+    // The pole is set INTO the pavement, not stood on top of it.
+    //
+    // streaming.js reports ground as groundY (0) through heightAt(), but the pad
+    // the player sees is drawn at groundY - 0.05 so the road ribbons (+0.02) and
+    // zone polygons (+0.012) can stack on it without z-fighting. A pole based at
+    // exactly y = 0 hovers 50 mm above the pavement — 5.4 px at ten metres, and
+    // one of the "post does not reach the ground" findings. 0.08 m of embedment
+    // spans both the pad offset and the road ribbon.
+    const EMBED = 0.08;
+    const poleGeo = new THREE.CylinderGeometry(0.11, 0.16, 8.2 + EMBED, 8);
+    poleGeo.translate(0, (8.2 - EMBED) / 2, 0);
     const armGeo = new THREE.BoxGeometry(2.2, 0.13, 0.13);
     armGeo.translate(1.1, 8.05, 0);
     const headGeo = new THREE.BoxGeometry(0.9, 0.2, 0.42);

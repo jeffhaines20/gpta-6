@@ -178,6 +178,50 @@ function seamlessStroke(g, size, axis, base, wobble, steps, rand) {
   g.stroke();
 }
 
+// A crack network described ONCE and painted into more than one map.
+//
+// seamlessStroke() draws straight from a random stream, so two maps of the same
+// surface get two DIFFERENT crack networks unless their streams are still in
+// step — and they never are, because paintAlbedo and paintHeight consume
+// different numbers of values before they get there. Worse, its wobble and base
+// are in PIXELS, and the albedo is 512 px over the same 3 m the 256 px height
+// map covers, so even an aligned stream would zig-zag twice as wide on one as on
+// the other.
+//
+// The result on the sidewalk was two unrelated crack systems per tile: a painted
+// one you could see, and an embossed one somewhere else that the low sun lit as
+// a warm ridge — the "yellow decal squiggles" three critics reported, at the
+// right UV and the right 3 m scale, but describing a crack that is not there.
+//
+// crackSet() takes its numbers off the HEAD of the stream so any two paint
+// passes seeded alike agree, and states everything as a fraction of the map so
+// resolution cannot change the shape.
+function crackSet(rand, n, wobble = 0.14, steps = 10) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const offs = [];
+    let sum = 0;
+    for (let k = 0; k < steps; k++) { const dv = (rand() - 0.5) * wobble; offs.push(dv); sum += dv; }
+    const corr = sum / steps;
+    for (let k = 0; k < steps; k++) offs[k] -= corr;      // ends meet across the seam
+    out.push({ axis: rand() < 0.5 ? 'x' : 'y', base: rand(), offs });
+  }
+  return out;
+}
+
+function strokeCrack(g, size, c) {
+  const steps = c.offs.length;
+  g.beginPath();
+  let v = c.base * size;
+  for (let i = 0; i <= steps; i++) {
+    const t = (i / steps) * size;
+    if (c.axis === 'x') { if (i === 0) g.moveTo(0, v); else g.lineTo(t, v); }
+    else if (i === 0) g.moveTo(v, 0); else g.lineTo(v, t);
+    if (i < steps) v += c.offs[i] * size;
+  }
+  g.stroke();
+}
+
 // Scattered grain, blended straight into the pixel buffer. `colorAt(t, out)`
 // fills out with r,g,b in 0..255 and alpha in 0..1; the modulo wrap tiles it.
 function speckle(g, size, count, rand, colorAt, maxR = 2.4) {
@@ -322,10 +366,16 @@ const asphaltSurface = {
 };
 
 const sidewalkSurface = {
-  tile: 3, albedo: 512, detail: 256, normalStrength: 2.2,
+  // normalStrength was 2.2, the highest of any ground surface here, which turned
+  // a 1.2 px hairline into a kerb-sized crease. 1.6 matches concrete and leaves
+  // the 1.5 m slab joints reading without embossing every scratch.
+  tile: 3, albedo: 512, detail: 256, normalStrength: 1.6,
   // Two 1.5 m slabs per axis: the standard 5 ft pour, which is what makes a
   // sidewalk read as a sidewalk from a car window.
   paintAlbedo(g, S, rand) {
+    // Off the head of the stream, before anything else draws from it, so
+    // paintHeight below embosses these exact cracks and not a second set.
+    const cracks = crackSet(rand, 3);
     const half = S / 2;
     for (let sy = 0; sy < 2; sy++) {
       for (let sx = 0; sx < 2; sx++) {
@@ -349,10 +399,8 @@ const sidewalkSurface = {
       g.beginPath(); g.moveTo(p, 0); g.lineTo(p, S); g.stroke();
       g.beginPath(); g.moveTo(0, p); g.lineTo(S, p); g.stroke();
     }
-    for (let i = 0; i < 3; i++) {                            // hairline cracking
-      g.strokeStyle = 'rgba(70,64,56,0.42)'; g.lineWidth = 1.2;
-      seamlessStroke(g, S, rand() < 0.5 ? 'x' : 'y', rand() * S, 70, 10, rand);
-    }
+    g.strokeStyle = 'rgba(70,64,56,0.42)'; g.lineWidth = 1.2;   // hairline cracking
+    for (const c of cracks) strokeCrack(g, S, c);
     for (let i = 0; i < 14; i++) {                           // flattened gum
       const x = rand() * S, y = rand() * S, r = 2 + rand() * 4;
       wrapped(g, S, x, y, r + 1, (c) => {
@@ -362,6 +410,7 @@ const sidewalkSurface = {
     }
   },
   paintHeight(g, S, rand) {
+    const cracks = crackSet(rand, 3);        // same seed, same draws, same cracks
     const half = S / 2;
     g.fillStyle = '#909090'; g.fillRect(0, 0, S, S);
     for (let sy = 0; sy < 2; sy++) {
@@ -380,10 +429,12 @@ const sidewalkSurface = {
       g.beginPath(); g.moveTo(p, 0); g.lineTo(p, S); g.stroke();
       g.beginPath(); g.moveTo(0, p); g.lineTo(S, p); g.stroke();
     }
-    for (let i = 0; i < 3; i++) {
-      g.strokeStyle = 'rgba(20,20,20,0.7)'; g.lineWidth = 1.2;
-      seamlessStroke(g, S, rand() < 0.5 ? 'x' : 'y', rand() * S, 70, 10, rand);
-    }
+    // A hairline crack is a hairline, not a trench. rgba(20,20,20,0.7) over a
+    // #909090 base is a 87/255 step in the height field across ~1.2 px, which is
+    // a steeper wall than the slab joints beside it; 0.5 alpha of #6e6e6e is a
+    // 17/255 crease, and it now lands exactly under the painted crack above.
+    g.strokeStyle = 'rgba(110,110,110,0.5)'; g.lineWidth = 1.1;
+    for (const c of cracks) strokeCrack(g, S, c);
   },
   paintRough(g, S, rand) {
     g.fillStyle = '#ebebeb'; g.fillRect(0, 0, S, S);

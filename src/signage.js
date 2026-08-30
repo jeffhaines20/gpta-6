@@ -35,7 +35,7 @@
 
 import * as THREE from '../vendor/three.module.min.js';
 import {
-  hash32, rng, seedOf, edgesOf, facingEdges, TRIM, box,
+  hash32, rng, seedOf, edgesOf, facingEdges, TRIM, box, awningFrame,
   buildingStyle as facadeStyle,
 } from './facades.js';
 
@@ -46,6 +46,18 @@ import {
 // bug that puts a wordmark on a blank party wall.
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+// How far a post is set INTO the pavement.
+//
+// streaming.js reports ground as `groundY` (0) through heightAt(), but the pad
+// the player actually sees is drawn at `groundY - 0.05` so the road ribbons at
+// +0.02 and the zone polygons at +0.012 can stack on top of it without
+// z-fighting. A post based at exactly y = 0 therefore hovers 50 mm over the
+// pavement it is standing on — 5.4 px at ten metres, and the "post that does not
+// reach the ground" three critics reported. A real post is set in the paving, so
+// these now start below it: that spans the 50 mm pad offset and the 20 mm road
+// ribbon in one number and does not depend on either staying put.
+const GROUND_EMBED = 0.08;
 
 // ------------------------------------------------------------------- branding
 //
@@ -1598,10 +1610,22 @@ export function awning(e, s0, s1, head, stripeRect, valanceRect, sign, trim, opt
     [p0[0], head + 0.02, p0[1]], [sx, 0, sz], stripeRect, col, t);
   side(a0, f0, -e.tx, -e.tz);
   side(a1, f1, e.tx, e.tz);
-  const mx = (a0[0] + a1[0]) / 2, mz = (a0[1] + a1[1]) / 2;
-  hardware(sign, trim, shopRect('misc', 'plateEdge'),
-    mx + e.nx * out * 0.5, yTop - 0.14, mz + e.nz * out * 0.5,
-    Math.abs(e.nx) * out + 0.05, 0.05, Math.abs(e.nz) * out + 0.05, opts.tint);
+  // Frame. facades.js owns the recipe so the two awning kits cannot drift: a
+  // front bar under the leading edge and rafters raking down to it from the wall.
+  // What was here was a single LEVEL box at yTop-0.14 running the full
+  // projection, which on a canopy that drops 0.5 m over 1.3 m sits 0.385 m ABOVE
+  // the fabric at the leading edge and carries nothing — the bar visible over
+  // the top of every awning in the district, and the reason the canopies read as
+  // unsupported.
+  if (trim) {
+    awningFrame([a0[0], a0[1]], [a1[0], a1[1]], [f0[0], f0[1]], [f1[0], f1[1]],
+      yTop, yFront, out, trim.pos, trim.nrm, trim.uv, trim.idx,
+      { col: trim.col, tint: [1, 1, 1] });
+  } else {
+    awningFrame([a0[0], a0[1]], [a1[0], a1[1]], [f0[0], f0[1]], [f1[0], f1[1]],
+      yTop, yFront, out, sign.pos, sign.nrm, sign.uv, sign.idx,
+      { uvRect: shopRect('misc', 'plateEdge'), col: sign.col, tint: t });
+  }
 }
 
 /**
@@ -1628,7 +1652,7 @@ export function postSign(x, z, yaw, yMid, w, h, rect, sign, trim, opts = {}) {
   if (opts.post !== false) {
     const top = opts.postTop ?? yMid + h / 2;
     hardware(sign, trim, streetRect('misc', 'postBand'),
-      x, top / 2, z, 0.075, top, 0.075, opts.tint);
+      x, (top - GROUND_EMBED) / 2, z, 0.075, top + GROUND_EMBED, 0.075, opts.tint);
   }
 }
 
@@ -1648,7 +1672,7 @@ export function streetBladeAssembly(x, z, yaw, names, sign, trim, opts = {}) {
       { doubleSided: true, offset: 0, post: false, tint: opts.tint });
   });
   hardware(sign, trim, streetRect('misc', 'postBand'),
-    x, y * 0.5 + 0.15, z, 0.085, y + 0.3, 0.085, opts.tint);
+    x, (y + 0.3 - GROUND_EMBED) / 2, z, 0.085, y + 0.3 + GROUND_EMBED, 0.085, opts.tint);
 }
 
 /** A regulatory face (stop / do-not-enter / yield / no-left-turn) on a post. */
@@ -1840,6 +1864,26 @@ export function appendBuildingSignage(b, style, sign, trim, opts = {}) {
           sign.pos, sign.nrm, sign.uv, sign.idx,
           { col: sign.col, tint, normal: [e.nx * s, 0, e.nz * s] });
       }
+      // Legs of its own, down to the roof slab.
+      //
+      // These two panels are the faces of the blank facades.js signBlank() puts
+      // on the parapet — but that blank is near-LOD kit and this mesh is
+      // district-wide and never streamed, so past the LOD0 radius the building
+      // becomes a bare bounding box and the panels are left standing on nothing
+      // 1.6 m above its roof. Measured on the Five Points frame: 68% of
+      // in-frustum signage vertices sit over a LOD1 chunk and 17% over a chunk
+      // with no building loaded at all. A sign that carries its own legs is
+      // upright at every LOD. They are inboard of signBlank's legs so the two
+      // sets never z-fight where both are drawn.
+      const legBottom = h, legTop = y + 0.55;
+      if (legTop > legBottom) {
+        for (const s of [1, -1]) {
+          const lx = e.a[0] + e.tx * (cs + s * w * 0.30) + e.nx * 0.1;
+          const lz = e.a[1] + e.tz * (cs + s * w * 0.30) + e.nz * 0.1;
+          hardware(sign, trim, shopRect('misc', 'plateEdge'),
+            lx, (legBottom + legTop) / 2, lz, 0.11, legTop - legBottom, 0.11, tint);
+        }
+      }
       signs += 2;
       if (LIT_STYLES.has(plan.parapet.biz.w)) {
         emitters.push({
@@ -1981,15 +2025,27 @@ export function planStreetSignage(district, opts = {}) {
  * Every sign in the district, bucketed into a handful of spatial cells.
  *
  * This is the recommended integration and the reason hardware() exists. Signage
- * is ~19k triangles for the WHOLE district on two shared textures — 5% of the
- * triangle warn threshold — so streaming it per chunk buys nothing and costs a
- * draw call for every resident near chunk. Measured on data/district.json: the
- * busiest 5x5 near-chunk window holds 25 chunks with signed buildings, so the
- * per-chunk route costs +26 draw calls, while six 512 m buckets plus one
- * district-wide street mesh cost +7 and never touch the chunk build budget.
+ * is 73k triangles for the WHOLE district on two shared textures — 18% of the
+ * triangle warn threshold, re-measured 2026-08-30, up from 49k when the awnings
+ * gained real frames; the "~19k" this comment used to claim predated the shop
+ * atlas growing — so streaming it per chunk buys nothing and costs a draw call
+ * for every resident near chunk. Measured on data/district.json: the busiest 5x5
+ * near-chunk window holds 25 chunks with signed buildings, so the per-chunk
+ * route costs +26 draw calls, while seven 512 m buckets plus one district-wide
+ * street mesh cost +8 and never touch the chunk build budget.
  *
  * Buckets exist at all so frustum culling still has something to work with; one
  * mesh for the district would be one draw call but never cullable.
+ *
+ * KNOWN LIMIT, measured on the Five Points dusk frame: this mesh set is built
+ * once and never streamed, while the buildings under it are. Of 1798 in-frustum
+ * signage vertices sampled, 1224 (68%) sat over a chunk at LOD1 — a bounding-box
+ * extrusion with no parapet, storefront or sign blank — and 302 (17%) over a
+ * chunk with no building loaded at all, at 610-812 m. Signs there outlive their
+ * host. The fix is per-chunk buckets shown only at LOD0, which the draw-call
+ * arithmetic above prices at about +26; until that is affordable, every sign is
+ * built to stand on its OWN hardware (awning frames, parapet legs, posts that
+ * reach the pavement) so it is at least upright at every LOD.
  *
  * Pass `trim` bundles per bucket only if you intend to mesh hardware against the
  * facades trim atlas as well; the default keeps everything in the signage mesh.

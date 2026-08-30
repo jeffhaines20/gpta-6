@@ -1426,6 +1426,56 @@ export function box(cx, cy, cz, sx, sy, sz, pos, nrm, uv, idx, opts = {}) {
   quad(pos, nrm, uv, idx, [x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [0, -1, 0], q, col, t);
 }
 
+/**
+ * A thin square prism between two points — the primitive a sloped bracket needs
+ * and box() cannot express. Rooftop rafters, awning arms and stay rods all rake,
+ * and an axis-aligned box forced to stand in for one is what produced awning
+ * "supports" that sat 0.4 m above the fabric they were meant to carry.
+ *
+ * Emits six quads / 24 vertices, exactly like box(), so anything that splits a
+ * merged buffer back into solids on a 24-vertex stride still works.
+ *
+ * @param {number[]} a  [x,y,z] one end
+ * @param {number[]} b  [x,y,z] the other
+ * @param {number} r    half-width of the square section
+ */
+export function strut(a, b, r, pos, nrm, uv, idx, opts = {}) {
+  // uvRect lets signage.js emit the same hardware against ITS atlas rather than
+  // the trim atlas, so one bracket recipe serves both kits.
+  const cell = trimCell(opts.cell ?? TRIM.metalDark);
+  const q = opts.uvRect ?? [cell.u0, cell.v0, cell.u1, cell.v1];
+  const col = opts.col, t = opts.tint ?? [1, 1, 1];
+  let dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
+  const len = Math.hypot(dx, dy, dz) || 1;
+  dx /= len; dy /= len; dz /= len;
+  // Any reference not parallel to the axis, so the cross products stay stable
+  // for a vertical strut as well as a raking one.
+  const ref = Math.abs(dy) > 0.9 ? [1, 0, 0] : [0, 1, 0];
+  let ux = ref[1] * dz - ref[2] * dy;
+  let uy = ref[2] * dx - ref[0] * dz;
+  let uz = ref[0] * dy - ref[1] * dx;
+  const ul = Math.hypot(ux, uy, uz) || 1;
+  ux /= ul; uy /= ul; uz /= ul;
+  const vx = dy * uz - dz * uy, vy = dz * ux - dx * uz, vz = dx * uy - dy * ux;
+  const P = (p, su, sv) => [
+    p[0] + ux * su * r + vx * sv * r,
+    p[1] + uy * su * r + vy * sv * r,
+    p[2] + uz * su * r + vz * sv * r,
+  ];
+  const corner = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+  for (let i = 0; i < 4; i++) {
+    const [s0, w0] = corner[i], [s1, w1] = corner[(i + 1) % 4];
+    const n = [
+      (ux * (s0 + s1) + vx * (w0 + w1)) / 2,
+      (uy * (s0 + s1) + vy * (w0 + w1)) / 2,
+      (uz * (s0 + s1) + vz * (w0 + w1)) / 2,
+    ];
+    quad(pos, nrm, uv, idx, P(a, s0, w0), P(a, s1, w1), P(b, s1, w1), P(b, s0, w0), n, q, col, t);
+  }
+  quad(pos, nrm, uv, idx, P(a, -1, -1), P(a, 1, -1), P(a, 1, 1), P(a, -1, 1), [-dx, -dy, -dz], q, col, t);
+  quad(pos, nrm, uv, idx, P(b, -1, -1), P(b, 1, -1), P(b, 1, 1), P(b, -1, 1), [dx, dy, dz], q, col, t);
+}
+
 export function ringArea(ring) {
   let a = 0;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
@@ -1663,12 +1713,53 @@ export function awnings(ring, pos, nrm, uv, idx, opts = {}) {
         [p0[0], head - 0.05, p0[1]], [sx, 0, sz], [fab.u0, fab.v0, fab.u1, fab.v1], col, t);
       side(a0, f0, -e.tx, -e.tz);
       side(a1, f1, e.tx, e.tz);
-      // Support arm.
-      const mx = (a0[0] + a1[0]) / 2, mz = (a0[1] + a1[1]) / 2;
-      box(mx + e.nx * out * 0.5, head + 0.18, mz + e.nz * out * 0.5,
-        Math.abs(e.nx) * out + 0.06, 0.06, Math.abs(e.nz) * out + 0.06,
-        pos, nrm, uv, idx, { cell: TRIM.metalDark, col, tint: t });
+      awningFrame(a0, a1, f0, f1, yTop, yFront, out,
+        pos, nrm, uv, idx, { col, tint: t });
     }
+  }
+}
+
+/**
+ * The hardware under an awning: a front bar along the leading edge and raking
+ * rafters from the wall down to it.
+ *
+ * The old version was ONE horizontal box at a fixed height under the wall
+ * attachment. A canopy rakes — it drops `drop` metres over `out` metres — so a
+ * level bar crosses the fabric partway out and emerges ABOVE it: measured 0.41 m
+ * proud of the leading edge on the facade kit and 0.385 m on the signage kit,
+ * on every awning in the district. What a critic saw was a stray tube floating
+ * over the cloth and a canopy with nothing holding its front edge up, which is
+ * exactly what it was. A rafter has to follow the rake, and that is why strut()
+ * exists.
+ *
+ * All the hardware is placed just UNDER the fabric plane, so the canopy is never
+ * pierced from below either.
+ */
+export function awningFrame(a0, a1, f0, f1, yTop, yFront, out, pos, nrm, uv, idx, opts = {}) {
+  const cell = { cell: TRIM.metalDark, uvRect: opts.uvRect, col: opts.col, tint: opts.tint };
+  const clear = 0.05;                       // rafter sits this far below the cloth
+  const inset = 0.10;                       // front bar tucks inside the valance line
+  const drop = yTop - yFront;
+  const ob = Math.max(0, out - inset);
+  const yb = yTop - (drop / out) * ob - clear;      // fabric height at the bar, minus clearance
+  const B = (p0, p1) => [p0[0] + (p1[0] - p0[0]) * (ob / out), p0[1] + (p1[1] - p0[1]) * (ob / out)];
+  const b0 = B(a0, f0), b1 = B(a1, f1);
+  strut([b0[0], yb, b0[1]], [b1[0], yb, b1[1]], 0.035, pos, nrm, uv, idx, cell);   // front bar
+  const rafter = (aP, bP) => strut(
+    [aP[0], yTop - clear, aP[1]], [bP[0], yb, bP[1]], 0.032, pos, nrm, uv, idx, cell);
+  // Set the end rafters just inboard of the bay, where a lateral arm actually
+  // bolts, rather than in the plane of the side gusset.
+  const tx = (a1[0] - a0[0]), tz = (a1[1] - a0[1]);
+  const tl = Math.hypot(tx, tz) || 1;
+  const inb = 0.09;
+  const shift = (p, k) => [p[0] + (tx / tl) * k, p[1] + (tz / tl) * k];
+  rafter(shift(a0, inb), shift(b0, inb));
+  rafter(shift(a1, -inb), shift(b1, -inb));
+  // A bay wider than about three metres gets a middle rafter, the way a real
+  // lateral-arm awning does; without it the fabric spans unsupported.
+  const span = tl;
+  if (span > 3.2) {
+    rafter([(a0[0] + a1[0]) / 2, (a0[1] + a1[1]) / 2], [(b0[0] + b1[0]) / 2, (b0[1] + b1[1]) / 2]);
   }
 }
 
@@ -1715,9 +1806,32 @@ export function roofUnits(ring, y, pos, nrm, uv, idx, opts = {}) {
       box(x, y + 0.24 + hh + 0.05, z, w * 0.7, 0.1, d * 0.7, pos, nrm, uv, idx,
         { cell: TRIM.louvre, col, tint: t });                        // fan grille
     } else if (kind < 0.85) {
+      // Duct run on sleepers.
+      //
+      // Two bugs lived in the one line this replaces. The axis was chosen with
+      // TWO independent r() draws — `r()<0.5 ? len : 0.7` for x and another for
+      // z — so a quarter of them came out len x len: 31 of the district's 130
+      // ducts were square slabs up to 6.48 x 6.48 m, and 35 more were 0.7 m
+      // cubes. And the box was centred at y+0.85 with a height of 0.7, putting
+      // its underside at y+0.50: half a metre of air between the duct and the
+      // roof, with nothing in between. Tinted with its building's own stucco
+      // colour that is a cuboid floating over a roofline with no visible
+      // support, which is what three critics reported.
+      //
+      // One draw picks the axis; sleepers carry the duct the way a real rooftop
+      // run is carried, so the assembly is continuous down to the slab.
       const len = 2.5 + r() * 4;
-      box(x, y + 0.85, z, r() < 0.5 ? len : 0.7, 0.7, r() < 0.5 ? 0.7 : len,
-        pos, nrm, uv, idx, { cell: TRIM.steel, col, tint: t });      // duct run
+      const alongX = r() < 0.5;
+      const sx = alongX ? len : 0.7, sz = alongX ? 0.7 : len;
+      const rise = 0.22;                     // sleeper height
+      box(x, y + rise + 0.35, z, sx, 0.7, sz, pos, nrm, uv, idx,
+        { cell: TRIM.steel, col, tint: t });                          // duct run
+      const half = (len / 2) - 0.45;
+      for (const s of [-1, 1]) {
+        box(x + (alongX ? s * half : 0), y + rise / 2, z + (alongX ? 0 : s * half),
+          alongX ? 0.5 : 0.62, rise, alongX ? 0.62 : 0.5,
+          pos, nrm, uv, idx, { cell: TRIM.concrete, col, tint: t });  // sleeper
+      }
     } else {
       box(x, y + 0.9, z, 0.5, 1.8, 0.5, pos, nrm, uv, idx,
         { cell: TRIM.rust, col, tint: t });                          // vent stack
@@ -1838,10 +1952,20 @@ export function signBlank(ring, y, pos, nrm, uv, idx, opts = {}) {
   const sz = Math.abs(e.tz) * w + Math.abs(e.nz) * thick;
   box(cx, y + h / 2 + 0.25, cz, sx, h, sz, pos, nrm, uv, idx,
     { cell: opts.cell ?? TRIM.signFace, col, tint: t });
-  // Legs, so it stands on the parapet rather than floating.
+  // Legs down to the ROOF SLAB, not just 0.11 m into the parapet cap.
+  //
+  // `y` is the top of the parapet, and the old legs spanned y-0.11..y+0.39 — fine
+  // while the parapet is drawn, and nothing at all once it is not. The parapet is
+  // near-LOD kit; the sign panel signage.js paints on this blank is district-wide
+  // and never streamed. At LOD1 the building is a bare bounding box with no
+  // parapet under it, so a leg that stops inside the parapet leaves the sign
+  // standing on air. `base` is the roof height; the legs now span it.
+  const base = opts.base ?? (y - 0.5);
+  const legTop = y + 0.30;
   for (const s of [-1, 1]) {
-    box(cx + e.tx * s * (w * 0.35), y + 0.14, cz + e.tz * s * (w * 0.35),
-      0.14, 0.5, 0.14, pos, nrm, uv, idx, { cell: TRIM.metalDark, col, tint: t });
+    box(cx + e.tx * s * (w * 0.35), (base + legTop) / 2, cz + e.tz * s * (w * 0.35),
+      0.14, Math.max(0.5, legTop - base), 0.14, pos, nrm, uv, idx,
+      { cell: TRIM.metalDark, col, tint: t });
   }
 }
 
@@ -2001,7 +2125,8 @@ export function appendBuilding(ring, height, style, wall, trim, opts = {}) {
     });
   }
   if (style.signBlank) {
-    signBlank(ring, height + (style.parapet?.height ?? 0), trim.pos, trim.nrm, trim.uv, trim.idx, tArgs);
+    signBlank(ring, height + (style.parapet?.height ?? 0), trim.pos, trim.nrm, trim.uv, trim.idx,
+      { ...tArgs, base: height });
   }
 }
 
