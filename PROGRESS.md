@@ -238,18 +238,35 @@ Pursuit behaviour over 2 laps: 10 active, 35 spawns, 9 lost beyond the give-up r
 549 despawns, 50 dead-ends, **0 orphans**, overlap 68.7% of frames (vs 35.4% at 30 units —
 the honest scaling of a stub with no following distance; M2's job).
 
+## FIRST THING TO DO ON CONTINUE
+
+**Re-enable the hourly watchdog** — `trig_01AcU4HEkk7RNy3cSyi7J6zP`, fires at :53. Paused
+again at the M2 gate for the same reason as at M1: its purpose is surviving usage limits
+during active building, and at a gate it can only cost a turn an hour for no result.
+Re-arm with `update_trigger` / `enabled: true` before resuming.
+
 ## Next action
 
-**M1 APPROVED — building M2 (Living streets).** Watchdog re-armed 13:34 UTC.
+**PAUSED AT THE M2 GATE.** See [`MILESTONE-2.md`](MILESTONE-2.md). Waiting for CONTINUE.
 
-M2 gate requires: traffic AI with following distance, intersections and dead-end routing,
-reporting the overlap rate against the **35.4% stub baseline**; and the chase harness
-running worst case with gate metrics.
+**The budget gate is RED** (chunk stall 18.5 ms vs a 16 ms fail) and that is escalation
+condition (a). It is isolated, not guessed: HUD off measures 8.1 ms, HUD on 12.2 ms, so
+the HUD adds ~4 ms to the *streaming* slice through GC while adding zero WebGL draw calls.
+Part real defect, part harness artifact (22 sim steps per rendered frame charges one HUD
+update's garbage against 22 streaming updates). **The threshold was deliberately not
+relaxed.**
 
-Order of work:
-1. Traffic AI (sequential owner) — the M2 gate itself.
-2. Integrate `src/signage.js` (+8 draw calls district-wide, measured) and `src/hud.js`.
+On CONTINUE, in order:
+1. Resolve the stall gate. Recommended: reduce HUD per-frame allocation and re-measure.
+   Alternative: measure streaming with `setHudEnabled(false)` and gate the HUD's frame
+   cost separately — but that risks hiding a real interaction.
+2. Integrate `src/audio.js` and `src/wanted.js` (both built and verified, deliberately not
+   wired in while a gate is red).
 3. Fix the three critic-confirmed geometry defects: severed awning post, floating plaza
    bars, orphaned pole stub.
 4. AO / contact shadows — the most-cited gap across all four M1 critics.
-5. `src/audio.js` — the one wave-2 builder the usage limit killed.
+5. Mission scripting and the Marlin Street mission → M3.
+
+Traffic AI is done: 14.6% overlap at 30 cars against the 35.4% stub baseline, same-edge
+overlaps eliminated. Remaining traffic work is junction *capacity* (non-conflicting
+movements crossing together), which is what the 64.3% figure at 60 cars is about.
