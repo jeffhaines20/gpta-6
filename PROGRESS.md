@@ -234,5 +234,11 @@ the honest scaling of a stub with no following distance; M2's job).
 
 ## Next action
 
-Integrate the six M1 builder modules as they land, then re-derive the draw-call
-thresholds against the first fully textured chunk and log the change here.
+**PAUSED AT THE M1 GATE.** See [`MILESTONE-1.md`](MILESTONE-1.md). Waiting for the user's
+CONTINUE. Nothing proceeds to M2 until then.
+
+On CONTINUE, in order: integrate `src/signage.js` (+8 draw calls district-wide, measured)
+and `src/hud.js`; fix the three confirmed geometry defects (severed awning post, floating
+plaza bars, orphaned pole stub); add AO / contact shadows (the most-cited critic gap); then
+M2's traffic AI against the 35.4% stub overlap baseline. `src/audio.js` never built — it is
+not an M1 requirement.
