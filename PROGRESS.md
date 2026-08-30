@@ -50,6 +50,24 @@ first fully textured chunk lands (binding constraint 4).
 
 ## Threshold change log
 
+### 2026-08-30 — measurement-window correction (NOT a threshold change)
+
+`startRecording()` reset `worstBuildMs` but never `worstSliceMs`, so the stall metric
+carried the **initial chunk-fill burst** — dozens of chunks built while the loading screen
+is still up — into what is meant to be a steady-state churn measurement. The drive-through
+reported **17.9 ms (FAIL)** on a run whose steady-state worst slice, measured over 90 s,
+was **7.2 ms**.
+
+`resetPeakStats()` now clears every peak at the start of the recorded window. After the
+fix: drive-through **17.9 → 9.4 ms**, chase harness 10.6 → 10.7 ms (unchanged, as
+expected — its numbers were already dominated by steady-state churn).
+
+**No threshold moved.** This narrows the measurement to the window the harness actually
+records, and the excluded stall is one the player never experiences because the loading
+screen covers it. Flagging it explicitly because it *looks* like a gate being loosened,
+and constraint 4 says those are never silent. If you disagree with the reasoning, the
+one-line revert is to drop `worstSliceMs` from `resetPeakStats()`.
+
 ### 2026-08-29 — re-derived against the first fully textured district (binding constraint 4)
 
 | Metric | Was | Now | Direction |

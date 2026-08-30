@@ -168,6 +168,21 @@ const spheres = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 24, 16), MAT
 spheres.name = 'spheres';
 avenue.add(spheres);
 
+// Street lamps. Without local light a night frame has nothing to be dark
+// against, and the aerial perspective is then the only thing on screen — which
+// says more about the fog than about the sky. Candela, per daynight.js, which
+// switches them with the preset and audits them against PLAUSIBLE.lampCandela.
+const LAMP_CANDELA = 700;      // low end of daynight.js PLAUSIBLE.lampCandela
+const lamps = [];
+for (let i = 0; i < 4; i++) {
+  const side = i % 2 ? 1 : -1;
+  const z = -26 - Math.floor(i / 2) * 44;
+  const light = new THREE.PointLight(0xffd6a0, LAMP_CANDELA, 40, 2);
+  light.position.set(side * 6.4, 6.2, z);
+  avenue.add(light);
+  lamps.push(light);
+}
+
 // ------------------------------------------------------------------- systems
 const t0 = performance.now();
 const sky = new Sky(renderer, scene);
@@ -185,8 +200,41 @@ try {
 } catch (err) {
   errors.push('PostStack unavailable: ' + err.message);
 }
+// ---------------------------------------------------------------- output encode
+// post.js's composite is a RawShaderMaterial, so three appends no
+// <colorspace_fragment> to it, and renderer.outputColorSpace only drives that
+// chunk. The pass therefore writes LINEAR values into an 8-bit buffer the
+// browser reads as sRGB, and every frame the project renders through PostStack
+// comes out roughly a 2.2 gamma too dark. Measured here at noon: a ground pixel
+// carrying 4,192 nits should encode to sRGB 63 and lands at 18.
+//
+// This lab patches the missing OETF back in so the sky can be judged against
+// what the pipeline is meant to produce rather than against the bug. It is a
+// LAB-LOCAL patch on another module's material, the HUD says so on every frame,
+// and `g` toggles it. The one-line fix belongs in post.js's COMPOSITE_FRAG.
+const OETF_PATCH = `
+  // linear -> sRGB, applied before the ordered dither so the dither is one 8-bit
+  // step in the space it is actually quantised in.
+  color = mix(color * 12.92,
+              1.055 * pow(max(color, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055,
+              step(vec3(0.0031308), color));
+`;
+let encodePatched = false;
+function setOutputEncode(on) {
+  if (!post || on === encodePatched) return;
+  const f = post.compositeMat;
+  const anchor = '  float d = fract(dot(gl_FragCoord.xy';
+  f.fragmentShader = on
+    ? f.fragmentShader.replace(anchor, OETF_PATCH + anchor)
+    : f.fragmentShader.replace(OETF_PATCH, '');
+  f.needsUpdate = true;
+  encodePatched = on;
+}
+setOutputEncode(true);
+
 // setSky() is daynight.js's own hook: it stops the flat background override and
 // hands the dome the time of day, the env map and the fog terms on every apply().
+for (const l of lamps) tod.registerLamp(l, LAMP_CANDELA);
 tod.setSky(sky, weather);
 weather.bindMaterials(MAT);
 
@@ -261,6 +309,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key === '4') setShot('street');
   if (e.key === '5') setShot('elevated');
   if (e.key === '0') { snap = !snap; }
+  if (e.key === 'g') setOutputEncode(!encodePatched);
 });
 
 // ------------------------------------------------------------------ reporting
@@ -302,6 +351,7 @@ function stats() {
     worstFrameMs: +worstFrameMs.toFixed(2),
     frames,
     time: timeName, weather: weatherName, shot: shotName,
+    outputEncodePatched: encodePatched,
     sky: sky.audit(),
     weatherReport: weather.report(),
     wetSurface: wetSurfaceParams(weather.wetness),
@@ -322,6 +372,7 @@ generation      sky ${s.generationMs.sky} ms   weather ${s.generationMs.weather}
 regeneration    ${s.refreshMs.fullWithEnvSync} ms full + PMREM   ${s.refreshMs.lutOnlyAsync} ms LUT only
 draw calls      ${s.drawCalls}  (sky 1 · rain ${s.weatherDrawCalls} · post ${s.postPasses})   tris ${s.triangles.toLocaleString()}
 exposure        1/${Math.round(1 / s.tod.exposure)}          worst frame ${s.worstFrameMs} ms
+output encode   ${encodePatched ? 'LAB PATCH — post.js writes linear into an sRGB buffer' : 'post.js as-is (linear, ~2.2 gamma dark)'}
 
 zenith          ${f(a.zenithNits)} nits      plausible ${env.zenithNits.join('–')}
 horizon         ${f(a.horizonNits)} nits      plausible ${env.horizonNits.join('–')}
@@ -396,7 +447,7 @@ document.getElementById('load').remove();
 requestAnimationFrame(frame);
 
 window.__lab = {
-  ready: true, stats, setTime, setWeather, setShot, hidden, scanHDR,
+  ready: true, stats, setTime, setWeather, setShot, hidden, scanHDR, setOutputEncode,
   snapWeather(name) { snap = true; setWeather(name); snap = false; },
   look(y, p) { yaw = y; pitch = p; },
   resetWorst() { worstFrameMs = 0; frames = 0; },

@@ -507,7 +507,6 @@ export class Sky {
     this.inscatterCeiling = opts.inscatterCeiling ?? 2.7;
 
     const t0 = performance.now();
-    this.timings = {};
 
     this.lut = new THREE.WebGLRenderTarget(this.lutWidth, this.lutHeight, {
       type: THREE.HalfFloatType, format: THREE.RGBAFormat,
@@ -559,10 +558,19 @@ export class Sky {
     // Unweighted isotropic gains, tuned so noon lands mid-envelope; _msWeight()
     // scales them with the sun.
     this.msBoost = new THREE.Vector2(0.115, 0.030);
-    this.nightZenithColor = srgb(0x4c5f8e);
-    this.nightHorizonColor = srgb(0xff9c50);
-    this.nightZenithNits = 2.1;
-    this.nightHorizonNits = 6.6;
+    // Distribution matters as much as the total here. daynight.js asserts night
+    // sky illuminance in 0.5-12 lux and audits the dome against its 3.5 lux
+    // preset to within 2x, so the dome cannot go below ~1.8 lux however dark a
+    // real city night is (a light-polluted zenith is nearer 0.001 nits than 0.5).
+    // What is left to choose is where that fixed energy sits: pushed to the
+    // horizon it becomes the fog colour and floods the frame orange, so it is
+    // biased toward the zenith and the sodium tint is pulled back off full
+    // saturation. See the report — this preset is the one place the photometric
+    // contract and a night that reads as night genuinely pull apart.
+    this.nightZenithColor = srgb(0x5a6c94);
+    this.nightHorizonColor = srgb(0xffab6e);
+    this.nightZenithNits = 3.4;
+    this.nightHorizonNits = 3.6;
     this.cloudColor = srgb(0xb9c2cc);
     // Deck luminance as a share of the clear zenith — near unity, because a lit
     // cloud base and a clear zenith are about equally luminous overhead (one is
@@ -639,8 +647,19 @@ export class Sky {
     this._canReadAsync = typeof renderer.readRenderTargetPixelsAsync === 'function';
 
     this.setTimeOfDay('dusk');
+    const tSetup = performance.now();
     this.refresh({ force: true });
     this.generationMs = performance.now() - t0;
+    // Broken out the way materials.js reports its phases: on a software
+    // rasteriser the first refresh is dominated by compiling the scattering and
+    // PMREM programs, not by the integral, and a single total hides that.
+    this.timings = {
+      setup: +(tSetup - t0).toFixed(1),
+      lutAndCompile: +(this.stats.lastRefreshMs - this.stats.lastReadbackMs - this.stats.lastEnvMs).toFixed(1),
+      probeReadback: this.stats.lastReadbackMs,
+      environment: this.stats.lastEnvMs,
+      total: +this.generationMs.toFixed(1),
+    };
   }
 
   // ------------------------------------------------------------------ state
@@ -750,8 +769,11 @@ export class Sky {
     this._pushUniforms();
     this.quad.material = this.lutMaterial;
 
-    r.setRenderTarget(this.lut);
-    r.render(this.quadScene, this.quadCamera);
+    // Probe FIRST, then the LUT. A synchronous read blocks until everything
+    // already submitted has finished, so reading after the 256x128 LUT waits on
+    // 32,768 pixels of scattering integral; reading after only the 64x32 probe
+    // waits on 2,048. Measured at construction on the software rasteriser: 320 ms
+    // the old way, 20 ms this way, for identical output.
     r.setRenderTarget(this.probe);
     r.render(this.quadScene, this.quadCamera);
 
@@ -780,6 +802,9 @@ export class Sky {
         .finally(() => { this._probePending = false; });
     }
     this.stats.lastReadbackMs = +(performance.now() - tRead).toFixed(2);
+
+    r.setRenderTarget(this.lut);
+    r.render(this.quadScene, this.quadCamera);
 
     const tEnv = performance.now();
     if (this.wantEnvironment && environment) {
@@ -1037,6 +1062,7 @@ export class Sky {
     return {
       preset: this.presetName,
       generationMs: +this.generationMs.toFixed(1),
+      generationMsByPhase: this.timings,
       lut: `${this.lutWidth}x${this.lutHeight} RGBA16F`,
       envMap: this.envTarget ? `PMREM ${this.envTarget.width}x${this.envTarget.height}` : 'none',
       refreshes: this.stats.refreshes,

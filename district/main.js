@@ -385,7 +385,7 @@ window.__district = {
     postPasses: post.stats.passes, triangles: post.stats.sceneTriangles }),
   worldReport: () => world.report(),
   trafficReport: () => (traffic ? traffic.report() : null),
-  startRecording() { metrics.recording = true; metrics.samples.length = 0; world.stats.worstBuildMs = 0; },
+  startRecording() { metrics.recording = true; metrics.samples.length = 0; world.resetPeakStats(); },
   stopRecording() { metrics.recording = false; return metrics.samples; },
   setAutopilot(fn) { autopilot = fn; },
   setTimeScale(n) { timeScale = Math.max(1, n | 0); },

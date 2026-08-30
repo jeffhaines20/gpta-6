@@ -559,6 +559,19 @@ export class StreamingWorld {
     return { lod, group };
   }
 
+  // The gate must measure the window a harness actually recorded. worstSliceMs
+  // otherwise carries the initial fill burst - dozens of chunks built while the
+  // loading screen is still up - into a steady-state churn measurement, and
+  // reports a stall the player never experiences.
+  resetPeakStats() {
+    this.stats.worstBuildMs = 0;
+    this.stats.worstSliceMs = 0;
+    this.stats.worstScanMs = 0;
+    this.stats.worstFinishMs = 0;
+    this.stats.worstDisposeMs = 0;
+    this.stats.worstUploadMs = 0;
+  }
+
   report() {
     let tris = 0, meshes = 0;
     this.root.traverse((o) => {
