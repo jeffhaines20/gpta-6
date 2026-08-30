@@ -93,6 +93,15 @@ export class TimeOfDay {
   // windows switch with the cycle.
   setWorld(world) { this.world = world; this.apply(this.presetName); }
 
+  // Attaching a sky hands it the background and the fog/inscatter terms. Without
+  // one, apply() falls back to a radiance-scaled flat colour, which is a stand-in
+  // and not a sky.
+  setSky(sky, weather = null) {
+    this.skyDome = sky;
+    this.weatherSys = weather;
+    this.apply(this.presetName);
+  }
+
   setFurniture(furniture, lightPool) {
     this.furniture = furniture;
     this.lightPool = lightPool;
@@ -169,6 +178,12 @@ export class TimeOfDay {
     for (const { light, candela } of this.lamps) {
       light.intensity = p.lampsOn ? candela : 0;
     }
+    if (this.skyDome) {
+      this.skyDome.setTimeOfDay(name);
+      this.skyDome.refresh({ force: true });
+      this.skyDome.applyToScene(this.scene);
+      if (this.post) this.skyDome.applyToPost(this.post, this.weatherSys);
+    }
     if (this.furniture) this.furniture.setLit(p.lampsOn);
     if (this.world && this.world.setFacadeTime) this.world.setFacadeTime(name);
     if (this.lightPool) this.lightPool.update({ x: 0, y: 0, z: 0 }, p.lampsOn ? 1 : 0);
@@ -232,6 +247,22 @@ export class TimeOfDay {
       flags.push('street lamps are lit at a time of day when they should be off');
     }
 
+    if (this.skyDome) {
+      const skyAudit = this.skyDome.audit();
+      for (const f of skyAudit.implausible ?? []) flags.push(`sky: ${f}`);
+      // The sky is the dominant light source in frame. If its illuminance
+      // disagrees with the preset the camera stop was set from, the image is
+      // wrong however plausible each half looks alone.
+      if (Number.isFinite(skyAudit.skyLux)) {
+        const ratio = skyAudit.skyLux / Math.max(1e-6, this.preset.skyLux);
+        if (ratio > 2 || ratio < 0.5) {
+          flags.push(`sky illuminance ${skyAudit.skyLux.toFixed(0)} lux is ${ratio.toFixed(1)}x ` +
+            `the ${this.presetName} preset's ${this.preset.skyLux} lux that exposure ` +
+            `1/${Math.round(1 / this.preset.exposure)} was calibrated for`);
+        }
+      }
+    }
+
     return {
       timeOfDay: this.presetName,
       exposure: this.post ? this.post.params.exposure : this.renderer.toneMappingExposure,
@@ -252,6 +283,8 @@ export class TimeOfDay {
       sunLux: sun?.intensity, skyLux: hemi?.intensity,
       litPointLights: lights.filter((l) => l.type === 'PointLight' && l.intensity > 0).length,
       lightPool: this.lightPool ? this.lightPool.report() : null,
+      sky: this.skyDome ? this.skyDome.audit() : null,
+      weather: this.weatherSys ? this.weatherSys.report() : null,
       samplePointLightCandela: lights.find((l) => l.type === 'PointLight' && l.intensity > 0)?.intensity ?? 0,
       shadowCasters, shadowReceivers,
       implausible: flags,

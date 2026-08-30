@@ -1,0 +1,49 @@
+<!doctype html><meta charset="utf-8"><title>sky probe</title>
+<canvas id="c" width="640" height="360"></canvas>
+<script type="module">
+import * as THREE from '../../vendor/three.module.min.js';
+import { Sky } from '../../src/sky.js';
+import { Weather } from '../../src/weather.js';
+const out = { steps: [], errors: [] };
+window.__probe = out;
+window.addEventListener('error', e => out.errors.push('ERR ' + e.message));
+try {
+  const canvas = document.getElementById('c');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+  renderer.setPixelRatio(1);
+  out.webgl2 = renderer.capabilities.isWebGL2;
+  out.floatBlend = !!renderer.extensions.get('EXT_float_blend');
+  out.colorBufferFloat = !!renderer.extensions.get('EXT_color_buffer_float');
+  const gl = renderer.getContext();
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(50, 16/9, 0.1, 1200);
+  camera.position.set(0, 2, 8);
+  camera.lookAt(0, 3, 0);
+  out.steps.push('ctx ok');
+  const t0 = performance.now();
+  const sky = new Sky(renderer, scene);
+  out.steps.push('sky ctor ' + (performance.now() - t0).toFixed(1) + ' ms');
+  out.skyReport = sky.audit();
+  const w = new Weather(scene, { sky });
+  out.steps.push('weather ctor ok');
+  w.set('heavyRain', { immediate: true });
+  w.update(0.016, camera);
+  out.weatherReport = w.report();
+  sky.update(camera);
+  renderer.render(scene, camera);
+  out.steps.push('render ok, calls=' + renderer.info.render.calls + ' tris=' + renderer.info.render.triangles);
+  // per-preset audit
+  out.presets = {};
+  for (const n of ['noon', 'dusk', 'night']) {
+    sky.setTimeOfDay(n);
+    sky.setOvercast(0); sky.setTurbidity(n === 'noon' ? 2.4 : n === 'dusk' ? 3.2 : 2.8); sky.setFogBoost(0);
+    const ms = sky.refresh({ force: true });
+    out.presets[n] = { ms: +ms.toFixed(1), ...sky.audit() };
+  }
+  out.glError = gl.getError();
+  out.ready = true;
+} catch (e) {
+  out.errors.push('THROW ' + (e && e.stack || e));
+  out.ready = true;
+}
+</script>

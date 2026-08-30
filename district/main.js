@@ -18,6 +18,8 @@ import { LocomotionFSM, STATE } from '../src/animfsm.js';
 import { TimeOfDay, PRESETS } from '../src/daynight.js';
 import { PostStack } from '../src/post.js';
 import { LoadingScreen } from '../src/loading.js';
+import { Sky } from '../src/sky.js';
+import { Weather } from '../src/weather.js';
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -35,7 +37,7 @@ const hud = document.getElementById('hud');
 hud.textContent = 'loading district…';
 
 const loading = new LoadingScreen({ title: 'PORT VERANO' });
-let district, world, tod, post;
+let district, world, tod, post, sky, weather;
 let loadReport = null;
 
 await loading
@@ -46,11 +48,17 @@ await loading
     // Constructing the world builds the material registry and facade library.
     world = new StreamingWorld(scene, district, { nearRadius: 2, farRadius: 5, budgetMs: 3 });
   })
+  .add('atmosphere', async () => {
+    sky = new Sky(renderer, scene);
+    weather = new Weather(scene);
+    weather.bindMaterials(world.registry);
+  })
   .add('lighting', async () => {
     tod = new TimeOfDay(scene, renderer);
     tod.setWorld(world);
     post = new PostStack(renderer, scene, camera);
     tod.attachPost(post);
+    tod.setSky(sky, weather);
   })
   .run()
   .then((r) => { loadReport = r; });
@@ -278,6 +286,10 @@ function animate(now) {
   }
   const focus = mode === 'foot' ? player.position : vehicle.position;
   tod.follow(focus);
+  sky.update(camera);
+  weather.update(dt, camera);
+  weather.applyToPost(post);
+  weather.applyToSky(sky);
   lightPool.update(camera.position, tod.preset.lampsOn ? 1 : 0);
 
   // --- character
@@ -375,7 +387,9 @@ window.__district = {
   setAutopilot(fn) { autopilot = fn; },
   setTimeScale(n) { timeScale = Math.max(1, n | 0); },
   get simTime() { return simTime; },
-  setWeather: (w) => tod.setWeather(w),
+  sky, weather,
+  setWeather: (name, opts) => weather.set(name, opts),
+  setWeatherRaw: (w) => tod.setWeather(w),
   postParams: () => post.params,
   freeCam(pos, target, fov) {
     autopilot = () => {};

@@ -91,6 +91,7 @@ Both draw-call and triangle thresholds moved **down**. No gate was loosened.
 | Per-building cost cap keyed on `floors × vertex count` | Missed the actual worst case — a four-point 737 m² tower emitting 19k trim vertices in 28.5 ms | Keyed on `floors × perimeter`, because balcony count scales with edge length not edge count |
 | Recomputing the want/unload/queue scan every `update()` | 6.8 ms per call for an answer that was identical almost every time | Rescan only when the player crosses a chunk boundary |
 | Mesh upload inside the same slice as geometry append | 9.8 ms of unbounded buffer creation tacked onto a slice that had already spent its budget | Upload is its own scheduled phase |
+| Plausibility audit that only checked its own lights | The sky can emit 7.1x the illuminance the camera stop was calibrated for and the top-level `implausible` list still read empty — the gate was decorative exactly where it mattered | Attached subsystems escalate their own flags, plus an explicit sky-vs-preset illuminance ratio check |
 | Mesh upload as one block per chunk | The whole chunk's meshes uploaded together; worst slice 13.4 ms | Split into one-mesh steps the deadline can gate; upload fell to 2.3–3.7 ms |
 | Unbounded unload loop | Crossing several chunk boundaries in one update disposed every out-of-range chunk at once — the last unbounded block | Bounded to one disposal per update, deferred through a pending map |
 | One mesh pair per street lamp (233 posts = 466 meshes) | ~70% of all draw calls at worst case; chase harness measured 325 p95, 18.8% headroom | `src/streetfurniture.js`: 3 InstancedMeshes for the whole district |
@@ -120,6 +121,25 @@ massing acceptable elsewhere"). This is the approved plan, not an escalation.
 ## Critic rounds
 
 _None yet._
+
+## Sky integration — first pass over-exposed (open)
+
+`src/sky.js` and `src/weather.js` landed (atmospheric-scattering LUT, PMREM env map,
+1 draw call). Integrated, and immediately measured wrong:
+
+| Preset | Sky emits | Preset expects | Ratio | Gate |
+|---|---:|---:|---:|---|
+| dusk | 6,371 lux | 900 lux | **7.1×** | FLAGGED |
+| night | 2.0 lux | 3.5 lux | 0.4× | FLAGGED |
+| noon | 14,903 lux | 20,000 lux | 0.75× | pass |
+
+At dusk this blows the frame to white (`docs/shots/sky-corridor-dusk.png`). The module
+carries an `artisticMultiplier` of 28.2, which is the likely cause. **A sky refresh also
+costs 1.5 s** (840 ms of it GPU read-back), which a continuous day/night cycle cannot
+afford. Both are with the wave-2 sky builder, which is regenerating the module under an
+explicit instruction to verify all three presets against the exposures.
+
+The important part is that the gate now catches it. It did not before.
 
 ## Sub-agent capacity interruption (2026-08-29 23:0x – 00:00 UTC)
 

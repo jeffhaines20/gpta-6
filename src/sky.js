@@ -27,6 +27,13 @@
 
 import * as THREE from '../vendor/three.module.min.js';
 
+// Every colour in this file is a LINEAR reflectance or tint that gets multiplied
+// by a luminance in nits. Declaring the source space explicitly is not pedantry:
+// THREE.Color(hex) already converts under the default ColorManagement, so the
+// convertSRGBToLinear() that reads as belt-and-braces applies the transfer curve
+// twice and lands 8x too dark — which is exactly how the night sky lost two stops.
+const srgb = (hex) => new THREE.Color().setHex(hex, THREE.SRGBColorSpace);
+
 // Sun/moon geometry per time of day, matched to daynight.js PRESETS.
 //
 // The night preset's elevation/azimuth in daynight.js describes the MOON — it is
@@ -144,7 +151,11 @@ vec3 scatter(vec3 dir) {
     float dM = exp(-h / Hm) * seg;
     odR += dR; odM += dM;
 
-    if (raySphere(p, uSunDir, Re).x > 0.0) continue;   // sample is in the earth's shadow
+    // Shadow test. raySphere reports "no hit" as x > y, and a miss means the sun
+    // ray escapes, i.e. the sample IS lit — testing x > 0 alone throws away every
+    // grazing ray and is what makes a naive twilight collapse two hours early.
+    vec2 sh = raySphere(p, uSunDir, Re);
+    if (sh.x <= sh.y && sh.x > 0.0) continue;
     float tSun = raySphere(p, uSunDir, Ra).y;
     float segS = tSun / float(SUN_STEPS);
     float odRs = 0.0, odMs = 0.0;
@@ -196,7 +207,10 @@ vec3 skyRadiance(vec3 dir) {
   // and bluer overhead; cloud bases bounce it back down, so an overcast city night
   // is brighter than a clear one.
   float night = 1.0 - smoothstep(-0.06, 0.10, uSunDir.y);
-  float low = pow(1.0 - clamp(dir.y, 0.0, 1.0), 3.5) * mix(0.35, 1.0, smoothstep(-0.3, 0.02, dir.y));
+  // 2.2, not the 3.5 that looks right in isolation: the exponent sets how much of
+  // the glow's energy sits near the horizon, and integrating it is what has to
+  // land inside daynight.js's night envelope.
+  float low = pow(1.0 - clamp(dir.y, 0.0, 1.0), 2.2) * mix(0.35, 1.0, smoothstep(-0.3, 0.02, dir.y));
   L += (uNightZenith + uNightHorizon * low) * night * (1.0 + uOvercast * 1.6);
 
   // Half-float render targets top out at 65504. An unclamped solar aureole would
@@ -346,7 +360,8 @@ void main() {
       vec3 pole = normalize(vec3(0.42, 0.62, -0.66));
       float band = exp(-pow(dot(dir, pole) * 3.1, 2.0));
       float n = valueNoise(dir * 13.0) * 0.6 + valueNoise(dir * 31.0) * 0.4;
-      L += vec3(0.78, 0.80, 0.95) * band * (0.35 + n * 0.9) * uMilkyWay * above * clear;
+      L += vec3(0.78, 0.80, 0.95) * band * (0.35 + n * 0.9)
+           * uMilkyWay * (uNightZenith.b + 0.02) * above * clear;
     }
   }
 
@@ -448,18 +463,21 @@ export class Sky {
       // PLAUSIBLE_SKY rather than at the single-scattering value, which is roughly
       // a third of a real sky and far too saturated.
       uMsBoost: { value: new THREE.Vector2(0.115, 0.030) },
-      uGroundAlbedo: { value: new THREE.Color(0x6b6455).convertSRGBToLinear() },
+      uGroundAlbedo: { value: srgb(0x6b6455) },
       uOvercast: { value: 0 },
       uOvercastLum: { value: new THREE.Vector3() },
       uNightZenith: { value: new THREE.Vector3() },
       uNightHorizon: { value: new THREE.Vector3() },
       uMaxRadiance: { value: this.maxRadiance },
     };
-    this.nightZenithColor = new THREE.Color(0x4c5f8e).convertSRGBToLinear();
-    this.nightHorizonColor = new THREE.Color(0xff9c50).convertSRGBToLinear();
-    this.nightZenithNits = 0.20;
-    this.nightHorizonNits = 2.6;
-    this.cloudColor = new THREE.Color(0xb9c2cc).convertSRGBToLinear();
+    // Urban skyglow, in nits. Sized so the dome's own hemispherical illuminance
+    // lands inside the 0.5-12 lux daynight.js already asserts for night — the two
+    // numbers describe the same sky and a mismatch is a measurable bug, not taste.
+    this.nightZenithColor = srgb(0x4c5f8e);
+    this.nightHorizonColor = srgb(0xff9c50);
+    this.nightZenithNits = 1.6;
+    this.nightHorizonNits = 5.0;
+    this.cloudColor = srgb(0xb9c2cc);
 
     const defines = `#define STEPS ${opts.steps ?? 12}\n#define SUN_STEPS ${opts.sunSteps ?? 5}\n`;
     this.lutMaterial = new THREE.RawShaderMaterial({
@@ -489,7 +507,7 @@ export class Sky {
         uMoonRadiance: { value: 0 },
         uMoonPhase: { value: 1 },
         uStarIntensity: { value: opts.stars === false ? 0 : 1 },
-        uMilkyWay: { value: opts.milkyWay === false ? 0 : 0.55 },
+        uMilkyWay: { value: opts.milkyWay === false ? 0 : 1.5 },
         uMaxRadiance: { value: this.maxRadiance },
         uOvercast: { value: 0 },
       },
