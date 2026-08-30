@@ -45,6 +45,7 @@ hud.textContent = 'loading district…';
 const loading = new LoadingScreen({ title: 'PORT VERANO' });
 let district, world, tod, post, sky, weather;
 let signageRoot = null, signageStats = null, hud2 = null;
+let hudEnabled = true;
 let loadReport = null;
 
 await loading
@@ -382,7 +383,7 @@ function animate(now) {
 
   const w = world.report();
   const near = mode === 'foot' && player.position.distanceTo(vehicle.position) <= ENTER_RANGE;
-  if (hud2) {
+  if (hud2 && hudEnabled) {
     const q = vehicle.quaternion;
     const heading = mode === 'foot'
       ? player.yaw
@@ -438,6 +439,9 @@ window.__district = {
   pursuitReport: () => (pursuit ? pursuit.report() : null),
   setTimeOfDay: (n) => { const r = tod.apply(n); setSignageTime(n); return r; },
   signageStats: () => signageStats,
+  // Isolation switch for the harnesses: the HUD is per-frame canvas work and a GC
+  // pause it provokes lands inside whatever is running, including world.update().
+  setHudEnabled: (on) => { if (hud2) { hud2.state.visible = on; hudEnabled = on; } },
   audit: () => tod.audit(),
   placeAt,
   renderStats: () => ({ calls: post.stats.totalCalls, sceneCalls: post.stats.sceneCalls,

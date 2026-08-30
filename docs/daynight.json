@@ -33,9 +33,9 @@
    "exposure": "1/78000",
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 12,
-   "shadowCasters": 79,
-   "drawCalls": 119,
-   "triangles": 33930,
+   "shadowCasters": 87,
+   "drawCalls": 125,
+   "triangles": 63856,
    "implausible": []
   },
   {
@@ -47,9 +47,9 @@
    "exposure": "1/330",
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 12,
-   "shadowCasters": 79,
-   "drawCalls": 119,
-   "triangles": 33930,
+   "shadowCasters": 87,
+   "drawCalls": 125,
+   "triangles": 63856,
    "implausible": []
   },
   {
@@ -61,9 +61,9 @@
    "exposure": "1/1",
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 12,
-   "shadowCasters": 79,
-   "drawCalls": 119,
-   "triangles": 33930,
+   "shadowCasters": 87,
+   "drawCalls": 125,
+   "triangles": 63856,
    "implausible": []
   }
  ],

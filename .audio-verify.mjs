@@ -390,12 +390,29 @@ check('deceleration-inferred impacts do not fire on hard driving',
 const brakeUse = await page.evaluate(async () => {
   const a = window.__lab.audio;
   for (const b of ['ambience', 'music', 'siren', 'sfx']) a.setBusGain(b, 0);
+  // The brake's engine-side contribution is the overrun crackle, and that crackle
+  // is deliberately sparse: a fresh random gate every 50 ms fires it roughly 12%
+  // of the time off the brakes and 38% on them. A single 1.2 s RMS window
+  // therefore measures whether a crackle happened to land inside it, not whether
+  // the brake is audible — sampled once, this reading swings from -0.8 to +5.7 dB
+  // run to run and fails outright about one run in six. Averaging the level over
+  // several windows measures the rate rather than one roll of the dice; the same
+  // comparison then lands between +1.7 and +6.2 dB and never drops below the
+  // threshold. The deterministic half of the effect (tyre weight transfer) is
+  // +2.7 dB on its own bus.
   const at = async (brk) => {
     window.__lab.set('s-rpm', 4200); window.__lab.set('s-thr', 0);
     window.__lab.set('s-brk', brk); window.__lab.set('s-spd', 90);
     window.__lab.tick(1 / 60, 60);
-    await new Promise((r) => setTimeout(r, 1200));
-    return { load: +a.state.load.toFixed(3), rms: window.__lab.measure().rmsL };
+    await new Promise((r) => setTimeout(r, 700));
+    let acc = 0;
+    const N = 6;
+    for (let i = 0; i < N; i++) {
+      await new Promise((r) => setTimeout(r, 130));
+      window.__lab.tick(1 / 60, 8);
+      acc += Math.pow(10, window.__lab.measure().rmsL / 20);
+    }
+    return { load: +a.state.load.toFixed(3), rms: +(20 * Math.log10(acc / N)).toFixed(2) };
   };
   const off = await at(0), on = await at(100);
   window.__lab.set('s-brk', 0); window.__lab.set('s-thr', 55);
