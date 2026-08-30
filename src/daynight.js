@@ -332,6 +332,12 @@ export class TimeOfDay {
         fogDensity: +this.post.params.fogDensity.toFixed(5),
         fogHeightFalloff: this.post.params.fogHeightFalloff,
         wetness: this.post.params.wetness,
+        // AO reported explicitly. Every critic round so far has diagnosed "no
+        // ambient occlusion" correctly AND "no shadow map" incorrectly, so the
+        // audit needs to state which of the two is actually true.
+        aoEnabled: this.post.params.aoEnabled,
+        aoStrength: this.post.params.aoStrength,
+        aoRadiusM: this.post.params.aoRadius,
         passes: this.post.stats.passes,
       } : null,
       shadowMapEnabled: this.renderer.shadowMap.enabled,
