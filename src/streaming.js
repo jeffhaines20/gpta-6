@@ -10,7 +10,7 @@
 // existing vehicle drives on it with no changes.
 
 import * as THREE from '../vendor/three.module.min.js';
-import { extrudeFootprint, ribbon } from './geom.js';
+import { extrudeFootprint, ribbon, triangulate } from './geom.js';
 import {
   getMaterials, wallFamilyFor, roofFor, markingForEdge, applyMarkingUV,
   SURFACE_LAYERS, SURFACE_TINTS,
@@ -21,6 +21,19 @@ import {
 } from './facades.js';
 
 export const LOD = { NEAR: 0, FAR: 1 };
+
+// Which baked land-use tags get their own ground surface. Anything absent keeps the
+// default paving, which is what most of a downtown block actually is.
+const ZONE_MATERIAL = {
+  parking: 'parkingLot',
+  grass: 'grass',
+  park: 'grass',
+  garden: 'grass',
+  playground: 'grass',
+  recreation_ground: 'grass',
+  marina: 'concrete',
+  construction: 'dirt',
+};
 
 export class StreamingWorld {
   constructor(scene, district, opts = {}) {
@@ -88,7 +101,8 @@ export class StreamingWorld {
 
     // Land pad: everything inside the trim box that is not water.
     const land = new THREE.Mesh(
-      new THREE.PlaneGeometry(b.x1 - b.x0, b.z1 - b.z0), this.materials.land
+      new THREE.PlaneGeometry(b.x1 - b.x0, b.z1 - b.z0),
+      this.materials.ground ?? this.materials.land
     );
     land.rotation.x = -Math.PI / 2;
     land.position.set((b.x0 + b.x1) / 2, this.groundY - 0.05, (b.z0 + b.z1) / 2);
@@ -372,6 +386,9 @@ export class StreamingWorld {
       steps.push(() => this._mergedMesh(job));
     }
     steps.push(() => this._roadMesh(job.chunk));
+    for (const [key, group] of this._zoneGroups(job.chunk)) {
+      steps.push(() => this._zoneMesh(group, key));
+    }
     return steps;
   }
 
@@ -407,6 +424,50 @@ export class StreamingWorld {
       geo.computeBoundingSphere();
       return new THREE.Mesh(geo, this.materials.building[lod]);
     }
+  }
+
+  // Group a chunk's zone polygons by the material they want, so a chunk pays one
+  // draw call per distinct ground type present rather than one per polygon.
+  _zoneGroups(chunk) {
+    const groups = new Map();
+    for (const zi of chunk.zones ?? []) {
+      const z = this.d.zones[zi];
+      const key = ZONE_MATERIAL[z.z];
+      if (!key) continue;                       // zones with no distinct surface
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(z);
+    }
+    return groups;
+  }
+
+  _zoneMesh(zones, materialKey) {
+    const pos = [], nrm = [], uv = [], idx = [];
+    for (const z of zones) {
+      const start = pos.length / 3;
+      const tris = triangulate(z.p);
+      if (!tris.length) continue;
+      for (const [x, zz] of z.p) {
+        // Just above the land plane, below the road ribbons, so a car park never
+        // z-fights the street it opens onto.
+        pos.push(x, this.groundY + 0.012, zz);
+        nrm.push(0, 1, 0);
+        uv.push(x * 0.12, zz * 0.12);
+      }
+      for (let i = 0; i < tris.length; i += 3) {
+        idx.push(start + tris[i], start + tris[i + 1], start + tris[i + 2]);
+      }
+    }
+    if (!pos.length) return null;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    geo.computeBoundingSphere();
+    const mat = this.registry.get(materialKey) ?? this.materials.land;
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.receiveShadow = true;
+    return mesh;
   }
 
   _roadMesh(chunk) {

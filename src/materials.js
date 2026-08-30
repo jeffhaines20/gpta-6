@@ -1757,6 +1757,9 @@ export class MaterialRegistry {
       building: [merged, merged],
       road: this.get('road'),
       land: this.get('land'),
+      // A downtown's unbuilt ground is paving, not soil. 'land' stays available
+      // for genuinely bare areas.
+      ground: this.get('sidewalk') ?? this.get('concrete') ?? this.get('land'),
       water: this.get('water'),
     };
   }

@@ -122,10 +122,35 @@ massing acceptable elsewhere"). This is the approved plan, not an escalation.
 
 _None yet._
 
-## Sky integration — first pass over-exposed (open)
+## Sky integration — calibration RESOLVED, refresh cost OPEN
 
-`src/sky.js` and `src/weather.js` landed (atmospheric-scattering LUT, PMREM env map,
-1 draw call). Integrated, and immediately measured wrong:
+**Resolved.** After the wave-2 rewrite the lighting gate passes at all three presets and
+the negative test still fires:
+
+| Preset | Sky emits | Preset expects | Ratio | Gate |
+|---|---:|---:|---:|---|
+| noon | 15,887 lux | 20,000 lux | 0.79× | pass |
+| dusk | 1,583 lux | 900 lux | 1.76× | pass |
+| night | 2.19 lux | 3.5 lux | 0.62× | pass |
+
+**Still open: a sky refresh costs 2,429 ms**, of which 822–2,148 ms is a GPU→CPU
+read-back of the scattering probe. With three discrete presets that is a hitch on each
+manual switch, which is survivable; **a continuous day/night cycle cannot afford it**, and
+the cycle is in scope for M3. A `readPixels` of a 32×16 probe should be single-digit
+milliseconds on a real driver, so this is very likely another SwiftShader artifact —
+it goes on the M1 real-hardware checkpoint list beside chunk disposal. If it is real, the
+probe has to move off the synchronous path (async readback, or derive the fog terms
+analytically from the same LUT the shader uses rather than reading pixels back).
+
+First load also moved 760 ms → 3,713 ms, the atmosphere step accounting for 2,453 ms of
+it. Still inside constraint 7's 8 s budget, so no IndexedDB cache, but the margin is now
+2.2× rather than 10×.
+
+### Superseded: first pass over-exposed
+
+
+
+The first integration measured badly wrong, which is what prompted closing the gate hole:
 
 | Preset | Sky emits | Preset expects | Ratio | Gate |
 |---|---:|---:|---:|---|
@@ -133,13 +158,8 @@ _None yet._
 | night | 2.0 lux | 3.5 lux | 0.4× | FLAGGED |
 | noon | 14,903 lux | 20,000 lux | 0.75× | pass |
 
-At dusk this blows the frame to white (`docs/shots/sky-corridor-dusk.png`). The module
-carries an `artisticMultiplier` of 28.2, which is the likely cause. **A sky refresh also
-costs 1.5 s** (840 ms of it GPU read-back), which a continuous day/night cycle cannot
-afford. Both are with the wave-2 sky builder, which is regenerating the module under an
-explicit instruction to verify all three presets against the exposures.
-
-The important part is that the gate now catches it. It did not before.
+At dusk this blew the frame to white (`docs/shots/sky-corridor-dusk.png`). The important
+part is that the gate caught it — it would not have before the hole was closed.
 
 ## Sub-agent capacity interruption (2026-08-29 23:0x – 00:00 UTC)
 

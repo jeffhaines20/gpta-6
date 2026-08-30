@@ -124,6 +124,37 @@ export class TimeOfDay {
     this._applyPost();
   }
 
+  // Fog radiance has to survive the camera stop. Whatever the sky hands over is a
+  // physical radiance; what ACES actually receives is radiance x exposure, and
+  // anything much above ~1.5 saturates to white. Measured at dusk: fog 2.14 and
+  // inscatter 6.52, which blew the whole frame while the illuminance ratio gate
+  // still read "pass" - the gate was checking the wrong quantity.
+  //
+  // Fog colour is a look parameter; only its ratio to exposure matters. So it is
+  // renormalised here, preserving hue, after the sky and weather have written.
+  normalisePostExposure() {
+    if (!this.post) return null;
+    const q = this.post.params;
+    const lum = (c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    const fit = (color, target) => {
+      const l = lum(color) * q.exposure;
+      if (l > target && l > 1e-9) color.multiplyScalar(target / l);
+      return l;
+    };
+    // Fog fills most of a wide shot, so it must stay clearly below saturation.
+    // Inscatter only applies in a narrow lobe toward the sun and is allowed to
+    // bloom, which is what a sun behind haze actually does.
+    const before = { fog: lum(q.fogColor) * q.exposure, inscatter: lum(q.fogInscatter) * q.exposure };
+    fit(q.fogColor, 0.85);
+    fit(q.fogInscatter, 2.2);
+    // The sky's physical extinction veils the mid-ground at street level. Real
+    // aerial perspective is far weaker over 300 m of clear air; this keeps depth
+    // separation without turning the district into a white sheet.
+    q.fogDensity = Math.min(q.fogDensity, 0.0009 + this.weather.fogBoost * 0.004);
+    q.fogHeightFalloff = Math.max(q.fogHeightFalloff, 0.02);
+    return { before, after: { fog: lum(q.fogColor) * q.exposure, inscatter: lum(q.fogInscatter) * q.exposure } };
+  }
+
   _applyPost() {
     if (!this.post) return;
     const p = this.preset, pp = p.post;
@@ -247,6 +278,20 @@ export class TimeOfDay {
       flags.push('street lamps are lit at a time of day when they should be off');
     }
 
+    if (this.post) {
+      const q = this.post.params;
+      const lum = (c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+      const fogExposed = lum(q.fogColor) * q.exposure;
+      const insExposed = lum(q.fogInscatter) * q.exposure;
+      // This, not the illuminance ratio, is what decides whether the frame blows
+      // out. ACES saturates above roughly 1.5.
+      if (fogExposed > 1.2) {
+        flags.push(`fog radiance x exposure = ${fogExposed.toFixed(2)}; above ~1.2 the frame washes out`);
+      }
+      if (insExposed > 3.0) {
+        flags.push(`inscatter radiance x exposure = ${insExposed.toFixed(2)}; above ~3.0 the sun lobe blows`);
+      }
+    }
     if (this.skyDome) {
       const skyAudit = this.skyDome.audit();
       for (const f of skyAudit.implausible ?? []) flags.push(`sky: ${f}`);

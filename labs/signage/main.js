@@ -20,6 +20,7 @@ import {
   generateSignageLibrary, signMaterial, streetSignMaterial, setSignageTime,
   buffers as signBuffers, appendBuildingSignage, signPlanFor,
   streetBladeAssembly, regulatorySign, parkingSign, wideSign, planStreetSignage,
+  districtSignageBuffers,
   shopAtlas, streetAtlas, BUSINESSES, REG_SIGNS, TALL_SIGNS, WIDE_SIGNS,
 } from '../../src/signage.js';
 
@@ -85,11 +86,11 @@ const rowLength = cursor;
 const FACING_Z = 30;
 const FACING = [
   { w: 18, d: 12, h: 7.4,  k: 'retail',     gap: 6 },
-  { w: 24, d: 13, h: 9.2,  k: 'commercial', gap: 0 },
+  { w: 24, d: 13, h: 8.8,  k: 'commercial', gap: 0 },
   { w: 13, d: 11, h: 6.6,  k: 'restaurant', gap: 4 },
   { w: 20, d: 12, h: 8.6,  k: 'retail',     gap: 0 },
   { w: 16, d: 12, h: 7.0,  k: 'retail',     gap: 3 },
-  { w: 22, d: 13, h: 9.4,  k: 'commercial', gap: 0 },
+  { w: 22, d: 13, h: 8.9,  k: 'commercial', gap: 0 },
   { w: 15, d: 11, h: 6.9,  k: 'retail',     gap: 5 },
 ];
 let fcursor = 14;
@@ -191,6 +192,49 @@ parkingSign(rowLength * 0.84, 10.0, Math.PI, 'noParking', streetBuf, trimBuf);
 // point is to prove the plan comes out of district.json with sane counts before
 // the streamer wires it in.
 const streetPlan = district ? planStreetSignage(district) : null;
+
+// What signage actually costs the district, measured rather than asserted. Both
+// integration routes are built for real against data/district.json so the number
+// in the HUD is a count of meshes that exist, not an estimate.
+function districtCost() {
+  if (!district) return null;
+  // Route A — signage merged into each near chunk. Costs one draw call per
+  // resident near chunk that holds a signed building, and the streamer keeps a
+  // 5x5 window of chunks at LOD0, so the worst case is the busiest such window.
+  const t0 = performance.now();
+  const signed = new Set();
+  district.buildings.forEach((b, i) => {
+    const style = buildingStyle(b);
+    if (!style.storefront) return;
+    const plan = signPlanFor(b, style, {});
+    if (plan.tenants.length || plan.parapet) signed.add(i);
+  });
+  const chunksWithSigns = new Set();
+  for (const [key, ch] of Object.entries(district.chunks)) {
+    if (ch.buildings.some((i) => signed.has(i))) chunksWithSigns.add(key);
+  }
+  let worst = 0;
+  for (const key of Object.keys(district.chunks)) {
+    const [cx, cz] = key.split(',').map(Number);
+    let n = 0;
+    for (let i = cx - 2; i <= cx + 2; i++) {
+      for (let j = cz - 2; j <= cz + 2; j++) if (chunksWithSigns.has(`${i},${j}`)) n++;
+    }
+    if (n > worst) worst = n;
+  }
+  const perChunkMs = performance.now() - t0;
+
+  // Route B — the whole district in a few spatial buckets, built once at load.
+  const dist = districtSignageBuffers(district, { streetPlan });
+  return {
+    scanMs: +perChunkMs.toFixed(1),
+    signedBuildings: dist.stats.signedBuildings, tenancies: dist.stats.tenancies,
+    chunks: chunksWithSigns.size, totalChunks: Object.keys(district.chunks).length,
+    perChunkWorstCalls: worst + 1,
+    ...dist.stats,
+  };
+}
+const cost = districtCost();
 
 // -------------------------------------------------------- ground and lighting
 const envBuf = facadeBuffers();
@@ -322,11 +366,12 @@ const rackMid = (RACK_X + rackEnd) / 2;
 // belong on the right where nothing covers them.
 const SHOTS = [
   { pos: [rowLength * 0.90, 5.0, 16.5], look: [rowLength * 0.02, 3.4, 14], fov: 54 },
-  // Elevated just enough to clear the facing row (9.4 m max) at z = 30, and far
-  // enough back that all twelve frontages fit the frame.
-  { pos: [rowLength / 2, 42, 150], look: [rowLength / 2, 8, 0], fov: 44 },
+  // Elevated just enough to clear the facing row (9.4 m max) at z = 30, and long
+  // enough in the lens that all twelve frontages fit a letterboxed frame — which
+  // is the shape an elevation actually wants.
+  { pos: [rowLength / 2, 24, 150], look: [rowLength / 2, 7, 0], fov: 26 },
   { pos: [rackMid, 2.9, ROW_A + 15], look: [rackMid, 2.5, ROW_A - 1], fov: 46 },
-  { pos: [78, 4.0, 17], look: [50, 5.0, -2], fov: 44 },
+  { pos: [81, 4.2, 16.5], look: [52, 5.2, -2], fov: 44 },
 ];
 let shot = 0, yaw = 0, pitch = 0, dist = 1;
 function applyShot() {
@@ -438,6 +483,7 @@ function stats() {
     shopAtlas: `${shop.W}x${shop.H} ${(shop.util * 100).toFixed(1)}% ${shop.rects.size} cells`,
     streetAtlas: `${street.W}x${street.H} ${(street.util * 100).toFixed(1)}% ${street.rects.size} cells`,
     streetNames: street.names.length,
+    district: cost,
     plan: streetPlan ? {
       blades: streetPlan.blades.length, stops: streetPlan.stops.length,
       oneWays: streetPlan.oneWays.length, parking: streetPlan.parking.length,
@@ -459,6 +505,9 @@ cost    signage ${s.signageDrawCalls} draw calls, ${s.signageTriangles.toLocaleS
         scene ${s.drawCalls} calls / ${s.triangles.toLocaleString()} tris / ${s.meshes} meshes
         ${s.sceneTextures} textures bound · ${s.programs} programs · ${s.geometryMs} ms geometry
 plan    ${s.plan ? `${s.plan.blades} blades · ${s.plan.stops} stops · ${s.plan.oneWays} one-way · ${s.plan.parking} parking` : 'district.json unavailable'}
+budget  ${s.district ? `${s.district.signedBuildings} signed buildings · ${s.district.tenancies} tenancies · ${s.district.chunks}/${s.district.totalChunks} chunks
+        per-chunk route  +${s.district.perChunkWorstCalls} draw calls worst case (busiest 5x5 near window)
+        district route   +${s.district.drawCalls} draw calls flat · ${(s.district.shopTriangles + s.district.streetTriangles).toLocaleString()} tris · ${s.district.ms} ms` : '—'}
 time    ${s.time} · exposure 1/${Math.round(1 / s.exposure)} · post ${s.post ? 'on' : 'off'}${s.errors.length ? '\nERRORS  ' + s.errors.join('; ') : ''}`;
 }
 

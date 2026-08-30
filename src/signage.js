@@ -34,7 +34,10 @@
 // from data/district.json, which tools/bake/fictionalize.mjs already replaced.
 
 import * as THREE from '../vendor/three.module.min.js';
-import { hash32, rng, seedOf, edgesOf, facingEdges, TRIM, box } from './facades.js';
+import {
+  hash32, rng, seedOf, edgesOf, facingEdges, TRIM, box,
+  buildingStyle as facadeStyle,
+} from './facades.js';
 
 // facades.js owns hash32/rng/seedOf/edgesOf and this module imports rather than
 // reimplements them on purpose. A building's business must be derived from the
@@ -170,37 +173,56 @@ function uvOf(r, W, H) {
   ];
 }
 
-// ------------------------------------------------------------- atlas geometry
+// ------------------------------------------------------- atlas layout & addressing
 //
-// SHOP ATLAS — 2048 px wide, height from the packing (2048 as configured).
-// Bands, in pack order, one run of identical cells each:
+// Two atlases, each a fixed width with the height falling out of the packing.
+// Cells are packed in runs of one size, a shelf break between runs, four texels
+// of gutter around every cell. Measured utilisation is 77.5% and 75.6%; the
+// remainder is the tail of each shelf and is reported by generateSignageLibrary
+// so a future cell-size change cannot quietly waste half a texture.
 //
-//   fascia   448x112  x32   the storefront wordmark plate, ~5.0 m x 1.25 m
-//   valance  448x48   x32   the awning valance strip, ~3.0 m x 0.32 m
-//   blade    112x192  x32   the projecting double-sided sign, ~0.75 m x 1.28 m
-//   mark      56x56   x32   the abstract logo, for door glass and valance ends
-//   stripe   112x112  x10   awning canopy fabric, ten authored colourways
-//   misc      32x32   x4    plate edges and returns
+// SHOP ATLAS — 2048 x 1664 as configured (13.6 MB albedo)
 //
-// STREET ATLAS — 1024 px wide, height from the packing.
+//   band      cell       n    per shelf   shelves   world size
+//   fascia    400x100    32   5           7         ~5.0 x 1.25 m storefront plate
+//   valance   400x44     32   5           7         ~3.0 x 0.34 m awning valance
+//   blade     104x176    32   18          2         ~0.75 x 1.28 m projecting sign
+//   mark       56x56     32   32          1         logo, for glass and valance ends
+//   stripe    104x104    10   18          1  }      awning canopy fabric
+//   misc       32x32      4   (same shelf)   }      plate edges and returns
 //
-//   blade    240x36   xN    one per invented street name in district.json
-//   reg      128x128  x4    octagonal / circular / triangular regulatory faces
-//   tall      96x128  x4    portrait regulatory (parking, speed)
-//   wide     224x64   x4    one-way, wayfinding, address plate
-//   misc      32x32   x4    sign backs and post bands
+// STREET ATLAS — 1024 x 1088 as configured (4.5 MB albedo)
+//
+//   street    248x32     84   4           21        ~1.55 x 0.235 m name blade
+//   reg       128x128     4   } 8 on one shelf      0.76 m octagon / disc / triangle
+//   tall       96x128     4   }                     0.52 x 0.70 m parking, speed
+//   wide      224x64      4   4           1         1.05 x 0.30 m one-way, wayfinding
+//   misc       32x32      4   4           1         sign backs, post bands
+//
+// ADDRESSING. A cell is named "<kind>:<key>" — an index for the per-business shop
+// bands, a sign name for the street bands. shopRect(kind, key) and
+// streetRect(kind, key) turn that into [u0, v0, u1, v1], the quad-UV convention
+// facades.js uses (v0 at the BOTTOM of the cell; canvas rows run top-down and
+// CanvasTexture uploads flipped). streetNameRect(name) resolves an invented street
+// name straight to its blade. Every geometry helper below takes one of those rects
+// and nothing else, so a sign's identity and its geometry never have to agree
+// about anything but four floats.
+//
+// Emissive is half resolution and roughness/metalness a quarter: a glow and a
+// material mask carry no high-frequency detail worth paying for. Total across both
+// atlases including mips: 30.2 MB for every sign the district will ever show.
 
-// One knob for the whole signage budget. Every cell and both atlas widths scale
-// by it, so 0.5 quarters the VRAM in one edit if the real-hardware checkpoint
-// says texture memory is the binding constraint rather than draw calls. Cell
-// sizes are chosen so the runs pack without a horizontal tail: four 400 px
-// fascias fill 2048, eighteen 104 px blades fill it, thirty-two 56 px marks
-// fill it exactly.
+// One knob for the whole signage budget. Both atlas widths and every cell scale
+// by it, so 0.5 quarters the VRAM in a single edit if the M1 real-hardware
+// checkpoint says texture memory is the binding constraint rather than draw
+// calls. Cell widths are chosen to divide their atlas without a horizontal tail:
+// five 400 px fascias and eighteen 104 px blades each fill 2048, four 248 px
+// street blades fill 1024.
 export const ATLAS_SCALE = 1;
 
 const sc = (n) => Math.round(n * ATLAS_SCALE);
-const SHOP_W = sc(2048), STREET_W = sc(1024), PAD = Math.max(2, sc(4));
 const cell = (w, h) => [sc(w), sc(h)];
+const SHOP_W = sc(2048), STREET_W = sc(1024), PAD = Math.max(2, sc(4));
 const CELL = {
   fascia: cell(400, 100), valance: cell(400, 44), blade: cell(104, 176),
   mark: cell(56, 56), stripe: cell(104, 104), misc: cell(32, 32),
@@ -971,48 +993,60 @@ function drawTallSign(L, key, x, y, w, h) {
   const g = L.al.g, e = L.em.g;
   const cx = x + w / 2;
   plateFill(L, x, y, w, h, '#eeece6', 0.44, 0.5);
-  g.save(); e.save();
-  g.textAlign = 'center'; g.textBaseline = 'middle';
-  const border = (ctx, colour) => {
-    ctx.strokeStyle = colour; ctx.lineWidth = Math.max(2, w * 0.035);
-    ctx.strokeRect(x + w * 0.05, y + h * 0.04, w * 0.9, h * 0.92);
+  // Both layers get the SAME artwork, the emissive in muted sheeting values.
+  // Filling the emissive with one flat colour instead — the obvious shortcut —
+  // washes the legend out at night, which is the opposite of what retroreflective
+  // sheeting does: the legend returns light too, just in its own colour.
+  const PAL = {
+    white:  ['#eeece6', 'rgb(196,201,196)'],
+    green:  ['#14532b', 'rgb(38,74,48)'],
+    red:    ['#a8161d', 'rgb(92,26,28)'],
+    ink:    ['#15171b', 'rgb(34,37,40)'],
   };
-  if (key === 'parking') {
-    border(g, '#14532b');
-    g.fillStyle = '#14532b';
-    g.font = FONT.sans(700)(Math.round(h * 0.34));
-    g.fillText('P', cx, y + h * 0.3);
-    g.font = FONT.sans(700)(Math.round(h * 0.1));
-    g.fillText('2 HOUR', cx, y + h * 0.56);
-    g.fillText('8A - 6P', cx, y + h * 0.68);
-    g.fillText('MON - SAT', cx, y + h * 0.8);
-  } else if (key === 'noParking') {
-    border(g, '#a8161d');
-    g.strokeStyle = '#a8161d'; g.lineWidth = Math.max(2, w * 0.055);
-    g.beginPath(); g.arc(cx, y + h * 0.32, w * 0.28, 0, 7); g.stroke();
-    g.fillStyle = '#a8161d';
-    g.font = FONT.sans(700)(Math.round(h * 0.26));
-    g.fillText('P', cx, y + h * 0.32);
-    g.beginPath();
-    g.moveTo(cx - w * 0.22, y + h * 0.22); g.lineTo(cx + w * 0.22, y + h * 0.42); g.stroke();
-    g.font = FONT.sans(700)(Math.round(h * 0.1));
-    g.fillStyle = '#15171b';
-    g.fillText('NO PARKING', cx, y + h * 0.66);
-    g.fillText('ANY TIME', cx, y + h * 0.78);
-  } else {
-    const limit = key === 'speed25' ? '25' : '35';
-    border(g, '#15171b');
-    g.fillStyle = '#15171b';
-    g.font = FONT.sans(700)(Math.round(h * 0.11));
-    g.fillText('SPEED', cx, y + h * 0.18);
-    g.fillText('LIMIT', cx, y + h * 0.31);
-    g.font = FONT.sans(700)(Math.round(h * 0.36));
-    g.fillText(limit, cx, y + h * 0.62);
+  for (const [ci, ctx] of [[0, g], [1, e]]) {
+    const c = (k) => PAL[k][ci];
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    if (ci === 1) { ctx.fillStyle = c('white'); ctx.fillRect(x, y, w, h); }
+    const border = (colour) => {
+      ctx.strokeStyle = colour; ctx.lineWidth = Math.max(2, w * 0.035);
+      ctx.strokeRect(x + w * 0.05, y + h * 0.04, w * 0.9, h * 0.92);
+    };
+    if (key === 'parking') {
+      border(c('green'));
+      ctx.fillStyle = c('green');
+      ctx.font = FONT.sans(700)(Math.round(h * 0.36));
+      ctx.fillText('P', cx, y + h * 0.29);
+      ctx.font = FONT.sans(700)(Math.round(h * 0.115));
+      ctx.fillText('2 HOUR', cx, y + h * 0.56);
+      ctx.fillText('8A - 6P', cx, y + h * 0.69);
+      ctx.fillText('MON - SAT', cx, y + h * 0.82);
+    } else if (key === 'noParking') {
+      border(c('red'));
+      ctx.strokeStyle = c('red'); ctx.lineWidth = Math.max(2, w * 0.06);
+      ctx.beginPath(); ctx.arc(cx, y + h * 0.33, w * 0.29, 0, 7); ctx.stroke();
+      ctx.fillStyle = c('red');
+      ctx.font = FONT.sans(700)(Math.round(h * 0.28));
+      ctx.fillText('P', cx, y + h * 0.33);
+      ctx.beginPath();
+      ctx.moveTo(cx - w * 0.23, y + h * 0.22); ctx.lineTo(cx + w * 0.23, y + h * 0.44);
+      ctx.stroke();
+      ctx.font = FONT.sans(700)(Math.round(h * 0.115));
+      ctx.fillStyle = c('ink');
+      ctx.fillText('NO PARKING', cx, y + h * 0.68);
+      ctx.fillText('ANY TIME', cx, y + h * 0.81);
+    } else {
+      const limit = key === 'speed25' ? '25' : '35';
+      border(c('ink'));
+      ctx.fillStyle = c('ink');
+      ctx.font = FONT.sans(700)(Math.round(h * 0.125));
+      ctx.fillText('SPEED', cx, y + h * 0.18);
+      ctx.fillText('LIMIT', cx, y + h * 0.32);
+      ctx.font = FONT.sans(700)(Math.round(h * 0.4));
+      ctx.fillText(limit, cx, y + h * 0.64);
+    }
+    ctx.restore();
   }
-  // Retroreflective white sheeting reads brightest of all at night.
-  e.fillStyle = 'rgba(198,204,198,1)';
-  e.fillRect(x, y, w, h);
-  g.restore(); e.restore();
 }
 
 function drawWideSign(L, key, x, y, w, h) {
@@ -1054,21 +1088,32 @@ function drawWideSign(L, key, x, y, w, h) {
     e.fillText('ONE WAY', x + w * (dir > 0 ? 0.42 : 0.58), cy + h * 0.02);
   } else if (key === 'wayfind') {
     plateFill(L, x, y, w, h, '#1b4256', 0.46, 0.4);
-    g.fillStyle = '#eef4f6';
-    g.font = FONT.sans(700)(Math.round(h * 0.3));
-    g.fillText('VERANO BAY', x + w * 0.44, cy - h * 0.16);
-    g.font = FONT.sans(400)(Math.round(h * 0.2));
-    g.fillText('MARINA  ¼ MI', x + w * 0.44, cy + h * 0.22);
-    g.beginPath();
-    g.moveTo(x + w * 0.9, cy); g.lineTo(x + w * 0.8, cy - h * 0.2); g.lineTo(x + w * 0.8, cy + h * 0.2);
-    g.closePath(); g.fill();
-    e.fillStyle = 'rgba(52,64,72,1)'; e.fillRect(x, y, w, h);
+    for (const [ci, ctx] of [[0, g], [1, e]]) {
+      ctx.save();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      if (ci === 1) { ctx.fillStyle = 'rgb(42,54,62)'; ctx.fillRect(x, y, w, h); }
+      ctx.fillStyle = ci ? 'rgb(190,200,202)' : '#eef4f6';
+      ctx.font = FONT.sans(700)(Math.round(h * 0.3));
+      ctx.fillText('VERANO BAY', x + w * 0.44, cy - h * 0.16);
+      ctx.font = FONT.sans(400)(Math.round(h * 0.2));
+      ctx.fillText('MARINA  1/4 MI', x + w * 0.44, cy + h * 0.22);
+      ctx.beginPath();
+      ctx.moveTo(x + w * 0.92, cy);
+      ctx.lineTo(x + w * 0.82, cy - h * 0.22); ctx.lineTo(x + w * 0.82, cy + h * 0.22);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
   } else {
     plateFill(L, x, y, w, h, '#20242a', 0.5, 0.2);
-    g.fillStyle = '#e8e4d8';
-    g.font = FONT.sans(700)(Math.round(h * 0.44));
-    g.fillText('1200 - 1298', x + w * 0.5, cy);
-    e.fillStyle = 'rgba(30,34,38,1)'; e.fillRect(x, y, w, h);
+    for (const [ci, ctx] of [[0, g], [1, e]]) {
+      ctx.save();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      if (ci === 1) { ctx.fillStyle = 'rgb(26,30,34)'; ctx.fillRect(x, y, w, h); }
+      ctx.fillStyle = ci ? 'rgb(186,182,170)' : '#e8e4d8';
+      ctx.font = FONT.sans(700)(Math.round(h * 0.44));
+      ctx.fillText('1200 - 1298', x + w * 0.5, cy);
+      ctx.restore();
+    }
   }
   g.restore(); e.restore();
 }
@@ -1461,10 +1506,29 @@ export function fasciaPlate(e, s0, s1, y0, y1, rect, pos, nrm, uv, idx, opts = {
 }
 
 /**
- * A projecting double-sided blade sign with its bracket. The bracket goes into
- * the TRIM buffer, not the signage buffer: it is painted metal, the trim atlas
- * already has painted metal, and routing it there keeps the signage mesh to
- * nothing but sign faces.
+ * Sign hardware — posts, arms, brackets. Where it lands is the whole integration
+ * decision in one function.
+ *
+ * With a `trim` bundle it goes into the facades trim atlas, which the chunk mesh
+ * already binds, so hardware is free. With `trim` null it goes into the signage
+ * buffer against this module's own metal swatch, so a signage mesh is completely
+ * self-contained — which is what lets the whole district's signage be eight
+ * merged meshes instead of one per resident chunk. See districtSignageBuffers().
+ */
+function hardware(sign, trim, rect, cx, cy, cz, sx, sy, sz, tint) {
+  if (trim) {
+    box(cx, cy, cz, sx, sy, sz, trim.pos, trim.nrm, trim.uv, trim.idx,
+      { cell: TRIM.metalDark, col: trim.col, tint: [1, 1, 1] });
+  } else {
+    signBox(cx, cy, cz, sx, sy, sz, rect, sign.pos, sign.nrm, sign.uv, sign.idx,
+      { col: sign.col, tint });
+  }
+}
+
+/**
+ * A projecting double-sided blade sign with its bracket. Pass a `trim` bundle and
+ * the bracket costs nothing — it is painted metal and the trim atlas already has
+ * painted metal. Pass null and it rides in the signage mesh; see hardware().
  *
  * @param {Object} e    edge from edgesOf()
  * @param {number} s    distance along the edge
@@ -1477,17 +1541,14 @@ export function bladeSign(e, s, yTop, w, h, rect, sign, trim, opts = {}) {
   signPanel([px, yTop - h / 2, pz], [e.nx, 0, e.nz], [0, 1, 0], w, h, rect,
     sign.pos, sign.nrm, sign.uv, sign.idx,
     { col: sign.col, tint: opts.tint, doubleSided: true, normal: [-e.tx, 0, -e.tz] });
-  if (!trim) return;
-  const tArgs = { cell: TRIM.metalDark, col: trim.col, tint: [1, 1, 1] };
-  // Arm out from the wall plus a diagonal tie, both as thin boxes.
+  // Arm out from the wall plus a wall plate, both as thin boxes.
+  const hw = shopRect('misc', 'plateEdge');
   const armLen = gap + w;
-  box(cx + e.nx * armLen * 0.5, yTop + 0.08, cz + e.nz * armLen * 0.5,
-    Math.abs(e.nx) * armLen + 0.05, 0.05, Math.abs(e.nz) * armLen + 0.05,
-    trim.pos, trim.nrm, trim.uv, trim.idx, tArgs);
-  box(cx + e.nx * 0.06, yTop - h * 0.5, cz + e.nz * 0.06,
+  hardware(sign, trim, hw, cx + e.nx * armLen * 0.5, yTop + 0.08, cz + e.nz * armLen * 0.5,
+    Math.abs(e.nx) * armLen + 0.05, 0.05, Math.abs(e.nz) * armLen + 0.05, opts.tint);
+  hardware(sign, trim, hw, cx + e.nx * 0.06, yTop - h * 0.5, cz + e.nz * 0.06,
     Math.abs(e.tx) * 0.09 + Math.abs(e.nx) * 0.12, h + 0.2,
-    Math.abs(e.tz) * 0.09 + Math.abs(e.nz) * 0.12,
-    trim.pos, trim.nrm, trim.uv, trim.idx, tArgs);
+    Math.abs(e.tz) * 0.09 + Math.abs(e.nz) * 0.12, opts.tint);
 }
 
 /**
@@ -1536,13 +1597,10 @@ export function awning(e, s0, s1, head, stripeRect, valanceRect, sign, trim, opt
     [p0[0], head + 0.02, p0[1]], [sx, 0, sz], stripeRect, col, t);
   side(a0, f0, -e.tx, -e.tz);
   side(a1, f1, e.tx, e.tz);
-  if (trim) {
-    const mx = (a0[0] + a1[0]) / 2, mz = (a0[1] + a1[1]) / 2;
-    box(mx + e.nx * out * 0.5, yTop - 0.14, mz + e.nz * out * 0.5,
-      Math.abs(e.nx) * out + 0.05, 0.05, Math.abs(e.nz) * out + 0.05,
-      trim.pos, trim.nrm, trim.uv, trim.idx,
-      { cell: TRIM.metalDark, col: trim.col, tint: [1, 1, 1] });
-  }
+  const mx = (a0[0] + a1[0]) / 2, mz = (a0[1] + a1[1]) / 2;
+  hardware(sign, trim, shopRect('misc', 'plateEdge'),
+    mx + e.nx * out * 0.5, yTop - 0.14, mz + e.nz * out * 0.5,
+    Math.abs(e.nx) * out + 0.05, 0.05, Math.abs(e.nz) * out + 0.05, opts.tint);
 }
 
 /**
@@ -1566,10 +1624,10 @@ export function postSign(x, z, yaw, yMid, w, h, rect, sign, trim, opts = {}) {
   signPanel(c, rt, [0, 1, 0], w, h, rect, sign.pos, sign.nrm, sign.uv, sign.idx,
     { col: sign.col, tint: opts.tint, doubleSided: opts.doubleSided !== false,
       normal: [nx, 0, nz] });
-  if (trim && opts.post !== false) {
+  if (opts.post !== false) {
     const top = opts.postTop ?? yMid + h / 2;
-    box(x, top / 2, z, 0.075, top, 0.075, trim.pos, trim.nrm, trim.uv, trim.idx,
-      { cell: TRIM.metalDark, col: trim.col, tint: [1, 1, 1] });
+    hardware(sign, trim, streetRect('misc', 'postBand'),
+      x, top / 2, z, 0.075, top, 0.075, opts.tint);
   }
 }
 
@@ -1584,13 +1642,12 @@ export function streetBladeAssembly(x, z, yaw, names, sign, trim, opts = {}) {
   const w = opts.width ?? 1.55, h = opts.bladeHeight ?? 0.235;
   names.slice(0, 2).forEach((name, i) => {
     const a = yaw + i * Math.PI / 2;
+    // post: false — the assembly carries ONE pole for both blades, below.
     postSign(x, z, a, y - i * (h + 0.07), w, h, streetNameRect(name), sign, null,
-      { doubleSided: true, offset: 0, tint: opts.tint });
+      { doubleSided: true, offset: 0, post: false, tint: opts.tint });
   });
-  if (trim) {
-    box(x, y * 0.5 + 0.15, z, 0.085, y + 0.3, 0.085, trim.pos, trim.nrm, trim.uv, trim.idx,
-      { cell: TRIM.metalDark, col: trim.col, tint: [1, 1, 1] });
-  }
+  hardware(sign, trim, streetRect('misc', 'postBand'),
+    x, y * 0.5 + 0.15, z, 0.085, y + 0.3, 0.085, opts.tint);
 }
 
 /** A regulatory face (stop / do-not-enter / yield / no-left-turn) on a post. */
@@ -1602,7 +1659,7 @@ export function regulatorySign(x, z, yaw, key, sign, trim, opts = {}) {
 
 /** A portrait regulatory sign: parking, no-parking, speed limit. */
 export function parkingSign(x, z, yaw, key, sign, trim, opts = {}) {
-  const w = opts.width ?? 0.46, h = opts.height ?? 0.62;
+  const w = opts.width ?? 0.52, h = opts.height ?? 0.70;
   postSign(x, z, yaw, opts.y ?? 2.25, w, h, streetRect('reg', key), sign, trim,
     { doubleSided: true, postTop: (opts.y ?? 2.25) + h / 2, tint: opts.tint });
 }
@@ -1704,7 +1761,8 @@ export function signPlanFor(b, style, opts = {}) {
  * @param {Object} b      district.json building
  * @param {Object} style  facades.js buildingStyle result
  * @param {Object} sign   buffer bundle for the signage material
- * @param {Object} trim   buffer bundle for the facades trim material (posts, arms)
+ * @param {Object} trim   buffer bundle for the facades trim material, for posts
+ *                        and brackets; null keeps that hardware in `sign`
  * @returns {{signs:number, emitters:Array}}  emitters are lit-sign positions for
  *          a LightPool, in the candela range daynight.js calls plausible for shops
  */
@@ -1916,6 +1974,83 @@ export function planStreetSignage(district, opts = {}) {
     }
   }
   return { blades, stops, oneWays, parking };
+}
+
+/**
+ * Every sign in the district, bucketed into a handful of spatial cells.
+ *
+ * This is the recommended integration and the reason hardware() exists. Signage
+ * is ~19k triangles for the WHOLE district on two shared textures — 5% of the
+ * triangle warn threshold — so streaming it per chunk buys nothing and costs a
+ * draw call for every resident near chunk. Measured on data/district.json: the
+ * busiest 5x5 near-chunk window holds 25 chunks with signed buildings, so the
+ * per-chunk route costs +26 draw calls, while six 512 m buckets plus one
+ * district-wide street mesh cost +7 and never touch the chunk build budget.
+ *
+ * Buckets exist at all so frustum culling still has something to work with; one
+ * mesh for the district would be one draw call but never cullable.
+ *
+ * Pass `trim` bundles per bucket only if you intend to mesh hardware against the
+ * facades trim atlas as well; the default keeps everything in the signage mesh.
+ *
+ * @param {Object} district  parsed data/district.json
+ * @param {{bucketM?:number, styleOf?:Function, streetPlan?:Object,
+ *          streetDirFor?:Function}} opts  streetDirFor(b) -> [dx,dz], the same
+ *          street direction the streamer passes to appendBuilding
+ * @returns {{buckets:Array, street:Object, stats:Object}}
+ */
+export function districtSignageBuffers(district, opts = {}) {
+  const bucketM = opts.bucketM ?? 512;
+  const styleOf = opts.styleOf ?? defaultStyleOf;
+  const t0 = performance.now();
+  const buckets = new Map();
+  const bucketFor = (x, z) => {
+    const key = `${Math.floor(x / bucketM)},${Math.floor(z / bucketM)}`;
+    if (!buckets.has(key)) buckets.set(key, { key, sign: buffers(), signs: 0, emitters: [] });
+    return buckets.get(key);
+  };
+
+  let signed = 0, tenancies = 0;
+  for (const b of district.buildings) {
+    const style = styleOf(b);
+    if (!style || !style.storefront) continue;
+    const plan = signPlanFor(b, style, { street: opts.streetDirFor?.(b) });
+    if (!plan.tenants.length && !plan.parapet) continue;
+    const bk = bucketFor(b.p[0][0], b.p[0][1]);
+    const res = appendBuildingSignage(b, style, bk.sign, null, { plan });
+    bk.signs += res.signs;
+    bk.emitters.push(...res.emitters);
+    signed++; tenancies += plan.tenants.length;
+  }
+
+  // Street signage stays one mesh: it is sparse, district-wide and 9k triangles,
+  // exactly the case streetfurniture.js already answers this way for lamp posts.
+  const street = buffers();
+  const plan = opts.streetPlan ?? planStreetSignage(district, opts);
+  const sres = appendStreetSignage(plan, street, null, opts);
+
+  const tri = (buf) => buf.idx.length / 3;
+  let shopTris = 0;
+  for (const bk of buckets.values()) shopTris += tri(bk.sign);
+  return {
+    buckets: [...buckets.values()],
+    street,
+    stats: {
+      ms: +(performance.now() - t0).toFixed(1),
+      signedBuildings: signed, tenancies,
+      buckets: buckets.size, bucketM,
+      shopSigns: [...buckets.values()].reduce((a, b) => a + b.signs, 0),
+      streetSigns: sres.signs,
+      shopTriangles: shopTris, streetTriangles: tri(street),
+      drawCalls: buckets.size + 1,
+    },
+  };
+}
+
+function defaultStyleOf(b) {
+  // Imported lazily through the module's own facades dependency so callers that
+  // already computed a style (the streamer does) can inject theirs instead.
+  return facadeStyle(b);
 }
 
 /**

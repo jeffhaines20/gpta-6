@@ -65,7 +65,7 @@ void main() {
   float speed = uFallSpeed * (0.72 + 0.56 * aSeed.w);
   float fall = mod(aSeed.y * uExtent.y - uTime * speed, uExtent.y);
   float age = (uExtent.y - fall) / speed;
-  vec3 world = uCenter + vec3(aSeed.x * uExtent.x, fall - uExtent.y * 0.28, aSeed.z * uExtent.x);
+  vec3 world = uCenter + vec3(aSeed.x * uExtent.x, fall - uExtent.y * 0.16, aSeed.z * uExtent.x);
   world.xz += uWind.xz * age;
 
   vec4 mv = viewMatrix * vec4(world, 1.0);
@@ -81,7 +81,7 @@ void main() {
   mv.xy += perp * (position.x * uStreak.x) + axis * (position.y * stretch);
 
   // Drops crossing the near plane become full-screen smears; fade them out first.
-  vFade = smoothstep(0.7, 3.5, -mv.z) * (1.0 - smoothstep(0.55, 1.0, fall / uExtent.y));
+  vFade = smoothstep(0.7, 3.5, -mv.z) * (1.0 - smoothstep(0.72, 1.0, fall / uExtent.y));
   vUv = uv;
   gl_Position = projectionMatrix * mv;
 }
@@ -210,16 +210,30 @@ export function wetSurfaceParams(wetness) {
   return { roughnessScale: 1 - 0.62 * w, albedoScale: 1 - 0.34 * w, envBoost: 1 + 0.9 * w };
 }
 
+/**
+ * Floor on the roughness a wet surface may be driven to.
+ *
+ * This is not a look decision. three's GGX peak is D = 1/(pi * roughness^4), and
+ * the scene renders into a HALF-FLOAT target whose ceiling is 65,504. A
+ * dielectric under the noon preset's 100,000 lux sun overflows that ceiling below
+ * roughness 0.26; the overflow arrives as a NaN, post.js's bloom blur spreads a
+ * single NaN texel into a ~50 px block, and the composite writes it out black.
+ * Wet asphalt at roughness 0.7 lands at 0.27 dry-scaled, i.e. just clear of it,
+ * so this floor costs nothing visible and stops the wet look from manufacturing
+ * black squares in daylight. The real fix is a NaN guard in the bright pass.
+ */
+export const MIN_WET_ROUGHNESS = 0.26;
+
 export class Weather {
   /**
    * @param {THREE.Scene} scene
    * @param {object} [opts]
    * @param {import('./sky.js').Sky} [opts.sky]   pushed overcast/turbidity/fog boost
-   * @param {number} [opts.maxDrops=9000]         streak instances allocated once
-   * @param {number} [opts.maxSplashes=900]       ripple instances allocated once
-   * @param {number} [opts.radius=26]             half-extent of the rain volume, m
-   * @param {number} [opts.height=26]             vertical extent of the volume, m
-   * @param {number} [opts.splashRadius=22]       ripple spread around the camera, m
+   * @param {number} [opts.maxDrops=12000]        streak instances allocated once
+   * @param {number} [opts.maxSplashes=1400]      ripple instances allocated once
+   * @param {number} [opts.radius=13]             half-extent of the rain volume, m
+   * @param {number} [opts.height=17]             vertical extent of the volume, m
+   * @param {number} [opts.splashRadius=15]       ripple spread around the camera, m
    * @param {number} [opts.groundY=0]             splash plane height
    * @param {number} [opts.fallSpeed=8.5]         m/s; a 2 mm drop terminates near 6.5
    * @param {string} [opts.state='clear']
@@ -228,11 +242,14 @@ export class Weather {
   constructor(scene, opts = {}) {
     this.scene = scene;
     this.sky = opts.sky ?? null;
-    this.maxDrops = opts.maxDrops ?? 9000;
-    this.maxSplashes = opts.maxSplashes ?? 900;
-    this.radius = opts.radius ?? 26;
-    this.height = opts.height ?? 26;
-    this.splashRadius = opts.splashRadius ?? 22;
+    this.maxDrops = opts.maxDrops ?? 12000;
+    this.maxSplashes = opts.maxSplashes ?? 1400;
+    // Screen density is drops per cubic metre, not drop count. A 52 m box needs
+    // 40x the instances of a 26 m one to look the same, and every extra instance
+    // is vertices the streamer could have spent on the district.
+    this.radius = opts.radius ?? 13;
+    this.height = opts.height ?? 17;
+    this.splashRadius = opts.splashRadius ?? 15;
     this.groundY = opts.groundY ?? 0;
     this.fallSpeed = opts.fallSpeed ?? 8.5;
     this.dropLuminanceScale = opts.dropLuminanceScale ?? 0.85;
@@ -473,7 +490,7 @@ export class Weather {
     ru.uTime.value = this.time;
     ru.uCenter.value.set(pos.x, pos.y, pos.z);
     ru.uWind.value.copy(this.wind);
-    ru.uOpacity.value = 0.55 * Math.min(1, this.current.rain * 1.6);
+    ru.uOpacity.value = 0.62 * Math.min(1, this.current.rain * 1.9);
     // Longer streaks as it gets heavier: the eye reads streak length as rain rate
     // more readily than it reads drop count.
     ru.uStreak.value.set(0.016 + 0.010 * this.current.rain, 0.34 + 0.62 * this.current.rain);
@@ -486,8 +503,8 @@ export class Weather {
     // camera. The jump is 2 m once per 2 m travelled, over a 0.4 s lifetime.
     su.uCenter.value.set(Math.round(pos.x / 2) * 2, pos.y, Math.round(pos.z / 2) * 2);
     su.uGroundY.value = this.groundY;
-    su.uOpacity.value = 0.5 * this.current.splash;
-    su.uMaxSize.value = 0.26 + 0.2 * this.current.splash;
+    su.uOpacity.value = 0.85 * this.current.splash;
+    su.uMaxSize.value = 0.34 + 0.26 * this.current.splash;
     this.splashes.geometry.instanceCount = Math.round(this.maxSplashes * this.current.splash);
     this.splashes.visible = this.current.splash > 0.005;
 
@@ -565,7 +582,9 @@ export class Weather {
     this._lastAppliedWetness = this.wetness;
     for (const b of this._bound) {
       const { roughnessScale, albedoScale, envBoost } = wetSurfaceParams(this.wetness * b.share);
-      if (b.mat.roughness !== undefined) b.mat.roughness = b.roughness * roughnessScale;
+      if (b.mat.roughness !== undefined) {
+        b.mat.roughness = Math.max(MIN_WET_ROUGHNESS, b.roughness * roughnessScale);
+      }
       if (b.color) b.mat.color.setRGB(b.color.r * albedoScale, b.color.g * albedoScale, b.color.b * albedoScale);
       if (b.mat.envMapIntensity !== undefined) b.mat.envMapIntensity = b.envMapIntensity * envBoost;
     }

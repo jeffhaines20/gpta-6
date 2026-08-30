@@ -290,6 +290,9 @@ function animate(now) {
   weather.update(dt, camera);
   weather.applyToPost(post);
   weather.applyToSky(sky);
+  // Runs last: the sky and weather both write fog terms as physical radiance, and
+  // only after both have written can it be checked against the camera stop.
+  tod.normalisePostExposure();
   lightPool.update(camera.position, tod.preset.lampsOn ? 1 : 0);
 
   // --- character
