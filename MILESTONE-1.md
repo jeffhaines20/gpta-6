@@ -1,6 +1,31 @@
 # Milestone 1 — Textured District
 
-**Status: reached. All four gates PASS. Two open items for your real-hardware check.**
+> ## ⚠ CORRECTED 2026-08-30 — read [`MILESTONE-REVIEW.md`](MILESTONE-REVIEW.md) first
+>
+> **"All four gates PASS" rests on a single sample and does not reproduce.** An
+> independent verifier re-ran the same commit (`441faee`) and measured the chunk stall at
+> **8.4 ms (WARN)** where this document reports 6.4 ms (PASS). Across eleven serial runs
+> the stall metric spans PASS, WARN and FAIL on unchanged code. Draw calls and triangles
+> reproduce to within 4%; only the timing metric is unstable. The honest verdict for M1 is
+> **PASS-or-WARN depending on the run**, and stall verdicts now require N≥5 reported as
+> median and p80 (`PROGRESS.md`).
+>
+> Three smaller corrections, all found by independent audit:
+> - §1 "28.7 MB" of textures → recomputed **25.42 MB** (stale from a texture-shrink commit
+>   that predates this report; errs against the project).
+> - §1 the shared surface-array material covers **far-LOD** buildings, not "every
+>   building" — near LOD uses the facade kit.
+> - §1 balconies are real but survive the perf cap on only **6 of 523** buildings.
+> - §2 the chunk-loads sentence blends two different runs: 257 loads / 1.41 per s / 414
+>   swaps come from the superseded `8005ea4` run (whose stall was 9.4 ms, not the 6.0
+>   quoted two lines above), and "5,100 m" is the chase harness's distance. The real M1
+>   figures are **310 loads / 1.38 per s / 522 swaps / 7,691 m**.
+>
+> The M1 acceptance table is otherwise accurate: 18 materials / 20 textures / 34 array
+> layers, 7 facade recipes and 6 post passes were each independently recomputed and match
+> exactly, and no module claimed as landed is an orphan.
+
+**Status: reached, with the gate caveat above. Two open items for your real-hardware check.**
 Phase 2 is paused here per the milestone rule. Nothing proceeds to M2 without your
 **CONTINUE**.
 

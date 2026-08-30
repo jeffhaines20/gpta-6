@@ -1,8 +1,25 @@
 # Milestone 2 — Living Streets
 
-**Status: traffic AI delivered and measured. The budget gate FAILS on chunk stall,
-and that failure is an escalation, not a footnote.** Phase 2 is paused here. Nothing
-proceeds to M3 without your **CONTINUE**.
+> ## ⚠ CORRECTED 2026-08-30 — read [`MILESTONE-REVIEW.md`](MILESTONE-REVIEW.md) first
+>
+> An independent reviewer round found this document materially overstated in three
+> places. Corrections are inline below, marked **CORRECTED**. In summary:
+>
+> - The **overlap acceptance criterion was not met** as originally claimed. The
+>   "14.6% at 30 cars, −59%" figure compared a *chase-harness* number against a
+>   *drive-through* baseline; measured like-for-like the traffic AI was 26.7% against
+>   the stub's 27.0% — indistinguishable. It **is** met now, but only after a bug fix.
+> - **"Same-edge overlaps: 0 — eliminated" was refuted at 7.**
+> - The gate FAIL and the 64.3% overlap were largely **a permanent junction
+>   reservation leak**, not the junction-capacity limit and HUD garbage this document
+>   blamed. Both diagnoses were wrong.
+>
+> The disproof of the leak was sitting in this milestone's own committed evidence
+> (`junctionsHeld: 139` against `alive: 59`) and was not read.
+
+**Status: traffic AI delivered and measured. After the reviewer round and the junction
+leak fix, the budget gate no longer fails — median 8.5 ms over N=5, no FAIL in five
+runs.** Phase 2 remains paused here. Nothing proceeds to M3 without your **CONTINUE**.
 
 Ledger: [`PROGRESS.md`](PROGRESS.md) · Progress page: [`docs/progress.html`](docs/progress.html)
 
@@ -15,12 +32,38 @@ Ledger: [`PROGRESS.md`](PROGRESS.md) · Progress page: [`docs/progress.html`](do
 | Traffic AI with **following distance** | **done** — Intelligent Driver Model. Platoons form and dissolve; 9.6% of car-frames are actively braking for a leader. |
 | Traffic AI with **intersections** | **done** — one-vehicle-at-a-time junction reservation, held until the car is clear along its *new* edge. 32.7% of car-frames are queued at a junction. |
 | Traffic AI with **dead-end routing** | **done** — cul-de-sacs U-turn instead of despawning. 23 dead ends, 18 U-turns over the run. |
-| **Overlap rate vs the 35.4% stub baseline** | **14.6% at 30 cars** — see below. |
-| Chase harness worst case with gate metrics | **done, and it FAILS** — see §3. |
+| **Overlap rate vs the stub baseline** | **CORRECTED.** Originally claimed 14.6% at 30 cars vs 35.4%, which was not like-for-like. Re-measured in the harness the baseline came from, N=5: **median 7.1%** (p80 7.9, range 2.0–9.7) against the stub's **27.0%** in that same harness — **−74%**. Criterion met, but only after the junction leak fix. `docs/measurements/junction-leak-fix.json` |
+| Chase harness worst case with gate metrics | **CORRECTED.** Originally "done, and it FAILS" on a single 18.5 ms sample. N=5 after the leak fix: stall **median 8.5 ms, p80 8.7, max 9.9**, no FAIL in five runs. `docs/measurements/chase-after-leak-fix.json` |
 
 ---
 
 ## 2. The overlap number
+
+> **CORRECTED 2026-08-30.** The sentence below claiming "measured like-for-like, same
+> definition, same fleet size" was **false on the harness**. The 35.4% baseline came from
+> `drive-through --traffic`; the 14.6% came from the *chase harness*. Fleet size and
+> overlap definition were indeed identical, but the harness alone moves the number by
+> 2.1×. The repo also already contained a newer 27.0% stub run in `docs/drive-traffic.json`
+> that was never compared against, and the 14.6% figure had no committed artifact at all.
+> **"Same-edge overlaps: 0 — eliminated" was refuted at 7** — the classifier tests
+> `overlapNearJunction` first and only classifies the single worst pair per frame, so a
+> same-edge overlap within 13 m of a junction was silently bucketed as near-junction.
+>
+> Re-measured in the harness the baseline actually came from, 30 cars, N=5, after the
+> junction reservation leak fix:
+>
+> | 30 cars, `drive-through --traffic` | overlap % | same-edge |
+> |---|---:|---:|
+> | Stub, `4bc2485` — the originally cited baseline | 35.4 | — |
+> | Stub, `441faee` — later re-run, still the stub | 27.0 | — |
+> | Traffic AI **before** the leak fix | 26.7 | 7 |
+> | **Traffic AI after the fix — median of 5** | **7.1** | **0 in all five** |
+>
+> Against the 27.0% baseline in the same harness that is **−74%**, and same-edge overlap
+> really is zero across five runs. The criterion is met. It was not met when this document
+> claimed it was. Evidence: `docs/measurements/junction-leak-fix.json`.
+
+The original text follows, unedited:
 
 The stub baseline was 35.4% of frames with at least one pair of cars inside 2.5 m,
 measured with **30 vehicles**. Measured like-for-like, same definition, same fleet size:
@@ -69,15 +112,36 @@ Both are recorded in the code so nobody re-tries them:
 ### Budget gate, worst case (60 civilian + 10 pursuit, dusk, route at speed)
 
 ```
-BUDGET GATE: FAIL
+BUDGET GATE: FAIL            <- as originally reported, from ONE sample
   PASS draw calls             151   warn 200   fail 320   headroom 52.8%
   PASS triangles            74064   warn 400k  fail 900k  headroom 91.8%
   FAIL chunk stall ms        18.5   warn 8     fail 16    headroom -15.6%
   PASS heap growth MB         -10   warn 40    fail 120   headroom 108.3%
 ```
 
-**This is escalation condition (a): a budget gate failing again after documented strategy
-changes.** Per your rule I am stopping here rather than continuing to M3.
+> **CORRECTED 2026-08-30.** Two things were wrong with the block above.
+>
+> **First, one sample cannot decide this threshold.** Re-runs on *unchanged* code
+> measured 7.6, 12.0 and 24.2 ms — spanning PASS, WARN and FAIL. The 18.5 ms above is
+> one draw from that distribution, and it happened to be an unfavourable one. (M1 has
+> the mirror-image problem: it drew 6.4 ms and declared "all four gates PASS", where a
+> re-run of the same commit measured 8.4 ms WARN.) Stall verdicts now require N≥5
+> reported as median and p80 — logged in `PROGRESS.md`.
+>
+> **Second, the cause diagnosed below is wrong.** It was substantially a permanent
+> junction reservation leak in `src/traffic.js`, not chunk-streaming pressure and not
+> HUD garbage. After the fix, N=5 on this same harness:
+>
+> ```
+> chunk stall ms   median 8.5   p80 8.7   range 7.2–9.9   (was 7.6–24.2)
+> draw calls p95   median 148   range 148–149
+> gates            WARN ×4, PASS ×1 — no FAIL in five runs
+> ```
+>
+> The stall *variance* also fell from 3.2× to 1.4×: cars had been freezing at
+> permanently-locked junctions, which made the streaming workload erratic. **The
+> escalation is withdrawn.** The §3 analysis below is kept as written, unedited, because
+> the reasoning it demonstrates is the reasoning that missed the real cause.
 
 ### What is actually causing it — isolated, not guessed
 
