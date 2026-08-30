@@ -228,11 +228,29 @@ export class TimeOfDay {
     }
     if (this.furniture) this.furniture.setLit(p.lampsOn);
     if (this.world && this.world.setFacadeTime) this.world.setFacadeTime(name);
-    if (this.lightPool) this.lightPool.update({ x: 0, y: 0, z: 0 }, p.lampsOn ? 1 : 0);
+    // Rescale the pool for the new time of day WITHOUT re-selecting which emitters
+    // are lit. This used to pass { x: 0, y: 0, z: 0 }, so applying a preset re-pinned
+    // all ten lights to the WORLD ORIGIN. main.js updates the pool correctly against
+    // camera.position every frame, but tod.apply() ran after it and overwrote the
+    // selection - and the hero-shot harness calls setTimeOfDay immediately before it
+    // captures, so every critique frame this project has ever produced had its street
+    // lamps pinned to (0,0,0).
+    //
+    // Measured at the night hero camera: nearest emitter 62 m, lights actually lit at
+    // 298-491 m, all outside both the lamps' own 46 m falloff and the pool's 130 m
+    // maxDistance. Two blind critics independently reported "there is no street
+    // lighting" and "no pools of light beneath lamps" as their single highest-leverage
+    // note. They were right, and the light-pool report - 233 emitters, 7 active -
+    // said the system was healthy the whole time.
+    if (this.lightPool) this.lightPool.update(this._followPos ?? { x: 0, y: 0, z: 0 },
+      p.lampsOn ? 1 : 0);
     return p;
   }
 
   follow(pos) {
+    // Remember where the viewer is. apply() needs it to rescale the light pool
+    // without re-pinning every lamp to the world origin - see the note there.
+    this._followPos = { x: pos.x, y: pos.y, z: pos.z };
     const p = this.preset, d = 400;
     this.sun.position.set(
       pos.x + Math.cos(p.azimuth) * Math.cos(p.elevation) * d,

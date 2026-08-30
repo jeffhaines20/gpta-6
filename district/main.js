@@ -116,20 +116,40 @@ await loading
 // calls, and 233 simultaneous PointLights would be a per-fragment loop of 233 on
 // real hardware. Geometry is instanced (3 draw calls total) and only the nearest
 // LIGHT_POOL_SIZE emitters are ever real lights.
-const furniture = new StreetFurniture(scene, { max: 400 });
+// 2026-08-30: lamp coverage raised from 233 to ~1000.
+//
+// Two blind night critics independently made "there is no street lighting" their
+// single highest-leverage note. Measured, they were right, and not in the way the
+// audit suggested: the pool reported 233 emitters with 7 active, so the system
+// looked healthy. Disabling EVERY point light changed 0.5% of pixels (mean
+// |diff| 0.085/255) - the lamps were lighting nothing.
+//
+// Cause: the district carries 44,110 m of street centreline, so 233 lamps is one
+// every 189 m against a real-world 25-30 m, and because the loop alternates sides
+// each pavement got one every ~380 m. The nearest emitter to the night camera
+// measured 132.7 m away against a 46 m falloff cutoff and the pool's own 130 m
+// maxDistance - every lamp in the district was outside its own radius AND outside
+// the selection range. Four caps compounded to produce that: a named-edge filter,
+// slice(0, 240), placed < 320, and max: 400.
+//
+// Lamps cost 3 draw calls at any count (they are InstancedMeshes) and the pool
+// still promotes only 10 emitters to real lights, so the price of this is
+// triangles and nothing else.
+const furniture = new StreetFurniture(scene, { max: 1200 });
 const lightPool = new LightPool(scene, { size: 10, maxDistance: 130 });
 {
+  // Every drivable edge, not just the named ones, and no slice: an unnamed
+  // service street is still a street the player drives down at night.
   const arterials = district.edges
     .map((e, i) => ({ e, i }))
-    .filter(({ e }) => e.r <= 6 && e.n)
-    .slice(0, 240);
+    .filter(({ e }) => e.r <= 6);
   let placed = 0;
   for (const { e } of arterials) {
-    for (let k = 0; k < e.v.length - 1 && placed < 320; k++) {
+    for (let k = 0; k < e.v.length - 1 && placed < 1100; k++) {
       const a = district.verts[e.v[k]], b = district.verts[e.v[k + 1]];
       const len = Math.hypot(b.x - a.x, b.z - a.z);
-      const n = Math.floor(len / 30);
-      for (let s = 1; s <= n && placed < 320; s++) {
+      const n = Math.floor(len / 26);
+      for (let s = 1; s <= n && placed < 1100; s++) {
         const f = s / (n + 1);
         const x = a.x + (b.x - a.x) * f, z = a.z + (b.z - a.z) * f;
         const side = s % 2 ? 1 : -1;

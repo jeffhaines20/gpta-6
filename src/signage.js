@@ -1456,9 +1456,20 @@ export function signPanel(c, rt, up, w, h, rect, pos, nrm, uv, idx, opts = {}) {
   const q = opts.mirror ? [rect[2], rect[1], rect[0], rect[3]] : rect;
   quad(pos, nrm, uv, idx, P(-1, -1), P(1, -1), P(1, 1), P(-1, 1), n, q, opts.col, opts.tint);
   if (opts.doubleSided) {
+    // The BACK of a sign is blank aluminium, not the artwork again.
+    //
+    // This used to sample the FRONT rect with u0/u1 swapped, so standing behind a
+    // stop sign showed a red octagon reading "POTS", and behind a shopfront blade
+    // showed its wordmark reversed. A blind critic caught both in one frame. The
+    // atlas has carried `signBack` and `bladeBack` cells since it was authored -
+    // the comment at the top of this file lists them as "sign backs" - they were
+    // simply never wired to the face that needs them.
+    //
+    // Callers that genuinely want art on both sides (a hanging blade read from
+    // either side of a street) pass backRect explicitly.
+    const back = opts.backRect ?? (opts.mirror ? rect : [rect[2], rect[1], rect[0], rect[3]]);
     quad(pos, nrm, uv, idx, P(1, -1), P(-1, -1), P(-1, 1), P(1, 1),
-      [-n[0], -n[1], -n[2]], opts.mirror ? rect : [rect[2], rect[1], rect[0], rect[3]],
-      opts.col, opts.tint);
+      [-n[0], -n[1], -n[2]], back, opts.col, opts.tint);
   }
 }
 
@@ -1648,6 +1659,7 @@ export function postSign(x, z, yaw, yMid, w, h, rect, sign, trim, opts = {}) {
   const c = [x + rt[0] * off + nx * stand, yMid, z + rt[2] * off + nz * stand];
   signPanel(c, rt, [0, 1, 0], w, h, rect, sign.pos, sign.nrm, sign.uv, sign.idx,
     { col: sign.col, tint: opts.tint, doubleSided: opts.doubleSided !== false,
+      backRect: opts.backRect ?? streetRect('misc', 'signBack'),
       normal: [nx, 0, nz] });
   if (opts.post !== false) {
     const top = opts.postTop ?? yMid + h / 2;
@@ -1669,7 +1681,8 @@ export function streetBladeAssembly(x, z, yaw, names, sign, trim, opts = {}) {
     const a = yaw + i * Math.PI / 2;
     // post: false — the assembly carries ONE pole for both blades, below.
     postSign(x, z, a, y - i * (h + 0.07), w, h, streetNameRect(name), sign, null,
-      { doubleSided: true, offset: 0, post: false, tint: opts.tint });
+      { doubleSided: true, offset: 0, post: false, tint: opts.tint,
+        backRect: streetRect('misc', 'bladeBack') });
   });
   hardware(sign, trim, streetRect('misc', 'postBand'),
     x, (y + 0.3 - GROUND_EMBED) / 2, z, 0.085, y + 0.3 + GROUND_EMBED, 0.085, opts.tint);
