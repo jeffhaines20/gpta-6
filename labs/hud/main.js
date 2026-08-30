@@ -19,7 +19,7 @@
 
 import * as THREE from '../../vendor/three.module.min.js';
 import { Vehicle } from '../../src/vehicle.js';
-import { HUD, MAP_PALETTE } from '../../src/hud.js';
+import { HUD, bakeDistrictMap } from '../../src/hud.js';
 
 const errors = [];
 window.__errors = errors;
@@ -303,7 +303,14 @@ function autopilot(dt) {
 // ---------------------------------------------------------------- HUD
 const bg = $('bg');
 paintBackdrop(bg);
+// Chrome's 2D canvas records commands on the main thread and rasterises them on the
+// raster thread, so wall-clock around a bake measures submission, not pixels. That
+// is the number the stall gate cares about — but the honest total needs a flush, so
+// the lab takes a second, unmemoised bake and forces one with getImageData.
+const tHud = performance.now();
 const hud = new HUD({ district, zoomMetres: 210 });
+const hudConstructMs = +(performance.now() - tHud).toFixed(1);
+let bakeFlushed = null;
 hud.update({ route: routePts, inVehicle: true, armour: 0.55,
   weapon: { name: 'Kestrel .40', ammo: 12, reserve: 84, icon: 'pistol' },
   location: 'Marlin Street', district: 'Verano Bay' });
@@ -328,7 +335,7 @@ const SUBS = [
 ];
 
 const ui = {
-  auto: true, manualSpeed: null, prompt: 0, obj: 0, sub: 0,
+  auto: true, manualSpeed: null, frozen: null, prompt: 0, obj: 0, sub: 0,
   north: false, inVehicle: true, wanted: 0,
   health: 1, armour: 0.55, vig: 0,
 };
@@ -380,6 +387,7 @@ cycle('b-obj', 'obj', OBJECTIVES, (o) => hud.setObjective(o));
 cycle('b-sub', 'sub', SUBS, (s) => hud.setSubtitle(s));
 $('b-dmg').addEventListener('click', () => hud.flashDamage(0.85));
 $('b-bench').addEventListener('click', () => { lastBench = bench(400); });
+$('b-bake').addEventListener('click', () => { bakeWithFlush(); });
 
 const KEYS = {
   Digit0: 0, Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit5: 5,
@@ -451,6 +459,17 @@ function bench(n = 400) {
 }
 let lastBench = null;
 
+function bakeWithFlush() {
+  const t0 = performance.now();
+  const b = bakeDistrictMap(district, { pixelsPerMetre: 1.79 });   // fresh key, no memo hit
+  const submit = performance.now() - t0;
+  b.canvas.getContext('2d').getImageData(0, 0, 1, 1);              // forces rasterisation
+  const flushed = performance.now() - t0;
+  bakeFlushed = { submitMs: +submit.toFixed(1), flushedMs: +flushed.toFixed(1),
+    megabytes: b.megabytes, timings: b.timings };
+  return bakeFlushed;
+}
+
 // ---------------------------------------------------------------- loop
 let last = performance.now();
 let ready = false;
@@ -462,7 +481,9 @@ function frame() {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
 
-  if (ui.auto) {
+  if (ui.frozen) {
+    // nothing moves; the HUD still redraws because update() is still called
+  } else if (ui.auto) {
     autopilot(dt);
   } else if (ui.manualSpeed != null) {
     // Manual mode still moves the car so the minimap keeps panning; it just does
@@ -476,7 +497,11 @@ function frame() {
   }
 
   hud.update({
-    vehicle: car,
+    vehicle: ui.frozen ? undefined : car,
+    speed: ui.frozen ? ui.frozen.speed : undefined,
+    forwardSpeed: ui.frozen ? ui.frozen.speed : undefined,
+    slip: ui.frozen ? ui.frozen.slip : undefined,
+    player: ui.frozen || undefined,
     inVehicle: ui.inVehicle,
     health: ui.health, armour: ui.armour, vignette: ui.vig,
     markers, waypoint, northUp: ui.north,
@@ -500,8 +525,9 @@ function frame() {
           `           map    ${lastBench.worst.minimapMs} ms/f`
         : `bench      (press "bench 400")`);
   }
-  requestAnimationFrame(frame);
+  if (!paused) requestAnimationFrame(frame);
 }
+let paused = false;
 
 $('load').remove();
 requestAnimationFrame(frame);
@@ -513,6 +539,7 @@ window.__lab = {
   stats() {
     return {
       ...hud.stats,
+      hudConstructMs, bakeFlushed,
       routePoints: routePts.length, routeMs,
       bake: hud.bake ? {
         ms: hud.bake.ms, megabytes: hud.bake.megabytes,
@@ -528,7 +555,7 @@ window.__lab = {
     const set = {
       chase: () => {
         ui.auto = true; ui.wanted = 3; ui.health = 0.42; ui.armour = 0.66; ui.vig = 0;
-        hud.setWanted(3, { flash: true });
+        hud.setWanted(3, { flash: false });
         hud.setObjective(OBJECTIVES[1]);
         hud.setSubtitle(SUBS[1]);
         hud.setPrompt(null);
@@ -542,6 +569,13 @@ window.__lab = {
         hud.setPrompt({ key: 'F', text: 'Enter vehicle' });
         hud.setObjective(OBJECTIVES[2]);
         hud.setSubtitle(null);
+      },
+      escalate: () => {
+        ui.auto = true; ui.inVehicle = true; ui.wanted = 4; ui.health = 0.28; ui.armour = 0;
+        hud.setWanted(4, { flash: true });
+        hud.setObjective(OBJECTIVES[1]);
+        hud.setSubtitle(SUBS[2]);
+        hud.setPrompt(null);
       },
       cruise: () => {
         ui.auto = true; ui.inVehicle = true; $('b-veh').classList.add('on');
@@ -557,4 +591,18 @@ window.__lab = {
   },
   setNorthUp(v) { ui.north = v; $('b-north').classList.toggle('on', v); hud.setNorthUp(v); },
   seek(s) { placeOnRoute(s); },
+  /** Pin the car at a world point so a screenshot is reproducible. */
+  freeze(x, z, heading = 0, speed = 24, slip = 0.2) {
+    ui.frozen = { x, z, heading, speed, slip };
+    ui.auto = false;
+    document.getElementById('b-auto').classList.remove('on');
+  },
+  unfreeze() { ui.frozen = null; ui.auto = true; document.getElementById('b-auto').classList.add('on'); },
+  bakeWithFlush,
+  /** Stop the rAF loop so a screenshot can pin an animated state such as the flash. */
+  pause() { paused = true; },
+  resume() { if (paused) { paused = false; last = performance.now(); requestAnimationFrame(frame); } },
+  /** Draw one frame with dt = 0, leaving every animation phase exactly where it is. */
+  step(state = {}) { hud.update({ dt: 0, ...state }); },
+  setFlashPhase(v) { hud._flashPhase = v; hud._dirty.status = true; },
 };

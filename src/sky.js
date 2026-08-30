@@ -15,15 +15,23 @@
 // sitting at 7,000 nits turns the horizon black. That is the bug this file's
 // `atmosphere` object exists to stop the engine from re-introducing.
 //
-// Cost model:
-//   - The scattering integral runs ONCE per time-of-day / weather change into a
-//     256x128 half-float equirect LUT, and the PMREM environment map is built
-//     from that LUT. Neither happens per frame. See refresh() for the measured
-//     numbers and Sky.report().
-//   - The dome itself is ONE draw call and ONE triangle: a fullscreen triangle
-//     written at depth 1.0 so it fills only the pixels nothing else covered. It
-//     samples the LUT and adds the sun disc, moon and stars analytically at full
-//     resolution, so those stay sharp however small the LUT is.
+// Cost model, all measured on the SwiftShader software rasteriser this project
+// gates against, so every number here is a ceiling rather than a target:
+//   - The dome is ONE draw call and ONE triangle: a fullscreen triangle written
+//     at depth 1.0, drawn after opaque geometry, so it shades only the pixels
+//     nothing else covered. It samples the LUT and adds the sun disc, moon and
+//     stars analytically at full resolution, so those stay sharp however small
+//     the LUT is.
+//   - update() generates nothing: one matrix multiply and a dozen uniform
+//     writes. Measured median 0.0 ms, p99 0.1 ms, max 0.2 ms over 400 calls.
+//   - The scattering integral runs into a 256x128 half-float equirect LUT ONLY
+//     from refresh(), never from update() unless autoRefresh is switched on.
+//     Construction, including shader compilation, the LUT, the probe read-back
+//     and the PMREM: 333-386 ms over three cold loads.
+//   - The PMREM environment map is the expensive half — 108-181 ms of that — and
+//     is rebuilt only when refresh() is asked for it. Inside a live frame loop
+//     the same rebuild measures 440-2,400 ms on this rasteriser, which is why
+//     weather.js's settle refresh explicitly excludes it.
 
 import * as THREE from '../vendor/three.module.min.js';
 
@@ -275,7 +283,7 @@ vec3 skyRadiance(vec3 dir) {
   // the glow's energy sits near the horizon, and integrating it is what has to
   // land inside daynight.js's night envelope.
   float low = pow(1.0 - clamp(dir.y, 0.0, 1.0), 2.2) * mix(0.35, 1.0, smoothstep(-0.3, 0.02, dir.y));
-  L += (uNightZenith + uNightHorizon * low) * night * (1.0 + uOvercast * 1.6);
+  L += (uNightZenith + uNightHorizon * low) * night * (1.0 + uOvercast * 1.15);
 
   // Half-float render targets top out at 65504. An unclamped solar aureole would
   // write Inf, and Inf survives the bloom blur as a screen-wide white smear.
@@ -447,8 +455,7 @@ export class Sky {
    * @param {THREE.Scene} scene              the dome is added to it
    * @param {object} [opts]
    * @param {number} [opts.lutWidth=256]     equirect LUT width (height is half)
-   * @param {number} [opts.steps=12]         view-ray samples in the scattering march
-   * @param {number} [opts.sunSteps=5]       sun-ray samples per view sample
+   * @param {number} [opts.steps=16]        view-ray samples in the scattering march
    * @param {number} [opts.probeWidth=64]    CPU read-back probe width, for fog + audit
    * @param {boolean} [opts.environment=true] build a PMREM env map from the sky
    *        (its cube size is lutWidth/4 — three derives it from the equirect)
@@ -468,7 +475,7 @@ export class Sky {
     this.probeHeight = this.probeWidth >> 1;
     this.wantEnvironment = opts.environment ?? true;
     this.maxRadiance = opts.maxRadiance ?? 60000;
-    this.minRefreshMs = opts.minRefreshMs ?? 250;
+    this.minRefreshMs = opts.minRefreshMs ?? 400;
     // Opt-in. Off by default so nothing this module owns can generate inside a
     // frame unless the caller asked for it; weather.js turns it on for the
     // duration of a transition and calls refresh() itself at the end.
@@ -579,7 +586,13 @@ export class Sky {
     this.cloudTransmit = opts.cloudTransmit ?? 1.0;
     this.overcastFloor = opts.overcastFloor ?? 0.32;
 
-    const defines = `#define STEPS ${opts.steps ?? 12}\n#define SUN_STEPS ${opts.sunSteps ?? 5}\n`;
+    // 16 view samples and no inner loop. Measured against a 32-step reference the
+    // dusk sky illuminance moves 4% and the horizon luminance 5%, inside the
+    // accuracy of a single-scattering model with an isotropic multiple-scattering
+    // term; 12 costs 13% at the horizon and 8 costs 37%. The sun-ray march that
+    // used to sit inside this loop is gone — see sunOpticalDepth — so 16 here is
+    // cheaper than the 12 that had one.
+    const defines = `#define STEPS ${opts.steps ?? 16}\n`;
     this.lutMaterial = new THREE.RawShaderMaterial({
       vertexShader: LUT_VERT,
       fragmentShader: defines + LUT_FRAG,
@@ -668,7 +681,11 @@ export class Sky {
     const p = SKY_PRESETS[name];
     if (!p) throw new Error(`unknown sky preset: ${name}`);
     this.presetName = name;
-    this.turbidity = p.turbidity;
+    // Only take the preset's turbidity if nothing has overridden it. weather.js
+    // pushes turbidity every frame; without this guard a time-of-day change in
+    // the middle of a downpour silently reverts the Mie load to the clear-air
+    // value and the LUT keeps it until the next explicit refresh.
+    if (!this._turbidityOverridden) this.turbidity = p.turbidity;
     this.setSun(p.sunElevation, p.sunAzimuth);
     this.setMoon(p.moonElevation, p.moonAzimuth, 1, p.moonIntensity);
     this._dirty = true;
@@ -712,6 +729,7 @@ export class Sky {
     const v = Math.min(12, Math.max(1, t));
     if (Math.abs(v - this.turbidity) > 0.1) this._dirty = true;
     this.turbidity = v;
+    this._turbidityOverridden = true;
     return this;
   }
 

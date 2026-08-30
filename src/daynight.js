@@ -81,6 +81,7 @@ export class TimeOfDay {
     this.lamps = [];          // registered by whoever builds street furniture
     this.post = null;         // optional PostStack; see attachPost()
     this.skyDome = null;      // set once src/sky.js provides a real dome
+    this.envIntensity = 1.0;  // PMREM radiance is physical; do not dim it
     this.weather = { wetness: 0, fogBoost: 0 };
     this.preset = null;
     this.apply('dusk');
@@ -213,6 +214,9 @@ export class TimeOfDay {
       this.skyDome.setTimeOfDay(name);
       this.skyDome.refresh({ force: true });
       this.skyDome.applyToScene(this.scene);
+      // Restore full strength after the sky writes: the environment map is the
+      // only light reaching a wall when the sun is overhead.
+      this.scene.environmentIntensity = this.envIntensity;
       if (this.post) this.skyDome.applyToPost(this.post, this.weatherSys);
     }
     if (this.furniture) this.furniture.setLit(p.lampsOn);
@@ -328,6 +332,8 @@ export class TimeOfDay {
       sunLux: sun?.intensity, skyLux: hemi?.intensity,
       litPointLights: lights.filter((l) => l.type === 'PointLight' && l.intensity > 0).length,
       lightPool: this.lightPool ? this.lightPool.report() : null,
+      environmentIntensity: this.scene.environmentIntensity,
+      hasEnvironment: !!this.scene.environment,
       sky: this.skyDome ? this.skyDome.audit() : null,
       weather: this.weatherSys ? this.weatherSys.report() : null,
       samplePointLightCandela: lights.find((l) => l.type === 'PointLight' && l.intensity > 0)?.intensity ?? 0,

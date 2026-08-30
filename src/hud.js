@@ -60,13 +60,13 @@ export const THEME = {
 // Map palette. Values are chosen so road fill stays legible against building fill
 // at a glance in peripheral vision, which is the only way a minimap is ever read.
 export const MAP_PALETTE = {
-  outside: '#0a141d',
-  water: '#0e1e2c',
-  waterDeep: '#0a1723',
-  shore: 'rgba(96,150,186,0.55)',
-  land: '#171d26',
-  building: '#2b3441',
-  buildingEdge: '#333d4c',
+  outside: '#08182a',
+  water: '#0c2137',
+  waterDeep: '#081a2d',
+  shore: 'rgba(110,165,204,0.6)',
+  land: '#1c242f',
+  building: '#333e4d',
+  buildingEdge: '#3d4959',
   park: '#1b2c22',
   parking: '#1f2530',
   marina: '#122334',
@@ -78,11 +78,11 @@ export const MAP_PALETTE = {
 // truthfully vanishes the moment the map is downscaled. These are "map metres",
 // exaggerated for the narrow classes and honest for the wide ones.
 const ROAD_STYLE = {
-  primary:     { w: 15.0, fill: '#7f8ea6' },
-  secondary:   { w: 12.5, fill: '#71809a' },
-  tertiary:    { w: 9.5,  fill: '#616f86' },
-  residential: { w: 7.5,  fill: '#536074' },
-  service:     { w: 5.0,  fill: '#464f61' },
+  primary:     { w: 9.6, fill: '#98a7bf' },
+  secondary:   { w: 8.2, fill: '#8b9ab2' },
+  tertiary:    { w: 6.6, fill: '#77869d' },
+  residential: { w: 5.2, fill: '#657288' },
+  service:     { w: 3.6, fill: '#525d70' },
 };
 const ROAD_ORDER = ['primary', 'secondary', 'tertiary', 'residential', 'service'];
 
@@ -90,7 +90,8 @@ const ZONE_FILL = {
   park: MAP_PALETTE.park, grass: MAP_PALETTE.park, garden: MAP_PALETTE.park,
   playground: MAP_PALETTE.park, recreation_ground: MAP_PALETTE.park,
   parking: MAP_PALETTE.parking, marina: MAP_PALETTE.marina,
-  construction: MAP_PALETTE.dirt,
+  // No `construction`: the bake's two construction polygons are a 300 m strip that
+  // runs off the top of the district, and transient land use earns no map ink.
 };
 
 const FONT = 'ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif';
@@ -102,7 +103,7 @@ export const LAYOUT = {
   map: { w: 232, h: 176, radius: 11, chamfer: 17 },
   vitals: { w: 232, h: 40 },
   gauge: { w: 204, h: 134 },
-  status: { w: 132, h: 78 },
+  status: { w: 132, h: 84 },
   gap: 6,
 };
 
@@ -431,7 +432,7 @@ export function bakeDistrictMap(district, opts = {}) {
     }
     ctx.stroke();
   };
-  for (const c of ROAD_ORDER) strokeClass(byClass.get(c), ROAD_STYLE[c].w + 2.6, MAP_PALETTE.roadCasing);
+  for (const c of ROAD_ORDER) strokeClass(byClass.get(c), ROAD_STYLE[c].w + 2.0, MAP_PALETTE.roadCasing);
   for (const c of ROAD_ORDER) strokeClass(byClass.get(c), ROAD_STYLE[c].w, ROAD_STYLE[c].fill);
   mark('roads', t);
 
@@ -556,10 +557,10 @@ export class Minimap {
     if (this._routePath) {
       ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       ctx.strokeStyle = 'rgba(4,10,16,0.85)';
-      ctx.lineWidth = 6 / ppm;
+      ctx.lineWidth = 5 / ppm;
       ctx.stroke(this._routePath);
       ctx.strokeStyle = THEME.route;
-      ctx.lineWidth = 3 / ppm;
+      ctx.lineWidth = 2.6 / ppm;
       ctx.stroke(this._routePath);
     }
     ctx.restore();
@@ -620,7 +621,12 @@ export class Minimap {
     const ix0 = box.x + pad, ix1 = box.x + box.w - pad;
     const iy0 = box.y + pad, iy1 = box.y + box.h - pad;
     const off = mx < ix0 || mx > ix1 || my < iy0 || my > iy1;
-    const px = clamp(mx, ix0, ix1), py = clamp(my, iy0, iy1);
+    let px = clamp(mx, ix0, ix1), py = clamp(my, iy0, iy1);
+    // The map's top-right corner is cut away; a blip clamped into that triangle is
+    // clipped in half. Slide it back along the chamfer instead.
+    const ch = LAYOUT.map.chamfer;
+    const over = (px - (ix1 - ch)) + ((iy0 + ch) - py) - ch;
+    if (over > 0) { px -= over * 0.5; py += over * 0.5; }
     const st = MARKER_STYLE[m.kind] || MARKER_STYLE.waypoint;
     const r = off ? 4.4 : 6;
     ctx.lineWidth = 1.6;
@@ -800,18 +806,30 @@ export class HUD {
     this._text = {};
     this._last = null;
 
-    this.stats = { scale: 1, dpr: 1, drawCalls: 0, updateMs: 0, worstUpdateMs: 0,
+    this.stats = { scale: 1, dpr: 1, drawCalls: 0, warmMs: 0, updateMs: 0, worstUpdateMs: 0,
       avgUpdateMs: 0, minimapMs: 0, worstMinimapMs: 0, avgMinimapMs: 0,
       bakeMs: 0, bakeMB: 0, frames: 0 };
 
     this._build();
-    const bake = opts.district ? getDistrictMap(opts.district, opts.map) : null;
+    const district = opts.district || null;
+    const bake = district ? getDistrictMap(district, opts.map) : null;
     if (bake) { this.stats.bakeMs = bake.ms; this.stats.bakeMB = bake.megabytes; this.bake = bake; }
     this.minimap = new Minimap(bake, { zoomMetres: this.state.zoomMetres });
 
     this._onResize = () => this.layout();
     window.addEventListener('resize', this._onResize);
     this.layout();
+
+    // Force the first blit here, while the loading screen is still up. The bake is
+    // ~34 MB of canvas and the first drawImage from it is what makes the driver
+    // upload it; measured at 92 ms, which is a visible hitch if it lands on the
+    // first frame of gameplay instead of on the last frame of loading.
+    const tw = performance.now();
+    this.state.px = district ? district.meta.spawn.x : 0;
+    this.state.pz = district ? district.meta.spawn.z : 0;
+    this.disp.px = this.state.px; this.disp.pz = this.state.pz;
+    this._drawMap();
+    this.stats.warmMs = +(performance.now() - tw).toFixed(1);
   }
 
   // ------------------------------------------------------------ construction
@@ -1163,8 +1181,10 @@ export class HUD {
     ctx.textBaseline = 'alphabetic';
     if (s.location) {
       ctx.font = `600 11.5px ${FONT}`;
-      ctx.fillStyle = THEME.text;
       ctx.textAlign = 'left';
+      ctx.fillStyle = 'rgba(2,5,9,0.85)';
+      ctx.fillText(s.location, 1.8, 33.8);
+      ctx.fillStyle = THEME.text;
       ctx.fillText(s.location, 1, 33);
     }
     if (s.district) {
@@ -1213,15 +1233,15 @@ export class HUD {
 
     const n = 5, size = 19, gap = 5.4;
     const total = n * size + (n - 1) * gap;
-    const x0 = L.w - total, cy = 11.5;
+    const x0 = L.w - total, cy = 13.5;
     // A 2 Hz square wave, not a sine: the escalation flash has to read as an alarm,
     // and a sine spends most of its time in the middle where it reads as a fade.
     const beat = Math.sin(this._flashPhase * Math.PI) > 0;
     for (let i = 0; i < n; i++) {
       const cx = x0 + size / 2 + i * (size + gap);
       const lit = i < s.wanted;
-      const alt = flashing && (i === s.wanted - 1 || i === s.wanted);
-      const on = alt ? (i < s.wanted ? beat : !beat) : lit;
+      const on = lit && (!flashing || beat);
+      const ghost = lit && !on;
       if (on) {
         // A fat translucent stroke instead of shadowBlur: a real blur is a
         // per-pixel gather and this runs every frame while the flash is up.
@@ -1231,9 +1251,9 @@ export class HUD {
         ctx.stroke();
       }
       starPath(ctx, cx, cy, size / 2, size / 4.4);
-      ctx.fillStyle = on ? THEME.alert : 'rgba(10,15,23,0.55)';
+      ctx.fillStyle = on ? THEME.alert : ghost ? 'rgba(255,79,94,0.26)' : 'rgba(10,15,23,0.55)';
       ctx.fill();
-      ctx.strokeStyle = on ? 'rgba(12,4,6,0.85)' : THEME.faint;
+      ctx.strokeStyle = on ? 'rgba(12,4,6,0.85)' : ghost ? 'rgba(255,79,94,0.5)' : THEME.faint;
       ctx.lineWidth = 1.3;
       ctx.stroke();
     }
@@ -1241,7 +1261,7 @@ export class HUD {
     // --- weapon slot. A stub by design: the shapes are placeholders, the slot,
     // the ammo layout and the reserve split are the part that has to be right.
     const w = s.weapon;
-    const bx = 0, by = 30, bw = L.w, bh = 42;
+    const bx = 0, by = 36, bw = L.w, bh = 42;
     roundRect(ctx, bx + 0.5, by + 0.5, bw - 1, bh - 1, 5);
     ctx.fillStyle = THEME.plate;
     ctx.fill();
@@ -1286,14 +1306,19 @@ export class HUD {
       ctx.fillRect(w * 0.3, h * 0.48, h * 0.26, h * 0.52);   // magazine
       ctx.fillRect(w * 0.06, h * 0.48, h * 0.22, h * 0.4);   // grip
     } else if (kind === 'pistol') {
-      ctx.fillRect(0, h * 0.16, w * 0.78, h * 0.3);
+      ctx.fillRect(0, h * 0.12, w * 0.8, h * 0.28);
       ctx.beginPath();
-      ctx.moveTo(w * 0.1, h * 0.46);
-      ctx.lineTo(w * 0.36, h * 0.46);
-      ctx.lineTo(w * 0.28, h);
-      ctx.lineTo(w * 0.02, h);
+      ctx.moveTo(w * 0.08, h * 0.4);
+      ctx.lineTo(w * 0.34, h * 0.4);
+      ctx.lineTo(w * 0.26, h);
+      ctx.lineTo(0, h);
       ctx.closePath();
       ctx.fill();
+      ctx.strokeStyle = ctx.fillStyle;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(w * 0.42, h * 0.44, h * 0.24, 0.1, Math.PI - 0.1);
+      ctx.stroke();
     } else {
       ctx.fillRect(0, h * 0.42, w * 0.6, 1.6);
     }
@@ -1308,103 +1333,106 @@ export class HUD {
     ctx.clearRect(0, 0, L.w, L.h);
     if (!this.state.inVehicle) return;
 
-    const cx = 102, cy = 80, R = 66;
+    const cx = 102, cy = 80, R = 64;
     const A0 = Math.PI * 0.985, A1 = Math.PI * 2.015;
     const MAXKMH = 240;
     const d = this.disp;
     const kmh = d.speed * (this.units === 'mph' ? 2.23694 : 3.6);
     const at = (v) => A0 + (clamp(v, 0, MAXKMH) / MAXKMH) * (A1 - A0);
 
-    // Soft ground under the dial instead of a plate: the gauge sits over the road
-    // at the bottom of the frame and a hard rectangle there is exactly the thing
+    // Soft ground under the dial instead of a plate. The gauge sits over the road
+    // at the bottom of the frame, and a hard rectangle there is exactly the thing
     // the brief calls obscuring.
-    const g = ctx.createRadialGradient(cx, cy + 12, 6, cx, cy + 12, 92);
-    g.addColorStop(0, 'rgba(4,8,14,0.62)');
-    g.addColorStop(0.62, 'rgba(4,8,14,0.36)');
+    const g = ctx.createRadialGradient(cx, cy + 12, 6, cx, cy + 12, 94);
+    g.addColorStop(0, 'rgba(4,8,14,0.66)');
+    g.addColorStop(0.6, 'rgba(4,8,14,0.38)');
     g.addColorStop(1, 'rgba(4,8,14,0)');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, L.w, L.h);
 
+    // Two concentric rings that never share space: engine speed OUTSIDE the tick
+    // ring, road speed inside it. The first pass put the rpm sweep at R-12.5, where
+    // it painted straight over the '0' and '60' labels.
     ctx.lineCap = 'butt';
-    ctx.strokeStyle = 'rgba(160,186,220,0.20)';
-    ctx.lineWidth = 1.4;
+    ctx.strokeStyle = 'rgba(160,186,220,0.16)';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R + 7, A0, A1);
+    ctx.stroke();
+    // Redline belongs to the engine, so it lives on the engine ring.
+    ctx.strokeStyle = 'rgba(255,79,94,0.45)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, R + 7, A0 + 0.86 * (A1 - A0), A1);
+    ctx.stroke();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = rpm > 0.86 ? THEME.alert : THEME.accent;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R + 7, A0, A0 + clamp(rpm, 0, 1) * (A1 - A0));
+    ctx.stroke();
+
+    ctx.lineCap = 'butt';
+    ctx.strokeStyle = 'rgba(160,186,220,0.22)';
+    ctx.lineWidth = 1.3;
     ctx.beginPath();
     ctx.arc(cx, cy, R, A0, A1);
     ctx.stroke();
-
-    // Redline. 200 km/h on a 240 dial is a plausible place for a road car's limit.
-    ctx.strokeStyle = THEME.alert;
-    ctx.lineWidth = 2.4;
-    ctx.globalAlpha = 0.8;
-    ctx.beginPath();
-    ctx.arc(cx, cy, R + 3.4, at(200), at(MAXKMH));
-    ctx.stroke();
-    ctx.globalAlpha = 1;
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     for (let v = 0; v <= MAXKMH; v += 20) {
       const a = at(v), major = v % 60 === 0;
       const c = Math.cos(a), sn = Math.sin(a);
-      ctx.strokeStyle = major ? 'rgba(220,232,248,0.8)' : 'rgba(160,186,220,0.38)';
-      ctx.lineWidth = major ? 1.9 : 1.2;
+      ctx.strokeStyle = major ? 'rgba(228,238,252,0.88)' : 'rgba(160,186,220,0.42)';
+      ctx.lineWidth = major ? 2 : 1.2;
       ctx.beginPath();
-      ctx.moveTo(cx + c * (R - (major ? 9 : 5.5)), cy + sn * (R - (major ? 9 : 5.5)));
+      ctx.moveTo(cx + c * (R - (major ? 8 : 5)), cy + sn * (R - (major ? 8 : 5)));
       ctx.lineTo(cx + c * R, cy + sn * R);
       ctx.stroke();
       if (major) {
-        ctx.font = `600 9px ${MONO}`;
+        ctx.font = `600 8.5px ${MONO}`;
         ctx.fillStyle = THEME.dim;
-        ctx.fillText(String(v), cx + c * (R - 18), cy + sn * (R - 18));
+        ctx.fillText(String(v), cx + c * (R - 17), cy + sn * (R - 17));
       }
     }
-
-    // Engine speed rides inside the dial. It is the only reason the gear readout
-    // means anything: a gear number with nothing to read it against is decoration.
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = rpm > 0.88 ? THEME.alert : THEME.accent;
-    ctx.lineWidth = 3.4;
-    ctx.beginPath();
-    ctx.arc(cx, cy, R - 12.5, A0, A0 + clamp(rpm, 0, 1) * (A1 - A0));
-    ctx.stroke();
 
     const a = at(kmh);
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(a);
     ctx.beginPath();
-    ctx.moveTo(10, -2.6);
-    ctx.lineTo(R - 7, -1.1);
-    ctx.lineTo(R - 7, 1.1);
-    ctx.lineTo(10, 2.6);
+    ctx.moveTo(6, -3.8);
+    ctx.lineTo(R - 10, -1.4);
+    ctx.lineTo(R - 10, 1.4);
+    ctx.lineTo(6, 3.8);
     ctx.closePath();
-    ctx.fillStyle = kmh > 200 ? THEME.alert : '#f2f6ff';
+    ctx.fillStyle = kmh > 200 ? THEME.alert : '#f4f8ff';
     ctx.fill();
     ctx.restore();
     ctx.beginPath();
-    ctx.arc(cx, cy, 4.2, 0, TAU);
+    ctx.arc(cx, cy, 4.8, 0, TAU);
     ctx.fillStyle = '#0b1119';
     ctx.fill();
-    ctx.strokeStyle = 'rgba(200,220,246,0.6)';
+    ctx.strokeStyle = 'rgba(200,220,246,0.62)';
     ctx.lineWidth = 1.2;
     ctx.stroke();
 
-    ctx.font = `700 38px ${MONO}`;
+    ctx.font = `700 37px ${MONO}`;
     ctx.fillStyle = THEME.text;
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText(String(Math.round(kmh)), cx, cy + 40);
+    ctx.fillText(String(Math.round(kmh)), cx, cy + 41);
     ctx.font = `700 8.5px ${FONT}`;
     ctx.fillStyle = THEME.dim;
     if ('letterSpacing' in ctx) ctx.letterSpacing = '2.4px';
-    ctx.fillText(this.units === 'mph' ? 'MPH' : 'KM/H', cx + 1, cy + 52);
+    ctx.fillText(this.units === 'mph' ? 'MPH' : 'KM/H', cx + 1, cy + 53);
     if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
 
-    this._chip(ctx, cx + 62, cy + 26, 32, 28, gearLabel, `700 15px ${MONO}`,
+    this._chip(ctx, cx + 63, cy + 27, 32, 27, gearLabel, `700 15px ${MONO}`,
       gearLabel === 'R' ? THEME.alert : THEME.text, false);
     // Traction telltale, straight off vehicle.js's per-wheel slip. It lights before
     // the driver can feel the back stepping out on a controller.
     const slipping = d.slip > 0.55;
-    this._chip(ctx, cx - 62, cy + 26, 32, 28, 'TC', `700 11px ${FONT}`,
+    this._chip(ctx, cx - 63, cy + 27, 32, 27, 'TC', `700 11px ${FONT}`,
       slipping ? '#12181f' : THEME.faint, slipping);
   }
 

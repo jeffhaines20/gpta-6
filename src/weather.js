@@ -275,6 +275,11 @@ export class Weather {
     this._bound = [];
     this._lastAppliedWetness = -1;
     this._settle = false;
+    // Set false to stop weather driving the sky's throttled LUT rebuild. The
+    // cloud deck then only appears when something calls sky.refresh(). The knob
+    // exists because that rebuild is the one part of this system with a
+    // frame-time cost worth arguing about on a slow rasteriser.
+    this.skyFollowsTransition = opts.skyFollowsTransition ?? true;
 
     this.root = new THREE.Group();
     this.root.name = 'weather';
@@ -533,11 +538,18 @@ export class Weather {
     // Moving weather needs the cloud deck to follow it, so the sky's throttled
     // LUT path is switched on for the duration and off again at the end. That
     // path never touches the PMREM env map; this does, once, when it settles.
-    const moving = this._t < 1 || this._queue.length > 0;
+    const moving = this.skyFollowsTransition && (this._t < 1 || this._queue.length > 0);
     this.sky.autoRefresh = moving;
     if (!moving && this._settle) {
       this._settle = false;
-      this.sky.refresh({ force: true });
+      // Explicit, once, when the weather lands. Deliberately NOT the environment
+      // map and deliberately not synchronous: measured on the software
+      // rasteriser, a PMREM rebuild inside a live frame loop costs 440-2,400 ms
+      // and a blocking read-back 1.6-4.5 s, against 2-20 ms for this call. The
+      // env map is the sky's reflection, it moves slowly, and daynight.js
+      // rebuilds it on every time-of-day change — which happens behind a menu,
+      // where seconds are affordable and a stalled frame is not.
+      this.sky.refresh({ force: true, environment: false, sync: false });
     }
     if (moving) this._settle = true;
   }

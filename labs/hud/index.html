@@ -19,11 +19,11 @@
     background:#141c26;color:#cdd8e6;border:1px solid #2b3746;font:inherit;font-size:10px}
   .btns button:hover{border-color:#4a7bb0;background:#1a2431}
   .btns button.on{background:#ffb03a;color:#10151c;border-color:#ffb03a}
-  #stats{position:fixed;left:12px;top:352px;z-index:60;width:250px;padding:9px 12px;
+  #stats{position:fixed;left:12px;top:400px;z-index:60;width:250px;padding:9px 12px;
     border-radius:7px;background:rgba(6,10,16,.86);border:1px solid rgba(120,150,190,.24);
     white-space:pre;font-size:10.5px;line-height:1.62;color:#b8c8dc}
-  #keys{position:fixed;left:12px;bottom:10px;z-index:60;padding:6px 10px;border-radius:5px;
-    background:rgba(6,10,16,.7);font-size:10px;color:#93a6bf;max-width:250px;line-height:1.7}
+  #keys{margin-top:8px;padding-top:7px;border-top:1px solid #223040;
+    font-size:9.5px;color:#8497ad;line-height:1.75}
   #load{position:fixed;inset:0;z-index:80;display:grid;place-items:center;background:#05080d;
     font-size:13px;color:#8ea6c4}
   b{color:#e8edf5;font-weight:600}
@@ -48,10 +48,11 @@
     <button id="b-veh" class="on">in vehicle</button>
     <button id="b-auto" class="on">auto-drive</button>
     <button id="b-bench">bench 400</button>
+    <button id="b-bake">re-bake (flush)</button>
   </div>
+  <div id="keys">0-5 wanted · W/S speed · H/J health · K/L armour<br>N north-up · P prompt · O objective · B subtitle<br>X damage · V vehicle · [ / ] zoom · Space auto-drive</div>
 </div>
 <div id="stats">measuring…</div>
-<div id="keys">0-5 wanted · W/S speed · H/J health · K/L armour · N north-up<br>P prompt · O objective · B subtitle · X damage · V vehicle<br>[ / ] zoom · Space auto-drive</div>
 <div id="load">baking the district map…</div>
 <script type="module" src="./main.js"></script>
 </body></html>
