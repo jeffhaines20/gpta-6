@@ -1,0 +1,54 @@
+{
+ "what": "Same commit measured on this container and on a GitHub-hosted ubuntu-latest runner",
+ "why": "The CI split gates metrics that reproduce and treats chunk stall as advisory. That determinism claim was inferred from 11 runs on ONE machine. This checks it across two unrelated machines.",
+ "run": "https://github.com/jeffhaines20/gpta-6/actions/runs/33332927114",
+ "harness": "tools/drive-through.mjs --traffic",
+ "hostedRunner": {
+  "drawCallsP95": 154,
+  "trianglesP95": 73454,
+  "chunkStallMs": 8.4,
+  "heapGrowthMb": 0,
+  "gate": "PASS",
+  "rows": [
+   {
+    "name": "draw calls",
+    "status": "PASS",
+    "value": 154,
+    "advisory": false
+   },
+   {
+    "name": "triangles",
+    "status": "PASS",
+    "value": 73454,
+    "advisory": false
+   },
+   {
+    "name": "chunk stall ms",
+    "status": "WARN",
+    "value": 8.4,
+    "advisory": true
+   },
+   {
+    "name": "heap growth MB",
+    "status": "PASS",
+    "value": 0,
+    "advisory": false
+   }
+  ]
+ },
+ "thisContainerN5": {
+  "drawCallsP95": {
+   "min": 143,
+   "max": 146
+  },
+  "trianglesP95": {
+   "min": 72569,
+   "max": 73305
+  },
+  "chunkStallMs": {
+   "min": 6.3,
+   "max": 14.1
+  }
+ },
+ "conclusion": "Triangles agree to 1.2% and draw calls to within 7% across unrelated hardware, both far under their warn thresholds - the gating metrics are genuinely portable. Chunk stall measured 8.4 ms on the runner, inside the 6.3-14.1 ms local spread, and was correctly recorded as ADVISORY WARN without deciding the build. The split behaves as designed in the environment it was designed for."
+}

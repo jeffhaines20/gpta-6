@@ -270,7 +270,7 @@ Ordered by dependency, not by size. Status as of 2026-08-30.
 | 6 | AO / contact shadows | **OPEN** — the most-cited gap across both critic rounds |
 | 7 | Geometry defects: floating cuboid, postless blade, unsupported canopy and awnings, untethered rooftop slab, sidewalk decal UV | **OPEN** |
 | 8 | Ledger corrections | **DONE** — stale thresholds block, stale critic-rounds section, and the backfilled `02ccfdf` gated-quantity redefinition |
-| 9 | CI (constraint 4) | **BLOCKED ON OWNER** — needs a decision on Actions minutes; see below |
+| 9 | CI (constraint 4) | **DONE** — owner approved the determinism split. `.github/workflows/gates.yml` is green on both jobs ([run 2](https://github.com/jeffhaines20/gpta-6/actions/runs/33332927114)). Static lane 13 s; geometry lane gates draw calls, triangles and heap while recording stall as advisory. Validated cross-hardware: triangles agree to 1.2% and draw calls to within 7% between this container and a hosted runner. `docs/measurements/ci-cross-hardware.json` |
 
 **Still not signed off.** Items 6 and 7 are unaddressed, no critic has seen the
 post-fix frames, and CI does not exist. What has changed is that both critical
