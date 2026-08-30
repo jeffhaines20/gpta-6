@@ -4,7 +4,9 @@ Live progress page: [`docs/progress.html`](docs/progress.html) (regenerate with 
 
 ## Current target
 
-**M1 — Textured district.** Materials + facade system wired into the streamed LOD,
+**M2 — Living streets.** (M1 reached and approved; see [`MILESTONE-1.md`](MILESTONE-1.md).)
+
+Previous target, M1 — Textured district: Materials + facade system wired into the streamed LOD,
 budget thresholds re-derived from a fully textured chunk and logged here, lit windows
 at night, bloom + height fog in.
 
@@ -232,22 +234,18 @@ Pursuit behaviour over 2 laps: 10 active, 35 spawns, 9 lost beyond the give-up r
 549 despawns, 50 dead-ends, **0 orphans**, overlap 68.7% of frames (vs 35.4% at 30 units —
 the honest scaling of a stub with no following distance; M2's job).
 
-## FIRST THING TO DO ON CONTINUE
-
-**Re-enable the hourly watchdog** — trigger `trig_01AcU4HEkk7RNy3cSyi7J6zP`
-("Port Verano — hourly build watchdog"), fires at :53. It was **paused at 08:54 UTC**
-while blocked at the M1 gate, because its purpose is surviving usage limits during active
-building and at a gate it could only burn a turn an hour for no result. It fired three
-consecutive no-ops before being paused. Re-arm it with `update_trigger` and
-`enabled: true` before starting M2 work.
-
 ## Next action
 
-**PAUSED AT THE M1 GATE.** See [`MILESTONE-1.md`](MILESTONE-1.md). Waiting for the user's
-CONTINUE. Nothing proceeds to M2 until then.
+**M1 APPROVED — building M2 (Living streets).** Watchdog re-armed 13:34 UTC.
 
-On CONTINUE, in order: integrate `src/signage.js` (+8 draw calls district-wide, measured)
-and `src/hud.js`; fix the three confirmed geometry defects (severed awning post, floating
-plaza bars, orphaned pole stub); add AO / contact shadows (the most-cited critic gap); then
-M2's traffic AI against the 35.4% stub overlap baseline. `src/audio.js` never built — it is
-not an M1 requirement.
+M2 gate requires: traffic AI with following distance, intersections and dead-end routing,
+reporting the overlap rate against the **35.4% stub baseline**; and the chase harness
+running worst case with gate metrics.
+
+Order of work:
+1. Traffic AI (sequential owner) — the M2 gate itself.
+2. Integrate `src/signage.js` (+8 draw calls district-wide, measured) and `src/hud.js`.
+3. Fix the three critic-confirmed geometry defects: severed awning post, floating plaza
+   bars, orphaned pole stub.
+4. AO / contact shadows — the most-cited gap across all four M1 critics.
+5. `src/audio.js` — the one wave-2 builder the usage limit killed.
