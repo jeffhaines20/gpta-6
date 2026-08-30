@@ -46,8 +46,16 @@ export const SKY_PRESETS = {
     moonElevation: -0.7, moonAzimuth: 3.7, moonIntensity: 0,
     turbidity: 2.4,
   },
+  // Dusk deliberately sits LOWER than daynight.js's 0.055 rad. That preset quotes
+  // a direct-normal 1,200 lux and a 900 lux sky, and 1,200 lux of direct sun is
+  // what 0.6 deg of elevation transmits, not 3.15 deg — the elevation field and
+  // the photometry in that preset disagree with each other. The photometry is the
+  // half that the exposure, the plausibility gate and every material response are
+  // derived from, so it is the half the dome matches. The cost is a sun disc 2.5
+  // deg below where the shadows say it is, at an hour when shadows run off the end
+  // of the shadow map anyway.
   dusk: {
-    sunElevation: 0.055, sunAzimuth: 2.72,
+    sunElevation: 0.0105, sunAzimuth: 2.72,
     moonElevation: 0.62, moonAzimuth: 5.6, moonIntensity: 0.35,
     turbidity: 3.2,
   },
@@ -79,6 +87,9 @@ const SUN_ANGULAR_RADIUS = 0.00465;      // radians; the moon's is the same to 2
 const BETA_R = [5.8e-6, 13.5e-6, 33.1e-6];
 const BETA_M = 21e-6;
 const H_R = 8000, H_M = 1200;
+const EARTH_RADIUS = 6360000;
+const KY_HORIZON = 37.92;         // Kasten-Young air mass at zenith angle 90 deg
+const MS_ALTITUDE = 6000;         // where twilight's multiply-scattered light is made
 
 // Physical extinction at ground level for the clear default, kept so the artistic
 // fog density can quote its multiplier honestly rather than pretending to be real.
@@ -115,19 +126,37 @@ vec2 raySphere(vec3 o, vec3 d, float r) {
   return vec2(-b - h, -b + h);
 }
 
-// Kasten-Young relative air mass. Used only for the analytic transmittance of the
-// sun disc and the lit ground, where a full march would buy nothing.
+// Kasten-Young relative air mass. Accurate to the horizon and undefined past it:
+// the fitted term collapses to zero air mass for zenith angles beyond ~96 deg, so
+// a grazing ray comes back UNATTENUATED unless something else handles it. That
+// something is sunOpticalDepth below.
+#define KY_HORIZON 37.92
 float airMass(float sinElevation) {
   float z = degrees(acos(clamp(sinElevation, -1.0, 1.0)));
   return 1.0 / (max(sinElevation, 0.0) + 0.50572 * pow(max(96.07995 - z, 0.001), -1.6364));
 }
 
+// Column density of an exponential atmosphere of scale height H along the ray
+// leaving p toward the sun, in metres of sea-level-equivalent air.
+//
+// Above the local horizon this is the vertical column times the air mass. Below
+// it, the ray dips to a tangent radius before climbing back out, so the density
+// is set by the TANGENT height, not by p's — and by symmetry the path is twice
+// the tangent-to-space branch minus the mirrored p-to-space branch. The two
+// halves are written against the same KY_HORIZON constant, so they agree exactly
+// at the terminator rather than leaving a seam there.
+float sunOpticalDepth(float H, float h, float r, float cosChi) {
+  float vertical = H * exp(-h / H);
+  if (cosChi >= 0.0) return vertical * airMass(cosChi);
+  float sinChi = sqrt(max(1.0 - cosChi * cosChi, 0.0));
+  float ht = max(r * sinChi - Re, 0.0);
+  return 2.0 * KY_HORIZON * H * exp(-ht / H) - vertical * airMass(-cosChi);
+}
+
 vec3 sunTransmittance(float sinElevation) {
-  float am = airMass(sinElevation);
-  // Below the horizon the path length runs away faster than Kasten-Young models,
-  // which is what kills the disc within a degree or so of setting.
-  am *= 1.0 + max(0.0, -sinElevation) * 60.0;
-  return exp(-(uBetaR * Hr + uBetaM * 1.11 * Hm) * am);
+  float odR = sunOpticalDepth(Hr, 2.0, Re + 2.0, sinElevation);
+  float odM = sunOpticalDepth(Hm, 2.0, Re + 2.0, sinElevation);
+  return exp(-(uBetaR * odR + uBetaM * 1.11 * odM));
 }
 
 // Single scattering with an isotropic multiple-scattering term, marched through an
@@ -156,14 +185,16 @@ vec3 scatter(vec3 dir) {
     // grazing ray and is what makes a naive twilight collapse two hours early.
     vec2 sh = raySphere(p, uSunDir, Re);
     if (sh.x <= sh.y && sh.x > 0.0) continue;
-    float tSun = raySphere(p, uSunDir, Ra).y;
-    float segS = tSun / float(SUN_STEPS);
-    float odRs = 0.0, odMs = 0.0;
-    for (int j = 0; j < SUN_STEPS; j++) {
-      float hj = length(p + uSunDir * (segS * (float(j) + 0.5))) - Re;
-      odRs += exp(-hj / Hr) * segS;
-      odMs += exp(-hj / Hm) * segS;
-    }
+
+    // Optical depth along the sun ray, analytically. A uniform march cannot do
+    // this: at sunset the ray is ~600 km long and all of its mass is in the first
+    // 20 km, so 5 even samples put the nearest one at 60 km where the density is
+    // e^-7 and report an unattenuated sun. That single error is what kept the
+    // dusk sky four times brighter than the value daynight.js asserts.
+    float rp = length(p);
+    float cosChi = dot(p / rp, uSunDir);
+    float odRs = sunOpticalDepth(Hr, h, rp, cosChi);
+    float odMs = sunOpticalDepth(Hm, h, rp, cosChi);
     vec3 atten = exp(-(uBetaR * (odR + odRs) + uBetaM * 1.11 * (odM + odMs)));
     sumR += dR * atten;
     sumM += dM * atten;
@@ -360,8 +391,7 @@ void main() {
       vec3 pole = normalize(vec3(0.42, 0.62, -0.66));
       float band = exp(-pow(dot(dir, pole) * 3.1, 2.0));
       float n = valueNoise(dir * 13.0) * 0.6 + valueNoise(dir * 31.0) * 0.4;
-      L += vec3(0.78, 0.80, 0.95) * band * (0.35 + n * 0.9)
-           * uMilkyWay * (uNightZenith.b + 0.02) * above * clear;
+      L += vec3(0.78, 0.80, 0.95) * band * (0.35 + n * 0.9) * uMilkyWay * above * clear;
     }
   }
 
@@ -386,9 +416,10 @@ export class Sky {
    * @param {number} [opts.lutWidth=256]     equirect LUT width (height is half)
    * @param {number} [opts.steps=12]         view-ray samples in the scattering march
    * @param {number} [opts.sunSteps=5]       sun-ray samples per view sample
-   * @param {number} [opts.probeWidth=32]    CPU read-back probe width, for fog + audit
+   * @param {number} [opts.probeWidth=64]    CPU read-back probe width, for fog + audit
    * @param {boolean} [opts.environment=true] build a PMREM env map from the sky
-   * @param {number} [opts.envSize=128]      PMREM cubemap size
+   *        (its cube size is lutWidth/4 — three derives it from the equirect)
+   * @param {boolean} [opts.autoRefresh=false] allow update() to regenerate the LUT
    * @param {boolean} [opts.stars=true]
    * @param {boolean} [opts.milkyWay=true]
    * @param {number} [opts.maxRadiance=60000] nits ceiling; keeps half-float finite
@@ -400,12 +431,15 @@ export class Sky {
     this.scene = scene;
     this.lutWidth = opts.lutWidth ?? 256;
     this.lutHeight = this.lutWidth >> 1;
-    this.probeWidth = opts.probeWidth ?? 32;
+    this.probeWidth = opts.probeWidth ?? 64;
     this.probeHeight = this.probeWidth >> 1;
     this.wantEnvironment = opts.environment ?? true;
-    this.envSize = opts.envSize ?? 128;
     this.maxRadiance = opts.maxRadiance ?? 60000;
-    this.minRefreshMs = opts.minRefreshMs ?? 300;
+    this.minRefreshMs = opts.minRefreshMs ?? 250;
+    // Opt-in. Off by default so nothing this module owns can generate inside a
+    // frame unless the caller asked for it; weather.js turns it on for the
+    // duration of a transition and calls refresh() itself at the end.
+    this.autoRefresh = opts.autoRefresh ?? false;
     this.fogDensityClear = opts.fogDensity ?? 0.0018;
 
     this.presetName = 'dusk';
@@ -473,6 +507,9 @@ export class Sky {
     // Urban skyglow, in nits. Sized so the dome's own hemispherical illuminance
     // lands inside the 0.5-12 lux daynight.js already asserts for night — the two
     // numbers describe the same sky and a mismatch is a measurable bug, not taste.
+    // Unweighted isotropic gains, tuned so noon lands mid-envelope; _msWeight()
+    // scales them with the sun.
+    this.msBoost = new THREE.Vector2(0.115, 0.030);
     this.nightZenithColor = srgb(0x4c5f8e);
     this.nightHorizonColor = srgb(0xff9c50);
     this.nightZenithNits = 1.6;
@@ -507,7 +544,7 @@ export class Sky {
         uMoonRadiance: { value: 0 },
         uMoonPhase: { value: 1 },
         uStarIntensity: { value: opts.stars === false ? 0 : 1 },
-        uMilkyWay: { value: opts.milkyWay === false ? 0 : 1.5 },
+        uMilkyWay: { value: 0 },
         uMaxRadiance: { value: this.maxRadiance },
         uOvercast: { value: 0 },
       },
@@ -517,7 +554,7 @@ export class Sky {
       toneMapped: true,
     });
     this.starIntensity = this.domeMaterial.uniforms.uStarIntensity.value;
-    this.milkyWayIntensity = this.domeMaterial.uniforms.uMilkyWay.value;
+    this.milkyWayIntensity = opts.milkyWay === false ? 0 : (opts.milkyWay ?? 0.6);
 
     this.dome = new THREE.Mesh(fullscreenTriangle(), this.domeMaterial);
     this.dome.name = 'sky';
@@ -538,7 +575,13 @@ export class Sky {
     this._dirty = true;
     this._rayMatrix = new THREE.Matrix4();
     this._camRotation = new THREE.Matrix4();
-    this.stats = { refreshes: 0, lastRefreshMs: 0, worstRefreshMs: 0, lastEnvMs: 0, lastReadbackMs: 0 };
+    this.stats = { refreshes: 0, envRefreshes: 0, lastRefreshMs: 0, worstRefreshMs: 0,
+                   lastEnvMs: 0, lastReadbackMs: 0 };
+    this._post = null;
+    this._postWeather = null;
+    this._envScene = null;
+    this._probePending = false;
+    this._canReadAsync = typeof renderer.readRenderTargetPixelsAsync === 'function';
 
     this.setTimeOfDay('dusk');
     this.refresh({ force: true });
@@ -603,10 +646,14 @@ export class Sky {
 
   // ------------------------------------------------------------------ update
   /**
-   * Per frame. Cheap: one matrix multiply plus a handful of uniform writes. It
-   * regenerates the LUT and env map only when something actually changed AND
-   * minRefreshMs has elapsed, so a continuous weather transition costs a few
-   * regenerations, not one per frame.
+   * Per frame. One matrix multiply, a dozen uniform writes and, if a PostStack
+   * was attached, the aerial-perspective params pushed into it again — because
+   * TimeOfDay._applyPost() rewrites those from its own hex table on every
+   * apply()/setWeather(), and the last writer wins.
+   *
+   * It never generates anything. The scattering LUT is regenerated only by
+   * refresh(), or by the opt-in throttled path below (autoRefresh), which still
+   * leaves the PMREM environment map to an explicit call.
    */
   update(camera, now = performance.now()) {
     const u = this.domeMaterial.uniforms;
@@ -615,16 +662,29 @@ export class Sky {
     this._camRotation.extractRotation(camera.matrixWorld);
     this._rayMatrix.premultiply(this._camRotation);
     u.uRayMatrix.value.copy(this._rayMatrix);
-    if (this._dirty && now - this._lastRefresh >= this.minRefreshMs) this.refresh();
+    if (this._post) this.applyToPost(this._post, this._postWeather);
+    if (this.autoRefresh && this._dirty && now - this._lastRefresh >= this.minRefreshMs) {
+      // No environment map and no GPU sync on this path: it runs inside a frame.
+      this.refresh({ environment: false, sync: false });
+    }
     return this;
   }
 
   /**
-   * Regenerate the scattering LUT, the environment map and the fog parameters.
-   * NOT per frame. Measured cost is in report(): the LUT march and the PMREM
-   * dominate, and the read-back forces a GPU sync.
+   * Regenerate the scattering LUT, the fog parameters and — unless told not to —
+   * the PMREM environment map. NOT per frame. Call it after a time-of-day change
+   * or when weather has finished moving; daynight.js's setSky()/apply() already
+   * does. Measured costs are in report().
+   *
+   * @param {object} [o]
+   * @param {boolean} [o.force]        regenerate even if nothing is marked dirty
+   * @param {boolean} [o.environment]  rebuild the PMREM env map (the expensive half)
+   * @param {boolean} [o.sync]         block on the probe read-back. True gives
+   *        fog params valid on return; false costs no GPU stall and lands them a
+   *        frame or two later, which is what the in-frame path uses.
+   * @returns {number} milliseconds spent on the calling thread
    */
-  refresh({ force = false } = {}) {
+  refresh({ force = false, environment = true, sync = true } = {}) {
     if (!force && !this._dirty) return 0;
     const t0 = performance.now();
     const r = this.renderer;
@@ -641,16 +701,30 @@ export class Sky {
     r.render(this.quadScene, this.quadCamera);
 
     const tRead = performance.now();
-    this._readProbe();
+    if (sync || !this._canReadAsync) {
+      r.readRenderTargetPixels(this.probe, 0, 0, this.probeWidth, this.probeHeight, this._probeBuffer);
+      this._deriveFromProbe();
+    } else if (!this._probePending) {
+      // A synchronous readPixels of a render target the GPU has not finished
+      // writing costs a full pipeline flush — 30 ms here, and it would land in
+      // the frame slice the stall gate measures. The async path fences instead.
+      this._probePending = true;
+      r.readRenderTargetPixelsAsync(this.probe, 0, 0, this.probeWidth, this.probeHeight, this._probeBuffer)
+        .then(() => { this._deriveFromProbe(); })
+        .catch(() => { this._canReadAsync = false; })
+        .finally(() => { this._probePending = false; });
+    }
     this.stats.lastReadbackMs = +(performance.now() - tRead).toFixed(2);
 
     const tEnv = performance.now();
-    if (this.wantEnvironment) {
+    if (this.wantEnvironment && environment) {
       // The env map deliberately excludes the sun disc: three's DirectionalLight
       // already supplies the sun's specular, and putting it in the IBL as well
       // double-counts it. The dome adds the disc afterwards, at full resolution.
       this.envTarget = this.pmrem.fromEquirectangular(this.lut.texture, this.envTarget);
       this.environment = this.envTarget.texture;
+      if (this._envScene) this.applyToScene(this._envScene);
+      this.stats.envRefreshes++;
     }
     this.stats.lastEnvMs = +(performance.now() - tEnv).toFixed(2);
 
@@ -671,6 +745,15 @@ export class Sky {
     u.uBetaM.value = BETA_M * this.turbidity;
     u.uOvercast.value = this.overcast;
     u.uMaxRadiance.value = this.maxRadiance;
+
+    // Multiple scattering is modelled as an isotropic addition to the phase
+    // functions, and it has to be weighted by how much sun reaches the air that
+    // produces it — the mid-troposphere, not the ground. Left flat, single
+    // scattering falls off correctly through twilight while the isotropic term
+    // does not, and the model reports a 2,500 lux sky with the sun on the horizon
+    // against the 100-2,500 daynight.js allows for the whole of dusk.
+    const msW = this._msWeight();
+    u.uMsBoost.value.set(this.msBoost.x * msW, this.msBoost.y * msW);
 
     // Overcast zenith luminance from the illuminance actually arriving above the
     // deck: E_above * cloud transmittance / pi, with the CIE 1:3 horizon:zenith
@@ -705,9 +788,25 @@ export class Sky {
     d.uMoonRadiance.value = 2500 * (this.moonIntensity ?? 1) * moonUp;
     const night = 1 - smoothstep(-0.06, 0.10, this.sunDirection.y);
     d.uStarIntensity.value = this.starIntensity * night;
-    d.uMilkyWay.value = this.milkyWayIntensity * night;
+    // Peak band radiance in nits, pinned to a fraction of the zenith glow: a
+    // galaxy brighter than the sky it is painted on reads as texture noise.
+    d.uMilkyWay.value = this.milkyWayIntensity * night
+      * luminance([this.nightZenithColor.r, this.nightZenithColor.g, this.nightZenithColor.b])
+      * this.nightZenithNits;
 
-    this.atmosphere.sunDirection.copy(this.sunDirection);
+  }
+
+  // Sunlight reaching MS_ALTITUDE, normalised to a high sun. One number per
+  // refresh; it is constant across the LUT because it depends only on the sun.
+  _msWeight() {
+    const y = this.sunDirection.y;
+    const at = (sinEl) => {
+      const r = EARTH_RADIUS + MS_ALTITUDE;
+      const odR = this._sunOpticalDepth(H_R, MS_ALTITUDE, r, sinEl);
+      const odM = this._sunOpticalDepth(H_M, MS_ALTITUDE, r, sinEl) * this.turbidity * 1.11;
+      return Math.exp(-(BETA_R[1] * odR + BETA_M * odM));
+    };
+    return Math.min(1, at(y) / at(1));
   }
 
   _airMass(sinElevation) {
@@ -715,18 +814,28 @@ export class Sky {
     return 1 / (Math.max(sinElevation, 0) + 0.50572 * Math.pow(Math.max(96.07995 - z, 0.001), -1.6364));
   }
 
+  // JS mirror of sunOpticalDepth() in SKY_COMMON. Two copies of one model is a
+  // liability, so they are kept adjacent in review and the audit compares the
+  // result against the LUT the shader actually rendered.
+  _sunOpticalDepth(H, h, r, cosChi) {
+    const vertical = H * Math.exp(-h / H);
+    if (cosChi >= 0) return vertical * this._airMass(cosChi);
+    const sinChi = Math.sqrt(Math.max(1 - cosChi * cosChi, 0));
+    const ht = Math.max(r * sinChi - EARTH_RADIUS, 0);
+    return 2 * KY_HORIZON * H * Math.exp(-ht / H) - vertical * this._airMass(-cosChi);
+  }
+
   _transmittance(sinElevation) {
-    let am = this._airMass(sinElevation);
-    am *= 1 + Math.max(0, -sinElevation) * 60;
-    const bm = BETA_M * this.turbidity * 1.11 * H_M;
-    return BETA_R.map((b) => Math.exp(-(b * H_R + bm) * am));
+    const r = EARTH_RADIUS + 2;
+    const odR = this._sunOpticalDepth(H_R, 2, r, sinElevation);
+    const odM = this._sunOpticalDepth(H_M, 2, r, sinElevation) * this.turbidity * 1.11;
+    return BETA_R.map((b, i) => Math.exp(-(b * odR + BETA_M * odM)));
   }
 
   // Read the probe once per refresh and derive every CPU-side number from it, so
   // the fog colour, the audit and the shader can never drift apart.
-  _readProbe() {
+  _deriveFromProbe() {
     const W = this.probeWidth, H = this.probeHeight;
-    this.renderer.readRenderTargetPixels(this.probe, 0, 0, W, H, this._probeBuffer);
     const rgb = this._probeRGB;
     const half = THREE.DataUtils.fromHalfFloat;
     for (let i = 0, n = W * H; i < n; i++) {
@@ -735,8 +844,10 @@ export class Sky {
       rgb[i * 3 + 2] = half(this._probeBuffer[i * 4 + 2]);
     }
 
-    // Horizon ring: the two rows straddling elevation 0.
-    const rowBelow = (H >> 1) - 1, rowAbove = H >> 1;
+    // Horizon band: the first two rows above elevation 0, weighted toward the
+    // lower one. Rows below the horizon are the lit ground plane, which is a
+    // brown 5,000-nit surface at noon and has no business setting the haze tint.
+    const bandRows = [[H >> 1, 0.72], [(H >> 1) + 1, 0.28]];
     const sunAz = Math.atan2(this.sunDirection.z, this.sunDirection.x);
     let towards = [0, 0, 0], away = [0, 0, 0], twSum = 0, awSum = 0;
     let ringY = 0;
@@ -745,9 +856,9 @@ export class Sky {
       let dPhi = Math.abs(phi - sunAz) % (Math.PI * 2);
       if (dPhi > Math.PI) dPhi = Math.PI * 2 - dPhi;
       const c = [0, 0, 0];
-      for (const row of [rowBelow, rowAbove]) {
+      for (const [row, wr] of bandRows) {
         const i = (row * W + x) * 3;
-        c[0] += rgb[i] * 0.5; c[1] += rgb[i + 1] * 0.5; c[2] += rgb[i + 2] * 0.5;
+        c[0] += rgb[i] * wr; c[1] += rgb[i + 1] * wr; c[2] += rgb[i + 2] * wr;
       }
       ringY += luminance(c) / W;
       // Weight by how close this azimuth is to the sun's; the post stack blends
@@ -785,6 +896,11 @@ export class Sky {
     a.sunLux = this.sunDirection.y > 0
       ? SUN_ILLUMINANCE * luminance(t) * (1 - this.overcast * 0.93) : 0;
 
+    // The post stack's inscatter lobe points at whatever is lighting the scene,
+    // which after sunset is the moon. daynight.js aims its DirectionalLight the
+    // same way, so the two agree instead of fighting once a frame.
+    a.sunDirection.copy(this.sunDirection.y > 0.01 ? this.sunDirection : this.moonDirection);
+
     // Fog density: an artistic multiple of the physical ground extinction. A real
     // 5.5e-5 /m is invisible over a 1 km draw distance, so games exaggerate it;
     // quoting the multiplier keeps that an explicit decision.
@@ -804,6 +920,12 @@ export class Sky {
    */
   applyToPost(post, weather = null) {
     if (!post || !post.params) return this;
+    // Remembered so update() can re-assert it every frame. TimeOfDay._applyPost()
+    // runs on every apply() and setWeather() and would otherwise put the hex fog
+    // back — at noon that is an sRGB 0.66 multiplied by a 1/78000 stop, i.e. a
+    // world that fades to black as it recedes.
+    this._post = post;
+    this._postWeather = weather ?? this._postWeather;
     const p = post.params, a = this.atmosphere;
     p.fogColor.copy(a.fogColor);
     p.fogInscatter.copy(a.fogInscatter);
@@ -821,6 +943,7 @@ export class Sky {
    * at 1 counts the sky's diffuse twice — see recommendedEnvironmentIntensity.
    */
   applyToScene(scene = this.scene) {
+    this._envScene = scene;
     if (this.environment) {
       scene.environment = this.environment;
       scene.environmentIntensity = this.recommendedEnvironmentIntensity;

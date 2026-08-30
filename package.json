@@ -17,6 +17,7 @@
     "progress": "node tools/progress-page.mjs",
     "test:syntax": "node tools/check-syntax.mjs",
     "gates": "npm run test:syntax && npm run test:golden && npm run test:physics >/dev/null && echo ALL-STATIC-GATES-PASS",
-    "hero": "node tools/hero-shots.mjs"
+    "hero": "node tools/hero-shots.mjs",
+    "test:lighting": "node tools/daynight-sweep.mjs"
   }
 }

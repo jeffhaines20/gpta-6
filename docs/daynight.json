@@ -33,9 +33,9 @@
    "exposure": "1/78000",
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 12,
-   "shadowCasters": 65,
+   "shadowCasters": 79,
    "drawCalls": 97,
-   "triangles": 33772,
+   "triangles": 33563,
    "implausible": []
   },
   {
@@ -47,10 +47,13 @@
    "exposure": "1/330",
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 12,
-   "shadowCasters": 65,
+   "shadowCasters": 79,
    "drawCalls": 97,
-   "triangles": 33772,
-   "implausible": []
+   "triangles": 33563,
+   "implausible": [
+    "sky: sky illuminance 5.78e+3 lux outside plausible 100-2500 for dusk",
+    "sky illuminance 5782 lux is 6.4x the dusk preset's 900 lux that exposure 1/330 was calibrated for"
+   ]
   },
   {
    "tod": "night",
@@ -61,12 +64,14 @@
    "exposure": "1/2",
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 12,
-   "shadowCasters": 65,
+   "shadowCasters": 79,
    "drawCalls": 97,
-   "triangles": 33772,
-   "implausible": []
+   "triangles": 33563,
+   "implausible": [
+    "sky illuminance 2 lux is 0.5x the night preset's 3.5 lux that exposure 1/2 was calibrated for"
+   ]
   }
  ],
- "anyImplausible": false,
+ "anyImplausible": true,
  "errors": []
 }

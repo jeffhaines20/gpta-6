@@ -3,47 +3,35 @@
 <script type="module">
 import * as THREE from '../../vendor/three.module.min.js';
 import { Sky } from '../../src/sky.js';
-import { Weather } from '../../src/weather.js';
-const out = { steps: [], errors: [] };
+const out = { rows: [], errors: [] };
 window.__probe = out;
 window.addEventListener('error', e => out.errors.push('ERR ' + e.message));
 try {
-  const canvas = document.getElementById('c');
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
-  renderer.setPixelRatio(1);
-  out.webgl2 = renderer.capabilities.isWebGL2;
-  out.floatBlend = !!renderer.extensions.get('EXT_float_blend');
-  out.colorBufferFloat = !!renderer.extensions.get('EXT_color_buffer_float');
-  const gl = renderer.getContext();
+  const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('c') });
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(50, 16/9, 0.1, 1200);
-  camera.position.set(0, 2, 8);
-  camera.lookAt(0, 3, 0);
-  out.steps.push('ctx ok');
-  const t0 = performance.now();
-  const sky = new Sky(renderer, scene);
-  out.steps.push('sky ctor ' + (performance.now() - t0).toFixed(1) + ' ms');
-  out.skyReport = sky.audit();
-  const w = new Weather(scene, { sky });
-  out.steps.push('weather ctor ok');
-  w.set('heavyRain', { immediate: true });
-  w.update(0.016, camera);
-  out.weatherReport = w.report();
-  sky.update(camera);
-  renderer.render(scene, camera);
-  out.steps.push('render ok, calls=' + renderer.info.render.calls + ' tris=' + renderer.info.render.triangles);
-  // per-preset audit
-  out.presets = {};
-  for (const n of ['noon', 'dusk', 'night']) {
-    sky.setTimeOfDay(n);
-    sky.setOvercast(0); sky.setTurbidity(n === 'noon' ? 2.4 : n === 'dusk' ? 3.2 : 2.8); sky.setFogBoost(0);
-    const ms = sky.refresh({ force: true });
-    out.presets[n] = { ms: +ms.toFixed(1), ...sky.audit() };
+  const sky = new Sky(renderer, scene, { environment: false });
+  const az = 2.72;
+  for (const elevDeg of [-1.5, -0.6, 0, 0.3, 0.6, 1.0, 1.6, 2.2, 3.15, 5, 8, 14, 30, 55, 75.6]) {
+    const e = elevDeg * Math.PI / 180;
+    sky.setSun(e, az); sky.setTurbidity(3.2); sky.setOvercast(0);
+    sky.refresh({ force: true });
+    const a = sky.atmosphere;
+    out.rows.push({
+      elevDeg, skyLux: +a.skyLux.toFixed(1), sunLux: +a.sunLux.toFixed(0),
+      zen: +a.zenithNits.toFixed(2), hor: +a.horizonNits.toFixed(1),
+      fog: [a.fogColor.r, a.fogColor.g, a.fogColor.b].map(v => +v.toFixed(1)),
+      insc: [a.fogInscatter.r, a.fogInscatter.g, a.fogInscatter.b].map(v => +v.toFixed(1)),
+    });
   }
-  out.glError = gl.getError();
+  // overcast sweep at the noon elevation
+  out.overcast = [];
+  sky.setSun(75.6 * Math.PI / 180, 0.6); sky.setTurbidity(2.4);
+  for (const o of [0, 0.5, 1]) {
+    sky.setOvercast(o); sky.refresh({ force: true });
+    const a = sky.atmosphere;
+    out.overcast.push({ o, skyLux: +a.skyLux.toFixed(0), hor: +a.horizonNits.toFixed(0),
+      fog: [a.fogColor.r, a.fogColor.g, a.fogColor.b].map(v => +v.toFixed(0)) });
+  }
   out.ready = true;
-} catch (e) {
-  out.errors.push('THROW ' + (e && e.stack || e));
-  out.ready = true;
-}
+} catch (e) { out.errors.push('THROW ' + (e && e.stack || e)); out.ready = true; }
 </script>

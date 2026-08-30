@@ -95,3 +95,12 @@ fs.writeFileSync('docs/daynight-negative.json', JSON.stringify({
 }, null, 1));
 
 await browser.close();
+
+// The lighting sweep is a gate, not a report. It fails if any preset is
+// implausible, or if the negative test stops catching the Phase 1 mis-tuning -
+// a checker that has stopped failing is not a checker.
+const pass = flagged.length === 0 && caught;
+console.log(`\nLIGHTING SWEEP: ${pass ? 'PASS' : 'FAIL'}` +
+  (flagged.length ? ` — implausible at ${flagged.map((f) => f.tod).join(', ')}` : '') +
+  (caught ? '' : ' — NEGATIVE TEST DID NOT FIRE'));
+process.exit(pass ? 0 : 1);
