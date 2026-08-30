@@ -44,10 +44,17 @@ jobs:
         with: { node-version: '22' }
       - name: Syntax
         run: node tools/check-syntax.mjs
+      - name: Geometry gate (props reach the surface they stand on)
+        run: node tools/geom-audit.mjs
       - name: Golden-trace physics gate
         run: node tools/golden-trace.mjs
       - name: Physics assertions
         run: node tools/physics-test.mjs
+      # Vertical continuity of placed props. Browser-free arithmetic over the
+      # baked district, so it belongs in the fast lane: it catches the
+      # floating-prop class that three separate critics had to find by eye.
+      - name: Prop geometry audit
+        run: node tools/geom-audit.mjs
 
   geometry:
     name: budget gate (draw calls + triangles gating, stall advisory)

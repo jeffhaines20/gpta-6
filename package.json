@@ -16,13 +16,15 @@
     "chase": "node tools/chase-harness.mjs",
     "progress": "node tools/progress-page.mjs",
     "test:syntax": "node tools/check-syntax.mjs",
+    "test:geometry": "node tools/geom-audit.mjs",
     "gates": "npm run gates:static && npm run gates:lighting && npm run gates:budget",
     "hero": "node tools/hero-shots.mjs",
     "test:lighting": "node tools/daynight-sweep.mjs",
-    "gates:static": "node tools/check-syntax.mjs && node tools/golden-trace.mjs && node tools/physics-test.mjs",
+    "gates:static": "node tools/check-syntax.mjs && node tools/golden-trace.mjs && node tools/physics-test.mjs && node tools/geom-audit.mjs",
     "gates:budget": "node tools/drive-through.mjs --traffic",
     "gates:lighting": "node tools/daynight-sweep.mjs",
-    "test": "npm run gates"
+    "test": "npm run gates",
+    "test:geom": "node tools/geom-audit.mjs"
   },
   "devDependencies": {
     "playwright": "1.56.1"
