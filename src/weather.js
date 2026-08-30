@@ -253,6 +253,7 @@ export class Weather {
     this._rand = mulberry32(opts.seed ?? 90210);
     this._bound = [];
     this._lastAppliedWetness = -1;
+    this._settle = false;
 
     this.root = new THREE.Group();
     this.root.name = 'weather';
@@ -373,6 +374,7 @@ export class Weather {
     if (!WEATHER_STATES[name]) throw new Error(`unknown weather state: ${name}`);
     const seconds = opts.seconds ?? 8;
     this.targetName = name;
+    this._settle = true;      // one explicit sky refresh owed once this lands
 
     if (opts.immediate) {
       this._queue.length = 0;
