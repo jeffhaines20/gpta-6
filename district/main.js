@@ -20,6 +20,12 @@ import { PostStack } from '../src/post.js';
 import { LoadingScreen } from '../src/loading.js';
 import { Sky } from '../src/sky.js';
 import { Weather } from '../src/weather.js';
+import {
+  generateSignageLibrary, districtSignageBuffers, signMaterial, streetSignMaterial,
+  setSignageTime,
+} from '../src/signage.js';
+import { buildingStyle } from '../src/facades.js';
+import { HUD } from '../src/hud.js';
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -38,6 +44,7 @@ hud.textContent = 'loading district…';
 
 const loading = new LoadingScreen({ title: 'PORT VERANO' });
 let district, world, tod, post, sky, weather;
+let signageRoot = null, signageStats = null, hud2 = null;
 let loadReport = null;
 
 await loading
@@ -52,6 +59,43 @@ await loading
     sky = new Sky(renderer, scene);
     weather = new Weather(scene);
     weather.bindMaterials(world.registry);
+  })
+  .add('signage', async () => {
+    generateSignageLibrary({ streetNames: Object.values(district.streetNames ?? {}) });
+    const { buckets, street, stats } = districtSignageBuffers(district, {
+      styleOf: (b) => world._capStyle(buildingStyle(b), b),
+      streetDirFor: (b) => world._streetDirFor(b),
+    });
+    signageRoot = new THREE.Group();
+    signageRoot.name = 'signage';
+    const meshOf = (buf, mat) => {
+      if (!buf.pos.length) return null;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(buf.pos, 3));
+      g.setAttribute('normal', new THREE.Float32BufferAttribute(buf.nrm, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(buf.uv, 2));
+      if (buf.col && buf.col.length) g.setAttribute('color', new THREE.Float32BufferAttribute(buf.col, 3));
+      g.setIndex(buf.idx);
+      g.computeBoundingSphere();
+      const m = new THREE.Mesh(g, mat);
+      m.castShadow = true; m.receiveShadow = true;
+      return m;
+    };
+    for (const bk of buckets) {
+      const m = meshOf(bk.sign, signMaterial({ time: 'dusk' }));
+      if (m) signageRoot.add(m);
+    }
+    const sm = meshOf(street, streetSignMaterial({ time: 'dusk' }));
+    if (sm) signageRoot.add(sm);
+    scene.add(signageRoot);
+    signageStats = stats;
+  })
+  .add('hud', async () => {
+    // DOM + 2D canvas overlay: zero WebGL draw calls, so it costs nothing against
+    // the budget the rest of this file is fighting for.
+    hud2 = new HUD({ district, zoomMetres: 220 });
+    // The debug text overlay is redundant once the real HUD is up.
+    hud.style.display = 'none';
   })
   .add('lighting', async () => {
     tod = new TimeOfDay(scene, renderer);
@@ -338,6 +382,20 @@ function animate(now) {
 
   const w = world.report();
   const near = mode === 'foot' && player.position.distanceTo(vehicle.position) <= ENTER_RANGE;
+  if (hud2) {
+    const q = vehicle.quaternion;
+    const heading = mode === 'foot'
+      ? player.yaw
+      : Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
+    hud2.update({
+      dt,
+      inVehicle: mode === 'car',
+      vehicle: mode === 'car' ? vehicle : null,
+      px: focus.x, pz: focus.z, heading,
+      district: district.meta.city,
+      prompt: near ? 'PRESS F TO ENTER VEHICLE' : null,
+    });
+  }
   hud.textContent =
     `${district.meta.city}  ·  ${PRESETS[tod.presetName].label}  ·  ` +
     (mode === 'car' ? `${(vehicle.speed * 3.6).toFixed(0)} km/h  [F] exit`
@@ -378,7 +436,8 @@ window.__district = {
   toggleVehicle,
   setMode(m) { if (m !== mode) toggleVehicle(); },
   pursuitReport: () => (pursuit ? pursuit.report() : null),
-  setTimeOfDay: (n) => tod.apply(n),
+  setTimeOfDay: (n) => { const r = tod.apply(n); setSignageTime(n); return r; },
+  signageStats: () => signageStats,
   audit: () => tod.audit(),
   placeAt,
   renderStats: () => ({ calls: post.stats.totalCalls, sceneCalls: post.stats.sceneCalls,
