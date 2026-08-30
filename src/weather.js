@@ -160,6 +160,47 @@ function mulberry32(seed) {
  * darkens). materials.js keeps material.roughness at 1.0 multiplying an absolute
  * roughness map, so scaling that one number is exactly the intended hook.
  */
+/**
+ * How much of the wetness response each surface takes, by material name. A
+ * horizontal road holds a film of water; a vertical facade sheds it; glass and
+ * water are already smooth and darkening them reads as a bug.
+ *
+ * Keys are matched as name prefixes against `material.name`, which
+ * materials.js sets for every material it registers.
+ */
+export const SURFACE_WETTING = {
+  road: 1, land: 0.85, ground: 0.85, pavement: 1, roadMarkings: 0.9,
+  building: 0.45, facade: 0.45, trim: 0.5,
+  metal: 0.55, glass: 0, water: 0, sky: 0, rain: 0,
+};
+const DEFAULT_WETTING = 0.7;
+
+function wettingFor(name) {
+  if (!name) return DEFAULT_WETTING;
+  const n = String(name).toLowerCase();
+  for (const key of Object.keys(SURFACE_WETTING)) {
+    if (n.startsWith(key)) return SURFACE_WETTING[key];
+  }
+  return DEFAULT_WETTING;
+}
+
+// Materials arrive as a registry, an array, a Map or a nested plain object.
+function* flattenMaterials(x, depth = 0) {
+  if (!x || depth > 3 || typeof x === 'string') return;
+  if (x.isMaterial) { yield x; return; }
+  // MaterialRegistry: everything it built, not just the streaming subset.
+  if (typeof x.keys === 'function' && typeof x.get === 'function' && typeof x.streamingMaterials === 'function') {
+    for (const k of x.keys()) yield* flattenMaterials(x.get(k), depth + 1);
+    return;
+  }
+  if (x instanceof Map) { for (const v of x.values()) yield* flattenMaterials(v, depth + 1); return; }
+  if (typeof x[Symbol.iterator] === 'function') {
+    for (const v of x) yield* flattenMaterials(v, depth + 1);
+    return;
+  }
+  if (typeof x === 'object') { for (const v of Object.values(x)) yield* flattenMaterials(v, depth + 1); }
+}
+
 export function wetSurfaceParams(wetness) {
   const w = Math.min(1, Math.max(0, wetness));
   return { roughnessScale: 1 - 0.62 * w, albedoScale: 1 - 0.34 * w, envBoost: 1 + 0.9 * w };
@@ -466,6 +507,16 @@ export class Weather {
     this.sky.setOvercast(this.current.overcast);
     this.sky.setTurbidity(this.current.turbidity);
     this.sky.setFogBoost(this.current.fogBoost);
+    // Moving weather needs the cloud deck to follow it, so the sky's throttled
+    // LUT path is switched on for the duration and off again at the end. That
+    // path never touches the PMREM env map; this does, once, when it settles.
+    const moving = this._t < 1 || this._queue.length > 0;
+    this.sky.autoRefresh = moving;
+    if (!moving && this._settle) {
+      this._settle = false;
+      this.sky.refresh({ force: true });
+    }
+    if (moving) this._settle = true;
   }
 
   // ------------------------------------------------------------------ wiring
@@ -474,22 +525,26 @@ export class Weather {
    * roughness. Dry values are captured once at bind time and every later value is
    * derived from them, so repeated calls cannot ratchet a material into black.
    *
-   * Do NOT pass glass or water: they are already smooth, and darkening them reads
-   * as a bug. The default list is what a street is made of.
+   * Accepts a MaterialRegistry, an array, a Map, or a plain object of materials.
+   * The registry case matters: `Object.values(registry)` would walk its private
+   * fields, find no materials, bind nothing and report success — a wet-look
+   * system that silently does nothing is worse than one that throws.
    *
-   * @param {Iterable<THREE.Material>|object} materials array, Map, or a plain
-   *        object of materials (e.g. registry.streamingMaterials())
+   * Susceptibility comes from SURFACE_WETTING, keyed on material.name, because a
+   * pane of glass and a wet asphalt lane do not respond the same way and
+   * materials.js already names everything it builds.
+   *
+   * @param {object|Iterable<THREE.Material>} materials
    */
   bindMaterials(materials) {
-    const list = materials instanceof Map ? [...materials.values()]
-      : Array.isArray(materials) ? materials
-        : materials && typeof materials === 'object' && !materials.isMaterial ? Object.values(materials)
-          : [materials];
-    for (const m of list) {
-      if (!m || !m.isMaterial || m.transparent) continue;
+    for (const m of flattenMaterials(materials)) {
+      if (!m || !m.isMaterial) continue;
+      const share = wettingFor(m.name);
+      if (share <= 0) continue;
       if (this._bound.some((b) => b.mat === m)) continue;
       this._bound.push({
         mat: m,
+        share,
         roughness: m.roughness ?? 1,
         color: m.color ? m.color.clone() : null,
         envMapIntensity: m.envMapIntensity ?? 1,
@@ -502,8 +557,8 @@ export class Weather {
   _applyWetness() {
     if (Math.abs(this.wetness - this._lastAppliedWetness) < 0.004) return;
     this._lastAppliedWetness = this.wetness;
-    const { roughnessScale, albedoScale, envBoost } = wetSurfaceParams(this.wetness);
     for (const b of this._bound) {
+      const { roughnessScale, albedoScale, envBoost } = wetSurfaceParams(this.wetness * b.share);
       if (b.mat.roughness !== undefined) b.mat.roughness = b.roughness * roughnessScale;
       if (b.color) b.mat.color.setRGB(b.color.r * albedoScale, b.color.g * albedoScale, b.color.b * albedoScale);
       if (b.mat.envMapIntensity !== undefined) b.mat.envMapIntensity = b.envMapIntensity * envBoost;
