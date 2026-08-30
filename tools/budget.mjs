@@ -24,13 +24,40 @@ export function assess(name, value, spec) {
   return { name, value, ...spec, status: 'PASS' };
 }
 
-export function gate(results) {
-  const rows = results.map(({ name, value, spec }) => assess(name, value, spec));
-  const worst = rows.some((r) => r.status === 'FAIL') ? 'FAIL'
-    : rows.some((r) => r.status === 'WARN') ? 'WARN' : 'PASS';
-  return { status: worst, rows,
+// Metrics that a shared CI runner cannot measure validly.
+//
+// Eleven serial runs on a dedicated container measured chunk stall spanning
+// 5.3-24.2 ms on UNCHANGED code, while draw calls reproduced to within 1.3% and
+// triangles to 0.2%. A hosted runner is noisier than that box, so gating on stall
+// there produces red builds on good code - and a gate that cries wolf is worse
+// than no gate, because people learn to click through it.
+//
+// This is deliberately NOT a threshold change. BUDGET.chunkStallMs stays 8/16 and
+// is enforced in full everywhere it can be measured. What ADVISORY does is scope
+// where a metric is allowed to decide a build, and it is opt-in: unset, every
+// metric gates exactly as before. Only the CI workflow sets it, and CI does not
+// get to certify a milestone - stall verdicts still require N>=5 local runs.
+//
+// Logged in PROGRESS.md under the Threshold change log.
+export const ADVISORY_ENV = 'BUDGET_ADVISORY';
+
+export function advisoryFromEnv(env = process.env) {
+  return (env[ADVISORY_ENV] || '').split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+export function gate(results, opts = {}) {
+  const advisory = opts.advisory ?? advisoryFromEnv();
+  const rows = results.map(({ name, value, spec }) => {
+    const r = assess(name, value, spec);
+    r.advisory = advisory.includes(r.name);
+    return r;
+  });
+  const deciding = rows.filter((r) => !r.advisory);
+  const worst = deciding.some((r) => r.status === 'FAIL') ? 'FAIL'
+    : deciding.some((r) => r.status === 'WARN') ? 'WARN' : 'PASS';
+  return { status: worst, rows, advisory,
     headroom: rows.map((r) => ({
-      name: r.name, value: r.value, failAt: r.fail,
+      name: r.name, value: r.value, failAt: r.fail, advisory: r.advisory,
       headroomPct: +(((r.fail - r.value) / r.fail) * 100).toFixed(1),
     })) };
 }
@@ -38,7 +65,12 @@ export function gate(results) {
 export function printGate(g) {
   console.log(`\nBUDGET GATE: ${g.status}`);
   for (const r of g.rows) {
-    console.log(`  ${r.status.padEnd(4)} ${r.name.padEnd(16)} ${String(r.value).padStart(9)}  ` +
+    const tag = r.advisory ? `${r.status} (advisory, not gating)` : r.status;
+    console.log(`  ${tag.padEnd(28)} ${r.name.padEnd(16)} ${String(r.value).padStart(9)}  ` +
       `warn ${r.warn}  fail ${r.fail}  headroom ${(((r.fail - r.value) / r.fail) * 100).toFixed(1)}%`);
+  }
+  if (g.advisory?.length) {
+    console.log(`  note: ${g.advisory.join(', ')} reported but not gating in this environment` +
+      ` (${ADVISORY_ENV}). Gated in full on a dedicated machine at N>=5.`);
   }
 }

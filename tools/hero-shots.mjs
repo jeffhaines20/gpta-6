@@ -2,6 +2,7 @@
 // times of day. Every capture is paired with a scene-graph audit written next to
 // it, because a critic's diagnosis is a hypothesis until it is audited.
 import { chromium } from 'playwright';
+import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
 import fs from 'node:fs';
 
@@ -11,10 +12,7 @@ const TIMES = (process.env.HERO_TIMES ?? 'dusk,night,noon').split(',');
 const TAG = process.env.HERO_TAG ?? 'hero';
 
 await ensureServer();
-const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--no-sandbox'],
-});
+const browser = await chromium.launch(launchOptions());
 const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));

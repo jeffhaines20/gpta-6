@@ -6,6 +6,7 @@
 // mis-tuned light constant as an entirely missing lighting subsystem. Pairing
 // every capture with an audit makes that mistake impossible to repeat.
 import { chromium } from 'playwright';
+import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
 import fs from 'node:fs';
 
@@ -13,10 +14,7 @@ const OUT = 'docs/shots';
 fs.mkdirSync(OUT, { recursive: true });
 
 await ensureServer();
-const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--no-sandbox'],
-});
+const browser = await chromium.launch(launchOptions());
 const page = await browser.newPage({ viewport: { width: 1440, height: 810 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));

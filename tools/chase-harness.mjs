@@ -8,6 +8,7 @@
 //
 // Software rendering here: frame rate is never reported. Rates use simulated time.
 import { chromium } from 'playwright';
+import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
 import fs from 'node:fs';
 import { BUDGET, gate, printGate } from './budget.mjs';
@@ -19,11 +20,7 @@ const TOD = process.env.CHASE_TOD ?? 'dusk';
 
 fs.mkdirSync('docs/shots', { recursive: true });
 await ensureServer();
-const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
-         '--no-sandbox', '--js-flags=--expose-gc'],
-});
+const browser = await chromium.launch(launchOptions(['--js-flags=--expose-gc']));
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message));

@@ -57,6 +57,51 @@ warn 40 / fail 120 MB.
 
 ## Threshold change log
 
+### 2026-08-30 — CI gate scope: split by determinism, NOT by threshold (owner-approved)
+
+Constraint 4 calls both gates mandatory. Until today nothing ran them automatically:
+no `.github/`, no workflow of any format, no git hooks. That is now
+`.github/workflows/gates.yml`. Two facts shaped it.
+
+**Which metrics a hosted runner can measure.** Across eleven serial runs on a
+dedicated container:
+
+| Metric | Reproducibility on unchanged code | Gates in CI? |
+|---|---|---|
+| golden trace, physics assertions | exact | **yes** |
+| draw calls | within **1.3%** | **yes** |
+| triangles | within **0.2%** | **yes** |
+| heap growth | within 8 MB of 40/120 bounds | **yes** |
+| **chunk stall ms** | **5.3–24.2 ms — spans PASS, WARN and FAIL** | **no — advisory** |
+
+A hosted runner is noisier than that box, so gating stall there produces red builds
+on good code. A gate that cries wolf is worse than no gate: people learn to click
+through it, and then it stops catching the real regression.
+
+**No threshold moved.** `BUDGET.chunkStallMs` is still 8/16 and still gates in full
+everywhere it can be measured — locally, and on the `full` manual dispatch. The new
+`BUDGET_ADVISORY` env var scopes *where* a metric is allowed to decide a build, and it
+is opt-in: unset, every metric gates exactly as before, which is the default for every
+local run. Only the workflow sets it. CI does not get to certify a milestone; stall
+verdicts still require N>=5 local runs.
+
+The tempting alternative — raising the CI stall threshold until it stops flaking — is
+the silent loosening this constraint forbids, and was not done.
+
+**Cost.** The repository is private, so Actions minutes bill against the owner's
+allowance. The fast lane (syntax, golden trace, physics; no browser) is ~1 minute and
+runs on every push. The geometry lane needs Chromium and is ~5-8 minutes with the
+browser cached. Approved by the owner on 2026-08-30 after being presented with the
+cost and the flake trade-off.
+
+**Portability fix this required.** Six harnesses hardcoded
+`/opt/pw-browsers/chromium-1194/chrome-linux/chrome` — this container's path and
+nowhere else's — so every one of them failed on any other machine, the owner's
+included. Resolution now goes through `tools/browser.mjs`. `playwright` was also
+imported by every harness while being declared in `package.json` as a dependency of
+nothing at all; it is now a pinned devDependency with a lockfile.
+
+
 ### 2026-08-30 — BACKFILL: the gated quantity was redefined at `02ccfdf` and never logged
 
 Thresholds are only half of gate strictness. The other half is *what gets compared to
