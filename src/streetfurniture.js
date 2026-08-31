@@ -75,7 +75,7 @@ const PALETTE = [
   [0.74, 0.02, [0, 0, 0]],           // 3  moulded plastic: bin bodies, cabinets
   [0.95, 0.00, [0, 0, 0]],           // 4  rubber / bitumen
   [0.78, 0.02, [0, 0, 0]],           // 5  timber: bench slats, utility poles
-  [0.96, 0.00, [0, 0, 0]],           // 6  foliage
+  [0.84, 0.00, [0, 0, 0]],           // 6  foliage
   [0.90, 0.00, [0, 0, 0]],           // 7  bark
   [0.13, 0.03, [255, 44, 26]],       // 8  signal lens, red
   [0.13, 0.03, [255, 152, 22]],      // 9  signal lens, amber
@@ -370,15 +370,461 @@ function propPlanter(buf, f, k) {                                    // 40 tris
   blob(buf, f, 0, 0, 0.92, 0.5, 0.36, 4, 0x4a6b34, S.foliage, 0.7);
 }
 
-function propTree(buf, f, k) {                                       // 51 tris
-  const h = 5.2 + rnd01('tr', k) * 2.8;
-  slab(buf, f, 0, 0, 0.72, 0.72, PAD_Y + 0.004, 0x4a4238, S.concrete);
-  prism(buf, f, 0, 0, 0.19, 0.12, BASE_Y, h * 0.52, 5, 0x5c4c3e, S.bark);
-  // A street tree is a ball on a stick, not a fir: wider than it is tall, and
-  // lifted clear of the pavement so the trunk actually reads.
-  const leaf = hash32('lf', k) % 2 ? 0x47692f : 0x3b5c2b;
-  blob(buf, f, 0, 0, h * 0.78, 1.85 + rnd01('tw', k) * 0.5, h * 0.3, 6, leaf, S.foliage,
-    rnd01('tp', k) * 2);
+// ============================================================== STREET TREES
+//
+// Blind critics reviewing the dusk and night frames put the trees at the top of
+// the defect list, and they measured rather than asserted:
+//
+//   "the nearest canopy's silhouette against open sky is made of approximately
+//    6-8 straight edges meeting at hard vertices. Interior shading is 2-3 flat
+//    facets of near-identical dark green. No leaf-level breakup, no light
+//    penetration through the canopy, no branch structure between trunk and
+//    canopy."   "Certain defect."
+//
+// All four notes are the same object. The old tree was ONE six-sided blob()
+// spheroid on a stick: six side facets each shaded by a single per-QUAD normal,
+// a top fan whose every triangle carried (0,1,0) so the whole cap was one
+// lambert value, one flat colour for the entire crown, a flat disc for a
+// bottom, and nothing whatever between the trunk cap and the foliage.
+//
+// ---------------------------------------------------------------------------
+// WHAT REPLACES IT, AND WHAT EACH PART COSTS
+// ---------------------------------------------------------------------------
+//   pit slab                                       2 tris
+//   trunk: 5-gon, tapered, leaning, capped        15
+//   3-4 limbs, tapered 3-gon tubes                18-24
+//   6-8 sub-canopy lobes, 5 or 6 sided            60-96
+//   -----------------------------------------------------
+//   FAR tier, kind 'tree'                         95-135, mean 116   (was 51)
+//
+//   4 secondary twigs                             24
+//   9 rim clumps + 2 interior clumps             110
+//   -----------------------------------------------------
+//   NEAR tier, kind 'treeDetail'                 134
+//
+// Measured over 400 trees by tools-side replay of these same functions, not
+// counted by hand off the source: 250.6 triangles per tree in total.
+//
+// The split is the two-tier distance culling this module already runs. 'tree'
+// is in FAR (512 m buckets, never distance-culled) because a canopy reads from
+// hundreds of metres and its silhouette must not pop; 'treeDetail' rides the
+// NEAR tier and is switched off with the bins and bollards past ~200 m, where a
+// fringe clump is a third of a pixel. 'treeDetail' is not a prop — it is the
+// near half of a tree — and is counted separately in report() for that reason.
+//
+// ---------------------------------------------------------------------------
+// SILHOUETTE
+// ---------------------------------------------------------------------------
+// A convex hull has exactly as many silhouette edges as it has sides, which is
+// why the critic could count them. Six to eight lobes whose centres sit at
+// different distances from the crown axis have a UNION outline with concave
+// notches between them, and each lobe's ring is jittered in angle, radius and
+// height so no two adjacent edges share a length or a corner angle. Nothing in
+// the crown is a regular polygon. The lobes also come in two scales — big ones
+// near the axis carrying the mass, small ones at the rim putting bumps on the
+// outline — so the outline has corners at two frequencies rather than one.
+//
+// ---------------------------------------------------------------------------
+// INTERIOR SHADING — and none of it costs a triangle
+// ---------------------------------------------------------------------------
+// Every foliage vertex carries its OWN normal, blended between the direction
+// out of its lobe and the direction out of the whole crown, so the lobes shade
+// as lumps on one soft mass instead of as a bag of separate balls; and its OWN
+// colour, a baked sky gradient (crown top ~2.4x the underside) times a
+// per-vertex jitter. Colour rides on the vertex attribute the shared prop
+// material already reads, so this is still ONE material and one draw call per
+// bucket. High-frequency variation for free was the whole point.
+//
+// ---------------------------------------------------------------------------
+// LIGHT PENETRATION: the cheap half done, the expensive half rejected
+// ---------------------------------------------------------------------------
+// Free, and done: the lobes are placed with real gaps, so sky and lamplight
+// come through the crown as actual holes, the underside lobes are dark enough
+// for those holes to read, and the limbs are visible through them.
+// Rejected: alpha-tested leaf cards. They need either a second UV set — uv is
+// spoken for, it IS the palette lookup that gives every prop its finish — or a
+// second material, and a second material splits the one-material bucket scheme
+// that keeps the entire prop vocabulary at 2-4 draw calls. On top of that the
+// harness rasterises in software, where alpha-test overdraw across a few
+// hundred crowns is the worst possible thing to spend a frame on.
+//
+// ---------------------------------------------------------------------------
+// NIGHT
+// ---------------------------------------------------------------------------
+// A critic measured one crown as "a saturated yellow-green brighter than any
+// other surface at that depth" while another at the same distance was
+// "near-black". Same cause: 0x47692f is a saturated daylight green (G/R 1.48,
+// G/B 2.23) sitting three metres under a 7.7 m lamp head, and the crown was ONE
+// value, so a tree either caught the lamp whole or missed it whole. The leaf
+// palette here is olive rather than chartreuse (G/R ~1.15) and darker, and the
+// baked gradient means every crown has a lit side and a shaded side at any hour
+// whether or not a lamp reaches it.
+const TAU = Math.PI * 2;
+
+// ---------------------------------------------------------------- HANDEDNESS
+// The local->world map in this file is (lx, lz) -> lx*(ox,oz) + lz*(ax,az), and
+// its determinant is ox*az - ax*oz. Every kerb-side, carriageway and junction
+// frame here builds `out` by rotating `along` one particular way, which makes
+// that determinant -1: the local frame is a REFLECTION, so a triangle authored
+// counter-clockwise-from-outside in local coordinates comes out CLOCKWISE in
+// world space, gets culled as a back face, and what you actually see is the far
+// wall of the solid shaded by a normal pointing away from you — which is
+// ambient-only, i.e. near-black, and does not change when the sun moves.
+//
+// Measured, not assumed: box() built in a det = -1 frame and rendered against
+// THREE.BoxGeometry under one directional light behind the camera reads 0/255
+// where the reference reads 251/255; reverse the winding and it reads 251.
+// It is the mechanism behind "interior shading is 2-3 flat facets of
+// near-identical dark green" and "near-black with a faceted silhouette".
+//
+// This is a whole-KIT defect, not a tree defect, and it cannot be fixed by
+// reversing quad() across the board: _dressWalls derives its outward normal
+// from the building footprint and flips it whenever it points into the ring, so
+// wall clutter comes in BOTH handednesses and half of it is already correct. A
+// blanket flip would fix ~6,000 props and break the rest. That is a pass of its
+// own with its own captures, so it is reported rather than silently swept into
+// a tree change. What IS in scope: every triangle the tree emits goes through
+// tri(), which reads the frame's handedness and winds to match, so a tree is
+// right-way-out in either kind of frame.
+const handOf = (f) => (f.ox * f.az - f.ax * f.oz < 0 ? -1 : 1);
+const tri = (buf, hand, a, b, c) => {
+  if (hand < 0) buf.idx.push(a, c, b); else buf.idx.push(a, b, c);
+};
+
+/**
+ * Deterministic per-tree PRNG. hash32 walks a string on every call, which is
+ * fine for the handful of draws a bollard needs and much too slow for the ~150
+ * a crown needs; this is seeded from one hash32 and then costs three integer
+ * ops. Same seed, same tree, every run — the district must dress identically.
+ */
+function rng32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Vertex with an explicit LINEAR colour. vert() takes an sRGB hex and memoises
+// the transfer, which is right when a few dozen colours are reused across
+// 350,000 vertices; foliage wants a different value at every vertex, so the
+// tree resolves its leaf colour once through linear() and then scales it, which
+// is three multiplies and no pow().
+function vertC(buf, x, y, z, nx, ny, nz, r, g, b, surf) {
+  buf.pos.push(x, y, z);
+  buf.nrm.push(nx, ny, nz);
+  buf.col.push(r, g, b);
+  buf.uv.push(paletteU(surf), 0.5);
+  return buf.pos.length / 3 - 1;
+}
+
+/**
+ * Tapered n-gon post between two frame-local points, smooth-shaded around the
+ * axis (so a 5-sided trunk reads round rather than pentagonal) and capped on
+ * top. 3n triangles from 3n+1 vertices — prism() would spend 26 vertices on the
+ * same 15 triangles because quad() cannot share.
+ */
+function trunkPost(buf, f, p0, r0, p1, r1, sides, hex, surf, phase) {
+  const c = linear(hex);
+  const hand = handOf(f);
+  const rows = [];
+  for (const [p, rad, shade] of [[p0, r0, 0.62], [p1, r1, 1.0]]) {
+    const row = [];
+    for (let i = 0; i < sides; i++) {
+      const a = phase + (i / sides) * TAU;
+      const ux = Math.cos(a), uz = Math.sin(a);
+      row.push(vertC(buf, wx(f, p[0] + ux * rad, p[2] + uz * rad), p[1],
+        wz(f, p[0] + ux * rad, p[2] + uz * rad),
+        ux * f.ox + uz * f.ax, 0.16, ux * f.oz + uz * f.az,
+        c[0] * shade, c[1] * shade, c[2] * shade, surf));
+    }
+    rows.push(row);
+  }
+  for (let i = 0; i < sides; i++) {
+    const j = (i + 1) % sides;
+    tri(buf, hand, rows[0][i], rows[1][j], rows[0][j]);
+    tri(buf, hand, rows[0][i], rows[1][i], rows[1][j]);
+  }
+  const cap = vertC(buf, wx(f, p1[0], p1[2]), p1[1], wz(f, p1[0], p1[2]),
+    0, 1, 0, c[0], c[1], c[2], surf);
+  const first = buf.pos.length / 3;
+  for (let i = 0; i < sides; i++) {
+    const a = phase + (i / sides) * TAU;
+    vertC(buf, wx(f, p1[0] + Math.cos(a) * r1, p1[2] + Math.sin(a) * r1), p1[1],
+      wz(f, p1[0] + Math.cos(a) * r1, p1[2] + Math.sin(a) * r1),
+      0, 1, 0, c[0], c[1], c[2], surf);
+  }
+  for (let i = 0; i < sides; i++) tri(buf, hand, cap, first + ((i + 1) % sides), first + i);
+}
+
+/** Tapered triangular limb between two frame-local points. 6 triangles, 6
+ *  vertices. This is the "no branch structure between trunk and canopy" note. */
+function limbSeg(buf, f, p0, r0, p1, r1, hex, surf) {
+  const c = linear(hex);
+  const hand = handOf(f);
+  const dx = p1[0] - p0[0], dy = p1[1] - p0[1], dz = p1[2] - p0[2];
+  const len = Math.hypot(dx, dy, dz) || 1;
+  const ux = dx / len, uy = dy / len, uz = dz / len;
+  // Any unit vector perpendicular to the limb axis, plus u x p. Taking (-uz, ux)
+  // collapses to zero for a vertical limb — and a twig off a limb tip is often
+  // near-vertical — so the seed axis is whichever of x/y/z the limb is least
+  // aligned with, which can never be parallel to it.
+  let sx = 0, sy = 0, sz = 0;
+  if (Math.abs(uy) <= Math.abs(ux) && Math.abs(uy) <= Math.abs(uz)) sy = 1;
+  else if (Math.abs(ux) <= Math.abs(uz)) sx = 1; else sz = 1;
+  let px = uy * sz - uz * sy, py = uz * sx - ux * sz, pz = ux * sy - uy * sx;
+  const pl = Math.hypot(px, py, pz) || 1;
+  px /= pl; py /= pl; pz /= pl;
+  const qx = uy * pz - uz * py, qy = uz * px - ux * pz, qz = ux * py - uy * px;
+  const rows = [];
+  for (const [p, rad, shade] of [[p0, r0, 0.78], [p1, r1, 1.06]]) {
+    const row = [];
+    for (let s = 0; s < 3; s++) {
+      const a = (s / 3) * TAU;
+      const co = Math.cos(a), si = Math.sin(a);
+      const ox = px * co + qx * si, oy = py * co + qy * si, oz = pz * co + qz * si;
+      row.push(vertC(buf, wx(f, p[0] + ox * rad, p[2] + oz * rad), p[1] + oy * rad,
+        wz(f, p[0] + ox * rad, p[2] + oz * rad),
+        ox * f.ox + oz * f.ax, oy, ox * f.oz + oz * f.az,
+        c[0] * shade, c[1] * shade, c[2] * shade, surf));
+    }
+    rows.push(row);
+  }
+  for (let s = 0; s < 3; s++) {
+    const t = (s + 1) % 3;
+    tri(buf, hand, rows[0][s], rows[0][t], rows[1][t]);
+    tri(buf, hand, rows[0][s], rows[1][t], rows[1][s]);
+  }
+}
+
+/**
+ * ONE SUB-CANOPY. A ring of n jittered points with a high apex and a shallow
+ * underside apex: 2n triangles out of n+2 vertices, which is half what an
+ * equivalent quad()-built band would cost in vertices.
+ *
+ * The ring is deliberately irregular in all three axes. A regular n-gon ring is
+ * how the old crown ended up with "6-8 straight edges meeting at hard vertices"
+ * — every silhouette edge the same length, every corner the same angle, which
+ * is the signature the eye locks onto.
+ */
+function leafLobe(buf, f, L, ctx) {
+  const r = ctx.rng, n = L.sides;
+  const ring = [];
+  for (let i = 0; i < n; i++) {
+    const a = L.az + 0.7 + (i / n) * TAU + (r() - 0.5) * (TAU / n) * 0.6;
+    const rad = L.rx * (0.84 + r() * 0.3);
+    ring.push([L.lx + Math.cos(a) * rad, L.ly + (r() - 0.5) * L.ry * 0.5,
+      L.lz + Math.sin(a) * rad]);
+  }
+  const apexU = [L.lx + (r() - 0.5) * L.rx * 0.5, L.ly + L.ry * (0.9 + r() * 0.45),
+    L.lz + (r() - 0.5) * L.rx * 0.5];
+  const apexD = [L.lx + (r() - 0.5) * L.rx * 0.45, L.ly - L.ry * (0.68 + r() * 0.38),
+    L.lz + (r() - 0.5) * L.rx * 0.45];
+  const put = (p) => {
+    // Normal: out of the LOBE blended with out of the WHOLE CROWN. Pure lobe
+    // normals make a bag of separate balls; pure crown normals make one smooth
+    // ball again. The blend is a soft mass with lumps on it.
+    const ax = p[0] - L.lx, ay = (p[1] - L.ly) * 1.15, az = p[2] - L.lz;
+    const al = Math.hypot(ax, ay, az) || 1;
+    const bx = p[0] - ctx.cx, by = (p[1] - ctx.cy) * ctx.yk, bz = p[2] - ctx.cz;
+    const bl = Math.hypot(bx, by, bz) || 1;
+    let nx = (ax / al) * 0.42 + (bx / bl) * 0.58 + (r() - 0.5) * 0.26;
+    let ny = (ay / al) * 0.42 + (by / bl) * 0.58 + (r() - 0.5) * 0.26;
+    let nz = (az / al) * 0.42 + (bz / bl) * 0.58 + (r() - 0.5) * 0.26;
+    const nl = Math.hypot(nx, ny, nz) || 1;
+    nx /= nl; ny /= nl; nz /= nl;
+    // Baked sky occlusion: the top of a crown sees the whole sky, the underside
+    // sees the pavement. Times a per-vertex jitter, which is the leaf-level
+    // breakup the critic said was missing and costs nothing at all.
+    const t = Math.max(-1, Math.min(1, (p[1] - ctx.cy) / ctx.ry));
+    const w = Math.min(1.1, (0.46 + 0.40 * (t * 0.5 + 0.5) + 0.16 * Math.max(0, ny)) *
+      (0.74 + r() * 0.56)) * ctx.gain;
+    return vertC(buf, wx(f, p[0], p[2]), p[1], wz(f, p[0], p[2]),
+      nx * f.ox + nz * f.ax, ny, nx * f.oz + nz * f.az,
+      ctx.base[0] * w, ctx.base[1] * w, ctx.base[2] * w, S.foliage);
+  };
+  const hand = handOf(f);
+  const iU = put(apexU);
+  const first = buf.pos.length / 3;
+  for (const p of ring) put(p);
+  const iD = put(apexD);
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    tri(buf, hand, iU, first + j, first + i);     // upper fan, outward
+    tri(buf, hand, iD, first + i, first + j);     // lower fan, outward
+  }
+}
+
+// Six leaf palettes and four barks, authored at the TOP-OF-CROWN value; every
+// foliage vertex scales down from there. Olive, not chartreuse — see NIGHT.
+const LEAF = [0x647246, 0x5a6e41, 0x6c7754, 0x516540, 0x737a4a, 0x5d6a49];
+const BARK = [0x554a3e, 0x605348, 0x4b4339, 0x635747];
+
+/**
+ * Everything that makes one tree THAT tree, derived from its key alone so both
+ * tiers agree on where the crown is. "Three trees whose silhouettes appear to
+ * be one asset at three scales, planted in a straight line with no rotation
+ * variation I can detect" was a separate finding, and one random height is not
+ * an answer to it: four crown families, a free crown yaw, an independent crown
+ * width, a trunk lean in a free direction, six leaf palettes and four barks are.
+ */
+function treeParams(k) {
+  const r = rng32(hash32('tree', k));
+  //          radial spread, vertical spread, lobes, lobe scale, open middle
+  const F = [
+    { sx: 1.00, sy: 0.88, n: 8, ls: 1.00, vase: 0.00 },   // broad and round
+    { sx: 0.78, sy: 1.28, n: 8, ls: 0.88, vase: 0.06 },   // upright oval
+    { sx: 1.06, sy: 0.84, n: 7, ls: 0.98, vase: 0.26 },   // vase, open centre
+    { sx: 0.92, sy: 0.96, n: 6, ls: 0.96, vase: 0.10 },   // sparse, young
+  ][hash32('fam', k) % 4];
+  const h = 5.3 + r() * 3.4;
+  const trunkH = h * (0.36 + r() * 0.14);
+  const trunkR = 0.145 + r() * 0.085;
+  const yaw = r() * TAU;
+  const leanAz = r() * TAU;
+  const lean = (0.05 + r() * 0.22);
+  const tiltX = Math.cos(leanAz) * lean, tiltZ = Math.sin(leanAz) * lean;
+  const R = 1.36 + r() * 0.66;                    // crown HALF-WIDTH, hard target
+  let cy = trunkH + (h - trunkH) * 0.5;
+  const ry = (h - trunkH) * 0.54 * F.sy;
+
+  const lobes = [];
+  for (let i = 0; i < F.n; i++) {
+    const ty = -0.66 + 1.5 * ((i + 0.5) / F.n) + (r() - 0.5) * 0.24;
+    const rr = Math.sqrt(Math.max(0.1, 1 - ty * ty));
+    const az = yaw + i * 2.39996 + (r() - 0.5) * 0.7;     // golden angle, jittered
+    // A lobe has to be a LUMP, not a plate, and the lobes must not all be the
+    // same lump. The first cut made them half as tall as they were wide and
+    // left 34% of the crown envelope empty: the capture read as a stack of
+    // flat discs, a pagoda rather than a tree. Size and position are now tied
+    // together — a BIG lobe sits near the axis and carries the mass, a SMALL
+    // one sits out at the rim and is a bump on the outline — which is what
+    // gives the silhouette corners at two different scales for no triangles.
+    const u = r();
+    const lr = R * F.ls * (0.36 + u * 0.42);
+    const dr = R * F.sx * rr * (0.50 - u * 0.24 + F.vase * 0.26);
+    lobes.push({
+      lx: tiltX + Math.cos(az) * dr, lz: tiltZ + Math.sin(az) * dr,
+      ly: cy + ty * ry + F.vase * ry * 0.18,
+      rx: lr, ry: lr * (0.9 + r() * 0.26),
+      sides: r() < 0.45 ? 6 : 5, az,
+    });
+  }
+  // Fit the cluster to the crown envelope rather than hoping it lands there.
+  // The plan half-width is a HARD number: the placement test only guarantees
+  // 2.6 m to the shopfront and 2.2 m to the carriageway, and a crown that
+  // overshoots it is inside a window.
+  let ext = 0.001, top = -1e9, bot = 1e9;
+  for (const L of lobes) {
+    ext = Math.max(ext, Math.hypot(L.lx - tiltX, L.lz - tiltZ) + L.rx);
+    top = Math.max(top, L.ly + L.ry * 1.15);
+    bot = Math.min(bot, L.ly - L.ry * 0.95);
+  }
+  const sxf = R / ext;
+  const syf = (h - cy) / Math.max(0.4, top - cy);
+  for (const L of lobes) {
+    L.lx = tiltX + (L.lx - tiltX) * sxf; L.lz = tiltZ + (L.lz - tiltZ) * sxf;
+    L.rx *= sxf; L.ly = cy + (L.ly - cy) * syf; L.ry *= syf;
+  }
+  // Lift the whole crown until its lowest foliage clears the trunk, so the
+  // trunk reads as a trunk instead of disappearing into a skirt.
+  const lift = Math.max(0, (trunkH - 0.3) - (cy + (bot - cy) * syf));
+  if (lift > 0) { for (const L of lobes) L.ly += lift; cy += lift; }
+  lobes.sort((a, b) => a.ly - b.ly);              // limbs reach the lowest lobes
+  return {
+    h, trunkH, trunkR, tiltX, tiltZ, R, cy, ry: ry * syf, lobes, yaw,
+    nLimb: 3 + (r() < 0.45 ? 1 : 0),
+    leaf: LEAF[hash32('lf', k) % LEAF.length],
+    bark: BARK[hash32('bk', k) % BARK.length],
+    gain: 0.9 + r() * 0.22,                       // tree-to-tree leaf brightness
+  };
+}
+
+function crownCtx(p, gain = 1) {
+  return { cx: p.tiltX, cy: p.cy, cz: p.tiltZ, yk: p.R / Math.max(0.5, p.ry),
+    ry: p.ry, base: linear(p.leaf), gain: p.gain * gain, rng: null };
+}
+
+/** The tree pit: an up-facing quad wound for THIS frame's handedness, which is
+ *  why it is not slab(). 2 triangles. */
+function pitSlab(buf, f, cx, cz, hx, hz, y, hex, surf) {
+  const hand = handOf(f);
+  const c = linear(hex);
+  const P = (lx, lz) => vertC(buf, wx(f, cx + lx, cz + lz), y, wz(f, cx + lx, cz + lz),
+    0, 1, 0, c[0], c[1], c[2], surf);
+  const a = P(-hx, -hz), b = P(-hx, hz), d = P(hx, hz), e = P(hx, -hz);
+  tri(buf, hand, a, b, d);
+  tri(buf, hand, a, d, e);
+}
+
+function propTree(buf, f, k) {                        // 95-135 tris, mean 116
+  const p = treeParams(k);
+  const r = rng32(hash32('tgeo', k));
+  pitSlab(buf, f, p.tiltX * 0.3, p.tiltZ * 0.3, 0.72, 0.72, PAD_Y + 0.004, 0x40382f, S.concrete);
+  trunkPost(buf, f, [0, BASE_Y, 0], p.trunkR * 1.14, [p.tiltX, p.trunkH, p.tiltZ],
+    p.trunkR * 0.58, 5, p.bark, S.bark, r() * TAU);
+  for (let i = 0; i < p.nLimb; i++) {
+    const L = p.lobes[i % p.lobes.length];
+    limbSeg(buf, f,
+      [p.tiltX * 0.85, p.trunkH - 0.18, p.tiltZ * 0.85], p.trunkR * 0.52,
+      [p.tiltX + (L.lx - p.tiltX) * 0.78, p.trunkH + (L.ly - p.trunkH) * 0.72,
+        p.tiltZ + (L.lz - p.tiltZ) * 0.78], p.trunkR * 0.2,
+      p.bark, S.bark);
+  }
+  const ctx = crownCtx(p);
+  ctx.rng = r;
+  for (const L of p.lobes) leafLobe(buf, f, L, ctx);
+}
+
+/**
+ * The near-tier half of a tree: secondary twigs and small clumps that fringe
+ * the crown outline and darken its interior. Switched off with the bins past
+ * ~200 m, where none of it is a pixel wide.
+ */
+function propTreeDetail(buf, f, k) {                              // 134 tris
+  const p = treeParams(k);
+  const r = rng32(hash32('tdet', k));
+  const ctx = crownCtx(p);
+  ctx.rng = r;
+  // Twigs off the limbs, visible through the gaps between lobes.
+  for (let i = 0; i < 4; i++) {
+    const L = p.lobes[(i + 1) % p.lobes.length];
+    const bx = p.tiltX + (L.lx - p.tiltX) * 0.5, bz = p.tiltZ + (L.lz - p.tiltZ) * 0.5;
+    const by = p.trunkH + (L.ly - p.trunkH) * 0.5;
+    const reach = 0.9 + r() * 0.5;
+    limbSeg(buf, f, [bx, by, bz], p.trunkR * 0.24,
+      [p.tiltX + (L.lx - p.tiltX) * reach, L.ly + (r() - 0.5) * L.ry,
+        p.tiltZ + (L.lz - p.tiltZ) * reach],
+      p.trunkR * 0.09, p.bark, S.bark);
+  }
+  // Fringe: small clumps pushed just outside the far-tier lobes, so the outline
+  // gains another dozen corners at the distance where corners are countable.
+  for (let i = 0; i < 9; i++) {
+    const L = p.lobes[i % p.lobes.length];
+    const a = r() * TAU, t = 0.6 + r() * 0.36;
+    const fr = L.rx * (0.36 + r() * 0.2);
+    leafLobe(buf, f, {
+      lx: L.lx + Math.cos(a) * L.rx * t, lz: L.lz + Math.sin(a) * L.rx * t,
+      ly: L.ly + (r() - 0.5) * L.ry * 1.1,
+      rx: fr, ry: fr * (0.88 + r() * 0.3),
+      sides: 5, az: a,
+    }, ctx);
+  }
+  // Two dark interior clumps, so a gap in the crown shows shaded foliage behind
+  // it rather than the sky straight through.
+  const dark = crownCtx(p, 0.5);
+  dark.rng = r;
+  for (let i = 0; i < 2; i++) {
+    const ir = p.R * (0.32 + r() * 0.14);
+    leafLobe(buf, f, {
+      lx: p.tiltX + (r() - 0.5) * p.R * 0.5, lz: p.tiltZ + (r() - 0.5) * p.R * 0.5,
+      ly: p.cy + (r() - 0.5) * p.ry * 0.7,
+      rx: ir, ry: ir * (0.9 + r() * 0.3),
+      sides: 5, az: r() * TAU,
+    }, dark);
+  }
 }
 
 function propCabinet(buf, f, k) {                                    // 24 tris
@@ -1076,8 +1522,16 @@ export class StreetFurniture {
               ax: ax * side, az: az * side, ox, oz, key, ei,
               backX: a.x + ax * t + ox * (e.w / 2 + BACK),
               backZ: a.z + az * t + oz * (e.w / 2 + BACK),
-              treeX: a.x + ax * t + ox * (e.w / 2 + TREE),
-              treeZ: a.z + az * t + oz * (e.w / 2 + TREE),
+              // Trees get their own jitter on top of the station's. "Three trees
+              // ... planted in a straight line" was a finding, and stations are
+              // already jittered ALONG the kerb but sit on an exactly straight
+              // offset line ACROSS it, which is the line the eye actually reads
+              // down a corridor. Both offsets are hashed, so placement stays
+              // deterministic and the clearance tests below see the real spot.
+              treeX: a.x + ax * (t + (rnd01('tj', ei, k, s, side) - 0.5) * 1.7) +
+                ox * (e.w / 2 + TREE + (rnd01('tk', ei, k, s, side) - 0.5) * 0.9),
+              treeZ: a.z + az * (t + (rnd01('tj', ei, k, s, side) - 0.5) * 1.7) +
+                oz * (e.w / 2 + TREE + (rnd01('tk', ei, k, s, side) - 0.5) * 0.9),
               wideX: a.x + ax * t + ox * (e.w / 2 + WIDE),
               wideZ: a.z + az * t + oz * (e.w / 2 + WIDE),
               along: [ax * side, az * side], out: [ox, oz],
@@ -1111,8 +1565,10 @@ export class StreetFurniture {
       const pf = frame(st.wideX, st.wideZ, st.ax, st.az, st.ox, st.oz);
       const pr = (st.key >>> 17) % 100;
       const W = [st.wideX, st.wideZ];
-      if (pr < 17) emit('tree', W[0], W[1], PAD_Y, (b) => propTree(b, pf, st.key + 7));
-      else if (pr < 37) emit('planter', W[0], W[1], PAD_Y, (b) => propPlanter(b, pf, st.key + 7));
+      if (pr < 17) {
+        emit('tree', W[0], W[1], PAD_Y, (b) => propTree(b, pf, st.key + 7));
+        emit('treeDetail', W[0], W[1], null, (b) => propTreeDetail(b, pf, st.key + 7));
+      } else if (pr < 37) emit('planter', W[0], W[1], PAD_Y, (b) => propPlanter(b, pf, st.key + 7));
       else if (pr < 54) emit('bench', W[0], W[1], PAD_Y, (b) => propBench(b, pf, st.key + 7));
       else if (pr < 72) emit('bin', W[0], W[1], PAD_Y, (b) => propBin(b, pf, st.key + 7));
       else if (pr < 81) emit('bikerack', W[0], W[1], PAD_Y, (b) => propBikeRack(b, pf, st.key + 7));
@@ -1143,6 +1599,9 @@ export class StreetFurniture {
           this.lampClearance(st.treeX, st.treeZ) >= 3.4) {
         const tf = frame(st.treeX, st.treeZ, st.ax, st.az, st.ox, st.oz);
         emit('tree', st.treeX, st.treeZ, PAD_Y, (b) => propTree(b, tf, st.key));
+        // The near-tier half of the SAME tree. hostY is null: fringe clumps hang
+        // in the crown by design and have no business in the float audit.
+        emit('treeDetail', st.treeX, st.treeZ, null, (b) => propTreeDetail(b, tf, st.key));
         return;
       }
     }
@@ -1676,10 +2135,14 @@ export class StreetFurniture {
       ? { pool: this.parked.count, filled: this.parked.filled, slots: this.parkSlots,
           triangles: this.parked.tris }
       : null;
+    // 'treeDetail' is the near-tier half of a tree, not a seventeenth kind of
+    // prop, so it is reported but kept out of propCount — otherwise the prop
+    // census silently gains 284 objects that do not exist.
     return {
       lamps: this.count,
       props: { ...this.props },
-      propCount: Object.values(this.props).reduce((a, b) => a + b, 0),
+      propCount: Object.entries(this.props)
+        .reduce((a, [k, v]) => a + (k === 'treeDetail' ? 0 : v), 0),
       propTriangles: this.propTris,
       propBuckets: this.propMeshes.length,
       nearBuckets: (this.nearMeshes ?? []).length,
@@ -1709,5 +2172,6 @@ export class StreetFurniture {
 // a second copy of the maths drifts from the geometry it is meant to audit.
 export const __kit = {
   newBuf, frame, box, prism, slab, plate, tube, blob, quad, vert,
+  propTree, propTreeDetail, treeParams, leafLobe, limbSeg, trunkPost, rng32, LEAF,
   S, PALETTE, PAL_W, paletteU, BASE_Y, PAD_Y, ROAD_Y, DECAL_Y, hash32,
 };
