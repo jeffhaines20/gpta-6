@@ -55,6 +55,48 @@ warn 40 / fail 120 MB.
 > the stale text understated how tight the real gate is. Found by the independent
 > constraint audit, not by me — see `MILESTONE-REVIEW.md` §6.
 
+## Measurement integrity — three failures in one session, same shape
+
+Recorded because the pattern repeated three times on 2026-08-30/31 and cost real
+work each time. In every case an instrument was broken, the reading was confident,
+and the tell was a number that did not move when it should have.
+
+1. **Crashed harnesses re-read a stale artifact.** Three budget runs agreed to the
+   decimal. They agreed because all three had crashed - concurrent Chromium
+   instances competing for CPU - and a crashed harness does not rewrite
+   `docs/drive-traffic.json`, so each re-read run 1 byte-for-byte. Reverting the
+   change under test produced *identical numbers including the triangle count*,
+   which is arithmetically impossible if the revert took effect. That impossibility
+   is what exposed it.
+2. **A light-isolation test that disabled nothing.** Zeroing `PointLight.intensity`
+   does nothing, because `LightPool.update()` rewrites intensity from the emitter's
+   candela every frame - the light is back on before the screenshot. It reported
+   street lamps contributing 0.5% of night pixels; two code changes were made on
+   that evidence before the instrument was checked. Disabling the pool so
+   `update()` early-returns gives the truth: 83.0 mean |diff|, 76% of pixels.
+3. **A two-sample A/B on a loaded box.** An agent cited a parity reading from one
+   round; its own second round contradicted it, with the spread *inside* one arm
+   (58.5 -> 74.6 ms) wider than the gap between arms. It amended its commit message
+   rather than leave the stronger claim standing.
+
+**The rule, now project policy.** Byte-identical measurements mean something is not
+running. Check the artifact mtime and the harness exit code, not the numbers. Before
+believing a reading that confirms what a critic just told you, verify the instrument
+can produce the opposite reading.
+
+**Outstanding at time of writing.** Load time and chunk stall were both measured
+over threshold during the content wave, but every one of those samples was taken
+with three or four sibling agents' browser harnesses on the same box. They are
+recorded as suspect and must be re-measured on a quiet box before any conclusion or
+any threshold discussion. The triangle count is the one figure that is deterministic
+and therefore trustworthy: **395,511 p95 against a 400,000 warn**, up from 184,600
+before the wave. That headroom is genuinely gone and is a content-cost problem, not
+a measurement artifact.
+
+**Commit-message correction.** `8dae041` was pushed carrying a parity claim its
+author later withdrew; the corrected reasoning is preserved in this entry rather
+than by rewriting the pushed history.
+
 ## Threshold change log
 
 ### 2026-08-30 — CI gate scope: split by determinism, NOT by threshold (owner-approved)
