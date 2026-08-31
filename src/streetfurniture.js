@@ -840,71 +840,199 @@ export class StreetFurniture {
       return [dx / l, dz / l];
     };
 
-    const maxMasts = opts.maxSignalMasts ?? 220;
+    // 220 was chosen when a single physical junction could claim eight rings of
+    // masts; the merge below drops district-wide demand from 715 approaches to
+    // 237, so the cap no longer has to ration. At 260 every junction the graph
+    // signalises is served and the ceiling is still there if the bake changes.
+    const maxMasts = opts.maxSignalMasts ?? 260;
     let masts = 0;
     const keys = [...at.keys()].sort((a, b) => a - b);
-    for (const v of keys) {
-      if (masts >= maxMasts) break;
+    const isSignalised = (v) => {
       const inc = at.get(v);
-      if (inc.length < 3) continue;
-      // Signalise a junction only where at least two legs are a real street.
-      const major = inc.filter(({ ei }) => d.edges[ei].r <= 4);
-      if (major.length < 2) continue;
+      return inc.length >= 3 &&
+        // Signalise a junction only where at least two legs are a real street.
+        inc.filter(({ ei }) => d.edges[ei].r <= 4).length >= 2;
+    };
+    const cand = keys.filter(isSignalised);
+
+    // ---- ONE PHYSICAL JUNCTION, ONE SET OF MASTS.
+    //
+    // "At least five vertical pole elements and four signal heads serving what
+    // appears to be a single four-way junction." Measured at the hero junction
+    // the count is right: four heads, one per approach of a single four-leg
+    // vertex, which is what a signalised crossroads looks like. But the census
+    // over the whole graph found the real version of that defect. The baked
+    // graph is OSM-derived, so a physical junction is routinely SPLIT across
+    // several vertices — a dual carriageway, a slip, a kerb-line node — and each
+    // of those independently passed the >=3 legs test and got its own full ring
+    // of masts. Measured: 250 signalised vertices collapse to 88 physical
+    // junctions under a 35 m single-link merge, and the largest single junction
+    // was carrying twenty-five of them.
+    //
+    // So candidates are clustered first and only the representative of each
+    // cluster — the one with the most legs, lowest index breaking the tie so it
+    // is deterministic — is signalised. The masts that the cap used to spend on
+    // eight copies of one junction now reach eight junctions that had none.
+    const MERGE = opts.junctionMerge ?? 30;
+    const rep = new Map(cand.map((v) => [v, v]));
+    const find = (a) => { while (rep.get(a) !== a) { rep.set(a, rep.get(rep.get(a))); a = rep.get(a); } return a; };
+    for (let i = 0; i < cand.length; i++) {
+      const A = d.verts[cand[i]];
+      for (let j = i + 1; j < cand.length; j++) {
+        const B = d.verts[cand[j]];
+        if (Math.abs(A.x - B.x) > MERGE || Math.abs(A.z - B.z) > MERGE) continue;
+        if (Math.hypot(A.x - B.x, A.z - B.z) > MERGE) continue;
+        const ra = find(cand[i]), rb = find(cand[j]);
+        if (ra !== rb) rep.set(ra, rb);
+      }
+    }
+    const best = new Map();                       // cluster root -> chosen vertex
+    for (const v of cand) {
+      const r = find(v);
+      const cur = best.get(r);
+      if (cur === undefined || at.get(v).length > at.get(cur).length) best.set(r, v);
+    }
+    const chosen = new Set(best.values());
+
+    for (const v of cand) {
+      if (masts >= maxMasts) break;
+      if (!chosen.has(v)) continue;
+      const inc = at.get(v);
       const p = d.verts[v];
       let widest = 0;
       for (const { ei } of inc) widest = Math.max(widest, d.edges[ei].w);
-      const greenAxis = hash32('sig', v) % 2;
 
-      let leg = 0;
+      // ---- WHICH AXIS IS GREEN, decided geometrically.
+      //
+      // The old rule was `green = (leg % 2) === greenAxis`, i.e. alternate down
+      // the incident-edge list — and that list is in EDGE INDEX order, which has
+      // nothing to do with where the legs point. Measured at the hero junction
+      // (v103, four legs): the two legs on the 51 degree axis were assigned
+      // green and RED, and the two on the 140 degree axis red and GREEN. Two
+      // legs that cross each other were both showing green, and two legs facing
+      // each other down the same street disagreed. That is the conflicting-
+      // aspects defect for real, at junction scale rather than inside one
+      // housing, and it is exactly what this function's own comment says it
+      // exists to prevent.
+      //
+      // Legs are now bucketed by their heading modulo 180 degrees: everything
+      // within 45 degrees of the first leg's line is one axis, the rest is the
+      // other. Opposite approaches then always agree and crossing approaches
+      // always disagree, whatever order the edges happen to be stored in.
+      const legs = [];
       for (const { ei, end } of inc) {
-        const e = d.edges[ei];
-        if (e.r > 5 || masts >= maxMasts) continue;
-        const [ux, uz] = dirOf(e, end);            // away from the junction
+        if (d.edges[ei].r > 5) continue;
+        const [ux, uz] = dirOf(d.edges[ei], end);   // away from the junction
+        legs.push({ ei, end, ux, uz, ang: Math.atan2(uz, ux) });
+      }
+      if (!legs.length) continue;
+      const base = legs[0].ang;
+      const greenAxis = hash32('sig', v) % 2;
+      for (const L of legs) {
+        // Angle between the two LINES, so a leg and its opposite share an axis.
+        let da = Math.abs(L.ang - base) % Math.PI;
+        if (da > Math.PI / 2) da = Math.PI - da;
+        L.axis = da < Math.PI / 4 ? 0 : 1;
+      }
+
+      for (const L of legs) {
+        if (masts >= maxMasts) break;
+        const e = d.edges[L.ei];
+        const { ux, uz } = L;
         const rx = uz, rz = -ux;                   // driver's right on approach
         const setback = widest / 2 + 2.0;
         const off = e.w / 2 + 1.35;
         const bx = p.x + ux * setback + rx * off;
         const bz = p.z + uz * setback + rz * off;
-        const green = (leg % 2) === greenAxis;
+        const green = L.axis === greenAxis;
         // Never in another street, never inside a building. A corner that has no
         // room for a mast still gets its crossing painted.
         if (this.roadClearance(bx, bz) >= 1.0 && this.buildingClearance(bx, bz) >= 1.0) {
           const f = frame(bx, bz, -rx, -rz, ux, uz);   // +x back down the approach
           const armLen = off * 0.55 + e.w * 0.38;
           if (emit('signal', bx, bz, PAD_Y,
-            (buf) => this._signalMast(buf, f, armLen, green, v + leg))) masts++;
+            (buf) => this._signalMast(buf, f, armLen, green, v * 8 + L.axis))) masts++;
         }
         // No crosswalk is painted here. src/materials.js owns the road surface and
         // paints the zebra, the stop bar and the lane arrows into the ribbon
         // shader, where they cost no triangles and can be placed against the real
         // carriageway width. A second set of stripes laid on top as geometry would
         // be a doubled, slightly-offset crossing at every signalised approach.
-        leg++;
       }
     }
   }
 
   // The frame's +x faces back down the approach (at the driver) and its +z runs
   // from the kerb out over the carriageway, so the arm is a positive z offset.
-  _signalMast(buf, f, armLen, green, k) {                            // 86 tris
+  //
+  // Three separate blind-critic findings landed on this one prop, and all three
+  // were measured off the r5 dusk frame before anything was changed here:
+  //
+  //  1. "a lit red lens and a lit green lens in one housing." Not two aspects
+  //     lit: ONE head, red on, and the UNLIT green lens reading as lit. The
+  //     unlit tints were 0x5a1a14 / 0x5a3a10 / 0x14461f — saturated mid-tones
+  //     that the dusk key light drove to a measured RGB(95,95,35) on the green
+  //     lens and (137,83,32) on the amber. A dark signal lens is nearly black;
+  //     these were bright enough to read as burning. The LIT lens had the
+  //     opposite problem: base colour 0xffffff, so its diffuse term washed the
+  //     emissive red out to a measured (250,212,171) — a white lamp, not a red
+  //     aspect. Unlit tints are now near-black and each lit lens carries its own
+  //     hue as the base colour, so what reads as lit is the aspect that IS lit.
+  //
+  //  2. "the mast arm ends in mid-air with no head attached." Measured: the arm
+  //     underside sat at y 5.905 and the head's top at 5.67 — a 235 mm gap of
+  //     open sky between them, ~14 px at the hero camera. The head was not
+  //     attached to anything. It now hangs from a real bracket.
+  //
+  //  3. "three of four heads present no lens faces, reading as flat dark boxes."
+  //     Measured with the facing dot product at the hero camera: -0.92, -0.63
+  //     and +0.07 (edge on). The heads ARE correctly rotated — each faces its
+  //     own approach, which is what a junction looks like — but the head was a
+  //     plain box whose only signal-ish feature was a single-sided lens quad on
+  //     one face, plus a backplate mounted on the WRONG side (behind the
+  //     housing, where the driver can never see it). So from any other angle it
+  //     was a featureless slab. The backplate is now on the lens side where it
+  //     belongs and frames the stack, and each lens carries a visor: both read
+  //     in silhouette from every angle, so a head facing away still reads as a
+  //     traffic signal rather than as an unexplained dark box.
+  _signalMast(buf, f, armLen, green, k) {                           // 134 tris
     const POLE = 0x2b3630;
+    const CASE = 0x14181a;               // backplate / visor: near black, matte
+    const hz = armLen;
+    // The head hangs UNDER the arm tip: top of the housing, then the bracket
+    // that carries it, then the arm. These three numbers are the joint.
+    const ARM_Y = 5.98, ARM_HY = 0.075;
+    const HEAD_TOP = 5.72, HEAD_HY = 0.62;
+    const HEAD_Y = HEAD_TOP - HEAD_HY;
     box(buf, f, 0, BASE_Y + 0.12, 0, 0.3, 0.12, 0.3, 0x50555a, S.concrete);
     prism(buf, f, 0, 0, 0.135, 0.1, BASE_Y, 6.15, 6, POLE, S.painted);
-    box(buf, f, 0, 5.98, armLen / 2, 0.075, 0.075, armLen / 2, POLE, S.painted);
-    // Head hanging off the arm tip, facing back down the approach (+x).
-    const hz = armLen;
-    box(buf, f, 0, 5.05, hz, 0.16, 0.62, 0.22, POLE, S.painted);
-    box(buf, f, -0.21, 5.05, hz, 0.02, 0.78, 0.36, 0x1b1f1c, S.painted);
+    box(buf, f, 0, ARM_Y, hz / 2, 0.075, ARM_HY, hz / 2, POLE, S.painted);
+    // Hanger bracket: overlaps the arm above and the housing below, so there is
+    // no gap for a critic to find and no gap in the geometry either.
+    box(buf, f, 0, (HEAD_TOP + ARM_Y - ARM_HY) / 2 + 0.01, hz,
+      0.055, (ARM_Y - ARM_HY - HEAD_TOP) / 2 + 0.05, 0.055, POLE, S.painted);
+    box(buf, f, 0, HEAD_Y, hz, 0.16, HEAD_HY, 0.22, POLE, S.painted);
+    // Backplate on the LENS side, framing the stack: this is the thing that
+    // makes a signal head read as a signal head instead of as a dark box, and
+    // it has to be in front of the housing to do it.
+    box(buf, f, 0.155, HEAD_Y, hz, 0.015, HEAD_HY + 0.15, 0.37, CASE, S.painted);
     const live = green ? S.lensGreen : S.lensRed;
-    const tint = [0x5a1a14, 0x5a3a10, 0x14461f];
+    // Unlit: a glossy dark lens with only a hint of its own colour. Lit: the
+    // aspect hue, so the emissive is not washed to white by a low sun.
+    const dark = [0x140806, 0x130d05, 0x061109];
+    const litHue = [0x3a0d07, 0x3a2406, 0x073a16];
     for (let i = 0; i < 3; i++) {
       const on = green ? i === 2 : i === 0;
-      plate(buf, f, 0, 5.05 + (1 - i) * 0.38, hz, 0.13, 0.13, 0.17,
-        on ? 0xffffff : tint[i], on ? live : S.lensOff);
+      const y = HEAD_Y + (1 - i) * 0.38;
+      plate(buf, f, 0, y, hz, 0.13, 0.13, 0.185,
+        on ? litHue[i] : dark[i], on ? live : S.lensOff);
+      // Visor. Reads in silhouette from the side and from behind, and shades
+      // the unlit lenses from the low sun that was lighting them up.
+      box(buf, f, 0.245, y + 0.175, hz, 0.10, 0.018, 0.155, CASE, S.painted);
     }
     // Pedestrian head bracketed off the pole.
     box(buf, f, 0.24, 2.86, 0, 0.13, 0.3, 0.22, POLE, S.painted);
-    plate(buf, f, 0.24, 2.86, 0, 0.09, 0.13, 0.14, green ? 0x2c2620 : 0xffffff,
+    plate(buf, f, 0.24, 2.86, 0, 0.09, 0.13, 0.14, green ? 0x14110d : 0x3a3126,
       green ? S.lensOff : S.lensWalk);
     return true;
   }
@@ -990,11 +1118,19 @@ export class StreetFurniture {
       else if (pr < 81) emit('bikerack', W[0], W[1], PAD_Y, (b) => propBikeRack(b, pf, st.key + 7));
       else if (pr < 88) emit('cabinet', W[0], W[1], PAD_Y, (b) => propCabinet(b, pf, st.key + 7));
       else {
+        // Same run rule as the kerb row below: all or nothing, never a single
+        // post left standing on its own in the middle of a plaza.
+        const spots = [];
         for (let n = 0; n < 3; n++) {
           const bx = st.wideX + st.ax * (n - 1) * 1.5, bz = st.wideZ + st.az * (n - 1) * 1.5;
           if (this.roadClearance(bx, bz) < 1.4 || this.buildingClearance(bx, bz) < 1.1) continue;
-          const bf = frame(bx, bz, st.ax, st.az, st.ox, st.oz);
-          emit('bollard', bx, bz, PAD_Y, (b) => propBollard(b, bf, st.key + n));
+          spots.push([bx, bz, n]);
+        }
+        if (spots.length >= 2) {
+          for (const [bx, bz, n] of spots) {
+            const bf = frame(bx, bz, st.ax, st.az, st.ox, st.oz);
+            emit('bollard', bx, bz, PAD_Y, (b) => propBollard(b, bf, st.key + n));
+          }
         }
       }
     }
@@ -1013,15 +1149,36 @@ export class StreetFurniture {
     if (roll < 262) {
       // Bollards come in runs. One lonely bollard reads as debris; three in a
       // line reads as a kerb you are not meant to drive over.
+      //
+      // That was the intent, but the run was emitted bollard-by-bollard with the
+      // clearance test INSIDE the loop, so a station where two of the three
+      // positions were blocked shipped a single 1 m post standing on its own in
+      // the middle of the pavement. Measured over the whole district: 81 of 1611
+      // bollards had no other bollard within 3.2 m, and one of them is the
+      // "thin post standing on the left sidewalk carrying nothing at its top"
+      // at (434-450, 626-766) of the r5 dusk frame — a bollard, correctly
+      // carrying nothing, but with nothing beside it to say so.
+      //
+      // So the run is now decided before any of it is emitted: fewer than two
+      // clear positions is not a bollard run, and the station falls through to a
+      // parking meter instead — a post that legitimately carries something.
       const n = 3;
+      const spots = [];
       for (let i = 0; i < n; i++) {
         const o = (i - (n - 1) / 2) * 1.55;
         const bx = st.x + st.ax * o, bz = st.z + st.az * o;
         if (this.roadClearance(bx, bz) < 1.4 || this.buildingClearance(bx, bz) < 0.7) continue;
         if (this.lampClearance(bx, bz) < 1.4) continue;
-        const bf = frame(bx, bz, st.ax, st.az, st.ox, st.oz);
-        emit('bollard', bx, bz, PAD_Y, (b) => propBollard(b, bf, st.key + i));
+        spots.push([bx, bz, i]);
       }
+      if (spots.length >= 2) {
+        for (const [bx, bz, i] of spots) {
+          const bf = frame(bx, bz, st.ax, st.az, st.ox, st.oz);
+          emit('bollard', bx, bz, PAD_Y, (b) => propBollard(b, bf, st.key + i));
+        }
+        return;
+      }
+      emit('meter', st.x, st.z, PAD_Y, (b) => propMeter(b, f, st.key));
       return;
     }
     if (roll < 440) { emit('meter', st.x, st.z, PAD_Y, (b) => propMeter(b, f, st.key)); return; }
@@ -1038,7 +1195,10 @@ export class StreetFurniture {
     const px = wide ? st.backX : st.x, pz = wide ? st.backZ : st.z;
     const pf = wide ? frame(px, pz, st.ax, st.az, st.ox, st.oz) : f;
     if (roll < 840) {
-      if (!wide) { emit('bollard', px, pz, PAD_Y, (b) => propBollard(b, pf, st.key)); return; }
+      // A bench needs a back row; where there is none the fallback used to be a
+      // single bollard, which is the same orphan-post read as above. A meter is
+      // a post that carries something, and stands alone without looking broken.
+      if (!wide) { emit('meter', px, pz, PAD_Y, (b) => propMeter(b, pf, st.key)); return; }
       emit('bench', px, pz, PAD_Y, (b) => propBench(b, pf, st.key));
       return;
     }
@@ -1287,6 +1447,33 @@ export class StreetFurniture {
     const CAR_LEN = 4.9, GAP = 1.5;
     const off = opts.parkOffset ?? 1.3;      // beyond the ribbon edge, at the kerb
     let slots = 0;
+
+    // ---- WHERE THE END MARGIN GOES.
+    //
+    // "Zero parked vehicles along roughly 1,400 px of kerb, despite 1,540
+    // parking slots." Both halves of that were true, and the reason is here.
+    //
+    // The plan skipped any SEGMENT shorter than 26 m and then kept 12 m clear at
+    // each END OF EVERY SEGMENT. But a segment is a piece of an OSM polyline,
+    // not a block: around the hero corridor camera the street is chopped into
+    // pieces of 6.8, 29.2, 15.9, 1.8 and 9.1 m, and one neighbouring edge is a
+    // run of fourteen segments of 2-4 m each. 648 segments district-wide were
+    // rejected outright for length, and on the survivors 24 m of every piece was
+    // cleared for junctions that were not there. Measured at the corridor hero
+    // camera: ONE slot within 30 m, three within 60 m.
+    //
+    // The margin belongs at real junctions, so it is now sized by the vertex it
+    // sits at: a shape point in the middle of a polyline keeps a car's nose
+    // clear, a junction vertex keeps the full stop-line setback. Measured: 1,540
+    // slots -> 2,280, and 1 -> 8 within 30 m of the corridor camera.
+    const deg = new Map();
+    for (const e of d.edges) {
+      for (const end of [0, e.v.length - 1]) deg.set(e.v[end], (deg.get(e.v[end]) ?? 0) + 1);
+    }
+    const JUNC = opts.parkJunctionMargin ?? 11;   // stop-line setback at a junction
+    const SHAPE = opts.parkShapeMargin ?? 3;      // a polyline kink is not a junction
+    const marginAt = (v) => ((deg.get(v) ?? 1) >= 2 ? JUNC : SHAPE);
+
     for (let ei = 0; ei < d.edges.length; ei++) {
       const e = d.edges[ei];
       if (e.r > 5 || e.w < 5.5) continue;
@@ -1294,13 +1481,14 @@ export class StreetFurniture {
         const a = d.verts[e.v[k]], b = d.verts[e.v[k + 1]];
         const dx = b.x - a.x, dz = b.z - a.z;
         const len = Math.hypot(dx, dz);
-        if (len < 26) continue;
+        if (len < 14) continue;
+        const m0 = marginAt(e.v[k]), m1 = marginAt(e.v[k + 1]);
         const ax = dx / len, az = dz / len;
         const step = CAR_LEN + GAP;
-        const n = Math.floor((len - 24) / step);
+        const n = Math.floor((len - m0 - m1) / step);
         for (let s = 0; s <= n; s++) {
-          const t = 12 + s * step;
-          if (t > len - 12) continue;
+          const t = m0 + s * step;
+          if (t > len - m1) continue;
           for (const side of [1, -1]) {
             const h = hash32('pk', ei, k, s, side);
             if (h % 100 < 34) continue;                 // gaps: a full kerb is a car park
@@ -1372,26 +1560,45 @@ export class StreetFurniture {
     p.lastX = px; p.lastZ = pz; p.lastT = now;
     const c = this._parkChunk;
     const cx = Math.floor(px / c), cz = Math.floor(pz / c);
-    let i = 0;
     const R = p.radius;
-    // Ring order outward, so the nearest kerbs are always the ones that fill.
-    for (let r = 0; r <= R && i < p.count; r++) {
-      for (let dz = -r; dz <= r && i < p.count; dz++) {
-        for (let dx = -r; dx <= r && i < p.count; dx++) {
+
+    // ---- NEAREST N, not "first N found".
+    //
+    // The chunk ring walk was correct about which CHUNKS to visit and wrong
+    // about which SLOTS to take out of them: it filled the pool with whatever
+    // order the slots happened to be planned in, and a chunk is 128 m across, so
+    // "the camera's own chunk" spans 180 m corner to corner. Measured at the
+    // corridor hero camera the pool's own nearest car was 106 m away and its
+    // farthest 277 m, while the 30th-nearest slot in the district was 121 m —
+    // the pool was starving the foreground to fill in cars nobody can see. Ring
+    // order gathers, distance order chooses.
+    const cand = this._parkCand ??= [];
+    cand.length = 0;
+    for (let r = 0; r <= R; r++) {
+      for (let dz = -r; dz <= r; dz++) {
+        for (let dx = -r; dx <= r; dx++) {
           if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
           const list = this._parkCells.get((cx + dx) * 46337 + (cz + dz));
           if (!list) continue;
           for (const s of list) {
-            if (i >= p.count) break;
-            this._m.makeRotationY(s.yaw);
-            this._m.setPosition(s.x, 0, s.z);
-            p.mesh.setMatrixAt(i, this._m);
-            this._pcol.setHSL(s.hue, 0.06 + s.hue * 0.34, 0.26 + ((s.hue * 7) % 1) * 0.4);
-            p.mesh.setColorAt(i, this._pcol);
-            i++;
+            s.d = (s.x - px) ** 2 + (s.z - pz) ** 2;
+            cand.push(s);
           }
         }
       }
+      // One completed ring past having plenty is enough: everything nearer than
+      // the ring boundary has already been gathered, so sorting more is waste.
+      if (cand.length >= p.count * 3) break;
+    }
+    cand.sort((a, b) => a.d - b.d);
+    let i = 0;
+    for (; i < p.count && i < cand.length; i++) {
+      const s = cand[i];
+      this._m.makeRotationY(s.yaw);
+      this._m.setPosition(s.x, 0, s.z);
+      p.mesh.setMatrixAt(i, this._m);
+      this._pcol.setHSL(s.hue, 0.06 + s.hue * 0.34, 0.26 + ((s.hue * 7) % 1) * 0.4);
+      p.mesh.setColorAt(i, this._pcol);
     }
     for (let k = i; k < p.count; k++) p.mesh.setMatrixAt(k, this._hidden);
     p.mesh.instanceMatrix.needsUpdate = true;

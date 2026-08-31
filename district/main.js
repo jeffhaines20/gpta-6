@@ -194,6 +194,15 @@ const lightPool = new LightPool(scene, { size: 10, maxDistance: 130 });
   // Measured at the corridor hero camera by hiding each system in turn:
   // props +11 calls / +67.1k triangles, parked cars +1 call / +27.8k.
   furniture.dressDistrict(district, {});
+  // The pool is 30 cars and always will be — it is one InstancedMesh and its
+  // cost does not move with the number. What DID move is which thirty slots it
+  // picks. A second critic reported "zero parked vehicles along roughly 1,400 px
+  // of kerb" against a placement pass that reported 1,540 slots, and both were
+  // true: measured at this corridor camera the pool's nearest car was 106 m away
+  // and its farthest 277 m, because the plan cleared 24 m at each end of every
+  // POLYLINE SEGMENT (not every block) and the pool then filled itself in chunk
+  // order rather than distance order. src/streetfurniture.js fixes both; the
+  // same thirty cars now sit between 10 m and 76 m of this camera.
   furniture.buildParkedCars({ count: 30 });
   // The pool follows the camera and the signal lenses track the camera stop.
   // src/streetfurniture.js runs its own rAF for this rather than asking for a
