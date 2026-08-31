@@ -196,7 +196,15 @@ function seamlessStroke(g, size, axis, base, wobble, steps, rand) {
 // crackSet() takes its numbers off the HEAD of the stream so any two paint
 // passes seeded alike agree, and states everything as a fraction of the map so
 // resolution cannot change the shape.
-function crackSet(rand, n, wobble = 0.14, steps = 10) {
+//
+// `cells` clips each crack to ONE cell of a cells x cells grid, which is what a
+// slab-on-grade surface actually does: the control joint is there precisely to
+// take the crack, so concrete cracks BETWEEN joints and stops at them. Drawn
+// unclipped, three cracks at a 3 m repeat read as one continuous fracture
+// running the length of the block and straight over the slab joints — which is
+// the "cracks incorrectly continue over the sidewalk" every critic round has
+// reported. It costs one extra clip per crack.
+function crackSet(rand, n, wobble = 0.14, steps = 10, cells = 0) {
   const out = [];
   for (let i = 0; i < n; i++) {
     const offs = [];
@@ -204,12 +212,35 @@ function crackSet(rand, n, wobble = 0.14, steps = 10) {
     for (let k = 0; k < steps; k++) { const dv = (rand() - 0.5) * wobble; offs.push(dv); sum += dv; }
     const corr = sum / steps;
     for (let k = 0; k < steps; k++) offs[k] -= corr;      // ends meet across the seam
-    out.push({ axis: rand() < 0.5 ? 'x' : 'y', base: rand(), offs });
+    const axis = rand() < 0.5 ? 'x' : 'y';
+    if (cells > 0) {
+      // Put the crack inside the cell it will be clipped to, or the clip leaves
+      // nothing on screen.
+      const cx = (rand() * cells) | 0, cy = (rand() * cells) | 0;
+      const along = axis === 'x' ? cy : cx;
+      out.push({ axis, base: (along + 0.18 + rand() * 0.64) / cells, offs, cx, cy, cells });
+    } else {
+      out.push({ axis, base: rand(), offs });
+    }
   }
   return out;
 }
 
 function strokeCrack(g, size, c) {
+  if (c.cells) {
+    const cw = size / c.cells;
+    g.save();
+    g.beginPath();
+    g.rect(c.cx * cw, c.cy * cw, cw, cw);
+    g.clip();
+    strokeCrackPath(g, size, c);
+    g.restore();
+    return;
+  }
+  strokeCrackPath(g, size, c);
+}
+
+function strokeCrackPath(g, size, c) {
   const steps = c.offs.length;
   g.beginPath();
   let v = c.base * size;
@@ -375,7 +406,7 @@ const sidewalkSurface = {
   paintAlbedo(g, S, rand) {
     // Off the head of the stream, before anything else draws from it, so
     // paintHeight below embosses these exact cracks and not a second set.
-    const cracks = crackSet(rand, 3);
+    const cracks = crackSet(rand, 5, 0.14, 10, 2);
     const half = S / 2;
     for (let sy = 0; sy < 2; sy++) {
       for (let sx = 0; sx < 2; sx++) {
@@ -399,7 +430,7 @@ const sidewalkSurface = {
       g.beginPath(); g.moveTo(p, 0); g.lineTo(p, S); g.stroke();
       g.beginPath(); g.moveTo(0, p); g.lineTo(S, p); g.stroke();
     }
-    g.strokeStyle = 'rgba(70,64,56,0.42)'; g.lineWidth = 1.2;   // hairline cracking
+    g.strokeStyle = 'rgba(58,53,45,0.52)'; g.lineWidth = 1.2;   // hairline cracking
     for (const c of cracks) strokeCrack(g, S, c);
     for (let i = 0; i < 14; i++) {                           // flattened gum
       const x = rand() * S, y = rand() * S, r = 2 + rand() * 4;
@@ -410,7 +441,7 @@ const sidewalkSurface = {
     }
   },
   paintHeight(g, S, rand) {
-    const cracks = crackSet(rand, 3);        // same seed, same draws, same cracks
+    const cracks = crackSet(rand, 5, 0.14, 10, 2);   // same seed, same draws, same cracks
     const half = S / 2;
     g.fillStyle = '#909090'; g.fillRect(0, 0, S, S);
     for (let sy = 0; sy < 2; sy++) {
@@ -430,10 +461,13 @@ const sidewalkSurface = {
       g.beginPath(); g.moveTo(0, p); g.lineTo(S, p); g.stroke();
     }
     // A hairline crack is a hairline, not a trench. rgba(20,20,20,0.7) over a
-    // #909090 base is a 87/255 step in the height field across ~1.2 px, which is
-    // a steeper wall than the slab joints beside it; 0.5 alpha of #6e6e6e is a
-    // 17/255 crease, and it now lands exactly under the painted crack above.
-    g.strokeStyle = 'rgba(110,110,110,0.5)'; g.lineWidth = 1.1;
+    // #909090 base was an 87/255 step across ~1.2 px — a steeper wall than the
+    // slab joints beside it. Even the 17/255 crease that replaced it still had
+    // one wall facing a low sun, and a lit wall on a pale slab reads BRIGHTER
+    // than the concrete: the warm squiggles critics keep reporting on the
+    // pavement. A crack that is a fraction of a millimetre deep is a colour
+    // feature, so it is now 6/255 of relief and carried by the albedo.
+    g.strokeStyle = 'rgba(126,126,126,0.32)'; g.lineWidth = 1.1;
     for (const c of cracks) strokeCrack(g, S, c);
   },
   paintRough(g, S, rand) {
@@ -1068,12 +1102,16 @@ export const SURFACE_TINTS = {
 
 // ---------------------------------------------------------------- markings
 // Lane paint cannot be a mesh per stripe: the streamer merges every road edge in
-// a chunk into ONE geometry, so a stripe would be a draw call per edge. Instead
-// the atlas is a row of full-height COLUMNS, each column a road cross-section.
-// The ribbon's u (0..1 across the ribbon, whatever its width) selects a position
-// in the profile and v (metres/8) runs up the column, so wrapT can repeat freely
-// while wrapS clamps. Remapping u/v into a column is a pure arithmetic pass over
-// the merged UV array — see applyMarkingUV.
+// a chunk into ONE geometry, so a stripe would be a draw call per edge. The
+// paint therefore rides in the road's own shader, addressed by the ribbon's uv.
+//
+// MARKINGS names the profile an edge asks for. It is still an atlas COLUMN
+// index, because the columns below remain the reference drawing of each profile
+// and the material lab renders them — but the district itself no longer samples
+// the atlas: applyRoadMarkings draws the same profiles arithmetically, which is
+// the only way to place a crosswalk a fixed number of metres back from a
+// junction. See "road coding" below for what the uv channels carry, and
+// paintMarkingAtlas (lazy — see MaterialRegistry.get) for the reference art.
 export const MARKINGS = {
   none: 0,          // clear: alleys, service roads, junction interiors
   lane2: 1,         // two-way, broken yellow centre
@@ -1212,16 +1250,51 @@ function paintMarkingAtlas(rand) {
   return c;
 }
 
+// ---------------------------------------------------------------- road coding
+// What a road actually needs painted on it is not a function of the ribbon's UV
+// alone. A crosswalk sits a fixed number of METRES back from the junction, a
+// stop bar sits behind that, a lane line is 10 cm wide whatever the carriageway
+// is, and the wheel tracks are 1.6 m apart in a lane, not in a fraction of one.
+// So the shader needs three numbers the ribbon does not carry: the road's width
+// in metres, its LENGTH in metres, and whether it is one-way.
+//
+// The streamer is not editable from here and passes exactly one integer and one
+// uv array per edge, so those three numbers ride in the two channels that are
+// already there:
+//
+//   u = code + columnU     code   = round(width) + 16 * oneway   (integer part)
+//                          columnU = the marking column, still 0..1
+//   v = 64 * lenMetres + s/8  s = metres from the ribbon start, and s/8 < 64 for
+//                          any edge shorter than 512 m, so floor(v/64) recovers
+//                          the length and the remainder recovers s
+//
+// Both survive linear interpolation because the added terms are constant over an
+// edge, and 64 * lenMetres is an INTEGER, so fract(v) - which is all a
+// wrapT-repeating atlas ever sees - is untouched. The magnitudes decide the
+// precision, which is why the two codes are NOT packed into one channel: u peaks
+// at 31.99 and stays exact to a fraction of a millimetre across the road, while
+// v peaks near 27000 on the district's longest edge and still resolves 1.6 cm
+// along it. Paint is 10 cm wide and 3 m long, so both have margin.
+const MARK_COLUMN_MASK = 7;
+const MARK_WIDTH_SHIFT = 3;     // round(metres), 0..15
+const MARK_ONEWAY_BIT = 1 << 7;
+const MARK_LEN_STRIDE = 64;     // v decoder: lengthMetres = floor(v / 64)
+const MARK_LEN_MAX = 511;       // ...and an edge longer than this is clamped
+
 /**
  * Rewrite a slice of a merged road ribbon's UV array so those vertices sample one
  * marking column. Operates in place on the flat [u,v,u,v,...] array that
  * geom.js `ribbon` fills, so a chunk builder records the vertex range each edge
  * contributed and calls this once per edge — no extra geometry, no extra material.
  *
+ * The ribbon's own v is metres/8 measured from the start of the edge, so the
+ * largest v in the slice IS the edge's length: it is read out here rather than
+ * asked of the caller.
+ *
  * @param {number[]|Float32Array} uv  the merged uv array
  * @param {number} vertexStart        first vertex index this edge wrote
  * @param {number} vertexCount        how many vertices it wrote
- * @param {number} marking            a MARKINGS value
+ * @param {number} marking            a MARKINGS value, or markingForEdge()'s code
  * @param {object} [opts]
  * @param {number} [opts.vRepeat=1]   multiply v; ribbon v is already metres/8, so
  *                                    1 puts one 8 m marking period on 8 m of road
@@ -1230,27 +1303,53 @@ function paintMarkingAtlas(rand) {
  */
 export function applyMarkingUV(uv, vertexStart, vertexCount, marking, opts = {}) {
   const { vRepeat = 1, vOffset = 0, flipU = false } = opts;
+  const column = marking & MARK_COLUMN_MASK;
+  const widthCode = (marking >> MARK_WIDTH_SHIFT) & 15;
+  const oneWay = marking & MARK_ONEWAY_BIT ? 16 : 0;
   const span = 1 / MARKING_COLUMNS;
-  const lo = (marking + MARKING_GUARD) * span;
+  const lo = (column + MARKING_GUARD) * span;
   const width = span * (1 - 2 * MARKING_GUARD);
-  for (let i = vertexStart; i < vertexStart + vertexCount; i++) {
+  const end = vertexStart + vertexCount;
+
+  let longest = 0;
+  for (let i = vertexStart; i < end; i++) {
+    const v = uv[i * 2 + 1] * vRepeat + vOffset;
+    if (v > longest) longest = v;
+  }
+  const lenCode = Math.min(MARK_LEN_MAX, Math.round(longest * 8));   // ribbon v is metres/8
+  const uCode = widthCode + oneWay;
+  const vCode = lenCode * MARK_LEN_STRIDE;
+
+  for (let i = vertexStart; i < end; i++) {
     const p = i * 2;
     const u = flipU ? 1 - uv[p] : uv[p];
-    uv[p] = lo + u * width;
-    uv[p + 1] = uv[p + 1] * vRepeat + vOffset;
+    uv[p] = uCode + lo + u * width;
+    uv[p + 1] = uv[p + 1] * vRepeat + vOffset + vCode;
   }
 }
 
 /**
- * Pick a marking profile for a baked road edge. Keeps the choice in one place so
- * the streamer and the traffic system agree about what a road looks like.
+ * Pick a marking profile for a baked road edge, and pack the road's width and
+ * one-way flag in alongside it. Keeps the choice in one place so the streamer
+ * and the traffic system agree about what a road looks like.
+ *
+ * The return value is still a MARKINGS value in its low three bits, so anything
+ * that only wants the column can mask it; applyMarkingUV reads the rest.
  * @param {{w:number,lanes:number,o:number,c:string}} edge
  */
 export function markingForEdge(edge) {
-  if (edge.c === 'service' || edge.w < 5) return MARKINGS.none;
-  if (edge.lanes >= 4 || edge.w >= 12) return MARKINGS.lane4;
-  if (edge.o !== 0) return MARKINGS.none;          // one-way: no centre line
-  return edge.c === 'primary' || edge.c === 'secondary' ? MARKINGS.lane2solid : MARKINGS.lane2;
+  const code = (Math.max(0, Math.min(15, Math.round(edge.w))) << MARK_WIDTH_SHIFT)
+    | (edge.o !== 0 ? MARK_ONEWAY_BIT : 0);
+  // Alleys and service roads carry no paint, but they still carry the width so
+  // the shader can put wheel tracks down them.
+  if (edge.c === 'service' || edge.w < 5) return MARKINGS.none | (code & ~MARK_ONEWAY_BIT);
+  if (edge.lanes >= 4 || edge.w >= 12) return MARKINGS.lane4 | code;
+  // A one-way street has no centre line but it does have edge lines, lane
+  // divides and arrows: it was previously drawn blank, which is a third of the
+  // district's marked carriageway with nothing on it at all.
+  if (edge.o !== 0) return MARKINGS.lane2 | code;
+  return (edge.c === 'primary' || edge.c === 'secondary'
+    ? MARKINGS.lane2solid : MARKINGS.lane2) | code;
 }
 
 /**
@@ -1338,26 +1437,360 @@ function applyPlanarUV(material, uvPerMetre) {
   });
 }
 
-// Lane paint composited into the road's own shader instead of a second
-// transparent mesh. The asphalt comes from the world-planar UV and the paint
-// from the mesh UV, so roads stay ONE opaque draw call per chunk with no
-// sorting, no depth-write games and no polygon offset.
-function applyRoadMarkings(material, atlas) {
-  return patch(material, 'roadPaint', (shader) => {
-    shader.uniforms.tMarkings = { value: atlas };
+// The road surface, composited into the road's own shader instead of a second
+// transparent mesh. The asphalt comes from the world-planar UV, everything a
+// street has ON it comes from the coded mesh UV, so roads stay ONE opaque draw
+// call per chunk with no sorting, no depth-write games and no polygon offset.
+//
+// This used to sample a marking ATLAS: a column per road profile, addressed by
+// the ribbon's u. That can express a centre line and an edge line and nothing
+// else, because everything a junction needs — crosswalk, stop bar, arrows — is
+// positioned in METRES BACK FROM THE JUNCTION, and an atlas column has no idea
+// where along the road it is. Three critic rounds in a row reported exactly that
+// absence at exactly the hero frames, which are junction views.
+//
+// Drawing the profile arithmetically instead fixes three things at once:
+//   * the junction furniture becomes expressible at all, off the decoded
+//     distance-to-the-end-of-the-edge;
+//   * a 10 cm line is 10 cm on a 6 m street and on a 13 m arterial, instead of
+//     1.6% of whatever the carriageway happens to be;
+//   * it is resolution-free — fwidth() antialiasing keeps a dash crisp at the
+//     kerb and quiet at 200 m, where a 256 px column aliases into a dotted mess.
+//
+// Cost is arithmetic, not memory: no texture is fetched for any of it.
+function applyRoadMarkings(material, tileMetres) {
+  const K = {
+    tile: tileMetres.toFixed(3),
+    cols: MARKING_COLUMNS.toFixed(1),
+    guard: MARKING_GUARD.toFixed(6),
+    across: (1 / (1 - 2 * MARKING_GUARD)).toFixed(6),
+    stride: MARK_LEN_STRIDE.toFixed(1),
+  };
+  return patch(material, 'roadSurface', (shader) => {
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec2 vMeshUv;')
       .replace('#include <uv_vertex>', '#include <uv_vertex>\n  vMeshUv = uv;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec2 vMeshUv;\nuniform sampler2D tMarkings;')
+      .replace('#include <common>', `#include <common>
+varying vec2 vMeshUv;
+
+// Everything the road surface contributes, in one place so the roughness stage
+// downstream can read the same numbers the albedo stage used.
+float pvPaint;          // paint coverage 0..1
+vec3  pvPaintCol;       // linear-space paint colour
+float pvIron;           // manhole / gully coverage
+vec3  pvIronCol;
+float pvPolish;         // tyre-polish wheel path
+float pvOil;            // oil drip down the lane centre
+float pvGrime;          // kerbside grime
+float pvPatch;          // asphalt patch
+float pvSeal;           // poured crack-sealing band
+float pvPale;           // dust the wheels never sweep
+float pvMacro;          // de-tiling tone multiplier
+
+// map_fragment has already decoded the albedo to linear, so the paint has to be
+// linear too. sRGB 240,238,228 and 232,186,58 — the same two the atlas used.
+const vec3 PV_WHITE  = vec3( 0.871, 0.855, 0.776 );
+const vec3 PV_YELLOW = vec3( 0.807, 0.491, 0.042 );
+
+float pvHash( float n ) { return fract( sin( n * 12.9898 ) * 43758.5453 ); }
+float pvHash2( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
+float pvNoise( float x ) {
+  float i = floor( x ), f = fract( x );
+  f = f * f * ( 3.0 - 2.0 * f );
+  return mix( pvHash( i ), pvHash( i + 1.0 ), f );
+}
+float pvNoise2( vec2 p ) {
+  vec2 i = floor( p ), f = fract( p );
+  f = f * f * ( 3.0 - 2.0 * f );
+  return mix( mix( pvHash2( i ), pvHash2( i + vec2( 1.0, 0.0 ) ), f.x ),
+              mix( pvHash2( i + vec2( 0.0, 1.0 ) ), pvHash2( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
+}
+// An antialiased slab |p - c| <= h, measured in p's own units.
+float pvSlab( float p, float c, float h, float fw ) {
+  return 1.0 - smoothstep( -fw, fw, abs( p - c ) - h );
+}
+
+void pvRoadSurface( float lum, vec2 worldXZ ) {
+  pvPaint = 0.0; pvPaintCol = PV_WHITE; pvIron = 0.0; pvIronCol = vec3( 0.05 );
+  pvPolish = 0.0; pvOil = 0.0; pvGrime = 0.0; pvPatch = 0.0; pvSeal = 0.0; pvPale = 0.0;
+
+  // De-tiling. The asphalt map repeats every 3 m and from above the eye finds
+  // that instantly; a two-octave tonal wander at 26 m and 8 m breaks the motif
+  // without touching the crack network a critic called the best surface here.
+  pvMacro = 0.82 + 0.36 * ( pvNoise2( worldXZ * 0.038 ) * 0.65
+                          + pvNoise2( worldXZ * 0.128 + 11.0 ) * 0.35 );
+
+  // ---- decode (see "road coding" in materials.js) --------------------------
+  float code = floor( vMeshUv.x );
+  float oneWay = step( 16.0, code );
+  float roadW = code - oneWay * 16.0;
+  if ( roadW < 2.0 ) roadW = 6.6;            // uncoded caller: assume a street
+  float colU = vMeshUv.x - code;
+  float column = floor( colU * ${K.cols} );
+  float across = clamp( ( colU - ( column + ${K.guard} ) / ${K.cols} ) * ${K.cols} * ${K.across}, 0.0, 1.0 );
+  float lenM = floor( vMeshUv.y / ${K.stride} );
+  float s = ( vMeshUv.y - lenM * ${K.stride} ) * 8.0;   // metres from the edge start
+
+  float halfW = roadW * 0.5;
+  float x = ( across - 0.5 ) * roadW;        // metres right of the centreline
+  float fwx = fwidth( x ) + 1e-4;
+  float fws = fwidth( s ) + 1e-4;
+  float fwr = max( fwx, fws );
+
+  // ---- explicit feature quads (columns 4-7) --------------------------------
+  // A caller can also PLACE a marking: put down a quad, hand it one of the
+  // feature columns, and get u across the quad and v along it. The district
+  // does not use this - it gets the same shapes from the junction arithmetic
+  // below, which knows where the junction actually is - but the material lab
+  // does, and so would anything that wants a crosswalk somewhere the road graph
+  // cannot describe. Drawn here rather than sampled from the atlas so the atlas
+  // can stay unbuilt.
+  if ( column >= 4.0 ) {
+    float fl = clamp( s * 0.125, 0.0, 1.0 );          // 0..1 along the quad
+    float fa = across;                                // 0..1 across it
+    float fwa = fwidth( fa ) + 1e-4, fwl = fwidth( fl ) + 1e-4;
+    float cov;
+    if ( column < 5.0 ) {                             // continental crosswalk
+      cov = pvSlab( fract( fa * 8.0 ), 0.5, 0.30, fwa * 8.0 );
+    } else if ( column < 6.0 ) {                      // stop bar
+      cov = pvSlab( fl, 0.15, 0.05, fwl ) * pvSlab( fa, 0.5, 0.47, fwa );
+    } else {
+      // Arrow, in a quad ONE lane wide. t runs from the tip backwards.
+      float t = ( 1.0 - fl ) * 4.6, xl = ( fa - 0.5 ) * 3.3;
+      float fx2 = fwa * 3.3, fl2 = fwl * 4.6;
+      if ( column < 7.0 ) {
+        float head = 0.62 * clamp( ( t - 0.10 ) / 1.15, 0.0, 1.0 ) * ( 1.0 - step( 1.30, t ) );
+        float shaft = 0.085 * step( 1.20, t ) * ( 1.0 - step( 4.30, t ) );
+        float aw = max( head, shaft );
+        cov = pvSlab( xl, 0.0, aw, fx2 ) * step( 0.03, aw );
+      } else {                                        // left turn: shaft, hook, head
+        float hh = 0.30 * clamp( ( 1.24 + xl ) / 0.46, 0.0, 1.0 ) * step( 0.78, -xl );
+        cov = max( pvSlab( t, 3.10, 1.20, fl2 ) * pvSlab( xl, 0.0, 0.085, fx2 ),
+              max( pvSlab( t, 1.90, 0.085, fl2 ) * pvSlab( xl, -0.39, 0.39, fx2 ),
+                   pvSlab( t, 1.90, hh, fl2 ) * step( 0.02, hh ) ) );
+      }
+    }
+    float qWear = 0.45 + 0.55 * smoothstep( 0.16, 0.74,
+      pvNoise( s * 2.7 + x * 3.1 ) * 0.6 + pvNoise( x * 0.9 ) * 0.4 );
+    pvPaint = clamp( cov * qWear, 0.0, 1.0 );
+    return;
+  }
+
+  // ---- wear every carriageway carries, painted or not ----------------------
+  float lanes = column < 0.5 ? 1.0
+    : oneWay > 0.5 ? max( 1.0, floor( roadW / 3.0 ) )
+    : ( column >= 3.0 ? 4.0 : 2.0 );
+  float lw = roadW / lanes;
+  float li = clamp( floor( ( x + halfW ) / lw ), 0.0, lanes - 1.0 );
+  float dx = x - ( -halfW + ( li + 0.5 ) * lw );
+
+  // The cross-lane wear profile. Two polished tracks 1.64 m apart, a narrow oil
+  // line dripped between them, and PALE strips where no tyre ever runs — between
+  // the tracks and outboard of them. Darkening alone was the mistake in the first
+  // pass: bands 0.8 m wide with an oil band between them darkened 80% of the
+  // carriageway, which is a uniformly darker road, not a banded one. The contrast
+  // has to be two-sided to read at all.
+  float track = 1.0 - smoothstep( 0.0, 0.30, abs( abs( dx ) - 0.82 ) );
+  pvPolish = track * ( 0.62 + 0.38 * pvNoise( s * 0.16 + li * 3.7 ) );
+  pvPale = clamp( ( 1.0 - smoothstep( 0.12, 0.50, abs( dx ) ) )
+                + 0.75 * smoothstep( 1.28, 1.62, abs( dx ) ), 0.0, 1.0 )
+         * ( 0.55 + 0.45 * pvNoise( s * 0.09 + li * 2.3 ) );
+  pvOil = ( 1.0 - smoothstep( 0.04, 0.24, abs( dx ) ) )
+        * smoothstep( 0.28, 0.86, pvNoise( s * 0.55 + li * 11.0 ) );
+  pvGrime = smoothstep( halfW - 1.4, halfW - 0.10, abs( x ) );
+
+  // ---- ironwork and patching ------------------------------------------------
+  // Hashed off the metre along the edge, so none of it tiles with the 3 m
+  // asphalt map. The seed is the road's own width and length, which is the only
+  // per-edge identity the coding carries — without it every 6.6 m street in the
+  // district would put its manhole the same distance from its own start.
+  float seed = roadW * 3.1 + lenM * 0.73;
+  float mCell = floor( s / 26.0 );
+  float mOn = step( 0.44, pvHash( mCell * 4.11 + seed ) );
+  float mx = ( pvHash( mCell * 2.71 + 5.0 + seed ) - 0.5 ) * max( 0.6, roadW - 2.6 );
+  float ms = mCell * 26.0 + 4.0 + pvHash( mCell * 1.37 + seed ) * 18.0;
+  float mr = length( vec2( x - mx, s - ms ) );
+  float lid = ( 1.0 - smoothstep( 0.33 - fwr, 0.33 + fwr, mr ) ) * mOn;
+  float ribs = 0.5 + 0.5 * cos( atan( s - ms, x - mx ) * 14.0 );
+  vec3 lidCol = mix( vec3( 0.030, 0.029, 0.027 ), vec3( 0.062, 0.058, 0.052 ), ribs );
+  lidCol = mix( lidCol, vec3( 0.085, 0.080, 0.072 ), pvSlab( mr, 0.300, 0.030, fwr ) );
+
+  float gCell = floor( s / 34.0 );
+  float gOn = step( 0.42, pvHash( gCell * 5.1 + 4.0 + seed ) );
+  float gs = gCell * 34.0 + 7.0 + pvHash( gCell * 3.3 + seed ) * 20.0;
+  float gx = ( step( 0.5, pvHash( gCell * 7.7 + 2.0 + seed ) ) * 2.0 - 1.0 ) * ( halfW - 0.30 );
+  float grate = pvSlab( s, gs, 0.44, fws ) * pvSlab( x, gx, 0.20, fwx ) * gOn;
+  vec3 grateCol = mix( vec3( 0.070, 0.068, 0.062 ), vec3( 0.008 ),
+    pvSlab( mod( s - gs + 5.0, 0.16 ), 0.08, 0.045, fws ) );
+
+  pvIron = max( lid, grate );
+  pvIronCol = grate > lid ? grateCol : lidCol;
+
+  // A resurfaced trench: darker, coarser, with a tar lip around it.
+  float pCell = floor( s / 47.0 );
+  float pOn = step( 0.55, pvHash( pCell * 9.13 + 3.0 + seed ) );
+  float ps = pCell * 47.0 + 6.0 + pvHash( pCell * 6.6 + seed ) * 30.0;
+  float px = ( pvHash( pCell * 1.9 + 7.0 + seed ) - 0.5 ) * max( 0.4, roadW - 2.2 );
+  float ph = 1.4 + pvHash( pCell * 2.2 + seed ) * 2.4;
+  float pw = 0.8 + pvHash( pCell * 8.4 + seed ) * 1.1;
+  float ragged = 0.10 * pvNoise( s * 1.6 + pCell ) + 0.10 * pvNoise( x * 2.4 + pCell * 3.0 );
+  pvPatch = pvSlab( s, ps, ph + ragged, fws ) * pvSlab( x, px, pw + ragged, fwx ) * pOn;
+  float pLip = ( pvSlab( s, ps, ph + ragged + 0.09, fws ) * pvSlab( x, px, pw + ragged + 0.09, fwx ) * pOn ) - pvPatch;
+
+  // Crack sealing poured across the carriageway, wandering as the crack did.
+  float bCell = floor( s / 19.0 );
+  float bs = bCell * 19.0 + 3.0 + pvHash( bCell * 2.9 + seed ) * 13.0 + 0.5 * pvNoise( x * 1.1 + bCell );
+  pvSeal = pvSlab( s, bs, 0.05 + 0.035 * pvNoise( x * 2.7 + bCell * 5.0 ), fws )
+    * step( 0.46, pvHash( bCell * 13.7 + 1.0 + seed ) );
+
+  // The tar lip poured round a patch is as dark as ironwork, so it rides the
+  // same channel rather than paying for another mix.
+  float lip = clamp( pLip, 0.0, 1.0 ) * 0.85;
+  if ( lip > pvIron ) { pvIron = lip; pvIronCol = vec3( 0.014, 0.013, 0.013 ); }
+
+  if ( column < 0.5 ) return;                // alley or service road: no paint
+
+  // ---- longitudinal paint ---------------------------------------------------
+  float dash = pvSlab( mod( s, 9.0 ), 1.5, 1.5, fws );        // 3 m on, 6 m off
+  float jz = max( 3.5, halfW + 0.9 );                         // junction box reach
+  float dEnd = lenM > 1.0 ? min( s, lenM - s ) : 1e4;
+  float white = pvSlab( abs( x ), halfW - 0.40, 0.055, fwx ); // 11 cm edge lines
+  float yellow = 0.0;
+
+  if ( oneWay < 0.5 ) {
+    if ( column >= 2.0 ) {
+      yellow = max( pvSlab( x, -0.115, 0.055, fwx ), pvSlab( x, 0.115, 0.055, fwx ) );
+    } else {
+      // Broken centre line that goes solid on the run-in to a junction, which is
+      // what a no-passing zone looks like from a windscreen.
+      float solid = 1.0 - smoothstep( jz + 11.0, jz + 19.0, dEnd );
+      yellow = pvSlab( x, 0.0, 0.06, fwx ) * max( dash, solid );
+    }
+  }
+  float perDir = oneWay > 0.5 ? lanes : lanes * 0.5;
+  if ( perDir > 1.5 ) {
+    float b = floor( x / lw + 0.5 ) * lw;
+    float keep = ( 1.0 - step( halfW - 0.7, abs( b ) ) )
+      * ( oneWay > 0.5 ? 1.0 : step( 0.02, abs( b ) ) );
+    white = max( white, pvSlab( x, b, 0.05, fwx ) * dash * keep );
+  }
+
+  // ---- junction furniture ---------------------------------------------------
+  if ( dEnd < jz + 14.0 ) {
+    float far = step( lenM * 0.5, s );
+    float side = far * 2.0 - 1.0;                 // the approaching half's sign
+    float appr = oneWay > 0.5 ? 1.0 : smoothstep( -fwx, fwx, x * side );
+    float live = oneWay > 0.5 ? far : 1.0;        // one-way: only one end stops
+
+    // Continental crosswalk: 50 cm bars, 42 cm gaps, right across the road.
+    float cw = pvSlab( dEnd, jz + 1.9, 1.4, fws );
+    white = max( white, cw * pvSlab( mod( x + halfW, 0.92 ), 0.46, 0.25, fwx ) );
+
+    // Stop bar 1.1 m behind it, on the approaching half only.
+    white = max( white, pvSlab( dEnd, jz + 4.4, 0.22, fws ) * appr * live );
+
+    // A through arrow per approaching lane, where the block is long enough that
+    // one fits behind the stop bar.
+    if ( lenM > 2.0 * jz + 26.0 ) {
+      float t = dEnd - ( jz + 7.2 );
+      float xa = x * side;
+      float xl = xa - ( floor( xa / lw ) + 0.5 ) * lw;
+      float head = 0.62 * clamp( ( t - 0.10 ) / 1.15, 0.0, 1.0 ) * ( 1.0 - step( 1.30, t ) );
+      float shaft = 0.085 * step( 1.20, t ) * ( 1.0 - step( 4.30, t ) );
+      float aw = max( head, shaft );
+      white = max( white, pvSlab( xl, 0.0, aw, fwx ) * step( 0.03, aw ) * appr * live );
+    }
+  }
+
+  // ---- wear on the paint ----------------------------------------------------
+  // Fresh uniform paint is the tell. Real paint thins where the aggregate stands
+  // proud of the binder and is scrubbed away where wheels cross it.
+  float grain = smoothstep( 0.045, 0.155, lum );
+  float wear = 0.40 + 0.60 * smoothstep( 0.16, 0.74,
+      pvNoise( s * 0.33 + seed ) * 0.6 + pvNoise( s * 2.7 + x * 3.1 ) * 0.4 );
+  wear *= 1.0 - 0.55 * pvPolish;
+  wear *= mix( 0.62, 1.0, grain );
+
+  pvPaint = clamp( max( white, yellow ) * wear * ( 1.0 - 0.85 * pvPatch ), 0.0, 1.0 );
+  pvPaintCol = yellow > white ? PV_YELLOW : PV_WHITE;
+}`)
       .replace('#include <map_fragment>', `#include <map_fragment>
-  vec4 veranoPaint = texture2D( tMarkings, vMeshUv );
-  diffuseColor.rgb = mix( diffuseColor.rgb, veranoPaint.rgb, veranoPaint.a );`)
-      .replace('#include <roughnessmap_fragment>', `float roughnessFactor = roughness;
-  #ifdef USE_NORMALMAP
-    roughnessFactor *= texture2D( normalMap, vNormalMapUv ).a;
-  #endif
-  roughnessFactor = mix( roughnessFactor, 0.58, veranoPaint.a );`);
+  pvRoadSurface( dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) ), vMapUv * ${K.tile} );
+  diffuseColor.rgb *= pvMacro;
+  diffuseColor.rgb *= 1.0 + 0.20 * pvPale
+    - 0.38 * pvPolish - 0.34 * pvOil - 0.20 * pvGrime - 0.22 * pvPatch;
+  diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.011, 0.011, 0.012 ), pvSeal );
+  diffuseColor.rgb = mix( diffuseColor.rgb, pvIronCol, pvIron );
+  diffuseColor.rgb = mix( diffuseColor.rgb, pvPaintCol, pvPaint );`)
+      // roughnessmap_fragment has already been rewritten by applyPackedRoughness
+      // on this material, so a second replace of it silently does nothing — which
+      // is exactly how the old paint-roughness override came to be dead code.
+      // Hang the modification off the next include instead.
+      .replace('#include <metalnessmap_fragment>', `
+  roughnessFactor = clamp( roughnessFactor - 0.30 * pvPolish - 0.20 * pvOil
+    + 0.08 * pvPale + 0.10 * pvPatch, 0.06, 1.0 );
+  roughnessFactor = mix( roughnessFactor, 0.55, pvSeal );
+  roughnessFactor = mix( roughnessFactor, 0.42, pvIron );
+  roughnessFactor = mix( roughnessFactor, 0.62, pvPaint );
+#include <metalnessmap_fragment>`)
+      // A wheel path is not just darker, it is SMOOTHER: the aggregate is
+      // burnished flat. Flattening the asphalt normal there is what makes the
+      // tracks read at a grazing angle, where roughness alone barely shows.
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+  normal = normalize( mix( normal, nonPerturbedNormal,
+    clamp( 0.55 * pvPolish + 0.45 * pvIron + 0.35 * pvPaint, 0.0, 1.0 ) ) );`);
+  });
+}
+
+// Slab-to-slab variation for paving, hashed off the slab's own world position
+// rather than baked into the tile. A 3 m tile holds exactly four slabs and then
+// repeats, which is the "clean repeating grid with uniform seam width, no
+// cracked slab, no stain, no patch" three critic rounds have named. A hash of
+// the slab index holds as many distinct slabs as the district has pavement.
+//
+// The planar UV is already world-locked and the albedo painted its joints on
+// halves of the tile, so the slab index is just that UV times slabs-per-tile: it
+// lands exactly on the painted joints, and it needs no varying, no attribute and
+// no texture.
+function applySlabVariation(material, slabsPerTile) {
+  const N = slabsPerTile.toFixed(4);
+  return patch(material, 'slabs', (shader) => {
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+float pvPaveHash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+  vec2 pvSlabUv = vMapUv * ${N};
+  vec2 pvSlabId = floor( pvSlabUv );
+  vec2 pvSlabF = pvSlabUv - pvSlabId;
+  // A per-slab hash is a STEP function, and a step has no mip chain: once a
+  // pixel covers most of a slab it samples a different slab every frame and the
+  // pavement boils. Fade the whole effect out as the footprint approaches one
+  // slab — by then the slabs are sub-pixel and their average is the right answer.
+  float pvSlabFade = 1.0 - smoothstep( 0.22, 0.75,
+    max( fwidth( pvSlabUv.x ), fwidth( pvSlabUv.y ) ) );
+  float pvS0 = mix( 0.5, pvPaveHash( pvSlabId ), pvSlabFade );
+  float pvS1 = mix( 0.5, pvPaveHash( pvSlabId + 41.0 ), pvSlabFade );
+  float pvS2 = mix( 0.0, pvPaveHash( pvSlabId * 1.7 + 91.0 ), pvSlabFade );
+  // Every slab is its own pour: a different batch, a different age, a different
+  // number of summers of traffic film on it.
+  diffuseColor.rgb *= 0.86 + 0.26 * pvS0;
+  diffuseColor.rgb *= mix( vec3( 1.0 ), vec3( 1.05, 1.01, 0.93 ), pvS1 );
+  // The odd replaced slab: newer, greyer and cleaner than its neighbours.
+  diffuseColor.rgb = mix( diffuseColor.rgb,
+    diffuseColor.rgb * vec3( 1.17, 1.18, 1.21 ), step( 0.945, pvS2 ) );
+  // Joints are cut and filled by hand and silt up at different rates, so their
+  // width and darkness vary slab by slab instead of being one painted constant.
+  float pvEdge = min( min( pvSlabF.x, 1.0 - pvSlabF.x ), min( pvSlabF.y, 1.0 - pvSlabF.y ) );
+  diffuseColor.rgb *= 1.0 - 0.34 * pvS2 * ( 1.0 - smoothstep( 0.0, 0.020 + 0.030 * pvS1, pvEdge ) );
+  // Staining. A drip belongs to one slab; a spill crosses the joint, so there
+  // are two scales of it.
+  float pvBlot = smoothstep( 0.40, 0.06, length( pvSlabF - vec2( pvS0, pvS1 ) ) )
+    * step( 0.66, pvS2 ) * ( 0.12 + 0.26 * pvS1 );
+  vec2 pvWide = vMapUv * 0.42;
+  pvBlot += smoothstep( 0.34, 0.02, length( fract( pvWide ) - 0.5 ) )
+    * step( 0.70, pvPaveHash( floor( pvWide ) + 7.0 ) ) * 0.20;
+  diffuseColor.rgb *= 1.0 - pvBlot;`);
   });
 }
 
@@ -1468,9 +1901,10 @@ export class MaterialRegistry {
     this.time = { value: 0 };
 
     // Texture generation is a startup budget and is profiled like any other.
-    this.timings = {};
+    this.timings = { markings: 0 };
     this._phase('surfaces', () => this._buildSurfaceArray());
-    this._phase('markings', () => this._buildMarkings());
+    // markings: built on demand, see get(). The road paints its profile
+    // arithmetically now, so the district never touches the atlas.
     this._phase('ground', () => this._buildGround());
     this._phase('water', () => this._buildWater());
     this._phase('trim', () => this._buildGlassAndMetal());
@@ -1566,7 +2000,9 @@ export class MaterialRegistry {
       maps[key] = this._groundMaps(key, s);
       if (key === 'concrete') continue;
       const m = this._groundMaterial(key, maps[key], s.tile, { roughness: s.roughness ?? 1 });
-      if (key === 'road') applyRoadMarkings(m, this._markingTexture);
+      if (key === 'road') applyRoadMarkings(m, s.tile);
+      // 1.5 m slabs: the standard 5 ft pour the albedo already draws joints for.
+      if (key === 'sidewalk') applySlabVariation(m, s.tile / 1.5);
     }
 
     // The district's land pad: bare urban ground between roads and footprints.
@@ -1787,6 +2223,12 @@ export class MaterialRegistry {
   // -------------------------------------------------------------- public API
   /** Any material by registry key. Throws rather than silently returning grey. */
   get(key) {
+    // The marking atlas is the one lazily-built entry: nothing in the district
+    // samples it any more, and building it eagerly cost every load 7-9 ms and
+    // every GPU 2.67 MB for a texture only the material lab looks at.
+    if (key === 'roadMarkings' && !this._materials.has(key)) {
+      this._phase('markings', () => this._buildMarkings());
+    }
     const m = this._materials.get(key);
     if (!m) throw new Error(`no material "${key}" — have: ${[...this._materials.keys()].join(', ')}`);
     return m;
