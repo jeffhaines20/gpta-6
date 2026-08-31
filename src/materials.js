@@ -1808,6 +1808,179 @@ function applyPackedRoughness(material) {
   });
 }
 
+// ---------------------------------------------------------------- glazing
+// GLAZING is the shading contract for every pane of glass in Port Verano, kept
+// as numbers rather than as prose because three separate modules have to agree
+// on them and two of them got it wrong independently.
+//
+// What was measured, on the dusk hero frame and on the registry's own materials:
+//
+//   surface                       roughness   metalness   F0 (linear RGB)
+//   car glass (carbody.js)          0.045       0.88      0.007 0.009 0.011
+//   THIS FILE's glassTinted, was    0.322*      0.62      0.070 0.094 0.112
+//   facade atlas glass cell         0.129       0.549     0.038 0.059 0.082
+//   facade atlas WALL cell          0.220       0.302     0.173 0.182 0.182
+//
+//   * 1.0 material roughness multiplying a packed roughness map that measures
+//     0.176-0.541 over its texels. Nobody reading `roughness: 1` next to
+//     `applyPackedRoughness` guesses the surface actually shades at 0.32.
+//
+// Two things fall out of that table. First, on luminance-weighted F0 the wall is
+// 3.2x more specular than the glass beside it (0.180 against 0.056), which is
+// exactly backwards and is why a pane reads darker
+// and flatter than the masonry around it. Second, the car's glass has the LOWEST
+// F0 in the table and is still the only surface in the frame with a highlight:
+// what buys the highlight is roughness 0.045, not reflectance. A 0.32-roughness
+// lobe smears a whole hemisphere of sky into one dim average — which is the
+// definition of "uniform tint with no internal gradient".
+//
+// So: F0 first, roughness second, and never a dark colour under a metallic term
+// (same trap as the painted-steel note further down — for a metal the colour IS
+// the reflectance, and 0x54646e at metalness 0.62 is a 9% mirror). Measured on
+// the facade atlas, one lever at a time, on the same pane of the same frame:
+// dropping roughness 0.129 -> 0.059 moved the pane's mean luminance 64.5 -> 66.1
+// and raising metalness 0.549 -> 0.902 moved it 64.5 -> 64.1, but making the
+// colour the coating's reflectance moved it 64.5 -> 126.6. A FLAT wall reflects
+// a nearly uniform patch of sky, so sharpening the lobe buys almost nothing
+// there; it is the car's curvature that turns low roughness into a glint.
+//
+// And one trap that costs an afternoon if you do not know it: **envMapIntensity
+// is inert on every material in this project.** three.js does
+//
+//   material.isMeshStandardMaterial && material.envMap === null
+//     && scene.environment !== null  ->  uniforms.envMapIntensity.value
+//                                          = scene.environmentIntensity
+//
+// every frame, so a material that takes its environment from scene.environment —
+// which is all of them — has its own envMapIntensity overwritten with 1.0.
+// Verified: setting it to 30 on the facade materials changed the frame by zero
+// levels, while scene.environmentIntensity = 0 took the same pane from 64.5 to
+// 12.5. The numbers below are kept because they are the right intent if a
+// material is ever given its own envMap, but nothing is tunable through them
+// today, and carbody's 2.6 is not what buys the car its highlight either.
+const GLAZING = {
+  // Multiplies the packed roughness map (0.176-0.541), so the grime still
+  // modulates gloss instead of being flattened away.
+  coatedRoughness: 0.22,      // -> 0.039 .. 0.119, mean 0.071
+  shopRoughness: 0.30,        // -> 0.053 .. 0.162, mean 0.097 (older, dirtier)
+  // A reflective coating is 20-40% reflective. This colour IS that reflectance.
+  coatedColor: 0x8798a0,      // F0 0.222 0.287 0.320 at metalness 0.90
+  coatedMetalness: 0.90,
+  // Grime tilts the mirror direction; at 0.35 it scatters the reflection into
+  // the same average the roughness bug produced. Glass is FLAT.
+  normalScale: 0.10,
+  paneMetres: [1.45, 1.75],   // a curtain-wall module: 1.45 m wide, 1.75 m floor band
+  mullionMetres: 0.055,
+};
+
+// Panes, procedurally, in world metres — no texture, no draw call, no memory.
+//
+// Two reasons this is arithmetic rather than an atlas cell. The mesh UVs are not
+// ours (see the header), and a pane has to be 1.45 m on a 6 m shopfront and on a
+// 60 m tower alike; and a critic's complaint was specifically that every pane is
+// a UNIFORM FILL, which is a per-pane variation problem, not a resolution one.
+//
+// What it adds inside one pane: a vertical dirt/reflectance gradient, a per-pane
+// tint and gloss jitter off a cell hash, mullions that are frame metal rather
+// than glass, a bright catch on the head of each pane, and — for a shopfront —
+// an interior that falls off from a sky-lit mouth instead of reading as a hole
+// cut in the building.
+//
+// It hangs off `normal_fragment_maps` rather than the roughness/metalness stages
+// because applyPackedRoughness has already rewritten roughnessmap_fragment, and
+// because Fresnel needs the perturbed normal. roughnessFactor, metalnessFactor
+// and diffuseColor are all still live at that point and are all consumed later,
+// by lights_physical_fragment.
+function applyGlazing(material, opts = {}) {
+  const K = {
+    paneW: (opts.paneMetres ?? GLAZING.paneMetres)[0].toFixed(4),
+    paneH: (opts.paneMetres ?? GLAZING.paneMetres)[1].toFixed(4),
+    mull: (opts.mullionMetres ?? GLAZING.mullionMetres).toFixed(4),
+    // 0 = coated mirror, 1 = you are looking into a room.
+    interior: (opts.interior ?? 0.15).toFixed(3),
+    // Alpha rises to 1 at grazing. Glass reflects IN ADDITION to what it
+    // transmits, and a constant alpha cannot say that: it multiplies the
+    // specular by the opacity too, which is how a 4% reflection became 1.3%.
+    fresnelAlpha: opts.fresnelAlpha ? '1.0' : '0.0',
+    jitter: (opts.jitter ?? 0.16).toFixed(3),
+  };
+  return patch(material, 'glazing', (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGlazeWorld;\nvarying vec3 vGlazeNormal;')
+      .replace('#include <fog_vertex>', `#include <fog_vertex>
+  vGlazeWorld = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;
+  vGlazeNormal = mat3( modelMatrix ) * objectNormal;`);
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying vec3 vGlazeWorld;
+varying vec3 vGlazeNormal;
+float pvHash( vec2 c ) { return fract( sin( dot( c, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+{
+  // Wall-planar pane grid: horizontal run along the wall, and world height. A
+  // vertical surface's dominant axis picks which horizontal coordinate runs
+  // across it, the same rule applyPlanarUV uses for the ground.
+  vec3 gN = abs( normalize( vGlazeNormal ) );
+  float across = gN.x > gN.z ? vGlazeWorld.z : vGlazeWorld.x;
+  vec2 gUv = vec2( across / ${K.paneW}, vGlazeWorld.y / ${K.paneH} );
+  vec2 cell = floor( gUv );
+  vec2 f = fract( gUv );
+  float h = pvHash( cell );
+
+  // Distance to the nearest pane edge, in metres, so a mullion is a mullion at
+  // any pane aspect and antialiases with fwidth instead of shimmering.
+  vec2 edge = min( f, 1.0 - f ) * vec2( ${K.paneW}, ${K.paneH} );
+  float dEdge = min( edge.x, edge.y );
+  float aa = max( fwidth( dEdge ), 1e-4 );
+  float mullion = 1.0 - smoothstep( ${K.mull} - aa, ${K.mull} + aa, dEdge );
+
+  // Glass, before the frame is drawn over it.
+  // 1. per-pane tint and gloss jitter — the fix for "every pane a uniform fill"
+  float jTint = 1.0 + ( h - 0.5 ) * ${K.jitter};
+  float jRough = 1.0 + ( pvHash( cell + 7.3 ) - 0.5 ) * 0.85;
+  // 2. a vertical gradient inside the pane: run-off keeps the head of a light
+  //    clean and the sill end dirty, so gloss falls and tint warms downward.
+  float down = 1.0 - f.y;
+  float grime = mix( 1.0, 1.85, down * down );
+  roughnessFactor = clamp( roughnessFactor * jRough * grime, 0.012, 0.65 );
+  diffuseColor.rgb *= jTint * mix( 1.0, 0.88, down );
+
+  // 3. the interior behind the pane. A dark room is dark, not zero: it is lit
+  //    through its own mouth, so it keeps a floor bounce and a soffit shadow
+  //    and never returns a flat black rectangle. Structure, not just a fill.
+  float interior = ${K.interior};
+  if ( interior > 0.001 ) {
+    float soffit = smoothstep( 0.86, 1.0, f.y );          // dark under the head
+    float bounce = smoothstep( 0.34, 0.0, f.y );          // pavement light in
+    float shelf = smoothstep( 0.02, 0.0, abs( f.y - 0.46 ) );
+    vec3 room = vec3( 0.055, 0.052, 0.050 ) * ( 0.55 + 1.7 * bounce )
+      + vec3( 0.028, 0.030, 0.034 ) * ( 1.0 - soffit )
+      + vec3( 0.09, 0.08, 0.07 ) * shelf;
+    diffuseColor.rgb = mix( diffuseColor.rgb, room, interior );
+    metalnessFactor = mix( metalnessFactor, metalnessFactor * 0.35, interior );
+    roughnessFactor = mix( roughnessFactor, 0.55, interior * 0.5 );
+  }
+
+  // 4. the frame. Mill-finish aluminium, and a bright catch on the head of each
+  //    pane where the reveal turns up into the sky — the mullion highlight.
+  float head = ( 1.0 - smoothstep( ${K.mull} * 0.55, ${K.mull} * 1.9, ( 1.0 - f.y ) * ${K.paneH} ) ) * mullion;
+  vec3 frame = mix( vec3( 0.24, 0.245, 0.25 ), vec3( 0.62, 0.63, 0.64 ), head );
+  diffuseColor.rgb = mix( diffuseColor.rgb, frame, mullion );
+  roughnessFactor = mix( roughnessFactor, mix( 0.34, 0.18, head ), mullion );
+  metalnessFactor = mix( metalnessFactor, 1.0, mullion * 0.9 );
+
+  // 5. Fresnel. Cheap Schlick on the perturbed normal; used to open the alpha of
+  //    a transparent pane at grazing so it stops dimming its own reflection.
+  if ( ${K.fresnelAlpha} > 0.5 ) {
+    float ndv = clamp( dot( normal, normalize( vViewPosition ) ), 0.0, 1.0 );
+    float fres = pow( 1.0 - ndv, 5.0 );
+    diffuseColor.a = clamp( mix( diffuseColor.a, 1.0, fres * 0.92 ) + mullion * 0.6, 0.0, 1.0 );
+  }
+}`);
+  });
+}
+
 // One sampler2DArray for every wall and roof surface. `aLayer` is a per-vertex
 // attribute so a merged chunk mixing stucco walls and tile roofs is still one
 // draw call; uLayerBias lets a single-surface mesh skip the attribute entirely.
@@ -2174,22 +2347,41 @@ export class MaterialRegistry {
 
     // Two glazing options on purpose. `glassTinted` is opaque and therefore
     // mergeable and free of sorting; use it for anything that ships in a chunk.
+    //
+    // Shop glazing is uncoated: 4% head-on, and the reason it reads as glass at
+    // all from the street is that a shopfront is nearly always seen at a glancing
+    // angle, where Fresnel takes it to a mirror. `opacity` is the HEAD-ON value
+    // only; applyGlazing opens the alpha as the angle grazes, because a constant
+    // alpha multiplies the reflection as well as the transmission and turned this
+    // material's 4% into a measured 1.3%.
     const storefront = new THREE.MeshStandardMaterial({
-      color: 0xa9c2bd, normalMap: grime, normalScale: new THREE.Vector2(0.35, 0.35),
-      roughness: 1, metalness: 0.02, transparent: true, opacity: 0.32,
+      color: 0xa9c2bd, normalMap: grime,
+      normalScale: new THREE.Vector2(GLAZING.normalScale, GLAZING.normalScale),
+      roughness: GLAZING.shopRoughness, metalness: 0.02, transparent: true, opacity: 0.32,
       envMapIntensity: 2.0, side: THREE.DoubleSide,
     });
     applyPackedRoughness(storefront);
+    // A shopfront is mostly the room behind it, so the interior weight is high
+    // and its structure — soffit, shelf line, floor bounce — is what stops the
+    // opening reading as a hole cut in the elevation.
+    applyGlazing(storefront, {
+      interior: 0.86, fresnelAlpha: true, jitter: 0.22,
+      paneMetres: [1.15, 2.6], mullionMetres: 0.075,
+    });
     this._put('glassStorefront', storefront);
 
     // Reflective-coated curtain wall. A pure dielectric reflects 4% head-on and
     // reads as a black hole in daylight; the metallic term stands in for the
-    // coating, which is what makes a tower's glazing a mirror of the sky.
+    // coating, which is what makes a tower's glazing a mirror of the sky. That
+    // only works if the colour is the COATING's reflectance — see GLAZING.
     const tinted = new THREE.MeshStandardMaterial({
-      color: 0x54646e, normalMap: grime, normalScale: new THREE.Vector2(0.35, 0.35),
-      roughness: 1, metalness: 0.62, envMapIntensity: 2.2,
+      color: GLAZING.coatedColor, normalMap: grime,
+      normalScale: new THREE.Vector2(GLAZING.normalScale, GLAZING.normalScale),
+      roughness: GLAZING.coatedRoughness, metalness: GLAZING.coatedMetalness,
+      envMapIntensity: 2.2,
     });
     applyPackedRoughness(tinted);
+    applyGlazing(tinted, { interior: 0.22, jitter: 0.14 });
     this._put('glassTinted', tinted);
 
     const mc = makeCanvas(D);
