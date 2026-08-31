@@ -56,6 +56,14 @@ const variants = [
   // params are re-read from post.params every frame by render(), so zeroing the
   // strength sticks - unlike PointLight.intensity, which the pool rewrites.
   ['nobloom',  () => { __district.post.params.bloomStrength = 0; }],
+  // Which term actually colours an up-facing surface? The dusk preset carries a
+  // cool skyColor and a warm sunColor, plus a PMREM built from the sky dome, so
+  // "ambient is a constant grey" is a hypothesis to test, not a fact to act on.
+  ['nohemi',   () => { __district.scene.traverse((o) => {
+                         if (o.isHemisphereLight) o.intensity = 0; }); }],
+  ['noenv',    () => { __district.scene.environmentIntensity = 0; }],
+  ['nosun',    () => { __district.scene.traverse((o) => {
+                         if (o.isDirectionalLight) o.intensity = 0; }); }],
   ['nolamps',  () => { __district.lightPool.enabled = false;
                        __district.scene.traverse((o) => {
                          if (o.isPointLight) { o.intensity = 0; o.visible = false; } }); }],
