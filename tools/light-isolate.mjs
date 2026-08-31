@@ -53,6 +53,9 @@ const variants = [
   // NOT just zeroing intensity: LightPool.update() runs every frame and rewrites
   // intensity from the emitter's candela, so a zeroed light is back on before the
   // screenshot. Disabling the pool makes update() early-return, so the zero sticks.
+  // params are re-read from post.params every frame by render(), so zeroing the
+  // strength sticks - unlike PointLight.intensity, which the pool rewrites.
+  ['nobloom',  () => { __district.post.params.bloomStrength = 0; }],
   ['nolamps',  () => { __district.lightPool.enabled = false;
                        __district.scene.traverse((o) => {
                          if (o.isPointLight) { o.intensity = 0; o.visible = false; } }); }],
@@ -64,7 +67,7 @@ for (const [name, fn] of variants) {
   await page.screenshot({ path: `${OUT}/iso-${TOD}-${name}.png` });
   console.log(`captured iso-${TOD}-${name}.png`);
   // Reload between variants so each is measured against a clean baseline.
-  if (name !== 'nolamps') {
+  if (name !== variants[variants.length - 1][0]) {
     await page.reload({ waitUntil: 'networkidle' });
     await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
     await page.addStyleTag({ content: '#attr{display:none!important},#hud,.pv-hud{display:none!important}' });

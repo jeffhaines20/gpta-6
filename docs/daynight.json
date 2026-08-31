@@ -44,7 +44,7 @@
    "skyLux": 900,
    "litLamps": 10,
    "lampCandela": 900,
-   "exposure": "1/660",
+   "exposure": "1/900",
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 12,
    "shadowCasters": 86,

@@ -36,7 +36,7 @@ export const PRESETS = {
     // plaza measured 214/255 and the sky 245/255 with the darkest region in frame -
     // asphalt - still at 173. Blind critics called it milky with no black point; they
     // were right, and the tonemapper they blamed was not the cause.
-    exposure: 1 / 660,
+    exposure: 1 / 900,
     lampsOn: true,
     fog: { color: 0x6a6480, density: 0.0034 },
     post: { fogColor: 0x6d6a88, inscatter: 0xff9a52, density: 0.0032,
