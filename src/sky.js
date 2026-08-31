@@ -119,7 +119,11 @@ uniform float uSunIlluminance;
 uniform vec3  uBetaR;
 uniform float uBetaM;
 uniform float uMieG;
-uniform vec2  uMsBoost;          // isotropic multiple-scattering gain: (Rayleigh, Mie)
+uniform vec2  uMsBoost;          // multiple-scattering gain: (Rayleigh, Mie)
+uniform float uMsAniso;          // forward bias of that term, 0 = isotropic
+uniform vec3  uMsWarm;           // its tint toward the sun, luminance normalised to 1
+uniform vec3  uMsCool;           // ...and away from it, likewise
+uniform vec4  uGlowShape;        // urban skyglow: (layer height, self-extinction, g(zenith), 1/(g(0)-g(zenith)))
 uniform vec3  uGroundAlbedo;
 uniform float uGroundHaze;       // 1/radian: how fast the ground wins under the horizon
 uniform float uOvercast;
@@ -237,9 +241,40 @@ vec3 scatter(vec3 dir) {
   float phaseR = 3.0 / (16.0 * PI) * (1.0 + mu * mu);
   float phaseM = (1.0 - g * g) / (4.0 * PI * pow(max(1.0 + g * g - 2.0 * g * mu, 1e-4), 1.5));
 
+  // The multiply-scattered term is NOT isotropic, and pretending it was is why
+  // three independent blind critics measured this sky as x-invariant: at dusk
+  // single scattering is extinguished by 38 air masses while the MS term, which
+  // only ever sees exp(-tau * MS_PATH), survives - so the MS term IS the twilight
+  // sky, and an isotropic MS term is a 1-D vertical ramp by construction.
+  //
+  // Two effects, both energy-preserving so the plausibility gate still measures
+  // the same sky:
+  //   - a forward bias (1 + a*mu). Its mean over any azimuth ring is exactly 1
+  //     whenever the sun sits on the horizon, so zenith luminance, the horizon
+  //     ring average and the hemispherical illuminance are untouched at dusk and
+  //     only redistributed across azimuth. a is faded out as the sun climbs.
+  //   - a spectral swing between two tints that BOTH have luminance 1: warm on
+  //     the solar side, where the light that got here crossed the low, reddened
+  //     atmosphere, and cool on the anti-solar side, where it came over the top.
+  //     That is the Belt of Venus and the earth's shadow, and it is the reason a
+  //     photograph taken facing away from a sunset is blue rather than orange.
+  //
+  // The forward bias is weighted DOWN with elevation. Measured on the dusk hero
+  // frame, which looks 172 deg away from the sun: at 22 degrees up the sky's own
+  // azimuthal gradient is the Rayleigh BACKSCATTER peak, 1.27x brighter at the
+  // anti-solar point than 50 deg off it, and a flat forward bias cancels it -
+  // the first version of this measured 1.18x where the isotropic code measured
+  // 1.27x, i.e. it made the sky flatter, not less flat. Low in the sky the
+  // solar/anti-solar split is the dominant term and the bias belongs there; high
+  // up it does not. A weight that depends only on dir.y still has mean 1 around
+  // every azimuth ring, so this stays energy-preserving.
+  float fwd = 0.5 + 0.5 * mu;
+  float lowW = mix(1.0, 0.30, smoothstep(0.02, 0.50, dir.y));
+  vec3 msTint = mix(uMsCool, uMsWarm, fwd) * max(0.0, 1.0 + uMsAniso * lowW * mu);
+
   vec3 L = uSunIlluminance * (
-      sumR * uBetaR * phaseR + msR * uBetaR * uMsBoost.x
-    + sumM * uBetaM * phaseM + msM * uBetaM * uMsBoost.y);
+      sumR * uBetaR * phaseR + msR * uBetaR * uMsBoost.x * msTint
+    + sumM * uBetaM * phaseM + msM * uBetaM * uMsBoost.y * msTint);
 
   return L;
 }
@@ -296,15 +331,22 @@ vec3 skyRadiance(vec3 dir) {
     L = mix(L, deck, uOvercast);
   }
 
-  // Urban skyglow. Orange near the horizon from sodium and warm LED, much dimmer
-  // and bluer overhead; cloud bases bounce it back down, so an overcast city night
-  // is brighter than a clear one.
+  // Urban skyglow: city light scattered back down out of the boundary layer.
+  //
+  // The profile is the AIR MASS of that layer, 1/(mu + h), not an ad-hoc power of
+  // (1 - mu). That matters because it is the physics that makes the horizon the
+  // BRIGHTEST part of a real city sky - the line of sight crosses ~7x more lit
+  // haze at the rooftops than at the zenith - and because it turns over in the
+  // last couple of degrees, where the glow's own extinction finally beats the
+  // growing path. exp(-k*(X-1)) is that turnover. Normalised so the shaped term
+  // is 1 at the horizon and 0 at the zenith, which lets the two colours below be
+  // stated as plain luminances: uNightZenith IS the zenith in nits and
+  // uNightHorizon IS the amber the horizon adds on top of it.
   float night = 1.0 - smoothstep(-0.06, 0.10, uSunDir.y);
-  // 2.2, not the 3.5 that looks right in isolation: the exponent sets how much of
-  // the glow's energy sits near the horizon, and integrating it is what has to
-  // land inside daynight.js's night envelope.
-  float low = pow(1.0 - clamp(dir.y, 0.0, 1.0), 2.2) * mix(0.35, 1.0, smoothstep(-0.3, 0.02, dir.y));
-  L += (uNightZenith + uNightHorizon * low) * night * (1.0 + uOvercast * 1.15);
+  float X = 1.0 / (max(dir.y, 0.0) + uGlowShape.x);
+  float g = X * exp(-uGlowShape.y * (X - 1.0));
+  float warmLow = clamp((g - uGlowShape.z) * uGlowShape.w, 0.0, 1.0);
+  L += (uNightZenith + uNightHorizon * warmLow) * night * (1.0 + uOvercast * 1.15);
 
   // Half-float render targets top out at 65504. An unclamped solar aureole would
   // write Inf, and Inf survives the bloom blur as a screen-wide white smear.
@@ -357,12 +399,34 @@ uniform float uSunDiscRadiance;
 uniform float uMoonRadiance;
 uniform float uMoonPhase;
 uniform float uStarIntensity;
+uniform float uStarKeep;         // fraction of lattice cells that host NO star
+uniform float uStarGain;         // nits at magnitude 1
 uniform float uMilkyWay;
 uniform float uMaxRadiance;
 uniform float uOvercast;
+uniform float uAureole;          // nits at the centre of the solar aureole
+uniform vec3  uSunTint;          // beam colour, normalised to peak 1
+
+// Cloud deck. Every one of these is derived in _pushUniforms from the same
+// photometry the rest of the file uses; none is a hand-picked look value.
+uniform sampler2D uCloudNoise;
+uniform float uCloudCover;       // fBm threshold: higher = less sky covered
+uniform float uCloudSoft;        // width of the coverage ramp, i.e. edge softness
+uniform float uCloudScale;       // metres -> noise UV
+uniform float uCloudHeight;      // deck base, metres
+uniform vec2  uCloudDrift;       // advection, in noise UV
+uniform vec2  uCloudLightStep;   // one step toward the sun, in noise UV
+uniform float uCloudExtinct;     // optical depth of that step at full density
+uniform float uCloudAmbient;     // deck albedo x sky, as a share of the zenith
+uniform vec3  uCloudSunColor;    // beam colour at deck altitude, peak 1
+uniform float uCloudSunNits;     // radiance of a fully lit face
+uniform vec3  uCloudUnderlit;    // city light bounced off the base, nits
+uniform float uCloudHaze;        // aerial perspective on the deck, 1/m
+uniform vec2  uCloudFade;        // metres over which the deck relaxes into haze
 
 #define PI 3.141592653589793
 #define SUN_R 0.00465
+#define EARTH_R 6360000.0
 
 // Bilinear magnification of a 256x128 LUT shows the texel lattice as facets on a
 // gradient this smooth. Warping the fractional part through a smoothstep makes the
@@ -381,35 +445,46 @@ float hash13(vec3 p) {
   return fract((p.x + p.y) * p.z);
 }
 
-// One star per lattice cell, brightness distributed so a handful dominate. The
-// smoothstep width is a screen-space derivative, otherwise every star is a
-// sub-pixel point that crawls as the camera turns.
+// One star per OCCUPIED lattice cell, with a magnitude-dependent point spread.
+//
+// Two things were wrong here and both were measured, not guessed. Counting local
+// maxima in the masked sky wedge of the night hero frame gave 570 stars in
+// 0.35 sr - 1,633 per steradian, where a city sky offers a few tens - and their
+// median rendered luminance was 0.15 against a sky background of 0.006, i.e.
+// every single one of them sat 25x above the sky and therefore read as the same
+// brightness. A magnitude distribution nobody can see the bottom of is not a
+// magnitude distribution.
+//
+// Density is now cut by culling cells with a hash rather than by coarsening the
+// lattice: coarsening makes the spacing regular enough to see, whereas culling
+// leaves the positions random and simply empties most of them.
 vec3 stars(vec3 d) {
-  // Lattice pitch was 190, which put on the order of a thousand stars in a single
-  // street-canyon sky wedge - a moonless rural sky, not a downtown one. Three blind
-  // critics independently measured the density, the uniform apparent magnitude and
-  // the absence of any horizon extinction. 118 cuts the count by ~2.6x (cells
-  // intersecting the sphere scale as pitch^2).
   vec3 s = d * 118.0;
   vec3 cell = floor(s);
   float h = hash13(cell);
   vec3 offset = vec3(h, hash13(cell + 11.7), hash13(cell + 23.1)) - 0.5;
   float dist = length(fract(s) - 0.5 - offset * 0.7);
-  // pow 11 rather than 9: a steeper magnitude distribution, so a handful read as
-  // genuinely bright and the bulk sit near the noise floor, which is what a real
-  // magnitude distribution looks like.
+  float exists = step(uStarKeep, hash13(cell + 41.3));
+  // pow 11: a steep magnitude distribution, so a handful read as genuinely bright
+  // and the bulk sit near the noise floor.
   float mag = pow(hash13(cell + 3.3), 11.0);
-  float w = max(fwidth(dist), 0.004);
-  float disc = 1.0 - smoothstep(0.015, 0.015 + w, dist);
+
+  // Distance in PIXELS. The old code compared dist against a fixed 0.015 in cell
+  // units - 0.007 degrees, an eighth of a pixel - so what actually set every
+  // star's size was the fwidth() term in the smoothstep, which is the same for
+  // all of them. That is why the critics measured every star as an identical
+  // hard-edged 2x2 block: the size was the pixel grid, not the star. Working in
+  // pixels lets a bright star be genuinely bigger and carry a real point spread,
+  // and the whole spread still fits inside one 0.49-degree cell.
+  float w = max(fwidth(dist), 1e-4);
+  float px = dist / w;
+  float size = 0.55 + 1.75 * pow(mag, 0.33);
+  float core = 1.0 - smoothstep(size * 0.70, size * 1.45, px);
+  float psf = exp(-(px * px) / (size * size * 2.6));
+
   float warm = hash13(cell + 7.7);
   vec3 tint = mix(vec3(0.72, 0.82, 1.0), vec3(1.0, 0.86, 0.66), warm * warm);
-  // Gain, derived against the night bloom knee rather than dialled. Night post uses
-  // bloomThreshold 0.55 at a ~1/1.15 stop, so a star blooms once its radiance exceeds
-  // ~0.63 nits. At the old gain of 46 the brightest stars hit 46 nits - 73x over the
-  // knee - and smeared into the soft 30-50 px discs the critics read as noise. At 7.0
-  // a typical star (mag ~0.083 under pow 11) lands at 0.58 nits, just under the knee
-  // and crisp, while the rare bright one still blooms as a real star should.
-  return tint * disc * mag * 7.0;
+  return tint * (core * 0.80 + psf * 0.45) * mag * uStarGain * exists;
 }
 
 float valueNoise(vec3 p) {
@@ -423,18 +498,125 @@ float valueNoise(vec3 p) {
              mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y), f.z);
 }
 
+// ---------------------------------------------------------------- clouds
+// Seven octaves of tileable value noise in TWO texture fetches.
+//
+// The obvious way to write this is a loop of hash-based value noise, which for
+// seven octaves is ~56 hash evaluations per sky pixel. On the SwiftShader
+// rasteriser this project gates against, that is not affordable on 400k sky
+// pixels. Instead the noise is baked once on the CPU into a 256x256 RGBA texture
+// whose four channels hold four different lattice frequencies, so ONE fetch is
+// already a four-octave fBm. A second fetch at an incommensurate scale adds
+// three more octaves and breaks up the tile, and its own low frequency warps the
+// domain, which is what turns bland blobs into sheared cumulus.
+//
+// Mipmaps do the anti-aliasing: near the horizon one screen pixel covers
+// kilometres of deck, and without a mip chain that is a shimmering moire.
+float cloudFbm(vec2 p) {
+  vec4 a = texture2D(uCloudNoise, p * 0.5);
+  vec2 q = p * 2.13 + vec2(0.317, 0.113) + (a.rg - 0.5) * 0.30;
+  vec4 b = texture2D(uCloudNoise, q);
+  return a.r * 0.34 + a.g * 0.21 + a.b * 0.13
+       + b.r * 0.14 + b.g * 0.09 + b.b * 0.06 + b.a * 0.03;
+}
+
+// Distance from the ground to a shell of radius Re + h. Using the SHELL rather
+// than a flat plane is what gives the deck its perspective: the flat-plane
+// h/dir.y diverges at the horizon, while this saturates at sqrt(2*Re*h) - 167 km
+// for a 2.2 km base - which is exactly why real clouds crowd into a band above
+// the rooftops instead of streaking off to infinity.
+float shellDistance(float mu, float h) {
+  return -EARTH_R * mu + sqrt(EARTH_R * EARTH_R * mu * mu + 2.0 * EARTH_R * h + h * h);
+}
+
+// Returns (radiance, coverage). skyL is the clear sky behind the deck, zenithL
+// the zenith radiance the deck is ambient-lit by.
+vec4 cloudLayer(vec3 dir, vec3 skyL, vec3 zenithL) {
+  if (dir.y <= 0.002 || uCloudCover >= 1.0) return vec4(0.0);
+  float t = shellDistance(dir.y, uCloudHeight);
+  vec2 p = dir.xz * t * uCloudScale + uCloudDrift;
+  // Beyond ~55 km the deck is more haze than shape, so let the noise relax to its
+  // own mean. This is both the honest look and the cheapest anti-aliasing there is.
+  float far = smoothstep(uCloudFade.x, uCloudFade.y, t);
+  float d = mix(cloudFbm(p), 0.5, far);
+  // Self-shadowing: one step along the beam. With the sun on the horizon that
+  // step is long and nearly horizontal, so dusk clouds come out edge-lit with
+  // dark cores - which is the whole look - while a high sun lights their tops.
+  //
+  // Both fetches are taken BEFORE the coverage test. texture2D picks its mip from
+  // screen-space derivatives, and a derivative taken inside a branch that some
+  // pixels of the 2x2 quad did not enter is undefined - which at a cloud edge,
+  // where exactly that happens, is a licence for the driver to sample any mip it
+  // likes. Hoisting costs a clear-sky pixel one extra fetch and removes the class.
+  float ds = smoothstep(uCloudCover, uCloudCover + uCloudSoft,
+                        mix(cloudFbm(p + uCloudLightStep), 0.5, far));
+  float dens = smoothstep(uCloudCover, uCloudCover + uCloudSoft, d);
+  if (dens <= 0.0) return vec4(0.0);
+  // How far past the coverage threshold this sample is, i.e. how thick the cloud
+  // is here rather than merely whether there is one. dens saturates within one
+  // soft-edge width and is therefore 1.0 across almost the whole deck, which is
+  // fine for compositing and useless for shading.
+  float thick = clamp((d - uCloudCover) / (uCloudSoft * 3.0), 0.0, 1.0);
+  float lit = exp(-uCloudExtinct * ds);
+
+  // Forward scattering through the thin edges: the silver lining. Peaks where the
+  // line of sight passes close to the sun and the cloud is optically thin.
+  float fwd = pow(max(dot(dir, uSunDir), 0.0), 10.0);
+
+  // Ambient on the deck is not just the zenith: a cloud base near the horizon is
+  // lit by the bright low sky it sits in front of, which is what keeps sunset
+  // bases mauve rather than black.
+  vec3 amb = mix(zenithL, skyL, 0.45) * uCloudAmbient;
+  vec3 col = amb * (0.42 + 0.58 * lit)
+           + uCloudSunColor * uCloudSunNits * lit
+           + uCloudSunColor * uCloudSunNits * fwd * 0.6 * (1.0 - lit)
+           // City light off the base. Scaled by thickness, because at night the
+           // sun terms are zero and without this the whole deck is one flat
+           // amber sheet - which is exactly how the first night build read.
+           + uCloudUnderlit * (0.35 + 0.90 * thick);
+
+  // Aerial perspective on the deck itself, on the same physics as the ground fade.
+  float haze = 1.0 - exp(-t * uCloudHaze);
+  col = mix(col, skyL, haze);
+  float alpha = dens * (1.0 - haze * 0.40) * smoothstep(0.002, 0.030, dir.y);
+  return vec4(col, alpha);
+}
+
 void main() {
   vec3 dir = normalize(vDir);
   vec3 L = sampleLut(dir);
   float clear = 1.0 - uOvercast;
 
-  // Angle to a small disc, via the chord — acos loses precision exactly here.
-  float sunAng = 2.0 * asin(clamp(0.5 * length(dir - uSunDir), 0.0, 1.0));
+  // Cloud deck, composited before everything analytic so the disc, the moon and
+  // the stars are all correctly occluded by it.
+  vec4 cloud = cloudLayer(dir, L, sampleLut(vec3(0.0, 1.0, 0.0)));
+  L = mix(L, cloud.rgb, cloud.a);
+  float open = (1.0 - cloud.a) * clear;
+
+  // Solar aureole. The LUT carries the Mie forward peak, but at 256x128 one texel
+  // is 1.4 degrees, so the peak arrives smeared into a soft blob. Adding it back
+  // analytically at full resolution costs three pow() and gives the sun the tight
+  // bright core and the wide skirt that make it read as a source rather than as a
+  // white dot. Three lobes: aureole (~1 deg), circumsolar (~8 deg), general glow.
+  float mus = max(dot(dir, uSunDir), 0.0);
+  if (uAureole > 0.0) {
+    float lobes = pow(mus, 1600.0) * 1.0 + pow(mus, 70.0) * 0.11 + pow(mus, 7.0) * 0.012;
+    L += uSunTint * uAureole * lobes * open;
+  }
+
+  // The disc. Refraction squashes a setting sun: at the horizon its vertical
+  // diameter is about 80% of its horizontal one, and the flattening is gone by a
+  // few degrees up. Stretching the vertical offset before the angle is measured
+  // is the cheapest way to draw an ellipse with code that thinks in angles.
+  vec3 off = dir - uSunDir;
+  float squash = mix(1.0, 1.0 / 0.80, 1.0 - smoothstep(0.0, 0.09, uSunDir.y));
+  off.y *= squash;
+  float sunAng = 2.0 * asin(clamp(0.5 * length(off), 0.0, 1.0));
   if (sunAng < SUN_R * 1.6 && uSunDiscRadiance > 0.0) {
     float r = clamp(sunAng / SUN_R, 0.0, 1.0);
     float limb = pow(max(1.0 - r * r, 0.0), 0.32);   // solar limb darkening
     float edge = 1.0 - smoothstep(SUN_R * 0.985, SUN_R * 1.02, sunAng);
-    L += uSunDiscColor * uSunDiscRadiance * limb * edge * clear;
+    L += uSunDiscColor * uSunDiscRadiance * limb * edge * open;
   }
 
   if (uMoonRadiance > 0.0) {
@@ -451,29 +633,34 @@ void main() {
       float shade = mix(0.62, 1.0, smoothstep(0.25, 0.75, maria));
       float lit = smoothstep(-0.12, 0.12, disc.x + (uMoonPhase * 2.0 - 1.0) * 1.05);
       float limb = pow(max(1.0 - dot(disc, disc), 0.0), 0.22);
-      L += vec3(1.0, 0.97, 0.92) * uMoonRadiance * edge * shade * limb * mix(0.02, 1.0, lit) * clear;
+      L += vec3(1.0, 0.97, 0.92) * uMoonRadiance * edge * shade * limb * mix(0.02, 1.0, lit) * open;
     }
     // Mie halo around the moon: what makes a night sky read as air rather than space.
     float halo = pow(max(dot(dir, uMoonDir), 0.0), 260.0);
-    L += vec3(0.72, 0.79, 1.0) * uMoonRadiance * 2.0e-4 * halo;
+    L += vec3(0.72, 0.79, 1.0) * uMoonRadiance * 2.0e-4 * halo * open;
   }
 
   if (uStarIntensity > 0.0) {
-    // Airmass extinction plus urban skyglow. Stars do not simply stop at the
-    // horizon - they fade out over roughly the lowest 25-30 degrees, and over a lit
-    // city they are gone well before that. Previously 'above' only culled stars
-    // BELOW the horizon, so they stayed at full brightness right down to the
-    // rooftop line, which is the single most unnatural thing about a starfield.
+    // Extinction, from the air mass rather than from a smoothstep.
+    //
+    // The previous smoothstep(0.02, 0.42) was already meant to be this, and the
+    // critics still reported full-brightness stars at the rooftops - because it
+    // reaches 1.0 by 25 degrees, and in a street canyon the visible sky runs from
+    // about 5 to 30 degrees, so that curve spent its whole range inside the one
+    // band it was supposed to clear out. Measured on the night hero frame: 355 of
+    // 570 detected stars sat below 20 degrees. exp(-k*(X-1)) with X the air mass
+    // is the real curve, and it leaves 18% at 10 degrees and 44% at 20.
     float above = smoothstep(-0.04, 0.06, dir.y);
-    float extinction = smoothstep(0.02, 0.42, dir.y);
-    L += stars(dir) * uStarIntensity * above * extinction * clear;
+    float airmass = 1.0 / (max(dir.y, 0.0) + 0.09);
+    float extinction = min(1.0, exp(-0.62 * (airmass - 1.0)));
+    L += stars(dir) * uStarIntensity * above * extinction * open;
     if (uMilkyWay > 0.0) {
       // A band on a tilted great circle, broken up by noise. Kept faint on
       // purpose: at this scale a bright one reads as texture noise, not a galaxy.
       vec3 pole = normalize(vec3(0.42, 0.62, -0.66));
       float band = exp(-pow(dot(dir, pole) * 3.1, 2.0));
       float n = valueNoise(dir * 13.0) * 0.6 + valueNoise(dir * 31.0) * 0.4;
-      L += vec3(0.78, 0.80, 0.95) * band * (0.35 + n * 0.9) * uMilkyWay * above * clear;
+      L += vec3(0.78, 0.80, 0.95) * band * (0.35 + n * 0.9) * uMilkyWay * above * extinction * open;
     }
   }
 
@@ -482,6 +669,47 @@ void main() {
   #include <colorspace_fragment>
 }
 `;
+
+// Tileable value noise, four lattice frequencies packed one to a channel.
+//
+// Baked on the CPU because the alternative is paying for it per pixel per frame:
+// a seven-octave hash fBm is ~56 hash evaluations, and the dome shades every sky
+// pixel in the frame. 256x256x4 channels of smooth-interpolated lattice noise is
+// ~262k interpolations, measured at 18-59 ms once at construction (median 36 ms
+// over ten cold loads), against a generation budget the whole module has to fit
+// inside - and against a per-frame cost of nothing. The generator is an
+// xorshift seeded from a constant rather than Math.random(), so the deck is the
+// same on every machine and in every run - a sky that reshuffles itself between
+// captures cannot be compared against a previous capture.
+function bakeCloudNoise(size = 256, seed = 0x9e3779b9) {
+  const data = new Uint8Array(size * size * 4);
+  const lattices = [4, 8, 16, 32];
+  for (let c = 0; c < 4; c++) {
+    const L = lattices[c];
+    const grid = new Float32Array(L * L);
+    let x = (seed + c * 0x7f4a7c15) >>> 0;
+    for (let i = 0; i < L * L; i++) {
+      x ^= x << 13; x >>>= 0;
+      x ^= x >>> 17;
+      x ^= x << 5; x >>>= 0;
+      grid[i] = (x >>> 8) / 16777216;
+    }
+    for (let y = 0; y < size; y++) {
+      const gy = (y / size) * L, y0 = Math.floor(gy);
+      const ty = gy - y0, fy = ty * ty * (3 - 2 * ty);
+      const r0 = (y0 % L) * L, r1 = ((y0 + 1) % L) * L;
+      for (let px = 0; px < size; px++) {
+        const gx = (px / size) * L, x0 = Math.floor(gx);
+        const tx = gx - x0, fx = tx * tx * (3 - 2 * tx);
+        const c0 = x0 % L, c1 = (x0 + 1) % L;
+        const v = (grid[r0 + c0] * (1 - fx) + grid[r0 + c1] * fx) * (1 - fy)
+                + (grid[r1 + c0] * (1 - fx) + grid[r1 + c1] * fx) * fy;
+        data[(y * size + px) * 4 + c] = Math.round(v * 255);
+      }
+    }
+  }
+  return data;
+}
 
 function fullscreenTriangle() {
   const g = new THREE.BufferGeometry();
@@ -587,6 +815,20 @@ export class Sky {
     this._probeGen = 0;
     this._derivedGen = -1;
 
+    // Cloud noise. Baked here, before the dome material that samples it.
+    const tNoise = performance.now();
+    const noiseSize = opts.cloudNoiseSize ?? 256;
+    this.cloudNoise = new THREE.DataTexture(
+      bakeCloudNoise(noiseSize, opts.cloudSeed ?? 0x9e3779b9),
+      noiseSize, noiseSize, THREE.RGBAFormat);
+    this.cloudNoise.wrapS = THREE.RepeatWrapping;
+    this.cloudNoise.wrapT = THREE.RepeatWrapping;
+    this.cloudNoise.minFilter = THREE.LinearMipmapLinearFilter;
+    this.cloudNoise.magFilter = THREE.LinearFilter;
+    this.cloudNoise.generateMipmaps = true;      // the horizon is kilometres per pixel
+    this.cloudNoise.needsUpdate = true;
+    this.cloudNoiseMs = +(performance.now() - tNoise).toFixed(1);
+
     this._uniforms = {
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uSunIlluminance: { value: SUN_ILLUMINANCE },
@@ -597,6 +839,10 @@ export class Sky {
       // PLAUSIBLE_SKY rather than at the single-scattering value, which is roughly
       // a third of a real sky and far too saturated.
       uMsBoost: { value: new THREE.Vector2(0.115, 0.030) },
+      uMsAniso: { value: 0 },
+      uMsWarm: { value: new THREE.Vector3(1, 1, 1) },
+      uMsCool: { value: new THREE.Vector3(1, 1, 1) },
+      uGlowShape: { value: new THREE.Vector4(0.09, 0.035, 0.92, 0.145) },
       uGroundAlbedo: { value: srgb(0x6b6455) },
       uGroundHaze: { value: 8 },
       uOvercast: { value: 0 },
@@ -631,18 +877,67 @@ export class Sky {
     // therefore every surface in the district. Four blind critics independently measured
     // the night frames as monochromatic with no warm/cool contrast; all four blamed a
     // missing lighting system. The lighting system was fine. This was the cause.
-    this.nightZenithColor = srgb(0x54689c);
-    this.nightHorizonColor = srgb(0xd8b89a);
-    // A clear urban night sky is ~0.01-0.05 cd/m2 at zenith with skyglow lifting
-    // the horizon to a few tenths. At 3.4/3.6 the sky rendered BRIGHTER than
-    // lamp-lit ground (~1.3 nits from a 900 cd lamp at 8 m), which no camera stop
-    // can turn into night - four independent blind critics measured the night sky
-    // at L=188 against ground L=101 and all called it 'there is no night'.
-    // Rebalanced 2026-08-30 from 0.045 / 0.42 (9.3:1 horizon) to 2:1, which is a mild
-    // light-pollution gradient rather than a sodium flood. Total hemispherical
-    // illuminance stays inside the 0.05-3 lux night envelope PLAUSIBLE_SKY asserts.
-    this.nightZenithNits = 0.10;
-    this.nightHorizonNits = 0.20;
+    this.nightZenithColor = srgb(0x3d5590);
+    this.nightHorizonColor = srgb(0xe0b49a);
+    // These are LUMINANCES IN NITS, and as of 2026-08-31 they finally are.
+    //
+    // The 2026-08-30 pass believed it had rebalanced the glow from 9.3:1 to 2:1 in
+    // favour of the horizon. It had not, and the file said so in a comment that was
+    // wrong twice over: these numbers were multiplied by a COLOUR whose luminance
+    // was not 1, and the two colours differ in luminance by 3.5x (0x54689c is
+    // 0.144, 0xd8b89a is 0.512). 0.10 and 0.20 therefore rendered 0.014 and 0.102
+    // nits - a 7.1:1 horizon bias, not 2:1. _pushUniforms now divides each colour
+    // by its own luminance, so the ratio you read here is the ratio that renders.
+    //
+    // A clear urban night sky is ~0.01-0.05 cd/m2 at zenith, with skyglow lifting
+    // the horizon to a few tenths; lamp-lit asphalt is ~1.3 nits, and the sky must
+    // stay well under it or there is no night. The horizon term is what the blind
+    // critics asked for - "3-6x zenith, amber-pink at the rooftops to deep blue at
+    // zenith" - and 0.045 + 0.21 is 5.7:1 total. Measured hemispherical
+    // illuminance: 0.196 lux, inside both the 0.05-3 lux PLAUSIBLE_SKY night
+    // envelope and daynight.js's separate demand that the dome land within 2x of
+    // the 0.15 lux its camera stop was derived from.
+    this.nightZenithNits = 0.045;
+    this.nightHorizonNits = 0.21;
+    // Skyglow profile: the air mass of the light-polluted layer, 1/(mu + h),
+    // damped by its own extinction so it turns over in the last degrees rather
+    // than running to infinity at the horizon. h sets how tall the glow is, k how
+    // hard it rolls off. Integrating the pair is what has to land inside the night
+    // illuminance envelope, so they are not free.
+    this.glowLayer = opts.glowLayer ?? 0.09;
+    this.glowExtinction = opts.glowExtinction ?? 0.035;
+
+    // Multiple-scattering anisotropy, faded out as the sun climbs. 0.6 at dusk
+    // puts 1.6x of the isotropic value toward the sun and 0.4x away from it, a 4:1
+    // solar/anti-solar ratio at a given elevation, which is at the low end of what
+    // a twilight sky actually does. Energy-preserving; see scatter().
+    this.msAniso = opts.msAniso ?? 0.60;
+
+    // Cloud deck. `cloudiness` is the fraction of sky the deck covers in CLEAR
+    // weather; weather.js's overcast drives it the rest of the way to solid.
+    this.cloudiness = opts.cloudiness ?? 0.52;
+    this.cloudHeight = opts.cloudHeight ?? 2200;      // metres, fair-weather cumulus
+    // One noise tile is 15 km of deck. At 30 degrees elevation the deck is only
+    // 4.4 km away, so a 34 km tile put barely a fifth of one cloud in the upper
+    // frame and the sky read as empty above the rooftops; 15 km puts three or
+    // four cloud diameters across the visible wedge, which is what a fair-weather
+    // cumulus field looks like from a street.
+    this.cloudTileMetres = opts.cloudTileMetres ?? 15000;
+    this.cloudWind = opts.cloudWind ?? new THREE.Vector2(5.5, 2.0);   // m/s at the deck
+    // Radiance of a cloud face turned toward the beam is E_normal * albedo / pi.
+    // cloudFace is the geometric factor that a broken deck's VISIBLE faces return:
+    // most of what a camera sees is flank and base, not the fully lit top. 0.30
+    // puts the brightest dusk rim at ~1,345 nits against an anti-solar low sky
+    // measured at ~990, so sunlit cloud reads BRIGHTER than the sky it sits on -
+    // which is the whole point of a sunset - while shaded interiors at ~555 nits
+    // read darker. At 0.16 every cloud was darker than the sky and the deck
+    // rendered as silhouettes.
+    this.cloudAlbedo = opts.cloudAlbedo ?? 0.72;
+    this.cloudFace = opts.cloudFace ?? 0.30;
+    // Starfield. keep = fraction of lattice cells left EMPTY; gain = nits at
+    // magnitude 1. Both measured against the night hero frame - see stars().
+    this.starKeep = opts.starKeep ?? 0.94;
+    this.starGain = opts.starGain ?? 2.6;
     this.cloudColor = srgb(0xb9c2cc);
     // Deck luminance as a share of the clear zenith — near unity, because a lit
     // cloud base and a clear zenith are about equally luminous overhead (one is
@@ -689,9 +984,27 @@ export class Sky {
         uMoonRadiance: { value: 0 },
         uMoonPhase: { value: 1 },
         uStarIntensity: { value: opts.stars === false ? 0 : 1 },
+        uStarKeep: { value: 0 },
+        uStarGain: { value: 0 },
         uMilkyWay: { value: 0 },
         uMaxRadiance: { value: this.maxRadiance },
         uOvercast: { value: 0 },
+        uAureole: { value: 0 },
+        uSunTint: { value: new THREE.Vector3(1, 1, 1) },
+        uCloudNoise: { value: this.cloudNoise },
+        uCloudCover: { value: 1 },
+        uCloudSoft: { value: 0.16 },
+        uCloudScale: { value: 1 / 34000 },
+        uCloudHeight: { value: 2200 },
+        uCloudDrift: { value: new THREE.Vector2() },
+        uCloudLightStep: { value: new THREE.Vector2() },
+        uCloudExtinct: { value: 3.1 },
+        uCloudAmbient: { value: 0.34 },
+        uCloudSunColor: { value: new THREE.Vector3(1, 1, 1) },
+        uCloudSunNits: { value: 0 },
+        uCloudUnderlit: { value: new THREE.Vector3() },
+        uCloudHaze: { value: 1.15e-5 },
+        uCloudFade: { value: new THREE.Vector2(38000, 130000) },
       },
       depthWrite: false,
       depthTest: true,
@@ -721,6 +1034,7 @@ export class Sky {
     }
 
     this._lastRefresh = -1e9;
+    this._t0 = performance.now();     // cloud advection origin
     this._dirty = true;
     this._rayMatrix = new THREE.Matrix4();
     this._camRotation = new THREE.Matrix4();
@@ -734,6 +1048,7 @@ export class Sky {
 
     this.setTimeOfDay('dusk');
     const tSetup = performance.now();
+    this._t0 = tSetup;
     this.refresh({ force: true });
     this.generationMs = performance.now() - t0;
     // Broken out the way materials.js reports its phases: on a software
@@ -741,6 +1056,7 @@ export class Sky {
     // PMREM programs, not by the integral, and a single total hides that.
     this.timings = {
       setup: +(tSetup - t0).toFixed(1),
+      cloudNoiseBake: this.cloudNoiseMs,
       lutAndCompile: +(this.stats.lastRefreshMs - this.stats.lastReadbackMs - this.stats.lastEnvMs).toFixed(1),
       probeReadback: this.stats.lastReadbackMs,
       environment: this.stats.lastEnvMs,
@@ -827,6 +1143,8 @@ export class Sky {
     this._camRotation.extractRotation(camera.matrixWorld);
     this._rayMatrix.premultiply(this._camRotation);
     u.uRayMatrix.value.copy(this._rayMatrix);
+    // The deck drifts. Two float writes; nothing regenerates.
+    this._pushCloudDrift(u, now);
     if (this._post) this.applyToPost(this._post, this._postWeather);
     if (this.autoRefresh && this._dirty && now - this._lastRefresh >= this.minRefreshMs) {
       // No environment map and no GPU sync on this path: it runs inside a frame.
@@ -940,9 +1258,41 @@ export class Sky {
     u.uCloudTransmit.value = this.cloudTransmit;
     u.uOvercastFloor.value = this.overcastFloor;
 
-    const nz = this.nightZenithNits, nh = this.nightHorizonNits;
-    u.uNightZenith.value.set(this.nightZenithColor.r * nz, this.nightZenithColor.g * nz, this.nightZenithColor.b * nz);
-    u.uNightHorizon.value.set(this.nightHorizonColor.r * nh, this.nightHorizonColor.g * nh, this.nightHorizonColor.b * nh);
+    // Multiple-scattering anisotropy. Faded out as the sun climbs: the asymmetry
+    // is a twilight phenomenon, and leaving it on at noon would move the zenith,
+    // which is the one number the noon envelope has least room in.
+    u.uMsAniso.value = this.msAniso * (1 - smoothstep(0.05, 0.45, this.sunDirection.y));
+    const tMs = this._transmittanceAt(MS_ALTITUDE, Math.max(this.sunDirection.y, -0.01));
+    const msN = tMs.map((v) => v / Math.max(luminance(tMs), 1e-9));
+    // Softened with a fractional power: the raw beam transmittance at the horizon
+    // is 500:1 red-to-blue, which is the colour of the DISC, not of the diffuse
+    // light the whole sky is made of. Both tints are then renormalised to
+    // luminance 1, which is what makes the swing purely chromatic and leaves
+    // zenith luminance, the horizon ring and the sky illuminance untouched.
+    const unitLum = (c) => { const l = Math.max(luminance(c), 1e-9); return c.map((v) => v / l); };
+    const warm = unitLum(msN.map((v) => Math.pow(Math.max(v, 1e-6), 0.45)));
+    const cool = unitLum(msN.map((v) => Math.pow(Math.max(v, 1e-6), -0.22)));
+    u.uMsWarm.value.set(warm[0], warm[1], warm[2]);
+    u.uMsCool.value.set(cool[0], cool[1], cool[2]);
+
+    // Skyglow shape, normalised on the CPU so the shader carries no constants:
+    // (layer height, self-extinction, value at the zenith, 1/(horizon - zenith)).
+    const gAt = (mu) => {
+      const X = 1 / (mu + this.glowLayer);
+      return X * Math.exp(-this.glowExtinction * (X - 1));
+    };
+    const gz = gAt(1), g0 = gAt(0);
+    u.uGlowShape.value.set(this.glowLayer, this.glowExtinction, gz, 1 / Math.max(g0 - gz, 1e-6));
+
+    // Both colours are divided by their own luminance, so nightZenithNits and
+    // nightHorizonNits are luminances in nits and their ratio is the ratio that
+    // renders. See the comment where they are declared for why that had to change.
+    const zc = [this.nightZenithColor.r, this.nightZenithColor.g, this.nightZenithColor.b];
+    const hc = [this.nightHorizonColor.r, this.nightHorizonColor.g, this.nightHorizonColor.b];
+    const nz = this.nightZenithNits / Math.max(luminance(zc), 1e-9);
+    const nh = this.nightHorizonNits / Math.max(luminance(hc), 1e-9);
+    u.uNightZenith.value.set(zc[0] * nz, zc[1] * nz, zc[2] * nz);
+    u.uNightHorizon.value.set(hc[0] * nh, hc[1] * nh, hc[2] * nh);
 
     const d = this.domeMaterial.uniforms;
     d.uSunDir.value.copy(this.sunDirection);
@@ -958,6 +1308,15 @@ export class Sky {
     const peak = Math.max(t[0], t[1], t[2]) || 1e-6;
     d.uSunDiscColor.value.set(t[0] / peak, t[1] / peak, t[2] / peak);
     d.uSunDiscRadiance.value = this.sunDirection.y > -0.02 ? discL * peak : 0;
+    d.uSunTint.value.copy(d.uSunDiscColor.value);
+    // Aureole peak, as a fixed fraction of the disc. 2e-4 puts it at ~2,200 nits
+    // at dusk against a 2,000-nit near-sun sky, i.e. it roughly doubles the sky
+    // within a couple of degrees of the disc and is invisible past ~25.
+    d.uAureole.value = d.uSunDiscRadiance.value * 2.0e-4;
+
+    d.uStarKeep.value = this.starKeep;
+    d.uStarGain.value = this.starGain;
+    this._pushCloudUniforms(d);
 
     // Full-moon surface luminance is ~2,500 nits: bright enough to clip at night
     // exposure, which is exactly how it photographs.
@@ -971,6 +1330,90 @@ export class Sky {
       * luminance([this.nightZenithColor.r, this.nightZenithColor.g, this.nightZenithColor.b])
       * this.nightZenithNits;
 
+  }
+
+  /**
+   * Cloud-deck uniforms. Split out of _pushUniforms because every one of them is
+   * derived rather than dialled, and the derivation is the interesting part.
+   */
+  _pushCloudUniforms(d) {
+    const coverage = Math.min(1, this.cloudiness + (1 - this.cloudiness) * this.overcast);
+    // Threshold on an fBm whose mean is 0.5: lower threshold, more sky covered.
+    // The fBm has mean 0.5 and sd 0.082, so the threshold is roughly the coverage
+    // quantile: 0.464 at the default leaves 46% of the sky covered, 0.32 under
+    // full overcast leaves 95%.
+    d.uCloudCover.value = coverage <= 0 ? 1 : 0.62 - 0.30 * coverage;
+    d.uCloudSoft.value = 0.035 + 0.10 * coverage;
+    d.uCloudScale.value = 1 / this.cloudTileMetres;
+    d.uCloudHeight.value = this.cloudHeight;
+    d.uCloudAmbient.value = 0.34;
+    d.uCloudHaze.value = 7.0e-6;
+    d.uCloudFade.value.set(45000, 150000);
+
+    // The deck sees the sun higher than the ground does: sqrt(2h/Re) is 1.5 deg at
+    // 2.2 km. At dusk that is the difference between a lit deck and a dead one,
+    // because the sun is ON the horizon and 1.5 deg of elevation is a factor of
+    // 1.7 in air mass.
+    const lift = Math.sqrt((2 * this.cloudHeight) / EARTH_RADIUS);
+    const sunElev = Math.asin(Math.max(-1, Math.min(1, this.sunDirection.y)));
+    const sinDeck = Math.sin(sunElev + lift);
+    const tDeck = this._transmittanceAt(this.cloudHeight, sinDeck);
+    const tl = Math.max(luminance(tDeck), 1e-12);
+    // Softened the same way the multiple-scattering tint is, and for the same
+    // reason: a cloud is lit by the beam AND by the sky around it, so it never
+    // reaches the 500:1 red/blue of the raw beam.
+    const l1 = (c) => { const l = Math.max(luminance(c), 1e-9); return c.map((v) => v / l); };
+    const beam = l1(tDeck.map((v) => Math.pow(Math.max(v / tl, 1e-6), 0.55)));
+    d.uCloudSunColor.value.set(beam[0], beam[1], beam[2]);
+    // E_normal * albedo / pi * (what fraction of that a broken deck's visible
+    // faces actually return). Measured at dusk: 19,600 lux normal at the deck,
+    // 720 nits on the brightest rim.
+    const eNormal = sinDeck > -0.01 ? SUN_ILLUMINANCE * tl : 0;
+    d.uCloudSunNits.value = (eNormal * this.cloudAlbedo) / Math.PI * this.cloudFace;
+
+    // Self-shadowing step: how far the beam travels horizontally while crossing a
+    // 900 m deck. Vertical at noon (231 m, so tops are lit), nearly horizontal at
+    // dusk (clamped at 4.2 km, so the deck is edge-lit with dark cores).
+    // Capped at 1.6 km - about one cloud diameter. Past that the tap is
+    // uncorrelated with the cloud it is meant to be shadowing and the deck reads
+    // as noise rather than as lit and unlit sides.
+    const horiz = Math.min(900 / Math.max(Math.tan(sunElev + lift), 0.18), 1600);
+    const az = Math.hypot(this.sunDirection.x, this.sunDirection.z) || 1;
+    const stepUV = horiz / this.cloudTileMetres;
+    d.uCloudLightStep.value.set((this.sunDirection.x / az) * stepUV, (this.sunDirection.z / az) * stepUV);
+
+    // Self-shadowing has to vanish for a vertical sun, and this is the one place
+    // a horizontal-offset shadow tap gets it exactly backwards. At noon the step
+    // is 206 m, far shorter than a ~1.5 km cloud, so the tap lands INSIDE the same
+    // cloud and reports full density - i.e. it shadows the very top the sun is
+    // shining straight down onto. Measured: noon clouds rendered at half the
+    // luminance of the sky behind them, dark grey against blue, which is the one
+    // thing a noon cumulus never is. Scaling the extinction by how many cloud
+    // diameters the beam actually crosses fixes noon (0.14 -> nearly unshadowed)
+    // and leaves dusk alone (capped step, factor 1.0).
+    // 1.0 at full obliquity, not the 3.1 the first pass used: at 3.1 an interior
+    // kept 4.5% of the beam and the whole deck was a silhouette with a bright rim.
+    d.uCloudExtinct.value = 1.0 * Math.min(1, Math.max(0.12, horiz / 1500));
+
+    // City light bounced off the cloud base. This is why an overcast city night is
+    // brighter than a clear one, and why a night deck must not read as a black hole
+    // punched in the skyglow.
+    const night = 1 - smoothstep(-0.06, 0.10, this.sunDirection.y);
+    const hc = l1([this.nightHorizonColor.r, this.nightHorizonColor.g, this.nightHorizonColor.b]);
+    const under = this.nightHorizonNits * 1.15 * night;
+    d.uCloudUnderlit.value.set(hc[0] * under, hc[1] * under, hc[2] * under);
+
+    this._pushCloudDrift(d);
+  }
+
+  _pushCloudDrift(d, now = performance.now()) {
+    // 5.5 m/s at 2.2 km over a 34 km tile is 0.00016 UV per second: the deck
+    // moves, but a capture taken 20 s later than another is still the same sky.
+    const s = (now - this._t0) / 1000;
+    d.uCloudDrift.value.set(
+      (-this.cloudWind.x * s) / this.cloudTileMetres,
+      (-this.cloudWind.y * s) / this.cloudTileMetres,
+    );
   }
 
   // Sunlight reaching MS_ALTITUDE, normalised to a high sun. One number per
@@ -1002,11 +1445,14 @@ export class Sky {
     return 2 * KY_HORIZON * H * Math.exp(-ht / H) - vertical * this._airMass(-cosChi);
   }
 
-  _transmittance(sinElevation) {
-    const r = EARTH_RADIUS + 2;
-    const odR = this._sunOpticalDepth(H_R, 2, r, sinElevation);
-    const odM = this._sunOpticalDepth(H_M, 2, r, sinElevation) * this.turbidity * 1.11;
-    return BETA_R.map((b, i) => Math.exp(-(b * odR + BETA_M * odM)));
+  _transmittance(sinElevation) { return this._transmittanceAt(2, sinElevation); }
+
+  /** Beam transmittance to altitude h, for the cloud deck and the MS tints. */
+  _transmittanceAt(h, sinElevation) {
+    const r = EARTH_RADIUS + h;
+    const odR = this._sunOpticalDepth(H_R, h, r, sinElevation);
+    const odM = this._sunOpticalDepth(H_M, h, r, sinElevation) * this.turbidity * 1.11;
+    return BETA_R.map((b) => Math.exp(-(b * odR + BETA_M * odM)));
   }
 
   // Read the probe once per refresh and derive every CPU-side number from it, so
@@ -1166,6 +1612,25 @@ export class Sky {
       triangles: 1,
       turbidity: +this.turbidity.toFixed(2),
       overcast: +this.overcast.toFixed(2),
+      // The deck lives in the dome shader, not in the LUT, so it costs nothing to
+      // regenerate and does not enter zenithNits / horizonNits / skyLux. Those
+      // three describe the CLEAR sky the environment map and the fog are built
+      // from, which is what they have always described; the deck is a foreground
+      // layer over it. Reported here so the gap is stated rather than hidden.
+      cloud: {
+        coverage: +Math.min(1, this.cloudiness + (1 - this.cloudiness) * this.overcast).toFixed(2),
+        baseM: this.cloudHeight,
+        litFaceNits: +this.domeMaterial.uniforms.uCloudSunNits.value.toFixed(1),
+        underlitNits: +luminance([
+          this.domeMaterial.uniforms.uCloudUnderlit.value.x,
+          this.domeMaterial.uniforms.uCloudUnderlit.value.y,
+          this.domeMaterial.uniforms.uCloudUnderlit.value.z]).toFixed(3),
+        noiseBakeMs: this.cloudNoiseMs,
+        inLut: false,
+      },
+      msAniso: +this._uniforms.uMsAniso.value.toFixed(2),
+      nightZenithNits: this.nightZenithNits,
+      nightHorizonNits: this.nightHorizonNits,
       zenithNits: +a.zenithNits.toFixed(a.zenithNits < 10 ? 3 : 0),
       horizonNits: +a.horizonNits.toFixed(a.horizonNits < 10 ? 3 : 0),
       skyLux: +a.skyLux.toFixed(a.skyLux < 10 ? 3 : 0),
@@ -1235,6 +1700,7 @@ export class Sky {
     this.quad.geometry.dispose();
     this.lut.dispose();
     this.probe.dispose();
+    this.cloudNoise.dispose();
     if (this.envTarget) this.envTarget.dispose();
     if (this.pmrem) this.pmrem.dispose();
   }
