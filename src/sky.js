@@ -8,6 +8,18 @@
 // pixel at distance z is buried in. The fog colour is literally read back out of
 // the sky.
 //
+// The scattering model is single Rayleigh + Mie with an added multiply-scattered
+// term, and TWO things in it are what give the dome a hue that changes with
+// elevation rather than only with brightness:
+//   - ozone, absorbing in the Chappuis band. Without it a twilight zenith is
+//     grey, because Rayleigh's 5.7:1 preference for blue is cancelled by its own
+//     5:1 extinction of blue over the 38 air masses a horizon sun crosses.
+//   - the multiply-scattered term's VIEW leg carrying its full extinction, while
+//     only its SUN leg is treated as an ensemble of shorter paths from air the
+//     earth's curvature puts closer to the sun. The view leg is the one term that
+//     varies strongly with elevation, so it is the one that draws the gradient.
+// Both are described where they are implemented, in scatter().
+//
 // Units follow daynight.js: illuminance in lux, radiance/luminance in cd/m^2
 // (nits). The dome emits nits, so it lands in the same exposure system as the
 // lights and needs no fudge factor. That matters more than it sounds: an sRGB hex
@@ -28,6 +40,13 @@
 //     from refresh(), never from update() unless autoRefresh is switched on.
 //     Construction, including shader compilation, the LUT, the probe read-back
 //     and the PMREM: 333-386 ms over three cold loads.
+//     2026-08-31: the ozone term and the multiple-scattering sun ray added ~11%
+//     to that. Measured as an A/B of four cold loads of labs/sky each: median
+//     167.6 ms before, 185.5 ms after, all of it in the scattering integral
+//     (probe read-back 98 -> 120 ms; the PMREM phase does not move). The naive
+//     version of the same change cost +150 ms; hoisting airMass() out of
+//     sunOpticalDepth, so the two sun rays cost what one used to, is what bought
+//     that back. See sunOpticalDepth.
 //   - The PMREM environment map is the expensive half — 108-181 ms of that — and
 //     is rebuilt only when refresh() is asked for it. Inside a live frame loop
 //     the same rebuild measures 440-2,400 ms on this rasteriser, which is why
@@ -103,6 +122,31 @@ const EARTH_RADIUS = 6360000;
 const KY_HORIZON = 37.92;         // Kasten-Young air mass at zenith angle 90 deg
 const MS_ALTITUDE = 6000;         // where twilight's multiply-scattered light is made
 
+// Ozone absorption in the Chappuis band, at the layer's PEAK density, for the
+// same 680/550/440 nm the Rayleigh triplet is quoted at. Bruneton's reference
+// values, and the reason a twilight zenith is blue rather than grey.
+//
+// Rayleigh alone cannot make a dusk zenith blue: it scatters blue 5.7x harder
+// than red, and over the 38 air masses a horizon sun crosses it also EXTINGUISHES
+// blue about 5x harder, so the two cancel and the zenith comes out neutral. The
+// measurement that started this change said so — the dome's zenith was (244, 273,
+// 271) nits at dusk, i.e. faintly green-grey. Ozone breaks the tie: it absorbs
+// green and orange (peak ~600 nm) and barely touches blue, so a long twilight path
+// loses its middle and comes back violet-blue. It is invisible at noon, where the
+// vertical column is only 0.03 optical depths at 550 nm, and that asymmetry is
+// exactly the elevation dependence this file was missing.
+const BETA_O3 = [0.650e-6, 1.881e-6, 0.085e-6];
+// The layer, as a tent: zero at 10 km, peak at 25 km, zero at 40 km. Its vertical
+// integral is 15 km of peak-density-equivalent air, i.e. ~300 Dobson units.
+const O3_PEAK = 25000, O3_HALF = 15000, O3_COLUMN = 15000;
+// Floor on the chord through the shell, so a ray tangent AT the layer's own
+// altitude gets a finite enhancement. 140 km reproduces the exact limb integral
+// (2/3)*sqrt(2*R*W) for a ray tangent at the peak; see ozoneOpticalDepth.
+const O3_MIN_CHORD = 140000;
+// Horizontal transport of the multiply-scattered field, as an angle: the sun the
+// MS SOURCE sees, versus the sun the observer sees. See uMsSunDir.
+const MS_TRANSPORT = 0.10;
+
 // Physical extinction at ground level for the clear default, kept so the artistic
 // fog density can quote its multiplier honestly rather than pretending to be real.
 const PHYSICAL_EXTINCTION = BETA_R[1] + BETA_M * SKY_PRESETS.noon.turbidity;
@@ -115,9 +159,17 @@ const float Hr = 8000.0;         // Rayleigh scale height
 const float Hm = 1200.0;         // Mie scale height
 
 uniform vec3  uSunDir;
+// The sun the MULTIPLY-scattered source term sees: uSunDir raised by
+// MS_TRANSPORT radians. Multiply-scattered light is not made where it is seen —
+// it diffuses hundreds of kilometres before the last scattering event sends it at
+// the camera, and over that distance the earth curves, so the air that made it
+// had the sun higher in its sky. At dusk that is the difference between a source
+// lit through 38 air masses and one lit through 13.
+uniform vec3  uMsSunDir;
 uniform float uSunIlluminance;
 uniform vec3  uBetaR;
 uniform float uBetaM;
+uniform vec3  uBetaO;            // ozone absorption at the layer's peak density
 uniform float uMieG;
 uniform vec2  uMsBoost;          // multiple-scattering gain: (Rayleigh, Mie)
 uniform float uMsAniso;          // forward bias of that term, 0 = isotropic
@@ -150,7 +202,7 @@ vec2 raySphere(vec3 o, vec3 d, float r) {
 // a grazing ray comes back UNATTENUATED unless something else handles it. That
 // something is sunOpticalDepth below.
 #define KY_HORIZON 37.92
-#define MS_PATH 0.45          // effective extinction share seen by multiple scattering
+#define MS_PATH 0.45          // share of the SUN leg the multiply-scattered field sees
 float airMass(float sinElevation) {
   float z = degrees(acos(clamp(sinElevation, -1.0, 1.0)));
   return 1.0 / (max(sinElevation, 0.0) + 0.50572 * pow(max(96.07995 - z, 0.001), -1.6364));
@@ -165,18 +217,66 @@ float airMass(float sinElevation) {
 // the tangent-to-space branch minus the mirrored p-to-space branch. The two
 // halves are written against the same KY_HORIZON constant, so they agree exactly
 // at the terminator rather than leaving a seam there.
-float sunOpticalDepth(float H, float h, float r, float cosChi) {
+//
+// The air mass is passed IN rather than computed here, and it is airMass(|cosChi|)
+// for both branches — the two calls this function used to make were always to the
+// same value. That is what pays for the second sun ray the multiple-scattering
+// term needs: Rayleigh and Mie along one ray share an air mass, so two rays cost
+// two acos/pow per sample, which is exactly what one ray used to cost.
+float sunOpticalDepth(float H, float h, float r, float cosChi, float am) {
   float vertical = H * exp(-h / H);
-  if (cosChi >= 0.0) return vertical * airMass(cosChi);
+  if (cosChi >= 0.0) return vertical * am;
   float sinChi = sqrt(max(1.0 - cosChi * cosChi, 0.0));
   float ht = max(r * sinChi - Re, 0.0);
-  return 2.0 * KY_HORIZON * H * exp(-ht / H) - vertical * airMass(-cosChi);
+  return 2.0 * KY_HORIZON * H * exp(-ht / H) - vertical * am;
+}
+float sunOpticalDepth(float H, float h, float r, float cosChi) {
+  return sunOpticalDepth(H, h, r, cosChi, airMass(abs(cosChi)));
+}
+
+// Ozone. Density is a tent — zero at 10 km, peak at 25 km, zero at 40 km — so
+// unlike air it has no analytic slant column. What it does have is a SHELL, and a
+// shell's slant column is its vertical column times the geometric stretch of the
+// chord, R0/sqrt(R0^2 - Rt^2), where Rt is the ray's tangent radius. Checked
+// against a brute-force integral of the true tent over h = 0-55 km and sun
+// elevations +90 to -8 deg: geometric-mean ratio 1.01, worst 1.2x inside the range
+// the LUT actually samples. That is well inside the accuracy of the single-
+// scattering model it sits in, for two sqrt and a couple of multiplies.
+#define O3_PEAK 25000.0
+#define O3_HALF 15000.0
+#define O3_COLUMN 15000.0
+#define O3_MIN_CHORD 140000.0
+float ozoneDensity(float h) { return max(0.0, 1.0 - abs(h - O3_PEAK) / O3_HALF); }
+
+// Fraction of the vertical ozone column lying ABOVE altitude h. Piecewise
+// quadratic, because the tent is piecewise linear.
+float ozoneAbove(float h) {
+  float lo = max(h - (O3_PEAK - O3_HALF), 0.0);
+  float hi = max(O3_PEAK + O3_HALF - h, 0.0);
+  float below = min(lo * lo, 2.0 * O3_HALF * O3_COLUMN) / (2.0 * O3_HALF * O3_COLUMN);
+  return h <= O3_PEAK ? 1.0 - below : hi * hi / (2.0 * O3_HALF * O3_COLUMN);
+}
+
+float ozoneOpticalDepth(float r, float cosChi) {
+  float R0 = Re + O3_PEAK;
+  float Rt = r * sqrt(max(1.0 - cosChi * cosChi, 0.0));
+  // Factored, not R0*R0 - Rt*Rt: both are ~4e13 and their difference can be 1e11,
+  // which is where a 24-bit mantissa loses the answer.
+  float chord2 = max((R0 - Rt) * (R0 + Rt), O3_MIN_CHORD * O3_MIN_CHORD);
+  // Sunward and above: only the column above the sample is crossed. Sunward and
+  // below the local horizon: the ray dips to its tangent radius and climbs back,
+  // so it crosses everything above the TANGENT twice, less the part above the
+  // sample. Same mirror the air's sunOpticalDepth uses, for the same reason.
+  float f = cosChi >= 0.0 ? ozoneAbove(r - Re)
+                          : 2.0 * ozoneAbove(Rt - Re) - ozoneAbove(r - Re);
+  return O3_COLUMN * max(f, 0.0) * (R0 / sqrt(chord2));
 }
 
 vec3 sunTransmittance(float sinElevation) {
   float odR = sunOpticalDepth(Hr, 2.0, Re + 2.0, sinElevation);
   float odM = sunOpticalDepth(Hm, 2.0, Re + 2.0, sinElevation);
-  return exp(-(uBetaR * odR + uBetaM * 1.11 * odM));
+  float odO = ozoneOpticalDepth(Re + 2.0, sinElevation);
+  return exp(-(uBetaR * odR + uBetaM * 1.11 * odM + uBetaO * odO));
 }
 
 // Single scattering with an isotropic multiple-scattering term, marched through an
@@ -197,19 +297,43 @@ vec3 scatter(vec3 dir) {
   float tMax = hitGround ? grnd.x : atmo.y;
   float seg = tMax / float(STEPS);
 
-  float odR = 0.0, odM = 0.0;
+  float odR = 0.0, odM = 0.0, odO = 0.0;
   vec3 sumR = vec3(0.0), sumM = vec3(0.0);
   vec3 msR = vec3(0.0), msM = vec3(0.0);
+  // View-side optical depth and transmittance at the PREVIOUS sample, so each
+  // segment's transmittance can be integrated analytically rather than point
+  // sampled. See segT below.
+  vec3 tauPrev = vec3(0.0), transPrev = vec3(1.0);
   for (int i = 0; i < STEPS; i++) {
     vec3 p = origin + dir * (seg * (float(i) + 0.5));
-    float h = length(p) - Re;
+    float rp = length(p);
+    float h = rp - Re;
     float dR = exp(-h / Hr) * seg;
     float dM = exp(-h / Hm) * seg;
-    odR += dR; odM += dM;
+    odR += dR; odM += dM; odO += ozoneDensity(h) * seg;
+
+    vec3 tauView = uBetaR * odR + uBetaM * 1.11 * odM + uBetaO * odO;
+    vec3 trans = exp(-tauView);
+    // The airlight integral SATURATES within one mean free path, and 1/beta at
+    // 440 nm is 30 km. A 12-step march along a horizon ray is 700 km long, so its
+    // first sample sits 29 km out and a point-sampled exp(-tauView) throws away
+    // the near field that the whole integral is made of — measured against a
+    // 128-step reference, that is a 35% error in the noon horizon and it turns the
+    // noon haze from blue to grey. Integrating exp(-tauView) across the segment
+    // analytically (density is near enough constant inside one segment, so
+    // tauView is linear in s) recovers it: 12 steps then match 128 to within 3%.
+    // Costs nothing — the exp at the far end of this segment is the exp at the
+    // near end of the next one.
+    vec3 dTau = tauView - tauPrev;
+    vec3 segT = mix(trans, (transPrev - trans) / max(dTau, vec3(1e-6)),
+                    step(vec3(1e-4), dTau));
+    tauPrev = tauView; transPrev = trans;
 
     // Shadow test. raySphere reports "no hit" as x > y, and a miss means the sun
     // ray escapes, i.e. the sample IS lit — testing x > 0 alone throws away every
     // grazing ray and is what makes a naive twilight collapse two hours early.
+    // It comes AFTER the transmittance bookkeeping above, so a shadowed sample
+    // still closes out its own segment instead of stretching the next one's.
     vec2 sh = raySphere(p, uSunDir, Re);
     if (sh.x <= sh.y && sh.x > 0.0) continue;
 
@@ -218,18 +342,34 @@ vec3 scatter(vec3 dir) {
     // 20 km, so 5 even samples put the nearest one at 60 km where the density is
     // e^-7 and report an unattenuated sun. That single error is what kept the
     // dusk sky four times brighter than the value daynight.js asserts.
-    float rp = length(p);
-    float cosChi = dot(p / rp, uSunDir);
-    float odRs = sunOpticalDepth(Hr, h, rp, cosChi);
-    float odMs = sunOpticalDepth(Hm, h, rp, cosChi);
-    vec3 tau = uBetaR * (odR + odRs) + uBetaM * 1.11 * (odM + odMs);
-    vec3 atten = exp(-tau);
-    // Multiply-scattered light did not take this one long path — it took an
-    // ensemble of shorter ones, so it is neither as dim nor as red as exp(-tau)
-    // says. Without this the whole twilight dome, anti-solar horizon included,
-    // comes out the colour of the sunset, which is the one direction that is
-    // definitely grey-violet in every photograph of one.
-    vec3 attenMs = exp(-tau * MS_PATH);
+    vec3 up = p / rp;
+    float cosChi = dot(up, uSunDir);
+    float am = airMass(abs(cosChi));
+    vec3 tauSun = uBetaR * sunOpticalDepth(Hr, h, rp, cosChi, am)
+                + uBetaM * 1.11 * sunOpticalDepth(Hm, h, rp, cosChi, am)
+                + uBetaO * ozoneOpticalDepth(rp, cosChi);
+    vec3 atten = trans * exp(-tauSun);
+
+    // Multiply-scattered light did not take this one long path to get here — it
+    // took an ensemble of shorter ones, from air that is hundreds of kilometres
+    // closer to the sun. So its SUN leg is neither as dim nor as red as
+    // exp(-tauSun) says, and it is evaluated against the raised uMsSunDir and
+    // shortened by MS_PATH.
+    //
+    // Its VIEW leg is not an ensemble. Whatever made that light, it still had to
+    // cross the air between the sample and the camera exactly once, so that leg
+    // gets the full extinction. Applying MS_PATH to the SUM — which is what this
+    // line used to do — cut the view-path extinction to 45% as well, and the view
+    // path is the ONE term in the integral that varies strongly with elevation:
+    // 18 km of air at 26 degrees up against 123 km at 3 degrees. Flattening it
+    // flattened the dome, and since the MS term IS the twilight sky, three blind
+    // critics measured a dome with no hue rotation from zenith to horizon.
+    float cosChiMs = dot(up, uMsSunDir);
+    float amMs = airMass(abs(cosChiMs));
+    vec3 tauSunMs = uBetaR * sunOpticalDepth(Hr, h, rp, cosChiMs, amMs)
+                  + uBetaM * 1.11 * sunOpticalDepth(Hm, h, rp, cosChiMs, amMs)
+                  + uBetaO * ozoneOpticalDepth(rp, cosChiMs);
+    vec3 attenMs = segT * exp(-tauSunMs * MS_PATH);
     sumR += dR * atten;
     sumM += dM * atten;
     msR += dR * attenMs;
@@ -243,9 +383,10 @@ vec3 scatter(vec3 dir) {
 
   // The multiply-scattered term is NOT isotropic, and pretending it was is why
   // three independent blind critics measured this sky as x-invariant: at dusk
-  // single scattering is extinguished by 38 air masses while the MS term, which
-  // only ever sees exp(-tau * MS_PATH), survives - so the MS term IS the twilight
-  // sky, and an isotropic MS term is a 1-D vertical ramp by construction.
+  // single scattering is extinguished by 38 air masses while the MS term, whose
+  // sun leg is both raised to uMsSunDir and shortened by MS_PATH, survives - so
+  // the MS term IS the twilight sky, and an isotropic MS term is a 1-D vertical
+  // ramp by construction.
   //
   // Two effects, both energy-preserving so the plausibility gate still measures
   // the same sky:
@@ -776,6 +917,14 @@ export class Sky {
       sunDirection: new THREE.Vector3(0, 1, 0),
       zenithNits: 0,
       horizonNits: 0,
+      midSkyExposed: null,
+      // Null, not 0, until the probe has been read back: a chroma of 0 is a
+      // legitimate reading (a neutral grey sky) and audit() must not flag a dome
+      // it has not measured yet.
+      zenithChroma: null,
+      horizonChroma: null,
+      ambientChroma: null,
+      hueRotation: null,
       skyLux: 0,
       sunLux: 0,
       physicalExtinction: PHYSICAL_EXTINCTION,
@@ -831,9 +980,11 @@ export class Sky {
 
     this._uniforms = {
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+      uMsSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uSunIlluminance: { value: SUN_ILLUMINANCE },
       uBetaR: { value: new THREE.Vector3(...BETA_R) },
       uBetaM: { value: BETA_M * this.turbidity },
+      uBetaO: { value: new THREE.Vector3(...BETA_O3) },
       uMieG: { value: opts.mieG ?? 0.76 },
       // Tuned against the read-back zenith/horizon luminance so noon lands inside
       // PLAUSIBLE_SKY rather than at the single-scattering value, which is roughly
@@ -1241,6 +1392,26 @@ export class Sky {
   _pushUniforms() {
     const u = this._uniforms;
     u.uSunDir.value.copy(this.sunDirection);
+    // The sun the MS source term is lit by: the real one, tilted up by
+    // MS_TRANSPORT about the horizontal axis across the solar azimuth. The lift is
+    // an ARC on the earth, not a look parameter — 0.10 rad is 640 km of horizontal
+    // transport, which is about 1.3 Rayleigh mean free paths at 15 km (485 km at
+    // 550 nm), i.e. one diffusion length for the field that makes a twilight sky.
+    // At noon it is worth nothing (a 75 deg sun raised by 6 deg is the same sun)
+    // and at night everything is in shadow, so this term only speaks at twilight,
+    // which is the only time it has anything to say.
+    const s = this.sunDirection;
+    const hz = Math.hypot(s.x, s.z);
+    if (hz > 1e-6) {
+      const c = Math.cos(MS_TRANSPORT), sn = Math.sin(MS_TRANSPORT);
+      u.uMsSunDir.value.set(
+        s.x * c - (s.x / hz) * s.y * sn,
+        s.y * c + hz * sn,
+        s.z * c - (s.z / hz) * s.y * sn,
+      ).normalize();
+    } else {
+      u.uMsSunDir.value.copy(s);
+    }
     u.uBetaM.value = BETA_M * this.turbidity;
     u.uOvercast.value = this.overcast;
     u.uMaxRadiance.value = this.maxRadiance;
@@ -1418,6 +1589,13 @@ export class Sky {
 
   // Sunlight reaching MS_ALTITUDE, normalised to a high sun. One number per
   // refresh; it is constant across the LUT because it depends only on the sun.
+  //
+  // Deliberately Rayleigh + Mie only, with no ozone, unlike _transmittanceAt
+  // above. This is not a radiance - it is a normalised magnitude weight whose
+  // absolute value is absorbed into msBoost, and the shader already applies ozone
+  // on the MS sun leg, where the physics belongs. Adding it here as well takes the
+  // dusk sky from 1,597 to 1,333 lux and gives back a third of the zenith's
+  // coolness, i.e. it double-counts. Measured, not assumed.
   _msWeight() {
     const y = this.sunDirection.y;
     const at = (sinEl) => {
@@ -1445,14 +1623,37 @@ export class Sky {
     return 2 * KY_HORIZON * H * Math.exp(-ht / H) - vertical * this._airMass(-cosChi);
   }
 
+  // JS mirror of ozoneOpticalDepth() in SKY_COMMON; same shell approximation, same
+  // constants. Kept adjacent to _sunOpticalDepth for the same reason it is.
+  _ozoneOpticalDepth(r, cosChi) {
+    const norm = 2 * O3_HALF * O3_COLUMN;
+    const above = (h) => {
+      const lo = Math.max(h - (O3_PEAK - O3_HALF), 0);
+      const hi = Math.max(O3_PEAK + O3_HALF - h, 0);
+      return h <= O3_PEAK ? 1 - Math.min(lo * lo, norm) / norm : (hi * hi) / norm;
+    };
+    const R0 = EARTH_RADIUS + O3_PEAK;
+    const Rt = r * Math.sqrt(Math.max(1 - cosChi * cosChi, 0));
+    const chord2 = Math.max((R0 - Rt) * (R0 + Rt), O3_MIN_CHORD * O3_MIN_CHORD);
+    const f = cosChi >= 0 ? above(r - EARTH_RADIUS)
+      : 2 * above(Rt - EARTH_RADIUS) - above(r - EARTH_RADIUS);
+    return O3_COLUMN * Math.max(f, 0) * (R0 / Math.sqrt(chord2));
+  }
+
   _transmittance(sinElevation) { return this._transmittanceAt(2, sinElevation); }
 
-  /** Beam transmittance to altitude h, for the cloud deck and the MS tints. */
+  /**
+   * Beam transmittance to altitude h, for the sun disc, the cloud deck and the MS
+   * tints. Ozone is in here as well as in the dome, so the disc and the deck are
+   * reddened by the same air the sky behind them is: without it a sunset cloud
+   * face comes out a fifth brighter and a shade greener than the sky it sits on.
+   */
   _transmittanceAt(h, sinElevation) {
     const r = EARTH_RADIUS + h;
     const odR = this._sunOpticalDepth(H_R, h, r, sinElevation);
     const odM = this._sunOpticalDepth(H_M, h, r, sinElevation) * this.turbidity * 1.11;
-    return BETA_R.map((b) => Math.exp(-(b * odR + BETA_M * odM)));
+    const odO = this._ozoneOpticalDepth(r, sinElevation);
+    return BETA_R.map((b, k) => Math.exp(-(b * odR + BETA_M * odM + BETA_O3[k] * odO)));
   }
 
   // Read the probe once per refresh and derive every CPU-side number from it, so
@@ -1476,6 +1677,7 @@ export class Sky {
     const sunAz = Math.atan2(this.sunDirection.z, this.sunDirection.x);
     let towards = [0, 0, 0], away = [0, 0, 0], twSum = 0, awSum = 0;
     let ringY = 0;
+    const ring = [0, 0, 0];
     for (let x = 0; x < W; x++) {
       const phi = ((x + 0.5) / W - 0.5) * Math.PI * 2;
       let dPhi = Math.abs(phi - sunAz) % (Math.PI * 2);
@@ -1486,6 +1688,7 @@ export class Sky {
         c[0] += rgb[i] * wr; c[1] += rgb[i + 1] * wr; c[2] += rgb[i + 2] * wr;
       }
       ringY += luminance(c) / W;
+      for (let k = 0; k < 3; k++) ring[k] += c[k] / W;
       // Weight by how close this azimuth is to the sun's; the post stack blends
       // the two with pow(dot(view, sun), 6), so these must be the two extremes.
       const w = Math.pow(Math.max(0, Math.cos(dPhi)), 4);
@@ -1499,9 +1702,17 @@ export class Sky {
     a.fogColor.setRGB(away[0], away[1], away[2]);
     a.fogInscatter.setRGB(towards[0], towards[1], towards[2]);
     a.horizonNits = ringY;
+    a.horizonChroma = chroma(ring);
 
-    // Zenith row and the hemispherical illuminance, E = int L cos(theta) dw.
+    // Zenith row, the hemispherical illuminance E = int L cos(theta) dw, and the
+    // COLOUR of that same integral. The last one is the number this file's
+    // elevation-hue rotation exists to move: E over the upper hemisphere, weighted
+    // by cos(theta), IS what the PMREM hands a flat up-facing surface, so its
+    // chroma is the chroma of the ambient on every pavement, roof and car bonnet
+    // in the district. Three blind critics reported "nothing in the image is cool"
+    // and the cause was this integral sitting at +0.15.
     let zen = [0, 0, 0], lux = 0;
+    const up = [0, 0, 0];
     const dPhi = (Math.PI * 2) / W, dTheta = Math.PI / H;
     for (let y = H >> 1; y < H; y++) {
       const theta = ((y + 0.5) / H - 0.5) * Math.PI;
@@ -1509,10 +1720,13 @@ export class Sky {
       for (let x = 0; x < W; x++) {
         const i = (y * W + x) * 3;
         lux += luminance([rgb[i], rgb[i + 1], rgb[i + 2]]) * w;
+        for (let k = 0; k < 3; k++) up[k] += rgb[i + k] * w;
         if (y === H - 1) { zen[0] += rgb[i] / W; zen[1] += rgb[i + 1] / W; zen[2] += rgb[i + 2] / W; }
       }
     }
     a.zenithNits = luminance(zen);
+    a.zenithChroma = chroma(zen);
+    a.ambientChroma = chroma(up);
     a.skyLux = lux;
 
     // Direct sun illuminance on a surface facing it, after extinction. daynight.js
@@ -1631,12 +1845,25 @@ export class Sky {
       msAniso: +this._uniforms.uMsAniso.value.toFixed(2),
       nightZenithNits: this.nightZenithNits,
       nightHorizonNits: this.nightHorizonNits,
+      msTransportRad: MS_TRANSPORT,
       zenithNits: +a.zenithNits.toFixed(a.zenithNits < 10 ? 3 : 0),
       horizonNits: +a.horizonNits.toFixed(a.horizonNits < 10 ? 3 : 0),
+      // (R-B)/(R+B). The elevation hue rotation, as three numbers: the zenith, the
+      // horizon ring, and the cosine-weighted hemisphere the PMREM turns into
+      // ambient. Reported because "the dome is one hue from top to bottom" was
+      // diagnosed four separate times off screenshots before anything measured it.
+      zenithChroma: a.zenithChroma,
+      horizonChroma: a.horizonChroma,
+      ambientChroma: a.ambientChroma,
       skyLux: +a.skyLux.toFixed(a.skyLux < 10 ? 3 : 0),
       sunLux: +a.sunLux.toFixed(0),
       fogColorNits: [a.fogColor.r, a.fogColor.g, a.fogColor.b].map((v) => +v.toFixed(2)),
       fogInscatterNits: [a.fogInscatter.r, a.fogInscatter.g, a.fogInscatter.b].map((v) => +v.toFixed(2)),
+      hueRotation: a.hueRotation,
+      // sqrt(zenith * horizon) * exposure, the mid-sky saturation audit() gates on
+      // at 1.0. Reported as well as flagged, because a number that only appears
+      // when it fails is a number nobody can watch getting worse.
+      midSkyExposed: a.midSkyExposed,
       fogClamp: +a.fogClamp.toFixed(3),
       inscatterClamp: +a.inscatterClamp.toFixed(3),
       fogDensity: +a.density.toFixed(5),
@@ -1683,6 +1910,25 @@ export class Sky {
           + ` at a 1/${Math.round(1 / a.exposure)} stop) — the sky is blown, not merely bright`);
       }
     }
+    // The defect three independent blind critics reported, as a gate.
+    //
+    // Not "does the dome rotate hue with elevation" — at noon it legitimately does
+    // not (a clear noon sky goes from deep blue overhead to PALE blue at the
+    // horizon, which is a saturation change, and the measured rotation is 0.03).
+    // The quantity that actually caused the finding is the one gated here: the
+    // colour of int L cos(theta) dw over the upper hemisphere, which is what the
+    // PMREM hands every up-facing normal in the district. A sky whose own ambient
+    // is WARM has nothing cool anywhere in it, and the frame reads as one hue.
+    // Measured: noon -0.46, dusk -0.08, night -0.50 — and the dome that provoked
+    // the finding sat at +0.15 at dusk, which this catches.
+    if (Number.isFinite(a.zenithChroma) && Number.isFinite(a.horizonChroma)) {
+      a.hueRotation = +(a.horizonChroma - a.zenithChroma).toFixed(3);
+    }
+    if (Number.isFinite(a.ambientChroma) && a.ambientChroma > 0.08) {
+      flags.push(`the dome's own ambient is warm: (R-B)/(R+B) = ${a.ambientChroma} over the `
+        + `cosine-weighted upper hemisphere, so the PMREM tints every up-facing surface `
+        + `in the district the same colour as the sunset`);
+    }
     if (!isFinite(a.fogColor.r) || a.fogColor.r > this.maxRadiance) {
       flags.push('fog colour is not finite — a half-float target has overflowed');
     }
@@ -1707,6 +1953,11 @@ export class Sky {
 }
 
 function luminance(c) { return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; }
+// Warm/cool, as one number: +1 is pure red, -1 pure blue, 0 neutral. Normalised by
+// (R+B) so it says nothing about how bright the sample is, which is the point —
+// the defect this file was fixed for was a hue that did not move while the
+// luminance moved by a factor of five.
+function chroma(c) { return +((c[0] - c[2]) / Math.max(c[0] + c[2], 1e-9)).toFixed(3); }
 function luminance3(c) { return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b; }
 function smoothstep(a, b, x) {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
