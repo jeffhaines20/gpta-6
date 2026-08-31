@@ -168,7 +168,92 @@ const frame = (x, z, ax, az, ox, oz) => ({ x, z, ax, az, ox, oz });
 const wx = (f, lx, lz) => f.x + lx * f.ox + lz * f.ax;
 const wz = (f, lx, lz) => f.z + lx * f.oz + lz * f.az;
 
+// ---------------------------------------------------------------- HANDEDNESS
+// The local->world map above is (lx, lz) -> lx*(ox,oz) + lz*(ax,az), and its
+// determinant is ox*az - ax*oz. Most frames in this file build `out` by rotating
+// `along` one particular way, which makes that determinant -1: the local frame
+// is a REFLECTION, so a triangle authored counter-clockwise-from-outside in
+// local coordinates comes out CLOCKWISE in world space, is culled as a back
+// face, and what you see instead is the FAR wall of the solid shaded by a normal
+// pointing away from you — ambient-only, i.e. near-black, and it does not change
+// when the sun moves. Four rounds of blind critics called this "flat dark boxes
+// with no housing detail", "near-black", "2-3 flat facets of near-identical dark
+// green"; it is one defect, and this is it.
+//
+// Measured, not assumed. box() built in a det = -1 frame, rendered against
+// THREE.BoxGeometry under one directional light sitting at the camera, averaged
+// over the silhouette:
+//
+//     THREE.BoxGeometry   251/255        kit box(), det +1   251/255
+//     kit box(), det -1   6.7/255        (bench 84.8 -> 0, hydrant 178.8 -> 4.9)
+//
+// The frames are NOT all reflections, so a blanket flip of quad() would fix one
+// half of the kit and break the other. Measured over the 6,868 dressed props by
+// building each one and asking whether it emitted a face wound against its own
+// normal — not by reading the call sites and reasoning about them:
+//
+//   INSIDE OUT, det -1                   ALREADY RIGHT, det +1
+//   4,596 props / 114,792 triangles      1,996 props / 33,684 triangles
+//     every kerb station (bollard,         237 signal masts: _dressJunctions
+//     meter, bin, hydrant, newsbox,        builds its frame from the approach
+//     bikerack, bench, planter,            vector, not from a rotated `along`
+//     cabinet), the plaza and back         46 cable spans: tube() takes world
+//     rows, the carriageway castings       points, so no frame applies
+//     (manhole, gully), the utility        1,713 frontage and wall-clutter
+//     poles, and the wall clutter on       props on edges whose first-guess
+//     the edges _dressWalls had to         outward normal already pointed out
+//     flip the outward normal on           of the footprint
+//
+// The 276 trees are in det -1 frames too and were already right: the pass that
+// rebuilt them routed every triangle through tri() for exactly this reason.
+//
+// So no winding is hard-coded anywhere. handOf() reads the determinant of the
+// frame the CALLER composed, and every emitter below — quad(), the prism and
+// blob end caps, and tri() for the tree — winds to match it. A prop comes out
+// right way round in either kind of frame, and a new call site cannot get it
+// wrong by composing its frame the other way.
+//
+// tube() is the one deliberate exception: it takes WORLD points and builds its
+// own orthonormal ring from them, so no frame applies. Audited in both kinds of
+// frame, 6/6 of its triangles agree either way, and it is left alone.
+const handOf = (f) => (f.ox * f.az - f.ax * f.oz < 0 ? -1 : 1);
+const tri = (buf, hand, a, b, c) => {
+  if (hand < 0) buf.idx.push(a, c, b); else buf.idx.push(a, b, c);
+};
+
 function newBuf() { return { pos: [], nrm: [], col: [], uv: [], idx: [] }; }
+
+/**
+ * The winding half of the prop audit, measured the way worstFloat measures the
+ * floating half: off the triangles the prop actually emitted, never asserted.
+ *
+ * For every triangle written since index `i0`, compare the GEOMETRIC normal —
+ * the cross product over the index order, which is the quantity the rasteriser
+ * culls on — against the VERTEX normal the shader lights with. Disagreement is
+ * the whole-kit defect this file used to have: the triangle is culled, the far
+ * wall of the solid is what reaches the frame, and it is shaded by a normal
+ * pointing away from the camera, so it gets ambient and no key light at any
+ * hour. Cheap enough to run over 350,000 triangles but pure verification, so it
+ * only runs under opts.audit.
+ */
+function windingOf(buf, i0) {
+  const { pos, nrm, idx } = buf;
+  let ok = 0, bad = 0, flat = 0;
+  for (let t = i0; t < idx.length; t += 3) {
+    const a = idx[t] * 3, b = idx[t + 1] * 3, c = idx[t + 2] * 3;
+    const ux = pos[b] - pos[a], uy = pos[b + 1] - pos[a + 1], uz = pos[b + 2] - pos[a + 2];
+    const vx = pos[c] - pos[a], vy = pos[c + 1] - pos[a + 1], vz = pos[c + 2] - pos[a + 2];
+    const gx = uy * vz - uz * vy, gy = uz * vx - ux * vz, gz = ux * vy - uy * vx;
+    const nx = nrm[a] + nrm[b] + nrm[c];
+    const ny = nrm[a + 1] + nrm[b + 1] + nrm[c + 1];
+    const nz = nrm[a + 2] + nrm[b + 2] + nrm[c + 2];
+    const scale = Math.hypot(gx, gy, gz) * Math.hypot(nx, ny, nz);
+    if (scale < 1e-12) { flat++; continue; }
+    const d = (gx * nx + gy * ny + gz * nz) / scale;
+    if (d < -0.08) bad++; else if (d <= 0.08) flat++; else ok++;
+  }
+  return { tris: (idx.length - i0) / 3, ok, bad, flat };
+}
 
 // THREE.Color.setHex runs an sRGB -> working-space transfer, i.e. three pow()
 // calls, and the dressing pass writes ~350,000 vertices. Memoising the handful
@@ -190,18 +275,29 @@ function vert(buf, x, y, z, nx, ny, nz, hex, surf) {
   return buf.pos.length / 3 - 1;
 }
 
-/** One quad, corners in world space, wound a-b-c-d. 2 triangles. */
-function quad(buf, a, b, c, d, n, hex, surf) {
+/**
+ * One quad, corners in world space, wound a-b-c-d, in a frame of handedness
+ * `hand`. 2 triangles.
+ *
+ * `hand` defaults to +1 for the one caller that has no frame at all — tube(),
+ * which works in world space. Everything else passes handOf(f), because the
+ * order that puts the geometric normal of these two triangles on the same side
+ * as `n` is the OPPOSITE order in a reflected frame. Get it wrong and the quad
+ * is culled and the far wall of the solid is what the camera sees, lit by a
+ * normal pointing away from it: ambient only, no key light, at any hour.
+ */
+function quad(buf, a, b, c, d, n, hex, surf, hand = 1) {
   const i = vert(buf, a[0], a[1], a[2], n[0], n[1], n[2], hex, surf);
   vert(buf, b[0], b[1], b[2], n[0], n[1], n[2], hex, surf);
   vert(buf, c[0], c[1], c[2], n[0], n[1], n[2], hex, surf);
   vert(buf, d[0], d[1], d[2], n[0], n[1], n[2], hex, surf);
   // Wound so the geometric normal of each triangle agrees with the vertex
-  // normal above. Verified numerically rather than by eye: the first cut had
-  // every solid in the district inside out, which reads as "the prop is missing"
-  // under backface culling and is exactly the sort of thing a screenshot at
-  // dusk hides until it does not.
-  buf.idx.push(i, i + 2, i + 1, i, i + 3, i + 2);
+  // normal above. Verified numerically rather than by eye, per emitter and in
+  // both handednesses: the geometric normal (cross product over the index
+  // order, which is what the rasteriser culls on) dotted with the vertex normal
+  // has to be positive, and a screenshot at dusk hides it when it is not.
+  if (hand < 0) buf.idx.push(i, i + 1, i + 2, i, i + 2, i + 3);
+  else buf.idx.push(i, i + 2, i + 1, i, i + 3, i + 2);
 }
 
 /**
@@ -212,14 +308,15 @@ function box(buf, f, cx, cy, cz, hx, hy, hz, hex, surf) {
   const P = (lx, ly, lz) => [wx(f, cx + lx, cz + lz), cy + ly, wz(f, cx + lx, cz + lz)];
   const O = [f.ox, 0, f.oz], A = [f.ax, 0, f.az];
   const nO = [-f.ox, 0, -f.oz], nA = [-f.ax, 0, -f.az];
+  const w = handOf(f);
   const [a, b, c, d] = [P(hx, -hy, -hz), P(hx, -hy, hz), P(hx, hy, hz), P(hx, hy, -hz)];
   const [e, g, h, i] = [P(-hx, -hy, hz), P(-hx, -hy, -hz), P(-hx, hy, -hz), P(-hx, hy, hz)];
-  quad(buf, a, b, c, d, O, hex, surf);                 // outward face
-  quad(buf, e, g, h, i, nO, hex, surf);                // inward face
-  quad(buf, b, e, i, c, A, hex, surf);                 // along +
-  quad(buf, g, a, d, h, nA, hex, surf);                // along -
-  quad(buf, d, c, i, h, [0, 1, 0], hex, surf);         // top
-  quad(buf, g, e, b, a, [0, -1, 0], hex, surf);        // bottom
+  quad(buf, a, b, c, d, O, hex, surf, w);              // outward face
+  quad(buf, e, g, h, i, nO, hex, surf, w);             // inward face
+  quad(buf, b, e, i, c, A, hex, surf, w);              // along +
+  quad(buf, g, a, d, h, nA, hex, surf, w);             // along -
+  quad(buf, d, c, i, h, [0, 1, 0], hex, surf, w);      // top
+  quad(buf, g, e, b, a, [0, -1, 0], hex, surf, w);     // bottom
 }
 
 /**
@@ -227,6 +324,7 @@ function box(buf, f, cx, cy, cz, hx, hy, hz, hex, surf) {
  * 2n + (n-2) triangles: a 6-sided bollard is 16 triangles, not 500.
  */
 function prism(buf, f, cx, cz, r0, r1, y0, y1, sides, hex, surf, phase = 0) {
+  const w = handOf(f);
   const ring0 = [], ring1 = [], nrm = [];
   for (let s = 0; s < sides; s++) {
     const a = phase + (s / sides) * Math.PI * 2;
@@ -238,20 +336,23 @@ function prism(buf, f, cx, cz, r0, r1, y0, y1, sides, hex, surf, phase = 0) {
   for (let s = 0; s < sides; s++) {
     const t = (s + 1) % sides;
     const n = [(nrm[s][0] + nrm[t][0]) / 2, 0, (nrm[s][2] + nrm[t][2]) / 2];
-    quad(buf, ring0[s], ring0[t], ring1[t], ring1[s], n, hex, surf);
+    quad(buf, ring0[s], ring0[t], ring1[t], ring1[s], n, hex, surf, w);
   }
   const c0 = vert(buf, wx(f, cx, cz), y1, wz(f, cx, cz), 0, 1, 0, hex, surf);
   const first = c0 + 1;
   for (let s = 0; s < sides; s++) {
     vert(buf, ring1[s][0], ring1[s][1], ring1[s][2], 0, 1, 0, hex, surf);
   }
-  for (let s = 0; s < sides; s++) buf.idx.push(c0, first + ((s + 1) % sides), first + s);
+  // The cap fan is a triangle list of its own, so it needs the same treatment as
+  // the sides: (centre, s+1, s) faces up in a right-handed frame and down in a
+  // reflected one.
+  for (let s = 0; s < sides; s++) tri(buf, w, c0, first + ((s + 1) % sides), first + s);
 }
 
 /** Flat horizontal rectangle: road markings, tree pits, cellar-door leaves. */
 function slab(buf, f, cx, cz, hx, hz, y, hex, surf) {
   const P = (lx, lz) => [wx(f, cx + lx, cz + lz), y, wz(f, cx + lx, cz + lz)];
-  quad(buf, P(-hx, -hz), P(hx, -hz), P(hx, hz), P(-hx, hz), [0, 1, 0], hex, surf);
+  quad(buf, P(-hx, -hz), P(hx, -hz), P(hx, hz), P(-hx, hz), [0, 1, 0], hex, surf, handOf(f));
 }
 
 /**
@@ -261,6 +362,7 @@ function slab(buf, f, cx, cz, hx, hz, y, hex, surf) {
  * of this pass showed standing on every wide pavement in the district.
  */
 function blob(buf, f, cx, cz, cy, rx, ry, sides, hex, surf, phase = 0) {
+  const w = handOf(f);
   const lat = [[-1, 0], [-0.55, 0.72], [0.05, 1], [0.6, 0.7], [1, 0]];
   const rings = lat.map(([ty, tr]) => {
     if (tr === 0) return null;
@@ -280,7 +382,7 @@ function blob(buf, f, cx, cz, cy, rx, ry, sides, hex, surf, phase = 0) {
       const j = (i + 1) % sides;
       quad(buf, [A[i][0], A[i][1], A[i][2]], [A[j][0], A[j][1], A[j][2]],
         [B[j][0], B[j][1], B[j][2]], [B[i][0], B[i][1], B[i][2]],
-        nrmOf(A[i]), hex, surf);
+        nrmOf(A[i]), hex, surf, w);
     }
   }
   for (const [poleT, ring, up] of [[-1, rings[1], -1], [1, rings[rings.length - 2], 1]]) {
@@ -289,8 +391,8 @@ function blob(buf, f, cx, cz, cy, rx, ry, sides, hex, surf, phase = 0) {
     for (const p of ring) vert(buf, p[0], p[1], p[2], 0, up, 0, hex, surf);
     for (let i = 0; i < sides; i++) {
       const j = (i + 1) % sides;
-      if (up > 0) buf.idx.push(c, first + j, first + i);
-      else buf.idx.push(c, first + i, first + j);
+      if (up > 0) tri(buf, w, c, first + j, first + i);
+      else tri(buf, w, c, first + i, first + j);
     }
   }
 }
@@ -298,10 +400,15 @@ function blob(buf, f, cx, cz, cy, rx, ry, sides, hex, surf, phase = 0) {
 /** Vertical rectangle facing outward (+x of the frame): lenses, wall plates. */
 function plate(buf, f, cx, cy, cz, hz, hy, off, hex, surf) {
   const P = (lz, ly) => [wx(f, cx + off, cz + lz), cy + ly, wz(f, cx + off, cz + lz)];
-  quad(buf, P(-hz, -hy), P(hz, -hy), P(hz, hy), P(-hz, hy), [f.ox, 0, f.oz], hex, surf);
+  quad(buf, P(-hz, -hy), P(hz, -hy), P(hz, hy), P(-hz, hy), [f.ox, 0, f.oz], hex, surf,
+    handOf(f));
 }
 
-/** A thin triangular tube between two world points: overhead cable spans. */
+/** A thin triangular tube between two world points: overhead cable spans. No
+ *  frame, so no handedness — the ring is built from an orthonormal (u, p, u x p)
+ *  triple in world space, which is right-handed by construction, and quad()'s
+ *  default hand of +1 is the correct one. Audited in both kinds of frame: 6/6
+ *  triangles agree either way. */
 function tube(buf, p, q, r, hex, surf) {
   const dx = q[0] - p[0], dy = q[1] - p[1], dz = q[2] - p[2];
   const len = Math.hypot(dx, dy, dz) || 1;
@@ -461,35 +568,10 @@ function propPlanter(buf, f, k) {                                    // 40 tris
 // whether or not a lamp reaches it.
 const TAU = Math.PI * 2;
 
-// ---------------------------------------------------------------- HANDEDNESS
-// The local->world map in this file is (lx, lz) -> lx*(ox,oz) + lz*(ax,az), and
-// its determinant is ox*az - ax*oz. Every kerb-side, carriageway and junction
-// frame here builds `out` by rotating `along` one particular way, which makes
-// that determinant -1: the local frame is a REFLECTION, so a triangle authored
-// counter-clockwise-from-outside in local coordinates comes out CLOCKWISE in
-// world space, gets culled as a back face, and what you actually see is the far
-// wall of the solid shaded by a normal pointing away from you — which is
-// ambient-only, i.e. near-black, and does not change when the sun moves.
-//
-// Measured, not assumed: box() built in a det = -1 frame and rendered against
-// THREE.BoxGeometry under one directional light behind the camera reads 0/255
-// where the reference reads 251/255; reverse the winding and it reads 251.
-// It is the mechanism behind "interior shading is 2-3 flat facets of
-// near-identical dark green" and "near-black with a faceted silhouette".
-//
-// This is a whole-KIT defect, not a tree defect, and it cannot be fixed by
-// reversing quad() across the board: _dressWalls derives its outward normal
-// from the building footprint and flips it whenever it points into the ring, so
-// wall clutter comes in BOTH handednesses and half of it is already correct. A
-// blanket flip would fix ~6,000 props and break the rest. That is a pass of its
-// own with its own captures, so it is reported rather than silently swept into
-// a tree change. What IS in scope: every triangle the tree emits goes through
-// tri(), which reads the frame's handedness and winds to match, so a tree is
-// right-way-out in either kind of frame.
-const handOf = (f) => (f.ox * f.az - f.ax * f.oz < 0 ? -1 : 1);
-const tri = (buf, hand, a, b, c) => {
-  if (hand < 0) buf.idx.push(a, c, b); else buf.idx.push(a, b, c);
-};
+// The tree is authored with tri() and handOf() rather than quad(), which is not
+// a tree idiom: see HANDEDNESS at the top of the geometry kit. It was the first
+// part of this file to be wound for the frame it is built in, and it is now how
+// the whole kit works.
 
 /**
  * Deterministic per-tree PRNG. hash32 walks a string on every call, which is
@@ -1076,6 +1158,7 @@ export class StreetFurniture {
     const emit = (kind, ax, az, hostY, fn) => {
       const buf = bucketFor(kind, ax, az);
       const v0 = buf.pos.length;
+      const i0 = this.placed ? buf.idx.length : 0;
       fn(buf);
       if (buf.pos.length === v0) return false;
       if (this.placed) {
@@ -1097,7 +1180,8 @@ export class StreetFurniture {
           if (z < z0) z0 = z; if (z > z1) z1 = z;
         }
         this.placed.push({ kind, x: (x0 + x1) / 2, z: (z0 + z1) / 2,
-          rx: (x1 - x0) / 2, rz: (z1 - z0) / 2, lowY: lo, hostY });
+          rx: (x1 - x0) / 2, rz: (z1 - z0) / 2, lowY: lo, hostY,
+          wind: windingOf(buf, i0) });
       }
       if (hostY !== null) {
         let lo = Infinity;
@@ -2152,6 +2236,14 @@ export class StreetFurniture {
       // defect class three critics found and the gate now watches for; it is
       // measured off the emitted vertices, not asserted.
       worstFloatMm: Number.isFinite(this.worstFloat) ? +(this.worstFloat * 1000).toFixed(1) : 0,
+      // The winding class, and null unless dressed with opts.audit. Positive =
+      // that many prop triangles are wound against their own vertex normal, get
+      // culled, and hand the frame the far wall of the solid lit by a normal
+      // pointing away from the camera. It was 121,061 of 260,545 before the kit
+      // learned to read frame handedness; it is 0 outside the tree crowns, whose
+      // leaf normals are deliberately jittered off their facets.
+      backfacingTris: this.placed
+        ? this.placed.reduce((a, p) => a + (p.wind ? p.wind.bad : 0), 0) : null,
       buildMs: this.buildMs != null ? +this.buildMs.toFixed(1) : null,
       // Meshes, not draw calls. Three lamp InstancedMeshes and one parked-car
       // InstancedMesh are always submitted; the prop buckets are frustum- and
@@ -2171,7 +2263,19 @@ export class StreetFurniture {
 // arithmetic by hand. tools/geom-audit.mjs learned that lesson the hard way —
 // a second copy of the maths drifts from the geometry it is meant to audit.
 export const __kit = {
-  newBuf, frame, box, prism, slab, plate, tube, blob, quad, vert,
+  newBuf, frame, box, prism, slab, plate, tube, blob, quad, vert, handOf,
   propTree, propTreeDetail, treeParams, leafLobe, limbSeg, trunkPost, rng32, LEAF,
   S, PALETTE, PAL_W, paletteU, BASE_Y, PAD_Y, ROAD_Y, DECAL_Y, hash32,
+  // Every prop builder by the kind name emit() files it under, so a self-test
+  // can build one into a scratch buffer and read the triangles back. The
+  // winding audit needs exactly this: the same prop in a det +1 and a det -1
+  // frame, measured rather than reasoned about.
+  props: {
+    bollard: propBollard, meter: propMeter, bin: propBin, hydrant: propHydrant,
+    bench: propBench, planter: propPlanter, tree: propTree, treeDetail: propTreeDetail,
+    cabinet: propCabinet, newsbox: propNewsBox, bikerack: propBikeRack,
+    manhole: propManhole, gully: propGully, vent: wallVent, wallbox: wallBox,
+    condenser: wallCondenser, cellardoor: wallCellarDoor, downpipe: wallDownpipe,
+    standpipe: wallStandpipe,
+  },
 };
