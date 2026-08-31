@@ -55,6 +55,39 @@ warn 40 / fail 120 MB.
 > the stale text understated how tight the real gate is. Found by the independent
 > constraint audit, not by me — see `MILESTONE-REVIEW.md` §6.
 
+## Sampling integrity — confirm what is IN the sample before adjusting for it
+
+A second failure mode, distinct from the broken-instrument one below and recorded
+after it bit three times on 2026-08-31.
+
+1. **A night-sky region I adjusted for turned out to contain cloud.** A critic
+   reported the night zenith over-saturated; I measured 46.8% chroma in a box near
+   the top of frame, desaturated `nightZenithColor` and dropped `nightZenithNits`
+   0.045 -> 0.030, re-measured, and the number went the WRONG WAY - 56.1%. The sky
+   wave had added a cloud deck driven by different constants, and my box was full of
+   it. Reverted; the correct move is to mask the sample to clear sky first.
+2. **Four wrong emitters before the right one.** A reversed shopfront name was
+   chased through `signPanel`, `bladeSign` and `fasciaPlate` - five minutes of
+   rendering each - before a two-minute probe showed the awning VALANCE drew it.
+3. **A critic's stated defect was wrong and something worse was underneath.** Red
+   and green reported lit on one signal mast. Measured: one head, red lit, and the
+   *unlit* tints were saturated mid-tones the dusk key drove to RGB(95,95,35). But
+   probing that turned up the real bug - aspects assigned by `leg % 2` down the
+   incident-edge list, giving two CROSSING approaches green simultaneously at the
+   hero junction. The reported symptom and the actual fault were different bugs.
+
+**The rule.** Before adjusting a constant because a measurement moved, verify the
+sample contains what you think it contains, and that the constant you are reaching
+for is what drives it. A number that moves the wrong way is the cheap version of
+this lesson; a number that moves the right way for the wrong reason is the
+expensive one.
+
+**Corollary, earned repeatedly this session:** a blind critic's OBSERVATION is
+reliable evidence and its INFERRED CAUSE usually is not. Four separate rounds
+asserted a missing subsystem - no shadow map, no AO pass, no street lighting, no
+bloom - where isolation measured 43%, 29%, 76% and 52% of pixels changing when
+each was disabled. Every one of those observations still pointed at something real.
+
 ## Measurement integrity — three failures in one session, same shape
 
 Recorded because the pattern repeated three times on 2026-08-30/31 and cost real
