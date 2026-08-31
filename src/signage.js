@@ -1502,6 +1502,40 @@ export function signBox(cx, cy, cz, sx, sy, sz, rect, pos, nrm, uv, idx, opts = 
  * @param {number} y0  bottom height
  * @param {number} y1  top height
  */
+// Lay text out the way it is read from the street, not the way the ring winds.
+//
+// facades.js edgesOf() flips the NORMAL by ring winding so it always points
+// outward, but leaves the TANGENT following ring order:
+//     const flip = ringArea(ring) > 0 ? -1 : 1;
+//     tx: dx / len,           tz: dz / len,
+//     nx: (dz / len) * flip,  nz: (-dx / len) * flip,
+// So (tangent, outward normal) is right-handed on one winding and left-handed on
+// the other, and any text emitted along +t runs BACKWARDS on the reversed set -
+// 168 of this district's 523 footprints, 32% of every shopfront name.
+//
+// quad()'s winding correction hid the cause and made it worse: its comment says
+// it exists because "a sign on the wrong side of a wall is invisible rather than
+// obviously broken", and it duly fixed the VISIBILITY. It does not touch
+// ORIENTATION, so the corrected face renders mirrored instead of missing. A blind
+// critic read "Verano Wash House" reversed off a hero frame, two rounds after the
+// same symptom was fixed on street signs - that earlier fix routed through
+// postSign, which builds its own basis and never had the bug.
+//
+// cross is exactly +/-1 here (t and n are unit and perpendicular), so this is a
+// sign test, not a tolerance. A district probe counts 36 edges at +1 and 47 at -1,
+// which is the winding split made visible.
+//
+// The DIRECTION of the test was established by rendering it both ways, not by
+// derivation - I reasoned my way to `cross > 0` first and it was backwards. Three
+// earlier attempts also missed because they patched fasciaPlate and bladeSign,
+// while the reversed name a critic actually read off the frame was drawn by the
+// awning VALANCE. Four wrong guesses; the probe that enumerated which emitter
+// carries which business took two minutes and would have saved all of them.
+function orientRect(e, rect) {
+  const cross = e.tx * e.nz - e.tz * e.nx;
+  return cross < 0 ? [rect[2], rect[1], rect[0], rect[3]] : rect;
+}
+
 export function fasciaPlate(e, s0, s1, y0, y1, rect, pos, nrm, uv, idx, opts = {}) {
   const out = opts.out ?? 0.06, thick = opts.thick ?? 0.09;
   const edgeRect = opts.edgeRect ?? shopRect('misc', 'plateEdge');
@@ -1513,7 +1547,7 @@ export function fasciaPlate(e, s0, s1, y0, y1, rect, pos, nrm, uv, idx, opts = {
   const n = [e.nx, 0, e.nz];
   quad(pos, nrm, uv, idx,
     [f0[0], y0, f0[1]], [f1[0], y0, f1[1]], [f1[0], y1, f1[1]], [f0[0], y1, f0[1]],
-    n, rect, col, t);
+    n, orientRect(e, rect), col, t);
   // Returns. Small, but without them a fascia is a sticker at a glancing angle.
   quad(pos, nrm, uv, idx,
     [b0[0], y1, b0[1]], [b1[0], y1, b1[1]], [f1[0], y1, f1[1]], [f0[0], y1, f0[1]],
@@ -1562,7 +1596,7 @@ export function bladeSign(e, s, yTop, w, h, rect, sign, trim, opts = {}) {
   const gap = opts.gap ?? 0.28;
   const cx = e.a[0] + e.tx * s, cz = e.a[1] + e.tz * s;
   const px = cx + e.nx * (gap + w / 2), pz = cz + e.nz * (gap + w / 2);
-  signPanel([px, yTop - h / 2, pz], [e.nx, 0, e.nz], [0, 1, 0], w, h, rect,
+  signPanel([px, yTop - h / 2, pz], [e.nx, 0, e.nz], [0, 1, 0], w, h, orientRect(e, rect),
     sign.pos, sign.nrm, sign.uv, sign.idx,
     { col: sign.col, tint: opts.tint, doubleSided: true, normal: [-e.tx, 0, -e.tz] });
   // Arm out from the wall plus a wall plate, both as thin boxes.
@@ -1606,15 +1640,21 @@ export function awning(e, s0, s1, head, stripeRect, valanceRect, sign, trim, opt
   quad(sign.pos, sign.nrm, sign.uv, sign.idx,
     [a0[0], yTop, a0[1]], [a1[0], yTop, a1[1]], [f1[0], yFront, f1[1]], [f0[0], yFront, f0[1]],
     [-n[0], -n[1], -n[2]], stripeRect, col, t);
-  // Valance, both faces, carrying the name.
+  // Valance, both faces, carrying the name. THE valance is the third text-on-edge
+  // emitter and the one that actually produced the reversed "Verano Wash House" a
+  // critic found - fasciaPlate and bladeSign were fixed first and neither draws it.
+  // Both faces derive from one winding-oriented rect so the front reads from the
+  // street and the back reads from the far pavement.
+  const vFront = orientRect(e, valanceRect);
+  const vBack = [vFront[2], vFront[1], vFront[0], vFront[3]];
   quad(sign.pos, sign.nrm, sign.uv, sign.idx,
     [f0[0], yFront - val, f0[1]], [f1[0], yFront - val, f1[1]],
     [f1[0], yFront, f1[1]], [f0[0], yFront, f0[1]],
-    [e.nx, 0, e.nz], valanceRect, col, t);
+    [e.nx, 0, e.nz], vFront, col, t);
   quad(sign.pos, sign.nrm, sign.uv, sign.idx,
     [f1[0], yFront - val, f1[1]], [f0[0], yFront - val, f0[1]],
     [f0[0], yFront, f0[1]], [f1[0], yFront, f1[1]],
-    [-e.nx, 0, -e.nz], [valanceRect[2], valanceRect[1], valanceRect[0], valanceRect[3]], col, t);
+    [-e.nx, 0, -e.nz], vBack, col, t);
   // Side gussets close the wedge.
   const side = (p0, pf, sx, sz) => quad(sign.pos, sign.nrm, sign.uv, sign.idx,
     [p0[0], yTop, p0[1]], [pf[0], yFront, pf[1]], [pf[0], yFront - val, pf[1]],
