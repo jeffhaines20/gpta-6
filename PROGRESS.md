@@ -339,6 +339,59 @@ rather than method: the near ground the tool samples loads first. The lesson is 
 already in this ledger under "Sampling integrity", arriving this time as *when* the sample
 was taken rather than *what* was in it.
 
+## Round 7, art critic: right about the look, wrong about the cause, in its own boxes
+
+The round-7 art director gave a single change - "raise the sun elevation for golden and
+dusk so direct sunlight actually lands on horizontal surfaces" - resting on two claims:
+
+1. "The ground plane receives no direct sunlight."
+2. "Nothing casts a shadow onto flat ground, in any of the four daylight frames."
+
+Both were tested by toggling only `sun.intensity` and `sun.shadow.intensity` on a settled
+scene, sampling **the critic's own regions**:
+
+| its region | base | sun off | shadow off | sun contributes | shadow removes |
+|---|---|---|---|---|---|
+| near sidewalk (250,800,120x40) | 162.0 | 139.2 | 169.4 | **30.2** | 7.3 |
+| plaza mid-right (1000,570,120x30) | 131.0 | 117.3 | 153.5 | **36.2** | 22.5 |
+| its F2 scanline band (150,790,410x40) | 162.6 | 140.7 | 168.2 | **27.5** | 5.6 |
+
+On its own scanline at y=810, the deepest pixel the shadow actually removes is **30.6** -
+above the ">25 step" it reported as absent.
+
+**So the ground receives about a fifth to a quarter of its light directly from the sun,
+and cast shadows do land on it.** What the critic actually measured - ground reads blue
+(B-R +12 to +46), sun-facing walls read warm (B-R -32 to -46) - is correct and useful.
+The inference from it is not. At 8 degrees elevation a horizontal surface takes
+sin(8) = 0.139 of the beam while a sun-facing wall takes ~0.99: the wall gets seven times
+the direct flux, so the sky dominates the GROUND'S HUE while still supplying only three
+quarters of its light. That is what golden hour does, not a bug.
+
+Its proposed change would also fail its own test #4, "the sky must not change" - moving
+the sun moves the sky.
+
+### What survives from it, and is worth acting on
+
+- **The golden sky's warm end is bleached.** Measured across the top of `corridor-golden`:
+  B-R +64 at x=480, +62 at x=640, -7 at x=880, -14 at x=1520. The blue-to-warm horizontal
+  gradient is real and correct - the critic explicitly checked several columns, having been
+  warned about the single-column error, and caught that the previous round's "no blue
+  anywhere" claim was a sampling artifact. But the warm end sits at chroma **0.064**, i.e.
+  near-neutral grey. The sky runs blue-to-grey rather than blue-to-gold.
+- **Golden is the least colourful daylight state.** Whole-frame mean chroma: corridor-golden
+  **22.3**, fivepoints-golden 31.8, corridor-dusk 37.7, fivepoints-dusk 38.7.
+- **Street lamps are emissive at dusk but emit no light.** Pavement directly under the lit
+  lamp head measures 108.2 against 134.7 and 163.0 either side - darker under the lamp.
+  At night the same test gives +20/25 with a real falloff and a cast pole shadow. This is
+  the second round running that a critic has found a lamp glowing without lighting.
+- **The road speckle boundary is neither shadow nor paint.** High-frequency energy 5-15
+  above y~730 and 30-50 below, with the zebra bars crossing the boundary unbroken and the
+  paint reading BRIGHTER below it. That rules out both readings and points at a detail
+  layer fading in at a fixed radius - which matches the aliasing already logged.
+
+The critic also volunteered that it had twice caught itself misreading its own crops. That
+is the behaviour worth having.
+
 ## The budget gate could not see the shadow pass, and fixing that turned it red
 
 `src/post.js` read `renderer.info.render.calls` after `renderer.render()`. three.js does
