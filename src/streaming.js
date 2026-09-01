@@ -401,21 +401,47 @@ export class StreamingWorld {
     return true;
   }
 
+  // Every mesh a chunk emits says which chunk and what it is.
+  //
+  // A scene-graph audit of shadow casters reported "world chunk: 7 casters / 110
+  // meshes" against a wall of unnamed meshes, and with no way to tell a facade
+  // from a road ribbon the search for the missing flag went to _buildUnused -
+  // dead code nothing calls - rather than here. Two things were wrong with the
+  // reading and only a name makes either visible: the casters are the NEAR tier's
+  // facade and trim meshes (roads, zone polygons and the far tier's merged boxes
+  // are receivers by design), and 7/110 was a scene that had not finished
+  // streaming. Audited at the corridor hero camera with the mesh count settled it
+  // is 57 casters of 259.
+  _named(mesh, job, what) {
+    if (mesh) mesh.name = `chunk:${job.key}:lod${job.lod}:${what}`;
+    return mesh;
+  }
+
   // Build the list of one-mesh upload steps. Each is small and independently
   // gateable, which is what keeps the worst slice bounded.
   _planUploads(job) {
     const steps = [];
     if (job.lod === LOD.NEAR) {
       for (const [recipe, buf] of job.byRecipe) {
-        steps.push(() => this._meshFromBuffers(buf, facadeMaterial(recipe, { time: this.facadeTime }), true));
+        steps.push(() => this._named(
+          this._meshFromBuffers(buf, facadeMaterial(recipe, { time: this.facadeTime }), true),
+          job, `facade:${recipe}`));
       }
-      steps.push(() => this._meshFromBuffers(job.trim, trimMaterial(), true));
+      steps.push(() => this._named(this._meshFromBuffers(job.trim, trimMaterial(), true), job, 'trim'));
     } else {
-      steps.push(() => this._mergedMesh(job));
+      // The far tier stays a receiver and not a caster, and that is now a
+      // measured choice rather than an unset flag. Near chunks run to
+      // nearRadius 2 x chunkSize 128 = +-320 m around the viewer, and the sun's
+      // shadow camera is +-120: every far chunk is outside the shadow volume, so
+      // flagging its merged boxes as casters buys nothing and costs a draw call
+      // per chunk in the shadow pass. Forcing every chunk mesh to cast at the
+      // corridor camera measured 0.50% of the frame darkened for 205 extra
+      // caster meshes, and none of that 0.50% was on the near ground.
+      steps.push(() => this._named(this._mergedMesh(job), job, 'far'));
     }
-    steps.push(() => this._roadMesh(job.chunk));
+    steps.push(() => this._named(this._roadMesh(job.chunk), job, 'road'));
     for (const [key, buf] of job.zoneBuf) {
-      steps.push(() => this._zoneMeshFromBuffer(buf, key));
+      steps.push(() => this._named(this._zoneMeshFromBuffer(buf, key), job, `zone:${key}`));
     }
     return steps;
   }
@@ -490,6 +516,9 @@ export class StreamingWorld {
     return null;
   }
 
+  // NOT the live build path, and has not been since the resumable build landed:
+  // nothing calls it. Read _stepBuild / _planUploads / _stepUploads above for
+  // what actually produces a chunk's meshes and sets their shadow flags.
   _buildUnused(key, lod) {
     const chunk = this.d.chunks[key];
     const group = new THREE.Group();

@@ -58,14 +58,16 @@ export const PRESETS = {
   //     ATMOSPHERE's share; what the district renders is lower, because it delivers
   //     the sky twice - see the exposure note. Measured at 8 deg by
   //     tools/sun-share.mjs: 26.5% of the road, 0% of the band clipped.
-  //   - shadow length against the shadow volume. The ortho shadow camera is +-260
+  //   - shadow length against the shadow volume. The ortho shadow camera is +-120
   //     (lateral) with near 1 / far 900 along the light ray from a light parked 400 m
   //     out, so the ground is covered from 403 m sunward to 505 m anti-sunward of
-  //     the viewer. The +-260 half-extent bounds the LATERAL half-width, not shadow
+  //     the viewer. The +-120 half-extent bounds the LATERAL half-width, not shadow
   //     length; length is bounded by that 505 m. The district's tallest building is
   //     67.2 m: at 8 deg it throws 67.2/tan(8) = 478 m, inside 505; at 6 deg it
   //     throws 639 m and gets cut off. Median building 6.4 m -> 46 m of shadow, p95
-  //     36.5 m -> 260 m.
+  //     36.5 m -> 260 m. The half-extent was +-260 until it was traded for shadow
+  //     map resolution; the measurement that says the trade cost nothing is in the
+  //     constructor.
   // A wall facing the sun collects cos(8 deg) = 0.99 of the beam, which is the
   // exact defect noon has and cannot fix at 75.6 deg elevation.
   //
@@ -265,10 +267,68 @@ export class TimeOfDay {
 
     this.sun = new THREE.DirectionalLight(0xffffff, 1);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
-    const S = 260;
+    // The shadow map's RESOLUTION ON THE GROUND, which is the quantity that
+    // decides whether a street-scale object can cast anything at all.
+    //
+    // An ortho shadow camera 2*S metres across a map of N texels resolves
+    // 2*S/N metres per texel, and PCF needs roughly two texels of contiguous
+    // occlusion before a shadow survives filtering. The shipped 2048 over
+    // +-260 gave 0.254 m/texel: a car (1.8 m across) is 7 texels and does
+    // appear, a bin (0.5 m) is 2 and barely does, a bollard (0.15 m) is 0.6
+    // and can never appear no matter what flags it carries. That is half of
+    // why the round-6 critics found street objects sitting ON the pavement
+    // rather than in contact with it; the other half was castShadow, see
+    // src/streetfurniture.js.
+    //
+    // 3072 over +-120 is 0.078 m/texel - 3.25x finer - and the extent half of
+    // that was measured rather than guessed. tools/sun-share.mjs's method,
+    // applied per horizontal band at the corridor hero camera at golden hour
+    // with traffic and the crowd frozen: capture the frame, capture it again
+    // with shadow.intensity = 0, and the difference is the light the shadow
+    // pass is removing.
+    //
+    //   extent x map     m/texel   facade band   mid band    near band
+    //   260 x 2048 (old)  0.254     7.02          21.32       2.91   <- shipped
+    //   260 x 2048 +props 0.254     7.05          21.50       6.68
+    //   260 x 4096        0.127     7.28          21.68       6.02
+    //   180 x 2048        0.176     7.18          21.59       6.60
+    //   120 x 2048        0.117     7.27          21.61       6.25
+    //   150 x 4096        0.073     7.35          21.61       6.82
+    //    90 x 2048        0.088     7.01          21.63       6.21
+    //
+    // The mid band is the one a tighter camera was expected to cost: it is the
+    // far half of the carriageway, where DISTANT buildings throw their shadows,
+    // and it is 52-53% shadowed in every row. Tightening from +-260 to +-90
+    // moves it by 0.3 of 21.3 - i.e. nothing. The reason is the streamer: near
+    // chunks (nearRadius 2 x chunkSize 128) span +-320 m around the viewer, so
+    // a +-120 shadow box sits entirely inside full-detail geometry and every
+    // caster that was reaching the frame still is.
+    //
+    // What S actually bounds is worth stating, because it is not shadow LENGTH.
+    // The ortho box's two lateral axes are perpendicular to the light ray: one
+    // horizontal and across the sun's bearing, one near-vertical. A ground point
+    // d metres UP-SUN of the viewer sits only d*sin(elevation) = 0.14d along the
+    // near-vertical axis at golden hour, so +-120 admits casters hundreds of
+    // metres up-sun and the up-sun limit is `near`, not S. S bounds the ACROSS-SUN
+    // slab: outside +-120 m of the line through the viewer along the sun's
+    // bearing, nothing casts and nothing receives. At the corridor camera the sun
+    // sits 60 deg off the lens, so that slab edge falls 120/sin(60 deg) = 139 m
+    // down the street.
+    //
+    // +-120 rather than the +-90 that also measured clean: 90 is the tightest
+    // extent this probe happened to test, at ONE camera and one azimuth, and an
+    // extent chosen at the edge of its own evidence is how a shadow volume ends
+    // up popping on a street the probe never stood in.
+    const SHADOW_MAP = 3072, S = 120;
+    this.sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
     Object.assign(this.sun.shadow.camera,
       { left: -S, right: S, top: S, bottom: -S, near: 1, far: 900 });
+    // Kept as authored. bias is in normalised depth, so against near 1 / far 900
+    // it is 0.0006 * 899 = 0.54 m along the light ray. The bias a receiver needs
+    // is about one texel divided by tan(elevation) - at golden hour's 8 deg and
+    // the new 0.078 m texel that is 0.55 m, which is what this already is. It
+    // was the 0.254 m texel that this bias was too small for, and PCF blur was
+    // covering the difference.
     this.sun.shadow.bias = -0.0006;
     this.sun.shadow.normalBias = 0.06;
     scene.add(this.sun, this.sun.target);
@@ -476,6 +536,18 @@ export class TimeOfDay {
     });
     const byType = {};
     for (const l of lights) byType[l.type] = (byType[l.type] || 0) + 1;
+    // The shadow map's resolution ON THE GROUND. A visual review that reports
+    // "no shadows under the street furniture" needs this number to tell a
+    // missing flag from a map that cannot resolve the object, which is the
+    // distinction the round-6 round turned on.
+    const sc = this.sun.shadow.camera;
+    const shadowMap = {
+      mapSize: this.sun.shadow.mapSize.x,
+      extentM: +(sc.right - sc.left).toFixed(0),
+      metresPerTexel: +((sc.right - sc.left) / this.sun.shadow.mapSize.x).toFixed(4),
+      casterMeshes: shadowCasters,
+      receiverMeshes: shadowReceivers,
+    };
 
     // Plausibility checks against the envelope above.
     const flags = [];
@@ -550,6 +622,7 @@ export class TimeOfDay {
         passes: this.post.stats.passes,
       } : null,
       shadowMapEnabled: this.renderer.shadowMap.enabled,
+      shadowMap,
       lightCount: lights.length, lightsByType: byType,
       sunLux: sun?.intensity, skyLux: hemi?.intensity,
       // What the lights actually DELIVER, which is not what they are authored at.

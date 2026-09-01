@@ -1,0 +1,613 @@
+{
+ "tag": "after",
+ "noiseFloor": {
+  "FRAME": 0.013,
+  "red-car": 0.238,
+  "red-car-ground": 0.039,
+  "trash-can": 0.002,
+  "sidewalk-left": 0.026,
+  "mast-shadow-a": 0.001,
+  "mast-shadow-b": 0.051,
+  "sky": 0,
+  "window-glow": 0.004
+ },
+ "boxes": {
+  "corridor": [
+   {
+    "name": "red-car",
+    "x": 660,
+    "y": 535,
+    "w": 280,
+    "h": 105,
+    "want": "darker",
+    "note": "car body + the tarmac under it"
+   },
+   {
+    "name": "red-car-ground",
+    "x": 660,
+    "y": 600,
+    "w": 280,
+    "h": 70,
+    "want": "darker",
+    "note": "road at the tyre contact points"
+   },
+   {
+    "name": "trash-can",
+    "x": 1250,
+    "y": 578,
+    "w": 75,
+    "h": 82,
+    "want": "darker",
+    "note": "bin and the tile joint beneath it"
+   },
+   {
+    "name": "sidewalk-left",
+    "x": 0,
+    "y": 620,
+    "w": 500,
+    "h": 280,
+    "want": "darker",
+    "note": "three bollards and a bin"
+   },
+   {
+    "name": "mast-shadow-a",
+    "x": 680,
+    "y": 670,
+    "w": 120,
+    "h": 130,
+    "control": true,
+    "note": "existing sun shadow - must survive"
+   },
+   {
+    "name": "mast-shadow-b",
+    "x": 860,
+    "y": 655,
+    "w": 80,
+    "h": 145,
+    "control": true,
+    "note": "existing sun shadow - must survive"
+   },
+   {
+    "name": "sky",
+    "x": 950,
+    "y": 40,
+    "w": 500,
+    "h": 150,
+    "control": true,
+    "note": "nothing here may change"
+   },
+   {
+    "name": "window-glow",
+    "x": 60,
+    "y": 300,
+    "w": 420,
+    "h": 240,
+    "control": true,
+    "note": "night mullion spill"
+   }
+  ],
+  "fivepoints": [
+   {
+    "name": "green-car",
+    "x": 1040,
+    "y": 600,
+    "w": 105,
+    "h": 45,
+    "want": "darker"
+   },
+   {
+    "name": "mailbox",
+    "x": 219,
+    "y": 585,
+    "w": 35,
+    "h": 61,
+    "want": "darker"
+   },
+   {
+    "name": "player",
+    "x": 455,
+    "y": 780,
+    "w": 105,
+    "h": 120,
+    "want": "darker"
+   },
+   {
+    "name": "lamp-pool",
+    "x": 810,
+    "y": 535,
+    "w": 210,
+    "h": 195,
+    "control": true,
+    "note": "night lamp pools - must survive"
+   },
+   {
+    "name": "storefront",
+    "x": 1180,
+    "y": 380,
+    "w": 380,
+    "h": 300,
+    "control": true,
+    "note": "night storefront spill"
+   },
+   {
+    "name": "sky",
+    "x": 600,
+    "y": 30,
+    "w": 400,
+    "h": 120,
+    "control": true
+   }
+  ]
+ },
+ "results": [
+  {
+   "shot": "corridor",
+   "tod": "golden",
+   "file": "docs/shots/contact-after-corridor-golden.png",
+   "stats": {
+    "FRAME": {
+     "mean": 140.855,
+     "p05": 28.4,
+     "p50": 160.1,
+     "crushedPct": 0.16,
+     "clippedPct": 0.84,
+     "px": 1440000
+    },
+    "red-car": {
+     "mean": 53.53,
+     "p05": 5.6,
+     "p50": 25.6,
+     "crushedPct": 6.93,
+     "clippedPct": 0,
+     "px": 29400
+    },
+    "red-car-ground": {
+     "mean": 45.619,
+     "p05": 6.2,
+     "p50": 42,
+     "crushedPct": 4.31,
+     "clippedPct": 0,
+     "px": 19600
+    },
+    "trash-can": {
+     "mean": 49.737,
+     "p05": 7.4,
+     "p50": 26.8,
+     "crushedPct": 0.2,
+     "clippedPct": 0,
+     "px": 6150
+    },
+    "sidewalk-left": {
+     "mean": 133.445,
+     "p05": 37.7,
+     "p50": 152.1,
+     "crushedPct": 0.06,
+     "clippedPct": 0,
+     "px": 140000
+    },
+    "mast-shadow-a": {
+     "mean": 143.877,
+     "p05": 67.5,
+     "p50": 160.6,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 15600
+    },
+    "mast-shadow-b": {
+     "mean": 100.87,
+     "p05": 44,
+     "p50": 90.4,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 11600
+    },
+    "sky": {
+     "mean": 176.508,
+     "p05": 164,
+     "p50": 175.1,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 75000
+    },
+    "window-glow": {
+     "mean": 174.053,
+     "p05": 74.4,
+     "p50": 180.3,
+     "crushedPct": 0,
+     "clippedPct": 8.8,
+     "px": 100800
+    }
+   },
+   "audit": {
+    "draw": 142,
+    "sceneCalls": 134,
+    "tris": 249332,
+    "casters": 128,
+    "meshes": 338
+   }
+  },
+  {
+   "shot": "corridor",
+   "tod": "dusk",
+   "file": "docs/shots/contact-after-corridor-dusk.png",
+   "stats": {
+    "FRAME": {
+     "mean": 130.722,
+     "p05": 38.2,
+     "p50": 135.8,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 1440000
+    },
+    "red-car": {
+     "mean": 62.357,
+     "p05": 13.4,
+     "p50": 37.7,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 29400
+    },
+    "red-car-ground": {
+     "mean": 42.512,
+     "p05": 13.3,
+     "p50": 41.7,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 19600
+    },
+    "trash-can": {
+     "mean": 38.426,
+     "p05": 10.3,
+     "p50": 23.5,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 6150
+    },
+    "sidewalk-left": {
+     "mean": 119.237,
+     "p05": 40.8,
+     "p50": 134.4,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 140000
+    },
+    "mast-shadow-a": {
+     "mean": 122.939,
+     "p05": 51.9,
+     "p50": 140.5,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 15600
+    },
+    "mast-shadow-b": {
+     "mean": 78.522,
+     "p05": 37.3,
+     "p50": 61.4,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 11600
+    },
+    "sky": {
+     "mean": 198.965,
+     "p05": 197.6,
+     "p50": 198.7,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 75000
+    },
+    "window-glow": {
+     "mean": 119.583,
+     "p05": 64.5,
+     "p50": 122.2,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 100800
+    }
+   },
+   "audit": {
+    "draw": 142,
+    "sceneCalls": 134,
+    "tris": 249332,
+    "casters": 128,
+    "meshes": 338
+   }
+  },
+  {
+   "shot": "corridor",
+   "tod": "night",
+   "file": "docs/shots/contact-after-corridor-night.png",
+   "stats": {
+    "FRAME": {
+     "mean": 29.912,
+     "p05": 1.9,
+     "p50": 18.1,
+     "crushedPct": 26.64,
+     "clippedPct": 0,
+     "px": 1440000
+    },
+    "red-car": {
+     "mean": 6.196,
+     "p05": 0,
+     "p50": 2.3,
+     "crushedPct": 80.65,
+     "clippedPct": 0,
+     "px": 29400
+    },
+    "red-car-ground": {
+     "mean": 2.657,
+     "p05": 0,
+     "p50": 2.1,
+     "crushedPct": 93.77,
+     "clippedPct": 0,
+     "px": 19600
+    },
+    "trash-can": {
+     "mean": 2.933,
+     "p05": 0,
+     "p50": 1,
+     "crushedPct": 83.48,
+     "clippedPct": 0,
+     "px": 6150
+    },
+    "sidewalk-left": {
+     "mean": 14.525,
+     "p05": 1.9,
+     "p50": 15.4,
+     "crushedPct": 24.21,
+     "clippedPct": 0,
+     "px": 140000
+    },
+    "mast-shadow-a": {
+     "mean": 16.433,
+     "p05": 2.2,
+     "p50": 19.1,
+     "crushedPct": 23.58,
+     "clippedPct": 0,
+     "px": 15600
+    },
+    "mast-shadow-b": {
+     "mean": 8.658,
+     "p05": 1.6,
+     "p50": 4.3,
+     "crushedPct": 66.76,
+     "clippedPct": 0,
+     "px": 11600
+    },
+    "sky": {
+     "mean": 92.171,
+     "p05": 81.1,
+     "p50": 93.6,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 75000
+    },
+    "window-glow": {
+     "mean": 28.651,
+     "p05": 2.3,
+     "p50": 15.4,
+     "crushedPct": 21.15,
+     "clippedPct": 0,
+     "px": 100800
+    }
+   },
+   "audit": {
+    "draw": 142,
+    "sceneCalls": 134,
+    "tris": 249332,
+    "casters": 128,
+    "meshes": 338
+   }
+  },
+  {
+   "shot": "fivepoints",
+   "tod": "golden",
+   "file": "docs/shots/contact-after-fivepoints-golden.png",
+   "stats": {
+    "FRAME": {
+     "mean": 99.869,
+     "p05": 23.5,
+     "p50": 94.9,
+     "crushedPct": 0.02,
+     "clippedPct": 0,
+     "px": 1440000
+    },
+    "green-car": {
+     "mean": 36.112,
+     "p05": 11.1,
+     "p50": 26.8,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 4725
+    },
+    "mailbox": {
+     "mean": 28.909,
+     "p05": 9.9,
+     "p50": 25.5,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 2135
+    },
+    "player": {
+     "mean": 137.321,
+     "p05": 108.1,
+     "p50": 139.8,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 12600
+    },
+    "lamp-pool": {
+     "mean": 124.549,
+     "p05": 57.8,
+     "p50": 137.1,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 40950
+    },
+    "storefront": {
+     "mean": 73.181,
+     "p05": 17.8,
+     "p50": 64,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 114000
+    },
+    "sky": {
+     "mean": 157.884,
+     "p05": 61.4,
+     "p50": 167.6,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 48000
+    }
+   },
+   "audit": {
+    "draw": 117,
+    "sceneCalls": 109,
+    "tris": 229034,
+    "casters": 129,
+    "meshes": 333
+   }
+  },
+  {
+   "shot": "fivepoints",
+   "tod": "dusk",
+   "file": "docs/shots/contact-after-fivepoints-dusk.png",
+   "stats": {
+    "FRAME": {
+     "mean": 110.531,
+     "p05": 30.5,
+     "p50": 111.7,
+     "crushedPct": 0.31,
+     "clippedPct": 0,
+     "px": 1440000
+    },
+    "green-car": {
+     "mean": 65.52,
+     "p05": 23.3,
+     "p50": 55.8,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 4725
+    },
+    "mailbox": {
+     "mean": 36.599,
+     "p05": 17.4,
+     "p50": 34.9,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 2135
+    },
+    "player": {
+     "mean": 142.588,
+     "p05": 114,
+     "p50": 144.6,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 12600
+    },
+    "lamp-pool": {
+     "mean": 130.558,
+     "p05": 63.2,
+     "p50": 140.9,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 40950
+    },
+    "storefront": {
+     "mean": 76.301,
+     "p05": 16.4,
+     "p50": 62.4,
+     "crushedPct": 0.72,
+     "clippedPct": 0,
+     "px": 114000
+    },
+    "sky": {
+     "mean": 187.896,
+     "p05": 87.1,
+     "p50": 199.5,
+     "crushedPct": 0,
+     "clippedPct": 0,
+     "px": 48000
+    }
+   },
+   "audit": {
+    "draw": 117,
+    "sceneCalls": 109,
+    "tris": 229034,
+    "casters": 129,
+    "meshes": 333
+   }
+  },
+  {
+   "shot": "fivepoints",
+   "tod": "night",
+   "file": "docs/shots/contact-after-fivepoints-night.png",
+   "stats": {
+    "FRAME": {
+     "mean": 45.989,
+     "p05": 3.2,
+     "p50": 36,
+     "crushedPct": 12.13,
+     "clippedPct": 0.05,
+     "px": 1440000
+    },
+    "green-car": {
+     "mean": 7.165,
+     "p05": 0,
+     "p50": 4.8,
+     "crushedPct": 60.44,
+     "clippedPct": 0,
+     "px": 4725
+    },
+    "mailbox": {
+     "mean": 3.045,
+     "p05": 1,
+     "p50": 2,
+     "crushedPct": 96.49,
+     "clippedPct": 0,
+     "px": 2135
+    },
+    "player": {
+     "mean": 60.949,
+     "p05": 32,
+     "p50": 64,
+     "crushedPct": 0.09,
+     "clippedPct": 0,
+     "px": 12600
+    },
+    "lamp-pool": {
+     "mean": 58.569,
+     "p05": 14.8,
+     "p50": 56.7,
+     "crushedPct": 1.02,
+     "clippedPct": 0,
+     "px": 40950
+    },
+    "storefront": {
+     "mean": 42.697,
+     "p05": 2.5,
+     "p50": 19.8,
+     "crushedPct": 17.77,
+     "clippedPct": 0,
+     "px": 114000
+    },
+    "sky": {
+     "mean": 84.401,
+     "p05": 44.2,
+     "p50": 86.8,
+     "crushedPct": 0.05,
+     "clippedPct": 0,
+     "px": 48000
+    }
+   },
+   "audit": {
+    "draw": 117,
+    "sceneCalls": 109,
+    "tris": 229034,
+    "casters": 129,
+    "meshes": 333
+   }
+  }
+ ],
+ "errors": []
+}

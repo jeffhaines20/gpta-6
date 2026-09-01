@@ -1052,9 +1052,14 @@ export class StreetFurniture {
     const headGeo = new THREE.BoxGeometry(0.9, 0.2, 0.42);
     headGeo.translate(2.2, 7.9, 0);
 
+    // All three cast. The arm and the head were excluded when a shadow texel was
+    // 0.254 m and a 0.13 m arm could not survive PCF; at 0.078 m/texel the arm is
+    // 1.7 texels and the head 5.4, and a post that throws a shadow while the
+    // luminaire hanging over the carriageway throws none reads as a mistake. Two
+    // more meshes in the shadow pass, 13k triangles between them.
     this.poles = this._instanced(poleGeo, metal, true);
-    this.arms = this._instanced(armGeo, metal, false);
-    this.heads = this._instanced(headGeo, this.headMat, false);
+    this.arms = this._instanced(armGeo, metal, true);
+    this.heads = this._instanced(headGeo, this.headMat, true);
     this.count = 0;
     this._m = new THREE.Matrix4();
     this._q = new THREE.Quaternion();
@@ -1247,11 +1252,37 @@ export class StreetFurniture {
         m.userData.c = g.boundingSphere.center.clone();
         m.userData.r = g.boundingSphere.radius;
         m.userData.cull = t.cull;
-        // castShadow is deliberately OFF. The sun's shadow camera is 520 m across
-        // and a far bucket is 512 m, so every bucket would render into the shadow
-        // map as well as the frame: it would double the triangle cost of the whole
-        // dressing pass to gain contact shadows that the SSAO pass already draws.
-        m.castShadow = false;
+        // castShadow is ON, and the comment that stood here was wrong on both of
+        // the grounds it gave for switching it off.
+        //
+        // It read: "the sun's shadow camera is 520 m across and a far bucket is
+        // 512 m, so every bucket would render into the shadow map as well as the
+        // frame: it would double the triangle cost of the whole dressing pass to
+        // gain contact shadows that the SSAO pass already draws." Measured at the
+        // corridor hero camera, golden hour, traffic and crowd frozen:
+        //
+        //  - The buckets do not all render. cullProps() sets visible = false past
+        //    the tier's cull distance and three.js skips an invisible object in
+        //    the shadow pass exactly as it does in the colour pass, so the shadow
+        //    pass gains the buckets in range - 42 meshes and 261k triangles here -
+        //    not the whole 4,596-prop kit.
+        //  - The SSAO pass IS drawing something here, and that turns out not to
+        //    settle the question. Switching aoEnabled off lifts the bin box at
+        //    (1250-1325, 578-660) from 53.0 to 71.3 of 255 - the AO term is worth
+        //    18.3 there, more than any shadow in this frame. What it is not is
+        //    DIRECTIONAL: a 2.2 m screen-space hemisphere puts a soft halo around
+        //    the bin and its surroundings alike, with no edge running away from
+        //    the sun and nothing anchoring the object to one spot on the paving.
+        //    Three critics reading these frames called that "sitting on top of the
+        //    ground". So the old comment's premise was right and its conclusion
+        //    was wrong: AO reaches the contact, and a cast shadow is still the
+        //    thing that makes the contact read.
+        //
+        // What it buys, as the fraction of the near-ground band the shadow pass
+        // darkens by more than 8/255: 14.0% with props off, 31.9% with them on,
+        // at an unchanged 52% for the mid band and 14% for the facades. The bin,
+        // the bollards and the kerbside planters stop floating.
+        m.castShadow = true;
         this.root.add(m);
         this.propMeshes.push(m);
         this.propTris += b.idx.length / 3;

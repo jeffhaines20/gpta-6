@@ -34,6 +34,7 @@ at night, bloom + height fog in.
 
 | Date | Gate | Result | Evidence |
 |---|---|---|---|
+| 2026-09-01 | **drive-through + 30 traffic**, after the ground-contact shadow work | **WARN** (unchanged verdict) — draw p95 **167** (was 166), tris p95 **353,868** (was 350,597), stall **13.1 ms**, heap +6 MB | `docs/drive-traffic.json` |
 | 2026-08-29 | **chase harness, textured** (60 + 10, dusk, 2 laps) | **PASS** — draw p95 **114**, tris 60.9k, stall **6.5 ms**, heap +3 MB, 71.5% headroom | `docs/chase-harness.json` |
 | 2026-08-29 | chase harness, textured, first attempt | **FAIL** — stall 40.8 ms | fixed in 3 measured rounds; see below |
 | 2026-08-29 | **chase harness, textured, new thresholds** | **PASS on fail / WARN on warn** — draw 116, tris 41.7k, stall **9.3 ms**, heap −4 MB, 41.9% headroom to fail | `docs/chase-harness.json` |
@@ -333,6 +334,17 @@ The scene-graph audit found the cause, and it is two causes:
    nothing *despite being flagged as casters*. A car at 4.5 m is ~18 texels, so its
    absence is cause 1, not cause 2.
 
+> **Corrected by the build that acted on this** - see "Ground contact: a missing flag, a
+> texel too coarse, and a shadow that was a crossing" below. Two things in the block
+> above did not survive re-measurement. (a) The "long sharp signal-mast shadows crossing
+> the crosswalk" are the zebra crossing's white bars over dark aggregate: capturing that
+> frame with `shadow.intensity = 0` moves both named boxes by **0.00** of 255, so there
+> was no cast shadow at either, and the narrower critic claim was not the one that held
+> either. (b) `world chunk 7 / 110` was a scene that had not finished streaming; at the
+> same camera with the mesh count settled it is **57 / 259**, and `_buildUnused` is dead
+> code. The two causes themselves are both real and both are now fixed. Cause 1's
+> `0 / 42` props is exact.
+
 Scheduled as builder work with the critics' own falsifiable predictions as the acceptance
 test, and with their named regressions guarded: the fivepoints-night lamp pools and the
 corridor-night window spill are the best things in the set, and `r6-corridor-night.png`
@@ -499,6 +511,268 @@ geometry is the next thing to rule in or out — but that is a hypothesis, and i
 recorded here as one. Nothing was changed on the strength of it: the offset edit was
 reverted, because a change that fixes nothing and is justified by a void measurement is
 worse than the defect it was aimed at.
+
+## Ground contact: a missing flag, a texel too coarse, and a shadow that was a crossing
+
+The builder's half of the round-6 entry above. Three blind critics agreed that cars,
+bins, posts, planters and the player sit ON the street rather than in it, and all three
+called it the single highest-leverage change in the set. The observation is right. One
+of the facts offered in support of it is not, and it had to be cleared before anything
+could be fixed.
+
+### The "long sharp signal-mast shadows" are the zebra crossing
+
+The round's strongest evidence was that the shadow pass demonstrably works and is
+*selectively* empty: long sharp mast shadows cross the crosswalk at (680-800, 670-800)
+and (860-940, 655-800) in `r6-corridor-golden.png` while cars and bins produce nothing.
+
+Measured, by capturing that frame twice with nothing moving and
+`DirectionalLight.shadow.intensity` set to 0 for the second: those two boxes move by
+**0.00 and 0.00** of 255. There is no cast shadow at either. What is there is the
+crossing's white bars over the road's dark aggregate, read at critique scale as shadow
+bars raking across the carriageway. The rest of the frame moves by 5.95 mean, so the
+instrument was working and the toggle was real - see `docs/shots/share-golden-*.png`
+for the same pair.
+
+This matters beyond the correction: taking that claim at face value means believing the
+pass reaches the near pavement and something object-specific is wrong. It does not reach
+it. Where the pass IS working at this camera is the left tower's facade and the
+mid-distance carriageway, both far behind the objects under discussion.
+
+Filed under the existing rule: **a blind critic's OBSERVATION is reliable evidence and
+its INFERRED CAUSE usually is not.** This is the first time the ledger has caught the
+inference wrong in a *supporting measurement* rather than in a diagnosis.
+
+### Cause 1 - the whole street-dressing kit was flagged not to cast
+
+`src/streetfurniture.js` welds 4,596 props into spatial buckets and set
+`castShadow = false` on every one of them, with a comment giving two reasons: a far
+bucket is 512 m and the shadow camera was 520 m, so every bucket would render into the
+map; and the SSAO pass already draws these contacts. Both were tested.
+
+The first is wrong because `cullProps()` already sets `visible = false` past each tier's
+cull distance, and three.js skips an invisible object in the shadow pass exactly as it
+does in the colour pass. At the corridor hero camera with traffic and the crowd frozen,
+this change takes the shadow pass from 84 caster meshes of 338 to 128 - the buckets
+actually in range plus the two lamp batches - not to the whole 4,596-prop kit.
+
+The second is the interesting one. Switching `aoEnabled` off lifts the bin box at
+(1250-1325, 578-660) from 53.0 to 71.3 of 255: the AO term is worth **18.3** there,
+more than any cast shadow in the frame, and at the fivepoints camera it is worth 25.3
+on the parked car and 20.6 on the storefront. So AO was reaching these contacts. What
+it is not is directional - a 2.2 m screen-space hemisphere puts a soft halo around an
+object and its surroundings alike, with no edge running away from the sun and nothing
+anchoring the object to one spot on the paving. The old comment's premise was right and
+its conclusion was wrong, and that is why **no AO change was made**: the pass named in
+the round-6 brief as the fallback is already the strongest darkening in these frames,
+and turning it up is the named way to wreck the night lamp pools.
+
+### Cause 2 - 0.254 m per shadow texel
+
+A 2048 map over a +-260 ortho camera resolves 0.254 m per texel, and PCF needs roughly
+two texels of contiguous occlusion to survive filtering. That puts a bollard (0.15 m) at
+0.6 texels and a bin (0.5 m) at 2. Neither can produce a shadow whatever flag it carries.
+
+The extent was tightened rather than only raising the map, and what that costs was
+measured first, because it is the half of this change that can lose something. Same
+method as `tools/sun-share.mjs`, per horizontal band, props casting in every row:
+
+| extent x map | m/texel | facade band | mid band | near band |
+|---|---|---|---|---|
+| 260 x 2048, as shipped | 0.254 | 7.02 | 21.32 | **2.91** |
+| 260 x 2048 + props cast | 0.254 | 7.05 | 21.50 | 6.68 |
+| 260 x 4096 | 0.127 | 7.28 | 21.68 | 6.02 |
+| 180 x 2048 | 0.176 | 7.18 | 21.59 | 6.60 |
+| 120 x 2048 | 0.117 | 7.27 | 21.61 | 6.25 |
+| 150 x 4096 | 0.073 | 7.35 | 21.61 | 6.82 |
+| 90 x 2048 | 0.088 | 7.01 | 21.63 | 6.21 |
+
+Each cell is the mean luminance the shadow pass removes from that band. The **mid band**
+is the one a tighter camera was expected to cost - the far half of the carriageway,
+where distant buildings throw their shadows - and it does not move: 21.32 to 21.63 all
+the way down to +-90. The reason is the streamer. Near chunks run to nearRadius 2 x
+chunkSize 128 = +-320 m around the viewer, so a +-120 shadow box sits entirely inside
+full-detail geometry, and every caster that was reaching the frame still is.
+
+It is also worth stating what S bounds, because it is not shadow length. The ortho box's
+lateral axes are perpendicular to the light ray: one across the sun's bearing and one
+near-vertical. A ground point d metres up-sun sits only d*sin(elevation) = 0.14d along
+the near-vertical axis at golden hour, so S admits casters hundreds of metres up-sun and
+the up-sun limit is `near`, not S. S bounds the ACROSS-SUN slab.
+
+Shipped: **3072 over +-120, 0.078 m/texel**, 3.25x finer. Not the +-90 that also measured
+clean - 90 was the tightest extent the probe happened to test, at one camera and one
+azimuth, and an extent chosen at the edge of its own evidence is how a shadow volume
+pops on a street the probe never stood in. Not 4096 either: 3072 costs 2.25x the shadow
+map's fill and memory where 4096 costs 4x, for a texel within 7% of the 150 x 4096 row.
+
+### What the audit table in the brief got wrong, and why
+
+The scene-graph audit that opened this work reported `world chunk: 7 casters / 110
+meshes` and sent the search to `_buildUnused` in `src/streaming.js` - dead code that
+nothing has called since the resumable build landed. Two separate things were wrong.
+
+The live path is `_stepBuild` / `_planUploads` / `_stepUploads`, and there the near
+tier's facade and trim meshes DO cast; roads, zone polygons and the far tier's merged
+boxes do not, by design. And 7/110 was a scene that had not finished streaming: chunks
+were still arriving two minutes after the camera was placed (44 chunks / 112 meshes at
+20 s, 94 / 264 at settle). Audited at the corridor hero camera with the mesh count
+settled, the same figure is **57 casters of 259**.
+
+Both tools now hold the fix. `tools/shadow-audit.mjs` places the hero camera through
+`tools/framing.mjs` and waits for the mesh count to stop changing before it counts
+anything, and `_planUploads` names every mesh it emits `chunk:<key>:lod<n>:<what>` so
+the next audit can say WHICH meshes rather than how many.
+
+### What shipped
+
+- `src/streetfurniture.js`: prop buckets cast (`castShadow = true`), and the lamp arm
+  and head join the pole as casters now that a 0.13 m arm is 1.7 texels instead of 0.5.
+- `src/daynight.js`: sun shadow map 2048 -> 3072, ortho extent +-260 -> +-120.
+  `audit()` now reports `shadowMap { mapSize, extentM, metresPerTexel, casterMeshes,
+  receiverMeshes }`.
+- `src/streaming.js`: every chunk mesh is named; the far tier's non-casting is now a
+  documented measurement rather than an unset flag; `_buildUnused` is labelled dead.
+- `tools/contact.mjs` + `tools/contact-diff.mjs`: paired-capture instrument for ground
+  contact, with the critics' prediction boxes stated in the tool so the acceptance test
+  is fixed before the change. Freezes traffic, the crowd AND the cloud deck (which
+  drifts on wall-clock time and moved the upper frame by 20+ luminance across one run),
+  and waits for the streamer to stop adding meshes before capturing.
+- `tools/shadow-audit.mjs`: what can cast, and what the map can resolve, per category.
+
+Nothing was changed in `src/post.js`. The AO measurement above is why.
+
+### The critics' own acceptance test, scored
+
+Paired captures, traffic and crowd and cloud deck frozen, noise floor measured by
+capturing one untouched frame twice (0.00-0.25 of 255 per box). `docs/contact-before.json`,
+`docs/contact-after.json`, `docs/contact-diff-before-after.json`.
+
+| prediction | box | mean before -> after | % of box darkened >8 | verdict |
+|---|---|---|---|---|
+| bin interrupts the sidewalk tile joint | corridor trash-can | 53.02 -> 49.74 | 10.6% at depth 25.5 | **met** |
+| sidewalk gains structure from 3 bollards + a bin | corridor sidewalk-left | 135.79 -> 133.45 | 9.9% at depth 16.6 | **met** |
+| parked green car gains contact | fivepoints green-car | 39.91 -> 36.11 | 10.9% at depth 29.6 | **met, but not by the car** |
+| red car gains a shape at the tyre contacts | corridor red-car | 53.77 -> 53.53 | 0.04% | **not met - it already had one** |
+| mailbox gains contact | fivepoints mailbox | 28.91 -> 28.91 | 0% | **not met** |
+| player gains contact | fivepoints player | 137.32 -> 137.32 | 0% | **not met** |
+
+Three of six, and the three that failed failed for one reason, measured rather than
+argued. A cast shadow can only remove light the sun is putting down, so each box was
+captured three ways - as authored, with the shadow off, and with the sun off - and the
+sun's POTENTIAL in it read off the difference:
+
+| box | sun's potential | already blocked | headroom for a new shadow |
+|---|---|---|---|
+| corridor trash-can | 20.08 | 4.08 (20%) | yes |
+| corridor sidewalk-left | 27.80 | 7.05 (25%) | yes |
+| corridor red-car-ground | 16.82 | 5.89 (35%) | yes |
+| fivepoints green-car | 8.82 | 8.48 (**96%**) | almost none |
+| fivepoints mailbox | 29.37 | 29.23 (**100%**) | **none** |
+| fivepoints player | 29.38 | 29.38 (**100%**) | **none** |
+
+The fivepoints near street is entirely in the left-hand block's shade at golden hour.
+The mailbox and the player stand in it, and no caster flag and no shadow map can put a
+contact shadow on ground the sun is not reaching. The green car's box moved by 3.80
+anyway - but the pixels that moved are the sunlit column BEHIND it going into shadow,
+not the car meeting the pavement, which moved by 0.90. Scoring that box "met" without
+looking would have been the ledger's own trap: a number that moves the right way for
+the wrong reason.
+
+The corridor red car is a different case again, and the answer is not "nothing changed"
+but "nothing needed to". Switching the player car's three meshes to `castShadow = false`
+in the shipped build moves **2.07%** of the frame against a 0.07% noise floor: the car
+was casting before this change and still is, because `src/carbody.js` has always flagged
+it and 1.8 m is 7 texels even on the old map. Where that shadow LANDS is the thing the
+prediction missed. At golden hour's 8 degrees a 1.4 m car throws a 10 m streak, and the
+diff map puts it lying across the near sidewalk to the left of frame - inside the
+`sidewalk-left` box, not under the tyres. "A dark shape 1.5-2x its footprint attached at
+the tyre contact points" is what a high sun does. This sun does not have that shape to
+give, and asking the shadow map for it is asking the wrong subsystem.
+
+### Regressions guarded
+
+The round-6 critics named three things as the best in the set. All three were measured
+before and after, in the same paired captures:
+
+| what | metric | before -> after |
+|---|---|---|
+| `r6-fivepoints-night` lamp pools | box (810-1020, 535-730) mean | 58.76 -> 58.57 (-0.19) |
+| `r6-fivepoints-night` storefront spill | box (1180-1560, 380-680) mean | 42.68 -> 42.70 (+0.02) |
+| `r6-corridor-night` window glow on the mullions | box (60-480, 300-540) mean | 28.648 -> 28.651 (+0.00) |
+| `r6-corridor-night` crush | fraction of the frame at luminance <= 6 | 26.57% -> 26.64% |
+
+The night frames are essentially untouched: at night the sun's intensity is 0-3 lux and
+there is no sun shadow to add. The corridor-night crush moves by 0.07 of a percentage
+point, which is 1,008 pixels of 1.44 M.
+
+### Cost, and the part of it the gate cannot see
+
+The shadow pass at the corridor hero camera, `tools/shadow-audit.mjs`, golden hour,
+traffic 30 / crowd 40:
+
+| | before | after |
+|---|---|---|
+| caster meshes | 91 | 135 |
+| of which prop buckets | 0 of 42 | 42 of 42 |
+| of which lamp instanced | 2 of 4 | 4 of 4 |
+| of which chunk meshes | 57 of 259 | 57 of 259 |
+| metres per shadow texel | 0.254 | 0.078 |
+| shadow map texels | 4.2 M | 9.4 M |
+
+The budget gate itself, `node tools/drive-through.mjs --traffic`, verdict unchanged at
+**WARN**:
+
+| | before | after | threshold |
+|---|---|---|---|
+| draw calls p95 | 166 | **167** | warn 200 / fail 320 |
+| triangles p95 | 350,597 | **353,868** | warn 400k / fail 900k |
+| chunk stall | 9.6 ms | **13.1 ms** | warn 8 / fail 16 |
+| heap growth | 4 MB | **6 MB** | warn 40 / fail 120 |
+
+The stall row was already WARN before this change and the ledger records the same metric
+spanning 7.1-16.4 ms on an unchanged build, so 13.1 is inside its known noise and is not
+read as a regression from one run. No threshold was touched.
+
+**But the gate cannot see the shadow pass at all, and that is a property of three.js,
+not a choice.** `WebGLRenderer.render()` calls `info.reset()` AFTER `shadowMap.render()`, so
+`renderer.info.render.calls` - which `PostStack.stats.sceneCalls` snapshots and
+`tools/budget.mjs` gates on - counts the colour pass only. Every toggle in the probes
+above reported an unchanged 142 draw calls while the shadow pass went from 84 casters
+to 331. The gate is still mandatory and was still run; it simply cannot see this axis,
+and the honest cost statement is the caster table, not the gate row.
+
+The one place the added cost DOES show is the software rasteriser this container
+renders through, where a depth-only pass is CPU work like any other. In the same 300 s
+wall-clock cap the drive-through covered **216.7 simulated seconds and 7,273 m** against
+**228.1 s and 7,733 m** before - about 6% less route per second of wall clock. That is a
+SwiftShader number and does not extrapolate to a GPU, where a 9.4 M-texel depth-only
+pass over 135 meshes is a fraction of a millisecond; it is recorded because it is the
+only direct measurement of the cost available here.
+
+### Still open
+
+- **A car standing on shaded road still floats.** Every vehicle in the district was
+  already flagged `castShadow` before this change and the shadow map now resolves one
+  at 23 texels, so where the sun reaches the carriageway a car does throw a shadow. At
+  both hero cameras at golden hour the carriageway under the parked and player cars is
+  in the block's own shade, and there is nothing left to remove. What would fix it is a
+  contact decal - `src/pedestrians.js` already builds one, a black `CircleGeometry`
+  8 mm above the pavement under each ped - not another shadow-map setting. Not done
+  here: it is a different mechanism from the one this change is about.
+- **The pedestrian contact blob does not draw, measured.** `src/pedestrians.js` builds
+  `this.shadows`, 96 instances of a black `CircleGeometry` at `SHADOW_Y = -0.042`.
+  Setting `shadows.visible = false` with the crowd frozen changes the frame by
+  **0.0266 mean absolute against a 0.0254 noise floor**, and 0.065% of pixels against
+  0.07% - the toggle is inside its own noise, so the mesh is contributing nothing.
+  A strong candidate, not yet confirmed: -0.042 is 8 mm above `streaming.js`'s land pad
+  at -0.05, but `src/streetfurniture.js` paves the sidewalk at `PAD_Y = -0.05` and lays
+  road ribbons at `ROAD_Y = +0.02`, so a ped standing on anything stacked on the pad has
+  its blob 60 mm BELOW the surface and the depth test discards it. Left for the
+  pedestrian system's owner; it is that file's mechanism, not this one's.
+- **The near-band gain is concentrated where the sun lands.** `tools/sun-share.mjs` at
+  golden hour: the sun's share of the road is unchanged at 26.5% and the fraction of it
+  the geometry blocks went **15.7% -> 25.2%**. That is the whole change in one number.
 
 ## Attribution integrity — `git add -A` with agents running
 
