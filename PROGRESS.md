@@ -296,6 +296,46 @@ run before that one had no noise floor and no frozen traffic, and its numbers we
 same shape; had the metric been merely *plausible* instead of impossible, it would have
 shipped.
 
+## The `roadMarkings` material is dead, and the defect blamed on it is not explained
+
+The pedestrian build reported that road markings draw through near pedestrians, and
+named the cause: `polygonOffsetFactor: -3` on `roadMarkings`, whose slope-scaled term
+explodes at a grazing angle. The frame it pointed at genuinely shows two pale bars
+crossing a pedestrian's chest and shins, so the defect is real. **The diagnosis is not.**
+
+Three measurements, in the order they should have been taken:
+
+1. Changing the offset to `factor 0` and regenerating the frame produced a
+   **byte-for-byte identical pedestrian**. The bars did not move.
+2. A probe that toggled the marking material's visibility produced an **identical
+   frame** — the control I should have run first. The instrument could not produce
+   the opposite reading, which voids the bleed table I had already measured with it
+   (`64 → 4 px` over a furniture mask across five offset settings). Those numbers are
+   discarded, not reinterpreted.
+3. Enumerating the live scene: **`meshesUsingIt: 0`.** No mesh anywhere uses it.
+
+The cause is a silent key mismatch. `streaming.js::_roadMesh` builds the carriageway
+ribbon with `this.materials.markings ?? this.materials.road`, and
+`MaterialRegistry.streamingMaterials()` returns exactly `building, road, land, ground,
+water`. There has never been a `markings` key, so the `??` has always taken its right
+branch and every road ribbon has rendered with the plain road material. The material
+built in `_buildMarkings()` — its transparency, its `depthWrite: false`, its polygon
+offset — has never reached a pixel.
+
+The markings that ARE visible come from `applyRoadMarkings` compositing them into the
+road's own shader, off the mesh UVs `applyMarkingUV` writes. That refactor is the one
+whose comment says "so roads stay ONE opaque draw"; the standalone material is what it
+left behind. So this is dead code rather than a bug in the picture — but a `??`
+fallback is why nobody noticed, and it is the third time this session a value that
+looks authoritative turned out never to be read.
+
+**The bars are still unexplained.** The `kerb` material is `0xd8d4cb` and `kerbPainted`
+is `0xe8b53a`, which match the pale bars and the yellow line under them, so kerb
+geometry is the next thing to rule in or out — but that is a hypothesis, and it is
+recorded here as one. Nothing was changed on the strength of it: the offset edit was
+reverted, because a change that fixes nothing and is justified by a void measurement is
+worse than the defect it was aimed at.
+
 ## Attribution integrity — `git add -A` with agents running
 
 Commit `0a2e1ad`, whose message is entirely about weather, `envMapIntensity` and
