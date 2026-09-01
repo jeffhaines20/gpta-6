@@ -199,7 +199,10 @@ const NEAR_RADIUS = 24;         // m from the camera to claim a near slot
 const NEAR_RELEASE = 30;        // ...and to keep one. Hysteresis, so a ped
                                 // walking the boundary does not flicker tiers.
 const SHOE_LEN = 0.185, SHOE_THICK = 0.62, SHOE_DROP = 0.016, SHOE_BACK = 0.045;
-const HAND_LEN = 0.085, HAND_THICK = 0.92;
+// Hands were 0.92 on the first pass, which is a radius 35% wider than the
+// forearm it hangs off: at 3 m that reads as a boxing glove, not a hand. 0.70
+// puts the knuckles just proud of the wrist, which is what a fist does.
+const HAND_LEN = 0.080, HAND_THICK = 0.70;
 const NECK_LEN = 0.13, NECK_THICK = 0.60;
 const PELVIS_LEN = 0.19, PELVIS_THICK = 1.80, PELVIS_THICK_Z = 1.20;
 const SHOE_MUL = 0.30, NECK_MUL = 0.92;
@@ -468,15 +471,25 @@ export class Pedestrians {
       } else {
         const ny = p.getY(i) / (0.105 * 1.14);
         const nz = p.getZ(i) / (0.105 * 0.95);      // +Z is the direction of travel
-        // u > 0 is hair. At the face (nz = 1) that needs ny > 0.45; at the nape
-        // (nz = -1) it needs only ny > -0.45. Smoothed, because a hard threshold
-        // on a lathe sphere is a jagged ring of facet corners.
-        const hair = step(0.02, 0.20, ny - 0.45 * nz);
+        // Hair where ny - 0.325*nz clears about -0.13, smoothed - because a hard
+        // threshold on a lathe sphere is a jagged ring of facet corners. Solving
+        // that for the two points a hairline is actually defined by puts the
+        // front hairline at ny = 0.20 (just above the brow) and the back one at
+        // ny = -0.45 (the nape).
+        //
+        // The first cut of this used ny - 0.45*nz over the band [0.02, 0.20],
+        // which puts the FRONT hairline at ny = 0.47 - the top quarter of the
+        // skull. Analytically it looked right, because the check only asked what
+        // the crown and the back were; from the front the ped renders BALD, and
+        // that is how it shipped into the first hero frame. Look at the thing
+        // from the side the change is supposed to fix.
+        const hair = step(-0.24, -0.02, ny - 0.325 * nz);
         shade = 1 + (HAIR_MUL - 1) * hair;
-        // A brow under the hairline, and the shadow a jaw casts on its own neck.
-        // Both are pure shading - the "normal detail without geometry" half of
-        // the near-field budget.
-        if (nz > 0.45) shade *= 1 - 0.16 * step(0.36, 0.16, ny) * step(0.02, 0.20, ny);
+        // A brow shadow, and the shadow a jaw casts on its own neck. Both are
+        // pure shading - the "normal detail without geometry" half of the
+        // near-field budget - and the brow window peaks at ny = 0.02, below the
+        // hairline rather than inside it.
+        if (nz > 0.45) shade *= 1 - 0.14 * step(-0.18, 0.02, ny) * step(0.22, 0.02, ny);
         shade *= 1 - 0.28 * step(-0.45, -0.88, ny);
       }
       col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = shade;
@@ -1390,22 +1403,24 @@ export class Pedestrians {
       // SHOE_BACK behind it, which puts the heel under the ankle and the toe in
       // front of it, and buries the bottom of the capsule in the pavement so the
       // sole reads flat instead of round.
-      const shoe = (slot, kx, ky, kz, shank) => {
-        this._tip(kx, ky, kz, shank, shankLen, cy, sy);
-        this._bone(limbMesh, slot, t[0] - sy * SHOE_BACK * s, t[1] - SHOE_DROP * s,
-          t[2] - cy * SHOE_BACK * s, yaw, -Math.PI / 2, SHOE_LEN * s, SHOE_THICK * g);
-      };
-      shoe(base + SHOE_L, klx, kly, klz, shankL);
-      shoe(base + SHOE_R, krx, kry, krz, shankR);
+      // Written out rather than looped through a closure: this runs once per near
+      // ped per frame and a closure per call is an allocation per call, which is
+      // the kind of thing that shows up as GC inside somebody else's slice.
+      this._tip(klx, kly, klz, shankL, shankLen, cy, sy);
+      this._bone(limbMesh, base + SHOE_L, t[0] - sy * SHOE_BACK * s, t[1] - SHOE_DROP * s,
+        t[2] - cy * SHOE_BACK * s, yaw, -Math.PI / 2, SHOE_LEN * s, SHOE_THICK * g);
+      this._tip(krx, kry, krz, shankR, shankLen, cy, sy);
+      this._bone(limbMesh, base + SHOE_R, t[0] - sy * SHOE_BACK * s, t[1] - SHOE_DROP * s,
+        t[2] - cy * SHOE_BACK * s, yaw, -Math.PI / 2, SHOE_LEN * s, SHOE_THICK * g);
 
       // Hands continue along the forearm, so a swinging arm ends in something
       // instead of stopping at a cap.
-      const hand = (slot, ex, ey, ez, ang) => {
-        this._tip(ex, ey, ez, ang, FOREARM * s, cy, sy);
-        this._bone(limbMesh, slot, t[0], t[1], t[2], yaw, ang, HAND_LEN * s, HAND_THICK * g);
-      };
-      hand(base + HAND_L, elx, ely, elz, armL - elbow);
-      hand(base + HAND_R, erx, ery, erz, armR - elbow);
+      this._tip(elx, ely, elz, armL - elbow, FOREARM * s, cy, sy);
+      this._bone(limbMesh, base + HAND_L, t[0], t[1], t[2], yaw, armL - elbow,
+        HAND_LEN * s, HAND_THICK * g);
+      this._tip(erx, ery, erz, armR - elbow, FOREARM * s, cy, sy);
+      this._bone(limbMesh, base + HAND_R, t[0], t[1], t[2], yaw, armR - elbow,
+        HAND_LEN * s, HAND_THICK * g);
 
       // A neck between the shoulders and the skull, and a pelvis under the shirt
       // hem. The torso capsule tapers to a POINT at the hip pivot, so without the

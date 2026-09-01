@@ -25,11 +25,27 @@
 //   headPx        mask pixels inside the head box      - a coarse sphere's
 //                 silhouette is an inscribed polygon, so it is MISSING area
 //   footPx        mask pixels inside the ankle box     - is there a foot at all
-//   creaseMean    mean over rows of max |L(x-2) - 2L(x) + L(x+2)| across the
-//                 thigh - a facet boundary on a Gouraud-interpolated cylinder is
-//                 a kink in luminance, and this is the size of the kink
+//   creaseMedian  mean over rows of the MEDIAN |L(x-2) - 2L(x) + L(x+2)| across
+//                 the middle of the shank - a facet boundary on an interpolated
+//                 capsule is a kink in luminance, and this is the size of a
+//                 typical one. The per-row MAX is reported beside it: a median
+//                 that falls while the max stays put means the facets went and
+//                 an edge did not.
 //
 // A NOISE FLOOR is measured first by capturing the same untouched frame twice.
+//
+// The SILHOUETTE half of the claim is measured by tools/silhouette.mjs, run over
+// the captures this file writes:
+//
+//   node tools/silhouette.mjs docs/shots/near-dusk-farLOD.png \
+//        docs/shots/near-dusk-farLOD-noped.png 731 204 869 285
+//
+// It is a separate file because the box matters: run over the whole head BOX it
+// reads 1.404 -> 1.366 and discriminates nothing, because that box includes the
+// shoulders and it ends up measuring the outline of the torso. Restricted to the
+// crown - rows 204-285 here - the same code reads 0.438 -> 0.320 RMS and 0.939
+// -> 0.597 p95, consistently across three window choices. Confirm what is IN the
+// sample before believing what comes out of it.
 import { chromium } from 'playwright';
 import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
@@ -124,7 +140,14 @@ const SUBJECT = await page.evaluate((dist) => {
     id: 1, edge: 0, side: 0, forward: true, walk: null, node: 0,
     x: px, z: pz, yaw: 0.9,
     v: 1.35, phase: 1.15, stuck: 0, turned: false, lateral: 0,
-    skin: 0xc79a72, shirt: 0x2f4a63, pants: 0x3a3f4a, bare: false,
+    // A LIGHT-clothed member of the population, deliberately.
+    //
+    // The first subject wore the palette's navy shirt and charcoal trousers, and
+    // at dusk those measure 1-10 out of 255: the crease metric was differencing
+    // black against black and reading quantisation noise. These three are all
+    // straight out of SKIN/SHIRT/PANTS in src/pedestrians.js - a real ped, not a
+    // test material - and they carry enough light for a shading measurement.
+    skin: 0xefc9a6, shirt: 0xd9d3c6, pants: 0x6b6152, bare: false,
     hscale: 1.02, build: 1.0, desired: 1.35, laneJitter: 0.5,
   };
   const legLen = 0.838 * ped.hscale;
@@ -176,6 +199,18 @@ const boxes = await page.evaluate(() => {
   const hipL = at(P.limbs, 0);
   const kneeL = at(P.limbs, 1);
   const kneeR = at(P.limbs, 3);
+  // Ankle from the shank's own matrix: a bone's far end is pivot - LIMB_BASE *
+  // (its second basis column), because that column is the rotated Y axis times
+  // the y scale, and the y scale IS len / LIMB_BASE. No bone length needed.
+  const shankMid = (() => {
+    P.limbs.getMatrixAt(1, M);
+    const e = M.elements;
+    const kx = e[12], ky = e[13], kz = e[14];
+    const ax = kx - 0.5 * e[4], ay = ky - 0.5 * e[5], az = kz - 0.5 * e[6];
+    const lerp = (t) => [kx + (ax - kx) * t, ky + (ay - ky) * t, kz + (az - kz) * t];
+    const A = lerp(0.30), B = lerp(0.70);
+    return { ax: A[0], ay: A[1], az: A[2], bx: B[0], by: B[1], bz: B[2] };
+  })();
   const ped = P.peds[0];
   const g = __district.world.heightAt(ped.x, ped.z);
   const rect = (c, halfW, halfH) => {
@@ -191,10 +226,23 @@ const boxes = await page.evaluate(() => {
     ppm: +ppm.toFixed(1),
     whole: rect(new V(ped.x, g + 0.9, ped.z), 0.62 * ppm, 1.06 * ppm),
     head: rect(head, 0.19 * ppm, 0.22 * ppm),
-    // Thigh band: between the hip and the knee, inset so neither joint's cap is
-    // in the sample. The crease being measured is on the SHAFT.
-    thigh: { x0: Math.round(proj(hipL).x - 0.16 * ppm), x1: Math.round(proj(hipL).x + 0.16 * ppm),
-      y0: Math.round(proj(hipL).y + 0.10 * ppm), y1: Math.round(proj(kneeL).y - 0.06 * ppm) },
+    // Crease band: the middle 40% of the LEFT SHANK.
+    //
+    // It was the thigh on the first pass and that was a bad sample. The near
+    // tier hangs a HAND at thigh height - which is where a hand hangs - so the
+    // box picked up a skin-on-trouser silhouette edge and the metric read 10.56
+    // -> 19.67 with a p90 of 46.78: the number moved the wrong way because the
+    // sample had changed, not because the shading had. The shank between 30% and
+    // 70% of knee-to-ankle is bare shaft in BOTH tiers: no hand, no shoe, no
+    // pelvis, and clear of the near tier's own joint-occlusion vertex shading,
+    // which lives in the top 14% and bottom 10% of a bone.
+    shank: (() => {
+      const a = new V(shankMid.ax, shankMid.ay, shankMid.az);
+      const b = new V(shankMid.bx, shankMid.by, shankMid.bz);
+      const pa = proj(a), pb = proj(b), mid = proj(a.clone().add(b).multiplyScalar(0.5));
+      return { x0: Math.round(mid.x - 0.075 * ppm), x1: Math.round(mid.x + 0.075 * ppm),
+        y0: Math.round(Math.min(pa.y, pb.y)), y1: Math.round(Math.max(pa.y, pb.y)) };
+    })(),
     // Ankle box: where a shoe would be if there were one.
     foot: rect(new V(ped.x, g + 0.06, ped.z), 0.55 * ppm, 0.20 * ppm),
     kneeR: proj(kneeR),
@@ -302,27 +350,24 @@ const inBox = (mask, box) => {
 // luminance along x, over pixels that are on the ped and 3 px clear of its edge.
 function crease(file, mask, box) {
   const I = readPNG(file);
-  const rows = [];
+  const meds = [], maxes = [];
   for (let y = Math.max(0, box.y0); y < Math.min(I.height, box.y1); y++) {
-    let worst = 0, n = 0;
+    const vals = [];
     for (let x = Math.max(3, box.x0); x < Math.min(I.width - 3, box.x1); x++) {
       const on = (xx) => mask.m[y * mask.w + xx];
       if (!on(x - 3) || !on(x + 3) || !on(x)) continue;
       const a = lum(I.data, (y * I.width + x - 2) * I.channels);
       const b = lum(I.data, (y * I.width + x) * I.channels);
       const c = lum(I.data, (y * I.width + x + 2) * I.channels);
-      const d2 = Math.abs(a - 2 * b + c);
-      if (d2 > worst) worst = d2;
-      n++;
+      vals.push(Math.abs(a - 2 * b + c));
     }
-    if (n > 6) rows.push(worst);
+    if (vals.length < 8) continue;
+    vals.sort((p, q) => p - q);
+    meds.push(vals[vals.length >> 1]);
+    maxes.push(vals[vals.length - 1]);
   }
-  rows.sort((a, b) => a - b);
-  return {
-    rows: rows.length,
-    creaseMean: rows.length ? +(rows.reduce((s, v) => s + v, 0) / rows.length).toFixed(2) : null,
-    creaseP90: rows.length ? +rows[Math.floor(rows.length * 0.9)].toFixed(2) : null,
-  };
+  const mean = (a) => (a.length ? +(a.reduce((s, v) => s + v, 0) / a.length).toFixed(2) : null);
+  return { rows: meds.length, creaseMedian: mean(meds), creaseMax: mean(maxes) };
 }
 
 async function measure(label) {
@@ -339,12 +384,12 @@ async function measure(label) {
     silhouettePx: mask.n,
     headPx: inBox(mask, boxes.head),
     footPx: inBox(mask, boxes.foot),
-    ...crease(withPed, mask, boxes.thigh),
+    ...crease(withPed, mask, boxes.shank),
     file: withPed,
   };
   console.log(`${label.padEnd(10)} silhouette ${String(r.silhouettePx).padStart(6)} px  ` +
     `head ${String(r.headPx).padStart(5)} px  foot ${String(r.footPx).padStart(5)} px  ` +
-    `thigh crease mean ${r.creaseMean} / p90 ${r.creaseP90} over ${r.rows} rows`);
+    `shank crease median ${r.creaseMedian} / max ${r.creaseMax} over ${r.rows} rows`);
   return r;
 }
 
@@ -396,6 +441,32 @@ await page.waitForTimeout(1400);
 const restFile = await shot('rest');
 console.log(`rest pose captured: ${restFile}`);
 
+// --- look at it from more than one side. A silhouette metric taken from one
+// angle can be satisfied by a mesh that is wrong from every other one, and the
+// face is on the side these captures have not shown.
+await page.evaluate(() => { const p = __district.pedestrians().peds[0]; p.v = 1.35; p.phase = 1.15; });
+await pose(null);
+const ANGLES = { front: 0.35, side: 1.45, back: 2.35 };
+const orbit = (off) => page.evaluate((o) => {
+  const P = __district.pedestrians();
+  const ped = P.peds[0];
+  const g = __district.world.heightAt(ped.x, ped.z);
+  const a = ped.yaw + o;
+  __district.freeCam([ped.x + Math.sin(a) * 3.4, g + 1.42, ped.z + Math.cos(a) * 3.4],
+    [ped.x, g + 0.95, ped.z], 40);
+}, off);
+for (const [name, off] of Object.entries(ANGLES)) {
+  await orbit(off);
+  await page.waitForTimeout(1500);
+  if (hasNear) { await pose(0); await page.waitForTimeout(1200); await shot(`far-${name}`); }
+  await pose(hasNear ? -1 : null);
+  await page.waitForTimeout(1200);
+  await shot(`near-${name}`);
+  console.log(`orbit ${name} captured`);
+}
+await orbit(2.35);
+await page.waitForTimeout(1200);
+
 // --- does the crowd respond to the SUN? At dusk it measured 0.01, but dusk puts
 //     1.9% of the road's light on the sun (PROGRESS.md), so that reading needs a
 //     positive control at a time of day where the sun is the light.
@@ -425,7 +496,9 @@ const noonNoSun = await shot('noon-nosun');
     pctChanged: +((changed / n) * 100).toFixed(1) });
 }
 
+const lodReport = await page.evaluate(() => __district.pedestrianReport().nearLod);
+console.log('\nnear-LOD accounting:', JSON.stringify(lodReport));
 fs.writeFileSync(`docs/${TAG}-${TOD}.json`,
-  JSON.stringify({ tod: TOD, subject: SUBJECT, spread, boxes, rows }, null, 1));
+  JSON.stringify({ tod: TOD, subject: SUBJECT, spread, boxes, rows, lodReport }, null, 1));
 console.log(`\nwrote docs/${TAG}-${TOD}.json`);
 await browser.close();

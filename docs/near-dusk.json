@@ -8,23 +8,23 @@
   "dist": 3.4
  },
  "spread": {
-  "inFrontOfLens": 11,
+  "inFrontOfLens": 59,
   "nearest": [
-   17.5,
-   23.5,
+   7.6,
+   21.3,
+   26.3,
+   26.4,
    36.4,
-   54.7,
-   62,
-   66.6
+   36.6
   ],
-  "pixelHeightOfNearest": 85,
+  "pixelHeightOfNearest": 196,
   "within": {
-   "10m": 0,
-   "15m": 0,
+   "10m": 1,
+   "15m": 1,
    "20m": 1,
    "25m": 2,
-   "30m": 2,
-   "40m": 3
+   "30m": 4,
+   "40m": 6
   },
   "pixelHeightAt": {
    "8m": 186,
@@ -47,11 +47,11 @@
    "x1": 869,
    "y1": 363
   },
-  "thigh": {
-   "x0": 766,
-   "x1": 882,
-   "y0": 522,
-   "y1": 591
+  "shank": {
+   "x0": 758,
+   "x1": 812,
+   "y0": 654,
+   "y1": 708
   },
   "foot": {
    "x0": 602,
@@ -67,28 +67,39 @@
  "rows": [
   {
    "label": "farLOD",
-   "silhouettePx": 56204,
-   "headPx": 13036,
-   "footPx": 8506,
-   "rows": 69,
-   "creaseMean": 10.56,
-   "creaseP90": 11.47,
+   "silhouettePx": 55371,
+   "headPx": 12505,
+   "footPx": 8462,
+   "rows": 54,
+   "creaseMedian": 1,
+   "creaseMax": 7.99,
    "file": "docs/shots/near-dusk-farLOD.png"
   },
   {
    "label": "nearLOD",
-   "silhouettePx": 56204,
-   "headPx": 13036,
-   "footPx": 8506,
-   "rows": 69,
-   "creaseMean": 10.56,
-   "creaseP90": 11.47,
+   "silhouettePx": 59421,
+   "headPx": 12719,
+   "footPx": 10420,
+   "rows": 54,
+   "creaseMedian": 1.03,
+   "creaseMax": 5.52,
    "file": "docs/shots/near-dusk-nearLOD.png"
   },
   {
    "label": "noonSunControl",
-   "meanAbsDiff": 39.71,
-   "pctChanged": 55.3
+   "meanAbsDiff": 38.73,
+   "pctChanged": 56.2
   }
- ]
+ ],
+ "lodReport": {
+  "pool": 12,
+  "live": 1,
+  "radiusM": 24,
+  "releaseM": 30,
+  "slotsPerPed": 14,
+  "farTrisPerPed": 628,
+  "nearTrisPerPed": 2256,
+  "farCrowdTris": 60288,
+  "nearCrowdTrisWorstCase": 27072
+ }
 }
