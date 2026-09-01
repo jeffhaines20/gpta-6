@@ -84,6 +84,28 @@ const settled = await page.evaluate(() => {
 console.log(`streaming settled: ${settled.chunks} chunks, ${settled.meshes} meshes, queue ${settled.queued}`);
 await page.waitForTimeout(4000);
 
+// Is the camera actually looking at the district?
+//
+// One run of this tool put the corridor camera - at the same coordinates, with
+// the same 89 chunks and 264 meshes settled, reporting the same 3.2 m of
+// clearance as every other run - inside a building: the whole frame was a brick
+// facade at arm's length, and every number that run produced was a measurement of
+// the inside of a wall. Nothing in placeCamera() is nondeterministic and a second
+// run reproduced the correct frame, so the guard is on the RESULT rather than on
+// the inputs. The sky dome's own radiance is known from sky.audit(), so if no
+// pixel in the top band of the frame comes within a factor of four of it, the
+// camera is not looking at the street and the run is worthless. Loudly, not
+// quietly: the failure mode this exists for produced entirely plausible numbers.
+async function skyIsVisible(page) {
+  return page.evaluate(() => {
+    const a = __district.sky.audit();
+    const top = window.__skyOnce.readBox(0, 0, 1600, 140);
+    const ref = Math.max(a.horizonNits ?? 0, a.zenithNits ?? 0);
+    return { maxNits: +top.max.toFixed(3), refNits: +ref.toFixed(3),
+      ok: top.max > 0.25 * ref, ratio: +(top.max / Math.max(1e-9, ref)).toFixed(3) };
+  });
+}
+
 // --------------------------------------------------------------- in-page probe
 // Installed once; every measurement below is a call into it. Kept in one string
 // so the page keeps its state (probe meshes, saved light values) between calls.
@@ -109,18 +131,40 @@ await page.evaluate(() => {
     const Y = Math.round(rt.height - (y + h) * sy);
     const buf = new Uint16Array(W * H * 4);
     D.renderer.readRenderTargetPixels(rt, X, Math.max(0, Y), W, H, buf);
-    let r = 0, g = 0, b = 0, n = 0, bad = 0;
+    let r = 0, g = 0, b = 0, n = 0, bad = 0, max = 0;
     for (let i = 0; i < W * H; i++) {
       const R = half(buf[i * 4]), G = half(buf[i * 4 + 1]), B = half(buf[i * 4 + 2]);
       if (!isFinite(R) || !isFinite(G) || !isFinite(B)) { bad++; continue; }
       r += R; g += G; b += B; n++;
+      const y = 0.2126 * R + 0.7152 * G + 0.0722 * B;
+      if (y > max) max = y;
     }
-    return n ? { r: r / n, g: g / n, b: b / n, y: (0.2126 * r + 0.7152 * g + 0.0722 * b) / n, n, bad }
-             : { r: 0, g: 0, b: 0, y: 0, n: 0, bad };
+    return n ? { r: r / n, g: g / n, b: b / n, y: (0.2126 * r + 0.7152 * g + 0.0722 * b) / n, max, n, bad }
+             : { r: 0, g: 0, b: 0, y: 0, max: 0, n: 0, bad };
   }
 
   window.__skyOnce = { readBox, half, lum };
 });
+
+// Guard the settled scene before anything is measured off it, and retry the
+// placement once before giving up: a re-placed camera on a settled district is
+// deterministic (verified - the same coordinates and the same 3.2 m of clearance
+// early and late), so a retry costs seconds and an unnoticed wall costs the run.
+let vis = await skyIsVisible(page);
+if (!vis.ok) {
+  console.log(`sky not visible from the camera (${JSON.stringify(vis)}) - re-placing`);
+  const again = await page.evaluate(placeCamera, SHOTS[SHOT]);
+  console.log(describe(SHOT, again));
+  await page.waitForTimeout(4000);
+  vis = await skyIsVisible(page);
+}
+console.log(`sky visible from the camera: ${JSON.stringify(vis)}`);
+if (!vis.ok) {
+  console.error('ABORT: the camera is not looking at the district. Every number this ' +
+    'run would produce would be a measurement of the inside of a building.');
+  await browser.close();
+  process.exit(2);
+}
 
 // The probe meshes need real THREE constructors, which the district page does not
 // expose. It exposes instances, though, and every constructor is reachable from
@@ -413,6 +457,13 @@ for (const tod of TIMES) {
 
   const audit = await page.evaluate(() => __district.audit());
   const dome = await domeIntegrals();
+  const skyVisible = await skyIsVisible(page);
+  if (!skyVisible.ok) {
+    console.error(`ABORT at ${tod}: the camera is not looking at the district ` +
+      `(${JSON.stringify(skyVisible)})`);
+    await browser.close();
+    process.exit(2);
+  }
 
   // Noise floor: the same untouched frame read twice, no toggle in between.
   await setLights('base');
@@ -491,7 +542,7 @@ for (const tod of TIMES) {
 
   const E = (k, v) => Math.PI * reads[v][k].y;            // lux on the patch
   const row = {
-    tod, geometry: geom,
+    tod, geometry: geom, skyVisible,
     exposure: audit.exposure, exposureAsStop: audit.exposureAsStop,
     sunLux: audit.sunLux, skyLux: audit.skyLux,
     sunLuxDelivered: audit.sunLuxDelivered, skyLuxDelivered: audit.skyLuxDelivered,
@@ -596,7 +647,8 @@ for (const tod of TIMES) {
 }
 
 fs.writeFileSync(`docs/sky-once-${TAG}.json`, JSON.stringify({
-  tag: TAG, shot: SHOT, placed, settled, meterBoxes, meterGeometry: meterInstalled, results, errors,
+  tag: TAG, shot: SHOT, placed, settled, skyVisibleAtSettle: vis,
+  meterBoxes, meterGeometry: meterInstalled, results, errors,
 }, null, 1));
 console.log(`\nwrote docs/sky-once-${TAG}.json`);
 await browser.close();
