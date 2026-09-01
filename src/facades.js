@@ -136,6 +136,13 @@ const rmColor = (rough, metal, ao = 1) =>
 
 const hsl = (h, s, l) => `hsl(${h},${s}%,${l}%)`;
 
+// A recipe colour triple as a canvas fill. `tone` scales the level and `cool`
+// tilts blue against red, which is all a pane needs to stop being its
+// neighbour's twin: separately glazed units age and tint differently.
+const q255 = (v) => (v < 0 ? 0 : v > 255 ? 255 : Math.round(v));
+const rgb = ([r, g, b], tone = 1, cool = 1) =>
+  `rgb(${q255(r * tone * (2 - cool))},${q255(g * tone)},${q255(b * tone * cool)})`;
+
 // ---------------------------------------------------------------- colour temps
 // Interior lamps, warmest first. Real window grids read as a mix of colour
 // temperatures; Phase 1's critic called flat uniform window colour a tell, and
@@ -163,6 +170,16 @@ const CT = {
 //             stairwells light vertically), 'strip' (retail lights as a unit)
 //   interior  lit-window luminance multiplier; a shop interior really is brighter
 //             than a bedroom, and this is where that shows up
+//   glass     THE COATING REFLECTANCE of the glazing, head / middle / cill, as
+//             sRGB bytes. Not a tint: drawOpening writes these under a metallic
+//             term, and three.js builds specularColor = mix(0.04, albedo,
+//             metalness), so this colour IS the fraction of the sky the pane
+//             sends back. Authoring it as a dark blue-grey — which is what a
+//             pane LOOKS like in a photograph — is what made every window in the
+//             district a flat fill: it set F0 to 0.02-0.08 while the masonry
+//             beside it sat at 0.17-0.18, so the brick was three times the
+//             mirror the glass was. The number to think in is F0: 0.22-0.33 for
+//             a coated curtain wall, ~0.12-0.18 for domestic glass.
 //   accents   named one-off details, applied at authored positions
 
 export const RECIPES = {
@@ -177,7 +194,7 @@ export const RECIPES = {
     shape: 'glazed',
     spandrel: { l: -12, h: 0.30 },
     stringCourse: { at: 0.02, l: 12, thick: 9 },
-    glass: ['96,120,140', '44,58,72', '20,26,34'],
+    glass: [[141, 154, 165], [122, 134, 144], [94, 104, 113]],
     lit: { noon: 0.06, dusk: 0.62, night: 0.34 },
     litPattern: 'strip',
     ct: [[CT.k2700, 3], [CT.k3000, 3], [CT.k4000, 2], [CT.k5000, 2], [CT.k2200, 1]],
@@ -204,7 +221,7 @@ export const RECIPES = {
     shape: 'glazed',
     spandrel: { l: -9, h: 0.34 },
     stringCourse: { at: 0.0, l: 5, thick: 5 },
-    glass: ['118,146,166', '52,72,88', '26,36,46'],
+    glass: [[146, 163, 178], [130, 146, 159], [100, 112, 122]],
     lit: { noon: 0.10, dusk: 0.46, night: 0.30 },
     litPattern: 'floorBands',
     ct: [[CT.k4000, 5], [CT.k5000, 4], [CT.k6500, 2], [CT.tv, 1], [CT.k3000, 1]],
@@ -227,7 +244,7 @@ export const RECIPES = {
     shape: 'glazed',
     spandrel: { l: -6, h: 0.22 },
     stringCourse: { at: 0.0, l: 16, thick: 13 },
-    glass: ['104,124,142', '46,58,70', '22,28,36'],
+    glass: [[136, 146, 156], [117, 128, 138], [89, 98, 108]],
     lit: { noon: 0.06, dusk: 0.50, night: 0.34 },
     litPattern: 'stacks',
     ct: [[CT.k2700, 4], [CT.k3000, 3], [CT.k4000, 2], [CT.k2200, 2]],
@@ -250,7 +267,7 @@ export const RECIPES = {
     shape: 'glazed',
     spandrel: { l: -5, h: 0.24 },
     stringCourse: { at: 0.0, l: 8, thick: 7 },
-    glass: ['128,158,182', '58,82,102', '28,40,54'],
+    glass: [[151, 170, 184], [136, 154, 163], [98, 112, 125]],
     lit: { noon: 0.04, dusk: 0.40, night: 0.40 },
     litPattern: 'stacks',
     ct: [[CT.k2700, 5], [CT.k2200, 2], [CT.k3000, 3], [CT.tv, 2], [CT.k4000, 1]],
@@ -273,7 +290,7 @@ export const RECIPES = {
     shape: 'deck',
     spandrel: { l: -7, h: 0.32 },
     stringCourse: { at: 0.0, l: 7, thick: 11 },
-    glass: ['0,0,0'],
+    glass: [[92, 96, 100], [74, 78, 82], [56, 59, 62]],   // the deck has no glazing; kept valid for the stair core
     lit: { noon: 0.9, dusk: 1.0, night: 1.0 },   // deck ceiling lamps, always on
     litPattern: 'scatter',
     ct: [[CT.k5000, 4], [CT.k6500, 3], [CT.k2200, 1]],
@@ -296,7 +313,7 @@ export const RECIPES = {
     shape: 'louvre',
     spandrel: { l: -4, h: 0.12 },
     stringCourse: { at: 0.0, l: 6, thick: 5 },
-    glass: ['150,170,180', '76,92,102', '40,50,58'],
+    glass: [[130, 136, 140], [110, 115, 119], [89, 94, 98]],
     lit: { noon: 0.2, dusk: 0.42, night: 0.22 },
     litPattern: 'floorBands',
     ct: [[CT.k6500, 5], [CT.k5000, 3], [CT.k2200, 1]],
@@ -322,7 +339,7 @@ export const RECIPES = {
     shape: 'glazed',
     spandrel: { l: -3, h: 0.10 },
     stringCourse: { at: 0.0, l: 10, thick: 7 },
-    glass: ['112,132,148', '48,60,72', '24,30,38'],
+    glass: [[120, 131, 142], [102, 112, 122], [79, 87, 96]],
     lit: { noon: 0.03, dusk: 0.36, night: 0.26 },
     litPattern: 'scatter',
     ct: [[CT.k2700, 5], [CT.k2200, 3], [CT.tv, 2], [CT.k3000, 2]],
@@ -369,6 +386,13 @@ function drawOpening(L, rec, cell, r) {
   const { x, y, w, h } = cell;
   const rev = rec.win.reveal * (L.P / 1024);
   const dark = rec.wall.l - 26;
+  // Per-pane variation comes off a SEPARATE stream keyed to the cell's position,
+  // not off `r`. The panel sequence decides which windows are lit, which have
+  // blinds and what colour temperature they burn at — an authored set of
+  // patterns — and drawing one extra number from it here would re-roll all of
+  // that for every cell after this one. This way the district's occupancy is
+  // bit-for-bit what it was before the glazing was touched.
+  const jr = rng(hash32('pane', rec.label, Math.round(cell.x), Math.round(cell.y)));
 
   // The opening itself: masonry reveal, darker than the wall face.
   al.g.fillStyle = hsl(rec.wall.h, rec.wall.s, Math.max(6, dark));
@@ -379,26 +403,69 @@ function drawOpening(L, rec, cell, r) {
   const gx = x + rev, gy = y + rev, gw = w - rev * 2, gh = h - rev * 1.4;
 
   if (rec.shape === 'deck') {
-    // Open parking deck: a void, a concrete spandrel rail across the lower third,
-    // and nothing reflective.
-    al.g.fillStyle = 'rgb(16,17,20)';
-    al.g.fillRect(gx, gy, gw, gh);
-    const vg = al.g.createLinearGradient(0, gy, 0, gy + gh);
-    vg.addColorStop(0, 'rgba(0,0,0,0.85)');
-    vg.addColorStop(1, 'rgba(58,58,62,0.35)');
-    al.g.fillStyle = vg;
-    al.g.fillRect(gx, gy, gw, gh);
+    // Open parking deck. This is a MOUTH, not a pane: there is no glazing here,
+    // and it used to be painted as a 16,17,20 fill under an 0.85-black gradient
+    // at the head, which is a hole in the elevation and read as one — blind
+    // critics called the centre block's deck bands a missing texture twice.
+    //
+    // Read the opening top to bottom, because that order IS the effect: the head
+    // is in the deepest shade in the bay, the back of the deck is a little
+    // lighter off the floor bounce, and the strip of floor slab just behind the
+    // spandrel rail is the one surface in there with a clear view of the sky and
+    // is therefore the brightest thing in the opening by a factor of six. A flat
+    // fill has none of that ordering, which is why it read as a hole.
+    const deck = al.g.createLinearGradient(0, gy, 0, gy + gh * 0.66);
+    deck.addColorStop(0, 'rgb(17,18,21)');       // soffit
+    deck.addColorStop(0.22, 'rgb(27,28,32)');
+    deck.addColorStop(0.62, 'rgb(36,38,42)');    // back of the deck
+    deck.addColorStop(0.82, 'rgb(62,64,68)');    // floor starting to catch sky
+    deck.addColorStop(1, 'rgb(112,114,118)');    // lit slab behind the rail
+    al.g.fillStyle = deck;
+    al.g.fillRect(gx, gy, gw, gh * 0.66);
     rm.g.fillStyle = rmColor(0.98, 0, 0.15);
     rm.g.fillRect(gx, gy, gw, gh);
+    // That slab is fair-faced concrete with a sheen, not a matte void: it is the
+    // part of the opening that answers the sky, so it gets a lobe.
+    rm.g.fillStyle = rmColor(0.74, 0.05, 0.4);
+    rm.g.fillRect(gx, gy + gh * 0.56, gw, gh * 0.10);
+
+    // Structure inside the mouth, so the eye has something to land on: columns
+    // on the bay lines with a lit nose, the roofs of two parked cars sitting on
+    // the lit floor, and a beam hard under the head.
+    const cols = 2 + ((jr() * 2) | 0);
+    for (let i = 1; i <= cols; i++) {
+      const cxp = gx + (gw * i) / (cols + 1), cw = Math.max(2, gw * 0.05);
+      al.g.fillStyle = 'rgb(50,52,56)';
+      al.g.fillRect(cxp - cw / 2, gy + gh * 0.06, cw, gh * 0.58);
+      al.g.fillStyle = 'rgba(158,160,164,0.4)';
+      al.g.fillRect(cxp - cw / 2, gy + gh * 0.1, Math.max(1, cw * 0.34), gh * 0.5);
+    }
+    for (let i = 0; i < 2; i++) {
+      if (jr() < 0.3) continue;
+      const cw2 = gw * (0.22 + jr() * 0.14), cx2 = gx + gw * (0.05 + jr() * 0.6);
+      const chh = gh * 0.2, cy2 = gy + gh * 0.62 - chh;
+      al.g.fillStyle = 'rgba(70,72,78,0.75)';
+      al.g.fillRect(cx2, cy2, cw2, chh);
+      al.g.fillStyle = 'rgba(158,164,172,0.45)';
+      al.g.fillRect(cx2 + cw2 * 0.16, cy2, cw2 * 0.68, chh * 0.3);
+    }
+    al.g.fillStyle = 'rgba(0,0,0,0.55)';
+    al.g.fillRect(gx, gy, gw, Math.max(2, gh * 0.1));
+    // Spandrel rail across the lower third, as before, plus the shadow it throws
+    // on the wall under it.
     al.g.fillStyle = hsl(rec.wall.h, rec.wall.s, rec.wall.l - 10);
     al.g.fillRect(gx, gy + gh * 0.66, gw, gh * 0.2);
     rm.g.fillStyle = rmColor(rec.rough, 0, 0.8);
     rm.g.fillRect(gx, gy + gh * 0.66, gw, gh * 0.2);
+    al.g.fillStyle = 'rgba(0,0,0,0.42)';
+    al.g.fillRect(gx, gy + gh * 0.86, gw, gh * 0.14);
   } else if (rec.shape === 'louvre') {
-    // Wired clerestory glazing: dirty, flat, barely reflective.
-    al.g.fillStyle = `rgb(${rec.glass[1]})`;
+    // Wired clerestory glazing: dirty and flat, but still glass — it gets a
+    // reduced coating rather than none, so a warehouse clerestory catches the
+    // sky instead of reading as a painted panel.
+    al.g.fillStyle = rgb(rec.glass[1]);
     al.g.fillRect(gx, gy, gw, gh);
-    rm.g.fillStyle = rmColor(0.42, 0.1, 0.7);
+    rm.g.fillStyle = rmColor(0.30, 0.45, 0.7);
     rm.g.fillRect(gx, gy, gw, gh);
     al.g.strokeStyle = 'rgba(30,34,38,0.5)';
     al.g.lineWidth = 1.4;
@@ -408,16 +475,40 @@ function drawOpening(L, rec, cell, r) {
       al.g.stroke();
     }
   } else {
-    // Glass: sky reflection falling off down the pane. The top stop is the sky,
-    // the bottom is the dark interior, and the middle break is the horizon line
-    // reflected in the glass — the thing that stops it reading as a flat swatch.
+    // Glass. The colour written here is the pane's COATING REFLECTANCE, not its
+    // apparent colour: under the metallic term below, three.js takes
+    // specularColor = mix(vec3(0.04), albedo, metalness), so this fill IS the
+    // mirror. Measured at the left tower at dusk, the old dark-tint stops put
+    // the glass at F0 0.038/0.059/0.082 against the masonry beside it at
+    // 0.173/0.182/0.182; on a FLAT wall it is F0, not lobe width, that carries
+    // the sky, and raising this one fill moved that pane 64.5 -> 126.6 mean
+    // luminance where roughness and metalness together moved it by under 2.
+    //
+    // The gradient is the small half of it. It is a coated pane's own falloff —
+    // marginally more reflective and cooler at the head where it is washed by
+    // sky, dirtier and warmer at the cill — and the sky's actual colour arrives
+    // from the environment probe, so it tracks the time of day for free instead
+    // of being painted in.
+    //
+    // Per-pane jitter on the level and the colour temperature: a real elevation
+    // is a set of separately-glazed, separately-aged units, and a critic reading
+    // 60 identical rectangles is reading the absence of this line.
+    const tone = 0.88 + jr() * 0.24;
+    const cool = 0.93 + jr() * 0.14;
     const g0 = al.g.createLinearGradient(0, gy, 0, gy + gh);
-    g0.addColorStop(0, `rgb(${rec.glass[0]})`);
-    g0.addColorStop(0.34 + r() * 0.12, `rgb(${rec.glass[1]})`);
-    g0.addColorStop(1, `rgb(${rec.glass[2]})`);
+    g0.addColorStop(0, rgb(rec.glass[0], tone, cool));
+    g0.addColorStop(0.34 + r() * 0.12, rgb(rec.glass[1], tone, cool));
+    g0.addColorStop(1, rgb(rec.glass[2], tone * 0.97, cool));
     al.g.fillStyle = g0;
     al.g.fillRect(gx, gy, gw, gh);
-    rm.g.fillStyle = rmColor(0.10 + r() * 0.06, 0.55, 0.9);
+    // Roughness and metalness are the SMALL levers here and both are set for the
+    // night rather than the day: at dusk, moving roughness 0.129 -> 0.059 was
+    // worth 1.6 levels of pane luminance and metalness 0.549 -> 0.902 was worth
+    // -0.4, against +62 for the fill above. What they buy is (a) a lobe wide
+    // enough that a street lamp reflects as a smear a pane tall rather than an
+    // invisible point, and (b) a diffuse remainder — 1 - metalness — big enough
+    // that an unlit pane still answers the ambient after the sky has gone.
+    rm.g.fillStyle = rmColor(0.07 + r() * 0.06, 0.80 + jr() * 0.08, 0.9);
     rm.g.fillRect(gx, gy, gw, gh);
   }
 
@@ -521,6 +612,50 @@ function drawLit(L, rec, cell, tod) {
     // Half-drawn: the blind is lit from behind, the open part is the bright part.
     eg.fillStyle = `rgba(${ct},${a * 0.30})`;
     eg.fillRect(gx, gy, gw, gh * 0.4);
+  }
+
+  // The interior. A lit window is a room, not a rectangle of light: the ceiling
+  // just inside the head is the brightest thing in it, the light dies into the
+  // jambs, and SOMETHING always breaks the field — a partition, a counter, the
+  // back of a wardrobe. Four critics called these flat blown-out rectangles with
+  // no interior; nothing in them is actually clipping (measured on the night
+  // hero: 0 of 25,413 lit pane pixels at R >= 250), so what is missing is
+  // structure, not headroom, and structure is free here.
+  //
+  // Everything below is keyed off cell.rank, never off r(): drawLit replays the
+  // same cell list once per time of day, so a window's furniture has to be the
+  // same at dusk as it is at night, and a draw that consumed from the sequence
+  // would put the two hours out of step.
+  if (cell.blind !== 2) {
+    const k = (cell.rank * 7.3) % 1;
+    const cg = eg.createLinearGradient(0, gy, 0, gy + gh * 0.32);
+    cg.addColorStop(0, `rgba(${ct},${a * 0.30})`);
+    cg.addColorStop(1, `rgba(${ct},0)`);
+    eg.fillStyle = cg;
+    eg.fillRect(gx, gy, gw, gh * 0.32);
+
+    const side = Math.max(1, gw * 0.17);
+    for (const [x0, x1] of [[gx, gx + side], [gx + gw, gx + gw - side]]) {
+      const sg = eg.createLinearGradient(x0, 0, x1, 0);
+      sg.addColorStop(0, `rgba(0,0,0,${0.36 * a})`);
+      sg.addColorStop(1, 'rgba(0,0,0,0)');
+      eg.fillStyle = sg;
+      eg.fillRect(Math.min(x0, x1), gy, side, gh);
+    }
+
+    if (k < 0.36) {
+      // A partition or a curtain against one jamb.
+      const pw = gw * (0.18 + k);
+      eg.fillStyle = 'rgba(0,0,0,0.44)';
+      eg.fillRect(k < 0.18 ? gx : gx + gw - pw, gy + gh * 0.14, pw, gh * 0.86);
+    } else if (k < 0.78) {
+      // A counter, a desk or a sill run across the lower part of the room.
+      const ty = gy + gh * (0.56 + (k - 0.36) * 0.5);
+      eg.fillStyle = 'rgba(0,0,0,0.40)';
+      eg.fillRect(gx, ty, gw, gy + gh - ty);
+      eg.fillStyle = `rgba(${ct},${a * 0.18})`;
+      eg.fillRect(gx, ty, gw, Math.max(1, gh * 0.05));
+    }
   }
 
   // Spill onto the reveal. Weak, but it is the difference between a glowing
@@ -1024,14 +1159,50 @@ function buildTrimAtlas() {
     ag.fillStyle = 'rgba(0,0,0,0.18)';
     ag.fillRect(x, y + C * 0.86, C, C * 0.14);
   }
-  // Storefront glazing: dark, flat, very smooth.
+  // Storefront glazing, and it is NOT the same problem as a tower pane even
+  // though it starts from the same defect. rgb(26,32,40) under metalness 0.6 is
+  // F0 0.006 — a six-tenths-of-a-percent mirror — and the shopfronts under the
+  // awnings measured 9.8 mean luminance in a dusk frame whose walls sat at 103.
+  // But raising the coating alone only took them to 27: a pane at eye level is
+  // viewed almost edge-on, so its mirror direction runs HORIZONTALLY, into the
+  // half of the environment probe that holds ground rather than sky, while a
+  // tower pane seen from the street reflects steeply upward into an open sky.
+  // Measured on the same frame: unlit tower panes 122, shopfronts 27, at nearly
+  // the same F0. There is no sky in a shopfront to reflect.
+  //
+  // So this cell is authored the way the parking deck is — as a lit interior
+  // seen through glass, with the metalness low enough (0.45) to leave a real
+  // diffuse term for that interior to live in, and the reflectance carried by
+  // the top of the pane where it does see sky over the street. Top to bottom:
+  // sky above the transom, the soffit shadow inside, the back of the shop, the
+  // display shelf, and the floor bouncing light in from the pavement.
   {
-    const { x, y } = fill(TRIM.glass, 'rgb(26,32,40)', 0.08, 0.6);
+    const { x, y } = fill(TRIM.glass, 'rgb(150,158,166)', 0.09, 0.45);
     const g0 = ag.createLinearGradient(x, y, x, y + C);
-    g0.addColorStop(0, 'rgba(126,152,172,0.55)');
-    g0.addColorStop(0.5, 'rgba(30,40,50,0.2)');
-    g0.addColorStop(1, 'rgba(12,16,22,0.5)');
+    g0.addColorStop(0, 'rgb(206,222,238)');     // street sky over the transom
+    g0.addColorStop(0.10, 'rgb(170,184,200)');
+    g0.addColorStop(0.22, 'rgb(92,96,104)');    // soffit shadow inside the shop
+    g0.addColorStop(0.46, 'rgb(126,130,138)');  // back of the shop
+    g0.addColorStop(0.66, 'rgb(150,150,148)');  // display shelf, lit from within
+    g0.addColorStop(0.88, 'rgb(178,172,160)');  // floor bounce off the pavement
+    g0.addColorStop(1, 'rgb(120,116,110)');     // cill shadow
     ag.fillStyle = g0; ag.fillRect(x, y, C, C);
+    // The shelf itself, its shadow, and the head rail of the shop's own frame.
+    ag.fillStyle = 'rgba(226,230,234,0.5)';
+    ag.fillRect(x, y + C * 0.615, C, C * 0.028);
+    ag.fillStyle = 'rgba(26,28,32,0.45)';
+    ag.fillRect(x, y + C * 0.643, C, C * 0.022);
+    ag.fillStyle = 'rgba(60,64,70,0.55)';
+    ag.fillRect(x, y + C * 0.05, C, C * 0.04);
+    // Goods on the shelf: enough silhouette that the eye reads depth, not paint.
+    for (let i = 0; i < 7; i++) {
+      const w = C * (0.03 + r() * 0.05), h = C * (0.05 + r() * 0.08);
+      ag.fillStyle = `rgba(${40 + r() * 60 | 0},${40 + r() * 60 | 0},${44 + r() * 60 | 0},0.5)`;
+      ag.fillRect(x + r() * (C - w), y + C * 0.615 - h, w, h);
+    }
+    // One slim stile: a shop window this wide is always divided.
+    ag.fillStyle = 'rgba(88,94,100,0.6)';
+    ag.fillRect(x + C * 0.485, y, C * 0.03, C);
   }
   // Shopfront bulkhead: dark glazed tile with a grout grid.
   {
@@ -1208,6 +1379,10 @@ export function facadeMaterial(name, { time = 'night' } = {}) {
   const mat = memo(`mat:${name}`, () => {
     const m = facadeMaps(name);
     return new THREE.MeshStandardMaterial({
+      // Named so a raycast readback can say WHICH material it hit. Every audit of
+      // this district has had to identify glazing by guessing at texel values;
+      // the name costs nothing and makes the measurement unambiguous.
+      name: `facade:${name}`,
       map: m.map,
       roughnessMap: m.rmMap, metalnessMap: m.rmMap,
       roughness: 1, metalness: 1,
@@ -1226,6 +1401,7 @@ export function trimMaterial() {
   return memo('mat:trim', () => {
     const t = trimMaps();
     return new THREE.MeshStandardMaterial({
+      name: 'trim',
       map: t.map, roughnessMap: t.rmMap, metalnessMap: t.rmMap,
       roughness: 1, metalness: 1, vertexColors: true,
     });
