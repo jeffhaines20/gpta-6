@@ -397,6 +397,58 @@ that search is itself a weak instrument, since it matches on names, so it is rec
 - **The pedestrian contact blob draws nothing** - measured by the ground-contact build at
   0.0266 against a 0.0254 noise floor, and `SHADOW_Y = -0.042` puts it below the paving.
 
+## The bloom was veiling glare: the bright pass thresholded nits against a camera stop
+
+Found while auditing the double-sky build's own open items. `src/post.js` computed
+
+    float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    float contrib = max(soft, lum - threshold) / max(lum, 1e-5);
+
+with `c` in **nits** - a sunlit road at golden hour is thousands - while `daynight.js`
+authors `bloomThreshold` on the 0-2 scale the tonemapper works in (noon 1.7, dusk 0.85,
+night 0.55). At golden the stop is 1/4152, so mid-grey is about 750 nits against a
+threshold of 1.4. `lum - threshold` was indistinguishable from `lum`, **contrib came out
+~1 for every pixel**, and the composite added `bloomStrength x a 20 px blur of the entire
+frame`.
+
+Measured at the golden corridor camera - mean luminance the bloom ADDED, binned by each
+pixel's own no-bloom luminance:
+
+| no-bloom luminance | before | after |
+|---|---|---|
+| 0-19 | **+29.3** | +3.6 |
+| 20-49 | +27.7 | +1.1 |
+| 50-99 | **+32.5** | +0.9 |
+| 100-159 | +30.5 | +1.7 |
+| 160-219 | +19.6 | +1.6 |
+| 220-255 | **+8.0** | **+3.2** |
+
+**It was lifting the darks hardest and the highlights least** - the exact inverse of a
+bloom, and a uniform ~30/255 veil across the frame. That single defect accounts for a
+remarkable amount of what critics have reported for rounds: "milky with no black point",
+flattened shadow edges, low chroma at golden (a grey veil desaturates), dusk having no
+specular, and the shallow cast shadows measured after the ground-contact work. The
+double-sky build had independently found the same thing from the other end - bloom/scene
+0.998-1.016 at every daylight preset - and left it as an open item because fixing it
+would re-grade all four presets.
+
+Fixed by multiplying `lum` by the camera stop inside the bright pass, so the authored
+threshold means what it says: 1.4x mid-grey rather than 1.4 nits. `contrib` is a ratio and
+stays unit-free, so the colour it scales is still in nits.
+
+The authored `bloomStrength` values were tuned against the broken pass and are retained
+rather than re-dialled - they now act on highlights only, and the night frame reads with a
+real black point and a localised lamp glow for the first time. If a critic reports the
+bloom as too weak, that is a measured signal to re-derive them; guessing new numbers now
+would just be re-authoring against a fresh unknown.
+
+Gates after: syntax PASS (81), golden-trace PASS, physics PASS, lighting sweep PASS with
+both negative tests firing, budget PASS/PASS/WARN (draw 227, tris 721,148, stall 8.8).
+
+**A repeat mistake worth recording:** the first version of this edit put backticks inside
+a GLSL comment, which terminated the template literal - the identical error already in
+this ledger's Failed approaches. Reading a lesson is not the same as having it.
+
 ## The sky is delivered twice, and that is why golden hour reads flat
 
 The round-7 lighting critic produced the best-controlled measurement this project has

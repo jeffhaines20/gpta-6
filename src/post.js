@@ -32,6 +32,7 @@ const BRIGHT_FRAG = `
 uniform sampler2D tDiffuse;
 uniform float threshold;
 uniform float softKnee;
+uniform float exposure;
 varying vec2 vUv;
 void main() {
   // Same guard as the composite's sanitize(), inlined because this shader does not
@@ -41,11 +42,34 @@ void main() {
   vec3 c = texture2D(tDiffuse, vUv).rgb;
   bvec3 ok = lessThanEqual(c, vec3(60000.0));
   c = mix(vec3(60000.0), max(c, vec3(0.0)), vec3(ok));
-  float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  // Threshold in EXPOSED units, not in nits.
+  //
+  // The scene target is authored in physical units - a sunlit road at golden hour
+  // is thousands of nits - while daynight.js authors bloomThreshold on the 0-2
+  // scale the tonemapper works in (noon 1.7, dusk 0.85, night 0.55). Comparing
+  // those two directly made lum - threshold indistinguishable from lum, so
+  // contrib came out ~1 for EVERY pixel and the bright pass passed the whole frame
+  // through. The composite then added bloomStrength x a 20 px blur of the entire
+  // image: veiling glare, not bloom.
+  //
+  // Measured at the golden corridor camera, mean luminance the bloom ADDED, binned
+  // by each pixel's own no-bloom luminance:
+  //
+  //     0-19  +29.3    50-99  +32.5    160-219  +19.6    220-255  +8.0
+  //
+  // It was lifting the darks hardest and the highlights least - the exact inverse
+  // of a bloom, and the mechanism behind three rounds of critics reporting a milky
+  // frame with no black point, flattened shadow edges and low chroma.
+  //
+  // Multiplying by the camera stop puts lum on the same scale the threshold is
+  // authored on, so a threshold of 1.4 now means 1.4x mid-grey rather than 1.4
+  // nits. bloomStrength is re-derived alongside it in daynight.js.
+  float lum = dot(c, vec3(0.2126, 0.7152, 0.0722)) * exposure;
   // Soft knee so the bloom does not switch on as a hard edge across a gradient.
   float knee = threshold * softKnee + 1e-5;
   float soft = clamp(lum - threshold + knee, 0.0, 2.0 * knee);
   soft = soft * soft / (4.0 * knee);
+  // contrib is a ratio, so it is unit-free and still applies to c in nits.
   float contrib = max(soft, lum - threshold) / max(lum, 1e-5);
   gl_FragColor = vec4(c * contrib, 1.0);
 }`;
@@ -386,6 +410,7 @@ export class PostStack {
       uniforms: {
         tDiffuse: { value: null },
         threshold: { value: this.params.bloomThreshold },
+        exposure: { value: this.params.exposure },
         softKnee: { value: this.params.bloomSoftKnee },
       },
       depthTest: false, depthWrite: false,
@@ -529,6 +554,7 @@ export class PostStack {
     // Bright pass at half res.
     this.brightMat.uniforms.tDiffuse.value = this.hdr.texture;
     this.brightMat.uniforms.threshold.value = this.params.bloomThreshold;
+    this.brightMat.uniforms.exposure.value = this.params.exposure;
     this.brightMat.uniforms.softKnee.value = this.params.bloomSoftKnee;
     this._blit(this.brightMat, this.brightRT);
 
