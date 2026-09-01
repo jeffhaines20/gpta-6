@@ -1825,9 +1825,16 @@ export class Sky {
   }
 
   /**
-   * scene.environment for metals, glass and wet roads. daynight.js also runs a
-   * HemisphereLight at the same sky illuminance, so leaving environmentIntensity
-   * at 1 counts the sky's diffuse twice — see recommendedEnvironmentIntensity.
+   * scene.environment for metals, glass and wet roads — and, since the sky stopped
+   * being delivered twice, for the diffuse ambient on every surface in the
+   * district. This map is now the ONLY thing carrying the sky, so the intensity it
+   * is applied at is the sky's own strength and not a taste value.
+   *
+   * This runs again on every refresh(), including the ones weather transitions
+   * trigger, so whatever it writes here has to be the value the engine wants: a
+   * disagreement between this and daynight.js's envIntensity does not show up as
+   * a wrong constant, it shows up as the district re-dimming in the middle of a
+   * rain transition.
    */
   applyToScene(scene = this.scene) {
     this._envScene = scene;
@@ -1839,7 +1846,34 @@ export class Sky {
     return this;
   }
 
-  get recommendedEnvironmentIntensity() { return 0.35; }
+  /**
+   * 1, and this is derived rather than chosen.
+   *
+   * It was 0.35 for one reason: daynight.js ran a HemisphereLight at the same
+   * skyLux, so the PMREM had to be dimmed to stop the sky's diffuse arriving
+   * twice. That HemisphereLight is now switched off whenever this environment map
+   * is in the scene, so there is nothing left to leave room for, and 0.35 would
+   * deliver the sky at a third of itself.
+   *
+   * 1 is also the value that makes the map deliver what the dome measures.
+   * tools/sky-once.mjs parks an albedo-1, roughness-1 patch in front of the hero
+   * camera - Lambertian radiance E/pi, so pi * radiance is a lux meter - and
+   * compares what the PMREM puts on it against this file's own cosine-weighted
+   * integral of the LUT the PMREM is built from:
+   *
+   *   preset  normal   integral of the dome   PMREM at intensity 1   delivered
+   *   noon    up            15,126 lux            15,006 lux            99.2%
+   *   noon    down          15,593                15,736              100.9%
+   *   golden  up             8,503                 7,359               86.5%
+   *   golden  down           1,273                 1,551              122.0%
+   *
+   * The residual is the roughness-1 convolution's angular error, not a scale
+   * error: at golden it is 13.5% SHORT on an up-facing normal and 22% OVER on a
+   * down-facing one in the same frame, so no value of this number fixes both, and
+   * anything other than 1 trades one bias for a larger one. 0.35 would make the
+   * up-facing case 70% short.
+   */
+  get recommendedEnvironmentIntensity() { return 1; }
 
   // ------------------------------------------------------------------ audit
   report() {

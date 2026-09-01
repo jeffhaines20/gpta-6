@@ -488,6 +488,16 @@ for (const tod of TIMES) {
   }
   // SELF-TEST, and it has to survive the change it is measuring.
   //
+  // NOT informative at dusk or night, and the artifact says so rather than
+  // quietly failing: this leaves the STREET LAMPS lit, and at night they are
+  // 0.3 lux at the meter against 0.008 lux of hemisphere, so the reading is the
+  // lamps. Disabling the pool here would make it informative - LightPool.update()
+  // rewrites PointLight.intensity every frame, so it has to be the pool's own
+  // enabled flag and not the intensities - and that is worth doing the next time
+  // this tool is opened. What carries the night derivation instead is the closed
+  // form (0.15 * luminance(0x35406b) = 0.008 lux) and the by-difference
+  // isolation, which reads 0.0 against a 0.05 lux quantisation and agrees.
+  //
   // On the committed build the meter proves itself by reading the
   // HemisphereLight's own closed form: three.js puts intensity *
   // luminance(skyColor) on an up-facing normal, exactly. Once that light is
@@ -591,7 +601,11 @@ for (const tod of TIMES) {
       hemiAlone: +E(k, 'hemionly').toFixed(1),
       envAlone: +E(k, 'envonly').toFixed(1),
       hemiExpected: +hemiExpected[k].toFixed(1),
-      hemiErrPct: +(((E(k, 'hemionly') - hemiExpected[k]) / Math.max(1e-9, hemiExpected[k])) * 100).toFixed(1),
+      // Null rather than a vast number when the HemisphereLight is off: the
+      // closed form is 0 there, and a percentage error against 0 is not a
+      // measurement. meterSelfTest below is the check that survives that.
+      hemiErrPct: hemiExpected[k] > 1e-6
+        ? +(((E(k, 'hemionly') - hemiExpected[k]) / hemiExpected[k]) * 100).toFixed(1) : null,
       floorLux: +(Math.PI * floor[k]).toFixed(2),
     };
   }

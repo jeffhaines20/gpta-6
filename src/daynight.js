@@ -7,9 +7,55 @@
 //
 //   DirectionalLight.intensity -> lux (illuminance on a surface facing the sun)
 //   PointLight.intensity       -> candela (luminous intensity)
-//   HemisphereLight.intensity  -> lux (sky illuminance)
+//   HemisphereLight.intensity  -> lux (sky illuminance), and ZERO whenever a sky
+//                                 dome's PMREM is in the scene: that map already
+//                                 carries this sky, and carrying it twice is what
+//                                 flattened golden hour. See the constructor.
 
 import * as THREE from '../vendor/three.module.min.js';
+
+// EVERY EXPOSURE BELOW WAS RE-DERIVED WHEN THE SKY STOPPED BEING DELIVERED TWICE.
+//
+// The rule this file uses is exposure = pi/E: an 18% grey card under a total
+// horizontal illuminance E sits at E*0.18/pi nits, so pi/E puts it back on 0.18.
+// Only `golden` was ever authored strictly to that rule - noon, dusk and night
+// each carry a deliberate offset from it, and re-deriving them from the rule now
+// would re-grade three presets for a reason that has nothing to do with this
+// change. So each stop moves by exactly the factor its OWN horizontal illuminance
+// moved by, which is what an auto-exposure does and what this change warrants:
+//
+//     exposure_new = exposure_old * E_before / E_after
+//
+// E_before is measured, not computed: tools/sky-once.mjs parks an albedo-1,
+// roughness-1 patch face-up in front of the corridor hero camera on a settled
+// scene and reads pi * its radiance out of the HDR scene target, which is lux.
+// It is everything reaching that patch - sun, HemisphereLight, PMREM and, where
+// they are lit, the street lamps.
+//
+// The term subtracted from it is the CLOSED FORM, intensity * luminance(skyColor),
+// which is what three.js puts on an up-facing normal by construction. The meter
+// reproduces that to 0.0% at noon, golden and dusk, so this is not a shortcut -
+// it is the more accurate of two agreeing numbers, and it is the only correct one
+// at night, where the hemisphere-only frame still contains the street lamps
+// (0.3 lux of them, against 0.008 lux of hemisphere).
+//
+//   preset  E_before   HemisphereLight    E_after    factor   stop
+//   noon       119,851 lux     13,075 (10.91%)    106,775 lux  1.1225   1/78,000 -> 1/69,490
+//   golden      17,971 lux      5,548 (30.87%)     12,423 lux  1.4466   1/6,006 -> 1/4,152
+//   dusk         1,764 lux        355 (20.12%)      1,409 lux  1.2518   1/900 -> 1/719
+//   night       0.7000 lux     0.0080 (1.14%)     0.6920 lux  1.0116   1/1.15 -> 1/1.15 (left alone, see below)
+//
+// The frame does not get brighter. An 18% card sits where it sat; what moves is
+// the SPLIT, because the term that was removed was fill and the sun was not:
+//   noon    the sun goes from 76.6% of the light on the road to 86.0%
+//   golden  the sun goes from 28.2% of the light on the road to 40.8%
+//   dusk    the sun goes from 1.6% of the light on the road to 2.0%
+//   night   the sun goes from 28.6% of the light on the road to 28.9%
+//
+// The meter's patch is a MeshStandardMaterial and keeps its dielectric lobe, so
+// its sun term runs a few percent over the illuminance; that bias is identical in
+// E_before and E_after and very nearly cancels in the ratio, which is a second
+// reason to move the stop by a ratio rather than to re-derive it from pi/E.
 
 export const PRESETS = {
   noon: {
@@ -18,7 +64,19 @@ export const PRESETS = {
     skyLux: 20000,            // diffuse sky component
     elevation: 1.32, azimuth: 0.6,
     sunColor: 0xfff6e8, skyColor: 0xbcd6f5, groundColor: 0x6b6455,
-    exposure: 1 / 78000,      // camera stop, not a brightness fudge
+    // 119,850.9 lux measured on the road became 106,775.5 when the HemisphereLight
+    // stopped repeating the dome, so 1/78,000 becomes 1/69,490. Noon loses the least
+    // of the four: at a 75.6-degree sun the direct beam is 77% of the horizontal
+    // illuminance to begin with. The rule would say pi/106,775 = 1/33,988; noon has
+    // always been authored well under pi/E and stays exactly as far under it.
+    //
+    // WHAT THIS COSTS NOON, measured rather than left to be discovered: the
+    // HemisphereLight was 31.4% of the light on a VERTICAL surface here
+    // (7,827 lux of 24,906), and a sun this high leaves a wall almost nothing
+    // else. The frame whose facades PROGRESS.md already records as unusable loses
+    // that much again. The remedy recorded there - lower the elevation - is
+    // unchanged and is still the right one; this is not it.
+    exposure: 1 / 69490,      // camera stop, not a brightness fudge
     lampsOn: false,
     fog: { color: 0xa8c2dc, density: 0.0016 },
     post: { fogColor: 0xa9c3e0, inscatter: 0xfff0d0, density: 0.0016,
@@ -55,9 +113,17 @@ export const PRESETS = {
   //     + sky): 25.7% at 6 deg, 36.0% at 8 deg, 44.4% at 10 deg. A cast shadow can
   //     never be more legible than that number allows, and 6 deg is on the edge of
   //     the 25% acceptance bar before any geometry gets in the way. That is the
-  //     ATMOSPHERE's share; what the district renders is lower, because it delivers
-  //     the sky twice - see the exposure note. Measured at 8 deg by
-  //     tools/sun-share.mjs: 26.5% of the road, 0% of the band clipped.
+  //     ATMOSPHERE's share, and the district used to render well under it because
+  //     it delivered the sky twice. It does not any more. The light meter reads
+  //     the sun at 40.8% of the horizontal illuminance on this build against 28.2%
+  //     on the one that double-counted - the atmosphere's 36.0% plus the PMREM's
+  //     own 13.5% shortfall against the dome's integral, so BETTER than the
+  //     atmosphere rather than worse. tools/sun-share.mjs, which measures the road
+  //     band in display units at this camera, agrees: 35.5% of the road with 24%
+  //     of it blocked by geometry, against 26.5% / 24.3% on the double-counted
+  //     build, and the band itself holds at 122.5 of 255 with 0% clipped where it
+  //     read 122.0 before - which is the exposure re-derivation doing exactly what
+  //     it is supposed to.
   //   - shadow length against the shadow volume. The ortho shadow camera is +-120
   //     (lateral) with near 1 / far 900 along the light ray from a light parked 400 m
   //     out, so the ground is covered from 403 m sunward to 505 m anti-sunward of
@@ -137,40 +203,36 @@ export const PRESETS = {
     // the normalised sun hue -> [0.147, 0.075, 0.021]. Red passes the air mass
     // intact, green and blue do not.
     groundColor: 0x6b4d28,
-    // Derived, and shipped AS derived - no grade offset. The rule is exposure =
-    // pi/E for an 18% grey card, and the whole question is which E.
+    // The rule is exposure = pi/E for an 18% grey card, and the whole question is
+    // which E. This is the one preset that was authored strictly to it.
     //
     // The atmosphere's own answer is E_h = 34470*sin(8 deg) + 8519 = 4,797 + 8,519
-    // = 13,316 lux, giving 1/4,239. That is what a light meter on the road would
-    // read outdoors. It is NOT what this engine puts on the road, because the sky
-    // arrives twice: daynight.js runs a HemisphereLight at the preset's skyLux AND
-    // then restores scene.environmentIntensity to 1.0 over sky.js's own
-    // recommendation of 0.35, so the PMREM built from the same dome delivers the
-    // same illuminance again. Isolated at the corridor camera (each source switched
-    // off in turn, frames differenced in exposed units): environment 0.0867,
-    // hemisphere 0.0494, sun 0.0445, and the three sum to 0.1806 against a measured
-    // total of 0.1760 - additive to 3%, so the split is real and not an artefact.
+    // = 13,316 lux, giving 1/4,239: what a light meter on the road would read
+    // outdoors. What the engine put there was different, and the reason has now
+    // changed. It USED to be that the sky arrived twice - a HemisphereLight at
+    // skyLux plus a PMREM built from the same dome at environmentIntensity 1 - so
+    // E_render was 18,868 lux by arithmetic and the stop was 1/6,006. The sky is
+    // delivered once now (see the HemisphereLight in the constructor), and the
+    // light meter reads, at this camera on a settled scene:
     //
-    // So E is the illuminance the district actually delivers to a horizontal
-    // surface:
-    //     sun   34470 * sin(8 deg)                    =  4,797 lux
-    //     hemi   8519 * luminance(0xb9d5ff) = 8519*0.6517 =  5,552 lux
-    //     PMREM  8519 at environmentIntensity 1        =  8,519 lux
-    //                                                   ---------
-    //                                          E_render = 18,868 lux
-    // pi/18868 = 1.665e-4 = 1/6,006. Using the atmosphere's 13,316 instead put the
-    // road band at 139.5/255 and pushed the sunlit facades into the ACES shoulder,
-    // where highlight compression ate the sun/shadow separation this hour exists to
-    // show: the sun's share of the road measured 17.0% in display units against
-    // 29.5% in linear ones. The double-counted sky is a district-wide property, not
-    // this preset's to fix, but pretending it is not there is what would make the
-    // stop wrong.
+    //     sun on a horizontal surface          5,064.3 lux
+    //     HemisphereLight                      5,547.8  -> 0
+    //     PMREM environment                    7,358.9
+    //                                       ----------
+    //                    E_before   17,970.8 lux    E_after  12,423.0 lux
     //
-    // Measured at 1/6,006: road band 122.0/255 with 0% of it clipped, and the sun
-    // owning 26.5% of it. Noon's band at the same camera is 58.3 and dusk's 98.3, so
-    // golden is the brightest hour of the three, which is what an hour with 34,470
-    // lux of direct sun and no lamps should be.
-    exposure: 1 / 6006,
+    // 1.4466x less light, so 1/6,006 becomes 1/4,152. The strict rule on the
+    // measured E_after would say pi/12,423 = 1/3,954, 5% away: the authored
+    // 1/6,006 was itself 5% under pi/E_before because the arithmetic above
+    // used the dome's 8,519 lux where the PMREM actually delivers 7,359, and
+    // moving the stop by a ratio keeps that offset rather than folding a second
+    // correction into the same edit.
+    //
+    // The frame does not get brighter: an 18% card sits where it sat. What moves is
+    // the split - the sun goes from 28.2% of the light on the road to 40.8%, and
+    // the key:fill between a wall turned toward the sun and one turned away goes
+    // from 2.99 (1.58 stops) to the figure recorded in PROGRESS.md.
+    exposure: 1 / 4152,
     // Off. 4,797 lux of sun on the road against a 900 cd lamp is not a contest,
     // and real street lighting is not on 40 minutes before sunset.
     lampsOn: false,
@@ -215,7 +277,14 @@ export const PRESETS = {
     // plaza measured 214/255 and the sky 245/255 with the darkest region in frame -
     // asphalt - still at 173. Blind critics called it milky with no black point; they
     // were right, and the tonemapper they blamed was not the cause.
-    exposure: 1 / 900,
+    //
+    // Re-derived for a sky delivered once. The light meter reads 1,764.2 lux at the
+    // corridor camera - sun, both sky paths AND the street lamps, which are lit at
+    // this hour - of which the HemisphereLight was 354.9 (20.1%). 1.2518x less
+    // light, so 1/900 becomes 1/719. The 2100-lux arithmetic above is left
+    // standing because it is the reasoning that set the offset from pi/E, and that
+    // offset is preserved exactly; only the light changed.
+    exposure: 1 / 719,
     lampsOn: true,
     fog: { color: 0x6a6480, density: 0.0034 },
     post: { fogColor: 0x6d6a88, inscatter: 0xff9a52, density: 0.0032,
@@ -227,6 +296,24 @@ export const PRESETS = {
     skyLux: 0.15,             // measured from the sky model, not guessed at
     elevation: 0.9, azimuth: 4.1,
     sunColor: 0x9fb6e0, skyColor: 0x35406b, groundColor: 0x14161f,
+    // Re-derived for a sky delivered once, and then LEFT ALONE, which is the
+    // derivation's own answer rather than a reluctance to touch it.
+    //
+    // skyLux 0.15 through a 0x35406b tint delivers 0.008 lux to a horizontal
+    // surface. The light meter reads 0.70 lux in total at the corridor camera -
+    // the lamps and the dome are what night is - so the hemisphere is 1.14% of it
+    // and the stop would move by 1.2%, from 1/1.15 to 1/1.14.
+    //
+    // The meter cannot even see the term it would be correcting for: base minus
+    // the hemisphere-off frame reads 0.0 lux against a 0.05 lux quantisation, and
+    // the hemisphere-ONLY frame reads 0.3 lux because the street lamps are lit at
+    // this hour and that frame still contains them. A stop moved by a percent, on
+    // a term below the instrument's resolution, is a diff and not a derivation -
+    // and the night frames are the ones three critic rounds have named as the best
+    // in the set. What DOES change at night is measured and reported in
+    // PROGRESS.md: the hemisphere was 0.2% of the corridor wall region and 1.2% of
+    // the ground region, so the crushed fraction and the lamp pools move by less
+    // than the run-to-run spread.
     exposure: 1 / 1.15,       // dark sky, lamp-lit surfaces readable. At 1/3.2 the
                               // polarity was right but the frame was unplayably dark
     lampsOn: true,
@@ -238,6 +325,16 @@ export const PRESETS = {
 
 // Plausibility envelope, asserted by the sweep. These are the ranges a real
 // photometric reference would put each quantity in.
+//
+// `skyLux` is judged against the sky's DELIVERED illuminance on a horizontal
+// surface, summed over every path carrying it - see audit() and skyDelivery().
+// It used to be judged against hemi.intensity, which is an intensity rather than
+// an illuminance AND was only one of the two paths delivering the sky, so the
+// gate read PASS on a build putting 14,067 lux on golden hour against the
+// 5,500-11,800 below. The bounds themselves have not moved: they were always
+// authored as sky ILLUMINANCE ranges swept out of src/sky.js's own atmosphere,
+// and they now judge that. tools/daynight-sweep.mjs's second negative test
+// re-injects the double delivery and fails if this stops catching it.
 export const PLAUSIBLE = {
   noon:  { sunLux: [50000, 130000], skyLux: [8000, 30000] },
   // Golden hour is defined by its elevation band, so its envelope is too. Swept
@@ -354,16 +451,117 @@ export class TimeOfDay {
     this.sun.shadow.normalBias = 0.06;
     scene.add(this.sun, this.sun.target);
 
+    // A HemisphereLight is a crude sky-plus-ground-bounce approximation, and next
+    // to a real sky dome it has nothing left to approximate.
+    //
+    // Two systems were carrying the same sky: this light at the preset's skyLux,
+    // and sky.js's PMREM - built from the same dome - delivered AGAIN through
+    // scene.environment at environmentIntensity 1, over sky.js's own
+    // recommendation of 0.35. tools/sky-once.mjs measures both with a light meter
+    // parked in the frame: an albedo-1, roughness-1 patch whose Lambertian
+    // radiance is E/pi, so pi times its radiance read out of the HDR scene target
+    // is lux. Corridor hero camera, streaming settled, traffic and pedestrians
+    // frozen, noise floor taken first, one light path switched off at a time:
+    //
+    //   preset  surface   HemisphereLight   PMREM env   the dome's own integral
+    //   noon    up           13,074 lux    15,006 lux           15,126 lux
+    //   noon    down          2,580        15,736               15,593
+    //   noon    wall          7,827        17,084               16,482
+    //   golden  up            5,548         7,359                8,503
+    //   golden  down            732         1,550                1,273
+    //   golden  wall          3,140         6,490                6,111
+    //   dusk    up              355         1,381                1,595
+    //
+    // The third column is int L cos(theta) dw over sky.js's own LUT - the sky the
+    // PMREM is BUILT from, so it is the ceiling on what the PMREM can deliver, and
+    // it is arithmetic on a read-back texture rather than a render. The second
+    // column sits within a few percent of it. The first is a second helping.
+    //
+    // Night is deliberately absent from that table. The meter's single-path frames
+    // still contain the STREET LAMPS, which are lit at that hour, and at 0.7 lux
+    // total they swamp the 0.008 lux this light delivers there - the hemisphere-only
+    // frame reads 0.3 lux and 0.29 of that is lamps. The number that IS trustworthy
+    // at night is the closed form and the by-difference isolation, which agree:
+    // 0.15 lux of intensity through a 0x35406b tint is 0.008 lux delivered, 1.1% of
+    // the light at the corridor camera, and base-minus-hemisphere-off reads 0.0
+    // against a 0.05 lux quantisation. The dome's own integral there is 0.197 lux.
+    //
+    // THE HEMISPHERE IS NOT CARRYING A TERM THE DOME LACKS, and that was the thing
+    // worth checking: a HemisphereLight's groundColor is a ground BOUNCE, and a
+    // PMREM built from a sky usually has none. This dome is not usual.
+    // sky.js's skyRadiance() fades the dome into groundRadiance() = albedo * E/pi
+    // below the horizon, so its lower hemisphere IS the lit ground, and the
+    // integral over it reads 15,593 lux at noon against this light's 2,580 - six
+    // times as much, not absent - and the PMREM delivers it to within 1%. Giving
+    // the sky to the PMREM and keeping the hemisphere for the bounce, which is the
+    // obvious compromise and the one this change was expected to make, would
+    // double-count the bounce instead: the same mistake one level down.
+    //
+    // Nor can environmentIntensity absorb the PMREM's residual. At golden the
+    // roughness-1 convolution delivers 86.5% of the dome's integral on an
+    // up-facing normal and 121.8% on a down-facing one IN THE SAME FRAME,
+    // so the error is angular, not scalar, and no single number corrects both.
+    //
+    // So: when the dome's environment map is in the scene it carries the whole
+    // sky, upper hemisphere and lower, and this light carries nothing. When there
+    // is no dome - labs/materials, labs/facades and labs/signage all construct
+    // TimeOfDay without one - it is the only ambient there is and carries the lot.
+    // apply() decides, after the dome has written.
+    //
+    // Left in the scene at intensity 0 rather than removed: it keeps the shader
+    // permutation and the audit's light census stable across the change, and
+    // audit().skyDelivery reports how many paths are carrying the sky, so the
+    // question this whole block answers is a number in the artifact from now on.
     this.hemi = new THREE.HemisphereLight(0xffffff, 0x000000, 1);
     scene.add(this.hemi);
 
     this.lamps = [];          // registered by whoever builds street furniture
     this.post = null;         // optional PostStack; see attachPost()
     this.skyDome = null;      // set once src/sky.js provides a real dome
-    this.envIntensity = 1.0;  // PMREM radiance is physical; do not dim it
+    // Full strength, and that is no longer a preference: the dome's PMREM is the
+    // only thing delivering the sky's diffuse, so dimming it dims the sky.
+    // sky.js's recommendedEnvironmentIntensity now agrees, and the two have to -
+    // sky.refresh() calls applyToScene() again on every weather transition, so a
+    // disagreement between them does not read as a wrong constant, it reads as the
+    // district re-dimming in the middle of the rain arriving.
+    this.envIntensity = 1.0;
     this.weather = { wetness: 0, fogBoost: 0 };
     this.preset = null;
     this.apply('dusk');
+  }
+
+  /**
+   * Is the dome's own PMREM in the scene and delivering? Identity-checked against
+   * the dome's texture rather than testing scene.environment for truthiness: an
+   * environment map from somewhere else is somebody else's decision, and this is
+   * only ever about the double delivery of OUR sky.
+   */
+  skyCarriedByEnvironment() {
+    return !!(this.skyDome && this.skyDome.environment
+      && this.scene.environment === this.skyDome.environment
+      && (this.scene.environmentIntensity ?? 1) > 0);
+  }
+
+  /**
+   * The sky's diffuse illuminance on a horizontal surface, summed over every path
+   * that carries it, in lux. This - not the HemisphereLight's raw intensity - is
+   * the photometric quantity, and it is what the plausibility envelope judges.
+   */
+  skyDelivery() {
+    const hemiLux = this.hemi.intensity * lum3(this.hemi.color);
+    const domeLux = this.skyCarriedByEnvironment()
+      ? (this.skyDome.audit().skyLux ?? 0) * (this.scene.environmentIntensity ?? 1) : 0;
+    return {
+      hemisphereLux: +hemiLux.toFixed(3),
+      environmentLux: +domeLux.toFixed(3),
+      totalLux: +(hemiLux + domeLux).toFixed(3),
+      // How many independent paths are delivering the sky. Anything but 1 is a
+      // photometric bug: 2 double-counts it, 0 leaves every shadow lit by the sun
+      // alone. It is a count, so it catches the double delivery at a time of day
+      // where the doubled total still happens to land inside the envelope - which
+      // is exactly what noon did.
+      paths: (hemiLux > 1e-6 ? 1 : 0) + (domeLux > 1e-6 ? 1 : 0),
+    };
   }
 
   registerLamp(light, candela) { this.lamps.push({ light, candela }); }
@@ -465,7 +663,9 @@ export class TimeOfDay {
       Math.sin(p.azimuth) * Math.cos(p.elevation) * d
     );
 
-    this.hemi.intensity = p.skyLux;
+    // Intensity is NOT set here. It depends on whether the dome's environment map
+    // ends up in the scene, which the block further down decides, so it is set
+    // after that block and not before it.
     this.hemi.color.setHex(p.skyColor);
     this.hemi.groundColor.setHex(p.groundColor);
 
@@ -494,10 +694,15 @@ export class TimeOfDay {
       this.skyDome.refresh({ force: true });
       this.skyDome.applyToScene(this.scene);
       // Restore full strength after the sky writes: the environment map is the
-      // only light reaching a wall when the sun is overhead.
+      // only light reaching a wall when the sun is overhead, and now the only
+      // thing delivering the sky's diffuse anywhere.
       this.scene.environmentIntensity = this.envIntensity;
       if (this.post) this.skyDome.applyToPost(this.post, this.weatherSys);
     }
+    // THE SKY IS DELIVERED ONCE - see the HemisphereLight in the constructor for
+    // the measurements. This runs AFTER the dome block above, because whether the
+    // dome's environment map is in the scene is the question it asks.
+    this.hemi.intensity = this.skyCarriedByEnvironment() ? 0 : p.skyLux;
     if (this.furniture) this.furniture.setLit(p.lampsOn);
     if (this.world && this.world.setFacadeTime) this.world.setFacadeTime(name);
     // Rescale the pool for the new time of day WITHOUT re-selecting which emitters
@@ -578,8 +783,29 @@ export class TimeOfDay {
     if (sun && (sun.intensity < env.sunLux[0] || sun.intensity > env.sunLux[1])) {
       flags.push(`sun ${sun.intensity} lux outside plausible ${env.sunLux.join('-')} for ${this.presetName}`);
     }
-    if (hemi && (hemi.intensity < env.skyLux[0] || hemi.intensity > env.skyLux[1])) {
-      flags.push(`sky ${hemi.intensity} lux outside plausible ${env.skyLux.join('-')} for ${this.presetName}`);
+    // The sky, judged on what it DELIVERS rather than on one light's raw number.
+    //
+    // This used to read hemi.intensity. That was the wrong quantity twice over:
+    // it is an intensity, not an illuminance (a tinted light of intensity E puts
+    // E * luminance(color) lux on a facing surface), and from the day sky.js's
+    // PMREM landed it was not even the only path carrying the sky. On the
+    // committed build golden delivered 5,548 lux through the HemisphereLight AND
+    // 8,519 through the environment - 14,067 against an envelope of 5,500-11,800
+    // that the gate read as PASS, because it was looking at 8,519 and calling it
+    // lux. Asserting the delivered total makes the envelope mean what it says,
+    // and would have failed on that build. See the Threshold change log.
+    const delivery = this.skyDelivery();
+    if (delivery.totalLux < env.skyLux[0] || delivery.totalLux > env.skyLux[1]) {
+      flags.push(`sky delivers ${delivery.totalLux.toFixed(0)} lux to a horizontal surface ` +
+        `(hemisphere ${delivery.hemisphereLux.toFixed(0)} + environment ${delivery.environmentLux.toFixed(0)}), ` +
+        `outside plausible ${env.skyLux.join('-')} for ${this.presetName}`);
+    }
+    // One sky, one delivery. Two paths double-count it whatever each one reads.
+    if (delivery.paths !== 1) {
+      flags.push(delivery.paths > 1
+        ? `the sky is delivered ${delivery.paths} times: HemisphereLight ${delivery.hemisphereLux.toFixed(0)} lux ` +
+          `AND environment ${delivery.environmentLux.toFixed(0)} lux, from the same dome`
+        : 'nothing is delivering the sky: every shadowed surface is lit by the sun alone');
     }
     for (const l of lights.filter((x) => x.type === 'PointLight' && x.intensity > 0)) {
       const [lo, hi] = PLAUSIBLE.lampCandela;
@@ -657,6 +883,10 @@ export class TimeOfDay {
       // for a white light.
       sunLuxDelivered: sun ? +(this.sun.intensity * lum3(this.sun.color)).toFixed(3) : null,
       skyLuxDelivered: hemi ? +(this.hemi.intensity * lum3(this.hemi.color)).toFixed(3) : null,
+      // Every path that carries the sky's diffuse, and how many there are. `paths`
+      // is the number the envelope now gates on alongside the total: it turns "is
+      // the sky double-counted" from an argument into a count.
+      skyDelivery: delivery,
       litPointLights: lights.filter((l) => l.type === 'PointLight' && l.intensity > 0).length,
       lightPool: this.lightPool ? this.lightPool.report() : null,
       environmentIntensity: this.scene.environmentIntensity,
