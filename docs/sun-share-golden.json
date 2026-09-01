@@ -1,8 +1,8 @@
 {
  "tod": "golden",
  "noiseFloor": {
-  "ground": 0.08092023492754663,
-  "facade": 0.220326380467327
+  "ground": 0.05423088566253398,
+  "facade": 0.18677694218609986
  },
  "rows": [
   {
@@ -11,7 +11,7 @@
    "sunPotentialOnGround": 33.7,
    "blockedOnGround": 5.3,
    "sunPotentialOnFacade": 16.8,
-   "blockedOnFacade": 6.7,
+   "blockedOnFacade": 7,
    "sunSharePct": 26.5,
    "blockedPct": 15.7,
    "groundClipPct": 0,
