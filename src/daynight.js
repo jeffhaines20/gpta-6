@@ -44,16 +44,20 @@ export const PRESETS = {
   //
   // 8 deg was proposed from Kasten-Young air mass 6.857 and a broadband luminous
   // optical depth tau = 0.21, which predicts 31,500 lux direct normal. Our model
-  // says 34,470 - 9.4% brighter. The model wins; 34,470 is what is authored, and
-  // the discrepancy is logged rather than split. The model is self-consistent at
-  // the other end too: it puts 9,319 lux at dusk's 3.15 deg, against the ~8,800
-  // that src/sky.js's own SKY_PRESETS comment quotes.
+  // says 34,470 - 9.4% brighter. The model wins: 34,470 is what this preset puts on
+  // the district (audit() measures 34,394 delivered, the 0.2% being the hue's 8-bit
+  // quantisation), and the discrepancy is logged rather than split. The model is
+  // self-consistent at the other end too: it puts 9,319 lux at dusk's 3.15 deg,
+  // against the ~8,800 that src/sky.js's own SKY_PRESETS comment quotes.
   //
   // Why 8 deg and not 6. Two independent reasons, both measured:
   //   - the sun's share of the horizontal illuminance is sun*sin(el)/(sun*sin(el)
   //     + sky): 25.7% at 6 deg, 36.0% at 8 deg, 44.4% at 10 deg. A cast shadow can
   //     never be more legible than that number allows, and 6 deg is on the edge of
-  //     the 25% acceptance bar before any geometry gets in the way.
+  //     the 25% acceptance bar before any geometry gets in the way. That is the
+  //     ATMOSPHERE's share; what the district renders is lower, because it delivers
+  //     the sky twice - see the exposure note. Measured at 8 deg by
+  //     tools/sun-share.mjs: 26.5% of the road, 0% of the band clipped.
   //   - shadow length against the shadow volume. The ortho shadow camera is +-260
   //     (lateral) with near 1 / far 900 along the light ray from a light parked 400 m
   //     out, so the ground is covered from 403 m sunward to 505 m anti-sunward of
@@ -76,6 +80,28 @@ export const PRESETS = {
   // their casters, which is what dusk's 172-deg-off sun does. tools/sun-sweep.mjs
   // established that bearing barely moves ground occlusion (1.99-3.55 over a full
   // 360), so this is about where the light sits in frame, not how much of it there is.
+  //
+  // It is also the bearing that decides which wall is the key light: a facade whose
+  // normal points along heading N collects cos(azimuth - N) of the beam, so an
+  // azimuth near the street's normal (90 deg off the lens) maximises the lit wall
+  // and minimises the visible shadow, and one near the lens does the opposite. 44 deg
+  // is deliberately between: the fivepoints frame gets its left-hand block at
+  // cos(46 deg) = 0.70 of full beam - warm and clearly the key - while the right-hand
+  // block falls to fill light only, which is the wall-to-wall separation noon cannot
+  // produce at 75.6 deg.
+  //
+  // Measured, at the corridor camera, comparing the authored frame against the same
+  // frame with shadow.intensity = 0 (docs/shots/share-*-authored-{base,noshadow}.png):
+  //
+  //   hour     road pixels darkened >8/255 by cast shadow     mean depth where shadowed
+  //   golden                21.0%                                     23.2/255
+  //   dusk                   1.9%                                     12.3/255
+  //   noon                   0.0%                                     13.1/255
+  //
+  // Eleven times dusk's shadowed area at nearly twice the depth, and noon has none at
+  // all at this camera. That is the round-5 note - "make the sun's occlusion visible
+  // on the ground planes" - actually satisfied, in the hour where it is physically
+  // possible rather than in the one where it is not.
   golden: {
     label: 'Golden hour',
     // 53,138 is an INTENSITY, and it is the one number in this preset that is not
@@ -137,6 +163,11 @@ export const PRESETS = {
     // 29.5% in linear ones. The double-counted sky is a district-wide property, not
     // this preset's to fix, but pretending it is not there is what would make the
     // stop wrong.
+    //
+    // Measured at 1/6,006: road band 122.0/255 with 0% of it clipped, and the sun
+    // owning 26.5% of it. Noon's band at the same camera is 58.3 and dusk's 98.3, so
+    // golden is the brightest hour of the three, which is what an hour with 34,470
+    // lux of direct sun and no lamps should be.
     exposure: 1 / 6006,
     // Off. 4,797 lux of sun on the road against a 900 cd lamp is not a contest,
     // and real street lighting is not on 40 minutes before sunset.

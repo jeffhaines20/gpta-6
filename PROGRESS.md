@@ -87,6 +87,150 @@ Whoever takes it: lower `PRESETS.noon.elevation` first and re-measure the vertic
 vs horizontal split before touching `exposure`. The lux values are inside the
 plausibility envelope and are probably not the problem.
 
+> **Update 2026-09-01.** Part of the "black facades" observation was not the elevation at
+> all: `docs/shots/tod-noon.png` carried 20,920 literally black (0,0,0) pixels from a
+> half-float overflow reaching ACES as NaN, now down to 1,036 after the `src/post.js` guard
+> described under Golden hour. The elevation finding above still stands - a wall at 75.6 deg
+> collects almost nothing - but the frame was ALSO being corrupted, and the two were being
+> read as one defect.
+
+## Golden hour: the hour that was missing, authored off our own atmosphere
+
+The section below establishes that dusk cannot have legible ground shadows and that no
+camera or azimuth change can give it any. The remedy was never to fix dusk - it renders
+sunset correctly - but to author the hour every critique round was actually describing.
+`PRESETS.golden` / `SKY_PRESETS.golden` is that hour, at **8.00 deg** of sun elevation.
+
+**Every photometric number was read back out of `src/sky.js`, not from a textbook.** Set
+the dome to 8 deg at turbidity 2.6 (the value `weather.js`'s clear state actually pushes -
+see the finding below), refresh, and read `atmosphere`:
+
+| quantity | source | value |
+|---|---|---|
+| direct normal illuminance | `SUN_ILLUMINANCE * luminance(t)` | **34,470 lux** |
+| sky illuminance | cos-weighted hemispherical integral of the dome | **8,519 lux** |
+| zenith / horizon | probe read-back | 1,434 / 7,907 nits |
+| sun colour | the transmittance `t` itself, `[0.4168, 0.2442, 0.0982]` | `0xffc985` |
+| sky colour | the dome's own cos-weighted upper-hemisphere colour | `0xb9d5ff` |
+
+The 8 deg suggestion came with an arithmetic prediction of 31,500 lux from Kasten-Young air
+mass 6.857 at tau = 0.21. **Our model says 34,470 - 9.4% brighter, and the model wins.**
+Recorded rather than split: the same model puts 9,319 lux at dusk's 3.15 deg, against the
+~8,800 `sky.js`'s own comment quotes, so it is self-consistent at both ends.
+
+### Acceptance
+
+`SHARE_TOD=golden node tools/sun-share.mjs`, corridor camera, traffic and pedestrians
+frozen, noise floor 0.08 measured first:
+
+| | sun's share of the road | geometry blocks | road band | clipped |
+|---|---|---|---|---|
+| **golden** | **26.5%** | 15.7% | 122.0 | **0%** |
+| noon | 83.8% | 0% | 58.3 | 0% |
+| dusk | 2.3% | 100.6% | 98.3 | 0% |
+
+Band means are not the question a critic asks, though. Differencing the authored frame
+against the same frame with `shadow.intensity = 0` gives the shadow's actual footprint:
+
+| hour | road pixels darkened >8/255 by cast shadow | mean depth where shadowed |
+|---|---|---|
+| **golden** | **21.0%** | **23.2/255** |
+| dusk | 1.9% | 12.3/255 |
+| noon | 0.0% | 13.1/255 |
+
+Eleven times dusk's shadowed area at nearly twice the depth. Frames in
+`docs/shots/golden-{corridor,fivepoints}-golden.png`; the fivepoints frame has its
+left-hand block as a warm key at cos(46 deg) of full beam and its right-hand block on fill
+light only, which is the wall-to-wall separation noon cannot produce at 75.6 deg.
+
+Gates: syntax PASS (74 modules), golden-trace PASS (30 samples), physics PASS (10 checks),
+lighting sweep **PASS - all 4 times of day inside the plausible envelope**, negative test
+still fires.
+
+### Three things the authoring turned up, all measured
+
+**1. `scene.environmentIntensity` is 1.0, so the sky is delivered twice - and it caps any
+sun's share of the road.** `sky.js` recommends 0.35 precisely to avoid double-counting the
+HemisphereLight; `daynight.js.apply()` restores 1.0 afterwards, deliberately, with a
+comment about walls at noon. Isolating each source at the corridor camera (each switched
+off in turn, differenced in exposed units, the three summing to 0.1806 against a measured
+total of 0.1760 - additive to 3%, so the split is real):
+
+| source | contribution to the road |
+|---|---|
+| PMREM environment | **0.0867** |
+| HemisphereLight | 0.0494 |
+| sun | 0.0445 |
+
+The environment alone outweighs the sun and the hemisphere separately. The atmosphere's own
+sun share at 8 deg is 36.0%; the district renders 26.5% because of this. Not fixed here -
+it is a district-wide decision with a stated reason - but the golden exposure is derived
+against the illuminance the engine actually delivers rather than the one the sky measures,
+because pretending it is not there is what makes a stop wrong.
+
+**2. `intensity` is not the illuminance, and `audit()` now says so.** three.js hands the
+shader `color * intensity` as irradiance, so a light of intensity E delivers
+`E * luminance(color)` lux, and `luminance(color) < 1` for every colour that is not white.
+The file header has promised "intensity -> lux" since Phase 1 and that promise is only true
+for a white light. Verified in the running district by forcing the sun's colour to white at
+a fixed intensity: the road goes 139.5 -> 147.1 of 255 and the sun's own contribution
+0.0445 -> 0.0670, a factor of **1.506** against the 1.542 that 1/0.6487 predicts.
+
+`audit()` now reports `sunLuxDelivered` / `skyLuxDelivered` beside the authored values.
+**Reported, not gated** - the envelope still judges the authored number, so no existing
+verdict moves. Golden is authored to deliver correctly (intensity 53,138 x 0.6487 = 34,394
+lux measured); noon delivers 93,080 of its authored 100,000 and dusk 498 of its 1,200, and
+neither was touched.
+
+**3. `SKY_PRESETS.turbidity` has been dead in the game since weather landed.**
+`weather.js._push()` runs every frame and calls `sky.setTurbidity(2.6)` for the clear state;
+`setTimeOfDay()` will not overwrite an override. Measured at all three existing times of
+day in `docs/fglass-audits.json`: `turb 2.6` on every row, not the 2.4 / 3.2 / 2.8 the
+presets author. `golden` is therefore authored at 2.6 - the atmosphere that actually
+renders - and the other three are left alone.
+
+### A pre-existing black hole in the frame, found by an incoherent number
+
+`sun-share` reported `sunPotentialOnFacade: -19.7` - the facade band getting BRIGHTER when
+the sun is switched off, which is impossible. It was not impossible; it was reporting a
+real defect. `docs/shots/share-golden-authored-base.png` had a 33,352-pixel **pure black**
+blob on a sunlit tower, present with the shadow map disabled and absent with the sun off,
+and switching bloom off did not remove it.
+
+Reading the scene HDR target directly: **14,259 NaN channels, 8 Inf, and a finite maximum
+sitting exactly on 65,504** - half-float's ceiling. The district is authored in absolute
+nits, so a metallic pane reflecting the PMREM (whose own ceiling is `sky.js`'s
+`maxRadiance` of 60,000 nits) plus a specular lobe from a 34,470 lux sun overflows the
+target. `aces()` is `clamp((x(ax+b))/(x(cx+d)+e))`: hand it Inf and it computes Inf/Inf, and
+`clamp(NaN)` is 0 on this rasteriser.
+
+**This is not new and not golden's.** `docs/shots/tod-noon.png` on the committed build has
+**20,920 pure-black pixels, 1.79% of frame**, and several critic rounds have described noon
+as having black facades. Dusk has none - at 1,200 lux nothing gets near the ceiling.
+
+Fixed in `src/post.js` with a NaN/Inf guard where the composite and the bright pass sample
+the scene (`lessThanEqual` is false for NaN and for Inf alike, so both land on a 60,000
+ceiling; finite pixels are returned unchanged). After: **0 pure-black pixels in all three
+golden frames and in both golden hero frames**, and `sunPotentialOnFacade` reads +16.8
+instead of -19.7. Noon goes **20,920 -> 1,036** (0.089% of frame): the 33k-pixel blob is
+gone, and what is left is two small localised clusters that are as likely to be genuinely
+unlit geometry rounding through the dither as another overflow. Not chased further - it was
+not what this work was for, and the claim here is the measured 95%, not zero.
+
+No threshold moved and no gate verdict changed - this is a renderer bug, not a gate - but
+it does change what noon renders, which is why it is logged here rather than left in a
+commit message.
+
+`src/post.js` is outside the set of files this work was scoped to; it was touched because a
+black hole in the hero frame is not shippable and the same guard fixes noon.
+
+### Still open
+
+`tools/sun-sweep.mjs`'s `BASE = { dusk: 2.72, noon: 0.6, night: 4.1 }[TOD]` has no `golden`
+row, so `SWEEP_TOD=golden` would sweep from `undefined`. Left alone deliberately: another
+session has uncommitted edits in that file and staging it would have committed their
+work-in-progress. One line, `golden: 0.768`.
+
 ## Dusk cannot have legible ground shadows, and the reason is photometric
 
 Round 5's dusk critic gave one change: *"make the sun's occlusion visible on the ground
