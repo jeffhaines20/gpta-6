@@ -34,6 +34,9 @@ at night, bloom + height fog in.
 
 | Date | Gate | Result | Evidence |
 |---|---|---|---|
+| 2026-09-01 | **drive-through + 30 traffic**, sky delivered once | **PASS** — draw p95 **229** (warn 275), tris p95 **720,802** (warn 830k), stall **7.9 ms** (warn 8), heap **−5 MB** | `docs/drive-traffic.json` |
+| 2026-09-01 | **lighting sweep**, sky delivered once | **PASS** — all 4 presets inside the envelope on the DELIVERED sky, `paths: 1` at every one, both negative tests firing | `docs/daynight.json`, `docs/daynight-negative-sky.json` |
+| 2026-09-01 | syntax / golden-trace / physics / geom-audit | PASS — 81 modules, 30 samples, 10 checks, every prop reaches its host surface | `npm run gates:static` |
 | 2026-09-01 | **drive-through + 30 traffic**, after the ground-contact shadow work | **WARN** (unchanged verdict) — draw p95 **167** (was 166), tris p95 **353,868** (was 350,597), stall **13.1 ms**, heap +6 MB | `docs/drive-traffic.json` |
 | 2026-08-29 | **chase harness, textured** (60 + 10, dusk, 2 laps) | **PASS** — draw p95 **114**, tris 60.9k, stall **6.5 ms**, heap +3 MB, 71.5% headroom | `docs/chase-harness.json` |
 | 2026-08-29 | chase harness, textured, first attempt | **FAIL** — stall 40.8 ms | fixed in 3 measured rounds; see below |
@@ -149,6 +152,11 @@ lighting sweep **PASS - all 4 times of day inside the plausible envelope**, nega
 still fires.
 
 ### Three things the authoring turned up, all measured
+
+> **Resolved 2026-09-01.** Finding 1 below is fixed — see "The sky is delivered once,
+> and the premise that made it hard was false". The exposure derivation quoted in this
+> section (1/6,006 from E_render 18,868 lux) is superseded: golden is now 1/4,152 from a
+> measured 12,423 lux, and the sun's share of the road went 26.5% → **35.5%**.
 
 **1. `scene.environmentIntensity` is 1.0, so the sky is delivered twice - and it caps any
 sun's share of the road.** `sky.js` recommends 0.35 precisely to avoid double-counting the
@@ -444,6 +452,324 @@ raw intensity, which may become the wrong quantity to assert.
 - It also checked 19 sky boxes rather than one column and reported the blue-left /
   warm-right gradient correctly, explicitly noting that a single column would have given
   the wrong answer in either direction.
+
+## The sky is delivered once, and the premise that made it hard was false
+
+The section above scheduled this and named the hard part: *"a HemisphereLight
+approximates sky PLUS ground bounce, and the PMREM has no bounce term — so deleting
+the hemisphere outright removes something the PMREM never had."* That is true of
+nearly every sky PMREM. **It is false for this one**, and being able to say so
+rather than argue about it is what the new instrument bought.
+
+### The instrument, because differencing screenshots could not settle it
+
+Every previous isolation in this ledger differenced screenshots. That cannot answer
+"how much light is there", and this build breaks it three ways at once:
+
+1. **The capture is neither linear nor sRGB.** `src/post.js`'s composite is a
+   `RawShaderMaterial` writing `aces(color * exposure)` straight to `gl_FragColor`
+   with no `<colorspace_fragment>`, so three.js adds no encode and the 8-bit value
+   in a screenshot **is** the Narkowicz ACES output. Checked, not assumed: noon's
+   ground region reads 15,976 nits out of the HDR target at 1/78,000, and
+   `aces(15976 · (ao + bloomStrength) / 78000)` is 98 of 255 while an sRGB encode of
+   the same is 169. The frame reads **97.7**.
+2. **A ratio of two pixel boxes is a ratio of two materials as much as of two
+   lights**, even when the materials are verified identical, because fog, AO and
+   bloom reach the two boxes differently.
+3. **A screenshot cannot be inverted past a clip**, and `corridor-golden` has 12,185
+   pixels in the last bin of R.
+
+`tools/sky-once.mjs` therefore puts a **light meter in the frame**: four albedo-1,
+roughness-1, emissive-0 patches 2.4 m in front of the hero camera — facing up, facing
+down, vertical facing the lens, and vertical turned as far toward the sun as the
+camera can read. A Lambertian surface of albedo 1 under irradiance E has radiance
+E/π, so π times the patch's radiance read out of `post.hdr` is **lux**. Each light
+path is then switched off in turn.
+
+It is self-tested against a closed form — with the sun and the environment off, an
+up-facing patch must read `intensity · luminance(skyColor)`, which is what
+`getHemisphereLightIrradiance` computes for an up-facing normal. On the committed
+build: **0.0%** error at noon, golden and dusk on all four patches. On the changed
+build, where that light is off, the test injects a known intensity and checks the
+same identity: **−0.01%, −0.01%, +0.07%**. The three light paths also sum to the
+measured total to within **0.01%**.
+
+Three of its own failures are recorded, because each produced plausible numbers:
+
+- **A 700 ms wait between the toggle and the readback was sometimes less than one
+  frame**, so the readback returned the *previous* variant's target: `base` came back
+  byte-identical to `envonly`, which made the sun's contribution negative. Switching
+  a light ON cannot remove light, and that impossibility is what exposed it. Now it
+  waits six rendered frames, re-asserts the state every frame while waiting, and
+  records in the artifact the intensities each variant's frame was rendered at.
+- **A key patch read at a grazing angle stopped being a diffuse meter.** A
+  `MeshStandardMaterial` keeps its dielectric lobe and Schlick's `(1−cosθ)^5` takes
+  F0 = 0.04 to 0.34 at 78°: the patch read the sun 68% over the arithmetic and read
+  the HemisphereLight **26.8% under a value the shader computes in closed form**.
+  Clamped to 55°, where the Fresnel term is 0.054.
+- **One whole run measured the inside of a building** — see the Measurement
+  integrity entry below.
+
+### The derivation: this dome's ground bounce is six times the light's
+
+`src/sky.js`'s `skyRadiance()` does not stop at the horizon —
+`L = mix(L, groundRadiance(), 1 − exp(−below · uGroundHaze))` with
+`groundRadiance() = uGroundAlbedo · E / π` — so the LUT's lower hemisphere is a lit
+ground plane, and the PMREM is built from that LUT. Integrating it with the same
+`∫L cosθ dω` that produces `skyLux`:
+
+| preset | surface | HemisphereLight | PMREM env | the dome's own integral |
+|---|---|---|---|---|
+| noon | up | 13,074 lux | 15,006 lux | 15,126 lux |
+| noon | **down** | **2,580** | **15,736** | **15,593** |
+| noon | wall | 7,827 | 17,084 | 16,482 |
+| golden | up | 5,548 | 7,359 | 8,503 |
+| golden | down | 732 | 1,550 | 1,273 |
+| golden | wall | 3,140 | 6,490 | 6,111 |
+| dusk | up | 355 | 1,381 | 1,595 |
+
+The dome's ground bounce is **15,593 lux at noon against the HemisphereLight's
+2,580** — six times as much, not absent — and the PMREM delivers it to within 1%.
+Giving the sky to the PMREM and keeping the hemisphere for the bounce, which is the
+obvious compromise and the one this change was expected to make, would have
+double-counted the bounce: the same mistake one level down.
+
+So the hemisphere carries **nothing** when the dome's map is in the scene and
+everything when it is not — `labs/materials`, `labs/facades` and `labs/signage`
+construct `TimeOfDay` without a dome and would go black otherwise. `apply()` decides
+*after* the dome has written, because that is when the question can be asked. The
+light stays in the scene at intensity 0 rather than being removed, so the shader
+permutation and the audit's light census do not move across the change.
+
+Correcting the PMREM's residual with `environmentIntensity` is ruled out by the same
+table: at golden the roughness-1 convolution delivers **86.5% of the dome's integral
+on an up-facing normal and 122% on a down-facing one in the same frame**. The error
+is angular, not scalar. `sky.js`'s `recommendedEnvironmentIntensity` — 0.35, which
+existed *only* to leave room for the HemisphereLight — is now 1 and agrees with
+`daynight.js`. That matters beyond tidiness: `sky.refresh()` calls `applyToScene()`
+again on every weather transition, so a disagreement re-dims the district mid-rain.
+
+Night is deliberately absent from the table above: the meter's single-path frames
+still contain the street lamps at that hour, which at 0.7 lux total swamp the 0.008
+lux the hemisphere delivers. The closed form and the by-difference isolation agree
+there instead — 0.008 lux, 1.1% of the light at that camera, with base-minus-
+hemisphere-off reading 0.0 against a 0.05 lux quantisation.
+
+### Exposure, re-derived for every preset
+
+The rule is `exposure = π/E`. Only `golden` was ever authored strictly to it — noon
+sits 2.1× under, dusk 1.35×, night 6×, each deliberately — so each stop moves by the
+factor its **own** horizontal illuminance moved by, which is what an auto-exposure
+does. Re-deriving three presets from the rule would re-grade them for a reason
+unrelated to this change.
+
+| preset | E_before | HemisphereLight | E_after predicted | E_after **measured** | factor | stop |
+|---|---|---|---|---|---|---|
+| noon | 119,851 lux | 13,075 (10.9%) | 106,775 | **106,758** | 1.1225 | 1/78,000 → **1/69,490** |
+| golden | 17,971 | 5,548 (30.9%) | 12,423 | **12,423** | 1.4466 | 1/6,006 → **1/4,152** |
+| dusk | 1,764 | 355 (20.1%) | 1,409 | **1,410** | 1.2518 | 1/900 → **1/719** |
+| night | 0.700 | 0.008 (1.1%) | 0.692 | **0.700** | 1.0116 | 1/1.15 → **left alone** |
+
+The last two columns are the check that the derivation was right rather than
+plausible: the changed build's own light meter reproduces the predicted E_after to
+**0.016% at noon, 0.002% at golden and 0.035% at dusk**. Night is left alone as the
+derivation's own answer — 1.2% is below the meter's resolution there, and the night
+frames are the ones three critic rounds have named as the best in the set.
+
+**An 18% card sits where it sat.** What moves is the split, because the term removed
+was fill and the sun was not:
+
+| preset | sun's share of the light on the road | key:fill on the meter (same material, same point, two orientations) |
+|---|---|---|
+| noon | 76.6% → **86.0%** | 1.29 → 1.43 (0.37 → 0.51 stops) |
+| golden | 28.2% → **40.8%** | **2.99 → 3.95 (1.58 → 1.98 stops)** |
+| dusk | 1.6% → 2.0% | 1.02 → 1.02 (the dusk sun is 8° off the camera-facing wall's own normal, so there is no shadow side to measure) |
+| night | 28.6% → 28.9% | 0.62 → 0.62 |
+
+Golden's 40.8% is *above* the atmosphere's own 36.0% quoted in the preset, because
+the PMREM under-delivers the dome's sky by 13.5% on a horizontal normal. The `26.5%
+of the road` that comment used to carry was measured on the double-counted build and
+does not describe this one.
+
+**What this costs noon, stated rather than left to be found.** The HemisphereLight
+was 31.4% of the light on a vertical surface at the corridor camera (7,827 lux of
+24,906), and a 75.6° sun leaves a wall almost nothing else; the corridor wall region
+goes 3,807 → 3,103 nits. The frame this ledger already records as unusable loses that
+much again. The recorded remedy — lower the elevation — is unchanged and still right.
+
+### The envelope was asserting the wrong quantity
+
+`PLAUSIBLE[preset].skyLux` was checked against `hemi.intensity`, which is an
+intensity rather than an illuminance *and* was only one of the two paths delivering
+the sky. It now judges `skyDelivery().totalLux` and counts `paths`. No bound moved.
+Full derivation, and the demonstration that the new assertion fails on the old
+configuration, in the Threshold change log.
+
+### The critic's predictions, scored
+
+Scored with one instrument (`tools/critic-metrics.mjs`) on frames from one harness
+(`tools/hero-shots.mjs`), before (`b8-*`) and after (`a8-*`). The noise floor comes
+first: re-capturing the *unchanged* build as `b8-*` against the committed `r7-*` set
+moves whole-frame metrics by 0.5–5% (that harness does not freeze pedestrians), while
+the critic's verified pair reads **byte-identically** — `key8 [199.5, 185, 160.8]`,
+`fill8 [141.7, 143.2, 142]` in both — because it sits on static facade geometry.
+
+| prediction | `r7` | `b8` before | `a8` after | met? |
+|---|---|---|---|---|
+| **1.** fivepoints-golden pair, linear ratio → 5–7 | 1.72 | 1.72 | **1.56** (sRGB) / **1.74** (ACES⁻¹) | **no** |
+| **2.** fivepoints-golden ground box warm → tens of % | 0.39% | 0.39% | **0.35%** | **no** |
+| **3.** corridor-golden pixels at 255 → below 0.2% | 0.846% | 0.844% | **1.087%** | **no, and worse** |
+| **3b.** corridor-golden R 254→255 step → below 3× | 11.9× | 12.0× | **13.0×** | **no** |
+| **4.** corridor-golden mean chroma → rise | 22.33 | 22.44 | **21.07** | **no** |
+
+Five predictions, none met — and the change is nevertheless the right one, because each
+of the five is measuring something other than what it was written to measure. The
+evidence for that is in the same frames.
+
+**The change is unambiguously there.** Differencing the frames: at golden the corridor
+moves by mean |Δ| **15.0** with 86% of pixels changed, against a *same-build* r7↔b8
+noise of 2.2 and 10%; fivepoints moves 10.5 / 73% against 0.67 / 3.7%; dusk moves 10.1
+/ 88% against 2.3 / 13%. At night it moves 2.2 / 20.5% against a same-build 2.1 /
+19.1% — i.e. nothing, which is what a 1.1% term should do.
+
+**Prediction 2 is the one that carries information, and its own alternative is right
+for a reason it did not offer.** The critic wrote: *"if it stays near 0.4%, the
+road/sidewalk materials are off the sun path and that is a separate, cheaper fix."*
+The materials are not off the sun path. The **same materials, same build, same
+change** at the other two cameras:
+
+| ground band, golden hour | warm fraction (R−B>10) | R−B |
+|---|---|---|
+| corridor hero camera (`skyonce-*-golden`) | 18.2% → **41.4%** | −8.2 → **+3.5** |
+| sweep camera (`tod-golden`) | 7.4% → **33.8%** | −12.7 → **−2.6** |
+| **fivepoints hero camera** | **0.39% → 0.35%** | **−42.0** |
+
+At fivepoints the carriageway and both pavements are inside the blocks' own shadow —
+an 8° sun down a street canyon does not reach them — so the box contains almost no
+sunlit ground to warm. `docs/shots/a8-fivepoints-golden.png` shows the shadow edge
+running the width of the frame. The answer to "report which" is **neither branch**: the
+materials are on the sun path where the sun reaches them, and that box is in shade.
+
+**Predictions 3 and 4 move the wrong way, and the mechanism is the exposure rule
+working correctly.** The rule normalises an 18% card on the *ground*; the term removed
+was on the ground and not in the sky, whose radiance is what it always was. So
+re-exposing raises the sky by the full 1.4466× while the road stays put:
+
+| golden band, corridor | mean Y | chroma | R−B |
+|---|---|---|---|
+| ground, before → after | 123.6 → 127.8 | 21.6 → 23.1 | **−8.2 → +3.5** |
+| sky, before → after | 193.0 → **216.8** | 31.4 → **16.2** | −12.3 → −8.3 |
+
+A brighter sky is a *less* saturated sky once ACES has it, and the sky is a third of
+the frame — so whole-frame chroma falls (prediction 4) while the street it is meant to
+describe goes from blue to warm. The extra clipped pixels (prediction 3) are the same
+sky and the specular glass in it, neither of which the HemisphereLight was lighting.
+
+**And the bright pass is amplifying all of it by 1.4×** — see the bloom finding below.
+The counterfactual is captured: `docs/shots/skyonce-after-golden-nobloom.png` is the
+same frame with `bloomStrength` set to 0 for one capture. It reads chroma **24.94**
+against 22.66 and 0.886% clipped against 1.086%. Removing the veil recovers most of
+prediction 4 and a fifth of prediction 3 on its own.
+
+**Prediction 1 is capped by the dome, and the cap is measurable.** The meter's
+controlled key:fill — one material, one point, two orientations — went **2.99 → 3.95
+(1.58 → 1.98 stops)** at golden, which is the whole of what removing the double count
+can buy. The remaining gap to 2.5–4 stops is the sky's own irradiance on a wall: the
+dome puts **12,104 lux on a sun-facing vertical** against 34,394 lux of beam, so a
+shadow edge on that wall cannot exceed 1 + 34,067/10,894 = 4.13 (2.05 stops) however
+the sky is delivered. Getting to 5–7 needs a less luminous horizon at 8°, not a
+lighting-delivery fix.
+
+### Regressions guarded
+
+The round-7 critics named three things as the best in the set, all at night — the
+preset where the HemisphereLight was delivering 0.008 lux of 0.700. Same harness,
+same tags, and the `r7` capture of the *unchanged* build included so the run-to-run
+spread is visible next to the change:
+
+| corridor-night | `r7` | `b8` before | `a8` after |
+|---|---|---|---|
+| crushed fraction, Y≤2 | 6.14% | 6.05% | **6.13%** |
+| lamp pool, brightest 5% of ground band | 41.3 | 42.5 | 39.7 |
+| lamp pool, band median "away" | 9.3 | 9.1 | 11.2 |
+| lit-window spread (sd of bright facade pixels) | 28.7 | 29.2 | **28.8** |
+| whole-frame chroma / mean Y | 17.83 / 28.5 | 17.63 / 28.2 | 17.68 / 28.5 |
+
+| fivepoints-night | `r7` | `b8` before | `a8` after |
+|---|---|---|---|
+| crushed fraction, Y≤2 | 2.41% | 2.47% | **2.43%** |
+| lamp pool, in / away / ratio | 91.7 / 36.2 / 2.53 | 91.7 / 36.0 / 2.55 | 91.3 / 35.9 / **2.54** |
+| lit-window spread | 46.1 | 47.4 | **46.7** |
+
+**Nothing at night moved, and the frame difference proves it rather than the table.**
+Differencing corridor-night pixel by pixel: `r7` against `b8` — the *same build*,
+captured twice — gives mean |Δ| **2.106** with 19.1% of pixels changed by more than
+3; `b8` against `a8`, across the change, gives **2.221** and 20.5%. The change is
+inside the harness's own noise, which is 96 unfrozen pedestrians walking through the
+frame. The one number that moves outside that band is the corridor's "away" median
+(9.1 → 11.2), and it is a median over a band those pedestrians walk across; the
+band's *mean* moves 12.7 → 13.4, and `r7`'s is 12.6.
+
+The crushed fraction is quoted at `Y≤2` on Rec.709 luminance throughout. The brief's
+11.6% for this frame is the same measurement at a different threshold — `Y≤3` gives
+12.32% and `max(R,G,B)≤2` gives 4.24% — so the threshold is stated rather than the
+number inherited.
+
+### Found on the way, measured, NOT fixed: the bright pass thresholds nits against a number authored in exposed units
+
+`src/post.js`'s bright pass does:
+
+```
+this.brightMat.uniforms.threshold.value = this.params.bloomThreshold;   // 1.4 at golden
+...
+float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));            // c is the SCENE TARGET
+float contrib = max(soft, lum - threshold) / max(lum, 1e-5);
+```
+
+`c` is `post.hdr` — absolute nits, thousands of them in daylight. `bloomThreshold`
+is 1.4. `src/daynight.js` derives that 1.4 explicitly **"in exposed units at
+1/6,006"**, from three quantities it computes as `radiance * exposure`. The shader
+and the file that authors the constant disagree about what the constant means by a
+factor of the exposure — 6,006 at golden, 78,000 at noon, 900 at dusk.
+
+So `contrib` is `1 - threshold/lum`, which is ~1 for every pixel in the frame, and
+the composite's `scene * ao + bloom * bloomStrength` adds **`bloomStrength` times a
+blurred copy of the whole frame**. That is not an inference. `tools/sky-once.mjs`
+reads the bloom target over the same boxes as the scene target:
+
+| preset | bloom / scene, wall box | bloom / scene, ground box | bloomStrength |
+|---|---|---|---|
+| noon | 1.001 | 1.001 | 0.30 |
+| golden | 1.004 | 1.011 | 0.40 |
+| dusk | 0.998 | 0.997 | 0.62 |
+| night | (fill) | (fill) | 0.85 |
+
+A second, independent check: predicting a pixel from the HDR readback only comes
+out right with the veil in it. Noon's ground region is 15,976 nits at 1/78,000;
+`aces(15976 * (0.95 + 0.30) / 78000)` is 98.5 of 255 and the frame reads **97.7**.
+Without the bloom term the same arithmetic gives 78.
+
+**Why this matters to the round-7 critique specifically.** The blur is four passes
+at half resolution with taps at 1.38 and 3.23 texels, i.e. a radius of roughly 20
+full-resolution pixels, and the critic's verified pair sits **38 pixels apart across
+a shadow edge**. A 40%-strength blurred copy at that radius adds nearly the same
+value to both boxes, which is arithmetically a contrast reducer: with a true
+lit:shadow illuminance ratio of K:F, the frame shows `(K + 0.4M) : (F + 0.4M)` with
+M the local mean. At golden's measured wall irradiances that turns 3.4 into about
+2.3 before ACES ever gets involved.
+
+**Not fixed here, deliberately.** The fix is one uniform, but it changes what every
+preset looks like at every time of day: at dusk `0.85` exposed is 765 nits against
+the `0.85` nits the shader currently uses, so the veil would go from total to almost
+absent, and all four presets' `bloomThreshold`/`bloomStrength` pairs were authored
+against the veiled look and would have to be re-derived together. Doing it inside
+this change would also make this change unmeasurable. It is the next item, it is in
+`src/post.js`, and it is the thing standing between the critic's predictions 1, 3
+and 4 and their targets.
+
+The counterfactual is captured rather than argued: `docs/shots/skyonce-after-*-nobloom.png`
+is each hero frame with `bloomStrength` set to 0 for one capture and restored
+immediately. Nothing shipped is changed by it.
 
 ## Round 7, art critic: right about the look, wrong about the cause, in its own boxes
 
@@ -1128,6 +1454,41 @@ asserted a missing subsystem - no shadow map, no AO pass, no street lighting, no
 bloom - where isolation measured 43%, 29%, 76% and 52% of pixels changing when
 each was disabled. Every one of those observations still pointed at something real.
 
+## Measurement integrity, a fourth of the same shape: the probe measured the inside of a wall
+
+Added to the list below, because it is the same failure with a new disguise and it
+cost a full measurement pass.
+
+One run of `tools/sky-once.mjs` put the corridor camera inside a building. Every
+input was identical to the run before it — the same coordinates `(3.7, −1.9)`, the
+same `back 16`, the same 3.2 m of clearance reported by `framing.mjs`, the same 89
+chunks and 264 meshes settled — and the entire frame was a brick facade at arm's
+length. `docs/shots/skyonce-meter-after.png` from that run is a wall, edge to edge.
+
+**The numbers it produced were plausible.** An up-facing patch reading 13,042 lux at
+noon rather than 119,851 is just a dark scene; region contributions that still summed
+to 100% looked like a working isolation. Two readings were *impossible*, and they are
+what caught it: a **down-facing** patch reporting 22,628 lux of direct sun, and the
+meter self-test coming back **87% under** a value the shader computes in closed form.
+
+`placeCamera()` was then ruled out rather than assumed. A diagnostic placed the
+camera before *and* after streaming settled: identical position, identical clearance,
+correct street view both times. Nothing about the placement is nondeterministic and
+re-running reproduces the good frame, so the cause is still unidentified — which is
+exactly why the guard is on the **result** and not on the inputs. `sky.audit()` knows
+the dome's own radiance, so if no pixel in the top band of the HDR target comes
+within a factor of four of it, the camera is not looking at the street: the tool
+re-places once and aborts with exit 2 if that does not fix it, and re-checks at every
+preset.
+
+**The rule this adds to the ones below.** A harness that frames its own shot must
+prove the shot is the one it thinks it is, from the *rendered frame*, not from the
+inputs it fed the framing code. Three tools in this repo previously measured from
+inside building 67 and the defect surfaced only when somebody finally *looked* at a
+capture; this one measured from inside a different wall and the defect surfaced only
+because one of its readings was arithmetically impossible. Neither is a reliable
+tripwire on its own.
+
 ## Measurement integrity — three failures in one session, same shape
 
 Recorded because the pattern repeated three times on 2026-08-30/31 and cost real
@@ -1171,6 +1532,71 @@ author later withdrew; the corrected reasoning is preserved in this entry rather
 than by rewriting the pushed history.
 
 ## Threshold change log
+
+### 2026-09-01 — the lighting envelope's `skyLux` bound now judges DELIVERED illuminance (strictness INCREASED)
+
+`PLAUSIBLE[preset].skyLux` has been checked against `hemi.intensity` since Phase 1.
+That is the wrong quantity twice over, and the second way is the one that mattered.
+
+**It is an intensity, not an illuminance.** three.js hands the shader
+`color * intensity` as irradiance, so a light of intensity E puts
+`E * luminance(color)` lux on a facing surface, and `luminance(color) < 1` for
+every colour that is not white. The file has said so since the golden-hour build
+and reported `skyLuxDelivered` beside the authored value — reported, not gated.
+
+**It was not even the only path carrying the sky.** `sky.js`'s PMREM is built from
+the same dome and `scene.environment` delivers it again. On the committed build,
+measured at the corridor hero camera with `tools/sky-once.mjs`'s light meter:
+
+| preset | HemisphereLight delivers | environment delivers | total | envelope |
+|---|---|---|---|---|
+| noon | 13,074 lux | 15,156 lux | 28,230 | 8,000–30,000 |
+| golden | 5,548 | 8,519 | **14,067** | **5,500–11,800** |
+| dusk | 355 | 1,596 | 1,951 | 100–2,500 |
+| night | 0.008 | 0.197 | 0.205 | 0.03–1.5 |
+
+The gate read PASS on all four (`docs/b8-audits.json`, eight captures, zero flags)
+because it was looking at `hemi.intensity` — 8,519 at golden — and calling it lux.
+**Golden was outside its own envelope by 19% and the gate could not see it.**
+
+**What changed.** `audit()` now computes `skyDelivery()`: the sky's diffuse
+illuminance on a horizontal surface summed over every path that carries it
+(`hemi.intensity * luminance(hemi.color)` plus the dome's own measured `skyLux`
+times `scene.environmentIntensity`), and the envelope judges that total. The
+bounds themselves are unchanged — they were always authored as sky *illuminance*
+ranges swept from `src/sky.js`'s own atmosphere, so they now mean what they say.
+
+**A second, new assertion.** `skyDelivery().paths` counts how many independent
+paths are delivering the sky, and the audit flags anything but 1. This is not a
+threshold; it is a physical statement — one sky, one delivery. It exists because
+the delivered-total check alone would NOT have caught the double count at noon or
+dusk, where the doubled figure still lands inside the band. A count does.
+
+**This is a strictness increase, not a relaxation.** Every preset that passed
+before still has to pass on a stricter quantity, and one of them (golden) did not
+until the double delivery was removed. No bound was widened. The negative test in
+`tools/daynight-sweep.mjs` still fires.
+
+**What it would have caught.** Re-run the old check against the fixed build and it
+passes; run the new check against the committed build and golden fails on the
+total and all four fail on `paths`. That is the test that this change makes the
+gate stronger rather than merely different.
+
+**Demonstrated, not asserted.** `tools/daynight-sweep.mjs` now carries a second
+negative test that re-injects exactly the removed state — the HemisphereLight back at
+the preset's `skyLux` at golden, environment untouched — and FAILS the gate if the
+checker does not fire. It fires with both flags (`docs/daynight-negative-sky.json`):
+
+```
+sky delivers 14067 lux to a horizontal surface (hemisphere 5548 + environment 8519),
+  outside plausible 5500-11800 for golden
+the sky is delivered 2 times: HemisphereLight 5548 lux AND environment 8519 lux,
+  from the same dome
+```
+
+Sweep verdict on the changed build: **PASS**, all four presets inside the envelope,
+`paths: 1` at every one, and both negative tests firing.
+
 
 ### 2026-08-30 — CI gate scope: split by determinism, NOT by threshold (owner-approved)
 
