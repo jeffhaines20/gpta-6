@@ -21,7 +21,13 @@ await page.waitForFunction('window.__district && window.__district.frames > 5', 
 
 // Hide the debug overlay: it is not part of what is being judged.
 await page.addStyleTag({ content: '#attr{display:none!important}' });
-if (process.env.HERO_HIDE_HUD === '1') {
+// The HUD is hidden by DEFAULT. These frames exist to judge the rendered world,
+// and a critic looking at a wanted meter and a speedometer is spending attention
+// on the one part of the image that is not what the round is about. It used to be
+// opt-in via HERO_HIDE_HUD=1, which meant the golden-hour captures went to review
+// with the whole instrument cluster in them. HERO_SHOW_HUD=1 puts it back for the
+// rounds that are actually about the HUD.
+if (process.env.HERO_SHOW_HUD !== '1') {
   await page.addStyleTag({ content: '#hud,.pv-hud{display:none!important}' });
 }
 const HERO_TRAFFIC = Number(process.env.HERO_TRAFFIC ?? 0);

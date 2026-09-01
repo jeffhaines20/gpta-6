@@ -296,6 +296,51 @@ run before that one had no noise floor and no frozen traffic, and its numbers we
 same shape; had the metric been merely *plausible* instead of impossible, it would have
 shipped.
 
+## The chunk-stall WARN is not the HUD, and not the build budget either
+
+The ledger has carried a number since the M2 gate — HUD off 8.1 ms, HUD on 12.2 ms —
+and drew from it the recommendation "reduce HUD per-frame allocation and re-measure".
+No harness could reproduce it, because nothing in `tools/` had ever called
+`setHudEnabled`. `DRIVE_HUD=off` now makes it testable. Three runs each, same build,
+nothing else on the machine:
+
+| | runs | median |
+|---|---|---|
+| canvas HUD on | 10.9, 8.3, 9.4 | **9.4** |
+| canvas HUD off | 8.2, 8.3, 9.7 | **8.3** |
+
+**The 4.1 ms gap does not reproduce.** The whole canvas HUD is worth about 1 ms with
+the distributions overlapping, and — the part that settles it — **with the HUD entirely
+disabled the gate still WARNs at 8.2, 8.3 and 9.7**. No amount of HUD work reaches this
+threshold, so none was done.
+
+Two other candidates died the same way:
+
+- **`world.report()` per frame.** It traverses every loaded chunk to count triangles
+  and main.js calls it every frame for a debug line, which looked damning. Measured:
+  **0.01 ms** over 112 meshes, and no measurable heap delta over 200 calls. Irrelevant.
+- **`_dispose` at ~8 ms**, the ledger's other stated dominant term. Measured
+  `worstDisposeMs: 0` — though with `unloads: 0` in that probe, so this is ruled out
+  only for the load path, not under the gate's own three-circuit drive. Still open.
+
+What the slice actually is: `scan + budgetMs + one work-unit overshoot`. The deadline
+is checked BETWEEN units, so the last unit always runs past it. Measured worst scan
+2.0 ms, worst upload 2.8 ms, budget 3 ms — a structural floor of 7.8 ms against a warn
+threshold of 8. The metric has been sitting on its own design limit.
+
+That suggested lowering `budgetMs` from 3 to 2, which is defensible on its own terms
+(3 ms is 18% of a 60 Hz frame). **It made things worse: 7.1, 16.4, 11.0 — a median of
+11.0 against the baseline's 9.4, and one outright FAIL.** Reverted. The FAIL was
+produced by my own experiment and does not count toward escalation condition (a); the
+shipped build has never failed this gate.
+
+The real lesson is about the instrument. Across every run this session the metric spans
+**7.1 to 16.4 ms** on an unchanged build. n=3 cannot separate a 1 ms effect from that,
+and the ledger's original 8.1-vs-12.2 was almost certainly two samples of this same
+spread read as a signal. **Before any further work on this gate, the metric needs enough
+samples to have a distribution rather than a number** — and the honest reading today is
+that chunk stall is a WARN whose cause is not established.
+
 ## The `roadMarkings` material is dead, and the defect blamed on it is not explained
 
 The pedestrian build reported that road markings draw through near pedestrians, and

@@ -28,6 +28,20 @@ await page.waitForFunction('window.__district && window.__district.frames > 5', 
 
 if (WITH_TRAFFIC) await page.evaluate(() => __district.setTraffic(true));
 
+// Isolation switch for the chunk-stall metric. The ledger has carried a claim
+// since the M2 gate that the HUD adds ~4 ms to the streaming slice through the
+// GC it provokes (measured then as 8.1 ms with it off against 12.2 ms with it
+// on), and nothing in tools/ could reproduce that: no harness has ever called
+// setHudEnabled. DRIVE_HUD=off makes the claim testable instead of quotable.
+//
+// It disables the canvas HUD only. The plain-text debug readout in main.js is a
+// separate per-frame string build and stays on, so a null result here does not
+// clear the whole HUD - it clears the canvas half of it.
+if (process.env.DRIVE_HUD === 'off') {
+  await page.evaluate(() => __district.setHudEnabled(false));
+  console.log('canvas HUD DISABLED for this run');
+}
+
 // Install the autopilot: steer toward the next waypoint, advance on arrival.
 // Because the sim is fixed-step, this behaves the same however slowly the
 // software renderer produces frames.
