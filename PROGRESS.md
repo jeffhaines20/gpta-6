@@ -338,6 +338,54 @@ test, and with their named regressions guarded: the fivepoints-night lamp pools 
 corridor-night window spill are the best things in the set, and `r6-corridor-night.png`
 is already 27% crushed at luminance <= 6.
 
+### The third critic: same one change, and two colour claims that did not survive
+
+The lighting/materials critic independently gave the SAME single change - shadows and
+ground contact - making it **three for three**. Its supporting measurement is the
+sharpest of the set: the road patch where the red car's shadow should fall in
+`r6-fivepoints-dusk` reads L 99.0 against three same-depth controls at 108.5 / 96.0 /
+100.5, with a road texture sd of ~30. The shadow is inside the noise. It also caught a
+detail the others missed: in `r6-corridor-golden` the signal **gantry arm casts** while
+the **vertical poles directly beneath it do not** - which points at caster inclusion or
+bias rather than a missing feature, and matches the audit's 0-of-42 props.
+
+Two findings of its own worth keeping:
+
+- **Glass is not behaving as glass.** The same tower pane tracks the diffuse wall beside
+  it to within 2% across a 0.62x change in level (golden 202.1 vs 202.9; dusk 123.7 vs
+  125.9). A dielectric is driven by what it reflects, which moves independently - and the
+  sky over that span went UP while the pane went down. This is after the glazing F0
+  rework, so that fix did not reach these panes.
+- **Some night lamps are emissive with no light.** The corridor-night lamp head at
+  (1213-1240, 440-480) throws no measurable pool on the pavement below, while the
+  fivepoints-night lamps do. Candidate cause: the nearest-N pool (10 real lights over
+  ~1000 emitters) not selecting it. Not yet audited.
+
+**Two colour claims did not survive checking, and the reason is sampling.** The critic
+measured one sky column at x=1420 and concluded that "golden is not golden" (R-B +13 to
++16, warm-neutral where a golden zenith should be blue) and that dusk is "a flat uniform
+orange wash" with no vertical gradient. Sampling three columns instead of one:
+
+| frame | x=200 | x=700 | x=1420 |
+|---|---|---|---|
+| golden, R-B at y5 / y120 | +66 / +41 | **-62 / -42** | +13 / +12 |
+| dusk, R-B at y5 / y120 | +64 / +54 | **-29 / -6** | +61 / +57 |
+
+The clear part of the dome at x=700 is strongly blue at golden (-62) and blue at the dusk
+zenith (-29) rising to +40 lower down - the ozone gradient is present and doing its job.
+x=1420 is the hazy, sun-side column and x=200 is largely the tower facade, not sky. **The
+critic's method was sound and its sample was not representative** - the same failure this
+ledger already documents twice under "Sampling integrity". Its measurements are still
+evidence; they are evidence about x=1420.
+
+What DOES survive from its colour work, because it is sampled across many patches rather
+than one column: at dusk every vertical surface is warm (R-B +24 to +77) while every
+ground surface is cool (-13 to -22). That split is mine - it is the ambient wave that
+drove sidewalk R-B from +17.6 to -10.7 and road from +8.0 to -22.1 to fix three critics
+reporting "nothing in the image is cool". It is physically defensible (a horizontal
+surface sees the whole dome, a sun-facing wall sees the orange horizon), but it is worth
+re-checking whether it went too far.
+
 ### The white rectangle - a strong hypothesis, recorded before it is tested
 
 Both critics independently found a hard-edged, flat, achromatic white rectangle at
