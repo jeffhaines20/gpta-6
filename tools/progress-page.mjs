@@ -103,9 +103,9 @@ const html = `<title>Port Verano — Phase 2 progress</title>
 
 <h2>Lighting sweep — physical units</h2>
 <table>
-  <tr><th>Time</th><th>Sun (lux)</th><th>Sky (lux)</th><th>Lamps lit</th><th>Lamp (cd)</th><th>Exposure</th><th>Plausible</th></tr>
+  <tr><th>Time</th><th>Sun (lux)</th><th>Sky delivered (lux)</th><th>Lamps lit</th><th>Lamp (cd)</th><th>Exposure</th><th>Plausible</th></tr>
   ${daynight?.presets ? daynight.presets.map((p) => `<tr>
-    <td>${esc(p.tod)}</td><td class="num">${esc(p.sunLux)}</td><td class="num">${esc(p.skyLux)}</td>
+    <td>${esc(p.tod)}</td><td class="num">${esc(p.sunLux)}</td><td class="num">${esc(p.skyDelivered ?? p.skyLux)}</td>
     <td class="num">${esc(p.litLamps)}</td><td class="num">${esc(p.lampCandela)}</td><td class="num">${esc(p.exposure)}</td>
     <td><span class="pill ${p.implausible?.length ? 'fail' : 'pass'}">${p.implausible?.length ? p.implausible.length + ' FLAGGED' : 'OK'}</span></td>
   </tr>`).join('') : '<tr><td colspan="7" class="muted">sweep not yet run</td></tr>'}

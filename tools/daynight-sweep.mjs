@@ -62,6 +62,12 @@ const summary = {
   presets: results.map((r) => ({
     tod: r.tod,
     sunLux: r.audit.sunLux, skyLux: r.audit.skyLux,
+    // What the sky DELIVERS to a horizontal surface, over every path carrying it.
+    // skyLux above is the HemisphereLight's raw intensity and is 0 whenever the
+    // dome's PMREM is doing the delivering, which is the normal case in the
+    // district; this is the photometric number the envelope judges.
+    skyDelivered: r.audit.skyDelivery ? r.audit.skyDelivery.totalLux : r.audit.skyLuxDelivered,
+    skyPaths: r.audit.skyDelivery ? r.audit.skyDelivery.paths : null,
     litLamps: r.audit.litPointLights, lampCandela: r.audit.samplePointLightCandela,
     exposure: r.audit.exposureAsStop, toneMapping: r.audit.toneMapping,
     lights: r.audit.lightCount, shadowCasters: r.audit.shadowCasters,
