@@ -1,0 +1,21 @@
+{
+ "tod": "dusk",
+ "noiseFloor": {
+  "ground": 0.000014201470591501675,
+  "facade": 0.00078935234401456
+ },
+ "rows": [
+  {
+   "label": "authored",
+   "ground": 124.4,
+   "sunPotentialOnGround": 2.4,
+   "blockedOnGround": 2,
+   "sunPotentialOnFacade": 4.7,
+   "blockedOnFacade": 3.8,
+   "sunSharePct": 1.9,
+   "blockedPct": 83.8,
+   "groundClipPct": 0,
+   "trustworthy": true
+  }
+ ]
+}

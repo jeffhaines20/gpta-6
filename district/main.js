@@ -19,7 +19,7 @@ import { LocomotionFSM, STATE } from '../src/animfsm.js';
 import { TimeOfDay, PRESETS } from '../src/daynight.js';
 import { PostStack } from '../src/post.js';
 import { LoadingScreen } from '../src/loading.js';
-import { Sky } from '../src/sky.js';
+import { Sky, SKY_PRESETS } from '../src/sky.js';
 import { Weather } from '../src/weather.js';
 import {
   generateSignageLibrary, districtSignageBuffers, signMaterial, streetSignMaterial,
@@ -552,6 +552,32 @@ window.__district = {
   sky, weather,
   setWeather: (name, opts) => weather.set(name, opts),
   setWeatherRaw: (w) => tod.setWeather(w),
+  // Measurement hook, not gameplay. The sun's azimuth lives in TWO places that
+  // must never disagree: daynight.js drives the DirectionalLight (and therefore
+  // every cast shadow) and sky.js draws the disc, the gradient and the PMREM that
+  // lights the walls. Moving one alone produces a frame whose shadows point away
+  // from its own sunset. Harnesses sweep this to find out where the light has to
+  // stand for occlusion to be visible at all.
+  setSunAzimuth(name, rad) {
+    PRESETS[name].azimuth = rad;
+    SKY_PRESETS[name].sunAzimuth = name === 'night' ? rad + Math.PI : rad;
+    if (name === 'night') SKY_PRESETS[name].moonAzimuth = rad;
+    tod.apply(name);
+    tod.follow(camera.position);
+    return { azimuth: rad, skyAzimuth: SKY_PRESETS[name].sunAzimuth };
+  },
+  // Also a measurement hook. Note the two files deliberately DISAGREE about dusk's
+  // elevation - daynight.js says 0.055 rad, sky.js says 0, and sky.js explains why
+  // at length. This sets them equal, which is what a probe comparing elevations
+  // wants: one variable, not two. It is not how a preset should be authored.
+  setSunElevation(name, rad) {
+    PRESETS[name].elevation = rad;
+    SKY_PRESETS[name].sunElevation = name === 'night' ? -rad : rad;
+    if (name === 'night') SKY_PRESETS[name].moonElevation = rad;
+    tod.apply(name);
+    tod.follow(camera.position);
+    return { elevation: rad };
+  },
   postParams: () => post.params,
   freeCam(pos, target, fov) {
     autopilot = () => {};

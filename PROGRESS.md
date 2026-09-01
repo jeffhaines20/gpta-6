@@ -87,6 +87,71 @@ Whoever takes it: lower `PRESETS.noon.elevation` first and re-measure the vertic
 vs horizontal split before touching `exposure`. The lux values are inside the
 plausibility envelope and are probably not the problem.
 
+## Dusk cannot have legible ground shadows, and the reason is photometric
+
+Round 5's dusk critic gave one change: *"make the sun's occlusion visible on the ground
+planes — and if the sun is currently near-axial with the camera, move its azimuth 40–70°
+off the street's centreline so that it can be."* The sky agent independently measured that
+both hero cameras look 156–172° away from the sun. I agreed with both and planned a third
+hero camera. **All three of us were wrong**, and this time the audit came before the fix.
+
+`tools/sun-sweep.mjs` swept the dusk sun through a full 360° at the corridor camera,
+rendering each azimuth twice — differing only in `sun.shadow.intensity`, a uniform, so no
+shader recompiles and no second system moves — and differenced the frames. The difference
+*is* the occlusion.
+
+| Sun azimuth | Off the lens | Ground delta | Ground pixels shadowed |
+|---|---|---|---|
+| **156° (authored)** | 172° | **3.09** | **23.7%** |
+| 276° | 68° | 1.99 | 15.0% |
+| 336° | 8° | 3.55 | 33.1% |
+
+The authored azimuth is already the second-best of twelve. The whole 360° spread is 1.99
+to 3.55 — a factor of 1.8, not the difference between "hidden" and "visible". Shadows were
+never hidden by the sun's bearing.
+
+`tools/sun-share.mjs` found what actually caps them. Same camera, traffic and pedestrians
+set to zero, and a **noise floor measured first** by capturing the same untouched frame
+twice (0.00 — nothing moves). Then the sun's contribution is isolated:
+
+| | Sun's share of the road | Blocked by geometry |
+|---|---|---|
+| **noon** | **83.7%** (65.5/255) | 23.2% |
+| **dusk** | **1.9%** (2.4/255) | 83.8% |
+
+Noon is the instrument's positive control: the sun there owns five-sixths of the road, so
+the probe can plainly see a sun when there is one. At dusk it owns **1.9%**. The geometry
+is already blocking 83.8% of it — the shadowing works, there is simply almost nothing to
+block. A *perfect* shadow removes 2.4/255 from a 124/255 road: under 2%, below what any
+critic can see, at any azimuth, from any camera.
+
+The arithmetic agrees. Dusk authors `sunLux: 1200` at `elevation: 0.055` rad, so the sun
+puts 1200·sin(3.15°) = **66 lux** on the road against ~900 lux of sky. The preset is
+internally inconsistent about the hour it describes: `src/sky.js` already says, in its own
+comment, that 3.15° of elevation transmits about **8,800** lux, not 1,200. Dusk is authored
+as *sunset* — sun on the horizon, sky-dominated, flat ground — and it renders that
+correctly. What every critic keeps asking for is *golden hour*, which is a different hour.
+
+**So the round-5 ONE CHANGE is unachievable as stated, and no camera change can achieve
+it.** Not fixed by moving the sun; addressed by authoring the hour that was missing.
+
+### What this cost, and the metric that was wrong
+
+The first version of `sun-share.mjs` compared the authored frame against the sun-off frame
+and reported the shadow removing **666% of the light the sun put down** — impossible. The
+frames were correct; the subtraction was not. At this camera the visible road is *already*
+in shadow, so switching the sun off changes nothing there, and the sun's contribution only
+appears once the shadow is lifted. The unoccluded frame is the reference, not the authored
+one:
+
+    potential = noshadow − nosun     the sun's full contribution, nothing blocking
+    blocked   = noshadow − base      how much of it the geometry actually takes
+
+An incoherent number is a gift — it is the measurement telling you it was read wrong. The
+run before that one had no noise floor and no frozen traffic, and its numbers were the
+same shape; had the metric been merely *plausible* instead of impossible, it would have
+shipped.
+
 ## Sampling integrity — confirm what is IN the sample before adjusting for it
 
 A second failure mode, distinct from the broken-instrument one below and recorded
