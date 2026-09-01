@@ -319,7 +319,28 @@ export class TimeOfDay {
     // extent this probe happened to test, at ONE camera and one azimuth, and an
     // extent chosen at the edge of its own evidence is how a shadow volume ends
     // up popping on a street the probe never stood in.
-    const SHADOW_MAP = 3072, S = 120;
+    // 2048, not 3072, and the extent is what buys the resolution.
+    //
+    // The ground-contact work raised both together and the chunk-stall gate then
+    // failed three times in seven runs, where the eight before it never passed
+    // 12.2 ms. Isolated with DRIVE_SHADOW on the drive-through harness, three runs
+    // each, everything else identical:
+    //
+    //   3072, casters on   10.1  15.8  23.5  17.1  17.1  11.8  10.9   3 FAILs
+    //   shadows off         8.6   9.6   7.9                          0
+    //   2048, casters on    9.2   8.4  10.4                          0
+    //
+    // So it is the map SIZE, not the 85 caster meshes: at 2048 every caster and
+    // the tight extent are kept, draw calls stay at 228, and the stall returns to
+    // the band it sat in before any of this. SwiftShader rasterises the shadow map
+    // on the same CPU that runs the streaming slice the metric measures, and 3072
+    // is 2.25x the texels of 2048.
+    //
+    // The resolution that mattered came from the EXTENT anyway. At +/-120 over
+    // 2048 a texel is 240/2048 = 0.117 m, still 2.17x finer than the 0.254 m that
+    // made a pedestrian 2 texels wide and therefore un-castable. A pedestrian is
+    // now ~4.3 texels and a bollard ~1.3.
+    const SHADOW_MAP = 2048, S = 120;
     this.sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
     Object.assign(this.sun.shadow.camera,
       { left: -S, right: S, top: S, bottom: -S, near: 1, far: 900 });

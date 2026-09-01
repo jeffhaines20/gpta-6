@@ -37,6 +37,65 @@ if (WITH_TRAFFIC) await page.evaluate(() => __district.setTraffic(true));
 // It disables the canvas HUD only. The plain-text debug readout in main.js is a
 // separate per-frame string build and stays on, so a null result here does not
 // clear the whole HUD - it clears the canvas half of it.
+// Isolation for the chunk-stall metric after the ground-contact work.
+//
+// That change did three things at once - 4,596 prop buckets became casters, the
+// shadow map went 2048 -> 3072, and its extent went +/-260 -> +/-120 - and the
+// stall metric then failed three times in seven runs where the eight runs before
+// it never passed 12.2 ms. The hypothesis is that SwiftShader rasterises the
+// shadow map on the CPU that also runs the streaming slice this metric measures.
+// A hypothesis does not get to dismiss a red gate, so this makes it testable:
+//
+//   DRIVE_SHADOW=off        shadow pass disabled entirely - the decisive control
+//   DRIVE_SHADOW=2048       map back to 2048, casters and extent unchanged
+//   DRIVE_SHADOW=nocasters  props stop casting, map and extent unchanged
+//
+// Each variant reports what it actually changed, because a switch that silently
+// does nothing has already cost this project a day.
+const SHADOW_MODE = process.env.DRIVE_SHADOW;
+if (SHADOW_MODE) {
+  const applied = await page.evaluate((mode) => {
+    const r = __district.renderer;
+    let sun = null;
+    __district.scene.traverse((o) => { if (o.isDirectionalLight && o.shadow) sun = o; });
+    if (mode === 'off') {
+      r.shadowMap.enabled = false;
+      __district.scene.traverse((o) => { if (o.isMesh) o.castShadow = false; });
+      return { mode, shadowMapEnabled: r.shadowMap.enabled };
+    }
+    if (mode === '2048') {
+      // The map is a render target built on first use; it must be dropped for a
+      // new size to take, or three keeps rendering into the old 3072 one.
+      if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+      sun.shadow.mapSize.set(2048, 2048);
+      sun.shadow.needsUpdate = true;
+      return { mode, mapSize: sun.shadow.mapSize.width };
+    }
+    if (mode === 'nocasters') {
+      let off = 0;
+      __district.scene.traverse((o) => {
+        if (o.isMesh && o.castShadow && /props|furniture/.test((o.name || '') + '|' + (o.parent?.name || ''))) {
+          o.castShadow = false; off++;
+        }
+      });
+      return { mode, castersDisabled: off };
+    }
+    throw new Error(`unknown DRIVE_SHADOW: ${mode}`);
+  }, SHADOW_MODE);
+  console.log('shadow isolation:', JSON.stringify(applied));
+  // Prove the variant reached the renderer rather than trusting the assignment.
+  const seen = await page.evaluate(() => {
+    let sun = null, casters = 0;
+    __district.scene.traverse((o) => {
+      if (o.isDirectionalLight && o.shadow) sun = o;
+      if (o.isMesh && o.castShadow) casters++;
+    });
+    return { shadowMapEnabled: __district.renderer.shadowMap.enabled,
+      mapSize: sun ? sun.shadow.mapSize.width : null, casterMeshes: casters };
+  });
+  console.log('shadow state now:', JSON.stringify(seen));
+}
+
 if (process.env.DRIVE_HUD === 'off') {
   await page.evaluate(() => __district.setHudEnabled(false));
   console.log('canvas HUD DISABLED for this run');

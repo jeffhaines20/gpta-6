@@ -383,7 +383,7 @@ Adopted: **drawCalls 275 / 440**, **triangles 830,000 / 1,850,000**. Both now PA
 headroom left on the old metric**, so it was close to firing on ordinary content growth
 before any of this.
 
-### ESCALATION - condition (a): the stall metric now fails repeatedly
+### ESCALATION - condition (a), raised and RESOLVED: the stall metric was the shadow map
 
 The chunk-stall metric has failed **three times in seven runs** since the ground-contact
 work landed, which is escalation condition (a): a budget gate failing twice after a
@@ -401,11 +401,32 @@ the metric measures. On real GPU hardware that work is not on this thread and wo
 likely not touch this metric at all - **but that is a hypothesis, and this project's rule
 is that a hypothesis does not get to dismiss a red gate.**
 
-**No threshold was touched and no work has been scheduled on the red gate.** The obvious
-cheap remedy, untested: return the map to 2048 while keeping the tightened +/-120 extent,
-which alone gives 0.117 m/texel - still 2.2x finer than the 0.254 that made pedestrians
-un-castable. That would recover most of the ground-contact win for a quarter of the
-shadow-rasterisation cost.
+**No threshold was touched.** Escalated, and the answer was to isolate before choosing a
+remedy rather than act on the SwiftShader hypothesis. `DRIVE_SHADOW` on the drive-through
+harness makes the variants testable; each one prints the state it actually reached,
+because a switch that silently does nothing has already cost this project a day.
+
+| variant | chunk stall, three runs each | FAILs |
+|---|---|---|
+| 3072, casters on | 10.1  15.8  23.5  17.1  17.1  11.8  10.9 | **3** |
+| shadows off | 8.6  9.6  7.9 | 0 |
+| **2048, casters on** | **9.2  8.4  10.4** | **0** |
+
+**It is the map size, not the caster count.** At 2048 every caster and the tightened
+extent are kept, draw calls stay at 228, and the stall returns to its old band. 3072 is
+2.25x the texels, and SwiftShader rasterises them on the CPU that also runs the streaming
+slice this metric measures.
+
+The resolution that mattered came from the extent, not the map: at +/-120 over 2048 a
+texel is 240/2048 = **0.117 m**, still 2.17x finer than the 0.254 m that made a pedestrian
+2 texels wide and un-castable. A pedestrian is now ~4.3 texels, a bollard ~1.3.
+
+**Resolved.** Applied 2048; the ground-contact result survives almost intact - geometry
+blocks **24.3%** of the sun at golden hour against 25.2% at 3072 and 15.7% before the
+work. Gate over three runs: **PASS / WARN / WARN**, stall 7.4 / 8.0 / 8.2, no FAILs, and
+7.4 is the lowest stall reading recorded this session. The shadows-off control also
+independently confirmed the blind-spot fix: with the pass disabled the gate reads 165
+calls and 351,781 triangles, which is what it used to report with shadows ON.
 
 ## Round 6: three blind critics, one agreed change, and the audit that found its cause
 
