@@ -81,7 +81,11 @@ export function clipping(img) {
     hist[0][r]++; hist[1][g]++; hist[2][b]++;
     if (r === 255 || g === 255 || b === 255) anyClipped++;
   }
-  const step = (h) => (h[254] > 0 ? h[255] / h[254] : h[255] > 0 ? Infinity : 0);
+  // The 254 -> 255 step, against a floor of one pixel in the 254 bin. A true
+  // division by zero here is Infinity, JSON.stringify writes that as null, and a
+  // null in a metrics artifact reads as "not measured" rather than "the last bin
+  // is a cliff with nothing on the step below it".
+  const step = (h) => h[255] / Math.max(1, h[254]);
   return {
     clippedPct: (anyClipped / n) * 100,
     r: { at254: hist[0][254], at255: hist[0][255], step: +step(hist[0]).toFixed(2) },
@@ -106,6 +110,32 @@ export function frameStats(img) {
   return { chroma: chroma / n, crushedPct: (crushed / n) * 100, meanY8: meanY / n };
 }
 
+/**
+ * Mean colour and chroma over a band, so a whole-frame number can be split into
+ * the parts a critic is actually describing. "Golden is the least colourful
+ * daylight state" is a claim about the street; a frame-wide mean mixes that with
+ * the sky, which is a third of the picture and has nothing to do with how the
+ * light reaches a wall.
+ */
+export function band(img, [x0, y0, w, h]) {
+  const { width, height, channels: c, data } = img;
+  let r = 0, g = 0, b = 0, chroma = 0, warm = 0, n = 0, y = 0;
+  for (let py = y0; py < Math.min(height, y0 + h); py++) {
+    for (let px = x0; px < Math.min(width, x0 + w); px++) {
+      const i = (py * width + px) * c;
+      const R = data[i], G = data[i + 1], B = data[i + 2];
+      r += R; g += G; b += B;
+      chroma += Math.max(R, G, B) - Math.min(R, G, B);
+      if (R - B > 10) warm++;
+      y += 0.2126 * R + 0.7152 * G + 0.0722 * B;
+      n++;
+    }
+  }
+  return { r: +(r / n).toFixed(1), g: +(g / n).toFixed(1), b: +(b / n).toFixed(1),
+    chroma: +(chroma / n).toFixed(2), warmPct: +((warm / n) * 100).toFixed(2),
+    meanY: +(y / n).toFixed(1), rMinusB: +((r - b) / n).toFixed(1) };
+}
+
 export function report(file, opts = {}) {
   const img = readPNG(file);
   const out = { file, size: `${img.width}x${img.height}`, ...frameStats(img), ...clipping(img) };
@@ -126,6 +156,15 @@ export function report(file, opts = {}) {
     };
   }
   if (opts.ground) out.groundWarmPct = +warmFraction(img, opts.ground).pct.toFixed(2);
+  // Fixed bands at 1600x900, scaled for any other capture size: the street
+  // surface, the facade band above the parked cars, and the sky.
+  const sx = img.width / 1600, sy = img.height / 900;
+  const B = (x, y, w, h) => [Math.round(x * sx), Math.round(y * sy), Math.round(w * sx), Math.round(h * sy)];
+  out.bands = {
+    ground: band(img, B(0, 620, 1600, 280)),
+    facade: band(img, B(0, 300, 1600, 260)),
+    sky: band(img, B(0, 0, 1600, 200)),
+  };
   return out;
 }
 

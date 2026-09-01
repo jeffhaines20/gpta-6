@@ -98,13 +98,39 @@ fs.writeFileSync('docs/daynight-negative.json', JSON.stringify({
   totalFlags: injected.implausible.length,
 }, null, 1));
 
+// --- NEGATIVE TEST 2: the double delivery ---------------------------------
+// The envelope used to judge the HemisphereLight's raw intensity, which meant it
+// read PASS on a build that put 14,067 lux of sky on golden hour against a
+// 5,500-11,800 envelope. It now judges the DELIVERED total and counts how many
+// paths deliver it. Asserting that in a comment is not the same as showing it, so
+// this re-injects exactly the configuration that was removed - the hemisphere back
+// at the preset's skyLux with the environment untouched - and requires the checker
+// to fire on it.
+await page.evaluate(() => __district.setTimeOfDay('golden'));
+await page.waitForTimeout(2500);
+const doubled = await page.evaluate(() => {
+  const tod = __district.tod;
+  tod.hemi.intensity = tod.preset.skyLux;
+  const a = __district.audit();
+  return { flags: a.implausible, delivery: a.skyDelivery };
+});
+const caughtDouble = doubled.flags.some((f) => /delivered 2 times|delivers .* outside plausible/.test(f));
+console.log('\n=== NEGATIVE TEST 2: the sky delivered twice (the state this build removed) ===');
+console.log(JSON.stringify(doubled, null, 1));
+console.log(caughtDouble ? 'CAUGHT' : 'NOT CAUGHT — the delivered-sky assertion is useless');
+fs.writeFileSync('docs/daynight-negative-sky.json', JSON.stringify({
+  injected: 'HemisphereLight restored to preset.skyLux at golden, environment untouched',
+  caught: caughtDouble, ...doubled,
+}, null, 1));
+
 await browser.close();
 
 // The lighting sweep is a gate, not a report. It fails if any preset is
-// implausible, or if the negative test stops catching the Phase 1 mis-tuning -
+// implausible, or if either negative test stops catching what it was written for -
 // a checker that has stopped failing is not a checker.
-const pass = flagged.length === 0 && caught;
+const pass = flagged.length === 0 && caught && caughtDouble;
 console.log(`\nLIGHTING SWEEP: ${pass ? 'PASS' : 'FAIL'}` +
   (flagged.length ? ` — implausible at ${flagged.map((f) => f.tod).join(', ')}` : '') +
-  (caught ? '' : ' — NEGATIVE TEST DID NOT FIRE'));
+  (caught ? '' : ' — NEGATIVE TEST 1 (lamps at 26 cd) DID NOT FIRE') +
+  (caughtDouble ? '' : ' — NEGATIVE TEST 2 (sky delivered twice) DID NOT FIRE'));
 process.exit(pass ? 0 : 1);
