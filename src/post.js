@@ -34,7 +34,13 @@ uniform float threshold;
 uniform float softKnee;
 varying vec2 vUv;
 void main() {
+  // Same guard as the composite's sanitize(), inlined because this shader does not
+  // share SKY_COMMON-style includes with it. Without it, contrib below is
+  // Inf/Inf = NaN and the separable blur then spreads that NaN over a 9-tap
+  // neighbourhood of otherwise-good pixels.
   vec3 c = texture2D(tDiffuse, vUv).rgb;
+  bvec3 ok = lessThanEqual(c, vec3(60000.0));
+  c = mix(vec3(60000.0), max(c, vec3(0.0)), vec3(ok));
   float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
   // Soft knee so the bloom does not switch on as a hard edge across a gradient.
   float knee = threshold * softKnee + 1e-5;
@@ -226,9 +232,39 @@ vec3 aces(vec3 x) {
   return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
 }
 
+// Half-float hygiene, and the reason the noon frame has a hole in it.
+//
+// The scene renders into a HalfFloatType target and the district is authored in
+// absolute nits, so a metallic pane reflecting the PMREM - whose own ceiling is
+// sky.js's maxRadiance of 60,000 nits - plus a direct specular lobe from a
+// 34,470 lux sun lands past half-float's 65,504 and stores Inf. Some of it comes
+// back NaN outright: measured at the corridor camera at golden hour, 14,259 NaN
+// channels and 8 Inf in the 1600x900 scene target, with the finite maximum sitting
+// exactly on 65,504.
+//
+// aces() is clamp((x(ax+b))/(x(cx+d)+e)): hand it Inf and it computes Inf/Inf, and
+// clamp(NaN) is 0 on this rasteriser. That is a PURE BLACK blob, and it is not new
+// - docs/shots/tod-noon.png has 20,920 pure-black pixels (1.79% of frame) on the
+// committed build, and three critic rounds have described the noon frame as having
+// black facades. Dusk has none of it, because at 1,200 lux nothing gets near the
+// ceiling. Switching bloom off does not remove it, which is what ruled the bright
+// pass out as the source.
+//
+// NaN fails every comparison, including against itself, so lessThanEqual() is
+// false for NaN and for Inf alike and both land on the ceiling. A blown specular
+// highlight then renders as the white it physically is instead of as a hole.
+// Finite pixels are returned bit-for-bit unchanged, so no frame that was correct
+// moves.
+vec3 sanitize(vec3 c) {
+  const float CEIL = 60000.0;
+  bvec3 ok = lessThanEqual(c, vec3(CEIL));
+  return mix(vec3(CEIL), max(c, vec3(0.0)), vec3(ok));
+}
+
+
 void main() {
-  vec3 scene = texture2D(tScene, vUv).rgb;
-  vec3 bloom = texture2D(tBloom, vUv).rgb;
+  vec3 scene = sanitize(texture2D(tScene, vUv).rgb);
+  vec3 bloom = sanitize(texture2D(tBloom, vUv).rgb);
   float depth = texture2D(tDepth, vUv).r;
 
   // AO multiplies the scene but NOT the bloom. Bloom comes from emissives - lit

@@ -386,8 +386,11 @@ export class Pedestrians {
     // Which near-pool slot each ped holds, or -1. Packed 0..nearLive-1 so the
     // near meshes can submit exactly the instances that are in use.
     this._nearSlot = new Int16Array(this.count).fill(-1);
-    this._nearPick = new Int16Array(this.nearPool);
-    this._nearKey = new Float32Array(this.nearPool);
+    // NOT _nearKey / _nearPick: _edgesNear() already owns this._nearKey and
+    // stores a CHUNK KEY STRING in it. Shadowing it made _assignNearLod write
+    // key[j] into "0,-1" and throw on every frame.
+    this._lodPick = new Int16Array(this.nearPool);
+    this._lodKey = new Float32Array(this.nearPool);
     this._nearColorDirty = false;
     this._camX = 0; this._camZ = 0; this._camSeen = false;
     this.aliveCount = 0;
@@ -551,7 +554,7 @@ export class Pedestrians {
     // a few metres behind it.
     const cx = this._camSeen ? this._camX : fx;
     const cz = this._camSeen ? this._camZ : fz;
-    const idx = this._nearPick, key = this._nearKey;
+    const idx = this._lodPick, key = this._lodKey;
     const pool = this.nearPool;
     let n = 0;
     for (let i = 0; i < this.count; i++) {
