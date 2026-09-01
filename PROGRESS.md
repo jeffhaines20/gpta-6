@@ -296,6 +296,37 @@ run before that one had no noise floor and no frozen traffic, and its numbers we
 same shape; had the metric been merely *plausible* instead of impossible, it would have
 shipped.
 
+## Attribution integrity — `git add -A` with agents running
+
+Commit `0a2e1ad`, whose message is entirely about weather, `envMapIntensity` and
+specular aliasing, also contains ~1,300 lines belonging to two other agents that were
+mid-investigation at the time: `src/daynight.js`, `src/sky.js`, `src/signage.js`,
+`src/facades.js`, `src/audio.js` and `tools/daynight-sweep.mjs` from the golden-hour
+build, and `src/pedestrians.js` (509 lines), `tools/ped-audit.mjs` and
+`tools/ped-near.mjs` from the pedestrian build. It was pushed before either agent
+reported. The golden-hour agent found it and said so in its own report.
+
+The cause is one character: `git add -A` in a tree that three writers were sharing.
+This project's ledger already records the same failure once — "a facades commit swept
+up another agent's work at an intermediate state" — and the lesson taken then was to
+separate the *later* commits, which does nothing about the next `add -A`.
+
+The work is all present and correct; what is wrong is the history. Two commits now
+claim authorship of changes their messages do not describe, and one of them snapshots
+a half-finished `pedestrians.js` under a message about rain. Nothing was rewritten to
+repair it: the branch is pushed, and rewriting shared history to tidy an attribution
+error trades a real risk for a cosmetic gain.
+
+**The rule, which is not a note to be careful:** while any agent is running, commit by
+explicit path — `git add src/weather.js tools/framing.mjs` — never `-A`, never `.`.
+`git status` before a commit is a list of who else is working, not a list of what to
+stage.
+
+A second thing this cost: it made a status report to the user wrong. Having committed
+`pedestrians.js` and both ped tools in `0a2e1ad`, I then told the user I had
+"deliberately left the pedestrian agent's files alone" because three stray PNGs were
+still unstaged. The three PNGs were the leftovers of a sweep I had not noticed making.
+
 ## Sampling integrity — confirm what is IN the sample before adjusting for it
 
 A second failure mode, distinct from the broken-instrument one below and recorded

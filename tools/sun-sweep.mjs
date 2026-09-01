@@ -35,7 +35,10 @@ fs.mkdirSync(OUT, { recursive: true });
 const cfg = SHOTS[SHOT];
 if (!cfg) throw new Error(`unknown shot: ${SHOT}`);
 
-const BASE = { dusk: 2.72, noon: 0.6, night: 4.1 }[TOD];
+// Must list every preset in daynight.js. A missing key sweeps from undefined and
+// produces a whole table of NaN rather than an error.
+const BASE = { dusk: 2.72, noon: 0.6, night: 4.1, golden: 0.768 }[TOD];
+if (!Number.isFinite(BASE)) throw new Error(`no authored azimuth for time of day: ${TOD}`);
 const STEPS = Number(process.env.SWEEP_STEPS ?? 12);
 const azimuths = [];
 for (let i = 0; i < STEPS; i++) azimuths.push((BASE + (i * 2 * Math.PI) / STEPS) % (2 * Math.PI));
