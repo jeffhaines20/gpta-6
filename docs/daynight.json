@@ -37,7 +37,7 @@
    "lights": 12,
    "shadowCasters": 134,
    "drawCalls": 202,
-   "triangles": 638485,
+   "triangles": 647509,
    "implausible": []
   },
   {
@@ -53,7 +53,7 @@
    "lights": 12,
    "shadowCasters": 134,
    "drawCalls": 219,
-   "triangles": 676620,
+   "triangles": 690156,
    "implausible": []
   },
   {
@@ -69,7 +69,7 @@
    "lights": 12,
    "shadowCasters": 134,
    "drawCalls": 210,
-   "triangles": 656597,
+   "triangles": 670133,
    "implausible": []
   },
   {
@@ -85,7 +85,7 @@
    "lights": 12,
    "shadowCasters": 134,
    "drawCalls": 209,
-   "triangles": 660370,
+   "triangles": 673906,
    "implausible": []
   }
  ],
