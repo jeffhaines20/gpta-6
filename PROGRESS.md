@@ -389,6 +389,62 @@ that search is itself a weak instrument, since it matches on names, so it is rec
 - **The pedestrian contact blob draws nothing** - measured by the ground-contact build at
   0.0266 against a 0.0254 noise floor, and `SHADOW_Y = -0.042` puts it below the paving.
 
+## The sky is delivered twice, and that is why golden hour reads flat
+
+The round-7 lighting critic produced the best-controlled measurement this project has
+received: a **key:fill of 0.85 stops** on a pair of boxes either side of a verified
+building shadow at golden hour, on the same material - established by the two boxes
+agreeing to within 1% at dusk, when neither is sunlit. Golden hour wants 2.5-4 stops.
+
+It could not tell from pixels whether the key was too weak or the fill too strong. The
+isolation says fill, and names the mechanism. Corridor hero camera, golden hour, settled
+scene, one light path zeroed at a time, contributions linearised:
+
+| region | sun | HemisphereLight | environment (PMREM) | key:fill |
+|---|---|---|---|---|
+| sunlit wall (120,120,120x60) | 55.5% | 3.9% | **40.6%** | 1.25x = **0.32 stops** |
+| ground (250,800,120x40) | 23.0% | 30.9% | **46.1%** | 0.30x = **-1.75 stops** |
+
+`daynight.js` runs a HemisphereLight at the preset's `skyLux`, and `sky.js` builds a PMREM
+from the same dome which `scene.environment` delivers again at `environmentIntensity 1` -
+over sky.js's own figure of 0.35. **On the ground that is 77% of all light, from one sky
+counted two ways.** On a vertical the hemisphere contributes almost nothing (3.9%, since
+its sky half only fully reaches an up-facing normal) while the PMREM still delivers 40.6%.
+
+This was already known and logged. The golden-hour build wrote: *"The district's sky is
+delivered twice, which structurally caps any sun's share (36% atmospheric -> 26.5%
+rendered). Reported, not fixed - it's a district-wide decision with a stated reason in
+apply()."* A blind critic has now independently measured its consequence in the picture,
+which is the point at which "reported, not fixed" stops being good enough.
+
+It also explains, without any new hypothesis, four separate things critics have reported
+across two rounds: the ground reading blue while sun-facing walls read warm; golden being
+the least colourful daylight state (mean chroma 22.3 against dusk's 37.7); cast shadows
+measuring shallow (fill fills them back in); and "golden is not golden".
+
+Scheduled as builder work. The non-trivial part is that a HemisphereLight approximates
+sky **plus ground bounce**, and the PMREM has no bounce term - so deleting the hemisphere
+outright removes something the PMREM never had. Exposure must be re-derived for every
+preset once the total illuminance changes, and `PLAUSIBLE` asserts the HemisphereLight's
+raw intensity, which may become the wrong quantity to assert.
+
+### Round 7, lighting critic: what else it measured
+
+- **Glazing has no environment term at all.** The tower pane sits at a fixed **0.82-0.84**
+  of the concrete beside it right through daylight; at night it reads (3,4,11) while a
+  slab of emissive windows faces it across the street. Third round to report this, and the
+  first to control it against the wall.
+- **Contact darkening is zero and the sign runs backwards.** Four boxes along one row from
+  a post's foot outward: the contact pixel is 1% *brighter* than 88 px away at golden, 5%
+  at dusk, 37% at night. Paving joints render as brighter ridges than the slab faces.
+- **The highlight is a hard clip, not a shoulder.** corridor-golden R channel: 1,022 pixels
+  at 254 and **12,185 at 255** - a 12x pile-up in the last bin, and the channels clip at
+  different times so the top end skews yellow.
+- **Dusk has no specular at all** - nothing exceeds 248, 99% is at or below 226.
+- It also checked 19 sky boxes rather than one column and reported the blue-left /
+  warm-right gradient correctly, explicitly noting that a single column would have given
+  the wrong answer in either direction.
+
 ## Round 7, art critic: right about the look, wrong about the cause, in its own boxes
 
 The round-7 art director gave a single change - "raise the sun elevation for golden and
