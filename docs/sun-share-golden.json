@@ -1,19 +1,19 @@
 {
  "tod": "golden",
  "noiseFloor": {
-  "ground": 0.05178167794254307,
-  "facade": 0.0033880210918368903
+  "ground": 0.073798413237526,
+  "facade": 0.007215828905799526
  },
  "rows": [
   {
    "label": "authored",
-   "ground": 119.2,
-   "sunPotentialOnGround": 33.7,
-   "blockedOnGround": 8.2,
-   "sunPotentialOnFacade": 16.8,
-   "blockedOnFacade": 7.3,
-   "sunSharePct": 26.5,
-   "blockedPct": 24.3,
+   "ground": 122.5,
+   "sunPotentialOnGround": 47.5,
+   "blockedOnGround": 11.4,
+   "sunPotentialOnFacade": 16.1,
+   "blockedOnFacade": 6.3,
+   "sunSharePct": 35.5,
+   "blockedPct": 24,
    "groundClipPct": 0,
    "trustworthy": true
   }
