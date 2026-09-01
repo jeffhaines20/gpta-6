@@ -27,6 +27,11 @@ export function writePNG(file, w, h, rgb) {
   fs.writeFileSync(file, Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
     chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]));
 }
+// Also imported as a module for writePNG(), so the CLI half only runs when this
+// file is the entry point. Without the guard an `import { writePNG }` executes
+// the argv parse below and dies on readPNG(undefined).
+const isMain = process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('tools/crop.mjs');
+if (isMain) {
 const [file, X, Y, W, H, S = '1', out] = process.argv.slice(2);
 const png = readPNG(file);
 const x0 = +X, y0 = +Y, cw = +W, chh = +H, s = +S;
@@ -42,3 +47,4 @@ for (let y = 0; y < oh; y++) {
 const dst = out ?? file.replace(/\.png$/, `.crop${x0}_${y0}.png`);
 writePNG(dst, ow, oh, rgb);
 console.log(dst, `${ow}x${oh}`);
+}

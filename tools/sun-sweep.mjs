@@ -23,6 +23,7 @@ import { chromium } from 'playwright';
 import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
 import { readPNG } from './png.mjs';
+import { SHOTS, placeCamera, describe } from './framing.mjs';
 import fs from 'node:fs';
 
 const OUT = 'docs/shots';
@@ -31,11 +32,6 @@ const SHOT = process.env.SWEEP_SHOT ?? 'corridor';
 const KEEP = process.env.SWEEP_KEEP === '1';
 fs.mkdirSync(OUT, { recursive: true });
 
-// Same framings tools/hero-shots.mjs uses, so the numbers transfer.
-const SHOTS = {
-  corridor:   { wpA: 2, wpB: 4, back: 34, side: 0, height: 2.4, fov: 55, tgtY: 16, fwd: 260 },
-  fivepoints: { wpA: 3, wpB: 4, back: 26, side: 7, height: 3.0, fov: 48, tgtY: 12, fwd: 200 },
-};
 const cfg = SHOTS[SHOT];
 if (!cfg) throw new Error(`unknown shot: ${SHOT}`);
 
@@ -52,26 +48,13 @@ await page.goto('http://127.0.0.1:8123/district/', { waitUntil: 'networkidle' })
 await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
 await page.addStyleTag({ content: '#attr,#hud,.pv-hud{display:none!important}' });
 
-const placed = await page.evaluate((c) => {
-  const r = __district.district.meta.route;
-  const a = r[c.wpA], b = r[c.wpB];
-  const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz) || 1;
-  const nx = -dz / len, nz = dx / len;
-  const px = a.x - (dx / len) * c.back + nx * c.side;
-  const pz = a.z - (dz / len) * c.back + nz * c.side;
-  __district.placeAt(a.x, a.z);
-  __district.setAutopilot(() => {});
-  __district.freeCam([px, c.height, pz],
-    [a.x + (dx / len) * c.fwd, c.tgtY, a.z + (dz / len) * c.fwd], c.fov);
-  for (let i = 0; i < 900; i++) __district.world.update(__district.vehicle.position);
-  return { heading: Math.atan2(dz, dx), x: +px.toFixed(1), z: +pz.toFixed(1) };
-}, cfg);
+const placed = await page.evaluate(placeCamera, cfg);
 await page.waitForTimeout(12000);
 
 const deg = (r) => (r * 180) / Math.PI;
 const wrap = (d) => { while (d > 180) d -= 360; while (d < -180) d += 360; return d; };
-const headingDeg = deg(placed.heading);
-console.log(`${SHOT} at (${placed.x}, ${placed.z}), view heading ${headingDeg.toFixed(1)} deg, ${TOD}\n`);
+const headingDeg = placed.headingDeg;
+console.log(describe(SHOT, placed) + `, ${TOD}\n`);
 
 // Luminance difference between the shadowed and unshadowed render, per pixel.
 // Reported over the whole frame and over the lower band, which is where the

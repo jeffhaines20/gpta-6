@@ -296,6 +296,12 @@ export class Weather {
 
     const t0 = performance.now();
 
+    // Set before any material is bound: _applyWetness multiplies by it.
+    this._env = null;
+    this._envAdopted = null;
+    this._sceneEnvIntensity = scene && scene.environmentIntensity !== undefined
+      ? scene.environmentIntensity : 1;
+
     this.stateName = opts.state ?? 'clear';
     this.targetName = this.stateName;
     this._fromName = this.stateName;
@@ -528,6 +534,19 @@ export class Weather {
     this.wetness += (target - this.wetness) * (1 - Math.exp(-dt / tau));
 
     this._push();
+    // The sky rebuilds scene.environment on every time-of-day change, and
+    // daynight.js restores scene.environmentIntensity right after it. Both are
+    // cheap to re-read and expensive to get wrong, so they are checked per frame
+    // rather than hooked into whoever happens to call apply().
+    const scene = this.scene;
+    if (scene) {
+      this.adoptEnvironment(scene);
+      const si = scene.environmentIntensity ?? 1;
+      if (si !== this._sceneEnvIntensity) {
+        this._sceneEnvIntensity = si;
+        this._lastAppliedWetness = -1;
+      }
+    }
     this._applyWetness();
 
     const pos = camera.position ?? camera;
@@ -629,6 +648,50 @@ export class Weather {
     return this;
   }
 
+  /**
+   * Make `envMapIntensity` mean something on the bound materials.
+   *
+   * The renderer contains this line:
+   *
+   *   material.isMeshStandardMaterial && material.envMap === null &&
+   *     scene.environment !== null && (u.envMapIntensity.value = scene.environmentIntensity)
+   *
+   * Every material in the district reflects `scene.environment` (the sky's PMREM)
+   * and sets no `envMap` of its own, so the renderer overwrote the uniform from
+   * the SCENE's intensity every frame and `material.envMapIntensity` was inert.
+   * _applyWetness has been assigning it since the wetness model was written, and
+   * the 1 + 0.9w env boost - the term that makes wet asphalt return the sky -
+   * has never once reached a pixel. This is the second time this project has been
+   * bitten by a value another system rewrites per frame; the first was
+   * LightPool overwriting PointLight.intensity.
+   *
+   * Adopting the scene's environment as the material's own envMap restores the
+   * uniform to the material. Measured on the corridor camera in heavy rain, with
+   * the ground band mean going from:
+   *   night 19.3 -> 28.8   dusk 102.5 -> 140.7   noon 41.6 -> 48.4
+   * and no new clipping or near-black pixels at any of the three.
+   *
+   * The environment is rebuilt whenever the sky refreshes, so this re-runs on
+   * every change of identity rather than once at bind time.
+   */
+  adoptEnvironment(scene) {
+    const env = scene ? scene.environment : null;
+    if (env === this._env) return false;
+    this._env = env;
+    for (const b of this._bound) {
+      const m = b.mat;
+      if (!m.isMeshStandardMaterial) continue;
+      // Only ever adopt the scene's OWN environment. A material that carries a
+      // real envMap of its own is already doing something deliberate.
+      if (m.envMap !== null && m.envMap !== this._envAdopted) continue;
+      m.envMap = env;
+      m.needsUpdate = true;
+    }
+    this._envAdopted = env;
+    this._lastAppliedWetness = -1;
+    return true;
+  }
+
   _applyWetness() {
     if (Math.abs(this.wetness - this._lastAppliedWetness) < 0.004) return;
     this._lastAppliedWetness = this.wetness;
@@ -638,7 +701,13 @@ export class Weather {
         b.mat.roughness = Math.max(MIN_WET_ROUGHNESS, b.roughness * roughnessScale);
       }
       if (b.color) b.mat.color.setRGB(b.color.r * albedoScale, b.color.g * albedoScale, b.color.b * albedoScale);
-      if (b.mat.envMapIntensity !== undefined) b.mat.envMapIntensity = b.envMapIntensity * envBoost;
+      // Rides ON TOP of the scene's intensity rather than replacing it, so a dry
+      // surface renders exactly as it did before this material owned an envMap:
+      // envBoost is 1 at wetness 0, and the product is then the same number the
+      // renderer used to write into the uniform itself.
+      if (b.mat.envMapIntensity !== undefined) {
+        b.mat.envMapIntensity = b.envMapIntensity * envBoost * this._sceneEnvIntensity;
+      }
     }
   }
 

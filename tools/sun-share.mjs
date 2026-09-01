@@ -32,6 +32,7 @@ import { chromium } from 'playwright';
 import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
 import { readPNG } from './png.mjs';
+import { SHOTS, placeCamera, describe } from './framing.mjs';
 import fs from 'node:fs';
 
 const OUT = 'docs/shots';
@@ -49,16 +50,8 @@ await page.goto('http://127.0.0.1:8123/district/', { waitUntil: 'networkidle' })
 await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
 await page.addStyleTag({ content: '#attr,#hud,.pv-hud{display:none!important}' });
 
-await page.evaluate(() => {
-  const r = __district.district.meta.route;
-  const a = r[2], b = r[4];
-  const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz) || 1;
-  __district.placeAt(a.x, a.z);
-  __district.setAutopilot(() => {});
-  __district.freeCam([a.x - (dx / len) * 34, 2.4, a.z - (dz / len) * 34],
-    [a.x + (dx / len) * 260, 16, a.z + (dz / len) * 260], 55);
-  for (let i = 0; i < 900; i++) __district.world.update(__district.vehicle.position);
-});
+const placed = await page.evaluate(placeCamera, SHOTS.corridor);
+console.log(describe('corridor', placed));
 await page.evaluate((t) => __district.setTimeOfDay(t), TOD);
 // Nothing may move between paired captures.
 await page.evaluate(() => { __district.setTraffic(0); __district.setPedestrians(0); });

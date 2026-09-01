@@ -1,0 +1,226 @@
+{
+ "tod": "dusk",
+ "facts": {
+  "alive": 91,
+  "count": 96,
+  "meshes": {
+   "shadows": {
+    "geoTris": 12,
+    "instances": 96,
+    "crowdTris": 1152,
+    "material": "MeshBasicMaterial",
+    "vertexColors": true,
+    "instanceColorSet": false,
+    "color": "000000",
+    "castShadow": false,
+    "receiveShadow": false,
+    "side": 0
+   },
+   "torsos": {
+    "geoTris": 80,
+    "instances": 96,
+    "crowdTris": 7680,
+    "material": "MeshStandardMaterial",
+    "vertexColors": false,
+    "instanceColorSet": true,
+    "color": "ffffff",
+    "envMapIntensity": 1,
+    "roughness": 0.86,
+    "metalness": 0,
+    "castShadow": true,
+    "receiveShadow": true,
+    "side": 0
+   },
+   "heads": {
+    "geoTris": 56,
+    "instances": 96,
+    "crowdTris": 5376,
+    "material": "MeshStandardMaterial",
+    "vertexColors": true,
+    "instanceColorSet": true,
+    "color": "ffffff",
+    "envMapIntensity": 1,
+    "roughness": 0.74,
+    "metalness": 0,
+    "castShadow": true,
+    "receiveShadow": true,
+    "side": 0
+   },
+   "limbs": {
+    "geoTris": 60,
+    "instances": 768,
+    "crowdTris": 46080,
+    "material": "MeshStandardMaterial",
+    "vertexColors": false,
+    "instanceColorSet": true,
+    "color": "ffffff",
+    "envMapIntensity": 1,
+    "roughness": 0.86,
+    "metalness": 0,
+    "castShadow": true,
+    "receiveShadow": true,
+    "side": 0
+   }
+  },
+  "crowdTrisTotal": 60288,
+  "nearest": {
+   "distM": 8.18,
+   "footPx": {
+    "x": 1635,
+    "y": 854
+   },
+   "headPx": {
+    "x": 1624,
+    "y": 590
+   },
+   "pixelHeight": 265,
+   "speedMs": 0.74
+  },
+  "nearestFive": [
+   8.2,
+   8.9,
+   11.5,
+   16.3,
+   17.6
+  ],
+  "envIntensity": 1,
+  "sceneTriangles": 293065,
+  "sceneCalls": 140
+ },
+ "framing": {
+  "x": -7.4,
+  "z": 20,
+  "yaw": -0.96,
+  "v": 1.34,
+  "nearestNeighbourM": 9.8,
+  "camDistM": 2.8,
+  "ground": 0
+ },
+ "pose": {
+  "slot": 9,
+  "speedMs": 1.345,
+  "torsoDet": 0.9824,
+  "headDet": 0.9131,
+  "limbDets": [
+   0.851,
+   0.605,
+   0.851,
+   0.605,
+   0.3444,
+   0.2347,
+   0.3444,
+   0.2347
+  ],
+  "negativeDeterminantInstances": 0,
+  "instancesChecked": 960
+ },
+ "mask": {
+  "px": 388847
+ },
+ "noiseFloor": {
+  "meanR": 101.2,
+  "meanG": 90,
+  "meanB": 106.6,
+  "meanLum": 93.6,
+  "meanAbsDiff": 0,
+  "pctChanged": 0,
+  "clipPct": 0,
+  "maskPx": 388847
+ },
+ "baseline": {
+  "meanR": 101.2,
+  "meanG": 90,
+  "meanB": 106.6,
+  "meanLum": 93.6,
+  "meanAbsDiff": null,
+  "pctChanged": null,
+  "clipPct": 0,
+  "maskPx": 388847
+ },
+ "rows": [
+  {
+   "label": "clothVC",
+   "meanR": 98,
+   "meanG": 87.5,
+   "meanB": 102.8,
+   "meanLum": 90.8,
+   "meanAbsDiff": 2.72,
+   "pctChanged": 15.3,
+   "clipPct": 0,
+   "maskPx": 388847,
+   "aboveNoiseFloor": true
+  },
+  {
+   "label": "doubleSide",
+   "meanR": 101.2,
+   "meanG": 90,
+   "meanB": 106.6,
+   "meanLum": 93.6,
+   "meanAbsDiff": 0,
+   "pctChanged": 0,
+   "clipPct": 0,
+   "maskPx": 388847,
+   "aboveNoiseFloor": false
+  },
+  {
+   "label": "flipWinding",
+   "meanR": 106.9,
+   "meanG": 91.6,
+   "meanB": 105.8,
+   "meanLum": 95.9,
+   "meanAbsDiff": 2.75,
+   "pctChanged": 11.8,
+   "clipPct": 0,
+   "maskPx": 388847,
+   "aboveNoiseFloor": true
+  },
+  {
+   "label": "nosun",
+   "meanR": 101.2,
+   "meanG": 90,
+   "meanB": 106.6,
+   "meanLum": 93.6,
+   "meanAbsDiff": 0.01,
+   "pctChanged": 0,
+   "clipPct": 0,
+   "maskPx": 388847,
+   "aboveNoiseFloor": false
+  },
+  {
+   "label": "noenv",
+   "meanR": 11.2,
+   "meanG": 14,
+   "meanB": 23.5,
+   "meanLum": 14.1,
+   "meanAbsDiff": 79.5,
+   "pctChanged": 96.9,
+   "clipPct": 0,
+   "maskPx": 388847,
+   "aboveNoiseFloor": true
+  },
+  {
+   "label": "nohemi",
+   "meanR": 91,
+   "meanG": 75.3,
+   "meanB": 88.5,
+   "meanLum": 79.6,
+   "meanAbsDiff": 13.96,
+   "pctChanged": 72.7,
+   "clipPct": 0,
+   "maskPx": 388847,
+   "aboveNoiseFloor": true
+  },
+  {
+   "label": "nolamps",
+   "meanR": 100.9,
+   "meanG": 89.8,
+   "meanB": 106.5,
+   "meanLum": 93.4,
+   "meanAbsDiff": 0.2,
+   "pctChanged": 0,
+   "clipPct": 0,
+   "maskPx": 388847,
+   "aboveNoiseFloor": false
+  }
+ ]
+}

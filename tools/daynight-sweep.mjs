@@ -22,7 +22,7 @@ await page.goto('http://127.0.0.1:8123/district/', { waitUntil: 'networkidle' })
 await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
 
 // Park on the Marlin Street corridor just west of Five Points, looking east
-// down the corridor. Identical camera for all three captures.
+// down the corridor. Identical camera for every capture.
 const CAM = await page.evaluate(() => {
   const r = __district.district.meta.route;
   const a = r[2], b = r[4];                        // Marlin St @ Tarpon Row -> Marlin St east
@@ -44,7 +44,7 @@ await page.evaluate(() => { for (let i = 0; i < 200; i++) __district.world.updat
 await page.waitForTimeout(20000);
 
 const results = [];
-for (const tod of ['noon', 'dusk', 'night']) {
+for (const tod of ['noon', 'golden', 'dusk', 'night']) {
   await page.evaluate((t) => __district.setTimeOfDay(t), tod);
   await page.waitForTimeout(16000);
   const audit = await page.evaluate(() => __district.audit());
@@ -74,7 +74,7 @@ const summary = {
 fs.writeFileSync('docs/daynight.json', JSON.stringify(summary, null, 1));
 console.log('\n=== SUMMARY ===');
 console.log(JSON.stringify(summary.presets, null, 1));
-console.log(flagged.length ? `\nIMPLAUSIBLE AT: ${flagged.map((f) => f.tod).join(', ')}` : '\nAll three times of day within the plausible envelope.');
+console.log(flagged.length ? `\nIMPLAUSIBLE AT: ${flagged.map((f) => f.tod).join(', ')}` : `\nAll ${results.length} times of day within the plausible envelope.`);
 // --- NEGATIVE TEST -------------------------------------------------------
 // Re-inject the exact Phase 1 failure (street lamps at 26 cd) and confirm the
 // plausibility checker flags it. A checker that has never failed is not a check.

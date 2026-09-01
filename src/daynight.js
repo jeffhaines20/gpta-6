@@ -24,6 +24,152 @@ export const PRESETS = {
     post: { fogColor: 0xa9c3e0, inscatter: 0xfff0d0, density: 0.0016,
             heightFalloff: 0.020, bloomThreshold: 1.7, bloomStrength: 0.30 },
   },
+  // Golden hour. The hour the district did not have.
+  //
+  // Every dusk critique round asked for legible cast shadows on the road, and
+  // tools/sun-share.mjs measured why they cannot exist there: at dusk the sun
+  // owns 1.9% of the light on the road (2.4 of 255) and the geometry is already
+  // blocking 83.8% of that. Dusk is authored as SUNSET - sun on the horizon,
+  // sky-dominated, flat ground - and it renders that correctly. Golden hour is a
+  // different hour, and this is it.
+  //
+  // Nothing below is a taste value. Every photometric number was read back out of
+  // OUR OWN atmosphere (src/sky.js) at this geometry, turbidity 2.6, overcast 0:
+  //
+  //   sun elevation           8.00 deg = 0.1396 rad
+  //   sunLux  (direct normal, SUN_ILLUMINANCE * luminance(transmittance))  34,470
+  //   skyLux  (cos-weighted hemispherical integral over the dome)           8,519
+  //   zenith 1,434 nits, horizon 7,908 nits
+  //   transmittance t = [0.4168, 0.2442, 0.0982]  <- the sun's colour after air mass
+  //
+  // 8 deg was proposed from Kasten-Young air mass 6.857 and a broadband luminous
+  // optical depth tau = 0.21, which predicts 31,500 lux direct normal. Our model
+  // says 34,470 - 9.4% brighter. The model wins; 34,470 is what is authored, and
+  // the discrepancy is logged rather than split. The model is self-consistent at
+  // the other end too: it puts 9,319 lux at dusk's 3.15 deg, against the ~8,800
+  // that src/sky.js's own SKY_PRESETS comment quotes.
+  //
+  // Why 8 deg and not 6. Two independent reasons, both measured:
+  //   - the sun's share of the horizontal illuminance is sun*sin(el)/(sun*sin(el)
+  //     + sky): 25.7% at 6 deg, 36.0% at 8 deg, 44.4% at 10 deg. A cast shadow can
+  //     never be more legible than that number allows, and 6 deg is on the edge of
+  //     the 25% acceptance bar before any geometry gets in the way.
+  //   - shadow length against the shadow volume. The ortho shadow camera is +-260
+  //     (lateral) with near 1 / far 900 along the light ray from a light parked 400 m
+  //     out, so the ground is covered from 403 m sunward to 505 m anti-sunward of
+  //     the viewer. The +-260 half-extent bounds the LATERAL half-width, not shadow
+  //     length; length is bounded by that 505 m. The district's tallest building is
+  //     67.2 m: at 8 deg it throws 67.2/tan(8) = 478 m, inside 505; at 6 deg it
+  //     throws 639 m and gets cut off. Median building 6.4 m -> 46 m of shadow, p95
+  //     36.5 m -> 260 m.
+  // A wall facing the sun collects cos(8 deg) = 0.99 of the beam, which is the
+  // exact defect noon has and cannot fix at 75.6 deg elevation.
+  //
+  // Azimuth 0.768 rad = 44.0 deg is the one art call here, and it is stated rather
+  // than derived. The corridor hero camera looks along heading -16.0 deg and the
+  // fivepoints camera along -0.0 deg, so 44 deg sits 60 deg off the corridor lens
+  // and 44 deg off the fivepoints lens. Both are wider than those cameras'
+  // horizontal half-FOV (42.8 deg at fov 55, 38.4 deg at fov 48, 16:9), so the disc
+  // itself stays out of frame while its warm gradient sits at the frame edge; and a
+  // sun 60 deg off the lens puts the shadow direction 120 deg off it, i.e. shadows
+  // rake ACROSS the carriageway and toward the camera instead of hiding behind
+  // their casters, which is what dusk's 172-deg-off sun does. tools/sun-sweep.mjs
+  // established that bearing barely moves ground occlusion (1.99-3.55 over a full
+  // 360), so this is about where the light sits in frame, not how much of it there is.
+  golden: {
+    label: 'Golden hour',
+    // 53,138 is an INTENSITY, and it is the one number in this preset that is not
+    // the illuminance it looks like. three.js hands the shader color * intensity as
+    // the irradiance, so what a surface facing this sun actually receives is
+    // intensity * luminance(sunColor) = 53138 * 0.6487 = 34,470 lux - the measured
+    // direct normal illuminance. A saturated hue cannot carry linear luminance 1 in
+    // eight bits (only white can), so the deficit has to live in the intensity or it
+    // does not exist at all: authoring 34,470 here would put 22,361 lux on the
+    // district and call it 34,470.
+    //
+    // Measured, in the running district with the sun's colour forced to white at a
+    // fixed intensity: the road band goes 139.5 -> 147.1 of 255, and the sun's own
+    // contribution to it 0.0445 -> 0.0670 in exposed units, a factor of 1.506
+    // against the 1.542 that 1/0.6487 predicts. The deficit is real and this is its
+    // size. audit() now reports sunLuxDelivered/skyLuxDelivered beside the authored
+    // values so the gap is visible for every preset, not just this one - noon
+    // delivers 93,080 of its authored 100,000 and dusk 498 of its 1,200.
+    sunLux: 53138,
+    skyLux: 8519,             // the dome's own hemispherical illuminance, as measured
+    elevation: 0.1396, azimuth: 0.768,
+    // t normalised to its brightest channel and encoded sRGB: [1, 0.586, 0.236],
+    // linear luminance 0.6487 - see sunLux above, which carries the deficit.
+    sunColor: 0xffc985,
+    // The dome's OWN cos-weighted upper-hemisphere colour, re-integrated from the
+    // same 64x32 probe skyLux comes from: [6325, 8712, 13073] nits, normalised.
+    // Cool fill against a warm key is what makes the hour read, and it is measured,
+    // not styled.
+    skyColor: 0xb9d5ff,
+    // Ground bounce: uGroundAlbedo (0x6b6455, linear [0.147, 0.127, 0.091]) times
+    // the normalised sun hue -> [0.147, 0.075, 0.021]. Red passes the air mass
+    // intact, green and blue do not.
+    groundColor: 0x6b4d28,
+    // Derived, and shipped AS derived - no grade offset. The rule is exposure =
+    // pi/E for an 18% grey card, and the whole question is which E.
+    //
+    // The atmosphere's own answer is E_h = 34470*sin(8 deg) + 8519 = 4,797 + 8,519
+    // = 13,316 lux, giving 1/4,239. That is what a light meter on the road would
+    // read outdoors. It is NOT what this engine puts on the road, because the sky
+    // arrives twice: daynight.js runs a HemisphereLight at the preset's skyLux AND
+    // then restores scene.environmentIntensity to 1.0 over sky.js's own
+    // recommendation of 0.35, so the PMREM built from the same dome delivers the
+    // same illuminance again. Isolated at the corridor camera (each source switched
+    // off in turn, frames differenced in exposed units): environment 0.0867,
+    // hemisphere 0.0494, sun 0.0445, and the three sum to 0.1806 against a measured
+    // total of 0.1760 - additive to 3%, so the split is real and not an artefact.
+    //
+    // So E is the illuminance the district actually delivers to a horizontal
+    // surface:
+    //     sun   34470 * sin(8 deg)                    =  4,797 lux
+    //     hemi   8519 * luminance(0xb9d5ff) = 8519*0.6517 =  5,552 lux
+    //     PMREM  8519 at environmentIntensity 1        =  8,519 lux
+    //                                                   ---------
+    //                                          E_render = 18,868 lux
+    // pi/18868 = 1.665e-4 = 1/6,006. Using the atmosphere's 13,316 instead put the
+    // road band at 139.5/255 and pushed the sunlit facades into the ACES shoulder,
+    // where highlight compression ate the sun/shadow separation this hour exists to
+    // show: the sun's share of the road measured 17.0% in display units against
+    // 29.5% in linear ones. The double-counted sky is a district-wide property, not
+    // this preset's to fix, but pretending it is not there is what would make the
+    // stop wrong.
+    exposure: 1 / 6006,
+    // Off. 4,797 lux of sun on the road against a 900 cd lamp is not a contest,
+    // and real street lighting is not on 40 minutes before sunset.
+    lampsOn: false,
+    // Fallback only: with a PostStack attached (which the district always has)
+    // scene.fog is dropped and post.js's height fog takes over. The colour doubles
+    // as the flat background in that fallback, so it carries the dome's ambient hue
+    // rather than the away-from-sun horizon ring, which at this hour measures a
+    // near-neutral 0xf5fff7 and would render the fallback sky white. Density is
+    // noon's: golden hour is the same clear air.
+    fog: { color: 0xb9d5ff, density: 0.0016 },
+    // fogColor/inscatter/density/heightFalloff are all overwritten within the same
+    // apply() - sky.applyToPost() writes the measured atmosphere over them and
+    // normalisePostExposure() clamps after that - so they are set to the measured
+    // hues (fog = away-from-sun horizon ring, inscatter = toward-sun ring) rather
+    // than to a colour that would be a lie for the one frame they survive.
+    //
+    // bloomThreshold and bloomStrength are NOT overwritten and are the only look
+    // parameters here. The threshold is bounded from below by three quantities that
+    // are arithmetic on the numbers above, in exposed units at 1/6,006:
+    //   exposed mid-sky              sqrt(1434*7908)/6006                    = 0.56
+    //   white sunlit horizontal      E_render/pi/6006                        = 1.00
+    //   sunlit facade, albedo 0.5    (34470*cos(8) + (5552+8519)/2)*0.5/pi/6006 = 1.09
+    // A threshold under 1.09 blooms every sunlit wall in the district, which is the
+    // milky frame three critic rounds have already complained about. 1.4 clears the
+    // brightest plausible facade by 28% and sits under the inscatter lobe's own
+    // ceiling (normalisePostExposure clamps it to 2.2 exposed), so what blooms is
+    // the sun's aureole and specular glints off glass and wet metal - and nothing
+    // that is merely lit. Strength is between noon's 0.30 and dusk's 0.62 and nearer
+    // noon, because unlike dusk nothing in frame is an emitter.
+    post: { fogColor: 0xf5fff7, inscatter: 0xffd4a5, density: 0.0016,
+            heightFalloff: 0.020, bloomThreshold: 1.4, bloomStrength: 0.40 },
+  },
   dusk: {
     label: 'Dusk',
     sunLux: 1200,             // sun on the horizon, heavily attenuated
@@ -61,6 +207,20 @@ export const PRESETS = {
 // photometric reference would put each quantity in.
 export const PLAUSIBLE = {
   noon:  { sunLux: [50000, 130000], skyLux: [8000, 30000] },
+  // Golden hour is defined by its elevation band, so its envelope is too. Swept
+  // through OUR OWN atmosphere at turbidity 2.6 (the value weather.js's clear
+  // state actually pushes), direct normal runs 24,301 lux at 6 deg to 43,410 at
+  // 10 deg and the dome's hemispherical illuminance 7,360 to 9,427. Those ends
+  // widened by 25% either way are the bounds below; the preset sits at 34,470 and
+  // 8,519, which is 8 deg exactly.
+  // NOTE the units differ from the two rows around them, and deliberately: golden's
+  // sunLux is the INTENSITY, whose delivered illuminance is intensity *
+  // luminance(sunColor) - see the preset. Swept through our own atmosphere at
+  // turbidity 2.6, direct normal runs 24,301 lux at 6 deg to 43,410 at 10 deg, and
+  // the intensity that delivers those through the transmittance hue at each end is
+  // 41,455 and 62,371. Widened 25% either way. audit() reports sunLuxDelivered
+  // alongside, which is the number to read as a photometric quantity.
+  golden: { sunLux: [31000, 78000],  skyLux: [5500, 11800] },
   dusk:  { sunLux: [200, 4000],     skyLux: [100, 2500] },
   night: { sunLux: [0, 3],          skyLux: [0.03, 1.5] },
   lampCandela: [300, 3000],         // a street lamp is ~10-20 klm over a sphere
@@ -361,6 +521,17 @@ export class TimeOfDay {
       shadowMapEnabled: this.renderer.shadowMap.enabled,
       lightCount: lights.length, lightsByType: byType,
       sunLux: sun?.intensity, skyLux: hemi?.intensity,
+      // What the lights actually DELIVER, which is not what they are authored at.
+      // three.js gives the shader color * intensity as the irradiance, so a tinted
+      // light of intensity E puts E * luminance(color) lux on a facing surface, and
+      // luminance(color) < 1 for every colour that is not white. Measured here
+      // rather than assumed: noon's 0xfff6e8 is 0.93, golden's 0xffc985 is 0.65,
+      // dusk's 0xff9048 is 0.42. Reported, not gated - the envelope above still
+      // judges the authored value, so no existing verdict moves. It exists because
+      // the file header promises "intensity -> lux" and that promise is only true
+      // for a white light.
+      sunLuxDelivered: sun ? +(this.sun.intensity * lum3(this.sun.color)).toFixed(3) : null,
+      skyLuxDelivered: hemi ? +(this.hemi.intensity * lum3(this.hemi.color)).toFixed(3) : null,
       litPointLights: lights.filter((l) => l.type === 'PointLight' && l.intensity > 0).length,
       lightPool: this.lightPool ? this.lightPool.report() : null,
       environmentIntensity: this.scene.environmentIntensity,
@@ -373,3 +544,9 @@ export class TimeOfDay {
     };
   }
 }
+
+// Relative luminance of a linear THREE.Color, Rec.709 weights. The same function
+// sky.js keeps as luminance3(); duplicated rather than exported across the
+// boundary because it is three multiplies and a shared helper module for it would
+// be the only reason that module existed.
+function lum3(c) { return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b; }

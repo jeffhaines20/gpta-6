@@ -202,10 +202,18 @@ function roomImpulse(ctx, seconds, decay, rand) {
 // ------------------------------------------------------------- ambience mixes
 // Bed weights per time of day. Named to match src/daynight.js PRESETS so the
 // game can pass the preset name straight through.
+// golden is interpolated, not invented. The two beds cross over with how much
+// light there is, and the natural axis for that is log illuminance: E_total is
+// 116,860 lux at noon, 13,316 at golden, 2,100 at dusk (log10 5.07, 4.12, 3.32).
+// The day bed runs 0.48 -> 1.00 and the night bed 0.55 -> 0.02 over the 1.75
+// decades from dusk to noon, i.e. 0.297 and -0.303 per decade; golden sits 0.80
+// decades above dusk, which lands it at 0.72 and 0.31. Late afternoon: the daytime
+// street still carrying, the evening bed just audible under it.
 const TOD_BEDS = {
-  noon:  { day: 1.00, night: 0.02 },
-  dusk:  { day: 0.48, night: 0.55 },
-  night: { day: 0.06, night: 1.00 },
+  noon:   { day: 1.00, night: 0.02 },
+  golden: { day: 0.72, night: 0.31 },
+  dusk:   { day: 0.48, night: 0.55 },
+  night:  { day: 0.06, night: 1.00 },
 };
 
 // ------------------------------------------------------------- stinger motifs
@@ -739,7 +747,11 @@ export class GameAudio {
   setTimeOfDay(t, fade = 1.6) {
     let beds;
     if (typeof t === 'string') {
-      beds = TOD_BEDS[t] || TOD_BEDS.dusk;
+      // Named hours must be in the table. Falling back to dusk was silent, and a
+      // silent fallback in a mixer is the worst place for one: the wrong bed
+      // crossfades in smoothly and sounds deliberate.
+      beds = TOD_BEDS[t];
+      if (!beds) throw new Error(`audio has no ambience bed for time of day: ${t}`);
       this.timeOfDay = t;
     } else {
       const h = ((num(t, 12) % 24) + 24) % 24;

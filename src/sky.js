@@ -73,6 +73,29 @@ export const SKY_PRESETS = {
     moonElevation: -0.7, moonAzimuth: 3.7, moonIntensity: 0,
     turbidity: 2.4,
   },
+  // Golden hour, and the ONE preset where this file and daynight.js do not
+  // disagree about where the sun is: both say 0.1396 rad (8.00 deg), and the
+  // photometry daynight.js authors was read straight back out of this model at
+  // that elevation - 34,470 lux direct normal, 8,519 lux of sky. Dusk had to
+  // choose between its disc and its photometry because at 3.15 deg they cannot
+  // both be right; at 8 deg there is nothing to trade.
+  //
+  // turbidity 2.6, NOT a fourth hand-picked value. weather.js pushes
+  // WEATHER_STATES.clear.turbidity = 2.6 into the sky on every update(), and
+  // setTimeOfDay() will not overwrite an override, so the running district has
+  // rendered every hour at 2.6 since weather landed - measured, at all three
+  // existing times of day, in docs/fglass-audits.json ("turb 2.6" on every row).
+  // The other three presets' turbidity values are dead constants in the game and
+  // only speak in labs/sky. Authoring 2.6 here means the preset agrees with what
+  // is actually on screen instead of describing an atmosphere nothing renders.
+  //
+  // The moon is below the horizon and dark, as noon's is: this is 40 minutes
+  // before sunset, not twilight.
+  golden: {
+    sunElevation: 0.1396, sunAzimuth: 0.768,
+    moonElevation: -0.55, moonAzimuth: 0.768 + Math.PI, moonIntensity: 0,
+    turbidity: 2.6,
+  },
   // Dusk sits on the horizon, not at daynight.js's 0.055 rad (3.15 deg). That
   // preset quotes a 900 lux sky and a direct-normal 1,200 lux, and its own two
   // numbers disagree: 3.15 deg of elevation transmits about 8,800 lux and lights
@@ -104,6 +127,16 @@ export const SKY_PRESETS = {
 // behaviour gets ignored.
 export const PLAUSIBLE_SKY = {
   noon: { zenithNits: [1200, 9000], horizonNits: [2500, 30000], skyLux: [8000, 30000] },
+  // Measured off this model across the 6-10 deg band that defines the hour, at
+  // turbidity 2.6: zenith 1,250-1,575 nits, horizon 6,839-8,628, sky 7,360-9,427.
+  // Bounds are those ends widened 25% either way. The floors also have to clear
+  // rain, since audit() opens the floor by (1 - 0.92*overcast) but never the
+  // ceiling: at lightRain (turbidity 3.4, overcast 0.62) the same band measures
+  // 901-1,140 / 3,582-4,562 / 4,429-5,722 against opened floors of 408 / 2,191 /
+  // 2,363, and at heavyRain (4.4, overcast 1) 686-872 / 1,749-2,256 / 2,617-3,411
+  // against floors of 76 / 408 / 440. Nothing in the weather range trips it, and a
+  // dome that drifted a quarter-stop off the authored hour does.
+  golden: { zenithNits: [950, 2000], horizonNits: [5100, 10800], skyLux: [5500, 11800] },
   dusk: { zenithNits: [30, 1200], horizonNits: [120, 12000], skyLux: [100, 2500] },
   night: { zenithNits: [0.005, 0.4], horizonNits: [0.05, 2.5], skyLux: [0.05, 3] },
 };
@@ -1216,7 +1249,7 @@ export class Sky {
   }
 
   // ------------------------------------------------------------------ state
-  /** Match daynight.js: 'noon' | 'dusk' | 'night'. */
+  /** Match daynight.js: 'noon' | 'golden' | 'dusk' | 'night'. */
   setTimeOfDay(name) {
     const p = SKY_PRESETS[name];
     if (!p) throw new Error(`unknown sky preset: ${name}`);

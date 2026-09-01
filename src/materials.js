@@ -1794,6 +1794,50 @@ float pvPaveHash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) )
   });
 }
 
+// Specular anti-aliasing for horizontal surfaces, on the real texel footprint.
+//
+// The asphalt normal map repeats every 3 m at 512 px, i.e. 5.9 mm per texel.
+// That is right up close and hopelessly under-sampled at a grazing angle: one
+// screen pixel covers many texels, the normal it happens to sample is not the
+// average of them, and the specular lobe turns that error into bright dashes.
+// Measured on the night corridor camera in heavy rain, the ground band's
+// high-frequency energy (mean deviation from a 3x3 mean) sits at 10.04 and the
+// frame shows a white crackle across the carriageway.
+//
+// Two things this is NOT. It is not a texture-sampling problem: raising
+// anisotropy to the hardware maximum of 16 moved the number by 0.4%. And it is
+// not a distance problem - the first version of this faded the normal between
+// 18 m and 70 m and moved it by 0.8%, because at a camera height of 2.4 m the
+// most grazing ground in the frame is at the viewer's FEET, not down the street.
+// Distance is the wrong proxy for under-sampling; footprint is the right one.
+//
+// So the fade is driven by the actual texel footprint of a pixel, from the
+// screen-space derivatives of the normal map's own UV. At one texel per pixel
+// the map is fully resolved and is used as authored; by `flat` texels per pixel
+// it is noise and the normal is the geometric one. The variance the fade removes
+// is handed to roughness rather than thrown away, which is the trade Toksvig
+// makes - taken on a measured footprint rather than a per-texel variance this
+// pipeline has nowhere to store.
+function applyDistanceNormalFade(material, texels, flat, roughFloor) {
+  const T = texels.toFixed(1), F = flat.toFixed(1), R = roughFloor.toFixed(3);
+  return patch(material, 'nfade', (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <normal_fragment_maps>',
+      `#include <normal_fragment_maps>
+  #ifdef USE_NORMALMAP
+  {
+    // Texels of the normal map covered by this pixel, along its longer axis.
+    float pvFoot = max( length( dFdx( vNormalMapUv ) ), length( dFdy( vNormalMapUv ) ) ) * ${T};
+    float pvNFade = 1.0 - smoothstep( 1.0, ${F}, pvFoot );
+    normal = normalize( mix( nonPerturbedNormal, normal, pvNFade ) );
+    // Flattening the normal removes specular spread; give it back as roughness
+    // so the surface does not turn into a mirror as its detail fades out.
+    roughnessFactor = mix( max( roughnessFactor, ${R} ), roughnessFactor, pvNFade );
+  }
+  #endif`);
+  });
+}
+
 // Roughness lives in the normal map's alpha. Canvas 2D premultiplies alpha, so
 // this only works because these normal maps are DataTextures assembled byte by
 // byte rather than read back out of a canvas.
@@ -2061,12 +2105,21 @@ function applyWater(material, time) {
 export class MaterialRegistry {
   /**
    * @param {object} [opts]
-   * @param {number} [opts.anisotropy=8]  pass renderer.capabilities.getMaxAnisotropy()
+   * @param {number} [opts.anisotropy=16] clamped to the device max at upload
    * @param {number} [opts.seed=1337]     changes every texture; keep it fixed in the game
    */
   constructor(opts = {}) {
     const t0 = performance.now();
-    this.anisotropy = opts.anisotropy ?? 8;
+    // 16 is the max every desktop GL implementation this targets reports, and
+    // three clamps to capabilities.getMaxAnisotropy() at upload, so asking for
+    // more than a device has costs nothing. The old default was 8 with a note
+    // saying to pass the max, and no caller ever did.
+    //
+    // Honest caveat: measured on the SwiftShader harness this changes the ground
+    // band's high-frequency energy by 0.4%, i.e. nothing - that renderer appears
+    // not to implement anisotropic filtering. It is kept because it is correct
+    // where the extension exists, NOT because it was seen to help here.
+    this.anisotropy = opts.anisotropy ?? 16;
     this.seed = opts.seed ?? 1337;
     this._materials = new Map();
     this._textures = [];
@@ -2161,6 +2214,9 @@ export class MaterialRegistry {
     });
     applyPlanarUV(m, 1 / tileMetres);
     if (maps.packedRough) applyPackedRoughness(m);
+    // Every world-planar ground surface has the same grazing-angle problem, so
+    // the fade goes on all of them rather than only on the road that showed it.
+    applyDistanceNormalFade(m, maps.normal?.image?.width ?? 512, 5, 0.34);
     return this._put(key, m);
   }
 

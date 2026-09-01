@@ -1,0 +1,94 @@
+{
+ "tod": "dusk",
+ "subject": {
+  "x": -2,
+  "z": 0,
+  "ground": 0,
+  "yaw": 0.9,
+  "dist": 3.4
+ },
+ "spread": {
+  "inFrontOfLens": 11,
+  "nearest": [
+   17.5,
+   23.5,
+   36.4,
+   54.7,
+   62,
+   66.6
+  ],
+  "pixelHeightOfNearest": 85,
+  "within": {
+   "10m": 0,
+   "15m": 0,
+   "20m": 1,
+   "25m": 2,
+   "30m": 2,
+   "40m": 3
+  },
+  "pixelHeightAt": {
+   "8m": 186,
+   "15m": 99,
+   "24m": 62,
+   "40m": 37
+  }
+ },
+ "boxes": {
+  "ppm": 360.9,
+  "whole": {
+   "x0": 576,
+   "y0": 85,
+   "x1": 1024,
+   "y1": 850
+  },
+  "head": {
+   "x0": 731,
+   "y0": 204,
+   "x1": 869,
+   "y1": 363
+  },
+  "thigh": {
+   "x0": 766,
+   "x1": 882,
+   "y0": 522,
+   "y1": 591
+  },
+  "foot": {
+   "x0": 602,
+   "y0": 685,
+   "x1": 998,
+   "y1": 829
+  },
+  "kneeR": {
+   "x": 787.7679197737839,
+   "y": 648.855522498554
+  }
+ },
+ "rows": [
+  {
+   "label": "farLOD",
+   "silhouettePx": 56204,
+   "headPx": 13036,
+   "footPx": 8506,
+   "rows": 69,
+   "creaseMean": 10.56,
+   "creaseP90": 11.47,
+   "file": "docs/shots/near-dusk-farLOD.png"
+  },
+  {
+   "label": "nearLOD",
+   "silhouettePx": 56204,
+   "headPx": 13036,
+   "footPx": 8506,
+   "rows": 69,
+   "creaseMean": 10.56,
+   "creaseP90": 11.47,
+   "file": "docs/shots/near-dusk-nearLOD.png"
+  },
+  {
+   "label": "noonSunControl",
+   "meanAbsDiff": 39.71,
+   "pctChanged": 55.3
+  }
+ ]
+}

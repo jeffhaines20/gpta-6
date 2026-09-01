@@ -195,7 +195,7 @@ export const RECIPES = {
     spandrel: { l: -12, h: 0.30 },
     stringCourse: { at: 0.02, l: 12, thick: 9 },
     glass: [[141, 154, 165], [122, 134, 144], [94, 104, 113]],
-    lit: { noon: 0.06, dusk: 0.62, night: 0.34 },
+    lit: { noon: 0.06, golden: 0.06, dusk: 0.62, night: 0.34 },
     litPattern: 'strip',
     ct: [[CT.k2700, 3], [CT.k3000, 3], [CT.k4000, 2], [CT.k5000, 2], [CT.k2200, 1]],
     interior: 1.5,
@@ -222,7 +222,7 @@ export const RECIPES = {
     spandrel: { l: -9, h: 0.34 },
     stringCourse: { at: 0.0, l: 5, thick: 5 },
     glass: [[146, 163, 178], [130, 146, 159], [100, 112, 122]],
-    lit: { noon: 0.10, dusk: 0.46, night: 0.30 },
+    lit: { noon: 0.10, golden: 0.10, dusk: 0.46, night: 0.30 },
     litPattern: 'floorBands',
     ct: [[CT.k4000, 5], [CT.k5000, 4], [CT.k6500, 2], [CT.tv, 1], [CT.k3000, 1]],
     interior: 1.1,
@@ -245,7 +245,7 @@ export const RECIPES = {
     spandrel: { l: -6, h: 0.22 },
     stringCourse: { at: 0.0, l: 16, thick: 13 },
     glass: [[136, 146, 156], [117, 128, 138], [89, 98, 108]],
-    lit: { noon: 0.06, dusk: 0.50, night: 0.34 },
+    lit: { noon: 0.06, golden: 0.06, dusk: 0.50, night: 0.34 },
     litPattern: 'stacks',
     ct: [[CT.k2700, 4], [CT.k3000, 3], [CT.k4000, 2], [CT.k2200, 2]],
     interior: 1.0,
@@ -268,7 +268,7 @@ export const RECIPES = {
     spandrel: { l: -5, h: 0.24 },
     stringCourse: { at: 0.0, l: 8, thick: 7 },
     glass: [[151, 170, 184], [136, 154, 163], [98, 112, 125]],
-    lit: { noon: 0.04, dusk: 0.40, night: 0.40 },
+    lit: { noon: 0.04, golden: 0.04, dusk: 0.40, night: 0.40 },
     litPattern: 'stacks',
     ct: [[CT.k2700, 5], [CT.k2200, 2], [CT.k3000, 3], [CT.tv, 2], [CT.k4000, 1]],
     interior: 0.8,
@@ -291,7 +291,7 @@ export const RECIPES = {
     spandrel: { l: -7, h: 0.32 },
     stringCourse: { at: 0.0, l: 7, thick: 11 },
     glass: [[92, 96, 100], [74, 78, 82], [56, 59, 62]],   // the deck has no glazing; kept valid for the stair core
-    lit: { noon: 0.9, dusk: 1.0, night: 1.0 },   // deck ceiling lamps, always on
+    lit: { noon: 0.9, golden: 0.9, dusk: 1.0, night: 1.0 },   // deck ceiling lamps, always on
     litPattern: 'scatter',
     ct: [[CT.k5000, 4], [CT.k6500, 3], [CT.k2200, 1]],
     interior: 0.45,
@@ -314,7 +314,7 @@ export const RECIPES = {
     spandrel: { l: -4, h: 0.12 },
     stringCourse: { at: 0.0, l: 6, thick: 5 },
     glass: [[130, 136, 140], [110, 115, 119], [89, 94, 98]],
-    lit: { noon: 0.2, dusk: 0.42, night: 0.22 },
+    lit: { noon: 0.2, golden: 0.2, dusk: 0.42, night: 0.22 },
     litPattern: 'floorBands',
     ct: [[CT.k6500, 5], [CT.k5000, 3], [CT.k2200, 1]],
     interior: 0.9,
@@ -340,7 +340,7 @@ export const RECIPES = {
     spandrel: { l: -3, h: 0.10 },
     stringCourse: { at: 0.0, l: 10, thick: 7 },
     glass: [[120, 131, 142], [102, 112, 122], [79, 87, 96]],
-    lit: { noon: 0.03, dusk: 0.36, night: 0.26 },
+    lit: { noon: 0.03, golden: 0.03, dusk: 0.36, night: 0.26 },
     litPattern: 'scatter',
     ct: [[CT.k2700, 5], [CT.k2200, 3], [CT.tv, 2], [CT.k3000, 2]],
     interior: 0.7,
@@ -353,7 +353,12 @@ export const RECIPES = {
 };
 
 export const RECIPE_NAMES = Object.keys(RECIPES);
-export const TIMES = ['noon', 'dusk', 'night'];
+// Every hour a cell's `lit` flag is computed for. Not the same list as LIT_TIMES:
+// this one drives `cell.lit[t] = cell.rank < rec.lit[t]`, and an hour missing from
+// it leaves that flag `undefined`, which compares false and silently unlights the
+// whole district rather than erroring. Cheap to carry - it is one boolean per cell,
+// with no canvas behind it.
+export const TIMES = ['noon', 'golden', 'dusk', 'night'];
 // The hours that actually carry lit windows; see facadeMaps.
 export const LIT_TIMES = ['dusk', 'night'];
 
@@ -363,7 +368,14 @@ export const LIT_TIMES = ['dusk', 'night'];
 // luminance, but at night the exposure is a 150x gain, so the stored intensity
 // has to come down or every window clips to white and loses the colour
 // temperature variation that is the whole point of the CT table.
-export const EMISSIVE_INTENSITY = { noon: 0, dusk: 96, night: 3.1 };
+// golden is 0 for noon's reason, one step further along. A window's interior is a
+// fixed luminance; what changes is the stop. Dusk's 96 at golden's 1/4,239 would
+// render at 0.023 in exposed units against a road at 0.11 and a sunlit facade at
+// 1.15 - two orders under the wall it is cut into, i.e. invisible. So golden joins
+// noon in having no emissive map baked at all (see LIT_TIMES): setFacadeTime falls
+// back to the night map and multiplies it by zero, which costs nothing and keeps
+// the 7 MB of VRAM a third emissive atlas would take.
+export const EMISSIVE_INTENSITY = { noon: 0, golden: 0, dusk: 96, night: 3.1 };
 
 // ------------------------------------------------------------- panel rendering
 
@@ -1413,11 +1425,19 @@ export function trimMaterial() {
  * already generated, this only rebinds and rescales.
  */
 export function setFacadeTime(name, time) {
+  // Loud, because the alternative is quiet: `?? 0` turned an hour that is merely
+  // missing from EMISSIVE_INTENSITY into an hour with no lit windows anywhere,
+  // which reads as a content bug rather than a table with a hole in it. The
+  // emissive MAP genuinely falls back - noon and golden bake none, by design -
+  // but the intensity may not.
+  if (!(time in EMISSIVE_INTENSITY)) {
+    throw new Error(`facades have no emissive intensity for time of day: ${time}`);
+  }
   const m = cache.get(`mat:${name}`);
   if (!m) return;
   const maps = facadeMaps(name);
   m.emissiveMap = maps.emissive[time] ?? maps.emissive.night;
-  m.emissiveIntensity = (EMISSIVE_INTENSITY[time] ?? 0) * maps.recipe.interior;
+  m.emissiveIntensity = EMISSIVE_INTENSITY[time] * maps.recipe.interior;
   m.needsUpdate = true;
 }
 

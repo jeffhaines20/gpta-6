@@ -111,15 +111,24 @@ export const LIT_STYLES = new Set(['neonScript', 'neonBlock', 'channelLetters'])
 // invisible at dusk unless the emissive scales with it. Shop signs sit above the
 // bloom threshold at both hours (0.85 at dusk, 0.55 at night) because a neon tube
 // that does not bloom does not look like neon.
-export const SIGN_EMISSIVE = { noon: 0, dusk: 430, night: 7.4 };
+// golden: the SAME tube as dusk. These two hours are forty minutes apart and a
+// neon transformer does not know which one it is; what changes is the camera, and
+// 430 at golden's 1/4,239 stop renders at 0.10 in exposed units against dusk's
+// 0.48 at 1/900. Lit, warm, and plainly subordinate to a 34,470 lux sun - which is
+// exactly what a shop sign looks like before sunset. Note this is the one place in
+// this table where the physical reading and the graded one agree, so it is taken.
+export const SIGN_EMISSIVE = { noon: 0, golden: 430, dusk: 430, night: 7.4 };
 
 // Street signs are retroreflective, not emissive: they return headlight light
 // along the axis it arrived on. A constant dim glow is the standard cheat and it
 // is deliberately kept BELOW the bloom threshold — a stop sign that blooms reads
 // as a lamp, which is worse than one that reads as slightly self-lit.
-export const STREET_EMISSIVE = { noon: 0, dusk: 150, night: 1.15 };
+// golden is 0 for the reason noon is: the constant glow stands in for headlight
+// return, and a sign facing a 34,470 lux sun is being lit for real. Leaving it on
+// would double-count the one hour of the cycle where the cheat is least needed.
+export const STREET_EMISSIVE = { noon: 0, golden: 0, dusk: 150, night: 1.15 };
 
-export const TIMES = ['noon', 'dusk', 'night'];
+export const TIMES = ['noon', 'golden', 'dusk', 'night'];
 
 // -------------------------------------------------------------- shelf packing
 //
@@ -1319,12 +1328,22 @@ export function streetSignMaterial({ time = 'night', names } = {}) {
   return m;
 }
 
-/** Push a time of day into both signage materials. Cheap: rescale only. */
+/**
+ * Push a time of day into both signage materials. Cheap: rescale only.
+ *
+ * Throws on an hour this file has no entry for. The `?? 0` this replaces meant a
+ * new time of day silently switched every sign in the district off - a defect
+ * that looks like a content bug at the far end of a render, not like a missing
+ * table row. Adding the 'golden' preset is what made that reachable.
+ */
 export function setSignageTime(time) {
+  if (!(time in SIGN_EMISSIVE) || !(time in STREET_EMISSIVE)) {
+    throw new Error(`signage has no emissive level for time of day: ${time}`);
+  }
   const s = cache.get('mat:sign');
-  if (s) { s.emissiveIntensity = SIGN_EMISSIVE[time] ?? 0; s.needsUpdate = true; }
+  if (s) { s.emissiveIntensity = SIGN_EMISSIVE[time]; s.needsUpdate = true; }
   const t = cache.get('mat:street');
-  if (t) { t.emissiveIntensity = STREET_EMISSIVE[time] ?? 0; t.needsUpdate = true; }
+  if (t) { t.emissiveIntensity = STREET_EMISSIVE[time]; t.needsUpdate = true; }
 }
 
 /**

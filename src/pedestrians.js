@@ -45,6 +45,55 @@
 // and gait - not polygons - is what makes a crowd read as alive.
 //
 // ---------------------------------------------------------------------------
+// NEAR LOD: the same rig, at the resolution the near field actually needs.
+// ---------------------------------------------------------------------------
+// The paragraph above priced one mesh for the whole crowd and then chose its
+// resolution for the FAR pavement. Measured, that choice is wrong for the hero
+// frames: in the corridor hero framing the nearest ped stands 8-10 m from the
+// lens, which makes a 1.72 m figure 152-186 px tall on axis in a 900 px frame
+// (265 px measured for one standing near the frame edge, where the perspective
+// divide stretches it). At that size a 6-sided limb capsule shows every one of
+// its six facet boundaries as a shading crease, a 7x5 sphere head is a visibly
+// chipped polygon, and the absences - no foot, no hand, no neck, no pelvis -
+// are what actually read as "mannequin".
+//
+// Four hypotheses were measured before any geometry changed, and three of them
+// were WRONG (tools/ped-audit.mjs, docs/pedaudit-dusk.json):
+//
+//   * face winding, the defect this repo has already found twice: rendering the
+//     crowd DoubleSide instead of FrontSide changes 0.00 mean luminance over
+//     0.0% of the pedestrian mask, against a positive control - a deliberate
+//     index flip - of 2.75 over 11.8% of the same mask. 0 of 960 live instance
+//     matrices have a negative determinant. Ruled out.
+//   * material response: switching the sun off at noon changes 39.3 mean
+//     luminance over 55.0% of the subject box, and the environment probe is
+//     79.5 over 96.9% at dusk. The crowd is lit by everything the district is
+//     lit by. Ruled out.
+//   * per-instance colour reaching the shader: forcing vertexColors on without a
+//     colour attribute turns the whole crowd black, which is the instrument
+//     proving it can see the failure. Colour works. Ruled out.
+//   * pose at rest: v = 0 gives a standing figure with its feet together and its
+//     arms down, not a T-pose or a frozen mid-stride. Ruled out.
+//
+// So the fix is resolution, spent ONLY where it is visible. A second tier of the
+// same three meshes serves the nearest NEAR_POOL peds within NEAR_RADIUS of the
+// CAMERA (not of the crowd's focus point - the hero cameras stand 26-34 m behind
+// it, and a focus-relative test would classify every ped in the frame as far).
+// The camera arrives through onBeforeRender, so nothing outside this file has to
+// know the tier exists.
+//
+// The cost is bounded on purpose. The near tier's InstancedMesh.count is set to
+// the number of peds actually holding a slot, so it submits nothing for slots it
+// is not using, and its worst case is NEAR_POOL peds:
+//
+//   far tier   628 tris/ped x 96 slots = 60,288, unchanged
+//   near tier  2,256 tris/ped x 12     = 27,072 worst case
+//
+// against 58,431 triangles of headroom between the drive-through's 341,569 p95
+// and the 400k warn. Three more scene draw calls and three more in the shadow
+// pass, fixed, whatever the population is.
+//
+// ---------------------------------------------------------------------------
 // GAIT: phase advances by distance, and the stance foot is PROVABLY planted.
 // ---------------------------------------------------------------------------
 // src/animfsm.js established the rule that matters: the stride phase accumulates
@@ -122,6 +171,39 @@ const LIMB_BASE = LIMB_CYL;                // pivot -> far joint centre
 const TORSO_R = 0.158, TORSO_CYL = 0.30;
 const TORSO_BASE = TORSO_CYL + 2 * TORSO_R;
 
+// ------------------------------------------------------------------ near LOD
+// Tessellation. The far tier's numbers are unchanged - they are correct for the
+// far pavement and they are the cheap half of the budget. The near tier's are
+// chosen against the measured near-field pixel size:
+//
+//   a limb capsule with N radial segments presents an N-gon cross-section, so
+//   its silhouette is short of the true cylinder by r*(1 - cos(pi/N)) and its
+//   shading is interpolated across facets 360/N degrees wide. 6 -> 12 takes the
+//   facet from 60 to 30 degrees and the silhouette error from 13.4% to 3.4% of
+//   the limb radius. That is the crease the near field is showing.
+const FAR_LIMB_RADIAL = 6, FAR_LIMB_CAP = 2;
+const NEAR_LIMB_RADIAL = 12, NEAR_LIMB_CAP = 2;      // 60 -> 120 tris
+const FAR_TORSO_RADIAL = 8, FAR_TORSO_CAP = 2;
+const NEAR_TORSO_RADIAL = 16, NEAR_TORSO_CAP = 3;    // 80 -> 224 tris
+const FAR_HEAD_W = 7, FAR_HEAD_H = 5;
+const NEAR_HEAD_W = 16, NEAR_HEAD_H = 12;            // 56 -> 352 tris
+
+// Extra bones the near tier can afford and the far tier cannot. A shank capsule
+// whose bottom cap IS the foot reads as a peg leg at 3 m, and a forearm whose cap
+// IS the hand reads as a stump; those two absences plus a missing neck and a
+// missing pelvis are most of what "mannequin" means here.
+const NEAR_SLOTS = 14;          // 8 bones + 2 shoes + 2 hands + neck + pelvis
+const SHOE_L = 8, SHOE_R = 9, HAND_L = 10, HAND_R = 11, NECK_I = 12, PELVIS_I = 13;
+const NEAR_POOL = 12;           // peds that may hold the near tier at once
+const NEAR_RADIUS = 24;         // m from the camera to claim a near slot
+const NEAR_RELEASE = 30;        // ...and to keep one. Hysteresis, so a ped
+                                // walking the boundary does not flicker tiers.
+const SHOE_LEN = 0.185, SHOE_THICK = 0.62, SHOE_DROP = 0.016, SHOE_BACK = 0.045;
+const HAND_LEN = 0.085, HAND_THICK = 0.92;
+const NECK_LEN = 0.13, NECK_THICK = 0.60;
+const PELVIS_LEN = 0.19, PELVIS_THICK = 1.80, PELVIS_THICK_Z = 1.20;
+const SHOE_MUL = 0.30, NECK_MUL = 0.92;
+
 // ------------------------------------------------------------------ crowd look
 const SKIN = [0xd8ab84, 0xc79a72, 0xa8734c, 0x8d5f43, 0x6f4630, 0x4b2f20, 0xefc9a6];
 const SHIRT = [
@@ -187,30 +269,28 @@ export class Pedestrians {
     // --- geometry, authored so the instance matrix pivot is the JOINT CENTRE.
     // The capsule keeps a cap radius of material above its pivot and below its
     // far end, which is what makes neighbouring bones overlap at the joint.
-    const limbGeo = new THREE.CapsuleGeometry(LIMB_R, LIMB_CYL, 2, 6);
+    const limbGeo = new THREE.CapsuleGeometry(LIMB_R, LIMB_CYL, FAR_LIMB_CAP, FAR_LIMB_RADIAL);
     limbGeo.translate(0, -LIMB_CYL / 2, 0);
 
-    const torsoGeo = new THREE.CapsuleGeometry(TORSO_R, TORSO_CYL, 2, 8);
+    const torsoGeo = new THREE.CapsuleGeometry(TORSO_R, TORSO_CYL, FAR_TORSO_CAP, FAR_TORSO_RADIAL);
     torsoGeo.translate(0, TORSO_CYL / 2 + TORSO_R, 0);        // pivot at the hips
     torsoGeo.scale(1, 1, 0.72);                               // chests are not round
 
-    const headGeo = new THREE.SphereGeometry(0.105, 7, 5);
-    headGeo.scale(1, 1.14, 0.95);
-    // Hair without a fourth draw call: a vertex-colour cap over the crown that
-    // multiplies the per-instance skin tone down to a dark scalp. A head with no
-    // hair at all reads as an egg on a stick at any distance.
-    {
-      const p = headGeo.attributes.position;
-      const col = new Float32Array(p.count * 3);
-      for (let i = 0; i < p.count; i++) {
-        const shade = p.getY(i) > 0.018 ? HAIR_MUL : 1;
-        col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = shade;
-      }
-      headGeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    }
-    // The head centre sits well above its pivot so the skull sinks into the top
-    // of the torso capsule: overlap, not tangency, is what reads as a neck.
-    headGeo.translate(0, 0.125, 0);
+    const headGeo = Pedestrians._headGeometry(FAR_HEAD_W, FAR_HEAD_H, false);
+
+    // --- the near tier. Same authoring, same pivots, same conventions - only the
+    // tessellation and the vertex shading differ, so _writePose can drive either
+    // one from the same skeleton without a second set of rules to keep in step.
+    const nearLimbGeo = new THREE.CapsuleGeometry(LIMB_R, LIMB_CYL, NEAR_LIMB_CAP, NEAR_LIMB_RADIAL);
+    nearLimbGeo.translate(0, -LIMB_CYL / 2, 0);
+    Pedestrians._shadeLimb(nearLimbGeo);
+
+    const nearTorsoGeo = new THREE.CapsuleGeometry(TORSO_R, TORSO_CYL, NEAR_TORSO_CAP, NEAR_TORSO_RADIAL);
+    nearTorsoGeo.translate(0, TORSO_CYL / 2 + TORSO_R, 0);
+    nearTorsoGeo.scale(1, 1, 0.72);
+    Pedestrians._shadeTorso(nearTorsoGeo);
+
+    const nearHeadGeo = Pedestrians._headGeometry(NEAR_HEAD_W, NEAR_HEAD_H, true);
 
     // Contact shadow.
     //
@@ -238,6 +318,16 @@ export class Pedestrians {
     }
 
     const cloth = new THREE.MeshStandardMaterial({ roughness: 0.86, metalness: 0 });
+    // The near tier's cloth reads a vertex colour as well as the instance colour,
+    // which is what pays for a collar, a hem and joint occlusion without a single
+    // extra triangle. The FAR cloth must stay vertexColors:false - its geometry
+    // carries no colour attribute, and in this three build a material that
+    // declares USE_COLOR without one gets the default generic attribute (0,0,0)
+    // and renders the whole crowd black. That was measured, not assumed:
+    // tools/ped-audit.mjs forces exactly that and captures it.
+    const nearCloth = new THREE.MeshStandardMaterial({
+      roughness: 0.86, metalness: 0, vertexColors: true,
+    });
     const skin = new THREE.MeshStandardMaterial({
       roughness: 0.74, metalness: 0, vertexColors: true,
     });
@@ -245,7 +335,7 @@ export class Pedestrians {
       color: 0x000000, transparent: true, opacity: 0.7,
       depthWrite: false, vertexColors: true, fog: false,
     });
-    this.materials = [cloth, skin, blobMat];
+    this.materials = [cloth, nearCloth, skin, blobMat];
 
     this.root = new THREE.Group();
     this.root.name = 'pedestrians';
@@ -257,9 +347,49 @@ export class Pedestrians {
     this.heads = this._instanced(headGeo, skin, this.count);
     this.limbs = this._instanced(limbGeo, cloth, this.count * 8);
 
+    this.nearPool = Math.min(NEAR_POOL, this.count);
+    this._nearDefault = this.nearPool;
+    this.nearTorsos = this._instanced(nearTorsoGeo, nearCloth, this.nearPool);
+    this.nearHeads = this._instanced(nearHeadGeo, skin, this.nearPool);
+    this.nearLimbs = this._instanced(nearLimbGeo, nearCloth, this.nearPool * NEAR_SLOTS);
+    // Allocate the instance-colour buffers at FULL pool size before count drops.
+    // setColorAt() sizes instanceColor from mesh.count on first use, so a first
+    // write while count is 0 allocates a zero-length Float32Array and every
+    // colour after that is silently dropped out of bounds.
+    {
+      const white = new THREE.Color(1, 1, 1);
+      for (let i = 0; i < this.nearPool; i++) {
+        this.nearTorsos.setColorAt(i, white); this.nearHeads.setColorAt(i, white);
+      }
+      for (let i = 0; i < this.nearPool * NEAR_SLOTS; i++) this.nearLimbs.setColorAt(i, white);
+    }
+    // Nothing is claiming a near slot yet, and an InstancedMesh with count 0 is
+    // skipped by the renderer entirely - no draw call, no triangles.
+    this.nearTorsos.count = 0; this.nearHeads.count = 0; this.nearLimbs.count = 0;
+    this._nearLive = 0;
+
+    // Which camera? The crowd's update() is handed the FOCUS point (the player or
+    // the car), and at the hero framings the camera stands 26-34 m behind it, so
+    // a focus-relative near test classifies every ped in the frame as far. The
+    // camera arrives here instead, one frame stale, which for an LOD selection is
+    // no latency at all. Guarded on isPerspectiveCamera so the sun's orthographic
+    // shadow camera cannot be mistaken for the player's.
+    this.torsos.onBeforeRender = (_r, _s, cam) => {
+      if (cam && cam.isPerspectiveCamera) {
+        this._camX = cam.position.x; this._camZ = cam.position.z; this._camSeen = true;
+      }
+    };
+
     // --- state
     this.peds = new Array(this.count).fill(null);
     this._shown = new Uint8Array(this.count);
+    // Which near-pool slot each ped holds, or -1. Packed 0..nearLive-1 so the
+    // near meshes can submit exactly the instances that are in use.
+    this._nearSlot = new Int16Array(this.count).fill(-1);
+    this._nearPick = new Int16Array(this.nearPool);
+    this._nearKey = new Float32Array(this.nearPool);
+    this._nearColorDirty = false;
+    this._camX = 0; this._camZ = 0; this._camSeen = false;
     this.aliveCount = 0;
     this._nextId = 0;
     this._walks = new Map();          // edge*2+side -> baked sidewalk polyline
@@ -307,6 +437,184 @@ export class Pedestrians {
     for (let i = 0; i < n; i++) m.setMatrixAt(i, new THREE.Matrix4().makeScale(0, 0, 0));
     this.root.add(m);
     return m;
+  }
+
+  // ------------------------------------------------------- geometry authoring
+  // A head, at either tessellation, with its hair painted as a vertex colour so
+  // it costs no draw call and no triangle.
+  //
+  // The far tier's hairline is a single latitude threshold: every vertex above
+  // y = 0.018 is hair. On a 5-ring sphere that lands the boundary at a very high
+  // ring and paints roughly the top 55% of the skull at HAIR_MUL, which at 8 m
+  // reads as a dark egg rather than as a person with hair. The near tier gets a
+  // hairline that is a function of height AND of how far forward a vertex faces,
+  // which is what a hairline actually is: high at the brow, low at the nape.
+  static _headGeometry(w, h, detailed) {
+    const g = new THREE.SphereGeometry(0.105, w, h);
+    g.scale(1, 1.14, 0.95);
+    const p = g.attributes.position;
+    const col = new Float32Array(p.count * 3);
+    const step = (a, b, x) => {
+      const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+      return t * t * (3 - 2 * t);
+    };
+    for (let i = 0; i < p.count; i++) {
+      let shade;
+      if (!detailed) {
+        shade = p.getY(i) > 0.018 ? HAIR_MUL : 1;
+      } else {
+        const ny = p.getY(i) / (0.105 * 1.14);
+        const nz = p.getZ(i) / (0.105 * 0.95);      // +Z is the direction of travel
+        // u > 0 is hair. At the face (nz = 1) that needs ny > 0.45; at the nape
+        // (nz = -1) it needs only ny > -0.45. Smoothed, because a hard threshold
+        // on a lathe sphere is a jagged ring of facet corners.
+        const hair = step(0.02, 0.20, ny - 0.45 * nz);
+        shade = 1 + (HAIR_MUL - 1) * hair;
+        // A brow under the hairline, and the shadow a jaw casts on its own neck.
+        // Both are pure shading - the "normal detail without geometry" half of
+        // the near-field budget.
+        if (nz > 0.45) shade *= 1 - 0.16 * step(0.36, 0.16, ny) * step(0.02, 0.20, ny);
+        shade *= 1 - 0.28 * step(-0.45, -0.88, ny);
+      }
+      col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = shade;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    // The head centre sits well above its pivot so the skull sinks into the top
+    // of the torso capsule: overlap, not tangency, is what reads as a neck.
+    g.translate(0, 0.125, 0);
+    return g;
+  }
+
+  // Joint occlusion on a bone, as a vertex colour. Every near-tier bone shares
+  // this one capsule - thigh, shank, arm, forearm, shoe, hand, neck and pelvis -
+  // so the shading has to be true of all of them: darker where the bone plugs
+  // into its parent, slightly darker at its far cap, plain along the shaft.
+  static _shadeLimb(g) {
+    const p = g.attributes.position;
+    const col = new Float32Array(p.count * 3);
+    const top = LIMB_R, span = LIMB_CYL + 2 * LIMB_R;
+    for (let i = 0; i < p.count; i++) {
+      const t = (top - p.getY(i)) / span;             // 0 at the pivot, 1 at the tip
+      let shade = 1;
+      if (t < 0.14) shade = 0.80 + (t / 0.14) * 0.20;
+      else if (t > 0.90) shade = 1 - ((t - 0.90) / 0.10) * 0.12;
+      col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = shade;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  }
+
+  // The same idea on the torso: a neckline, a hem where the shirt falls over the
+  // trousers, and the value break under the arms that stops the upper body
+  // reading as one blob when the arms hang close to it.
+  static _shadeTorso(g) {
+    const p = g.attributes.position;
+    const col = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) {
+      const v = p.getY(i) / TORSO_BASE;                // 0 at the hips, 1 at the neck
+      const ax = Math.abs(p.getX(i)) / TORSO_R;
+      let shade = 0.93 + 0.07 * v;
+      if (v > 0.90) shade *= 0.82;                    // collar
+      if (v < 0.14) shade *= 0.80;                    // hem over the waistband
+      if (v > 0.55 && v < 0.90) shade *= 1 - 0.14 * Math.max(0, (ax - 0.55) / 0.45);
+      col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = shade;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  }
+
+  // ---------------------------------------------------------------- near LOD
+  /**
+   * Harness hook. 0 disables the near tier (which is exactly the geometry that
+   * shipped before it existed, so it is the honest "before" arm of a paired
+   * measurement); a negative value restores the default pool.
+   */
+  setNearLod(n) {
+    this.nearPool = n < 0 ? this._nearDefault
+      : Math.max(0, Math.min(this._nearDefault, n | 0));
+    return this.nearPool;
+  }
+
+  // Choose the peds that hold the near tier this frame: the nearest `nearPool`
+  // within NEAR_RADIUS of the CAMERA, with hysteresis out to NEAR_RELEASE so a
+  // ped walking the boundary does not swap tiers every frame.
+  //
+  // Selection is a fixed-size insertion sort over at most nearPool entries, so
+  // it allocates nothing and costs count*nearPool comparisons in the worst case.
+  _assignNearLod(fx, fz) {
+    const prev = this._nearSlot;
+    if (!this.nearPool) {
+      for (let i = 0; i < this.count; i++) prev[i] = -1;
+      this._nearLive = 0;
+      return;
+    }
+    // Before the first render there is no camera; the focus point is the best
+    // available stand-in and it is right in gameplay, where the chase camera is
+    // a few metres behind it.
+    const cx = this._camSeen ? this._camX : fx;
+    const cz = this._camSeen ? this._camZ : fz;
+    const idx = this._nearPick, key = this._nearKey;
+    const pool = this.nearPool;
+    let n = 0;
+    for (let i = 0; i < this.count; i++) {
+      const p = this.peds[i];
+      if (!p) { prev[i] = -1; continue; }
+      const d = Math.hypot(p.x - cx, p.z - cz);
+      const held = prev[i] >= 0;
+      if (d > (held ? NEAR_RELEASE : NEAR_RADIUS)) { prev[i] = -1; continue; }
+      const k = held ? d - (NEAR_RELEASE - NEAR_RADIUS) : d;
+      prev[i] = -1;
+      if (n < pool) {
+        let j = n++;
+        while (j > 0 && key[j - 1] > k) { key[j] = key[j - 1]; idx[j] = idx[j - 1]; j--; }
+        key[j] = k; idx[j] = i;
+      } else if (k < key[n - 1]) {
+        let j = n - 1;
+        while (j > 0 && key[j - 1] > k) { key[j] = key[j - 1]; idx[j] = idx[j - 1]; j--; }
+        key[j] = k; idx[j] = i;
+      }
+    }
+    for (let s = 0; s < n; s++) {
+      prev[idx[s]] = s;
+      this._writeNearColors(s, this.peds[idx[s]]);
+    }
+    this._nearLive = n;
+  }
+
+  // Submit exactly the near instances that are in use. three.js skips an
+  // InstancedMesh whose count is 0 before it issues the draw, so an empty near
+  // tier costs no call and no triangle at all. Separate from update() because
+  // the measurement harness poses a frozen ped by hand and needs the same step.
+  _syncNearCounts() {
+    this.nearTorsos.count = this._nearLive;
+    this.nearHeads.count = this._nearLive;
+    this.nearLimbs.count = this._nearLive * NEAR_SLOTS;
+    if (this._nearLive) {
+      this.nearTorsos.instanceMatrix.needsUpdate = true;
+      this.nearHeads.instanceMatrix.needsUpdate = true;
+      this.nearLimbs.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  _writeNearColors(ns, ped) {
+    const c = this._col;
+    c.setHex(ped.shirt); this.nearTorsos.setColorAt(ns, c);
+    c.setHex(ped.skin); this.nearHeads.setColorAt(ns, c);
+    const b = ns * NEAR_SLOTS;
+    const L = this.nearLimbs;
+    c.setHex(ped.pants);
+    L.setColorAt(b + 0, c); L.setColorAt(b + 2, c); L.setColorAt(b + PELVIS_I, c);
+    c.setHex(ped.pants).multiplyScalar(0.62);
+    L.setColorAt(b + 1, c); L.setColorAt(b + 3, c);
+    c.setHex(ped.pants).multiplyScalar(SHOE_MUL);
+    L.setColorAt(b + SHOE_L, c); L.setColorAt(b + SHOE_R, c);
+    c.setHex(ped.shirt).multiplyScalar(0.84);
+    L.setColorAt(b + 4, c); L.setColorAt(b + 6, c);
+    if (ped.bare) c.setHex(ped.skin); else c.setHex(ped.shirt).multiplyScalar(0.78);
+    L.setColorAt(b + 5, c); L.setColorAt(b + 7, c);
+    c.setHex(ped.skin);
+    L.setColorAt(b + HAND_L, c); L.setColorAt(b + HAND_R, c);
+    c.setHex(ped.skin).multiplyScalar(NECK_MUL);
+    L.setColorAt(b + NECK_I, c);
+    this._nearColorDirty = true;
   }
 
   // ------------------------------------------------------------------ graph
@@ -731,6 +1039,16 @@ export class Pedestrians {
   // Written once on the transition, not every frame: an idle slot should cost
   // nothing at all.
   _hide(i) {
+    // A ped can die AFTER _assignNearLod has already reserved it a near slot for
+    // this frame, and that slot is inside nearLimbs.count, so it would still be
+    // drawn. Collapse it here rather than waiting for the next assignment.
+    const ns = this._nearSlot[i];
+    if (ns >= 0) {
+      this._nearSlot[i] = -1;
+      this.nearTorsos.setMatrixAt(ns, this._hidden);
+      this.nearHeads.setMatrixAt(ns, this._hidden);
+      for (let k = 0; k < NEAR_SLOTS; k++) this.nearLimbs.setMatrixAt(ns * NEAR_SLOTS + k, this._hidden);
+    }
     if (!this._shown[i]) return;
     this._shown[i] = 0;
     this.shadows.setMatrixAt(i, this._hidden);
@@ -751,6 +1069,11 @@ export class Pedestrians {
     // the software renderer the harnesses run at a few frames a second, and a
     // stingy cap left the pavement visibly half-empty in a 20 s capture.
     this._focus.x = fx; this._focus.z = fz;
+    // Pick the near tier BEFORE anything is posed, using last frame's positions
+    // and last frame's camera. Both are one frame stale and neither matters at
+    // walking pace: a ped covers 25 mm in a 60 Hz frame, against a 6 m hysteresis
+    // band.
+    this._assignNearLod(fx, fz);
     let slots = SPAWN_SLOTS_PER_FRAME;
     for (let i = 0; i < this.count && slots > 0; i++) {
       if (this.peds[i]) continue;
@@ -916,11 +1239,18 @@ export class Pedestrians {
     this.torsos.instanceMatrix.needsUpdate = true;
     this.heads.instanceMatrix.needsUpdate = true;
     this.limbs.instanceMatrix.needsUpdate = true;
+    this._syncNearCounts();
     if (this._colorDirty) {
       for (const m of [this.torsos, this.heads, this.limbs]) {
         if (m.instanceColor) m.instanceColor.needsUpdate = true;
       }
       this._colorDirty = false;
+    }
+    if (this._nearColorDirty) {
+      for (const m of [this.nearTorsos, this.nearHeads, this.nearLimbs]) {
+        if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      }
+      this._nearColorDirty = false;
     }
   }
 
@@ -986,6 +1316,21 @@ export class Pedestrians {
     const shY = hipY + TORSO_H * s;
     const neckY = hipY + HEAD_Y * s;
 
+    // --- which tier draws this ped. The skeleton above is tier-independent; only
+    // the meshes the matrices land in change, so the two tiers cannot drift.
+    const ns = this._nearSlot[i];
+    const near = ns >= 0;
+    const torsoMesh = near ? this.nearTorsos : this.torsos;
+    const headMesh = near ? this.nearHeads : this.heads;
+    const limbMesh = near ? this.nearLimbs : this.limbs;
+    const tSlot = near ? ns : i;
+    if (near) {
+      // ...and the far tier must not draw it a second time.
+      this.torsos.setMatrixAt(i, this._hidden);
+      this.heads.setMatrixAt(i, this._hidden);
+      for (let k = 0; k < 8; k++) this.limbs.setMatrixAt(i * 8 + k, this._hidden);
+    }
+
     // --- contact shadow, flat on the pavement under the hips
     this._qy.setFromAxisAngle(this._axisY, yaw);
     this._v.set(ped.x, ground + SHADOW_Y, ped.z);
@@ -997,34 +1342,76 @@ export class Pedestrians {
     this._v.set(ped.x, rootY + hipY, ped.z);
     this._s.set(g, ((HEAD_Y + 0.06) * s) / TORSO_BASE, g);
     this._m.compose(this._v, this._qy, this._s);
-    this.torsos.setMatrixAt(i, this._m);
+    torsoMesh.setMatrixAt(tSlot, this._m);
 
     this._v.set(ped.x, rootY + neckY, ped.z);
     this._s.set(s, s, s);
     this._m.compose(this._v, this._qy, this._s);
-    this.heads.setMatrixAt(i, this._m);
+    headMesh.setMatrixAt(tSlot, this._m);
 
     // --- limbs. Each shank/forearm hangs off the tip of the bone above it, so
     // the chain never comes apart however the joints are driven.
-    const base = i * 8;
+    const base = near ? ns * NEAR_SLOTS : i * 8;
     const hipYW = rootY + hipY, shYW = rootY + shY;
     const t = this._tipOut;
 
-    this._bone(base + 0, ped.x + hipXL * cy, hipYW, ped.z - hipXL * sy, yaw, thighL, thighLen, 1.02 * g);
-    this._tip(ped.x + hipXL * cy, hipYW, ped.z - hipXL * sy, thighL, thighLen, cy, sy);
-    this._bone(base + 1, t[0], t[1], t[2], yaw, shankL, shankLen, 0.86 * g);
+    const hlx = ped.x + hipXL * cy, hlz = ped.z - hipXL * sy;
+    this._bone(limbMesh, base + 0, hlx, hipYW, hlz, yaw, thighL, thighLen, 1.02 * g);
+    this._tip(hlx, hipYW, hlz, thighL, thighLen, cy, sy);
+    const klx = t[0], kly = t[1], klz = t[2];
+    this._bone(limbMesh, base + 1, klx, kly, klz, yaw, shankL, shankLen, 0.86 * g);
 
-    this._bone(base + 2, ped.x + hipXR * cy, hipYW, ped.z - hipXR * sy, yaw, thighR, thighLen, 1.02 * g);
-    this._tip(ped.x + hipXR * cy, hipYW, ped.z - hipXR * sy, thighR, thighLen, cy, sy);
-    this._bone(base + 3, t[0], t[1], t[2], yaw, shankR, shankLen, 0.86 * g);
+    const hrx = ped.x + hipXR * cy, hrz = ped.z - hipXR * sy;
+    this._bone(limbMesh, base + 2, hrx, hipYW, hrz, yaw, thighR, thighLen, 1.02 * g);
+    this._tip(hrx, hipYW, hrz, thighR, thighLen, cy, sy);
+    const krx = t[0], kry = t[1], krz = t[2];
+    this._bone(limbMesh, base + 3, krx, kry, krz, yaw, shankR, shankLen, 0.86 * g);
 
-    this._bone(base + 4, ped.x - shX * cy, shYW, ped.z + shX * sy, yaw, armL, UPPER_ARM * s, 0.78 * g);
-    this._tip(ped.x - shX * cy, shYW, ped.z + shX * sy, armL, UPPER_ARM * s, cy, sy);
-    this._bone(base + 5, t[0], t[1], t[2], yaw, armL - elbow, FOREARM * s, 0.68 * g);
+    const slx = ped.x - shX * cy, slz = ped.z + shX * sy;
+    this._bone(limbMesh, base + 4, slx, shYW, slz, yaw, armL, UPPER_ARM * s, 0.78 * g);
+    this._tip(slx, shYW, slz, armL, UPPER_ARM * s, cy, sy);
+    const elx = t[0], ely = t[1], elz = t[2];
+    this._bone(limbMesh, base + 5, elx, ely, elz, yaw, armL - elbow, FOREARM * s, 0.68 * g);
 
-    this._bone(base + 6, ped.x + shX * cy, shYW, ped.z - shX * sy, yaw, armR, UPPER_ARM * s, 0.78 * g);
-    this._tip(ped.x + shX * cy, shYW, ped.z - shX * sy, armR, UPPER_ARM * s, cy, sy);
-    this._bone(base + 7, t[0], t[1], t[2], yaw, armR - elbow, FOREARM * s, 0.68 * g);
+    const srx = ped.x + shX * cy, srz = ped.z - shX * sy;
+    this._bone(limbMesh, base + 6, srx, shYW, srz, yaw, armR, UPPER_ARM * s, 0.78 * g);
+    this._tip(srx, shYW, srz, armR, UPPER_ARM * s, cy, sy);
+    const erx = t[0], ery = t[1], erz = t[2];
+    this._bone(limbMesh, base + 7, erx, ery, erz, yaw, armR - elbow, FOREARM * s, 0.68 * g);
+
+    if (near) {
+      // Six bones the far tier cannot afford, hung off joints the far tier
+      // already computes. A shoe is the same capsule laid along the direction of
+      // travel: angle -pi/2 turns the bone's local -Y into world forward, so no
+      // second convention is introduced. It sits SHOE_DROP below the ankle and
+      // SHOE_BACK behind it, which puts the heel under the ankle and the toe in
+      // front of it, and buries the bottom of the capsule in the pavement so the
+      // sole reads flat instead of round.
+      const shoe = (slot, kx, ky, kz, shank) => {
+        this._tip(kx, ky, kz, shank, shankLen, cy, sy);
+        this._bone(limbMesh, slot, t[0] - sy * SHOE_BACK * s, t[1] - SHOE_DROP * s,
+          t[2] - cy * SHOE_BACK * s, yaw, -Math.PI / 2, SHOE_LEN * s, SHOE_THICK * g);
+      };
+      shoe(base + SHOE_L, klx, kly, klz, shankL);
+      shoe(base + SHOE_R, krx, kry, krz, shankR);
+
+      // Hands continue along the forearm, so a swinging arm ends in something
+      // instead of stopping at a cap.
+      const hand = (slot, ex, ey, ez, ang) => {
+        this._tip(ex, ey, ez, ang, FOREARM * s, cy, sy);
+        this._bone(limbMesh, slot, t[0], t[1], t[2], yaw, ang, HAND_LEN * s, HAND_THICK * g);
+      };
+      hand(base + HAND_L, elx, ely, elz, armL - elbow);
+      hand(base + HAND_R, erx, ery, erz, armR - elbow);
+
+      // A neck between the shoulders and the skull, and a pelvis under the shirt
+      // hem. The torso capsule tapers to a POINT at the hip pivot, so without the
+      // pelvis the seat of the trousers is two bare tubes and a gap.
+      this._bone(limbMesh, base + NECK_I, ped.x, rootY + neckY + 0.045 * s, ped.z,
+        yaw, 0, NECK_LEN * s, NECK_THICK * g);
+      this._bone(limbMesh, base + PELVIS_I, ped.x, hipYW + 0.045 * s, ped.z,
+        yaw, 0, PELVIS_LEN * s, PELVIS_THICK * g, PELVIS_THICK_Z * g);
+    }
 
     this._shown[i] = 1;
   }
@@ -1087,14 +1474,22 @@ export class Pedestrians {
     this._tipOut[2] = pz + lz * cy;
   }
 
-  _bone(slot, px, py, pz, yaw, angle, len, thick) {
+  // `mesh` and `slot` rather than a bare slot, because the same skeleton drives
+  // the far tier's 8-bone layout and the near tier's 14-bone one. `thickZ`
+  // defaults to `thick`: only the pelvis is wider than it is deep.
+  //
+  // Every scale here is POSITIVE, so every instance matrix has a positive
+  // determinant and no instance mirrors its geometry. That is the property
+  // src/streetfurniture.js lost, and tools/ped-audit.mjs measures it: 0 of 960
+  // live instances wind backwards.
+  _bone(mesh, slot, px, py, pz, yaw, angle, len, thick, thickZ = thick) {
     this._qy.setFromAxisAngle(this._axisY, yaw);
     this._qx.setFromAxisAngle(this._axisX, angle);
     this._q.copy(this._qy).multiply(this._qx);
     this._v.set(px, py, pz);
-    this._s.set(thick, len / LIMB_BASE, thick);
+    this._s.set(thick, len / LIMB_BASE, thickZ);
     this._m.compose(this._v, this._q, this._s);
-    this.limbs.setMatrixAt(slot, this._m);
+    mesh.setMatrixAt(slot, this._m);
   }
 
   // ------------------------------------------------------------------ report
@@ -1122,10 +1517,32 @@ export class Pedestrians {
       sidewalksCached: this._walks.size,
       // Fixed, whatever the population is - that is the whole point of the
       // representation. 3 body meshes plus the contact-shadow blob in the scene
-      // pass; the 3 body meshes again in the sun's shadow pass.
-      drawCalls: 4,
-      shadowDrawCalls: 3,
+      // pass; the 3 body meshes again in the sun's shadow pass. The near tier
+      // adds 3 more of each, and only while somebody is standing close enough to
+      // hold a slot.
+      drawCalls: 4 + (this._nearLive ? 3 : 0),
+      shadowDrawCalls: 3 + (this._nearLive ? 3 : 0),
+      nearLod: {
+        pool: this.nearPool,
+        live: this._nearLive,
+        radiusM: NEAR_RADIUS,
+        releaseM: NEAR_RELEASE,
+        slotsPerPed: NEAR_SLOTS,
+        farTrisPerPed: this._triOf(this.torsos) + this._triOf(this.heads)
+          + 8 * this._triOf(this.limbs) + this._triOf(this.shadows),
+        nearTrisPerPed: this._triOf(this.nearTorsos) + this._triOf(this.nearHeads)
+          + NEAR_SLOTS * this._triOf(this.nearLimbs),
+        farCrowdTris: (this._triOf(this.torsos) + this._triOf(this.heads)
+          + 8 * this._triOf(this.limbs) + this._triOf(this.shadows)) * this.count,
+        nearCrowdTrisWorstCase: (this._triOf(this.nearTorsos) + this._triOf(this.nearHeads)
+          + NEAR_SLOTS * this._triOf(this.nearLimbs)) * this.nearPool,
+      },
     };
+  }
+
+  _triOf(mesh) {
+    const g = mesh.geometry;
+    return (g.index ? g.index.count : g.attributes.position.count) / 3;
   }
 
   // Live positions, for harnesses that need to prove peds are where they claim.
@@ -1136,7 +1553,9 @@ export class Pedestrians {
   }
 
   dispose() {
-    for (const m of [this.shadows, this.torsos, this.heads, this.limbs]) {
+    this.torsos.onBeforeRender = () => {};
+    for (const m of [this.shadows, this.torsos, this.heads, this.limbs,
+      this.nearTorsos, this.nearHeads, this.nearLimbs]) {
       this.root.remove(m);
       m.geometry.dispose();
       m.dispose();
