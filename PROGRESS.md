@@ -296,6 +296,77 @@ run before that one had no noise floor and no frozen traffic, and its numbers we
 same shape; had the metric been merely *plausible* instead of impossible, it would have
 shipped.
 
+## Round 6: three blind critics, one agreed change, and the audit that found its cause
+
+Six frames (corridor + fivepoints x golden/dusk/night, HUD hidden, each paired with its
+audit - `implausible 0` at every hour). Three blind critics, none told what had changed.
+
+**Two independently gave the same single highest-leverage change: objects have no ground
+contact.** Cars, bins, posts, planters, pedestrians and the player sit *on top of* the
+ground rather than in it.
+
+The two disagreed on the evidence, and the more careful one was right. The art director
+measured "nothing casts a shadow in any of the six frames" - too strong. The environment
+artist measured that **real sun shadows DO exist**: long sharp signal-mast shadows
+crossing the crosswalk at (680-800, 670-800) and (860-940, 655-800) in
+`r6-corridor-golden.png`, while cars, bins, posts and pedestrians produce nothing. That
+reconciles with my own `sun-share` reading of 15.7% of the sun blocked over 21% of road
+pixels at golden hour - those were the masts and the buildings. **A critic measurement is
+evidence, but two critics measuring the same pixels can still disagree; the one whose
+claim was narrower was the one that held.**
+
+The scene-graph audit found the cause, and it is two causes:
+
+| category | casters / meshes | instances |
+|---|---|---|
+| `mesh: props` | **0 / 42** | - |
+| `instanced: furniture` | **2 / 4** | 1,659 |
+| `world chunk (buildings/road)` | **7 / 110** | - |
+| `instanced: pedestrians` | 6 / 7 | 440 |
+
+1. **`castShadow` is not set on most of the scene.** Zero of 42 prop meshes, half the
+   furniture batches, and 7 of 110 chunk meshes.
+2. **The shadow map cannot resolve street-scale objects even where it is set.** The
+   directional light runs a 2048 map over a camera spanning left -260 to right +260:
+   520 m across 2048 texels = **0.254 m per texel**. A bollard (~0.15 m) is 0.6 texels
+   and can never appear; a pedestrian (~0.5 m) is ~2 texels, which is why peds cast
+   nothing *despite being flagged as casters*. A car at 4.5 m is ~18 texels, so its
+   absence is cause 1, not cause 2.
+
+Scheduled as builder work with the critics' own falsifiable predictions as the acceptance
+test, and with their named regressions guarded: the fivepoints-night lamp pools and the
+corridor-night window spill are the best things in the set, and `r6-corridor-night.png`
+is already 27% crushed at luminance <= 6.
+
+### The white rectangle - a strong hypothesis, recorded before it is tested
+
+Both critics independently found a hard-edged, flat, achromatic white rectangle at
+roughly (193-290, 349-400) on the corridor tower, **present at golden hour and absent at
+the same pixels at dusk and night** (169.7 -> 168.7 at dusk; 42.3 -> 41.0 at night - no
+edge exists there). One-pixel transition, no bloom falloff, screen-axis-aligned while the
+facade recedes. Both said explicitly that they could not determine the cause and that
+nothing should be fixed on their say-so. They were right to.
+
+**My hypothesis: it is the NaN/Inf guard added to `src/post.js` this session, working as
+written.** That guard was added after measuring 14,259 NaN channels and 8 Inf in the
+scene target at the corridor camera **at golden hour**, with the finite maximum sitting
+exactly on 65,504 - a half-float overflow where a metallic pane reflects the PMREM under
+a strong low sun. `sanitize()` maps every non-finite channel to `CEIL = 60000.0`, which is
+far above the ACES shoulder and therefore clips to pure white. The guard turned a
+pure-BLACK blob into a pure-WHITE one. That is an improvement - a blown highlight is
+physically white and a hole is not - but the overflow is still there, and it is now the
+brightest object in the frame.
+
+Consistent with every measurement the critics took: golden-hour only (the overflow is
+exposure-dependent), achromatic, flat, hard-edged, and exactly where the NaNs were
+measured.
+
+**The test, not yet run:** make `sanitize()` return an unmistakable debug colour for
+non-finite input and re-capture the golden corridor frame. If the rectangle turns that
+colour it is confirmed, and the fix is to stop the overflow - or clamp to a ceiling that
+rolls off through the tonemapper - rather than to clamp to white. Unrun only because
+`src/post.js` is in a builder's hands as I write this.
+
 ## The chunk-stall WARN is not the HUD, and not the build budget either
 
 The ledger has carried a number since the M2 gate — HUD off 8.1 ms, HUD on 12.2 ms —
