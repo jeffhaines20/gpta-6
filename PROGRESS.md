@@ -55,6 +55,38 @@ warn 40 / fail 120 MB.
 > the stale text understated how tight the real gate is. Found by the independent
 > constraint audit, not by me — see `MILESTONE-REVIEW.md` §6.
 
+## Open, measured, deliberately not fixed: noon is unusable
+
+Flagged independently by the sky agent and the facade-glazing agent, then measured
+at the fivepoints hero camera on 2026-09-01:
+
+| | noon | dusk |
+|---|---|---|
+| frame p50 | **9.5** | 115.6 |
+| frame p1 | 0.0 | 14.9 |
+| sunlit sidewalk | 101.0 | 147.0 |
+| left facade (vertical) | **6.1** | 100.0 |
+
+**It is not an exposure fault.** If the stop were wrong the sunlit sidewalk would be
+dark too, and at 101 it is close to correct. What is wrong is that every VERTICAL
+surface is near-black: the preset puts the sun at `elevation: 1.32` rad = **75.6
+degrees**, so a horizontal surface collects cos(14.4) = 0.97 of the 100,000 lux
+direct beam while a wall collects almost none and falls back on skylight alone.
+That is physically right for latitude 27 and visually unusable - no wall light, no
+cast shadows, a flat black city under a bright pavement.
+
+**Why it is not fixed here.** The remedy is a lighting-DESIGN decision (a game noon
+is normally graded with a lower sun so walls catch light and shadows have length),
+not a bug fix, and it changes the PMREM that lights the whole district. Noon is also
+not in the critique set - constraint 3's two-times-of-day rule is being met with
+dusk and night, which is what every critic round has judged. Given two lighting
+constants were already adjusted this session on partial diagnoses and had to be
+reverted, this one is recorded with its measurements rather than guessed at late.
+
+Whoever takes it: lower `PRESETS.noon.elevation` first and re-measure the vertical
+vs horizontal split before touching `exposure`. The lux values are inside the
+plausibility envelope and are probably not the problem.
+
 ## Sampling integrity — confirm what is IN the sample before adjusting for it
 
 A second failure mode, distinct from the broken-instrument one below and recorded
