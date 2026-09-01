@@ -452,7 +452,25 @@ export class PostStack {
     // sceneCalls/sceneTriangles are the numbers the budget gate cares about.
     // renderer.info.render is per-render() and the composite blit would otherwise
     // overwrite the scene's counts with 1 call / 1 triangle.
-    this.stats = { passes: 0, sceneCalls: 0, sceneTriangles: 0, totalCalls: 0 };
+    // The shadow pass was invisible to the budget gate for this project's whole
+    // life. three.js does this, in WebGLRenderer.render:
+    //
+    //     beginShadows(); shadowMap.render(...); endShadows();
+    //     this.info.autoReset === true && this.info.reset();
+    //
+    // - it counts every shadow-map draw call into info.render.calls and then
+    // WIPES the counter before the opaque pass. Whatever we read afterwards
+    // describes the colour pass only. Measured: enabling casters took the scene
+    // from 84 to 331 caster meshes and the gate's draw-call number did not move
+    // by one.
+    //
+    // Taking autoReset ourselves is the supported way out: reset once at the top
+    // of render(), and info.render then accumulates shadows AND opaque. The read
+    // still happens before the post blits, so those stay counted separately in
+    // `passes` rather than smuggled into the geometry number.
+    this.renderer.info.autoReset = false;
+    this.stats = { passes: 0, drawCalls: 0, shadowMapEnabled: false,
+                   sceneTriangles: 0, totalCalls: 0 };
   }
 
   setSize(width, height) {
@@ -485,13 +503,17 @@ export class PostStack {
 
   render() {
     const r = this.renderer;
+    // We own the counter now (see the constructor). Reset before anything draws,
+    // so what we read below is shadow pass + opaque pass and nothing else.
+    r.info.reset();
+    this.stats.shadowMapEnabled = r.shadowMap.enabled;
     if (!this.enabled) {
       r.setRenderTarget(null);
       r.render(this.scene, this.camera);
-      this.stats.sceneCalls = r.info.render.calls;
+      this.stats.drawCalls = r.info.render.calls;
       this.stats.sceneTriangles = r.info.render.triangles;
       this.stats.passes = 0;
-      this.stats.totalCalls = this.stats.sceneCalls;
+      this.stats.totalCalls = this.stats.drawCalls;
       return;
     }
     this.stats.passes = 0;
@@ -499,7 +521,9 @@ export class PostStack {
     r.setRenderTarget(this.hdr);
     r.clear();
     r.render(this.scene, this.camera);
-    this.stats.sceneCalls = r.info.render.calls;
+    // Read BEFORE the blits below, which would otherwise fold full-screen quads
+    // into a number the gate reads as scene geometry.
+    this.stats.drawCalls = r.info.render.calls;
     this.stats.sceneTriangles = r.info.render.triangles;
 
     // Bright pass at half res.
@@ -571,7 +595,7 @@ export class PostStack {
     u.sunDirView.value.copy(this._sunView);
 
     this._blit(this.compositeMat, null);
-    this.stats.totalCalls = this.stats.sceneCalls + this.stats.passes;
+    this.stats.totalCalls = this.stats.drawCalls + this.stats.passes;
   }
 
   dispose() {

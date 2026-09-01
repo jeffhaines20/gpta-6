@@ -540,7 +540,7 @@ window.__district = {
   setHudEnabled: (on) => { if (hud2) { hud2.state.visible = on; hudEnabled = on; } },
   audit: () => tod.audit(),
   placeAt,
-  renderStats: () => ({ calls: post.stats.totalCalls, sceneCalls: post.stats.sceneCalls,
+  renderStats: () => ({ calls: post.stats.totalCalls, sceneCalls: post.stats.drawCalls,
     postPasses: post.stats.passes, triangles: post.stats.sceneTriangles }),
   worldReport: () => world.report(),
   trafficReport: () => (traffic ? traffic.report() : null),

@@ -339,6 +339,74 @@ rather than method: the near ground the tool samples loads first. The lesson is 
 already in this ledger under "Sampling integrity", arriving this time as *when* the sample
 was taken rather than *what* was in it.
 
+## The budget gate could not see the shadow pass, and fixing that turned it red
+
+`src/post.js` read `renderer.info.render.calls` after `renderer.render()`. three.js does
+this, in that order:
+
+    beginShadows(); shadowMap.render(...); endShadows();
+    this.info.autoReset === true && this.info.reset();
+
+It counts every shadow-map draw call and then **wipes the counter before the opaque
+pass**. So the gate has always sampled the colour pass alone. The ground-contact build
+proved it without meaning to: casters went 84 -> 331 and the gate's draw-call number did
+not move by one.
+
+Fixed by taking `info.autoReset` ourselves and resetting once at the top of
+`PostStack.render()`, before anything draws. The read still happens before the post
+blits, so full-screen quads stay in `passes` rather than being smuggled into geometry.
+
+**The honest cost, same commit, three circuits with traffic:**
+
+| | was (colour pass only) | now (shadow + colour) |
+|---|---|---|
+| draw calls p95 / max | 167 / ~180 | **228 / 241** |
+| triangles p95 / max | ~351,000 | **726,597 / 760,689** |
+
+The shadow pass roughly doubles submitted triangles, which is what re-submitting the
+casting geometry costs.
+
+### Threshold change log entry: drawCalls and triangles, 2026-09-01
+
+The gated quantity changed, so the thresholds had to be re-derived (binding constraint
+4). Derived two ways and the **tighter taken for each**, so this cannot be a quiet
+loosening:
+
+- (a) this file's own documented rule, warn ~1.6x and fail ~2.5x the measured worst:
+  draw 386 / 602, triangles 1,217,000 / 1,902,000.
+- (b) preserving the headroom the project has been operating under - old p95 sat at
+  0.835 of warn and 0.522 of fail for draw calls, 0.878 and 0.390 for triangles:
+  draw 273 / 437, triangles 828,000 / 1,863,000.
+
+Adopted: **drawCalls 275 / 440**, **triangles 830,000 / 1,850,000**. Both now PASS with
+48% and 61% headroom. Noted while deriving: under (b) the triangle warn had only **13%
+headroom left on the old metric**, so it was close to firing on ordinary content growth
+before any of this.
+
+### ESCALATION - condition (a): the stall metric now fails repeatedly
+
+The chunk-stall metric has failed **three times in seven runs** since the ground-contact
+work landed, which is escalation condition (a): a budget gate failing twice after a
+documented strategy change.
+
+| build | runs | worst |
+|---|---|---|
+| before ground contact | 10.9, 8.3, 9.4, 8.2, 8.3, 9.7, 10.3, 12.2 | 12.2, never a FAIL |
+| after ground contact | 10.1, 15.8, **23.5**, **17.1**, **17.1**, 11.8, 10.9 | three FAILs (>= 16) |
+
+The change that plausibly causes it: the shadow map went 2048 -> 3072 (2.25x the texels)
+and casters 84 -> 331. This container renders through SwiftShader, which rasterises on
+the CPU, so shadow-map rasterisation competes for the same core as the streaming slice
+the metric measures. On real GPU hardware that work is not on this thread and would
+likely not touch this metric at all - **but that is a hypothesis, and this project's rule
+is that a hypothesis does not get to dismiss a red gate.**
+
+**No threshold was touched and no work has been scheduled on the red gate.** The obvious
+cheap remedy, untested: return the map to 2048 while keeping the tightened +/-120 extent,
+which alone gives 0.117 m/texel - still 2.2x finer than the 0.254 that made pedestrians
+un-castable. That would recover most of the ground-contact win for a quarter of the
+shadow-rasterisation cost.
+
 ## Round 6: three blind critics, one agreed change, and the audit that found its cause
 
 Six frames (corridor + fivepoints x golden/dusk/night, HUD hidden, each paired with its

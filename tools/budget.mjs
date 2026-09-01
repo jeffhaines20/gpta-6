@@ -11,9 +11,38 @@
 // worst leave room for signage, sky, rain and mission props while still failing
 // on a structural regression such as losing instancing or per-object materials.
 // Stall and heap are principled rather than measured: 16 ms is one 60 Hz frame.
+// RE-DERIVED 2026-09-01, because the gated quantity changed underneath these
+// numbers. Until now the gate could not see the shadow pass at all: three.js
+// counts every shadow-map draw call into renderer.info and then calls
+// info.reset() before the opaque pass, so what the gate sampled was the colour
+// pass alone. Enabling street-furniture casters took the scene from 84 to 331
+// caster meshes and moved the reported draw-call number by ZERO. src/post.js now
+// takes info.autoReset itself, so draw calls and triangles include shadows.
+//
+// That is not a regression, it is the same frame honestly counted. Measured worst
+// over three drive-through circuits with traffic, same commit:
+//
+//   draw calls  p95 228, max 241   (was p95 167 counting the colour pass only)
+//   triangles   p95 726,597, max 760,689   (was p95 ~351,000)
+//
+// The thresholds are re-derived two ways and the TIGHTER is taken for each, so
+// this cannot become a quiet loosening:
+//
+//   (a) this file's own documented rule - warn ~1.6x and fail ~2.5x the measured
+//       worst: draw 386 / 602, triangles 1,217,000 / 1,902,000.
+//   (b) preserving the headroom the project has actually been operating under -
+//       old p95 sat at 0.835 of warn and 0.522 of fail for draw calls, 0.878 and
+//       0.390 for triangles: draw 273 / 437, triangles 828,000 / 1,863,000.
+//
+// Tighter of the two, rounded: draw 275 / 440, triangles 830,000 / 1,850,000.
+//
+// Worth stating plainly: under (b) the triangle warn had only 13% headroom left
+// on the OLD metric, so that threshold was close to firing on ordinary content
+// growth before any of this. Whether the gate should be tightened further is a
+// separate decision from counting the pass it was missing, and is not made here.
 export const BUDGET = {
-  drawCalls:      { warn: 200, fail: 320 },
-  triangles:      { warn: 400000, fail: 900000 },
+  drawCalls:      { warn: 275, fail: 440 },
+  triangles:      { warn: 830000, fail: 1850000 },
   chunkStallMs:   { warn: 8, fail: 16 },      // one frame at 60 Hz is 16.7 ms
   heapGrowthMb:   { warn: 40, fail: 120 },    // across three full circuits
 };
