@@ -55,7 +55,35 @@ console.log(describe('corridor', placed));
 await page.evaluate((t) => __district.setTimeOfDay(t), TOD);
 // Nothing may move between paired captures.
 await page.evaluate(() => { __district.setTraffic(0); __district.setPedestrians(0); });
-await page.waitForTimeout(14000);
+// Wait for STREAMING TO STOP, not for a fixed number of seconds.
+//
+// A fixed 14 s wait is what this tool used to do, and it was measuring a scene
+// that had not finished arriving. The ground-contact build measured chunks still
+// landing two minutes after camera placement (44 of 112 loaded at 20 s, 94 of 264
+// settled), and an audit I ran on an unsettled scene reported 7 of 110 chunk
+// meshes casting shadows where the settled figure is 57 of 259.
+//
+// The symptom here was worse than a wrong number, because it was not stable: the
+// same camera at golden hour read the sun at 26.5% of the road with 15.7% blocked
+// on one run and 53.7% with 0% blocked on another. Neither was the scene.
+// Settle on the loaded COUNT holding still, not on the queue draining. The queue
+// never drains: measured at this camera it sits at 74 forever while chunks 89 /
+// meshes 264 / loads 94 stop changing at t=32 s and never move again. A first
+// version of this waited for `queued === 0` and timed out at four minutes on a
+// scene that had been static for three and a half of them.
+await page.waitForFunction(() => {
+  const w = __district.world.report();
+  const prev = window.__settleProbe;
+  const same = prev && prev.n === w.chunksLoaded && prev.m === w.meshes;
+  window.__settleProbe = { n: w.chunksLoaded, m: w.meshes, still: same ? (prev.still ?? 0) + 1 : 0 };
+  return window.__settleProbe.still >= 4;   // four consecutive stable polls
+}, null, { timeout: 180000, polling: 2000 });
+const settled = await page.evaluate(() => {
+  const w = __district.world.report();
+  return { chunks: w.chunksLoaded, meshes: w.meshes, queued: w.queued ?? 0 };
+});
+console.log(`streaming settled: ${settled.chunks} chunks, ${settled.meshes} meshes, queue ${settled.queued}`);
+await page.waitForTimeout(4000);
 
 const lum = (d, i, c) => 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
 // Row 560 down is road and pavement at this framing; rows 300-460 are the facade

@@ -297,6 +297,48 @@ run before that one had no noise floor and no frozen traffic, and its numbers we
 same shape; had the metric been merely *plausible* instead of impossible, it would have
 shipped.
 
+## sun-share was measuring scenes that had not finished loading
+
+The ground-contact build reported the geometry blocking 15.7% -> 25.2% of the sun at
+golden hour. My independent re-run of the same tool on the same commit said **0%**, with
+the sun's share of the road reading 53.7% instead of 26.5%. One of us was wrong about a
+number neither of us had reason to doubt.
+
+Neither. **The tool was.** `sun-share.mjs` waited a fixed 14 s after placing the camera
+and then measured. Watching the streamer at that camera:
+
+    t=32s   89 chunks, 264 meshes, 94 loads   <- and unchanged at every poll to t=162s
+
+It settles at about 30 seconds, so a 14 s wait samples a half-built district - a different
+half each run. That is why the same commit read 26.5%/15.7% once and 53.7%/0% the next
+time. It also explains the `world chunk 7 / 110` figure in the Round 6 audit above, which
+the ground-contact build re-measured as **57 / 259** once settled; the `0 / 42` props
+figure was taken from the same unsettled scene and happened to be right.
+
+Fixed by settling on the loaded count holding still across four consecutive polls. The
+first attempt waited for `queued === 0` and timed out after four minutes on a scene that
+had been static for three and a half of them - **the queue never drains**: it sits at
+69-81 forever while chunks, meshes and loads stop moving. That stuck counter is a real
+defect in `streaming.js` stats, found by accident, and is not yet chased.
+
+Re-measured on settled scenes, two runs of golden agreeing to the digit:
+
+| hour | sun's share of the road | blocked by geometry |
+|---|---|---|
+| noon | 84.2% | 1.2% |
+| **golden** | **26.5%** | **25.2%** |
+| dusk | 2.0% | 97.4% |
+
+The ground-contact result is confirmed exactly as the build reported it. And the
+foundational claim this project's golden-hour work rests on survives: dusk puts 2.0% of
+the road's light in the sun against golden's 26.5%, a factor of 13.
+
+**Every earlier number from this tool was taken on an unsettled scene** - dusk 1.9%/2.3%,
+noon 83.7%/83.8%, golden 26.5%. They land close to the settled values, which is luck
+rather than method: the near ground the tool samples loads first. The lesson is the one
+already in this ledger under "Sampling integrity", arriving this time as *when* the sample
+was taken rather than *what* was in it.
+
 ## Round 6: three blind critics, one agreed change, and the audit that found its cause
 
 Six frames (corridor + fivepoints x golden/dusk/night, HUD hidden, each paired with its
