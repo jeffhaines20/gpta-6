@@ -339,6 +339,56 @@ rather than method: the near ground the tool samples loads first. The lesson is 
 already in this ledger under "Sampling integrity", arriving this time as *when* the sample
 was taken rather than *what* was in it.
 
+## Round 7, environment critic: the most careful review yet, and two audits it needed
+
+This critic checked and REJECTED three of its own candidate findings before reporting -
+a repeated crack decal (the cross-correlation was driven by a paving joint, not the
+crack), a floating signal pole (occluded by the red car's bonnet), and it explicitly
+recorded that the diagonal road bands are the painted zebra rather than cast shadows,
+which is the exact error round 6 made. That is the behaviour worth having from a critic.
+
+Its single change - "put props, pedestrians and vehicles into the sun's caster set, and
+delete the baked blob quads" - rests on two findings. Audited:
+
+**1. "Nothing is planted": under-base luminance ratios of 0.88 to 1.33.** The measurement
+is real; the metric is looking in the wrong place. **At 8 degrees of sun elevation a 1 m
+bin throws its shadow 1/tan(8) = 7.1 m**, so there is nothing under the base to find -
+the shadow is metres away across the pavement. The soft darkening that IS at the base is
+SSAO, already measured at **18.3 of 255** on the same bin box. The critic's own prediction
+(ratios should fall to 0.55-0.75 under the bases) would only hold for a high sun or for a
+directional contact term, and would not be evidence about casters either way.
+
+**2. "A baked blob-shadow decal that does not move all day."** The evidence is strong and
+correct: the dark quad at the fivepoints tree has a centroid of (144,641) at golden,
+(146,640) at dusk, (142,641) at night - a 4 px drift - while the facade terminator on the
+same building moves over 110 px across the same interval. So it is definitely not a sun
+shadow.
+
+It is a **tree pit**. `src/streetfurniture.js:847` draws
+`pitSlab(..., 0.72, 0.72, PAD_Y + 0.004, 0x40382f, S.concrete)` - a 0.72 m dark-brown slab
+at the tree base. Geometry, not a decal, and it is correct for it not to rotate. The
+critic considered this and dismissed it because the quad reads offset from the trunk
+rather than centred; that offset is the one part of its measurement I have not resolved.
+A scene-graph search for meshes named shadow/blob/decal/contact returns **nothing** - and
+that search is itself a weak instrument, since it matches on names, so it is recorded as
+"found nothing by name", not as "no blob exists".
+
+### What is confirmed and worth building on
+
+- **The corridor night lamp glows without lighting anything.** Third independent critic
+  round to report it, now with the pavement measuring *darker* under the lit head (3.8)
+  than 200 px away (18.8). Audited: the nearest-N pool holds **543 emitters and lights
+  10**, nearest lit at 21.5 m. Every emissive head outside that ten glows with no light
+  attached. That is the design working as written, and it looks wrong - selection is by
+  distance alone, with no bias toward what is actually on screen.
+- **The corridor night frame is a black hole below y~560**: ground-band median **8/255**
+  with 53% of pixels under 10, against fivepoints-night's median 35 and 20%.
+- **Blown windows at (235-300, 340-382) in corridor-golden are 47.7% pure white.** Fourth
+  independent sighting of this rectangle, and the first with an area measurement. Still
+  consistent with the `sanitize()` CEIL hypothesis already logged.
+- **The pedestrian contact blob draws nothing** - measured by the ground-contact build at
+  0.0266 against a 0.0254 noise floor, and `SHADOW_Y = -0.042` puts it below the paving.
+
 ## Round 7, art critic: right about the look, wrong about the cause, in its own boxes
 
 The round-7 art director gave a single change - "raise the sun elevation for golden and
