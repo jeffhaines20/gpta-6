@@ -1,9 +1,9 @@
 {
   "extract_bytes": 6562018,
   "extract_mb": 6.26,
-  "baked_bytes": 311431,
-  "baked_kb": 304.1,
-  "compression_ratio": 21.1,
+  "baked_bytes": 310085,
+  "baked_kb": 302.8,
+  "compression_ratio": 21.2,
   "area_km2": 1.437,
   "road_vertices": 2159,
   "road_edges": 935,

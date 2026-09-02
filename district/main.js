@@ -44,7 +44,7 @@ chase.mode = 'car';
 const hud = document.getElementById('hud');
 hud.textContent = 'loading district…';
 
-const loading = new LoadingScreen({ title: 'PORT VERANO' });
+const loading = new LoadingScreen({ title: 'SARASOTA' });
 let district, world, tod, post, sky, weather;
 let signageRoot = null, signageStats = null, hud2 = null;
 let hudEnabled = true;

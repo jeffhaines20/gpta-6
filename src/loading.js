@@ -12,7 +12,7 @@
 
 export class LoadingScreen {
   constructor(opts = {}) {
-    this.title = opts.title ?? 'PORT VERANO';
+    this.title = opts.title ?? 'SARASOTA';
     this.steps = [];
     this.timings = [];
     this.t0 = 0;

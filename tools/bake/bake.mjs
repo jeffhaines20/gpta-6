@@ -10,7 +10,7 @@ import { CITY, fictionalizeStreet, nameMapping } from './fictionalize.mjs';
 import { authoredHeight, MASSING_LANDMARKS } from './massing.mjs';
 
 // --- Trim box. The raw request covered ~3.96 km2; this keeps the bayfront edge
-// and the full downtown Marlin Street corridor through Five Points at ~1.44 km2.
+// and the full downtown Main Street corridor through Five Points at ~1.44 km2.
 const TRIM = { s: 27.3305, w: -82.5485, n: 27.3395, e: -82.5340 };
 const CHUNK = 128;   // metres
 
@@ -290,13 +290,13 @@ zones.forEach((zn, i) => {
 // snapped to the nearest road vertex, so the route follows actual streets.
 const WAYPOINTS = [
   { name: 'Marina / bayfront',        lat: 27.33285, lon: -82.54650 },
-  { name: 'Bayfront @ Marlin St',     lat: 27.33440, lon: -82.54460 },
-  { name: 'Marlin St @ Tarpon Row',   lat: 27.33506, lon: -82.54106 },
+  { name: 'Bayfront @ Main St',     lat: 27.33440, lon: -82.54460 },
+  { name: 'Main St @ Pineapple Ave',   lat: 27.33506, lon: -82.54106 },
   { name: 'Five Points junction',     lat: 27.33647, lon: -82.54067 },
-  { name: 'Marlin St east',           lat: 27.33646, lon: -82.53550 },
+  { name: 'Main St east',           lat: 27.33646, lon: -82.53550 },
   { name: 'Turn north',               lat: 27.33810, lon: -82.53500 },
   { name: '2nd St westbound',         lat: 27.33830, lon: -82.53900 },
-  { name: '2nd St @ Calusa',          lat: 27.33880, lon: -82.54300 },
+  { name: '2nd St @ Cocoanut',          lat: 27.33880, lon: -82.54300 },
   { name: 'Back to bayfront',         lat: 27.33500, lon: -82.54470 },
 ];
 function snapToRoad(p) {

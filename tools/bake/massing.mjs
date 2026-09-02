@@ -1,14 +1,14 @@
 // AUTHOR-TIME ONLY. Authored building massing for the hero corridor.
 //
 // Binding constraint 9: massing is authoring work, not a data import. Only 9.9%
-// of the OSM footprints carry a real height, so along the Marlin Street corridor
+// of the OSM footprints carry a real height, so along the Main Street corridor
 // and the mission route we author it deliberately; everywhere else keeps the
 // area-derived default and stays marked d:1.
 //
 // Rules are declarative and seeded off the footprint centroid, so a re-bake
 // produces byte-identical massing.
 
-// Corridor spine in baked local metres, following the real Marlin Street
+// Corridor spine in baked local metres, following the real Main Street
 // (OSM Main Street) centreline from the bayfront east through Five Points.
 const MARLIN_SPINE = [
   [-334.7, -11.8], [-327.8, 63.3], [-180.0, 20.0], [-60.0, 0.0],
@@ -94,11 +94,11 @@ const BANDS = [
 // procedural noise cannot produce "authored", and hero placement is the cheapest
 // way to buy it. Positions are near real large parcels; identity is invented.
 const LANDMARKS = [
-  { name: 'Verano Bay Tower', x: -352, z: 86, radius: 55, levels: 24 },
-  { name: 'Halyard Point Residences', x: -395, z: -30, radius: 50, levels: 19 },
-  { name: 'The Cordage Building', x: 40, z: -150, radius: 34, levels: 12 },
+  { name: 'Bayfront Tower', x: -352, z: 86, radius: 55, levels: 24 },
+  { name: 'Gulfstream Point Residences', x: -395, z: -30, radius: 50, levels: 19 },
+  { name: 'The Palm Avenue Building', x: 40, z: -150, radius: 34, levels: 12 },
   { name: 'Five Points Exchange', x: 78, z: -178, radius: 30, levels: 9 },
-  { name: 'Marlin Street Arcade', x: 250, z: -150, radius: 32, levels: 7 },
+  { name: 'Main Street Arcade', x: 250, z: -150, radius: 32, levels: 7 },
 ];
 
 // Applied per building at bake time. Returns null when no rule claims it, and the

@@ -886,7 +886,7 @@ export function splitStreetName(name) {
 // Three municipal colourways, assigned by name hash. Real cities colour blades by
 // district; one colour everywhere is flatter than the world it sits in.
 const BLADE_PLATES = [
-  { bg: '#1d5237', fg: '#f2f4ef' },   // Port Verano municipal green
+  { bg: '#1d5237', fg: '#f2f4ef' },   // Sarasota municipal green
   { bg: '#1b4256', fg: '#eef4f6' },   // bayfront teal
   { bg: '#4d2028', fg: '#f4ece6' },   // historic core maroon
 ];
@@ -1283,12 +1283,12 @@ function dedupe(list) {
   return [...new Set(list)].sort();
 }
 
-// Used when nobody hands us district.json — the lab and the unit path both work
-// standalone. Same naming world as tools/bake/fictionalize.mjs.
+// Used when nobody hands us district.json - the lab and the unit path both work
+// standalone. Real downtown Sarasota streets, matching what the bake now emits.
 const FALLBACK_STREETS = [
-  'Marlin Street', 'North Halyard Avenue', 'Tarpon Row', 'Verano Boulevard',
-  'Kestrel Street', 'Cordage Avenue', 'Lantern Street', 'Mercado Street',
-  'Bayfront Drive', 'Cannery Street', 'Pelican Row', 'Fathom Street',
+  'Main Street', 'North Gulfstream Avenue', 'South Pineapple Avenue', 'Ringling Boulevard',
+  'North Lemon Avenue', 'North Palm Avenue', 'Cocoanut Avenue', 'Central Avenue',
+  'Bayfront Drive', 'Mound Street', 'Orange Avenue', 'Osprey Avenue',
 ];
 
 // ------------------------------------------------------------------ materials

@@ -1,4 +1,4 @@
-// Time-of-day sweep. For each preset: same camera looking down the Marlin Street
+// Time-of-day sweep. For each preset: same camera looking down the Main Street
 // corridor, one screenshot, and a full scene-graph audit with intensities in
 // physical units.
 //
@@ -21,11 +21,11 @@ page.on('pageerror', (e) => errors.push(e.message));
 await page.goto('http://127.0.0.1:8123/district/', { waitUntil: 'networkidle' });
 await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
 
-// Park on the Marlin Street corridor just west of Five Points, looking east
+// Park on the Main Street corridor just west of Five Points, looking east
 // down the corridor. Identical camera for every capture.
 const CAM = await page.evaluate(() => {
   const r = __district.district.meta.route;
-  const a = r[2], b = r[4];                        // Marlin St @ Tarpon Row -> Marlin St east
+  const a = r[2], b = r[4];                        // Main St @ Pineapple Ave -> Main St east
   __district.placeAt(a.x, a.z);
   __district.setAutopilot(() => {});
   const dx = b.x - a.x, dz = b.z - a.z;

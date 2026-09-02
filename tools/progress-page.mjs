@@ -39,7 +39,7 @@ function gateRows(g) {
     <td><span class="pill ${r.status.toLowerCase()}">${r.status}</span></td></tr>`).join('');
 }
 
-const html = `<title>Port Verano — Phase 2 progress</title>
+const html = `<title>Sarasota — Phase 2 progress</title>
 <style>
   :root{--bg:#0d1017;--panel:#151a23;--line:#232b38;--fg:#e8edf5;--dim:#8d9bb0;--acc:#6fa8f5;
     color-scheme:dark}
@@ -77,7 +77,7 @@ const html = `<title>Port Verano — Phase 2 progress</title>
   code{background:#1c2431;padding:1px 5px;border-radius:4px;font-size:12.5px}
 </style>
 <header>
-  <h1>Port Verano — Phase 2 progress</h1>
+  <h1>Sarasota — Phase 2 progress</h1>
   <div class="sub">Auto-generated from the gate artifacts and screenshots in this repo.
     Regenerate with <code>npm run progress</code>. Ledger: <a href="../PROGRESS.md">PROGRESS.md</a></div>
 </header>

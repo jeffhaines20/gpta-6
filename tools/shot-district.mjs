@@ -14,7 +14,7 @@ await page.evaluate(() => {
   __district.setTraffic(true);
   __district.setTimeOfDay('dusk');
   const r = __district.district.meta.route;
-  const a = r[2], b = r[4];                     // along the Marlin Street corridor
+  const a = r[2], b = r[4];                     // along the Main Street corridor
   __district.placeAt(a.x, a.z, Math.atan2(b.x - a.x, b.z - a.z));
   __district.setTimeScale(8);
   // Cruise gently down the corridor so the chase camera settles behind the car.

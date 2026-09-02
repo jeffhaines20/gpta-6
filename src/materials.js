@@ -1,4 +1,4 @@
-// Port Verano's production material library. Everything here is drawn into a
+// The production material library. Everything here is drawn into a
 // canvas at load time; nothing is fetched.
 //
 // Three constraints shaped every decision in this file:
@@ -1853,7 +1853,7 @@ function applyPackedRoughness(material) {
 }
 
 // ---------------------------------------------------------------- glazing
-// GLAZING is the shading contract for every pane of glass in Port Verano, kept
+// GLAZING is the shading contract for every pane of glass in the district, kept
 // as numbers rather than as prose because three separate modules have to agree
 // on them and two of them got it wrong independently.
 //
@@ -2369,7 +2369,7 @@ export class MaterialRegistry {
     drawField(g, D, 64, fbm(64, 8, 3, rand), greyField(0.35, 0.65), 0.5);
     const normal = this._normalTexture(sobelNormalRough(luminanceField(hc, D), null, D, 1.4), D);
 
-    // Verano Bay is shallow Gulf water over sand: green, not navy, and it is the
+    // Sarasota Bay is shallow Gulf water over sand: green, not navy, and it is the
     // sky reflection that carries it, so scene.environment matters here.
     const m = new THREE.MeshStandardMaterial({
       color: 0x18404a, normalMap: normal,

@@ -1,4 +1,4 @@
-// Port Verano's HUD.
+// The HUD.
 //
 // Three constraints shaped every decision in this file.
 //

@@ -36,7 +36,7 @@ if (HERO_TRAFFIC > 0) {
   await page.waitForTimeout(6000);
 }
 
-// Stand in the carriageway on the Marlin Street corridor looking east toward
+// Stand in the carriageway on the Main Street corridor looking east toward
 // Five Points, which is the district's hero view.
 const shots = [
   { name: 'corridor', wpA: 2, wpB: 4, back: 34, side: 0, height: 2.4, fov: 55, tgtY: 16, fwd: 260 },
