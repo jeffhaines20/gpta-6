@@ -48,6 +48,7 @@ if (typeof document === 'undefined') {
 }
 import {
   buildingStyle, buffers, edgesOf, facingEdges, roofUnits, fireEscape, signBlank, awnings,
+  awningFabricY,
 } from '../src/facades.js';
 import {
   signPlanFor, awning as signAwning, shopRect, planStreetSignage,
@@ -184,23 +185,28 @@ for (let bi = 0; bi < d.buildings.length; bi++) {
     }
   }
 
-  // --- awnings. The canopy is a wedge from the wall (yTop) to its leading edge
+  // --- awnings. The canopy is a barrel from the wall (yTop) to its leading edge
   //     (yFront). Whatever carries it must lie AT OR BELOW the fabric over the
   //     whole projection and must reach the leading edge; a bar that rises above
-  //     the fabric is not a bracket, it is a stray tube in the air.
-  // --- awnings. A canopy rakes: it drops `drop` metres over `out` metres of
-  //     projection. Nothing in the assembly may sit ABOVE that sloping plane,
-  //     because anything that does is hardware poking through the cloth it is
-  //     supposed to carry. Measured against the real emitted vertices, not
-  //     re-derived: this is the check that was missed the first time, when only
-  //     the horizontal projection was measured and it was correct.
+  //     the fabric is not a bracket, it is a stray tube in the air. Nothing in
+  //     the assembly may sit above that surface, because anything that does is
+  //     hardware poking through the cloth it is supposed to carry. Measured
+  //     against the real emitted vertices, not re-derived: this is the check
+  //     that was missed the first time, when only the horizontal projection was
+  //     measured and it was correct.
+  //
+  //     The surface itself comes from facades.js's awningFabricY(), the same
+  //     function the geometry is built from, because an audit that carries its
+  //     OWN model of the thing it audits is a second copy of the maths and
+  //     drifts from it. When the canopy went from a rake to a barrel this line
+  //     needed no edit at all — which is the whole point of importing it.
   const checkAwningBuf = (tag, buf, e, yTop, drop, out) => {
     let worst = 0, at = null;
     for (let i = 0; i < buf.pos.length / 3; i++) {
       const x = buf.pos[i * 3], y = buf.pos[i * 3 + 1], z = buf.pos[i * 3 + 2];
       const o = (x - e.a[0]) * e.nx + (z - e.a[1]) * e.nz;      // projection off the wall
       if (o <= 0.03) continue;
-      const fabric = yTop - (drop / out) * Math.min(o, out);
+      const fabric = awningFabricY(o, yTop, out, drop);
       if (y - fabric > worst) { worst = y - fabric; at = { o: +o.toFixed(2), y: +y.toFixed(2), fabric: +fabric.toFixed(2) }; }
     }
     if (worst > TOL) { note(`awningArm:${tag}`, bi, worst, at); worstArm = Math.max(worstArm, worst); }

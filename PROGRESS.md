@@ -30,10 +30,265 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## The district was dressed as a generic North American city, and it is Sarasota
+
+`data/district.json` `meta.origin` is 27.335, -82.54125 — Main Street at Five
+Points, latitude 27 north, the Gulf coast of Florida — and as of this morning it
+carries the real street names. What it was dressed with was temperate broadleaf
+trees, poured concrete slab pavements, cobra-head lamp standards, red-and-cream
+awnings on a full hue wheel, and a building palette whose low-rise stock was all
+the same pale value as its towers. The reference photography in
+`reference/sarasota/` establishes every one of those as wrong. Businesses,
+shopfronts, signs and logos stay invented; nothing here is traced, sampled or
+colour-picked from a photograph (binding constraints 1 and 9).
+
+Six items, taken in the order the brief ranked them. Gate at the end:
+**draw 229 (was 228), triangles 766,051 (was 727,193, +5.3%)**, stall 13.9 ms
+inside its documented 7.1–16.4 noise band, heap +6 MB.
+
+### 1. Palms, and the biggest single tell in the district
+
+`propTree`/`propTreeDetail` in `src/streetfurniture.js` were a lobed two-tier
+broadleaf crown on a leaning trunk. They are now a **sabal** (costapalmate fans,
+grey-brown boot trunk) or a **queen** (pinnate feather fronds, smooth pale grey
+trunk), 55/45 by hash.
+
+A palm is CHEAPER to draw convincingly than a broadleaf, because a broadleaf is
+a mass and a palm is a skeleton: a dozen long thin arcs off the top of a pole,
+and a long thin arc is what triangles are good at.
+
+| | broadleaf | palm |
+|---|---|---|
+| FAR tier `tree` | 116.6 | **154.3** |
+| NEAR tier `treeDetail` | 134.0 | **138.3** |
+| per tree | 250.6 | 292.6 |
+| district, 276 trees | 69,009 | **80,558** |
+
+Every frond is a **closed wedge**, not a card — an upper-left blade, an
+upper-right blade, and a floor between their outer edges — because the camera in
+this game sits 1.5–2.4 m off the pavement and a palm carries its crown at 6–13 m,
+so the view of a street palm is overwhelmingly the view UP INTO IT. A
+single-sided blade would be culled from exactly the angle the player spends the
+whole game at. The third strip also buys the shading for free: two upper normals
+tilted up-and-out to either side of the rachis and one pointing down, so one
+blade is always brighter than the other and the underside is always dark.
+
+The tier split cannot pop. Twelve to sixteen fronds are laid on the golden angle
+with an "age" running 0..1 across them (young fronds short and upright, old ones
+long and flat) and the FAR tier takes the EVEN indices — golden-angle indexing
+spreads even and odd evenly round the azimuth, and even indices sample the whole
+age range, so the far tier already carries the full outline at half the density.
+Crossing 200 m fills the crown in; it does not change its shape.
+
+The sabal's criss-cross boot costs **no triangles at all**: in the boot zone
+alternate vertices of each trunk ring are pushed in and out and the phase flips
+on the next ring, so the trunk's own silhouette zigzags in a diamond. It is a
+radius modulation on vertices that already exist. The near tier adds ten real
+protruding plates on top at the distance where 6 cm is more than a pixel; the
+same ten on a queen sit nearly flush and read as ring scars.
+
+**Three things were wrong in the first capture and were fixed by looking at it,
+not by reasoning about it:**
+
+1. **The sabal's fans were paddles.** `wOf` opened at t^0.8 on a half-width of
+   0.28R, which put a metre-wide blade on a 1.4 m frond: six banana leaves, not a
+   cabbage palm. Now t^1.5 on 0.155R — thin petiole, fan opening late.
+2. **Whole fronds read as black wedges.** The floor's true normal is straight
+   down the keel, and a straight-down normal at an 8 degree sun collects nothing
+   but the dome's ground term. A palm leaflet is one cell thick and transmits, so
+   the floor normal is tilted half a unit OUTWARD — still facing down, now also
+   facing the horizon, which is where the light that reaches the underside of a
+   frond actually comes from.
+3. **Every frond started at one vertex**, giving a hard umbrella join at the top
+   of the trunk. Each origin is now pushed out along its own azimuth and down by
+   its own age, which is what a crown of leaf bases is. Free.
+
+`.wind-audit.mjs` caught a real defect the eye did not: the ten boot plates were
+emitting **20 backfacing triangles per palm** — the whole-kit winding defect at
+the top of `streetfurniture.js`, reintroduced on a new emitter. With u radial and
+s = (-uz, ux) tangential, u x s = -Y and s x Y = -u, so the obvious vertex order
+comes out with its geometric normal pointing down and INTO the trunk. The palm
+now measures **0 backfacing** in both handednesses, and the district total went
+6,269 → 0 (the 6,269 were the broadleaf's deliberately jittered leaf normals).
+
+The tree pit went 0x40382f → 0x5a4a35. A round-7 critic tracked that quad's
+centroid across golden/dusk/night, measured it moving 4 px while the facade
+terminator beside it moved 110, and reported it as a baked blob-shadow decal. It
+is not a decal, it is the pit — but at that value it read as one. Pine-bark mulch
+is what a Sarasota palm stands in and it is 2.4x lighter.
+
+### 2. Brick paver sidewalks — zero triangles, and a measured cost at night
+
+`sidewalkSurface` in `src/materials.js` is a canvas painter, so replacing poured
+concrete slabs with clay pavers in running bond is **zero triangles and zero draw
+calls**. 15 x 30 modules over the 3 m tile is a 200 x 100 mm paver with a 9 mm
+joint: 34 x 17 px at the 512 albedo, 17 x 8.5 at the 256 height map. Per-brick
+variation is hashed off the brick's own COORDINATES rather than off the shared
+random stream, because `paintAlbedo` and `paintHeight` consume different numbers
+of values before they get there — the exact trap `crackSet()` exists for.
+
+**The first cut read as confetti.** Hue 9–26, saturation 18–33, lightness 31–44
+with a burnt paver every 14 and a buff one every 14 gave a mosaic of
+independently coloured chips, and it aliased, because a per-brick step with that
+much variance mips to an average nothing like the near view. Halved the range,
+moved the outliers to 1-in-40, and kept them WARM: at saturation 10 the buff
+paver was the only near-neutral thing in a warm field, so the sky lit it blue and
+it read as a chip of tile dropped on a brick pavement.
+
+`applySlabVariation` went from one cell per 1.5 m slab to one per 3 m tile: a
+1.5 m grid of tint steps over a 200 mm bond reads as concrete slabs printed with
+a brick pattern, which is worse than either. One cell per tile is a paver BAY.
+
+**The cost, stated rather than left to be found.** Clay is darker than concrete.
+`tools/critic-metrics.mjs` on corridor-night, against the committed `a8` capture:
+
+| corridor-night | `a8` before | pavers at l 40–48 | pavers at l 44–52 |
+|---|---|---|---|
+| crushed fraction Y<=2 | 6.13% | 7.79% | **7.25%** |
+| lamp pool, band median away | 11.2 | 4.9 | **5.5** |
+| lamp pool ratio | 3.55 | 6.08 | **5.45** |
+| lit-window spread | 28.8 | 28.3 | 27.7 |
+
+The same-build noise on crushed fraction is 0.09 pp (`r7` 6.14 vs `b8` 6.05), so
++1.12 pp is real and is mine. It was lifted from 40–48 to 44–52 — still plainly
+brick, still inside what the reference supports — which recovered a third of it,
+and the rest is a property of the material. The lamp pool RATIO went the other
+way, 3.55 → 5.45 and 2.54 → 4.60 at fivepoints: against a darker pavement the
+lamps read more strongly, which is the "lamp glows without lighting anything"
+complaint measurably improving for the same reason. **The residual is not fixed
+and is not hidden**: the frame this ledger already calls a black hole below
+y~560 is now slightly darker below y~560.
+
+### 3. Twin-globe lamp standards, paid for out of the pole
+
+`02-Worth-s-Block` and `03-Five-Points` both show black posts carrying two
+frosted spheres on brackets. The district shipped a plain tube with a box on a
+straight arm.
+
+Lamps are three InstancedMeshes with `frustumCulled = false`, so all 1,100 are
+submitted every frame in BOTH the colour and the shadow pass: **a triangle here
+costs 2,200**. The 8-sided capped cylinder spent 32 triangles on something under
+3 px wide at any distance a player sees it from, and a 5-gon is 20 and shades
+identically because `CylinderGeometry`'s normals are radial. That saving buys
+both globes:
+
+    was   pole 32 + arm 12 + head 12                    =  56
+    now   pole 20 + bracket 12 + globe 20 + globe 20    =  72
+
+**Not one emitter moved.** The outer globe centre is at exactly (2.2, 7.7) —
+where the box head was — and that is the point `addLamp()` returns and
+`district/main.js` hands to the `LightPool`, so the night grade three critic
+rounds have called the best in the set is untouched. The second globe goes on a
+shorter pavement-side bracket. The symmetric fixture would have had to move the
+light 2.2 m off the carriageway, which is a lighting change, not a dressing one,
+and would have had to be re-measured as one.
+
+The pole material also went from 0.75-metalness galvanised steel to matte black
+cast iron, which is what every ornamental standard in the reference is.
+
+`mergeGeos()` is six lines: the vendored three build is core only
+(`'mergeGeometries' in THREE` is false, checked) and both globes have to be one
+geometry or the fixture costs a fourth draw call at every lamp count.
+
+### 4. Awnings: the palette was generic and the section was the wrong fixture
+
+**Palette.** `STRIPE_HUES` in `src/signage.js` was `[20, 206, 348, 30, 268, 96,
+142, 44, 292, 168]` — a hue wheel with blue, purple and magenta in it. It is now
+`[42, 36, 12, 356, 152, 28, 20, 48, 186, 96]`: eight warm or green, two cool.
+Gold also has to be SATURATED to read as gold — at the flat s 48 / l 38 the bar
+colour used for every hue, hue 42 comes out dark olive — so warm hues now take
+s 58 / l 45. `facades.js`'s two trim fabrics went from red-and-cream and
+teal-and-cream stripes to plain GOLD with a maroon valance and a green-and-cream
+stripe, off `02-Worth-s-Block` and `01-S.H.-Kress` respectively.
+
+Found by looking at the result: **the valance took `biz.h` while the fabric takes
+`biz.a`** — two independent numbers — so a green canopy finished in a purple hem.
+One shopfront wearing two unrelated colours and reading as two objects. The
+valance and its scallop band now take the awning's own colourway.
+
+**Section.** Both kits drew a flat rake; the reference awnings are BARRELS. The
+section is now a quarter circle, `o(s) = out·sin(s·pi/2)`,
+`dy(s) = drop·(1-cos(s·pi/2))`, exported from `facades.js` as `awningProfile()`
+with its closed-form inverse `awningFabricY()` — `cos(asin(u))` is `sqrt(1-u²)`.
+
+**ONE definition, three callers**, and the third is the gate. `geom-audit.mjs`
+asserts that no piece of hardware sits above the fabric, and it can only do that
+against a model of where the fabric is; it carried its own straight-rake model
+and would have failed every curved awning in the district. It now imports
+`awningFabricY` — the same function the geometry is built from — so when the
+canopy went from a rake to a barrel the audit line needed **no edit at all**.
+The curve is convex up, so it lies at or above the old rake everywhere and every
+existing bracket still passes under it: `awningFrame()` needed no change either.
+
+The side cheeks follow the same stations. A straight quad from the wall head to
+the leading edge is the CHORD of the barrel and the fabric bulges above it, which
+would have left a crescent of open air down each side of every awning.
+
+**AWNING_SEGS is 2, and that is a budget decision made by measurement.** Three
+hoops measured **+22,669 gate triangles** across the two awning kits — more than
+the entire palm change cost (+16,857) for a curve read at ten metres — and left
+the triangle gate at 94.6% of its warn with nothing in hand. Two hoops is three
+stations: still plainly a barrel, still no chord gap, half the bill. Re-measured
+at **766,425**. The rule is more silhouette per triangle, not a bigger threshold.
+
+### 5. Warm masonry: every one of the seven recipes' palettes
+
+`RECIPES[*].palette` is what `tintOf()` picks a building's colour from, and the
+low-rise stock — the recipes `02-Worth-s-Block` and `01-S.H.-Kress` are
+photographs OF — had nothing darker than l 64 and had teal in it. A downtown
+whose two-storey stock is the same value as its towers has no Main Street in it.
+
+`tintOf()` divides the palette entry by the baked wall colour and clamps at 1, so
+an entry can only ever DARKEN — which is exactly what a brick block needs and
+what nothing in the old list could do. `retailStrip` now runs from weathered red
+brick (h 12, s 30, l 44) to painted cream; `deco` is the Kress's cream glazed
+terracotta with an ochre band and the painted red block beside it; `stuccoHouse`
+is Frances-Carlton salmon and Florida pastels instead of an olive that is a
+temperate colour; `midOffice` is 1777 Main Street's warm precast with one
+genuinely grey colourway kept; `warehouse` keeps one industrial blue-grey,
+because a metal shed is a metal shed in any climate. Zero triangles.
+
+The condo towers are left pale on purpose: `02-Worth-s-Block` has one rising
+straight out of the back of a brick two-storey, and that contrast IS Main Street.
+
+### 6. Terracotta barrel tile — NOT done, and why
+
+Ranked last and not reached. The honest obstacle is the trim atlas: it is 4x4
+and **all sixteen cells are in use** (counted, not assumed), so barrel tile as a
+material needs either a 5x5 grid at a non-integer 102.4 px cell or a 1024 px
+atlas at roughly +4 MB, for the lowest-ranked item on the list. The cheap
+substitute — tinting the existing `parapet()` cornice band terracotta — was
+rejected as well: the `stone` cell is authored with HORIZONTAL streaks because a
+cornice tiles along the wall, and barrel tile ridges run perpendicular to the
+eaves, so it would have been the right colour with the grain at ninety degrees.
+
+Whoever takes it: `07-1777-Main-Street`'s tiled window hoods on a concrete tower
+are the most street-visible instance in the whole reference set, and
+`06-Frances-Carlton` has the roofs and porch canopies.
+
+### What was looked at
+
+`docs/shots/sar-{corridor,fivepoints}-{golden,dusk,night}.png` and
+`docs/shots/sar2-*` (the paver lift), every one opened and read rather than
+generated and filed. The iteration that produced the three palm fixes and the
+two paver fixes was captured, cropped at 2.4–6x, looked at, and the intermediate
+frames deleted once the finding was in a comment.
+
+Gates: syntax PASS (82), golden-trace PASS (30 samples), physics PASS (10),
+geom-audit PASS with `awningArmAboveFabric 0.00`, lighting sweep **PASS at all
+four times of day with both negative tests firing**, budget PASS/PASS/WARN.
+
+The geom-audit null result was verified rather than trusted: dropping
+`awningFabricY` by 0.30 m makes it report `gap 0.314` on both awning kits, and
+reverting it returns 0.00. A gate that cannot fail is not a gate.
+
 ## Gate results
 
 | Date | Gate | Result | Evidence |
 |---|---|---|---|
+| 2026-09-02 | **drive-through + 30 traffic**, after the Sarasota streetscape pass | **PASS/PASS/WARN** — draw p95 **229** (was 228), tris p95 **766,051** (was 727,193, +5.3%), stall **13.9 ms** inside its 7.1-16.4 noise band, heap +6 MB | `docs/drive-traffic.json` |
+| 2026-09-02 | **lighting sweep**, after the streetscape pass | **PASS** — all 4 times of day inside the envelope, `paths: 1`, both negative tests firing | `docs/daynight.json` |
+| 2026-09-02 | syntax / golden-trace / physics / geom-audit | PASS — 82 modules, 30 samples, 10 checks, `awningArmAboveFabric 0.00`, and the awning check verified able to FAIL before its null result was trusted | `npm run gates:static` |
 | 2026-09-01 | **drive-through + 30 traffic**, sky delivered once | **PASS** — draw p95 **229** (warn 275), tris p95 **720,802** (warn 830k), stall **7.9 ms** (warn 8), heap **−5 MB** | `docs/drive-traffic.json` |
 | 2026-09-01 | **lighting sweep**, sky delivered once | **PASS** — all 4 presets inside the envelope on the DELIVERED sky, `paths: 1` at every one, both negative tests firing | `docs/daynight.json`, `docs/daynight-negative-sky.json` |
 | 2026-09-01 | syntax / golden-trace / physics / geom-audit | PASS — 81 modules, 30 samples, 10 checks, every prop reaches its host surface | `npm run gates:static` |

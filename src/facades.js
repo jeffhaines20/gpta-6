@@ -189,7 +189,16 @@ export const RECIPES = {
     rhythm: [1, 1.45, 1, 1.2, 0.75],
     wall: { h: 36, s: 16, l: 72 },
     trimHue: 30,
-    palette: [{ h: 36, s: 16, l: 72 }, { h: 172, s: 14, l: 66 }, { h: 12, s: 26, l: 64 }, { h: 48, s: 22, l: 76 }],
+    // The low-rise retail block is the ONE recipe reference/sarasota/
+    // 02-Worth-s-Block is a photograph of, and that block is weathered red
+    // brick against painted-cream brick with a maroon trim. What stood here was
+    // four pale colourways, one of them teal, none darker than l 64: a downtown
+    // whose two-storey stock is all the same value as its towers has no Main
+    // Street in it. tintOf() divides the palette entry by the baked wall colour
+    // and clamps at 1, so an entry can only ever DARKEN - which is exactly what
+    // a brick block needs and what nothing in this list could do.
+    palette: [{ h: 12, s: 30, l: 44 }, { h: 26, s: 14, l: 72 }, { h: 8, s: 34, l: 52 },
+              { h: 38, s: 26, l: 62 }, { h: 44, s: 20, l: 70 }],
     win: { top: 0.10, h: 0.56, inset: 0.10, reveal: 7, mullionsV: 1, mullionsH: 1 },
     shape: 'glazed',
     spandrel: { l: -12, h: 0.30 },
@@ -216,7 +225,11 @@ export const RECIPES = {
     rhythm: [1, 1, 1, 0.42, 1, 1],          // the narrow bay is the service riser
     wall: { h: 34, s: 6, l: 62 },
     trimHue: 34,
-    palette: [{ h: 34, s: 6, l: 62 }, { h: 210, s: 5, l: 56 }, { h: 28, s: 9, l: 68 }],
+    // reference/sarasota/07-1777-Main-Street is this recipe's real subject and
+    // its precast is CREAM, not grey - warm enough to read against a blue sky.
+    // One genuinely cool colourway is kept: not every 1970s block is warm.
+    palette: [{ h: 36, s: 9, l: 64 }, { h: 30, s: 12, l: 58 }, { h: 42, s: 8, l: 68 },
+              { h: 206, s: 5, l: 56 }],
     win: { top: 0.12, h: 0.50, inset: 0.045, reveal: 5, mullionsV: 2, mullionsH: 0 },
     shape: 'glazed',
     spandrel: { l: -9, h: 0.34 },
@@ -239,7 +252,10 @@ export const RECIPES = {
     rhythm: [1.25, 0.9, 0.9, 1.25],
     wall: { h: 40, s: 22, l: 74 },
     trimHue: 22,
-    palette: [{ h: 40, s: 22, l: 74 }, { h: 30, s: 16, l: 78 }, { h: 18, s: 24, l: 66 }],
+    // reference/sarasota/01-S.H.-Kress: cream glazed terracotta with an ochre
+    // band, standing directly against a painted red block. Both are in here.
+    palette: [{ h: 40, s: 18, l: 76 }, { h: 44, s: 30, l: 66 }, { h: 16, s: 30, l: 54 },
+              { h: 34, s: 12, l: 82 }],
     win: { top: 0.13, h: 0.52, inset: 0.20, reveal: 11, mullionsV: 1, mullionsH: 1 },
     shape: 'glazed',
     spandrel: { l: -6, h: 0.22 },
@@ -262,7 +278,12 @@ export const RECIPES = {
     rhythm: [1.2, 0.85, 1, 1, 0.85, 1.2],
     wall: { h: 38, s: 10, l: 84 },
     trimHue: 36,
-    palette: [{ h: 38, s: 10, l: 84 }, { h: 196, s: 8, l: 80 }, { h: 30, s: 12, l: 88 }],
+    // The condo towers really are pale and really are the cool end of this
+    // district - 02-Worth-s-Block has one rising straight out of the back of a
+    // brick two-storey, and that contrast IS Main Street. Left pale, warmed a
+    // little, with one warm-grey added so a row of them is not one value.
+    palette: [{ h: 38, s: 8, l: 84 }, { h: 30, s: 12, l: 88 }, { h: 20, s: 14, l: 78 },
+              { h: 196, s: 6, l: 82 }],
     win: { top: 0.09, h: 0.62, inset: 0.06, reveal: 6, mullionsV: 2, mullionsH: 0 },
     shape: 'glazed',
     spandrel: { l: -5, h: 0.24 },
@@ -285,7 +306,8 @@ export const RECIPES = {
     rhythm: [1, 1, 1, 1],
     wall: { h: 40, s: 3, l: 58 },
     trimHue: 34,
-    palette: [{ h: 40, s: 3, l: 58 }, { h: 210, s: 3, l: 54 }],
+    // The deck behind the roundabout in 03-Five-Points is warm beige concrete.
+    palette: [{ h: 38, s: 7, l: 58 }, { h: 30, s: 10, l: 54 }],
     win: { top: 0.16, h: 0.52, inset: 0.03, reveal: 9, mullionsV: 0, mullionsH: 0 },
     shape: 'deck',
     spandrel: { l: -7, h: 0.32 },
@@ -308,7 +330,9 @@ export const RECIPES = {
     rhythm: [1, 1, 1, 1, 1, 1, 1, 1],        // corrugated ribs, not bays
     wall: { h: 200, s: 7, l: 60 },
     trimHue: 205,
-    palette: [{ h: 200, s: 7, l: 60 }, { h: 32, s: 6, l: 62 }, { h: 150, s: 6, l: 54 }],
+    // Warmed off the blue-grey default, but this is the one recipe entitled to
+    // stay industrial: a metal shed is a metal shed in any climate.
+    palette: [{ h: 34, s: 8, l: 62 }, { h: 200, s: 7, l: 58 }, { h: 22, s: 16, l: 54 }],
     win: { top: 0.08, h: 0.26, inset: 0.10, reveal: 4, mullionsV: 1, mullionsH: 0 },
     shape: 'louvre',
     spandrel: { l: -4, h: 0.12 },
@@ -334,7 +358,11 @@ export const RECIPES = {
     rhythm: [1, 0.7, 1.25, 0.8],
     wall: { h: 42, s: 20, l: 80 },
     trimHue: 32,
-    palette: [{ h: 42, s: 20, l: 80 }, { h: 168, s: 16, l: 76 }, { h: 8, s: 22, l: 74 }, { h: 90, s: 12, l: 74 }],
+    // reference/sarasota/06-Frances-Carlton is salmon stucco under barrel tile,
+    // and Florida's small stucco stock runs pastel - salmon, butter, cream, a
+    // pale aqua. The olive that used to be in here is a temperate colour.
+    palette: [{ h: 16, s: 40, l: 72 }, { h: 44, s: 30, l: 82 }, { h: 34, s: 12, l: 86 },
+              { h: 168, s: 16, l: 78 }],
     win: { top: 0.22, h: 0.44, inset: 0.24, reveal: 8, mullionsV: 1, mullionsH: 1 },
     shape: 'glazed',
     spandrel: { l: -3, h: 0.10 },
@@ -1160,15 +1188,41 @@ function buildTrimAtlas() {
     const { x, y } = fill(TRIM.gravel, 'rgb(96,94,88)', 0.97, 0);
     speck(x, y, 5200, 60, 165, 0.55);
   }
-  // Awning fabric, colourway A: authored two-tone stripe, not a random pattern.
-  for (const [cell, a, b] of [[TRIM.fabricA, 'rgb(178,58,52)', 'rgb(236,228,214)'],
-                              [TRIM.fabricB, 'rgb(30,86,104)', 'rgb(232,226,208)']]) {
+  // Awning fabric. Authored two-tone, not a random pattern, and authored off
+  // what downtown Sarasota actually hangs over a shopfront rather than off the
+  // generic red-and-cream this used to carry:
+  //
+  //   reference/sarasota/02-Worth-s-Block  two barrel awnings in saturated
+  //                                        GOLD, plain rather than striped,
+  //                                        each with a dark maroon edge band
+  //   reference/sarasota/01-S.H.-Kress     a deep green-teal canopy
+  //
+  // Colourway A is therefore plain gold with a maroon valance, B a green-and-
+  // cream stripe. The band across 14% of the cell is the edge trim; the whole
+  // cell maps across every quad of the awning, so it runs along one edge of the
+  // canopy and one edge of the valance. WHICH edge is not asserted here — it
+  // depends on the texture's flipY as well as on the quad's uv order, and this
+  // file has already paid once for a comment that reasoned out a UV direction
+  // instead of looking at it.
+  for (const [cell, a, b, striped] of [
+    [TRIM.fabricA, 'rgb(122,36,38)', 'rgb(206,161,44)', false],
+    [TRIM.fabricB, 'rgb(28,76,58)', 'rgb(232,226,208)', true],
+  ]) {
     const { x, y } = fill(cell, b, 0.86, 0);
-    for (let i = 0; i < TRIM_GRID * 2; i++) {
-      ag.fillStyle = a;
-      ag.fillRect(x + (i * C) / 8, y, C / 16, C);
+    if (striped) {
+      for (let i = 0; i < TRIM_GRID * 2; i++) {
+        ag.fillStyle = a;
+        ag.fillRect(x + (i * C) / 8, y, C / 16, C);
+      }
+    } else {
+      // A plain awning is still sewn out of 900 mm panels, and the seams are
+      // most of what stops a flat colour reading as painted card.
+      ag.fillStyle = 'rgba(70,44,10,0.16)';
+      for (let i = 0; i < TRIM_GRID * 2; i++) {
+        ag.fillRect(x + (i * C) / 8, y, Math.max(1, C / 150), C);
+      }
     }
-    ag.fillStyle = 'rgba(0,0,0,0.18)';
+    ag.fillStyle = striped ? 'rgba(0,0,0,0.18)' : a;
     ag.fillRect(x, y + C * 0.86, C, C * 0.14);
   }
   // Storefront glazing, and it is NOT the same problem as a tower pane even
@@ -1922,6 +1976,50 @@ export function storefront(ring, pos, nrm, uv, idx, opts = {}) {
  * gussets. Deliberately not every bay: an unbroken run of awnings is the exact
  * kind of regularity that reads as procedural.
  */
+// -------------------------------------------------------- THE AWNING SECTION
+//
+// An awning in reference/sarasota/02-Worth-s-Block is a BARREL: the fabric
+// leaves the wall almost vertically, turns over, and comes down to a vertical
+// front face carrying the valance. What both awning kits here drew instead was
+// a flat rake — a wedge — which is a different fixture, and one this district
+// does not have.
+//
+// The section is a quarter circle, which is what a barrel awning's hoops are:
+//
+//     o(s) = out * sin(s * pi/2)          dy(s) = drop * (1 - cos(s * pi/2))
+//
+// ONE definition, exported, and used by three callers: facades' awnings(),
+// signage's awning(), and tools/geom-audit.mjs. That is not tidiness. The gate
+// asserts that no piece of hardware sits above the fabric, and it can only do
+// that against a model of where the fabric IS; the straight-rake model it used
+// to carry would fail every curved awning in the district the moment the
+// geometry changed under it, and a second copy of this curve in the audit would
+// drift from the first exactly the way this file's crackSet() comment describes.
+// TWO hoops, not three. Three was the first cut and it measured +22,669 gate
+// triangles for the pair of awning kits — more than the entire palm change cost
+// (+16,857) for a curve you read at ten metres, and it left the triangle gate at
+// 94.6% of its warn with nothing in hand. Two hoops is three stations: still
+// plainly a barrel against the sky, still no chord gap down the cheeks, and half
+// the bill. The rule this file works to is more silhouette per triangle, not a
+// bigger threshold.
+export const AWNING_SEGS = 2;
+export function awningProfile(s, out, drop) {
+  const a = s * Math.PI * 0.5;
+  return { o: out * Math.sin(a), dy: drop * (1 - Math.cos(a)) };
+}
+/**
+ * The fabric height at a given projection off the wall — the inverse of the
+ * profile above, in closed form, because cos(asin(u)) is sqrt(1 - u^2).
+ *
+ * The curve is convex up, so it lies AT OR ABOVE the straight rake everywhere
+ * (1 - sqrt(1-u^2) <= u on [0,1]). Every existing bracket therefore still
+ * passes under it, which is why awningFrame() needs no change at all.
+ */
+export function awningFabricY(o, yTop, out, drop) {
+  const u = Math.max(0, Math.min(1, o / out));
+  return yTop - drop * (1 - Math.sqrt(1 - u * u));
+}
+
 export function awnings(ring, pos, nrm, uv, idx, opts = {}) {
   const head = opts.head ?? 3.6, out = opts.project ?? 1.35, drop = opts.drop ?? 0.55;
   const bayM = opts.bayM ?? 3.2;
@@ -1941,27 +2039,68 @@ export function awnings(ring, pos, nrm, uv, idx, opts = {}) {
       const f0 = [a0[0] + e.nx * out, a0[1] + e.nz * out];
       const f1 = [a1[0] + e.nx * out, a1[1] + e.nz * out];
       const yTop = head + 0.35, yFront = head + 0.35 - drop;
-      const nl = Math.hypot(drop, out);
-      const n = [(e.nx * drop) / nl, out / nl, (e.nz * drop) / nl];
 
+      // The barrel, as AWNING_SEGS hoops. Each station carries its own outward
+      // offset, height and surface normal, so the canopy shades as a curve
+      // instead of as one flat lambert value.
+      const st = [];
+      for (let k = 0; k <= AWNING_SEGS; k++) {
+        const s = k / AWNING_SEGS;
+        const { o, dy } = awningProfile(s, out, drop);
+        const a = s * Math.PI * 0.5;
+        // Normal of the quarter circle at s, lifted into 3D on the edge normal.
+        const nx = e.nx * Math.sin(a), ny = Math.cos(a), nz = e.nz * Math.sin(a);
+        const nl = Math.hypot(nx, ny, nz) || 1;
+        st.push({
+          p0: [a0[0] + e.nx * o, a0[1] + e.nz * o],
+          p1: [a1[0] + e.nx * o, a1[1] + e.nz * o],
+          y: yTop - dy, n: [nx / nl, ny / nl, nz / nl],
+          v: fab.v0 + (fab.v1 - fab.v0) * s,
+        });
+      }
       // Top surface and its underside, so it is not a one-sided plane from below.
-      quad(pos, nrm, uv, idx,
-        [a0[0], yTop, a0[1]], [a1[0], yTop, a1[1]], [f1[0], yFront, f1[1]], [f0[0], yFront, f0[1]],
-        n, [fab.u0, fab.v0, fab.u1, fab.v1], col, t);
-      quad(pos, nrm, uv, idx,
-        [f0[0], yFront, f0[1]], [f1[0], yFront, f1[1]], [a1[0], yTop, a1[1]], [a0[0], yTop, a0[1]],
-        [-n[0], -n[1], -n[2]], [fab.u0, fab.v0, fab.u1, fab.v1], col, t);
+      for (let k = 0; k < AWNING_SEGS; k++) {
+        const A = st[k], B = st[k + 1];
+        const nm = [(A.n[0] + B.n[0]) / 2, (A.n[1] + B.n[1]) / 2, (A.n[2] + B.n[2]) / 2];
+        quad(pos, nrm, uv, idx,
+          [A.p0[0], A.y, A.p0[1]], [A.p1[0], A.y, A.p1[1]],
+          [B.p1[0], B.y, B.p1[1]], [B.p0[0], B.y, B.p0[1]],
+          nm, [fab.u0, A.v, fab.u1, B.v], col, t);
+        quad(pos, nrm, uv, idx,
+          [B.p0[0], B.y, B.p0[1]], [B.p1[0], B.y, B.p1[1]],
+          [A.p1[0], A.y, A.p1[1]], [A.p0[0], A.y, A.p0[1]],
+          [-nm[0], -nm[1], -nm[2]], [fab.u0, B.v, fab.u1, A.v], col, t);
+      }
       // Valance hanging off the front edge.
       quad(pos, nrm, uv, idx,
         [f0[0], yFront - 0.32, f0[1]], [f1[0], yFront - 0.32, f1[1]],
         [f1[0], yFront, f1[1]], [f0[0], yFront, f0[1]],
         [e.nx, 0, e.nz], [fab.u0, fab.v0, fab.u1, fab.v1], col, t);
-      // Side gussets close the wedge.
-      const side = (p0, pf, sx, sz) => quad(pos, nrm, uv, idx,
-        [p0[0], head + 0.35, p0[1]], [pf[0], yFront, pf[1]], [pf[0], yFront - 0.32, pf[1]],
-        [p0[0], head - 0.05, p0[1]], [sx, 0, sz], [fab.u0, fab.v0, fab.u1, fab.v1], col, t);
-      side(a0, f0, -e.tx, -e.tz);
-      side(a1, f1, e.tx, e.tz);
+      // Side gussets. A straight quad from the wall head to the leading edge is
+      // the CHORD of the barrel, and the fabric bulges above it — that leaves a
+      // crescent of open air down each side of every awning. So the gusset is a
+      // fan that follows the same stations the canopy does.
+      const side = (which, sx, sz) => {
+        const base = which ? a1 : a0, front = which ? f1 : f0;
+        for (let k = 0; k < AWNING_SEGS; k++) {
+          const A = st[k], B = st[k + 1];
+          const pa = which ? A.p1 : A.p0, pb = which ? B.p1 : B.p0;
+          const ta = k / AWNING_SEGS, tb = (k + 1) / AWNING_SEGS;
+          // The cheek's lower edge stays a straight line from the wall to the
+          // bottom of the valance; only its top follows the hoops.
+          const lo = (u, p) => [
+            base[0] + (front[0] - base[0]) * u,
+            (head - 0.05) + ((yFront - 0.32) - (head - 0.05)) * u,
+            base[1] + (front[1] - base[1]) * u,
+          ];
+          const la = lo(ta), lb = lo(tb);
+          quad(pos, nrm, uv, idx,
+            la, [pa[0], A.y, pa[1]], [pb[0], B.y, pb[1]], lb,
+            [sx, 0, sz], [fab.u0, A.v, fab.u1, B.v], col, t);
+        }
+      };
+      side(0, -e.tx, -e.tz);
+      side(1, e.tx, e.tz);
       awningFrame(a0, a1, f0, f1, yTop, yFront, out,
         pos, nrm, uv, idx, { col, tint: t });
     }

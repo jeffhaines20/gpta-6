@@ -36,6 +36,7 @@
 import * as THREE from '../vendor/three.module.min.js';
 import {
   hash32, rng, seedOf, edgesOf, facingEdges, TRIM, box, awningFrame,
+  AWNING_SEGS, awningProfile,
   buildingStyle as facadeStyle,
 } from './facades.js';
 
@@ -749,20 +750,27 @@ function drawWordmark(L, x, y, w, h, biz, r, opts = {}) {
 function drawValance(L, x, y, w, h, biz, r) {
   const g = L.al.g;
   const dark = biz.a % 2 === 0;
-  plateFill(L, x, y, w, h, dark ? hsl(biz.h, 40, 26) : '#efe9dd', 0.9, 0.0);
+  // The valance is the hem of the awning it hangs off, so it takes the AWNING's
+  // colourway, not the business's brand hue. It used to take biz.h while the
+  // awning fabric is chosen by biz.a — two independent numbers — so a green
+  // canopy could and did finish in a purple hem. Found by looking at a 2.6x crop
+  // of the Five Points hero frame after the fabric was recoloured: one shopfront
+  // wearing two unrelated colours and reading as two objects.
+  const hue = STRIPE_HUES[biz.a % STRIPE_HUES.length];
+  plateFill(L, x, y, w, h, dark ? hsl(hue, 40, 26) : '#efe9dd', 0.9, 0.0);
   g.save();
   g.textBaseline = 'middle'; g.textAlign = 'left';
   const t = caps(biz.n);
   const fit = fitLine(g, t, w * 0.78, h * 0.62, FONT.sans(700), 0.14, 0.6);
   g.font = FONT.sans(700)(fit.size);
-  g.fillStyle = dark ? '#f4efe4' : hsl(biz.h, 52, 26);
+  g.fillStyle = dark ? '#f4efe4' : hsl(hue, 52, 26);
   drawTracked(g, t, x + w / 2, y + h * 0.52, fit, 0);
   // Scalloped lower edge, printed rather than cut. A composite-erased scallop
   // would punch a transparent hole through a SHARED atlas, taking the gutter and
   // whatever is packed behind it with it; a contrasting band reads the same at
   // the distance a valance is ever seen from.
   const scallops = 14;
-  g.fillStyle = dark ? hsl(biz.h, 30, 16) : hsl(biz.h, 34, 60);
+  g.fillStyle = dark ? hsl(hue, 30, 16) : hsl(hue, 34, 60);
   g.fillRect(x, y + h * 0.84, w, h * 0.16);
   for (let i = 0; i <= scallops; i++) {
     g.beginPath();
@@ -820,10 +828,26 @@ function drawMarkCell(L, x, y, size, biz) {
 
 // Awning fabric. Bars run across the cell's u axis so they map down-slope on the
 // canopy — the direction real awning stripes run.
-const STRIPE_HUES = [20, 206, 348, 30, 268, 96, 142, 44, 292, 168];
+// Ten colourways, reweighted off the reference. What was here ran 20, 206, 348,
+// 30, 268, 96, 142, 44, 292, 168 — a hue wheel with blue, purple and magenta in
+// it, which is a generic set and reads as one. reference/sarasota/
+// 02-Worth-s-Block has two SATURATED GOLD canopies over its shopfronts and
+// 01-S.H.-Kress has a deep green-teal one; the awnings on a Gulf-coast main
+// street are gold, amber, burgundy, forest green and the odd teal, because that
+// is what does not look filthy after one summer of sun and afternoon rain.
+// Eight of these are warm or green now and two are cool, instead of the other
+// way round.
+const STRIPE_HUES = [42, 36, 12, 356, 152, 28, 20, 48, 186, 96];
 function drawStripe(L, x, y, size, i, r) {
   const g = L.al.g;
   const hue = STRIPE_HUES[i % STRIPE_HUES.length];
+  // Gold has to be SATURATED to read as gold. At the flat s 48 / l 38 this used
+  // for every hue, hue 42 comes out a dark olive — the exact colour the brief
+  // means when it says our awnings are not the ones in the photographs. Warm
+  // hues get a higher stop; the cool ones keep the darker one, which is what a
+  // green or teal canvas actually looks like.
+  const warm = hue < 70 || hue > 330;
+  const barS = warm ? 58 : 44, barL = warm ? 45 : 32;
   const light = i % 3 === 0 ? '#f2ece1' : i % 3 === 1 ? '#e8e4d6' : hsl(hue, 22, 88);
   plateFill(L, x, y, size, size, light, 0.92, 0.0);
   // Three authored rhythms: even wide bands, a narrow triple, and a wide band
@@ -835,7 +859,7 @@ function drawStripe(L, x, y, size, i, r) {
   while (cx < x + size) {
     const wSeg = rhythm[k % rhythm.length] * unit;
     if (k % 2 === 0) {
-      g.fillStyle = hsl(hue, 48, 38);
+      g.fillStyle = hsl(hue, barS, barL);
       g.fillRect(cx, y, Math.min(wSeg, x + size - cx), size);
     }
     cx += wSeg; k++;
@@ -1649,16 +1673,38 @@ export function awning(e, s0, s1, head, stripeRect, valanceRect, sign, trim, opt
   const a0 = P(s0, 0.02), a1 = P(s1, 0.02);
   const f0 = P(s0, out), f1 = P(s1, out);
   const yTop = head + 0.34, yFront = yTop - drop;
-  const nl = Math.hypot(drop, out);
-  const n = [(e.nx * drop) / nl, out / nl, (e.nz * drop) / nl];
 
-  // Canopy: v runs front -> wall so the stripes read down the slope.
-  quad(sign.pos, sign.nrm, sign.uv, sign.idx,
-    [f0[0], yFront, f0[1]], [f1[0], yFront, f1[1]], [a1[0], yTop, a1[1]], [a0[0], yTop, a0[1]],
-    n, stripeRect, col, t);
-  quad(sign.pos, sign.nrm, sign.uv, sign.idx,
-    [a0[0], yTop, a0[1]], [a1[0], yTop, a1[1]], [f1[0], yFront, f1[1]], [f0[0], yFront, f0[1]],
-    [-n[0], -n[1], -n[2]], stripeRect, col, t);
+  // The barrel section, from facades.js so the two awning kits cannot drift —
+  // the same reason awningFrame() lives there. See THE AWNING SECTION for why
+  // this is a quarter circle and not a rake.
+  const st = [];
+  for (let k = 0; k <= AWNING_SEGS; k++) {
+    const s = k / AWNING_SEGS;
+    const { o, dy } = awningProfile(s, out, drop);
+    const a = s * Math.PI * 0.5;
+    const nx = e.nx * Math.sin(a), ny = Math.cos(a), nz = e.nz * Math.sin(a);
+    const nl = Math.hypot(nx, ny, nz) || 1;
+    st.push({
+      p0: P(s0, 0.02 + o), p1: P(s1, 0.02 + o),
+      y: yTop - dy, n: [nx / nl, ny / nl, nz / nl], s,
+    });
+  }
+  // Canopy: v runs front -> wall so the stripes read down the slope, and each
+  // hoop takes the slice of the stripe swatch its own arc length covers.
+  const sr = (A, B) => [stripeRect[0], stripeRect[3] + (stripeRect[1] - stripeRect[3]) * (1 - A.s),
+    stripeRect[2], stripeRect[3] + (stripeRect[1] - stripeRect[3]) * (1 - B.s)];
+  for (let k = 0; k < AWNING_SEGS; k++) {
+    const A = st[k], B = st[k + 1];
+    const nm = [(A.n[0] + B.n[0]) / 2, (A.n[1] + B.n[1]) / 2, (A.n[2] + B.n[2]) / 2];
+    quad(sign.pos, sign.nrm, sign.uv, sign.idx,
+      [B.p0[0], B.y, B.p0[1]], [B.p1[0], B.y, B.p1[1]],
+      [A.p1[0], A.y, A.p1[1]], [A.p0[0], A.y, A.p0[1]],
+      nm, sr(B, A), col, t);
+    quad(sign.pos, sign.nrm, sign.uv, sign.idx,
+      [A.p0[0], A.y, A.p0[1]], [A.p1[0], A.y, A.p1[1]],
+      [B.p1[0], B.y, B.p1[1]], [B.p0[0], B.y, B.p0[1]],
+      [-nm[0], -nm[1], -nm[2]], sr(A, B), col, t);
+  }
   // Valance, both faces, carrying the name. THE valance is the third text-on-edge
   // emitter and the one that actually produced the reversed "Verano Wash House" a
   // critic found - fasciaPlate and bladeSign were fixed first and neither draws it.
@@ -1674,12 +1720,24 @@ export function awning(e, s0, s1, head, stripeRect, valanceRect, sign, trim, opt
     [f1[0], yFront - val, f1[1]], [f0[0], yFront - val, f0[1]],
     [f0[0], yFront, f0[1]], [f1[0], yFront, f1[1]],
     [-e.nx, 0, -e.nz], vBack, col, t);
-  // Side gussets close the wedge.
-  const side = (p0, pf, sx, sz) => quad(sign.pos, sign.nrm, sign.uv, sign.idx,
-    [p0[0], yTop, p0[1]], [pf[0], yFront, pf[1]], [pf[0], yFront - val, pf[1]],
-    [p0[0], head + 0.02, p0[1]], [sx, 0, sz], stripeRect, col, t);
-  side(a0, f0, -e.tx, -e.tz);
-  side(a1, f1, e.tx, e.tz);
+  // Side cheeks. A straight quad from the wall head to the leading edge is the
+  // CHORD of the barrel and the fabric bulges above it, so a flat gusset would
+  // leave a crescent of open air down each side of every awning.
+  const side = (which, sx, sz) => {
+    const base = which ? a1 : a0, front = which ? f1 : f0;
+    for (let k = 0; k < AWNING_SEGS; k++) {
+      const A = st[k], B = st[k + 1];
+      const pa = which ? A.p1 : A.p0, pb = which ? B.p1 : B.p0;
+      const lo = (u) => [base[0] + (front[0] - base[0]) * u,
+        (head + 0.02) + ((yFront - val) - (head + 0.02)) * u,
+        base[1] + (front[1] - base[1]) * u];
+      quad(sign.pos, sign.nrm, sign.uv, sign.idx,
+        lo(A.s), [pa[0], A.y, pa[1]], [pb[0], B.y, pb[1]], lo(B.s),
+        [sx, 0, sz], sr(A, B), col, t);
+    }
+  };
+  side(0, -e.tx, -e.tz);
+  side(1, e.tx, e.tz);
   // Frame. facades.js owns the recipe so the two awning kits cannot drift: a
   // front bar under the leading edge and rafters raking down to it from the wall.
   // What was here was a single LEVEL box at yTop-0.14 running the full

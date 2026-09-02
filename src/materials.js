@@ -396,83 +396,158 @@ const asphaltSurface = {
   },
 };
 
+// A running-bond course of clay pavers, stated in FRACTIONS of the map so the
+// 512 px albedo and the 256 px height map lay the same bricks in the same
+// places. Alternate rows are offset half a brick, which puts one brick per odd
+// row across the wrap seam, so that one is drawn twice.
+function runningBond(S, cols, rows, draw) {
+  const bw = S / cols, bh = S / rows;
+  for (let r = 0; r < rows; r++) {
+    const off = (r & 1) ? bw / 2 : 0;
+    for (let c = 0; c < cols; c++) {
+      const x = c * bw + off, y = r * bh;
+      draw(x, y, bw, bh, c, r);
+      if (x + bw > S) draw(x - S, y, bw, bh, c, r);
+    }
+  }
+}
+
+// Per-brick variation from the brick's own COORDINATES, not from the shared
+// random stream. paintAlbedo and paintHeight consume different numbers of
+// values before they get here — the exact trap crackSet() exists for — and a
+// paver whose colour and whose height came from two different bricks reads as
+// a shimmer rather than as a paver.
+function brickHash(c, r, k) {
+  let h = (Math.imul(c, 374761393) + Math.imul(r, 668265263) + Math.imul(k, 2246822519)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+// -------------------------------------------------------- BRICK PAVER SIDEWALK
+//
+// reference/sarasota/02-Worth-s-Block shows the definitive downtown Sarasota
+// block, and the pavement in front of it is red-brown clay pavers in running
+// bond, not the poured concrete slabs this surface used to paint. Same in
+// 05-Sarasota-Opera-House, where a paver band runs the width of the crossing.
+// It is the second-loudest wrong note in the district after the vegetation and
+// it costs NOTHING: this is a canvas painter, so the whole change is zero
+// triangles and zero draw calls.
+//
+// 15 x 30 modules over the 3 m tile is a 200 x 100 mm paver, which is the
+// standard clay unit, with a 9 mm joint. At 512 px that is 34 x 17 px per
+// brick — enough to carry a per-brick colour — and at the 256 px height map it
+// is 17 x 8.5, enough to carry the joint.
+//
+// The palette is authored, not sampled: binding constraint 9 keeps every
+// texture procedural and it is also what keeps the reference photographs'
+// CC BY-SA share-alike off the shipped assets. What the photograph establishes
+// is the RANGE — clay pavers are not one red, they are a spread from orange-red
+// through brown to buff with the odd burnt one — and a single flat red is the
+// thing that would read as a texture rather than as a pavement.
 const sidewalkSurface = {
   // normalStrength was 2.2, the highest of any ground surface here, which turned
   // a 1.2 px hairline into a kerb-sized crease. 1.6 matches concrete and leaves
-  // the 1.5 m slab joints reading without embossing every scratch.
+  // the joints reading without embossing every scratch.
   tile: 3, albedo: 512, detail: 256, normalStrength: 1.6,
-  // Two 1.5 m slabs per axis: the standard 5 ft pour, which is what makes a
-  // sidewalk read as a sidewalk from a car window.
   paintAlbedo(g, S, rand) {
     // Off the head of the stream, before anything else draws from it, so
     // paintHeight below embosses these exact cracks and not a second set.
-    const cracks = crackSet(rand, 5, 0.14, 10, 2);
-    const half = S / 2;
-    for (let sy = 0; sy < 2; sy++) {
-      for (let sx = 0; sx < 2; sx++) {
-        const l = 66 + rand() * 8;
-        g.fillStyle = hsl(38, 7, l);
-        g.fillRect(sx * half, sy * half, half, half);
-      }
-    }
-    drawField(g, S, 64, fbm(64, 8, 3, rand), greyField(0.35, 0.72), 0.34, 'overlay');
-    speckle(g, S, 7000, rand, (r, o) => {
-      o[0] = 170 + r * 60; o[1] = 166 + r * 58; o[2] = 152 + r * 55; o[3] = 0.10 + r * 0.22;
-    }, 1.8);
-    // Joints, then the dirt that collects in them.
-    g.strokeStyle = 'rgba(74,70,63,0.55)'; g.lineWidth = 2.6;
-    for (const p of [0, half]) {
-      g.beginPath(); g.moveTo(p, 0); g.lineTo(p, S); g.stroke();
-      g.beginPath(); g.moveTo(0, p); g.lineTo(S, p); g.stroke();
-    }
-    g.strokeStyle = 'rgba(58,52,44,0.16)'; g.lineWidth = 11;
-    for (const p of [0, half]) {
-      g.beginPath(); g.moveTo(p, 0); g.lineTo(p, S); g.stroke();
-      g.beginPath(); g.moveTo(0, p); g.lineTo(S, p); g.stroke();
-    }
-    g.strokeStyle = 'rgba(58,53,45,0.52)'; g.lineWidth = 1.2;   // hairline cracking
+    const cracks = crackSet(rand, 4, 0.11, 9, 2);
+    // Bedding sand and silt, showing in every joint.
+    g.fillStyle = hsl(30, 9, 30); g.fillRect(0, 0, S, S);
+    const J = (S / 512) * 1.6;                     // ~9 mm of joint at either size
+    runningBond(S, 15, 30, (x, y, w, h, c, r) => {
+      const a = brickHash(c, r, 1), b = brickHash(c, r, 2), d = brickHash(c, r, 3);
+      // The FIRST cut of this ran hue 9-26, saturation 18-33 and lightness
+      // 31-44 with a burnt paver every 14 bricks and a buff one every 14, and
+      // the capture read as confetti: a mosaic of independently coloured chips
+      // rather than a pavement. A brick pavement's variation is real but it is
+      // NARROW — one clay, one kiln, one delivery — and the wide version also
+      // aliased, because a per-brick step with that much variance mips to an
+      // average nothing like what the near view shows. Half the range, and the
+      // outliers moved from 1-in-14 to 1-in-40.
+      // Lightness 40-48 was the first authored range and it measured a real
+      // cost at night: clay is darker than the concrete this replaced, and
+      // tools/critic-metrics.mjs on corridor-night went crushed 6.05% -> 7.79%
+      // and the lamp pool's "away" band 11.2 -> 4.9 against a same-build noise
+      // of 0.09pp. That frame is already logged in PROGRESS.md as a black hole
+      // below y~560, so darkening it further is not a trade this change gets to
+      // make. 44-52 is still plainly brick and still inside what the reference
+      // supports; the sunlit judgement that set the hue and saturation was made
+      // at golden hour and is unaffected.
+      let hue = 13 + a * 10, sat = 15 + b * 10, lit = 44 + d * 8;
+      // The outliers stay WARM. At saturation 10 and lightness 50 the buff
+      // paver was the only near-neutral thing in a warm field, so the sky lit
+      // it blue and it read as a chip of tile dropped on a brick pavement -
+      // clearly visible in the 3x crop of the first capture. A replaced paver
+      // is a different firing of the same clay, not a different material.
+      if (d > 0.975) { hue = 14 + a * 6; sat = 17 + b * 6; lit = 37 + b * 3; }
+      else if (d < 0.025) { hue = 22 + a * 8; sat = 17 + b * 6; lit = 52 + b * 3; }
+      g.fillStyle = hsl(hue, sat, lit);
+      g.fillRect(x + J * 0.5, y + J * 0.5, w - J, h - J);
+      // Fired clay is not flat: one end of a paver is darker than the other.
+      const grd = g.createLinearGradient(x, y, x + w, y + h);
+      grd.addColorStop(0, `rgba(0,0,0,${0.09 * a})`);
+      grd.addColorStop(1, `rgba(255,240,225,${0.07 * b})`);
+      g.fillStyle = grd;
+      g.fillRect(x + J * 0.5, y + J * 0.5, w - J, h - J);
+    });
+    // Weathering across the bond: sun bleach, traffic film, damp patches. All
+    // at scales LARGER than one brick, so the eye reads a pavement that has
+    // been there thirty years rather than a tiled pattern.
+    drawField(g, S, 48, fbm(48, 6, 3, rand), greyField(0.56, 0.92), 0.22, 'overlay');
+    drawField(g, S, 24, fbm(24, 3, 2, rand), greyField(0.78, 1.0), 0.16, 'multiply');
+    speckle(g, S, 5200, rand, (r, o) => {
+      o[0] = 158 + r * 62; o[1] = 132 + r * 58; o[2] = 116 + r * 54; o[3] = 0.05 + r * 0.12;
+    }, 1.6);
+    // Cracking runs through the BEDDING, not through fired clay: on a paver
+    // field what a critic reads as a crack is a line of settled, silted joints.
+    g.strokeStyle = 'rgba(38,28,22,0.30)'; g.lineWidth = 2.0;
     for (const c of cracks) strokeCrack(g, S, c);
-    for (let i = 0; i < 14; i++) {                           // flattened gum
+    for (let i = 0; i < 12; i++) {                           // flattened gum
       const x = rand() * S, y = rand() * S, r = 2 + rand() * 4;
       wrapped(g, S, x, y, r + 1, (c) => {
-        c.fillStyle = `rgba(58,55,50,${0.25 + rand() * 0.3})`;
+        c.fillStyle = `rgba(86,80,72,${0.22 + rand() * 0.28})`;
         c.beginPath(); c.ellipse(0, 0, r, r * 0.85, rand() * TAU, 0, TAU); c.fill();
       });
     }
   },
   paintHeight(g, S, rand) {
-    const cracks = crackSet(rand, 5, 0.14, 10, 2);   // same seed, same draws, same cracks
-    const half = S / 2;
-    g.fillStyle = '#909090'; g.fillRect(0, 0, S, S);
-    for (let sy = 0; sy < 2; sy++) {
-      for (let sx = 0; sx < 2; sx++) {
-        const grd = g.createRadialGradient(
-          sx * half + half / 2, sy * half + half / 2, 0,
-          sx * half + half / 2, sy * half + half / 2, half * 0.8);
-        grd.addColorStop(0, 'rgba(255,255,255,0.30)');
-        grd.addColorStop(1, 'rgba(255,255,255,0)');
-        g.fillStyle = grd; g.fillRect(sx * half, sy * half, half, half);
-      }
-    }
-    drawField(g, S, 64, fbm(64, 8, 3, rand), greyField(0.4, 0.6), 0.5);
-    g.strokeStyle = '#141414'; g.lineWidth = 3.2;
-    for (const p of [0, half]) {
-      g.beginPath(); g.moveTo(p, 0); g.lineTo(p, S); g.stroke();
-      g.beginPath(); g.moveTo(0, p); g.lineTo(S, p); g.stroke();
-    }
-    // A hairline crack is a hairline, not a trench. rgba(20,20,20,0.7) over a
-    // #909090 base was an 87/255 step across ~1.2 px — a steeper wall than the
-    // slab joints beside it. Even the 17/255 crease that replaced it still had
-    // one wall facing a low sun, and a lit wall on a pale slab reads BRIGHTER
-    // than the concrete: the warm squiggles critics keep reporting on the
-    // pavement. A crack that is a fraction of a millimetre deep is a colour
-    // feature, so it is now 6/255 of relief and carried by the albedo.
-    g.strokeStyle = 'rgba(126,126,126,0.32)'; g.lineWidth = 1.1;
+    const cracks = crackSet(rand, 4, 0.11, 9, 2);  // same seed, same draws, same cracks
+    // Mid grey is the joint; every paver stands above it.
+    g.fillStyle = '#7c7c7c'; g.fillRect(0, 0, S, S);
+    const J = (S / 512) * 1.6;
+    runningBond(S, 15, 30, (x, y, w, h, c, r) => {
+      // Pavers settle. A few sit proud of their neighbours and a few have sunk,
+      // and that unevenness is most of what says "laid on sand" rather than
+      // "printed on". Kept to a +/-8/255 band: the lesson two surfaces above is
+      // that a step of 87/255 across one pixel is a trench, not a texture.
+      const e = brickHash(c, r, 4);
+      const lvl = Math.round(162 + e * 40);
+      g.fillStyle = `rgb(${lvl},${lvl},${lvl})`;
+      g.fillRect(x + J * 0.5, y + J * 0.5, w - J, h - J);
+      // Chamfer: a clay paver's edges are eased, so the joint is a soft V and
+      // not a slot. One inset stroke does it and costs no second map.
+      g.strokeStyle = `rgba(${lvl - 34},${lvl - 34},${lvl - 34},0.85)`;
+      g.lineWidth = Math.max(1, (S / 512) * 2.2);
+      g.strokeRect(x + J * 0.5, y + J * 0.5, w - J, h - J);
+    });
+    drawField(g, S, 48, fbm(48, 6, 3, rand), greyField(0.44, 0.58), 0.42);
+    // A settled line across the bond is a dip, not a cut: wide and shallow.
+    g.strokeStyle = 'rgba(110,110,110,0.40)'; g.lineWidth = (S / 512) * 3.0;
     for (const c of cracks) strokeCrack(g, S, c);
   },
   paintRough(g, S, rand) {
-    g.fillStyle = '#ebebeb'; g.fillRect(0, 0, S, S);
-    drawField(g, S, 64, fbm(64, 8, 3, rand), greyField(0.72, 1.0), 0.5);
+    // Fired clay is matte and slightly less rough than a wind-blown joint, and
+    // the worn crowns of the pavers polish over time.
+    g.fillStyle = '#e2e2e2'; g.fillRect(0, 0, S, S);
+    const J = (S / 512) * 1.6;
+    runningBond(S, 15, 30, (x, y, w, h, c, r) => {
+      const v = Math.round(196 + brickHash(c, r, 5) * 40);
+      g.fillStyle = `rgb(${v},${v},${v})`;
+      g.fillRect(x + J * 0.5, y + J * 0.5, w - J, h - J);
+    });
+    drawField(g, S, 64, fbm(64, 8, 3, rand), greyField(0.74, 1.0), 0.5);
   },
 };
 
@@ -2230,8 +2305,14 @@ export class MaterialRegistry {
       if (key === 'concrete') continue;
       const m = this._groundMaterial(key, maps[key], s.tile, { roughness: s.roughness ?? 1 });
       if (key === 'road') applyRoadMarkings(m, s.tile);
-      // 1.5 m slabs: the standard 5 ft pour the albedo already draws joints for.
-      if (key === 'sidewalk') applySlabVariation(m, s.tile / 1.5);
+      // Was s.tile / 1.5 — one cell per 1.5 m slab, the standard 5 ft pour the
+      // albedo used to draw joints for. The albedo is clay pavers now, and a
+      // 1.5 m grid of tint steps over a 200 mm bond reads as concrete slabs
+      // printed with a brick pattern, which is worse than either. One cell per
+      // 3 m tile is a paver BAY: pavers are laid and lifted in bays, they silt
+      // and settle by bay, and the occasional lighter cell this shader draws is
+      // a bay that has been taken up and relaid.
+      if (key === 'sidewalk') applySlabVariation(m, s.tile / 3);
     }
 
     // The district's land pad: bare urban ground between roads and footprints.
