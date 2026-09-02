@@ -397,6 +397,57 @@ that search is itself a weak instrument, since it matches on names, so it is rec
 - **The pedestrian contact blob draws nothing** - measured by the ground-contact build at
   0.0266 against a 0.0254 noise floor, and `SHADOW_Y = -0.042` puts it below the paving.
 
+## The district is Sarasota, and now says so
+
+Asked to make the playable area look like downtown Sarasota. It already IS downtown
+Sarasota: `meta.origin` is 27.335, -82.54125 and `data/raw/osm-extract.xml` carries
+Ringling Boulevard, Main Street, Cocoanut Avenue, Central Avenue and Five Points. Real
+street layout, 523 real footprints, real coastline. Only the names were invented.
+
+**Two calls taken by the user, both recorded as amendments:**
+
+1. **Binding constraint 10 amended: real streets and city, invented businesses.** Streets
+   and the city name are factual public geography already in the extract, and renaming
+   them was the one thing stopping the map reading as Sarasota. Businesses, shopfronts,
+   signs and logos stay invented - the buildings are authored massing on real footprints,
+   not surveyed premises (5.7% carry a real height, 28.1% were hand-authored), so a real
+   business name on one would claim a likeness we have not earned. `credits.html` said all
+   naming was fictional, which had become false; it now states the split.
+
+2. **Binding constraint 1 held, not relaxed.** The request said "images or street views".
+   Google Maps and Street View remain excluded from this project entirely, including as
+   critic reference. Reference came from Wikimedia Commons geosearch around the bake
+   origin: 150 geolocated files, 56 free-licence at 900 px or better, 12 architectural.
+   Several are buildings inside our own footprint set - First Methodist Church at 74 m,
+   the S.H. Kress Building and Worth's Block at 157 m, Five Points Roundabout at 211 m.
+   Saved with licence and author in `reference/sarasota/`. **Reference, not source
+   assets**: nothing is traced or sampled into a texture, which also keeps CC BY-SA
+   share-alike off the shipped work. Mapillary is allowed by constraint 1 and has far
+   denser street-level coverage, but needs an API token - a credential, so it waits on the
+   user under escalation rule (d).
+
+The re-bake ran from the cached extract with no network fetch, and **geometry is
+byte-identical either side**: sha256 `961d0e70a9996d430c2a68c926dd2d1b` over verts, edges,
+footprints, water, coastline, zones and chunk keys. Only names moved. The fictionalizing
+machinery is retained behind `REAL_STREET_NAMES` so the swap is reversible.
+
+### What the photographs say we get wrong
+
+Ranked, and handed to a builder in this order:
+
+1. **Palms, and we ship temperate broadleaf trees.** Sabal palms with the fibrous
+   crisscross boot trunk, and queen palms. They line Five Points and stand at every
+   building base. This is the single biggest tell that our street is not Florida.
+2. **Brick paver sidewalks, and we ship plain concrete slabs** - red-brown clay pavers in
+   running bond with a soldier-course border at the kerb.
+3. **Ornamental twin-globe black lamp standards**, not the plain modern poles we ship.
+4. **Saturated fabric awnings**, scalloped or barrel-curved, gold and red.
+5. **Warm painted brick and weathered masonry** on the low-rise stock, not grey stucco -
+   and two-storey historic blocks standing directly against tall modern condo towers,
+   which is what Main Street actually looks like.
+6. **Terracotta barrel tile** as roofs, canopies and window hoods, including on the 1970s
+   concrete towers.
+
 ## The bloom was veiling glare: the bright pass thresholded nits against a camera stop
 
 Found while auditing the double-sky build's own open items. `src/post.js` computed
