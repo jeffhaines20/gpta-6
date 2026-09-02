@@ -279,9 +279,20 @@ vec3 aces(vec3 x) {
 // highlight then renders as the white it physically is instead of as a hole.
 // Finite pixels are returned bit-for-bit unchanged, so no frame that was correct
 // moves.
+//
+// debugSanitize exists to answer the white-rectangle question, which four critic
+// sightings could describe and none could attribute. Set it to 1 and every pixel
+// this guard catches is painted an unmistakable green instead of the ceiling. If
+// the rectangle turns green, the guard IS the rectangle and the fix belongs
+// upstream at the overflow; if it stays white, the hypothesis is dead and the
+// white came from somewhere else. Either answer is worth having, which is why the
+// switch is a uniform and not a temporary edit - it can be re-run on any future
+// frame without touching the shader again.
+uniform float debugSanitize;
 vec3 sanitize(vec3 c) {
   const float CEIL = 60000.0;
   bvec3 ok = lessThanEqual(c, vec3(CEIL));
+  if (debugSanitize > 0.5 && !all(ok)) return vec3(0.0, 40000.0, 0.0);
   return mix(vec3(CEIL), max(c, vec3(0.0)), vec3(ok));
 }
 
@@ -465,6 +476,7 @@ export class PostStack {
         invProjection: { value: new THREE.Matrix4() },
         resolution: { value: new THREE.Vector2() },
         wetness: { value: 0 },
+        debugSanitize: { value: 0 },
       },
       depthTest: false, depthWrite: false,
     });
@@ -611,6 +623,9 @@ export class PostStack {
     u.fogHeightFalloff.value = p.fogHeightFalloff;
     u.fogHeightRef.value = p.fogHeightRef;
     u.wetness.value = p.wetness;
+    // Driven from params like everything else here, so a harness sets it through
+    // postParams() and no future refactor of this block can silently strand it.
+    u.debugSanitize.value = p.debugSanitize ? 1 : 0;
     u.cameraY.value = this.camera.position.y;
     u.cameraNear.value = this.camera.near;
     u.cameraFar.value = this.camera.far;

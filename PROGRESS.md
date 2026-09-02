@@ -30,6 +30,130 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## Street-level reference, and a headline diagnosis of mine that failed its own audit
+
+A session finally held `MAPILLARY_TOKEN`. What came back changed the instruments
+more than it changed the art, and the first thing it did was refute me.
+
+### The fetch tool was hiding 99% of what is there
+
+`tools/fetch-mapillary.mjs` ran for the first time and returned **39 images, every
+one a panorama from a single 2024 sequence**. Read literally that says the district
+has no flat street-level coverage. It has plenty; the tool could not see it.
+
+The Graph API caps a bbox response and returns whatever it reaches first, so one
+query over the trim box returns roughly one sequence. Gridding the box helps and
+does not fix it, and **the proof is that the answer keeps moving**: the same box
+censused at `GRID=4` twice returned 4,348 then 4,814 unique images, and at `GRID=8`
+returned 6,686 (flat 1,257 / 1,586 / 2,513). A count that grows as you subdivide is
+still hitting the cap; one that changes between identical runs is a
+nondeterministic subset. **The census is now reported as a lower bound and says so
+in its own output.**
+
+Selection no longer runs off the census at all. It queries a small box at each
+corridor station — about 80 m across, far under the cap — which returns everything
+there and is local and repeatable. 29 images now cover marina → Five Points → Main
+St east, one flat and one pano per 45 m station, newest capture preferred.
+
+### The panoramas needed reprojecting, and the convention needed measuring
+
+431 of the 670 images within reach of a station are 360 spheres, and all of the
+newest are. Raw they cannot be used to judge a building: equirectangular bends a
+straight cornice into a sine wave. `tools/reproject-pano.mjs` remaps them to
+rectilinear views aimed at either street wall, which makes them **better** than the
+flat frames — a flat frame points wherever the capture vehicle was going, a sphere
+can be aimed at the shopfront.
+
+Which bearing sits at the image's horizontal centre is a convention, not a fact
+derivable from the file, and **guessing it wrong yields views that are sharp,
+plausible, and pointing at the wrong building** — the worst kind of wrong, because
+nothing about the output looks broken. So `--calibrate` renders one pano at world
+yaw 0/90/180/270 on the stretch of Main Street that runs dead east-west, where a
+view down the street and a view at a wall are ninety degrees apart. Run 2026-09-02:
+yaw 90 gave the carriageway receding east with the centreline straight and First
+Methodist's steeple where it stands; yaw 180 gave a shopfront square-on with a
+level parapet. Both halves, so it could have failed and did not. Straight edges
+coming out straight is also what proves the remap itself — a sign error bends them
+visibly.
+
+### The instrument that made the comparison honest
+
+`tools/pano-match.mjs` parks the engine camera **at the pano's own x,z**, on the
+same bearing, with the same eye height, pitch and field of view (75 h on 4:3 →
+59.8 vertical for three.js). The photograph and the frame then differ only in what
+we built. `tools/roofline.mjs` reads both and reports, per image column, the
+elevation angle of the topmost built thing — valid only because both pipelines
+share one camera model by construction, so a row index means the same angle in
+each.
+
+### My headline read, and why the first version of it was wrong
+
+Looking at a matched pair by eye, the difference was obvious: the reference has a
+2-storey shopfront with sky above it, and we render a slab filling the frame. I
+wrote down "**the Main Street streetwall is systematically too tall**".
+
+Pooled over all 48 pairs that is **false**: delta p50 median +3.4 deg, taller in 28
+of 48, range −24.5 to +29.0. No systematic bias. Two hypotheses died there — the
+massing one, and a follow-up guess that the difference was palm canopy overhead,
+which measured 0.6% of the upper frame in the reference against 0.3% in ours.
+
+**The pooled number was hiding the finding, not disproving it.** Segmented by
+corridor leg:
+
+| leg | n | delta p50 median | taller in | reference roofline p50 | built |
+|---|---|---|---|---|---|
+| **Main St E of Five Points** | 24 | **+10.1 deg** | **20/24** | 25.5 deg | **41.9 deg (clipped)** |
+| Main St @ Pineapple | 10 | 0.0 | 4/10 | 39.4 | 39.3 |
+| bayfront leg | 12 | −0.9 | 2/12 | 41.9 (clipped) | 37.8 |
+| Five Points approach | 2 | +19.9 | 2/2 | 33.0 | 41.9 (clipped) |
+
+The corridor is **correctly massed at Pineapple and along the bayfront**, and
+**systematically over-massed east of Five Points**, where our roofline pins at the
+top of frame (62% of columns see no sky at all) against a reference that shows sky
+in 82% of them. Eight consecutive stations from x=107 to x=555 read +20 to +29 deg.
+Worst: x=197 (+29.0), x=331 (+28.3), x=107 (+26.0), x=374 (+24.7), x=148 (+24.7).
+
+All 46 corridor footprints are `s: "authored"` — these heights were authored by
+hand, not defaulted, so this is an authoring error and not a bake artifact
+(binding constraint 9).
+
+**The instrument was negative-tested before any of this was believed.** It reports
+−24.5 deg where we are shorter than the reference, so it can produce the opposite
+reading; and where a reading is clipped at frame top it is reported as a LOWER
+bound with the clipped fraction beside it, never as a measurement. The two tools'
+corridor-bearing definitions were also checked against each other across all 24
+panos and agree to within 1 deg — had they not, "L" would have meant different
+walls in the photo and the render, and every delta would have been scrambled in
+exactly the way the pooled numbers first suggested.
+
+## The white rectangle is NOT the NaN guard, and the guard is still doing something
+
+The test recorded at Round 6 and never run has now been run. `sanitize()` in
+`src/post.js` gained a `debugSanitize` uniform that paints every pixel the guard
+catches an unmistakable green; the probe captures the corridor hero frame twice in
+one page session, guard-normal and guard-flagged, so the only difference between
+the two frames is that uniform.
+
+**Refuted.** In the reported box (193–290, 349–400) the guard paints **0%**. The box
+is 24.8% near-white with the guard normal, and none of that white is the guard's
+own pixels.
+
+But the guard **does** fire: 1,334 pixels frame-wide, 96% of them inside the column
+band x=344–408, centroid (390, 363). And the box's white fraction falls **24.8% →
+15.4%** when the guard's output changes from a 60000 white to a 40000 green, while
+zero pixels inside the box are green. The only path by which a change 100 px away
+alters the box is **bloom**. Both runs reproduced to the pixel (1333 then 1334), so
+this is a measurement and not frame noise.
+
+So the honest verdict is neither of the two the hypothesis offered: the white
+rectangle is not the guard's pixels, but roughly **a third of its whiteness is
+bloom fed by an overflow the guard is catching a hundred pixels away**. The
+remaining two thirds are something else and still unattributed. The overflow at
+x≈344–408 is a narrow vertical band over y 293–568 — the shape of a single building
+edge or glazing column — and is the thing worth chasing next.
+
+`docs/sanitize-probe.json`, `docs/shots/sanitize-{off,on}-golden.png`.
+
 ## The district was dressed as a generic North American city, and it is Sarasota
 
 `data/district.json` `meta.origin` is 27.335, -82.54125 — Main Street at Five

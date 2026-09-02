@@ -1,0 +1,46 @@
+{
+ "time": "golden",
+ "box": [
+  193,
+  349,
+  290,
+  400
+ ],
+ "boxPixels": 5096,
+ "guardOff": {
+  "n": 5096,
+  "green": 0,
+  "white": 0.248,
+  "frame": {
+   "greenPx": 0,
+   "frac": 0
+  }
+ },
+ "guardOn": {
+  "n": 5096,
+  "green": 0,
+  "white": 0.154,
+  "frame": {
+   "greenPx": 1334,
+   "frac": 0.00093,
+   "bbox": [
+    145,
+    293,
+    1392,
+    568
+   ],
+   "centroid": [
+    390,
+    363
+   ],
+   "densestColBand": [
+    344,
+    408
+   ],
+   "inThatBand": 0.96
+  }
+ },
+ "verdict": "REFUTED for this box - it is 25% white and 0% of it is the guard",
+ "guardFiresElsewhere": true,
+ "pageErrors": []
+}

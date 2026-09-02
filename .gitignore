@@ -21,3 +21,8 @@ docs/shots/_*.png
 # from tools/reproject-pano.mjs plus the index. Tracking them would double the
 # reference weight for nothing.
 reference/sarasota/mapillary/views/
+
+# Matched-camera frames: regenerable from tools/pano-match.mjs plus the reference
+# index. The measurements of record are the JSON beside them; the handful of frames
+# a finding was actually read from are force-added.
+docs/shots/pano-match/*.png
