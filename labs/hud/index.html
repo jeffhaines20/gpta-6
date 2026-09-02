@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Port Verano — HUD</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#05080d;
+    font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#e8edf5}
+  #bg{position:fixed;inset:0;display:block;width:100%;height:100%}
+  #panel{position:fixed;left:12px;top:12px;z-index:60;width:250px;padding:10px 12px 11px;
+    border-radius:7px;background:rgba(6,10,16,.86);border:1px solid rgba(120,150,190,.24);
+    box-shadow:0 6px 26px rgba(0,0,0,.5)}
+  #panel h2{margin:0 0 7px;font-size:10.5px;letter-spacing:.18em;color:#8ea6c4;font-weight:700}
+  .row{display:flex;align-items:center;gap:7px;margin:4px 0}
+  .row label{flex:0 0 62px;color:#8ea6c4;font-size:10px;letter-spacing:.04em}
+  .row input[type=range]{flex:1;accent-color:#ffb03a;height:14px}
+  .row .val{flex:0 0 42px;text-align:right;font-size:10.5px;color:#e8edf5}
+  .btns{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}
+  .btns button{flex:1 1 46%;padding:4px 5px;border-radius:4px;cursor:pointer;
+    background:#141c26;color:#cdd8e6;border:1px solid #2b3746;font:inherit;font-size:10px}
+  .btns button:hover{border-color:#4a7bb0;background:#1a2431}
+  .btns button.on{background:#ffb03a;color:#10151c;border-color:#ffb03a}
+  #stats{margin-top:8px;padding-top:7px;border-top:1px solid #223040;
+    white-space:pre;font-size:10.5px;line-height:1.62;color:#b8c8dc}
+  #keys{margin-top:8px;padding-top:7px;border-top:1px solid #223040;
+    font-size:9.5px;color:#8497ad;line-height:1.75}
+  #load{position:fixed;inset:0;z-index:80;display:grid;place-items:center;background:#05080d;
+    font-size:13px;color:#8ea6c4}
+  b{color:#e8edf5;font-weight:600}
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<div id="panel">
+  <h2>HUD LAB</h2>
+  <div class="row"><label>speed</label><input id="s-speed" type="range" min="0" max="240" value="0"><span class="val" id="v-speed">auto</span></div>
+  <div class="row"><label>wanted</label><input id="s-wanted" type="range" min="0" max="5" step="1" value="0"><span class="val" id="v-wanted">0</span></div>
+  <div class="row"><label>health</label><input id="s-health" type="range" min="0" max="100" value="100"><span class="val" id="v-health">100</span></div>
+  <div class="row"><label>armour</label><input id="s-armour" type="range" min="0" max="100" value="55"><span class="val" id="v-armour">55</span></div>
+  <div class="row"><label>vignette</label><input id="s-vig" type="range" min="0" max="100" value="0"><span class="val" id="v-vig">0</span></div>
+  <div class="row"><label>zoom m</label><input id="s-zoom" type="range" min="90" max="420" value="210"><span class="val" id="v-zoom">210</span></div>
+  <div class="btns">
+    <button id="b-prompt">prompt</button>
+    <button id="b-obj">objective</button>
+    <button id="b-sub">subtitle</button>
+    <button id="b-dmg">damage hit</button>
+    <button id="b-north">north-up</button>
+    <button id="b-veh" class="on">in vehicle</button>
+    <button id="b-auto" class="on">auto-drive</button>
+    <button id="b-bench">bench 400</button>
+    <button id="b-bake">re-bake (flush)</button>
+  </div>
+  <div id="keys">0-5 wanted &nbsp; W/S speed &nbsp; H/J health &nbsp; K/L armour<br>N north-up &nbsp; P prompt &nbsp; O objective &nbsp; B subtitle<br>X damage &nbsp; V vehicle &nbsp; [ ] zoom &nbsp; Space auto-drive</div>
+  <div id="stats">measuring…</div>
+</div>
+<div id="load">baking the district map…</div>
+<script type="module" src="./main.js"></script>
+</body></html>

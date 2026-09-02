@@ -1,0 +1,80 @@
+{
+ "what": "Budget gate with AO, the lofted car, a 96-pedestrian crowd and the geometry fixes all integrated",
+ "harness": "tools/drive-through.mjs --traffic",
+ "n": 5,
+ "caution": "The first four attempts at this measurement were invalid and nearly led to a wrong conclusion. Three crashed with \"Target page, context or browser has been closed\" while sub-agent Chromium instances competed for CPU, and because a crashed harness does not rewrite docs/drive-traffic.json, re-reading that file returned the PREVIOUS run byte-for-byte. Identical numbers across runs are the tell; the check is the artifact mtime and the harness exit code, not the numbers.",
+ "contaminatedReading": {
+  "stallMs": 32.6,
+  "gate": "FAIL",
+  "note": "measured under 15 concurrent Chromium instances; not a valid sample"
+ },
+ "runs": [
+  {
+   "run": 1,
+   "gate": "WARN",
+   "stallMs": 12.7,
+   "drawP95": 149,
+   "trisP95": 184619,
+   "heapMb": -11
+  },
+  {
+   "run": 2,
+   "gate": "WARN",
+   "stallMs": 11.8,
+   "drawP95": 148,
+   "trisP95": 184619,
+   "heapMb": -12
+  },
+  {
+   "run": 3,
+   "gate": "WARN",
+   "stallMs": 12.8,
+   "drawP95": 151,
+   "trisP95": 184721,
+   "heapMb": -12
+  },
+  {
+   "run": 4,
+   "gate": "WARN",
+   "stallMs": 10.2,
+   "drawP95": 149,
+   "trisP95": 184607,
+   "heapMb": -12
+  },
+  {
+   "run": 5,
+   "gate": "PASS",
+   "stallMs": 6.7,
+   "drawP95": 149,
+   "trisP95": 184607,
+   "heapMb": -10
+  }
+ ],
+ "statistics": {
+  "stallMs": {
+   "median": 11.8,
+   "p80": 12.7,
+   "min": 6.7,
+   "max": 12.8
+  },
+  "drawP95": {
+   "median": 149,
+   "p80": 149,
+   "min": 148,
+   "max": 151
+  },
+  "trisP95": {
+   "median": 184619,
+   "p80": 184619,
+   "min": 184607,
+   "max": 184721
+  },
+  "heapMb": {
+   "median": -12,
+   "p80": -11,
+   "min": -12,
+   "max": -10
+  }
+ },
+ "conclusion": "No FAIL in five clean runs. Stall median 11.8 ms, p80 12.7, max 12.8 against warn 8 / fail 16. Draw calls 149 median against warn 200 - the 96-ped crowd costs 4 calls and the car gave back 4. Triangles 184.6k against warn 400k, up from 68k, which is the instanced crowd and the car."
+}

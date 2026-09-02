@@ -1,3 +1,18 @@
 node_modules/
-package-lock.json
+# package-lock.json is deliberately NOT ignored. It was, until 2026-08-30, from
+# back when this repo declared no dependencies at all. Once CI existed that made
+# actions/setup-node's npm cache fail instantly with nothing to hash, and would
+# have broken `npm ci` right after. The lockfile is what makes a CI install
+# reproducible, so it is tracked. The GAME still ships zero runtime dependencies -
+# playwright is a test-harness devDependency and never reaches the browser.
 docs/drive*.json.bak
+
+# Builder scratch: diagnostic scripts and probe captures that agents write while
+# iterating. Underscore-prefixed by convention so they are easy to exclude.
+.signage-shots.mjs
+# Dot-prefixed probes follow the same convention as the underscore ones above:
+# throwaway diagnostic scripts agents write while iterating (.audit.mjs,
+# .geom-probe.mjs, .tex-dump.mjs, .top-down.mjs and friends).
+.*.mjs
+labs/**/_*
+docs/shots/_*.png

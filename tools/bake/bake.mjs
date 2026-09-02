@@ -7,9 +7,10 @@
 import fs from 'node:fs';
 import { parseOSM, makeProjector } from './osm-parse.mjs';
 import { CITY, fictionalizeStreet, nameMapping } from './fictionalize.mjs';
+import { authoredHeight, MASSING_LANDMARKS } from './massing.mjs';
 
 // --- Trim box. The raw request covered ~3.96 km2; this keeps the bayfront edge
-// and the full downtown Marlin Street corridor through Five Points at ~1.44 km2.
+// and the full downtown Main Street corridor through Five Points at ~1.44 km2.
 const TRIM = { s: 27.3305, w: -82.5485, n: 27.3395, e: -82.5340 };
 const CHUNK = 128;   // metres
 
@@ -186,7 +187,7 @@ function nearCoast(p) {
 }
 
 const buildings = [];
-const heightStats = { tagged: 0, levels: 0, defaulted: 0, bayfrontTagged: 0, bayfrontDefaulted: 0 };
+const heightStats = { tagged: 0, levels: 0, authored: 0, defaulted: 0, bayfrontTagged: 0, bayfrontDefaulted: 0 };
 const buildingWays = ways.filter((w) => w.tags.building && w.tags.building !== 'no');
 for (const w of buildingWays) {
   const ring = ringOf(w);
@@ -198,8 +199,15 @@ for (const w of buildingWays) {
   const zone = zoneAt(c);
   const isBayfront = nearCoast(c);
 
-  let height, src;
-  if (w.tags.height) {
+  let height, src, band;
+  // Authored massing wins over both the OSM tag and the area default along the
+  // hero corridor: binding constraint 9 makes this authoring work, and an OSM
+  // height of 4 m on a building we have decided is an 8-storey block is worse
+  // than useless.
+  const authored = authoredHeight(c.x, c.z, area);
+  if (authored) {
+    height = authored.height; src = 'authored'; band = authored.band;
+  } else if (w.tags.height) {
     height = parseFloat(w.tags.height);
     src = 'tagged';
   } else if (w.tags['building:levels']) {
@@ -210,13 +218,15 @@ for (const w of buildingWays) {
     height = defaultHeight(area, zone, isBayfront);
     src = 'defaulted';
   }
-  heightStats[src]++;
+  heightStats[src] = (heightStats[src] ?? 0) + 1;
   if (isBayfront) heightStats[src === 'defaulted' ? 'bayfrontDefaulted' : 'bayfrontTagged']++;
 
   buildings.push({
     p: ring.map((p) => [q(p.x), q(p.z)]),
     h: height,
     d: src === 'defaulted' ? 1 : 0,             // 1 = height was defaulted
+    s: src,                                     // tagged | levels | authored | defaulted
+    ...(band ? { b: band } : {}),
     a: Math.round(area),
     ...(zone ? { z: zone } : {}),
     ...(w.tags['building'] !== 'yes' ? { k: w.tags.building } : {}),
@@ -280,13 +290,13 @@ zones.forEach((zn, i) => {
 // snapped to the nearest road vertex, so the route follows actual streets.
 const WAYPOINTS = [
   { name: 'Marina / bayfront',        lat: 27.33285, lon: -82.54650 },
-  { name: 'Bayfront @ Marlin St',     lat: 27.33440, lon: -82.54460 },
-  { name: 'Marlin St @ Tarpon Row',   lat: 27.33506, lon: -82.54106 },
+  { name: 'Bayfront @ Main St',     lat: 27.33440, lon: -82.54460 },
+  { name: 'Main St @ Pineapple Ave',   lat: 27.33506, lon: -82.54106 },
   { name: 'Five Points junction',     lat: 27.33647, lon: -82.54067 },
-  { name: 'Marlin St east',           lat: 27.33646, lon: -82.53550 },
+  { name: 'Main St east',           lat: 27.33646, lon: -82.53550 },
   { name: 'Turn north',               lat: 27.33810, lon: -82.53500 },
   { name: '2nd St westbound',         lat: 27.33830, lon: -82.53900 },
-  { name: '2nd St @ Calusa',          lat: 27.33880, lon: -82.54300 },
+  { name: '2nd St @ Cocoanut',          lat: 27.33880, lon: -82.54300 },
   { name: 'Back to bayfront',         lat: 27.33500, lon: -82.54470 },
 ];
 function snapToRoad(p) {
@@ -330,7 +340,7 @@ fs.writeFileSync('data/district.json', JSON.stringify(district));
 const bytes = fs.statSync('data/district.json').size;
 const rawBytes = fs.statSync('data/raw/osm-extract.xml').size;
 
-const totalH = heightStats.tagged + heightStats.levels + heightStats.defaulted;
+const totalH = heightStats.tagged + heightStats.levels + heightStats.authored + heightStats.defaulted;
 const report = {
   extract_bytes: rawBytes, extract_mb: +(rawBytes / 1048576).toFixed(2),
   baked_bytes: bytes, baked_kb: +(bytes / 1024).toFixed(1),
@@ -342,8 +352,10 @@ const report = {
   edges_dropped_outside_trim: skippedOutside,
   footprints: buildings.length,
   height_tagged: heightStats.tagged, height_from_levels: heightStats.levels,
-  height_defaulted: heightStats.defaulted,
+  height_authored: heightStats.authored, height_defaulted: heightStats.defaulted,
   height_real_pct: +(((heightStats.tagged + heightStats.levels) / totalH) * 100).toFixed(1),
+  height_deliberate_pct: +(((heightStats.tagged + heightStats.levels + heightStats.authored) / totalH) * 100).toFixed(1),
+  landmarks: MASSING_LANDMARKS.length,
   bayfront_footprints: heightStats.bayfrontTagged + heightStats.bayfrontDefaulted,
   bayfront_real_pct: +((heightStats.bayfrontTagged /
     Math.max(1, heightStats.bayfrontTagged + heightStats.bayfrontDefaulted)) * 100).toFixed(1),

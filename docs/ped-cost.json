@@ -1,0 +1,50 @@
+{
+ "traffic": 30,
+ "rows": [
+  {
+   "shot": "corridor",
+   "farOnly": {
+    "tris": 320905,
+    "calls": 149,
+    "sceneCalls": 141
+   },
+   "withNear": {
+    "tris": 338953,
+    "calls": 152,
+    "sceneCalls": 144,
+    "nearLive": 8
+   },
+   "alive": 96,
+   "deltaTris": 18048,
+   "deltaCalls": 3
+  },
+  {
+   "shot": "fivepoints",
+   "farOnly": {
+    "tris": 317162,
+    "calls": 122,
+    "sceneCalls": 114
+   },
+   "withNear": {
+    "tris": 319418,
+    "calls": 125,
+    "sceneCalls": 117,
+    "nearLive": 1
+   },
+   "alive": 93,
+   "deltaTris": 2256,
+   "deltaCalls": 3
+  }
+ ],
+ "lod": {
+  "pool": 12,
+  "live": 1,
+  "radiusM": 24,
+  "releaseM": 30,
+  "slotsPerPed": 14,
+  "farTrisPerPed": 628,
+  "nearTrisPerPed": 2256,
+  "farCrowdTris": 60288,
+  "nearCrowdTrisWorstCase": 27072
+ }
+}

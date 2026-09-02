@@ -3,16 +3,15 @@
 // perf + physics telemetry. This is how the walking skeleton is verified
 // without a human at the keyboard.
 import { chromium } from 'playwright';
+import { launchOptions } from './browser.mjs';
+import { ensureServer } from './serve.mjs';
 import fs from 'node:fs';
 
 const OUT = 'docs/shots';
 fs.mkdirSync(OUT, { recursive: true });
 
-const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
-         '--enable-webgl', '--ignore-gpu-blocklist', '--no-sandbox'],
-});
+await ensureServer();
+const browser = await chromium.launch(launchOptions(['--enable-webgl', '--ignore-gpu-blocklist']));
 const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });

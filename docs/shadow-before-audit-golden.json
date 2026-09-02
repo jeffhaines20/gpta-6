@@ -1,0 +1,233 @@
+{
+ "tod": "golden",
+ "traffic": 30,
+ "peds": 40,
+ "mPerTexel": 0.25390625,
+ "rows": {
+  "other": {
+   "meshes": 26,
+   "casters": 24,
+   "receivers": 25,
+   "instances": 26,
+   "castInstances": 24,
+   "tris": 58340,
+   "names": {
+    "(unnamed)": 26
+   }
+  },
+  "world chunk": {
+   "meshes": 259,
+   "casters": 57,
+   "receivers": 208,
+   "instances": 259,
+   "castInstances": 57,
+   "tris": 91700,
+   "names": {
+    "(unnamed)": 259
+   }
+  },
+  "sky": {
+   "meshes": 1,
+   "casters": 0,
+   "receivers": 0,
+   "instances": 1,
+   "castInstances": 0,
+   "tris": 1,
+   "names": {
+    "sky": 1
+   }
+  },
+  "weather": {
+   "meshes": 2,
+   "casters": 0,
+   "receivers": 0,
+   "instances": 2,
+   "castInstances": 0,
+   "tris": 4,
+   "names": {
+    "rain": 1,
+    "rain-splashes": 1
+   }
+  },
+  "furniture (instanced)": {
+   "meshes": 4,
+   "casters": 2,
+   "receivers": 0,
+   "instances": 1659,
+   "castInstances": 573,
+   "tris": 58248,
+   "names": {
+    "(unnamed)": 4
+   }
+  },
+  "furniture": {
+   "meshes": 42,
+   "casters": 0,
+   "receivers": 42,
+   "instances": 42,
+   "castInstances": 0,
+   "tris": 260545,
+   "names": {
+    "props:near:#,-#": 11,
+    "props:near:#,#": 11,
+    "props:near:-#,-#": 10,
+    "props:near:-#,#": 3,
+    "props:far:-#,-#": 2,
+    "props:far:#,#": 2,
+    "props:far:#,-#": 2,
+    "props:far:-#,#": 1
+   }
+  },
+  "other (instanced)": {
+   "meshes": 2,
+   "casters": 2,
+   "receivers": 1,
+   "instances": 34,
+   "castInstances": 34,
+   "tris": 30432,
+   "names": {
+    "(unnamed)": 2
+   }
+  },
+  "pedestrians (instanced)": {
+   "meshes": 7,
+   "casters": 6,
+   "receivers": 6,
+   "instances": 520,
+   "castInstances": 480,
+   "tris": 36400,
+   "names": {
+    "(unnamed)": 7
+   }
+  }
+ },
+ "named": {
+  "(unnamed)": {
+   "w": 1215.09,
+   "cast": true
+  },
+  "sky": {
+   "w": 0,
+   "cast": false
+  },
+  "rain": {
+   "w": 0,
+   "cast": false
+  },
+  "rain-splashes": {
+   "w": 0,
+   "cast": false
+  },
+  "props:near:#,-#": {
+   "w": 221.94,
+   "cast": false
+  },
+  "props:near:#,#": {
+   "w": 223.2,
+   "cast": false
+  },
+  "props:near:-#,-#": {
+   "w": 223.36,
+   "cast": false
+  },
+  "props:near:-#,#": {
+   "w": 296.74,
+   "cast": false
+  },
+  "props:far:-#,-#": {
+   "w": 514.73,
+   "cast": false
+  },
+  "props:far:#,#": {
+   "w": 503.27,
+   "cast": false
+  },
+  "props:far:#,-#": {
+   "w": 500.85,
+   "cast": false
+  },
+  "props:far:-#,#": {
+   "w": 535.77,
+   "cast": false
+  }
+ },
+ "shadow": {
+  "mapSize": [
+   2048,
+   2048
+  ],
+  "left": -260,
+  "right": 260,
+  "top": 260,
+  "bottom": -260,
+  "near": 1,
+  "far": 900,
+  "bias": -0.0006,
+  "normalBias": 0.06,
+  "type": 2,
+  "enabled": true,
+  "autoUpdate": true
+ },
+ "render": {
+  "calls": 150,
+  "sceneCalls": 142,
+  "postPasses": 8,
+  "triangles": 313572
+ },
+ "world": {
+  "chunksLoaded": 89,
+  "lodNear": 16,
+  "lodFar": 73,
+  "meshes": 261,
+  "triangles": 91704,
+  "loads": 94,
+  "unloads": 5,
+  "lodSwaps": 19,
+  "worstBuildMs": 11.200000000186265,
+  "lastBuildMs": 0.20000000018626451,
+  "queued": 69,
+  "pendingUnload": 0,
+  "sliceMs": 0,
+  "worstSliceMs": 6.7000000001862645,
+  "scanMs": 0,
+  "worstScanMs": 0.7999999998137355,
+  "lastFinishMs": 0,
+  "worstFinishMs": 0,
+  "worstDisposeMs": 0.19999999925494194,
+  "worstUploadMs": 3.900000000372529,
+  "materials": {
+   "materials": 17,
+   "textures": 19,
+   "textureLayers": 33,
+   "textureMemoryMB": 22.75,
+   "generationMs": 416.8,
+   "surfaceLayers": 8,
+   "timingsMs": {
+    "markings": 0,
+    "surfaces": 282.5,
+    "ground": 117,
+    "water": 6.3,
+    "trim": 10.9
+   },
+   "keys": [
+    "road",
+    "sidewalk",
+    "parkingLot",
+    "grass",
+    "dirt",
+    "sand",
+    "land",
+    "kerb",
+    "kerbPainted",
+    "concrete",
+    "water",
+    "glassStorefront",
+    "glassTinted",
+    "metalPainted",
+    "metalGalvanised",
+    "metalAnodised",
+    "buildingMerged"
+   ]
+  }
+ }
+}

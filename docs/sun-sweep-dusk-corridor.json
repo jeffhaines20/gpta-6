@@ -1,0 +1,116 @@
+{
+ "shot": "corridor",
+ "tod": "dusk",
+ "headingDeg": -16,
+ "authoredAzimuthDeg": 155.8,
+ "rows": [
+  {
+   "azimuthDeg": 155.8,
+   "offAxisDeg": 171.8,
+   "meanAll": 2.75,
+   "meanGround": 3.09,
+   "groundFrac": 23.7,
+   "peak": 167,
+   "peakRow": 478
+  },
+  {
+   "azimuthDeg": 185.8,
+   "offAxisDeg": 158.2,
+   "meanAll": 2.26,
+   "meanGround": 2.61,
+   "groundFrac": 17.3,
+   "peak": 158,
+   "peakRow": 420
+  },
+  {
+   "azimuthDeg": 215.8,
+   "offAxisDeg": 128.2,
+   "meanAll": 1.99,
+   "meanGround": 2.36,
+   "groundFrac": 18.2,
+   "peak": 126,
+   "peakRow": 505
+  },
+  {
+   "azimuthDeg": 245.8,
+   "offAxisDeg": 98.2,
+   "meanAll": 1.79,
+   "meanGround": 2.48,
+   "groundFrac": 16.3,
+   "peak": 132,
+   "peakRow": 483
+  },
+  {
+   "azimuthDeg": 275.8,
+   "offAxisDeg": 68.2,
+   "meanAll": 1.22,
+   "meanGround": 1.99,
+   "groundFrac": 15,
+   "peak": 146,
+   "peakRow": 672
+  },
+  {
+   "azimuthDeg": 305.8,
+   "offAxisDeg": 38.2,
+   "meanAll": 1.83,
+   "meanGround": 3.33,
+   "groundFrac": 28.2,
+   "peak": 153,
+   "peakRow": 617
+  },
+  {
+   "azimuthDeg": 335.8,
+   "offAxisDeg": 8.2,
+   "meanAll": 1.85,
+   "meanGround": 3.55,
+   "groundFrac": 33.1,
+   "peak": 160,
+   "peakRow": 560
+  },
+  {
+   "azimuthDeg": 5.8,
+   "offAxisDeg": 21.8,
+   "meanAll": 1.49,
+   "meanGround": 2.7,
+   "groundFrac": 22.3,
+   "peak": 123,
+   "peakRow": 660
+  },
+  {
+   "azimuthDeg": 35.8,
+   "offAxisDeg": 51.8,
+   "meanAll": 1.48,
+   "meanGround": 2.43,
+   "groundFrac": 19,
+   "peak": 118,
+   "peakRow": 517
+  },
+  {
+   "azimuthDeg": 65.8,
+   "offAxisDeg": 81.8,
+   "meanAll": 1.91,
+   "meanGround": 2.35,
+   "groundFrac": 17.8,
+   "peak": 133,
+   "peakRow": 852
+  },
+  {
+   "azimuthDeg": 95.8,
+   "offAxisDeg": 111.8,
+   "meanAll": 2.38,
+   "meanGround": 2.8,
+   "groundFrac": 20.6,
+   "peak": 142,
+   "peakRow": 514
+  },
+  {
+   "azimuthDeg": 125.8,
+   "offAxisDeg": 141.8,
+   "meanAll": 2.73,
+   "meanGround": 2.96,
+   "groundFrac": 23.6,
+   "peak": 126,
+   "peakRow": 481
+  }
+ ]
+}

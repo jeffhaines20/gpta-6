@@ -3,7 +3,7 @@
 // The question this scene exists to answer is not "does it run" but
 // "is procedural-only capable of a look worth shipping".
 
-import * as THREE from '../vendor/three.module.js';
+import * as THREE from '../vendor/three.module.min.js';
 import { asphalt, wetRoughness, sidewalk, facade, facadeEmissive, tex, noiseCanvas } from '../src/textures.js';
 
 const canvas = document.getElementById('c');

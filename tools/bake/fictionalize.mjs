@@ -1,12 +1,35 @@
-// All real-world naming is replaced at bake time. The geometry is real; the
-// identity is invented. The mapping is emitted alongside the data so real names
-// can be restored later if that call is ever made.
-
+// Real streets, invented businesses.
+//
+// This file used to replace all real-world naming at bake time, and said: "the
+// mapping is emitted alongside the data so real names can be restored later if
+// that call is ever made." That call has been made. The district is downtown
+// Sarasota - the extract is centred on 27.335, -82.54125 and carries Ringling
+// Boulevard, Main Street, Cocoanut Avenue and Five Points - and the brief is now
+// for it to read as the real place.
+//
+// What changed, and what deliberately did not:
+//
+//   STREETS and the CITY are real. They are factual public geography, already
+//   present in the OpenStreetMap extract this is baked from, and renaming them
+//   was the single thing stopping the map from reading as Sarasota.
+//
+//   BUSINESSES, shopfronts, signage and logos stay invented, and the pool below
+//   is untouched. The buildings are authored massing on real footprints, not
+//   surveyed premises: only 5.7% of them carry a real height and 28.1% were
+//   hand-authored. Putting a real business's name on a building we approximated
+//   would be claiming a likeness we have not earned.
+//
+// The mapping machinery is kept rather than deleted, so the swap is reversible
+// and so `nameMapping()` still records what was done.
 export const CITY = {
-  name: 'Port Verano',
-  bay: 'Verano Bay',
-  state: 'Florida',        // kept: the setting is a generic Gulf-coast Florida city
+  name: 'Sarasota',
+  bay: 'Sarasota Bay',
+  state: 'Florida',
 };
+
+// Set to false to restore the invented street names; the pool and anchor table
+// below are retained for that.
+const REAL_STREET_NAMES = true;
 
 // Deterministic real -> invented street naming. Keyed on the real name so the
 // same street always gets the same invented name across bakes.
@@ -51,6 +74,7 @@ const used = new Set(Object.values(ANCHORS));
 
 export function fictionalizeStreet(real) {
   if (!real) return undefined;
+  if (REAL_STREET_NAMES) { assigned.set(real, real); return real; }
   if (assigned.has(real)) return assigned.get(real);
   if (ANCHORS[real]) { assigned.set(real, ANCHORS[real]); return ANCHORS[real]; }
   // Preserve the N/S/E/W prefix so the grid still reads as a grid.

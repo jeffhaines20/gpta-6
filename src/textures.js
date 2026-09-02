@@ -2,7 +2,7 @@
 // files, no downloads. These generators are the seed of the Phase 2 material
 // library; they are cached by key so a district can reuse a few dozen atlases.
 
-import * as THREE from '../vendor/three.module.js';
+import * as THREE from '../vendor/three.module.min.js';
 
 const cache = new Map();
 function canvas(size) {

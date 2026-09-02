@@ -3,13 +3,31 @@
 //
 // Map data © OpenStreetMap contributors (ODbL). All names are invented.
 
-import * as THREE from '../vendor/three.module.js';
+import * as THREE from '../vendor/three.module.min.js';
 import { Input } from '../src/input.js';
 import { Vehicle } from '../src/vehicle.js';
 import { ChaseCamera } from '../src/camera.js';
 import { StreamingWorld } from '../src/streaming.js';
 import { TrafficStub } from '../src/traffic.js';
+import { Pedestrians } from '../src/pedestrians.js';
+import { PursuitUnits } from '../src/pursuit.js';
+import { StreetFurniture } from '../src/streetfurniture.js';
+import { LightPool } from '../src/lightpool.js';
+import { Player } from '../src/player.js';
+import { Character } from '../src/character.js';
+import { LocomotionFSM, STATE } from '../src/animfsm.js';
 import { TimeOfDay, PRESETS } from '../src/daynight.js';
+import { PostStack } from '../src/post.js';
+import { LoadingScreen } from '../src/loading.js';
+import { Sky, SKY_PRESETS } from '../src/sky.js';
+import { Weather } from '../src/weather.js';
+import {
+  generateSignageLibrary, districtSignageBuffers, signMaterial, streetSignMaterial,
+  setSignageTime,
+} from '../src/signage.js';
+import { buildingStyle } from '../src/facades.js';
+import { buildPlayerCar } from '../src/carbody.js';
+import { HUD } from '../src/hud.js';
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -26,51 +44,173 @@ chase.mode = 'car';
 const hud = document.getElementById('hud');
 hud.textContent = 'loading district…';
 
-const district = await (await fetch('../data/district.json')).json();
-const world = new StreamingWorld(scene, district, { nearRadius: 2, farRadius: 5, budgetMs: 4 });
-const tod = new TimeOfDay(scene, renderer);
+const loading = new LoadingScreen({ title: 'SARASOTA' });
+let district, world, tod, post, sky, weather;
+let signageRoot = null, signageStats = null, hud2 = null;
+let hudEnabled = true;
+let loadReport = null;
 
-// Street lamps along the main corridor, in candela. Registered with the
-// time-of-day system so they switch with the cycle instead of being always-on.
-const lampGeo = new THREE.CylinderGeometry(0.12, 0.16, 8, 8);
-const lampMat = new THREE.MeshStandardMaterial({ color: 0x2b2e33, roughness: 0.5, metalness: 0.7 });
-const headMat = new THREE.MeshStandardMaterial({ color: 0x1e2126, emissive: 0xffd9a0, emissiveIntensity: 2.2 });
-const lampRoot = new THREE.Group();
-scene.add(lampRoot);
+await loading
+  .add('reading district', async () => {
+    district = await (await fetch('../data/district.json')).json();
+  })
+  .add('generating materials', async () => {
+    // Constructing the world builds the material registry and facade library.
+    world = new StreamingWorld(scene, district, { nearRadius: 2, farRadius: 5, budgetMs: 3 });
+  })
+  .add('atmosphere', async () => {
+    sky = new Sky(renderer, scene);
+    weather = new Weather(scene);
+    weather.bindMaterials(world.registry);
+  })
+  .add('signage', async () => {
+    generateSignageLibrary({ streetNames: Object.values(district.streetNames ?? {}) });
+    const { buckets, street, stats } = districtSignageBuffers(district, {
+      styleOf: (b) => world._capStyle(buildingStyle(b), b),
+      streetDirFor: (b) => world._streetDirFor(b),
+    });
+    signageRoot = new THREE.Group();
+    signageRoot.name = 'signage';
+    const meshOf = (buf, mat) => {
+      if (!buf.pos.length) return null;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(buf.pos, 3));
+      g.setAttribute('normal', new THREE.Float32BufferAttribute(buf.nrm, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(buf.uv, 2));
+      if (buf.col && buf.col.length) g.setAttribute('color', new THREE.Float32BufferAttribute(buf.col, 3));
+      g.setIndex(buf.idx);
+      g.computeBoundingSphere();
+      const m = new THREE.Mesh(g, mat);
+      m.castShadow = true; m.receiveShadow = true;
+      return m;
+    };
+    for (const bk of buckets) {
+      const m = meshOf(bk.sign, signMaterial({ time: 'dusk' }));
+      if (m) signageRoot.add(m);
+    }
+    const sm = meshOf(street, streetSignMaterial({ time: 'dusk' }));
+    if (sm) signageRoot.add(sm);
+    scene.add(signageRoot);
+    signageStats = stats;
+  })
+  .add('hud', async () => {
+    // DOM + 2D canvas overlay: zero WebGL draw calls, so it costs nothing against
+    // the budget the rest of this file is fighting for.
+    hud2 = new HUD({ district, zoomMetres: 220 });
+    // The debug text overlay is redundant once the real HUD is up.
+    hud.style.display = 'none';
+  })
+  .add('lighting', async () => {
+    tod = new TimeOfDay(scene, renderer);
+    tod.setWorld(world);
+    post = new PostStack(renderer, scene, camera);
+    tod.attachPost(post);
+    tod.setSky(sky, weather);
+  })
+  .run()
+  .then((r) => { loadReport = r; });
+
+// Street lamps: instanced geometry plus a nearest-N light pool.
+//
+// The chase harness measured 233 individually-meshed posts as ~70% of all draw
+// calls, and 233 simultaneous PointLights would be a per-fragment loop of 233 on
+// real hardware. Geometry is instanced (3 draw calls total) and only the nearest
+// LIGHT_POOL_SIZE emitters are ever real lights.
+// 2026-08-30: lamp coverage raised from 233 to ~1000.
+//
+// Two blind night critics independently made "there is no street lighting" their
+// single highest-leverage note. Measured, they were right, and not in the way the
+// audit suggested: the pool reported 233 emitters with 7 active, so the system
+// looked healthy. Disabling EVERY point light changed 0.5% of pixels (mean
+// |diff| 0.085/255) - the lamps were lighting nothing.
+//
+// Cause: the district carries 44,110 m of street centreline, so 233 lamps is one
+// every 189 m against a real-world 25-30 m, and because the loop alternates sides
+// each pavement got one every ~380 m. The nearest emitter to the night camera
+// measured 132.7 m away against a 46 m falloff cutoff and the pool's own 130 m
+// maxDistance - every lamp in the district was outside its own radius AND outside
+// the selection range. Four caps compounded to produce that: a named-edge filter,
+// slice(0, 240), placed < 320, and max: 400.
+//
+// Lamps cost 3 draw calls at any count (they are InstancedMeshes) and the pool
+// still promotes only 10 emitters to real lights, so the price of this is
+// triangles and nothing else.
+const furniture = new StreetFurniture(scene, { max: 1200 });
+const lightPool = new LightPool(scene, { size: 10, maxDistance: 130 });
 {
-  // Place lamps along the highest-rank named edges: the arterial corridor.
+  // Every drivable edge, not just the named ones, and no slice: an unnamed
+  // service street is still a street the player drives down at night.
   const arterials = district.edges
     .map((e, i) => ({ e, i }))
-    .filter(({ e }) => e.r <= 6 && e.n)
-    .slice(0, 240);
+    .filter(({ e }) => e.r <= 6);
   let placed = 0;
   for (const { e } of arterials) {
-    for (let k = 0; k < e.v.length - 1 && placed < 260; k++) {
+    for (let k = 0; k < e.v.length - 1 && placed < 1100; k++) {
       const a = district.verts[e.v[k]], b = district.verts[e.v[k + 1]];
       const len = Math.hypot(b.x - a.x, b.z - a.z);
-      const n = Math.floor(len / 30);
-      for (let s = 1; s <= n && placed < 260; s++) {
+      const n = Math.floor(len / 26);
+      for (let s = 1; s <= n && placed < 1100; s++) {
         const f = s / (n + 1);
         const x = a.x + (b.x - a.x) * f, z = a.z + (b.z - a.z) * f;
-        const off = (e.w / 2 + 1.4) * (s % 2 ? 1 : -1);
+        const side = s % 2 ? 1 : -1;
         const nx = -(b.z - a.z) / len, nz = (b.x - a.x) / len;
-        const g = new THREE.Group();
-        const pole = new THREE.Mesh(lampGeo, lampMat);
-        pole.position.y = 4; pole.castShadow = true; g.add(pole);
-        const head = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.2, 0.4), headMat);
-        head.position.y = 7.9; g.add(head);
-        const light = new THREE.PointLight(0xffc98a, 0, 40, 2);
-        light.position.y = 7.6;
-        g.add(light);
-        tod.registerLamp(light, 900);       // 900 cd ~= a 12 klm street lamp
-        g.position.set(x + nx * off, 0, z + nz * off);
-        lampRoot.add(g);
+        const off = (e.w / 2 + 1.4) * side;
+        // Point the arm back over the roadway.
+        const yaw = Math.atan2(-nx * side, -nz * side);
+        const head = furniture.addLamp(x + nx * off, z + nz * off, yaw);
+        if (head) lightPool.addEmitter(head.x, head.y, head.z, 900, 0xffc98a, 46);
         placed++;
       }
     }
   }
-  console.log(`placed ${placed} street lamps`);
+  furniture.commit();
+  console.log(`placed ${placed} street lamps (pool ${lightPool.size})`);
+
+  // ---- everything else on the street.
+  //
+  // Three rounds of blind critics counted the props in the frame and reached the
+  // same verdict every time: "across roughly 450,000 px of visible sidewalk I
+  // count zero bins, hydrants, bollards, benches, planters, trees, meters,
+  // poles, cellar doors, vents, or wall clutter"; "total prop count on the
+  // street is one street-name blade"; "there is one vehicle in the entire
+  // street, no parked cars along either edge".
+  //
+  // src/streetfurniture.js dresses the whole district in ONE pass here, at load,
+  // and deliberately not per chunk: the chunk-build stall is the tightest budget
+  // in the project (median 11.8 ms against a warn at 8) and placement work on
+  // the streamer's critical path is the worst possible place to spend it. The
+  // streamer never learns this module exists.
+  //
+  // The cost is bounded by construction. Every static prop in the district — the
+  // signals, the kerb vocabulary, the trees, the wall clutter, the road castings
+  // and the overhead spans — shares ONE material and is welded into spatial
+  // buckets on two tiers: tall things that read from far away in 512 m cells,
+  // small things that do not in 224 m cells that switch off past 200 m. So the
+  // frustum throws away most of the district and sixteen prop types cost 9-11
+  // measured draw calls between them rather than one apiece. Parked cars are
+  // src/carbody.js's traffic-car geometry through a single InstancedMesh, pooled
+  // around the camera the way traffic and the crowd already are.
+  //
+  // Measured at the corridor hero camera by hiding each system in turn:
+  // props +11 calls / +67.1k triangles, parked cars +1 call / +27.8k.
+  furniture.dressDistrict(district, {});
+  // The pool is 30 cars and always will be — it is one InstancedMesh and its
+  // cost does not move with the number. What DID move is which thirty slots it
+  // picks. A second critic reported "zero parked vehicles along roughly 1,400 px
+  // of kerb" against a placement pass that reported 1,540 slots, and both were
+  // true: measured at this corridor camera the pool's nearest car was 106 m away
+  // and its farthest 277 m, because the plan cleared 24 m at each end of every
+  // POLYLINE SEGMENT (not every block) and the pool then filled itself in chunk
+  // order rather than distance order. src/streetfurniture.js fixes both; the
+  // same thirty cars now sit between 10 m and 76 m of this camera.
+  furniture.buildParkedCars({ count: 30 });
+  // The pool follows the camera and the signal lenses track the camera stop.
+  // src/streetfurniture.js runs its own rAF for this rather than asking for a
+  // slot in the render loop, so the whole system is two calls from here.
+  furniture.bindView(camera, { exposure: () => post.params.exposure });
+  console.log('street furniture', JSON.stringify(furniture.report()));
 }
+tod.setFurniture(furniture, lightPool);
 
 // ------------------------------------------------------------------ vehicle
 // The Phase 1 Vehicle, unmodified, driving on the streamed world through the
@@ -85,28 +225,97 @@ function placeAt(x, z, yaw = 0) {
 }
 placeAt(district.meta.spawn?.x ?? 0, district.meta.spawn?.z ?? 0);
 
-const carMesh = (() => {
-  const g = new THREE.Group();
-  const paint = new THREE.MeshStandardMaterial({ color: 0xb03a2e, roughness: 0.3, metalness: 0.6 });
-  const glass = new THREE.MeshStandardMaterial({ color: 0x101820, roughness: 0.1, metalness: 0.85 });
-  const b = new THREE.Mesh(new THREE.BoxGeometry(1.86, 0.62, 4.3), paint); b.position.y = 0.2; g.add(b);
-  const c = new THREE.Mesh(new THREE.BoxGeometry(1.66, 0.56, 2.1), glass); c.position.set(0, 0.74, -0.15); g.add(c);
-  const r = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.1, 1.7), paint); r.position.set(0, 1.03, -0.2); g.add(r);
-  const tyre = new THREE.MeshStandardMaterial({ color: 0x15171a, roughness: 0.95 });
-  const wheels = [];
-  for (let i = 0; i < 4; i++) {
-    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.26, 14), tyre);
-    w.rotation.z = Math.PI / 2; g.add(w); wheels.push(w);
+// The visual shell only. src/carbody.js reads the suspension state back out of
+// the Vehicle to place its wheels and touches nothing else: the collision body,
+// the wheel anchors and the spring rates are src/vehicle.js's alone, and
+// tools/golden-trace.mjs gates that they stay that way.
+//
+// It replaces a box + a smaller box + four cylinders, which every blind critic
+// across two review rounds named as one of the loudest defects in the frame. It
+// is also CHEAPER: 3 draw calls where the boxes were 7.
+const carMesh = buildPlayerCar({ paint: 0x9e2b20 });
+scene.add(carMesh.group);
+console.log('player car', JSON.stringify(carMesh.report()));
+
+let pursuit = null;
+// Risk 5 chase harness: max traffic + active pursuit + streaming churn, run
+// against the budget gate long before the mission exists.
+function setPursuit(n) {
+  if (pursuit) { scene.remove(pursuit.mesh); scene.remove(pursuit.bars); pursuit = null; }
+  if (n > 0) pursuit = new PursuitUnits(scene, district, { count: n });
+  return !!pursuit;
+}
+
+// ------------------------------------------------------------------ on foot
+// The player controller, character and animation state machine share one owner
+// (FEASIBILITY.md 8b): feel is a joint property of controller, camera and
+// animation, and splitting them produces three half-tunings.
+const player = new Player();
+const character = new Character();
+scene.add(character.root);
+const fsm = new LocomotionFSM();
+
+let mode = 'car';                 // 'car' | 'foot'
+let enterCooldown = 0;
+const ENTER_RANGE = 3.6;
+const ENTER_TIME = 0.45;
+
+// The car is a moving obstacle while on foot.
+const carCollider = { x: 0, z: 0, y: 0, hx: 1.25, hy: 1.5, hz: 2.4 };
+// Buildings near the player, refreshed only when the player changes chunk:
+// rebuilding this from the district every frame is pointless work.
+let footColliders = [];
+let footColliderKey = '';
+function refreshFootColliders(pos) {
+  const key = world.keyOf(pos.x, pos.z);
+  if (key === footColliderKey) return;
+  footColliderKey = key;
+  footColliders = [];
+  const [cx, cz] = key.split(',').map(Number);
+  for (let dz = -1; dz <= 1; dz++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const c = district.chunks[`${cx + dx},${cz + dz}`];
+      if (!c) continue;
+      for (const bi of c.buildings) {
+        const b = district.buildings[bi];
+        let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+        for (const [x, z] of b.p) {
+          if (x < x0) x0 = x; if (x > x1) x1 = x;
+          if (z < z0) z0 = z; if (z > z1) z1 = z;
+        }
+        footColliders.push({ x: (x0 + x1) / 2, z: (z0 + z1) / 2, y: 0,
+          hx: (x1 - x0) / 2, hy: b.h, hz: (z1 - z0) / 2 });
+      }
+    }
   }
-  g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-  scene.add(g);
-  return { group: g, wheels };
-})();
+}
+
+function toggleVehicle() {
+  if (enterCooldown > 0 || fsm.locked) return false;
+  if (mode === 'foot') {
+    if (player.position.distanceTo(vehicle.position) > ENTER_RANGE) return false;
+    fsm.lockTransition(STATE.ENTER_VEHICLE, ENTER_TIME);
+    mode = 'car';
+    chase.mode = 'car';
+    enterCooldown = ENTER_TIME;
+  } else {
+    fsm.lockTransition(STATE.EXIT_VEHICLE, ENTER_TIME);
+    mode = 'foot';
+    chase.mode = 'foot';
+    const side = new THREE.Vector3(-1, 0, 0).applyQuaternion(vehicle.quaternion);
+    player.position.copy(vehicle.position).addScaledVector(side, 1.9);
+    player.position.y = world.heightAt();
+    player.velocity.set(0, 0, 0);
+    player.yaw = Math.atan2(side.x, side.z);
+    enterCooldown = ENTER_TIME;
+  }
+  return true;
+}
 
 let traffic = null;
 function setTraffic(on) {
   if (on && !traffic) {
-    traffic = new TrafficStub(scene, district, { count: 30 });
+    traffic = new TrafficStub(scene, district, { count: typeof on === 'number' ? on : 30 });
     // Let traffic ask the streamer whether a car's chunk is actually resident,
     // so "orphan" means something real rather than a distance guess.
     traffic.isChunkLoaded = (x, z) => world.loaded.has(world.keyOf(x, z));
@@ -115,6 +324,35 @@ function setTraffic(on) {
   return !!traffic;
 }
 
+// ------------------------------------------------------------------ crowd
+// Pedestrians are ON BY DEFAULT, unlike traffic. "No pedestrians" was named by
+// every blind critic across both review rounds, and a system that only appears
+// when a harness passes a flag is not a system - the audit already caught two
+// modules in this project that existed but were never imported by the live app.
+// The whole crowd is four InstancedMeshes (src/pedestrians.js explains why), so
+// switching it on costs a measured 4 scene draw calls whatever the population -
+// 125 -> 129 on the hero corridor, against a gate that warns at 200. That fixed
+// cost is the only reason it can be default-on at all.
+//
+// The radii are tighter than traffic's on purpose. Traffic spawns 90-340 m out because
+// cars cross that in seconds; people walk, so a crowd seeded that far away never
+// reaches the player and the pavement in front of the camera stays empty. These
+// numbers keep the population concentrated in the block the player is actually
+// standing in, which is where "living streets" has to be true.
+const PED_OPTS = { despawnRadius: 125, spawnMin: 12, spawnMax: 90 };
+let peds = null;
+function setPedestrians(n) {
+  if (peds) { peds.dispose(); peds = null; }
+  if (n > 0) {
+    peds = new Pedestrians(scene, district, { ...PED_OPTS, count: n, ground: world });
+    // Same hook traffic uses: "orphan" then means a ped simulated in a chunk the
+    // streamer has not loaded, rather than a guess from distance.
+    peds.isChunkLoaded = (x, z) => world.loaded.has(world.keyOf(x, z));
+  }
+  return !!peds;
+}
+setPedestrians(96);
+
 // ------------------------------------------------------------------ metrics
 const metrics = {
   frames: 0, samples: [], recording: false,
@@ -122,14 +360,16 @@ const metrics = {
   heapStart: null, heapSamples: [],
 };
 function sample(dt) {
-  const r = renderer.info.render;
+  // Read the post stack's snapshot, never renderer.info directly: after the
+  // composite blit renderer.info describes a 1-triangle fullscreen pass.
+  const r = { calls: post.stats.totalCalls, triangles: post.stats.sceneTriangles };
   const w = world.report();
   metrics.samples.push({
     t: +simTime.toFixed(2),
     calls: r.calls, tris: r.triangles,
     chunks: w.chunksLoaded, near: w.lodNear, far: w.lodFar,
     loads: w.loads, unloads: w.unloads, swaps: w.lodSwaps,
-    stall: +w.lastBuildMs.toFixed(2),
+    stall: +w.sliceMs.toFixed(2),
     heap: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null,
     x: +vehicle.position.x.toFixed(1), z: +vehicle.position.z.toFixed(1),
     kmh: +(vehicle.speed * 3.6).toFixed(1),
@@ -148,8 +388,13 @@ function animate(now) {
   last = now;
 
   chase.handleMouse(input);
+  enterCooldown = Math.max(0, enterCooldown - dt);
+  if (input.hit('KeyF')) toggleVehicle();
 
-  if (!autopilot) {
+  if (!autopilot && mode === 'foot') {
+    // On foot the vehicle idles on its springs rather than sinking.
+    vehicle.setControls({ throttle: 0, brake: 1, steer: 0 });
+  } else if (!autopilot) {
     const axis = input.moveAxis();
     let throttle = 0, brake = 0;
     if (axis.y > 0) { if (vehicle.forwardSpeed < -0.5) brake = 1; else throttle = 1; }
@@ -162,39 +407,97 @@ function animate(now) {
   // 2.6 km route. Every rate metric is reported against simulated time.
   for (let s = 0; s < timeScale; s++) {
     if (autopilot) autopilot(dt);
+    if (mode === 'foot') {
+      carCollider.x = vehicle.position.x; carCollider.z = vehicle.position.z;
+      refreshFootColliders(player.position);
+      player.update(dt, input, chase.yaw, world, [...footColliders, carCollider]);
+    }
     vehicle.stepFixed(dt, world);
-    world.update(vehicle.position);
+    world.update(mode === 'foot' ? player.position : vehicle.position);
     if (traffic) traffic.update(dt, vehicle.position);
+    // Peds follow whatever the camera is actually near, not the parked car:
+    // on foot the crowd has to be around the player or the pavement is empty
+    // exactly where it is most visible.
+    if (peds) peds.update(dt, mode === 'foot' ? player.position : vehicle.position);
+    if (pursuit) pursuit.update(dt, vehicle.position);
     simTime += dt;
   }
-  tod.follow(vehicle.position);
+  const focus = mode === 'foot' ? player.position : vehicle.position;
+  tod.follow(focus);
+  sky.update(camera);
+  weather.update(dt, camera);
+  weather.applyToPost(post);
+  weather.applyToSky(sky);
+  // Runs last: the sky and weather both write fog terms as physical radiance, and
+  // only after both have written can it be checked against the camera stop.
+  tod.normalisePostExposure();
+  lightPool.update(camera.position, tod.preset.lampsOn ? 1 : 0);
+
+  // --- character
+  fsm.update(dt, {
+    speed: Math.hypot(player.velocity.x, player.velocity.z),
+    grounded: player.grounded,
+    verticalVelocity: player.velocity.y,
+    inVehicle: mode === 'car',
+    running: input.down('ShiftLeft') || input.down('ShiftRight'),
+    sprinting: input.down('ShiftLeft') || input.down('ShiftRight'),
+    wishLength: Math.hypot(input.moveAxis().x, input.moveAxis().y),
+    turnRate: 0,
+  });
+  character.root.visible = mode === 'foot' || fsm.locked;
+  if (mode === 'foot') {
+    character.root.position.copy(player.position);
+    character.root.rotation.y = player.yaw;
+    character.applyPose(fsm.pose());
+  } else if (fsm.locked) {
+    character.root.position.copy(vehicle.position);
+    character.applySeated();
+  }
 
   const q = vehicle.quaternion;
   const carYaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
-  chase.update(dt, vehicle.position, world, carYaw + Math.PI, vehicle.forwardSpeed > 3 ? 1.6 : 0);
+  if (mode === 'foot') chase.update(dt, player.position, world);
+  else chase.update(dt, vehicle.position, world, carYaw + Math.PI, vehicle.forwardSpeed > 3 ? 1.6 : 0);
 
   carMesh.group.position.copy(vehicle.position);
   carMesh.group.quaternion.copy(vehicle.quaternion);
-  for (let i = 0; i < 4; i++) {
-    const w = vehicle.wheels[i];
-    carMesh.group.worldToLocal(carMesh.wheels[i].position.copy(w.worldPos));
-    carMesh.wheels[i].rotation.set(0, 0, 0);
-    carMesh.wheels[i].rotateY(w.steer ? vehicle.steer : 0);
-    carMesh.wheels[i].rotateZ(Math.PI / 2);
-    carMesh.wheels[i].rotateX(w.spinAngle);
-  }
+  carMesh.updateWheels(vehicle);
+  // Headlamps and tail lamps track the lamp schedule, divided by the camera stop
+  // so a lens reads as blown out at dusk AND at night rather than at neither.
+  carMesh.setLights(tod.preset.lampsOn, post.params.exposure);
+  if (traffic) traffic.setLights(tod.preset.lampsOn, post.params.exposure);
+  if (pursuit) pursuit.setLights(tod.preset.lampsOn, post.params.exposure);
 
-  renderer.render(scene, camera);
+  post.render();
   if (metrics.recording) sample(dt);
   metrics.frames++;
 
   const w = world.report();
+  const near = mode === 'foot' && player.position.distanceTo(vehicle.position) <= ENTER_RANGE;
+  if (hud2 && hudEnabled) {
+    const q = vehicle.quaternion;
+    const heading = mode === 'foot'
+      ? player.yaw
+      : Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
+    hud2.update({
+      dt,
+      inVehicle: mode === 'car',
+      vehicle: mode === 'car' ? vehicle : null,
+      px: focus.x, pz: focus.z, heading,
+      district: district.meta.city,
+      prompt: near ? 'PRESS F TO ENTER VEHICLE' : null,
+    });
+  }
   hud.textContent =
-    `${district.meta.city}  ·  ${PRESETS[tod.presetName].label}  ·  ${(vehicle.speed * 3.6).toFixed(0)} km/h\n` +
-    `chunks ${w.chunksLoaded} (near ${w.lodNear} / far ${w.lodFar})  draw ${renderer.info.render.calls}  ` +
-    `tris ${(renderer.info.render.triangles / 1000).toFixed(1)}k\n` +
-    `loads ${w.loads}  unloads ${w.unloads}  worst chunk build ${w.worstBuildMs.toFixed(1)}ms` +
-    (traffic ? `  ·  traffic ${traffic.report().alive}/30` : '');
+    `${district.meta.city}  ·  ${PRESETS[tod.presetName].label}  ·  ` +
+    (mode === 'car' ? `${(vehicle.speed * 3.6).toFixed(0)} km/h  [F] exit`
+      : `ON FOOT ${fsm.state}${near ? '   [F] ENTER VEHICLE' : ''}`) + `\n` +
+    `chunks ${w.chunksLoaded} (near ${w.lodNear} / far ${w.lodFar})  draw ${post.stats.totalCalls}  ` +
+    `tris ${(post.stats.sceneTriangles / 1000).toFixed(1)}k  post ${post.stats.passes}\n` +
+    `loads ${w.loads}  unloads ${w.unloads}  worst slice ${w.worstSliceMs.toFixed(1)}ms  queued ${w.queued}` +
+    (traffic ? `  ·  traffic ${traffic.report().alive}` : '') +
+    (peds ? `  ·  peds ${peds.aliveCount}` : '') +
+    (pursuit ? `  ·  PURSUIT ${pursuit.report().active}` : '');
 
   input.endFrame();
 }
@@ -203,6 +506,7 @@ function resize() {
   renderer.setSize(innerWidth, innerHeight, false);
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
+  post.setSize(innerWidth, innerHeight);
 }
 addEventListener('resize', resize);
 resize();
@@ -210,20 +514,71 @@ requestAnimationFrame(animate);
 
 // ------------------------------------------------------------------ test hooks
 window.__district = {
-  district, world, vehicle, traffic: () => traffic, tod, renderer, scene, camera, chase, metrics,
+  district, world, vehicle, traffic: () => traffic, tod, post, renderer, scene, camera, chase, metrics,
+  loadReport: () => loadReport,
+  furniture, lightPool, car: carMesh,
   get frames() { return metrics.frames; },
   setTraffic,
-  setTimeOfDay: (n) => tod.apply(n),
+  setPursuit,
+  pedestrians: () => peds,
+  setPedestrians,
+  pedestrianReport: () => (peds ? peds.report() : null),
+  pedestrianPositions: () => (peds ? peds.positions() : []),
+  player, character, fsm, input,
+  // Headless harnesses drive the game through these rather than synthesising key
+  // events, which pointer-lock and focus rules make unreliable in a headless page.
+  press: (code) => { input.keys.add(code); input.pressed.add(code); },
+  release: (code) => input.keys.delete(code),
+  get mode() { return mode; },
+  toggleVehicle,
+  setMode(m) { if (m !== mode) toggleVehicle(); },
+  pursuitReport: () => (pursuit ? pursuit.report() : null),
+  setTimeOfDay: (n) => { const r = tod.apply(n); setSignageTime(n); return r; },
+  signageStats: () => signageStats,
+  // Isolation switch for the harnesses: the HUD is per-frame canvas work and a GC
+  // pause it provokes lands inside whatever is running, including world.update().
+  setHudEnabled: (on) => { if (hud2) { hud2.state.visible = on; hudEnabled = on; } },
   audit: () => tod.audit(),
   placeAt,
-  renderStats: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }),
+  renderStats: () => ({ calls: post.stats.totalCalls, sceneCalls: post.stats.drawCalls,
+    postPasses: post.stats.passes, triangles: post.stats.sceneTriangles }),
   worldReport: () => world.report(),
   trafficReport: () => (traffic ? traffic.report() : null),
-  startRecording() { metrics.recording = true; metrics.samples.length = 0; world.stats.worstBuildMs = 0; },
+  startRecording() { metrics.recording = true; metrics.samples.length = 0; world.resetPeakStats(); },
   stopRecording() { metrics.recording = false; return metrics.samples; },
   setAutopilot(fn) { autopilot = fn; },
   setTimeScale(n) { timeScale = Math.max(1, n | 0); },
   get simTime() { return simTime; },
+  sky, weather,
+  setWeather: (name, opts) => weather.set(name, opts),
+  setWeatherRaw: (w) => tod.setWeather(w),
+  // Measurement hook, not gameplay. The sun's azimuth lives in TWO places that
+  // must never disagree: daynight.js drives the DirectionalLight (and therefore
+  // every cast shadow) and sky.js draws the disc, the gradient and the PMREM that
+  // lights the walls. Moving one alone produces a frame whose shadows point away
+  // from its own sunset. Harnesses sweep this to find out where the light has to
+  // stand for occlusion to be visible at all.
+  setSunAzimuth(name, rad) {
+    PRESETS[name].azimuth = rad;
+    SKY_PRESETS[name].sunAzimuth = name === 'night' ? rad + Math.PI : rad;
+    if (name === 'night') SKY_PRESETS[name].moonAzimuth = rad;
+    tod.apply(name);
+    tod.follow(camera.position);
+    return { azimuth: rad, skyAzimuth: SKY_PRESETS[name].sunAzimuth };
+  },
+  // Also a measurement hook. Note the two files deliberately DISAGREE about dusk's
+  // elevation - daynight.js says 0.055 rad, sky.js says 0, and sky.js explains why
+  // at length. This sets them equal, which is what a probe comparing elevations
+  // wants: one variable, not two. It is not how a preset should be authored.
+  setSunElevation(name, rad) {
+    PRESETS[name].elevation = rad;
+    SKY_PRESETS[name].sunElevation = name === 'night' ? -rad : rad;
+    if (name === 'night') SKY_PRESETS[name].moonElevation = rad;
+    tod.apply(name);
+    tod.follow(camera.position);
+    return { elevation: rad };
+  },
+  postParams: () => post.params,
   freeCam(pos, target, fov) {
     autopilot = () => {};
     camera.position.set(...pos);
@@ -233,3 +588,5 @@ window.__district = {
   },
 };
 hud.textContent = 'ready';
+loading.hide();
+console.log('load report', JSON.stringify(loadReport));

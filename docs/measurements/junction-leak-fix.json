@@ -1,0 +1,141 @@
+{
+ "what": "drive-through --traffic, 30 cars, after the junction reservation leak fix",
+ "harness": "tools/drive-through.mjs --traffic",
+ "why": "The M2 overlap criterion was measured in the chase harness against a drive-through baseline. This set re-measures in the harness the baseline came from, N=5, reported as a statistic.",
+ "baseline": {
+  "stub_4bc2485": 35.4,
+  "stub_441faee": 27,
+  "m2ai_before_fix": 26.7,
+  "harness": "same drive-through --traffic @30"
+ },
+ "runs": [
+  {
+   "run": 1,
+   "overlapPct": 7.9,
+   "sameEdge": 0,
+   "crossEdge": 0,
+   "junctionsHeld": 14,
+   "alive": 30,
+   "stoppedPct": 1.7,
+   "junctionWaitPct": 9.1,
+   "meanSpeedKmh": 35.3,
+   "uTurns": 18,
+   "deadEnds": 27,
+   "stallMs": 6.3,
+   "drawP95": 143,
+   "trisP95": 72884,
+   "gate": "PASS",
+   "frames": 4687
+  },
+  {
+   "run": 2,
+   "overlapPct": 2,
+   "sameEdge": 0,
+   "crossEdge": 0,
+   "junctionsHeld": 15,
+   "alive": 29,
+   "stoppedPct": 0.7,
+   "junctionWaitPct": 5.4,
+   "meanSpeedKmh": 39.5,
+   "uTurns": 19,
+   "deadEnds": 26,
+   "stallMs": 10.5,
+   "drawP95": 145,
+   "trisP95": 72569,
+   "gate": "WARN",
+   "frames": 4687
+  },
+  {
+   "run": 3,
+   "overlapPct": 6.3,
+   "sameEdge": 0,
+   "crossEdge": 0,
+   "junctionsHeld": 16,
+   "alive": 30,
+   "stoppedPct": 0.2,
+   "junctionWaitPct": 5.4,
+   "meanSpeedKmh": 37.4,
+   "uTurns": 22,
+   "deadEnds": 30,
+   "stallMs": 8.5,
+   "drawP95": 145,
+   "trisP95": 73305,
+   "gate": "WARN",
+   "frames": 4775
+  },
+  {
+   "run": 4,
+   "overlapPct": 9.7,
+   "sameEdge": 0,
+   "crossEdge": 5,
+   "junctionsHeld": 9,
+   "alive": 30,
+   "stoppedPct": 1.8,
+   "junctionWaitPct": 7,
+   "meanSpeedKmh": 37.6,
+   "uTurns": 20,
+   "deadEnds": 21,
+   "stallMs": 14.1,
+   "drawP95": 145,
+   "trisP95": 73028,
+   "gate": "WARN",
+   "frames": 4775
+  },
+  {
+   "run": 5,
+   "overlapPct": 7.1,
+   "sameEdge": 0,
+   "crossEdge": 0,
+   "junctionsHeld": 18,
+   "alive": 30,
+   "stoppedPct": 2.1,
+   "junctionWaitPct": 6.8,
+   "meanSpeedKmh": 38.2,
+   "uTurns": 21,
+   "deadEnds": 26,
+   "stallMs": 8.5,
+   "drawP95": 146,
+   "trisP95": 73028,
+   "gate": "WARN",
+   "frames": 4775
+  }
+ ],
+ "statistics": {
+  "overlapPct": {
+   "median": 7.1,
+   "p80": 7.9,
+   "min": 2,
+   "max": 9.7
+  },
+  "junctionsHeld": {
+   "median": 15,
+   "p80": 16,
+   "min": 9,
+   "max": 18
+  },
+  "stoppedPct": {
+   "median": 1.7,
+   "p80": 1.8,
+   "min": 0.2,
+   "max": 2.1
+  },
+  "meanSpeedKmh": {
+   "median": 37.6,
+   "p80": 38.2,
+   "min": 35.3,
+   "max": 39.5
+  },
+  "stallMs": {
+   "median": 8.5,
+   "p80": 10.5,
+   "min": 6.3,
+   "max": 14.1
+  },
+  "drawP95": {
+   "median": 145,
+   "p80": 145,
+   "min": 143,
+   "max": 146
+  }
+ }
+}

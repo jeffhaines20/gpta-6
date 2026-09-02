@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Port Verano — material lab</title>
+<style>
+  html,body{margin:0;height:100%;background:#06080c;overflow:hidden;
+    font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#e7ebf2}
+  canvas{display:block}
+  #labels{position:fixed;inset:0;pointer-events:none}
+  .lbl{position:absolute;transform:translate(-50%,-100%);white-space:nowrap;
+    font-size:10.5px;letter-spacing:.02em;color:#f2f5fa;
+    background:rgba(6,9,14,.62);border-radius:3px;padding:1px 5px}
+  .lbl.dim{opacity:.55}
+  .lbl.below{transform:translate(-50%,0)}
+  #hud{position:fixed;right:12px;bottom:12px;background:rgba(8,11,16,.78);
+    border:1px solid #263040;border-radius:7px;padding:8px 11px;font-size:11.5px;max-width:400px}
+  #hud b{color:#8fd0ff;font-weight:600}
+  #hud .k{color:#ffd48a}
+  #title{position:fixed;left:12px;top:12px;background:rgba(8,11,16,.78);
+    border:1px solid #263040;border-radius:7px;padding:8px 13px}
+  #title h1{margin:0 0 2px;font-size:14px;letter-spacing:.04em}
+  #title span{color:#93a0b4;font-size:11px}
+  #err{position:fixed;right:12px;top:12px;max-width:44vw;color:#ff9d9d;
+    background:rgba(40,8,8,.85);border:1px solid #6b2020;border-radius:7px;
+    padding:8px 12px;display:none;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<div id="labels"></div>
+<div id="title"><h1>PORT VERANO — MATERIAL LAB</h1><span id="sub">loading…</span></div>
+<div id="hud">…</div>
+<div id="err"></div>
+<script type="module" src="./main.js"></script>
+</body>
+</html>

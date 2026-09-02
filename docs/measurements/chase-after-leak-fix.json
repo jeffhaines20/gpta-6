@@ -1,0 +1,137 @@
+{
+ "what": "chase harness worst case, 60 civilian + 10 pursuit, after the junction reservation leak fix",
+ "harness": "tools/chase-harness.mjs",
+ "why": "M2 escalated on a single-sample stall of 18.5 ms (FAIL). This is N=5 on the same harness after the leak fix, reported as a statistic per the review finding that one sample cannot decide a 16 ms threshold.",
+ "before": {
+  "stallMs_single_sample": 18.5,
+  "gate": "FAIL",
+  "overlapPct": 64.3,
+  "junctionsHeld": 139,
+  "alive": 59,
+  "stoppedPct": 19.7
+ },
+ "before_reruns_same_code": {
+  "stallMs": [
+   7.6,
+   12,
+   24.2
+  ],
+  "note": "spanned PASS, WARN and FAIL on unchanged code"
+ },
+ "runs": [
+  {
+   "run": 1,
+   "gate": "WARN",
+   "stallMs": 8.5,
+   "stallTotalMs": 11.3,
+   "drawP95": 148,
+   "trisP95": 73628,
+   "heapMb": 1,
+   "overlapPct": 39.9,
+   "sameEdge": 0,
+   "junctionsHeld": 32,
+   "alive": 60,
+   "stoppedPct": 3.7,
+   "meanSpeedKmh": 36.5
+  },
+  {
+   "run": 2,
+   "gate": "WARN",
+   "stallMs": 8.1,
+   "stallTotalMs": 11.2,
+   "drawP95": 149,
+   "trisP95": 73618,
+   "heapMb": 1,
+   "overlapPct": 28.5,
+   "sameEdge": 0,
+   "junctionsHeld": 19,
+   "alive": 60,
+   "stoppedPct": 1.6,
+   "meanSpeedKmh": 35.6
+  },
+  {
+   "run": 3,
+   "gate": "WARN",
+   "stallMs": 9.9,
+   "stallTotalMs": 11.8,
+   "drawP95": 148,
+   "trisP95": 73905,
+   "heapMb": 1,
+   "overlapPct": 16.5,
+   "sameEdge": 0,
+   "junctionsHeld": 22,
+   "alive": 60,
+   "stoppedPct": 1,
+   "meanSpeedKmh": 36.5
+  },
+  {
+   "run": 4,
+   "gate": "WARN",
+   "stallMs": 8.7,
+   "stallTotalMs": 12.5,
+   "drawP95": 148,
+   "trisP95": 73905,
+   "heapMb": -4,
+   "overlapPct": 19.7,
+   "sameEdge": 0,
+   "junctionsHeld": 28,
+   "alive": 60,
+   "stoppedPct": 2.9,
+   "meanSpeedKmh": 35.3
+  },
+  {
+   "run": 5,
+   "gate": "PASS",
+   "stallMs": 7.2,
+   "stallTotalMs": 8.8,
+   "drawP95": 148,
+   "trisP95": 73432,
+   "heapMb": -7,
+   "overlapPct": 8.3,
+   "sameEdge": 0,
+   "junctionsHeld": 28,
+   "alive": 60,
+   "stoppedPct": 1.4,
+   "meanSpeedKmh": 32.8
+  }
+ ],
+ "statistics": {
+  "stallMs": {
+   "median": 8.5,
+   "p80": 8.7,
+   "min": 7.2,
+   "max": 9.9
+  },
+  "drawP95": {
+   "median": 148,
+   "p80": 148,
+   "min": 148,
+   "max": 149
+  },
+  "trisP95": {
+   "median": 73628,
+   "p80": 73905,
+   "min": 73432,
+   "max": 73905
+  },
+  "overlapPct": {
+   "median": 19.7,
+   "p80": 28.5,
+   "min": 8.3,
+   "max": 39.9
+  },
+  "junctionsHeld": {
+   "median": 28,
+   "p80": 28,
+   "min": 19,
+   "max": 32
+  },
+  "stoppedPct": {
+   "median": 1.6,
+   "p80": 2.9,
+   "min": 1,
+   "max": 3.7
+  }
+ },
+ "conclusion": "No FAIL in 5 runs. Stall median 8.5 ms, p80 8.7, max 9.9 against warn 8 / fail 16. Stall variance fell from 3.2x to 1.4x, so a substantial part of the stall spread was the leak, not the HUD."
+}

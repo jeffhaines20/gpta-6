@@ -1,0 +1,789 @@
+{
+ "tag": "after",
+ "shot": "corridor",
+ "placed": {
+  "back": 16,
+  "requestedBack": 34,
+  "x": 3.7,
+  "z": -1.9,
+  "clearance": 3.2,
+  "stillInside": -1,
+  "headingDeg": -16
+ },
+ "settled": {
+  "chunks": 89,
+  "meshes": 264,
+  "queued": 81
+ },
+ "skyVisibleAtSettle": {
+  "maxNits": 1168.247,
+  "refNits": 1074,
+  "ok": true,
+  "ratio": 1.088
+ },
+ "meterBoxes": {
+  "up": [
+   416,
+   667,
+   12,
+   12
+  ],
+  "down": [
+   1172,
+   221,
+   12,
+   12
+  ],
+  "fill": [
+   416,
+   221,
+   12,
+   12
+  ],
+  "key": [
+   1172,
+   667,
+   12,
+   12
+  ]
+ },
+ "meterGeometry": {
+  "ok": true,
+  "camAzDeg": -16,
+  "sunAzDeg": 155.8,
+  "sunElDeg": 3.05,
+  "keyAzDeg": 155.8,
+  "keyBeamFraction": 0.999
+ },
+ "results": [
+  {
+   "tod": "noon",
+   "geometry": {
+    "sunAzDeg": 34.4,
+    "sunElDeg": 75.6,
+    "keyAzDeg": 109,
+    "fillAzDeg": 164,
+    "keyBeamFraction": 0.0658
+   },
+   "skyVisible": {
+    "maxNits": 8706.803,
+    "refNits": 8832,
+    "ok": true,
+    "ratio": 0.986
+   },
+   "exposure": 0.000014390559792775939,
+   "exposureAsStop": "1/69490",
+   "sunLux": 100000,
+   "skyLux": 0,
+   "sunLuxDelivered": 92997.73,
+   "skyLuxDelivered": 0,
+   "environmentIntensity": 1,
+   "skyDelivery": {
+    "hemisphereLux": 0,
+    "environmentLux": 15156,
+    "totalLux": 15156,
+    "paths": 1
+   },
+   "implausible": [],
+   "dome": {
+    "eUp": 15125.977,
+    "eDown": 15593.358,
+    "eWallSun": 17711.017,
+    "eWallCam": 16481.879,
+    "eWallKey": 17045.526,
+    "upRGB": [
+     9962.12,
+     15537.12,
+     26258.79
+    ],
+    "downRGB": [
+     18651.98,
+     15244.31,
+     10044.57
+    ],
+    "skyLuxFromAudit": 15156,
+    "sunLuxFromAudit": 103738,
+    "zenithNits": 6277,
+    "horizonNits": 8832
+   },
+   "meterSelfTest": {
+    "injectedHemiIntensity": 20000,
+    "expectedLux": 13075.4,
+    "measuredLux": 13073.5,
+    "errPct": -0.01
+   },
+   "noiseFloor": {
+    "up": 0.0633,
+    "down": 0,
+    "fill": 0.0142,
+    "key": 3.1934,
+    "wall": 1.5513,
+    "ground": 0
+   },
+   "stateWhenRead": {
+    "base": {
+     "sun": 100000,
+     "hemi": 0,
+     "env": 1
+    },
+    "nosun": {
+     "sun": 0,
+     "hemi": 0,
+     "env": 1
+    },
+    "nohemi": {
+     "sun": 100000,
+     "hemi": 0,
+     "env": 1
+    },
+    "noenv": {
+     "sun": 100000,
+     "hemi": 0,
+     "env": 0
+    },
+    "hemionly": {
+     "sun": 0,
+     "hemi": 0,
+     "env": 0
+    },
+    "envonly": {
+     "sun": 0,
+     "hemi": 0,
+     "env": 1
+    }
+   },
+   "meter": {
+    "up": {
+     "total": 106758.1,
+     "sun": 91751.7,
+     "hemi": 0,
+     "env": 14998.6,
+     "hemiAlone": 0,
+     "envAlone": 15006.3,
+     "hemiExpected": 0,
+     "hemiErrPct": 0,
+     "floorLux": 0.2
+    },
+    "down": {
+     "total": 15735.9,
+     "sun": 0,
+     "hemi": 0,
+     "env": 15735.9,
+     "hemiAlone": 0,
+     "envAlone": 15735.9,
+     "hemiExpected": 0,
+     "hemiErrPct": 0,
+     "floorLux": 0
+    },
+    "fill": {
+     "total": 17083.7,
+     "sun": 0,
+     "hemi": 0,
+     "env": 17083.7,
+     "hemiAlone": 0,
+     "envAlone": 17083.7,
+     "hemiExpected": 0,
+     "hemiErrPct": 0,
+     "floorLux": 0.04
+    },
+    "key": {
+     "total": 24366.9,
+     "sun": 6647.5,
+     "hemi": 0,
+     "env": 17719.1,
+     "hemiAlone": 0,
+     "envAlone": 17719.4,
+     "hemiExpected": 0,
+     "hemiErrPct": 0,
+     "floorLux": 10.03,
+     "sunExpected": 6119.3
+    }
+   },
+   "regions": {
+    "wall": {
+     "nits": 3102.8826,
+     "sunPct": 34.7,
+     "hemiPct": -0.2,
+     "envPct": 65.2,
+     "floorPct": 0.05
+    },
+    "ground": {
+     "nits": 14249.0461,
+     "sunPct": 85.2,
+     "hemiPct": 0,
+     "envPct": 14.8,
+     "floorPct": 0
+    }
+   },
+   "bloom": {
+    "wall": {
+     "nits": 3102.06,
+     "ofScene": 1
+    },
+    "ground": {
+     "nits": 14270.34,
+     "ofScene": 1.001
+    }
+   },
+   "bloomThreshold": 1.7,
+   "bloomStrength": 0.3,
+   "keyFill": {
+    "ratio": 1.426,
+    "stops": 0.51,
+    "keyLux": 24366.9,
+    "fillLux": 17083.7
+   },
+   "keyFillWallGround": {
+    "ratio": 0.218,
+    "stops": -2.2
+   }
+  },
+  {
+   "tod": "golden",
+   "geometry": {
+    "sunAzDeg": 44,
+    "sunElDeg": 7.9,
+    "keyAzDeg": 109,
+    "fillAzDeg": 164,
+    "keyBeamFraction": 0.4183
+   },
+   "skyVisible": {
+    "maxNits": 15469.81,
+    "refNits": 7907,
+    "ok": true,
+    "ratio": 1.956
+   },
+   "exposure": 0.00024084778420038535,
+   "exposureAsStop": "1/4152",
+   "sunLux": 53138,
+   "skyLux": 0,
+   "sunLuxDelivered": 34394.497,
+   "skyLuxDelivered": 0,
+   "environmentIntensity": 1,
+   "skyDelivery": {
+    "hemisphereLux": 0,
+    "environmentLux": 8519,
+    "totalLux": 8519,
+    "paths": 1
+   },
+   "implausible": [],
+   "dome": {
+    "eUp": 8503.079,
+    "eDown": 1272.509,
+    "eWallSun": 12103.579,
+    "eWallCam": 6110.837,
+    "eWallKey": 8944.501,
+    "upRGB": [
+     6300.66,
+     8697.59,
+     13061.51
+    ],
+    "downRGB": [
+     1780.53,
+     1180.9,
+     684.03
+    ],
+    "skyLuxFromAudit": 8519,
+    "sunLuxFromAudit": 34463,
+    "zenithNits": 1434,
+    "horizonNits": 7907
+   },
+   "meterSelfTest": {
+    "injectedHemiIntensity": 8519,
+    "expectedLux": 5547.8,
+    "measuredLux": 5547.5,
+    "errPct": -0.01
+   },
+   "noiseFloor": {
+    "up": 0.2153,
+    "down": 0,
+    "fill": 0,
+    "key": 0.2563,
+    "wall": 0,
+    "ground": 0.1718
+   },
+   "stateWhenRead": {
+    "base": {
+     "sun": 53138,
+     "hemi": 0,
+     "env": 1
+    },
+    "nosun": {
+     "sun": 0,
+     "hemi": 0,
+     "env": 1
+    },
+    "nohemi": {
+     "sun": 53138,
+     "hemi": 0,
+     "env": 1
+    },
+    "noenv": {
+     "sun": 53138,
+     "hemi": 0,
+     "env": 0
+    },
+    "hemionly": {
+     "sun": 0,
+     "hemi": 0,
+     "env": 0
+    },
+    "envonly": {
+     "sun": 0,
+     "hemi": 0,
+     "env": 1
+    }
+   },
+   "meter": {
+    "up": {
+     "total": 12423,
+     "sun": 5064,
+     "hemi": 0,
+     "env": 7359.1,
+     "hemiAlone": 0,
+     "envAlone": 7358.9,
+     "hemiExpected": 0,
+     "hemiErrPct": 0,
+     "floorLux": 0.68
+    },
+    "down": {
+     "total": 1550,
+     "sun": 0,
+     "hemi": 0,
+     "env": 1550,
+     "hemiAlone": 0,
+     "envAlone": 1550,
+     "hemiExpected": 0,
+     "hemiErrPct": 0,
+     "floorLux": 0
+    },
+    "fill": {
+     "total": 6490.2,
+     "sun": 0,
+     "hemi": 0,
+     "env": 6490.2,
+     "hemiAlone": 0,
+     "envAlone": 6490.2,
+     "hemiExpected": 0,
+     "hemiErrPct": 0,
+     "floorLux": 0
+    },
+    "key": {
+     "total": 25621.1,
+     "sun": 16145.3,
+     "hemi": 0,
+     "env": 9475.4,
+     "hemiAlone": 0,
+     "envAlone": 9475.8,
+     "hemiExpected": 0,
+     "hemiErrPct": 0,
+     "floorLux": 0.81,
+     "sunExpected": 14387.2
+    }
+   },
+   "regions": {
+    "wall": {
+     "nits": 4841.9378,
+     "sunPct": 63.6,
+     "hemiPct": 0,
+     "envPct": 36.4,
+     "floorPct": 0
+    },
+    "ground": {
+     "nits": 1666.0713,
+     "sunPct": 36.1,
+     "hemiPct": -0.1,
+     "envPct": 63.8,
+     "floorPct": 0.01
+    }
+   },
+   "bloom": {
+    "wall": {
+     "nits": 4862.43,
+     "ofScene": 1.004
+    },
+    "ground": {
+     "nits": 1692.22,
+     "ofScene": 1.016
+    }
+   },
+   "bloomThreshold": 1.4,
+   "bloomStrength": 0.4,
+   "keyFill": {
+    "ratio": 3.948,
+    "stops": 1.98,
+    "keyLux": 25621.1,
+    "fillLux": 6490.2
+   },
+   "keyFillWallGround": {
+    "ratio": 2.906,
+    "stops": 1.54
+   }
+  },
+  {
+   "tod": "dusk",
+   "geometry": {
+    "sunAzDeg": 155.8,
+    "sunElDeg": 3.05,
+    "keyAzDeg": 155.8,
+    "fillAzDeg": 164,
+    "keyBeamFraction": 0.9986
+   },
+   "skyVisible": {
+    "maxNits": 1089.532,
+    "refNits": 1203,
+    "ok": true,
+    "ratio": 0.906
+   },
+   "exposure": 0.0013908205841446453,
+   "exposureAsStop": "1/719",
+   "sunLux": 1200,
+   "skyLux": 0,
+   "sunLuxDelivered": 500.093,
+   "skyLuxDelivered": 0,
+   "environmentIntensity": 1,
+   "skyDelivery": {
+    "hemisphereLux": 0,
+    "environmentLux": 1596,
+    "totalLux": 1596,
+    "paths": 1
+   },
+   "implausible": [],
+   "dome": {
+    "eUp": 1594.819,
+    "eDown": 39.05,
+    "eWallSun": 1818.319,
+    "eWallCam": 1810.551,
+    "eWallKey": 1818.319,
+    "upRGB": [
+     1734.06,
+     1507.53,
+     2049.43
+    ],
+    "downRGB": [
+     57.62,
+     35.13,
+     23.2
+    ],
+    "skyLuxFromAudit": 1596,
+    "sunLuxFromAudit": 337,
+    "zenithNits": 279,
+    "horizonNits": 1203
+   },
+   "meterSelfTest": {
+    "injectedHemiIntensity": 900,
+    "expectedLux": 354.9,
+    "measuredLux": 355.2,
+    "errPct": 0.07
+   },
+   "noiseFloor": {
+    "up": 0,
+    "down": 0,
+    "fill": 0,
+    "key": 0,
+    "wall": 0.0001,
+    "ground": 0
+   },
+   "stateWhenRead": {
+    "base": {
+     "sun": 1200,
+     "hemi": 0,
+     "env": 1
+    },
+    "nosun": {
+     "sun": 0,
+     "hemi": 0,
+     "env": 1
+    },
+    "nohemi": {
+     "sun": 1200,
+     "hemi": 0,
+     "env": 1
+    },
+    "noenv": {
+     "sun": 1200,
+     "hemi": 0,
+     "env": 0
+    },
+    "hemionly": {
+     "sun": 0,
+     "hemi": 0,
+     "env": 0
+    },
+    "envonly": {
+     "sun": 0,
+     "hemi": 0,
+     "env": 1
+    }
+   },
+   "meter": {
+    "up": {
+     "total": 1409.8,
+     "sun": 28.5,
+     "hemi": 0,
+     "env": 1380.7,
+     "hemiAlone": 0.3,
+     "envAlone": 1381.3,
+     "hemiExpected": 0,
+     "hemiErrPct": 25471749052,
+     "floorLux": 0
+    },
+    "down": {
+     "total": 86.8,
+     "sun": 0,
+     "hemi": 0,
+     "env": 86.8,
+     "hemiAlone": 0,
+     "envAlone": 86.8,
+     "hemiExpected": 0,
+     "hemiErrPct": 0,
+     "floorLux": 0
+    },
+    "fill": {
+     "total": 2678.1,
+     "sun": 500,
+     "hemi": 0,
+     "env": 2177.8,
+     "hemiAlone": 0.6,
+     "envAlone": 2178.1,
+     "hemiExpected": 0,
+     "hemiErrPct": 63888098872.6,
+     "floorLux": 0
+    },
+    "key": {
+     "total": 2724.6,
+     "sun": 505,
+     "hemi": 0,
+     "env": 2218.9,
+     "hemiAlone": 0.8,
+     "envAlone": 2219.5,
+     "hemiExpected": 0,
+     "hemiErrPct": 82596074253,
+     "floorLux": 0,
+     "sunExpected": 499.4
+    }
+   },
+   "regions": {
+    "wall": {
+     "nits": 195.4494,
+     "sunPct": 8.9,
+     "hemiPct": 0,
+     "envPct": 87.6,
+     "floorPct": 0
+    },
+    "ground": {
+     "nits": 197.785,
+     "sunPct": 0,
+     "hemiPct": 0,
+     "envPct": 100,
+     "floorPct": 0
+    }
+   },
+   "bloom": {
+    "wall": {
+     "nits": 194.98,
+     "ofScene": 0.998
+    },
+    "ground": {
+     "nits": 197.07,
+     "ofScene": 0.996
+    }
+   },
+   "bloomThreshold": 0.85,
+   "bloomStrength": 0.62,
+   "keyFill": {
+    "ratio": 1.017,
+    "stops": 0.02,
+    "keyLux": 2724.6,
+    "fillLux": 2678.1
+   },
+   "keyFillWallGround": {
+    "ratio": 0.988,
+    "stops": -0.02
+   }
+  },
+  {
+   "tod": "night",
+   "geometry": {
+    "sunAzDeg": -125.1,
+    "sunElDeg": 51.5,
+    "keyAzDeg": 219,
+    "fillAzDeg": 164,
+    "keyBeamFraction": 0.5987
+   },
+   "skyVisible": {
+    "maxNits": 2.046,
+    "refNits": 0.176,
+    "ok": true,
+    "ratio": 11.623
+   },
+   "exposure": 0.8695652173913044,
+   "exposureAsStop": "1/1",
+   "sunLux": 0.6,
+   "skyLux": 0,
+   "sunLuxDelivered": 0.277,
+   "skyLuxDelivered": 0,
+   "environmentIntensity": 1,
+   "skyDelivery": {
+    "hemisphereLux": 0,
+    "environmentLux": 0.197,
+    "totalLux": 0.197,
+    "paths": 1
+   },
+   "implausible": [],
+   "dome": {
+    "eUp": 0.197,
+    "eDown": 0.902,
+    "eWallSun": 0.592,
+    "eWallCam": 0.592,
+    "eWallKey": 0.592,
+    "upRGB": [
+     0.15,
+     0.18,
+     0.45
+    ],
+    "downRGB": [
+     1.18,
+     0.82,
+     0.91
+    ],
+    "skyLuxFromAudit": 0.197,
+    "sunLuxFromAudit": 0,
+    "zenithNits": 0.045,
+    "horizonNits": 0.176
+   },
+   "meterSelfTest": {
+    "injectedHemiIntensity": 0.15,
+    "expectedLux": 0,
+    "measuredLux": 0.3,
+    "errPct": 3095.84
+   },
+   "noiseFloor": {
+    "up": 0,
+    "down": 0,
+    "fill": 0,
+    "key": 0,
+    "wall": 0,
+    "ground": 0
+   },
+   "stateWhenRead": {
+    "base": {
+     "sun": 0.6,
+     "hemi": 0,
+     "env": 1
+    },
+    "nosun": {
+     "sun": 0,
+     "hemi": 0,
+     "env": 1
+    },
+    "nohemi": {
+     "sun": 0.6,
+     "hemi": 0,
+     "env": 1
+    },
+    "noenv": {
+     "sun": 0.6,
+     "hemi": 0,
+     "env": 0
+    },
+    "hemionly": {
+     "sun": 0,
+     "hemi": 0,
+     "env": 0
+    },
+    "envonly": {
+     "sun": 0,
+     "hemi": 0,
+     "env": 1
+    }
+   },
+   "meter": {
+    "up": {
+     "total": 0.7,
+     "sun": 0.2,
+     "hemi": 0,
+     "env": 0.2,
+     "hemiAlone": 0.3,
+     "envAlone": 0.4,
+     "hemiExpected": 0,
+     "hemiErrPct": 25471749052,
+     "floorLux": 0
+    },
+    "down": {
+     "total": 0.9,
+     "sun": 0,
+     "hemi": 0,
+     "env": 0.9,
+     "hemiAlone": 0,
+     "envAlone": 0.9,
+     "hemiExpected": 0,
+     "hemiErrPct": 0,
+     "floorLux": 0
+    },
+    "fill": {
+     "total": 1.3,
+     "sun": 0.1,
+     "hemi": 0,
+     "env": 0.6,
+     "hemiAlone": 0.6,
+     "envAlone": 1.2,
+     "hemiExpected": 0,
+     "hemiErrPct": 63888098872.6,
+     "floorLux": 0
+    },
+    "key": {
+     "total": 0.8,
+     "sun": 0.2,
+     "hemi": 0,
+     "env": 0.6,
+     "hemiAlone": 0.1,
+     "envAlone": 0.7,
+     "hemiExpected": 0,
+     "hemiErrPct": 6535735493.2,
+     "floorLux": 0,
+     "sunExpected": 0.2
+    }
+   },
+   "regions": {
+    "wall": {
+     "nits": 0.2814,
+     "sunPct": 0,
+     "hemiPct": 0,
+     "envPct": 21.9,
+     "floorPct": 0
+    },
+    "ground": {
+     "nits": 0.0855,
+     "sunPct": 34,
+     "hemiPct": 0,
+     "envPct": 35.3,
+     "floorPct": 0
+    }
+   },
+   "bloom": {
+    "wall": {
+     "nits": 0.12,
+     "ofScene": 0.416
+    },
+    "ground": {
+     "nits": 0,
+     "ofScene": 0
+    }
+   },
+   "bloomThreshold": 0.55,
+   "bloomStrength": 0.85,
+   "keyFill": {
+    "ratio": 0.615,
+    "stops": -0.7,
+    "keyLux": 0.8,
+    "fillLux": 1.3
+   },
+   "keyFillWallGround": {
+    "ratio": 3.291,
+    "stops": 1.72
+   }
+  }
+ ],
+ "errors": []
+}

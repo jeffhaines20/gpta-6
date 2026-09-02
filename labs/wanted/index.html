@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Port Verano — Wanted</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#05080d;
+    font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#e8edf5}
+  #map{position:fixed;inset:0;display:block;width:100%;height:100%}
+  .pane{position:fixed;z-index:60;border-radius:7px;background:rgba(6,10,16,.88);
+    border:1px solid rgba(120,150,190,.24);box-shadow:0 6px 26px rgba(0,0,0,.55)}
+  #panel{left:12px;top:12px;width:246px;padding:10px 12px 11px;max-height:calc(100vh - 24px);
+    overflow-y:auto}
+  #panel h2{margin:0 0 8px;font-size:10.5px;letter-spacing:.18em;color:#8ea6c4;font-weight:700}
+  #panel h3{margin:10px 0 5px;font-size:9.5px;letter-spacing:.14em;color:#6f88a6;font-weight:700;
+    padding-top:7px;border-top:1px solid #1d2836}
+  #stars{display:block;margin:2px 0 6px}
+  .btns{display:flex;flex-wrap:wrap;gap:4px}
+  .btns button{flex:1 1 46%;padding:4px 5px;border-radius:4px;cursor:pointer;
+    background:#141c26;color:#cdd8e6;border:1px solid #2b3746;font:inherit;font-size:9.5px;
+    text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .btns button:hover{border-color:#4a7bb0;background:#1a2431}
+  .btns button.wide{flex:1 1 100%}
+  .btns button.on{background:#ff4f5e;color:#0b0e13;border-color:#ff4f5e;font-weight:700}
+  .btns button.alt.on{background:#ffb03a;color:#10151c;border-color:#ffb03a}
+  .row{display:flex;align-items:center;gap:7px;margin:4px 0}
+  .row label{flex:0 0 52px;color:#8ea6c4;font-size:9.5px;letter-spacing:.04em}
+  .row input[type=range]{flex:1;accent-color:#ffb03a;height:14px}
+  .row .val{flex:0 0 40px;text-align:right;font-size:10px;color:#e8edf5}
+  #state{white-space:pre;font-size:10.5px;line-height:1.6;color:#b8c8dc}
+  #state b{color:#e8edf5}
+  #bar{height:5px;border-radius:3px;background:#1a2331;overflow:hidden;margin:5px 0 2px}
+  #barfill{height:100%;width:0;background:#3fd0e6;transition:width .08s linear}
+  #log{position:fixed;left:270px;bottom:12px;width:330px;max-height:172px;overflow:hidden;
+    padding:8px 10px;font-size:9.5px;line-height:1.65;color:#9fb2c9}
+  #log b{color:#e8edf5}
+  #log .e{color:#ffb03a}
+  #legend{right:12px;top:12px;width:214px;padding:9px 11px;font-size:9.5px;line-height:1.72;
+    color:#9fb2c9}
+  #legend h2{margin:0 0 6px;font-size:10.5px;letter-spacing:.18em;color:#8ea6c4;font-weight:700}
+  #legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;
+    vertical-align:-1px}
+  #tune{margin-top:8px;padding-top:7px;border-top:1px solid #1d2836;white-space:pre;
+    font-size:9.5px;color:#b8c8dc}
+  #load{position:fixed;inset:0;z-index:80;display:grid;place-items:center;background:#05080d;
+    font-size:13px;color:#8ea6c4}
+  #err{position:fixed;left:12px;bottom:12px;z-index:90;max-width:240px;color:#ff8b95;
+    font-size:10px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<canvas id="map"></canvas>
+
+<div id="panel" class="pane">
+  <h2>WANTED LAB</h2>
+  <canvas id="stars" width="222" height="30"></canvas>
+  <div id="bar"><div id="barfill"></div></div>
+  <div id="state">…</div>
+
+  <h3>DRIVING</h3>
+  <div class="btns" id="c-driving"></div>
+  <h3>PEOPLE &amp; PROPERTY</h3>
+  <div class="btns" id="c-people"></div>
+  <h3>POLICE</h3>
+  <div class="btns" id="c-police"></div>
+
+  <h3>CONTACT</h3>
+  <div class="btns">
+    <button id="b-los" class="wide">break line of sight</button>
+    <button id="b-hold" class="alt">hold position</button>
+    <button id="b-clear">busted / clear</button>
+  </div>
+
+  <h3>VIEW</h3>
+  <div class="row"><label>time x</label><input id="s-time" type="range" min="25" max="400" value="100"><span class="val" id="v-time">1.0</span></div>
+  <div class="row"><label>zoom</label><input id="s-zoom" type="range" min="30" max="400" value="150"><span class="val" id="v-zoom">1.5</span></div>
+  <div class="btns"><button id="b-fit" class="alt wide">whole district</button></div>
+</div>
+
+<div id="legend" class="pane">
+  <h2>LEGEND</h2>
+  <div><i style="background:#5ad98d"></i>player</div>
+  <div><i style="background:#ff4f5e"></i>unit chasing the player</div>
+  <div><i style="background:#ffb03a"></i>unit intercepting ahead</div>
+  <div><i style="background:#3fd0e6"></i>unit probing the last known position</div>
+  <div><i style="background:#8f7ce8"></i>unit sweeping the search ring</div>
+  <div><i style="background:#e8edf5"></i>last known position + search radius</div>
+  <div style="margin-top:4px"><i style="background:#5b697c"></i>give-up radius (dotted)</div>
+  <div style="margin-top:5px;color:#6f88a6">Thin lines are each unit's line of sight:
+    bright when the officer can see the player, dim when a building blocks it.</div>
+  <div id="tune">…</div>
+</div>
+
+<div id="log" class="pane">starting…</div>
+<div id="err"></div>
+<div id="load">reading the district…</div>
+<script type="module" src="./main.js"></script>
+</body></html>

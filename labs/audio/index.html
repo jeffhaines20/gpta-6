@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Port Verano — Audio</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#05080d;
+    font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#e8edf5}
+  #scope{position:fixed;inset:0;display:block;width:100%;height:100%}
+  #panel{position:fixed;left:12px;top:12px;z-index:60;width:276px;padding:10px 12px 11px;
+    border-radius:7px;background:rgba(6,10,16,.88);border:1px solid rgba(120,150,190,.24);
+    box-shadow:0 6px 26px rgba(0,0,0,.55)}
+  #panel h2{margin:0 0 7px;font-size:10.5px;letter-spacing:.18em;color:#8ea6c4;font-weight:700}
+  .sec{margin-top:8px;padding-top:7px;border-top:1px solid #223040;
+    font-size:9.5px;letter-spacing:.14em;color:#6d8098}
+  .row{display:flex;align-items:center;gap:7px;margin:4px 0}
+  .row label{flex:0 0 62px;color:#8ea6c4;font-size:10px;letter-spacing:.04em}
+  .row input[type=range]{flex:1;accent-color:#ffb03a;height:14px}
+  .row .val{flex:0 0 48px;text-align:right;font-size:10.5px;color:#e8edf5}
+  .btns{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+  .btns.four button{flex:1 1 20%}
+  .btns button{flex:1 1 30%;padding:4px 5px;border-radius:4px;cursor:pointer;
+    background:#141c26;color:#cdd8e6;border:1px solid #2b3746;font:inherit;font-size:10px}
+  .btns button:hover{border-color:#4a7bb0;background:#1a2431}
+  .btns button.on{background:#ffb03a;color:#10151c;border-color:#ffb03a}
+  #stats{margin-top:8px;padding-top:7px;border-top:1px solid #223040;
+    white-space:pre;font-size:10.5px;line-height:1.6;color:#b8c8dc}
+  #keys{margin-top:7px;padding-top:6px;border-top:1px solid #223040;
+    font-size:9.5px;color:#7d90a8;line-height:1.7}
+  #gate{position:fixed;inset:0;z-index:90;display:grid;place-items:center;cursor:pointer;
+    background:rgba(5,8,13,.93);color:#8ea6c4;font-size:14px;letter-spacing:.06em}
+  #gate b{color:#ffb03a}
+</style>
+</head>
+<body>
+<canvas id="scope"></canvas>
+<div id="panel">
+  <h2>AUDIO LAB</h2>
+  <div class="btns">
+    <button id="b-bench" class="on">bench</button>
+    <button id="b-drive">drive car</button>
+    <button id="b-mute">mute</button>
+  </div>
+
+  <div class="sec">ENGINE</div>
+  <div class="row"><label>rpm</label><input id="s-rpm" type="range" min="820" max="7100" value="3800"><span class="val" id="v-rpm">3800</span></div>
+  <div class="row"><label>throttle</label><input id="s-thr" type="range" min="0" max="100" value="55"><span class="val" id="v-thr">0.55</span></div>
+  <div class="row"><label>brake</label><input id="s-brk" type="range" min="0" max="100" value="0"><span class="val" id="v-brk">0.00</span></div>
+
+  <div class="sec">TYRES</div>
+  <div class="row"><label>speed</label><input id="s-spd" type="range" min="0" max="220" value="62"><span class="val" id="v-spd">62</span></div>
+  <div class="row"><label>slip</label><input id="s-slip" type="range" min="0" max="100" value="0"><span class="val" id="v-slip">0.00</span></div>
+
+  <div class="sec">PURSUIT SIREN</div>
+  <div class="btns four">
+    <button id="b-sir-off" class="on">off</button>
+    <button id="b-sir-wail">wail</button>
+    <button id="b-sir-yelp">yelp</button>
+    <button id="b-orbit" class="on">orbit</button>
+    <button id="b-sir-fleet">real pursuit fleet (6 units, 3 voices)</button>
+  </div>
+
+  <div class="sec">WEATHER &amp; TIME</div>
+  <div class="row"><label>rain</label><input id="s-rain" type="range" min="0" max="100" value="0"><span class="val" id="v-rain">0.00</span></div>
+  <div class="row"><label>hour</label><input id="s-hour" type="range" min="0" max="240" value="185"><span class="val" id="v-hour">18.5</span></div>
+  <div class="btns four">
+    <button id="b-noon">noon</button>
+    <button id="b-dusk" class="on">dusk</button>
+    <button id="b-night">night</button>
+    <button id="b-interior">in car</button>
+  </div>
+
+  <div class="sec">EVENTS</div>
+  <div class="btns">
+    <button id="b-start">stinger start</button>
+    <button id="b-ok">success</button>
+    <button id="b-fail">fail</button>
+    <button id="b-tap">tap 3 m/s</button>
+    <button id="b-crash">crash 22 m/s</button>
+    <button id="b-vol">vol 90%</button>
+  </div>
+  <div id="stats">waiting for gesture…</div>
+  <div id="keys">1 bench &nbsp; 2 drive &nbsp; M mute &nbsp; W/S rpm &nbsp; A/D slip<br>Z wail &nbsp; X yelp &nbsp; C off &nbsp; P fleet &nbsp; R rain &nbsp; I cabin<br>Q start &nbsp; E success &nbsp; F fail &nbsp; Space crash</div>
+</div>
+<div id="gate"><div>click anywhere to start audio &nbsp;<b>&#9654;</b></div></div>
+<script type="module" src="./main.js"></script>
+</body></html>

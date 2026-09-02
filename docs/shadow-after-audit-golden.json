@@ -1,0 +1,432 @@
+{
+ "tod": "golden",
+ "traffic": 30,
+ "peds": 40,
+ "mPerTexel": 0.078125,
+ "rows": {
+  "other": {
+   "meshes": 26,
+   "casters": 24,
+   "receivers": 25,
+   "instances": 26,
+   "castInstances": 24,
+   "tris": 58340,
+   "names": {
+    "(unnamed)": 26
+   }
+  },
+  "world chunk": {
+   "meshes": 259,
+   "casters": 57,
+   "receivers": 208,
+   "instances": 259,
+   "castInstances": 57,
+   "tris": 91700,
+   "names": {
+    "chunk:-#,-#:lod#:far": 14,
+    "chunk:-#,-#:lod#:road": 23,
+    "chunk:-#,-#:lod#:zone:parkingLot": 15,
+    "chunk:-#,-#:lod#:zone:grass": 3,
+    "chunk:-#,#:lod#:road": 13,
+    "chunk:-#,#:lod#:zone:parkingLot": 5,
+    "chunk:-#,#:lod#:far": 5,
+    "chunk:#,#:lod#:far": 16,
+    "chunk:#,#:lod#:road": 25,
+    "chunk:#,#:lod#:zone:parkingLot": 12,
+    "chunk:-#,#:lod#:zone:grass": 5,
+    "chunk:#,-#:lod#:far": 16,
+    "chunk:#,-#:lod#:road": 25,
+    "chunk:#,-#:lod#:zone:parkingLot": 17,
+    "chunk:#,-#:lod#:facade:bayTower": 2,
+    "chunk:#,-#:lod#:facade:parking": 2,
+    "chunk:#,-#:lod#:facade:retailStrip": 4,
+    "chunk:#,-#:lod#:trim": 4,
+    "chunk:#,-#:lod#:zone:grass": 2,
+    "chunk:#,-#:lod#:facade:midOffice": 3,
+    "chunk:-#,-#:lod#:facade:midOffice": 3,
+    "chunk:-#,-#:lod#:facade:deco": 3,
+    "chunk:-#,-#:lod#:facade:bayTower": 4,
+    "chunk:-#,-#:lod#:facade:parking": 1,
+    "chunk:-#,-#:lod#:trim": 4,
+    "chunk:#,#:lod#:facade:midOffice": 4,
+    "chunk:#,#:lod#:facade:retailStrip": 3,
+    "chunk:#,#:lod#:trim": 4,
+    "chunk:-#,-#:lod#:facade:retailStrip": 1,
+    "chunk:-#,#:lod#:facade:deco": 3,
+    "chunk:-#,#:lod#:facade:midOffice": 1,
+    "chunk:-#,#:lod#:trim": 4,
+    "chunk:#,#:lod#:facade:deco": 2,
+    "chunk:#,#:lod#:facade:parking": 1,
+    "chunk:#,#:lod#:facade:bayTower": 1,
+    "chunk:-#,#:lod#:facade:bayTower": 1,
+    "chunk:-#,#:lod#:facade:retailStrip": 2,
+    "chunk:#,#:lod#:zone:grass": 3,
+    "chunk:-#,#:lod#:zone:concrete": 1,
+    "chunk:-#,-#:lod#:zone:dirt": 2
+   }
+  },
+  "sky": {
+   "meshes": 1,
+   "casters": 0,
+   "receivers": 0,
+   "instances": 1,
+   "castInstances": 0,
+   "tris": 1,
+   "names": {
+    "sky": 1
+   }
+  },
+  "weather": {
+   "meshes": 2,
+   "casters": 0,
+   "receivers": 0,
+   "instances": 2,
+   "castInstances": 0,
+   "tris": 4,
+   "names": {
+    "rain": 1,
+    "rain-splashes": 1
+   }
+  },
+  "furniture (instanced)": {
+   "meshes": 4,
+   "casters": 4,
+   "receivers": 0,
+   "instances": 1659,
+   "castInstances": 1659,
+   "tris": 58248,
+   "names": {
+    "(unnamed)": 4
+   }
+  },
+  "furniture": {
+   "meshes": 42,
+   "casters": 42,
+   "receivers": 42,
+   "instances": 42,
+   "castInstances": 42,
+   "tris": 260545,
+   "names": {
+    "props:near:#,-#": 11,
+    "props:near:#,#": 11,
+    "props:near:-#,-#": 10,
+    "props:near:-#,#": 3,
+    "props:far:-#,-#": 2,
+    "props:far:#,#": 2,
+    "props:far:#,-#": 2,
+    "props:far:-#,#": 1
+   }
+  },
+  "other (instanced)": {
+   "meshes": 2,
+   "casters": 2,
+   "receivers": 1,
+   "instances": 34,
+   "castInstances": 34,
+   "tris": 30432,
+   "names": {
+    "(unnamed)": 2
+   }
+  },
+  "pedestrians (instanced)": {
+   "meshes": 7,
+   "casters": 6,
+   "receivers": 6,
+   "instances": 536,
+   "castInstances": 496,
+   "tris": 38656,
+   "names": {
+    "(unnamed)": 7
+   }
+  }
+ },
+ "named": {
+  "(unnamed)": {
+   "w": 1215.09,
+   "cast": true
+  },
+  "chunk:-#,-#:lod#:far": {
+   "w": 141.27,
+   "cast": false
+  },
+  "chunk:-#,-#:lod#:road": {
+   "w": 302.68,
+   "cast": false
+  },
+  "chunk:-#,-#:lod#:zone:parkingLot": {
+   "w": 120.76,
+   "cast": false
+  },
+  "chunk:-#,-#:lod#:zone:grass": {
+   "w": 91.78,
+   "cast": false
+  },
+  "chunk:-#,#:lod#:road": {
+   "w": 376.44,
+   "cast": false
+  },
+  "chunk:-#,#:lod#:zone:parkingLot": {
+   "w": 166.3,
+   "cast": false
+  },
+  "chunk:-#,#:lod#:far": {
+   "w": 61.69,
+   "cast": false
+  },
+  "chunk:#,#:lod#:far": {
+   "w": 145.32,
+   "cast": false
+  },
+  "chunk:#,#:lod#:road": {
+   "w": 328.99,
+   "cast": false
+  },
+  "chunk:#,#:lod#:zone:parkingLot": {
+   "w": 125.73,
+   "cast": false
+  },
+  "chunk:-#,#:lod#:zone:grass": {
+   "w": 226.08,
+   "cast": false
+  },
+  "chunk:#,-#:lod#:far": {
+   "w": 152.88,
+   "cast": false
+  },
+  "chunk:#,-#:lod#:road": {
+   "w": 224.7,
+   "cast": false
+  },
+  "chunk:#,-#:lod#:zone:parkingLot": {
+   "w": 152.87,
+   "cast": false
+  },
+  "chunk:#,-#:lod#:facade:bayTower": {
+   "w": 81.55,
+   "cast": true
+  },
+  "chunk:#,-#:lod#:facade:parking": {
+   "w": 37.54,
+   "cast": true
+  },
+  "chunk:#,-#:lod#:facade:retailStrip": {
+   "w": 81.58,
+   "cast": true
+  },
+  "chunk:#,-#:lod#:trim": {
+   "w": 125.1,
+   "cast": true
+  },
+  "chunk:#,-#:lod#:zone:grass": {
+   "w": 40.99,
+   "cast": false
+  },
+  "chunk:#,-#:lod#:facade:midOffice": {
+   "w": 124.01,
+   "cast": true
+  },
+  "chunk:-#,-#:lod#:facade:midOffice": {
+   "w": 61.85,
+   "cast": true
+  },
+  "chunk:-#,-#:lod#:facade:deco": {
+   "w": 97.14,
+   "cast": true
+  },
+  "chunk:-#,-#:lod#:facade:bayTower": {
+   "w": 136.26,
+   "cast": true
+  },
+  "chunk:-#,-#:lod#:facade:parking": {
+   "w": 43.5,
+   "cast": true
+  },
+  "chunk:-#,-#:lod#:trim": {
+   "w": 140.76,
+   "cast": true
+  },
+  "chunk:#,#:lod#:facade:midOffice": {
+   "w": 81.35,
+   "cast": true
+  },
+  "chunk:#,#:lod#:facade:retailStrip": {
+   "w": 130.83,
+   "cast": true
+  },
+  "chunk:#,#:lod#:trim": {
+   "w": 132.39,
+   "cast": true
+  },
+  "chunk:-#,-#:lod#:facade:retailStrip": {
+   "w": 30.09,
+   "cast": true
+  },
+  "chunk:-#,#:lod#:facade:deco": {
+   "w": 103.61,
+   "cast": true
+  },
+  "chunk:-#,#:lod#:facade:midOffice": {
+   "w": 102.47,
+   "cast": true
+  },
+  "chunk:-#,#:lod#:trim": {
+   "w": 134.72,
+   "cast": true
+  },
+  "chunk:#,#:lod#:facade:deco": {
+   "w": 53.97,
+   "cast": true
+  },
+  "chunk:#,#:lod#:facade:parking": {
+   "w": 32.02,
+   "cast": true
+  },
+  "chunk:#,#:lod#:facade:bayTower": {
+   "w": 49.31,
+   "cast": true
+  },
+  "chunk:-#,#:lod#:facade:bayTower": {
+   "w": 48.13,
+   "cast": true
+  },
+  "chunk:-#,#:lod#:facade:retailStrip": {
+   "w": 45.8,
+   "cast": true
+  },
+  "chunk:#,#:lod#:zone:grass": {
+   "w": 16.34,
+   "cast": false
+  },
+  "chunk:-#,#:lod#:zone:concrete": {
+   "w": 73.83,
+   "cast": false
+  },
+  "chunk:-#,-#:lod#:zone:dirt": {
+   "w": 62.92,
+   "cast": false
+  },
+  "sky": {
+   "w": 0,
+   "cast": false
+  },
+  "rain": {
+   "w": 0,
+   "cast": false
+  },
+  "rain-splashes": {
+   "w": 0,
+   "cast": false
+  },
+  "props:near:#,-#": {
+   "w": 221.94,
+   "cast": true
+  },
+  "props:near:#,#": {
+   "w": 223.2,
+   "cast": true
+  },
+  "props:near:-#,-#": {
+   "w": 223.36,
+   "cast": true
+  },
+  "props:near:-#,#": {
+   "w": 296.74,
+   "cast": true
+  },
+  "props:far:-#,-#": {
+   "w": 514.73,
+   "cast": true
+  },
+  "props:far:#,#": {
+   "w": 503.27,
+   "cast": true
+  },
+  "props:far:#,-#": {
+   "w": 500.85,
+   "cast": true
+  },
+  "props:far:-#,#": {
+   "w": 535.77,
+   "cast": true
+  }
+ },
+ "shadow": {
+  "mapSize": [
+   3072,
+   3072
+  ],
+  "left": -120,
+  "right": 120,
+  "top": 120,
+  "bottom": -120,
+  "near": 1,
+  "far": 900,
+  "bias": -0.0006,
+  "normalBias": 0.06,
+  "type": 2,
+  "enabled": true,
+  "autoUpdate": true
+ },
+ "render": {
+  "calls": 150,
+  "sceneCalls": 142,
+  "postPasses": 8,
+  "triangles": 315828
+ },
+ "world": {
+  "chunksLoaded": 89,
+  "lodNear": 16,
+  "lodFar": 73,
+  "meshes": 261,
+  "triangles": 91704,
+  "loads": 94,
+  "unloads": 5,
+  "lodSwaps": 19,
+  "worstBuildMs": 13.299999999813735,
+  "lastBuildMs": 0,
+  "queued": 69,
+  "pendingUnload": 0,
+  "sliceMs": 0,
+  "worstSliceMs": 14.200000000186265,
+  "scanMs": 0,
+  "worstScanMs": 0.6000000005587935,
+  "lastFinishMs": 0,
+  "worstFinishMs": 0,
+  "worstDisposeMs": 0.20000000018626451,
+  "worstUploadMs": 11.900000000372529,
+  "materials": {
+   "materials": 17,
+   "textures": 19,
+   "textureLayers": 33,
+   "textureMemoryMB": 22.75,
+   "generationMs": 448.8,
+   "surfaceLayers": 8,
+   "timingsMs": {
+    "markings": 0,
+    "surfaces": 291.2,
+    "ground": 137,
+    "water": 9,
+    "trim": 11.5
+   },
+   "keys": [
+    "road",
+    "sidewalk",
+    "parkingLot",
+    "grass",
+    "dirt",
+    "sand",
+    "land",
+    "kerb",
+    "kerbPainted",
+    "concrete",
+    "water",
+    "glassStorefront",
+    "glassTinted",
+    "metalPainted",
+    "metalGalvanised",
+    "metalAnodised",
+    "buildingMerged"
+   ]
+  }
+ }
+}

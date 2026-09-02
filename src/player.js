@@ -2,7 +2,7 @@
 // movement wants direct, responsive control, and mixing it into the vehicle
 // solver is the classic way to end up with a floaty player.
 
-import * as THREE from '../vendor/three.module.js';
+import * as THREE from '../vendor/three.module.min.js';
 
 export class Player {
   constructor() {

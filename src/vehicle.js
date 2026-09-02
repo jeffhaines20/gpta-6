@@ -6,7 +6,7 @@
 // This is deliberately the highest-risk module in the project, which is why it
 // gets built first and gets one sequential owner.
 
-import * as THREE from '../vendor/three.module.js';
+import * as THREE from '../vendor/three.module.min.js';
 
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();

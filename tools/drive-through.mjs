@@ -6,6 +6,8 @@
 // counts, chunk load/unload rates, the worst synchronous chunk-build stall, and
 // JS heap growth — none of which depend on GPU speed.
 import { chromium } from 'playwright';
+import { launchOptions } from './browser.mjs';
+import { ensureServer } from './serve.mjs';
 import fs from 'node:fs';
 import { BUDGET, gate, printGate } from './budget.mjs';
 
@@ -14,11 +16,8 @@ const CIRCUITS = 3;
 const OUT = 'docs/shots';
 fs.mkdirSync(OUT, { recursive: true });
 
-const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
-         '--no-sandbox', '--js-flags=--expose-gc'],
-});
+await ensureServer();
+const browser = await chromium.launch(launchOptions(['--js-flags=--expose-gc']));
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message));
@@ -28,6 +27,79 @@ await page.goto('http://127.0.0.1:8123/district/', { waitUntil: 'networkidle' })
 await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
 
 if (WITH_TRAFFIC) await page.evaluate(() => __district.setTraffic(true));
+
+// Isolation switch for the chunk-stall metric. The ledger has carried a claim
+// since the M2 gate that the HUD adds ~4 ms to the streaming slice through the
+// GC it provokes (measured then as 8.1 ms with it off against 12.2 ms with it
+// on), and nothing in tools/ could reproduce that: no harness has ever called
+// setHudEnabled. DRIVE_HUD=off makes the claim testable instead of quotable.
+//
+// It disables the canvas HUD only. The plain-text debug readout in main.js is a
+// separate per-frame string build and stays on, so a null result here does not
+// clear the whole HUD - it clears the canvas half of it.
+// Isolation for the chunk-stall metric after the ground-contact work.
+//
+// That change did three things at once - 4,596 prop buckets became casters, the
+// shadow map went 2048 -> 3072, and its extent went +/-260 -> +/-120 - and the
+// stall metric then failed three times in seven runs where the eight runs before
+// it never passed 12.2 ms. The hypothesis is that SwiftShader rasterises the
+// shadow map on the CPU that also runs the streaming slice this metric measures.
+// A hypothesis does not get to dismiss a red gate, so this makes it testable:
+//
+//   DRIVE_SHADOW=off        shadow pass disabled entirely - the decisive control
+//   DRIVE_SHADOW=2048       map back to 2048, casters and extent unchanged
+//   DRIVE_SHADOW=nocasters  props stop casting, map and extent unchanged
+//
+// Each variant reports what it actually changed, because a switch that silently
+// does nothing has already cost this project a day.
+const SHADOW_MODE = process.env.DRIVE_SHADOW;
+if (SHADOW_MODE) {
+  const applied = await page.evaluate((mode) => {
+    const r = __district.renderer;
+    let sun = null;
+    __district.scene.traverse((o) => { if (o.isDirectionalLight && o.shadow) sun = o; });
+    if (mode === 'off') {
+      r.shadowMap.enabled = false;
+      __district.scene.traverse((o) => { if (o.isMesh) o.castShadow = false; });
+      return { mode, shadowMapEnabled: r.shadowMap.enabled };
+    }
+    if (mode === '2048') {
+      // The map is a render target built on first use; it must be dropped for a
+      // new size to take, or three keeps rendering into the old 3072 one.
+      if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+      sun.shadow.mapSize.set(2048, 2048);
+      sun.shadow.needsUpdate = true;
+      return { mode, mapSize: sun.shadow.mapSize.width };
+    }
+    if (mode === 'nocasters') {
+      let off = 0;
+      __district.scene.traverse((o) => {
+        if (o.isMesh && o.castShadow && /props|furniture/.test((o.name || '') + '|' + (o.parent?.name || ''))) {
+          o.castShadow = false; off++;
+        }
+      });
+      return { mode, castersDisabled: off };
+    }
+    throw new Error(`unknown DRIVE_SHADOW: ${mode}`);
+  }, SHADOW_MODE);
+  console.log('shadow isolation:', JSON.stringify(applied));
+  // Prove the variant reached the renderer rather than trusting the assignment.
+  const seen = await page.evaluate(() => {
+    let sun = null, casters = 0;
+    __district.scene.traverse((o) => {
+      if (o.isDirectionalLight && o.shadow) sun = o;
+      if (o.isMesh && o.castShadow) casters++;
+    });
+    return { shadowMapEnabled: __district.renderer.shadowMap.enabled,
+      mapSize: sun ? sun.shadow.mapSize.width : null, casterMeshes: casters };
+  });
+  console.log('shadow state now:', JSON.stringify(seen));
+}
+
+if (process.env.DRIVE_HUD === 'off') {
+  await page.evaluate(() => __district.setHudEnabled(false));
+  console.log('canvas HUD DISABLED for this run');
+}
 
 // Install the autopilot: steer toward the next waypoint, advance on arrival.
 // Because the sim is fixed-step, this behaves the same however slowly the
@@ -124,7 +196,11 @@ const result = {
   chunk_loads_per_s: +(loadsTotal / Math.max(1, durationS)).toFixed(2),
   chunk_unloads_per_s: +(unloadsTotal / Math.max(1, durationS)).toFixed(2),
   lod_swaps_total: world.lodSwaps,
-  worst_chunk_build_ms: +world.worstBuildMs.toFixed(2),
+  // Chunk building is resumable, so the number the stall gate cares about is the
+  // worst UNINTERRUPTED main-thread slice, not the summed cost of a chunk spread
+  // across frames. Both are reported so the change is auditable.
+  worst_chunk_build_ms: +world.worstSliceMs.toFixed(2),
+  worst_chunk_total_ms: +world.worstBuildMs.toFixed(2),
   heap_mb_before: heapBefore, heap_mb_after: heapAfter,
   heap_growth_mb: heapBefore !== null ? heapAfter - heapBefore : null,
   speed_kmh: stat('kmh'),
