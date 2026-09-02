@@ -73,6 +73,20 @@ if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1])))
     }
   } else pairs.push([process.argv[2], process.argv[3]]);
 
+  // Refuse to measure frames older than the world they claim to show. Getting this
+  // wrong is silent: the numbers come out fine, they are just answers about the
+  // previous build.
+  const dmtime = fs.statSync('data/district.json').mtimeMs;
+  const stale = pairs.filter(([id, side]) => {
+    const f = path.join(REN, `${id}-${side}-${time}.png`);
+    return fs.existsSync(f) && fs.statSync(f).mtimeMs < dmtime;
+  });
+  if (stale.length) {
+    console.error(`REFUSING TO MEASURE: ${stale.length} of ${pairs.length} frames predate data/district.json.`);
+    console.error('Re-run tools/pano-match.mjs; a stale frame answers about the previous build.');
+    process.exit(3);
+  }
+
   console.log(`camera: eye 2.5 m, pitch ${PITCH} deg, hfov ${HFOV} on ${ASPECT.toFixed(3)} -> vfov ${VFOV.toFixed(1)}`);
   console.log('roofline elevation above the horizon, degrees. higher = taller streetwall.\n');
   const rows = [];

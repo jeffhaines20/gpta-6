@@ -30,6 +30,115 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## Main Street east was 1.67x too tall, and the corridor is two massing regimes
+
+Acting on the audited finding above. `tools/bake/massing.mjs` `marlin-core` applied
+ONE storey distribution along the whole spine, bayfront to Main St east. Measured
+against the photography leg by leg, that single table was wrong in a specific way:
+the eastern leg was far too tall and the western leg was already right.
+
+**First attempt: one corrected table for the whole band. It worked and it broke
+things.** Re-derived from 16 street-facing walls with an unclipped reference angle,
+the candidate that best centred the distribution measured 0.94 median and 0.95 mean
+built/reference ratio against the old table's 1.67 (only 2 of those 16 walls had
+been within a third of the real height). Five candidates were scored before one was
+chosen; the winner was not the one with the best median but the one with the
+tightest spread, 0.46-1.81 against 0.25-2.41.
+
+Re-baked and re-measured, the hero leg improved — and two faces that had been
+**exactly right** regressed: x=34.6 went 0.0 -> -10.4 deg and x=-240.4 went -20.2 ->
+-23.6. Both are west of Five Points. A correction aimed at the whole corridor had
+shortened the half that was not wrong.
+
+**The fix is that the corridor is not one regime.** Split at the Five Points
+junction, same spine geometry, index 5:
+
+| leg | before | what it is |
+|---|---|---|
+| `marlin-core-west` bayfront -> Five Points | **0.0 deg median, already correct** | carries the district's real towers |
+| `marlin-core-east` Five Points -> Main St east | **+10.1 deg median, 20/24 too tall** | a two-to-three storey retail wall |
+
+West keeps its original table untouched. East takes the re-derived one, with a
+floor of 2 storeys above 300 m2 because a 3.2 m single-storey box on a retail wall
+reads as a shed and the reference has none.
+
+### Result, on the same instrument, before and after
+
+| leg | median delta | built columns with NO sky | mean abs delta |
+|---|---|---|---|
+| **Main St E of Five Points** | +10.1 -> **+6.1** | **62% -> 26%** | 12.1 -> 9.9 |
+| Five Points approach | +19.9 -> **+13.4** | 71% -> 52% | 14.4 -> 11.1 |
+| Main St @ Pineapple | 0.0 -> **0.0** | 38% -> 38% | 7.3 -> 7.4 |
+| bayfront leg | -0.9 -> **-0.9** | 18% -> 18% | 7.0 -> 7.0 |
+
+Restricted to the 14 pairs where **both** images are unclipped in **both** runs, so
+every number is a measurement rather than a lower bound: whole-corridor mean
+absolute error **6.71 -> 5.48 deg**, Main St east **6.3 -> 3.8**, and the other two
+legs **unchanged to a tenth of a degree**. The single-band attempt scored 6.43 on
+that same set, so the split is better *and* costs nothing where it was already
+right — which is the whole point of splitting it.
+
+The headline number is the sky. On the hero leg our streetwall filled the frame
+edge-to-edge in 62% of image columns; it now does in 26%, against a reference that
+shows sky in 82%. Main Street reads as a low street under a wide Florida sky
+rather than as a canyon.
+
+**14 buildings are in `marlin-core-east` and 12 of them moved** (mean height 12.6 ->
+7.3 m). `marlin-core-west` is 15 buildings and **0 moved**, which is the check that
+the split did what it says.
+
+### What this does NOT fix
+
+A distribution keyed on footprint area cannot make an individual building right. On
+the unclipped set the residual is still 3.8 deg mean on the hero leg and one face
+(x=283 R) sits at +11.0 unchanged. That is per-BUILDING error, and the instrument
+to author against it now exists: `tools/pano-match.mjs --id <pano>` plus
+`tools/roofline.mjs` gives a per-wall number in about forty seconds. The five
+hand-placed `LANDMARKS` are untouched and at least one of them deserves the same
+treatment — `Main Street Arcade` puts 7 levels at (250, -150) where the station at
+x=239 measures a reference implying about 2.5.
+
+## Measurement integrity, a fifth of the same shape: a sliding window matched the previous run's frames
+
+The massing change was re-baked, the 48 matched frames re-captured, the roofline
+re-measured — and every leg came back **identical to three decimal places**. Main
+St east still +10.1 deg median, still 20 of 24, still 62% of columns with no sky.
+The obvious conclusion was that the change had done nothing.
+
+It had. The frames were the old ones.
+
+The capture was waited on with
+
+```
+until [ "$(find docs/shots/pano-match -name '*golden.png' -newermt '-25 minutes' | wc -l)" -ge 48 ]
+```
+
+`-newermt '-25 minutes'` is a **sliding** window. The previous run's 48 frames were
+themselves less than 25 minutes old, so the condition was true the instant it was
+first evaluated, the wait returned immediately, and the measurement ran against a
+directory that had not been rewritten yet. Seventeen of the forty-eight had been
+replaced by then; the rest were answers about the previous build.
+
+What made it survivable was that the frame was checked against the one already
+committed and found **byte-identical** — not merely similar. A render is not
+bit-stable across a data change; identical bytes meant identical input, which
+pointed at the sample rather than at the change. The served `district.json` was
+also confirmed to carry the new heights (marlin-core mean 7.8 m), which ruled out
+a caching explanation and left only staleness.
+
+**The fix is structural, not a resolution to be careful.** `tools/pano-match.mjs`
+now stamps its `index.json` with `data/district.json`'s mtime and size, and
+`tools/roofline.mjs` **refuses to measure at all** — exit 3, no numbers printed —
+if any frame it is about to read predates `data/district.json`. Verified by running
+it on the mixed directory, where it reported `29 of 48 frames predate
+data/district.json` and stopped.
+
+This is the fifth failure of this exact shape in the ledger, and the first three
+were all "the sample was not what I thought it was". The general rule stands and
+gets sharper: **an absolute reference (is this file newer than that file) is safe;
+a relative one (is this file recent) is not, because "recent" silently includes the
+thing you are trying to replace.**
+
 ## Street-level reference, and a headline diagnosis of mine that failed its own audit
 
 A session finally held `MAPILLARY_TOKEN`. What came back changed the instruments
@@ -410,6 +519,9 @@ reverting it returns 0.00. A gate that cannot fail is not a gate.
 
 | Date | Gate | Result | Evidence |
 |---|---|---|---|
+| 2026-09-02 | **drive-through + 30 traffic**, after the Main St east massing split | **PASS/PASS/WARN** — draw p95 **228** (was 229), tris p95 **760,681** (was 766,051), stall **8.7 ms** inside its 7.1-16.4 noise band, heap +3 MB | `docs/drive-traffic.json` |
+| 2026-09-02 | **lighting sweep**, after the massing split | **PASS** — all four times of day, both negative tests firing | `docs/daynight.json` |
+| 2026-09-02 | syntax / golden-trace / physics / geom-audit, after the massing split | PASS — 81 modules, 30 samples, 10 checks, every prop reaches its host surface | `npm run gates:static` |
 | 2026-09-02 | **drive-through + 30 traffic**, after the Sarasota streetscape pass | **PASS/PASS/WARN** — draw p95 **229** (was 228), tris p95 **766,051** (was 727,193, +5.3%), stall **13.9 ms** inside its 7.1-16.4 noise band, heap +6 MB | `docs/drive-traffic.json` |
 | 2026-09-02 | **lighting sweep**, after the streetscape pass | **PASS** — all 4 times of day inside the envelope, `paths: 1`, both negative tests firing | `docs/daynight.json` |
 | 2026-09-02 | syntax / golden-trace / physics / geom-audit | PASS — 82 modules, 30 samples, 10 checks, `awningArmAboveFabric 0.00`, and the awning check verified able to FAIL before its null result was trusted | `npm run gates:static` |

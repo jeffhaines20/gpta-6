@@ -15,6 +15,25 @@ const MARLIN_SPINE = [
   [19.1, -6.3], [57.5, -163.8], [220.0, -163.9], [400.0, -163.9], [569.3, -163.9],
 ];
 
+// The corridor is NOT one massing regime, and treating it as one is what the
+// street-level photography caught. Split at the Five Points junction:
+//
+//   WEST  bayfront -> Five Points   carries the district's real height. Measured
+//                                   delta p50 median 0.0 deg against the reference
+//                                   before any of this was touched - it was already
+//                                   right, and shortening it uniformly broke two
+//                                   faces that had been exact (x=34.6 went 0.0 ->
+//                                   -10.4 deg, i.e. from correct to 10 deg short).
+//   EAST  Five Points -> Main St E  is a two-to-three storey retail wall. Measured
+//                                   +10.1 deg median too tall over 24 walls, with
+//                                   62% of columns showing no sky at all against a
+//                                   reference showing sky in 82% of them.
+//
+// Same spine geometry, split at index 5, so nothing moves except which
+// distribution claims a footprint.
+const MARLIN_WEST_SPINE = MARLIN_SPINE.slice(0, 6);
+const MARLIN_EAST_SPINE = MARLIN_SPINE.slice(5);
+
 // The bayfront band, where the district's genuine towers stand.
 const BAYFRONT_SPINE = [[-471.2, 204.6], [-420.0, 120.0], [-360.0, 20.0], [-330.0, -60.0], [-320.0, -180.0]];
 
@@ -52,8 +71,34 @@ function seedOf(x, z) {
 // not a uniform height.
 const BANDS = [
   {
-    name: 'marlin-core', spine: MARLIN_SPINE, within: 46,
-    // Five Points and the blocks either side carry the tallest street-wall.
+    // EAST of Five Points: the two-to-three storey retail wall.
+    //
+    // RE-DERIVED 2026-09-02 against street-level photography. The previous
+    // distribution (2200:6/8/11, 900:3/4/6, 300:2/3/4, else 2/3) was authored from
+    // the idea of a downtown rather than from this one, and on this leg it made
+    // the street 1.67x too tall: over 16 street-facing walls where a Mapillary
+    // panorama and the engine camera stand on the same coordinate
+    // (tools/pano-match.mjs, tools/roofline.mjs) the median built/reference height
+    // ratio was 1.67, and only 2 of 16 walls were within a third of the real
+    // thing. This table measures 0.94 median and 0.95 mean.
+    //
+    // The floor stays at 2 storeys above 300 m2: a 3.2 m single-storey box on the
+    // retail wall reads as a shed, and the reference has none.
+    name: 'marlin-core-east', spine: MARLIN_EAST_SPINE, within: 46,
+    pick: (r, area) => {
+      if (area > 2200) return r < 0.5 ? 3 : r < 0.85 ? 4 : 6;
+      if (area > 900) return r < 0.5 ? 2 : r < 0.85 ? 3 : 4;
+      if (area > 300) return r < 0.6 ? 2 : r < 0.9 ? 2 : 3;
+      return r < 0.7 ? 1 : 2;
+    },
+  },
+  {
+    // WEST of Five Points: unchanged, because it was already right. This leg
+    // measured 0.0 deg median against the reference BEFORE anything was touched,
+    // and the first attempt - which shortened the whole corridor with one table -
+    // took a face at x=34.6 from exactly correct to 10.4 deg too short. A
+    // correction has to be aimed at the leg that is wrong.
+    name: 'marlin-core-west', spine: MARLIN_WEST_SPINE, within: 46,
     pick: (r, area) => {
       if (area > 2200) return r < 0.45 ? 6 : r < 0.8 ? 8 : 11;
       if (area > 900) return r < 0.4 ? 3 : r < 0.75 ? 4 : 6;

@@ -105,7 +105,13 @@ for (const p of panos) {
   }
 }
 
+// Stamp the frames with the data they were rendered from. A capture that predates
+// a re-bake is indistinguishable from a fresh one by looking at the directory, and
+// comparing a stale set against a changed world produces a confident "the change
+// did nothing" - which is exactly what happened on 2026-09-02 before this was added.
+const dstat = fs.statSync('data/district.json');
 fs.writeFileSync(path.join(OUT, 'index.json'), JSON.stringify({
+  district: { mtime: dstat.mtime.toISOString(), size: dstat.size },
   time: TIME, eye: EYE, pitchDeg: PITCH, hfovDeg: HFOV, vfovDeg: +VFOV.toFixed(2),
   note: 'Each frame is the engine standing where the like-named Mapillary pano stood. '
       + 'Compare against reference/sarasota/mapillary/views/<id>-<side>.png.',
