@@ -16,3 +16,8 @@ docs/drive*.json.bak
 .*.mjs
 labs/**/_*
 docs/shots/_*.png
+
+# Reprojected pano views: derived from CC BY-SA source imagery, regenerable
+# from tools/reproject-pano.mjs plus the index. Tracking them would double the
+# reference weight for nothing.
+reference/sarasota/mapillary/views/

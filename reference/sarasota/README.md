@@ -40,3 +40,40 @@ Commons description page under `descUrl`.
 - **Dark bronze / smoked glass**, not blue.
 - **Five Points is a landscaped roundabout** with planted islands, low flowering shrubs and
   ornamental twin-globe lamp standards; its paving is pale concrete, not dark asphalt.
+
+---
+
+## `mapillary/` — street-level coverage of the hero corridor
+
+29 photographs along the marina → Five Points → Main St east corridor, added 2026-09-02
+once a session finally held `MAPILLARY_TOKEN`. Fetched by `tools/fetch-mapillary.mjs`;
+every file's creator, capture date, licence and Mapillary permalink is in
+`mapillary/index.json`, and each is reported in the district's own local metres so a photo
+can be found in-engine by parking the camera at the same `x,z`.
+
+**Imagery © Mapillary contributors, CC BY-SA 4.0.** Same discipline as above: reference,
+never source assets. Creators in this set are `Sitetour` (2024 panoramas), `networklanman`
+(2021), `fdot_vl` (2016, Florida DOT), `lvl5` (2018) and `jbthemilker`.
+
+### Two things worth knowing before re-running the fetch
+
+**The Graph API's bbox response is capped, so a count from it is a lower bound.** The first
+run asked for the whole trim box with `limit=40`, got 39 images, and every one was a
+panorama from a single 2024 sequence — which read as "the district is pano-only". It is
+not. The same box censused at `GRID=4` twice returned 4,348 then 4,814 unique images, and
+at `GRID=8` returned 6,686. A number that grows as you subdivide is still hitting the cap;
+one that moves between identical runs is a nondeterministic subset. Selection therefore
+queries a small box at each corridor station instead, which stays under the cap and is
+local and repeatable. `--census` reports the box count and says out loud that it is a floor.
+
+**Most of the current coverage is 360 spheres** — 431 of the 670 images within reach of a
+station. Raw, they are useless for judging a building, because equirectangular projection
+bends a straight cornice into a sine wave. `tools/reproject-pano.mjs` remaps them to
+rectilinear views aimed at either street wall, which makes them *better* reference than the
+flat frames: a flat frame points wherever the capture vehicle was going, and a sphere can
+be aimed at the shopfront. Its `--calibrate` mode checks the orientation convention against
+a stretch of Main Street that runs dead east-west, where a view down the street and a view
+at a wall are 90° apart and cannot be mistaken for each other.
+
+Reprojected views land in `mapillary/views/` and are **not tracked** — derived, and
+regenerable from the tool plus the index.
