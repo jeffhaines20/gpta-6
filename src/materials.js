@@ -1977,6 +1977,13 @@ function applyPackedRoughness(material) {
 // 12.5. The numbers below are kept because they are the right intent if a
 // material is ever given its own envMap, but nothing is tunable through them
 // today, and carbody's 2.6 is not what buys the car its highlight either.
+//
+// Read that 64.5 -> 12.5 the right way round, because three critic rounds did
+// not: it says the environment is already 81% of a pane's light, not that a pane
+// is missing one. Re-measured on a 54 m tower, a pane returns a near-constant
+// third of whatever the environment holds in its reflected direction, and the
+// direction is right too - it is a mirror, and it works. What it reflects is the
+// bug: an environment with no city in it. See applyGlazingEnv below.
 const GLAZING = {
   // Multiplies the packed roughness map (0.176-0.541), so the grime still
   // modulates gloss instead of being flattened away.
@@ -1990,6 +1997,34 @@ const GLAZING = {
   normalScale: 0.10,
   paneMetres: [1.45, 1.75],   // a curtain-wall module: 1.45 m wide, 1.75 m floor band
   mullionMetres: 0.055,
+  // The street a pane stands in - see applyGlazingEnv. Every number here was
+  // measured off data/district.json or off the district's own palettes; none is
+  // a taste value.
+  canyon: {
+    // tools/glaz-probe.mjs' canyon scan casts a ray out of the outward normal of
+    // all 2,962 building edges in the bake and records the first footprint it
+    // hits. 86% hit something. Length-weighted medians: 22.5 m away at 9.6 m tall
+    // for the district as a whole, 21.7 m at 19.2 m for the facades of the
+    // buildings over 26 m - which are the ones the critics were looking at. This
+    // pair sits between them.
+    oppositeHeight: 16.0,
+    oppositeDistance: 22.0,
+    // The crossover is soft over +-0.06 in tan space (+-3.4 deg) and ragged by
+    // +-0.15 (+-3.3 m of roofline at 22 m) on a 14 m plot rhythm, because the
+    // other side of a street is a row of separate buildings, not one extrusion.
+    skylineSoft: 0.06,
+    skylineRagged: 0.30,
+    plotMetres: 14.0,
+    // What the mass across the street returns, as an albedo applied to the
+    // irradiance the pane itself is standing in. 0.506/0.431/0.382 is the mean
+    // LINEAR albedo of the 16 wall palette entries of the four glazed recipes in
+    // facades.js - the district's own colours, warm-tilted because they are - and
+    // a street elevation is roughly 65% of that wall against 35% openings at
+    // about 0.10, which is the mix below.
+    urbanAlbedo: [0.364, 0.315, 0.283],
+    // A curtain wall's units are never coplanar; 0.010 rad is 0.57 deg.
+    facetTilt: 0.010,
+  },
 };
 
 // Panes, procedurally, in world metres — no texture, no draw call, no memory.
@@ -2097,6 +2132,130 @@ float pvHash( vec2 c ) { return fract( sin( dot( c, vec2( 127.1, 311.7 ) ) ) * 4
     diffuseColor.a = clamp( mix( diffuseColor.a, 1.0, fres * 0.92 ) + mullion * 0.6, 0.0, 1.0 );
   }
 }`);
+  });
+}
+
+// ------------------------------------------------- glazing: what glass reflects
+// A pane and the wall beside it are handed the SAME environment, and that is the
+// whole of the defect. scene.environment is the sky dome's PMREM: a gradient
+// above the horizon and, below it, one direction-independent lit-ground colour
+// (src/sky.js groundRadiance). There is no city in it anywhere.
+//
+// Measured, on a 54 m tower filling the frame, glazing masked by the packed
+// roughness/metalness texel and split by the world height the shader itself
+// wrote out (tools/glaz-probe.mjs), against a chrome ball rendered into a float
+// target in the same frame:
+//
+//   noon, one facade, pane luminance against the elevation it reflects FROM
+//     reflected elevation      0     10     20     30     40     50  deg
+//     pane                  1981   2138   1883   1628   1608   1463  nits
+//     environment (ball)    5989   8109   5713   4604   4095   4024  nits
+//     pane / environment    0.33   0.26   0.33   0.35   0.39   0.36
+//
+// So the pane is ALREADY a directional mirror, returning a near-constant third
+// of whatever the environment holds in its reflected direction, and killing
+// scene.environmentIntensity flattens it to 0.9 of 255 at every elevation. The
+// reported diagnosis - "glazing has no environment term" - is wrong, and so is
+// the fix it implies. envMapIntensity would not have helped either; see the note
+// on GLAZING above, that lever is inert here.
+//
+// What the pane has no way to know is that a CITY is in the way. Our sky is
+// brightest just above the horizon (8,109 nits at +10 deg at noon, 7,945 at
+// golden) and dimmest overhead, and a pane low on a tower reflects nearly
+// horizontally while a pane high up reflects steeply upward. So the district's
+// towers come out BRIGHTEST AT THE PAVEMENT and fade toward the parapet - the
+// exact inverse of every photograph of a glass building, where the lower floors
+// are dark with the mass across the street and the sky only takes over above the
+// opposite roofline.
+//
+// This puts the street back in, analytically, per pixel:
+//
+//   a pane at height y sees the mass across the street subtend atan((H-y)/D);
+//   the reflected ray leaves at atan(R.y/|R.xz|); below that skyline it is
+//   looking at building, above it at sky, and below the true horizon it is
+//   looking at the ground the dome already models.
+//
+// Three sources, each taken from the right place. H and D are measured off the
+// baked footprints (GLAZING.canyon). The city's radiance is NOT a painted colour
+// but urbanAlbedo * iblIrradiance / PI - the wall opposite is lit by the same sky
+// this pane is standing in, so it tracks the hour, the weather and the fog for
+// free, goes dark at night with everything else, and needs no uniform anyone has
+// to remember to update.
+//
+// Two deliberate omissions. It leaves iblIrradiance itself alone: the diffuse
+// remainder of a pane at metalness 0.84 is 16% of its albedo, and the wall it is
+// being compared against is occluded by the same street with nobody modelling
+// that either. And it needs no varying of its own - world position and the flat
+// pane normal come from cameraPosition, viewMatrix and geometryPosition, all
+// built-ins - so it composes with applyGlazing instead of fighting it over the
+// vertex shader.
+//
+// @param {object} [opts]
+// @param {boolean} [opts.glassTexelsOnly] mask to the smooth metallic texels of a
+//   shared atlas - pane-audit.mjs' test, so the shader and the measurement agree
+//   about what a pane is. Off for a material that is all glass.
+export function applyGlazingEnv(material, opts = {}) {
+  const C = { ...GLAZING.canyon, ...opts };
+  const n = (v) => Number(v).toFixed(4);
+  const K = {
+    oppH: n(C.oppositeHeight), oppD: n(C.oppositeDistance),
+    soft: n(C.skylineSoft), rag: n(C.skylineRagged), plot: n(C.plotMetres),
+    tilt: n(C.facetTilt),
+    paneW: n((C.paneMetres ?? GLAZING.paneMetres)[0]),
+    paneH: n((C.paneMetres ?? GLAZING.paneMetres)[1]),
+    city: C.urbanAlbedo.map(n).join(', '),
+    mask: C.glassTexelsOnly
+      ? '( 1.0 - smoothstep( 0.34, 0.44, roughnessFactor ) ) * smoothstep( 0.34, 0.44, metalnessFactor )'
+      : '1.0',
+  };
+  return patch(material, 'glazeEnv', (shader) => {
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+float geHash( vec2 c ) { return fract( sin( dot( c, vec2( 91.7, 47.3 ) ) ) * 24634.6345 ); }`)
+      .replace('#include <lights_fragment_end>', `
+#if defined( USE_ENVMAP ) && defined( RE_IndirectSpecular ) && defined( RE_IndirectDiffuse )
+{
+  vec3 geN = inverseTransformDirection( nonPerturbedNormal, viewMatrix );
+  // A roof is not in a street: fade this out as the surface turns horizontal.
+  float geGlass = ${K.mask} * ( 1.0 - smoothstep( 0.55, 0.85, abs( geN.y ) ) );
+  if ( geGlass > 0.002 ) {
+    // The camera ray and the world position it lands on, from built-ins only.
+    // geometryPosition is the view-space fragment position lights_fragment_begin
+    // set, and inverseTransformDirection returns it as a unit world direction.
+    // Perspective camera assumed - cameraPosition is the ray origin.
+    vec3 geDir = inverseTransformDirection( geometryPosition, viewMatrix );
+    vec3 geWorld = cameraPosition + geDir * length( geometryPosition );
+    // Which horizontal axis runs across this wall - applyPlanarUV's rule.
+    float geAcross = abs( geN.x ) > abs( geN.z ) ? geWorld.z : geWorld.x;
+
+    // A curtain wall is not one plane: separately glazed units sit a fraction of
+    // a degree out of true and pillow under load. The tilt is tiny, and what it
+    // buys is that the skyline crossover below lands on a scatter of panes
+    // instead of on a ruled horizontal line across the elevation.
+    vec2 geCell = floor( vec2( geAcross / ${K.paneW}, geWorld.y / ${K.paneH} ) );
+    vec3 geTan = cross( vec3( 0.0, 1.0, 0.0 ), geN );
+    float geTanLen = length( geTan );
+    geTan = geTanLen > 1e-3 ? geTan / geTanLen : vec3( 1.0, 0.0, 0.0 );
+    vec3 geFacet = normalize( geN
+      + geTan * ( geHash( geCell ) - 0.5 ) * ${K.tilt}
+      + vec3( 0.0, 1.0, 0.0 ) * ( geHash( geCell + 3.7 ) - 0.5 ) * ${K.tilt} );
+    vec3 geR = reflect( geDir, geFacet );
+
+    // The canyon, in tan space so there is no trig per pixel.
+    float geTanR = geR.y / max( length( geR.xz ), 1e-4 );
+    float geTanSky = ( ${K.oppH} - geWorld.y ) / ${K.oppD}
+      + ( geHash( vec2( floor( geAcross / ${K.plot} ), 17.0 ) ) - 0.5 ) * ${K.rag};
+    float geSky = smoothstep( - ${K.soft}, ${K.soft}, geTanR - geTanSky );
+    // Under the true horizon the dome already models the lit ground, so the
+    // street term applies only between the horizon and the opposite roofline.
+    float geAbove = smoothstep( - 0.02, 0.08, geTanR );
+
+    vec3 geCity = vec3( ${K.city} ) * iblIrradiance / PI;
+    radiance = mix( radiance, geCity, geGlass * geAbove * ( 1.0 - geSky ) );
+  }
+}
+#endif
+#include <lights_fragment_end>`);
   });
 }
 
@@ -2505,6 +2664,10 @@ export class MaterialRegistry {
       interior: 0.86, fresnelAlpha: true, jitter: 0.22,
       paneMetres: [1.15, 2.6], mullionMetres: 0.075,
     });
+    // A shopfront stands at the bottom of the canyon, so it is on the city side
+    // of the skyline from every angle: this is what stops it reflecting the
+    // brightest band of the sky back at a viewer standing in a street.
+    applyGlazingEnv(storefront, { paneMetres: [1.15, 2.6] });
     this._put('glassStorefront', storefront);
 
     // Reflective-coated curtain wall. A pure dielectric reflects 4% head-on and
@@ -2519,6 +2682,7 @@ export class MaterialRegistry {
     });
     applyPackedRoughness(tinted);
     applyGlazing(tinted, { interior: 0.22, jitter: 0.14 });
+    applyGlazingEnv(tinted);
     this._put('glassTinted', tinted);
 
     const mc = makeCanvas(D);

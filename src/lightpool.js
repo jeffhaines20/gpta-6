@@ -1,9 +1,13 @@
 // Nearest-N light pool.
 //
 // three.js forward-renders: every light in the scene is evaluated by every lit
-// fragment, and each material compiles against the current light count. 233
-// street lamps is therefore not "233 cheap lights" — it is a per-fragment loop of
-// 233 and a shader that may not compile at all on real hardware.
+// fragment, and each material compiles against the current light count. The
+// district places 543 street lamps - counted from the baked edges by the same
+// loop district/main.js runs, and reported at runtime as report().emitters; the
+// loop's own cap of 1100 never binds. So this is not "543 cheap lights": it is a
+// per-fragment loop of 543 and a shader that may not compile at all on real
+// hardware. The figure was 233 when this file was written, and every comment in
+// the two files now quotes the same 543.
 //
 // This container renders in software so frame rate cannot expose it, which is
 // exactly why it has to be fixed structurally rather than measured away: keep a
@@ -23,17 +27,20 @@ export class LightPool {
     this.scene = scene;
     this.size = opts.size ?? 10;
     this.maxDistance = opts.maxDistance ?? 120;
-    // Hysteresis, in METRES, and now actually read - see _rank() below. It was a
-    // dead field for as long as selection was distance-only, because distance
-    // does not change when the player turns and so there was no boundary for a
-    // light to flicker across. Making selection view-dependent creates one: an
-    // emitter whose illumination just touches the edge of the frustum would swap
-    // in and out on the smallest camera movement. The margin is applied twice,
-    // both times as a length: it dilates an incumbent's illumination sphere
-    // (so it has to fall CLEARLY outside the view before it is dropped) and it
-    // shortens an incumbent's effective distance (so a challenger has to be
-    // clearly closer, not equal). Measured against margin 0 in
-    // tools/lamp-onscreen.mjs, which is the check that it is still doing work.
+    // Hysteresis, in METRES, and now actually read - see _rank(). It was a dead
+    // field for as long as selection was distance-only, because distance does not
+    // change when the player turns and so there was no boundary for a light to
+    // flicker across. Making selection view-dependent creates exactly one such
+    // boundary - "does this emitter's illumination still reach the view" - and
+    // this is the width of the band around it. An emitter already holding a slot
+    // is tested on a sphere this much larger, so it has to fall clearly out of
+    // view before it is dropped; nothing else about it is treated differently.
+    //
+    // One number, one boundary, one meaning. tools/lamp-hysteresis.mjs is the
+    // check that it is doing work: it sweeps the camera up through the boundary
+    // and back down and requires the switch to happen at two DIFFERENT angles,
+    // which a sharp threshold in a different place cannot fake, and requires the
+    // same sweep at margin 0 to switch at one angle.
     this.swapMargin = opts.swapMargin ?? 8;
 
     this.emitters = [];        // { x, y, z, candela, color, distance }
@@ -108,14 +115,37 @@ export class LightPool {
   // everything that passes (the penalty is maxDistance, and no in-range emitter
   // can score that high), so wasted slots go to the far end of the street the
   // player is actually looking down instead of to the road behind them.
+  //
+  // `held` changes exactly ONE thing: the radius of the sphere the view test is
+  // made against. It does not touch the rank magnitude.
+  //
+  // It used to do both - dilate the test sphere AND discount the rank by the same
+  // 8 - and the two were not worth the same. The dilation is worth a tier flip,
+  // maxDistance + swapMargin = 138 rank-metres; the discount is worth 8. A review
+  // found what that bought: swept in 1 cm steps, a lamp directly BEHIND the camera
+  // leaves view at 45.81 m as a challenger and at 53.81 m as an incumbent (the
+  // near plane is what it stops reaching, so those are radius - 0.2 and
+  // radius + swapMargin - 0.2 whatever the field of view), and inside that band it
+  // used to score 175.95 unheld against 37.95 held. A lamp 50 m behind the viewer,
+  // one that by this file's own criterion cannot light a single visible surface,
+  // outranking every genuinely visible lamp beyond 42 m is a miniature of the
+  // exact defect this class was changed to fix.
+  //
+  // So the discount is gone and the margin means one thing. An incumbent in the
+  // band still holds its slot - that is what hysteresis IS, and it is what stops
+  // the set thrashing when the player turns - but it holds it at its true
+  // distance, so it can only outrank lamps genuinely further away, and the whole
+  // effect is bounded by the 8 m band rather than amplified by a 138-place jump.
+  // Every rank the function can return is now exactly d or exactly
+  // d + maxDistance; nothing lands in between. tools/lamp-rank-bench.mjs asserts
+  // all of that on the bench in milliseconds, with margin 0 as the control that
+  // collapses the band to 0.00 m, so none of these numbers has to be taken on
+  // trust from this comment.
   _rank(e, d, held) {
     if (!this.hasView) return d;
     this._sphere.center.set(e.x, e.y, e.z);
-    // An incumbent is judged on a sphere dilated by the margin, so it has to fall
-    // clearly out of view before it loses its slot.
     this._sphere.radius = e.distance + (held ? this.swapMargin : 0);
-    if (!this._frustum.intersectsSphere(this._sphere)) return d + this.maxDistance;
-    return held ? Math.max(0, d - this.swapMargin) : d;
+    return this._frustum.intersectsSphere(this._sphere) ? d : d + this.maxDistance;
   }
 
   // masterScale lets the day/night system switch the whole set off at noon

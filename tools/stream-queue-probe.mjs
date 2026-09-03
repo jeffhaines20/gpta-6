@@ -52,7 +52,10 @@ import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
 import fs from 'node:fs';
 
-const OUT = 'docs/stream-probe.json';
+const OUT = process.env.SQ_OUT || 'docs/stream-probe.json';
+// SQ_PORT lets the same probe run against a scratch checkout of an older tree on
+// another port, which is how the before/after pair below was taken.
+const PORT = Number(process.env.SQ_PORT || 8123);
 const SETTLE_FLOOR_MS = Number(process.env.SQ_SETTLE_MS || 32000);
 const SETTLE_STABLE_POLLS = 6;
 const SETTLE_CAP_MS = 120000;
@@ -60,7 +63,7 @@ const POLL_MS = 1000;
 
 fs.mkdirSync('docs', { recursive: true });
 
-await ensureServer();
+await ensureServer(PORT);
 const browser = await chromium.launch(launchOptions());
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const errors = [];
@@ -69,7 +72,7 @@ page.on('console', (m) => {
   if (m.type() === 'error' && !/favicon/.test(m.text())) errors.push(m.text());
 });
 
-await page.goto('http://127.0.0.1:8123/district/', { waitUntil: 'networkidle' });
+await page.goto(`http://127.0.0.1:${PORT}/district/`, { waitUntil: 'networkidle' });
 await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 90000 });
 
 const wait = (ms) => page.waitForTimeout(ms);
@@ -118,7 +121,8 @@ const meta = await page.evaluate(() => {
         pcx, pcz,
         wantSize: want.size,
         queueLen: this.queue.length,
-        statsQueued: this.stats.queued,
+        statsQueued: this.stats.queued ?? null,   // legacy field; absent on trees after the fix
+        liveQueued: this.queue.length + (this.job ? 1 : 0),
         missing,                                   // the `!cur` branch
         lodDiff,                                   // the `cur.lod !== lod` branch
         alreadyCorrect: want.size - this.queue.length,
@@ -133,7 +137,7 @@ const meta = await page.evaluate(() => {
         label: S.label,
         ms: Math.round(performance.now()),
         liveDepth: this.queue.length,             // what a real backlog gauge reads
-        statsQueued: this.stats.queued,           // what report() actually reports
+        statsQueued: this.stats.queued ?? null,   // legacy field; absent on trees after the fix
         loaded: this.loaded.size,
         wantSize: this._want ? this._want.size : -1,
         inFlight: this.job ? 1 : 0,

@@ -25,6 +25,7 @@
 // 1/tileU x 1/tileV and every building of that recipe shares one texture.
 
 import * as THREE from '../vendor/three.module.min.js';
+import { applyGlazingEnv } from './materials.js';
 
 // ---------------------------------------------------------------- determinism
 // Buildings must look the same on every load and in every session, so every
@@ -1444,7 +1445,7 @@ export function trimMaps() {
 export function facadeMaterial(name, { time = 'night' } = {}) {
   const mat = memo(`mat:${name}`, () => {
     const m = facadeMaps(name);
-    return new THREE.MeshStandardMaterial({
+    const glazed = new THREE.MeshStandardMaterial({
       // Named so a raycast readback can say WHICH material it hit. Every audit of
       // this district has had to identify glazing by guessing at texel values;
       // the name costs nothing and makes the measurement unambiguous.
@@ -1457,6 +1458,14 @@ export function facadeMaterial(name, { time = 'night' } = {}) {
       emissiveIntensity: 0,
       vertexColors: true,
     });
+    // Glazing on this atlas is the smooth metallic cell drawOpening writes -
+    // roughness 0.07-0.13 at metalness 0.80-0.88, against a wall at 0.62-0.82 and
+    // metalness 0-0.06 - so the shader can find its own panes without a second
+    // material, a second draw call or a UV set the streamer does not emit.
+    // Measured on a 54 m tower: without this the pane reflected the bright band
+    // of sky just above the horizon at EVERY floor and the elevation read
+    // brightest at the pavement. See applyGlazingEnv in src/materials.js.
+    return applyGlazingEnv(glazed, { glassTexelsOnly: true });
   });
   setFacadeTime(name, time);
   return mat;

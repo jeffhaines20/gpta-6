@@ -1,0 +1,62 @@
+{
+ "sky": {
+  "jumpDeg": 30,
+  "settledLagBeforeDeg": 0,
+  "settledLagAfterDeg": 0,
+  "worstLagDeg": 30,
+  "framesObserved": 6,
+  "framesDisagreeing": 2,
+  "firstFrames": [
+   {
+    "f": 18,
+    "cam": 60,
+    "sky": 90,
+    "lag": 30
+   },
+   {
+    "f": 19,
+    "cam": 60,
+    "sky": 90,
+    "lag": 30
+   },
+   {
+    "f": 20,
+    "cam": 60,
+    "sky": 60,
+    "lag": 0
+   },
+   {
+    "f": 21,
+    "cam": 60,
+    "sky": 60,
+    "lag": 0
+   },
+   {
+    "f": 22,
+    "cam": 60,
+    "sky": 60,
+    "lag": 0
+   },
+   {
+    "f": 23,
+    "cam": 60,
+    "sky": 60,
+    "lag": 0
+   }
+  ]
+ },
+ "weather": {
+  "jumpM": 10,
+  "settledLagBeforeM": 0,
+  "settledLagAfterM": 0,
+  "worstLagM": 10,
+  "framesDisagreeing": 1,
+  "framesObserved": 5,
+  "metresPerFrameAt100kmh": {
+   "at30fps": 0.93,
+   "at60fps": 0.46
+  },
+  "splashSnapGridM": 2
+ },
+ "errors": []
+}

@@ -1,0 +1,128 @@
+{
+ "camera": {
+  "pos": [
+   -4.411431907126392,
+   5.2,
+   6.114772219329165
+  ]
+ },
+ "streamed": {
+  "chunksLoaded": 89,
+  "queued": 0,
+  "waitedMs": 45332
+ },
+ "boundaryDeg": 20,
+ "stepDeg": 0.5,
+ "sweeps": {
+  "margin8": {
+   "margin": 8,
+   "steps": 41,
+   "pathDependentAngles": 17,
+   "pathDependentDeg": 8.5,
+   "disagreeSpan": [
+    15.5,
+    25.5
+   ],
+   "switchAnglesUp": [
+    19.5,
+    26
+   ],
+   "switchAnglesDown": [
+    15.5,
+    21.5
+   ],
+   "distinctSets": 3
+  },
+  "margin0": {
+   "margin": 0,
+   "steps": 41,
+   "pathDependentAngles": 0,
+   "pathDependentDeg": 0,
+   "disagreeSpan": null,
+   "switchAnglesUp": [
+    19.5,
+    21.5
+   ],
+   "switchAnglesDown": [
+    19.5,
+    21.5
+   ],
+   "distinctSets": 3
+  }
+ },
+ "churn": {
+  "atMargin0Boundary": {
+   "margin8": {
+    "margin": 8,
+    "centre": 20,
+    "samples": 24,
+    "slotReassignments": 0,
+    "slotReassignmentsPerSample": 0,
+    "setChanges": 0,
+    "distinctSets": 1,
+    "wastedSlotsPerSample": 3.5,
+    "litPerSample": 10
+   },
+   "margin0": {
+    "margin": 0,
+    "centre": 20,
+    "samples": 24,
+    "slotReassignments": 23,
+    "slotReassignmentsPerSample": 0.958,
+    "setChanges": 23,
+    "distinctSets": 3,
+    "wastedSlotsPerSample": 3.5,
+    "litPerSample": 10
+   }
+  },
+  "atMargin8Band": {
+   "margin8": {
+    "margin": 8,
+    "centre": 20.5,
+    "samples": 24,
+    "slotReassignments": 0,
+    "slotReassignmentsPerSample": 0,
+    "setChanges": 0,
+    "distinctSets": 1,
+    "wastedSlotsPerSample": 3.5,
+    "litPerSample": 10
+   },
+   "margin0": {
+    "margin": 0,
+    "centre": 20.5,
+    "samples": 24,
+    "slotReassignments": 23,
+    "slotReassignmentsPerSample": 0.958,
+    "setChanges": 23,
+    "distinctSets": 3,
+    "wastedSlotsPerSample": 3.5,
+    "litPerSample": 10
+   }
+  }
+ },
+ "cost": {
+  "margin8": {
+   "margin": 8,
+   "headings": 24,
+   "litTotal": 240,
+   "wastedTotal": 61,
+   "wastedPerHeading": 2.54
+  },
+  "margin0": {
+   "margin": 0,
+   "headings": 24,
+   "litTotal": 240,
+   "wastedTotal": 61,
+   "wastedPerHeading": 2.54
+  }
+ },
+ "instrument": {
+  "churnCounterEverNonZero": true,
+  "sweepSawMoreThanOneSet": true,
+  "margin0IsPathIndependent": true,
+  "margin8IsPathDependent": true,
+  "valid": true,
+  "hysteresisDemonstrated": true
+ },
+ "errors": []
+}

@@ -41,13 +41,16 @@ import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
 import fs from 'node:fs';
 
-const OUT = 'docs/stream-uturn.json';
+const OUT = process.env.SQ_OUT || 'docs/stream-uturn.json';
+// SQ_PORT lets the same probe run against a scratch checkout of an older tree on
+// another port, which is how the before/after pair below was taken.
+const PORT = Number(process.env.SQ_PORT || 8123);
 const SETTLE_FLOOR_MS = Number(process.env.SQ_SETTLE_MS || 32000);
 const SETTLE_CAP_MS = 180000;
 
 fs.mkdirSync('docs', { recursive: true });
 
-await ensureServer();
+await ensureServer(PORT);
 const browser = await chromium.launch(launchOptions());
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const errors = [];
@@ -56,7 +59,7 @@ page.on('console', (m) => {
   if (m.type() === 'error' && !/favicon/.test(m.text())) errors.push(m.text());
 });
 
-await page.goto('http://127.0.0.1:8123/district/', { waitUntil: 'networkidle' });
+await page.goto(`http://127.0.0.1:${PORT}/district/`, { waitUntil: 'networkidle' });
 await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 90000 });
 
 const meta = await page.evaluate(() => {
@@ -82,7 +85,8 @@ const meta = await page.evaluate(() => {
       let wantedAndPending = 0;
       for (const k of want.keys()) if (this._pendingUnload.has(k)) wantedAndPending++;
       S.rescanLog.push({
-        ...S.pendingRescan, wantSize: want.size, queued: this.stats.queued,
+        ...S.pendingRescan, wantSize: want.size,
+        queued: this.stats.queued ?? (this.queue.length + (this.job ? 1 : 0)),
         missing, lodDiff, alreadyCorrect: want.size - this.queue.length,
         loaded: this.loaded.size, pendingUnload: this._pendingUnload.size,
         wantedAndPending,

@@ -1,0 +1,646 @@
+// How high does OUR streetwall stand, with no detector in the loop at all?
+//
+// tools/roofline.mjs answers that question from pixels: topmost non-sky pixel per
+// column, where "sky" is a colour test. On 2026-09-03 that test was shown to fail
+// in one specific, one-sided way. The golden-hour sun sits at bearing 134 deg
+// (src/sky.js), every "R" view on this corridor looks into that half of the dome,
+// and ACES plus the horizon glow desaturates the sky there until b - r <= 6 and
+// then past it to b < r. The detector then stops in the middle of open sky and
+// reports a roofline tens of degrees too high - on R views only, always upward.
+// Verified at column 900 of 523356163931260-R-golden.png: rows 190 through 689 are
+// open sky the detector calls "built", 31.6 deg reported against a true -2.2.
+//
+// So this file measures the SAME quantity from the geometry instead. It projects
+// the baked footprints in data/district.json through the exact camera
+// tools/pano-match.mjs captured with and reports the topmost built row per column,
+// converted to elevation with roofline.mjs's own elevOf so the two instruments
+// are denominated in one scale and cannot drift.
+//
+//   node tools/roofline-analytic.mjs                          # all 48 views, current world
+//   node tools/roofline-analytic.mjs --compare golden         # ... vs the pixel run
+//   node tools/roofline-analytic.mjs --district old.json      # any world, no re-capture
+//   node tools/roofline-analytic.mjs --kit                    # full facade kit, not just massing
+//   node tools/roofline-analytic.mjs --selftest               # the convention checks
+//
+// An analytic measurement needs no browser and no capture, which is the point: a
+// massing change can be measured against three worlds in one run, and a frame that
+// predates the data cannot silently answer about the previous build.
+//
+// ------------------------------------------------------------------ VALIDATION
+//
+// Run against the 2026-09-02 golden capture, per COLUMN, 30,720 columns a side:
+//
+//   L views   median (pixel - analytic)   0.00 deg,  p25 0.0,  p75 +2.7
+//   R views   median (pixel - analytic) +14.65 deg,  85% of columns more than
+//             2 deg above the geometry and essentially none below it
+//
+// Twelve of the 24 L views agree with the pixel detector on p50 to within 0.1 deg.
+// That is a pixel measurement reproduced from geometry alone, so the camera model,
+// the projection, the row scale and the parapet accounting are all confirmed
+// against the thing they are meant to predict.
+//
+// The 2% of L columns where this reads HIGHER than the detector were looked at.
+// Both are the detector, not the ray-caster: column 407 of 1722832548583117-L is
+// the bayTower's blue curtain wall (88,104,130 - the sky test passes on it), and
+// column 1090 of 2726732917519018-L is a pale grey-blue facade with a window and a
+// mullion in it. Cropped and looked at, not inferred.
+//
+// ---------------------------------------------------------------- WHAT IT MODELS
+//
+// * Height. `b.h` is NOT the top of the rendered building. src/facades.js gives
+//   every recipe a parapet - 1.5 m on deco, 0.95 on bayTower, 1.15 on the other
+//   five - and appendBuilding() draws it from `height` up to `height + parapet`.
+//   That is read from the real buildingStyle(), not re-derived here, so the two
+//   cannot disagree. Measured across the district the kit's highest vertex sits
+//   1.15 m above `b.h` at the 10th percentile and 7.03 m above it at the maximum;
+//   the difference above the parapet is roof furniture (stair bulkheads, water
+//   tanks, aerial masts), which --kit includes and the default does not.
+//
+// * LOD. src/streaming.js draws a chunk within 2 chunks (256 m, Chebyshev, chunk
+//   centre to eye) with the full facade kit, out to 5 chunks as one merged
+//   AXIS-ALIGNED BOX per building at `b.h` with no parapet, and beyond that not at
+//   all. This reproduces that, because a distant skyline measured as if it were
+//   near would be both too tall and the wrong width.
+//
+// * Perspective. Vertical world lines are NOT vertical in a pitched rectilinear
+//   frame - they splay outward below the vanishing point, by ~74 px at the edge of
+//   a 15 m-away building here. So a building is projected as its wall quads, not
+//   as its roof ring: the ring alone loses the columns between the projected roof
+//   corner and the projected base corner, which is exactly where a block ends.
+//
+// ------------------------------------------------------------ WHAT IT OMITS
+//
+// This is a LOWER BOUND on the rendered silhouette. It contains buildings and the
+// ground plane and nothing else. Not modelled, all of which can only push the
+// rendered roofline UP relative to this number:
+//
+//   - palms and street trees (src/streetfurniture.js) - the largest omission on
+//     this corridor, and the one that stands closest to the camera
+//   - lamp standards, signal masts, benches, bins, poles
+//   - signage (src/signage.js): blade signs, fascias, parapet sign blanks
+//   - traffic and pedestrians
+//   - weather (src/weather.js) and any post effect that paints into the sky
+//
+// The default also omits the facade kit above the parapet - roof units, deco
+// steps, fire escapes, balconies, awnings. Run --kit to include all of those: it
+// builds the REAL geometry through facades.js appendBuilding() and takes the upper
+// envelope of every triangle, so the gap between the two runs is a measurement of
+// how much the kit adds rather than a guess.
+import fs from 'node:fs';
+import path from 'node:path';
+import * as THREE from '../vendor/three.module.min.js';
+import { buildingStyle, appendBuilding, buffers } from '../src/facades.js';
+import { elevOf, CAM } from './roofline.mjs';
+
+const REN = 'docs/shots/pano-match';
+const MLY = 'reference/sarasota/mapillary';
+const W = 1280, H = 960;                       // the capture size, so rows line up
+const NEARP = 0.1;                             // near plane, metres
+const TH = Math.tan((CAM.hfovDeg * Math.PI) / 360);
+const TV = TH / CAM.aspect;
+
+const arg = (k, d) => {
+  const i = process.argv.indexOf(`--${k}`);
+  return i >= 0 && process.argv[i + 1] && !process.argv[i + 1].startsWith('--') ? process.argv[i + 1] : d;
+};
+const has = (k) => process.argv.includes(`--${k}`);
+
+// ------------------------------------------------------------------- the camera
+//
+// Built with the engine's own THREE.PerspectiveCamera and lookAt, from the same
+// eye / target / fov district/main.js freeCam() is handed by pano-match. Guessing
+// a basis by hand is how a measurement ends up sharp, plausible and pointing at
+// the wrong building; the projection below is then checked against three.js's own
+// projectionMatrix in --selftest, so a sign error cannot survive.
+export function cameraAt(px, pz, yawDeg) {
+  const cam = new THREE.PerspectiveCamera(CAM.vfovDeg, CAM.aspect, NEARP, 5000);
+  cam.position.set(px, CAM.eye, pz);
+  const rad = (yawDeg * Math.PI) / 180, D = 60;
+  cam.lookAt(px + Math.sin(rad) * D, CAM.eye + D * Math.tan((CAM.pitchDeg * Math.PI) / 180),
+    pz - Math.cos(rad) * D);
+  cam.updateMatrixWorld(true);
+  const e = cam.matrixWorldInverse.elements;
+  return { e, cam };
+}
+
+/** World -> view space, with the camera looking down -z. */
+const vX = (e, x, y, z) => e[0] * x + e[4] * y + e[8] * z + e[12];
+const vY = (e, x, y, z) => e[1] * x + e[5] * y + e[9] * z + e[13];
+const vZ = (e, x, y, z) => e[2] * x + e[6] * y + e[10] * z + e[14];
+
+// ------------------------------------------------------- clip, project, envelope
+//
+// Scratch buffers, reused: this runs a few million polygons per world and the
+// allocator is otherwise the whole cost.
+const cv = new Float64Array(3 * 16), cw = new Float64Array(3 * 16), sc = new Float64Array(2 * 16);
+
+/** Sutherland-Hodgman against the near plane, in view space. Convex in, convex out. */
+function clipNear(n) {
+  let m = 0;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    const az = cv[3 * i + 2], bz = cv[3 * j + 2];
+    const ain = az <= -NEARP, bin = bz <= -NEARP;
+    if (ain) { cw[3 * m] = cv[3 * i]; cw[3 * m + 1] = cv[3 * i + 1]; cw[3 * m + 2] = az; m++; }
+    if (ain !== bin) {
+      const t = (-NEARP - az) / (bz - az);
+      cw[3 * m] = cv[3 * i] + (cv[3 * j] - cv[3 * i]) * t;
+      cw[3 * m + 1] = cv[3 * i + 1] + (cv[3 * j + 1] - cv[3 * i + 1]) * t;
+      cw[3 * m + 2] = -NEARP;
+      m++;
+    }
+  }
+  for (let i = 0; i < m * 3; i++) cv[i] = cw[i];
+  return m;
+}
+
+/** View space -> pixel centres. Row 0 is the top of the frame, as in the PNG. */
+function project(n) {
+  for (let i = 0; i < n; i++) {
+    const iz = -1 / cv[3 * i + 2];
+    sc[2 * i] = W * 0.5 * (1 + (cv[3 * i] * iz) / TH);
+    sc[2 * i + 1] = H * 0.5 * (1 - (cv[3 * i + 1] * iz) / TV);
+  }
+}
+
+/**
+ * Fold one projected convex polygon into the running per-column topmost row.
+ *
+ * `top[c]` is the smallest row index any object covers in column c, where a pixel
+ * counts as covered when the polygon contains its CENTRE - the same rule the
+ * rasteriser uses, so the analytic row and the pixel row are the same integer and
+ * not two quantities half a pixel apart.
+ *
+ * `free` gets the same row WITHOUT clamping to the frame. Nothing forces an
+ * analytic measurement to stop at row 0 the way a photograph does, so a wall that
+ * overflows the top of frame still gets a number instead of the pinned 41.9 that
+ * roofline.mjs has to report. 62% of the Main St east columns were pinned in the
+ * pixel run; "at least 41.9" cannot say whether a change helped.
+ */
+function fold(n, top, free) {
+  let xmin = Infinity, xmax = -Infinity;
+  for (let i = 0; i < n; i++) { const x = sc[2 * i]; if (x < xmin) xmin = x; if (x > xmax) xmax = x; }
+  let c0 = Math.ceil(xmin - 0.5), c1 = Math.floor(xmax - 0.5);
+  if (c1 < 0 || c0 > W - 1) return;
+  if (c0 < 0) c0 = 0;
+  if (c1 > W - 1) c1 = W - 1;
+  for (let c = c0; c <= c1; c++) {
+    const X = c + 0.5;
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const ax = sc[2 * i], ay = sc[2 * i + 1], bx = sc[2 * j], by = sc[2 * j + 1];
+      if ((ax <= X && bx >= X) || (bx <= X && ax >= X)) {
+        const d = bx - ax;
+        if (Math.abs(d) < 1e-12) {
+          if (ay < lo) lo = ay; if (by < lo) lo = by;
+          if (ay > hi) hi = ay; if (by > hi) hi = by;
+        } else {
+          const y = ay + (by - ay) * ((X - ax) / d);
+          if (y < lo) lo = y; if (y > hi) hi = y;
+        }
+      }
+    }
+    if (lo === Infinity) continue;
+    const rowFree = Math.ceil(lo - 0.5);
+    if (rowFree + 0.5 > hi) continue;           // nothing of this polygon covers a pixel centre
+    if (rowFree < free[c]) free[c] = rowFree;
+    const row = rowFree < 0 ? 0 : rowFree;      // clamped: what a frame this size can show
+    if (row >= H || row + 0.5 > hi) continue;   // covered only above the top of frame
+    if (row < top[c]) top[c] = row;
+  }
+}
+
+/** Push one world-space polygon (flat [x,y,z,...]) through clip -> project -> fold. */
+function emit(e, poly, n, top, free) {
+  for (let i = 0; i < n; i++) {
+    const x = poly[3 * i], y = poly[3 * i + 1], z = poly[3 * i + 2];
+    cv[3 * i] = vX(e, x, y, z); cv[3 * i + 1] = vY(e, x, y, z); cv[3 * i + 2] = vZ(e, x, y, z);
+  }
+  let m = n;
+  let anyFront = false;
+  for (let i = 0; i < n; i++) if (cv[3 * i + 2] <= -NEARP) { anyFront = true; break; }
+  if (!anyFront) return;
+  let allFront = true;
+  for (let i = 0; i < n; i++) if (cv[3 * i + 2] > -NEARP) { allFront = false; break; }
+  if (!allFront) { m = clipNear(n); if (m < 3) return; }
+  project(m);
+  fold(m, top, free);
+}
+
+// ------------------------------------------------------------------- the world
+//
+// One prepared world = one district JSON, plus everything about it that does not
+// depend on where the camera stands.
+export function loadWorld(file, opts = {}) {
+  const d = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const cs = d.meta.chunkSize;
+  const chunkOf = new Array(d.buildings.length);
+  for (const [key, ch] of Object.entries(d.chunks)) {
+    const [cx, cz] = key.split(',').map(Number);
+    for (const bi of ch.buildings) chunkOf[bi] = [(cx + 0.5) * cs, (cz + 0.5) * cs];
+  }
+  const B = d.buildings.map((b, bi) => {
+    const style = buildingStyle(b);
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const [x, z] of b.p) {
+      if (x < x0) x0 = x; if (x > x1) x1 = x;
+      if (z < z0) z0 = z; if (z > z1) z1 = z;
+    }
+    const rec = {
+      p: b.p, h: b.h, band: b.b ?? null, recipe: style.recipe,
+      parapet: style.parapet ? style.parapet.height : 0,
+      aabb: [x0, z0, x1, z1], cx: (x0 + x1) / 2, cz: (z0 + z1) / 2,
+      r: Math.hypot(x1 - x0, z1 - z0) / 2,
+      chunk: chunkOf[bi] ?? [(x0 + x1) / 2, (z0 + z1) / 2],
+      tris: null,
+    };
+    if (opts.kit) {
+      // The real kit, into scratch buffers, exactly as the streamer builds it -
+      // the same argument tools/geom-audit.mjs makes for running the helpers
+      // rather than re-deriving their arithmetic. Only positions and indices are
+      // read; no material, texture or UV is touched.
+      const wall = buffers(), trim = buffers();
+      appendBuilding(b.p, b.h, style, wall, trim, {});
+      const nv = wall.pos.length / 3;
+      const pos = new Float64Array(wall.pos.length + trim.pos.length);
+      pos.set(wall.pos, 0); pos.set(trim.pos, wall.pos.length);
+      const idx = new Int32Array(wall.idx.length + trim.idx.length);
+      idx.set(wall.idx, 0);
+      for (let i = 0; i < trim.idx.length; i++) idx[wall.idx.length + i] = trim.idx[i] + nv;
+      rec.tris = { pos, idx };
+    }
+    return rec;
+  });
+  return { file, d, chunkSize: cs, buildings: B, kit: !!opts.kit };
+}
+
+// ---------------------------------------------------------------- the stations
+//
+// The same corridor bearing pano-match.mjs used, recomputed from the world being
+// measured rather than copied from the capture index - so measuring a different
+// world re-aims the camera if that world moved the route. index.json's stamped
+// yaw is then checked against it, which is the test that this file's camera is
+// the capture's camera and not a near miss.
+export function bearingAt(route, x, z, legs = 5) {
+  let best = 0, bestD = Infinity, bestSeg = -1;
+  for (let i = 0; i + 1 < legs; i++) {
+    const a = route[i], b = route[i + 1];
+    const dx = b.x - a.x, dz = b.z - a.z, len2 = dx * dx + dz * dz || 1;
+    let t = ((x - a.x) * dx + (z - a.z) * dz) / len2;
+    t = Math.max(0, Math.min(1, t));
+    const dd = Math.hypot(x - (a.x + dx * t), z - (a.z + dz * t));
+    if (dd < bestD) { bestD = dd; best = (Math.atan2(dx, -dz) * 180) / Math.PI; bestSeg = i; }
+  }
+  return { bearing: (best + 360) % 360, seg: bestSeg, dist: bestD };
+}
+
+export function stations(world) {
+  const route = world.d.meta.route;
+  const idx = JSON.parse(fs.readFileSync(path.join(MLY, 'index.json'), 'utf8')).images;
+  const out = [];
+  for (const p of idx.filter((i) => i.isPano).sort((a, b) => a.x - b.x)) {
+    const { bearing, seg } = bearingAt(route, p.x, p.z);
+    for (const [side, off] of [['L', -90], ['R', 90]]) {
+      out.push({ id: p.id, side, x: p.x, z: p.z, yaw: ((bearing + off) % 360 + 360) % 360, seg });
+    }
+  }
+  return out;
+}
+
+// Two ways to cut the corridor into legs.
+//
+// `published` is the partition the 2026-09-02 ledger entry reported against,
+// kept verbatim so its claims can be re-tested rather than quietly restated.
+// It bins by x threshold, which puts two stations on the Five Points approach
+// (x = 34.6 and x = 54.6, both on the Pineapple -> Five Points route leg,
+// corridor bearing 13.7) into "Pineapple". `route` is the honest partition:
+// which leg of meta.route the station actually stands on, which is also what
+// decided the bearing it was shot at.
+export const LEG_NAMES = ['bayfront-marina', 'bayfront', 'fivepoints-approach', 'mainst-east'];
+export const legRoute = (s) => LEG_NAMES[s.seg] ?? `seg${s.seg}`;
+export const legPublished = (s) => (s.x >= 57 ? 'MainStE'
+  : s.x <= -138 ? 'bayfront'
+    : Math.abs(s.z + 121.7) < 1 && Math.abs(s.x - 54.4) < 1 ? 'FivePtsApproach' : 'Pineapple');
+
+// ---------------------------------------------------------------- the measurement
+/**
+ * Topmost built row per column, for one world seen from one station.
+ *
+ * @returns {{cols:number[], rows:Int32Array, p10:number, p50:number, p90:number,
+ *            clippedFrac:number, openFrac:number, buildFrac:number,
+ *            near:number, far:number, unloaded:number}}
+ */
+export function silhouette(world, st, opts = {}) {
+  const ground = opts.ground !== false;
+  const { e } = cameraAt(st.x, st.z, st.yaw);
+  const rows = new Int32Array(W).fill(H);       // H = "nothing here"
+  const bRows = new Int32Array(W).fill(H);     // buildings only
+  const free = new Int32Array(W).fill(H);      // ... and unclamped by the frame edge
+  const cs = world.chunkSize, nearR = 2, farR = 5;
+  const poly = new Float64Array(48);
+  let near = 0, far = 0, unloaded = 0;
+
+  for (const b of world.buildings) {
+    const cd = Math.max(Math.abs(b.chunk[0] - st.x), Math.abs(b.chunk[1] - st.z)) / cs;
+    const lod = cd <= nearR ? 0 : cd <= farR ? 1 : -1;
+    if (lod < 0) { unloaded++; continue; }
+    if (b.h <= 0) continue;
+    // Behind the camera by more than its own radius: cannot contribute a column.
+    const dz = vZ(e, b.cx, CAM.eye, b.cz);
+    if (dz > b.r + 4) { continue; }
+    if (lod === 0) near++; else far++;
+
+    if (lod === 1) {
+      // FAR tier: streaming.js replaces the footprint with its axis-aligned box
+      // at b.h and drops the whole kit, parapet included.
+      const [x0, z0, x1, z1] = b.aabb;
+      const ring = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]];
+      for (let i = 0; i < 4; i++) {
+        const a = ring[i], c = ring[(i + 1) % 4];
+        poly[0] = a[0]; poly[1] = 0; poly[2] = a[1];
+        poly[3] = c[0]; poly[4] = 0; poly[5] = c[1];
+        poly[6] = c[0]; poly[7] = b.h; poly[8] = c[1];
+        poly[9] = a[0]; poly[10] = b.h; poly[11] = a[1];
+        emit(e, poly, 4, bRows, free);
+      }
+      continue;
+    }
+
+    if (world.kit) {
+      const { pos, idx } = b.tris;
+      for (let t = 0; t < idx.length; t += 3) {
+        for (let k = 0; k < 3; k++) {
+          const o = idx[t + k] * 3;
+          poly[3 * k] = pos[o]; poly[3 * k + 1] = pos[o + 1]; poly[3 * k + 2] = pos[o + 2];
+        }
+        emit(e, poly, 3, bRows, free);
+      }
+    } else {
+      const y = b.h + b.parapet;
+      const ring = b.p;
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i], c = ring[(i + 1) % ring.length];
+        poly[0] = a[0]; poly[1] = 0; poly[2] = a[1];
+        poly[3] = c[0]; poly[4] = 0; poly[5] = c[1];
+        poly[6] = c[0]; poly[7] = y; poly[8] = c[1];
+        poly[9] = a[0]; poly[10] = y; poly[11] = a[1];
+        emit(e, poly, 4, bRows, free);
+      }
+    }
+  }
+  for (let c = 0; c < W; c++) rows[c] = bRows[c];
+
+  if (ground) {
+    // Why the ground is in here. The pixel instrument reports the topmost NON-SKY
+    // pixel, and in a column with no building that is the road, not nothing: every
+    // one of the 48 measured frames has skyFrac 0. Leaving the ground out would
+    // compare a median over "columns with a building" against a median over "all
+    // columns" and call the difference massing.
+    const bb = world.d.meta.bounds, pad = 900;
+    const planes = [
+      [bb.x0 - pad, bb.z0 - pad, bb.x1 + pad, bb.z1 + pad, -0.45],   // water
+      [bb.x0, bb.z0, bb.x1, bb.z1, -0.05],                            // land pad
+    ];
+    for (const [x0, z0, x1, z1, y] of planes) {
+      poly[0] = x0; poly[1] = y; poly[2] = z0;
+      poly[3] = x1; poly[4] = y; poly[5] = z0;
+      poly[6] = x1; poly[7] = y; poly[8] = z1;
+      poly[9] = x0; poly[10] = y; poly[11] = z1;
+      emit(e, poly, 4, rows, free);
+    }
+  }
+
+  const cols = [], seen = [], seenFree = [];
+  let clipped = 0, open = 0, built = 0;
+  for (let c = 0; c < W; c++) {
+    if (bRows[c] < H) built++;
+    if (free[c] < H) seenFree.push(elevOf(free[c], H));
+    if (rows[c] >= H) { cols.push(null); open++; continue; }
+    if (rows[c] === 0) clipped++;
+    const v = elevOf(rows[c], H);
+    cols.push(v); seen.push(v);
+  }
+  seen.sort((a, b) => a - b);
+  seenFree.sort((a, b) => a - b);
+  const q = (p) => (seen.length ? seen[Math.floor((seen.length - 1) * p)] : null);
+  const qf = (p) => (seenFree.length ? seenFree[Math.floor((seenFree.length - 1) * p)] : null);
+  return {
+    id: st.id, side: st.side, yaw: +st.yaw.toFixed(3),
+    p10: q(0.1), p50: q(0.5), p90: q(0.9),
+    // The same three, with no frame edge in the way. Comparable to another
+    // analytic run but NOT to a pixel run, which cannot see past row 0.
+    p10Free: qf(0.1), p50Free: qf(0.5), p90Free: qf(0.9),
+    skyFrac: +(open / W).toFixed(3), clippedFrac: +(clipped / W).toFixed(3),
+    buildFrac: +(built / W).toFixed(3),
+    near, far, unloaded, rows, free, cols,
+  };
+}
+
+// -------------------------------------------------------------------- selftest
+//
+// Three things this file could get silently wrong, each checked so it cannot.
+function selftest(world) {
+  let bad = 0;
+  const fail = (m) => { console.log(`  FAIL  ${m}`); bad++; };
+  const ok = (m) => console.log(`  ok    ${m}`);
+
+  // 1. The hand-rolled projection against three.js's own projection matrix. A
+  //    sign error here bends the frame and nothing about the output looks broken.
+  {
+    const { e, cam } = cameraAt(100, -160, 90);
+    let worst = 0;
+    for (const p of [[120, 8, -150], [90, 3, -200], [400, 30, -160], [101, 1, -161]]) {
+      const v = new THREE.Vector3(...p).project(cam);
+      const sx3 = W * 0.5 * (v.x + 1), sy3 = H * 0.5 * (1 - v.y);
+      const vx = vX(e, ...p), vy = vY(e, ...p), vz = vZ(e, ...p), iz = -1 / vz;
+      const sx = W * 0.5 * (1 + (vx * iz) / TH), sy = H * 0.5 * (1 - (vy * iz) / TV);
+      worst = Math.max(worst, Math.abs(sx - sx3), Math.abs(sy - sy3));
+    }
+    worst < 1e-6 ? ok(`projection matches THREE.Vector3.project to ${worst.toExponential(1)} px`)
+      : fail(`projection differs from three.js by ${worst} px`);
+  }
+
+  // 2. The row scale. A point placed at a known elevation dead ahead must come
+  //    back at that elevation, and the horizon must land where elevOf says 0 is.
+  {
+    const { e } = cameraAt(0, 0, 0);
+    let worst = 0;
+    for (const deg of [-10, 0, 5, 12, 25, 35]) {
+      const d = 200, y = CAM.eye + d * Math.tan((deg * Math.PI) / 180);
+      const vy = vY(e, 0, y, -d), vz = vZ(e, 0, y, -d);
+      const sy = H * 0.5 * (1 - (vy * (-1 / vz)) / TV);
+      worst = Math.max(worst, Math.abs(elevOf(sy - 0.5, H) - deg));
+    }
+    worst < 1e-6 ? ok(`row scale agrees with roofline.mjs elevOf to ${worst.toExponential(1)} deg`)
+      : fail(`row scale off by ${worst} deg`);
+  }
+
+  // 3. The yaws. Recomputed from this world's route, against the yaw pano-match
+  //    stamped into the capture index. If these disagree the analytic camera is
+  //    not the captured camera and every number below is about another street.
+  const ix = path.join(REN, 'index.json');
+  if (fs.existsSync(ix)) {
+    const stamp = JSON.parse(fs.readFileSync(ix, 'utf8'));
+    const mine = Object.fromEntries(stations(world).map((s) => [`${s.id}-${s.side}`, s.yaw]));
+    let worst = 0, n = 0;
+    for (const f of stamp.frames) {
+      const m = mine[`${f.id}-${f.side}`];
+      if (m === undefined) { fail(`capture index has ${f.id}-${f.side}, this world has no such station`); continue; }
+      let d = Math.abs(((m - f.yaw + 540) % 360) - 180);
+      worst = Math.max(worst, d); n++;
+    }
+    worst <= 0.05 ? ok(`${n} stamped yaws reproduced to ${worst.toFixed(3)} deg`)
+      : fail(`stamped yaw differs by up to ${worst.toFixed(2)} deg`);
+    for (const k of ['eye', 'pitchDeg', 'hfovDeg']) {
+      const want = { eye: CAM.eye, pitchDeg: CAM.pitchDeg, hfovDeg: CAM.hfovDeg }[k];
+      if (stamp[k] !== undefined && Math.abs(stamp[k] - want) > 1e-9) fail(`capture ${k} ${stamp[k]} != ${want}`);
+    }
+  }
+
+  // 4. Can it produce the opposite reading? Raise every building 20 m and the
+  //    measurement must go UP; flatten the district and it must fall to the
+  //    horizon. A probe that cannot move is not measuring anything.
+  {
+    const st = stations(world).find((s) => s.side === 'R' && s.id === '1414553883288835')
+      ?? stations(world)[0];
+    const base = silhouette(world, st).p50Free;
+    const taller = { ...world, buildings: world.buildings.map((b) => ({ ...b, h: b.h + 20 })) };
+    const flat = { ...world, buildings: world.buildings.map((b) => ({ ...b, h: 0 })) };
+    const up = silhouette(taller, st).p50Free, dn = silhouette(flat, st).p50Free;
+    (up > base + 5 && dn < 0.5 && dn > -1.5)
+      ? ok(`responds to the world: +20 m -> ${up.toFixed(1)}, flattened -> ${dn.toFixed(1)} (base ${base.toFixed(1)})`)
+      : fail(`does not respond: base ${base.toFixed(1)}, +20 m ${up.toFixed(1)}, flat ${dn.toFixed(1)}`);
+  }
+  return bad;
+}
+
+// ------------------------------------------------------------------------- CLI
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname);
+if (isMain) {
+  const districtFile = arg('district', 'data/district.json');
+  const world = loadWorld(districtFile, { kit: has('kit') });
+  console.log(`world  ${districtFile}  (${world.buildings.length} buildings, ${has('kit') ? 'FULL FACADE KIT' : 'massing + parapet'})`);
+  console.log(`camera eye ${CAM.eye} m, pitch ${CAM.pitchDeg} deg, hfov ${CAM.hfovDeg} on ${CAM.aspect.toFixed(3)} -> vfov ${CAM.vfovDeg.toFixed(2)}, ${W}x${H}`);
+
+  if (has('selftest')) {
+    console.log('\nselftest');
+    const bad = selftest(world);
+    console.log(bad ? `\n${bad} CHECK(S) FAILED` : '\nall checks passed');
+    process.exit(bad ? 1 : 0);
+  }
+
+  // ------------------------------------------------------------ per-leg summary
+  //
+  // The point of an analytic instrument: measure a massing change against every
+  // world it passed through without re-capturing any of them. `--worlds` takes
+  // name=path pairs; the built side comes from geometry and the reference side,
+  // which is a photograph and therefore has no geometry, stays on pixels.
+  if (has('legs')) {
+    const spec = arg('worlds', `after=${districtFile}`);
+    const worlds = spec.split(',').map((s) => {
+      const [name, file] = s.split('=');
+      return { name, file, w: file === districtFile ? world : loadWorld(file, { kit: has('kit') }) };
+    });
+    const refRun = arg('reference', null);
+    let ref = null;
+    if (refRun) {
+      const f = path.join(REN, `roofline-${refRun}.json`);
+      const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+      ref = Object.fromEntries(j.pairs.map((p) => [`${p.id}-${p.side}`, p.reference]));
+    }
+    const med = (a) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : NaN; };
+    const mean = (a) => a.reduce((t, v) => t + v, 0) / (a.length || 1);
+    const per = {};
+    for (const { name, w } of worlds) {
+      for (const st of stations(w)) {
+        const r = silhouette(w, st);
+        const k = `${st.id}-${st.side}`;
+        (per[k] ??= { st }).st = st;
+        per[k][name] = r;
+      }
+    }
+    for (const partition of [['route', legRoute], ['published', legPublished]]) {
+      const [pname, fn] = partition;
+      console.log(`\n=== legs by ${pname} partition ===`);
+      const legs = {};
+      for (const [k, v] of Object.entries(per)) (legs[fn(v.st)] ??= []).push(k);
+      const head = worlds.map((w) => `${w.name} clamp/free`.padStart(13)).join('');
+      console.log(`leg                    side   n  ${head}   ` + (ref ? 'ref(px)   ' + worlds.map((w) => `${w.name}-ref`.padStart(10)).join('') : ''));
+      for (const [L, ks] of Object.entries(legs)) {
+        for (const side of ['L', 'R', '*']) {
+          const sel = ks.filter((k) => side === '*' || per[k].st.side === side);
+          if (!sel.length) continue;
+          const cells = worlds.map((w) => `${med(sel.map((k) => per[k][w.name].p50)).toFixed(1)}/${med(sel.map((k) => per[k][w.name].p50Free)).toFixed(1)}`.padStart(13)).join('');
+          let tail = '';
+          if (ref) {
+            const rr = med(sel.map((k) => ref[k].p50));
+            tail = `${rr.toFixed(1).padStart(8)}   `
+              + worlds.map((w) => med(sel.map((k) => per[k][w.name].p50 - ref[k].p50)).toFixed(1).padStart(10)).join('');
+          }
+          console.log(`${L.padEnd(22)} ${side}  ${String(sel.length).padStart(2)}  ${cells}   ${tail}`);
+        }
+      }
+      console.log('\nmean fraction of columns filled to the top of frame (a lower bound, not a measurement):');
+      for (const [L, ks] of Object.entries(legs)) {
+        const cells = worlds.map((w) => `${(mean(ks.map((k) => per[k][w.name].clippedFrac)) * 100).toFixed(0)}%`.padStart(9)).join('');
+        const rr = ref ? `   reference ${(mean(ks.map((k) => ref[k].clippedFrac)) * 100).toFixed(0)}%` : '';
+        console.log(`  ${L.padEnd(22)} n=${String(ks.length).padStart(2)} ${cells}${rr}`);
+      }
+    }
+    process.exit(0);
+  }
+
+  const only = arg('id', null), onlySide = arg('side', null);
+  const sts = stations(world).filter((s) => (!only || s.id === only) && (!onlySide || s.side === onlySide));
+  if (!sts.length) { console.error('no stations selected'); process.exit(2); }
+
+  const cmp = arg('compare', null);
+  let pix = null;
+  if (cmp) {
+    const f = path.join(REN, `roofline-${cmp}.json`);
+    if (!fs.existsSync(f)) { console.error(`no pixel run at ${f}`); process.exit(2); }
+    const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+    pix = Object.fromEntries(j.pairs.map((p) => [`${p.id}-${p.side}`, p]));
+  }
+
+  console.log('\nanalytic roofline, degrees above the horizon. LOWER BOUND: buildings and ground only.\n');
+  console.log(pix
+    ? 'pair                   analytic  pixel-built  pix-ana   analytic clip%  pixel clip%'
+    : 'pair                   p10     p50     p90   p50free   clip%  built-cols%  near/far/unloaded');
+  const rows = [];
+  for (const st of sts) {
+    const r = silhouette(world, st);
+    const k = `${st.id}-${st.side}`;
+    if (pix && pix[k]) {
+      const d = pix[k].built.p50 - r.p50;
+      console.log(`${k.padEnd(22)} ${r.p50.toFixed(1).padStart(7)} ${pix[k].built.p50.toFixed(1).padStart(11)} `
+        + `${(d >= 0 ? '+' : '') + d.toFixed(1)}`.padStart(9)
+        + `${(r.clippedFrac * 100).toFixed(0).padStart(13)}% ${(pix[k].built.clippedFrac * 100).toFixed(0).padStart(11)}%`);
+    } else if (!pix) {
+      console.log(`${k.padEnd(22)} ${r.p10.toFixed(1).padStart(6)} ${r.p50.toFixed(1).padStart(7)} ${r.p90.toFixed(1).padStart(7)} ${r.p50Free.toFixed(1).padStart(8)}`
+        + `${(r.clippedFrac * 100).toFixed(0).padStart(7)}% ${(r.buildFrac * 100).toFixed(0).padStart(11)}%`
+        + `      ${r.near}/${r.far}/${r.unloaded}`);
+    }
+    rows.push({
+      id: st.id, side: st.side, yaw: r.yaw, seg: st.seg, leg: legRoute(st), legPublished: legPublished(st),
+      p10: r.p10, p50: r.p50, p90: r.p90,
+      p10Free: r.p10Free, p50Free: r.p50Free, p90Free: r.p90Free,
+      clippedFrac: r.clippedFrac, buildFrac: r.buildFrac,
+      near: r.near, far: r.far,
+    });
+  }
+
+  const out = arg('json', null);
+  if (out) {
+    fs.writeFileSync(out, JSON.stringify({
+      district: districtFile,
+      districtStat: (() => { const s = fs.statSync(districtFile); return { mtime: s.mtime.toISOString(), size: s.size }; })(),
+      model: has('kit') ? 'full facade kit (facades.js appendBuilding)' : 'footprint prism to h + parapet',
+      omits: 'trees, street furniture, signage, traffic, pedestrians, weather'
+        + (has('kit') ? '' : '; and roof units, deco steps, fire escapes, balconies, awnings'),
+      camera: { ...CAM, w: W, h: H }, frames: rows,
+    }, null, 1));
+    console.log(`\nwrote ${out}`);
+  }
+}

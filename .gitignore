@@ -26,3 +26,7 @@ reference/sarasota/mapillary/views/
 # index. The measurements of record are the JSON beside them; the handful of frames
 # a finding was actually read from are force-added.
 docs/shots/pano-match/*.png
+
+# Glazing probe captures: many variants per run, regenerable from tools/glaz-probe.mjs.
+# The two corridor golden frames the finding was read from are force-added.
+docs/shots/glaz-*.png

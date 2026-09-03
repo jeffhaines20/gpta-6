@@ -21,6 +21,7 @@ import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 const IN = 'reference/sarasota/mapillary';
 const OUT = 'docs/shots/pano-match';
@@ -109,9 +110,16 @@ for (const p of panos) {
 // a re-bake is indistinguishable from a fresh one by looking at the directory, and
 // comparing a stale set against a changed world produces a confident "the change
 // did nothing" - which is exactly what happened on 2026-09-02 before this was added.
+// A CONTENT hash as well as mtime and size, because mtime is not content and size
+// is a weak proxy for it. A re-bake that changes nothing but meta.baked's date
+// rewrites the file and moves its mtime while leaving every byte of geometry
+// alone; without a hash the freshness guard cannot tell that from a real re-bake
+// and refuses a frame set that is in fact perfectly current. That happened here on
+// 2026-09-03. `touch` on a stale frame defeats mtime entirely, which a hash does not.
 const dstat = fs.statSync('data/district.json');
+const dhash = createHash('sha256').update(fs.readFileSync('data/district.json')).digest('hex').slice(0, 16);
 fs.writeFileSync(path.join(OUT, 'index.json'), JSON.stringify({
-  district: { mtime: dstat.mtime.toISOString(), size: dstat.size },
+  district: { mtime: dstat.mtime.toISOString(), size: dstat.size, sha256: dhash },
   time: TIME, eye: EYE, pitchDeg: PITCH, hfovDeg: HFOV, vfovDeg: +VFOV.toFixed(2),
   note: 'Each frame is the engine standing where the like-named Mapillary pano stood. '
       + 'Compare against reference/sarasota/mapillary/views/<id>-<side>.png.',

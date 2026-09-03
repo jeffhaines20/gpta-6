@@ -58,7 +58,7 @@ export class StreamingWorld {
     this.unloadsPerUpdate = opts.unloadsPerUpdate ?? 1;
     this._lastCx = NaN; this._lastCz = NaN;
     this.stats = { loads: 0, unloads: 0, lodSwaps: 0, worstBuildMs: 0, lastBuildMs: 0,
-      queuedAtScan: 0, pendingUnload: 0, sliceMs: 0, worstSliceMs: 0, scanMs: 0, worstScanMs: 0,
+      pendingUnload: 0, sliceMs: 0, worstSliceMs: 0, scanMs: 0, worstScanMs: 0,
       lastFinishMs: 0, worstFinishMs: 0, worstDisposeMs: 0, worstUploadMs: 0 };
 
     // One shared registry for the whole district: N buildings share M materials,
@@ -172,16 +172,29 @@ export class StreamingWorld {
     // the same chunk, because at that moment it is still present in `this.loaded`
     // with the right LOD. Wanted, present, unqueued, then deleted.
     //
-    // Measured (tools/stream-uturn-probe.mjs, docs/stream-uturn.json): cross one
-    // boundary and come straight back, and the rescan logs 3 keys in `want` and
-    // in _pendingUnload at once. Over the next 3 updates - with the rescan count
-    // frozen, the build queue empty and no job in flight - `missing` climbs 0 ->
-    // 3 and `unloads` climbs by exactly 3, while `loads` never moves. It does not
-    // self-heal: 21 further updates left it at 3. One forced rescan queued the 3
-    // and rebuilt them (loads 114 -> 117), which is the cost - a dispose and a
-    // full chunk build per event, both landing in the stall budget, for chunks
-    // that never needed to leave. They are always far-tier: a chunk only exits
-    // `want` from the outer edge of the ring, never the near ring.
+    // Measured on the code WITHOUT this line, at 258aded^ served from a scratch
+    // checkout: tools/stream-uturn-probe.mjs -> docs/stream-uturn-before.json.
+    // (The first version of this comment quoted a run of the FIXED code by
+    // mistake, so it cited a file that refuted it. These are the real figures.)
+    //
+    // Home chunk 1,0 with want = 94. Cross one boundary, dwell 3 updates, cross
+    // straight back: the return rescan logs 3 keys that are in `want` AND in
+    // _pendingUnload at the same time, and queues 6 - none of them those 3,
+    // because all 3 are still sitting in `this.loaded` at the right LOD. Over
+    // the next 3 updates, with the rescan count frozen at 3 and `loads` frozen
+    // at 101 - no build is started for them, ever - `missing` climbs 5 -> 8,
+    // `unloads` climbs 12 -> 15 and `wantedAndPending` falls 3 -> 0. One
+    // disposal per update, each one a wanted chunk.
+    //
+    // It does not self-heal. Once the queue drained (loads 101 -> 106) `missing`
+    // sat at exactly 3 for the next 20 samples, updates 73 to 94, with an empty
+    // queue, no job in flight and `loads` frozen at 106. Only a forced rescan
+    // repaired it, and it cost 3 full chunk builds to do so: loads 106 -> 109.
+    // That is the price of the bug - a dispose and a rebuild per event, both
+    // landing in the stall budget, for chunks that never needed to leave.
+    //
+    // The holes are always far-tier: a chunk only ever exits `want` from the
+    // outer edge of the ring, so the near ring cannot lose geometry this way.
     for (const [key, entry] of this.loaded) {
       if (!want.has(key)) this._pendingUnload.set(key, entry);
       else this._pendingUnload.delete(key);
@@ -206,24 +219,29 @@ export class StreamingWorld {
       const [ax, az] = a.key.split(',').map(Number), [bx, bz] = b.key.split(',').map(Number);
       return (Math.abs(ax - pcx) + Math.abs(az - pcz)) - (Math.abs(bx - pcx) + Math.abs(bz - pcz));
     });
-    // NOT the backlog, and it never was. This is the rebuild loop's verdict for
-    // one boundary crossing, written here and never touched again as the queue
-    // drains - and the rebuild is skipped entirely on every update that does not
-    // cross a chunk boundary, which parked is all of them. Reported as `queued`
-    // it read as a queue that never empties, and four harnesses each invented a
-    // different wrong reason for it: "a cumulative counter" (contact.mjs), "the
-    // queue never drains" (sun-share.mjs), "the far ring keeps a permanent
-    // backlog" (lamp-onscreen.mjs), "the far ring keeps re-queueing"
-    // (glaz-probe.mjs). None of those happen. Measured parked and settled
+    // There used to be a `this.stats.queued = this.queue.length` here, and it was
+    // the reported queue depth. It is not a depth: it is this one rebuild's
+    // verdict, written once and never touched again as the queue drains - and
+    // the rebuild is skipped entirely on every update that does not cross a
+    // chunk boundary, which parked is all of them. So it froze, and because a
+    // cold start rebuilds with `loaded` empty it froze at ~want.size, which the
+    // world then converges to - a number that shadows the loaded-chunk count for
+    // ever. Four harnesses each invented a different wrong reason for it: "a
+    // cumulative counter" (contact.mjs), "the queue never drains"
+    // (sun-share.mjs), "the far ring keeps a permanent backlog"
+    // (lamp-onscreen.mjs), "the far ring keeps re-queueing" (glaz-probe.mjs).
+    // None of those happen. Measured parked and settled
     // (tools/stream-queue-probe.mjs): want 44, missing 0, LOD-differs 0,
-    // already-correct 44, live queue depth 0 - the rebuild loop pushes nothing,
+    // already-correct 44, live queue depth 0 - the rebuild loop pushes nothing -
     // and one forced rescan on that same settled world took the reported number
-    // from 44 to 0 without loading or unloading a single chunk. The 69-81 the
-    // ledger recorded is simply what was missing at the last crossing, which
-    // after a cold start is the whole ring - hence a number that shadows the
-    // loaded-chunk count. report() now derives `queued` live; this keeps the
-    // scan-time figure, which is the real input to the stall budget.
-    this.stats.queuedAtScan = this.queue.length;
+    // from 44 to 0 without loading or unloading a single chunk.
+    //
+    // It was renamed to `queuedAtScan` rather than deleted, and a review then
+    // pointed out that nothing anywhere read it: one write, no readers, in a
+    // repo that already has a dead-field problem. So it is gone. report()
+    // derives `queued` from the live queue instead. If a future stall-budget
+    // gate wants "work created by one crossing", it should be added back WITH
+    // the reader that needs it, in the same change.
     this._want = want;
 
     // Spend at most budgetMs per frame building chunks. This is the knob that
@@ -248,7 +266,48 @@ export class StreamingWorld {
         const next = this.queue.shift();
         if (!next) break;
         if (!want.has(next.key)) continue;
-        if (next.swap) { this._dispose(this.loaded.get(next.key)); this.stats.lodSwaps++; }
+        // Decide from `this.loaded` NOW, not from the `swap` flag the rebuild
+        // stamped on this entry at scan time. Two things go wrong when the entry
+        // is trusted, and both need the chunk that was mid-build across a rescan:
+        //
+        //  * DOUBLE BUILD. The in-flight chunk is in neither `loaded` nor the
+        //    queue while it builds - `this.job` is its own place - so a rescan
+        //    that lands mid-build re-queues it as a fresh load. The job then
+        //    completes and writes `loaded`, and the duplicate dequeues with
+        //    swap:false, disposes nothing, and adds a SECOND group to root. The
+        //    first is orphaned: still parented, still drawn, still holding its
+        //    buffers, and invisible to `this.loaded` - so it is never disposed,
+        //    it double-counts in report().meshes/triangles, and its roads and
+        //    zone polygons z-fight the new copy at the same fixed y.
+        //  * STALE cur.lod. The old swap branch disposed the entry but left the
+        //    key in `loaded`, so between the dispose and the rebuild landing,
+        //    `loaded` pointed at a group that had left the scene. A rescan in
+        //    that window read its LOD and could call the chunk already correct.
+        //
+        // Both measured on the same zig-zag stress walk run against each tree,
+        // tools/stream-churn-probe.mjs, ~1,520 updates and 163 rescans each.
+        // Neither defect was introduced by the _pendingUnload fix above: the
+        // "before" run is 258aded^ served from a scratch checkout.
+        //
+        //   docs/stream-churn-before.json  ->  docs/stream-churn-after.json
+        //   orphaned groups in root at rest      3                0
+        //   chunk groups in root vs loaded.size  96 / 93          94 / 94
+        //   orphan meshes / triangles            12 / 11,272      0 / 0
+        //   updates with a loaded entry whose
+        //     group had left the scene           649 of 1,520     0 of 1,517
+        //   _beginBuild on a key already in
+        //     loaded                             1,070            0
+        //   zero-queued updates whose committed
+        //     want map was NOT satisfied         6 of 813         0 of 819
+        //
+        // That last row is the one that matters to callers: `queued === 0` was
+        // not honest before this guard, because a rescan reading a stale cur.lod
+        // could conclude "already correct" and queue nothing. The 1,070 -> 0 is
+        // by construction - the key is deleted before the rebuild starts, so it
+        // can no longer be in `loaded` when _beginBuild runs.
+        const cur = this.loaded.get(next.key);
+        if (cur && cur.lod === next.lod) continue;      // already satisfied - the in-flight job landed it
+        if (cur) { this._dispose(cur); this.loaded.delete(next.key); this.stats.lodSwaps++; }
         else this.stats.loads++;
         this.job = this._beginBuild(next.key, next.lod);
       }
@@ -648,10 +707,29 @@ export class StreamingWorld {
     return {
       chunksLoaded: this.loaded.size, lodNear: lods[0], lodFar: lods[1],
       meshes, triangles: Math.round(tris), ...this.stats,
-      // Live depth, so `queued === 0` means what every caller already assumed it
-      // meant: nothing outstanding. The in-flight chunk counts - it is real work
-      // that has not landed, and without it the last chunk of a fill reports an
-      // empty queue while it is still being built.
+      // Live depth: chunks waiting to be built, plus the one being built now.
+      // The in-flight chunk has to count - it is real work that has not landed,
+      // and without it the last chunk of a fill reports an empty queue while it
+      // is still being built.
+      //
+      // What `queued === 0` means, exactly: every chunk in the want map from the
+      // last boundary crossing is loaded at its wanted LOD, and no build is in
+      // flight. That is the useful settle signal, and it is what four harnesses
+      // wanted when they gave up and waited on the mesh count instead.
+      //
+      // What it does NOT mean is that the streamer is idle. Disposal is a
+      // separate budget: chunks the ring has left can still be in the scene,
+      // drawn and holding their buffers, while this reads zero. Measured over a
+      // 1,552-update walk (docs/stream-churn-before.json), 219 of 812
+      // zero-queued updates had chunks still awaiting disposal, up to 7 at once.
+      // `pendingUnload` below is that number - a settle check that cares about
+      // draw calls or triangles has to wait on both.
+      //
+      // It is also a statement about the LAST CROSSING's want map, not about
+      // where the camera is standing right now. desiredLod() reads a continuous
+      // position but the map is only rebuilt when the player changes chunk, so
+      // between crossings the ring is deliberately stale. That is by design and
+      // documented at the rescan gate in update().
       queued: this.queue.length + (this.job ? 1 : 0),
       pendingUnload: this._pendingUnload.size,
       materials: this.registry ? this.registry.report() : null,

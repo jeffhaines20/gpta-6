@@ -116,7 +116,12 @@ await loading
 // calls, and 233 simultaneous PointLights would be a per-fragment loop of 233 on
 // real hardware. Geometry is instanced (3 draw calls total) and only the nearest
 // LIGHT_POOL_SIZE emitters are ever real lights.
-// 2026-08-30: lamp coverage raised from 233 to ~1000.
+// 2026-08-30: lamp coverage raised from 233. "~1000" was the estimate; the
+// number actually placed is 543, and the two files now quote that. The
+// estimate was high because the loop places Math.floor(len / 26) lamps per
+// POLYLINE SEGMENT, and 1141 of the district's 1476 drivable segments are
+// shorter than 26 m and so get none - re-derive it with the loop below
+// against data/district.json rather than trusting either figure.
 //
 // Two blind night critics independently made "there is no street lighting" their
 // single highest-leverage note. Measured, they were right, and not in the way the

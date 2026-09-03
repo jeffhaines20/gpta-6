@@ -2,8 +2,8 @@
  "streamed": {
   "chunksLoaded": 89,
   "queued": 0,
-  "triangles": 91884,
-  "waitedMs": 45954
+  "triangles": 91690,
+  "waitedMs": 46304
  },
  "perCam": [
   {
@@ -276,12 +276,12 @@
  "frames": {
   "night": {
    "pixels": 1166400,
-   "changedPct": 35.465,
-   "meanAbsDiffOverChanged": 24.58,
-   "brighterPct": 21.085,
-   "dimmerPct": 14.379,
-   "meanLumaLegacy": 25.892,
-   "meanLumaViewAware": 31.086,
+   "changedPct": 35.484,
+   "meanAbsDiffOverChanged": 24.63,
+   "brighterPct": 20.353,
+   "dimmerPct": 15.131,
+   "meanLumaLegacy": 25.846,
+   "meanLumaViewAware": 30.952,
    "shots": {
     "legacy": "docs/shots/lamp-ab-night-legacy.png",
     "viewaware": "docs/shots/lamp-ab-night-viewaware.png"
@@ -289,43 +289,18 @@
   },
   "dusk": {
    "pixels": 1166400,
-   "changedPct": 10.244,
-   "meanAbsDiffOverChanged": 11.64,
-   "brighterPct": 5.654,
-   "dimmerPct": 4.59,
-   "meanLumaLegacy": 107.826,
-   "meanLumaViewAware": 107.882,
+   "changedPct": 10.936,
+   "meanAbsDiffOverChanged": 10.98,
+   "brighterPct": 5.843,
+   "dimmerPct": 5.093,
+   "meanLumaLegacy": 106.955,
+   "meanLumaViewAware": 106.974,
    "shots": {
     "legacy": "docs/shots/lamp-ab-dusk-legacy.png",
     "viewaware": "docs/shots/lamp-ab-dusk-viewaware.png"
    }
   }
  },
- "hysteresis": {
-  "yaw": {
-   "margin8": {
-    "margin": 8,
-    "swaps": 0,
-    "samples": 24
-   },
-   "margin0": {
-    "margin": 0,
-    "swaps": 11,
-    "samples": 24
-   }
-  },
-  "move": {
-   "margin8": {
-    "margin": 8,
-    "swaps": 0,
-    "samples": 24
-   },
-   "margin0": {
-    "margin": 0,
-    "swaps": 0,
-    "samples": 24
-   }
-  }
- },
+ "hysteresis": "skipped - see docs/lamp-hysteresis.json",
  "errors": []
 }

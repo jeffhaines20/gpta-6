@@ -228,9 +228,45 @@ for (const tod of ['night', 'dusk']) {
 }
 
 // ---- 3. does swapMargin do anything? -------------------------------------
+// SUPERSEDED by tools/lamp-hysteresis.mjs, which sweeps up through the boundary
+// and back down and so can tell hysteresis from a threshold that merely sits
+// somewhere else. This arm cannot: it locates the boundary at margin 0 and then
+// dithers around THAT heading at margin 8, where "0 swaps" is equally consistent
+// with a shifted-but-still-sharp edge. Kept because sections 1 and 2 are the
+// headline A/B and get re-run whenever the ranking changes; pass
+// --skip-hysteresis to stop here and not pay for a measurement that has been
+// replaced.
+if (process.argv.includes('--skip-hysteresis')) {
+  fs.writeFileSync('docs/lamp-ab.json', JSON.stringify({
+    streamed, perCam,
+    totals: {
+      cameras: perCam.length,
+      supply: { inRange: supplyTot('inRange'), onScreen: supplyTot('onScreen'), illuminates: supplyTot('illuminates') },
+      legacy: { onScreen: tot('legacy', 'onScreen'), illuminating: tot('legacy', 'illuminating'), behind: tot('legacy', 'behind') },
+      viewaware: { onScreen: tot('viewaware', 'onScreen'), illuminating: tot('viewaware', 'illuminating'), behind: tot('viewaware', 'behind') },
+    },
+    frames, hysteresis: 'skipped - see docs/lamp-hysteresis.json', errors,
+  }, null, 1));
+  await browser.close();
+  console.log('\n=== TOTALS over ' + perCam.length + ' views ===');
+  console.log(JSON.stringify({
+    supply: { inRange: supplyTot('inRange'), onScreen: supplyTot('onScreen'), illuminates: supplyTot('illuminates') },
+    legacy: { onScreen: tot('legacy', 'onScreen'), illuminating: tot('legacy', 'illuminating'), behind: tot('legacy', 'behind') },
+    viewaware: { onScreen: tot('viewaware', 'onScreen'), illuminating: tot('viewaware', 'illuminating'), behind: tot('viewaware', 'behind') },
+  }, null, 1));
+  if (errors.length) console.log('PAGE ERRORS', errors.slice(0, 5));
+  process.exit(0);
+}
+
 await page.evaluate(() => __district.setTimeOfDay('night'));
-await page.evaluate(VIEWAWARE);
+// Invoked, not merely evaluated - the same mistake that made the whole first run
+// a false null. Asserted straight after, because a switch that silently does not
+// take is indistinguishable from a margin that does nothing.
+await page.evaluate(`(${VIEWAWARE})()`);
 await page.waitForTimeout(3000);
+if (!(await page.evaluate(() => __district.lightPool.hasView))) {
+  throw new Error('pool is not view-aware entering section 3 - the arm did not take');
+}
 
 async function advanceFrames(n = 3) {
   const f0 = await page.evaluate(() => __district.frames);

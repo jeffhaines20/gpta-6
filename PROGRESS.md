@@ -30,6 +30,216 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## CORRECTION: the golden-hour roofline instrument was reading the sun, not the buildings
+
+Two independent adversarial reviews went over this session's work. One of them
+broke the instrument the whole massing pass was measured with. **Several numbers
+published above and in commits `5c273da` and `fa6dced` are withdrawn**, and they
+are listed here rather than quietly edited.
+
+### The defect
+
+`tools/roofline.mjs` finds the roofline as the topmost non-sky pixel per column,
+with `isSky = b>90 && b>=g && b>r+6 && mean>85`. At golden hour our sun sits at
+bearing **134 degrees (SE), 8 degrees up** (`src/sky.js`), so **every `R` view on
+this corridor looks into that half of the dome**. ACES plus the horizon glow
+desaturates our sky until `b - r <= 6` and then past it to `b < r`, and the scan
+stops in the middle of open sky.
+
+Verified directly, column 900 of `523356163931260-R-golden`:
+
+```
+y=  0  177,191,211  b-r  34   sky
+y=180  200,201,207  b-r   7   sky
+y=190  196,194,197  b-r   1   <== DETECTOR STOPS, reports ~31.6 deg
+y=450  218,211,202  b-r -16   still sky
+y=560  254,251,245  b-r  -9   still sky, and BRIGHTER
+y=690  202,168,119                first actual object. True roofline about -2.2 deg
+```
+
+About **34 degrees of one-sided error**, on `R` views only.
+
+`tools/roofline-analytic.mjs` now measures the built side by ray-casting the baked
+footprints through the same camera — no detector at all. It imports the real
+`buildingStyle()` so parapets are the shipped ones, models the streaming LOD tiers,
+and ships four self-checks (projection against `THREE.Vector3.project` to 4.5e-13
+px, row scale against `elevOf` to 7e-15 deg, all 48 stamped yaws reproduced to
+0.049 deg, and a both-ways response test: +20 m gives 61.4, flattened gives -0.1).
+
+Against the pixel detector, per column, **independently recomputed**:
+
+| | median (pixel − analytic) |
+|---|---|
+| **L views** (away from the glow) | **0.02 deg** |
+| **R views** (into the glow) | **14.66 deg** |
+
+A broken ray-caster would be wrong on both sides. Right on `L` and wrong only on
+`R` is the signature of the detector failing in the glow.
+
+### Withdrawn
+
+- **"Main St east +10.1 -> +6.1 deg"**. Direction right, both endpoints wrong.
+  Analytic: **+8.3 -> -1.0** clamped to the frame, **+16.4 -> -1.0** uncensored.
+  The +6.1 residual was mostly R-view glow, not massing.
+- **"Five Points approach +19.9 -> +13.4"**. That leg is **one station, n=2**. Its
+  analytic silhouette moved **0.0 and -0.1 degrees**. The 6.5-degree
+  "improvement" was entirely instrument.
+- **"the residual is still 3.8 deg mean on the hero leg"** and **"one face
+  (x=283 R) sits at +11.0 unchanged ... that is per-BUILDING error"**. x=283 R is
+  analytic 9.7 against pixel 32.4. Instrument, not massing.
+- **"14 pairs, mean absolute error 6.71 -> 5.48, Main St east 6.3 -> 3.8"**, and
+  the single-band comparison at 6.43 on the same set. The 14-pair set was never
+  recorded and is only recoverable by search — two different 14-subsets of a
+  19-pool reproduce it. It also rests on the broken built side.
+
+### Strengthened
+
+- **"12 of 14 marlin-core-east buildings moved, mean 12.6 -> 7.3 m; 0 of 15
+  marlin-core-west"** — exact, from the data, no instrument involved.
+- **"Pineapple and the bayfront unchanged to a tenth of a degree"** is now
+  *proven*: the analytic silhouette is **bit-identical** between the base and
+  after worlds in all 23 of those views.
+- **"the split costs nothing where it was already right"** needs no measurement at
+  all: on Main St east the single-band and split worlds are identical in every
+  height, so the split's whole advantage is the 11 west-of-Five-Points buildings
+  it leaves alone.
+- The sky headline **improves**: columns filled edge-to-edge on Main St east go
+  **61% -> 17%** against a reference of **18%**, not the 62% -> 26% published.
+
+### The reference side is worth less than assumed
+
+A photograph has no geometry, so the reference roofline still comes from pixels.
+`roofline.mjs` now reports five confidence terms per boundary, and on the 48
+photographs: 42% soft (no colour step), 33% near-white, 20% foliage-coloured, 13
+of 48 pinned at the top of frame. `9496096920505025-L` reads 41.9 deg / 74%
+clipped and is, cropped and looked at, **a live oak canopy filling the frame** —
+not a streetwall.
+
+**Clean on all four screens and not pinned: 6 of 48.** Both remaining biases point
+the same way (canopy and cloud read as roofline, raising the reference; the glow
+raised the built side), so on `R` views the published delta was a difference of
+two unquantified upward biases and is not interpretable at all.
+
+### And the noon frames were never lit
+
+The new degenerate-frame guard caught two captures already committed:
+`1414553883288835-{L,R}-noon.png` have mean luma **9.3 and 3.9**. Fed to the
+instrument, a black frame produces its **maximum** reading — 41.9 deg, no-sky
+100%, "+28.3 deg, built is TALLER". The failure mode of the whole chain was the
+most alarming possible answer. `roofline.mjs` now refuses them.
+
+That also means **binding constraint 3 is unmet in substance for the massing
+critique**: the second time of day was captured and is unusable. Recorded as open.
+
+### Guards added
+
+Degenerate frames refused; `--all` with no time argument now exits 2 instead of
+silently measuring an empty set and writing `roofline---all.json`; and provenance
+is checked against the stamp nothing previously read — world, camera, completeness,
+page errors, and the reference views' own freshness. `pano-match.mjs` now stamps a
+**content hash** as well as mtime and size, because a re-bake that changed nothing
+but `meta.baked`'s date moved the mtime and made the guard refuse a frame set that
+was in fact current. mtime is not content, and `touch` defeats it.
+
+## The glazing claim was wrong, and the real defect was what the pane reflects
+
+"The tower pane sits at a fixed 0.82-0.84 of the wall beside it right through
+daylight", filed by three critic rounds. **Not reproduced.** Measured on the main
+face, scene-linear: **0.348 at noon and 0.519 at golden** — it moves by about 2x
+across daylight. 0.82-0.84 does appear, but only in the *lower* bands at *golden*
+(0-8 m: 0.879 on the corridor frame, 0.813 on the tower). It was never a fixed
+number; it was one band at one hour.
+
+Masks verified before anything was read off them: 241,543 glass px against 479,348
+wall px, world-height agreeing with raycasts to 0.07 m, and the opposite-reading
+check firing — `scene.environmentIntensity = 0` takes the glass 3.5 -> 0.5 of 255.
+
+**The pane was already a directional mirror.** Against a chrome ball rendered into
+a float target at the same elevations, it returns a near-constant **third** of the
+environment (0.33, 0.26, 0.33, 0.35, 0.39, 0.36 across 0-50 degrees). So "no
+environment term" was the wrong diagnosis and would have led to the wrong fix.
+
+What was actually wrong is **what it reflects**: our sky peaks just above the
+horizon (8,109 nits at +10 degrees) and dims overhead, low panes reflect
+near-horizontally, and there is no city anywhere in `scene.environment` to block
+that bright band. The tower was therefore **brightest at the pavement and faded
+upward** — the inverse of a photograph:
+
+| band (m) | 0-8 | 8-16 | 16-24 | 24-32 | 32-40 | 40-60 |
+|---|---|---|---|---|---|---|
+| noon, before | 5.1 | 5.5 | 4.9 | 3.7 | 4.0 | 3.4 |
+| noon, after | **3.3** | **2.7** | 4.9 | 3.7 | 4.0 | 3.4 |
+
+`applyGlazingEnv()` puts the street back: a pane at height y sees the mass opposite
+subtend `atan((H-y)/D)`, reflecting the city below that ragged skyline and the sky
+above it. H = 16 m and D = 22 m come from raying all **2,962 baked building edges**
+(86% hit something), not from taste. The city's radiance is
+`urbanAlbedo * iblIrradiance / PI` — the district's own wall palette, so it tracks
+hour, weather and fog for free. **Zero new varyings, uniforms, textures, draw calls
+or programs.**
+
+The wall is untouched (x0.999-1.002 across every band) and only glass below the
+skyline moves. The builder caught its own live-fire error on the way: the first
+edit left `applyGlazingEnv` after an existing `return`, i.e. dead code — the same
+silently-identical-arms failure as the lamp A/B — and the probe now asserts the
+program is actually patched (`programs with glazeEnv 2/55`).
+
+Open, and said out loud: no matched **night** A/B (argued inert at 0.1-0.3 nits,
+not measured); the fix only removes light and no compensating gain was invented;
+and H and D are district-wide constants, so a bayfront pane with nothing opposite
+gets the same 16 m skyline as one on Main Street.
+
+## The lamp margin, and hysteresis demonstrated rather than asserted
+
+Review found the incumbent margin was applied twice and the halves were not
+commensurate: the distance discount was worth 8 rank-metres while the sphere
+dilation was worth `maxDistance + swapMargin` = 138, a **17x asymmetry**. A lamp 50
+m behind the camera — which by the pool's own criterion cannot light anything
+visible — held rank 42 and outranked every in-view lamp beyond 42 m.
+
+`held` now changes **exactly one thing**: the radius of the sphere the view test
+uses. Every rank is now exactly `d` or exactly `d + maxDistance` — 45,123 bench
+positions, 0 off-grid. The same lamp at 45.95 m behind now scores 45.95, its true
+distance, so it can only outrank lamps genuinely further away. The 8 m band is
+measured at 1 cm steps: leaves view at **45.81 m as a challenger, 53.81 m as an
+incumbent**, and **0.00 m at margin 0** as the negative control. Wasted slots over
+24 headings: **61 of 240 at margin 8 and 61 of 240 at margin 0** — identical, so
+the residual costs nothing measured. That waste is supply-limited, not
+margin-caused: only 6 of the 15 emitters within 130 m of the corridor camera can
+reach the view at all.
+
+The earlier `swapMargin` evidence was also weak, and the review was right about
+why: the boundary was located at margin 0 and then dithered at margin 8, so "0
+swaps" was equally consistent with a shifted-but-still-sharp threshold. A two-path
+sweep settles it — the same heading gives a **different lit set depending on which
+way the camera arrived**:
+
+| | switches going up | coming down | path-dependent |
+|---|---|---|---|
+| margin 8 | 19.5, 26.0 deg | 15.5, 21.5 deg | **17 of 41 angles = 8.5 deg** |
+| margin 0 | 19.5, 21.5 deg | 19.5, 21.5 deg | **0** |
+
+A shifted threshold cannot produce that, and margin 0 proves the rig by collapsing
+it to zero. Churn under dither was then run at **both** candidate boundaries — the
+control that was missing — and margin 8 gives 0 reassignments at each while margin
+0 gives 23.
+
+**Emitter count settled: 543**, re-derived by replaying the placement loop against
+the bake — 582 drivable edges, 1,476 segments, 1,141 shorter than 26 m and skipped,
+cap of 1,100 never binding. Three comments disagreed (233 / 543 / 1100) and now
+agree.
+
+**Found, measured, NOT fixed:** `sky.update(camera)` runs before `chase.update()`,
+the same class of bug just fixed for the lamp pool and a worse case. After a 30
+degree camera jump the sky's captured rotation still reads the old heading for 1-2
+rendered frames, carrying the *full* rotation, so the dome is drawn from a
+different camera than the geometry beside it. Moving the call is not sufficient —
+`sky.update` reads `camera.matrixWorld` and nothing refreshes it until the renderer
+does at end of frame, so it also needs its own `updateMatrixWorld()`, as
+`LightPool.setView()` does. `weather.update` has the same ordering and does **not**
+matter: it reads only `camera.position`, for a rain volume and a splash centre
+snapped to a 2 m grid, and one frame of travel is 0.93 m at 100 km/h.
+
 ## The queue counter was a symptom: chunks were being deleted while wanted
 
 Chased on a builder pass. The counter question turned out to be the cheap half.
@@ -49,9 +259,12 @@ want 44, missing 0, LOD-differs 0, already-correct 44, **live queue depth 0** �
 rebuild pushes nothing — while the reported figure said 44. One forced rescan on
 that same settled world took it from 44 to 0 without loading or unloading anything.
 
-It is now `queuedAtScan` internally, which is what it actually is and is the real
-input to the stall budget, and `report()` derives a live `queued` (queue depth plus
-the in-flight chunk, because a chunk being built is real outstanding work).
+`report()` now derives a live `queued` — queue depth plus the in-flight chunk,
+because a chunk being built is real outstanding work. The scan-time figure was
+first kept as `queuedAtScan`; a review then found it had one write and **no
+readers anywhere**, so a misleading field had simply become a dead one, and it is
+now deleted. If a stall-budget gate ever wants "work created by one crossing", it
+should come back with the reader that needs it, in the same change.
 
 **Four harnesses had each invented a different wrong reason for that number** —
 "a cumulative counter" (`contact.mjs`), "the queue never drains" (`sun-share.mjs`),
@@ -68,18 +281,98 @@ without consulting `want`, while the queue rebuild skips the same chunk because 
 that moment it is still in `this.loaded` with the right LOD. So the chunk is
 wanted, present, unqueued — and then deleted.
 
-Measured (`tools/stream-uturn-probe.mjs`, `docs/stream-uturn.json`): cross one
-boundary and come straight back, and the rescan logs **3 keys in `want` and in
-`_pendingUnload` at once**. Over the next 3 updates — rescan count frozen, build
-queue empty, no job in flight — `missing` climbs 0 → 3 and `unloads` climbs by
-exactly 3 while `loads` never moves. **It does not self-heal**: 21 further updates
-left it at 3. A forced rescan queued and rebuilt them (loads 114 → 117).
+> **Correction.** The first version of this entry, and the commit message at
+> `258aded`, quoted figures from a run of the *fixed* code — I re-ran the probe
+> after applying the fix and it overwrote its own before-evidence, so the entry
+> cited a file that refuted it. The defect is real; the numbers below are the
+> re-measured ones, taken against `258aded^` served from a scratch checkout.
+> The commit message cannot be corrected without rewriting history, so it stands
+> wrong and this is the record. **A probe that writes to a fixed output path will
+> destroy its own control run.** Before/after now go to distinct files.
+
+Measured pre-fix (`tools/stream-uturn-probe.mjs` → `docs/stream-uturn-before.json`,
+`258aded^`). Home chunk 1,0, want = 94. Cross one boundary, dwell 3 updates, cross
+straight back:
+
+- the return rescan logs **3 keys in `want` and in `_pendingUnload` at once**, and
+  queues 6 — **none of them those 3**, because all 3 are still in `this.loaded` at
+  the right LOD (`alreadyCorrect` 88);
+- over the next 3 updates, with the rescan count frozen at 3 and **`loads` frozen
+  at 101** — no build is ever started for them — `missing` climbs **5 → 8**,
+  `unloads` climbs **12 → 15**, and the wanted-and-pending count falls 3 → 0. One
+  disposal per update, each one a wanted chunk;
+- **it does not self-heal.** Once the queue drained (loads 101 → 106), `missing`
+  sat at exactly **3 for the next 20 samples**, updates 73 → 94, with an empty
+  queue, no job in flight and `loads` frozen at 106;
+- only a forced rescan repaired it, and it cost **3 full chunk builds**:
+  loads 106 → 109.
 
 The cost is a dispose plus a full chunk build per u-turn, both landing in the stall
 budget, for chunks that never needed to leave. They are always far-tier — a chunk
-only exits `want` from the outer edge of the ring.
+only exits `want` from the outer edge of the ring, so the near ring cannot lose
+geometry this way.
 
 The fix is one line: `else this._pendingUnload.delete(key)`.
+
+Same probe against the fixed tree (`docs/stream-uturn-after.json`): the return
+rescan logs **0** keys in both maps, `unloads` stays frozen at 11 across the whole
+24-update watch window, `missing` falls 5 → 0 instead of climbing, and the closing
+forced rescan finds nothing to repair (`alreadyCorrect` 94, `loads` unchanged).
+
+### And a second one under that: the in-flight chunk was built twice
+
+Found by an adversarial review of the above, and **pre-existing** — it measures the
+same at `258aded^`. `_drainQueue` guarded a dequeued entry only with
+`if (!want.has(next.key)) continue;` and never consulted `this.loaded`. The chunk
+being built is in *neither* `loaded` nor the queue — `this.job` is its own place —
+so a rescan landing mid-build re-queues it as a fresh load. The job completes and
+writes `loaded`; the duplicate then dequeues with `swap:false`, disposes nothing,
+and adds a **second group to root**. The first is orphaned: still parented, still
+drawn, still holding its buffers, and invisible to `this.loaded`, so nothing will
+ever dispose it. Its roads and zone polygons sit at the same fixed `y` as the new
+copy, which is a z-fight.
+
+The same branch also disposed `this.loaded.get(key)` on a LOD swap **without
+deleting the key**, so between the dispose and the rebuild landing, `loaded`
+pointed at a group that had left the scene — `chunksLoaded` counted it, and a
+rescan in that window read its stale `cur.lod` and could call the chunk already
+correct.
+
+Measured on a zig-zag stress walk, ~1,520 updates and 163 rescans against each tree
+(`tools/stream-churn-probe.mjs`). It is a stress walk, not the route: it crosses a
+boundary about every 10 updates, so these are an upper bound on churn, not a
+prediction of the gate's.
+
+| | before (`258aded^`) | after |
+|---|---|---|
+| orphaned groups in root at rest | 3 | **0** |
+| chunk groups in root vs `loaded.size` | 96 / 93 | **94 / 94** |
+| orphan meshes / triangles | 12 / 11,272 | **0 / 0** |
+| updates with a `loaded` entry whose group had left the scene | 649 of 1,520 | **0 of 1,517** |
+| `_beginBuild` on a key already in `loaded` | 1,070 | **0** |
+| zero-queued updates whose committed want map was **not** satisfied | 6 of 813 | **0 of 819** |
+
+The fix is again one guard, deciding from `this.loaded` now rather than from the
+`swap` flag stamped at scan time: skip the entry if the chunk is already there at
+the wanted LOD, and otherwise dispose **and delete** before rebuilding.
+
+That last table row is also the answer to a question left open by the counter fix:
+a chunk was sitting at the wrong LOD, unqueued, after a u-turn. It was not
+instrument drift — a floating-point tie on the LOD boundary would not care about a
+change to the dequeue path, and this one went to zero across it.
+
+### What `queued === 0` is allowed to promise
+
+It means: every chunk in the want map committed at the last crossing is loaded at
+its wanted LOD, and no build is in flight. That is the settle signal four harnesses
+wanted. **It does not mean the streamer is idle** — disposal is a separate budget,
+and 237 of 819 zero-queued updates still had chunks awaiting disposal, up to 8 at
+once, drawn and holding their buffers the whole time. A settle check that cares
+about draw calls or triangles has to wait on `pendingUnload` too. It is also a
+statement about the last crossing's want map, not about where the camera is right
+now: `desiredLod()` reads a continuous position but the map is only rebuilt on a
+chunk change, so the ring is deliberately stale between crossings (467 of the
+zero-queued updates, in both trees — by design, not a defect).
 
 ## The lamp pool now ranks by what it can light, and the A/B that said otherwise was broken
 
@@ -632,6 +925,9 @@ reverting it returns 0.00. A gate that cannot fail is not a gate.
 
 | Date | Gate | Result | Evidence |
 |---|---|---|---|
+| 2026-09-03 | **drive-through + 30 traffic**, after the glazing reflection, the in-flight chunk guard and the lamp margin rework | **PASS/PASS/WARN** — draw p95 **228**, tris p95 **766,853**, stall **12.5 ms** inside its 7.1-16.4 noise band, heap **-1 MB** | `docs/drive-traffic.json` |
+| 2026-09-03 | **lighting sweep**, with the glazing reflection in | **PASS** — all four times of day, both negative tests firing | `docs/daynight.json` |
+| 2026-09-03 | syntax / golden-trace / physics / geom-audit | PASS — 92 modules, 30 samples, 10 checks | `npm run gates:static` |
 | 2026-09-02 | **drive-through + 30 traffic**, after the streaming unload fix and the view-aware lamp pool | **PASS/PASS/WARN** — draw p95 **228**, tris p95 **762,402**, stall **9.7 ms** inside its 7.1-16.4 noise band, heap +3 MB | `docs/drive-traffic.json` |
 | 2026-09-02 | **lighting sweep**, after the view-aware lamp pool | **PASS** — all four times of day, both negative tests firing | `docs/daynight.json` |
 | 2026-09-02 | **drive-through + 30 traffic**, after the Main St east massing split | **PASS/PASS/WARN** — draw p95 **228** (was 229), tris p95 **760,681** (was 766,051), stall **8.7 ms** inside its 7.1-16.4 noise band, heap +3 MB | `docs/drive-traffic.json` |
