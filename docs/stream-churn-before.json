@@ -1,0 +1,150 @@
+{
+  "probe": "stream-churn-probe",
+  "when": "2026-09-03T16:11:33.304Z",
+  "port": 8124,
+  "meta": {
+    "chunkSize": 128,
+    "nearRadius": 2,
+    "farRadius": 5,
+    "unloadsPerUpdate": 1,
+    "home": {
+      "cx": 1,
+      "cz": 0,
+      "n": 101
+    }
+  },
+  "settleReached": false,
+  "updatesBeforeWalk": 54,
+  "settleCensus": {
+    "label": "after-settle",
+    "updates": 54,
+    "rescans": 1,
+    "liveQueued": 62,
+    "chunkGroupsInRoot": 36,
+    "orphanGroups": 0,
+    "orphanMeshes": 0,
+    "orphanTris": 0,
+    "orphanKeys": [],
+    "staleLoadedEntries": 0,
+    "loaded": 36,
+    "reportedMeshes": 143,
+    "reportedTriangles": 75219,
+    "reportedQueued": 89,
+    "pendingUnload": 0,
+    "loads": 44,
+    "unloads": 7,
+    "lodSwaps": 0
+  },
+  "walkEnd": {
+    "label": "walk-end",
+    "updates": 1554,
+    "rescans": 162,
+    "liveQueued": 0,
+    "chunkGroupsInRoot": 77,
+    "orphanGroups": 3,
+    "orphanMeshes": 12,
+    "orphanTris": 11272,
+    "orphanKeys": [
+      "chunk:3,2:lod0",
+      "chunk:4,-1:lod0",
+      "chunk:-3,-4:lod1"
+    ],
+    "staleLoadedEntries": 0,
+    "loaded": 74,
+    "reportedMeshes": 222,
+    "reportedTriangles": 89255,
+    "reportedQueued": 8,
+    "pendingUnload": 2,
+    "loads": 777,
+    "unloads": 700,
+    "lodSwaps": 1047
+  },
+  "restReached": true,
+  "rest": {
+    "label": "rest",
+    "updates": 1574,
+    "rescans": 163,
+    "liveQueued": 0,
+    "chunkGroupsInRoot": 96,
+    "orphanGroups": 3,
+    "orphanMeshes": 12,
+    "orphanTris": 11272,
+    "orphanKeys": [
+      "chunk:3,2:lod0",
+      "chunk:4,-1:lod0",
+      "chunk:-3,-4:lod1"
+    ],
+    "staleLoadedEntries": 0,
+    "loaded": 93,
+    "reportedMeshes": 264,
+    "reportedTriangles": 94653,
+    "reportedQueued": 42,
+    "pendingUnload": 0,
+    "loads": 799,
+    "unloads": 703,
+    "lodSwaps": 1067
+  },
+  "counters": {
+    "updates": 1574,
+    "rescans": 163,
+    "beginWhileLoaded": 1070,
+    "beginWhileLoadedLiveGroup": 3,
+    "beginWhileLoadedSameLod": 20,
+    "overwroteLiveGroup": 3,
+    "overwroteSamples": [
+      {
+        "key": "3,2",
+        "oldLod": 0,
+        "newLod": 0,
+        "updates": 102
+      },
+      {
+        "key": "4,-1",
+        "oldLod": 0,
+        "newLod": 0,
+        "updates": 112
+      },
+      {
+        "key": "-3,-4",
+        "oldLod": 1,
+        "newLod": 1,
+        "updates": 1492
+      }
+    ],
+    "updatesWithStaleLoadedEntry": 649,
+    "maxStaleLoadedEntries": 1,
+    "samples": 1520,
+    "zeroQueued": 813,
+    "zeroQueuedUnsatisfied": 6,
+    "zeroQueuedRingStale": 467,
+    "zeroQueuedWithPending": 240,
+    "maxPendingAtZeroQueued": 7,
+    "violations": [
+      {
+        "updates": 995,
+        "bad": 1
+      },
+      {
+        "updates": 996,
+        "bad": 1
+      },
+      {
+        "updates": 997,
+        "bad": 1
+      },
+      {
+        "updates": 998,
+        "bad": 1
+      },
+      {
+        "updates": 999,
+        "bad": 1
+      },
+      {
+        "updates": 1574,
+        "bad": 1
+      }
+    ]
+  },
+  "errors": []
+}

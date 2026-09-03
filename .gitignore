@@ -30,3 +30,10 @@ docs/shots/pano-match/*.png
 # Glazing probe captures: many variants per run, regenerable from tools/glaz-probe.mjs.
 # The two corridor golden frames the finding was read from are force-added.
 docs/shots/glaz-*.png
+
+# Superseded lamp-onscreen probe captures. Its question is answered better by the
+# lamp-ab pair (committed) and tools/lamp-hysteresis.mjs, and each frame is ~1.3 MB.
+docs/shots/lamp-night-before.png
+docs/shots/lamp-night-after.png
+docs/shots/lamp-dusk-before.png
+docs/shots/lamp-dusk-after.png
