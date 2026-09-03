@@ -88,7 +88,14 @@ const BANDS = [
     pick: (r, area) => {
       if (area > 2200) return r < 0.5 ? 3 : r < 0.85 ? 4 : 6;
       if (area > 900) return r < 0.5 ? 2 : r < 0.85 ? 3 : 4;
-      if (area > 300) return r < 0.6 ? 2 : r < 0.9 ? 2 : 3;
+      // Two outcomes, not three, and deliberately so - an independent review
+      // read the previous `r < 0.6 ? 2 : r < 0.9 ? 2 : 3` as a typo for 2:3:4,
+      // which is a fair reading of three branches that return two values. It is
+      // written plainly now because the measurement cannot support a third
+      // outcome here: only TWO of the 14 marlin-core-east buildings fall in the
+      // 300-900 m2 band, and both measured 2 storeys. A stepped 2/3/4 would be
+      // inventing a distribution from a sample of two.
+      if (area > 300) return r < 0.9 ? 2 : 3;
       return r < 0.7 ? 1 : 2;
     },
   },
