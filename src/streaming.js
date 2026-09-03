@@ -58,7 +58,7 @@ export class StreamingWorld {
     this.unloadsPerUpdate = opts.unloadsPerUpdate ?? 1;
     this._lastCx = NaN; this._lastCz = NaN;
     this.stats = { loads: 0, unloads: 0, lodSwaps: 0, worstBuildMs: 0, lastBuildMs: 0,
-      queued: 0, pendingUnload: 0, sliceMs: 0, worstSliceMs: 0, scanMs: 0, worstScanMs: 0,
+      queuedAtScan: 0, pendingUnload: 0, sliceMs: 0, worstSliceMs: 0, scanMs: 0, worstScanMs: 0,
       lastFinishMs: 0, worstFinishMs: 0, worstDisposeMs: 0, worstUploadMs: 0 };
 
     // One shared registry for the whole district: N buildings share M materials,
@@ -163,8 +163,28 @@ export class StreamingWorld {
     // Unload anything outside the ring, bounded. Disposal is invisible work on
     // chunks the player has already left, so spreading it over frames costs
     // nothing and keeps it out of the stall budget.
+    //
+    // The `else` is not tidiness, it is a hole in the world. Disposal is spread
+    // at unloadsPerUpdate=1, so a chunk can still be sitting in _pendingUnload
+    // when the player turns around and it re-enters `want`. Nothing else takes a
+    // key back out of that map, and the drain loops below dispose whatever is in
+    // it without consulting `want` - while the queue rebuild further down skips
+    // the same chunk, because at that moment it is still present in `this.loaded`
+    // with the right LOD. Wanted, present, unqueued, then deleted.
+    //
+    // Measured (tools/stream-uturn-probe.mjs, docs/stream-uturn.json): cross one
+    // boundary and come straight back, and the rescan logs 3 keys in `want` and
+    // in _pendingUnload at once. Over the next 3 updates - with the rescan count
+    // frozen, the build queue empty and no job in flight - `missing` climbs 0 ->
+    // 3 and `unloads` climbs by exactly 3, while `loads` never moves. It does not
+    // self-heal: 21 further updates left it at 3. One forced rescan queued the 3
+    // and rebuilt them (loads 114 -> 117), which is the cost - a dispose and a
+    // full chunk build per event, both landing in the stall budget, for chunks
+    // that never needed to leave. They are always far-tier: a chunk only exits
+    // `want` from the outer edge of the ring, never the near ring.
     for (const [key, entry] of this.loaded) {
       if (!want.has(key)) this._pendingUnload.set(key, entry);
+      else this._pendingUnload.delete(key);
     }
     let unloadBudget = this.unloadsPerUpdate;
     for (const [key, entry] of this._pendingUnload) {
@@ -186,7 +206,24 @@ export class StreamingWorld {
       const [ax, az] = a.key.split(',').map(Number), [bx, bz] = b.key.split(',').map(Number);
       return (Math.abs(ax - pcx) + Math.abs(az - pcz)) - (Math.abs(bx - pcx) + Math.abs(bz - pcz));
     });
-    this.stats.queued = this.queue.length;
+    // NOT the backlog, and it never was. This is the rebuild loop's verdict for
+    // one boundary crossing, written here and never touched again as the queue
+    // drains - and the rebuild is skipped entirely on every update that does not
+    // cross a chunk boundary, which parked is all of them. Reported as `queued`
+    // it read as a queue that never empties, and four harnesses each invented a
+    // different wrong reason for it: "a cumulative counter" (contact.mjs), "the
+    // queue never drains" (sun-share.mjs), "the far ring keeps a permanent
+    // backlog" (lamp-onscreen.mjs), "the far ring keeps re-queueing"
+    // (glaz-probe.mjs). None of those happen. Measured parked and settled
+    // (tools/stream-queue-probe.mjs): want 44, missing 0, LOD-differs 0,
+    // already-correct 44, live queue depth 0 - the rebuild loop pushes nothing,
+    // and one forced rescan on that same settled world took the reported number
+    // from 44 to 0 without loading or unloading a single chunk. The 69-81 the
+    // ledger recorded is simply what was missing at the last crossing, which
+    // after a cold start is the whole ring - hence a number that shadows the
+    // loaded-chunk count. report() now derives `queued` live; this keeps the
+    // scan-time figure, which is the real input to the stall budget.
+    this.stats.queuedAtScan = this.queue.length;
     this._want = want;
 
     // Spend at most budgetMs per frame building chunks. This is the knob that
@@ -611,6 +648,11 @@ export class StreamingWorld {
     return {
       chunksLoaded: this.loaded.size, lodNear: lods[0], lodFar: lods[1],
       meshes, triangles: Math.round(tris), ...this.stats,
+      // Live depth, so `queued === 0` means what every caller already assumed it
+      // meant: nothing outstanding. The in-flight chunk counts - it is real work
+      // that has not landed, and without it the last chunk of a fill reports an
+      // empty queue while it is still being built.
+      queued: this.queue.length + (this.job ? 1 : 0),
       pendingUnload: this._pendingUnload.size,
       materials: this.registry ? this.registry.report() : null,
     };

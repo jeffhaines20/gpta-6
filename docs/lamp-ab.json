@@ -1,0 +1,331 @@
+{
+ "streamed": {
+  "chunksLoaded": 89,
+  "queued": 0,
+  "triangles": 91884,
+  "waitedMs": 45954
+ },
+ "perCam": [
+  {
+   "cam": "r2-along",
+   "legacy": {
+    "viewAware": false,
+    "lit": 10,
+    "onScreen": 1,
+    "illuminating": 5,
+    "behind": 6,
+    "nearestLit": 11.3,
+    "farthestLit": 118.3,
+    "supply": {
+     "inRange": 15,
+     "onScreen": 1,
+     "illuminates": 6
+    }
+   },
+   "viewaware": {
+    "viewAware": true,
+    "lit": 10,
+    "onScreen": 1,
+    "illuminating": 6,
+    "behind": 5,
+    "nearestLit": 11.3,
+    "farthestLit": 122.7,
+    "supply": {
+     "inRange": 15,
+     "onScreen": 1,
+     "illuminates": 6
+    }
+   }
+  },
+  {
+   "cam": "r2-across",
+   "legacy": {
+    "viewAware": false,
+    "lit": 10,
+    "onScreen": 2,
+    "illuminating": 6,
+    "behind": 5,
+    "nearestLit": 11.3,
+    "farthestLit": 118.3,
+    "supply": {
+     "inRange": 15,
+     "onScreen": 4,
+     "illuminates": 9
+    }
+   },
+   "viewaware": {
+    "viewAware": true,
+    "lit": 10,
+    "onScreen": 4,
+    "illuminating": 9,
+    "behind": 2,
+    "nearestLit": 11.3,
+    "farthestLit": 128.1,
+    "supply": {
+     "inRange": 15,
+     "onScreen": 4,
+     "illuminates": 9
+    }
+   }
+  },
+  {
+   "cam": "r4-along",
+   "legacy": {
+    "viewAware": false,
+    "lit": 10,
+    "onScreen": 1,
+    "illuminating": 6,
+    "behind": 5,
+    "nearestLit": 3.7,
+    "farthestLit": 84.3,
+    "supply": {
+     "inRange": 23,
+     "onScreen": 1,
+     "illuminates": 9
+    }
+   },
+   "viewaware": {
+    "viewAware": true,
+    "lit": 10,
+    "onScreen": 1,
+    "illuminating": 9,
+    "behind": 3,
+    "nearestLit": 3.7,
+    "farthestLit": 123.8,
+    "supply": {
+     "inRange": 23,
+     "onScreen": 1,
+     "illuminates": 9
+    }
+   }
+  },
+  {
+   "cam": "r4-across",
+   "legacy": {
+    "viewAware": false,
+    "lit": 10,
+    "onScreen": 1,
+    "illuminating": 5,
+    "behind": 6,
+    "nearestLit": 3.7,
+    "farthestLit": 84.3,
+    "supply": {
+     "inRange": 23,
+     "onScreen": 4,
+     "illuminates": 9
+    }
+   },
+   "viewaware": {
+    "viewAware": true,
+    "lit": 10,
+    "onScreen": 4,
+    "illuminating": 9,
+    "behind": 2,
+    "nearestLit": 3.7,
+    "farthestLit": 128.2,
+    "supply": {
+     "inRange": 23,
+     "onScreen": 4,
+     "illuminates": 9
+    }
+   }
+  },
+  {
+   "cam": "r0-along",
+   "legacy": {
+    "viewAware": false,
+    "lit": 0,
+    "onScreen": 0,
+    "illuminating": 0,
+    "behind": 0,
+    "nearestLit": null,
+    "farthestLit": null,
+    "supply": {
+     "inRange": 0,
+     "onScreen": 0,
+     "illuminates": 0
+    }
+   },
+   "viewaware": {
+    "viewAware": true,
+    "lit": 0,
+    "onScreen": 0,
+    "illuminating": 0,
+    "behind": 0,
+    "nearestLit": null,
+    "farthestLit": null,
+    "supply": {
+     "inRange": 0,
+     "onScreen": 0,
+     "illuminates": 0
+    }
+   }
+  },
+  {
+   "cam": "r0-across",
+   "legacy": {
+    "viewAware": false,
+    "lit": 0,
+    "onScreen": 0,
+    "illuminating": 0,
+    "behind": 0,
+    "nearestLit": null,
+    "farthestLit": null,
+    "supply": {
+     "inRange": 0,
+     "onScreen": 0,
+     "illuminates": 0
+    }
+   },
+   "viewaware": {
+    "viewAware": true,
+    "lit": 0,
+    "onScreen": 0,
+    "illuminating": 0,
+    "behind": 0,
+    "nearestLit": null,
+    "farthestLit": null,
+    "supply": {
+     "inRange": 0,
+     "onScreen": 0,
+     "illuminates": 0
+    }
+   }
+  },
+  {
+   "cam": "r5-along",
+   "legacy": {
+    "viewAware": false,
+    "lit": 10,
+    "onScreen": 0,
+    "illuminating": 4,
+    "behind": 8,
+    "nearestLit": 12.6,
+    "farthestLit": 81.6,
+    "supply": {
+     "inRange": 27,
+     "onScreen": 2,
+     "illuminates": 8
+    }
+   },
+   "viewaware": {
+    "viewAware": true,
+    "lit": 10,
+    "onScreen": 2,
+    "illuminating": 8,
+    "behind": 4,
+    "nearestLit": 12.6,
+    "farthestLit": 121.8,
+    "supply": {
+     "inRange": 27,
+     "onScreen": 2,
+     "illuminates": 8
+    }
+   }
+  },
+  {
+   "cam": "r5-across",
+   "legacy": {
+    "viewAware": false,
+    "lit": 10,
+    "onScreen": 4,
+    "illuminating": 8,
+    "behind": 4,
+    "nearestLit": 12.6,
+    "farthestLit": 81.6,
+    "supply": {
+     "inRange": 27,
+     "onScreen": 11,
+     "illuminates": 19
+    }
+   },
+   "viewaware": {
+    "viewAware": true,
+    "lit": 10,
+    "onScreen": 6,
+    "illuminating": 10,
+    "behind": 3,
+    "nearestLit": 12.6,
+    "farthestLit": 87.8,
+    "supply": {
+     "inRange": 27,
+     "onScreen": 11,
+     "illuminates": 19
+    }
+   }
+  }
+ ],
+ "totals": {
+  "cameras": 8,
+  "supply": {
+   "inRange": 130,
+   "onScreen": 23,
+   "illuminates": 60
+  },
+  "legacy": {
+   "onScreen": 9,
+   "illuminating": 34,
+   "behind": 34
+  },
+  "viewaware": {
+   "onScreen": 18,
+   "illuminating": 51,
+   "behind": 19
+  }
+ },
+ "frames": {
+  "night": {
+   "pixels": 1166400,
+   "changedPct": 35.465,
+   "meanAbsDiffOverChanged": 24.58,
+   "brighterPct": 21.085,
+   "dimmerPct": 14.379,
+   "meanLumaLegacy": 25.892,
+   "meanLumaViewAware": 31.086,
+   "shots": {
+    "legacy": "docs/shots/lamp-ab-night-legacy.png",
+    "viewaware": "docs/shots/lamp-ab-night-viewaware.png"
+   }
+  },
+  "dusk": {
+   "pixels": 1166400,
+   "changedPct": 10.244,
+   "meanAbsDiffOverChanged": 11.64,
+   "brighterPct": 5.654,
+   "dimmerPct": 4.59,
+   "meanLumaLegacy": 107.826,
+   "meanLumaViewAware": 107.882,
+   "shots": {
+    "legacy": "docs/shots/lamp-ab-dusk-legacy.png",
+    "viewaware": "docs/shots/lamp-ab-dusk-viewaware.png"
+   }
+  }
+ },
+ "hysteresis": {
+  "yaw": {
+   "margin8": {
+    "margin": 8,
+    "swaps": 0,
+    "samples": 24
+   },
+   "margin0": {
+    "margin": 0,
+    "swaps": 11,
+    "samples": 24
+   }
+  },
+  "move": {
+   "margin8": {
+    "margin": 8,
+    "swaps": 0,
+    "samples": 24
+   },
+   "margin0": {
+    "margin": 0,
+    "swaps": 0,
+    "samples": 24
+   }
+  }
+ },
+ "errors": []
+}

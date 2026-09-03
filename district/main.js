@@ -431,7 +431,6 @@ function animate(now) {
   // Runs last: the sky and weather both write fog terms as physical radiance, and
   // only after both have written can it be checked against the camera stop.
   tod.normalisePostExposure();
-  lightPool.update(camera.position, tod.preset.lampsOn ? 1 : 0);
 
   // --- character
   fsm.update(dt, {
@@ -458,6 +457,21 @@ function animate(now) {
   const carYaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
   if (mode === 'foot') chase.update(dt, player.position, world);
   else chase.update(dt, vehicle.position, world, carYaw + Math.PI, vehicle.forwardSpeed > 3 ? 1.6 : 0);
+
+  // AFTER chase.update, and with the camera itself rather than its position.
+  //
+  // The pool has ten slots for 543 emitters and used to choose by horizontal
+  // distance alone, which spent six of them on lamps behind the corridor camera
+  // at night - lighting nothing the player could see, while the lamps down the
+  // street the player WAS looking at glowed with no pool of light under them
+  // (their fixture geometry is emissive and drawn whatever the pool does). The
+  // camera is what makes that judgement possible, so it is what gets handed over.
+  //
+  // Order matters twice. chase.update() is what writes this frame's camera
+  // transform, so calling before it ranked against last frame's view - a lag the
+  // player sees as the lit set trailing the turn. And post.render() is still
+  // ahead of us, so the selection made here is the one that renders.
+  lightPool.update(camera.position, tod.preset.lampsOn ? 1 : 0, camera);
 
   carMesh.group.position.copy(vehicle.position);
   carMesh.group.quaternion.copy(vehicle.quaternion);

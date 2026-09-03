@@ -30,6 +30,119 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## The queue counter was a symptom: chunks were being deleted while wanted
+
+Chased on a builder pass. The counter question turned out to be the cheap half.
+
+### The counter, answered
+
+`stats.queued` was assigned in exactly one place, right after the queue rebuild
+and before `_drainQueue()`, and never touched again as the queue drained. Worse,
+**the rebuild is skipped entirely on any update that does not cross a chunk
+boundary** — which, parked, is all of them. So the number was the rebuild loop's
+verdict for the last boundary crossing, frozen. After a cold start that verdict is
+"the whole ring is missing", which is why it shadowed the loaded-chunk count at
+69-81 rather than sitting near zero.
+
+Measured parked and settled (`tools/stream-queue-probe.mjs`, `docs/stream-probe.json`):
+want 44, missing 0, LOD-differs 0, already-correct 44, **live queue depth 0** — the
+rebuild pushes nothing — while the reported figure said 44. One forced rescan on
+that same settled world took it from 44 to 0 without loading or unloading anything.
+
+It is now `queuedAtScan` internally, which is what it actually is and is the real
+input to the stall budget, and `report()` derives a live `queued` (queue depth plus
+the in-flight chunk, because a chunk being built is real outstanding work).
+
+**Four harnesses had each invented a different wrong reason for that number** —
+"a cumulative counter" (`contact.mjs`), "the queue never drains" (`sun-share.mjs`),
+"the far ring keeps a permanent backlog" (`lamp-onscreen.mjs`), "the far ring keeps
+re-queueing" (`glaz-probe.mjs`). None of those happen. A misnamed field cost four
+independent wrong explanations.
+
+### The real defect underneath it: wanted, present, unqueued, then deleted
+
+Disposal is spread at `unloadsPerUpdate = 1`, so a chunk can still be sitting in
+`_pendingUnload` when the player turns round and it re-enters `want`. **Nothing
+took a key back out of that map.** The drain loop disposes whatever is in it
+without consulting `want`, while the queue rebuild skips the same chunk because at
+that moment it is still in `this.loaded` with the right LOD. So the chunk is
+wanted, present, unqueued — and then deleted.
+
+Measured (`tools/stream-uturn-probe.mjs`, `docs/stream-uturn.json`): cross one
+boundary and come straight back, and the rescan logs **3 keys in `want` and in
+`_pendingUnload` at once**. Over the next 3 updates — rescan count frozen, build
+queue empty, no job in flight — `missing` climbs 0 → 3 and `unloads` climbs by
+exactly 3 while `loads` never moves. **It does not self-heal**: 21 further updates
+left it at 3. A forced rescan queued and rebuilt them (loads 114 → 117).
+
+The cost is a dispose plus a full chunk build per u-turn, both landing in the stall
+budget, for chunks that never needed to leave. They are always far-tier — a chunk
+only exits `want` from the outer edge of the ring.
+
+The fix is one line: `else this._pendingUnload.delete(key)`.
+
+## The lamp pool now ranks by what it can light, and the A/B that said otherwise was broken
+
+543 emitters, 10 slots, chosen by horizontal distance alone. Three critic rounds
+filed "lamps glow without lighting".
+
+The rank is now view-aware, and the test is deliberately **not** "is the lamp on
+screen" but "can this lamp light anything on screen" — the emitter's own falloff
+sphere against the view frustum. That keeps a lamp just off the left edge, which
+lights pavement that is in shot, and keeps one a few metres behind whose 46 m reach
+still covers the road ahead, while dropping one 60 m behind that cannot reach any
+visible surface. Anything failing the test is ranked after everything that passes.
+
+A frame-ordering bug fell out of it: `lightPool.update()` ran BEFORE
+`chase.update()`, which is what writes the frame's camera transform. Selection was
+ranking against last frame's view — a lag the player would see as the lit set
+trailing the turn. It now runs after.
+
+### The A/B reported a clean null, and the null was the instrument
+
+The first run compared legacy against view-aware across eight cameras and found
+**zero difference at all eight**. That reads as "the change does nothing".
+
+Every legacy row also recorded `viewAware: true`, which is incoherent — the arm
+that exists to have the bias off was reporting it on. The cause: the switches were
+handed to `page.evaluate(sw)` as a **string** holding an arrow function.
+Playwright evaluates a string as an expression, so it built a function object and
+threw it away. Neither arm ever ran. The PROBE worked only because it was invoked
+as `` `(${PROBE})()` `` — with the call parentheses. Both arms measured whatever
+`main.js` had left the pool in, so identical results were guaranteed.
+
+The harness now **asserts `pool.hasView` matches the arm** and throws rather than
+recording a row, so this cannot silently no-op again.
+
+### What the corrected A/B says
+
+Eight cameras on the hero route, along and across, at night. Two have no emitters
+in range and measure nothing; the other six:
+
+| | legacy | view-aware |
+|---|---|---|
+| lit lamps that can light a visible surface | **34** of 60 | **51** of 60 |
+| lit lamps behind the camera | **34** | **19** |
+| lit lamps on screen | 9 | 18 |
+
+Better at all six live cameras, worse at none. The night frame's mean luma goes
+25.9 → 31.1 with 35.5% of pixels changed; **dusk moves 107.83 → 107.88**, which is
+the regression check — lamps are on at dusk too and the change does not disturb it.
+
+### `swapMargin` was a dead field and has now earned its place
+
+It was set in the constructor and read nowhere, because distance does not change
+when the player turns and so there was no boundary to flicker across. Making
+selection view-dependent creates one. It is now applied twice, both as a length:
+dilating an incumbent's sphere so it must fall clearly out of view before losing
+its slot, and shortening an incumbent's effective distance so a challenger must be
+clearly closer.
+
+A monotonic sweep said it bought nothing, which is the wrong exercise — nothing
+crosses a boundary twice. On a **yaw dither** around a heading where an emitter
+sits on the frustum edge: **margin 0 gives 11 slot swaps in 24 samples, margin 8
+gives 0**. The instrument can produce the opposite reading, and did.
+
 ## Main Street east was 1.67x too tall, and the corridor is two massing regimes
 
 Acting on the audited finding above. `tools/bake/massing.mjs` `marlin-core` applied
@@ -519,6 +632,8 @@ reverting it returns 0.00. A gate that cannot fail is not a gate.
 
 | Date | Gate | Result | Evidence |
 |---|---|---|---|
+| 2026-09-02 | **drive-through + 30 traffic**, after the streaming unload fix and the view-aware lamp pool | **PASS/PASS/WARN** — draw p95 **228**, tris p95 **762,402**, stall **9.7 ms** inside its 7.1-16.4 noise band, heap +3 MB | `docs/drive-traffic.json` |
+| 2026-09-02 | **lighting sweep**, after the view-aware lamp pool | **PASS** — all four times of day, both negative tests firing | `docs/daynight.json` |
 | 2026-09-02 | **drive-through + 30 traffic**, after the Main St east massing split | **PASS/PASS/WARN** — draw p95 **228** (was 229), tris p95 **760,681** (was 766,051), stall **8.7 ms** inside its 7.1-16.4 noise band, heap +3 MB | `docs/drive-traffic.json` |
 | 2026-09-02 | **lighting sweep**, after the massing split | **PASS** — all four times of day, both negative tests firing | `docs/daynight.json` |
 | 2026-09-02 | syntax / golden-trace / physics / geom-audit, after the massing split | PASS — 81 modules, 30 samples, 10 checks, every prop reaches its host surface | `npm run gates:static` |

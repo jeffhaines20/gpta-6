@@ -1,0 +1,436 @@
+{
+ "tag": "before",
+ "camera": {
+  "pos": [
+   -4.411431907126392,
+   5.2,
+   6.114772219329165
+  ],
+  "tgt": [
+   307.4792644778463,
+   14,
+   -88.91387350656133
+  ],
+  "heading": -0.2788805044780794
+ },
+ "streamed": {
+  "chunksLoaded": 89,
+  "lodNear": 16,
+  "lodFar": 73,
+  "meshes": 264,
+  "triangles": 91884,
+  "loads": 90,
+  "unloads": 0,
+  "lodSwaps": 10,
+  "worstBuildMs": 18,
+  "lastBuildMs": 0,
+  "queued": 84,
+  "pendingUnload": 0,
+  "sliceMs": 0,
+  "worstSliceMs": 13,
+  "scanMs": 0,
+  "worstScanMs": 1,
+  "lastFinishMs": 0,
+  "worstFinishMs": 0,
+  "worstDisposeMs": 4.799999999930151,
+  "worstUploadMs": 8.300000000046566,
+  "materials": {
+   "materials": 17,
+   "textures": 19,
+   "textureLayers": 33,
+   "textureMemoryMB": 22.75,
+   "generationMs": 564.6,
+   "surfaceLayers": 8,
+   "timingsMs": {
+    "markings": 0,
+    "surfaces": 370.1,
+    "ground": 176.8,
+    "water": 6.1,
+    "trim": 11.6
+   },
+   "keys": [
+    "road",
+    "sidewalk",
+    "parkingLot",
+    "grass",
+    "dirt",
+    "sand",
+    "land",
+    "kerb",
+    "kerbPainted",
+    "concrete",
+    "water",
+    "glassStorefront",
+    "glassTinted",
+    "metalPainted",
+    "metalGalvanised",
+    "metalAnodised",
+    "buildingMerged"
+   ]
+  },
+  "waitedMs": 47507
+ },
+ "results": {
+  "night": {
+   "emitters": 543,
+   "poolSize": 10,
+   "swapMargin": 8,
+   "lit": 10,
+   "litOnScreen": 1,
+   "litIlluminating": 5,
+   "litBehind": 6,
+   "supply": {
+    "inRange": 15,
+    "onScreen": 1,
+    "illuminates": 6,
+    "nearestOnScreen": 118.3
+   },
+   "detail": [
+    {
+     "slot": 0,
+     "emitter": 318,
+     "intensity": 900,
+     "onScreen": true,
+     "illuminates": true,
+     "behind": false,
+     "dist": 118.3,
+     "ndc": [
+      -0.54,
+      -0.01
+     ]
+    },
+    {
+     "slot": 1,
+     "emitter": 7,
+     "intensity": 900,
+     "onScreen": false,
+     "illuminates": false,
+     "behind": true,
+     "dist": 110.7,
+     "ndc": [
+      6.29,
+      -0.32
+     ]
+    },
+    {
+     "slot": 2,
+     "emitter": 44,
+     "intensity": 900,
+     "onScreen": false,
+     "illuminates": false,
+     "behind": true,
+     "dist": 106.2,
+     "ndc": [
+      1.01,
+      -0.13
+     ]
+    },
+    {
+     "slot": 3,
+     "emitter": 132,
+     "intensity": 900,
+     "onScreen": false,
+     "illuminates": false,
+     "behind": true,
+     "dist": 84.3,
+     "ndc": [
+      -0.63,
+      -0.14
+     ]
+    },
+    {
+     "slot": 4,
+     "emitter": 189,
+     "intensity": 900,
+     "onScreen": false,
+     "illuminates": true,
+     "behind": false,
+     "dist": 79.4,
+     "ndc": [
+      1.8,
+      0.06
+     ]
+    },
+    {
+     "slot": 5,
+     "emitter": 133,
+     "intensity": 900,
+     "onScreen": false,
+     "illuminates": false,
+     "behind": true,
+     "dist": 62,
+     "ndc": [
+      -0.47,
+      -0.16
+     ]
+    },
+    {
+     "slot": 6,
+     "emitter": 45,
+     "intensity": 900,
+     "onScreen": false,
+     "illuminates": false,
+     "behind": true,
+     "dist": 61.6,
+     "ndc": [
+      0.16,
+      -0.15
+     ]
+    },
+    {
+     "slot": 7,
+     "emitter": 188,
+     "intensity": 900,
+     "onScreen": false,
+     "illuminates": true,
+     "behind": false,
+     "dist": 42.9,
+     "ndc": [
+      1.01,
+      0.11
+     ]
+    },
+    {
+     "slot": 8,
+     "emitter": 8,
+     "intensity": 900,
+     "onScreen": false,
+     "illuminates": true,
+     "behind": false,
+     "dist": 42.9,
+     "ndc": [
+      -14.56,
+      1.46
+     ]
+    },
+    {
+     "slot": 9,
+     "emitter": 134,
+     "intensity": 900,
+     "onScreen": false,
+     "illuminates": true,
+     "behind": true,
+     "dist": 11.3,
+     "ndc": [
+      -4.06,
+      -1.77
+     ]
+    }
+   ],
+   "camera": {
+    "x": -4.4,
+    "y": 5.2,
+    "z": 6.1
+   }
+  },
+  "dusk": {
+   "emitters": 543,
+   "poolSize": 10,
+   "swapMargin": 8,
+   "lit": 10,
+   "litOnScreen": 1,
+   "litIlluminating": 5,
+   "litBehind": 6,
+   "supply": {
+    "inRange": 15,
+    "onScreen": 1,
+    "illuminates": 6,
+    "nearestOnScreen": 118.3
+   },
+   "detail": [
+    {
+     "slot": 0,
+     "emitter": 318,
+     "intensity": 900,
+     "onScreen": true,
+     "illuminates": true,
+     "behind": false,
+     "dist": 118.3,
+     "ndc": [
+      -0.54,
+      -0.01
+     ]
+    },
+    {
+     "slot": 1,
+     "emitter": 7,
+     "intensity": 900,
+     "onScreen": false,
+     "illuminates": false,
+     "behind": true,
+     "dist": 110.7,
+     "ndc": [
+      6.29,
+      -0.32
+     ]
+    },
+    {
+     "slot": 2,
+     "emitter": 44,
+     "intensity": 900,
+     "onScreen": false,
+     "illuminates": false,
+     "behind": true,
+     "dist": 106.2,
+     "ndc": [
+      1.01,
+      -0.13
+     ]
+    },
+    {
+     "slot": 3,
+     "emitter": 132,
+     "intensity": 900,
+     "onScreen": false,
+     "illuminates": false,
+     "behind": true,
+     "dist": 84.3,
+     "ndc": [
+      -0.63,
+      -0.14
+     ]
+    },
+    {
+     "slot": 4,
+     "emitter": 189,
+     "intensity": 900,
+     "onScreen": false,
+     "illuminates": true,
+     "behind": false,
+     "dist": 79.4,
+     "ndc": [
+      1.8,
+      0.06
+     ]
+    },
+    {
+     "slot": 5,
+     "emitter": 133,
+     "intensity": 900,
+     "onScreen": false,
+     "illuminates": false,
+     "behind": true,
+     "dist": 62,
+     "ndc": [
+      -0.47,
+      -0.16
+     ]
+    },
+    {
+     "slot": 6,
+     "emitter": 45,
+     "intensity": 900,
+     "onScreen": false,
+     "illuminates": false,
+     "behind": true,
+     "dist": 61.6,
+     "ndc": [
+      0.16,
+      -0.15
+     ]
+    },
+    {
+     "slot": 7,
+     "emitter": 188,
+     "intensity": 900,
+     "onScreen": false,
+     "illuminates": true,
+     "behind": false,
+     "dist": 42.9,
+     "ndc": [
+      1.01,
+      0.11
+     ]
+    },
+    {
+     "slot": 8,
+     "emitter": 8,
+     "intensity": 900,
+     "onScreen": false,
+     "illuminates": true,
+     "behind": false,
+     "dist": 42.9,
+     "ndc": [
+      -14.56,
+      1.46
+     ]
+    },
+    {
+     "slot": 9,
+     "emitter": 134,
+     "intensity": 900,
+     "onScreen": false,
+     "illuminates": true,
+     "behind": true,
+     "dist": 11.3,
+     "ndc": [
+      -4.06,
+      -1.77
+     ]
+    }
+   ],
+   "camera": {
+    "x": -4.4,
+    "y": 5.2,
+    "z": 6.1
+   }
+  }
+ },
+ "instrument": {
+  "forwardSupplyOnScreen": 1,
+  "reversedSupplyOnScreen": 5,
+  "forwardLitOnScreen": 1,
+  "reversedLitOnScreen": 3,
+  "inRangeSame": true,
+  "valid": true
+ },
+ "churn": {
+  "authored": {
+   "margin": 8,
+   "slotChangesPer360": 0,
+   "perTenDeg": 0,
+   "stepsThatChanged": 0,
+   "ofSteps": 36,
+   "litOnScreenAroundTheTurn": [
+    2,
+    2,
+    3,
+    1,
+    3,
+    3,
+    3,
+    2,
+    3,
+    2,
+    1,
+    1,
+    2
+   ],
+   "meanLitOnScreen": 2.15
+  },
+  "noMargin": {
+   "margin": 0,
+   "slotChangesPer360": 0,
+   "perTenDeg": 0,
+   "stepsThatChanged": 0,
+   "ofSteps": 36,
+   "litOnScreenAroundTheTurn": [
+    2,
+    2,
+    3,
+    1,
+    3,
+    3,
+    3,
+    2,
+    3,
+    2,
+    1,
+    1,
+    2
+   ],
+   "meanLitOnScreen": 2.15
+  }
+ },
+ "errors": []
+}
