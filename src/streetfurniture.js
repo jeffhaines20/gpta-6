@@ -89,7 +89,67 @@ const PALETTE = [
 const PAL_W = 16;
 const paletteU = (i) => (i + 0.5) / PAL_W;
 
-let _packTex = null, _emisTex = null;
+// ------------------------------------------------------------ the leaf stencil
+//
+// FOLIAGE IS CUT WITH AN ALPHA MASK, and the uv space it is cut in was already
+// in the buffer, unused, since the kit was written.
+//
+// Every prop writes exactly `uv = (paletteU(surf), 0.5)`. The palette texture is
+// PAL_W = 16 texels wide on NearestFilter, so `u` only has to land ANYWHERE in
+// [surf/16, (surf+1)/16) for roughness, metalness and emissive to come back
+// identical -- the texel CENTRE is a convention, not a requirement. And the
+// palette is one texel tall, so `v` has never carried anything at all.
+//
+// That is a free 32 x 512 two-dimensional stencil per surface id, at zero
+// triangles, zero attributes and zero extra draw calls. A leaf plate writes a
+// real (u, v) across itself and the mask cuts its silhouette to a ragged,
+// holed leaf cluster instead of a hard quad. It cuts SHADOWS too: three.js
+// copies alphaMap and alphaTest onto the depth material it derives for shadow
+// casting (verified in vendor/three.module.min.js: the depth fragment shader
+// includes alphamap_fragment and alphatest_fragment, and the shadow map's
+// material cache assigns `a.alphaMap = n.alphaMap`).
+//
+// WHY THE MASK IS A SEPARATE TEXTURE from packTexture(): the palette lookup has
+// to stay NearestFilter or a leaf would sample halfway between two palette
+// entries, while the stencil wants LinearFilter so its edge is not a staircase.
+//
+// AW is PAL_W * MASK_K so one palette texel spans exactly MASK_K mask columns.
+// The pattern depends only on (x mod MASK_K, y), so it is the SAME tile under
+// every palette column -- which means linear filtering at a column boundary
+// blends the tile with a copy of itself and cannot bleed a neighbouring entry's
+// mask in. The zone split is in `v`, where nothing else is looking.
+//
+//   rows   0..223   fourteen 32 x 16 OAK leaf-cluster stamps
+//   rows 224..287   GUARD, opaque: v = 0.5 lands on rows 255/256
+//   rows 288..351   QUEEN palm, pinnate: leaflet comb either side of the rachis
+//   rows 352..415   SABAL palm, costapalmate: fan segments split at the tips
+//   rows 416..511   GUARD, opaque
+//
+// MASK_K = 32 is the resolution a sweep of this stencil against
+// tools/foliage-grain.mjs put nearest the photographs: K = 8 and K = 16 land a
+// boundary dimension of 1.16 and 1.29 against the reference's 1.538, K = 32
+// lands 1.64, and K = 48 overshoots into speckle. The sweep's own first answer
+// was K = 16, from synthetic rasters 320 px wide that the metric never
+// normalised while it normalised every photograph to 1024 -- crossings are
+// counted per ROW, so that arm was low by 3.2x. Numbers below come from the
+// corrected sweep.
+const MASK_K = 32;
+const AW = PAL_W * MASK_K, AH = 512;
+const OAK_STAMPS = 14, STAMP_H = 16;            // rows 0 .. 223
+const QUEEN_V0 = 288, SABAL_V0 = 352, COMB_H = 64;
+/**
+ * `s` in [0, 1] across `surf`'s own stencil tile, as a texture u.
+ *
+ * It spans the CENTRES of the tile's first and last texel, never the texel
+ * edges: u must stay strictly inside [surf/16, (surf+1)/16) or floor(u*16)
+ * rounds to the neighbouring palette entry and the leaf comes back with
+ * chrome's roughness. __kit.maskSelftest() asserts that for every surface and
+ * both ends of the range.
+ */
+const maskU = (surf, s) => (surf * MASK_K + 0.5 + s * (MASK_K - 1)) / AW;
+const maskV = (row) => (row + 0.5) / AH;
+
+let _packTex = null, _emisTex = null, _alphaTex = null;
 function packTexture() {
   if (_packTex) return _packTex;
   const data = new Uint8Array(PAL_W * 4);
@@ -122,6 +182,115 @@ function emissiveTexture() {
   return (_emisTex = t);
 }
 
+/**
+ * The stencil. One MASK_K-wide tile, replicated under every palette column so
+ * linear filtering at a column boundary can only ever blend the tile with a
+ * copy of itself.
+ *
+ * Written into the GREEN channel because that is the one three.js reads:
+ * `diffuseColor.a *= texture2D( alphaMap, vAlphaMapUv ).g`. All four channels
+ * are set anyway so a future reader of this buffer is not surprised.
+ */
+function alphaTexture() {
+  if (_alphaTex) return _alphaTex;
+  const tile = new Uint8Array(MASK_K * AH).fill(255);
+  const h3 = (a, b, c) => {
+    let t = (Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263)
+      + Math.imul(c | 0, 2246822519)) >>> 0;
+    t = Math.imul(t ^ (t >>> 13), 1274126177) >>> 0;
+    return ((t ^ (t >>> 16)) >>> 0) / 4294967296;
+  };
+  // Smooth value noise on a lattice. The stamp outline has to WANDER, not
+  // dither: a per-texel random edge is speckle and reads as noise rather than
+  // as leaves, which is the failure mode the K = 32 sweep showed.
+  const noise = (x, y, freq, salt) => {
+    const fx = x * freq, fy = y * freq;
+    const ix = Math.floor(fx), iy = Math.floor(fy);
+    const tx = fx - ix, ty = fy - iy;
+    const sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty);
+    const a = h3(ix, iy, salt) + (h3(ix + 1, iy, salt) - h3(ix, iy, salt)) * sx;
+    const b = h3(ix, iy + 1, salt) + (h3(ix + 1, iy + 1, salt) - h3(ix, iy + 1, salt)) * sx;
+    return a + (b - a) * sy;
+  };
+  const cut = (s, row) => { tile[row * MASK_K + s] = 0; };
+
+  // ---- the oak: fourteen leaf-cluster stamps, each a ragged holed blob.
+  // A clump maps its own ring plane onto one of these, with the ring vertices
+  // landing at radius 0.70-1.12 and the apex and nadir BOTH at the centre --
+  // so the top fan and the bottom fan of a pillow are cut identically and a
+  // hole goes straight THROUGH the leaf mass instead of showing its own far
+  // side. Enclosed sky is the whole point; a hole that reveals more leaf is
+  // not one.
+  for (let k = 0; k < OAK_STAMPS; k++) {
+    for (let ry = 0; ry < STAMP_H; ry++) {
+      for (let s = 0; s < MASK_K; s++) {
+        const sx = ((s + 0.5) / MASK_K) * 2 - 1, sy = ((ry + 0.5) / STAMP_H) * 2 - 1;
+        const r = Math.hypot(sx, sy);
+        const edge = 0.82 + 0.32 * (noise(sx, sy, 1.9, k * 7 + 1) - 0.5);
+        // Porosity climbs toward the rim, so the silhouette frays before the
+        // interior opens. A uniformly holed blob reads as a moth-eaten disc.
+        if (r > edge || h3(s, ry, k * 31 + 5) < 0.11 + 0.34 * r * r) cut(s, k * STAMP_H + ry);
+      }
+    }
+  }
+
+  // ---- the queen palm: a pinnate frond is a rachis with two ranks of narrow
+  // leaflets, and that is a comb. `bu` runs across the blade with 0 on the
+  // rachis, `t` out along it; the leaflets are sheared so they angle toward
+  // the tip the way a real one does, and one in nine is missing.
+  for (let ry = 0; ry < COMB_H; ry++) {
+    for (let s = 0; s < MASK_K; s++) {
+      const bu = ((s + 0.5) / MASK_K) * 2 - 1, t = (ry + 0.5) / COMB_H;
+      const ab = Math.abs(bu);
+      if (ab < 0.13) continue;                                  // the rachis
+      const ph = t * 16 + ab * 0.35;
+      const gap = ph - Math.floor(ph) >= 0.62
+        || h3(Math.floor(ph), bu < 0 ? 1 : 2, 3) < 0.11
+        || ab > 0.94 + 0.10 * (noise(bu, t, 5, 17) - 0.5);
+      if (gap) cut(s, QUEEN_V0 + ry);
+    }
+  }
+
+  // ---- the sabal: a costapalmate fan is one sheet split into segments that
+  // separate further and further out, which is a comb the other way up --
+  // solid at the hastula, open at the rim.
+  for (let ry = 0; ry < COMB_H; ry++) {
+    for (let s = 0; s < MASK_K; s++) {
+      const bu = ((s + 0.5) / MASK_K) * 2 - 1, t = (ry + 0.5) / COMB_H;
+      if (Math.abs(bu) < 0.10 && t < 0.78) continue;             // the costa
+      const sg = (bu + 1) * 3.6;
+      const split = sg - Math.floor(sg) > 0.86 - 0.30 * t
+        && t > 0.30 + 0.26 * h3(Math.floor(sg), 0, 9);
+      if (split || t > 0.90 + 0.16 * (noise(bu, t, 4, 23) - 0.5)) cut(s, SABAL_V0 + ry);
+    }
+  }
+
+  const data = new Uint8Array(AW * AH * 4);
+  for (let y = 0; y < AH; y++) {
+    for (let x = 0; x < AW; x++) {
+      const v = tile[y * MASK_K + (x % MASK_K)];
+      const p = (y * AW + x) * 4;
+      data[p] = data[p + 1] = data[p + 2] = v; data[p + 3] = 255;
+    }
+  }
+  const t = new THREE.DataTexture(data, AW, AH, THREE.RGBAFormat);
+  t.magFilter = THREE.LinearFilter;
+  // Mipmapped, and the far tier depends on it: as a crown shrinks the stencil
+  // averages toward its own coverage, which is above ALPHA_TEST, so a distant
+  // canopy closes back up into a solid mass rather than dissolving into
+  // shimmer. Every non-foliage prop has a CONSTANT uv over its whole surface,
+  // so its uv derivative is zero and it samples mip 0 for ever -- which is the
+  // row that is opaque everywhere.
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  t.needsUpdate = true;
+  return (_alphaTex = t);
+}
+// Below the coverage of every zone of the stencil, so a mipped-away leaf goes
+// solid instead of vanishing.
+const ALPHA_TEST = 0.42;
+
 /** The single material every static prop in the district shares. */
 function propMaterial() {
   return new THREE.MeshStandardMaterial({
@@ -132,6 +301,11 @@ function propMaterial() {
     metalnessMap: packTexture(),
     emissiveMap: emissiveTexture(),
     emissive: 0x000000,
+    // The leaf stencil. Every prop that is not foliage writes v = 0.5, which
+    // lands in the opaque guard band, comes back alpha 1 and is untouched --
+    // asserted rather than assumed by __kit.maskSelftest().
+    alphaMap: alphaTexture(),
+    alphaTest: ALPHA_TEST,
     // Painted road markings are coplanar-ish with the road ribbon 12 mm below
     // them; the offset keeps them from shimmering at grazing angles far down a
     // corridor. Harmless on the solid props.
@@ -617,11 +791,13 @@ function rng32(seed) {
 // 350,000 vertices; foliage wants a different value at every vertex, so the
 // tree resolves its leaf colour once through linear() and then scales it, which
 // is three multiplies and no pow().
-function vertC(buf, x, y, z, nx, ny, nz, r, g, b, surf) {
+// `uv` is optional and only foliage passes it: everything else keeps the
+// palette-texel centre and v = 0.5, which is the stencil's opaque guard band.
+function vertC(buf, x, y, z, nx, ny, nz, r, g, b, surf, uv) {
   buf.pos.push(x, y, z);
   buf.nrm.push(nx, ny, nz);
   buf.col.push(r, g, b);
-  buf.uv.push(paletteU(surf), 0.5);
+  if (uv) buf.uv.push(uv[0], uv[1]); else buf.uv.push(paletteU(surf), 0.5);
   return buf.pos.length / 3 - 1;
 }
 
@@ -762,10 +938,23 @@ function palmFrond(buf, f, P, ctx) {
     nD.push([bx / bl, dy / bl, bz / bl]);
   }
 
+  // ---- THE STENCIL, and the one thing about it that matters: all three strips
+  // are cut in the SAME coordinates. `bu` runs across the frond with 0 on the
+  // rachis and +-1 at the blade edges, so a leaflet gap at bu = -0.6 is cut out
+  // of the upper-left blade AND out of the floor beneath it at the same place.
+  // A wedge cut independently on its three faces is a wedge with holes in it;
+  // cut in register it is a rank of separate leaflets with daylight between
+  // them, which is what a frond is. `t` runs out along the rachis, and the two
+  // species read different rows of the mask -- a queen's narrow pinnate
+  // leaflets against a sabal's costapalmate fan splitting at its tips.
+  const v0 = P.fan ? SABAL_V0 : QUEEN_V0;
+  const uvOf = (bu, t) => [maskU(S.foliage, 0.5 + 0.48 * bu),
+    maskV(v0 + 0.5 + t * (COMB_H - 2))];
+
   // A strip between two parallel station arrays, sharing every vertex along its
   // length. `shade` is the face's own multiplier: the floor of the wedge never
   // sees the sky and the two blades see different halves of it.
-  const strip = (A, B, NA, NB, shade) => {
+  const strip = (A, B, NA, NB, shade, buA, buB) => {
     const ia = [], ib = [];
     for (let i = 0; i <= n; i++) {
       const t = i / n;
@@ -773,19 +962,19 @@ function palmFrond(buf, f, P, ctx) {
       const na = NA[i], nb = NB[i];
       ia.push(vertC(buf, wx(f, A[i][0], A[i][2]), A[i][1], wz(f, A[i][0], A[i][2]),
         na[0] * f.ox + na[2] * f.ax, na[1], na[0] * f.oz + na[2] * f.az,
-        c[0], c[1], c[2], S.foliage));
+        c[0], c[1], c[2], S.foliage, uvOf(buA, t)));
       ib.push(vertC(buf, wx(f, B[i][0], B[i][2]), B[i][1], wz(f, B[i][0], B[i][2]),
         nb[0] * f.ox + nb[2] * f.ax, nb[1], nb[0] * f.oz + nb[2] * f.az,
-        c[0], c[1], c[2], S.foliage));
+        c[0], c[1], c[2], S.foliage, uvOf(buB, t)));
     }
     for (let i = 0; i < n; i++) {
       tri(buf, hand, ia[i], ib[i], ib[i + 1]);
       tri(buf, hand, ia[i], ib[i + 1], ia[i + 1]);
     }
   };
-  strip(spine, left, nL, nL, 1.0);          // upper blade, one side of the rachis
-  strip(right, spine, nR, nR, 0.86);        // upper blade, the other
-  strip(left, right, nD, nD, 0.70);         // the floor: leaflet undersides
+  strip(spine, left, nL, nL, 1.0, 0, -1);   // upper blade, one side of the rachis
+  strip(right, spine, nR, nR, 0.86, 1, 0);  // upper blade, the other
+  strip(left, right, nD, nD, 0.70, -1, 1);  // the floor: leaflet undersides
 }
 
 // Frond greens, authored at the SUNLIT-BLADE value; every other face scales
@@ -1138,6 +1327,37 @@ function leafClump(buf, f, c, ctx) {
   ux /= ul; uz /= ul;
   const vx = uy * az - uz * ay, vy = uz * ax - ux * az, vz = ux * ay - uy * ax;
   const ph = rj() * TAU;
+
+  // ---- THE STENCIL WINDOW. One of OAK_STAMPS leaf-cluster stamps, chosen by
+  // the clump's own seed, with the ring plane laid flat onto it: the ring
+  // vertices land on a circle of radius rr/(rad*RAGGED_MAX) about the stamp
+  // centre and the apex and the nadir BOTH land ON the centre. So the top fan
+  // and the bottom fan of a pillow are cut by the same texels and a hole opens
+  // straight through the leaf mass instead of exposing its own far side, which
+  // is the difference between porosity and a dent. The clump's ring phase
+  // rotates the window for free, so two clumps sharing a stamp do not share a
+  // cut.
+  const stampV = ((c.seed >>> 3) % OAK_STAMPS) * STAMP_H + STAMP_H * 0.5;
+  const uvAt = (sx, sy) => {
+    const q = 1 / (0.70 + CLUMP_RAGGED);
+    const a = Math.max(-1, Math.min(1, sx * q)), b = Math.max(-1, Math.min(1, sy * q));
+    return [maskU(S.foliage, 0.5 + 0.5 * a), maskV(stampV + b * (STAMP_H * 0.5 - 0.6))];
+  };
+  // ---- NORMAL SPLAY. A pillow's own normals already point out of it; blending
+  // them toward `up` -- the direction from the CROWN's centre to this clump --
+  // makes the crown light as one volume instead of as thirty independently lit
+  // solids. It is the palm frond's trick (two normals tilted up and out to
+  // either side of the rachis, one pointing down) applied to a mass rather than
+  // to a blade, and it costs nothing. Bounded at 0.42 so it can rotate a normal
+  // by at most 23 degrees, which cannot carry one past its own face; the
+  // winding audit is what actually says so.
+  const [gx, gy, gz] = c.up;
+  const splay = (nx, ny, nz) => {
+    const sx = nx + gx * 0.42, sy = ny + gy * 0.42, sz = nz + gz * 0.42;
+    const l = Math.hypot(sx, sy, sz) || 1;
+    return [(sx * f.ox + sz * f.ax) / l, sy / l, (sx * f.oz + sz * f.az) / l];
+  };
+  const sh = c.shade;
   const ring = [];
   for (let i = 0; i < CLUMP_SIDES; i++) {
     const a = ph + (i / CLUMP_SIDES) * TAU;
@@ -1154,20 +1374,19 @@ function leafClump(buf, f, c, ctx) {
     const pz = cz + dz * rr + az * slide;
     // Radial in the ring plane, biased toward the apex so the top fan and the
     // bottom fan can share the vertex.
-    const nx = dx + ax * 0.15, ny = dy + ay * 0.15, nz = dz + az * 0.15;
-    const nl = Math.hypot(nx, ny, nz) || 1;
-    const col = ctx.col(0.66, i);
-    ring.push(vertC(buf, wx(f, px, pz), py, wz(f, px, pz),
-      (nx * f.ox + nz * f.ax) / nl, ny / nl, (nx * f.oz + nz * f.az) / nl,
-      col[0], col[1], col[2], S.foliage));
+    const n = splay(dx + ax * 0.15, dy + ay * 0.15, dz + az * 0.15);
+    const col = ctx.col(0.66 * sh, i);
+    ring.push(vertC(buf, wx(f, px, pz), py, wz(f, px, pz), n[0], n[1], n[2],
+      col[0], col[1], col[2], S.foliage, uvAt(ca * rr / rad, sa * rr / rad)));
   }
-  const ct = ctx.col(1.0, 0), cb = ctx.col(0.38, 1);
+  const ct = ctx.col(1.0 * sh, 0), cb = ctx.col(0.38 * sh, 1);
   const tx = cx + ax * hgt, ty = cy + ay * hgt, tz = cz + az * hgt;
   const bx = cx - ax * hgt * 0.74, by = cy - ay * hgt * 0.74, bz = cz - az * hgt * 0.74;
-  const top = vertC(buf, wx(f, tx, tz), ty, wz(f, tx, tz),
-    ax * f.ox + az * f.ax, ay, ax * f.oz + az * f.az, ct[0], ct[1], ct[2], S.foliage);
-  const bot = vertC(buf, wx(f, bx, bz), by, wz(f, bx, bz),
-    -(ax * f.ox + az * f.ax), -ay, -(ax * f.oz + az * f.az), cb[0], cb[1], cb[2], S.foliage);
+  const nt = splay(ax, ay, az), nb = splay(-ax, -ay, -az);
+  const top = vertC(buf, wx(f, tx, tz), ty, wz(f, tx, tz), nt[0], nt[1], nt[2],
+    ct[0], ct[1], ct[2], S.foliage, uvAt(0, 0));
+  const bot = vertC(buf, wx(f, bx, bz), by, wz(f, bx, bz), nb[0], nb[1], nb[2],
+    cb[0], cb[1], cb[2], S.foliage, uvAt(0, 0));
   // Wound so each fan's geometric normal agrees with the vertex normals it
   // carries. The ring winds clockwise seen from the apex, so the apex fan is
   // (apex, j, i) and the nadir fan is (nadir, i, j). Measured in both
@@ -1413,9 +1632,32 @@ function oakClumpsOf(p, limbs, count, salt) {
     // crown gets its pruned face toward a close frontage.
     if (!(rad > 0.24)) continue;
     const off = frac * rad;
+    const qx = P[0] + ox * off, qy = P[1] + oy * off, qz = P[2] + oz * off;
+    // ---- which way is OUT of the crown here, and how deep in it is this clump.
+    //
+    // `up` is the direction from the crown's own centre to this clump, and it is
+    // what leafClump splays its vertex normals toward: a crown lit clump by
+    // clump off each pillow's own axis is thirty separately lit solids, and a
+    // crown whose normals all lean away from its centre is one volume with a
+    // sunlit top and a dark underside. Free -- it is a normal, not a triangle.
+    //
+    // `shade` is the other half of the same read and it is a colour, not a
+    // normal, because what makes the inside of a live oak dark is a metre of
+    // leaves in the way and no normal on a ten-triangle pillow says that. Two
+    // terms: DEPTH, so a clump under the crown's midline is up to a third
+    // darker than one on top of it, and a per-clump draw wide enough that the
+    // canopy is mottled rather than one flat olive -- which is what the
+    // reference shows and what "uniformly dark" was reporting the absence of.
+    const cyc = p.forkY + (p.h - p.forkY) * 0.52;
+    let gx = qx - p.lean * 0.5, gy = qy - cyc, gz = qz - p.leanZ * 0.5;
+    const gl = Math.hypot(gx, gy, gz) || 1;
+    gx /= gl; gy /= gl; gz /= gl;
+    const depth = Math.max(0, Math.min(1, 0.5 + 0.5 * gy));
     out.push({
-      x: P[0] + ox * off, y: P[1] + oy * off, z: P[2] + oz * off,
+      x: qx, y: qy, z: qz,
       rad, hgt: rad * hr, tilt, tiltAz, seed: hash32('cs', p.key, i, salt),
+      up: [gx, gy, gz],
+      shade: (0.70 + 0.40 * depth) * (0.80 + rj() * 0.46),
       // The limb point this clump hangs on, kept so the attachment can be
       // measured off the same numbers the geometry was built from.
       on: P,
@@ -3246,6 +3488,18 @@ export const __kit = {
   // measure the wrong tree and never know.
   setOakRoute, oakWeight, oakParams, oakLimbs, oakTwigs, oakClumpsOf, alongLimb,
   limbTube, leafClump,
+  // The leaf stencil, for tools/leaf-mask.mjs: the texture itself, the two
+  // address helpers the emitters use, and the geometry of the atlas. A second
+  // copy of the addressing arithmetic in the tool would drift from the one that
+  // cut the leaves, which is the lesson at the top of this export block.
+  alphaTexture, maskU, maskV, ALPHA_TEST, MASK_K, AW, AH,
+  OAK_STAMPS, STAMP_H, QUEEN_V0, SABAL_V0, COMB_H,
+  // The SHIPPED material, so a bench frame is lit and cut by the same object
+  // the district draws with. tools/oak-look.mjs builds its own lookalike, which
+  // was harmless while the material was only a palette lookup and is not any
+  // more: a bench with no alphaMap on it renders the stencil as if it were not
+  // there and reports a change that the page would not show.
+  propMaterial,
   OAK_PROFILE, OAK_STEP, OAK_MAX, OAK_LEAF, OAK_BARK,
   S, PALETTE, PAL_W, paletteU, BASE_Y, PAD_Y, ROAD_Y, DECAL_Y, hash32,
   // Every prop builder by the kind name emit() files it under, so a self-test
