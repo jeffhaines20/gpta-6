@@ -1,0 +1,21 @@
+{
+ "generated": "2026-09-04",
+ "reference": {
+  "n": 33,
+  "refused": 0,
+  "boundaryD": 1.538,
+  "holesPerK": 3.57,
+  "holeMedian": 8,
+  "xings": 49.98,
+  "texture": 0.2467
+ },
+ "engine": {
+  "n": 8,
+  "refused": 0,
+  "boundaryD": 1.269,
+  "holesPerK": 0.65,
+  "holeMedian": 2,
+  "xings": 17.12,
+  "texture": 0.1585
+ }
+}
