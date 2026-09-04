@@ -62,6 +62,7 @@
 // Mapillary views to get a target band and writes nothing back into any asset.
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { readPNG } from './png.mjs';
 
 const arg = (k, d) => {
@@ -429,7 +430,13 @@ function synth(kind) {
   return { width: W, height: H, channels: 3, data };
 }
 
-if (has('selftest')) {
+// Everything below this line is the command line. It is guarded because grain()
+// is imported by --sweep's sibling tools and by anything else that wants to
+// score a raster it built itself; without the guard an `import { grain }` prints
+// a usage banner and can call process.exit out from under its caller.
+const IS_MAIN = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (IS_MAIN && has('selftest')) {
   const box = [0, 0, 320, 320];
   const r = {};
   for (const k of ['flat', 'hex', 'pillows', 'canopy']) r[k] = grain(synth(k), box);
@@ -459,6 +466,62 @@ if (has('selftest')) {
   process.exit(fails.length ? 1 : 0);
 }
 
+// --- the sweep that killed the subdivision plan ----------------------------
+//
+// "Break the 48 pillows into more and smaller plates" was the obvious fix, and
+// it is capped far below the reference band. This holds total painted area
+// constant and varies only the plate COUNT, so what it isolates is granularity
+// and nothing else. Kept as a mode rather than a scratch file because the
+// conclusion is load-bearing - it is the reason the foliage got an alpha mask
+// instead of a triangle budget - and a future round will want to re-run it
+// rather than take it on trust.
+function platesRaster(n, splay) {
+  const W = 320, H = 320, data = new Uint8Array(W * H * 3);
+  const SKY = [196, 212, 236], DARK = [38, 46, 34];
+  for (let i = 0; i < W * H; i++) { data[i * 3] = SKY[0]; data[i * 3 + 1] = SKY[1]; data[i * 3 + 2] = SKY[2]; }
+  let seed = 0x9e3779b9;
+  const rnd = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return ((seed >>> 0) / 4294967296); };
+  const A0 = 52 * 26, a = Math.sqrt((A0 * 8) / n);   // area per plate ~ 1/n
+  const els = [];
+  for (let k = 0; k < n; k++) {
+    els.push({
+      cx: 60 + rnd() * 200, cy: 60 + rnd() * 200,
+      a: a * (0.8 + 0.4 * rnd()), b: a * 0.5 * (0.8 + 0.4 * rnd()), t: rnd() * Math.PI,
+      k: splay ? 0.55 + 0.9 * rnd() : 1,             // per-plate shade = splayed normals
+    });
+  }
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    for (const e of els) {
+      const dx = x - e.cx, dy = y - e.cy;
+      const u = dx * Math.cos(e.t) + dy * Math.sin(e.t), v = -dx * Math.sin(e.t) + dy * Math.cos(e.t);
+      if ((u * u) / (e.a * e.a) + (v * v) / (e.b * e.b) <= 1) {
+        const i = (y * W + x) * 3;
+        data[i] = DARK[0] * e.k; data[i + 1] = DARK[1] * e.k; data[i + 2] = DARK[2] * e.k;
+        break;
+      }
+    }
+  }
+  return { width: W, height: H, channels: 3, data };
+}
+
+if (IS_MAIN && has('sweep')) {
+  console.log('  n  splay    D       holes/1k   med   xings    tex      mass');
+  for (const splay of [false, true]) {
+    for (const n of [8, 16, 32, 64, 128]) {
+      const r = grain(platesRaster(n, splay), [0, 0, 320, 320]);
+      console.log(String(n).padStart(4), String(splay).padStart(6), '  ', r.ok
+        ? `${r.boundaryD.toFixed(3)}  ${String(r.holesPerK).padStart(7)}  ${String(r.holeMedian).padStart(4)}  `
+          + `${String(r.xings).padStart(6)}  ${r.texture.toFixed(4)}  ${(r.massFrac * 100).toFixed(0)}%`
+        : `n/a - ${r.why}`);
+    }
+  }
+  console.log('\n  target   1.538     3.57      8   50.00  0.2467   (33 photographs)');
+  console.log('\nSixteen times the plates buys xings 2.9 -> 11.5 against a target of 50, and');
+  console.log('leaves holesPerK an order of magnitude short. Overlapping convex opaque blobs');
+  console.log('merge into a blob. This is why the fix is an alpha mask, not more triangles.');
+  process.exit(0);
+}
+
 // --- batch modes -----------------------------------------------------------
 
 const fmt = (r) => (r.ok
@@ -480,7 +543,7 @@ const summarise = (rows) => {
 
 const out = { generated: new Date().toISOString().slice(0, 10) };
 
-if (has('reference')) {
+if (IS_MAIN && has('reference')) {
   // The canopy stations the census found, not every view: scoring a frame with
   // no canopy in it would pull the target band toward "shopfront".
   const census = JSON.parse(fs.readFileSync('docs/oak-census.json', 'utf8'));
@@ -502,7 +565,7 @@ if (has('reference')) {
   console.log(`\n  PHOTOGRAPHS (median of ${out.reference.n}, ${out.reference.refused} refused):`, JSON.stringify(out.reference));
 }
 
-if (has('engine')) {
+if (IS_MAIN && has('engine')) {
   const files = (arg('glob', 'oak2-look,oak-look,tree-'))
     .split(',')
     .flatMap((p) => fs.readdirSync('docs/shots').filter((f) => f.startsWith(p) && f.endsWith('.png')))
@@ -513,7 +576,7 @@ if (has('engine')) {
   console.log(`\n  ENGINE (median of ${out.engine?.n ?? 0}):`, JSON.stringify(out.engine));
 }
 
-const loose = process.argv.slice(2).filter((a) => !a.startsWith('--') && a.endsWith('.png'));
+const loose = IS_MAIN ? process.argv.slice(2).filter((a) => !a.startsWith('--') && a.endsWith('.png')) : [];
 for (const f of loose) {
   const box = arg('crop', null)?.split(',').map(Number) ?? null;
   const r = scoreFile(f, box);
@@ -521,10 +584,10 @@ for (const f of loose) {
   (out.files ??= []).push(r);
 }
 
-if (has('reference') || has('engine')) {
+if (IS_MAIN && (has('reference') || has('engine'))) {
   fs.writeFileSync('docs/foliage-grain.json', JSON.stringify(out, null, 1));
   console.log('\ndocs/foliage-grain.json');
 }
-if (!has('reference') && !has('engine') && !loose.length) {
+if (IS_MAIN && !has('reference') && !has('engine') && !loose.length) {
   console.log('usage: --selftest | --reference | --engine | <file.png> [--crop x0,y0,x1,y1]');
 }
