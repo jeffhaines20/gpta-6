@@ -30,6 +30,155 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## Foliage: an alpha stencil through a uv channel nobody was using
+
+The oak round shipped crowns of ~48 flat plates. The complaint — "the leaves are too
+coarse" — had no number attached to it, and this ledger's own history says an
+unmeasured visual judgement is how the last four rounds went wrong. So the round
+began with an instrument.
+
+### The instrument, and the two bugs a hexagon found in it
+
+`tools/foliage-grain.mjs` scores a canopy crop on four independent things:
+`boundaryD` (box-counting dimension of the canopy/sky silhouette), `holesPerK`
+(enclosed sky per 1000 canopy px, with median area), `xings` (canopy/sky
+transitions per scanline) and `texture` (RMS luminance gradient inside a mask
+eroded by 2 px, so the silhouette cannot inflate it). Segmentation is Otsu on the
+crop's own histogram — a colour rule is what under-read the backlit wall in the
+census and it inverts at golden hour. A crop that is not bimodal reads n/a.
+
+`--selftest` builds four rasters whose order is known in advance: flat, hexagon,
+eight smooth pillows, fractal canopy. It earned its keep twice before the tool was
+ever pointed at a frame. The hexagon found the mask comparing unrounded luma
+against a threshold that names a histogram BIN, reporting the hexagon as 0% mass.
+It then found `boundaryD` returning `1 - slope` — the relation for boundary LENGTH,
+where counting boundary CELLS is box-counting and wants `-slope`. A hexagon was
+scoring D = 2.01: a boundary dimension of two, for six straight sides. Neither
+would have been visible on a real frame, where 1.4-ish looks like an answer.
+
+### What it said, and what it killed
+
+Against the 33 reprojected stations the census flagged as canopy-overhead, the
+photographs sit at D **1.538**, holes/1k **3.57**, xings **50.0**, openFrac **0.401**,
+texture **0.247**, and the spread is tight (D 1.41–1.53). The oak crown from
+underneath sat at D **1.035** — the self-test's hexagon is 1.008.
+
+`--sweep` then killed the obvious fix. Holding coverage constant and varying only
+plate count, 16x more plates buys xings 3.3 → 14.3 against a target of 50. Spending
+the entire 56,184-triangle headroom on the twelve oaks does not reach it and leaves
+nothing for the 276 palms. Overlapping convex opaque blobs merge into a blob.
+
+### Two wrong calls I made from simulation, and how each was caught
+
+**Wrong once: the clumping steer.** I concluded from `--stencil` that the
+photographs' crossings were "sky channels opening outward between discrete leaf
+clumps", and told the builder to redistribute the oak leaf mass. Put to the
+photographs — for every interior sky run, does it reach outside? — it inverts:
+they are **40% open, 60% enclosed**; the engine crown was **85% open**. Ours was
+the loose one. Rebuilding into clumps would have moved it further from the
+reference while the number I was steering by improved. `openFrac` is now a fifth
+column on every frame so the next such claim meets it.
+
+**Wrong twice, underneath the first: a scale confound in my own instrument.**
+Every synthetic raster was 320 px wide, and the tool normalises only frames WIDER
+than 1024 — so the synthetics were never normalised while every photograph was.
+`xings` counts per ROW and `holeMedian` is an AREA, so the simulations understated
+themselves by 3.2x and tenfold against the very target they were compared with.
+Rebuilt at 1024x528 the subdivision result strengthens (128 plates: D 1.060), and
+the stencil sizing moves from the K=16 I had recommended to K≈26–32 — reversing a
+"K=32 is sub-pixel speckle, do not use it" warning I had also issued.
+
+### The change
+
+`propMaterial()` carries an `alphaMap` + `alphaTest 0.42` addressed through the uv
+channel that has held a constant `(paletteU(surf), 0.5)` since the kit was written.
+The palette is 16 texels on `NearestFilter`, so `u` anywhere inside a texel resolves
+to the same entry and `v` was never read at all — a free 2-D stencil per surface id,
+at **zero triangles, zero new materials, zero new attributes**. Atlas 1024x512, one
+64-wide tile replicated under every palette column so linear filtering at a column
+boundary can only blend the tile with a copy of itself. Mipmapped, so a distant
+crown closes back into a solid mass rather than dissolving.
+
+Free alongside it: palm crown reach became a fraction of trunk height (mean R
+1.69 → 2.78 m, crown diameter 3.4 → 5.6 m), the queen arc stopped plunging
+(tip drop 1.70x reach → 0.97x), and oak clump normals splay toward the crown
+centre so the crown lights as a volume (texture 0.098 → 0.230).
+
+**Shadows cut for free.** three.js copies `alphaMap`/`alphaTest` onto the derived
+depth material, so leaf shadows became leaf-shaped. `tree3-shadow-base.png` shows
+solid rectangular blocks; `tree3-shadow-after.png` shows dapple.
+
+### What was paid for, and it is not nothing
+
+The stencil cut the crown to 26% mass and read skeletal. Paying that back cost
+clump counts 26–30/22–26 → 52–60/46–54 and a third twig ring:
+
+| | before | after |
+|---|---|---|
+| oak FAR `tree` | 287.9 | 495.9 |
+| oak NEAR `treeDetail` | 238.3 | 461.0 |
+| **oak per tree** | 526.2 | **956.9** |
+| **palm per tree** | 295.1 | **295.1** |
+| district props | 282,738 | 287,820 |
+
++430.7 per oak, +5,082 district — 9.0% of headroom, all of it on the twelve oaks.
+The round is **not** the zero-cost change its mechanism suggested and must not be
+described as one.
+
+### Gates
+
+`gates:static` PASS. `oak-audit --tiers` 0 backfacing across all eight
+tier/handedness combinations; `--attach` 0 detached over 54,234 clumps with the
+`--break` opposite reading live at 53,901. Budget: draw calls **225** (unchanged),
+triangles **785,699** against an 830,000 warn, chunk stall 9.7 ms — a WARN that was
+already 8.3 ms on the previous run and whose own noise band this ledger records as
+5.3–24.2 ms on identical builds. Not attributable to this round.
+
+New gate `tools/leaf-mask.mjs` asserts the guard band is alpha 1.0000 at all 16
+palette entries, every `maskU` stays inside its own texel, every foliage vertex
+addresses the palette column it claims, and **all 17 non-foliage prop kinds (19,176
+vertices) sample alpha 1.0** — alphaTest can only discard, so those props draw
+exactly the pixels they drew before. `--break` fires 19 checks.
+
+**A clearance regression, caught mid-round by auditing before committing.** The
+density restoration pushed the oak near tier to 3.95 m over a carriageway with a
+4.20 m minimum — a branch in truck clearance. Localised to a twig tube whose lift
+test ran on the station centreline while the ring reaches beyond it. Now 4.44/4.49.
+Separately, the audit showed the PALMS had been violating the frontage rule all
+along (3.78 m toward a guaranteed 2.2 m, and 3.93 m over the road) because reach
+was measured from a trunk top that sways with nothing subtracted; the clearance
+gate only ever checked oaks. Now 2.00 m and 4.33 m, with a wider crown.
+
+### Where it landed, and what did not close
+
+| frame | D | holes/1k | xings | open% | tex | mass% |
+|---|---|---|---|---|---|---|
+| oak-up | 1.035 → **1.209** | 0.01 → **0.57** | 6.66 → **11.78** | 89 → **59** | 0.098 → **0.230** | 46 → 51 |
+| oak-row | 1.095 → **1.396** | 0.45 → **3.49** | 8.91 → **21.93** | 70 → **37** | 0.177 → **0.268** | 27 → 32 |
+| oak-tunnel | 1.269 → **1.474** | 0.42 → **3.83** | 17.17 → **27.97** | 78 → **52** | 0.159 → **0.263** | 35 → 42 |
+| palm-row | 1.122 → **1.263** | 0.36 → **2.12** | 7.27 → **12.36** | 77 → **53** | 0.047 → **0.070** | 17 → 17 |
+| target | 1.538 | 3.57 | 49.98 | 40 | 0.247 | 43–88 |
+
+`holesPerK`, `openFrac` and `texture` are at or past target on the oak frames at
+street distance and mass rose rather than fell. **`xings` did not close** — 22–28
+against 50 — and neither the builder nor I have a story for the remainder. It is
+recorded as open rather than explained away.
+
+**And the frames say less than the numbers do.** At district distance the canopy is
+a clear improvement: it stops reading as stacked shingles. On the close bench the
+individual leaf plates are still visibly flat quadrilateral cards, now with lacy
+holes cut in them — better on every metric, still not a live oak. The metric moved
+further than the appearance did, which is the standing hazard with any metric and
+is why the frames are looked at as well as scored.
+
+### Left broken deliberately
+
+`tools/oak-look.mjs` aims its DirectionalLight at the world origin while its bench
+stands at (118, -170), so a +/-30 m shadow box contains no tree and a canopy shadow
+has never appeared in one of its frames. `tools/tree-look.mjs` fixes it for the new
+bench; `oak-look.mjs` still has it. The dark square under a trunk in old bench
+frames is the tree PIT, which a critic round already once mistook for a baked blob.
+
 ## Live oaks, placed from a census — and three ways the census nearly misled us
 
 An art critic reported 15 of 15 reference views along Main St east showing live-oak
@@ -1249,6 +1398,7 @@ reverting it returns 0.00. A gate that cannot fail is not a gate.
 | Date | Gate | Result | Evidence |
 |---|---|---|---|
 | 2026-09-04 | **drive-through + 30 traffic**, with live oaks on the corridor | **PASS/PASS/WARN** — draw p95 **225**, tris p95 **773,816** (+14,247, 6.8% under warn), stall **8.3 ms**, heap **-3 MB** | `docs/drive-traffic.json` |
+| 2026-09-04 | **drive-through + 30 traffic**, foliage alpha stencil + restored oak density | **PASS/PASS/WARN** — draw p95 **225** (unchanged), tris p95 **785,699** (+11,883, 5.3% under warn), stall **9.7 ms**, heap **-22 MB**. Stall was already 8.3 ms pre-round and its own noise band is 5.3–24.2 ms on identical builds; not attributable here. | `docs/drive-traffic.json` |
 | 2026-09-04 | **drive-through + 30 traffic**, after the reference-authored heights | **PASS/PASS/WARN** — draw p95 **226**, tris p95 **759,569**, stall **12.4 ms** inside its 7.1-16.4 band, heap **-27 MB** | `docs/drive-traffic.json` |
 | 2026-09-04 | **drive-through + 30 traffic**, with MSAA x4 on the HDR target | **PASS/PASS/WARN** — draw p95 **226**, tris p95 **760,529**, stall **9.3 ms** inside its 7.1-16.4 band, heap **-31 MB** | `docs/drive-traffic.json` |
 | 2026-09-03 | **drive-through + 30 traffic**, after the glazing reflection, the in-flight chunk guard and the lamp margin rework | **PASS/PASS/WARN** — draw p95 **228**, tris p95 **766,853**, stall **12.5 ms** inside its 7.1-16.4 noise band, heap **-1 MB** | `docs/drive-traffic.json` |

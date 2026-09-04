@@ -66,7 +66,16 @@ scene.background = new THREE.Color(P.sky);
 const hemi = new THREE.HemisphereLight(P.sky, 0x6b6152, P.hemi);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff0dd, P.sunI);
-sun.position.set(P.sunX, P.sunY, P.sunZ);
+// THE SHADOW FRUSTUM FOLLOWS THE BENCH. A DirectionalLight aims at its target,
+// which defaults to the world origin, and this bench stands at (118, -170) --
+// so a 60 m shadow box centred on the origin contained no tree at all and the
+// trees cast nothing. oak-look.mjs has the same bug and it is why a canopy
+// shadow has never appeared in a bench frame; the dark square under a trunk is
+// the tree PIT, which a critic round already mistook for a baked blob shadow.
+// The light DIRECTION is position - target and is unchanged.
+sun.target.position.set(P.at.x, 0, P.at.z);
+scene.add(sun.target);
+sun.position.set(P.at.x + P.sunX, P.sunY, P.at.z + P.sunZ);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 const cam = sun.shadow.camera;
@@ -120,7 +129,13 @@ g.setAttribute('normal', new THREE.Float32BufferAttribute(buf.nrm, 3));
 g.setAttribute('color', new THREE.Float32BufferAttribute(buf.col, 3));
 g.setAttribute('uv', new THREE.Float32BufferAttribute(buf.uv, 2));
 g.setIndex(buf.idx);
-const mesh = new THREE.Mesh(g, __kit.propMaterial());
+// The shipped material when the kit exports one. The fallback exists so this
+// bench can shoot a BEFORE arm against a checkout that predates the stencil,
+// with the palette's own foliage roughness rather than oak-look.mjs's
+// hard-coded 0.88 -- otherwise the two arms of the A/B differ in two things.
+const mesh = new THREE.Mesh(g, __kit.propMaterial ? __kit.propMaterial()
+  : new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.84,
+      metalness: 0, side: THREE.FrontSide }));
 mesh.castShadow = true; mesh.receiveShadow = true;
 scene.add(mesh);
 

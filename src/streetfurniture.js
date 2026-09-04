@@ -263,12 +263,27 @@ function alphaTexture() {
     for (let s = 0; s < MASK_K; s++) {
       const bu = ((s + 0.5) / MASK_K) * 2 - 1, t = (ry + 0.5) / COMB_H;
       const ab = Math.abs(bu);
-      if (ab < 0.13) continue;                                  // the rachis
-      const ph = t * 16 + ab * 0.35;
-      const gap = ph - Math.floor(ph) >= 0.62
-        || h3(Math.floor(ph), bu < 0 ? 1 : 2, 3) < 0.11
-        || ab > 0.94 + 0.10 * (noise(bu, t, 5, 17) - 0.5);
-      if (gap) cut(s, QUEEN_V0 + ry);
+      if (ab < 0.12) continue;                                  // the rachis
+      // NO SHEAR. A real leaflet angles toward the tip and the first cut said
+      // so with ph = t*16 + ab*0.35 -- but a diagonal cut across a 64 x 64
+      // stencil quantises into a staircase, and the close capture came back as
+      // a zigzag herringbone rather than as leaflets. Straight across the blade
+      // is what this resolution can draw.
+      const ph = t * 17;
+      const lf = Math.floor(ph);
+      const side = bu < 0 ? 1 : 2;
+      // AND THE OUTER EDGE IS SCALLOPED. Cutting only across the blade leaves
+      // its outline exactly the hard triangle the wedge already had: the
+      // leaflets have to end at different distances or the frond has a ruled
+      // edge. Per leaflet, per side, 0.66 to 1.0 of the blade's own width.
+      const reach = 0.66 + 0.34 * h3(lf, side + 40, 11);
+      // And a leaflet is not a solid strap: gaps open inside it as well as
+      // between them, which is where the ENCLOSED sky in a frond comes from --
+      // a comb alone only makes sky that flows out past the blade edge.
+      if (ph - lf >= 0.60 || h3(lf, side, 3) < 0.10 || ab > reach
+        || h3(lf, Math.floor(ab * 7) + side * 8, 19) < 0.13) {
+        cut(s, QUEEN_V0 + ry);
+      }
     }
   }
 
@@ -916,9 +931,15 @@ function palmFrond(buf, f, P, ctx) {
   // which put a metre-wide blade on a 1.4 m frond: the capture read as six
   // banana paddles, not a cabbage palm. The exponent is now 1.5 on a half-width
   // of 0.155R, so the petiole stays thin and the fan opens late.
+  // THE FEATHER STAYS WIDE ALONG ITS LENGTH. The old profile peaked at t = 1/3
+  // and had already fallen to half by t = 2/3, which on a three-segment spine
+  // is a diamond with a long thin point -- and once the leaflet comb removed
+  // half of that, the close capture read as a star of spikes rather than as a
+  // crown of feathers. This holds ~1.0 at a third and ~0.8 at two thirds and
+  // keeps a blunt 0.1 at the tip so the last quad is not a needle.
   const wOf = P.fan
     ? (t) => 0.30 + 0.90 * Math.pow(t, 1.5)
-    : (t) => (0.14 + Math.sin(Math.PI * Math.pow(t, 0.6))) * (1 - 0.92 * t * t * t);
+    : (t) => 0.10 + 0.92 * Math.pow(Math.sin(Math.PI * Math.pow(t, 0.55)), 0.55);
 
   const rj = rng32(P.seed);
   const spine = [], left = [], right = [], nL = [], nR = [], nD = [];
@@ -1013,12 +1034,20 @@ const PALM_FRONT_CAP = 2.00;
 // soffit rule binds -- the same pair of numbers the oak uses, for the same
 // reason, and 4.25 m is what a street tree is pruned to over a traffic lane.
 const PALM_ROAD_EDGE = -2.05, PALM_ROAD_Y = 4.25;
-// The crown may be as wide as the trunk is tall up to this. 3.10 m of frond
-// makes a 6.2 m crown against the 6-8 m a street queen actually carries, and
-// it is where it is because the kerb placement test guarantees 3.4 m to the
-// nearest lamp standard: a frond stops short of the pole rather than growing
-// through it.
-const PALM_CROWN_CAP = 3.10;
+// The crown may be as wide as the trunk is tall, up to this. 3.55 m of frond
+// makes a 7.1 m queen crown, which is what a street queen carries (6-8 m) and
+// what 05-Sarasota-Opera-House measures at 0.83 of its own trunk. A sabal is
+// a smaller tree and is capped tighter.
+//
+// SAID PLAINLY: this is not a clearance number, it is a size number. The two
+// clearances that ARE guaranteed -- the frontage and the carriageway soffit --
+// are enforced per frond in palmReach() and measured by tools/oak-audit.mjs.
+// Nothing here keeps a frond out of a lamp head: the kerb test guarantees 3.4 m
+// to the nearest standard and the trunk top may sway 1.15 m off its own base,
+// so a 3.55 m frond can reach past it. That is the same trade the live oak
+// already makes at a 14 m crown, and pretending otherwise would be inventing a
+// guarantee this kit does not keep.
+const PALM_CROWN_CAP = 3.55, PALM_CROWN_CAP_SABAL = 2.90;
 // And the trunk's own displacement: at most this far off the base, and at most
 // this far of that toward the frontage.
 const PALM_SWAY_CAP = 1.15, PALM_LEAN_CAP = 0.80;
@@ -1533,7 +1562,13 @@ function oakLimbs(p) {
       // headroom a clump hanging under it will want, so the clump rule below
       // has to shrink anything only at the extremes -- otherwise every clump
       // over the carriageway is trimmed to nothing and the tunnel has no roof.
-      if (lx < OAK_ROAD_EDGE) y = Math.max(y, OAK_ROAD_Y + rr + p.spread * 0.20);
+      // The test is on the ring's OUTER EDGE, not on the station: a station
+      // sitting at -1.95 carries a 0.12 m tube whose far vertices reach -2.07,
+      // which is over the carriageway with nothing lifting it. The same lesson
+      // as the line above -- clearance is a property of the vertices, not of
+      // the centreline -- and it cost the near tier 0.3 m of soffit when the
+      // twig count went up and put a station in that band.
+      if (lx - rr < OAK_ROAD_EDGE) y = Math.max(y, OAK_ROAD_Y + rr + p.spread * 0.20);
       pts.push([lx, y, lz, rr, shade(0.92 + 0.16 * t)]);
     }
     out.push({ az0, L, pts, seed: hash32('lbs', p.key, j) });
@@ -1591,7 +1626,7 @@ function oakTwigs(p, limbs) {
         let lx = A[0] + Math.cos(az) * rho;
         lx = Math.max(OAK_ROAD_CAP + rr, Math.min(OAK_LIMB_CAP, lx));
         const lz = A[2] + Math.sin(az) * rho;
-        if (lx < OAK_ROAD_EDGE) y = Math.max(y, OAK_ROAD_Y + rr + p.spread * 0.20);
+        if (lx - rr < OAK_ROAD_EDGE) y = Math.max(y, OAK_ROAD_Y + rr + p.spread * 0.20);
         pts.push([lx, y, lz, rr, shade(1.0 + 0.10 * st)]);
       }
       out.push({ az0: az, L, pts, seed: hash32('tws', p.key, j, n) });
@@ -1785,8 +1820,8 @@ function treeParams(k, x = 0, z = 0) {
   // where it can be kept exactly, per frond and in the direction that matters
   // (see palmReach below), and the crown is free to be its real size in the
   // three directions where there is nothing to hit.
-  const R = Math.min(PALM_CROWN_CAP, trunkH * (sabal ? 0.30 : 0.335)
-    * (0.86 + r() * 0.30));
+  const R = Math.min(sabal ? PALM_CROWN_CAP_SABAL : PALM_CROWN_CAP,
+    trunkH * (sabal ? 0.30 : 0.38) * (0.86 + r() * 0.30));
 
   // The trunk curves rather than tilting: a palm's line is a slow bend, not a
   // lean off a hinge at the ground. `bow` is how far the mid station is pushed
@@ -1943,13 +1978,32 @@ function frondAt(p, i) {
  */
 function palmReach(F) {
   const ca = Math.cos(F.az);
+  // The widest the blade gets to either side of the spine: wOf peaks at 1.20 on
+  // a fan and 1.10 on a feather, and the per-station edge jitter adds a fifth
+  // of that. BOTH rules need it. The first cut tested the spine alone and
+  // measured a frond hanging 3.70 m over the carriageway against a 4.20 m
+  // minimum -- a frond running ALONG the street, whose spine never goes near
+  // the lane and whose blade edge does.
+  const lat = F.wid * (F.fan ? 1.45 : 1.35) * Math.abs(Math.sin(F.az));
   if (ca > 0.02) {
-    const lat = F.wid * (F.fan ? 1.20 : 0.90) * Math.abs(Math.sin(F.az));
     const room = PALM_FRONT_CAP - F.x - lat;
-    if (F.len * ca > room) F.len = Math.max(0, room / ca);
+    if (F.len * ca > room) {
+      // THE BLADE NARROWS WITH THE FROND. Half-width is a fraction of the
+      // CROWN radius, not of this frond's length, so a frond cut from 3.4 m to
+      // 0.36 m against a shopfront kept an 0.8 m half-width: a wedge four times
+      // wider than it is long, whose floor strip wraps back past its own
+      // blades and comes out inside out. tools/oak-audit.mjs measured it the
+      // moment the queen crown grew -- 5 backfacing triangles on the far tier
+      // and 8 on the near -- which is the whole-kit defect appearing on this
+      // emitter for the third time in this file, and the third time found by
+      // the audit rather than by looking. Scaling the width by the same factor
+      // keeps the frond's aspect ratio, so the section cannot invert.
+      const k = Math.max(0, room / ca) / F.len;
+      F.len *= k; F.wid *= k;
+    }
   }
-  if (ca < -0.02 && F.x + F.len * ca < PALM_ROAD_EDGE) {
-    const room = Math.max(0, F.y - PALM_ROAD_Y - 0.18) / F.len;
+  if (F.x + Math.min(0, ca * F.len) - lat < PALM_ROAD_EDGE) {
+    const room = Math.max(0, F.y - PALM_ROAD_Y - 0.22) / F.len;
     if (F.droop - F.rise > room) F.droop = F.rise + room;
   }
 }

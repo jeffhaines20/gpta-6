@@ -7,9 +7,9 @@
 // resolves to the same palette entry, and v = 0.5 is opaque" -- and an
 // assumption on that many props is a gate, not a comment.
 //
-// So this asserts the four things that assumption is made of, off the SAME
-// helpers the emitters address the texture with rather than a second copy of
-// the arithmetic:
+// So this asserts the things that assumption is made of, off the SAME helpers
+// the emitters address the texture with rather than a second copy of the
+// arithmetic:
 //
 //   1. GUARD.     Every palette texel, sampled the way a non-foliage prop
 //                 samples it -- u = paletteU(surf), v = 0.5, bilinear over the
@@ -23,6 +23,13 @@
 //                 of the emitted buffer and check 1 and 2 against what was
 //                 ACTUALLY written, not against what the helpers can write.
 //                 Also reports how many vertices are foliage.
+//   3b. OTHER.    Every prop kind that is NOT foliage, built into a scratch
+//                 buffer and checked vertex by vertex. alphaTest can only
+//                 discard, so a prop sampling alpha 1.0 everywhere draws
+//                 exactly the pixels it drew before the stencil existed --
+//                 which is a stronger statement than a screenshot diff, and it
+//                 covers all seventeen kinds rather than the handful a frame
+//                 happens to contain.
 //   4. COVERAGE.  The duty of each zone -- what fraction of a stamp survives --
 //                 because a mask that cuts 80% of every plate is a skeleton and
 //                 the frame is the last place you want to discover that.
@@ -135,6 +142,33 @@ for (const [name, n, foliage, off, minA, meanA, opaque] of rows) {
   console.log(`     ${name.padEnd(5)} ${n} trees   ${foliage} foliage vertices   `
     + `${off} misaddressed   alpha at those uv: min ${minA.toFixed(3)} `
     + `mean ${meanA.toFixed(3)}   ${(100 * opaque).toFixed(0)}% land on solid mask`);
+}
+
+// ---- 3b. EVERY OTHER PROP KIND, not just the two that carry foliage.
+//
+// alphaTest can only do one thing -- discard a fragment -- so a prop whose
+// every vertex samples alpha 1.0 renders exactly the pixels it rendered before
+// the stencil existed. That is a stronger statement than a screenshot diff and
+// it covers all nineteen kinds rather than the handful a frame happens to show.
+{
+  const f = K.frame(20, 20, 0, 1, -1, 0);
+  const bad = [];
+  let kinds = 0, verts = 0;
+  for (const [kind, fn] of Object.entries(K.props)) {
+    if (kind === 'tree' || kind === 'treeDetail') continue;
+    kinds++;
+    for (let k = 0; k < 24; k++) {
+      const buf = K.newBuf();
+      fn(buf, f, k * 313 + 7);
+      for (let i = 0; i < buf.uv.length; i += 2) {
+        verts++;
+        if (sample(buf.uv[i], buf.uv[i + 1]) < 0.999) { bad.push(kind); break; }
+      }
+    }
+  }
+  check(bad.length === 0, `these prop kinds sample a cut texel: ${[...new Set(bad)].join(', ')}`);
+  console.log(`3b. OTHER    ${kinds} non-foliage prop kinds, ${verts} vertices, `
+    + `${bad.length ? [...new Set(bad)].join('/') + ' CUT' : 'all alpha 1.0 - untouched by alphaTest'}`);
 }
 
 // ---- 4. what each zone of the stencil actually keeps
