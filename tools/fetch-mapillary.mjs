@@ -58,6 +58,8 @@ const LIMIT = Number(process.env.MLY_LIMIT ?? 40);
 const STATION_M = Number(process.env.MLY_STATION_M ?? 45);   // spacing along the corridor
 const STATION_R = Number(process.env.MLY_STATION_R ?? 40);   // search radius around a station
 const GRID = Number(process.env.MLY_GRID ?? 4);              // cells per axis
+const PER_STATION = Number(process.env.MLY_PER_STATION ?? 1);        // panoramas per station
+const PER_STATION_FLAT = Number(process.env.MLY_PER_STATION_FLAT ?? PER_STATION);
 
 // The bake's projection, so every image can be reported in the same local metres
 // the district is authored in - which is what makes a photo findable in-engine.
@@ -212,11 +214,19 @@ if (SELECT === 'all') {
     if (!local.length) empty++;
     process.stderr.write(`  station ${String(i).padStart(2)} ${st.leg.padEnd(24)} ${String(local.length).padStart(4)} images\n`);
 
-    // One FLAT and one PANO per station where each exists. They answer different
-    // questions - a flat frame is a real camera with real optics, a pano can be
-    // aimed at the shopfront instead of down the road - so neither replaces the other.
+    // FLAT and PANO are drawn separately at every station, because they answer
+    // different questions - a flat frame is a real camera with real optics, a pano
+    // can be aimed at the shopfront instead of down the road - so neither replaces
+    // the other and one is not a substitute for a thin supply of the other.
+    //
+    // PER_STATION is why this is not one-each. Flat coverage on this corridor is
+    // genuinely thin (13 of 78 in the current set), while the 2024 panoramas are
+    // dense and each one reprojects into BOTH street walls - so the cheapest way
+    // to raise usable ground truth is to take several panos per station at
+    // different headings rather than to widen the search radius, which just drags
+    // in frames aimed at the wrong street.
     for (const wantPano of [false, true]) {
-      let best = null, bestScore = Infinity;
+      const pool = [];
       for (const im of local) {
         if (im.isPano !== wantPano || taken.has(im.id)) continue;
         const d = Math.hypot(im.x - st.x, im.z - st.z);
@@ -225,10 +235,12 @@ if (SELECT === 'all') {
         // from 2014 is worse reference than a 2021 one, because the street has
         // been re-paved and re-awninged since.
         const ageYears = 2026 - Number((im.capturedAt || '2014').slice(0, 4));
-        const score = d + ageYears * 2.5;
-        if (score < bestScore) { bestScore = score; best = im; }
+        pool.push({ im, score: d + ageYears * 2.5 });
       }
-      if (best) { taken.add(best.id); chosen.push({ ...best, station: st.leg }); }
+      pool.sort((a, b) => a.score - b.score);
+      for (const { im } of pool.slice(0, wantPano ? PER_STATION : PER_STATION_FLAT)) {
+        taken.add(im.id); chosen.push({ ...im, station: st.leg });
+      }
     }
   }
   const saw = [...seenAll.values()];

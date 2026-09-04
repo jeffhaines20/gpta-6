@@ -45,8 +45,9 @@ Commons description page under `descUrl`.
 
 ## `mapillary/` — street-level coverage of the hero corridor
 
-29 photographs along the marina → Five Points → Main St east corridor, added 2026-09-02
-once a session finally held `MAPILLARY_TOKEN`. Fetched by `tools/fetch-mapillary.mjs`;
+229 photographs along the marina → Five Points → Main St east corridor, added 2026-09-02
+once a session finally held `MAPILLARY_TOKEN`, and densified to 88 stations at 14 m
+spacing on 2026-09-04. Fetched by `tools/fetch-mapillary.mjs`;
 every file's creator, capture date, licence and Mapillary permalink is in
 `mapillary/index.json`, and each is reported in the district's own local metres so a photo
 can be found in-engine by parking the camera at the same `x,z`.
@@ -54,6 +55,23 @@ can be found in-engine by parking the camera at the same `x,z`.
 **Imagery © Mapillary contributors, CC BY-SA 4.0.** Same discipline as above: reference,
 never source assets. Creators in this set are `Sitetour` (2024 panoramas), `networklanman`
 (2021), `fdot_vl` (2016, Florida DOT), `lvl5` (2018) and `jbthemilker`.
+
+### How dense, and why this dense
+
+202 panoramas and 27 flat frames. Every panorama reprojects into BOTH street walls,
+so the set yields **404 facade views plus 27 flat** — against 58 + 5 at the first
+pass. The density is not collecting for its own sake: an adversarial review of the
+roofline instrument found that only **6 of 48** reference frames were trustworthy,
+because a live oak canopy and a white cloud both read as a roofline to a colour
+detector and there is no way to tell a sunlit stucco parapet from a cloud edge on
+one frame. More frames of the same wall from different stations is the only cheap
+way to raise that count.
+
+Flat coverage on this corridor is genuinely thin and no amount of searching fixes
+it — 27 of 229, none at all at Pineapple or Five Points. `MLY_PER_STATION` exists
+because of that: taking several panoramas per station at different headings is a
+better use of the same bandwidth than widening the search radius, which just drags
+in frames aimed down a side street.
 
 ### Two things worth knowing before re-running the fetch
 
