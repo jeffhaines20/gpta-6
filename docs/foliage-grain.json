@@ -8,16 +8,8 @@
   "holeMedian": 8,
   "xings": 49.98,
   "openFrac": 0.401,
-  "texture": 0.2467
- },
- "engine": {
-  "n": 8,
-  "refused": 0,
-  "boundaryD": 1.269,
-  "holesPerK": 0.65,
-  "holeMedian": 2,
-  "xings": 17.12,
-  "openFrac": 0.692,
-  "texture": 0.1585
+  "texture": 0.2467,
+  "longestStraight": 218,
+  "straightFrac": 0.044
  }
 }

@@ -280,6 +280,88 @@ function holes(m, w, h) {
   return { areas, openFrac: tot ? openRuns / tot : null, interiorRuns: tot };
 }
 
+/**
+ * LONG STRAIGHT EDGES: the specific thing that makes foliage read as flat cards.
+ *
+ * boundaryD says a silhouette is rough on average. It does not say "there is a
+ * 90-pixel dead-straight line across the sky", and that is the complaint a
+ * viewer actually makes about plate-built foliage. A leaf mass has no straight
+ * edges at all; a polygon has nothing else.
+ *
+ * Contours are traced (Moore neighbourhood, Jacob's stopping criterion) and
+ * simplified with Ramer-Douglas-Peucker at 1.5 px. A hexagon survives as six
+ * very long segments; a canopy shatters into hundreds of short ones. Reported:
+ * the longest surviving segment, and the fraction of total contour length
+ * sitting in segments of 24 px or more.
+ */
+function straightEdges(m, w, h) {
+  const seen = new Uint8Array(w * h);
+  const at = (x, y) => (x >= 0 && y >= 0 && x < w && y < h ? m[y * w + x] : 0);
+  // 8-neighbourhood, clockwise from east.
+  const D = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
+  const contours = [];
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (!at(x, y) || seen[y * w + x]) continue;
+      // Only start on a boundary pixel whose west neighbour is background, so
+      // each contour is entered once at a well-defined place.
+      if (at(x - 1, y)) continue;
+      const chain = [];
+      let cx = x, cy = y, dir = 6;                 // came from the north
+      const sx = x, sy = y;
+      let guard = 0;
+      do {
+        seen[cy * w + cx] = 1;
+        chain.push([cx, cy]);
+        let k = (dir + 6) % 8, moved = false;      // back up two, then sweep
+        for (let t = 0; t < 8; t++) {
+          const d = D[(k + t) % 8];
+          if (at(cx + d[0], cy + d[1])) { cx += d[0]; cy += d[1]; dir = (k + t) % 8; moved = true; break; }
+        }
+        if (!moved) break;                          // isolated pixel
+      } while (!(cx === sx && cy === sy) && ++guard < 4 * w * h);
+      if (chain.length >= 8) contours.push(chain);
+    }
+  }
+  // RDP, iterative so a long contour cannot blow the stack.
+  const rdp = (pts, eps) => {
+    const keep = new Uint8Array(pts.length);
+    keep[0] = keep[pts.length - 1] = 1;
+    const stack = [[0, pts.length - 1]];
+    while (stack.length) {
+      const [a, b] = stack.pop();
+      if (b <= a + 1) continue;
+      const [ax, ay] = pts[a], [bx, by] = pts[b];
+      const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1;
+      let worst = -1, wi = -1;
+      for (let i = a + 1; i < b; i++) {
+        const [px, py] = pts[i];
+        const d = Math.abs((px - ax) * dy - (py - ay) * dx) / len;
+        if (d > worst) { worst = d; wi = i; }
+      }
+      if (worst > eps) { keep[wi] = 1; stack.push([a, wi], [wi, b]); }
+    }
+    const out = [];
+    for (let i = 0; i < pts.length; i++) if (keep[i]) out.push(pts[i]);
+    return out;
+  };
+  let longest = 0, total = 0, inLong = 0;
+  for (const c of contours) {
+    const simp = rdp(c, 1.5);
+    for (let i = 0; i + 1 < simp.length; i++) {
+      const L = Math.hypot(simp[i + 1][0] - simp[i][0], simp[i + 1][1] - simp[i][1]);
+      total += L;
+      if (L > longest) longest = L;
+      if (L >= 24) inLong += L;
+    }
+  }
+  return {
+    longestStraight: Math.round(longest),
+    straightFrac: total > 0 ? +(inLong / total).toFixed(3) : null,
+    contours: contours.length,
+  };
+}
+
 /** Mask<->background transitions per row, over rows that carry any mask. */
 function crossings(m, w, h) {
   let rows = 0, x = 0;
@@ -354,6 +436,7 @@ export function grain(img, box) {
   const D = boundaryDim(m, w, h);
   if (D === null) return { ok: false, why: 'boundary too short to fit' };
   const { areas: hs, openFrac, interiorRuns } = holes(m, w, h);
+  const st = straightEdges(m, w, h);
   const tex = texture(L, m, w, h);
   return {
     ok: true, w, h, scale: +scale.toFixed(3), thr, eta: +eta.toFixed(3), massFrac: +frac.toFixed(3),
@@ -361,6 +444,7 @@ export function grain(img, box) {
     holesPerK: +((hs.length * 1000) / mass).toFixed(2),
     holeMedian: hs.length ? hs[hs.length >> 1] : 0,
     openFrac: openFrac === null ? null : +openFrac.toFixed(3), interiorRuns,
+    longestStraight: st.longestStraight, straightFrac: st.straightFrac,
     xings: +crossings(m, w, h).toFixed(2),
     texture: tex === null ? null : +tex.toFixed(4),
   };
@@ -507,6 +591,15 @@ if (IS_MAIN && has('selftest')) {
     chk('canopy crosses more than pillows', r.canopy.xings > 2 * r.pillows.xings);
     chk('pillows cross more than a hexagon', r.pillows.xings > r.hex.xings);
     chk('canopy dapples', r.canopy.texture > 3 * r.hex.texture);
+    // The straight-edge measure, which is the one that speaks to "reads as a
+    // flat card". A hexagon is six straight lines and nothing else; a leaf mass
+    // has no straight edge anywhere.
+    chk('a hexagon is all straight edge', r.hex.straightFrac > 0.9);
+    chk('a hexagon has one very long straight run', r.hex.longestStraight > 100);
+    chk('canopy has little straight edge', r.canopy.straightFrac < 0.25);
+    chk('canopy runs are far shorter than a hexagon\'s',
+      r.canopy.longestStraight < r.hex.longestStraight / 3);
+    chk('smooth pillows sit between the two', r.pillows.straightFrac < r.hex.straightFrac);
     chk('flat plates do not dapple', r.pillows.texture < 0.01);
   }
   console.log(fails.length ? `\nSELFTEST FAILED: ${fails.join('; ')}` : '\nselftest ok - all four separate as predicted');
@@ -675,6 +768,7 @@ if (IS_MAIN && has('stencil')) {
 const fmt = (r) => (r.ok
   ? `D ${r.boundaryD.toFixed(3)}  holes/1k ${String(r.holesPerK).padStart(6)}  med ${String(r.holeMedian).padStart(5)}`
     + `  xings ${String(r.xings).padStart(6)}  open ${r.openFrac === null ? ' n/a' : (r.openFrac * 100).toFixed(0).padStart(3)}%`
+    + `  straight ${String(r.longestStraight).padStart(4)}px/${String(r.straightFrac).padStart(5)}`
     + `  tex ${r.texture === null ? '  n/a ' : r.texture.toFixed(4)}`
     + `  mass ${(r.massFrac * 100).toFixed(0)}%`
   : `n/a - ${r.why}`);
@@ -688,6 +782,7 @@ const summarise = (rows) => {
     boundaryD: med((r) => r.boundaryD), holesPerK: med((r) => r.holesPerK),
     holeMedian: med((r) => r.holeMedian), xings: med((r) => r.xings),
     openFrac: med((r) => r.openFrac), texture: med((r) => r.texture),
+    longestStraight: med((r) => r.longestStraight), straightFrac: med((r) => r.straightFrac),
   };
 };
 
