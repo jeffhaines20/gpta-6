@@ -221,29 +221,63 @@ function boundaryDim(m, w, h) {
   return -slope;
 }
 
-/** Enclosed sky: 4-connected sky components that never touch the crop border. */
+/**
+ * Enclosed sky, and how the canopy's sky is ARRANGED.
+ *
+ * Two returns. `areas` is the enclosed components - 4-connected sky that never
+ * touches the crop border. `openFrac` is the fraction of INTERIOR SKY RUNS (a
+ * run of sky with canopy on both sides in its own row - the things that create
+ * crossings) which belong to a component reaching outside. That separates two
+ * canopies with identical sky fraction: one a solid mass riddled with enclosed
+ * holes, the other a few blobs with sky flowing around them.
+ *
+ * It exists because a simulation convinced me the photographs were the second
+ * kind and I told a builder to rebuild the crown accordingly. Measured on the
+ * photographs they are the FIRST kind - median 40% open, 60% enclosed - and the
+ * engine's own crown is the second, at 85% open. The inference was exactly
+ * backwards, and a hypothesis about the reference that is never put to the
+ * reference is how this ledger keeps paying for the same mistake.
+ */
 function holes(m, w, h) {
-  const seen = new Uint8Array(w * h);
+  const seen = new Int32Array(w * h).fill(-1);
   const stack = new Int32Array(w * h);
   const areas = [];
+  const isOpen = [];
+  let nl = 0;
   for (let start = 0; start < w * h; start++) {
-    if (m[start] || seen[start]) continue;
+    if (m[start] || seen[start] >= 0) continue;
     let sp = 0, area = 0, open = false;
-    stack[sp++] = start; seen[start] = 1;
+    const id = nl++;
+    stack[sp++] = start; seen[start] = id;
     while (sp) {
       const i = stack[--sp];
       const x = i % w, y = (i - x) / w;
       area++;
       if (x === 0 || y === 0 || x === w - 1 || y === h - 1) open = true;
-      if (x > 0 && !m[i - 1] && !seen[i - 1]) { seen[i - 1] = 1; stack[sp++] = i - 1; }
-      if (x < w - 1 && !m[i + 1] && !seen[i + 1]) { seen[i + 1] = 1; stack[sp++] = i + 1; }
-      if (y > 0 && !m[i - w] && !seen[i - w]) { seen[i - w] = 1; stack[sp++] = i - w; }
-      if (y < h - 1 && !m[i + w] && !seen[i + w]) { seen[i + w] = 1; stack[sp++] = i + w; }
+      if (x > 0 && !m[i - 1] && seen[i - 1] < 0) { seen[i - 1] = id; stack[sp++] = i - 1; }
+      if (x < w - 1 && !m[i + 1] && seen[i + 1] < 0) { seen[i + 1] = id; stack[sp++] = i + 1; }
+      if (y > 0 && !m[i - w] && seen[i - w] < 0) { seen[i - w] = id; stack[sp++] = i - w; }
+      if (y < h - 1 && !m[i + w] && seen[i + w] < 0) { seen[i + w] = id; stack[sp++] = i + w; }
     }
+    isOpen[id] = open;
     if (!open) areas.push(area);
   }
+  let openRuns = 0, closedRuns = 0;
+  for (let y = 0; y < h; y++) {
+    let x = 0;
+    while (x < w) {
+      if (m[y * w + x]) { x++; continue; }
+      const a = x;
+      while (x < w && !m[y * w + x]) x++;
+      const b = x - 1;
+      if (a > 0 && b < w - 1 && m[y * w + a - 1] && m[y * w + b + 1]) {
+        if (isOpen[seen[y * w + a]]) openRuns++; else closedRuns++;
+      }
+    }
+  }
   areas.sort((a, b) => a - b);
-  return areas;
+  const tot = openRuns + closedRuns;
+  return { areas, openFrac: tot ? openRuns / tot : null, interiorRuns: tot };
 }
 
 /** Mask<->background transitions per row, over rows that carry any mask. */
@@ -319,13 +353,14 @@ export function grain(img, box) {
 
   const D = boundaryDim(m, w, h);
   if (D === null) return { ok: false, why: 'boundary too short to fit' };
-  const hs = holes(m, w, h);
+  const { areas: hs, openFrac, interiorRuns } = holes(m, w, h);
   const tex = texture(L, m, w, h);
   return {
     ok: true, w, h, scale: +scale.toFixed(3), thr, eta: +eta.toFixed(3), massFrac: +frac.toFixed(3),
     boundaryD: +D.toFixed(3),
     holesPerK: +((hs.length * 1000) / mass).toFixed(2),
     holeMedian: hs.length ? hs[hs.length >> 1] : 0,
+    openFrac: openFrac === null ? null : +openFrac.toFixed(3), interiorRuns,
     xings: +crossings(m, w, h).toFixed(2),
     texture: tex === null ? null : +tex.toFixed(4),
   };
@@ -351,8 +386,19 @@ function scoreFile(file, box) {
 // into a measurement. These are built in memory - no PNG encoder in the repo,
 // and none is needed.
 
+// EVERY synthetic raster is built at the size a real crop is measured at.
+// xings counts crossings per ROW and holeMedian is an AREA in pixels, so both
+// scale with the raster's width - and the tool only normalises frames WIDER than
+// 1024, which a 320 px synth never is. Built at 320 and compared against a
+// photograph normalised to 1024, the synthetic xings were low by a factor of
+// 3.2 and the synthetic hole areas low by a factor of ten. That silently
+// understated every simulation in this file against its own target until a
+// direct test on the photographs contradicted the conclusion drawn from it.
+const SYN_W = 1024, SYN_H = 528;      // the reference crop's own shape
+const SYN_K = SYN_W / 320;            // features authored at 320 scale up by this
+
 function synth(kind) {
-  const W = 320, H = 320, data = new Uint8Array(W * H * 3);
+  const W = SYN_W, H = SYN_H, data = new Uint8Array(W * H * 3);
   const SKY = [196, 212, 236], DARK = [38, 46, 34];
   const put = (x, y, c) => { const i = (y * W + x) * 3; data[i] = c[0]; data[i + 1] = c[1]; data[i + 2] = c[2]; };
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) put(x, y, SKY);
@@ -364,7 +410,7 @@ function synth(kind) {
   let seed = 0x9e3779b9;
   const rnd = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return ((seed >>> 0) / 4294967296); };
   if (kind === 'hex') {
-    const cx = W / 2, cy = H / 2, R = 118;
+    const cx = W / 2, cy = H / 2, R = 118 * SYN_K * 0.55;
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       let inside = true;
       for (let k = 0; k < 6; k++) {
@@ -379,7 +425,8 @@ function synth(kind) {
     // Eight big smooth ellipses: the shape of the crown under test.
     const els = [];
     for (let k = 0; k < 8; k++) {
-      els.push({ cx: 60 + rnd() * 200, cy: 60 + rnd() * 200, a: 52 + rnd() * 26, b: 26 + rnd() * 14, t: rnd() * Math.PI });
+      els.push({ cx: (60 + rnd() * 200) * SYN_K, cy: (60 + rnd() * 200) * SYN_K * 0.55,
+        a: (52 + rnd() * 26) * SYN_K, b: (26 + rnd() * 14) * SYN_K, t: rnd() * Math.PI });
     }
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       for (const e of els) {
@@ -400,7 +447,7 @@ function synth(kind) {
   // rather than the metric, and it is worth saying so here because a D over 2
   // on a real frame means the same thing: sub-pixel speckle, not a rough edge.
   const oct = [];
-  for (const n of [6, 12, 24, 48]) {
+  for (const n of [6, 12, 24, 48].map((v) => Math.round(v * SYN_K))) {
     const g = new Float32Array((n + 1) * (n + 1));
     for (let i = 0; i < g.length; i++) g[i] = rnd();
     oct.push({ n, g });
@@ -419,7 +466,7 @@ function synth(kind) {
     return v / tot;
   };
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const r = Math.hypot(x - W / 2, y - H / 2) / 132;
+    const r = Math.hypot(x - W / 2, y - H / 2) / (132 * SYN_K * 0.55);
     if (r > 1.05) continue;                       // outside the crown: sky
     // Dense in the middle, thinning at the rim, so the silhouette is ragged
     // rather than a circle with texture painted inside it.
@@ -437,7 +484,7 @@ function synth(kind) {
 const IS_MAIN = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 if (IS_MAIN && has('selftest')) {
-  const box = [0, 0, 320, 320];
+  const box = [0, 0, SYN_W, SYN_H];
   const r = {};
   for (const k of ['flat', 'hex', 'pillows', 'canopy']) r[k] = grain(synth(k), box);
   for (const k of Object.keys(r)) console.log(`  ${k.padEnd(8)} ${JSON.stringify(r[k])}`);
@@ -476,16 +523,16 @@ if (IS_MAIN && has('selftest')) {
 // instead of a triangle budget - and a future round will want to re-run it
 // rather than take it on trust.
 function platesRaster(n, splay) {
-  const W = 320, H = 320, data = new Uint8Array(W * H * 3);
+  const W = SYN_W, H = SYN_H, data = new Uint8Array(W * H * 3);
   const SKY = [196, 212, 236], DARK = [38, 46, 34];
   for (let i = 0; i < W * H; i++) { data[i * 3] = SKY[0]; data[i * 3 + 1] = SKY[1]; data[i * 3 + 2] = SKY[2]; }
   let seed = 0x9e3779b9;
   const rnd = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return ((seed >>> 0) / 4294967296); };
-  const A0 = 52 * 26, a = Math.sqrt((A0 * 8) / n);   // area per plate ~ 1/n
+  const A0 = 52 * 26 * SYN_K * SYN_K, a = Math.sqrt((A0 * 8) / n);   // area per plate ~ 1/n
   const els = [];
   for (let k = 0; k < n; k++) {
     els.push({
-      cx: 60 + rnd() * 200, cy: 60 + rnd() * 200,
+      cx: (60 + rnd() * 200) * SYN_K, cy: (60 + rnd() * 200) * SYN_K * 0.55,
       a: a * (0.8 + 0.4 * rnd()), b: a * 0.5 * (0.8 + 0.4 * rnd()), t: rnd() * Math.PI,
       k: splay ? 0.55 + 0.9 * rnd() : 1,             // per-plate shade = splayed normals
     });
@@ -508,7 +555,7 @@ if (IS_MAIN && has('sweep')) {
   console.log('  n  splay    D       holes/1k   med   xings    tex      mass');
   for (const splay of [false, true]) {
     for (const n of [8, 16, 32, 64, 128]) {
-      const r = grain(platesRaster(n, splay), [0, 0, 320, 320]);
+      const r = grain(platesRaster(n, splay), [0, 0, SYN_W, SYN_H]);
       console.log(String(n).padStart(4), String(splay).padStart(6), '  ', r.ok
         ? `${r.boundaryD.toFixed(3)}  ${String(r.holesPerK).padStart(7)}  ${String(r.holeMedian).padStart(4)}  `
           + `${String(r.xings).padStart(6)}  ${r.texture.toFixed(4)}  ${(r.massFrac * 100).toFixed(0)}%`
@@ -542,7 +589,7 @@ if (IS_MAIN && has('sweep')) {
 // to four screen pixels. K=32 overshoots into D > 2, which is not a rougher
 // edge but sub-pixel speckle, and it will shimmer under motion.
 function crownRaster({ n, K, Hm, duty, phase, cut }) {
-  const W = 320, H = 320, SKY = [196, 212, 236], DARK = [38, 46, 34];
+  const W = SYN_W, H = SYN_H, SKY = [196, 212, 236], DARK = [38, 46, 34];
   const data = new Uint8Array(W * H * 3);
   for (let i = 0; i < W * H; i++) { data[i * 3] = SKY[0]; data[i * 3 + 1] = SKY[1]; data[i * 3 + 2] = SKY[2]; }
   let seed = 0x9e3779b9;
@@ -560,10 +607,10 @@ function crownRaster({ n, K, Hm, duty, phase, cut }) {
   }
   const els = [];
   for (let k = 0; k < n; k++) {
-    const a0 = 2 * Math.PI * rnd(), r0 = 132 * Math.sqrt(rnd()) * 0.92;
+    const a0 = 2 * Math.PI * rnd(), r0 = 132 * SYN_K * 0.55 * Math.sqrt(rnd()) * 0.92;
     els.push({
       cx: W / 2 + Math.cos(a0) * r0, cy: H / 2 + Math.sin(a0) * r0,
-      a: 30 + 18 * rnd(), b: 15 + 10 * rnd(), t: rnd() * Math.PI,
+      a: (30 + 18 * rnd()) * SYN_K * 0.7, b: (15 + 10 * rnd()) * SYN_K * 0.7, t: rnd() * Math.PI,
       ps: phase ? Math.floor(rnd() * K) : 0, pt: phase ? Math.floor(rnd() * Hm) : 0,
       sh: 0.55 + 0.9 * rnd(),
     });
@@ -590,7 +637,7 @@ function crownRaster({ n, K, Hm, duty, phase, cut }) {
 
 if (IS_MAIN && has('stencil')) {
   const row = (label, o) => {
-    const r = grain(crownRaster(o), [0, 0, 320, 320]);
+    const r = grain(crownRaster(o), [0, 0, SYN_W, SYN_H]);
     console.log(label.padEnd(34), r.ok
       ? `D ${r.boundaryD.toFixed(3)}  holes ${String(r.holesPerK).padStart(5)}  med ${String(r.holeMedian).padStart(4)}`
         + `  xings ${String(r.xings).padStart(6)}  tex ${r.texture.toFixed(4)}  mass ${(r.massFrac * 100).toFixed(0)}%`
@@ -608,13 +655,18 @@ if (IS_MAIN && has('stencil')) {
   for (const n of [80, 120, 160, 240]) row(`${n} plates`, { n, K: 16, Hm: 8, duty: 0.45, phase: true, cut: true });
   console.log('\nTARGET'.padEnd(35) + 'D 1.538  holes  3.57  med    8  xings  50.00  tex 0.2467');
   console.log('ENGINE oak-up now'.padEnd(34) + 'D 1.084  holes  0.03  med    2  xings   4.78  tex 0.0715  mass 52%');
-  console.log('\nK=16/Hm=8/duty 0.40 lands D 1.574 vs 1.538 and holes 3.60 vs 3.57 at 51% mass.');
-  console.log('But xings stays ~10-13 against 50 at EVERY setting, and falls as plates are');
-  console.log('added. Enclosed holes on target while crossings are five times short can only');
-  console.log('mean the photographs\' crossings are not enclosed holes: they are sky channels');
-  console.log('opening outward, between discrete leaf clumps hung on limbs. A canopy is not a');
-  console.log('crown volume with holes punched in it. That gap is a PLACEMENT fault, and no');
-  console.log('mask fixes it.');
+  console.log('\nK around 26-32 with Hm around 13-16 puts D and holesPerK on target. An earlier');
+  console.log('version of this said K=16 and warned that K=32 was sub-pixel speckle; both were');
+  console.log('artifacts of building these rasters at 320 px while every photograph was');
+  console.log('normalised to 1024, which understated synthetic crossings by 3.2x and synthetic');
+  console.log('hole AREAS by ten. See the SYN_W note above.');
+  console.log('\nxings still tops out near 15-18 against 50 and this file does not explain the');
+  console.log('rest. It is NOT that the photographs are separated clumps with sky flowing');
+  console.log('between them - openFrac says the photographs are 60% ENCLOSED and the engine');
+  console.log('crown is 85% open, so ours is the loose one. Some of the residual is simply');
+  console.log('less canopy in the synthetic frame (33-42% mass against the photographs\' 43-88%),');
+  console.log('and the honest position is that the engine measurement settles this, not more');
+  console.log('simulation.');
   process.exit(0);
 }
 
@@ -622,7 +674,8 @@ if (IS_MAIN && has('stencil')) {
 
 const fmt = (r) => (r.ok
   ? `D ${r.boundaryD.toFixed(3)}  holes/1k ${String(r.holesPerK).padStart(6)}  med ${String(r.holeMedian).padStart(5)}`
-    + `  xings ${String(r.xings).padStart(6)}  tex ${r.texture === null ? '  n/a ' : r.texture.toFixed(4)}`
+    + `  xings ${String(r.xings).padStart(6)}  open ${r.openFrac === null ? ' n/a' : (r.openFrac * 100).toFixed(0).padStart(3)}%`
+    + `  tex ${r.texture === null ? '  n/a ' : r.texture.toFixed(4)}`
     + `  mass ${(r.massFrac * 100).toFixed(0)}%`
   : `n/a - ${r.why}`);
 
@@ -633,7 +686,8 @@ const summarise = (rows) => {
   return {
     n: ok.length, refused: rows.length - ok.length,
     boundaryD: med((r) => r.boundaryD), holesPerK: med((r) => r.holesPerK),
-    holeMedian: med((r) => r.holeMedian), xings: med((r) => r.xings), texture: med((r) => r.texture),
+    holeMedian: med((r) => r.holeMedian), xings: med((r) => r.xings),
+    openFrac: med((r) => r.openFrac), texture: med((r) => r.texture),
   };
 };
 
