@@ -47,6 +47,7 @@ docs/shots/oak-*.png
 # it from the served tree. It is a build artifact of tools/oak-look.mjs, not a
 # frame worth keeping.
 docs/shots/.oak-look.html
+docs/shots/.tree-look.html
 # Foliage-round bench frames, same reasoning as the oak-* lines above: sixteen
 # of them is 12 MB, and what the round actually needs preserved is the NUMBERS
 # they score, which live in the ledger and in docs/foliage-grain.json. Frames
