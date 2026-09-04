@@ -30,6 +30,114 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## The leaf plates stop reading as cards — by grain, not by the radius I prescribed
+
+The stencil round moved every metric and the close-up still read as flat
+quadrilateral cards with holes punched in them. This round fixed that, and the
+interesting part is that two thirds of the plan I handed the builder was wrong
+and it measured rather than followed.
+
+### The diagnosis was arithmetic
+
+`CLUMP_SIDES = 4`, so a clump's silhouette between two ring vertices is a CHORD
+with uv interpolated linearly along it. The ring vertices land at stamp radius
+0.805–1.000, outside the mask's solid core at `OAK_STAMP_R = 0.70` — but the
+chord's midpoint reaches only **0.569–0.707**, inside it. The mask was solid
+exactly where the quad's own edge ran. Sides needed for the chord to clear a
+0.70 core: eight.
+
+That made the comment in `leafClump` false as written — "its boundary is INSIDE
+the polygon's in every direction, so the silhouette that reaches the frame is
+the mask's and never the quad's" holds at the four vertices and fails on the
+four edges between them.
+
+### Two of my three prescribed levers were wrong
+
+**Shrink `OAK_STAMP_R` under the chord.** Pulling the falloff to 0.44 cleared
+every chord and cost **eight points of massFrac** for 0.02 of straightFrac. The
+arithmetic was right; the remedy was not. The falloff is now gentle
+(`OAK_STAMP_R = 1.00`, the ring itself) and the edge is broken by GRAIN. Chord
+test on the shipped stamp: the longest unbroken solid run an edge crosses is
+14.7% of its own length on average, 46.5% at worst, against 21.6% / 71.2%.
+
+**Pay the mass back by enlarging the plate.** Already spent. Over 40 trees the
+*realised* `rad/spread` has median **0.116** against a nominal floor of 0.195 —
+the clearance caps already set the size of most clumps, and multiplying the
+nominal by 1.6 moves the median by nothing (p90 0.207 → 0.215). Coverage has to
+come from the stencil.
+
+**And `CLUMP_SIDES`, measured so it need not be spent.** At identical mask and
+duty, straightFrac up/row/tunnel is 0.177/0.080/0.069 at four sides and
+0.199/0.080/0.068 at eight. Six and eight buy MASS and nothing measurable on
+straightness. A real lever for mass, a false one for cards; now a comment on the
+constant.
+
+### What actually worked: square stamps
+
+3 × 64×64 in place of 7 × 64×32, inside the same atlas rows. A plate is round in
+world space, so at 64×32 the vertical axis carried half the resolution and set
+the floor on leaf grain. Square, at equal duty and before any retuning:
+straightFrac 0.196/0.081/0.067 → **0.161/0.055/0.066**. Paid for in variety (7
+stamps → 3), with the ring phase still rotating the window continuously.
+
+Alongside it: the `h3` dither is gone — uncorrelated, and *over Nyquist*, since a
+32×32 cell grid on a 64×32 stamp is one coin per 2×1 texels — and `uvAt` drops
+its radius argument, so every ring vertex lands at stamp radius 1 instead of 60%
+of them sitting on a clamp.
+
+All of it texture and uv: **956.9 → 954.9** triangles per oak, district props
+287,820 → 287,732.
+
+### A defect in the instrument, found by the builder
+
+A straight run along the CROP RECTANGLE is not a silhouette edge, it is the crop:
+canopy reaching the frame edge makes the contour follow it. On the reference,
+**85–100%** of every canopy station's straight edge is border, so the
+photographs' apparent 0.044 is really **0.007** of actual leaf silhouette — the
+target I set was three times easier than it looked, and it flattered any build
+that happened to fill the frame. `straightFracInner` now drops segments with both
+endpoints on the crop edge, from numerator and denominator alike.
+
+### Where it landed
+
+`straightFracInner` at golden, across both rounds:
+
+| frame | before r1 | after r1 | after r2 |
+|---|---|---|---|
+| oak-row | 0.538 | 0.134 | **0.054** |
+| oak-up | 0.923 | 0.235 | **0.122** |
+| oak-tunnel | 0.488 | 0.247 | **0.120** |
+| photographs | | | 0.007 |
+
+Row is down tenfold. The 0.10 target was not reached everywhere and is not
+claimed to be. Every other column improved or held: oak-row D 1.396 → 1.529,
+holes 3.49 → 5.25, xings 21.93 → 31.12, texture 0.268 → 0.319, mass 32 → 33.
+
+Budget: draw calls **225** unchanged, triangles **784,737** (down 962 from the
+stencil round) against an 830,000 warn, chunk stall **8.3 ms** — back to exactly
+its pre-stencil value, inside the 5.3–24.2 ms band this ledger records for that
+metric on identical builds.
+
+### Still wrong, and the next thing to fix is not the plates
+
+The residual straight edge at close range is largely the **limb tubes** — 3-gon
+tubes with dead-straight silhouettes that the stencil never touches and that a
+more porous canopy now exposes. In the builder's offline silhouette simulator
+(shipped emitters, shipped stencil, software-rasterised, verified against a null
+that reads 0.94 with the alpha test off), adding bark takes oak-up from 0.178 to
+0.234 and oak-tunnel from 0.066 to 0.172.
+
+A faint hairline of surviving quad edge is still visible against the sky where
+alpha just clears the 0.42 test. And at 3.5 m the crown reads as hard-edged
+texel-quantised blobs — a stencil at magnification — rather than as leaves.
+Pushing porosity harder made that worse rather than better: the frame started
+reading as scattered angular flakes, which is a different failure and not an
+improvement, and the shipped setting backed off from it.
+
+`ALPHA_TEST` 0.42 now sits above the oak zone's coverage (0.381). The comment
+claiming it sits "below the coverage of every zone" was false when written at
+0.346; it now says so and names the palm zones it *is* below.
+
 ## Foliage: an alpha stencil through a uv channel nobody was using
 
 The oak round shipped crowns of ~48 flat plates. The complaint — "the leaves are too
@@ -1399,6 +1507,7 @@ reverting it returns 0.00. A gate that cannot fail is not a gate.
 |---|---|---|---|
 | 2026-09-04 | **drive-through + 30 traffic**, with live oaks on the corridor | **PASS/PASS/WARN** — draw p95 **225**, tris p95 **773,816** (+14,247, 6.8% under warn), stall **8.3 ms**, heap **-3 MB** | `docs/drive-traffic.json` |
 | 2026-09-04 | **drive-through + 30 traffic**, foliage alpha stencil + restored oak density | **PASS/PASS/WARN** — draw p95 **225** (unchanged), tris p95 **785,699** (+11,883, 5.3% under warn), stall **9.7 ms**, heap **-22 MB**. Stall was already 8.3 ms pre-round and its own noise band is 5.3–24.2 ms on identical builds; not attributable here. | `docs/drive-traffic.json` |
+| 2026-09-04 | **drive-through + 30 traffic**, square leaf stamps (cards fix) | **PASS/PASS/WARN** — draw p95 **225** (unchanged), tris p95 **784,737** (−962 vs the stencil round, 5.5% under warn), stall **8.3 ms** (back to its pre-stencil value), heap **−8 MB** | `docs/drive-traffic.json` |
 | 2026-09-04 | **drive-through + 30 traffic**, after the reference-authored heights | **PASS/PASS/WARN** — draw p95 **226**, tris p95 **759,569**, stall **12.4 ms** inside its 7.1-16.4 band, heap **-27 MB** | `docs/drive-traffic.json` |
 | 2026-09-04 | **drive-through + 30 traffic**, with MSAA x4 on the HDR target | **PASS/PASS/WARN** — draw p95 **226**, tris p95 **760,529**, stall **9.3 ms** inside its 7.1-16.4 band, heap **-31 MB** | `docs/drive-traffic.json` |
 | 2026-09-03 | **drive-through + 30 traffic**, after the glazing reflection, the in-flight chunk guard and the lamp margin rework | **PASS/PASS/WARN** — draw p95 **228**, tris p95 **766,853**, stall **12.5 ms** inside its 7.1-16.4 noise band, heap **-1 MB** | `docs/drive-traffic.json` |
