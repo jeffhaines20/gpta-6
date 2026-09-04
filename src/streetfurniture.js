@@ -804,6 +804,639 @@ const PALM_BARK = {
   queen: [0x928e84, 0x9c988c, 0x878379, 0x999488],
 };
 
+// ===========================================================================
+// LIVE OAKS, AND WHERE THE CENSUS PUTS THEM
+// ===========================================================================
+// Every tree in this district was a palm, and parts of the corridor are not
+// palm. `tools/oak-census.mjs --measure` measured canopy at 202 reprojected
+// Mapillary stations and `tools/oak-profile.mjs` turns that into OAK_PROFILE
+// below: one weight per 20 m of corridor arc-length.
+//
+// THE FINDING IS THAT OAKS ARE CLUSTERED, and a uniform "oaks on Main St east"
+// rule would be the same mistake in the other direction as the uniform "palms
+// everywhere" it replaces. Four runs come out of the census and nothing else
+// does:
+//
+//   s  240..320   x -281..-240   bayfront    peak 0.71
+//   s  520..540   x  -18..  12   McAnsh      peak 0.40
+//   s  740..820   x   71.. 170   Main St E   peak 0.90   <- the tunnel
+//   s 1040..1080  x  374.. 430   Main St E   peak 0.63
+//
+// Between them the median station reads 4-10% foliage with the canopy LOW in
+// the frame, which is a leggy specimen tree, not a tunnel, and is left as palm.
+//
+// The weight drives two things, and it has to drive both or it changes nothing:
+// the SPECIES a tree station plants, and how OFTEN a kerb station plants a tree
+// at all. Before this, 250 m of Main St east between x = 50 and x = 300 carried
+// six trees and not one of them stood inside the measured tunnel at x 86..148.
+// A species switch on six trees is not a canopy. It now carries twelve, nine of
+// them inside x 78..155 and six of those oaks -- a tree every 9 m of street,
+// alternating kerbs, which is what one per shopfront bay comes to when both
+// sides are counted.
+//
+// step 20 m; regenerate with  node tools/oak-profile.mjs --emit --sigma 16
+const OAK_STEP = 20;
+const OAK_PROFILE = [
+  0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,   // s    0..180
+  0.01, 0.07, 0.61, 0.71, 0.62, 0.50, 0.37, 0.08, 0.10, 0.11,   // s  200..380
+  0.11, 0.11, 0.18, 0.18, 0.17, 0.22, 0.40, 0.36, 0.13, 0.02,   // s  400..580
+  0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.04, 0.29, 0.74, 0.90,   // s  600..780
+  0.68, 0.28, 0.15, 0.30, 0.44, 0.29, 0.07, 0.01, 0.00, 0.00,   // s  800..980
+  0.02, 0.14, 0.49, 0.63, 0.30, 0.14, 0.11, 0.04, 0.02, 0.03,   // s 1000..1180
+  0.05, 0.10, 0.14, 0.17,                                       // s 1200..1260
+];
+// The census walked the hero route and nothing else, so the profile is only
+// evidence within a corridor's width of it. Full weight out to OAK_CORE, which
+// covers both kerbs of a 14 m carriageway and the pavement behind them, then a
+// linear fade to nothing by OAK_REACH. Past that there is no measurement, and
+// the honest default where there is no measurement is the palm the district
+// already had -- this file only ever ADDS oaks where they were counted.
+const OAK_CORE = 22, OAK_REACH = 55;
+// Even in the tunnel one tree in eight stays a palm. That is not a hedge
+// against the census, it is what the photographs show: 1007445660973812-R has a
+// palm standing in the oak line, and a run of fourteen identical species is a
+// thing no street has.
+const OAK_MAX = 0.88;
+
+// The corridor polyline, handed over by dressDistrict(). Null until then, and
+// a null route means no oaks: a tools-side replay of one prop in isolation has
+// no position to test and gets the district's default species.
+let _oakRoute = null;
+function setOakRoute(route) { _oakRoute = route ?? null; }
+
+/**
+ * How strongly the census says THIS spot is oak, in [0, 1].
+ *
+ * Projects (x, z) onto the corridor polyline for its arc-length s, reads
+ * OAK_PROFILE at s, and fades the answer out with distance off the corridor.
+ * Past the end of the profile the answer is 0, because the census measured four
+ * of the route's eight legs and an array of zeros for the other four would
+ * assert a measurement that was never taken.
+ */
+function oakWeight(x, z) {
+  const rt = _oakRoute;
+  if (!rt || rt.length < 2) return 0;
+  let bestS = 0, bestOff = Infinity, acc = 0;
+  for (let i = 0; i + 1 < rt.length; i++) {
+    const a = rt[i], b = rt[i + 1];
+    const dx = b.x - a.x, dz = b.z - a.z;
+    const len = Math.hypot(dx, dz) || 1;
+    let t = ((x - a.x) * dx + (z - a.z) * dz) / (len * len);
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const off = Math.hypot(x - (a.x + dx * t), z - (a.z + dz * t));
+    if (off < bestOff) { bestOff = off; bestS = acc + t * len; }
+    acc += len;
+  }
+  if (bestOff >= OAK_REACH) return 0;
+  const u = bestS / OAK_STEP, i = Math.floor(u);
+  if (i < 0 || i + 1 >= OAK_PROFILE.length) return 0;
+  const w = OAK_PROFILE[i] + (OAK_PROFILE[i + 1] - OAK_PROFILE[i]) * (u - i);
+  return w * (bestOff <= OAK_CORE ? 1 : 1 - (bestOff - OAK_CORE) / (OAK_REACH - OAK_CORE));
+}
+
+// Live oak bark is PALE -- grey enough to read as a light vertical against a
+// dark shopfront, which is the one thing it shares with a queen palm and the
+// thing that separates both from the sabal's grey-brown boot.
+const OAK_BARK = [0x8f8a80, 0x9a9488, 0x847f75, 0x928d82];
+// Live oak foliage is OLIVE, not the palm's green. The census's own note
+// records the reference reading (88,82,57), (45,48,2), (124,109,53),
+// (119,121,56) -- red at or above green -- and its first detector measured 0.5%
+// of a frame that is visibly half canopy because it asked for green-DOMINANT.
+// These sit at G/R 1.05-1.08 against the palm fronds' 1.11-1.26: still green,
+// distinctly greyer and duller, and the two read as different trees when they
+// stand in the same frame at Five Points.
+const OAK_LEAF = [0x6e7452, 0x666d4c, 0x757b58, 0x5f6747];
+
+// The crown may not reach further toward the frontage than the placement test
+// guarantees. Both emit sites below check buildingClearance, and the WEAKER of
+// the two guarantees is 2.2 m, so the limb tips stop at 1.35 m and the leaf
+// clumps are sheared flat at 2.05 m -- a hedge-trimmed face toward the
+// shopfront, which is what a pruned street tree actually has. Local +x is the
+// direction away from the road; see the frame convention at the top of the file.
+const OAK_LIMB_CAP = 1.35, OAK_CROWN_CAP = 2.05;
+// And it may not hang into the carriageway. Road clearance is guaranteed 2.2 m,
+// so anything further out over the road than that is lifted to 4.25 m, which is
+// the clearance a street tree is pruned to over a traffic lane.
+const OAK_ROAD_EDGE = -2.05, OAK_ROAD_Y = 4.25;
+// And it may not cross the street. The corridor's carriageway is about 14 m and
+// a tree stands 3.9 m behind the kerb, so a crown reaching 11 m road-ward gets
+// to the centreline and the two kerbs' crowns MEET there -- which is the tunnel
+// -- while one reaching 15.5 m, which the road-ward length bias was quietly
+// producing, goes seven metres past the far kerb and into the opposite
+// building. Measured off the emitted vertices by tools/oak-audit.mjs, which
+// reports the widest crown over 400 keys.
+const OAK_ROAD_CAP = -11.0;
+// FOUR sides, not five or six. A clump is 1.2-2.0 m across and there are
+// eighteen of them overlapping into one crown, so what an individual one is a
+// polygon of stops mattering long before the crown does -- and 8 triangles
+// against 10 buys three more clumps for the same budget, which is what actually
+// closes the mass. The same trade as the palm frond's triangular section.
+const CLUMP_SIDES = 4;
+// How far past its nominal radius a clump's raggedest vertex reaches. Named
+// because the two caps above have to know it to place a clump's centre.
+const CLUMP_RAGGED = 0.42;
+// How far a clump's own axis may lean off vertical. NOT ZERO, and that is the
+// single change that stopped the crown reading as a stack of plates: with every
+// pillow's ring horizontal, sixteen of them are sixteen horizontal lozenges
+// hanging in the air, which is exactly what the first bench frame showed and
+// what no amount of jittering the radii fixed. Leaning each one by up to 40
+// degrees on its own azimuth costs nothing at all.
+const CLUMP_TILT = 0.70;
+// How far off its limb a clump's centre may sit, as a fraction of its own
+// radius. Under the pillow's smallest extent (0.74 * 0.60 = 0.444 radii at the
+// flattest height ratio) so the limb point is always inside the clump.
+const CLUMP_HUG = 0.42;
+
+/**
+ * Everything that makes one live oak THAT oak. Same contract as treeParams for
+ * a palm: derived from the key alone, so both tiers agree on where every limb
+ * and every clump is and the near tier cannot land its twigs somewhere the far
+ * tier did not put a branch.
+ *
+ * A LIVE OAK IS NOT A GENERIC BROADLEAF and the difference is the whole point.
+ * It is a broad, LOW, spreading crown on a short thick trunk: the trunk divides
+ * at 1.75-3.2 m -- at or below shopfront fascia height, so this is a tree you
+ * look THROUGH and UNDER rather than up at like a palm -- and the crown is
+ * wider than it is tall, 8.8-17.8 m across against 7.4-11.2 m high. That ratio
+ * is what makes crowns from opposite kerbs meet over a 14 m street, and the
+ * meeting overhead is the tunnel.
+ */
+function oakParams(k) {
+  const r = rng32(hash32('liveoak', k));
+  const h = 7.4 + r() * 3.8;                       // 7.4 - 11.2 m to the crown top
+  const forkY = 1.75 + r() * 1.45;                 // where the trunk divides
+  const trunkR = 0.24 + r() * 0.16;                // thick: 0.48 - 0.80 m through
+  // WIDER THAN TALL, and the first cut was not: 0.60-0.88 of the height gave a
+  // crown as wide as it was high, which is a generic broadleaf. A live oak runs
+  // 1.4-1.9 times as wide as it is tall, capped here at a 9.4 m radius because
+  // beyond that it is a park specimen rather than a tree in a 1.5 m pit.
+  const spread = Math.min(10.2, h * (0.78 + r() * 0.32));  // crown RADIUS
+  return {
+    oak: true, sabal: false,
+    key: k, h, forkY, trunkR, spread,
+    nLimb: 4 + (hash32('nlimb', k) % 2),           // 4 or 5 primary leaders
+    // FORTY-EIGHT clumps at 0.11-0.165 of the crown radius, against fourteen at
+    // 0.20-0.32 in the first cut. Those were about a third of a crown lobe each
+    // and read as flat cards the size of a garage door; a live oak's foliage is
+    // fine-grained, with daylight scattered through the interior in small gaps
+    // rather than a few opaque slabs, and 1007445660973812-L shows exactly
+    // that. Coverage is 48 * (0.16)^2 = 1.2 crowns' worth of overlapping
+    // pillows, so the mass closes without being opaque.
+    //
+    // THE REASON THIS IS AFFORDABLE IS THAT OAKS ARE RARE. The census puts them
+    // on 14% of the corridor and the dressing pass plants TWELVE of them in a
+    // district of 307 trees, so tripling the clump count is +222 triangles on a
+    // tree and +2,700 on a district measured at 693,000 against a gate that
+    // warns at 830,000. Spending a palm's whole budget again on each oak buys
+    // 0.4% of the frame.
+    nClump: 26 + (hash32('nclump', k) % 5),        // far tier, on the primaries
+    nInfill: 22 + (hash32('ninfill', k) % 5),      // near tier, on the twig web
+    yaw: r() * TAU,
+    phase: r() * TAU,
+    lean: (r() - 0.5) * 0.5,                       // trunk off vertical, x
+    leanZ: (r() - 0.5) * 0.5,
+    leaf: OAK_LEAF[hash32('lf', k) % 4],
+    bark: OAK_BARK[hash32('ob', k) % 4],
+    gain: 0.88 + r() * 0.26,
+  };
+}
+
+/** The colour context a crown vertex resolves against: the oak's own leaf
+ *  colour scaled by the face's shade and alternated vertex to vertex. */
+function oakCtx(p) {
+  const base = linear(p.leaf);
+  return {
+    col: (shade, i) => {
+      const w = shade * p.gain * (i & 1 ? 1.0 : 0.93);
+      return [base[0] * w, base[1] * w, base[2] * w];
+    },
+  };
+}
+
+/**
+ * A tapering tube swept along a polyline of LOCAL stations, each ring built
+ * PERPENDICULAR TO THE LIMB'S OWN DIRECTION. 2 * sides * (n - 1) triangles out
+ * of sides * n vertices, and no end caps: the base is buried in the trunk and
+ * the tip is inside a leaf clump.
+ *
+ * palmTrunk() would have been the obvious thing to reuse and it is the wrong
+ * shape here. Its rings are horizontal, which is right for a trunk and is a
+ * flat plank for a near-horizontal limb -- and near-horizontal limbs are the
+ * entire silhouette of a live oak.
+ *
+ * A station is [x, y, z, radius, colour]. `U` is a unit vector perpendicular to
+ * the tangent T; V = U x T rather than T x U, so U x V = -T and the ring winds
+ * clockwise seen from the tip, which is the order the strip below is written
+ * for and the order palmTrunk already uses.
+ *
+ * THE RING FRAME IS PARALLEL-TRANSPORTED ALONG THE LIMB, and the first cut of
+ * this function was not. It picked U = T x Y at every station and fell back to
+ * a fixed axis when the limb was within 20 degrees of vertical, so a limb that
+ * left the fork steeply and then flattened switched conventions between two
+ * consecutive rings, the tube TWISTED between them, and the quads that spanned
+ * the twist came out inside out. tools/oak-audit.mjs measured it as 523 of
+ * 16,296 primary-limb triangles backfacing and another 348 degenerate, with the
+ * trunk -- which never leaves vertical -- clean at 0 of 6,080. That is the
+ * whole-kit winding defect reintroduced on a new emitter for the second time in
+ * this file, found by the audit rather than by looking at it, which is what the
+ * audit is for.
+ *
+ * Transporting U instead (project the previous ring's U onto the plane
+ * perpendicular to the new tangent, renormalise) makes the convention
+ * continuous by construction, so there is no branch left to be inconsistent
+ * across. The seed is only used at the first station and where the limb doubles
+ * back through a right angle.
+ */
+function limbTube(buf, f, pts, sides, phase, surf) {
+  const hand = handOf(f);
+  const rows = [];
+  let ux = 0, uy = 0, uz = 0, seeded = false;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+    let tx = b[0] - a[0], ty = b[1] - a[1], tz = b[2] - a[2];
+    const tl = Math.hypot(tx, ty, tz);
+    if (tl < 1e-6) { tx = 0; ty = 1; tz = 0; } else { tx /= tl; ty /= tl; tz /= tl; }
+    if (seeded) {
+      const d = ux * tx + uy * ty + uz * tz;
+      ux -= tx * d; uy -= ty * d; uz -= tz * d;
+    }
+    let ul = Math.hypot(ux, uy, uz);
+    if (ul < 1e-3) {
+      // T x Y, and T x X where the limb is vertical and that degenerates.
+      if (Math.abs(ty) < 0.94) { ux = -tz; uy = 0; uz = tx; }
+      else { ux = 0; uy = tz; uz = -ty; }
+      ul = Math.hypot(ux, uy, uz) || 1;
+    }
+    ux /= ul; uy /= ul; uz /= ul;
+    seeded = true;
+    const vx = uy * tz - uz * ty, vy = uz * tx - ux * tz, vz = ux * ty - uy * tx;
+    const P = pts[i], rad = P[3], c = P[4];
+    const row = [];
+    for (let s = 0; s < sides; s++) {
+      const ang = phase + (s / sides) * TAU;
+      const ca = Math.cos(ang), sa = Math.sin(ang);
+      const nx = ux * ca + vx * sa, ny = uy * ca + vy * sa, nz = uz * ca + vz * sa;
+      const px = P[0] + nx * rad, pz = P[2] + nz * rad;
+      row.push(vertC(buf, wx(f, px, pz), P[1] + ny * rad, wz(f, px, pz),
+        nx * f.ox + nz * f.ax, ny, nx * f.oz + nz * f.az, c[0], c[1], c[2], surf));
+    }
+    rows.push(row);
+  }
+  for (let s = 0; s + 1 < rows.length; s++) {
+    const A = rows[s], B = rows[s + 1];
+    for (let i = 0; i < sides; i++) {
+      const j = (i + 1) % sides;
+      tri(buf, hand, A[i], B[j], A[j]);
+      tri(buf, hand, A[i], B[i], B[j]);
+    }
+  }
+}
+
+/**
+ * ONE LEAF CLUMP: a flattened pillow on a jittered ring, an apex above it and a
+ * nadir below. 2 * CLUMP_SIDES triangles out of CLUMP_SIDES + 2 vertices.
+ *
+ * A live oak read from a car is not a mass, it is a pale grey web of limbs with
+ * DISCRETE plates of small leaves hung along it and daylight through the middle
+ * -- which is lucky, because a mass is what a broadleaf used to spend 60-96
+ * triangles failing to fake here. Twelve to fourteen of these cover a crown at
+ * about 1.3x, so the interior is gappy on purpose.
+ *
+ * It is closed, so it renders from underneath, which is where the camera is:
+ * this crown springs at 1.75-3.2 m and the player's eye is at 1.5-2.4 m, so the
+ * view of a street oak is the view up into it and a single-sided card would be
+ * culled from the angle the whole game is played at.
+ *
+ * NOTHING IS CLAMPED IN HERE. The first cut sheared the ring flat against the
+ * frontage cap and lifted individual vertices off the carriageway, which left
+ * the vertex normals describing a pillow the geometry no longer was: 26 of
+ * 20,270 clump triangles came out backfacing. The caps belong on the clump's
+ * CENTRE, one decision per clump, where they move the whole pillow instead of
+ * distorting it -- see oakClumpsOf().
+ *
+ * The ring vertices are SHARED between the top fan and the bottom fan, so the
+ * one normal they carry has to serve both: it is radial with a small upward
+ * bias, which leaves the underside's shading to come from the colour ramp
+ * instead. That is the one place this geometry cannot express what it means
+ * with a normal, and it is the right place to give up -- an oak crown is dark
+ * underneath because a metre of leaves is in the way, which is self-shadowing,
+ * not orientation, and no normal on a 10-triangle pillow says that.
+ */
+function leafClump(buf, f, c, ctx) {
+  const hand = handOf(f);
+  const rj = rng32(c.seed);
+  const { x: cx, y: cy, z: cz, rad, hgt } = c;
+  // The clump's own axis. A is the direction its apex points; U and V span the
+  // ring plane perpendicular to it, with V = U x A so U x V = -A and the ring
+  // winds clockwise seen from the apex -- the same convention limbTube uses and
+  // for the same reason.
+  const ax = Math.sin(c.tilt) * Math.cos(c.tiltAz), ay = Math.cos(c.tilt);
+  const az = Math.sin(c.tilt) * Math.sin(c.tiltAz);
+  let ux = -az, uy = 0, uz = ax;                        // A x Y, horizontal
+  let ul = Math.hypot(ux, uz);
+  if (ul < 1e-4) { ux = 1; uz = 0; ul = 1; }
+  ux /= ul; uz /= ul;
+  const vx = uy * az - uz * ay, vy = uz * ax - ux * az, vz = ux * ay - uy * ax;
+  const ph = rj() * TAU;
+  const ring = [];
+  for (let i = 0; i < CLUMP_SIDES; i++) {
+    const a = ph + (i / CLUMP_SIDES) * TAU;
+    // Nothing in a crown is a regular polygon. Radius and the slide along the
+    // axis are jittered hard enough that the silhouette is ragged rather than
+    // square -- the same lesson the palm's blade edges had to learn, for the
+    // same nothing.
+    const rr = rad * (0.70 + rj() * CLUMP_RAGGED);
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const dx = ux * ca + vx * sa, dy = uy * ca + vy * sa, dz = uz * ca + vz * sa;
+    const slide = hgt * (rj() - 0.5) * 0.5;
+    const px = cx + dx * rr + ax * slide;
+    const py = cy + dy * rr + ay * slide;
+    const pz = cz + dz * rr + az * slide;
+    // Radial in the ring plane, biased toward the apex so the top fan and the
+    // bottom fan can share the vertex.
+    const nx = dx + ax * 0.15, ny = dy + ay * 0.15, nz = dz + az * 0.15;
+    const nl = Math.hypot(nx, ny, nz) || 1;
+    const col = ctx.col(0.66, i);
+    ring.push(vertC(buf, wx(f, px, pz), py, wz(f, px, pz),
+      (nx * f.ox + nz * f.ax) / nl, ny / nl, (nx * f.oz + nz * f.az) / nl,
+      col[0], col[1], col[2], S.foliage));
+  }
+  const ct = ctx.col(1.0, 0), cb = ctx.col(0.38, 1);
+  const tx = cx + ax * hgt, ty = cy + ay * hgt, tz = cz + az * hgt;
+  const bx = cx - ax * hgt * 0.74, by = cy - ay * hgt * 0.74, bz = cz - az * hgt * 0.74;
+  const top = vertC(buf, wx(f, tx, tz), ty, wz(f, tx, tz),
+    ax * f.ox + az * f.ax, ay, ax * f.oz + az * f.az, ct[0], ct[1], ct[2], S.foliage);
+  const bot = vertC(buf, wx(f, bx, bz), by, wz(f, bx, bz),
+    -(ax * f.ox + az * f.ax), -ay, -(ax * f.oz + az * f.az), cb[0], cb[1], cb[2], S.foliage);
+  // Wound so each fan's geometric normal agrees with the vertex normals it
+  // carries. The ring winds clockwise seen from the apex, so the apex fan is
+  // (apex, j, i) and the nadir fan is (nadir, i, j). Measured in both
+  // handednesses rather than reasoned about; see limbTube.
+  for (let i = 0; i < CLUMP_SIDES; i++) {
+    const j = (i + 1) % CLUMP_SIDES;
+    tri(buf, hand, top, ring[j], ring[i]);
+    tri(buf, hand, bot, ring[i], ring[j]);
+  }
+}
+
+/**
+ * The limb skeleton, shared by both tiers exactly the way trunkStations() is
+ * shared by the palm's, so the near tier's twigs spring from a primary the far
+ * tier really drew.
+ *
+ * The height profile is y = forkY + rise * (a*t - b*t^2). `a` is the angle the
+ * limb leaves the fork at and `b` is how hard it arches over, and the interest
+ * is all in `b` varying across the limbs on ONE tree: at the low end the limb
+ * climbs to the top of the crown, at the high end it tops out part way and
+ * comes back down. A live oak has both on the same trunk, and that is why its
+ * outline is lumpy rather than domed.
+ *
+ * `b` IS DRAWN AGAINST `a` RATHER THAN INDEPENDENTLY OF IT, and the first cut
+ * drew them independently. a = 1.15 with b = 1.55 is not an arching limb, it is
+ * a HAIRPIN: the tip comes back down to y = 0.05 m, which is a branch lying on
+ * the pavement, and the 130-180 degree fold at the middle station turned the
+ * tube inside out where the two segments met. tools/oak-audit.mjs measured 258
+ * backfacing triangles across 400 trees and every one of them was on a limb
+ * whose middle bend exceeded 120 degrees. Capping b at a - 0.70 keeps a - b
+ * above 0.2, so every limb finishes at least a fifth of the crown height above
+ * the fork -- which is also the correct arboriculture, because a live oak's
+ * outer limbs sag toward the horizontal and not past it.
+ *
+ * The azimuth WANDERS along the limb -- one slow sine, no extra triangles --
+ * because a live oak limb is sinuous and a straight one reads as a broom
+ * handle.
+ */
+function oakLimbs(p) {
+  const bark = linear(p.bark);
+  const shade = (s) => [bark[0] * s, bark[1] * s, bark[2] * s];
+  const crown = p.h - p.forkY;
+  const out = [];
+  for (let j = 0; j < p.nLimb; j++) {
+    const rj = rng32(hash32('lb', p.key, j));
+    const az0 = p.yaw + (j / p.nLimb) * TAU + (rj() - 0.5) * 0.75;
+    // REACH IS ASYMMETRIC, and that asymmetry is the tunnel. cos(az0) is the
+    // limb's local-x component and local -x is the road, so a limb aimed over
+    // the carriageway is grown 30% longer and a limb aimed at the shopfront is
+    // cut back to the frontage cap. That is not a compromise with the clearance
+    // test, it is what a street tree grows into: pruned back off the building,
+    // reaching for the light over the road. Without the road bias a typical
+    // tree reached about 3 m past the kerb, the two kerbs' crowns stopped 8 m
+    // short of each other, and the bench frame showed a boulevard.
+    const L0 = p.spread * (0.70 + rj() * 0.36) * (1 + 0.30 * Math.max(0, -Math.cos(az0)));
+    let L = L0;
+    const cx = Math.cos(az0);
+    if (cx > 0.02 && L * cx > OAK_LIMB_CAP) L = OAK_LIMB_CAP / cx;
+    else if (cx < -0.02 && L * -cx > -OAK_ROAD_CAP - 1.4) L = (-OAK_ROAD_CAP - 1.4) / -cx;
+    // A LIMB SHORTENED BY THE FRONTAGE CAP HAS TO BE SHORTENED IN HEIGHT TOO.
+    // The first cut clipped only the reach, so a limb aimed at the shopfront
+    // ran the full crown height up over 1.2 m of horizontal travel: a vertical
+    // spike with a fold at the top, which is not a limb, and the fold put the
+    // middle station's tangent almost opposite the outgoing segment so the
+    // whole outer half of the tube came out inside out. 205 of 16,296
+    // primary-limb triangles, all of them on limbs whose middle bend exceeded
+    // 116 degrees. Scaling the rise by the same factor keeps the limb's aspect
+    // ratio, which makes a capped limb a short stubby branch -- what a pruned
+    // limb is -- rather than a mast. The floor stops the very shortest from
+    // being a bare nub with no lift at all.
+    const stunt = Math.max(0.30, L / L0);
+    const a = 1.15 + rj() * 0.80, b = 0.50 + rj() * Math.min(1.05, a - 0.70);
+    const wig = (rj() - 0.5) * 0.60, wph = rj() * TAU;
+    const base = p.trunkR * 0.55;
+    const pts = [];
+    for (let s = 0; s <= 2; s++) {
+      const t = s / 2;
+      const az = az0 + wig * Math.sin(2.4 * t + wph);
+      const rho = base + (L - base) * t;
+      let y = p.forkY - p.trunkR * 0.55 * (1 - t)
+        + crown * stunt * Math.min(1.02, a * t - b * t * t);
+      const rr = p.trunkR * (0.66 - 0.44 * t);
+      const lz = p.leanZ * t + Math.sin(az) * rho;
+      // The analytic cap above is set from the limb's BASE azimuth, and the
+      // azimuth wanders by up to 0.3 rad along the limb, so a limb aimed just
+      // past the frontage can wander back toward it and overshoot. Measured:
+      // the crown reached 3.16 m at a frontage the placement test only
+      // guarantees 2.2 m of. Clamping the station itself makes the bound exact;
+      // it bites by centimetres, because the analytic cap has already done the
+      // work, so it cannot fold the limb.
+      let lx = p.lean * t + Math.cos(az) * rho;
+      lx = Math.max(OAK_ROAD_CAP + rr, Math.min(OAK_LIMB_CAP, lx));
+      // Lifted by the tube's own radius, not to its centreline: a station at
+      // 4.25 m carrying a 0.26 m limb hangs 3.99 m over the lane. And by the
+      // headroom a clump hanging under it will want, so the clump rule below
+      // has to shrink anything only at the extremes -- otherwise every clump
+      // over the carriageway is trimmed to nothing and the tunnel has no roof.
+      if (lx < OAK_ROAD_EDGE) y = Math.max(y, OAK_ROAD_Y + rr + p.spread * 0.20);
+      pts.push([lx, y, lz, rr, shade(0.92 + 0.16 * t)]);
+    }
+    out.push({ az0, L, pts, seed: hash32('lbs', p.key, j) });
+  }
+  return out;
+}
+
+/**
+ * The SECONDARY web: two branches off each primary, built from the primary the
+ * far tier really drew so they cannot spring from nowhere.
+ *
+ * These exist for two reasons and the second one is the surprising one. The
+ * first is that a live oak's crown is a web -- the census's own woodShare
+ * column reads 0.97-1.00 through the tunnel, meaning the not-leaf pixels inside
+ * an oak's canopy are limbs where inside a palm's they are sky.
+ *
+ * The second is that the web is WHAT THE FOLIAGE HANGS ON. Every leaf clump has
+ * to contain a piece of a limb or it is a plate floating in open sky, so with
+ * only five primaries the clumps could only string along five lines and the
+ * crown read as beads on a wire. Nine more branches at nine other angles is
+ * what lets the same clumps fill a volume while every one of them is still
+ * attached to something.
+ */
+function oakTwigs(p, limbs) {
+  const bark = linear(p.bark);
+  const shade = (s) => [bark[0] * s, bark[1] * s, bark[2] * s];
+  const out = [];
+  for (let j = 0; j < limbs.length; j++) {
+    const lb = limbs[j];
+    for (let n = 0; n < 2; n++) {
+      const rj = rng32(hash32('tw', p.key, j, n));
+      const t0 = 0.28 + n * 0.30 + rj() * 0.16;
+      const A = alongLimb(lb, t0);
+      // A live oak's secondaries branch nearly sideways off the leader rather
+      // than continuing it.
+      const az = lb.az0 + (rj() < 0.5 ? -1 : 1) * (0.62 + rj() * 0.80);
+      let L = lb.L * Math.min(0.42, 0.98 - t0) * (0.55 + rj() * 0.45);
+      const cx = Math.cos(az);
+      if (cx > 0.02 && A[0] + L * cx > OAK_LIMB_CAP) L = Math.max(0, (OAK_LIMB_CAP - A[0]) / cx);
+      if (cx < -0.02 && A[0] + L * cx < OAK_ROAD_CAP + 1.4) {
+        L = Math.max(0, (OAK_ROAD_CAP + 1.4 - A[0]) / cx);
+      }
+      // A secondary the caps have clipped to nothing is not a short twig, it is
+      // six degenerate triangles: two coincident rings, zero area, no normal.
+      // The audit reads those as flat rather than backfacing, which is exactly
+      // the reading that gets shrugged off, so they are not emitted -- and
+      // filtering them HERE, before the clumps are indexed over this list,
+      // is what stops a clump being hung on a branch that was never drawn.
+      if (L < 0.35) continue;
+      const climb = (rj() - 0.32) * L * 0.80;
+      const pts = [];
+      for (let st = 0; st <= 1; st++) {
+        const rho = L * st, rr = p.trunkR * (0.30 - 0.21 * st);
+        let y = A[1] + climb * st;
+        let lx = A[0] + Math.cos(az) * rho;
+        lx = Math.max(OAK_ROAD_CAP + rr, Math.min(OAK_LIMB_CAP, lx));
+        const lz = A[2] + Math.sin(az) * rho;
+        if (lx < OAK_ROAD_EDGE) y = Math.max(y, OAK_ROAD_Y + rr + p.spread * 0.20);
+        pts.push([lx, y, lz, rr, shade(1.0 + 0.10 * st)]);
+      }
+      out.push({ az0: az, L, pts, seed: hash32('tws', p.key, j, n) });
+    }
+  }
+  return out;
+}
+
+/** A point on a limb at parameter t in [0, 1], for hanging a clump on. */
+function alongLimb(lb, t) {
+  const n = lb.pts.length - 1;
+  const u = Math.max(0, Math.min(n - 1e-6, t * n));
+  const i = Math.floor(u), ft = u - i;
+  const A = lb.pts[i], B = lb.pts[i + 1];
+  return [A[0] + (B[0] - A[0]) * ft, A[1] + (B[1] - A[1]) * ft, A[2] + (B[2] - A[2]) * ft];
+}
+
+/**
+ * Where the leaf clumps hang. Indexed limb-major so that taking the EVEN
+ * indices for the far tier spreads them evenly around the crown AND across the
+ * whole range of distance out along the limbs -- the same property the palm's
+ * golden-angle frond index has, and the reason its tier split cannot change the
+ * outline either.
+ *
+ * The mass is in the OUTER THIRD, which is where a live oak carries it, and
+ * each clump is thrown off its limb's line by up to 1.4 radii so the crown is
+ * not five spokes of blobs.
+ */
+function oakClumpsOf(p, limbs, count, salt) {
+  if (!limbs.length) return [];
+  const perLimb = Math.ceil(count / limbs.length);
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const lb = limbs[i % limbs.length];
+    const rj = rng32(hash32('cl', p.key, i, salt));
+    // Rank 0 is the TIP, not the base, and that ordering is the whole of it.
+    // Ranking from the base left the incomplete last rank -- 32 clumps do not
+    // divide by 5 limbs -- on the OUTERMOST positions, so two limbs on every
+    // tree ended in a bare 5 cm stick poking a metre out of the foliage. Every
+    // limb now gets its outermost clump from its first index, and the limbs
+    // that come up short are short in the middle where nothing shows.
+    const rank = Math.floor(i / limbs.length);
+    const onLine = perLimb > 1 ? rank / (perLimb - 1) : 1;
+    const t = 0.96 - 0.74 * onLine + (rj() - 0.5) * 0.22;
+    const P = alongLimb(lb, Math.max(0.12, Math.min(1, t)));
+    // Nearly as tall as it is wide. The first cut was 0.28-0.48 of the radius,
+    // which is a LENS, and fourteen lenses on a tree read as a mobile of flat
+    // plates rather than a crown -- visible immediately in the bench frame and
+    // invisible in every number the audit prints.
+    const hr = 0.60 + rj() * 0.35;                    // height / radius
+    const tilt = rj() * CLUMP_TILT, tiltAz = rj() * TAU;
+
+    // ---- how far off its limb this clump sits, IN UNITS OF ITS OWN RADIUS.
+    //
+    // A CLUMP MUST CONTAIN A PIECE OF THE LIMB IT HANGS ON. The first cut set
+    // the offset in metres and then moved the centre again to satisfy the
+    // frontage and carriageway caps, which could walk a clump two metres off
+    // its branch: a leaf plate sitting in open sky with nothing reaching it,
+    // which is the floating-prop class three critic rounds filed and which
+    // tools/geom-audit.mjs does not look for -- that gate asks whether a prop
+    // reaches the GROUND, not whether a leaf reaches its own branch.
+    //
+    // CLUMP_HUG is a fraction of the radius, and it is under the pillow's
+    // SMALLEST extent (0.74 * hgt, i.e. 0.74 * 0.60 = 0.444 radii at the
+    // flattest), so the limb point is inside the clump in every direction the
+    // offset can point. tools/oak-audit.mjs --attach measures it.
+    const lateral = (rj() - 0.5) * 2, vert = (rj() - 0.62) * 1.5;
+    const on = Math.hypot(lateral, vert) || 1;
+    const frac = CLUMP_HUG * (0.30 + 0.70 * onLine) * rj();
+    const ox = -Math.sin(lb.az0) * lateral / on, oz = Math.cos(lb.az0) * lateral / on;
+    const oy = vert / on;
+
+    // ---- and how big it may be. THE CAPS SHRINK THE CLUMP, THEY DO NOT MOVE
+    // IT. Moving it is what detached it. `total` is how far the furthest vertex
+    // gets from the LIMB POINT per unit of radius: the offset, plus the ring at
+    // 0.70 + RAGGED, plus the slide along the axis at 0.25 of the height.
+    const total = frac + 0.70 + CLUMP_RAGGED + 0.25 * hr;
+    let rad = p.spread * (0.110 + rj() * 0.055);
+    rad = Math.min(rad, (OAK_CROWN_CAP - P[0]) / total, (P[0] - OAK_ROAD_CAP) / total);
+    // Over the carriageway the soffit rule binds as well. The limb stations are
+    // already lifted with an allowance for this, so it normally does not bite.
+    if (P[0] - rad * total < OAK_ROAD_EDGE) {
+      rad = Math.min(rad, (P[1] - OAK_ROAD_Y) / total);
+    }
+    // Nothing left worth drawing: a clump the caps have taken below a quarter
+    // of a metre is eight triangles of nothing, and skipping it is also how the
+    // crown gets its pruned face toward a close frontage.
+    if (!(rad > 0.24)) continue;
+    const off = frac * rad;
+    out.push({
+      x: P[0] + ox * off, y: P[1] + oy * off, z: P[2] + oz * off,
+      rad, hgt: rad * hr, tilt, tiltAz, seed: hash32('cs', p.key, i, salt),
+      // The limb point this clump hangs on, kept so the attachment can be
+      // measured off the same numbers the geometry was built from.
+      on: P,
+    });
+  }
+  return out;
+}
+
+/** The trunk: short, thick, and flared where the root mass reaches the ground.
+ *  A 5-gon over three stations, smooth-shaded around the axis. 20 triangles. */
+function oakTrunk(buf, f, p) {
+  const bark = linear(p.bark);
+  const shade = (s) => [bark[0] * s, bark[1] * s, bark[2] * s];
+  limbTube(buf, f, [
+    [0, BASE_Y, 0, p.trunkR * 1.44, shade(0.78)],
+    [p.lean * 0.45, BASE_Y + (p.forkY - BASE_Y) * 0.55, p.leanZ * 0.45,
+      p.trunkR * 1.02, shade(0.92)],
+    [p.lean, p.forkY + p.trunkR * 0.30, p.leanZ, p.trunkR * 0.86, shade(1.0)],
+  ], 5, p.phase, S.bark);
+}
+
 /**
  * Everything that makes one palm THAT palm, derived from its key alone so both
  * tiers agree on where every frond is.
@@ -816,7 +1449,19 @@ const PALM_BARK = {
  * the frond reach, the frond count, four frond palettes, four barks, and a
  * per-palm brightness. Two palms side by side share none of them.
  */
-function treeParams(k) {
+function treeParams(k, x = 0, z = 0) {
+  // SPECIES IS A FUNCTION OF POSITION, and it has to be read from the same
+  // (x, z) in both tiers or a tree is an oak at 300 m and a palm at 150. Both
+  // emit sites pass the frame's own origin, which is the tree's spot, so the
+  // two tiers cannot disagree. See OAK_PROFILE above for where the answer
+  // comes from.
+  // The weight is rescaled off a floor rather than used raw. A profile of 0.08
+  // is one photograph with a hedge in it and should plant no oaks at all; 0.85
+  // is the middle of a measured tunnel and should plant almost nothing else.
+  const w = (oakWeight(x, z) - 0.08) / 0.77;
+  if ((hash32('species', k) % 1000) < 1000 * OAK_MAX * (w > 1 ? 1 : w)) {
+    return oakParams(k);
+  }
   const r = rng32(hash32('palm', k));
   const sabal = (hash32('sp', k) % 100) < 55;
   const sp = sabal ? 'sabal' : 'queen';
@@ -851,6 +1496,7 @@ function treeParams(k) {
   // the outline.
   const nFrond = (sabal ? 14 : 11) + (hash32('nf', k) % 3);
   return {
+    oak: false,
     sabal, trunkH, trunkR, R, tiltX, tiltZ, bow, bowZ, nFrond,
     h: trunkH + R * 0.55,                  // overall height, for the pit and audits
     yaw: r() * TAU,
@@ -955,8 +1601,70 @@ function trunkStations(p) {
   ];
 }
 
-function propTree(buf, f, k) {                                   // 135 tris
-  const p = treeParams(k);
+/**
+ * THE FAR TIER of a live oak: the pit, the trunk, every primary limb, and the
+ * EVEN leaf clumps.
+ *
+ * The tier split is the palm's, turned round. A palm's silhouette is its
+ * fronds, so the palm splits fronds and keeps the trunk whole; an oak's
+ * silhouette is its CLUMPS and its limb structure is interior detail you only
+ * read from underneath, so the oak splits clumps and keeps every primary limb
+ * in the far tier. Either way the far tier already carries the whole outline
+ * and crossing 200 m fills it in rather than changing its shape.
+ *
+ *   pit slab                                       2 tris
+ *   trunk: 5-gon, 3 stations, flared              20
+ *   4-5 primary limbs, 3-gon, 3 stations          48-60
+ *   26-30 clumps on the primaries, at 8          208-240
+ *   ----------------------------------------------------
+ *   FAR tier                                     278-322
+ */
+function oakFar(buf, f, p) {
+  // A big tree gets a big pit. The mulch value is the palm's, for the reason
+  // recorded against it below.
+  const pit = 0.62 + p.trunkR * 1.5;
+  pitSlab(buf, f, p.lean * 0.1, p.leanZ * 0.1, pit, pit, PAD_Y + 0.004,
+    0x5a4a35, S.concrete);
+  oakTrunk(buf, f, p);
+  const limbs = oakLimbs(p);
+  for (const lb of limbs) limbTube(buf, f, lb.pts, 3, p.phase, S.bark);
+  const ctx = oakCtx(p);
+  for (const c of oakClumpsOf(p, limbs, p.nClump, 0)) leafClump(buf, f, c, ctx);
+}
+
+/**
+ * THE NEAR TIER of a live oak: the secondary web, and the leaf clumps that hang
+ * on it and fill the volume between the primaries.
+ *
+ * THE SPLIT IS BY STRUCTURE, NOT BY PARITY, and it has to be. Every clump must
+ * contain a piece of a limb, so a clump can only be drawn in a tier that also
+ * draws the branch it hangs on. The far tier therefore takes the primaries and
+ * everything strung along them -- which is the crown's whole outer envelope,
+ * out to every limb tip -- and the near tier takes the twig web and the infill
+ * between. Crossing 200 m fills the crown in; it does not change its outline,
+ * which is the same property the palm's golden-angle frond split has and the
+ * same reason the tier change cannot pop.
+ *
+ * A 0.1 m branch is under a pixel past about 150 m, well inside where this tier
+ * switches off, so the web costs nothing at the range it is absent from.
+ *
+ *   8-10 secondary limbs, 3-gon, 2 stations       48-60
+ *   22-26 clumps on the secondaries, at 8        176-208
+ *   ----------------------------------------------------
+ *   NEAR tier                                    224-268
+ */
+function oakNear(buf, f, p) {
+  const limbs = oakLimbs(p);
+  const twigs = oakTwigs(p, limbs);
+  for (const tw of twigs) limbTube(buf, f, tw.pts, 3, p.phase + 1.1, S.bark);
+  const ctx = oakCtx(p);
+  for (const c of oakClumpsOf(p, twigs, p.nInfill, 1)) leafClump(buf, f, c, ctx);
+}
+
+// palm 154 / live oak 298 triangles; see the two headers above for the split.
+function propTree(buf, f, k) {
+  const p = treeParams(k, f.x, f.z);
+  if (p.oak) return oakFar(buf, f, p);
   const st = trunkStations(p);
   // The pit was 0x40382f, and a round-7 critic tracked its centroid across
   // golden/dusk/night, found it moving 4 px while the facade terminator beside
@@ -983,8 +1691,10 @@ function propTree(buf, f, k) {                                   // 135 tris
  * the far tier's in both azimuth and age, and ten plates on the trunk. Switched
  * off with the bins past ~200 m, where a 6 cm boot is a fifth of a pixel.
  */
-function propTreeDetail(buf, f, k) {                             // 128 tris
-  const p = treeParams(k);
+// palm 140 / live oak 243 triangles.
+function propTreeDetail(buf, f, k) {
+  const p = treeParams(k, f.x, f.z);
+  if (p.oak) return oakNear(buf, f, p);
   const st = trunkStations(p);
   const ctx = crownCtx(p);
   for (let i = 1; i < p.nFrond; i += 2) palmFrond(buf, f, frondAt(p, i), ctx);
@@ -1265,6 +1975,7 @@ export class StreetFurniture {
     this._lampGrid = new Grid(16);
 
     this.props = {};                     // per-kind counts, reported
+    this.treeSpecies = {};               // oak / sabal / queen, counted where planted
     this.propTris = 0;
     this.propMeshes = [];
     this.worstFloat = -Infinity;         // max(prop base y - host y), audited
@@ -1315,6 +2026,11 @@ export class StreetFurniture {
   dressDistrict(district, opts = {}) {
     const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     this.d = district;
+    // The census is indexed by arc length along the hero route, so the tree
+    // species and the tree DENSITY both need the route before anything is
+    // placed. Handed over here rather than read from a module-level import, so
+    // a district without one simply dresses in palms.
+    setOakRoute(district.meta && district.meta.route);
     // ---- two tiers, because a bollard and a traffic signal are not the same
     // kind of object to a frustum.
     //
@@ -1849,6 +2565,21 @@ export class StreetFurniture {
     }
   }
 
+  /**
+   * Which species a planted tree came out as, counted where it is planted.
+   *
+   * The species is a function of the key AND the position, so it cannot be read
+   * back off the merged buffer and it is not something to assert from the
+   * placement rule -- "the rule says oaks here" is exactly the kind of claim
+   * this project has learned to measure instead. report().treeSpecies is that
+   * measurement, and it costs one extra treeParams call per tree at load.
+   */
+  _countSpecies(key, x, z) {
+    const p = treeParams(key, x, z);
+    const name = p.oak ? 'oak' : p.sabal ? 'sabal' : 'queen';
+    this.treeSpecies[name] = (this.treeSpecies[name] ?? 0) + 1;
+  }
+
   _kerbStation(emit, st) {
     const roll = st.key % 1000;
     const f = frame(st.x, st.z, st.ax, st.az, st.ox, st.oz);
@@ -1875,6 +2606,7 @@ export class StreetFurniture {
       if (pr < 17) {
         emit('tree', W[0], W[1], PAD_Y, (b) => propTree(b, pf, st.key + 7));
         emit('treeDetail', W[0], W[1], null, (b) => propTreeDetail(b, pf, st.key + 7));
+        this._countSpecies(st.key + 7, st.wideX, st.wideZ);
       } else if (pr < 37) emit('planter', W[0], W[1], PAD_Y, (b) => propPlanter(b, pf, st.key + 7));
       else if (pr < 54) emit('bench', W[0], W[1], PAD_Y, (b) => propBench(b, pf, st.key + 7));
       else if (pr < 72) emit('bin', W[0], W[1], PAD_Y, (b) => propBin(b, pf, st.key + 7));
@@ -1900,7 +2632,21 @@ export class StreetFurniture {
 
     // A tree needs a pit and a canopy, so it needs real pavement: only where the
     // frontage is far enough back that the crown is not inside a shopfront.
-    if (roll < 130) {
+    //
+    // 13% of kerb stations district-wide, and up to 75% where the census says
+    // the corridor is a canopy. THAT SECOND NUMBER IS THE WHOLE POINT: at a flat
+    // 13% on 16.5 m stations, the 250 m of Main St east from x = 50 to x = 300
+    // carried six trees and not one of them stood inside the measured tunnel at
+    // x 86..148, so switching species there would have changed nothing at all.
+    // At 75% the two kerbs interleave to a tree every 11 m of street, crowns
+    // 8.8-17.8 m across nearly touch along each kerb and meet over the
+    // carriageway -- which is what the reference shows, and it is still DISCRETE
+    // trees in pits with gaps between them rather than a hedge.
+    //
+    // The stations this takes come off the bollard, meter and bin branches
+    // below, which is the correct trade: a street under a closed canopy is not
+    // also a street lined with bollards.
+    if (roll < 130 + 780 * oakWeight(st.treeX, st.treeZ)) {
       const bc = this.buildingClearance(st.treeX, st.treeZ);
       if (bc >= 2.6 && this.roadClearance(st.treeX, st.treeZ) >= 2.2 &&
           this.lampClearance(st.treeX, st.treeZ) >= 3.4) {
@@ -1909,6 +2655,7 @@ export class StreetFurniture {
         // The near-tier half of the SAME tree. hostY is null: fringe clumps hang
         // in the crown by design and have no business in the float audit.
         emit('treeDetail', st.treeX, st.treeZ, null, (b) => propTreeDetail(b, tf, st.key));
+        this._countSpecies(st.key, st.treeX, st.treeZ);
         return;
       }
     }
@@ -2448,6 +3195,10 @@ export class StreetFurniture {
     return {
       lamps: this.count,
       props: { ...this.props },
+      // Which trees came out as what. The census in tools/oak-profile.mjs says
+      // where the corridor is a live-oak canopy and where it is palm; this is
+      // what the placement rule actually did with that.
+      treeSpecies: { ...this.treeSpecies },
       propCount: Object.entries(this.props)
         .reduce((a, [k, v]) => a + (k === 'treeDetail' ? 0 : v), 0),
       propTriangles: this.propTris,
@@ -2488,6 +3239,14 @@ export class StreetFurniture {
 export const __kit = {
   newBuf, frame, box, prism, slab, plate, tube, blob, quad, vert, handOf,
   propTree, propTreeDetail, treeParams, palmFrond, palmTrunk, frondAt, rng32, FROND,
+  // The oak half, for tools/oak-audit.mjs and tools/oak-profile.mjs. setOakRoute
+  // is the one piece of state a tools-side replay has to set for itself: without
+  // it oakWeight is 0 everywhere and every key comes back a palm, which is a
+  // correct default and a silent one, so a harness that forgets to call it would
+  // measure the wrong tree and never know.
+  setOakRoute, oakWeight, oakParams, oakLimbs, oakTwigs, oakClumpsOf, alongLimb,
+  limbTube, leafClump,
+  OAK_PROFILE, OAK_STEP, OAK_MAX, OAK_LEAF, OAK_BARK,
   S, PALETTE, PAL_W, paletteU, BASE_Y, PAD_Y, ROAD_Y, DECAL_Y, hash32,
   // Every prop builder by the kind name emit() files it under, so a self-test
   // can build one into a scratch buffer and read the triangles back. The

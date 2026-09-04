@@ -30,6 +30,122 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## Live oaks, placed from a census — and three ways the census nearly misled us
+
+An art critic reported 15 of 15 reference views along Main St east showing live-oak
+canopy and rated putting oaks back the largest perceptual gap after anti-aliasing.
+A canopy census over all 404 reprojected stations qualified that (oaks are
+clustered, not continuous), and building against the census qualified it again.
+
+### What the classifier got wrong, and how it was caught
+
+**1. The L/R split was a backlight artifact, not a one-sided tree line.** Pooled,
+Main St east x 90-165 read L 38.7% against R 10.3%, 12 of 15 stations heavy against
+1 of 15 — which looks like oaks on one wall only. It is not. `isFoliage` wants
+`g - b >= 0.16*max + 5`, which a shaded leaf at (30,35,28) fails, so the mask
+painted only the sunlit top of an obviously-present crown. **The unit has to be the
+STATION on max(L,R), not the view**, which roughly doubles the hotspot readings.
+Caught by rendering the mask and looking at it, not by reasoning.
+
+**2. `foliage` is the wrong discriminator; `upper` is the right one.** Per station
+on max(L,R), the x≈540 cluster I had flagged as secondary density reads median
+`upper` **2.6%** — trees, yes, but not canopy. Checked by eye at x=547 and x=563:
+leggy semi-defoliated specimens in front of modern glass, crown low in frame. x≈300
+is 0 of 14 and genuinely open.
+
+**3. A green-pixel classifier cannot resolve species.** Five Points' heaviest
+station (548044374984819-L, 21.3% foliage, 34.1% upper) is a **Canary Island date
+palm**. The bayfront's x≈-240 bucket — the densest in the district at 8 of 8 — is a
+**park lawn** with big oaks behind a kerb, and x≈387-403 is a landscaped apartment
+setback. Those are real trees but not shopfront street trees, so legs 0 and 2 are
+excluded **by hand**, and the exclusion is named in `tools/oak-profile.mjs` rather
+than buried in a threshold where it would read as a measurement.
+
+Four runs survive — **360 m of 2,654 m, 14% of the corridor**: bayfront (s 240-320,
+peak 0.71), McAnsh (520-540, 0.40), **Main St east 740-820 (peak 0.90)** and Main St
+east 1040-1080 (0.63).
+
+### Density mattered as much as species
+
+`OAK_PROFILE` is 64 weights per 20 m of arc-length, Gaussian-smoothed at sigma 16 m,
+with trailing zeros dropped because the census only walked 4 of the 8 legs and a
+zero there would assert a measurement never taken. It drives **two** things, and it
+had to: **before, the 250 m of Main St east from x=50 to x=300 held six trees and
+not one of them stood inside the measured tunnel at x 86-148.** A species switch on
+six trees is not a canopy. The tree branch now fires at `roll < 130 + 780*w`, so
+that stretch holds twelve, nine inside x 78-155 — a tree every ~9 m alternating
+kerbs, which is what "one per shopfront bay" comes to counting both sides.
+
+One tree in eight stays a palm even at peak weight, because the reference has one:
+`1007445660973812-R` shows a palm standing in the oak line.
+
+**307 trees now (was 276): 160 sabal, 135 queen, 12 oak.**
+
+### The geometry, and what the audits caught
+
+Not the old broadleaf. Short thick trunk forking at **1.75-3.2 m** — at or below
+fascia height, so it is a tree you look through and under rather than up at — crown
+**1.4-1.9x as wide as tall**, limbs grown 30% longer over the carriageway and cut
+back hard at the frontage.
+
+| | broadleaf (2026-09-02) | palm | **live oak** |
+|---|---|---|---|
+| FAR `tree` | 116.6 | 154.0 | **287.9** |
+| NEAR `treeDetail` | 134.0 | 138.6 | **238.3** |
+| per tree | 250.6 | 292.6 | **526.2** |
+
+Expensive per tree, cheap in aggregate because it is rare: 12 of 307. District prop
+triangles **272,349 -> 282,738 (+3.8%)**.
+
+**Detached leaf plates — I spotted them in an isolation frame and the audit
+confirmed them.** The frontage caps used to *move* a clump's centre by up to ~2 m to
+satisfy the clearance rule, leaving it hanging in open sky. They now **shrink** the
+clump instead and the offset is bounded at 0.42 radii. `tools/oak-audit.mjs
+--attach` walks 16,469 clumps on 536 oaks against the limb polylines *that same tier
+draws*: **0 detached, worst 0.940**. `--attach --break` displaces every clump 1.5 m
+and reports **26,777 detached**, so the audit can produce the opposite reading.
+
+Note that `geom-audit` would **never** have caught this: that gate checks a prop
+reaches its host SURFACE — the ground — not that a leaf reaches its own branch.
+
+**Three winding defects, found by probe and not by eye**, in the emitter class the
+ledger already records as where this bug reappears: `limbTube`'s ring frame was not
+parallel-transported (523 of 16,296 backfacing); limbs clipped in reach but not in
+height became vertical spikes with a 116-180 degree fold (205 of 16,296);
+`leafClump`'s per-vertex caps distorted the pillow away from its own normals (26 of
+20,270). District-wide backfacing **0 -> 0**, and the counter reads 262 of 262 bad
+on a deliberately reversed tree, so it is not inert.
+
+`worstFloatMm` -40 -> -40. Crown reaches at most 1.93 m toward the frontage against
+a 2.20 m guarantee, and hangs no lower than 4.30 m over the carriageway.
+
+### A harness error, in the flattering direction
+
+The builder's first node harness dressed the district **without placing lamps**, so
+`lampClearance` was Infinity and it reported 294 trees and 278,101 triangles where
+the page reports 276 and 272,349 — an 18-tree, 5,752-triangle error, and it flattered
+the change. Fixed; node and browser now agree exactly on 6,832 props, 282,738
+triangles, 307 trees and an identical species split.
+
+### Gate
+
+draw **225**, triangles **773,816** (was 759,569; +14,247, and 6.8% under the 830k
+warn), stall **8.3 ms**, heap **-3 MB**. The builder predicted 770-780k from its
+scene-graph counts before the gate ran, which is the right way round.
+
+### Open, and said plainly
+
+- **The foliage is coarse** — 48 pillows of 8 triangles. It reads as canopy from
+  15 m and as chunky plates closer. Halving plate size again is ~+250 tris/tree
+  across 12 trees, which is affordable.
+- **12 oaks is what the census supports**, and 6 are in one 70 m stretch. The McAnsh
+  run drew 2 trees and the hash gave it 0 oaks. The lever for legibility there is a
+  cap on oak count, not the profile.
+- **The soffit sits at 4.3-6 m** over the carriageway because of pruning clearance,
+  so there is more daylight under the canopy than the reference shows.
+- The 16.5 m kerb-station grid is untouched: it is the hard floor on tree spacing
+  and moving it would move every other prop in the district.
+
 ## Heights read off the photographs, and a critic's ranking that inverted under measurement
 
 The art critic reported buildings 29 and 28 as grossly too tall — +38.8 deg at
@@ -1132,6 +1248,7 @@ reverting it returns 0.00. A gate that cannot fail is not a gate.
 
 | Date | Gate | Result | Evidence |
 |---|---|---|---|
+| 2026-09-04 | **drive-through + 30 traffic**, with live oaks on the corridor | **PASS/PASS/WARN** — draw p95 **225**, tris p95 **773,816** (+14,247, 6.8% under warn), stall **8.3 ms**, heap **-3 MB** | `docs/drive-traffic.json` |
 | 2026-09-04 | **drive-through + 30 traffic**, after the reference-authored heights | **PASS/PASS/WARN** — draw p95 **226**, tris p95 **759,569**, stall **12.4 ms** inside its 7.1-16.4 band, heap **-27 MB** | `docs/drive-traffic.json` |
 | 2026-09-04 | **drive-through + 30 traffic**, with MSAA x4 on the HDR target | **PASS/PASS/WARN** — draw p95 **226**, tris p95 **760,529**, stall **9.3 ms** inside its 7.1-16.4 band, heap **-31 MB** | `docs/drive-traffic.json` |
 | 2026-09-03 | **drive-through + 30 traffic**, after the glazing reflection, the in-flight chunk guard and the lamp margin rework | **PASS/PASS/WARN** — draw p95 **228**, tris p95 **766,853**, stall **12.5 ms** inside its 7.1-16.4 noise band, heap **-1 MB** | `docs/drive-traffic.json` |

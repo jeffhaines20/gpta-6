@@ -37,3 +37,8 @@ docs/shots/lamp-night-before.png
 docs/shots/lamp-night-after.png
 docs/shots/lamp-dusk-before.png
 docs/shots/lamp-dusk-after.png
+
+# Oak development captures: many per run, regenerable from tools/oak-shots.mjs.
+# The three the finding was read from are force-added.
+docs/shots/oak2-*.png
+docs/shots/oak-*.png
