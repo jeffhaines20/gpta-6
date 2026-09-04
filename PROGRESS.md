@@ -30,6 +30,94 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## Heights read off the photographs, and a critic's ranking that inverted under measurement
+
+The art critic reported buildings 29 and 28 as grossly too tall — +38.8 deg at
+x=148/159 and +24.2 deg at x=239 — and named re-massing them the second-biggest
+win in the build. `tools/massing-truth.mjs`, which converts a parapet angle in a
+reprojected view into **metres** for the footprint it lands on, was built for
+exactly this question. Run over all 404 stations rather than the critic's five, it
+says something different.
+
+### The critic's stations were the worst ones, not representative ones
+
+| population | band ratio (built / implied) |
+|---|---|
+| the critic's 5 stations | **1.59** (built too tall) |
+| all 404 stations | **0.88** (built slightly too SHORT) |
+
+Per building, over 31,699 accepted columns:
+
+| idx | frontage | built | implied | ratio | columns | IQR | verdict |
+|---|---|---|---|---|---|---|---|
+| 29 | 106 m | 13.95 | 7.91 | **1.76** | 2,037 | 9.5 | too tall — confirmed |
+| 49 | 135 m | 10.75 | 7.70 | **1.40** | **6,832** | 3.0 | too tall — never flagged |
+| 90 | 58 m | 7.55 | 13.38 | **0.56** | 4,964 | 5.1 | too SHORT |
+| 24 | 51 m | 7.55 | 11.78 | 0.64 | 1,057 | 5.7 | too SHORT |
+| 68 | 30 m | 7.55 | 11.03 | 0.68 | 1,467 | **0.4** | too SHORT |
+| **28** | 56 m | 10.75 | 8.90 | **1.21** | 730 | 5.3 | **inside the band's own noise** |
+
+So: **29 is confirmed. 28 is not.** Over 730 columns it reads 21% tall, which is
+less than several buildings nobody complained about. And the largest single error
+on the corridor is not a tall building at all — it is **90, too SHORT by a factor
+of 1.8**, with 4,964 columns behind it. Four of the six worst are too short. The
+critic looked where the eye is drawn, which is up.
+
+### What changed, and why it is not a distribution change
+
+A band ratio of 0.88 means the *distribution* is close to right; the *individual*
+buildings are wrong in both directions. Changing the area→storeys table would move
+all eleven to fix five, so instead there is now a `REFERENCE_HEIGHTS` table in
+`tools/bake/massing.mjs`: heights read off the photographs for the footprints where
+the evidence is strong enough to beat a hash.
+
+The bar, fixed before anything went in it: **at least 1,000 accepted columns, an
+IQR of 6 m or less, and a ratio outside 0.74–1.35.** Everything that fails keeps
+its band height, because a wide spread means the footprint does not HAVE one
+height and pinning it to a median would be inventing precision.
+
+These heights are **not quantised to `LEVEL_H`**. A 3.2 m storey grid is our model,
+not the street's, and rounding a measured 11.03 m to the nearest multiple would put
+back part of the error the table exists to remove.
+
+Result — four of five now match the photograph exactly:
+
+| idx | was | now | implied |
+|---|---|---|---|
+| 49 | 10.75 | **7.70** | 7.70 |
+| 90 | 7.55 | **13.40** | 13.40 |
+| 68 | 7.55 | **11.03** | 11.03 |
+| 24 | 7.55 | **11.78** | 11.78 |
+| 29 | 13.95 | **6.80** | 7.91 (see below) |
+
+Exactly 5 of 523 footprints moved. No band, no other building, no other leg.
+
+### Building 29 is a compromise and is recorded as one
+
+It **fails the spread bar** — IQR 9.5 m — and is pinned anyway. The reason is in
+the split: of its 2,037 columns, **1,416 read 6.8 m and 621 read 20.6 m**. That is
+not noise. It is a **106 m frontage that is genuinely two different buildings in
+reality and one polygon in the OSM extract**, and we cannot split a baked footprint
+because the bake's geometry is authoritative (constraint 10). So the choice is
+which half to be wrong about. 70% of the evidence and the whole hero view are the
+low half, so the low half wins, and it is pinned to the dominant face (6.8) rather
+than to the overall median (7.9).
+
+### The instrument caught the author's own error
+
+The first version of the table set `height = implied`, and all five came back
+**about 10% tall**. `appendBuilding` draws from `h` to `h + parapet`, and the
+photograph's parapet angle is the TOP of that — so a measured height is a
+*parapet-top*, and the wall must be 1.15 m shorter. Every entry now carries both
+`height` (the wall) and `implied` (what was measured), so the offset cannot be
+lost again. That is the argument for re-measuring after a change rather than
+declaring victory from the diff.
+
+Gates: syntax PASS (97), golden-trace PASS, physics PASS, geom-audit PASS, lighting
+sweep PASS with both negative tests firing, budget PASS/PASS/WARN — draw **226**,
+triangles **759,569**, stall **12.4 ms** inside its 7.1-16.4 noise band, heap
+**-27 MB**.
+
 ## Two instruments from a round that ran out of budget, and one claim they qualify
 
 Three builders were cut off mid-task by a session usage limit. Their tools and
@@ -1044,6 +1132,7 @@ reverting it returns 0.00. A gate that cannot fail is not a gate.
 
 | Date | Gate | Result | Evidence |
 |---|---|---|---|
+| 2026-09-04 | **drive-through + 30 traffic**, after the reference-authored heights | **PASS/PASS/WARN** — draw p95 **226**, tris p95 **759,569**, stall **12.4 ms** inside its 7.1-16.4 band, heap **-27 MB** | `docs/drive-traffic.json` |
 | 2026-09-04 | **drive-through + 30 traffic**, with MSAA x4 on the HDR target | **PASS/PASS/WARN** — draw p95 **226**, tris p95 **760,529**, stall **9.3 ms** inside its 7.1-16.4 band, heap **-31 MB** | `docs/drive-traffic.json` |
 | 2026-09-03 | **drive-through + 30 traffic**, after the glazing reflection, the in-flight chunk guard and the lamp margin rework | **PASS/PASS/WARN** — draw p95 **228**, tris p95 **766,853**, stall **12.5 ms** inside its 7.1-16.4 noise band, heap **-1 MB** | `docs/drive-traffic.json` |
 | 2026-09-03 | **lighting sweep**, with the glazing reflection in | **PASS** — all four times of day, both negative tests firing | `docs/daynight.json` |

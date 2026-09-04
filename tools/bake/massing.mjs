@@ -153,9 +153,77 @@ const LANDMARKS = [
   { name: 'Main Street Arcade', x: 250, z: -150, radius: 32, levels: 7 },
 ];
 
+// Heights measured from the PHOTOGRAPHS, for the footprints where the evidence is
+// strong enough to beat a distribution.
+//
+// Every other height on the corridor is drawn from a band's area->storeys table by
+// a hash. That is the right default for 500 footprints nobody has a photograph of,
+// and it is the wrong answer for the handful we can actually measure.
+// tools/massing-truth.mjs converts the parapet angle in a reprojected Mapillary
+// view into METRES for the footprint it lands on, so these are read rather than
+// invented (binding constraint 9 - massing is authoring work; authoring from the
+// reference is the most defensible form of it).
+//
+// THE BAR, applied before anything went in this table: at least 1,000 accepted
+// columns, an interquartile spread of 6 m or less across those columns, and a
+// built/implied ratio outside 0.74-1.35. Everything failing it keeps its band
+// height, because a wide spread means the footprint does not HAVE one height and
+// pinning it to a median would be inventing precision.
+//
+// These are NOT quantised to LEVEL_H. A storey grid is our model, not the street's,
+// and rounding a measured 11.03 m to the nearest 3.2 would put back part of the
+// error this table exists to remove.
+//
+// `height` is the WALL, `implied` is what the photograph measured. They differ by
+// the recipe's parapet (1.15 m on all five here), because appendBuilding draws from
+// h to h + parapet and the photograph's parapet angle is the TOP of that. The first
+// version of this table set height = implied and every one of the five came back
+// about 10% tall - the instrument caught the author's own off-by-a-parapet, which
+// is the whole argument for measuring after a change rather than before.
+//
+// What an independent art critic reported, and what the fuller measurement said:
+// the critic found buildings 29 and 28 grossly too tall from stations x=148/159
+// and x=239. Over all 404 stations, 29 is confirmed (ratio 1.76) but 28 is NOT -
+// it reads 1.21 over 730 columns, inside the band's own noise - and the critic's
+// five stations give a band ratio of 0.63 against 1.13 over the whole band. They
+// were the worst stations, not representative ones. Four buildings are too SHORT
+// by more than 29 is too tall, and nobody had noticed.
+const REFERENCE_HEIGHTS = [
+  // idx 49. 6,832 columns, IQR 3.0 m - the strongest evidence on the corridor, and
+  // it was never flagged by eye. Built 10.8 against 7.70 implied.
+  { x: 361.6, z: -136.4, radius: 12, height: 6.55, was: 10.75, implied: 7.70, n: 6832 },
+  // idx 90. 4,964 columns, IQR 5.1. Built 7.55 against 13.38 - too SHORT by more
+  // than building 29 is too tall.
+  { x: 505.4, z: -131.4, radius: 12, height: 12.25, was: 7.55, implied: 13.40, n: 4964 },
+  // idx 68. 1,467 columns and an IQR of 0.4 m, the tightest reading in the set:
+  // this footprint really does have one height. Built 7.55 against 11.03.
+  { x: 443.4, z: -138.8, radius: 12, height: 9.85, was: 7.55, implied: 11.03, n: 1467 },
+  // idx 24. 1,057 columns, IQR 5.7. Built 7.55 against 11.78.
+  { x: 387.8, z: -198.1, radius: 12, height: 10.65, was: 7.55, implied: 11.78, n: 1057 },
+  // idx 29 - the critic's worst station, and the one case here that FAILS the
+  // spread bar (IQR 9.5 m). It is pinned anyway, to the dominant face rather than
+  // to the overall median, and the reason is in the split: of its 2,037 columns,
+  // 1,416 read 6.8 m and 621 read 20.6 m. That is not noise, it is a 106 m
+  // FRONTAGE that is genuinely two different buildings in reality and one polygon
+  // in the OSM extract. We cannot split a baked footprint - the bake's geometry is
+  // authoritative (constraint 10) - so the choice is which half to be wrong about.
+  // 70% of the evidence and the whole hero view are the low half, so the low half
+  // wins. Built 13.95 against 6.8. Recorded as a known compromise, not a fit.
+  { x: 109.9, z: -190.2, radius: 14, height: 5.65, was: 13.95, implied: 6.80, n: 2037, spread: 9.5 },
+];
+
 // Applied per building at bake time. Returns null when no rule claims it, and the
 // caller keeps the area-derived default.
 export function authoredHeight(cx, cz, area) {
+  // Measured beats invented. This runs BEFORE the landmarks and the bands: a
+  // height read off a photograph of the real footprint is better evidence than a
+  // hand-placed hero storey count or a hash on floor area, and none of the five
+  // hand-placed landmarks is in this table anyway.
+  for (const r of REFERENCE_HEIGHTS) {
+    if (Math.hypot(cx - r.x, cz - r.z) <= r.radius) {
+      return { height: r.height, band: 'reference', levels: Math.max(1, Math.round(r.height / LEVEL_H)) };
+    }
+  }
   for (const lm of LANDMARKS) {
     if (Math.hypot(cx - lm.x, cz - lm.z) <= lm.radius && area > 260) {
       return { height: +(lm.levels * LEVEL_H).toFixed(1), band: `landmark:${lm.name}`, levels: lm.levels };
@@ -200,3 +268,4 @@ export function authoredHeight(cx, cz, area) {
 
 export const MASSING_BANDS = BANDS.map((b) => b.name);
 export const MASSING_LANDMARKS = LANDMARKS;
+export const MASSING_REFERENCE_HEIGHTS = REFERENCE_HEIGHTS;
