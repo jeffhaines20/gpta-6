@@ -1,0 +1,95 @@
+{
+ "baseline": {
+  "mode": "msaa",
+  "samples": 4,
+  "fxaaPass": false,
+  "rendererAntialias": false,
+  "width": 1600,
+  "height": 900
+ },
+ "results": [
+  {
+   "shot": "fivepoints",
+   "tod": "golden",
+   "arm": "off",
+   "file": "docs/shots/aasmoke-off-fivepoints-golden.png",
+   "digest": "4858ea0cc69d",
+   "frames": 3,
+   "calls": 189,
+   "sceneCalls": 181,
+   "postPasses": 8,
+   "triangles": 676751,
+   "aa": {
+    "mode": "off",
+    "samples": 0,
+    "fxaaPass": false,
+    "rendererAntialias": false,
+    "width": 1600,
+    "height": 900
+   }
+  },
+  {
+   "shot": "fivepoints",
+   "tod": "golden",
+   "arm": "msaa",
+   "file": "docs/shots/aasmoke-msaa-fivepoints-golden.png",
+   "digest": "a2b5b0d130aa",
+   "frames": 3,
+   "calls": 189,
+   "sceneCalls": 181,
+   "postPasses": 8,
+   "triangles": 676751,
+   "aa": {
+    "mode": "msaa",
+    "samples": 4,
+    "fxaaPass": false,
+    "rendererAntialias": false,
+    "width": 1600,
+    "height": 900
+   }
+  },
+  {
+   "shot": "fivepoints",
+   "tod": "golden",
+   "arm": "fxaa",
+   "file": "docs/shots/aasmoke-fxaa-fivepoints-golden.png",
+   "digest": "b8e731ca621a",
+   "frames": 3,
+   "calls": 190,
+   "sceneCalls": 181,
+   "postPasses": 9,
+   "triangles": 676751,
+   "aa": {
+    "mode": "fxaa",
+    "samples": 0,
+    "fxaaPass": true,
+    "rendererAntialias": false,
+    "width": 1600,
+    "height": 900
+   }
+  },
+  {
+   "shot": "fivepoints",
+   "tod": "golden",
+   "arm": "msaa+fxaa",
+   "file": "docs/shots/aasmoke-msaa-fxaa-fivepoints-golden.png",
+   "digest": "04e44dd101ca",
+   "frames": 3,
+   "calls": 190,
+   "sceneCalls": 181,
+   "postPasses": 9,
+   "triangles": 681263,
+   "aa": {
+    "mode": "msaa+fxaa",
+    "samples": 4,
+    "fxaaPass": true,
+    "rendererAntialias": false,
+    "width": 1600,
+    "height": 900
+   }
+  }
+ ],
+ "errors": [
+  "console: Failed to load resource: the server responded with a status of 404 (Not Found)"
+ ]
+}

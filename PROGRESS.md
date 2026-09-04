@@ -30,6 +30,72 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## The renderer asked for anti-aliasing and never got any
+
+An independent art critic's headline finding, and the cheapest large win in the
+build. `district/main.js` constructed the renderer with `antialias: true`. That
+flag configures multisampling on the **default framebuffer** — and the scene is
+never drawn there. `PostStack` renders it into an offscreen HDR target, and the
+only thing that reaches the default framebuffer is a fullscreen triangle with no
+interior edges to resolve. So the request had been inert for the build's whole
+life while looking, in that one line, exactly like working anti-aliasing.
+
+Confirmed in source before anything was changed: the HDR target at `src/post.js`
+is created with no `samples:` option, and `grep` for FXAA or SMAA over the whole
+post chain returns **0**.
+
+### The instrument
+
+One scanline is an anecdote. `tools/aa-edges.mjs` turns it into a population: it
+walks every row and column as a 1-D luma signal and counts, for each edge that
+runs between two **flat plateaux**, how many samples fall strictly between them.
+The plateau requirement is what makes it a SILHOUETTE metric rather than a texture
+one — it selects sky against a mast, or a lit wall against a dark one, and ignores
+the interior of a brick texture where "transition width" would mean nothing. A
+12% deadband at each end stops 8-bit dither and the composite's own ordered dither
+manufacturing an intermediate level.
+
+`--selftest` separates four synthetic cases and **passes**: a hard step reads
+hardFrac 1.00, a 1-sample ramp reads 0.00/width 1.00, a 3-sample ramp reads
+0.00/width 3.00, and a flat field reads **n/a rather than 0 or 1** — which is the
+case that matters, because a metric that reports "smooth" on a region with no
+edges in it looks exactly like working anti-aliasing.
+
+### What the four arms measure
+
+All four captured in one page session at one camera, with the arm asserted from
+the render target's own `samples` and the renderer's context attribute, so an arm
+cannot silently be the wrong one. **All four digests differ** (4858ea / a2b5b0 /
+b8e731 / 04e44d), which is the check the lamp-pool A/B failed earlier this session.
+
+| arm | hard-stepped edges | mean width | draw calls | post passes |
+|---|---|---|---|---|
+| off | **43.7%** | 1.41 | 189 | 8 |
+| **msaa x4 (shipped)** | **16.1%** | 1.80 | **189** | 8 |
+| fxaa | 22.2% | 1.93 | 190 | 9 |
+| msaa + fxaa | 9.7% | 2.10 | 190 | 9 |
+
+MSAA takes hard-stepped silhouettes from 43.7% to 16.1% — a **63% reduction** —
+for **zero additional draw calls**, because it is a property of the target rather
+than a pass. `msaa+fxaa` reaches 9.7% but costs a pass and blurs more (mean width
+2.10 against 1.80), and FXAA cannot tell a silhouette from a one-pixel piece of
+signage lettering. MSAA alone is the shipped default; the others stay reachable
+through `setAA()` because the choice is a measurement, not an opinion.
+
+`antialias` on the renderer is now explicitly **false**, with the reason written
+where the misleading line used to be: asking for it there would only allocate a
+multisampled backbuffer nothing renders into.
+
+Gate after: draw **226**, triangles **760,529**, stall **9.3 ms** inside its
+7.1-16.4 noise band, heap **-31 MB**.
+
+### Still open on this
+
+FXAA runs after the composite on the tonemapped 8-bit image, deliberately — it
+thresholds on luma contrast, and pointed at the linear HDR target it would see a
+60,000-nit sky against a 600-nit wall and call every pixel an edge. That path is
+built and measured but not shipped, and it has had no second-time-of-day pass.
+
 ## CORRECTION: the golden-hour roofline instrument was reading the sun, not the buildings
 
 Two independent adversarial reviews went over this session's work. One of them
@@ -925,6 +991,7 @@ reverting it returns 0.00. A gate that cannot fail is not a gate.
 
 | Date | Gate | Result | Evidence |
 |---|---|---|---|
+| 2026-09-04 | **drive-through + 30 traffic**, with MSAA x4 on the HDR target | **PASS/PASS/WARN** — draw p95 **226**, tris p95 **760,529**, stall **9.3 ms** inside its 7.1-16.4 band, heap **-31 MB** | `docs/drive-traffic.json` |
 | 2026-09-03 | **drive-through + 30 traffic**, after the glazing reflection, the in-flight chunk guard and the lamp margin rework | **PASS/PASS/WARN** — draw p95 **228**, tris p95 **766,853**, stall **12.5 ms** inside its 7.1-16.4 noise band, heap **-1 MB** | `docs/drive-traffic.json` |
 | 2026-09-03 | **lighting sweep**, with the glazing reflection in | **PASS** — all four times of day, both negative tests firing | `docs/daynight.json` |
 | 2026-09-03 | syntax / golden-trace / physics / geom-audit | PASS — 92 modules, 30 samples, 10 checks | `npm run gates:static` |

@@ -30,7 +30,15 @@ import { buildPlayerCar } from '../src/carbody.js';
 import { HUD } from '../src/hud.js';
 
 const canvas = document.getElementById('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+// antialias: false, deliberately. The flag configures multisampling on the
+// DEFAULT framebuffer, and the scene is never drawn there - PostStack renders it
+// into an offscreen HDR target and the only thing that reaches the default
+// framebuffer is a fullscreen triangle, which has no interior edges to resolve.
+// The request had therefore been inert for this build's whole life while looking,
+// in this line, exactly like working anti-aliasing. Anti-aliasing now lives in
+// src/post.js where the scene actually is; asking for it here as well would only
+// allocate a multisampled backbuffer nothing renders into.
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -617,6 +625,11 @@ window.__district = {
     return { elevation: rad };
   },
   postParams: () => post.params,
+  // Anti-aliasing A/B. Returns the state actually reached - samples read back
+  // off the render target and the renderer's own context attribute - so a
+  // harness can assert the arm it thinks it is measuring.
+  setAA: (mode) => post.setAA(mode),
+  aaState: () => post.aaState(),
   freeCam(pos, target, fov) {
     autopilot = () => {};
     camera.position.set(...pos);

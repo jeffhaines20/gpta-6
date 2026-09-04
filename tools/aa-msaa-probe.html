@@ -1,0 +1,187 @@
+<!doctype html>
+<!--
+  Route-one trap test. src/post.js renders the scene into `this.hdr`, a
+  WebGLRenderTarget that ALSO carries a DepthTexture which the AO pass and the
+  composite (height fog, sky detection) sample as an ordinary texture.
+
+  A multisampled render target's depth attachment is a multisample renderbuffer.
+  It cannot be sampled directly; it has to be resolved into the depth texture
+  first. This page answers, on the actual vendored three build and the actual
+  rasteriser, three questions that decide whether `samples: 4` is usable here:
+
+    1. does a HalfFloat RGBA target accept samples > 0 at all?
+    2. with samples > 0, does the colour attachment actually get coverage
+       anti-aliasing (intermediate values along a diagonal edge)?
+    3. with samples > 0 AND a depthTexture, does that depth texture still read
+       back correct, non-degenerate values afterwards?
+
+  Question 3 is the trap. Question 2 is its control: an arm that answers "depth
+  is fine" because nothing rendered at all would answer 2 the same way.
+-->
+<meta charset="utf-8">
+<canvas id="c" width="256" height="256"></canvas>
+<script type="module">
+import * as THREE from '/vendor/three.module.min.js';
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+renderer.setPixelRatio(1);
+renderer.setSize(256, 256, false);
+const gl = renderer.getContext();
+
+// A diagonal quad on a far background. A diagonal edge is the one that shows
+// coverage AA; an axis-aligned one would not move under 4x MSAA at all.
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, 1, 0.5, 100);
+camera.position.set(0, 0, 6);
+const tri = new THREE.Mesh(
+  new THREE.PlaneGeometry(4, 4),
+  new THREE.MeshBasicMaterial({ color: 0xffffff })
+);
+tri.rotation.z = 0.35;                 // off-axis, so every edge is diagonal
+tri.position.z = 1.0;
+scene.add(tri);
+const back = new THREE.Mesh(
+  new THREE.PlaneGeometry(40, 40),
+  new THREE.MeshBasicMaterial({ color: 0x000000 })
+);
+back.position.z = -10;
+scene.add(back);
+
+function makeTarget(samples) {
+  const rt = new THREE.WebGLRenderTarget(256, 256, {
+    type: THREE.HalfFloatType, format: THREE.RGBAFormat,
+    minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+    depthBuffer: true, stencilBuffer: false,
+  });
+  rt.depthTexture = new THREE.DepthTexture(256, 256);
+  rt.depthTexture.type = THREE.UnsignedIntType;
+  rt.samples = samples;
+  return rt;
+}
+
+// A second, plain byte target plus a fullscreen quad that samples a depth
+// texture and writes it as colour, so readRenderTargetPixels can see depth.
+// (readRenderTargetPixels cannot read a DEPTH_COMPONENT attachment.)
+const readRT = new THREE.WebGLRenderTarget(256, 256, {
+  type: THREE.UnsignedByteType, format: THREE.RGBAFormat, depthBuffer: false,
+});
+const depthMat = new THREE.RawShaderMaterial({
+  vertexShader: `precision highp float; attribute vec3 position; attribute vec2 uv;
+varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+  fragmentShader: `precision highp float; uniform sampler2D tDepth; varying vec2 vUv;
+void main(){ float d = texture2D(tDepth, vUv).r; gl_FragColor = vec4(vec3(d), 1.0); }`,
+  uniforms: { tDepth: { value: null } },
+  depthTest: false, depthWrite: false,
+});
+const quadGeo = new THREE.BufferGeometry();
+quadGeo.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
+quadGeo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 2, 0, 0, 2], 2));
+const quadScene = new THREE.Scene();
+const quad = new THREE.Mesh(quadGeo, depthMat);
+quad.frustumCulled = false;
+quadScene.add(quad);
+const quadCam = new THREE.Camera();
+
+function arm(samples, quadZ = 1.0) {
+  tri.position.z = quadZ;
+  const rt = makeTarget(samples);
+  renderer.setRenderTarget(rt);
+  renderer.clear();
+  renderer.render(scene, camera);
+  renderer.setRenderTarget(null);
+  const glErrColour = gl.getError();
+
+  // Colour readback. A HalfFloatType target must be read into a Uint16Array -
+  // handing readPixels a Float32Array raises INVALID_OPERATION and leaves the
+  // buffer all zeros, which reads as "nothing rendered" rather than as a broken
+  // readback. (It did, on the first run of this probe.)
+  const raw = new Uint16Array(256 * 256 * 4);
+  renderer.readRenderTargetPixels(rt, 0, 0, 256, 256, raw);
+  const half = (h) => {
+    const s = (h & 0x8000) ? -1 : 1, e = (h >> 10) & 0x1f, f = h & 0x3ff;
+    if (e === 0) return s * f * 5.9604644775390625e-8;
+    if (e === 31) return f ? NaN : s * Infinity;
+    return s * Math.pow(2, e - 15) * (1 + f / 1024);
+  };
+  const colour = new Float32Array(256 * 256 * 4);
+  for (let i = 0; i < colour.length; i++) colour[i] = half(raw[i]);
+  // Count pixels strictly between black and white along the whole frame: those
+  // are partially-covered samples, i.e. the anti-aliasing itself.
+  let partial = 0, white = 0, black = 0, nan = 0;
+  const levels = new Set();
+  for (let i = 0; i < 256 * 256; i++) {
+    const v = colour[i * 4];
+    if (Number.isNaN(v)) { nan++; continue; }
+    if (v > 0.98) white++;
+    else if (v < 0.02) black++;
+    else { partial++; levels.add(v.toFixed(3)); }
+  }
+  // 2x coverage gives one intermediate level, 4x gives three. The COUNT of
+  // partially covered pixels is the same either way - it is the same edge - so
+  // the level count is what separates the sample rates.
+  const levelList = [...levels].map(Number).sort((a, b) => a - b);
+
+  // Depth readback THROUGH a sampler2D, which is what post.js's AO and
+  // composite passes do.
+  depthMat.uniforms.tDepth.value = rt.depthTexture;
+  quad.material = depthMat;
+  renderer.setRenderTarget(readRT);
+  renderer.render(quadScene, quadCam);
+  renderer.setRenderTarget(null);
+  const depth = new Uint8Array(256 * 256 * 4);
+  renderer.readRenderTargetPixels(readRT, 0, 0, 256, 256, depth);
+  const glErrDepth = gl.getError();
+  let dmin = 255, dmax = 0, dsum = 0;
+  const dhist = {};
+  for (let i = 0; i < 256 * 256; i++) {
+    const d = depth[i * 4];
+    if (d < dmin) dmin = d; if (d > dmax) dmax = d;
+    dsum += d;
+    dhist[d] = (dhist[d] ?? 0) + 1;
+  }
+  // The near quad and the far backdrop must land on DIFFERENT depths.
+  const distinct = Object.keys(dhist).length;
+  const centre = depth[((128 * 256) + 128) * 4];        // on the near quad
+  const corner = depth[((4 * 256) + 4) * 4];            // background or quad edge
+  const out = {
+    samples, requestedSamples: samples, actualSamples: rt.samples, quadZ,
+    glErrColour, glErrDepth,
+    colour: { partial, white, black, nan, levels: levelList.length, levelList },
+    depth: { min: dmin, max: dmax, mean: +(dsum / (256 * 256)).toFixed(2), distinct, centre, corner },
+  };
+  rt.dispose();
+  return out;
+}
+
+const report = {
+  webgl2: renderer.capabilities.isWebGL2 !== false,
+  maxSamples: gl.getParameter(gl.MAX_SAMPLES),
+  renderer: (() => {
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    return ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : 'unknown';
+  })(),
+  colorBufferFloat: !!gl.getExtension('EXT_color_buffer_float'),
+  // Does the driver report multisample support for the exact internal format
+  // three will allocate for a HalfFloatType colour target?
+  rgba16fSamples: (() => {
+    try { return Array.from(gl.getInternalformatParameter(gl.RENDERBUFFER, gl.RGBA16F, gl.SAMPLES)); }
+    catch (e) { return `error: ${e.message}`; }
+  })(),
+  arms: {},
+};
+for (const s of [0, 2, 4, 8]) {
+  try { report.arms[`samples${s}`] = arm(s); }
+  catch (e) { report.arms[`samples${s}`] = { error: e.message }; }
+}
+// Control for the depth reading. Four arms agreeing on depth.centre = 231 is
+// only evidence that the resolve WORKS if that number can move. Same 4x target,
+// quad pushed 2 m further from the camera: if centre does not change, the probe
+// is reading something stale and every depth verdict above is worthless.
+try { report.arms.samples4_quadMoved = arm(4, -1.0); }
+catch (e) { report.arms.samples4_quadMoved = { error: e.message }; }
+report.depthProbeCanMove =
+  report.arms.samples4.depth.centre !== report.arms.samples4_quadMoved.depth.centre;
+window.__probe = report;
+document.title = 'done';
+</script>

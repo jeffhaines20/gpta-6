@@ -351,6 +351,85 @@ void main() {
   gl_FragColor = vec4(color, 1.0);
 }`;
 
+// --------------------------------------------------------------------- FXAA
+//
+// The second of the two anti-aliasing routes, kept because the choice between
+// them is a measurement and not an opinion. This is FXAA in its short form
+// (Lottes' console/"lite" path): one full-screen pass, five taps to decide
+// whether a pixel sits on an edge and four more to blend along it.
+//
+// It runs AFTER the composite, on the tonemapped 8-bit image, because FXAA is a
+// PERCEPTUAL filter: it thresholds on luma contrast. Pointed at the linear HDR
+// target it would see a 60,000-nit sky against a 600-nit wall and call every
+// pixel an edge.
+//
+// What it costs, stated plainly: it is a blur that cannot tell a silhouette from
+// a one-pixel-wide piece of signage lettering, and it has no coverage
+// information - it infers sub-pixel geometry from five luma samples. What it
+// buys over MSAA is that it also softens SHADING aliasing (specular sparkle on
+// wet asphalt, a hard normal-map edge), which no amount of geometric coverage
+// touches.
+//
+// No backticks below. A backtick inside a GLSL comment ends this template
+// literal, which has cost this project three separate debugging sessions.
+const FXAA_FRAG = `
+uniform sampler2D tDiffuse;
+uniform vec2 invResolution;
+varying vec2 vUv;
+
+const float EDGE_MIN   = 0.0312;      // 1/32 - absolute contrast floor
+const float EDGE_MUL   = 0.125;       // 1/8  - contrast relative to local max
+const float REDUCE_MIN = 0.0078125;   // 1/128
+const float REDUCE_MUL = 0.125;       // 1/8
+const float SPAN_MAX   = 8.0;         // texels of search along the edge
+
+float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+
+void main() {
+  vec2 p = invResolution;
+  // Named for where they actually are in UV space, where v increases UPWARD.
+  // Transliterating the original NW/NE/SW/SE names, which assume v increases
+  // downward, silently mirrors the blur direction on one axis and turns the
+  // filter into a diagonal smear.
+  vec3 rgbM  = texture2D(tDiffuse, vUv).rgb;
+  vec3 rgbLB = texture2D(tDiffuse, vUv + vec2(-1.0, -1.0) * p).rgb;
+  vec3 rgbRB = texture2D(tDiffuse, vUv + vec2( 1.0, -1.0) * p).rgb;
+  vec3 rgbLT = texture2D(tDiffuse, vUv + vec2(-1.0,  1.0) * p).rgb;
+  vec3 rgbRT = texture2D(tDiffuse, vUv + vec2( 1.0,  1.0) * p).rgb;
+
+  float lM = luma(rgbM);
+  float lLB = luma(rgbLB), lRB = luma(rgbRB), lLT = luma(rgbLT), lRT = luma(rgbRT);
+  float lMin = min(lM, min(min(lLB, lRB), min(lLT, lRT)));
+  float lMax = max(lM, max(max(lLB, lRB), max(lLT, lRT)));
+
+  // Local-contrast gate. Without it every flat surface gets a four-tap blur,
+  // which is how FXAA earns its reputation for softening a whole frame.
+  if (lMax - lMin < max(EDGE_MIN, lMax * EDGE_MUL)) {
+    gl_FragColor = vec4(rgbM, 1.0);
+    return;
+  }
+
+  // Luma gradient from the four corners, then blur along its perpendicular -
+  // which is the edge. The filter is symmetric in dir, so its overall sign does
+  // not matter; the RELATIVE sign of the two components does.
+  float gx = (lRT + lRB) - (lLT + lLB);
+  float gy = (lLT + lRT) - (lLB + lRB);
+  vec2 dir = vec2(-gy, gx);
+
+  float reduce = max((lLB + lRB + lLT + lRT) * 0.25 * REDUCE_MUL, REDUCE_MIN);
+  float rcpMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + reduce);
+  dir = clamp(dir * rcpMin, vec2(-SPAN_MAX), vec2(SPAN_MAX)) * p;
+
+  vec3 rgbA = 0.5 * (texture2D(tDiffuse, vUv + dir * (1.0 / 3.0 - 0.5)).rgb +
+                     texture2D(tDiffuse, vUv + dir * (2.0 / 3.0 - 0.5)).rgb);
+  vec3 rgbB = rgbA * 0.5 + 0.25 * (texture2D(tDiffuse, vUv + dir * -0.5).rgb +
+                                   texture2D(tDiffuse, vUv + dir *  0.5).rgb);
+  // The wider pair can reach past the edge onto a third surface. If its luma
+  // leaves the neighbourhood, fall back to the narrow pair.
+  float lB = luma(rgbB);
+  gl_FragColor = vec4((lB < lMin || lB > lMax) ? rgbA : rgbB, 1.0);
+}`;
+
 export class PostStack {
   constructor(renderer, scene, camera, opts = {}) {
     this.renderer = renderer;
@@ -358,6 +437,43 @@ export class PostStack {
     this.camera = camera;
     this.enabled = opts.enabled ?? true;
     this.bloomScale = opts.bloomScale ?? 0.5;   // bloom runs at half res
+
+    // --- Anti-aliasing.
+    //
+    // The renderer is constructed with antialias: FALSE, and that is not a
+    // regression. The flag only ever configured the DEFAULT framebuffer, and the
+    // scene has not been drawn there since this file existed - it goes into
+    // this.hdr, and the only thing that reaches the default framebuffer is a
+    // fullscreen triangle with no interior edges to anti-alias. The request was
+    // inert and every silhouette in every shipped frame was hard-stepped:
+    // measured on docs/shots/play-fivepoints-golden.png, 38.0% of high-contrast
+    // silhouette transitions completed in a single pixel with no intermediate
+    // value at all (tools/aa-edges.mjs).
+    //
+    // Both routes live here, switchable at runtime through setAA(), because
+    // which one to ship is a measurement and not an opinion:
+    //
+    //   'off'        what shipped before: no resolve anywhere.
+    //   'msaa'       samples on the HDR target. Real geometric coverage, zero
+    //                extra passes, zero extra draw calls.
+    //   'fxaa'       one extra full-screen pass on the tonemapped image.
+    //   'msaa+fxaa'  both.
+    //
+    // THE TRAP IN 'msaa', checked before committing to it rather than after:
+    // this.hdr carries a depthTexture that the AO pass and the composite (height
+    // fog, sky detection) sample as an ordinary texture, and a multisampled
+    // target's depth attachment is a multisample renderbuffer that cannot be
+    // sampled. It works here because this three build resolves depth as part of
+    // the colour resolve - vendor/three.module.min.js blits with
+    // resolveDepthBuffer && depthBuffer ? mask | DEPTH_BUFFER_BIT into the
+    // single-sample framebuffer the depth texture is attached to, and
+    // resolveDepthBuffer defaults to true. Verified on the rasteriser rather
+    // than in the source alone by tools/aa-msaa-probe.mjs: with samples 4 and a
+    // depthTexture, sampling that texture returns the same values as the
+    // single-sample arm (centre 231, corner 248, GL error 0), and the same probe
+    // shows those numbers MOVE when the geometry moves, so they are live.
+    this.aaMode = opts.aa ?? 'msaa';
+    this.msaaSamples = opts.msaaSamples ?? 4;
 
     // Tone mapping is ours now; the renderer must hand us linear HDR.
     renderer.toneMapping = THREE.NoToneMapping;
@@ -386,13 +502,7 @@ export class PostStack {
     };
 
     const type = THREE.HalfFloatType;
-    this.hdr = new THREE.WebGLRenderTarget(1, 1, {
-      type, format: THREE.RGBAFormat,
-      minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
-      depthBuffer: true, stencilBuffer: false,
-    });
-    this.hdr.depthTexture = new THREE.DepthTexture(1, 1);
-    this.hdr.depthTexture.type = THREE.UnsignedIntType;
+    this.hdr = this._makeHdr(this._wantMsaa() ? this.msaaSamples : 0);
 
     const rtOpts = { type, format: THREE.RGBAFormat, depthBuffer: false, stencilBuffer: false };
     this.brightRT = new THREE.WebGLRenderTarget(1, 1, rtOpts);
@@ -405,6 +515,15 @@ export class PostStack {
       minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter };
     this.aoRT = new THREE.WebGLRenderTarget(1, 1, aoOpts);
     this.aoBlurRT = new THREE.WebGLRenderTarget(1, 1, aoOpts);
+    // Where the composite lands when FXAA is on, so the filter has something to
+    // read. LinearFilter is load-bearing: FXAA blends at sub-texel offsets, and
+    // with NEAREST every one of those taps snaps back to the centre texel and
+    // the pass becomes an expensive copy. Allocated lazily - an 'msaa' or 'off'
+    // build never pays for it.
+    this.ldrOpts = { type: THREE.UnsignedByteType, format: THREE.RGBAFormat,
+      depthBuffer: false, stencilBuffer: false,
+      minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter };
+    this.ldrRT = null;
     // Bound when AO is off. Sampling an unbound sampler2D is undefined behaviour
     // and on some drivers reads black, which would multiply the whole frame to
     // nothing rather than simply disabling the effect.
@@ -481,6 +600,13 @@ export class PostStack {
       depthTest: false, depthWrite: false,
     });
 
+    this.fxaaMat = new THREE.RawShaderMaterial({
+      vertexShader: `precision highp float; attribute vec3 position; attribute vec2 uv; ${FULLSCREEN_VERT}`,
+      fragmentShader: `precision highp float; ${FXAA_FRAG}`,
+      uniforms: { tDiffuse: { value: null }, invResolution: { value: new THREE.Vector2() } },
+      depthTest: false, depthWrite: false,
+    });
+
     this.quad = new THREE.Mesh(geo, this.brightMat);
     this.quad.frustumCulled = false;
     this.quadScene.add(this.quad);
@@ -510,13 +636,70 @@ export class PostStack {
                    sceneTriangles: 0, totalCalls: 0 };
   }
 
+  _wantMsaa() { return this.aaMode === 'msaa' || this.aaMode === 'msaa+fxaa'; }
+
+  _wantFxaa() { return this.aaMode === 'fxaa' || this.aaMode === 'msaa+fxaa'; }
+
+  _makeHdr(samples) {
+    const rt = new THREE.WebGLRenderTarget(1, 1, {
+      type: THREE.HalfFloatType, format: THREE.RGBAFormat,
+      minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+      depthBuffer: true, stencilBuffer: false,
+      samples,
+    });
+    rt.depthTexture = new THREE.DepthTexture(1, 1);
+    rt.depthTexture.type = THREE.UnsignedIntType;
+    return rt;
+  }
+
+  /**
+   * Switch anti-aliasing at runtime: 'off' | 'msaa' | 'fxaa' | 'msaa+fxaa'.
+   * Returns the state it actually reached, so a harness can ASSERT the toggle
+   * took rather than assume it. (This session already had an A/B whose two arms
+   * were secretly identical because the switch never ran.)
+   */
+  setAA(mode) {
+    const valid = ['off', 'msaa', 'fxaa', 'msaa+fxaa'];
+    if (!valid.includes(mode)) throw new Error(`unknown AA mode ${mode}`);
+    const before = this.hdr.samples;
+    this.aaMode = mode;
+    const want = this._wantMsaa() ? this.msaaSamples : 0;
+    if (want !== before) {
+      // The sample count is fixed when three allocates the framebuffer, so the
+      // target is rebuilt rather than mutated. Cheap: only harnesses switch.
+      const old = this.hdr;
+      this.hdr = this._makeHdr(want);
+      old.dispose();
+      if (this._size) this.setSize(this._size[0], this._size[1]);
+    }
+    if (this._wantFxaa() && !this.ldrRT) {
+      this.ldrRT = new THREE.WebGLRenderTarget(1, 1, this.ldrOpts);
+      if (this._size) this.setSize(this._size[0], this._size[1]);
+    }
+    return this.aaState();
+  }
+
+  aaState() {
+    return {
+      mode: this.aaMode,
+      // Read back off the render target, not off the requested value: this is
+      // what the GPU was actually asked for.
+      samples: this.hdr.samples,
+      fxaaPass: this._wantFxaa(),
+      rendererAntialias: this.renderer.getContext().getContextAttributes().antialias,
+      width: this.hdr.width, height: this.hdr.height,
+    };
+  }
+
   setSize(width, height) {
+    this._size = [width, height];
     const dpr = this.renderer.getPixelRatio();
     const w = Math.max(1, Math.floor(width * dpr));
     const h = Math.max(1, Math.floor(height * dpr));
     this.hdr.setSize(w, h);
     this.hdr.depthTexture.image.width = w;
     this.hdr.depthTexture.image.height = h;
+    if (this.ldrRT) this.ldrRT.setSize(w, h);
     const bw = Math.max(1, Math.floor(w * this.bloomScale));
     const bh = Math.max(1, Math.floor(h * this.bloomScale));
     this.brightRT.setSize(bw, bh);
@@ -635,15 +818,30 @@ export class PostStack {
     this._sunView.copy(p.sunDirection).transformDirection(this.camera.matrixWorldInverse);
     u.sunDirView.value.copy(this._sunView);
 
-    this._blit(this.compositeMat, null);
+    // With FXAA the composite lands in an 8-bit target and the filter writes the
+    // frame; without it the composite writes the frame directly and there is no
+    // extra pass to pay for. Bloom and height fog are upstream of this and are
+    // untouched either way.
+    if (this._wantFxaa()) {
+      if (!this.ldrRT) {
+        this.ldrRT = new THREE.WebGLRenderTarget(1, 1, this.ldrOpts);
+        if (this._size) this.setSize(this._size[0], this._size[1]);
+      }
+      this._blit(this.compositeMat, this.ldrRT);
+      this.fxaaMat.uniforms.tDiffuse.value = this.ldrRT.texture;
+      this.fxaaMat.uniforms.invResolution.value.set(1 / this.ldrRT.width, 1 / this.ldrRT.height);
+      this._blit(this.fxaaMat, null);
+    } else {
+      this._blit(this.compositeMat, null);
+    }
     this.stats.totalCalls = this.stats.drawCalls + this.stats.passes;
   }
 
   dispose() {
     for (const t of [this.hdr, this.brightRT, this.blurA, this.blurB,
-                     this.aoRT, this.aoBlurRT]) t.dispose();
+                     this.aoRT, this.aoBlurRT, this.ldrRT]) { if (t) t.dispose(); }
     for (const m of [this.brightMat, this.blurMat, this.compositeMat,
-                     this.aoMat, this.aoBlurMat]) m.dispose();
+                     this.aoMat, this.aoBlurMat, this.fxaaMat]) m.dispose();
     this.whiteTex.dispose();
   }
 }
