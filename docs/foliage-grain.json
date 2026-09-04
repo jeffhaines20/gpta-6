@@ -10,6 +10,7 @@
   "openFrac": 0.401,
   "texture": 0.2467,
   "longestStraight": 218,
-  "straightFrac": 0.044
+  "straightFrac": 0.044,
+  "straightFracInner": 0.007
  }
 }

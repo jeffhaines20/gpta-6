@@ -345,19 +345,38 @@ function straightEdges(m, w, h) {
     for (let i = 0; i < pts.length; i++) if (keep[i]) out.push(pts[i]);
     return out;
   };
+  // A run along the CROP RECTANGLE is not a silhouette edge, it is the crop.
+  // Canopy that reaches the frame edge makes the contour follow that edge, and
+  // a full-width backdrop wall does the same - both produce dead-straight runs
+  // hundreds of pixels long that no change to the foliage can ever shorten.
+  // Measured on the reference: 85-100% of every canopy station's straight edge
+  // is border, so the photographs' apparent 0.044 is really about 0.005 of
+  // actual leaf silhouette. Scoring foliage against 0.044 sets a target three
+  // times easier than it looks and flatters any build that happens to fill the
+  // frame. `straightFracInner` drops segments with BOTH endpoints on the crop
+  // edge, from numerator and denominator alike.
+  const onEdge = ([x, y]) => x <= 1 || y <= 1 || x >= w - 2 || y >= h - 2;
   let longest = 0, total = 0, inLong = 0;
+  let longestInner = 0, totalInner = 0, inLongInner = 0;
   for (const c of contours) {
     const simp = rdp(c, 1.5);
     for (let i = 0; i + 1 < simp.length; i++) {
-      const L = Math.hypot(simp[i + 1][0] - simp[i][0], simp[i + 1][1] - simp[i][1]);
+      const a = simp[i], b = simp[i + 1];
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
       total += L;
       if (L > longest) longest = L;
       if (L >= 24) inLong += L;
+      if (onEdge(a) && onEdge(b)) continue;         // the crop, not the canopy
+      totalInner += L;
+      if (L > longestInner) longestInner = L;
+      if (L >= 24) inLongInner += L;
     }
   }
   return {
     longestStraight: Math.round(longest),
     straightFrac: total > 0 ? +(inLong / total).toFixed(3) : null,
+    longestInner: Math.round(longestInner),
+    straightFracInner: totalInner > 0 ? +(inLongInner / totalInner).toFixed(3) : null,
     contours: contours.length,
   };
 }
@@ -445,6 +464,7 @@ export function grain(img, box) {
     holeMedian: hs.length ? hs[hs.length >> 1] : 0,
     openFrac: openFrac === null ? null : +openFrac.toFixed(3), interiorRuns,
     longestStraight: st.longestStraight, straightFrac: st.straightFrac,
+    longestInner: st.longestInner, straightFracInner: st.straightFracInner,
     xings: +crossings(m, w, h).toFixed(2),
     texture: tex === null ? null : +tex.toFixed(4),
   };
@@ -768,7 +788,7 @@ if (IS_MAIN && has('stencil')) {
 const fmt = (r) => (r.ok
   ? `D ${r.boundaryD.toFixed(3)}  holes/1k ${String(r.holesPerK).padStart(6)}  med ${String(r.holeMedian).padStart(5)}`
     + `  xings ${String(r.xings).padStart(6)}  open ${r.openFrac === null ? ' n/a' : (r.openFrac * 100).toFixed(0).padStart(3)}%`
-    + `  straight ${String(r.longestStraight).padStart(4)}px/${String(r.straightFrac).padStart(5)}`
+    + `  straight ${String(r.straightFrac).padStart(5)}  inner ${String(r.straightFracInner).padStart(5)}`
     + `  tex ${r.texture === null ? '  n/a ' : r.texture.toFixed(4)}`
     + `  mass ${(r.massFrac * 100).toFixed(0)}%`
   : `n/a - ${r.why}`);
@@ -783,6 +803,7 @@ const summarise = (rows) => {
     holeMedian: med((r) => r.holeMedian), xings: med((r) => r.xings),
     openFrac: med((r) => r.openFrac), texture: med((r) => r.texture),
     longestStraight: med((r) => r.longestStraight), straightFrac: med((r) => r.straightFrac),
+    straightFracInner: med((r) => r.straightFracInner),
   };
 };
 

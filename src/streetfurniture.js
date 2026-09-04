@@ -119,46 +119,75 @@ const paletteU = (i) => (i + 0.5) / PAL_W;
 // blends the tile with a copy of itself and cannot bleed a neighbouring entry's
 // mask in. The zone split is in `v`, where nothing else is looking.
 //
-//   rows   0..223   fourteen 32 x 16 OAK leaf-cluster stamps
-//   rows 224..287   GUARD, opaque: v = 0.5 lands on rows 255/256
+//   rows   0..191   three 64 x 64 OAK leaf-cluster stamps
+//   rows 192..287   GUARD, opaque: v = 0.5 lands on rows 255/256
 //   rows 288..351   QUEEN palm, pinnate: leaflet comb either side of the rachis
 //   rows 352..415   SABAL palm, costapalmate: fan segments split at the tips
 //   rows 416..511   GUARD, opaque
 //
-// MASK_K = 32 is the resolution a sweep of this stencil against
-// tools/foliage-grain.mjs put nearest the photographs: K = 8 and K = 16 land a
-// boundary dimension of 1.16 and 1.29 against the reference's 1.538, K = 32
-// lands 1.64, and K = 48 overshoots into speckle. The sweep's own first answer
-// was K = 16, from synthetic rasters 320 px wide that the metric never
-// normalised while it normalised every photograph to 1024 -- crossings are
-// counted per ROW, so that arm was low by 3.2x. Numbers below come from the
-// corrected sweep.
+// MASK_K is the TILE WIDTH, and the sweep that sized it was about the number of
+// stencil texels a plate gets across itself: against tools/foliage-grain.mjs,
+// K = 8 and K = 16 land a boundary dimension of 1.16 and 1.29 against the
+// reference's 1.538, K = 32 lands 1.64, and K = 48 overshoots into speckle. The
+// sweep's own first answer was K = 16, from synthetic rasters 320 px wide that
+// the metric never normalised while it normalised every photograph to 1024 --
+// crossings are counted per ROW, so that arm was low by 3.2x, and the corrected
+// sweep says 26-32.
+//
+// The tile is 64 rather than 32 because the OTHER axis is the one that was
+// starving: a stamp is as wide as the tile but only as tall as STAMP_H, and at
+// 64 x 32 a plate got 64 texels across and 32 down for the same world distance.
+// See the note on OAK_STAMPS below, where that was fixed by making the stamp
+// square rather than by making the tile wider.
 const MASK_K = 64;
 const AW = PAL_W * MASK_K, AH = 512;
-const OAK_STAMPS = 7, STAMP_H = 32;             // rows 0 .. 223
-// How far out in a stamp the leaf mass reaches, and it is set by the quad's
-// CHORDS, not by its vertices.
+// THREE SQUARE STAMPS, not seven wide ones, and the shape is the point.
 //
-// A clump's ring vertices land at stamp radius CLUMP_Q0..1, comfortably outside
-// this falloff -- but uv is interpolated LINEARLY between two adjacent ring
-// vertices and the line between them is a CHORD, not an arc. With CLUMP_SIDES =
-// 4 the chord's closest approach to the stamp centre is q/sqrt(2), i.e. 0.608
-// at the tightest ring. A falloff that reached zero at 0.70 was therefore SOLID
-// under the middle of every edge, and a solid mask under an edge IS that edge,
-// presented dead straight to the sky. tools/foliage-grain.mjs put a number on
-// it: straightFrac 0.27-0.33 on the oak bench against 0.044 for the
-// photographs, and the fraction of each edge inside the old core was 71%.
+// A clump maps the stamp onto a plate that is ROUND in world space, so at
+// 64 x 32 a world-isotropic feature was 2 texels wide by 1 tall: the vertical
+// axis carried half the resolution and set the floor on how fine the leaf grain
+// could be. Anything finer than 2 rows is Nyquist, which is dither, which is
+// what the old per-cell hash was. At 64 x 64 the grain is isotropic and the
+// finest feature halves, and that is what let the mask carry its coverage back
+// up to 0.381 while still breaking every quad edge: measured on the bench
+// simulator, going square at equal duty took straightFrac from 0.196 / 0.081 /
+// 0.067 to 0.161 / 0.055 / 0.066 (up / row / tunnel) before any retuning.
 //
-// 0.44 leaves a 27% margin under 0.608, which the mask needs because it is not
-// a disc: the noise term can beat the falloff, so leaf survives out past this
-// radius and only the DENSITY of it falls. See the profile in the sweep note on
-// the generator below.
-const OAK_STAMP_R = 0.50;
-// The three knobs of the spray around that core; see the generator below for
-// what each one does and the sweep that set it.
-const OAK_STAMP_GAIN = 5.0;                 // how far noise may beat the falloff
-const OAK_STAMP_GAP = 0.70;                 // sky inside the mass, above this
-const OAK_STAMP_LOBE = [0.74, 0.52];        // falloff radius x (a + b * noise)
+// It is paid for in VARIETY, not in memory: 192 rows of oak instead of 224, so
+// seven stamps become three. The clump's ring phase rotates the window
+// continuously, so two clumps on one stamp still do not share a cut, and rows
+// 192..223 simply join the guard band, which the tile is initialised to.
+const OAK_STAMPS = 3, STAMP_H = 64;             // rows 0 .. 191
+// WHERE THE FALLOFF REACHES ZERO, and it is the ring itself, because the quad's
+// CHORDS are what this had to be set by and they are not where a disc argument
+// puts them.
+//
+// uv is interpolated LINEARLY between two adjacent ring vertices, and the line
+// between them is a CHORD, not an arc. With CLUMP_SIDES = 4 and every ring
+// vertex at stamp radius 1 (see uvAt), that chord's closest approach to the
+// stamp centre is 1/sqrt(2) = 0.707 -- so the mask is what the edge crosses,
+// and wherever the mask is SOLID under an edge, that edge IS the silhouette and
+// it is dead straight. The previous cut had a falloff reaching zero at 0.70
+// with the tightest ring at 0.805, a chord approach of 0.569: measurably solid
+// under 71.2% of the worst edge (tools, mask-radial chord test), and
+// tools/foliage-grain.mjs read straightFrac 0.27-0.33 on the oak bench against
+// 0.044 for the photographs.
+//
+// THE FIX IS NOT A SMALLER DISC. Shrinking the falloff under the chord clears
+// the edge and takes the coverage with it -- swept, and it cost 8 points of
+// massFrac on the up-view for 0.02 of straightFrac. What the edge needs is a
+// mask that is not solid ALONG it, which is a grain question, not a radius one.
+// So the falloff is gentle (it only biases the noise, see OAK_STAMP_GAIN) and
+// the work is done by the grain and by the square stamp above. Chord test on
+// the shipped stamp: the longest unbroken solid run an edge crosses is 14.7% of
+// its own length on average, 46.5% at worst, against 21.6% / 71.2% before.
+const OAK_STAMP_R = 1.00;
+// The three knobs of the grain; see the generator below and the sweeps that set
+// them. GAIN is the one that matters most and it is not a mass knob -- it
+// trades a hard mask edge for a band of separated leaf islands.
+const OAK_STAMP_GAIN = 7.0;                 // how far noise may beat the falloff
+const OAK_STAMP_GAP = 0.58;                 // sky inside the mass, above this
+const OAK_STAMP_F = 14.0;                   // top octave, in stamp widths
 const QUEEN_V0 = 288, SABAL_V0 = 352, COMB_H = 64;
 /**
  * `s` in [0, 1] across `surf`'s own stencil tile, as a texture u.
@@ -265,36 +294,39 @@ function alphaTexture() {
   //     lattice cells 32/f by 16/f texels. Anything past f = 9 has cells under
   //     two rows tall and can only alias. The ceiling here is now 9.0.
   //
-  // What replaces it is structure at the resolution this stamp actually has:
+  // What replaces it is grain at the resolution this stamp actually has, which
+  // the square 64 x 64 layout above doubled:
   //
-  //   LOBES     a low-frequency modulation of the falloff radius, sampled on
-  //             the unit DIRECTION alone so it is a function of angle and
-  //             continuous across +/-pi for free. A leaf cluster hangs in
-  //             sprays and its outline is lumpy before any leaf-sized detail
-  //             happens; a disc is what made every plate the same shape.
-  //   FRINGE    OAK_STAMP_GAIN, how far the noise may beat the falloff. This is
-  //             the knob that matters most and it is NOT a mass knob -- it
-  //             trades a hard mask edge for a broad band of separated leaf
-  //             islands, which is what breaks a long straight quad edge into
-  //             pieces shorter than the metric's 24 px run.
+  //   OCTAVES   three, topping out at OAK_STAMP_F. A stamp is 64 x 64 texels
+  //             for a plate that is round in world space, so frequency f gives
+  //             lattice cells of 32/f texels each way and f = 14 is 2.3 texels
+  //             -- the finest thing that is still a shape rather than a coin
+  //             toss. At 64 x 32 the same f was 1.1 rows and could only alias,
+  //             which is the whole reason the stamp went square.
+  //   FRINGE    OAK_STAMP_GAIN, how far the noise may beat the falloff, i.e.
+  //             how wide the band of separated leaf islands around the mass is.
+  //             This is what breaks a straight quad edge into pieces shorter
+  //             than the metric's 24 px run, and it is not a mass knob.
   //   GAPS      a second, independent field thresholded at leaf scale, for sky
   //             INSIDE the mass. Coherent, so a gap is a gap and not a texel.
   //
   // The chord argument (see OAK_STAMP_R) says the mask must not be SOLID where
   // an edge runs, not that it must be empty there: mass out past the falloff is
-  // wanted, so long as it is broken.
+  // wanted, so long as it is broken. A LOBE term -- an angular modulation of
+  // the falloff radius, so the cluster outline is lumpy before any leaf-sized
+  // detail happens -- was tried here and removed: with the falloff this gentle
+  // the noise swamps it, and the sweep could not tell 0.28 amplitude from 0.76
+  // on any of the eight columns (straightFrac 0.200 against 0.202).
   for (let k = 0; k < OAK_STAMPS; k++) {
     for (let ry = 0; ry < STAMP_H; ry++) {
       for (let s = 0; s < MASK_K; s++) {
         const sx = ((s + 0.5) / MASK_K) * 2 - 1, sy = ((ry + 0.5) / STAMP_H) * 2 - 1;
         const salt = k * 37 + 1;
-        const rr = Math.hypot(sx, sy) || 1e-6;
-        const lobe = OAK_STAMP_LOBE[0] + OAK_STAMP_LOBE[1] * noise(sx / rr, sy / rr, 2.3, salt + 301);
-        const r = rr / lobe;
-        const nz = 0.34 * noise(sx, sy, 2.6, salt)
-          + 0.40 * noise(sx, sy, 5.1, salt + 101)
-          + 0.26 * noise(sx, sy, 9.0, salt + 211);
-        const gap = noise(sx, sy, 7.4, salt + 401);
+        const r = Math.hypot(sx, sy);
+        const nz = 0.34 * noise(sx, sy, OAK_STAMP_F * 0.29, salt)
+          + 0.40 * noise(sx, sy, OAK_STAMP_F * 0.57, salt + 101)
+          + 0.26 * noise(sx, sy, OAK_STAMP_F, salt + 211);
+        const gap = noise(sx, sy, OAK_STAMP_F * 0.82, salt + 401);
         if ((nz - 0.50) * OAK_STAMP_GAIN + (1 - r / OAK_STAMP_R) < 0
           || gap > OAK_STAMP_GAP) cut(s, k * STAMP_H + ry);
       }
@@ -358,19 +390,26 @@ function alphaTexture() {
   const t = new THREE.DataTexture(data, AW, AH, THREE.RGBAFormat);
   t.magFilter = THREE.LinearFilter;
   // Mipmapped, and the far tier depends on it: as a crown shrinks the stencil
-  // averages toward its own coverage, which is above ALPHA_TEST, so a distant
-  // canopy closes back up into a solid mass rather than dissolving into
-  // shimmer. Every non-foliage prop has a CONSTANT uv over its whole surface,
-  // so its uv derivative is zero and it samples mip 0 for ever -- which is the
-  // row that is opaque everywhere.
+  // averages toward the LOCAL coverage under a plate's footprint, so a distant
+  // canopy stops resolving individual holes and settles toward a mass rather
+  // than shimmering. It does not close completely -- oak coverage is 0.381
+  // against an ALPHA_TEST of 0.42, so a plate small enough that one texel
+  // covers its whole stamp is discarded, and what holds the far tier together
+  // is that a plate's CORE averages well above its overall duty. Every
+  // non-foliage prop has a CONSTANT uv over its whole surface, so its uv
+  // derivative is zero and it samples mip 0 for ever -- which is the row that
+  // is opaque everywhere.
   t.minFilter = THREE.LinearMipmapLinearFilter;
   t.generateMipmaps = true;
   t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
   t.needsUpdate = true;
   return (_alphaTex = t);
 }
-// Below the coverage of every zone of the stencil, so a mipped-away leaf goes
-// solid instead of vanishing.
+// Chosen to sit below the coverage of the PALM zones (queen 0.456, sabal 0.764)
+// so a mipped-away frond goes solid instead of vanishing. It is ABOVE the oak
+// zone's 0.381 and always has been -- it was 0.346 when this line was first
+// written and the comment then claimed otherwise. tools/leaf-mask.mjs prints
+// all three, so the claim is checkable rather than asserted.
 const ALPHA_TEST = 0.42;
 
 /** The single material every static prop in the district shares. */
@@ -1237,24 +1276,28 @@ const OAK_ROAD_CAP = -11.0;
 // polygon of stops mattering long before the crown does -- and 8 triangles
 // against 10 buys three more clumps for the same budget, which is what actually
 // closes the mass. The same trade as the palm frond's triangular section.
-const CLUMP_SIDES = 4;
-// How far past its nominal radius a clump's raggedest vertex reaches. Named
-// because the two caps above have to know it to place a clump's centre.
-const CLUMP_RAGGED = 0.42;
-// WHERE A RING VERTEX LANDS ON ITS STAMP. The tightest lands at CLUMP_Q0 and
-// the raggedest at CLUMP_Q0 + CLUMP_QSPAN; see uvAt() in leafClump.
 //
-// The span is DELIBERATELY SMALLER than the ring's own spread. Ring radius runs
-// 0.70-1.12 of `rad`, a 1.6x range; mapping that onto 0.86-1.00 of the stamp
-// means the stamp-to-world scale a vertex implies runs 0.81-1.12 rad, so the
-// mask's cut boundary inherits the plate's own lumpy outline instead of being a
-// circle of one radius under every clump. A strictly proportional map (q = rr /
-// 1.12) is the alternative and it is worse for exactly that reason: it makes
-// the cut boundary the SAME circle on every clump and throws the ring jitter
-// away, since the jitter then only moves polygon corners the mask has already
-// cut off. Measured on the bench simulator: proportional lands straightFrac
-// 0.13 and boundaryD 1.31, this lands 0.06 and 1.42.
-const CLUMP_Q0 = 0.94, CLUMP_QSPAN = 0.06;
+// AND SIDE COUNT IS NOT THE STRAIGHT-EDGE LEVER, which is worth writing down
+// because the arithmetic says it should be: with the ring at stamp radius 1 the
+// chord's closest approach is cos(pi/n), 0.707 at four sides and 0.866 at six,
+// so six sides ought to carry the chords out of the mask's dense middle. Put to
+// the bench simulator at identical mask and identical duty, it does not:
+//
+//   sides   straightFrac up/row/tunnel     massFrac up/row/tunnel
+//     4       0.177 / 0.080 / 0.069          43.8 / 22.8 / 34.4
+//     6       0.181 / 0.061 / 0.069          48.6 / 23.7 / 35.5
+//     8       0.199 / 0.080 / 0.068          50.8 / 24.4 / 36.5
+//
+// Six and eight buy MASS -- a bigger inscribed polygon under the same mask --
+// and nothing measurable on straightness, at +50% and +100% foliage triangles
+// on a tree already at 955. If the crown is ever short of mass again this is a
+// real lever; it is not a lever for cards.
+const CLUMP_SIDES = 4;
+// The ring's own radius, as a fraction of `rad`: CLUMP_R0 at its tightest and
+// CLUMP_R0 + CLUMP_RAGGED at its raggedest. Named because the two caps above
+// have to know the outer figure to place a clump's centre -- so moving the
+// INNER one alone changes the plate's area without touching a clearance.
+const CLUMP_R0 = 0.80, CLUMP_RAGGED = 0.32;
 // How far a clump's own axis may lean off vertical. NOT ZERO, and that is the
 // single change that stopped the crown reading as a stack of plates: with every
 // pillow's ring horizontal, sixteen of them are sixteen horizontal lozenges
@@ -1263,22 +1306,32 @@ const CLUMP_Q0 = 0.94, CLUMP_QSPAN = 0.06;
 // degrees on its own azimuth costs nothing at all.
 const CLUMP_TILT = 0.70;
 // How far off its limb a clump's centre may sit, as a fraction of its own
-// radius. Under the pillow's smallest extent (0.74 * 0.60 = 0.444 radii at the
-// flattest height ratio) so the limb point is always inside the clump.
+// radius. Under the pillow's smallest extent (0.74 * 0.75 = 0.555 radii at the
+// flattest height ratio, OAK_CLUMP_HR below) so the limb point is always inside
+// the clump; tools/oak-audit.mjs --attach measures it rather than trusting it.
 const CLUMP_HUG = 0.42;
 // A clump's nominal radius, as a fraction of the crown's spread: base plus
-// jitter. THE PLATE IS THE PLACE TO BUY MASS BACK. The stencil's falloff had to
-// pull in to under the quad's chords (see OAK_STAMP_R) and that costs coverage;
-// a bigger plate pays it back at ZERO triangles, where more clumps would cost
-// eight each. The clearance caps a few lines below scale with `rad`, so growing
-// it cannot walk a clump into a carriageway -- it makes the caps bite sooner,
-// and tools/oak-audit.mjs --tiers is what says so.
+// jitter. A bigger plate pays coverage back at ZERO triangles where more clumps
+// would cost eight each -- and the clearance caps below scale with `rad`, so
+// growing it cannot walk a clump into a carriageway; it makes the caps bite
+// sooner, and tools/oak-audit.mjs --tiers is what says so.
+//
+// IT IS ALSO NEARLY SPENT, and that is the useful thing to know about it. The
+// caps already set the size of MOST clumps: over 40 trees the realised
+// rad/spread has a median of 0.116 against a nominal floor of 0.195, and
+// multiplying the nominal by 1.6 moves that median by nothing at all (p90
+// 0.207 -> 0.215). This band buys about a point of massFrac; the next one would
+// buy nothing. Coverage has to come from the stencil, not from the plate.
 const OAK_CLUMP_RAD = [0.195, 0.096];
-// A clump's height as a fraction of its radius: base plus jitter. The other
-// free way to pay the stencil's coverage back -- a taller pillow presents more
-// of itself to a camera under it, and "flat" is half the complaint this round
-// is answering. It feeds `total` below, so the clearance caps see it.
-const OAK_CLUMP_HR = [0.60, 0.35];
+// A clump's height as a fraction of its radius: base plus jitter. Taller pays
+// coverage back in the side views (+2 points of massFrac on row and tunnel for
+// this step) and NOT in the up view, where a pillow is seen end-on -- and it is
+// paid for in straight edge, because the apex-to-ring edges grow with it and
+// their inner third sits in the mask's densest part. The longest straight run
+// tracks it almost linearly: 83 px at hr 0.20, 137 at 0.40, 152 at 0.60, 174 at
+// 0.85. 0.75-1.15 is as far as that trade goes. It feeds `total` below, so the
+// clearance caps see it.
+const OAK_CLUMP_HR = [0.75, 0.40];
 
 /**
  * Everything that makes one live oak THAT oak. Same contract as treeParams for
@@ -1474,28 +1527,39 @@ function leafClump(buf, f, c, ctx) {
 
   // ---- THE STENCIL WINDOW. One of OAK_STAMPS leaf-cluster stamps, chosen by
   // the clump's own seed, with the ring plane laid flat onto it: the ring
-  // vertices land on a circle of radius rr/(rad*RAGGED_MAX) about the stamp
-  // centre and the apex and the nadir BOTH land ON the centre. So the top fan
+  // vertices land on the stamp's own unit circle and the apex and the nadir
+  // BOTH land ON the centre. So the top fan
   // and the bottom fan of a pillow are cut by the same texels and a hole opens
   // straight through the leaf mass instead of exposing its own far side, which
   // is the difference between porosity and a dent. The clump's ring phase
   // rotates the window for free, so two clumps sharing a stamp do not share a
   // cut.
   const stampV = ((c.seed >>> 3) % OAK_STAMPS) * STAMP_H + STAMP_H * 0.5;
-  // `rr` arrives as a fraction of `rad`, so it spans 0.70 to 0.70 + CLUMP_RAGGED
-  // and is mapped AFFINELY onto CLUMP_Q0 .. CLUMP_Q0 + CLUMP_QSPAN. No clamp.
+  // EVERY RING VERTEX LANDS AT STAMP RADIUS 1, whatever its own radius is, so
+  // this takes a DIRECTION and no length. The stamp is stretched onto the ring
+  // rather than laid on it at a fixed scale.
   //
-  // The previous map was `Math.min(1, rr * 1.15)`, which saturated at rr = 0.87
-  // -- so the outer 60% of the ring's own range came out at exactly 1.0 and the
-  // raggedest three vertices in five carried identical uv radii. The clamp was
-  // there to keep the largest vertex inside the stamp; an affine map that
-  // reaches 1.0 only at the largest possible radius does that by construction
-  // and keeps the variation as well.
-  const uvAt = (dx, dy, rr) => {
-    const q = CLUMP_Q0 + CLUMP_QSPAN * (rr - 0.70) / CLUMP_RAGGED;
-    return [maskU(S.foliage, 0.5 + 0.5 * dx * q),
-      maskV(stampV + dy * q * (STAMP_H * 0.5 - 0.6))];
-  };
+  // The previous map was `q = Math.min(1, rr * 1.15)` with rr/rad in
+  // [0.70, 1.12]: it saturated at 0.87, so the outer 60% of the ring's range
+  // came out at exactly 1.0 while the inner 40% did not -- half of one map and
+  // half of another. Both whole versions were measured and this is the better
+  // one, for a reason worth keeping:
+  //
+  //   q PROPORTIONAL to rr lays the stamp on the plate at one scale, so the
+  //   mask's cut boundary sits at the same world radius under every clump. The
+  //   ring's jitter then only moves polygon corners that the mask has already
+  //   cut off -- it stops reaching the silhouette at all.
+  //   q CONSTANT stretches the stamp to each vertex, so the cut boundary is at
+  //   (mask radius) x (that vertex's own radius) and the ring's jitter comes
+  //   through into the cut outline.
+  //
+  // On the bench simulator, at everything else equal: proportional straightFrac
+  // 0.265 / 0.097 / 0.070, constant 0.197 / 0.088 / 0.071 (up / row / tunnel).
+  //
+  // It also means s = 0.5 + 0.5*dx spans exactly [0, 1], which is the range
+  // maskU is built to keep inside its own palette column.
+  const uvAt = (dx, dy) => [maskU(S.foliage, 0.5 + 0.5 * dx),
+    maskV(stampV + dy * (STAMP_H * 0.5 - 0.6))];
   // ---- NORMAL SPLAY. A pillow's own normals already point out of it; blending
   // them toward `up` -- the direction from the CROWN's centre to this clump --
   // makes the crown light as one volume instead of as thirty independently lit
@@ -1518,7 +1582,7 @@ function leafClump(buf, f, c, ctx) {
     // axis are jittered hard enough that the silhouette is ragged rather than
     // square -- the same lesson the palm's blade edges had to learn, for the
     // same nothing.
-    const rr = rad * (0.70 + rj() * CLUMP_RAGGED);
+    const rr = rad * (CLUMP_R0 + rj() * CLUMP_RAGGED);
     const ca = Math.cos(a), sa = Math.sin(a);
     const dx = ux * ca + vx * sa, dy = uy * ca + vy * sa, dz = uz * ca + vz * sa;
     const slide = hgt * (rj() - 0.5) * 0.5;
@@ -1530,16 +1594,16 @@ function leafClump(buf, f, c, ctx) {
     const n = splay(dx + ax * 0.15, dy + ay * 0.15, dz + az * 0.15);
     const col = ctx.col(0.66 * sh, i);
     ring.push(vertC(buf, wx(f, px, pz), py, wz(f, px, pz), n[0], n[1], n[2],
-      col[0], col[1], col[2], S.foliage, uvAt(ca, sa, rr / rad)));
+      col[0], col[1], col[2], S.foliage, uvAt(ca, sa)));
   }
   const ct = ctx.col(1.0 * sh, 0), cb = ctx.col(0.38 * sh, 1);
   const tx = cx + ax * hgt, ty = cy + ay * hgt, tz = cz + az * hgt;
   const bx = cx - ax * hgt * 0.74, by = cy - ay * hgt * 0.74, bz = cz - az * hgt * 0.74;
   const nt = splay(ax, ay, az), nb = splay(-ax, -ay, -az);
   const top = vertC(buf, wx(f, tx, tz), ty, wz(f, tx, tz), nt[0], nt[1], nt[2],
-    ct[0], ct[1], ct[2], S.foliage, uvAt(0, 0, 0));
+    ct[0], ct[1], ct[2], S.foliage, uvAt(0, 0));
   const bot = vertC(buf, wx(f, bx, bz), by, wz(f, bx, bz), nb[0], nb[1], nb[2],
-    cb[0], cb[1], cb[2], S.foliage, uvAt(0, 0, 0));
+    cb[0], cb[1], cb[2], S.foliage, uvAt(0, 0));
   // Wound so each fan's geometric normal agrees with the vertex normals it
   // carries. The ring winds clockwise seen from the apex, so the apex fan is
   // (apex, j, i) and the nadir fan is (nadir, i, j). Measured in both
@@ -1777,8 +1841,8 @@ function oakClumpsOf(p, limbs, count, salt) {
     // ---- and how big it may be. THE CAPS SHRINK THE CLUMP, THEY DO NOT MOVE
     // IT. Moving it is what detached it. `total` is how far the furthest vertex
     // gets from the LIMB POINT per unit of radius: the offset, plus the ring at
-    // 0.70 + RAGGED, plus the slide along the axis at 0.25 of the height.
-    const total = frac + 0.70 + CLUMP_RAGGED + 0.25 * hr;
+    // CLUMP_R0 + RAGGED, plus the slide along the axis at 0.25 of the height.
+    const total = frac + CLUMP_R0 + CLUMP_RAGGED + 0.25 * hr;
     let rad = p.spread * (OAK_CLUMP_RAD[0] + rj() * OAK_CLUMP_RAD[1]);
     rad = Math.min(rad, (OAK_CROWN_CAP - P[0]) / total, (P[0] - OAK_ROAD_CAP) / total);
     // Over the carriageway the soffit rule binds as well. The limb stations are
