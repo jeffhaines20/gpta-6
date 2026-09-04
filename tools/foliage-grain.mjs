@@ -522,6 +522,102 @@ if (IS_MAIN && has('sweep')) {
   process.exit(0);
 }
 
+// --- what a 2-D cutout stencil would buy ------------------------------------
+//
+// The --sweep above kills subdivision. This sizes its replacement, and it runs
+// at the mass the REAL crown has (~50%) rather than the 14% a scatter of plates
+// gives, because every measure here behaves differently at different mass and
+// the first version of this simulation quietly sat in the wrong regime.
+//
+// The geometry under test: a dense crown of overlapping plates, each cut by a
+// K x Hm binary stencil with a per-plate phase offset. That is exactly what the
+// engine can do for free - propMaterial binds a PAL_W=16 palette with
+// NearestFilter, so u anywhere in [i/16, (i+1)/16) resolves to palette column i,
+// and an alphaMap of width 16*K addressed by the same uv resolves K distinct
+// mask columns inside that range. Two dimensions of stencil, no new attribute,
+// no new material, no triangles.
+//
+// One scale note that sets everything: the reference holeMedian is 8 PIXELS OF
+// AREA - under three pixels across - so the stencil wants texels of about three
+// to four screen pixels. K=32 overshoots into D > 2, which is not a rougher
+// edge but sub-pixel speckle, and it will shimmer under motion.
+function crownRaster({ n, K, Hm, duty, phase, cut }) {
+  const W = 320, H = 320, SKY = [196, 212, 236], DARK = [38, 46, 34];
+  const data = new Uint8Array(W * H * 3);
+  for (let i = 0; i < W * H; i++) { data[i * 3] = SKY[0]; data[i * 3 + 1] = SKY[1]; data[i * 3 + 2] = SKY[2]; }
+  let seed = 0x9e3779b9;
+  const rnd = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return ((seed >>> 0) / 4294967296); };
+  const st = new Uint8Array(K * Hm);
+  {
+    const g = new Float32Array((K + 1) * (Hm + 1));
+    for (let i = 0; i < g.length; i++) g[i] = rnd();
+    for (let y = 0; y < Hm; y++) {
+      for (let x = 0; x < K; x++) {
+        const a = g[y * (K + 1) + x], b = g[((y * 2) % Hm) * (K + 1) + ((x * 2) % K)];
+        st[y * K + x] = (0.6 * a + 0.4 * b) > duty ? 1 : 0;
+      }
+    }
+  }
+  const els = [];
+  for (let k = 0; k < n; k++) {
+    const a0 = 2 * Math.PI * rnd(), r0 = 132 * Math.sqrt(rnd()) * 0.92;
+    els.push({
+      cx: W / 2 + Math.cos(a0) * r0, cy: H / 2 + Math.sin(a0) * r0,
+      a: 30 + 18 * rnd(), b: 15 + 10 * rnd(), t: rnd() * Math.PI,
+      ps: phase ? Math.floor(rnd() * K) : 0, pt: phase ? Math.floor(rnd() * Hm) : 0,
+      sh: 0.55 + 0.9 * rnd(),
+    });
+  }
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      for (const e of els) {
+        const dx = x - e.cx, dy = y - e.cy;
+        const u = dx * Math.cos(e.t) + dy * Math.sin(e.t), v = -dx * Math.sin(e.t) + dy * Math.cos(e.t);
+        if ((u * u) / (e.a * e.a) + (v * v) / (e.b * e.b) > 1) continue;
+        if (cut) {
+          const sI = Math.floor(((u / e.a + 1) / 2) * K) + e.ps;
+          const tI = Math.floor(((v / e.b + 1) / 2) * Hm) + e.pt;
+          if (!st[(((tI % Hm) + Hm) % Hm) * K + (((sI % K) + K) % K)]) continue;
+        }
+        const i = (y * W + x) * 3;
+        data[i] = DARK[0] * e.sh; data[i + 1] = DARK[1] * e.sh; data[i + 2] = DARK[2] * e.sh;
+        break;
+      }
+    }
+  }
+  return { width: W, height: H, channels: 3, data };
+}
+
+if (IS_MAIN && has('stencil')) {
+  const row = (label, o) => {
+    const r = grain(crownRaster(o), [0, 0, 320, 320]);
+    console.log(label.padEnd(34), r.ok
+      ? `D ${r.boundaryD.toFixed(3)}  holes ${String(r.holesPerK).padStart(5)}  med ${String(r.holeMedian).padStart(4)}`
+        + `  xings ${String(r.xings).padStart(6)}  tex ${r.texture.toFixed(4)}  mass ${(r.massFrac * 100).toFixed(0)}%`
+      : `n/a - ${r.why}`);
+  };
+  console.log('DENSE CROWN, UNCUT - the regime the real oak is in');
+  for (const n of [40, 80, 160]) row(`${n} plates, uncut`, { n, K: 16, Hm: 8, duty: 0.45, phase: true, cut: false });
+  console.log('\n2-D STENCIL, 80 plates - texel size on a ~60x25 px plate');
+  for (const [K, Hm] of [[8, 4], [16, 8], [32, 16], [48, 24]]) {
+    row(`K=${K} Hm=${Hm} (~${(60 / K).toFixed(1)}x${(25 / Hm).toFixed(1)} px)`, { n: 80, K, Hm, duty: 0.45, phase: true, cut: true });
+  }
+  console.log('\nDUTY at K=16 Hm=8, 80 plates');
+  for (const duty of [0.30, 0.40, 0.50, 0.60]) row(`duty ${duty}`, { n: 80, K: 16, Hm: 8, duty, phase: true, cut: true });
+  console.log('\nADDING PLATES BACK - note xings FALLS as the crown fills in');
+  for (const n of [80, 120, 160, 240]) row(`${n} plates`, { n, K: 16, Hm: 8, duty: 0.45, phase: true, cut: true });
+  console.log('\nTARGET'.padEnd(35) + 'D 1.538  holes  3.57  med    8  xings  50.00  tex 0.2467');
+  console.log('ENGINE oak-up now'.padEnd(34) + 'D 1.084  holes  0.03  med    2  xings   4.78  tex 0.0715  mass 52%');
+  console.log('\nK=16/Hm=8/duty 0.40 lands D 1.574 vs 1.538 and holes 3.60 vs 3.57 at 51% mass.');
+  console.log('But xings stays ~10-13 against 50 at EVERY setting, and falls as plates are');
+  console.log('added. Enclosed holes on target while crossings are five times short can only');
+  console.log('mean the photographs\' crossings are not enclosed holes: they are sky channels');
+  console.log('opening outward, between discrete leaf clumps hung on limbs. A canopy is not a');
+  console.log('crown volume with holes punched in it. That gap is a PLACEMENT fault, and no');
+  console.log('mask fixes it.');
+  process.exit(0);
+}
+
 // --- batch modes -----------------------------------------------------------
 
 const fmt = (r) => (r.ok
