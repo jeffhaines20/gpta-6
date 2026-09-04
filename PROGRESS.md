@@ -30,6 +30,59 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## Two instruments from a round that ran out of budget, and one claim they qualify
+
+Three builders were cut off mid-task by a session usage limit. Their tools and
+measurements survive and are committed; the code changes they were working toward
+are NOT done, and are listed as open below rather than half-applied.
+
+### `tools/massing-truth.mjs` — the question a massing table is actually written against
+
+`roofline-analytic.mjs` answers "how high does our streetwall stand" in degrees and
+`roofline.mjs` answers it for the photograph. Neither answers the question the
+table needs, which is in **metres**: given that this footprint is 7.6 m from the
+camera and its parapet subtends 14.7 deg in the photograph, how tall is it? This
+converts per station, per band, per building. It is the instrument the Main St east
+re-massing needs and did not have — every previous pass reasoned about angles and
+then guessed at storeys.
+
+### `tools/oak-census.mjs` — and a critic claim it does not straightforwardly support
+
+The art critic reported that **15 of 15** reference views along Main St east show
+live-oak canopy at 25-85% of frame, and rated putting oaks back the largest single
+perceptual gap after anti-aliasing. A census over all **404** reprojected stations
+measures something more equivocal:
+
+| leg | stations | median foliage | above 15% of frame |
+|---|---|---|---|
+| Marina → Bayfront | 14 | 7.5% | 0 / 14 |
+| Bayfront → Pineapple | 94 | **12.7%** | **41 / 94** |
+| Pineapple → Five Points | 72 | 4.6% | 10 / 72 |
+| **Five Points → Main St east** | 224 | **8.5%** | **52 / 224** |
+
+So canopy is real and it is heaviest on the **bayfront-to-Pineapple** leg, not on
+Main St east where the critic sampled. On Main St east the median station shows
+8.5% foliage and only 23% of stations exceed 15%.
+
+That does not refute the critic — its 15 views are inside this population, its
+metric is a visual estimate rather than this one's pixel classifier, and a street
+can be an oak tunnel in the stretches a photographer stops at while the median
+station between them is open. But it does mean **the tree work should be driven by
+this census across 404 stations rather than by 15 hand-picked frames**, and that a
+uniform "oaks on Main St east" rule would be the same mistake in the other
+direction as the uniform "palms everywhere" it would replace. The right shape is
+per-station, and now measurable.
+
+### Open, not done
+
+- **Live oaks.** Census built; no tree geometry written, no placement rule, nothing
+  changed in `src/streetfurniture.js`. All 276 trees are still palms.
+- **Main St east re-massing.** `massing-truth.mjs` built; the table is unchanged.
+  Buildings 29 (106 m frontage, h 12.8) and 28 (h 9.6) still stand where the
+  photographs show one tall retail storey, at +38.8 and +24.2 deg.
+- **Glass bronze, not cobalt.** Not started. Engine B/R 1.49-2.07 against a
+  reference of 0.67-0.83, and pane:wall 0.49 against 0.12.
+
 ## The renderer asked for anti-aliasing and never got any
 
 An independent art critic's headline finding, and the cheapest large win in the
