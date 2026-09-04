@@ -57,9 +57,31 @@ export class StreamingWorld {
     // checkpoint rather than engineered around any further.
     this.unloadsPerUpdate = opts.unloadsPerUpdate ?? 1;
     this._lastCx = NaN; this._lastCz = NaN;
+    // Every field here is written by a measurement. Three were not, and went in
+    // the same clear-out as `queuedAtScan` (see the note in update()), for the
+    // reason that one was deleted: one write, no readers.
+    //
+    //   pendingUnload  initialised and never assigned again. Dead on arrival -
+    //                  report() has always overwritten the spread value with the
+    //                  live `this._pendingUnload.size`, which is the number three
+    //                  probes actually read. Deleting it changes no output.
+    //   lastFinishMs   never assigned from anything, but REPORTED, so every
+    //   worstFinishMs  harness JSON in docs/ carries `"worstFinishMs": 0` -
+    //                  four of them do. A hard-coded zero that reads like a
+    //                  measured stall is worse than a missing field, and nothing
+    //                  in the repo ever read them. They were not wired up because
+    //                  there is no unmeasured quantity left for "finish" to mean:
+    //                  worstBuildMs is a chunk's total build cost, worstSliceMs
+    //                  the per-frame slice (what the budget gate reads, via
+    //                  drive-through.mjs and chase-harness.mjs), worstScanMs the
+    //                  rescan, worstDisposeMs one _dispose, worstUploadMs the
+    //                  largest single mesh upload. If a future gate wants chunk
+    //                  LATENCY - queued-to-landed wall clock, which genuinely is
+    //                  unmeasured - it should arrive with the reader that needs
+    //                  it, in the same change.
     this.stats = { loads: 0, unloads: 0, lodSwaps: 0, worstBuildMs: 0, lastBuildMs: 0,
-      pendingUnload: 0, sliceMs: 0, worstSliceMs: 0, scanMs: 0, worstScanMs: 0,
-      lastFinishMs: 0, worstFinishMs: 0, worstDisposeMs: 0, worstUploadMs: 0 };
+      sliceMs: 0, worstSliceMs: 0, scanMs: 0, worstScanMs: 0,
+      worstDisposeMs: 0, worstUploadMs: 0 };
 
     // One shared registry for the whole district: N buildings share M materials,
     // and M is a number the budget gate can hold.
@@ -692,7 +714,6 @@ export class StreamingWorld {
     this.stats.worstBuildMs = 0;
     this.stats.worstSliceMs = 0;
     this.stats.worstScanMs = 0;
-    this.stats.worstFinishMs = 0;
     this.stats.worstDisposeMs = 0;
     this.stats.worstUploadMs = 0;
   }

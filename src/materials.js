@@ -1469,8 +1469,27 @@ export function roofFor(b, index) {
 // ---------------------------------------------------------------- shader patches
 // Patches are additive: each one appends a tag so the program cache key stays
 // exact, and chains onto whatever onBeforeCompile is already installed.
+//
+// Additive, but not REPEATABLE. Every patch below injects a declaration at
+// `#include <common>` - a uniform, or in applyGlazingEnv's case a whole
+// `float geHash( vec2 )` - and GLSL has no tolerance for a second one. Applying
+// the same patch twice to one material therefore does not layer, it fails to
+// compile, and the symptom is a black material behind a wall of driver log.
+//
+// It is not reachable today: facadeMaterial is memoised, the registry hands out
+// one instance per key and calls each patch on it once, and materials are never
+// cloned (see the note at _groundMaterial - clone() drops onBeforeCompile
+// anyway). The tags array was already here for the cache key, so the guard is
+// free. It warns rather than returning quietly, because the second call was
+// asking for something - most likely different parameters - and it is not going
+// to get it.
 function patch(material, tag, fn) {
   const tags = material.userData.veranoTags || (material.userData.veranoTags = []);
+  if (tags.includes(tag)) {
+    console.warn(`materials: '${tag}' is already applied to ${material.name || material.type}`
+      + ` [${tags.join('|')}]; ignoring the repeat, which would not have compiled`);
+    return material;
+  }
   tags.push(tag);
   const prev = material.onBeforeCompile;
   material.onBeforeCompile = (shader, renderer) => {

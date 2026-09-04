@@ -16,11 +16,17 @@
 // converted to elevation with roofline.mjs's own elevOf so the two instruments
 // are denominated in one scale and cannot drift.
 //
-//   node tools/roofline-analytic.mjs                          # all 48 views, current world
-//   node tools/roofline-analytic.mjs --compare golden         # ... vs the pixel run
+//   node tools/roofline-analytic.mjs                          # every station, current world
+//   node tools/roofline-analytic.mjs --matched                # ... only the 48 with an engine frame
+//   node tools/roofline-analytic.mjs --compare golden         # ... vs the pixel run (implies --matched)
 //   node tools/roofline-analytic.mjs --district old.json      # any world, no re-capture
 //   node tools/roofline-analytic.mjs --kit                    # full facade kit, not just massing
 //   node tools/roofline-analytic.mjs --selftest               # the convention checks
+//
+// "Every station" is a MOVING NUMBER: two per panorama in
+// reference/sarasota/mapillary/index.json, which was 24 panoramas (48 stations)
+// when this was written and is 202 (404 stations) as of 2026-09-04. Every run
+// prints the count it used and --json records it. See stations() below.
 //
 // An analytic measurement needs no browser and no capture, which is the point: a
 // massing change can be measured against three worlds in one run, and a frame that
@@ -86,10 +92,19 @@
 // builds the REAL geometry through facades.js appendBuilding() and takes the upper
 // envelope of every triangle, so the gap between the two runs is a measurement of
 // how much the kit adds rather than a guess.
+//
+// --kit builds the kit the STREAMER builds, cost cap and street direction
+// included - see prepareWorld. It used to build neither, which made it an upper
+// bound on a mesh the renderer never draws: 403,832 triangles against the
+// streamer's 337,374, and the excess concentrated on the biggest buildings,
+// because the cap's first casualty above floors x perimeter 1800 is roofUnits -
+// the tallest add-ons there are. Correcting it moved 2,494 of 517,120 columns
+// and dropped the bayfront-marina median from 9.56 to 8.88 deg.
 import fs from 'node:fs';
 import path from 'node:path';
 import * as THREE from '../vendor/three.module.min.js';
 import { buildingStyle, appendBuilding, buffers } from '../src/facades.js';
+import { StreamingWorld } from '../src/streaming.js';
 import { elevOf, CAM } from './roofline.mjs';
 
 const REN = 'docs/shots/pano-match';
@@ -232,16 +247,39 @@ function emit(e, poly, n, top, free) {
 //
 // One prepared world = one district JSON, plus everything about it that does not
 // depend on where the camera stands.
-export function loadWorld(file, opts = {}) {
-  const d = JSON.parse(fs.readFileSync(file, 'utf8'));
+//
+// The near tier is what the STREAMER draws, and the streamer does not hand
+// buildingStyle()'s output to appendBuilding() untouched. Two things sit between
+// them, and both are borrowed here off StreamingWorld.prototype rather than
+// re-derived, for the same reason the kit itself is: a copy drifts.
+//
+//   * _capStyle. A per-building cost cap that keeps one expensive style from
+//     blowing the stall budget. On this district it changes 33 of 523 buildings:
+//     36 exceed floors x perimeter 1400 (25 lose balconies, 4 lose a fire
+//     escape) and 25 exceed 1800, of which 23 have roofUnits capped to 3. Roof
+//     units are the TALLEST add-ons - bulkheads, tanks, masts - so an uncapped
+//     --kit overstates the silhouette on exactly the large buildings that set a
+//     roofline. It changes `parapet`, `height` and `recipe` on zero buildings,
+//     which is why the default path below reads the same either way; that is
+//     asserted, not assumed, in selftest check 5.
+//   * street. The direction of the nearest road, which is where storefronts,
+//     awnings and balconies get pointed. Passing {} put them on an arbitrary
+//     face.
+export function prepareWorld(d, file, opts = {}) {
   const cs = d.meta.chunkSize;
+  // A minimal receiver carrying only the fields these two methods read. Calling
+  // the real functions is the point; constructing a real StreamingWorld would
+  // need a scene, a renderer and the whole material registry.
+  const asStreamer = { d, chunkSize: cs, keyOf: StreamingWorld.prototype.keyOf };
+  const capStyle = (style, b) => StreamingWorld.prototype._capStyle.call(asStreamer, style, b);
+  const streetDirFor = (b) => StreamingWorld.prototype._streetDirFor.call(asStreamer, b);
   const chunkOf = new Array(d.buildings.length);
   for (const [key, ch] of Object.entries(d.chunks)) {
     const [cx, cz] = key.split(',').map(Number);
     for (const bi of ch.buildings) chunkOf[bi] = [(cx + 0.5) * cs, (cz + 0.5) * cs];
   }
   const B = d.buildings.map((b, bi) => {
-    const style = buildingStyle(b);
+    const style = capStyle(buildingStyle(b), b);
     let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
     for (const [x, z] of b.p) {
       if (x < x0) x0 = x; if (x > x1) x1 = x;
@@ -261,7 +299,7 @@ export function loadWorld(file, opts = {}) {
       // rather than re-deriving their arithmetic. Only positions and indices are
       // read; no material, texture or UV is touched.
       const wall = buffers(), trim = buffers();
-      appendBuilding(b.p, b.h, style, wall, trim, {});
+      appendBuilding(b.p, b.h, style, wall, trim, { street: streetDirFor(b) });
       const nv = wall.pos.length / 3;
       const pos = new Float64Array(wall.pos.length + trim.pos.length);
       pos.set(wall.pos, 0); pos.set(trim.pos, wall.pos.length);
@@ -273,6 +311,28 @@ export function loadWorld(file, opts = {}) {
     return rec;
   });
   return { file, d, chunkSize: cs, buildings: B, kit: !!opts.kit };
+}
+
+export function loadWorld(file, opts = {}) {
+  return prepareWorld(JSON.parse(fs.readFileSync(file, 'utf8')), file, opts);
+}
+
+/**
+ * The same world with every building height rewritten - re-prepared from the
+ * district JSON, NOT patched onto the prepared records.
+ *
+ * That distinction is the whole of selftest check 4. The old version mapped over
+ * `world.buildings` and wrote `{ ...b, h: b.h + 20 }`, which carries the prebuilt
+ * `tris` across unchanged; under --kit the near tier then re-rendered identical
+ * geometry and the check read the base number for every arm. Going back through
+ * prepareWorld re-runs buildingStyle, the cap and appendBuilding, so the kit is
+ * rebuilt at the new heights and the arm can actually move.
+ */
+export function withHeights(world, fn) {
+  const d = { ...world.d, buildings: world.d.buildings.map((b, i) => ({ ...b, h: fn(b.h, b, i) })) };
+  // _capStyle memoises the perimeter onto the building record; the spread above
+  // carries a stale one only if the footprint changed, and it does not.
+  return prepareWorld(d, world.file, { kit: world.kit });
 }
 
 // ---------------------------------------------------------------- the stations
@@ -295,7 +355,37 @@ export function bearingAt(route, x, z, legs = 5) {
   return { bearing: (best + 360) % 360, seg: bestSeg, dist: bestD };
 }
 
-export function stations(world) {
+/**
+ * The L/R pair for every panorama in the Mapillary index, or just those with a
+ * matched engine frame.
+ *
+ * THE POPULATION IS NOT FIXED and the number in it is not 48. It is however many
+ * panoramas reference/sarasota/mapillary/index.json holds, times two, and that
+ * file grows whenever the corridor is re-fetched: 24 panoramas (48 stations) when
+ * this tool was written, 202 panoramas (404 stations) on 2026-09-04 after the
+ * fetch cap was lifted. The medians moved with it - mainst-east 27.7 -> 25.6,
+ * fivepoints-approach 22.8 -> 24.3, bayfront 24.1 -> 23.8 - and nothing in the
+ * output said which population had produced them. Every caller and every printed
+ * summary now states the count, because two runs of "the default" are not
+ * necessarily runs over the same corridor.
+ *
+ * The growth is not a measurement error: all 404 stations sit within 25.4 m of
+ * meta.route, so they are all on the corridor this instrument is aimed at.
+ *
+ * `{ matched: true }` restricts to the stations that docs/shots/pano-match
+ * captured an engine frame for - 48 of the 404 today. Only those are comparable
+ * against a pixel run, and --compare / --reference therefore imply it: before
+ * this, `--legs --reference golden` threw a TypeError on the first station with
+ * no pixel counterpart, and `--compare` silently printed 48 lines while writing
+ * all 404 into --json.
+ */
+export function matchedFrames() {
+  const f = path.join(REN, 'index.json');
+  if (!fs.existsSync(f)) return null;
+  return new Set(JSON.parse(fs.readFileSync(f, 'utf8')).frames.map((x) => `${x.id}-${x.side}`));
+}
+
+export function stations(world, opts = {}) {
   const route = world.d.meta.route;
   const idx = JSON.parse(fs.readFileSync(path.join(MLY, 'index.json'), 'utf8')).images;
   const out = [];
@@ -305,7 +395,10 @@ export function stations(world) {
       out.push({ id: p.id, side, x: p.x, z: p.z, yaw: ((bearing + off) % 360 + 360) % 360, seg });
     }
   }
-  return out;
+  if (!opts.matched) return out;
+  const keep = matchedFrames();
+  if (!keep) throw new Error(`--matched needs ${path.join(REN, 'index.json')}, which is not there`);
+  return out.filter((s) => keep.has(`${s.id}-${s.side}`));
 }
 
 // Two ways to cut the corridor into legs.
@@ -393,8 +486,8 @@ export function silhouette(world, st, opts = {}) {
 
   if (ground) {
     // Why the ground is in here. The pixel instrument reports the topmost NON-SKY
-    // pixel, and in a column with no building that is the road, not nothing: every
-    // one of the 48 measured frames has skyFrac 0. Leaving the ground out would
+    // pixel, and in a column with no building that is the road, not nothing: all
+    // 48 frames of the 2026-09-02 golden capture have skyFrac 0. Leaving it out would
     // compare a median over "columns with a building" against a median over "all
     // columns" and call the difference massing.
     const bb = world.d.meta.bounds, pad = 900;
@@ -499,18 +592,105 @@ function selftest(world) {
   }
 
   // 4. Can it produce the opposite reading? Raise every building 20 m and the
-  //    measurement must go UP; flatten the district and it must fall to the
-  //    horizon. A probe that cannot move is not measuring anything.
+  //    measurement must go UP; drop the whole district to one storey and it must
+  //    come DOWN while staying above the horizon; flatten it away entirely and it
+  //    must fall TO the horizon. A probe that cannot move is not measuring
+  //    anything.
+  //
+  //    Under --kit this check was vacuous in two independent ways, both found by
+  //    a review on 2026-09-04, and the second is the one worth remembering.
+  //
+  //      * It perturbed the PREPARED records - `{ ...b, h: b.h + 20 }` - which
+  //        carries `tris`, the prebuilt kit geometry, across untouched. The near
+  //        tier re-rendered the identical mesh, so every arm read the base
+  //        number: `base 28.1, +20 m 28.1`. It failed loudly, which is the only
+  //        reason it was caught. The arms now go back through prepareWorld
+  //        (withHeights), which re-runs buildingStyle, the cap and
+  //        appendBuilding at the new heights.
+  //      * Its station, 1414553883288835-R, is one where the kit sets NO column:
+  //        measured off the massing prism instead, 0 of 1280 columns move and
+  //        p50free is 28.15 either way. Rebuilding the geometry would have fixed
+  //        the first defect and left the check still blind to appendBuilding's
+  //        output - a green tick for a code path with nothing downstream of it.
+  //
+  //    So under --kit the station is chosen for kit sensitivity and that
+  //    sensitivity is ASSERTED FIRST. If no station on the corridor reads higher
+  //    with the kit than without it, this fails rather than proceeding to
+  //    measure a quantity the kit does not reach.
   {
-    const st = stations(world).find((s) => s.side === 'R' && s.id === '1414553883288835')
-      ?? stations(world)[0];
+    const sts = stations(world);
+    const at = (id, side) => sts.find((s) => s.side === side && s.id === id);
+    // The published default-mode station, kept so that check's number stays
+    // comparable across the ledger.
+    let st = at('1414553883288835', 'R') ?? sts[0];
+
+    if (world.kit) {
+      const massing = loadWorld(world.file, { kit: false });
+      const gapAt = (t) => {
+        const m = silhouette(massing, t), k = silhouette(world, t);
+        let cols = 0;
+        for (let c = 0; c < W; c++) if (m.free[c] !== k.free[c]) cols++;
+        return { cols, m: m.p50Free, k: k.p50Free, d: k.p50Free - m.p50Free, clip: k.clippedFrac };
+      };
+      // Preferred station first - measured 2026-09-04 at +6.06 deg - and a full
+      // scan only if it has gone missing or gone blind, so the common path stays
+      // two silhouettes rather than 808.
+      let pick = at('2183328815516771', 'L'), g = pick && gapAt(pick);
+      if (!g || g.d <= 0.5) {
+        pick = null; g = null;
+        for (const t of sts) {
+          const c = gapAt(t);
+          if (c.clip > 0.05) continue;          // a station filled to the frame edge reads nothing useful
+          if (!g || c.d > g.d) { pick = t; g = c; }
+        }
+      }
+      if (!pick || g.d <= 0.5) {
+        fail(`no station where the kit outreads the massing prism (best ${g ? g.d.toFixed(2) : 'n/a'} deg)`
+          + ' - the response check below would be blind to appendBuilding');
+      } else {
+        st = pick;
+        ok(`kit is what is read at ${st.id}-${st.side}: ${g.cols} of ${W} columns differ from the massing`
+          + ` prism, p50free ${g.m.toFixed(2)} -> ${g.k.toFixed(2)} (+${g.d.toFixed(2)} deg)`);
+      }
+    }
+
     const base = silhouette(world, st).p50Free;
-    const taller = { ...world, buildings: world.buildings.map((b) => ({ ...b, h: b.h + 20 })) };
-    const flat = { ...world, buildings: world.buildings.map((b) => ({ ...b, h: 0 })) };
-    const up = silhouette(taller, st).p50Free, dn = silhouette(flat, st).p50Free;
-    (up > base + 5 && dn < 0.5 && dn > -1.5)
-      ? ok(`responds to the world: +20 m -> ${up.toFixed(1)}, flattened -> ${dn.toFixed(1)} (base ${base.toFixed(1)})`)
-      : fail(`does not respond: base ${base.toFixed(1)}, +20 m ${up.toFixed(1)}, flat ${dn.toFixed(1)}`);
+    const up = silhouette(withHeights(world, (h) => h + 20), st).p50Free;
+    const low = silhouette(withHeights(world, () => 4), st).p50Free;
+    const dn = silhouette(withHeights(world, () => 0), st).p50Free;
+    // `low` is the arm that keeps the DOWNWARD direction honest under --kit:
+    // `flat` sets h = 0, which trips `if (b.h <= 0) continue` before the kit path
+    // is reached, so on its own it only ever proved the ground plane lands at the
+    // horizon. At one storey every building still goes through appendBuilding.
+    (up > base + 5 && low < base - 5 && low > 0.5 && dn < 0.5 && dn > -1.5)
+      ? ok(`responds to the world at ${st.id}-${st.side}: +20 m -> ${up.toFixed(1)}, one storey -> ${low.toFixed(1)},`
+        + ` flattened -> ${dn.toFixed(1)} (base ${base.toFixed(1)})`)
+      : fail(`does not respond: base ${base.toFixed(1)}, +20 m ${up.toFixed(1)}, one storey ${low.toFixed(1)},`
+        + ` flat ${dn.toFixed(1)}`);
+  }
+
+  // 5. The cost cap changes the kit and NOT the massing. prepareWorld now runs
+  //    every style through StreamingWorld's _capStyle, because the streamer does
+  //    and an uncapped --kit overstates the silhouette on the largest buildings.
+  //    The default path reads only `recipe` and `parapet.height` off that style,
+  //    so it must be bit-identical either way - stated as a comment up there,
+  //    measured here, because a future cap that trimmed a parapet would move
+  //    every default number in this file with nothing to say so.
+  {
+    let capped = 0, moved = 0, worst = 0;
+    const asStreamer = { d: world.d, chunkSize: world.chunkSize, keyOf: StreamingWorld.prototype.keyOf };
+    for (const b of world.d.buildings) {
+      const raw = buildingStyle(b);
+      const before = [raw.recipe, raw.parapet ? raw.parapet.height : 0];
+      const cap = StreamingWorld.prototype._capStyle.call(asStreamer, buildingStyle(b), b);
+      if (cap.balconies !== raw.balconies || cap.fireEscape !== raw.fireEscape || cap.roofUnits !== raw.roofUnits) capped++;
+      const after = [cap.recipe, cap.parapet ? cap.parapet.height : 0];
+      if (before[0] !== after[0] || before[1] !== after[1]) { moved++; worst = Math.max(worst, Math.abs(before[1] - after[1])); }
+    }
+    moved === 0
+      ? ok(`cost cap trims ${capped} of ${world.d.buildings.length} buildings and moves no parapet or recipe`)
+      : fail(`cost cap changed recipe or parapet on ${moved} buildings (worst ${worst.toFixed(2)} m)`
+        + ' - the default massing path is no longer independent of it');
   }
   return bad;
 }
@@ -520,8 +700,25 @@ const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve
 if (isMain) {
   const districtFile = arg('district', 'data/district.json');
   const world = loadWorld(districtFile, { kit: has('kit') });
-  console.log(`world  ${districtFile}  (${world.buildings.length} buildings, ${has('kit') ? 'FULL FACADE KIT' : 'massing + parapet'})`);
+  console.log(`world  ${districtFile}  (${world.buildings.length} buildings, ${has('kit') ? 'FULL FACADE KIT (streamer cost cap applied)' : 'massing + parapet'})`);
   console.log(`camera eye ${CAM.eye} m, pitch ${CAM.pitchDeg} deg, hfov ${CAM.hfovDeg} on ${CAM.aspect.toFixed(3)} -> vfov ${CAM.vfovDeg.toFixed(2)}, ${W}x${H}`);
+
+  // Which population produced the numbers below. Not decoration: the Mapillary
+  // index grew from 24 panoramas to 202 on 2026-09-04 and every median in the
+  // ledger moved with it, with nothing in the output to distinguish the two runs.
+  // Comparing against a pixel run only makes sense on the frames that were
+  // captured, so --compare and --reference restrict to those rather than
+  // half-printing (--compare) or throwing (--legs --reference).
+  const matchedOnly = has('matched') || has('compare') || has('reference');
+  const POP = stations(world);
+  const PANOS = new Set(POP.map((s) => s.id)).size;
+  const MATCHED = matchedFrames();
+  const SEL = matchedOnly ? stations(world, { matched: true }) : POP;
+  console.log(matchedOnly
+    ? `stations ${SEL.length} of ${POP.length}, restricted to those with a matched engine frame in ${REN}/index.json`
+      + `${has('matched') ? '' : ' (implied by --compare/--reference)'}`
+    : `stations ${POP.length} = ${PANOS} panoramas x L/R, from ${MLY}/index.json`
+      + `  (--matched restricts to the ${MATCHED ? MATCHED.size : 0} with an engine frame)`);
 
   if (has('selftest')) {
     console.log('\nselftest');
@@ -553,7 +750,7 @@ if (isMain) {
     const mean = (a) => a.reduce((t, v) => t + v, 0) / (a.length || 1);
     const per = {};
     for (const { name, w } of worlds) {
-      for (const st of stations(w)) {
+      for (const st of stations(w, { matched: matchedOnly })) {
         const r = silhouette(w, st);
         const k = `${st.id}-${st.side}`;
         (per[k] ??= { st }).st = st;
@@ -592,7 +789,7 @@ if (isMain) {
   }
 
   const only = arg('id', null), onlySide = arg('side', null);
-  const sts = stations(world).filter((s) => (!only || s.id === only) && (!onlySide || s.side === onlySide));
+  const sts = SEL.filter((s) => (!only || s.id === only) && (!onlySide || s.side === onlySide));
   if (!sts.length) { console.error('no stations selected'); process.exit(2); }
 
   const cmp = arg('compare', null);
@@ -636,9 +833,20 @@ if (isMain) {
     fs.writeFileSync(out, JSON.stringify({
       district: districtFile,
       districtStat: (() => { const s = fs.statSync(districtFile); return { mtime: s.mtime.toISOString(), size: s.size }; })(),
-      model: has('kit') ? 'full facade kit (facades.js appendBuilding)' : 'footprint prism to h + parapet',
+      model: has('kit')
+        ? 'full facade kit (facades.js appendBuilding, StreamingWorld._capStyle cost cap, street-facing)'
+        : 'footprint prism to h + parapet',
       omits: 'trees, street furniture, signage, traffic, pedestrians, weather'
         + (has('kit') ? '' : '; and roof units, deco steps, fire escapes, balconies, awnings'),
+      // Which population these frames are a summary of. The Mapillary index is
+      // re-fetched from time to time and the corridor medians move when it grows,
+      // so a run that does not record its own denominator cannot be compared to
+      // an older one.
+      stations: {
+        measured: rows.length, available: POP.length, panoramas: PANOS,
+        matchedOnly, source: `${MLY}/index.json`,
+        matchedFrom: matchedOnly ? `${REN}/index.json` : null,
+      },
       camera: { ...CAM, w: W, h: H }, frames: rows,
     }, null, 1));
     console.log(`\nwrote ${out}`);
