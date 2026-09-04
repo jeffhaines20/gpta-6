@@ -42,3 +42,14 @@ docs/shots/lamp-dusk-after.png
 # The three the finding was read from are force-added.
 docs/shots/oak2-*.png
 docs/shots/oak-*.png
+
+# The oak bench writes a scratch page next to its frames so Chromium can load
+# it from the served tree. It is a build artifact of tools/oak-look.mjs, not a
+# frame worth keeping.
+docs/shots/.oak-look.html
+# Foliage-round bench frames, same reasoning as the oak-* lines above: sixteen
+# of them is 12 MB, and what the round actually needs preserved is the NUMBERS
+# they score, which live in the ledger and in docs/foliage-grain.json. Frames
+# that cannot be regenerated once the geometry moves are exactly the case the
+# instrument was built to replace.
+docs/shots/tree3-*.png

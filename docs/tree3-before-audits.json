@@ -1,0 +1,166 @@
+{
+ "tag": "t3before",
+ "furniture": {
+  "lamps": 543,
+  "props": {
+   "signal": 237,
+   "bollard": 1497,
+   "tree": 307,
+   "treeDetail": 307,
+   "meter": 514,
+   "cabinet": 268,
+   "bench": 518,
+   "planter": 402,
+   "bikerack": 294,
+   "bin": 570,
+   "hydrant": 172,
+   "newsbox": 285,
+   "manhole": 331,
+   "gully": 206,
+   "cellardoor": 158,
+   "condenser": 131,
+   "wallbox": 207,
+   "vent": 236,
+   "downpipe": 182,
+   "standpipe": 131,
+   "utilityPole": 140,
+   "span": 46
+  },
+  "treeSpecies": {
+   "sabal": 160,
+   "queen": 135,
+   "oak": 12
+  },
+  "propCount": 6832,
+  "propTriangles": 282738,
+  "propBuckets": 42,
+  "nearBuckets": 35,
+  "farBuckets": 7,
+  "parked": {
+   "pool": 30,
+   "filled": 30,
+   "slots": 2280,
+   "triangles": 27840
+  },
+  "worstFloatMm": -40,
+  "backfacingTris": null,
+  "buildMs": 1102.7,
+  "meshes": {
+   "lamps": 3,
+   "parked": 1,
+   "propBuckets": 42,
+   "worstCaseDrawCalls": 46
+  }
+ },
+ "results": [
+  {
+   "shot": "tunnel",
+   "tod": "golden",
+   "file": "docs/shots/oak2-t3before-tunnel-golden.png",
+   "audit": {
+    "chunks": 83,
+    "lodNear": 16,
+    "lodFar": 67,
+    "drawCalls": 188,
+    "sceneCalls": 180,
+    "triangles": 695738,
+    "exposure": "1/4152"
+   },
+   "settle": {
+    "exposure": 0.00024084778420038535,
+    "seconds": 1
+   }
+  },
+  {
+   "shot": "tunnel",
+   "tod": "dusk",
+   "file": "docs/shots/oak2-t3before-tunnel-dusk.png",
+   "audit": {
+    "chunks": 83,
+    "lodNear": 16,
+    "lodFar": 67,
+    "drawCalls": 198,
+    "sceneCalls": 190,
+    "triangles": 732559,
+    "exposure": "1/719"
+   },
+   "settle": {
+    "exposure": 0.0013908205841446453,
+    "seconds": 1
+   }
+  },
+  {
+   "shot": "under",
+   "tod": "golden",
+   "file": "docs/shots/oak2-t3before-under-golden.png",
+   "audit": {
+    "chunks": 83,
+    "lodNear": 16,
+    "lodFar": 67,
+    "drawCalls": 178,
+    "sceneCalls": 170,
+    "triangles": 635900,
+    "exposure": "1/4152"
+   },
+   "settle": {
+    "exposure": 0.00024084778420038535,
+    "seconds": 1
+   }
+  },
+  {
+   "shot": "under",
+   "tod": "dusk",
+   "file": "docs/shots/oak2-t3before-under-dusk.png",
+   "audit": {
+    "chunks": 83,
+    "lodNear": 16,
+    "lodFar": 67,
+    "drawCalls": 190,
+    "sceneCalls": 182,
+    "triangles": 693169,
+    "exposure": "1/719"
+   },
+   "settle": {
+    "exposure": 0.0013908205841446453,
+    "seconds": 1
+   }
+  },
+  {
+   "shot": "bayfront",
+   "tod": "golden",
+   "file": "docs/shots/oak2-t3before-bayfront-golden.png",
+   "audit": {
+    "chunks": 69,
+    "lodNear": 14,
+    "lodFar": 55,
+    "drawCalls": 208,
+    "sceneCalls": 200,
+    "triangles": 605850,
+    "exposure": "1/4152"
+   },
+   "settle": {
+    "exposure": 0.00024084778420038535,
+    "seconds": 1
+   }
+  },
+  {
+   "shot": "bayfront",
+   "tod": "dusk",
+   "file": "docs/shots/oak2-t3before-bayfront-dusk.png",
+   "audit": {
+    "chunks": 69,
+    "lodNear": 14,
+    "lodFar": 55,
+    "drawCalls": 208,
+    "sceneCalls": 200,
+    "triangles": 628353,
+    "exposure": "1/719"
+   },
+   "settle": {
+    "exposure": 0.0013908205841446453,
+    "seconds": 1
+   }
+  }
+ ],
+ "errors": []
+}
