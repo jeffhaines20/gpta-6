@@ -429,7 +429,12 @@ function animate(now) {
   }
   const focus = mode === 'foot' ? player.position : vehicle.position;
   tod.follow(focus);
-  sky.update(camera);
+  // The sky's per-frame work is in two halves that want opposite ends of this
+  // loop, so only one of them is here. This is the fog half: cloud drift and the
+  // aerial-perspective params, which have to land before tod.normalisePostExposure()
+  // three lines down. The camera half - the ray matrix the dome shader builds
+  // every view ray from - is below, after chase.update().
+  sky.updateFrame();
   weather.update(dt, camera);
   weather.applyToPost(post);
   weather.applyToSky(sky);
@@ -462,6 +467,20 @@ function animate(now) {
   const carYaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
   if (mode === 'foot') chase.update(dt, player.position, world);
   else chase.update(dt, vehicle.position, world, carYaw + Math.PI, vehicle.forwardSpeed > 3 ? 1.6 : 0);
+
+  // The camera half of the sky, for the same reason as the pool below and then
+  // one more. chase.update() has just written this frame's camera transform, and
+  // the dome is a fullscreen triangle whose every ray comes from uRayMatrix, so
+  // running this before chase.update drew the whole sky for the previous frame's
+  // heading: measured at the full 30 deg of a 30 deg jump, held for one rendered
+  // frame, and at exactly one frame of turn under a steady yaw
+  // (tools/lamp-viewlag.mjs). The player sees it as the sky sliding against the
+  // buildings whenever the camera moves.
+  //
+  // Moving the call is only half of it - Sky.updateView() also has to refresh
+  // camera.matrixWorld, which nothing else does until post.render() below. Its
+  // comment has that argument.
+  sky.updateView(camera);
 
   // AFTER chase.update, and with the camera itself rather than its position.
   //

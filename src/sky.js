@@ -1223,7 +1223,7 @@ export class Sky {
     this._rayMatrix = new THREE.Matrix4();
     this._camRotation = new THREE.Matrix4();
     this.stats = { refreshes: 0, envRefreshes: 0, lastRefreshMs: 0, worstRefreshMs: 0,
-                   lastEnvMs: 0, lastReadbackMs: 0 };
+                   lastEnvMs: 0, lastReadbackMs: 0, viewUpdates: 0 };
     this._post = null;
     this._postWeather = null;
     this._envScene = null;
@@ -1311,29 +1311,80 @@ export class Sky {
 
   // ------------------------------------------------------------------ update
   /**
-   * Per frame. One matrix multiply, a dozen uniform writes and, if a PostStack
-   * was attached, the aerial-perspective params pushed into it again — because
+   * The camera half of the per-frame update, and the ONLY part of it that reads
+   * the camera: uRayMatrix, the uniform DOME_VERT builds every view ray from.
+   *
+   * It is separate from updateFrame() because the two want opposite ends of the
+   * frame. The fog/exposure chain below has to run before TimeOfDay
+   * normalises the post exposure; this has to run after whatever writes the
+   * camera transform, or the dome is drawn for a different camera than the
+   * geometry beside it. Measured at 30 deg, held for one rendered frame, when
+   * district/main.js called it ahead of chase.update(): tools/lamp-viewlag.mjs.
+   * The whole sky rotating a frame late is a worse artefact than the light pool's
+   * was, because the dome carries the entire rotation rather than a ranking.
+   *
+   * The camera's world matrix is refreshed here rather than assumed, for the same
+   * reason LightPool.setView() does it: ChaseCamera writes camera.position and
+   * calls lookAt(), which touch the local matrix and quaternion and NOT
+   * matrixWorld, and nothing refreshes matrixWorld until WebGLRenderer.render()
+   * does it at the END of the frame. Reading it here without the refresh gets
+   * the previous frame's rotation even when the call itself is correctly placed —
+   * so moving the call alone would not have been enough. updateMatrixWorld() is
+   * what the renderer does to the same object a few lines later; this is a
+   * re-computation, not a mutation of intent.
+   */
+  updateView(camera) {
+    if (!camera || !camera.isCamera) return this;
+    camera.updateMatrixWorld();
+    this._rayMatrix.copy(camera.projectionMatrixInverse);
+    // Rotation only: the ray direction must not carry the camera's translation.
+    this._camRotation.extractRotation(camera.matrixWorld);
+    this._rayMatrix.premultiply(this._camRotation);
+    this.domeMaterial.uniforms.uRayMatrix.value.copy(this._rayMatrix);
+    // Counted so a harness can assert the camera half ran this frame rather than
+    // reading a stale-but-plausible uniform and calling it a pass.
+    this.stats.viewUpdates++;
+    return this;
+  }
+
+  /**
+   * Everything else in the per-frame update: cloud drift, and — if a PostStack
+   * was attached — the aerial-perspective params pushed into it again, because
    * TimeOfDay._applyPost() rewrites those from its own hex table on every
    * apply()/setWeather(), and the last writer wins.
+   *
+   * Order-sensitive against weather.js and TimeOfDay, not against the camera:
+   * both the sky and weather write fog terms as physical radiance, and only once
+   * both have written can TimeOfDay check them against the camera stop.
    *
    * It never generates anything. The scattering LUT is regenerated only by
    * refresh(), or by the opt-in throttled path below (autoRefresh), which still
    * leaves the PMREM environment map to an explicit call.
    */
-  update(camera, now = performance.now()) {
-    const u = this.domeMaterial.uniforms;
-    this._rayMatrix.copy(camera.projectionMatrixInverse);
-    // Rotation only: the ray direction must not carry the camera's translation.
-    this._camRotation.extractRotation(camera.matrixWorld);
-    this._rayMatrix.premultiply(this._camRotation);
-    u.uRayMatrix.value.copy(this._rayMatrix);
+  updateFrame(now = performance.now()) {
     // The deck drifts. Two float writes; nothing regenerates.
-    this._pushCloudDrift(u, now);
+    this._pushCloudDrift(this.domeMaterial.uniforms, now);
     if (this._post) this.applyToPost(this._post, this._postWeather);
     if (this.autoRefresh && this._dirty && now - this._lastRefresh >= this.minRefreshMs) {
       // No environment map and no GPU sync on this path: it runs inside a frame.
       this.refresh({ environment: false, sync: false });
     }
+    return this;
+  }
+
+  /**
+   * Both halves, in the order a caller that does not care gets them. Kept for
+   * every caller whose camera is already final by the time the sky runs — the
+   * sky lab writes the camera in applyCamera() at the top of its frame, so one
+   * call is correct there and splitting it would buy nothing.
+   *
+   * district/main.js is the caller that does care: its camera is not written
+   * until chase.update(), well after the fog chain has to run, so it calls the
+   * two halves at the two points in its loop that each of them needs.
+   */
+  update(camera, now = performance.now()) {
+    this.updateView(camera);
+    this.updateFrame(now);
     return this;
   }
 

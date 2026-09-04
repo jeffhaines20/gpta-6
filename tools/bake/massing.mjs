@@ -84,7 +84,7 @@ const BANDS = [
     //
     // The floor stays at 2 storeys above 300 m2: a 3.2 m single-storey box on the
     // retail wall reads as a shed, and the reference has none.
-    name: 'marlin-core-east', spine: MARLIN_EAST_SPINE, within: 46,
+    name: 'marlin-core-east', spine: MARLIN_EAST_SPINE, within: 46, sibling: 'marlin-core-west',
     pick: (r, area) => {
       if (area > 2200) return r < 0.5 ? 3 : r < 0.85 ? 4 : 6;
       if (area > 900) return r < 0.5 ? 2 : r < 0.85 ? 3 : 4;
@@ -105,7 +105,7 @@ const BANDS = [
     // and the first attempt - which shortened the whole corridor with one table -
     // took a face at x=34.6 from exactly correct to 10.4 deg too short. A
     // correction has to be aimed at the leg that is wrong.
-    name: 'marlin-core-west', spine: MARLIN_WEST_SPINE, within: 46,
+    name: 'marlin-core-west', spine: MARLIN_WEST_SPINE, within: 46, sibling: 'marlin-core-east',
     pick: (r, area) => {
       if (area > 2200) return r < 0.45 ? 6 : r < 0.8 ? 8 : 11;
       if (area > 900) return r < 0.4 ? 3 : r < 0.75 ? 4 : 6;
@@ -162,11 +162,38 @@ export function authoredHeight(cx, cz, area) {
     }
   }
   const r = seedOf(cx, cz);
+  // First match wins, EXCEPT between a band and its declared sibling.
+  //
+  // The bands are distinct regimes and their order is a deliberate priority, so
+  // first-match is right in general. It is wrong in exactly one place, which an
+  // independent review found: marlin-core-east and marlin-core-west are two halves
+  // of ONE regime, split at the shared spine vertex [57.5, -163.8], so their 46 m
+  // corridors overlap around it. East is listed first, and FOUR footprints matched
+  // both. Three sit closer to the WEST spine and were massed by the east retail
+  // table anyway - idx 401 at 6.6 m west against 30.5 m east, 462 at 22.3 vs 40.3,
+  // 463 at 28.7 vs 45.3 - and two came out as 3.2 m single-storey boxes on the
+  // Palm Avenue approach. That is both the leg the split exists to leave alone and
+  // the exact thing the east table's own comment forbids ("a 3.2 m single-storey
+  // box on the retail wall reads as a shed, and the reference has none"). The
+  // fourth is The Palm Avenue Building, which escaped only because LANDMARKS is
+  // checked first - luck, not design.
+  //
+  // Resolving by distance ONLY within a sibling pair fixes that without touching
+  // any other precedence. A plain global nearest-wins was tried and rejected: it
+  // also let bayfront-towers (within 130) take five footprints from marlin-back
+  // (within 105), turning a 12.8 m building into a 67.2 m tower. Massing is
+  // authoring work (binding constraint 9); a change that size needs its own
+  // measurement, not a ride on a bug fix.
   for (const band of BANDS) {
-    if (distToPolyline(cx, cz, band.spine) <= band.within) {
-      const levels = band.pick(r, area);
-      return { height: +(levels * LEVEL_H).toFixed(1), band: band.name, levels };
+    const d = distToPolyline(cx, cz, band.spine);
+    if (d > band.within) continue;
+    let chosen = band;
+    if (band.sibling) {
+      const sib = BANDS.find((b) => b.name === band.sibling);
+      if (sib && distToPolyline(cx, cz, sib.spine) < d) chosen = sib;
     }
+    const levels = chosen.pick(r, area);
+    return { height: +(levels * LEVEL_H).toFixed(1), band: chosen.name, levels };
   }
   return null;
 }

@@ -1,0 +1,573 @@
+{
+ "how": "tools/lamp-viewlag.mjs, same build of the instrument on both arms. before = HEAD sources; after = Sky.updateView() split out, camera.matrixWorld refreshed in it, called from district/main.js after chase.update(). The stale arm is the opposite-reading check: the pre-fix camera body patched back in page-side on the FIXED build, with its own call counter asserted non-zero.",
+ "arms": {
+  "turn": "chase.update() live, the camera yawed 1.146 deg per frame from inside the frame. No sampling hole; the reading it predicts if the sky is one frame behind is exactly 1.146.",
+  "drive": "chase.update() live and the camera travelling. The only arm that can see weather ordering: freeCam writes camera.position directly, so the jump arms are blind to it.",
+  "jump": "freeCam to a heading 30 deg away. Isolates the stale-matrixWorld cause at a magnitude a one-frame error cannot hide in. The frame already drawn when the jump landed is excluded - it read 30 deg on the fixed build too, which is what exposed it as a hole in the instrument rather than a lag in the render.",
+  "weatherJump": "kept for continuity with docs/lamp-viewlag.json. Reads a clean zero on the BROKEN build, so its zero means nothing - see drive."
+ },
+ "before": {
+  "label": "BEFORE (pre-fix)",
+  "turn": {
+   "degPerFrame": 1.146,
+   "autopilotSteps": 15,
+   "expectedLagIfStaleDeg": 1.146,
+   "worstLagDeg": 1.146,
+   "worstUniformLagDeg": 1.146,
+   "framesObserved": 12,
+   "framesDisagreeing": 12,
+   "uniformFramesDisagreeing": 12,
+   "firstFrames": [
+    {
+     "f": 41,
+     "cam": -175.416,
+     "sky": -176.562,
+     "uni": -176.562,
+     "lag": 1.146,
+     "uniLag": 1.146
+    },
+    {
+     "f": 42,
+     "cam": -174.27,
+     "sky": -175.416,
+     "uni": -175.416,
+     "lag": 1.146,
+     "uniLag": 1.146
+    },
+    {
+     "f": 43,
+     "cam": -173.125,
+     "sky": -174.27,
+     "uni": -174.27,
+     "lag": 1.146,
+     "uniLag": 1.146
+    },
+    {
+     "f": 44,
+     "cam": -171.979,
+     "sky": -173.125,
+     "uni": -173.125,
+     "lag": 1.146,
+     "uniLag": 1.146
+    },
+    {
+     "f": 45,
+     "cam": -170.833,
+     "sky": -171.979,
+     "uni": -171.979,
+     "lag": 1.146,
+     "uniLag": 1.146
+    },
+    {
+     "f": 46,
+     "cam": -169.687,
+     "sky": -170.833,
+     "uni": -170.833,
+     "lag": 1.146,
+     "uniLag": 1.146
+    }
+   ]
+  },
+  "drive": {
+   "autopilotSteps": 20,
+   "framesObserved": 13,
+   "framePairs": 12,
+   "topSpeedKmh": 17.4,
+   "medianTravelM": 1.045,
+   "worstRainLagM": 1.797,
+   "medianLagInFrames": 1,
+   "worstSkyYawLagDeg": 13.052,
+   "splashFramesDiffering": 4,
+   "rows": [
+    {
+     "f": 61,
+     "kmh": 8,
+     "travelM": 0.075,
+     "rainLagM": 0.075,
+     "lagInFrames": 1,
+     "yawLagDeg": 0,
+     "splashDiffers": false
+    },
+    {
+     "f": 62,
+     "kmh": 8.8,
+     "travelM": 0.087,
+     "rainLagM": 0.087,
+     "lagInFrames": 1,
+     "yawLagDeg": 0,
+     "splashDiffers": false
+    },
+    {
+     "f": 63,
+     "kmh": 9.7,
+     "travelM": 0.099,
+     "rainLagM": 0.099,
+     "lagInFrames": 1,
+     "yawLagDeg": 0,
+     "splashDiffers": false
+    },
+    {
+     "f": 64,
+     "kmh": 10.6,
+     "travelM": 0.111,
+     "rainLagM": 0.111,
+     "lagInFrames": 1,
+     "yawLagDeg": 0,
+     "splashDiffers": false
+    },
+    {
+     "f": 65,
+     "kmh": 11.4,
+     "travelM": 1.798,
+     "rainLagM": 1.797,
+     "lagInFrames": 1,
+     "yawLagDeg": 13.052,
+     "splashDiffers": false
+    },
+    {
+     "f": 66,
+     "kmh": 12.3,
+     "travelM": 1.621,
+     "rainLagM": 1.621,
+     "lagInFrames": 1,
+     "yawLagDeg": 12.016,
+     "splashDiffers": true
+    },
+    {
+     "f": 67,
+     "kmh": 13.1,
+     "travelM": 1.458,
+     "rainLagM": 1.458,
+     "lagInFrames": 1,
+     "yawLagDeg": 11.062,
+     "splashDiffers": true
+    },
+    {
+     "f": 68,
+     "kmh": 14,
+     "travelM": 1.307,
+     "rainLagM": 1.308,
+     "lagInFrames": 1,
+     "yawLagDeg": 10.186,
+     "splashDiffers": false
+    },
+    {
+     "f": 69,
+     "kmh": 14.8,
+     "travelM": 1.17,
+     "rainLagM": 1.17,
+     "lagInFrames": 1,
+     "yawLagDeg": 9.381,
+     "splashDiffers": true
+    },
+    {
+     "f": 70,
+     "kmh": 15.7,
+     "travelM": 1.045,
+     "rainLagM": 1.045,
+     "lagInFrames": 1,
+     "yawLagDeg": 8.64,
+     "splashDiffers": false
+    }
+   ]
+  },
+  "sky": {
+   "jumpDeg": 30,
+   "frameAtJump": 81,
+   "framesBeforeExclusion": 7,
+   "settledLagBeforeDeg": 0,
+   "settledLagAfterDeg": 0,
+   "settledCamYaw": 90,
+   "settledUniformYaw": 90,
+   "worstLagDeg": 30,
+   "worstUniformLagDeg": 30,
+   "framesObserved": 6,
+   "framesDisagreeing": 1,
+   "uniformFramesDisagreeing": 1,
+   "firstFrames": [
+    {
+     "f": 82,
+     "cam": 60,
+     "sky": 90,
+     "uni": 90,
+     "lag": 30,
+     "uniLag": 30
+    },
+    {
+     "f": 83,
+     "cam": 60,
+     "sky": 60,
+     "uni": 60,
+     "lag": 0,
+     "uniLag": 0
+    },
+    {
+     "f": 84,
+     "cam": 60,
+     "sky": 60,
+     "uni": 60,
+     "lag": 0,
+     "uniLag": 0
+    },
+    {
+     "f": 85,
+     "cam": 60,
+     "sky": 60,
+     "uni": 60,
+     "lag": 0,
+     "uniLag": 0
+    },
+    {
+     "f": 86,
+     "cam": 60,
+     "sky": 60,
+     "uni": 60,
+     "lag": 0,
+     "uniLag": 0
+    },
+    {
+     "f": 87,
+     "cam": 60,
+     "sky": 60,
+     "uni": 60,
+     "lag": 0,
+     "uniLag": 0
+    }
+   ]
+  },
+  "weather": {
+   "jumpM": 10,
+   "frameAtJump": 91,
+   "framesBeforeExclusion": 5,
+   "settledLagBeforeM": 0,
+   "settledLagAfterM": 0,
+   "worstLagM": 0,
+   "framesDisagreeing": 0,
+   "framesObserved": 4,
+   "metresPerFrameAt100kmh": {
+    "at30fps": 0.93,
+    "at60fps": 0.46
+   },
+   "splashSnapGridM": 2,
+   "rainVolumeHalfExtentM": 13,
+   "splashFramesDiffering": 0,
+   "splashSettledDiffers": false
+  },
+  "stale": {
+   "ran": false,
+   "why": "Sky has no updateView - build is unfixed, nothing to un-fix"
+  },
+  "errors": []
+ },
+ "after": {
+  "label": "AFTER (Sky.updateView split out, matrixWorld refreshed, called after chase.update)",
+  "turn": {
+   "degPerFrame": 1.146,
+   "autopilotSteps": 13,
+   "expectedLagIfStaleDeg": 1.146,
+   "worstLagDeg": 0,
+   "worstUniformLagDeg": 0,
+   "framesObserved": 11,
+   "framesDisagreeing": 0,
+   "uniformFramesDisagreeing": 0,
+   "firstFrames": [
+    {
+     "f": 40,
+     "cam": -176.562,
+     "sky": -176.562,
+     "uni": -176.562,
+     "lag": 0,
+     "uniLag": 0
+    },
+    {
+     "f": 41,
+     "cam": -175.416,
+     "sky": -175.416,
+     "uni": -175.416,
+     "lag": 0,
+     "uniLag": 0
+    },
+    {
+     "f": 42,
+     "cam": -174.27,
+     "sky": -174.27,
+     "uni": -174.27,
+     "lag": 0,
+     "uniLag": 0
+    },
+    {
+     "f": 43,
+     "cam": -173.125,
+     "sky": -173.125,
+     "uni": -173.125,
+     "lag": 0,
+     "uniLag": 0
+    },
+    {
+     "f": 44,
+     "cam": -171.979,
+     "sky": -171.979,
+     "uni": -171.979,
+     "lag": 0,
+     "uniLag": 0
+    },
+    {
+     "f": 45,
+     "cam": -170.833,
+     "sky": -170.833,
+     "uni": -170.833,
+     "lag": 0,
+     "uniLag": 0
+    }
+   ]
+  },
+  "drive": {
+   "autopilotSteps": 17,
+   "framesObserved": 12,
+   "framePairs": 11,
+   "topSpeedKmh": 14.6,
+   "medianTravelM": 0.108,
+   "worstRainLagM": 1.828,
+   "medianLagInFrames": 1,
+   "worstSkyYawLagDeg": 0,
+   "splashFramesDiffering": 4,
+   "rows": [
+    {
+     "f": 57,
+     "kmh": 6.2,
+     "travelM": 0.053,
+     "rainLagM": 0.053,
+     "lagInFrames": 1,
+     "yawLagDeg": 0,
+     "splashDiffers": false
+    },
+    {
+     "f": 58,
+     "kmh": 7.1,
+     "travelM": 0.064,
+     "rainLagM": 0.064,
+     "lagInFrames": 1,
+     "yawLagDeg": 0,
+     "splashDiffers": false
+    },
+    {
+     "f": 59,
+     "kmh": 7.7,
+     "travelM": 0.044,
+     "rainLagM": 0.043,
+     "lagInFrames": null,
+     "yawLagDeg": 0,
+     "splashDiffers": false
+    },
+    {
+     "f": 60,
+     "kmh": 8.6,
+     "travelM": 0.084,
+     "rainLagM": 0.085,
+     "lagInFrames": 1.012,
+     "yawLagDeg": 0,
+     "splashDiffers": false
+    },
+    {
+     "f": 61,
+     "kmh": 9.4,
+     "travelM": 0.096,
+     "rainLagM": 0.096,
+     "lagInFrames": 1,
+     "yawLagDeg": 0,
+     "splashDiffers": false
+    },
+    {
+     "f": 62,
+     "kmh": 10.3,
+     "travelM": 0.108,
+     "rainLagM": 0.108,
+     "lagInFrames": 1,
+     "yawLagDeg": 0,
+     "splashDiffers": false
+    },
+    {
+     "f": 63,
+     "kmh": 11.1,
+     "travelM": 1.828,
+     "rainLagM": 1.828,
+     "lagInFrames": 1,
+     "yawLagDeg": 0,
+     "splashDiffers": true
+    },
+    {
+     "f": 64,
+     "kmh": 12,
+     "travelM": 1.651,
+     "rainLagM": 1.651,
+     "lagInFrames": 1,
+     "yawLagDeg": 0,
+     "splashDiffers": true
+    },
+    {
+     "f": 65,
+     "kmh": 12.9,
+     "travelM": 1.486,
+     "rainLagM": 1.486,
+     "lagInFrames": 1,
+     "yawLagDeg": 0,
+     "splashDiffers": true
+    },
+    {
+     "f": 66,
+     "kmh": 13.7,
+     "travelM": 1.333,
+     "rainLagM": 1.333,
+     "lagInFrames": 1,
+     "yawLagDeg": 0,
+     "splashDiffers": false
+    }
+   ]
+  },
+  "sky": {
+   "jumpDeg": 30,
+   "frameAtJump": 75,
+   "framesBeforeExclusion": 7,
+   "settledLagBeforeDeg": 0,
+   "settledLagAfterDeg": 0,
+   "settledCamYaw": 90,
+   "settledUniformYaw": 90,
+   "worstLagDeg": 0,
+   "worstUniformLagDeg": 0,
+   "framesObserved": 6,
+   "framesDisagreeing": 0,
+   "uniformFramesDisagreeing": 0,
+   "firstFrames": [
+    {
+     "f": 76,
+     "cam": 60,
+     "sky": 60,
+     "uni": 60,
+     "lag": 0,
+     "uniLag": 0
+    },
+    {
+     "f": 77,
+     "cam": 60,
+     "sky": 60,
+     "uni": 60,
+     "lag": 0,
+     "uniLag": 0
+    },
+    {
+     "f": 78,
+     "cam": 60,
+     "sky": 60,
+     "uni": 60,
+     "lag": 0,
+     "uniLag": 0
+    },
+    {
+     "f": 79,
+     "cam": 60,
+     "sky": 60,
+     "uni": 60,
+     "lag": 0,
+     "uniLag": 0
+    },
+    {
+     "f": 80,
+     "cam": 60,
+     "sky": 60,
+     "uni": 60,
+     "lag": 0,
+     "uniLag": 0
+    },
+    {
+     "f": 81,
+     "cam": 60,
+     "sky": 60,
+     "uni": 60,
+     "lag": 0,
+     "uniLag": 0
+    }
+   ]
+  },
+  "weather": {
+   "jumpM": 10,
+   "frameAtJump": 81,
+   "framesBeforeExclusion": 7,
+   "settledLagBeforeM": 0,
+   "settledLagAfterM": 0,
+   "worstLagM": 0,
+   "framesDisagreeing": 0,
+   "framesObserved": 6,
+   "metresPerFrameAt100kmh": {
+    "at30fps": 0.93,
+    "at60fps": 0.46
+   },
+   "splashSnapGridM": 2,
+   "rainVolumeHalfExtentM": 13,
+   "splashFramesDiffering": 0,
+   "splashSettledDiffers": false
+  },
+  "stale": {
+   "ran": true,
+   "patchedCalls": 11,
+   "jumpDeg": 30,
+   "frameAtJump": 91,
+   "settledLagAfterDeg": 0,
+   "worstLagDeg": 30,
+   "worstUniformLagDeg": 30,
+   "framesObserved": 7,
+   "framesDisagreeing": 1,
+   "uniformFramesDisagreeing": 1,
+   "firstFrames": [
+    {
+     "f": 92,
+     "cam": 60,
+     "sky": 90,
+     "uni": 90,
+     "lag": 30,
+     "uniLag": 30
+    },
+    {
+     "f": 93,
+     "cam": 60,
+     "sky": 60,
+     "uni": 60,
+     "lag": 0,
+     "uniLag": 0
+    },
+    {
+     "f": 94,
+     "cam": 60,
+     "sky": 60,
+     "uni": 60,
+     "lag": 0,
+     "uniLag": 0
+    },
+    {
+     "f": 95,
+     "cam": 60,
+     "sky": 60,
+     "uni": 60,
+     "lag": 0,
+     "uniLag": 0
+    },
+    {
+     "f": 96,
+     "cam": 60,
+     "sky": 60,
+     "uni": 60,
+     "lag": 0,
+     "uniLag": 0
+    },
+    {
+     "f": 97,
+     "cam": 60,
+     "sky": 60,
+     "uni": 60,
+     "lag": 0,
+     "uniLag": 0
+    }
+   ]
+  },
+  "errors": []
+ }
+}
