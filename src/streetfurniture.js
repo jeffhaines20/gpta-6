@@ -133,9 +133,14 @@ const paletteU = (i) => (i + 0.5) / PAL_W;
 // normalised while it normalised every photograph to 1024 -- crossings are
 // counted per ROW, so that arm was low by 3.2x. Numbers below come from the
 // corrected sweep.
-const MASK_K = 32;
+const MASK_K = 64;
 const AW = PAL_W * MASK_K, AH = 512;
-const OAK_STAMPS = 14, STAMP_H = 16;            // rows 0 .. 223
+const OAK_STAMPS = 7, STAMP_H = 32;             // rows 0 .. 223
+// How far out in a stamp the leaf mass reaches. A clump's ring lands at stamp
+// radius 0.625-1.0 and the quad it spans has an INRADIUS of about 0.62 of that,
+// so a mask that fades out beyond 0.62 cuts inside the polygon in every
+// direction and the straight edge never reaches the sky.
+const OAK_STAMP_R = 0.70;
 const QUEEN_V0 = 288, SABAL_V0 = 352, COMB_H = 64;
 /**
  * `s` in [0, 1] across `surf`'s own stencil tile, as a texture u.
@@ -221,15 +226,31 @@ function alphaTexture() {
   // hole goes straight THROUGH the leaf mass instead of showing its own far
   // side. Enclosed sky is the whole point; a hole that reveals more leaf is
   // not one.
+  // A STAMP IS LACEWORK, NOT A DISC WITH PINHOLES, and the first cut of it was
+  // the second thing. A blob with independent per-texel holes punched in it
+  // scored boundaryD 1.11 against a reference 1.54: the holes merged into a few
+  // big ones (median 37 px against the photographs' 8) and, worse, the plate's
+  // own straight polygon edges survived, because a round mask over a square
+  // quad only cuts the corners. Three octaves of value noise thresholded
+  // against a radial falloff instead gives connected filaments of leaf with
+  // sky between them, breaks into many separate islands along any scanline,
+  // and -- the part that matters -- its boundary is INSIDE the polygon's in
+  // every direction, so the silhouette that reaches the frame is the mask's
+  // and never the quad's.
   for (let k = 0; k < OAK_STAMPS; k++) {
     for (let ry = 0; ry < STAMP_H; ry++) {
       for (let s = 0; s < MASK_K; s++) {
         const sx = ((s + 0.5) / MASK_K) * 2 - 1, sy = ((ry + 0.5) / STAMP_H) * 2 - 1;
         const r = Math.hypot(sx, sy);
-        const edge = 0.82 + 0.32 * (noise(sx, sy, 1.9, k * 7 + 1) - 0.5);
-        // Porosity climbs toward the rim, so the silhouette frays before the
-        // interior opens. A uniformly holed blob reads as a moth-eaten disc.
-        if (r > edge || h3(s, ry, k * 31 + 5) < 0.11 + 0.34 * r * r) cut(s, k * STAMP_H + ry);
+        const salt = k * 37 + 1;
+        const nz = 0.30 * noise(sx, sy, 3.0, salt)
+          + 0.44 * noise(sx, sy, 6.4, salt + 101)
+          + 0.26 * noise(sx, sy, 12.8, salt + 211);
+        // The falloff reaches zero at OAK_STAMP_R, which is under the quad's
+        // own inradius, so the mask is what the sky sees.
+        if ((nz - 0.50) * 3.4 + (1 - r / OAK_STAMP_R) < 0
+          || h3(Math.floor((sx + 1) * 16), Math.floor((sy + 1) * 16), k * 31 + 5)
+             < 0.10 + 0.26 * r * r) cut(s, k * STAMP_H + ry);
       }
     }
   }
@@ -981,6 +1002,27 @@ function palmFrond(buf, f, P, ctx) {
 // down from there. Green, but nowhere near chartreuse — see NIGHT above. Sabal
 // runs cooler and greyer, queen warmer and deeper, which is what the reference
 // shows when the two stand next to each other in 03-Five-Points.
+// ---- what a palm crown may reach, and in which direction.
+//
+// Local +x is away from the road, toward the shopfront; the WEAKER of the two
+// tree placement tests guarantees 2.2 m of it (the plaza row, which only asks
+// for 2.2; the kerb row asks for 2.6). So no frond spine passes 2.00 m, which
+// leaves the blade's own half-width inside the guarantee at every azimuth.
+const PALM_FRONT_CAP = 2.00;
+// Road clearance is guaranteed 2.2 m, so past 2.05 m over the carriageway the
+// soffit rule binds -- the same pair of numbers the oak uses, for the same
+// reason, and 4.25 m is what a street tree is pruned to over a traffic lane.
+const PALM_ROAD_EDGE = -2.05, PALM_ROAD_Y = 4.25;
+// The crown may be as wide as the trunk is tall up to this. 3.10 m of frond
+// makes a 6.2 m crown against the 6-8 m a street queen actually carries, and
+// it is where it is because the kerb placement test guarantees 3.4 m to the
+// nearest lamp standard: a frond stops short of the pole rather than growing
+// through it.
+const PALM_CROWN_CAP = 3.10;
+// And the trunk's own displacement: at most this far off the base, and at most
+// this far of that toward the frontage.
+const PALM_SWAY_CAP = 1.15, PALM_LEAN_CAP = 0.80;
+
 const FROND = {
   sabal: [0x66784a, 0x5e7044, 0x6f7f52, 0x5a6c46],
   queen: [0x5b7342, 0x678049, 0x53693c, 0x627a48],
@@ -1178,8 +1220,8 @@ function oakParams(k) {
     // tree and +2,700 on a district measured at 693,000 against a gate that
     // warns at 830,000. Spending a palm's whole budget again on each oak buys
     // 0.4% of the frame.
-    nClump: 26 + (hash32('nclump', k) % 5),        // far tier, on the primaries
-    nInfill: 22 + (hash32('ninfill', k) % 5),      // near tier, on the twig web
+    nClump: 52 + (hash32('nclump', k) % 9),        // far tier, on the primaries
+    nInfill: 46 + (hash32('ninfill', k) % 9),      // near tier, on the twig web
     yaw: r() * TAU,
     phase: r() * TAU,
     lean: (r() - 0.5) * 0.5,                       // trunk off vertical, x
@@ -1338,10 +1380,17 @@ function leafClump(buf, f, c, ctx) {
   // rotates the window for free, so two clumps sharing a stamp do not share a
   // cut.
   const stampV = ((c.seed >>> 3) % OAK_STAMPS) * STAMP_H + STAMP_H * 0.5;
-  const uvAt = (sx, sy) => {
-    const q = 1 / (0.70 + CLUMP_RAGGED);
-    const a = Math.max(-1, Math.min(1, sx * q)), b = Math.max(-1, Math.min(1, sy * q));
-    return [maskU(S.foliage, 0.5 + 0.5 * a), maskV(stampV + b * (STAMP_H * 0.5 - 0.6))];
+  // The RADIUS is clamped, not the two components separately, so the direction
+  // survives -- and it is scaled so the SMALLEST ring vertex still lands
+  // outside OAK_STAMP_R. The first cut normalised by the largest instead, which
+  // put the tightest ring inside the stamp's solid core: those plates came back
+  // with their straight quad edges intact, visible in the frame as hard
+  // diamonds among cut ones, and no amount of mask design fixes a plate the
+  // mask never reaches.
+  const uvAt = (dx, dy, rr) => {
+    const q = Math.min(1, rr * 1.15);
+    return [maskU(S.foliage, 0.5 + 0.5 * dx * q),
+      maskV(stampV + dy * q * (STAMP_H * 0.5 - 0.6))];
   };
   // ---- NORMAL SPLAY. A pillow's own normals already point out of it; blending
   // them toward `up` -- the direction from the CROWN's centre to this clump --
@@ -1377,16 +1426,16 @@ function leafClump(buf, f, c, ctx) {
     const n = splay(dx + ax * 0.15, dy + ay * 0.15, dz + az * 0.15);
     const col = ctx.col(0.66 * sh, i);
     ring.push(vertC(buf, wx(f, px, pz), py, wz(f, px, pz), n[0], n[1], n[2],
-      col[0], col[1], col[2], S.foliage, uvAt(ca * rr / rad, sa * rr / rad)));
+      col[0], col[1], col[2], S.foliage, uvAt(ca, sa, rr / rad)));
   }
   const ct = ctx.col(1.0 * sh, 0), cb = ctx.col(0.38 * sh, 1);
   const tx = cx + ax * hgt, ty = cy + ay * hgt, tz = cz + az * hgt;
   const bx = cx - ax * hgt * 0.74, by = cy - ay * hgt * 0.74, bz = cz - az * hgt * 0.74;
   const nt = splay(ax, ay, az), nb = splay(-ax, -ay, -az);
   const top = vertC(buf, wx(f, tx, tz), ty, wz(f, tx, tz), nt[0], nt[1], nt[2],
-    ct[0], ct[1], ct[2], S.foliage, uvAt(0, 0));
+    ct[0], ct[1], ct[2], S.foliage, uvAt(0, 0, 0));
   const bot = vertC(buf, wx(f, bx, bz), by, wz(f, bx, bz), nb[0], nb[1], nb[2],
-    cb[0], cb[1], cb[2], S.foliage, uvAt(0, 0));
+    cb[0], cb[1], cb[2], S.foliage, uvAt(0, 0, 0));
   // Wound so each fan's geometric normal agrees with the vertex normals it
   // carries. The ring winds clockwise seen from the apex, so the apex fan is
   // (apex, j, i) and the nadir fan is (nadir, i, j). Measured in both
@@ -1514,9 +1563,9 @@ function oakTwigs(p, limbs) {
   const out = [];
   for (let j = 0; j < limbs.length; j++) {
     const lb = limbs[j];
-    for (let n = 0; n < 2; n++) {
+    for (let n = 0; n < 3; n++) {
       const rj = rng32(hash32('tw', p.key, j, n));
-      const t0 = 0.28 + n * 0.30 + rj() * 0.16;
+      const t0 = 0.24 + n * 0.22 + rj() * 0.14;
       const A = alongLimb(lb, t0);
       // A live oak's secondaries branch nearly sideways off the leader rather
       // than continuing it.
@@ -1620,7 +1669,7 @@ function oakClumpsOf(p, limbs, count, salt) {
     // gets from the LIMB POINT per unit of radius: the offset, plus the ring at
     // 0.70 + RAGGED, plus the slide along the axis at 0.25 of the height.
     const total = frac + 0.70 + CLUMP_RAGGED + 0.25 * hr;
-    let rad = p.spread * (0.110 + rj() * 0.055);
+    let rad = p.spread * (0.150 + rj() * 0.074);
     rad = Math.min(rad, (OAK_CROWN_CAP - P[0]) / total, (P[0] - OAK_ROAD_CAP) / total);
     // Over the carriageway the soffit rule binds as well. The limb stations are
     // already lifted with an allowance for this, so it normally does not bite.
@@ -1708,13 +1757,6 @@ function treeParams(k, x = 0, z = 0) {
   const sabal = (hash32('sp', k) % 100) < 55;
   const sp = sabal ? 'sabal' : 'queen';
 
-  // Frond reach is a HARD number and is unchanged from the broadleaf's crown
-  // half-width: the placement test only guarantees 2.6 m to the shopfront and
-  // 2.2 m to the carriageway, and a frond that overshoots it is inside a
-  // window. It buys a 2.8-4.1 m crown spread, which is what a street queen palm
-  // actually has.
-  const R = 1.36 + r() * 0.66;
-
   // Palms are TALL, and that is most of the read. The broadleaf stood 5.3-8.7 m
   // overall and carried its crown from 2 m up; a street sabal holds its crown at
   // 5.5-10 m and a queen at 7-13, so the crown is above the awnings, above the
@@ -1722,14 +1764,47 @@ function treeParams(k, x = 0, z = 0) {
   const trunkH = sabal ? 5.5 + r() * 4.4 : 7.0 + r() * 5.6;
   const trunkR = sabal ? 0.165 + r() * 0.050 : 0.130 + r() * 0.040;
 
+  // ---- CROWN REACH IS A FRACTION OF TRUNK HEIGHT, and the flat 1.36-2.02 m it
+  // replaces is what "the crowns are stunted" was reporting.
+  //
+  // Measured off 05-Sarasota-Opera-House, which is the clearest queen in the
+  // set: the crown spans about 0.83 of the visible trunk, so a radius of 0.41
+  // of it, and the oldest fronds' tips fall about 0.35 of the trunk height
+  // below where they leave the crown. This build had a crown radius of 0.10 to
+  // 0.25 of the trunk -- a third to a half of the photograph -- on every palm
+  // in the district, tall ones worst, because the number did not know how tall
+  // the tree was.
+  //
+  // The old number is recorded in the ledger as a deliberate clearance choice:
+  // "the placement test only guarantees 2.6 m to the shopfront and 2.2 m to
+  // the carriageway, and a frond that overshoots it is inside a window." That
+  // reasoning was right and the number did not deliver it -- tools/oak-audit
+  // measured the crown reaching 3.78 m toward a frontage guaranteed 2.2 m,
+  // because the reach is measured from a trunk TOP that sways up to 2 m off
+  // the base and nothing was subtracting that. So the clearance is now kept
+  // where it can be kept exactly, per frond and in the direction that matters
+  // (see palmReach below), and the crown is free to be its real size in the
+  // three directions where there is nothing to hit.
+  const R = Math.min(PALM_CROWN_CAP, trunkH * (sabal ? 0.30 : 0.335)
+    * (0.86 + r() * 0.30));
+
   // The trunk curves rather than tilting: a palm's line is a slow bend, not a
   // lean off a hinge at the ground. `bow` is how far the mid station is pushed
   // off the chord, `sway` how far the top is displaced from the base.
+  //
+  // And it may lean AWAY from the frontage as far as it likes and only so far
+  // toward it. A 2 m sway on a 5.5 m sabal put the growing point 2 m into a
+  // shopfront the placement test guarantees 2.2 m of, before a single frond was
+  // drawn. The clamp is one scale factor applied to the mid station and the top
+  // alike, so the curve keeps its shape and only its amplitude in +x changes --
+  // squashing the top alone would put an S-bend in a trunk that has none.
   const curveAz = r() * TAU;
   const bend = (sabal ? 0.30 : 0.16) + r() * (sabal ? 0.55 : 0.30);
-  const bow = Math.cos(curveAz) * bend, bowZ = Math.sin(curveAz) * bend;
-  const sway = bend * (0.9 + r() * 1.5);
-  const tiltX = Math.cos(curveAz) * sway, tiltZ = Math.sin(curveAz) * sway;
+  const sway = Math.min(PALM_SWAY_CAP, bend * (0.9 + r() * 1.5));
+  const leanX = Math.cos(curveAz) * sway;
+  const kx = leanX > PALM_LEAN_CAP ? PALM_LEAN_CAP / leanX : 1;
+  const tiltX = leanX * kx, tiltZ = Math.sin(curveAz) * sway;
+  const bow = Math.cos(curveAz) * bend * kx, bowZ = Math.sin(curveAz) * bend;
 
   // A sabal carries more, shorter fans and needs the density to read as a
   // globe; a queen's dozen long arcs are the whole of its silhouette and more
@@ -1803,11 +1878,11 @@ function frondAt(p, i) {
   // difference between a crown and a parasol.
   const o = {
     seed: hash32('fs', i, p.nFrond, p.sabal ? 1 : 2),
-    x: p.tiltX + Math.cos(az) * p.trunkR * 0.8,
-    y: p.trunkH - p.trunkR * (0.25 + 1.0 * u),
-    z: p.tiltZ + Math.sin(az) * p.trunkR * 0.8,
+    x: p.tiltX + Math.cos(az) * p.trunkR * 1.05,
+    y: p.trunkH - p.trunkR * (0.25 + 1.6 * u),
+    z: p.tiltZ + Math.sin(az) * p.trunkR * 1.05,
   };
-  return p.sabal ? {
+  const F = p.sabal ? {
     ...o,
     az: az + jit * 0.34, seg: 3, fan: true,
     // A sabal's fans radiate in every direction at once and the older ones fall
@@ -1816,16 +1891,67 @@ function frondAt(p, i) {
     // roundabout in 03-Five-Points. The keel is high because a costapalmate
     // leaf FOLDS along its ribs: a flat sabal fan is a paddle, a folded one is
     // a cabbage palm.
-    rise: 1.30 - 0.62 * u, droop: 1.00 + 0.45 * u,
+    //
+    // The old frond finished at (rise - droop) = -0.77 of its own reach and
+    // most of that fall happened in the last third: a stiff spoke that turns
+    // down at the end. A sabal's oldest fans hang in a SKIRT, so the tip now
+    // finishes 1.20 reaches below its base with the arc's peak at t = 0.15 --
+    // out first, then over.
+    rise: 1.25 - 0.75 * u, droop: 0.85 + 0.85 * u,
     len: p.R * (0.92 + 0.13 * u), wid: p.R * (0.175 + 0.030 * u), keel: 0.48,
   } : {
     ...o,
     az: az + jit * 0.30, seg: 3, fan: false,
     // A queen throws its fronds up and then lets them fall past the horizontal,
     // which is the fountain in 05-Sarasota-Opera-House and 06-Frances-Carlton.
-    rise: 1.55 - 0.85 * u, droop: 1.35 + 1.05 * u,
+    //
+    // AND IT ARCHES ON THE WAY. The old pair fell 1.70 of the frond's reach by
+    // its tip, which is not an arch, it is a plunge: the frond went out a
+    // metre and then dropped nearly two, so the crown read as a tight tuft
+    // with a fringe under it. The photograph's oldest fronds fall about 0.9 of
+    // their own horizontal reach and rise about a tenth of it first. Same
+    // triangles, different vertex positions.
+    rise: 1.50 - 0.62 * u, droop: 0.95 + 0.90 * u,
     len: p.R * (0.86 + 0.22 * u), wid: p.R * (0.19 + 0.04 * u), keel: 0.52,
   };
+  palmReach(F);
+  return F;
+}
+
+/**
+ * The two clearances a frond has to keep, applied to the frond itself rather
+ * than to the crown as a whole -- which is the only place they can be kept
+ * exactly, because a crown is a sphere and the things it must miss are on one
+ * side of it.
+ *
+ * TOWARD THE FRONTAGE the frond is SHORTENED, which is what a street palm
+ * growing against a shopfront is: cut back on the building side. The lateral
+ * half-width is subtracted from the room first, because a frond running ALONG
+ * the street still puts its blade edge across it.
+ *
+ * OVER THE CARRIAGEWAY it is FLATTENED instead -- droop is reduced until the
+ * tip clears the soffit -- because shortening a frond that hangs over a traffic
+ * lane leaves a stub in the middle of a fountain, and lifting it is what a
+ * pruned street tree looks like. Height is monotone decreasing past the arc's
+ * peak and radius is monotone increasing, so the lowest point of the part that
+ * is over the road is always the tip: solving at the tip is exact, not a
+ * sample. The margin covers the blade edges, which hang a keel's worth below
+ * the spine.
+ *
+ * Both are computed from p and i alone, so both tiers get the same frond and
+ * the tier split still cannot pop.
+ */
+function palmReach(F) {
+  const ca = Math.cos(F.az);
+  if (ca > 0.02) {
+    const lat = F.wid * (F.fan ? 1.20 : 0.90) * Math.abs(Math.sin(F.az));
+    const room = PALM_FRONT_CAP - F.x - lat;
+    if (F.len * ca > room) F.len = Math.max(0, room / ca);
+  }
+  if (ca < -0.02 && F.x + F.len * ca < PALM_ROAD_EDGE) {
+    const room = Math.max(0, F.y - PALM_ROAD_Y - 0.18) / F.len;
+    if (F.droop - F.rise > room) F.droop = F.rise + room;
+  }
 }
 
 /** The three trunk stations, shared by both tiers so the boot plates land on
