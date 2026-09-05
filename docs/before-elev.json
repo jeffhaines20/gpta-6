@@ -1,0 +1,87 @@
+{
+ "frames": [
+  {
+   "bi": 18,
+   "edge": 0,
+   "len": 181.3,
+   "recipe": "midOffice",
+   "h": 9.6,
+   "span": 26,
+   "standoff": 18,
+   "hfov": 71.7,
+   "cam": [
+    157.58656288273613,
+    1.75,
+    -169.65482909970635
+   ],
+   "tgt": [
+    157.66500000000002,
+    5.28,
+    -151.655
+   ],
+   "fov": 44.218896687503346,
+   "lots": []
+  },
+  {
+   "bi": 49,
+   "edge": 5,
+   "len": 61.2,
+   "recipe": "retailStrip",
+   "h": 6.55,
+   "span": 26,
+   "standoff": 18,
+   "hfov": 71.7,
+   "cam": [
+    402.94082864612136,
+    1.75,
+    -168.5096888944687
+   ],
+   "tgt": [
+    402.83500000000004,
+    3.6025,
+    -150.51
+   ],
+   "fov": 44.218896687503346,
+   "lots": []
+  }
+ ],
+ "results": [
+  {
+   "b": 18,
+   "tod": "noon",
+   "file": "docs/shots/before-elev18-noon.png",
+   "triangles": 660696,
+   "drawCalls": 184,
+   "near": 16,
+   "chunks": 85
+  },
+  {
+   "b": 18,
+   "tod": "golden",
+   "file": "docs/shots/before-elev18-golden.png",
+   "triangles": 695945,
+   "drawCalls": 197,
+   "near": 16,
+   "chunks": 85
+  },
+  {
+   "b": 49,
+   "tod": "noon",
+   "file": "docs/shots/before-elev49-noon.png",
+   "triangles": 616430,
+   "drawCalls": 179,
+   "near": 16,
+   "chunks": 79
+  },
+  {
+   "b": 49,
+   "tod": "golden",
+   "file": "docs/shots/before-elev49-golden.png",
+   "triangles": 692761,
+   "drawCalls": 201,
+   "near": 16,
+   "chunks": 79
+  }
+ ],
+ "errors": []
+}
