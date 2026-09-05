@@ -16,6 +16,39 @@
 //
 // Both frames are captured in ONE page session at the same camera and the same
 // time of day, so the only difference between them is the uniform.
+//
+// ---------------------------------------------------------------------------
+// CORRECTION, 2026-09-05. This probe's recorded verdict - "REFUTED for this box
+// - it is 25% white and 0% of it is the guard" - was read for four rounds as
+// clearing the guard of the white rectangle. It does not, and the run that
+// produced it said so in the same JSON: `guardFiresElsewhere: true`, 1,334 green
+// pixels, 96% of them in rows 344-408, which is the SAME BAND as the rectangle.
+//
+// The reason the box came back at 0% is FRAMING, not physics. This file stands
+// the camera 34 m back along the corridor (`- (dx/len) * 34` below);
+// tools/whitebox-probe.mjs stands it at 16 m. Eighteen metres of dolly is most
+// of a building, so BOX here and BOX there are not the same wall, and the box
+// this file was given was the critics' box measured on the OTHER framing.
+//
+// Re-run at whitebox-probe's camera at golden with debugSanitize on: 16.1% of
+// its box is green and its white goes to zero. The guard IS catching those
+// pixels.
+//
+// What that does and does not mean, because the distinction is the whole point:
+// the pane is one bayTower glazing cell at mirror angle to an 8-degree sun, and
+// its direct specular is ~1e6 cd/m2 by GGX arithmetic (see the note at
+// drawOpening in src/facades.js). ACES at golden's 1/4,152 stop saturates around
+// 30,000, so that pane renders white with or without this guard - the guard is
+// not what blows it. What the guard changes is the COLOUR: three channels that
+// are all over CEIL are all pinned to the same 60,000, so a highlight that
+// should be sun-warm comes out exactly achromatic, which is one of the four
+// things every critic reported about it. Measured by dropping the stop x1/40 and
+// x1/400 in one session: the pane reads ~11-12 in exposed units at both, i.e. it
+// does not scale with exposure, which is the signature of a fixed scene value.
+//
+// So the honest verdict is: the guard is downstream of the defect and is doing
+// its job, and the fix belongs upstream at the overflow - which is what the
+// shader comment in src/post.js said all along.
 import { chromium } from 'playwright';
 import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
@@ -120,9 +153,23 @@ const result = {
   time: TIME, box: BOX, boxPixels: a.n,
   guardOff: { ...a, frame: fa },
   guardOn: { ...b, frame: fb },
+  // The verdict is deliberately narrow, and says so. A run of this probe can
+  // only ever speak for the box it was handed at the camera it stands at, and
+  // the 2026-09-05 correction in the header is what happens when a reader takes
+  // it for more: "0% of it is the guard" was true of THIS box and false of the
+  // rectangle, because the two were measured 18 m apart along the same street.
+  // So when the guard fires anywhere in the frame, no run of this probe is
+  // allowed to return the word REFUTED.
   verdict: b.green > 0.2 ? 'CONFIRMED - the guard is painting that box'
     : (a.white > 0.05
-      ? `REFUTED for this box - it is ${(a.white * 100).toFixed(0)}% white and 0% of it is the guard`
+      ? (fb.greenPx > 0
+        ? `INCONCLUSIVE - this box is ${(a.white * 100).toFixed(0)}% white and `
+          + `${(b.green * 100).toFixed(1)}% of it is the guard, but the guard fires on `
+          + `${fb.greenPx} px ELSEWHERE in the same frame (rows ${fb.bbox[1]}-${fb.bbox[3]}). `
+          + `Re-run at the camera the artefact was reported on before concluding anything - `
+          + `this probe stands 34 m back and whitebox-probe.mjs stands at 16 m`
+        : `REFUTED for this box - it is ${(a.white * 100).toFixed(0)}% white, `
+          + `${(b.green * 100).toFixed(1)}% of it is the guard, and the guard fires nowhere in the frame`)
       : 'MOOT - the box is no longer white in this build'),
   guardFiresElsewhere: fb.greenPx > 0,
   pageErrors: errors,
