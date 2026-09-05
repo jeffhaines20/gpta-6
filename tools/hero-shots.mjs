@@ -38,8 +38,39 @@ if (HERO_TRAFFIC > 0) {
 
 // Stand in the carriageway on the Main Street corridor looking east toward
 // Five Points, which is the district's hero view.
+//
+// THE CORRIDOR CAMERA WAS NOT ON THE CORRIDOR, and every visual round this
+// project has run was judged partly on that frame. It interpolated waypoint 2
+// (19, -6, "Main St @ Pineapple Ave") to waypoint 4 (569, -164, "Main St east")
+// - a DIAGONAL across blocks - and then extrapolated 34 m backwards along it,
+// landing the camera at about (-13.6, 3.9). An independent fidelity review
+// measured it there: no Main Street edge within 45 m, nearest South Pineapple
+// 33 m, McAnsh Square 21 m, and the street blade legible in the frame reads
+// MC ANSH SQUARE.
+//
+// Main Street east is waypoint 3 to waypoint 4, constant z = -163.8 from x = 57
+// to x = 569 - the same dead east-west leg tools/reproject-pano.mjs calibrates
+// its panorama convention against. wpA: 2 was never that leg.
+//
+// The consequence was not cosmetic. A streetscape reviewer measured 0.097%
+// foliage in this frame against 1.835% at fivepoints and concluded the corridor
+// had no street trees; it has none because the oak profile is on Main Street east
+// and the camera was two blocks off it. The trees, the placement rule and the
+// canopy shadow were all fine.
+//
+// NOTE FOR ANYONE COMPARING OLD CAPTURES: every `*-corridor-*.png` committed
+// before 2026-09-05 is the old, mis-sited framing and is NOT comparable with
+// anything captured after it.
 const shots = [
-  { name: 'corridor', wpA: 2, wpB: 4, back: 34, side: 0, height: 2.4, fov: 55, tgtY: 16, fwd: 260 },
+  // back is NEGATIVE here on purpose: it places the camera 55 m FORWARD of the
+  // Five Points waypoint, at about x = 112 on the Main St east carriageway, which
+  // is inside the oak run. src/streetfurniture.js records that the census put
+  // nine of the district's twelve live oaks inside x 78..155, "a tree every 9 m
+  // of street", so a corridor hero standing west of x = 78 photographs the
+  // corridor's name rather than its trees. It also separates this camera from
+  // the fivepoints one, which stands 26 m back from the same waypoint on the same
+  // axis - at back = +34 the two were 8 m apart and were the same picture twice.
+  { name: 'corridor', wpA: 3, wpB: 4, back: -55, side: 0, height: 2.4, fov: 55, tgtY: 16, fwd: 260 },
   { name: 'fivepoints', wpA: 3, wpB: 4, back: 26, side: 7, height: 3.0, fov: 48, tgtY: 12, fwd: 200 },
 ];
 
