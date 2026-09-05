@@ -2006,8 +2006,24 @@ function applyPackedRoughness(material) {
 const GLAZING = {
   // Multiplies the packed roughness map (0.176-0.541), so the grime still
   // modulates gloss instead of being flattened away.
-  coatedRoughness: 0.22,      // -> 0.039 .. 0.119, mean 0.071
-  shopRoughness: 0.30,        // -> 0.053 .. 0.162, mean 0.097 (older, dirtier)
+  //
+  // Lowered with the facade atlas' own glass cell (facades.js drawOpening, which
+  // has the measurement) from 0.22/0.30. The reason is the corridor tower's white
+  // rectangle: a flat pane at mirror angle to the sun returns ~1e6 cd/m2 through
+  // a GGX lobe of this width, against an ACES white point of 30,000 and the
+  // sanitize() ceiling of 60,000 below, so the highlight is not a peak but an
+  // AREA - and that area grows with roughness until alpha = r^2 reaches ~0.084.
+  // A narrower lobe is what gives a sun-struck pane a gradient instead of a
+  // plateau. Measured curve and crops are in the facades.js note.
+  //
+  // Said out loud, because it decides how much weight to give these two: NOTHING
+  // IN THE STREAMED DISTRICT DRAWS glassStorefront OR glassTinted today
+  // (tools/glaz-probe.mjs' compile check exists for exactly that reason), so
+  // unlike the atlas cell these two are contract rather than measurement. They
+  // are moved to keep this table honest about what the district's glazing is,
+  // not because a frame changed.
+  coatedRoughness: 0.17,      // -> 0.030 .. 0.092, mean 0.055
+  shopRoughness: 0.23,        // -> 0.040 .. 0.124, mean 0.074 (older, dirtier)
   // A reflective coating is 20-40% reflective. This colour IS that reflectance.
   //
   // WARM, not blue. 0x8798a0 was linear B/R 1.44, and against 295 reprojected

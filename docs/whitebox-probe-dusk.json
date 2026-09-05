@@ -1,0 +1,26 @@
+{
+ "time": "dusk",
+ "box": [
+  110,
+  320,
+  320,
+  410
+ ],
+ "bloomStrength": 0.62,
+ "bloomOn": {
+  "file": "docs/shots/whitebox-bloom-on-dusk.png",
+  "whiteFrac": 0,
+  "meanLuma": 81.2,
+  "hardStepCols": 0,
+  "cols": 211
+ },
+ "bloomOff": {
+  "file": "docs/shots/whitebox-bloom-off-dusk.png",
+  "whiteFrac": 0,
+  "meanLuma": 81.2,
+  "hardStepCols": 0,
+  "cols": 211
+ },
+ "verdict": "MOOT - the box is not white in this build at this time of day",
+ "pageErrors": []
+}

@@ -181,6 +181,17 @@ const CT = {
 //             beside it sat at 0.17-0.18, so the brick was three times the
 //             mirror the glass was. The number to think in is F0: 0.22-0.33 for
 //             a coated curtain wall, ~0.12-0.18 for domestic glass.
+//
+//             These bytes are UNCHANGED by the highlight round: they carry the
+//             measured golden-hour colour (glass B/R 0.819 against a reference
+//             0.804 over 317 photographs) and the deliberate cool tail, and the
+//             coating lever was already exhausted - the response is
+//             coating_BR^0.68, so closing noon by colour alone needs a
+//             district-wide 0.49, which is uniform reflective bronze. What DID
+//             move is the metalness these are written under, 0.80-0.88 ->
+//             0.62-0.70, so the F0 they realise is now 0.15-0.25 rather than
+//             0.25-0.31 and the hue each one states below is compressed about 2%
+//             toward neutral (bayTower 1.234 -> 1.220, still the cool one).
 //   accents   named one-off details, applied at authored positions
 
 export const RECIPES = {
@@ -548,14 +559,58 @@ function drawOpening(L, rec, cell, r) {
     g0.addColorStop(1, rgb(rec.glass[2], tone * 0.97, cool));
     al.g.fillStyle = g0;
     al.g.fillRect(gx, gy, gw, gh);
-    // Roughness and metalness are the SMALL levers here and both are set for the
-    // night rather than the day: at dusk, moving roughness 0.129 -> 0.059 was
-    // worth 1.6 levels of pane luminance and metalness 0.549 -> 0.902 was worth
-    // -0.4, against +62 for the fill above. What they buy is (a) a lobe wide
-    // enough that a street lamp reflects as a smear a pane tall rather than an
-    // invisible point, and (b) a diffuse remainder — 1 - metalness — big enough
-    // that an unlit pane still answers the ambient after the sky has gone.
-    rm.g.fillStyle = rmColor(0.07 + r() * 0.06, 0.80 + jr() * 0.08, 0.9);
+    // Roughness and metalness are the SMALL levers for a pane's TINT - at dusk,
+    // moving roughness 0.129 -> 0.059 was worth 1.6 levels of pane luminance and
+    // metalness 0.549 -> 0.902 was worth -0.4, against +62 for the fill above -
+    // and they are the ONLY levers for its HIGHLIGHT. That is what these numbers
+    // are now set for.
+    //
+    // THE WHITE RECTANGLE ON THE CORRIDOR TOWER WAS THIS CELL. Four critics and
+    // two blind reviewers read it as a screen-space sprite; sanitize-probe.mjs
+    // cleared the NaN guard and whitebox-probe.mjs cleared bloom. It is one
+    // bayTower pane at mirror angle to an 8-degree sun, and it is not subtle:
+    // raycast at 260,360 hits facade:bayTower at rm (0.114, 0.831), the sun's
+    // half-vector sits 1.1 deg off that pane's normal, and GGX at alpha = r^2 =
+    // 0.013 returns ~1e6 cd/m2 there against an ACES white point of 30,000 and a
+    // post.js sanitize() ceiling of 60,000. All three channels land on the
+    // ceiling, which is exactly why it reads flat and ACHROMATIC rather than
+    // sun-coloured. debugSanitize paints 16.1% of the reviewers' box green.
+    //
+    // A BROADER LOBE MAKES IT WORSE, and that is worth stating because it is the
+    // opposite of what everyone (me included) expected. Above the white point the
+    // clipped patch is an area, not a peak, and its angular radius goes as
+    // sqrt(0.31 * alpha * sqrt(F0) - alpha^2) - it GROWS with roughness until
+    // alpha ~ 0.084 (r ~ 0.29). Measured on the corridor box, glass texels only,
+    // one page session, bloom at the shipped 0.4:
+    //
+    //   r      0.052  0.065  0.085  0.114*  0.15   0.24   0.32   0.40
+    //   white  9.3%   11.0%  26.8%  21.6%   27.4%  12.6%  10.1%  3.5%
+    //
+    // (* the value this line used to write.) Only r >= 0.32 beats r = 0.052, and
+    // at 0.32 the applyGlazingEnv glass mask starts fading (it wants < 0.34) and
+    // at 0.40 the whole district's glazing reads as satin panel - the crop shows
+    // dark reveals turning milky. So: DOWN, to just above three.js' own 0.0525
+    // floor, where the lobe is narrow enough that the pane keeps a gradient
+    // instead of a plateau.
+    //
+    // Metalness carries the other half. F0 = mix(0.04, albedo, metalness), so
+    // 0.80-0.88 made every pane in the district - 1920s shopfronts and stucco
+    // houses included - a 25-31% mirror, which is coated-curtain-wall territory.
+    // 0.62-0.70 puts F0 at 0.15-0.25 and costs almost nothing in brightness,
+    // because what leaves the specular term arrives in the diffuse remainder
+    // (1 - metalness, 0.30-0.38 now): measured box luma 176.0 -> 169.1 for the
+    // metalness step alone. It is also the one lever that moves the noon colour
+    // residual, because at noon the reflected radiance is B/R 2.53 while the
+    // irradiance a pane stands in is 1.76 - so shifting weight from mirror to
+    // diffuse warms the pane - while at golden the two are 1.429 and 1.433, i.e.
+    // the same, so golden's B/R is invariant to the split. Both numbers are off
+    // the chrome ball and the diffuse ball in docs/measurements/pane-tint-eng-*.
+    //
+    // Still true, and why this did not go lower: the lobe has to stay wide enough
+    // that a street lamp reflects as a smear rather than an invisible point, and
+    // the diffuse remainder has to be big enough that an unlit pane still answers
+    // the ambient after the sky has gone.
+    rm.g.fillStyle = rmColor(0.053 + r() * 0.012, 0.62 + jr() * 0.08, 0.9);
     rm.g.fillRect(gx, gy, gw, gh);
   }
 
