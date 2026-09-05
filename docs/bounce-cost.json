@@ -1,0 +1,31 @@
+{
+ "before": {
+  "label": "bounce on",
+  "drawCalls": 120,
+  "sceneCalls": 112,
+  "triangles": 336630,
+  "programs": 52,
+  "programsInUse": 52,
+  "hemiVisible": 2,
+  "dirVisible": 1,
+  "pointLit": 0,
+  "maxFragmentUniformVectors": 4096
+ },
+ "after": {
+  "label": "bounce off (visible = false)",
+  "drawCalls": 120,
+  "sceneCalls": 112,
+  "triangles": 336630,
+  "programs": 72,
+  "programsInUse": 72,
+  "hemiVisible": 1,
+  "dirVisible": 1,
+  "pointLit": 0,
+  "maxFragmentUniformVectors": 4096
+ },
+ "errors": [],
+ "drawCallDelta": 0,
+ "programDelta": -20,
+ "programsInUseDelta": -20,
+ "hemiDelta": 1
+}

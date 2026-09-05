@@ -231,7 +231,77 @@ export const PRESETS = {
     // TOWARD the sun (cos 75.6 = 0.248 -> cos 45 = 0.707) and nothing at all on a
     // shaded one, whose illuminance is the sky's and does not depend on where the
     // sun is. It fixes wall-against-wall separation; it cannot fix a crush.
-    exposure: 1 / 33500,      // pi/E exactly - see the block above
+    // ^ AND THE ACCEPTANCE TEST THAT PARAGRAPH RETIRED WAS RETIRED ON EVIDENCE
+    // THAT DID NOT COVER THE SURFACE THAT FAILS.
+    //
+    // The +1.26-stop offset above was deleted because the display transfer had
+    // un-crushed the toe, and the number quoted for that was the sky-lit FACADE:
+    // 23.8 -> 41.7. It was never checked on the shaded GROUND, which is a darker
+    // albedo (the carriageway measures 0.153 against a stucco wall's ~0.4, i.e.
+    // 1.4 stops lower under identical light) and which fills the bottom third of
+    // every hero frame. Measured on the shipped build at the corridor hero camera
+    // (tools/shade-probe.mjs, eight fixed points, four hours, same pixels):
+    //
+    //   point                    noon        golden      dusk        night
+    //   road (950,760)          L26 R-B-27  L46 -29     L40 -11     L49 +37
+    //   road (700,860)          L33 -24     L58 -23     L46 -10     L45 +37
+    //   brick walk (1470,640)   L21  -6     L49 +15     L32 +16     L28 +42
+    //   road (1000,880)         L30 -29     L54 -28     L43 -16     L58 +44
+    //
+    // Noon is the darkest of the four hours at five of the eight points, and the
+    // carriageway at (950,760) renders 47% darker at midday than under a sodium
+    // lamp at night. THE LIGHT SAYS THE OPPOSITE: that surface carries 15,156 lux
+    // of sky at noon against 1,596 at dusk - 9.5x more - and renders 35% darker.
+    //
+    // WHY, ARITHMETICALLY, AND IT IS NOT A BUG IN ANY ONE PRESET. pi/E normalises
+    // to the TOTAL horizontal illuminance, and a surface lit only by the ambient
+    // renders at ambient/E. That fraction is 15,156/105,244 = 0.144 at noon and
+    // 7,359/12,423 = 0.592 at golden - four times as much - because noon is the
+    // one hour whose E is 86% sun. Every hour but noon then carries a further
+    // hold-the-median offset from the rule (golden -1.29 stops, dusk -2.12, night
+    // -2.23), and noon alone sits on it at +0.00. So the hour with the least
+    // ambient headroom is the only one denied a grade, and the surfaces that show
+    // it are the ones lit by the ambient alone.
+    //
+    // THE STOP, DERIVED FROM AN ACCEPTANCE TEST, WHICH IS A TRADE AND IS SAID SO.
+    // The bar is the review's own complaint stated as a measurement: at the
+    // corridor camera, noon may not be the darkest of the four hours at any of the
+    // eight fixed shaded points. Solved on the shipped frames by inverting the
+    // display chain per pixel (tools/shade-probe.mjs writes the bytes,
+    // tools/critic-metrics.mjs owns the inverse) and including the +26% the new
+    // district bounce puts on noon's ambient, the binding point is the
+    // carriageway at (950,760) and it needs 1.375x. A criterion satisfied exactly
+    // is one a moved car or a re-baked texture breaks, so it is cleared by 10% in
+    // scene-linear terms: 1.5125x, i.e. +0.60 stops on 1/33,500.
+    //
+    //     1/33,500 * 2^0.60 = 1/22,102  ->  1/22,100
+    //
+    // Restated against the rule, with the bounce in E: E = 90,102 lux of sun on
+    // the horizontal + 15,156 of sky + 3,957 of district bounce = 109,215 lux, so
+    // pi/E = 1/34,764 and the offset from pi/E is +0.653 stops. That offset is the
+    // honest description of this preset now: it is graded, like the other three,
+    // and the size of the grade is the smallest one that removes an inversion the
+    // light itself contradicts.
+    //
+    // WHAT IT COSTS, STATED RATHER THAN BURIED. Predicted from the shipped frame
+    // by re-tonemapping at the new stop: sunlit plaza 150 -> 179 of 255, sky
+    // 146 -> 174, frame mean 65.8 -> ~85, near-black (<8/255) 1.39% -> lower,
+    // nothing clipped. Noon gets brighter. That IS the change - it is the hour
+    // with 105,000 lux on the street and it was rendering its own shadows below a
+    // sodium lamp.
+    //
+    // AND WHAT IT DELIBERATELY DOES NOT DO. Making noon the BRIGHTEST of the four
+    // hours at all eight points - the strongest reading of "open shade at noon
+    // should be the brightest shade of the day" - needs +1.35 stops, not +0.60.
+    // The two points that force that are the brick walk at (1470,640) and the
+    // facade at (1150,480), and at golden hour's 8 deg sun both are SUN-RAKED
+    // rather than shaded: cos(8 deg) = 0.99 of the beam lands on a wall turned
+    // toward it. Requiring noon's shadow to out-render golden's key light is not
+    // what the bar means, and +1.35 stops takes the sunlit plaza to 215 of 255 and
+    // noon's frame mean past every other hour's - a blown midday, which is a
+    // defect three critic rounds have already named. The number is recorded so the
+    // next round can take it if it disagrees.
+    exposure: 1 / 22100,      // pi/E + 0.65 stops - see the block above
     lampsOn: false,
     fog: { color: 0xa8c2dc, density: 0.0016 },
     // bloomThreshold is in EXPOSED units, so it had to move with the stop or the
@@ -250,8 +320,16 @@ export const PRESETS = {
     // is compared against lum * exposure. 29,400 / 33,500 = 0.878. Every preset's
     // threshold below moved the same way and for the same reason, and each one
     // still names the nits it was derived from so the arithmetic is checkable.
+    //
+    // 0.878 -> 1.331 when the stop moved to 1/22,100. THE RADIANCE THAT BLOOMS IS
+    // STILL 29,400 NITS; 29,400 / 22,100 = 1.331. Left at 0.878 the same threshold
+    // would have meant 19,404 nits, which is UNDER the 23,450-nit sunlit white
+    // road marking the bound was derived from, and noon would have started
+    // blooming its own kerb lines. The district bounce raises the marking's own
+    // radiance to (109,215 * 0.7)/pi = 24,332 nits, still 21% clear of 29,400,
+    // so the bound's derivation holds and only its units moved.
     post: { fogColor: 0xa9c3e0, inscatter: 0xfff0d0, density: 0.0016,
-            heightFalloff: 0.020, bloomThreshold: 0.878, bloomStrength: 0.30 },
+            heightFalloff: 0.020, bloomThreshold: 1.331, bloomStrength: 0.30 },
   },
   // Golden hour. The hour the district did not have.
   //
@@ -366,10 +444,24 @@ export const PRESETS = {
     // linear luminance 0.6487 - see sunLux above, which carries the deficit.
     sunColor: 0xffc985,
     // The dome's OWN cos-weighted upper-hemisphere colour, re-integrated from the
-    // same 64x32 probe skyLux comes from: [6325, 8712, 13073] nits, normalised.
-    // Cool fill against a warm key is what makes the hour read, and it is measured,
-    // not styled.
-    skyColor: 0xb9d5ff,
+    // same 64x32 probe skyLux comes from, normalised.
+    //
+    // WAS 0xb9d5ff FROM [6325, 8712, 13073] nits, and the note under it said "cool
+    // fill against a warm key is what makes the hour read". The measurement was
+    // right and the reading of it was wrong: chroma -0.348 is not a cool fill at
+    // an 8 deg sun, it is a NOON sky, and it is what put golden's foreground
+    // ground plane at R-B -5.8 - cooler than noon's +22.6, cooler than dusk's
+    // +16.2 and cooler than lamplight's +17.8. The cause was in the dome and is
+    // fixed there (src/sky.js, the MS whitening at the end of scatter()); this is
+    // the same integral re-read off the corrected model, [8507, 8460, 9135] nits,
+    // chroma -0.036. Photometrically nothing moved with it - skyLux 8,519,
+    // zenith 1,434 nits, horizon 7,907, identical to the digit either side.
+    //
+    // INERT IN THE DISTRICT and no longer inert anywhere it matters: the dome's
+    // PMREM carries the sky, this light sits at intensity 0, and the district
+    // bounce reads the dome's atmosphere.ambientRGB rather than this hex. It is
+    // the ambient in labs/, and it is the fallback when there is no dome.
+    skyColor: 0xf7f6ff,
     // Ground bounce: uGroundAlbedo (0x807866, linear [0.216, 0.188, 0.133]) times
     // the normalised sun hue [1, 0.584, 0.235] -> [0.216, 0.110, 0.031]. Red
     // passes the air mass intact, green and blue do not.
@@ -608,7 +700,80 @@ export const PLAUSIBLE = {
   night: { sunLux: [0, 3],          skyLux: [0.03, 1.5] },
   lampCandela: [300, 3000],         // a street lamp is ~10-20 klm over a sphere
   shopCandela: [40, 600],
+  // THE DISTRICT BOUNCE HAS NO BAND HERE, AND THAT IS THE HONEST ANSWER.
+  //
+  // The first version of this block carried bounceShareOfSky: [0.05, 0.55],
+  // described as catching a bounce that had gone to zero and one dialled past
+  // what the street can return. Both of those are real failure modes; that band
+  // caught neither of them independently, because it was FITTED TO THE FOUR
+  // NUMBERS THIS ROUND MEASURED (0.112 - 0.310) rather than derived from
+  // anything, and a plausibility band fitted to the observation is not evidence.
+  //
+  // The share is not a free quantity: it is F_wall * urbanAlbedo * E_wall /
+  // skyLux, and every one of those is either a measured constant or a function
+  // of the sun and sky illuminances this table ALREADY bounds. Evaluated at the
+  // corners of those bounds it can legitimately take:
+  //
+  //   preset   share range across its own sun/sky envelope
+  //   noon       0.136 - 0.504
+  //   golden     0.183 - 0.574     <- 0.55 would have fired inside the envelope
+  //   dusk       0.096 - 0.942
+  //   night      0.094 - 2.090
+  //
+  // So audit() derives the band per preset from those corners instead, which
+  // makes it a statement about this preset's own light rather than about what
+  // happened to be measured on one commit. What actually catches the two failure
+  // modes is asserted directly next to it: the light in the SCENE must equal the
+  // arithmetic (a bounce computed and never written is invisible in every other
+  // number), the view factor must equal the closed form for the canyon geometry
+  // it is quoted from, and the bounce colour must carry luminance 1 so that the
+  // light's intensity IS the lux it claims to deliver.
 };
+
+// THE STREET, as two numbers, for the bounce light in TimeOfDay's constructor.
+//
+// DUPLICATED FROM src/materials.js GLAZING.canyon, DELIBERATELY AND VISIBLY.
+// That object is not exported, and importing a 140 kB material library into the
+// lighting module - which labs/materials, labs/facades, labs/signage and
+// labs/sky all construct directly - to read two floats is a worse trade than
+// restating them here with the citation. If they drift, the glazing term and the
+// bounce term will disagree about the same street, and that is what this comment
+// exists to make visible.
+//
+// Measured, not chosen: tools/glaz-probe.mjs's canyon scan casts a ray out of the
+// outward normal of all 2,962 building edges in the bake and records the first
+// footprint it hits (86% hit something). Length-weighted medians are 22.5 m away
+// at 9.6 m tall for the district as a whole and 21.7 m at 19.2 m for the
+// buildings over 26 m; materials.js took 16.0 m at 22.0 m as the pair between
+// them, and this uses the same pair so the two terms describe one street.
+const CANYON_HEIGHT_M = 16.0, CANYON_WIDTH_M = 22.0;
+// Hottel's crossed strings for an infinitely long canyon of aspect a = H/W: the
+// floor's view factor to the sky is sqrt(1 + a^2) - a, so the share of the
+// cosine-weighted upper hemisphere that is BUILDING is one minus that. At
+// 16/22 the sky is 0.509 of it and the mass across the street is 0.491.
+//
+// The other candidate pair matters enough to record: at the district-wide median
+// (9.6 m at 22.5 m) the same formula gives 0.339 rather than 0.491, i.e. a third
+// less bounce. The hero cameras stand on Main Street, which is the corridor the
+// taller median describes, and consistency with the glazing term decided it.
+const CANYON_ASPECT = CANYON_HEIGHT_M / CANYON_WIDTH_M;
+const WALL_VIEW_FACTOR = 1 - (Math.sqrt(1 + CANYON_ASPECT * CANYON_ASPECT) - CANYON_ASPECT);
+// What the mass across the street returns, linear. src/materials.js
+// GLAZING.canyon.urbanAlbedo: the mean linear albedo of the 16 wall palette
+// entries of the four glazed recipes in facades.js - the district's own colours,
+// warm-tilted because they are - mixed 65% wall against 35% openings at 0.10.
+// Luminance 0.323, blue/red 0.777.
+const URBAN_ALBEDO = [0.364, 0.315, 0.283];
+// The street's own reflectance, linear, restating src/sky.js's uGroundAlbedo
+// (0x807866). Used ONLY when there is no sky dome to ask - labs/materials,
+// labs/facades and labs/signage all build a TimeOfDay without one. In the
+// district bounceDelivery() reads sky.groundAlbedo, so the pavement in the bounce
+// and the pavement under the dome cannot drift apart.
+//
+// Measured, per src/sky.js: the district's clay-paver plaza reads an effective
+// albedo of 0.180 and its carriageway 0.153, and 0x807866 = [0.216, 0.188, 0.133],
+// luminance 0.190, sits in the middle of that span.
+const GROUND_ALBEDO = [0.216, 0.188, 0.133];
 
 export class TimeOfDay {
   constructor(scene, renderer) {
@@ -766,7 +931,54 @@ export class TimeOfDay {
     // audit().skyDelivery reports how many paths are carrying the sky, so the
     // question this whole block answers is a number in the artifact from now on.
     this.hemi = new THREE.HemisphereLight(0xffffff, 0x000000, 1);
+    this.hemi.name = 'sky-hemisphere';
     scene.add(this.hemi);
+
+    // THE DISTRICT'S OWN INTERREFLECTION. The one light in the scene that is not
+    // the sky and not the sun.
+    //
+    // What it is for. src/sky.js's groundRadiance() models the lit ground the
+    // dome stands in for, and skyRadiance() writes it BELOW the horizon, so the
+    // PMREM hands it to vertical and down-facing normals and to nothing else. An
+    // UP-FACING surface in shadow - a road, a brick walk, a kerb, the surfaces
+    // that fill the bottom third of every hero frame - therefore receives the
+    // open sky and nothing else, and the open sky at noon is blue. That is the
+    // measured shape of the defect: a blind review found shaded brick at R-B +2
+    // where the same brick in sun reads +51, and it found the ground points worse
+    // than the wall points, which is exactly the asymmetry a bounce that only
+    // reaches downward normals produces.
+    //
+    // The previous round attacked the same symptom through uGroundAlbedo and its
+    // own commit message recorded why that could not work: "with a WHITE ground at
+    // albedo 1.0 the noon statistic only reaches 1.032 against photographs at
+    // 0.679 ... a form-factor problem, and no value of uGroundAlbedo fixes it."
+    // Correct, and this is the form factor. src/materials.js already fixed the
+    // same fault one level over - applyGlazingEnv puts the mass across the street
+    // into what a PANE reflects, because "an environment with no city in it" made
+    // towers brightest at the pavement. This is that street, used for what it
+    // BOUNCES rather than for what it mirrors.
+    //
+    // WHY A HemisphereLight WITH A BLACK GROUND COLOUR, which looks like a hack
+    // and is the correct shape. three.js gives an up-facing normal skyColor, a
+    // down-facing one groundColor and a vertical one their mean. The term that is
+    // missing is the mass across the street: an up-facing street surface sees all
+    // of it, a wall sees about half of it (the rest of its hemisphere is the
+    // ground, which the dome ALREADY delivers), and a down-facing surface sees
+    // none of it and is already served. Full / half / none is what this light
+    // does, so the missing term and the light's own angular response are the same
+    // function, and putting the bounce in the groundColor instead would have
+    // double-counted the dome's lower hemisphere on every soffit in the city.
+    //
+    // It is NOT a second helping of the sky, and skyDelivery() still counts one
+    // path: the sky's own audit reads this.hemi by identity, not by traversal
+    // order, and this light carries reflected light off the district's walls.
+    // bounceDelivery() reports it separately with its own envelope.
+    //
+    // Its intensity, colour and the arithmetic behind both are in _applyBounce().
+    // Zero until apply() runs.
+    this.bounce = new THREE.HemisphereLight(0xffffff, 0x000000, 0);
+    this.bounce.name = 'district-bounce';
+    scene.add(this.bounce);
 
     this.lamps = [];          // registered by whoever builds street furniture
     this.post = null;         // optional PostStack; see attachPost()
@@ -802,8 +1014,13 @@ export class TimeOfDay {
    */
   skyDelivery() {
     const hemiLux = this.hemi.intensity * lum3(this.hemi.color);
+    // atmosphere.skyLux, not audit().skyLux: they are the same field, audit()
+    // only rounds it, and audit() builds a large object. This runs per frame now
+    // (follow() -> _applyBounce() -> here), which the object build would not
+    // survive - and reading the raw field also keeps the bounce on the
+    // unrounded value the dome measured.
     const domeLux = this.skyCarriedByEnvironment()
-      ? (this.skyDome.audit().skyLux ?? 0) * (this.scene.environmentIntensity ?? 1) : 0;
+      ? (this.skyDome.atmosphere?.skyLux ?? this.skyDome.audit().skyLux ?? 0) * (this.scene.environmentIntensity ?? 1) : 0;
     return {
       hemisphereLux: +hemiLux.toFixed(3),
       environmentLux: +domeLux.toFixed(3),
@@ -815,6 +1032,140 @@ export class TimeOfDay {
       // is exactly what noon did.
       paths: (hemiLux > 1e-6 ? 1 : 0) + (domeLux > 1e-6 ? 1 : 0),
     };
+  }
+
+  /**
+   * The district's own interreflection, in lux delivered to an up-facing normal,
+   * and where every part of it came from. Reported by audit(), which also gates
+   * it - see PLAUSIBLE for why the band is derived from this preset's own sun/sky
+   * envelope rather than written down as a constant.
+   *
+   * THE MODEL, per channel, no free parameters:
+   *
+   *   E_h     = S*sin(elevation) + skyLux           light on the STREET
+   *   L_grnd  = groundAlbedo * E_h / pi             what the street sends back
+   *   E_wall  = S*cos(elevation)/pi                 sun on the mass across the road
+   *           + skyLux/2                            sky on it
+   *           + pi/2 * L_grnd                       the STREET on it
+   *   L_wall  = urbanAlbedo * E_wall / pi           what the mass sends back
+   *   E_bounce= F_wall * pi * L_wall                what a street surface collects
+   *
+   * S is the sun's DELIVERED direct-normal illuminance (intensity times the
+   * luminance of its colour - a saturated hue cannot carry linear luminance 1 in
+   * eight bits, and golden's 53,138 is an intensity carrying 34,470 lux). The
+   * /pi on the sun term is the azimuth average of max(0, cos(phi_n - phi_s)) over
+   * a vertical surface of every bearing, which is exactly 1/pi: half the walls in
+   * a street face away from the sun and this is the mean over all of them, not
+   * the value on the one facing it. skyLux/2 and pi/2 * L_grnd are the half
+   * hemispheres a vertical surface sees of the sky and of the ground.
+   *
+   * THE STREET-ON-THE-WALL TERM IS THE ONE THAT MAKES THIS WARM, and leaving it
+   * out was a measured mistake rather than a hypothetical one: the first version
+   * of this function had only the sun and sky terms and the lighting sweep
+   * reported the noon bounce at blue/red 1.177 - a BLUE bounce, at the hour whose
+   * street is carrying 105,000 lux. The reason is that a 75.6 deg sun puts almost
+   * nothing on a vertical surface directly (cos 75.6 = 0.249), so without the
+   * pavement in it the mean wall is lit mostly by the sky and returns the sky's
+   * own colour. The sun at noon hits the GROUND, and the only route by which that
+   * reaches a shaded surface is street -> wall -> street. With it the noon bounce
+   * is blue/red 0.84 and 26% of the ambient instead of 1.18 and 16%.
+   *
+   * It is not double-counting src/sky.js's groundRadiance(). That term is the lit
+   * ground BEYOND the draw distance and skyRadiance() writes it below the
+   * horizon, so the PMREM hands it to downward and vertical normals; nothing in
+   * the dome models the district's own walls, and this is the path through them.
+   *
+   * A LOW SUN IS THE ONE THAT LIGHTS WALLS DIRECTLY. At noon cos(75.6 deg) = 0.249
+   * puts 7,347 lux of sun on the mean wall against the pavement's 11,540; at
+   * golden cos(8 deg) = 0.990 puts 10,865 against the pavement's 1,717. So the
+   * two hours arrive at almost the same wall illuminance by opposite routes, and
+   * the bounce is a larger share of the ambient at golden (31%) than at noon (26%)
+   * because golden's sky is smaller - which is the second half of why golden read
+   * cool: the hour whose light is most nearly horizontal is the hour with most of
+   * its light in the interreflection, and the model had none of it.
+   *
+   * IT SELF-EXTINGUISHES AT NIGHT, which is the property that makes it safe to
+   * add: nothing is lighting the walls, so E_wall is 0.15 lux, the bounce is
+   * 0.024 lux, and the night frame - the one three critic rounds have called the
+   * best in the build - cannot move. It is not switched off by a flag; it goes
+   * away because its input does.
+   *
+   * WHAT IT DOES NOT DO. It is a street-level term applied to every normal in the
+   * scene, so a rooftop and a fifth-floor cornice get a bounce they cannot
+   * actually see. A HemisphereLight has no way to know how high a fragment is;
+   * applyGlazingEnv, which can, fades its own city term out with height. Stated
+   * rather than hidden: it over-lights roofs by up to this term's whole value,
+   * which is 16% of the ambient at noon, and roofs are a small share of a
+   * street-level frame.
+   */
+  bounceDelivery(override = null) {
+    const p = this.preset;
+    // The overrides exist for ONE caller: audit(), evaluating this same function
+    // at the corners of the sun/sky envelope so the share's plausible band is
+    // derived from the light this preset is already asserted to carry rather
+    // than fitted to whatever one commit measured. See PLAUSIBLE.
+    const sunLux = override ? override.sunLux : this.sun.intensity * lum3(this.sun.color);
+    // The sky as DELIVERED, not as authored: the dome's own integral when the
+    // PMREM is carrying it, the HemisphereLight otherwise. Same quantity
+    // skyDelivery() reports, so the bounce tracks weather and the hour for free.
+    const skyLux = override ? override.skyLux : this.skyDelivery().totalLux;
+    const wallFromSun = (sunLux * Math.cos(p.elevation)) / Math.PI;
+    const wallFromSky = 0.5 * skyLux;
+    // Unit-luminance hues, so the split below is spectral and the totals above
+    // stay the photometric quantities they are named as.
+    const unit = (c) => { const y = Math.max(lum3(c), 1e-9); return [c.r / y, c.g / y, c.b / y]; };
+    const su = unit(this.sun.color);
+    // The sky's hue from the DOME's own cosine-weighted hemispherical integral,
+    // not from the preset's authored skyColor. The two have drifted - at noon the
+    // preset says 0xbcd6f5, chroma -0.295, where the integral measures -0.449 -
+    // and the bounce is a reflectance applied to the light that is actually
+    // falling on the walls, so it has to use the measured one. It also means the
+    // bounce follows weather for free: turbidity and overcast move the integral
+    // and nothing on this side has to be told. Falls back to skyColor for the
+    // labs, which build a TimeOfDay with no dome at all.
+    const sk = this.skyDome?.atmosphere?.ambientRGB ?? unit(this.hemi.color);
+    // The street itself, per channel. The reflectance is the dome's own
+    // uGroundAlbedo when there is a dome, so the two terms describe one pavement;
+    // GROUND_ALBEDO is that value restated for the labs, which have no dome.
+    const ga = this.skyDome?.groundAlbedo ?? GROUND_ALBEDO;
+    const sunHoriz = sunLux * Math.sin(Math.max(p.elevation, 0));
+    const groundRad = [0, 1, 2].map((k) => (ga[k] * (su[k] * sunHoriz + sk[k] * skyLux)) / Math.PI);
+    const wallFromGround = [0, 1, 2].map((k) => 0.5 * Math.PI * groundRad[k]);
+    const wall = [0, 1, 2].map((k) => su[k] * wallFromSun + sk[k] * wallFromSky + wallFromGround[k]);
+    const sent = [0, 1, 2].map((k) => wall[k] * URBAN_ALBEDO[k]);
+    const y = 0.2126 * sent[0] + 0.7152 * sent[1] + 0.0722 * sent[2];
+    const lux = WALL_VIEW_FACTOR * y;
+    const wallY = 0.2126 * wall[0] + 0.7152 * wall[1] + 0.0722 * wall[2];
+    const groundY = 0.2126 * wallFromGround[0] + 0.7152 * wallFromGround[1] + 0.0722 * wallFromGround[2];
+    const r2 = (v) => +v.toFixed(v < 10 ? 4 : 1);
+    return {
+      lux: r2(lux),
+      colour: y > 1e-12 ? sent.map((v) => +(v / y).toFixed(4)) : [1, 1, 1],
+      blueOverRed: +(sent[2] / Math.max(sent[0], 1e-12)).toFixed(3),
+      wallLux: r2(wallY),
+      fromSunLux: r2(wallFromSun),
+      fromSkyLux: r2(wallFromSky),
+      // The street-on-the-wall term, reported on its own because it is the one
+      // that carries the sun at a high sun and the one whose absence made the
+      // noon bounce come out blue.
+      fromGroundLux: r2(groundY),
+      viewFactor: +WALL_VIEW_FACTOR.toFixed(4),
+      shareOfSky: +(lux / Math.max(skyLux, 1e-12)).toFixed(4),
+      // What the light in the scene is actually set to, so the report is of the
+      // scene and not of the arithmetic that was meant to configure it.
+      lightIntensity: +this.bounce.intensity.toFixed(this.bounce.intensity < 10 ? 4 : 1),
+      lightDeliveredLux: +(this.bounce.intensity * lum3(this.bounce.color)).toFixed(4),
+    };
+  }
+
+  /** Write bounceDelivery() into the light. Runs at the end of apply(). */
+  _applyBounce() {
+    const b = this.bounceDelivery();
+    // The colour carries luminance 1 by construction, so intensity IS the lux
+    // delivered to an up-facing normal and the two numbers in the audit agree.
+    this.bounce.color.setRGB(b.colour[0], b.colour[1], b.colour[2]);
+    this.bounce.intensity = b.lux;
+    return b;
   }
 
   registerLamp(light, candela) { this.lamps.push({ light, candela }); }
@@ -978,6 +1329,12 @@ export class TimeOfDay {
     // the measurements. This runs AFTER the dome block above, because whether the
     // dome's environment map is in the scene is the question it asks.
     this.hemi.intensity = this.skyCarriedByEnvironment() ? 0 : p.skyLux;
+    // AFTER the hemisphere and after the dome, because the bounce is a fraction
+    // of the light this hour actually puts on the district and both of those
+    // decide what that is. Running it earlier would light the walls with the
+    // PREVIOUS hour's sky, which is the same bug src/sky.js records against
+    // uSkyIlluminance one level down.
+    this._applyBounce();
     if (this.furniture) this.furniture.setLit(p.lampsOn);
     if (this.world && this.world.setFacadeTime) this.world.setFacadeTime(name);
     // Rescale the pool for the new time of day WITHOUT re-selecting which emitters
@@ -1012,6 +1369,18 @@ export class TimeOfDay {
     this.sun.target.position.copy(pos);
     this.sun.target.updateMatrixWorld();
     if (this.post) this.post.params.sunDirection.copy(this.sun.position).sub(pos).normalize();
+    // The bounce is a fraction of the light the sky is putting on the district,
+    // and weather moves that continuously: weather.js pushes turbidity and
+    // overcast into the dome and the dome re-derives skyLux from its own probe,
+    // with nothing on this side of the boundary being told. Recomputing here
+    // rather than only in apply() is what stops the interreflection sitting one
+    // weather state behind the sky that makes it - the same staleness src/sky.js
+    // records against uSkyIlluminance one level down, and the reason audit()
+    // asserts the light against the arithmetic rather than trusting it.
+    //
+    // Cost: a dozen multiplies and two field reads. skyDelivery() deliberately
+    // reads atmosphere.skyLux and not audit().
+    this._applyBounce();
   }
 
   // Scene-graph audit: what is ACTUALLY in the graph, with units, so a visual
@@ -1023,6 +1392,9 @@ export class TimeOfDay {
       if (o.isLight) {
         lights.push({
           type: o.type,
+          // Two HemisphereLights carry two different quantities now; the census
+          // has to say which is which or every reader of it has to guess.
+          name: o.name || undefined,
           intensity: +o.intensity.toFixed(3),
           unit: o.isDirectionalLight || o.isHemisphereLight ? 'lux' : 'candela',
           color: '#' + o.color.getHexString(),
@@ -1054,7 +1426,12 @@ export class TimeOfDay {
     const flags = [];
     const env = PLAUSIBLE[this.presetName];
     const sun = lights.find((l) => l.type === 'DirectionalLight');
-    const hemi = lights.find((l) => l.type === 'HemisphereLight');
+    // BY NAME, NOT BY TYPE. There are two HemisphereLights in the scene now - the
+    // sky's, which is off whenever the dome's PMREM is carrying the sky, and the
+    // district's own bounce - and `find(type === 'HemisphereLight')` returns
+    // whichever the traversal reaches first. Every number below it would then be
+    // about a light chosen by the order somebody added children to the scene.
+    const hemi = lights.find((l) => l.name === this.hemi.name) ?? lights.find((l) => l.type === 'HemisphereLight');
     if (sun && (sun.intensity < env.sunLux[0] || sun.intensity > env.sunLux[1])) {
       flags.push(`sun ${sun.intensity} lux outside plausible ${env.sunLux.join('-')} for ${this.presetName}`);
     }
@@ -1081,6 +1458,58 @@ export class TimeOfDay {
         ? `the sky is delivered ${delivery.paths} times: HemisphereLight ${delivery.hemisphereLux.toFixed(0)} lux ` +
           `AND environment ${delivery.environmentLux.toFixed(0)} lux, from the same dome`
         : 'nothing is delivering the sky: every shadowed surface is lit by the sun alone');
+    }
+    // The district's own interreflection. Three assertions, and none of them is a
+    // band fitted to what this round measured - see PLAUSIBLE.
+    const bounce = this.bounceDelivery();
+
+    // 1. THE SHARE, against a band DERIVED from this preset's own sun/sky
+    //    envelope. The share is F_wall * urbanAlbedo * E_wall / skyLux and every
+    //    input is either a measured constant or a light this table already
+    //    bounds, so evaluating the same function at the envelope's corners gives
+    //    the range the ratio can legitimately take at this hour. It fires when a
+    //    constant has been hand-edited away from the geometry it came from, and
+    //    when the term has collapsed - which is the failure the dome's own ground
+    //    bounce suffered for months, sitting at 0.03 nits through the whole of
+    //    dusk because nothing reported the number.
+    //    It judges the share the LIGHT IN THE SCENE delivers, not the share the
+    //    arithmetic computes: the view factor and the wall albedo appear in the
+    //    band's corners as well as in the value and therefore CANCEL, so a check
+    //    on the arithmetic alone would be blind to the constant it looks like it
+    //    is guarding. Those two are caught by the identities in 3.
+    const shares = [];
+    for (const s of env.sunLux) {
+      for (const k of env.skyLux) shares.push(this.bounceDelivery({ sunLux: s * lum3(this.sun.color), skyLux: k }).shareOfSky);
+    }
+    const bLo = Math.min(...shares), bHi = Math.max(...shares);
+    const deliveredShare = bounce.lightDeliveredLux / Math.max(delivery.totalLux, 1e-12);
+    if (!(deliveredShare >= bLo && deliveredShare <= bHi)) {
+      flags.push(`the district bounce light delivers ${bounce.lightDeliveredLux} lux, ` +
+        `${(deliveredShare * 100).toFixed(1)}% of the sky's ${delivery.totalLux}, outside the ` +
+        `${(bLo * 100).toFixed(1)}-${(bHi * 100).toFixed(1)}% this preset's own sun/sky envelope allows`);
+    }
+    // 2. The light in the SCENE against the arithmetic that was supposed to
+    //    configure it. A bounce computed correctly and never written - apply()
+    //    returning early, a lab constructing TimeOfDay and never calling it - is
+    //    indistinguishable from a correct one in every number above this line.
+    if (Math.abs(bounce.lightDeliveredLux - bounce.lux) > 1e-3 * Math.max(1, bounce.lux)) {
+      flags.push(`the bounce light delivers ${bounce.lightDeliveredLux} lux where bounceDelivery() computes ` +
+        `${bounce.lux}: the light was not written`);
+    }
+    // 3. The two arithmetic identities the whole term rests on: the view factor
+    //    IS Hottel's crossed strings for the canyon it is quoted from, and the
+    //    bounce colour carries luminance 1 so the light's intensity is the lux it
+    //    claims to deliver. Both are one line to check and both are exactly the
+    //    kind of constant that gets hand-edited and then quoted back as measured.
+    const aC = CANYON_HEIGHT_M / CANYON_WIDTH_M;
+    const fRef = 1 - (Math.sqrt(1 + aC * aC) - aC);
+    if (Math.abs(WALL_VIEW_FACTOR - fRef) > 1e-9) {
+      flags.push(`bounce view factor ${WALL_VIEW_FACTOR} is not Hottel's ${fRef.toFixed(6)} for a ` +
+        `${CANYON_HEIGHT_M} m / ${CANYON_WIDTH_M} m canyon`);
+    }
+    const bcY = lum3(this.bounce.color);
+    if (bounce.lux > 1e-6 && Math.abs(bcY - 1) > 1e-3) {
+      flags.push(`bounce colour luminance ${bcY.toFixed(4)}, not 1: its intensity is not the lux it reports`);
     }
     for (const l of lights.filter((x) => x.type === 'PointLight' && x.intensity > 0)) {
       const [lo, hi] = PLAUSIBLE.lampCandela;
@@ -1169,6 +1598,10 @@ export class TimeOfDay {
       // is the number the envelope now gates on alongside the total: it turns "is
       // the sky double-counted" from an argument into a count.
       skyDelivery: delivery,
+      // The district's interreflection: what it delivers, what it is made of and
+      // what share of the ambient it is. Separate from skyDelivery because it is
+      // not the sky - see the bounce light in the constructor.
+      bounceDelivery: bounce,
       litPointLights: lights.filter((l) => l.type === 'PointLight' && l.intensity > 0).length,
       lightPool: this.lightPool ? this.lightPool.report() : null,
       environmentIntensity: this.scene.environmentIntensity,

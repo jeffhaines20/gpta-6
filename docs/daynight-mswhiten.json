@@ -1,0 +1,75 @@
+{
+ "authored": 0.85,
+ "off": {
+  "skyLux": 8519,
+  "zenithNits": 1434,
+  "horizonNits": 7907,
+  "ambientChroma": -0.348,
+  "zenithChroma": -0.498,
+  "horizonChroma": 0.193,
+  "applied": 0,
+  "betaBlueOverRed": 5.707
+ },
+ "on": {
+  "skyLux": 8519,
+  "zenithNits": 1434,
+  "horizonNits": 7907,
+  "ambientChroma": -0.036,
+  "zenithChroma": -0.158,
+  "horizonChroma": 0.462,
+  "applied": 0.7422,
+  "betaBlueOverRed": 1.62
+ },
+ "photometryMoved": [],
+ "hueMoved": true,
+ "perPreset": [
+  {
+   "tod": "noon",
+   "authored": 0.85,
+   "applied": 0,
+   "betaR": [
+    5.8,
+    13.5,
+    33.1
+   ],
+   "blueOverRed": 5.707,
+   "normalised": true
+  },
+  {
+   "tod": "golden",
+   "authored": 0.85,
+   "applied": 0.7422,
+   "betaR": [
+    11.35,
+    13.335,
+    18.389
+   ],
+   "blueOverRed": 1.62,
+   "normalised": true
+  },
+  {
+   "tod": "dusk",
+   "authored": 0.85,
+   "applied": 0.1328,
+   "betaR": [
+    6.793,
+    13.471,
+    30.467
+   ],
+   "blueOverRed": 4.485,
+   "normalised": true
+  },
+  {
+   "tod": "night",
+   "authored": 0.85,
+   "applied": 0,
+   "betaR": [
+    5.8,
+    13.5,
+    33.1
+   ],
+   "blueOverRed": 5.707,
+   "normalised": true
+  }
+ ]
+}

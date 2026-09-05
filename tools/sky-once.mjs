@@ -334,11 +334,21 @@ async function setLights(v) {
   await page.evaluate(([variant, on]) => {
     const D = __district;
     if (!window.__saved) {
-      let sun = null, hemi = null;
+      // BY NAME. The scene has two HemisphereLights since the district's own
+      // interreflection landed - 'sky-hemisphere' (off whenever the dome's PMREM
+      // carries the sky) and 'district-bounce' - and a bare isHemisphereLight
+      // test keeps the LAST one it walks. This file's whole purpose is to say
+      // which path delivers what, so it cannot pick its subject by traversal
+      // order. `?? o` keeps it working against a build that predates the names.
+      let sun = null, hemi = null, anyHemi = null;
       D.scene.traverse((o) => {
         if (o.isDirectionalLight) sun = o;
-        if (o.isHemisphereLight) hemi = o;
+        if (o.isHemisphereLight) {
+          anyHemi = anyHemi ?? o;
+          if (o.name === 'sky-hemisphere') hemi = o;
+        }
       });
+      hemi = hemi ?? anyHemi;
       window.__saved = { sun, hemi, sunI: sun.intensity, hemiI: hemi.intensity,
         env: D.scene.environmentIntensity };
     }

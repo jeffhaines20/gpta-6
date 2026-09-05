@@ -1,0 +1,123 @@
+{
+ "audits": [
+  {
+   "framing": "corridor",
+   "tod": "night",
+   "exposure": 0.1859427296392711,
+   "exposureAsStop": "1/5",
+   "sunLux": 0.6,
+   "sunLuxDelivered": 0.277,
+   "skyDelivery": {
+    "hemisphereLux": 0,
+    "environmentLux": 0.197,
+    "totalLux": 0.197,
+    "paths": 1
+   },
+   "implausible": [],
+   "bounce": {
+    "lux": 0.03,
+    "colour": [
+     0.8977,
+     0.9598,
+     1.699
+    ],
+    "blueOverRed": 1.893,
+    "wallLux": 0.1916,
+    "fromSunLux": 0.0549,
+    "fromSkyLux": 0.0985,
+    "fromGroundLux": 0.0382,
+    "viewFactor": 0.4908,
+    "shareOfSky": 0.1522,
+    "lightIntensity": 0.03,
+    "lightDeliveredLux": 0.03
+   },
+   "sky": {
+    "skyLux": 0.197,
+    "zenithNits": 0.045,
+    "horizonNits": 0.176,
+    "zenithChroma": -0.713,
+    "horizonChroma": -0.002,
+    "ambientChroma": -0.497,
+    "groundBounce": {
+     "albedo": [
+      0.2159,
+      0.1878,
+      0.1329
+     ],
+     "albedoLuminance": 0.1898,
+     "albedoBlueOverRed": 0.616,
+     "groundLux": 0.197,
+     "fromSunLux": 0,
+     "fromSkyLux": 0.197,
+     "radianceNits": 0.012
+    },
+    "msAniso": 0.6
+   },
+   "post": {
+    "bloomThreshold": 0.118,
+    "fogDensity": 0.0009,
+    "aoStrength": 0.95
+   }
+  },
+  {
+   "framing": "fivepoints",
+   "tod": "night",
+   "exposure": 0.1859427296392711,
+   "exposureAsStop": "1/5",
+   "sunLux": 0.6,
+   "sunLuxDelivered": 0.277,
+   "skyDelivery": {
+    "hemisphereLux": 0,
+    "environmentLux": 0.197,
+    "totalLux": 0.197,
+    "paths": 1
+   },
+   "implausible": [],
+   "bounce": {
+    "lux": 0.03,
+    "colour": [
+     0.8977,
+     0.9598,
+     1.699
+    ],
+    "blueOverRed": 1.893,
+    "wallLux": 0.1916,
+    "fromSunLux": 0.0549,
+    "fromSkyLux": 0.0985,
+    "fromGroundLux": 0.0382,
+    "viewFactor": 0.4908,
+    "shareOfSky": 0.1522,
+    "lightIntensity": 0.03,
+    "lightDeliveredLux": 0.03
+   },
+   "sky": {
+    "skyLux": 0.197,
+    "zenithNits": 0.045,
+    "horizonNits": 0.176,
+    "zenithChroma": -0.713,
+    "horizonChroma": -0.002,
+    "ambientChroma": -0.497,
+    "groundBounce": {
+     "albedo": [
+      0.2159,
+      0.1878,
+      0.1329
+     ],
+     "albedoLuminance": 0.1898,
+     "albedoBlueOverRed": 0.616,
+     "groundLux": 0.197,
+     "fromSunLux": 0,
+     "fromSkyLux": 0.197,
+     "radianceNits": 0.012
+    },
+    "msAniso": 0.6
+   },
+   "post": {
+    "bloomThreshold": 0.118,
+    "fogDensity": 0.0009,
+    "aoStrength": 0.95
+   }
+  }
+ ],
+ "errors": []
+}

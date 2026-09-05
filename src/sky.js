@@ -205,6 +205,10 @@ uniform float uBetaM;
 uniform vec3  uBetaO;            // ozone absorption at the layer's peak density
 uniform float uMieG;
 uniform vec2  uMsBoost;          // multiple-scattering gain: (Rayleigh, Mie)
+// uBetaR softened toward its own luminance for the MULTIPLY-scattered term only.
+// Equal luminance to uBetaR by construction, so it can only move hue. See the end
+// of scatter().
+uniform vec3  uMsBetaR;
 uniform float uMsAniso;          // forward bias of that term, 0 = isotropic
 uniform vec3  uMsWarm;           // its tint toward the sun, luminance normalised to 1
 uniform vec3  uMsCool;           // ...and away from it, likewise
@@ -451,8 +455,58 @@ vec3 scatter(vec3 dir) {
   float lowW = mix(1.0, 0.30, smoothstep(0.02, 0.50, dir.y));
   vec3 msTint = mix(uMsCool, uMsWarm, fwd) * max(0.0, 1.0 + uMsAniso * lowW * mu);
 
+  // THE MULTIPLY-SCATTERED TERM WAS ENRICHING BLUE TWICE AND EXTINGUISHING IT
+  // ONCE, AND THAT IS WHY GOLDEN HOUR RENDERED AS A NOON SKY.
+  //
+  // Its source term is deliberately given a SHORT sun leg - the raised uMsSunDir
+  // and MS_PATH 0.45 - because the light that reaches this sample by an ensemble
+  // of paths was made in air the earth's curvature puts closer to the sun. That
+  // is right, and it is what makes twilight survive at all. But the last
+  // scattering event was then charged the FULL single-event Rayleigh spectrum,
+  // uBetaR, which prefers blue 5.7:1. So the model took light that had barely
+  // been reddened and scattered it as if it were fresh sunlight: at an 8 deg sun
+  // the MS sun leg comes out [0.96, 0.91, 0.79] and uBetaR turns that into a
+  // blue/red of 4.7, against single scattering's 1.34 through the same air.
+  //
+  // MEASURED, not reasoned about. tools/sky-terms.mjs switches each term off in
+  // turn and re-reads the dome's own integrals. At golden hour the MS term
+  // carries 59% of the sky's energy (skyLux 8,519 whole against 3,572 with the
+  // MS gain at zero) and it is the term that makes it blue: the sky's
+  // cosine-weighted hemispherical COLOUR sits at chroma -0.348 whole and -0.137
+  // with the MS term removed. A hemispherical ambient at -0.348 with an 8 deg sun
+  // is a noon sky, and it is what put golden's ground plane at R-B -5.8 - cooler
+  // than its own noon.
+  //
+  // A field that has scattered several times is not spectrally selective the way
+  // one event is: every event both scatters blue harder and extinguishes it
+  // harder, and over an ensemble of long paths the two cancel toward grey. That
+  // desaturation is a standard property of multiple scattering and this model had
+  // no representation of it. uMsBetaR is uBetaR mixed toward its own luminance.
+  //
+  // AND THE MIX IS NORMALISED, BECAUSE ON ITS OWN IT IS NOT ENERGY-NEUTRAL. The
+  // first version of this asserted that mixing toward luminance(uBetaR) preserves
+  // luminance "by construction". It does not: msR and msTint are both per-channel,
+  // so the luminance of their product with beta is not the product of their
+  // luminances. Measured on the sweep, the un-normalised mix moved golden's skyLux
+  // by 2.7% and dusk's by 5.3% - a hue control quietly acting as a brightness
+  // control, on exactly the quantity the plausibility envelope gates. So the
+  // whitened term is rescaled against the same term computed with uBetaR, which
+  // holds its luminance EXACTLY, per texel. What the whitening does is
+  // redistribute this term across wavelength; it neither adds nor removes any of
+  // it, and the sweep now reproduces base skyLux, zenith and horizon to the digit
+  // at every whitening.
+  //
+  // _pushUniforms fades it in over a band rather than monotonically; see there.
+  const vec3 MS_LUMA = vec3(0.2126, 0.7152, 0.0722);
+  vec3 msRay = msR * uMsBoost.x * msTint;
+  // Betas scaled off 1e-6 before the ratio so neither dot product is denormal.
+  vec3 msWhitened = msRay * (uMsBetaR * 1e6);
+  vec3 msAsIs     = msRay * (uBetaR * 1e6);
+  float wy = dot(msWhitened, MS_LUMA), ty = dot(msAsIs, MS_LUMA);
+  msWhitened *= wy > 1e-20 ? ty / wy : 1.0;
+
   vec3 L = uSunIlluminance * (
-      sumR * uBetaR * phaseR + msR * uBetaR * uMsBoost.x * msTint
+      sumR * uBetaR * phaseR + msWhitened * 1e-6
     + sumM * uBetaM * phaseM + msM * uBetaM * uMsBoost.y * msTint);
 
   return L;
@@ -1014,6 +1068,11 @@ export class Sky {
       zenithChroma: null,
       horizonChroma: null,
       ambientChroma: null,
+      // Null until the probe has been read: a consumer must be able to tell "the
+      // ambient is neutral" from "the dome has not been measured yet", and
+      // daynight.js's bounce falls back to the preset's authored skyColor on null
+      // rather than lighting the city with [1,1,1].
+      ambientRGB: null,
       hueRotation: null,
       skyLux: 0,
       sunLux: 0,
@@ -1089,6 +1148,10 @@ export class Sky {
       // PLAUSIBLE_SKY rather than at the single-scattering value, which is roughly
       // a third of a real sky and far too saturated.
       uMsBoost: { value: new THREE.Vector2(0.115, 0.030) },
+      // Seeded at uBetaR, i.e. no whitening; _pushUniforms writes the faded value
+      // on the first refresh, which the constructor performs before anything
+      // renders the dome.
+      uMsBetaR: { value: new THREE.Vector3(...BETA_R) },
       uMsAniso: { value: 0 },
       uMsWarm: { value: new THREE.Vector3(1, 1, 1) },
       uMsCool: { value: new THREE.Vector3(1, 1, 1) },
@@ -1206,6 +1269,21 @@ export class Sky {
     // solar/anti-solar ratio at a given elevation, which is at the low end of what
     // a twilight sky actually does. Energy-preserving; see scatter().
     this.msAniso = opts.msAniso ?? 0.60;
+
+    // How far the MULTIPLY-scattered term's last scattering event is softened
+    // from the single-event Rayleigh spectrum toward grey, at a sun ON THE
+    // HORIZON; _pushUniforms fades it to zero as the sun climbs. See the end of
+    // scatter() for why the term needed it at all and why the change cannot move
+    // a single photometric number.
+    //
+    // 1.0 is the physical limit, not an aggressive setting: it says a field that
+    // has scattered many times has forgotten which wavelength it is, which is
+    // where an ensemble of long paths ends up. It is a settable option because
+    // the value is a trade against how blue the DUSK zenith stays - the MS term
+    // is the whole of a twilight sky, so whitening it hands the zenith's colour
+    // over to uMsCool - and that trade was swept rather than assumed
+    // (tools/sky-terms.mjs, docs/skyterms-*.json).
+    this.msWhiten = opts.msWhiten ?? 0.85;
 
     // Cloud deck. `cloudiness` is the fraction of sky the deck covers in CLEAR
     // weather; weather.js's overcast drives it the rest of the way to solid.
@@ -1626,7 +1704,44 @@ export class Sky {
     // Multiple-scattering anisotropy. Faded out as the sun climbs: the asymmetry
     // is a twilight phenomenon, and leaving it on at noon would move the zenith,
     // which is the one number the noon envelope has least room in.
-    u.uMsAniso.value = this.msAniso * (1 - smoothstep(0.05, 0.45, this.sunDirection.y));
+    const lowSun = 1 - smoothstep(0.05, 0.45, this.sunDirection.y);
+    u.uMsAniso.value = this.msAniso * lowSun;
+
+    // The MS term's last scattering event, softened toward grey. Applied over a
+    // BAND rather than monotonically, and the shape is fitted rather than
+    // derived - stated here because that is a trade, not a rule.
+    //
+    // The high end is the same fade uMsAniso uses, for the same reason: at a high
+    // sun the multiply-scattered field IS nearly fresh sunlight, the correction
+    // has nothing to correct, and noon's zenith is the number its envelope has
+    // least room in. At noon this is exactly zero and the shader is uBetaR again.
+    //
+    // The low end exists because the correction stops being needed before the sun
+    // reaches the horizon, and measured, applying it there costs something real.
+    // At a horizon sun the MS tints are extreme - uMsWarm and uMsCool are derived
+    // from a transmittance that is 500:1 red-to-blue - so the model ALREADY
+    // carries the field's spectral history there, and whitening on top of it
+    // double-counts. tools/sky-terms.mjs, dusk, sweeping msWhiten 0 -> 1:
+    //
+    //   whiten   zenith chroma   hemispherical ambient chroma   horizon chroma
+    //   0.00        -0.279               -0.083                     +0.557
+    //   0.40        -0.110               +0.071                     +0.658
+    //   0.70        +0.023               +0.187                     +0.727
+    //   1.00        +0.161               +0.304                     +0.791
+    //
+    // A dusk zenith at +0.16 is a warm zenith, and a blue-violet twilight zenith
+    // is the single thing the ozone term in this file was added for. The band
+    // leaves dusk at an applied weight of 0.13 (zenith ~-0.22, still blue) and
+    // golden at 0.74, which is where the defect is.
+    const msBand = smoothstep(-0.02, 0.06, this.sunDirection.y) * lowSun;
+    const wWhite = this.msWhiten * msBand;
+    const betaRY = luminance(BETA_R);
+    u.uMsBetaR.value.set(
+      BETA_R[0] + (betaRY - BETA_R[0]) * wWhite,
+      BETA_R[1] + (betaRY - BETA_R[1]) * wWhite,
+      BETA_R[2] + (betaRY - BETA_R[2]) * wWhite,
+    );
+
     const tMs = this._transmittanceAt(MS_ALTITUDE, Math.max(this.sunDirection.y, -0.01));
     const msN = tMs.map((v) => v / Math.max(luminance(tMs), 1e-9));
     // Softened with a fractional power: the raw beam transmittance at the horizon
@@ -1921,6 +2036,19 @@ export class Sky {
     a.zenithNits = luminance(zen);
     a.zenithChroma = chroma(zen);
     a.ambientChroma = chroma(up);
+    // The same integral as ambientChroma, kept as a UNIT-LUMINANCE RGB rather
+    // than reduced to one number. ambientChroma says how warm the ambient is;
+    // this says what colour it is, and daynight.js's district bounce needs the
+    // colour: the mass across the street is lit by this sky and returns it
+    // multiplied by the walls' own albedo. Reading it from here rather than from
+    // the preset's authored skyColor means the bounce tracks weather and the hour
+    // off the model instead of off a hex somebody has to remember to re-derive -
+    // and the two HAVE drifted: at noon the preset says 0xbcd6f5 (chroma -0.295)
+    // where this integral measures -0.449.
+    {
+      const y = Math.max(luminance(up), 1e-12);
+      a.ambientRGB = [up[0] / y, up[1] / y, up[2] / y];
+    }
     a.skyLux = lux;
 
     // Hand the ground bounce the sky's own illuminance, HERE and not in
@@ -2047,6 +2175,22 @@ export class Sky {
    */
   get recommendedEnvironmentIntensity() { return 1; }
 
+  /**
+   * The reflectance groundRadiance() multiplies E by, linear, as a plain triple.
+   *
+   * Exposed because daynight.js's district bounce needs the same number: the
+   * light a street surface gets back off the mass across the road includes what
+   * the PAVEMENT threw onto that mass first, and at a 75.6 deg noon sun that
+   * third bounce is the largest warm term in the whole model - it is the only
+   * path by which the sunlit street reaches a surface the sun cannot see. Two
+   * copies of a measured reflectance would drift; audit().groundBounce.albedo
+   * reports the same value and is the heavier way to ask for it.
+   */
+  get groundAlbedo() {
+    const a = this._uniforms.uGroundAlbedo.value;
+    return [a.r, a.g, a.b];
+  }
+
   // ------------------------------------------------------------------ audit
   report() {
     const a = this.atmosphere;
@@ -2082,6 +2226,30 @@ export class Sky {
         inLut: false,
       },
       msAniso: +this._uniforms.uMsAniso.value.toFixed(2),
+      // THE MS WHITENING: what is applied at this hour, and what it is applied to.
+      //
+      // The claim it has to answer for is that it moves HUE and not brightness,
+      // and that claim cannot be settled from inside one frame: the shader
+      // rescales the whitened term against the un-whitened one per texel, so the
+      // residual is exactly zero by construction and reporting it would only be
+      // reporting the construction back. What settles it is an A/B on the LUT -
+      // refresh at msWhiten 0, read the integrals, refresh at the authored value,
+      // read them again - and tools/daynight-sweep.mjs runs exactly that and
+      // fails if skyLux, zenithNits or horizonNits move, OR if the hue does not.
+      // These fields are what that arm needs to report which state it was in.
+      msWhiten: (() => {
+        const b = this._uniforms.uMsBetaR.value;
+        const y0 = luminance(BETA_R);
+        return {
+          authored: this.msWhiten,
+          // The band weight actually in force, recovered from the uniform.
+          applied: +(1 - (b.x - y0) / (BETA_R[0] - y0)).toFixed(4),
+          betaR: [+(b.x * 1e6).toFixed(3), +(b.y * 1e6).toFixed(3), +(b.z * 1e6).toFixed(3)],
+          // 5.707 is uBetaR untouched; 1.000 is fully grey.
+          blueOverRed: +(b.z / b.x).toFixed(3),
+          normalised: true,
+        };
+      })(),
       // THE GROUND BOUNCE, as three numbers, because it was invisible.
       //
       // The dome's lower hemisphere is the only warm fill in the district and
