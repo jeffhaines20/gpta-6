@@ -224,6 +224,15 @@ export const RECIPES = {
   retailStrip: {
     label: 'Low-rise retail strip',
     tileU: 16.8, floors: 2, floorM: 3.9, panel: 1024,
+    // LOT MODULE, in metres. tileU is the width of one repeat of the PAINTED bay
+    // rhythm - a window-scale number. lotM is a property-scale one: how wide a
+    // single tenancy on this kind of street actually is. A fidelity review
+    // measured 6-8 m shopfronts on Main Street against a 16.8 m tile and read the
+    // tile as the module, which it is not; but the criticism underneath it was
+    // right, because before the lot pass NOTHING in this file worked at property
+    // scale at all. 7.6 m is the Main Street shopfront: two display bays and a
+    // door. See lotCuts().
+    lotM: 7.6,
     rhythm: [1, 1.45, 1, 1.2, 0.75],
     wall: { h: 36, s: 16, l: 72 },
     trimHue: 30,
@@ -261,6 +270,9 @@ export const RECIPES = {
   midOffice: {
     label: 'Mid-rise office',
     tileU: 18.0, floors: 5, floorM: 3.6, panel: 1024,
+    // Wider than retail: a 1970s commercial block was built on assembled lots and
+    // subdivides more coarsely than a 1920s shopping street.
+    lotM: 9.8,
     rhythm: [1, 1, 1, 0.42, 1, 1],          // the narrow bay is the service riser
     wall: { h: 34, s: 6, l: 62 },
     trimHue: 34,
@@ -289,6 +301,7 @@ export const RECIPES = {
   deco: {
     label: 'Art-deco downtown block',
     tileU: 15.6, floors: 3, floorM: 3.8, panel: 1024,
+    lotM: 8.4,
     rhythm: [1.25, 0.9, 0.9, 1.25],
     wall: { h: 40, s: 22, l: 74 },
     trimHue: 22,
@@ -1656,22 +1669,41 @@ export function pickRecipe(b) {
   return 'retailStrip';
 }
 
-// Per-building colour, applied as vertex colours so a whole chunk keeps one
-// material. Linear-space RGB, since three.js treats vertex colours as linear.
-function tintOf(rec, r) {
-  const base = pick(r, rec.palette);
+// One palette entry, as a vertex colour. Linear-space RGB, since three.js treats
+// vertex colours as linear.
+//
+// The baked wall colour is divided out so the entry is a true recolour, and the
+// result is clamped at 1, so an entry can only ever DARKEN the painted wall. That
+// is deliberate and it is why the palettes read: a brick block needs to go down
+// from the panel's value, not up. `v` is the value nudge that keeps two
+// neighbours in the same colourway from being identical.
+function paletteTint(rec, base, v) {
   const c = new THREE.Color();
   c.setHSL(base.h / 360, base.s / 100, base.l / 100, THREE.SRGBColorSpace);
   const wall = new THREE.Color();
   wall.setHSL(rec.wall.h / 360, rec.wall.s / 100, rec.wall.l / 100, THREE.SRGBColorSpace);
-  // Divide out the baked wall colour so the tint is a true recolour, then nudge
-  // the value so no two neighbours are identical even within one colourway.
-  const v = 0.9 + r() * 0.22;
   return [
     clamp01((c.r / Math.max(0.02, wall.r)) * v),
     clamp01((c.g / Math.max(0.02, wall.g)) * v),
     clamp01((c.b / Math.max(0.02, wall.b)) * v),
   ];
+}
+
+// Rec. 709 relative luminance of a vertex tint. Used to prove that two lots
+// actually differ on screen rather than merely differing in the table.
+const lum = (c) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+
+// Per-building colour. Returns the ENTRY INDEX as well as the colour, because
+// the lot pass needs to know which colourway the block as a whole is in so its
+// shopfronts can vary around it instead of away from it.
+//
+// Draws from `r` exactly twice, in this order: the palette index, then the value
+// nudge. buildingStyle's random stream is the building's identity and every
+// consumer downstream of this call would shift if that changed.
+function tintOf(rec, r) {
+  const i = Math.min(rec.palette.length - 1, (r() * rec.palette.length) | 0);
+  const v = 0.9 + r() * 0.22;
+  return { tint: paletteTint(rec, rec.palette[i], v), idx: i, v };
 }
 
 /**
@@ -1702,7 +1734,13 @@ export function buildingStyle(b) {
 
   return {
     recipe: name, rec, seed, height: h, floors,
-    tint,
+    tint: tint.tint, tintIdx: tint.idx,
+    // Whether this building's street frontage is subdivided into LOTS. A tower,
+    // a parking deck, a shed and a house are each ONE property and must stay one
+    // wall; a low-rise downtown block is a row of tenancies and reads wrong as
+    // anything else. `lotM` on the recipe is the gate, height is the second: a
+    // 22 m commercial block is a single development, not a parade.
+    lots: !!rec.lotM && h <= 22,
     // A parapet is nearly universal on a flat-roofed building and is the single
     // cheapest silhouette upgrade: without it every roof is a bare cut edge.
     parapet: { height: name === 'deco' ? 1.5 : name === 'bayTower' ? 0.95 : 1.15,
@@ -1726,6 +1764,295 @@ export function buildingStyle(b) {
     roofUnits: name === 'stuccoHouse' ? 0
       : Math.min(9, Math.max(1, Math.round((area / 420) * (0.6 + r())))),
   };
+}
+
+// ------------------------------------------------------------------------ lots
+//
+// THE defect this section exists to fix, measured twice.
+//
+// An independent fidelity review against Mapillary photographs found that 380 m
+// of Main Street east is seven footprints, two of them running 181 m and 106 m of
+// continuous frontage "at one height, one recipe and one colour", where
+// reference/sarasota/mapillary/views/1110353507514779-L.png shows THREE separate
+// shopfronts inside a 24.5 m frame, each with its own fascia, parapet step,
+// colour and sign. Re-measured independently over data/district.json: twelve
+// footprints touch the band, mean street frontage 78.8 m, longest 181.4 m.
+//
+// The footprint is not the fault and is not the fix. data/district.json is baked
+// OSM and authoritative (binding constraint 10), a re-bake moves every building
+// in the district and invalidates every committed comparison, and the complaint
+// itself is about APPEARANCE inside a footprint: "one continuous tan wall, one
+// flat parapet, one string course, identical bays running the whole block with no
+// door, sign or colour change."
+//
+// So a footprint is a PROPERTY and a lot is an APPEARANCE UNIT inside it. One
+// footprint carries many lots; each lot gets its own wall colour, parapet height,
+// shopfront head, recess depth, texture phase, awning and street door, and a
+// party pier stands at every boundary. Nothing here touches a coordinate.
+//
+// Three rules this had to get right, and each is a way to make it look worse:
+//
+//   COLOUR STAYS INSIDE THE RECIPE. RECIPES carries researched Sarasota colour
+//   and a fidelity review said in as many words not to touch it. A lot draws a
+//   palette ENTRY of its own recipe and a value nudge, exactly what tintOf
+//   already did per building. No new hues enter the district.
+//
+//   ADJACENT LOTS DIFFER, BUT THE BLOCK IS STILL ONE STREET. If every lot drew
+//   independently across the full range the block would read as a harlequin,
+//   which is a different and worse failure than a blank wall. So there is a run
+//   rule: a lot most often takes the block's own colourway, sometimes repeats its
+//   neighbour's (two shops in one paint), and only sometimes strikes out. What
+//   always differs between neighbours is the value.
+//
+//   CORNERS AND ENDS ABSORB, THEY DO NOT SLIVER. A boundary landing 30 cm from a
+//   building corner is a defect, so cuts are clamped to a minimum lot width from
+//   both ends. And the FIRST and LAST lot of every edge keep the building's own
+//   parapet height, so at a corner this edge's parapet meets the returning edge's
+//   at exactly the height it always did - no open end-cap where two walls meet.
+//   Every interior step is closed by its own return quad.
+
+export const LOT = {
+  min: 6.2,          // a narrower tenancy than this is a sliver, not a shop
+  max: 11.5,         // wider than this and the row stops reading as a row
+  minEdge: 13.0,     // an edge shorter than this is already one shopfront
+  jitter: 0.30,      // boundary wander, as a fraction of the nominal lot width
+};
+
+/**
+ * Cut a frontage into lots. Deterministic in `seed`.
+ *
+ * The count is chosen first so no lot is narrower than LOT.min or wider than
+ * LOT.max, then the interior boundaries wander, then each wandered boundary is
+ * clamped so neither it nor anything after it can produce a sliver. That last
+ * pass is the one that matters: jitter alone will eventually put a cut 30 cm off
+ * a corner, and a 30 cm lot is a defect, not a variation.
+ *
+ * @param {number} len   frontage length in metres
+ * @param {number} seed  32-bit seed
+ * @returns {Array<[number,number]>} [start,end] pairs covering 0..len exactly
+ */
+export function lotCuts(len, seed, opts = {}) {
+  const m = opts.m ?? 8.4;
+  const min = opts.min ?? LOT.min, max = opts.max ?? LOT.max;
+  if (!(len > min * 2)) return [[0, len]];
+  let n = Math.max(1, Math.round(len / m));
+  while (n > 1 && len / n < min) n--;
+  while (len / n > max) n++;
+  const base = len / n;
+  // Both bounds have to be feasible for the count that was chosen, or the clamp
+  // below would fight itself and produce the sliver it exists to prevent.
+  const minLot = Math.min(min, base * 0.75);
+  const maxLot = Math.max(max, base * 1.05);
+  const r = rng(seed);
+  const cuts = [0];
+  for (let i = 1; i < n; i++) cuts.push(base * i + (r() - 0.5) * base * (opts.jitter ?? LOT.jitter));
+  cuts.push(len);
+  // Clamp each boundary against BOTH what it leaves behind it and what it leaves
+  // in front: `lo` keeps this lot from being a sliver and keeps enough room for
+  // the lots after it, `hi` keeps this lot from swallowing the block.
+  for (let i = 1; i < n; i++) {
+    const lo = Math.max(cuts[i - 1] + minLot, len - (n - i) * maxLot);
+    const hi = Math.min(cuts[i - 1] + maxLot, len - (n - i) * minLot);
+    cuts[i] = Math.max(lo, Math.min(hi, cuts[i]));
+  }
+  const out = [];
+  for (let i = 0; i < n; i++) out.push([cuts[i], cuts[i + 1]]);
+  return out;
+}
+
+/**
+ * A slice of an edge, in the shape edgesOf() returns, so every helper in this
+ * file can be handed a lot exactly where it would be handed a wall.
+ */
+export function subEdge(e, s0, s1) {
+  return {
+    a: [e.a[0] + e.tx * s0, e.a[1] + e.tz * s0],
+    b: [e.a[0] + e.tx * s1, e.a[1] + e.tz * s1],
+    len: s1 - s0, i: e.i,
+    tx: e.tx, tz: e.tz, nx: e.nx, nz: e.nz,
+  };
+}
+
+const PARAPET_STEP = [-0.32, -0.16, 0, 0.20, 0.44];
+const HEAD_STEP = [-0.38, -0.20, 0, 0.18, 0.36];
+// Pick from a table, never the same entry twice running: the whole point of a
+// step is that the neighbour did something else.
+const stepAfter = (r, table, prev) => {
+  let v = table[(r() * table.length) | 0];
+  if (v === prev) v = table[(table.indexOf(v) + 1 + ((r() * (table.length - 1)) | 0)) % table.length];
+  return v;
+};
+
+// Which bay of the painted rhythm a lot starts on.
+//
+// Free choice here is what de-aligns one lot's windows from its neighbour's, but
+// it is not free of consequence: openingsAlong drops an opening that would break
+// a corner, so an unlucky phase can leave a 7 m lot with no window at all above
+// its shopfront. So the phases are scored and the choice is made among those
+// within one opening of the best - varied, and never blank.
+function phaseFor(rec, len, r) {
+  const ex = bayEdges(rec.rhythm, 1);
+  const cand = [], counts = [];
+  let best = -1;
+  for (let j = 0; j < rec.rhythm.length; j++) {
+    const u0 = ex[j] * rec.tileU - 0.34;
+    const n = openingsAlong(rec, len, { u0, margin: 0.34 }).length;
+    cand.push(u0); counts.push(n);
+    if (n > best) best = n;
+  }
+  const keep = cand.filter((_, j) => counts[j] >= best - 1);
+  return keep[(r() * keep.length) | 0];
+}
+
+/**
+ * The lot plan for one building: which frontages are subdivided and what each
+ * lot looks like. Consumed by appendBuilding, by signage.js so a shop's fascia
+ * and awning land on ITS lot rather than straddling two, and by
+ * tools/frontage-stats.mjs so the claim can be measured.
+ *
+ * @param {Array<[number,number]>} ring   footprint
+ * @param {Object} style   buildingStyle result
+ * @param {number} height  building height
+ * @param {Array} fronts   the edges that carry frontage (street-facing first)
+ * @returns {Map<number, {e:Object, lots:Array}>} keyed by ring edge index
+ */
+export function lotPlanFor(ring, style, height, fronts) {
+  const plan = new Map();
+  if (!style.lots) return plan;
+  const rec = style.rec, pal = rec.palette;
+  const baseParapet = style.parapet?.height ?? 1.15;
+  const shop = style.storefront;
+  // The bottom of every window band facadeEdge will emit, so a fascia can be
+  // sized to stop clear of the one above it instead of growing into it. Same
+  // arithmetic as facadeEdge, kept here because the lot has to decide its own
+  // fascia height and signage.js has to be able to read it back.
+  const bandBottoms = [];
+  for (let F = 0; F < Math.floor(height / rec.floorM); F++) {
+    const bt = rec.floorM * (F + 1 - rec.win.top);
+    if (bt > height - 0.06) break;
+    bandBottoms.push(bt - rec.floorM * rec.win.h);
+  }
+
+  // A two- or three-storey block subdivides at SHOPFRONT scale whatever its wall
+  // is made of. The recipe carries the module for its own stock; a low building
+  // of any recipe was built on the narrower lots the street was platted in, which
+  // is why the reference photograph shows three tenancies in 24.5 m of a block
+  // this kit had drawn as one 181 m wall.
+  const lotM = rec.lotM * (height <= 12 ? 0.88 : 1);
+
+  for (const e of fronts) {
+    if (e.len < LOT.minEdge) continue;
+    const cuts = lotCuts(e.len, hash32('lot', style.seed, e.i), { m: lotM });
+    if (cuts.length < 2) continue;
+    const r = rng(hash32('lotstyle', style.seed, e.i));
+    const lots = [];
+    let prevIdx = -1, prevV = -1, prevPar = null, prevHead = null;
+    for (let k = 0; k < cuts.length; k++) {
+      const [s0, s1] = cuts[k];
+      const len = s1 - s0;
+
+      // Colourway. Mostly the block's own, sometimes the neighbour's again, and
+      // sometimes another entry of the same recipe. Never a new hue.
+      let idx;
+      if (k && r() < 0.30) idx = prevIdx;
+      else if (r() < 0.55) idx = style.tintIdx ?? 0;
+      else idx = (((style.tintIdx ?? 0) + 1 + ((r() * (pal.length - 1)) | 0)) % pal.length);
+      // The VALUE, and then the check that actually matters. Two lots that draw
+      // different palette entries can still land on the same brightness - most of
+      // midOffice's palette clamps against its own wall colour, so four authored
+      // colourways collapse to about two - and a party line you cannot see is not
+      // a party line. So the luminance of the finished tint is compared with the
+      // neighbour's and pushed apart until it reads. The lever is the value nudge
+      // tintOf already applies per building, widened from +-11% to +-18%; no hue
+      // moves, no entry is added, RECIPES is untouched.
+      let v = 0.86 + r() * 0.28;
+      let tint = paletteTint(rec, pal[idx], v);
+      if (k) {
+        // Push AWAY from the neighbour, whichever side of it this lot fell on, so
+        // the rule does not quietly darken every lotted frontage in the district;
+        // reverse at the clamp, because an entry already clamped to white cannot
+        // be separated by going brighter. The floor sits further from 1 than the
+        // ceiling on purpose: midOffice's palette entry 2 divides out ABOVE 1 in
+        // every channel, so it is white for any nudge over about 0.80, and
+        // darkening is the only lever that entry leaves.
+        let dir = lum(tint) >= prevV ? 1 : -1;
+        for (let g = 0; g < 8 && Math.abs(lum(tint) - prevV) < 0.055; g++) {
+          if (v + dir * 0.09 > 1.18 || v + dir * 0.09 < 0.70) dir = -dir;
+          v = Math.max(0.70, Math.min(1.18, v + dir * 0.09));
+          tint = paletteTint(rec, pal[idx], v);
+        }
+        // Last resort: if the nudge cannot separate them - both entries clamp to
+        // white whatever it does - take the palette's most contrasting entry
+        // instead. Still this recipe's own colour, and it beats two identical
+        // shops sharing a party pier.
+        if (Math.abs(lum(tint) - prevV) < 0.055) {
+          let bj = idx, bd = 0;
+          for (let j = 0; j < pal.length; j++) {
+            const dd = Math.abs(lum(paletteTint(rec, pal[j], 0.92)) - prevV);
+            if (dd > bd) { bd = dd; bj = j; }
+          }
+          if (bd >= 0.055) { idx = bj; v = 0.92; tint = paletteTint(rec, pal[idx], v); }
+        }
+      }
+
+      // Parapet. Pinned to the building's own height at both ends of the edge so
+      // the corners meet the returning walls exactly as they did before lots.
+      const end = k === 0 || k === cuts.length - 1;
+      const pstep = end ? 0 : stepAfter(r, PARAPET_STEP, prevPar);
+      const parapetH = Math.max(0.55, baseParapet + pstep);
+
+      // Shopfront head - the fascia line, and the horizontal the eye reads first.
+      // It was Math.min(4.0, h - 0.8) for every shopfront in the district, which
+      // is precisely the "constant storey height to the pavement" finding.
+      let head = null, depth = null, doorSpan = null, fasciaY = null;
+      if (shop) {
+        const hstep = stepAfter(r, HEAD_STEP, prevHead);
+        head = Math.max(2.9, Math.min(Math.min(4.6, height - 0.7), shop.head + hstep));
+        prevHead = hstep;
+        depth = 0.42 + r() * 0.46;
+        const bays = storefrontBays(len);
+        if (bays.length) {
+          const bi = r() < 0.72 ? (r() < 0.5 ? 0 : bays.length - 1) : ((r() * bays.length) | 0);
+          const [b0, b1] = bays[bi];
+          const dw = Math.min(1.35, (b1 - b0) * 0.5);
+          // Not every lot: a run of shopfronts where every single unit has its
+          // own door at the same spacing is its own kind of regularity, and two
+          // adjacent lots trading as one unit is ordinary on a real high street.
+          if (dw > 0.85 && r() < 0.82) doorSpan = bi === 0 ? [b0, b0 + dw] : [b1 - dw, b1];
+        }
+        // The fascia band over the shopfront: as deep as it can be without
+        // reaching the first-floor sill above it.
+        let ceil = height - 0.18;
+        for (const bb of bandBottoms) if (bb >= head + 0.2) { ceil = Math.min(ceil, bb - 0.14); break; }
+        const fh = Math.min(0.58, ceil - head);
+        if (fh >= 0.2) fasciaY = [head, head + fh];
+      }
+
+      lots.push({
+        i: e.i, k, s0, s1, len, sub: subEdge(e, s0, s1),
+        tint,
+        tintIdx: idx,
+        // The fascia is PAINTED joinery, not masonry, so it takes its own entry
+        // of the same palette and is allowed to go darker than a wall would.
+        // This is the band the shop's name sits on and it is what makes one
+        // tenancy legible from across the street.
+        fasciaTint: paletteTint(rec, pal[(r() * pal.length) | 0], 0.68 + r() * 0.34),
+        // Texture phase: which bay of the painted rhythm this lot starts on, less
+        // a pier's width so the first opening clears the party line. Adjacent
+        // lots therefore do not line their windows up, which is the single
+        // cheapest cue that two neighbours were built by different people.
+        u0: phaseFor(rec, len, r),
+        parapetH, head, depth, doorSpan, fasciaY,
+        awning: !!shop && len > 3.8 && r() < 0.46,
+        // A lot with no shopfront still meets the street somewhere, but an office
+        // block has fewer street doors than a retail row.
+        entrance: !shop && r() < 0.34,
+      });
+      prevIdx = idx; prevV = lum(tint); prevPar = pstep;
+    }
+    plan.set(e.i, { e, lots });
+  }
+  return plan;
 }
 
 // ------------------------------------------------------------- geometry helpers
@@ -1961,31 +2288,63 @@ export function parapet(ring, y, pos, nrm, uv, idx, opts = {}) {
   const h = opts.height ?? 1.1, proj = opts.project ?? 0.22;
   const cell = opts.cell ?? TRIM.stone;
   const c = trimCell(cell);
+  const q = [c.u0, c.v0, c.u1, c.v1];
   const col = opts.col, t = opts.tint ?? [1, 1, 1];
   const edges = edgesOf(ring, { minLen: 0.6 });
+  // The cornice line comes from the BUILDING's parapet height, not the lot's, so
+  // that one horizontal still runs the length of the block. Only the top steps.
+  // A block whose cornice AND parapet both jumped at every party line would be a
+  // row of sheds, not a row of shops.
   const cornice = y - h * 0.35;
 
-  for (const e of edges) {
-    // Projecting cornice: soffit, face, and the top wash.
+  // The projecting cornice: soffit, face and top wash. Its line and its
+  // projection are the same for every lot, so it is emitted once per EDGE and
+  // keeps the building's own colour - a continuous cornice is what stops a row of
+  // stepped parapets reading as a row of sheds, and it is three quads a lot
+  // saved on the most-instanced kit part in the district.
+  const corniceRun = (e, tint) => {
+    const o = { ...opts, tint };
     const ox = e.nx * proj, oz = e.nz * proj;
     const ax = e.a[0], az = e.a[1], bx = e.b[0], bz = e.b[1];
     quad(pos, nrm, uv, idx,
       [bx, cornice, bz], [ax, cornice, az], [ax + ox, cornice, az + oz], [bx + ox, cornice, bz + oz],
-      [0, -1, 0], [c.u0, c.v0, c.u1, c.v1], col, t);
-    bandAlong(e, cornice, y, proj, cell, pos, nrm, uv, idx, opts, 0);
+      [0, -1, 0], q, col, tint);
+    bandAlong(e, cornice, y, proj, cell, pos, nrm, uv, idx, o, 0);
     quad(pos, nrm, uv, idx,
       [ax + ox, y, az + oz], [bx + ox, y, bz + oz], [bx, y, bz], [ax, y, az],
-      [0, 1, 0], [c.u0, c.v0, c.u1, c.v1], col, t);
-    // Parapet above the cornice: outer face, cap, inner face.
-    const top = y + h;
-    bandAlong(e, y, top, 0, cell, pos, nrm, uv, idx, opts, 0);
+      [0, 1, 0], q, col, tint);
+  };
+  // The parapet standing on it: outer face, cap, inner face. THIS is what steps.
+  const run = (e, ph, tint) => {
+    const o = { ...opts, tint };
+    const ax = e.a[0], az = e.a[1], bx = e.b[0], bz = e.b[1];
+    const top = y + ph;
+    bandAlong(e, y, top, 0, cell, pos, nrm, uv, idx, o, 0);
     const ix = -e.nx * 0.26, iz = -e.nz * 0.26;
     quad(pos, nrm, uv, idx,
       [ax, top, az], [bx, top, bz], [bx + ix, top, bz + iz], [ax + ix, top, az + iz],
-      [0, 1, 0], [c.u0, c.v0, c.u1, c.v1], col, t);
+      [0, 1, 0], q, col, tint);
     quad(pos, nrm, uv, idx,
       [bx + ix, y, bz + iz], [ax + ix, y, az + iz], [ax + ix, top, az + iz], [bx + ix, top, bz + iz],
-      [-e.nx, 0, -e.nz], [c.u0, c.v0, c.u1, c.v1], col, t);
+      [-e.nx, 0, -e.nz], q, col, tint);
+  };
+
+  for (const e of edges) {
+    const lots = opts.lots?.get(e.i);
+    corniceRun(e, t);
+    if (!lots || lots.length < 2) { run(e, h, t); continue; }
+    for (const L of lots) run(L.sub, L.parapetH, L.tint);
+    // Close every interior step. The parapet is a 0.26 m slab; where the lot on
+    // one side is taller its slab has an open END, and an open end is a hole you
+    // can see the sky through from the pavement opposite.
+    for (let k = 1; k < lots.length; k++) {
+      const a = lots[k - 1], b = lots[k];
+      const d = a.parapetH - b.parapetH;
+      if (Math.abs(d) < 0.02) continue;
+      const lo = y + Math.min(a.parapetH, b.parapetH), hi = y + Math.max(a.parapetH, b.parapetH);
+      jambQ(e, b.s0, lo, hi, 0, -0.26, d > 0 ? -1 : 1, q, pos, nrm, uv, idx,
+        { col, tint: (d > 0 ? a : b).tint });
+    }
   }
 
   if (opts.stepped) {
@@ -2030,6 +2389,12 @@ export function storefront(ring, pos, nrm, uv, idx, opts = {}) {
   const jambC = trimCell(opts.jambCell ?? TRIM.stucco);
   const col = opts.col, t = opts.tint ?? [1, 1, 1];
   const edges = opts.edges ?? edgesOf(ring, { minLen: 4, longest: opts.faces ?? 2 });
+  // Where this tenancy's own street door goes, in edge metres. A separate
+  // fidelity finding - "the ground floor does not meet the street: no doors, no
+  // entrances" - is answered here and nowhere else, because before the lot pass
+  // a shopfront building had NO door at all: buildingStyle only gives an
+  // `entrance` to buildings with no shopfront.
+  const door = opts.doorSpan ?? null;
 
   for (const e of edges) {
     const P = (x) => [e.a[0] + e.tx * x, e.a[1] + e.tz * x];
@@ -2063,8 +2428,72 @@ export function storefront(ring, pos, nrm, uv, idx, opts = {}) {
       quad(pos, nrm, uv, idx,
         [g0[0], 0.02, g0[1]], [g1[0], 0.02, g1[1]], [o1[0], 0.02, o1[1]], [o0[0], 0.02, o0[1]],
         [0, 1, 0], [bulkC.u0, bulkC.v0, bulkC.u1, bulkC.v1], col, t);
+
+      // The door, if it falls in this bay. Its leaf stands 5 cm STREET-WARD of
+      // the display glazing rather than behind it: that is where a door in its
+      // frame actually sits, it occludes the pane instead of z-fighting it, and
+      // it needs no second copy of the bay to make room.
+      if (door && door[0] >= s0 - 1e-6 && door[1] <= s1 + 1e-6) {
+        const o2 = { col, tint: t };
+        const dOut = -(depth - 0.05);
+        const leaf = Math.min(2.35, head - 0.5);
+        const kick = Math.min(0.92, leaf * 0.4);
+        const gq = [glass.u0, glass.v0, glass.u1, glass.v1];
+        const bq = [bulkC.u0, bulkC.v0, bulkC.u1, bulkC.v1];
+        const jq = [jambC.u0, jambC.v0, jambC.u1, jambC.v1];
+        faceQ(e, door[0], door[1], 0.02, kick, dOut, bq, pos, nrm, uv, idx, o2);
+        faceQ(e, door[0], door[1], kick, leaf, dOut, gq, pos, nrm, uv, idx, o2);
+        jambQ(e, door[0], 0.02, leaf, -depth, dOut, -1, jq, pos, nrm, uv, idx, o2);
+        jambQ(e, door[1], 0.02, leaf, -depth, dOut, 1, jq, pos, nrm, uv, idx, o2);
+        shelfQ(e, door[0], door[1], leaf, -depth, dOut, -1, jq, pos, nrm, uv, idx, o2);
+        shelfQ(e, door[0], door[1], 0.02, -depth, dOut, 1, bq, pos, nrm, uv, idx, o2);
+      }
     }
   }
+}
+
+/**
+ * The pilaster at a party line. A lot boundary that is only a colour change is a
+ * stripe painted on a wall; what makes two neighbours read as two BUILDINGS is a
+ * vertical element between them, and it does a second job as well - it stands
+ * proud of both the plinth and the fascia band, so the seam where two lots'
+ * texture phases meet is behind something solid rather than on show.
+ *
+ * @param {Object} e    the PARENT edge (not the lot), so `s` is in edge metres
+ * @param {number} s    boundary position along the edge
+ * @param {number} top  height to carry the pier to - the roof, under the cornice
+ */
+export function partyPier(e, s, top, pos, nrm, uv, idx, opts = {}) {
+  const w = opts.width ?? 0.44, out = opts.project ?? 0.16, y0 = opts.base ?? 0.02;
+  const c = trimCell(opts.cell ?? TRIM.stone);
+  const q = [c.u0, c.v0, c.u1, c.v1];
+  const o = { col: opts.col, tint: opts.tint ?? [1, 1, 1] };
+  const s0 = Math.max(0.02, s - w / 2), s1 = Math.min(e.len - 0.02, s + w / 2);
+  if (s1 - s0 < 0.1 || top <= y0) return;
+  faceQ(e, s0, s1, y0, top, out, q, pos, nrm, uv, idx, o);
+  jambQ(e, s0, y0, top, 0, out, -1, q, pos, nrm, uv, idx, o);
+  jambQ(e, s1, y0, top, 0, out, 1, q, pos, nrm, uv, idx, o);
+  shelfQ(e, s0, s1, top, 0, out, 1, q, pos, nrm, uv, idx, o);
+}
+
+/**
+ * The lintel band over one shopfront - the fascia a shop's name goes on.
+ *
+ * This is the horizontal that carries the row. Every shopfront head in the
+ * district was Math.min(4.0, h - 0.8), i.e. 4.00 m on every building over 4.8 m
+ * tall, so the one line the eye follows down a block was dead level for 380 m.
+ * A lot sets its own head, and this band makes the step visible instead of
+ * merely present.
+ */
+export function fasciaBand(e, s0, s1, y0, y1, pos, nrm, uv, idx, opts = {}) {
+  if (s1 - s0 < 0.4 || y1 - y0 < 0.12) return;
+  const out = opts.project ?? 0.13;
+  const c = trimCell(opts.cell ?? TRIM.stucco);
+  const q = [c.u0, c.v0, c.u1, c.v1];
+  const o = { col: opts.col, tint: opts.tint ?? [1, 1, 1] };
+  faceQ(e, s0, s1, y0, y1, out, q, pos, nrm, uv, idx, o);
+  shelfQ(e, s0, s1, y1, 0, out, 1, q, pos, nrm, uv, idx, o);
+  shelfQ(e, s0, s1, y0, 0, out, -1, q, pos, nrm, uv, idx, o);
 }
 
 /**
@@ -2552,20 +2981,26 @@ const paintedSill = (rec) => (5 / 1024) * rec.floors * rec.floorM;
  * Openings that would break a corner are dropped rather than clipped: a
  * half-opening at a party wall is a hole in the silhouette.
  *
+ * `u0` is the texture origin for this run of wall. It defaults to the centred
+ * origin extrudeFacade uses, and a LOT passes its own so its window rhythm
+ * starts on a different bay from its neighbour's. Whatever it is, it is the same
+ * number facadeEdge writes into the UVs, so paint and geometry cannot disagree.
+ *
  * @param {Object} rec    recipe
  * @param {number} len    edge length in metres
  * @returns {Array<[number,number]>} sorted [start, end] pairs
  */
-export function openingsAlong(rec, len, { margin = 0.32 } = {}) {
+export function openingsAlong(rec, len, { margin = 0.32, u0 = null } = {}) {
   const ex = bayEdges(rec.rhythm, 1);          // bay boundaries as 0..1 fractions
-  const u0 = -((len % rec.tileU) / 2);         // extrudeFacade's centred origin
+  const org = u0 ?? -((len % rec.tileU) / 2);  // extrudeFacade's centred origin
   const out = [];
-  const kMax = Math.ceil((len - u0) / rec.tileU);
-  for (let k = -1; k <= kMax; k++) {
+  const k0 = Math.floor(org / rec.tileU) - 1;
+  const k1 = Math.ceil((org + len) / rec.tileU) + 1;
+  for (let k = k0; k <= k1; k++) {
     for (let i = 0; i < rec.rhythm.length; i++) {
       const ins = (ex[i + 1] - ex[i]) * rec.win.inset;
-      const s0 = (k + ex[i] + ins) * rec.tileU - u0;
-      const s1 = (k + ex[i + 1] - ins) * rec.tileU - u0;
+      const s0 = (k + ex[i] + ins) * rec.tileU - org;
+      const s1 = (k + ex[i + 1] - ins) * rec.tileU - org;
       if (s1 - s0 < 0.35) continue;
       if (s0 < margin || s1 > len - margin) continue;
       out.push([s0, s1]);
@@ -2628,7 +3063,7 @@ function jambQ(e, s, y0, y1, oA, oB, dir, uvq, pos, nrm, uv, idx, o) {
  */
 export function facadeEdge(e, height, rec, pos, nrm, uv, idx, opts = {}) {
   const o = { col: opts.col, tint: opts.tint ?? [1, 1, 1] };
-  const u0 = -((e.len % rec.tileU) / 2);
+  const u0 = opts.u0 ?? -((e.len % rec.tileU) / 2);
   const dep = rec.depth;
   const D = opts.reveal ?? dep.reveal;
   const sp = opts.sill ?? dep.sill, sd = dep.sillDrop;
@@ -2747,14 +3182,36 @@ export function facadeWalls(ring, height, rec, pos, nrm, uv, idx, opts = {}) {
       faceQ(e, 0, e.len, 0, height, 0, [u0, 0, u0 + e.len, height], pos, nrm, uv, idx, o);
       continue;
     }
-    // Openings depend only on the edge LENGTH, and a rectangular block has two
-    // pairs of equal edges, so caching halves the arithmetic on the commonest
-    // footprint in the district.
-    const key = e.len.toFixed(3);
-    let ops = opCache.get(key);
-    if (!ops) { ops = openingsAlong(rec, e.len); opCache.set(key, ops); }
+    // Openings depend only on the edge LENGTH and the texture origin, and a
+    // rectangular block has two pairs of equal edges, so caching halves the
+    // arithmetic on the commonest footprint in the district.
+    const opsFor = (len, u0) => {
+      const key = `${len.toFixed(3)}:${u0 === undefined ? '-' : u0.toFixed(3)}`;
+      let ops = opCache.get(key);
+      if (!ops) {
+        ops = openingsAlong(rec, len, u0 === undefined ? {} : { u0, margin: 0.34 });
+        opCache.set(key, ops);
+      }
+      return ops;
+    };
+    // A LOT is a run of this wall with its own colour, its own texture phase and
+    // its own ground floor. Emitting one facadeEdge per lot is what turns a 181 m
+    // frontage into a row: the wall below the windows, the sill course, the
+    // glazing plane and the head soffit are all cut at the party line, so the
+    // colour change runs the full height of the building rather than stopping at
+    // a course, and the window rhythm restarts on the far side of it.
+    if (p.lots && p.lots.length > 1) {
+      for (const L of p.lots) {
+        facadeEdge(L.sub, height, rec, pos, nrm, uv, idx, {
+          col: o.col, tint: L.tint, u0: L.u0,
+          openings: opsFor(L.len, L.u0),
+          ground: L.ground, slot: L.slot, bandFloors: opts.bandFloors,
+        });
+      }
+      continue;
+    }
     facadeEdge(e, height, rec, pos, nrm, uv, idx, {
-      ...o, openings: ops, ground: p.ground, slot: p.slot, bandFloors: opts.bandFloors,
+      ...o, openings: opsFor(e.len), ground: p.ground, slot: p.slot, bandFloors: opts.bandFloors,
     });
   }
 }
@@ -2771,24 +3228,32 @@ export function plinth(ring, pos, nrm, uv, idx, opts = {}) {
   const q = [c.u0, c.v0, c.u1, c.v1];
   const o = { col: opts.col, tint: opts.tint ?? [1, 1, 1] };
   const plan = opts.plan ?? new Map();
-  for (const e of opts.edges ?? edgesOf(ring, { minLen: 1.2 })) {
-    if (e.len < 1.2) continue;
-    // Both kinds of street-level opening have to interrupt the base course: a
-    // shopfront bay, and the entrance slot. Running a 0.7 m stone band across a
-    // doorway is exactly the sort of thing that reads as a bug from the pavement.
-    const p = plan.get(e.i);
-    const gaps = [...(p?.ground?.gaps ?? [])];
-    if (p?.slot) gaps.push([p.slot.s0, p.slot.s1]);
+  // Both kinds of street-level opening have to interrupt the base course: a
+  // shopfront bay, and the entrance slot. Running a 0.7 m stone band across a
+  // doorway is exactly the sort of thing that reads as a bug from the pavement.
+  const band = (e, src, tint) => {
+    const gaps = [...(src?.ground?.gaps ?? [])];
+    if (src?.slot) gaps.push([src.slot.s0, src.slot.s1]);
     gaps.sort((a, b) => a[0] - b[0]);
     const segs = [];
     let cur = 0;
     for (const [a, b] of gaps) { if (a > cur) segs.push([cur, a]); cur = Math.max(cur, b); }
     if (cur < e.len) segs.push([cur, e.len]);
+    const oo = { col: o.col, tint };
     for (const [s0, s1] of segs) {
       if (s1 - s0 < 0.2) continue;
-      faceQ(e, s0, s1, 0.02, h, out, q, pos, nrm, uv, idx, o);
-      shelfQ(e, s0, s1, h, 0, out, 1, q, pos, nrm, uv, idx, o);
+      faceQ(e, s0, s1, 0.02, h, out, q, pos, nrm, uv, idx, oo);
+      shelfQ(e, s0, s1, h, 0, out, 1, q, pos, nrm, uv, idx, oo);
     }
+  };
+  for (const e of opts.edges ?? edgesOf(ring, { minLen: 1.2 })) {
+    if (e.len < 1.2) continue;
+    const p = plan.get(e.i);
+    if (p?.lots && p.lots.length > 1) {
+      for (const L of p.lots) band(L.sub, L, L.tint);
+      continue;
+    }
+    band(e, p, o.tint);
   }
 }
 
@@ -3058,14 +3523,45 @@ export function appendBuilding(ring, height, style, wall, trim, opts = {}) {
   const plan = new Map();
   const fronts = frontEdges(ring, allEdges, streetEdges, opts.detailFaces ?? 3);
   for (const e of fronts) plan.set(e.i, { detail: true });
+
+  // LOTS. See the lot section for why a footprint is not the same thing as a
+  // building. Every frontage long enough to hold more than one tenancy is cut
+  // into lots here, and from this point on the lot - not the edge - is the unit
+  // the wall, the plinth, the parapet, the shopfront and the signage all work in.
+  // Street-facing frontages only. frontEdges also admits a long rear or party
+  // elevation so it gets built depth, and a parade of shopfronts down an alley is
+  // both wrong and paid for out of the same triangle budget as the high street.
+  const streetSet = new Set(streetEdges.map((e) => e.i));
+  const lotPlan = lotPlanFor(ring, style, height, fronts.filter((e) => streetSet.has(e.i)));
+  for (const [i, lp] of lotPlan) {
+    const p = plan.get(i) ?? {};
+    p.lots = lp.lots;
+    plan.set(i, p);
+    for (const L of lp.lots) {
+      if (style.storefront && streetSet.has(i)) {
+        L.ground = { top: L.head, gaps: storefrontBays(L.len) };
+      } else if (L.entrance) {
+        const ops = openingsAlong(rec, L.len, { u0: L.u0, margin: 0.34 });
+        const top = rec.floorM * (1 - rec.win.top);
+        if (ops.length && top >= 2.2 && top <= height - 0.5) {
+          const pick = ops[(ops.length / 2) | 0];
+          L.slot = { e: L.sub, s0: pick[0], s1: pick[1], top };
+        }
+      }
+    }
+  }
+
   if (style.storefront) {
     for (const e of streetEdges) {
       const p = plan.get(e.i) ?? {};
-      p.ground = { top: style.storefront.head, gaps: storefrontBays(e.len) };
+      if (!p.lots) p.ground = { top: style.storefront.head, gaps: storefrontBays(e.len) };
       plan.set(e.i, p);
     }
   }
-  const door = style.entrance ? entrancePlan(ring, rec, height, style, fronts) : null;
+  // The single building entrance is what a frontage with no lots gets. A lotted
+  // frontage puts a door on its own tenancies instead, which is the whole point.
+  const door = style.entrance && !lotPlan.size
+    ? entrancePlan(ring, rec, height, style, fronts) : null;
   if (door) {
     const p = plan.get(door.e.i) ?? {};
     p.slot = door;
@@ -3088,6 +3584,7 @@ export function appendBuilding(ring, height, style, wall, trim, opts = {}) {
   if (style.parapet) {
     parapet(ring, height, trim.pos, trim.nrm, trim.uv, trim.idx, {
       ...style.parapet, cell: TRIM.stone, ...tArgs, tint: t,
+      lots: lotPlan.size ? new Map([...lotPlan].map(([i, lp]) => [i, lp.lots])) : null,
     });
   }
   if (style.plinth) {
@@ -3098,13 +3595,55 @@ export function appendBuilding(ring, height, style, wall, trim, opts = {}) {
   if (door) {
     doorway(door.e, door.s0, door.s1, door.top, trim.pos, trim.nrm, trim.uv, trim.idx, tArgs);
   }
+  // Party piers, one per interior lot boundary, carried to the roof so they die
+  // under the cornice the way a pilaster does. Tinted with the lot on their LEFT,
+  // so the colour change lands on the pier's far edge and the pier belongs to a
+  // building rather than floating between two.
+  // parapet() puts the cornice soffit at height - parapetHeight * 0.35; a
+  // pilaster stops UNDER a cornice, so the pier top is that line and not the roof
+  // slab, or its last 0.4 m stands inside the cornice band and crosses its soffit.
+  const pierTop = height - (style.parapet?.height ?? 0) * 0.35;
+  for (const [, lp] of lotPlan) {
+    for (let k = 1; k < lp.lots.length; k++) {
+      partyPier(lp.e, lp.lots[k].s0, pierTop, trim.pos, trim.nrm, trim.uv, trim.idx,
+        { col: trim.col, tint: lp.lots[k - 1].tint });
+    }
+  }
+  for (const [, lp] of lotPlan) {
+    for (const L of lp.lots) {
+      // Per-lot street door for a frontage with no shopfront.
+      if (L.slot) {
+        doorway(L.slot.e, L.slot.s0, L.slot.s1, L.slot.top,
+          trim.pos, trim.nrm, trim.uv, trim.idx, tArgs);
+      }
+      if (!L.ground) continue;
+      storefront(ring, trim.pos, trim.nrm, trim.uv, trim.idx, {
+        ...style.storefront, head: L.head, depth: L.depth, doorSpan: L.doorSpan,
+        edges: [L.sub], ...tArgs,
+      });
+      // The fascia stops short of the piers at both ends, so what you see between
+      // two shops is the pilaster and not two signboards butted together.
+      if (L.fasciaY) {
+        fasciaBand(L.sub, 0.24, L.len - 0.24, L.fasciaY[0], L.fasciaY[1],
+          trim.pos, trim.nrm, trim.uv, trim.idx,
+          { col: trim.col, tint: L.fasciaTint, cell: TRIM.stucco });
+      }
+    }
+  }
   if (style.storefront) {
-    storefront(ring, trim.pos, trim.nrm, trim.uv, trim.idx, {
-      ...style.storefront, edges: streetEdges, ...tArgs,
-    });
-    if (style.awnings) {
+    // Frontages with no lots keep the whole-edge shopfront they always had.
+    const plainEdges = streetEdges.filter((e) => !lotPlan.has(e.i));
+    if (plainEdges.length) {
+      storefront(ring, trim.pos, trim.nrm, trim.uv, trim.idx, {
+        ...style.storefront, edges: plainEdges, ...tArgs,
+      });
+    }
+    // Awnings on a LOTTED frontage belong to signage.js, which hangs one per
+    // tenancy off the same lot plan and can letter its valance. Emitting the
+    // plain kit's awnings here as well would put two layers of cloth on one bay.
+    if (style.awnings && plainEdges.length) {
       awnings(ring, trim.pos, trim.nrm, trim.uv, trim.idx, {
-        head: style.storefront.head, edges: streetEdges, cell: style.fabric,
+        head: style.storefront.head, edges: plainEdges, cell: style.fabric,
         seed: style.seed, ...tArgs,
       });
     }

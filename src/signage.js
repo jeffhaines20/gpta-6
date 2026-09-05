@@ -36,7 +36,7 @@
 import * as THREE from '../vendor/three.module.min.js';
 import {
   hash32, rng, seedOf, edgesOf, facingEdges, TRIM, box, awningFrame,
-  AWNING_SEGS, awningProfile,
+  AWNING_SEGS, awningProfile, lotPlanFor,
   buildingStyle as facadeStyle,
 } from './facades.js';
 
@@ -1839,6 +1839,32 @@ export function wideSign(x, z, yaw, key, sign, trim, opts = {}) {
 
 const TENANCY_M = 9.0, TENANCY_MIN = 5.5, TENANCY_MAX = 15.0;
 
+// A LOT is a tenancy. facades.js cuts a long frontage into lots and gives each
+// one its own wall colour, parapet step, shopfront head, recess depth and street
+// door; this module then has to hang that lot's NAME on that lot's fascia. Two
+// independent subdivisions of the same wall - a 9 m tenancy here and an 8.4 m lot
+// there - would put every third sign across a party pier, which is worse than not
+// splitting the wall at all. So when the facade kit has a lot plan for an edge,
+// it is the tenancy plan; TENANCY_M only still governs frontages too short to
+// have been lotted.
+function tenanciesOn(e, lots) {
+  if (!lots || !lots.length) {
+    const n = Math.max(1, Math.round(e.len / TENANCY_M));
+    const width = e.len / n;
+    if (width < TENANCY_MIN && n > 1) return [];
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const s0 = i * width + 0.25, s1 = (i + 1) * width - 0.25;
+      out.push({ s0, s1: s0 + Math.min(s1 - s0, TENANCY_MAX), lot: null });
+    }
+    return out;
+  }
+  return lots.map((L) => ({
+    // Inside the party piers, which are 0.44 m wide and centred on the boundary.
+    s0: L.s0 + 0.3, s1: L.s1 - 0.3, lot: L,
+  })).filter((t) => t.s1 - t.s0 > 1.2);
+}
+
 /**
  * The business occupying a given tenancy slot of a building.
  *
@@ -1869,26 +1895,34 @@ export function signPlanFor(b, style, opts = {}) {
 
   const head = style.storefront.head;
   const r = rng(hash32('signplan', style.seed ?? seedOf(b)));
+  const lotPlan = lotPlanFor(ring, style, b.h ?? 6, edges);
   let slot = 0;
   for (const e of edges) {
-    const n = Math.max(1, Math.round(e.len / TENANCY_M));
-    const width = e.len / n;
-    if (width < TENANCY_MIN && n > 1) continue;      // too fine to be a shopfront
-    for (let i = 0; i < n; i++) {
-      const s0 = i * width + 0.25, s1 = (i + 1) * width - 0.25;
-      const span = Math.min(s1 - s0, TENANCY_MAX);
+    const lots = lotPlan.get(e.i)?.lots;
+    for (const t of tenanciesOn(e, lots)) {
+      const span = t.s1 - t.s0;
       const biz = businessFor(b, slot);
       // A tenant either awns or plates its fascia, never both: an awning at
       // 1.3 m projection hides the wall behind it, which is exactly why the
       // valance exists. Choosing one keeps the name readable either way.
-      // Whether a tenant awns is decided HERE, not read off style.awnings. The
-      // integration turns the facade kit's own awnings off (they carry no name),
-      // so reading that flag would silently delete every awning on the street.
-      const awn = opts.awnings !== false && r() < 0.48 && span > 2.4;
+      // On a lotted frontage the awning is decided in the LOT PLAN, because the
+      // facade kit reads the same flag to decide it must not emit an awning of
+      // its own over that bay. Two kits guessing separately is two layers of
+      // cloth on one shopfront.
+      // Drawn either way, used only when there is no lot to ask. Keeping the
+      // draw unconditional is what stops `blade` below from landing on a
+      // different number on a lotted frontage than on an unlotted one.
+      const aw = opts.awnings !== false ? r() : 1;
+      const awn = opts.awnings !== false && span > 2.4 &&
+        (t.lot ? t.lot.awning : aw < 0.48);
       const blade = r() < 0.38;
       plan.tenants.push({
-        e, s0, s1: s0 + span, mid: (s0 + s0 + span) / 2, span, biz, slot,
-        awning: awn, fascia: !awn, blade, head,
+        e, s0: t.s0, s1: t.s1, mid: (t.s0 + t.s1) / 2, span, biz, slot,
+        awning: awn, fascia: !awn, blade,
+        head: t.lot?.head ?? head,
+        // The band the facade kit built over this shopfront, so the name lands
+        // ON the fascia instead of over the display window under it.
+        fasciaY: t.lot?.fasciaY ?? null,
         lit: LIT_STYLES.has(biz.w),
       });
       slot++;
@@ -1937,12 +1971,23 @@ export function appendBuildingSignage(b, style, sign, trim, opts = {}) {
       signs++;
     }
     if (t.fascia) {
-      // The band sits on the transom above the display window, where a real
-      // fascia goes. Placing it above `head` would push it into the first-floor
-      // window band on every recipe whose floor height is under four metres.
-      const y1 = Math.min(t.head - 0.06, h - 0.15);
-      const y0 = y1 - Math.min(1.0, (y1 - 0.9) * 0.4 + 0.62);
-      if (y1 - y0 > 0.42) {
+      // On a LOTTED shopfront the facade kit has already built the lintel band
+      // this name belongs on, and its height is the lot's, not the building's -
+      // so the plate steps with the fascia instead of running level past it.
+      // Without one, the band sits on the transom above the display window,
+      // where a real fascia goes: placing it above `head` would push it into the
+      // first-floor window band on every recipe whose floor height is under four
+      // metres.
+      const y1 = t.fasciaY
+        ? Math.min(t.fasciaY[1] - 0.07, h - 0.15)
+        : Math.min(t.head - 0.06, h - 0.15);
+      const y0 = t.fasciaY
+        ? Math.max(t.fasciaY[0] + 0.07, y1 - 1.0)
+        : y1 - Math.min(1.0, (y1 - 0.9) * 0.4 + 0.62);
+      // A lotted fascia is a REAL band whose depth the facade kit chose, so the
+      // plate only has to fit inside it; the 0.42 m floor is for the free-floating
+      // case, where a shallow plate would read as a smear on the transom.
+      if (y1 - y0 > (t.fasciaY ? 0.24 : 0.42)) {
         const w = Math.min(t.span - 0.5, 6.2);
         const c = t.mid;
         fasciaPlate(e, c - w / 2, c + w / 2, y0, y1, shopRect('fascia', bizI),
