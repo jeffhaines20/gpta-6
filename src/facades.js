@@ -187,11 +187,23 @@ const CT = {
 //             0.804 over 317 photographs) and the deliberate cool tail, and the
 //             coating lever was already exhausted - the response is
 //             coating_BR^0.68, so closing noon by colour alone needs a
-//             district-wide 0.49, which is uniform reflective bronze. What DID
-//             move is the metalness these are written under, 0.80-0.88 ->
-//             0.62-0.70, so the F0 they realise is now 0.15-0.25 rather than
-//             0.25-0.31 and the hue each one states below is compressed about 2%
-//             toward neutral (bayTower 1.234 -> 1.220, still the cool one).
+//             district-wide 0.49, which is uniform reflective bronze.
+//
+//             METALNESS STAYS AT 0.80-0.88, and the round that lowered it to
+//             0.62-0.70 measured why it should not. Paired same-session A/B,
+//             bloom off, repeatability +/-0.0004 over ten captures:
+//
+//               old roughness + old metalness              0.1164
+//               new roughness + OLD metalness              0.0882   89% of the fix
+//               new roughness + new metalness              0.0849   shipped briefly
+//
+//             The metalness step bought 0.0033 of white and cost golden's glass
+//             B/R 0.819 -> 0.858 against a reference of 0.804, seven of twelve
+//             stations getting bluer, worst +0.252. It also flattened the
+//             vertical gradient applyGlazingEnv exists to create by ~20% at
+//             golden (top/bottom contrast 2.64 -> 2.11), because a bigger
+//             diffuse remainder lifts shaded low panes most. Roughness alone
+//             carries the highlight fix; metalness only cost colour.
 //   accents   named one-off details, applied at authored positions
 
 export const RECIPES = {
@@ -610,7 +622,7 @@ function drawOpening(L, rec, cell, r) {
     // that a street lamp reflects as a smear rather than an invisible point, and
     // the diffuse remainder has to be big enough that an unlit pane still answers
     // the ambient after the sky has gone.
-    rm.g.fillStyle = rmColor(0.053 + r() * 0.012, 0.62 + jr() * 0.08, 0.9);
+    rm.g.fillStyle = rmColor(0.053 + r() * 0.012, 0.80 + jr() * 0.08, 0.9);
     rm.g.fillRect(gx, gy, gw, gh);
   }
 
