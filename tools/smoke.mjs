@@ -50,6 +50,7 @@ for (const tod of TIMES) {
       stop: a.exposureAsStop, implausible: a.implausible.length,
       draws: r.calls, tris: r.triangles,
       carsAlive: t?.alive ?? null, overlapPct: t?.overlapPctOfFrames ?? null,
+      trafficFrames: t?.frames ?? null,
     };
   }) });
 }
@@ -57,8 +58,16 @@ await browser.close();
 
 const fails = [];
 for (const r of rows) {
+  // OVERLAP IS NOT REPORTED HERE, and that is deliberate. This browser renders
+  // about 0.7 fps under SwiftShader, so traffic ticks ~29 times in 40 s where
+  // the headless sim ticks 7,200. At dt = 1.4 s a car moves 12 m between
+  // samples against a 2.5 m overlap threshold, so two cars pass clean through
+  // each other and register nothing. A 0% here is a sampling artifact, and I
+  // reported one as "the junction fix confirmed in the browser" before checking
+  // the frame count. tools/traffic-sim.mjs is where overlap is measured.
   console.log(`  ${r.tod.padEnd(7)} stop ${String(r.stop).padStart(8)}  draws ${String(r.draws).padStart(4)}`
-    + `  tris ${String(r.tris).padStart(7)}  cars ${r.carsAlive}  overlap ${r.overlapPct}%`
+    + `  tris ${String(r.tris).padStart(7)}  cars ${r.carsAlive}`
+    + `  traffic ticks ${String(r.trafficFrames).padStart(3)} (too few for overlap - see traffic-sim.mjs)`
     + `  implausible ${r.implausible}`);
   if (r.implausible > 0) fails.push(`${r.tod}: ${r.implausible} implausible lighting values`);
   // A time of day that renders nothing, or one where the fleet has died, is a

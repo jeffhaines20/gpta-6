@@ -11,6 +11,17 @@
 // cars stacked into each other; with conflict arbitration it is a junction with
 // several movements crossing at once. That difference IS visible in one frame.
 //
+// WHAT THIS TOOL CANNOT DO, established the hard way. The overlap STATISTIC it
+// prints is meaningless and is now labelled as such. This browser renders about
+// 0.7 fps under SwiftShader, so traffic ticks 29 times in 40 s against the
+// headless sim's 7,200; at dt = 1.4 s a car covers 12 m between samples while
+// the overlap threshold is 2.5 m, so two cars pass through each other and
+// nothing is counted. Captured either side of the change, both arms reported 0%
+// - not because the old code was fine, but because 29 samples cannot see a
+// per-frame event. The FRAME is still worth having: queue-versus-crossing is a
+// geometric arrangement, not a sampled statistic. The number belongs to
+// tools/traffic-sim.mjs, which runs the same AI at a fixed timestep.
+//
 //   node tools/junction-shot.mjs --tag after --cars 60
 //   JS_PORT=8129 node tools/junction-shot.mjs --tag before --cars 60   # in a worktree
 //
@@ -66,12 +77,16 @@ const file = `docs/shots/junction-${TAG}-${CARS}.png`;
 await page.screenshot({ path: file });
 const rep = await page.evaluate(() => {
   const t = __district.trafficReport();
-  return { alive: t.alive, fleet: t.fleet, overlapPct: t.overlapPctOfFrames,
+  return { alive: t.alive, fleet: t.fleet, frames: t.frames, overlapPct: t.overlapPctOfFrames,
            nearJunction: t.overlapNearJunction, sameEdge: t.overlapSameEdge,
            meanSpeedKmh: t.meanSpeedKmh, stoppedPct: t.stoppedPctOfCarFrames };
 });
 console.log(`${file}   junction at (${at.x}, ${at.z})`);
 console.log(`  ${JSON.stringify(rep)}`);
+if ((rep.frames ?? 0) < 500) {
+  console.log(`  NOTE: only ${rep.frames} traffic ticks - overlapPct above is a sampling`
+    + ` artifact, not a measurement. Use tools/traffic-sim.mjs for overlap.`);
+}
 if (errors.length) console.log(`  ${errors.length} page errors: ${errors.slice(0, 2).join(' | ')}`);
 fs.writeFileSync(`docs/junction-${TAG}.json`, JSON.stringify({ tag: TAG, cars: CARS, tod: TOD, at, ...rep, pageErrors: errors }, null, 1));
 await browser.close();

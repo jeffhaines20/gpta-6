@@ -30,6 +30,39 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## A browser at 0.7 fps cannot measure traffic overlap, and I reported that it could
+
+`tools/smoke.mjs` printed `overlap 0%` at every time of day and I read that as
+"junction arbitration holds in the browser rather than only in the headless sim -
+the first time that has been checked". It was not a check. It was an artifact,
+and the way it came apart is worth recording.
+
+Building `junction-shot.mjs` to make the fix visible, I captured the same
+junction at 60 cars with the shipped code and with `301ae39`'s single-occupant
+reservation restored in a worktree. **Both arms reported 0% overlap** - against a
+headless measurement of 65.38% for that same old code. A before/after that shows
+no difference where a difference is known to exist is an instrument failure, not
+a null result.
+
+The cause, probed directly: **`frames: 29` after forty seconds.** This browser
+renders about 0.7 fps under SwiftShader, so traffic ticks 29 times where
+`traffic-sim.mjs` ticks 7,200 for a 120 s window - a sample 250 times smaller.
+Worse than small, it is coarse in the wrong dimension: at `dt` = 1.38 s a car at
+31 km/h covers **12 m between samples** while the overlap threshold is 2.5 m, so
+two cars pass clean through each other and nothing is counted. The statistic is
+not noisy at this frame rate; it is structurally blind.
+
+Both tools now say so. `smoke.mjs` reports the traffic tick count and explicitly
+does not print overlap; `junction-shot.mjs` keeps the capture, because
+queue-versus-crossing is a geometric arrangement rather than a sampled statistic,
+and prints a NOTE beside the number whenever the tick count is under 500.
+
+The general lesson, which this ledger has now paid for in a fourth distinct form:
+a measurement inherits the sampling rate of whatever drives it. The headless
+harness exists precisely because the AI needs no GL context, and the reason it
+was written - "turns a 40 s capture into a 2 s run" - is the same reason the
+browser cannot substitute for it.
+
 ## audio.js and wanted.js reach the game, with zero diff to either module
 
 88 KB built and verified on 2026-09-02, then deliberately shelved while the

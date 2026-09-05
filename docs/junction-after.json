@@ -1,0 +1,17 @@
+{
+ "tag": "after",
+ "cars": 60,
+ "tod": "noon",
+ "at": {
+  "x": 57.5,
+  "z": -163.8
+ },
+ "alive": 60,
+ "fleet": 60,
+ "overlapPct": 0,
+ "nearJunction": 0,
+ "sameEdge": 0,
+ "meanSpeedKmh": 31.4,
+ "stoppedPct": 0.2,
+ "pageErrors": []
+}
