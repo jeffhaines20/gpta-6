@@ -54,3 +54,8 @@ docs/shots/.tree-look.html
 # that cannot be regenerated once the geometry moves are exactly the case the
 # instrument was built to replace.
 docs/shots/tree3-*.png
+
+# Blind comparison sets are copies of frames that already exist under their own
+# tags; the directory is rebuilt per review round and its key must not be read by
+# whoever is judging.
+docs/shots/blind/
