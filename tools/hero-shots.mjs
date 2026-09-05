@@ -148,12 +148,91 @@ for (const s of shots) {
         chunks: w.chunksLoaded, lodNear: w.lodNear, lodFar: w.lodFar,
         plainMeshes: plain, instancedMeshes: inst, distinctMaterialsInScene: mats.size,
         materialLibrary: w.materials,
+        // HOW POPULATED IS THIS FRAME? The audit recorded lighting, draw state
+        // and material counts and nothing at all about whether anyone was on the
+        // street. So "the streets feel deserted" - a thing critics say about this
+        // build, and a thing I said about m3base-fivepoints-golden after counting
+        // zero pedestrians in it by eye - had no number behind it on either side:
+        // nothing for a critic to point at, and nothing for a builder to show
+        // they had fixed it. The engine has exposed all of this the whole time.
+        //
+        // IN FRUSTUM, not merely alive. A pedestrian pool of forty means nothing
+        // if they are all behind the camera, and that distinction is the whole
+        // question when the complaint is that a FRAME looks empty.
+        population: (() => {
+          const cam = __district.camera;
+          if (!cam) return null;
+          cam.updateMatrixWorld();
+          // Raw matrix arithmetic rather than THREE.Frustum: main.js imports
+          // three as a module, so THREE is NOT a browser global and naming it
+          // in here throws ReferenceError at capture time - which would have
+          // failed the whole audit, not just this field.
+          //
+          // three.js Matrix4.elements is COLUMN-major: element(row,col) is
+          // elements[col*4+row]. M = projection * viewInverse.
+          const P = cam.projectionMatrix.elements, V = cam.matrixWorldInverse.elements;
+          const M = new Array(16).fill(0);
+          for (let c = 0; c < 4; c++) {
+            for (let r = 0; r < 4; r++) {
+              let acc = 0;
+              for (let k = 0; k < 4; k++) acc += P[k * 4 + r] * V[c * 4 + k];
+              M[c * 4 + r] = acc;
+            }
+          }
+          const inView = (p) => {
+            const x = p.x, y = p.y ?? 1, z = p.z;
+            const cx = M[0] * x + M[4] * y + M[8] * z + M[12];
+            const cy = M[1] * x + M[5] * y + M[9] * z + M[13];
+            const cz = M[2] * x + M[6] * y + M[10] * z + M[14];
+            const cw = M[3] * x + M[7] * y + M[11] * z + M[15];
+            if (!(cw > 0)) return false;                       // behind the eye
+            return Math.abs(cx) <= cw && Math.abs(cy) <= cw && Math.abs(cz) <= cw;
+          };
+          // Field names read off the sources, not guessed: traffic.report()
+          // returns {fleet, alive, ...}, and furniture is an OBJECT on
+          // __district whose report() returns {lamps, props, treeSpecies,
+          // propCount, parked}. A first pass here invented `traf.cars` and
+          // `fur.trees`, both of which would have written null forever while
+          // looking like a measurement.
+          // POSITIVE CONTROL. `pedsInFrustum: 0` is exactly what an always-false
+          // inView() returns, and "the streets look empty" is precisely the
+          // conclusion that would then be drawn from a broken test. So prove the
+          // frustum test can say YES: the camera looks down its own -Z, and a
+          // point 20 m along that direction is in view by construction. If this
+          // is false the matrix arithmetic is wrong and every count below it is
+          // meaningless - which is the whole reason it is recorded next to them
+          // rather than asserted in a comment.
+          const E = cam.matrixWorld.elements;
+          const ahead = {
+            x: E[12] - E[8] * 20, y: E[13] - E[9] * 20, z: E[14] - E[10] * 20,
+          };
+          const frustumWorks = inView(ahead);
+
+          const peds = __district.pedestrianPositions?.() ?? [];
+          const traf = __district.trafficReport?.() ?? null;
+          const fur = __district.furniture?.report?.() ?? null;
+          const trees = fur ? Object.values(fur.treeSpecies ?? {}).reduce((a, b) => a + b, 0) : null;
+          return {
+            pedsAlive: peds.length,
+            pedsInFrustum: peds.filter(inView).length,
+            trafficFleet: traf?.fleet ?? null,
+            trafficAlive: traf?.alive ?? null,
+            parkedFilled: fur?.parked?.filled ?? null,
+            trees, treeSpecies: fur?.treeSpecies ?? null,
+            propCount: fur?.propCount ?? null,
+            frustumWorks,
+          };
+        })(),
       };
     });
     results.push({ shot: s.name, tod, file, audit });
+    const pop = audit.population;
     console.log(`${s.name}/${tod}: draw ${audit.drawCalls}, tris ${audit.triangles}, ` +
       `lights ${audit.lightCount}, lit lamps ${audit.litPointLights}, ` +
-      `exposure ${audit.exposureAsStop}, implausible ${audit.implausible.length}`);
+      `exposure ${audit.exposureAsStop}, implausible ${audit.implausible.length}` +
+      (pop ? `, peds ${pop.pedsInFrustum}/${pop.pedsAlive} in frame, cars ${pop.trafficAlive}, `
+        + `parked ${pop.parkedFilled}, trees ${pop.trees}, props ${pop.propCount}`
+        + (pop.frustumWorks ? '' : '  FRUSTUM TEST BROKEN - in-frame counts are meaningless') : ''));
   }
 }
 fs.writeFileSync(`docs/${TAG}-audits.json`, JSON.stringify({ results, errors }, null, 1));
