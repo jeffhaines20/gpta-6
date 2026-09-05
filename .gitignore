@@ -84,3 +84,7 @@ docs/shots/csaz-*.png
 # finding is in docs/whitebox-repeat-*.json rather than in any one of them.
 docs/shots/repeat/
 .serve-sentinel
+
+# Subagent worktrees. The agent system checks out a full copy of the repo per
+# builder under here; the work comes back as a branch, never as these files.
+.claude/worktrees/
