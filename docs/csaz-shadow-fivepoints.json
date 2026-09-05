@@ -1,0 +1,157 @@
+{
+ "shot": "fivepoints",
+ "placed": {
+  "back": 26,
+  "requestedBack": 26,
+  "x": 31.5,
+  "z": -156.8,
+  "clearance": 5.1,
+  "stillInside": -1,
+  "headingDeg": 0
+ },
+ "settled": {
+  "chunks": 83,
+  "meshes": 256,
+  "queued": 0
+ },
+ "shadowMap": {
+  "mapSize": 2048,
+  "extentM": 240,
+  "metresPerTexel": 0.1171875,
+  "bias": -0.0006,
+  "normalBias": 0.06,
+  "radius": 1,
+  "type": 2,
+  "format": 1023,
+  "camera": {
+   "near": 1,
+   "far": 900
+  }
+ },
+ "variantDiff": {
+  "texels": 524288,
+  "shippedVsNoFoliage": 20139,
+  "shippedVsFoliageOnly": 302085
+ },
+ "range": 70,
+ "times": {
+  "golden": {
+   "sun": {
+    "x": -0.9899129512740333,
+    "y": 0.137394927808399,
+    "z": 0.03456852198833597,
+    "elevationDeg": 7.897129855574048,
+    "azimuthDeg": 178
+   },
+   "geometry": {
+    "meanThrowM": 54.076640503960014,
+    "shadowPointsBehindCamera": 17,
+    "shadowPointsAhead": 1515,
+    "shadowBearingDeg": 358,
+    "cameraBearingDeg": 358.2203216637172
+   },
+   "canopyVerts": 3159,
+   "shadowPoints": 1532,
+   "shadowMaskVerified": {
+    "hitGround": 623,
+    "tested": 1418,
+    "occluded": 795,
+    "offscreen": 114,
+    "px": 2982
+   },
+   "controlMaskVerified": {
+    "hitGround": 876,
+    "tested": 4294,
+    "px": 18766
+   },
+   "shadowFrustum": {
+    "inside": 1532,
+    "total": 1532,
+    "texelSpanU": [
+     541,
+     1583
+    ],
+    "texelSpanV": [
+     974,
+     1152
+    ],
+    "metresPerTexel": 0.1172
+   },
+   "shadowMapReadback": {
+    "texelsCompared": 45824,
+    "texelsWhereCanopyIsNearerTheLight": 163,
+    "pctNearer": 0.36,
+    "meanDepthShift": -0.000004
+   },
+   "measuredFootprint": {
+    "groundPxInFrame": 406545,
+    "darkenedPx": 65,
+    "pctOfVisibleGround": 0.02,
+    "meanDarkening": 15.05,
+    "maxDarkening": 58,
+    "pctOfFrame": 0.005
+   },
+   "wholeShadowPassOnGround": {
+    "groundPx": 406545,
+    "meanRemoved": 29.89,
+    "pctGroundShadowedOver4": 90.69
+   },
+   "measure": {
+    "noiseFloor": {
+     "pctChanged": 0,
+     "meanAbs": 0.002,
+     "meanSigned": -0.002,
+     "maxAbs": 1,
+     "n": 2982
+    },
+    "canopyShadowGround": {
+     "pctChanged": 0,
+     "meanAbs": 0.003,
+     "meanSigned": -0.003,
+     "maxAbs": 1,
+     "n": 2982
+    },
+    "openGroundControl": {
+     "pctChanged": 0.15,
+     "meanAbs": 0.023,
+     "meanSigned": 0.005,
+     "maxAbs": 38,
+     "n": 18766
+    },
+    "selfTest_foliageOnlyVsNoFoliage": {
+     "pctChanged": 0,
+     "meanAbs": 0,
+     "meanSigned": 0,
+     "maxAbs": 0,
+     "n": 2982
+    },
+    "luma": {
+     "shadowGround_shipped": {
+      "mean": 51.98,
+      "sd": 22.66,
+      "localSD": 7.527,
+      "n": 2982
+     },
+     "shadowGround_nofoliage": {
+      "mean": 51.98,
+      "sd": 22.66,
+      "localSD": 7.527,
+      "n": 2982
+     },
+     "openGround_shipped": {
+      "mean": 39.13,
+      "sd": 19.58,
+      "localSD": 6.299,
+      "n": 18756
+     },
+     "openGround_nofoliage": {
+      "mean": 39.12,
+      "sd": 19.58,
+      "localSD": 6.302,
+      "n": 18756
+     }
+    }
+   }
+  }
+ }
+}

@@ -70,3 +70,12 @@ docs/shots/blind/
 # look/ is iteration scratch, the same class as the oak bench frames already ignored.
 docs/shots/pane-tint/ref/
 docs/shots/pane-tint/look/
+
+# Canopy-shadow A/B working frames: eight per camera per time of day (three
+# stencil arms, a repeat for the noise floor, the shadow-pass-off arm, the
+# ground-ID render, the derived masks and the amplified difference), all
+# regenerable from tools/canopy-shadow.mjs plus the JSON it writes. The pairs
+# the finding is actually read from are cropped out as docs/shots/canopy-ab-*,
+# which stays tracked.
+docs/shots/cs-*.png
+docs/shots/csaz-*.png

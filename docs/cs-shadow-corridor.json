@@ -1,0 +1,275 @@
+{
+ "shot": "corridor",
+ "placed": {
+  "back": 16,
+  "requestedBack": 34,
+  "x": 3.7,
+  "z": -1.9,
+  "clearance": 3.2,
+  "stillInside": -1,
+  "headingDeg": -16
+ },
+ "settled": {
+  "chunks": 89,
+  "meshes": 261,
+  "queued": 0
+ },
+ "shadowMap": {
+  "mapSize": 2048,
+  "extentM": 240,
+  "metresPerTexel": 0.1171875,
+  "bias": -0.0006,
+  "normalBias": 0.06,
+  "radius": 1,
+  "type": 2,
+  "format": 1023,
+  "camera": {
+   "near": 1,
+   "far": 900
+  }
+ },
+ "variantDiff": {
+  "texels": 524288,
+  "shippedVsNoFoliage": 20139,
+  "shippedVsFoliageOnly": 302085
+ },
+ "range": 70,
+ "times": {
+  "noon": {
+   "sun": {
+    "x": 0.20518201697202185,
+    "y": 0.968605121523227,
+    "z": 0.14037257022035,
+    "elevationDeg": 75.60506033592878,
+    "azimuthDeg": 34.3774677078494
+   },
+   "geometry": {
+    "meanThrowM": 1.9992937560640702,
+    "shadowPointsBehindCamera": 223,
+    "shadowPointsAhead": 102,
+    "shadowBearingDeg": 214.3774677078494,
+    "cameraBearingDeg": 344.0213241049268
+   },
+   "canopyVerts": 1278,
+   "shadowPoints": 325,
+   "shadowMaskVerified": {
+    "hitGround": 1,
+    "tested": 13,
+    "occluded": 12,
+    "offscreen": 312,
+    "px": 25
+   },
+   "controlMaskVerified": {
+    "hitGround": 4205,
+    "tested": 7051,
+    "px": 55351
+   },
+   "shadowFrustum": {
+    "inside": 325,
+    "total": 325,
+    "texelSpanU": [
+     391,
+     1161
+    ],
+    "texelSpanV": [
+     632,
+     1373
+    ],
+    "metresPerTexel": 0.1172
+   },
+   "shadowMapReadback": {
+    "texelsCompared": 8154,
+    "texelsWhereCanopyIsNearerTheLight": 576,
+    "pctNearer": 7.06,
+    "meanDepthShift": -0.000698
+   },
+   "measuredFootprint": {
+    "groundPxInFrame": 539603,
+    "darkenedPx": 56,
+    "pctOfVisibleGround": 0.01,
+    "meanDarkening": 10.7,
+    "maxDarkening": 50,
+    "pctOfFrame": 0.004
+   },
+   "wholeShadowPassOnGround": {
+    "groundPx": 539603,
+    "meanRemoved": 1.29,
+    "pctGroundShadowedOver4": 3.43
+   },
+   "measure": {
+    "noiseFloor": {
+     "pctChanged": 0,
+     "meanAbs": 0.083,
+     "meanSigned": -0.009,
+     "maxAbs": 1,
+     "n": 25
+    },
+    "canopyShadowGround": {
+     "pctChanged": 40,
+     "meanAbs": 4.721,
+     "meanSigned": -4.721,
+     "maxAbs": 36,
+     "n": 25
+    },
+    "openGroundControl": {
+     "pctChanged": 0.16,
+     "meanAbs": 0.03,
+     "meanSigned": 0.019,
+     "maxAbs": 70,
+     "n": 55351
+    },
+    "selfTest_foliageOnlyVsNoFoliage": {
+     "pctChanged": 36,
+     "meanAbs": 2.968,
+     "meanSigned": -2.968,
+     "maxAbs": 24,
+     "n": 25
+    },
+    "luma": {
+     "shadowGround_shipped": {
+      "mean": 110.49,
+      "sd": 17.02,
+      "localSD": 16.531,
+      "n": 25
+     },
+     "shadowGround_nofoliage": {
+      "mean": 115.21,
+      "sd": 16.57,
+      "localSD": 15.623,
+      "n": 25
+     },
+     "openGround_shipped": {
+      "mean": 132.23,
+      "sd": 39.72,
+      "localSD": 11.642,
+      "n": 55341
+     },
+     "openGround_nofoliage": {
+      "mean": 132.21,
+      "sd": 39.72,
+      "localSD": 11.647,
+      "n": 55341
+     }
+    }
+   }
+  },
+  "golden": {
+   "sun": {
+    "x": 0.7124804480799086,
+    "y": 0.1373894097525171,
+    "z": 0.688110282724875,
+    "elevationDeg": 7.896810667312359,
+    "azimuthDeg": 44.00315866604722
+   },
+   "geometry": {
+    "meanThrowM": 56.15952003256219,
+    "shadowPointsBehindCamera": 363,
+    "shadowPointsAhead": 84,
+    "shadowBearingDeg": 224.0031586660472,
+    "cameraBearingDeg": 344.0213241049268
+   },
+   "canopyVerts": 1278,
+   "shadowPoints": 447,
+   "shadowMaskVerified": {
+    "hitGround": 5,
+    "tested": 28,
+    "occluded": 23,
+    "offscreen": 419,
+    "px": 125
+   },
+   "controlMaskVerified": {
+    "hitGround": 4253,
+    "tested": 6901,
+    "px": 55771
+   },
+   "shadowFrustum": {
+    "inside": 447,
+    "total": 447,
+    "texelSpanU": [
+     341,
+     1117
+    ],
+    "texelSpanV": [
+     963,
+     1126
+    ],
+    "metresPerTexel": 0.1172
+   },
+   "shadowMapReadback": {
+    "texelsCompared": 41984,
+    "texelsWhereCanopyIsNearerTheLight": 112,
+    "pctNearer": 0.27,
+    "meanDepthShift": 0
+   },
+   "measuredFootprint": {
+    "groundPxInFrame": 539594,
+    "darkenedPx": 4,
+    "pctOfVisibleGround": 0,
+    "meanDarkening": 10.58,
+    "maxDarkening": 15,
+    "pctOfFrame": 0
+   },
+   "wholeShadowPassOnGround": {
+    "groundPx": 539594,
+    "meanRemoved": 12.28,
+    "pctGroundShadowedOver4": 41.06
+   },
+   "measure": {
+    "noiseFloor": {
+     "pctChanged": 0.8,
+     "meanAbs": 0.032,
+     "meanSigned": 0.018,
+     "maxAbs": 2,
+     "n": 125
+    },
+    "canopyShadowGround": {
+     "pctChanged": 0,
+     "meanAbs": 0,
+     "meanSigned": 0,
+     "maxAbs": 0,
+     "n": 125
+    },
+    "openGroundControl": {
+     "pctChanged": 0.12,
+     "meanAbs": 0.01,
+     "meanSigned": 0.004,
+     "maxAbs": 19,
+     "n": 55771
+    },
+    "selfTest_foliageOnlyVsNoFoliage": {
+     "pctChanged": 0,
+     "meanAbs": 0.023,
+     "meanSigned": -0.009,
+     "maxAbs": 2,
+     "n": 125
+    },
+    "luma": {
+     "shadowGround_shipped": {
+      "mean": 55.04,
+      "sd": 10.65,
+      "localSD": 5.53,
+      "n": 125
+     },
+     "shadowGround_nofoliage": {
+      "mean": 55.04,
+      "sd": 10.65,
+      "localSD": 5.53,
+      "n": 125
+     },
+     "openGround_shipped": {
+      "mean": 58.27,
+      "sd": 31.69,
+      "localSD": 7.484,
+      "n": 55761
+     },
+     "openGround_nofoliage": {
+      "mean": 58.26,
+      "sd": 31.69,
+      "localSD": 7.485,
+      "n": 55761
+     }
+    }
+   }
+  }
+ }
+}

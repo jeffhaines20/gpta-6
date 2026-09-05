@@ -30,6 +30,71 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## The trees do cast shadows and they do dapple - three of us measured the wrong ground
+
+Two independent reviewers reported that the canopy contributes nothing to the
+light, one calling it "the single most characteristic thing about that street and
+it is entirely absent". I verified their number and added my own: at noon the
+ground under the tree row read BRIGHTER than open pavement with similar local
+variance. Three separate observers, one conclusion, and it was wrong.
+
+`tools/canopy-shadow.mjs` isolates it properly. Prop buckets are welded, so
+per-mesh `castShadow` cannot separate a tree from a bin; instead the shared prop
+material's `alphaMap` is swapped **for the shadow pass only** for a copy whose
+foliage palette column is fully transparent. `alphaTest` then discards every
+foliage fragment in the depth pass while the colour pass never sees the swap, so
+both arms draw a bit-identical canopy and the only difference is what the canopy
+put in the shadow map. Nothing is chosen by eye: where the trees are is read from
+the shipped buffers by uv palette column, where the shadow must land is those
+vertices dropped along the light's own ray, and a pixel enters a mask only if a
+render says the camera sees ground down it.
+
+**At noon the canopy darkens 6,681 of 406,542 visible ground pixels by a mean
+72.1/255, worst 147** - and local SD goes 14.90 to 20.53, 38% more small-scale
+contrast, which is dapple rather than a flat blob. Aimed at the nearest live oak:
+9,403 pixels at mean 78.0, local SD 10.8 to 16.6.
+
+The reviewers' box `(620,560)-(960,760)` reads mean 0.057 because it is 340x200
+px of carriageway no canopy shades. A box 360 px to its left in the same frame
+reads 5.54 with a max of 147.
+
+**Golden hour genuinely shows none, for two compounding reasons that are not a
+bug.** The shadow is thrown 54 m toward bearing 224 degrees while the lens points
+358, so 1,482 of 1,642 canopy shadow points land outside the frame; and at 7.9
+degrees of elevation the street is already 90.7% building-shadowed, so a second
+shadow on shadowed ground is nothing. Forcing the azimuth to 178 moves it 65
+pixels into view.
+
+Three candidate causes are dead with evidence: the LOD path at
+`src/streaming.js:415` is the building-chunk path and trees never go through it;
+1143/1143 and 1642/1642 canopy shadow points measure inside the sun's ortho
+frustum; and the noon shadow reaches full strength at 147/255, so bias is not
+peeling it.
+
+### The resolution limit, measured rather than asserted
+
+240 m over 2048 texels is **0.1172 m/texel**, and the vendored `PCFSoftShadowMap`
+taps -1..+2 per axis for 0.469 m of filter support. An oak leaf CLUMP is 1.3-3.4 m
+= 11-29 texels and is comfortably resolved. One stencil stamp texel spans
+0.020-0.053 m of world, so an individual leaf cut is 0.2-0.5 shadow texels and can
+never punch a separate light spot. **The district resolves foliage at clump scale,
+not leaf scale.**
+
+That is also why the bench frame looks leaf-shaped: `tree-look.mjs` uses a +/-30 m
+shadow box at 0.0293 m/texel, four times finer. Matching it across the district
+needs 8192 squared - sixteen times the texels - and this ledger records 3072
+(2.25x) already failing the chunk-stall gate in three of seven runs. Deliberately
+not shipped: it would trade the building colonnade's stripes for leaf detail.
+
+### The finding that is not about shadows
+
+The district plants **160 sabal, 135 queen palms and 12 live oaks**. The noon
+dapple in the hero frame is thrown by a QUEEN PALM. "Dappled oak shade is absent"
+is a species-mix observation, not a shadow one - and it compounds with the
+corridor camera not being on Main Street east, which is where the twelve oaks
+are. The oak asset works, the placement rule works, the shadow works; there are
+twelve of them and the hero cameras do not look at them.
+
 ## Four reviewers on the wave: not markedly improved, and the corridor frame is not on the corridor
 
 Six blind pairs (`tools/blind-compare.mjs`, assignment balanced and hidden), three
