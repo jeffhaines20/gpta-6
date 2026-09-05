@@ -12,14 +12,15 @@
 // the ambient is the fault. One is an exposure edit, the other is a lighting
 // edit, and guessing between them costs a round.
 //
-// THE INVERSE IS NOT sRGB, and that is load-bearing. src/post.js's composite is a
-// RawShaderMaterial that writes aces(color * exposure) straight to gl_FragColor
-// with no <colorspace_fragment>, so three.js adds no encode on the way out and the
-// byte in the screenshot IS the Narkowicz ACES output. tools/critic-metrics.mjs
-// established that against the HDR target and this file reuses its inverse rather
-// than deriving a second one. Using the sRGB inverse here would overstate every
-// dark region by about 2.4x, which is precisely the size of the effect being
-// measured.
+// THE INVERSE IS NOT sRGB ALONE AND NOT ACES ALONE, and that is load-bearing.
+// src/post.js's composite writes srgb(aces(color * exposure)), so recovering the
+// radiance behind a byte means undoing the sRGB transfer first and the tonemap
+// second. tools/critic-metrics.mjs owns that inverse and this file reuses it
+// rather than deriving a second one. Using either half on its own is wrong by
+// about 2.4x in the darks, which is precisely the size of the effect being
+// measured. Frames captured BEFORE post.js gained its encode need
+// critic-metrics' acesOnly() instead - the encode is the change this file's own
+// third paragraph asked for.
 //
 // Regions are fixed boxes at the tools/daynight-sweep.mjs corridor camera, chosen
 // off the frame and stated here so they are auditable rather than tuned per run:
@@ -28,7 +29,7 @@
 //
 //   node tools/tod-readability.mjs [--dir docs/shots] [--prefix tod-]
 import { readPNG } from './png.mjs';
-import { unAces } from './critic-metrics.mjs';
+import { unDisplay } from './critic-metrics.mjs';
 import fs from 'node:fs';
 
 const arg = (k, d) => {
@@ -42,12 +43,16 @@ const OUT = arg('out', '');
 // The stop each frame was taken at, read from the sweep's own artifact so this
 // cannot drift from the build that produced the pixels.
 const sweep = JSON.parse(fs.readFileSync(arg('sweep', 'docs/daynight.json'), 'utf8'));
-// The sweep records the stop as the string audit() prints it ("1/69490"), so it
-// is parsed back rather than read as a number - reading it as a number silently
-// yields NaN and every nits column comes out NaN.
+// The sweep records the stop twice: as the string audit() prints it ("1/69490")
+// and, since the display-transfer round, as the raw number. Prefer the number.
+// The string is Math.round(1/exposure), which prints night's 1/1.15 as "1/1" -
+// a 15% error in every nits reading at the one time of day where the nits are
+// already small enough to round to zero. Parsing the string is kept as the
+// fallback so an ARCHIVED sweep artifact still reads.
 const asNumber = (e) => (typeof e === 'number' ? e
   : /^1\//.test(e) ? 1 / Number(String(e).slice(2)) : Number(e));
-const EXPOSURE = Object.fromEntries(sweep.presets.map((p) => [p.tod, asNumber(p.exposure)]));
+const EXPOSURE = Object.fromEntries(sweep.presets.map(
+  (p) => [p.tod, Number.isFinite(p.exposureValue) ? p.exposureValue : asNumber(p.exposure)]));
 
 // [x, y, w, h] at 1440x810.
 const REGIONS = {
@@ -81,7 +86,7 @@ function regionStats(img, box, exposure) {
       // channel first, then weight. Weighting bytes and inverting afterwards
       // would be inverting a non-linearity of an average, which is not the
       // average of the non-linearity.
-      sceneY += 0.2126 * unAces(data[i]) + 0.7152 * unAces(data[i + 1]) + 0.0722 * unAces(data[i + 2]);
+      sceneY += 0.2126 * unDisplay(data[i]) + 0.7152 * unDisplay(data[i + 1]) + 0.0722 * unDisplay(data[i + 2]);
       n++;
     }
   }

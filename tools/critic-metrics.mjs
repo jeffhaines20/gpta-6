@@ -14,31 +14,49 @@ for (let i = 0; i < 256; i++) {
 export const lin = (v) => s2l[v];
 const Y = (r, g, b) => 0.2126 * s2l[r] + 0.7152 * s2l[g] + 0.0722 * s2l[b];
 
-// The RIGHT inverse for this renderer, and it is not the sRGB one.
+// The RIGHT inverse for this renderer, and it is NEITHER the sRGB one NOR the
+// bare ACES one. It is both, in that order.
 //
-// src/post.js's composite writes `aces(color * exposure)` straight into
-// gl_FragColor. The final pass is a RawShaderMaterial with no
-// <colorspace_fragment>, so three.js adds no sRGB encode on the way out and the
-// 8-bit value in a screenshot is the Narkowicz ACES output itself. Verified
-// against the HDR scene target: the noon ground region reads 15,976 nits at
-// 1/78,000, which through aces(radiance * exposure * (ao + bloomStrength)) is 98
-// of 255 and through an sRGB encode of the same would be 169. The frame reads
-// 97.7.
+// src/post.js's composite ends `aces(color * exposure)` -> sRGB encode ->
+// dither -> gl_FragColor, so recovering the radiance behind a byte means undoing
+// the sRGB transfer FIRST and the tonemap SECOND.
 //
-// aces(x) = x(2.51x + 0.03) / (x(2.43x + 0.59) + 0.14), so inverting is one
+// WHAT THIS FILE SAID BEFORE, AND WHY IT WAS RIGHT AT THE TIME. The composite is
+// a RawShaderMaterial and three.js substitutes no <colorspace_fragment> into it,
+// so for as long as the encode was not written out by hand the byte WAS the
+// Narkowicz ACES output. That was verified against the HDR scene target - the
+// noon ground region read 15,976 nits at 1/78,000, which through
+// aces(radiance * exposure * (ao + bloomStrength)) is 98 of 255 and through an
+// sRGB encode of the same would be 169, and the frame read 97.7. The encode is
+// now there (post.js, COMPOSITE_FRAG), so that same check would land on 169, and
+// this inverse has the sRGB decode in front of the tonemap inverse to match.
+//
+// A FRAME CAPTURED BEFORE THAT CHANGE NEEDS THE OLD INVERSE. acesOnly() below is
+// kept exported for exactly that: re-measuring an archived shot with the wrong
+// transfer overstates every dark region by about 2.4x, which is the size of the
+// defect the change removed.
+//
+// aces(x) = x(2.51x + 0.03) / (x(2.43x + 0.59) + 0.14), so inverting it is one
 // quadratic: (2.43y - 2.51)x^2 + (0.59y - 0.03)x + 0.14y = 0.
-const a2l = new Float64Array(256);
-for (let i = 0; i < 256; i++) {
-  const y = i / 255;
+function acesInverse(y) {
   const A = 2.43 * y - 2.51, B = 0.59 * y - 0.03, C = 0.14 * y;
-  if (Math.abs(A) < 1e-9) { a2l[i] = B !== 0 ? -C / B : 0; continue; }
+  if (Math.abs(A) < 1e-9) return B !== 0 ? -C / B : 0;
   const disc = B * B - 4 * A * C;
-  if (disc < 0) { a2l[i] = 0; continue; }
+  if (disc < 0) return 0;
   const r1 = (-B + Math.sqrt(disc)) / (2 * A), r2 = (-B - Math.sqrt(disc)) / (2 * A);
   const roots = [r1, r2].filter((v) => v >= 0);
-  a2l[i] = roots.length ? Math.min(...roots) : 0;
+  return roots.length ? Math.min(...roots) : 0;
 }
-export const unAces = (v) => a2l[v];
+const a2l = new Float64Array(256);      // byte -> ACES input, through the encode
+const acesOnlyTable = new Float64Array(256);
+for (let i = 0; i < 256; i++) {
+  a2l[i] = acesInverse(s2l[i]);
+  acesOnlyTable[i] = acesInverse(i / 255);
+}
+/** Byte from a CURRENT frame -> radiance x exposure (ACES input). */
+export const unDisplay = (v) => a2l[v];
+/** Byte from a frame captured BEFORE post.js gained its sRGB encode. */
+export const acesOnly = (v) => acesOnlyTable[v];
 const Ya = (r, g, b) => 0.2126 * a2l[r] + 0.7152 * a2l[g] + 0.0722 * a2l[b];
 
 /** Mean LINEAR luminance over a box given as [x, y, w, h]. */
@@ -149,8 +167,9 @@ export function report(file, opts = {}) {
       // the numbers are comparable to theirs...
       ratio: +(key.linear / Math.max(fill.linear, 1e-9)).toFixed(3),
       stops: +Math.log2(key.linear / Math.max(fill.linear, 1e-9)).toFixed(2),
-      // ...and the ACES inverse, which is the one this renderer's output actually
-      // needs. They agree to about 1% at these levels.
+      // ...and the renderer's own inverse (sRGB decode, then the ACES inverse),
+      // which is the one its output actually needs. The sRGB half is now shared
+      // with the photograph path, so the two differ only by the tonemap.
       sceneRatio: +(key.scene / Math.max(fill.scene, 1e-9)).toFixed(3),
       sceneStops: +Math.log2(key.scene / Math.max(fill.scene, 1e-9)).toFixed(2),
     };

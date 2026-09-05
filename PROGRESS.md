@@ -30,6 +30,268 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## The frame was never missing light. It was missing a display transfer function
+
+The fidelity reviewer's headline finding was that everything out of direct sun is
+two to three times too dark and has swung from warm to cold, with two candidate
+causes: **A**, no bounce fill, so a sky dome is the only ambient and every shaded
+surface is lit blue and dim; **B**, no display transfer function, deferred and
+documented in the noon-exposure round's own commit. They are not mutually
+exclusive and the fixes have nothing in common, so `tools/transfer-audit.mjs`
+separates them with three measurements before anything changed.
+
+**The separator, and neither hypothesis can hide from it.** A is a claim about
+RADIANCE and B is a claim about the ENCODE, so remove both exposure and the encode
+and only A can still be there.
+Normalise each frame's scene-linear luminance by its own p90 and exposure drops
+out; invert each image with its own transfer and the encode drops out. What is
+left is the scene's own contrast. Over the 18 matched noon photograph/render
+pairs, median of each frame's own normalised quantiles:
+
+| | p05 | p10 | p25 | p50 | p75 |
+|---|---|---|---|---|---|
+| photographs | 0.0195 | 0.0397 | 0.1022 | 0.2968 | 0.5546 |
+| engine | 0.0594 | 0.0864 | 0.1418 | 0.4535 | 0.7114 |
+
+**The engine's dark tail was SHORTER than the photographs', not longer** — and at
+golden hour, over 52 pairs, the two rows agree: p25 0.1419 photo against 0.1413
+engine, p50 0.2998 against 0.3071, i.e. 0.4% and 2.4% apart. A
+photograph's own tone curve compresses and cannot be inverted from here, so this
+comparison is biased *toward* finding the engine too contrasty. It did not. There
+was no radiance deficit to find.
+
+**B is the whole of the level fault, and it is arithmetic.** `src/post.js`'s
+composite is a `RawShaderMaterial`, so three.js substitutes no
+`<colorspace_fragment>` into it and the byte was `aces(radiance * exposure)` with
+no encode; the display then applied its own ~2.2 decode to a value nothing had
+encoded. At the corridor camera the sky-lit facade and the sunlit road sat at ACES
+input 0.0796 and 0.4473 — 2.49 stops apart in radiance. At **one stop**, so only
+the encode differs:
+
+```
+aces only          23.0 and 147.7 of 255  ->  6.41:1 apart,  1.076 display stops per scene stop
+srgb(aces())       84.8 and 200.3 of 255  ->  2.36:1 apart,  0.498 display stops per scene stop
+```
+
+Same light, same exposure, same tonemap; **2.16x the tonal separation from the
+encode alone.** That is "two to three times too dark", exactly.
+
+**What A does explain.** The other half of the complaint — warm to cold — is real
+and B cannot touch it. Scene-linear blue/red, each frame referenced to itself so
+exposure, encode and white balance all cancel: photographs put their darkest 30%
+at **0.68x** their own frame's B/R (shadows warmer than the picture, which is what
+light bouncing off pale pavement does); the engine at noon puts them at **0.98x** —
+no warm bounce at all, and at golden 0.84 against 0.62. That is A, it is a COLOUR
+deficit rather than a level one, and it is left standing with its measurement
+rather than folded into this change. Its likely site: `src/sky.js`'s
+`uGroundAlbedo` is `0x6b6455`, linear luminance **0.129**, while the district's own
+ground renders at an effective **0.18** (plaza 6,017 nits under 105,244 lux at
+noon, road 6,262) — the dome tells every wall in the city that the street below it
+is darker than the street actually is.
+
+### The re-grade, and the rule it used
+
+Adding the encode without moving the stops would have blown all four presets, so
+every camera stop, every bloom threshold, both fog clamps and three audit gates
+moved with it. The stops were not fitted by eye. **Because the old byte WAS
+`aces(radiance * exposure)`, inverting it recovers the exact radiance behind every
+pixel**, so re-tonemapping a shipped frame at a candidate stop gives the frame that
+build would actually produce (`tools/transfer-audit.mjs --solve`). The criterion:
+*the transfer must correct the toe, not re-grade the picture* — hold each frame's
+median display value where the author put it.
+
+| preset | old stop | new stop | stops | pi/E | offset from pi/E |
+|---|---|---|---|---|---|
+| noon | 1/14,000 | **1/33,500** | -1.26 | 1/33,500 | 0.00 (was +1.26) |
+| golden | 1/4,152 | **1/9,649** | -1.22 | 1/3,954 | -1.29 (was -0.07) |
+| dusk | 1/719 | **1/1,947** | -1.44 | 1/448 | -2.12 (was -0.68) |
+| night | 1/1.15 | **1/5.378** | -2.23 | 1/0.220 | -4.61 (was -2.39) |
+
+Noon is the check that the criterion is not merely "keep it looking the same":
+it is the one preset where `pi/E` is applicable, and the two routes land 0.2%
+apart — `pi/105,244 = 1/33,500` against the median criterion's `1/33,422`. Noon's
+`+1.26`-stop offset, sized by an acceptance test in an earlier round *because* the
+toe was crushed, is deleted; the preset now sits on the bare rule. Golden shows why
+`pi/E` is not the rule everywhere: it normalises to the illuminance on a
+HORIZONTAL surface, and an 8-degree sun puts 2.8x that on the vertical surfaces
+the frame is made of, so `pi/E` there renders frame mean 179 with 3.2% clipped.
+
+The offline predictor was checked against the real render before any of this was
+trusted: an identity run (same chain in and out) returns the stop it was given to
+within 0.01 stops, and the predicted frames match the rendered ones to about two
+display units at every preset (worst: golden's shaded facade, 54.1 predicted
+against 57.0 rendered, which is the bloom threshold the predictor does not model).
+
+### What it did, at the sweep camera
+
+`tools/tod-readability.mjs` on `docs/shots/tod-*.png`, HUD excluded:
+
+| preset | frame mean | p50 | p95 | <16/255 | <8/255 | >250 | sky-lit facade | sunlit road | sky |
+|---|---|---|---|---|---|---|---|---|---|
+| noon before | 112.9 | 129 | 178 | 8.16% | 3.12% | 0% | 23.8 | 127.6 | 166.5 |
+| noon **after** | 116.6 | 130 | 171 | **1.53%** | **0.14%** | 0% | **41.2** | 129.2 | 160.5 |
+| golden before | 129.7 | 139 | 238 | 4.22% | 1.94% | 2.08% | 35.4 | 64.7 | 194.5 |
+| golden **after** | 136.3 | 140 | 232 | **0.63%** | **0%** | **1.51%** | **57.0** | 80.2 | 188.9 |
+| dusk before | 111.7 | 92 | 220 | 3.40% | 1.55% | 0% | 62.7 | 47.2 | 205.6 |
+| dusk **after** | 113.1 | 96 | 207 | **0.99%** | 0.60% | 0% | **73.2** | 57.8 | 191.8 |
+| night before | 31.0 | 19 | 91 | 43.35% | 27.52% | 0% | 21.7 | 8.2 | 49.6 |
+| night **after** | 25.4 | 20 | 61 | 39.9% | 21.6% | 0% | 18.7 | 9.1 | 37.6 |
+
+Both rows are single renders and the district has traffic and a crowd in it, so
+the run-to-run spread is worth knowing: two renders of the unchanged build put
+noon's frame mean at 112.9 and 113.0, golden's at 129.4 and 129.7. Every "after"
+figure above is reproduced within that on a second sweep.
+
+**Nothing about the light moved, and the audit is the proof.** Either side of the
+change, at every preset: sun lux authored and delivered identical, sky delivered
+identical over 1 path, lamp candela identical, draw calls identical, zero
+implausible flags. The radiance behind each region is the same to within the
+traffic moving through frame, and at noon it is the same to the last digit: the
+sky-lit facade 1,115 nits before and 1,115 after, the road 6,263 and 6,263, the
+sky 8,060 and 8,060, recovered through two DIFFERENT inverses because the chain
+changed underneath them. Only the camera moved.
+
+### Against the photographs, and a stale set found on the way
+
+`tools/pano-match.mjs` parks the camera where a Mapillary panorama stood, so the
+photograph and the frame differ only in what we built. The fidelity review's
+matched-pair statistic — photo mean luminance against engine mean luminance —
+comes from this set, and two things had to be sorted out before it could be read.
+
+**The committed set was two bakes stale.** `docs/shots/pano-match/index.json`
+records `mtime 2026-09-02` and carries no `sha256` at all (it predates the content
+hash); `data/district.json` was re-baked on 2026-09-04 by the roofline round.
+Rendering `1414553883288835-R` again returns a different building. So a straight
+before/after over that set would have mixed this change with a re-bake, and the
+review's own numbers were measured against a world that no longer exists. The set
+is re-rendered here — all 70 frames, 9 stations at noon and 26 at golden — with
+`--ids`, added so 35 stations do not cost 35 browser launches. It writes
+`index-ids9-*.json` and `index-ids26-*.json` rather than clobbering `index.json`,
+which keeps the guard the last round added; the consequence is that `index.json`
+is now the STALE record and those two files are the current one for every frame on
+disk. Four of the frames are force-added to git (the rest are ignored and
+regenerable) and they move with this commit, which is deliberate: a committed
+frame that provably does not match the bake is worse than no frame.
+
+**The transfer, isolated.** Take the OLD frames and re-tonemap them through the new
+chain at the new stop — identical geometry, identical light, only the chain moves:
+
+| noon, 18 pairs | photo | aces only | + sRGB encode |
+|---|---|---|---|
+| mean luminance, median | 116.1 | 70.6 | **79.2** |
+| mean luminance, range | 66.4–177.3 | **3.9**–109.3 | **9.9**–113.2 |
+| % below Y=48, median | 12.7 | 53.5 | **39.8** |
+| photo brighter by | — | 1.17 ± 1.27 stops | **0.86 ± 0.94** |
+
+| golden, 52 pairs | photo | aces only | + sRGB encode |
+|---|---|---|---|
+| mean luminance, median | 125.2 | 104.9 | **111.5** |
+| % below Y=48, median | 8.7 | 27.7 | **15.6** |
+| photo brighter by | — | 0.22 ± 0.40 stops | **0.12 ± 0.36** |
+
+**And re-rendered on the current bake**, over the same pairs:
+
+| re-rendered | noon (18) | golden (52) |
+|---|---|---|
+| mean luminance, median | 70.6 -> **82.4** (photo 116.1) | 104.9 -> **109.3** (photo 125.2) |
+| % below Y=48, median | 53.5 -> **31.3** (photo 12.7) | 27.7 -> **17.3** (photo 8.7) |
+| photo brighter by | 1.17 ± 1.27 -> **0.57 ± 0.38** stops | 0.22 ± 0.40 -> **0.18 ± 0.39** stops |
+| shadow warmth shift | 0.980 -> **0.909** (photo 0.679) | 0.843 -> **0.779** (photo 0.622) |
+| scene-linear p50 | 0.4535 -> 0.4174 (photo 0.2968) | 0.3071 -> 0.2973 (photo 0.2998) |
+
+Noon improves more than the offline isolation alone predicts (0.86 simulated
+against 0.57 measured), so the 2026-09-04 massing work is worth about as much
+again as the transfer is and the two are additive. Golden barely moves on the
+mean, because golden was never the complaint — its dark fraction is what moves,
+27.7% to 17.3%. And the scene-linear row does what it did before the change:
+nothing, because it cannot see an encode.
+
+**What that residual can and cannot mean.** 0.57 stops is inside the scatter, and
+the scatter has a floor under it that no exposure change can lift: the buildings
+are AUTHORED massing on real footprints (constraints 9 and 10), so the photograph
+and the render are of different buildings. Per pair the offset runs from **-0.02**
+stops (the render is already spot on) to **+1.47**, and station 546724041386806 —
+the one the review quoted a pixel from — is a white stucco block behind a large
+tree in the photograph and a two-storey red-brick shopfront in the render. A
+per-pixel comparison there measures massing, not shading. Before this round that
+spread was 1.17 ± **1.27** stops with one frame 5.10 stops out; it is now
+0.57 ± **0.38** with the worst at 1.47.
+
+### What it cost, stated rather than buried
+
+**Saturation, 16-20%.** HSV saturation over pixels with max >= 8: noon 24.8% ->
+20.9%, golden 21.8% -> 17.4%, dusk 40.2% -> 33.8%, night 48.3% -> 40.5%. An
+un-encoded ACES output carries artificially high chroma because the missing
+gamma expands channel ratios; this is that expansion going away. Against the
+photographs the engine is now less chromatic than they are (noon median chroma
+28.5 photo against 25.3 engine before), so a modest post-tonemap chroma lift is a
+defensible NEXT change - but it is a look decision on top of a correctness fix and
+it is not in this one.
+
+**Night's lamp-pool contrast, ~13%.** Brightest 5% of the night ground band
+against its median: **9.89x -> 8.53x**, pool 116.3 -> 109.6 and the road between
+lamps 11.8 -> 12.8. The run-to-run spread on this metric is worth stating beside
+it, because it is not small: two renders of the SAME unchanged build measured 9.89
+and 11.0, the traffic and the crowd having moved through the band. So the drop is
+real but it is only just outside the noise. Part of 9.89 was the missing transfer
+rather than the lamps in any case - the pool-to-road RADIANCE ratio is untouched -
+and a photograph of a lit street sits at 3-6x. Night's median held at 20/255, its
+blacks held (27.5% -> 21.8% below 8/255) and its window-luminance spread held (sd
+27.6 -> 26.5). It is a trade and it is recorded as one.
+
+**Emitters got brighter on the display, and the fix is in files this round was
+scoped out of.** `carbody.js`'s `lampEmissive()` divides a `display` constant by
+the camera stop, which holds an emitter at a fixed ACES INPUT - so a transfer
+function after the tonemap holds it at a brighter DISPLAY value than before.
+Measured at the corridor camera, the night traffic-signal lens: mean red 96 ->
+171, peak 238 -> 247, still not clipped, and the night frames read correctly,
+which is why it was left rather than rushed. The restatement if it is wanted is
+the same one the fog clamps got: `carbody.js` 2.6 -> 1.458, `streetfurniture.js`
+signal lens 1.9 -> 1.005 and parked-car lens 1.1 -> 0.545, each holding the
+display byte it held before (240, 232, 210).
+
+**What did NOT change is the reviewer's own headline region.** `[40,60,180x260]`
+on the corridor hero frame is 35-40% dark window GLASS, and that is most of what
+"sky-lit rgb 59,63,69" was measuring. Split by luminance inside the region at
+noon, before -> after: the glass goes 11,16,23 -> **26,32,41** (a 2.3x lift, which
+is where the crush was), and the stucco goes 102,103,110 -> 107,109,114 (already
+fine, and it moves 5%). The region mean therefore only goes L 25% -> 30% while the
+sweep camera's non-glazed shaded facade goes 23.8 -> 41.2. Both numbers are true;
+the second is the one about shading.
+
+**And the hue is untouched**, as the measurement said it would be: that stucco sits
+at hue 227 before and 228 after. The frames are no longer dark. They are still
+cool, and that is hypothesis A's to fix.
+
+### What A costs to fix, sized rather than promised
+
+`src/sky.js`'s dome fades into `groundRadiance() = uGroundAlbedo * E / PI` below
+the horizon, so it already HAS a bounce term — it is just too dark and, being
+proportionally too dark against a bright sky, too blue. The numbers, so the next
+round starts from arithmetic rather than from scratch:
+
+- `uGroundAlbedo` is `0x6b6455`, linear `[0.147, 0.127, 0.091]`, luminance **0.129**,
+  B/R 0.63. The district's own ground reads back at **0.18-0.19** effective albedo
+  — `nits*pi/E`, plaza 6,017 nits and road 6,262 under 105,244 lux at noon,
+  markings and sheen included. The dome is telling every wall in the city that the
+  street below it is a third darker than the street it is standing on.
+- On a wall the dome's two halves are near-equal at noon: the light meter reads
+  15,006 lux from the upper hemisphere, 15,736 from the lower and 17,084 on a
+  vertical (`tools/sky-once.mjs`, tabulated in `src/daynight.js`'s
+  `HemisphereLight` block). So raising the albedo to 0.19 is +47% on half the
+  wall's light: **+0.28 stops**, and it moves the shaded wall's blue/red from
+  ~1.12 toward ~1.00.
+- The acceptance test already exists: `tools/transfer-audit.mjs --colour` puts the
+  engine's noon shadow shift at **0.909** against the photographs' **0.679**.
+  Ground albedo alone will not close that — real warm shade in a street canyon is
+  also the sunlit facade opposite, which a dome cannot model — so the honest bar
+  is "move it, measure how far, and say what is left".
+- **It does NOT disturb the envelope.** `audit().skyLux` integrates the UPPER
+  hemisphere only (`_deriveFromProbe`, `y = H>>1` upward), so `PLAUSIBLE`'s
+  `skyLux` bounds and the sweep's second negative test are untouched by it. What
+  it DOES disturb is the light on every wall, which re-opens the four stops by a
+  few tenths — which is exactly why it is a separate round and not this one.
+
 ## The trees do cast shadows and they do dapple - three of us measured the wrong ground
 
 Two independent reviewers reported that the canopy contributes nothing to the
@@ -3772,6 +4034,43 @@ author later withdrew; the corrected reasoning is preserved in this entry rather
 than by rewriting the pushed history.
 
 ## Threshold change log
+
+### 2026-09-05 — five ACES-input thresholds restated for the display transfer (strictness HELD)
+
+`src/post.js`'s composite now applies an sRGB encode after the tonemap. Five gates
+and clamps are written in ACES INPUT units but exist to bound a DISPLAY value, and
+inserting a transfer function between the two changes what the same number
+permits. Each was restated so the display value it allows is identical:
+
+| where | quantity | before | after | display byte either side |
+|---|---|---|---|---|
+| `daynight.js` `normalisePostExposure()` | fog colour clamp | 0.85 | **0.410** | 196 |
+| `daynight.js` `normalisePostExposure()` | inscatter clamp | 2.2 | **1.193** | 236 |
+| `daynight.js` `audit()` | fog washes out | 1.2 | **0.60** | 214 |
+| `daynight.js` `audit()` | sun lobe blows | 3.0 | **1.744** | 243 |
+| `sky.js` `audit()` | mid-sky is blown | 1.0 | **0.491** | 205 |
+| `sky.js` `fogCeiling` | ceiling handed to post | 1.1 | **0.545** | 210 |
+| `sky.js` `inscatterCeiling` | ceiling handed to post | 2.7 | **1.528** | 241 |
+
+Each new value solves `srgb(aces(x')) = aces(x)` for the old `x`, so no frame that
+was permitted before is forbidden and none that was forbidden is now permitted.
+**Left at the old numbers every one of them would have been LOOSENED**, and by a
+lot: the mid-sky gate would have stopped firing until mid-sky reached 229/255
+instead of 205, and the far field would have been allowed to reach 222 where it
+was allowed 196. That is the direction this change had to be checked in, and it is
+why the numbers moved rather than staying put.
+
+Measured on the changed build (`docs/daynight.json`), all four presets pass with
+margin: mid-sky exposed 0.222 noon, 0.349 golden, 0.298 dusk, 0.017 night against
+the 0.491 gate. The clamps bite less than they did because every stop came down —
+golden's inscatter clamp goes 0.627 -> 0.825 and dusk's 0.765 -> unclamped — and
+the display ceiling they enforce is unchanged, which is the point.
+
+**No plausibility bound moved.** `PLAUSIBLE`'s lux and candela envelopes, the
+draw-call and triangle budgets and the golden-trace tolerances are all untouched;
+the sweep's two negative tests both still fire.
+
+
 
 ### 2026-09-01 — the lighting envelope's `skyLux` bound now judges DELIVERED illuminance (strictness INCREASED)
 

@@ -69,7 +69,13 @@ const summary = {
     skyDelivered: r.audit.skyDelivery ? r.audit.skyDelivery.totalLux : r.audit.skyLuxDelivered,
     skyPaths: r.audit.skyDelivery ? r.audit.skyDelivery.paths : null,
     litLamps: r.audit.litPointLights, lampCandela: r.audit.samplePointLightCandela,
-    exposure: r.audit.exposureAsStop, toneMapping: r.audit.toneMapping,
+    exposure: r.audit.exposureAsStop,
+    // The stop as a NUMBER as well as the string. "1/1" is what
+    // Math.round(1/(1/1.15)) prints, and every tool that parsed the string back
+    // was therefore reading night 15% off - tools/tod-readability.mjs's night
+    // nits column and tools/transfer-audit.mjs --solve both did.
+    exposureValue: r.audit.exposure,
+    toneMapping: r.audit.toneMapping,
     lights: r.audit.lightCount, shadowCasters: r.audit.shadowCasters,
     drawCalls: r.render.calls, triangles: r.render.triangles,
     implausible: r.audit.implausible,

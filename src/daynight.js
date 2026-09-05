@@ -14,7 +14,56 @@
 
 import * as THREE from '../vendor/three.module.min.js';
 
-// EVERY EXPOSURE BELOW WAS RE-DERIVED WHEN THE SKY STOPPED BEING DELIVERED TWICE.
+// EVERY EXPOSURE BELOW WAS RE-DERIVED AGAIN WHEN src/post.js GAINED A DISPLAY
+// TRANSFER FUNCTION. That is the second re-derivation this block records; the
+// first (the sky delivered once) is kept underneath it because its arithmetic is
+// what each preset's offset from the rule still means.
+//
+// The composite used to write aces(radiance * exposure) straight into an 8-bit
+// framebuffer with no sRGB encode, so the display's own ~2.2 decode was applied
+// to a value nothing had encoded. Every stop here was therefore chosen against a
+// chain with an extra gamma in it, and correcting the chain without correcting
+// the stops would have blown all four presets.
+//
+// THE RULE USED, AND WHY IT IS NOT pi/E EVERYWHERE. A display transfer function
+// changes the SHAPE of the curve below the highlights, not the highlights, so
+// the honest thing to ask of the new stop is that it correct the toe and leave
+// the picture where the author put it. Operationally: the stop that holds the
+// sweep frame's MEDIAN display value at the value it had before. That is solved
+// on the shipped frames themselves rather than guessed - the old byte IS
+// aces(radiance * exposure), so inverting it recovers the exact radiance behind
+// every pixel and re-tonemapping at a candidate stop gives the exact frame that
+// build would produce (tools/transfer-audit.mjs --solve).
+//
+//   preset  old stop   new stop    stops   pi/E       offset from pi/E
+//   noon    1/14,000   1/33,500    -1.26   1/33,500    0.00  (was +1.26)
+//   golden  1/4,152    1/9,649     -1.22   1/3,954    -1.29  (was -0.07)
+//   dusk    1/719      1/1,947     -1.44   1/448      -2.12  (was -0.68)
+//   night   1/1.15     1/5.378     -2.23   1/0.220    -4.61  (was -2.39)
+//
+// Noon is the one that lands ON the rule, and it lands there by two independent
+// routes - pi/105,244 = 1/33,500 and the median criterion's 1/33,422, 0.2%
+// apart. That is the check that the criterion is not just "keep it looking the
+// same": on the one preset where the rule is applicable, they agree.
+//
+// The bloom thresholds moved with the stops and the fog clamps were restated in
+// the new units; both are documented at their own sites. No LIGHT changed. The
+// audit's physical units - lux delivered, nits behind each region, sky paths -
+// are identical either side, which is what daynight-sweep asserts.
+//
+// ONE THING THIS ROUND DELIBERATELY DID NOT FOLLOW THROUGH, because it lives in
+// files this round was scoped out of. carbody.js's lampEmissive() divides a
+// `display` constant by the camera stop, which holds an emitter at a fixed ACES
+// INPUT - so with a transfer function after the tonemap it now holds a brighter
+// DISPLAY value than it used to. Measured at the corridor camera, the night
+// traffic-signal lens: mean red 96 -> 171, peak 238 -> 247, still not clipped, and
+// the night frame reads correctly, which is why it was left rather than rushed.
+// The restatement, if it is wanted, is the same one the fog clamps got - solve
+// srgb(aces(x')) = aces(x): carbody.js's 2.6 -> 1.458, streetfurniture.js's signal
+// lens 1.9 -> 1.005 and its parked-car lens 1.1 -> 0.545, each holding the display
+// byte it held before (240, 232, 210).
+//
+// EVERY EXPOSURE BELOW WAS ALSO RE-DERIVED WHEN THE SKY STOPPED BEING DELIVERED TWICE.
 //
 // The rule this file uses is exposure = pi/E: an 18% grey card under a total
 // horizontal illuminance E sits at E*0.18/pi nits, so pi/E puts it back on 0.18.
@@ -130,6 +179,31 @@ export const PRESETS = {
     // against 23.8 / 2.1 / 42.5% / 28.7% / 0% before. mid-sky goes 0.107 -> 0.532,
     // beside golden's 0.811 and dusk's 0.806 instead of beside night's 0.078.
     //
+    // ^ SUPERSEDED IN TURN, AND BY THE DEFECT ITS OWN THIRD PARAGRAPH NAMED.
+    //
+    // That paragraph is correct and was acted on rather than deferred: the missing
+    // <colorspace_fragment> is now written out by hand at the end of
+    // src/post.js's composite, so the byte is srgb(aces(radiance * exposure)) and
+    // aces(0.18) reaches 141/255 instead of 68. With a display transfer present
+    // the +1.26-stop offset is not a trade any more, it is a double correction -
+    // it existed only to drag a crushed toe back up, and the toe is no longer
+    // crushed. It is therefore DELETED and this preset sits on the bare rule.
+    //
+    // Two independent criteria pick the same stop, which is the reason to trust it:
+    //   - the rule itself: pi/E = pi/105,244 = 1/33,500.
+    //   - "the transfer must correct the toe, not re-grade the picture": the stop
+    //     that holds the sweep frame's MEDIAN display value at the 129.3 it had
+    //     before, solved on the shipped frame by inverting the tonemap per pixel
+    //     and re-tonemapping (tools/transfer-audit.mjs --solve), is 1/33,422.
+    // 0.2% apart. The offset from pi/E is now +0.00 stops.
+    //
+    // Rendered either side, at the corridor camera (tools/tod-readability.mjs):
+    //   frame mean 112.9 -> 116.0, p50 129 -> 129, below 16/255 8.16% -> 1.8%,
+    //   below 8/255 3.12% -> 0.2%, clipped 0% -> 0%,
+    //   sky-lit facade 23.8 -> 41.7 (+75%), lit facade 70.4 -> 82, road 128 -> 130,
+    //   sky 166.5 -> 161.4.
+    // The frame does not get brighter; the shadows stop being a hole in it.
+    //
     // WHAT THIS DOES NOT DO. It does not flatten noon. Exposure cannot: the
     // sunlit-to-shaded ILLUMINANCE ratio is 105,244:17,000 = 6.2:1 and is untouched
     // by the stop. What moves is where that ratio sits on the curve, and it sits
@@ -149,7 +223,7 @@ export const PRESETS = {
     // TOWARD the sun (cos 75.6 = 0.248 -> cos 45 = 0.707) and nothing at all on a
     // shaded one, whose illuminance is the sky's and does not depend on where the
     // sun is. It fixes wall-against-wall separation; it cannot fix a crush.
-    exposure: 1 / 14000,      // camera stop, not a brightness fudge
+    exposure: 1 / 33500,      // pi/E exactly - see the block above
     lampsOn: false,
     fog: { color: 0xa8c2dc, density: 0.0016 },
     // bloomThreshold is in EXPOSED units, so it had to move with the stop or the
@@ -162,8 +236,14 @@ export const PRESETS = {
     // gives 2.1, i.e. 29,400 nits. What blooms at noon is therefore the sun's
     // aureole and specular glints off glass and metal, which run 10^4-10^5 nits,
     // and nothing that is merely lit - the same bar golden's 1.4 was set to.
+    //
+    // 2.1 -> 0.878 when the stop moved. THE RADIANCE THAT BLOOMS IS UNCHANGED at
+    // 29,400 nits; only the units it is expressed in moved, because the threshold
+    // is compared against lum * exposure. 29,400 / 33,500 = 0.878. Every preset's
+    // threshold below moved the same way and for the same reason, and each one
+    // still names the nits it was derived from so the arithmetic is checkable.
     post: { fogColor: 0xa9c3e0, inscatter: 0xfff0d0, density: 0.0016,
-            heightFalloff: 0.020, bloomThreshold: 2.1, bloomStrength: 0.30 },
+            heightFalloff: 0.020, bloomThreshold: 0.878, bloomStrength: 0.30 },
   },
   // Golden hour. The hour the district did not have.
   //
@@ -315,7 +395,35 @@ export const PRESETS = {
     // the split - the sun goes from 28.2% of the light on the road to 40.8%, and
     // the key:fill between a wall turned toward the sun and one turned away goes
     // from 2.99 (1.58 stops) to the figure recorded in PROGRESS.md.
-    exposure: 1 / 4152,
+    //
+    // RE-DERIVED AGAIN when src/post.js gained its display transfer function, and
+    // this preset is the one where pi/E stops being the right rule.
+    //
+    // pi/E normalises to the illuminance on a HORIZONTAL surface. At a 75.6 deg
+    // noon that is very nearly the brightest thing in frame, so the rule and the
+    // picture agree. At an 8 deg sun they do not: 34,470 lux arrives at near-normal
+    // incidence on the VERTICAL surfaces this frame is mostly made of, 2.8x the
+    // 12,423 lux the ground collects, so pi/E under-reads the frame by about that
+    // factor. Rendered at pi/E with the transfer, golden goes to frame mean 179,
+    // p50 198 and 3.2% clipped - a blown hour, not a golden one.
+    //
+    // So golden is set by the criterion instead, the same one that independently
+    // reproduced noon's pi/E: the transfer must correct the toe, not re-grade the
+    // picture. Solved on the shipped frame by inverting the tonemap per pixel and
+    // re-tonemapping at candidate stops (tools/transfer-audit.mjs --solve), the
+    // stop that holds the sweep frame's median display value at its shipped 139.4
+    // is 1/9,649. That is -1.22 stops, against noon's -1.26, dusk's -1.44 and
+    // night's -2.23: the three daylight presets move together, which is what a
+    // single missing transfer function should do.
+    //
+    // Rendered either side, at the corridor camera:
+    //   frame mean 129.7 -> 128.0, p50 139 -> 139, below 16/255 4.22% -> 1.5%,
+    //   below 8/255 1.94% -> 0.1%, clipped 2.08% -> 0.0%,
+    //   sun-lit tower 210 -> 201, shaded facade 35.4 -> 48.8 (+38%), road 65 -> 73.
+    // The clipping going away is the shoulder finally being used: ACES rolled off
+    // into a 2% blown region because the encode was compressing everything below
+    // it, and with the toe corrected the same radiances fit inside the range.
+    exposure: 1 / 9649,
     // Off. 4,797 lux of sun on the road against a 900 cd lamp is not a contest,
     // and real street lighting is not on 40 minutes before sunset.
     lampsOn: false,
@@ -345,8 +453,12 @@ export const PRESETS = {
     // the sun's aureole and specular glints off glass and wet metal - and nothing
     // that is merely lit. Strength is between noon's 0.30 and dusk's 0.62 and nearer
     // noon, because unlike dusk nothing in frame is an emitter.
+    //
+    // 1.4 -> 0.602 with the stop. 1.4 at 1/4,152 is 5,813 nits; 5,813 / 9,649 is
+    // 0.602, so the same radiance blooms and the three bounds above still read the
+    // same way once each is divided by the new stop instead of the old one.
     post: { fogColor: 0xf5fff7, inscatter: 0xffd4a5, density: 0.0016,
-            heightFalloff: 0.020, bloomThreshold: 1.4, bloomStrength: 0.40 },
+            heightFalloff: 0.020, bloomThreshold: 0.602, bloomStrength: 0.40 },
   },
   dusk: {
     label: 'Dusk',
@@ -367,11 +479,30 @@ export const PRESETS = {
     // light, so 1/900 becomes 1/719. The 2100-lux arithmetic above is left
     // standing because it is the reasoning that set the offset from pi/E, and that
     // offset is preserved exactly; only the light changed.
-    exposure: 1 / 719,
+    //
+    // RE-DERIVED for the display transfer function in src/post.js, by the same
+    // criterion as noon and golden: the stop that holds the sweep frame's median
+    // display value at its shipped 92.6 (tools/transfer-audit.mjs --solve) is
+    // 1/1,947, which is -1.44 stops. The offset from pi/E goes from -0.68 stops to
+    // -2.12, and dusk is the preset where that is most expected: it is the one
+    // authored as a LOOK rather than a meter reading - a sunset, deliberately held
+    // under the rule so the sky stays a sky instead of a white sheet - and holding
+    // its authored look is exactly what the criterion asks for.
+    //
+    // Rendered either side, at the corridor camera:
+    //   frame mean 111.7 -> 115.6, p50 92 -> 93, below 16/255 3.40% -> 1.1%,
+    //   below 8/255 1.55% -> 0.6%, clipped 0% -> 0%,
+    //   shaded facade 62.7 -> 74.1, lit facade 92.9 -> 98.4, road 47.2 -> 61.4,
+    //   sky 205.7 -> 196.3. The sky comes DOWN, which is the shoulder being used
+    //   properly rather than the whole frame being pushed into it.
+    exposure: 1 / 1947,
     lampsOn: true,
     fog: { color: 0x6a6480, density: 0.0034 },
+    // bloomThreshold 0.85 -> 0.314: 0.85 at 1/719 is 611 nits, and 611/1,947 is
+    // 0.314. Same radiance, new units. Street lamps and lit signage are the
+    // emitters that clear it at this hour, as before.
     post: { fogColor: 0x6d6a88, inscatter: 0xff9a52, density: 0.0032,
-            heightFalloff: 0.016, bloomThreshold: 0.85, bloomStrength: 0.62 },
+            heightFalloff: 0.016, bloomThreshold: 0.314, bloomStrength: 0.62 },
   },
   night: {
     label: 'Night',
@@ -397,12 +528,40 @@ export const PRESETS = {
     // PROGRESS.md: the hemisphere was 0.2% of the corridor wall region and 1.2% of
     // the ground region, so the crushed fraction and the lamp pools move by less
     // than the run-to-run spread.
-    exposure: 1 / 1.15,       // dark sky, lamp-lit surfaces readable. At 1/3.2 the
+    //
+    // AND THEN MOVED 2.23 STOPS BY THE DISPLAY TRANSFER, WHICH IS NOT THE SAME
+    // KIND OF CHANGE AND IS THE ONE PLACE THIS ROUND COSTS SOMETHING.
+    //
+    // Night is the frame the last fidelity review called the best in the build, so
+    // it gets the same criterion as the others and no special pleading: the stop
+    // that holds the sweep frame's median display value at its shipped 20/255
+    // (tools/transfer-audit.mjs --solve) is 1/5.378. It needs 2.23 stops where the
+    // daylight presets needed 1.2-1.4 because night's median sits at 20/255,
+    // deep in the toe, and the toe is exactly where the missing transfer was doing
+    // the most damage.
+    //
+    // WHAT IT COSTS, STATED RATHER THAN BURIED. Holding the median holds almost
+    // everything - blacks stay black, the sky and the lit windows do not move -
+    // but it cannot hold the lamp pools' CONTRAST, because that contrast was
+    // partly the missing transfer. Measured at the corridor camera
+    // (tools/critic-metrics.mjs lampPools, brightest 5% of the ground band against
+    // its median):
+    //   pool 115.3 / away 10.5 = 11.0x   ->   pool 83 / away 13 = 6.3x
+    //   below 8/255  27.5% -> 20.9%      window-luminance spread sd 27.6 -> 24
+    // 11x was the extra gamma of an un-encoded frame, not the lamps: the radiance
+    // ratio between pool and road is untouched, and 6.3x is what that same ratio
+    // reads through a display transfer. A photograph of a lit street sits at 3-6x.
+    // It is still a trade and it is recorded as one.
+    exposure: 1 / 5.378,      // dark sky, lamp-lit surfaces readable. At 1/3.2 the
                               // polarity was right but the frame was unplayably dark
     lampsOn: true,
     fog: { color: 0x141a2a, density: 0.0042 },
+    // bloomThreshold 0.55 -> 0.118: 0.55 at 1/1.15 is 0.6325 nits, and 0.6325/5.378
+    // is 0.1176. Same radiance, new units - which matters most here, because at
+    // night everything that blooms is an emitter and moving the threshold in
+    // display units instead would have switched the lit windows out of the bloom.
     post: { fogColor: 0x18203a, inscatter: 0x3b4a78, density: 0.0038,
-            heightFalloff: 0.014, bloomThreshold: 0.55, bloomStrength: 0.85 },
+            heightFalloff: 0.014, bloomThreshold: 0.118, bloomStrength: 0.85 },
   },
 };
 
@@ -705,9 +864,18 @@ export class TimeOfDay {
     // Fog fills most of a wide shot, so it must stay clearly below saturation.
     // Inscatter only applies in a narrow lobe toward the sun and is allowed to
     // bloom, which is what a sun behind haze actually does.
+    //
+    // 0.85 -> 0.410 and 2.2 -> 1.193 when src/post.js gained its display transfer.
+    // These are ACES-INPUT ceilings whose reason for existing is a DISPLAY value -
+    // "the far field must not read as a white sheet" - and inserting a transfer
+    // function between the two changes one without changing the other. Restated so
+    // the display value is identical: 255*aces(0.85) = 196 and
+    // 255*srgb(aces(0.410)) = 196; 255*aces(2.2) = 236 and 255*srgb(aces(1.193))
+    // = 236. Nothing about what the frame is allowed to do has moved. Left at the
+    // old numbers the far field would have been permitted to reach 222 and 250.
     const before = { fog: lum(q.fogColor) * q.exposure, inscatter: lum(q.fogInscatter) * q.exposure };
-    fit(q.fogColor, 0.85);
-    fit(q.fogInscatter, 2.2);
+    fit(q.fogColor, 0.410);
+    fit(q.fogInscatter, 1.193);
     // The sky's physical extinction veils the mid-ground at street level. Real
     // aerial perspective is far weaker over 300 m of clear air; this keeps depth
     // separation without turning the district into a white sheet.
@@ -758,6 +926,19 @@ export class TimeOfDay {
       this.scene.fog = null;
       this._applyPost();
     } else {
+      // NO PostStack: three's own tonemapper, which has ALWAYS carried a display
+      // transfer (its materials get <colorspace_fragment>; the composite did not).
+      // That is why this branch used to render brighter than the district it was
+      // standing in for, and why the stops moving does not break it - it fixes it.
+      //
+      // An 18% grey card at the preset's stop, both branches, mid-grey only:
+      //                        composite      this branch     apart
+      //   before (1/14,000)     144/255         188/255        +44
+      //   after  (1/33,500)     141/255         127/255        -14
+      // The residual is the two ACES fits disagreeing - Narkowicz puts 0.18 on
+      // 0.267 and three's RRT+ODT fit puts it on 0.213 - not a missing transfer.
+      // labs/materials is the only page on this branch; labs/facades, labs/sky
+      // and labs/signage all attach a PostStack and get the composite's chain.
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
       this.renderer.toneMappingExposure = p.exposure;
       this.scene.fog = new THREE.FogExp2(p.fog.color, p.fog.density);
@@ -907,11 +1088,18 @@ export class TimeOfDay {
       const insExposed = lum(q.fogInscatter) * q.exposure;
       // This, not the illuminance ratio, is what decides whether the frame blows
       // out. ACES saturates above roughly 1.5.
-      if (fogExposed > 1.2) {
-        flags.push(`fog radiance x exposure = ${fogExposed.toFixed(2)}; above ~1.2 the frame washes out`);
+      //
+      // 1.2 -> 0.60 and 3.0 -> 1.744 for the display transfer, by the same
+      // restatement as the clamps in normalisePostExposure(): these gates are
+      // written in ACES input but mean a display value, and 255*aces(1.2) = 214 =
+      // 255*srgb(aces(0.60)), 255*aces(3.0) = 243 = 255*srgb(aces(1.744)). The
+      // gate is not loosened - held at the old numbers it would have stopped
+      // firing until the far field reached 237 and 252.
+      if (fogExposed > 0.60) {
+        flags.push(`fog radiance x exposure = ${fogExposed.toFixed(2)}; above ~0.60 the frame washes out`);
       }
-      if (insExposed > 3.0) {
-        flags.push(`inscatter radiance x exposure = ${insExposed.toFixed(2)}; above ~3.0 the sun lobe blows`);
+      if (insExposed > 1.744) {
+        flags.push(`inscatter radiance x exposure = ${insExposed.toFixed(2)}; above ~1.74 the sun lobe blows`);
       }
     }
     if (this.skyDome) {

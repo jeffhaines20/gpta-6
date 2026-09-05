@@ -19,11 +19,14 @@
 //      from the shared camera model (roofline.mjs CAM), and it is CHECKED
 //      against the engine's own world-height pass by --validate.
 //
-//   2. THE SAME TRANSFER. A screenshot from this renderer is aces(scene *
-//      exposure) with no sRGB encode (src/post.js; derived at length in
-//      critic-metrics.mjs). A photograph is sRGB. Ratios of 8-bit values across
-//      those two are not comparable, so each is linearised with ITS OWN inverse
-//      before any ratio is taken.
+//   2. THE SAME TRANSFER. A screenshot from this renderer is
+//      srgb(aces(scene * exposure)) (src/post.js; derived at length in
+//      critic-metrics.mjs). A photograph is srgb(scene) with a camera's own
+//      curve in it. Ratios of 8-bit values across those two are not comparable,
+//      so each is linearised with ITS OWN inverse before any ratio is taken.
+//      The engine's inverse gained an sRGB decode in front of the tonemap
+//      inverse when post.js gained its encode; before that it was the tonemap
+//      inverse alone, and an ARCHIVED engine frame still needs that older one.
 //
 //   3. AN INSTRUMENT THAT CAN BE WRONG OUT LOUD. --selftest builds synthetic
 //      facades whose answers are known and OPPOSITE to each other: a warm-paned
@@ -70,20 +73,29 @@ for (let i = 0; i < 256; i++) {
   const v = i / 255;
   s2l[i] = v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
 }
-// The ACES (Narkowicz) inverse, for a frame out of src/post.js. Same derivation
-// as critic-metrics.mjs and glaz-probe.mjs; kept identical on purpose so a
-// number measured here is comparable with one measured there.
-const a2l = new Float64Array(256);
-for (let i = 0; i < 256; i++) {
-  const y = i / 255;
+// The renderer's inverse: sRGB decode, THEN the Narkowicz ACES inverse, because
+// post.js's composite applies them in the opposite order. Same derivation as
+// critic-metrics.mjs and glaz-probe.mjs; kept identical on purpose so a number
+// measured here is comparable with one measured there.
+//
+// `acesOnly` is the inverse for a frame captured BEFORE post.js gained its
+// encode. It is not dead code: this repo's docs/shots tree spans both, and
+// reading an archived engine frame with the current inverse understates its
+// darks by the same 2.4x the encode was worth.
+function acesInverse(y) {
   const A = 2.43 * y - 2.51, B = 0.59 * y - 0.03, C = 0.14 * y;
-  if (Math.abs(A) < 1e-9) { a2l[i] = B !== 0 ? -C / B : 0; continue; }
+  if (Math.abs(A) < 1e-9) return B !== 0 ? -C / B : 0;
   const disc = B * B - 4 * A * C;
-  if (disc < 0) { a2l[i] = 0; continue; }
+  if (disc < 0) return 0;
   const roots = [(-B + Math.sqrt(disc)) / (2 * A), (-B - Math.sqrt(disc)) / (2 * A)].filter((v) => v >= 0);
-  a2l[i] = roots.length ? Math.min(...roots) : 0;
+  return roots.length ? Math.min(...roots) : 0;
 }
-export const TRANSFER = { srgb: s2l, aces: a2l };
+const a2l = new Float64Array(256), acesOnly = new Float64Array(256);
+for (let i = 0; i < 256; i++) {
+  a2l[i] = acesInverse(s2l[i]);
+  acesOnly[i] = acesInverse(i / 255);
+}
+export const TRANSFER = { srgb: s2l, aces: a2l, acesOnly };
 const Y = (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
 
 // ------------------------------------------------------------------- camera
@@ -812,17 +824,30 @@ function selftest() {
 
   // 7. THE TRANSFER. The same scene encoded for this renderer must linearise to
   //    the same ratios - if the wrong inverse is applied the answer moves.
-  const acesEnc = (v) => { const x = v; const y2 = (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14); return 255 * Math.max(0, Math.min(1, y2)); };
+  //
+  //    The synthetic frame is built with the renderer's WHOLE output chain,
+  //    aces() then the sRGB encode, because that is what post.js now writes. The
+  //    third arm is the point of this test after that change: reading such a
+  //    frame with the OLD engine inverse (the tonemap inverse alone, still
+  //    exported as TRANSFER.acesOnly for archived shots) has to give a different
+  //    answer, or the encode is not actually in the chain and this whole round
+  //    was a no-op.
+  const acesOnlyEnc = (v) => { const x = v; const y2 = (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14); return 255 * Math.max(0, Math.min(1, y2)); };
+  const srgbEnc = (v) => 255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055);
+  const engineEnc = (v) => srgbEnc(acesOnlyEnc(v) / 255);
   const acesImg = synth(W, H, (x, y) => {
     const inPane = y >= TOP && y < BOT && (x % 48) < 26 && ((y - TOP) % 60) < 30;
-    return (inPane ? warmPane : wall).map(acesEnc);
+    return (inPane ? warmPane : wall).map(engineEnc);
   });
   const ra = detect(acesImg, { transfer: 'aces' });
-  if (ra.ok && Math.abs(ra.glassBR - 0.700) < 0.06) ok(`an ACES-encoded frame linearises to B/R ${f(ra.glassBR)} with the renderer's own inverse`);
-  else no(`ACES arm: ok=${ra.ok} B/R ${f(ra.glassBR)} (${ra.why.join('; ')})`);
+  if (ra.ok && Math.abs(ra.glassBR - 0.700) < 0.06) ok(`a frame encoded the way post.js encodes linearises to B/R ${f(ra.glassBR)} with the renderer's own inverse`);
+  else no(`engine-transfer arm: ok=${ra.ok} B/R ${f(ra.glassBR)} (${ra.why.join('; ')})`);
   const rWrong = detect(acesImg, { transfer: 'srgb' });
   if (rWrong.ok && Math.abs(rWrong.glassBR - 0.700) > 0.06) ok(`and reading it with the sRGB inverse gives ${f(rWrong.glassBR)} instead - the transfer choice is load-bearing`);
   else no(`the two transfers agree (${f(ra.glassBR)} vs ${f(rWrong.glassBR)}); one of them is not being applied`);
+  const rOld = detect(acesImg, { transfer: 'acesOnly' });
+  if (rOld.ok && Math.abs(rOld.glassBR - 0.700) > 0.06) ok(`and with the PRE-encode engine inverse ${f(rOld.glassBR)} - the sRGB encode is in the chain`);
+  else no(`the pre-encode inverse agrees (${f(rOld.glassBR)}); post.js's sRGB encode is not being applied`);
 
   console.log(`\nselftest: ${pass} passed, ${fail} failed`);
   return fail === 0;
@@ -870,7 +895,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     if (overlays) fs.mkdirSync(overlays, { recursive: true });
     const files = fs.readdirSync(dir).filter((f) => f.endsWith('.png') && (!time || f.includes(`-${time}.`)))
       .sort().map((f) => path.join(dir, f));
-    const { summary, rows, refused } = runSet(files, 'aces', `ENGINE ${time ?? ''}`.trim(), { overlays, limit: Number(arg('limit', 0)) });
+    // 'aces' is the CURRENT renderer's inverse (sRGB decode then the tonemap
+    // inverse). --transfer acesOnly reads a frame captured before src/post.js
+    // gained its sRGB encode on 2026-09-05; getting that wrong understates the
+    // darks by about 2.4x, which is larger than any glass tint this measures.
+    const engTransfer = arg('transfer', 'aces');
+    const { summary, rows, refused } = runSet(files, engTransfer, `ENGINE ${time ?? ''}`.trim(), { overlays, limit: Number(arg('limit', 0)) });
     console.log(summary.text);
     console.log(`  refused ${refused.length} of ${refused.length + rows.length}`);
     for (const [n, w] of refused) console.log(`    - ${n}: ${w}`);

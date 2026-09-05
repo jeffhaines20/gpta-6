@@ -1,5 +1,5 @@
 // Post-processing stack: HDR scene target -> bloom -> composite (height fog +
-// aerial perspective + ACES tonemap + dither).
+// aerial perspective + ACES tonemap + sRGB encode + dither).
 //
 // Written rather than pulled from three's addons so the whole chain is one file
 // we own and can budget: it is 4 extra draw calls total, and every uniform is
@@ -340,11 +340,51 @@ void main() {
   color *= exposure;
   color = aces(color);
 
-  // Wet streets read slightly cooler and more contrasted.
+  // --- Display transfer function. THE THING THAT WAS MISSING.
+  //
+  // This composite is a RawShaderMaterial, so three.js substitutes no shader
+  // chunks into it: renderer.outputColorSpace = SRGBColorSpace above configures a
+  // <colorspace_fragment> that never runs here, and the byte written to the
+  // 8-bit framebuffer was aces(radiance * exposure) with no encode at all. The
+  // display then reads that byte as sRGB and applies a ~2.2 decode nobody
+  // compensated for, so every value below the top of the range came out darker
+  // than it was authored - and the deficit GROWS as values fall, because the
+  // error is a power law and not an offset.
+  //
+  // The size of it, measured rather than argued (tools/transfer-audit.mjs --gamma):
+  // noon's sky-lit facade and its sunlit road sat at ACES input 0.0796 and 0.4473,
+  // 2.49 stops apart in radiance. At one stop, so only the encode differs, the old
+  // chain put them 6.41:1 apart in code value and this one puts them 2.36:1 apart
+  // - 1.076 display stops per scene stop against 0.498. Sunlit surfaces about
+  // right, shaded surfaces two to three times too dark, from the encode alone.
+  //
+  // And it IS the encode, not the light: --shape normalises each frame's
+  // scene-linear luminance by its own p90, which removes exposure, and the
+  // engine's histogram already sat inside the matched photographs' - at noon p25
+  // 0.142 against 0.102 and p50 0.454 against 0.297, i.e. a SHORTER dark tail
+  // than the photographs have. There was no missing fill to find.
+  //
+  // Every camera stop, every bloom threshold and both fog clamps moved with this;
+  // see src/daynight.js. Piecewise sRGB, identical to three's own
+  // <colorspace_fragment>, so a future move back onto the built-in chunk is a
+  // no-op rather than a re-grade.
+  color = mix(1.055 * pow(max(color, vec3(0.0)), vec3(0.41666)) - vec3(0.055),
+              color * 12.92,
+              vec3(lessThanEqual(color, vec3(0.0031308))));
+
+  // Wet streets read slightly cooler and more contrasted. It multiplies the
+  // DISPLAY value and always has - before the encode above existed, the ACES
+  // output WAS the display value - so it sits on this side of the transfer and
+  // its strength is unchanged. Ahead of the encode the same numbers would be
+  // divided by the curve's slope, about 2.4x in the toe, quietly turning a
+  // shipped look parameter into a third of itself.
   color = mix(color, color * vec3(0.94, 0.98, 1.06), wetness * 0.35);
 
-  // Ordered dither before the 8-bit write. Phase 1's critic measured undithered
-  // sky banding in runs of 17-19 identical pixels.
+  // Ordered dither before the 8-bit write, and AFTER the encode: quantisation
+  // happens in the encoded domain, so a dither applied before the transfer would
+  // be stretched by its slope - 2.4x in the toe, where the banding actually is.
+  // Phase 1's critic measured undithered sky banding in runs of 17-19 identical
+  // pixels.
   float d = fract(dot(gl_FragCoord.xy, vec2(0.7548776662, 0.5698402909)));
   color += (d - 0.5) / 255.0;
 
@@ -476,6 +516,18 @@ export class PostStack {
     this.msaaSamples = opts.msaaSamples ?? 4;
 
     // Tone mapping is ours now; the renderer must hand us linear HDR.
+    //
+    // outputColorSpace has never reached the pixel that reaches the screen, and
+    // that is worth stating because it looks like it should. It only decides what
+    // three's <colorspace_fragment> converts to, and that chunk reaches a material
+    // two ways, neither of which applies here: the SCENE pass renders into
+    // this.hdr, and a render target's own texture.colorSpace governs there - a
+    // HalfFloatType target is linear, so the scene materials write linear, which
+    // is what bloom needs; and the pass that DOES draw to the default framebuffer
+    // is the composite below, a RawShaderMaterial, which gets no chunk
+    // substitution at all. That is why the encode is written out by hand in
+    // COMPOSITE_FRAG. Left set because it is still the correct declaration of what
+    // this renderer puts on screen, and now it is also true.
     renderer.toneMapping = THREE.NoToneMapping;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
 

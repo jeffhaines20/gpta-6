@@ -122,12 +122,19 @@ export function panoStations(w = W, h = H) {
 }
 
 // ---------------------------------------------------------------- analysis
-// The right inverse for this renderer is the ACES one, not the sRGB one: post.js
-// writes aces(color * exposure) straight to the framebuffer with no colorspace
-// encode after it. Copied from critic-metrics.mjs, which derives it at length.
+// The right inverse for this renderer is the sRGB decode FOLLOWED BY the ACES
+// one: post.js writes srgb(aces(color * exposure)) to the framebuffer. It used to
+// write the tonemap output raw, and this table used to be the tonemap inverse
+// alone; an archived frame from before that change needs critic-metrics.mjs's
+// acesOnly(). Copied from critic-metrics.mjs, which derives it at length.
+const s2lg = new Float64Array(256);
+for (let i = 0; i < 256; i++) {
+  const v = i / 255;
+  s2lg[i] = v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+}
 const a2l = new Float64Array(256);
 for (let i = 0; i < 256; i++) {
-  const y = i / 255;
+  const y = s2lg[i];
   const A = 2.43 * y - 2.51, B = 0.59 * y - 0.03, C = 0.14 * y;
   if (Math.abs(A) < 1e-9) { a2l[i] = B !== 0 ? -C / B : 0; continue; }
   const disc = B * B - 4 * A * C;

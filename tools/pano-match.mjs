@@ -39,9 +39,15 @@ const W = 1280, H = 960;
 
 const index = JSON.parse(fs.readFileSync(path.join(IN, 'index.json'), 'utf8'));
 const route = JSON.parse(fs.readFileSync('data/district.json', 'utf8')).meta.route;
+// --id renders one station; --ids renders a named list in one browser session,
+// which matters because the page load and the streamer settle dominate the cost
+// and paying them 26 times to capture 26 stations is most of an hour.
 const only = arg('id', null);
+const manyRaw = arg('ids', null);
+const many = manyRaw ? manyRaw.split(',').map((s) => s.trim()).filter(Boolean) : null;
+const wanted = only ? [only] : many;
 const panos = index.images
-  .filter((i) => i.isPano && (!only || i.id === only || i.file.includes(only)))
+  .filter((i) => i.isPano && (!wanted || wanted.some((w) => i.id === w || i.file.includes(w))))
   .sort((a, b) => a.x - b.x);
 if (!panos.length) { console.error('no panoramas selected'); process.exit(2); }
 
@@ -124,13 +130,21 @@ for (const p of panos) {
 // diff rather than by anything here, which is why the guard now lives here.
 const dstat = fs.statSync('data/district.json');
 const dhash = createHash('sha256').update(fs.readFileSync('data/district.json')).digest('hex').slice(0, 16);
-const indexPath = path.join(OUT, only ? `index-${only}-${TIME}.json` : 'index.json');
-if (only) {
-  console.log(`\n  filtered run (--id ${only}): writing ${path.basename(indexPath)} rather than`);
-  console.log('  index.json, which records the full set and would otherwise be overwritten.');
+// A --ids run is filtered too, so it gets its own name for exactly the same
+// reason: the id list is hashed rather than joined, because 26 ids in a filename
+// is not a filename.
+const filterTag = only ? only
+  : many ? `ids${many.length}-${createHash('sha256').update(many.slice().sort().join(',')).digest('hex').slice(0, 8)}`
+  : null;
+const indexPath = path.join(OUT, filterTag ? `index-${filterTag}-${TIME}.json` : 'index.json');
+if (filterTag) {
+  console.log(`\n  filtered run (${only ? `--id ${only}` : `--ids, ${many.length} stations`}): writing`);
+  console.log(`  ${path.basename(indexPath)} rather than index.json, which records the full`);
+  console.log('  set and would otherwise be overwritten.');
 }
 fs.writeFileSync(indexPath, JSON.stringify({
   district: { mtime: dstat.mtime.toISOString(), size: dstat.size, sha256: dhash },
+  filter: wanted ?? null,
   time: TIME, eye: EYE, pitchDeg: PITCH, hfovDeg: HFOV, vfovDeg: +VFOV.toFixed(2),
   note: 'Each frame is the engine standing where the like-named Mapillary pano stood. '
       + 'Compare against reference/sarasota/mapillary/views/<id>-<side>.png.',
