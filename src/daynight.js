@@ -41,6 +41,11 @@ import * as THREE from '../vendor/three.module.min.js';
 //
 //   preset  E_before   HemisphereLight    E_after    factor   stop
 //   noon       119,851 lux     13,075 (10.91%)    106,775 lux  1.1225   1/78,000 -> 1/69,490
+//              ^ SUPERSEDED. Moving noon's stop by a ratio preserved an offset that
+//                had never been derived from anything, and it rendered the brightest
+//                hour of the day darker than night: frame mean 23.8 against night's
+//                30.8, sky-lit facades on 2.1 of 255 against night's 21.7. The stop
+//                is now derived rather than carried - see the preset.
 //   golden      17,971 lux      5,548 (30.87%)     12,423 lux  1.4466   1/6,006 -> 1/4,152
 //   dusk         1,764 lux        355 (20.12%)      1,409 lux  1.2518   1/900 -> 1/719
 //   night       0.7000 lux     0.0080 (1.14%)     0.6920 lux  1.0116   1/1.15 -> 1/1.15 (left alone, see below)
@@ -64,23 +69,101 @@ export const PRESETS = {
     skyLux: 20000,            // diffuse sky component
     elevation: 1.32, azimuth: 0.6,
     sunColor: 0xfff6e8, skyColor: 0xbcd6f5, groundColor: 0x6b6455,
-    // 119,850.9 lux measured on the road became 106,775.5 when the HemisphereLight
-    // stopped repeating the dome, so 1/78,000 becomes 1/69,490. Noon loses the least
-    // of the four: at a 75.6-degree sun the direct beam is 77% of the horizontal
-    // illuminance to begin with. The rule would say pi/106,775 = 1/33,988; noon has
-    // always been authored well under pi/E and stays exactly as far under it.
+    // THE STOP NOON WAS EXPOSED AT WAS AN INHERITED CONSTANT, NOT A DERIVATION,
+    // AND IT RENDERED THE BRIGHTEST HOUR OF THE DAY DARKER THAN NIGHT.
     //
-    // WHAT THIS COSTS NOON, measured rather than left to be discovered: the
-    // HemisphereLight was 31.4% of the light on a VERTICAL surface here
-    // (7,827 lux of 24,906), and a sun this high leaves a wall almost nothing
-    // else. The frame whose facades PROGRESS.md already records as unusable loses
-    // that much again. The remedy recorded there - lower the elevation - is
-    // unchanged and is still the right one; this is not it.
-    exposure: 1 / 69490,      // camera stop, not a brightness fudge
+    // What was here: "1/78,000 becomes 1/69,490 ... noon has always been authored
+    // well under pi/E and stays exactly as far under it." Every other preset's stop
+    // was re-derived from the light; this one only ever moved by the ratio its
+    // illuminance moved by, carrying an offset nobody had re-examined since it was
+    // first typed. Measured at the corridor camera on the build that shipped it
+    // (tools/daynight-sweep.mjs, tools/tod-readability.mjs, docs/shots/tod-*.png):
+    //
+    //   preset  frame mean  below 16/255   sky region   sky-lit facade   stop
+    //   noon        23.8       42.5%          39.6           2.1        1/69,490
+    //   golden     130.6        3.9%         194.1          35.4        1/4,152
+    //   dusk       112.1        3.0%         206.4          62.7        1/719
+    //   night       30.8       42.8%          49.4          21.7        1/1.15
+    //
+    // Noon's frame mean sat BELOW night's and its sky-lit facades a tenth of
+    // night's. The sky's own audit says the same thing in one number: mid-sky
+    // renders at 0.107 x ACES saturation at noon against 0.811 at golden, 0.806 at
+    // dusk and 0.078 at NIGHT - a noon sky less than half a stop brighter than a
+    // NIGHT sky, in the units the frame is actually built in.
+    //
+    // IT IS THE STOP, NOT THE LIGHT, AND THAT WAS MEASURED RATHER THAN ASSUMED.
+    // Inverting the tonemap on those same frames recovers the radiance behind each
+    // pixel, and the sky-lit facade carries 1,100 nits at noon against 445 at
+    // golden - 2.5x MORE light, rendering 17x darker. The sky delivers 15,156 lux
+    // here against golden's 8,519, so the ambient is the strongest of any daytime
+    // preset, not the weakest; and sun 92,998 lux direct normal with 15,156 lux of
+    // diffuse is a 14.4% diffuse fraction, which is a physically correct clear noon
+    // and sits mid-envelope. Nothing about the light is wrong.
+    //
+    // THE RULE, AND THE ONE CORRECTION IT NEEDS IN THIS RENDERER.
+    // exposure = pi/E puts an 18% grey card on 0.18 in ACES input. E here is
+    // 92,997.73 * sin(1.32) + 15,156 = 105,244 lux measured, so the rule says
+    // 1/33,501. That is +1.05 stops on what was here, and it is still not enough:
+    // rendered, it leaves the frame at mean 56.6 with 25.1% below 16/255 and the
+    // sky-lit facade on 6.3. The reason is measurable and is not the shoulder -
+    // src/post.js's composite is a RawShaderMaterial with no <colorspace_fragment>,
+    // so the byte in the frame IS aces(radiance * exposure) with no display
+    // transfer function on the way out, and aces(0.18) is 68/255, not 118/255. A
+    // surface 2.7 stops under the card - which is exactly what a sky-lit facade is
+    // under a 75.6 deg sun, 105,244 lux of ground against ~17,000 on a shaded wall -
+    // therefore lands in the TOE, not the shoulder. Measured on the frames above:
+    // noon's shaded facade sat at 0.0158 in ACES input, where aces(x)/x is 0.46, and
+    // golden's sits at 0.107, where it is 1.29 - so the same 2.5x more light was
+    // handed a 2.8x weaker curve on top of a 16.7x tighter stop. Golden escapes this
+    // because its 8 deg sun leaves its shaded wall only 0.8 stops under ITS card.
+    //
+    // So the offset from pi/E is +1.26 stops and it is sized by an acceptance test,
+    // stated here because it is a trade and not a rule: at the corridor camera the
+    // sky-lit facade must clear 20/255 so material is visible, no more than 10% of
+    // the frame may sit below 16/255, and nothing may clip. Rendered at four
+    // candidate stops (tools/tod-stop-sweep.mjs, docs/shots/stop-noon-*.png),
+    // 1/20,000 leaves the facade on 14.4 with 13.6% crushed, 1/16,000 reaches 19.8
+    // and 9.9% - on the line - and 1/11,500 passes but the far field has climbed to
+    // 0.756 of the fog clamp and the sky has gone milky. 1/14,000 clears both with
+    // margin, and this is the shipped sweep frame rather than a candidate: frame
+    // mean 114.0, sky-lit facade 23.8, 7.9% below 16/255, 2.9% below 8, 0% clipped,
+    // against 23.8 / 2.1 / 42.5% / 28.7% / 0% before. mid-sky goes 0.107 -> 0.532,
+    // beside golden's 0.811 and dusk's 0.806 instead of beside night's 0.078.
+    //
+    // WHAT THIS DOES NOT DO. It does not flatten noon. Exposure cannot: the
+    // sunlit-to-shaded ILLUMINANCE ratio is 105,244:17,000 = 6.2:1 and is untouched
+    // by the stop. What moves is where that ratio sits on the curve, and it sits
+    // further apart, not closer - sunlit plaza against sky-lit facade goes from 27
+    // display units of separation to 121. Noon keeps its hard shadows. The audit is
+    // untouched either side of the change: sun 92,997.73 lux delivered, sky 15,156
+    // over 1 path, 0 lamps lit, no flags - and the radiance behind every measured
+    // region is the same to within the traffic moving through frame (sky 8,067 ->
+    // 8,064 nits, sky-lit facade 1,100 -> 1,115, road 6,245 -> 6,262). Only the
+    // camera moved.
+    //
+    // The elevation is NOT touched. PROGRESS.md's remedy for noon's weak wall-to-
+    // wall separation - a 75.6 deg sun puts cos(75.6) = 0.25 of the beam on a
+    // facade turned toward it - is to lower the elevation, and that remains right
+    // and remains a separate change. It is also not this defect's fix, and the
+    // arithmetic says why: dropping to 45 deg is worth 1.51 stops on a wall turned
+    // TOWARD the sun (cos 75.6 = 0.248 -> cos 45 = 0.707) and nothing at all on a
+    // shaded one, whose illuminance is the sky's and does not depend on where the
+    // sun is. It fixes wall-against-wall separation; it cannot fix a crush.
+    exposure: 1 / 14000,      // camera stop, not a brightness fudge
     lampsOn: false,
     fog: { color: 0xa8c2dc, density: 0.0016 },
+    // bloomThreshold is in EXPOSED units, so it had to move with the stop or the
+    // change would have bloomed the pavement. It was 1.7 at 1/69,490, i.e. 118,133
+    // nits - above anything in the district, which is why noon had no bloom at all.
+    // Re-derived the way golden's was, from the brightest plausible non-emissive
+    // surface, which at a 75.6 deg sun is the GROUND rather than a wall: sunlit
+    // white road marking at albedo 0.7 is 105,244 * 0.7/pi = 23,450 nits = 1.675
+    // exposed, and sunlit concrete at 0.35 is 0.838. Clearing the marking by 28%
+    // gives 2.1, i.e. 29,400 nits. What blooms at noon is therefore the sun's
+    // aureole and specular glints off glass and metal, which run 10^4-10^5 nits,
+    // and nothing that is merely lit - the same bar golden's 1.4 was set to.
     post: { fogColor: 0xa9c3e0, inscatter: 0xfff0d0, density: 0.0016,
-            heightFalloff: 0.020, bloomThreshold: 1.7, bloomStrength: 0.30 },
+            heightFalloff: 0.020, bloomThreshold: 2.1, bloomStrength: 0.30 },
   },
   // Golden hour. The hour the district did not have.
   //
