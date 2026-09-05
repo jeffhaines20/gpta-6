@@ -16,12 +16,20 @@ const TAG = process.env.HERO_TAG ?? 'hero';
 // See tools/ground-albedo.mjs for what an arm is and why it exists.
 const ARMS = (process.env.HERO_ARMS ?? '').split(',').map((a) => a.trim()).filter(Boolean);
 
-await ensureServer();
+// HERO_PORT exists because ensureServer() REUSES a server already listening on
+// its port, and a worktree capture that does not override it silently
+// photographs whichever tree owns 8123 - normally the main one. That is not a
+// hypothetical: a before/after arm captured from a pre-round worktree came back
+// identical to the after arm, because both had rendered the same tree. The same
+// trap is already guarded in tools/smoke.mjs (SMOKE_PORT) and
+// tools/junction-shot.mjs (JS_PORT); this tool was missing it.
+const HERO_PORT = Number(process.env.HERO_PORT ?? 8123);
+await ensureServer(HERO_PORT);
 const browser = await chromium.launch(launchOptions());
 const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
-await page.goto('http://127.0.0.1:8123/district/', { waitUntil: 'networkidle' });
+await page.goto(`http://127.0.0.1:${HERO_PORT}/district/`, { waitUntil: 'networkidle' });
 await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
 
 // Hide the debug overlay: it is not part of what is being judged.
