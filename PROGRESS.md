@@ -115,6 +115,21 @@ Cost: `update()` 0.098 -> 0.107 ms at 60 cars. Movements are interned so the hot
 path allocates nothing - before interning, per-frame allocation produced a 44 ms
 GC spike at 90 cars.
 
+**The browser-side budget gate for this round is NOT measured, deliberately.** I
+ran it and threw the result away. It came back at 799,708 triangles and 230 draw
+calls against a clean 784,737 / 225 - but `src/streetfurniture.js` was modified
+at 02:09:02 by a canopy round still in flight and the drive-through capture wrote
+at 02:09:16, fourteen seconds later, so the run measured this round plus two
+others that are not finished. Attributing +14,971 triangles to junction
+arbitration would have been wrong and would have sat in the ledger looking
+authoritative.
+
+The general point, since this working tree now routinely has three rounds live at
+once: **a whole-district budget capture cannot be attributed to one round unless
+the tree is quiet.** Per-round scene-graph triangle counts still can be, because
+they are computed from one emitter in isolation. The gate is re-run against a
+quiet tree before the round is called done.
+
 ### Residual, named
 
 Overlap is not zero at 90 cars and the anti-gridlock rule still fires 6-10 times
