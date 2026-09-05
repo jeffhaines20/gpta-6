@@ -59,3 +59,6 @@ docs/shots/tree3-*.png
 # tags; the directory is rebuilt per review round and its key must not be read by
 # whoever is judging.
 docs/shots/blind/
+
+# Scratch capture dir for the audio/wanted wiring round.
+.wire-shots/
