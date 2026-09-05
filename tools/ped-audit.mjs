@@ -77,8 +77,11 @@ const facts = await page.evaluate(() => {
   cam.updateMatrixWorld();
   const tri = (g) => (g.index ? g.index.count : g.attributes.position.count) / 3;
   const meshes = {};
+  // 'shadows' was the contact blob; a build that has moved the crowd into the
+  // sun's real shadow pass has no such mesh, and this audit is about the bodies.
   for (const k of ['shadows', 'torsos', 'heads', 'limbs']) {
     const m = P[k];
+    if (!m) { meshes[k] = null; continue; }
     meshes[k] = {
       geoTris: tri(m.geometry),
       instances: m.count,

@@ -156,7 +156,10 @@ const SUBJECT = await page.evaluate((dist) => {
   P._writeColors(0, ped);
   P._writePose(0, ped, legLen);
   P.aliveCount = 1;
-  for (const m of [P.shadows, P.torsos, P.heads, P.limbs]) m.instanceMatrix.needsUpdate = true;
+  // P.shadows is the contact blob, removed when the crowd moved into the sun's
+  // real shadow pass (src/pedestrians.js). Kept optional so this tool still runs
+  // against a build that has one.
+  for (const m of [P.shadows, P.torsos, P.heads, P.limbs]) if (m) m.instanceMatrix.needsUpdate = true;
   if (P.nearLimbs) for (const m of [P.nearTorsos, P.nearHeads, P.nearLimbs]) m.instanceMatrix.needsUpdate = true;
   for (const m of [P.torsos, P.heads, P.limbs]) if (m.instanceColor) m.instanceColor.needsUpdate = true;
 
@@ -280,7 +283,10 @@ const POSE = (lod) => {
   if (P._assignNearLod) P._assignNearLod(ped.x, ped.z);
   P._writePose(0, ped, 0.838 * ped.hscale);
   if (P._syncNearCounts) P._syncNearCounts();
-  for (const m of [P.shadows, P.torsos, P.heads, P.limbs]) m.instanceMatrix.needsUpdate = true;
+  // P.shadows is the contact blob, removed when the crowd moved into the sun's
+  // real shadow pass (src/pedestrians.js). Kept optional so this tool still runs
+  // against a build that has one.
+  for (const m of [P.shadows, P.torsos, P.heads, P.limbs]) if (m) m.instanceMatrix.needsUpdate = true;
   if (P.nearLimbs) {
     for (const m of [P.nearTorsos, P.nearHeads, P.nearLimbs]) {
       m.instanceMatrix.needsUpdate = true;

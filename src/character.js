@@ -10,7 +10,15 @@
 
 import * as THREE from '../vendor/three.module.min.js';
 
-const SKIN = [0xc79a72, 0x8d5f43, 0xe0b48f, 0x6f4630, 0xb07d55];
+// Rescaled to REFLECTANCE, tone for tone with src/pedestrians.js SKIN - the long
+// note there is the argument, and it applies here for the same reason: the
+// player's forearms are bare skin on a MeshStandardMaterial too, and 0xe0b48f is
+// linear luminance 0.505 against a sunlit clay paver's 0.188. Each tone is its
+// own authored hue scaled on linear RGB, so only the reflectance moved:
+//   0xc79a72 -> 0x9f7a5a (0.365 -> 0.220)   0x8d5f43 -> 0x7d543b (0.143 -> 0.110)
+//   0xe0b48f -> 0xaf8c6f (0.505 -> 0.290)   0x6f4630 -> 0x6a432d (0.080 -> 0.072)
+//   0xb07d55 -> 0x936846 (0.246 -> 0.165)
+const SKIN = [0x9f7a5a, 0x7d543b, 0xaf8c6f, 0x6a432d, 0x936846];
 const SHIRT = [0x2f4a63, 0x7a3b34, 0x3d5b45, 0xb8a068, 0x2b2f38, 0x6d4e7a];
 const PANTS = [0x22262c, 0x3a3f4a, 0x5a4636, 0x2e3b30];
 

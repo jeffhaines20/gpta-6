@@ -16,14 +16,20 @@ const CIRCUITS = 3;
 const OUT = 'docs/shots';
 fs.mkdirSync(OUT, { recursive: true });
 
-await ensureServer();
+// DRIVE_PORT exists for the same reason HERO_PORT and SMOKE_PORT do: this gate
+// is run from worktrees, and 8123 normally belongs to the MAIN tree. Reusing it
+// would gate the wrong commit's triangle count while looking entirely healthy.
+// tools/serve.mjs now refuses the reuse outright, so without this the gate simply
+// cannot run from a worktree.
+const DRIVE_PORT = Number(process.env.DRIVE_PORT ?? 8123);
+await ensureServer(DRIVE_PORT);
 const browser = await chromium.launch(launchOptions(['--js-flags=--expose-gc']));
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message));
 page.on('console', (m) => { if (m.type() === 'error' && !/favicon/.test(m.text())) errors.push(m.text()); });
 
-await page.goto('http://127.0.0.1:8123/district/', { waitUntil: 'networkidle' });
+await page.goto(`http://127.0.0.1:${DRIVE_PORT}/district/`, { waitUntil: 'networkidle' });
 await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
 
 if (WITH_TRAFFIC) await page.evaluate(() => __district.setTraffic(true));

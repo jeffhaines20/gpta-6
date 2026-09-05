@@ -27,12 +27,13 @@
 //   torso  - 1 instance per ped
 //   head   - 1 instance per ped
 //   limb   - 8 instances per ped (thigh + shank, upper arm + forearm, x2 sides)
-//   shadow - 1 instance per ped, a contact blob on the pavement (see below)
 //
-// Four InstancedMeshes for the entire population: 4 draw calls in the scene pass
+// Three InstancedMeshes for the entire population: 3 draw calls in the scene pass
 // and 3 more in the shadow pass, FIXED, whatever the population is. Measured on
-// the hero corridor: 122 -> 125 scene calls for the bodies, one more for the
-// contact blobs, against a gate that warns at 200. Colour variety comes from
+// the hero corridor: 122 -> 125 scene calls for the bodies, against a gate that
+// warns at 200. (There used to be a fourth, a contact-shadow blob; the note at
+// its old site in the constructor records what it was and why it is gone.)
+// Colour variety comes from
 // per-instance colour (skin, shirt, trousers all multiply the one material), so
 // a varied crowd costs no extra materials; height and build come from
 // per-instance scale.
@@ -162,7 +163,49 @@ const FOREARM = 0.26;               // elbow -> wrist (the cap is the hand)
 // system puts on the ground is placed against the PAD, not against groundY.
 const GROUND_PAD_DROP = 0.05;
 const FOOT_SINK = GROUND_PAD_DROP + 0.005;      // sole 5 mm inside the pavement
-const SHADOW_Y = -(GROUND_PAD_DROP - 0.008);    // contact blob 8 mm above it
+
+// ---------------------------------------------------------- SHADOW SILHOUETTE
+// How far the crowd's occluder is grown, in metres, for the SHADOW PASS ONLY.
+//
+// NOT because the crowd was missing from the shadow pass - it was not, and the
+// note beside the deleted contact blob has the numbers. It is because of what a
+// person is MADE OF at the shadow map's resolution. The sun's map is 2048 texels
+// over a +-120 m ortho box: 0.117 m on the ground per texel (src/daynight.js).
+//
+//   limb capsule   2 * LIMB_R * thick   ~0.14 m   1.2 texels
+//   torso                               ~0.32 m   2.7 texels
+//   head                                 0.21 m   1.8 texels
+//   litter bin                           0.52 m   4.4 texels
+//
+// and three's PCFSoftShadowMap is a bilinear tent about 3 texels across. A
+// pedestrian is not one 0.32 m object, it is a torso plus four 0.14 m tubes with
+// gaps between them, and mid-stride the legs are two separate 1.2-texel stripes.
+// Each survives the tent at roughly a third of its opacity, which is why the
+// crowd's cast shadow measured only 30.5% of the ground it falls on.
+//
+// Growing the occluder 0.055 m along its normal in the DEPTH pass, and only
+// there, adds 0.11 m to every silhouette: a limb goes to 2.1 texels and a torso
+// to 3.7. The visible body is untouched, it costs no triangle and no draw call,
+// and it widens nothing else in the district.
+//
+// It is not a cheat at this scale either. The sun subtends 0.53 degrees, so a
+// real penumbra grows 0.0093 m per metre of throw; at golden hour a 1.7 m figure
+// throws 8.7 m and its true penumbra is 0.08 m, the same order as the 0.11 m this
+// adds. The dilated shadow is closer to the edge the real sun draws than the hard
+// one an unfiltered map would.
+//
+// Measured, on the same bench and the same rectangle, before and after:
+//
+//   cast shadow, un-dilated   30.48%   outer edge reaches 90% in 42 px of brick
+//   cast shadow, 0.055 m      36.08%   ...in 35 px
+//
+// which is 5.6 points deeper than the un-dilated shadow and 1.1 points deeper
+// than the blob and the shadow together were, with all of it now pointing away
+// from the sun. tools/ground-shade.mjs --dilate a,b,c sweeps the value in one
+// session; 0 in that list is also the check that this material's depthPacking
+// matches what three's shadow map reads, because at 0 it must land on the
+// un-dilated build's number.
+const SHADOW_DILATE = 0.055;
 
 // Base geometry sizes. Instance scale converts these to per-bone lengths, so the
 // limb capsule is authored once and stretched.
@@ -208,7 +251,41 @@ const PELVIS_LEN = 0.19, PELVIS_THICK = 1.80, PELVIS_THICK_Z = 1.20;
 const SHOE_MUL = 0.30, NECK_MUL = 0.92;
 
 // ------------------------------------------------------------------ crowd look
-const SKIN = [0xd8ab84, 0xc79a72, 0xa8734c, 0x8d5f43, 0x6f4630, 0x4b2f20, 0xefc9a6];
+// SKIN IS AN ALBEDO HERE, NOT A SWATCH, and the first cut of this palette was a
+// swatch. The tones were authored the way skin is PICKED - the colour a photo of
+// a face comes out - and handed straight to a MeshStandardMaterial as diffuse
+// reflectance, where they mean something else entirely.
+//
+//   hex        linear albedo        luminance   vs a sunlit clay paver (0.188)
+//   0xefc9a6   0.863 0.584 0.381      0.629            3.34x
+//   0xd8ab84   0.687 0.407 0.231      0.454            2.41x
+//
+// An albedo luminance of 0.63 is a sheet of white paper. Two blind reviewers
+// caught the consequence at opposite ends of the day: at night "a walker's bare
+// forearms sample 138,80,40 against lamp-lit brick at 45-54 - roughly 3x the
+// luminance of the ground he stands on", and at golden hour the same forearms
+// "blow out into two pale sticks and read as boxes he is carrying". Both are the
+// same defect and neither is a lighting bug: skin does not have three times
+// brick's reflectance under the same lamp.
+//
+// Measured human skin diffuse reflectance runs about 0.30-0.35 luminance at the
+// light end and 0.04-0.05 at the deep end - a 7x spread, against this palette's
+// 17x with its light end above paper. Every tone below is the SAME AUTHORED HUE
+// rescaled by a scalar on its linear RGB, so the chromaticity is bit-for-bit
+// what it was and only the reflectance moved:
+//
+//   0xd8ab84 -> 0xab8768   lum 0.454 -> 0.270   (2.41x brick -> 1.44x)
+//   0xc79a72 -> 0x9f7a5a   lum 0.365 -> 0.220   (1.94x -> 1.17x)
+//   0xa8734c -> 0x906240   lum 0.211 -> 0.150   (1.12x -> 0.80x)
+//   0x8d5f43 -> 0x7d543b   lum 0.143 -> 0.110   (0.76x -> 0.59x)
+//   0x6f4630 -> 0x6a432d   lum 0.080 -> 0.072   (0.42x -> 0.38x)
+//   0x4b2f20 -> 0x513323   lum 0.036 -> 0.042   (0.19x -> 0.22x)   <- lifted
+//   0xefc9a6 -> 0xb2957b   lum 0.629 -> 0.325   (3.34x -> 1.73x)
+//
+// The deepest tone goes UP, not down: 0.036 is darker than any skin measured and
+// it was making the far end of the palette read as a silhouette rather than a
+// person. The range now spans 7.7x, which is the range skin spans.
+const SKIN = [0xab8768, 0x9f7a5a, 0x906240, 0x7d543b, 0x6a432d, 0x513323, 0xb2957b];
 const SHIRT = [
   0x2f4a63, 0x7a3b34, 0x3d5b45, 0xb8a068, 0x2b2f38, 0x6d4e7a, 0xd9d3c6,
   0x1f6f78, 0xa8562f, 0x39434f, 0x8f9aa6, 0x5c2f3a,
@@ -295,30 +372,49 @@ export class Pedestrians {
 
     const nearHeadGeo = Pedestrians._headGeometry(NEAR_HEAD_W, NEAR_HEAD_H, true);
 
-    // Contact shadow.
+    // THE CONTACT BLOB IS GONE, and the reason is not the one the comment it
+    // replaces gave.
     //
-    // The sun's shadow map is 2048 texels over a 520 m ortho box: 0.25 m per
-    // texel. A pedestrian is about 1.5 texels wide, so the real shadow pass
-    // cannot resolve one however correctly it is set up, and the first hero shot
-    // showed people pasted onto the pavement with nothing under them. A soft
-    // blob is the standard answer and it is honest here: it reads as contact
-    // occlusion rather than pretending to be a cast shadow. One more instanced
-    // mesh, 12 triangles per ped, and alpha carried in a 4-component vertex
-    // colour so it needs no texture.
-    const blobGeo = new THREE.CircleGeometry(1, 12);
-    blobGeo.rotateX(-Math.PI / 2);
-    {
-      const n = blobGeo.attributes.position.count;
-      const rgba = new Float32Array(n * 4);
-      for (let i = 0; i < n; i++) {
-        // Vertex 0 is the centre of a CircleGeometry fan; the rim fades out.
-      // Opacity was measured, not guessed: at 0.5 the blob was invisible under a
-      // ped standing on dusk-lit pavement, and 0.7 is where it reads as contact
-      // without reading as a hole.
-        rgba[i * 4 + 3] = i === 0 ? 1 : 0;
-      }
-      blobGeo.setAttribute('color', new THREE.BufferAttribute(rgba, 4));
-    }
+    // What stood here read: "The sun's shadow map is 2048 texels over a 520 m
+    // ortho box: 0.25 m per texel. A pedestrian is about 1.5 texels wide, so the
+    // real shadow pass cannot resolve one however correctly it is set up." That
+    // was true when it was written and has not been true since: src/daynight.js
+    // traded the ortho extent for resolution and runs 2048 over +-120 m, which is
+    // 0.117 m per texel, and its own note says so - "a pedestrian is now ~4.3
+    // texels and a bollard ~1.3". The stand-in outlived the problem it stood in
+    // for, and this file was the only system in the district still carrying one.
+    //
+    // MEASURED. tools/ground-shade.mjs teleports one pedestrian to a fixed slot on
+    // sunlit brick, poses it mid-stride in the far tier, and captures the frame
+    // with and without it; tools/ground-shade-rect.mjs reads the pair through one
+    // rectangle laid on the shadow's own plateau, 0.4 m screen-left of the feet
+    // and clear of the figure's trousers. Noon, Main St east, crowd pinned at 96:
+    //
+    //                                       ground darkening   noise
+    //   blob + body, as it shipped               34.96%        0.05%
+    //   body alone, blob switched off            30.48%
+    //   body alone, this build (no blob)         36.08%        1.69%
+    //   control rectangle 4 m away                0.00%
+    //
+    // So the crowd was NEVER outside the shadow pass. It has carried castShadow on
+    // all six body meshes the whole time, and it lands a real 30% cast shadow on
+    // the brick. What the blob added was 4.5 points of that number with no
+    // direction in it at all - a CircleGeometry fan 0.80 x 0.68 m, black at alpha
+    // 0.7 at the ONE centre vertex and alpha 0 at every rim vertex, so its mean
+    // alpha over the disc is 0.7/3 = 0.23 - laid on top of a scene-wide SSAO pass
+    // (src/post.js, radius 2.2 m, strength 0.95) that already darkens the ground
+    // around anything standing on it. Two blind reviewers read the pair together as
+    // "3-12%, across a soft fan roughly six times his body width, with no edge and
+    // no direction". 2.2 m of AO radius against a 0.4 m body IS six times his body
+    // width: what they were describing is an ambient term counted twice, sitting
+    // where a shadow's edge should be, and they were right to refuse to call it a
+    // shadow.
+    //
+    // Deleting it costs one draw call and 12 triangles per ped and returns the
+    // contact to the two systems that own it: the sun's shadow map for the
+    // direction and the AO pass for the ambient. SHADOW_DILATE then buys back more
+    // than the blob was contributing - 30.48% -> 36.08%, and a shadow edge that
+    // reaches 90% of its depth in 35 px of brick instead of 42.
 
     const cloth = new THREE.MeshStandardMaterial({ roughness: 0.86, metalness: 0 });
     // The near tier's cloth reads a vertex colour as well as the instance colour,
@@ -334,18 +430,12 @@ export class Pedestrians {
     const skin = new THREE.MeshStandardMaterial({
       roughness: 0.74, metalness: 0, vertexColors: true,
     });
-    const blobMat = new THREE.MeshBasicMaterial({
-      color: 0x000000, transparent: true, opacity: 0.7,
-      depthWrite: false, vertexColors: true, fog: false,
-    });
-    this.materials = [cloth, nearCloth, skin, blobMat];
+    this.materials = [cloth, nearCloth, skin];
 
     this.root = new THREE.Group();
     this.root.name = 'pedestrians';
     scene.add(this.root);
 
-    this.shadows = this._instanced(blobGeo, blobMat, this.count, false);
-    this.shadows.renderOrder = 1;      // after the opaque pavement it darkens
     this.torsos = this._instanced(torsoGeo, cloth, this.count);
     this.heads = this._instanced(headGeo, skin, this.count);
     this.limbs = this._instanced(limbGeo, cloth, this.count * 8);
@@ -366,6 +456,15 @@ export class Pedestrians {
       }
       for (let i = 0; i < this.nearPool * NEAR_SLOTS; i++) this.nearLimbs.setColorAt(i, white);
     }
+    // Every body mesh casts through the dilated depth material. One material for
+    // all six: they are all instanced and all FrontSide, so they compile to one
+    // program and three's per-object side fix-up cannot make them disagree.
+    this.depthMaterial = Pedestrians._dilatedDepthMaterial(SHADOW_DILATE);
+    for (const m of [this.torsos, this.heads, this.limbs,
+      this.nearTorsos, this.nearHeads, this.nearLimbs]) {
+      m.customDepthMaterial = this.depthMaterial;
+    }
+
     // Nothing is claiming a near slot yet, and an InstancedMesh with count 0 is
     // skipped by the renderer entirely - no draw call, no triangles.
     this.nearTorsos.count = 0; this.nearHeads.count = 0; this.nearLimbs.count = 0;
@@ -431,17 +530,58 @@ export class Pedestrians {
     this._minHist = new Array(6).fill(0);   // closest pair per frame, 0.25 m buckets
   }
 
-  _instanced(geo, mat, n, shadow = true) {
+  _instanced(geo, mat, n) {
     const m = new THREE.InstancedMesh(geo, mat, n);
     m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    m.castShadow = shadow;
-    m.receiveShadow = shadow;
+    // Everything this file draws is a body, and every body casts and receives.
+    // The `shadow` parameter that used to sit here existed for one caller, the
+    // contact blob, and went with it.
+    m.castShadow = true;
+    m.receiveShadow = true;
     // The crowd is spread over a 140 m radius around the player and its instance
     // bounding sphere is the geometry's, not the crowd's; culling it would hide
     // everyone. Same reasoning as traffic.js and streetfurniture.js.
     m.frustumCulled = false;
     for (let i = 0; i < n; i++) m.setMatrixAt(i, new THREE.Matrix4().makeScale(0, 0, 0));
     this.root.add(m);
+    return m;
+  }
+
+  /**
+   * A depth material that inflates along the vertex normal, so the shadow map
+   * sees a silhouette SHADOW_DILATE metres wider than the body. See the note on
+   * SHADOW_DILATE for why the crowd needs one and nothing else in the district
+   * does.
+   *
+   * Object space, not world: every instance matrix in this file scales by 0.68
+   * to 1.05 laterally (see _bone), so the world dilation lands within a third of
+   * the nominal figure everywhere, which is well inside the tolerance of a
+   * quantity whose job is "more than one shadow texel".
+   *
+   * customProgramCacheKey is not decoration. three keys compiled programs by
+   * material type plus defines, and two MeshDepthMaterials that differ only in
+   * an injected uniform would otherwise share one program.
+   */
+  static _dilatedDepthMaterial(metres) {
+    // depthPacking must match what three's own shadow depth material writes, or
+    // the map is filled in one encoding and read in another. Read out of the
+    // vendored build rather than remembered: three.module.min.js constructs its
+    // shadow depth material with `depthPacking: Ee`, and its import list has
+    // `RGBADepthPacking as Ee` (= 3201). Checked at runtime as well: `node tools/ground-shade.mjs --dilate 0,...` measures the crowd's
+    // ground darkening with this material installed and the inflation turned OFF,
+    // where it must land on the number the un-dilated build gives through three's
+    // own depth material. A packing mismatch cannot survive that comparison.
+    const m = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+    const u = { value: metres };
+    m.onBeforeCompile = (sh) => {
+      sh.uniforms.uInflate = u;
+      sh.vertexShader = sh.vertexShader
+        .replace('void main() {', 'uniform float uInflate;\nvoid main() {')
+        .replace('#include <begin_vertex>',
+          '#include <begin_vertex>\n\ttransformed += normalize( normal ) * uInflate;');
+    };
+    m.customProgramCacheKey = () => 'pedDilatedDepth';
+    m.userData.inflate = u;
     return m;
   }
 
@@ -1067,7 +1207,6 @@ export class Pedestrians {
     }
     if (!this._shown[i]) return;
     this._shown[i] = 0;
-    this.shadows.setMatrixAt(i, this._hidden);
     this.torsos.setMatrixAt(i, this._hidden);
     this.heads.setMatrixAt(i, this._hidden);
     for (let k = 0; k < 8; k++) this.limbs.setMatrixAt(i * 8 + k, this._hidden);
@@ -1251,7 +1390,6 @@ export class Pedestrians {
     for (const p of this.peds) if (p) alive++;
     this.aliveCount = alive;
 
-    this.shadows.instanceMatrix.needsUpdate = true;
     this.torsos.instanceMatrix.needsUpdate = true;
     this.heads.instanceMatrix.needsUpdate = true;
     this.limbs.instanceMatrix.needsUpdate = true;
@@ -1347,12 +1485,7 @@ export class Pedestrians {
       for (let k = 0; k < 8; k++) this.limbs.setMatrixAt(i * 8 + k, this._hidden);
     }
 
-    // --- contact shadow, flat on the pavement under the hips
     this._qy.setFromAxisAngle(this._axisY, yaw);
-    this._v.set(ped.x, ground + SHADOW_Y, ped.z);
-    this._s.set(0.40 * g, 1, 0.34 * g);
-    this._m.compose(this._v, this._qy, this._s);
-    this.shadows.setMatrixAt(i, this._m);
 
     // --- torso and head
     this._v.set(ped.x, rootY + hipY, ped.z);
@@ -1534,12 +1667,13 @@ export class Pedestrians {
       closestPairHistogram: this._minHist,
       sidewalksCached: this._walks.size,
       // Fixed, whatever the population is - that is the whole point of the
-      // representation. 3 body meshes plus the contact-shadow blob in the scene
-      // pass; the 3 body meshes again in the sun's shadow pass. The near tier
+      // representation. 3 body meshes in the scene pass and the same 3 again in
+      // the sun's shadow pass, through the dilated depth material. The near tier
       // adds 3 more of each, and only while somebody is standing close enough to
       // hold a slot.
-      drawCalls: 4 + (this._nearLive ? 3 : 0),
+      drawCalls: 3 + (this._nearLive ? 3 : 0),
       shadowDrawCalls: 3 + (this._nearLive ? 3 : 0),
+      shadowDilateM: SHADOW_DILATE,
       nearLod: {
         pool: this.nearPool,
         live: this._nearLive,
@@ -1547,11 +1681,11 @@ export class Pedestrians {
         releaseM: NEAR_RELEASE,
         slotsPerPed: NEAR_SLOTS,
         farTrisPerPed: this._triOf(this.torsos) + this._triOf(this.heads)
-          + 8 * this._triOf(this.limbs) + this._triOf(this.shadows),
+          + 8 * this._triOf(this.limbs),
         nearTrisPerPed: this._triOf(this.nearTorsos) + this._triOf(this.nearHeads)
           + NEAR_SLOTS * this._triOf(this.nearLimbs),
         farCrowdTris: (this._triOf(this.torsos) + this._triOf(this.heads)
-          + 8 * this._triOf(this.limbs) + this._triOf(this.shadows)) * this.count,
+          + 8 * this._triOf(this.limbs)) * this.count,
         nearCrowdTrisWorstCase: (this._triOf(this.nearTorsos) + this._triOf(this.nearHeads)
           + NEAR_SLOTS * this._triOf(this.nearLimbs)) * this.nearPool,
       },
@@ -1572,13 +1706,14 @@ export class Pedestrians {
 
   dispose() {
     this.torsos.onBeforeRender = () => {};
-    for (const m of [this.shadows, this.torsos, this.heads, this.limbs,
+    for (const m of [this.torsos, this.heads, this.limbs,
       this.nearTorsos, this.nearHeads, this.nearLimbs]) {
       this.root.remove(m);
       m.geometry.dispose();
       m.dispose();
     }
     for (const m of this.materials) m.dispose();
+    this.depthMaterial.dispose();
     this.root.parent?.remove(this.root);
   }
 }

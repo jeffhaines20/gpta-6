@@ -1,0 +1,259 @@
+{
+ "tag": "beforehero",
+ "peds": 96,
+ "port": 8133,
+ "bench": {
+  "along": [
+   8,
+   12,
+   16,
+   20,
+   24,
+   28,
+   32,
+   36,
+   40,
+   44,
+   48,
+   52,
+   56,
+   60,
+   64,
+   68,
+   72,
+   76,
+   80,
+   84,
+   88,
+   92,
+   96,
+   100,
+   104,
+   108,
+   112,
+   116,
+   120,
+   124,
+   128,
+   132,
+   136,
+   140,
+   144,
+   148,
+   152,
+   156,
+   160
+  ],
+  "across": [
+   3,
+   -3,
+   4,
+   -4,
+   5,
+   -5,
+   6,
+   -6,
+   7,
+   -7,
+   8,
+   -8,
+   9,
+   -9,
+   10,
+   -10,
+   11,
+   -11,
+   12,
+   -12,
+   13,
+   -13
+  ],
+  "surface": "sidewalk",
+  "surfaceFallback": true,
+  "binR": 0.26,
+  "binH": 0.92,
+  "gap": 2.8,
+  "clearRad": 2.6,
+  "clearR": 11,
+  "back": 30,
+  "camY": 2.4,
+  "camRise": 0,
+  "aimY": 0.55,
+  "fov": 48,
+  "spineN": 9,
+  "crossM": 1.1,
+  "crossStep": 0.055,
+  "tier": "far",
+  "pose": "walk",
+  "W": 1600,
+  "H": 900
+ },
+ "results": [
+  {
+   "tod": "noon",
+   "sun": {
+    "x": 0.2052,
+    "y": 0.9686,
+    "z": 0.1404,
+    "elevDeg": 75.6
+   },
+   "cam": {
+    "x": 50.45,
+    "y": 2.35,
+    "z": -132.84
+   },
+   "surface": "sidewalk",
+   "constraint": "sidewalk clear2.6 spine0.9",
+   "bench": {
+    "x": 65.45,
+    "z": -158.82,
+    "along": 8,
+    "across": 5,
+    "camBearingDot": 0.997
+   },
+   "tier": "far",
+   "pose": "walk",
+   "pedIdx": 0,
+   "alive": 33,
+   "arms": {
+    "offPed": {
+     "pedScaleX": 0
+    },
+    "offProxy": {
+     "proxy": false
+    },
+    "blobOn": {
+     "blobMesh": true,
+     "blobVisible": false
+    }
+   },
+   "litOK": false,
+   "minLit": 24,
+   "ped": {
+    "darkPct": 0,
+    "litMean": 0,
+    "shadedMean": 0,
+    "samples": 0,
+    "droppedInShade": 6,
+    "edgeWidthM": 1.223,
+    "edgeRange": {
+     "lo": 15.4,
+     "hi": 20.5,
+     "n": 41
+    },
+    "rows": []
+   },
+   "pedBody": {
+    "darkPct": 0,
+    "litMean": 0,
+    "shadedMean": 0,
+    "samples": 0,
+    "droppedInShade": 6,
+    "edgeWidthM": 1.223,
+    "edgeRange": {
+     "lo": 15.4,
+     "hi": 20.5,
+     "n": 41
+    },
+    "rows": []
+   },
+   "proxy": {
+    "darkPct": 32.76,
+    "litMean": 155.19,
+    "shadedMean": 104.35,
+    "samples": 1,
+    "droppedInShade": 0,
+    "edgeWidthM": 0.367,
+    "edgeRange": {
+     "lo": 17.2,
+     "hi": 144.1,
+     "n": 41
+    },
+    "rows": [
+     {
+      "t": 0.874,
+      "on": 104.35,
+      "off": 155.19,
+      "dark": 32.76,
+      "px": 75
+     }
+    ]
+   },
+   "body": {
+    "forearmL": {
+     "r": 142.1,
+     "g": 111.5,
+     "b": 87.4,
+     "lum": 116.3,
+     "n": 18,
+     "vsGround": 1.48
+    },
+    "forearmR": {
+     "r": 60.1,
+     "g": 57.3,
+     "b": 54.4,
+     "lum": 57.7,
+     "n": 21,
+     "vsGround": 0.73
+    },
+    "upperArmL": {
+     "r": 23.4,
+     "g": 30.3,
+     "b": 38.8,
+     "lum": 29.4,
+     "n": 20,
+     "vsGround": 0.37
+    },
+    "thighL": {
+     "r": 23.3,
+     "g": 27.6,
+     "b": 32.6,
+     "lum": 27.1,
+     "n": 22,
+     "vsGround": 0.34
+    },
+    "torso": {
+     "r": 78.5,
+     "g": 59.1,
+     "b": 47.2,
+     "lum": 62.4,
+     "n": 20,
+     "vsGround": 0.79
+    },
+    "head": {
+     "r": 34.1,
+     "g": 38.6,
+     "b": 45.8,
+     "lum": 38.1,
+     "n": 19,
+     "vsGround": 0.48
+    },
+    "ground": {
+     "r": 96.9,
+     "g": 74.6,
+     "b": 64.5,
+     "lum": 78.6,
+     "n": 80
+    }
+   },
+   "nearTier": false,
+   "bare": true,
+   "pedColors": {
+    "skin": "0xc79a72",
+    "shirt": "0x39434f",
+    "pants": "0x4a4f58"
+   },
+   "render": {
+    "calls": 163,
+    "sceneCalls": 155,
+    "postPasses": 8,
+    "triangles": 640135
+   },
+   "noiseFloor": {
+    "ped": 0,
+    "proxy": 0
+   }
+  }
+ ],
+ "errors": []
+}
