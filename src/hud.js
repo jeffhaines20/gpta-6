@@ -201,15 +201,49 @@ const GEAR_TOPS = [46, 82, 122, 164, 208, 260];
  * @param {number} forwardSpeed  signed m/s along the car's own forward axis
  * @returns {{label:string, index:number, rpm:number}}
  */
-export function gearForSpeed(forwardSpeed) {
+// Gear labels, made once. String(g + 1) allocated a fresh string on every frame
+// for one of about eight possible answers -- see gearInto() for why that matters
+// here and not in most places.
+const SUB_SCRATCH = { text: '', speaker: '' };
+const GEAR_LABELS = Object.freeze(['1', '2', '3', '4', '5', '6', '7', '8', '9']);
+
+/**
+ * Gear for a speed, written INTO `out` rather than returned in a new object.
+ *
+ * MILESTONE-2 measured the HUD adding about 4 ms to the STREAMING slice while
+ * adding zero WebGL draw calls: it is DOM plus 2D canvas, and its per-frame
+ * allocation provokes garbage collection that lands inside whatever happens to
+ * be executing, which under the harness is nearly always world.update(). The
+ * report recommended reducing the allocation rather than relaxing the gate, and
+ * stopped there rather than choose. This is that fix.
+ *
+ * One object literal per frame is nothing on its own. The point is that the HUD
+ * updates every frame forever, so anything it allocates is a permanent stream
+ * into the nursery, and the cost is not the allocation but the collection.
+ */
+export function gearInto(out, forwardSpeed) {
   const kmh = Math.abs(forwardSpeed) * 3.6;
-  if (forwardSpeed < -0.4) return { label: 'R', index: -1, rpm: clamp(kmh / 40, 0.12, 1) };
-  if (kmh < 1.2) return { label: 'N', index: 0, rpm: 0.11 };
+  if (forwardSpeed < -0.4) {
+    out.label = 'R'; out.index = -1; out.rpm = clamp(kmh / 40, 0.12, 1);
+    return out;
+  }
+  if (kmh < 1.2) { out.label = 'N'; out.index = 0; out.rpm = 0.11; return out; }
   let g = 0;
   while (g < GEAR_TOPS.length - 1 && kmh > GEAR_TOPS[g]) g++;
   const lo = g === 0 ? 0 : GEAR_TOPS[g - 1];
   const frac = clamp((kmh - lo) / Math.max(GEAR_TOPS[g] - lo, 1), 0, 1);
-  return { label: String(g + 1), index: g + 1, rpm: 0.2 + frac * 0.8 };
+  out.label = GEAR_LABELS[g] ?? String(g + 1);
+  out.index = g + 1;
+  out.rpm = 0.2 + frac * 0.8;
+  return out;
+}
+
+/**
+ * The allocating form, kept because it is exported and callers outside this
+ * module hold the result. Nothing on the per-frame path uses it.
+ */
+export function gearForSpeed(forwardSpeed) {
+  return gearInto({ label: 'N', index: 0, rpm: 0.11 }, forwardSpeed);
 }
 
 // ---------------------------------------------------------------- coastline
@@ -1011,8 +1045,22 @@ export class HUD {
     if ((window.devicePixelRatio || 1) !== this.dpr) this.layout();
 
     // --- animation
-    const gear = s.gear != null ? { label: String(s.gear), rpm: s.rpm ?? 0.3 }
-                                : gearForSpeed(s.forwardSpeed);
+    // Scratch, not a literal: this ran twice per frame, once here and once
+    // inside gearForSpeed. See gearInto().
+    const gear = this._gear ??= { label: 'N', index: 0, rpm: 0.11 };
+    if (s.gear != null) {
+      // s.gear is usually already a string or a small integer we have a cached
+      // label for, so only fall back to String() for something unexpected.
+      gear.label = typeof s.gear === 'string' ? s.gear
+        : (GEAR_LABELS[s.gear - 1] ?? String(s.gear));
+      gear.rpm = s.rpm ?? 0.3;
+      // gear.index is deliberately left as it was. The object literal this
+      // replaced carried no index on this branch either, and the only fields
+      // read downstream are label and rpm (_drawGauge takes both, nothing else
+      // touches the object) -- so there is no correct value to invent here.
+    } else {
+      gearInto(gear, s.forwardSpeed);
+    }
     const rpm = s.rpm != null ? s.rpm : gear.rpm;
     const d = this.disp;
     d.speed = damp(d.speed, s.speed, 9, dt);
@@ -1154,15 +1202,31 @@ export class HUD {
       const obj = typeof o === 'string' ? { text: o } : o;
       this._write('objTitle', this.elObjTitle, obj.title || 'Objective');
       this._write('objText', this.elObjText, obj.text || '');
-      this._write('objDist', this.elObjDist,
-        obj.distance == null ? '' : `${Math.round(obj.distance)} m`);
+      // Only build the string when the number it would show has actually
+      // changed. _write dirty-checks the DOM write, but the template literal was
+      // evaluated BEFORE that check, so a stationary objective still allocated a
+      // string every frame for a value it then discarded.
+      const dm = obj.distance == null ? null : Math.round(obj.distance);
+      if (dm !== this._objDistM) {
+        this._objDistM = dm;
+        this._write('objDist', this.elObjDist, dm == null ? '' : `${dm} m`);
+      }
     }
     this._band(this.elObj, !!o);
 
     const sub = s.subtitle;
     if (sub) {
-      const t = typeof sub === 'string' ? { text: sub } : sub;
-      const key = `${t.speaker || ''}|${t.text || ''}`;
+      // No wrapper object for the string form, and no key string unless one of
+      // the two parts moved -- both were per-frame allocations for a subtitle
+      // that is static for seconds at a time.
+      const isStr = typeof sub === 'string';
+      const spk = isStr ? '' : (sub.speaker || '');
+      const txt = isStr ? sub : (sub.text || '');
+      const t = isStr ? SUB_SCRATCH : sub;
+      if (isStr) { SUB_SCRATCH.text = sub; SUB_SCRATCH.speaker = ''; }
+      const changed = spk !== this._subSpeaker || txt !== this._subText;
+      const key = changed ? `${spk}|${txt}` : this._text.sub;
+      if (changed) { this._subSpeaker = spk; this._subText = txt; }
       if (this._text.sub !== key) {
         this._text.sub = key;
         this.elSub.textContent = '';
