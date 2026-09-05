@@ -9,18 +9,18 @@
  "bloomStrength": 0.4,
  "bloomOn": {
   "file": "docs/shots/whitebox-bloom-on-golden.png",
-  "whiteFrac": 0.1317,
-  "meanLuma": 194,
+  "whiteFrac": 0.1087,
+  "meanLuma": 192.6,
   "hardStepCols": 0,
   "cols": 211
  },
  "bloomOff": {
   "file": "docs/shots/whitebox-bloom-off-golden.png",
-  "whiteFrac": 0.1179,
-  "meanLuma": 176,
-  "hardStepCols": 46,
+  "whiteFrac": 0.0742,
+  "meanLuma": 176.2,
+  "hardStepCols": 24,
   "cols": 211
  },
- "verdict": "REFUTED - the box stays 11.8% white with bloom off, so it is geometry or material",
+ "verdict": "REFUTED - the box stays 7.4% white with bloom off, so it is geometry or material",
  "pageErrors": []
 }
