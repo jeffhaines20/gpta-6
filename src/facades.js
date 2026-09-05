@@ -189,21 +189,35 @@ const CT = {
 //             coating_BR^0.68, so closing noon by colour alone needs a
 //             district-wide 0.49, which is uniform reflective bronze.
 //
-//             METALNESS STAYS AT 0.80-0.88, and the round that lowered it to
-//             0.62-0.70 measured why it should not. Paired same-session A/B,
-//             bloom off, repeatability +/-0.0004 over ten captures:
+//             ROUGHNESS 0.07-0.13 AND METALNESS 0.80-0.88 ARE BOTH BACK AT
+//             BASELINE, after a round that moved them to chase a blown pane and
+//             was reverted whole. Recorded because the next person to look at
+//             that pane will reach for these numbers first.
 //
-//               old roughness + old metalness              0.1164
-//               new roughness + OLD metalness              0.0882   89% of the fix
-//               new roughness + new metalness              0.0849   shipped briefly
+//             The pane: one bayTower cell whose normal sits 1.1 degrees off the
+//             half-vector of an 8-degree golden sun. GGX at alpha = 0.013
+//             returns about 1e6 cd/m2 against an ACES white point near 30,000,
+//             so all three channels clip and it reads flat and achromatic.
 //
-//             The metalness step bought 0.0033 of white and cost golden's glass
-//             B/R 0.819 -> 0.858 against a reference of 0.804, seven of twelve
-//             stations getting bluer, worst +0.252. It also flattened the
-//             vertical gradient applyGlazingEnv exists to create by ~20% at
-//             golden (top/bottom contrast 2.64 -> 2.11), because a bigger
-//             diffuse remainder lifts shaded low panes most. Roughness alone
-//             carries the highlight fix; metalness only cost colour.
+//             Roughness DOWN to 0.053-0.065 does shrink it - box white 13.2% ->
+//             10.5% with bloom on - because above the white point a highlight is
+//             an AREA whose radius goes as sqrt(0.31*alpha*sqrt(F0) - alpha^2),
+//             growing with roughness until alpha = 0.084. Broadening the lobe
+//             makes it bigger, not softer.
+//
+//             But roughness is also what moves the COLOUR, measured per station
+//             across three arms: the worst golden regression (0.925 -> 1.177)
+//             is 99% roughness, and metalness had been partly CANCELLING it, so
+//             roughness-only landed further from baseline than either. Golden
+//             glass B/R goes 0.819 -> 0.858 against a reference 0.804 - giving up
+//             a median that lands ON the reference to buy 2.7 points of one pane
+//             in one frame at one hour.
+//
+//             So the pane is not a material fault and must not be fixed here. It
+//             is a highlight-rolloff fault: a specular return 30x the white point
+//             with nowhere to go. Fix it where it happens - a highlight
+//             compression before the tonemap, or a per-pane specular clamp - not
+//             by detuning the glazing of every building in the district.
 //   accents   named one-off details, applied at authored positions
 
 export const RECIPES = {
@@ -622,7 +636,7 @@ function drawOpening(L, rec, cell, r) {
     // that a street lamp reflects as a smear rather than an invisible point, and
     // the diffuse remainder has to be big enough that an unlit pane still answers
     // the ambient after the sky has gone.
-    rm.g.fillStyle = rmColor(0.053 + r() * 0.012, 0.80 + jr() * 0.08, 0.9);
+    rm.g.fillStyle = rmColor(0.07 + r() * 0.06, 0.80 + jr() * 0.08, 0.9);
     rm.g.fillRect(gx, gy, gw, gh);
   }
 
