@@ -116,9 +116,20 @@ for (const p of panos) {
 // alone; without a hash the freshness guard cannot tell that from a real re-bake
 // and refuses a frame set that is in fact perfectly current. That happened here on
 // 2026-09-03. `touch` on a stale frame defeats mtime entirely, which a hash does not.
+// A FILTERED RUN MUST NOT CLOBBER THE FULL INDEX. `--id` renders one station,
+// and writing index.json unconditionally replaced a 48-frame golden record with
+// a 2-frame noon one - which is not a smaller record, it is a destroyed one: the
+// index is what says which frames exist and what world they were rendered from,
+// so the other 46 become unattributable files on disk. Caught by a stop-hook
+// diff rather than by anything here, which is why the guard now lives here.
 const dstat = fs.statSync('data/district.json');
 const dhash = createHash('sha256').update(fs.readFileSync('data/district.json')).digest('hex').slice(0, 16);
-fs.writeFileSync(path.join(OUT, 'index.json'), JSON.stringify({
+const indexPath = path.join(OUT, only ? `index-${only}-${TIME}.json` : 'index.json');
+if (only) {
+  console.log(`\n  filtered run (--id ${only}): writing ${path.basename(indexPath)} rather than`);
+  console.log('  index.json, which records the full set and would otherwise be overwritten.');
+}
+fs.writeFileSync(indexPath, JSON.stringify({
   district: { mtime: dstat.mtime.toISOString(), size: dstat.size, sha256: dhash },
   time: TIME, eye: EYE, pitchDeg: PITCH, hfovDeg: HFOV, vfovDeg: +VFOV.toFixed(2),
   note: 'Each frame is the engine standing where the like-named Mapillary pano stood. '
