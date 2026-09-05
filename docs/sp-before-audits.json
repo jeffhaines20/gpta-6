@@ -1,0 +1,349 @@
+{
+ "audits": [
+  {
+   "framing": "corridor",
+   "tod": "noon",
+   "exposure": 0.000029850746268656717,
+   "exposureAsStop": "1/33500",
+   "sunLux": 100000,
+   "sunLuxDelivered": 92997.73,
+   "skyDelivery": {
+    "hemisphereLux": 0,
+    "environmentLux": 15156,
+    "totalLux": 15156,
+    "paths": 1
+   },
+   "implausible": [],
+   "bounce": null,
+   "sky": {
+    "skyLux": 15156,
+    "zenithNits": 6277,
+    "horizonNits": 8832,
+    "zenithChroma": -0.254,
+    "horizonChroma": -0.24,
+    "ambientChroma": -0.449,
+    "groundBounce": {
+     "albedo": [
+      0.2159,
+      0.1878,
+      0.1329
+     ],
+     "albedoLuminance": 0.1898,
+     "albedoBlueOverRed": 0.616,
+     "groundLux": 115649,
+     "fromSunLux": 100493,
+     "fromSkyLux": 15156,
+     "radianceNits": 6987.497
+    },
+    "msAniso": 0
+   },
+   "post": {
+    "bloomThreshold": 0.878,
+    "fogDensity": 0.0009,
+    "aoStrength": 0.95
+   }
+  },
+  {
+   "framing": "corridor",
+   "tod": "golden",
+   "exposure": 0.00010363768266141569,
+   "exposureAsStop": "1/9649",
+   "sunLux": 53138,
+   "sunLuxDelivered": 34394.497,
+   "skyDelivery": {
+    "hemisphereLux": 0,
+    "environmentLux": 8519,
+    "totalLux": 8519,
+    "paths": 1
+   },
+   "implausible": [],
+   "bounce": null,
+   "sky": {
+    "skyLux": 8519,
+    "zenithNits": 1434,
+    "horizonNits": 7907,
+    "zenithChroma": -0.498,
+    "horizonChroma": 0.193,
+    "ambientChroma": -0.348,
+    "groundBounce": {
+     "albedo": [
+      0.2159,
+      0.1878,
+      0.1329
+     ],
+     "albedoLuminance": 0.1898,
+     "albedoBlueOverRed": 0.616,
+     "groundLux": 13314,
+     "fromSunLux": 4795,
+     "fromSkyLux": 8519,
+     "radianceNits": 804.428
+    },
+    "msAniso": 0.52
+   },
+   "post": {
+    "bloomThreshold": 0.602,
+    "fogDensity": 0.0009,
+    "aoStrength": 0.95
+   }
+  },
+  {
+   "framing": "corridor",
+   "tod": "dusk",
+   "exposure": 0.0005136106831022085,
+   "exposureAsStop": "1/1947",
+   "sunLux": 1200,
+   "sunLuxDelivered": 500.093,
+   "skyDelivery": {
+    "hemisphereLux": 0,
+    "environmentLux": 1596,
+    "totalLux": 1596,
+    "paths": 1
+   },
+   "implausible": [],
+   "bounce": null,
+   "sky": {
+    "skyLux": 1596,
+    "zenithNits": 279,
+    "horizonNits": 1203,
+    "zenithChroma": -0.279,
+    "horizonChroma": 0.557,
+    "ambientChroma": -0.083,
+    "groundBounce": {
+     "albedo": [
+      0.2159,
+      0.1878,
+      0.1329
+     ],
+     "albedoLuminance": 0.1898,
+     "albedoBlueOverRed": 0.616,
+     "groundLux": 1596,
+     "fromSunLux": 0,
+     "fromSkyLux": 1596,
+     "radianceNits": 96.457
+    },
+    "msAniso": 0.6
+   },
+   "post": {
+    "bloomThreshold": 0.314,
+    "fogDensity": 0.0009,
+    "aoStrength": 0.95
+   }
+  },
+  {
+   "framing": "corridor",
+   "tod": "night",
+   "exposure": 0.1859427296392711,
+   "exposureAsStop": "1/5",
+   "sunLux": 0.6,
+   "sunLuxDelivered": 0.277,
+   "skyDelivery": {
+    "hemisphereLux": 0,
+    "environmentLux": 0.197,
+    "totalLux": 0.197,
+    "paths": 1
+   },
+   "implausible": [],
+   "bounce": null,
+   "sky": {
+    "skyLux": 0.197,
+    "zenithNits": 0.045,
+    "horizonNits": 0.176,
+    "zenithChroma": -0.713,
+    "horizonChroma": -0.002,
+    "ambientChroma": -0.497,
+    "groundBounce": {
+     "albedo": [
+      0.2159,
+      0.1878,
+      0.1329
+     ],
+     "albedoLuminance": 0.1898,
+     "albedoBlueOverRed": 0.616,
+     "groundLux": 0.197,
+     "fromSunLux": 0,
+     "fromSkyLux": 0.197,
+     "radianceNits": 0.012
+    },
+    "msAniso": 0.6
+   },
+   "post": {
+    "bloomThreshold": 0.118,
+    "fogDensity": 0.0009,
+    "aoStrength": 0.95
+   }
+  },
+  {
+   "framing": "fivepoints",
+   "tod": "noon",
+   "exposure": 0.000029850746268656717,
+   "exposureAsStop": "1/33500",
+   "sunLux": 100000,
+   "sunLuxDelivered": 92997.73,
+   "skyDelivery": {
+    "hemisphereLux": 0,
+    "environmentLux": 15156,
+    "totalLux": 15156,
+    "paths": 1
+   },
+   "implausible": [],
+   "bounce": null,
+   "sky": {
+    "skyLux": 15156,
+    "zenithNits": 6277,
+    "horizonNits": 8832,
+    "zenithChroma": -0.254,
+    "horizonChroma": -0.24,
+    "ambientChroma": -0.449,
+    "groundBounce": {
+     "albedo": [
+      0.2159,
+      0.1878,
+      0.1329
+     ],
+     "albedoLuminance": 0.1898,
+     "albedoBlueOverRed": 0.616,
+     "groundLux": 115649,
+     "fromSunLux": 100493,
+     "fromSkyLux": 15156,
+     "radianceNits": 6987.497
+    },
+    "msAniso": 0
+   },
+   "post": {
+    "bloomThreshold": 0.878,
+    "fogDensity": 0.0009,
+    "aoStrength": 0.95
+   }
+  },
+  {
+   "framing": "fivepoints",
+   "tod": "golden",
+   "exposure": 0.00010363768266141569,
+   "exposureAsStop": "1/9649",
+   "sunLux": 53138,
+   "sunLuxDelivered": 34394.497,
+   "skyDelivery": {
+    "hemisphereLux": 0,
+    "environmentLux": 8519,
+    "totalLux": 8519,
+    "paths": 1
+   },
+   "implausible": [],
+   "bounce": null,
+   "sky": {
+    "skyLux": 8519,
+    "zenithNits": 1434,
+    "horizonNits": 7907,
+    "zenithChroma": -0.498,
+    "horizonChroma": 0.193,
+    "ambientChroma": -0.348,
+    "groundBounce": {
+     "albedo": [
+      0.2159,
+      0.1878,
+      0.1329
+     ],
+     "albedoLuminance": 0.1898,
+     "albedoBlueOverRed": 0.616,
+     "groundLux": 13314,
+     "fromSunLux": 4795,
+     "fromSkyLux": 8519,
+     "radianceNits": 804.428
+    },
+    "msAniso": 0.52
+   },
+   "post": {
+    "bloomThreshold": 0.602,
+    "fogDensity": 0.0009,
+    "aoStrength": 0.95
+   }
+  },
+  {
+   "framing": "fivepoints",
+   "tod": "dusk",
+   "exposure": 0.0005136106831022085,
+   "exposureAsStop": "1/1947",
+   "sunLux": 1200,
+   "sunLuxDelivered": 500.093,
+   "skyDelivery": {
+    "hemisphereLux": 0,
+    "environmentLux": 1596,
+    "totalLux": 1596,
+    "paths": 1
+   },
+   "implausible": [],
+   "bounce": null,
+   "sky": {
+    "skyLux": 1596,
+    "zenithNits": 279,
+    "horizonNits": 1203,
+    "zenithChroma": -0.279,
+    "horizonChroma": 0.557,
+    "ambientChroma": -0.083,
+    "groundBounce": {
+     "albedo": [
+      0.2159,
+      0.1878,
+      0.1329
+     ],
+     "albedoLuminance": 0.1898,
+     "albedoBlueOverRed": 0.616,
+     "groundLux": 1596,
+     "fromSunLux": 0,
+     "fromSkyLux": 1596,
+     "radianceNits": 96.457
+    },
+    "msAniso": 0.6
+   },
+   "post": {
+    "bloomThreshold": 0.314,
+    "fogDensity": 0.0009,
+    "aoStrength": 0.95
+   }
+  },
+  {
+   "framing": "fivepoints",
+   "tod": "night",
+   "exposure": 0.1859427296392711,
+   "exposureAsStop": "1/5",
+   "sunLux": 0.6,
+   "sunLuxDelivered": 0.277,
+   "skyDelivery": {
+    "hemisphereLux": 0,
+    "environmentLux": 0.197,
+    "totalLux": 0.197,
+    "paths": 1
+   },
+   "implausible": [],
+   "bounce": null,
+   "sky": {
+    "skyLux": 0.197,
+    "zenithNits": 0.045,
+    "horizonNits": 0.176,
+    "zenithChroma": -0.713,
+    "horizonChroma": -0.002,
+    "ambientChroma": -0.497,
+    "groundBounce": {
+     "albedo": [
+      0.2159,
+      0.1878,
+      0.1329
+     ],
+     "albedoLuminance": 0.1898,
+     "albedoBlueOverRed": 0.616,
+     "groundLux": 0.197,
+     "fromSunLux": 0,
+     "fromSkyLux": 0.197,
+     "radianceNits": 0.012
+    },
+    "msAniso": 0.6
+   },
+   "post": {
+    "bloomThreshold": 0.118,
+    "fogDensity": 0.0009,
+    "aoStrength": 0.95
+   }
+  }
+ ],
+ "errors": []
+}

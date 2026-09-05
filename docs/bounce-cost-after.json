@@ -1,0 +1,15 @@
+{
+ "single": {
+  "label": "cold load",
+  "drawCalls": 120,
+  "sceneCalls": 112,
+  "triangles": 336630,
+  "programs": 52,
+  "programsInUse": 52,
+  "hemiVisible": 2,
+  "dirVisible": 1,
+  "pointLit": 0,
+  "maxFragmentUniformVectors": 4096
+ },
+ "errors": []
+}

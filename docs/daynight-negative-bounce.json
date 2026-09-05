@@ -1,0 +1,25 @@
+{
+ "injected": "bounce light intensity forced to 0 at noon",
+ "caught": true,
+ "flags": [
+  "the district bounce light delivers 0 lux, 0.0% of the sky's 15156.166, outside the 13.5-50.6% this preset's own sun/sky envelope allows",
+  "the bounce light delivers 0 lux where bounceDelivery() computes 3947.3: the light was not written"
+ ],
+ "bounce": {
+  "lux": 3947.3,
+  "colour": [
+   1.1056,
+   0.9756,
+   0.9311
+  ],
+  "blueOverRed": 0.842,
+  "wallLux": 24919.4,
+  "fromSunLux": 7346.5,
+  "fromSkyLux": 7578.1,
+  "fromGroundLux": 9994.8,
+  "viewFactor": 0.4908,
+  "shareOfSky": 0.2604,
+  "lightIntensity": 0,
+  "lightDeliveredLux": 0
+ }
+}

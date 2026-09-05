@@ -2,13 +2,15 @@
  "injected": "HemisphereLight restored to preset.skyLux at golden, environment untouched",
  "caught": true,
  "flags": [
-  "sky delivers 14067 lux to a horizontal surface (hemisphere 5548 + environment 8519), outside plausible 5500-11800 for golden",
-  "the sky is delivered 2 times: HemisphereLight 5548 lux AND environment 8519 lux, from the same dome"
+  "sky delivers 16433 lux to a horizontal surface (hemisphere 7915 + environment 8519), outside plausible 5500-11800 for golden",
+  "the sky is delivered 2 times: HemisphereLight 7915 lux AND environment 8519 lux, from the same dome",
+  "the district bounce light delivers 2637.2941 lux, 16.0% of the sky's 16433.158, outside the 18.5-58.4% this preset's own sun/sky envelope allows",
+  "the bounce light delivers 2637.2941 lux where bounceDelivery() computes 3384.2: the light was not written"
  ],
  "delivery": {
-  "hemisphereLux": 5547.81,
-  "environmentLux": 8519,
-  "totalLux": 14066.81,
+  "hemisphereLux": 7914.636,
+  "environmentLux": 8518.522,
+  "totalLux": 16433.158,
   "paths": 2
  }
 }
