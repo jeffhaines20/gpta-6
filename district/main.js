@@ -28,6 +28,8 @@ import {
 import { buildingStyle } from '../src/facades.js';
 import { buildPlayerCar } from '../src/carbody.js';
 import { HUD } from '../src/hud.js';
+import { WantedSystem, bindPursuit, CRIMES, STATES } from '../src/wanted.js';
+import { createAudio } from '../src/audio.js';
 
 const canvas = document.getElementById('c');
 // antialias: false, deliberately. The flag configures multisampling on the
@@ -253,10 +255,218 @@ console.log('player car', JSON.stringify(carMesh.report()));
 let pursuit = null;
 // Risk 5 chase harness: max traffic + active pursuit + streaming churn, run
 // against the budget gate long before the mission exists.
+//
+// This is the MANUAL path and it still wins outright: a harness that asks for
+// eight cars gets eight cars whatever the wanted level says. `pursuitManual`
+// below is what keeps the two owners off each other.
+let pursuitManual = false;
 function setPursuit(n) {
   if (pursuit) { scene.remove(pursuit.mesh); scene.remove(pursuit.bars); pursuit = null; }
   if (n > 0) pursuit = new PursuitUnits(scene, district, { count: n });
+  pursuitManual = !!pursuit;
   return !!pursuit;
+}
+
+// ------------------------------------------------------------ wanted level
+// src/wanted.js is the DECISION layer and nothing else: no three.js import, no
+// mesh, no light, no clock of its own. Constructing it therefore touches neither
+// the scene graph nor the frame, which is why it can be built here at load and
+// left running — at zero stars `_syncUnits()` wants zero units, emits nothing,
+// and the whole update is a handful of arithmetic on numbers it already owns.
+//
+// A fresh load renders exactly the frame it rendered before this file imported
+// the module. The police only become real when a crime is reported.
+const wanted = new WantedSystem();
+
+// The bridge between the two owners' files.
+//
+// `bindPursuit` is duck-typed on purpose (see its header): it calls whatever the
+// pursuit layer happens to implement and skips the rest. src/pursuit.js as it
+// stands implements NONE of that vocabulary — it is the Phase 1b load harness,
+// with a fixed fleet, plain `speed`/`giveUpRadius` fields and one shared target.
+// So the shim lives here, in the file that already owns the pursuit lifecycle,
+// rather than in either module: pursuit.js and wanted.js are both other owners'
+// files and neither needs to learn about the other.
+//
+// Two things the shim deliberately does NOT pretend to support, because
+// PursuitUnits cannot do them and a recorder that nothing reads would only hide
+// that: `setUnitGoal` (it drives every car greedily at ONE target, so the
+// per-unit intercept and search-ring roles are not honoured) and `setSpawnBand`
+// (its spawn distance is hard-coded 70–260 m). Both are reported by
+// wantedReport().notHonoured so the gap is visible rather than silent. What IS
+// honoured is the part that matters most: fleet size, convergence target,
+// speed multiplier and give-up radius.
+const PURSUIT_CAPACITY = 8;              // == WantedSystem maxUnits, so the mesh never resizes
+const PURSUIT_BASE_SPEED = 22;           // src/pursuit.js default, quoted so the multiplier means something
+const _pursuitMat = new THREE.Matrix4();
+const _pursuitVec = new THREE.Vector3();
+
+const pursuitBridge = {
+  ids: [],                               // ids[i] is the wanted unit holding pursuit slot i
+  target: { x: 0, z: 0 },                // where the fleet is being asked to converge
+  speedMul: 0,
+  giveUp: 0,
+  posPool: [],                           // reused, so reporting positions allocates nothing per frame
+  posOut: [],
+
+  // Build the fleet the first time a unit is actually wanted, and only then. The
+  // InstancedMesh is allocated once at full capacity and the live count is
+  // masked, so escalating from one star to five costs no geometry rebuild.
+  _fleet(n) {
+    if (pursuitManual) return;
+    if (n <= 0) {
+      // Parked, not destroyed: the InstancedMesh and its geometry are kept so a
+      // second chase costs no rebuild. `visible` is what takes it out of the
+      // render list entirely - an InstancedMesh left visible at count 0 still
+      // costs a draw call - and it is also the flag the frame loop reads to skip
+      // updating a fleet that is not in play.
+      if (pursuit) {
+        pursuit.mesh.visible = false; pursuit.bars.visible = false;
+        pursuit.count = 0; pursuit.mesh.count = 0; pursuit.bars.count = 0;
+      }
+      return;
+    }
+    if (!pursuit) {
+      pursuit = new PursuitUnits(scene, district, { count: PURSUIT_CAPACITY });
+      if (this.giveUp > 0) pursuit.giveUpRadius = this.giveUp;
+      if (this.speedMul > 0) pursuit.speed = PURSUIT_BASE_SPEED * this.speedMul;
+    }
+    pursuit.mesh.visible = true;
+    pursuit.bars.visible = true;
+    // Both counts, and they are different things: PursuitUnits.count is how many
+    // slots it drives, InstancedMesh.count is how many it draws. Leaving the
+    // second at capacity would draw the untouched slots at their identity
+    // matrix - a row of cars parked at the world origin.
+    pursuit.count = n;
+    pursuit.mesh.count = n;
+    pursuit.bars.count = n;
+    for (let i = n; i < PURSUIT_CAPACITY; i++) pursuit.units[i] = null;
+  },
+
+  spawnUnit(id) {
+    this.ids.push(id);
+    this._fleet(this.ids.length);
+  },
+
+  releaseUnit(id) {
+    const k = this.ids.indexOf(id);
+    if (k < 0) return;
+    this.ids.splice(k, 1);
+    // Keep car and id aligned by index. Removing the released car's slot and
+    // pushing a hole onto the end means every surviving car keeps its own
+    // position and its own id; nothing teleports.
+    if (pursuit && !pursuitManual) { pursuit.units.splice(k, 1); pursuit.units.push(null); }
+    this._fleet(this.ids.length);
+  },
+
+  setUnitCount(n) { this._fleet(Math.min(n, PURSUIT_CAPACITY)); },
+  setTarget(x, z) { this.target.x = x; this.target.z = z; },
+  setSpeedMultiplier(m) {
+    this.speedMul = m;
+    if (pursuit && !pursuitManual && m > 0) pursuit.speed = PURSUIT_BASE_SPEED * m;
+  },
+  setGiveUpRadius(r) {
+    this.giveUp = r;
+    if (pursuit && !pursuitManual && r > 0) pursuit.giveUpRadius = r;
+  },
+
+  // Positions back in. This is what lets the police actually SEE the player:
+  // with no `seen` flag from the host, src/wanted.js decides contact purely by
+  // unit proximity, so a fleet that never reports where it is can never hold a
+  // wanted level and every chase would decay on its own.
+  //
+  // PursuitUnits keeps a car's position only in its instance matrix, so that is
+  // where it is read from - the same route src/audio.js takes for the sirens.
+  // Empty slots are skipped: their matrix is the scale-zero hide matrix, whose
+  // translation is the world origin, and reporting that would put a phantom
+  // officer at 0,0 holding contact forever.
+  getUnitPositions() {
+    const out = this.posOut;
+    out.length = 0;
+    if (!pursuit || pursuitManual) return out;
+    const n = Math.min(this.ids.length, pursuit.count);
+    for (let i = 0; i < n; i++) {
+      if (!pursuit.units[i]) continue;
+      pursuit.mesh.getMatrixAt(i, _pursuitMat);
+      _pursuitVec.setFromMatrixPosition(_pursuitMat);
+      const slot = this.posPool[i] ?? (this.posPool[i] = { id: 0, x: 0, z: 0 });
+      slot.id = this.ids[i]; slot.x = _pursuitVec.x; slot.z = _pursuitVec.z;
+      out.push(slot);
+    }
+    return out;
+  },
+};
+
+const wantedBridge = bindPursuit(wanted, pursuitBridge, { baseSpeed: PURSUIT_BASE_SPEED });
+// Reused, so the per-frame police update allocates nothing at all.
+const _wantedPlayer = { x: 0, z: 0 };
+
+// ------------------------------------------------------------------- audio
+// Nothing is built until the player's first gesture, and that is a stronger rule
+// than it looks.
+//
+// Every browser constructs an AudioContext suspended and Chrome logs a warning
+// for one created before a gesture, so the usual shape - build at load, resume
+// later - starts a page with a console warning and a graph that cannot be heard.
+// Constructing inside the gesture instead means a headless capture, which never
+// generates one, creates NO AudioContext, no nodes, no THREE.AudioListener and
+// no camera child: there is nothing for it to differ by. `audio` stays null and
+// every call site below is already guarded, so the frame loop skips it whole.
+//
+// src/audio.js is safe either way - it no-ops when there is no AudioContext and
+// counts, rather than logs, anything asked of it while suspended - but not
+// building it at all is the only version with provably zero cost.
+let audio = null;
+let audioTod = null, audioRain = -1, audioWet = -1;
+let audioSirens = false;
+
+function initAudio(opts = {}) {
+  if (audio) return audio;
+  audio = createAudio({ timeOfDay: tod.presetName, ...opts });
+  if (audio.available) {
+    // Positional sirens follow the camera through three's own listener, so the
+    // pose is the one the renderer already computed. This is also the only thing
+    // in this block that touches an Object3D, which is why it happens here and
+    // not at load: before the first gesture the camera has no children.
+    audio.attachListener(camera);
+    pushAudioEnvironment(0);
+  }
+  return audio;
+}
+
+// Time of day and weather are pushed only when they actually change: a
+// setTargetAtTime on every bed every frame is param traffic for nothing.
+function pushAudioEnvironment(fade = 1.6) {
+  if (!audio || !audio.available) return;
+  const name = tod.presetName;
+  if (name !== audioTod) {
+    audioTod = name;
+    // The module throws rather than silently crossfading the wrong bed. Correct
+    // for it; fatal for a frame loop, so the mixer loses a bed and the game
+    // keeps running.
+    try { audio.setTimeOfDay(name, fade); } catch (e) { console.warn('audio:', e.message); }
+  }
+  // weather.rain is the rain MESH; the scalar lives on the active preset.
+  const rain = weather.current?.rain ?? 0;
+  const wet = weather.wetness ?? 0;
+  if (rain !== audioRain || Math.abs(wet - audioWet) > 0.01) {
+    audioRain = rain; audioWet = wet;
+    audio.setWeather({ rain, wetness: wet }, fade);
+  }
+}
+
+// One listener, removed the moment it fires. `resume()` never throws and never
+// rejects, so nothing here needs a catch; a browser that refuses leaves the game
+// exactly as it was.
+function onFirstGesture() {
+  for (const ev of ['pointerdown', 'keydown', 'touchstart']) {
+    removeEventListener(ev, onFirstGesture, true);
+  }
+  initAudio();
+  if (audio.available) audio.resume();
+}
+for (const ev of ['pointerdown', 'keydown', 'touchstart']) {
+  addEventListener(ev, onFirstGesture, true);
 }
 
 // ------------------------------------------------------------------ on foot
@@ -432,7 +642,23 @@ function animate(now) {
     // on foot the crowd has to be around the player or the pavement is empty
     // exactly where it is most visible.
     if (peds) peds.update(dt, mode === 'foot' ? player.position : vehicle.position);
-    if (pursuit) pursuit.update(dt, vehicle.position);
+    // The police decide, then the cars move. bindPursuit pushes this frame's plan
+    // through the shim above; movement stays entirely with src/pursuit.js, driven
+    // at the plan's target - the player while they are being seen, the last known
+    // position once they are not, which is what puts the search state on the
+    // street instead of only in the report.
+    //
+    // At zero stars this is arithmetic on numbers the module already owns: no
+    // event, no unit, no allocation, and `pursuit` is still null.
+    const wpos = mode === 'foot' ? player.position : vehicle.position;
+    _wantedPlayer.x = wpos.x; _wantedPlayer.z = wpos.z;
+    const plan = wantedBridge.update(dt, _wantedPlayer);
+    // A parked fleet is skipped outright. PursuitUnits.update() ends by flagging
+    // both instance matrices needsUpdate, so calling it on a hidden fleet with
+    // nothing to drive would re-upload two buffers every frame for no cars.
+    if (pursuit && pursuit.mesh.visible) {
+      pursuit.update(dt, pursuitManual ? vehicle.position : plan.target);
+    }
     simTime += dt;
   }
   const focus = mode === 'foot' ? player.position : vehicle.position;
@@ -512,7 +738,27 @@ function animate(now) {
   // so a lens reads as blown out at dusk AND at night rather than at neither.
   carMesh.setLights(tod.preset.lampsOn, post.params.exposure);
   if (traffic) traffic.setLights(tod.preset.lampsOn, post.params.exposure);
-  if (pursuit) pursuit.setLights(tod.preset.lampsOn, post.params.exposure);
+  if (pursuit && pursuit.mesh.visible) pursuit.setLights(tod.preset.lampsOn, post.params.exposure);
+
+  // Audio, only once the player has actually pressed something. Until then this
+  // is a single null check per frame and there is no graph to drive.
+  if (audio) {
+    pushAudioEnvironment();
+    // Sirens read positions out of the instance matrices, so a hidden fleet would
+    // sound like eight cars parked at the world origin.
+    const livePursuit = pursuit && pursuit.mesh.visible ? pursuit : null;
+    audio.update(dt, {
+      vehicle: mode === 'car' ? vehicle : null,
+      pursuit: livePursuit,
+      listenerPos: focus,
+    });
+    // updatePursuit is what moves a siren voice, and it only runs while there IS
+    // a fleet - so the moment the last unit is released the voices would hold
+    // their final wail forever. Measured: three voices still sounding after the
+    // level was cleared. Silence them once, on the edge.
+    if (livePursuit) audioSirens = true;
+    else if (audioSirens) { audio.sirensOff(); audioSirens = false; }
+  }
 
   post.render();
   if (metrics.recording) sample(dt);
@@ -532,6 +778,16 @@ function animate(now) {
       px: focus.x, pz: focus.z, heading,
       district: district.meta.city,
       prompt: near ? 'PRESS F TO ENTER VEHICLE' : null,
+      // src/hud.js already draws the five stars, already animates the escalation
+      // flash and already exposes setWanted(); the meter was simply never fed.
+      // It flashes while the level is DRAINING - contact lost, a star about to
+      // go - which is the genre's own tell that you are nearly clear.
+      //
+      // HUD._set() ignores a value that has not changed, so at zero stars this
+      // is one comparison and no redraw: the status canvas stays exactly as
+      // clean as it was before the meter had a source.
+      wanted: wanted.stars,
+      wantedFlash: wanted.state === STATES.SEARCH,
     });
   }
   hud.textContent =
@@ -579,11 +835,45 @@ window.__district = {
   toggleVehicle,
   setMode(m) { if (m !== mode) toggleVehicle(); },
   pursuitReport: () => (pursuit ? pursuit.report() : null),
+
+  // ---------------------------------------------------------- wanted / police
+  // The decision layer itself, so a tool can subscribe to its events, and the
+  // crime vocabulary, so a tool does not have to hard-code the ids.
+  wanted, CRIMES,
+  /** Report a crime. This is the ONLY way the level ever rises by itself. */
+  reportCrime: (id, opts) => wanted.reportCrime(id, opts),
+  /** Mission scripting and harnesses: set the level with no crime behind it. */
+  setWanted: (n) => wanted.setStars(n),
+  clearWanted: (reason) => wanted.clear(reason ?? 'cleared'),
+  wantedReport: () => ({
+    ...wanted.report(),
+    fleet: pursuit ? pursuit.report() : null,
+    fleetVisible: !!(pursuit && pursuit.mesh.visible),
+    manualPursuit: pursuitManual,
+    boundIds: [...pursuitBridge.ids],
+    // Honest about the seam: PursuitUnits drives every car at one shared target
+    // and picks its own spawn distance, so these two parts of the plan reach it
+    // and are dropped. Nothing else in the plan is.
+    notHonoured: ['setUnitGoal', 'setSpawnBand'],
+  }),
+
+  // ------------------------------------------------------------------- audio
+  // A getter, like traffic() and pedestrians(), because it is null until the
+  // player's first gesture - or until a tool asks for it explicitly.
+  audio: () => audio,
+  /** Build the graph without a gesture. It stays SUSPENDED; resume() needs one. */
+  initAudio: (opts) => { const a = initAudio(opts); return a.report(); },
+  /** Build if needed and resume. Only a real gesture makes this reach 'running'. */
+  resumeAudio: async () => { initAudio(); return audio.available ? audio.resume() : false; },
+  audioReport: () => (audio ? audio.report() : null),
   setTimeOfDay: (n) => { const r = tod.apply(n); setSignageTime(n); return r; },
   signageStats: () => signageStats,
   // Isolation switch for the harnesses: the HUD is per-frame canvas work and a GC
   // pause it provokes lands inside whatever is running, including world.update().
   setHudEnabled: (on) => { if (hud2) { hud2.state.visible = on; hudEnabled = on; } },
+  // So a tool can read what the wanted meter was actually fed, rather than
+  // trusting that the call site passes it.
+  hud: () => hud2,
   audit: () => tod.audit(),
   placeAt,
   renderStats: () => ({ calls: post.stats.totalCalls, sceneCalls: post.stats.drawCalls,

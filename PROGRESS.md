@@ -30,6 +30,86 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## audio.js and wanted.js reach the game, with zero diff to either module
+
+88 KB built and verified on 2026-09-02, then deliberately shelved while the
+budget gate was red at 18.5 ms, and never picked back up when it went green.
+Neither was referenced anywhere in `district/main.js`.
+
+**Both were as finished as the ledger claimed**: `src/audio.js`, `src/wanted.js`,
+`src/hud.js` and `src/pursuit.js` all have zero diff. Everything wiring needed
+was already public and behaved as documented. Only `district/main.js` and
+`tools/wanted-test.mjs` changed.
+
+`bindPursuit` is duck-typed and `PursuitUnits` implements none of its vocabulary,
+so the shim lives in main.js - the file that already owns the pursuit lifecycle -
+rather than making either owner's module learn about the other. It honours fleet
+size, convergence target, speed multiplier and give-up radius, and deliberately
+omits the per-unit intercept and search-ring roles because PursuitUnits drives
+every car greedily at one target. `wantedReport().notHonoured` says so, rather
+than a recorder quietly faking it.
+
+`getUnitPositions()` skips empty fleet slots: their hide-matrix translation is the
+world origin, so feeding them back would park a phantom officer at 0,0 holding
+contact forever and no chase would ever decay.
+
+The HUD already drew five stars, animated the escalation flash and exposed
+`setWanted()`. The meter was simply never fed.
+
+### A false alarm, and the recalibration that found it
+
+The first "is the static capture unchanged?" run reported **14% of pixels
+different, reproducibly**. It was the harness: the camera was derived from
+`vehicle.position`, sampling the suspension mid-settle, which landed 0.43 mm
+apart between loads - a 0.01 px shift, invisible as a shift but 1 LSB across the
+whole frame. The giveaway was that a control run of the OLD code clustered with
+the new one. Camera pinned to the spawn constant, both arms re-run:
+
+| | before | after |
+|---|---|---|
+| draw calls / scene calls | 75 / 67 | 75 / 67 |
+| triangles | 293,707 | 293,707 |
+| objects / meshes / instanced / lights | 261 / 181 / 5 / 12 | 261 / 181 / 5 / 12 |
+| camera children | 0 | 0 |
+| pursuit / audio built | null / false | null / false |
+
+Cross-arm difference 2,090 px (0.41%) against 985-1,171 within-load and up to
+4,080 cross-load on the same build - renderer non-determinism, quantified and
+bounded rather than asserted. **The instrument was verified in both directions**:
+40 pedestrians move 2,049-2,741 px and the police fleet adds +3 draw calls and
++11,208 triangles. The first camera tried was BLIND - the fleet changed zero
+pixels there - which is why it was recalibrated instead of the null being
+believed. Strongest single result: within one load, `reportCrime` -> 6 cars ->
+`clearWanted` returned calls and triangles to exactly their idle values and the
+PNG to a byte-identical hash.
+
+### Cost and behaviour
+
+Wanted idles at 0.31-0.41 us per update with zero allocations. Audio idles at
+exactly zero because the object does not exist: nothing is built until the first
+`pointerdown`/`keydown`/`touchstart`, so a headless capture creates no
+AudioContext, no nodes, no `THREE.AudioListener` and no camera child. First
+gesture costs 87.5 ms under SwiftShader, and `__district.initAudio()` exists to
+move that behind the loading screen.
+
+`wanted-test` is now 97 checks (was 83), adding the partial-setter shape main.js
+actually presents and a cross-file invariant that the response table never
+outgrows the wired fleet capacity.
+
+A bug the browser probe caught: sirens kept wailing after the level cleared,
+because `updatePursuit` only runs while a fleet exists, so voices held their last
+wail forever. Silenced on the edge.
+
+### The decision this round did NOT make
+
+**Nothing in the game reports a crime automatically.** `vehicle.js` has no
+collision detection and peds and traffic never collide with the player, so the
+police are reachable only through `__district.reportCrime()` or `setWanted()`. A
+speed-based `reckless` trigger was considered and rejected as a silent decision:
+the drive-through autopilot crosses 108 km/h, so it would spawn police inside the
+budget gate. Making the wanted system reachable in play needs collision detection
+first, and that is its own round.
+
 ## Glass: bronze, and half the recorded finding did not reproduce
 
 Recorded as "engine B/R 1.49-2.07 against a reference of 0.67-0.83, and pane:wall

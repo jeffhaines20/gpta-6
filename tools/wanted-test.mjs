@@ -523,6 +523,138 @@ let searchSample;
     spawned: modern.spawned.length, released: modern.released.length };
 }
 
+// ------------------------ 20. the shape district/main.js actually presents
+// §19 covers the two ends of the duck-typed range: a pursuit layer with no
+// setters at all, and one with every setter. The wiring in district/main.js is
+// neither, so the shape it does present gets its own section.
+//
+// It is a shim over the Phase 1b PursuitUnits with four properties §19 does not
+// exercise:
+//
+//   - nothing is built until the first unit is actually requested. This is what
+//     the whole "a fresh load renders an unchanged frame" claim rests on, and it
+//     belongs in a deterministic test rather than only in a browser capture.
+//   - a HARD fleet capacity: one InstancedMesh, allocated once at 8 and masked,
+//     never resized.
+//   - only the setters PursuitUnits can honour. `setUnitGoal` and `setSpawnBand`
+//     are deliberately ABSENT — it drives every car at one shared target and
+//     hard-codes its own spawn distance — so bindPursuit has to tolerate a
+//     partial vocabulary, not just an empty or a complete one.
+//   - id-to-slot bookkeeping by index, because releasing a unit must not
+//     renumber the cars that remain.
+{
+  const CAPACITY = 8;
+  let carSeq = 0;
+  const shim = {
+    ids: [], fleet: null, built: 0, spawns: 0,
+    target: null, speedMul: 0, giveUp: 0,
+    _fleetTo(n) {
+      if (n <= 0) { if (this.fleet) this.fleet.live = 0; return; }
+      if (!this.fleet) { this.fleet = { slots: new Array(CAPACITY).fill(null), live: 0 }; this.built++; }
+      this.fleet.live = Math.min(n, CAPACITY);
+      for (let i = 0; i < this.fleet.live; i++) {
+        if (!this.fleet.slots[i]) this.fleet.slots[i] = { car: ++carSeq, x: 5, z: 0 };
+      }
+      for (let i = this.fleet.live; i < CAPACITY; i++) this.fleet.slots[i] = null;
+    },
+    spawnUnit(id) { this.spawns++; this.ids.push(id); this._fleetTo(this.ids.length); },
+    releaseUnit(id) {
+      const k = this.ids.indexOf(id);
+      if (k < 0) return;
+      this.ids.splice(k, 1);
+      if (this.fleet) { this.fleet.slots.splice(k, 1); this.fleet.slots.push(null); }
+      this._fleetTo(this.ids.length);
+    },
+    setUnitCount(n) { this._fleetTo(Math.min(n, CAPACITY)); },
+    setTarget(x, z) { this.target = { x, z }; },
+    setSpeedMultiplier(m) { this.speedMul = m; },
+    setGiveUpRadius(r) { this.giveUp = r; },
+    // No setUnitGoal, no setSpawnBand. That absence is the point.
+    getUnitPositions() {
+      const out = [];
+      if (!this.fleet) return out;
+      for (let i = 0; i < Math.min(this.ids.length, this.fleet.live); i++) {
+        const s = this.fleet.slots[i];
+        if (s) out.push({ id: this.ids[i], x: s.x, z: s.z });
+      }
+      return out;
+    },
+    idToCar() {
+      const m = {};
+      if (!this.fleet) return m;
+      this.ids.forEach((id, i) => { if (this.fleet.slots[i]) m[id] = this.fleet.slots[i].car; });
+      return m;
+    },
+  };
+
+  const w = new WantedSystem({ seed: 21 });
+  const bridge = bindPursuit(w, shim);
+
+  // --- inert. Ten minutes of game time with no crime at all.
+  let threw = null;
+  try { run(w, 600, ORIGIN, { each: (_w, _i, p) => bridge.update(DT, p) }); }
+  catch (e) { threw = String(e); }
+  check('a partial setter vocabulary does not throw', threw === null, threw);
+  check('ten idle minutes build no fleet at all', shim.built === 0 && shim.fleet === null,
+    { built: shim.built });
+  check('...request no unit', shim.spawns === 0 && w.stats.unitsRequested === 0);
+  check('...and leave the level clear', w.stars === 0 && w.state === STATES.CLEAR);
+  out.inert = { seconds: 600, built: shim.built, spawns: shim.spawns, stars: w.stars };
+
+  // --- one crime, and only then does anything exist.
+  w.reportCrime('roadblockRun', { at: ORIGIN });          // floors at three stars
+  for (let i = 0; i < 20; i++) bridge.update(DT, { x: 0, z: 0 });
+  check('the first crime builds the fleet exactly once', shim.built === 1, { built: shim.built });
+  check('the fleet matches the response table for the level',
+    shim.fleet.live === RESPONSE[w.stars].units, { live: shim.fleet.live, stars: w.stars });
+  check('the shared target is written even with no per-unit goals',
+    shim.target !== null && near(shim.target.x, 0, 1e-9), shim.target);
+  check('tuning that PursuitUnits CAN honour still arrives',
+    shim.speedMul === RESPONSE[w.stars].speedMul && shim.giveUp === RESPONSE[w.stars].giveUpRadius,
+    { speedMul: shim.speedMul, giveUp: shim.giveUp });
+
+  // --- id-to-car alignment survives a release from the middle of the fleet.
+  const beforeMap = shim.idToCar();
+  const victim = shim.ids[1];
+  const victimCar = beforeMap[victim];
+  shim.releaseUnit(victim);
+  const afterMap = shim.idToCar();
+  check('releasing a unit removes only its own car',
+    !Object.values(afterMap).includes(victimCar), { victimCar, afterMap });
+  check('...and every surviving unit keeps the car it had',
+    Object.keys(afterMap).every((id) => afterMap[id] === beforeMap[id]),
+    { beforeMap, afterMap });
+
+  // --- contact holds on reported positions alone, through this shape.
+  for (let i = 0; i < 30; i++) bridge.update(DT, { x: 0, z: 0 });
+  check('contact holds through a partial vocabulary',
+    w.state === STATES.ACTIVE && w.plan.seen === true, w.report().state);
+
+  // --- and it all unwinds.
+  w.clear('busted');
+  bridge.update(DT, { x: 0, z: 0 });
+  check('clearing empties the fleet', shim.ids.length === 0 && shim.fleet.live === 0,
+    { ids: shim.ids.length, live: shim.fleet.live });
+  out.mainShim = { built: shim.built, spawns: shim.spawns, capacity: CAPACITY };
+}
+
+// -------------------- 20b. the capacity in district/main.js is not a cap
+// district/main.js allocates its InstancedMesh once, at 8, because that is the
+// most the response table can ever ask for. If the table or the module default
+// ever outgrows that number the fleet would be silently clipped and the top of
+// the star ladder would quietly stop escalating, which is exactly the kind of
+// defect that hides for months. Cross-file invariant, asserted here because this
+// is the file that knows the table.
+{
+  const MAIN_CAPACITY = 8;                    // == PURSUIT_CAPACITY in district/main.js
+  const worst = Math.max(...RESPONSE.map((r) => r.units));
+  const dflt = new WantedSystem().maxUnits;
+  check('the response table never outgrows the wired fleet capacity',
+    worst <= MAIN_CAPACITY, { worst, MAIN_CAPACITY });
+  check('...and neither does the module default', dflt <= MAIN_CAPACITY, { dflt, MAIN_CAPACITY });
+  out.capacity = { tableWorst: worst, moduleDefault: dflt, wired: MAIN_CAPACITY };
+}
+
 // ---------------------------------------------------------------- scenario trace
 // One readable run of the thing it is actually for: a chase from first offence
 // to a clean escape, printed the way a designer would want to read it.
