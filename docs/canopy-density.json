@@ -1,0 +1,11 @@
+{
+ "generated": "2026-09-05",
+ "n": 33,
+ "reference": {
+  "span": 0.909,
+  "runsPerRow": 25.72,
+  "meanRun": 22.8,
+  "skyInSpan": 0.326,
+  "covered": 0.576
+ }
+}
