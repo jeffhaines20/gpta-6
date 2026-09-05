@@ -62,3 +62,11 @@ docs/shots/blind/
 
 # Scratch capture dir for the audio/wanted wiring round.
 .wire-shots/
+
+# Glazing probe working sets. panomatch-{before,after} stays: it is the eight
+# before/after pairs the ledger cites as evidence. ref/ is reference-DERIVED crops,
+# and reproject-pano.mjs states the policy plainly - those are regenerable from the
+# tool plus the index, and committing them doubles the reference weight for nothing.
+# look/ is iteration scratch, the same class as the oak bench frames already ignored.
+docs/shots/pane-tint/ref/
+docs/shots/pane-tint/look/
