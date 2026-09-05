@@ -71,7 +71,11 @@ function selftest() {
   return fail;
 }
 
-const args = process.argv.slice(2);
+// Only act as a CLI when run directly. blind-compare.mjs imports diffBands, and
+// an unguarded module body would run this loop against ITS argv and try to open
+// a build tag as a PNG. Same trap as tools/street-dir.mjs, caught the same day.
+const DIRECT = process.argv[1] && process.argv[1].endsWith('arm-diff.mjs');
+const args = DIRECT ? process.argv.slice(2) : [];
 if (args.includes('--selftest')) process.exit(selftest() ? 1 : 0);
 for (let i = 0; i + 1 < args.length; i += 2) {
   const rows = diffBands(readPNG(args[i]), readPNG(args[i + 1]));

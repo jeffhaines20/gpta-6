@@ -27,6 +27,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 
+import { readPNG } from './png.mjs';
+import { diffBands } from './arm-diff.mjs';
+
+const argVal = (k, d) => {
+  const i = process.argv.indexOf(`--${k}`);
+  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : d;
+};
+
 const SHOTS = 'docs/shots';
 const OUT = path.join(SHOTS, 'blind');
 const KEY = path.join(OUT, '.key.json');       // dot-prefixed: not picked up by a glob
@@ -84,6 +92,52 @@ const rank = (id) => createHash('sha256').update(salt + id).digest('hex');
 const matched = [...L.keys()].filter((k) => R.has(k)).sort();
 const order = [...matched].sort((a, b) => (rank(a) < rank(b) ? -1 : 1));
 const swapSet = new Set(order.slice(0, Math.floor(order.length / 2)));
+
+// ---------------------------------------------------------- the degeneracy gate
+//
+// REFUSE TO SHIP A PAIR THAT IS THE SAME BUILD TWICE.
+//
+// This session sent three reviewers eight pairs and got back three independent
+// reports that the arms were identical. They were right: a worktree capture had
+// silently reused the main tree's HTTP server, so both arms rendered HEAD. Four
+// hours of review, and the only reason it was caught is that all three reviewers
+// measured before they formed an opinion. A tool that hands out frames should
+// not depend on that.
+//
+// The test is the same one they ran. For each pair, the fraction of channel
+// samples differing by more than 4 of 255 in the facade band -- the band a
+// change to the buildings, the light or the materials has to move. Anything
+// under MIN_SIGNAL is a pair with nothing in it to judge.
+//
+// The threshold is set from this session's own two arms, which bracket it
+// unambiguously: the broken pair measured 2.83% and 3.76% on the facade band,
+// and that was pedestrians and cloud phase; the correctly captured pair measured
+// 34.79% and 31.27%. An order of magnitude apart, so 8% sits in empty space
+// between them rather than being tuned to either.
+//
+// --force ships anyway, for the case where identical arms are the finding.
+const MIN_SIGNAL = Number(argVal('min-signal', 8));
+const degenerate = [];
+if (!args.includes('--no-check')) {
+  for (const suffix of matched) {
+    const a = readPNG(path.join(SHOTS, L.get(suffix)));
+    const b = readPNG(path.join(SHOTS, R.get(suffix)));
+    const facade = diffBands(a, b).find((r) => r.band === 'facade');
+    if (facade.over4Pct < MIN_SIGNAL) degenerate.push({ id: suffix, pct: facade.over4Pct });
+  }
+}
+if (degenerate.length && !args.includes('--force')) {
+  console.error(`REFUSING to build a blind set: ${degenerate.length} of ${matched.length} pairs carry`);
+  console.error(`almost no signal in the facade band (under ${MIN_SIGNAL}% of samples differing by >4/255).`);
+  for (const d of degenerate) console.error(`    ${d.id.padEnd(28)} ${d.pct}%`);
+  console.error('\nThe usual cause is that both arms rendered the SAME BUILD -- a capture that');
+  console.error('reused an HTTP server rooted in another tree, or a tag that was overwritten.');
+  console.error('Check the two arms are what you think before spending a reviewer round on them:');
+  console.error(`    node tools/arm-diff.mjs docs/shots/${LEFT}-<id>.png docs/shots/${RIGHT}-<id>.png`);
+  console.error('\nPass --force if identical arms are genuinely the finding.');
+  process.exit(1);
+}
+if (degenerate.length) console.log(`--force: shipping ${degenerate.length} pair(s) with little or no signal`);
 
 const pairs = [];
 for (const suffix of matched) {
