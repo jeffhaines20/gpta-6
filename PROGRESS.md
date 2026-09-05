@@ -3510,26 +3510,34 @@ Re-arm with `update_trigger` / `enabled: true` before resuming.
 
 ## Next action
 
-**PAUSED AT THE M2 GATE.** See [`MILESTONE-2.md`](MILESTONE-2.md). Waiting for CONTINUE.
+**RESUMED, working the open list autonomously.** The block that stood here was written
+at the M2 gate and had gone stale in three ways worth naming, because a stale status
+section is read as current by every reviewer and every next session:
 
-**The budget gate is RED** (chunk stall 18.5 ms vs a 16 ms fail) and that is escalation
-condition (a). It is isolated, not guessed: HUD off measures 8.1 ms, HUD on 12.2 ms, so
-the HUD adds ~4 ms to the *streaming* slice through GC while adding zero WebGL draw calls.
-Part real defect, part harness artifact (22 sim steps per rendered frame charges one HUD
-update's garbage against 22 streaming updates). **The threshold was deliberately not
-relaxed.**
+- It called the budget gate **RED** at 18.5 ms chunk stall against a 16 ms fail, and
+  treated that as escalation condition (a). Measured 2026-09-04: **8.3 ms**, PASS/PASS/WARN.
+  The stall is a WARN, not a fail, and this ledger records that metric spanning
+  5.3-24.2 ms on identical builds, so it is advisory.
+- It listed AO / contact shadows as the most-cited critic gap and not done. SSAO is in
+  `src/post.js` and pedestrians carry contact shadows.
+- It said "waiting for CONTINUE". Work has continued for several rounds since.
 
-On CONTINUE, in order:
-1. Resolve the stall gate. Recommended: reduce HUD per-frame allocation and re-measure.
-   Alternative: measure streaming with `setHudEnabled(false)` and gate the HUD's frame
-   cost separately — but that risks hiding a real interaction.
-2. Integrate `src/audio.js` and `src/wanted.js` (both built and verified, deliberately not
-   wired in while a gate is red).
-3. Fix the three critic-confirmed geometry defects: severed awning post, floating plaza
-   bars, orphaned pole stub.
-4. AO / contact shadows — the most-cited gap across all four M1 critics.
-5. Mission scripting and the Marlin Street mission → M3.
+### Actually open, as of 2026-09-04
 
-Traffic AI is done: 14.6% overlap at 30 cars against the 35.4% stub baseline, same-edge
-overlaps eliminated. Remaining traffic work is junction *capacity* (non-conflicting
-movements crossing together), which is what the 64.3% figure at 60 cars is about.
+| item | state |
+|---|---|
+| Limb tubes read as extruded triangles | in flight — 3-gon tubes, dead-straight silhouettes, now the straightest thing in a close frame |
+| Glass reads cobalt, reference is bronze | in flight — engine B/R 1.49-2.07 vs reference 0.67-0.83, pane:wall 0.49 vs 0.12 |
+| Noon renders darker than night | in flight — `midSkyExposed` 0.107 vs 0.81 at golden, so constraint 3's second time of day is unusable |
+| `src/audio.js`, `src/wanted.js` unwired | 88 KB built and verified 2026-09-02, held back while the gate was red. The gate is no longer red and neither module is reachable from `district/main.js`. |
+| Canopy `xings` 20-38 against a reference 50 | open, unexplained. Two rounds have moved it and neither produced a story for the residual. |
+| Close crown reads as texel-quantised blobs | open — pushing porosity harder made it worse (scattered angular flakes), so the shipped setting backed off |
+| Five Points naming | the waypoint is Main/Lemon; the real roundabout is 196 m west with no reference coverage |
+| Junction capacity in traffic | 64.3% overlap at 60 cars; non-conflicting movements do not cross together |
+
+Traffic AI is otherwise done: 14.6% overlap at 30 cars against the 35.4% stub baseline,
+same-edge overlaps eliminated.
+
+The three geometry defects the old block listed (severed awning post, floating plaza
+bars, orphaned pole stub) are not reproducible against the current `geom-audit`, which
+passes; they are treated as closed unless a critic re-reports one.
