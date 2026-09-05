@@ -55,7 +55,7 @@
    "lights": 12,
    "shadowCasters": 134,
    "drawCalls": 218,
-   "triangles": 769117,
+   "triangles": 764605,
    "implausible": []
   },
   {
@@ -72,7 +72,7 @@
    "lights": 12,
    "shadowCasters": 134,
    "drawCalls": 210,
-   "triangles": 752424,
+   "triangles": 747912,
    "implausible": []
   },
   {
@@ -89,7 +89,7 @@
    "lights": 12,
    "shadowCasters": 134,
    "drawCalls": 208,
-   "triangles": 750091,
+   "triangles": 745579,
    "implausible": []
   }
  ],
