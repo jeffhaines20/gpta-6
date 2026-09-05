@@ -30,6 +30,92 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## Four reviewers on the wave: not markedly improved, and the corridor frame is not on the corridor
+
+Six blind pairs (`tools/blind-compare.mjs`, assignment balanced and hidden), three
+critics on the pairs and one on fidelity against the photographs.
+
+**Decoded: the new build won 4 of 6, tied 1, and lost corridor-golden.** Verdicts
+on the question asked - is it MARKEDLY improved:
+
+| reviewer | verdict |
+|---|---|
+| general | **no** - "a good change shipped with a regression riding along" |
+| architecture | **no** - "net architectural progress: zero" |
+| streetscape | **yes, but only where trees exist** - real gain in all three fivepoints pairs, zero change in all three corridor pairs |
+| fidelity | "a Sarasota resident would recognise the PLAN and would not recognise the STREET" |
+
+### The corridor hero frame is not on Main Street
+
+The fidelity reviewer checked where the camera actually stands: (-13.6, 3.0),
+with no Main Street edge within 45 m, nearest named edges South Pineapple Avenue
+33 m, McAnsh Square 21 m, South Lemon Avenue 42 m - and the blade legible in the
+frame reads MC ANSH SQUARE. Confirmed from the route: waypoint 2 is *labelled*
+"Main St @ Pineapple Ave" but sits 162 m from Five Points, and `hero-shots.mjs`
+backs the camera off another 16 m and aims diagonally across the block.
+
+This explains a finding that otherwise contradicted the tree work: the streetscape
+reviewer measured **0.097% foliage** in the corridor frame against **1.835%** at
+fivepoints and concluded the corridor has no street trees. It has none because the
+oak profile is on Main Street east and **that frame is not there**. The asset and
+the placement rule are both fine.
+
+Every visual round in this project has been judged partly on a frame that is
+misnamed and mis-sited. That is a harness fault, not a build fault, and it is
+older than this session.
+
+### The white rectangle, solved after four rounds
+
+Four critics reported it; `sanitize-probe.mjs` refuted the NaN-guard hypothesis
+and it stayed unexplained. Two blind reviewers now measured it worse after this
+wave - clipped-white in the box 13.2% -> 21.5% - and both read it as a
+screen-space sprite on good evidence ("top edge at y=341 at every x from 224 to
+260, zero slope" where the facade's string course drops four pixels).
+
+`whitebox-probe.mjs` refutes bloom too: 11.8% white with bloom at zero against
+13.2% with it on, and `hardStepCols` **0 -> 46 with bloom OFF**. Bloom was
+SOFTENING it, and every observer including me mistook the softened blob for the
+artifact. Unblurred it is **one glazing pane blown to pure white**, bounded by its
+own mullions and sill, in perspective. It is the glazing round's own named
+residual - too sharp a mirror - arriving as a visible defect.
+
+### The canopy contributes nothing to the ground
+
+Two reviewers independently. Verified: between the two builds the canopy region
+changed 30.87% of its pixels at mean |delta| 16.97 while the ground beneath
+changed 0.15% at mean **0.04**. At noon the ground under the tree row is
+*brighter* than open pavement (142.0 vs 116.3) with similar local variance (12.76
+vs 13.70) - no dapple where it should be strongest. Under isolation now.
+
+### The fidelity reviewer's two single-cause faults
+
+1. **Everything not in direct sun is 2-3x too dark and has gone blue.** Same wall
+   in `m3after-corridor-*`: sunlit rgb 199,177,146 at hue 36; sky-lit rgb
+   59,63,69 at hue **221**. Four matched noon pairs: photo mean luminance
+   111.7-144.0, engine 57.2-105.9. The palette is not the problem - it is
+   researched and it appears the moment sun hits it. Candidate cause is no bounce
+   fill, so ACES plus the physical exposure crushes anything lit only by the dome.
+   **Cheapest of the five and it changes every daylight frame at once.**
+2. **380 m of Main Street is 7 footprints**, two of them running 181 m and 106 m
+   of continuous frontage at one height, one recipe, one colour, where the
+   photographs show 6-8 m shopfronts each with its own fascia, parapet step and
+   sign. Even the facade kit's 16.8 m tile is 2-3x the real lot module.
+
+### What it says NOT to spend effort on
+
+Streetwall height (analytic roofline median engine-minus-photo **-2.5 degrees**),
+the facade palettes (correct in sun), canopy density at the census hotspot (44.0%
+against 42.0%), brick pavers, sky hue (H 214 against 222), and **night, which is
+the best frame in the set** - "it reads as Main Street after dark far better than
+any daylight frame".
+
+### A flaw in my own blind protocol
+
+The streetscape reviewer de-blinded itself by fingerprinting pedestrian layout,
+which is deterministic per build and identical across a pair's time-of-day
+variants. Its grouping was correct and its foliage reasoning stands on its own,
+but the protocol leaks and crowd placement has to be frozen before the next round.
+
 ## A browser at 0.7 fps cannot measure traffic overlap, and I reported that it could
 
 `tools/smoke.mjs` printed `overlap 0%` at every time of day and I read that as
