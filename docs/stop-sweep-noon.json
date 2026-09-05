@@ -1,0 +1,15 @@
+{
+ "preset": "noon",
+ "rows": [
+  {
+   "stop": "1/14000",
+   "path": "docs/shots/stop-noon-14000.png",
+   "fogExposed": 0.621,
+   "insExposed": 0.649,
+   "bloomThresholdNits": 29400,
+   "midSkyExposed": 0.532,
+   "implausible": []
+  }
+ ],
+ "errors": []
+}
