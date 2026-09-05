@@ -1,0 +1,135 @@
+{
+ "frames": [
+  {
+   "bi": 18,
+   "edge": 0,
+   "len": 181.3,
+   "recipe": "midOffice",
+   "h": 9.6,
+   "span": 26,
+   "standoff": 18,
+   "hfov": 71.7,
+   "cam": [
+    157.58656288273613,
+    1.75,
+    -169.65482909970635
+   ],
+   "tgt": [
+    157.66500000000002,
+    5.28,
+    -151.655
+   ],
+   "fov": 44.218896687503346,
+   "lots": []
+  },
+  {
+   "bi": 49,
+   "edge": 5,
+   "len": 61.2,
+   "recipe": "retailStrip",
+   "h": 6.55,
+   "span": 26,
+   "standoff": 18,
+   "hfov": 71.7,
+   "cam": [
+    402.94082864612136,
+    1.75,
+    -168.5096888944687
+   ],
+   "tgt": [
+    402.83500000000004,
+    3.6025,
+    -150.51
+   ],
+   "fov": 44.218896687503346,
+   "lots": []
+  },
+  {
+   "bi": 28,
+   "edge": 1,
+   "len": 56,
+   "recipe": "retailStrip",
+   "h": 9.6,
+   "span": 26,
+   "standoff": 18,
+   "hfov": 71.7,
+   "cam": [
+    218.08893886935252,
+    1.75,
+    -158.6750232627417
+   ],
+   "tgt": [
+    218.06,
+    5.28,
+    -176.675
+   ],
+   "fov": 44.218896687503346,
+   "lots": []
+  },
+  {
+   "bi": "corridor",
+   "edge": -1,
+   "len": 0,
+   "recipe": "hero",
+   "h": 0,
+   "span": 0,
+   "standoff": 0,
+   "hfov": 55,
+   "cam": [
+    112.4,
+    2.4,
+    -163.8
+   ],
+   "tgt": [
+    317.45,
+    16,
+    -163.87
+   ],
+   "fov": 55,
+   "lots": []
+  }
+ ],
+ "results": [
+  {
+   "b": 18,
+   "tod": "noon",
+   "file": "docs/shots/tri-before-elev18-noon.png",
+   "triangles": 523224,
+   "drawCalls": 171,
+   "near": 16,
+   "chunks": 85,
+   "peds": 0
+  },
+  {
+   "b": 49,
+   "tod": "noon",
+   "file": "docs/shots/tri-before-elev49-noon.png",
+   "triangles": 487982,
+   "drawCalls": 166,
+   "near": 16,
+   "chunks": 79,
+   "peds": 0
+  },
+  {
+   "b": 28,
+   "tod": "noon",
+   "file": "docs/shots/tri-before-elev28-noon.png",
+   "triangles": 459712,
+   "drawCalls": 120,
+   "near": 16,
+   "chunks": 87,
+   "peds": 0
+  },
+  {
+   "b": "corridor",
+   "tod": "noon",
+   "file": "docs/shots/tri-before-elevcorridor-noon.png",
+   "triangles": 521071,
+   "drawCalls": 176,
+   "near": 16,
+   "chunks": 85,
+   "peds": 0
+  }
+ ],
+ "errors": []
+}

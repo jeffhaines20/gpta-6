@@ -210,6 +210,11 @@ uniform vec3  uMsWarm;           // its tint toward the sun, luminance normalise
 uniform vec3  uMsCool;           // ...and away from it, likewise
 uniform vec4  uGlowShape;        // urban skyglow: (layer height, self-extinction, g(zenith), 1/(g(0)-g(zenith)))
 uniform vec3  uGroundAlbedo;
+// The dome's OWN cosine-weighted upper-hemisphere illuminance, in lux, pushed
+// from _deriveFromProbe each refresh. groundRadiance() needs the light ON the
+// ground and half of that light is the sky; this is that half, measured off the
+// model instead of approximated from the sun. See groundRadiance().
+uniform float uSkyIlluminance;
 uniform float uGroundHaze;       // 1/radian: how fast the ground wins under the horizon
 uniform float uOvercast;
 uniform vec3  uCloudTint;        // deck albedo/tint, linear
@@ -456,10 +461,62 @@ vec3 scatter(vec3 dir) {
 // Radiance of the lit ground the dome stands in for beyond the draw distance.
 // Direction-independent: at these distances what varies with direction is the
 // haze in front of it, not the terrain behind it.
+//
+// THE SKY HALF OF E WAS A STAND-IN, AND IT COLLAPSED AT LOW SUN. It read
+// uSunIlluminance * 0.16 * ndl - sixteen per cent of the extraterrestrial normal
+// illuminance, cosine-weighted - which is a reasonable noon number and a badly
+// wrong shape. A sky's illuminance is SCATTERED light: it does not follow
+// sin(elevation), it falls off far more slowly, and by golden hour it is most of
+// the light on the street rather than a fifth of it. Against the dome's own
+// cosine-weighted upper-hemisphere integral, measured at the corridor camera
+// with tools/sky-once.mjs on 2026-09-05:
+//
+//   preset   the stand-in   the dome's own integral   the stand-in is
+//   noon      19,763 lux             15,126 lux         31% OVER
+//   golden     2,840                  8,503             67% UNDER
+//   dusk           0.8                1,595             1,990x under
+//   night          0.8                    0.197         4x over
+//
+// Dusk is the one worth reading twice. This file's dusk preset puts the sun at
+// elevation EXACTLY 0, so 0.16 * ndl is exactly zero and the whole of E was the
+// night-glow constant below: 0.8 lux, a ground radiance of 0.03 nits, standing in
+// for a street that measures 100 nits in the same frame. The dome's lower
+// hemisphere at dusk was black, and the only reason that is not obvious in a
+// dusk frame is that uGroundHaze keeps the sky in front of it for the first few
+// degrees.
+//
+// So at golden hour the dome was showing every wall in the city a ground lit by a
+// third of the light the same dome puts on the street, and the warm bounce a low
+// sun makes - the thing a Florida afternoon shadow is made of - was most of what
+// went missing. Replaced by that integral, which this file already computes every
+// refresh for skyLux. No new physics and no invented energy: the same quantity,
+// measured rather than approximated.
+//
+// NOT CIRCULAR. skyLux integrates the UPPER hemisphere only and groundRadiance()
+// writes only BELOW the horizon, so the value fed back here is one this term
+// cannot influence. _deriveFromProbe() pushes it between the probe read and the
+// LUT render, so the LUT reads this refresh's sky and not the last one's.
+//
+// THE NIGHT TERM IS GONE, not overlooked. (uNightHorizon + uNightZenith) * PI
+// used to be added here as the night sky's own irradiance; it is a constant
+// 0.80 lux at every hour, and uSkyIlluminance already integrates the glow that
+// makes it - 0.197 lux at night - so keeping both counted the same light twice
+// and, at night, four times over. Nothing visible rests on it: the ground bounce
+// at night goes from 0.033 nits to 0.012 - the sky's 0.197 lux through the new
+// albedo - against a shaded wall that reads 0.278 nits in the same frame. Two
+// hundredths of a nit, on a wall lit almost entirely by street lamps this dome
+// knows nothing about, is far under the run-to-run spread the ledger records for
+// a night frame.
+//
+// It stays ACHROMATIC, and that is an inherited simplification rather than a
+// finding: the real sky irradiance is blue, so a grey sky term makes this bounce
+// warmer than physics would. Making it spectral is a one-line change and it was
+// measured before being left alone - it takes noon's E from blue/red 0.85 to 0.97
+// and removes about as much warmth from the shadows as the albedo below adds.
+// That is a separate decision with its own evidence and it is not folded in here.
 vec3 groundRadiance() {
   float ndl = max(uSunDir.y, 0.0);
-  vec3 skyE = vec3(uSunIlluminance * 0.16 * ndl) + (uNightHorizon + uNightZenith) * PI;
-  vec3 E = uSunIlluminance * ndl * sunTransmittance(uSunDir.y) + skyE;
+  vec3 E = uSunIlluminance * ndl * sunTransmittance(uSunDir.y) + vec3(uSkyIlluminance);
   return uGroundAlbedo * E / PI;
 }
 
@@ -1036,7 +1093,51 @@ export class Sky {
       uMsWarm: { value: new THREE.Vector3(1, 1, 1) },
       uMsCool: { value: new THREE.Vector3(1, 1, 1) },
       uGlowShape: { value: new THREE.Vector4(0.09, 0.035, 0.92, 0.145) },
-      uGroundAlbedo: { value: srgb(0x6b6455) },
+      // THE STREET UNDER THE DOME WAS DARKER THAN THE STREET IT STANDS ON.
+      //
+      // This is the reflectance groundRadiance() multiplies E by, so it is the
+      // only warm light in the whole model that reaches a surface the sun cannot
+      // see: below the horizon the dome IS the district's ground bounce, and the
+      // PMREM hands it to every vertical and down-facing normal in the city. At
+      // 0x6b6455 it was linear [0.147, 0.127, 0.091], luminance 0.129 - BELOW
+      // every ground surface the district actually has.
+      //
+      // Measured, not asserted. tools/sky-once.mjs parks an albedo-1 Lambertian
+      // patch facing up in the frame, so its radiance IS E/pi in whatever colour
+      // the light arrives in; a horizontal region's radiance divided by that
+      // patch's is the region's reflectance with the illuminant already
+      // cancelled. Corridor camera, noon, streaming settled, traffic frozen:
+      //
+      //   surface                       effective albedo        luminance   B/R
+      //   clay-paver plaza (1000x200)  [0.241, 0.166, 0.136]      0.180    0.56
+      //   the same, sky-only           [0.297, 0.201, 0.158]      0.210    0.53
+      //   carriageway + markings       [0.157, 0.151, 0.156]      0.153    0.99
+      //   the same, sky-only           [0.172, 0.165, 0.166]      0.166    0.97
+      //   THE DOME SAID                [0.147, 0.127, 0.091]      0.129    0.62
+      //
+      // Every channel of the authored value sat under every measured surface.
+      // 0x807866 is [0.216, 0.188, 0.133], luminance 0.190: the middle of that
+      // measured span in brightness, at the hue the file already had.
+      //
+      // THE HUE IS DELIBERATELY NOT MOVED, and it is the more interesting half.
+      // The district has two ground families and they are 0.56 and 0.99 in
+      // blue/red - clay pavers and asphalt - so the authored 0.62 is already
+      // inside the measured range and no measurement forces it either way.
+      // tools/ground-albedo.mjs swept the plaza's own colour (0x877167, the top
+      // row above) through the running district and it is WORTH SOMETHING: the
+      // shaded wall goes to blue/red 1.010 against 1.048 for the value shipped
+      // here, because red is the channel that does the work. It is not taken,
+      // because it is justified by one of the district's two ground families and
+      // contradicted by the other, and because a bounce tuned past its own
+      // measurement is how a street stops looking like Florida and starts looking
+      // like a filter. The sweep is committed; the number is there to be taken by
+      // anyone who can show the mix is more paver than road.
+      uGroundAlbedo: { value: srgb(0x807866) },
+      // Overwritten from the probe on the first refresh(), which the constructor
+      // performs before anything renders the dome; the seed is noon's measured
+      // value so a LUT rendered before any probe lands is wrong by a little
+      // rather than black.
+      uSkyIlluminance: { value: 15126 },
       uGroundHaze: { value: 8 },
       uOvercast: { value: 0 },
       uCloudTint: { value: new THREE.Vector3() },
@@ -1822,6 +1923,17 @@ export class Sky {
     a.ambientChroma = chroma(up);
     a.skyLux = lux;
 
+    // Hand the ground bounce the sky's own illuminance, HERE and not in
+    // _pushUniforms(). _pushUniforms runs before the probe is rendered, so a
+    // value set there would light the LUT's lower hemisphere with the previous
+    // refresh's sky - and across a time-of-day change that is the previous
+    // HOUR's sky, which is how a ground bounce ends up one preset behind the
+    // sun that made it. refresh() renders the probe, calls this, and only then
+    // renders the LUT. The throttled autoRefresh path reads the probe
+    // asynchronously and so runs one refresh behind; that path exists for a
+    // weather transition, where this term moves slowly and by little.
+    this._uniforms.uSkyIlluminance.value = lux;
+
     // Direct sun illuminance on a surface facing it, after extinction. daynight.js
     // quotes 100,000 lux at noon; this is the same quantity measured off the model.
     const t = this._transmittance(this.sunDirection.y);
@@ -1970,6 +2082,33 @@ export class Sky {
         inLut: false,
       },
       msAniso: +this._uniforms.uMsAniso.value.toFixed(2),
+      // THE GROUND BOUNCE, as three numbers, because it was invisible.
+      //
+      // The dome's lower hemisphere is the only warm fill in the district and
+      // nothing reported it, so a term that had collapsed to 0.03 nits at dusk
+      // sat there for as long as it did without anything to notice it. These are
+      // groundRadiance()'s own inputs and its output: the reflectance, the light
+      // reaching the ground (sun after extinction plus the sky's own measured
+      // illuminance), and the radiance every shaded wall in the city is filled
+      // with. daynight-sweep.mjs writes all three into docs/daynight.json for
+      // every preset from now on.
+      groundBounce: (() => {
+        const alb = this._uniforms.uGroundAlbedo.value;
+        const ndl = Math.max(this.sunDirection.y, 0);
+        const t = this._transmittance(this.sunDirection.y);
+        const eSun = SUN_ILLUMINANCE * ndl * luminance(t);
+        const eSky = this._uniforms.uSkyIlluminance.value;
+        const albY = luminance3(alb);
+        return {
+          albedo: [+alb.r.toFixed(4), +alb.g.toFixed(4), +alb.b.toFixed(4)],
+          albedoLuminance: +albY.toFixed(4),
+          albedoBlueOverRed: +(alb.b / Math.max(1e-9, alb.r)).toFixed(3),
+          groundLux: +(eSun + eSky).toFixed(eSun + eSky < 10 ? 3 : 0),
+          fromSunLux: +eSun.toFixed(eSun < 10 ? 3 : 0),
+          fromSkyLux: +eSky.toFixed(eSky < 10 ? 3 : 0),
+          radianceNits: +(albY * (eSun + eSky) / Math.PI).toFixed(3),
+        };
+      })(),
       nightZenithNits: this.nightZenithNits,
       nightHorizonNits: this.nightHorizonNits,
       msTransportRad: MS_TRANSPORT,

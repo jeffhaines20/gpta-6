@@ -19,6 +19,7 @@
 import { chromium } from 'playwright';
 import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
+import { ARM_STATE, setArm, proveArmsDiffer } from './ground-albedo.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -36,6 +37,23 @@ const HFOV = 75, ASPECT = 4 / 3;
 const VFOV = (2 * Math.atan(Math.tan((HFOV * Math.PI) / 360) / ASPECT) * 180) / Math.PI;
 const TIME = process.env.PM_TIME ?? 'noon';
 const W = 1280, H = 960;
+// TWO BUILDS, ONE SESSION. A lighting change is normally A/B'd by rendering this
+// set, editing the source, and rendering it again - which is only a measurement
+// of that change if nothing ELSE moved on disk in between. On 2026-09-05 three
+// agents were in this tree at once and src/facades.js changed between one run and
+// the next, so a straight before/after would have measured a facade round and a
+// sky round together and attributed both to the sky.
+//
+// PM_ARMS names uniform states to capture at each station instead. The camera is
+// placed and the district settles ONCE; each arm then pushes its own uniforms,
+// rebuilds the LUT and the PMREM, and takes its own frame. Geometry, materials,
+// streaming state and camera are bit-identical across arms by construction, so
+// the only difference is the arm.
+//
+// Frames go to docs/shots/pano-match/<arm>/ - never to the canonical directory,
+// which stays the record of what the committed build renders.
+//   PM_ARMS=ground0,ground1 node tools/pano-match.mjs --ids ...
+const ARMS = (process.env.PM_ARMS ?? '').split(',').map((a) => a.trim()).filter(Boolean);
 
 const index = JSON.parse(fs.readFileSync(path.join(IN, 'index.json'), 'utf8'));
 const route = JSON.parse(fs.readFileSync('data/district.json', 'utf8')).meta.route;
@@ -79,6 +97,25 @@ await page.waitForFunction('window.__district && window.__district.frames > 5', 
 await page.addStyleTag({ content: '#attr{display:none!important}#hud,.pv-hud{display:none!important}' });
 await page.evaluate((t) => __district.setTimeOfDay(t), TIME);
 
+// Each arm is a set of uniform states pushed into the running district; the
+// definitions and the reason they exist live in tools/ground-albedo.mjs, which is
+// where the ground-albedo round's instrument is. Copying them into each harness
+// is the mistake tools/framing.mjs exists because of.
+if (ARMS.length) {
+  for (const a of ARMS) if (!ARM_STATE[a]) { console.error(`unknown arm: ${a}`); process.exit(2); }
+  for (const a of ARMS) fs.mkdirSync(path.join(OUT, a), { recursive: true });
+  // PROVE THE ARMS DIFFER before spending half an hour rendering them. An
+  // injection that reaches nothing produces a beautifully consistent set of
+  // frames and a confident "the change did nothing".
+  const proof = await proveArmsDiffer(page, ARMS);
+  console.log('arms:', JSON.stringify(proof.seen));
+  if (!proof.ok) {
+    console.error('ABORT: the arms resolve to the same uniforms; nothing would be measured.');
+    await browser.close();
+    process.exit(2);
+  }
+}
+
 const rows = [];
 for (const p of panos) {
   const b = bearingAt(p.x, p.z);
@@ -106,9 +143,24 @@ for (const p of panos) {
     await page.waitForTimeout(Number(process.env.PM_SETTLE ?? 9000));
 
     const name = `${p.id}-${side}-${TIME}.png`;
-    await page.screenshot({ path: path.join(OUT, name) });
-    rows.push({ id: p.id, side, x: p.x, z: p.z, yaw: +yaw.toFixed(1), file: name, ok: info.ok });
-    console.log(`  ${name}   at (${p.x}, ${p.z}) bearing ${yaw.toFixed(0)}`);
+    if (ARMS.length) {
+      for (const arm of ARMS) {
+        const applied = await setArm(page, arm);
+        // Rendered FRAMES after the uniforms were pushed, not milliseconds: on the
+        // software rasteriser a short wait is sometimes less than one frame and the
+        // screenshot then belongs to the previous arm.
+        const f0 = await page.evaluate(() => __district.frames);
+        await page.waitForFunction((f) => __district.frames > f + 4, f0, { timeout: 120000, polling: 100 });
+        await page.screenshot({ path: path.join(OUT, arm, name) });
+        rows.push({ id: p.id, side, x: p.x, z: p.z, yaw: +yaw.toFixed(1), arm,
+          file: `${arm}/${name}`, uniforms: applied, ok: info.ok });
+      }
+      console.log(`  ${name}   at (${p.x}, ${p.z}) bearing ${yaw.toFixed(0)}   [${ARMS.join(' | ')}]`);
+    } else {
+      await page.screenshot({ path: path.join(OUT, name) });
+      rows.push({ id: p.id, side, x: p.x, z: p.z, yaw: +yaw.toFixed(1), file: name, ok: info.ok });
+      console.log(`  ${name}   at (${p.x}, ${p.z}) bearing ${yaw.toFixed(0)}`);
+    }
   }
 }
 
@@ -133,11 +185,15 @@ const dhash = createHash('sha256').update(fs.readFileSync('data/district.json'))
 // A --ids run is filtered too, so it gets its own name for exactly the same
 // reason: the id list is hashed rather than joined, because 26 ids in a filename
 // is not a filename.
-const filterTag = only ? only
+const filterTag = (only ? only
   : many ? `ids${many.length}-${createHash('sha256').update(many.slice().sort().join(',')).digest('hex').slice(0, 8)}`
-  : null;
-const indexPath = path.join(OUT, filterTag ? `index-${filterTag}-${TIME}.json` : 'index.json');
-if (filterTag) {
+  : null);
+// An arms run does not write the canonical frames either, so it must not write
+// the canonical index over the record of the frames that ARE there.
+const armTag = ARMS.length ? `arms${ARMS.join('-')}` : null;
+const nameTag = [filterTag, armTag].filter(Boolean).join('-');
+const indexPath = path.join(OUT, nameTag ? `index-${nameTag}-${TIME}.json` : 'index.json');
+if (nameTag) {
   console.log(`\n  filtered run (${only ? `--id ${only}` : `--ids, ${many.length} stations`}): writing`);
   console.log(`  ${path.basename(indexPath)} rather than index.json, which records the full`);
   console.log('  set and would otherwise be overwritten.');
@@ -146,6 +202,7 @@ fs.writeFileSync(indexPath, JSON.stringify({
   district: { mtime: dstat.mtime.toISOString(), size: dstat.size, sha256: dhash },
   filter: wanted ?? null,
   time: TIME, eye: EYE, pitchDeg: PITCH, hfovDeg: HFOV, vfovDeg: +VFOV.toFixed(2),
+  arms: ARMS.length ? ARMS : null,
   note: 'Each frame is the engine standing where the like-named Mapillary pano stood. '
       + 'Compare against reference/sarasota/mapillary/views/<id>-<side>.png.',
   pageErrors: errors, frames: rows,

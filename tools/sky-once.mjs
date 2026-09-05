@@ -52,6 +52,14 @@ fs.mkdirSync('docs', { recursive: true });
 const REGIONS = {
   wall:   [120, 120, 120, 60],
   ground: [250, 800, 120, 40],
+  // Two BIG ground samples, added for the ground-albedo round. src/sky.js's
+  // uGroundAlbedo is the reflectance of the street the dome stands on, and a
+  // 120x40 box of one surface cannot say what that is: the district's ground is
+  // clay pavers on the plaza and asphalt on the carriageway, and the two are a
+  // long way apart in both luminance and hue. Placed by looking at
+  // docs/shots/skyonce-meter-*.png rather than by guessing at coordinates.
+  plaza:  [0, 700, 1000, 200],
+  road:   [1340, 575, 240, 32],
 };
 
 await ensureServer();
@@ -611,8 +619,36 @@ for (const tod of TIMES) {
   }
   for (const k of Object.keys(REGIONS)) {
     const t = reads.base[k].y;
+    const c = reads.base[k];
     row.regions[k] = {
       nits: +t.toFixed(4),
+      // LINEAR RGB, not just luminance. The round that added this was about HUE:
+      // src/sky.js's uGroundAlbedo is a COLOUR standing in for the street below
+      // the horizon, and a tool that records only how bright a region is cannot
+      // say whether that colour is the street's.
+      rgb: [+c.r.toFixed(4), +c.g.toFixed(4), +c.b.toFixed(4)],
+      br: +(c.b / Math.max(1e-9, c.r)).toFixed(3),
+      // EFFECTIVE ALBEDO, per channel, and it is a division rather than a
+      // derivation: the up-facing meter patch is albedo 1 and Lambertian, so its
+      // radiance IS E/pi in whatever colour the light arrives in. A region's
+      // radiance divided by that patch's is therefore the region's reflectance,
+      // with the illuminant's own hue already cancelled - which is exactly the
+      // quantity uGroundAlbedo is.
+      //
+      // Only meaningful where the region sees the same light the patch does. The
+      // patch has receiveShadow off and reads the UNOCCLUDED sun, so sunPct
+      // beside it is not decoration: a region in building shadow reads a
+      // reflectance far below its own and the low sunPct is how you know.
+      albedo: ['r', 'g', 'b'].map((ch) => +(c[ch] / Math.max(1e-9, reads.base.up[ch])).toFixed(4)),
+      albedoY: +(t / Math.max(1e-9, reads.base.up.y)).toFixed(4),
+      // The same ratio with the SUN OFF in both numerator and denominator. A
+      // region standing in a building's shadow is not lit by the same light the
+      // unshadowed patch is, so the `base` ratio there is not a reflectance - but
+      // sky-only, both see the same dome and the ratio is a reflectance again.
+      // Where a region IS fully sunlit the two agree, which is the check.
+      albedoNoSun: ['r', 'g', 'b'].map((ch) =>
+        +(reads.nosun[k][ch] / Math.max(1e-9, reads.nosun.up[ch])).toFixed(4)),
+      albedoYNoSun: +(reads.nosun[k].y / Math.max(1e-9, reads.nosun.up.y)).toFixed(4),
       sunPct: +(((t - reads.nosun[k].y) / t) * 100).toFixed(1),
       hemiPct: +(((t - reads.nohemi[k].y) / t) * 100).toFixed(1),
       envPct: +(((t - reads.noenv[k].y) / t) * 100).toFixed(1),

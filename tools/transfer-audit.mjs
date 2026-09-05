@@ -259,7 +259,11 @@ export function solveStop(rec, targetMedian, chain, bracket = [1e-8, 1e3]) {
 }
 
 // ---------------------------------------------------------------------- CLI
-const PANO = 'docs/shots/pano-match', VIEWS = 'reference/sarasota/mapillary/views';
+// --pano points the paired statistics at a different directory of engine frames.
+// tools/pano-match.mjs's arms mode writes each arm to its own subdirectory rather
+// than over the canonical set, and an A/B is only an A/B if both sides can be
+// read the same way.
+const PANO = arg('pano', 'docs/shots/pano-match'), VIEWS = 'reference/sarasota/mapillary/views';
 const med = (a) => { const v = [...a].sort((x, y) => x - y); return v[v.length >> 1]; };
 
 function pairs(time) {
@@ -274,7 +278,7 @@ function pairs(time) {
 if (process.argv[1] && process.argv[1].endsWith('transfer-audit.mjs')) {
   const chain = arg('chain', 'srgb-aces');
   const lutEngine = table(chain);
-  const all = !has('gamma') && !has('shape') && !has('colour') && !has('solve');
+  const all = !has('gamma') && !has('shape') && !has('colour') && !has('solve') && !has('shift');
 
   if (all || has('gamma')) {
     console.log('\n=== 1. DISPLAY STOPS PER SCENE STOP (hypothesis B is a claim about this column)');
@@ -332,6 +336,29 @@ if (process.argv[1] && process.argv[1].endsWith('transfer-audit.mjs')) {
       console.log('  Below 1 means the shadows are warmer than the frame. This is what bounced');
       console.log('  light off pale pavement does, and it is the half of the fault the encode');
       console.log('  cannot explain — see the ground albedo in src/sky.js.');
+    }
+  }
+
+  // The same statistic on frames that have no photograph beside them.
+  //
+  // --colour is a PAIRED test and pano-match only stands where a Mapillary
+  // panorama stood, which is noon and golden. Dusk and night have no photograph
+  // to be referenced against - but shadowShift() is self-referenced by
+  // construction, so the engine's own number is still meaningful and still
+  // comparable across a change. This is how a lighting round measures all four
+  // times of day without inventing a second statistic that would disagree with
+  // the first.
+  //
+  //   node tools/transfer-audit.mjs --shift docs/shots/tod-noon.png,docs/shots/tod-golden.png
+  if (has('shift')) {
+    const files = String(arg('shift', '')).split(',').filter(Boolean);
+    console.log(`\n=== 5. SHADOW WARMTH on single frames, scene-linear blue/red, self-referenced` +
+      `\n    read as chain '${chain}'.  Below 1 = shadows warmer than the frame.`);
+    console.log('  frame                                          body B/R   dark 30% B/R   shift');
+    for (const f of files) {
+      if (!fs.existsSync(f)) { console.log(`  ${f.padEnd(46)} (missing)`); continue; }
+      const s = shadowShift(readPNG(f), lutEngine);
+      console.log(`  ${f.padEnd(46)} ${s.bodyBR.toFixed(3).padStart(8)}   ${s.darkBR.toFixed(3).padStart(12)}   ${s.shift.toFixed(3).padStart(5)}`);
     }
   }
 

@@ -117,7 +117,15 @@ export const PRESETS = {
     sunLux: 100000,           // clear-sky direct normal illuminance
     skyLux: 20000,            // diffuse sky component
     elevation: 1.32, azimuth: 0.6,
-    sunColor: 0xfff6e8, skyColor: 0xbcd6f5, groundColor: 0x6b6455,
+    // groundColor tracks src/sky.js's uGroundAlbedo, which moved from 0x6b6455 to
+    // 0x807866 on 2026-09-05 when the district's own ground was measured back out
+    // of the HDR target at luminance 0.153-0.210 against the dome's 0.129. INERT
+    // in the district - the dome's PMREM carries the whole sky and this light sits
+    // at intensity 0, see the HemisphereLight in the constructor - but labs/
+    // scenes build a TimeOfDay with no dome and this is the only ambient they
+    // have, and a groundColor that no longer matches the albedo it was copied
+    // from is a comment that lies.
+    sunColor: 0xfff6e8, skyColor: 0xbcd6f5, groundColor: 0x807866,
     // THE STOP NOON WAS EXPOSED AT WAS AN INHERITED CONSTANT, NOT A DERIVATION,
     // AND IT RENDERED THE BRIGHTEST HOUR OF THE DAY DARKER THAN NIGHT.
     //
@@ -362,10 +370,13 @@ export const PRESETS = {
     // Cool fill against a warm key is what makes the hour read, and it is measured,
     // not styled.
     skyColor: 0xb9d5ff,
-    // Ground bounce: uGroundAlbedo (0x6b6455, linear [0.147, 0.127, 0.091]) times
-    // the normalised sun hue -> [0.147, 0.075, 0.021]. Red passes the air mass
-    // intact, green and blue do not.
-    groundColor: 0x6b4d28,
+    // Ground bounce: uGroundAlbedo (0x807866, linear [0.216, 0.188, 0.133]) times
+    // the normalised sun hue [1, 0.584, 0.235] -> [0.216, 0.110, 0.031]. Red
+    // passes the air mass intact, green and blue do not.
+    //
+    // Was 0x6b4d28, from the albedo's previous 0x6b6455. See the noon preset for
+    // why that moved and why this is inert in the district.
+    groundColor: 0x805d31,
     // The rule is exposure = pi/E for an 18% grey card, and the whole question is
     // which E. This is the one preset that was authored strictly to it.
     //
