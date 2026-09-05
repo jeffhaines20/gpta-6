@@ -1,0 +1,2761 @@
+{
+ "time": "golden",
+ "box": [
+  110,
+  320,
+  320,
+  410
+ ],
+ "n": 14,
+ "gapMs": 1500,
+ "whiteFracs": [
+  0.1746,
+  0.1632,
+  0.1638,
+  0.1671,
+  0.1671,
+  0.1671,
+  0.1633,
+  0.1634,
+  0.1634,
+  0.163,
+  0.163,
+  0.163,
+  0.1631,
+  0.1631
+ ],
+ "median": 0.1634,
+ "spread": 0.0116,
+ "modal": "docs/shots/repeat/base-golden-07.png",
+ "verdict": "NOT REPRODUCED in this session - all 14 captures within 1.16 points",
+ "captures": [
+  {
+   "k": 0,
+   "file": "docs/shots/repeat/base-golden-00.png",
+   "whiteFrac": 0.1746,
+   "meanLuma": 205.8,
+   "state": {
+    "frames": 15,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 73,
+    "bloom": 0.4
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8643.2,
+     "nonFinite": 2711
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11121.8,
+     "nonFinite": 1
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 10027.9,
+     "nonFinite": 312
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50432,
+     "mean": 10964.2,
+     "nonFinite": 675
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": {
+    "nPos": 24581,
+    "nNeg": 23213,
+    "regions": [
+     {
+      "n": 4813,
+      "box": [
+       1480,
+       561,
+       1596,
+       632
+      ],
+      "w": 117,
+      "h": 72,
+      "sign": "+",
+      "meanDelta": 66.2,
+      "fill": 0.571
+     },
+     {
+      "n": 3431,
+      "box": [
+       638,
+       139,
+       773,
+       197
+      ],
+      "w": 136,
+      "h": 59,
+      "sign": "-",
+      "meanDelta": -27.8,
+      "fill": 0.428
+     },
+     {
+      "n": 2915,
+      "box": [
+       1150,
+       557,
+       1200,
+       651
+      ],
+      "w": 51,
+      "h": 95,
+      "sign": "+",
+      "meanDelta": 53.2,
+      "fill": 0.602
+     },
+     {
+      "n": 2711,
+      "box": [
+       539,
+       649,
+       641,
+       725
+      ],
+      "w": 103,
+      "h": 77,
+      "sign": "+",
+      "meanDelta": 41.6,
+      "fill": 0.342
+     },
+     {
+      "n": 1783,
+      "box": [
+       543,
+       568,
+       601,
+       643
+      ],
+      "w": 59,
+      "h": 76,
+      "sign": "-",
+      "meanDelta": -65.9,
+      "fill": 0.398
+     },
+     {
+      "n": 1664,
+      "box": [
+       1436,
+       548,
+       1479,
+       620
+      ],
+      "w": 44,
+      "h": 73,
+      "sign": "-",
+      "meanDelta": -61.7,
+      "fill": 0.518
+     },
+     {
+      "n": 1640,
+      "box": [
+       1057,
+       549,
+       1097,
+       624
+      ],
+      "w": 41,
+      "h": 76,
+      "sign": "-",
+      "meanDelta": -54.5,
+      "fill": 0.526
+     },
+     {
+      "n": 1422,
+      "box": [
+       1285,
+       525,
+       1323,
+       583
+      ],
+      "w": 39,
+      "h": 59,
+      "sign": "-",
+      "meanDelta": -54.6,
+      "fill": 0.618
+     }
+    ]
+   }
+  },
+  {
+   "k": 1,
+   "file": "docs/shots/repeat/base-golden-01.png",
+   "whiteFrac": 0.1632,
+   "meanLuma": 202.4,
+   "state": {
+    "frames": 22,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 94,
+    "bloom": 0.4
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8628.5,
+     "nonFinite": 2744
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11186.3,
+     "nonFinite": 2
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54016,
+     "mean": 8613.1,
+     "nonFinite": 542
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50208,
+     "mean": 9212.8,
+     "nonFinite": 1251
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": {
+    "nPos": 21552,
+    "nNeg": 20242,
+    "regions": [
+     {
+      "n": 4133,
+      "box": [
+       1484,
+       561,
+       1596,
+       630
+      ],
+      "w": 113,
+      "h": 70,
+      "sign": "+",
+      "meanDelta": 62.2,
+      "fill": 0.523
+     },
+     {
+      "n": 2718,
+      "box": [
+       1151,
+       558,
+       1200,
+       651
+      ],
+      "w": 50,
+      "h": 94,
+      "sign": "+",
+      "meanDelta": 53.7,
+      "fill": 0.578
+     },
+     {
+      "n": 2378,
+      "box": [
+       648,
+       146,
+       773,
+       197
+      ],
+      "w": 126,
+      "h": 52,
+      "sign": "-",
+      "meanDelta": -27.7,
+      "fill": 0.363
+     },
+     {
+      "n": 2364,
+      "box": [
+       538,
+       649,
+       638,
+       725
+      ],
+      "w": 101,
+      "h": 77,
+      "sign": "+",
+      "meanDelta": 43.7,
+      "fill": 0.304
+     },
+     {
+      "n": 1953,
+      "box": [
+       1304,
+       532,
+       1354,
+       641
+      ],
+      "w": 51,
+      "h": 110,
+      "sign": "-",
+      "meanDelta": -60.4,
+      "fill": 0.348
+     },
+     {
+      "n": 1918,
+      "box": [
+       1444,
+       545,
+       1520,
+       616
+      ],
+      "w": 77,
+      "h": 72,
+      "sign": "-",
+      "meanDelta": -63,
+      "fill": 0.346
+     },
+     {
+      "n": 1817,
+      "box": [
+       1056,
+       546,
+       1115,
+       624
+      ],
+      "w": 60,
+      "h": 79,
+      "sign": "-",
+      "meanDelta": -54.7,
+      "fill": 0.383
+     },
+     {
+      "n": 1689,
+      "box": [
+       548,
+       568,
+       601,
+       643
+      ],
+      "w": 54,
+      "h": 76,
+      "sign": "-",
+      "meanDelta": -66.4,
+      "fill": 0.412
+     }
+    ]
+   }
+  },
+  {
+   "k": 2,
+   "file": "docs/shots/repeat/base-golden-02.png",
+   "whiteFrac": 0.1638,
+   "meanLuma": 204.4,
+   "state": {
+    "frames": 29,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 96,
+    "bloom": 0.4
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8638,
+     "nonFinite": 2729
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11161.2,
+     "nonFinite": 2
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54016,
+     "mean": 8592.3,
+     "nonFinite": 542
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50208,
+     "mean": 9195.9,
+     "nonFinite": 1251
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": {
+    "nPos": 20430,
+    "nNeg": 19413,
+    "regions": [
+     {
+      "n": 2508,
+      "box": [
+       1153,
+       557,
+       1200,
+       651
+      ],
+      "w": 48,
+      "h": 95,
+      "sign": "+",
+      "meanDelta": 54.6,
+      "fill": 0.55
+     },
+     {
+      "n": 2409,
+      "box": [
+       1490,
+       561,
+       1558,
+       628
+      ],
+      "w": 69,
+      "h": 68,
+      "sign": "+",
+      "meanDelta": 58,
+      "fill": 0.513
+     },
+     {
+      "n": 2136,
+      "box": [
+       1312,
+       561,
+       1361,
+       640
+      ],
+      "w": 50,
+      "h": 80,
+      "sign": "-",
+      "meanDelta": -64.7,
+      "fill": 0.534
+     },
+     {
+      "n": 1999,
+      "box": [
+       544,
+       667,
+       620,
+       725
+      ],
+      "w": 77,
+      "h": 59,
+      "sign": "+",
+      "meanDelta": 45.3,
+      "fill": 0.44
+     },
+     {
+      "n": 1948,
+      "box": [
+       1392,
+       533,
+       1449,
+       603
+      ],
+      "w": 58,
+      "h": 71,
+      "sign": "+",
+      "meanDelta": 66.8,
+      "fill": 0.473
+     },
+     {
+      "n": 1831,
+      "box": [
+       1459,
+       543,
+       1520,
+       618
+      ],
+      "w": 62,
+      "h": 76,
+      "sign": "-",
+      "meanDelta": -60.5,
+      "fill": 0.389
+     },
+     {
+      "n": 1627,
+      "box": [
+       1068,
+       551,
+       1122,
+       629
+      ],
+      "w": 55,
+      "h": 79,
+      "sign": "-",
+      "meanDelta": -59.1,
+      "fill": 0.374
+     },
+     {
+      "n": 1432,
+      "box": [
+       560,
+       568,
+       601,
+       641
+      ],
+      "w": 42,
+      "h": 74,
+      "sign": "-",
+      "meanDelta": -67,
+      "fill": 0.461
+     }
+    ]
+   }
+  },
+  {
+   "k": 3,
+   "file": "docs/shots/repeat/base-golden-03.png",
+   "whiteFrac": 0.1671,
+   "meanLuma": 204.9,
+   "state": {
+    "frames": 35,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 96,
+    "bloom": 0.4
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8637.4,
+     "nonFinite": 2732
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11167.2,
+     "nonFinite": 2
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54016,
+     "mean": 8597.4,
+     "nonFinite": 542
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50208,
+     "mean": 9200.2,
+     "nonFinite": 1251
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": {
+    "nPos": 18746,
+    "nNeg": 18016,
+    "regions": [
+     {
+      "n": 2405,
+      "box": [
+       1153,
+       557,
+       1200,
+       650
+      ],
+      "w": 48,
+      "h": 94,
+      "sign": "+",
+      "meanDelta": 53.7,
+      "fill": 0.533
+     },
+     {
+      "n": 1871,
+      "box": [
+       1330,
+       563,
+       1382,
+       640
+      ],
+      "w": 53,
+      "h": 78,
+      "sign": "-",
+      "meanDelta": -67.7,
+      "fill": 0.453
+     },
+     {
+      "n": 1393,
+      "box": [
+       549,
+       676,
+       600,
+       725
+      ],
+      "w": 52,
+      "h": 50,
+      "sign": "+",
+      "meanDelta": 47.8,
+      "fill": 0.536
+     },
+     {
+      "n": 1284,
+      "box": [
+       565,
+       568,
+       601,
+       641
+      ],
+      "w": 37,
+      "h": 74,
+      "sign": "-",
+      "meanDelta": -70.9,
+      "fill": 0.469
+     },
+     {
+      "n": 1260,
+      "box": [
+       1095,
+       548,
+       1123,
+       630
+      ],
+      "w": 29,
+      "h": 83,
+      "sign": "-",
+      "meanDelta": -64.3,
+      "fill": 0.523
+     },
+     {
+      "n": 1256,
+      "box": [
+       1475,
+       545,
+       1520,
+       619
+      ],
+      "w": 46,
+      "h": 75,
+      "sign": "-",
+      "meanDelta": -56.6,
+      "fill": 0.364
+     },
+     {
+      "n": 1136,
+      "box": [
+       1394,
+       533,
+       1462,
+       567
+      ],
+      "w": 69,
+      "h": 35,
+      "sign": "+",
+      "meanDelta": 58.8,
+      "fill": 0.47
+     },
+     {
+      "n": 1112,
+      "box": [
+       1554,
+       525,
+       1583,
+       591
+      ],
+      "w": 30,
+      "h": 67,
+      "sign": "-",
+      "meanDelta": -81.4,
+      "fill": 0.553
+     }
+    ]
+   }
+  },
+  {
+   "k": 4,
+   "file": "docs/shots/repeat/base-golden-04.png",
+   "whiteFrac": 0.1671,
+   "meanLuma": 204.9,
+   "state": {
+    "frames": 42,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 96,
+    "bloom": 0.4
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8626,
+     "nonFinite": 2736
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11160.4,
+     "nonFinite": 3
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54016,
+     "mean": 8481.7,
+     "nonFinite": 620
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50208,
+     "mean": 9220.3,
+     "nonFinite": 1373
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": {
+    "nPos": 18792,
+    "nNeg": 17512,
+    "regions": [
+     {
+      "n": 2371,
+      "box": [
+       1153,
+       557,
+       1200,
+       650
+      ],
+      "w": 48,
+      "h": 94,
+      "sign": "+",
+      "meanDelta": 52,
+      "fill": 0.525
+     },
+     {
+      "n": 1913,
+      "box": [
+       1205,
+       637,
+       1488,
+       690
+      ],
+      "w": 284,
+      "h": 54,
+      "sign": "+",
+      "meanDelta": 31.8,
+      "fill": 0.125
+     },
+     {
+      "n": 1815,
+      "box": [
+       1351,
+       564,
+       1388,
+       641
+      ],
+      "w": 38,
+      "h": 78,
+      "sign": "-",
+      "meanDelta": -65.1,
+      "fill": 0.612
+     },
+     {
+      "n": 1401,
+      "box": [
+       1445,
+       568,
+       1480,
+       630
+      ],
+      "w": 36,
+      "h": 63,
+      "sign": "-",
+      "meanDelta": -58.2,
+      "fill": 0.618
+     },
+     {
+      "n": 1389,
+      "box": [
+       1108,
+       551,
+       1139,
+       639
+      ],
+      "w": 32,
+      "h": 89,
+      "sign": "-",
+      "meanDelta": -57.4,
+      "fill": 0.488
+     },
+     {
+      "n": 1218,
+      "box": [
+       1484,
+       544,
+       1526,
+       586
+      ],
+      "w": 43,
+      "h": 43,
+      "sign": "-",
+      "meanDelta": -59.8,
+      "fill": 0.659
+     },
+     {
+      "n": 1154,
+      "box": [
+       1392,
+       565,
+       1441,
+       607
+      ],
+      "w": 50,
+      "h": 43,
+      "sign": "+",
+      "meanDelta": 74.5,
+      "fill": 0.537
+     },
+     {
+      "n": 1106,
+      "box": [
+       549,
+       677,
+       599,
+       725
+      ],
+      "w": 51,
+      "h": 49,
+      "sign": "+",
+      "meanDelta": 48.6,
+      "fill": 0.443
+     }
+    ]
+   }
+  },
+  {
+   "k": 5,
+   "file": "docs/shots/repeat/base-golden-05.png",
+   "whiteFrac": 0.1671,
+   "meanLuma": 204.9,
+   "state": {
+    "frames": 49,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 96,
+    "bloom": 0.4
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8628.8,
+     "nonFinite": 2736
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11162,
+     "nonFinite": 3
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54016,
+     "mean": 8482.9,
+     "nonFinite": 620
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50208,
+     "mean": 9221.3,
+     "nonFinite": 1373
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": {
+    "nPos": 17359,
+    "nNeg": 14483,
+    "regions": [
+     {
+      "n": 2324,
+      "box": [
+       1153,
+       557,
+       1200,
+       650
+      ],
+      "w": 48,
+      "h": 94,
+      "sign": "+",
+      "meanDelta": 51.3,
+      "fill": 0.515
+     },
+     {
+      "n": 2194,
+      "box": [
+       1122,
+       520,
+       1162,
+       641
+      ],
+      "w": 41,
+      "h": 122,
+      "sign": "-",
+      "meanDelta": -52.4,
+      "fill": 0.439
+     },
+     {
+      "n": 2026,
+      "box": [
+       1485,
+       525,
+       1547,
+       625
+      ],
+      "w": 63,
+      "h": 101,
+      "sign": "-",
+      "meanDelta": -68,
+      "fill": 0.318
+     },
+     {
+      "n": 1669,
+      "box": [
+       1364,
+       535,
+       1406,
+       628
+      ],
+      "w": 43,
+      "h": 94,
+      "sign": "-",
+      "meanDelta": -65.1,
+      "fill": 0.413
+     },
+     {
+      "n": 1127,
+      "box": [
+       1394,
+       561,
+       1441,
+       607
+      ],
+      "w": 48,
+      "h": 47,
+      "sign": "+",
+      "meanDelta": 74,
+      "fill": 0.5
+     },
+     {
+      "n": 1021,
+      "box": [
+       1455,
+       568,
+       1488,
+       619
+      ],
+      "w": 34,
+      "h": 52,
+      "sign": "-",
+      "meanDelta": -55.1,
+      "fill": 0.577
+     },
+     {
+      "n": 847,
+      "box": [
+       550,
+       678,
+       591,
+       725
+      ],
+      "w": 42,
+      "h": 48,
+      "sign": "+",
+      "meanDelta": 46.9,
+      "fill": 0.42
+     },
+     {
+      "n": 799,
+      "box": [
+       1488,
+       573,
+       1516,
+       623
+      ],
+      "w": 29,
+      "h": 51,
+      "sign": "+",
+      "meanDelta": 42.8,
+      "fill": 0.54
+     }
+    ]
+   }
+  },
+  {
+   "k": 6,
+   "file": "docs/shots/repeat/base-golden-06.png",
+   "whiteFrac": 0.1633,
+   "meanLuma": 202.4,
+   "state": {
+    "frames": 56,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 96,
+    "bloom": 0.4
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8624.7,
+     "nonFinite": 2738
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11163.7,
+     "nonFinite": 3
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54016,
+     "mean": 8484.1,
+     "nonFinite": 620
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50208,
+     "mean": 9222.4,
+     "nonFinite": 1373
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": {
+    "nPos": 12046,
+    "nNeg": 10155,
+    "regions": [
+     {
+      "n": 1506,
+      "box": [
+       1504,
+       528,
+       1538,
+       629
+      ],
+      "w": 35,
+      "h": 102,
+      "sign": "-",
+      "meanDelta": -69.2,
+      "fill": 0.422
+     },
+     {
+      "n": 1378,
+      "box": [
+       1160,
+       557,
+       1200,
+       650
+      ],
+      "w": 41,
+      "h": 94,
+      "sign": "+",
+      "meanDelta": 47.1,
+      "fill": 0.358
+     },
+     {
+      "n": 1299,
+      "box": [
+       1141,
+       552,
+       1171,
+       639
+      ],
+      "w": 31,
+      "h": 88,
+      "sign": "-",
+      "meanDelta": -51.5,
+      "fill": 0.476
+     },
+     {
+      "n": 1085,
+      "box": [
+       1380,
+       529,
+       1410,
+       608
+      ],
+      "w": 31,
+      "h": 80,
+      "sign": "-",
+      "meanDelta": -64.2,
+      "fill": 0.438
+     },
+     {
+      "n": 774,
+      "box": [
+       573,
+       568,
+       601,
+       641
+      ],
+      "w": 29,
+      "h": 74,
+      "sign": "-",
+      "meanDelta": -74,
+      "fill": 0.361
+     },
+     {
+      "n": 716,
+      "box": [
+       568,
+       580,
+       586,
+       704
+      ],
+      "w": 19,
+      "h": 125,
+      "sign": "+",
+      "meanDelta": 49.5,
+      "fill": 0.301
+     },
+     {
+      "n": 595,
+      "box": [
+       1471,
+       532,
+       1514,
+       572
+      ],
+      "w": 44,
+      "h": 41,
+      "sign": "+",
+      "meanDelta": 60,
+      "fill": 0.33
+     },
+     {
+      "n": 582,
+      "box": [
+       1405,
+       562,
+       1441,
+       607
+      ],
+      "w": 37,
+      "h": 46,
+      "sign": "+",
+      "meanDelta": 66.9,
+      "fill": 0.342
+     }
+    ]
+   }
+  },
+  {
+   "k": 7,
+   "file": "docs/shots/repeat/base-golden-07.png",
+   "whiteFrac": 0.1634,
+   "meanLuma": 202.4,
+   "state": {
+    "frames": 63,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 96,
+    "bloom": 0.4
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8624.1,
+     "nonFinite": 2739
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11174.1,
+     "nonFinite": 2
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54016,
+     "mean": 8603.2,
+     "nonFinite": 542
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50208,
+     "mean": 9205.2,
+     "nonFinite": 1251
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": null
+  },
+  {
+   "k": 8,
+   "file": "docs/shots/repeat/base-golden-08.png",
+   "whiteFrac": 0.1634,
+   "meanLuma": 202.4,
+   "state": {
+    "frames": 70,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 96,
+    "bloom": 0.4
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8623.3,
+     "nonFinite": 2740
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11175.6,
+     "nonFinite": 2
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54016,
+     "mean": 8604.4,
+     "nonFinite": 542
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50208,
+     "mean": 9206.1,
+     "nonFinite": 1251
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": {
+    "nPos": 11413,
+    "nNeg": 13419,
+    "regions": [
+     {
+      "n": 1716,
+      "box": [
+       1542,
+       531,
+       1585,
+       626
+      ],
+      "w": 44,
+      "h": 96,
+      "sign": "-",
+      "meanDelta": -67.5,
+      "fill": 0.406
+     },
+     {
+      "n": 1452,
+      "box": [
+       1153,
+       557,
+       1182,
+       649
+      ],
+      "w": 30,
+      "h": 93,
+      "sign": "+",
+      "meanDelta": 52.2,
+      "fill": 0.52
+     },
+     {
+      "n": 1192,
+      "box": [
+       1465,
+       531,
+       1508,
+       617
+      ],
+      "w": 44,
+      "h": 87,
+      "sign": "-",
+      "meanDelta": -61,
+      "fill": 0.311
+     },
+     {
+      "n": 857,
+      "box": [
+       1273,
+       648,
+       1468,
+       684
+      ],
+      "w": 196,
+      "h": 37,
+      "sign": "-",
+      "meanDelta": -28.2,
+      "fill": 0.118
+     },
+     {
+      "n": 813,
+      "box": [
+       1180,
+       546,
+       1201,
+       620
+      ],
+      "w": 22,
+      "h": 75,
+      "sign": "-",
+      "meanDelta": -45.5,
+      "fill": 0.493
+     },
+     {
+      "n": 799,
+      "box": [
+       1528,
+       557,
+       1549,
+       627
+      ],
+      "w": 22,
+      "h": 71,
+      "sign": "+",
+      "meanDelta": 53,
+      "fill": 0.512
+     },
+     {
+      "n": 650,
+      "box": [
+       1392,
+       567,
+       1418,
+       607
+      ],
+      "w": 27,
+      "h": 41,
+      "sign": "+",
+      "meanDelta": 73.9,
+      "fill": 0.587
+     },
+     {
+      "n": 605,
+      "box": [
+       1502,
+       565,
+       1536,
+       623
+      ],
+      "w": 35,
+      "h": 59,
+      "sign": "-",
+      "meanDelta": -53.5,
+      "fill": 0.293
+     }
+    ]
+   }
+  },
+  {
+   "k": 9,
+   "file": "docs/shots/repeat/base-golden-09.png",
+   "whiteFrac": 0.163,
+   "meanLuma": 202.4,
+   "state": {
+    "frames": 77,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 96,
+    "bloom": 0.4
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8625.7,
+     "nonFinite": 2740
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11177.1,
+     "nonFinite": 2
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54016,
+     "mean": 8605.6,
+     "nonFinite": 542
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50208,
+     "mean": 9207.2,
+     "nonFinite": 1251
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": {
+    "nPos": 16860,
+    "nNeg": 20155,
+    "regions": [
+     {
+      "n": 2601,
+      "box": [
+       1245,
+       625,
+       1566,
+       694
+      ],
+      "w": 322,
+      "h": 70,
+      "sign": "-",
+      "meanDelta": -33.5,
+      "fill": 0.115
+     },
+     {
+      "n": 2418,
+      "box": [
+       1426,
+       532,
+       1481,
+       620
+      ],
+      "w": 56,
+      "h": 89,
+      "sign": "-",
+      "meanDelta": -66.9,
+      "fill": 0.485
+     },
+     {
+      "n": 2290,
+      "box": [
+       1153,
+       557,
+       1197,
+       650
+      ],
+      "w": 45,
+      "h": 94,
+      "sign": "+",
+      "meanDelta": 55.2,
+      "fill": 0.541
+     },
+     {
+      "n": 1722,
+      "box": [
+       1548,
+       543,
+       1596,
+       629
+      ],
+      "w": 49,
+      "h": 87,
+      "sign": "-",
+      "meanDelta": -75,
+      "fill": 0.404
+     },
+     {
+      "n": 1709,
+      "box": [
+       1468,
+       565,
+       1522,
+       630
+      ],
+      "w": 55,
+      "h": 66,
+      "sign": "+",
+      "meanDelta": 48.7,
+      "fill": 0.471
+     },
+     {
+      "n": 1372,
+      "box": [
+       563,
+       682,
+       634,
+       753
+      ],
+      "w": 72,
+      "h": 72,
+      "sign": "-",
+      "meanDelta": -47.1,
+      "fill": 0.265
+     },
+     {
+      "n": 1298,
+      "box": [
+       1323,
+       609,
+       1459,
+       652
+      ],
+      "w": 137,
+      "h": 44,
+      "sign": "+",
+      "meanDelta": 36.3,
+      "fill": 0.215
+     },
+     {
+      "n": 1273,
+      "box": [
+       549,
+       568,
+       596,
+       643
+      ],
+      "w": 48,
+      "h": 76,
+      "sign": "-",
+      "meanDelta": -66.5,
+      "fill": 0.349
+     }
+    ]
+   }
+  },
+  {
+   "k": 10,
+   "file": "docs/shots/repeat/base-golden-10.png",
+   "whiteFrac": 0.163,
+   "meanLuma": 202.4,
+   "state": {
+    "frames": 84,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 96,
+    "bloom": 0.4
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8604.8,
+     "nonFinite": 2741
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11164.4,
+     "nonFinite": 2
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54016,
+     "mean": 8605.4,
+     "nonFinite": 542
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50208,
+     "mean": 9208.1,
+     "nonFinite": 1251
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": {
+    "nPos": 19576,
+    "nNeg": 21872,
+    "regions": [
+     {
+      "n": 4786,
+      "box": [
+       1327,
+       565,
+       1526,
+       651
+      ],
+      "w": 200,
+      "h": 87,
+      "sign": "+",
+      "meanDelta": 53.1,
+      "fill": 0.275
+     },
+     {
+      "n": 3152,
+      "box": [
+       1243,
+       633,
+       1553,
+       694
+      ],
+      "w": 311,
+      "h": 62,
+      "sign": "-",
+      "meanDelta": -37.5,
+      "fill": 0.163
+     },
+     {
+      "n": 2423,
+      "box": [
+       1435,
+       526,
+       1478,
+       617
+      ],
+      "w": 44,
+      "h": 92,
+      "sign": "-",
+      "meanDelta": -66.5,
+      "fill": 0.599
+     },
+     {
+      "n": 2403,
+      "box": [
+       1152,
+       557,
+       1200,
+       650
+      ],
+      "w": 49,
+      "h": 94,
+      "sign": "+",
+      "meanDelta": 54.9,
+      "fill": 0.522
+     },
+     {
+      "n": 2209,
+      "box": [
+       563,
+       680,
+       630,
+       757
+      ],
+      "w": 68,
+      "h": 78,
+      "sign": "-",
+      "meanDelta": -50,
+      "fill": 0.416
+     },
+     {
+      "n": 1990,
+      "box": [
+       1540,
+       552,
+       1596,
+       627
+      ],
+      "w": 57,
+      "h": 76,
+      "sign": "-",
+      "meanDelta": -71.7,
+      "fill": 0.459
+     },
+     {
+      "n": 1534,
+      "box": [
+       597,
+       557,
+       627,
+       668
+      ],
+      "w": 31,
+      "h": 112,
+      "sign": "+",
+      "meanDelta": 73.1,
+      "fill": 0.442
+     },
+     {
+      "n": 1364,
+      "box": [
+       548,
+       568,
+       600,
+       643
+      ],
+      "w": 53,
+      "h": 76,
+      "sign": "-",
+      "meanDelta": -65.1,
+      "fill": 0.339
+     }
+    ]
+   }
+  },
+  {
+   "k": 11,
+   "file": "docs/shots/repeat/base-golden-11.png",
+   "whiteFrac": 0.163,
+   "meanLuma": 202.4,
+   "state": {
+    "frames": 90,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 96,
+    "bloom": 0.4
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8600.3,
+     "nonFinite": 2743
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11165.9,
+     "nonFinite": 2
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54016,
+     "mean": 8606.6,
+     "nonFinite": 542
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50208,
+     "mean": 9209.2,
+     "nonFinite": 1251
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": {
+    "nPos": 20952,
+    "nNeg": 25233,
+    "regions": [
+     {
+      "n": 3134,
+      "box": [
+       1245,
+       639,
+       1557,
+       696
+      ],
+      "w": 313,
+      "h": 58,
+      "sign": "-",
+      "meanDelta": -38.8,
+      "fill": 0.173
+     },
+     {
+      "n": 2799,
+      "box": [
+       563,
+       677,
+       644,
+       784
+      ],
+      "w": 82,
+      "h": 108,
+      "sign": "-",
+      "meanDelta": -47.3,
+      "fill": 0.316
+     },
+     {
+      "n": 2744,
+      "box": [
+       1432,
+       525,
+       1490,
+       617
+      ],
+      "w": 59,
+      "h": 93,
+      "sign": "-",
+      "meanDelta": -67.4,
+      "fill": 0.5
+     },
+     {
+      "n": 2542,
+      "box": [
+       1143,
+       557,
+       1200,
+       650
+      ],
+      "w": 58,
+      "h": 94,
+      "sign": "+",
+      "meanDelta": 52.5,
+      "fill": 0.466
+     },
+     {
+      "n": 2468,
+      "box": [
+       1350,
+       567,
+       1490,
+       648
+      ],
+      "w": 141,
+      "h": 82,
+      "sign": "+",
+      "meanDelta": 54.6,
+      "fill": 0.213
+     },
+     {
+      "n": 2024,
+      "box": [
+       1483,
+       565,
+       1526,
+       635
+      ],
+      "w": 44,
+      "h": 71,
+      "sign": "+",
+      "meanDelta": 53.8,
+      "fill": 0.648
+     },
+     {
+      "n": 1663,
+      "box": [
+       1234,
+       561,
+       1263,
+       645
+      ],
+      "w": 30,
+      "h": 85,
+      "sign": "-",
+      "meanDelta": -49,
+      "fill": 0.652
+     },
+     {
+      "n": 1532,
+      "box": [
+       587,
+       601,
+       636,
+       664
+      ],
+      "w": 50,
+      "h": 64,
+      "sign": "+",
+      "meanDelta": 50.4,
+      "fill": 0.479
+     }
+    ]
+   }
+  },
+  {
+   "k": 12,
+   "file": "docs/shots/repeat/base-golden-12.png",
+   "whiteFrac": 0.1631,
+   "meanLuma": 202.4,
+   "state": {
+    "frames": 96,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 96,
+    "bloom": 0.4
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8599.5,
+     "nonFinite": 2744
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11167.5,
+     "nonFinite": 2
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54016,
+     "mean": 8608,
+     "nonFinite": 542
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50208,
+     "mean": 9210.4,
+     "nonFinite": 1251
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": {
+    "nPos": 26554,
+    "nNeg": 27640,
+    "regions": [
+     {
+      "n": 4666,
+      "box": [
+       561,
+       676,
+       681,
+       793
+      ],
+      "w": 121,
+      "h": 118,
+      "sign": "-",
+      "meanDelta": -47.6,
+      "fill": 0.327
+     },
+     {
+      "n": 3079,
+      "box": [
+       1268,
+       639,
+       1544,
+       692
+      ],
+      "w": 277,
+      "h": 54,
+      "sign": "-",
+      "meanDelta": -40.4,
+      "fill": 0.206
+     },
+     {
+      "n": 3001,
+      "box": [
+       1143,
+       557,
+       1200,
+       650
+      ],
+      "w": 58,
+      "h": 94,
+      "sign": "+",
+      "meanDelta": 51.9,
+      "fill": 0.55
+     },
+     {
+      "n": 2116,
+      "box": [
+       709,
+       178,
+       856,
+       218
+      ],
+      "w": 148,
+      "h": 41,
+      "sign": "+",
+      "meanDelta": 28,
+      "fill": 0.349
+     },
+     {
+      "n": 2105,
+      "box": [
+       592,
+       599,
+       640,
+       685
+      ],
+      "w": 49,
+      "h": 87,
+      "sign": "+",
+      "meanDelta": 65,
+      "fill": 0.494
+     },
+     {
+      "n": 1717,
+      "box": [
+       455,
+       240,
+       495,
+       293
+      ],
+      "w": 41,
+      "h": 54,
+      "sign": "-",
+      "meanDelta": -31.3,
+      "fill": 0.776
+     },
+     {
+      "n": 1670,
+      "box": [
+       549,
+       568,
+       600,
+       643
+      ],
+      "w": 52,
+      "h": 76,
+      "sign": "-",
+      "meanDelta": -66.7,
+      "fill": 0.423
+     },
+     {
+      "n": 1666,
+      "box": [
+       1313,
+       609,
+       1477,
+       653
+      ],
+      "w": 165,
+      "h": 45,
+      "sign": "+",
+      "meanDelta": 42.6,
+      "fill": 0.224
+     }
+    ]
+   }
+  },
+  {
+   "k": 13,
+   "file": "docs/shots/repeat/base-golden-13.png",
+   "whiteFrac": 0.1631,
+   "meanLuma": 202.4,
+   "state": {
+    "frames": 103,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 96,
+    "bloom": 0.4
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8602.6,
+     "nonFinite": 2744
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11169.4,
+     "nonFinite": 2
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54016,
+     "mean": 8609.4,
+     "nonFinite": 542
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50208,
+     "mean": 9211.6,
+     "nonFinite": 1251
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": {
+    "nPos": 29884,
+    "nNeg": 35122,
+    "regions": [
+     {
+      "n": 6230,
+      "box": [
+       563,
+       691,
+       685,
+       819
+      ],
+      "w": 123,
+      "h": 129,
+      "sign": "-",
+      "meanDelta": -46.8,
+      "fill": 0.393
+     },
+     {
+      "n": 3761,
+      "box": [
+       919,
+       3,
+       1014,
+       111
+      ],
+      "w": 96,
+      "h": 109,
+      "sign": "+",
+      "meanDelta": 25.7,
+      "fill": 0.359
+     },
+     {
+      "n": 3146,
+      "box": [
+       708,
+       175,
+       865,
+       222
+      ],
+      "w": 158,
+      "h": 48,
+      "sign": "+",
+      "meanDelta": 28.7,
+      "fill": 0.415
+     },
+     {
+      "n": 3136,
+      "box": [
+       1287,
+       639,
+       1556,
+       685
+      ],
+      "w": 270,
+      "h": 47,
+      "sign": "-",
+      "meanDelta": -40.4,
+      "fill": 0.247
+     },
+     {
+      "n": 3032,
+      "box": [
+       1143,
+       557,
+       1200,
+       651
+      ],
+      "w": 58,
+      "h": 95,
+      "sign": "+",
+      "meanDelta": 51.3,
+      "fill": 0.55
+     },
+     {
+      "n": 2376,
+      "box": [
+       602,
+       591,
+       666,
+       691
+      ],
+      "w": 65,
+      "h": 101,
+      "sign": "+",
+      "meanDelta": 59.6,
+      "fill": 0.362
+     },
+     {
+      "n": 1951,
+      "box": [
+       455,
+       242,
+       500,
+       295
+      ],
+      "w": 46,
+      "h": 54,
+      "sign": "-",
+      "meanDelta": -33.6,
+      "fill": 0.785
+     },
+     {
+      "n": 1763,
+      "box": [
+       1523,
+       531,
+       1586,
+       630
+      ],
+      "w": 64,
+      "h": 100,
+      "sign": "+",
+      "meanDelta": 57.9,
+      "fill": 0.275
+     }
+    ]
+   }
+  }
+ ],
+ "pageErrors": [
+  "console: Failed to load resource: the server responded with a status of 404 (Not Found)"
+ ]
+}

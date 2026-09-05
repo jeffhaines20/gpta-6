@@ -1,0 +1,1615 @@
+{
+ "time": "golden",
+ "box": [
+  110,
+  320,
+  320,
+  410
+ ],
+ "n": 10,
+ "gapMs": 1500,
+ "whiteFracs": [
+  0.1087,
+  0.1084,
+  0.1087,
+  0.1087,
+  0.1087,
+  0.1087,
+  0.1087,
+  0.1087,
+  0.1087,
+  0.1087
+ ],
+ "median": 0.1087,
+ "spread": 0.0003,
+ "modal": "docs/shots/repeat/fixed-golden-00.png",
+ "verdict": "NOT REPRODUCED in this session - all 10 captures within 0.03 points",
+ "captures": [
+  {
+   "k": 0,
+   "file": "docs/shots/repeat/fixed-golden-00.png",
+   "whiteFrac": 0.1087,
+   "meanLuma": 192.5,
+   "state": {
+    "frames": 16,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 76,
+    "bloom": 0.4,
+    "under": {
+     "dist": 40.72,
+     "name": "chunk:0,-1:lod0:facade:bayTower",
+     "parent": "chunk:0,-1:lod0",
+     "matName": "facade:bayTower",
+     "color": "ffffff",
+     "emissive": "ffffff",
+     "emissiveIntensity": 0,
+     "map": true,
+     "mapImage": "1024x1024",
+     "rough": 1,
+     "metal": 1,
+     "instanced": false,
+     "instanceId": null
+    }
+   },
+   "targets": null,
+   "diff": null
+  },
+  {
+   "k": 1,
+   "file": "docs/shots/repeat/fixed-golden-01.png",
+   "whiteFrac": 0.1084,
+   "meanLuma": 192.4,
+   "state": {
+    "frames": 20,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 93,
+    "bloom": 0.4,
+    "under": {
+     "dist": 40.72,
+     "name": "chunk:0,-1:lod0:facade:bayTower",
+     "parent": "chunk:0,-1:lod0",
+     "matName": "facade:bayTower",
+     "color": "ffffff",
+     "emissive": "ffffff",
+     "emissiveIntensity": 0,
+     "map": true,
+     "mapImage": "1024x1024",
+     "rough": 1,
+     "metal": 1,
+     "instanced": false,
+     "instanceId": null
+    }
+   },
+   "targets": null,
+   "diff": {
+    "nPos": 11144,
+    "nNeg": 11122,
+    "regions": [
+     {
+      "n": 1697,
+      "box": [
+       1433,
+       560,
+       1461,
+       696
+      ],
+      "w": 29,
+      "h": 137,
+      "sign": "+",
+      "meanDelta": 73.1,
+      "fill": 0.427
+     },
+     {
+      "n": 1133,
+      "box": [
+       1383,
+       623,
+       1422,
+       697
+      ],
+      "w": 40,
+      "h": 75,
+      "sign": "-",
+      "meanDelta": -63.7,
+      "fill": 0.378
+     },
+     {
+      "n": 1089,
+      "box": [
+       1165,
+       522,
+       1201,
+       608
+      ],
+      "w": 37,
+      "h": 87,
+      "sign": "-",
+      "meanDelta": -50.8,
+      "fill": 0.338
+     },
+     {
+      "n": 833,
+      "box": [
+       1141,
+       538,
+       1166,
+       607
+      ],
+      "w": 26,
+      "h": 70,
+      "sign": "+",
+      "meanDelta": 54.6,
+      "fill": 0.458
+     },
+     {
+      "n": 682,
+      "box": [
+       1414,
+       642,
+       1442,
+       699
+      ],
+      "w": 29,
+      "h": 58,
+      "sign": "+",
+      "meanDelta": 60.4,
+      "fill": 0.405
+     },
+     {
+      "n": 660,
+      "box": [
+       1406,
+       567,
+       1435,
+       619
+      ],
+      "w": 30,
+      "h": 53,
+      "sign": "-",
+      "meanDelta": -77.4,
+      "fill": 0.415
+     },
+     {
+      "n": 649,
+      "box": [
+       1169,
+       586,
+       1192,
+       656
+      ],
+      "w": 24,
+      "h": 71,
+      "sign": "-",
+      "meanDelta": -41.3,
+      "fill": 0.381
+     },
+     {
+      "n": 577,
+      "box": [
+       1326,
+       565,
+       1347,
+       631
+      ],
+      "w": 22,
+      "h": 67,
+      "sign": "-",
+      "meanDelta": -68.5,
+      "fill": 0.391
+     }
+    ]
+   }
+  },
+  {
+   "k": 2,
+   "file": "docs/shots/repeat/fixed-golden-02.png",
+   "whiteFrac": 0.1087,
+   "meanLuma": 192.5,
+   "state": {
+    "frames": 24,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 96,
+    "bloom": 0.4,
+    "under": {
+     "dist": 40.72,
+     "name": "chunk:0,-1:lod0:facade:bayTower",
+     "parent": "chunk:0,-1:lod0",
+     "matName": "facade:bayTower",
+     "color": "ffffff",
+     "emissive": "ffffff",
+     "emissiveIntensity": 0,
+     "map": true,
+     "mapImage": "1024x1024",
+     "rough": 1,
+     "metal": 1,
+     "instanced": false,
+     "instanceId": null
+    }
+   },
+   "targets": null,
+   "diff": {
+    "nPos": 19229,
+    "nNeg": 18949,
+    "regions": [
+     {
+      "n": 3631,
+      "box": [
+       1417,
+       567,
+       1471,
+       711
+      ],
+      "w": 55,
+      "h": 145,
+      "sign": "+",
+      "meanDelta": 72.3,
+      "fill": 0.455
+     },
+     {
+      "n": 2970,
+      "box": [
+       1370,
+       568,
+       1426,
+       698
+      ],
+      "w": 57,
+      "h": 131,
+      "sign": "-",
+      "meanDelta": -68.6,
+      "fill": 0.398
+     },
+     {
+      "n": 2060,
+      "box": [
+       1141,
+       538,
+       1175,
+       665
+      ],
+      "w": 35,
+      "h": 128,
+      "sign": "+",
+      "meanDelta": 54.3,
+      "fill": 0.46
+     },
+     {
+      "n": 1839,
+      "box": [
+       1169,
+       521,
+       1201,
+       629
+      ],
+      "w": 33,
+      "h": 109,
+      "sign": "-",
+      "meanDelta": -51.1,
+      "fill": 0.511
+     },
+     {
+      "n": 1227,
+      "box": [
+       1233,
+       540,
+       1264,
+       616
+      ],
+      "w": 32,
+      "h": 77,
+      "sign": "-",
+      "meanDelta": -57.6,
+      "fill": 0.498
+     },
+     {
+      "n": 890,
+      "box": [
+       1332,
+       562,
+       1352,
+       631
+      ],
+      "w": 21,
+      "h": 70,
+      "sign": "-",
+      "meanDelta": -72.8,
+      "fill": 0.605
+     },
+     {
+      "n": 809,
+      "box": [
+       231,
+       556,
+       257,
+       613
+      ],
+      "w": 27,
+      "h": 58,
+      "sign": "-",
+      "meanDelta": -39.7,
+      "fill": 0.517
+     },
+     {
+      "n": 790,
+      "box": [
+       186,
+       565,
+       229,
+       620
+      ],
+      "w": 44,
+      "h": 56,
+      "sign": "+",
+      "meanDelta": 39.3,
+      "fill": 0.321
+     }
+    ]
+   }
+  },
+  {
+   "k": 3,
+   "file": "docs/shots/repeat/fixed-golden-03.png",
+   "whiteFrac": 0.1087,
+   "meanLuma": 192.5,
+   "state": {
+    "frames": 28,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 96,
+    "bloom": 0.4,
+    "under": {
+     "dist": 40.72,
+     "name": "chunk:0,-1:lod0:facade:bayTower",
+     "parent": "chunk:0,-1:lod0",
+     "matName": "facade:bayTower",
+     "color": "ffffff",
+     "emissive": "ffffff",
+     "emissiveIntensity": 0,
+     "map": true,
+     "mapImage": "1024x1024",
+     "rough": 1,
+     "metal": 1,
+     "instanced": false,
+     "instanceId": null
+    }
+   },
+   "targets": null,
+   "diff": {
+    "nPos": 22821,
+    "nNeg": 23320,
+    "regions": [
+     {
+      "n": 5136,
+      "box": [
+       1405,
+       567,
+       1481,
+       712
+      ],
+      "w": 77,
+      "h": 146,
+      "sign": "+",
+      "meanDelta": 72.7,
+      "fill": 0.457
+     },
+     {
+      "n": 4693,
+      "box": [
+       1332,
+       564,
+       1408,
+       696
+      ],
+      "w": 77,
+      "h": 133,
+      "sign": "-",
+      "meanDelta": -67.9,
+      "fill": 0.458
+     },
+     {
+      "n": 2167,
+      "box": [
+       1141,
+       538,
+       1175,
+       665
+      ],
+      "w": 35,
+      "h": 128,
+      "sign": "+",
+      "meanDelta": 55.4,
+      "fill": 0.484
+     },
+     {
+      "n": 2057,
+      "box": [
+       1234,
+       539,
+       1293,
+       632
+      ],
+      "w": 60,
+      "h": 94,
+      "sign": "-",
+      "meanDelta": -53.6,
+      "fill": 0.365
+     },
+     {
+      "n": 1623,
+      "box": [
+       1169,
+       521,
+       1201,
+       628
+      ],
+      "w": 33,
+      "h": 108,
+      "sign": "-",
+      "meanDelta": -52.1,
+      "fill": 0.455
+     },
+     {
+      "n": 1176,
+      "box": [
+       1294,
+       551,
+       1343,
+       631
+      ],
+      "w": 50,
+      "h": 81,
+      "sign": "+",
+      "meanDelta": 51.1,
+      "fill": 0.29
+     },
+     {
+      "n": 949,
+      "box": [
+       229,
+       553,
+       284,
+       617
+      ],
+      "w": 56,
+      "h": 65,
+      "sign": "-",
+      "meanDelta": -39.5,
+      "fill": 0.261
+     },
+     {
+      "n": 805,
+      "box": [
+       186,
+       565,
+       229,
+       620
+      ],
+      "w": 44,
+      "h": 56,
+      "sign": "+",
+      "meanDelta": 40.7,
+      "fill": 0.327
+     }
+    ]
+   }
+  },
+  {
+   "k": 4,
+   "file": "docs/shots/repeat/fixed-golden-04.png",
+   "whiteFrac": 0.1087,
+   "meanLuma": 192.5,
+   "state": {
+    "frames": 33,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 96,
+    "bloom": 0.4,
+    "under": {
+     "dist": 40.72,
+     "name": "chunk:0,-1:lod0:facade:bayTower",
+     "parent": "chunk:0,-1:lod0",
+     "matName": "facade:bayTower",
+     "color": "ffffff",
+     "emissive": "ffffff",
+     "emissiveIntensity": 0,
+     "map": true,
+     "mapImage": "1024x1024",
+     "rough": 1,
+     "metal": 1,
+     "instanced": false,
+     "instanceId": null
+    }
+   },
+   "targets": null,
+   "diff": {
+    "nPos": 25061,
+    "nNeg": 20854,
+    "regions": [
+     {
+      "n": 5328,
+      "box": [
+       1401,
+       567,
+       1481,
+       712
+      ],
+      "w": 81,
+      "h": 146,
+      "sign": "+",
+      "meanDelta": 73,
+      "fill": 0.451
+     },
+     {
+      "n": 2513,
+      "box": [
+       1141,
+       538,
+       1175,
+       665
+      ],
+      "w": 35,
+      "h": 128,
+      "sign": "+",
+      "meanDelta": 57.4,
+      "fill": 0.561
+     },
+     {
+      "n": 2281,
+      "box": [
+       1340,
+       564,
+       1392,
+       629
+      ],
+      "w": 53,
+      "h": 66,
+      "sign": "-",
+      "meanDelta": -68.4,
+      "fill": 0.652
+     },
+     {
+      "n": 1618,
+      "box": [
+       1336,
+       636,
+       1394,
+       695
+      ],
+      "w": 59,
+      "h": 60,
+      "sign": "-",
+      "meanDelta": -52.6,
+      "fill": 0.457
+     },
+     {
+      "n": 1469,
+      "box": [
+       1294,
+       551,
+       1344,
+       632
+      ],
+      "w": 51,
+      "h": 82,
+      "sign": "+",
+      "meanDelta": 50.1,
+      "fill": 0.351
+     },
+     {
+      "n": 1466,
+      "box": [
+       1170,
+       522,
+       1201,
+       640
+      ],
+      "w": 32,
+      "h": 119,
+      "sign": "-",
+      "meanDelta": -53.3,
+      "fill": 0.385
+     },
+     {
+      "n": 1400,
+      "box": [
+       1236,
+       539,
+       1284,
+       619
+      ],
+      "w": 49,
+      "h": 81,
+      "sign": "-",
+      "meanDelta": -49,
+      "fill": 0.353
+     },
+     {
+      "n": 867,
+      "box": [
+       186,
+       565,
+       235,
+       620
+      ],
+      "w": 50,
+      "h": 56,
+      "sign": "+",
+      "meanDelta": 42.9,
+      "fill": 0.31
+     }
+    ]
+   }
+  },
+  {
+   "k": 5,
+   "file": "docs/shots/repeat/fixed-golden-05.png",
+   "whiteFrac": 0.1087,
+   "meanLuma": 192.5,
+   "state": {
+    "frames": 38,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 96,
+    "bloom": 0.4,
+    "under": {
+     "dist": 40.72,
+     "name": "chunk:0,-1:lod0:facade:bayTower",
+     "parent": "chunk:0,-1:lod0",
+     "matName": "facade:bayTower",
+     "color": "ffffff",
+     "emissive": "ffffff",
+     "emissiveIntensity": 0,
+     "map": true,
+     "mapImage": "1024x1024",
+     "rough": 1,
+     "metal": 1,
+     "instanced": false,
+     "instanceId": null
+    }
+   },
+   "targets": null,
+   "diff": {
+    "nPos": 28168,
+    "nNeg": 18144,
+    "regions": [
+     {
+      "n": 6215,
+      "box": [
+       1399,
+       567,
+       1487,
+       712
+      ],
+      "w": 89,
+      "h": 146,
+      "sign": "+",
+      "meanDelta": 66.2,
+      "fill": 0.478
+     },
+     {
+      "n": 2963,
+      "box": [
+       1330,
+       566,
+       1418,
+       643
+      ],
+      "w": 89,
+      "h": 78,
+      "sign": "-",
+      "meanDelta": -66.1,
+      "fill": 0.427
+     },
+     {
+      "n": 2791,
+      "box": [
+       1141,
+       538,
+       1181,
+       665
+      ],
+      "w": 41,
+      "h": 128,
+      "sign": "+",
+      "meanDelta": 59.1,
+      "fill": 0.532
+     },
+     {
+      "n": 1436,
+      "box": [
+       1175,
+       521,
+       1201,
+       629
+      ],
+      "w": 27,
+      "h": 109,
+      "sign": "-",
+      "meanDelta": -53.9,
+      "fill": 0.488
+     },
+     {
+      "n": 1237,
+      "box": [
+       1294,
+       551,
+       1340,
+       633
+      ],
+      "w": 47,
+      "h": 83,
+      "sign": "+",
+      "meanDelta": 50.6,
+      "fill": 0.317
+     },
+     {
+      "n": 1014,
+      "box": [
+       1335,
+       642,
+       1374,
+       689
+      ],
+      "w": 40,
+      "h": 48,
+      "sign": "-",
+      "meanDelta": -50.6,
+      "fill": 0.528
+     },
+     {
+      "n": 999,
+      "box": [
+       806,
+       518,
+       835,
+       590
+      ],
+      "w": 30,
+      "h": 73,
+      "sign": "-",
+      "meanDelta": -37.3,
+      "fill": 0.456
+     },
+     {
+      "n": 947,
+      "box": [
+       271,
+       556,
+       322,
+       615
+      ],
+      "w": 52,
+      "h": 60,
+      "sign": "-",
+      "meanDelta": -42.9,
+      "fill": 0.304
+     }
+    ]
+   }
+  },
+  {
+   "k": 6,
+   "file": "docs/shots/repeat/fixed-golden-06.png",
+   "whiteFrac": 0.1087,
+   "meanLuma": 192.5,
+   "state": {
+    "frames": 42,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 96,
+    "bloom": 0.4,
+    "under": {
+     "dist": 40.72,
+     "name": "chunk:0,-1:lod0:facade:bayTower",
+     "parent": "chunk:0,-1:lod0",
+     "matName": "facade:bayTower",
+     "color": "ffffff",
+     "emissive": "ffffff",
+     "emissiveIntensity": 0,
+     "map": true,
+     "mapImage": "1024x1024",
+     "rough": 1,
+     "metal": 1,
+     "instanced": false,
+     "instanceId": null
+    }
+   },
+   "targets": null,
+   "diff": {
+    "nPos": 28698,
+    "nNeg": 17277,
+    "regions": [
+     {
+      "n": 6722,
+      "box": [
+       1398,
+       567,
+       1494,
+       711
+      ],
+      "w": 97,
+      "h": 145,
+      "sign": "+",
+      "meanDelta": 64.8,
+      "fill": 0.478
+     },
+     {
+      "n": 3065,
+      "box": [
+       1141,
+       538,
+       1190,
+       665
+      ],
+      "w": 50,
+      "h": 128,
+      "sign": "+",
+      "meanDelta": 60.4,
+      "fill": 0.479
+     },
+     {
+      "n": 2018,
+      "box": [
+       1357,
+       564,
+       1421,
+       642
+      ],
+      "w": 65,
+      "h": 79,
+      "sign": "-",
+      "meanDelta": -60.2,
+      "fill": 0.393
+     },
+     {
+      "n": 1132,
+      "box": [
+       1181,
+       523,
+       1201,
+       628
+      ],
+      "w": 21,
+      "h": 106,
+      "sign": "-",
+      "meanDelta": -55.5,
+      "fill": 0.509
+     },
+     {
+      "n": 910,
+      "box": [
+       186,
+       565,
+       235,
+       620
+      ],
+      "w": 50,
+      "h": 56,
+      "sign": "+",
+      "meanDelta": 45,
+      "fill": 0.325
+     },
+     {
+      "n": 747,
+      "box": [
+       293,
+       551,
+       323,
+       615
+      ],
+      "w": 31,
+      "h": 65,
+      "sign": "-",
+      "meanDelta": -43.5,
+      "fill": 0.371
+     },
+     {
+      "n": 736,
+      "box": [
+       808,
+       528,
+       836,
+       590
+      ],
+      "w": 29,
+      "h": 63,
+      "sign": "-",
+      "meanDelta": -33.8,
+      "fill": 0.403
+     },
+     {
+      "n": 630,
+      "box": [
+       1332,
+       566,
+       1350,
+       630
+      ],
+      "w": 19,
+      "h": 65,
+      "sign": "-",
+      "meanDelta": -72.3,
+      "fill": 0.51
+     }
+    ]
+   }
+  },
+  {
+   "k": 7,
+   "file": "docs/shots/repeat/fixed-golden-07.png",
+   "whiteFrac": 0.1087,
+   "meanLuma": 192.5,
+   "state": {
+    "frames": 47,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 96,
+    "bloom": 0.4,
+    "under": {
+     "dist": 40.72,
+     "name": "chunk:0,-1:lod0:facade:bayTower",
+     "parent": "chunk:0,-1:lod0",
+     "matName": "facade:bayTower",
+     "color": "ffffff",
+     "emissive": "ffffff",
+     "emissiveIntensity": 0,
+     "map": true,
+     "mapImage": "1024x1024",
+     "rough": 1,
+     "metal": 1,
+     "instanced": false,
+     "instanceId": null
+    }
+   },
+   "targets": null,
+   "diff": {
+    "nPos": 28855,
+    "nNeg": 16498,
+    "regions": [
+     {
+      "n": 7005,
+      "box": [
+       1394,
+       567,
+       1494,
+       712
+      ],
+      "w": 101,
+      "h": 146,
+      "sign": "+",
+      "meanDelta": 64.9,
+      "fill": 0.475
+     },
+     {
+      "n": 3357,
+      "box": [
+       1141,
+       538,
+       1190,
+       666
+      ],
+      "w": 50,
+      "h": 129,
+      "sign": "+",
+      "meanDelta": 58.6,
+      "fill": 0.52
+     },
+     {
+      "n": 1976,
+      "box": [
+       1372,
+       568,
+       1421,
+       642
+      ],
+      "w": 50,
+      "h": 75,
+      "sign": "-",
+      "meanDelta": -67.2,
+      "fill": 0.527
+     },
+     {
+      "n": 1004,
+      "box": [
+       805,
+       525,
+       837,
+       590
+      ],
+      "w": 33,
+      "h": 66,
+      "sign": "-",
+      "meanDelta": -37,
+      "fill": 0.461
+     },
+     {
+      "n": 936,
+      "box": [
+       1234,
+       547,
+       1263,
+       619
+      ],
+      "w": 30,
+      "h": 73,
+      "sign": "-",
+      "meanDelta": -51.6,
+      "fill": 0.427
+     },
+     {
+      "n": 917,
+      "box": [
+       186,
+       565,
+       235,
+       620
+      ],
+      "w": 50,
+      "h": 56,
+      "sign": "+",
+      "meanDelta": 45.4,
+      "fill": 0.328
+     },
+     {
+      "n": 850,
+      "box": [
+       309,
+       554,
+       349,
+       614
+      ],
+      "w": 41,
+      "h": 61,
+      "sign": "-",
+      "meanDelta": -42.4,
+      "fill": 0.34
+     },
+     {
+      "n": 842,
+      "box": [
+       676,
+       161,
+       731,
+       183
+      ],
+      "w": 56,
+      "h": 23,
+      "sign": "+",
+      "meanDelta": 27.7,
+      "fill": 0.654
+     }
+    ]
+   }
+  },
+  {
+   "k": 8,
+   "file": "docs/shots/repeat/fixed-golden-08.png",
+   "whiteFrac": 0.1087,
+   "meanLuma": 192.5,
+   "state": {
+    "frames": 52,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 96,
+    "bloom": 0.4,
+    "under": {
+     "dist": 40.72,
+     "name": "chunk:0,-1:lod0:facade:bayTower",
+     "parent": "chunk:0,-1:lod0",
+     "matName": "facade:bayTower",
+     "color": "ffffff",
+     "emissive": "ffffff",
+     "emissiveIntensity": 0,
+     "map": true,
+     "mapImage": "1024x1024",
+     "rough": 1,
+     "metal": 1,
+     "instanced": false,
+     "instanceId": null
+    }
+   },
+   "targets": null,
+   "diff": {
+    "nPos": 29250,
+    "nNeg": 15412,
+    "regions": [
+     {
+      "n": 7169,
+      "box": [
+       1392,
+       567,
+       1494,
+       712
+      ],
+      "w": 103,
+      "h": 146,
+      "sign": "+",
+      "meanDelta": 64.4,
+      "fill": 0.477
+     },
+     {
+      "n": 3467,
+      "box": [
+       1108,
+       538,
+       1190,
+       666
+      ],
+      "w": 83,
+      "h": 129,
+      "sign": "+",
+      "meanDelta": 58.4,
+      "fill": 0.324
+     },
+     {
+      "n": 1456,
+      "box": [
+       1376,
+       568,
+       1421,
+       641
+      ],
+      "w": 46,
+      "h": 74,
+      "sign": "-",
+      "meanDelta": -69.5,
+      "fill": 0.428
+     },
+     {
+      "n": 1117,
+      "box": [
+       669,
+       161,
+       739,
+       186
+      ],
+      "w": 71,
+      "h": 26,
+      "sign": "+",
+      "meanDelta": 28,
+      "fill": 0.605
+     },
+     {
+      "n": 917,
+      "box": [
+       186,
+       565,
+       235,
+       620
+      ],
+      "w": 50,
+      "h": 56,
+      "sign": "+",
+      "meanDelta": 45.4,
+      "fill": 0.328
+     },
+     {
+      "n": 907,
+      "box": [
+       1233,
+       542,
+       1251,
+       616
+      ],
+      "w": 19,
+      "h": 75,
+      "sign": "-",
+      "meanDelta": -50.8,
+      "fill": 0.636
+     },
+     {
+      "n": 884,
+      "box": [
+       312,
+       547,
+       361,
+       611
+      ],
+      "w": 50,
+      "h": 65,
+      "sign": "-",
+      "meanDelta": -40.8,
+      "fill": 0.272
+     },
+     {
+      "n": 644,
+      "box": [
+       435,
+       510,
+       461,
+       586
+      ],
+      "w": 27,
+      "h": 77,
+      "sign": "+",
+      "meanDelta": 50.3,
+      "fill": 0.31
+     }
+    ]
+   }
+  },
+  {
+   "k": 9,
+   "file": "docs/shots/repeat/fixed-golden-09.png",
+   "whiteFrac": 0.1087,
+   "meanLuma": 192.5,
+   "state": {
+    "frames": 56,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 96,
+    "bloom": 0.4,
+    "under": {
+     "dist": 40.72,
+     "name": "chunk:0,-1:lod0:facade:bayTower",
+     "parent": "chunk:0,-1:lod0",
+     "matName": "facade:bayTower",
+     "color": "ffffff",
+     "emissive": "ffffff",
+     "emissiveIntensity": 0,
+     "map": true,
+     "mapImage": "1024x1024",
+     "rough": 1,
+     "metal": 1,
+     "instanced": false,
+     "instanceId": null
+    }
+   },
+   "targets": null,
+   "diff": {
+    "nPos": 29373,
+    "nNeg": 15047,
+    "regions": [
+     {
+      "n": 6847,
+      "box": [
+       1397,
+       567,
+       1494,
+       712
+      ],
+      "w": 98,
+      "h": 146,
+      "sign": "+",
+      "meanDelta": 64.1,
+      "fill": 0.479
+     },
+     {
+      "n": 3551,
+      "box": [
+       1108,
+       538,
+       1190,
+       665
+      ],
+      "w": 83,
+      "h": 128,
+      "sign": "+",
+      "meanDelta": 58,
+      "fill": 0.334
+     },
+     {
+      "n": 2002,
+      "box": [
+       1368,
+       568,
+       1429,
+       644
+      ],
+      "w": 62,
+      "h": 77,
+      "sign": "-",
+      "meanDelta": -64.1,
+      "fill": 0.419
+     },
+     {
+      "n": 1542,
+      "box": [
+       641,
+       161,
+       745,
+       189
+      ],
+      "w": 105,
+      "h": 29,
+      "sign": "+",
+      "meanDelta": 27.8,
+      "fill": 0.506
+     },
+     {
+      "n": 1023,
+      "box": [
+       1233,
+       535,
+       1251,
+       636
+      ],
+      "w": 19,
+      "h": 102,
+      "sign": "-",
+      "meanDelta": -55.8,
+      "fill": 0.528
+     },
+     {
+      "n": 917,
+      "box": [
+       186,
+       565,
+       235,
+       620
+      ],
+      "w": 50,
+      "h": 56,
+      "sign": "+",
+      "meanDelta": 45.4,
+      "fill": 0.328
+     },
+     {
+      "n": 714,
+      "box": [
+       434,
+       510,
+       452,
+       588
+      ],
+      "w": 19,
+      "h": 79,
+      "sign": "+",
+      "meanDelta": 51.2,
+      "fill": 0.476
+     },
+     {
+      "n": 705,
+      "box": [
+       781,
+       235,
+       846,
+       250
+      ],
+      "w": 66,
+      "h": 16,
+      "sign": "-",
+      "meanDelta": -27.4,
+      "fill": 0.668
+     }
+    ]
+   }
+  }
+ ],
+ "pageErrors": [
+  "console: Failed to load resource: the server responded with a status of 404 (Not Found)"
+ ]
+}

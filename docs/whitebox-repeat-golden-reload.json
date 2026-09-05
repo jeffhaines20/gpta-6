@@ -1,0 +1,1657 @@
+{
+ "time": "golden",
+ "box": [
+  110,
+  320,
+  320,
+  410
+ ],
+ "n": 8,
+ "gapMs": 200,
+ "whiteFracs": [
+  0.1086,
+  0.1086,
+  0.1086,
+  0.1115,
+  0.1086,
+  0.1086,
+  0.1086,
+  0.1086
+ ],
+ "median": 0.1086,
+ "spread": 0.0029,
+ "modal": "docs/shots/repeat/reload-golden-00.png",
+ "verdict": "NOT REPRODUCED in this session - all 8 captures within 0.29 points",
+ "captures": [
+  {
+   "k": 0,
+   "file": "docs/shots/repeat/reload-golden-00.png",
+   "whiteFrac": 0.1086,
+   "meanLuma": 204.6,
+   "state": {
+    "frames": 15,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 791149
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 78,
+    "bloom": 0.4,
+    "under": {
+     "dist": 40.72,
+     "name": "chunk:0,-1:lod0:facade:bayTower",
+     "parent": "chunk:0,-1:lod0",
+     "matName": "facade:bayTower",
+     "color": "ffffff",
+     "emissive": "ffffff",
+     "emissiveIntensity": 0,
+     "map": true,
+     "mapImage": "1024x1024",
+     "rough": 1,
+     "metal": 1,
+     "instanced": false,
+     "instanceId": null
+    }
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8643.2,
+     "nonFinite": 2711
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11121.8,
+     "nonFinite": 1
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 10027.9,
+     "nonFinite": 312
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50432,
+     "mean": 10964.2,
+     "nonFinite": 675
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": null
+  },
+  {
+   "k": 1,
+   "file": "docs/shots/repeat/reload-golden-01.png",
+   "whiteFrac": 0.1086,
+   "meanLuma": 204.6,
+   "state": {
+    "frames": 15,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 786637
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 70,
+    "bloom": 0.4,
+    "under": {
+     "dist": 40.72,
+     "name": "chunk:0,-1:lod0:facade:bayTower",
+     "parent": "chunk:0,-1:lod0",
+     "matName": "facade:bayTower",
+     "color": "ffffff",
+     "emissive": "ffffff",
+     "emissiveIntensity": 0,
+     "map": true,
+     "mapImage": "1024x1024",
+     "rough": 1,
+     "metal": 1,
+     "instanced": false,
+     "instanceId": null
+    }
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8643.2,
+     "nonFinite": 2711
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11121.8,
+     "nonFinite": 1
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 10027.9,
+     "nonFinite": 312
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50432,
+     "mean": 10964.2,
+     "nonFinite": 675
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": {
+    "nPos": 21077,
+    "nNeg": 12512,
+    "regions": [
+     {
+      "n": 4278,
+      "box": [
+       1007,
+       529,
+       1095,
+       669
+      ],
+      "w": 89,
+      "h": 141,
+      "sign": "+",
+      "meanDelta": 59.9,
+      "fill": 0.341
+     },
+     {
+      "n": 2241,
+      "box": [
+       1502,
+       621,
+       1550,
+       729
+      ],
+      "w": 49,
+      "h": 109,
+      "sign": "+",
+      "meanDelta": 66.9,
+      "fill": 0.42
+     },
+     {
+      "n": 1807,
+      "box": [
+       1523,
+       569,
+       1581,
+       650
+      ],
+      "w": 59,
+      "h": 82,
+      "sign": "-",
+      "meanDelta": -47.8,
+      "fill": 0.374
+     },
+     {
+      "n": 1609,
+      "box": [
+       1100,
+       552,
+       1126,
+       663
+      ],
+      "w": 27,
+      "h": 112,
+      "sign": "-",
+      "meanDelta": -60.5,
+      "fill": 0.532
+     },
+     {
+      "n": 1467,
+      "box": [
+       1537,
+       660,
+       1566,
+       734
+      ],
+      "w": 30,
+      "h": 75,
+      "sign": "-",
+      "meanDelta": -56.3,
+      "fill": 0.652
+     },
+     {
+      "n": 1084,
+      "box": [
+       1562,
+       648,
+       1599,
+       736
+      ],
+      "w": 38,
+      "h": 89,
+      "sign": "+",
+      "meanDelta": 73.8,
+      "fill": 0.321
+     },
+     {
+      "n": 996,
+      "box": [
+       927,
+       525,
+       954,
+       593
+      ],
+      "w": 28,
+      "h": 69,
+      "sign": "-",
+      "meanDelta": -37.5,
+      "fill": 0.516
+     },
+     {
+      "n": 952,
+      "box": [
+       176,
+       573,
+       215,
+       621
+      ],
+      "w": 40,
+      "h": 49,
+      "sign": "+",
+      "meanDelta": 39.2,
+      "fill": 0.486
+     }
+    ]
+   }
+  },
+  {
+   "k": 2,
+   "file": "docs/shots/repeat/reload-golden-02.png",
+   "whiteFrac": 0.1086,
+   "meanLuma": 204.6,
+   "state": {
+    "frames": 15,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 786637
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 73,
+    "bloom": 0.4,
+    "under": {
+     "dist": 40.72,
+     "name": "chunk:0,-1:lod0:facade:bayTower",
+     "parent": "chunk:0,-1:lod0",
+     "matName": "facade:bayTower",
+     "color": "ffffff",
+     "emissive": "ffffff",
+     "emissiveIntensity": 0,
+     "map": true,
+     "mapImage": "1024x1024",
+     "rough": 1,
+     "metal": 1,
+     "instanced": false,
+     "instanceId": null
+    }
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8643.2,
+     "nonFinite": 2711
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11121.8,
+     "nonFinite": 1
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 10027.9,
+     "nonFinite": 312
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50432,
+     "mean": 10964.2,
+     "nonFinite": 675
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": {
+    "nPos": 43776,
+    "nNeg": 14264,
+    "regions": [
+     {
+      "n": 11477,
+      "box": [
+       1423,
+       626,
+       1599,
+       737
+      ],
+      "w": 177,
+      "h": 112,
+      "sign": "+",
+      "meanDelta": 62,
+      "fill": 0.579
+     },
+     {
+      "n": 4228,
+      "box": [
+       1008,
+       529,
+       1106,
+       681
+      ],
+      "w": 99,
+      "h": 153,
+      "sign": "+",
+      "meanDelta": 54.3,
+      "fill": 0.279
+     },
+     {
+      "n": 2665,
+      "box": [
+       1360,
+       568,
+       1474,
+       638
+      ],
+      "w": 115,
+      "h": 71,
+      "sign": "-",
+      "meanDelta": -50,
+      "fill": 0.326
+     },
+     {
+      "n": 2464,
+      "box": [
+       1099,
+       524,
+       1155,
+       631
+      ],
+      "w": 57,
+      "h": 108,
+      "sign": "-",
+      "meanDelta": -54.2,
+      "fill": 0.4
+     },
+     {
+      "n": 1427,
+      "box": [
+       1482,
+       532,
+       1530,
+       615
+      ],
+      "w": 49,
+      "h": 84,
+      "sign": "-",
+      "meanDelta": -61.9,
+      "fill": 0.347
+     },
+     {
+      "n": 1242,
+      "box": [
+       1323,
+       560,
+       1355,
+       641
+      ],
+      "w": 33,
+      "h": 82,
+      "sign": "-",
+      "meanDelta": -66.5,
+      "fill": 0.459
+     },
+     {
+      "n": 952,
+      "box": [
+       176,
+       573,
+       215,
+       621
+      ],
+      "w": 40,
+      "h": 49,
+      "sign": "+",
+      "meanDelta": 39.2,
+      "fill": 0.486
+     },
+     {
+      "n": 917,
+      "box": [
+       933,
+       870,
+       1016,
+       899
+      ],
+      "w": 84,
+      "h": 30,
+      "sign": "+",
+      "meanDelta": 39.7,
+      "fill": 0.364
+     }
+    ]
+   }
+  },
+  {
+   "k": 3,
+   "file": "docs/shots/repeat/reload-golden-03.png",
+   "whiteFrac": 0.1115,
+   "meanLuma": 201.2,
+   "state": {
+    "frames": 15,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 773101
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 70,
+    "bloom": 0.4,
+    "under": {
+     "dist": 40.72,
+     "name": "chunk:0,-1:lod0:facade:bayTower",
+     "parent": "chunk:0,-1:lod0",
+     "matName": "facade:bayTower",
+     "color": "ffffff",
+     "emissive": "ffffff",
+     "emissiveIntensity": 0,
+     "map": true,
+     "mapImage": "1024x1024",
+     "rough": 1,
+     "metal": 1,
+     "instanced": false,
+     "instanceId": null
+    }
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8643.2,
+     "nonFinite": 2711
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11121.8,
+     "nonFinite": 1
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 10027.9,
+     "nonFinite": 312
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50432,
+     "mean": 10964.2,
+     "nonFinite": 675
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": {
+    "nPos": 39369,
+    "nNeg": 21449,
+    "regions": [
+     {
+      "n": 10170,
+      "box": [
+       1446,
+       561,
+       1599,
+       737
+      ],
+      "w": 154,
+      "h": 177,
+      "sign": "+",
+      "meanDelta": 64.6,
+      "fill": 0.373
+     },
+     {
+      "n": 4485,
+      "box": [
+       1007,
+       529,
+       1095,
+       669
+      ],
+      "w": 89,
+      "h": 141,
+      "sign": "+",
+      "meanDelta": 60.3,
+      "fill": 0.357
+     },
+     {
+      "n": 4211,
+      "box": [
+       1121,
+       556,
+       1200,
+       665
+      ],
+      "w": 80,
+      "h": 110,
+      "sign": "-",
+      "meanDelta": -56.9,
+      "fill": 0.479
+     },
+     {
+      "n": 2645,
+      "box": [
+       1423,
+       607,
+       1467,
+       709
+      ],
+      "w": 45,
+      "h": 103,
+      "sign": "-",
+      "meanDelta": -64.4,
+      "fill": 0.571
+     },
+     {
+      "n": 1192,
+      "box": [
+       1280,
+       645,
+       1345,
+       679
+      ],
+      "w": 66,
+      "h": 35,
+      "sign": "+",
+      "meanDelta": 46.2,
+      "fill": 0.516
+     },
+     {
+      "n": 1171,
+      "box": [
+       1298,
+       558,
+       1330,
+       633
+      ],
+      "w": 33,
+      "h": 76,
+      "sign": "+",
+      "meanDelta": 53.4,
+      "fill": 0.467
+     },
+     {
+      "n": 1109,
+      "box": [
+       1530,
+       600,
+       1599,
+       644
+      ],
+      "w": 70,
+      "h": 45,
+      "sign": "+",
+      "meanDelta": 46.9,
+      "fill": 0.352
+     },
+     {
+      "n": 939,
+      "box": [
+       459,
+       529,
+       481,
+       597
+      ],
+      "w": 23,
+      "h": 69,
+      "sign": "+",
+      "meanDelta": 33.6,
+      "fill": 0.592
+     }
+    ]
+   }
+  },
+  {
+   "k": 4,
+   "file": "docs/shots/repeat/reload-golden-04.png",
+   "whiteFrac": 0.1086,
+   "meanLuma": 204.6,
+   "state": {
+    "frames": 15,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 768589
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 68,
+    "bloom": 0.4,
+    "under": {
+     "dist": 40.72,
+     "name": "chunk:0,-1:lod0:facade:bayTower",
+     "parent": "chunk:0,-1:lod0",
+     "matName": "facade:bayTower",
+     "color": "ffffff",
+     "emissive": "ffffff",
+     "emissiveIntensity": 0,
+     "map": true,
+     "mapImage": "1024x1024",
+     "rough": 1,
+     "metal": 1,
+     "instanced": false,
+     "instanceId": null
+    }
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8643.2,
+     "nonFinite": 2711
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11121.8,
+     "nonFinite": 1
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 10027.9,
+     "nonFinite": 312
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50432,
+     "mean": 10964.2,
+     "nonFinite": 675
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": {
+    "nPos": 36432,
+    "nNeg": 21325,
+    "regions": [
+     {
+      "n": 7993,
+      "box": [
+       1496,
+       561,
+       1599,
+       736
+      ],
+      "w": 104,
+      "h": 176,
+      "sign": "+",
+      "meanDelta": 67.8,
+      "fill": 0.437
+     },
+     {
+      "n": 4561,
+      "box": [
+       1342,
+       607,
+       1517,
+       719
+      ],
+      "w": 176,
+      "h": 113,
+      "sign": "-",
+      "meanDelta": -59.8,
+      "fill": 0.229
+     },
+     {
+      "n": 4421,
+      "box": [
+       1007,
+       529,
+       1095,
+       669
+      ],
+      "w": 89,
+      "h": 141,
+      "sign": "+",
+      "meanDelta": 59.3,
+      "fill": 0.352
+     },
+     {
+      "n": 2685,
+      "box": [
+       1110,
+       518,
+       1142,
+       664
+      ],
+      "w": 33,
+      "h": 147,
+      "sign": "-",
+      "meanDelta": -59.5,
+      "fill": 0.553
+     },
+     {
+      "n": 1711,
+      "box": [
+       1193,
+       644,
+       1345,
+       681
+      ],
+      "w": 153,
+      "h": 38,
+      "sign": "+",
+      "meanDelta": 40.4,
+      "fill": 0.294
+     },
+     {
+      "n": 1598,
+      "box": [
+       426,
+       510,
+       464,
+       588
+      ],
+      "w": 39,
+      "h": 79,
+      "sign": "+",
+      "meanDelta": 46.3,
+      "fill": 0.519
+     },
+     {
+      "n": 1207,
+      "box": [
+       1561,
+       562,
+       1596,
+       621
+      ],
+      "w": 36,
+      "h": 60,
+      "sign": "-",
+      "meanDelta": -71.8,
+      "fill": 0.559
+     },
+     {
+      "n": 1105,
+      "box": [
+       459,
+       529,
+       481,
+       597
+      ],
+      "w": 23,
+      "h": 69,
+      "sign": "+",
+      "meanDelta": 36.5,
+      "fill": 0.696
+     }
+    ]
+   }
+  },
+  {
+   "k": 5,
+   "file": "docs/shots/repeat/reload-golden-05.png",
+   "whiteFrac": 0.1086,
+   "meanLuma": 204.6,
+   "state": {
+    "frames": 15,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 795661
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 77,
+    "bloom": 0.4,
+    "under": {
+     "dist": 40.72,
+     "name": "chunk:0,-1:lod0:facade:bayTower",
+     "parent": "chunk:0,-1:lod0",
+     "matName": "facade:bayTower",
+     "color": "ffffff",
+     "emissive": "ffffff",
+     "emissiveIntensity": 0,
+     "map": true,
+     "mapImage": "1024x1024",
+     "rough": 1,
+     "metal": 1,
+     "instanced": false,
+     "instanceId": null
+    }
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8640.9,
+     "nonFinite": 2718
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11140.1,
+     "nonFinite": 2
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54016,
+     "mean": 8572.5,
+     "nonFinite": 542
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50176,
+     "mean": 9163.7,
+     "nonFinite": 1251
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": {
+    "nPos": 36358,
+    "nNeg": 22061,
+    "regions": [
+     {
+      "n": 8772,
+      "box": [
+       1420,
+       629,
+       1599,
+       737
+      ],
+      "w": 180,
+      "h": 109,
+      "sign": "+",
+      "meanDelta": 67.2,
+      "fill": 0.447
+     },
+     {
+      "n": 5136,
+      "box": [
+       1329,
+       565,
+       1501,
+       700
+      ],
+      "w": 173,
+      "h": 136,
+      "sign": "-",
+      "meanDelta": -57.4,
+      "fill": 0.218
+     },
+     {
+      "n": 3927,
+      "box": [
+       1024,
+       529,
+       1095,
+       669
+      ],
+      "w": 72,
+      "h": 141,
+      "sign": "+",
+      "meanDelta": 58.2,
+      "fill": 0.387
+     },
+     {
+      "n": 2229,
+      "box": [
+       1538,
+       562,
+       1596,
+       627
+      ],
+      "w": 59,
+      "h": 66,
+      "sign": "-",
+      "meanDelta": -66.4,
+      "fill": 0.572
+     },
+     {
+      "n": 2223,
+      "box": [
+       1157,
+       559,
+       1201,
+       661
+      ],
+      "w": 45,
+      "h": 103,
+      "sign": "-",
+      "meanDelta": -48.9,
+      "fill": 0.48
+     },
+     {
+      "n": 1585,
+      "box": [
+       426,
+       510,
+       463,
+       588
+      ],
+      "w": 38,
+      "h": 79,
+      "sign": "+",
+      "meanDelta": 44.9,
+      "fill": 0.528
+     },
+     {
+      "n": 1344,
+      "box": [
+       1500,
+       531,
+       1540,
+       625
+      ],
+      "w": 41,
+      "h": 95,
+      "sign": "-",
+      "meanDelta": -57.4,
+      "fill": 0.345
+     },
+     {
+      "n": 952,
+      "box": [
+       176,
+       573,
+       215,
+       621
+      ],
+      "w": 40,
+      "h": 49,
+      "sign": "+",
+      "meanDelta": 39.2,
+      "fill": 0.486
+     }
+    ]
+   }
+  },
+  {
+   "k": 6,
+   "file": "docs/shots/repeat/reload-golden-06.png",
+   "whiteFrac": 0.1086,
+   "meanLuma": 204.6,
+   "state": {
+    "frames": 16,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 764077
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 83,
+    "bloom": 0.4,
+    "under": {
+     "dist": 40.72,
+     "name": "chunk:0,-1:lod0:facade:bayTower",
+     "parent": "chunk:0,-1:lod0",
+     "matName": "facade:bayTower",
+     "color": "ffffff",
+     "emissive": "ffffff",
+     "emissiveIntensity": 0,
+     "map": true,
+     "mapImage": "1024x1024",
+     "rough": 1,
+     "metal": 1,
+     "instanced": false,
+     "instanceId": null
+    }
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8640.9,
+     "nonFinite": 2718
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11140.1,
+     "nonFinite": 2
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54016,
+     "mean": 8572.5,
+     "nonFinite": 542
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50176,
+     "mean": 9163.7,
+     "nonFinite": 1251
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": {
+    "nPos": 33204,
+    "nNeg": 13557,
+    "regions": [
+     {
+      "n": 5740,
+      "box": [
+       1008,
+       529,
+       1106,
+       682
+      ],
+      "w": 99,
+      "h": 154,
+      "sign": "+",
+      "meanDelta": 55.9,
+      "fill": 0.376
+     },
+     {
+      "n": 2403,
+      "box": [
+       1544,
+       538,
+       1596,
+       630
+      ],
+      "w": 53,
+      "h": 93,
+      "sign": "-",
+      "meanDelta": -66.6,
+      "fill": 0.488
+     },
+     {
+      "n": 1969,
+      "box": [
+       1351,
+       565,
+       1397,
+       644
+      ],
+      "w": 47,
+      "h": 80,
+      "sign": "-",
+      "meanDelta": -66.9,
+      "fill": 0.524
+     },
+     {
+      "n": 1757,
+      "box": [
+       1548,
+       645,
+       1599,
+       737
+      ],
+      "w": 52,
+      "h": 93,
+      "sign": "+",
+      "meanDelta": 76.5,
+      "fill": 0.363
+     },
+     {
+      "n": 1312,
+      "box": [
+       1522,
+       656,
+       1563,
+       730
+      ],
+      "w": 42,
+      "h": 75,
+      "sign": "-",
+      "meanDelta": -49.9,
+      "fill": 0.417
+     },
+     {
+      "n": 1295,
+      "box": [
+       1233,
+       549,
+       1261,
+       642
+      ],
+      "w": 29,
+      "h": 94,
+      "sign": "-",
+      "meanDelta": -54.8,
+      "fill": 0.475
+     },
+     {
+      "n": 1259,
+      "box": [
+       1485,
+       562,
+       1546,
+       627
+      ],
+      "w": 62,
+      "h": 66,
+      "sign": "+",
+      "meanDelta": 68.8,
+      "fill": 0.308
+     },
+     {
+      "n": 1249,
+      "box": [
+       426,
+       519,
+       455,
+       588
+      ],
+      "w": 30,
+      "h": 70,
+      "sign": "+",
+      "meanDelta": 42.5,
+      "fill": 0.595
+     }
+    ]
+   }
+  },
+  {
+   "k": 7,
+   "file": "docs/shots/repeat/reload-golden-07.png",
+   "whiteFrac": 0.1086,
+   "meanLuma": 204.6,
+   "state": {
+    "frames": 16,
+    "render": {
+     "calls": 223,
+     "sceneCalls": 215,
+     "postPasses": 8,
+     "triangles": 791149
+    },
+    "aa": {
+     "mode": "msaa",
+     "samples": 4,
+     "fxaaPass": false,
+     "rendererAntialias": false,
+     "width": 1600,
+     "height": 900
+    },
+    "canvas": [
+     1600,
+     900,
+     1600,
+     900
+    ],
+    "dpr": 1,
+    "world": {
+     "queue": 0
+    },
+    "traffic": null,
+    "peds": 86,
+    "bloom": 0.4,
+    "under": {
+     "dist": 40.72,
+     "name": "chunk:0,-1:lod0:facade:bayTower",
+     "parent": "chunk:0,-1:lod0",
+     "matName": "facade:bayTower",
+     "color": "ffffff",
+     "emissive": "ffffff",
+     "emissiveIntensity": 0,
+     "map": true,
+     "mapImage": "1024x1024",
+     "rough": 1,
+     "metal": 1,
+     "instanced": false,
+     "instanceId": null
+    }
+   },
+   "targets": {
+    "full": [
+     1600,
+     900
+    ],
+    "hdr": {
+     "w": 211,
+     "h": 91,
+     "max": 65504,
+     "mean": 8640.9,
+     "nonFinite": 2718
+    },
+    "bright": {
+     "w": 106,
+     "h": 46,
+     "max": 54176,
+     "mean": 11140.1,
+     "nonFinite": 2
+    },
+    "blurA": {
+     "w": 106,
+     "h": 46,
+     "max": 54016,
+     "mean": 8572.5,
+     "nonFinite": 542
+    },
+    "blurB": {
+     "w": 106,
+     "h": 46,
+     "max": 50176,
+     "mean": 9163.7,
+     "nonFinite": 1251
+    },
+    "ao": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 207.8,
+     "nonFinite": 0
+    },
+    "aoBlur": {
+     "w": 106,
+     "h": 46,
+     "max": 255,
+     "mean": 208,
+     "nonFinite": 0
+    },
+    "ldr": null
+   },
+   "diff": {
+    "nPos": 36971,
+    "nNeg": 13000,
+    "regions": [
+     {
+      "n": 10766,
+      "box": [
+       1424,
+       629,
+       1599,
+       737
+      ],
+      "w": 176,
+      "h": 109,
+      "sign": "+",
+      "meanDelta": 62.1,
+      "fill": 0.561
+     },
+     {
+      "n": 1772,
+      "box": [
+       1540,
+       557,
+       1583,
+       628
+      ],
+      "w": 44,
+      "h": 72,
+      "sign": "-",
+      "meanDelta": -71.2,
+      "fill": 0.559
+     },
+     {
+      "n": 1528,
+      "box": [
+       1326,
+       571,
+       1366,
+       638
+      ],
+      "w": 41,
+      "h": 68,
+      "sign": "-",
+      "meanDelta": -65.1,
+      "fill": 0.548
+     },
+     {
+      "n": 1469,
+      "box": [
+       1495,
+       557,
+       1534,
+       628
+      ],
+      "w": 40,
+      "h": 72,
+      "sign": "+",
+      "meanDelta": 61.3,
+      "fill": 0.51
+     },
+     {
+      "n": 933,
+      "box": [
+       459,
+       529,
+       481,
+       594
+      ],
+      "w": 23,
+      "h": 66,
+      "sign": "+",
+      "meanDelta": 33.8,
+      "fill": 0.615
+     },
+     {
+      "n": 928,
+      "box": [
+       733,
+       518,
+       775,
+       591
+      ],
+      "w": 43,
+      "h": 74,
+      "sign": "+",
+      "meanDelta": 38.4,
+      "fill": 0.292
+     },
+     {
+      "n": 917,
+      "box": [
+       933,
+       870,
+       1016,
+       899
+      ],
+      "w": 84,
+      "h": 30,
+      "sign": "+",
+      "meanDelta": 39.7,
+      "fill": 0.364
+     },
+     {
+      "n": 867,
+      "box": [
+       176,
+       573,
+       215,
+       621
+      ],
+      "w": 40,
+      "h": 49,
+      "sign": "+",
+      "meanDelta": 37.9,
+      "fill": 0.442
+     }
+    ]
+   }
+  }
+ ],
+ "pageErrors": [
+  "console: Failed to load resource: the server responded with a status of 404 (Not Found)"
+ ]
+}
