@@ -22,14 +22,39 @@
 //   3. IN USE.    Read the uv of every vertex of a real oak and a real palm out
 //                 of the emitted buffer and check 1 and 2 against what was
 //                 ACTUALLY written, not against what the helpers can write.
-//                 Also reports how many vertices are foliage.
-//   3b. OTHER.    Every prop kind that is NOT foliage, built into a scratch
+//                 Also reports how many vertices are cut, by zone.
+//
+//                 THIS CHECK WAS WIDENED ON PURPOSE, and the change is the
+//                 point rather than a detail. It used to read: a vertex that
+//                 leaves v = 0.5 must address the FOLIAGE column, full stop.
+//                 That was the right assertion while foliage was the only
+//                 surface the stencil cut. The limb tubes are now cut too --
+//                 the bark zone at rows 448..511 frays a tube's silhouette,
+//                 which is a thing no amount of geometry could reach -- so
+//                 bark vertices leave v = 0.5 by design and the old form
+//                 reported 10,038 of them as misaddressed.
+//
+//                 The property being protected has NOT been relaxed. It was
+//                 never "only foliage may be cut"; it was "a vertex that leaves
+//                 the guard band still lands in the palette column it asked
+//                 for", because a leaf that drifts one texel comes back with
+//                 chrome's roughness. That is now stated per ZONE: a v inside
+//                 the oak or palm zones must carry the foliage column, a v
+//                 inside the bark zone must carry the bark column, and a v
+//                 anywhere else must be the opaque guard. It is a strictly
+//                 stronger statement than the old one -- the old check could
+//                 not have caught a bark vertex landing in the SABAL zone, and
+//                 this one does.
+//   3b. OTHER.    Every prop kind that is NOT a tree, built into a scratch
 //                 buffer and checked vertex by vertex. alphaTest can only
 //                 discard, so a prop sampling alpha 1.0 everywhere draws
 //                 exactly the pixels it drew before the stencil existed --
 //                 which is a stronger statement than a screenshot diff, and it
 //                 covers all seventeen kinds rather than the handful a frame
-//                 happens to contain.
+//                 happens to contain. Unchanged by the bark round: bark is only
+//                 written by the two tree kinds, and the PALM trunk -- a
+//                 separate emitter, palmTrunk, which the fringe does not touch
+//                 -- still writes v = 0.5 and is checked as guard under 3.
 //   4. COVERAGE.  The duty of each zone -- what fraction of a stamp survives --
 //                 because a mask that cuts 80% of every plate is a skeleton and
 //                 the frame is the last place you want to discover that.
@@ -105,11 +130,29 @@ console.log(`2. COLUMN   every maskU stays in its own texel; worst margin `
   + `${(worstMargin * PAL_W).toFixed(3)} mask columns of ${MASK_K}`);
 
 // ---- 3. what the emitters actually wrote
+//
+// Which zone a v falls in, and which palette column that zone is cut for. A v
+// that is not in any zone must be the guard band, and is checked as opaque.
+// Written off the kit's own row constants so it cannot drift from the atlas.
+const ZONES = [
+  ['oak', 0, K.OAK_STAMPS * K.STAMP_H, K.S.foliage],
+  ['queen', K.QUEEN_V0, K.QUEEN_V0 + K.COMB_H, K.S.foliage],
+  ['sabal', K.SABAL_V0, K.SABAL_V0 + K.COMB_H, K.S.foliage],
+  ['bark', K.BARK_V0, K.BARK_V0 + K.BARK_H, K.S.bark],
+];
+const zoneOf = (v) => {
+  const row = v * K.AH - 0.5;
+  for (const [name, y0, y1, surf] of ZONES) {
+    if (row >= y0 - 0.5 && row <= y1 - 0.5) return { name, surf };
+  }
+  return null;
+};
 K.setOakRoute(JSON.parse(fs.readFileSync('data/district.json', 'utf8')).meta.route);
 const rows = [];
 for (const [name, at] of [['oak', [118, -170]], ['palm', [0, 400]]]) {
   const f = K.frame(at[0], at[1], 0, 1, -1, 0);
   let n = 0, foliage = 0, off = 0, cutOpaque = 0, minA = 1, sumA = 0;
+  let barkN = 0, barkMin = 1, barkSum = 0;
   for (let k = 0; k < 240; k++) {
     const key = k * 977 + 13;
     const p = K.treeParams(key, at[0], at[1]);
@@ -121,27 +164,36 @@ for (const [name, at] of [['oak', [118, -170]], ['palm', [0, 400]]]) {
     for (let i = 0; i < buf.uv.length; i += 2) {
       const u = buf.uv[i], v = buf.uv[i + 1];
       const col = Math.floor(u * PAL_W);
-      // Every vertex must still resolve to the palette entry it asked for.
-      // Foliage is the only surface allowed to leave v = 0.5.
-      if (v !== 0.5) {
+      // Every vertex must still resolve to the palette entry it asked for, and
+      // the entry it must resolve to is the one its ZONE belongs to. `zoneOf`
+      // is the whole widening: it names the zone a v falls in, and the surface
+      // that zone is cut for.
+      const z = zoneOf(v);
+      if (z === null) { if (sample(u, v) < 0.999) off++; continue; }
+      if (col !== z.surf) off++;
+      const a = sample(u, v);
+      if (z.surf === K.S.bark) {
+        barkN++; barkMin = Math.min(barkMin, a); barkSum += a;
+      } else {
         foliage++;
-        if (col !== K.S.foliage) off++;
-        const a = sample(u, v);
         minA = Math.min(minA, a); sumA += a;
         if (a >= 0.999) cutOpaque++;
-      } else if (sample(u, v) < 0.999) off++;
+      }
     }
     if (n >= 40) break;
   }
   check(off === 0, `${name}: ${off} vertices address the wrong palette column or a cut guard`);
   rows.push([name, n, foliage, off, minA, sumA / Math.max(1, foliage),
-    cutOpaque / Math.max(1, foliage)]);
+    cutOpaque / Math.max(1, foliage), barkN, barkMin, barkSum / Math.max(1, barkN)]);
 }
 console.log('3. IN USE   tier buffers read back, uv by uv');
-for (const [name, n, foliage, off, minA, meanA, opaque] of rows) {
+for (const [name, n, foliage, off, minA, meanA, opaque, bn, bmin, bmean] of rows) {
   console.log(`     ${name.padEnd(5)} ${n} trees   ${foliage} foliage vertices   `
     + `${off} misaddressed   alpha at those uv: min ${minA.toFixed(3)} `
     + `mean ${meanA.toFixed(3)}   ${(100 * opaque).toFixed(0)}% land on solid mask`);
+  console.log(`           ${String(bn).padStart(6)} bark vertices  `
+    + (bn ? `alpha min ${bmin.toFixed(3)} mean ${bmean.toFixed(3)}`
+      : 'none - this emitter writes no fringe'));
 }
 
 // ---- 3b. EVERY OTHER PROP KIND, not just the two that carry foliage.
@@ -183,6 +235,7 @@ const zones = [
   ['oak stamps', 0, K.OAK_STAMPS * K.STAMP_H],
   ['queen comb', K.QUEEN_V0, K.QUEEN_V0 + K.COMB_H],
   ['sabal comb', K.SABAL_V0, K.SABAL_V0 + K.COMB_H],
+  ['bark fringe', K.BARK_V0, K.BARK_V0 + K.BARK_H],
 ];
 console.log('4. COVERAGE fraction of each zone the stencil KEEPS (1 - duty)');
 for (const [name, a, b] of zones) console.log(`     ${name.padEnd(12)} ${duty(a, b).toFixed(3)}`);
@@ -208,6 +261,6 @@ if (BREAK) {
     : '\nSELFTEST FAIL - the guard band was cut and every check still passed');
   process.exit(fail > 0 ? 0 : 1);
 }
-console.log(fail === 0 ? '\nMASK PASS - the stencil cuts foliage and nothing else'
+console.log(fail === 0 ? '\nMASK PASS - the stencil cuts foliage and bark, and nothing else'
   : `\nMASK FAIL - ${fail} checks`);
 process.exit(fail === 0 ? 0 : 1);

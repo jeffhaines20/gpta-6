@@ -358,6 +358,7 @@ function straightEdges(m, w, h) {
   const onEdge = ([x, y]) => x <= 1 || y <= 1 || x >= w - 2 || y >= h - 2;
   let longest = 0, total = 0, inLong = 0;
   let longestInner = 0, totalInner = 0, inLongInner = 0;
+  const segs = [];
   for (const c of contours) {
     const simp = rdp(c, 1.5);
     for (let i = 0; i + 1 < simp.length; i++) {
@@ -369,7 +370,7 @@ function straightEdges(m, w, h) {
       if (onEdge(a) && onEdge(b)) continue;         // the crop, not the canopy
       totalInner += L;
       if (L > longestInner) longestInner = L;
-      if (L >= 24) inLongInner += L;
+      if (L >= 24) { inLongInner += L; segs.push([Math.round(L), a[0], a[1], b[0], b[1]]); }
     }
   }
   return {
@@ -378,6 +379,14 @@ function straightEdges(m, w, h) {
     longestInner: Math.round(longestInner),
     straightFracInner: totalInner > 0 ? +(inLongInner / totalInner).toFixed(3) : null,
     contours: contours.length,
+    // WHERE the straight edge is, not just how much of it there is. A fraction
+    // that does not move under a change tells you nothing about whether the
+    // change reached the thing the fraction is counting -- and on a bench frame
+    // the shopfront stand-in and the kerb are straight too. Opt-in and unused
+    // by every reported metric: --segments prints the inner runs of 24 px or
+    // more so a run can be attributed to a limb, a wall or a road before any
+    // geometry is cut to chase it.
+    inner: segs,
   };
 }
 
@@ -465,6 +474,7 @@ export function grain(img, box) {
     openFrac: openFrac === null ? null : +openFrac.toFixed(3), interiorRuns,
     longestStraight: st.longestStraight, straightFrac: st.straightFrac,
     longestInner: st.longestInner, straightFracInner: st.straightFracInner,
+    inner: st.inner,
     xings: +crossings(m, w, h).toFixed(2),
     texture: tex === null ? null : +tex.toFixed(4),
   };
@@ -847,6 +857,13 @@ for (const f of loose) {
   const box = arg('crop', null)?.split(',').map(Number) ?? null;
   const r = scoreFile(f, box);
   console.log(`  ${r.file.padEnd(38)} ${fmt(r)}`);
+  if (has('segments') && r.ok) {
+    const by = [...r.inner].sort((a, b) => b[0] - a[0]);
+    console.log(`    ${by.length} inner runs >= 24 px, ${Math.round(by.reduce((a, s) => a + s[0], 0))} px of them`);
+    for (const [L, ax, ay, bx, by2] of by.slice(0, 24)) {
+      console.log(`      ${String(L).padStart(4)} px   (${String(ax).padStart(4)},${String(ay).padStart(3)}) -> (${String(bx).padStart(4)},${String(by2).padStart(3)})`);
+    }
+  }
   (out.files ??= []).push(r);
 }
 

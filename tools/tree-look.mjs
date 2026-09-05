@@ -128,7 +128,24 @@ g.setAttribute('position', new THREE.Float32BufferAttribute(buf.pos, 3));
 g.setAttribute('normal', new THREE.Float32BufferAttribute(buf.nrm, 3));
 g.setAttribute('color', new THREE.Float32BufferAttribute(buf.col, 3));
 g.setAttribute('uv', new THREE.Float32BufferAttribute(buf.uv, 2));
-g.setIndex(buf.idx);
+// DIAGNOSTIC, OFF BY DEFAULT. --drop <palette index> withholds every triangle
+// whose three vertices all address that palette column, so the SAME shipped
+// geometry and the SAME shipped material can be scored with and without one
+// surface. It exists to attribute silhouette straightness between the leaf
+// plates (column 6) and the bark tubes (column 7) on the renderer that ships,
+// rather than in a separate offline rasteriser. P.drop is null on every capture
+// run and the index is then buf.idx untouched.
+let idx = buf.idx;
+if (P.drop !== null && P.drop !== undefined) {
+  const colOf = (i) => Math.floor(buf.uv[i * 2] * 16);
+  idx = [];
+  for (let i = 0; i < buf.idx.length; i += 3) {
+    const a = buf.idx[i], b = buf.idx[i + 1], c = buf.idx[i + 2];
+    if (colOf(a) === P.drop && colOf(b) === P.drop && colOf(c) === P.drop) continue;
+    idx.push(a, b, c);
+  }
+}
+g.setIndex(idx);
 // The shipped material when the kit exports one. The fallback exists so this
 // bench can shoot a BEFORE arm against a checkout that predates the stencil,
 // with the palette's own foliage roughness rather than oak-look.mjs's
@@ -145,7 +162,7 @@ camera.lookAt(P.tgt[0], P.tgt[1], P.tgt[2]);
 renderer.render(scene, camera);
 let lo = Infinity, hi = -Infinity;
 for (let i = 1; i < buf.pos.length; i += 3) { lo = Math.min(lo, buf.pos[i]); hi = Math.max(hi, buf.pos[i]); }
-window.__look = { trees: n, triangles: buf.idx.length / 3, lowestY: lo, highestY: hi,
+window.__look = { trees: n, triangles: idx.length / 3, allTriangles: buf.idx.length / 3, lowestY: lo, highestY: hi,
   cut: !!mesh.material.alphaMap,
   species: Array.from({ length: P.count }, (_, i) => {
     const q = __kit.treeParams(P.seed + i * 977, P.at.x + (i - (P.count - 1) / 2) * P.gap, P.at.z + KERB);
@@ -173,7 +190,9 @@ const v = VIEWS[VIEW] ?? VIEWS.row;
 // (118, -170) is the middle of the measured Main St east tunnel, where the oak
 // profile peaks; (0, 400) is off the corridor, where every key is a palm.
 const at = SPECIES === 'palm' ? { x: 0, z: 400 } : { x: 118, z: -170 };
+const DROP = arg('drop', null);
 const cfg = { ...v, ...(SUNS[SUN] ?? SUNS.golden), view: VIEW, at, seed: 7331,
+  drop: DROP === null ? null : Number(DROP),
   exposure: (SUNS[SUN] ?? SUNS.golden).exposure };
 cfg.cam = [v.cam[0] + at.x, v.cam[1], v.cam[2] + at.z];
 cfg.tgt = [v.tgt[0] + at.x, v.tgt[1], v.tgt[2] + at.z];

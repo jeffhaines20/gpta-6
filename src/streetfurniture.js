@@ -123,7 +123,17 @@ const paletteU = (i) => (i + 0.5) / PAL_W;
 //   rows 192..287   GUARD, opaque: v = 0.5 lands on rows 255/256
 //   rows 288..351   QUEEN palm, pinnate: leaflet comb either side of the rachis
 //   rows 352..415   SABAL palm, costapalmate: fan segments split at the tips
-//   rows 416..511   GUARD, opaque
+//   rows 416..447   GUARD, opaque
+//   rows 448..511   BARK, a fringe at each end of a facet: see BARK_V0
+//
+// THE BARK ZONE IS AT THE FAR END OF THE ATLAS ON PURPOSE. v = 0.5 is row 255,
+// and a mip level averages the block of rows containing it: rows 192..255 merge
+// with 255 at level 6, so a zone in the FIRST guard band would darken the
+// opaque guard for anything that ever sampled a coarse mip. Rows 448..511 sit
+// in the other half of the pyramid and do not meet row 255 until the 1 x 1
+// level, where the oak stamps have already met it. Constant-uv props sample mip
+// 0 for ever anyway, but the cheaper of two placements is still the one to
+// take.
 //
 // MASK_K is the TILE WIDTH, and the sweep that sized it was about the number of
 // stencil texels a plate gets across itself: against tools/foliage-grain.mjs,
@@ -189,6 +199,116 @@ const OAK_STAMP_GAIN = 7.0;                 // how far noise may beat the fallof
 const OAK_STAMP_GAP = 0.58;                 // sky inside the mass, above this
 const OAK_STAMP_F = 14.0;                   // top octave, in stamp widths
 const QUEEN_V0 = 288, SABAL_V0 = 352, COMB_H = 64;
+// ------------------------------------------------------------- the bark fringe
+//
+// A TUBE'S SILHOUETTE IS ALWAYS ON A RING VERTEX. Whatever the cross-section,
+// the outline of a swept prism between two stations is the straight edge
+// joining the two EXTREME ring vertices, and the extreme vertex of a projected
+// n-gon is a vertex of it. So the surface that reaches the frame edge is
+// always the surface next to a vertex ray -- which is a fixed place in the
+// tube's own parameterisation, however the camera moves.
+//
+// That is what makes a stencil work on a closed tube, where the obvious worry
+// is that cutting it punches holes through a branch. It does not have to cut
+// anywhere else: each FACET spans one period of this tile, the tile is ragged
+// at both ends of a period and keeps BARK_CORE opaque texels down the middle,
+// and the ends of a period are exactly the two vertex rays. The fringe
+// therefore lands on the silhouette from every angle and the core of the tube
+// stays opaque from every angle. Measured coverage is printed by
+// tools/leaf-mask.mjs.
+//
+// WHY THIS AND NOT MORE GEOMETRY. tools/foliage-grain.mjs splits a contour with
+// Ramer-Douglas-Peucker at 1.5 px and counts runs of 24 px or more, so breaking
+// a straight run means a deviation over 1.5 px at least every 24 px of contour.
+// Subdivision cannot reach that. Two arms were built and measured: at SUB = 3
+// (+259.5 triangles per oak) straightFracInner went 0.122 -> 0.127 on oak-up
+// and 0.120 -> 0.126 on oak-tunnel, and at SUB = 8, with the trunk cut up too
+// and the per-oak triangle count DOUBLED, it went to 0.124 and 0.122. Both are
+// null or slightly worse, and the reason is arithmetic: splitting a 105 px run
+// into 81 + 39 leaves both halves over the 24 px threshold while making the
+// contour longer, so the numerator rises with the denominator. The wander that
+// would bend a limb enough to matter is a multiple of its own radius, and a
+// tube that bends faster than its radius folds -- which the audit caught at 20
+// backfacing triangles the first time it was tried. A texel is the only feature
+// small enough, which is the same conclusion the leaf plates reached.
+const BARK_V0 = 448, BARK_H = 64;
+// HOW MANY TEXELS OF EACH FACET CAN NEVER BE CUT, and this is written as a
+// texel count rather than as a depth because it is the property that has to
+// hold: a hole must not open through a limb. Stated as a depth it did not hold.
+// At a fringe band of half a facet the noise severed fifteen of the zone's
+// sixty-four rows outright -- the whole facet gone, so the whole tube gone at
+// that station, and the only reason the close frame did not show gaps was that
+// mipping averaged the severed rows back over the alpha test. That is a defect
+// hiding behind a filter, not a solid tube. So the core is subtracted first and
+// the band is whatever is left over, and BARK_CORE texels down the middle of
+// every facet are opaque whatever the noise does.
+const BARK_CORE = 2;
+//
+// THE FIRST CUT OF THIS WAS FAR TOO TIMID AND MEASURED AS NOTHING. It kept
+// 95.9% of the zone -- a mean bite of 2% of a facet, which on a 20-40 px facet
+// is under half a pixel, against a metric that splits a contour at 1.5 px. It
+// scored 0.122 -> 0.129 on oak-up, i.e. null. The amplitude the outline needs
+// is not "a nibble", it is a bite of several pixels that SWINGS: what breaks a
+// run is the variation along the edge, not the mean depth, and the mean depth
+// is only the price.
+
+// How much of the band the noise actually swings across, and where the swing is
+// centred. AMP 1.0 would put the mean at half the band with a gentle wander,
+// and a gentle wander is worth nothing here: the composite noise has a standard
+// deviation of about 0.12, so at AMP 1.9 the depth moved by +/- 0.055 of a
+// facet, which on a 20-40 px facet is +/- 1 to 2 px against a metric that
+// splits a contour at 1.5. Measured, and it read as a limb that had been made
+// THINNER and was still a straight rod.
+//
+// SWING IS WHAT BREAKS A RUN; MEAN DEPTH IS ONLY THE PRICE. So AMP is driven
+// hard enough to sit at both rails and BIAS pulls the duty below half, which
+// buys a big excursion for a small average bite: the edge is untouched for a
+// stretch and then bitten to the full band, rather than being uniformly eaten.
+const BARK_AMP = 2.30, BARK_BIAS = 0.50;
+// The bite costs width, and width is canopy mass. FAT gives it back on the
+// RADIUS, which is free -- it moves existing vertices -- so the limb reads at
+// about the thickness it read at before and the fringe is spent on the outline
+// rather than on thinning the tree. It is bounded by the clearance audit, not
+// by taste: every extra centimetre of radius is a centimetre off the 0.21 m of
+// soffit and 0.28 m of frontage headroom the tiers currently hold.
+const BARK_FAT = 1.08;
+// A FACET IS A DOZEN TEXELS WIDE, NOT SIXTY-FOUR, and this is the single thing
+// that decides whether any of the rest of it renders.
+//
+// A limb is thin. On the close bench the near primary is 13 px across in the
+// metric's own normalised space, so one facet of a 3-gon is 6 to 10 px. Spread
+// the tile's 64 columns over that and u is minified 6 to 8 times: at mip 0 the
+// fragment point-samples a mask whose features are a sixth of a pixel, which is
+// speckle, and at any coarser mip the hardware averages the fringe into a
+// smooth alpha ramp and alphaTest turns that ramp into a clean STRAIGHT edge a
+// couple of pixels in from where the tube was. That is exactly what the first
+// four cuts of this rendered: a limb uniformly thinned and just as straight,
+// with the measured edge marching monotonically down sixty rows.
+//
+// So the pattern is built with a period of BARK_P columns and a facet is mapped
+// to exactly one period. One texel is then about one pixel on a close limb, the
+// fringe renders as the shape it was authored as, and it still mips away into
+// the solid core at distance, which is what the far tier wants. The remaining
+// copies across the tile exist only so the tile stays self-consistent under
+// linear filtering, the same argument that replicates it under every palette
+// column.
+const BARK_P = 12;
+// Top octave, in zone heights. The depth is a function of the along-tube
+// coordinate ONLY (see the symmetry note in the generator), so there is one
+// frequency to set and it is the one that decides whether a run is broken:
+// t cells are BARK_H/(BARK_F*BARK_TA) = 2.1 rows, a segment spends the whole
+// zone, and on a close limb that is a feature every 12 to 18 px -- inside the
+// metric's 24 px run. Two rows is also the Nyquist floor for the zone.
+const BARK_F = 20.0, BARK_TA = 1.50;
+// How many rows of the zone are reserved for the per-ray and per-tube offsets,
+// so the along-tube walk still has BARK_H - BARK_JOG rows to travel and never
+// leaves the zone.
+const BARK_JOG = 20;
+// Rows between one vertex ray's cut profile and the next, so the two sides of a
+// limb are not bitten in the same places.
+const BARK_RAY = 3;
+// The one switch that reverts the fringe alone, for the A/B in the ledger.
+const BARK_CUT = 1;
 /**
  * `s` in [0, 1] across `surf`'s own stencil tile, as a texture u.
  *
@@ -376,6 +496,49 @@ function alphaTexture() {
       const split = sg - Math.floor(sg) > 0.86 - 0.30 * t
         && t > 0.30 + 0.26 * h3(Math.floor(sg), 0, 9);
       if (split || t > 0.90 + 0.16 * (noise(bu, t, 4, 23) - 0.5)) cut(s, SABAL_V0 + ry);
+    }
+  }
+
+  // ---- bark: a ragged fringe at each end of a facet, solid through the middle.
+  //
+  // The pattern repeats every BARK_P columns and a tube facet is mapped to
+  // exactly one period, so column 0 and column BARK_P-1 are the two VERTEX RAYS
+  // -- and a tube's silhouette is always on a vertex ray, whatever the camera
+  // does. `edge` is the distance to the nearer ray in texels; the middle
+  // BARK_CORE texels are never touched, and `depth` eats into what is left.
+  //
+  // DEPTH IS A FUNCTION OF THE ALONG-TUBE COORDINATE ALONE. That is not
+  // laziness, it is what makes the cut symmetric at a ray. Two facets meet at
+  // every ray; if one is bitten there and its neighbour is not, the neighbour's
+  // outer column survives with nothing behind it and renders as a one-pixel
+  // splinter of limb standing off in the sky. Depth independent of the across-
+  // facet coordinate cuts both sides of every ray to the same line, so a bite
+  // removes a whole wedge and leaves no orphan. It gives up nothing the outline
+  // wanted: what breaks a straight run is variation ALONG the limb.
+  //
+  // Two octaves, weighted hard to the top one. The coarse octaves are what made
+  // the depth sit at a rail for twenty and forty rows at a time -- a stretch of
+  // limb uniformly eaten and then a stretch untouched, both of them straight.
+  // What breaks a run is the depth CHANGING inside 24 px, so the octave whose
+  // cells are two rows carries the amplitude and the coarse one only leans it.
+  const band = (BARK_P - BARK_CORE) / 2;                    // texels each side
+  for (let ry = 0; ry < BARK_H; ry++) {
+    const nt = ((ry + 0.5) / BARK_H) * BARK_TA;
+    const nz = 0.14 * noise(0.5, nt, BARK_F * 0.27, 907)
+      + 0.86 * noise(0.5, nt, BARK_F, 1013);
+    let depth = band * Math.max(0, Math.min(1, BARK_BIAS + BARK_AMP * (nz - 0.5)));
+    // A BITE UNDER ONE TEXEL IS NOT A BITE, IT IS A HAIRLINE. Where the depth
+    // lands inside the first texel the outer column survives while the rows
+    // around it are cut two and three deep, and what renders is a one-pixel
+    // strip standing off the limb. Snapping those to zero costs the outline
+    // nothing and removed the last artefact in the close frame that read as a
+    // defect rather than as bark.
+    if (depth < 1) depth = 0;
+    if (depth <= 0) continue;
+    for (let s = 0; s < MASK_K; s++) {
+      const col = s % BARK_P;
+      const edge = Math.min(col, BARK_P - 1 - col) + 0.5;   // texels from the ray
+      if (edge < Math.min(depth, band)) cut(s, BARK_V0 + ry);
     }
   }
 
@@ -1399,6 +1562,214 @@ function oakCtx(p) {
   };
 }
 
+// ------------------------------------------------------------------ the gnarl
+//
+// A SWEPT PRISM HAS A DEAD STRAIGHT SILHOUETTE and that is what the limbs were.
+// The outline of a tube on screen is a chain of PROJECTED MESH EDGES, one per
+// segment per side: whatever the cross-section is, the boundary between station
+// i and station i+1 is the single straight edge joining the two extreme ring
+// vertices. A primary limb had three stations, so two runs; a twig had two, so
+// ONE straight run from base to tip. Once the leaf stencil made the canopy
+// porous, those runs are the straightest thing in a close frame.
+//
+// Measured on the shipped renderer, not in a simulator: tools/tree-look.mjs
+// --drop 7 withholds every bark triangle from the SAME geometry through the
+// SAME material, so leaves-in-situ can be scored against leaves-plus-bark.
+// straightFracInner at golden --
+//
+//   oak-tunnel   0.056 leaves only   ->  0.120 with bark
+//   oak-up       0.089 leaves only   ->  0.122 with bark
+//   oak-row      0.054 leaves only   ->  0.054 with bark
+//
+// and --drop 6, the bark skeleton alone, reads 0.698 on the tunnel and 0.878 on
+// the row. On the tunnel view the tubes contribute more of what is left than
+// the leaves do.
+//
+// FOUR KNOBS, AND ONLY ONE OF THEM CAN BREAK A STRAIGHT RUN ON ITS OWN.
+// Radius modulation, cross-section jitter and phase drift all move the ENDS of
+// a run; none of them puts a corner in the MIDDLE of one, because there is no
+// vertex in the middle of one to move. So SUB is load-bearing and the other
+// three are what stop a subdivided straight tube from being a straight tube
+// with more vertices in it -- subdivision alone inserts COLLINEAR stations and
+// measures as no change at all. Both halves were run separately; see the ledger.
+//
+//   SUB   sub-segments per authored segment. 1 disables the whole gnarl.
+//   W     centreline wander at inserted stations, as a fraction of the LOCAL
+//         RADIUS -- never of the segment length. Bounding the wander by the
+//         tube's own thickness is what keeps the clearance caps honest: every
+//         vertex stays inside (1 + W + X) radii of the authored polyline, so
+//         the worst case is a known multiple of a radius the caller already
+//         lifted its stations by, instead of a number that grows with reach.
+//   R     swell and pinch along the limb. Two octaves, per-tube phase.
+//   X     per-vertex cross-section jitter: the ring is an irregular polygon,
+//         so the tube is not a circular prism and its width breathes as it
+//         turns. Applied to the RADIUS only; the vertex normal stays radial, so
+//         the smooth-around-the-axis shading that makes a 3-gon read round is
+//         untouched.
+//   P     phase drift per station. A bounded random walk, not a free choice per
+//         ring: a ring that can jump anywhere shears the quad that spans it and
+//         that is how this file has produced backfacing triangles twice. The
+//         step is capped well inside the half-sector 180/sides.
+//   MINL  the aspect-ratio floor that decides how many sub-segments a segment
+//         may actually take. A TUBE CANNOT BEND FASTER THAN ITS OWN RADIUS: put
+//         two rings of radius 0.58 m 0.30 m apart and kink the centreline 30
+//         degrees between them and the rings intersect, the quad spanning them
+//         inverts, and oak-audit reports it. The first cut of this subdivided
+//         every segment blindly at SUB = 3 and measured 20 backfacing and 8
+//         degenerate triangles per oak far tier -- all of them on the TRUNK,
+//         which is 0.58 m through and 0.9 m long per segment. So a segment is
+//         only cut into as many pieces as leave each piece MINL radii long, and
+//         the wander is bounded by the SUB-SEGMENT as well as by the radius.
+//         The trunk therefore takes no subdivision at all, which is right twice
+//         over: it is the one tube here that is genuinely short and straight,
+//         and it is the 5-gon, so it is the expensive one to cut.
+//
+//         THE FOLD ANGLE IS PART OF THAT FLOOR, and leaving it out is what the
+//         second cut got wrong: 12 backfacing and 5 degenerate survived, every
+//         one of them on a SHORT PRIMARY the frontage cap had stunted, which
+//         turns 100-110 degrees at its middle station. A ring at a fold of
+//         theta is mitred, so its inner vertex sits rad*tan(theta/2) BACK along
+//         the incoming segment -- 0.19 m on a 0.15 m limb at 104 degrees. Put a
+//         new station 0.23 m away and the two rings interpenetrate. So the
+//         floor is (MINL + tan(theta/2)) radii, measured against the sharper of
+//         the segment's two ends, and a sharply folded stub simply keeps its
+//         authored stations. MINL carries the WANDER'S OWN tilt as well as the
+//         aspect ratio: an inserted station displaced by WL of its sub-segment
+//         tilts that sub-segment by atan(WL), which is another fold the ring
+//         has to mitre through, and at 1.15 two limbs out of 400 trees were
+//         still turning over on exactly that margin. It is the same lesson as the parallel transport
+//         above and the hairpin cap in oakLimbs: the folds are where this
+//         geometry breaks, and they break quietly.
+const GNARL_SUB = 1;
+const GNARL_MINL = 1.45;
+const GNARL_W = 0.34;
+const GNARL_WL = 0.20;
+const GNARL_R = 0.20;
+const GNARL_X = 0.20;
+const GNARL_P = 0.22;
+
+/**
+ * Resample an authored polyline into the gnarled one the tube is actually swept
+ * along. The AUTHORED STATIONS ARE FIXED POINTS: only inserted stations wander,
+ * so the tube still passes through every point the caller clamped, every point
+ * oakClumpsOf() hangs a clump on, and every point oak-audit --attach measures
+ * against. Radius modulation applies everywhere, including the authored
+ * stations, because it cannot move a station off the line.
+ */
+function gnarlPath(pts0, seed) {
+  const pts = pts0;
+  const n = pts.length - 1;
+  if (n < 1) return pts.map((q) => [q[0], q[1], q[2], q[3], q[4], GNARL_X, GNARL_P]);
+  const rj = rng32(seed >>> 0);
+  const ph1 = rj() * TAU, ph2 = rj() * TAU;
+  const w1 = 1.7 + rj() * 1.6, w2 = 4.3 + rj() * 2.4;
+  const out = [];
+  const lerpC = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t,
+    a[2] + (b[2] - a[2]) * t];
+  // The mitre allowance at every station: tan(theta/2) of the turn there,
+  // clamped short of the asymptote, and 0 at the two ends where nothing folds.
+  const dirs = [];
+  for (let i = 0; i < n; i++) {
+    const d = [pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1], pts[i + 1][2] - pts[i][2]];
+    const l = Math.hypot(d[0], d[1], d[2]) || 1;
+    dirs.push([d[0] / l, d[1] / l, d[2] / l, l]);
+  }
+  const mitre = pts.map((_, i) => {
+    if (i === 0 || i === n) return 0;
+    const a = dirs[i - 1], b = dirs[i];
+    const c = Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]));
+    return Math.tan(Math.min(1.30, Math.acos(c) / 2));
+  });
+  // HOW MUCH OUT-OF-ROUND A GIVEN RING MAY CARRY. The mitre bound above decides
+  // how many stations a segment gets; this decides how far a VERTEX may be
+  // pushed out once it is there, and it is the same inequality: a ring at a
+  // fold reaches rad*(1 + x)*tan(theta/2) back along the incoming segment, and
+  // if that passes the neighbouring ring the quad between them turns over.
+  // Leaving it out is what put 2 backfacing and 3 degenerate triangles per oak
+  // far tier back when the subdivision was switched off and only the free
+  // levers were left: the jitter was folding the SAME stunted limbs the
+  // subdivision floor had been protecting.
+  const xAllow = (fi, rad) => {
+    const i = Math.round(fi);
+    if (Math.abs(fi - i) > 1e-6 || !mitre[i]) return GNARL_X;
+    const head = Math.min(i > 0 ? dirs[i - 1][3] : Infinity, i < n ? dirs[i][3] : Infinity)
+      / Math.max(1, i > 0 && i < n ? GNARL_SUB : 1);
+    return Math.max(0, Math.min(GNARL_X, head / (rad * mitre[i]) - 1));
+  };
+  // AND HOW MUCH THE RING MAY TURN. A mitred ring is an ellipse in the plane of
+  // the fold, so rotating its vertices about the axis moves them much further
+  // than rad -- and that, not the out-of-round, is what actually reintroduced
+  // the backfacing triangles. Bisected: with P alone switched off the limbs
+  // read 0 backfacing and the one pre-existing degenerate, and with X or R
+  // alone switched off they still read 2 and 3.
+  const pAllow = (fi) => {
+    const i = Math.round(fi);
+    if (Math.abs(fi - i) > 1e-6) return GNARL_P;
+    return GNARL_P / (1 + 4 * mitre[i]);
+  };
+  // AND HOW FAT IT MAY BE PAID BACK. The fringe eats width and FAT gives it
+  // back on the radius, but a fatter ring mitres further, so the same
+  // inequality caps it: applied flat, FAT put a second degenerate triangle per
+  // 400 trees on the same stunted limbs everything else here is about. A
+  // sharply folded stub therefore keeps its authored thickness and pays for
+  // the fringe in width, which is the right trade on a 1.4 m nub.
+  const fatAt = (fi, rad) => {
+    if (!BARK_CUT) return 1;
+    const i = Math.round(fi);
+    if (Math.abs(fi - i) > 1e-6 || !mitre[i]) return BARK_FAT;
+    const head = Math.min(i > 0 ? dirs[i - 1][3] : Infinity, i < n ? dirs[i][3] : Infinity);
+    return Math.max(1, Math.min(BARK_FAT,
+      0.9 * head / (rad * mitre[i] * (1 + GNARL_X))));
+  };
+  for (let i = 0; i < n; i++) {
+    const A = pts[i], B = pts[i + 1];
+    let [tx, ty, tz] = dirs[i];
+    const tl = dirs[i][3];
+    // The mitre reach scales with the ring's ACTUAL radius, and R and X can
+    // each inflate that, so the allowance is taken against the inflated one.
+    const bulge = 1 + GNARL_R + GNARL_X;
+    const need = Math.max((GNARL_MINL + mitre[i] * bulge) * A[3],
+      (GNARL_MINL + mitre[i + 1] * bulge) * B[3], 1e-4);
+    const sub = Math.max(1, Math.min(GNARL_SUB, Math.floor(tl / need)));
+    const wmax = GNARL_WL * (tl / sub);
+    // Any two unit vectors perpendicular to the segment. This basis only has to
+    // be perpendicular, not continuous -- the wander is a position, and the
+    // ring frames are transported from the wandered polyline afterwards.
+    let ex, ey, ez;
+    if (Math.abs(ty) < 0.94) { ex = -tz; ey = 0; ez = tx; }
+    else { ex = 1; ey = 0; ez = 0; }
+    const el = Math.hypot(ex, ey, ez) || 1;
+    ex /= el; ey /= el; ez /= el;
+    const fx = ey * tz - ez * ty, fy = ez * tx - ex * tz, fz = ex * ty - ey * tx;
+    for (let s = 0; s < sub; s++) {
+      const t = s / sub;
+      const u = (i + t) / n;
+      const rad0 = (A[3] + (B[3] - A[3]) * t)
+        * (1 + GNARL_R * (0.64 * Math.sin(w1 * u * TAU + ph1)
+                        + 0.36 * Math.sin(w2 * u * TAU + ph2)));
+      const rad = rad0 * fatAt(i + (s ? 0.5 : 0), rad0);
+      let x = A[0] + (B[0] - A[0]) * t, y = A[1] + (B[1] - A[1]) * t,
+        z = A[2] + (B[2] - A[2]) * t;
+      if (s > 0) {
+        const a = rj() * TAU;
+        const m = Math.min(GNARL_W * rad, wmax) * (0.45 + rj() * 0.55);
+        const dx = (ex * Math.cos(a) + fx * Math.sin(a)) * m;
+        const dy = (ey * Math.cos(a) + fy * Math.sin(a)) * m;
+        const dz = (ez * Math.cos(a) + fz * Math.sin(a)) * m;
+        x += dx; y += dy; z += dz;
+      }
+      out.push([x, y, z, rad, lerpC(A[4], B[4], t), xAllow(i + (s ? 0.5 : 0), rad),
+        pAllow(i + (s ? 0.5 : 0))]);
+    }
+  }
+  const L = pts[n];
+  const lr0 = L[3] * (1 + GNARL_R * (0.64 * Math.sin(w1 * TAU + ph1)
+                                   + 0.36 * Math.sin(w2 * TAU + ph2)));
+  const lr = lr0 * fatAt(n, lr0);
+  out.push([L[0], L[1], L[2], lr, L[4], xAllow(n, lr), pAllow(n)]);
+  return out;
+}
+
 /**
  * A tapering tube swept along a polyline of LOCAL stations, each ring built
  * PERPENDICULAR TO THE LIMB'S OWN DIRECTION. 2 * sides * (n - 1) triangles out
@@ -1433,9 +1804,13 @@ function oakCtx(p) {
  * across. The seed is only used at the first station and where the limb doubles
  * back through a right angle.
  */
-function limbTube(buf, f, pts, sides, phase, surf) {
+function limbTube(buf, f, pts0, sides, phase, surf, seed = 0) {
   const hand = handOf(f);
+  const pts = gnarlPath(pts0, seed);
+  const gj = rng32((seed ^ 0x9e3779b9) >>> 0);
+  const voff = (seed >>> 7) % Math.max(1, BARK_JOG - BARK_RAY * (sides - 1));
   const rows = [];
+  let drift = 0;
   let ux = 0, uy = 0, uz = 0, seeded = false;
   for (let i = 0; i < pts.length; i++) {
     const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
@@ -1457,23 +1832,79 @@ function limbTube(buf, f, pts, sides, phase, surf) {
     seeded = true;
     const vx = uy * tz - uz * ty, vy = uz * tx - ux * tz, vz = ux * ty - uy * tx;
     const P = pts[i], rad = P[3], c = P[4];
-    const row = [];
+    // A BOUNDED RANDOM WALK, capped inside the half-sector, so the quad that
+    // spans two rings can shear but cannot fold. See the note on GNARL_P.
+    // The step is bounded by the SHARPER of the two rings it spans: the quad
+    // that turns over is the one with a mitred ring at one end and a square one
+    // at the other, so damping only the mitred station leaves it at full twist.
+    if (i > 0) {
+      drift += (gj() - 0.5) * 2 * Math.min(Math.PI / sides * 0.8,
+        pts[i - 1][6] ?? GNARL_P, pts[i][6] ?? GNARL_P);
+    }
+    // The ring is built FIRST and emitted second. Under the fringe every ring
+    // position is written twice -- once closing the facet before it and once
+    // opening the facet after it -- and the two copies have to be the same
+    // point or the tube tears along a vertex ray. Building the positions once
+    // and emitting from the array is what guarantees that; recomputing them
+    // inside the emit loop would draw the jitter twice from a moving rng.
+    const R = [];
     for (let s = 0; s < sides; s++) {
-      const ang = phase + (s / sides) * TAU;
+      const ang = phase + drift + (s / sides) * TAU;
       const ca = Math.cos(ang), sa = Math.sin(ang);
       const nx = ux * ca + vx * sa, ny = uy * ca + vy * sa, nz = uz * ca + vz * sa;
-      const px = P[0] + nx * rad, pz = P[2] + nz * rad;
-      row.push(vertC(buf, wx(f, px, pz), P[1] + ny * rad, wz(f, px, pz),
-        nx * f.ox + nz * f.ax, ny, nx * f.oz + nz * f.az, c[0], c[1], c[2], surf));
+      // Out of round. The normal stays radial on purpose: it is the smooth
+      // shading around the axis that lets three sides read as a rod, and the
+      // jitter is meant to be seen in the OUTLINE, not in a facet.
+      const rr = rad * (1 + (P[5] ?? GNARL_X) * (gj() - 0.5) * 2);
+      R.push([P[0] + nx * rr, P[1] + ny * rr, P[2] + nz * rr,
+        nx * f.ox + nz * f.ax, ny, nx * f.oz + nz * f.az]);
     }
-    rows.push(row);
+    const put = (q, uv) => vertC(buf, wx(f, q[0], q[2]), q[1], wz(f, q[0], q[2]),
+      q[3], q[4], q[5], c[0], c[1], c[2], surf, uv);
+    if (!BARK_CUT) {
+      rows.push({ a: R.map((q) => put(q)), b: null });
+      continue;
+    }
+    // v WALKS THE WHOLE ZONE ONCE PER SEGMENT, not once per tube, and the
+    // direction ALTERNATES so consecutive stations sit at opposite ends of it.
+    // That is the whole resolution argument. The zone is BARK_H rows; spending
+    // them over a whole limb puts one noise cell across most of its visible
+    // length, which is exactly what the first deep cut looked like -- a limb
+    // that had been thinned and was still a straight rod. Spending them over
+    // each SEGMENT is 2 to 3 times finer, and the alternation is what makes
+    // that free: a station shared by two segments has ONE v, the end of one
+    // traversal and the start of the next, so no ring has to be duplicated and
+    // no quad ever has v sweeping backwards across it.
+    const fa = [], fb = [];
+    const end = (i & 1) ? BARK_H - 0.6 - BARK_JOG : 0.6;
+    for (let k = 0; k < sides; k++) {
+      // THE OFFSET IS PER RAY, NOT PER FACET. Two facets meet at every vertex
+      // ray and both must be cut to the same line there or the shallower one
+      // leaves an orphan sliver -- that was the only artefact left in the close
+      // frame. Indexing the offset by the RAY gives both facets at a ray the
+      // same v while still letting the two SIDES of a limb be cut differently,
+      // which a per-facet offset could not do and a flat offset threw away.
+      // The ramp is BARK_RAY rows across a facet against 43 along the tube, so
+      // the along-tube mapping is untouched.
+      const row = (r) => maskV(BARK_V0 + end + voff + BARK_RAY * r);
+      fa.push(put(R[k], [maskU(surf, 0), row(k)]));
+      fb.push(put(R[(k + 1) % sides],
+        [maskU(surf, BARK_P / (MASK_K - 1)), row((k + 1) % sides)]));
+    }
+    rows.push({ a: fa, b: fb });
   }
   for (let s = 0; s + 1 < rows.length; s++) {
     const A = rows[s], B = rows[s + 1];
     for (let i = 0; i < sides; i++) {
       const j = (i + 1) % sides;
-      tri(buf, hand, A[i], B[j], A[j]);
-      tri(buf, hand, A[i], B[i], B[j]);
+      // Facet i spans ring vertex i to ring vertex i+1. Without the fringe both
+      // ends are the shared ring vertex; with it, `a[i]` is the facet's own
+      // copy of vertex i and `b[i]` its own copy of vertex i+1, and the winding
+      // is the one this function has always had.
+      const Ai = A.a[i], Aj = A.b ? A.b[i] : A.a[j];
+      const Bi = B.a[i], Bj = B.b ? B.b[i] : B.a[j];
+      tri(buf, hand, Ai, Bj, Aj);
+      tri(buf, hand, Ai, Bi, Bj);
     }
   }
 }
@@ -1899,7 +2330,7 @@ function oakTrunk(buf, f, p) {
     [p.lean * 0.45, BASE_Y + (p.forkY - BASE_Y) * 0.55, p.leanZ * 0.45,
       p.trunkR * 1.02, shade(0.92)],
     [p.lean, p.forkY + p.trunkR * 0.30, p.leanZ, p.trunkR * 0.86, shade(1.0)],
-  ], 5, p.phase, S.bark);
+  ], 5, p.phase, S.bark, hash32('trunk', p.key));
 }
 
 /**
@@ -2188,7 +2619,7 @@ function oakFar(buf, f, p) {
     0x5a4a35, S.concrete);
   oakTrunk(buf, f, p);
   const limbs = oakLimbs(p);
-  for (const lb of limbs) limbTube(buf, f, lb.pts, 3, p.phase, S.bark);
+  for (const lb of limbs) limbTube(buf, f, lb.pts, 3, p.phase, S.bark, lb.seed);
   const ctx = oakCtx(p);
   for (const c of oakClumpsOf(p, limbs, p.nClump, 0)) leafClump(buf, f, c, ctx);
 }
@@ -2217,7 +2648,7 @@ function oakFar(buf, f, p) {
 function oakNear(buf, f, p) {
   const limbs = oakLimbs(p);
   const twigs = oakTwigs(p, limbs);
-  for (const tw of twigs) limbTube(buf, f, tw.pts, 3, p.phase + 1.1, S.bark);
+  for (const tw of twigs) limbTube(buf, f, tw.pts, 3, p.phase + 1.1, S.bark, tw.seed);
   const ctx = oakCtx(p);
   for (const c of oakClumpsOf(p, twigs, p.nInfill, 1)) leafClump(buf, f, c, ctx);
 }
@@ -3812,7 +4243,7 @@ export const __kit = {
   // copy of the addressing arithmetic in the tool would drift from the one that
   // cut the leaves, which is the lesson at the top of this export block.
   alphaTexture, maskU, maskV, ALPHA_TEST, MASK_K, AW, AH,
-  OAK_STAMPS, STAMP_H, QUEEN_V0, SABAL_V0, COMB_H,
+  OAK_STAMPS, STAMP_H, QUEEN_V0, SABAL_V0, COMB_H, BARK_V0, BARK_H,
   // The SHIPPED material, so a bench frame is lit and cut by the same object
   // the district draws with. tools/oak-look.mjs builds its own lookalike, which
   // was harmless while the material was only a palette lookup and is not any

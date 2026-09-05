@@ -30,6 +30,102 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## Limb tubes: four of five proposed levers measured and rejected
+
+After the leaf plates were fixed, the branches became the straightest thing in a
+close frame - 3-gon swept prisms, which present a dead-straight silhouette from
+any angle and which the leaf stencil never touched.
+
+### The brief was wrong in two places, and the builder measured rather than followed
+
+An opt-in `--drop <palette column>` in `tools/tree-look.mjs` withholds one
+surface from the SAME geometry through the SAME material, so leaves-in-situ can
+be scored against leaves-plus-bark. `straightFracInner`, golden:
+
+| frame | leaves only | shipped | bark alone |
+|---|---|---|---|
+| oak-up | 0.089 | 0.122 | n/a (8% mass) |
+| oak-tunnel | 0.056 | 0.120 | 0.698 |
+| oak-row | 0.054 | 0.054 | 0.878 |
+
+The tubes really are near-totally straight in isolation. But "bark contributes
+more than leaves" holds on oak-tunnel (+0.064 against a 0.056 leaf residual) and
+NOT on oak-up (+0.033 against 0.089), and is zero on oak-row.
+
+And **palms are untouched by anything done to `limbTube`** - palm trunks use a
+separate `palmTrunk` emitter. A new `--segments` mode in `foliage-grain.mjs`
+prints where the >=24 px runs actually are, and on oak-tunnel 711 px of the
+2,026 px of long run - **35%** - is one sabal trunk at frame left, out of this
+round's reach entirely. On oak-up, 232 px of 1,397 is the bench's own shopfront
+wall, a harness artefact that floors that frame at about 0.020 no matter what
+any tree does.
+
+### What the proposed levers actually bought
+
+- **Radius/cross-section jitter**: 0.128 / 0.123, WORSE than baseline. It moves
+  the ends of a straight run, not its middle.
+- **Per-segment phase drift**: no straightness effect, and it folded the tube at
+  sharp bends - 2 backfacing until damped.
+- **More sides, 3 to 4**: +42.0 tris/tree (+504 district), oak-up 0.112 to
+  **0.135**. Worse, and for a reason that generalises: the outline of a swept
+  prism is one straight mesh edge per segment per side whatever n is.
+- **Subdivision**, at two levels. `GNARL_SUB = 3` costs +259.5 tris/tree for
+  0.122 to 0.127. `SUB = 8` with the trunk cut up **doubles** the per-oak count
+  to ~1,942 for 0.124. Null or worse both times, because splitting a 105 px run
+  into 81 + 39 leaves both halves over the 24 px threshold while lengthening the
+  contour.
+
+All four reverted. The stencil was the only mechanism that worked, and it took
+four failed cuts to render: a 4% bite was sub-pixel; driving it to the rails
+pinned depth flat for 20-40 rows; a facet spanning all 64 tile columns minified
+u by 6-8x, so mip 0 point-sampled speckle while coarser mips averaged the fringe
+into a smooth ramp that alphaTest turned back into a straight edge (a facet now
+spans 12 texels); and per-facet offsets left orphan slivers where two facets met.
+At half-facet depth the noise severed 15 of 64 rows outright and only mipping hid
+it - `BARK_CORE` texels are opaque by construction now.
+
+### Result, both times of day, zero triangles
+
+| frame | golden | dusk |
+|---|---|---|
+| oak-up | 0.122 -> **0.112** | 0.132 -> **0.119** |
+| oak-tunnel | 0.120 -> **0.114** | 0.149 -> **0.129** |
+| oak-row | 0.054 -> 0.054 | 0.056 -> 0.056 |
+
+954.9 tris/oak and 295.1/palm, district props 287,732 - bit-identical to
+baseline. D, holesPerK and xings all rise; `canopy-density` moves the right way
+(runs/row up on every frame, meanRun down). Palm frames bit-identical on both
+instruments at both hours.
+
+**One real regression**: `texture` on oak-up, -0.0077 golden and -0.0042 dusk,
+because fraying replaces bark pixels - which carry a strong gradient - with sky.
+Tunnel and row both improve. Not recoverable: more radius payback helps texture
+and breaks the backfacing gate at FAT >= 1.22. Degenerate count went 1 -> 2 per
+400 trees (not backfacing); it persists down to FAT 1.06, so it is a knife-edge
+rather than a threshold.
+
+### The gate was deliberately made stronger
+
+`leaf-mask.mjs` check 3 asserted that any vertex leaving v = 0.5 must address the
+FOLIAGE column, which flagged 10,038 legitimate bark vertices. It now asserts per
+zone: a v in an oak or palm zone carries the foliage column, a v in the bark zone
+the bark column, anything else the opaque guard. Strictly stronger - the old form
+could not have caught a bark vertex landing in the sabal zone. Check 3b untouched;
+`--break` still fires 19 checks.
+
+### Honest limit
+
+The limbs are no longer ruler-straight and the edges carry an irregular 2-4 px
+roughness with no splinters or holes - but they still read as smooth tapered rods,
+not as live oak limbs. At street distance the fringe is sub-pixel and mips away,
+which is why oak-row is unmoved. A harder setting was built (coverage 0.55,
+oak-up 0.109) and REJECTED on looking at it: long slivers peeling off the limb,
+reading as a splintered stick. The milder setting shipped.
+
+What remains straight on these frames is the palm trunk (a different emitter),
+the bench wall (a harness artefact), and limbs left exposed because `covered` is
+0.48 against the photographs' 0.576 - which is the canopy-mass round, not this one.
+
 ## The leaf plates stop reading as cards — by grain, not by the radius I prescribed
 
 The stencil round moved every metric and the close-up still read as flat
