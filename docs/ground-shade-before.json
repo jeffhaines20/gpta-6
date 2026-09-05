@@ -1,0 +1,261 @@
+{
+ "tag": "before",
+ "results": [
+  {
+   "tod": "noon",
+   "sun": {
+    "x": 0.2052,
+    "y": 0.9686,
+    "z": 0.1404,
+    "elevDeg": 75.6
+   },
+   "cam": {
+    "x": 61.2,
+    "y": 5.16,
+    "z": -151.46
+   },
+   "surface": "sidewalk",
+   "constraint": "sidewalk clear2.6 spine0.9",
+   "bench": {
+    "x": 65.45,
+    "z": -158.82,
+    "along": 8,
+    "across": 5,
+    "camBearingDot": 0.997
+   },
+   "tier": "far",
+   "pose": "walk",
+   "pedIdx": 0,
+   "alive": 34,
+   "arms": {
+    "offPed": {
+     "pedScaleX": 0
+    },
+    "offProxy": {
+     "proxy": false
+    },
+    "blobOn": {
+     "blobMesh": true,
+     "blobVisible": false
+    }
+   },
+   "litOK": true,
+   "minLit": 24,
+   "ped": {
+    "darkPct": 51.08,
+    "litMean": 93.06,
+    "shadedMean": 45.53,
+    "samples": 6,
+    "droppedInShade": 0,
+    "edgeWidthM": 1.384,
+    "edgeRange": {
+     "lo": 9.1,
+     "hi": 123.8,
+     "n": 41
+    },
+    "rows": [
+     {
+      "t": 0.733,
+      "on": 34,
+      "off": 85.82,
+      "dark": 60.39,
+      "px": 378
+     },
+     {
+      "t": 0.909,
+      "on": 36.97,
+      "off": 89.62,
+      "dark": 58.75,
+      "px": 379
+     },
+     {
+      "t": 1.086,
+      "on": 39.59,
+      "off": 89.54,
+      "dark": 55.79,
+      "px": 379
+     },
+     {
+      "t": 1.262,
+      "on": 46.75,
+      "off": 94.54,
+      "dark": 50.55,
+      "px": 379
+     },
+     {
+      "t": 1.439,
+      "on": 54.67,
+      "off": 98.83,
+      "dark": 44.68,
+      "px": 374
+     },
+     {
+      "t": 1.615,
+      "on": 61.2,
+      "off": 100.04,
+      "dark": 38.83,
+      "px": 376
+     }
+    ]
+   },
+   "pedBody": {
+    "darkPct": 45.5,
+    "litMean": 93.1,
+    "shadedMean": 50.75,
+    "samples": 6,
+    "droppedInShade": 0,
+    "edgeWidthM": 1.384,
+    "edgeRange": {
+     "lo": 9.1,
+     "hi": 123.8,
+     "n": 41
+    },
+    "rows": [
+     {
+      "t": 0.733,
+      "on": 45.3,
+      "off": 85.96,
+      "dark": 47.3,
+      "px": 378
+     },
+     {
+      "t": 0.909,
+      "on": 45.36,
+      "off": 89.69,
+      "dark": 49.42,
+      "px": 379
+     },
+     {
+      "t": 1.086,
+      "on": 45.17,
+      "off": 89.55,
+      "dark": 49.55,
+      "px": 379
+     },
+     {
+      "t": 1.262,
+      "on": 50.15,
+      "off": 94.54,
+      "dark": 46.96,
+      "px": 379
+     },
+     {
+      "t": 1.439,
+      "on": 56.45,
+      "off": 98.83,
+      "dark": 42.88,
+      "px": 374
+     },
+     {
+      "t": 1.615,
+      "on": 62.04,
+      "off": 100.04,
+      "dark": 37.98,
+      "px": 376
+     }
+    ]
+   },
+   "proxy": {
+    "darkPct": 60.69,
+    "litMean": 130.44,
+    "shadedMean": 51.28,
+    "samples": 1,
+    "droppedInShade": 0,
+    "edgeWidthM": 0.536,
+    "edgeRange": {
+     "lo": 3.9,
+     "hi": 167.9,
+     "n": 41
+    },
+    "rows": [
+     {
+      "t": 0.874,
+      "on": 51.28,
+      "off": 130.44,
+      "dark": 60.68,
+      "px": 1231
+     }
+    ]
+   },
+   "body": {
+    "forearmL": {
+     "r": 139.8,
+     "g": 59.3,
+     "b": 30.4,
+     "lum": 74.3,
+     "n": 22,
+     "vsGround": 1.85
+    },
+    "forearmR": {
+     "r": 41.2,
+     "g": 14.6,
+     "b": 8,
+     "lum": 19.8,
+     "n": 20,
+     "vsGround": 0.49
+    },
+    "upperArmL": {
+     "r": 109.2,
+     "g": 43.2,
+     "b": 22.4,
+     "lum": 55.8,
+     "n": 21,
+     "vsGround": 1.39
+    },
+    "thighL": {
+     "r": 13.8,
+     "g": 12.6,
+     "b": 10.3,
+     "lum": 12.6,
+     "n": 20,
+     "vsGround": 0.31
+    },
+    "torso": {
+     "r": 86.5,
+     "g": 58.5,
+     "b": 36,
+     "lum": 62.8,
+     "n": 19,
+     "vsGround": 1.56
+    },
+    "head": {
+     "r": 154.6,
+     "g": 69.6,
+     "b": 36.4,
+     "lum": 85.3,
+     "n": 18,
+     "vsGround": 2.12
+    },
+    "ground": {
+     "r": 54.4,
+     "g": 37.1,
+     "b": 29,
+     "lum": 40.2,
+     "n": 76
+    }
+   },
+   "nearTier": false,
+   "bare": false,
+   "pedColors": {
+    "skin": "0xc79a72",
+    "shirt": "0xa8562f",
+    "pants": "0x6b6152"
+   },
+   "render": {
+    "calls": 133,
+    "sceneCalls": 125,
+    "postPasses": 8,
+    "triangles": 620557
+   },
+   "noiseFloor": {
+    "ped": -0.03,
+    "proxy": -0.02
+   },
+   "selftest": {
+    "withCast": 60.69,
+    "withoutCast": 57.26
+   }
+  }
+ ],
+ "errors": []
+}

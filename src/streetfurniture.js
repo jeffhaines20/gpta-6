@@ -979,12 +979,12 @@ function propPlanter(buf, f, k) {                                    // 40 tris
 // fake a surface made of ten thousand leaves; the same triangles here are the
 // actual shape of the actual object.
 //
-//   pit slab                                        2 tris
+//   pit slab (2 mulch + 8 edging)                  10 tris
 //   trunk: 5-gon, 3 stations, curved, boot-notched 20
 //   crown bud / spear leaf: 5-gon cone               5
 //   6 fronds x 3 segments x 3 strips x 2            108
 //   -----------------------------------------------------
-//   FAR tier, kind 'tree'                          135   (broadleaf: mean 116)
+//   FAR tier, kind 'tree'                          143   (broadleaf: mean 116)
 //
 //   6 more fronds, interleaved                     108
 //   10 trunk plates (sabal boots / queen scars)     20
@@ -2530,16 +2530,95 @@ function crownCtx(p, gain = 1) {
   };
 }
 
-/** The tree pit: an up-facing quad wound for THIS frame's handedness, which is
- *  why it is not slab(). 2 triangles. */
+// The tree pit's concrete edging, and the grain in its mulch. Both exist because
+// this quad was being READ AS A CAST SHADOW.
+// 1, and the budget gate is why. Counted exactly, offline, by dressing the whole
+// district twice - once against this file and once against HEAD's - the pit is
+// emitted 325 times, so every triangle added here costs 325 district-wide and is
+// counted twice by the gate because props:far is a shadow caster. At 2 cells a
+// side the pit was 8 + 8 = 16 triangles against the old 2, which measured
+// 304,421 -> 308,971 prop triangles, and the gate's own triangle p95 came back at
+// 829,522 against a warn line of 830,000. Most of that closeness is run-to-run
+// variance - the same gate read 795,235 on HEAD - but spending a third of the
+// remaining headroom on mulch grain nobody asked for is not a trade this change
+// gets to make.
+//
+// At 1 cell the mulch is two triangles again, but its FOUR CORNERS still get four
+// different values out of the hash below, so it is a gentle unevenness rather
+// than the dead flat it was. The edging is what does the real work anyway.
+const PIT_CELLS = 1;                 // mulch cells per side: 2 triangles, 4 corner values
+const PIT_KERB = 0.13;               // width of the edging band, m: one paver
+const PIT_KERB_HEX = 0x8e8a80;       // pale precast concrete, lighter than brick
+
+/**
+ * The tree pit: mulch inside a concrete edging, subdivided so it has grain. An
+ * up-facing surface wound for THIS frame's handedness, which is why it is not
+ * slab(). 2*PIT_CELLS^2 + 8 triangles.
+ *
+ * WHAT THIS USED TO BE, AND WHY IT WAS WRONG. Two triangles of one flat colour,
+ * 2.3 m across for a live oak, laid on brick paving whose own value is 2.6x
+ * higher. A blind reviewer of the round-8 corridor frames reported it as "a
+ * hard-edged textureless wedge pasted on the sidewalk, dead-straight horizontal
+ * top edge, no penumbra, brick coursing vanishes inside it, present unchanged at
+ * all four hours INCLUDING NIGHT, and it does not move with the sun". Every one
+ * of those is a true description of a flat unlit-looking quad, and the numbers
+ * agree - docs/shots/r2post-corridor-*.png, x 1450-1590, the step at y 742->743
+ * in every column:
+ *
+ *   noon 141 -> 84     golden 62 -> 34     dusk 53 -> 26     night 49 -> 25
+ *
+ * The RATIO is 0.51-0.60 at EVERY hour, which is the signature of an albedo and
+ * not of a shadow: a cast shadow is gone at night and moves between noon and
+ * golden. Confirmed by raycasting that pixel: the first thing under (1500, 746)
+ * is props:far:0,-1 at y = -0.05, a map-less MeshStandardMaterial 2 cm in front
+ * of the sidewalk - this quad. (The competing hypothesis, that the sun's +-120 m
+ * ortho shadow camera was clamping to "occluded" outside its frustum, is refuted
+ * by three's own shader: getShadow() returns 1.0 when `inFrustum` is false.)
+ *
+ * A tree DOES stand in a well of mulch, so the quad stays and is made to read as
+ * one: grain instead of flat colour, and a built edge instead of a terminator.
+ */
 function pitSlab(buf, f, cx, cz, hx, hz, y, hex, surf) {
   const hand = handOf(f);
   const c = linear(hex);
-  const P = (lx, lz) => vertC(buf, wx(f, cx + lx, cz + lz), y, wz(f, cx + lx, cz + lz),
-    0, 1, 0, c[0], c[1], c[2], surf);
-  const a = P(-hx, -hz), b = P(-hx, hz), d = P(hx, hz), e = P(hx, -hz);
-  tri(buf, hand, a, b, d);
-  tri(buf, hand, a, d, e);
+  const P = (lx, lz, r, g, b) => vertC(buf, wx(f, cx + lx, cz + lz), y,
+    wz(f, cx + lx, cz + lz), 0, 1, 0, r, g, b, surf);
+
+  // --- mulch. A value break at every grid vertex, keyed off the tree's own
+  // position so it is identical every run. Pine bark is not one brown, and a
+  // flat one is most of what made this read as paint.
+  const N = PIT_CELLS, row = N + 1;
+  const V = new Array(row * row);
+  for (let j = 0; j <= N; j++) {
+    for (let i = 0; i <= N; i++) {
+      const k = 0.74 + 0.52 * ((hash32('pit', f.x, f.z, i, j) % 1000) / 1000);
+      V[j * row + i] = P(-hx + (2 * hx * i) / N, -hz + (2 * hz * j) / N,
+        c[0] * k, c[1] * k, c[2] * k);
+    }
+  }
+  for (let j = 0; j < N; j++) {
+    for (let i = 0; i < N; i++) {
+      const a = V[j * row + i], b = V[(j + 1) * row + i];
+      const d = V[(j + 1) * row + i + 1], e = V[j * row + i + 1];
+      tri(buf, hand, a, b, d);
+      tri(buf, hand, a, d, e);
+    }
+  }
+
+  // --- the edging. A flat band of precast concrete around the mulch, lighter
+  // than the brick rather than darker: a tree well is a thing that was BUILT,
+  // and the boundary the eye now reads is a kerb rather than a shadow's edge.
+  // Same rotational order as the mulch quads, so tri() winds it to match.
+  const e0 = linear(PIT_KERB_HEX);
+  const ox = hx + PIT_KERB, oz = hz + PIT_KERB;
+  const K = (lx, lz) => P(lx, lz, e0[0], e0[1], e0[2]);
+  const i0 = K(-hx, -hz), i1 = K(-hx, hz), i2 = K(hx, hz), i3 = K(hx, -hz);
+  const o0 = K(-ox, -oz), o1 = K(-ox, oz), o2 = K(ox, oz), o3 = K(ox, -oz);
+  const band = (p, q, s, t) => { tri(buf, hand, p, q, s); tri(buf, hand, p, s, t); };
+  band(o0, o1, i1, i0);
+  band(o1, o2, i2, i1);
+  band(o2, o3, i3, i2);
+  band(o3, o0, i0, i3);
 }
 
 /**
@@ -2689,20 +2768,29 @@ function trunkStations(p) {
  * other four; the total tube count across the two tiers is unchanged, so this
  * is a move between tiers rather than new geometry.
  *
- *   pit slab                                       2 tris
+ *   pit slab (2 mulch + 8 edging)                 10 tris
  *   trunk: 5-gon, 3 stations, flared              20
  *   4-5 primary limbs, 3-gon, 3 stations          48-60
  *   8-10 boughs, 3-gon, 2 stations                48-60
  *   65-75 clumps on both, at 12                  624-888
  *   ----------------------------------------------------
- *   FAR tier                                     748-1030   (mean 920.0)
+ *   FAR tier                                     756-1038   (mean 928.0)
  */
 function oakFar(buf, f, p) {
-  // A big tree gets a big pit. The mulch value is the palm's, for the reason
-  // recorded against it below.
-  const pit = 0.62 + p.trunkR * 1.5;
+  // A big tree gets a big pit — but not THIS big. 0.62 + trunkR*1.5 is a 2.3-2.8 m
+  // square, which is a parking space, not a tree well; on a 3.5 m sidewalk it
+  // reaches the kerb on one side and the shopfront on the other, and that is what
+  // gave the reviewer a hard horizontal edge running clean across the frame.
+  // Downtown Sarasota's live oaks stand in wells about 1.5 m across. Half-extent
+  // 0.40 + trunkR*0.85 gives 1.3-1.6 m of mulch inside a 0.13 m edging.
+  const pit = 0.40 + p.trunkR * 0.85;
+  // The mulch value is the palm's, for the reason recorded against it below, and
+  // then lifted again: at 0x5a4a35 the mulch is linear luminance 0.073 against
+  // the brick paver's 0.188, a 2.6x hole that reads as shade whatever the hour.
+  // 0x6a5942 is 0.104 - still plainly darker than the paving it is cut into,
+  // which is what mulch is, without being a black rectangle.
   pitSlab(buf, f, p.lean * 0.1, p.leanZ * 0.1, pit, pit, PAD_Y + 0.004,
-    0x5a4a35, S.concrete);
+    0x6a5942, S.concrete);
   oakTrunk(buf, f, p);
   const limbs = oakLimbs(p);
   for (const lb of limbs) limbTube(buf, f, lb.pts, 3, p.phase, S.bark, lb.seed);
@@ -2753,8 +2841,12 @@ function propTree(buf, f, k) {
   // decal, it is this quad — but at that value it reads as one. Pine-bark mulch
   // is what a Sarasota palm actually stands in and it is 2.4x lighter, so the
   // thing that made it look painted on is gone for nothing.
-  pitSlab(buf, f, p.tiltX * 0.18, p.tiltZ * 0.18, 0.72, 0.72, PAD_Y + 0.004,
-    0x5a4a35, S.concrete);
+  // ROUND 8 finished the job: the value went up again (0x5a4a35 -> 0x6a5942, see
+  // oakFar), the quad gained grain and an edging (see pitSlab), and the half-
+  // extent came down from 0.72 to 0.46 - a 0.92 m well inside a 1.18 m collar,
+  // which is the size a street palm is actually planted in.
+  pitSlab(buf, f, p.tiltX * 0.18, p.tiltZ * 0.18, 0.46, 0.46, PAD_Y + 0.004,
+    0x6a5942, S.concrete);
   // The spear leaf leaves the crown centre along the trunk's own direction, so
   // a curved palm's growing point is not bolted on vertically.
   const budC = linear(p.frond);
