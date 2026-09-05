@@ -1434,33 +1434,50 @@ const OAK_ROAD_EDGE = -2.05, OAK_ROAD_Y = 4.25;
 // building. Measured off the emitted vertices by tools/oak-audit.mjs, which
 // reports the widest crown over 400 keys.
 const OAK_ROAD_CAP = -11.0;
-// FOUR sides, not five or six. A clump is 1.2-2.0 m across and there are
-// eighteen of them overlapping into one crown, so what an individual one is a
-// polygon of stops mattering long before the crown does -- and 8 triangles
-// against 10 buys three more clumps for the same budget, which is what actually
-// closes the mass. The same trade as the palm frond's triangular section.
+// SIX sides. It was four, and the note that set it at four ends "if the crown
+// is ever short of mass again this is a real lever" -- this is that round, and
+// the lever is now spent. The arithmetic: with the ring at stamp radius 1 the
+// chord between two ring vertices comes no closer to the centre than cos(pi/n),
+// 0.707 at four sides and 0.866 at six, so the plate a four-gon inscribes under
+// the mask is a fifth smaller than the mask it is addressing. The bench
+// simulator measured that as massFrac up/row/tunnel 43.8/22.8/34.4 at four
+// sides against 48.6/23.7/35.5 at six, with straightFrac unmoved (0.177/0.080/
+// 0.069 -> 0.181/0.061/0.069) -- and eight sides adds half as much again for
+// the same price a second time, which is why this stops at six.
 //
-// AND SIDE COUNT IS NOT THE STRAIGHT-EDGE LEVER, which is worth writing down
-// because the arithmetic says it should be: with the ring at stamp radius 1 the
-// chord's closest approach is cos(pi/n), 0.707 at four sides and 0.866 at six,
-// so six sides ought to carry the chords out of the mask's dense middle. Put to
-// the bench simulator at identical mask and identical duty, it does not:
+// IT IS THE ONE MASS LEVER THAT DOES NOT COARSEN THE GRAIN, and that is the
+// whole reason it is the one being spent. It does not move a clump, does not
+// change how big a clump is in world units, and does not touch the stencil, so
+// the leaf pattern is at exactly the scale it was: it only stops the polygon
+// biting four chords out of a mask that had already been cut. Reverting just
+// this line on the shipped tree: covered 0.554/0.560/0.473 -> 0.525/0.537/
+// 0.469, boundaryD 1.303/1.588/1.586 -> 1.294/1.555/1.564, holesPerK 1.45/5.30/
+// 5.67 -> 1.43/4.75/5.13 -- and meanRun barely moves at all, 39.6/29.8/23.3 px
+// -> 38.6/29.3/23.0. Coverage AND porosity up at the same grain: nothing else
+// in this file does that.
 //
-//   sides   straightFrac up/row/tunnel     massFrac up/row/tunnel
-//     4       0.177 / 0.080 / 0.069          43.8 / 22.8 / 34.4
-//     6       0.181 / 0.061 / 0.069          48.6 / 23.7 / 35.5
-//     8       0.199 / 0.080 / 0.068          50.8 / 24.4 / 36.5
-//
-// Six and eight buy MASS -- a bigger inscribed polygon under the same mask --
-// and nothing measurable on straightness, at +50% and +100% foliage triangles
-// on a tree already at 955. If the crown is ever short of mass again this is a
-// real lever; it is not a lever for cards.
-const CLUMP_SIDES = 4;
+// The cost is real and is the largest single item in this round: 12 triangles a
+// clump against 8, +512.3 per oak, +6,148 on a district of twelve of them.
+const CLUMP_SIDES = 6;
 // The ring's own radius, as a fraction of `rad`: CLUMP_R0 at its tightest and
 // CLUMP_R0 + CLUMP_RAGGED at its raggedest. Named because the two caps above
 // have to know the outer figure to place a clump's centre -- so moving the
 // INNER one alone changes the plate's area without touching a clearance.
-const CLUMP_R0 = 0.80, CLUMP_RAGGED = 0.32;
+//
+// The sum is 1.12 and stays 1.12, which is why this is free of every clearance:
+// only the INNER figure moved, 0.80 -> 0.72. A six-gon inscribes more of its
+// mask than a four-gon did (see CLUMP_SIDES), and paying part of that back as
+// RAGGEDNESS rather than keeping it as area is what stopped the fuller crown
+// reading as a rounder one.
+//
+// It is a trade and it is worth writing down which way. Reverting this pair
+// alone RAISES covered, 0.554/0.560/0.473 -> 0.570/0.567/0.482 -- and takes
+// meanRun with it, 39.6/29.8/23.3 px -> 42.5/30.9/24.2, past the 23.8 px the
+// tunnel started this round at and matched the photographs on. It is bought
+// back here for a point of coverage: xings 25.99/36.30/39.95 -> 27.13/37.28/
+// 40.90 and holesPerK on the two frames that carry the fine grain, 5.15/5.60 ->
+// 5.30/5.67 on row and tunnel. Zero triangles either way.
+const CLUMP_R0 = 0.72, CLUMP_RAGGED = 0.40;
 // How far a clump's own axis may lean off vertical. NOT ZERO, and that is the
 // single change that stopped the crown reading as a stack of plates: with every
 // pillow's ring horizontal, sixteen of them are sixteen horizontal lozenges
@@ -1468,11 +1485,29 @@ const CLUMP_R0 = 0.80, CLUMP_RAGGED = 0.32;
 // what no amount of jittering the radii fixed. Leaning each one by up to 40
 // degrees on its own azimuth costs nothing at all.
 const CLUMP_TILT = 0.70;
-// How far off its limb a clump's centre may sit, as a fraction of its own
-// radius. Under the pillow's smallest extent (0.74 * 0.75 = 0.555 radii at the
-// flattest height ratio, OAK_CLUMP_HR below) so the limb point is always inside
-// the clump; tools/oak-audit.mjs --attach measures it rather than trusting it.
-const CLUMP_HUG = 0.42;
+// How far off its limb a clump's centre may sit, AS A FRACTION OF THAT CLUMP'S
+// OWN SMALLEST HALF-EXTENT -- not, as it was, of its radius against the
+// flattest pillow the height band can produce.
+//
+// The old form was 0.42 radii, chosen because 0.74 * 0.75 = 0.555 radii is the
+// smallest extent a pillow at the FLATTEST height ratio has, and 0.42 is under
+// it. But hr runs to 1.15, so the tallest pillow's smallest extent is 0.851
+// radii and the same 0.42 was leaving 0.43 radii of scatter unused on it. In
+// the new form the audit's ratio is CLUMP_HUG * (0.30 + 0.70 * onLine) * rj()
+// exactly, whatever hr is -- a clump can never reach its own surface, by
+// construction rather than by a worst case -- so the scatter can be taken to
+// 0.90 and the audit's worst reading is then 0.900 by identity.
+//
+// It buys DISPERSION, and dispersion is what lets coverage rise without the
+// grain going with it. Reverting it alone: covered 0.554/0.560/0.473 ->
+// 0.572/0.568/0.484, and meanRun 39.6/29.8/23.3 px -> 43.9/31.5/25.6, xings
+// 27.1/37.3/40.9 -> 25.3/35.7/38.0, holesPerK 1.45/5.30/5.67 -> 1.41/4.80/5.30.
+// Same shape as the ring band above, and for the same reason: the crown that is
+// coverage-per-triangle-optimal is one solid mass, so every knob that spreads it
+// pays a little coverage for a lot of grain. Zero triangles -- it comes out 1.7
+// per oak CHEAPER than the tight version, because the extra scatter walks a few
+// more clumps into a clearance cap and under the quarter-metre floor.
+const CLUMP_HUG = 0.90;
 // A clump's nominal radius, as a fraction of the crown's spread: base plus
 // jitter. A bigger plate pays coverage back at ZERO triangles where more clumps
 // would cost eight each -- and the clearance caps below scale with `rad`, so
@@ -1538,8 +1573,22 @@ function oakParams(k) {
     // tree and +2,700 on a district measured at 693,000 against a gate that
     // warns at 830,000. Spending a palm's whole budget again on each oak buys
     // 0.4% of the frame.
-    nClump: 52 + (hash32('nclump', k) % 9),        // far tier, on the primaries
-    nInfill: 46 + (hash32('ninfill', k) % 9),      // near tier, on the twig web
+    //
+    // AND THE COUNT IS THE WORST OF THE COVERAGE LEVERS, which is why it moved
+    // least. Reverting this pair alone, 65/58 back to 52/46: covered 0.554/
+    // 0.560/0.473 -> 0.504/0.548/0.465, so it is carrying a third of this
+    // round's coverage -- but meanRun 39.6/29.8/23.3 px -> 30.9/26.8/21.4 and
+    // xings 27.1/37.3/40.9 -> 31.6/40.6/44.0 the other way, and it costs
+    // +314.1 triangles a tree. Every step past this one measured worse still:
+    // 83/74 gives covered 0.602/0.566/0.497 at meanRun 54.2/36.7/28.7, which is
+    // the canopy going to mass, and 70/62 with the plate shrunk to hold total
+    // area gives 0.584/0.568/0.490 at 46.3/33.7/27.1 -- the plate is not the
+    // grain, the STENCIL is, so shrinking the plate does not shorten the run.
+    // Above about 65 it stops buying coverage at all: 65/58 and 60/53 read the
+    // same covered, and 60/53 is 129 triangles cheaper -- 65/58 is here because
+    // it holds the tunnel's holesPerK and boundaryD where 60/53 does not.
+    nClump: 65 + (hash32('nclump', k) % 11),        // far tier, primaries + boughs
+    nInfill: 58 + (hash32('ninfill', k) % 11),      // near tier, on the twig web
     yaw: r() * TAU,
     phase: r() * TAU,
     lean: (r() - 0.5) * 0.5,                       // trunk off vertical, x
@@ -2162,15 +2211,43 @@ function oakLimbs(p) {
  * what lets the same clumps fill a volume while every one of them is still
  * attached to something.
  */
+// SIX secondaries off each primary, and the third of them that this predicate
+// picks out are BOUGHS: the far tier draws them and hangs its own clumps on
+// them, the near tier takes the rest. Both halves of that are this round.
+//
+// SIX RATHER THAN THREE, because clumps hang on lines and there were not enough
+// lines. The crown's foliage is ~123 pillows of about a metre's radius and it
+// had seventeen lines to sit on, so the nearest OTHER clump to the median clump
+// was 0.12 of the two radii away -- concentric, not adjacent. That is what the
+// bench frames were showing: four or five fat sausages of leaf with open sky
+// between them, and the naive fix (more clumps on the same lines) measured
+// exactly the way a sausage does, +50% clumps for meanRun 43.6 -> 61.3 px and
+// xings 21.5 -> 18.0. Reverting to three, alone: covered 0.554/0.560/0.473 ->
+// 0.559/0.560/0.456 and meanRun 39.6/29.8/23.3 -> 51.1/35.9/22.5 px, xings
+// 27.1/37.3/40.9 -> 21.7/30.0/40.7. +68.4 triangles a tree, and the cheapest
+// grain in the round.
+//
+// AND THE FAR TIER GETS A WEB OF ITS OWN, which is what `oakIsBough` is for.
+// The far tier had four or five primaries for its 65 clumps -- thirteen pillows
+// strung along one line -- while the near tier had a dozen. Giving the far tier
+// two of every six secondaries costs nothing but which tier a tube is drawn in,
+// and reverting it alone is worth covered 0.554/0.560/0.473 -> 0.515/0.505/
+// 0.464 for 13.4 triangles a tree. The tier contract is unchanged: a clump is
+// still only ever drawn in a tier that also draws the branch it hangs on, so
+// crossing 200 m still fills the crown in rather than changing its outline.
+// tools/oak-audit.mjs --attach partitions the same way and would fail if this
+// drifted from it.
+const OAK_TWIGS = 6;
+const oakIsBough = (t) => t.n % 3 === 0;
 function oakTwigs(p, limbs) {
   const bark = linear(p.bark);
   const shade = (s) => [bark[0] * s, bark[1] * s, bark[2] * s];
   const out = [];
   for (let j = 0; j < limbs.length; j++) {
     const lb = limbs[j];
-    for (let n = 0; n < 3; n++) {
+    for (let n = 0; n < OAK_TWIGS; n++) {
       const rj = rng32(hash32('tw', p.key, j, n));
-      const t0 = 0.24 + n * 0.22 + rj() * 0.14;
+      const t0 = 0.24 + n * (0.58 / (OAK_TWIGS - 1)) + rj() * 0.14;
       const A = alongLimb(lb, t0);
       // A live oak's secondaries branch nearly sideways off the leader rather
       // than continuing it.
@@ -2199,7 +2276,7 @@ function oakTwigs(p, limbs) {
         if (lx - rr < OAK_ROAD_EDGE) y = Math.max(y, OAK_ROAD_Y + rr + p.spread * 0.20);
         pts.push([lx, y, lz, rr, shade(1.0 + 0.10 * st)]);
       }
-      out.push({ az0: az, L, pts, seed: hash32('tws', p.key, j, n) });
+      out.push({ az0: az, L, pts, n, seed: hash32('tws', p.key, j, n) });
     }
   }
   return out;
@@ -2265,7 +2342,7 @@ function oakClumpsOf(p, limbs, count, salt) {
     // offset can point. tools/oak-audit.mjs --attach measures it.
     const lateral = (rj() - 0.5) * 2, vert = (rj() - 0.62) * 1.5;
     const on = Math.hypot(lateral, vert) || 1;
-    const frac = CLUMP_HUG * (0.30 + 0.70 * onLine) * rj();
+    const frac = CLUMP_HUG * (0.74 * hr) * (0.30 + 0.70 * onLine) * rj();
     const ox = -Math.sin(lb.az0) * lateral / on, oz = Math.cos(lb.az0) * lateral / on;
     const oy = vert / on;
 
@@ -2594,8 +2671,8 @@ function trunkStations(p) {
 }
 
 /**
- * THE FAR TIER of a live oak: the pit, the trunk, every primary limb, and the
- * EVEN leaf clumps.
+ * THE FAR TIER of a live oak: the pit, the trunk, every primary limb, the two
+ * BOUGHS off each of them, and the clumps hung along all of it.
  *
  * The tier split is the palm's, turned round. A palm's silhouette is its
  * fronds, so the palm splits fronds and keeps the trunk whole; an oak's
@@ -2604,12 +2681,21 @@ function trunkStations(p) {
  * in the far tier. Either way the far tier already carries the whole outline
  * and crossing 200 m fills it in rather than changing its shape.
  *
+ * THE BOUGHS ARE HERE AND NOT IN THE NEAR TIER because a clump can only be
+ * drawn in a tier that also draws the branch it hangs on, and with only four or
+ * five primaries this tier's 65 clumps had four or five lines to be strung
+ * along -- thirteen pillows a line, which is a sausage rather than a crown. It
+ * takes two of every six secondaries (`oakIsBough`) and the near tier takes the
+ * other four; the total tube count across the two tiers is unchanged, so this
+ * is a move between tiers rather than new geometry.
+ *
  *   pit slab                                       2 tris
  *   trunk: 5-gon, 3 stations, flared              20
  *   4-5 primary limbs, 3-gon, 3 stations          48-60
- *   26-30 clumps on the primaries, at 8          208-240
+ *   8-10 boughs, 3-gon, 2 stations                48-60
+ *   65-75 clumps on both, at 12                  624-888
  *   ----------------------------------------------------
- *   FAR tier                                     278-322
+ *   FAR tier                                     748-1030   (mean 920.0)
  */
 function oakFar(buf, f, p) {
   // A big tree gets a big pit. The mulch value is the palm's, for the reason
@@ -2620,13 +2706,16 @@ function oakFar(buf, f, p) {
   oakTrunk(buf, f, p);
   const limbs = oakLimbs(p);
   for (const lb of limbs) limbTube(buf, f, lb.pts, 3, p.phase, S.bark, lb.seed);
+  const boughs = oakTwigs(p, limbs).filter(oakIsBough);
+  for (const tw of boughs) limbTube(buf, f, tw.pts, 3, p.phase + 1.1, S.bark, tw.seed);
   const ctx = oakCtx(p);
-  for (const c of oakClumpsOf(p, limbs, p.nClump, 0)) leafClump(buf, f, c, ctx);
+  for (const c of oakClumpsOf(p, limbs.concat(boughs), p.nClump, 0)) leafClump(buf, f, c, ctx);
 }
 
 /**
- * THE NEAR TIER of a live oak: the secondary web, and the leaf clumps that hang
- * on it and fill the volume between the primaries.
+ * THE NEAR TIER of a live oak: the four-in-six of the secondary web the far
+ * tier did not take, and the leaf clumps that hang on it and fill the volume
+ * between the primaries.
  *
  * THE SPLIT IS BY STRUCTURE, NOT BY PARITY, and it has to be. Every clump must
  * contain a piece of a limb, so a clump can only be drawn in a tier that also
@@ -2640,14 +2729,14 @@ function oakFar(buf, f, p) {
  * A 0.1 m branch is under a pixel past about 150 m, well inside where this tier
  * switches off, so the web costs nothing at the range it is absent from.
  *
- *   8-10 secondary limbs, 3-gon, 2 stations       48-60
- *   22-26 clumps on the secondaries, at 8        176-208
+ *   16-20 secondary limbs, 3-gon, 2 stations      96-120
+ *   58-68 clumps on the secondaries, at 12       588-798
  *   ----------------------------------------------------
- *   NEAR tier                                    224-268
+ *   NEAR tier                                    684-918    (mean 825.3)
  */
 function oakNear(buf, f, p) {
   const limbs = oakLimbs(p);
-  const twigs = oakTwigs(p, limbs);
+  const twigs = oakTwigs(p, limbs).filter((t) => !oakIsBough(t));
   for (const tw of twigs) limbTube(buf, f, tw.pts, 3, p.phase + 1.1, S.bark, tw.seed);
   const ctx = oakCtx(p);
   for (const c of oakClumpsOf(p, twigs, p.nInfill, 1)) leafClump(buf, f, c, ctx);
@@ -4236,7 +4325,7 @@ export const __kit = {
   // it oakWeight is 0 everywhere and every key comes back a palm, which is a
   // correct default and a silent one, so a harness that forgets to call it would
   // measure the wrong tree and never know.
-  setOakRoute, oakWeight, oakParams, oakLimbs, oakTwigs, oakClumpsOf, alongLimb,
+  setOakRoute, oakWeight, oakParams, oakLimbs, oakTwigs, oakIsBough, oakClumpsOf, alongLimb,
   limbTube, leafClump,
   // The leaf stencil, for tools/leaf-mask.mjs: the texture itself, the two
   // address helpers the emitters use, and the geometry of the atlas. A second

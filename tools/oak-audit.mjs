@@ -290,7 +290,12 @@ function attach(n, nudge = 0) {
     // hangs on a twig the far tier does not draw -- which is the same plate in
     // open sky, just at 300 m instead of 30.
     const limbs = __kit.oakLimbs(p);
-    const twigs = __kit.oakTwigs(p, limbs);
+    const web = __kit.oakTwigs(p, limbs);
+    // The far tier hangs its clumps on the primaries PLUS the boughs it draws;
+    // the near tier on the rest of the web. Same partition the emitters use --
+    // if this drifts from them the audit stops asking the question it claims to.
+    const far = limbs.concat(web.filter(__kit.oakIsBough));
+    const twigs = web.filter((t) => !__kit.oakIsBough(t));
     const segsOf = (list) => {
       const out = [];
       for (const lb of list) {
@@ -299,7 +304,7 @@ function attach(n, nudge = 0) {
       return out;
     };
     const tiers = [
-      [segsOf(limbs), __kit.oakClumpsOf(p, limbs, p.nClump, 0)],
+      [segsOf(far), __kit.oakClumpsOf(p, far, p.nClump, 0)],
       [segsOf(twigs), __kit.oakClumpsOf(p, twigs, p.nInfill, 1)],
     ];
     for (const [segs, list] of tiers) {

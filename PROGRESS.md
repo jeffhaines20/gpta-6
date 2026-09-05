@@ -30,6 +30,86 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## Canopy mass: the obvious remedy was the one thing that did not work
+
+The `xings` decomposition said the canopy was too thin inside an envelope that
+was already the right size - `covered` 0.454 against the photographs' 0.576 at a
+matching span and a matching 24 px mean run. The obvious fix is more clumps.
+
+**More clumps is precisely what fails.** +50% on the same branch lines took the
+tunnel `covered` 0.454 -> 0.482 and `meanRun` 23.8 -> 28.5 px, with `xings` going
+the WRONG way, 38.6 -> 33.7. It buys mass by MERGING. Every later count step
+reproduced it.
+
+The diagnosis that mattered: the crown had **seventeen branch lines to hang 101
+pillows on**, so the nearest other clump to the median clump sat at 0.12 of the
+two radii - concentric, not adjacent. The frames showed it plainly: four or five
+fat sausages of leaf with open sky between them. The lever is DISPERSION, not
+quantity.
+
+`OAK_TWIGS` 3 -> 6 secondaries; the far tier gets a web of its own (a move
+between tiers, not new tubes); `CLUMP_HUG` 0.42 -> 0.90 re-expressed against each
+clump's own smallest half-extent so the attach ratio is 0.900 by identity rather
+than as a worst case; `CLUMP_SIDES` 4 -> 6; the ring band retuned at an unchanged
+outer figure; counts 52/46 -> 65/58.
+
+`CLUMP_SIDES` 4 -> 6 is the note from two rounds ago coming due. It was set at
+four with the comment "if the crown is ever short of mass again this is a real
+lever", after that round measured it buying mass and nothing on straightness.
+This is that round, and it is the only mass lever that does not coarsen the
+grain: it moves no clump, changes no world-space size and touches no stencil - it
+stops a four-gon biting chords out of a mask already cut.
+
+### Result: coverage up, and grain UNCHANGED
+
+| | span | runs/row | meanRun | skyInSpan | covered |
+|---|---|---|---|---|---|
+| photographs | 0.909 | 25.7 | 22.8 | 0.326 | 0.576 |
+| up | 0.765 -> **0.811** | 11.25 -> **14.03** | 43.6 -> **39.6** | 0.370 -> **0.317** | 0.482 -> **0.554** |
+| row | 0.935 -> **0.966** | 16.25 -> **19.47** | 32.3 -> **29.8** | 0.440 -> **0.421** | 0.524 -> **0.560** |
+| tunnel | 0.896 -> **0.904** | 19.70 -> **20.84** | 23.8 -> **23.3** | 0.493 -> **0.477** | 0.454 -> **0.473** |
+
+`meanRun` FALLS on all six frames across both hours and `xings` rises on all six.
+oak-up's `skyInSpan` is past the photographs at both hours. `straightFracInner`
+improves on up (0.112 -> 0.087) and row; `texture` on up goes 0.2466 -> 0.3402.
+
+**Cost: 954.9 -> 1745.3 triangles per oak (+790.4), district props 287,732 ->
+297,182 (+9,450).** Palms bit-identical at 295.1, md5-matched frame for frame.
+`CLUMP_SIDES` is 512 of that 790 and is the only change raising coverage and
+porosity together; the bough web is the bargain at +0.039 of `covered` for 13.4
+triangles a tree. Two of the shipped changes COST coverage and are in anyway,
+because they are what holds `meanRun` under its starting value.
+
+### A setting that scored better was rejected on looking at it
+
+83/74 clumps reaches `covered` 0.602/0.566/0.497 - past target on two frames - at
+`meanRun` 54.2/36.7/28.7 and `xings` **below the baseline's**. That is the
+solid-green-blob failure, and the metric rewards it. Shipped setting is the one
+where `meanRun` falls everywhere.
+
+### And there is an analytic ceiling behind the residual
+
+For n independent stencilled plates of duty q, coverage is `1-(1-q)^n` and the
+mean gap is `g0/n`, so `covered` and `meanRun` are LOCKED: at this stencil's
+q = 0.381, `covered` 0.576 arrives with `meanRun` near 26 px however the mass is
+paid for. Dispersion moves that frontier - it is why 0.554 now comes at 39.6 px
+where 0.482 used to come at 43.6 - but does not remove it. Reaching 0.576 on
+every frame at unchanged grain needs a FINER stencil, which is the round the
+plates were fixed in and was deliberately not reopened.
+
+**The tunnel's full-frame `covered` cannot reach 0.576 for a reason that is the
+frame, not the tree.** `span` runs from a row's leftmost dark pixel to its
+rightmost, so looking down a street it spans both walls and counts
+vanishing-point sky - which no canopy can fill - as sky in span. Cropped to the
+near crown the same pair reads `covered` 0.595 -> **0.637** and `skyInSpan` 0.242
+-> 0.218, past the photographs, at `meanRun` 28.2 -> 24.0. Now noted in the
+tool header.
+
+Tunnel `boundaryD` fell 1.605 -> 1.586, located by crop to the near crown's own
+outline (1.589 -> 1.551) while that same crop's `holesPerK` ROSE 5.88 -> 6.34.
+The crown is not smoothing; its silhouette is, as it fills. The photographs sit
+at 1.538, so it moved from above them toward them.
+
 ## Junctions pass non-conflicting movements, and throughput went UP
 
 `src/traffic.js` reserved a junction for ONE car at a time, so a northbound and a

@@ -40,6 +40,29 @@
 // read skeletal" - without connecting it to the xings residual. Closing it means
 // paying triangles for more clumps while keeping the stencil grain, which is why
 // it has not happened rather than because nobody understood it.
+//
+// WHAT THE DENSITY ROUND THEN FOUND, 2026-09-05. "More clumps" is the one thing
+// that does NOT work, and this tool is what says so: +50% clumps on the same
+// branch lines took the tunnel from covered 0.454 to 0.482 and meanRun from
+// 23.8 px to 28.5, i.e. it bought mass by MERGING, and xings went DOWN, 38.6 to
+// 33.7. Coverage and run length are locked together by the stencil: n
+// independent plates of duty q give covered 1-(1-q)^n and mean gap g0/n, so
+// covered = 0.576 at this stencil's q = 0.38 arrives with meanRun near 26 px
+// however the mass is paid for. The lever that moves the FRONTIER rather than
+// sliding along it is DISPERSION - more branch lines, clumps scattered further
+// off them, and a bigger polygon under the same mask - and that is what shipped:
+// covered 0.482/0.524/0.454 -> 0.554/0.560/0.473 with meanRun 43.6/32.3/23.8 ->
+// 39.6/29.8/23.3 and xings 21.5/31.2/38.6 -> 27.1/37.3/40.9.
+//
+// AND READ THE TUNNEL FRAME'S NUMBER WITH THE CROP IN MIND. `span` runs from
+// the leftmost dark pixel of a row to the rightmost, so on a frame looking DOWN
+// a street it spans the two building walls and counts the sky at the vanishing
+// point - which no canopy can ever fill - as sky in the span. Cropped to the
+// near crown (480,0 - 1160,430 on the 1400x900 bench frame) the same two builds
+// read covered 0.595 -> 0.637 and skyInSpan 0.242 -> 0.218, past the 0.576 the
+// photographs sit at, with meanRun 28.2 -> 24.0 px and runs/row 14.6 -> 18.0 on
+// the same crop. The oak-up and oak-row frames do not have that dilution; the
+// tunnel's full-frame figure is a floor, not a measurement of the canopy.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
