@@ -966,9 +966,18 @@ export class Sky {
       inscatterClamp: 1,
     };
     // Exposed-unit ceilings for what reaches post.js. daynight.js audits these at
-    // 1.2 and 3.0; sitting just under leaves the gate meaningful.
-    this.fogCeiling = opts.fogCeiling ?? 1.1;
-    this.inscatterCeiling = opts.inscatterCeiling ?? 2.7;
+    // 0.60 and 1.744; sitting just under leaves the gate meaningful.
+    //
+    // 1.1 -> 0.545 and 2.7 -> 1.528 when src/post.js gained a display transfer
+    // function. These are ACES-INPUT ceilings expressing a DISPLAY intent - the
+    // far field must not read as a white sheet - so inserting a transfer between
+    // input and display changes what the same number permits. Restated to the
+    // identical display value: 255*aces(1.1) = 210 = 255*srgb(aces(0.545)), and
+    // 255*aces(2.7) = 241 = 255*srgb(aces(1.528)). The pair they shadow in
+    // daynight.js moved by the same restatement and by the same ratio, so "just
+    // under the gate" still holds.
+    this.fogCeiling = opts.fogCeiling ?? 0.545;
+    this.inscatterCeiling = opts.inscatterCeiling ?? 1.528;
 
     const t0 = performance.now();
 
@@ -2022,7 +2031,12 @@ export class Sky {
     if (a.exposure) {
       const midSky = Math.sqrt(Math.max(0, a.zenithNits) * Math.max(0, a.horizonNits)) * a.exposure;
       a.midSkyExposed = +midSky.toFixed(3);
-      if (midSky > 1.0) {
+      // 1.0 -> 0.491 for the display transfer in src/post.js, by the same
+      // restatement as the two ceilings above: this gate is written in ACES input
+      // and means a display value, and 255*aces(1.0) = 205 = 255*srgb(aces(0.491)).
+      // Held at 1.0 it would have stopped firing until mid-sky reached 229/255,
+      // which is a blown sky the gate exists to catch.
+      if (midSky > 0.491) {
         flags.push(`mid-sky renders at ${midSky.toFixed(2)}x ACES saturation for ${this.presetName}`
           + ` (zenith ${a.zenithNits.toPrecision(3)} nits, horizon ${a.horizonNits.toPrecision(3)} nits`
           + ` at a 1/${Math.round(1 / a.exposure)} stop) — the sky is blown, not merely bright`);
