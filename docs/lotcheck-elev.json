@@ -1,0 +1,226 @@
+{
+ "frames": [
+  {
+   "bi": 18,
+   "edge": 0,
+   "len": 181.3,
+   "recipe": "midOffice",
+   "h": 9.6,
+   "span": 26,
+   "standoff": 18,
+   "hfov": 71.7,
+   "cam": [
+    157.58656288273613,
+    1.75,
+    -169.65482909970635
+   ],
+   "tgt": [
+    157.66500000000002,
+    5.28,
+    -151.655
+   ],
+   "fov": 44.218896687503346,
+   "lots": [
+    {
+     "s0": 69.6,
+     "w": 8.4,
+     "par": 0.83,
+     "head": 4.36,
+     "door": false,
+     "awn": true
+    },
+    {
+     "s0": 78,
+     "w": 8.8,
+     "par": 0.99,
+     "head": 3.8,
+     "door": true,
+     "awn": false
+    },
+    {
+     "s0": 86.8,
+     "w": 8.3,
+     "par": 1.35,
+     "head": 4,
+     "door": true,
+     "awn": true
+    },
+    {
+     "s0": 95.1,
+     "w": 7.5,
+     "par": 1.15,
+     "head": 3.8,
+     "door": true,
+     "awn": false
+    },
+    {
+     "s0": 102.6,
+     "w": 10.8,
+     "par": 0.99,
+     "head": 3.62,
+     "door": false,
+     "awn": false
+    }
+   ]
+  },
+  {
+   "bi": 29,
+   "edge": 2,
+   "len": 60.9,
+   "recipe": "retailStrip",
+   "h": 5.65,
+   "span": 26,
+   "standoff": 18,
+   "hfov": 71.7,
+   "cam": [
+    141.464363979614,
+    1.75,
+    -214.54494532873125
+   ],
+   "tgt": [
+    141.42,
+    3.1075000000000004,
+    -196.54500000000002
+   ],
+   "fov": 44.218896687503346,
+   "lots": [
+    {
+     "s0": 13.4,
+     "w": 7.9,
+     "par": 1.35,
+     "head": 3.62,
+     "door": true,
+     "awn": true
+    },
+    {
+     "s0": 21.3,
+     "w": 6.2,
+     "par": 0.83,
+     "head": 4.18,
+     "door": true,
+     "awn": false
+    },
+    {
+     "s0": 27.5,
+     "w": 6.2,
+     "par": 0.99,
+     "head": 3.62,
+     "door": true,
+     "awn": false
+    },
+    {
+     "s0": 33.7,
+     "w": 7.4,
+     "par": 1.35,
+     "head": 4.18,
+     "door": true,
+     "awn": true
+    },
+    {
+     "s0": 41.1,
+     "w": 6.5,
+     "par": 0.83,
+     "head": 4,
+     "door": true,
+     "awn": false
+    }
+   ]
+  },
+  {
+   "bi": 49,
+   "edge": 5,
+   "len": 61.2,
+   "recipe": "retailStrip",
+   "h": 6.55,
+   "span": 26,
+   "standoff": 18,
+   "hfov": 71.7,
+   "cam": [
+    402.94082864612136,
+    1.75,
+    -168.5096888944687
+   ],
+   "tgt": [
+    402.83500000000004,
+    3.6025,
+    -150.51
+   ],
+   "fov": 44.218896687503346,
+   "lots": [
+    {
+     "s0": 14.1,
+     "w": 5.8,
+     "par": 1.35,
+     "head": 4.36,
+     "door": true,
+     "awn": true
+    },
+    {
+     "s0": 19.8,
+     "w": 7.1,
+     "par": 1.15,
+     "head": 3.62,
+     "door": true,
+     "awn": false
+    },
+    {
+     "s0": 26.9,
+     "w": 7.6,
+     "par": 1.59,
+     "head": 3.8,
+     "door": true,
+     "awn": true
+    },
+    {
+     "s0": 34.5,
+     "w": 6.2,
+     "par": 0.83,
+     "head": 4.36,
+     "door": true,
+     "awn": false
+    },
+    {
+     "s0": 40.7,
+     "w": 7.8,
+     "par": 0.99,
+     "head": 4,
+     "door": true,
+     "awn": true
+    }
+   ]
+  }
+ ],
+ "results": [
+  {
+   "b": 18,
+   "tod": "noon",
+   "file": "docs/shots/lotcheck-elev18-noon.png",
+   "triangles": 536030,
+   "drawCalls": 171,
+   "near": 16,
+   "chunks": 85,
+   "peds": 0
+  },
+  {
+   "b": 29,
+   "tod": "noon",
+   "file": "docs/shots/lotcheck-elev29-noon.png",
+   "triangles": 541162,
+   "drawCalls": 181,
+   "near": 16,
+   "chunks": 85,
+   "peds": 0
+  },
+  {
+   "b": 49,
+   "tod": "noon",
+   "file": "docs/shots/lotcheck-elev49-noon.png",
+   "triangles": 500632,
+   "drawCalls": 166,
+   "near": 16,
+   "chunks": 79,
+   "peds": 0
+  }
+ ],
+ "errors": []
+}

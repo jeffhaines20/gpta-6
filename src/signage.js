@@ -1510,7 +1510,19 @@ export function signPanel(c, rt, up, w, h, rect, pos, nrm, uv, idx, opts = {}) {
     //
     // Callers that genuinely want art on both sides (a hanging blade read from
     // either side of a street) pass backRect explicitly.
-    const back = opts.backRect ?? (opts.mirror ? rect : [rect[2], rect[1], rect[0], rect[3]]);
+    // The default back is the FRONT's own rect, not the u-swapped one.
+    //
+    // Swapping u looks like the right way to turn artwork around and is exactly
+    // backwards. The back face's positions already run the other way, so its u
+    // axis already points along the back viewer's right; swapping the rect on top
+    // of that reverses it again and mirrors the lettering. tools/sign-orient.mjs
+    // measures both: with the old default one face of every double-sided panel
+    // read `mir`, with this one both read `fwd`.
+    //
+    // Callers that want a genuinely blank back still pass backRect (postSign
+    // passes signBack, streetBladeAssembly passes bladeBack) -- the shop atlas
+    // has no back cell, and a shop blade really is lettered on both faces.
+    const back = opts.backRect ?? q;
     quad(pos, nrm, uv, idx, P(1, -1), P(-1, -1), P(-1, 1), P(1, 1),
       [-n[0], -n[1], -n[2]], back, opts.col, opts.tint);
   }
@@ -1574,7 +1586,7 @@ export function signBox(cx, cy, cz, sx, sy, sz, rect, pos, nrm, uv, idx, opts = 
 // while the reversed name a critic actually read off the frame was drawn by the
 // awning VALANCE. Four wrong guesses; the probe that enumerated which emitter
 // carries which business took two minutes and would have saved all of them.
-function orientRect(e, rect) {
+export function orientRect(e, rect) {
   const cross = e.tx * e.nz - e.tz * e.nx;
   return cross < 0 ? [rect[2], rect[1], rect[0], rect[3]] : rect;
 }
@@ -1711,7 +1723,12 @@ export function awning(e, s0, s1, head, stripeRect, valanceRect, sign, trim, opt
   // Both faces derive from one winding-oriented rect so the front reads from the
   // street and the back reads from the far pavement.
   const vFront = orientRect(e, valanceRect);
-  const vBack = [vFront[2], vFront[1], vFront[0], vFront[3]];
+  // Same rect on both faces. The swap this used to do was meant to make "the
+  // back read from the far pavement" and did the opposite: the back quad's
+  // positions already run the other way round, so it was mirroring an already
+  // mirrored mapping. sign-orient's census caught it as a group sitting at
+  // exactly 50% mirrored -- one good face and one bad on every awning.
+  const vBack = vFront;
   quad(sign.pos, sign.nrm, sign.uv, sign.idx,
     [f0[0], yFront - val, f0[1]], [f1[0], yFront - val, f1[1]],
     [f1[0], yFront, f1[1]], [f0[0], yFront, f0[1]],
@@ -2032,10 +2049,17 @@ export function appendBuildingSignage(b, style, sign, trim, opts = {}) {
       const cs = e.len / 2;
       const yc = y + 1.9 / 2 + 0.25;
       const rect = shopRect('fascia', plan.parapet.biz.index);
+      // orientRect, for the same winding reason fasciaPlate needs it. Both faces
+      // of this pair take the SAME oriented rect: rt and the normal both carry s,
+      // so the s cancels out of dot(rt, viewerRight) and the two faces always
+      // read the same way as each other. Which way was decided by the ring
+      // winding alone, so every parapet sign on a footprint wound one way was
+      // mirrored on BOTH faces and could not be read from any angle. 84 of 156
+      // panels district-wide, before this line.
       for (const s of [1, -1]) {
         const off = 0.1 + s * (thick / 2 + 0.012);
         const c = [e.a[0] + e.tx * cs + e.nx * off, yc, e.a[1] + e.tz * cs + e.nz * off];
-        signPanel(c, [e.tx * s, 0, e.tz * s], [0, 1, 0], w * 0.96, 1.5, rect,
+        signPanel(c, [e.tx * s, 0, e.tz * s], [0, 1, 0], w * 0.96, 1.5, orientRect(e, rect),
           sign.pos, sign.nrm, sign.uv, sign.idx,
           { col: sign.col, tint, normal: [e.nx * s, 0, e.nz * s] });
       }
