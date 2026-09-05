@@ -90,12 +90,33 @@ function acesInverse(y) {
   const roots = [(-B + Math.sqrt(disc)) / (2 * A), (-B - Math.sqrt(disc)) / (2 * A)].filter((v) => v >= 0);
   return roots.length ? Math.min(...roots) : 0;
 }
-const a2l = new Float64Array(256), acesOnly = new Float64Array(256);
+// And the composite gained a highlight rolloff in front of the fit, so the byte
+// is srgb(aces(roll(radiance * exposure))) and the inverse gains roll^-1 at the
+// end. Same two constants as src/post.js's params block and critic-metrics.mjs;
+// they must not drift, and the self-test at the bottom of this file asserts that
+// reading a rolloff-encoded frame with the FLAT inverse gives a different answer,
+// so a drift shows up as a failure rather than as a quiet bias.
+//
+//   roll^-1(y) = y                            y <= K
+//   roll^-1(y) = K + S(y-K)/(S - (y-K))       y >  K,   S = C - K
+//
+// `acesFlat` is the inverse for a frame captured after post.js gained its encode
+// and before it gained the rolloff; `acesOnly` for one from before the encode.
+// Neither is dead code: this repo's docs/shots tree spans all three.
+const ROLL_KNEE = 0.5, ROLL_CEIL = 8.0;
+function rollInverse(y) {
+  if (!(ROLL_CEIL > ROLL_KNEE) || y <= ROLL_KNEE) return y;
+  const S = ROLL_CEIL - ROLL_KNEE, u = y - ROLL_KNEE;
+  return u >= S ? Infinity : ROLL_KNEE + (S * u) / (S - u);
+}
+const a2l = new Float64Array(256), acesOnly = new Float64Array(256), acesFlat = new Float64Array(256);
 for (let i = 0; i < 256; i++) {
-  a2l[i] = acesInverse(s2l[i]);
+  acesFlat[i] = acesInverse(s2l[i]);
+  a2l[i] = rollInverse(acesFlat[i]);
   acesOnly[i] = acesInverse(i / 255);
 }
-export const TRANSFER = { srgb: s2l, aces: a2l, acesOnly };
+export const TRANSFER = { srgb: s2l, aces: a2l, acesFlat, acesOnly };
+export const ROLLOFF = { knee: ROLL_KNEE, ceil: ROLL_CEIL };
 const Y = (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
 
 // ------------------------------------------------------------------- camera
@@ -848,6 +869,32 @@ function selftest() {
   const rOld = detect(acesImg, { transfer: 'acesOnly' });
   if (rOld.ok && Math.abs(rOld.glassBR - 0.700) > 0.06) ok(`and with the PRE-encode engine inverse ${f(rOld.glassBR)} - the sRGB encode is in the chain`);
   else no(`the pre-encode inverse agrees (${f(rOld.glassBR)}); post.js's sRGB encode is not being applied`);
+
+  // 7b. THE HIGHLIGHT ROLLOFF, isolated. The panes above sit at 0.04-0.08 in
+  //     ACES input and the wall at 0.30, all under the rolloff's 0.5 knee, so
+  //     arms 7 and 7a would pass identically whether the rolloff were in this
+  //     file's inverse or not. This arm puts a value ABOVE the knee through the
+  //     whole current chain and asks the two inverses to disagree - which is the
+  //     only way a drift between these constants and src/post.js's shows up as a
+  //     failure rather than as a quiet bias on every bright pane in the set.
+  const roll = (x) => { const S = ROLLOFF.ceil - ROLLOFF.knee, t = Math.max(0, x - ROLLOFF.knee);
+    return Math.min(x, ROLLOFF.knee) + (S * t) / (S + t); };
+  const chainByte = (x) => Math.round(srgbEnc(acesOnlyEnc(roll(x)) / 255));
+  let rollOk = true, rollWhy = [];
+  for (const x of [0.20, 0.45, 1.0, 2.5, 4.0]) {
+    const b = Math.min(255, chainByte(x));
+    const back = TRANSFER.aces[b], flat = TRANSFER.acesFlat[b];
+    const err = Math.abs(Math.log2(back / x));
+    if (!(err < 0.35)) { rollOk = false; rollWhy.push(`x=${x} -> byte ${b} -> ${f(back)} (${f(err, 2)} stops out)`); }
+    // The curve is C1-continuous at the knee, so just above it the two inverses
+    // differ only in the second order - 0.05 stops at x = 1. They have to part
+    // company where it actually bites, and stay identical below the knee.
+    const gap = Math.abs(Math.log2(back / flat));
+    if (x >= 2.0 && !(gap > 0.25)) { rollOk = false; rollWhy.push(`x=${x}: rolloff inverse agrees with the flat one (${f(back)} vs ${f(flat)}, ${f(gap, 2)} stops)`); }
+    if (x < ROLLOFF.knee && gap > 0.02) { rollOk = false; rollWhy.push(`x=${x}: below the knee the two inverses must agree (${f(back)} vs ${f(flat)})`); }
+  }
+  if (rollOk) ok(`the highlight rolloff round-trips: 0.20/0.45/1.0/2.5/4.0 in ACES input come back within 0.35 stops, the pre-rolloff inverse is over a quarter-stop out by x=2 and identical below the ${ROLLOFF.knee} knee`);
+  else no(`highlight rolloff round-trip: ${rollWhy.join('; ')}`);
 
   console.log(`\nselftest: ${pass} passed, ${fail} failed`);
   return fail === 0;

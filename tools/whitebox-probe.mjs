@@ -17,6 +17,29 @@
 // This turns bloom off and on at one camera in one page session and measures the
 // box, so the only difference between the two frames is the uniform.
 //
+// ---------------------------------------------------------------------------
+// CORRECTION. This file's own conclusion - "REFUTED, the box stays 11.8% white
+// with bloom off, so it is geometry or material" - drew the wrong inference from
+// a correct measurement, and I committed it.
+//
+// There were TWO overlapping defects in that box. Turning bloom off removed one
+// of them (an intermittent additive block, which really was bloom) and uncovered
+// the other (a blown glazing pane, which really is geometry). I read the
+// remaining 11.8% as "bloom is not involved" when the honest reading is "bloom
+// is not ALL of it". The tell was in the numbers and I explained it backwards:
+// `hardStepCols` going 0 -> 46 with bloom OFF is not bloom softening an artifact,
+// it is bloom's soft block being REMOVED to expose the pane's own hard edge.
+//
+// Two blind reviewers described the artifact as a screen-space sprite with a
+// zero-slope top edge painted over a pier that is geometrically in front of the
+// glass. That description was RIGHT. My refutation of it was wrong, and the
+// mechanism is now known: sanitize() was manufacturing NaN (see src/post.js),
+// one poisoned texel spread through four separable blur passes into a hard-edged
+// half-res block, and the composite added it at bloomStrength.
+//
+// A measurement can be correct and its inference wrong, and a probe that reports
+// a verdict rather than a number invites exactly that.
+//
 //   node tools/whitebox-probe.mjs
 //   WB_TIME=dusk node tools/whitebox-probe.mjs
 import { chromium } from 'playwright';

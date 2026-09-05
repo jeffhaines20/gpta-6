@@ -47,16 +47,40 @@ function acesInverse(y) {
   const roots = [r1, r2].filter((v) => v >= 0);
   return roots.length ? Math.min(...roots) : 0;
 }
+// AND THE CHAIN GAINED A THIRD STAGE. src/post.js's composite now runs a
+// highlight rolloff in front of the ACES fit, so the byte is
+// srgb(aces(roll(radiance * exposure))) and this inverse gains a stage at the
+// front of the tonemap inverse in turn. The curve, its constants and their
+// derivation live in COMPOSITE_FRAG's highlightRolloff(); the two numbers below
+// MUST match the two in src/post.js's params block.
+//
+//     roll(x) = x                            x <= K
+//     roll(x) = K + S(x-K)/(S + (x-K))       x >  K,   S = C - K
+//
+// so roll^-1(y) = K + S(y-K)/(S - (y-K)), defined for y < C. C is 8.0 and the
+// largest y this table ever sees is acesInverse(1.0) = 7.2416 - which is WHY C
+// is 8.0 rather than the 5.0 that would compress harder: an inverse that blows
+// up on the brightest byte in the frame is not an inverse.
+const ROLL_KNEE = 0.5, ROLL_CEIL = 8.0;
+export function rollInverse(y) {
+  if (!(ROLL_CEIL > ROLL_KNEE) || y <= ROLL_KNEE) return y;
+  const S = ROLL_CEIL - ROLL_KNEE, u = y - ROLL_KNEE;
+  return u >= S ? Infinity : ROLL_KNEE + (S * u) / (S - u);
+}
 const a2l = new Float64Array(256);      // byte -> ACES input, through the encode
 const acesOnlyTable = new Float64Array(256);
+const flatTable = new Float64Array(256);
 for (let i = 0; i < 256; i++) {
-  a2l[i] = acesInverse(s2l[i]);
+  flatTable[i] = acesInverse(s2l[i]);
+  a2l[i] = rollInverse(flatTable[i]);
   acesOnlyTable[i] = acesInverse(i / 255);
 }
-/** Byte from a CURRENT frame -> radiance x exposure (ACES input). */
+/** Byte from a CURRENT frame -> radiance x exposure (rolloff input). */
 export const unDisplay = (v) => a2l[v];
 /** Byte from a frame captured BEFORE post.js gained its sRGB encode. */
 export const acesOnly = (v) => acesOnlyTable[v];
+/** Byte from a frame captured after the encode landed and before the rolloff. */
+export const acesFlat = (v) => flatTable[v];
 const Ya = (r, g, b) => 0.2126 * a2l[r] + 0.7152 * a2l[g] + 0.0722 * a2l[b];
 
 /** Mean LINEAR luminance over a box given as [x, y, w, h]. */

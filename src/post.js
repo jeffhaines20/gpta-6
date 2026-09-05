@@ -39,9 +39,20 @@ void main() {
   // share SKY_COMMON-style includes with it. Without it, contrib below is
   // Inf/Inf = NaN and the separable blur then spreads that NaN over a 9-tap
   // neighbourhood of otherwise-good pixels.
+  //
+  // AND FOR TWO ROUNDS IT DID EXACTLY THAT, because the guard was written with
+  // mix(). See sanitize() in COMPOSITE_FRAG for the whole finding; the short
+  // version is that mix(x, y, 0.0) is x*(1.0 - a) + y*a and Inf * 0.0 is NaN, so
+  // the one line that exists to remove non-finite values was MANUFACTURING them
+  // from every Inf it caught. Measured at the golden whitebox camera: one NaN
+  // texel here, 312 after the third blur pass, 675 after the fourth, and the
+  // composite then multiplies each of those by bloomStrength and ADDS it.
+  // Ternaries instead, so nothing that failed the test is ever an operand.
   vec3 c = texture2D(tDiffuse, vUv).rgb;
   bvec3 ok = lessThanEqual(c, vec3(60000.0));
-  c = mix(vec3(60000.0), max(c, vec3(0.0)), vec3(ok));
+  c = vec3(ok.x ? max(c.x, 0.0) : 60000.0,
+           ok.y ? max(c.y, 0.0) : 60000.0,
+           ok.z ? max(c.z, 0.0) : 60000.0);
   // Threshold in EXPOSED units, not in nits.
   //
   // The scene target is authored in physical units - a sunlit road at golden hour
@@ -256,6 +267,83 @@ vec3 aces(vec3 x) {
   return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
 }
 
+// Highlight rolloff: a soft knee in front of the ACES fit, so the top of the
+// range compresses into a shoulder instead of pinning at the ceiling.
+//
+// WHAT IT IS FOR, AND WHAT IT CANNOT DO. A facade:bayTower glazing cell whose
+// normal sits 1.1 degrees off the half-vector of the 8-degree golden sun returns
+// - measured into a FloatType target by tools/highlight-probe.mjs, at the
+// whitebox camera - a mean of 643,000 cd/m2 over the pane and a peak of
+// 14,287,888, against a display-white radiance of 29,800 at golden's stop. It
+// is not achromatic light: the same readback puts the pane at B/R 0.227, which
+// is the sun's own colour.
+//
+// None of that reaches this shader. The scene target is HalfFloatType, so every
+// channel past 65,504 is stored saturated, and sanitize() below then pins every
+// channel past 60,000 onto ONE number. By the time the composite runs, the pane
+// is (60000, 60000, 60000) - flat, achromatic, and bit-identical to the sun
+// disc, which the sky clamps to the same 60,000. So no curve here can shrink
+// that pane, and none can give it its colour back: both were destroyed upstream
+// of this file, and the fix for them has to sit before the half-float write.
+// Measured at the same camera: 7,840 px past the ceiling, 14,066 past the
+// display-white radiance, so 44% of what reads as white DOES still carry a
+// gradient this curve can act on.
+//
+// WHAT IT DOES DO. The value this curve sees is scene + bloom, and bloom is added
+// ON TOP of a value sanitize has already clamped - so the pane's core left this
+// composite at a literal 255,255,255 with bloom on and 254 with it off, i.e. the
+// ceiling was reading as the display maximum and the bloom halo was carrying it
+// out over the string course and pier in front of the glass. The rolloff puts
+// that whole saturated band back inside the range and gives the band below it
+// somewhere to go, which is the part of the defect that lives on this side of
+// the target.
+//
+// THE CURVE. Reinhard's hyperbolic soft knee, per channel, on the EXPOSED value
+// - the same 0-2-ish scale bloomThreshold is authored on, so one pair of
+// constants is correct at every preset and nothing in daynight.js moves:
+//
+//     f(x) = x                                  for x <= K
+//     f(x) = K + S*(x-K) / (S + (x-K))          for x >  K,   S = C - K
+//
+// C1-continuous at K (slope exactly 1 there, so nothing kinks), monotonic, and
+// invertible in closed form - which matters because tools/critic-metrics.mjs,
+// tools/pane-tint.mjs, tools/glaz-probe.mjs and tools/transfer-audit.mjs all
+// recover radiance from a shipped byte and all four now carry this inverse.
+//
+// THE TWO CONSTANTS, and C is not a taste. The four tools that recover radiance
+// from a shipped byte have to invert this, and the byte they have to invert it
+// at is 255, which decodes to the ACES fit's own white point 7.2416. The
+// rolloff's inverse only exists for y < C, so C > 7.2416 or the inverse blows
+// up on the brightest pixel in the frame - and with C above it, display 255 also
+// stays REACHABLE, so "clipped" keeps its meaning for critic-metrics.mjs.
+// C = 8.0. K is then the only free parameter, and lowering it buys compression
+// at the top: at C = 8.0, byte 255 lands on 253.6 with K = 3.0, 252.1 with
+// K = 0.5 and 252.0 with K = 0.35, so 0.5 is where the return stops. It is also
+// where the cost stops: the map is exact to the byte at 210 and below, which is
+// the whole sky at every hour (golden 0.36 exposed, noon 0.24), every sunlit
+// road, and 99.9% of the noon and night frames.
+//
+// THE WHOLE EFFECT, exactly, as a byte-to-byte map - it is a per-channel curve
+// on a per-channel value, so this table IS the change, at every preset and every
+// pixel:
+//
+//     in   210    220    230    240    245    250    252    254    255
+//     out  210.0  219.7  229.2  238.5  243.1  247.6  249.4  251.2  252.1
+//
+// So it is worth about three display units at the very top and under one below
+// 230. That is the whole of what a curve on this side of the scene target can
+// be worth, which is the finding as much as the change is. Set
+// highlightCeil <= highlightKnee to disable it and get the old chain back -
+// that is how the A/B arms in the probes are built.
+uniform float highlightKnee;
+uniform float highlightCeil;
+vec3 highlightRolloff(vec3 x) {
+  float S = highlightCeil - highlightKnee;
+  if (S <= 0.0) return x;
+  vec3 t = max(x - highlightKnee, vec3(0.0));
+  return min(x, vec3(highlightKnee)) + (S * t) / (S + t);
+}
+
 // Half-float hygiene, and the reason the noon frame has a hole in it.
 //
 // The scene renders into a HalfFloatType target and the district is authored in
@@ -288,12 +376,55 @@ vec3 aces(vec3 x) {
 // white came from somewhere else. Either answer is worth having, which is why the
 // switch is a uniform and not a temporary edit - it can be re-run on any future
 // frame without touching the shader again.
+//
+// AND IT WAS WRITTEN WITH mix(), WHICH MADE IT A NaN SOURCE. This is the whole
+// of the intermittent additive white block, and it is one line.
+//
+// mix(x, y, a) is x*(1.0 - a) + y*a. For a channel that FAILS the test, a is
+// 0.0, so the second term is y * 0.0 - and when y is +Inf, that is NaN, not
+// zero. NaN itself came through correctly (GLSL max(x, y) is y < x ? x : y and
+// every comparison against NaN is false, so max(NaN, 0.0) is 0.0 and the mix
+// returned CEIL), but every INFINITY the guard caught left it as a NaN. The
+// guard was manufacturing exactly what it exists to remove.
+//
+// What that is worth, measured frame-wide by tools/nan-probe.mjs at the golden
+// whitebox camera, pass by pass:
+//
+//     hdr scene target   6,935 non-finite   (6,924 NaN + 11 Inf)
+//     bright pass            1 NaN          at (158, 370)
+//     blurA                312 NaN          screen box [134,358]-[180,382]
+//     blurB                675 NaN          screen box [132,344]-[180,396]
+//
+// Eleven Inf channels in the scene target become ONE NaN texel in the bright
+// pass, and four separable blur passes at +-1.4 and +-3.2 texels, run twice at
+// double step, spread it into a 49x53 half-res block - 675 texels, about 2,700
+// full-resolution pixels. NaN does not blur: any tap touching one makes the
+// whole result NaN, so the block has a HARD edge and a rectangular support
+// rather than a falloff. The composite then sanitizes it back to CEIL, so the
+// block arrives as bloom at 60,000 nits flat and is ADDED at bloomStrength:
+// +24,000 nits, or 2.49 in exposed units at golden, over 2,700 px of frame that
+// owes nothing to the geometry underneath it.
+//
+// That is the "intermittent additive 2,890 px block at (137,349)-(216,402)" the
+// bimodal whitebox measurement carries, and it is also most of what four critic
+// sightings described as a hard-edged, axis-aligned, perspective-ignoring white
+// rectangle painted over a pier and a spandrel in FRONT of the glass. It is
+// intermittent because it is seeded by the ELEVEN Inf channels in a frame: a
+// frame with none has no block at all, which is why eight captures in ten sat at
+// 0.1012-0.1023 and two at 0.2430.
+//
+// The fix is to stop multiplying: a ternary selects the ceiling for anything
+// that failed the test, so nothing non-finite is ever an operand. Finite pixels
+// are still returned bit-for-bit, and NaN still lands on the ceiling rather than
+// on black, which is what the paragraph above this one is about.
 uniform float debugSanitize;
 vec3 sanitize(vec3 c) {
   const float CEIL = 60000.0;
   bvec3 ok = lessThanEqual(c, vec3(CEIL));
   if (debugSanitize > 0.5 && !all(ok)) return vec3(0.0, 40000.0, 0.0);
-  return mix(vec3(CEIL), max(c, vec3(0.0)), vec3(ok));
+  return vec3(ok.x ? max(c.x, 0.0) : CEIL,
+              ok.y ? max(c.y, 0.0) : CEIL,
+              ok.z ? max(c.z, 0.0) : CEIL);
 }
 
 
@@ -336,8 +467,14 @@ void main() {
 
   color = mix(color, fogCol, fogAmount);
 
-  // --- Exposure, tonemap.
+  // --- Exposure, highlight rolloff, tonemap.
+  //
+  // The rolloff sits AFTER the bloom add and the fog mix and BEFORE the fit,
+  // because what pins at the ceiling is the composited value, not the scene
+  // sample: a pane already at sanitize's ceiling picked up another 40% of a
+  // blurred copy of itself here and left at a literal 255.
   color *= exposure;
+  color = highlightRolloff(color);
   color = aces(color);
 
   // --- Display transfer function. THE THING THAT WAS MISSING.
@@ -542,6 +679,12 @@ export class PostStack {
       fogHeightFalloff: 0.018,
       fogHeightRef: 0,
       wetness: 0,
+      // Highlight rolloff, in EXPOSED units - see highlightRolloff() in
+      // COMPOSITE_FRAG for the derivation. highlightCeil <= highlightKnee
+      // disables it and restores the pre-rolloff chain, which is how a probe
+      // builds its two arms without rebuilding the page.
+      highlightKnee: 0.5,
+      highlightCeil: 8.0,
       sunDirection: new THREE.Vector3(0, 1, 0),
       // AO. Radius is in view-space metres, so 0.9 m is a contact-shadow scale:
       // it darkens where a wall meets pavement and under kerbs, awnings and
@@ -647,6 +790,8 @@ export class PostStack {
         invProjection: { value: new THREE.Matrix4() },
         resolution: { value: new THREE.Vector2() },
         wetness: { value: 0 },
+        highlightKnee: { value: this.params.highlightKnee },
+        highlightCeil: { value: this.params.highlightCeil },
         debugSanitize: { value: 0 },
       },
       depthTest: false, depthWrite: false,
@@ -858,6 +1003,8 @@ export class PostStack {
     u.fogHeightFalloff.value = p.fogHeightFalloff;
     u.fogHeightRef.value = p.fogHeightRef;
     u.wetness.value = p.wetness;
+    u.highlightKnee.value = p.highlightKnee;
+    u.highlightCeil.value = p.highlightCeil;
     // Driven from params like everything else here, so a harness sets it through
     // postParams() and no future refactor of this block can silently strand it.
     u.debugSanitize.value = p.debugSanitize ? 1 : 0;

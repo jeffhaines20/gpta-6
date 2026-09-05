@@ -132,15 +132,25 @@ for (let i = 0; i < 256; i++) {
   const v = i / 255;
   s2lg[i] = v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
 }
-const a2l = new Float64Array(256);
+// ...and the composite now runs a highlight rolloff in FRONT of the fit, so the
+// inverse ends with roll^-1. Constants mirror src/post.js's params block; a
+// frame captured before that change needs a2lFlat below.
+const ROLL_KNEE = 0.5, ROLL_CEIL = 8.0;
+const rollInverse = (y) => {
+  if (y <= ROLL_KNEE) return y;
+  const S = ROLL_CEIL - ROLL_KNEE, u = y - ROLL_KNEE;
+  return u >= S ? Infinity : ROLL_KNEE + (S * u) / (S - u);
+};
+const a2l = new Float64Array(256), a2lFlat = new Float64Array(256);
 for (let i = 0; i < 256; i++) {
   const y = s2lg[i];
   const A = 2.43 * y - 2.51, B = 0.59 * y - 0.03, C = 0.14 * y;
-  if (Math.abs(A) < 1e-9) { a2l[i] = B !== 0 ? -C / B : 0; continue; }
+  if (Math.abs(A) < 1e-9) { a2lFlat[i] = B !== 0 ? -C / B : 0; a2l[i] = rollInverse(a2lFlat[i]); continue; }
   const disc = B * B - 4 * A * C;
-  if (disc < 0) { a2l[i] = 0; continue; }
+  if (disc < 0) { a2lFlat[i] = 0; a2l[i] = 0; continue; }
   const roots = [(-B + Math.sqrt(disc)) / (2 * A), (-B - Math.sqrt(disc)) / (2 * A)].filter((v) => v >= 0);
-  a2l[i] = roots.length ? Math.min(...roots) : 0;
+  a2lFlat[i] = roots.length ? Math.min(...roots) : 0;
+  a2l[i] = rollInverse(a2lFlat[i]);
 }
 const sceneY = (r, g, b) => 0.2126 * a2l[r] + 0.7152 * a2l[g] + 0.0722 * a2l[b];
 const luma8 = (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b;

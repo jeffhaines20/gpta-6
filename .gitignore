@@ -79,3 +79,7 @@ docs/shots/pane-tint/look/
 # which stays tracked.
 docs/shots/cs-*.png
 docs/shots/csaz-*.png
+
+# whitebox-repeat.mjs's capture set: N full frames per run, 1.9 MB each, and the
+# finding is in docs/whitebox-repeat-*.json rather than in any one of them.
+docs/shots/repeat/

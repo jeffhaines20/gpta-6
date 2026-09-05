@@ -30,6 +30,181 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## The white rectangle was the NaN guard after all - it was MAKING them, one line
+
+`sanitize()` in `src/post.js` exists to keep non-finite values out of the frame.
+It was written with `mix()`, and `mix(x, y, a)` is `x*(1-a) + y*a` - so for a
+channel that FAILS the test, `a` is 0 and the second term is `y * 0.0`. When `y`
+is `+Inf`, that is **NaN**. NaN itself came through correctly (GLSL `max(x, y)`
+is `y < x ? x : y` and every comparison against NaN is false, so `max(NaN, 0.0)`
+is 0 and the mix returned the ceiling), but every INFINITY the guard caught left
+it as a NaN. The guard was manufacturing exactly what it exists to remove.
+
+**What that is worth, pass by pass** (`tools/nan-probe.mjs`, golden, whitebox
+camera, frame-wide):
+
+| pass | before | after |
+|---|---|---|
+| hdr scene target | 6,924 NaN + **11 Inf** | 6,942 NaN + 10 Inf (untouched) |
+| bright | **1 NaN** at (158,370) | **0** |
+| blurA | **312 NaN**, box [134,358]-[180,382] | **0** |
+| blurB | **675 NaN**, box **[132,344]-[180,396]** | **0** |
+
+Eleven Inf channels in the scene target become ONE NaN texel in the bright pass,
+and four separable blur passes at +-1.4 and +-3.2 texels, run twice at double
+step, spread it into a 49x53 half-res block. **NaN does not blur** - any tap
+touching one makes the whole result NaN - so the block has a hard edge and a
+rectangular support rather than a falloff. The composite then sanitizes it back
+to the 60,000-nit ceiling and ADDS it at `bloomStrength`: **+24,000 nits flat**,
+2.49 in exposed units at golden, over about 2,700 full-resolution pixels that owe
+nothing to the geometry underneath them.
+
+**That is the intermittent additive block**, whose report reads "2,890 px at
+(137,349)-(216,402)" against a measured NaN blob at (132,344)-(180,396) and 675
+half-res texels x 4 = 2,700 px. It is intermittent because it is seeded by the
+ELEVEN Inf channels in a frame: a frame with none has no block, which is how ten
+consecutive captures of the same box went 0.1012-0.1023 eight times and 0.2430
+twice. **It has corrupted every measurement of that box anyone has taken**,
+including the 24.8% the sanitize round recorded - and that round's own conclusion,
+"roughly a third of its whiteness is bloom fed by an overflow the guard is
+catching a hundred pixels away", was RIGHT about the mechanism and wrong only in
+thinking the guard was innocent.
+
+It also settles the disagreement between the two blind reviewers and the round
+that audited them. The reviewers said screen-space sprite: hard edge, axis
+aligned, zero slope where the string course drops four pixels, painted over a
+pier and a spandrel in FRONT of the glass. All of that is true of this block and
+none of it is true of a specular highlight. The audit's refutation - "bloom OFF
+leaves the box 11.8% white and `hardStepCols` goes 0 to 46" - was reading the
+same thing backwards: turning bloom off removes the NaN BLOCK (the block *is*
+bloom), which uncovers the pane underneath it and its own hard edge. Bloom was
+never softening anything.
+
+The fix is to stop multiplying. A ternary selects the ceiling for anything that
+failed the test, so nothing non-finite is ever an operand; finite pixels are
+returned bit-for-bit, and NaN still lands on the ceiling rather than on black.
+Both copies of the guard - the composite's `sanitize()` and the bright pass's
+inlined one - are corrected.
+
+## The blown pane is a HALF-FLOAT fault, and the rolloff is what post can still do
+
+The pane is real and it is not the block. `tools/highlight-probe.mjs` renders the
+same camera into a **FloatType** target - no half-float saturation, no tonemap -
+and reads the radiance behind it: mean **643,000 cd/m2** over the left pane, peak
+**14,287,888** over the right, against a display-white radiance of 29,800 at
+golden's 1/9,649. And it is not achromatic light: **B/R 0.227**, the sun's own
+colour, over every one of the ceiling-clamped regions.
+
+**None of that reaches `post.js`.** The scene target is `HalfFloatType`, so every
+channel past 65,504 stores saturated, and `sanitize()` then pins every channel
+past 60,000 onto one number. By the time the composite runs the pane is
+(60000, 60000, 60000): flat, achromatic, and bit-identical to the sun disc, which
+`sky.js` clamps to the same 60,000. **So no curve in the composite can shrink that
+pane and none can give it its colour back** - both were destroyed upstream of the
+file this round was scoped to, and post cannot tell the pane from the sun because
+they arrive as the same number. That is the finding; the paragraph below is what
+was still available.
+
+7,840 px past the ceiling against 14,066 past the display-white radiance, so 44%
+of what reads as white DOES still carry a gradient, and the composited value -
+scene PLUS bloom - was leaving this shader at a literal 255,255,255 (254 with
+bloom off), i.e. the ceiling was reading as the display maximum. A **highlight
+rolloff** in front of the ACES fit puts that band back inside the range:
+
+    f(x) = x                            x <= K
+    f(x) = K + S(x-K)/(S + (x-K))       x >  K,   S = C - K
+
+per channel, on the EXPOSED value, so one pair of constants is correct at every
+preset and nothing in `daynight.js` moves. **C is not a taste**: the four tools
+that recover radiance from a byte have to invert this at byte 255, which decodes
+to the fit's own white point 7.2416, and the inverse only exists for y < C. So
+C = 8.0 - which also keeps display 255 reachable, so "clipped" keeps its meaning.
+K = 0.5 is then the only free parameter: at C = 8.0 byte 255 lands on 253.6 with
+K = 3.0, 252.1 with K = 0.5 and 252.0 with K = 0.35, so 0.5 is where the return
+stops and where the cost stops. **The whole effect is one byte-to-byte map:**
+
+    in   210    220    230    240    245    250    252    254    255
+    out  210.0  219.7  229.2  238.5  243.1  247.6  249.4  251.2  252.1
+
+### Measured, at the whitebox box and at all four presets
+
+`tools/whitebox-probe.mjs`'s box at golden, one camera:
+
+| bloom ON | white (>250) | >=245 | >=240 | mean luma | hard-step cols |
+|---|---|---|---|---|---|
+| before | 0.1633 | 0.3993 | 0.4291 | 202.4 | 1 |
+| NaN guard fixed | 0.1146 | 0.2163 | 0.2505 | 193.3 | 0 |
+| + rolloff | **0.1087** | **0.2043** | **0.2366** | 192.5 | 0 |
+
+The guard is worth 45% of the near-white area in that box and the rolloff another
+6%. With bloom OFF - where the NaN block cannot exist, because the block IS bloom
+- the rolloff is the whole of the change and it is visible in the EDGE as well as
+the level: white 0.1107 -> **0.0740**, and the columns that step from under 200 to
+over 250 in a single pixel go **42 -> 24**. Ten repeat captures on the fixed build
+(`tools/whitebox-repeat.mjs`) span 0.1084-0.1087, a spread of 0.03 points against
+the 14.2 points the block used to add. Frame-wide at the sweep camera, the committed frames against the re-run
+sweep - **noon, dusk and night are unchanged inside the run-to-run spread this
+ledger already records**:
+
+| preset | mean | p50 | p95 | clipped | >250 | <16/255 |
+|---|---|---|---|---|---|---|
+| noon | 113.3 -> 114.6 | 125 -> 127 | 170 -> 170 | 0 -> 0 | 0 -> 0 | 1.75 -> 1.66% |
+| golden | 128.8 -> 129.3 | 115 -> 116 | 230 -> 229 | **2,072 -> 0** | **16,756 -> 11,829** | 0.44 -> 0.41% |
+| dusk | 107.2 -> 107.7 | 86 -> 86 | 207 -> 207 | 0 -> 0 | 0 -> 0 | 1.33 -> 1.23% |
+| night | 26.9 -> 27.0 | 21 -> 21 | 63 -> 63 | 0 -> 0 | 2 -> 0 | 40.94 -> 40.86% |
+
+The sweep was run twice on the fixed build, because the district has traffic and
+a crowd in it and the frame mean moves without the renderer moving: 113.6 then
+114.6 at noon, 128.8 then 129.3 at golden. Every "after" figure above reproduced
+inside that. The one column that did NOT move between the two runs is golden's
+>250 count - 11,829 both times - because what it measures is deterministic
+glazing rather than anything that walks through frame.
+
+### And the things that are SUPPOSED to be at the top of the range
+
+`tools/rolloff-ab.mjs` swaps the two uniforms inside ONE session, arms asserted
+distinct, and reports the ten brightest connected regions found on the ARM WITH
+THE ROLLOFF OFF - **the same pixel set in both arms**, because a curve that moves
+a region out of the top decile would otherwise re-sort the population and measure
+a different object.
+
+- **Night** (lamp lenses, lit windows, signage): seven of the ten regions are
+  bit-identical; the other three move 197.1 -> 197.1, 244.3 -> 242.3 and
+  231.9 -> 230.9 on the peak. Frame mean 21.73 -> 21.66.
+- **The sun disc**, camera pointed at it at golden: peak **255 -> 252.9**, its
+  region mean 220.3 -> 219.7, frame mean 139.68 -> 139.62. It still reads as a
+  disc.
+- **Noon**: brightest peaks move <= 2.1; frame mean 112.01 -> 111.95.
+- **Dusk**: brightest peaks move <= 1.4; frame mean 98.83 -> 98.74.
+
+And the guard fix cannot touch night at all, which is measured rather than
+argued: `NP_TIME=night node tools/nan-probe.mjs` reports zero non-finite values
+in every pass and a peak scene radiance of **10 nits** at that camera, four
+orders of magnitude under the 65,504 where the fault lives.
+
+### What it cost, and what is left open
+
+Zero triangles, zero draw calls, zero new post passes (8 either side) and two new
+uniforms; the composite is one `min`, one `max` and one divide longer.
+`gates:static` PASS and the LIGHTING SWEEP PASS with **both** negative tests
+firing.
+
+The four tools that carry this chain's inverse move with it:
+`critic-metrics.mjs` (`unDisplay` gains `rollInverse`, `acesFlat` added for
+frames captured between the encode and the rolloff), `pane-tint.mjs` (same, plus
+a self-test arm that puts a value ABOVE the knee through the whole chain and
+requires the two inverses to disagree - the existing arms all sit at 0.04-0.30 in
+ACES input, under the knee, and would have passed either way), `glaz-probe.mjs`
+and `transfer-audit.mjs` (a third named chain, `srgb-aces-roll`, now the
+default). `pane-tint --selftest` 18 passed, 0 failed.
+
+**Open, and sized.** The pane's colour is recoverable only before the half-float
+write. Two routes, neither taken here: a highlight compression in the material,
+or an `RGBA32F` scene target - which is 2x the bandwidth on the biggest target in
+the build and puts float MSAA and `OES_texture_float_linear` on the critical
+path. The pane's AREA is not recoverable at all from post: the whole cell sits
+above the ceiling, so post sees one flat number across it.
+
 ## The frame was never missing light. It was missing a display transfer function
 
 The fidelity reviewer's headline finding was that everything out of direct sun is

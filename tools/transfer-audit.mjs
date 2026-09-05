@@ -55,6 +55,8 @@
 //   node tools/transfer-audit.mjs --shape [--time noon]
 //   node tools/transfer-audit.mjs --colour
 //   node tools/transfer-audit.mjs --solve --from docs/shots --chain srgb-aces
+// (--chain defaults to srgb-aces-roll, what ships now; the two older names read
+//  frames captured before the encode and before the highlight rolloff landed.)
 //   node tools/transfer-audit.mjs                       # all four
 import fs from 'node:fs';
 import { readPNG } from './png.mjs';
@@ -78,13 +80,31 @@ export function acesInverse(y) {
   return r.length ? Math.min(...r) : 0;
 }
 
+// The highlight rolloff src/post.js's composite runs in front of the fit. The
+// two constants MUST match its params block; see highlightRolloff() there for
+// why the asymptote is 8.0 and not lower.
+export const ROLLOFF = { knee: 0.5, ceil: 8.0 };
+export const roll = (x) => {
+  const S = ROLLOFF.ceil - ROLLOFF.knee, t = Math.max(0, x - ROLLOFF.knee);
+  return Math.min(x, ROLLOFF.knee) + (S * t) / (S + t);
+};
+export const rollInverse = (y) => {
+  if (y <= ROLLOFF.knee) return y;
+  const S = ROLLOFF.ceil - ROLLOFF.knee, u = y - ROLLOFF.knee;
+  return u >= S ? Infinity : ROLLOFF.knee + (S * u) / (S - u);
+};
+
 // A "chain" is what a build's composite does between radiance*exposure and the
-// byte. Frames in docs/shots span both, so it is a parameter and never assumed.
-//   'aces'       what shipped before 2026-09-05: byte = aces(x)
-//   'srgb-aces'  what ships now:                 byte = srgb(aces(x))
+// byte. Frames in docs/shots span all three, so it is a parameter and never
+// assumed.
+//   'aces'            before 2026-09-05 07:29: byte = aces(x)
+//   'srgb-aces'       after the encode landed: byte = srgb(aces(x))
+//   'srgb-aces-roll'  what ships now:          byte = srgb(aces(roll(x)))
 export const CHAINS = {
   aces: { encode: (x) => aces(x), decode: (v) => acesInverse(v) },
   'srgb-aces': { encode: (x) => srgbEncode(aces(x)), decode: (v) => acesInverse(srgbDecode(v)) },
+  'srgb-aces-roll': { encode: (x) => srgbEncode(aces(roll(x))),
+    decode: (v) => rollInverse(acesInverse(srgbDecode(v))) },
 };
 function table(chain) {
   const t = new Float64Array(256);
@@ -276,7 +296,7 @@ function pairs(time) {
 }
 
 if (process.argv[1] && process.argv[1].endsWith('transfer-audit.mjs')) {
-  const chain = arg('chain', 'srgb-aces');
+  const chain = arg('chain', 'srgb-aces-roll');
   const lutEngine = table(chain);
   const all = !has('gamma') && !has('shape') && !has('colour') && !has('solve') && !has('shift');
 
@@ -295,7 +315,7 @@ if (process.argv[1] && process.argv[1].endsWith('transfer-audit.mjs')) {
     const gap = Math.log2(hi / lo);
     console.log(`\n  A MEASURED PAIR: noon's sky-lit facade at ${lo} against its sunlit road at ${hi},`);
     console.log(`  ${gap.toFixed(2)} stops apart in radiance. At ONE stop, so only the encode differs:`);
-    for (const c of ['aces', 'srgb-aces']) {
+    for (const c of ['aces', 'srgb-aces', 'srgb-aces-roll']) {
       const f = CHAINS[c].encode;
       const a = 255 * f(lo), b = 255 * f(hi);
       console.log(`    ${c.padEnd(10)} ${a.toFixed(1).padStart(6)} and ${b.toFixed(1).padStart(6)} of 255` +
