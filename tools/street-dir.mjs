@@ -141,6 +141,38 @@ function selftest() {
     console.log(`  roads both sides, near one wins : frontage ${off(f, [0, 1]).toFixed(0)} deg  ${ok ? 'outward, toward the near road' : 'WRONG SIGN OR SIDE'}`);
     if (!ok) fail++;
   }
+  // 4. ROAD CLASS BEATS PROXIMITY. A service alley 3.5 m behind, a real street
+  //    11.7 m in front across a parking lane -- the exact geometry of building
+  //    #18 on this district. Picking the nearer tarmac fronts a Main Street
+  //    block onto its own back alley, which is what the first version of
+  //    streetDirFor did. streetfurniture.js already treats r > 5 as alley.
+  {
+    const S = makeStreetDir(mk(
+      [{ x: -80, z: 21.7 }, { x: 80, z: 21.7 },      // class 4, 11.7 m past the wall
+       { x: -80, z: -13.5 }, { x: 80, z: -13.5 }],   // class 8 alley, 3.5 m behind
+      [{ v: [0, 1], r: 4, w: 6.6 }, { v: [2, 3], r: 8, w: 2.8 }]));
+    const f = S.frontage(b);
+    const ok = off(f, [0, 1]) < 20;
+    console.log(`  alley near, street far          : frontage ${off(f, [0, 1]).toFixed(0)} deg  ${ok ? 'chose the street' : 'CHOSE THE ALLEY'}`);
+    if (!ok) fail++;
+  }
+
+  // 5. LENGTH BREAKS A TIE WITHIN A CLASS. Same class of road on the long side
+  //    and on the short end, the end marginally closer. The primary elevation is
+  //    the one that shows the most wall to the street; without this, #18 chose
+  //    its 31 m end over its 181 m Main Street frontage for two metres.
+  {
+    const long = [[-90, -10], [90, -10], [90, 10], [-90, 10]];   // 180 x 20
+    const S = makeStreetDir(mk(
+      [{ x: -200, z: 22 }, { x: 200, z: 22 },        // 12 m off the 180 m side
+       { x: 100, z: -60 }, { x: 100, z: 60 }],       // 10 m off the 20 m end
+      [{ v: [0, 1], r: 4, w: 6.6 }, { v: [2, 3], r: 4, w: 6.6 }]));
+    const f = S.frontage({ p: long });
+    const ok = off(f, [0, 1]) < 20;
+    console.log(`  long side vs nearer short end   : frontage ${off(f, [0, 1]).toFixed(0)} deg  ${ok ? 'chose the long elevation' : 'CHOSE THE END WALL'}`);
+    if (!ok) fail++;
+  }
+
   console.log(fail ? `\nSELFTEST FAILED (${fail})` : '\nSELFTEST PASSED');
   return fail;
 }

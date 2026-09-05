@@ -116,7 +116,23 @@ export function ribbon(points, width, y, pos, nrm, uv, idxArr) {
 // tools/street-dir.mjs holds the old and new answers side by side with a
 // self-test that isolates the failure.
 
-/** Road segments within one chunk of (x, z), as [vertA, vertB] pairs. */
+/**
+ * Road class tiers, following the convention streetfurniture.js already uses:
+ * it dresses r <= 4 at main-street spacing, r 5 at side-street spacing, and
+ * skips r > 5 entirely as alleys.
+ *
+ * A building fronts the STREET, not whatever tarmac happens to be nearest. This
+ * distinction is the whole reason the tier exists: on this district a service
+ * alley runs 3.5 m behind a Main Street block while Main Street itself is 11.7 m
+ * away across a parking lane, so "nearest road wins" fronts the block onto the
+ * alley and turns its back on the high street. That is not hypothetical -- it is
+ * what the first version of streetDirFor() did to building #18, and it took an
+ * independent observation to catch, because the district-wide statistic improved
+ * while the hero view got worse.
+ */
+const roadTier = (r) => (r <= 4 ? 0 : r <= 5 ? 1 : 2);
+
+/** Road segments within one chunk of (x, z), as [vertA, vertB, edge] triples. */
 export function roadSegmentsNear(district, x, z) {
   const cs = district.meta.chunkSize;
   const ci = Math.floor(x / cs), cj = Math.floor(z / cs);
@@ -126,8 +142,10 @@ export function roadSegmentsNear(district, x, z) {
       const ch = district.chunks[`${i},${j}`];
       if (!ch) continue;
       for (const ei of ch.edges) {
-        const v = district.edges[ei].v;
-        for (let k = 0; k + 1 < v.length; k++) out.push([district.verts[v[k]], district.verts[v[k + 1]]]);
+        const e = district.edges[ei];
+        for (let k = 0; k + 1 < e.v.length; k++) {
+          out.push([district.verts[e.v[k]], district.verts[e.v[k + 1]], e]);
+        }
       }
     }
   }
@@ -159,7 +177,12 @@ export function streetDirFor(district, b) {
   // argued: an inward normal would face every shopfront into its own building
   // and still look like a perfectly good unit vector.
   const flip = signedArea(b.p) < 0 ? 1 : -1;
-  let bestN = null, bestScore = Infinity;
+  // Best edge WITHIN each road tier. A better tier always wins outright, however
+  // much closer the worse one is; distance only decides between roads of the
+  // same standing. Falling through to tier 2 at all is what gives a building on
+  // a service yard with no street frontage some sensible orientation.
+  const bestN = [null, null, null];
+  const bestScore = [Infinity, Infinity, Infinity];
   for (let i = 0; i < b.p.length; i++) {
     const [x0, z0] = b.p[i], [x1, z1] = b.p[(i + 1) % b.p.length];
     const dx = x1 - x0, dz = z1 - z0;
@@ -167,8 +190,8 @@ export function streetDirFor(district, b) {
     if (len < 3) continue;                        // a chamfer is not a frontage
     const nx = (dz / len) * flip, nz = (-dx / len) * flip;
     const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2;
-    let edgeBest = Infinity;
-    for (const [a, c] of segs) {
+    const edgeBest = [Infinity, Infinity, Infinity];
+    for (const [a, c, e] of segs) {
       const ax = a.x, az = a.z;
       const sx = c.x - ax, sz = c.z - az;
       const L2 = sx * sx + sz * sz;
@@ -177,10 +200,21 @@ export function streetDirFor(district, b) {
       const along = (qx - mx) * nx + (qz - mz) * nz;
       if (along <= 0) continue;                   // the road is behind this wall
       const lateral = Math.hypot(qx - mx, qz - mz);
-      const score = lateral / Math.max(0.2, along / lateral);
-      if (score < edgeBest) edgeBest = score;
+      // Distance, penalised for being off to the side, then divided by the
+      // square root of the edge's own length: within one class of street, the
+      // primary elevation is the one that shows the most wall to it. Without
+      // this, building #18 chose its 31 m END wall over the 181 m Main Street
+      // elevation beside it, because the end wall was two metres closer to the
+      // same class of road -- geometrically true and architecturally absurd.
+      // sqrt rather than the length itself, so a long rear wall cannot outbid a
+      // short frontage standing right on the street.
+      const score = lateral / Math.max(0.2, along / lateral) / Math.sqrt(len);
+      const tier = roadTier(e?.r ?? 0);
+      if (score < edgeBest[tier]) edgeBest[tier] = score;
     }
-    if (edgeBest < bestScore) { bestScore = edgeBest; bestN = [nx, nz]; }
+    for (let t = 0; t < 3; t++) {
+      if (edgeBest[t] < bestScore[t]) { bestScore[t] = edgeBest[t]; bestN[t] = [nx, nz]; }
+    }
   }
-  return bestN;
+  return bestN[0] ?? bestN[1] ?? bestN[2];
 }
