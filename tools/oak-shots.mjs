@@ -22,13 +22,20 @@ const arg = (k, d) => {
   return i >= 0 && process.argv[i + 1] && !process.argv[i + 1].startsWith('--') ? process.argv[i + 1] : d;
 };
 const TAG = arg('tag', 'after');
-// GOLDEN AND DUSK, not noon and dusk. Binding constraint 3 asks for two times
-// of day; it does not ask for one of them to be unreadable. This build's noon
-// preset sets the stop for a 100,000 lux sky, so everything not in direct sun
-// goes to near-black -- the committed a8-corridor-noon.png does exactly the
-// same thing, so that is the shipped look and not a fault in this harness. A
-// canopy judged in that frame is a canopy judged in silhouette. Golden and dusk
-// both expose the street, and the pair still spans 8.3 stops of exposure.
+// GOLDEN AND DUSK, and the reason is no longer the one that was written here.
+//
+// It used to be that noon was unusable: the preset carried an inherited stop of
+// 1/69,490 against 105,244 lux of measured light, so everything not in direct
+// sun went to near-black and a canopy judged in that frame was a canopy judged
+// in silhouette. That is fixed -- the stop is derived now, at 1/14,000, and the
+// noon corridor frame reads mean 114.0 with 7.9% of it below 16/255 against 23.8
+// and 42.5% before. Noon is a legitimate second time of day again.
+//
+// The default stays golden,dusk anyway, and only because changing it would
+// invalidate every before/after pair already captured with this harness: the
+// two arms have to be shot at the same times of day or the diff is the light.
+// Pass --times golden,noon for new work; a canopy under a 75.6 deg sun is a
+// different and harder test than one under an 8 deg sun, and worth having.
 const TIMES = (arg('times', 'golden,dusk')).split(',');
 
 // Cameras. `at` is where the camera stands and `look` where it points; both are
