@@ -30,6 +30,103 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## Junctions pass non-conflicting movements, and throughput went UP
+
+`src/traffic.js` reserved a junction for ONE car at a time, so a northbound and a
+southbound through-movement queued for each other. Replaced with conflict-based
+arbitration: a movement is (approach edge+direction -> exit edge+direction),
+planned at the stop line, and two movements conflict when the point sets their
+cars will occupy come within 3.6 m.
+
+### The ledger's own before figures did not reproduce
+
+Recorded here as 14.6% overlap at 30 cars and 64.3% at 60. Neither reproduces:
+`data/district.json` was re-baked on 2026-09-04, after those numbers were taken,
+and same-edge overlaps were NOT in fact eliminated on the current bake (3-4k
+frames of them). Re-measured on HEAD over 8 seeds x 180 s: **33.79%** at 30 cars
+and **73.25%** at 60, with closest approach 0.00-0.29 m - interpenetration, not
+near-misses. A stale baseline would have made any change look better than it is.
+
+### 3.6 m is read off the district, not chosen
+
+Over all 6,404 movement pairs at the 503 multi-approach junctions the separations
+are trimodal: 1,983 at 0.0-0.5 m, 1,132 at 2.20 m (one lane offset), 346 at 4.40
+m (two). Only 112 pairs fall in the 2.5-4.0 m band. 3.6 m sits in that gap -
+above the 2.5 m overlap threshold, so **nothing the model waves through can
+register as an overlap by construction**, and below the 5th percentile of
+reciprocal through-pairs. It frees 1,705 of 6,404 pairs.
+
+A junction's arms are separate polylines and joining them draws a phantom segment
+through the node that drags reciprocal through-pairs from 4.40 m to 2.27 m,
+making 95% of them conflict - which would have silently reproduced the old
+one-at-a-time behaviour while looking like a fix.
+
+### Deadlock is bounded, not assumed away
+
+FCFS ticketing gives starvation-freedom in the arbitration, but physical gridlock
+in a grid of short blocks is not an arbitration property and no reservation rule
+prevents it. The guarantee is a bounded-hold rule: a car stationary AT a junction
+- refused, or holding one it has not finished crossing - for more than 20 s is
+removed. Any wait-for cycle must contain a relation crossing a junction, because
+same-edge following orders cars strictly by position along a finite edge and
+cannot close on itself.
+
+Tested where it occurs rather than argued. Static player, 300 s, worst immobile
+time measured OUTSIDE the module:
+
+| | worst immobile, rule on | rule off |
+|---|---|---|
+| n=60 | 20.0 s | **172.8 s** |
+| n=120 | 20.0 s | **280 s (permanent)** |
+| n=200 | 20.0 s | **280 s (permanent)** |
+
+**And a control against the obvious objection**: with the rule off across the
+whole grid, overlap is unchanged (0.00/0.20/1.15 -> 0.00/0.20/1.24). So the
+overlap result does not come from deleting jammed cars. What the rule buys is
+bounded waits - max 24.9 s against 78.6 s at 60 cars.
+
+### Result
+
+| config | overlap before -> after | crossings/min | mean km/h |
+|---|---|---|---|
+| n=30 | 33.79% -> **0.00%** | +17.3% | +15.7% |
+| n=60 | 73.25% -> **0.20%** | +18.9% | +18.5% |
+| n=90 | 87.10% -> **1.15%** | +22.0% | +18.4% |
+| static n=90 | 99.14% -> **5.74%** | +107.1% | +66.4% |
+
+Throughput and mean speed are up in **all nine cells**, so this is not a
+timidity fix. Verified independently on the same harness by swapping HEAD's
+traffic.js back in: 60 cars, same seeds, **65.38% -> 0.17% overlap while
+crossings/min went 800.9 -> 875.4**. Same-edge overlaps genuinely zero. Closest
+approach 0.00-0.29 m -> 1.0-3.3 m. Max simultaneous movements in one junction 1
+-> 5.
+
+`tools/traffic-selftest.mjs` is 22 two-way tests, including "the predicate is not
+a constant across the district" (4,699 conflicting, 1,705 free) - the check that
+would catch an arbitration that had quietly become always-yes or always-no.
+
+Three supporting changes were forced by measurement: car-following now reaches
+across the junction (a car lost its leader the moment the leader crossed and
+parked on the node - a third of residual pairs); the stop line moved 2.6 -> 6.0 m
+because OSM nodes sit at intersection CENTRES; and don't-block-the-box sized at
+14.6 m, the room a car needs to come to rest past the clear distance.
+
+Cost: `update()` 0.098 -> 0.107 ms at 60 cars. Movements are interned so the hot
+path allocates nothing - before interning, per-frame allocation produced a 44 ms
+GC spike at 90 cars.
+
+### Residual, named
+
+Overlap is not zero at 90 cars and the anti-gridlock rule still fires 6-10 times
+per 180 s run there. The cause is not the conflict model: it is clusters of 3-15
+m blocks where the OSM graph models one large intersection as a ring of tiny
+edges, so a car stopping on a sub-13 m block cannot clear the junction behind it
+- structural hold-and-wait no reservation rule removes. The obvious remedy (one
+car at a time on short blocks) measured WORSE on every axis and is reverted, not
+shipped. The real fix is graph-level, merging sub-15 m clusters. At the densities
+this project ships - 30 in main.js, 60 in the chase harness - the residual is
+0.00-1.69% against a 33-88% baseline.
+
 ## Limb tubes: four of five proposed levers measured and rejected
 
 After the leaf plates were fixed, the branches became the straightest thing in a
