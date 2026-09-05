@@ -1,0 +1,37 @@
+{
+ "district": {
+  "mtime": "2026-09-04T15:07:28.419Z",
+  "size": 310196,
+  "sha256": "47d8f30c1db3cce7"
+ },
+ "filter": [
+  "1110353507514779"
+ ],
+ "time": "noon",
+ "eye": 2.5,
+ "pitchDeg": 12,
+ "hfovDeg": 75,
+ "vfovDeg": 59.84,
+ "note": "Each frame is the engine standing where the like-named Mapillary pano stood. Compare against reference/sarasota/mapillary/views/<id>-<side>.png.",
+ "pageErrors": [],
+ "frames": [
+  {
+   "id": "1110353507514779",
+   "side": "L",
+   "x": 91.3,
+   "z": -168.1,
+   "yaw": 360,
+   "file": "1110353507514779-L-noon.png",
+   "ok": true
+  },
+  {
+   "id": "1110353507514779",
+   "side": "R",
+   "x": 91.3,
+   "z": -168.1,
+   "yaw": 180,
+   "file": "1110353507514779-R-noon.png",
+   "ok": true
+  }
+ ]
+}
