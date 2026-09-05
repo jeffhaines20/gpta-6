@@ -1,0 +1,177 @@
+{
+ "frames": [
+  {
+   "bi": 18,
+   "edge": 2,
+   "len": 181.3,
+   "recipe": "midOffice",
+   "h": 9.6,
+   "span": 26,
+   "standoff": 18,
+   "hfov": 71.7,
+   "cam": [
+    157.87844144403064,
+    1.75,
+    -102.35517091914875
+   ],
+   "tgt": [
+    157.8,
+    5.28,
+    -120.355
+   ],
+   "fov": 44.218896687503346,
+   "lots": [
+    {
+     "s0": 77.1,
+     "w": 9.8,
+     "par": 1.59,
+     "head": 3.62,
+     "door": true,
+     "awn": true
+    },
+    {
+     "s0": 86.9,
+     "w": 7.7,
+     "par": 1.15,
+     "head": 4.36,
+     "door": false,
+     "awn": true
+    },
+    {
+     "s0": 94.6,
+     "w": 8.8,
+     "par": 0.99,
+     "head": 4.18,
+     "door": false,
+     "awn": true
+    },
+    {
+     "s0": 103.4,
+     "w": 9.5,
+     "par": 1.15,
+     "head": 3.62,
+     "door": false,
+     "awn": false
+    }
+   ]
+  },
+  {
+   "bi": 29,
+   "edge": 2,
+   "len": 60.9,
+   "recipe": "retailStrip",
+   "h": 5.65,
+   "span": 26,
+   "standoff": 18,
+   "hfov": 71.7,
+   "cam": [
+    141.464363979614,
+    1.75,
+    -214.54494532873125
+   ],
+   "tgt": [
+    141.42,
+    3.1075000000000004,
+    -196.54500000000002
+   ],
+   "fov": 44.218896687503346,
+   "lots": [
+    {
+     "s0": 13.4,
+     "w": 7.9,
+     "par": 1.35,
+     "head": 3.62,
+     "door": true,
+     "awn": true
+    },
+    {
+     "s0": 21.3,
+     "w": 6.2,
+     "par": 0.83,
+     "head": 4.18,
+     "door": true,
+     "awn": false
+    },
+    {
+     "s0": 27.5,
+     "w": 6.2,
+     "par": 0.99,
+     "head": 3.62,
+     "door": true,
+     "awn": false
+    },
+    {
+     "s0": 33.7,
+     "w": 7.4,
+     "par": 1.35,
+     "head": 4.18,
+     "door": true,
+     "awn": true
+    },
+    {
+     "s0": 41.1,
+     "w": 6.5,
+     "par": 0.83,
+     "head": 4,
+     "door": true,
+     "awn": false
+    }
+   ]
+  },
+  {
+   "bi": 76,
+   "edge": 1,
+   "len": 123.2,
+   "recipe": "bayTower",
+   "h": 35.2,
+   "span": 26,
+   "standoff": 18,
+   "hfov": 71.7,
+   "cam": [
+    -14.151645315918184,
+    1.75,
+    -132.6346840743551
+   ],
+   "tgt": [
+    -14.045000000000002,
+    6.5,
+    -114.63499999999999
+   ],
+   "fov": 44.218896687503346,
+   "lots": []
+  }
+ ],
+ "results": [
+  {
+   "b": 18,
+   "tod": "noon",
+   "file": "docs/shots/frontfix-elev18-noon.png",
+   "triangles": 468289,
+   "drawCalls": 133,
+   "near": 16,
+   "chunks": 85,
+   "peds": 0
+  },
+  {
+   "b": 29,
+   "tod": "noon",
+   "file": "docs/shots/frontfix-elev29-noon.png",
+   "triangles": 512055,
+   "drawCalls": 158,
+   "near": 16,
+   "chunks": 76,
+   "peds": 0
+  },
+  {
+   "b": 76,
+   "tod": "noon",
+   "file": "docs/shots/frontfix-elev76-noon.png",
+   "triangles": 561757,
+   "drawCalls": 174,
+   "near": 16,
+   "chunks": 83,
+   "peds": 0
+  }
+ ],
+ "errors": []
+}

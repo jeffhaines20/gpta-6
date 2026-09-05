@@ -97,3 +97,90 @@ export function ribbon(points, width, y, pos, nrm, uv, idxArr) {
     if (i > 0) idxArr.push(v - 2, v - 1, v + 1, v - 2, v + 1, v);
   }
 }
+
+// ----------------------------------------------------------------- frontage
+//
+// Which street does a building face? Five places needed this answer and all five
+// had their own copy of the same wrong one -- nearest road VERTEX to the
+// footprint centroid, searched within the building's own chunk. Measured over
+// the district that is more than 45 degrees off on 348 of 519 buildings and
+// broadly BACKWARDS (>120 degrees) on 99 of them, because a vertex is a junction
+// or a polyline kink rather than the road: on a long straight block the fronting
+// street may have no vertex within 200 m while a junction on the street behind
+// sits 40 m away. Chunk-local search was a second, independent way to miss.
+//
+// It lives here, once, for the reason the same week produced twice over: a fault
+// patched in one of its copies stays live in the other four, and the copies are
+// exactly where nobody looks for it.
+//
+// tools/street-dir.mjs holds the old and new answers side by side with a
+// self-test that isolates the failure.
+
+/** Road segments within one chunk of (x, z), as [vertA, vertB] pairs. */
+export function roadSegmentsNear(district, x, z) {
+  const cs = district.meta.chunkSize;
+  const ci = Math.floor(x / cs), cj = Math.floor(z / cs);
+  const out = [];
+  for (let i = ci - 1; i <= ci + 1; i++) {
+    for (let j = cj - 1; j <= cj + 1; j++) {
+      const ch = district.chunks[`${i},${j}`];
+      if (!ch) continue;
+      for (const ei of ch.edges) {
+        const v = district.edges[ei].v;
+        for (let k = 0; k + 1 < v.length; k++) out.push([district.verts[v[k]], district.verts[v[k + 1]]]);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Outward normal of the footprint edge that fronts the nearest street, or null.
+ *
+ * A building fronts the street its WALL looks at, so each edge is asked how far
+ * along its own outward normal the nearest road lies. Roads behind a wall are
+ * rejected outright; among the rest, an edge is scored on distance penalised by
+ * how far off its normal the road sits, so a street squarely in front beats a
+ * nearer one glimpsed edge-on.
+ *
+ * @param {Object} district parsed data/district.json
+ * @param {{p:number[][]}} b building with footprint ring `p`
+ * @returns {[number,number]|null} unit [nx, nz] pointing at the street
+ */
+export function streetDirFor(district, b) {
+  let cx = 0, cz = 0;
+  for (const [x, z] of b.p) { cx += x; cz += z; }
+  cx /= b.p.length; cz /= b.p.length;
+  const segs = roadSegmentsNear(district, cx, cz);
+  if (!segs.length) return null;
+  // signedArea() here is the trapezoid form and comes out NEGATIVE for the
+  // winding this ring uses, which is the opposite of the shoelace sum. The sign
+  // is pinned by the third case in tools/street-dir.mjs --selftest rather than
+  // argued: an inward normal would face every shopfront into its own building
+  // and still look like a perfectly good unit vector.
+  const flip = signedArea(b.p) < 0 ? 1 : -1;
+  let bestN = null, bestScore = Infinity;
+  for (let i = 0; i < b.p.length; i++) {
+    const [x0, z0] = b.p[i], [x1, z1] = b.p[(i + 1) % b.p.length];
+    const dx = x1 - x0, dz = z1 - z0;
+    const len = Math.hypot(dx, dz);
+    if (len < 3) continue;                        // a chamfer is not a frontage
+    const nx = (dz / len) * flip, nz = (-dx / len) * flip;
+    const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2;
+    let edgeBest = Infinity;
+    for (const [a, c] of segs) {
+      const ax = a.x, az = a.z;
+      const sx = c.x - ax, sz = c.z - az;
+      const L2 = sx * sx + sz * sz;
+      const t = L2 > 0 ? Math.max(0, Math.min(1, ((mx - ax) * sx + (mz - az) * sz) / L2)) : 0;
+      const qx = ax + sx * t, qz = az + sz * t;
+      const along = (qx - mx) * nx + (qz - mz) * nz;
+      if (along <= 0) continue;                   // the road is behind this wall
+      const lateral = Math.hypot(qx - mx, qz - mz);
+      const score = lateral / Math.max(0.2, along / lateral);
+      if (score < edgeBest) edgeBest = score;
+    }
+    if (edgeBest < bestScore) { bestScore = edgeBest; bestN = [nx, nz]; }
+  }
+  return bestN;
+}

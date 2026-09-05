@@ -10,7 +10,7 @@
 // existing vehicle drives on it with no changes.
 
 import * as THREE from '../vendor/three.module.min.js';
-import { extrudeFootprint, ribbon, triangulate } from './geom.js';
+import { extrudeFootprint, ribbon, triangulate, streetDirFor } from './geom.js';
 import {
   getMaterials, wallFamilyFor, roofFor, markingForEdge, applyMarkingUV,
   SURFACE_LAYERS, SURFACE_TINTS,
@@ -359,27 +359,44 @@ export class StreamingWorld {
     if (dm > (this.stats.worstDisposeMs ?? 0)) this.stats.worstDisposeMs = dm;
   }
 
-  // Direction from a building toward the nearest road, so storefronts face the
-  // street. Computed against the chunk's own edges, which is enough at this scale.
+  // Direction from a building toward the street it FRONTS, so storefronts face
+  // the right way.
+  //
+  // This used to take the nearest road VERTEX to the footprint centroid, which
+  // is wrong twice over and was measurably wrong on two thirds of the district.
+  //
+  //   1. A vertex is a junction or a polyline kink, not the road. On a long
+  //      straight block the street a building actually fronts may have no vertex
+  //      within 200 m, while a junction on the street BEHIND it sits 40 m away --
+  //      so the building turns its back on its own high street. tools/street-dir
+  //      counts 348 of 519 buildings more than 45 degrees off, and 99 of them
+  //      (19%) pointing broadly BACKWARDS, more than 120 degrees out. Building
+  //      #18 -- the 181 m Main Street frontage the lot pass exists to subdivide
+  //      -- was one of the 177-degree cases, so the whole parade of shopfronts
+  //      was being planned against the wrong elevation.
+  //   2. It searched only the building's OWN chunk, so a building near a chunk
+  //      boundary was blind to the street on the other side of it.
+  //
+  // What replaces it asks the question the caller actually means. A building
+  // fronts the street its WALL looks at, so for each footprint edge, measure how
+  // far along that edge's own outward normal the nearest road segment lies;
+  // roads behind a wall are rejected outright, and the edge that sees a road
+  // soonest and most squarely wins. Its outward normal is the answer.
+  //
+  // Cached on the building, like _perim below: the frontage search is 122 us
+  // against the nearest-vertex search's 2.7 us, which would be 1-2 ms of a 3 ms
+  // chunk slice if it ran per build. Cached it is paid once per building for the
+  // life of the session -- 64 ms across all 523, spread over streaming.
+  //
+  // tools/street-dir.mjs holds the same three methods side by side with a
+  // self-test that isolates the failure: a road 15 m in front whose vertices are
+  // 200 m away, and a stub 40 m behind whose vertices are 40 m away.
   _streetDirFor(b) {
-    let cx = 0, cz = 0;
-    for (const [x, z] of b.p) { cx += x; cz += z; }
-    cx /= b.p.length; cz /= b.p.length;
-    const key = this.keyOf(cx, cz);
-    const chunk = this.d.chunks[key];
-    if (!chunk || !chunk.edges.length) return null;
-    let best = null, bestD = Infinity;
-    for (const ei of chunk.edges) {
-      for (const vi of this.d.edges[ei].v) {
-        const v = this.d.verts[vi];
-        const d = (v.x - cx) ** 2 + (v.z - cz) ** 2;
-        if (d < bestD) { bestD = d; best = v; }
-      }
-    }
-    if (!best) return null;
-    const len = Math.hypot(best.x - cx, best.z - cz) || 1;
-    return [(best.x - cx) / len, (best.z - cz) / len];
+    if (b._streetDir !== undefined) return b._streetDir;
+    return (b._streetDir = this._computeStreetDir(b));
   }
+
+  _computeStreetDir(b) { return streetDirFor(this.d, b); }
 
   // Per-building cost cap. The stall gate is a hard constraint, so an
   // individually expensive style is trimmed here rather than allowed to blow a

@@ -16,6 +16,7 @@
 //
 // No browser: this is arithmetic over data/district.json, so it is a cheap gate.
 import fs from 'node:fs';
+import { streetDirFor as geomStreetDirFor } from '../src/geom.js';
 
 // signage.js paints its atlases at import-of-first-use, and this audit reads
 // VERTEX POSITIONS only — never a pixel and never a UV — so a no-op 2D context
@@ -65,22 +66,11 @@ const d = JSON.parse(fs.readFileSync('data/district.json', 'utf8'));
 const CHUNK = d.meta.chunkSize;
 
 const keyOf = (x, z) => `${Math.floor(x / CHUNK)},${Math.floor(z / CHUNK)}`;
-function streetDirFor(b) {
-  let cx = 0, cz = 0;
-  for (const [x, z] of b.p) { cx += x; cz += z; }
-  cx /= b.p.length; cz /= b.p.length;
-  const chunk = d.chunks[keyOf(cx, cz)];
-  if (!chunk || !chunk.edges.length) return null;
-  let best = null, bestD = Infinity;
-  for (const ei of chunk.edges) for (const vi of d.edges[ei].v) {
-    const v = d.verts[vi];
-    const dd = (v.x - cx) ** 2 + (v.z - cz) ** 2;
-    if (dd < bestD) { bestD = dd; best = v; }
-  }
-  if (!best) return null;
-  const len = Math.hypot(best.x - cx, best.z - cz) || 1;
-  return [(best.x - cx) / len, (best.z - cz) / len];
-}
+// The frontage answer, imported from src/geom.js rather than replayed here. It
+// used to be a hand-copy of streaming.js's nearest-road-VERTEX search, and when
+// that turned out to be backwards on 99 buildings the copy in each tool would
+// have gone on measuring a world nobody renders.
+const streetDirFor = (b) => geomStreetDirFor(d, b);
 // streaming.js _capStyle, replayed: an audit that used a different style than
 // the streamer would be auditing a world nobody renders.
 function capStyle(style, b) {
