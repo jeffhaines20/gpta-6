@@ -30,6 +30,103 @@ at night, bloom + height fog in.
 | Wanted system | parallel | M3 |
 | Mission scripting | parallel | M3 |
 
+## Glass: bronze, and half the recorded finding did not reproduce
+
+Recorded as "engine B/R 1.49-2.07 against a reference of 0.67-0.83, and pane:wall
+0.49 against 0.12. Not started."
+
+**The reference band is confirmed** - an independent detector over 317
+photographs puts the median at **0.804**, stable at 0.796-0.899 across all four
+corridor legs. **The pane:wall half does not reproduce.** Measured before the fix
+it was 0.231 engine against 0.247 reference on the same detector: the
+environment term added two rounds ago had already closed it, and the ledger had
+simply never been updated.
+
+### The capture nearly straddled a change, and the defence is now structural
+
+The noon exposure fix landed in the shared tree *while this round's before arm
+was being captured*. I flagged it; the arm was straddling, so it was discarded
+and re-shot. `glaz-probe` now hashes `daynight.js`, `materials.js`, `facades.js`,
+`post.js` and `sky.js` at page load AND at every shot, stamps both into each
+capture's meta, and prints a loud SOURCE DRIFT line if they diverge mid-run. Both
+final arms carry one identical stamp and only `materials.js` / `facades.js`
+differ between them.
+
+### Cause: both halves, and "too much sky" was wrong
+
+- **City share was already 0.53-0.90** (median 0.66), measured per pixel from the
+  world-height pass. The panes were already reflecting mostly the opposite
+  facade, so "not enough opposite-facade" was the wrong hypothesis.
+- **The opposite facade was itself rendered blue.** A chrome-ball probe measures
+  sky irradiance on a vertical surface at B/R 1.402; `urbanAlbedo` is 0.777; so
+  `urbanAlbedo x iblIrradiance` came out at B/R **1.098** - a city no warmer than
+  an overcast day, because the sun that actually lights it was missing.
+- **The coating was blue**: seven recipes authored at F0 B/R 1.17-1.53.
+- 1.45 x 1.37 = 1.99 against a measured 2.03. The model predicts the measurement.
+
+Verified by one-lever A/Bs on identical masks with the wall as a x1.000 control:
+coating alone 2.405 -> 1.341 at luminance x0.99; sun term alone 1.272 -> 1.091.
+
+**A near-miss worth recording.** The first sun A/B came back null and the
+environment term was nearly filed as inert. It was the DIAGNOSTIC that was wrong:
+`daynight.follow()` moves the sun light *and its target* with the viewer, so the
+direction is `position - target`, not `normalize(position)`, and at a station
+360 m from the origin those differ by **70 degrees**. The A/B had been run on the
+one view in the set where the shader correctly does nothing. The tool now reports
+per capture what fraction of pane pixels see a sunlit wall opposite - 0% to 100%
+across the 12 views - so a null can be read correctly rather than believed.
+
+### Result
+
+| | glass B/R | shift | pane:wall |
+|---|---|---|---|
+| reference, 317 photographs | **0.804** | **0.915** | **0.247** |
+| noon before -> after | 2.028 -> **1.298** | 1.811 -> **1.113** | 0.375 -> 0.461 |
+| golden before -> after | 1.183 -> **0.819** | 1.363 -> **0.885** | 0.398 -> 0.436 |
+
+Golden lands essentially on the reference. Wall B/R is unchanged either side
+(1.139 -> 1.137 noon, 0.856 -> 0.854 golden), which is the control saying only
+the glass moved.
+
+The change adds the sun to the wall opposite - the opposite wall's normal is
+`-geN`, so it is lit exactly when this one is not, needing no new parameter - and
+subtracts this side's own shadow across the street using the H and D already
+derived from 2,962 baked edges. At noon's 75.6 degrees the shadow line is below
+the pavement; at golden's 8 degrees it stands at 12.9 m, which is what stops
+golden hour reading as two sunlit walls facing each other. `directionalLights[0]`
+is the scene's only directional light and three.js folds intensity into colour,
+so **zero new uniforms, materials, textures, programs or draw calls** - captures
+report calls 179 and 59 programs identically either side.
+
+The seven recipes were re-authored at **constant linear luminance**, so the hue
+change and the environment change stay separable, and as a distribution rather
+than one value: midOffice 1.53 -> 0.65 (bronze, the 1970s precast era),
+retailStrip 1.42 -> 0.81, warehouse 1.17 -> 0.96, and **bayTower kept cool at
+1.21** because the reference has a genuine blue tail - 11% of views above 1.2 -
+and the condo towers are it.
+
+### Open, and why it was not chased
+
+Noon still sits at 1.299 against 0.804 on the same detector. The coating lever is
+exhausted: measured response is `pane_BR proportional to coating_BR^0.68`, so
+closing it by colour alone needs a district-wide coating at B/R ~0.49 - uniform
+reflective bronze, hitting the number by flattening exactly the variety the round
+was told to preserve. The real cause is that our glazing is a **stronger, cleaner
+mirror than Sarasota's stock** (F0 0.22-0.30 at roughness 0.07-0.13, with no
+interior term on the facade atlas at all), so it returns the sky's saturated blue
+where a real window shows a dark room. That is a mirror-strength fix, and it
+would re-open the earlier "every window is a flat dark fill" finding.
+
+Also open: H and D remain district-wide constants, so a bayfront pane still gets
+a 16 m skyline opposite; no night A/B (the sun term is arithmetically inert at
+0.6 lux but unmeasured); and shopfront `TRIM.glass` is deliberately untouched,
+sitting below the horizon and outside the measured band in both domains.
+
+`tools/pane-tint.mjs` is 16 self-tests including an opposite-reading pair, a
+flat-field refusal, and one asserting that reading an ACES-encoded frame with the
+sRGB inverse gives a different, wrong answer - 0.722 against 0.572. The transfer
+choice is load-bearing and now tested.
+
 ## Canopy mass: the obvious remedy was the one thing that did not work
 
 The `xings` decomposition said the canopy was too thin inside an envelope that

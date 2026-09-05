@@ -42,6 +42,7 @@ import { readPNG } from './png.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { createHash } from 'node:crypto';
 
 const OUT = process.env.GLZ_OUT
   ?? '/tmp/claude-0/-home-user-gpta-6/481b6aa3-9372-53ec-9397-cb1259b5e6bf/scratchpad/glaz';
@@ -49,7 +50,9 @@ const SHOTS = 'docs/shots';
 const TAG = process.env.GLZ_TAG ?? 'glaz';
 const TIMES = (process.env.GLZ_TIMES ?? 'noon,golden').split(',');
 const VIEW_NAMES = (process.env.GLZ_VIEWS ?? 'towerA,towerB').split(',');
-const W = 1280, H = 720;
+// The viewport. Overridable because a view named `pano:<id>:<L|R>` has to be
+// captured at tools/pano-match.mjs' 4:3 frame or its fov means something else.
+const W = Number(process.env.GLZ_W ?? 1280), H = Number(process.env.GLZ_H ?? 720);
 
 // Building 55: h 54.4 m, a 107 m glazed face, the largest unobstructed curtain
 // wall in the district. Chosen by tools' pick over every h >= 26 building (all of
@@ -66,6 +69,57 @@ const VIEWS = {
   // were measured on, so the probe has to be able to stand in it.
   corridor: { cam: [3.69, 2.4, -1.93], target: [269.02, 16, -77.9], fov: 55 },
 };
+
+// ------------------------------------------------------- panorama stations
+//
+// A view named `pano:<id>:<L|R>` stands the camera exactly where the Mapillary
+// panorama of that id stood and aims it at the same street wall, with
+// pano-match.mjs' camera: 2.5 m eye, 12 degrees of up-pitch, 75 degrees
+// horizontal on 4:3. That makes a glaz-probe capture - which carries the packed
+// roughness/metalness mask and the world-height pass - directly comparable with
+// reference/sarasota/mapillary/views/<id>-<side>.png, so the reference detector
+// can be checked against ground truth on the SAME view of the SAME street.
+//
+// The guard that matters: reproject-pano.mjs picks the corridor bearing from the
+// WHOLE route and pano-match.mjs from its first five waypoints only, because the
+// rest of the route loops back on 2nd Street. At a station near that loop the two
+// disagree and "L" is a different wall in the photograph than in the render -
+// silently, and in a way that looks like a massing fault. Stations where they
+// differ are refused here rather than measured.
+const PM = { eye: 2.5, pitchDeg: 12, hfovDeg: 75, aspect: 4 / 3 };
+export function panoStations(w = W, h = H) {
+  const idx = JSON.parse(fs.readFileSync('reference/sarasota/mapillary/index.json', 'utf8'));
+  const route = JSON.parse(fs.readFileSync('data/district.json', 'utf8')).meta.route;
+  const bearing = (x, z, n) => {
+    let best = 0, bestD = Infinity;
+    for (let i = 0; i + 1 < n; i++) {
+      const a = route[i], b = route[i + 1];
+      const dx = b.x - a.x, dz = b.z - a.z, len2 = dx * dx + dz * dz || 1;
+      const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / len2));
+      const d = Math.hypot(x - (a.x + dx * t), z - (a.z + dz * t));
+      if (d < bestD) { bestD = d; best = (Math.atan2(dx, -dz) * 180) / Math.PI; }
+    }
+    return (best + 360) % 360;
+  };
+  const vfov = (2 * Math.atan(Math.tan((PM.hfovDeg * Math.PI) / 360) / (w / h)) * 180) / Math.PI;
+  const out = new Map();
+  for (const p of idx.images) {
+    if (!p.isPano) continue;
+    const bHero = bearing(p.x, p.z, 5), bAll = bearing(p.x, p.z, route.length);
+    let d = Math.abs(bHero - bAll); if (d > 180) d = 360 - d;
+    for (const [side, off] of [['L', -90], ['R', 90]]) {
+      const yaw = (((bHero + off) % 360) + 360) % 360;
+      const rad = (yaw * Math.PI) / 180, DIST = 60;
+      out.set(`pano:${p.id}:${side}`, {
+        cam: [p.x, PM.eye, p.z],
+        target: [p.x + Math.sin(rad) * DIST, PM.eye + DIST * Math.tan((PM.pitchDeg * Math.PI) / 180), p.z - Math.cos(rad) * DIST],
+        fov: vfov, id: p.id, side, yaw: +yaw.toFixed(1), station: p.station,
+        bearingSplit: +d.toFixed(1),
+      });
+    }
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------- analysis
 // The right inverse for this renderer is the ACES one, not the sRGB one: post.js
@@ -196,14 +250,20 @@ export function report(base) {
   const ch = png.channels;
   const at = (i) => [png.data[i * ch], png.data[i * ch + 1], png.data[i * ch + 2]];
 
-  const acc = () => ({ n: 0, y: 0, l8: 0, r: 0, g: 0, b: 0 });
+  // Channels are accumulated in SCENE-LINEAR as well as in 8-bit. A ratio of
+  // 8-bit values out of this renderer is a ratio of aces(x) - a compressive
+  // curve - so B/R read off the bytes understates a blue cast by a lot and is
+  // not comparable with the same ratio taken off a photograph.
+  const acc = () => ({ n: 0, y: 0, l8: 0, r: 0, g: 0, b: 0, lr: 0, lg: 0, lb: 0 });
   const push = (a, i) => {
     const [r, g, b] = at(i);
     a.n++; a.y += sceneY(r, g, b); a.l8 += luma8(r, g, b); a.r += r; a.g += g; a.b += b;
+    a.lr += a2l[r]; a.lg += a2l[g]; a.lb += a2l[b];
   };
   const fin = (a) => (a.n
-    ? { n: a.n, sceneY: a.y / a.n, l8: a.l8 / a.n, rgb: [a.r / a.n, a.g / a.n, a.b / a.n] }
-    : { n: 0, sceneY: 0, l8: 0, rgb: [0, 0, 0] });
+    ? { n: a.n, sceneY: a.y / a.n, l8: a.l8 / a.n, rgb: [a.r / a.n, a.g / a.n, a.b / a.n],
+      lin: [a.lr / a.n, a.lg / a.n, a.lb / a.n], br: a.lr > 1e-9 ? a.lb / a.lr : NaN }
+    : { n: 0, sceneY: 0, l8: 0, rgb: [0, 0, 0], lin: [0, 0, 0], br: NaN });
 
   // One frame holds three buildings at three orientations, and averaging their
   // panes into one height band hides exactly the thing being measured. The face
@@ -311,6 +371,8 @@ export function fmt(r) {
   L.push(`${r.base}   exposure ${f(r.meta.exposure, 6)}  chunks ${r.meta.world?.chunksLoaded}  queued ${r.meta.world?.queued}`);
   L.push(`  glass ${String(r.glass.n).padStart(7)} px  8-bit ${f(r.glass.l8).padStart(6)}  sceneY ${f(r.glass.sceneY, 5).padStart(9)}  rgb ${c(r.glass.rgb)}`);
   L.push(`  wall  ${String(r.wall.n).padStart(7)} px  8-bit ${f(r.wall.l8).padStart(6)}  sceneY ${f(r.wall.sceneY, 5).padStart(9)}  rgb ${c(r.wall.rgb)}`);
+  L.push(`  linear B/R   glass ${f(r.glass.br, 3)}   wall ${f(r.wall.br, 3)}   `
+    + `shift ${f(r.glass.br / r.wall.br, 3)}      (reference photographs: glass 0.82, shift 0.94 median)`);
   L.push(`  glass:wall ${f(r.ratio, 3)}   panes ${r.panes.count}  cv ${f(r.panes.cv, 3)}  ` +
     `top/bottom-in-pane ${f(r.panes.topOverBottom, 3)}  slope ${f(r.panes.slopeRel * 100, 3)} %/m`);
   for (const b of r.bands) {
@@ -334,6 +396,19 @@ export function fmt(r) {
   L.push('   env nits (ball): ' + r.face.byElevation.map((e) => {
     const v = env.get(e.e) ?? env.get(e.e - 5) ?? env.get(e.e + 5);
     return v === undefined ? '-' : String(Math.round(v));
+  }).map((s2) => s2.padStart(8)).join(''));
+  // The decomposition, on one line: a pane's blue is its COATING's blue times
+  // the blue of what it is reflecting. Both halves are measured here - the pane
+  // from the frame, the environment from the chrome ball - at the same elevation.
+  const envBR = new Map((r.meta.envProfile ?? []).map((e) => [e.el, e.br]));
+  L.push('   pane B/R:        ' + r.face.byElevation.map((e) => f(e.br, 2)).map((s2) => s2.padStart(8)).join(''));
+  L.push('   env  B/R:        ' + r.face.byElevation.map((e) => {
+    const v = envBR.get(e.e) ?? envBR.get(e.e - 5) ?? envBR.get(e.e + 5);
+    return v === undefined ? '-' : v.toFixed(2);
+  }).map((s2) => s2.padStart(8)).join(''));
+  L.push('   pane/env B/R:    ' + r.face.byElevation.map((e) => {
+    const v = envBR.get(e.e) ?? envBR.get(e.e - 5) ?? envBR.get(e.e + 5);
+    return v === undefined || !v ? '-' : (e.br / v).toFixed(2);
   }).map((s2) => s2.padStart(8)).join(''));
   return L.join('\n');
 }
@@ -539,6 +614,24 @@ export function canyonScan(file = 'data/district.json') {
   };
 }
 
+// The source files whose contents decide what a capture MEANS. A before/after
+// pair is only a comparison of one change if everything else was identical, and
+// on 2026-09-05 it was not: another agent moved the noon exposure 1/69,490 ->
+// 1/14,000 (+2.31 stops) in the middle of a capture run. A page holds the module
+// it imported at load, so half a run can silently predate an edit the other half
+// postdates, and the resulting before/after shows a large, confident, spurious
+// improvement. Hashing them at page load AND at every shot makes that visible
+// instead of leaving it for a reviewer to find.
+const SRC_WATCH = ['src/daynight.js', 'src/materials.js', 'src/facades.js', 'src/post.js', 'src/sky.js'];
+export function srcStamp() {
+  const out = {};
+  for (const f of SRC_WATCH) {
+    try { out[f] = createHash('sha256').update(fs.readFileSync(f)).digest('hex').slice(0, 12); }
+    catch { out[f] = 'missing'; }
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- capture
 async function capture() {
   fs.mkdirSync(OUT, { recursive: true });
@@ -649,12 +742,21 @@ async function capture() {
     // every sample carries the elevation it came from. This is the premise of the
     // whole exercise ("a flat pane and the flat wall reflect nearly the same
     // uniform patch") measured rather than assumed.
-    window.__glzEnv = () => {
+    window.__glzEnv = (diffuse) => {
       const d = __district, r = d.renderer, sc = d.scene, cam = d.camera;
       const N = 128;
+      // metalness 1 / roughness 0.02 is a mirror and reports RADIANCE by
+      // direction; metalness 0 / roughness 1 is a lambertian and reports the
+      // IRRADIANCE the same point stands in. The second arm exists because the
+      // diffuse remainder of a pane (16-45% of its albedo, depending on the cell)
+      // is lit by irradiance and applyGlazingEnv deliberately does not touch it -
+      // so if the panes are blue because the SKY IRRADIANCE is blue, no amount of
+      // work on what the mirror reflects will move them.
       const ball = new THREE.Mesh(
         new THREE.SphereGeometry(1, 96, 64),
-        new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 1, roughness: 0.02 }));
+        new THREE.MeshStandardMaterial(diffuse
+          ? { color: 0xffffff, metalness: 0, roughness: 1 }
+          : { color: 0xffffff, metalness: 1, roughness: 0.02 }));
       const oc = new THREE.OrthographicCamera(-1.02, 1.02, 1.02, -1.02, 0.1, 20);
       oc.position.copy(cam.position);
       oc.quaternion.copy(cam.quaternion);
@@ -690,17 +792,24 @@ async function capture() {
           const V = new THREE.Vector3(0, 0, 1);
           const Nv = new THREE.Vector3(nx, ny, nz);
           const R = Nv.clone().multiplyScalar(2 * Nv.dot(V)).sub(V).applyMatrix3(m).normalize();
-          const el = Math.round((Math.asin(R.y) * 180 / Math.PI) / 5) * 5;
+          // A lambertian ball has no reflected direction; bin it by the surface
+          // normal's own elevation instead, which is the hemisphere it integrates.
+          const Nw = Nv.clone().applyMatrix3(m).normalize();
+          const el = Math.round((Math.asin(diffuse ? Nw.y : R.y) * 180 / Math.PI) / 5) * 5;
           const i = (y * N + x) * 4;
           const L = 0.2126 * buf[i] + 0.7152 * buf[i + 1] + 0.0722 * buf[i + 2];
-          const b = bins.get(el) ?? [0, 0];
-          b[0] += L; b[1]++;
+          const b = bins.get(el) ?? [0, 0, 0, 0, 0];
+          b[0] += L; b[1]++; b[2] += buf[i]; b[3] += buf[i + 1]; b[4] += buf[i + 2];
           bins.set(el, b);
         }
       }
       return [...bins.entries()].sort((a, b) => a[0] - b[0])
         .filter(([, v]) => v[1] > 8)
-        .map(([el, v]) => ({ el, nits: +(v[0] / v[1]).toFixed(1), n: v[1] }));
+        .map(([el, v]) => ({
+          el, nits: +(v[0] / v[1]).toFixed(1), n: v[1],
+          rgb: [v[2] / v[1], v[3] / v[1], v[4] / v[1]].map((q) => +q.toFixed(2)),
+          br: +(v[4] / Math.max(1e-6, v[2])).toFixed(3),
+        }));
     };
 
     // The instrument's own check: a raycast world position for a pixel, to be
@@ -718,9 +827,17 @@ async function capture() {
     };
   });
 
+  const srcAtLoad = srcStamp();
+  console.log(`source at page load: ${Object.entries(srcAtLoad).map(([k, v]) => `${path.basename(k)} ${v}`).join('  ')}`);
   const index = [];
+  const stations = VIEW_NAMES.some((v) => v.startsWith('pano:')) ? panoStations(W, H) : new Map();
   for (const vname of VIEW_NAMES) {
-    const v = VIEWS[vname];
+    const v = VIEWS[vname] ?? stations.get(vname);
+    if (!v) throw new Error(`unknown view ${vname}`);
+    if (v.bearingSplit > 5) {
+      throw new Error(`${vname}: the hero-corridor bearing and the whole-route bearing differ by `
+        + `${v.bearingSplit} deg, so "${v.side}" is a different wall here than in the reference view`);
+    }
     // Streaming follows the vehicle, so the vehicle goes where the camera is and
     // the world is pumped until it stops loading. A fixed wait measures a
     // half-built district; this waits on the queue instead.
@@ -751,9 +868,9 @@ async function capture() {
       // Generous: other harnesses share this container, and the sky rebuilds its
       // PMREM on a time-of-day change.
       await page.waitForTimeout(14000);
-      const base = path.join(OUT, `${TAG}-${vname}-${tod}`);
+      const base = path.join(OUT, `${TAG}-${vname.replace(/:/g, '_')}-${tod}`);
       await page.screenshot({ path: `${base}.png`, timeout: 240000 });
-      fs.copyFileSync(`${base}.png`, path.join(SHOTS, `glaz-${TAG}-${vname}-${tod}.png`));
+      fs.copyFileSync(`${base}.png`, path.join(SHOTS, `glaz-${TAG}-${vname.replace(/:/g, '_')}-${tod}.png`));
       for (const mode of ['kind', 'rm', 'wy']) {
         const s = await page.evaluate((m) => __glzScan(m), mode);
         fs.writeFileSync(`${base}.${mode}.bin`, Buffer.from(s.b64, 'base64'));
@@ -789,12 +906,20 @@ async function capture() {
       });
       // What the environment itself offers a mirror at this hour, measured off a
       // chrome ball rather than inferred from the frame.
-      const envProfile = await page.evaluate(() => __glzEnv());
+      const envProfile = await page.evaluate(() => __glzEnv(false));
+      const irrProfile = await page.evaluate(() => __glzEnv(true));
+      const srcAtShot = srcStamp();
+      const drift = SRC_WATCH.filter((f) => srcAtShot[f] !== srcAtLoad[f]);
+      if (drift.length) {
+        console.log(`  *** SOURCE DRIFT since page load: ${drift.join(', ')} - this frame's page is `
+          + `running the OLDER module and cannot be compared with one captured after a reload ***`);
+      }
       fs.writeFileSync(`${base}.meta.json`, JSON.stringify({
-        w: W, h: H, view: vname, tod, ...check, cam: VIEWS[vname], envProfile,
+        w: W, h: H, view: vname, tod, ...check, cam: v, envProfile, irrProfile,
+        srcAtLoad, srcAtShot, srcDrift: drift,
       }, null, 1));
       const r = report(base);
-      overlay(base, `${SHOTS}/glaz-${TAG}-${vname}-${tod}.mask.png`);
+      overlay(base, `${SHOTS}/glaz-${TAG}-${vname.replace(/:/g, '_')}-${tod}.mask.png`);
       console.log(fmt(r));
       // Instrument check: the wy pass against a real raycast, same pixels.
       const wy = new Uint8Array(fs.readFileSync(`${base}.wy.bin`));
@@ -807,9 +932,12 @@ async function capture() {
           .map(([k, v]) => `${k}=${v}`).join('  ') +
         `   programs with glazeEnv ${check.glazeEnvPrograms}/${check.totalPrograms}`);
       console.log(`  wy-vs-raycast: ${cmp.join(' | ')}`);
-      console.log(`  env by reflected elevation (nits): ` +
-        envProfile.filter((e) => e.el % 10 === 0 && e.el >= -20 && e.el <= 70)
-          .map((e) => `${e.el}deg ${e.nits}`).join('  '));
+      console.log(`  env by reflected elevation (nits, B/R): ` +
+        envProfile.filter((e) => e.el % 20 === 0 && e.el >= -20 && e.el <= 60)
+          .map((e) => `${e.el}deg ${e.nits}/${e.br}`).join('  '));
+      console.log(`  irradiance by normal elevation (nits, B/R): ` +
+        irrProfile.filter((e) => e.el % 20 === 0 && e.el >= -20 && e.el <= 60)
+          .map((e) => `${e.el}deg ${e.nits}/${e.br}`).join('  '));
       index.push({ base, view: vname, tod });
     }
   }
@@ -854,6 +982,14 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const args = process.argv.slice(2);
   if (args[0] === '--compile-check') {
     await compileCheck();
+  } else if (args[0] === '--stations') {
+    const st = panoStations(Number(process.env.GLZ_W ?? 1280), Number(process.env.GLZ_H ?? 960));
+    const bad = [...st.values()].filter((v) => v.bearingSplit > 5).length;
+    console.log(`${st.size} station views  (${bad} refused: hero and whole-route bearings disagree)`);
+    for (const [k, v] of st) {
+      if (v.bearingSplit > 5) continue;
+      console.log(`  ${k.padEnd(28)} at (${v.cam[0]}, ${v.cam[2]})  yaw ${v.yaw}  fov ${v.fov.toFixed(2)}  ${v.station ?? ''}`);
+    }
   } else if (args[0] === '--canyon') {
     const c = canyonScan(args[1] ?? 'data/district.json');
     console.log(`${c.edges} building edges, ${c.closed} face something within 160 m ` +

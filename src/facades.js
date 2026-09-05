@@ -204,7 +204,8 @@ export const RECIPES = {
     shape: 'glazed',
     spandrel: { l: -12, h: 0.30 },
     stringCourse: { at: 0.02, l: 12, thick: 9 },
-    glass: [[141, 154, 165], [122, 134, 144], [94, 104, 113]],
+    // F0 B/R 1.42 -> 0.81. Bronze-grey: this stock is 1920s-60s shopfront and office glass over trading floors, not a coated curtain wall.
+    glass: [[157, 151, 145], [138, 131, 124], [108, 102, 95]],
     lit: { noon: 0.06, golden: 0.06, dusk: 0.62, night: 0.34 },
     litPattern: 'strip',
     ct: [[CT.k2700, 3], [CT.k3000, 3], [CT.k4000, 2], [CT.k5000, 2], [CT.k2200, 1]],
@@ -235,7 +236,8 @@ export const RECIPES = {
     shape: 'glazed',
     spandrel: { l: -9, h: 0.34 },
     stringCourse: { at: 0.0, l: 5, thick: 5 },
-    glass: [[146, 163, 178], [130, 146, 159], [100, 112, 122]],
+    // F0 B/R 1.53 -> 0.65, the warmest in the table. The subject of this recipe is 1777 Main Street, a 1970s precast block, and bronze glass is what that decade glazed them with.
+    glass: [[172, 159, 144], [155, 142, 127], [120, 109, 95]],
     lit: { noon: 0.10, golden: 0.10, dusk: 0.46, night: 0.30 },
     litPattern: 'floorBands',
     ct: [[CT.k4000, 5], [CT.k5000, 4], [CT.k6500, 2], [CT.tv, 1], [CT.k3000, 1]],
@@ -261,7 +263,8 @@ export const RECIPES = {
     shape: 'glazed',
     spandrel: { l: -6, h: 0.22 },
     stringCourse: { at: 0.0, l: 16, thick: 13 },
-    glass: [[136, 146, 156], [117, 128, 138], [89, 98, 108]],
+    // F0 B/R 1.41 -> 0.86. Clear glass in a deep reveal, reflecting the warm masonry across the street rather than the sky.
+    glass: [[148, 144, 141], [130, 126, 121], [101, 96, 91]],
     lit: { noon: 0.06, golden: 0.06, dusk: 0.50, night: 0.34 },
     litPattern: 'stacks',
     ct: [[CT.k2700, 4], [CT.k3000, 3], [CT.k4000, 2], [CT.k2200, 2]],
@@ -289,7 +292,8 @@ export const RECIPES = {
     shape: 'glazed',
     spandrel: { l: -5, h: 0.24 },
     stringCourse: { at: 0.0, l: 8, thick: 7 },
-    glass: [[151, 170, 184], [136, 154, 163], [98, 112, 125]],
+    // F0 B/R 1.47 -> 1.21, and DELIBERATELY still the cool one. The Sarasota condo towers really are blue-green glazed; the reference distribution has a genuine cool tail (11% of views above B/R 1.2) and this is it. Desaturating this too would have hit the target number by flattening the district, which is the failure mode this recipe exists to avoid.
+    glass: [[160, 168, 179], [146, 152, 160], [107, 111, 115]],
     lit: { noon: 0.04, golden: 0.04, dusk: 0.40, night: 0.40 },
     litPattern: 'stacks',
     ct: [[CT.k2700, 5], [CT.k2200, 2], [CT.k3000, 3], [CT.tv, 2], [CT.k4000, 1]],
@@ -313,7 +317,7 @@ export const RECIPES = {
     shape: 'deck',
     spandrel: { l: -7, h: 0.32 },
     stringCourse: { at: 0.0, l: 7, thick: 11 },
-    glass: [[92, 96, 100], [74, 78, 82], [56, 59, 62]],   // the deck has no glazing; kept valid for the stair core
+    glass: [[95, 96, 97], [77, 77, 77], [59, 59, 58]],      // the deck has no glazing; kept valid for the stair core
     lit: { noon: 0.9, golden: 0.9, dusk: 1.0, night: 1.0 },   // deck ceiling lamps, always on
     litPattern: 'scatter',
     ct: [[CT.k5000, 4], [CT.k6500, 3], [CT.k2200, 1]],
@@ -338,7 +342,8 @@ export const RECIPES = {
     shape: 'louvre',
     spandrel: { l: -4, h: 0.12 },
     stringCourse: { at: 0.0, l: 6, thick: 5 },
-    glass: [[130, 136, 140], [110, 115, 119], [89, 94, 98]],
+    // F0 B/R 1.17 -> 0.96. Wired clerestory glass is green-grey, and it was already the least blue entry here.
+    glass: [[134, 136, 134], [114, 115, 112], [94, 93, 90]],
     lit: { noon: 0.2, golden: 0.2, dusk: 0.42, night: 0.22 },
     litPattern: 'floorBands',
     ct: [[CT.k6500, 5], [CT.k5000, 3], [CT.k2200, 1]],
@@ -368,7 +373,8 @@ export const RECIPES = {
     shape: 'glazed',
     spandrel: { l: -3, h: 0.10 },
     stringCourse: { at: 0.0, l: 10, thick: 7 },
-    glass: [[120, 131, 142], [102, 112, 122], [79, 87, 96]],
+    // F0 B/R 1.44 -> 0.90. Domestic clear glass over a dark room.
+    glass: [[131, 129, 128], [113, 110, 108], [89, 86, 82]],
     lit: { noon: 0.03, golden: 0.03, dusk: 0.36, night: 0.26 },
     litPattern: 'scatter',
     ct: [[CT.k2700, 5], [CT.k2200, 3], [CT.tv, 2], [CT.k3000, 2]],

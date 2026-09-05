@@ -2009,7 +2009,14 @@ const GLAZING = {
   coatedRoughness: 0.22,      // -> 0.039 .. 0.119, mean 0.071
   shopRoughness: 0.30,        // -> 0.053 .. 0.162, mean 0.097 (older, dirtier)
   // A reflective coating is 20-40% reflective. This colour IS that reflectance.
-  coatedColor: 0x8798a0,      // F0 0.222 0.287 0.320 at metalness 0.90
+  //
+  // WARM, not blue. 0x8798a0 was linear B/R 1.44, and against 295 reprojected
+  // reference views whose glazing has a median linear B/R of 0.82 that is the
+  // wrong side of neutral: a coating tinted blue multiplies the blue of what it
+  // reflects instead of standing against it. This is the same re-chroma the
+  // facades.js recipes carry, at the district's median, and at the SAME linear
+  // luminance the old value had - so it is a hue change and not a brightness one.
+  coatedColor: 0x9c948b,      // F0 0.304 0.271 0.238 at metalness 0.90
   coatedMetalness: 0.90,
   // Grime tilts the mirror direction; at 0.35 it scatters the reflection into
   // the same average the roughness bug produced. Glass is FLAT.
@@ -2269,7 +2276,47 @@ float geHash( vec2 c ) { return fract( sin( dot( c, vec2( 91.7, 47.3 ) ) ) * 246
     // street term applies only between the horizon and the opposite roofline.
     float geAbove = smoothstep( - 0.02, 0.08, geTanR );
 
-    vec3 geCity = vec3( ${K.city} ) * iblIrradiance / PI;
+    // What the mass opposite RETURNS. It was lit by the sky alone, and that is
+    // the second half of the cobalt-pane defect: a wall the photographs show
+    // sunlit and warm was being rendered as a sky-lit wall and reflected back
+    // into every pane in the district. Measured on 12 corridor views at noon,
+    // the sky irradiance a vertical surface stands in has B/R 1.40, so
+    // urbanAlbedo * iblIrradiance came out at B/R 1.09 - a "city" no warmer
+    // than an overcast day - while the sun that actually lights it is 0.81 at
+    // noon and 0.23 at golden.
+    //
+    // Which side of the street is in sun is already decided by the geometry in
+    // this block: the opposite wall's outward normal is -geN, so it faces the
+    // sun exactly when this wall does not. directionalLights[0] is daynight.js'
+    // sun - the scene's only directional light - and three.js folds intensity
+    // into colour, so that uniform IS an irradiance in lux, in the same units as
+    // iblIrradiance, and no new uniform is needed.
+    //
+    // ...minus the shadow this side throws across the street, which is what
+    // stops golden hour turning a canyon into two sunlit walls facing each
+    // other. The canyon is already described as H tall and D wide, so a
+    // reflected ray leaving at geTanR lands on the wall opposite at
+    // geWorld.y + D * geTanR, and this side's parapet shades that wall up to
+    // H - D * tan(sun elevation). At noon's 75.6 deg that line is far below the
+    // pavement and nothing is shaded; at golden's 8 deg it stands at 12.9 m and
+    // most of the elevation is in shade, which is what a photograph of a street
+    // at that hour shows.
+    //
+    // Omitted, and said out loud: the opposite wall's own sky irradiance is
+    // taken to be this wall's (they differ near the sun's glow), and buildings
+    // beyond the one opposite cast no shadow here.
+    vec3 geSunE = vec3( 0.0 );
+    #if NUM_DIR_LIGHTS > 0
+    {
+      vec3 geSunW = inverseTransformDirection( directionalLights[ 0 ].direction, viewMatrix );
+      float geFacing = max( 0.0, dot( geSunW, -geN ) );
+      float geTanSun = geSunW.y / max( length( geSunW.xz ), 1e-4 );
+      float geHitY = geWorld.y + ${K.oppD} * geTanR;
+      float geLit = smoothstep( -1.5, 1.5, geHitY - ( ${K.oppH} - ${K.oppD} * geTanSun ) );
+      geSunE = directionalLights[ 0 ].color * geFacing * geLit;
+    }
+    #endif
+    vec3 geCity = vec3( ${K.city} ) * ( iblIrradiance + geSunE ) / PI;
     radiance = mix( radiance, geCity, geGlass * geAbove * ( 1.0 - geSky ) );
   }
 }
