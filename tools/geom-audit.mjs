@@ -54,6 +54,8 @@ import {
   signPlanFor, awning as signAwning, shopRect, planStreetSignage,
   streetBladeAssembly, regulatorySign, wideSign, parkingSign, hasStreetName,
 } from '../src/signage.js';
+import { ribbon } from '../src/geom.js';
+import { planKerbs, kerbedEdge, KERB, KERB_REVEAL } from '../src/kerb.js';
 
 const TOL = 0.02;                       // 2 cm: below this a joint is a joint
 // streaming.js reports ground as groundY (0) but DRAWS the land pad at
@@ -258,6 +260,178 @@ for (let bi = 0; bi < d.buildings.length; bi++) {
   for (const o of plan.oneWays) one('oneWay', (buf) => wideSign(o.x, o.z, o.yaw, o.key, buf, null, {}));
   for (const p of plan.parking) one('parking', (buf) => parkingSign(p.x, p.z, p.yaw, p.key, buf, null, {}));
   console.log('            worst sign post gap above the drawn pavement (m):', worstPost.toFixed(3));
+}
+
+// --- the kerb. A prop that floats is one prop; a kerb that floats is 43 km of
+//     it, and its failure modes are not a post's. Four things are measured, each
+//     a way the kerb could be wrong that a screenshot would not settle:
+//
+//       1. the section reaches the surfaces it claims to — top to the drawn
+//          pavement, approach to the ribbon, invert 100-150 mm under the top,
+//          and the parked-car datum under the parked-car axle line;
+//       2. the asphalt approach lands ON the carriageway ribbon rather than
+//          beside it, measured against the ribbon geometry the streamer emits
+//          rather than against the arithmetic that made it;
+//       3. corner returns and the straights they belong to MEET — checked with
+//          the crossing test off, because a run legitimately cut at an alley
+//          mouth is otherwise indistinguishable from a corner that does not join;
+//       4. nothing stands in a carriageway. The gutter invert is 205 mm below
+//          the road surface, so a kerb crossing a street is a trench under it.
+{
+  const plan = planKerbs(d);
+  const strict = planKerbs(d, { breakAtCrossings: false });
+  const kfail = [];
+  const knote = (kind, id, v, detail) => kfail.push({ kind, id, v: +v.toFixed(4), ...detail });
+
+  // 1. the section itself.
+  if (Math.abs(KERB.padY - GROUND_DRAWN) > 1e-9) {
+    knote('kerbDatum', 'padY', KERB.padY - GROUND_DRAWN,
+      { kerb: KERB.padY, streamer: GROUND_DRAWN });
+  }
+  if (KERB.topY < GROUND_DRAWN - TOL) knote('kerbTopSunk', 'section', GROUND_DRAWN - KERB.topY, {});
+  if (KERB.topY > GROUND_DRAWN + 0.03) knote('kerbTopFloats', 'section', KERB.topY - GROUND_DRAWN, {});
+  if (KERB_REVEAL < 0.10 || KERB_REVEAL > 0.15) knote('kerbReveal', 'section', KERB_REVEAL, {});
+  const yAxle = KERB.roadY + (KERB.lipY - KERB.roadY) * (KERB.parkOffset / KERB.laneW);
+  if (Math.abs(yAxle - KERB.parkY) > 0.005) {
+    knote('parkedCarDatum', 'approach', yAxle - KERB.parkY, { yAxle, want: KERB.parkY });
+  }
+
+  // 2. + 4. every emitted station, against its own ribbon and every carriageway.
+  const CELL = 24;
+  const cells = new Map();
+  const segs = [];
+  for (let ei = 0; ei < d.edges.length; ei++) {
+    const e = d.edges[ei];
+    const h = e.w / 2;
+    for (let i = 1; i < e.v.length; i++) {
+      const a = d.verts[e.v[i - 1]], b = d.verts[e.v[i]];
+      const si = segs.length;
+      segs.push({ ei, ax: a.x, az: a.z, bx: b.x, bz: b.z, h });
+      for (let cz = Math.floor((Math.min(a.z, b.z) - h) / CELL); cz <= Math.floor((Math.max(a.z, b.z) + h) / CELL); cz++) {
+        for (let cx = Math.floor((Math.min(a.x, b.x) - h) / CELL); cx <= Math.floor((Math.max(a.x, b.x) + h) / CELL); cx++) {
+          const key = cx * 46337 + cz;
+          let l = cells.get(key);
+          if (!l) cells.set(key, (l = []));
+          l.push(si);
+        }
+      }
+    }
+  }
+  const inCarriageway = (x, z, skip) => {
+    const l = cells.get(Math.floor(x / CELL) * 46337 + Math.floor(z / CELL));
+    if (!l) return -1;
+    for (const si of l) {
+      const g = segs[si];
+      if (g.ei === skip) continue;
+      const vx = g.bx - g.ax, vz = g.bz - g.az, l2 = vx * vx + vz * vz;
+      const t = l2 ? Math.max(0, Math.min(1, ((x - g.ax) * vx + (z - g.az) * vz) / l2)) : 0;
+      const dx = x - (g.ax + vx * t), dz = z - (g.az + vz * t);
+      if (dx * dx + dz * dz < g.h * g.h) return g.ei;
+    }
+    return -1;
+  };
+
+  // How far OUTSIDE the nearest carriageway the approach's inner edge lands.
+  // Negative is a lap over the asphalt and is free; positive is a sliver of
+  // brick paving showing between the road and its own kerb, which is the defect.
+  // Overlap is not measured as error because two coplanar pieces of the same
+  // asphalt are invisible, and demanding they be flush would fail on the miter
+  // shortfall at every bend for no visible reason.
+  const outsideBy = (x, z) => {
+    const l = cells.get(Math.floor(x / CELL) * 46337 + Math.floor(z / CELL));
+    let best = Infinity;
+    for (const si of l ?? []) {
+      const g = segs[si];
+      const vx = g.bx - g.ax, vz = g.bz - g.az, l2 = vx * vx + vz * vz;
+      const t = l2 ? Math.max(0, Math.min(1, ((x - g.ax) * vx + (z - g.az) * vz) / l2)) : 0;
+      const dx = x - (g.ax + vx * t), dz = z - (g.az + vz * t);
+      best = Math.min(best, Math.hypot(dx, dz) - g.h);
+    }
+    return best;
+  };
+
+  let stations = 0, worstGap = -Infinity, gaps = 0, inRoad = 0;
+  // The ribbon's own height, read off the geometry the streamer emits rather
+  // than assumed, so a change to ROAD_Y fails here instead of silently leaving
+  // the approach hanging.
+  {
+    const e = d.edges.find((x) => kerbedEdge(x));
+    const rb = { pos: [], nrm: [], uv: [], idx: [] };
+    ribbon(e.v.map((vi) => d.verts[vi]), e.w, 0.02, rb.pos, rb.nrm, rb.uv, rb.idx);
+    if (Math.abs(rb.pos[1] - KERB.roadY) > 1e-6) {
+      knote('kerbApproachHeight', 'ribbon', rb.pos[1] - KERB.roadY, { ribbonY: rb.pos[1] });
+    }
+  }
+  // A straight run's approach must reach the ribbon on its own. A corner
+  // return's cannot — it stops 2.2 m short of where the two ribbons cross — so
+  // it is floored by a fan from the junction vertex instead, and what is
+  // checked there is that the fan exists and that the vertex it fans from is
+  // itself on a carriageway. Testing an arc station against a ribbon it is not
+  // supposed to touch would fail 1,468 correct stations and hide the real ones.
+  let unfannedArcs = 0;
+  const walk = (run, ownEdge) => {
+    const fanned = run.fanX !== undefined;
+    if (fanned && outsideBy(run.fanX, run.fanZ) > 0.001) unfannedArcs++;
+    for (const st of run) {
+      stations++;
+      if (!fanned) {
+        const o = st.d + KERB.lap;
+        const g = outsideBy(st.x + st.nx * o, st.z + st.nz * o);
+        if (g > worstGap) worstGap = g;
+        if (g > 0.001) gaps++;
+      }
+      if (inCarriageway(st.x, st.z, ownEdge) >= 0) inRoad++;
+    }
+  };
+  for (let ei = 0; ei < d.edges.length; ei++) {
+    const sides = plan.edgeRuns[ei];
+    if (!sides) continue;
+    for (const pieces of sides) for (const run of pieces) walk(run, ei);
+  }
+  for (const runs of plan.vertexRuns.values()) for (const run of runs) walk(run, -1);
+  if (gaps > 0) knote('kerbApproachOffRibbon', 'all', worstGap, { gaps, stations });
+  if (unfannedArcs > 0) knote('kerbCornerNotFloored', 'all', unfannedArcs, {});
+  if (inRoad > 0) knote('kerbInCarriageway', 'all', inRoad, { stations });
+
+  // 3. corner continuity, on the uncut plan.
+  const ecell = new Map();
+  const ekey = (x, z) => Math.round(x / 2) * 46337 + Math.round(z / 2);
+  for (const sides of strict.edgeRuns) {
+    if (!sides) continue;
+    for (const pieces of sides) for (const r of pieces) {
+      for (const p of [r[0], r[r.length - 1]]) {
+        for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+          const k = ekey(p.x + dx * 2, p.z + dz * 2);
+          let l = ecell.get(k);
+          if (!l) ecell.set(k, (l = []));
+          l.push(p);
+        }
+      }
+    }
+  }
+  let arcEnds = 0, orphanArcEnds = 0, worstJoin = 0;
+  for (const runs of strict.vertexRuns.values()) {
+    for (const r of runs) for (const p of [r[0], r[r.length - 1]]) {
+      arcEnds++;
+      let best = Infinity;
+      for (const q of ecell.get(ekey(p.x, p.z)) ?? []) {
+        best = Math.min(best, Math.hypot(p.x - q.x, p.z - q.z));
+      }
+      if (best > 0.05) { orphanArcEnds++; worstJoin = Math.max(worstJoin, Math.min(best, 99)); }
+    }
+  }
+  if (orphanArcEnds > 0) knote('kerbCornerGap', 'junctions', worstJoin, { orphanArcEnds, arcEnds });
+
+  let kerbedEdges = 0;
+  for (const e of d.edges) if (kerbedEdge(e)) kerbedEdges++;
+  console.log(`GEOM-AUDIT  kerb: reveal ${(KERB_REVEAL * 1000).toFixed(0)} mm, top ` +
+    `${((KERB.topY - GROUND_DRAWN) * 1000).toFixed(0)} mm proud of the drawn pavement, ` +
+    `${kerbedEdges} kerbed edges, ${stations} stations`);
+  console.log(`            approach lands ${(-worstGap * 1000).toFixed(0)} mm inside the ` +
+    `carriageway at worst (${gaps} stations short of it); ` +
+    `stations standing in a carriageway ${inRoad}; ` +
+    `corner returns joined ${arcEnds - orphanArcEnds}/${arcEnds}`);
+  for (const f of kfail) fail.push(f);
 }
 
 const byKind = {};

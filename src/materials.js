@@ -2321,7 +2321,15 @@ export class MaterialRegistry {
     this._groundMaterial('land', maps.dirt, 7, { color: 0x9fa08c, roughness: 0.97 });
 
     // Kerbs are vertical faces as much as horizontal ones, so world-planar XZ
-    // would smear them: they keep mesh UVs and a plain repeat.
+    // would smear them: they keep mesh UVs and a plain repeat. src/kerb.js writes
+    // those UVs in metres — u across the section, v along the run — so the
+    // texture runs continuously round a corner return instead of restarting.
+    //
+    // The tint is read off reference/sarasota: Florida kerb and gutter is cast
+    // concrete, PALE against the bleached asphalt it edges, and the gutter pan is
+    // the brightest band in 09-Untitled-panoramio-186. That contrast is what puts
+    // a bright line under the dark one at the road edge, so it is doing as much
+    // work as the 140 mm face itself.
     const c = maps.concrete;
     c.albedo.repeat.set(1 / concreteSurface.tile, 1 / concreteSurface.tile);
     c.normal.repeat.copy(c.albedo.repeat);
@@ -2332,6 +2340,11 @@ export class MaterialRegistry {
         map: c.albedo, normalMap: c.normal, color, roughness: rough, metalness: 0,
       });
       applyPackedRoughness(m);
+      // A gutter pan is seen at a grazing angle from every street-level camera in
+      // the district, which is exactly the case the ground materials all carry
+      // this fade for. Without it the pan sparkles along the kerb line, which is
+      // the one line the eye is being pointed at.
+      applyDistanceNormalFade(m, c.normal?.image?.width ?? 256, 5, 0.34);
       this._put(key, m);
     }
   }

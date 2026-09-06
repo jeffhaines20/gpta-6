@@ -56,7 +56,16 @@ await loading
   })
   .add('generating materials', async () => {
     // Constructing the world builds the material registry and facade library.
-    world = new StreamingWorld(scene, district, { nearRadius: 2, farRadius: 5, budgetMs: 3 });
+    // ?kerbs=0 builds the district without the kerb. It exists so a kerb
+    // measurement has a CONTROL taken from the same build, the same camera and
+    // the same frame: comparing against an older committed capture compares the
+    // traffic and the crowd as well, and the first attempt at this measured a
+    // parked car that had moved rather than a kerb that had appeared.
+    const q = new URLSearchParams(location.search);
+    world = new StreamingWorld(scene, district, {
+      nearRadius: 2, farRadius: 5, budgetMs: 3,
+      kerbs: q.get('kerbs') !== '0',
+    });
   })
   .add('atmosphere', async () => {
     sky = new Sky(renderer, scene);

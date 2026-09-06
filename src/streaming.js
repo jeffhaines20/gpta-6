@@ -15,12 +15,20 @@ import {
   getMaterials, wallFamilyFor, roofFor, markingForEdge, applyMarkingUV,
   SURFACE_LAYERS, SURFACE_TINTS,
 } from './materials.js';
+import { planKerbs, appendKerbRun, appendKerbApron, appendKerbFan } from './kerb.js';
 import {
   buildingStyle, appendBuilding, buffers, facadeMaterial, trimMaterial,
   generateFacadeLibrary, setAllFacadeTimes,
 } from './facades.js';
 
 export const LOD = { NEAR: 0, FAR: 1 };
+
+// The gutter approach is asphalt, so it rides the road material and costs no
+// extra draw call. It is coded as an unpainted 3 m way: MARKINGS.none keeps the
+// lane paint off a strip that is not a lane, and the width code is what the road
+// shader scales its wear, grime, manholes and gully grates by — 3 m puts the
+// grime at the pan and a wheel track where a parked car's tyres actually sit.
+const KERB_LANE_MARKING = markingForEdge({ w: 3, lanes: 1, o: 0, c: 'service' });
 
 // Which baked land-use tags get their own ground surface. Anything absent keeps the
 // default paving, which is what most of a downtown block actually is.
@@ -70,6 +78,11 @@ export class StreamingWorld {
     scene.add(this.root);
 
     this.facadeTime = opts.facadeTime ?? 'dusk';
+    // Planned once for the whole district: 442 kerbed edges and 398 junctions of
+    // arithmetic, no THREE, no textures. Doing it per chunk would recompute the
+    // corner returns every time a chunk reloaded, and a corner return depends on
+    // edges that may live in a different chunk.
+    this.kerbPlan = opts.kerbs === false ? null : planKerbs(district, { chunkSize: this.chunkSize });
     generateFacadeLibrary();
     this._buildWater();
   }
@@ -439,7 +452,8 @@ export class StreamingWorld {
       // caster meshes, and none of that 0.50% was on the near ground.
       steps.push(() => this._named(this._mergedMesh(job), job, 'far'));
     }
-    steps.push(() => this._named(this._roadMesh(job.chunk), job, 'road'));
+    steps.push(() => this._named(this._roadMesh(job), job, 'road'));
+    if (job.lod === LOD.NEAR) steps.push(() => this._named(this._kerbMesh(job), job, 'kerb'));
     for (const [key, buf] of job.zoneBuf) {
       steps.push(() => this._named(this._zoneMeshFromBuffer(buf, key), job, `zone:${key}`));
     }
@@ -493,27 +507,88 @@ export class StreamingWorld {
     return mesh;
   }
 
-  _roadMesh(chunk) {
-    if (chunk.edges.length) {
-      const pos = [], nrm = [], uv = [], idx = [];
-      for (const ei of chunk.edges) {
-        const e = this.d.edges[ei];
-        const pts = e.v.map((vi) => this.d.verts[vi]);
-        const vStart = pos.length / 3;
-        ribbon(pts, e.w, this.groundY + 0.02, pos, nrm, uv, idx);
-        applyMarkingUV(uv, vStart, pos.length / 3 - vStart, markingForEdge(e), { vRepeat: 1 });
+  // Every kerb run this chunk owns: the straight runs of the edges it lists,
+  // plus the corner returns of the junctions that fall inside it. Memoised on
+  // the job because the road mesh and the kerb mesh are separate upload steps
+  // and both walk the same list.
+  _kerbRuns(job) {
+    if (job.kerbRuns) return job.kerbRuns;
+    const plan = this.kerbPlan;
+    const runs = [];
+    if (plan) {
+      for (const ei of job.chunk.edges) {
+        const sides = plan.edgeRuns[ei];
+        if (!sides) continue;
+        for (const pieces of sides) for (const r of pieces) runs.push(r);
       }
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
-      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-      geo.setIndex(idx);
-      geo.computeBoundingSphere();
-      const mesh = new THREE.Mesh(geo, this.materials.markings ?? this.materials.road);
-      mesh.receiveShadow = true;
-      return mesh;
+      for (const vi of plan.arcChunk.get(job.key) ?? []) {
+        for (const r of plan.vertexRuns.get(vi) ?? []) runs.push(r);
+      }
     }
-    return null;
+    job.kerbRuns = runs;
+    return runs;
+  }
+
+  // The asphalt: the carriageway ribbon, plus the gutter approach outboard of
+  // it. Both on the one road material, so a chunk's asphalt is still one draw
+  // call however wide the street gets.
+  _roadMesh(job) {
+    const chunk = job.chunk;
+    const pos = [], nrm = [], uv = [], idx = [];
+    for (const ei of chunk.edges) {
+      const e = this.d.edges[ei];
+      const pts = e.v.map((vi) => this.d.verts[vi]);
+      const vStart = pos.length / 3;
+      ribbon(pts, e.w, this.groundY + 0.02, pos, nrm, uv, idx);
+      applyMarkingUV(uv, vStart, pos.length / 3 - vStart, markingForEdge(e), { vRepeat: 1 });
+    }
+    const buf = { pos, nrm, uv, idx };
+    // NEAR gets the dished approach that the kerb face rises out of; FAR gets
+    // the same footprint flat, which is 2 triangles per station instead of 8
+    // and keeps the ground from changing colour along the street at the LOD
+    // line. A 140 mm face is 0.8 px at the 256 m the near ring ends at.
+    const near = job.lod === LOD.NEAR;
+    for (const run of this._kerbRuns(job)) {
+      const a = near ? appendKerbRun(run, buf, null) : appendKerbApron(run, buf);
+      applyMarkingUV(uv, a.roadStart, a.roadCount, KERB_LANE_MARKING, { vRepeat: 1 });
+      // The corner floor is coded separately: its u is a fixed point on the
+      // strip, not a sweep across it, so it must not be remapped as one.
+      const f = appendKerbFan(run, buf);
+      if (f) applyMarkingUV(uv, f.roadStart, f.roadCount, KERB_LANE_MARKING, { vRepeat: 1 });
+    }
+    if (!pos.length) return null;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    geo.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geo, this.materials.markings ?? this.materials.road);
+    mesh.receiveShadow = true;
+    return mesh;
+  }
+
+  // The concrete: gutter pan, kerb face, kerb top. One mesh per NEAR chunk, so
+  // the whole feature costs one draw call inside the near ring and nothing at
+  // all outside it. It receives shadow but does not cast: the sun's shadow map
+  // is 240 m across, so one texel is 117 mm and a 140 mm kerb self-shadowing
+  // through it is acne, not a line. The line comes from the face's own N.L,
+  // which is exact and free.
+  _kerbMesh(job) {
+    const runs = this._kerbRuns(job);
+    if (!runs.length) return null;
+    const buf = { pos: [], nrm: [], uv: [], idx: [] };
+    for (const run of runs) appendKerbRun(run, null, buf);
+    if (!buf.pos.length) return null;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(buf.pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(buf.nrm, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(buf.uv, 2));
+    geo.setIndex(buf.idx);
+    geo.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geo, this.registry.get('kerb') ?? this.materials.road);
+    mesh.receiveShadow = true;
+    return mesh;
   }
 
   // NOT the live build path, and has not been since the resumable build landed:

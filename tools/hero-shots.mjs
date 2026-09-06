@@ -11,12 +11,14 @@ fs.mkdirSync(OUT, { recursive: true });
 const TIMES = (process.env.HERO_TIMES ?? 'dusk,night,noon').split(',');
 const TAG = process.env.HERO_TAG ?? 'hero';
 
-await ensureServer();
+// Its own port, verified to be serving THIS tree. 8123 is the main tree's.
+const PORT = Number(process.env.HERO_PORT ?? 8123);
+await ensureServer(PORT);
 const browser = await chromium.launch(launchOptions());
 const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
-await page.goto('http://127.0.0.1:8123/district/', { waitUntil: 'networkidle' });
+await page.goto(`http://127.0.0.1:${PORT}/district/`, { waitUntil: 'networkidle' });
 await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
 
 // Hide the debug overlay: it is not part of what is being judged.
