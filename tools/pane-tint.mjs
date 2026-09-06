@@ -529,7 +529,14 @@ export function canyonConstants(file = 'src/materials.js') {
     return m[1].split(',').map((v) => Number(v.trim()));
   };
   return {
-    oppositeHeight: num('oppositeHeight'), oppositeDistance: num('oppositeDistance'),
+    // The canyon's opposite height is a measured PAIR interpolated on the pane's
+    // own height (src/materials.js GLAZING.canyon has the scan). Reproduced here
+    // rather than approximated, because this file's whole purpose is to evaluate
+    // the shader's formula offline and a tool that quietly uses a different
+    // skyline is worse than no tool.
+    oppositeLowH: num('oppositeLowH'), oppositeTallH: num('oppositeTallH'),
+    oppositeLowY: num('oppositeLowY'), oppositeTallY: num('oppositeTallY'),
+    oppositeDistance: num('oppositeDistance'),
     skylineSoft: num('skylineSoft'), skylineRagged: num('skylineRagged'),
     urbanAlbedo: arr('urbanAlbedo'),
   };
@@ -590,17 +597,19 @@ export function cityShare(cap, cls, height, azim, normY, C = canyonConstants()) 
       const rx = d[0] - 2 * dn * N[0], ry = d[1] - 2 * dn * N[1], rz = d[2] - 2 * dn * N[2];
       const tanR = ry / Math.max(Math.hypot(rx, rz), 1e-4);
       const above = smooth(-0.02, 0.08, tanR);
+      const oppH = C.oppositeLowH + (C.oppositeTallH - C.oppositeLowH)
+        * smooth(C.oppositeLowY, C.oppositeTallY, height[i]);
       let acc = 0;
       for (let k = 0; k < RAG; k++) {
         const rag = ((k + 0.5) / RAG - 0.5) * C.skylineRagged;
-        const tanSky = (C.oppositeHeight - height[i]) / C.oppositeDistance + rag;
+        const tanSky = (oppH - height[i]) / C.oppositeDistance + rag;
         acc += 1 - smooth(-C.skylineSoft, C.skylineSoft, tanR - tanSky);
       }
       out[i] = above * (acc / RAG);
       if (S) {
         const facing = Math.max(0, S[0] * -N[0] + S[1] * -N[1] + S[2] * -N[2]);
         const hitY = height[i] + C.oppositeDistance * tanR;
-        const lit = smooth(-1.5, 1.5, hitY - (C.oppositeHeight - C.oppositeDistance * tanSun));
+        const lit = smooth(-1.5, 1.5, hitY - (oppH - C.oppositeDistance * tanSun));
         sun[i] = facing * lit;
       }
     }

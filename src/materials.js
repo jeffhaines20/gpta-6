@@ -2045,11 +2045,36 @@ const GLAZING = {
   canyon: {
     // tools/glaz-probe.mjs' canyon scan casts a ray out of the outward normal of
     // all 2,962 building edges in the bake and records the first footprint it
-    // hits. 86% hit something. Length-weighted medians: 22.5 m away at 9.6 m tall
-    // for the district as a whole, 21.7 m at 19.2 m for the facades of the
-    // buildings over 26 m - which are the ones the critics were looking at. This
-    // pair sits between them.
-    oppositeHeight: 16.0,
+    // hits. 86% hit something. Length-weighted medians:
+    //
+    //   all facades          22.5 m away, opposite 9.6 m tall   (2,543 edges)
+    //   facades of h >= 26   21.7 m away, opposite 19.2 m tall  (201 edges)
+    //
+    // A SINGLE 16.0 SAT BETWEEN THEM, and "between" was the mistake: it is 67%
+    // taller than the median for the low-rise stock, and the low-rise stock is
+    // 12 times more of the district's street frontage AND all of both hero
+    // framings. What that costs is exactly the reported defect. The sky crossover
+    // for a pane at 3 m is atan((H - y) / D): at H = 16 it sits at 30.6 degrees of
+    // reflected elevation, at the measured 9.6 it sits at 16.7. Between those two
+    // angles is most of what a person standing in the street actually sees of a
+    // shopfront - so every one of those panes was reflecting building where the
+    // measurement says it should have been reflecting sky. At dusk, when the sky
+    // is the only bright thing left, that is the whole difference between a pane
+    // that reads as glass and one that reads as a hole.
+    //
+    // The two populations are kept as two, interpolated on the pane's own height,
+    // because that is the only building-scale variable a fragment shader has here
+    // and it is a lower bound on the building's height: a pane at 30 m is on a
+    // tall building by construction and its opposite really is the 19.2 m
+    // population, while a pane at 3 m is far more likely to be on the low-rise
+    // 12:1 majority. Nothing here claims more than the scan measured; the
+    // interpolation only chooses which of its two medians applies.
+    oppositeLowH: 9.6,          // median opposite height, all 2,543 facades
+    oppositeTallH: 19.2,        // median opposite height, the 201 facades of h >= 26
+    oppositeLowY: 6.0,          // below this a pane takes the district-wide median
+    oppositeTallY: 30.0,        // above this it takes the tall-building median
+    // 22.5 m and 21.7 m for the two populations: the same street within 0.8 m, so
+    // this one stays a single number.
     oppositeDistance: 22.0,
     // The crossover is soft over +-0.06 in tan space (+-3.4 deg) and ragged by
     // +-0.15 (+-3.3 m of roofline at 22 m) on a 14 m plot rhythm, because the
@@ -2063,7 +2088,22 @@ const GLAZING = {
     // facades.js - the district's own colours, warm-tilted because they are - and
     // a street elevation is roughly 65% of that wall against 35% openings at
     // about 0.10, which is the mix below.
+    // Kept as the documented average and as the thing the two halves below have
+    // to reproduce; the shader itself no longer reads it, because a single
+    // blended number is precisely the flat panel this was reported as.
     urbanAlbedo: [0.364, 0.315, 0.283],
+    // The two halves urbanAlbedo above is the blend of, kept separately so the
+    // reflected elevation can have a RHYTHM and not only a mean: a pane that
+    // returns one number for the whole wall opposite is the "flat panel, no
+    // reflected facade" a reviewer reads off it. 0.65 * wall + 0.35 * opening
+    // reproduces urbanAlbedo to within 0.001 on all three channels, so nothing
+    // about the average moves - only its variance.
+    wallAlbedo: [0.506, 0.431, 0.382],
+    openingAlbedo: [0.10, 0.10, 0.10],
+    // Storey height of the elevation opposite. The district's own: floorM is 3.6
+    // for midOffice and bayTower and 3.4-4.2 across the rest of RECIPES, and the
+    // reflected image is compressed enough that the spread does not read.
+    oppositeFloorM: 3.6,
     // A curtain wall's units are never coplanar; 0.010 rad is 0.57 deg.
     facetTilt: 0.010,
   },
@@ -2177,6 +2217,72 @@ float pvHash( vec2 c ) { return fract( sin( dot( c, vec2( 127.1, 311.7 ) ) ) * 4
   });
 }
 
+// ------------------------------------- glazing: what a shopfront's mirror IS
+// A SECOND MATERIAL CARRIES THE DISTRICT'S SHOPFRONT GLASS, and it is the one a
+// street-level frame is mostly made of. facades.js' trim atlas has a `glass`
+// cell that storefrontBays maps onto every recessed shop window in the district,
+// and it is drawn as a PICTURE OF A SHOP: sky over the transom at the top, the
+// soffit shadow inside at 22%, the back of the shop, a display shelf with goods
+// on it, the pavement bounce off the floor at 88%, the cill shadow. As a
+// description of what you SEE THROUGH a shop window that is right, and it is why
+// the cell was authored that way.
+//
+// The problem is that the cell is written at metalness 0.45, and three.js builds
+//
+//   material.specularColor = mix( vec3( 0.04 ), diffuseColor.rgb, metalness )
+//
+// so that painted interior is ALSO the pane's mirror. What is behind the glass
+// then decides how much of the street the glass reflects, which is backwards: a
+// shopfront's coating reflectance is a property of the glass and does not know
+// that the shop is dark at the top and bright at the floor.
+//
+// Measured, down one storefront pane in the fivepoints hero frame at noon
+// (tools/glaz-probe.mjs --points, x = 1350):
+//
+//   screen y      470    510    550    590    630
+//   world y       3.2    2.8    2.3    1.9    1.5  m
+//   8-bit luma   18.3   25.6   47.4   53.7   58.0
+//
+// which is the reveal-AO signature a review round reported - dark at the head,
+// bright at the cill - except that it is not AO and not on the facade atlas at
+// all. It is the painted soffit at the top of this cell and the painted floor
+// bounce at the bottom of it, arriving in F0. The rm texel there is
+// (255, 23, 115): roughness 0.09 at metalness 0.45, which is this cell and
+// nothing else in either atlas. Two of the three reported glazing samples in
+// that round were on the trim atlas, not the facade one, and a third ("deli
+// upper glass", 1420,325) turns out to be masonry at rm (255, 224, 0).
+//
+// So: the diffuse keeps the picture, and the specular is made constant. The
+// value is not a new art number - it is the cell's OWN base fill,
+// rgb(150,158,166) under its own metalness 0.45, which is F0
+// (0.159, 0.176, 0.194): the cool grey the shopfronts were authored with and
+// that the reviewers said was right, no longer modulated by the shop behind it.
+// It raises the head of a pane about 2.4x (the painted 92,96,104 is F0
+// 0.070-0.084) and lowers the cill about 0.85x (the painted 178,172,160 is
+// 0.176-0.217) - the inversion removed, rather than a brightness added.
+//
+// It patches lights_physical_fragment rather than lights_fragment_end because
+// specularColor is consumed by the DIRECT lights too: lights_fragment_begin has
+// already run by the time applyGlazingEnv gets its turn, so a fix there would
+// leave every street lamp and the sun still glinting off the shop's floor.
+export function applyStorefrontCoating(material, opts = {}) {
+  const n = (v) => Number(v).toFixed(4);
+  const K = {
+    f0: (opts.coatF0 ?? [0.159, 0.176, 0.194]).map(n).join(', '),
+    roughLo: n(opts.roughLo ?? 0.16), roughHi: n(opts.roughHi ?? 0.24),
+    metalLo: n(opts.metalLo ?? 0.25), metalHi: n(opts.metalHi ?? 0.35),
+  };
+  return patch(material, 'sfCoat', (shader) => {
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
+{
+  float sfGlass = ( 1.0 - smoothstep( ${K.roughLo}, ${K.roughHi}, roughnessFactor ) )
+    * smoothstep( ${K.metalLo}, ${K.metalHi}, metalnessFactor );
+  material.specularColor = mix( material.specularColor, vec3( ${K.f0} ), sfGlass );
+}`);
+  });
+}
+
 // ------------------------------------------------- glazing: what glass reflects
 // A pane and the wall beside it are handed the SAME environment, and that is the
 // whole of the defect. scene.environment is the sky dome's PMREM: a gradient
@@ -2236,18 +2342,32 @@ float pvHash( vec2 c ) { return fract( sin( dot( c, vec2( 127.1, 311.7 ) ) ) * 4
 // @param {boolean} [opts.glassTexelsOnly] mask to the smooth metallic texels of a
 //   shared atlas - pane-audit.mjs' test, so the shader and the measurement agree
 //   about what a pane is. Off for a material that is all glass.
+// @param {number} [opts.roughLo=0.34] @param {number} [opts.roughHi=0.44]
+// @param {number} [opts.metalLo=0.34] @param {number} [opts.metalHi=0.44]
+//   The mask window. The defaults are the FACADE atlas', where glazing is the
+//   only metallic cell. The TRIM atlas needs its own and gets it from
+//   trimMaterial(): its mullion (0.30, 0.90), steel (0.38, 0.92), dark metal
+//   (0.44, 0.85) and louvre (0.50, 0.80) are all more metallic than 0.44 and none
+//   of them is a window, while its glazing at roughness 0.09 is the only cell in
+//   that atlas under 0.25 - so there the window is on ROUGHNESS. Both windows are
+//   quoted from the numbers facades.js writes, not guessed at.
 export function applyGlazingEnv(material, opts = {}) {
   const C = { ...GLAZING.canyon, ...opts };
   const n = (v) => Number(v).toFixed(4);
   const K = {
-    oppH: n(C.oppositeHeight), oppD: n(C.oppositeDistance),
+    oppLowH: n(C.oppositeLowH), oppTallH: n(C.oppositeTallH),
+    oppLowY: n(C.oppositeLowY), oppTallY: n(C.oppositeTallY),
+    oppD: n(C.oppositeDistance),
     soft: n(C.skylineSoft), rag: n(C.skylineRagged), plot: n(C.plotMetres),
     tilt: n(C.facetTilt),
     paneW: n((C.paneMetres ?? GLAZING.paneMetres)[0]),
     paneH: n((C.paneMetres ?? GLAZING.paneMetres)[1]),
-    city: C.urbanAlbedo.map(n).join(', '),
+    wallAlb: C.wallAlbedo.map(n).join(', '),
+    openAlb: C.openingAlbedo.map(n).join(', '),
+    floorM: n(C.oppositeFloorM),
     mask: C.glassTexelsOnly
-      ? '( 1.0 - smoothstep( 0.34, 0.44, roughnessFactor ) ) * smoothstep( 0.34, 0.44, metalnessFactor )'
+      ? `( 1.0 - smoothstep( ${n(C.roughLo ?? 0.34)}, ${n(C.roughHi ?? 0.44)}, roughnessFactor ) )`
+        + ` * smoothstep( ${n(C.metalLo ?? 0.34)}, ${n(C.metalHi ?? 0.44)}, metalnessFactor )`
       : '1.0',
   };
   return patch(material, 'glazeEnv', (shader) => {
@@ -2260,7 +2380,15 @@ float geHash( vec2 c ) { return fract( sin( dot( c, vec2( 91.7, 47.3 ) ) ) * 246
   vec3 geN = inverseTransformDirection( nonPerturbedNormal, viewMatrix );
   // A roof is not in a street: fade this out as the surface turns horizontal.
   float geGlass = ${K.mask} * ( 1.0 - smoothstep( 0.55, 0.85, abs( geN.y ) ) );
-  if ( geGlass > 0.002 ) {
+  // UNBRANCHED, and that is not an oversight. This block used to sit inside an
+  // if ( geGlass > 0.002 ) guard, which is fine until something in it takes a
+  // derivative: fwidth() in non-uniform control flow is undefined in GLSL ES,
+  // and the reflected-image footprint below is a fwidth. A wall and a pane are
+  // neighbours in the SAME material and the same quad, so that branch is
+  // divergent at exactly the texels this cares about. The cost of dropping it is
+  // about thirty ALU on non-glass pixels of glazed facades, against a
+  // reflection that is well-defined instead of driver-dependent.
+  {
     // The camera ray and the world position it lands on, from built-ins only.
     // geometryPosition is the view-space fragment position lights_fragment_begin
     // set, and inverseTransformDirection returns it as a unit world direction.
@@ -2283,9 +2411,13 @@ float geHash( vec2 c ) { return fract( sin( dot( c, vec2( 91.7, 47.3 ) ) ) * 246
       + vec3( 0.0, 1.0, 0.0 ) * ( geHash( geCell + 3.7 ) - 0.5 ) * ${K.tilt} );
     vec3 geR = reflect( geDir, geFacet );
 
-    // The canyon, in tan space so there is no trig per pixel.
+    // The canyon, in tan space so there is no trig per pixel. The height of the
+    // mass opposite is the measured pair, chosen by the pane's own height - see
+    // GLAZING.canyon, where the scan and the reason are.
+    float geOppH = mix( ${K.oppLowH}, ${K.oppTallH},
+      smoothstep( ${K.oppLowY}, ${K.oppTallY}, geWorld.y ) );
     float geTanR = geR.y / max( length( geR.xz ), 1e-4 );
-    float geTanSky = ( ${K.oppH} - geWorld.y ) / ${K.oppD}
+    float geTanSky = ( geOppH - geWorld.y ) / ${K.oppD}
       + ( geHash( vec2( floor( geAcross / ${K.plot} ), 17.0 ) ) - 0.5 ) * ${K.rag};
     float geSky = smoothstep( - ${K.soft}, ${K.soft}, geTanR - geTanSky );
     // Under the true horizon the dome already models the lit ground, so the
@@ -2310,10 +2442,9 @@ float geHash( vec2 c ) { return fract( sin( dot( c, vec2( 91.7, 47.3 ) ) ) * 246
     //
     // ...minus the shadow this side throws across the street, which is what
     // stops golden hour turning a canyon into two sunlit walls facing each
-    // other. The canyon is already described as H tall and D wide, so a
-    // reflected ray leaving at geTanR lands on the wall opposite at
-    // geWorld.y + D * geTanR, and this side's parapet shades that wall up to
-    // H - D * tan(sun elevation). At noon's 75.6 deg that line is far below the
+    // other. This side's parapet shades the wall opposite up to
+    // H - D * tan(sun elevation), for the same H the skyline uses: at noon's
+    // 75.6 deg that line is far below the
     // pavement and nothing is shaded; at golden's 8 deg it stands at 12.9 m and
     // most of the elevation is in shade, which is what a photograph of a street
     // at that hour shows.
@@ -2321,18 +2452,60 @@ float geHash( vec2 c ) { return fract( sin( dot( c, vec2( 91.7, 47.3 ) ) ) * 246
     // Omitted, and said out loud: the opposite wall's own sky irradiance is
     // taken to be this wall's (they differ near the sun's glow), and buildings
     // beyond the one opposite cast no shadow here.
+    //
+    // WHERE the reflected ray lands. The old form took the hit height as
+    // geWorld.y + D * geTanR, which is the ray travelling D of HORIZONTAL
+    // distance - true only for a ray leaving perpendicular to the wall. The
+    // exact crossing costs one dot product: the wall opposite is the plane D
+    // along +geN, so the ray reaches it at t = D / dot( geR, geN ). It matters
+    // now because the hit point is no longer used only for a soft shadow line -
+    // it is where the reflected IMAGE is sampled below, and a wrong along-street
+    // coordinate makes that image slide as the camera turns.
+    float geOut = max( dot( geR, geN ), 0.08 );
+    float geT = ${K.oppD} / geOut;
+    float geHitY = geWorld.y + geT * geR.y;
+    float geHitX = geAcross + geT * dot( geR, geTan );
+
     vec3 geSunE = vec3( 0.0 );
     #if NUM_DIR_LIGHTS > 0
     {
       vec3 geSunW = inverseTransformDirection( directionalLights[ 0 ].direction, viewMatrix );
       float geFacing = max( 0.0, dot( geSunW, -geN ) );
       float geTanSun = geSunW.y / max( length( geSunW.xz ), 1e-4 );
-      float geHitY = geWorld.y + ${K.oppD} * geTanR;
-      float geLit = smoothstep( -1.5, 1.5, geHitY - ( ${K.oppH} - ${K.oppD} * geTanSun ) );
+      float geLit = smoothstep( -1.5, 1.5, geHitY - ( geOppH - ${K.oppD} * geTanSun ) );
       geSunE = directionalLights[ 0 ].color * geFacing * geLit;
     }
     #endif
-    vec3 geCity = vec3( ${K.city} ) * ( iblIrradiance + geSunE ) / PI;
+
+    // WHAT it lands on. urbanAlbedo is "65% wall at 0.506/0.431/0.382 against 35%
+    // openings at about 0.10" - already the right average, and an average is
+    // exactly what a reviewer means by "flat panels at 22, 25, 35, no reflected
+    // facade opposite". The two halves of that mix are separated here and put
+    // back with a rhythm, so a pane carries an IMAGE of the elevation across the
+    // street: floor bands, and a pier on each plot division. It costs no texture,
+    // no uniform and no geometry - the hit point is already computed above - and
+    // it is energy-preserving by construction, because geOpen averages the same
+    // 0.35 the single blended number was baked at.
+    //
+    // Antialiased on the FOOTPRINT of the reflected image, not on distance: a
+    // reflection is a minified image and this pattern is at 3.6 m and 14 m, so a
+    // pixel covering more than a floor of the wall opposite must see the average
+    // or it sings. fwidth of the hit point is that footprint in metres directly.
+    // The facet jitter perturbs it by at most tilt * t = 0.010 * 22 = 0.22 m,
+    // which is well inside the 1.2 m the fade starts at, so a pane boundary does
+    // not trip it.
+    float geFloorPh = fract( geHitY / ${K.floorM} );
+    float gePlotPh = fract( geHitX / ${K.plot} );
+    float geBand = smoothstep( 0.16, 0.30, geFloorPh ) * ( 1.0 - smoothstep( 0.66, 0.80, geFloorPh ) );
+    float gePier = 1.0 - smoothstep( 0.05, 0.13, min( gePlotPh, 1.0 - gePlotPh ) );
+    float geOpen = geBand * ( 1.0 - gePier ) * 0.85;
+    float geFoot = max( fwidth( geHitY ), fwidth( geHitX ) );
+    geOpen = mix( geOpen, 0.35, smoothstep( 1.2, 3.2, geFoot ) );
+    // Below the pavement there is no elevation to see, only road.
+    geOpen = mix( 0.35, geOpen, smoothstep( -1.0, 1.5, geHitY ) );
+    vec3 geAlbedo = mix( vec3( ${K.wallAlb} ), vec3( ${K.openAlb} ), geOpen );
+
+    vec3 geCity = geAlbedo * ( iblIrradiance + geSunE ) / PI;
     radiance = mix( radiance, geCity, geGlass * geAbove * ( 1.0 - geSky ) );
   }
 }
