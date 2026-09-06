@@ -758,6 +758,79 @@ const CANYON_HEIGHT_M = 16.0, CANYON_WIDTH_M = 22.0;
 // taller median describes, and consistency with the glazing term decided it.
 const CANYON_ASPECT = CANYON_HEIGHT_M / CANYON_WIDTH_M;
 const WALL_VIEW_FACTOR = 1 - (Math.sqrt(1 + CANYON_ASPECT * CANYON_ASPECT) - CANYON_ASPECT);
+
+/**
+ * HOW MUCH OF THE MEAN WALL THE SUN ACTUALLY LANDS ON, in the same canyon
+ * WALL_VIEW_FACTOR is taken from. Returns 1 whenever the whole wall is lit.
+ *
+ * THE DEFECT THIS EXISTS FOR. bounceDelivery()'s sun term was
+ * sunLux * cos(elevation) / pi, the azimuth average of the beam over walls of
+ * every bearing - and it assumed every one of those walls was lit over its whole
+ * height. At a HIGH sun that is true. At an 8 degree sun it is not remotely
+ * true: a 16 m building at 22 m across the street casts a shadow 114 m long, so
+ * the opposite wall is lit only over its top 22 * tan(8 deg) = 3.09 m, 19% of
+ * its height, and the model was crediting the interreflection with 5x the beam
+ * the street can actually see. That term is 66% of E_wall at golden hour, and it
+ * is why three reviewers measured open shade coming out warmer than the sun.
+ *
+ * THE GEOMETRY, and it is the same crossed-strings canyon, not a second model.
+ * For a wall whose outward normal sits at azimuth psi from the sun, the sun's
+ * PROFILE angle in the plane perpendicular to that wall has
+ * tan(theta_p) = tan(theta) / cos(psi), so the opposite building's shadow line
+ * lands at height H - W*tan(theta_p) and the lit fraction of that wall is
+ *
+ *     min(1, k / cos(psi)),      k = W * tan(theta) / H
+ *
+ * The wall's own beam illuminance is sunLux*cos(theta)*cos(psi), so the average
+ * of illuminance-times-lit-fraction over all bearings, divided by the average of
+ * illuminance alone (which is the 1/pi already in the caller), is
+ *
+ *     f(k) = k*acos(k) + 1 - sqrt(1 - k^2)      k < 1
+ *     f(k) = 1                                  k >= 1
+ *
+ * f(1) = 1 and f(0) = 0, both exactly. No fitted constant appears anywhere in
+ * it: W and H are the two numbers WALL_VIEW_FACTOR is already built from, and
+ * theta is the preset's own elevation.
+ *
+ *   preset   k       f(k)     wallFromSun
+ *   noon     5.367   1.0000   7,346 lux  ->  7,346   IDENTICAL
+ *   golden   0.1932  0.2848  10,842 lux  ->  3,088
+ *   dusk     0.0757  0.1160     159 lux  ->      18
+ *   night    1.733   1.0000   0.055 lux  ->   0.055  IDENTICAL
+ *
+ * NOON AND NIGHT CANNOT MOVE, and that is a property of the formula rather than
+ * a hope: k >= 1 means the shadow line has fallen off the bottom of the wall at
+ * every bearing, and f is then exactly 1. So the measured wins this round is
+ * forbidden from reverting - noon's bounce at blue/red 0.842 carrying 26% of the
+ * ambient, and the night frame three critic rounds have called the best in the
+ * build - are preserved by construction and not by measurement.
+ *
+ * WHAT IT DELIBERATELY DOES NOT DO, with the numbers, so the next round can take
+ * either if it disagrees:
+ *
+ *  1. The floor sees the BOTTOM of a wall better than its top, and the sunlit
+ *     part at a low sun is the top. Weighting the same integral by the crossed-
+ *     strings view factor F(h) = (W + h - hypot(W, h)) / 2W - which reproduces
+ *     WALL_VIEW_FACTOR exactly at h = H, 0.490775 both ways - gives 0.2097 at
+ *     golden rather than 0.2848 and 0.0779 at dusk rather than 0.1160. It is the
+ *     more correct number and it is NOT used, because the sky and ground terms on
+ *     the wall are height-varying too and are not weighted; correcting one of
+ *     three would trade a stated error for an unstated one.
+ *  2. The STREET is self-shadowed by the same canyon - at golden the shadow is
+ *     114 m across a 22 m street, so essentially none of it is in sun, which the
+ *     rendered frame agrees with (94-98% of ground pixels at golden are inside
+ *     the shadow map). Applying the matching closed form to sunHoriz would cut
+ *     noon's bounce 3,947 -> 3,786 lux (-4.1%) and golden's a further 5%. Left
+ *     alone because it moves NOON, and noon is the hour whose bounce is measured
+ *     to be right.
+ */
+function sunlitWallFraction(elevation) {
+  if (!(elevation > 0)) return 0;
+  const k = (CANYON_WIDTH_M * Math.tan(elevation)) / CANYON_HEIGHT_M;
+  if (!(k > 0)) return 0;
+  if (k >= 1) return 1;
+  return k * Math.acos(k) + 1 - Math.sqrt(1 - k * k);
+}
 // What the mass across the street returns, linear. src/materials.js
 // GLAZING.canyon.urbanAlbedo: the mean linear albedo of the 16 wall palette
 // entries of the four glazed recipes in facades.js - the district's own colours,
@@ -1044,7 +1117,9 @@ export class TimeOfDay {
    *
    *   E_h     = S*sin(elevation) + skyLux           light on the STREET
    *   L_grnd  = groundAlbedo * E_h / pi             what the street sends back
-   *   E_wall  = S*cos(elevation)/pi                 sun on the mass across the road
+   *   E_wall  = S*cos(elevation)/pi * f(elevation)  sun on the mass across the road,
+   *                                                 over the part of it the beam
+   *                                                 actually reaches
    *           + skyLux/2                            sky on it
    *           + pi/2 * L_grnd                       the STREET on it
    *   L_wall  = urbanAlbedo * E_wall / pi           what the mass sends back
@@ -1075,14 +1150,21 @@ export class TimeOfDay {
    * horizon, so the PMREM hands it to downward and vertical normals; nothing in
    * the dome models the district's own walls, and this is the path through them.
    *
-   * A LOW SUN IS THE ONE THAT LIGHTS WALLS DIRECTLY. At noon cos(75.6 deg) = 0.249
-   * puts 7,347 lux of sun on the mean wall against the pavement's 11,540; at
-   * golden cos(8 deg) = 0.990 puts 10,865 against the pavement's 1,717. So the
-   * two hours arrive at almost the same wall illuminance by opposite routes, and
-   * the bounce is a larger share of the ambient at golden (31%) than at noon (26%)
-   * because golden's sky is smaller - which is the second half of why golden read
-   * cool: the hour whose light is most nearly horizontal is the hour with most of
-   * its light in the interreflection, and the model had none of it.
+   * A LOW SUN IS THE ONE THAT LIGHTS WALLS DIRECTLY, AND IT IS ALSO THE ONE WHOSE
+   * WALLS SHADOW EACH OTHER. At noon cos(75.6 deg) = 0.249 puts 7,347 lux of sun
+   * on the mean wall against the pavement's 11,540, and every square metre of that
+   * wall is in the beam. At golden cos(8 deg) = 0.990 would put 10,842 lux on the
+   * mean wall - except that at 8 degrees the building opposite shadows all but the
+   * top 22*tan(8 deg) = 3.09 m of a 16 m wall, so f(elevation) cuts it to 3,087.
+   *
+   * THAT SECOND HALF WAS MISSING FOR ONE ROUND AND IT IS THE DEFECT THIS FIXES.
+   * Without it the bounce carried 31% of golden's ambient against noon's 26% and
+   * arrived at blue/red 0.315 - warmer than the 8-degree sun's own 0.235 hue once
+   * the two warm albedos were through with it - and three blind reviewers measured
+   * golden's open shade coming out as orange as its sunlight. With it the golden
+   * bounce is 2,637 -> 1,380 lux, 16% of the ambient, blue/red 0.464, and noon and
+   * night are untouched to the digit. See sunlitWallFraction() for the geometry
+   * and for the two further corrections that were derived and declined.
    *
    * IT SELF-EXTINGUISHES AT NIGHT, which is the property that makes it safe to
    * add: nothing is lighting the walls, so E_wall is 0.15 lux, the bounce is
@@ -1109,7 +1191,12 @@ export class TimeOfDay {
     // PMREM is carrying it, the HemisphereLight otherwise. Same quantity
     // skyDelivery() reports, so the bounce tracks weather and the hour for free.
     const skyLux = override ? override.skyLux : this.skyDelivery().totalLux;
-    const wallFromSun = (sunLux * Math.cos(p.elevation)) / Math.PI;
+    // Occluded by the canyon itself: at a low sun almost none of the wall is in
+    // the beam, and the un-occluded form was crediting the bounce with 5x the
+    // light the street can see. sunlitWallFraction() is exactly 1 at noon and at
+    // night, so this line is bit-identical there. See the derivation above it.
+    const sunlitWall = sunlitWallFraction(p.elevation);
+    const wallFromSun = ((sunLux * Math.cos(p.elevation)) / Math.PI) * sunlitWall;
     const wallFromSky = 0.5 * skyLux;
     // Unit-luminance hues, so the split below is spectral and the totals above
     // stay the photometric quantities they are named as.
@@ -1150,6 +1237,11 @@ export class TimeOfDay {
       // noon bounce come out blue.
       fromGroundLux: r2(groundY),
       viewFactor: +WALL_VIEW_FACTOR.toFixed(4),
+      // The share of the mean wall the beam actually reaches at this elevation.
+      // Reported because a term that silently went to 1 (or to 0) would be
+      // invisible in every other number here, which is the failure mode the
+      // ground bounce in src/sky.js sat in for months.
+      sunlitWallFraction: +sunlitWall.toFixed(4),
       shareOfSky: +(lux / Math.max(skyLux, 1e-12)).toFixed(4),
       // What the light in the scene is actually set to, so the report is of the
       // scene and not of the arithmetic that was meant to configure it.
@@ -1496,13 +1588,30 @@ export class TimeOfDay {
       flags.push(`the bounce light delivers ${bounce.lightDeliveredLux} lux where bounceDelivery() computes ` +
         `${bounce.lux}: the light was not written`);
     }
-    // 3. The two arithmetic identities the whole term rests on: the view factor
-    //    IS Hottel's crossed strings for the canyon it is quoted from, and the
-    //    bounce colour carries luminance 1 so the light's intensity is the lux it
-    //    claims to deliver. Both are one line to check and both are exactly the
-    //    kind of constant that gets hand-edited and then quoted back as measured.
+    // 3. The three arithmetic identities the whole term rests on: the view factor
+    //    IS Hottel's crossed strings for the canyon it is quoted from, the sunlit
+    //    share of that wall IS the occlusion closed form at this preset's own
+    //    elevation, and the bounce colour carries luminance 1 so the light's
+    //    intensity is the lux it claims to deliver. Each is one line to check and
+    //    each is exactly the kind of constant that gets hand-edited and then
+    //    quoted back as measured.
     const aC = CANYON_HEIGHT_M / CANYON_WIDTH_M;
     const fRef = 1 - (Math.sqrt(1 + aC * aC) - aC);
+    // ...and the sunlit share of that wall is the occlusion closed form for THIS
+    // preset's elevation, evaluated here from the preset rather than read back
+    // from bounceDelivery(), so the two cannot agree by both being the same wrong
+    // line. A term that quietly returned 1 would restore the whole defect this
+    // round removed and would show up in nothing else: the bounce would still be
+    // written, still carry luminance 1, still sit inside a band derived from
+    // ITSELF at the envelope corners. This is the only assertion that can see it.
+    const kRef = (CANYON_WIDTH_M * Math.tan(this.preset.elevation)) / CANYON_HEIGHT_M;
+    const sRef = !(this.preset.elevation > 0) || !(kRef > 0) ? 0
+      : kRef >= 1 ? 1 : kRef * Math.acos(kRef) + 1 - Math.sqrt(1 - kRef * kRef);
+    if (Math.abs(bounce.sunlitWallFraction - +sRef.toFixed(4)) > 1e-4) {
+      flags.push(`the bounce's sunlit wall fraction is ${bounce.sunlitWallFraction}, not the ` +
+        `${sRef.toFixed(4)} a ${CANYON_HEIGHT_M} m / ${CANYON_WIDTH_M} m canyon gives at ` +
+        `elevation ${(this.preset.elevation * 180 / Math.PI).toFixed(2)} deg`);
+    }
     if (Math.abs(WALL_VIEW_FACTOR - fRef) > 1e-9) {
       flags.push(`bounce view factor ${WALL_VIEW_FACTOR} is not Hottel's ${fRef.toFixed(6)} for a ` +
         `${CANYON_HEIGHT_M} m / ${CANYON_WIDTH_M} m canyon`);

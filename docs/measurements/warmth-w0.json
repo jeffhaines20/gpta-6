@@ -1,0 +1,270 @@
+{
+ "bands": {
+  "corridor": {
+   "brickwalk": [
+    1240,
+    620,
+    360,
+    270
+   ],
+   "carriageway": [
+    500,
+    700,
+    620,
+    190
+   ]
+  },
+  "fivepoints": {
+   "brickwalk": [
+    1240,
+    620,
+    360,
+    260
+   ],
+   "carriageway": [
+    520,
+    700,
+    600,
+    190
+   ]
+  }
+ },
+ "sky": {
+  "corridor": [
+   270,
+   95,
+   80,
+   60
+  ],
+  "fivepoints": [
+   300,
+   40,
+   120,
+   80
+  ]
+ },
+ "litGround": {
+  "corridor": [
+   1330,
+   690,
+   120,
+   70
+  ],
+  "fivepoints": [
+   760,
+   700,
+   140,
+   100
+  ]
+ },
+ "rows": [
+  {
+   "tag": "w0",
+   "framing": "corridor",
+   "tod": "noon",
+   "skyL": 156.1,
+   "litGroundL": 178.9,
+   "skyOverGround": 0.872,
+   "skyCleanL": 181.9,
+   "skyCleanOverGround": 1.017,
+   "groundRminusB": -6.2,
+   "groundRB": 1.188,
+   "over230Pct": 0.079,
+   "over245Pct": 0.009,
+   "brickwalkRB": 1.864,
+   "carriagewayRB": 0.531,
+   "brickwalkSplit": {
+    "n": 97200,
+    "fillRB": 0.826,
+    "sunRB": 2.45,
+    "fillOverSun": 0.337,
+    "directShare": 0.778
+   },
+   "carriagewaySplit": {
+    "n": 117800,
+    "fillRB": 0.428,
+    "sunRB": 1.322,
+    "fillOverSun": 0.324,
+    "directShare": 0.202
+   },
+   "brickwalkBand": {
+    "shadeRB": 1.612,
+    "shadeN": 39388,
+    "shadeL": 122.2,
+    "sunRB": 1.922,
+    "sunN": 80266,
+    "sunL": 160,
+    "deltaRB": 0.309,
+    "thinSunPopulation": false,
+    "sunPct": 67.1
+   },
+   "carriagewayBand": {
+    "shadeRB": 0.53,
+    "shadeN": 116781,
+    "shadeL": 58,
+    "sunRB": 0.694,
+    "sunN": 15497,
+    "sunL": 90.1,
+    "deltaRB": 0.164,
+    "thinSunPopulation": false,
+    "sunPct": 11.7
+   }
+  },
+  {
+   "tag": "w0",
+   "framing": "corridor",
+   "tod": "golden",
+   "skyL": 172.3,
+   "litGroundL": 83.8,
+   "skyOverGround": 2.056,
+   "skyCleanL": 198.8,
+   "skyCleanOverGround": 2.372,
+   "groundRminusB": 24.1,
+   "groundRB": 1.865,
+   "over230Pct": 0.945,
+   "over245Pct": 0.024,
+   "brickwalkRB": 2.438,
+   "carriagewayRB": 1.21,
+   "brickwalkSplit": {
+    "n": 97200,
+    "fillRB": 2.022,
+    "sunRB": 11.442,
+    "fillOverSun": 0.177,
+    "directShare": 0.142
+   },
+   "carriagewaySplit": {
+    "n": 117800,
+    "fillRB": 1.058,
+    "sunRB": 4.931,
+    "fillOverSun": 0.215,
+    "directShare": 0.108
+   },
+   "brickwalkBand": {
+    "shadeRB": 2.538,
+    "shadeN": 74699,
+    "shadeL": 82,
+    "sunRB": null,
+    "sunN": 1153,
+    "sunL": null,
+    "deltaRB": null,
+    "thinSunPopulation": true,
+    "sunPct": 1.5
+   },
+   "carriagewayBand": {
+    "shadeRB": 1.281,
+    "shadeN": 75698,
+    "shadeL": 68.4,
+    "sunRB": null,
+    "sunN": 1945,
+    "sunL": null,
+    "deltaRB": null,
+    "thinSunPopulation": true,
+    "sunPct": 2.5
+   }
+  },
+  {
+   "tag": "w0",
+   "framing": "fivepoints",
+   "tod": "noon",
+   "skyL": 163.3,
+   "litGroundL": 184.6,
+   "skyOverGround": 0.885,
+   "skyCleanL": 190.2,
+   "skyCleanOverGround": 1.03,
+   "groundRminusB": 20.9,
+   "groundRB": 1.601,
+   "over230Pct": 0.158,
+   "over245Pct": 0.014,
+   "brickwalkRB": 1.039,
+   "carriagewayRB": 2.117,
+   "brickwalkSplit": {
+    "n": 93600,
+    "fillRB": 0.974,
+    "sunRB": 2.893,
+    "fillOverSun": 0.337,
+    "directShare": 0.065
+   },
+   "carriagewaySplit": {
+    "n": 114000,
+    "fillRB": 0.883,
+    "sunRB": 2.627,
+    "fillOverSun": 0.336,
+    "directShare": 0.829
+   },
+   "brickwalkBand": {
+    "shadeRB": 0.948,
+    "shadeN": 22217,
+    "shadeL": 62,
+    "sunRB": null,
+    "sunN": 1034,
+    "sunL": null,
+    "deltaRB": null,
+    "thinSunPopulation": true,
+    "sunPct": 4.4
+   },
+   "carriagewayBand": {
+    "shadeRB": 1.865,
+    "shadeN": 9351,
+    "shadeL": 103.9,
+    "sunRB": 2.126,
+    "sunN": 108459,
+    "sunL": 170.3,
+    "deltaRB": 0.261,
+    "thinSunPopulation": false,
+    "sunPct": 92.1
+   }
+  },
+  {
+   "tag": "w0",
+   "framing": "fivepoints",
+   "tod": "golden",
+   "skyL": 194.5,
+   "litGroundL": 83.6,
+   "skyOverGround": 2.326,
+   "skyCleanL": 183.8,
+   "skyCleanOverGround": 2.198,
+   "groundRminusB": 37,
+   "groundRB": 2.041,
+   "over230Pct": 1.079,
+   "over245Pct": 0.012,
+   "brickwalkRB": 1.991,
+   "carriagewayRB": 2.517,
+   "brickwalkSplit": {
+    "n": 93600,
+    "fillRB": 1.775,
+    "sunRB": 8.212,
+    "fillOverSun": 0.216,
+    "directShare": 0.093
+   },
+   "carriagewaySplit": {
+    "n": 114000,
+    "fillRB": 2.025,
+    "sunRB": 17.299,
+    "fillOverSun": 0.117,
+    "directShare": 0.147
+   },
+   "brickwalkBand": {
+    "shadeRB": 2.288,
+    "shadeN": 17316,
+    "shadeL": 82.6,
+    "sunRB": null,
+    "sunN": 816,
+    "sunL": null,
+    "deltaRB": null,
+    "thinSunPopulation": true,
+    "sunPct": 4.5
+   },
+   "carriagewayBand": {
+    "shadeRB": 2.594,
+    "shadeN": 78491,
+    "shadeL": 79.4,
+    "sunRB": 2.064,
+    "sunN": 5178,
+    "sunL": 77.2,
+    "deltaRB": -0.53,
+    "thinSunPopulation": false,
+    "sunPct": 6.2
+   }
+  }
+ ]
+}

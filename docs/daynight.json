@@ -50,9 +50,9 @@
    "exposureValue": 0.00004524886877828054,
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 13,
-   "shadowCasters": 134,
-   "drawCalls": 200,
-   "triangles": 695874,
+   "shadowCasters": 101,
+   "drawCalls": 199,
+   "triangles": 695537,
    "implausible": []
   },
   {
@@ -61,9 +61,9 @@
    "skyLux": 0,
    "skyDelivered": 8518.522,
    "skyPaths": 1,
-   "bounceLux": 2637.4,
-   "bounceShareOfSky": 0.3096,
-   "bounceBlueOverRed": 0.315,
+   "bounceLux": 1380.5,
+   "bounceShareOfSky": 0.1621,
+   "bounceBlueOverRed": 0.464,
    "msWhiten": {
     "authored": 0.85,
     "applied": 0.7422,
@@ -81,9 +81,9 @@
    "exposureValue": 0.00010363768266141569,
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 13,
-   "shadowCasters": 134,
-   "drawCalls": 217,
-   "triangles": 745133,
+   "shadowCasters": 101,
+   "drawCalls": 213,
+   "triangles": 734044,
    "implausible": []
   },
   {
@@ -92,9 +92,9 @@
    "skyLux": 0,
    "skyDelivered": 1596.455,
    "skyPaths": 1,
-   "bounceLux": 178.2,
-   "bounceShareOfSky": 0.1116,
-   "bounceBlueOverRed": 0.584,
+   "bounceLux": 154.8,
+   "bounceShareOfSky": 0.0969,
+   "bounceBlueOverRed": 0.74,
    "msWhiten": {
     "authored": 0.85,
     "applied": 0.1328,
@@ -112,9 +112,9 @@
    "exposureValue": 0.0005136106831022085,
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 13,
-   "shadowCasters": 134,
-   "drawCalls": 209,
-   "triangles": 728964,
+   "shadowCasters": 101,
+   "drawCalls": 207,
+   "triangles": 729703,
    "implausible": []
   },
   {
@@ -143,9 +143,9 @@
    "exposureValue": 0.1859427296392711,
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 13,
-   "shadowCasters": 134,
-   "drawCalls": 207,
-   "triangles": 726161,
+   "shadowCasters": 101,
+   "drawCalls": 205,
+   "triangles": 728322,
    "implausible": []
   }
  ],

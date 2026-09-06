@@ -18,6 +18,7 @@
   "fromSkyLux": 7578.1,
   "fromGroundLux": 9994.8,
   "viewFactor": 0.4908,
+  "sunlitWallFraction": 1,
   "shareOfSky": 0.2604,
   "lightIntensity": 0,
   "lightDeliveredLux": 0

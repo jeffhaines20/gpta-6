@@ -1,0 +1,248 @@
+{
+ "bands": {
+  "corridor": {
+   "brickwalk": [
+    1240,
+    620,
+    360,
+    270
+   ],
+   "carriageway": [
+    500,
+    700,
+    620,
+    190
+   ]
+  },
+  "fivepoints": {
+   "brickwalk": [
+    1240,
+    620,
+    360,
+    260
+   ],
+   "carriageway": [
+    520,
+    700,
+    600,
+    190
+   ]
+  }
+ },
+ "sky": {
+  "corridor": [
+   270,
+   95,
+   80,
+   60
+  ],
+  "fivepoints": [
+   300,
+   40,
+   120,
+   80
+  ]
+ },
+ "litGround": {
+  "corridor": [
+   1330,
+   690,
+   120,
+   70
+  ],
+  "fivepoints": [
+   760,
+   700,
+   140,
+   100
+  ]
+ },
+ "rows": [
+  {
+   "tag": "w1",
+   "framing": "corridor",
+   "tod": "noon",
+   "skyL": 155.9,
+   "litGroundL": 178.9,
+   "skyOverGround": 0.871,
+   "skyCleanL": 181.9,
+   "skyCleanOverGround": 1.017,
+   "groundRminusB": -6.2,
+   "groundRB": 1.188,
+   "over230Pct": 0.077,
+   "over245Pct": 0.009,
+   "brickwalkRB": 1.864,
+   "carriagewayRB": 0.531,
+   "brickwalkSplit": {
+    "n": 97200,
+    "fillRB": 0.826,
+    "sunRB": 2.45,
+    "fillOverSun": 0.337,
+    "directShare": 0.778
+   },
+   "carriagewaySplit": {
+    "n": 117800,
+    "fillRB": 0.428,
+    "sunRB": 1.322,
+    "fillOverSun": 0.324,
+    "directShare": 0.202
+   },
+   "brickwalkBand": {
+    "shadeRB": 1.612,
+    "shadeN": 39388,
+    "shadeL": 122.2,
+    "sunRB": 1.922,
+    "sunN": 80266,
+    "sunL": 160,
+    "deltaRB": 0.309,
+    "thinSunPopulation": false,
+    "sunPct": 67.1
+   },
+   "carriagewayBand": {
+    "shadeRB": 0.53,
+    "shadeN": 116781,
+    "shadeL": 58,
+    "sunRB": 0.694,
+    "sunN": 15497,
+    "sunL": 90.1,
+    "deltaRB": 0.164,
+    "thinSunPopulation": false,
+    "sunPct": 11.7
+   }
+  },
+  {
+   "tag": "w1",
+   "framing": "corridor",
+   "tod": "golden",
+   "skyL": 172.3,
+   "litGroundL": 77.5,
+   "skyOverGround": 2.224,
+   "skyCleanL": 198.6,
+   "skyCleanOverGround": 2.564,
+   "groundRminusB": 19.1,
+   "groundRB": 1.742,
+   "over230Pct": 0.94,
+   "over245Pct": 0.023,
+   "brickwalkRB": 2.159,
+   "carriagewayRB": 1.108,
+   "brickwalkSplit": {
+    "n": 97200,
+    "fillRB": 2.022,
+    "sunRB": 11.881,
+    "fillOverSun": 0.17,
+    "directShare": 0.05
+   },
+   "carriagewaySplit": {
+    "n": 117800,
+    "fillRB": 1.058,
+    "sunRB": 5.129,
+    "fillOverSun": 0.206,
+    "directShare": 0.037
+   },
+   "brickwalkBand": {
+    "shadeRB": 2.248,
+    "shadeN": 74683,
+    "shadeL": 76.5,
+    "sunRB": null,
+    "sunN": 6,
+    "sunL": null,
+    "deltaRB": null,
+    "thinSunPopulation": true,
+    "sunPct": 0
+   }
+  },
+  {
+   "tag": "w1",
+   "framing": "fivepoints",
+   "tod": "noon",
+   "skyL": 163.3,
+   "litGroundL": 184.6,
+   "skyOverGround": 0.884,
+   "skyCleanL": 189.9,
+   "skyCleanOverGround": 1.029,
+   "groundRminusB": 21.2,
+   "groundRB": 1.606,
+   "over230Pct": 0.159,
+   "over245Pct": 0.013,
+   "brickwalkRB": 1.039,
+   "carriagewayRB": 2.128,
+   "brickwalkSplit": {
+    "n": 93600,
+    "fillRB": 0.974,
+    "sunRB": 2.895,
+    "fillOverSun": 0.337,
+    "directShare": 0.065
+   },
+   "carriagewaySplit": {
+    "n": 114000,
+    "fillRB": 0.901,
+    "sunRB": 2.631,
+    "fillOverSun": 0.343,
+    "directShare": 0.83
+   },
+   "brickwalkBand": {
+    "shadeRB": 0.947,
+    "shadeN": 22221,
+    "shadeL": 61.9,
+    "sunRB": null,
+    "sunN": 1018,
+    "sunL": null,
+    "deltaRB": null,
+    "thinSunPopulation": true,
+    "sunPct": 4.4
+   },
+   "carriagewayBand": {
+    "shadeRB": 2.056,
+    "shadeN": 11185,
+    "shadeL": 96.9,
+    "sunRB": 2.134,
+    "sunN": 105512,
+    "sunL": 169.8,
+    "deltaRB": 0.079,
+    "thinSunPopulation": false,
+    "sunPct": 90.4
+   }
+  },
+  {
+   "tag": "w1",
+   "framing": "fivepoints",
+   "tod": "golden",
+   "skyL": 194,
+   "litGroundL": 76.9,
+   "skyOverGround": 2.521,
+   "skyCleanL": 181.4,
+   "skyCleanOverGround": 2.358,
+   "groundRminusB": 30.3,
+   "groundRB": 1.833,
+   "over230Pct": 1.059,
+   "over245Pct": 0.008,
+   "brickwalkRB": 1.846,
+   "carriagewayRB": 2.287,
+   "brickwalkSplit": {
+    "n": 93600,
+    "fillRB": 1.775,
+    "sunRB": 8.539,
+    "fillOverSun": 0.208,
+    "directShare": 0.031
+   },
+   "carriagewaySplit": {
+    "n": 114000,
+    "fillRB": 2.13,
+    "sunRB": null,
+    "fillOverSun": null,
+    "directShare": 0.035
+   },
+   "carriagewayBand": {
+    "shadeRB": 2.353,
+    "shadeN": 82901,
+    "shadeL": 72.9,
+    "sunRB": null,
+    "sunN": 1367,
+    "sunL": null,
+    "deltaRB": null,
+    "thinSunPopulation": true,
+    "sunPct": 1.6
+   }
+  }
+ ]
+}
