@@ -165,12 +165,42 @@ export function roadSegmentsNear(district, x, z) {
  * @param {{p:number[][]}} b building with footprint ring `p`
  * @returns {[number,number]|null} unit [nx, nz] pointing at the street
  */
+// How close a road must be to a SECOND elevation before that elevation counts as
+// a frontage in its own right. A corner shop stands on both streets; a mid-block
+// building whose rear happens to point at a road two blocks away does not.
+const SECOND_FRONTAGE_M = 22;
+
+/**
+ * The single best street elevation. Kept as the primary API; see streetDirsFor.
+ */
 export function streetDirFor(district, b) {
+  const d = streetDirsFor(district, b, 1);
+  return d.length ? d[0] : null;
+}
+
+/**
+ * EVERY street elevation of a building, best first -- not just the winner.
+ *
+ * A corner site fronts two streets. facingEdges() selects front elevations with
+ * a cone test around ONE direction (dot > 0.35, about 69 degrees), and a
+ * corner's two street elevations are 90 degrees apart, so a single direction can
+ * never admit both: the perpendicular one scores ~0 and is dropped. Widening the
+ * cone is not a fix, because past 90 degrees it admits the back wall.
+ *
+ * A blind architectural reviewer found this as a REGRESSION introduced by the
+ * frontage work: the Five Points corner block lost its awning, piers, stallriser
+ * and recessed glazing and became a flat curtain wall with no entrance -- on the
+ * most prominent building in that view. The massing was identical between the
+ * two arms, so it was a removed facade rather than a different building. The
+ * shopfront kit had gone to whichever single elevation the chosen direction
+ * pointed at.
+ */
+export function streetDirsFor(district, b, max = 2) {
   let cx = 0, cz = 0;
   for (const [x, z] of b.p) { cx += x; cz += z; }
   cx /= b.p.length; cz /= b.p.length;
   const segs = roadSegmentsNear(district, cx, cz);
-  if (!segs.length) return null;
+  if (!segs.length) return [];
   // signedArea() here is the trapezoid form and comes out NEGATIVE for the
   // winding this ring uses, which is the opposite of the shoelace sum. The sign
   // is pinned by the third case in tools/street-dir.mjs --selftest rather than
@@ -181,8 +211,10 @@ export function streetDirFor(district, b) {
   // much closer the worse one is; distance only decides between roads of the
   // same standing. Falling through to tier 2 at all is what gives a building on
   // a service yard with no street frontage some sensible orientation.
-  const bestN = [null, null, null];
-  const bestScore = [Infinity, Infinity, Infinity];
+  // Per-EDGE best score in each tier, kept so a corner site can return both of
+  // its street elevations rather than only the winner. The scoring below is
+  // unchanged; only the selection at the end is.
+  const perEdge = [];
   for (let i = 0; i < b.p.length; i++) {
     const [x0, z0] = b.p[i], [x1, z1] = b.p[(i + 1) % b.p.length];
     const dx = x1 - x0, dz = z1 - z0;
@@ -191,6 +223,7 @@ export function streetDirFor(district, b) {
     const nx = (dz / len) * flip, nz = (-dx / len) * flip;
     const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2;
     const edgeBest = [Infinity, Infinity, Infinity];
+    const edgeDist = [Infinity, Infinity, Infinity];
     for (const [a, c, e] of segs) {
       const ax = a.x, az = a.z;
       const sx = c.x - ax, sz = c.z - az;
@@ -210,11 +243,32 @@ export function streetDirFor(district, b) {
       // short frontage standing right on the street.
       const score = lateral / Math.max(0.2, along / lateral) / Math.sqrt(len);
       const tier = roadTier(e?.r ?? 0);
-      if (score < edgeBest[tier]) edgeBest[tier] = score;
+      if (score < edgeBest[tier]) { edgeBest[tier] = score; edgeDist[tier] = lateral; }
     }
-    for (let t = 0; t < 3; t++) {
-      if (edgeBest[t] < bestScore[t]) { bestScore[t] = edgeBest[t]; bestN[t] = [nx, nz]; }
-    }
+    const tier = edgeBest.findIndex((v) => v < Infinity);
+    if (tier >= 0) perEdge.push({ n: [nx, nz], tier, score: edgeBest[tier], dist: edgeDist[tier] });
   }
-  return bestN[0] ?? bestN[1] ?? bestN[2];
+  if (!perEdge.length) return [];
+  perEdge.sort((a, b2) => (a.tier - b2.tier) || (a.score - b2.score));
+  const primaryTier = perEdge[0].tier;
+  const out = [];
+  for (const c of perEdge) {
+    // Only roads of the SAME standing as the primary can be a second frontage.
+    // Without this a corner building would take a service alley as its second
+    // street and put a parade of shopfronts down it, which is the defect
+    // c29b9ef fixed for the primary and would have reintroduced by the back door.
+    if (c.tier !== primaryTier) break;
+    // A SECOND frontage has to actually stand on its street. Ranking alone is not
+    // enough: roadSegmentsNear spans a 3x3 chunk neighbourhood, so almost every
+    // elevation of every building has SOME road somewhere in front of it, and
+    // taking the top two distinct directions duly reported all 523 buildings as
+    // corner sites. The gate is the plain geometric one -- the road has to be
+    // within SECOND_FRONTAGE_M of that elevation.
+    if (out.length && c.dist > SECOND_FRONTAGE_M) break;
+    // Same street if the two normals point within 25 degrees of each other.
+    if (out.some((o) => o[0] * c.n[0] + o[1] * c.n[1] > 0.906)) continue;
+    out.push(c.n);
+    if (out.length >= max) break;
+  }
+  return out;
 }

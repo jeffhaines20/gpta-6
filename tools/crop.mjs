@@ -35,7 +35,13 @@ if (isMain) {
 const [file, X, Y, W, H, S = '1', out] = process.argv.slice(2);
 const png = readPNG(file);
 const x0 = +X, y0 = +Y, cw = +W, chh = +H, s = +S;
-const ow = cw * s, oh = chh * s;
+// Round the output size to whole pixels. A non-integer scale made this throw
+// RangeError from Buffer.alloc and from the write loop, because floating point
+// turns 170 * 2.2 into 374.0000000000001 and the buffer is then a fraction of a
+// byte short of what the loop indexes. A reviewer hit it mid-review and had to
+// work around it. Rounding rather than flooring keeps 374.0000000000001 at 374
+// instead of 373, which is the size the caller actually asked for.
+const ow = Math.max(1, Math.round(cw * s)), oh = Math.max(1, Math.round(chh * s));
 const rgb = Buffer.alloc(ow * oh * 3);
 for (let y = 0; y < oh; y++) {
   for (let x = 0; x < ow; x++) {

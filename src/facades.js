@@ -3636,9 +3636,31 @@ export function appendBuilding(ring, height, style, wall, trim, opts = {}) {
   const rec = style.rec;
   const t = style.tint;
   const allEdges = edgesOf(ring, { minLen: 0.05 });
-  const streetEdges = opts.street
-    ? facingEdges(ring, opts.street[0], opts.street[1], { minLen: 4, max: opts.faces ?? 2 })
-    : edgesOf(ring, { minLen: 4, longest: opts.faces ?? 2 });
+  // A corner site fronts TWO streets and needs the shopfront kit on both. One
+  // direction plus facingEdges' 0.35 cone can only ever admit one of them: the
+  // perpendicular elevation dots to ~0 and is dropped, and widening the cone
+  // past 90 degrees would start admitting the back wall. So the caller passes
+  // every street it stands on and the sets are unioned.
+  //
+  // Bounded deliberately. Each direction contributes at most `faces` edges and
+  // the union is capped one above that, so a corner building gets its second
+  // elevation without a four-sided building acquiring shopfronts all the way
+  // round -- the facade kit is the expensive part of the triangle budget.
+  const dirs = opts.streets?.length ? opts.streets : (opts.street ? [opts.street] : null);
+  const faces = opts.faces ?? 2;
+  let streetEdges;
+  if (dirs) {
+    const seen = new Map();
+    for (const d of dirs) {
+      for (const e of facingEdges(ring, d[0], d[1], { minLen: 4, max: faces })) {
+        if (!seen.has(e.i)) seen.set(e.i, e);
+      }
+    }
+    streetEdges = [...seen.values()].sort((a, b) => b.len - a.len)
+      .slice(0, dirs.length > 1 ? faces + 1 : faces);
+  } else {
+    streetEdges = edgesOf(ring, { minLen: 4, longest: faces });
+  }
 
   // Where the wall is cut at street level. The wall pass (facade buffer) and the
   // kit standing inside the cut (trim buffer) read the SAME plan, so a hole and

@@ -28,7 +28,7 @@
 // helpers, so it is as cheap as geom-audit and cannot drift from what the
 // streamer builds.
 import fs from 'node:fs';
-import { streetDirFor as geomStreetDirFor } from '../src/geom.js';
+import { streetDirFor as geomStreetDirFor, streetDirsFor as geomStreetDirsFor } from '../src/geom.js';
 
 // signage.js paints its atlases at import; positions never depend on a pixel.
 // Same no-op 2D context tools/geom-audit.mjs installs, and for the same reason.
@@ -189,7 +189,12 @@ for (let bi = 0; bi < d.buildings.length; bi++) {
   const b = d.buildings[bi];
   const style = capStyle(buildingStyle(b), b);
   const wall = buffers(), trim = buffers();
-  appendBuilding(b.p, b.h, style, wall, trim, { street: streetDirFor(b) });
+  appendBuilding(b.p, b.h, style, wall, trim,
+    // Pass BOTH, exactly as the streamer does. Passing only `street` measured
+    // a world nobody renders: the corner-frontage path is keyed on `streets`,
+    // so a before/after run of this tool reported a byte-identical district
+    // while the engine was building a different one.
+    { street: streetDirFor(b), streets: geomStreetDirsFor(d, b, 2) });
   const tri = (wall.idx.length + trim.idx.length) / 3;
   facTri += wall.idx.length / 3; trimTri += trim.idx.length / 3;
   let cx = 0, cz = 0;

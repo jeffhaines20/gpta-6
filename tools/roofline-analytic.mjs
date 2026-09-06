@@ -299,7 +299,12 @@ export function prepareWorld(d, file, opts = {}) {
       // rather than re-deriving their arithmetic. Only positions and indices are
       // read; no material, texture or UV is touched.
       const wall = buffers(), trim = buffers();
-      appendBuilding(b.p, b.h, style, wall, trim, { street: streetDirFor(b) });
+      appendBuilding(b.p, b.h, style, wall, trim,
+    // Pass BOTH, exactly as the streamer does. Passing only `street` measured
+    // a world nobody renders: the corner-frontage path is keyed on `streets`,
+    // so a before/after run of this tool reported a byte-identical district
+    // while the engine was building a different one.
+    { street: streetDirFor(b), streets: geomStreetDirsFor(d, b, 2) });
       const nv = wall.pos.length / 3;
       const pos = new Float64Array(wall.pos.length + trim.pos.length);
       pos.set(wall.pos, 0); pos.set(trim.pos, wall.pos.length);

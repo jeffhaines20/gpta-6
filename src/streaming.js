@@ -10,7 +10,7 @@
 // existing vehicle drives on it with no changes.
 
 import * as THREE from '../vendor/three.module.min.js';
-import { extrudeFootprint, ribbon, triangulate, streetDirFor } from './geom.js';
+import { extrudeFootprint, ribbon, triangulate, streetDirFor, streetDirsFor } from './geom.js';
 import {
   getMaterials, wallFamilyFor, roofFor, markingForEdge, applyMarkingUV,
   SURFACE_LAYERS, SURFACE_TINTS,
@@ -398,6 +398,13 @@ export class StreamingWorld {
 
   _computeStreetDir(b) { return streetDirFor(this.d, b); }
 
+  // Every street the building stands on, cached the same way. A corner site
+  // fronts two and needs the shopfront kit on both; see streetDirsFor.
+  _streetDirsFor(b) {
+    if (b._streetDirs !== undefined) return b._streetDirs;
+    return (b._streetDirs = streetDirsFor(this.d, b, 2));
+  }
+
   // Per-building cost cap. The stall gate is a hard constraint, so an
   // individually expensive style is trimmed here rather than allowed to blow a
   // frame. Measured worst case falls from 22.3 ms to ~2 ms.
@@ -472,6 +479,7 @@ export class StreamingWorld {
         if (!job.byRecipe.has(style.recipe)) job.byRecipe.set(style.recipe, buffers());
         appendBuilding(b.p, b.h, style, job.byRecipe.get(style.recipe), job.trim, {
           street: this._streetDirFor(b),
+          streets: this._streetDirsFor(b),
         });
         job.i++;
         didWork = true;
@@ -674,6 +682,7 @@ export class StreamingWorld {
         // the street side rather than into a neighbour's party wall.
         appendBuilding(b.p, b.h, style, byRecipe.get(style.recipe), trim, {
           street: this._streetDirFor(b),
+          streets: this._streetDirsFor(b),
         });
       }
       for (const [recipe, buf] of byRecipe) {
