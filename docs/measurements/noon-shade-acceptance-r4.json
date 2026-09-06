@@ -1,0 +1,130 @@
+{
+ "what": "The acceptance test noon's +0.60-stop grade was bought for: noon must not be the darkest of the four hours at any of eight fixed shaded points. Measured on the shipped r4 frames, per framing.",
+ "note": "The grade's derivation says it cleared the binding point by 10%. It does not: the corridor binds at 1.023. There is no exposure surplus to give back for defect 2.",
+ "framings": {
+  "corridor": {
+   "points": {
+    "road-950-760": {
+     "noon": 43.9,
+     "golden": 54,
+     "dusk": 42.9,
+     "night": 49.1,
+     "noonOverDarkestOther": 1.023
+    },
+    "road-700-860": {
+     "noon": 51.5,
+     "golden": 64,
+     "dusk": 47.8,
+     "night": 45.6,
+     "noonOverDarkestOther": 1.129
+    },
+    "brickwalk-1470-640": {
+     "noon": 46.6,
+     "golden": 66.3,
+     "dusk": 44.3,
+     "night": 37.3,
+     "noonOverDarkestOther": 1.249
+    },
+    "shopfront-1250-540": {
+     "noon": 102.4,
+     "golden": 105.7,
+     "dusk": 101.7,
+     "night": 73.6,
+     "noonOverDarkestOther": 1.391
+    },
+    "stucco-300-420": {
+     "noon": 160.8,
+     "golden": 113.5,
+     "dusk": 91.9,
+     "night": 70.6,
+     "noonOverDarkestOther": 2.278
+    },
+    "road-560-760": {
+     "noon": 73.6,
+     "golden": 76.7,
+     "dusk": 60.9,
+     "night": 38.9,
+     "noonOverDarkestOther": 1.892
+    },
+    "road-1000-880": {
+     "noon": 49.1,
+     "golden": 62.4,
+     "dusk": 46.4,
+     "night": 57.8,
+     "noonOverDarkestOther": 1.058
+    },
+    "facade-1150-480": {
+     "noon": 76.6,
+     "golden": 99.4,
+     "dusk": 48.6,
+     "night": 15.7,
+     "noonOverDarkestOther": 4.879
+    }
+   },
+   "bindingPoint": "road-950-760",
+   "bindingRatio": 1.023
+  },
+  "fivepoints": {
+   "points": {
+    "road-950-760": {
+     "noon": 190,
+     "golden": 87.9,
+     "dusk": 72,
+     "night": 25.7,
+     "noonOverDarkestOther": 7.393
+    },
+    "road-700-860": {
+     "noon": 161.2,
+     "golden": 82.9,
+     "dusk": 67.5,
+     "night": 22.3,
+     "noonOverDarkestOther": 7.229
+    },
+    "brickwalk-1470-640": {
+     "noon": 112.8,
+     "golden": 106.2,
+     "dusk": 88.7,
+     "night": 41.4,
+     "noonOverDarkestOther": 2.725
+    },
+    "shopfront-1250-540": {
+     "noon": 38.1,
+     "golden": 42.6,
+     "dusk": 28.9,
+     "night": 57.1,
+     "noonOverDarkestOther": 1.318
+    },
+    "stucco-300-420": {
+     "noon": 88.8,
+     "golden": 91.3,
+     "dusk": 100.5,
+     "night": 14,
+     "noonOverDarkestOther": 6.343
+    },
+    "road-400-720": {
+     "noon": 144.5,
+     "golden": 58,
+     "dusk": 49.5,
+     "night": 13.1,
+     "noonOverDarkestOther": 11.031
+    },
+    "facade-620-470": {
+     "noon": 120.3,
+     "golden": 100.5,
+     "dusk": 91.8,
+     "night": 111.2,
+     "noonOverDarkestOther": 1.31
+    },
+    "kerb-1150-690": {
+     "noon": 20.8,
+     "golden": 29.4,
+     "dusk": 19,
+     "night": 4.4,
+     "noonOverDarkestOther": 4.727
+    }
+   },
+   "bindingPoint": "facade-620-470",
+   "bindingRatio": 1.31
+  }
+ }
+}

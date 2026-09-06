@@ -1,0 +1,318 @@
+{
+ "bands": {
+  "corridor": {
+   "brickwalk": [
+    1240,
+    620,
+    360,
+    270
+   ],
+   "carriageway": [
+    500,
+    700,
+    620,
+    190
+   ]
+  },
+  "fivepoints": {
+   "brickwalk": [
+    1240,
+    620,
+    360,
+    260
+   ],
+   "carriageway": [
+    520,
+    700,
+    600,
+    190
+   ]
+  }
+ },
+ "sky": {
+  "corridor": [
+   270,
+   95,
+   80,
+   60
+  ],
+  "fivepoints": [
+   300,
+   40,
+   120,
+   80
+  ]
+ },
+ "litGround": {
+  "corridor": [
+   1330,
+   690,
+   120,
+   70
+  ],
+  "fivepoints": [
+   760,
+   700,
+   140,
+   100
+  ]
+ },
+ "rows": [
+  {
+   "tag": "r5warm",
+   "framing": "corridor",
+   "tod": "noon",
+   "skyL": 151.7,
+   "litGroundL": 178.1,
+   "skyOverGround": 0.852,
+   "skyCleanL": 181.2,
+   "skyCleanOverGround": 1.017,
+   "groundRminusB": -6.2,
+   "groundRB": 1.188,
+   "over230Pct": 0.08,
+   "over245Pct": 0.009,
+   "brickwalkRB": 1.861,
+   "carriagewayRB": 0.531
+  },
+  {
+   "tag": "r5warm",
+   "framing": "corridor",
+   "tod": "golden",
+   "skyL": 172.3,
+   "litGroundL": 77.5,
+   "skyOverGround": 2.225,
+   "skyCleanL": 198.4,
+   "skyCleanOverGround": 2.561,
+   "groundRminusB": 18.9,
+   "groundRB": 1.74,
+   "over230Pct": 0.946,
+   "over245Pct": 0.023,
+   "brickwalkRB": 2.154,
+   "carriagewayRB": 1.108
+  },
+  {
+   "tag": "r5warm",
+   "framing": "corridor",
+   "tod": "dusk",
+   "skyL": 182,
+   "litGroundL": 65.1,
+   "skyOverGround": 2.797,
+   "skyCleanL": 168.2,
+   "skyCleanOverGround": 2.584,
+   "groundRminusB": 9.8,
+   "groundRB": 1.271,
+   "over230Pct": 1.419,
+   "over245Pct": 0,
+   "brickwalkRB": 1.839,
+   "carriagewayRB": 0.893
+  },
+  {
+   "tag": "r5warm",
+   "framing": "corridor",
+   "tod": "night",
+   "skyL": 24.3,
+   "litGroundL": 61.2,
+   "skyOverGround": 0.397,
+   "skyCleanL": 43.4,
+   "skyCleanOverGround": 0.709,
+   "groundRminusB": 44.5,
+   "groundRB": 2.69,
+   "over230Pct": 0.456,
+   "over245Pct": 0.113,
+   "brickwalkRB": 5.09,
+   "carriagewayRB": 2.707
+  },
+  {
+   "tag": "r5warm",
+   "framing": "fivepoints",
+   "tod": "noon",
+   "skyL": 168,
+   "litGroundL": 184.6,
+   "skyOverGround": 0.91,
+   "skyCleanL": 174,
+   "skyCleanOverGround": 0.942,
+   "groundRminusB": 22,
+   "groundRB": 1.63,
+   "over230Pct": 0.158,
+   "over245Pct": 0.013,
+   "brickwalkRB": 1.039,
+   "carriagewayRB": 2.138
+  },
+  {
+   "tag": "r5warm",
+   "framing": "fivepoints",
+   "tod": "golden",
+   "skyL": 195.3,
+   "litGroundL": 76.9,
+   "skyOverGround": 2.539,
+   "skyCleanL": 195,
+   "skyCleanOverGround": 2.534,
+   "groundRminusB": 31.1,
+   "groundRB": 1.843,
+   "over230Pct": 1.122,
+   "over245Pct": 0.012,
+   "brickwalkRB": 1.846,
+   "carriagewayRB": 2.276
+  },
+  {
+   "tag": "r5warm",
+   "framing": "fivepoints",
+   "tod": "dusk",
+   "skyL": 199.1,
+   "litGroundL": 68.1,
+   "skyOverGround": 2.924,
+   "skyCleanL": 191.6,
+   "skyCleanOverGround": 2.814,
+   "groundRminusB": 23.8,
+   "groundRB": 1.64,
+   "over230Pct": 3.176,
+   "over245Pct": 0.003,
+   "brickwalkRB": 1.707,
+   "carriagewayRB": 2.009
+  },
+  {
+   "tag": "r5warm",
+   "framing": "fivepoints",
+   "tod": "night",
+   "skyL": 20.3,
+   "litGroundL": 23.1,
+   "skyOverGround": 0.878,
+   "skyCleanL": 18.7,
+   "skyCleanOverGround": 0.812,
+   "groundRminusB": 18.2,
+   "groundRB": 2.323,
+   "over230Pct": 0.034,
+   "over245Pct": 0.004,
+   "brickwalkRB": 1.955,
+   "carriagewayRB": 3.023
+  },
+  {
+   "tag": "r4",
+   "framing": "corridor",
+   "tod": "noon",
+   "skyL": 156.1,
+   "litGroundL": 178.9,
+   "skyOverGround": 0.873,
+   "skyCleanL": 181.9,
+   "skyCleanOverGround": 1.017,
+   "groundRminusB": -6.2,
+   "groundRB": 1.188,
+   "over230Pct": 0.078,
+   "over245Pct": 0.009,
+   "brickwalkRB": 1.864,
+   "carriagewayRB": 0.531
+  },
+  {
+   "tag": "r4",
+   "framing": "corridor",
+   "tod": "golden",
+   "skyL": 171.7,
+   "litGroundL": 83.8,
+   "skyOverGround": 2.049,
+   "skyCleanL": 198.8,
+   "skyCleanOverGround": 2.373,
+   "groundRminusB": 24.1,
+   "groundRB": 1.865,
+   "over230Pct": 0.933,
+   "over245Pct": 0.024,
+   "brickwalkRB": 2.438,
+   "carriagewayRB": 1.21
+  },
+  {
+   "tag": "r4",
+   "framing": "corridor",
+   "tod": "dusk",
+   "skyL": 180.7,
+   "litGroundL": 65.8,
+   "skyOverGround": 2.746,
+   "skyCleanL": 194.5,
+   "skyCleanOverGround": 2.956,
+   "groundRminusB": 11,
+   "groundRB": 1.295,
+   "over230Pct": 1.23,
+   "over245Pct": 0,
+   "brickwalkRB": 1.885,
+   "carriagewayRB": 0.911
+  },
+  {
+   "tag": "r4",
+   "framing": "corridor",
+   "tod": "night",
+   "skyL": 22.1,
+   "litGroundL": 64.5,
+   "skyOverGround": 0.343,
+   "skyCleanL": 44,
+   "skyCleanOverGround": 0.682,
+   "groundRminusB": 45.4,
+   "groundRB": 2.716,
+   "over230Pct": 0.456,
+   "over245Pct": 0.113,
+   "brickwalkRB": 5.196,
+   "carriagewayRB": 2.707
+  },
+  {
+   "tag": "r4",
+   "framing": "fivepoints",
+   "tod": "noon",
+   "skyL": 164.1,
+   "litGroundL": 184.6,
+   "skyOverGround": 0.889,
+   "skyCleanL": 191.7,
+   "skyCleanOverGround": 1.039,
+   "groundRminusB": 24.8,
+   "groundRB": 1.657,
+   "over230Pct": 0.159,
+   "over245Pct": 0.014,
+   "brickwalkRB": 1.228,
+   "carriagewayRB": 2.138
+  },
+  {
+   "tag": "r4",
+   "framing": "fivepoints",
+   "tod": "golden",
+   "skyL": 192.5,
+   "litGroundL": 83.6,
+   "skyOverGround": 2.302,
+   "skyCleanL": 165.9,
+   "skyCleanOverGround": 1.984,
+   "groundRminusB": 40,
+   "groundRB": 2.148,
+   "over230Pct": 1.044,
+   "over245Pct": 0.012,
+   "brickwalkRB": 2.273,
+   "carriagewayRB": 2.608
+  },
+  {
+   "tag": "r4",
+   "framing": "fivepoints",
+   "tod": "dusk",
+   "skyL": 198.6,
+   "litGroundL": 68.8,
+   "skyOverGround": 2.886,
+   "skyCleanL": 187.2,
+   "skyCleanOverGround": 2.721,
+   "groundRminusB": 26,
+   "groundRB": 1.685,
+   "over230Pct": 2.837,
+   "over245Pct": 0.003,
+   "brickwalkRB": 1.709,
+   "carriagewayRB": 2.063
+  },
+  {
+   "tag": "r4",
+   "framing": "fivepoints",
+   "tod": "night",
+   "skyL": 20.4,
+   "litGroundL": 23.1,
+   "skyOverGround": 0.882,
+   "skyCleanL": 34,
+   "skyCleanOverGround": 1.472,
+   "groundRminusB": 18.6,
+   "groundRB": 2.431,
+   "over230Pct": 0.039,
+   "over245Pct": 0.003,
+   "brickwalkRB": 2.197,
+   "carriagewayRB": 3.023
+  }
+ ]
+}
