@@ -523,6 +523,7 @@ const subject = await page.evaluate(async (bodyW) => {
   }
   P._syncNearCounts();
   P._colorDirty = false; P._nearColorDirty = false;
+  P._aoSubject = idx;          // so setSubject() can take it away and put it back
 
   // Metres per screen pixel on the ground at the subject, for the lobe profile.
   const p0 = project(slot.x, slot.y, slot.z), p1 = project(slot.x + 0.5, slot.y, slot.z + 0.5);
@@ -1193,13 +1194,45 @@ const apply = async (c) => page.evaluate((cc) => {
   return { aoRadius: p.aoRadius, aoIntensity: p.aoIntensity, aoStrength: p.aoStrength };
 }, c);
 
+/**
+ * Show or hide the subject, and nothing else in the world moves.
+ *
+ * THE BACKGROUND UNDER A FIGURE CANNOT BE GUESSED FROM ITS SURROUNDINGS, and
+ * two attempts to guess it both failed. The mean of the outer metre read the
+ * building and gave a negative rise. The tenth percentile of the plateau is
+ * better but still wrong in the other direction: at 0.35 m radius the profile
+ * sits at 0.085 between 1.5 and 2.3 m against a 0.036 floor, and a 0.35 m
+ * kernel CANNOT be darkening pavement two metres from the subject. That
+ * elevation is other scene content -- a kerb, a wall, the next figure -- and
+ * counting it as halo pushed the 10% crossing from where the halo actually
+ * ends out to 2.4 m.
+ *
+ * So the background is MEASURED, by taking the subject away. This is a
+ * difference, but it is not the difference that got the previous instrument
+ * retired: nothing moves between the two reads. update() is frozen, traffic is
+ * zero, the sky wind is zero, and the only thing that changes is one
+ * pedestrian's instance matrices. The repeat guard proves the rest: an
+ * unchanged parameter set reads identically to four decimal places.
+ */
+const setSubject = async (visible) => page.evaluate((v) => {
+  const P = __district.pedestrians();
+  const i = P._aoSubject;
+  const ped = P.peds[i];
+  if (!ped) return false;
+  if (v) P._writePose(i, ped, 0.838 * ped.hscale); else P._hide(i);
+  for (const m of [P.torsos, P.heads, P.limbs, P.nearTorsos, P.nearHeads, P.nearLimbs]) {
+    if (m) m.instanceMatrix.needsUpdate = true;
+  }
+  return true;
+}, visible);
+
 const fmt = (v, d = 3) => (v === null || v === undefined ? ' n/a' : v.toFixed(d));
 const line = (c, ao) => {
   const j = ao.junction || {}, f = ao.facade || {}, l = ao.lobe;
   return `r=${String(c.radius).padStart(4)} i=${c.intensity} s=${c.strength}  ` +
     `lobe ${l.lobeHalfBodyWidths === null ? ' n/a' : l.lobeHalfBodyWidths.toFixed(1).padStart(4)}` +
     `/${l.lobeBodyWidths === null ? ' n/a' : l.lobeBodyWidths.toFixed(1).padStart(4)} bw  ` +
-    `rise ${fmt(l.riseOverBackground)}  bg ${fmt(l.backgroundOcc)}  foot ${fmt(ao.footOcc)}  ` +
+    `rise ${fmt(l.riseOverBackground)}  foot ${fmt(ao.footOcc)}-${fmt(ao.footOccOff)}=${fmt(ao.footRise)}  ` +
     `contacts ${ao.contacts.map((q) => `${q.kind[0]}${fmt(q.contactRise)}`).join(' ')}  ` +
     `crease g${fmt(j.groundCrease)} w${fmt(j.wallCrease)}  ` +
     `reveal ${fmt(f.revealContrast)}  soffit ${fmt(f.soffitContrast)}  ` +
@@ -1219,7 +1252,22 @@ for (const c of COMBOS) {
   const applied = await apply(c);
   await settle();
   const ao = await readAO(subject);
-  Object.assign(ao.lobe, lobeFrom(ao.lobe.profile, 0.10, BODY_W));
+  // The same rings with the subject taken away. Its own contribution is the
+  // difference, and the lobe is read off THAT: a profile whose background is
+  // zero by construction rather than by assumption.
+  await setSubject(false);
+  await settle();
+  const off = await readAO(subject);
+  await setSubject(true);
+  const delta = ao.lobe.profile.map((p, i) => ({ rM: p.rM,
+    occ: +(p.occ - (off.lobe.profile[i] && off.lobe.profile[i].rM === p.rM
+      ? off.lobe.profile[i].occ : 0)).toFixed(4), n: p.n }));
+  ao.lobeAbs = lobeFrom(ao.lobe.profile, 0.10, BODY_W);
+  ao.subjectOffProfile = off.lobe.profile;
+  ao.footOccOff = off.footOcc;
+  ao.footRise = +(ao.footOcc - off.footOcc).toFixed(4);
+  ao.lobe.profile = delta;
+  Object.assign(ao.lobe, lobeFrom(delta, 0.10, BODY_W));
   results.push({ ...c, applied, ao });
   console.log(line(c, ao));
 }
@@ -1230,11 +1278,22 @@ if (COMBOS.length) {
   await apply(c);
   await settle();
   const ao = await readAO(subject);
+  // The repeat has to repeat the WHOLE measurement, subject-off read included,
+  // or it compares a delta against an absolute and voids a sound sweep.
+  await setSubject(false);
+  await settle();
+  const off2 = await readAO(subject);
+  await setSubject(true);
+  ao.footRise = +(ao.footOcc - off2.footOcc).toFixed(4);
+  ao.lobe.profile = ao.lobe.profile.map((p, i) => ({ rM: p.rM,
+    occ: +(p.occ - (off2.lobe.profile[i] && off2.lobe.profile[i].rM === p.rM
+      ? off2.lobe.profile[i].occ : 0)).toFixed(4), n: p.n }));
   Object.assign(ao.lobe, lobeFrom(ao.lobe.profile, 0.10, BODY_W));
   const first = results[0].ao;
   const keys = [
     ['frameMeanOcc', first.frameMeanOcc, ao.frameMeanOcc],
     ['footOcc', first.footOcc, ao.footOcc],
+    ['footRise', first.footRise, ao.footRise],
     ['lobeRise', first.lobe.riseOverBackground, ao.lobe.riseOverBackground],
     ['revealContrast', first.facade.revealContrast, ao.facade.revealContrast],
     ['groundCrease', first.junction && first.junction.groundCrease, ao.junction && ao.junction.groundCrease],
@@ -1246,7 +1305,7 @@ if (COMBOS.length) {
   console.log(`\nREPEAT of r=${c.radius} i=${c.intensity} s=${c.strength}: ` +
     keys.map(([k, a, b]) => `${k} ${fmt(a, 4)}->${fmt(b, 4)}`).join('  '));
   console.log(repeat.agreed
-    ? `REPEAT AGREES within ${REPEAT_TOL} on all five. The sweep stands.`
+    ? `REPEAT AGREES within ${REPEAT_TOL} on all ${keys.length}. The sweep stands.`
     : `REPEAT DISAGREES on ${bad.map((b) => b[0]).join(', ')} -- THE SWEEP IS VOID.`);
 }
 
