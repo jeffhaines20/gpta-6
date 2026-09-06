@@ -212,8 +212,15 @@ const lightPool = new LightPool(scene, { size: 10, maxDistance: 130 });
   // harness can shoot the before and the after arm from ONE build on ONE port.
   // The alternative is two builds in two trees, which is exactly how a four-hour
   // review round in this project was spent comparing a build with itself.
+  // ?shadowreach=N caps how far a prop bucket may be and still be submitted to
+  // the shadow pass; 1e6 restores the old behaviour of every visible bucket
+  // casting. It exists so the claim "nothing that could have cast stops casting"
+  // can be DIFFED rather than argued -- tools/arm-diff.mjs against the two arms
+  // of one build.
+  const _q = new URLSearchParams(location.search);
   furniture.dressDistrict(district, {
-    shopFrontage: !new URLSearchParams(location.search).has('nofrontage'),
+    shopFrontage: !_q.has('nofrontage'),
+    ...(_q.has('shadowreach') ? { shadowReach: Number(_q.get('shadowreach')) } : {}),
   });
   // The pool is 30 cars and always will be — it is one InstancedMesh and its
   // cost does not move with the number. What DID move is which thirty slots it

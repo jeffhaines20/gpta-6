@@ -3570,6 +3570,11 @@ export class StreetFurniture {
         (t.name === 'near' ? (this.nearMeshes ??= []) : (this.farMeshes ??= [])).push(m);
       }
     }
+    // How far a bucket may be and still be worth submitting to the shadow pass.
+    // Default is daynight.js's ortho half-extent (120 m) times sqrt(2), which is
+    // the furthest a point can be from the viewer and still lie inside a
+    // 240 x 240 box that is square to the light rather than to the world.
+    this._shadowReach = opts.shadowReach ?? 120 * Math.SQRT2;
     this.buildMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
     return this.report();
   }
@@ -4757,9 +4762,24 @@ export class StreetFurniture {
    * pass: a mesh with visible=false costs nothing at all.
    */
   cullProps(pos) {
+    // SHADOW REACH. The gate counts a caster twice, because renderer.info
+    // includes the depth pass, and tools/tri-breakdown.mjs measures that at 48%
+    // of the whole number. daynight.js's sun casts through an ORTHO camera
+    // 2 x 120 m across, pinned to the viewer, so a bucket whose nearest point
+    // is outside that box cannot put a texel in the shadow map however long it
+    // is submitted for. 120 * sqrt(2) is the worst case in the ground plane,
+    // because the box is axis-aligned to the LIGHT and not to the world.
+    //
+    // This is a correctness statement, not a quality trade: nothing that could
+    // have cast stops casting. Whether it SAVES anything is a separate question
+    // -- three.js frustum-culls the shadow pass on the same bounding spheres --
+    // and is measured, not assumed. See the note in dressDistrict.
+    const reach = this._shadowReach;
     for (const m of this.propMeshes) {
       const c = m.userData.c;
-      m.visible = Math.hypot(pos.x - c.x, pos.z - c.z) < m.userData.r + m.userData.cull;
+      const d = Math.hypot(pos.x - c.x, pos.z - c.z);
+      m.visible = d < m.userData.r + m.userData.cull;
+      m.castShadow = m.visible && d < m.userData.r + reach;
     }
   }
 
