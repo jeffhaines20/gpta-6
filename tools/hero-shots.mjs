@@ -29,7 +29,12 @@ const browser = await chromium.launch(launchOptions());
 const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
-await page.goto(`http://127.0.0.1:${HERO_PORT}/district/`, { waitUntil: 'networkidle' });
+// HERO_QUERY passes a query string to the page, so an A/B whose arms are a
+// build-time option can be captured from ONE build on ONE port. Today that is
+// `nofrontage=1` (see district/main.js); anything the page reads off its own
+// search string works.
+const HERO_QUERY = process.env.HERO_QUERY ? `?${process.env.HERO_QUERY}` : '';
+await page.goto(`http://127.0.0.1:${HERO_PORT}/district/${HERO_QUERY}`, { waitUntil: 'networkidle' });
 await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
 
 // Hide the debug overlay: it is not part of what is being judged.

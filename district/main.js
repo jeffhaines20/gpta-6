@@ -208,7 +208,13 @@ const lightPool = new LightPool(scene, { size: 10, maxDistance: 130 });
   //
   // Measured at the corridor hero camera by hiding each system in turn:
   // props +11 calls / +67.1k triangles, parked cars +1 call / +27.8k.
-  furniture.dressDistrict(district, {});
+  // ?nofrontage=1 dresses the district WITHOUT the shopfront row, so a capture
+  // harness can shoot the before and the after arm from ONE build on ONE port.
+  // The alternative is two builds in two trees, which is exactly how a four-hour
+  // review round in this project was spent comparing a build with itself.
+  furniture.dressDistrict(district, {
+    shopFrontage: !new URLSearchParams(location.search).has('nofrontage'),
+  });
   // The pool is 30 cars and always will be — it is one InstancedMesh and its
   // cost does not move with the number. What DID move is which thirty slots it
   // picks. A second critic reported "zero parked vehicles along roughly 1,400 px

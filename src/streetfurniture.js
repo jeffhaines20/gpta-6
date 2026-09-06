@@ -52,6 +52,15 @@
 
 import * as THREE from '../vendor/three.module.min.js';
 import { buildTrafficCarGeometry, trafficCarMaterial, lampEmissive } from './carbody.js';
+// The frontage row is keyed to the TENANCY, not to the carriageway, so it has to
+// read the same lot plan and the same business the facade and the sign read. All
+// three come from one call: signage.js signPlanFor() already runs lotPlanFor()
+// and businessFor() in the order that fixes the slot numbering, so asking it is
+// the only way to be sure the chairs stand under the cafe's own sign rather than
+// under the barber's. Neither module imports this one, so there is no cycle.
+import { buildingStyle } from './facades.js';
+import { signPlanFor } from './signage.js';
+import { streetDirFor } from './geom.js';
 
 // ---------------------------------------------------------------- ground datum
 const PAD_Y = -0.05;        // streaming.js land pad, the surface the player sees
@@ -2940,6 +2949,185 @@ function propBikeRack(buf, f, k) {                                   // 26 tris
   box(buf, f, 0, 0.86, 0, 0.045, 0.045, 0.42, 0x8e959c, S.chrome);
 }
 
+// ------------------------------------------------------- shopfront furniture
+//
+// Furniture that belongs to the SHOP rather than to the street, and therefore
+// stands against the building line instead of against the kerb. Every one of
+// these was read off reference/sarasota before it was authored; the list of
+// what is actually on these pavements, with the frame it came from:
+//
+//  - FURLED PATIO UMBRELLAS ON WEIGHTED BASES, in a row tight against the
+//    glazing, with a small square table under each. Five of them in one 78-deg
+//    view of 1500 Main St (mapillary mly-688375340384481, reprojected at yaw
+//    180 from the corridor hero camera's own position, x 112.3, z -167.5).
+//    This is the single most common object on the hero corridor's shopfronts
+//    and nothing in the kit resembled it.
+//  - BISTRO TABLES AND METAL CHAIRS against the wall under the awning, three
+//    or four sets per tenancy: Worth's Block (02-Worth-s-Block-Sarasota.jpg),
+//    both the Gator Club frontage and the tenancy left of it.
+//  - PLANTED POTS at the wall base and flanking doors: the shrub in the corner
+//    planter at Worth's Block, the potted palm inside the LQ window reveal, the
+//    flowering bowls on the Five Points islands (03-Five-Points-Roundabout).
+//  - A FRAMED MENU / POSTER CASE on the wall beside the door: the Gator Club
+//    door panels, the dark case beside the DoggiStyle door at x 148
+//    (mly-1327947638431143 at yaw 180).
+//  - LEANING DISPLAY BOARDS at the stallriser: Hal's souvenir frontage at
+//    x 143 (mly-1615136105813428 at yaw 0) has poster panels in the window and
+//    a board propped against the shopfront below them.
+//  - BIKES AND HOOP RACKS flat against the frontage, three or four together,
+//    beside the Living Vogue door at x 148. Never a single hoop on its own.
+//  - NEWSPAPER BOXES in a short row against the wall (mly-323671905770539).
+//
+// What is NOT there, and so is not built: A-boards standing out in the middle
+// of the walk (Sarasota keeps the walk clear -- everything is set tight against
+// the glass), and stacked produce crates, which appear nowhere in this
+// reference set however common they are on other main streets.
+
+/** Bistro table: a small top on a centre column. */
+function propCafeTable(buf, f, k) {                                  // 27 tris
+  const r = 0.30 + rnd01('ct', k) * 0.06;
+  prism(buf, f, 0, 0, 0.055, 0.045, BASE_Y, 0.70, 4, 0x3a3f45, S.painted, 0.4);
+  prism(buf, f, 0, 0, r, r, 0.70, 0.745, 5, 0x6d5540, S.timber, rnd01('cp', k) * 1.2);
+}
+
+/** Bistro chair. Seat block and a back, on the bench's own logic: a solid pan
+ *  under the seat costs 12 triangles where four legs cost 48 and, at the range
+ *  a frontage is read from, the silhouette is the same. The back is at local
+ *  -x, so a chair placed in a reversed frame sits on the other side of its
+ *  table facing back at it. */
+function propCafeChair(buf, f, k) {                                  // 24 tris
+  box(buf, f, 0, 0.185, 0, 0.185, 0.275, 0.19, 0x3d4248, S.painted);
+  box(buf, f, -0.15, 0.63, 0, 0.035, 0.19, 0.18, 0x3d4248, S.painted);
+}
+
+/** Furled patio umbrella on a weighted base. */
+function propUmbrella(buf, f, k) {                                   // 39 tris
+  const h = 2.02 + rnd01('um', k) * 0.26;
+  const canvas = [0xd8cdb4, 0xcfc09c, 0xbfae90, 0x9aa895][hash32('uc', k) % 4];
+  prism(buf, f, 0, 0, 0.30, 0.26, BASE_Y, 0.13, 4, 0x70737a, S.concrete, 0.4);
+  prism(buf, f, 0, 0, 0.045, 0.038, 0.13, h * 0.5, 4, 0x8e959c, S.chrome, 0.4);
+  prism(buf, f, 0, 0, 0.155, 0.032, h * 0.5, h, 5, canvas, S.plastic, rnd01('up', k));
+}
+
+/** A leaning display board at the stallriser: two splayed leaves, both faces,
+ *  and nothing else. 8 triangles is the cheapest object in the kit and it is
+ *  the one the reviewer's list named first. */
+function propAboard(buf, f, k) {                                     // 8 tris
+  const hz = 0.27 + rnd01('ab', k) * 0.05;                 // half-width along
+  const top = 0.86 + rnd01('at', k) * 0.10;
+  const foot = 0.21;                                       // splay, each way
+  const w = handOf(f);
+  const P = (lx, ly, lz) => [wx(f, lx, lz), ly, wz(f, lx, lz)];
+  // Normal of a leaf, in (out, up): perpendicular to the lean, pointing away
+  // from the board's centreline.
+  const rise = top - BASE_Y, nl = Math.hypot(rise, foot);
+  for (const s of [1, -1]) {
+    const n = [(rise / nl) * f.ox * s, foot / nl, (rise / nl) * f.oz * s];
+    // The along-order flips with the leaf. Leaning the second leaf the other
+    // way MIRRORS it, and a mirrored corner order puts the geometric normal on
+    // the far side of the vertex normal: measured, the naive version wound 4 of
+    // this prop's 8 triangles backwards in both kinds of frame.
+    const a = P(foot * s, BASE_Y, -hz * s), b = P(foot * s, BASE_Y, hz * s);
+    const c = P(0, top, hz * s), d = P(0, top, -hz * s);
+    quad(buf, a, b, c, d, n, s > 0 ? 0x2f3439 : 0x272b30, S.painted, w);
+    quad(buf, b, a, d, c, [-n[0], -n[1], -n[2]], 0x1f2328, S.painted, w);
+  }
+}
+
+/** A planted pot against the shopfront: smaller than the kerbside planter and
+ *  authored to stand within a metre of the glass. */
+function propShopPot(buf, f, k) {                                    // 36 tris
+  const r = 0.23 + rnd01('sp', k) * 0.06;
+  const clay = [0x8f6f56, 0x7d6a5e, 0x9a8b7a, 0x6f6a63][hash32('pc', k) % 4];
+  prism(buf, f, 0, 0, r * 0.80, r, BASE_Y, 0.40, 4, clay, S.concrete, 0.4);
+  blob(buf, f, 0, 0, 0.63, r * 1.45, 0.29, 4, 0x4a6b34, S.foliage, rnd01('pb', k));
+}
+
+/** Wall-mounted menu / poster case beside a shop door. Hangs on the wall and
+ *  never touches the ground, so it is emitted with a null host like the vents
+ *  and the standpipes. */
+function propMenuCase(buf, f, k) {                                   // 14 tris
+  const y = 1.36 + rnd01('mc', k) * 0.14;
+  box(buf, f, 0.055, y, 0, 0.055, 0.33, 0.22, 0x2c3138, S.painted);
+  plate(buf, f, 0, y, 0, 0.185, 0.29, 0.115, 0xd6cfbe, S.plastic);
+}
+
+// ---- which frontage gets what.
+//
+// Keyed on signage.js BUSINESSES[].t, so a tenancy's furniture and its sign are
+// deciding from the same fact. The four groups are the four things the
+// reference actually shows outside these four kinds of shop; everything not
+// listed -- barber, bank, law, realty, spa, tailor, laundry, laundromat, motel,
+// electric -- falls through to `door`, a pot each side of the entrance, because
+// that is what a service frontage on Main Street has outside it.
+const FRONTAGE_KIT = {
+  cafe: 'table', bar: 'table', restaurant: 'table', grill: 'table',
+  diner: 'table', bakery: 'table', deli: 'table', wine: 'table',
+  grocer: 'display', market: 'display', florist: 'display',
+  cycles: 'bikes',
+  books: 'board', optical: 'board', hardware: 'board', records: 'board',
+  camera: 'board', tile: 'board', arcade: 'board', hifi: 'board',
+  dive: 'board', pharmacy: 'board',
+};
+
+// A group is an ordered list of (kind, along-frontage offset, metres out from
+// the building line, plan radius). `r` is the prop's own half-extent along the
+// frontage and is what decides whether the group fits in the tenancy; `face`
+// -1 builds the prop in a reflected frame, which is how the far chair ends up
+// facing back across its table. Trimming happens FROM THE END, so the first
+// `min` entries are the ones that must survive for the group to exist at all.
+const FRONTAGE_GROUPS = {
+  // A bistro table with a chair each side of it and a furled umbrella beside
+  // them: the LQ / Worth's Block arrangement, at one set per tenancy where the
+  // photographs show three or four.
+  table: {
+    min: 3,
+    items: [
+      { kind: 'cafetable', along: 0.00, out: 1.45, r: 0.36 },
+      { kind: 'cafechair', along: -0.05, out: 0.95, r: 0.19 },
+      { kind: 'cafechair', along: 0.05, out: 1.98, r: 0.19, face: -1 },
+      { kind: 'umbrella', along: 1.85, out: 1.50, r: 0.30 },
+    ],
+  },
+  // Pots out on the pavement and a board propped at the glass.
+  display: {
+    min: 2,
+    items: [
+      { kind: 'shoppot', along: -0.58, out: 0.80, r: 0.40 },
+      { kind: 'shoppot', along: 0.58, out: 0.80, r: 0.40 },
+      { kind: 'aboard', along: 1.60, out: 0.85, r: 0.32 },
+    ],
+  },
+  // Hoops against the frontage, never one on its own.
+  bikes: {
+    min: 2,
+    items: [
+      { kind: 'bikerack', along: -0.80, out: 1.05, r: 0.45 },
+      { kind: 'bikerack', along: 0.80, out: 1.05, r: 0.45 },
+    ],
+  },
+  board: {
+    min: 2,
+    items: [
+      { kind: 'aboard', along: -0.62, out: 0.82, r: 0.32 },
+      { kind: 'shoppot', along: 0.62, out: 0.78, r: 0.40 },
+    ],
+  },
+  news: {
+    min: 2,
+    items: [
+      { kind: 'newsbox', along: -0.46, out: 0.86, r: 0.28 },
+      { kind: 'newsbox', along: 0.46, out: 0.86, r: 0.28 },
+    ],
+  },
+};
+
+const SHOP_PROPS = {
+  cafetable: propCafeTable, cafechair: propCafeChair, umbrella: propUmbrella,
+  aboard: propAboard, shoppot: propShopPot,
+  bikerack: propBikeRack, newsbox: propNewsBox,
+};
+
 /** Cast-iron cover, embedded through the road ribbon so it cannot float. */
 function propManhole(buf, f, k) {                                    // 16 tris
   prism(buf, f, 0, 0, 0.36, 0.34, BASE_Y, ROAD_Y + 0.018, 6, 0x3c3a37, S.iron);
@@ -3241,6 +3429,12 @@ export class StreetFurniture {
     // district against the road graph and the baked footprints. Off by default —
     // it is 7,000 entries of pure verification ballast — and on for tooling.
     this.placed = opts.audit ? [] : null;
+    // Where a prop already stands. The frontage row runs LAST and 0.7-2.2 m off
+    // the building line, which is close enough to the _dressWalls frontage row
+    // at 2.0 m to interpenetrate it; without this a bistro chair and a bench
+    // occupy the same cubic metre and neither of the two passes can see it.
+    // Points, not footprints, on the same reasoning as lampClearance.
+    this._propGrid = new Grid(8);
     const emit = (kind, ax, az, hostY, fn) => {
       const buf = bucketFor(kind, ax, az);
       const v0 = buf.pos.length;
@@ -3275,6 +3469,9 @@ export class StreetFurniture {
         if (lo - hostY > this.worstFloat) this.worstFloat = lo - hostY;
       }
       this.props[kind] = (this.props[kind] ?? 0) + 1;
+      // Wall-mounted clutter hangs above head height and never contests the
+      // pavement, so it is not an obstacle to anything standing on it.
+      if (hostY !== null) this._propGrid.insert([ax, az], ax, az, ax, az);
       return true;
     };
 
@@ -3282,6 +3479,9 @@ export class StreetFurniture {
     this._dressKerbs(emit, opts);
     this._dressCarriageway(emit, opts);
     this._dressWalls(emit, opts);
+    // LAST, so it can see everything already standing: the frontage row is the
+    // one pass that has to fit itself around the other four.
+    this._dressFrontage(emit, opts);
     this._dressOverhead(emit, opts);
     this._planParking(opts);
 
@@ -3450,6 +3650,30 @@ export class StreetFurniture {
     }
     return best;
   }
+
+  /** Metres to the nearest prop already standing on the pavement. Infinity
+   *  before the first pass has run, which is the correct answer then. */
+  propClearance(x, z) {
+    if (!this._propGrid) return 99;
+    const list = this._propGrid.near(x, z, this._scratch);
+    let best = 99;
+    for (const p of list) {
+      const d = Math.hypot(x - p[0], z - p[1]);
+      if (d < best) best = d;
+    }
+    return best;
+  }
+
+  // A NOTE FOR THE NEXT ATTEMPT AT DRESSING BLANK FRONTAGE, because this branch
+  // built that and then deleted it. If a pass ever wants to know whether a
+  // stretch of wall is already dressed, the question has to be asked ALONG the
+  // frontage and not radially: on the corridor's nine-metre pavement the kerb
+  // row's street tree stands 4.0 m from the wall-side station, so a 6 m radial
+  // gate rejects every station on exactly the stretches such a pass exists to
+  // fill, while the two objects are on opposite edges of the pavement and do
+  // not contest each other at all. propClearance() above is the radial form and
+  // is the right one for "is this spot free"; it is the wrong one for "is this
+  // frontage bare".
 
   // ------------------------------------------------------------ 1. junctions
   /**
@@ -4041,6 +4265,209 @@ export class StreetFurniture {
     }
   }
 
+  // ------------------------------------------------- 4b. the shopfront row
+  /**
+   * Furniture that belongs to the SHOP, standing against the building line.
+   *
+   * WHY A FIFTH ROW AT ALL, when the district already carries 6,832 props at an
+   * even 4.3 per 1000 m2 on every band a reviewer has named. Because that number
+   * is a district average and the complaint is about the NEAR FIELD. Every row
+   * this file had was keyed off the carriageway -- kerb at 2.85 m, back at 5.1,
+   * plaza at 8.8 -- on 16.5 m stations, so twenty metres of foreground pavement
+   * expects about one object and lands on zero as often as not. tools/
+   * furniture-density.mjs --nearfield is the measurement: 3 props inside 20 m of
+   * the corridor hero camera before this pass, 1 of them on the walk the
+   * reviewer called empty.
+   *
+   * And nothing stood against the SHOPFRONT, which on a real main street is
+   * where the life is. reference/sarasota is unambiguous about it: see the note
+   * over propCafeTable for the frame-by-frame list.
+   *
+   * TIED TO THE TENANCY, not sprinkled. signage.js signPlanFor() is the one
+   * call that runs facades.js lotPlanFor() and businessFor() in the order that
+   * fixes slot numbering, so asking it -- rather than re-deriving the lots here
+   * -- is what guarantees the bistro set stands under the cafe's own sign and
+   * not under the barber's. A barber, a bank and a laundromat get a pot each
+   * side of their door and nothing else, which is what those frontages look
+   * like; cafe furniture outside a barber shop is worse than nothing.
+   *
+   * The whole pass is opt-out via opts.shopFrontage = false, which exists so a
+   * harness can dress the same district twice in one process and diff it.
+   */
+  _dressFrontage(emit, opts) {
+    if (opts.shopFrontage === false) return;
+    const d = this.d;
+    const OUT_MIN = opts.frontageRoadClear ?? 1.15;   // metres clear of carriageway
+    const WALL_MIN = 0.45;                            // metres clear of any wall
+    const LAMP_MIN = 1.2;
+    const PROP_MIN = opts.frontagePropClear ?? 1.1;   // metres clear of a prop already placed
+
+    for (let bi = 0; bi < d.buildings.length; bi++) {
+      const b = d.buildings[bi];
+      // capStyle() is deliberately not replayed here: it only ever clears
+      // balconies, fireEscape and roofUnits, none of which lotPlanFor reads, so
+      // the lots it would hand back are the lots the streamer builds.
+      const style = buildingStyle(b);
+      if (!style.storefront) continue;               // no shopfront, no shop furniture
+      // Cached on the building under the same key streaming.js _streetDirFor
+      // uses, so the two cannot disagree and the second caller pays nothing.
+      if (b._streetDir === undefined) b._streetDir = streetDirFor(d, b);
+      const street = b._streetDir;
+      const plan = signPlanFor(b, style, { street });
+      if (!plan.tenants.length) continue;
+
+      for (const t of plan.tenants) {
+        const e = t.e;
+        // Does this frontage face a street at all? facingEdges already prefers
+        // the ones that do, but with no street direction it falls back to the
+        // two longest edges, which on a corner block is a rear elevation.
+        const mx = e.a[0] + e.tx * t.mid, mz = e.a[1] + e.tz * t.mid;
+        if (this.roadClearance(mx + e.nx * 3, mz + e.nz * 3) > 14) continue;
+        if (this.buildingClearance(mx + e.nx * 1.4, mz + e.nz * 1.4) < 0.5) continue;
+
+        const key = hash32('shopfront', bi, e.i, t.slot);
+        const kit = FRONTAGE_KIT[t.biz.t] ?? 'door';
+
+        // The door keep-out. lot.doorSpan is in LOT-local metres, so it is
+        // offset by the lot's own start before it means anything on the edge.
+        let door = null;
+        if (t.lot && t.lot.doorSpan) {
+          door = [t.lot.s0 + t.lot.doorSpan[0], t.lot.s0 + t.lot.doorSpan[1]];
+        }
+
+        if (kit === 'door') { this._doorFlank(emit, e, t, door, key); continue; }
+
+        // The widest stretch of this tenancy that is not its doorway. A group
+        // straddling the door would block the door the same plan just cut.
+        const lo = t.s0 + 0.35, hi = t.s1 - 0.35;
+        if (hi - lo < 1.2) continue;
+        let free = [lo, hi];
+        if (door) {
+          const d0 = door[0] - 0.55, d1 = door[1] + 0.55;
+          const left = [lo, Math.min(hi, d0)], right = [Math.max(lo, d1), hi];
+          free = (left[1] - left[0]) >= (right[1] - right[0]) ? left : right;
+        }
+        const span = free[1] - free[0];
+        if (span < 1.2) continue;
+
+        // ---- the run is decided before any of it is emitted.
+        //
+        // Same rule, and the same reason, as the bollard run in _kerbStation:
+        // a chair with no table beside it is the orphan-post read exactly as a
+        // single post on an empty pavement was. So the group is trimmed to what
+        // fits, then every position is tested, and it is emitted only if the
+        // whole of what is left passes. Below the kit's minimum, nothing goes
+        // down at all.
+        let items = FRONTAGE_GROUPS[kit].items;
+        const min = FRONTAGE_GROUPS[kit].min;
+        // A quarter of the board frontages trade their board and pot for a pair
+        // of news boxes, which is what the photographs show against a shopfront
+        // that is not a food tenancy.
+        if (kit === 'board' && (key >>> 9) % 100 < 25) {
+          items = FRONTAGE_GROUPS.news.items;
+        }
+        for (;;) {
+          const extent = this._groupExtent(items);
+          if (extent <= span - 0.5 || items.length <= min) break;
+          items = items.slice(0, items.length - 1);
+        }
+        if (items.length < min || this._groupExtent(items) > span - 0.5) continue;
+
+        for (;;) {
+          const ext = this._groupExtent(items);
+          const mid = (free[0] + free[1]) / 2;
+          const slack = Math.max(0, span - 0.5 - ext);
+          const centre = mid + (((key >>> 3) % 100) / 100 - 0.5) * slack;
+          const spots = this._frontageSpots(items, e, centre);
+          const okAll = spots.every((p) =>
+            this.roadClearance(p.x, p.z) >= OUT_MIN &&
+            this.buildingClearance(p.x, p.z) >= WALL_MIN &&
+            this.lampClearance(p.x, p.z) >= LAMP_MIN &&
+            this.propClearance(p.x, p.z) >= PROP_MIN);
+          if (okAll) {
+            for (let n = 0; n < spots.length; n++) {
+              const p = spots[n];
+              const ff = frame(p.x, p.z, e.tx, e.tz, e.nx * p.face, e.nz * p.face);
+              emit(p.kind, p.x, p.z, PAD_Y, (buf) => SHOP_PROPS[p.kind](buf, ff, key + n * 31));
+            }
+            // A menu case on the wall beside the door, where there is a door and
+            // the tenancy sells food. The one frontage object in the reference
+            // that hangs rather than stands, and the cheapest in the kit.
+            if (kit === 'table' && door) this._menuCase(emit, e, t, door, key);
+            break;
+          }
+          if (items.length <= min) break;
+          items = items.slice(0, items.length - 1);
+        }
+      }
+    }
+  }
+
+  /** Along-frontage length a group needs, end to end. */
+  _groupExtent(items) {
+    let lo = Infinity, hi = -Infinity;
+    for (const it of items) {
+      if (it.along - it.r < lo) lo = it.along - it.r;
+      if (it.along + it.r > hi) hi = it.along + it.r;
+    }
+    return hi - lo;
+  }
+
+  /** A group's items in world coordinates, centred on `s` along the edge. */
+  _frontageSpots(items, e, s) {
+    return items.map((it) => {
+      const a = s + it.along;
+      return {
+        kind: it.kind, face: it.face ?? 1,
+        x: e.a[0] + e.tx * a + e.nx * it.out,
+        z: e.a[1] + e.tz * a + e.nz * it.out,
+      };
+    });
+  }
+
+  /** A planted pot each side of a shop door. Both or neither: one pot on one
+   *  side of a doorway is the orphan again. */
+  _doorFlank(emit, e, t, door, key) {
+    if (!door) return;
+    const OUT = 0.72;
+    const spots = [door[0] - 0.42, door[1] + 0.42].map((a) => ({
+      a,
+      x: e.a[0] + e.tx * a + e.nx * OUT,
+      z: e.a[1] + e.tz * a + e.nz * OUT,
+    }));
+    for (const p of spots) {
+      if (p.a < t.s0 + 0.15 || p.a > t.s1 - 0.15) return;
+      if (this.roadClearance(p.x, p.z) < 1.0) return;
+      if (this.buildingClearance(p.x, p.z) < 0.42) return;
+      if (this.lampClearance(p.x, p.z) < 1.2) return;
+      if (this.propClearance(p.x, p.z) < 1.0) return;
+    }
+    spots.forEach((p, n) => {
+      const ff = frame(p.x, p.z, e.tx, e.tz, e.nx, e.nz);
+      emit('shoppot', p.x, p.z, PAD_Y, (buf) => propShopPot(buf, ff, key + n * 17));
+    });
+  }
+
+  /** The framed menu case on the wall beside a food tenancy's door. Wall-hung,
+   *  so it is emitted with a null host exactly like the vents and standpipes. */
+  _menuCase(emit, e, t, door, key) {
+    // Both sides, preferred side first. lotCuts puts most doors in the first or
+    // last bay of their lot, so one side of the door is usually hard against
+    // the party pier: taking only the hashed side dropped half of these, which
+    // is not a decision anyone made.
+    const first = (key >>> 5) % 2 ? 1 : -1;
+    let a = null;
+    for (const side of [first, -first]) {
+      const c = side > 0 ? door[1] + 0.48 : door[0] - 0.48;
+      if (c >= t.s0 + 0.2 && c <= t.s1 - 0.2) { a = c; break; }
+    }
+    if (a === null) return;
+    const x = e.a[0] + e.tx * a, z = e.a[1] + e.tz * a;
+    if (this.roadClearance(x + e.nx * 0.6, z + e.nz * 0.6) < 0.5) return;
+    const ff = frame(x, z, e.tx, e.tz, e.nx, e.nz);
+    emit('menucase', x, z, null, (buf) => propMenuCase(buf, ff, key));
+  }
+
   // ------------------------------------------------------------ 5. overhead
   /** Timber poles and catenary spans down the back streets. "No overhead cable"
    *  was on the critics' list; a sagging span across a side street is the single
@@ -4441,6 +4868,8 @@ export const __kit = {
     bollard: propBollard, meter: propMeter, bin: propBin, hydrant: propHydrant,
     bench: propBench, planter: propPlanter, tree: propTree, treeDetail: propTreeDetail,
     cabinet: propCabinet, newsbox: propNewsBox, bikerack: propBikeRack,
+    cafetable: propCafeTable, cafechair: propCafeChair, umbrella: propUmbrella,
+    aboard: propAboard, shoppot: propShopPot, menucase: propMenuCase,
     manhole: propManhole, gully: propGully, vent: wallVent, wallbox: wallBox,
     condenser: wallCondenser, cellardoor: wallCellarDoor, downpipe: wallDownpipe,
     standpipe: wallStandpipe,
