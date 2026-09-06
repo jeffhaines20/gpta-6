@@ -607,7 +607,7 @@ const subject = await page.evaluate(async (bodyW) => {
     comps.push(c);
   }
   const contactCensus = { comps: comps.length, vertsRead, propMeshes: propMeshes.length,
-    binShaped: 0, bollardShaped: 0, rejectedNearRing: 0, rejectedFarRing: 0 };
+    binShaped: 0, bollardShaped: 0, notGrounded: 0, rejectedNearRing: 0, rejectedFarRing: 0 };
   const contacts = [];
   const KINDS = [
     { kind: 'bin', rMin: 0.24, rMax: 0.44, hMin: 0.80, hMax: 1.35 },
@@ -620,10 +620,23 @@ const subject = await page.evaluate(async (bodyW) => {
     const K = KINDS.find((k) => rr >= k.rMin && rr <= k.rMax && hh >= k.hMin && hh <= k.hMax
       && Math.min(rx, rz) > rr * 0.55);
     if (!K) continue;
+    // AND IT HAS TO BE STANDING ON THE GROUND. Shape alone is not enough: the
+    // four nearest 'bins' the shape filter found -- at 6.5, 8.6, 20.4 and
+    // 21.4 m, all in shot -- rejected every one of 96 ring points on the height
+    // test, because they were not bins. A bin-sized, bin-tall lump of merged
+    // geometry three metres up is an awning end or a signal head, and its
+    // 'contact with the pavement' is three metres of air.
+    const cx0 = (c.x0 + c.x1) / 2, cz0 = (c.z0 + c.z1) / 2;
+    let gy = null;
+    for (const [ddx, ddz] of [[rr + 0.6, 0], [-(rr + 0.6), 0], [0, rr + 0.6], [0, -(rr + 0.6)]]) {
+      const q = probe(cx0 + ddx, cz0 + ddz);
+      if (q && (gy === null || q.y < gy)) gy = q.y;
+    }
+    if (gy === null || c.y0 - gy < -0.30 || c.y0 - gy > 0.20) { contactCensus.notGrounded++; continue; }
     if (K.kind === 'bin') contactCensus.binShaped++; else contactCensus.bollardShaped++;
-    cand.push({ kind: K.kind, x: (c.x0 + c.x1) / 2, z: (c.z0 + c.z1) / 2, rM: +rr.toFixed(3),
-      hM: +hh.toFixed(2), baseY: c.y0,
-      dist: Math.hypot((c.x0 + c.x1) / 2 - camPos.x, (c.z0 + c.z1) / 2 - camPos.z) });
+    cand.push({ kind: K.kind, x: cx0, z: cz0, rM: +rr.toFixed(3),
+      hM: +hh.toFixed(2), baseY: c.y0, groundY: gy,
+      dist: Math.hypot(cx0 - camPos.x, cz0 - camPos.z) });
   }
   // IN FRONT FIRST, THEN NEAREST. Sorting purely by distance put the props
   // standing behind the camera at the head of the queue -- they are the closest
@@ -646,25 +659,45 @@ const subject = await page.evaluate(async (bodyW) => {
       // makes the pavement where it meets the object than the same pavement
       // two metres away. That is a within-frame ratio, so it survives whatever
       // the daylight round does to exposure.
+      const why = { noSurface: 0, onProps: 0, wrongHeight: 0, offScreen: 0, hidden: 0, kept: 0 };
       const ringAt = (rad) => {
         const out = [];
-        for (let k = 0; k < 24; k++) {
-          const th = (k / 24) * Math.PI * 2;
+        for (let k = 0; k < 32; k++) {
+          const th = (k / 32) * Math.PI * 2;
           const x = c.x + Math.cos(th) * rad, z = c.z + Math.sin(th) * rad;
           const g = probe(x, z);
-          if (!g || onProps(g) || Math.abs(g.y - c.baseY) > 0.12) continue;
+          if (!g) { why.noSurface++; continue; }
+          if (onProps(g)) { why.onProps++; continue; }
+          // A prop on a kerb has half its ring on the carriageway 0.15 m below
+          // it, so this cannot be tight; what it has to exclude is a ring point
+          // that has walked up a step or onto a planter.
+          if (Math.abs(g.y - c.groundY) > 0.30) { why.wrongHeight++; continue; }
           const p = project(x, g.y, z);
-          if (p.z > 1 || p.x < 6 || p.x > 1594 || p.y < 6 || p.y > 894) continue;
-          if (!visible(x, g.y, z, 0.35)) continue;
+          if (p.z > 1 || p.x < 6 || p.x > 1594 || p.y < 6 || p.y > 894) { why.offScreen++; continue; }
+          if (!visible(x, g.y, z, 0.35)) { why.hidden++; continue; }
+          why.kept++;
           out.push([+p.x.toFixed(1), +p.y.toFixed(1)]);
         }
         return out;
       };
-      const near = ringAt(c.rM + 0.14), far = ringAt(c.rM + 2.2);
-      if (near.length < 4) { contactCensus.rejectedNearRing++; continue; }
+      // Try the contact ring a little further out before giving up on a prop:
+      // the plan extent of a merged component is the widest part of the object,
+      // and on a bin that is the lid, which overhangs the base it stands on.
+      let near = [], far = [], nearR = 0;
+      for (const d of [0.14, 0.24, 0.36]) {
+        near = ringAt(c.rM + d); nearR = c.rM + d;
+        if (near.length >= 4) break;
+      }
+      if (near.length < 4) {
+        contactCensus.rejectedNearRing++;
+        if (!contactCensus.why) contactCensus.why = [];
+        if (contactCensus.why.length < 8) contactCensus.why.push({ kind: K, dist: +c.dist.toFixed(1), ...why });
+        continue;
+      }
+      for (const d of [2.2, 1.7, 2.8]) { far = ringAt(c.rM + d); if (far.length >= 4) break; }
       if (far.length < 4) { contactCensus.rejectedFarRing++; continue; }
       contacts.push({ kind: K, radiusM: c.rM, heightM: c.hM, dist: +c.dist.toFixed(1),
-        near, far });
+        contactRingM: +nearR.toFixed(2), near, far });
       break;
     }
   }
@@ -948,10 +981,13 @@ console.log(`subject at (${subject.slot.x.toFixed(1)}, ${subject.slot.z.toFixed(
   console.log(`contacts: ${subject.contacts.map((c) => `${c.kind} r=${c.radiusM} h=${c.heightM} at ${c.dist} m ` +
     `(${c.near.length} contact / ${c.far.length} background points)`).join(', ') || 'NONE'}` +
     `  [${cc.comps} components from ${cc.vertsRead} vertices in ${cc.propMeshes} prop meshes; ` +
-    `${cc.binShaped} bin-shaped, ${cc.bollardShaped} bollard-shaped, ` +
+    `${cc.binShaped} bin-shaped, ${cc.bollardShaped} bollard-shaped, ${cc.notGrounded} not on the ground, ` +
     `${cc.rejectedNearRing} rejected on the contact ring]`);
   console.log(`  contact candidates: ${(cc.candidates || []).slice(0, 8)
-    .map((c) => `${c.kind[0]}@${c.dist}m${c.inFrame ? '' : '(behind)'}`).join(' ')}`);
+    .map((c) => `${c.kind}@${c.dist}m${c.inFrame ? '' : '(behind)'}`).join(' ')}`);
+  if (cc.why) console.log(`  contact ring rejections: ${cc.why.slice(0, 5)
+    .map((w) => `${w.kind}@${w.dist}m{surface ${w.noSurface} props ${w.onProps} height ${w.wrongHeight} ` +
+      `screen ${w.offScreen} hidden ${w.hidden} kept ${w.kept}}`).join(' ')}`);
   const jc = subject.jCensus;
   console.log(`wall/pavement pairs: ${subject.junctions.length}` +
     `  [${jc.buildings} buildings in ${jc.chunks} chunks, ${jc.edges} edges: too short ${jc.tooShort}, ` +
