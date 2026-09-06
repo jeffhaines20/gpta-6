@@ -1937,6 +1937,10 @@ export function signPlanFor(b, style, opts = {}) {
         e, s0: t.s0, s1: t.s1, mid: (t.s0 + t.s1) / 2, span, biz, slot,
         awning: awn, fascia: !awn, blade,
         head: t.lot?.head ?? head,
+        // The lot this tenancy occupies, or null on an unlotted frontage.
+        // streetfurniture.js needs `doorSpan` off it: shopfront furniture that
+        // blocks the door the same plan just cut is worse than no furniture.
+        lot: t.lot ?? null,
         // The band the facade kit built over this shopfront, so the name lands
         // ON the fascia instead of over the display window under it.
         fasciaY: t.lot?.fasciaY ?? null,

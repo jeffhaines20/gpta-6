@@ -29,7 +29,14 @@ const errors = [];
 page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message));
 page.on('console', (m) => { if (m.type() === 'error' && !/favicon/.test(m.text())) errors.push(m.text()); });
 
-await page.goto(`http://127.0.0.1:${DRIVE_PORT}/district/`, { waitUntil: 'networkidle' });
+// DRIVE_QUERY passes a query string to the page, so a gate arm whose difference
+// is a build-time option is one build on one port rather than two commits. The
+// baseline for a change measured this way is the SAME tree with the option off,
+// which is the only baseline that isolates it: the commit underneath this one
+// moved every shopfront onto a different elevation, and a cross-commit
+// before/after would have charged that to the furniture.
+const DRIVE_QUERY = process.env.DRIVE_QUERY ? `?${process.env.DRIVE_QUERY}` : '';
+await page.goto(`http://127.0.0.1:${DRIVE_PORT}/district/${DRIVE_QUERY}`, { waitUntil: 'networkidle' });
 await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
 
 if (WITH_TRAFFIC) await page.evaluate(() => __district.setTraffic(true));

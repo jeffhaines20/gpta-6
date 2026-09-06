@@ -131,12 +131,13 @@ for (const f of frames) {
 }
 if (has('report')) process.exit(0);
 
-await ensureServer();
+const LOT_PORT = Number(process.env.LOT_PORT ?? 8123);   // see DRIVE_PORT in tools/drive-through.mjs
+await ensureServer(LOT_PORT);
 const browser = await chromium.launch(launchOptions());
 const page = await browser.newPage({ viewport: { width: W, height: H } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
-await page.goto('http://127.0.0.1:8123/district/', { waitUntil: 'networkidle' });
+await page.goto(`http://127.0.0.1:${LOT_PORT}/district/`, { waitUntil: 'networkidle' });
 await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
 await page.addStyleTag({ content: '#attr{display:none!important}#hud,.pv-hud{display:none!important}' });
 if (PEDS >= 0) {
