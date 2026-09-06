@@ -1,0 +1,80 @@
+{
+ "frames": [
+  {
+   "bi": 29,
+   "edge": 4,
+   "len": 100.2,
+   "recipe": "retailStrip",
+   "h": 5.65,
+   "span": 26,
+   "standoff": 18,
+   "hfov": 71.7,
+   "cam": [
+    121.63150686127435,
+    1.75,
+    -156.9950653219103
+   ],
+   "tgt": [
+    121.67999999999999,
+    3.1075000000000004,
+    -174.995
+   ],
+   "fov": 44.218896687503346,
+   "lots": [
+    {
+     "s0": 33.3,
+     "w": 7.4,
+     "par": 0.83,
+     "head": 3.8,
+     "door": true,
+     "awn": true
+    },
+    {
+     "s0": 40.7,
+     "w": 6,
+     "par": 1.35,
+     "head": 4.18,
+     "door": true,
+     "awn": true
+    },
+    {
+     "s0": 46.7,
+     "w": 6.2,
+     "par": 0.99,
+     "head": 3.8,
+     "door": false,
+     "awn": false
+    },
+    {
+     "s0": 52.9,
+     "w": 6.4,
+     "par": 1.15,
+     "head": 4.36,
+     "door": false,
+     "awn": true
+    },
+    {
+     "s0": 59.3,
+     "w": 6.9,
+     "par": 0.99,
+     "head": 3.62,
+     "door": true,
+     "awn": true
+    }
+   ]
+  }
+ ],
+ "results": [
+  {
+   "b": 29,
+   "tod": "noon",
+   "file": "docs/shots/doorfix-elev29-noon.png",
+   "triangles": 485595,
+   "drawCalls": 123,
+   "near": 16,
+   "chunks": 85,
+   "peds": 0
+  }
+ ],
+ "errors": []
+}

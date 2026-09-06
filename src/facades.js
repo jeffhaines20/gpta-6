@@ -2548,15 +2548,35 @@ export function storefront(ring, pos, nrm, uv, idx, opts = {}) {
         const dOut = -(depth - 0.05);
         const leaf = Math.min(2.35, head - 0.5);
         const kick = Math.min(0.92, leaf * 0.4);
+        // THE DOOR HAS TO LOOK DIFFERENT FROM THE WINDOW BESIDE IT.
+        //
+        // A blind reviewer searched roughly 300 m of modelled frontage and could
+        // not find a single door: "no door leaf, no recessed entry, no
+        // threshold, no mat, no step". The geometry was there the whole time --
+        // leaf, kick panel, jambs, head, threshold slab, standing 5 cm proud of
+        // the display glazing. What was missing is that every one of those
+        // quads sampled the SAME atlas cells as the shopfront around it, so a
+        // door was a window with a bulkhead under it, which is what a display
+        // bay already is.
+        //
+        // What makes a real shopfront door read at street distance is not the
+        // glass, which is the same glass. It is the FRAME: a dark stile-and-rail
+        // outline and a kick plate, against the pale jamb and pale bulkhead of
+        // the bay. So the leaf keeps the glass cell -- it is glass -- and the
+        // frame and kick take painted metal.
+        //
+        // Costs nothing. Same quads, same count, different four numbers in the
+        // UV rect, and the trim atlas is a full 4x4 grid with no free cell to
+        // add a purpose-painted door to.
+        const frameC = trimCell(TRIM.metalDark);
         const gq = [glass.u0, glass.v0, glass.u1, glass.v1];
-        const bq = [bulkC.u0, bulkC.v0, bulkC.u1, bulkC.v1];
-        const jq = [jambC.u0, jambC.v0, jambC.u1, jambC.v1];
-        faceQ(e, door[0], door[1], 0.02, kick, dOut, bq, pos, nrm, uv, idx, o2);
+        const fq = [frameC.u0, frameC.v0, frameC.u1, frameC.v1];
+        faceQ(e, door[0], door[1], 0.02, kick, dOut, fq, pos, nrm, uv, idx, o2);
         faceQ(e, door[0], door[1], kick, leaf, dOut, gq, pos, nrm, uv, idx, o2);
-        jambQ(e, door[0], 0.02, leaf, -depth, dOut, -1, jq, pos, nrm, uv, idx, o2);
-        jambQ(e, door[1], 0.02, leaf, -depth, dOut, 1, jq, pos, nrm, uv, idx, o2);
-        shelfQ(e, door[0], door[1], leaf, -depth, dOut, -1, jq, pos, nrm, uv, idx, o2);
-        shelfQ(e, door[0], door[1], 0.02, -depth, dOut, 1, bq, pos, nrm, uv, idx, o2);
+        jambQ(e, door[0], 0.02, leaf, -depth, dOut, -1, fq, pos, nrm, uv, idx, o2);
+        jambQ(e, door[1], 0.02, leaf, -depth, dOut, 1, fq, pos, nrm, uv, idx, o2);
+        shelfQ(e, door[0], door[1], leaf, -depth, dOut, -1, fq, pos, nrm, uv, idx, o2);
+        shelfQ(e, door[0], door[1], 0.02, -depth, dOut, 1, fq, pos, nrm, uv, idx, o2);
       }
     }
   }
