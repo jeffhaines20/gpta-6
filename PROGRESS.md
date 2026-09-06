@@ -4665,3 +4665,60 @@ same-edge overlaps eliminated.
 The three geometry defects the old block listed (severed awning post, floating plaza
 bars, orphaned pole stub) are not reproducible against the current `geom-audit`, which
 passes; they are treated as closed unless a critic re-reports one.
+
+---
+
+## Status as of 2026-09-06 — the four-round improvement pass
+
+The table above ("Actually open, as of 2026-09-04") is superseded. Everything in it is
+closed except the two noted below. This section is written the same way and for the same
+reason: a stale status block is read as current by every reviewer and every next session.
+
+### The process failure that shaped this round
+
+A blind review round was spent comparing a build against **itself**. `ensureServer()`
+returns early when anything is already listening on its port, and `http-server -s .`
+serves whatever directory started it, so a capture run from a worktree silently reused the
+main tree's server. Three reviewers each measured before judging and all three
+independently caught it; that discipline is the only reason it was caught at all.
+
+It had happened once before in the same session and been patched in ONE tool with its own
+port variable, leaving the trap armed everywhere else. It went off again in the next round.
+The check now lives in `ensureServer` itself — write a token into the tree, read it back
+over HTTP, refuse a foreign document root — and `blind-compare` additionally refuses to
+build a pair set carrying under 8% facade-band signal. The same "fixed in one copy,
+live in the other four" shape turned up again in `_streetDirFor`, which five files each
+carried their own copy of; it now lives once in `src/geom.js`.
+
+### Closed this round, with the measurement that closed it
+
+| item | evidence |
+|---|---|
+| Buildings facing the wrong street | 348 of 519 more than 45 deg off, 99 of them backwards. Nearest road VERTEX replaced with an edge-based frontage search. Building #18's chosen edge has a road 3.5 m in front against the old choice's 11.7 m |
+| Buildings fronting service alleys | The first fix improved the statistic and made the frames worse: a high street is WIDE, so its centreline is further away than the alley behind. Roads now carry a class and an alley is a last resort |
+| Mirrored signage | 1,379 of 3,582 lettered faces reversed, from three causes. Now 0, with a regression test |
+| Pedestrians hovering | Not the shadow path: `aoRadius` 2.2 m. A figure put 0.041 of darkening on the pavement six body widths away and did not fall under 0.05 until 8.5. Now 0.6 m at exponent 8.5: 0.011 at six widths, and the window reveal holds at 0.067 |
+| Glazing had no reflectance | The environment term was present. `drawOpening` painted its reveal AO into ALBEDO, and panes are metalness 0.80-0.88, so that albedo IS the mirror: F0 collapsed 0.290 -> 0.044 at the head. glass/wall 0.478 -> 0.714 noon, 0.479 -> 0.934 golden |
+| Golden hour read cooler than dusk | Five Points ground plane mean R-B **-5.8 -> +40.0**, measured on the shipped frames. Dusk 16.1 -> 26.0 |
+| Bare sidewalks | Reference-grounded frontage row. Corridor props in frame within 35 m: 5 -> 20. Its own gap-filler half was DROPPED on measurement (+0.4 props per route station for +16,466 triangles, nothing at either hero camera) |
+| Doors invisible | Present as geometry all along, painted with the same atlas cells as the windows beside them. Frame and kick now take painted metal |
+
+### Still open
+
+| item | state |
+|---|---|
+| Noon shade is blue | **Partly fixed, and the honest number is mixed.** Corridor road at noon, exposure-robust (R-B)/luma: -0.897 -> -0.697, so 22% less blue and still blue. Brightness is much better: that region goes L 32.9 -> 53.0. The shaded walk band went the other way on hue, 0.246 -> 0.157 |
+| Tall buildings have no tenancy expression | `lots` gates on `h <= 22`, so building #76 stays a 123 m unbroken wall on a street whose road is 2.4 m from its face. This is the Five Points block a critic called "a 1970s parking deck". The monolith is the gate, not the geometry |
+| No shopfront lights at night | Diagnosed, not fixed. The facade atlas lights its ground row, but the glazing a street camera sees is the TRIM atlas cell, which has no emissive map at all. Needs either an emissive for the trim atlas modulated by the vertex tint, or moving recessed shop glazing onto the facade atlas |
+| Glass reads blue at noon | A CONSEQUENCE of the glazing fix, not a regression of the old cobalt bug: street-level panes now genuinely see sky, and our noon sky is B/R 2.4-3.1. Golden and dusk both moved toward the reference |
+| HUD per-frame allocation | Four allocation sites removed; the benefit is NOT demonstrated. See the commit — the timing arms were contaminated by concurrent headless captures, and a microbenchmark cannot see it because V8 scalar-replaces an object that never escapes |
+
+### Two numbers not to trust
+
+- **The budget gate's triangle count carries ~20k of run-to-run noise** from traffic and
+  crowd placement — measured at 20,649 and 23,242 spread within an UNCHANGED configuration.
+  A single run cannot resolve a 1,000-triangle margin against the 830,000 warn. Use the
+  deterministic offline count or `tri-breakdown` when a change needs pricing.
+- **`chunk stall ms` is unusable while anything else runs on the box.** The same code
+  measured 7.1, 24.1, 7.9, 68.5 and 11.6 ms depending only on how many headless browsers
+  were alive. It is a max, not a percentile.
