@@ -173,43 +173,60 @@ export function rectLum(file, r) {
 }
 
 /**
- * Profile -> lobe radius. THE THRESHOLD IS NOT A FRACTION OF THE PEAK, and that
- * distinction is the whole reason this function exists as a named, tested thing.
+ * Profile -> lobe radius. TWO THINGS THIS IS NOT, each of which was tried and
+ * each of which gave a wrong answer on real data.
  *
- * The previous pass used "the radius where occlusion has fallen to a tenth of
- * its value at the feet" and reported no lobe at all, on every radius it swept.
- * The profile it was given ran 0.278 at the feet, 0.157 at 2.2 m and back UP to
- * 0.204 at 3.0 m: the district has an ambient-occlusion FLOOR, so a tenth of
- * the peak is a level the profile never reaches and the search never terminates.
- * The floor is not the pedestrian's halo. It is the rest of the street.
+ * IT IS NOT A FRACTION OF THE PEAK. The first version looked for "the radius
+ * where occlusion has fallen to a tenth of its value at the feet" and reported
+ * no lobe at all, on every radius it swept. The profile it was given ran 0.278
+ * at the feet, 0.157 at 2.2 m and back UP to 0.204 at 3.0 m: the district has
+ * an ambient-occlusion FLOOR, a tenth of the peak is beneath it, and the search
+ * runs off the end of the window every time. The floor is not the pedestrian's
+ * halo, it is the rest of the street.
  *
- * So the background is measured, from the outermost metre of the search, and
- * the lobe is where the profile has decayed to `frac` of its RISE ABOVE THAT.
- * A subject that raises nothing above its surroundings gets a null radius and
- * says so, rather than being handed the width of the search window.
+ * AND THE BACKGROUND IS NOT THE OUTER RINGS. The second version measured the
+ * floor from the outermost metre, 3-4 m out, and read a NEGATIVE rise on every
+ * radius in a thirteen-row sweep -- the subject's own feet apparently lighter
+ * than the pavement around them. The profile said why: at 2.2 m radius it fell
+ * from 0.361 at the feet to a plateau of 0.230 by 0.7 m, held that to 1.9 m,
+ * and then CLIMBED to 0.478 by 3.8 m. The far rings had reached the buildings.
+ * Four metres from a figure on a pavement is not open ground, it is the wall.
+ *
+ * So the background is the profile's own PLATEAU, taken as the 10th percentile
+ * of every ring outside 0.5 m, which is robust to both the far climb and to a
+ * single ring that happens to clip a tree pit. The peak is the largest value
+ * within 0.6 m of the feet rather than the single centre pixel, which at 34 m
+ * is one pixel of shoe and read 0.000 on one of the radii. Two radii are
+ * reported: the HALF-WIDTH, where the rise has fallen by half, which is what
+ * survives the ripple in a real profile, and the 10% radius, which is closer to
+ * what an eye calls the edge of the smudge and is the noisier of the two.
  */
-export function lobeFrom(profile, frac = 0.10, bgFromM = 3.0, bodyW = 0.41) {
+export function lobeFrom(profile, frac = 0.10, bodyW = 0.41) {
+  const nul = { contactOcc: null, backgroundOcc: null, backgroundRings: 0,
+    riseOverBackground: null, lobeRadiusM: null, lobeBodyWidths: null,
+    lobeHalfM: null, lobeHalfBodyWidths: null };
   const prof = (profile || []).filter((p) => p && typeof p.occ === 'number');
-  if (!prof.length) return { contactOcc: null, backgroundOcc: null, backgroundRings: 0,
-    riseOverBackground: null, lobeRadiusM: null, lobeBodyWidths: null };
-  let s = 0, bgN = 0;
-  for (const p of prof) if (p.rM >= bgFromM) { s += p.occ; bgN++; }
-  const bg = bgN ? s / bgN : null;
-  const peak = prof[0].occ;
-  let lobeM = null;
-  if (bg !== null && peak > bg + 0.01) {
-    const cut = bg + (peak - bg) * frac;
-    for (const p of prof) {
-      if (p.rM < 0.15) continue;
-      if (p.occ <= cut) { lobeM = p.rM; break; }
-    }
-  }
+  if (prof.length < 6) return nul;
+  const outer = prof.filter((p) => p.rM >= 0.5).map((p) => p.occ).sort((a, b) => a - b);
+  if (outer.length < 4) return nul;
+  const bg = outer[Math.max(1, Math.floor(outer.length * 0.10))];
+  let peak = -Infinity;
+  for (const p of prof) if (p.rM <= 0.6 && p.occ > peak) peak = p.occ;
+  if (!Number.isFinite(peak)) return nul;
+  const rise = peak - bg;
+  const at = (f) => {
+    if (!(rise > 0.008)) return null;
+    const cut = bg + rise * f;
+    for (const p of prof) { if (p.rM < 0.2) continue; if (p.occ <= cut) return p.rM; }
+    return null;
+  };
+  const r10 = at(frac), r50 = at(0.5);
   return {
     contactOcc: +peak.toFixed(4),
-    backgroundOcc: bg === null ? null : +bg.toFixed(4), backgroundRings: bgN,
-    riseOverBackground: bg === null ? null : +(peak - bg).toFixed(4),
-    lobeRadiusM: lobeM,
-    lobeBodyWidths: lobeM === null ? null : +(lobeM / bodyW).toFixed(2),
+    backgroundOcc: +bg.toFixed(4), backgroundRings: outer.length,
+    riseOverBackground: +rise.toFixed(4),
+    lobeRadiusM: r10, lobeBodyWidths: r10 === null ? null : +(r10 / bodyW).toFixed(2),
+    lobeHalfM: r50, lobeHalfBodyWidths: r50 === null ? null : +(r50 / bodyW).toFixed(2),
   };
 }
 
@@ -240,23 +257,26 @@ if (SELFTEST) {
   if (Math.abs(occ(grey, 50, 50) - (1 - 128 / 255)) > 1e-9) bad.push('grey buffer misread');
 
   // 1. A lobe on bare ground: 0.50 at the feet, linear to 0 at 2.0 m, no floor.
-  //    A tenth of the rise is 0.05, which the ramp reaches at 1.8 m.
-  const ramp = (peak, reach, floor) => {
+  //    A tenth of the rise is 0.05, which the ramp reaches at 1.8 m; half of it
+  //    is 0.25, which it reaches at 1.0 m.
+  const ramp = (peak, reach, floor, climb) => {
     const p = [];
     for (let r = 0; r <= 4.0001; r += 0.1) {
-      p.push({ rM: +r.toFixed(2), occ: +(floor + Math.max(0, peak * (1 - r / reach))).toFixed(4) });
+      const far = climb ? Math.max(0, (r - 2.4) * climb) : 0;
+      p.push({ rM: +r.toFixed(2), occ: +(floor + far + Math.max(0, peak * (1 - r / reach))).toFixed(4) });
     }
     return p;
   };
   const bare = lobeFrom(ramp(0.50, 2.0, 0));
   near(bare.lobeRadiusM, 1.8, 0.11, 'bare lobe radius');
+  near(bare.lobeHalfM, 1.0, 0.11, 'bare lobe half-width');
   near(bare.lobeBodyWidths, 1.8 / 0.41, 0.3, 'bare lobe in body widths');
 
-  // 2. THE REGRESSION. The same lobe standing on a 0.15 AO floor -- which is
-  //    what the real district gave the previous pass. Peak 0.65, background
-  //    0.15, so a tenth of the RISE is 0.20 and the answer is still 1.8 m. The
-  //    old rule looked for a tenth of the PEAK, 0.065, which is below the floor
-  //    and is never reached; that is exactly how a whole sweep came back empty.
+  // 2. THE FIRST REGRESSION. The same lobe standing on a 0.15 AO floor, which
+  //    is what the real district gave. Peak 0.65, background 0.15, a tenth of
+  //    the RISE is 0.20 and the answer is still 1.8 m. The retired rule looked
+  //    for a tenth of the PEAK, 0.065, which is below the floor and is never
+  //    reached: that is how a whole sweep came back with no lobe at all.
   const floored = ramp(0.50, 2.0, 0.15);
   const onFloor = lobeFrom(floored);
   near(onFloor.lobeRadiusM, 1.8, 0.11, 'floored lobe radius');
@@ -269,16 +289,37 @@ if (SELFTEST) {
     if (hit) bad.push('peak-relative rule terminated on a floored profile; it should not');
   }
 
-  // 3. Nothing there: a flat profile must report NO lobe, not the search width.
+  // 3. THE SECOND REGRESSION, and the one that cost a thirteen-row sweep. The
+  //    same lobe on the same floor, with the far rings CLIMBING because at 3-4 m
+  //    from a figure on a pavement you are measuring the building. Real numbers:
+  //    0.361 at the feet, a 0.230 plateau from 0.7 to 1.9 m, then 0.478 by
+  //    3.8 m. The background must still be the plateau and the lobe must still
+  //    be 1.8 m; averaging the outer metre gives a background ABOVE the peak
+  //    and a negative rise, which is what the sweep reported on every row.
+  const climbing = ramp(0.50, 2.0, 0.15, 0.55);
+  const onClimb = lobeFrom(climbing);
+  near(onClimb.backgroundOcc, 0.15, 0.02, 'plateau found under a climbing tail');
+  near(onClimb.riseOverBackground, 0.50, 0.03, 'rise under a climbing tail');
+  near(onClimb.lobeRadiusM, 1.8, 0.11, 'lobe radius under a climbing tail');
+  {
+    // the retired background, run here so its failure is on the record too:
+    let s = 0, n = 0;
+    for (const p of climbing) if (p.rM >= 3.0) { s += p.occ; n++; }
+    const peak = climbing[0].occ;
+    if (peak - s / n > 0) bad.push('outer-metre background did not go negative; the test is wrong');
+  }
+
+  // 4. Nothing there: a flat profile must report NO lobe, not the search width.
   const flat = lobeFrom(ramp(0, 2.0, 0.15));
   if (flat.lobeRadiusM !== null) bad.push(`flat profile invented a lobe at ${flat.lobeRadiusM} m`);
+  if (flat.lobeHalfM !== null) bad.push('flat profile invented a half-width');
   near(flat.riseOverBackground, 0, 0.005, 'flat profile rise');
 
-  // 4. An empty profile must not throw and must not answer.
+  // 5. An empty profile must not throw and must not answer.
   const none = lobeFrom([]);
   if (none.lobeRadiusM !== null || none.contactOcc !== null) bad.push('empty profile answered');
 
-  // 5. The repeat guard has to fail on known-bad input, or it is decoration.
+  // 6. The repeat guard has to fail on known-bad input, or it is decoration.
   const same = repeatVerdict([['a', 0.100, 0.1005], ['b', 0.300, 0.2990]], 0.010);
   if (!same.agreed) bad.push('repeat guard rejected two readings that agree');
   const drift = repeatVerdict([['a', 0.100, 0.1005], ['b', 0.300, 0.2400]], 0.010);
@@ -419,25 +460,35 @@ const subject = await page.evaluate(async (bodyW) => {
   const ox = cam.position.x, oz = cam.position.z;
   let slot = null;
   outer:
-  for (let along = 8; along <= 55; along += 1.5) {
-    for (const across of [7, -7, 9, -9, 11, -11, 5, -5, 13, -13, 3, -3]) {
+  // AND IT HAS TO BE NEAR, which was not a constraint before and should have
+  // been. The bench landed 34 m out, where the AO target's half resolution puts
+  // one buffer pixel at 0.091 m of pavement: a 2.2 m halo is 24 pixels across
+  // and a 0.35 m halo is under four, and the sweep read the SAME 0.7 m decay
+  // length at both because that is the blur, not the kernel. At 12 m one buffer
+  // pixel is 0.032 m and both are resolved. So the search still walks outward
+  // and takes the first slot that qualifies -- it is just allowed to qualify
+  // much closer now: the screen window reaches to y = 866 instead of 820, which
+  // is where the pavement 8 m in front of a 2.4 m camera actually lands, and
+  // the clear ring is 2.0 m rather than 2.6 because a 5.2 m-wide stretch of
+  // unobstructed sidewalk is rarer than a 4.0 m one and the rings past 2 m are
+  // filtered for sidewalk anyway.
+  for (let along = 7; along <= 55; along += 1.0) {
+    for (const across of [5, -5, 7, -7, 9, -9, 3, -3, 11, -11, 13, -13]) {
       const x = ox + fx * along + sx * across, z = oz + fz * along + sz * across;
       const g = probe(x, z);
       if (!g || g.y > 0.30 || g.y < -1 || g.mat !== 'sidewalk' || cluttered(g)) continue;
       if (!sunlit(x, g.y, z)) continue;
-      // 2.6 m of clear, flat, prop-free brick all round: the lobe has to have
-      // somewhere to be measured.
       let clear = true;
       for (let k = 0; k < 12 && clear; k++) {
         const th = (k / 12) * Math.PI * 2;
-        for (const rad of [1.3, 2.6]) {
+        for (const rad of [1.2, 2.0]) {
           const q = probe(x + Math.cos(th) * rad, z + Math.sin(th) * rad);
           if (!q || q.y > 0.30 || cluttered(q) || q.mat !== 'sidewalk') { clear = false; break; }
         }
       }
       if (!clear) continue;
       const p = project(x, g.y, z);
-      if (p.x < 250 || p.x > 1350 || p.y < 420 || p.y > 820 || p.z > 1) continue;
+      if (p.x < 180 || p.x > 1420 || p.y < 420 || p.y > 866 || p.z > 1) continue;
       slot = { x, z, y: g.y, screen: p, along, across };
       break outer;
     }
@@ -1146,9 +1197,9 @@ const fmt = (v, d = 3) => (v === null || v === undefined ? ' n/a' : v.toFixed(d)
 const line = (c, ao) => {
   const j = ao.junction || {}, f = ao.facade || {}, l = ao.lobe;
   return `r=${String(c.radius).padStart(4)} i=${c.intensity} s=${c.strength}  ` +
-    `lobe ${l.lobeRadiusM === null ? ' n/a' : l.lobeRadiusM.toFixed(1)} m = ` +
-    `${l.lobeBodyWidths === null ? ' n/a' : l.lobeBodyWidths.toFixed(1).padStart(4)} bw  ` +
-    `rise ${fmt(l.riseOverBackground)}  foot ${fmt(ao.footOcc)}  ` +
+    `lobe ${l.lobeHalfBodyWidths === null ? ' n/a' : l.lobeHalfBodyWidths.toFixed(1).padStart(4)}` +
+    `/${l.lobeBodyWidths === null ? ' n/a' : l.lobeBodyWidths.toFixed(1).padStart(4)} bw  ` +
+    `rise ${fmt(l.riseOverBackground)}  bg ${fmt(l.backgroundOcc)}  foot ${fmt(ao.footOcc)}  ` +
     `contacts ${ao.contacts.map((q) => `${q.kind[0]}${fmt(q.contactRise)}`).join(' ')}  ` +
     `crease g${fmt(j.groundCrease)} w${fmt(j.wallCrease)}  ` +
     `reveal ${fmt(f.revealContrast)}  soffit ${fmt(f.soffitContrast)}  ` +
@@ -1168,7 +1219,7 @@ for (const c of COMBOS) {
   const applied = await apply(c);
   await settle();
   const ao = await readAO(subject);
-  Object.assign(ao.lobe, lobeFrom(ao.lobe.profile, 0.10, 3.0, BODY_W));
+  Object.assign(ao.lobe, lobeFrom(ao.lobe.profile, 0.10, BODY_W));
   results.push({ ...c, applied, ao });
   console.log(line(c, ao));
 }
@@ -1179,7 +1230,7 @@ if (COMBOS.length) {
   await apply(c);
   await settle();
   const ao = await readAO(subject);
-  Object.assign(ao.lobe, lobeFrom(ao.lobe.profile, 0.10, 3.0, BODY_W));
+  Object.assign(ao.lobe, lobeFrom(ao.lobe.profile, 0.10, BODY_W));
   const first = results[0].ao;
   const keys = [
     ['frameMeanOcc', first.frameMeanOcc, ao.frameMeanOcc],
