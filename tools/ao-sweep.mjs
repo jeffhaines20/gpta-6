@@ -124,34 +124,121 @@ export function rectLum(file, r) {
   return n ? s / n : 0;
 }
 
-if (SELFTEST) {
-  // The buffer maths, on synthetic input, with no browser: an all-white AO buffer
-  // must read 0 occlusion, a half-grey one 0.5, and the radial profile of a
-  // synthetic lobe must find its own 10% radius. A probe that cannot do this
-  // arithmetic cannot be trusted with the real buffer.
-  const w = 100, h = 100;
-  const buf = new Uint8Array(w * h * 4).fill(255);
-  const occ = (b, x, y) => 1 - b[(y * w + x) * 4] / 255;
-  let bad = [];
-  if (Math.abs(occ(buf, 50, 50)) > 1e-9) bad.push('white buffer is not 0 occlusion');
-  const grey = new Uint8Array(w * h * 4).fill(128);
-  if (Math.abs(occ(grey, 50, 50) - (1 - 128 / 255)) > 1e-9) bad.push('grey buffer misread');
-  // Synthetic lobe: occlusion 0.5 at r = 0 falling linearly to 0 at r = 20 px.
-  const lobe = new Uint8Array(w * h * 4).fill(255);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const d = Math.hypot(x - 50, y - 50);
-      const o = Math.max(0, 0.5 * (1 - d / 20));
-      lobe[(y * w + x) * 4] = Math.round((1 - o) * 255);
+/**
+ * Profile -> lobe radius. THE THRESHOLD IS NOT A FRACTION OF THE PEAK, and that
+ * distinction is the whole reason this function exists as a named, tested thing.
+ *
+ * The previous pass used "the radius where occlusion has fallen to a tenth of
+ * its value at the feet" and reported no lobe at all, on every radius it swept.
+ * The profile it was given ran 0.278 at the feet, 0.157 at 2.2 m and back UP to
+ * 0.204 at 3.0 m: the district has an ambient-occlusion FLOOR, so a tenth of
+ * the peak is a level the profile never reaches and the search never terminates.
+ * The floor is not the pedestrian's halo. It is the rest of the street.
+ *
+ * So the background is measured, from the outermost metre of the search, and
+ * the lobe is where the profile has decayed to `frac` of its RISE ABOVE THAT.
+ * A subject that raises nothing above its surroundings gets a null radius and
+ * says so, rather than being handed the width of the search window.
+ */
+export function lobeFrom(profile, frac = 0.10, bgFromM = 3.0, bodyW = 0.41) {
+  const prof = (profile || []).filter((p) => p && typeof p.occ === 'number');
+  if (!prof.length) return { contactOcc: null, backgroundOcc: null, backgroundRings: 0,
+    riseOverBackground: null, lobeRadiusM: null, lobeBodyWidths: null };
+  let s = 0, bgN = 0;
+  for (const p of prof) if (p.rM >= bgFromM) { s += p.occ; bgN++; }
+  const bg = bgN ? s / bgN : null;
+  const peak = prof[0].occ;
+  let lobeM = null;
+  if (bg !== null && peak > bg + 0.01) {
+    const cut = bg + (peak - bg) * frac;
+    for (const p of prof) {
+      if (p.rM < 0.15) continue;
+      if (p.occ <= cut) { lobeM = p.rM; break; }
     }
   }
-  // 10% of the contact value is 0.05, which the linear ramp reaches at r = 18.
-  let found = null;
-  for (let r = 0; r < 40; r += 0.5) {
-    const o = occ(lobe, Math.round(50 + r), 50);
-    if (o <= 0.05 && found === null) found = r;
+  return {
+    contactOcc: +peak.toFixed(4),
+    backgroundOcc: bg === null ? null : +bg.toFixed(4), backgroundRings: bgN,
+    riseOverBackground: bg === null ? null : +(peak - bg).toFixed(4),
+    lobeRadiusM: lobeM,
+    lobeBodyWidths: lobeM === null ? null : +(lobeM / bodyW).toFixed(2),
+  };
+}
+
+/**
+ * Did one unchanged parameter set read the same twice? The instrument this file
+ * replaced did not, and nobody noticed until it had produced a whole sweep of
+ * differences it could not support. This is that check, made a condition of
+ * the run rather than a thing to remember to do.
+ */
+export function repeatVerdict(pairs, tol) {
+  const keys = pairs.map(([k, a, b]) => ({ k, first: a, again: b,
+    delta: (a === null || a === undefined || b === null || b === undefined) ? null : +(b - a).toFixed(4) }));
+  const bad = keys.filter((e) => e.delta === null || Math.abs(e.delta) > tol);
+  return { tolerance: tol, keys, agreed: bad.length === 0, failed: bad.map((e) => e.k) };
+}
+
+if (SELFTEST) {
+  // The reductions, on synthetic input, with no browser. Two of these are
+  // regression tests for faults this instrument actually had.
+  const w = 100, h = 100;
+  const occ = (b, x, y) => 1 - b[(y * w + x) * 4] / 255;
+  const bad = [];
+  const near = (a, b, t, what) => { if (a === null || Math.abs(a - b) > t) bad.push(`${what}: ${a} != ${b}`); };
+
+  const white = new Uint8Array(w * h * 4).fill(255);
+  if (Math.abs(occ(white, 50, 50)) > 1e-9) bad.push('white buffer is not 0 occlusion');
+  const grey = new Uint8Array(w * h * 4).fill(128);
+  if (Math.abs(occ(grey, 50, 50) - (1 - 128 / 255)) > 1e-9) bad.push('grey buffer misread');
+
+  // 1. A lobe on bare ground: 0.50 at the feet, linear to 0 at 2.0 m, no floor.
+  //    A tenth of the rise is 0.05, which the ramp reaches at 1.8 m.
+  const ramp = (peak, reach, floor) => {
+    const p = [];
+    for (let r = 0; r <= 4.0001; r += 0.1) {
+      p.push({ rM: +r.toFixed(2), occ: +(floor + Math.max(0, peak * (1 - r / reach))).toFixed(4) });
+    }
+    return p;
+  };
+  const bare = lobeFrom(ramp(0.50, 2.0, 0));
+  near(bare.lobeRadiusM, 1.8, 0.11, 'bare lobe radius');
+  near(bare.lobeBodyWidths, 1.8 / 0.41, 0.3, 'bare lobe in body widths');
+
+  // 2. THE REGRESSION. The same lobe standing on a 0.15 AO floor -- which is
+  //    what the real district gave the previous pass. Peak 0.65, background
+  //    0.15, so a tenth of the RISE is 0.20 and the answer is still 1.8 m. The
+  //    old rule looked for a tenth of the PEAK, 0.065, which is below the floor
+  //    and is never reached; that is exactly how a whole sweep came back empty.
+  const floored = ramp(0.50, 2.0, 0.15);
+  const onFloor = lobeFrom(floored);
+  near(onFloor.lobeRadiusM, 1.8, 0.11, 'floored lobe radius');
+  near(onFloor.backgroundOcc, 0.15, 0.005, 'floor detected as background');
+  near(onFloor.riseOverBackground, 0.50, 0.005, 'rise over background');
+  {
+    // and the retired rule, run here so the failure it caused is on the record:
+    const peak = floored[0].occ, cut = peak * 0.10;
+    const hit = floored.find((p) => p.rM >= 0.15 && p.occ <= cut);
+    if (hit) bad.push('peak-relative rule terminated on a floored profile; it should not');
   }
-  if (found === null || Math.abs(found - 18) > 1.0) bad.push(`lobe radius ${found} != 18`);
+
+  // 3. Nothing there: a flat profile must report NO lobe, not the search width.
+  const flat = lobeFrom(ramp(0, 2.0, 0.15));
+  if (flat.lobeRadiusM !== null) bad.push(`flat profile invented a lobe at ${flat.lobeRadiusM} m`);
+  near(flat.riseOverBackground, 0, 0.005, 'flat profile rise');
+
+  // 4. An empty profile must not throw and must not answer.
+  const none = lobeFrom([]);
+  if (none.lobeRadiusM !== null || none.contactOcc !== null) bad.push('empty profile answered');
+
+  // 5. The repeat guard has to fail on known-bad input, or it is decoration.
+  const same = repeatVerdict([['a', 0.100, 0.1005], ['b', 0.300, 0.2990]], 0.010);
+  if (!same.agreed) bad.push('repeat guard rejected two readings that agree');
+  const drift = repeatVerdict([['a', 0.100, 0.1005], ['b', 0.300, 0.2400]], 0.010);
+  if (drift.agreed) bad.push('repeat guard accepted a 0.060 drift');
+  if (drift.failed.join() !== 'b') bad.push(`repeat guard blamed ${drift.failed.join()} not b`);
+  const missing = repeatVerdict([['a', null, 0.10]], 0.010);
+  if (missing.agreed) bad.push('repeat guard accepted a missing reading');
+
   console.log(bad.length ? `SELFTEST FAILED: ${bad.join('; ')}` : 'SELFTEST PASSED');
   process.exit(bad.length ? 3 : 0);
 }
@@ -306,88 +393,357 @@ const subject = await page.evaluate(async (bodyW) => {
   const p0 = project(slot.x, slot.y, slot.z), p1 = project(slot.x + 0.5, slot.y, slot.z + 0.5);
   const mPerPx = Math.hypot(0.5, 0.5) / (Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1);
 
-  // --- OTHER CONTACTS. A bin and a bollard, found by their own geometry: walk
-  // out from the subject and keep the first two things standing on the pavement
-  // whose footprint is bin-sized and bollard-sized.
-  const contacts = [];
-  for (let along = 4; along <= 46 && contacts.length < 2; along += 0.6) {
-    for (const across of [6, 7, 8, 9, 10, 11, 12]) {
-      const x = a.x + fx * along + sx * across, z = a.z + fz * along + sz * across;
-      const g = probe(x, z);
-      if (!g || !onProps(g) || g.y < 0.25) continue;            // something standing
-      // Its footprint: how far the raised region extends.
-      let rad = 0;
-      for (const rr of [0.15, 0.25, 0.35, 0.5, 0.7]) {
-        let up = 0;
-        for (let k = 0; k < 8; k++) {
-          const th = (k / 8) * Math.PI * 2;
-          const q = probe(x + Math.cos(th) * rr, z + Math.sin(th) * rr);
-          if (q && q.y > 0.25) up++;
-        }
-        if (up >= 6) rad = rr; else break;
+  // ------------------------------------------------------------ visibility
+  // Every sample point below has to be a point the camera can actually SEE the
+  // ground at. A screen coordinate is not enough: a ring point 2 m behind the
+  // subject projects onto the subject's shirt, and a pavement point at the foot
+  // of a wall projects onto the parked car in front of it. Both would report
+  // some other object's occlusion as the number under test. So each candidate
+  // is shot at from the camera and kept only if the first thing the ray meets
+  // is the point itself.
+  const camPos = cam.position.clone();
+  const rc2 = new THREE.Raycaster();
+  const visible = (x, y, z, tol) => {
+    const to = new THREE.Vector3(x, y, z);
+    const d = to.clone().sub(camPos);
+    const len = d.length();
+    rc2.set(camPos, d.normalize());
+    rc2.far = len + 1;
+    const h = rc2.intersectObjects(ground, false);
+    rc2.far = Infinity;
+    return h.length > 0 && Math.abs(h[0].distance - len) <= (tol ?? 0.20);
+  };
+  // The crowd is excluded from `ground` (its meshes are instanced and raycasting
+  // 96 peds x 8 bones per sample would cost minutes), so the subject's own body
+  // is rejected by arithmetic instead: it fills a screen column rising from its
+  // feet, and nothing on the pavement behind it is visible through that column.
+  const footPx = slot.screen;
+  const headPx = project(slot.x, slot.y + 1.85, slot.z);
+  const halfBodyPx = Math.abs(project(slot.x + 0.42, slot.y, slot.z).x - footPx.x) + 3;
+  const behindSubject = (p) => p.y < footPx.y + 2 && p.y > headPx.y - 6
+    && Math.abs(p.x - footPx.x) < halfBodyPx;
+
+  // ------------------------------------------------------------- LOBE RINGS
+  // TRUE circles on the brick, not circles on the screen. The pavement is seen
+  // at a grazing angle, so a screen-space circle is an ellipse on the ground
+  // and the "radius" it reports is two different distances depending on which
+  // way you look. These rings are laid out in metres at the subject's feet and
+  // then projected, and every point is checked to be flat, prop-free sidewalk
+  // at the subject's own height before it is kept: a ring point that lands on a
+  // kerb, a tree pit or a bin base would report that object's occlusion as the
+  // pedestrian's halo. Out to 4 m, which is 9.8 body widths -- comfortably past
+  // the 2.2 m kernel, so the profile has somewhere to flatten out.
+  const rings = [];
+  const ringCensus = { tried: 0, offSidewalk: 0, notFlat: 0, onProps: 0, offScreen: 0,
+    behind: 0, occluded: 0, kept: 0 };
+  for (let rm = 0; rm <= 4.0001; rm += 0.1) {
+    const pts = [];
+    const N = rm < 0.05 ? 1 : Math.max(8, Math.round(rm * 16));
+    for (let k = 0; k < N; k++) {
+      ringCensus.tried++;
+      const th = (k / N) * Math.PI * 2 + 0.19;
+      const x = slot.x + Math.cos(th) * rm, z = slot.z + Math.sin(th) * rm;
+      if (rm > 0.05) {
+        const q = probe(x, z);
+        if (!q) { ringCensus.offSidewalk++; continue; }
+        if (onProps(q)) { ringCensus.onProps++; continue; }
+        if (q.mat !== 'sidewalk') { ringCensus.offSidewalk++; continue; }
+        if (Math.abs(q.y - slot.y) > 0.06) { ringCensus.notFlat++; continue; }
       }
-      if (rad < 0.1) continue;
-      const base = probe(x + 0.45, z + 0.45);      // pavement just beside it
-      if (!base || base.y > 0.30) continue;
-      const p = project(x, base.y, z);
-      if (p.x < 60 || p.x > 1540 || p.y < 380 || p.y > 860 || p.z > 1) continue;
-      if (contacts.some((c) => Math.hypot(c.x - x, c.z - z) < 3)) continue;
-      contacts.push({ kind: rad >= 0.25 ? 'bin-sized' : 'bollard-sized', radiusM: rad,
-        x, z, y: base.y, screen: p });
-      if (contacts.length >= 2) break;
+      const p = project(x, slot.y, z);
+      if (p.z > 1 || p.x < 6 || p.x > 1594 || p.y < 6 || p.y > 894) { ringCensus.offScreen++; continue; }
+      if (rm > 0.05 && behindSubject(p)) { ringCensus.behind++; continue; }
+      if (rm > 0.05 && !visible(x, slot.y, z, 0.25)) { ringCensus.occluded++; continue; }
+      ringCensus.kept++;
+      pts.push([+p.x.toFixed(1), +p.y.toFixed(1)]);
+    }
+    rings.push({ rM: +rm.toFixed(2), n: pts.length, pts });
+  }
+
+  // ------------------------------------------------------- REAL CONTACTS
+  // A bin base and a bollard base, found from the props meshes' OWN VERTICES.
+  // The dressing pass merges every prop in a bucket into one mesh, so there is
+  // no per-object node to look up and no transform to read; what there is, is
+  // world-space vertices. A previous pass walked a 0.6 m ground grid hunting
+  // for something raised, and found two bollards and no bin in 46 m of kerb --
+  // not because there is no bin but because a 0.64 m-wide bin is smaller than
+  // the grid that was looking for it. Vertices cannot be stepped over.
+  //
+  // Connected components on a 0.20 m plan grid: props stand further apart than
+  // that, so one component is one object. Its plan extent then says what it is.
+  // src/streetfurniture.js: a bin is a 6-sided prism of radius 0.29-0.32 and
+  // 1.06 m tall, a bollard 0.115-0.098 and ~1.0 m, a hydrant 0.19 and 0.81 m.
+  const propMeshes = [];
+  scene.traverse((o) => { if (o.isMesh && o.visible && /^props:/.test(o.name)) propMeshes.push(o); });
+  const cellOf = (x, z) => `${Math.round(x / 0.2)},${Math.round(z / 0.2)}`;
+  const cells = new Map();
+  let vertsRead = 0;
+  for (const m of propMeshes) {
+    const c = m.userData && m.userData.c;
+    if (c && Math.hypot(c.x - camPos.x, c.z - camPos.z) > 80) continue;
+    const pa = m.geometry.getAttribute('position');
+    if (!pa) continue;
+    m.updateMatrixWorld();
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pa.count; i += 1) {
+      v.fromBufferAttribute(pa, i).applyMatrix4(m.matrixWorld);
+      if (Math.hypot(v.x - camPos.x, v.z - camPos.z) > 55) continue;
+      vertsRead++;
+      const k = cellOf(v.x, v.z);
+      let e = cells.get(k);
+      if (!e) cells.set(k, (e = { n: 0, x0: 1e9, x1: -1e9, z0: 1e9, z1: -1e9, y0: 1e9, y1: -1e9 }));
+      e.n++;
+      if (v.x < e.x0) e.x0 = v.x; if (v.x > e.x1) e.x1 = v.x;
+      if (v.z < e.z0) e.z0 = v.z; if (v.z > e.z1) e.z1 = v.z;
+      if (v.y < e.y0) e.y0 = v.y; if (v.y > e.y1) e.y1 = v.y;
+    }
+  }
+  const seen = new Set();
+  const comps = [];
+  for (const k of cells.keys()) {
+    if (seen.has(k)) continue;
+    const stack = [k]; seen.add(k);
+    const c = { n: 0, x0: 1e9, x1: -1e9, z0: 1e9, z1: -1e9, y0: 1e9, y1: -1e9 };
+    while (stack.length) {
+      const cur = stack.pop(), e = cells.get(cur);
+      c.n += e.n;
+      if (e.x0 < c.x0) c.x0 = e.x0; if (e.x1 > c.x1) c.x1 = e.x1;
+      if (e.z0 < c.z0) c.z0 = e.z0; if (e.z1 > c.z1) c.z1 = e.z1;
+      if (e.y0 < c.y0) c.y0 = e.y0; if (e.y1 > c.y1) c.y1 = e.y1;
+      const g = cur.split(',');
+      const gx = Number(g[0]), gz = Number(g[1]);
+      for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+        const nk = `${gx + dx},${gz + dz}`;
+        if (cells.has(nk) && !seen.has(nk)) { seen.add(nk); stack.push(nk); }
+      }
+    }
+    comps.push(c);
+  }
+  const contactCensus = { comps: comps.length, vertsRead, propMeshes: propMeshes.length,
+    binShaped: 0, bollardShaped: 0, rejectedNearRing: 0, rejectedFarRing: 0 };
+  const contacts = [];
+  const KINDS = [
+    { kind: 'bin', rMin: 0.24, rMax: 0.44, hMin: 0.80, hMax: 1.35 },
+    { kind: 'bollard', rMin: 0.07, rMax: 0.17, hMin: 0.75, hMax: 1.25 },
+  ];
+  const cand = [];
+  for (const c of comps) {
+    const rx = (c.x1 - c.x0) / 2, rz = (c.z1 - c.z0) / 2;
+    const rr = Math.max(rx, rz), hh = c.y1 - c.y0;
+    const K = KINDS.find((k) => rr >= k.rMin && rr <= k.rMax && hh >= k.hMin && hh <= k.hMax
+      && Math.min(rx, rz) > rr * 0.55);
+    if (!K) continue;
+    if (K.kind === 'bin') contactCensus.binShaped++; else contactCensus.bollardShaped++;
+    cand.push({ kind: K.kind, x: (c.x0 + c.x1) / 2, z: (c.z0 + c.z1) / 2, rM: +rr.toFixed(3),
+      hM: +hh.toFixed(2), baseY: c.y0,
+      dist: Math.hypot((c.x0 + c.x1) / 2 - camPos.x, (c.z0 + c.z1) / 2 - camPos.z) });
+  }
+  cand.sort((a, b) => a.dist - b.dist);
+  for (const K of ['bin', 'bollard']) {
+    for (const c of cand) {
+      if (c.kind !== K || contacts.some((q) => q.kind === K)) continue;
+      // A contact ring just clear of the footprint, and a background ring 2.2 m
+      // out. The contact number is the DIFFERENCE: how much darker the AO pass
+      // makes the pavement where it meets the object than the same pavement
+      // two metres away. That is a within-frame ratio, so it survives whatever
+      // the daylight round does to exposure.
+      const ringAt = (rad) => {
+        const out = [];
+        for (let k = 0; k < 24; k++) {
+          const th = (k / 24) * Math.PI * 2;
+          const x = c.x + Math.cos(th) * rad, z = c.z + Math.sin(th) * rad;
+          const g = probe(x, z);
+          if (!g || onProps(g) || Math.abs(g.y - c.baseY) > 0.12) continue;
+          const p = project(x, g.y, z);
+          if (p.z > 1 || p.x < 6 || p.x > 1594 || p.y < 6 || p.y > 894) continue;
+          if (!visible(x, g.y, z, 0.25)) continue;
+          out.push([+p.x.toFixed(1), +p.y.toFixed(1)]);
+        }
+        return out;
+      };
+      const near = ringAt(c.rM + 0.14), far = ringAt(c.rM + 2.2);
+      if (near.length < 5) { contactCensus.rejectedNearRing++; continue; }
+      if (far.length < 5) { contactCensus.rejectedFarRing++; continue; }
+      contacts.push({ kind: K, radiusM: c.rM, heightM: c.hM, dist: +c.dist.toFixed(1),
+        near, far });
+      break;
     }
   }
 
-  // --- WALL / PAVEMENT JUNCTIONS, geometric and plural. For every facing wall
-  // segment within 60 m, a pair of ground points 0.10 m and 1.50 m out from the
-  // wall, and a pair of wall points 0.10 m and 1.50 m up.
+  // -------------------------------------------- WALL / PAVEMENT, geometrically
+  // The previous finder returned 0 pairs and the reason was a bad outward test:
+  // it decided which side of a wall segment was outdoors by probing 1.5 m each
+  // way and taking the side that hit ground. The ground mesh runs UNDER the
+  // buildings, so both sides hit ground, both tests failed, and every segment
+  // was skipped. The building footprint is a polygon and this is a point-in-
+  // polygon question, so it is now answered as one, exactly.
+  const inRing = (ring, x, z) => {
+    let c = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0], zi = ring[i][1], xj = ring[j][0], zj = ring[j][1];
+      if (((zi > z) !== (zj > z)) && (x < ((xj - xi) * (z - zi)) / (zj - zi) + xi)) c = !c;
+    }
+    return c;
+  };
   const junctions = [];
-  const chunkKeys = new Set();
+  const jCensus = { chunks: 0, buildings: 0, edges: 0, tooShort: 0, tooFar: 0, noGround: 0,
+    offScreen: 0, tooClose: 0, occluded: 0, kept: 0 };
+  const cs = D.district.meta.chunkSize;
+  const ccx = Math.floor(camPos.x / cs), ccz = Math.floor(camPos.z / cs);
+  const bSeen = new Set();
+  outerJ:
   for (let ddx = -1; ddx <= 1; ddx++) for (let ddz = -1; ddz <= 1; ddz++) {
-    const [cx, cz] = D.world.keyOf(cam.position.x + ddx * 100, cam.position.z + ddz * 100).split(',').map(Number);
-    chunkKeys.add(`${cx},${cz}`);
-  }
-  for (const key of chunkKeys) {
-    const c = D.district.chunks[key];
+    const c = D.district.chunks[`${ccx + ddx},${ccz + ddz}`];
     if (!c) continue;
+    jCensus.chunks++;
     for (const bi of c.buildings) {
+      if (bSeen.has(bi)) continue;
+      bSeen.add(bi); jCensus.buildings++;
       const ring = D.district.buildings[bi].p;
-      for (let i = 0; i < ring.length && junctions.length < 40; i++) {
+      for (let i = 0; i < ring.length; i++) {
+        jCensus.edges++;
         const A = ring[i], B = ring[(i + 1) % ring.length];
+        const ex = B[0] - A[0], ez = B[1] - A[1], el = Math.hypot(ex, ez);
+        if (el < 2.5) { jCensus.tooShort++; continue; }
         const mx = (A[0] + B[0]) / 2, mz = (A[1] + B[1]) / 2;
-        const ex = B[0] - A[0], ez = B[1] - A[1];
-        const el = Math.hypot(ex, ez);
-        if (el < 4) continue;
+        if (Math.hypot(mx - camPos.x, mz - camPos.z) > 55) { jCensus.tooFar++; continue; }
         let nx2 = -ez / el, nz2 = ex / el;
-        // Outward: the side whose 1.5 m point is ground rather than inside.
-        const t1 = probe(mx + nx2 * 1.5, mz + nz2 * 1.5);
-        const t2 = probe(mx - nx2 * 1.5, mz - nz2 * 1.5);
-        const outIsPlus = t1 && t1.y < 0.3 && (!t2 || t2.y >= 0.3);
-        const outIsMinus = t2 && t2.y < 0.3 && (!t1 || t1.y >= 0.3);
-        if (!outIsPlus && !outIsMinus) continue;
-        if (outIsMinus) { nx2 = -nx2; nz2 = -nz2; }
-        const near = probe(mx + nx2 * 0.10, mz + nz2 * 0.10);
-        const far = probe(mx + nx2 * 1.50, mz + nz2 * 1.50);
-        if (!near || !far || near.y > 0.30 || far.y > 0.30) continue;
-        const pn = project(mx + nx2 * 0.10, near.y, mz + nz2 * 0.10);
-        const pf = project(mx + nx2 * 1.50, far.y, mz + nz2 * 1.50);
-        // Both ends visible, and far enough apart on screen to be separate reads.
-        if (pn.z > 1 || pf.z > 1) continue;
-        if (pn.x < 40 || pn.x > 1560 || pn.y < 200 || pn.y > 880) continue;
-        if (pf.x < 40 || pf.x > 1560 || pf.y < 200 || pf.y > 880) continue;
-        if (Math.hypot(pn.x - pf.x, pn.y - pf.y) < 6) continue;
-        // The wall pair: the same spot 0.10 m and 1.50 m up the face.
-        const wLo = project(mx + nx2 * 0.02, near.y + 0.10, mz + nz2 * 0.02);
-        const wHi = project(mx + nx2 * 0.02, near.y + 1.50, mz + nz2 * 0.02);
-        junctions.push({ bi, groundNear: pn, groundFar: pf, wallLo: wLo, wallHi: wHi,
-          dist: +Math.hypot(mx - cam.position.x, mz - cam.position.z).toFixed(1) });
+        if (inRing(ring, mx + nx2 * 0.5, mz + nz2 * 0.5)) { nx2 = -nx2; nz2 = -nz2; }
+        const nearP = [mx + nx2 * 0.12, mz + nz2 * 0.12];
+        const farP = [mx + nx2 * 1.80, mz + nz2 * 1.80];
+        const gn = probe(nearP[0], nearP[1]), gf = probe(farP[0], farP[1]);
+        if (!gn || !gf || gn.y > 0.45 || gf.y > 0.45 || onProps(gn) || onProps(gf)) {
+          jCensus.noGround++; continue;
+        }
+        const pn = project(nearP[0], gn.y, nearP[1]);
+        const pf = project(farP[0], gf.y, farP[1]);
+        if (pn.z > 1 || pf.z > 1
+          || pn.x < 20 || pn.x > 1580 || pn.y < 30 || pn.y > 890
+          || pf.x < 20 || pf.x > 1580 || pf.y < 30 || pf.y > 890) { jCensus.offScreen++; continue; }
+        // The AO target is HALF resolution. Two samples less than 16 screen
+        // pixels apart are 8 apart in the buffer and the depth-aware blur has
+        // already mixed them, so a pair that close measures its own blur.
+        if (Math.hypot(pn.x - pf.x, pn.y - pf.y) < 16) { jCensus.tooClose++; continue; }
+        if (!visible(nearP[0], gn.y, nearP[1], 0.30) || !visible(farP[0], gf.y, farP[1], 0.30)) {
+          jCensus.occluded++; continue;
+        }
+        const wLo = project(mx + nx2 * 0.03, gn.y + 0.25, mz + nz2 * 0.03);
+        const wHi = project(mx + nx2 * 0.03, gn.y + 2.20, mz + nz2 * 0.03);
+        const wallOk = wLo.z <= 1 && wHi.z <= 1 && wLo.x > 20 && wLo.x < 1580
+          && wHi.x > 20 && wHi.x < 1580 && wHi.y > 20 && wLo.y < 890
+          && Math.hypot(wLo.x - wHi.x, wLo.y - wHi.y) >= 16;
+        jCensus.kept++;
+        junctions.push({ bi, groundNear: pn, groundFar: pf,
+          wallLo: wallOk ? wLo : null, wallHi: wallOk ? wHi : null,
+          dist: +Math.hypot(mx - camPos.x, mz - camPos.z).toFixed(1) });
+        if (junctions.length >= 60) break outerJ;
+      }
+    }
+  }
+
+  // --------------------------------------------------- FACADE DEPTH, by ray
+  // AO's real job. src/facades.js builds windows with BUILT DEPTH: the glazing
+  // plane sits `depth.reveal` behind the wall face -- 0.10 m on the cheapest
+  // recipe, 0.34 m on the deepest -- with jambs returning to it and a head
+  // shelf over it. Those are the features a contact-scale kernel exists to
+  // find, and they are the reason a small radius might not be free.
+  //
+  // Rather than trust a footprint to say where a window is, this SCANS: rows of
+  // rays across a facade, each one recording how far behind the wall plane it
+  // landed. A pixel 0.06-0.65 m behind the modal plane is inside a reveal; a
+  // pixel on the plane is flush wall; a downward-facing hit is a head shelf or
+  // a cornice soffit. Then the AO buffer is read at each class. If the reveal
+  // does not read darker than the wall beside it, the kernel is not doing the
+  // one thing that is not a halo.
+  const facadeSamples = { reveal: [], flush: [], soffit: [] };
+  const fCensus = { coarseRays: 0, wallHits: 0, chosen: null, fineRays: 0, mode: null };
+  {
+    const nm = new THREE.Matrix3();
+    const wallHit = (px, py, objs) => {
+      const ndc = new THREE.Vector2((px / 1600) * 2 - 1, -(py / 900) * 2 + 1);
+      rc2.setFromCamera(ndc, cam);
+      const h = rc2.intersectObjects(objs || ground, false);
+      if (!h.length) return null;
+      const n = h[0].face
+        ? h[0].face.normal.clone().applyNormalMatrix(nm.getNormalMatrix(h[0].object.matrixWorld)).normalize()
+        : new THREE.Vector3(0, 1, 0);
+      return { obj: h[0].object, p: h[0].point.clone(), n, d: h[0].distance };
+    };
+    // Coarse: where is there a facade, and which mesh is it?
+    const tally = new Map();
+    for (let py = 90; py <= 560; py += 47) {
+      for (let px = 120; px <= 1480; px += 68) {
+        fCensus.coarseRays++;
+        const h = wallHit(px, py);
+        if (!h || Math.abs(h.n.y) > 0.35 || h.d < 7 || h.d > 45) continue;
+        fCensus.wallHits++;
+        const key = `${h.obj.id}|${Math.round(h.n.x * 4)},${Math.round(h.n.z * 4)}`;
+        let t = tally.get(key);
+        if (!t) tally.set(key, (t = { obj: h.obj, n: h.n.clone(), p0: h.p.clone(), pts: [], sumD: 0 }));
+        t.pts.push([px, py]); t.sumD += h.d;
+      }
+    }
+    let best = null;
+    for (const t of tally.values()) {
+      const score = t.pts.length - (t.sumD / t.pts.length) / 12;
+      if (t.pts.length >= 4 && (!best || score > best.score)) best = Object.assign({ score }, t);
+    }
+    if (best) {
+      const cx = best.pts.reduce((a, p) => a + p[0], 0) / best.pts.length;
+      const cy = best.pts.reduce((a, p) => a + p[1], 0) / best.pts.length;
+      fCensus.chosen = { mesh: best.obj.name || `#${best.obj.id}`, hits: best.pts.length,
+        meanDist: +(best.sumD / best.pts.length).toFixed(1), cx: Math.round(cx), cy: Math.round(cy),
+        normal: [+best.n.x.toFixed(2), +best.n.y.toFixed(2), +best.n.z.toFixed(2)] };
+      // Fine scan on that mesh alone: rays are far cheaper when they do not have
+      // to be tested against the whole district.
+      const objs = [best.obj];
+      const raw = [];
+      for (let dy = -150; dy <= 150; dy += 25) {
+        const py = Math.round(cy + dy);
+        if (py < 20 || py > 720) continue;
+        for (let px = Math.max(20, Math.round(cx) - 330); px <= Math.min(1580, Math.round(cx) + 330); px += 3) {
+          fCensus.fineRays++;
+          const h = wallHit(px, py, objs);
+          if (!h) { raw.push(null); continue; }
+          raw.push({ px, py, off: h.p.clone().sub(best.p0).dot(best.n), ny: h.n.y, d: h.d });
+        }
+        raw.push(null);
+      }
+      // The wall plane is the mode of the offsets, to 2 cm.
+      const hist = new Map();
+      for (const r of raw) { if (!r) continue; const b = Math.round(r.off / 0.02); hist.set(b, (hist.get(b) || 0) + 1); }
+      let mode = 0, mBest = -1;
+      for (const kv of hist) if (kv[1] > mBest) { mBest = kv[1]; mode = kv[0] * 0.02; }
+      fCensus.mode = +mode.toFixed(3);
+      const cls = raw.map((r) => {
+        if (!r) return null;
+        const rel = r.off - mode;
+        if (r.ny < -0.45) return 'soffit';
+        if (rel < -0.055 && rel > -0.65) return 'reveal';
+        if (Math.abs(rel) < 0.025 && Math.abs(r.ny) < 0.35) return 'flush';
+        return 'other';
+      });
+      // Keep only pixels whose neighbours agree, so a sample sits INSIDE its
+      // class rather than on the transition the half-res blur smears.
+      for (let i = 0; i < raw.length; i++) {
+        const c = cls[i];
+        if (!c || c === 'other') continue;
+        let ok = true;
+        for (const dOff of [-4, -3, -2, 2, 3, 4]) {
+          const j = i + dOff;
+          if (j < 0 || j >= cls.length || cls[j] !== c) { ok = false; break; }
+        }
+        if (ok) facadeSamples[c].push([raw[i].px, raw[i].py]);
       }
     }
   }
 
   return {
     ok: true, pedIdx: idx, slot, mPerPx: +mPerPx.toFixed(5), bodyWidthPx: +(bodyW / mPerPx).toFixed(1),
-    contacts, junctions,
+    rings, ringCensus, contacts, contactCensus, junctions, jCensus,
+    facade: { samples: facadeSamples, census: fCensus,
+      counts: { reveal: facadeSamples.reveal.length, flush: facadeSamples.flush.length,
+        soffit: facadeSamples.soffit.length } },
     sunElevDeg: +((Math.asin(L.y) * 180) / Math.PI).toFixed(2),
     cam: { x: +cam.position.x.toFixed(2), y: +cam.position.y.toFixed(2), z: +cam.position.z.toFixed(2) },
     alive: P.aliveCount,
@@ -398,15 +754,45 @@ if (!subject.ok) { console.error('subject failed:', subject.why); await browser.
 console.log(`subject at (${subject.slot.x.toFixed(1)}, ${subject.slot.z.toFixed(1)}) ` +
   `screen (${subject.slot.screen.x.toFixed(0)}, ${subject.slot.screen.y.toFixed(0)}), ` +
   `${subject.mPerPx.toFixed(4)} m/px, body = ${subject.bodyWidthPx} px`);
-console.log(`contacts: ${subject.contacts.map((c) => `${c.kind} r=${c.radiusM}`).join(', ') || 'none found'}`);
-console.log(`wall/pavement junction pairs: ${subject.junctions.length}`);
+{
+  // Every acquisition reports a census, so a metric that comes back empty says
+  // WHY it is empty. Three of five came back empty on the previous run and the
+  // reasons were all in target acquisition, none of them in the reading.
+  const rc = subject.ringCensus;
+  console.log(`lobe rings: ${subject.rings.filter((r) => r.n > 0).length}/${subject.rings.length} usable, ` +
+    `${rc.kept}/${rc.tried} points kept (off-sidewalk ${rc.offSidewalk}, not-flat ${rc.notFlat}, ` +
+    `props ${rc.onProps}, off-screen ${rc.offScreen}, behind subject ${rc.behind}, occluded ${rc.occluded})`);
+  const cc = subject.contactCensus;
+  console.log(`contacts: ${subject.contacts.map((c) => `${c.kind} r=${c.radiusM} h=${c.heightM} at ${c.dist} m ` +
+    `(${c.near.length} contact / ${c.far.length} background points)`).join(', ') || 'NONE'}` +
+    `  [${cc.comps} components from ${cc.vertsRead} vertices in ${cc.propMeshes} prop meshes; ` +
+    `${cc.binShaped} bin-shaped, ${cc.bollardShaped} bollard-shaped]`);
+  const jc = subject.jCensus;
+  console.log(`wall/pavement pairs: ${subject.junctions.length}` +
+    `  [${jc.buildings} buildings in ${jc.chunks} chunks, ${jc.edges} edges: too short ${jc.tooShort}, ` +
+    `too far ${jc.tooFar}, no ground ${jc.noGround}, off screen ${jc.offScreen}, too close ${jc.tooClose}, ` +
+    `occluded ${jc.occluded}]`);
+  const f = subject.facade;
+  console.log(`facade depth scan: ${f.counts.reveal} reveal, ${f.counts.flush} flush, ${f.counts.soffit} soffit px` +
+    `  [${f.census.wallHits}/${f.census.coarseRays} coarse wall hits, ${f.census.fineRays} fine rays, ` +
+    `wall plane at ${f.census.mode}` +
+    (f.census.chosen ? `, ${f.census.chosen.mesh} at ${f.census.chosen.meanDist} m` : ', NO FACADE CHOSEN') + ']');
+}
 
 const settle = async () => {
   const f0 = await page.evaluate(() => __district.frames);
   await page.waitForFunction((f) => __district.frames > f + 3, f0, { timeout: 600000, polling: 200 });
 };
 
-/** Read the AO buffer and reduce it to this round's numbers. */
+/**
+ * Read the AO buffer and reduce it to this round's numbers.
+ *
+ * Everything here is a DIFFERENCE OR A RATIO INSIDE ONE BUFFER. The absolute
+ * level of the AO term moves with intensity and strength by construction, so
+ * "the halo is 0.28" says nothing on its own; what says something is how far
+ * out the halo is still above the pavement around it, and how much darker a
+ * reveal is than the wall 30 cm to its left in the same frame.
+ */
 async function readAO(subj) {
   return page.evaluate((S) => {
     const D = __district, post = D.post, r = D.renderer;
@@ -421,6 +807,11 @@ async function readAO(subj) {
       if (bx < 0 || by < 0 || bx >= w || by >= h) return null;
       return 1 - buf[(by * w + bx) * 4] / 255;
     };
+    const meanAt = (pts) => {
+      let s = 0, n = 0;
+      for (const p of pts) { const v = occAt(p[0], p[1]); if (v !== null) { s += v; n++; } }
+      return n ? { occ: s / n, n } : { occ: null, n: 0 };
+    };
     const discOcc = (x, y, rpx) => {
       let s = 0, n = 0;
       for (let dy = -rpx; dy <= rpx; dy++) for (let dx = -rpx; dx <= rpx; dx++) {
@@ -431,75 +822,134 @@ async function readAO(subj) {
       return n ? s / n : null;
     };
 
-    // --- radial lobe on the ground around the subject's feet, 16 azimuths.
-    const base = S.slot.screen;
+    // ------------------------------------------------------------- THE LOBE
+    // The profile only. The reduction from profile to lobe radius happens in
+    // lobeFrom() in the Node half of this file, so --selftest exercises the
+    // real code rather than a copy of it that could drift away from it.
     const prof = [];
-    for (let rm = 0; rm <= 3.0001; rm += 0.1) {
-      const rpx = rm / S.mPerPx;
-      let s = 0, n = 0;
-      for (let k = 0; k < 16; k++) {
-        const th = (k / 16) * Math.PI * 2;
-        const v = occAt(base.x + Math.cos(th) * rpx, base.y + Math.sin(th) * rpx * 0.5);
-        if (v !== null) { s += v; n++; }
-      }
-      if (n) prof.push({ rM: +rm.toFixed(2), occ: +(s / n).toFixed(4) });
+    for (const ring of S.rings) {
+      if (!ring.n) continue;
+      const m = meanAt(ring.pts);
+      if (m.occ === null) continue;
+      prof.push({ rM: ring.rM, occ: +m.occ.toFixed(4), n: m.n });
     }
-    const peak = prof.length ? prof[0].occ : 0;
-    let lobeM = null;
-    for (const p of prof) { if (p.occ <= peak * 0.10) { lobeM = p.rM; break; } }
-
     const out = {
       bufferSize: [w, h],
       frameMeanOcc: +(() => { let s = 0; for (let i = 0; i < w * h; i++) s += 1 - buf[i * 4] / 255; return s / (w * h); })().toFixed(4),
-      lobe: { profile: prof, contactOcc: +peak.toFixed(4), lobeRadiusM: lobeM,
-        lobeBodyWidths: lobeM === null ? null : +(lobeM / 0.41).toFixed(2) },
-      footOcc: +(discOcc(base.x, base.y, Math.max(2, 0.12 / S.mPerPx)) ?? 0).toFixed(4),
-      contacts: S.contacts.map((c) => ({ kind: c.kind,
-        occ: +(discOcc(c.screen.x, c.screen.y, 3) ?? 0).toFixed(4) })),
+      lobe: { profile: prof },
+      footOcc: +(discOcc(S.slot.screen.x, S.slot.screen.y, Math.max(2, 0.12 / S.mPerPx)) ?? 0).toFixed(4),
     };
-    // --- junctions: near-wall minus open ground, and low-wall minus high-wall.
-    let gn = 0, gf = 0, wl = 0, wh = 0, n = 0;
+
+    // --------------------------------------------------------- REAL CONTACTS
+    // Contact ring minus background ring, both on the same pavement in the same
+    // frame. This is the number that says whether the object is bedded in.
+    out.contacts = S.contacts.map((c) => {
+      const a = meanAt(c.near), b = meanAt(c.far);
+      return { kind: c.kind, radiusM: c.radiusM, dist: c.dist,
+        contactOcc: a.occ === null ? null : +a.occ.toFixed(4),
+        backgroundOcc: b.occ === null ? null : +b.occ.toFixed(4),
+        contactRise: (a.occ === null || b.occ === null) ? null : +(a.occ - b.occ).toFixed(4) };
+    });
+
+    // ------------------------------------------------- WALL / PAVEMENT CREASE
+    let gn = 0, gf = 0, n = 0, wl = 0, wh = 0, wn = 0;
     for (const j of S.junctions) {
       const a = discOcc(j.groundNear.x, j.groundNear.y, 2);
       const b = discOcc(j.groundFar.x, j.groundFar.y, 2);
-      const c = discOcc(j.wallLo.x, j.wallLo.y, 2);
-      const d = discOcc(j.wallHi.x, j.wallHi.y, 2);
-      if (a === null || b === null || c === null || d === null) continue;
-      gn += a; gf += b; wl += c; wh += d; n++;
+      if (a !== null && b !== null) { gn += a; gf += b; n++; }
+      if (j.wallLo && j.wallHi) {
+        const c = discOcc(j.wallLo.x, j.wallLo.y, 2), d = discOcc(j.wallHi.x, j.wallHi.y, 2);
+        if (c !== null && d !== null) { wl += c; wh += d; wn++; }
+      }
     }
     out.junction = n ? {
       pairs: n,
-      groundNearWall: +(gn / n).toFixed(4), groundOpen: +(gf / n).toFixed(4),
-      groundCrevice: +((gn - gf) / n).toFixed(4),
-      wallLow: +(wl / n).toFixed(4), wallHigh: +(wh / n).toFixed(4),
-      wallCrevice: +((wl - wh) / n).toFixed(4),
+      groundAtWall: +(gn / n).toFixed(4), groundOpen: +(gf / n).toFixed(4),
+      groundCrease: +((gn - gf) / n).toFixed(4),
+      wallPairs: wn,
+      wallLow: wn ? +(wl / wn).toFixed(4) : null, wallHigh: wn ? +(wh / wn).toFixed(4) : null,
+      wallCrease: wn ? +((wl - wh) / wn).toFixed(4) : null,
     } : null;
+
+    // ----------------------------------------------------------- THE REVEAL
+    const F = S.facade.samples;
+    const rv = meanAt(F.reveal), fl = meanAt(F.flush), so = meanAt(F.soffit);
+    out.facade = {
+      revealOcc: rv.occ === null ? null : +rv.occ.toFixed(4), revealPx: rv.n,
+      flushOcc: fl.occ === null ? null : +fl.occ.toFixed(4), flushPx: fl.n,
+      soffitOcc: so.occ === null ? null : +so.occ.toFixed(4), soffitPx: so.n,
+      revealContrast: (rv.occ === null || fl.occ === null) ? null : +(rv.occ - fl.occ).toFixed(4),
+      soffitContrast: (so.occ === null || fl.occ === null) ? null : +(so.occ - fl.occ).toFixed(4),
+    };
     return out;
   }, subj);
 }
 
+const apply = async (c) => page.evaluate((cc) => {
+  const p = __district.postParams();
+  p.aoRadius = cc.radius; p.aoIntensity = cc.intensity; p.aoStrength = cc.strength;
+  p.aoEnabled = true;
+  return { aoRadius: p.aoRadius, aoIntensity: p.aoIntensity, aoStrength: p.aoStrength };
+}, c);
+
+const fmt = (v, d = 3) => (v === null || v === undefined ? ' n/a' : v.toFixed(d));
+const line = (c, ao) => {
+  const j = ao.junction || {}, f = ao.facade || {}, l = ao.lobe;
+  return `r=${String(c.radius).padStart(4)} i=${c.intensity} s=${c.strength}  ` +
+    `lobe ${l.lobeRadiusM === null ? ' n/a' : l.lobeRadiusM.toFixed(1)} m = ` +
+    `${l.lobeBodyWidths === null ? ' n/a' : l.lobeBodyWidths.toFixed(1).padStart(4)} bw  ` +
+    `rise ${fmt(l.riseOverBackground)}  foot ${fmt(ao.footOcc)}  ` +
+    `contacts ${ao.contacts.map((q) => `${q.kind[0]}${fmt(q.contactRise)}`).join(' ')}  ` +
+    `crease g${fmt(j.groundCrease)} w${fmt(j.wallCrease)}  ` +
+    `reveal ${fmt(f.revealContrast)}  soffit ${fmt(f.soffitContrast)}  ` +
+    `frame ${fmt(ao.frameMeanOcc)}`;
+};
+
+// ---------------------------------------------------------------- the guard
+// The instrument this replaced was retired for reading three different numbers
+// off one unchanged parameter set, so this one is required to prove it does
+// not. The first combination is measured, the whole sweep is run, and then the
+// first combination is measured AGAIN at the end. If those two disagree by
+// more than REPEAT_TOL on any headline number the sweep is void, and it says
+// so rather than reporting a difference it cannot support.
+const REPEAT_TOL = 0.010;
 const results = [];
 for (const c of COMBOS) {
-  const applied = await page.evaluate((cc) => {
-    const p = __district.postParams();
-    p.aoRadius = cc.radius; p.aoIntensity = cc.intensity; p.aoStrength = cc.strength;
-    p.aoEnabled = true;
-    return { aoRadius: p.aoRadius, aoIntensity: p.aoIntensity, aoStrength: p.aoStrength };
-  }, c);
+  const applied = await apply(c);
   await settle();
   const ao = await readAO(subject);
   results.push({ ...c, applied, ao });
-  const j = ao.junction || {};
-  console.log(`r=${String(c.radius).padStart(4)} i=${c.intensity} s=${c.strength}  ` +
-    `lobe ${String(ao.lobe.lobeRadiusM).padStart(4)} m = ${String(ao.lobe.lobeBodyWidths).padStart(5)} body widths   ` +
-    `foot ${ao.footOcc.toFixed(3)}   ` +
-    `contacts ${ao.contacts.map((q) => `${q.kind[0]}:${q.occ.toFixed(3)}`).join(' ')}   ` +
-    `crevice ground ${(j.groundCrevice ?? 0).toFixed(3)} wall ${(j.wallCrevice ?? 0).toFixed(3)}   ` +
-    `frame ${ao.frameMeanOcc.toFixed(3)}`);
+  console.log(line(c, ao));
+}
+
+let repeat = null;
+if (COMBOS.length) {
+  const c = COMBOS[0];
+  await apply(c);
+  await settle();
+  const ao = await readAO(subject);
+  const first = results[0].ao;
+  const keys = [
+    ['frameMeanOcc', first.frameMeanOcc, ao.frameMeanOcc],
+    ['footOcc', first.footOcc, ao.footOcc],
+    ['lobeRise', first.lobe.riseOverBackground, ao.lobe.riseOverBackground],
+    ['revealContrast', first.facade.revealContrast, ao.facade.revealContrast],
+    ['groundCrease', first.junction && first.junction.groundCrease, ao.junction && ao.junction.groundCrease],
+  ];
+  const bad = keys.filter(([, a, b]) => a === null || b === null || Math.abs(a - b) > REPEAT_TOL);
+  repeat = { combo: c, tolerance: REPEAT_TOL,
+    keys: keys.map(([k, a, b]) => ({ k, first: a, again: b, delta: (a === null || b === null) ? null : +(b - a).toFixed(4) })),
+    agreed: bad.length === 0 };
+  console.log(`\nREPEAT of r=${c.radius} i=${c.intensity} s=${c.strength}: ` +
+    keys.map(([k, a, b]) => `${k} ${fmt(a, 4)}->${fmt(b, 4)}`).join('  '));
+  console.log(repeat.agreed
+    ? `REPEAT AGREES within ${REPEAT_TOL} on all five. The sweep stands.`
+    : `REPEAT DISAGREES on ${bad.map((b) => b[0]).join(', ')} -- THE SWEEP IS VOID.`);
 }
 
 fs.writeFileSync(`docs/ao-sweep-${TAG}.json`, JSON.stringify(
-  { tag: TAG, tod: TOD, peds: PEDS, port: PORT, camera: placed, subject, results, errors }, null, 1));
+  { tag: TAG, tod: TOD, peds: PEDS, port: PORT, camera: placed, subject, results, repeat, errors }, null, 1));
 console.log(`\nwrote docs/ao-sweep-${TAG}.json`);
 if (errors.length) console.log('PAGE ERRORS:', errors);
 await browser.close();
+if (repeat && !repeat.agreed) process.exit(3);
