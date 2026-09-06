@@ -120,6 +120,14 @@ const PEDS = Number(arg('peds', 96));
 const SELFTEST = has('selftest');
 const W = 1600, H = 900;
 const BODY_W = 0.41;              // shoulder width, src/pedestrians.js SHOULDER_X * 2
+// The two hero framings, verbatim from tools/hero-shots.mjs. fivepoints is the
+// one with sunlit brick and a crowd on it; corridor stands 55 m the other way
+// down the same axis with the shopfront row filling more of the frame.
+const CAMS = {
+  fivepoints: { name: 'fivepoints', wpA: 3, wpB: 4, back: 26, side: 7, height: 3.0, fov: 48, tgtY: 12, fwd: 200 },
+  corridor: { name: 'corridor', wpA: 3, wpB: 4, back: -55, side: 0, height: 2.4, fov: 55, tgtY: 16, fwd: 260 },
+};
+const CAM = CAMS[arg('cam', 'fivepoints')] || CAMS.fivepoints;
 
 // radius, intensity, strength. The first row is what ships today.
 // RADIUS AND CONTRAST AS A PAIR, which they are: a smaller hemisphere finds
@@ -309,8 +317,8 @@ const placed = await page.evaluate((cfg) => {
     [a.x + (dx / len) * cfg.fwd, cfg.tgtY, a.z + (dz / len) * cfg.fwd], cfg.fov);
   for (let i = 0; i < 900; i++) __district.world.update(__district.vehicle.position);
   return { x: +px.toFixed(1), z: +pz.toFixed(1) };
-}, { wpA: 3, wpB: 4, back: 26, side: 7, height: 3.0, fov: 48, tgtY: 12, fwd: 200 });
-console.log(`fivepoints camera at (${placed.x}, ${placed.z})`);
+}, CAM);
+console.log(`${CAM.name} camera at (${placed.x}, ${placed.z})`);
 {
   let last = -1, stable = 0;
   for (let i = 0; i < 80 && stable < 3; i++) {
@@ -347,21 +355,36 @@ const subject = await page.evaluate(async (bodyW) => {
   const rc = new THREE.Raycaster();
   const down = new THREE.Vector3(0, -1, 0);
   const L = new THREE.Vector3().copy(D.tod.sun.position).sub(D.tod.sun.target.position).normalize();
-  // THE LOWEST HIT IS THE GROUND, not the first one. A ray dropped from y = 8
-  // over the pavement at the foot of a shopfront meets the awning first, and
-  // taking that as "the ground" and finding it 3 m up is how the wall/pavement
-  // finder threw away 64 of the 111 edges within range. So the whole hit list
-  // is kept: `y`/`mat`/`name` are the LOWEST surface, and `topName`/`topY` are
-  // whatever stands over it, which some callers want to reject and some do not.
+  // THE FIRST HIT IS NOT THE GROUND AND NEITHER IS THE LOWEST. A ray dropped
+  // from y = 8 over the pavement at a shopfront meets the AWNING first, and
+  // calling that the ground is how the wall/pavement finder threw away 64 of
+  // the 111 edges in range. But the lowest hit is not it either: streaming.js
+  // lays a land pad 0.05 m under the district and the chunk's paving sits on
+  // top of it, so "lowest" is the pad, whose material is not 'sidewalk', and
+  // taking that made the whole bench search fail with "no clear sunlit brick
+  // slot in frame".
+  //
+  // What the caller wants is THE SURFACE YOU WOULD STAND ON: the highest hit
+  // that is still within half a metre of the lowest one. Above that is
+  // overhead, and whether overhead matters depends on the caller -- the lobe
+  // wants open sky over bare brick, the wall/pavement crease is happy under an
+  // awning because the awning is part of what it is measuring.
   const probe = (x, z) => {
     rc.set(new THREE.Vector3(x, 8, z), down);
     const h = rc.intersectObjects(ground, false);
     if (!h.length) return null;
-    let lo = 0;
-    for (let i = 1; i < h.length; i++) if (h[i].point.y < h[lo].point.y) lo = i;
-    return { y: h[lo].point.y, mat: (h[lo].object.material && h[lo].object.material.name) || '',
-      name: h[lo].object.name || '',
-      topY: h[0].point.y, topName: h[0].object.name || '', hits: h.length };
+    let loY = Infinity;
+    for (const q of h) if (q.point.y < loY) loY = q.point.y;
+    let s = -1;
+    for (let i = 0; i < h.length; i++) {
+      if (h[i].point.y > loY + 0.5) continue;
+      if (s < 0 || h[i].point.y > h[s].point.y) s = i;
+    }
+    if (s < 0) return null;
+    return { y: h[s].point.y, mat: (h[s].object.material && h[s].object.material.name) || '',
+      name: h[s].object.name || '', padY: loY,
+      topY: h[0].point.y, topName: h[0].object.name || '',
+      overhead: h[0].point.y > h[s].point.y + 0.5, hits: h.length };
   };
   const sunlit = (x, y, z) => {
     rc.set(new THREE.Vector3(x, y + 0.25, z), L);
@@ -379,7 +402,7 @@ const subject = await page.evaluate(async (bodyW) => {
   // over bare brick, so it rejects both. The wall/pavement crease does not care
   // what is overhead -- an awning above a doorway is part of the thing being
   // measured -- so it only asks onProps().
-  const cluttered = (g) => !g || onProps(g) || /^props:/.test(g.topName) || g.topY > g.y + 0.05;
+  const cluttered = (g) => !g || onProps(g) || g.overhead;
 
   // A clear, sunlit patch of the reviewers' own brick, in the lower half of the
   // frame where a lobe is resolvable. Searched over the sidewalk in front of the
@@ -662,7 +685,12 @@ const subject = await page.evaluate(async (bodyW) => {
         const A = ring[i], B = ring[(i + 1) % ring.length];
         const ex = B[0] - A[0], ez = B[1] - A[1], el = Math.hypot(ex, ez);
         if (el < 2.5) { jCensus.tooShort++; continue; }
-        const mx = (A[0] + B[0]) / 2, mz = (A[1] + B[1]) / 2;
+        // FOUR STATIONS ALONG EACH EDGE, not just the midpoint. A 30 m frontage
+        // seen from an oblique camera has its midpoint off the side of the
+        // frame while both of its thirds are in shot; sampling only midpoints
+        // rejected 80 of 95 in-range edges as off-screen and kept three pairs.
+        for (const t of [0.2, 0.4, 0.6, 0.8]) {
+        const mx = A[0] + ex * t, mz = A[1] + ez * t;
         // 130 m, not 55: at 55 m this rejected 261 of 306 edges and kept ONE
         // pair. Distance is the wrong filter here anyway -- what matters is
         // whether the camera can see the pavement at the foot of the wall, and
@@ -699,6 +727,7 @@ const subject = await page.evaluate(async (bodyW) => {
           wallLo: wallOk ? wLo : null, wallHi: wallOk ? wHi : null,
           dist: +Math.hypot(mx - camPos.x, mz - camPos.z).toFixed(1) });
         if (junctions.length >= 60) break outerJ;
+        }
       }
     }
   }
@@ -718,7 +747,8 @@ const subject = await page.evaluate(async (bodyW) => {
   // does not read darker than the wall beside it, the kernel is not doing the
   // one thing that is not a halo.
   const facadeSamples = { reveal: [], flush: [], soffit: [] };
-  const fCensus = { coarseRays: 0, wallHits: 0, chosen: null, fineRays: 0, mode: null };
+  const fCensus = { coarseRays: 0, wallHits: 0, groups: 0, probeRays: 0, chosen: null,
+    candidates: [], fineRays: 0, mode: null };
   {
     const nm = new THREE.Matrix3();
     const wallHit = (px, py, objs) => {
@@ -731,13 +761,13 @@ const subject = await page.evaluate(async (bodyW) => {
         : new THREE.Vector3(0, 1, 0);
       return { obj: h[0].object, p: h[0].point.clone(), n, d: h[0].distance };
     };
-    // Coarse: where is there a facade, and which mesh is it?
+    // Coarse: where is there a facade, and which mesh and which way is it facing?
     const tally = new Map();
-    for (let py = 90; py <= 560; py += 47) {
-      for (let px = 120; px <= 1480; px += 68) {
+    for (let py = 90; py <= 600; py += 34) {
+      for (let px = 100; px <= 1500; px += 44) {
         fCensus.coarseRays++;
         const h = wallHit(px, py);
-        if (!h || Math.abs(h.n.y) > 0.35 || h.d < 7 || h.d > 45) continue;
+        if (!h || Math.abs(h.n.y) > 0.35 || h.d < 7 || h.d > 55) continue;
         fCensus.wallHits++;
         const key = `${h.obj.id}|${Math.round(h.n.x * 4)},${Math.round(h.n.z * 4)}`;
         let t = tally.get(key);
@@ -745,65 +775,124 @@ const subject = await page.evaluate(async (bodyW) => {
         t.pts.push([px, py]); t.sumD += h.d;
       }
     }
+    fCensus.groups = tally.size;
+
+    // ------------------------------------------------------ CHOOSE BY DEPTH
+    // Not by how much wall is on screen. src/facades.js spends built depth only
+    // on the frontages named in the chunk's plan and only on edges over 4.5 m:
+    // "detailing all of them tripled the streamed geometry and blew the chunk-
+    // build deadline for faces nobody ever sees", so party walls and rear
+    // elevations keep the flat painted quad they always had. Choosing the
+    // biggest wall on screen chose one of those -- 2737 fine-scan hits on the
+    // retailStrip and EVERY ONE at the same offset, a single-bin histogram.
+    //
+    // Worse, the run before that reported 451 reveal pixels off the same wall,
+    // because the modal plane was then computed across two meshes at different
+    // depths and the second building's face landed inside the reveal window.
+    // That number was a plane separation between two buildings, not a reveal.
+    // So each candidate is now PROBED for depth before one is chosen, and the
+    // winner is the wall with the most pixels genuinely recessed behind its own
+    // modal plane by a window reveal's worth: 0.06 to 0.60 m.
+    const probe1D = (t) => {
+      const xs = t.pts.map((p) => p[0]), ys = t.pts.map((p) => p[1]);
+      const cx = Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
+      const cy = Math.round(ys.reduce((a, b) => a + b, 0) / ys.length);
+      const x0 = Math.max(20, Math.min(...xs) - 120), x1 = Math.min(1580, Math.max(...xs) + 120);
+      const offs = [];
+      for (const py of [cy - 40, cy, cy + 40]) {
+        if (py < 20 || py > 760) continue;
+        for (let px = x0; px <= x1; px += 4) {
+          fCensus.probeRays++;
+          const h = wallHit(px, py, [t.obj]);
+          if (!h) continue;
+          offs.push(h.p.clone().sub(t.p0).dot(t.n));
+        }
+      }
+      if (offs.length < 40) return { cx, cy, x0, x1, n: offs.length, mode: 0, recessed: 0 };
+      const hist = new Map();
+      for (const o of offs) { const b = Math.round(o / 0.02); hist.set(b, (hist.get(b) || 0) + 1); }
+      let mode = 0, mBest = -1;
+      for (const kv of hist) if (kv[1] > mBest) { mBest = kv[1]; mode = kv[0] * 0.02; }
+      let recessed = 0;
+      for (const o of offs) { const rel = o - mode; if (rel < -0.055 && rel > -0.60) recessed++; }
+      return { cx, cy, x0, x1, n: offs.length, mode: +mode.toFixed(3), recessed };
+    };
     let best = null;
     for (const t of tally.values()) {
-      const score = t.pts.length - (t.sumD / t.pts.length) / 12;
-      if (t.pts.length >= 4 && (!best || score > best.score)) best = Object.assign({ score }, t);
+      if (t.pts.length < 3) continue;
+      // A FACADE, and nothing else. The first depth-ranked run picked an
+      // unnamed mesh 26 m out with 27 recessed pixels, ahead of two real
+      // facades: a parked car or a signage assembly has more depth variation
+      // than a window reveal and none of it is a window reveal.
+      if (!/:facade:/.test(t.obj.name || '')) continue;
+      const pr = probe1D(t);
+      fCensus.candidates.push({ mesh: t.obj.name || `#${t.obj.id}`,
+        normal: [+t.n.x.toFixed(2), +t.n.z.toFixed(2)], coarseHits: t.pts.length,
+        meanDist: +(t.sumD / t.pts.length).toFixed(1), probed: pr.n, recessed: pr.recessed });
+      if (!best || pr.recessed > best.pr.recessed) best = Object.assign({ pr }, t);
     }
-    if (best) {
-      const cx = best.pts.reduce((a, p) => a + p[0], 0) / best.pts.length;
-      const cy = best.pts.reduce((a, p) => a + p[1], 0) / best.pts.length;
-      fCensus.chosen = { mesh: best.obj.name || `#${best.obj.id}`, hits: best.pts.length,
-        meanDist: +(best.sumD / best.pts.length).toFixed(1), cx: Math.round(cx), cy: Math.round(cy),
-        normal: [+best.n.x.toFixed(2), +best.n.y.toFixed(2), +best.n.z.toFixed(2)] };
-      // Fine scan on that facade and its SIBLINGS in the same chunk: rays are
-      // far cheaper when they are not tested against the whole district, but
-      // src/facades.js puts cornices and awnings in a separate trim mesh from
-      // the wall they hang on (one extra draw call per near chunk, by design),
-      // and scanning the wall alone found 0 soffit pixels because every awning
-      // in front of it was in the other mesh.
-      const prefix = (best.obj.name || '').replace(/:[^:]*$/, ':');
-      const objs = prefix
-        ? ground.filter((o) => (o.name || '').startsWith(prefix.replace(/facade:$/, '')))
-        : [best.obj];
+    fCensus.candidates.sort((a, b) => b.recessed - a.recessed);
+
+    if (best && best.pr.recessed >= 8) {
+      const { cx, cy, x0, x1 } = best.pr;
+      fCensus.chosen = { mesh: best.obj.name || `#${best.obj.id}`, coarseHits: best.pts.length,
+        meanDist: +(best.sumD / best.pts.length).toFixed(1), cx, cy,
+        normal: [+best.n.x.toFixed(2), +best.n.y.toFixed(2), +best.n.z.toFixed(2)],
+        recessedInProbe: best.pr.recessed };
+      // The fine scan runs against that facade AND everything else in the same
+      // chunk, so a reveal hidden behind the awning in front of it is not
+      // counted as a reveal that reads -- but the depth CLASSES are only
+      // applied to hits on the chosen wall itself, because another building's
+      // face is not this facade's reveal however far behind this plane it sits.
+      const prefix = (best.obj.name || '').replace(/:[^:]*$/, ':').replace(/facade:$/, '');
+      const objs = prefix ? ground.filter((o) => (o.name || '').startsWith(prefix)) : [best.obj];
       if (!objs.includes(best.obj)) objs.push(best.obj);
       fCensus.scanMeshes = objs.map((o) => o.name || `#${o.id}`);
       const raw = [];
-      // 12 px between rows, not 25: a head shelf over a window is 0.16 m deep,
-      // which at 13 m is 11 screen pixels, and 25-pixel rows stepped over every
-      // one of them -- 0 soffit samples on the first attempt.
-      for (let dy = -156; dy <= 156; dy += 12) {
+      // 12 px between rows: a head shelf over a window is 0.16 m deep, which at
+      // 13 m is 11 screen pixels, and 25-pixel rows stepped over all of them.
+      for (let dy = -216; dy <= 216; dy += 10) {
         const py = Math.round(cy + dy);
-        if (py < 20 || py > 720) continue;
-        for (let px = Math.max(20, Math.round(cx) - 330); px <= Math.min(1580, Math.round(cx) + 330); px += 3) {
+        if (py < 20 || py > 760) continue;
+        for (let px = x0; px <= x1; px += 3) {
           fCensus.fineRays++;
           const h = wallHit(px, py, objs);
           if (!h) { raw.push(null); continue; }
-          raw.push({ px, py, off: h.p.clone().sub(best.p0).dot(best.n), ny: h.n.y, d: h.d });
+          raw.push({ px, py, off: h.p.clone().sub(best.p0).dot(best.n), ny: h.n.y, d: h.d,
+            wall: h.obj === best.obj, mesh: h.obj.name || `#${h.obj.id}` });
         }
         raw.push(null);
       }
-      // The wall plane is the mode of the offsets, to 2 cm.
       const hist = new Map();
-      for (const r of raw) { if (!r) continue; const b = Math.round(r.off / 0.02); hist.set(b, (hist.get(b) || 0) + 1); }
+      for (const r of raw) {
+        if (!r || !r.wall) continue;
+        const b = Math.round(r.off / 0.02); hist.set(b, (hist.get(b) || 0) + 1);
+      }
       let mode = 0, mBest = -1;
       for (const kv of hist) if (kv[1] > mBest) { mBest = kv[1]; mode = kv[0] * 0.02; }
       fCensus.mode = +mode.toFixed(3);
+      fCensus.byMesh = {};
+      for (const r of raw) { if (r) fCensus.byMesh[r.mesh] = (fCensus.byMesh[r.mesh] || 0) + 1; }
+      fCensus.offHist = [...hist.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12)
+        .map(([b, n]) => [+(b * 0.02 - mode).toFixed(2), n]);
       const cls = raw.map((r) => {
         if (!r) return null;
-        const rel = r.off - mode;
         if (r.ny < -0.35) return 'soffit';
+        if (!r.wall) return 'other';
+        const rel = r.off - mode;
         if (rel < -0.055 && rel > -0.65) return 'reveal';
         if (Math.abs(rel) < 0.025 && Math.abs(r.ny) < 0.35) return 'flush';
         return 'other';
       });
       // Keep only pixels whose neighbours agree, so a sample sits INSIDE its
-      // class rather than on the transition the half-res blur smears.
+      // class rather than on the transition the half-res blur smears. Three
+      // pixels either side at a 3-px step is 9 screen pixels, which is 4-5 in
+      // the half-resolution AO target the blur ran over.
       for (let i = 0; i < raw.length; i++) {
         const c = cls[i];
         if (!c || c === 'other') continue;
         let ok = true;
-        for (const dOff of [-4, -3, -2, 2, 3, 4]) {
+        for (const dOff of [-3, -2, -1, 1, 2, 3]) {
           const j = i + dOff;
           if (j < 0 || j >= cls.length || cls[j] !== c) { ok = false; break; }
         }
@@ -848,9 +937,26 @@ console.log(`subject at (${subject.slot.x.toFixed(1)}, ${subject.slot.z.toFixed(
     `occluded ${jc.occluded}]`);
   const f = subject.facade;
   console.log(`facade depth scan: ${f.counts.reveal} reveal, ${f.counts.flush} flush, ${f.counts.soffit} soffit px` +
-    `  [${f.census.wallHits}/${f.census.coarseRays} coarse wall hits, ${f.census.fineRays} fine rays, ` +
-    `wall plane at ${f.census.mode}` +
-    (f.census.chosen ? `, ${f.census.chosen.mesh} at ${f.census.chosen.meanDist} m` : ', NO FACADE CHOSEN') + ']');
+    `  [${f.census.wallHits}/${f.census.coarseRays} coarse hits in ${f.census.groups} wall groups, ` +
+    `${f.census.probeRays} depth-probe rays, ${f.census.fineRays} fine rays` +
+    (f.census.chosen
+      ? `, chose ${f.census.chosen.mesh} at ${f.census.chosen.meanDist} m with ` +
+        `${f.census.chosen.recessedInProbe} recessed probe px`
+      : ', NO FACADE WITH BUILT DEPTH FOUND') + ']');
+  console.log(`  depth candidates: ${(f.census.candidates || []).slice(0, 6)
+    .map((c) => `${c.mesh.replace(/^chunk:[^:]*:lod\d+:/, '')}@${c.meanDist}m ${c.recessed}/${c.probed}`).join('  ') || 'none'}`);
+  if (f.census.offHist) console.log(`  offsets from the wall plane (m, px): ${JSON.stringify(f.census.offHist)}`);
+}
+
+// --acquire stops here. Finding the targets is the part that needs iterating
+// and the sweep behind it is thirteen settles long, so there is a way to check
+// the census without paying for the measurement.
+if (has('acquire')) {
+  fs.writeFileSync(`docs/ao-sweep-${TAG}-acquire.json`, JSON.stringify({ tag: TAG, subject, errors }, null, 1));
+  console.log(`\nacquire only: wrote docs/ao-sweep-${TAG}-acquire.json`);
+  if (errors.length) console.log('PAGE ERRORS:', errors);
+  await browser.close();
+  process.exit(0);
 }
 
 const settle = async () => {
