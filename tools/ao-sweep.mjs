@@ -1168,6 +1168,7 @@ for (const c of COMBOS) {
   const applied = await apply(c);
   await settle();
   const ao = await readAO(subject);
+  Object.assign(ao.lobe, lobeFrom(ao.lobe.profile, 0.10, 3.0, BODY_W));
   results.push({ ...c, applied, ao });
   console.log(line(c, ao));
 }
@@ -1178,6 +1179,7 @@ if (COMBOS.length) {
   await apply(c);
   await settle();
   const ao = await readAO(subject);
+  Object.assign(ao.lobe, lobeFrom(ao.lobe.profile, 0.10, 3.0, BODY_W));
   const first = results[0].ao;
   const keys = [
     ['frameMeanOcc', first.frameMeanOcc, ao.frameMeanOcc],
