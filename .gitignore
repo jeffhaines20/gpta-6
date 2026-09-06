@@ -80,6 +80,13 @@ docs/shots/pane-tint/look/
 docs/shots/cs-*.png
 docs/shots/csaz-*.png
 
+# Glazing-round hero frames: two full sets of six at 1.6-1.9 MB, regenerable
+# from tools/hero-shots.mjs with HERO_TAG=glazing-{before,after} plus the two
+# audit JSONs beside them, which ARE tracked. The matched crops the finding is
+# actually read from are docs/shots/glazing-ab-*, and those stay.
+docs/shots/glazing-before-*.png
+docs/shots/glazing-after-*.png
+
 # whitebox-repeat.mjs's capture set: N full frames per run, 1.9 MB each, and the
 # finding is in docs/whitebox-repeat-*.json rather than in any one of them.
 docs/shots/repeat/

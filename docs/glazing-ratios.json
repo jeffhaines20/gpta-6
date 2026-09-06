@@ -1,0 +1,379 @@
+{
+ "what": "Glazing reflectance round: facade-atlas panes and trim-atlas shopfronts, measured as exposure-invariant ratios so the numbers survive the daylight round's +0.60 stop.",
+ "view": "fivepoints hero framing, 1600x900, tools/glaz-probe.mjs",
+ "masks": {
+  "glass": "facade material AND smooth+metallic packed texel (pane-audit's isGlassTexel)",
+  "shop": "trim material AND pane-stats' isTrimGlass texel - the storefront glazing storefrontBays draws",
+  "sky": "the mask scan pass: pixels no drawable covers"
+ },
+ "baselines": {
+  "preDaylightRound": "this worktree at c7b549a; noon 1/33,500",
+  "postDaylightRound": "rebased onto b7f677b, i.e. after 281affa and cd4ac32; noon 1/22,222"
+ },
+ "arms": {
+  "preDaylight.before": {
+   "noon": {
+    "exposure": 0.000029850746268656717,
+    "exposureStop": "1/33500",
+    "glassOverSky": 0.173,
+    "glassOverWall": 0.437,
+    "upperGlassOverWall": 1.675,
+    "headOverCillInPane": 0.944,
+    "grazingBin": {
+     "glass": 60.757,
+     "wall": 61.747
+    },
+    "clippedGlassPct": 0,
+    "linearBR": 1.005,
+    "shopOverSky": 0.244,
+    "shopOverWall": 0.707,
+    "shopHeadOverCill": 0.587,
+    "px": {
+     "glass": 101314,
+     "wall": 250029,
+     "sky": 363876,
+     "shop": 46884
+    }
+   },
+   "golden": {
+    "exposure": 0.00010363768266141569,
+    "exposureStop": "1/9649",
+    "glassOverSky": 0.213,
+    "glassOverWall": 0.476,
+    "upperGlassOverWall": 1.694,
+    "headOverCillInPane": 1.103,
+    "grazingBin": {
+     "glass": 85.658,
+     "wall": 86.185
+    },
+    "clippedGlassPct": 0,
+    "linearBR": 0.77,
+    "shopOverSky": 0.296,
+    "shopOverWall": 0.785,
+    "shopHeadOverCill": 1.064,
+    "px": {
+     "glass": 101314,
+     "wall": 250029,
+     "sky": 363876,
+     "shop": 46884
+    }
+   },
+   "dusk": {
+    "exposure": 0.0005136106831022085,
+    "exposureStop": "1/1947",
+    "glassOverSky": 0.182,
+    "glassOverWall": 0.458,
+    "upperGlassOverWall": 1.532,
+    "headOverCillInPane": 1.243,
+    "grazingBin": {
+     "glass": 62.098,
+     "wall": 71.007
+    },
+    "clippedGlassPct": 0,
+    "linearBR": 0.526,
+    "shopOverSky": 0.149,
+    "shopOverWall": 0.438,
+    "shopHeadOverCill": 0.763,
+    "px": {
+     "glass": 101314,
+     "wall": 250029,
+     "sky": 363876,
+     "shop": 46884
+    }
+   }
+  },
+  "preDaylight.shipped": {
+   "noon": {
+    "exposure": 0.000029850746268656717,
+    "exposureStop": "1/33500",
+    "glassOverSky": 0.251,
+    "glassOverWall": 0.651,
+    "upperGlassOverWall": 2.97,
+    "headOverCillInPane": 1.111,
+    "grazingBin": {
+     "glass": 81.688,
+     "wall": 61.956
+    },
+    "clippedGlassPct": 0,
+    "linearBR": 1.437,
+    "shopOverSky": 0.253,
+    "shopOverWall": 0.73,
+    "shopHeadOverCill": 0.6,
+    "px": {
+     "glass": 101314,
+     "wall": 250029,
+     "sky": 363876,
+     "shop": 46884
+    }
+   },
+   "golden": {
+    "exposure": 0.00010363768266141569,
+    "exposureStop": "1/9649",
+    "glassOverSky": 0.362,
+    "glassOverWall": 0.935,
+    "upperGlassOverWall": 5.522,
+    "headOverCillInPane": 1.197,
+    "grazingBin": {
+     "glass": 144.237,
+     "wall": 86.786
+    },
+    "clippedGlassPct": 0,
+    "linearBR": 1.029,
+    "shopOverSky": 0.298,
+    "shopOverWall": 0.792,
+    "shopHeadOverCill": 1.008,
+    "px": {
+     "glass": 101314,
+     "wall": 250029,
+     "sky": 363876,
+     "shop": 46884
+    }
+   },
+   "dusk": {
+    "exposure": 0.0005136106831022085,
+    "exposureStop": "1/1947",
+    "glassOverSky": 0.308,
+    "glassOverWall": 0.858,
+    "upperGlassOverWall": 3.614,
+    "headOverCillInPane": 1.336,
+    "grazingBin": {
+     "glass": 94.498,
+     "wall": 71.351
+    },
+    "clippedGlassPct": 0,
+    "linearBR": 0.658,
+    "shopOverSky": 0.148,
+    "shopOverWall": 0.435,
+    "shopHeadOverCill": 0.732,
+    "px": {
+     "glass": 101314,
+     "wall": 250029,
+     "sky": 363876,
+     "shop": 46884
+    }
+   }
+  },
+  "postDaylight.before": {
+   "noon": {
+    "exposure": 0.00004524886877828054,
+    "exposureStop": "1/22100",
+    "glassOverSky": 0.239,
+    "glassOverWall": 0.478,
+    "upperGlassOverWall": 1.574,
+    "headOverCillInPane": 0.944,
+    "grazingBin": {
+     "glass": 82.95,
+     "wall": 82.881
+    },
+    "clippedGlassPct": 0,
+    "linearBR": 0.925,
+    "shopOverSky": 0.344,
+    "shopOverWall": 0.856,
+    "shopHeadOverCill": 0.759,
+    "px": {
+     "glass": 136355,
+     "wall": 285107,
+     "sky": 363860,
+     "shop": 11439
+    }
+   },
+   "golden": {
+    "exposure": 0.00010363768266141569,
+    "exposureStop": "1/9649",
+    "glassOverSky": 0.229,
+    "glassOverWall": 0.479,
+    "upperGlassOverWall": 1.486,
+    "headOverCillInPane": 1.165,
+    "grazingBin": {
+     "glass": 82.615,
+     "wall": 85.64
+    },
+    "clippedGlassPct": 0,
+    "linearBR": 0.427,
+    "shopOverSky": 0.38,
+    "shopOverWall": 0.975,
+    "shopHeadOverCill": 0.826,
+    "px": {
+     "glass": 136355,
+     "wall": 285107,
+     "sky": 363860,
+     "shop": 11439
+    }
+   },
+   "dusk": {
+    "exposure": 0.0005136106831022085,
+    "exposureStop": "1/1947",
+    "glassOverSky": 0.175,
+    "glassOverWall": 0.459,
+    "upperGlassOverWall": 1.455,
+    "headOverCillInPane": 1.317,
+    "grazingBin": {
+     "glass": 61.487,
+     "wall": 69.562
+    },
+    "clippedGlassPct": 0,
+    "linearBR": 0.546,
+    "shopOverSky": 0.332,
+    "shopOverWall": 1.019,
+    "shopHeadOverCill": 0.838,
+    "px": {
+     "glass": 136355,
+     "wall": 285107,
+     "sky": 363860,
+     "shop": 11439
+    }
+   }
+  },
+  "postDaylight.shipped": {
+   "noon": {
+    "exposure": 0.00004524886877828054,
+    "exposureStop": "1/22100",
+    "glassOverSky": 0.331,
+    "glassOverWall": 0.714,
+    "upperGlassOverWall": 2.781,
+    "headOverCillInPane": 1.12,
+    "grazingBin": {
+     "glass": 109.562,
+     "wall": 83.15
+    },
+    "clippedGlassPct": 0,
+    "linearBR": 1.333,
+    "shopOverSky": 0.356,
+    "shopOverWall": 0.884,
+    "shopHeadOverCill": 0.792,
+    "px": {
+     "glass": 136355,
+     "wall": 285107,
+     "sky": 363860,
+     "shop": 11439
+    }
+   },
+   "golden": {
+    "exposure": 0.00010363768266141569,
+    "exposureStop": "1/9649",
+    "glassOverSky": 0.383,
+    "glassOverWall": 0.934,
+    "upperGlassOverWall": 4.784,
+    "headOverCillInPane": 1.235,
+    "grazingBin": {
+     "glass": 145.829,
+     "wall": 86.306
+    },
+    "clippedGlassPct": 0,
+    "linearBR": 0.535,
+    "shopOverSky": 0.396,
+    "shopOverWall": 1.011,
+    "shopHeadOverCill": 0.868,
+    "px": {
+     "glass": 136355,
+     "wall": 285107,
+     "sky": 363860,
+     "shop": 11439
+    }
+   },
+   "dusk": {
+    "exposure": 0.0005136106831022085,
+    "exposureStop": "1/1947",
+    "glassOverSky": 0.303,
+    "glassOverWall": 0.892,
+    "upperGlassOverWall": 3.468,
+    "headOverCillInPane": 1.382,
+    "grazingBin": {
+     "glass": 96.869,
+     "wall": 69.919
+    },
+    "clippedGlassPct": 0,
+    "linearBR": 0.684,
+    "shopOverSky": 0.342,
+    "shopOverWall": 1.044,
+    "shopHeadOverCill": 0.868,
+    "px": {
+     "glass": 136355,
+     "wall": 285107,
+     "sky": 363860,
+     "shop": 11439
+    }
+   }
+  }
+ },
+ "ratioOfRatios": {
+  "noon": {
+   "glassOverSky": {
+    "preDaylight": 1.451,
+    "postDaylight": 1.385
+   },
+   "glassOverWall": {
+    "preDaylight": 1.49,
+    "postDaylight": 1.494
+   },
+   "upperGlassOverWall": {
+    "preDaylight": 1.773,
+    "postDaylight": 1.767
+   },
+   "headOverCillInPane": {
+    "preDaylight": 1.177,
+    "postDaylight": 1.186
+   },
+   "shopOverWall": {
+    "preDaylight": 1.033,
+    "postDaylight": 1.033
+   },
+   "shopHeadOverCill": {
+    "preDaylight": 1.022,
+    "postDaylight": 1.043
+   }
+  },
+  "golden": {
+   "glassOverSky": {
+    "preDaylight": 1.7,
+    "postDaylight": 1.672
+   },
+   "glassOverWall": {
+    "preDaylight": 1.964,
+    "postDaylight": 1.95
+   },
+   "upperGlassOverWall": {
+    "preDaylight": 3.26,
+    "postDaylight": 3.219
+   },
+   "headOverCillInPane": {
+    "preDaylight": 1.085,
+    "postDaylight": 1.06
+   },
+   "shopOverWall": {
+    "preDaylight": 1.009,
+    "postDaylight": 1.037
+   },
+   "shopHeadOverCill": {
+    "preDaylight": 0.947,
+    "postDaylight": 1.051
+   }
+  },
+  "dusk": {
+   "glassOverSky": {
+    "preDaylight": 1.692,
+    "postDaylight": 1.731
+   },
+   "glassOverWall": {
+    "preDaylight": 1.873,
+    "postDaylight": 1.943
+   },
+   "upperGlassOverWall": {
+    "preDaylight": 2.359,
+    "postDaylight": 2.384
+   },
+   "headOverCillInPane": {
+    "preDaylight": 1.075,
+    "postDaylight": 1.049
+   },
+   "shopOverWall": {
+    "preDaylight": 0.993,
+    "postDaylight": 1.025
+   },
+   "shopHeadOverCill": {
+    "preDaylight": 0.959,
+    "postDaylight": 1.036
+   }
+  }
+ }
+}

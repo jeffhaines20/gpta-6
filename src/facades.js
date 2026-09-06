@@ -25,7 +25,7 @@
 // 1/tileU x 1/tileV and every building of that recipe shares one texture.
 
 import * as THREE from '../vendor/three.module.min.js';
-import { applyGlazingEnv } from './materials.js';
+import { applyGlazingEnv, applyStorefrontCoating } from './materials.js';
 
 // ---------------------------------------------------------------- determinism
 // Buildings must look the same on every load and in every session, so every
@@ -656,8 +656,12 @@ function drawOpening(L, rec, cell, r) {
   // Blinds. Three states, not two: none, half-drawn, and fully drawn. A fully
   // drawn blind still passes light at night, so it is stored on the cell rather
   // than punched out of the emissive the way Phase 1 did it.
+  // Hoisted, because the reveal shading below has to punch the blind back into
+  // its clip and needs the height this actually drew - not a re-rolled one. A
+  // second r() here would also shift every subsequent draw in the panel.
+  let bh = 0;
   if (cell.blind > 0) {
-    const bh = cell.blind === 2 ? gh : gh * (0.28 + r() * 0.34);
+    bh = cell.blind === 2 ? gh : gh * (0.28 + r() * 0.34);
     al.g.fillStyle = cell.blind === 2 ? 'rgba(216,208,192,0.88)' : 'rgba(198,192,178,0.8)';
     al.g.fillRect(gx, gy, gw, bh);
     al.g.strokeStyle = 'rgba(120,114,102,0.35)';
@@ -686,6 +690,43 @@ function drawOpening(L, rec, cell, r) {
   // gradient on one side only (light comes from one direction), and a bright sill
   // with its own drop shadow. It is baked into albedo rather than left to aoMap
   // because aoMap needs a uv1 attribute the streamer does not currently emit.
+  //
+  // IT MUST NOT REACH THE GLASS, AND FOR THREE ROUNDS IT DID. A pane is written
+  // at metalness 0.80-0.88 twenty lines above, and three.js builds
+  //
+  //   material.specularColor = mix( vec3( 0.04 ), diffuseColor.rgb, metalness )
+  //
+  // so on a pane this albedo is not a shade over a diffuse surface - it IS the
+  // mirror's reflectance. Painted at full strength over the top 42% of the
+  // opening it took the coating the recipe authors (157,151,145 -> F0 0.290) down
+  // to 157*0.38 = 60 -> F0 0.044 at the head: a 6.6x cut in how much sky a pane
+  // can return, deepest exactly where a pane returns the most of it. That is the
+  // whole of the "vertical profile is backwards - dark at the head, bright at the
+  // cill" that three independent reviewers measured off the frame and read, quite
+  // reasonably, as ambient occlusion on a diffuse surface. It was ambient
+  // occlusion, on a mirror.
+  //
+  // It is also why the environment term already in the shader did not show:
+  // applyGlazingEnv was compiled, bound and directionally correct (glaz-probe:
+  // 4 programs carry it, and pane radiance tracks reflected elevation), and it
+  // was being multiplied by an F0 six times too small. Measured, both halves, in
+  // tools/glass-f0.mjs (atlas) and tools/glaz-probe.mjs (frame).
+  //
+  // So the masonry keeps this and the glazing does not. The fill is clipped to
+  // the reveal - the opening rect with the glazing punched out of it, even-odd -
+  // and a drawn blind is punched back IN, because a blind is cloth and does want
+  // its lintel shadow. Three rects, odd crossings inside: reveal 1, glass 2,
+  // blind 3.
+  al.g.save();
+  al.g.beginPath();
+  al.g.rect(x, y, w, h);
+  if (rec.shape !== 'deck') {
+    // A parking deck is a hole, not glazing: its cell is rough and dielectric, so
+    // its albedo really is a diffuse surface and really does want the occlusion.
+    al.g.rect(gx, gy, gw, gh);
+    if (bh > 0) al.g.rect(gx, gy, gw, bh);
+  }
+  al.g.clip('evenodd');
   const head = al.g.createLinearGradient(0, y, 0, y + h * 0.42);
   head.addColorStop(0, 'rgba(0,0,0,0.62)');
   head.addColorStop(1, 'rgba(0,0,0,0)');
@@ -697,6 +738,28 @@ function drawOpening(L, rec, cell, r) {
   jamb.addColorStop(1, 'rgba(0,0,0,0)');
   al.g.fillStyle = jamb;
   al.g.fillRect(x, y, w * 0.3, h);
+  al.g.restore();
+
+  // The pane's own share of it, at the depth of the actual reveal instead of at
+  // 42% of a storey. A pane set back behind a reveal does darken at its head and
+  // at its return jamb - but as a MIRROR, because what it reflects there is the
+  // soffit and the jamb return rather than the sky, and the soffit is only
+  // `reveal` deep. So: the same cue, one order of magnitude smaller, and it
+  // stops at the band a 0.16 m reveal can actually subtend.
+  if (rec.shape !== 'deck' && bh < gh) {
+    const gy0 = gy + bh;
+    const soffitH = Math.min(gh - bh, rev * 2.6);
+    const soffit = al.g.createLinearGradient(0, gy0, 0, gy0 + soffitH);
+    soffit.addColorStop(0, 'rgba(0,0,0,0.30)');
+    soffit.addColorStop(1, 'rgba(0,0,0,0)');
+    al.g.fillStyle = soffit;
+    al.g.fillRect(gx, gy0, gw, soffitH);
+    const ret = al.g.createLinearGradient(gx, 0, gx + rev * 2.2, 0);
+    ret.addColorStop(0, 'rgba(0,0,0,0.20)');
+    ret.addColorStop(1, 'rgba(0,0,0,0)');
+    al.g.fillStyle = ret;
+    al.g.fillRect(gx, gy0, Math.min(gw, rev * 2.2), gh - bh);
+  }
 
   // Sill: proud of the wall, so it catches light on top and casts below.
   const sillH = Math.max(2, 5 * (L.P / 1024));
@@ -984,15 +1047,40 @@ function drawAccents(L, rec, cells, cols, rows, r, ex) {
         break;
       }
       case 'awningStub': {
-        // The shadow an awning throws on the wall, for the bays that have one.
+        // The shadow an awning throws ON THE WALL, for the bays that have one -
+        // and on the wall is the whole of it. This runs after every drawOpening,
+        // so at full strength it was also painting 0.45 black over the shopfront
+        // GLAZING of the ground floor, where albedo is F0 (see the long note in
+        // drawOpening) and a shadow is a 45% cut in the mirror. This is the same
+        // defect as the reveal gradient, one bay lower, and it lands on exactly
+        // the shopfront panes a street-level frame is mostly made of.
+        //
+        // The awning does darken the pane under it - a canopy soffit is what a
+        // shopfront reflects at an upward angle - so it is kept over the glass at
+        // a third of the strength, with the two-thirds difference falling only on
+        // the masonry. Same three-rect even-odd trick as the reveal.
+        const groundRow = (rows - 1) * cols;
         for (let i = 0; i < cols; i++) {
           if (((i * 7 + 3) % 5) > 2) continue;
           const y = P - fh * 0.82;
-          const g0 = al.g.createLinearGradient(0, y, 0, y + fh * 0.5);
-          g0.addColorStop(0, 'rgba(0,0,0,0.45)');
-          g0.addColorStop(1, 'rgba(0,0,0,0)');
-          al.g.fillStyle = g0;
-          al.g.fillRect(ex[i], y, ex[i + 1] - ex[i], fh * 0.5);
+          const glass = cells[groundRow + i];
+          const paint = (alpha) => {
+            const g0 = al.g.createLinearGradient(0, y, 0, y + fh * 0.5);
+            g0.addColorStop(0, `rgba(0,0,0,${alpha})`);
+            g0.addColorStop(1, 'rgba(0,0,0,0)');
+            al.g.fillStyle = g0;
+            al.g.fillRect(ex[i], y, ex[i + 1] - ex[i], fh * 0.5);
+          };
+          if (!glass || rec.shape === 'deck') { paint(0.45); continue; }
+          const rv = rec.win.reveal * (P / 1024);
+          al.g.save();
+          al.g.beginPath();
+          al.g.rect(ex[i], y, ex[i + 1] - ex[i], fh * 0.5);
+          al.g.rect(glass.x + rv, glass.y + rv, glass.w - rv * 2, glass.h - rv * 1.4);
+          al.g.clip('evenodd');
+          paint(0.45);
+          al.g.restore();
+          paint(0.15);
         }
         break;
       }
@@ -1575,11 +1663,33 @@ export function facadeMaterial(name, { time = 'night' } = {}) {
 export function trimMaterial() {
   return memo('mat:trim', () => {
     const t = trimMaps();
-    return new THREE.MeshStandardMaterial({
+    const m = new THREE.MeshStandardMaterial({
       name: 'trim',
       map: t.map, roughnessMap: t.rmMap, metalnessMap: t.rmMap,
       roughness: 1, metalness: 1, vertexColors: true,
     });
+    // THE DISTRICT'S SHOPFRONT GLASS IS ON THIS MATERIAL, and until now it had no
+    // reflectance model at all: `trim` was the one atlas material with no glazing
+    // patch on it (glaz-probe printed `trim=(none)` beside five patched facade
+    // materials, every round), so every recessed shop window storefrontBays draws
+    // reflected the bare sky dome and nothing of the street it stands in. That is
+    // the glass a street-level frame is mostly made of, and it is the glass a
+    // review round measured its "dark at the head, bright at the cill" profile
+    // down - see applyStorefrontCoating in materials.js, which has the numbers.
+    //
+    // The mask window is on ROUGHNESS here, not metalness. In this atlas the
+    // glazing cell (0.09, 0.45) is the only one under roughness 0.25, while
+    // mullion (0.30, 0.90), steel (0.38, 0.92), dark metal (0.44, 0.85) and
+    // louvre (0.50, 0.80) are all MORE metallic than the glass and none of them
+    // is a window. The facade atlas' default window would have caught all four.
+    const glassWindow = {
+      glassTexelsOnly: true, roughLo: 0.16, roughHi: 0.24, metalLo: 0.25, metalHi: 0.35,
+    };
+    applyStorefrontCoating(m, glassWindow);
+    // paneMetres is the shopfront module rather than the curtain-wall one: a Main
+    // Street bay is about 1.15 m of glass on a 2.6 m storey, which is what
+    // MaterialRegistry's own glassStorefront is built with.
+    return applyGlazingEnv(m, { ...glassWindow, paneMetres: [1.15, 2.6] });
   });
 }
 

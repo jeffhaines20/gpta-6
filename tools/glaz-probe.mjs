@@ -53,6 +53,11 @@ const VIEW_NAMES = (process.env.GLZ_VIEWS ?? 'towerA,towerB').split(',');
 // The viewport. Overridable because a view named `pano:<id>:<L|R>` has to be
 // captured at tools/pano-match.mjs' 4:3 frame or its fov means something else.
 const W = Number(process.env.GLZ_W ?? 1280), H = Number(process.env.GLZ_H ?? 720);
+// GLZ_PORT, for the same reason HERO_PORT exists: ensureServer() reuses a live
+// server, and 8123 belongs to whichever tree started it - normally the main one.
+// serve.mjs now refuses a foreign tree outright, so the default is safe rather
+// than silent, but a worktree run still needs a port of its own.
+const PORT = Number(process.env.GLZ_PORT ?? 8123);
 
 // Building 55: h 54.4 m, a 107 m glazed face, the largest unobstructed curtain
 // wall in the district. Chosen by tools' pick over every h >= 26 building (all of
@@ -68,6 +73,23 @@ const VIEWS = {
   // "pane sits at 0.82-0.84 of the wall" claim and the GLAZING contract's 64.5
   // were measured on, so the probe has to be able to stand in it.
   corridor: { cam: [3.69, 2.4, -1.93], target: [269.02, 16, -77.9], fov: 55 },
+  // THE TWO HERO FRAMINGS, so a glazing measurement lands on the pixels the
+  // review rounds are actually judged on. `corridor` above is the OLD, mis-sited
+  // hero camera (hero-shots.mjs records that every *-corridor-*.png committed
+  // before 2026-09-05 is that framing and is not comparable with anything after
+  // it); it is kept because the recorded 64.5 and the "0.82-0.84 of the wall"
+  // claim were measured in it.
+  //
+  // These two are hero-shots.mjs' own placement run offline against
+  // data/district.json: route waypoint 3 (Five Points, 57.45, -163.82) to
+  // waypoint 4 (Main St east, 569.25, -163.87), back/side/height/fov/tgtY/fwd
+  // straight off its `shots` table, through the same clearance loop. Corridor
+  // breaks out of that loop immediately (back = -55 satisfies `back <= 8`) and
+  // stands 11.2 m clear; fivepoints keeps its requested back = 26 at 5.1 m clear.
+  // Capture these at GLZ_W=1600 GLZ_H=900 or the pixel coordinates in a review's
+  // report do not refer to the same place.
+  corridorHero: { cam: [112.45, 2.4, -163.83], target: [317.45, 16, -163.85], fov: 55 },
+  fivepoints: { cam: [31.45, 3.0, -156.82], target: [257.45, 12, -163.84], fov: 48 },
 };
 
 // ------------------------------------------------------- panorama stations
@@ -160,6 +182,18 @@ const f = (v, n = 1) => (Number.isFinite(v) ? v.toFixed(n) : 'n/a');
 // pane-audit/pane-stats' definition, unchanged: a glass texel is a smooth,
 // metallic one, and nothing else in the facade atlas is both.
 const isGlassTexel = (g, b) => g < 96 && b > 100;
+// THE OTHER GLASS. facades.js' trim atlas carries a `glass` cell that
+// storefrontBays maps onto every recessed shop window in the district, and until
+// this round it was the one atlas material with no glazing patch on it at all.
+// It is also where a review round's vertical-profile sample actually landed:
+// the column at x=1350 reads rm (255, 23, 115) - roughness 0.09 at metalness
+// 0.45 - which is this cell and nothing else in either atlas.
+//
+// pane-stats' isTrimGlass, unchanged, so the two tools agree: the trim atlas'
+// mullion (76,230), steel (97,235) and dark metal (112,217) are all rougher or
+// far more metallic, so "smooth and only somewhat metallic" picks out shopfront
+// glazing whatever coating it currently carries.
+const isTrimGlass = (g, b) => g < 40 && b > 80 && b < 200;
 
 export function loadCapture(base) {
   const meta = JSON.parse(fs.readFileSync(`${base}.meta.json`, 'utf8'));
@@ -169,13 +203,16 @@ export function loadCapture(base) {
     kind: new Uint8Array(fs.readFileSync(`${base}.kind.bin`)),
     rm: new Uint8Array(fs.readFileSync(`${base}.rm.bin`)),
     wy: new Uint8Array(fs.readFileSync(`${base}.wy.bin`)),
+    // Optional: captures taken before the sky reference existed have no mask,
+    // and every other number in this report is still valid without it.
+    mask: fs.existsSync(`${base}.mask.bin`) ? new Uint8Array(fs.readFileSync(`${base}.mask.bin`)) : null,
     w: meta.w, h: meta.h,
   };
 }
 
 /** Per-pixel class (0 other, 1 facade glass, 2 facade wall) + world height. */
 export function classify(cap) {
-  const { kind, rm, wy, w, h } = cap;
+  const { kind, rm, wy, mask, w, h } = cap;
   const cls = new Uint8Array(w * h);
   const height = new Float32Array(w * h);
   const azim = new Float32Array(w * h);
@@ -185,6 +222,17 @@ export function classify(cap) {
     const ny = wy[i * 4 + 2] / 255 * 2 - 1;
     azim[i] = (wy[i * 4 + 3] / 255 - 0.5) * Math.PI * 2;
     normY[i] = ny;
+    // 3 = sky: the mask pass painted every drawable white on black, so a zero
+    // here means nothing in the scene covers this pixel. This is the reference
+    // the critics' table is against ("glass is never the brightest element on a
+    // facade"), and it has to be measured rather than read off a chosen pixel.
+    if (mask && mask[i * 4] < 8 && mask[i * 4 + 1] < 8 && mask[i * 4 + 2] < 8) { cls[i] = 3; continue; }
+    // 4 = storefront glazing on the trim atlas. The kind pass writes 0.5 for the
+    // trim material and 1.0 for a facade one, so this band is trim and only trim.
+    if (kind[i * 4] >= 100 && kind[i * 4] < 200) {
+      if (isTrimGlass(rm[i * 4 + 1], rm[i * 4 + 2]) && Math.abs(ny) <= 0.35) cls[i] = 4;
+      continue;
+    }
     if (kind[i * 4] < 200) continue;                 // not a facade material
     if (Math.abs(ny) > 0.35) continue;               // roof, sill, parapet - not a wall face
     const g = rm[i * 4 + 1], b = rm[i * 4 + 2];
@@ -202,6 +250,7 @@ export function classify(cap) {
  */
 function reflectElevation(cap, cls, azim, normY) {
   const { w, h, meta } = cap;
+  const ndv = new Float32Array(w * h).fill(NaN);
   const C = meta.cam.cam, T = meta.cam.target;
   const fwd = [T[0] - C[0], T[1] - C[1], T[2] - C[2]];
   const nrm = (v) => { const l = Math.hypot(...v); return [v[0] / l, v[1] / l, v[2] / l]; };
@@ -229,8 +278,13 @@ function reflectElevation(cap, cls, azim, normY) {
       const ry = d[1] - 2 * dn * N[1];
       const rx = d[0] - 2 * dn * N[0], rz = d[2] - 2 * dn * N[2];
       out[i] = (Math.asin(Math.max(-1, Math.min(1, ry / Math.hypot(rx, ry, rz)))) * 180) / Math.PI;
+      // |N.V|: 1 is dead-on, 0 is edge-on. Schlick and three.js' DFGApprox both
+      // live on this axis, so it is the one to bin a pane's luminance against
+      // when the question is "does grazing go bright".
+      ndv[i] = Math.abs(dn);
     }
   }
+  out.ndotv = ndv;
   return out;
 }
 
@@ -301,13 +355,18 @@ export function report(base) {
     return Math.abs(d) <= 20;
   };
 
-  const glass = acc(), wall = acc();
+  const glass = acc(), wall = acc(), sky = acc(), shop = acc();
   const bands = BANDS.map(() => ({ glass: acc(), wall: acc() }));
   const fGlass = acc(), fWall = acc();
   const fBands = BANDS.map(() => ({ glass: acc(), wall: acc() }));
   const elev = new Map();
   for (let i = 0; i < w * h; i++) {
     if (!cls[i]) continue;
+    // Sky is its own class and must leave before the glass/wall split, or it
+    // lands in `wall` and the one number the critics compared against becomes
+    // part of what it is being compared with.
+    if (cls[i] === 3) { push(sky, i); continue; }
+    if (cls[i] === 4) { push(shop, i); continue; }
     const isG = cls[i] === 1;
     push(isG ? glass : wall, i);
     const y = height[i];
@@ -328,6 +387,44 @@ export function report(base) {
       elev.set(e, a);
     }
   }
+
+  // Fresnel: pane luminance against |N.V|. A dielectric coating goes from F0 at
+  // dead-on to ~1 at edge-on, so the last bin should stand well above the first.
+  // Wall is binned the same way as the control - masonry has no Fresnel worth the
+  // name, so a rise that appears in BOTH bins is the geometry of the frame (what
+  // is grazing is also what is far away and hazed), not a coating.
+  const ndvBins = [[0.0, 0.2], [0.2, 0.4], [0.4, 0.6], [0.6, 0.8], [0.8, 1.01]];
+  const byNdv = ndvBins.map(() => ({ glass: acc(), wall: acc() }));
+  let clipN = 0, glassN = 0;
+  for (let i = 0; i < w * h; i++) {
+    if (cls[i] !== 1 && cls[i] !== 2) continue;
+    const v = rel.ndotv[i];
+    if (cls[i] === 1) {
+      glassN++;
+      const [r0, g0, b0] = at(i);
+      if (r0 >= 250 && g0 >= 250 && b0 >= 250) clipN++;
+    }
+    if (!Number.isFinite(v)) continue;
+    for (let b = 0; b < ndvBins.length; b++) {
+      if (v >= ndvBins[b][0] && v < ndvBins[b][1]) { push(cls[i] === 1 ? byNdv[b].glass : byNdv[b].wall, i); break; }
+    }
+  }
+
+  // The same top-third / bottom-third split, on the SHOPFRONT class. This is the
+  // metric the reported "dark at the head, bright at the cill" belongs to, and
+  // running it over every storefront pane in the frame replaces five hand-picked
+  // pixels with a population.
+  const shopPanes = components(cls, 4, w, h, 40).map((px) => {
+    let y0 = 1e9, y1 = -1e9;
+    for (const q of px) { const y = (q / w) | 0; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    const span = Math.max(1, y1 - y0 + 1);
+    const top = acc(), bot = acc();
+    for (const q of px) {
+      const fr = (((q / w) | 0) - y0) / span;
+      if (fr < 1 / 3) push(top, q); else if (fr >= 2 / 3) push(bot, q);
+    }
+    return { top: fin(top), bot: fin(bot) };
+  }).filter((q) => q.top.n > 4 && q.bot.n > 4);
 
   // Per-pane: mean, and the top-third / bottom-third split INSIDE one pane.
   const panes = components(cls, 1, w, h, 40).map((px) => {
@@ -357,8 +454,16 @@ export function report(base) {
 
   return {
     base: path.basename(base), meta,
-    glass: fin(glass), wall: fin(wall),
+    glass: fin(glass), wall: fin(wall), sky: fin(sky), shop: fin(shop),
+    shopPanes: {
+      count: shopPanes.length,
+      topOverBottom: mean(shopPanes.map((q) => q.top.sceneY / Math.max(1e-6, q.bot.sceneY))),
+    },
+    shopOverSky: fin(sky).n ? fin(shop).l8 / Math.max(1e-9, fin(sky).l8) : NaN,
+    shopOverWall: fin(wall).n ? fin(shop).l8 / Math.max(1e-9, fin(wall).l8) : NaN,
     ratio: fin(glass).sceneY / Math.max(1e-9, fin(wall).sceneY),
+    glassOverSky: fin(sky).n ? fin(glass).l8 / Math.max(1e-9, fin(sky).l8) : NaN,
+    wallOverSky: fin(sky).n ? fin(wall).l8 / Math.max(1e-9, fin(sky).l8) : NaN,
     bands: BANDS.map(([lo, hi], b) => ({
       lo, hi, glass: fin(bands[b].glass), wall: fin(bands[b].wall),
       ratio: fin(bands[b].glass).sceneY / Math.max(1e-9, fin(bands[b].wall).sceneY),
@@ -378,6 +483,14 @@ export function report(base) {
       byElevation: [...elev.entries()].sort((a, b) => a[0] - b[0])
         .filter(([, a]) => a.n > 500).map(([e, a]) => ({ e, ...fin(a) })),
     },
+    fresnel: ndvBins.map(([lo, hi], b) => ({
+      lo, hi, glass: fin(byNdv[b].glass), wall: fin(byNdv[b].wall),
+    })),
+    // Clipped glass. Raising a pane's F0 raises its DIRECT sun highlight by the
+    // same factor, and this renderer's ACES white point is ~30,000 nits against a
+    // GGX return near 1e6, so past a point extra reflectance buys clipped area
+    // rather than brightness. This is the number that says whether it has.
+    clip: { n: clipN, of: glassN, frac: glassN ? clipN / glassN : 0 },
     paneList: panes.map((p) => ({ y: +p.worldY.toFixed(1), a: p.area, m: +p.mean.sceneY.toFixed(5) })),
   };
 }
@@ -388,6 +501,13 @@ export function fmt(r) {
   L.push(`${r.base}   exposure ${f(r.meta.exposure, 6)}  chunks ${r.meta.world?.chunksLoaded}  queued ${r.meta.world?.queued}`);
   L.push(`  glass ${String(r.glass.n).padStart(7)} px  8-bit ${f(r.glass.l8).padStart(6)}  sceneY ${f(r.glass.sceneY, 5).padStart(9)}  rgb ${c(r.glass.rgb)}`);
   L.push(`  wall  ${String(r.wall.n).padStart(7)} px  8-bit ${f(r.wall.l8).padStart(6)}  sceneY ${f(r.wall.sceneY, 5).padStart(9)}  rgb ${c(r.wall.rgb)}`);
+  L.push(`  sky   ${String(r.sky.n).padStart(7)} px  8-bit ${f(r.sky.l8).padStart(6)}  sceneY ${f(r.sky.sceneY, 5).padStart(9)}  rgb ${c(r.sky.rgb)}`);
+  L.push(`  shop  ${String(r.shop.n).padStart(7)} px  8-bit ${f(r.shop.l8).padStart(6)}  sceneY ${f(r.shop.sceneY, 5).padStart(9)}  rgb ${c(r.shop.rgb)}`
+    + `   (trim-atlas storefront glazing)`);
+  L.push(`  shopfront:  shop/sky ${f(r.shopOverSky, 3)}  shop/wall ${f(r.shopOverWall, 3)}  `
+    + `head/cill ${f(r.shopPanes.topOverBottom, 3)} over ${r.shopPanes.count} panes`);
+  L.push(`  vs sky:  glass/sky ${f(r.glassOverSky, 3)}   wall/sky ${f(r.wallOverSky, 3)}   `
+    + `(a pane on a lit street reads ABOVE the masonry beside it; glass/sky < wall/sky is the defect)`);
   L.push(`  linear B/R   glass ${f(r.glass.br, 3)}   wall ${f(r.wall.br, 3)}   `
     + `shift ${f(r.glass.br / r.wall.br, 3)}      (reference photographs: glass 0.82, shift 0.94 median)`);
   L.push(`  glass:wall ${f(r.ratio, 3)}   panes ${r.panes.count}  cv ${f(r.panes.cv, 3)}  ` +
@@ -423,6 +543,21 @@ export function fmt(r) {
     const v = envBR.get(e.e) ?? envBR.get(e.e - 5) ?? envBR.get(e.e + 5);
     return v === undefined ? '-' : v.toFixed(2);
   }).map((s2) => s2.padStart(8)).join(''));
+  if (r.fresnel) {
+    const show = r.fresnel.filter((b) => b.glass.n > 300);
+    L.push('   |N.V| bin:       ' + show.map((b) => `${b.lo.toFixed(1)}-${b.hi.toFixed(1)}`).map((q) => q.padStart(9)).join(''));
+    L.push('   glass 8-bit:     ' + show.map((b) => f(b.glass.l8)).map((q) => q.padStart(9)).join(''));
+    L.push('   wall  8-bit:     ' + show.map((b) => (b.wall.n > 300 ? f(b.wall.l8) : '-')).map((q) => q.padStart(9)).join(''));
+    const gz = show[0], hd = show[show.length - 1];
+    if (gz && hd) {
+      L.push(`   grazing lift:    glass ${f(gz.glass.l8 / Math.max(1e-6, hd.glass.l8), 2)}x  `
+        + `wall ${hd.wall.n > 300 && gz.wall.n > 300 ? f(gz.wall.l8 / Math.max(1e-6, hd.wall.l8), 2) : 'n/a'}x`
+        + `   (edge-on / dead-on; a coating should lift more than the masonry does)`);
+    }
+  }
+  if (r.clip) {
+    L.push(`   clipped glass:   ${r.clip.n} of ${r.clip.of} px = ${f(r.clip.frac * 100, 2)} % at 250+ in all three channels`);
+  }
   L.push('   pane/env B/R:    ' + r.face.byElevation.map((e) => {
     const v = envBR.get(e.e) ?? envBR.get(e.e - 5) ?? envBR.get(e.e + 5);
     return v === undefined || !v ? '-' : (e.br / v).toFixed(2);
@@ -445,6 +580,7 @@ export function overlay(base, out) {
       let r = png.data[i * ch], g = png.data[i * ch + 1], b = png.data[i * ch + 2];
       if (cls[i] === 0) { r = (r * 0.25) | 0; g = (g * 0.25) | 0; b = (b * 0.25) | 0; }
       else if (cls[i] === 2) { r = Math.min(255, (r * 0.45 + 60) | 0); g = (g * 0.45) | 0; b = (b * 0.45) | 0; }
+      else if (cls[i] === 3) { r = (r * 0.45) | 0; g = (g * 0.45) | 0; b = Math.min(255, (b * 0.45 + 70) | 0); }
       else { r = (r * 0.45) | 0; g = Math.min(255, (g * 0.45 + 60) | 0); b = (b * 0.45) | 0; }
       raw[p++] = r; raw[p++] = g; raw[p++] = b;
     }
@@ -527,7 +663,7 @@ export function pair(a, b) {
 // one quad of each in front of the camera and renders it, and fails on anything
 // WebGL logs. A shader that is never compiled is not known to compile.
 async function compileCheck() {
-  await ensureServer();
+  await ensureServer(PORT);
   const browser = await chromium.launch(launchOptions());
   const page = await browser.newPage({ viewport: { width: 640, height: 400 } });
   const errors = [];
@@ -538,7 +674,7 @@ async function compileCheck() {
       errors.push(`console: ${m.text()}`);
     }
   });
-  await page.goto('http://127.0.0.1:8123/district/', { waitUntil: 'networkidle' });
+  await page.goto(`http://127.0.0.1:${PORT}/district/`, { waitUntil: 'networkidle' });
   await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 120000 });
   const out = await page.evaluate(async () => {
     const THREE = await import('/vendor/three.module.min.js');
@@ -653,12 +789,12 @@ export function srcStamp() {
 async function capture() {
   fs.mkdirSync(OUT, { recursive: true });
   fs.mkdirSync(SHOTS, { recursive: true });
-  await ensureServer();
+  await ensureServer(PORT);
   const browser = await chromium.launch(launchOptions());
   const page = await browser.newPage({ viewport: { width: W, height: H } });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('http://127.0.0.1:8123/district/', { waitUntil: 'networkidle' });
+  await page.goto(`http://127.0.0.1:${PORT}/district/`, { waitUntil: 'networkidle' });
   await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 120000 });
   await page.addStyleTag({ content: '#attr,#hud,.pv-hud{display:none!important}' });
   await page.evaluate(() => { __district.setHudEnabled(false); __district.setTraffic(0); __district.setPedestrians(0); });
@@ -702,11 +838,39 @@ async function capture() {
       const meshes = [];
       sc.traverse((o) => {
         if (o.name === 'sky') { if (o.visible) { hidden.push(o); o.visible = false; } return; }
+        // `mask` has to account for EVERY drawable, not just the single-material
+        // meshes the other three passes classify: its whole meaning is "nothing
+        // was drawn here, so this pixel is sky", and one unpainted sprite or
+        // multi-material mesh would be counted as sky at whatever brightness it
+        // happens to have. The other modes keep their original, narrower filter
+        // so their numbers stay comparable with captures already on disk.
+        if (mode === 'mask') {
+          if (o.visible && o.material && (o.isMesh || o.isPoints || o.isLine || o.isSprite)) meshes.push(o);
+          return;
+        }
         if (o.isMesh && o.visible && o.material && !Array.isArray(o.material)) meshes.push(o);
       });
+      const white = (proto) => {
+        const M = proto.isSpriteMaterial ? THREE.SpriteMaterial
+          : proto.isPointsMaterial ? THREE.PointsMaterial
+            : proto.isLineBasicMaterial ? THREE.LineBasicMaterial : THREE.MeshBasicMaterial;
+        const mm = new M({ color: 0xffffff });
+        mm.toneMapped = false;
+        mm.side = proto.side;
+        mm.fog = false;
+        mm.depthTest = proto.depthTest;
+        mm.depthWrite = true;
+        return mm;
+      };
       for (const o of meshes) {
         const m = o.material;
         let mat;
+        if (mode === 'mask') {
+          mat = Array.isArray(m) ? m.map(white) : white(m);
+          saved.push([o, m]);
+          o.material = mat;
+          continue;
+        }
         if (mode === 'wy') mat = wyMat;
         else if (mode === 'kind') {
           const n = m.name || '';
@@ -740,7 +904,13 @@ async function capture() {
       r.setRenderTarget(null);
       r.toneMapping = oldTone;
       r.setClearColor(oldClear, oldAlpha);
-      for (const [o, m] of saved) { if (o.material !== wyMat) o.material.dispose(); o.material = m; }
+      for (const [o, m] of saved) {
+        if (o.material !== wyMat) {
+          if (Array.isArray(o.material)) for (const q of o.material) q.dispose();
+          else o.material.dispose();
+        }
+        o.material = m;
+      }
       for (const [t, cs] of csSaved) { t.colorSpace = cs; t.needsUpdate = true; }
       for (const o of hidden) o.visible = true;
       rt.dispose();
@@ -888,7 +1058,7 @@ async function capture() {
       const base = path.join(OUT, `${TAG}-${vname.replace(/:/g, '_')}-${tod}`);
       await page.screenshot({ path: `${base}.png`, timeout: 240000 });
       fs.copyFileSync(`${base}.png`, path.join(SHOTS, `glaz-${TAG}-${vname.replace(/:/g, '_')}-${tod}.png`));
-      for (const mode of ['kind', 'rm', 'wy']) {
+      for (const mode of ['kind', 'rm', 'wy', 'mask']) {
         const s = await page.evaluate((m) => __glzScan(m), mode);
         fs.writeFileSync(`${base}.${mode}.bin`, Buffer.from(s.b64, 'base64'));
       }
@@ -974,7 +1144,7 @@ async function capture() {
     await page.waitForTimeout(4000);
     const base = path.join(OUT, `${TAG}-${VIEW_NAMES[0]}-${TIMES[0]}-noenv`);
     await page.screenshot({ path: `${base}.png`, timeout: 240000 });
-    for (const mode of ['kind', 'rm', 'wy']) {
+    for (const mode of ['kind', 'rm', 'wy', 'mask']) {
       const s = await page.evaluate((m) => __glzScan(m), mode);
       fs.writeFileSync(`${base}.${mode}.bin`, Buffer.from(s.b64, 'base64'));
     }
@@ -995,9 +1165,204 @@ async function capture() {
   fs.writeFileSync(path.join(OUT, `${TAG}-index.json`), JSON.stringify(index, null, 1));
 }
 
+
+// ------------------------------------------------------------- point samples
+// The critics' table is a list of pixel coordinates ("upper glass, px 1300,200").
+// Masked means are the better metric, but a claim has to be reproducible in the
+// terms it was made in before it can be argued with, so this reads the same
+// coordinates off the same frame and says what the mask thinks each one IS.
+const CLS_NAME = ['other', 'GLASS', 'wall', 'sky'];
+export function points(base, list) {
+  const cap = loadCapture(base);
+  const { w, png } = cap;
+  const { cls, height } = classify(cap);
+  const ch = png.channels;
+  return list.map(([x, y, label]) => {
+    const i = y * w + x;
+    const r = png.data[i * ch], g = png.data[i * ch + 1], b = png.data[i * ch + 2];
+    return { x, y, label: label ?? '', luma: +luma8(r, g, b).toFixed(1), rgb: [r, g, b],
+      cls: CLS_NAME[cls[i]], worldY: +height[i].toFixed(1),
+      rm: [cap.rm[i * 4], cap.rm[i * 4 + 1], cap.rm[i * 4 + 2]] };
+  });
+}
+
+// ------------------------------------------------------------------ selftest
+// Two metrics are new here - the sky reference and the class split that keeps it
+// out of `wall` - and one old one (topOverBottom) is about to carry the whole
+// argument about the inverted vertical profile. A metric with no test that fails
+// on known-bad input is a confident number, not a measurement: two probes in this
+// project have shipped bugs that their own selftests later caught.
+//
+// So this builds synthetic captures whose answers are known by construction and
+// asserts the report reproduces them, then breaks each one on purpose and asserts
+// the report NOTICES.
+function synth(dir, name, opts) {
+  const w = 64, h = 64;
+  fs.mkdirSync(dir, { recursive: true });
+  const base = path.join(dir, name);
+  const rgb = new Uint8Array(w * h * 3);
+  const kind = new Uint8Array(w * h * 4);
+  const rm = new Uint8Array(w * h * 4);
+  const wy = new Uint8Array(w * h * 4);
+  const mask = new Uint8Array(w * h * 4);
+  // rows 0-15 sky, 16-47 one 32-row pane, 48-63 wall. Columns 48-63 are a
+  // storefront strip on the TRIM material instead, so the shopfront class has
+  // known-good and known-bad input of its own.
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      let v;
+      if (y >= 16 && x >= 48 && opts.shop) {
+        mask[i * 4] = mask[i * 4 + 1] = mask[i * 4 + 2] = 255;
+        // 127 = the kind pass' trim band; 255 would be a facade material.
+        kind[i * 4] = opts.shopKindFacade ? 255 : 127;
+        wy[i * 4 + 2] = 128;
+        // (23, 115) is the trim atlas' glazing cell; (76, 230) is its mullion,
+        // which is NOT a window and must not be counted as one.
+        rm[i * 4] = 255;
+        rm[i * 4 + 1] = opts.shopIsMullion ? 76 : 23;
+        rm[i * 4 + 2] = opts.shopIsMullion ? 230 : 115;
+        const t = (y - 16) / 47;
+        v = Math.round(opts.shopTop + (opts.shopBot - opts.shopTop) * t);
+        rgb[i * 3] = rgb[i * 3 + 1] = rgb[i * 3 + 2] = v;
+        continue;
+      }
+      if (y < 16) {                                    // sky
+        v = opts.sky;
+        if (opts.maskCoversSky) { mask[i * 4] = mask[i * 4 + 1] = mask[i * 4 + 2] = 255; }
+      } else {
+        if (!opts.maskDrawsNothing) { mask[i * 4] = mask[i * 4 + 1] = mask[i * 4 + 2] = 255; }
+        kind[i * 4] = 255;                             // a facade material
+        wy[i * 4 + 2] = 128;                           // normal.y = 0: a wall face
+        wy[i * 4 + 1] = 40;                            // ~0.12 m; any wall height
+        if (y < 48) {                                  // the pane
+          rm[i * 4] = 230; rm[i * 4 + 1] = 30; rm[i * 4 + 2] = 210;   // smooth + metallic
+          const t = (y - 16) / 31;                     // 0 at the head, 1 at the cill
+          v = Math.round(opts.paneTop + (opts.paneBot - opts.paneTop) * t);
+        } else {                                       // masonry below it
+          rm[i * 4] = 200; rm[i * 4 + 1] = 160; rm[i * 4 + 2] = 20;    // rough + dielectric
+          v = opts.wall;
+        }
+      }
+      rgb[i * 3] = rgb[i * 3 + 1] = rgb[i * 3 + 2] = v;
+    }
+  }
+  const raw = Buffer.alloc((w * 3 + 1) * h);
+  let q = 0;
+  for (let y = 0; y < h; y++) { raw[q++] = 0; raw.set(rgb.subarray(y * w * 3, (y + 1) * w * 3), q); q += w * 3; }
+  const chunk = (type, body) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(body.length);
+    const td = Buffer.concat([Buffer.from(type, 'ascii'), body]);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(td) >>> 0);
+    return Buffer.concat([len, td, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
+  fs.writeFileSync(`${base}.png`, Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]));
+  fs.writeFileSync(`${base}.kind.bin`, Buffer.from(kind));
+  fs.writeFileSync(`${base}.rm.bin`, Buffer.from(rm));
+  fs.writeFileSync(`${base}.wy.bin`, Buffer.from(wy));
+  if (!opts.noMask) fs.writeFileSync(`${base}.mask.bin`, Buffer.from(mask));
+  else { try { fs.unlinkSync(`${base}.mask.bin`); } catch { /* fine */ } }
+  fs.writeFileSync(`${base}.meta.json`, JSON.stringify({
+    w, h, view: 'synth', tod: 'noon', exposure: 1,
+    cam: { cam: [0, 2, 0], target: [0, 2, -10], fov: 60 }, envProfile: [], irrProfile: [] }));
+  return base;
+}
+
+function selftest() {
+  const dir = path.join(OUT, 'selftest');
+  const fails = [];
+  const ck = (name, ok, got) => { console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${name}   ${got}`); if (!ok) fails.push(name); };
+  const near = (a, b, tol) => Math.abs(a - b) <= tol;
+
+  // 1. The good case: sky 200, pane 40 flat, masonry 70.
+  let r = report(synth(dir, 'good', { sky: 200, paneTop: 40, paneBot: 40, wall: 70 }));
+  ck('sky is found and is 200', r.sky.n === 64 * 16 && near(r.sky.l8, 200, 0.6), `n=${r.sky.n} l8=${f(r.sky.l8)}`);
+  ck('glass is 40', near(r.glass.l8, 40, 0.6), `n=${r.glass.n} l8=${f(r.glass.l8)}`);
+  ck('wall is 70, NOT polluted by sky', near(r.wall.l8, 70, 0.6), `n=${r.wall.n} l8=${f(r.wall.l8)}`);
+  ck('glass/sky = 0.20', near(r.glassOverSky, 0.2, 0.01), f(r.glassOverSky, 3));
+
+  // 2. Drop the mask. This is what every capture on disk before today looks
+  //    like, and the FIRST version of this test asserted the wrong thing about
+  //    it - that the sky would pollute `wall`. It does not: the kind pass already
+  //    rejects a pixel no facade material drew, so the old glass/wall numbers
+  //    were sound and the sky was simply not measurable. That is the real reason
+  //    the critics' comparison could not be checked, and it is worth an assertion
+  //    of its own rather than a guess.
+  r = report(synth(dir, 'nomask', { sky: 200, paneTop: 40, paneBot: 40, wall: 70, noMask: true }));
+  ck('no mask -> sky reports zero pixels (not a silent wrong answer)', r.sky.n === 0, `n=${r.sky.n}`);
+  ck('no mask -> glass/sky is NaN, not a number to quote', !Number.isFinite(r.glassOverSky), String(r.glassOverSky));
+  ck('no mask -> wall is still 70: the kind pass already excluded the sky',
+    near(r.wall.l8, 70, 0.6), `wall l8 = ${f(r.wall.l8)}`);
+
+  // 3. KNOWN-BAD: the mask claims geometry covers the sky (a pass that forgot to
+  //    hide the sky dome would look exactly like this).
+  r = report(synth(dir, 'covered', { sky: 200, paneTop: 40, paneBot: 40, wall: 70, maskCoversSky: true }));
+  ck('mask covering the sky -> zero sky pixels', r.sky.n === 0, `n=${r.sky.n}`);
+
+  // 3b. KNOWN-BAD: the mask pass drew NOTHING - a white material that failed to
+  //     compile, a traverse that matched no objects. The frame must be reported
+  //     as all sky and no glass, loudly, instead of as a believable sky number.
+  r = report(synth(dir, 'blankmask', { sky: 200, paneTop: 40, paneBot: 40, wall: 70, maskDrawsNothing: true }));
+  ck('mask that drew nothing -> whole frame is sky, no glass, no wall',
+    r.sky.n === 64 * 64 && r.glass.n === 0 && r.wall.n === 0,
+    `sky=${r.sky.n} glass=${r.glass.n} wall=${r.wall.n}`);
+
+  // 4. topOverBottom: the metric the inverted-profile claim rests on. Dark head,
+  //    bright cill (the reported defect) must read BELOW 1; the inverse above 1.
+  const inv = report(synth(dir, 'inverted', { sky: 200, paneTop: 20, paneBot: 60, wall: 70 }));
+  const cor = report(synth(dir, 'correct', { sky: 200, paneTop: 60, paneBot: 20, wall: 70 }));
+  ck('dark-head/bright-cill pane -> top/bottom < 0.6', inv.panes.topOverBottom < 0.6, f(inv.panes.topOverBottom, 3));
+  ck('bright-head/dark-cill pane -> top/bottom > 1.6', cor.panes.topOverBottom > 1.6, f(cor.panes.topOverBottom, 3));
+  ck('the two are inverses of each other', near(inv.panes.topOverBottom * cor.panes.topOverBottom, 1, 0.12),
+    f(inv.panes.topOverBottom * cor.panes.topOverBottom, 3));
+
+  // 5. The shopfront class: the trim atlas' glazing, which is where a review
+  //    round's vertical-profile sample actually landed. Known-good, then two
+  //    known-bads that must both come back empty rather than plausible.
+  const shopOpts = { sky: 200, paneTop: 40, paneBot: 40, wall: 70, shop: true, shopTop: 20, shopBot: 60 };
+  let sr = report(synth(dir, 'shop', shopOpts));
+  ck('shopfront class found on the trim band', sr.shop.n === 16 * 48 && near(sr.shop.l8, 40, 1.5),
+    `n=${sr.shop.n} l8=${f(sr.shop.l8)}`);
+  ck('shopfront dark-head/bright-cill -> head/cill < 0.6', sr.shopPanes.topOverBottom < 0.6,
+    `${f(sr.shopPanes.topOverBottom, 3)} over ${sr.shopPanes.count} panes`);
+  ck('shopfront does NOT leak into the facade glass or wall class',
+    sr.glass.n === 32 * 48 && sr.wall.n === 16 * 48, `glass=${sr.glass.n} wall=${sr.wall.n}`);
+
+  sr = report(synth(dir, 'shopmullion', { ...shopOpts, shopIsMullion: true }));
+  ck('KNOWN-BAD trim mullion texels are not shopfront glass', sr.shop.n === 0, `n=${sr.shop.n}`);
+
+  sr = report(synth(dir, 'shopfacade', { ...shopOpts, shopKindFacade: true }));
+  ck('KNOWN-BAD the same texels on a FACADE material are not shopfront glass', sr.shop.n === 0,
+    `n=${sr.shop.n}`);
+
+  sr = report(synth(dir, 'shopgood', { ...shopOpts, shopTop: 60, shopBot: 20 }));
+  ck('shopfront bright-head/dark-cill -> head/cill > 1.6', sr.shopPanes.topOverBottom > 1.6,
+    f(sr.shopPanes.topOverBottom, 3));
+
+  console.log(fails.length ? `SELFTEST FAIL: ${fails.join(', ')}` : 'SELFTEST PASS');
+  return fails.length;
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   const args = process.argv.slice(2);
-  if (args[0] === '--compile-check') {
+  if (args[0] === '--selftest') {
+    process.exit(selftest() ? 1 : 0);
+  } else if (args[0] === '--points') {
+    // node tools/glaz-probe.mjs --points <base> x,y[:label] x,y ...
+    const list = args.slice(2).map((a) => {
+      const [xy, label] = a.split(':');
+      const [x, y] = xy.split(',').map(Number);
+      return [x, y, label];
+    });
+    for (const p of points(args[1], list)) {
+      console.log(`  ${String(p.x).padStart(5)},${String(p.y).padStart(4)}  luma ${String(p.luma).padStart(6)}  `
+        + `rgb (${p.rgb.join(',')})  class ${p.cls.padEnd(6)} y=${p.worldY} m  rm(ao,r,m) ${p.rm.join(',')}  ${p.label}`);
+    }
+  } else if (args[0] === '--compile-check') {
     await compileCheck();
   } else if (args[0] === '--stations') {
     const st = panoStations(Number(process.env.GLZ_W ?? 1280), Number(process.env.GLZ_H ?? 960));
