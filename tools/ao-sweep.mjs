@@ -607,11 +607,21 @@ const subject = await page.evaluate(async (bodyW) => {
     comps.push(c);
   }
   const contactCensus = { comps: comps.length, vertsRead, propMeshes: propMeshes.length,
-    binShaped: 0, bollardShaped: 0, notGrounded: 0, rejectedNearRing: 0, rejectedFarRing: 0 };
+    shaped: {}, notGrounded: 0, rejectedNearRing: 0, rejectedFarRing: 0 };
   const contacts = [];
+  // Bins and bollards by name where they can be had, but ANY compact prop
+  // standing on the pavement is a real contact and the point of the metric is
+  // the contact, not the object. Requiring a bin specifically left the nearest
+  // usable one 45.8 m away with the only two bollards in the district behind
+  // the camera; the hydrants, meters, newsboxes and cabinets standing between
+  // here and there are the same measurement and they are closer.
+  // Dimensions from src/streetfurniture.js.
   const KINDS = [
     { kind: 'bin', rMin: 0.24, rMax: 0.44, hMin: 0.80, hMax: 1.35 },
     { kind: 'bollard', rMin: 0.07, rMax: 0.17, hMin: 0.75, hMax: 1.25 },
+    { kind: 'hydrant', rMin: 0.14, rMax: 0.24, hMin: 0.55, hMax: 0.95 },
+    { kind: 'meter', rMin: 0.04, rMax: 0.14, hMin: 1.05, hMax: 1.45 },
+    { kind: 'prop', rMin: 0.07, rMax: 0.70, hMin: 0.45, hMax: 1.60 },
   ];
   const cand = [];
   for (const c of comps) {
@@ -633,7 +643,7 @@ const subject = await page.evaluate(async (bodyW) => {
       if (q && (gy === null || q.y < gy)) gy = q.y;
     }
     if (gy === null || c.y0 - gy < -0.30 || c.y0 - gy > 0.20) { contactCensus.notGrounded++; continue; }
-    if (K.kind === 'bin') contactCensus.binShaped++; else contactCensus.bollardShaped++;
+    contactCensus.shaped[K.kind] = (contactCensus.shaped[K.kind] || 0) + 1;
     cand.push({ kind: K.kind, x: cx0, z: cz0, rM: +rr.toFixed(3),
       hM: +hh.toFixed(2), baseY: c.y0, groundY: gy,
       dist: Math.hypot(cx0 - camPos.x, cz0 - camPos.z) });
@@ -651,9 +661,12 @@ const subject = await page.evaluate(async (bodyW) => {
   cand.sort((a, b) => (a.inFrame === b.inFrame ? a.dist - b.dist : (a.inFrame ? -1 : 1)));
   contactCensus.candidates = cand.slice(0, 14).map((c) => ({ kind: c.kind, dist: +c.dist.toFixed(1),
     rM: c.rM, hM: c.hM, inFrame: c.inFrame, screen: c.screen }));
-  for (const K of ['bin', 'bollard']) {
+  // THE THREE NEAREST USABLE CONTACTS IN SHOT, at most two of any one kind.
+  {
     for (const c of cand) {
-      if (c.kind !== K || contacts.some((q) => q.kind === K)) continue;
+      if (contacts.length >= 3) break;
+      const K = c.kind;
+      if (contacts.filter((q) => q.kind === K).length >= 2) continue;
       // A contact ring just clear of the footprint, and a background ring 2.2 m
       // out. The contact number is the DIFFERENCE: how much darker the AO pass
       // makes the pavement where it meets the object than the same pavement
@@ -698,7 +711,6 @@ const subject = await page.evaluate(async (bodyW) => {
       if (far.length < 4) { contactCensus.rejectedFarRing++; continue; }
       contacts.push({ kind: K, radiusM: c.rM, heightM: c.hM, dist: +c.dist.toFixed(1),
         contactRingM: +nearR.toFixed(2), near, far });
-      break;
     }
   }
 
@@ -981,7 +993,7 @@ console.log(`subject at (${subject.slot.x.toFixed(1)}, ${subject.slot.z.toFixed(
   console.log(`contacts: ${subject.contacts.map((c) => `${c.kind} r=${c.radiusM} h=${c.heightM} at ${c.dist} m ` +
     `(${c.near.length} contact / ${c.far.length} background points)`).join(', ') || 'NONE'}` +
     `  [${cc.comps} components from ${cc.vertsRead} vertices in ${cc.propMeshes} prop meshes; ` +
-    `${cc.binShaped} bin-shaped, ${cc.bollardShaped} bollard-shaped, ${cc.notGrounded} not on the ground, ` +
+    `shaped ${JSON.stringify(cc.shaped)}, ${cc.notGrounded} not on the ground, ` +
     `${cc.rejectedNearRing} rejected on the contact ring]`);
   console.log(`  contact candidates: ${(cc.candidates || []).slice(0, 8)
     .map((c) => `${c.kind}@${c.dist}m${c.inFrame ? '' : '(behind)'}`).join(' ')}`);
