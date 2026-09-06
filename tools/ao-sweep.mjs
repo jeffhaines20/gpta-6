@@ -479,8 +479,11 @@ const subject = await page.evaluate(async (bodyW) => {
   const cells = new Map();
   let vertsRead = 0;
   for (const m of propMeshes) {
-    const c = m.userData && m.userData.c;
-    if (c && Math.hypot(c.x - camPos.x, c.z - camPos.z) > 80) continue;
+    // The bucket's bounding SPHERE, not its centre. A far-tier bucket is 512 m
+    // across; rejecting it because its centre is 80 m away threw out every prop
+    // in the frame and read 0 vertices from 14 meshes on the first attempt.
+    const c = m.userData && m.userData.c, rad = (m.userData && m.userData.r) || 0;
+    if (c && Math.hypot(c.x - camPos.x, c.z - camPos.z) - rad > 70) continue;
     const pa = m.geometry.getAttribute('position');
     if (!pa) continue;
     m.updateMatrixWorld();
@@ -606,7 +609,12 @@ const subject = await page.evaluate(async (bodyW) => {
         const ex = B[0] - A[0], ez = B[1] - A[1], el = Math.hypot(ex, ez);
         if (el < 2.5) { jCensus.tooShort++; continue; }
         const mx = (A[0] + B[0]) / 2, mz = (A[1] + B[1]) / 2;
-        if (Math.hypot(mx - camPos.x, mz - camPos.z) > 55) { jCensus.tooFar++; continue; }
+        // 130 m, not 55: at 55 m this rejected 261 of 306 edges and kept ONE
+        // pair. Distance is the wrong filter here anyway -- what matters is
+        // whether the camera can see the pavement at the foot of the wall, and
+        // the visibility ray below answers that exactly. This bound is only to
+        // keep the ray count finite.
+        if (Math.hypot(mx - camPos.x, mz - camPos.z) > 130) { jCensus.tooFar++; continue; }
         let nx2 = -ez / el, nz2 = ex / el;
         if (inRing(ring, mx + nx2 * 0.5, mz + nz2 * 0.5)) { nx2 = -nx2; nz2 = -nz2; }
         const nearP = [mx + nx2 * 0.12, mz + nz2 * 0.12];
@@ -698,7 +706,10 @@ const subject = await page.evaluate(async (bodyW) => {
       // to be tested against the whole district.
       const objs = [best.obj];
       const raw = [];
-      for (let dy = -150; dy <= 150; dy += 25) {
+      // 12 px between rows, not 25: a head shelf over a window is 0.16 m deep,
+      // which at 13 m is 11 screen pixels, and 25-pixel rows stepped over every
+      // one of them -- 0 soffit samples on the first attempt.
+      for (let dy = -156; dy <= 156; dy += 12) {
         const py = Math.round(cy + dy);
         if (py < 20 || py > 720) continue;
         for (let px = Math.max(20, Math.round(cx) - 330); px <= Math.min(1580, Math.round(cx) + 330); px += 3) {
@@ -718,7 +729,7 @@ const subject = await page.evaluate(async (bodyW) => {
       const cls = raw.map((r) => {
         if (!r) return null;
         const rel = r.off - mode;
-        if (r.ny < -0.45) return 'soffit';
+        if (r.ny < -0.35) return 'soffit';
         if (rel < -0.055 && rel > -0.65) return 'reveal';
         if (Math.abs(rel) < 0.025 && Math.abs(r.ny) < 0.35) return 'flush';
         return 'other';
