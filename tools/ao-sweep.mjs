@@ -407,14 +407,21 @@ const subject = await page.evaluate(async (bodyW) => {
   // A clear, sunlit patch of the reviewers' own brick, in the lower half of the
   // frame where a lobe is resolvable. Searched over the sidewalk in front of the
   // camera rather than picked, and every acceptance is a geometric test.
-  const r = D.district.meta.route, a = r[3], b = r[4];
-  const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz) || 1;
-  const fx = dx / len, fz = dz / len, sx = -fz, sz = fx;
+  // SEARCHED FROM THE CAMERA, not from a route waypoint. This used to walk out
+  // from route[3] over 6-40 m, which is the ground in front of the fivepoints
+  // framing and the ground BEHIND the corridor one -- the corridor camera
+  // stands 55 m further along the same axis, so the search ran off the back of
+  // it and reported "no clear sunlit brick slot in frame" on a street paved
+  // with it. The camera's own forward vector works for any framing.
+  const fwdV = new THREE.Vector3();
+  cam.getWorldDirection(fwdV); fwdV.y = 0; fwdV.normalize();
+  const fx = fwdV.x, fz = fwdV.z, sx = -fz, sz = fx;
+  const ox = cam.position.x, oz = cam.position.z;
   let slot = null;
   outer:
-  for (let along = 6; along <= 40; along += 1.5) {
-    for (const across of [7, 8, 9, 10, 6, 11, 12, 5]) {
-      const x = a.x + fx * along + sx * across, z = a.z + fz * along + sz * across;
+  for (let along = 8; along <= 55; along += 1.5) {
+    for (const across of [7, -7, 9, -9, 11, -11, 5, -5, 13, -13, 3, -3]) {
+      const x = ox + fx * along + sx * across, z = oz + fz * along + sz * across;
       const g = probe(x, z);
       if (!g || g.y > 0.30 || g.y < -1 || g.mat !== 'sidewalk' || cluttered(g)) continue;
       if (!sunlit(x, g.y, z)) continue;
@@ -618,7 +625,19 @@ const subject = await page.evaluate(async (bodyW) => {
       hM: +hh.toFixed(2), baseY: c.y0,
       dist: Math.hypot((c.x0 + c.x1) / 2 - camPos.x, (c.z0 + c.z1) / 2 - camPos.z) });
   }
-  cand.sort((a, b) => a.dist - b.dist);
+  // IN FRONT FIRST, THEN NEAREST. Sorting purely by distance put the props
+  // standing behind the camera at the head of the queue -- they are the closest
+  // things in the district to a camera on a pavement -- and every one of them
+  // failed the on-screen test before a prop that was actually in shot got
+  // looked at, which is how a 45.8 m bin came to be the nearest bin.
+  for (const c of cand) {
+    const p = project(c.x, c.baseY, c.z);
+    c.inFrame = p.z <= 1 && p.x > 30 && p.x < 1570 && p.y > 30 && p.y < 880;
+    c.screen = [Math.round(p.x), Math.round(p.y)];
+  }
+  cand.sort((a, b) => (a.inFrame === b.inFrame ? a.dist - b.dist : (a.inFrame ? -1 : 1)));
+  contactCensus.candidates = cand.slice(0, 14).map((c) => ({ kind: c.kind, dist: +c.dist.toFixed(1),
+    rM: c.rM, hM: c.hM, inFrame: c.inFrame, screen: c.screen }));
   for (const K of ['bin', 'bollard']) {
     for (const c of cand) {
       if (c.kind !== K || contacts.some((q) => q.kind === K)) continue;
@@ -636,14 +655,14 @@ const subject = await page.evaluate(async (bodyW) => {
           if (!g || onProps(g) || Math.abs(g.y - c.baseY) > 0.12) continue;
           const p = project(x, g.y, z);
           if (p.z > 1 || p.x < 6 || p.x > 1594 || p.y < 6 || p.y > 894) continue;
-          if (!visible(x, g.y, z, 0.25)) continue;
+          if (!visible(x, g.y, z, 0.35)) continue;
           out.push([+p.x.toFixed(1), +p.y.toFixed(1)]);
         }
         return out;
       };
       const near = ringAt(c.rM + 0.14), far = ringAt(c.rM + 2.2);
-      if (near.length < 5) { contactCensus.rejectedNearRing++; continue; }
-      if (far.length < 5) { contactCensus.rejectedFarRing++; continue; }
+      if (near.length < 4) { contactCensus.rejectedNearRing++; continue; }
+      if (far.length < 4) { contactCensus.rejectedFarRing++; continue; }
       contacts.push({ kind: K, radiusM: c.rM, heightM: c.hM, dist: +c.dist.toFixed(1),
         near, far });
       break;
@@ -713,7 +732,7 @@ const subject = await page.evaluate(async (bodyW) => {
         // The AO target is HALF resolution. Two samples less than 16 screen
         // pixels apart are 8 apart in the buffer and the depth-aware blur has
         // already mixed them, so a pair that close measures its own blur.
-        if (Math.hypot(pn.x - pf.x, pn.y - pf.y) < 16) { jCensus.tooClose++; continue; }
+        if (Math.hypot(pn.x - pf.x, pn.y - pf.y) < 10) { jCensus.tooClose++; continue; }
         if (!visible(nearP[0], gn.y, nearP[1], 0.30) || !visible(farP[0], gf.y, farP[1], 0.30)) {
           jCensus.occluded++; continue;
         }
@@ -929,7 +948,10 @@ console.log(`subject at (${subject.slot.x.toFixed(1)}, ${subject.slot.z.toFixed(
   console.log(`contacts: ${subject.contacts.map((c) => `${c.kind} r=${c.radiusM} h=${c.heightM} at ${c.dist} m ` +
     `(${c.near.length} contact / ${c.far.length} background points)`).join(', ') || 'NONE'}` +
     `  [${cc.comps} components from ${cc.vertsRead} vertices in ${cc.propMeshes} prop meshes; ` +
-    `${cc.binShaped} bin-shaped, ${cc.bollardShaped} bollard-shaped]`);
+    `${cc.binShaped} bin-shaped, ${cc.bollardShaped} bollard-shaped, ` +
+    `${cc.rejectedNearRing} rejected on the contact ring]`);
+  console.log(`  contact candidates: ${(cc.candidates || []).slice(0, 8)
+    .map((c) => `${c.kind[0]}@${c.dist}m${c.inFrame ? '' : '(behind)'}`).join(' ')}`);
   const jc = subject.jCensus;
   console.log(`wall/pavement pairs: ${subject.junctions.length}` +
     `  [${jc.buildings} buildings in ${jc.chunks} chunks, ${jc.edges} edges: too short ${jc.tooShort}, ` +
