@@ -182,6 +182,18 @@ const f = (v, n = 1) => (Number.isFinite(v) ? v.toFixed(n) : 'n/a');
 // pane-audit/pane-stats' definition, unchanged: a glass texel is a smooth,
 // metallic one, and nothing else in the facade atlas is both.
 const isGlassTexel = (g, b) => g < 96 && b > 100;
+// THE OTHER GLASS. facades.js' trim atlas carries a `glass` cell that
+// storefrontBays maps onto every recessed shop window in the district, and until
+// this round it was the one atlas material with no glazing patch on it at all.
+// It is also where a review round's vertical-profile sample actually landed:
+// the column at x=1350 reads rm (255, 23, 115) - roughness 0.09 at metalness
+// 0.45 - which is this cell and nothing else in either atlas.
+//
+// pane-stats' isTrimGlass, unchanged, so the two tools agree: the trim atlas'
+// mullion (76,230), steel (97,235) and dark metal (112,217) are all rougher or
+// far more metallic, so "smooth and only somewhat metallic" picks out shopfront
+// glazing whatever coating it currently carries.
+const isTrimGlass = (g, b) => g < 40 && b > 80 && b < 200;
 
 export function loadCapture(base) {
   const meta = JSON.parse(fs.readFileSync(`${base}.meta.json`, 'utf8'));
@@ -215,6 +227,12 @@ export function classify(cap) {
     // the critics' table is against ("glass is never the brightest element on a
     // facade"), and it has to be measured rather than read off a chosen pixel.
     if (mask && mask[i * 4] < 8 && mask[i * 4 + 1] < 8 && mask[i * 4 + 2] < 8) { cls[i] = 3; continue; }
+    // 4 = storefront glazing on the trim atlas. The kind pass writes 0.5 for the
+    // trim material and 1.0 for a facade one, so this band is trim and only trim.
+    if (kind[i * 4] >= 100 && kind[i * 4] < 200) {
+      if (isTrimGlass(rm[i * 4 + 1], rm[i * 4 + 2]) && Math.abs(ny) <= 0.35) cls[i] = 4;
+      continue;
+    }
     if (kind[i * 4] < 200) continue;                 // not a facade material
     if (Math.abs(ny) > 0.35) continue;               // roof, sill, parapet - not a wall face
     const g = rm[i * 4 + 1], b = rm[i * 4 + 2];
@@ -337,7 +355,7 @@ export function report(base) {
     return Math.abs(d) <= 20;
   };
 
-  const glass = acc(), wall = acc(), sky = acc();
+  const glass = acc(), wall = acc(), sky = acc(), shop = acc();
   const bands = BANDS.map(() => ({ glass: acc(), wall: acc() }));
   const fGlass = acc(), fWall = acc();
   const fBands = BANDS.map(() => ({ glass: acc(), wall: acc() }));
@@ -348,6 +366,7 @@ export function report(base) {
     // lands in `wall` and the one number the critics compared against becomes
     // part of what it is being compared with.
     if (cls[i] === 3) { push(sky, i); continue; }
+    if (cls[i] === 4) { push(shop, i); continue; }
     const isG = cls[i] === 1;
     push(isG ? glass : wall, i);
     const y = height[i];
@@ -391,6 +410,22 @@ export function report(base) {
     }
   }
 
+  // The same top-third / bottom-third split, on the SHOPFRONT class. This is the
+  // metric the reported "dark at the head, bright at the cill" belongs to, and
+  // running it over every storefront pane in the frame replaces five hand-picked
+  // pixels with a population.
+  const shopPanes = components(cls, 4, w, h, 40).map((px) => {
+    let y0 = 1e9, y1 = -1e9;
+    for (const q of px) { const y = (q / w) | 0; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    const span = Math.max(1, y1 - y0 + 1);
+    const top = acc(), bot = acc();
+    for (const q of px) {
+      const fr = (((q / w) | 0) - y0) / span;
+      if (fr < 1 / 3) push(top, q); else if (fr >= 2 / 3) push(bot, q);
+    }
+    return { top: fin(top), bot: fin(bot) };
+  }).filter((q) => q.top.n > 4 && q.bot.n > 4);
+
   // Per-pane: mean, and the top-third / bottom-third split INSIDE one pane.
   const panes = components(cls, 1, w, h, 40).map((px) => {
     let y0 = 1e9, y1 = -1e9, hs = 0;
@@ -419,7 +454,13 @@ export function report(base) {
 
   return {
     base: path.basename(base), meta,
-    glass: fin(glass), wall: fin(wall), sky: fin(sky),
+    glass: fin(glass), wall: fin(wall), sky: fin(sky), shop: fin(shop),
+    shopPanes: {
+      count: shopPanes.length,
+      topOverBottom: mean(shopPanes.map((q) => q.top.sceneY / Math.max(1e-6, q.bot.sceneY))),
+    },
+    shopOverSky: fin(sky).n ? fin(shop).l8 / Math.max(1e-9, fin(sky).l8) : NaN,
+    shopOverWall: fin(wall).n ? fin(shop).l8 / Math.max(1e-9, fin(wall).l8) : NaN,
     ratio: fin(glass).sceneY / Math.max(1e-9, fin(wall).sceneY),
     glassOverSky: fin(sky).n ? fin(glass).l8 / Math.max(1e-9, fin(sky).l8) : NaN,
     wallOverSky: fin(sky).n ? fin(wall).l8 / Math.max(1e-9, fin(sky).l8) : NaN,
@@ -461,6 +502,10 @@ export function fmt(r) {
   L.push(`  glass ${String(r.glass.n).padStart(7)} px  8-bit ${f(r.glass.l8).padStart(6)}  sceneY ${f(r.glass.sceneY, 5).padStart(9)}  rgb ${c(r.glass.rgb)}`);
   L.push(`  wall  ${String(r.wall.n).padStart(7)} px  8-bit ${f(r.wall.l8).padStart(6)}  sceneY ${f(r.wall.sceneY, 5).padStart(9)}  rgb ${c(r.wall.rgb)}`);
   L.push(`  sky   ${String(r.sky.n).padStart(7)} px  8-bit ${f(r.sky.l8).padStart(6)}  sceneY ${f(r.sky.sceneY, 5).padStart(9)}  rgb ${c(r.sky.rgb)}`);
+  L.push(`  shop  ${String(r.shop.n).padStart(7)} px  8-bit ${f(r.shop.l8).padStart(6)}  sceneY ${f(r.shop.sceneY, 5).padStart(9)}  rgb ${c(r.shop.rgb)}`
+    + `   (trim-atlas storefront glazing)`);
+  L.push(`  shopfront:  shop/sky ${f(r.shopOverSky, 3)}  shop/wall ${f(r.shopOverWall, 3)}  `
+    + `head/cill ${f(r.shopPanes.topOverBottom, 3)} over ${r.shopPanes.count} panes`);
   L.push(`  vs sky:  glass/sky ${f(r.glassOverSky, 3)}   wall/sky ${f(r.wallOverSky, 3)}   `
     + `(a pane on a lit street reads ABOVE the masonry beside it; glass/sky < wall/sky is the defect)`);
   L.push(`  linear B/R   glass ${f(r.glass.br, 3)}   wall ${f(r.wall.br, 3)}   `
@@ -1160,11 +1205,28 @@ function synth(dir, name, opts) {
   const rm = new Uint8Array(w * h * 4);
   const wy = new Uint8Array(w * h * 4);
   const mask = new Uint8Array(w * h * 4);
-  // rows 0-15 sky, 16-47 one 32-row pane, 48-63 wall.
+  // rows 0-15 sky, 16-47 one 32-row pane, 48-63 wall. Columns 48-63 are a
+  // storefront strip on the TRIM material instead, so the shopfront class has
+  // known-good and known-bad input of its own.
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
       let v;
+      if (y >= 16 && x >= 48 && opts.shop) {
+        mask[i * 4] = mask[i * 4 + 1] = mask[i * 4 + 2] = 255;
+        // 127 = the kind pass' trim band; 255 would be a facade material.
+        kind[i * 4] = opts.shopKindFacade ? 255 : 127;
+        wy[i * 4 + 2] = 128;
+        // (23, 115) is the trim atlas' glazing cell; (76, 230) is its mullion,
+        // which is NOT a window and must not be counted as one.
+        rm[i * 4] = 255;
+        rm[i * 4 + 1] = opts.shopIsMullion ? 76 : 23;
+        rm[i * 4 + 2] = opts.shopIsMullion ? 230 : 115;
+        const t = (y - 16) / 47;
+        v = Math.round(opts.shopTop + (opts.shopBot - opts.shopTop) * t);
+        rgb[i * 3] = rgb[i * 3 + 1] = rgb[i * 3 + 2] = v;
+        continue;
+      }
       if (y < 16) {                                    // sky
         v = opts.sky;
         if (opts.maskCoversSky) { mask[i * 4] = mask[i * 4 + 1] = mask[i * 4 + 2] = 255; }
@@ -1257,6 +1319,29 @@ function selftest() {
   ck('bright-head/dark-cill pane -> top/bottom > 1.6', cor.panes.topOverBottom > 1.6, f(cor.panes.topOverBottom, 3));
   ck('the two are inverses of each other', near(inv.panes.topOverBottom * cor.panes.topOverBottom, 1, 0.12),
     f(inv.panes.topOverBottom * cor.panes.topOverBottom, 3));
+
+  // 5. The shopfront class: the trim atlas' glazing, which is where a review
+  //    round's vertical-profile sample actually landed. Known-good, then two
+  //    known-bads that must both come back empty rather than plausible.
+  const shopOpts = { sky: 200, paneTop: 40, paneBot: 40, wall: 70, shop: true, shopTop: 20, shopBot: 60 };
+  let sr = report(synth(dir, 'shop', shopOpts));
+  ck('shopfront class found on the trim band', sr.shop.n === 16 * 48 && near(sr.shop.l8, 40, 1.5),
+    `n=${sr.shop.n} l8=${f(sr.shop.l8)}`);
+  ck('shopfront dark-head/bright-cill -> head/cill < 0.6', sr.shopPanes.topOverBottom < 0.6,
+    `${f(sr.shopPanes.topOverBottom, 3)} over ${sr.shopPanes.count} panes`);
+  ck('shopfront does NOT leak into the facade glass or wall class',
+    sr.glass.n === 32 * 48 && sr.wall.n === 16 * 48, `glass=${sr.glass.n} wall=${sr.wall.n}`);
+
+  sr = report(synth(dir, 'shopmullion', { ...shopOpts, shopIsMullion: true }));
+  ck('KNOWN-BAD trim mullion texels are not shopfront glass', sr.shop.n === 0, `n=${sr.shop.n}`);
+
+  sr = report(synth(dir, 'shopfacade', { ...shopOpts, shopKindFacade: true }));
+  ck('KNOWN-BAD the same texels on a FACADE material are not shopfront glass', sr.shop.n === 0,
+    `n=${sr.shop.n}`);
+
+  sr = report(synth(dir, 'shopgood', { ...shopOpts, shopTop: 60, shopBot: 20 }));
+  ck('shopfront bright-head/dark-cill -> head/cill > 1.6', sr.shopPanes.topOverBottom > 1.6,
+    f(sr.shopPanes.topOverBottom, 3));
 
   console.log(fails.length ? `SELFTEST FAIL: ${fails.join(', ')}` : 'SELFTEST PASS');
   return fails.length;
