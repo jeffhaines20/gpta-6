@@ -43,33 +43,60 @@
 // once: sunlit brick with people on it, bollards and bins standing on that brick,
 // and a shopfront wall with awnings and reveals down the right-hand side.
 //
+// EVERY HEADLINE NUMBER IS A DIFFERENCE OR A RATIO INSIDE ONE BUFFER. The
+// absolute level of the AO term moves with intensity and strength by
+// construction, so "the halo is 0.28" says nothing on its own. What says
+// something is how far out the halo is still above the pavement around it, and
+// how much darker a window reveal is than the wall 30 cm to its left in the
+// same frame.
+//
 //   LOBE      A pedestrian is teleported to a verified patch of clear sunlit
 //             brick and posed standing, so its width is the 0.41 m shoulder and
-//             its position is known. Occlusion is then sampled on the GROUND in a
-//             radial profile around its feet, averaged over 16 azimuths, and the
-//             lobe radius is where it falls to 10% of its contact value. Reported
-//             in body widths, which is the unit the complaint was made in.
-//   CONTACT   Occlusion in a 0.12 m disc where the foot, the bin base and the
-//             bollard base meet the paving. This is what a smaller radius is at
-//             risk of throwing away.
-//   JUNCTION  The crevice term AO exists to draw, measured geometrically rather
-//             than by eye: occlusion on the pavement 0.10 m from a building wall
-//             minus occlusion 1.50 m out, averaged over every facing wall segment
-//             the camera can see. Same on the wall itself, 0.10 m up against
-//             1.50 m up. A pair of differences inside one frame - it cannot be
-//             moved by exposure.
-//   REVEAL    Chosen screen boxes on a window reveal and under an awning, each
-//             one raycast to confirm what it actually lands on before it is read.
+//             its position is known. Occlusion is sampled on the GROUND around
+//             its feet on TRUE 0.1 m-spaced circles out to 4 m - circles on the
+//             brick, projected, not circles on the screen, because pavement is
+//             seen at a grazing angle and a screen circle is an ellipse on the
+//             ground. Every ring point is checked to be flat prop-free sidewalk,
+//             checked to be visible from the camera, and checked not to lie in
+//             the subject's own screen column. The lobe radius is where the
+//             profile decays to 10% of its rise ABOVE THE LOCAL BACKGROUND
+//             measured at 3-4 m, not to 10% of its peak: this district has an
+//             AO floor everywhere and a peak-relative test never terminates.
+//             Reported in body widths, the unit the complaint was made in.
+//   CONTACT   The pavement in a ring 0.14 m clear of a bin base or a bollard
+//             base, minus the same pavement 2.2 m out. The props are found from
+//             the dressing pass's own merged vertices - 0.20 m plan grid,
+//             connected components, classified by plan extent against the
+//             dimensions in streetfurniture.js - because there is no per-object
+//             node to look up and a ground grid coarse enough to be affordable
+//             steps straight over a 0.64 m bin.
+//   CREASE    The crevice term AO exists to draw, measured geometrically rather
+//             than by eye: occlusion on the pavement 0.12 m from a building wall
+//             minus occlusion 1.80 m out, over every facing wall segment the
+//             camera can actually see - outward decided by point-in-polygon on
+//             the footprint, visibility decided by a ray. Same on the wall
+//             itself, 0.25 m up against 2.20 m up.
+//   REVEAL    AO's real job, and the measurement that decides this question.
+//             src/facades.js builds windows with real depth: the glazing plane
+//             sits 0.10-0.34 m behind the wall face, with jambs returning to it
+//             and a head shelf over it. Rays in rows across a facade record how
+//             far behind the modal wall plane each pixel landed, classifying it
+//             as flush, reveal or soffit, and only pixels whose neighbours agree
+//             are kept so none sits on a transition the half-res blur smeared.
+//             revealContrast is reveal minus flush. If a short radius does not
+//             hold that up, it is not free.
 //   FRAME     Mean occlusion over the whole buffer: how grey the district is.
 //
-// RADIUS AND STRENGTH ARE SWEPT AS A PAIR, and there is a third knob that matters
-// more than either: aoIntensity is the exponent in `ao = pow(ao, intensity)`, and
-// the shader's own note says the kernel is weighted toward the origin so a raw
-// average understates a corner. A tighter radius samples less occlusion, so the
-// exponent is the honest place to give some back.
+// RADIUS AND CONTRAST ARE SWEPT AS A PAIR, because a smaller hemisphere finds
+// less occluding geometry and the same exponent therefore reads weaker at 0.6 m
+// than at 2.2 m. Note which knob has the range: post.js line 439 composites
+// mix(1.0, ao, aoStrength), so aoStrength is a fraction and 1.0 is already the
+// whole AO buffer - 5% of headroom above the shipped 0.95 and no more.
+// aoIntensity is the exponent in pow(ao, intensity) and it is where the
+// contrast actually lives.
 //
-//   node tools/ao-sweep.mjs --port 8137 --tag sweep
-//   node tools/ao-sweep.mjs --selftest --port 8137
+//   node tools/ao-sweep.mjs --port 8149 --tag sweep
+//   node tools/ao-sweep.mjs --selftest
 import { chromium } from 'playwright';
 import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
@@ -95,17 +122,30 @@ const W = 1600, H = 900;
 const BODY_W = 0.41;              // shoulder width, src/pedestrians.js SHOULDER_X * 2
 
 // radius, intensity, strength. The first row is what ships today.
+// RADIUS AND CONTRAST AS A PAIR, which they are: a smaller hemisphere finds
+// less occluding geometry, so the same aoIntensity exponent reads weaker at
+// 0.6 m than at 2.2 m and a radius change compared at fixed intensity is
+// really two changes at once. Note which knob has the range: post.js line 439
+// composites mix(1.0, ao, aoStrength), so aoStrength is a fraction and 1.0 is
+// already the whole AO buffer -- there is 5% of headroom above the shipped
+// 0.95 and no more. aoIntensity is the pow() exponent on the AO term and it is
+// where the contrast actually lives. So the sweep walks radius at the shipped
+// contrast first, then re-pairs each short radius with a higher exponent to ask
+// whether what a small kernel loses can be bought back.
 const COMBOS = (arg('combos', '') || [
-  '2.2/3.8/0.95',
+  '2.2/3.8/0.95',   // shipped
   '1.4/3.8/0.95',
   '0.9/3.8/0.95',
   '0.6/3.8/0.95',
   '0.35/3.8/0.95',
-  '0.9/2.6/0.95',
+  '1.4/5.2/0.95',   // the same radii re-paired with more contrast
   '0.9/5.2/0.95',
   '0.6/5.2/0.95',
-  '0.9/3.8/1.0',
-  '0.0/3.8/0.95',
+  '0.35/5.2/0.95',
+  '0.6/6.8/1.00',   // and with everything both knobs have left
+  '0.35/6.8/1.00',
+  '0.9/2.6/0.95',   // less contrast, for the shape of the response
+  '0.0/3.8/0.95',   // control: radius 0 must read exactly zero
 ].join(',')).split(',').map((s) => {
   const [r, i, st] = s.split('/').map(Number);
   return { radius: r, intensity: i, strength: st };
@@ -307,12 +347,21 @@ const subject = await page.evaluate(async (bodyW) => {
   const rc = new THREE.Raycaster();
   const down = new THREE.Vector3(0, -1, 0);
   const L = new THREE.Vector3().copy(D.tod.sun.position).sub(D.tod.sun.target.position).normalize();
+  // THE LOWEST HIT IS THE GROUND, not the first one. A ray dropped from y = 8
+  // over the pavement at the foot of a shopfront meets the awning first, and
+  // taking that as "the ground" and finding it 3 m up is how the wall/pavement
+  // finder threw away 64 of the 111 edges within range. So the whole hit list
+  // is kept: `y`/`mat`/`name` are the LOWEST surface, and `topName`/`topY` are
+  // whatever stands over it, which some callers want to reject and some do not.
   const probe = (x, z) => {
     rc.set(new THREE.Vector3(x, 8, z), down);
     const h = rc.intersectObjects(ground, false);
     if (!h.length) return null;
-    return { y: h[0].point.y, mat: (h[0].object.material && h[0].object.material.name) || '',
-      name: h[0].object.name || '' };
+    let lo = 0;
+    for (let i = 1; i < h.length; i++) if (h[i].point.y < h[lo].point.y) lo = i;
+    return { y: h[lo].point.y, mat: (h[lo].object.material && h[lo].object.material.name) || '',
+      name: h[lo].object.name || '',
+      topY: h[0].point.y, topName: h[0].object.name || '', hits: h.length };
   };
   const sunlit = (x, y, z) => {
     rc.set(new THREE.Vector3(x, y + 0.25, z), L);
@@ -326,6 +375,11 @@ const subject = await page.evaluate(async (bodyW) => {
     return { x: (v.x * 0.5 + 0.5) * 1600, y: (-v.y * 0.5 + 0.5) * 900, z: v.z };
   };
   const onProps = (g) => !!g && /^props:/.test(g.name);
+  // Something standing on this spot, or overhanging it: the lobe wants open sky
+  // over bare brick, so it rejects both. The wall/pavement crease does not care
+  // what is overhead -- an awning above a doorway is part of the thing being
+  // measured -- so it only asks onProps().
+  const cluttered = (g) => !g || onProps(g) || /^props:/.test(g.topName) || g.topY > g.y + 0.05;
 
   // A clear, sunlit patch of the reviewers' own brick, in the lower half of the
   // frame where a lobe is resolvable. Searched over the sidewalk in front of the
@@ -339,7 +393,7 @@ const subject = await page.evaluate(async (bodyW) => {
     for (const across of [7, 8, 9, 10, 6, 11, 12, 5]) {
       const x = a.x + fx * along + sx * across, z = a.z + fz * along + sz * across;
       const g = probe(x, z);
-      if (!g || g.y > 0.30 || g.y < -1 || g.mat !== 'sidewalk' || onProps(g)) continue;
+      if (!g || g.y > 0.30 || g.y < -1 || g.mat !== 'sidewalk' || cluttered(g)) continue;
       if (!sunlit(x, g.y, z)) continue;
       // 2.6 m of clear, flat, prop-free brick all round: the lobe has to have
       // somewhere to be measured.
@@ -348,7 +402,7 @@ const subject = await page.evaluate(async (bodyW) => {
         const th = (k / 12) * Math.PI * 2;
         for (const rad of [1.3, 2.6]) {
           const q = probe(x + Math.cos(th) * rad, z + Math.sin(th) * rad);
-          if (!q || q.y > 0.30 || onProps(q) || q.mat !== 'sidewalk') { clear = false; break; }
+          if (!q || q.y > 0.30 || cluttered(q) || q.mat !== 'sidewalk') { clear = false; break; }
         }
       }
       if (!clear) continue;
@@ -446,7 +500,7 @@ const subject = await page.evaluate(async (bodyW) => {
       if (rm > 0.05) {
         const q = probe(x, z);
         if (!q) { ringCensus.offSidewalk++; continue; }
-        if (onProps(q)) { ringCensus.onProps++; continue; }
+        if (cluttered(q)) { ringCensus.onProps++; continue; }
         if (q.mat !== 'sidewalk') { ringCensus.offSidewalk++; continue; }
         if (Math.abs(q.y - slot.y) > 0.06) { ringCensus.notFlat++; continue; }
       }
@@ -702,9 +756,18 @@ const subject = await page.evaluate(async (bodyW) => {
       fCensus.chosen = { mesh: best.obj.name || `#${best.obj.id}`, hits: best.pts.length,
         meanDist: +(best.sumD / best.pts.length).toFixed(1), cx: Math.round(cx), cy: Math.round(cy),
         normal: [+best.n.x.toFixed(2), +best.n.y.toFixed(2), +best.n.z.toFixed(2)] };
-      // Fine scan on that mesh alone: rays are far cheaper when they do not have
-      // to be tested against the whole district.
-      const objs = [best.obj];
+      // Fine scan on that facade and its SIBLINGS in the same chunk: rays are
+      // far cheaper when they are not tested against the whole district, but
+      // src/facades.js puts cornices and awnings in a separate trim mesh from
+      // the wall they hang on (one extra draw call per near chunk, by design),
+      // and scanning the wall alone found 0 soffit pixels because every awning
+      // in front of it was in the other mesh.
+      const prefix = (best.obj.name || '').replace(/:[^:]*$/, ':');
+      const objs = prefix
+        ? ground.filter((o) => (o.name || '').startsWith(prefix.replace(/facade:$/, '')))
+        : [best.obj];
+      if (!objs.includes(best.obj)) objs.push(best.obj);
+      fCensus.scanMeshes = objs.map((o) => o.name || `#${o.id}`);
       const raw = [];
       // 12 px between rows, not 25: a head shelf over a window is 0.16 m deep,
       // which at 13 m is 11 screen pixels, and 25-pixel rows stepped over every
