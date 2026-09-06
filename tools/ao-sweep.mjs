@@ -221,12 +221,34 @@ export function lobeFrom(profile, frac = 0.10, bodyW = 0.41) {
     return null;
   };
   const r10 = at(frac), r50 = at(0.5);
+  // AND THE TWO NUMBERS THAT ACTUALLY SETTLE THIS, which are absolute rather
+  // than relative. A threshold expressed as a fraction of the peak moves when
+  // the peak moves, so it compares two radii on two different rulers. These do
+  // not: `haloAt` is how much darkening the subject is putting on the pavement
+  // at 1, 3 and 6 body widths, and `extinctM` is the last radius at which it is
+  // still over 0.02 and over 0.05 of the ground's brightness. 0.05 is about the
+  // smallest smudge that reads on a sunlit brick pavement; 0.02 is where it is
+  // certainly gone. Six body widths is the unit the complaint was made in.
+  const nearest = (rm) => {
+    let b = null;
+    for (const p of prof) if (b === null || Math.abs(p.rM - rm) < Math.abs(b.rM - rm)) b = p;
+    return b ? +b.occ.toFixed(4) : null;
+  };
+  const extinct = (t) => {
+    let last = null;
+    for (const p of prof) if (p.rM >= 0.15 && p.occ >= t) last = p.rM;
+    return last === null ? 0 : +(last + 0.1).toFixed(1);
+  };
+  const e02 = extinct(0.02), e05 = extinct(0.05);
   return {
     contactOcc: +peak.toFixed(4),
     backgroundOcc: +bg.toFixed(4), backgroundRings: outer.length,
     riseOverBackground: +rise.toFixed(4),
     lobeRadiusM: r10, lobeBodyWidths: r10 === null ? null : +(r10 / bodyW).toFixed(2),
     lobeHalfM: r50, lobeHalfBodyWidths: r50 === null ? null : +(r50 / bodyW).toFixed(2),
+    haloAt1bw: nearest(bodyW), haloAt3bw: nearest(bodyW * 3), haloAt6bw: nearest(bodyW * 6),
+    extinct02M: e02, extinct02Bw: +(e02 / bodyW).toFixed(2),
+    extinct05M: e05, extinct05Bw: +(e05 / bodyW).toFixed(2),
   };
 }
 
@@ -309,6 +331,24 @@ if (SELFTEST) {
     if (peak - s / n > 0) bad.push('outer-metre background did not go negative; the test is wrong');
   }
 
+  // 3b. The absolute numbers, on the same synthetic ramp. occ(r) = 0.15 +
+  //     0.5*(1 - r/2), so at one body width (0.41 m) that is 0.4475 and the
+  //     rise above the floor is 0.2975; at three (1.23 m) the ramp gives 0.3425
+  //     total. Extinction at 0.05 ABSOLUTE is where the whole value, floor
+  //     included, drops under 0.05 -- which on a profile that floors at 0.15
+  //     never happens, so it must report the end of the search and not zero.
+  {
+    const bareRamp = lobeFrom(ramp(0.50, 2.0, 0));
+    near(bareRamp.haloAt1bw, 0.5 * (1 - 0.4 / 2), 0.02, 'halo at 1 body width');
+    near(bareRamp.haloAt3bw, 0.5 * (1 - 1.2 / 2), 0.02, 'halo at 3 body widths');
+    near(bareRamp.haloAt6bw, 0, 0.005, 'halo at 6 body widths on a 2 m ramp');
+    // 0.5*(1 - r/2) = 0.05 at r = 1.8, so the last ring at or above it is 1.8.
+    near(bareRamp.extinct05M, 1.9, 0.11, 'extinction at 0.05');
+    near(bareRamp.extinct02M, 2.0, 0.11, 'extinction at 0.02');
+    const floors = lobeFrom(ramp(0.50, 2.0, 0.15));
+    if (floors.extinct05M < 4.0) bad.push(`a profile that floors at 0.15 reported extinction at ${floors.extinct05M}`);
+  }
+
   // 4. Nothing there: a flat profile must report NO lobe, not the search width.
   const flat = lobeFrom(ramp(0, 2.0, 0.15));
   if (flat.lobeRadiusM !== null) bad.push(`flat profile invented a lobe at ${flat.lobeRadiusM} m`);
@@ -330,6 +370,28 @@ if (SELFTEST) {
 
   console.log(bad.length ? `SELFTEST FAILED: ${bad.join('; ')}` : 'SELFTEST PASSED');
   process.exit(bad.length ? 3 : 0);
+}
+
+// --reduce <sweep.json> re-derives the summary table from a sweep that has
+// already been captured, with no browser and no server. The profiles are in the
+// JSON; every number below them is arithmetic, and arithmetic should not need
+// twenty minutes of SwiftShader to be re-run when its definition changes.
+if (has('reduce')) {
+  const src = arg('reduce', '');
+  const j = JSON.parse(fs.readFileSync(src, 'utf8'));
+  const pad = (v, n, d = 3) => String(v === null || v === undefined ? 'n/a' : v.toFixed(d)).padStart(n);
+  console.log(`${src}  (${j.subject && j.subject.slot ? `subject ${(+j.subject.mPerPx).toFixed(4)} m/px, ` +
+    `body ${j.subject.bodyWidthPx} px` : ''})`);
+  console.log('radius/exp/str    halo@1bw @3bw  @6bw   over .05 to   foot   reveal  wall-crease ground-crease  frame');
+  for (const r of j.results) {
+    const L = lobeFrom(r.ao.lobe.profile, 0.10, BODY_W);
+    const F = r.ao.facade || {}, J = r.ao.junction || {};
+    console.log(`${`${r.radius}/${r.intensity}/${r.strength}`.padEnd(16)} ` +
+      `${pad(L.haloAt1bw, 7)} ${pad(L.haloAt3bw, 6)} ${pad(L.haloAt6bw, 6)}  ` +
+      `${pad(L.extinct05Bw, 5, 1)} bw   ${pad(r.ao.footRise, 6)}  ${pad(F.revealContrast, 6)} ` +
+      `${pad(J.wallCrease, 11)} ${pad(J.groundCrease, 13)} ${pad(r.ao.frameMeanOcc, 6)}`);
+  }
+  process.exit(0);
 }
 
 const srv = await ensureServer(PORT, 30000, { root: process.cwd() });
