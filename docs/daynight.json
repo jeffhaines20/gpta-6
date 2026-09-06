@@ -51,8 +51,8 @@
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 13,
    "shadowCasters": 134,
-   "drawCalls": 201,
-   "triangles": 710238,
+   "drawCalls": 200,
+   "triangles": 691362,
    "implausible": []
   },
   {
@@ -82,8 +82,8 @@
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 13,
    "shadowCasters": 134,
-   "drawCalls": 218,
-   "triangles": 755581,
+   "drawCalls": 217,
+   "triangles": 754157,
    "implausible": []
   },
   {
@@ -113,8 +113,8 @@
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 13,
    "shadowCasters": 134,
-   "drawCalls": 210,
-   "triangles": 738888,
+   "drawCalls": 209,
+   "triangles": 737988,
    "implausible": []
   },
   {
@@ -144,8 +144,8 @@
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 13,
    "shadowCasters": 134,
-   "drawCalls": 208,
-   "triangles": 736555,
+   "drawCalls": 207,
+   "triangles": 735185,
    "implausible": []
   }
  ],
