@@ -186,6 +186,22 @@ for (const s of shots) {
   await page.waitForTimeout(14000);
 
   for (const tod of TIMES) {
+    // HERO_AO=radius/intensity/strength overrides the SSAO parameters for the
+    // whole capture, so a before/after on a post-pass number can be shot in ONE
+    // session off ONE build. The same argument as HERO_ARMS: capturing a
+    // lighting A/B by editing src/ between two runs only measures that edit if
+    // nothing else in the tree moved in between, and in a tree with three
+    // agents in it something usually did. Unset, nothing is touched and the
+    // build's own defaults stand.
+    if (process.env.HERO_AO) {
+      const [r, i, st] = process.env.HERO_AO.split('/').map(Number);
+      const got = await page.evaluate((v) => {
+        const q = __district.postParams();
+        q.aoRadius = v.r; q.aoIntensity = v.i; q.aoStrength = v.s; q.aoEnabled = true;
+        return { r: q.aoRadius, i: q.aoIntensity, s: q.aoStrength };
+      }, { r, i, s: st });
+      console.log(`  HERO_AO applied: radius ${got.r} intensity ${got.i} strength ${got.s}`);
+    }
     await page.evaluate((t) => __district.setTimeOfDay(t), tod);
     await page.waitForTimeout(15000);
     // One camera, one settled district, every arm. See tools/ground-albedo.mjs:

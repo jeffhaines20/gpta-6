@@ -686,14 +686,66 @@ export class PostStack {
       highlightKnee: 0.5,
       highlightCeil: 8.0,
       sunDirection: new THREE.Vector3(0, 1, 0),
-      // AO. Radius is in view-space metres, so 0.9 m is a contact-shadow scale:
-      // it darkens where a wall meets pavement and under kerbs, awnings and
-      // vehicles, without turning whole facades grey.
+      // ---------------------------------------------------------------- AO
+      //
+      // 0.6 m, exponent 8.5, full strength. Radius is in VIEW-SPACE METRES, so
+      // this is a contact scale: it darkens where a wall meets pavement, under
+      // kerbs and awnings and vehicles, and around a shoe, without putting an
+      // apron round everything that stands up.
+      //
+      // It used to be 2.2 m, and the comment above it claimed 0.9. Measured off
+      // the AO buffer itself with tools/ao-sweep.mjs -- one capture per
+      // parameter set, subject present and subject removed, nothing else in the
+      // world moving, and a repeat of the first parameter set at the end of
+      // every sweep agreeing to four decimal places -- this is what 2.2 m was
+      // doing and what 0.6 m does instead. All numbers are OCCLUSION, 1 - ao,
+      // read off aoBlurRT; "bw" is one 0.41 m shoulder width.
+      //
+      //                                       2.2/3.8/0.95   0.6/8.5/1.00
+      //   a standing figure's OWN darkening
+      //   on the pavement beside its shoe        0.111          0.233
+      //   ... three body widths out              0.061          0.070
+      //   ... SIX body widths out                0.041          0.011
+      //   ... last radius still over 0.05      8.5 bw         3.2 bw
+      //   under the foot itself                  0.278          0.354
+      //   a window reveal against the wall
+      //   beside it, 0.16 m of built depth       0.068          0.067
+      //   a wall's foot against the same wall
+      //   2.2 m up                              -0.026          0.236
+      //   pavement 0.12 m from a wall against
+      //   pavement 1.8 m out                     0.096          0.016
+      //   mean occlusion over the whole frame    0.264          0.240
+      //
+      // TWO BLIND REVIEWERS CALLED THE OLD SETTING "a soft fan roughly six times
+      // his body width, with no edge and no direction". They were reading it
+      // correctly and conservatively: at 2.2 m a figure was still putting 0.041
+      // on the pavement six body widths away and did not fall under 0.05 until
+      // 8.5. At 0.6 m that is 0.011 and 3.2, and the darkening right beside the
+      // shoe has DOUBLED. Nothing about the contact was traded away to get it --
+      // the foot reads 27% harder, because the exponent is where AO's contrast
+      // lives and a tighter kernel can afford more of it.
+      //
+      // THE REVEAL DOES NOT PULL APART FROM THE HALO, which was the thing to
+      // check: 0.067 against 0.068, a facade recess measured by raycasting the
+      // built depth in src/facades.js rather than by choosing a screen box.
+      //
+      // ONE THING DOES GIVE WAY AND IT SHOULD BE ON THE RECORD. The broad
+      // gradient along the foot of every wall -- pavement within 0.12 m of the
+      // masonry against pavement 1.8 m out -- falls from 0.096 to 0.016. That
+      // gradient is the halo again, drawn against a building instead of against
+      // a person: a two-metre apron with no edge in it. What replaces it is
+      // sharper and in the right place. The wall's own foot goes from 0.026
+      // LIGHTER than the wall two metres up to 0.236 darker, so the junction
+      // reads as a junction rather than as a smudge on the paving.
+      //
+      // Bias is unchanged. Strength is a fraction of the AO buffer in the
+      // composite (mix(1.0, ao, aoStrength) below), so 1.00 is all of it and
+      // there is nowhere above it to go; the contrast knob is the exponent.
       aoEnabled: true,
-      aoStrength: 0.95,
-      aoRadius: 2.2,
+      aoStrength: 1.0,
+      aoRadius: 0.6,
       aoBias: 0.035,
-      aoIntensity: 3.8,
+      aoIntensity: 8.5,
     };
 
     const type = THREE.HalfFloatType;
