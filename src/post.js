@@ -1160,6 +1160,140 @@ export class PostStack {
       // on grain (0.58) at no cost, and a wider blur is spent directly out of
       // the umbra edge that prop-ground protects at 17.1 px.
       //
+      // ---- THE FACADE SEAM, AND WHY THIS ROUND DID NOT LIGHTEN IT.
+      //
+      // A blind reviewer measured the junction band at 0.215 of its own local
+      // p90 at fivepoints and 0.343 at corridor, in all 8 frames at both
+      // cameras, and named the shape as the tell: "the left flank spans 13-18
+      // px of flat stone with no geometry under it before reaching the minimum.
+      // There is nothing there to occlude." The observation is exact. The
+      // diagnosis inside it -- that this is a flat surface next to a DEPTH STEP
+      // -- is wrong, and knowing that is what closed two of the three candidate
+      // mechanisms.
+      //
+      // WHAT IS ACTUALLY UNDER THE FLANK. tools/ao-seam.mjs reads occlusion off
+      // aoBlurRT column by column AND raycasts the scene along the same columns,
+      // so the geometry is measured rather than assumed. Nothing steps: view
+      // space z runs 16.07 -> 16.06 -> 15.47 smoothly across the entire flank
+      // and the largest step anywhere in the window is 47 columns away. What is
+      // there is a real 90-degree concave corner 17.2 m out -- the two faces
+      // meet at 90.0 degrees, the left one grazing at 0.0157 m of masonry per
+      // screen column and the right one at 0.044.
+      //
+      // AND THAT IS WHY IT IS A PLATEAU RATHER THAN A GRADIENT. For an infinite
+      // perpendicular wall the fraction of the hemisphere it blocks is one half
+      // AT EVERY DISTANCE from the corner: distance does not enter the unbounded
+      // visibility integral at all. So a binary-visibility estimator draws a
+      // 90-degree corner with a flat top, and the only thing that ends it is the
+      // kernel running out of length. Measured: occlusion holds above a tenth of
+      // its own peak for 0.314 m of surface on the grazing face and 0.612 m on
+      // the face-on one, against 0.52 m of longest kernel vector plus 0.09 m of
+      // blur. The profile's width is the kernel's reach, not the building's.
+      //
+      // THE THREE MECHANISMS, each isolated in one page load with the repeat
+      // guard reading d=0.00000. reach is arc length along the real surface at a
+      // tenth of the profile's own rise, and since this window's shoulder is
+      // 0.0000 that number CANNOT move on a gain change -- a reach that falls is
+      // a shape change and nothing else.
+      //
+      //     arm                        trough    reach     what it is
+      //     shipped                    0.9360    0.314 m
+      //     aoRangeScale 0.25          0.8428    0.330 m   depth-step guard
+      //     aoThickness 0.15           0.7129    0.373 m   back-face guard
+      //     aoOccNear/Far 0.25/0.75    0.7656    0.387 m   obscurance
+      //     ... 0.20/0.60              0.6844    0.371 m
+      //     ... 0.15/0.50              0.5589    0.261 m
+      //     ... 0.10/0.35              0.3438    0.173 m
+      //     ... 0.06/0.25              0.1552    0.126 m
+      //
+      // BOTH DEPTH-STEP GUARDS ARE NEGATIVES IN THE INFORMATIVE DIRECTION: they
+      // lighten the trough and make the reach LONGER, i.e. flatter and broader,
+      // which is more painted-line and not less. That is what should happen when
+      // there is no depth step to guard. Every gentle obscurance setting does
+      // the same. Only settings hard enough to annihilate the flank outright
+      // shorten it, and those are priced below.
+      //
+      // WHY NO TRANSFER CAN DO IT EITHER, which is the part worth keeping.
+      // Inverting pow(ao, 8.5) on the numbers this build actually produces:
+      //
+      //     feature                   buffer     RAW estimator occlusion
+      //     seam corner               0.9360     0.2763
+      //     pedestrian foot           0.7968     0.1710
+      //     window reveal             0.2261     0.0297
+      //     window flush              0.1015     0.0125
+      //
+      // The corner is GENUINELY 1.62x more occluded than the foot -- the
+      // estimator is not wrong about it, a 90-degree meeting of two large walls
+      // really does block more than a shoe does. pow() is monotone, so any
+      // transfer that leaves the foot at 0.7968 leaves the corner at 0.7968 or
+      // above. The entire gain available from reshaping the curve is 0.9360 ->
+      // 0.7968, -15%, and a ceiling flattens the seam's top, which is the wrong
+      // direction for the complaint that was made.
+      //
+      // AND WHY THE ESTIMATOR-SIDE MECHANISM CANNOT PAY FOR IT. The obscurance
+      // term DOES do the thing no parameter can: it inverts that ordering. At
+      // 0.15/0.50 the corner's raw falls 0.2763 -> 0.0918 (x0.33) while the
+      // foot's falls 0.1710 -> 0.0942 (x0.55), so the corner is cut 1.7x harder
+      // and ends up BELOW the foot. Re-pair the exponent to hold the foot at
+      // 0.7968 and it needs 16.10, which lands the seam at 0.7879 -- the same
+      // place the free ceiling reaches -- while taking revealContrast 0.1246 ->
+      // 0.0712 and doubling the transfer's noise gain.
+      //
+      // THE EXCHANGE RATE IS SET BY THE TRANSFER'S CURVATURE, NOT BY THE
+      // MECHANISM, and this is the finding to carry forward. In RAW terms the
+      // seam and the reveal move together: at 0.15/0.50 the seam trough's raw
+      // falls x0.332 and the reveal's raw contrast x0.280, which is the same
+      // number. What differs is where they are read. d(buffer)/d(raw) is
+      // 8.5*(1-x)^7.5, which is 0.75 at the seam's 0.2763 and 6.76 at the
+      // reveal's 0.0297 -- NINE TIMES more sensitive. The seam sits in the
+      // exponent's saturation and the reveal in its linear toe, so any
+      // attenuation of the estimator shows up nine times more strongly in the
+      // reveal than in the seam. No choice of falloff shape changes that ratio,
+      // because it is a property of the curve both features are read through.
+      //
+      // WHAT 0.15/0.50 WOULD HAVE COST, all six protected metrics, measured on
+      // this tip rather than quoted (ao-sweep --slot 40.5395,-154.0984, the
+      // pinned 24.4 px subject; prop-ground fivepoints noon; AO-off shown where
+      // the instrument produces one, so the fraction GIVEN BACK is readable):
+      //
+      //                                 shipped   0.15/0.50   AO off
+      //     halo extinction (0.05)      4.63 bw    1.22 bw       --
+      //       ... level at 1 bw          0.3468     0.0627       --
+      //       ... level at 3 bw          0.0559     0.0000       --
+      //       ... level at 6 bw          0.0298     0.0000       --
+      //     foot contact                 0.7968     0.5688      0.0
+      //     window reveal contrast       0.1246     0.0392      0.0
+      //     parked car umbra 22.3 m      0.6582     0.9738     1.0432
+      //     umbra edge 22.3 m           16.7 px     6.1 px     3.9 px
+      //     prop contact rise 18.8 m     0.2317     0.0971      0.0
+      //     prop 18.8 m umbra            0.7662     0.7986     0.8396
+      //     frame mean occlusion         0.1254     0.0468      0.0
+      //
+      // The parked car is the one that settles it: 0.6582 -> 0.9738 against an
+      // AO-off 1.0432 gives back 82% of the contact the AO term is drawing, and
+      // the umbra edge gives back 83% of its width. The car's ground shadow is
+      // carried by occluders 0.3 to 1.5 m away -- the whole wide band the
+      // mechanism exists to remove -- so the mechanism removes it. What is
+      // bought for that is a seam trough of 0.5589 and 0.053 m of reach.
+      //
+      // aoOccNear/aoOccFar, aoRangeScale and aoThickness are therefore all left
+      // at 0, which is the r8 behaviour exactly, and kept as parameters so the
+      // next round can reproduce these rows instead of re-deriving them.
+      //
+      // WHAT IS LEFT TO TRY, in the order the measurements point. Every route
+      // above is blocked by the same thing: an estimator that reads about a
+      // seventh of the true occlusion (0.2763 where a 90-degree corner is 0.5)
+      // rescued by an exponent of 8.5 that saturates the strong features and
+      // linearly amplifies the weak ones. Fix the estimator and the exponent can
+      // come down, and then the seam and the reveal stop being the same knob.
+      // aoKernel 3 is the untested variant the previous round named on its way
+      // out: the spiral with a UNIFORM-SOLID-ANGLE elevation (z = 1-u, disk
+      // radius sqrt(u(2-u))) rather than a cosine one. tools/ao-kernel-var.mjs
+      // now prices the difference exactly -- at a 60-degree wall the exact
+      // uniform-solid-angle answer is 0.6667, the uniform spiral reads 0.6667
+      // and the cosine spiral 0.7500 -- and a 90-degree corner cannot tell them
+      // apart at all, which is why that rig could not have caught this before.
+      //
       //   aoSamples     taps in the hemisphere. ONLY MEANINGFUL WITH aoKernel
       //                 1 or 2: the legacy kernel is twelve typed vectors and
       //                 cannot be asked for a thirteenth, so the count is forced
