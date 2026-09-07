@@ -55,14 +55,17 @@ if (typeof performance === 'undefined') globalThis.performance = { now: () => Da
 
 const FAC = await import('../src/facades.js');
 const {
-  TRIM, TRIM_DARK, TRIM_DIM, TRIM_LIT, TRIM_STATES, trimCell,
+  TRIM, TRIM_NONE, TRIM_DARK, TRIM_DIM, TRIM_LIT, TRIM_STATES, trimCell,
   tenancyState, TENANCY_MIX, buildingStyle, lotPlanFor, edgesOf,
 } = FAC;
 // TRIM_GRID is module-private in facades.js; it is 4 and the atlas is 512 px, and
 // both are asserted below by rebuilding the cell size from them and checking the
 // UV rects agree.
 const TRIM_STATES_GRID = 4;
-const STATE_NAME = { [TRIM_DARK]: 'dark', [TRIM_DIM]: 'dim', [TRIM_LIT]: 'open' };
+const STATE_NAME = {
+  [TRIM_NONE]: 'not a shopfront', [TRIM_DARK]: 'closed, dark',
+  [TRIM_DIM]: 'closed, light on', [TRIM_LIT]: 'open',
+};
 
 /**
  * Does the lit rect of every trim cell wrap onto the unlit one?
@@ -129,7 +132,7 @@ function selftest() {
   // The real table must pass, on every cell in every state.
   const rows = wrapInvariant(TRIM, trimCell, TRIM_STATES);
   ck('every trim cell wraps in every state', rows.every((r) => r.ok), true);
-  ck('16 cells x 2 lit states checked', rows.length, 32);
+  ck('16 cells x 3 shopfront states checked', rows.length, 48);
   // The grid width this file assumes, checked against the UV rects facades.js
   // actually emits rather than hardcoded twice in two files.
   const g0 = trimCell(TRIM.stone, 0);
@@ -181,12 +184,17 @@ function selftest() {
   // the district would light differently depending on which chunk streamed first.
   const a1 = tenancyState(7, 3, 2), a2 = tenancyState(7, 3, 2);
   ck('tenancyState is deterministic', a1, a2);
-  // ... and it must actually reach all three states, or two of the three blocks
-  // of the emissive atlas are paid for and never sampled.
+  // ... and it must actually reach all three SHOPFRONT states, or a block of the
+  // emissive atlas is paid for and never sampled.
   const seen = new Set();
   for (let k = 0; k < 600; k++) seen.add(tenancyState(7, 3, k));
-  ck('all three states occur', seen.size, 3);
+  ck('all three shopfront states occur', seen.size, 3);
   ck('states are in range', [...seen].every((v) => v >= TRIM_DARK && v <= TRIM_LIT), true);
+  // And it must NEVER hand back TRIM_NONE. That block is the one every cornice,
+  // awning and balcony balustrade in the district samples, and it is black; a
+  // shopfront landing there is the bug that made the near row of the hero frame
+  // pure black, only this time it would be systematic rather than a 5% roll.
+  ck('no shopfront is ever handed the non-shopfront block', seen.has(TRIM_NONE), false);
 
   console.log(fail ? `\n${fail} FAILED` : '\nall passed');
   process.exit(fail ? 1 : 0);
@@ -215,7 +223,7 @@ console.log(`      EMISSIVE_INTENSITY's comment refuses 7 MB for a third FACADE 
 const district = JSON.parse(fs.readFileSync('data/district.json', 'utf8'));
 const buildings = district.buildings;
 let total = 0, shopBuildings = 0;
-const count = { [TRIM_DARK]: 0, [TRIM_DIM]: 0, [TRIM_LIT]: 0 };
+const count = { [TRIM_NONE]: 0, [TRIM_DARK]: 0, [TRIM_DIM]: 0, [TRIM_LIT]: 0 };
 const allRuns = [];
 const darkRuns = [];
 for (let i = 0; i < buildings.length; i++) {
@@ -252,25 +260,29 @@ const hist = (a) => {
 console.log(`\nTENANCY CENSUS (open ${TENANCY_MIX.open}, dim to ${TENANCY_MIX.dimTo})`);
 console.log(`  lotted shopfront buildings : ${shopBuildings}`);
 console.log(`  tenancies                  : ${total}`);
-for (const st of [TRIM_LIT, TRIM_DIM, TRIM_DARK]) {
+for (const st of [TRIM_LIT, TRIM_DIM, TRIM_DARK, TRIM_NONE]) {
+  if (st === TRIM_NONE && !count[st]) continue;
   console.log(`  ${STATE_NAME[st].padEnd(27)}: ${String(count[st]).padStart(4)}  ` +
     `(${((100 * count[st]) / total).toFixed(1)}%)`);
 }
 const showing = count[TRIM_LIT] + count[TRIM_DIM];
-console.log(`  showing ANY interior light : ${showing}  (${((100 * showing) / total).toFixed(1)}%)`);
+console.log(`  showing a READABLE light   : ${showing}  (${((100 * showing) / total).toFixed(1)}%)`);
+const black = count[TRIM_NONE];
+console.log(`  PURE BLACK behind the glass: ${black}  (${((100 * black) / total).toFixed(1)}%)` +
+  '  <- the complaint; must be 0');
 console.log(`  run lengths, any one state : ${hist(allRuns)}`);
 console.log(`  run lengths of DARK stretches: ${hist(darkRuns)}`);
 const longest = Math.max(0, ...allRuns);
 const longestDark = Math.max(0, ...darkRuns);
 console.log(`  longest run of one state   : ${longest} tenancies`);
 console.log(`  longest FULLY DARK run     : ${longestDark} tenancies`);
-// This is the guard the first build needed and did not have. A street-level
-// camera sees roughly four to six tenancies across a near frontage, so a dark run
-// longer than that can fill a hero frame with the exact defect being fixed - and
-// it did: the CASSAVA / LUMEN CAMERA row three reviewers named came back black
-// under a binary 42% coin. A long run of LIT shops is the opposite failure, the
-// row of lightboxes, and is bounded by `open` being the smallest of the three
-// shares.
+// This guard is kept, but it is no longer the thing that matters. A street-level
+// camera sees roughly four to six tenancies across a near frontage, and a run of
+// closed-and-dark shops longer than that used to be able to fill a hero frame
+// with the defect - which is exactly what happened twice. It cannot any more,
+// because TRIM_DARK is faint rather than black; the run length is now a
+// composition note rather than a correctness one, and the line above it (pure
+// black, must be 0) is the one to read.
 console.log(longestDark > 4
-  ? `  WARNING: ${longestDark} fully dark shops in a row can fill a street-level frame`
-  : '  no dark run long enough to fill a street-level frame');
+  ? `  note: ${longestDark} closed-and-dark shops in a row; they are faint, not black`
+  : '  no long run of closed-and-dark shops');

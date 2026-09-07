@@ -1314,9 +1314,13 @@ const TRIM_PAD = 0.004;   // keeps mip sampling inside the cell
 // So the switch is carried in the INTEGER PART OF V, which was previously always
 // zero and is therefore free.
 //
-//   v in [0, 1)   this cell, tenancy DARK
-//   v in [1, 2)   this cell, tenancy DIM
-//   v in [2, 3)   this cell, tenancy LIT
+//   v in [0, 1)   NOT A SHOPFRONT. Every other use of this atlas in the district
+//                 - awnings, cornices, roof plant, railings, balcony
+//                 balustrades, kerb furniture, entrance doorways - lives here
+//                 and this block is black, so none of them can ever glow.
+//   v in [1, 2)   shopfront, CLOSED AND DARK
+//   v in [2, 3)   shopfront, CLOSED WITH A LIGHT ON
+//   v in [3, 4)   shopfront, OPEN
 //
 // The albedo and rm atlases wrap (wrapT = RepeatWrapping), so v, v + 1 and v + 2
 // sample exactly the same texel in them: all three states are BIT IDENTICAL in
@@ -1325,36 +1329,50 @@ const TRIM_PAD = 0.004;   // keeps mip sampling inside the cell
 // all (see TRIM_EMISSIVE), and the only other maps any state can reach are the
 // same ones.
 //
-// THREE STATES, NOT TWO, and that is a correction rather than an elaboration.
-// The first build of this had a binary switch at 42% lit, and the hero frame came
-// back with the whole near row - the CASSAVA / LUMEN CAMERA frontage three
-// reviewers named by name - drawing dark together, while the far row (Tinsmith
-// Deli) drew lit together. Both are legal under a 42% coin and neither is wrong
-// on its own, but the picture was still a black row, which is the defect. Worse,
-// binary is a bad model of the thing: a shopfront that is FULLY black at night is
-// the exception on a real high street, not the rule. Most closed units keep a low
-// security or display light burning behind the glass all night, because insurers
-// and ordinances ask for it. So the middle state is the common one, "lit" means
-// open and trading, and only a minority of units go properly dark.
+// FOUR BLOCKS, and the count went 2 -> 3 -> 4 under measurement rather than by
+// design, which is worth writing down because each step was a wrong model caught
+// by a frame.
 //
-// The EMISSIVE atlas is therefore the trim grid three times over, 4 x 12, sampled
-// with repeat.y = 1/3 so that v / 3 lands in it. Canvas rows 0-3 are LIT, 4-7 are
-// DIM and 8-11 are black. Nothing else in the kit - awnings, cornices, roof
-// plant, railings, kerb furniture - ever asks for v + 1 or v + 2, so nothing else
-// can glow by accident.
+// Two (lit / unlit, 42% lit) put the whole near row of the corridor hero - the
+// CASSAVA / LUMEN CAMERA frontage three reviewers named - into the dark state
+// together while the far row drew lit together. Legal under a coin, still a black
+// row.
 //
-// Cost: ONE 256x768 RGBA texture, 1.0 MB with its mip chain. The comment at
-// EMISSIVE_INTENSITY refuses 7 MB for a third FACADE emissive atlas; this is 14%
+// Three (open / closed-with-a-light / dark) fixed the odds but not the model, and
+// the frame said so again: base9 against lit9 read EXACTLY 0.0 over x 0-500,
+// y 300-800, and glass-owner found all 602 glass hits in that box sitting in the
+// dark block. Two adjacent tenancies drawing dark at a 23% share is a 5% roll -
+// bad luck, not a bug, verified three ways - but a shopfront whose interior is
+// LITERALLY ZERO cannot answer the complaint "black glass, no interior light"
+// however rarely it comes up. And it is not true either: a shop at night is
+// essentially never pitch black inside. There is an exit sign, a till light, a
+// door left open to a lit back room.
+//
+// So the dark block is split in two. v in [0,1) stays black and stays out of
+// reach of any shopfront - it is what the REST of the kit samples, and keeping it
+// black is what stops a cornice or a balcony balustrade glowing. Shopfronts start
+// at v + 1, and their darkest state is faint rather than absent. The result is
+// that NO shopfront in the district is pure black, and there are still three
+// plainly different levels above zero.
+//
+// The EMISSIVE atlas is therefore the trim grid four times over, 4 x 16, sampled
+// with repeat.y = 1/4 so that v / 4 lands in it. Canvas rows 0-3 are OPEN, 4-7
+// CLOSED-WITH-A-LIGHT, 8-11 CLOSED-AND-DARK, 12-15 black.
+//
+// Cost: ONE 256x1024 RGBA texture, 1.33 MB with its mip chain. The comment at
+// EMISSIVE_INTENSITY refuses 7 MB for a third FACADE emissive atlas; this is 19%
 // of that, because the trim atlas is one shared 512 px atlas for the whole
 // district rather than a 1024 px panel per recipe. No triangles, no attributes,
 // no second material and no second draw call.
-export const TRIM_DARK = 0, TRIM_DIM = 1, TRIM_LIT = 2;
-export const TRIM_STATES = 3;
+export const TRIM_NONE = 0, TRIM_DARK = 1, TRIM_DIM = 2, TRIM_LIT = 3;
+export const TRIM_STATES = 4;
 
 // UV rect for a trim cell. Canvas rows run top-down, texture v runs bottom-up.
-// `state` is TRIM_DARK / TRIM_DIM / TRIM_LIT and shifts v by whole units, which
-// is the one shift a RepeatWrapping albedo sampler cannot see.
-export function trimCell(cell, state = TRIM_DARK) {
+// `state` is TRIM_NONE / TRIM_DARK / TRIM_DIM / TRIM_LIT and shifts v by whole
+// units, which is the one shift a RepeatWrapping albedo sampler cannot see.
+// TRIM_NONE is the default so that every existing caller in the kit - and there
+// are dozens - keeps the black block without being edited.
+export function trimCell(cell, state = TRIM_NONE) {
   const [ix, iy] = cell;
   const s = 1 / TRIM_GRID;
   const dv = state | 0;
@@ -1663,9 +1681,10 @@ function buildTrimAtlas() {
 // The emissive part of the trim atlas: 4 x 12 cells at HALF the albedo cell size,
 // because a glow through a shop window carries no high-frequency detail worth
 // paying for - the same argument layers() makes for the facade panels' emScale.
-// Canvas rows 0-3 are the LIT variant of trim rows 0-3, rows 4-7 the DIM variant,
-// rows 8-11 the dark one, which stays black. See TRIM_DARK for how one v
-// addresses all three.
+// Canvas rows 0-3 are the OPEN variant of trim rows 0-3, rows 4-7
+// closed-with-a-light, rows 8-11 closed-and-dark, and rows 12-15 the block every
+// non-shopfront part of the kit samples, which stays black. See TRIM_NONE for how
+// one v addresses all four.
 //
 // What is painted here is a photograph of Main Street after dark, read the way
 // the albedo glass cell is read - top to bottom, because the ORDER is the effect:
@@ -1837,9 +1856,17 @@ function buildTrimEmissive(E) {
   pane(TRIM_DIM, 0.30, 0.10);
   recess(TRIM_DIM, 0.22);
   spill(TRIM_DIM, 0.22);
-  // TRIM_DARK is the black the canvas was filled with. Nothing is drawn for it,
-  // on purpose: a state that is defined by an absence should not have a painter
-  // that could drift away from zero.
+  // CLOSED AND DARK: an exit sign, a till display, a door left open to a lit back
+  // room. Not a shop you would say is lit, and not black either - which is the
+  // whole reason this state exists rather than reusing TRIM_NONE. No display
+  // track at all, and nothing on the recess or the threshold: at this level there
+  // is no source to bounce, and a glowing threshold under an unlit shop would
+  // read as the shop being open.
+  pane(TRIM_DARK, 0.085, 0);
+  // TRIM_NONE is the black the canvas was filled with, and it is what every
+  // non-shopfront part of the kit samples. Nothing is drawn for it, on purpose: a
+  // state defined by an absence should not have a painter that could drift away
+  // from zero.
   return c;
 }
 
@@ -2496,7 +2523,7 @@ export function lotPlanFor(ring, style, height, fronts) {
         // the whole sequence above - colourway, value nudge, parapet step, head
         // step, recess depth, door bay - draws exactly the numbers it drew before
         // and every daylight frame is untouched. See tenancyState.
-        litState: shop ? tenancyState(style.seed, e.i, k) : TRIM_DARK,
+        litState: shop ? tenancyState(style.seed, e.i, k) : TRIM_NONE,
         awning: !!shop && len > 3.8 && r() < 0.46,
         // A lot with no shopfront still meets the street somewhere, but an office
         // block has fewer street doors than a retail row.
@@ -2829,24 +2856,27 @@ export function parapet(ring, y, pos, nrm, uv, idx, opts = {}) {
 // tenancies.
 //
 //   0.00 - 0.30   OPEN. Trading, full interior, display track running.
-//   0.30 - 0.76   CLOSED WITH THE LIGHT ON. One tube over the window, or a
+//   0.30 - 0.72   CLOSED WITH THE LIGHT ON. One tube over the window, or a
 //                 back-of-house light seen down the shop. This is the COMMON
-//                 case and it is the one the first build of this change got
-//                 wrong by not having: a shopfront that is fully black at night
-//                 is the exception on a real high street, because insurers and
-//                 ordinances want a lit interior, and modelling it as a coin
-//                 flip left the hero frame's whole near row black.
-//   0.76 - 1.00   DARK. Vacant, shuttered, or a unit that genuinely switches off.
+//                 case and it is the one the binary version of this got wrong by
+//                 not having: a shopfront that is fully black at night is the
+//                 exception on a real high street, because insurers and
+//                 ordinances want a lit interior.
+//   0.72 - 1.00   CLOSED AND DARK. Vacant, shuttered, or a unit that switches
+//                 off - but still not BLACK: see TRIM_DARK, which is an exit
+//                 sign and a till light, at 8.5% of an open shop.
 //
 // retailStrip's own lit.night of 0.34 is the figure for the flats and offices
 // STACKED ON a shop, which go dark when the last person leaves; the ground floor
 // does not behave like its upper storeys and does not share its number. These
-// three are the levers to move if a later round says the street is too bright or
-// too dead. `lit.night` itself is untouched and means what it always meant.
-export const TENANCY_MIX = { open: 0.30, dimTo: 0.76 };
+// are the levers to move if a later round says the street is too bright or too
+// dead. `lit.night` itself is untouched and means what it always meant.
+export const TENANCY_MIX = { open: 0.30, dimTo: 0.72 };
 
 /**
- * Which state is this tenancy in? TRIM_DARK, TRIM_DIM or TRIM_LIT. Deterministic,
+ * Which state is this tenancy in? TRIM_DARK, TRIM_DIM or TRIM_LIT - never
+ * TRIM_NONE, which is reserved for everything that is not a shopfront at all.
+ * Deterministic,
  * and drawn from its OWN hash stream rather than from the lot planner's `r`.
  *
  * That is not a style preference. drawOpening records the same rule for panes and
@@ -2884,7 +2914,8 @@ export function storefront(ring, pos, nrm, uv, idx, opts = {}) {
   // the same quads, the same count, four different numbers in the UV rect - the
   // trick the door leaf below already uses to stop being a window. See
   // TRIM_LIT_V for why v + 1 is free.
-  const cells = (c) => [trimCell(c, TRIM_DARK), trimCell(c, TRIM_DIM), trimCell(c, TRIM_LIT)];
+  const cells = (c) => [trimCell(c, TRIM_NONE), trimCell(c, TRIM_DARK),
+    trimCell(c, TRIM_DIM), trimCell(c, TRIM_LIT)];
   const glassC = cells(opts.glassCell ?? TRIM.glass);
   const bulkCs = cells(opts.bulkheadCell ?? TRIM.bulkhead);
   const jambCs = cells(opts.jambCell ?? TRIM.stucco);
