@@ -974,32 +974,142 @@ export class PostStack {
       aoScale: 1.0,
       aoBlurRadius: 2,
       // ------------------------------------------------- THE ESTIMATOR ITSELF
-      // Everything above this line is about WHERE the AO term goes. These four
-      // are about how noisy it is when it gets there, which is the r8 review's
-      // first-ranked defect and is a different question with different levers.
-      // Each defaults to the r8 behaviour, so an arm that changes one of them is
-      // a difference of one term. See AO_FRAG for the arithmetic and
-      // tools/ao-noise.mjs for the measurements.
       //
-      //   aoSamples     taps in the hemisphere. Variance falls as 1/N; the
-      //                 quantisation STEP -- which is what pow() amplifies --
-      //                 falls as 1/N too. Changing it recompiles the AO shader.
-      //   aoKernel      0 = the twelve typed vectors, folded onto the normal's
-      //                 side. 1 = a stratified golden-angle cosine hemisphere
-      //                 built on a real tangent basis. Also recompiles.
-      //   aoFalloff     metres of soft ramp on the occlusion test. 0 = the hard
-      //                 step, which is what makes a 12-sample estimate take only
-      //                 13 values.
-      //   aoDither      0 = per-pixel hash rotation. N = an NxN interleaved tile
-      //                 of fixed angles; at N = 5 the tile is exactly the 5x5
-      //                 blur footprint, so the blur cancels the pattern instead
-      //                 of averaging 25 random draws.
+      // Everything above this line is about WHERE the AO term goes. These five
+      // are about how noisy it is when it gets there, which is what both blind
+      // reviewers of the r8 build ranked first. One of them warned it would
+      // CRAWL IN MOTION in a way a still frame does not show, which is exactly
+      // what per-pixel estimator noise does when the camera moves.
+      //
+      // WHAT THE DEFECT WAS, in one number. Straight out of the kernel, the
+      // junction band on the fivepoints pier carried 27.2 of 255 of pixel-scale
+      // grain against a band mean of 30 -- the estimator's noise was 90% of its
+      // signal (tools/ao-noise.mjs --live). Twelve BINARY samples quantise ao to
+      // steps of 1/12; at that junction raw ao is 0.794 and pow(0.794, 8.5) is
+      // 0.14; the slope of that curve there is 8.5 * 0.794^7.5 = 1.59, so ONE
+      // SAMPLE FLIPPING moves the buffer by 1.59/12 = 34 of 255. Measured 27.2.
+      //
+      // AND WHY IT ONLY APPEARED AT FULL RESOLUTION. At aoScale 0.5 the buffer
+      // was bilinearly UPSAMPLED into the composite, and that upsample is not
+      // depth-aware: it blends unconditionally over two screen pixels, on top of
+      // a blur that already reached +-4. Going to full resolution was right and
+      // is why props ground -- and it removed the one unconditional smoothing
+      // step in the chain. Nothing about the noise was new. It was always there,
+      // under two stages of dilution.
+      //
+      // THE FIRST HYPOTHESIS WAS WRONG AND IS ON THE RECORD FOR IT. I expected
+      // the 5x5 depth-aware blur to have collapsed at full resolution -- its
+      // weight is exp(-|dd| * 2000) on RAW WINDOW DEPTH, which with near 0.2 is
+      // a tolerance that grows as the SQUARE of distance (too strict at 5 m, no
+      // rejection at all at 100 m). It is genuinely miscalibrated and it is NOT
+      // what was wrong: on the junction band it measures 147 effective taps.
+      // aoDepthSigma switches it to a relative tolerance on linearised depth and
+      // that arm moves nothing -- trough 0.215 against 0.215, band grain 1.37
+      // against 1.37, AO buffer grain 2.24 against 2.24. Left at 0 because a
+      // change that measures zero is not an improvement, only a rewrite.
+      //
+      // WHAT IS ACTUALLY WRONG WITH THE KERNEL, from tools/ao-kernel-var.mjs,
+      // which holds the geometry and the occluder fixed and sweeps ONLY the
+      // per-pixel rotation. On a 90-degree concave corner, true occlusion 0.5:
+      //
+      //     surface tilt   kernel      mean    sd across rotation
+      //        0 deg       legacy 12  0.5000        0.0833
+      //       15 deg       legacy 12  0.4198        0.0662
+      //       35 deg       legacy 12  0.4476        0.0905
+      //       60 deg       legacy 12  0.4519        0.0841
+      //       80 deg       legacy 12  0.4084        0.0900
+      //        any         spiral 32  0.5000        0.0202
+      //
+      // Turning the kernel moves its answer by 0.8 to 1.1 of a WHOLE SAMPLE
+      // QUANTUM. The fold is why: twelve vectors turned about the VIEW axis and
+      // then reflected onto whichever side of the surface they land on.
+      // Reflection is discontinuous in the rotation, so the set a pixel gets
+      // JUMPS rather than turns, and it jumps hardest where the normal is
+      // oblique -- every junction in the frame. The build agrees: out of the
+      // kernel the flat pier face carries 0.91 of 255 of grain and the junction
+      // band beside it carries 27.2.
+      //
+      // WHAT FIXED IT: aoDither. The rotation is no longer a per-pixel hash but
+      // a 5x5 INTERLEAVED TILE of 25 fixed angles, and 5x5 is exactly the
+      // footprint of the blur that follows, so a full-weight window contains
+      // each angle ONCE and the blur CANCELS the pattern instead of averaging 25
+      // random draws. Measured at fivepoints-noon (tools/ao-noise.mjs):
+      //
+      //                              hash (r8)   5x5 tile
+      //     AO buffer grain, pre         27.23      33.53
+      //     AO buffer grain, post         2.24       0.49
+      //     frame band grain              1.37       0.58   grey levels
+      //     frame band grain, AO off      0.75       0.75
+      //     junction trough              0.216      0.215
+      //     AO buffer band mean           35.6       35.5
+      //
+      // The pre-filter number RISES, which is the point: a tile is a bigger
+      // local swing than a hash and a designed one, so the blur can take all of
+      // it out. What lands in the frame is 0.58 grey levels of grain against a
+      // 0.75 FLOOR THAT IS THERE WITH AO SWITCHED OFF -- the AO term now adds no
+      // measurable pixel-scale grain at all. And the level does not move: trough
+      // and buffer mean are unchanged to 0.1%, because the tile and the hash
+      // have the same rotational average and differ only in variance.
+      //
+      // IT IS FREE. Same taps, and mod/floor instead of sin/fract, so if
+      // anything it is cheaper than what it replaces.
+      //
+      // 5 AND aoBlurRadius 2 ARE A MATCHED PAIR. The cancellation is exact
+      // because a 5x5 window holds each residue class mod 5 once in x and once
+      // in y. Change the blur radius and the pairing breaks; aoDither would then
+      // want to be 2*aoBlurRadius + 1.
+      //
+      // ---- AND THE THINGS THAT DID NOT WORK, each measured, each kept as a
+      // parameter so the next person does not have to re-derive them.
+      //
+      // aoKernel 1 and 2 (a stratified golden-angle COSINE hemisphere on a real
+      // tangent basis, unbiased at every tilt, 4x less rotation variance) IS THE
+      // BETTER ESTIMATOR AND IT IS NOT SHIPPED, because it destroys the window
+      // reveal. At the pinned subject, kernel 2 with 32 samples against the
+      // legacy 12:
+      //
+      //     reveal occlusion   0.2312 -> 0.1247
+      //     flush  occlusion   0.1014 -> 0.0922
+      //     reveal CONTRAST    0.1298 -> 0.0324
+      //
+      // The flat wall barely moves and the reveal HALVES. A window reveal is a
+      // shallow recess -- glazing 0.10 to 0.34 m behind the face, jambs
+      // returning to it -- so the occluders seen from inside it are at GRAZING
+      // angles, close to the tangent plane. A cosine hemisphere weights samples
+      // toward the NORMAL and barely looks there. The legacy fold, being a
+      // sphere folded onto one side, is far flatter and finds the jambs. Its
+      // wrongness was load-bearing. If this is picked up again, the thing to try
+      // is the spiral with a UNIFORM-solid-angle elevation (z = 1 - u) rather
+      // than a cosine one (z = sqrt(1 - u)), which keeps the unbiasedness and
+      // puts the samples back near the tangent plane; that is untested here.
+      //
+      // aoFalloff (a soft ramp on the occlusion test instead of a hard step)
+      // does not reduce the noise: 1.40 grey levels against 1.37. The
+      // quantisation is not the dominant term -- the rotation is, and a sample
+      // that swings in or out of the set swings by its whole contribution
+      // whether that contribution is soft or hard. It only lightens the term
+      // (trough 0.216 -> 0.258), which is a contrast change wearing a filter's
+      // clothes. Left at 0.
+      //
+      // aoBlurRadius 3 (a 7x7) does help -- band grain 1.37 -> 0.96, trough
+      // 0.216 -> 0.234 -- and is still not taken, because the 5x5 tile beats it
+      // on grain (0.58) at no cost, and a wider blur is spent directly out of
+      // the umbra edge that prop-ground protects at 17.1 px.
+      //
+      //   aoSamples     taps in the hemisphere. ONLY MEANINGFUL WITH aoKernel
+      //                 1 or 2: the legacy kernel is twelve typed vectors and
+      //                 cannot be asked for a thirteenth, so the count is forced
+      //                 back to 12 there. Recompiles the AO shader.
+      //   aoKernel      0 legacy, 1 spiral, 2 spiral with lengths decorrelated
+      //                 from elevations. Recompiles.
+      //   aoFalloff     metres of soft ramp on the occlusion test; 0 = a step.
+      //   aoDither      0 = per-pixel hash. N = an NxN interleaved tile.
       //   aoDepthSigma  0 = the r8 blur weight on raw window depth. > 0 = a
       //                 relative tolerance on linearised depth.
       aoSamples: 12,
       aoKernel: 0,
       aoFalloff: 0,
-      aoDither: 0,
+      aoDither: 5,
       aoDepthSigma: 0,
     };
 
