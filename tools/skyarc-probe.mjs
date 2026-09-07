@@ -59,6 +59,12 @@ import { unDisplay } from './critic-metrics.mjs';
 export const SKY_RECT = [330, 45, 600, 150];        // upper frame, anti-solar half
 // The road, minus the median strip and the kerb lines that bound it. Two x
 // ranges, not one, because the strip between them is not carriageway.
+// THIS RECT IS THE CORRIDOR CAMERA'S AND ONLY THE CORRIDOR CAMERA'S. Measured
+// with the geometric mask below, it is 77.0% shade at corridor noon and 99.82%
+// SUN at fivepoints noon - at fivepoints the same screen rectangle lands on open
+// sunlit plaza, mean L 168 against the corridor's 55, and its dapple and shade
+// rows there are describing a different surface in a different light. Read the
+// road rows on corridor frames; at fivepoints read the ground/plaza means.
 export const ROAD_X = [[600, 795], [875, 1065]];
 export const ROAD_Y = [700, 885];
 export const DAPPLE_ROW = 790;
@@ -208,6 +214,45 @@ export function reExpose(img, k) {
   return { width: W, height: H, channels: C, data: out };
 }
 
+// ------------------------------------------------------- a GEOMETRIC sun mask
+//
+// "State your sun population size before any sun/shade claim" is a rule this
+// project paid a round for, and a luma quintile does not answer it: a quantile
+// RESELECTS when the frame's level moves, so a change that lifted every shadow
+// reads as no change at all. Every lit/shade row above is a quantile and is
+// labelled as one.
+//
+// This is the real split, and it comes free with the bounce arms. The district
+// bounce is ambient: removing it takes ~20.7% of the light off a surface lit by
+// the ambient alone and ~3.6% off one that also has the sun (noon, sky 15,156 +
+// bounce 3,947 against sun-on-horizontal 90,102). So the FRACTIONAL drop between
+// the base arm and the bounce00 arm classifies a pixel by which lights reach it,
+// not by how bright it is - the same argument tools/warmth-probe.mjs makes for
+// its shadow-map A/B, applied to a light this round already had two arms of.
+//
+// The threshold is placed between the two predicted populations rather than
+// fitted: halfway in log terms between 3.6% and 20.7% is 8.6%.
+export function bounceMask(base, off, spans, thresh = 0.086) {
+  const { width: W, channels: C } = base;
+  if (off.width !== W || off.channels !== C) throw new Error('arm size/channel mismatch');
+  const lit = [], shade = [];
+  for (const [x0, y0, x1, y1] of spans) {
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+      const i = (y * W + x) * C;
+      const a = 0.2126 * unDisplay(base.data[i]) + 0.7152 * unDisplay(base.data[i + 1]) + 0.0722 * unDisplay(base.data[i + 2]);
+      const b = 0.2126 * unDisplay(off.data[i]) + 0.7152 * unDisplay(off.data[i + 1]) + 0.0722 * unDisplay(off.data[i + 2]);
+      if (!Number.isFinite(a) || !Number.isFinite(b)) throw new Error(`non-finite at ${x},${y} — stride wrong?`);
+      const drop = a > 1e-9 ? (a - b) / a : 0;
+      const px = [0.2126 * base.data[i] + 0.7152 * base.data[i + 1] + 0.0722 * base.data[i + 2],
+        base.data[i], base.data[i + 1], base.data[i + 2]];
+      (drop >= thresh ? shade : lit).push(px);
+    }
+  }
+  const n = lit.length + shade.length;
+  return { lit: stat(lit), shade: stat(shade), n,
+    litPct: +(100 * lit.length / n).toFixed(2), shadePct: +(100 * shade.length / n).toFixed(2) };
+}
+
 // --------------------------------------------------------------------- report
 export function measure(img) {
   const sky = rect(img, SKY_RECT);
@@ -320,7 +365,33 @@ function selftest() {
   const qs = quintiles(grad, [SKY_RECT]);
   for (let k = 1; k < 5; k++) if (!(qs[k].L > qs[k - 1].L)) bad(`quintile ${k} is not brighter than ${k - 1}`);
 
-  console.log(fail ? `SKYARC SELFTEST: ${fail} FAILED` : 'SKYARC SELFTEST: PASS — 5 cases, 4 of them known-bad inputs');
+  // 6. THE BOUNCE MASK MUST SPLIT BY LIGHT PATH AND NOT BY BRIGHTNESS. Two
+  //    synthetic populations: a DARK pixel that loses only 3.6% when the ambient
+  //    goes (a sunlit surface in deep shadow of its own albedo) and a BRIGHT one
+  //    that loses 20.7% (open shade off pale pavement). A luma split calls the
+  //    first shade and the second sun; the mask must call them the other way
+  //    round, or it is a brightness threshold with extra steps.
+  const armPair = (fn) => {
+    const W = 1600, H = 900, C = 3;
+    const mk = () => ({ width: W, height: H, channels: C, data: new Uint8Array(W * H * C) });
+    const a = mk(), b = mk();
+    for (let x = 600; x < 700; x++) {
+      const [va, vb] = fn(x), i = (700 * W + x) * C;
+      a.data[i] = a.data[i + 1] = a.data[i + 2] = va;
+      b.data[i] = b.data[i + 1] = b.data[i + 2] = vb;
+    }
+    return [a, b];
+  };
+  // Byte 60 losing 3.6% of its SCENE radiance, and byte 200 losing 20.7%.
+  const enc = (v) => { let lo = 0, hi = 255; while (lo < hi) { const m = (lo + hi) >> 1; if (unDisplay(m) < v) lo = m + 1; else hi = m; } return lo; };
+  const [A, B] = armPair((x) => (x < 650
+    ? [60, enc(unDisplay(60) * (1 - 0.036))]
+    : [200, enc(unDisplay(200) * (1 - 0.207))]));
+  const m = bounceMask(A, B, [[600, 700, 700, 701]]);
+  if (!(m.litPct > 45 && m.litPct < 55)) bad(`bounce mask split ${m.litPct}% lit, expected ~50%`);
+  if (!(m.lit.L < m.shade.L)) bad('bounce mask sorted by brightness, not by light path');
+
+  console.log(fail ? `SKYARC SELFTEST: ${fail} FAILED` : 'SKYARC SELFTEST: PASS — 6 cases, 5 of them known-bad inputs');
   return fail;
 }
 
@@ -329,6 +400,19 @@ const DIRECT = process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('
 if (DIRECT) {
   const argv = process.argv.slice(2);
   if (argv.includes('--selftest')) process.exit(selftest() ? 1 : 0);
+  // --mask base.png off.png : the geometric sun/shade split off a bounce arm pair.
+  const mi = argv.indexOf('--mask');
+  if (mi >= 0) {
+    const [ba, oa] = [argv[mi + 1], argv[mi + 2]];
+    const f = (t) => (t.endsWith('.png') ? t : `docs/shots/${t}.png`);
+    const m = bounceMask(readPNG(f(ba)), readPNG(f(oa)), ROAD_X.map(([a, b]) => [a, ROAD_Y[0], b, ROAD_Y[1]]));
+    const p = (o) => `${String(o.r).padStart(5)}/${String(o.g).padStart(5)}/${String(o.b).padStart(5)}`;
+    console.log(`geometric split of the road band, ${ba} against ${oa}`);
+    console.log(`  SUN   ${p(m.lit)}  L ${m.lit.L}  chroma ${m.lit.chroma.toFixed(4)}  rbn ${m.lit.rbn.toFixed(4)}  n ${m.lit.n} (${m.litPct}% of ${m.n})`);
+    console.log(`  SHADE ${p(m.shade)}  L ${m.shade.L}  chroma ${m.shade.chroma.toFixed(4)}  rbn ${m.shade.rbn.toFixed(4)}  n ${m.shade.n} (${m.shadePct}%)`);
+    console.log(`  hue separation (sun - shade), chroma ${(m.lit.chroma - m.shade.chroma).toFixed(4)}  rbn ${(m.lit.rbn - m.shade.rbn).toFixed(4)}`);
+    process.exit(0);
+  }
   const ri = argv.indexOf('--restop');
   let restop = null;
   if (ri >= 0) { const [o, n] = argv[ri + 1].split(':').map(Number); restop = { o, n, k: o / n }; argv.splice(ri, 2); }
