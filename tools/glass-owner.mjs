@@ -106,7 +106,14 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 await page.goto(`http://127.0.0.1:${PORT}/district/`, { waitUntil: 'networkidle' });
-await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
+// 300 s, not 60. tools/load-time.mjs measures this district at 27.7 s to
+// frames > 5 on an idle box, and CLAUDE.md already records that a headless
+// browser here is at the mercy of whatever else is running - the same contention
+// that makes `chunk stall ms` swing 7 to 68 ms. A 60 s wait turns a busy box into
+// a tool failure, and a tool that fails when the machine is loaded gets retried
+// rather than read.
+await page.waitForFunction('window.__district && window.__district.frames > 5', null,
+  { timeout: Number(process.env.GO_TIMEOUT ?? 300000), polling: 250 });
 
 // hero-shots.mjs' corridor camera, verbatim: waypoint 3 -> 4, back -55, side 0,
 // height 2.4, fov 55, target y 16 at 260 m. A probe standing anywhere else is
@@ -135,6 +142,7 @@ const report = await page.evaluate(async ({ box, step, names }) => {
   const W = 1600, H = 900;
   const hits = {};
   const cells = {};
+  const states = {};
   let miss = 0, total = 0;
   const mats = {};
   // Everything the raycast can reach, minus the sky dome, which is not a surface.
@@ -161,16 +169,26 @@ const report = await page.evaluate(async ({ box, step, names }) => {
         };
       }
       // Which atlas cell, for trim hits. h.uv is the interpolated UV at the hit.
+      //
+      // The INTEGER PART OF V is the tenancy's lit state, so it is read out
+      // separately and before the cell is resolved: v in [0,1) is dark, [1,2)
+      // dim, [2,3) lit. This is the one measurement that says whether a black
+      // shopfront in a frame is a tenancy that chose to be dark or a surface the
+      // change never reached, and those have completely different fixes.
       if (mn === 'trim' && h.uv) {
         const grid = 4;
+        const block = Math.floor(h.uv.y);
+        const frac = h.uv.y - block;
         const ix = Math.min(grid - 1, Math.max(0, Math.floor(h.uv.x * grid)));
-        const iy = Math.min(grid - 1, Math.max(0, Math.floor((1 - h.uv.y) * grid)));
+        const iy = Math.min(grid - 1, Math.max(0, Math.floor((1 - frac) * grid)));
         const nm = names[iy * grid + ix] ?? `${ix},${iy}`;
         cells[nm] = (cells[nm] ?? 0) + 1;
+        const key = `${nm}@${['dark', 'dim', 'lit'][block] ?? `v+${block}`}`;
+        states[key] = (states[key] ?? 0) + 1;
       }
     }
   }
-  return { hits, cells, miss, total, mats };
+  return { hits, cells, states, miss, total, mats };
 }, { box: BOX, step: STEP, names: TRIM_NAMES });
 
 const pc = (n) => `${((100 * n) / report.total).toFixed(1)}%`;
@@ -184,6 +202,10 @@ for (const [k, v] of Object.entries(report.hits).sort((a, b) => b[1] - a[1])) {
 console.log(`  ${'(sky / no hit)'.padEnd(22)} ${String(report.miss).padStart(5)}  ${pc(report.miss).padStart(6)}`);
 console.log('\ntrim atlas cells hit:');
 for (const [k, v] of Object.entries(report.cells).sort((a, b) => b[1] - a[1])) {
+  console.log(`  ${k.padEnd(22)} ${String(v).padStart(5)}  ${pc(v).padStart(6)}`);
+}
+console.log('\ntrim cell x tenancy state (integer part of v):');
+for (const [k, v] of Object.entries(report.states).sort((a, b) => b[1] - a[1])) {
   console.log(`  ${k.padEnd(22)} ${String(v).padStart(5)}  ${pc(v).padStart(6)}`);
 }
 if (errors.length) console.log('\npage errors:', errors.slice(0, 5));
