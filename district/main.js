@@ -85,6 +85,10 @@ await loading
     const { buckets, street, stats } = districtSignageBuffers(district, {
       styleOf: (b) => world._capStyle(buildingStyle(b), b),
       streetDirFor: (b) => world._streetDirFor(b),
+      // Both, so signage selects the same elevations the facade kit built on.
+      // Passing only the primary put shopfront bays on a corner site's second
+      // street with no awning or fascia above them.
+      streetDirsFor: (b) => world._streetDirsFor(b),
     });
     signageRoot = new THREE.Group();
     signageRoot.name = 'signage';

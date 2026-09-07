@@ -37,7 +37,15 @@ const argVal = (k, d) => {
 
 const SHOTS = 'docs/shots';
 const OUT = path.join(SHOTS, 'blind');
-const KEY = path.join(OUT, '.key.json');       // dot-prefixed: not picked up by a glob
+// The key lives OUTSIDE the directory handed to reviewers.
+//
+// It used to sit in OUT, dot-prefixed on the theory that a glob would not pick
+// it up. A glob does not; a reviewer surveying the directory does. One read it
+// in its opening `cat` of the folder alongside the tools, before it knew what
+// the file was, and disclosed that its review had to be treated as sighted
+// rather than blind -- an honest report that still cost the round one of three
+// independent verdicts. A blind set is not blind if the answer is in the room.
+const KEY = path.join(path.dirname(OUT), 'blind-key.json');
 const args = process.argv.slice(2);
 
 if (args[0] === '--reveal') {

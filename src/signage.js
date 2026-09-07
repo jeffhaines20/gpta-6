@@ -1899,14 +1899,43 @@ export function businessFor(b, slot = 0) {
  *
  * @param {Object} b      district.json building ({p, h, a, z, k})
  * @param {Object} style  the facades.js buildingStyle for the same building
- * @param {{street?: number[]}} opts  street direction, as passed to appendBuilding
+ * @param {{street?: number[], streets?: number[][]}} opts  street direction(s), as
+ *   passed to appendBuilding. `streets` carries every elevation the building
+ *   fronts; `street` is the primary alone and is kept for callers that have only
+ *   that.
  * @returns {{tenants: Array, parapet: Object|null, edges: Array}}
  */
 export function signPlanFor(b, style, opts = {}) {
   const ring = b.p;
-  const edges = opts.street
-    ? facingEdges(ring, opts.street[0], opts.street[1], { minLen: 4, max: opts.faces ?? 2 })
-    : edgesOf(ring, { minLen: 4, longest: opts.faces ?? 2 });
+  // MUST agree with appendBuilding's edge selection, or a corner building gets
+  // shopfront bays on an elevation with no awning, no fascia and no blade sign.
+  //
+  // That is not hypothetical: when streetDirsFor gave the facade kit both of a
+  // corner site's streets, this function was left selecting against the primary
+  // alone, and two blind reviewers independently found the result -- the Five
+  // Points hero building kept its glazing and lost its MARROW & VINE awning.
+  // One of them measured it as absent rather than illegible: zero teal pixels in
+  // the awning footprint at golden and at night, against 12,776 in the other arm.
+  //
+  // The union and the cap are duplicated from facades.js appendBuilding rather
+  // than shared, because the two modules do not otherwise depend on each other;
+  // if either changes, change both. The rule: each direction contributes at most
+  // `faces` edges, and a multi-street building is capped one above that.
+  const dirs = opts.streets?.length ? opts.streets : (opts.street ? [opts.street] : null);
+  const faces = opts.faces ?? 2;
+  let edges;
+  if (dirs) {
+    const seen = new Map();
+    for (const d of dirs) {
+      for (const e of facingEdges(ring, d[0], d[1], { minLen: 4, max: faces })) {
+        if (!seen.has(e.i)) seen.set(e.i, e);
+      }
+    }
+    edges = [...seen.values()].sort((a, b2) => b2.len - a.len)
+      .slice(0, dirs.length > 1 ? faces + 1 : faces);
+  } else {
+    edges = edgesOf(ring, { minLen: 4, longest: faces });
+  }
   const plan = { tenants: [], parapet: null, edges };
   if (!style?.storefront || !edges.length) return plan;
 
@@ -2274,7 +2303,8 @@ export function districtSignageBuffers(district, opts = {}) {
   for (const b of district.buildings) {
     const style = styleOf(b);
     if (!style || !style.storefront) continue;
-    const plan = signPlanFor(b, style, { street: opts.streetDirFor?.(b) });
+    const plan = signPlanFor(b, style,
+      { street: opts.streetDirFor?.(b), streets: opts.streetDirsFor?.(b) });
     if (!plan.tenants.length && !plan.parapet) continue;
     const bk = bucketFor(b.p[0][0], b.p[0][1]);
     const res = appendBuildingSignage(b, style, bk.sign, null, { plan });
