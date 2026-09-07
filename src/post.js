@@ -781,6 +781,15 @@ export class PostStack {
       //     prop         38.8 m     0.4323       0.3780      0.3477
       //     prop         19.4 m     0.7049       0.6965      0.7139   (2nd camera)
       //
+      // Those were taken before the kerb work merged. RE-MEASURED on the tip
+      // with the kerbs in, the same change is worth more, because a kerb is a
+      // hard occluding edge at the pavement lip and that is precisely what a
+      // half-resolution buffer was smearing across nine screen pixels:
+      //
+      //     parked car   22.3 m     0.7636       0.6794
+      //     prop         18.8 m     0.7262       0.7157
+      //     edge, parked car          11.6         17.1
+      //
       //   edge = steepest 0.05 m step on the shadow side. "No umbra edge" is a
       //   statement about THIS number and nothing else in this file.
       //
