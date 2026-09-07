@@ -460,25 +460,39 @@ async function live() {
     const out = {}; for (const k of Object.keys(D)) out[k] = p[k];
     return out;
   }, set);
-  const readBuf = () => page.evaluate(() => {
+  // ONLY THE RECTS UNDER TEST COME BACK OVER THE WIRE. The first version read
+  // both whole 1600x900 targets and handed 1.44 million numbers per arm through
+  // page.evaluate's JSON bridge, which cost minutes per arm and dwarfed the
+  // rendering it was waiting on. readRenderTargetPixels takes a sub-rectangle;
+  // a 12x142 band and a 12x142 face is 3,400 values.
+  const readBuf = (rects) => page.evaluate((rr) => {
     const D = __district, post = D.post, r = D.renderer;
-    const read = (rt) => {
-      const w = rt.width, h = rt.height, buf = new Uint8Array(w * h * 4);
-      r.readRenderTargetPixels(rt, 0, 0, w, h, buf);
-      const px = new Array(w * h);
-      for (let i = 0; i < w * h; i++) px[i] = buf[i * 4];
-      return { w, h, px };
-    };
-    return { pre: read(post.aoRT), post: read(post.aoBlurRT) };
-  });
-  const toPlane = (g) => {
-    const { w, h, px } = g;
-    const L = new Float64Array(w * h);
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) L[(h - 1 - y) * w + x] = px[y * w + x];
-    return { L, w, h };
-  };
-  const mapRect = (r, w, h) => ({ x: Math.round(r.x * w / 1600), y: Math.round(r.y * h / 900),
-    w: Math.max(2, Math.round(r.w * w / 1600)), h: Math.max(3, Math.round(r.h * h / 900)) });
+    const out = {};
+    for (const [key, rt] of [['pre', post.aoRT], ['post', post.aoBlurRT]]) {
+      const W = rt.width, H = rt.height;
+      out[key] = {};
+      for (const name in rr) {
+        // Screen rects are top-down; the target is bottom-up. One row of margin
+        // above and below, so the second difference has real neighbours at the
+        // rect's own first and last row rather than clamped ones.
+        const s = rr[name];
+        const x = Math.max(0, Math.round(s.x * W / 1600));
+        const w = Math.min(W - x, Math.max(2, Math.round(s.w * W / 1600)));
+        const yTop = Math.round(s.y * H / 900) - 1;
+        const hh = Math.min(H, Math.max(3, Math.round(s.h * H / 900)) + 2);
+        const yBot = Math.max(0, Math.min(H - hh, H - (yTop + hh)));
+        const buf = new Uint8Array(w * hh * 4);
+        r.readRenderTargetPixels(rt, x, yBot, w, hh, buf);
+        const px = new Array(w * hh);
+        // Flip to top-down as it is copied out.
+        for (let yy = 0; yy < hh; yy++) {
+          for (let xx = 0; xx < w; xx++) px[(hh - 1 - yy) * w + xx] = buf[(yy * w + xx) * 4];
+        }
+        out[key][name] = { w, h: hh, px };
+      }
+    }
+    return out;
+  }, rects);
 
   const results = [];
   const run = async (arm, label) => {
@@ -488,12 +502,18 @@ async function live() {
     await page.screenshot({ path: file, timeout: 300000 });
     const frame = measure(readPNG(file), REG, PADPX);
     if (!KEEP) fs.unlinkSync(file);
-    const g = await readBuf();
+    const g = await readBuf({ band: REG.band, face: REG.face });
     const buf = {};
-    for (const [k, gg] of [['pre', g.pre], ['post', g.post]]) {
-      const { L, w, h } = toPlane(gg);
-      buf[`${k}Band`] = axisNoise(L, w, h, mapRect(REG.band, w, h), 'y');
-      buf[`${k}Mean`] = rectStats(L, w, h, mapRect(REG.band, w, h)).mean;
+    for (const k of ['pre', 'post']) {
+      for (const name of ['band', 'face']) {
+        const { w, h, px } = g[k][name];
+        const L = Float64Array.from(px);
+        // The margin row at each end is neighbour data, not sample data.
+        const inner = { x: 0, y: 1, w, h: h - 2 };
+        const cap = name === 'band' ? 'Band' : 'Face';
+        buf[`${k}${cap}`] = axisNoise(L, w, h, inner, 'y');
+        if (name === 'band') buf[`${k}Mean`] = rectStats(L, w, h, inner).mean;
+      }
     }
     results.push({ label, arm: arm.name, params: got, frame, buf });
     console.log(`  ${label.padEnd(16)} trough ${frame.trough.toFixed(3)}  bandV ${frame.bandV.toFixed(2)}  faceV ${frame.faceV.toFixed(2)}  |  AO pre ${buf.preBand.toFixed(2)} post ${buf.postBand.toFixed(2)} mean ${buf.postMean.toFixed(1)}`);
