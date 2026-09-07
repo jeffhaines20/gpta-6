@@ -1850,19 +1850,30 @@ function buildTrimEmissive(E) {
   pane(TRIM_LIT, 1, 1);
   recess(TRIM_LIT, 1);
   spill(TRIM_LIT, 1);
-  // CLOSED, LIGHT LEFT ON: a third of the interior, a tenth of the display track
-  // - one tube left burning over the window rather than the whole run - and
-  // almost nothing on the recess, because there is not enough source to bounce.
-  pane(TRIM_DIM, 0.30, 0.10);
-  recess(TRIM_DIM, 0.22);
-  spill(TRIM_DIM, 0.22);
+  // CLOSED, LIGHT LEFT ON: a tube left burning over the window rather than the
+  // whole display run, and little on the recess because there is not much source
+  // to bounce.
+  pane(TRIM_DIM, 0.42, 0.12);
+  recess(TRIM_DIM, 0.26);
+  spill(TRIM_DIM, 0.26);
   // CLOSED AND DARK: an exit sign, a till display, a door left open to a lit back
   // room. Not a shop you would say is lit, and not black either - which is the
   // whole reason this state exists rather than reusing TRIM_NONE. No display
-  // track at all, and nothing on the recess or the threshold: at this level there
-  // is no source to bounce, and a glowing threshold under an unlit shop would
-  // read as the shop being open.
-  pane(TRIM_DARK, 0.085, 0);
+  // track at all: that band is what says "open", and it is the difference between
+  // the states far more than the level is.
+  //
+  // THE LEVEL HERE WAS MEASURED TWICE AND WRONG THE FIRST TIME. At 0.085 the
+  // CASSAVA / LUMEN CAMERA row - which draws this state on every visible lot, the
+  // same unlucky run every version of this has had, because tenancyState's hash
+  // never changed - moved by a mean of 0.323 with a max of 4 against the
+  // baseline. That is a state that exists in the atlas, is correctly addressed,
+  // and cannot be seen, which is the same defect as not having it. 0.20 is where
+  // it reads as a room behind glass rather than as a mirror, and it is still less
+  // than half of the closed-with-a-light state above it and a fifth of an open
+  // one.
+  pane(TRIM_DARK, 0.20, 0);
+  recess(TRIM_DARK, 0.10);
+  spill(TRIM_DARK, 0.06);
   // TRIM_NONE is the black the canvas was filled with, and it is what every
   // non-shopfront part of the kit samples. Nothing is drawn for it, on purpose: a
   // state defined by an absence should not have a painter that could drift away
