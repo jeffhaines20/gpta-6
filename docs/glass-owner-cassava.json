@@ -1,0 +1,68 @@
+{
+ "tod": "night",
+ "box": [
+  60,
+  380,
+  420,
+  220
+ ],
+ "hits": {
+  "trim": 3255,
+  "(unnamed)": 2005,
+  "facade:retailStrip": 447,
+  "sidewalk": 68
+ },
+ "cells": {
+  "stone": 506,
+  "stucco": 1261,
+  "glass": 1357,
+  "metalDark": 73,
+  "concrete": 11,
+  "bulkhead": 47
+ },
+ "states": {
+  "stone@none": 506,
+  "stucco@none": 95,
+  "stucco@dim": 782,
+  "glass@dim": 692,
+  "glass@dark": 665,
+  "stucco@dark": 384,
+  "metalDark@none": 73,
+  "concrete@none": 11,
+  "bulkhead@dark": 47
+ },
+ "miss": 0,
+ "total": 5775,
+ "mats": {
+  "trim": {
+   "hasEmissiveMap": true,
+   "emissiveIntensity": 2.9,
+   "emissive": "ffffff",
+   "vertexColors": true
+  },
+  "(unnamed)": {
+   "hasEmissiveMap": true,
+   "emissiveIntensity": 7.4,
+   "emissive": "ffffff",
+   "vertexColors": true
+  },
+  "facade:retailStrip": {
+   "hasEmissiveMap": true,
+   "emissiveIntensity": 4.65,
+   "emissive": "ffffff",
+   "vertexColors": true
+  },
+  "sidewalk": {
+   "hasEmissiveMap": false,
+   "emissiveIntensity": 1,
+   "emissive": "000000",
+   "vertexColors": false
+  }
+ },
+ "glassDist": {
+  "n": 1357,
+  "min": 18.59,
+  "med": 21.77,
+  "max": 34.18
+ }
+}
