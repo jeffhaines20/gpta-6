@@ -216,6 +216,38 @@ export function trough(L, w, h, band, pad) {
     bandMean: bs.mean, bandMin: bs.min, ctxP90: cs.p90, ctxN: cs.n };
 }
 
+/**
+ * HOW WIDE IS THE BLACK, in pixels of column.
+ *
+ * The trough says how dark the seam gets; it does not say how much of the
+ * building the seam has eaten. Looking at the r8 crop at 4x, the answer matters:
+ * the darkening is not a line on the jamb, it is a cloudy band about ten pixels
+ * wide lying on FLAT STONE beside the window, with no edge on its outer side.
+ * That is a halo, and a halo has a width.
+ *
+ * For each column in a window around the band, the column's mean is divided by
+ * that same row's context p90 (so a vertical gradient cancels, exactly as in
+ * trough) and the count of columns under `frac` is returned. Reported at 0.5 --
+ * half the brightness of the wall it sits on is not a subtle shading.
+ */
+export function darkWidth(L, w, h, band, pad, frac) {
+  const b = clampRect(band, w, h);
+  const win = clampRect({ x: band.x - pad, y: band.y, w: band.w + 2 * pad, h: band.h }, w, h);
+  let n = 0;
+  for (let x = win.x; x < win.x + win.w; x++) {
+    let acc = 0, m = 0;
+    for (let y = b.y; y < b.y + b.h; y++) {
+      const rowCtx = [];
+      for (let cx = win.x; cx < win.x + win.w; cx++) rowCtx.push(L[y * w + cx]);
+      rowCtx.sort((p, q) => p - q);
+      const p90 = rowCtx[Math.min(rowCtx.length - 1, Math.round(0.9 * (rowCtx.length - 1)))];
+      if (p90 > 0) { acc += L[y * w + x] / p90; m++; }
+    }
+    if (m && acc / m < frac) n++;
+  }
+  return n;
+}
+
 /** Every headline number for one image and one named region. */
 export function measure(img, region, pad) {
   const { width: w, height: h } = img;
@@ -233,6 +265,7 @@ export function measure(img, region, pad) {
     // the face, so equal grey-level grain is far more visible there; the raw
     // ratio understates what the eye gets. Reported, not headline.
     relV: t.bandMean > 0 ? bv / t.bandMean : NaN,
+    dark50: darkWidth(L, w, h, region.band, pad, 0.5),
   };
 }
 
@@ -320,6 +353,10 @@ function selftest() {
   const G1 = measure(synth(W, H, dark), REG, PAD);
   const G2 = measure(synth(W, H, (x, y) => dark(x, y) * 0.6), REG, PAD);
   ok(G1.trough < 0.35, `darkened band: trough ${G1.trough.toFixed(3)} < 0.35`);
+  ok(G1.dark50 === 10, `darkened band: dark50 counts exactly the 10 darkened columns, got ${G1.dark50}`);
+  ok(A.dark50 === 0, `clean render: dark50 counts nothing, got ${A.dark50}`);
+  const wide = (x, y) => base(x, y) * (x >= 84 && x < 100 ? 0.25 : 1);
+  ok(measure(synth(W, H, wide), REG, PAD).dark50 === 16, 'a 16-column smear counts 16, not 10 -- the width is measured, not the band rect');
   ok(Math.abs(G1.trough - G2.trough) < 0.02, `trough is exposure-invariant: ${G1.trough.toFixed(3)} vs ${G2.trough.toFixed(3)} at 0.6x exposure`);
 
   console.log(fails.length ? `\nSELFTEST FAILED (${fails.length})` : '\nSELFTEST PASSED');
@@ -478,11 +515,11 @@ async function live() {
   const isVoid = bad.length > 0 || bufBad;
   console.log(isVoid ? 'REPEAT DISAGREES -- THE SWEEP IS VOID.' : 'repeat agrees; the sweep stands.');
 
-  console.log('\narm              trough  bandMean  bandV  faceV  ratio   relV    AOpre   AOpost  AOmean  effTaps');
+  console.log('\narm              trough  bandMean  bandV  faceV  ratio   relV dk50    AOpre   AOpost  AOmean  effTaps');
   for (const r of results) {
     console.log(`${r.label.padEnd(16)} ${r.frame.trough.toFixed(3).padStart(6)} ${r.frame.bandMean.toFixed(1).padStart(9)} ` +
       `${r.frame.bandV.toFixed(2).padStart(6)} ${r.frame.faceV.toFixed(2).padStart(6)} ${r.frame.noiseRatio.toFixed(2).padStart(6)} ` +
-      `${(100 * r.frame.relV).toFixed(1).padStart(6)}% ${r.buf.preBand.toFixed(2).padStart(8)} ${r.buf.postBand.toFixed(2).padStart(8)} ` +
+      `${(100 * r.frame.relV).toFixed(1).padStart(6)}% ${String(r.frame.dark50).padStart(4)} ${r.buf.preBand.toFixed(2).padStart(8)} ${r.buf.postBand.toFixed(2).padStart(8)} ` +
       `${r.buf.postMean.toFixed(1).padStart(7)} ${((r.buf.preBand / r.buf.postBand) ** 2).toFixed(1).padStart(8)}`);
   }
   fs.writeFileSync(`docs/ao-noise-${TAG}.json`, JSON.stringify({ region: NAME, tod: TOD, peds: PEDS, void: isVoid, results }, null, 2));
@@ -508,8 +545,8 @@ const regionFor = (file) => {
   throw new Error(`no region matches ${file}; pass --region`);
 };
 
-const HEAD = 'region                 trough  bandMean  ctxP90  noiseRatio  bandV  faceV  bandH   relV';
-const row = (label, m) => `${label.padEnd(22)} ${m.trough.toFixed(3).padStart(6)} ${m.bandMean.toFixed(1).padStart(9)} ${m.ctxP90.toFixed(1).padStart(7)} ${m.noiseRatio.toFixed(2).padStart(11)} ${m.bandV.toFixed(2).padStart(6)} ${m.faceV.toFixed(2).padStart(6)} ${m.bandH.toFixed(2).padStart(6)} ${(100 * m.relV).toFixed(2).padStart(6)}%`;
+const HEAD = 'region                 trough  bandMean  ctxP90  noiseRatio  bandV  faceV  bandH   relV  dark50';
+const row = (label, m) => `${label.padEnd(22)} ${m.trough.toFixed(3).padStart(6)} ${m.bandMean.toFixed(1).padStart(9)} ${m.ctxP90.toFixed(1).padStart(7)} ${m.noiseRatio.toFixed(2).padStart(11)} ${m.bandV.toFixed(2).padStart(6)} ${m.faceV.toFixed(2).padStart(6)} ${m.bandH.toFixed(2).padStart(6)} ${(100 * m.relV).toFixed(2).padStart(6)}% ${String(m.dark50).padStart(6)}`;
 
 const before = arg('before', ''), after = arg('after', ''), shot = arg('shot', '');
 if (shot) {
