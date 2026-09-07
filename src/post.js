@@ -209,6 +209,7 @@ uniform sampler2D tAO;
 uniform sampler2D tDepth;
 uniform vec2  texelSize;
 uniform float cameraFar;
+uniform float blurRadius;
 varying vec2 vUv;
 
 void main() {
@@ -216,6 +217,10 @@ void main() {
   float sum = 0.0, weightSum = 0.0;
   for (int x = -2; x <= 2; x++) {
     for (int y = -2; y <= 2; y++) {
+      // blurRadius is a runtime uniform so the kernel WIDTH can be swept without
+      // recompiling. GLSL ES 1.0 needs the loop bounds constant, so the taps
+      // outside the requested radius are skipped rather than not iterated.
+      if (abs(float(x)) > blurRadius || abs(float(y)) > blurRadius) continue;
       vec2 offset = vec2(float(x), float(y)) * texelSize;
       float d = texture2D(tDepth, vUv + offset).r;
       // Reject neighbours on a different surface.
@@ -746,6 +751,23 @@ export class PostStack {
       aoRadius: 0.6,
       aoBias: 0.035,
       aoIntensity: 8.5,
+      // THE BUFFER THE ABOVE IS DRAWN INTO, which is a separate question from
+      // the kernel and was not asked when the radius moved.
+      //
+      // aoScale is the AO target's size as a fraction of the frame; aoBlurRadius
+      // is the half-width, in AO texels, of the depth-aware blur that follows it.
+      // Shipped at 0.5 and 2, i.e. a half-resolution buffer smoothed by a 5x5
+      // kernel, which reaches +-4 SCREEN pixels and so spans 9.
+      //
+      // That pairing was chosen for a 2.2 m radius, where the AO feature is
+      // metres wide and 9 pixels of smoothing is a rounding error. At 0.6 m the
+      // feature is the contact band itself, and 9 pixels stops being a rounding
+      // error at the distance the props actually stand: see the sweep in
+      // tools/prop-ground.mjs and the note above dressDistrict in
+      // src/streetfurniture.js. Both are here so the pairing can be swept
+      // instead of assumed; the defaults are exactly what shipped.
+      aoScale: 0.5,
+      aoBlurRadius: 2,
     };
 
     const type = THREE.HalfFloatType;
@@ -820,6 +842,7 @@ export class PostStack {
         tAO: { value: null }, tDepth: { value: null },
         texelSize: { value: new THREE.Vector2() },
         cameraFar: { value: 1 },
+        blurRadius: { value: this.params.aoBlurRadius },
       },
       depthTest: false, depthWrite: false,
     });
@@ -954,10 +977,10 @@ export class PostStack {
     this.brightRT.setSize(bw, bh);
     this.blurA.setSize(bw, bh);
     this.blurB.setSize(bw, bh);
-    // AO at half res too. Full res buys very little at this radius and costs a
-    // full-screen 12-tap plus a 25-tap blur.
-    const aw = Math.max(1, Math.floor(w * 0.5));
-    const ah = Math.max(1, Math.floor(h * 0.5));
+    // AO buffer scale. See params.aoScale.
+    const s = this.params.aoScale;
+    const aw = Math.max(1, Math.floor(w * s));
+    const ah = Math.max(1, Math.floor(h * s));
     this.aoRT.setSize(aw, ah);
     this.aoBlurRT.setSize(aw, ah);
     this.compositeMat.uniforms.resolution.value.set(w, h);
@@ -1036,6 +1059,7 @@ export class PostStack {
       bu.tDepth.value = this.hdr.depthTexture;
       bu.texelSize.value.set(1 / this.aoRT.width, 1 / this.aoRT.height);
       bu.cameraFar.value = this.camera.far;
+      bu.blurRadius.value = this.params.aoBlurRadius;
       this._blit(this.aoBlurMat, this.aoBlurRT);
     }
 
