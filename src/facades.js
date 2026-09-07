@@ -1877,9 +1877,22 @@ function buildTrimEmissive(E) {
   // CLOSED, LIGHT LEFT ON: a tube left burning over the window rather than the
   // whole display run, and little on the recess because there is not much source
   // to bounce.
-  pane(TRIM_DIM, 0.60, 0.14);
-  recess(TRIM_DIM, 0.34);
-  spill(TRIM_DIM, 0.34);
+  // 0.78, raised from 0.60 with the night intensity cut. That cut was aimed at
+  // the OPEN state, which was the one clipping at 12 m, but TRIM_EMISSIVE scales
+  // all three states together and took closed-with-a-light down 38% with it -
+  // and closed-with-a-light is exactly what the rows the reviewer called "not
+  // selected" are now made of (the CASSAVA row's glass is 51% dim after the run
+  // cap, against 0% before it). So the two changes were pulling on that row in
+  // opposite directions and it barely moved.
+  //
+  // Raising DIM rather than the global intensity is what keeps this isolable: the
+  // blown bay and the good bay are both glass@LIT by raycast, so neither can move
+  // by a single grey level from this, and the next capture is a test of that as
+  // much as of the row. 0.78 * 2.9 = 2.26 against the 0.60 * 4.65 = 2.79 that
+  // shipped, so a closed-with-a-light shop still ends up dimmer than it was.
+  pane(TRIM_DIM, 0.78, 0.14);
+  recess(TRIM_DIM, 0.42);
+  spill(TRIM_DIM, 0.42);
   // CLOSED AND DARK: an exit sign, a till display, a door left open to a lit back
   // room. Not a shop you would say is lit, and not black either - which is the
   // whole reason this state exists rather than reusing TRIM_NONE. No display
