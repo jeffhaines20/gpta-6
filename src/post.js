@@ -1276,6 +1276,23 @@ export class PostStack {
       // mechanism exists to remove -- so the mechanism removes it. What is
       // bought for that is a seam trough of 0.5589 and 0.053 m of reach.
       //
+      // AND WHAT IT LOOKS LIKE IN THE FRAME, which is where the complaint was
+      // made and where the AO-off anchor lives (tools/ao-noise.mjs --live,
+      // fivepoints-noon; trough is the band's mean over its own local p90, so
+      // an exposure change cancels):
+      //
+      //     arm                    trough   bandV   faceV   AOpost
+      //     AO off                 0.872    0.75    0.76      --
+      //     shipped                0.215    0.58    0.76     0.49
+      //     occ 0.15/0.50          0.617    0.72    0.76     0.90
+      //     kernel 3, 32 samples   0.173    0.53    0.76     0.30
+      //
+      // The AO-off row reproduces the reviewer's own 0.872 to three figures,
+      // which is the check that this instrument is reading the band they read.
+      // Band grain stays under the 0.75 AO-off floor in every arm, so the
+      // aoDither win from the previous round survives all of them -- the noise
+      // was expected to be what blocked the obscurance term and it is not.
+      //
       // aoOccNear/aoOccFar, aoRangeScale and aoThickness are therefore all left
       // at 0, which is the r8 behaviour exactly, and kept as parameters so the
       // next round can reproduce these rows instead of re-deriving them.
