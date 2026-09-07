@@ -1853,27 +1853,36 @@ function buildTrimEmissive(E) {
   // CLOSED, LIGHT LEFT ON: a tube left burning over the window rather than the
   // whole display run, and little on the recess because there is not much source
   // to bounce.
-  pane(TRIM_DIM, 0.42, 0.12);
-  recess(TRIM_DIM, 0.26);
-  spill(TRIM_DIM, 0.26);
+  pane(TRIM_DIM, 0.60, 0.14);
+  recess(TRIM_DIM, 0.34);
+  spill(TRIM_DIM, 0.34);
   // CLOSED AND DARK: an exit sign, a till display, a door left open to a lit back
   // room. Not a shop you would say is lit, and not black either - which is the
   // whole reason this state exists rather than reusing TRIM_NONE. No display
   // track at all: that band is what says "open", and it is the difference between
   // the states far more than the level is.
   //
-  // THE LEVEL HERE WAS MEASURED TWICE AND WRONG THE FIRST TIME. At 0.085 the
-  // CASSAVA / LUMEN CAMERA row - which draws this state on every visible lot, the
-  // same unlucky run every version of this has had, because tenancyState's hash
-  // never changed - moved by a mean of 0.323 with a max of 4 against the
-  // baseline. That is a state that exists in the atlas, is correctly addressed,
-  // and cannot be seen, which is the same defect as not having it. 0.20 is where
-  // it reads as a room behind glass rather than as a mirror, and it is still less
-  // than half of the closed-with-a-light state above it and a fifth of an open
-  // one.
-  pane(TRIM_DARK, 0.20, 0);
-  recess(TRIM_DARK, 0.10);
-  spill(TRIM_DARK, 0.06);
+  // THE LEVEL HERE WAS MEASURED THREE TIMES AND RAISED TWICE. The CASSAVA /
+  // LUMEN CAMERA row draws this state on every visible lot - the same unlucky run
+  // every version of this has had, because tenancyState's hash never changed and
+  // only its thresholds moved - so it is the one place this state is on show, and
+  // it is the row three reviewers named. Against the baseline, on a
+  // shopfront-only rect:
+  //
+  //     0.085   mean 0.323, max 4      one pane 35.84 -> 36.2
+  //     0.20    mean 0.901, max 9      one pane 35.84 -> 37.48
+  //     0.32    the level shipped
+  //
+  // A state that exists in the atlas, is correctly addressed by the geometry, and
+  // cannot be seen is the same defect as not having it. What this level has to
+  // buy is not brightness - the reviewers' complaint was that the row reads
+  // "muddy, neither open-and-lit nor closed-and-dark" - it is DEPTH ORDERING: a
+  // soffit, a back wall, a shelf line and a floor, so the eye reads a room rather
+  // than a grey panel. The display band stays at zero, because that band is what
+  // says OPEN and it separates the states far more than the level does.
+  pane(TRIM_DARK, 0.32, 0);
+  recess(TRIM_DARK, 0.14);
+  spill(TRIM_DARK, 0.09);
   // TRIM_NONE is the black the canvas was filled with, and it is what every
   // non-shopfront part of the kit samples. Nothing is drawn for it, on purpose: a
   // state defined by an absence should not have a painter that could drift away
