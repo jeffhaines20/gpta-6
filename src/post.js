@@ -137,7 +137,8 @@ void main() {
 // without editing this file, because "isolate one term at a time" is the only
 // way to tell which of them is carrying the fix.
 // KERNEL: 0 = the legacy typed vectors, 1 = the spiral, 2 = the spiral with
-// its sample LENGTHS decorrelated from its elevations.
+// its sample LENGTHS decorrelated from its elevations, 3 = kernel 2 with a
+// UNIFORM-SOLID-ANGLE elevation instead of a cosine one.
 const AO_FRAG = (SAMPLES, KERNEL) => `
 uniform sampler2D tDepth;
 uniform mat4  invProjection;
@@ -261,9 +262,18 @@ ${KERNEL ? `
     float fi = float(i) + 0.5;
     float u = fi / float(SAMPLES);
     float ang = fi * 2.39996323;
-    float rr = sqrt(u);
-    vec3 rk = (t2 * (cos(ang) * rr) + b2 * (sin(ang) * rr) + normal * sqrt(max(0.0, 1.0 - u)))
-              * mix(0.12, 1.0, ${KERNEL === 2 ? 'fract(fi * 0.6180339887)' : 'u'});
+    // ELEVATION. Kernels 1 and 2 put z = sqrt(1-u) with disk radius sqrt(u),
+    // which is a COSINE hemisphere -- the weighting the reflectance integral
+    // wants, and the reason those two halve the window reveal: a reveal's
+    // occluders sit near the tangent plane and a cosine hemisphere barely looks
+    // there. Kernel 3 is the variant the round that measured that named and did
+    // not test: z = 1 - u with disk radius sqrt(u(2-u)), which is UNIFORM IN
+    // SOLID ANGLE. It keeps the spiral's unbiasedness and its 4x lower rotation
+    // variance while putting the samples back where the legacy fold had them.
+    float rr = ${KERNEL === 3 ? 'sqrt(max(0.0, u * (2.0 - u)))' : 'sqrt(u)'};
+    float el = ${KERNEL === 3 ? '1.0 - u' : 'sqrt(max(0.0, 1.0 - u))'};
+    vec3 rk = (t2 * (cos(ang) * rr) + b2 * (sin(ang) * rr) + normal * el)
+              * mix(0.12, 1.0, ${KERNEL >= 2 ? 'fract(fi * 0.6180339887)' : 'u'});
 ` : `
     vec3 k = kernel[i];
     vec3 rk = vec3(k.x * ca - k.y * sa, k.x * sa + k.y * ca, k.z);
@@ -1155,7 +1165,8 @@ export class PostStack {
       //                 cannot be asked for a thirteenth, so the count is forced
       //                 back to 12 there. Recompiles the AO shader.
       //   aoKernel      0 legacy, 1 spiral, 2 spiral with lengths decorrelated
-      //                 from elevations. Recompiles.
+      //                 from elevations, 3 spiral with lengths decorrelated AND
+      //                 a uniform-solid-angle elevation. Recompiles.
       //   aoFalloff     metres of soft ramp on the occlusion test; 0 = a step.
       //   aoDither      0 = per-pixel hash. N = an NxN interleaved tile.
       //   aoDepthSigma  0 = the r8 blur weight on raw window depth. > 0 = a

@@ -76,7 +76,13 @@ function occLegacy(n, w, theta) {
   }
   return hit / LEG.length;
 }
-function occSpiral(n, w, theta, N, decor) {
+// `uniform` switches the elevation from a COSINE hemisphere (z = sqrt(1-u),
+// disk radius sqrt(u)) to one UNIFORM IN SOLID ANGLE (z = 1-u, disk radius
+// sqrt(u(2-u))). That is src/post.js aoKernel 3, and it exists because the
+// round that measured the cosine spiral halving the window reveal named this
+// variant as the thing to try next and did not try it: a cosine hemisphere
+// weights toward the normal, and a reveal's occluders are at grazing angles.
+function occSpiral(n, w, theta, N, decor, uniform) {
   const up = Math.abs(n[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
   const t = norm(cross(up, n)), b = cross(n, t);
   const ca = Math.cos(theta), sa = Math.sin(theta);
@@ -84,8 +90,9 @@ function occSpiral(n, w, theta, N, decor) {
   const b2 = [-t[0] * sa + b[0] * ca, -t[1] * sa + b[1] * ca, -t[2] * sa + b[2] * ca];
   let hit = 0;
   for (let i = 0; i < N; i++) {
-    const fi = i + 0.5, u = fi / N, ang = fi * 2.39996323, rr = Math.sqrt(u);
-    const z = Math.sqrt(Math.max(0, 1 - u));
+    const fi = i + 0.5, u = fi / N, ang = fi * 2.39996323;
+    const rr = uniform ? Math.sqrt(Math.max(0, u * (2 - u))) : Math.sqrt(u);
+    const z = uniform ? 1 - u : Math.sqrt(Math.max(0, 1 - u));
     const len = 0.12 + (1 - 0.12) * (decor ? (fi * 0.6180339887) % 1 : u);
     const v = [0, 1, 2].map((j) => (t2[j] * Math.cos(ang) * rr + b2[j] * Math.sin(ang) * rr + n[j] * z) * len);
     if (dot(v, w) < 0) hit++;
@@ -149,6 +156,40 @@ if (process.argv.includes('--selftest')) {
   ok(leg.mean < 0.47, `legacy 12 under-reports the corner: ${leg.mean.toFixed(4)}`);
   ok(Math.abs(sp.mean - 0.5) < 0.01, `spiral 32 does not: ${sp.mean.toFixed(4)}`);
   ok(leg.sd > 3 * sp.sd, `legacy swings ${leg.sd.toFixed(4)} against the spiral's ${sp.sd.toFixed(4)}`);
+  // AND THE UNIFORM-SOLID-ANGLE VARIANT, WHICH THIS GEOMETRY CANNOT TEST.
+  //
+  // A 90-degree corner is blind to the elevation distribution, for the same
+  // reason the header says it is blind to sample LENGTH: with w perpendicular to
+  // n, dot(v, w) has no component along n at all, so moving samples up and down
+  // the normal cannot change a single hit. The first draft of this test asserted
+  // that a DELIBERATELY BROKEN elevation (z = 1-u kept, disk radius left at
+  // sqrt(u), so z^2 + r^2 is not 1 and the vectors are not on the hemisphere)
+  // would be caught here. It reads 0.5000 with sd 0.0202 -- identical to the
+  // correct kernel to four decimals -- and the assertion was wrong, not the
+  // kernel.
+  //
+  // A TILTED WALL SEPARATES THEM, and has an exact answer. The occluded set
+  // {v.n > 0, v.w < 0} is a lune of dihedral angle pi - phi, where phi is the
+  // angle between n and w, so its UNIFORM-SOLID-ANGLE fraction of the hemisphere
+  // is exactly (pi - phi)/pi. At phi = 90 degrees that is 0.5 for every
+  // weighting, which is why the corner above tests nothing here; at 60 degrees
+  // it is 2/3 for a uniform-solid-angle kernel and something else for a cosine
+  // one, because a cosine kernel is not measuring that quantity.
+  const phi = Math.PI / 3;
+  const nt = [0, 0, 1];
+  const wt = [Math.sin(phi), 0, Math.cos(phi)].map((x) => -x);   // angle(n, w) = phi
+  const truth = (Math.PI - phi) / Math.PI;
+  const un = stats(TH.map((t) => occSpiral(nt, wt, t, 4096, true, true)));
+  const cos = stats(TH.map((t) => occSpiral(nt, wt, t, 4096, true, false)));
+  ok(Math.abs(un.mean - truth) < 0.02,
+    `at a ${(180 * phi / Math.PI).toFixed(0)}-degree wall the uniform-solid-angle spiral reads ` +
+    `${un.mean.toFixed(4)} against the exact ${truth.toFixed(4)}`);
+  ok(Math.abs(cos.mean - truth) > 0.02,
+    `and the cosine spiral reads ${cos.mean.toFixed(4)}, which is the difference this variant exists to make`);
+  // The 90-degree case still has to agree, or the new elevation has broken the
+  // one number the rest of this file is built on.
+  const un90 = stats(TH.map((t) => occSpiral(n, w, t, 32, true, true)));
+  ok(Math.abs(un90.mean - 0.5) < 0.01, `and it still reads ${un90.mean.toFixed(4)} on the 90-degree corner`);
 
   console.log(fails.length ? `\nSELFTEST FAILED (${fails.length})` : '\nSELFTEST PASSED');
   process.exit(fails.length ? 1 : 0);
@@ -169,6 +210,8 @@ for (const tilt of [0, 15, 35, 60, 80]) {
     ['spiral 12', TH.map((t) => occSpiral(n, w, t, 12, false)), 1 / 12],
     ['spiral 32', TH.map((t) => occSpiral(n, w, t, 32, false)), 1 / 32],
     ['spiral 32 decor', TH.map((t) => occSpiral(n, w, t, 32, true)), 1 / 32],
+    ['spiral 32 uniform', TH.map((t) => occSpiral(n, w, t, 32, true, true)), 1 / 32],
+    ['spiral 12 uniform', TH.map((t) => occSpiral(n, w, t, 12, true, true)), 1 / 12],
   ];
   for (const [name, vals, q] of rows) {
     const s = stats(vals);
