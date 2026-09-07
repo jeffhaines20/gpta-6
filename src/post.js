@@ -1281,10 +1281,13 @@ export class PostStack {
       // next round can reproduce these rows instead of re-deriving them.
       //
       // WHAT IS LEFT TO TRY, in the order the measurements point. Every route
-      // above is blocked by the same thing: an estimator that reads about a
-      // seventh of the true occlusion (0.2763 where a 90-degree corner is 0.5)
-      // rescued by an exponent of 8.5 that saturates the strong features and
-      // linearly amplifies the weak ones. Fix the estimator and the exponent can
+      // above is blocked by the same thing: an estimator that under-reports and
+      // an exponent of 8.5 that rescues it by saturating the strong features
+      // while linearly amplifying the weak ones. The under-report is 45% at the
+      // corner (0.2763 against the 0.5 a 90-degree corner blocks; the idealised
+      // number in tools/ao-kernel-var.mjs is 0.41-0.45 and the rest is the
+      // kernel being finite), and far worse at the reveal, where 0.16 m of
+      // built recess reads 0.0297. Fix the estimator and the exponent can
       // come down, and then the seam and the reveal stop being the same knob.
       // aoKernel 3 is the untested variant the previous round named on its way
       // out: the spiral with a UNIFORM-SOLID-ANGLE elevation (z = 1-u, disk
