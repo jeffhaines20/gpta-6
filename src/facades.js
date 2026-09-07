@@ -1796,17 +1796,36 @@ function buildTrimEmissive(E) {
         g.fillRect(x, y + E * 0.50, E, E * 0.145);
       }
 
+      // THE SHELF EDGE, and it is a hard line on purpose.
+      //
+      // An emissive that is all smooth gradient ADDS A WASH to a textured albedo
+      // and lowers its relative contrast, which is measurable and was measured:
+      // on one CASSAVA pane the local-contrast RMS fell 0.2091 unlit to 0.1805
+      // lit, while the pane got brighter. Brightness was never the complaint -
+      // "dim grey with faint shelves" is a complaint about STRUCTURE. Gradients
+      // are also the first thing minification destroys, so what carries at 23 m
+      // and survives at 12 m is an EDGE, not a ramp.
+      g.fillStyle = 'rgba(0,0,0,0.55)';
+      g.fillRect(x, y + E * 0.632, E, Math.max(1, E * 0.022));
+      // The counter front below it, catching the display light from above: the
+      // one bright hard edge in the lower half, so the eye has a horizontal to
+      // read the depth of the shop against.
+      g.fillStyle = `rgba(255,226,178,${(0.30 * Math.max(0.35, disp)).toFixed(3)})`;
+      g.fillRect(x, y + E * 0.654, E, Math.max(1, E * 0.016));
+
       // Goods on the shelf, as silhouettes AGAINST the display light rather than
       // as lit objects: this is the same seven-object shelf the albedo cell
       // draws, and it has to occlude here or the two layers disagree about where
       // the merchandise is. Drawn from a stream re-seeded per state so both
       // states put their stock in the SAME places - a shop does not rearrange its
-      // window when it closes.
+      // window when it closes. Deepened from 0.35-0.65 alpha: at a 64 px cell an
+      // object is two or three texels, and at that size a half-transparent
+      // silhouette is gone by the time the mip chain and the bloom have had it.
       const jr = rng(hash32('shelf'));
       for (let i = 0; i < 7; i++) {
-        const sw = E * (0.03 + jr() * 0.05), sh = E * (0.05 + jr() * 0.08);
-        g.fillStyle = `rgba(18,12,5,${(0.35 + jr() * 0.3).toFixed(3)})`;
-        g.fillRect(x + jr() * (E - sw), y + E * 0.615 - sh, sw, sh);
+        const sw = E * (0.035 + jr() * 0.055), sh = E * (0.06 + jr() * 0.09);
+        g.fillStyle = `rgba(8,5,2,${(0.62 + jr() * 0.3).toFixed(3)})`;
+        g.fillRect(x + jr() * (E - sw), y + E * 0.632 - sh, sw, sh);
       }
 
       // The stile. A shop window this wide is always divided, the albedo cell
