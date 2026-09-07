@@ -1140,10 +1140,19 @@ export class PostStack {
    */
   _makeAoMat() {
     const p = this.params;
+    // THE LEGACY KERNEL IS TWELVE TYPED VECTORS AND CANNOT BE ASKED FOR
+    // THIRTEEN. An arm that raised aoSamples while leaving aoKernel at 0 would
+    // index kernel[12..N] out of bounds -- undefined in GLSL ES, and on
+    // SwiftShader it returns something rather than failing, so the arm would
+    // have produced numbers that looked like measurements. The count is forced
+    // back to 12 there. Buying more samples means changing the kernel, which is
+    // a finding and not a limitation: the old kernel IS its twelve vectors.
+    const samples = p.aoKernel ? Math.max(1, Math.round(p.aoSamples)) : 12;
     this._aoBuilt = { samples: p.aoSamples, kernel: p.aoKernel };
+    this.aoEffectiveSamples = samples;
     return new THREE.RawShaderMaterial({
       vertexShader: `precision highp float; attribute vec3 position; attribute vec2 uv; ${FULLSCREEN_VERT}`,
-      fragmentShader: `precision highp float; ${AO_FRAG(Math.max(1, Math.round(p.aoSamples)), Math.round(p.aoKernel) | 0)}`,
+      fragmentShader: `precision highp float; ${AO_FRAG(samples, Math.round(p.aoKernel) | 0)}`,
       uniforms: {
         tDepth: { value: null },
         invProjection: { value: new THREE.Matrix4() },
