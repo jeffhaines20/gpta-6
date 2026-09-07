@@ -1344,6 +1344,42 @@ export class PostStack {
       // corner DARKER, because the corner really is the most occluded thing in
       // these frames. Anything that lightens it lightens the contacts with it.
       //
+      // AND SEPARATELY, THE PREVIOUS ROUND'S UNTESTED GUESS WAS RIGHT. It is
+      // the COSINE weighting that destroys the reveal, not the spiral. Same
+      // pinned slot, same facade pick (619 reveal / 2050 flush px), intensity
+      // 8.5 throughout:
+      //
+      //                          foot    revealC   prop@18.8   frame
+      //     legacy 12           0.797     0.125      0.232      0.125
+      //     spiral 32, cosine   0.882     0.034      0.257      0.103
+      //     spiral 32, uniform  0.850     0.117      0.281      0.138
+      //
+      // All three in ONE sweep on this tip, not two of them quoted from the
+      // previous round -- and the cosine row lands on that round's 0.88 / 0.0324
+      // / 0.103 anyway, which is the check that the two are the same
+      // measurement.
+      //
+      // Reveal contrast falls 75% under the cosine spiral and 6.4% under the
+      // uniform one, while foot and prop contact both improve and the frame
+      // gets quieter. That does not fix this seam -- it darkens it.
+      //
+      // AND THE PAIRING IT UNLOCKS RUNS INTO THE SAME WALL, which is the fourth
+      // independent direction this round has hit it from. An estimator that does
+      // not need 8.5 to buy contact contrast can be paired with less of it, and
+      // the exponent is the only lever that moves both the seam's level and its
+      // reach. aoKernel 3 at intensity 6.5, against the shipped legacy 8.5:
+      //
+      //                        foot   revealC   prop@18.8  crease g  extinct05
+      //     shipped           0.7968   0.1246     0.2317     0.0824    4.63 bw
+      //     k3 at 6.5         0.7864   0.0986     0.2353     0.0824    4.39 bw
+      //
+      // Foot -1.3%, prop +1.6%, ground crease identical to four decimals, halo
+      // extinction 4.63 -> 4.39 bw (the good direction) -- and the seam moves
+      // 1.6% (corridor trough 0.9147 -> 0.9002, computed from the k3 raw at the
+      // measured corner) for a reveal contrast of -21%. Thirteen to one against,
+      // which is the same exchange rate the obscurance term offered by a
+      // completely different route.
+      //
       //   aoSamples     taps in the hemisphere. ONLY MEANINGFUL WITH aoKernel
       //                 1 or 2: the legacy kernel is twelve typed vectors and
       //                 cannot be asked for a thirteenth, so the count is forced
