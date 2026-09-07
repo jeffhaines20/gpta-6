@@ -95,6 +95,13 @@ const { ensureServer } = await import('./serve.mjs');
 
 const PORT = Number(process.env.GO_PORT ?? 8137);
 const TOD = process.env.GO_TOD ?? 'night';
+// Which hero camera. Both are hero-shots.mjs' own, verbatim; a probe standing
+// anywhere else is answering a question about a different picture.
+const VIEW = process.env.GO_VIEW ?? 'corridor';
+const VIEWS = {
+  corridor: { back: -55, side: 0, height: 2.4, fov: 55, tgtY: 16, fwd: 260 },
+  fivepoints: { back: 26, side: 7, height: 3.0, fov: 48, tgtY: 12, fwd: 200 },
+};
 // The region the reports named on a 1600x900 corridor frame: the CASSAVA /
 // LUMEN CAMERA row.
 const BOX = (process.env.GO_BOX ?? '60,380,420,220').split(',').map(Number);
@@ -118,18 +125,21 @@ await page.waitForFunction('window.__district && window.__district.frames > 5', 
 // hero-shots.mjs' corridor camera, verbatim: waypoint 3 -> 4, back -55, side 0,
 // height 2.4, fov 55, target y 16 at 260 m. A probe standing anywhere else is
 // answering a question about a different picture.
-const placed = await page.evaluate(() => {
+const placed = await page.evaluate((cfg) => {
   const r = __district.district.meta.route;
   const a = r[3], b = r[4];
   const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz) || 1;
-  const px = a.x - (dx / len) * -55, pz = a.z - (dz / len) * -55;
+  const nx = -dz / len, nz = dx / len;
+  const px = a.x - (dx / len) * cfg.back + nx * cfg.side;
+  const pz = a.z - (dz / len) * cfg.back + nz * cfg.side;
   __district.placeAt(a.x, a.z);
   __district.setAutopilot(() => {});
-  __district.freeCam([px, 2.4, pz], [a.x + (dx / len) * 260, 16, a.z + (dz / len) * 260], 55);
+  __district.freeCam([px, cfg.height, pz],
+    [a.x + (dx / len) * cfg.fwd, cfg.tgtY, a.z + (dz / len) * cfg.fwd], cfg.fov);
   for (let i = 0; i < 900; i++) __district.world.update(__district.vehicle.position);
   return { x: +px.toFixed(1), z: +pz.toFixed(1) };
-});
-console.log(`corridor camera at (${placed.x}, ${placed.z}), ${TOD}`);
+}, VIEWS[VIEW]);
+console.log(`${VIEW} camera at (${placed.x}, ${placed.z}), ${TOD}`);
 await page.evaluate((t) => __district.setTimeOfDay(t), TOD);
 await page.waitForTimeout(15000);
 
@@ -143,6 +153,7 @@ const report = await page.evaluate(async ({ box, step, names }) => {
   const hits = {};
   const cells = {};
   const states = {};
+  const glassDist = [];
   let miss = 0, total = 0;
   const mats = {};
   // Everything the raycast can reach, minus the sky dome, which is not a surface.
@@ -183,12 +194,18 @@ const report = await page.evaluate(async ({ box, step, names }) => {
         const iy = Math.min(grid - 1, Math.max(0, Math.floor((1 - frac) * grid)));
         const nm = names[iy * grid + ix] ?? `${ix},${iy}`;
         cells[nm] = (cells[nm] ?? 0) + 1;
-        const key = `${nm}@${['dark', 'dim', 'lit'][block] ?? `v+${block}`}`;
+        const key = `${nm}@${['none', 'dark', 'dim', 'lit'][block] ?? `v+${block}`}`;
         states[key] = (states[key] ?? 0) + 1;
+        if (nm === 'glass') { glassDist.push(+h.distance.toFixed(2)); }
       }
     }
   }
-  return { hits, cells, states, miss, total, mats };
+  glassDist.sort((a, b) => a - b);
+  return { hits, cells, states, miss, total, mats,
+    glassDist: glassDist.length
+      ? { n: glassDist.length, min: glassDist[0], med: glassDist[glassDist.length >> 1],
+        max: glassDist[glassDist.length - 1] }
+      : null };
 }, { box: BOX, step: STEP, names: TRIM_NAMES });
 
 const pc = (n) => `${((100 * n) / report.total).toFixed(1)}%`;
@@ -208,8 +225,12 @@ console.log('\ntrim cell x tenancy state (integer part of v):');
 for (const [k, v] of Object.entries(report.states).sort((a, b) => b[1] - a[1])) {
   console.log(`  ${k.padEnd(22)} ${String(v).padStart(5)}  ${pc(v).padStart(6)}`);
 }
+if (report.glassDist) {
+  const d = report.glassDist;
+  console.log(`\nglass hit distance (m): min ${d.min}  median ${d.med}  max ${d.max}  over ${d.n} rays`);
+}
 if (errors.length) console.log('\npage errors:', errors.slice(0, 5));
 fs.mkdirSync('docs', { recursive: true });
-fs.writeFileSync(process.env.GO_OUT ?? 'docs/glass-owner.json', JSON.stringify({ tod: TOD, box: BOX, ...report }, null, 1));
-console.log(`\nwrote ${process.env.GO_OUT ?? 'docs/glass-owner.json'}`);
+fs.writeFileSync(process.env.GO_OUT ?? `docs/glass-owner-${VIEW}.json`, JSON.stringify({ tod: TOD, box: BOX, ...report }, null, 1));
+console.log(`\nwrote ${process.env.GO_OUT ?? `docs/glass-owner-${VIEW}.json`}`);
 await browser.close();

@@ -1,0 +1,34 @@
+{
+ "tod": "night",
+ "box": [
+  1300,
+  540,
+  90,
+  70
+ ],
+ "hits": {
+  "trim": 1575
+ },
+ "cells": {
+  "glass": 1575
+ },
+ "states": {
+  "glass@lit": 1575
+ },
+ "miss": 0,
+ "total": 1575,
+ "mats": {
+  "trim": {
+   "hasEmissiveMap": true,
+   "emissiveIntensity": 4.65,
+   "emissive": "ffffff",
+   "vertexColors": true
+  }
+ },
+ "glassDist": {
+  "n": 1575,
+  "min": 11.88,
+  "med": 12.71,
+  "max": 13.71
+ }
+}

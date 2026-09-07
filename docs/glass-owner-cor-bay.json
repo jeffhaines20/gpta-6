@@ -1,0 +1,54 @@
+{
+ "tod": "night",
+ "box": [
+  1350,
+  470,
+  90,
+  130
+ ],
+ "hits": {
+  "(unnamed)": 168,
+  "trim": 2423,
+  "facade:midOffice": 334
+ },
+ "cells": {
+  "glass": 1533,
+  "stucco": 821,
+  "stone": 25,
+  "bulkhead": 44
+ },
+ "states": {
+  "glass@lit": 1533,
+  "stucco@lit": 821,
+  "stone@none": 25,
+  "bulkhead@lit": 44
+ },
+ "miss": 0,
+ "total": 2925,
+ "mats": {
+  "(unnamed)": {
+   "hasEmissiveMap": true,
+   "emissiveIntensity": 7.4,
+   "emissive": "ffffff",
+   "vertexColors": true
+  },
+  "trim": {
+   "hasEmissiveMap": true,
+   "emissiveIntensity": 4.65,
+   "emissive": "ffffff",
+   "vertexColors": true
+  },
+  "facade:midOffice": {
+   "hasEmissiveMap": true,
+   "emissiveIntensity": 3.4100000000000006,
+   "emissive": "ffffff",
+   "vertexColors": true
+  }
+ },
+ "glassDist": {
+  "n": 1533,
+  "min": 21.67,
+  "med": 23.33,
+  "max": 24.16
+ }
+}
