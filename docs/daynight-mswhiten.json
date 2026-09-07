@@ -11,12 +11,12 @@
   "betaBlueOverRed": 5.707
  },
  "on": {
-  "skyLux": 8519,
+  "skyLux": 8518,
   "zenithNits": 1434,
   "horizonNits": 7907,
-  "ambientChroma": -0.036,
-  "zenithChroma": -0.158,
-  "horizonChroma": 0.462,
+  "ambientChroma": -0.141,
+  "zenithChroma": -0.275,
+  "horizonChroma": 0.387,
   "applied": 0.7422,
   "betaBlueOverRed": 1.62
  },
@@ -33,7 +33,8 @@
     33.1
    ],
    "blueOverRed": 5.707,
-   "normalised": true
+   "normalised": true,
+   "anti": 0.25
   },
   {
    "tod": "golden",
@@ -45,7 +46,8 @@
     18.389
    ],
    "blueOverRed": 1.62,
-   "normalised": true
+   "normalised": true,
+   "anti": 0.25
   },
   {
    "tod": "dusk",
@@ -57,7 +59,8 @@
     30.467
    ],
    "blueOverRed": 4.485,
-   "normalised": true
+   "normalised": true,
+   "anti": 0.25
   },
   {
    "tod": "night",
@@ -69,7 +72,8 @@
     33.1
    ],
    "blueOverRed": 5.707,
-   "normalised": true
+   "normalised": true,
+   "anti": 0.25
   }
  ]
 }

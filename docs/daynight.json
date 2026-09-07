@@ -42,7 +42,8 @@
      33.1
     ],
     "blueOverRed": 5.707,
-    "normalised": true
+    "normalised": true,
+    "anti": 0.25
    },
    "litLamps": 0,
    "lampCandela": 0,
@@ -51,19 +52,19 @@
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 13,
    "shadowCasters": 101,
-   "drawCalls": 199,
-   "triangles": 704561,
+   "drawCalls": 207,
+   "triangles": 705828,
    "implausible": []
   },
   {
    "tod": "golden",
    "sunLux": 53138,
    "skyLux": 0,
-   "skyDelivered": 8518.522,
+   "skyDelivered": 8518.494,
    "skyPaths": 1,
-   "bounceLux": 1380.5,
-   "bounceShareOfSky": 0.1621,
-   "bounceBlueOverRed": 0.464,
+   "bounceLux": 1376.9,
+   "bounceShareOfSky": 0.1616,
+   "bounceBlueOverRed": 0.536,
    "msWhiten": {
     "authored": 0.85,
     "applied": 0.7422,
@@ -73,7 +74,8 @@
      18.389
     ],
     "blueOverRed": 1.62,
-    "normalised": true
+    "normalised": true,
+    "anti": 0.25
    },
    "litLamps": 0,
    "lampCandela": 0,
@@ -82,19 +84,19 @@
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 13,
    "shadowCasters": 101,
-   "drawCalls": 213,
-   "triangles": 725020,
+   "drawCalls": 221,
+   "triangles": 766895,
    "implausible": []
   },
   {
    "tod": "dusk",
    "sunLux": 1200,
    "skyLux": 0,
-   "skyDelivered": 1596.455,
+   "skyDelivered": 1596.45,
    "skyPaths": 1,
-   "bounceLux": 154.8,
+   "bounceLux": 154.6,
    "bounceShareOfSky": 0.0969,
-   "bounceBlueOverRed": 0.74,
+   "bounceBlueOverRed": 0.767,
    "msWhiten": {
     "authored": 0.85,
     "applied": 0.1328,
@@ -104,7 +106,8 @@
      30.467
     ],
     "blueOverRed": 4.485,
-    "normalised": true
+    "normalised": true,
+    "anti": 0.25
    },
    "litLamps": 10,
    "lampCandela": 900,
@@ -113,8 +116,8 @@
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 13,
    "shadowCasters": 101,
-   "drawCalls": 207,
-   "triangles": 725191,
+   "drawCalls": 215,
+   "triangles": 763018,
    "implausible": []
   },
   {
@@ -135,7 +138,8 @@
      33.1
     ],
     "blueOverRed": 5.707,
-    "normalised": true
+    "normalised": true,
+    "anti": 0.25
    },
    "litLamps": 10,
    "lampCandela": 900,
@@ -144,8 +148,8 @@
    "toneMapping": "ACESFilmic (post composite)",
    "lights": 13,
    "shadowCasters": 101,
-   "drawCalls": 205,
-   "triangles": 723810,
+   "drawCalls": 213,
+   "triangles": 761173,
    "implausible": []
   }
  ],

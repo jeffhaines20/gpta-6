@@ -1179,6 +1179,51 @@ export class TimeOfDay {
    * rather than hidden: it over-lights roofs by up to this term's whole value,
    * which is 16% of the ambient at noon, and roofs are a small share of a
    * street-level frame.
+   *
+   * AND ONE INTERNAL INCONSISTENCY, MEASURED AND DELIBERATELY NOT SHIPPED, because
+   * the next round will find it and should find the arithmetic next to it.
+   *
+   * This function treats the SAME canyon two ways. WALL_VIEW_FACTOR 0.4908 is
+   * derived from H/W = 16/22, and in that canyon a wall sees the OPPOSITE WALL
+   * with view factor sqrt(1+a^2) - a = 0.5092 - the number 0.4908 is one minus.
+   * So a wall there has only 0.4908 of its hemisphere left for sky and ground,
+   * 0.2454 each by symmetry. wallFromSky and wallFromGround below give it 0.5 and
+   * 0.5, i.e. the whole hemisphere, which is an OPEN FIELD wall; and the
+   * wall-to-wall interreflection those 0.5092 would carry is not modelled at all.
+   * The canyon is a canyon when the street looks at the wall and a field when the
+   * wall looks at the sky.
+   *
+   * Solved self-consistently for a symmetric canyon, with rho_u the luminance of
+   * URBAN_ALBEDO (0.3231):
+   *
+   *     E_w * (1 - 0.5092 * rho_u) = D + 0.2454 * (skyLux + pi * L_ground)
+   *     E_w = (7,347 + 0.2454 * 35,146) / 0.8355 = 19,117 lux   (noon)
+   *
+   * against the 24,919 this computes, so the noon bounce would be 3,947 -> 3,031,
+   * a 23.2% cut.
+   *
+   * IT IS NOT TAKEN, FOR THREE MEASURED REASONS AND NOT FROM CAUTION.
+   *   1. IT BREAKS A GATE-ADJACENT ACCEPTANCE TEST. Noon's stop is sized so that
+   *      noon is not the darkest of the four hours at any of eight fixed points,
+   *      and re-derived on this build's own frames that test has 0.054 STOPS of
+   *      headroom (road-950-760 renders 48.5 against dusk's 47.1, 1.038x in
+   *      scene-linear terms). A 23.2% bounce cut is -4.8% of noon's ambient,
+   *      i.e. -0.071 stops. It fails by 0.017 stops. At most 17.9% is available.
+   *   2. RESTATING THE STOP TO PAY FOR IT MAKES THE OTHER HALF OF THE SAME REVIEW
+   *      WORSE. Holding the acceptance test means +0.071 stops, and the stop is
+   *      the whole of noon's "milky sky": on the clear quintile of the sky rect,
+   *      +0.60 stops is worth -0.042 of chroma.
+   *   3. AND IT BUYS ALMOST NOTHING. Measured, not projected: the bounce50 arm
+   *      (docs/shots/wn-bounce50-corridor-noon) puts the dapple CV slope at
+   *      0.038 per unit of bounce, so -23.2% is +0.009 of CV, and the +0.071
+   *      stops needed to pay for it gives back 0.004 by the stop's own measured
+   *      slope of -0.06 per stop. Net +0.005 on a 0.077 gap - 6% - for a term
+   *      that would also need the wall-to-wall path built to be right.
+   *
+   * The honest description is that the two errors point opposite ways and roughly
+   * cancel: the missing obstruction over-counts sky and ground on the wall, the
+   * missing interreflection under-counts the wall on the wall. Doing one without
+   * the other is not more correct, it is differently wrong.
    */
   bounceDelivery(override = null) {
     const p = this.preset;
