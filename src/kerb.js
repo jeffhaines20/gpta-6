@@ -771,13 +771,13 @@ export function appendKerbFan(run, road) {
  * vertical face.
  *
  * The face itself is not worth drawing out there. The far ring starts at 192 m
- * and runs to 320 m; the camera stands 2.4 m up, so ground at 192 m is 0.72
- * degrees below the horizon and ground 2.74 m nearer is 0.73 -- the whole
- * section is 0.17 of a pixel deep at 1600x900 and 55 degrees. The WIDENING is a
- * different matter, because it is LATERAL: the road edge moves 2.74 m sideways,
- * which at 200 m is about 12 px of notch in the kerb line at the LOD seam. So
- * the far tier keeps the footprint and drops everything else: 2 triangles per
- * station pair instead of 12.
+ * and runs to 320 m; the camera stands 2.4 m above the pad, so at 1600x900 and
+ * 55 degrees the whole 2.74 m section is 0.17 of a pixel DEEP at 192 m and the
+ * 117 mm face is 0.57 of a pixel TALL. The WIDENING is a different matter,
+ * because it is LATERAL and does not foreshorten: the road edge moves 2.74 m
+ * sideways, which is 15 px at 192 m and 9 px at 320 m -- a visible notch in the
+ * kerb line at the LOD seam. So the far tier keeps the footprint and drops
+ * everything else: 2 triangles per station pair instead of 12.
  */
 export function appendKerbApron(run, road) {
   const flat = { o0: -K.lap, y0: K.roadY - K.lapDrop, o1: K.backOuter, y1: K.roadY - K.lapDrop,
