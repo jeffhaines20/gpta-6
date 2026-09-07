@@ -1297,6 +1297,16 @@ export class PostStack {
       // and the cosine spiral 0.7500 -- and a 90-degree corner cannot tell them
       // apart at all, which is why that rig could not have caught this before.
       //
+      // AND A STRICTLY BETTER ESTIMATOR MAKES THE SEAM WORSE, which is the
+      // cleanest confirmation that its darkness is a fact about the geometry
+      // rather than an artefact. aoKernel 3 is unbiased where the legacy fold
+      // reads a 90-degree corner at 0.41-0.45 of the 0.50 it actually blocks.
+      // At the corridor seam it reads 0.9509 against the legacy 0.9147 with the
+      // reach unchanged at 0.501 m, and in the frame it takes the band from
+      // 0.215 of local p90 to 0.173. Correcting the under-report makes the
+      // corner DARKER, because the corner really is the most occluded thing in
+      // these frames. Anything that lightens it lightens the contacts with it.
+      //
       //   aoSamples     taps in the hemisphere. ONLY MEANINGFUL WITH aoKernel
       //                 1 or 2: the legacy kernel is twelve typed vectors and
       //                 cannot be asked for a thirteenth, so the count is forced
