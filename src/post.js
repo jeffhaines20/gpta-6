@@ -1281,11 +1281,18 @@ export class PostStack {
       // fivepoints-noon; trough is the band's mean over its own local p90, so
       // an exposure change cancels):
       //
-      //     arm                    trough   bandV   faceV   AOpost
-      //     AO off                 0.872    0.75    0.76      --
-      //     shipped                0.215    0.58    0.76     0.49
-      //     occ 0.15/0.50          0.617    0.72    0.76     0.90
-      //     kernel 3, 32 samples   0.173    0.53    0.76     0.30
+      //     arm                    trough   bandV   faceV   dark50   AOpost
+      //     AO off                 0.872    0.75    0.76       0       --
+      //     shipped                0.215    0.58    0.76      16      0.49
+      //     occ 0.15/0.50          0.617    0.72    0.76       4      0.90
+      //     kernel 3, 32 samples   0.173    0.53    0.76      17      0.30
+      //
+      // dark50 is the count of COLUMNS under half their own local p90 -- the
+      // width of the black, in the frame, in the units the complaint used. The
+      // obscurance arm takes it from 16 to 4 against an AO-off 0, which is the
+      // clearest single statement of what it does and does not buy: the painted
+      // line does get narrow, and the price for that narrowness is the table
+      // above it.
       //
       // The AO-off row reproduces the reviewer's own 0.872 to three figures,
       // which is the check that this instrument is reading the band they read.

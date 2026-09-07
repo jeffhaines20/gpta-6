@@ -1,0 +1,233 @@
+{
+  "region": "fivepoints-noon",
+  "tod": "noon",
+  "peds": 0,
+  "void": false,
+  "results": [
+    {
+      "label": "base",
+      "arm": "base",
+      "params": {
+        "aoEnabled": true,
+        "aoStrength": 1,
+        "aoRadius": 0.6,
+        "aoBias": 0.035,
+        "aoIntensity": 8.5,
+        "aoScale": 1,
+        "aoBlurRadius": 2,
+        "aoSamples": 12,
+        "aoKernel": 0,
+        "aoFalloff": 0,
+        "aoDither": 5,
+        "aoDepthSigma": 0,
+        "aoOccNear": 0,
+        "aoOccFar": 0,
+        "aoRangeScale": 0,
+        "aoThickness": 0
+      },
+      "frame": {
+        "trough": 0.21508477951588253,
+        "rectTrough": 0.21402284797723062,
+        "bandMean": 29.701962428571274,
+        "bandMin": 15.510599999999998,
+        "ctxP90": 138.77939999999998,
+        "bandV": 0.5800249697621813,
+        "faceV": 0.7619357619310969,
+        "noiseRatio": 0.7612517993539644,
+        "bandH": 1.7463805286881067,
+        "faceH": 0.49561580519784115,
+        "faceMean": 98.59782342857193,
+        "relV": 0.019528169936819953,
+        "dark50": 16
+      },
+      "buf": {
+        "preBand": 33.531944612918274,
+        "preMean": 29.94214285714286,
+        "preFace": 0.9697201363574666,
+        "postBand": 0.4937707198786946,
+        "postMean": 35.45428571428572,
+        "postFace": 0.08997354108424371
+      }
+    },
+    {
+      "label": "occ15_50",
+      "arm": "occ15_50",
+      "params": {
+        "aoEnabled": true,
+        "aoStrength": 1,
+        "aoRadius": 0.6,
+        "aoBias": 0.035,
+        "aoIntensity": 8.5,
+        "aoScale": 1,
+        "aoBlurRadius": 2,
+        "aoSamples": 12,
+        "aoKernel": 0,
+        "aoFalloff": 0,
+        "aoDither": 5,
+        "aoDepthSigma": 0,
+        "aoOccNear": 0.15,
+        "aoOccFar": 0.5,
+        "aoRangeScale": 0,
+        "aoThickness": 0
+      },
+      "frame": {
+        "trough": 0.6165493128749228,
+        "rectTrough": 0.6157681101150903,
+        "bandMean": 86.11615542857153,
+        "bandMin": 48.16159999999999,
+        "ctxP90": 139.85159999999996,
+        "bandV": 0.7178784767997862,
+        "faceV": 0.7642725297767976,
+        "noiseRatio": 0.9392964535954726,
+        "bandH": 4.103664426853621,
+        "faceH": 0.4909854838655277,
+        "faceMean": 98.65222257142908,
+        "relV": 0.008336164953337074,
+        "dark50": 4
+      },
+      "buf": {
+        "preBand": 57.60026041607787,
+        "preMean": 136.055,
+        "preFace": 0,
+        "postBand": 0.8980136810920915,
+        "postMean": 141.03071428571428,
+        "postFace": 0
+      }
+    },
+    {
+      "label": "k3",
+      "arm": "k3",
+      "params": {
+        "aoEnabled": true,
+        "aoStrength": 1,
+        "aoRadius": 0.6,
+        "aoBias": 0.035,
+        "aoIntensity": 8.5,
+        "aoScale": 1,
+        "aoBlurRadius": 2,
+        "aoSamples": 32,
+        "aoKernel": 3,
+        "aoFalloff": 0,
+        "aoDither": 5,
+        "aoDepthSigma": 0,
+        "aoOccNear": 0,
+        "aoOccFar": 0,
+        "aoRangeScale": 0,
+        "aoThickness": 0
+      },
+      "frame": {
+        "trough": 0.17320488627115424,
+        "rectTrough": 0.1714166599109573,
+        "bandMean": 22.050867714285634,
+        "bandMin": 11.366200000000001,
+        "ctxP90": 128.63899999999998,
+        "bandV": 0.5251310328860794,
+        "faceV": 0.7619071099050113,
+        "noiseRatio": 0.6892323566209386,
+        "bandH": 1.1131285383420144,
+        "faceH": 0.48596016250599894,
+        "faceMean": 98.55598114285763,
+        "relV": 0.02381452919178658,
+        "dark50": 17
+      },
+      "buf": {
+        "preBand": 34.456580683244965,
+        "preMean": 21.607142857142858,
+        "preFace": 2.1495569864730846,
+        "postBand": 0.30099042857745273,
+        "postMean": 25.00642857142857,
+        "postFace": 0.11952286093343938
+      }
+    },
+    {
+      "label": "aooff",
+      "arm": "aooff",
+      "params": {
+        "aoEnabled": true,
+        "aoStrength": 0,
+        "aoRadius": 0.6,
+        "aoBias": 0.035,
+        "aoIntensity": 8.5,
+        "aoScale": 1,
+        "aoBlurRadius": 2,
+        "aoSamples": 12,
+        "aoKernel": 0,
+        "aoFalloff": 0,
+        "aoDither": 5,
+        "aoDepthSigma": 0,
+        "aoOccNear": 0,
+        "aoOccFar": 0,
+        "aoRangeScale": 0,
+        "aoThickness": 0
+      },
+      "frame": {
+        "trough": 0.8718465022225739,
+        "rectTrough": 0.8722052829766336,
+        "bandMean": 122.91448285714252,
+        "bandMin": 91.67219999999999,
+        "ctxP90": 140.9238,
+        "bandV": 0.7518541424783829,
+        "faceV": 0.7642725297767976,
+        "noiseRatio": 0.9837513624857858,
+        "bandH": 5.395499869570752,
+        "faceH": 0.4909854838655277,
+        "faceMean": 98.65222257142908,
+        "relV": 0.006116888140449862,
+        "dark50": 0
+      },
+      "buf": {
+        "preBand": 33.531944612918274,
+        "preMean": 29.94214285714286,
+        "preFace": 0.9697201363574666,
+        "postBand": 0.4937707198786946,
+        "postMean": 35.45428571428572,
+        "postFace": 0.08997354108424371
+      }
+    },
+    {
+      "label": "__repeat",
+      "arm": "base",
+      "params": {
+        "aoEnabled": true,
+        "aoStrength": 1,
+        "aoRadius": 0.6,
+        "aoBias": 0.035,
+        "aoIntensity": 8.5,
+        "aoScale": 1,
+        "aoBlurRadius": 2,
+        "aoSamples": 12,
+        "aoKernel": 0,
+        "aoFalloff": 0,
+        "aoDither": 5,
+        "aoDepthSigma": 0,
+        "aoOccNear": 0,
+        "aoOccFar": 0,
+        "aoRangeScale": 0,
+        "aoThickness": 0
+      },
+      "frame": {
+        "trough": 0.21508477951588253,
+        "rectTrough": 0.21402284797723062,
+        "bandMean": 29.701962428571274,
+        "bandMin": 15.510599999999998,
+        "ctxP90": 138.77939999999998,
+        "bandV": 0.5800249697621813,
+        "faceV": 0.7619357619310969,
+        "noiseRatio": 0.7612517993539644,
+        "bandH": 1.7463805286881067,
+        "faceH": 0.49561580519784115,
+        "faceMean": 98.59782342857193,
+        "relV": 0.019528169936819953,
+        "dark50": 16
+      },
+      "buf": {
+        "preBand": 33.531944612918274,
+        "preMean": 29.94214285714286,
+        "preFace": 0.9697201363574666,
+        "postBand": 0.4937707198786946,
+        "postMean": 35.45428571428572,
+        "postFace": 0.08997354108424371
+      }
+    }
+  ]
+}
