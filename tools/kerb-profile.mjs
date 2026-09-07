@@ -36,6 +36,7 @@
 // error. Every sample below multiplies by img.channels.
 import fs from 'node:fs';
 import { readPNG } from './png.mjs';
+import { writePNG } from './crop.mjs';
 
 const ARGS = process.argv.slice(2);
 const arg = (name, dflt) => {
@@ -144,6 +145,29 @@ export function sampleLine(img, p0, p1, u0, u1, steps = 160) {
   return out;
 }
 
+/** Mark the sampled points on a copy of the frame: green carriageway side, red
+ *  the face, blue the pavement side. */
+function writeOverlay(img, lines, us, file) {
+  const rgb = new Uint8Array(img.width * img.height * 3);
+  for (let i = 0, k = 0; i < img.width * img.height; i++) {
+    rgb[k++] = img.data[i * img.channels];
+    rgb[k++] = img.data[i * img.channels + 1];
+    rgb[k++] = img.data[i * img.channels + 2];
+  }
+  for (const L of lines) {
+    for (let i = 0; i < us.length; i++) {
+      const x = Math.round(L[i][0]), y = Math.round(L[i][1]);
+      if (x < 0 || y < 0 || x >= img.width || y >= img.height) continue;
+      const k = (y * img.width + x) * 3;
+      const u = us[i];
+      const c = Math.abs(u) < 0.03 ? [255, 0, 0] : u < 0 ? [0, 255, 0] : [70, 130, 255];
+      rgb[k] = c[0]; rgb[k + 1] = c[1]; rgb[k + 2] = c[2];
+    }
+  }
+  writePNG(file, img.width, img.height, rgb);
+  console.log('band overlay', file);
+}
+
 // ---------------------------------------------------------------- reanalyse
 // Recompute the table from a stored docs/<tag>-profile.json. The capture is 10
 // minutes of headless rendering and the analysis is arithmetic over 241 numbers,
@@ -153,6 +177,13 @@ if (ARGS.includes('--reanalyse')) {
   const j = JSON.parse(fs.readFileSync(file, 'utf8'));
   console.log(`re-analysed ${file} -- ${j.probe.lines.length} sections at ` +
     `(${j.probe.x}, ${j.probe.z}), ${j.probe.dist} m from the camera\n`);
+  // The band overlay is derivable from the stored JSON plus the stored frame, so
+  // it never needs a re-capture either.
+  if (j.rows[0] && fs.existsSync(j.rows[0].file)) {
+    writeOverlay(readPNG(j.rows[0].file), j.probe.lines,
+      j.rows[0].profile.map((q) => q[0]),
+      j.rows[0].file.replace(/\/([^/]+)-after-/, '/$1-band-'));
+  }
   console.log('  time    build              monotone  reversals  faceDrop  panLift  range');
   for (const r of j.rows) {
     const a = analyse(r.profile.map(([u, lum]) => ({ u, lum })));
@@ -348,6 +379,7 @@ await ensureServer(PORT);
 const browser = await chromium.launch(launchOptions());
 const rows = [];
 let probe = null;
+let wroteOverlay = false;
 
 for (const kerbs of [1, 0]) {
   const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
@@ -480,7 +512,12 @@ for (const kerbs of [1, 0]) {
     await page.waitForTimeout(SETTLE);
     const file = `${OUT}/${TAG}-${kerbs ? 'after' : 'before'}-${SHOT}-${tod}.png`;
     await page.screenshot({ path: file, timeout: 240000 });
-    const s = medianBand(readPNG(file), probe.lines, US);
+    const img = readPNG(file);
+    // An overlay of the sample points on the first frame, every run. Both faults
+    // this instrument has had were invisible in the table and obvious in one
+    // look at where it sampled; a tool that measures pixels should show which.
+    if (!wroteOverlay) { wroteOverlay = true; writeOverlay(img, probe.lines, US, `${OUT}/${TAG}-band-${SHOT}.png`); }
+    const s = medianBand(img, probe.lines, US);
     rows.push({ tod, which: kerbs ? 'after  (kerb)' : 'before (no kerb)', file, ...analyse(s),
       profile: s.map((p) => [+p.u.toFixed(3), +p.lum.toFixed(1)]) });
     console.log('shot', file);

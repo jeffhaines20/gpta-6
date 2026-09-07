@@ -633,12 +633,65 @@ export function planKerbs(d, opts = {}) {
  * inside the kerbside grime ramp. So the parking lane comes out as plain grimy
  * asphalt with the correct de-tiling, and no lane paint is dragged onto it.
  */
+/**
+ * Wind a quad so its face agrees with the normal its own vertices carry.
+ *
+ * These materials are FrontSide, and the handedness of (travel, outboard) flips
+ * between the two sides of a street: edgeStations() walks the same polyline
+ * order for both sides and only flips the offset, so a FIXED index order is
+ * front-facing on one kerb and back-facing on the other. Half the district's
+ * kerbs were invisible, and it did not look like a bug -- it looked like a
+ * street with a kerb down one side, which plenty of streets have. It took a
+ * before/after profile that came back IDENTICAL across the left kerb while a
+ * whole-frame diff of the same two PNGs showed a 2.7 m band of change on the
+ * right.
+ *
+ * Decided from the EMITTED POSITIONS rather than from a rule about sides:
+ *   - a per-side rule cannot cope with an offset polyline that folds over
+ *     itself on the inside of a sharp bend, which two of this district's edges
+ *     do (179 and 180, an 82 degree turn at a shape point with no radius);
+ *   - a per-run sign cannot either, because the fold reverses the handedness
+ *     PART WAY ALONG one run: it left 763 of 46,033 triangles inverted;
+ *   - and a sign derived from one station's normal is wrong on a corner return,
+ *     where the normal rotates 15 degrees between the two ends of a quad.
+ * The triangle's own geometric normal against the vertex normal it was given is
+ * the only test that is true by construction, and it is four subtractions and a
+ * cross product per quad.
+ */
+// Emit a FIXED index order instead of testing the triangle, which is the bug the
+// geometric test replaced. tools/geom-audit.mjs turns this on to prove its
+// facing check can fail; nothing that draws should ever call it.
+let forceWinding = false;
+export function setForceWinding(v) { forceWinding = !!v; }
+
+function windTri(pos, nrm, idx, a, b, c) {
+  if (forceWinding) { idx.push(a, b, c); return; }
+  const ux = pos[b * 3] - pos[a * 3], uy = pos[b * 3 + 1] - pos[a * 3 + 1], uz = pos[b * 3 + 2] - pos[a * 3 + 2];
+  const vx = pos[c * 3] - pos[a * 3], vy = pos[c * 3 + 1] - pos[a * 3 + 1], vz = pos[c * 3 + 2] - pos[a * 3 + 2];
+  const gx = uy * vz - uz * vy, gy = uz * vx - ux * vz, gz = ux * vy - uy * vx;
+  const dot = gx * nrm[a * 3] + gy * nrm[a * 3 + 1] + gz * nrm[a * 3 + 2];
+  if (dot >= 0) idx.push(a, b, c); else idx.push(a, c, b);
+}
+
+/**
+ * Per TRIANGLE, not per quad. A corner return's quads are not planar -- the
+ * section's normal rotates 15 degrees between their two ends -- so the two
+ * halves of one quad can face opposite ways, and winding them together from the
+ * first half's normal left 82 back-facing slivers at junction corners, one per
+ * corner return, up to 0.09 m2 each.
+ */
+function windQuad(pos, nrm, idx, a, b, c, d) {
+  windTri(pos, nrm, idx, a, b, c);
+  windTri(pos, nrm, idx, a, c, d);
+}
+
 function sweep(run, p, pos, nrm, uv, idx, uBase, metreUV) {
   let dist = 0;
   const start = pos.length / 3;
   for (let i = 0; i < run.length; i++) {
     const st = run[i];
-    if (i > 0) dist += Math.hypot(st.ax - run[i - 1].ax, st.az - run[i - 1].az);
+    const prev = i > 0 ? run[i - 1] : null;
+    if (prev) dist += Math.hypot(st.ax - prev.ax, st.az - prev.az);
     const v = pos.length / 3;
     pos.push(st.ax + st.nx * p.o0, p.y0, st.az + st.nz * p.o0);
     pos.push(st.ax + st.nx * p.o1, p.y1, st.az + st.nz * p.o1);
@@ -646,7 +699,8 @@ function sweep(run, p, pos, nrm, uv, idx, uBase, metreUV) {
     nrm.push(st.nx * p.nO, p.nY, st.nz * p.nO);
     if (metreUV) uv.push(uBase, dist, uBase + p.len, dist);
     else uv.push(1, dist / 8, 1, dist / 8);
-    if (i > 0) idx.push(v - 2, v - 1, v + 1, v - 2, v + 1, v);
+    if (!prev) continue;
+    windQuad(pos, nrm, idx, v - 2, v - 1, v + 1, v);
   }
   return { start, count: pos.length / 3 - start, length: dist };
 }
@@ -700,7 +754,14 @@ export function appendKerbFan(run, road) {
     pos.push(st.ax, y, st.az);
     nrm.push(0, 1, 0);
     uv.push(1, 0);
-    if (i > 0) idx.push(hub, hub + i, hub + i + 1);
+    if (i === 0) continue;
+    // Same reason as sweep(): the fan's winding follows whichever way the
+    // junction's angular walk happened to sweep, so it is read off the triangle
+    // rather than assumed. The fan is flat, so its own normal is up.
+    const p0 = run[i - 1];
+    const up = (p0.ax - run.fanX) * (st.az - run.fanZ) - (p0.az - run.fanZ) * (st.ax - run.fanX);
+    if (up <= 0) idx.push(hub, hub + i, hub + i + 1);
+    else idx.push(hub, hub + i + 1, hub + i);
   }
   return { roadStart: hub, roadCount: run.length + 1 };
 }

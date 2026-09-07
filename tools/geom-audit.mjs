@@ -58,6 +58,7 @@ import {
 
 import {
   planKerbs, kerbedEdge, kerbOffsetFor, sectionY, KERB, KERB_REVEAL,
+  appendKerbRun, appendKerbFan, appendKerbApron, setForceWinding,
 } from '../src/kerb.js';
 
 const TOL = 0.02;                       // 2 cm: below this a joint is a joint
@@ -515,6 +516,59 @@ function drawnGroundAt(x, z) {
       for (const pieces of sides) for (const run of pieces) sample(run);
     }
     for (const runs of kerbPlan.vertexRuns.values()) for (const run of runs) sample(run);
+  }
+
+  // --- 5. every emitted triangle faces the way its own vertices say it does.
+  //
+  //     These materials are FrontSide. A quad wound the other way round is not a
+  //     visual defect that looks like a defect: it is INVISIBLE, and a street
+  //     with a kerb down one side looks like plenty of real streets. That is
+  //     what happened - the handedness of (travel, outboard) flips between the
+  //     two sides of a street, and half the district's kerbs were being culled.
+  //     A before/after profile across the left kerb came back identical while a
+  //     whole-frame diff of the same two PNGs showed a 2.7 m band of change on
+  //     the right; nothing in any number said "back-facing".
+  //
+  //     Run with KERB_AUDIT_FAULT=wind to watch it fail.
+  {
+    const road = { pos: [], nrm: [], uv: [], idx: [] };
+    const kerb = { pos: [], nrm: [], uv: [], idx: [] };
+    const far = { pos: [], nrm: [], uv: [], idx: [] };
+    setForceWinding(FAULT === 'wind');
+    const emit = (run) => {
+      appendKerbRun(run, road, kerb);
+      appendKerbFan(run, road);
+      appendKerbApron(run, far);
+      appendKerbFan(run, far);
+    };
+    for (const sides of kerbPlan.edgeRuns) {
+      if (!sides) continue;
+      for (const pieces of sides) for (const run of pieces) emit(run);
+    }
+    for (const runs of kerbPlan.vertexRuns.values()) for (const run of runs) emit(run);
+
+    setForceWinding(false);
+    let facing = 0, tris = 0, worstArea = 0;
+    for (const [name, buf] of [['road', road], ['kerb', kerb], ['far', far]]) {
+      const { pos, nrm, idx } = buf;
+      for (let t = 0; t < idx.length; t += 3) {
+        const a = idx[t], b = idx[t + 1], c = idx[t + 2];
+        const ux = pos[b * 3] - pos[a * 3], uy = pos[b * 3 + 1] - pos[a * 3 + 1], uz = pos[b * 3 + 2] - pos[a * 3 + 2];
+        const vx = pos[c * 3] - pos[a * 3], vy = pos[c * 3 + 1] - pos[a * 3 + 1], vz = pos[c * 3 + 2] - pos[a * 3 + 2];
+        const gx = uy * vz - uz * vy, gy = uz * vx - ux * vz, gz = ux * vy - uy * vx;
+        const gl = Math.hypot(gx, gy, gz);
+        if (gl < 1e-12) continue;
+        tris++;
+        const dot = (gx * nrm[a * 3] + gy * nrm[a * 3 + 1] + gz * nrm[a * 3 + 2]) / gl;
+        if (dot < 0.001) { facing++; worstArea = Math.max(worstArea, gl / 2); void name; }
+      }
+    }
+    if (facing) {
+      note('kerbBackFacing', 'triangles', worstArea,
+        { count: facing, of: tris, worstAreaM2: +worstArea.toFixed(4) });
+    }
+    console.log(`            triangles wound against their own normal: ${facing} of ${tris}` +
+      (facing ? `, worst ${worstArea.toFixed(3)} m2` : ''));
   }
 
   console.log('GEOM-AUDIT  kerb:', JSON.stringify({
