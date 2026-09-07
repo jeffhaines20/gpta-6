@@ -155,8 +155,20 @@ const COMBOS = (arg('combos', '') || [
   '0.9/2.6/0.95',   // less contrast, for the shape of the response
   '0.0/3.8/0.95',   // control: radius 0 must read exactly zero
 ].join(',')).split(',').map((s) => {
-  const [r, i, st] = s.split('/').map(Number);
-  return { radius: r, intensity: i, strength: st };
+  // "radius/intensity/strength" as before, optionally followed by
+  // "+key=value;key=value" for any other post parameter. The suffix exists
+  // because src/post.js grew aoSamples/aoKernel/aoFalloff/aoDither/
+  // aoDepthSigma after this sweep was written, and the whole point of the file
+  // is that a kernel change and a contrast change get measured as a PAIR --
+  // which cannot happen if one of the two is not expressible here.
+  const [core, extra] = s.split('+');
+  const [r, i, st] = core.split('/').map(Number);
+  const set = {};
+  for (const kv of (extra || '').split(';').filter(Boolean)) {
+    const [k, v] = kv.split('=');
+    set[k] = Number(v);
+  }
+  return { radius: r, intensity: i, strength: st, set };
 });
 
 const lum = (d, i) => 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
@@ -1251,9 +1263,20 @@ async function readAO(subj) {
 
 const apply = async (c) => page.evaluate((cc) => {
   const p = __district.postParams();
+  // Snapshot the file's own values once, then restore them before every
+  // combination. Without this an arm that sets aoKernel=1 leaves it set for
+  // every row after it and the sweep silently measures a running total.
+  if (!window.__aoDefaults) {
+    const o = {}; for (const k in p) if (/^ao/.test(k)) o[k] = p[k];
+    window.__aoDefaults = o;
+  }
+  Object.assign(p, window.__aoDefaults);
   p.aoRadius = cc.radius; p.aoIntensity = cc.intensity; p.aoStrength = cc.strength;
+  Object.assign(p, cc.set || {});
   p.aoEnabled = true;
-  return { aoRadius: p.aoRadius, aoIntensity: p.aoIntensity, aoStrength: p.aoStrength };
+  const out = { aoRadius: p.aoRadius, aoIntensity: p.aoIntensity, aoStrength: p.aoStrength };
+  for (const k in (cc.set || {})) out[k] = p[k];
+  return out;
 }, c);
 
 /**
