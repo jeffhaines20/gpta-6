@@ -59,6 +59,21 @@ less than one that says what moved and by how much.
   headless browsers were alive. It is a max, not a percentile.
 - The gate's own "headroom %" column is measured against the FAIL line, not the
   WARN line, so it reads comfortable while the warn line is close.
+- **`ao-sweep`'s subject is whichever pavement slot qualifies first, and it is not
+  the same slot twice.** Two runs of one unchanged configuration — same camera,
+  same tod, same `--peds 96` — picked a 24.4 px body 9 m out and a 7.9 px body
+  35 m out, and every absolute number moved with it: foot 0.794 against 0.437,
+  reveal 0.199 against 0.130. Neither was wrong; they measured different
+  subjects, and the 7.9 px one could not resolve what it was asked. `--slot X,Z`
+  pins it, and a sweep meant to be compared with an earlier one must pass the
+  earlier one's slot. The same caution applies to its facade pick, which chose
+  `retailStrip@12.7m` in some runs and `midOffice@24.6m` in others.
+- **A "last radius still over 0.05" is a threshold crossing, and on a rippled
+  profile it reads the ripple.** The pedestrian halo extinction moved 4.4 → 4.6
+  bw on a change whose profile was LOWER at every radius out to 2.9 bw, because
+  both arms dip under 0.05 at 3.4 bw and both come back over it at 3.9 bw. The
+  level readings at 1, 3 and 6 body widths are the trustworthy statement; the
+  crossing is decided by 0.006 of ripple.
 
 ## Captures
 
