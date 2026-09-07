@@ -1206,12 +1206,25 @@ export class PostStack {
       //     ... 0.10/0.35              0.3438    0.173 m
       //     ... 0.06/0.25              0.1552    0.126 m
       //
+      // AND THE SAME THREE AT THE CORRIDOR CAMERA, one page load, repeat guard
+      // d=0.00000. The corridor reach carries a caveat this tool prints for
+      // itself: its three raycast rows read 4.666 / 6.043 / 10.253 m for the
+      // same span, so that window's geometry changes with height and its metres
+      // are not quotable to three figures. The fivepoints rows read 4.784 /
+      // 4.787 / 4.809 and are.
+      //
+      //     shipped                    0.9147    0.501 m
+      //     aoRangeScale 0.25          0.8287    0.474 m
+      //     aoOccNear/Far 0.15/0.50    0.4701    0.377 m
+      //     aoKernel 3, 32 samples     0.9509    0.501 m
+      //
       // BOTH DEPTH-STEP GUARDS ARE NEGATIVES IN THE INFORMATIVE DIRECTION: they
-      // lighten the trough and make the reach LONGER, i.e. flatter and broader,
-      // which is more painted-line and not less. That is what should happen when
-      // there is no depth step to guard. Every gentle obscurance setting does
-      // the same. Only settings hard enough to annihilate the flank outright
-      // shorten it, and those are priced below.
+      // lighten the trough and make the reach LONGER at fivepoints, i.e. flatter
+      // and broader, which is more painted-line and not less. That is what
+      // should happen when there is no depth step to guard, and every obscurance
+      // setting gentle enough to be affordable does the same. The reach only
+      // falls from 0.15/0.50 down -- which is exactly where the price table
+      // below stops allowing it.
       //
       // WHY NO TRANSFER CAN DO IT EITHER, which is the part worth keeping.
       // Inverting pow(ao, 8.5) on the numbers this build actually produces:
