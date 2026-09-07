@@ -450,14 +450,18 @@ async function live() {
   };
   const applyArm = (set) => page.evaluate((st) => {
     const p = __district.postParams();
-    // Restore every sweepable AO knob to the file's own shipped values first, so
-    // an arm is what it says it is and not what it says PLUS whatever the arm
-    // before it left behind.
-    const D = { aoRadius: 0.6, aoBias: 0.035, aoIntensity: 8.5, aoStrength: 1.0,
-      aoBlurRadius: 2, aoSamples: 12, aoKernel: 0, aoFalloff: 0, aoDither: 0, aoDepthSigma: 0 };
-    Object.assign(p, D, st);
+    // Restore every ao* knob to the file's own values first, so an arm is what
+    // it says it is and not what it says PLUS whatever the arm before it left
+    // behind. SNAPSHOTTED FROM THE PAGE rather than typed here: the defaults in
+    // src/post.js are the thing under revision, and a hardcoded copy of them
+    // would go stale on exactly the commit that matters.
+    if (!window.__aoDefaults) {
+      const o = {}; for (const k in p) if (/^ao/.test(k)) o[k] = p[k];
+      window.__aoDefaults = o;
+    }
+    Object.assign(p, window.__aoDefaults, st);
     p.aoEnabled = true;
-    const out = {}; for (const k of Object.keys(D)) out[k] = p[k];
+    const out = {}; for (const k of Object.keys(window.__aoDefaults)) out[k] = p[k];
     return out;
   }, set);
   // ONLY THE RECTS UNDER TEST COME BACK OVER THE WIRE. The first version read
