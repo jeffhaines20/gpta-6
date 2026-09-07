@@ -182,7 +182,7 @@ if (ARGS.includes('--reanalyse')) {
   if (j.rows[0] && fs.existsSync(j.rows[0].file)) {
     writeOverlay(readPNG(j.rows[0].file), j.probe.lines,
       j.rows[0].profile.map((q) => q[0]),
-      j.rows[0].file.replace(/\/([^/]+)-after-/, '/$1-band-'));
+      j.rows[0].file.replace(/\/([^/]+)-after-([^-]+)-[^-]+\.png$/, '/$1-band-$2.png'));
   }
   console.log('  time    build              monotone  reversals  faceDrop  panLift  range');
   for (const r of j.rows) {

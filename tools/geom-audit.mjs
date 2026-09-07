@@ -247,6 +247,8 @@ for (let bi = 0; bi < d.buildings.length; bi++) {
 //   sink   ...120 mm below it
 //   road   the crossing cuts are skipped, so kerbs stand across carriageways
 //   lane   the parking lane is dropped to the gutter invert, floating the posts
+//   wind   the geometric winding test is switched off for a fixed index order,
+//          which is the bug that made half the district's kerbs back-facing
 // Without it the plan is exactly the one the streamer builds.
 const FAULT = process.env.KERB_AUDIT_FAULT || '';
 const KERB_PAD_TOL = 0.02;
