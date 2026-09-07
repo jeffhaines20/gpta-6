@@ -100,11 +100,17 @@ export function analyse(s, opts = {}) {
   // bright end of the ramp reports a large "shadow" that is not there. A feature
   // has to be darker (or brighter) than BOTH its shoulders to count, which is
   // what a turning point means.
+  //
+  // The bands are the section's own stations, in metres from the kerb face:
+  //   pan       u -0.50 .. 0      concrete gutter, the bright shoulder below
+  //   face      u  0    .. 0.02   117 mm of vertical concrete
+  //   kerb top  u  0.02 .. 0.14   the bright shoulder above
+  //   chamfer   u  0.14 .. 0.24   back of the kerb, down to the pavement
   const inBand = (e, a, b) => e.u >= a && e.u <= b;
-  const faceExt = rev.filter((e) => e.kind === 'min' && inBand(e, -0.20, 0.12));
-  const panExt = rev.filter((e) => e.kind === 'max' && inBand(e, -0.60, 0.10));
-  const shoulderL = maxOf(band(-0.80, -0.22));
-  const shoulderR = maxOf(band(0.14, 0.70));
+  const faceExt = rev.filter((e) => e.kind === 'min' && inBand(e, -0.10, 0.10));
+  const panExt = rev.filter((e) => e.kind === 'max' && inBand(e, -0.55, 0.02));
+  const shoulderL = maxOf(band(-0.55, -0.01));
+  const shoulderR = maxOf(band(0.02, 0.40));
   const road = mean(band(-3.0, -1.4));
   const faceMin = faceExt.length ? Math.min(...faceExt.map((e) => e.lum)) : NaN;
   const panMax = panExt.length ? Math.max(...panExt.map((e) => e.lum)) : NaN;
@@ -136,6 +142,30 @@ export function sampleLine(img, p0, p1, u0, u1, steps = 160) {
       lum: 0.2126 * data[k] + 0.7152 * data[k + 1] + 0.0722 * data[k + 2] });
   }
   return out;
+}
+
+// ---------------------------------------------------------------- reanalyse
+// Recompute the table from a stored docs/<tag>-profile.json. The capture is 10
+// minutes of headless rendering and the analysis is arithmetic over 241 numbers,
+// so re-deriving a band definition must not require re-photographing the world.
+if (ARGS.includes('--reanalyse')) {
+  const file = arg('reanalyse', 'docs/kerb-profile.json');
+  const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+  console.log(`re-analysed ${file} -- ${j.probe.lines.length} sections at ` +
+    `(${j.probe.x}, ${j.probe.z}), ${j.probe.dist} m from the camera\n`);
+  console.log('  time    build              monotone  reversals  faceDrop  panLift  range');
+  for (const r of j.rows) {
+    const a = analyse(r.profile.map(([u, lum]) => ({ u, lum })));
+    console.log(`  ${r.tod.padEnd(7)} ${r.which.padEnd(18)} ${String(a.monotone).padStart(8)} ` +
+      `${String(a.reversals).padStart(10)} ${String(a.faceDrop).padStart(9)} ` +
+      `${String(a.panLift).padStart(8)}  ${JSON.stringify(a.range)}`);
+  }
+  console.log('');
+  for (const r of j.rows) {
+    const a = analyse(r.profile.map(([u, lum]) => ({ u, lum })));
+    console.log(`  ${r.tod}/${r.which}  ${a.extrema.join('  ')}`);
+  }
+  process.exit(0);
 }
 
 // ------------------------------------------------------------------ selftest
@@ -240,28 +270,79 @@ const TIMES = arg('times', 'golden,noon,dusk').split(',');
 const SETTLE = Number(arg('settle', 12000));
 const OUT = 'docs/shots';
 fs.mkdirSync(OUT, { recursive: true });
+const AIM = Number(arg('aim', 14));
 
-const U0 = -3.2, U1 = 1.6, LINES = 9, SPACING = 0.8, STEPS = 160;
+const U0 = -3.2, U1 = 1.6, LINES = 13, SPACING = 0.7, STEPS = 240;
 
-function medianBand(img, lines) {
+// THE SECTION IS A 3D CURVE, NOT A LINE ON THE GROUND, and getting that wrong
+// makes the instrument blind to the thing it exists to measure.
+//
+// The corridor camera stands in the carriageway looking down the street, so a
+// section across the kerb runs left-right across the frame -- and every point on
+// it is at the SAME depth, which means it projects to a single image ROW. A
+// straight line between the section's two ends therefore runs along the FOOT of
+// the kerb and never climbs its face. Measured at 20 m, the face is 5.2 px tall
+// and the sample line passed under all 5 of them: before and after came back
+// with identical luminance everywhere except a 1 m window, and the face read 0.
+//
+// So the samples walk the real section -- ground, shoulder, lane, pan, up the
+// face, across the top, down the chamfer, out onto the pavement -- parametrised
+// by ARC LENGTH in the (o, y) plane so the 117 mm face gets samples in
+// proportion to the distance it covers rather than to the 20 mm of ground it
+// stands on. The BEFORE arm is sampled on the same 3D curve, so both arms read
+// the same pixels-in-world-space; where the after arm has a kerb the before arm
+// simply shows the flat pavement that is there instead.
+function sectionSamples(K, n = STEPS) {
+  const P = [
+    [U0 + K.panOuter, K.roadY],
+    [-K.lap, K.roadY - K.lapDrop],
+    [K.shoulder, K.laneY],
+    [K.laneOuter, K.laneY],
+    [K.panOuter, K.invertY],
+    [K.panOuter + K.batter, K.topY],
+    [K.topOuter, K.topY],
+    [K.backOuter, K.backY],
+    [U1 + K.panOuter, K.padY],
+  ];
+  const s = [0];
+  for (let i = 1; i < P.length; i++) {
+    s.push(s[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]));
+  }
+  const total = s[s.length - 1];
   const out = [];
-  for (let i = 0; i <= STEPS; i++) {
-    const u = U0 + ((U1 - U0) * i) / STEPS;
-    const f = i / STEPS;
+  for (let i = 0; i <= n; i++) {
+    const t = (total * i) / n;
+    let k = 1;
+    while (k < P.length - 1 && s[k] < t) k++;
+    const f = (t - s[k - 1]) / Math.max(1e-9, s[k] - s[k - 1]);
+    const o = P[k - 1][0] + (P[k][0] - P[k - 1][0]) * f;
+    const y = P[k - 1][1] + (P[k][1] - P[k - 1][1]) * f;
+    out.push([o, y]);
+  }
+  return out;
+}
+
+function medianBand(img, lines, us) {
+  const out = [];
+  for (let i = 0; i < us.length; i++) {
     const v = [];
     for (const L of lines) {
-      const x = Math.round(L.p0[0] + (L.p1[0] - L.p0[0]) * f);
-      const y = Math.round(L.p0[1] + (L.p1[1] - L.p0[1]) * f);
+      const x = Math.round(L[i][0]), y = Math.round(L[i][1]);
       if (x < 0 || y < 0 || x >= img.width || y >= img.height) continue;
       const k = (y * img.width + x) * img.channels;   // channels, NOT 4
       v.push(0.2126 * img.data[k] + 0.7152 * img.data[k + 1] + 0.0722 * img.data[k + 2]);
     }
     if (!v.length) continue;
     v.sort((a, b) => a - b);
-    out.push({ u, lum: v[v.length >> 1] });
+    out.push({ u: us[i], lum: v[v.length >> 1] });
   }
   return out;
 }
+
+// The section, resolved once here rather than in the page: it comes from
+// src/kerb.js, which the page under test may have been loaded with kerbs OFF.
+const SECTION = sectionSamples(KERB);
+const US = SECTION.map(([o]) => +(o - KERB.panOuter).toFixed(4));
 
 await ensureServer(PORT);
 const browser = await chromium.launch(launchOptions());
@@ -278,6 +359,29 @@ for (const kerbs of [1, 0]) {
   await page.addStyleTag({ content: '#hud,.pv-hud{display:none!important}' });
   const placed = await page.evaluate(placeCamera, SHOTS[SHOT]);
   console.log(`kerbs=${kerbs} ${describe(SHOT, placed)}`);
+
+  // HIDE THE PARKED CARS AND THE CROWD, in both arms.
+  //
+  // The kerb is 5.8 m from the centreline and the parking lane is 1.3 m of that,
+  // so a parked car stands directly between a camera in the carriageway and the
+  // kerb it is measuring. The first run of this band measured a car door: an
+  // overlay of the sample points on the frame put the face samples squarely on a
+  // white saloon's flank, and before and after came back IDENTICAL to a tenth of
+  // a luminance step because the car is the same in both arms. Cars and
+  // pedestrians move; a kerb does not, and the profile is about the kerb.
+  //
+  // Nothing else on the pavement occludes it: streetfurniture.js stands its
+  // lamps, bins, benches and trees at w/2 + 2.85 and beyond, which is BEHIND the
+  // kerb face at w/2 + 2.50 as seen from the road.
+  const hidden = await page.evaluate(() => {
+    const f = window.__district.furniture;
+    let cars = 0;
+    if (f && f.parked && f.parked.mesh) { f.parked.mesh.visible = false; cars = f.parked.count; }
+    const peds = window.__district.pedestrianPositions().length;
+    window.__district.setPedestrians(0);
+    return { cars, peds };
+  });
+  console.log(`  hid ${hidden.cars} parked cars and ${hidden.peds} pedestrians for the measurement`);
   await page.waitForTimeout(10000);
 
   // The band is chosen on the WITH-kerb load and REUSED, so both arms are
@@ -285,7 +389,7 @@ for (const kerbs of [1, 0]) {
   // graph, not from world.kerbPlan, so the same tool works on a build that has
   // no kerb at all -- which is what makes the before arm measurable.
   if (!probe) {
-    probe = await page.evaluate(({ u0, u1, lines, spacing, face }) => {
+    probe = await page.evaluate(({ lines, spacing, face, section, aim }) => {
       const cam = __district.camera;
       cam.updateMatrixWorld(); cam.updateProjectionMatrix();
       const V = cam.matrixWorldInverse.elements, P = cam.projectionMatrix.elements;
@@ -311,7 +415,7 @@ for (const kerbs of [1, 0]) {
       // is 200 m from the corridor camera, so scoring on midpoints rejected the
       // very street the camera is standing in and reported "no kerb line in
       // view" with 816 range rejections.
-      const AIM = 20;
+      const AIM = aim;
       const tx = cx + fx * AIM, tz = cz + fz * AIM;
       const want = 4 * spacing + 2;
       for (let ei = 0; ei < d.edges.length; ei++) {
@@ -333,7 +437,7 @@ for (const kerbs of [1, 0]) {
             t = Math.max(want / 2, Math.min(seg - want / 2, t));
             const mx = lx + ux * t, mz = lz + uz * t;
             const dist = Math.hypot(mx - cx, mz - cz);
-            if (dist < 9 || dist > 45) { rejected.range++; continue; }
+            if (dist < 7 || dist > 24) { rejected.range++; continue; }
             if (((mx - cx) * fx + (mz - cz) * fz) / dist < 0.55) { rejected.behind++; continue; }
             const p = project(mx, 0, mz);
             if (p[0] < 180 || p[0] > 1420 || p[1] < 120 || p[1] > 860) { rejected.offscreen++; continue; }
@@ -353,15 +457,16 @@ for (const kerbs of [1, 0]) {
       const out = [];
       for (let i = 0; i < n; i++) {
         const t = t0 + i * spacing;
-        const sx = best.lx + best.ux * t, sz = best.lz + best.uz * t;
-        out.push({
-          p0: project(sx + best.ox * u0, 0.02, sz + best.oz * u0),
-          p1: project(sx + best.ox * u1, -0.05, sz + best.oz * u1),
-        });
+        // The station's anchor sits at o = 0, on the ribbon edge, so a section
+        // point at offset `o` is `anchor + outward * (o - face)` where `face` is
+        // where the section's own origin (the kerb face) stands.
+        const ax = best.lx + best.ux * t - best.ox * face;
+        const az = best.lz + best.uz * t - best.oz * face;
+        out.push(section.map(([o, y]) => project(ax + best.ox * o, y, az + best.oz * o)));
       }
       return { lines: out, edge: best.ei, x: +best.mx.toFixed(2), z: +best.mz.toFixed(2),
         dist: +best.dist.toFixed(1), seg: +best.seg.toFixed(1), rejected };
-    }, { u0: U0, u1: U1, lines: LINES, spacing: SPACING, face: KERB.panOuter });
+    }, { lines: LINES, spacing: SPACING, face: KERB.panOuter, section: SECTION, aim: AIM });
     if (!probe || !probe.lines) {
       console.log('no kerb line in view; rejected', JSON.stringify(probe && probe.rejected));
       await browser.close(); process.exit(1);
@@ -375,7 +480,7 @@ for (const kerbs of [1, 0]) {
     await page.waitForTimeout(SETTLE);
     const file = `${OUT}/${TAG}-${kerbs ? 'after' : 'before'}-${SHOT}-${tod}.png`;
     await page.screenshot({ path: file, timeout: 240000 });
-    const s = medianBand(readPNG(file), probe.lines);
+    const s = medianBand(readPNG(file), probe.lines, US);
     rows.push({ tod, which: kerbs ? 'after  (kerb)' : 'before (no kerb)', file, ...analyse(s),
       profile: s.map((p) => [+p.u.toFixed(3), +p.lum.toFixed(1)]) });
     console.log('shot', file);

@@ -772,7 +772,10 @@ export class StreamingWorld {
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(buf.uv, 2));
     geo.setIndex(buf.idx);
     geo.computeBoundingSphere();
-    const mesh = new THREE.Mesh(geo, this.registry.get('kerb') ?? this.materials.land);
+    // registry.get() THROWS on a missing key rather than returning undefined, so
+    // a `??` fallback here would be dead code that reads like a safety net.
+    // 'kerb' is built unconditionally by _buildGround().
+    const mesh = new THREE.Mesh(geo, this.registry.get('kerb'));
     mesh.receiveShadow = true;
     return mesh;
   }
