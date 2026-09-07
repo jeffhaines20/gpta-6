@@ -55,8 +55,11 @@
 //
 //   node tools/ao-seam.mjs --selftest
 //   node tools/ao-seam.mjs --port 8191 --cam fivepoints --tod noon
-//   node tools/ao-seam.mjs --port 8191 --cam corridor --arms "base,rf:aoOccFalloff=0.25"
-import { readPNG } from './png.mjs';
+//   node tools/ao-seam.mjs --port 8191 --cam corridor --arms "base,occ:aoOccFar=0.5"
+//
+// Nothing here reads a PNG. The occlusion comes off post.aoBlurRT through
+// readRenderTargetPixels and the geometry off a raycast, so there is no frame
+// buffer to mis-stride and no channels-is-3-not-4 hazard in this file.
 
 const arg = (k, d) => {
   const i = process.argv.indexOf(`--${k}`);
