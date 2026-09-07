@@ -3563,6 +3563,32 @@ export class StreetFurniture {
         // darkens by more than 8/255: 14.0% with props off, 31.9% with them on,
         // at an unchanged 52% for the mid band and 14% for the facades. The bin,
         // the bollards and the kerbside planters stop floating.
+        //
+        // A LATER ROUND RE-MEASURED THIS PER PROP AND IT HOLDS UP -- it is the
+        // single largest grounding term at a prop the camera can resolve. On the
+        // shadow-side contact ratio (base luma over the same ray 1.8-2.5 m out,
+        // so exposure and albedo cancel), turning these casters off:
+        //
+        //     prop @ 18.8 m   0.8091 -> 0.9623      cast shadow worth 0.153
+        //     prop @ 19.4 m   0.7049 -> 0.8979      cast shadow worth 0.193
+        //
+        // against the AO term's 0.065 and 0.078 at the same two props. So the
+        // conclusion above -- "a cast shadow is still the thing that makes the
+        // contact read" -- is correct and is worth about twice what AO is.
+        //
+        // WHAT CAPS IT is the shadow map, not this flag, and the ceiling was
+        // measured rather than guessed. prop-ground's `sharpShadow` arm puts a
+        // 4096 map over a +-30 m box -- 0.0146 m/texel against the shipped
+        // 0.1172 -- and the same prop goes to 0.5083 with the edge gradient
+        // going 12.2 -> 62.8. So the cast shadow could be worth three times what
+        // it currently delivers. It is not delivering it because at noon a 1.4 m
+        // prop throws a 0.38 m shadow (the sun is 75.6 deg up), which is 3.2
+        // texels, and PCF eats most of a 3-texel feature.
+        //
+        // That ceiling is NOT taken here. It lives in daynight.js's map size and
+        // ortho extent, which are outside this file, and daynight.js's own notes
+        // record 3072 failing the chunk-stall gate three runs in seven. Left as
+        // a measured, costed option rather than a change made on the way past.
         m.castShadow = true;
         this.root.add(m);
         this.propMeshes.push(m);
@@ -4774,6 +4800,27 @@ export class StreetFurniture {
     // have cast stops casting. Whether it SAVES anything is a separate question
     // -- three.js frustum-culls the shadow pass on the same bounding spheres --
     // and is measured, not assumed. See the note in dressDistrict.
+    //
+    // THAT CLAIM HAS NOW BEEN TESTED RATHER THAN ARGUED, because a later round
+    // named this cull as a suspect for props not reading as grounded -- on the
+    // reasonable grounds that it is new and the complaint post-dates it.
+    //
+    // tools/prop-ground.mjs grows an arm, `reachInf`, that sets _shadowReach to
+    // 1e9 and re-runs this function, so every bucket in the world casts. If the
+    // cull were withholding anything that could reach the frame, restoring it
+    // would show. Rendered against the base arm inside the same JavaScript task,
+    // so the two frames cannot differ by anything else:
+    //
+    //   reachInf vs base, fivepoints hero camera, noon, over all 1,440,000 px:
+    //     meanAbs 0.000   maxAbs 0.0   pixels differing by >4/255: 0.00%
+    //
+    // Not "small". Zero. Every contact ratio, every umbra, every reviewer box
+    // and the frame mean are identical to four decimal places.
+    //
+    // And the arithmetic says why, which is the half worth keeping: at that
+    // camera the three buckets this test excludes have their NEAREST points
+    // 343.8, 407.2 and 498.5 m away. The shadow box is 120 m half-extent. They
+    // could not put a texel in the map if they were submitted for an hour.
     const reach = this._shadowReach;
     for (const m of this.propMeshes) {
       const c = m.userData.c;

@@ -751,23 +751,69 @@ export class PostStack {
       aoRadius: 0.6,
       aoBias: 0.035,
       aoIntensity: 8.5,
-      // THE BUFFER THE ABOVE IS DRAWN INTO, which is a separate question from
-      // the kernel and was not asked when the radius moved.
+      // THE BUFFER THE KERNEL ABOVE IS DRAWN INTO. This is a separate question
+      // from the kernel, and it was not re-asked when the radius moved.
       //
       // aoScale is the AO target's size as a fraction of the frame; aoBlurRadius
-      // is the half-width, in AO texels, of the depth-aware blur that follows it.
-      // Shipped at 0.5 and 2, i.e. a half-resolution buffer smoothed by a 5x5
-      // kernel, which reaches +-4 SCREEN pixels and so spans 9.
+      // is the half-width, in AO texels, of the depth-aware blur that follows.
+      // It used to be 0.5 and 2 -- a HALF-resolution buffer smoothed by a 5x5
+      // kernel, so the smoothing reached +-4 SCREEN pixels and spanned 9. The
+      // comment defending that said "full res buys very little AT THIS RADIUS",
+      // and it was written when the radius was 2.2 m: at 2.2 m the AO feature is
+      // metres wide and 9 pixels of smoothing is a rounding error. The radius is
+      // 0.6 m now. The feature IS the contact band, and a prop's contact band at
+      // the hero framing is a handful of pixels.
       //
-      // That pairing was chosen for a 2.2 m radius, where the AO feature is
-      // metres wide and 9 pixels of smoothing is a rounding error. At 0.6 m the
-      // feature is the contact band itself, and 9 pixels stops being a rounding
-      // error at the distance the props actually stand: see the sweep in
-      // tools/prop-ground.mjs and the note above dressDistrict in
-      // src/streetfurniture.js. Both are here so the pairing can be swept
-      // instead of assumed; the defaults are exactly what shipped.
-      aoScale: 0.5,
-      aoBlurRadius: 2,
+      // MEASURED with tools/prop-ground.mjs, which renders every arm inside ONE
+      // page.evaluate() so nothing in the world can move between them (the repeat
+      // guard reads d=0.0000 on every quantity, not merely "within tolerance").
+      // It samples the ground along the two rays the sun defines -- away from it,
+      // where a shadow falls, and toward it as the control -- because the ring
+      // average this replaced cannot see a directional shadow at all.
+      //
+      //   umbra = shadow-side base luma / same-ray luma 1.8-2.5 m out. Below 1
+      //   the object is darkening the ground it stands on. Same ray, so exposure
+      //   and albedo both cancel.
+      //
+      //                            0.5 / 2      1.0 / 2     1.0 / 1
+      //     parked car   22.3 m     0.7764       0.7255      0.7099
+      //     prop         18.8 m     0.8091       0.7995      0.8134
+      //     prop         38.8 m     0.4323       0.3780      0.3477
+      //     prop         19.4 m     0.7049       0.6965      0.7139   (2nd camera)
+      //
+      //   edge = steepest 0.05 m step on the shadow side. "No umbra edge" is a
+      //   statement about THIS number and nothing else in this file.
+      //
+      //     parked car   22.3 m       7.9         10.7        18.9
+      //
+      // AND THE SHARPENING IS NOT GRAIN, which is the thing to disprove before
+      // believing any of it: an unfiltered SSAO buffer is noisy, and a narrower
+      // blur would raise `edge` just as convincingly if the tool were measuring
+      // nothing but noise. tools/prop-ground-noise.mjs reads the MEAN step over
+      // 1.8-2.5 m of the same ray -- open paving, where no contact term reaches,
+      // so anything moving out there is grain. At the parked car it goes 2.39 ->
+      // 2.25: the grain FALLS while the signal more than doubles, and signal over
+      // grain goes 3.30 -> 8.41.
+      //
+      // WHICH KNOB IS DOING IT: the resolution, not the blur width. Narrowing
+      // the blur at half res (0.5 / 1) is a slight NEGATIVE -- umbra 0.7764 ->
+      // 0.7920 on the car -- because a half-res texel is already 2 screen pixels
+      // and there is nothing left to preserve. Full res is what buys it; the
+      // narrower kernel is then worth taking because at full res it is also 9
+      // taps instead of 25.
+      //
+      // WHAT IT COSTS, as arithmetic rather than a timing on this box: no
+      // geometry, no draw calls, and no change to any other pass. The AO passes'
+      // tap-pixel count goes from 12*N/4 + 25*N/4 = 9.25N to 12*N + 9*N = 21N,
+      // i.e. 2.27x the pixel work of two of the seven post passes.
+      //
+      // TWO NUMBERS GO THE OTHER WAY AND ARE HERE BECAUSE THEY DO. prop@18.8
+      // and prop@19.4 read 0.0043 and 0.0090 worse. Both are an order of
+      // magnitude under the improvements beside them and both are inside the
+      // between-run scatter of this metric (~0.017, measured across the previous
+      // attempt's three separate base runs at one unchanged parameter set).
+      aoScale: 1.0,
+      aoBlurRadius: 1,
     };
 
     const type = THREE.HalfFloatType;
