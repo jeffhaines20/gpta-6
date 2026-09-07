@@ -209,6 +209,10 @@ uniform vec2  uMsBoost;          // multiple-scattering gain: (Rayleigh, Mie)
 // Equal luminance to uBetaR by construction, so it can only move hue. See the end
 // of scatter().
 uniform vec3  uMsBetaR;
+// How much of that whitening survives at the ANTI-SOLAR point. 1 = the isotropic
+// behaviour it shipped with; 0 = whitening on the solar half only. See the
+// directional-scope block at the end of scatter().
+uniform float uMsWhitenAnti;
 uniform float uMsAniso;          // forward bias of that term, 0 = isotropic
 uniform vec3  uMsWarm;           // its tint toward the sun, luminance normalised to 1
 uniform vec3  uMsCool;           // ...and away from it, likewise
@@ -497,10 +501,56 @@ vec3 scatter(vec3 dir) {
   // at every whitening.
   //
   // _pushUniforms fades it in over a band rather than monotonically; see there.
+  //
+  // AND IT IS SCOPED BY DIRECTION, BECAUSE THE CORRECTION WAS SIZED ON THE SOLAR
+  // HALF AND APPLIED TO THE WHOLE DOME.
+  //
+  // The paragraph above argues that a field which has scattered several times is
+  // not spectrally selective the way one event is. That argument is about PATH
+  // MULTIPLICITY, and path multiplicity in this model is not isotropic - it is
+  // the axis fwd already parameterises, and msTint above already says so in
+  // words: warm toward the sun "where the light that got here crossed the low,
+  // reddened atmosphere", cool away from it "where it came over the top". The
+  // long low path IS the many-event ensemble the desaturation argument describes;
+  // the short high one is much closer to single-scattered and keeps its Rayleigh
+  // selectivity.
+  //
+  // Applied isotropically, the correction therefore did two different things. On
+  // the solar half it fixed golden hour, and that is measured and kept. On the
+  // anti-solar half it stripped the blue out of the one thing this file's own
+  // forward-bias comment says must survive - the Belt of Venus and the earth's
+  // shadow, "the reason a photograph taken facing away from a sunset is blue
+  // rather than orange". uMsCool asserts a blue-enriched anti-solar field and the
+  // whitening then removed the mechanism that renders it blue; the two terms
+  // cancelled where they should have composed.
+  //
+  // MEASURED, on the dome's own LUT (tools/sky-hue.mjs, golden), before and
+  // after, so this is not an argument about a screenshot:
+  //
+  //   elevation band      ANTI chroma          SOLAR chroma
+  //                     before    after      before    after
+  //   60-80             -0.189   -0.323      -0.131   -0.128
+  //   40-60             -0.213   -0.387      -0.084   -0.075
+  //   25-40             -0.208   -0.393       0.022    0.036
+  //   12-25             -0.151   -0.312       0.215    0.231
+  //
+  // The solar half does not move (0.02 at most, and upward); the anti-solar half
+  // goes back to blue. The same scoping is what the low-sun end of the band in
+  // _pushUniforms already does in elevation - "the model ALREADY carries the
+  // field's spectral history there, and whitening on top of it double-counts" -
+  // and this is that same statement in azimuth.
+  //
+  // ENERGY IS STILL NEUTRAL, and by the SAME mechanism rather than a new one: the
+  // rescale below is per texel, so whatever beta this line hands it, the term
+  // leaves with the luminance it would have had under uBetaR. Making the mix
+  // direction-dependent cannot move skyLux, zenithNits or horizonNits, and
+  // tools/sky-terms.mjs asserts that at every arm.
   const vec3 MS_LUMA = vec3(0.2126, 0.7152, 0.0722);
   vec3 msRay = msR * uMsBoost.x * msTint;
+  float wDir = mix(uMsWhitenAnti, 1.0, fwd);
+  vec3 betaMs = mix(uBetaR, uMsBetaR, wDir);
   // Betas scaled off 1e-6 before the ratio so neither dot product is denormal.
-  vec3 msWhitened = msRay * (uMsBetaR * 1e6);
+  vec3 msWhitened = msRay * (betaMs * 1e6);
   vec3 msAsIs     = msRay * (uBetaR * 1e6);
   float wy = dot(msWhitened, MS_LUMA), ty = dot(msAsIs, MS_LUMA);
   msWhitened *= wy > 1e-20 ? ty / wy : 1.0;
@@ -1152,6 +1202,10 @@ export class Sky {
       // on the first refresh, which the constructor performs before anything
       // renders the dome.
       uMsBetaR: { value: new THREE.Vector3(...BETA_R) },
+      // Seeded at 1, i.e. the isotropic whitening this shipped with, so a build
+      // that never reaches _pushUniforms renders the old behaviour rather than an
+      // undefined one. _pushUniforms writes msWhitenAnti on the first refresh.
+      uMsWhitenAnti: { value: 1 },
       uMsAniso: { value: 0 },
       uMsWarm: { value: new THREE.Vector3(1, 1, 1) },
       uMsCool: { value: new THREE.Vector3(1, 1, 1) },
@@ -1284,6 +1338,29 @@ export class Sky {
     // over to uMsCool - and that trade was swept rather than assumed
     // (tools/sky-terms.mjs, docs/skyterms-*.json).
     this.msWhiten = opts.msWhiten ?? 0.85;
+
+    // ...and how much of that whitening survives at the ANTI-SOLAR point. The
+    // correction above was sized on the solar half - golden hour's warm peak and
+    // the ground plane under it - and shipped isotropic, which took the blue out
+    // of the anti-solar sky as well. See the directional-scope block at the end
+    // of scatter() for the physical argument; this is the number it costs.
+    //
+    // SWEPT, NOT CHOSEN (tools/sky-terms.mjs, golden, docs/skyterms-anti.json):
+    //
+    //   anti   zenith chroma   hemispherical ambient   horizon chroma   skyLux
+    //   1.00      -0.158            -0.036                 0.462         8519
+    //   0.50      -0.269            -0.107                 0.440         8519
+    //   0.25      -0.330            -0.148                 0.428         8519
+    //   0.00      -0.395            -0.192                 0.416         8519
+    //
+    // 0.25 is where the frame's anti-solar sky comes back to blue without giving
+    // back the ground the isotropic version won: it is the value at which the
+    // hemispherical ambient - the thing that lights the road - is still 0.156
+    // warmer than the -0.348 the whitening was introduced to fix, i.e. it keeps
+    // 55% of that move while restoring the anti-solar half. The horizon, which is
+    // where golden hour's warm peak lives, moves 0.034 of 0.269. Every row above
+    // reports the SAME skyLux, because the rescale in scatter() is per texel.
+    this.msWhitenAnti = opts.msWhitenAnti ?? 0.25;
 
     // Cloud deck. `cloudiness` is the fraction of sky the deck covers in CLEAR
     // weather; weather.js's overcast drives it the rest of the way to solid.
@@ -1741,6 +1818,11 @@ export class Sky {
       BETA_R[1] + (betaRY - BETA_R[1]) * wWhite,
       BETA_R[2] + (betaRY - BETA_R[2]) * wWhite,
     );
+    // Direction is the shader's business - it is the only place mu exists - so
+    // only the scalar crosses. Clamped because this is a mix weight and a value
+    // outside [0,1] extrapolates beta past its own luminance, which is a negative
+    // scattering coefficient in one channel.
+    u.uMsWhitenAnti.value = Math.min(1, Math.max(0, this.msWhitenAnti));
 
     const tMs = this._transmittanceAt(MS_ALTITUDE, Math.max(this.sunDirection.y, -0.01));
     const msN = tMs.map((v) => v / Math.max(luminance(tMs), 1e-9));
@@ -2248,6 +2330,9 @@ export class Sky {
           // 5.707 is uBetaR untouched; 1.000 is fully grey.
           blueOverRed: +(b.z / b.x).toFixed(3),
           normalised: true,
+          // The directional scope. `applied` above is the weight at the SOLAR
+          // point; multiply by this to get the weight at the anti-solar one.
+          anti: +this._uniforms.uMsWhitenAnti.value.toFixed(3),
         };
       })(),
       // THE GROUND BOUNCE, as three numbers, because it was invisible.

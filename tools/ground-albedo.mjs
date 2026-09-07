@@ -103,6 +103,21 @@ export const ARM_STATE = {
   ground0: { albedo: linear('6b6455'), skyProxy: true, nightGlowLux: 0.8014 },
   // The build as it stands now - whatever the source says, untouched.
   ground1: { albedo: null, skyProxy: false, nightGlowLux: 0 },
+
+  // THE MS WHITENING'S DIRECTIONAL SCOPE (src/sky.js, msWhitenAnti): how much of
+  // the whitening survives at the anti-solar point. These arms leave the ground
+  // exactly as the build has it and move only that scalar, so a frame-level
+  // before/after on the anti-solar sky can be shot from ONE streamed district -
+  // which matters more here than usual, because the quantity being read is a
+  // 0.05 chroma offset on a sky rect and a moved cloud is worth more than that.
+  //
+  // anti100 IS the isotropic behaviour the whitening shipped with, so it is the
+  // control: it must reproduce the r8 arm, and if it does not, the frames are
+  // measuring something other than this change.
+  anti100: { albedo: null, skyProxy: false, nightGlowLux: 0, msWhitenAnti: 1.0 },
+  anti50:  { albedo: null, skyProxy: false, nightGlowLux: 0, msWhitenAnti: 0.5 },
+  anti25:  { albedo: null, skyProxy: false, nightGlowLux: 0, msWhitenAnti: 0.25 },
+  anti00:  { albedo: null, skyProxy: false, nightGlowLux: 0, msWhitenAnti: 0.0 },
 };
 
 /**
@@ -146,11 +161,21 @@ export async function setArm(page, name) {
     window.__armOverride = s.skyProxy
       ? 127500 * 0.16 * Math.max(sky.sunDirection.y, 0) + (s.nightGlowLux ?? 0)
       : null;
+    // Saved and restored like the albedo, so an arm that does not name it gets
+    // the build's own value rather than the previous arm's.
+    if (window.__armSaved.msWhitenAnti === undefined) {
+      window.__armSaved.msWhitenAnti = sky.msWhitenAnti;
+    }
+    sky.msWhitenAnti = s.msWhitenAnti ?? window.__armSaved.msWhitenAnti;
     sky._dirty = true;
     sky.refresh({ force: true, environment: true, sync: true });
     const g = u.uGroundAlbedo.value;
     return { albedo: [+g.r.toFixed(4), +g.g.toFixed(4), +g.b.toFixed(4)],
       skyIlluminance: u.uSkyIlluminance ? +u.uSkyIlluminance.value.toFixed(1) : null,
+      // Read back off the UNIFORM, not off the property that was just written -
+      // an arm that sets a field _pushUniforms never reads is an arm that does
+      // nothing, and this is the number proveArmsDiffer keys on.
+      msWhitenAnti: u.uMsWhitenAnti ? +u.uMsWhitenAnti.value.toFixed(3) : null,
       skyLuxUpper: +(sky.audit().skyLux ?? 0).toFixed(1) };
   }, st);
 }
@@ -164,7 +189,10 @@ export async function setArm(page, name) {
 export async function proveArmsDiffer(page, arms) {
   const seen = [];
   for (const a of arms) seen.push({ arm: a, ...(await setArm(page, a)) });
-  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance]))).size;
+  // msWhitenAnti is in the key because the sky arms differ in NOTHING ELSE: with
+  // the old two-field key, four whitening arms would have hashed identical and
+  // this guard would have passed a set of frames that were all the same build.
+  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti]))).size;
   return { seen, ok: distinct === arms.length };
 }
 

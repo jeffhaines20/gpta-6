@@ -46,6 +46,16 @@ const ARMS = {
   whiten70: { msWhiten: 0.7 },
   whiten85: { msWhiten: 0.85 },
   whiten100: { msWhiten: 1.0 },
+  // THE DIRECTIONAL SCOPE of that whitening: how much of it survives at the
+  // anti-solar point. anti100 is the isotropic behaviour it shipped with, so it
+  // must reproduce `whiten85` row for row - that equality is the proof the new
+  // uniform is wired to the right place and does nothing at its old value. Same
+  // luminance assertion as the whiten arms: the rescale is per texel, so the
+  // beta this hands it cannot move photometry.
+  anti100: { msWhitenAnti: 1.0 },
+  anti50:  { msWhitenAnti: 0.5 },
+  anti25:  { msWhitenAnti: 0.25 },
+  anti00:  { msWhitenAnti: 0.0 },
 };
 
 await ensureServer(PORT);
@@ -65,14 +75,16 @@ for (const tod of TIMES) {
       // Restore the shipped values every arm, so arms cannot accumulate.
       if (!window.__shipped) {
         window.__shipped = { msBoost: [sky.msBoost.x, sky.msBoost.y], msAniso: sky.msAniso,
-                             msWhiten: sky.msWhiten };
+                             msWhiten: sky.msWhiten, msWhitenAnti: sky.msWhitenAnti };
       }
       sky.msBoost.set(window.__shipped.msBoost[0], window.__shipped.msBoost[1]);
       sky.msAniso = window.__shipped.msAniso;
       sky.msWhiten = window.__shipped.msWhiten;
+      sky.msWhitenAnti = window.__shipped.msWhitenAnti;
       if (c.msBoost) sky.msBoost.set(c.msBoost[0], c.msBoost[1]);
       if (c.msAniso !== undefined) sky.msAniso = c.msAniso;
       if (c.msWhiten !== undefined) sky.msWhiten = c.msWhiten;
+      if (c.msWhitenAnti !== undefined) sky.msWhitenAnti = c.msWhitenAnti;
       // The tint arm flattens uMsWarm/uMsCool, which _pushUniforms rewrites on
       // every refresh. Wrapping _pushUniforms rather than writing after it is
       // what makes the flattening survive the refresh that renders the LUT - and
@@ -129,7 +141,10 @@ for (const tod of TIMES) {
 const drift = [];
 for (const tod of TIMES) {
   const base = rows.find((r) => r.tod === tod && r.arm === 'base');
-  for (const r of rows.filter((x) => x.tod === tod && x.arm.startsWith('whiten'))) {
+  // The `anti` arms are held to the same bar as the `whiten` ones: the rescale in
+  // scatter() is per texel, so scoping the whitening by DIRECTION is no more
+  // allowed to move photometry than scoping it by elevation was.
+  for (const r of rows.filter((x) => x.tod === tod && (x.arm.startsWith('whiten') || x.arm.startsWith('anti')))) {
     for (const k of ['skyLux', 'zenithNits', 'horizonNits']) {
       const rel = Math.abs(r[k] - base[k]) / Math.max(1e-9, Math.abs(base[k]));
       if (rel > 0.002) drift.push(`${tod}/${r.arm}: ${k} ${r[k]} vs base ${base[k]} (${(rel * 100).toFixed(2)}%)`);

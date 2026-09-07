@@ -1,0 +1,1461 @@
+{
+ "rows": [
+  {
+   "tod": "golden",
+   "arm": "base",
+   "skyLux": 8519,
+   "zenithNits": 1434,
+   "horizonNits": 7907,
+   "zenithChroma": -0.158,
+   "horizonChroma": 0.462,
+   "ambientChroma": -0.036,
+   "upRGB": [
+    8507,
+    8460,
+    9135
+   ],
+   "upChroma": -0.036,
+   "downRGB": [
+    3733,
+    2631,
+    1511
+   ],
+   "downChroma": 0.424,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 13314,
+    "fromSunLux": 4795,
+    "fromSkyLux": 8519,
+    "radianceNits": 804.424
+   },
+   "msAniso": 0.52,
+   "msWhiten": {
+    "authored": 0.85,
+    "applied": 0.7422,
+    "betaR": [
+     11.35,
+     13.335,
+     18.389
+    ],
+    "blueOverRed": 1.62,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "golden",
+   "arm": "noMS",
+   "skyLux": 3572,
+   "zenithNits": 464,
+   "horizonNits": 3643,
+   "zenithChroma": -0.401,
+   "horizonChroma": 0.608,
+   "ambientChroma": -0.137,
+   "upRGB": [
+    3269,
+    3587,
+    4309
+   ],
+   "upChroma": -0.137,
+   "downRGB": [
+    3378,
+    2358,
+    1324
+   ],
+   "downChroma": 0.437,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 8367,
+    "fromSunLux": 4795,
+    "fromSkyLux": 3572,
+    "radianceNits": 505.531
+   },
+   "msAniso": 0.52,
+   "msWhiten": {
+    "authored": 0.85,
+    "applied": 0.7422,
+    "betaR": [
+     11.35,
+     13.335,
+     18.389
+    ],
+    "blueOverRed": 1.62,
+    "normalised": true
+   },
+   "implausible": [
+    "zenith luminance 464 nits outside plausible 950-2000 for golden",
+    "horizon luminance 3.64e+3 nits outside plausible 5100-10800 for golden",
+    "sky illuminance 3.57e+3 lux outside plausible 5500-11800 for golden"
+   ]
+  },
+  {
+   "tod": "golden",
+   "arm": "msRayOnly",
+   "skyLux": 8059,
+   "zenithNits": 1355,
+   "horizonNits": 6994,
+   "zenithChroma": -0.177,
+   "horizonChroma": 0.469,
+   "ambientChroma": -0.051,
+   "upRGB": [
+    7954,
+    8014,
+    8808
+   ],
+   "upChroma": -0.051,
+   "downRGB": [
+    2501,
+    1590,
+    792
+   ],
+   "downChroma": 0.519,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 12854,
+    "fromSunLux": 4795,
+    "fromSkyLux": 8059,
+    "radianceNits": 776.652
+   },
+   "msAniso": 0.52,
+   "msWhiten": {
+    "authored": 0.85,
+    "applied": 0.7422,
+    "betaR": [
+     11.35,
+     13.335,
+     18.389
+    ],
+    "blueOverRed": 1.62,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "golden",
+   "arm": "msMieOnly",
+   "skyLux": 4031,
+   "zenithNits": 542,
+   "horizonNits": 4556,
+   "zenithChroma": -0.326,
+   "horizonChroma": 0.568,
+   "ambientChroma": -0.096,
+   "upRGB": [
+    3822,
+    4032,
+    4636
+   ],
+   "upChroma": -0.096,
+   "downRGB": [
+    3478,
+    2414,
+    1346
+   ],
+   "downChroma": 0.442,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 8827,
+    "fromSunLux": 4795,
+    "fromSkyLux": 4031,
+    "radianceNits": 533.303
+   },
+   "msAniso": 0.52,
+   "msWhiten": {
+    "authored": 0.85,
+    "applied": 0.7422,
+    "betaR": [
+     11.35,
+     13.335,
+     18.389
+    ],
+    "blueOverRed": 1.62,
+    "normalised": true
+   },
+   "implausible": [
+    "zenith luminance 542 nits outside plausible 950-2000 for golden",
+    "horizon luminance 4.56e+3 nits outside plausible 5100-10800 for golden",
+    "sky illuminance 4.03e+3 lux outside plausible 5500-11800 for golden"
+   ]
+  },
+  {
+   "tod": "golden",
+   "arm": "noTint",
+   "skyLux": 8488,
+   "zenithNits": 1421,
+   "horizonNits": 7897,
+   "zenithChroma": -0.192,
+   "horizonChroma": 0.433,
+   "ambientChroma": -0.065,
+   "upRGB": [
+    8235,
+    8473,
+    9381
+   ],
+   "upChroma": -0.065,
+   "downRGB": [
+    2775,
+    1818,
+    947
+   ],
+   "downChroma": 0.491,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 13283,
+    "fromSunLux": 4795,
+    "fromSkyLux": 8488,
+    "radianceNits": 802.576
+   },
+   "msAniso": 0,
+   "msWhiten": {
+    "authored": 0.85,
+    "applied": 0.7422,
+    "betaR": [
+     11.35,
+     13.335,
+     18.389
+    ],
+    "blueOverRed": 1.62,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "golden",
+   "arm": "whiten00",
+   "skyLux": 8519,
+   "zenithNits": 1434,
+   "horizonNits": 7907,
+   "zenithChroma": -0.498,
+   "horizonChroma": 0.193,
+   "ambientChroma": -0.348,
+   "upRGB": [
+    6325,
+    8711,
+    13072
+   ],
+   "upChroma": -0.348,
+   "downRGB": [
+    3647,
+    2631,
+    1601
+   ],
+   "downChroma": 0.39,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 13314,
+    "fromSunLux": 4795,
+    "fromSkyLux": 8519,
+    "radianceNits": 804.428
+   },
+   "msAniso": 0.52,
+   "msWhiten": {
+    "authored": 0,
+    "applied": 0,
+    "betaR": [
+     5.8,
+     13.5,
+     33.1
+    ],
+    "blueOverRed": 5.707,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "golden",
+   "arm": "whiten40",
+   "skyLux": 8518,
+   "zenithNits": 1434,
+   "horizonNits": 7907,
+   "zenithChroma": -0.346,
+   "horizonChroma": 0.325,
+   "ambientChroma": -0.205,
+   "upRGB": [
+    7375,
+    8590,
+    11178
+   ],
+   "upChroma": -0.205,
+   "downRGB": [
+    3696,
+    2637,
+    1561
+   ],
+   "downChroma": 0.406,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 13314,
+    "fromSunLux": 4795,
+    "fromSkyLux": 8518,
+    "radianceNits": 804.421
+   },
+   "msAniso": 0.52,
+   "msWhiten": {
+    "authored": 0.4,
+    "applied": 0.3493,
+    "betaR": [
+     8.412,
+     13.423,
+     26.177
+    ],
+    "blueOverRed": 3.112,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "golden",
+   "arm": "whiten70",
+   "skyLux": 8519,
+   "zenithNits": 1434,
+   "horizonNits": 7907,
+   "zenithChroma": -0.223,
+   "horizonChroma": 0.418,
+   "ambientChroma": -0.093,
+   "upRGB": [
+    8136,
+    8503,
+    9806
+   ],
+   "upChroma": -0.093,
+   "downRGB": [
+    3721,
+    2633,
+    1527
+   ],
+   "downChroma": 0.418,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 13314,
+    "fromSunLux": 4795,
+    "fromSkyLux": 8519,
+    "radianceNits": 804.431
+   },
+   "msAniso": 0.52,
+   "msWhiten": {
+    "authored": 0.7,
+    "applied": 0.6112,
+    "betaR": [
+     10.371,
+     13.364,
+     20.985
+    ],
+    "blueOverRed": 2.024,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "golden",
+   "arm": "whiten85",
+   "skyLux": 8519,
+   "zenithNits": 1434,
+   "horizonNits": 7907,
+   "zenithChroma": -0.158,
+   "horizonChroma": 0.462,
+   "ambientChroma": -0.036,
+   "upRGB": [
+    8507,
+    8460,
+    9135
+   ],
+   "upChroma": -0.036,
+   "downRGB": [
+    3733,
+    2631,
+    1511
+   ],
+   "downChroma": 0.424,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 13314,
+    "fromSunLux": 4795,
+    "fromSkyLux": 8519,
+    "radianceNits": 804.424
+   },
+   "msAniso": 0.52,
+   "msWhiten": {
+    "authored": 0.85,
+    "applied": 0.7422,
+    "betaR": [
+     11.35,
+     13.335,
+     18.389
+    ],
+    "blueOverRed": 1.62,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "golden",
+   "arm": "whiten100",
+   "skyLux": 8519,
+   "zenithNits": 1434,
+   "horizonNits": 7907,
+   "zenithChroma": -0.091,
+   "horizonChroma": 0.506,
+   "ambientChroma": 0.023,
+   "upRGB": [
+    8873,
+    8418,
+    8472
+   ],
+   "upChroma": 0.023,
+   "downRGB": [
+    3744,
+    2629,
+    1495
+   ],
+   "downChroma": 0.429,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 13314,
+    "fromSunLux": 4795,
+    "fromSkyLux": 8519,
+    "radianceNits": 804.426
+   },
+   "msAniso": 0.52,
+   "msWhiten": {
+    "authored": 1,
+    "applied": 0.8731,
+    "betaR": [
+     12.329,
+     13.306,
+     15.793
+    ],
+    "blueOverRed": 1.281,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "dusk",
+   "arm": "base",
+   "skyLux": 1596,
+   "zenithNits": 279,
+   "horizonNits": 1203,
+   "zenithChroma": -0.223,
+   "horizonChroma": 0.594,
+   "ambientChroma": -0.032,
+   "upRGB": [
+    1819,
+    1496,
+    1938
+   ],
+   "upChroma": -0.032,
+   "downRGB": [
+    395,
+    326,
+    228
+   ],
+   "downChroma": 0.269,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 1596,
+    "fromSunLux": 0,
+    "fromSkyLux": 1596,
+    "radianceNits": 96.458
+   },
+   "msAniso": 0.6,
+   "msWhiten": {
+    "authored": 0.85,
+    "applied": 0.1328,
+    "betaR": [
+     6.793,
+     13.471,
+     30.467
+    ],
+    "blueOverRed": 4.485,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "dusk",
+   "arm": "noMS",
+   "skyLux": 788,
+   "zenithNits": 120,
+   "horizonNits": 534,
+   "zenithChroma": -0.041,
+   "horizonChroma": 0.87,
+   "ambientChroma": 0.181,
+   "upRGB": [
+    1085,
+    703,
+    752
+   ],
+   "upChroma": 0.181,
+   "downRGB": [
+    338,
+    292,
+    206
+   ],
+   "downChroma": 0.242,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 788,
+    "fromSunLux": 0,
+    "fromSkyLux": 788,
+    "radianceNits": 47.609
+   },
+   "msAniso": 0.6,
+   "msWhiten": {
+    "authored": 0.85,
+    "applied": 0.1328,
+    "betaR": [
+     6.793,
+     13.471,
+     30.467
+    ],
+    "blueOverRed": 4.485,
+    "normalised": true
+   },
+   "implausible": [
+    "the dome's own ambient is warm: (R-B)/(R+B) = 0.181 over the cosine-weighted upper hemisphere, so the PMREM tints every up-facing surface in the district the same colour as the sunset"
+   ]
+  },
+  {
+   "tod": "dusk",
+   "arm": "msRayOnly",
+   "skyLux": 1522,
+   "zenithNits": 267,
+   "horizonNits": 1058,
+   "zenithChroma": -0.247,
+   "horizonChroma": 0.584,
+   "ambientChroma": -0.054,
+   "upRGB": [
+    1704,
+    1430,
+    1898
+   ],
+   "upChroma": -0.054,
+   "downRGB": [
+    188,
+    162,
+    117
+   ],
+   "downChroma": 0.234,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 1522,
+    "fromSunLux": 0,
+    "fromSkyLux": 1522,
+    "radianceNits": 91.981
+   },
+   "msAniso": 0.6,
+   "msWhiten": {
+    "authored": 0.85,
+    "applied": 0.1328,
+    "betaR": [
+     6.793,
+     13.471,
+     30.467
+    ],
+    "blueOverRed": 4.485,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "dusk",
+   "arm": "msMieOnly",
+   "skyLux": 862,
+   "zenithNits": 133,
+   "horizonNits": 680,
+   "zenithChroma": -0.004,
+   "horizonChroma": 0.835,
+   "ambientChroma": 0.205,
+   "upRGB": [
+    1200,
+    769,
+    792
+   ],
+   "upChroma": 0.205,
+   "downRGB": [
+    361,
+    295,
+    203
+   ],
+   "downChroma": 0.279,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 862,
+    "fromSunLux": 0,
+    "fromSkyLux": 862,
+    "radianceNits": 52.085
+   },
+   "msAniso": 0.6,
+   "msWhiten": {
+    "authored": 0.85,
+    "applied": 0.1328,
+    "betaR": [
+     6.793,
+     13.471,
+     30.467
+    ],
+    "blueOverRed": 4.485,
+    "normalised": true
+   },
+   "implausible": [
+    "the dome's own ambient is warm: (R-B)/(R+B) = 0.205 over the cosine-weighted upper hemisphere, so the PMREM tints every up-facing surface in the district the same colour as the sunset"
+   ]
+  },
+  {
+   "tod": "dusk",
+   "arm": "noTint",
+   "skyLux": 1612,
+   "zenithNits": 282,
+   "horizonNits": 1205,
+   "zenithChroma": -0.258,
+   "horizonChroma": 0.494,
+   "ambientChroma": -0.085,
+   "upRGB": [
+    1688,
+    1551,
+    2001
+   ],
+   "upChroma": -0.085,
+   "downRGB": [
+    228,
+    195,
+    139
+   ],
+   "downChroma": 0.242,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 1612,
+    "fromSunLux": 0,
+    "fromSkyLux": 1612,
+    "radianceNits": 97.421
+   },
+   "msAniso": 0,
+   "msWhiten": {
+    "authored": 0.85,
+    "applied": 0.1328,
+    "betaR": [
+     6.793,
+     13.471,
+     30.467
+    ],
+    "blueOverRed": 4.485,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "dusk",
+   "arm": "whiten00",
+   "skyLux": 1596,
+   "zenithNits": 279,
+   "horizonNits": 1203,
+   "zenithChroma": -0.279,
+   "horizonChroma": 0.557,
+   "ambientChroma": -0.083,
+   "upRGB": [
+    1738,
+    1509,
+    2051
+   ],
+   "upChroma": -0.083,
+   "downRGB": [
+    394,
+    327,
+    230
+   ],
+   "downChroma": 0.263,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 1596,
+    "fromSunLux": 0,
+    "fromSkyLux": 1596,
+    "radianceNits": 96.457
+   },
+   "msAniso": 0.6,
+   "msWhiten": {
+    "authored": 0,
+    "applied": 0,
+    "betaR": [
+     5.8,
+     13.5,
+     33.1
+    ],
+    "blueOverRed": 5.707,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "dusk",
+   "arm": "whiten40",
+   "skyLux": 1596,
+   "zenithNits": 279,
+   "horizonNits": 1203,
+   "zenithChroma": -0.252,
+   "horizonChroma": 0.575,
+   "ambientChroma": -0.059,
+   "upRGB": [
+    1776,
+    1502,
+    1997
+   ],
+   "upChroma": -0.059,
+   "downRGB": [
+    394,
+    326,
+    229
+   ],
+   "downChroma": 0.266,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 1596,
+    "fromSunLux": 0,
+    "fromSkyLux": 1596,
+    "radianceNits": 96.456
+   },
+   "msAniso": 0.6,
+   "msWhiten": {
+    "authored": 0.4,
+    "applied": 0.0625,
+    "betaR": [
+     6.267,
+     13.486,
+     31.861
+    ],
+    "blueOverRed": 5.084,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "dusk",
+   "arm": "whiten70",
+   "skyLux": 1596,
+   "zenithNits": 279,
+   "horizonNits": 1203,
+   "zenithChroma": -0.233,
+   "horizonChroma": 0.588,
+   "ambientChroma": -0.041,
+   "upRGB": [
+    1805,
+    1498,
+    1958
+   ],
+   "upChroma": -0.041,
+   "downRGB": [
+    395,
+    326,
+    228
+   ],
+   "downChroma": 0.268,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 1596,
+    "fromSunLux": 0,
+    "fromSkyLux": 1596,
+    "radianceNits": 96.456
+   },
+   "msAniso": 0.6,
+   "msWhiten": {
+    "authored": 0.7,
+    "applied": 0.1094,
+    "betaR": [
+     6.618,
+     13.476,
+     30.932
+    ],
+    "blueOverRed": 4.674,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "dusk",
+   "arm": "whiten85",
+   "skyLux": 1596,
+   "zenithNits": 279,
+   "horizonNits": 1203,
+   "zenithChroma": -0.223,
+   "horizonChroma": 0.594,
+   "ambientChroma": -0.032,
+   "upRGB": [
+    1819,
+    1496,
+    1938
+   ],
+   "upChroma": -0.032,
+   "downRGB": [
+    395,
+    326,
+    228
+   ],
+   "downChroma": 0.269,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 1596,
+    "fromSunLux": 0,
+    "fromSkyLux": 1596,
+    "radianceNits": 96.458
+   },
+   "msAniso": 0.6,
+   "msWhiten": {
+    "authored": 0.85,
+    "applied": 0.1328,
+    "betaR": [
+     6.793,
+     13.471,
+     30.467
+    ],
+    "blueOverRed": 4.485,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "dusk",
+   "arm": "whiten100",
+   "skyLux": 1596,
+   "zenithNits": 279,
+   "horizonNits": 1203,
+   "zenithChroma": -0.213,
+   "horizonChroma": 0.601,
+   "ambientChroma": -0.023,
+   "upRGB": [
+    1833,
+    1494,
+    1918
+   ],
+   "upChroma": -0.023,
+   "downRGB": [
+    396,
+    326,
+    227
+   ],
+   "downChroma": 0.27,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 1596,
+    "fromSunLux": 0,
+    "fromSkyLux": 1596,
+    "radianceNits": 96.457
+   },
+   "msAniso": 0.6,
+   "msWhiten": {
+    "authored": 1,
+    "applied": 0.1563,
+    "betaR": [
+     6.968,
+     13.465,
+     30.003
+    ],
+    "blueOverRed": 4.306,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "noon",
+   "arm": "base",
+   "skyLux": 15156,
+   "zenithNits": 6277,
+   "horizonNits": 8832,
+   "zenithChroma": -0.254,
+   "horizonChroma": -0.24,
+   "ambientChroma": -0.449,
+   "upRGB": [
+    9992,
+    15567,
+    26293
+   ],
+   "upChroma": -0.449,
+   "downRGB": [
+    26254,
+    21418,
+    13829
+   ],
+   "downChroma": 0.31,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 115649,
+    "fromSunLux": 100493,
+    "fromSkyLux": 15156,
+    "radianceNits": 6987.497
+   },
+   "msAniso": 0,
+   "msWhiten": {
+    "authored": 0.85,
+    "applied": 0,
+    "betaR": [
+     5.8,
+     13.5,
+     33.1
+    ],
+    "blueOverRed": 5.707,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "noon",
+   "arm": "noMS",
+   "skyLux": 7645,
+   "zenithNits": 4823,
+   "horizonNits": 2054,
+   "zenithChroma": -0.121,
+   "horizonChroma": 0.01,
+   "ambientChroma": -0.325,
+   "upRGB": [
+    5838,
+    7799,
+    11451
+   ],
+   "upChroma": -0.325,
+   "downRGB": [
+    25820,
+    20904,
+    13175
+   ],
+   "downChroma": 0.324,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 108138,
+    "fromSunLux": 100493,
+    "fromSkyLux": 7645,
+    "radianceNits": 6533.703
+   },
+   "msAniso": 0,
+   "msWhiten": {
+    "authored": 0.85,
+    "applied": 0,
+    "betaR": [
+     5.8,
+     13.5,
+     33.1
+    ],
+    "blueOverRed": 5.707,
+    "normalised": true
+   },
+   "implausible": [
+    "horizon luminance 2.05e+3 nits outside plausible 2500-30000 for noon",
+    "sky illuminance 7.65e+3 lux outside plausible 8000-30000 for noon"
+   ]
+  },
+  {
+   "tod": "noon",
+   "arm": "msRayOnly",
+   "skyLux": 14445,
+   "zenithNits": 6157,
+   "horizonNits": 7375,
+   "zenithChroma": -0.26,
+   "horizonChroma": -0.328,
+   "ambientChroma": -0.471,
+   "upRGB": [
+    9225,
+    14862,
+    25685
+   ],
+   "upChroma": -0.471,
+   "downRGB": [
+    24381,
+    19797,
+    12675
+   ],
+   "downChroma": 0.316,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 114938,
+    "fromSunLux": 100493,
+    "fromSkyLux": 14445,
+    "radianceNits": 6944.546
+   },
+   "msAniso": 0,
+   "msWhiten": {
+    "authored": 0.85,
+    "applied": 0,
+    "betaR": [
+     5.8,
+     13.5,
+     33.1
+    ],
+    "blueOverRed": 5.707,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "noon",
+   "arm": "msMieOnly",
+   "skyLux": 8356,
+   "zenithNits": 4943,
+   "horizonNits": 3511,
+   "zenithChroma": -0.117,
+   "horizonChroma": 0.114,
+   "ambientChroma": -0.292,
+   "upRGB": [
+    6604,
+    8503,
+    12058
+   ],
+   "upChroma": -0.292,
+   "downRGB": [
+    25970,
+    21027,
+    13271
+   ],
+   "downChroma": 0.324,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 108849,
+    "fromSunLux": 100493,
+    "fromSkyLux": 8356,
+    "radianceNits": 6576.655
+   },
+   "msAniso": 0,
+   "msWhiten": {
+    "authored": 0.85,
+    "applied": 0,
+    "betaR": [
+     5.8,
+     13.5,
+     33.1
+    ],
+    "blueOverRed": 5.707,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "noon",
+   "arm": "noTint",
+   "skyLux": 15175,
+   "zenithNits": 6283,
+   "horizonNits": 8836,
+   "zenithChroma": -0.259,
+   "horizonChroma": -0.245,
+   "ambientChroma": -0.455,
+   "upRGB": [
+    9941,
+    15583,
+    26546
+   ],
+   "upChroma": -0.455,
+   "downRGB": [
+    24826,
+    20180,
+    12956
+   ],
+   "downChroma": 0.314,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 115668,
+    "fromSunLux": 100493,
+    "fromSkyLux": 15175,
+    "radianceNits": 6988.659
+   },
+   "msAniso": 0,
+   "msWhiten": {
+    "authored": 0.85,
+    "applied": 0,
+    "betaR": [
+     5.8,
+     13.5,
+     33.1
+    ],
+    "blueOverRed": 5.707,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "noon",
+   "arm": "whiten00",
+   "skyLux": 15156,
+   "zenithNits": 6277,
+   "horizonNits": 8832,
+   "zenithChroma": -0.254,
+   "horizonChroma": -0.24,
+   "ambientChroma": -0.449,
+   "upRGB": [
+    9992,
+    15567,
+    26293
+   ],
+   "upChroma": -0.449,
+   "downRGB": [
+    26254,
+    21418,
+    13829
+   ],
+   "downChroma": 0.31,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 115649,
+    "fromSunLux": 100493,
+    "fromSkyLux": 15156,
+    "radianceNits": 6987.497
+   },
+   "msAniso": 0,
+   "msWhiten": {
+    "authored": 0,
+    "applied": 0,
+    "betaR": [
+     5.8,
+     13.5,
+     33.1
+    ],
+    "blueOverRed": 5.707,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "noon",
+   "arm": "whiten40",
+   "skyLux": 15156,
+   "zenithNits": 6277,
+   "horizonNits": 8832,
+   "zenithChroma": -0.254,
+   "horizonChroma": -0.24,
+   "ambientChroma": -0.449,
+   "upRGB": [
+    9992,
+    15567,
+    26293
+   ],
+   "upChroma": -0.449,
+   "downRGB": [
+    26254,
+    21418,
+    13829
+   ],
+   "downChroma": 0.31,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 115649,
+    "fromSunLux": 100493,
+    "fromSkyLux": 15156,
+    "radianceNits": 6987.497
+   },
+   "msAniso": 0,
+   "msWhiten": {
+    "authored": 0.4,
+    "applied": 0,
+    "betaR": [
+     5.8,
+     13.5,
+     33.1
+    ],
+    "blueOverRed": 5.707,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "noon",
+   "arm": "whiten70",
+   "skyLux": 15156,
+   "zenithNits": 6277,
+   "horizonNits": 8832,
+   "zenithChroma": -0.254,
+   "horizonChroma": -0.24,
+   "ambientChroma": -0.449,
+   "upRGB": [
+    9992,
+    15567,
+    26293
+   ],
+   "upChroma": -0.449,
+   "downRGB": [
+    26254,
+    21418,
+    13829
+   ],
+   "downChroma": 0.31,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 115649,
+    "fromSunLux": 100493,
+    "fromSkyLux": 15156,
+    "radianceNits": 6987.497
+   },
+   "msAniso": 0,
+   "msWhiten": {
+    "authored": 0.7,
+    "applied": 0,
+    "betaR": [
+     5.8,
+     13.5,
+     33.1
+    ],
+    "blueOverRed": 5.707,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "noon",
+   "arm": "whiten85",
+   "skyLux": 15156,
+   "zenithNits": 6277,
+   "horizonNits": 8832,
+   "zenithChroma": -0.254,
+   "horizonChroma": -0.24,
+   "ambientChroma": -0.449,
+   "upRGB": [
+    9992,
+    15567,
+    26293
+   ],
+   "upChroma": -0.449,
+   "downRGB": [
+    26254,
+    21418,
+    13829
+   ],
+   "downChroma": 0.31,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 115649,
+    "fromSunLux": 100493,
+    "fromSkyLux": 15156,
+    "radianceNits": 6987.497
+   },
+   "msAniso": 0,
+   "msWhiten": {
+    "authored": 0.85,
+    "applied": 0,
+    "betaR": [
+     5.8,
+     13.5,
+     33.1
+    ],
+    "blueOverRed": 5.707,
+    "normalised": true
+   },
+   "implausible": []
+  },
+  {
+   "tod": "noon",
+   "arm": "whiten100",
+   "skyLux": 15156,
+   "zenithNits": 6277,
+   "horizonNits": 8832,
+   "zenithChroma": -0.254,
+   "horizonChroma": -0.24,
+   "ambientChroma": -0.449,
+   "upRGB": [
+    9992,
+    15567,
+    26293
+   ],
+   "upChroma": -0.449,
+   "downRGB": [
+    26254,
+    21418,
+    13829
+   ],
+   "downChroma": 0.31,
+   "groundBounce": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "albedoLuminance": 0.1898,
+    "albedoBlueOverRed": 0.616,
+    "groundLux": 115649,
+    "fromSunLux": 100493,
+    "fromSkyLux": 15156,
+    "radianceNits": 6987.497
+   },
+   "msAniso": 0,
+   "msWhiten": {
+    "authored": 1,
+    "applied": 0,
+    "betaR": [
+     5.8,
+     13.5,
+     33.1
+    ],
+    "blueOverRed": 5.707,
+    "normalised": true
+   },
+   "implausible": []
+  }
+ ],
+ "drift": [],
+ "errors": []
+}

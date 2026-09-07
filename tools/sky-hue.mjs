@@ -110,12 +110,18 @@ const { launchOptions } = await import('./browser.mjs');
 const { ensureServer } = await import('./serve.mjs');
 
 const TIMES = (process.env.SKY_HUE_TIMES ?? 'noon,dusk,night').split(',');
-await ensureServer();
+// SKY_HUE_PORT, for the same reason HERO_PORT and SKYT_PORT exist: ensureServer
+// REUSES a live server, 8123 belongs to the main tree, and a worktree run that
+// does not override it reads the LUT of a build it did not change. This tool was
+// still on the bare default and its goto() had the port spelled into the URL, so
+// even passing a port would have loaded the wrong page.
+const PORT = Number(process.env.SKY_HUE_PORT ?? 8123);
+await ensureServer(PORT);
 const browser = await chromium.launch(launchOptions());
 const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
-await page.goto('http://127.0.0.1:8123/labs/sky/', { waitUntil: 'load', timeout: 90000 });
+await page.goto(`http://127.0.0.1:${PORT}/labs/sky/`, { waitUntil: 'load', timeout: 90000 });
 await page.waitForFunction(() => window.__lab && window.__lab.ready, { timeout: 180000 });
 
 const results = [];
