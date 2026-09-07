@@ -62,6 +62,11 @@ const out = await page.evaluate(async () => {
     if (/^trim/.test(part)) return 'facade trim (near LOD)';
     if (/^far/.test(part)) return 'buildings (far LOD)';
     if (/^road/.test(part)) return 'roads';
+    // The kerb's asphalt half rides in the road mesh; this is the concrete half
+    // (gutter pan, face, top, chamfer), one mesh per near chunk. Without its own
+    // row it lands in 'other: kerb' and the one thing a reader wants to price is
+    // the one thing the table does not name.
+    if (/^kerb/.test(part)) return 'kerbs (near LOD)';
     if (/^zone/.test(part)) return 'ground zones';
     if (/furniture|prop/i.test(name)) return 'street furniture + trees';
     if (/sign/i.test(name)) return 'signage';

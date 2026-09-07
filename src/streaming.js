@@ -11,9 +11,10 @@
 
 import * as THREE from '../vendor/three.module.min.js';
 import { extrudeFootprint, ribbon, triangulate, streetDirFor, streetDirsFor } from './geom.js';
+import { planKerbs, appendKerbRun, appendKerbFan, appendKerbApron } from './kerb.js';
 import {
   getMaterials, wallFamilyFor, roofFor, markingForEdge, applyMarkingUV,
-  SURFACE_LAYERS, SURFACE_TINTS,
+  MARKINGS, SURFACE_LAYERS, SURFACE_TINTS,
 } from './materials.js';
 import {
   buildingStyle, appendBuilding, buffers, facadeMaterial, trimMaterial,
@@ -92,7 +93,19 @@ export class StreamingWorld {
     scene.add(this.root);
 
     this.facadeTime = opts.facadeTime ?? 'dusk';
+    // Kerbs are on by default and can be turned off for an A/B arm. The switch
+    // exists so a before/after capture is ONE build on ONE port with one thing
+    // different, rather than two trees whose frames turn out to be of the same
+    // commit -- which is how two rounds in this project were spent.
+    this.kerbsOn = opts.kerbs !== false;
+    this.kerbPlan = undefined;
     generateFacadeLibrary();
+    // Planned HERE and not on first use. It is 89 ms of arithmetic over the
+    // whole graph, and on first use it would land inside a chunk build's timed
+    // slice - the quantity the budget gate reads as chunkStallMs against an 8 ms
+    // warn. The constructor runs inside the loading screen's own phase, where
+    // 89 ms is load time and is accounted as load time.
+    this._kerbPlan();
     this._buildWater();
   }
 
@@ -582,7 +595,12 @@ export class StreamingWorld {
       // caster meshes, and none of that 0.50% was on the near ground.
       steps.push(() => this._named(this._mergedMesh(job), job, 'far'));
     }
-    steps.push(() => this._named(this._roadMesh(job.chunk), job, 'road'));
+    if (job.lod === LOD.NEAR) {
+      steps.push(() => this._named(this._roadMesh(job.chunk, job.key), job, 'road'));
+      steps.push(() => this._named(this._kerbMesh(job.chunk, job.key), job, 'kerb'));
+    } else {
+      steps.push(() => this._named(this._farRoadMesh(job.chunk, job.key), job, 'road'));
+    }
     for (const [key, buf] of job.zoneBuf) {
       steps.push(() => this._named(this._zoneMeshFromBuffer(buf, key), job, `zone:${key}`));
     }
@@ -636,27 +654,174 @@ export class StreamingWorld {
     return mesh;
   }
 
-  _roadMesh(chunk) {
-    if (chunk.edges.length) {
-      const pos = [], nrm = [], uv = [], idx = [];
-      for (const ei of chunk.edges) {
-        const e = this.d.edges[ei];
-        const pts = e.v.map((vi) => this.d.verts[vi]);
-        const vStart = pos.length / 3;
-        ribbon(pts, e.w, this.groundY + 0.02, pos, nrm, uv, idx);
-        applyMarkingUV(uv, vStart, pos.length / 3 - vStart, markingForEdge(e), { vRepeat: 1 });
-      }
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
-      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-      geo.setIndex(idx);
-      geo.computeBoundingSphere();
-      const mesh = new THREE.Mesh(geo, this.materials.markings ?? this.materials.road);
-      mesh.receiveShadow = true;
-      return mesh;
+  // ------------------------------------------------------------------- kerbs
+  //
+  // The kerb is planned ONCE for the whole district (src/kerb.js) and then read
+  // per chunk, because the plan is not local: a corner return depends on every
+  // edge meeting at its junction, and a straight has to be trimmed back to the
+  // returns at both of its ends before it can be emitted. Planning per chunk
+  // would either duplicate that work per chunk or get the trims wrong at chunk
+  // boundaries. Measured cold at 89 ms over 935 edges, once, behind the loading
+  // screen -- and it is skipped entirely when kerbs are off.
+  _kerbPlan() {
+    if (this.kerbPlan === undefined) {
+      this.kerbPlan = this.kerbsOn
+        ? planKerbs(this.d, { chunkSize: this.chunkSize })
+        : null;
     }
-    return null;
+    return this.kerbPlan;
+  }
+
+  /** Every kerb run a chunk owns: its edges' straights, plus its own junctions. */
+  _kerbRuns(key, chunk) {
+    const plan = this._kerbPlan();
+    if (!plan) return [];
+    const out = [];
+    for (const ei of chunk.edges) {
+      const sides = plan.edgeRuns[ei];
+      if (!sides) continue;
+      for (const pieces of sides) for (const run of pieces) out.push(run);
+    }
+    for (const vi of plan.arcChunk.get(key) ?? []) {
+      for (const run of plan.vertexRuns.get(vi) ?? []) out.push(run);
+    }
+    return out;
+  }
+
+  // The carriageway, and the asphalt half of the kerb section with it.
+  //
+  // The shoulder and the parking lane go in THIS mesh rather than in the kerb's
+  // own, for two reasons that both matter: they are asphalt, so they belong on
+  // the road material and cost no extra draw call; and applyMarkingUV has to see
+  // them in the same vertex range as the ribbon they extend, because the road
+  // shader decodes the edge's marking column, width and one-way flag out of the
+  // uv it writes. Emitting them separately would decode as column 0 on a 6.6 m
+  // street and paint the parking lane as an unmarked alley.
+  _roadMesh(chunk, key) {
+    const runs = this._kerbRuns(key, chunk);
+    if (!chunk.edges.length && !runs.length) return null;
+    const pos = [], nrm = [], uv = [], idx = [];
+    const plan = this._kerbPlan();
+    for (const ei of chunk.edges) {
+      const e = this.d.edges[ei];
+      const pts = e.v.map((vi) => this.d.verts[vi]);
+      const vStart = pos.length / 3;
+      ribbon(pts, e.w, this.groundY + 0.02, pos, nrm, uv, idx);
+      // The edge's own kerb runs are appended INSIDE its marking range, so they
+      // inherit its column and width coding. sweep() writes u = 1 for them,
+      // which applyMarkingUV maps to the outer edge of that column: the shader
+      // clamps `across` there and reads it as x = +halfW -- outboard of every
+      // lane line, off the wheel tracks, inside the kerbside grime. Plain grimy
+      // asphalt, which is what a parking lane is.
+      if (plan) {
+        const sides = plan.edgeRuns[ei];
+        if (sides) {
+          const buf = { pos, nrm, uv, idx };
+          for (const pieces of sides) {
+            for (const run of pieces) appendKerbRun(run, buf, null);
+          }
+        }
+      }
+      applyMarkingUV(uv, vStart, pos.length / 3 - vStart, markingForEdge(e), { vRepeat: 1 });
+    }
+    // Junction corners belong to no edge, so they are coded on their own: a
+    // corner return's asphalt is the junction's, not either street's.
+    if (plan) {
+      const buf = { pos, nrm, uv, idx };
+      const vStart = pos.length / 3;
+      for (const vi of plan.arcChunk.get(key) ?? []) {
+        for (const run of plan.vertexRuns.get(vi) ?? []) {
+          appendKerbRun(run, buf, null);
+          appendKerbFan(run, buf);
+        }
+      }
+      const n = pos.length / 3 - vStart;
+      if (n) applyMarkingUV(uv, vStart, n, MARKINGS.none, { vRepeat: 1 });
+    }
+    if (!pos.length) return null;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    geo.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geo, this.materials.markings ?? this.materials.road);
+    mesh.receiveShadow = true;
+    return mesh;
+  }
+
+  // The concrete half: gutter pan, face, top, back chamfer. One extra mesh per
+  // NEAR chunk, on the shared 'kerb' material the registry already builds.
+  //
+  // It receives shadow and does not cast. The dark line at the foot of a kerb is
+  // mostly the FACE's own shading -- its normal leans back over the carriageway,
+  // so it falls out of the sun's reach a good hour before the road does and goes
+  // fully dark whenever the sun is behind the pavement. Making it a caster would
+  // add a second draw call per near chunk to the depth pass for a shadow at most
+  // a few centimetres long; the budget gate's draw-call p95 sits at 228 against a
+  // 275 warn, and that is not headroom to spend on this.
+  _kerbMesh(chunk, key) {
+    const runs = this._kerbRuns(key, chunk);
+    if (!runs.length) return null;
+    const buf = { pos: [], nrm: [], uv: [], idx: [] };
+    for (const run of runs) appendKerbRun(run, null, buf);
+    if (!buf.pos.length) return null;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(buf.pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(buf.nrm, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(buf.uv, 2));
+    geo.setIndex(buf.idx);
+    geo.computeBoundingSphere();
+    // registry.get() THROWS on a missing key rather than returning undefined, so
+    // a `??` fallback here would be dead code that reads like a safety net.
+    // 'kerb' is built unconditionally by _buildGround().
+    const mesh = new THREE.Mesh(geo, this.registry.get('kerb'));
+    mesh.receiveShadow = true;
+    return mesh;
+  }
+
+  // The FAR tier's road: the ribbon, plus a flat apron over the kerb section's
+  // whole footprint and nothing else. See appendKerbApron() for why the widening
+  // survives the LOD swap when the 117 mm face does not.
+  _farRoadMesh(chunk, key) {
+    const runs = this._kerbRuns(key, chunk);
+    if (!chunk.edges.length && !runs.length) return null;
+    const pos = [], nrm = [], uv = [], idx = [];
+    const plan = this._kerbPlan();
+    for (const ei of chunk.edges) {
+      const e = this.d.edges[ei];
+      const pts = e.v.map((vi) => this.d.verts[vi]);
+      const vStart = pos.length / 3;
+      ribbon(pts, e.w, this.groundY + 0.02, pos, nrm, uv, idx);
+      if (plan) {
+        const sides = plan.edgeRuns[ei];
+        const buf = { pos, nrm, uv, idx };
+        if (sides) for (const pieces of sides) for (const run of pieces) appendKerbApron(run, buf);
+      }
+      applyMarkingUV(uv, vStart, pos.length / 3 - vStart, markingForEdge(e), { vRepeat: 1 });
+    }
+    if (plan) {
+      const buf = { pos, nrm, uv, idx };
+      const vStart = pos.length / 3;
+      for (const vi of plan.arcChunk.get(key) ?? []) {
+        for (const run of plan.vertexRuns.get(vi) ?? []) {
+          appendKerbApron(run, buf);
+          appendKerbFan(run, buf);
+        }
+      }
+      const n = pos.length / 3 - vStart;
+      if (n) applyMarkingUV(uv, vStart, n, MARKINGS.none, { vRepeat: 1 });
+    }
+    if (!pos.length) return null;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    geo.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geo, this.materials.markings ?? this.materials.road);
+    mesh.receiveShadow = true;
+    return mesh;
   }
 
   // NOT the live build path, and has not been since the resumable build landed:
