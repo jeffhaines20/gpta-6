@@ -58,6 +58,50 @@ export function boxLuma(img, [bx, by, bw, bh]) {
   return out;
 }
 
+/**
+ * LOCAL contrast: RMS deviation from a local mean, divided by that local mean.
+ *
+ * This is the number the review round was really quoting when it said the shelf
+ * products "lose half their contrast at night" - a shop interior can be bright,
+ * flat and useless, and p90 minus p10 will not notice because a smooth vertical
+ * ramp has an enormous spread and no detail in it at all. Normalising by the
+ * local mean is what makes it comparable between a night frame and a noon one,
+ * which are two stops apart: CLAUDE.md's rule that ratios inside one frame
+ * survive an exposure change and raw levels do not.
+ *
+ * `win` is the half-width of the neighbourhood in pixels. It has to be about the
+ * size of the FEATURE being asked about - a window much larger than a shelf
+ * product measures the gradient behind it instead - so it is a parameter and it
+ * is printed.
+ */
+export function localContrast(img, [bx, by, bw, bh], win = 3) {
+  const { width: W, height: H, channels: C, data } = img;
+  if (data.length < W * H * C) throw new Error(`buffer short — stride wrong?`);
+  if (bx - win < 0 || by - win < 0 || bx + bw + win > W || by + bh + win > H) {
+    throw new Error(`box [${bx},${by},${bw},${bh}] with window ${win} runs off ${W}x${H}`);
+  }
+  let acc = 0, n = 0;
+  for (let y = by; y < by + bh; y++) {
+    for (let x = bx; x < bx + bw; x++) {
+      let sum = 0, sq = 0, m = 0;
+      for (let dy = -win; dy <= win; dy++) {
+        for (let dx = -win; dx <= win; dx++) {
+          const i = ((y + dy) * W + (x + dx)) * C;
+          const v = luma(data[i], data[i + 1], data[i + 2]);
+          if (!Number.isFinite(v)) throw new Error(`non-finite luma — stride wrong?`);
+          sum += v; sq += v * v; m++;
+        }
+      }
+      const mean = sum / m;
+      const varr = Math.max(0, sq / m - mean * mean);
+      // A neighbourhood at zero has no contrast to speak of and dividing by it
+      // manufactures one; skip it rather than clamp it, and report the count.
+      if (mean > 2) { acc += Math.sqrt(varr) / mean; n++; }
+    }
+  }
+  return { rms: n ? +(acc / n).toFixed(4) : 0, samples: n, win };
+}
+
 /** Percentile of an already-sorted array, by nearest rank. */
 export const pct = (sorted, p) => sorted[Math.min(sorted.length - 1,
   Math.max(0, Math.round(p * (sorted.length - 1))))];
@@ -134,6 +178,47 @@ function selftest() {
   try { bayStats(mk(3, () => 0), [5, 5, 10, 10]); } catch { threw2 = true; }
   ck('a rect off the edge throws', threw2 ? 1 : 0, 1);
 
+  // LOCAL CONTRAST, on the pair that matters most and that spread gets wrong.
+  // A smooth vertical ramp has a huge spread and NO local detail; a checkerboard
+  // of the same mean has the same-ish level and plenty. If the metric cannot
+  // separate those it cannot say whether the dressing survived.
+  const rampImg = { width: 40, height: 40, channels: 3, data: new Uint8Array(40 * 40 * 3) };
+  for (let y = 0; y < 40; y++) {
+    for (let x = 0; x < 40; x++) {
+      const v = 60 + Math.round((y / 39) * 120);
+      const i = (y * 40 + x) * 3;
+      rampImg.data[i] = rampImg.data[i + 1] = rampImg.data[i + 2] = v;
+    }
+  }
+  const checkImg = { width: 40, height: 40, channels: 3, data: new Uint8Array(40 * 40 * 3) };
+  for (let y = 0; y < 40; y++) {
+    for (let x = 0; x < 40; x++) {
+      const v = ((x >> 1) + (y >> 1)) % 2 ? 160 : 80;
+      const i = (y * 40 + x) * 3;
+      checkImg.data[i] = checkImg.data[i + 1] = checkImg.data[i + 2] = v;
+    }
+  }
+  const rampC = localContrast(rampImg, [10, 10, 20, 20], 3).rms;
+  const checkC = localContrast(checkImg, [10, 10, 20, 20], 3).rms;
+  // 0.052 and 0.333, measured. My first guess put the ramp under 0.02 and it is
+  // not: a 60->180 ramp over 40 px is 3 luma per row, so a 7 px window still
+  // spans 21 luma and a gradient is NOT zero local contrast at close range. That
+  // is the honest behaviour of the metric and it is why the ramp is a floor to
+  // beat rather than a zero - the same ramp stretched over 120 px reads 0.019.
+  ck('a smooth ramp reads low', rampC < 0.08, true);
+  ck('a checkerboard reads high', checkC > 0.25, true);
+  ck('and they are 6x apart', checkC > rampC * 6, true);
+  // The spread metric, on the SAME pair, cannot tell them apart the same way -
+  // which is exactly why both are reported.
+  const rampSpread = bayStats(rampImg, [10, 10, 20, 20]).spread;
+  ck('while the ramp spread is large', rampSpread > 40, true);
+
+  // KNOWN-BAD INPUT: a window that reaches outside the image. Reading past the
+  // edge would silently mix in whatever is in the buffer there.
+  let threw3 = false;
+  try { localContrast(rampImg, [0, 0, 20, 20], 3); } catch { threw3 = true; }
+  ck('a local window off the edge throws', threw3 ? 1 : 0, 1);
+
   // Percentiles on a known ramp 0..99: p50 of 100 sorted values is index 50.
   const ramp = { width: 10, height: 10, channels: 3, data: new Uint8Array(300) };
   for (let i = 0; i < 100; i++) { ramp.data[i * 3] = ramp.data[i * 3 + 1] = ramp.data[i * 3 + 2] = i; }
@@ -186,7 +271,7 @@ else {
     const pav = PAVEMENT[view];
     console.log(`\n=== ${view} (pavement reference [${pav}]) ===`);
     console.log('rect                                  arm      mean   p10   p50   p90   max' +
-      '   sd  spread  >200%  >90%  30-60%   p90/pav');
+      '   sd  spread  >200%  >90%  30-60%   p90/pav   local');
     for (const [label, rect] of Object.entries(rects)) {
       for (const arm of arms) {
         const f = `${DIR}/${arm}-${view}.png`;
@@ -197,7 +282,8 @@ else {
         const w = (v, n) => String(v).padStart(n);
         console.log(`${label.padEnd(36)} ${arm.padEnd(6)} ${w(s.mean, 6)} ${w(s.p10, 5)} ` +
           `${w(s.p50, 5)} ${w(s.p90, 5)} ${w(s.max, 5)} ${w(s.sd, 5)} ${w(s.spread, 6)} ` +
-          `${w(s.over200Pct, 6)} ${w(s.over90Pct, 6)} ${w(s.muddyPct, 6)}  ${w((s.p90 / pavMed).toFixed(2), 8)}`);
+          `${w(s.over200Pct, 6)} ${w(s.over90Pct, 6)} ${w(s.muddyPct, 6)}  ${w((s.p90 / pavMed).toFixed(2), 8)}` +
+          `  ${w(localContrast(img, rect, 3).rms.toFixed(4), 7)}`);
       }
     }
   }
