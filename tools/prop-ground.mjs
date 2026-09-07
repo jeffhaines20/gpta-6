@@ -630,6 +630,7 @@ const out = await page.evaluate(async ([armNames, boxes, minpx, wpx, hpx, wantSh
     shadowReach: D.furniture ? D.furniture._shadowReach : null,
     propCast: propMeshes.map((m) => m.castShadow),
     parkedCast: parkedMesh ? parkedMesh.castShadow : null,
+    aoAll: (() => { const o = {}; for (const k in D.post.params) if (/^ao/.test(k)) o[k] = D.post.params[k]; return o; })(),
   };
   const reset = () => {
     sun.shadow.bias = saved.bias;
@@ -639,6 +640,11 @@ const out = await page.evaluate(async ([armNames, boxes, minpx, wpx, hpx, wantSh
     D.post.params.aoRadius = saved.aoRadius;
     D.post.params.aoIntensity = saved.aoIntensity;
     D.post.params.aoBlurRadius = saved.aoBlurRadius;
+    // EVERY ao* PARAMETER, not just the four this file knew about when it was
+    // written. src/post.js grew aoSamples/aoKernel/aoFalloff/aoDither/
+    // aoDepthSigma after the fact, and an arm that sets one of them has to be
+    // undone before the next arm or the sweep is measuring a sum of arms.
+    for (const k in saved.aoAll) if (k !== 'aoScale') D.post.params[k] = saved.aoAll[k];
     if (D.post.params.aoScale !== saved.aoScale) {
       D.post.params.aoScale = saved.aoScale;
       const s = D.post._size; if (s) D.post.setSize(s[0], s[1]);
@@ -804,6 +810,16 @@ const out = await page.evaluate(async ([armNames, boxes, minpx, wpx, hpx, wantSh
   const results = {};
   for (const name of armNames) {
     const parts = name.split('+');
+    // A GENERIC ARM, so a parameter added to src/post.js after this file was
+    // written can be measured without editing this file: "ao:aoSamples=32;
+    // aoIntensity=5.5" sets those post params and nothing else. Named arms
+    // above still win; this only fires for a name the table does not have.
+    for (const q of parts) {
+      if (APPLY[q] || !/^ao:/.test(q)) continue;
+      const kv = q.slice(3).split(';').map((t) => t.split('='));
+      if (kv.some(([k, v]) => !k || v === undefined || !isFinite(Number(v)))) continue;
+      APPLY[q] = () => { for (const [k, v] of kv) D.post.params[k] = Number(v); };
+    }
     if (parts.some((q) => !APPLY[q])) { results[name] = { error: 'unknown arm' }; continue; }
     reset();
     for (const q of parts) APPLY[q]();

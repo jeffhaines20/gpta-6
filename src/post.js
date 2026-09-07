@@ -111,7 +111,34 @@ void main() {
 // geometry pass - which matters because the draw-call gate counts scene draws and
 // a normal prepass would double them. The cost is post passes, which the gate does
 // not count, and slightly softer normals at depth discontinuities.
-const AO_FRAG = `
+// WHY THE KERNEL AND THE DITHER ARE PARAMETERS AND NOT CONSTANTS. The r8 review
+// found the junction band on every facade dithered -- alternating light and dark
+// single pixels -- and the AO buffer says why in one number: straight out of this
+// pass, the pixel-scale grain on that band is 27.2 of 255 (tools/ao-noise.mjs
+// --live). The band's own mean is 30. The estimator's noise is 90% of its signal.
+//
+// THE ARITHMETIC OF THAT, because it is the whole defect. Twelve samples, each
+// either occluded or not, quantises `ao` to steps of 1/12. At the junction ~2.5
+// of the 12 land on the jamb, so raw ao ~ 0.794, and pow(0.794, 8.5) = 0.14.
+// The slope of that curve there is 8.5 * 0.794^7.5 = 1.59, so ONE SAMPLE
+// FLIPPING moves the output by 1.59/12 = 0.133, which is 34 of 255. Measured
+// 27.2. The exponent is not amplifying a smooth signal; it is amplifying a coin
+// toss, and the coin is tossed again every frame as the camera moves.
+//
+// It did not show at aoScale 0.5 because a half-resolution buffer is bilinearly
+// UPSAMPLED into the composite, and that upsample is not depth-aware: it blends
+// unconditionally, over 2 screen pixels, on top of a blur that already reached
+// +-4. Going to full resolution was right and is why props ground -- and it
+// removed the one unconditional smoothing step in the chain, which is what let
+// the estimator's noise through. Nothing about the noise was new; it was always
+// there, under two stages of dilution.
+//
+// So each lever below defaults to EXACTLY the r8 behaviour and can be swept
+// without editing this file, because "isolate one term at a time" is the only
+// way to tell which of them is carrying the fix.
+// KERNEL: 0 = the legacy typed vectors, 1 = the spiral, 2 = the spiral with
+// its sample LENGTHS decorrelated from its elevations.
+const AO_FRAG = (SAMPLES, KERNEL) => `
 uniform sampler2D tDepth;
 uniform mat4  invProjection;
 uniform mat4  projection;   // forward projection, to put a view-space sample back on screen
@@ -119,6 +146,8 @@ uniform vec2  texelSize;
 uniform float radius;
 uniform float bias;
 uniform float intensity;
+uniform float falloff;      // metres of soft ramp on the occlusion test; 0 = hard step
+uniform float dither;       // 0 = per-pixel hash rotation; N = an NxN interleaved tile
 uniform float cameraFar;
 varying vec2 vUv;
 
@@ -151,12 +180,63 @@ void main() {
   dy = abs(dy.z) < abs(dy2.z) ? dy : dy2;
   vec3 normal = normalize(cross(dx, dy));
 
-  // Per-pixel rotation so the 12-tap kernel dithers instead of banding.
-  float rnd = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+  // ROTATION. Two ways, and which one is in use decides whether the blur that
+  // follows can cancel the dither or merely average it down.
+  //
+  // dither = 0 is the r8 behaviour: a continuous hash, so every pixel gets an
+  // unrelated angle and a 5x5 box sees 25 INDEPENDENT draws. That reduces the
+  // variance by 25 on average and by a random amount in any particular window,
+  // and the amount left over is the grain.
+  //
+  // dither = N tiles N*N fixed angles across the screen instead. At N = 5 the
+  // tile is exactly the footprint of the 5x5 blur, so a full-weight window
+  // contains each of the 25 angles ONCE and the interleaving cancels rather than
+  // averages. 7 is coprime with 25, so k*7 mod 25 is a bijection on the tile and
+  // adjacent pixels get angles a long way apart instead of a ramp.
+  float rnd;
+  if (dither < 0.5) {
+    rnd = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+  } else {
+    vec2 t = floor(mod(gl_FragCoord.xy, dither));
+    float m = dither * dither;
+    rnd = (mod(t.y * dither + t.x, m) * 7.0 + 0.5) / m;
+    rnd = fract(rnd);
+  }
   float ca = cos(rnd * 6.2831853), sa = sin(rnd * 6.2831853);
 
+  const int SAMPLES = ${SAMPLES};
+${KERNEL ? `
+  // STRATIFIED COSINE HEMISPHERE, built about the actual normal.
+  //
+  // The kernel it replaces is twelve hand-typed vectors in an arbitrary space,
+  // folded onto whichever side of the surface they land on with
+  // \`if (dot(rk, normal) < 0.0) rk = -rk;\`. That fold is cheap and it is the
+  // reason the estimator is so noisy: it is not a cosine hemisphere, the twelve
+  // lengths clump (three of them under a fifth of the radius, one at 0.87, and
+  // nothing between 0.34 and 0.53), and after the per-pixel rotation the set a
+  // pixel actually gets depends on the rotation far more than it should.
+  //
+  // This builds a tangent basis on the surface, rotates it per pixel, and walks
+  // a golden-angle spiral: azimuth by the golden angle so no two samples share a
+  // direction, disk radius sqrt(u) so the projected density is uniform, and
+  // elevation sqrt(1-u) so the distribution is cosine-weighted about the normal,
+  // which is the weighting the occlusion integral actually wants. Sample LENGTH
+  // is stratified from 0.12 R to R across the set, keeping the bias toward the
+  // origin that makes contact darkening tight while removing the clumping.
+  //
+  // aoKernel 2 differs from 1 in exactly one line: it draws the sample LENGTH
+  // from the golden-ratio low-discrepancy sequence instead of from the same u
+  // that sets the elevation. In kernel 1 those are the same variable, so every
+  // near-normal sample is also a short one and every grazing sample is also a
+  // long one -- and grazing-and-long is where occluders actually are. Whether
+  // that correlation costs anything is a question for the sweep.
+  vec3 up = abs(normal.z) < 0.9 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+  vec3 tang = normalize(cross(up, normal));
+  vec3 bitan = cross(normal, tang);
+  vec3 t2 = tang * ca + bitan * sa;
+  vec3 b2 = tang * -sa + bitan * ca;
+` : `
   // Hemisphere kernel, weighted toward the origin so contact darkening is tight.
-  const int SAMPLES = 12;
   vec3 kernel[12];
   kernel[0]  = vec3( 0.5381,  0.1856,  0.4319);
   kernel[1]  = vec3( 0.1379,  0.2486,  0.4430);
@@ -170,13 +250,22 @@ void main() {
   kernel[9]  = vec3(-0.3169,  0.1063,  0.0158);
   kernel[10] = vec3( 0.0103, -0.5869,  0.0046);
   kernel[11] = vec3(-0.0897, -0.4940,  0.3287);
-
+`}
   float occlusion = 0.0;
   for (int i = 0; i < SAMPLES; i++) {
+${KERNEL ? `
+    float fi = float(i) + 0.5;
+    float u = fi / float(SAMPLES);
+    float ang = fi * 2.39996323;
+    float rr = sqrt(u);
+    vec3 rk = (t2 * (cos(ang) * rr) + b2 * (sin(ang) * rr) + normal * sqrt(max(0.0, 1.0 - u)))
+              * mix(0.12, 1.0, ${KERNEL === 2 ? 'fract(fi * 0.6180339887)' : 'u'});
+` : `
     vec3 k = kernel[i];
     vec3 rk = vec3(k.x * ca - k.y * sa, k.x * sa + k.y * ca, k.z);
     // Flip into the hemisphere around the surface normal.
     if (dot(rk, normal) < 0.0) rk = -rk;
+`}
     vec3 samplePos = origin + rk * radius;
 
     vec4 clip = projection * vec4(samplePos, 1.0);
@@ -189,7 +278,16 @@ void main() {
     // Range check: a sample far in front of the surface is a different object, not
     // an occluder. Without it every silhouette grows a dark halo.
     float rangeCheck = smoothstep(0.0, 1.0, radius / max(1e-4, abs(origin.z - sceneZ)));
-    if (diff > bias) occlusion += rangeCheck;
+    // THE TEST IS A STEP, AND A STEP IS WHERE THE QUANTISATION COMES FROM. With
+    // falloff = 0 this is the r8 behaviour: each sample contributes 0 or 1, so a
+    // 12-sample estimate can only take 13 values and a geometry change of a
+    // millimetre flips one of them all the way. A soft ramp over a falloff-metre window lets a sample that is marginally behind the surface contribute
+    // marginally, which is both a better estimate of the integral and a
+    // continuous function of the geometry -- so it does not flicker when the
+    // camera moves half a pixel.
+    float hit = falloff > 0.0 ? smoothstep(bias, bias + falloff, diff)
+                              : (diff > bias ? 1.0 : 0.0);
+    occlusion += hit * rangeCheck;
   }
 
   float ao = 1.0 - occlusion / float(SAMPLES);
@@ -198,33 +296,66 @@ void main() {
   // raw average badly understates occlusion in a corner. Measured: without this the
   // whole buffer sat at a mean of 0.93 and wall/ground junctions moved less than 2%,
   // which is indistinguishable from no AO at all.
+  //
+  // AND IT IS ALSO THE NOISE GAIN. d(x^n)/dx = n*x^(n-1), so whatever the
+  // estimator's per-pixel error is, the buffer carries it multiplied by that.
+  // Any change to the exponent has to be read as a change to both at once.
   ao = pow(clamp(ao, 0.0, 1.0), intensity);
   gl_FragColor = vec4(vec3(ao), 1.0);
 }`;
 
 // Depth-aware blur. A plain box blur bleeds occlusion across silhouettes and
 // gives the halo the range check just removed.
+//
+// THE r8 WEIGHT IS exp(-|dd| * 2000) ON WINDOW DEPTH, AND WINDOW DEPTH IS NOT A
+// DISTANCE. With near = 0.2 and far = 1400 the window value is d ~ 1 - 0.2/t, so
+// dd = 0.2 dt / t^2 and the weight is exp(-400 dt / t^2): the tolerance grows
+// with the SQUARE of the distance. At 5 m a same-surface step of 8 cm across two
+// pixels is already rejected at w = 0.28; at 100 m a five-METRE silhouette is
+// accepted at w = 0.82. So the filter is too strict where it should smooth and
+// too permissive where it should cut, and the one thing it is calibrated for is
+// the middle distance it happened to be tuned at.
+//
+// depthSigma > 0 switches to a RELATIVE tolerance on linearised depth: reject a
+// neighbour that is more than depthSigma of its own distance away, with a small
+// absolute floor so the metre in front of the camera does not go to zero
+// tolerance. depthSigma = 0 keeps the r8 weight so the two can be differenced.
+// It is a parameter and not a replacement because the r8 filter measured an
+// effective 147 taps on the junction band (tools/ao-noise.mjs --live) -- it is
+// NOT collapsing there, which was the first hypothesis and it was wrong.
 const AO_BLUR_FRAG = `
 uniform sampler2D tAO;
 uniform sampler2D tDepth;
 uniform vec2  texelSize;
+uniform float cameraNear;
 uniform float cameraFar;
 uniform float blurRadius;
+uniform float depthSigma;
 varying vec2 vUv;
+
+float linZ(float d) {
+  float ndc = d * 2.0 - 1.0;
+  return (2.0 * cameraNear * cameraFar) / (cameraFar + cameraNear - ndc * (cameraFar - cameraNear));
+}
 
 void main() {
   float centerDepth = texture2D(tDepth, vUv).r;
+  float cz = linZ(centerDepth);
+  float tol = max(depthSigma * cz, 0.03);
   float sum = 0.0, weightSum = 0.0;
-  for (int x = -2; x <= 2; x++) {
-    for (int y = -2; y <= 2; y++) {
+  for (int x = -4; x <= 4; x++) {
+    for (int y = -4; y <= 4; y++) {
       // blurRadius is a runtime uniform so the kernel WIDTH can be swept without
       // recompiling. GLSL ES 1.0 needs the loop bounds constant, so the taps
-      // outside the requested radius are skipped rather than not iterated.
+      // outside the requested radius are skipped rather than not iterated. The
+      // constant bound is 4 rather than 2 only so radii above 2 can be SWEPT;
+      // at blurRadius 2 the extra iterations do nothing but a compare.
       if (abs(float(x)) > blurRadius || abs(float(y)) > blurRadius) continue;
       vec2 offset = vec2(float(x), float(y)) * texelSize;
       float d = texture2D(tDepth, vUv + offset).r;
       // Reject neighbours on a different surface.
-      float w = exp(-abs(d - centerDepth) * 2000.0);
+      float w = depthSigma > 0.0 ? exp(-abs(linZ(d) - cz) / tol)
+                                 : exp(-abs(d - centerDepth) * 2000.0);
       sum += texture2D(tAO, vUv + offset).r * w;
       weightSum += w;
     }
@@ -842,6 +973,144 @@ export class PostStack {
       // work of two of the seven post passes and of nothing else.
       aoScale: 1.0,
       aoBlurRadius: 2,
+      // ------------------------------------------------- THE ESTIMATOR ITSELF
+      //
+      // Everything above this line is about WHERE the AO term goes. These five
+      // are about how noisy it is when it gets there, which is what both blind
+      // reviewers of the r8 build ranked first. One of them warned it would
+      // CRAWL IN MOTION in a way a still frame does not show, which is exactly
+      // what per-pixel estimator noise does when the camera moves.
+      //
+      // WHAT THE DEFECT WAS, in one number. Straight out of the kernel, the
+      // junction band on the fivepoints pier carried 27.2 of 255 of pixel-scale
+      // grain against a band mean of 30 -- the estimator's noise was 90% of its
+      // signal (tools/ao-noise.mjs --live). Twelve BINARY samples quantise ao to
+      // steps of 1/12; at that junction raw ao is 0.794 and pow(0.794, 8.5) is
+      // 0.14; the slope of that curve there is 8.5 * 0.794^7.5 = 1.59, so ONE
+      // SAMPLE FLIPPING moves the buffer by 1.59/12 = 34 of 255. Measured 27.2.
+      //
+      // AND WHY IT ONLY APPEARED AT FULL RESOLUTION. At aoScale 0.5 the buffer
+      // was bilinearly UPSAMPLED into the composite, and that upsample is not
+      // depth-aware: it blends unconditionally over two screen pixels, on top of
+      // a blur that already reached +-4. Going to full resolution was right and
+      // is why props ground -- and it removed the one unconditional smoothing
+      // step in the chain. Nothing about the noise was new. It was always there,
+      // under two stages of dilution.
+      //
+      // THE FIRST HYPOTHESIS WAS WRONG AND IS ON THE RECORD FOR IT. I expected
+      // the 5x5 depth-aware blur to have collapsed at full resolution -- its
+      // weight is exp(-|dd| * 2000) on RAW WINDOW DEPTH, which with near 0.2 is
+      // a tolerance that grows as the SQUARE of distance (too strict at 5 m, no
+      // rejection at all at 100 m). It is genuinely miscalibrated and it is NOT
+      // what was wrong: on the junction band it measures 147 effective taps.
+      // aoDepthSigma switches it to a relative tolerance on linearised depth and
+      // that arm moves nothing -- trough 0.215 against 0.215, band grain 1.37
+      // against 1.37, AO buffer grain 2.24 against 2.24. Left at 0 because a
+      // change that measures zero is not an improvement, only a rewrite.
+      //
+      // WHAT IS ACTUALLY WRONG WITH THE KERNEL, from tools/ao-kernel-var.mjs,
+      // which holds the geometry and the occluder fixed and sweeps ONLY the
+      // per-pixel rotation. On a 90-degree concave corner, true occlusion 0.5:
+      //
+      //     surface tilt   kernel      mean    sd across rotation
+      //        0 deg       legacy 12  0.5000        0.0833
+      //       15 deg       legacy 12  0.4198        0.0662
+      //       35 deg       legacy 12  0.4476        0.0905
+      //       60 deg       legacy 12  0.4519        0.0841
+      //       80 deg       legacy 12  0.4084        0.0900
+      //        any         spiral 32  0.5000        0.0202
+      //
+      // Turning the kernel moves its answer by 0.8 to 1.1 of a WHOLE SAMPLE
+      // QUANTUM. The fold is why: twelve vectors turned about the VIEW axis and
+      // then reflected onto whichever side of the surface they land on.
+      // Reflection is discontinuous in the rotation, so the set a pixel gets
+      // JUMPS rather than turns, and it jumps hardest where the normal is
+      // oblique -- every junction in the frame. The build agrees: out of the
+      // kernel the flat pier face carries 0.91 of 255 of grain and the junction
+      // band beside it carries 27.2.
+      //
+      // WHAT FIXED IT: aoDither. The rotation is no longer a per-pixel hash but
+      // a 5x5 INTERLEAVED TILE of 25 fixed angles, and 5x5 is exactly the
+      // footprint of the blur that follows, so a full-weight window contains
+      // each angle ONCE and the blur CANCELS the pattern instead of averaging 25
+      // random draws. Measured at fivepoints-noon (tools/ao-noise.mjs):
+      //
+      //                              hash (r8)   5x5 tile
+      //     AO buffer grain, pre         27.23      33.53
+      //     AO buffer grain, post         2.24       0.49
+      //     frame band grain              1.37       0.58   grey levels
+      //     frame band grain, AO off      0.75       0.75
+      //     junction trough              0.216      0.215
+      //     AO buffer band mean           35.6       35.5
+      //
+      // The pre-filter number RISES, which is the point: a tile is a bigger
+      // local swing than a hash and a designed one, so the blur can take all of
+      // it out. What lands in the frame is 0.58 grey levels of grain against a
+      // 0.75 FLOOR THAT IS THERE WITH AO SWITCHED OFF -- the AO term now adds no
+      // measurable pixel-scale grain at all. And the level does not move: trough
+      // and buffer mean are unchanged to 0.1%, because the tile and the hash
+      // have the same rotational average and differ only in variance.
+      //
+      // IT IS FREE. Same taps, and mod/floor instead of sin/fract, so if
+      // anything it is cheaper than what it replaces.
+      //
+      // 5 AND aoBlurRadius 2 ARE A MATCHED PAIR. The cancellation is exact
+      // because a 5x5 window holds each residue class mod 5 once in x and once
+      // in y. Change the blur radius and the pairing breaks; aoDither would then
+      // want to be 2*aoBlurRadius + 1.
+      //
+      // ---- AND THE THINGS THAT DID NOT WORK, each measured, each kept as a
+      // parameter so the next person does not have to re-derive them.
+      //
+      // aoKernel 1 and 2 (a stratified golden-angle COSINE hemisphere on a real
+      // tangent basis, unbiased at every tilt, 4x less rotation variance) IS THE
+      // BETTER ESTIMATOR AND IT IS NOT SHIPPED, because it destroys the window
+      // reveal. At the pinned subject, kernel 2 with 32 samples against the
+      // legacy 12:
+      //
+      //     reveal occlusion   0.2312 -> 0.1247
+      //     flush  occlusion   0.1014 -> 0.0922
+      //     reveal CONTRAST    0.1298 -> 0.0324
+      //
+      // The flat wall barely moves and the reveal HALVES. A window reveal is a
+      // shallow recess -- glazing 0.10 to 0.34 m behind the face, jambs
+      // returning to it -- so the occluders seen from inside it are at GRAZING
+      // angles, close to the tangent plane. A cosine hemisphere weights samples
+      // toward the NORMAL and barely looks there. The legacy fold, being a
+      // sphere folded onto one side, is far flatter and finds the jambs. Its
+      // wrongness was load-bearing. If this is picked up again, the thing to try
+      // is the spiral with a UNIFORM-solid-angle elevation (z = 1 - u) rather
+      // than a cosine one (z = sqrt(1 - u)), which keeps the unbiasedness and
+      // puts the samples back near the tangent plane; that is untested here.
+      //
+      // aoFalloff (a soft ramp on the occlusion test instead of a hard step)
+      // does not reduce the noise: 1.40 grey levels against 1.37. The
+      // quantisation is not the dominant term -- the rotation is, and a sample
+      // that swings in or out of the set swings by its whole contribution
+      // whether that contribution is soft or hard. It only lightens the term
+      // (trough 0.216 -> 0.258), which is a contrast change wearing a filter's
+      // clothes. Left at 0.
+      //
+      // aoBlurRadius 3 (a 7x7) does help -- band grain 1.37 -> 0.96, trough
+      // 0.216 -> 0.234 -- and is still not taken, because the 5x5 tile beats it
+      // on grain (0.58) at no cost, and a wider blur is spent directly out of
+      // the umbra edge that prop-ground protects at 17.1 px.
+      //
+      //   aoSamples     taps in the hemisphere. ONLY MEANINGFUL WITH aoKernel
+      //                 1 or 2: the legacy kernel is twelve typed vectors and
+      //                 cannot be asked for a thirteenth, so the count is forced
+      //                 back to 12 there. Recompiles the AO shader.
+      //   aoKernel      0 legacy, 1 spiral, 2 spiral with lengths decorrelated
+      //                 from elevations. Recompiles.
+      //   aoFalloff     metres of soft ramp on the occlusion test; 0 = a step.
+      //   aoDither      0 = per-pixel hash. N = an NxN interleaved tile.
+      //   aoDepthSigma  0 = the r8 blur weight on raw window depth. > 0 = a
+      //                 relative tolerance on linearised depth.
+      aoSamples: 12,
+      aoKernel: 0,
+      aoFalloff: 0,
+      aoDither: 5,
+      aoDepthSigma: 0,
     };
 
     const type = THREE.HalfFloatType;
@@ -894,29 +1163,17 @@ export class PostStack {
       uniforms: { tDiffuse: { value: null }, direction: { value: new THREE.Vector2() } },
       depthTest: false, depthWrite: false,
     });
-    this.aoMat = new THREE.RawShaderMaterial({
-      vertexShader: `precision highp float; attribute vec3 position; attribute vec2 uv; ${FULLSCREEN_VERT}`,
-      fragmentShader: `precision highp float; ${AO_FRAG}`,
-      uniforms: {
-        tDepth: { value: null },
-        invProjection: { value: new THREE.Matrix4() },
-        projection: { value: new THREE.Matrix4() },
-        texelSize: { value: new THREE.Vector2() },
-        radius: { value: this.params.aoRadius },
-        bias: { value: this.params.aoBias },
-        intensity: { value: this.params.aoIntensity },
-        cameraFar: { value: 1 },
-      },
-      depthTest: false, depthWrite: false,
-    });
+    this.aoMat = this._makeAoMat();
     this.aoBlurMat = new THREE.RawShaderMaterial({
       vertexShader: `precision highp float; attribute vec3 position; attribute vec2 uv; ${FULLSCREEN_VERT}`,
       fragmentShader: `precision highp float; ${AO_BLUR_FRAG}`,
       uniforms: {
         tAO: { value: null }, tDepth: { value: null },
         texelSize: { value: new THREE.Vector2() },
+        cameraNear: { value: 0.1 },
         cameraFar: { value: 1 },
         blurRadius: { value: this.params.aoBlurRadius },
+        depthSigma: { value: this.params.aoDepthSigma },
       },
       depthTest: false, depthWrite: false,
     });
@@ -980,6 +1237,54 @@ export class PostStack {
     this.renderer.info.autoReset = false;
     this.stats = { passes: 0, drawCalls: 0, shadowMapEnabled: false,
                    sceneTriangles: 0, totalCalls: 0 };
+  }
+
+  /**
+   * The AO material, built for the CURRENT sample count and kernel.
+   *
+   * Sample count and kernel shape are compile-time in GLSL ES 1.0 -- a loop
+   * bound has to be constant and the legacy path needs a fixed-size array -- so
+   * sweeping them means rebuilding the program. _syncAoProgram() below does that
+   * only when one of the two actually changes, which is never during play and
+   * once per arm under a sweep. Everything else about the pass is a uniform.
+   */
+  _makeAoMat() {
+    const p = this.params;
+    // THE LEGACY KERNEL IS TWELVE TYPED VECTORS AND CANNOT BE ASKED FOR
+    // THIRTEEN. An arm that raised aoSamples while leaving aoKernel at 0 would
+    // index kernel[12..N] out of bounds -- undefined in GLSL ES, and on
+    // SwiftShader it returns something rather than failing, so the arm would
+    // have produced numbers that looked like measurements. The count is forced
+    // back to 12 there. Buying more samples means changing the kernel, which is
+    // a finding and not a limitation: the old kernel IS its twelve vectors.
+    const samples = p.aoKernel ? Math.max(1, Math.round(p.aoSamples)) : 12;
+    this._aoBuilt = { samples: p.aoSamples, kernel: p.aoKernel };
+    this.aoEffectiveSamples = samples;
+    return new THREE.RawShaderMaterial({
+      vertexShader: `precision highp float; attribute vec3 position; attribute vec2 uv; ${FULLSCREEN_VERT}`,
+      fragmentShader: `precision highp float; ${AO_FRAG(samples, Math.round(p.aoKernel) | 0)}`,
+      uniforms: {
+        tDepth: { value: null },
+        invProjection: { value: new THREE.Matrix4() },
+        projection: { value: new THREE.Matrix4() },
+        texelSize: { value: new THREE.Vector2() },
+        radius: { value: p.aoRadius },
+        bias: { value: p.aoBias },
+        intensity: { value: p.aoIntensity },
+        falloff: { value: p.aoFalloff },
+        dither: { value: p.aoDither },
+        cameraFar: { value: 1 },
+      },
+      depthTest: false, depthWrite: false,
+    });
+  }
+
+  _syncAoProgram() {
+    const p = this.params, b = this._aoBuilt;
+    if (b && b.samples === p.aoSamples && b.kernel === p.aoKernel) return;
+    const old = this.aoMat;
+    this.aoMat = this._makeAoMat();
+    if (old) old.dispose();
   }
 
   _wantMsaa() { return this.aaMode === 'msaa' || this.aaMode === 'msaa+fxaa'; }
@@ -1115,8 +1420,11 @@ export class PostStack {
     this.blurMat.uniforms.direction.value.set(0, 2 / bh);
     this._blit(this.blurMat, this.blurB);
 
-    // --- AO at half res, then a depth-aware blur.
+    // --- AO into its own target, then a depth-aware blur. The target is frame
+    // sized (params.aoScale 1.0); it was half sized until props stopped
+    // grounding, and the note on params.aoScale is the measurement that moved it.
     if (this.params.aoEnabled) {
+      this._syncAoProgram();
       const au = this.aoMat.uniforms;
       au.tDepth.value = this.hdr.depthTexture;
       au.invProjection.value.copy(this.camera.projectionMatrixInverse);
@@ -1125,6 +1433,8 @@ export class PostStack {
       au.radius.value = this.params.aoRadius;
       au.bias.value = this.params.aoBias;
       au.intensity.value = this.params.aoIntensity;
+      au.falloff.value = this.params.aoFalloff;
+      au.dither.value = this.params.aoDither;
       au.cameraFar.value = this.camera.far;
       this._blit(this.aoMat, this.aoRT);
 
@@ -1132,8 +1442,10 @@ export class PostStack {
       bu.tAO.value = this.aoRT.texture;
       bu.tDepth.value = this.hdr.depthTexture;
       bu.texelSize.value.set(1 / this.aoRT.width, 1 / this.aoRT.height);
+      bu.cameraNear.value = this.camera.near;
       bu.cameraFar.value = this.camera.far;
       bu.blurRadius.value = this.params.aoBlurRadius;
+      bu.depthSigma.value = this.params.aoDepthSigma;
       this._blit(this.aoBlurMat, this.aoBlurRT);
     }
 
