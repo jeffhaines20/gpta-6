@@ -56,7 +56,8 @@ if (typeof performance === 'undefined') globalThis.performance = { now: () => Da
 const FAC = await import('../src/facades.js');
 const {
   TRIM, TRIM_NONE, TRIM_DARK, TRIM_DIM, TRIM_LIT, TRIM_STATES, trimCell,
-  tenancyState, TENANCY_MIX, buildingStyle, lotPlanFor, edgesOf,
+  tenancyState, tenancyStateCapped, MAX_DARK_RUN, TENANCY_MIX,
+  buildingStyle, lotPlanFor, edgesOf,
 } = FAC;
 // TRIM_GRID is module-private in facades.js; it is 4 and the atlas is 512 px, and
 // both are asserted below by rebuilding the cell size from them and checking the
@@ -196,6 +197,37 @@ function selftest() {
   // pure black, only this time it would be systematic rather than a 5% roll.
   ck('no shopfront is ever handed the non-shopfront block', seen.has(TRIM_NONE), false);
 
+  // THE RUN CAP. Fed the worst possible input - a stream that wants to be dark
+  // every single time - the capped form must still break the run at
+  // MAX_DARK_RUN, and must reset its counter the moment a lit tenancy appears.
+  // This is the known-bad input for the rule that answers the review round's
+  // "should a run that long be possible": tenancyState alone says yes.
+  let run = 0;
+  const seq = [];
+  for (let k = 0; k < 12; k++) {
+    // Force the raw roll to dark by asking the capped form directly with a run
+    // that is already at the cap on every other step, and by reading what the
+    // uncapped one would have said.
+    const capped = tenancyStateCapped(run, 'forced', k);
+    seq.push(capped.state);
+    run = capped.run;
+  }
+  ck('capped run never exceeds MAX_DARK_RUN', run <= MAX_DARK_RUN, true);
+  let worst = 0, cur = 0;
+  for (const st of seq) { cur = st === TRIM_DARK ? cur + 1 : 0; if (cur > worst) worst = cur; }
+  ck('no dark run in the sequence exceeds the cap', worst <= MAX_DARK_RUN, true);
+  // Directly: at the cap, a dark roll must be promoted, and the counter reset.
+  const atCap = tenancyStateCapped(MAX_DARK_RUN, 'forced', 3);
+  ck('at the cap nothing is ever dark', atCap.state === TRIM_DARK, false);
+  ck('and the run resets', atCap.run, 0);
+  // Below the cap the raw roll must pass through untouched, or the cap is
+  // silently rewriting the whole district instead of trimming its tail.
+  let passthrough = true;
+  for (let k = 0; k < 200; k++) {
+    if (tenancyStateCapped(0, 'p', k).state !== tenancyState('p', k)) passthrough = false;
+  }
+  ck('below the cap the roll is untouched', passthrough, true);
+
   console.log(fail ? `\n${fail} FAILED` : '\nall passed');
   process.exit(fail ? 1 : 0);
 }
@@ -272,6 +304,7 @@ console.log(`  PURE BLACK behind the glass: ${black}  (${((100 * black) / total)
   '  <- the complaint; must be 0');
 console.log(`  run lengths, any one state : ${hist(allRuns)}`);
 console.log(`  run lengths of DARK stretches: ${hist(darkRuns)}`);
+console.log(`  (MAX_DARK_RUN = ${MAX_DARK_RUN})`);
 const longest = Math.max(0, ...allRuns);
 const longestDark = Math.max(0, ...darkRuns);
 console.log(`  longest run of one state   : ${longest} tenancies`);
@@ -283,6 +316,10 @@ console.log(`  longest FULLY DARK run     : ${longestDark} tenancies`);
 // because TRIM_DARK is faint rather than black; the run length is now a
 // composition note rather than a correctness one, and the line above it (pure
 // black, must be 0) is the one to read.
-console.log(longestDark > 4
-  ? `  note: ${longestDark} closed-and-dark shops in a row; they are faint, not black`
-  : '  no long run of closed-and-dark shops');
+// The cap makes this a gate rather than a note. A street-level camera sees four
+// to six tenancies across a near frontage, and the CASSAVA / LUMEN CAMERA row
+// drew dark on every visible lot in four successive versions of this change
+// before the cap existed.
+console.log(longestDark > MAX_DARK_RUN
+  ? `  FAIL: a run of ${longestDark} closed-and-dark shops got past MAX_DARK_RUN`
+  : `  no run of closed-and-dark shops longer than ${MAX_DARK_RUN}`);

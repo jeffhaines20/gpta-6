@@ -462,21 +462,45 @@ export const LIT_TIMES = ['dusk', 'night'];
 // the 7 MB of VRAM a third emissive atlas would take.
 export const EMISSIVE_INTENSITY = { noon: 0, golden: 0, dusk: 96, night: 3.1 };
 
-// The same table for the TRIM atlas' lit shopfronts, and it is deliberately the
-// same numbers times 1.5 rather than a new pair of art constants: 1.5 is
-// retailStrip's own `interior`, so a shop window and the flat above it burn at
-// the identical stored intensity (dusk 144, night 4.65 - the 4.65 a raycast
-// readback finds on facade:retailStrip at night). Two lit interiors on one
-// elevation that disagree about their exposure compensation is a defect you
-// cannot un-see, and every OTHER recipe's shopfronts get the retail number
-// because a shopfront is retail whatever is stacked on top of it.
+// The same table for the TRIM atlas' lit shopfronts.
+//
+// NIGHT WAS 4.65 AND THAT WAS INHERITED REASONING, NOT A MEASUREMENT. 4.65 is
+// EMISSIVE_INTENSITY.night times retailStrip's own `interior` of 1.5, chosen so
+// that a shop window and the flat above it would burn at the identical stored
+// intensity - two lit interiors on one elevation that disagree about their
+// exposure compensation being a defect you cannot un-see. The argument is still
+// right about the flats. It is wrong about the shopfront, and a review round
+// found out how:
+//
+//   fivepoints-night, one bay at 12.7 m   p50 140, p90 210, max 222, 18.7% > 200
+//   corridor-night,   one bay at 23.3 m   p90 156,                     1.8% > 200
+//
+// Both are glass@LIT on the same atlas row at the same intensity - verified by
+// raycast, not assumed - so the whole of that 10x in clipping is camera distance.
+// A punched facade window is a small opening seen at distance and never fills the
+// frame; a shopfront pane is about 3 m square seen from 12 m, covering enough of
+// the frame to bloom into itself and to sample the atlas near mip 0. The stored
+// intensity is not a physical luminance, it is a rendering number, and the same
+// luminance on those two surfaces does not survive the tonemap the same way.
+//
+// So night is set from the measurement instead. Inverting the ACES fit and the
+// sRGB encode, p90 210 is about 0.55 in exposed units and the 165 wanted is about
+// 0.255, a factor of 0.46; bloom falls away faster than linearly once the peak
+// drops back under its threshold, so 0.62 is taken and the rest left to bloom.
+// 4.65 * 0.62 = 2.88, rounded to 2.9. The prediction this makes, which the next
+// capture either confirms or refutes: fivepoints p90 near 165-175 with >200 in
+// low single figures, corridor p90 near 125-135 with >200 near zero.
+//
+// DUSK IS UNCHANGED at 144, on purpose and as an isolation: no reviewer reported
+// clipping at dusk, the shopfront rects moved only 1.3-2.7 mean there against
+// 14-29 at night, and changing two hours at once would leave neither measurable.
 //
 // noon and golden are zero for EMISSIVE_INTENSITY's reasons exactly - at 1/78,000
 // and 1/4,239 a lit shop is two orders under the wall it is cut into - and here
 // that zero is also the daylight PROOF: at those two hours totalEmissiveRadiance
 // is emissive(1,1,1) * 0 * map = 0 for every texel of the atlas, so a lit tenancy
 // and a dark one differ in nothing a daylight frame can sample.
-export const TRIM_EMISSIVE = { noon: 0, golden: 0, dusk: 144, night: 4.65 };
+export const TRIM_EMISSIVE = { noon: 0, golden: 0, dusk: 144, night: 2.9 };
 
 // ------------------------------------------------------------- panel rendering
 
@@ -2443,6 +2467,10 @@ export function lotPlanFor(ring, style, height, fronts) {
     const r = rng(hash32('lotstyle', style.seed, e.i));
     const lots = [];
     let prevIdx = -1, prevV = -1, prevPar = null, prevHead = null;
+    // Consecutive closed-and-dark tenancies placed so far on THIS edge. Reset per
+    // edge rather than per building: a corner site's two frontages are two
+    // streets and a run does not carry round the corner.
+    let darkRun = 0;
     for (let k = 0; k < cuts.length; k++) {
       const [s0, s1] = cuts[k];
       const len = s1 - s0;
@@ -2489,6 +2517,16 @@ export function lotPlanFor(ring, style, height, fronts) {
           }
           if (bd >= 0.055) { idx = bj; v = 0.92; tint = paletteTint(rec, pal[idx], v); }
         }
+      }
+
+      // The tenancy's after-dark state, capped so a camera cannot land on a long
+      // dead run. Computed before the lot object so darkRun is advanced exactly
+      // once per lot however the object below is edited.
+      let litState = TRIM_NONE;
+      if (shop) {
+        const capped = tenancyStateCapped(darkRun, style.seed, e.i, k);
+        litState = capped.state;
+        darkRun = capped.run;
       }
 
       // Parapet. Pinned to the building's own height at both ends of the edge so
@@ -2542,8 +2580,9 @@ export function lotPlanFor(ring, style, height, fronts) {
         // Open, closed-with-the-light-on, or dark? Off a separate hash stream, so
         // the whole sequence above - colourway, value nudge, parapet step, head
         // step, recess depth, door bay - draws exactly the numbers it drew before
-        // and every daylight frame is untouched. See tenancyState.
-        litState: shop ? tenancyState(style.seed, e.i, k) : TRIM_NONE,
+        // and every daylight frame is untouched. See tenancyState, and
+        // MAX_DARK_RUN for why the raw roll is capped along the frontage.
+        litState: litState,
         awning: !!shop && len > 3.8 && r() < 0.46,
         // A lot with no shopfront still meets the street somewhere, but an office
         // block has fewer street doors than a retail row.
@@ -2915,6 +2954,41 @@ export function tenancyState(...parts) {
   return TRIM_DARK;
 }
 
+// How many closed-and-dark tenancies may stand in a row before the next one is
+// promoted to closed-with-a-light.
+//
+// THIS IS THE ONE RULE HERE THAT IS ABOUT THE CAMERA RATHER THAN ABOUT SARASOTA,
+// and it is worth being honest about that. A street-level camera sees roughly
+// four to six tenancies across a near frontage, so an independent-per-lot roll
+// with a 27.5% dark share puts a run of four at about 0.6% per starting lot -
+// rare per lot, and a near certainty somewhere in 2,127 of them. It duly landed
+// on the hero frame: the CASSAVA / LUMEN CAMERA row drew dark on every visible
+// lot in FOUR successive versions of this change, because tenancyState's hash
+// never moved, only its thresholds. Three reviewers named that row; two rounds
+// measured it unchanged.
+//
+// A real high street does have dead runs. It does not have them uniformly at
+// random, because a landlord who lets one unit lets the ones beside it, and a
+// dark run that long is a distinctive thing rather than a background texture. So
+// 2 is a cap and not a tuning: in any four bays a camera can see, at least two
+// now carry an interior. The census reports the resulting run histogram, and it
+// still contains runs of 2 - the rule removes the tail, not the variation.
+export const MAX_DARK_RUN = 2;
+
+/**
+ * tenancyState, with the run cap applied along a frontage.
+ *
+ * `run` is the number of consecutive TRIM_DARK tenancies already placed on this
+ * edge; the caller carries it. Returns the state and the new run length together
+ * so the caller cannot update one and forget the other, which is exactly the bug
+ * a pair of parallel variables invites.
+ */
+export function tenancyStateCapped(run, ...parts) {
+  let st = tenancyState(...parts);
+  if (st === TRIM_DARK && run >= MAX_DARK_RUN) st = TRIM_DIM;
+  return { state: st, run: st === TRIM_DARK ? run + 1 : 0 };
+}
+
 export function storefrontBays(len, opts = {}) {
   const bayM = opts.bayM ?? 3.2, pier = opts.pier ?? 0.32;
   const bays = Math.max(1, Math.round((len - pier * 2) / bayM));
@@ -2952,6 +3026,11 @@ export function storefront(ring, pos, nrm, uv, idx, opts = {}) {
     const back = (p, d) => [p[0] - e.nx * d, p[1] - e.nz * d];
 
     const bays = storefrontBays(e.len, opts);
+    // The implied-tenancy state for an unlotted frontage, and the run cap along
+    // it. `lastPair` exists because the pair is decided ONCE and then reused by
+    // its second bay: without it the same pair would be rolled twice and would
+    // advance darkRun twice, which caps at 1 instead of 2.
+    let darkRun = 0, lastPair = -1, pairState = TRIM_NONE;
     for (let bi = 0; bi < bays.length; bi++) {
       const [s0, s1] = bays[bi];
       // A LOTTED frontage is one tenancy and lights as one - opts.state is the lot
@@ -2964,9 +3043,14 @@ export function storefront(ring, pos, nrm, uv, idx, opts = {}) {
       // pair decides for itself. Without this the whole-edge shopfronts - the
       // frontages too short to cut into lots - would be uniformly lit or
       // uniformly dark down their entire length.
-      const st = opts.state !== undefined
-        ? opts.state
-        : tenancyState(opts.seed ?? 0, e.i, bi >> 1);
+      let st;
+      if (opts.state !== undefined) st = opts.state;
+      else if (bi >> 1 === lastPair) st = pairState;
+      else {
+        const capped = tenancyStateCapped(darkRun, opts.seed ?? 0, e.i, bi >> 1);
+        st = capped.state; darkRun = capped.run;
+        lastPair = bi >> 1; pairState = st;
+      }
       const glass = glassC[st], bulkC = bulkCs[st], jambC = jambCs[st];
       const o0 = P(s0), o1 = P(s1);            // opening edges at the wall line
       const g0 = back(o0, depth), g1 = back(o1, depth);
