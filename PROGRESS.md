@@ -4722,3 +4722,183 @@ carried their own copy of; it now lives once in `src/geom.js`.
 - **`chunk stall ms` is unusable while anything else runs on the box.** The same code
   measured 7.1, 24.1, 7.9, 68.5 and 11.6 ms depending only on how many headless browsers
   were alive. It is a max, not a percentile.
+
+---
+
+## Status as of 2026-09-07 — the kerb
+
+A blind reviewer, measuring rather than eyeballing: **there is no kerb anywhere in the
+district.** "At corridor y=700, x1120→1200 the profile falls monotonically 113.6 → 63.9:
+no gutter line, no kerb face, no shadow at its base. At 5× the asphalt abuts the brick
+along a single hairline seam with the two surfaces reading as coplanar."
+
+They were right, and the cause is a datum, not a missing model. The drawn land pad sits at
+**-0.05** and the road ribbon at **+0.02**, so the pavement is 70 mm BELOW the carriageway
+— the wrong way round by about 170 mm.
+
+### What was built
+
+`src/kerb.js` — the section and the plan, as pure arithmetic over the baked graph with no
+THREE import, so the offline price (`tools/kerb-cost.mjs`) and the geometry gate
+(`tools/geom-audit.mjs`) run the same code the streamer draws.
+
+Section, `o` metres outboard of the ribbon edge:
+
+| o | y | what |
+|---|---|---|
+| -0.06 | +0.018 | lap under the ribbon edge |
+| 0.55 | -0.040 | shoulder, 10.5% |
+| 2.00 | -0.040 | parking lane, flat |
+| 2.50 | -0.105 | concrete gutter pan, 13% |
+| 2.50 → 2.52 | -0.105 → +0.012 | **kerb face, 117 mm, battered 20 mm** |
+| 2.64 | +0.012 | kerb top |
+| 2.74 | -0.048 | back chamfer, on to the pad |
+
+Every offset is pinned by something already placed, not chosen: parked cars straddle
+o = 0.55..2.05 at y = -0.070 (a flat lane sinks them 23-30 mm against the 20 mm the bare
+pad already does); signage.js stands its plates at o = 1.10..1.30 with their bases on the
+pad; and the assembly stops 0.11 m short of streetfurniture.js's kerb station line at
+w/2 + 2.85. The widening is not invented — `w` in the bake is lanes × laneWidth, the
+travelled way only, which is why cars already parked 1.3 m beyond the drawn asphalt, on
+brick pavers.
+
+### The measurement, before and after
+
+`tools/kerb-profile.mjs`, one build on one port, `?kerbs=0` as the control. A median of 13
+sections 0.7 m apart across a kerb line at (126.5, -169.3), 15.1 m from the corridor
+camera, walked as a 3D section rather than as a line on the ground. Parked cars and the
+crowd are hidden in BOTH arms.
+
+| time | build | monotone | reversals | faceDrop | panLift |
+|---|---|---|---|---|---|
+| golden | before | 0.523 | 52 | **2.0** | **7.7** |
+| golden | after | 0.519 | 24 | **14.2** | **17.1** |
+| noon | before | 0.526 | 75 | **18.6** | **14.4** |
+| noon | after | 0.516 | 45 | **71.3** | **33.4** |
+| dusk | before | 0.528 | 52 | **4.4** | **6.9** |
+| dusk | after | 0.509 | 22 | **14.0** | **15.8** |
+
+`faceDrop` is the darkest turning point in the face band against the brighter of its two
+shoulders — the reviewer's "shadow at its base". `panLift` is the brightest turning point
+in the gutter band against the carriageway mean — their "gutter line". Both are read off
+TURNING POINTS, not band extremes, because the darkest sample in the face band of a
+monotonic fall is simply its far end and subtracting the bright end reports a shadow that
+is not there.
+
+The reversal count FALLS (52 → 24, 75 → 45, 52 → 22) because 2.74 m of high-frequency
+brick paving is replaced by smoother asphalt and concrete: the noise-driven turning points
+go and the real ones stay. `monotone` sits near 0.5 in both arms and does not discriminate
+— a textured render is not a smooth ramp, and that statistic is measuring paver noise.
+
+At golden hour the after arm's three turning points across the kerb are
+`max@-0.43 m = 70.0` (the pan), `min@+0.01 m = 50.1` (the face), `max@+0.02 m = 70.1` (the
+top). The before arm has none: 67.7 / 64.2 / 69.7 / 64.2 across the same four stations, a
++-3 wander of brick.
+
+Station luminances, noon: the parking lane goes 151.4 → 123.8 (brick to grimy asphalt),
+the pan 168.6 → 167.6 (brick to concrete, near enough the same value but now a band with
+edges), the face 175.9 → 161.1.
+
+### Reference
+
+`reference/sarasota/mapillary/mly-467303624342265.jpg` and `mly-4313177338733385.jpg` are
+flat frames on Main Street east — the corridor the hero camera stands in. Both show the
+same section: dark asphalt, a pale concrete gutter pan noticeably brighter than the road, a
+short kerb face carrying a hard shadow, then the pavement. Florida DOT Type F: cast
+concrete, a real pan rather than a bare face, and the pan LIGHTER than the road it edges.
+
+### Cost
+
+Priced offline and deterministically, because the budget gate's triangle statistic carries
+~20,000 of noise:
+
+    whole district      near 59,277   far 11,657
+    worst loaded ring   26,674 total (19,192 near over 25 chunks, 7,482 far over 75)
+
+against ~335,000 for the district's buildings. The polylines do the work: 442 kerbed edges
+carry 21.6 km of centreline in 932 segments, mean 23.2 m, so a swept section costs 12
+triangles per SEGMENT and not per metre.
+
+The far tier gets the footprint flat and nothing else. At 1600x900 and 55 degrees, with the
+camera 2.4 m above the pad, the whole 2.74 m section is 0.17 of a pixel DEEP at the 192 m
+the far ring starts at and the 117 mm face is 0.57 of a pixel TALL. The widening is a
+different matter because it is LATERAL and does not foreshorten: 15 px at 192 m, 9 px at
+320 m, a visible notch in the kerb line at the LOD seam. So the apron stays and the rest
+goes — 2 triangles per station pair instead of 12.
+
+Draw calls: one extra mesh per NEAR chunk, on the registry's existing `kerb` material. The
+asphalt half rides in the road mesh and costs none. The concrete half receives shadow and
+does not cast — the dark line at the foot of a kerb is mostly the face's own shading, its
+normal leans back over the carriageway, and a caster would add a second draw call per near
+chunk to the depth pass against a 228/275 draw-call p95.
+
+Measured at the two hero cameras, one build, one port, `?kerbs=0` as the control:
+
+| camera | time | draw k0 → k1 | triangles k0 → k1 | Δ |
+|---|---|---|---|---|
+| corridor | noon | 159 → 162 | 640,534 → 654,874 | +14,340 |
+| corridor | golden | 171 → 174 | 658,938 → 673,278 | +14,340 |
+| corridor | dusk | 176 → 179 | 656,466 → 670,806 | +14,340 |
+| corridor | night | 163 → 166 | 651,748 → 666,088 | +14,340 |
+| fivepoints | noon | 176 → 183 | 686,991 → 693,949 | +6,958 |
+| fivepoints | golden | 188 → 195 | 700,883 → 707,841 | +6,958 |
+| fivepoints | dusk | 194 → 201 | 715,290 → 722,248 | +6,958 |
+| fivepoints | night | 180 → 187 | 693,693 → 700,651 | +6,958 |
+
+**+3 draw calls and +14,340 triangles at the corridor camera; +7 and +6,958 at Five
+Points.** The triangle delta is IDENTICAL across all four hours at each camera, which is
+what a clean A/B looks like: the crowd and the parked pool are instanced and do not move
+with the clock, so none of the ~20,000 of budget-gate noise gets in. Peak of the eight is
+201 draw calls against a 275 warn and 722,248 triangles against an 830,000 warn.
+
+### Two bugs the gate found, and one the gate could not
+
+| found by | what |
+|---|---|
+| `geom-audit` kerbInCarriageway | the miter's outboard normal was inverted at both tips, standing 117 mm of concrete across three arterials, 1.94 m deep |
+| `geom-audit` kerbInCarriageway | `breakRun` skipped a run's OWN edge, so an offset polyline that folds over itself on an 82° shape point put the kerb face 0.6 m inside its own road |
+| a whole-frame diff | **half the district's kerbs were back-facing.** The handedness of (travel, outboard) flips between the two sides of a street, and these materials are FrontSide. It did not look like a bug — a street with a kerb down one side looks like plenty of real streets |
+
+The third is the one worth remembering: no number said "back-facing". The before/after
+profile came back IDENTICAL across the left kerb while a whole-frame diff of the same two
+PNGs showed 5.72% of pixels differing and a 2.7 m band of change down the right.
+`geom-audit` now checks that every emitted triangle's geometric normal agrees with the
+vertex normal it carries — 0 of 55,486 today, 39,298 of 55,486 with `KERB_AUDIT_FAULT=wind`.
+
+### New gates, all falsifiable
+
+`tools/geom-audit.mjs` gained a SURFACE, not just a check: `drawnGroundAt()` replays
+src/kerb.js's own section, and the street-sign check now measures each post against the
+ground it actually stands on rather than the flat -0.05 it used to assume.
+
+    KERB_AUDIT_FAULT=float   kerbSection floatsAbovePavement  0.122            FAIL
+    KERB_AUDIT_FAULT=sink    kerbSection sinksBelowPavement   0.118            FAIL
+    KERB_AUDIT_FAULT=road    kerbInCarriageway  1,600 stations, 3.49 m deep    FAIL
+    KERB_AUDIT_FAULT=lane    streetSignPost stop 0.025, many                   FAIL
+    KERB_AUDIT_FAULT=wind    kerbBackFacing  39,298 of 55,486                  FAIL
+
+`tools/kerb-profile.mjs --selftest` fails on a monotonic ramp reported as a kerb, on noise
+reported as a kerb, on a seam 2.5 m off the kerb line being credited, and on a 4-byte PNG
+stride. `tools/kerb-cost.mjs --selftest` fails on a mispriced run and on a section outside
+the 100-150 mm reveal band.
+
+### Two things this instrument got wrong before it got anything right
+
+- **A section across a kerb is a 3D curve, not a line on the ground.** The corridor camera
+  looks down the street, so a section across the kerb projects to a single image ROW: a
+  straight line between its two ends runs along the FOOT of the kerb and never climbs its
+  face. At 20 m the face is 5.2 px tall and the sample line passed under all five.
+- **The band landed on a parked car.** The kerb face is 5.8 m from the centreline and the
+  parking lane is 1.3 m of that, so a parked car stands squarely between a camera in the
+  carriageway and the kerb behind it. The instrument now hides the parked-car pool and the
+  crowd in both arms, and writes an overlay of its own sample points on the frame every
+  run — both faults were invisible in the table and obvious in one look at where it
+  sampled.
+
+### Still open, adjacent
+
+The same reviewer called the brick paving "a blurred low-texel mush at this camera
+distance". The kerb takes 2.74 m of the nearest brick out of every street-level frame and
+replaces it with asphalt and concrete, which helps, but the paver albedo is still 512 px
+over a 3 m tile — 171 px/m against roughly 770 px/m of screen resolution at 2 m. That is a
+texture-budget decision, not a geometry one, and it was not made here.
