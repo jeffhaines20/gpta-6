@@ -72,6 +72,14 @@ less than one that says what moved and by how much.
 - **Never wait on a log string.** Wait on the process (`wait $PID`, or poll
   `kill -0 $PID`). Five polling loops in one session waited hours for an `EXIT`
   line that a *successful* run never prints.
+- **`pgrep -f PATTERN` matches the waiting shell's own command line.** So
+  `until ! pgrep -f "hero-shots"; do sleep 30; done` can never exit: the shell
+  running it has "hero-shots" in its own argv and finds itself forever. Fourteen
+  such loops were found alive in one session, two of them spinning for 2.8 hours
+  after the thing they waited for had finished. The same trap gives a false
+  "still busy" from a one-shot check. Wait on a PID you captured (`kill -0 $PID`),
+  or if you must match by name, use a pattern that cannot match itself —
+  `pgrep -f "[h]ero-shots"`.
 - Headless capture runs through SwiftShader well under 1 fps. Budget minutes per
   frame, and never report frame rate as a performance result.
 - `blind-compare` refuses to build a pair set carrying under 8% facade-band
