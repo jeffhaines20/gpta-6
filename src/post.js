@@ -148,6 +148,10 @@ uniform float bias;
 uniform float intensity;
 uniform float falloff;      // metres of soft ramp on the occlusion test; 0 = hard step
 uniform float dither;       // 0 = per-pixel hash rotation; N = an NxN interleaved tile
+uniform float occNear;      // metres: occluders nearer than this count in full
+uniform float occFar;       // metres: occluders beyond this do not count at all; 0 = off
+uniform float rangeScale;   // metres: scale of the z range check; 0 = use radius
+uniform float thickness;    // metres of assumed occluder depth; 0 = infinitely thick
 uniform float cameraFar;
 varying vec2 vUv;
 
@@ -273,11 +277,22 @@ ${KERNEL ? `
     vec2 suv = (clip.xy / clip.w) * 0.5 + 0.5;
     if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0) continue;
 
-    float sceneZ = viewPosAt(suv).z;
+    // THE WHOLE VIEW POSITION, not just its z. The tap is the same one the r8
+    // shader already took -- viewPosAt(suv).z reconstructs all three
+    // components and throws two of them away -- so knowing WHERE the occluder
+    // is, and not merely how deep it is, costs nothing.
+    vec3 occPos = viewPosAt(suv);
+    float sceneZ = occPos.z;
     float diff = sceneZ - samplePos.z;
     // Range check: a sample far in front of the surface is a different object, not
     // an occluder. Without it every silhouette grows a dark halo.
-    float rangeCheck = smoothstep(0.0, 1.0, radius / max(1e-4, abs(origin.z - sceneZ)));
+    //
+    // ITS SCALE WAS THE KERNEL RADIUS AND IS NOW A PARAMETER. radius / |dz| is
+    // >= 1 for every dz under the radius, so at 0.6 m the check does NOTHING to
+    // an occluder standing 0.6 m proud and is still passing 22% of one standing
+    // two metres proud. rangeScale = 0 keeps the r8 pairing exactly.
+    float rs = rangeScale > 0.0 ? rangeScale : radius;
+    float rangeCheck = smoothstep(0.0, 1.0, rs / max(1e-4, abs(origin.z - sceneZ)));
     // THE TEST IS A STEP, AND A STEP IS WHERE THE QUANTISATION COMES FROM. With
     // falloff = 0 this is the r8 behaviour: each sample contributes 0 or 1, so a
     // 12-sample estimate can only take 13 values and a geometry change of a
@@ -287,7 +302,46 @@ ${KERNEL ? `
     // camera moves half a pixel.
     float hit = falloff > 0.0 ? smoothstep(bias, bias + falloff, diff)
                               : (diff > bias ? 1.0 : 0.0);
-    occlusion += hit * rangeCheck;
+
+    // OBSCURANCE: HOW FAR AWAY IS THE THING DOING THE OCCLUDING?
+    //
+    // Nothing above this line asks. A sample that lands 2 cm inside a shoe and a
+    // sample that lands 50 cm along a wall both contribute exactly 1.0, and the
+    // z range check does not separate them either -- it is 1.0 for every
+    // occluder inside the radius by construction (radius / |dz| >= 1).
+    //
+    // THAT IS WHY THE FACADE SEAM IS A PAINTED LINE AND NOT A GRADIENT. For an
+    // infinite perpendicular wall, the fraction of the hemisphere it blocks is
+    // one half AT EVERY DISTANCE from the corner -- distance does not enter the
+    // unbounded visibility integral at all. So a binary-visibility estimator
+    // draws a 90-degree corner as a PLATEAU, and the only thing that ends it is
+    // the kernel running out of length. Measured on the fivepoints corner
+    // (tools/ao-seam.mjs, raycast against the scene): the two faces meet at
+    // 90.0 degrees, and occlusion holds above 0.2 for 0.283 m along the grazing
+    // face and 0.612 m along the face-on one -- 0.52 m of longest kernel vector
+    // plus 0.09 m of blur. The profile's shape is the kernel's reach, not the
+    // building's.
+    //
+    // Obscurance is the standard repair and it is the one that also makes
+    // physical sense: a distant occluder of the same solid angle removes less
+    // light than a near one, because it is more likely to be lit itself and to
+    // bounce light back. So weight the hit by the occluder's REAL 3D distance
+    // from the shaded point -- full inside occNear, nothing past occFar.
+    //
+    // AND IT IS WHY THIS CAN SEPARATE A WALL JUNCTION FROM A GROUND CONTACT,
+    // WHICH NO PARAMETER CAN. A parameter multiplies both; this asks a question
+    // whose answer differs between them. Under a shoe or a bin the occluder is
+    // 2 to 15 cm away; on the flank of a facade corner it is the corner itself,
+    // 20 to 60 cm away. Same term, opposite side of the knee.
+    //
+    // occFar = 0 is the r8 behaviour exactly: no attenuation at any distance.
+    float w = rangeCheck;
+    if (occFar > 0.0) w *= 1.0 - smoothstep(occNear, occFar, length(occPos - origin));
+    // THICKNESS. The depth buffer has no back face, so an occluder is an
+    // infinite slab receding from the camera and a sample metres behind a thin
+    // pier still counts against it. thickness = 0 keeps that.
+    if (thickness > 0.0) w *= 1.0 - smoothstep(thickness, thickness * 2.0, diff);
+    occlusion += hit * w;
   }
 
   float ao = 1.0 - occlusion / float(SAMPLES);
@@ -1111,6 +1165,16 @@ export class PostStack {
       aoFalloff: 0,
       aoDither: 5,
       aoDepthSigma: 0,
+      //   aoOccNear     metres. Occluders nearer than this count in full.
+      //   aoOccFar      metres. Occluders beyond this do not count at all.
+      //                 0 disables the term and restores r8 exactly.
+      //   aoRangeScale  metres. Scale of the z range check; 0 = use aoRadius,
+      //                 which is what r8 did.
+      //   aoThickness   metres of assumed occluder depth; 0 = infinitely thick.
+      aoOccNear: 0,
+      aoOccFar: 0,
+      aoRangeScale: 0,
+      aoThickness: 0,
     };
 
     const type = THREE.HalfFloatType;
@@ -1273,6 +1337,10 @@ export class PostStack {
         intensity: { value: p.aoIntensity },
         falloff: { value: p.aoFalloff },
         dither: { value: p.aoDither },
+        occNear: { value: p.aoOccNear },
+        occFar: { value: p.aoOccFar },
+        rangeScale: { value: p.aoRangeScale },
+        thickness: { value: p.aoThickness },
         cameraFar: { value: 1 },
       },
       depthTest: false, depthWrite: false,
@@ -1435,6 +1503,10 @@ export class PostStack {
       au.intensity.value = this.params.aoIntensity;
       au.falloff.value = this.params.aoFalloff;
       au.dither.value = this.params.aoDither;
+      au.occNear.value = this.params.aoOccNear;
+      au.occFar.value = this.params.aoOccFar;
+      au.rangeScale.value = this.params.aoRangeScale;
+      au.thickness.value = this.params.aoThickness;
       au.cameraFar.value = this.camera.far;
       this._blit(this.aoMat, this.aoRT);
 

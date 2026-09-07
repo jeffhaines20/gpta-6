@@ -228,45 +228,72 @@ await page.evaluate((c) => {
 }, CAM);
 
 // ------------------------------------------------------------------ geometry
-// One raycast per column, at the middle row of the window, against the scene the
-// camera is looking at. Everything here is a property of the world and does not
-// change between arms, so it is measured ONCE.
+// ONE RAYCAST PER COLUMN PER ROW, against the scene the camera is looking at.
+// Everything here is a property of the world and cannot change between arms, so
+// it is measured ONCE.
+//
+// THREE ROWS AND NOT ONE. The occlusion profile is a mean over ~130 rows of the
+// band; a single ray through the middle of it describes that band only if the
+// geometry is the same all the way up. Taking the MEDIAN of three rows costs two
+// more raycasts and makes a row that clips a balcony or a sign unable to set the
+// answer on its own -- and the spread between them is printed, so a window where
+// they disagree says so instead of quoting a number it cannot support.
 const geom = await page.evaluate(async ([win, ww, hh]) => {
   const THREE = await import('/vendor/three.module.min.js');
   const cam = __district.camera;
   cam.updateMatrixWorld(true);
   const rc = new THREE.Raycaster();
   rc.far = 400;
-  const y = Math.round((win.y0 + win.y1) / 2);
-  const out = [];
-  for (let x = win.x0; x <= win.x1; x++) {
-    const ndc = new THREE.Vector2(((x + 0.5) / ww) * 2 - 1, -(((y + 0.5) / hh) * 2 - 1));
-    rc.setFromCamera(ndc, cam);
-    const hits = rc.intersectObject(__district.scene, true);
-    const h = hits.find((q) => q.object.visible && q.distance > 0.05);
-    if (!h) { out.push(null); continue; }
-    const p = h.point.clone();
-    const v = p.clone().applyMatrix4(cam.matrixWorldInverse);
-    out.push({ x, wx: p.x, wy: p.y, wz: p.z, vz: v.z, dist: h.distance,
-      name: h.object.name || (h.object.geometry && h.object.geometry.type) || '?' });
-  }
-  return { y, cols: out, camPos: cam.position.toArray() };
+  const rows = [0.25, 0.5, 0.75].map((f) => Math.round(win.y0 + f * (win.y1 - win.y0)));
+  const byRow = rows.map((y) => {
+    const out = [];
+    for (let x = win.x0; x <= win.x1; x++) {
+      const ndc = new THREE.Vector2(((x + 0.5) / ww) * 2 - 1, -(((y + 0.5) / hh) * 2 - 1));
+      rc.setFromCamera(ndc, cam);
+      const hits = rc.intersectObject(__district.scene, true);
+      const h = hits.find((q) => q.object.visible && q.distance > 0.05);
+      if (!h) { out.push(null); continue; }
+      const p = h.point.clone();
+      const v = p.clone().applyMatrix4(cam.matrixWorldInverse);
+      out.push({ x, wx: p.x, wy: p.y, wz: p.z, vz: v.z, dist: h.distance,
+        name: h.object.name || (h.object.geometry && h.object.geometry.type) || '?' });
+    }
+    return out;
+  });
+  return { rows, byRow, cols: byRow[1], camPos: cam.position.toArray() };
 }, [WIN, W, H]);
 
-// The depth step: the adjacent column pair with the largest |dvz|. Found, not
-// assumed -- see the header.
+const median = (a) => { const b = a.filter(Number.isFinite).sort((p, q) => p - q); return b.length ? b[b.length >> 1] : NaN; };
+const N = geom.cols.length;
+
+// The depth step: the adjacent column pair with the largest |dvz|, on the median
+// of the rows. Found, not assumed -- see the header.
 let stepIdx = 0, stepMag = -1;
-for (let i = 0; i + 1 < geom.cols.length; i++) {
-  const a = geom.cols[i], b = geom.cols[i + 1];
-  if (!a || !b) continue;
-  const d = Math.abs(a.vz - b.vz);
-  if (d > stepMag) { stepMag = d; stepIdx = i; }
+for (let i = 0; i + 1 < N; i++) {
+  const d = median(geom.byRow.map((r) => (r[i] && r[i + 1] ? Math.abs(r[i].vz - r[i + 1].vz) : NaN)));
+  if (Number.isFinite(d) && d > stepMag) { stepMag = d; stepIdx = i; }
 }
-// Distance along the surface from the step, in metres, on each side. Measured
-// between the actual 3D hit points, so a grazing wall is not read as if it were
-// square to the camera.
-const anchor = geom.cols[stepIdx] || geom.cols[0];
-const along = geom.cols.map((c) => (c && anchor ? Math.hypot(c.wx - anchor.wx, c.wy - anchor.wy, c.wz - anchor.wz) * (c.x <= anchor.x ? -1 : 1) : null));
+
+// DISTANCE ALONG THE SURFACE, AS ARC LENGTH. The first version of this took the
+// straight-line 3D distance from each column to one anchor point and differenced
+// those, which is only an arc length if the columns are collinear with the
+// anchor -- on the fivepoints corner it read the 0.283 m left flank as 0.030 m,
+// because the flank curls around the anchor rather than running away from it.
+// Summing |P_i - P_{i-1}| along the chain is the honest measurement and it is
+// what the reviewer's "13-18 px of flat stone" means in metres.
+const step = [];
+for (let i = 0; i < N; i++) {
+  step.push(i === 0 ? 0 : median(geom.byRow.map((r) => (r[i - 1] && r[i] ? Math.hypot(r[i].wx - r[i - 1].wx, r[i].wy - r[i - 1].wy, r[i].wz - r[i - 1].wz) : NaN))));
+}
+const along = [];
+for (let i = 0, acc = 0; i < N; i++) { acc += Number.isFinite(step[i]) ? step[i] : 0; along.push(acc); }
+// How far apart do the three rows put the same span? Reported, so a window whose
+// geometry changes with height cannot be quoted as if it did not.
+const rowArc = geom.byRow.map((r) => {
+  let acc = 0;
+  for (let i = 1; i < N; i++) if (r[i - 1] && r[i]) acc += Math.hypot(r[i].wx - r[i - 1].wx, r[i].wy - r[i - 1].wy, r[i].wz - r[i - 1].wz);
+  return acc;
+});
 
 const readStrip = () => page.evaluate(([win, ww, hh]) => {
   const rt = __district.post.aoBlurRT, r = __district.renderer;
@@ -343,6 +370,8 @@ const run = async (arm, label) => {
 console.log(`\ncam ${CAMNAME}, tod ${TOD}, peds ${PEDS}, window x${WIN.x0}-${WIN.x1} y${WIN.y0}-${WIN.y1}`);
 console.log(`depth step at column x=${geom.cols[stepIdx] && geom.cols[stepIdx].x}, |dvz| ${stepMag.toFixed(3)} m, ` +
   `surface ${geom.cols[stepIdx] ? geom.cols[stepIdx].dist.toFixed(1) : '?'} m out`);
+console.log(`window spans ${along[N - 1].toFixed(3)} m of surface; the three rows read ` +
+  rowArc.map((a) => a.toFixed(3)).join(' / ') + ' m');
 for (const arm of ARMS) await run(arm, arm.name);
 await run(ARMS[0], '__repeat');
 
@@ -369,7 +398,7 @@ if (has('dump')) {
 fs.writeFileSync(`docs/ao-seam-${TAG}.json`, JSON.stringify({
   cam: CAMNAME, tod: TOD, peds: PEDS, port: PORT, window: WIN, stepIdx, stepMag,
   stepX: geom.cols[stepIdx] && geom.cols[stepIdx].x, void: isVoid,
-  geom: geom.cols, along, results,
+  rows: geom.rows, rowArc, geom: geom.cols, along, results,
 }, null, 1));
 console.log(`\nwrote docs/ao-seam-${TAG}.json`);
 if (errs.length) console.log('PAGE ERRORS:', errs);
