@@ -786,6 +786,30 @@ export class PostStack {
       //
       //     parked car   22.3 m       7.9         10.7        18.9
       //
+      // 1.0 / 2 IS TAKEN AND 1.0 / 1 IS NOT, and the reason is the pedestrian
+      // halo the previous round bought and this round was told not to spend.
+      // tools/ao-sweep.mjs, same kernel, same camera, reading the AO buffer:
+      //
+      //                                     0.5 / 2   1.0 / 2   1.0 / 1
+      //     last radius still over 0.05 ..     2.93      3.17      4.15   bw
+      //     last radius still over 0.02 ..     7.56      7.80      8.05   bw
+      //     darkening at 3 body widths        0.0479    0.0521    0.0603
+      //     darkening at 6 body widths        0.0276    0.0272    0.0245
+      //     foot occlusion under the shoe     0.7659    0.7941    0.7974
+      //     prop @ 18.8 m contact rise        0.2187    0.2786    0.2977
+      //
+      // The previous round shipped its halo win as "last radius still over 0.05:
+      // 8.5 bw -> 3.2 bw". 1.0 / 2 lands that number at 3.17 -- where that round
+      // left it -- while 1.0 / 1 gives back 1.2 body widths of it. So the wider
+      // kernel buys 85% of the prop gain for 20% of the halo cost, and the blur
+      // width stays where it was. Only the resolution changes.
+      //
+      // Everything else moves the right way or not at all: foot contact 0.7659
+      // -> 0.7941, window reveal contrast 0.1842 -> 0.1992, wall/pavement crease
+      // 0.0533 -> 0.0504, frame mean occlusion 0.1317 -> 0.1231 (LESS blanket
+      // AO, more of it in the right place), and all three of ao-sweep's prop
+      // contacts improve.
+      //
       // AND THE SHARPENING IS NOT GRAIN, which is the thing to disprove before
       // believing any of it: an unfiltered SSAO buffer is noisy, and a narrower
       // blur would raise `edge` just as convincingly if the tool were measuring
@@ -797,23 +821,18 @@ export class PostStack {
       //
       // WHICH KNOB IS DOING IT: the resolution, not the blur width. Narrowing
       // the blur at half res (0.5 / 1) is a slight NEGATIVE -- umbra 0.7764 ->
-      // 0.7920 on the car -- because a half-res texel is already 2 screen pixels
-      // and there is nothing left to preserve. Full res is what buys it; the
-      // narrower kernel is then worth taking because at full res it is also 9
-      // taps instead of 25.
+      // 0.7920 on the car -- because a half-res texel is already two screen
+      // pixels and there is nothing left there to preserve. That is the
+      // isolation that picks this parameter out of the two: one of them does
+      // nothing on its own and the other does all of it.
       //
       // WHAT IT COSTS, as arithmetic rather than a timing on this box: no
-      // geometry, no draw calls, and no change to any other pass. The AO passes'
-      // tap-pixel count goes from 12*N/4 + 25*N/4 = 9.25N to 12*N + 9*N = 21N,
-      // i.e. 2.27x the pixel work of two of the seven post passes.
-      //
-      // TWO NUMBERS GO THE OTHER WAY AND ARE HERE BECAUSE THEY DO. prop@18.8
-      // and prop@19.4 read 0.0043 and 0.0090 worse. Both are an order of
-      // magnitude under the improvements beside them and both are inside the
-      // between-run scatter of this metric (~0.017, measured across the previous
-      // attempt's three separate base runs at one unchanged parameter set).
+      // geometry, no draw calls, no change to any other pass, and geom-audit's
+      // prop counts identical to the unit. The AO passes' tap-pixel count goes
+      // from 12*N/4 + 25*N/4 = 9.25N to 12*N + 25*N = 37N, i.e. 4x the pixel
+      // work of two of the seven post passes and of nothing else.
       aoScale: 1.0,
-      aoBlurRadius: 1,
+      aoBlurRadius: 2,
     };
 
     const type = THREE.HalfFloatType;

@@ -676,6 +676,10 @@ const out = await page.evaluate(async ([armNames, boxes, minpx, wpx, hpx, wantSh
     // aoBlurRadius the half-width of the 5x5 that follows it; shipped at 0.5
     // and 2, so the smoothing reaches +-4 SCREEN pixels. A 2.2 m kernel does not
     // care. A 0.6 m one is the contact band itself.
+    // The buffer config as it shipped BEFORE this round: half resolution, 5x5.
+    // Having it as an arm means the before/after can be rendered in one task
+    // against the same frozen world, rather than across two builds.
+    aoHalf5: () => { D.post.params.aoScale = 0.5; D.post.params.aoBlurRadius = 2; resize(); },
     aoFull: () => { D.post.params.aoScale = 1.0; resize(); },
     aoBlur1: () => { D.post.params.aoBlurRadius = 1; },
     aoBlur0: () => { D.post.params.aoBlurRadius = 0; },
