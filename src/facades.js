@@ -1314,35 +1314,50 @@ const TRIM_PAD = 0.004;   // keeps mip sampling inside the cell
 // So the switch is carried in the INTEGER PART OF V, which was previously always
 // zero and is therefore free.
 //
-//   v in [0, 1)   this cell, tenancy unlit
-//   v in [1, 2)   this cell, tenancy lit
+//   v in [0, 1)   this cell, tenancy DARK
+//   v in [1, 2)   this cell, tenancy DIM
+//   v in [2, 3)   this cell, tenancy LIT
 //
-// The albedo and rm atlases wrap (wrapT = RepeatWrapping), so v and v + 1 sample
-// exactly the same texel in them: a lit shopfront and a dark one are BIT
-// IDENTICAL in albedo, roughness and metalness. That is what makes the daylight
-// proof trivial rather than approximate - at noon and golden there is no emissive
-// intensity at all (see TRIM_EMISSIVE), and the only other map either state can
-// reach is the same one.
+// The albedo and rm atlases wrap (wrapT = RepeatWrapping), so v, v + 1 and v + 2
+// sample exactly the same texel in them: all three states are BIT IDENTICAL in
+// albedo, roughness and metalness. That is what makes the daylight proof trivial
+// rather than approximate - at noon and golden there is no emissive intensity at
+// all (see TRIM_EMISSIVE), and the only other maps any state can reach are the
+// same ones.
 //
-// The EMISSIVE atlas is the trim grid twice over, 4 x 8, sampled with
-// repeat.y = 0.5 so that v / 2 lands in it. Its top half (canvas rows 0-3) is the
-// lit block and its bottom half (rows 4-7) is black. Nothing else in the kit -
-// awnings, cornices, roof plant, railings, kerb furniture - ever asks for v + 1,
-// so nothing else can glow by accident.
+// THREE STATES, NOT TWO, and that is a correction rather than an elaboration.
+// The first build of this had a binary switch at 42% lit, and the hero frame came
+// back with the whole near row - the CASSAVA / LUMEN CAMERA frontage three
+// reviewers named by name - drawing dark together, while the far row (Tinsmith
+// Deli) drew lit together. Both are legal under a 42% coin and neither is wrong
+// on its own, but the picture was still a black row, which is the defect. Worse,
+// binary is a bad model of the thing: a shopfront that is FULLY black at night is
+// the exception on a real high street, not the rule. Most closed units keep a low
+// security or display light burning behind the glass all night, because insurers
+// and ordinances ask for it. So the middle state is the common one, "lit" means
+// open and trading, and only a minority of units go properly dark.
 //
-// Cost: ONE 256x512 RGBA texture, 0.67 MB with its mip chain. The comment at
-// EMISSIVE_INTENSITY refuses 7 MB for a third FACADE emissive atlas; this is 9.5%
+// The EMISSIVE atlas is therefore the trim grid three times over, 4 x 12, sampled
+// with repeat.y = 1/3 so that v / 3 lands in it. Canvas rows 0-3 are LIT, 4-7 are
+// DIM and 8-11 are black. Nothing else in the kit - awnings, cornices, roof
+// plant, railings, kerb furniture - ever asks for v + 1 or v + 2, so nothing else
+// can glow by accident.
+//
+// Cost: ONE 256x768 RGBA texture, 1.0 MB with its mip chain. The comment at
+// EMISSIVE_INTENSITY refuses 7 MB for a third FACADE emissive atlas; this is 14%
 // of that, because the trim atlas is one shared 512 px atlas for the whole
 // district rather than a 1024 px panel per recipe. No triangles, no attributes,
 // no second material and no second draw call.
-export const TRIM_LIT_V = 1;
+export const TRIM_DARK = 0, TRIM_DIM = 1, TRIM_LIT = 2;
+export const TRIM_STATES = 3;
 
 // UV rect for a trim cell. Canvas rows run top-down, texture v runs bottom-up.
-// `lit` shifts into the lit block of v; see TRIM_LIT_V.
-export function trimCell(cell, lit = false) {
+// `state` is TRIM_DARK / TRIM_DIM / TRIM_LIT and shifts v by whole units, which
+// is the one shift a RepeatWrapping albedo sampler cannot see.
+export function trimCell(cell, state = TRIM_DARK) {
   const [ix, iy] = cell;
   const s = 1 / TRIM_GRID;
-  const dv = lit ? TRIM_LIT_V : 0;
+  const dv = state | 0;
   return {
     u0: ix * s + TRIM_PAD, u1: (ix + 1) * s - TRIM_PAD,
     v0: 1 - (iy + 1) * s + TRIM_PAD + dv, v1: 1 - iy * s - TRIM_PAD + dv,
@@ -1638,18 +1653,19 @@ function buildTrimAtlas() {
     albedo: al, rm, emissive: em,
     albedoMips: packedMips(cut(al, [TRIM_GRID, TRIM_GRID], C), TRIM_GRID, TRIM_GRID, C),
     rmMips: packedMips(cut(rm, [TRIM_GRID, TRIM_GRID], C), TRIM_GRID, TRIM_GRID, C),
-    emissiveMips: packedMips(cut(em, [TRIM_GRID, TRIM_GRID * 2], C / 2),
-      TRIM_GRID, TRIM_GRID * 2, C / 2),
+    emissiveMips: packedMips(cut(em, [TRIM_GRID, TRIM_GRID * TRIM_STATES], C / 2),
+      TRIM_GRID, TRIM_GRID * TRIM_STATES, C / 2),
   };
 }
 
 // ------------------------------------------------------- the lit shop interior
 //
-// The emissive half of the trim atlas: 4 x 8 cells at HALF the albedo cell size,
+// The emissive part of the trim atlas: 4 x 12 cells at HALF the albedo cell size,
 // because a glow through a shop window carries no high-frequency detail worth
 // paying for - the same argument layers() makes for the facade panels' emScale.
-// Canvas row `iy` is the LIT variant of trim cell row `iy`; rows 4-7 are the
-// unlit block and stay black. See TRIM_LIT_V for how one v addresses both.
+// Canvas rows 0-3 are the LIT variant of trim rows 0-3, rows 4-7 the DIM variant,
+// rows 8-11 the dark one, which stays black. See TRIM_DARK for how one v
+// addresses all three.
 //
 // What is painted here is a photograph of Main Street after dark, read the way
 // the albedo glass cell is read - top to bottom, because the ORDER is the effect:
@@ -1674,62 +1690,80 @@ function buildTrimAtlas() {
 // at the window. Values are sRGB bytes: three.js decodes the map (colorSpace is
 // set in trimMaps) and multiplies by emissive x TRIM_EMISSIVE[time].
 function buildTrimEmissive(E) {
-  const GX = TRIM_GRID, GY = TRIM_GRID * 2;
+  const GX = TRIM_GRID, GY = TRIM_GRID * TRIM_STATES;
   const c = canvas(GX * E, GY * E);
   const g = c.getContext('2d');
-  // Black is the default and it is load-bearing: an unlit tenancy, and every kit
+  // Black is the default and it is load-bearing: a dark tenancy, and every kit
   // part in the district that is not a shopfront, multiplies its emissive by the
   // texel it finds here. A cell nobody painted cannot glow.
   g.fillStyle = '#000';
   g.fillRect(0, 0, c.width, c.height);
-  const r = rng(hash32('trimEmissive'));
-  // The lit variant of a cell sits at its OWN canvas row, because v + 1 halved is
-  // v / 2 + 0.5 and the atlas is twice as tall. Derived once here so no painter
-  // below has to think about it.
-  const at = (cell) => ({ x: cell[0] * E, y: cell[1] * E });
+  // Canvas row for a cell in a given state. LIT is the top block because reading
+  // the atlas top to bottom then runs brightest to darkest, which is the order
+  // anyone opening it in an image viewer will expect.
+  const at = (cell, state) => ({
+    x: cell[0] * E,
+    y: (cell[1] + (TRIM_LIT - state) * TRIM_GRID) * E,
+  });
   const clip = (x, y, fn) => {
     g.save();
     g.beginPath(); g.rect(x, y, E, E); g.clip();
     fn();
     g.restore();
   };
+  const warm = (k) => (a, b, cc) =>
+    `rgb(${Math.round(a * k)},${Math.round(b * k)},${Math.round(cc * k)})`;
 
   // --- the pane itself
-  {
-    const { x, y } = at(TRIM.glass);
+  //
+  // `k` scales the whole interior: 1.0 is a shop that is open and trading, 0.30 a
+  // closed one showing a security light. The DIM state is not a dimmer copy of
+  // the lit one though - it also drops the display band and the shelf silhouettes
+  // to a fraction, because what is on after hours is the back-of-house light, not
+  // the display track. A uniformly scaled copy would read as the same shop seen
+  // through sunglasses.
+  const pane = (state, k, disp) => {
+    const { x, y } = at(TRIM.glass, state);
+    const w = warm(k);
     clip(x, y, () => {
       const gl = g.createLinearGradient(0, y, 0, y + E);
-      gl.addColorStop(0.00, 'rgb(4,3,2)');        // above the transom: nothing lit
-      gl.addColorStop(0.08, 'rgb(34,23,12)');     // ceiling, edge-on and in shade
-      gl.addColorStop(0.22, 'rgb(96,68,36)');     // the soffit inside starts to catch
-      gl.addColorStop(0.44, 'rgb(126,90,48)');    // back of the shop
-      gl.addColorStop(0.58, 'rgb(176,130,70)');   // rising into the display zone
-      gl.addColorStop(0.655, 'rgb(150,110,60)');  // under the shelf, in its shadow
-      gl.addColorStop(0.80, 'rgb(132,96,52)');    // floor
-      gl.addColorStop(0.94, 'rgb(74,52,26)');
-      gl.addColorStop(1.00, 'rgb(12,8,4)');       // cill shadow
+      gl.addColorStop(0.00, w(3, 2, 1));         // above the transom: nothing lit
+      gl.addColorStop(0.08, w(22, 15, 7));       // ceiling, edge-on and in shade
+      gl.addColorStop(0.22, w(74, 51, 26));      // the soffit inside starts to catch
+      gl.addColorStop(0.44, w(104, 73, 37));     // back of the shop
+      gl.addColorStop(0.58, w(158, 115, 60));    // rising into the display zone
+      gl.addColorStop(0.655, w(126, 91, 47));    // under the shelf, in its shadow
+      gl.addColorStop(0.80, w(116, 83, 43));     // floor
+      gl.addColorStop(0.94, w(62, 43, 21));
+      gl.addColorStop(1.00, w(9, 6, 3));         // cill shadow
       g.fillStyle = gl;
       g.fillRect(x, y, E, E);
 
       // The display lighting. A track over the shelf throws a hard bright band at
       // the shelf line and a short falloff above it; the shelf itself then cuts
       // the light off below. Both edges are drawn because a band with only a top
-      // edge reads as a horizon.
-      const band = g.createLinearGradient(0, y + E * 0.50, 0, y + E * 0.645);
-      band.addColorStop(0, 'rgba(255,214,150,0)');
-      band.addColorStop(0.72, 'rgba(255,214,150,0.55)');
-      band.addColorStop(1, 'rgba(255,226,170,0.92)');
-      g.fillStyle = band;
-      g.fillRect(x, y + E * 0.50, E, E * 0.145);
+      // edge reads as a horizon. `disp` is what separates an open shop from a
+      // closed one far more than the overall level does.
+      if (disp > 0) {
+        const band = g.createLinearGradient(0, y + E * 0.50, 0, y + E * 0.645);
+        band.addColorStop(0, 'rgba(255,214,150,0)');
+        band.addColorStop(0.72, `rgba(255,214,150,${(0.58 * disp).toFixed(3)})`);
+        band.addColorStop(1, `rgba(255,228,174,${(0.95 * disp).toFixed(3)})`);
+        g.fillStyle = band;
+        g.fillRect(x, y + E * 0.50, E, E * 0.145);
+      }
 
       // Goods on the shelf, as silhouettes AGAINST the display light rather than
       // as lit objects: this is the same seven-object shelf the albedo cell
       // draws, and it has to occlude here or the two layers disagree about where
-      // the merchandise is.
+      // the merchandise is. Drawn from a stream re-seeded per state so both
+      // states put their stock in the SAME places - a shop does not rearrange its
+      // window when it closes.
+      const jr = rng(hash32('shelf'));
       for (let i = 0; i < 7; i++) {
-        const w = E * (0.03 + r() * 0.05), h = E * (0.05 + r() * 0.08);
-        g.fillStyle = `rgba(20,13,6,${0.35 + r() * 0.3})`;
-        g.fillRect(x + r() * (E - w), y + E * 0.615 - h, w, h);
+        const sw = E * (0.03 + jr() * 0.05), sh = E * (0.05 + jr() * 0.08);
+        g.fillStyle = `rgba(18,12,5,${(0.35 + jr() * 0.3).toFixed(3)})`;
+        g.fillRect(x + jr() * (E - sw), y + E * 0.615 - sh, sw, sh);
       }
 
       // The stile. A shop window this wide is always divided, the albedo cell
@@ -1741,7 +1775,7 @@ function buildTrimEmissive(E) {
       g.fillStyle = 'rgba(0,0,0,0.8)';
       g.fillRect(x, y + E * 0.05, E, E * 0.04);
     });
-  }
+  };
 
   // --- the recess the pane sits in
   //
@@ -1751,18 +1785,27 @@ function buildTrimEmissive(E) {
   // vignette at a level that reads as bounce rather than as a source. This is the
   // surface storefront()'s own comment calls "the one that catches shop light",
   // and at night it was pure black.
-  {
-    const { x, y } = at(TRIM.stucco);
+  //
+  // THE LEVEL HERE IS THE ONE THING THE FIRST CAPTURE GOT WRONG. At 92/66/38 the
+  // wash reached the pilasters between bays and the whole frontage read flooded -
+  // an interior spilling onto its own front wall as hard as the window itself,
+  // which is not what a recess does. It is bounce off a plastered return a metre
+  // from the source, so it is cut to about 45% and pulled tighter, and the pane
+  // is left as the brightest thing in the elevation by a clear margin.
+  const recess = (state, k) => {
+    const { x, y } = at(TRIM.stucco, state);
+    const w = warm(k);
     clip(x, y, () => {
-      const rg2 = g.createRadialGradient(x + E * 0.5, y + E * 0.56, E * 0.05,
-        x + E * 0.5, y + E * 0.56, E * 0.78);
-      rg2.addColorStop(0, 'rgb(92,66,38)');
-      rg2.addColorStop(0.55, 'rgb(66,47,27)');
-      rg2.addColorStop(1, 'rgb(24,17,9)');
+      const rg2 = g.createRadialGradient(x + E * 0.5, y + E * 0.58, E * 0.04,
+        x + E * 0.5, y + E * 0.58, E * 0.62);
+      rg2.addColorStop(0, w(42, 30, 16));
+      rg2.addColorStop(0.5, w(26, 18, 10));
+      rg2.addColorStop(1, w(6, 4, 2));
       g.fillStyle = rg2;
       g.fillRect(x, y, E, E);
     });
-  }
+  };
+
   // --- the stallriser under the pane and the threshold slab in front of it.
   //
   // This is the spill, and it is as far as the spill can go: the slab runs from
@@ -1771,17 +1814,32 @@ function buildTrimEmissive(E) {
   // src/materials.js' ground, and putting light on it would need either a real
   // emitter - the pool is ten slots against 543 lamps, so no - or a new quad per
   // bay, which is triangles this budget does not have.
-  {
-    const { x, y } = at(TRIM.bulkhead);
+  const spill = (state, k) => {
+    const { x, y } = at(TRIM.bulkhead, state);
+    const w = warm(k);
     clip(x, y, () => {
       const gl = g.createLinearGradient(0, y, 0, y + E);
-      gl.addColorStop(0, 'rgb(78,55,30)');
-      gl.addColorStop(0.6, 'rgb(52,37,20)');
-      gl.addColorStop(1, 'rgb(20,14,7)');
+      gl.addColorStop(0, w(58, 41, 21));
+      gl.addColorStop(0.6, w(36, 25, 13));
+      gl.addColorStop(1, w(12, 8, 4));
       g.fillStyle = gl;
       g.fillRect(x, y, E, E);
     });
-  }
+  };
+
+  // OPEN AND TRADING: full interior, full display track, bounce on the recess.
+  pane(TRIM_LIT, 1, 1);
+  recess(TRIM_LIT, 1);
+  spill(TRIM_LIT, 1);
+  // CLOSED, LIGHT LEFT ON: a third of the interior, a tenth of the display track
+  // - one tube left burning over the window rather than the whole run - and
+  // almost nothing on the recess, because there is not enough source to bounce.
+  pane(TRIM_DIM, 0.30, 0.10);
+  recess(TRIM_DIM, 0.22);
+  spill(TRIM_DIM, 0.22);
+  // TRIM_DARK is the black the canvas was filled with. Nothing is drawn for it,
+  // on purpose: a state that is defined by an absence should not have a painter
+  // that could drift away from zero.
   return c;
 }
 
@@ -1840,17 +1898,18 @@ export function trimMaps() {
     return {
       map: mk(a.albedo, a.albedoMips, true),
       rmMap: mk(a.rm, a.rmMips, false),
-      // repeatV 0.5 is the whole mechanism, and it is three.js' own per-map UV
+      // repeatV 1/3 is the whole mechanism, and it is three.js' own per-map UV
       // transform doing it - the vertex shader computes
       // `vEmissiveMapUv = ( emissiveMapTransform * vec3( uv, 1 ) ).xy`, so this
-      // map alone sees v / 2 while map and rmMap see v. A quad at v + 1 lands in
-      // the top half of a 4 x 8 atlas; the same quad at v lands in the black
-      // bottom half; and because map and rmMap WRAP, both quads are identical in
-      // albedo, roughness and metalness. No shader patch is involved, which is
-      // deliberate: the alternative was rewriting <emissivemap_fragment>, and a
-      // hand-written sample would also have had to reproduce three.js' sRGB
-      // decode of the texel, which is exactly the sort of thing that drifts.
-      emissiveMap: mk(a.emissive, a.emissiveMips, true, 0.5),
+      // map alone sees v / 3 while map and rmMap see v. A quad at v + 2 lands in
+      // the top third of a 4 x 12 atlas, at v + 1 in the middle third, at v in
+      // the black bottom third; and because map and rmMap WRAP, all three are
+      // identical in albedo, roughness and metalness. No shader patch is
+      // involved, which is deliberate: the alternative was rewriting
+      // <emissivemap_fragment>, and a hand-written sample would also have had to
+      // reproduce three.js' sRGB decode of the texel, which is exactly the sort
+      // of thing that drifts.
+      emissiveMap: mk(a.emissive, a.emissiveMips, true, 1 / TRIM_STATES),
     };
   });
 }
@@ -2433,11 +2492,11 @@ export function lotPlanFor(ring, style, height, fronts) {
         // cheapest cue that two neighbours were built by different people.
         u0: phaseFor(rec, len, r),
         parapetH, head, depth, doorSpan, fasciaY,
-        // Is this shop's light on after dark? Off a separate hash stream, so the
-        // whole sequence above - colourway, value nudge, parapet step, head step,
-        // recess depth, door bay - draws exactly the numbers it drew before and
-        // every daylight frame is untouched. See tenancyLit.
-        lit: !!shop && tenancyLit(style.seed, e.i, k),
+        // Open, closed-with-the-light-on, or dark? Off a separate hash stream, so
+        // the whole sequence above - colourway, value nudge, parapet step, head
+        // step, recess depth, door bay - draws exactly the numbers it drew before
+        // and every daylight frame is untouched. See tenancyState.
+        litState: shop ? tenancyState(style.seed, e.i, k) : TRIM_DARK,
         awning: !!shop && len > 3.8 && r() < 0.46,
         // A lot with no shopfront still meets the street somewhere, but an office
         // block has fewer street doors than a retail row.
@@ -2766,21 +2825,29 @@ export function parapet(ring, y, pos, nrm, uv, idx, opts = {}) {
  * Call this on the street-facing edges only (opts.edges), otherwise every
  * building gets shops on its back alley.
  */
-// WHICH SHOPS ARE ON after dark.
+// WHICH SHOPS ARE ON after dark, as cumulative shares of all ground-floor
+// tenancies.
 //
-// The fraction is a deliberate lift on retailStrip's own lit.night of 0.34, which
-// is the figure for the flats and offices STACKED ON a shop: those go dark when
-// the last person leaves, while a shopfront keeps a display light burning behind
-// the glass long after it has locked its door. 0.42 is that difference and
-// nothing more precise is claimed for it; what the number has to do is land
-// between "a row of lightboxes" and the black row three reviewers reported, and
-// it is the one lever to move if a later round says the street is too bright or
-// too dead. `lit.night` itself is left alone: it means what it has always meant.
-export const LIT_TENANCY = 0.42;
+//   0.00 - 0.30   OPEN. Trading, full interior, display track running.
+//   0.30 - 0.76   CLOSED WITH THE LIGHT ON. One tube over the window, or a
+//                 back-of-house light seen down the shop. This is the COMMON
+//                 case and it is the one the first build of this change got
+//                 wrong by not having: a shopfront that is fully black at night
+//                 is the exception on a real high street, because insurers and
+//                 ordinances want a lit interior, and modelling it as a coin
+//                 flip left the hero frame's whole near row black.
+//   0.76 - 1.00   DARK. Vacant, shuttered, or a unit that genuinely switches off.
+//
+// retailStrip's own lit.night of 0.34 is the figure for the flats and offices
+// STACKED ON a shop, which go dark when the last person leaves; the ground floor
+// does not behave like its upper storeys and does not share its number. These
+// three are the levers to move if a later round says the street is too bright or
+// too dead. `lit.night` itself is untouched and means what it always meant.
+export const TENANCY_MIX = { open: 0.30, dimTo: 0.76 };
 
 /**
- * Is this tenancy lit? Deterministic, and drawn from its OWN hash stream rather
- * than from the lot planner's `r`.
+ * Which state is this tenancy in? TRIM_DARK, TRIM_DIM or TRIM_LIT. Deterministic,
+ * and drawn from its OWN hash stream rather than from the lot planner's `r`.
  *
  * That is not a style preference. drawOpening records the same rule for panes and
  * the reason is identical: the lot sequence decides colourway, parapet step,
@@ -2791,8 +2858,11 @@ export const LIT_TENANCY = 0.42;
  * index, or every building's first lot on its first edge would light in unison
  * across the whole district.
  */
-export function tenancyLit(...parts) {
-  return rng(hash32('shoplit', ...parts))() < LIT_TENANCY;
+export function tenancyState(...parts) {
+  const x = rng(hash32('shoplit', ...parts))();
+  if (x < TENANCY_MIX.open) return TRIM_LIT;
+  if (x < TENANCY_MIX.dimTo) return TRIM_DIM;
+  return TRIM_DARK;
 }
 
 export function storefrontBays(len, opts = {}) {
@@ -2814,7 +2884,7 @@ export function storefront(ring, pos, nrm, uv, idx, opts = {}) {
   // the same quads, the same count, four different numbers in the UV rect - the
   // trick the door leaf below already uses to stop being a window. See
   // TRIM_LIT_V for why v + 1 is free.
-  const cells = (c) => [trimCell(c), trimCell(c, true)];
+  const cells = (c) => [trimCell(c, TRIM_DARK), trimCell(c, TRIM_DIM), trimCell(c, TRIM_LIT)];
   const glassC = cells(opts.glassCell ?? TRIM.glass);
   const bulkCs = cells(opts.bulkheadCell ?? TRIM.bulkhead);
   const jambCs = cells(opts.jambCell ?? TRIM.stucco);
@@ -2833,7 +2903,7 @@ export function storefront(ring, pos, nrm, uv, idx, opts = {}) {
     const bays = storefrontBays(e.len, opts);
     for (let bi = 0; bi < bays.length; bi++) {
       const [s0, s1] = bays[bi];
-      // A LOTTED frontage is one tenancy and lights as one - opts.lit is the lot
+      // A LOTTED frontage is one tenancy and lights as one - opts.state is the lot
       // planner's decision for it, and every bay of that shop agrees, because a
       // shop with the lights on in half its window is not a thing.
       //
@@ -2843,10 +2913,10 @@ export function storefront(ring, pos, nrm, uv, idx, opts = {}) {
       // pair decides for itself. Without this the whole-edge shopfronts - the
       // frontages too short to cut into lots - would be uniformly lit or
       // uniformly dark down their entire length.
-      const lit = opts.lit !== undefined
-        ? (opts.lit ? 1 : 0)
-        : (tenancyLit(opts.seed ?? 0, e.i, bi >> 1) ? 1 : 0);
-      const glass = glassC[lit], bulkC = bulkCs[lit], jambC = jambCs[lit];
+      const st = opts.state !== undefined
+        ? opts.state
+        : tenancyState(opts.seed ?? 0, e.i, bi >> 1);
+      const glass = glassC[st], bulkC = bulkCs[st], jambC = jambCs[st];
       const o0 = P(s0), o1 = P(s1);            // opening edges at the wall line
       const g0 = back(o0, depth), g1 = back(o1, depth);
 
@@ -4109,7 +4179,7 @@ export function appendBuilding(ring, height, style, wall, trim, opts = {}) {
       if (!L.ground) continue;
       storefront(ring, trim.pos, trim.nrm, trim.uv, trim.idx, {
         ...style.storefront, head: L.head, depth: L.depth, doorSpan: L.doorSpan,
-        edges: [L.sub], lit: L.lit, ...tArgs,
+        edges: [L.sub], state: L.litState, ...tArgs,
       });
       // The fascia stops short of the piers at both ends, so what you see between
       // two shops is the pilaster and not two signboards butted together.
@@ -4125,7 +4195,7 @@ export function appendBuilding(ring, height, style, wall, trim, opts = {}) {
     const plainEdges = streetEdges.filter((e) => !lotPlan.has(e.i));
     if (plainEdges.length) {
       storefront(ring, trim.pos, trim.nrm, trim.uv, trim.idx, {
-        // No lot plan on these edges, so no `lit`: storefront() implies a tenancy
+        // No lot plan on these edges, so no `state`: storefront() implies a tenancy
         // per pair of bays off this seed instead. See the bay loop.
         ...style.storefront, edges: plainEdges, seed: style.seed, ...tArgs,
       });

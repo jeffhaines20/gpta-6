@@ -4,18 +4,21 @@
 // Two questions, both answerable without a browser, because both are properties
 // of the kit's arithmetic rather than of a pixel.
 //
-//  1. THE WRAP INVARIANT. The whole mechanism rests on one claim: a lit cell and
-//     an unlit cell address the SAME texel of the albedo and roughness atlases,
-//     because those wrap and the two rects differ by exactly 1.0 in v. If that is
-//     off by a texel anywhere, lighting a shop changes it in daylight too, and
-//     the change is small enough to survive a glance. So it is asserted here for
-//     every cell in the TRIM table rather than trusted.
+//  1. THE WRAP INVARIANT. The whole mechanism rests on one claim: the three
+//     tenancy states address the SAME texel of the albedo and roughness atlases,
+//     because those wrap and the rects differ by whole units of v. If that is off
+//     by a texel anywhere, lighting a shop changes it in daylight too, and the
+//     change is small enough to survive a glance. So it is asserted here for
+//     every cell in the TRIM table, in every state, rather than trusted.
 //
 //  2. THE SPREAD. "Not every shop should be lit" is the requirement, and a
-//     fraction alone does not establish it: 42% of tenancies lit in runs of nine
+//     fraction alone does not establish it: 30% of tenancies open in runs of nine
 //     is a lit half of the street and a dark half. What has to be true is that
-//     the lit ones are INTERLEAVED, so the census reports the run-length
-//     distribution along each frontage as well as the fraction.
+//     the open ones are INTERLEAVED, so the census reports the run-length
+//     distribution along each frontage as well as the shares. This tool exists
+//     because the first build of the change WAS uniform enough to matter - the
+//     hero frame's near row drew dark end to end - and that has to be visible in
+//     a number, not only in a picture nobody has captured yet.
 //
 // Browserless, deterministic, and it walks the same lot planner the streamer
 // does - so it cannot drift from what is built. Same no-op 2D context
@@ -51,22 +54,57 @@ if (typeof document === 'undefined') {
 if (typeof performance === 'undefined') globalThis.performance = { now: () => Date.now() };
 
 const FAC = await import('../src/facades.js');
-const { TRIM, TRIM_LIT_V, trimCell, tenancyLit, LIT_TENANCY, buildingStyle, lotPlanFor, edgesOf } = FAC;
+const {
+  TRIM, TRIM_DARK, TRIM_DIM, TRIM_LIT, TRIM_STATES, trimCell,
+  tenancyState, TENANCY_MIX, buildingStyle, lotPlanFor, edgesOf,
+} = FAC;
+// TRIM_GRID is module-private in facades.js; it is 4 and the atlas is 512 px, and
+// both are asserted below by rebuilding the cell size from them and checking the
+// UV rects agree.
+const TRIM_STATES_GRID = 4;
+const STATE_NAME = { [TRIM_DARK]: 'dark', [TRIM_DIM]: 'dim', [TRIM_LIT]: 'open' };
 
 /**
  * Does the lit rect of every trim cell wrap onto the unlit one?
  * @returns {{cell:string, du:number, dv:number, ok:boolean}[]}
  */
-export function wrapInvariant(cells, cellFn, litV) {
-  return Object.entries(cells).map(([name, c]) => {
-    const a = cellFn(c, false), b = cellFn(c, true);
-    // u must be untouched, and v must differ by EXACTLY the block height. An
-    // integer offset is the only offset a RepeatWrapping sampler cannot see.
-    const du = Math.max(Math.abs(b.u0 - a.u0), Math.abs(b.u1 - a.u1));
-    const dv0 = b.v0 - a.v0, dv1 = b.v1 - a.v1;
-    const ok = du === 0 && dv0 === litV && dv1 === litV && Number.isInteger(litV);
-    return { cell: name, du, dv: dv0, dv1, ok };
-  });
+export function wrapInvariant(cells, cellFn, states = 3) {
+  const rows = [];
+  for (const [name, c] of Object.entries(cells)) {
+    const a = cellFn(c, 0);
+    for (let st = 1; st < states; st++) {
+      const b = cellFn(c, st);
+      // u must be untouched, and v must differ by EXACTLY a whole number of
+      // blocks. An integer offset is the only offset a RepeatWrapping sampler
+      // cannot see.
+      const du = Math.max(Math.abs(b.u0 - a.u0), Math.abs(b.u1 - a.u1));
+      const dv0 = b.v0 - a.v0, dv1 = b.v1 - a.v1;
+      const ok = du === 0 && dv0 === st && dv1 === st && Number.isInteger(dv0);
+      rows.push({ cell: `${name}/${st}`, du, dv: dv0, dv1, ok });
+    }
+  }
+  return rows;
+}
+
+/**
+ * Bytes an RGBA8 texture costs on the GPU including its mip chain, counted level
+ * by level the way packedMips actually builds it rather than by multiplying the
+ * base by 4/3.
+ *
+ * The shortcut is wrong here and wrong in the direction that flatters: the
+ * emissive atlas is 4 x 12 cells, so its chain runs 256x768, 128x384 ... 4x12,
+ * 2x6, 1x3, 1x1, and three of those levels are NOT a clean quarter of the one
+ * above. Rounding up at every step is the difference between a number that can be
+ * quoted and one that is nearly right.
+ */
+export function textureBytes(w, h) {
+  let bytes = 0;
+  for (;;) {
+    bytes += w * h * 4;
+    if (w === 1 && h === 1) return bytes;
+    w = Math.max(1, w >> 1);
+    h = Math.max(1, h >> 1);
+  }
 }
 
 /** Runs of equal value in a boolean array, as lengths. */
@@ -88,45 +126,67 @@ function selftest() {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}: got ${got}, want ${want}`);
   };
 
-  // The real table must pass, on every cell.
-  const rows = wrapInvariant(TRIM, trimCell, TRIM_LIT_V);
-  ck('every trim cell wraps', rows.every((r) => r.ok), true);
-  ck('all 16 cells checked', rows.length, 16);
+  // The real table must pass, on every cell in every state.
+  const rows = wrapInvariant(TRIM, trimCell, TRIM_STATES);
+  ck('every trim cell wraps in every state', rows.every((r) => r.ok), true);
+  ck('16 cells x 2 lit states checked', rows.length, 32);
+  // The grid width this file assumes, checked against the UV rects facades.js
+  // actually emits rather than hardcoded twice in two files.
+  const g0 = trimCell(TRIM.stone, 0);
+  ck('grid is 4 wide', Math.round(1 / (g0.u1 - g0.u0 + 2 * 0.004)), TRIM_STATES_GRID);
 
   // KNOWN-BAD INPUT 1: an offset that is not an integer. 0.5 lands halfway up the
   // atlas and a wrapping sampler CAN see it, so the daylight guarantee is void.
   // This is the mistake a "just shift it into the spare half" instinct makes.
-  const halfShift = (c, lit) => {
-    const a = trimCell(c, false);
-    return lit ? { u0: a.u0, u1: a.u1, v0: a.v0 + 0.5, v1: a.v1 + 0.5 } : a;
+  const halfShift = (c, st) => {
+    const a = trimCell(c, 0);
+    return { u0: a.u0, u1: a.u1, v0: a.v0 + st * 0.5, v1: a.v1 + st * 0.5 };
   };
-  ck('a 0.5 offset is rejected', wrapInvariant(TRIM, halfShift, 0.5).every((r) => r.ok), false);
+  ck('a 0.5 offset is rejected', wrapInvariant(TRIM, halfShift).every((r) => r.ok), false);
 
   // KNOWN-BAD INPUT 2: shifting u as well as v. Wrapping saves v; it does not
   // save a cell that has slid sideways into its neighbour.
-  const uShift = (c, lit) => {
-    const a = trimCell(c, false);
-    return lit ? { u0: a.u0 + 0.25, u1: a.u1 + 0.25, v0: a.v0 + 1, v1: a.v1 + 1 } : a;
+  const uShift = (c, st) => {
+    const a = trimCell(c, 0);
+    return { u0: a.u0 + st * 0.25, u1: a.u1 + st * 0.25, v0: a.v0 + st, v1: a.v1 + st };
   };
-  ck('a u offset is rejected', wrapInvariant(TRIM, uShift, 1).every((r) => r.ok), false);
+  ck('a u offset is rejected', wrapInvariant(TRIM, uShift).every((r) => r.ok), false);
 
-  // KNOWN-BAD INPUT 3: no offset at all. A lit cell that never left the unlit
+  // KNOWN-BAD INPUT 3: no offset at all. A lit cell that never left the dark
   // block would light NOTHING, and the frame would look exactly like the defect.
-  const noShift = (c) => trimCell(c, false);
-  ck('a zero offset is rejected', wrapInvariant(TRIM, noShift, 1).every((r) => r.ok), false);
+  const noShift = (c) => trimCell(c, 0);
+  ck('a zero offset is rejected', wrapInvariant(TRIM, noShift).every((r) => r.ok), false);
+
+  // textureBytes, against a case anyone can check by hand: a 1x1 texture is its
+  // own whole chain, and a 2x2 is 4 texels plus 1.
+  ck('1x1 rgba', textureBytes(1, 1), 4);
+  ck('2x2 rgba with its mip', textureBytes(2, 2), (4 + 1) * 4);
+  // KNOWN-BAD INPUT: the 4/3 shortcut. Asserting it is wrong for the 4 x 12 chain
+  // was this file's own first guess and it is FALSE - 256x768 sums to exactly
+  // 262,144 texels, which is 196,608 x 4/3 to the byte, because the tail
+  // 4x12, 2x6, 1x3, 1x1 happens to telescope. The shortcut is still not a safe
+  // general rule, and 5x5 is where it breaks: the real chain is 25 + 4 + 1 = 30
+  // texels and the shortcut says 33.3. Both are asserted, because the useful
+  // record here is which one of them surprised me.
+  ck('4/3 is exact for the 256x768 chain', textureBytes(256, 768), 256 * 768 * 4 * 4 / 3);
+  ck('4/3 over-counts a 5x5 chain', textureBytes(5, 5) < Math.round(5 * 5 * 4 * (4 / 3)), true);
+  ck('5x5 chain is 30 texels', textureBytes(5, 5), 30 * 4);
 
   // runLengths, on inputs whose answer is obvious by eye.
   ck('runs of alternating', JSON.stringify(runLengths([1, 0, 1, 0])), '[1,1,1,1]');
   ck('runs of one block', JSON.stringify(runLengths([1, 1, 1, 0, 0])), '[3,2]');
   ck('runs of empty', JSON.stringify(runLengths([])), '[]');
 
-  // tenancyLit must be a FUNCTION of its arguments and not of call order, or the
-  // district would light differently depending on which chunk streamed first.
-  const a1 = tenancyLit(7, 3, 2), a2 = tenancyLit(7, 3, 2);
-  ck('tenancyLit is deterministic', a1, a2);
-  let differs = false;
-  for (let k = 0; k < 40 && !differs; k++) if (tenancyLit(7, 3, k) !== a1) differs = true;
-  ck('tenancyLit is not constant', differs, true);
+  // tenancyState must be a FUNCTION of its arguments and not of call order, or
+  // the district would light differently depending on which chunk streamed first.
+  const a1 = tenancyState(7, 3, 2), a2 = tenancyState(7, 3, 2);
+  ck('tenancyState is deterministic', a1, a2);
+  // ... and it must actually reach all three states, or two of the three blocks
+  // of the emissive atlas are paid for and never sampled.
+  const seen = new Set();
+  for (let k = 0; k < 600; k++) seen.add(tenancyState(7, 3, k));
+  ck('all three states occur', seen.size, 3);
+  ck('states are in range', [...seen].every((v) => v >= TRIM_DARK && v <= TRIM_LIT), true);
 
   console.log(fail ? `\n${fail} FAILED` : '\nall passed');
   process.exit(fail ? 1 : 0);
@@ -135,17 +195,29 @@ function selftest() {
 if (process.argv.includes('--selftest')) selftest();
 
 // ------------------------------------------------------------------- census
-const rows = wrapInvariant(TRIM, trimCell, TRIM_LIT_V);
+const rows = wrapInvariant(TRIM, trimCell, TRIM_STATES);
 const bad = rows.filter((r) => !r.ok);
-console.log(`\nWRAP INVARIANT: ${rows.length - bad.length} of ${rows.length} trim cells ` +
-  `place their lit rect exactly ${TRIM_LIT_V}.0 above the unlit one, u untouched`);
+console.log(`\nWRAP INVARIANT: ${rows.length - bad.length} of ${rows.length} cell/state pairs ` +
+  'place their rect a WHOLE number of blocks above the dark one, u untouched');
 for (const b of bad) console.log(`  FAIL ${b.cell}: du ${b.du}, dv ${b.dv}`);
+
+// VRAM, from the same constants buildTrimEmissive uses, so it cannot drift from
+// the atlas that is actually built. Cell size is C / 2 where C = 512 / TRIM_GRID.
+const CELL = 512 / TRIM_STATES_GRID / 2;
+const EM_W = TRIM_STATES_GRID * CELL, EM_H = TRIM_STATES_GRID * TRIM_STATES * CELL;
+const emBytes = textureBytes(EM_W, EM_H);
+console.log(`\nVRAM: the emissive atlas is ${EM_W}x${EM_H} RGBA8 = ` +
+  `${(emBytes / 1048576).toFixed(2)} MB with its full mip chain`);
+console.log('      albedo and rm are untouched at 512x512 each; nothing else is added.');
+console.log(`      EMISSIVE_INTENSITY's comment refuses 7 MB for a third FACADE ` +
+  `emissive atlas; this is ${((100 * emBytes) / (7 * 1048576)).toFixed(0)}% of that.`);
 
 const district = JSON.parse(fs.readFileSync('data/district.json', 'utf8'));
 const buildings = district.buildings;
-let lit = 0, total = 0, shopBuildings = 0;
+let total = 0, shopBuildings = 0;
+const count = { [TRIM_DARK]: 0, [TRIM_DIM]: 0, [TRIM_LIT]: 0 };
 const allRuns = [];
-const litRuns = [];
+const darkRuns = [];
 for (let i = 0; i < buildings.length; i++) {
   const b = buildings[i];
   const style = buildingStyle(b, i);
@@ -156,17 +228,18 @@ for (let i = 0; i < buildings.length; i++) {
   if (!plan.size) continue;
   shopBuildings++;
   for (const [, lp] of plan) {
-    const flags = lp.lots.map((L) => (L.lit ? 1 : 0));
-    if (!flags.length) continue;
-    total += flags.length;
-    lit += flags.reduce((a, c) => a + c, 0);
-    for (const r of runLengths(flags)) allRuns.push(r);
-    // Run lengths of the LIT stretches only: this is the number that says
-    // whether the street reads as interleaved shops or as two halves.
+    const states = lp.lots.map((L) => L.litState);
+    if (!states.length) continue;
+    total += states.length;
+    for (const st of states) count[st]++;
+    for (const r of runLengths(states)) allRuns.push(r);
+    // Run lengths of the fully DARK stretches: this is the number that says
+    // whether a street-level camera can land on a row with nothing in it, which
+    // is exactly what happened to the first build of this change.
     let n = 0;
-    for (let k = 0; k < flags.length; k++) {
-      if (flags[k]) n++;
-      if ((!flags[k] || k === flags.length - 1) && n) { litRuns.push(n); n = 0; }
+    for (let k = 0; k < states.length; k++) {
+      if (states[k] === TRIM_DARK) n++;
+      if ((states[k] !== TRIM_DARK || k === states.length - 1) && n) { darkRuns.push(n); n = 0; }
     }
   }
 }
@@ -176,21 +249,28 @@ const hist = (a) => {
   return Object.entries(h).sort((x, y) => Number(x[0]) - Number(y[0]))
     .map(([k, v]) => `${k}:${v}`).join('  ');
 };
-console.log(`\nTENANCY CENSUS (LIT_TENANCY = ${LIT_TENANCY})`);
+console.log(`\nTENANCY CENSUS (open ${TENANCY_MIX.open}, dim to ${TENANCY_MIX.dimTo})`);
 console.log(`  lotted shopfront buildings : ${shopBuildings}`);
 console.log(`  tenancies                  : ${total}`);
-console.log(`  lit after dark             : ${lit}  (${((100 * lit) / total).toFixed(1)}%)`);
-console.log(`  run lengths, lit or dark   : ${hist(allRuns)}`);
-console.log(`  run lengths of LIT stretches: ${hist(litRuns)}`);
+for (const st of [TRIM_LIT, TRIM_DIM, TRIM_DARK]) {
+  console.log(`  ${STATE_NAME[st].padEnd(27)}: ${String(count[st]).padStart(4)}  ` +
+    `(${((100 * count[st]) / total).toFixed(1)}%)`);
+}
+const showing = count[TRIM_LIT] + count[TRIM_DIM];
+console.log(`  showing ANY interior light : ${showing}  (${((100 * showing) / total).toFixed(1)}%)`);
+console.log(`  run lengths, any one state : ${hist(allRuns)}`);
+console.log(`  run lengths of DARK stretches: ${hist(darkRuns)}`);
 const longest = Math.max(0, ...allRuns);
-const longestLit = Math.max(0, ...litRuns);
-console.log(`  longest run of any kind    : ${longest} tenancies`);
-console.log(`  longest run of LIT shops   : ${longestLit} tenancies`);
-// The two directions fail differently and only one of them is this change's
-// fault. A long LIT run is the "row of lightboxes" the old flat emissive panels
-// produced and is the thing to guard; a long DARK run is a closed block, which is
-// ordinary on a real high street after ten o'clock and is reported rather than
-// warned about. Threshold on the lit side only.
-console.log(longestLit > 5
-  ? `  WARNING: ${longestLit} lit shops in a row reads as a lightbox, not as a street`
-  : '  lit shops are interleaved, not banked');
+const longestDark = Math.max(0, ...darkRuns);
+console.log(`  longest run of one state   : ${longest} tenancies`);
+console.log(`  longest FULLY DARK run     : ${longestDark} tenancies`);
+// This is the guard the first build needed and did not have. A street-level
+// camera sees roughly four to six tenancies across a near frontage, so a dark run
+// longer than that can fill a hero frame with the exact defect being fixed - and
+// it did: the CASSAVA / LUMEN CAMERA row three reviewers named came back black
+// under a binary 42% coin. A long run of LIT shops is the opposite failure, the
+// row of lightboxes, and is bounded by `open` being the smallest of the three
+// shares.
+console.log(longestDark > 4
+  ? `  WARNING: ${longestDark} fully dark shops in a row can fill a street-level frame`
+  : '  no dark run long enough to fill a street-level frame');

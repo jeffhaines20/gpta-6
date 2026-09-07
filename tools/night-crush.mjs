@@ -34,6 +34,7 @@
 //   node tools/night-crush.mjs docs/shots/r8-corridor-night.png [more...]
 //   node tools/night-crush.mjs --selftest
 import fs from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { readPNG } from './png.mjs';
 
 // The same three rows arm-diff prints, so a crush number and a difference number
@@ -154,11 +155,20 @@ function selftest() {
   process.exit(fail ? 1 : 0);
 }
 
-if (process.argv.includes('--selftest')) selftest();
+// Only when RUN, never when imported: crushStats and boxStats are useful to other
+// probes, and a module that prints a usage line and exits(2) on import is a
+// module nobody can reuse. Found the hard way by a two-line script that imported
+// boxStats and got the usage text instead.
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (!isMain) { /* imported for crushStats / boxStats */ }
+else if (process.argv.includes('--selftest')) selftest();
 else {
-  const files = process.argv.slice(2).filter((a) => !a.startsWith('--'));
   const bi = process.argv.indexOf('--box');
   const box = bi >= 0 ? process.argv[bi + 1].split(',').map(Number) : null;
+  // The --box VALUE is an argument, not a frame. Without this it is also treated
+  // as a filename, which prints a spurious "missing" line at the end of a run.
+  const files = process.argv.slice(2)
+    .filter((a, i) => !a.startsWith('--') && !(bi >= 0 && i === bi - 1));
   if (!files.length) { console.log('usage: night-crush.mjs FRAME.png [...] [--box x,y,w,h]'); process.exit(2); }
   console.log('file                                 band     rows        mean   <=8');
   for (const f of files) {
