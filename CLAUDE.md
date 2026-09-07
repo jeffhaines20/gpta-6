@@ -100,6 +100,19 @@ less than one that says what moved and by how much.
 - `blind-compare` refuses to build a pair set carrying under 8% facade-band
   signal, because two arms of the same build is a failure that looks like data.
 
+## Orchestrating builders
+
+- **Do not remove a worktree you may still want to talk to.** Removing merged
+  worktrees to reclaim disk also destroys the ability to resume the agent that
+  owned one — its context goes with it, and a follow-up round has to be briefed
+  from scratch. Reclaim disk when a line of work is finished, not when a round
+  merges.
+- **Hand a builder its predecessor's findings, not just the defect.** The rounds
+  that went fastest here started from what the last one had already ruled out;
+  the ones that went slowest re-derived it. A brief that says "this was tried,
+  measured X, and was not shipped because Y" is worth more than one that says
+  what to build.
+
 ## Gates
 
 `check-syntax`, `geom-audit`, `golden-trace`, `physics-test`, `daynight-sweep`,
