@@ -100,6 +100,12 @@ export class StreamingWorld {
     this.kerbsOn = opts.kerbs !== false;
     this.kerbPlan = undefined;
     generateFacadeLibrary();
+    // Planned HERE and not on first use. It is 89 ms of arithmetic over the
+    // whole graph, and on first use it would land inside a chunk build's timed
+    // slice - the quantity the budget gate reads as chunkStallMs against an 8 ms
+    // warn. The constructor runs inside the loading screen's own phase, where
+    // 89 ms is load time and is accounted as load time.
+    this._kerbPlan();
     this._buildWater();
   }
 
