@@ -56,6 +56,10 @@ import {
   streetBladeAssembly, regulatorySign, wideSign, parkingSign, hasStreetName,
 } from '../src/signage.js';
 
+import {
+  planKerbs, kerbedEdge, kerbOffsetFor, sectionY, KERB, KERB_REVEAL,
+} from '../src/kerb.js';
+
 const TOL = 0.02;                       // 2 cm: below this a joint is a joint
 // streaming.js reports ground as groundY (0) but DRAWS the land pad at
 // groundY - 0.05 so the road ribbons can stack on it. A post that stops at y = 0
@@ -224,30 +228,339 @@ for (let bi = 0; bi < d.buildings.length; bi++) {
   }
 }
 
+// ---------------------------------------------------------------------- kerbs
+//
+// A kerb runs along every street edge in the district, which makes it the prop
+// class most able to break every other one: it changes the height of the ground
+// under a strip 2.74 m wide on both sides of 21.6 km of street, and everything
+// signage.js and streetfurniture.js stand in that strip was placed against a
+// flat pad at -0.05.
+//
+// So the audit gains a SURFACE, not just a check. drawnGroundAt() answers "how
+// high is the ground the player sees, here", replaying src/kerb.js's own section
+// rather than a second copy of it, and the street-sign check above now measures
+// against that instead of against the constant it used to assume.
+//
+// KERB_AUDIT_FAULT injects a known fault so the gate can be shown to fail:
+//   float  the kerb's back edge ends 120 mm ABOVE the pavement it abuts
+//   sink   ...120 mm below it
+//   road   the crossing cuts are skipped, so kerbs stand across carriageways
+//   lane   the parking lane is dropped to the gutter invert, floating the posts
+// Without it the plan is exactly the one the streamer builds.
+const FAULT = process.env.KERB_AUDIT_FAULT || '';
+const KERB_PAD_TOL = 0.02;
+
+const kerbPlan = planKerbs(d, { breakAtCrossings: FAULT !== 'road' });
+const faultLaneDrop = FAULT === 'lane' ? KERB.invertY - KERB.laneY : 0;
+const kerbBackY = KERB.backY + (FAULT === 'float' ? 0.12 : FAULT === 'sink' ? -0.12 : 0);
+
+// Every emitted station, in a coarse grid, so "what is under this point" is a
+// nine-cell walk rather than a scan of 4,700 stations per query.
+const KCELL = 16;
+const kerbCells = new Map();
+const kerbSegs = [];
+{
+  const addRun = (run) => {
+    for (let i = 1; i < run.length; i++) {
+      const a = run[i - 1], b = run[i];
+      const si = kerbSegs.length;
+      kerbSegs.push({ a, b });
+      const pts = [a, b].flatMap((p) => [[p.ax, p.az],
+        [p.ax + p.nx * KERB.backOuter, p.az + p.nz * KERB.backOuter]]);
+      const xs = pts.map((q) => q[0]), zs = pts.map((q) => q[1]);
+      for (let cz = Math.floor(Math.min(...zs) / KCELL); cz <= Math.floor(Math.max(...zs) / KCELL); cz++) {
+        for (let cx = Math.floor(Math.min(...xs) / KCELL); cx <= Math.floor(Math.max(...xs) / KCELL); cx++) {
+          const k = cx * 46337 + cz;
+          let l = kerbCells.get(k);
+          if (!l) kerbCells.set(k, (l = []));
+          l.push(si);
+        }
+      }
+    }
+  };
+  for (const sides of kerbPlan.edgeRuns) {
+    if (!sides) continue;
+    for (const pieces of sides) for (const run of pieces) addRun(run);
+  }
+  for (const runs of kerbPlan.vertexRuns.values()) for (const run of runs) addRun(run);
+}
+
+/** Perpendicular offset of (x,z) from a station pair's anchor line, or null. */
+function offsetOn(seg, x, z) {
+  const { a, b } = seg;
+  const vx = b.ax - a.ax, vz = b.az - a.az;
+  const l2 = vx * vx + vz * vz;
+  if (!l2) return null;
+  const t = ((x - a.ax) * vx + (z - a.az) * vz) / l2;
+  if (t < 0 || t > 1) return null;                  // past an end: another piece owns it
+  const px = a.ax + vx * t, pz = a.az + vz * t;
+  let nx = a.nx + (b.nx - a.nx) * t, nz = a.nz + (b.nz - a.nz) * t;
+  const nl = Math.hypot(nx, nz) || 1; nx /= nl; nz /= nl;
+  return (x - px) * nx + (z - pz) * nz;
+}
+
+// Which ribbons cover a point. Gridded for the same reason everything else here
+// is: this is asked a few thousand times.
+const RCELL = 24;
+const rCells = new Map(), rSegs = [];
+for (let ei = 0; ei < d.edges.length; ei++) {
+  const e = d.edges[ei];
+  for (let i = 1; i < e.v.length; i++) {
+    const a = d.verts[e.v[i - 1]], b = d.verts[e.v[i]];
+    const si = rSegs.length;
+    rSegs.push({ ei, ax: a.x, az: a.z, bx: b.x, bz: b.z, h: e.w / 2 });
+    const x0 = Math.min(a.x, b.x) - e.w, x1 = Math.max(a.x, b.x) + e.w;
+    const z0 = Math.min(a.z, b.z) - e.w, z1 = Math.max(a.z, b.z) + e.w;
+    for (let cz = Math.floor(z0 / RCELL); cz <= Math.floor(z1 / RCELL); cz++) {
+      for (let cx = Math.floor(x0 / RCELL); cx <= Math.floor(x1 / RCELL); cx++) {
+        const k = cx * 46337 + cz;
+        let l = rCells.get(k);
+        if (!l) rCells.set(k, (l = []));
+        l.push(si);
+      }
+    }
+  }
+}
+/** How far inside a carriageway (x,z) is, in metres. 0 if outside every one. */
+function intoRoad(x, z) {
+  const cx = Math.floor(x / RCELL), cz = Math.floor(z / RCELL);
+  let worst = 0;
+  for (const si of rCells.get(cx * 46337 + cz) ?? []) {
+    const s2 = rSegs[si];
+    const vx = s2.bx - s2.ax, vz = s2.bz - s2.az, l2 = vx * vx + vz * vz;
+    const t = l2 ? Math.max(0, Math.min(1, ((x - s2.ax) * vx + (z - s2.az) * vz) / l2)) : 0;
+    const dep = s2.h - Math.hypot(x - (s2.ax + vx * t), z - (s2.az + vz * t));
+    if (dep > worst) worst = dep;
+  }
+  return worst;
+}
+
+/**
+ * The height of the ground the player sees at (x, z): the kerb section where one
+ * is drawn, the road ribbon inside a carriageway, otherwise the drawn land pad.
+ *
+ * Where two surfaces overlap -- a junction corner, where a section and a ribbon
+ * both cover the ground -- the HIGHER one is what is seen, because both are
+ * opaque and neither is depth-sorted away.
+ */
+function drawnGroundAt(x, z) {
+  const cx = Math.floor(x / KCELL), cz = Math.floor(z / KCELL);
+  let best = null;
+  for (let j = -1; j <= 1; j++) {
+    for (let i = -1; i <= 1; i++) {
+      for (const si of kerbCells.get((cx + i) * 46337 + (cz + j)) ?? []) {
+        const o = offsetOn(kerbSegs[si], x, z);
+        if (o === null || o < -KERB.lap || o > KERB.backOuter) continue;
+        let y = sectionY(o);
+        if (faultLaneDrop && o > KERB.shoulder && o <= KERB.laneOuter) y += faultLaneDrop;
+        if (o >= KERB.topOuter) y = kerbBackY;
+        if (best === null || y > best) best = y;
+      }
+    }
+  }
+  if (intoRoad(x, z) > 0 && (best === null || KERB.roadY > best)) best = KERB.roadY;
+  return best === null ? GROUND_DRAWN : best;
+}
+
+{
+  const kstat = { runs: 0, stations: 0, arcs: 0 };
+  for (const sides of kerbPlan.edgeRuns) {
+    if (!sides) continue;
+    for (const pieces of sides) for (const run of pieces) { kstat.runs++; kstat.stations += run.length; }
+  }
+  for (const runs of kerbPlan.vertexRuns.values()) {
+    for (const run of runs) { kstat.arcs++; kstat.stations += run.length; }
+  }
+
+  // --- 1. the section meets the two surfaces it abuts.
+  //
+  //     This is the check the brief asks for in as many words: a kerb that
+  //     floats or sinks must not pass. The road half has to start ON the ribbon
+  //     and the concrete half has to end ON the drawn pavement, because those
+  //     are the only two surfaces it can hand over to.
+  const startGap = Math.abs(sectionY(-KERB.lap) - (KERB.roadY - KERB.lapDrop));
+  if (startGap > 0.005) {
+    note('kerbSection', 'ribbon', startGap,
+      { sectionY: +sectionY(-KERB.lap).toFixed(4), ribbon: KERB.roadY - KERB.lapDrop });
+  }
+  const padGap = kerbBackY - GROUND_DRAWN;
+  if (Math.abs(padGap) > KERB_PAD_TOL) {
+    note('kerbSection', padGap > 0 ? 'floatsAbovePavement' : 'sinksBelowPavement', Math.abs(padGap),
+      { backY: +kerbBackY.toFixed(3), pavement: GROUND_DRAWN });
+  }
+  if (KERB_REVEAL < 0.10 || KERB_REVEAL > 0.15) {
+    note('kerbSection', 'reveal', KERB_REVEAL, { reveal: +KERB_REVEAL.toFixed(3), band: [0.10, 0.15] });
+  }
+
+  // --- 2. no kerb stands in a carriageway.
+  //
+  //     A 117 mm face across a road is a wall a car drives into, and it is the
+  //     failure the corner arithmetic can actually produce: an acute fork forces
+  //     the fillet radius down until the return clips the street it is turning
+  //     out of. Every station's FACE and BACK is tested against every ribbon.
+  //     Run with KERB_AUDIT_FAULT=road to watch it fail.
+  let inRoad = 0, worstInRoad = 0;
+  const walk = (run) => {
+    for (const st of run) {
+      for (const o of [KERB.panOuter, KERB.backOuter]) {
+        const dep = intoRoad(st.ax + st.nx * o, st.az + st.nz * o);
+        if (dep > 0.15) { inRoad++; worstInRoad = Math.max(worstInRoad, dep); }
+      }
+    }
+  };
+  for (const sides of kerbPlan.edgeRuns) {
+    if (!sides) continue;
+    for (const pieces of sides) for (const run of pieces) walk(run);
+  }
+  for (const runs of kerbPlan.vertexRuns.values()) for (const run of runs) walk(run);
+  if (inRoad) {
+    note('kerbInCarriageway', 'stations', worstInRoad, { count: inRoad, worstDepthM: +worstInRoad.toFixed(2) });
+  }
+
+  // --- 3. parked cars still reach the ground.
+  //
+  //     streetfurniture.js builds the parked-car geometry with its wheels at
+  //     PAD_Y - 0.02 = -0.070 and parks it at w/2 + 1.30, which is inside the
+  //     kerb section. The car body is rigid, so what matters is the height under
+  //     each WHEEL, not under the centre. Sinking is what the pad already does
+  //     to them (20 mm) and is not a finding; FLOATING is.
+  const PARK_OFF = 1.30, CAR_HALF = 0.75, CAR_LEN = 4.9;
+  let parkSlots = 0, worstFloat = 0, worstSink = 0, badPark = 0, deepSink = 0;
+  for (let ei = 0; ei < d.edges.length; ei++) {
+    const e = d.edges[ei];
+    if (!kerbedEdge(e)) continue;
+    for (let i = 1; i < e.v.length; i++) {
+      const a = d.verts[e.v[i - 1]], b = d.verts[e.v[i]];
+      const len = Math.hypot(b.x - a.x, b.z - a.z);
+      if (len < 14) continue;
+      const ax = (b.x - a.x) / len, az = (b.z - a.z) / len;
+      for (let t = 11; t < len - 11; t += CAR_LEN + 1.5) {
+        for (const side of [1, -1]) {
+          const ox = -az * side, oz = ax * side;
+          const cxm = a.x + ax * t + ox * (e.w / 2 + PARK_OFF);
+          const czm = a.z + az * t + oz * (e.w / 2 + PARK_OFF);
+          // streetfurniture.js drops any slot standing within 1.05 m of ANOTHER
+          // street's carriageway, so a slot that fails that test is not a slot.
+          // Without this line the audit measures cars nobody parks: it reported
+          // a 90 mm sink that was entirely slots sitting on a crossing ribbon.
+          let clear = 99;
+          for (const si of rCells.get(Math.floor(cxm / RCELL) * 46337 + Math.floor(czm / RCELL)) ?? []) {
+            const s2 = rSegs[si];
+            if (s2.ei === ei) continue;
+            const vx = s2.bx - s2.ax, vz = s2.bz - s2.az, l2 = vx * vx + vz * vz;
+            const tt = l2 ? Math.max(0, Math.min(1, ((cxm - s2.ax) * vx + (czm - s2.az) * vz) / l2)) : 0;
+            clear = Math.min(clear, Math.hypot(cxm - (s2.ax + vx * tt), czm - (s2.az + vz * tt)) - s2.h);
+          }
+          if (clear < 1.05) continue;
+          parkSlots++;
+          for (const w of [-CAR_HALF, CAR_HALF]) {
+            const off = e.w / 2 + PARK_OFF + w;
+            const x = a.x + ax * t + ox * off, z = a.z + az * t + oz * off;
+            const gap = KERB.parkY - drawnGroundAt(x, z);      // > 0: the wheel floats
+            if (gap > worstFloat) worstFloat = gap;
+            if (-gap > worstSink) worstSink = -gap;
+            if (gap > 0.04) badPark++;
+            if (-gap > 0.04) deepSink++;
+          }
+        }
+      }
+    }
+  }
+  if (badPark) {
+    note('parkedCarWheel', 'floats', worstFloat, { count: badPark, worstFloatM: +worstFloat.toFixed(3) });
+  }
+
+  // --- 4. how much pavement the section eats. Reported, not failed: a kerb
+  //     standing against a building wall is what a narrow pavement looks like,
+  //     and walls are opaque, so this is a number to watch rather than a gate.
+  let intoBuilding = 0, sampled = 0;
+  {
+    const BCELL = 24, bCells = new Map();
+    for (let bi = 0; bi < d.buildings.length; bi++) {
+      const ring = d.buildings[bi].p;
+      let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+      for (const [x, z] of ring) {
+        x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z);
+      }
+      for (let cz = Math.floor(z0 / BCELL); cz <= Math.floor(z1 / BCELL); cz++) {
+        for (let cx = Math.floor(x0 / BCELL); cx <= Math.floor(x1 / BCELL); cx++) {
+          const k = cx * 46337 + cz;
+          let l = bCells.get(k);
+          if (!l) bCells.set(k, (l = []));
+          l.push(bi);
+        }
+      }
+    }
+    const inside = (x, z) => {
+      const cx = Math.floor(x / BCELL), cz = Math.floor(z / BCELL);
+      for (const bi of bCells.get(cx * 46337 + cz) ?? []) {
+        const ring = d.buildings[bi].p;
+        let hit = false;
+        for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+          const xi = ring[i][0], zi = ring[i][1], xj = ring[j][0], zj = ring[j][1];
+          if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) hit = !hit;
+        }
+        if (hit) return true;
+      }
+      return false;
+    };
+    const sample = (run) => {
+      for (const st of run) {
+        sampled++;
+        if (inside(st.ax + st.nx * KERB.backOuter, st.az + st.nz * KERB.backOuter)) intoBuilding++;
+      }
+    };
+    for (const sides of kerbPlan.edgeRuns) {
+      if (!sides) continue;
+      for (const pieces of sides) for (const run of pieces) sample(run);
+    }
+    for (const runs of kerbPlan.vertexRuns.values()) for (const run of runs) sample(run);
+  }
+
+  console.log('GEOM-AUDIT  kerb:', JSON.stringify({
+    ...kstat, ...kerbPlan.stats,
+    revealMm: Math.round(KERB_REVEAL * 1000),
+    faceOffsetM: KERB.panOuter,
+    fault: FAULT || 'none',
+  }));
+  console.log(`            back edge ${(padGap * 1000).toFixed(0)} mm from the drawn pavement; ` +
+    `stations standing in a carriageway ${inRoad}`);
+  console.log(`            parked-car wheels over ${parkSlots} slots: worst float ` +
+    `${(worstFloat * 1000).toFixed(0)} mm, worst sink ${(worstSink * 1000).toFixed(0)} mm on ` +
+    `${deepSink} of ${parkSlots * 2} wheels (the bare pad already sinks them 20 mm)`);
+  console.log(`            back edge inside a building footprint: ${intoBuilding} of ${sampled} ` +
+    `stations (${((100 * intoBuilding) / sampled).toFixed(1)}%)`);
+}
+
 // --- street signage. EVERY post individually: a district-wide minimum is not a
 //     per-post check, and one post reaching the pavement hides every one that
 //     does not.
 {
   const plan = planStreetSignage(d, {});
   let worstPost = 0;
-  const one = (kind, fn) => {
+  // The ground a post stands on is no longer a constant. signage.js sets its
+  // plates at w/2 + 1.1 to 1.3, which is INSIDE the kerb section's parking lane,
+  // so measuring them against a flat -0.05 would miss exactly the regression a
+  // kerb can introduce: a post left hanging over a gutter it did not know about.
+  const one = (kind, x, z, fn) => {
     const buf = buffers(); buf.col = null;
     if (fn(buf) === false) return;
     stat.streetPosts++;
     const m = minY(buf);
-    if (m > GROUND_DRAWN + TOL) {
-      note('streetSignPost', kind, m - GROUND_DRAWN, { lowestY: +m.toFixed(3), ground: GROUND_DRAWN });
-      worstPost = Math.max(worstPost, m - GROUND_DRAWN);
+    const host = drawnGroundAt(x, z);
+    if (m > host + TOL) {
+      note('streetSignPost', kind, m - host, { lowestY: +m.toFixed(3), ground: +host.toFixed(3) });
+      worstPost = Math.max(worstPost, m - host);
     }
   };
   for (const b of plan.blades) {
     const names = b.names.filter(hasStreetName);
-    one('blade', (buf) => (names.length ? streetBladeAssembly(b.x, b.z, b.yaw, names, buf, null, {}) : false));
+    one('blade', b.x, b.z, (buf) => (names.length ? streetBladeAssembly(b.x, b.z, b.yaw, names, buf, null, {}) : false));
   }
-  for (const s of plan.stops) one('stop', (buf) => regulatorySign(s.x, s.z, s.yaw, 'stop', buf, null, {}));
-  for (const o of plan.oneWays) one('oneWay', (buf) => wideSign(o.x, o.z, o.yaw, o.key, buf, null, {}));
-  for (const p of plan.parking) one('parking', (buf) => parkingSign(p.x, p.z, p.yaw, p.key, buf, null, {}));
-  console.log('            worst sign post gap above the drawn pavement (m):', worstPost.toFixed(3));
+  for (const s of plan.stops) one('stop', s.x, s.z, (buf) => regulatorySign(s.x, s.z, s.yaw, 'stop', buf, null, {}));
+  for (const o of plan.oneWays) one('oneWay', o.x, o.z, (buf) => wideSign(o.x, o.z, o.yaw, o.key, buf, null, {}));
+  for (const p of plan.parking) one('parking', p.x, p.z, (buf) => parkingSign(p.x, p.z, p.yaw, p.key, buf, null, {}));
+  console.log('            worst sign post gap above the ground it stands on (m):', worstPost.toFixed(3));
 }
 
 const byKind = {};

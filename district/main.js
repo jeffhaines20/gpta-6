@@ -66,7 +66,14 @@ await loading
   })
   .add('generating materials', async () => {
     // Constructing the world builds the material registry and facade library.
-    world = new StreamingWorld(scene, district, { nearRadius: 2, farRadius: 5, budgetMs: 3 });
+    // ?kerbs=0 streams the district with no kerb, gutter pan or parking lane, so
+    // a before/after capture is ONE build on ONE port with one thing different.
+    // The alternative is two trees, which is exactly how two rounds in this
+    // project came back with both arms photographing the same commit.
+    world = new StreamingWorld(scene, district, {
+      nearRadius: 2, farRadius: 5, budgetMs: 3,
+      kerbs: new URLSearchParams(location.search).get('kerbs') !== '0',
+    });
   })
   .add('atmosphere', async () => {
     sky = new Sky(renderer, scene);

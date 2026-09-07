@@ -261,10 +261,19 @@ function blockerGrid(d) {
     // A kerbed street blocks only up to its own kerb face; an alley, which gets
     // no kerb of its own, blocks a little wider so its mouth opens properly.
     const h = kerbedEdge(e) ? kerbOffsetFor(e.w) - 0.05 : e.w / 2 + K.blockPad;
+    // A run is not blocked by the street it BELONGS to at the full width -- its
+    // own face is 2.5 m outboard of that street's edge by construction. But it
+    // must still be blocked by its own CARRIAGEWAY, because an offset polyline
+    // folds over itself on the inside of a sharp bend: edges 179 and 180 turn
+    // about 82 degrees at a shape point with no radius at all, and the fold put
+    // the kerb face 2.4 m from its own centreline, 0.6 m inside its own road.
+    // Skipping the own edge entirely -- which the first version did -- is what
+    // hid that.
+    const ownH = e.w / 2 + 0.15;
     for (let i = 1; i < e.v.length; i++) {
       const a = d.verts[e.v[i - 1]], b = d.verts[e.v[i]];
       const si = segs.length;
-      segs.push({ ei, ax: a.x, az: a.z, bx: b.x, bz: b.z, h });
+      segs.push({ ei, ax: a.x, az: a.z, bx: b.x, bz: b.z, h, ownH });
       const x0 = Math.min(a.x, b.x) - h, x1 = Math.max(a.x, b.x) + h;
       const z0 = Math.min(a.z, b.z) - h, z1 = Math.max(a.z, b.z) + h;
       for (let cz = Math.floor(z0 / CELL); cz <= Math.floor(z1 / CELL); cz++) {
@@ -280,18 +289,18 @@ function blockerGrid(d) {
   return { CELL, cells, segs };
 }
 
-function blocked(grid, x, z, skip) {
+function blocked(grid, x, z, own) {
   const cx = Math.floor(x / grid.CELL), cz = Math.floor(z / grid.CELL);
   const l = grid.cells.get(cx * 46337 + cz);
   if (!l) return false;
   for (const si of l) {
     const s = grid.segs[si];
-    if (skip.has(s.ei)) continue;
+    const h = s.ei === own ? s.ownH : s.h;
     const vx = s.bx - s.ax, vz = s.bz - s.az;
     const l2 = vx * vx + vz * vz;
     const t = l2 ? Math.max(0, Math.min(1, ((x - s.ax) * vx + (z - s.az) * vz) / l2)) : 0;
     const dx = x - (s.ax + vx * t), dz = z - (s.az + vz * t);
-    if (dx * dx + dz * dz < s.h * s.h) return true;
+    if (dx * dx + dz * dz < h * h) return true;
   }
   return false;
 }
@@ -304,21 +313,37 @@ function blocked(grid, x, z, skip) {
  * Sampling finds the break; only the break lands in the mesh, so a 40 m run that
  * crosses one alley costs two extra vertices, not forty.
  */
-function breakRun(run, grid, skip) {
+function breakRun(run, grid, own) {
   if (!run || run.length < 2) return [];
   const s = arcLengths(run);
   const total = s[s.length - 1];
   if (total < K.minRun) return [];
+  const bad = (t) => {
+    const p = at(run, s, t);
+    return blocked(grid, p.ax + p.nx * K.panOuter, p.az + p.nz * K.panOuter, own);
+  };
+  // Bisect the transition rather than backing off by half a sample. Backing off
+  // leaves the piece's END up to half a sample inside the road it was cut for,
+  // and the end of a run is a station the mesh actually draws: at sampleM = 1 m
+  // that is 0.5 m of kerb standing in a carriageway at every alley mouth, which
+  // is exactly the class of fault this cut exists to prevent.
+  const edgeAt = (good, bad0) => {
+    for (let k = 0; k < 8; k++) {
+      const mid = (good + bad0) / 2;
+      if (bad(mid)) bad0 = mid; else good = mid;
+    }
+    return good;
+  };
   const n = Math.max(2, Math.ceil(total / K.sampleM));
   const out = [];
-  let open = -1;
+  let open = -1, prev = 0;
   const push = (t0, t1) => { const p = slice(run, s, t0, t1); if (p) out.push(p); };
   for (let i = 0; i <= n; i++) {
     const t = (total * i) / n;
-    const p = at(run, s, t);
-    const bad = blocked(grid, p.ax + p.nx * K.panOuter, p.az + p.nz * K.panOuter, skip);
-    if (!bad && open < 0) open = t;
-    if (bad && open >= 0) { push(open, Math.max(open, t - K.sampleM * 0.5)); open = -1; }
+    const isBad = bad(t);
+    if (!isBad && open < 0) open = i === 0 ? t : edgeAt(t, prev);
+    if (isBad && open >= 0) { push(open, edgeAt(prev, t)); open = -1; }
+    prev = t;
   }
   if (open >= 0) push(open, total);
   if (run.fanX !== undefined) for (const piece of out) { piece.fanX = run.fanX; piece.fanZ = run.fanZ; }
@@ -456,8 +481,17 @@ export function planKerbs(d, opts = {}) {
             const ta = Math.min(t1, room), tb = Math.min(t2, room);
             trims[A.ei][sA][A.end] = Math.max(trims[A.ei][sA][A.end], ta);
             trims[B.ei][sB][B.end] = Math.max(trims[B.ei][sB][B.end], tb);
-            const tip = (o, dir, lx, lz, t) =>
-              station(o.x + dir.dx * t - lx * K.panOuter, o.z + dir.dz * t - lz * K.panOuter, -lx, -lz);
+            // (nx, nz) is the OUTBOARD normal -- from the road toward the
+            // pavement -- and it is what the anchor is measured back along. Its
+            // sign was inverted here in the first version, which put both miter
+            // tips' sections on the road side of their own kerb line and stood
+            // 117 mm of concrete across three arterials. A's face line is its
+            // LEFT (A1 = v + lA * A.K) so its outboard is +lA; B's is its RIGHT
+            // (A2 = v - lB * B.K) so B's is -lB. tools/geom-audit.mjs's
+            // kerbInCarriageway check is what found it, at 1.94 m deep.
+            const tip = (base, dir, nx, nz, t) =>
+              station(base.x + dir.dx * t - nx * K.panOuter,
+                base.z + dir.dz * t - nz * K.panOuter, nx, nz);
             const miter = [
               tip(A1, A, lA.x, lA.z, ta),
               tip(A2, B, -lB.x, -lB.z, tb),
@@ -512,7 +546,6 @@ export function planKerbs(d, opts = {}) {
     const e = d.edges[ei];
     if (!kerbedEdge(e)) { edgeRuns.push(null); continue; }
     const pts = e.v.map((vi) => d.verts[vi]);
-    const skip = new Set([ei]);
     edgeRuns.push([[], []]);
     for (const side of [1, -1]) {
       const si = sideIndex(side);
@@ -547,11 +580,11 @@ export function planKerbs(d, opts = {}) {
           if (j.which === 0) j.arc.unshift({ ...st }); else j.arc.push({ ...st });
         }
       }
-      pending.push({ ei, si, run, skip });
+      pending.push({ ei, si, run });
     }
   }
-  for (const { ei, si, run, skip } of pending) {
-    const pieces = cut ? breakRun(run, grid, skip) : (run ? [run] : []);
+  for (const { ei, si, run } of pending) {
+    const pieces = cut ? breakRun(run, grid, ei) : (run ? [run] : []);
     stats.straightRuns += pieces.length;
     edgeRuns[ei][si] = pieces;
   }
@@ -562,10 +595,9 @@ export function planKerbs(d, opts = {}) {
   // an acute fork forced the radius down -- and it would stand as a 117 mm wall
   // across the road.
   if (cut) {
-    const none = new Set();
     for (const [vi, runs] of vertexRuns) {
       const kept = [];
-      for (const run of runs) for (const piece of breakRun(run, grid, none)) kept.push(piece);
+      for (const run of runs) for (const piece of breakRun(run, grid, -1)) kept.push(piece);
       if (kept.length) vertexRuns.set(vi, kept); else vertexRuns.delete(vi);
     }
   }
