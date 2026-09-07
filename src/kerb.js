@@ -620,20 +620,6 @@ export function planKerbs(d, opts = {}) {
 // ------------------------------------------------------------------ emission
 
 /**
- * One panel of the section, swept along a run.
- *
- * `metreUV` writes plain metre UVs for the concrete, which keeps its map on the
- * mesh rather than on the world-planar XZ projection the ground materials use --
- * a kerb is a vertical face as much as a horizontal one, and XZ would smear it.
- *
- * The asphalt half writes u = 1 for every vertex instead. That is not a
- * placeholder: applyMarkingUV maps u = 1 to the outer edge of the edge's own
- * marking column, and the road shader clamps `across` there, which decodes as
- * x = +halfW -- outboard of every lane line, off the wheel tracks, and fully
- * inside the kerbside grime ramp. So the parking lane comes out as plain grimy
- * asphalt with the correct de-tiling, and no lane paint is dragged onto it.
- */
-/**
  * Wind a quad so its face agrees with the normal its own vertices carry.
  *
  * These materials are FrontSide, and the handedness of (travel, outboard) flips
@@ -685,6 +671,20 @@ function windQuad(pos, nrm, idx, a, b, c, d) {
   windTri(pos, nrm, idx, a, c, d);
 }
 
+/**
+ * One panel of the section, swept along a run.
+ *
+ * `metreUV` writes plain metre UVs for the concrete, which keeps its map on the
+ * mesh rather than on the world-planar XZ projection the ground materials use --
+ * a kerb is a vertical face as much as a horizontal one, and XZ would smear it.
+ *
+ * The asphalt half writes u = 1 for every vertex instead. That is not a
+ * placeholder: applyMarkingUV maps u = 1 to the outer edge of the edge's own
+ * marking column, and the road shader clamps `across` there, which decodes as
+ * x = +halfW -- outboard of every lane line, off the wheel tracks, and fully
+ * inside the kerbside grime ramp. So the parking lane comes out as plain grimy
+ * asphalt with the correct de-tiling, and no lane paint is dragged onto it.
+ */
 function sweep(run, p, pos, nrm, uv, idx, uBase, metreUV) {
   let dist = 0;
   const start = pos.length / 3;
