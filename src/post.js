@@ -136,7 +136,9 @@ void main() {
 // So each lever below defaults to EXACTLY the r8 behaviour and can be swept
 // without editing this file, because "isolate one term at a time" is the only
 // way to tell which of them is carrying the fix.
-const AO_FRAG = (SAMPLES, SPIRAL) => `
+// KERNEL: 0 = the legacy typed vectors, 1 = the spiral, 2 = the spiral with
+// its sample LENGTHS decorrelated from its elevations.
+const AO_FRAG = (SAMPLES, KERNEL) => `
 uniform sampler2D tDepth;
 uniform mat4  invProjection;
 uniform mat4  projection;   // forward projection, to put a view-space sample back on screen
@@ -203,7 +205,7 @@ void main() {
   float ca = cos(rnd * 6.2831853), sa = sin(rnd * 6.2831853);
 
   const int SAMPLES = ${SAMPLES};
-${SPIRAL ? `
+${KERNEL ? `
   // STRATIFIED COSINE HEMISPHERE, built about the actual normal.
   //
   // The kernel it replaces is twelve hand-typed vectors in an arbitrary space,
@@ -221,6 +223,13 @@ ${SPIRAL ? `
   // which is the weighting the occlusion integral actually wants. Sample LENGTH
   // is stratified from 0.12 R to R across the set, keeping the bias toward the
   // origin that makes contact darkening tight while removing the clumping.
+  //
+  // aoKernel 2 differs from 1 in exactly one line: it draws the sample LENGTH
+  // from the golden-ratio low-discrepancy sequence instead of from the same u
+  // that sets the elevation. In kernel 1 those are the same variable, so every
+  // near-normal sample is also a short one and every grazing sample is also a
+  // long one -- and grazing-and-long is where occluders actually are. Whether
+  // that correlation costs anything is a question for the sweep.
   vec3 up = abs(normal.z) < 0.9 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
   vec3 tang = normalize(cross(up, normal));
   vec3 bitan = cross(normal, tang);
@@ -244,13 +253,13 @@ ${SPIRAL ? `
 `}
   float occlusion = 0.0;
   for (int i = 0; i < SAMPLES; i++) {
-${SPIRAL ? `
+${KERNEL ? `
     float fi = float(i) + 0.5;
     float u = fi / float(SAMPLES);
     float ang = fi * 2.39996323;
     float rr = sqrt(u);
     vec3 rk = (t2 * (cos(ang) * rr) + b2 * (sin(ang) * rr) + normal * sqrt(max(0.0, 1.0 - u)))
-              * mix(0.12, 1.0, u);
+              * mix(0.12, 1.0, ${KERNEL === 2 ? 'fract(fi * 0.6180339887)' : 'u'});
 ` : `
     vec3 k = kernel[i];
     vec3 rk = vec3(k.x * ca - k.y * sa, k.x * sa + k.y * ca, k.z);
@@ -1134,7 +1143,7 @@ export class PostStack {
     this._aoBuilt = { samples: p.aoSamples, kernel: p.aoKernel };
     return new THREE.RawShaderMaterial({
       vertexShader: `precision highp float; attribute vec3 position; attribute vec2 uv; ${FULLSCREEN_VERT}`,
-      fragmentShader: `precision highp float; ${AO_FRAG(Math.max(1, Math.round(p.aoSamples)), p.aoKernel === 1)}`,
+      fragmentShader: `precision highp float; ${AO_FRAG(Math.max(1, Math.round(p.aoSamples)), Math.round(p.aoKernel) | 0)}`,
       uniforms: {
         tDepth: { value: null },
         invProjection: { value: new THREE.Matrix4() },
