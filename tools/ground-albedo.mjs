@@ -118,6 +118,20 @@ export const ARM_STATE = {
   anti50:  { albedo: null, skyProxy: false, nightGlowLux: 0, msWhitenAnti: 0.5 },
   anti25:  { albedo: null, skyProxy: false, nightGlowLux: 0, msWhitenAnti: 0.25 },
   anti00:  { albedo: null, skyProxy: false, nightGlowLux: 0, msWhitenAnti: 0.0 },
+
+  // THE DISTRICT BOUNCE, scaled. It is a HemisphereLight and three.js gives it no
+  // occlusion, so it reaches the road under a closed oak canopy in full - which is
+  // exactly where noon's dapple is read. bounce00 is the build with the bounce
+  // removed and nothing else touched, which is the only way to say how much of
+  // noon's lost dapple contrast is the bounce and how much is everything else that
+  // moved in the same round (SSAO went 2.2 m at exponent 3.8 -> 0.6 m at 8.5 and
+  // the buffer to full resolution, and that is another agent's file).
+  //
+  // The scale is applied by WRAPPING _applyBounce, not by writing the intensity:
+  // follow() recomputes the bounce from the sun every frame, so a value assigned
+  // once is gone by the next frame and the arm would silently be the base build.
+  bounce00: { albedo: null, skyProxy: false, nightGlowLux: 0, bounceScale: 0 },
+  bounce50: { albedo: null, skyProxy: false, nightGlowLux: 0, bounceScale: 0.5 },
 };
 
 /**
@@ -167,6 +181,22 @@ export async function setArm(page, name) {
       window.__armSaved.msWhitenAnti = sky.msWhitenAnti;
     }
     sky.msWhitenAnti = s.msWhitenAnti ?? window.__armSaved.msWhitenAnti;
+    // The bounce scale, wrapped once and driven by a window global thereafter, so
+    // that follow()'s per-frame _applyBounce() cannot restore the base value
+    // between the arm being set and the shutter opening.
+    const dn = window.__district && window.__district.tod;
+    if (dn && !dn.__armPatched) {
+      const origBounce = dn._applyBounce.bind(dn);
+      dn._applyBounce = function patchedBounce() {
+        const b = origBounce();
+        const k = window.__bounceScale;
+        if (k != null) this.bounce.intensity *= k;
+        return b;
+      };
+      dn.__armPatched = true;
+    }
+    window.__bounceScale = s.bounceScale ?? null;
+    if (dn) dn._applyBounce();
     sky._dirty = true;
     sky.refresh({ force: true, environment: true, sync: true });
     const g = u.uGroundAlbedo.value;
@@ -176,6 +206,7 @@ export async function setArm(page, name) {
       // an arm that sets a field _pushUniforms never reads is an arm that does
       // nothing, and this is the number proveArmsDiffer keys on.
       msWhitenAnti: u.uMsWhitenAnti ? +u.uMsWhitenAnti.value.toFixed(3) : null,
+      bounceLux: dn ? +dn.bounce.intensity.toFixed(2) : null,
       skyLuxUpper: +(sky.audit().skyLux ?? 0).toFixed(1) };
   }, st);
 }
@@ -192,7 +223,7 @@ export async function proveArmsDiffer(page, arms) {
   // msWhitenAnti is in the key because the sky arms differ in NOTHING ELSE: with
   // the old two-field key, four whitening arms would have hashed identical and
   // this guard would have passed a set of frames that were all the same build.
-  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti]))).size;
+  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux]))).size;
   return { seen, ok: distinct === arms.length };
 }
 

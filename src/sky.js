@@ -527,15 +527,23 @@ vec3 scatter(vec3 dir) {
   // MEASURED, on the dome's own LUT (tools/sky-hue.mjs, golden), before and
   // after, so this is not an argument about a screenshot:
   //
-  //   elevation band      ANTI chroma          SOLAR chroma
-  //                     before    after      before    after
-  //   60-80             -0.189   -0.323      -0.131   -0.128
-  //   40-60             -0.213   -0.387      -0.084   -0.075
-  //   25-40             -0.208   -0.393       0.022    0.036
-  //   12-25             -0.151   -0.312       0.215    0.231
+  //   elevation      SOLAR chroma        CROSS chroma         ANTI chroma
+  //     band        before   after     before   after      before   after
+  //    60-80        -0.131  -0.202     -0.155  -0.272      -0.189  -0.346
+  //    40-60        -0.084  -0.120     -0.142  -0.261      -0.213  -0.392
+  //    25-40        +0.022  +0.005     -0.109  -0.231      -0.208  -0.398
+  //    12-25        +0.215  +0.206     -0.028  -0.155      -0.151  -0.345
+  //     4-12        +0.454  +0.447     +0.176  +0.046      +0.052  -0.150
+  //     0-4         +0.640  +0.634     +0.387  +0.267      +0.324  +0.096
   //
-  // The solar half does not move (0.02 at most, and upward); the anti-solar half
-  // goes back to blue. The same scoping is what the low-sun end of the band in
+  // Golden hour's warm peak is the bottom two rows of the SOLAR column and it
+  // moves by 0.007: +0.454 -> +0.447 and +0.640 -> +0.634. Everything away from
+  // the sun goes back to blue. The upper bands move on the solar side too, and
+  // that is not a leak: with an 8 degree sun the ZENITH is 82 degrees from it in
+  // every azimuth, so a "solar-azimuth" sample at 60-90 degrees of elevation is
+  // not a forward direction and fwd is right to say so.
+  //
+  // The same scoping is what the low-sun end of the band in
   // _pushUniforms already does in elevation - "the model ALREADY carries the
   // field's spectral history there, and whitening on top of it double-counts" -
   // and this is that same statement in azimuth.
@@ -1345,21 +1353,41 @@ export class Sky {
     // of the anti-solar sky as well. See the directional-scope block at the end
     // of scatter() for the physical argument; this is the number it costs.
     //
-    // SWEPT, NOT CHOSEN (tools/sky-terms.mjs, golden, docs/skyterms-anti.json):
+    // SWEPT, NOT CHOSEN. On the dome (tools/sky-terms.mjs, golden,
+    // docs/skyterms-anti.json), and on the frame (tools/hero-shots.mjs
+    // HERO_ARMS=anti100,anti50,anti25,anti00 - one streamed district, one camera,
+    // the arms swapped between shutters, docs/shots/wa-anti*):
     //
-    //   anti   zenith chroma   hemispherical ambient   horizon chroma   skyLux
-    //   1.00      -0.158            -0.036                 0.462         8519
-    //   0.50      -0.269            -0.107                 0.440         8519
-    //   0.25      -0.330            -0.148                 0.428         8519
-    //   0.00      -0.395            -0.192                 0.416         8519
+    //   anti  zenith  ambient  horizon | 5pts ground R-B  plaza R-B  sky x400  peak
+    //   1.00  -0.158   -0.036    0.462 |      +23.3         +39.0     -0.001   0.324
+    //   0.50  -0.237   -0.106    0.412 |      +16.6         +32.4     -0.010   0.282
+    //   0.25  -0.275   -0.141    0.387 |      +13.2         +29.1     -0.017   0.261
+    //   0.00  -0.312   -0.175    0.360 |       +9.8         +25.7        -       -
+    //   (the build before the whitening, for scale: ambient -0.348, ground -5.8,
+    //    plaza +4.7, sky x400 -0.070, peak 0.151)
     //
-    // 0.25 is where the frame's anti-solar sky comes back to blue without giving
-    // back the ground the isotropic version won: it is the value at which the
-    // hemispherical ambient - the thing that lights the road - is still 0.156
-    // warmer than the -0.348 the whitening was introduced to fix, i.e. it keeps
-    // 55% of that move while restoring the anti-solar half. The horizon, which is
-    // where golden hour's warm peak lives, moves 0.034 of 0.269. Every row above
-    // reports the SAME skyLux, because the rescale in scatter() is per texel.
+    // 0.25 IS NOT ZERO AND THAT IS THE POINT. Zero would assert that the
+    // anti-solar field is purely single-scattered, which is false - it is
+    // multiply scattered too, it has simply not been through the reddening path.
+    // A floor says the correction is scoped, not switched off.
+    //
+    // WHAT IT BUYS AND WHAT IT COSTS, on the frame:
+    //   - the corridor sky rect the review measured goes +0.0021 -> -0.0225, so
+    //     golden is blue again and the day is MONOTONIC: noon -0.153, golden
+    //     -0.022, dusk -0.010. At 0.50 the golden-to-dusk margin is 0.004, which
+    //     is inside a cloud, so 0.50 does not actually settle the defect.
+    //   - the ground plane keeps 65% of the previous round's win (-5.8 -> +23.3
+    //     -> +13.2) and the plaza 71% (+4.7 -> +39.0 -> +29.1). That is the cost,
+    //     it is real, and it is the trade this knob IS.
+    //
+    // AND THE FRAME CANNOT SHOW MORE THAN THIS, WHICH IS WORTH KNOWING BEFORE THE
+    // NEXT ROUND SPENDS ITSELF ON IT. Neither hero camera contains any anti-solar
+    // sky: at golden the sun sits 44 deg (corridor) and 46 deg (fivepoints) off
+    // the lens axis, the frames span +/-43 and +/-38 deg, so the most
+    // away-from-the-sun column in either frame is 81-83 deg from the sun and the
+    // rect the reviews read (x 330-600) is 60-71 deg from it, where fwd is
+    // 0.67-0.75 by construction. A review that reads that rect as "the dome away
+    // from the sun" is reading the CROSS sector.
     this.msWhitenAnti = opts.msWhitenAnti ?? 0.25;
 
     // Cloud deck. `cloudiness` is the fraction of sky the deck covers in CLEAR
