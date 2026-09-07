@@ -128,6 +128,9 @@ const CAMS = {
   corridor: { name: 'corridor', wpA: 3, wpB: 4, back: -55, side: 0, height: 2.4, fov: 55, tgtY: 16, fwd: 260 },
 };
 const CAM = CAMS[arg('cam', 'fivepoints')] || CAMS.fivepoints;
+// Pin the subject to a known patch so this run can be compared with an earlier
+// one. See the note at the acquisition search for what happens without it.
+const SLOT = arg('slot', '');
 
 // radius, intensity, strength. The first row is what ships today.
 // RADIUS AND CONTRAST AS A PAIR, which they are: a smaller hemisphere finds
@@ -453,7 +456,7 @@ try {
 console.log(`crowd populated: ${await page.evaluate(() => __district.pedestrians().aliveCount)} alive`);
 
 // --------------------------------------------------------------- the subject
-const subject = await page.evaluate(async (bodyW) => {
+const subject = await page.evaluate(async ([bodyW, SLOT]) => {
   const THREE = await import('/vendor/three.module.min.js');
   const D = __district, P = D.pedestrians(), scene = D.scene, cam = D.camera;
   if (!P._aoFrozen) { P.update = () => {}; P._aoFrozen = true; }
@@ -533,6 +536,37 @@ const subject = await page.evaluate(async (bodyW) => {
   const fx = fwdV.x, fz = fwdV.z, sx = -fz, sz = fx;
   const ox = cam.position.x, oz = cam.position.z;
   let slot = null;
+  // --slot X,Z PINS THE SUBJECT, and without it two runs of this sweep are not
+  // comparable to each other. The search below takes the FIRST pavement slot
+  // that qualifies, and what qualifies depends on where the crowd happens to be
+  // standing when acquisition runs. Two runs of the shipped configuration,
+  // same camera, same tod, same --peds 96, picked (40.5, -154.1) at 0.0168 m/px
+  // (a 24.4 px body, 9 m out) and (66.5, -154.9) at 0.0520 m/px (a 7.9 px body,
+  // 35 m out). Every absolute number in the table moved with it -- foot 0.794
+  // against 0.437, reveal 0.199 against 0.130 -- and neither is wrong; they are
+  // measurements of different subjects. The 7.9 px one cannot resolve what it
+  // is being asked about: one AO texel there is 0.052 m of pavement and a
+  // 0.41 m body is under eight of them.
+  //
+  // So a sweep that has to be compared with an earlier one passes that one's
+  // slot. It is still checked against the same qualification tests, and the
+  // sweep refuses rather than silently falling back to the search if the pinned
+  // point does not pass them -- a pin that quietly missed would be worse than
+  // no pin at all.
+  const PIN = (SLOT || '').split(',').map(Number);
+  if (PIN.length === 2 && PIN.every(Number.isFinite)) {
+    const [x, z] = PIN;
+    const g = probe(x, z);
+    const p = g ? project(x, g.y, z) : null;
+    const why = !g ? 'no ground'
+      : g.mat !== 'sidewalk' ? `material ${g.mat}`
+      : cluttered(g) ? 'cluttered'
+      : !sunlit(x, g.y, z) ? 'not sunlit'
+      : (p.x < 180 || p.x > 1420 || p.y < 420 || p.y > 866 || p.z > 1) ? `off frame at ${p.x.toFixed(0)},${p.y.toFixed(0)}`
+      : null;
+    if (why) return { ok: false, why: `pinned slot ${x},${z} rejected: ${why}` };
+    slot = { x, z, y: g.y, screen: p, along: null, across: null, pinned: true };
+  }
   outer:
   // AND IT HAS TO BE NEAR, which was not a constraint before and should have
   // been. The bench landed 34 m out, where the AO target's half resolution puts
@@ -546,7 +580,7 @@ const subject = await page.evaluate(async (bodyW) => {
   // the clear ring is 2.0 m rather than 2.6 because a 5.2 m-wide stretch of
   // unobstructed sidewalk is rarer than a 4.0 m one and the rings past 2 m are
   // filtered for sidewalk anyway.
-  for (let along = 7; along <= 55; along += 1.0) {
+  for (let along = 7; slot === null && along <= 55; along += 1.0) {
     for (const across of [5, -5, 7, -7, 9, -9, 3, -3, 11, -11, 13, -13]) {
       const x = ox + fx * along + sx * across, z = oz + fz * along + sz * across;
       const g = probe(x, z);
@@ -1101,7 +1135,7 @@ const subject = await page.evaluate(async (bodyW) => {
     cam: { x: +cam.position.x.toFixed(2), y: +cam.position.y.toFixed(2), z: +cam.position.z.toFixed(2) },
     alive: P.aliveCount,
   };
-}, BODY_W);
+}, [BODY_W, SLOT]);
 
 if (!subject.ok) { console.error('subject failed:', subject.why); await browser.close(); process.exit(2); }
 console.log(`subject at (${subject.slot.x.toFixed(1)}, ${subject.slot.z.toFixed(1)}) ` +
