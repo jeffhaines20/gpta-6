@@ -132,6 +132,15 @@ export const ARM_STATE = {
   // once is gone by the next frame and the arm would silently be the base build.
   bounce00: { albedo: null, skyProxy: false, nightGlowLux: 0, bounceScale: 0 },
   bounce50: { albedo: null, skyProxy: false, nightGlowLux: 0, bounceScale: 0.5 },
+
+  // THE OTHER THING THAT MOVED IN THE SAME ROUND. Between r2post and r8 the SSAO
+  // went from 2.2 m at exponent 3.8 to 0.6 m at 8.5 and its buffer to full
+  // resolution, and a contact-shadow term of that size is a candidate for noon's
+  // lost road dapple every bit as much as the ambient is. ao22 restores the old
+  // parameters at runtime so the two can be separated in ONE session instead of
+  // being attributed by argument. It writes postParams only - src/post.js is
+  // another agent's file this round and is not touched.
+  ao22: { albedo: null, skyProxy: false, nightGlowLux: 0, ao: [2.2, 3.8, 1.0] },
 };
 
 /**
@@ -197,6 +206,14 @@ export async function setArm(page, name) {
     }
     window.__bounceScale = s.bounceScale ?? null;
     if (dn) dn._applyBounce();
+    // SSAO, saved and restored the same way, so an arm that does not name it gets
+    // the build's own parameters rather than the previous arm's.
+    const q = window.__district && window.__district.postParams && window.__district.postParams();
+    if (q) {
+      if (!window.__armSavedAO) window.__armSavedAO = [q.aoRadius, q.aoIntensity, q.aoStrength];
+      const ao = s.ao ?? window.__armSavedAO;
+      q.aoRadius = ao[0]; q.aoIntensity = ao[1]; q.aoStrength = ao[2]; q.aoEnabled = true;
+    }
     sky._dirty = true;
     sky.refresh({ force: true, environment: true, sync: true });
     const g = u.uGroundAlbedo.value;
@@ -207,6 +224,7 @@ export async function setArm(page, name) {
       // nothing, and this is the number proveArmsDiffer keys on.
       msWhitenAnti: u.uMsWhitenAnti ? +u.uMsWhitenAnti.value.toFixed(3) : null,
       bounceLux: dn ? +dn.bounce.intensity.toFixed(2) : null,
+      ao: q ? [q.aoRadius, q.aoIntensity, q.aoStrength] : null,
       skyLuxUpper: +(sky.audit().skyLux ?? 0).toFixed(1) };
   }, st);
 }
@@ -223,7 +241,7 @@ export async function proveArmsDiffer(page, arms) {
   // msWhitenAnti is in the key because the sky arms differ in NOTHING ELSE: with
   // the old two-field key, four whitening arms would have hashed identical and
   // this guard would have passed a set of frames that were all the same build.
-  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux]))).size;
+  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao]))).size;
   return { seen, ok: distinct === arms.length };
 }
 
