@@ -1,0 +1,196 @@
+{
+  "mode": "with 30 stub vehicles",
+  "laps_completed": 0,
+  "route_length_m": 2654,
+  "frames_sampled": 66,
+  "route_duration_s": 70.8,
+  "distance_driven_m": 2243,
+  "draw_calls": {
+    "min": 102,
+    "p50": 182,
+    "p95": 235,
+    "max": 246
+  },
+  "triangles": {
+    "min": 547083,
+    "p50": 679471,
+    "p95": 810531,
+    "max": 843177
+  },
+  "chunks_loaded": {
+    "min": 49,
+    "p50": 68,
+    "p95": 89,
+    "max": 89
+  },
+  "lod_near": {
+    "min": 14,
+    "p50": 16,
+    "p95": 18,
+    "max": 19
+  },
+  "lod_far": {
+    "min": 30,
+    "p50": 53,
+    "p95": 73,
+    "max": 73
+  },
+  "chunk_loads_total": 90,
+  "chunk_unloads_total": 90,
+  "chunk_loads_per_s": 1.27,
+  "chunk_unloads_per_s": 1.27,
+  "lod_swaps_total": 152,
+  "worst_chunk_build_ms": 13.5,
+  "worst_chunk_total_ms": 25.9,
+  "heap_mb_before": 90,
+  "heap_mb_after": 73,
+  "heap_growth_mb": -17,
+  "speed_kmh": {
+    "min": 12.5,
+    "p50": 120,
+    "p95": 142.8,
+    "max": 144
+  },
+  "traffic": {
+    "fleet": 30,
+    "alive": 30,
+    "spawns": 131,
+    "despawns": 100,
+    "deadEnds": 36,
+    "uTurns": 13,
+    "orphaned": 68,
+    "maxSimultaneousOrphans": 18,
+    "worstOrphanS": 1.35,
+    "overlapFrames": 1,
+    "frames": 1496,
+    "junctionWaitCarFrames": 1323,
+    "followBrakeCarFrames": 1674,
+    "stoppedCarFrames": 463,
+    "entryBlockedCarFrames": 0,
+    "carFrames": 44880,
+    "overlapNearJunction": 1,
+    "overlapSameEdge": 0,
+    "overlapCrossEdge": 0,
+    "overlapPairFrames": 1,
+    "overlapCarFrames": 2,
+    "overlapPairsNearJunction": 1,
+    "overlapPairsMidBlock": 0,
+    "waitEpisodes": 40,
+    "waitSumS": 65.44999999999997,
+    "waitMaxS": 5.999999999999987,
+    "conflictDenials": 1023,
+    "queueDenials": 22,
+    "boxDenials": 278,
+    "replans": 5,
+    "gridlockRecoveries": 0,
+    "gridlockByReason": {
+      "conflict": 0,
+      "queue": 0,
+      "box": 0,
+      "none": 0
+    },
+    "maxActiveInAJunction": 2,
+    "closestApproachM": 2.4,
+    "overlapPctOfFrames": 0.1,
+    "junctionWaitPctOfCarFrames": 2.9,
+    "followBrakePctOfCarFrames": 3.7,
+    "stoppedPctOfCarFrames": 1,
+    "meanSpeedKmh": 37.9,
+    "junctionsHeld": 15,
+    "activeMovements": 15,
+    "queuedCars": 2,
+    "busiestJunction": 1,
+    "overlapCarPctOfCarFrames": 0,
+    "overlapPairsPerFrame": 0.001,
+    "closestPairHistogram": [
+      0,
+      0,
+      3,
+      18,
+      195,
+      148,
+      159,
+      175,
+      185,
+      613
+    ],
+    "drawCalls": 1
+  },
+  "errors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "budget_gate": {
+    "status": "WARN",
+    "rows": [
+      {
+        "name": "draw calls",
+        "value": 235,
+        "warn": 275,
+        "fail": 440,
+        "status": "PASS",
+        "advisory": false
+      },
+      {
+        "name": "triangles",
+        "value": 810531,
+        "warn": 830000,
+        "fail": 1850000,
+        "status": "PASS",
+        "advisory": false
+      },
+      {
+        "name": "chunk stall ms",
+        "value": 13.5,
+        "warn": 8,
+        "fail": 16,
+        "status": "WARN",
+        "advisory": false
+      },
+      {
+        "name": "heap growth MB",
+        "value": -17,
+        "warn": 40,
+        "fail": 120,
+        "status": "PASS",
+        "advisory": false
+      }
+    ],
+    "advisory": [],
+    "headroom": [
+      {
+        "name": "draw calls",
+        "value": 235,
+        "failAt": 440,
+        "advisory": false,
+        "headroomPct": 46.6
+      },
+      {
+        "name": "triangles",
+        "value": 810531,
+        "failAt": 1850000,
+        "advisory": false,
+        "headroomPct": 56.2
+      },
+      {
+        "name": "chunk stall ms",
+        "value": 13.5,
+        "failAt": 16,
+        "advisory": false,
+        "headroomPct": 15.6
+      },
+      {
+        "name": "heap growth MB",
+        "value": -17,
+        "failAt": 120,
+        "advisory": false,
+        "headroomPct": 114.2
+      }
+    ]
+  }
+}
+
+BUDGET GATE: WARN
+  PASS                         draw calls             235  warn 275  fail 440  headroom 46.6%
+  PASS                         triangles           810531  warn 830000  fail 1850000  headroom 56.2%
+  WARN                         chunk stall ms        13.5  warn 8  fail 16  headroom 15.6%
+  PASS                         heap growth MB         -17  warn 40  fail 120  headroom 114.2%

@@ -459,7 +459,8 @@ export class StreamingWorld {
   // roads behind a wall are rejected outright, and the edge that sees a road
   // soonest and most squarely wins. Its outward normal is the answer.
   //
-  // Cached on the building, like _perim below: the frontage search is 122 us
+  // Cached on the building, like _perim in src/build-cost.js: the frontage
+  // search is 122 us
   // against the nearest-vertex search's 2.7 us, which would be 1-2 ms of a 3 ms
   // chunk slice if it ran per build.
   //
