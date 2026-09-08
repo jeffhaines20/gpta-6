@@ -59,6 +59,40 @@ export function boxLuma(img, [bx, by, bw, bh]) {
 }
 
 /**
+ * The same box, in LINEAR light. sRGB out, scene-referred back.
+ *
+ * `boxLuma` above works on the encoded 8-bit values, which is right for "how
+ * bright does this look" and wrong for anything compared across two builds:
+ * the OETF is not a scale, so a ratio of encoded values still moves when the
+ * exposure does. In linear light an exposure change IS a scale, and a ratio of
+ * two linear percentiles is exactly invariant under one. Measured below.
+ */
+export function boxLumaLinear(img, [bx, by, bw, bh]) {
+  const { width: W, height: H, channels: C, data } = img;
+  if (data.length < W * H * C) {
+    throw new Error(`buffer short: ${data.length} for ${W}x${H}x${C} — stride wrong?`);
+  }
+  if (bx < 0 || by < 0 || bx + bw > W || by + bh > H) {
+    throw new Error(`box [${bx},${by},${bw},${bh}] is not inside ${W}x${H}`);
+  }
+  const s2l = (u) => { const c = u / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  const out = new Float64Array(bw * bh);
+  let k = 0, clipped = 0;
+  for (let y = by; y < by + bh; y++) {
+    for (let x = bx; x < bx + bw; x++) {
+      const i = (y * W + x) * C;
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      if (r >= 254 && g >= 254 && b >= 254) clipped++;
+      const v = 0.2126 * s2l(r) + 0.7152 * s2l(g) + 0.0722 * s2l(b);
+      if (!Number.isFinite(v)) throw new Error(`non-finite luma at ${x},${y} — stride wrong?`);
+      out[k++] = v;
+    }
+  }
+  out.sort();
+  return { lum: out, clipPct: +((100 * clipped) / (bw * bh)).toFixed(2) };
+}
+
+/**
  * LOCAL contrast: RMS deviation from a local mean, divided by that local mean.
  *
  * This is the number the review round was really quoting when it said the shelf
@@ -108,6 +142,12 @@ export const pct = (sorted, p) => sorted[Math.min(sorted.length - 1,
 
 export function bayStats(img, rect) {
   const s = boxLuma(img, rect);
+  // Exposure-invariant companion to `muddyPct`. See the note on muddyPct below
+  // for why it is here and what it replaces.
+  const { lum: lin, clipPct } = boxLumaLinear(img, rect);
+  const linP50 = pct(lin, 0.50);
+  const dispersion = linP50 > 1e-9
+    ? +((pct(lin, 0.90) - pct(lin, 0.10)) / linP50).toFixed(3) : 0;
   let sum = 0, over200 = 0, over90 = 0, muddy = 0;
   for (const v of s) {
     sum += v;
@@ -130,7 +170,34 @@ export function bayStats(img, rect) {
     spread: +(pct(s, 0.90) - pct(s, 0.10)).toFixed(1),
     over200Pct: +((100 * over200) / n).toFixed(2),
     over90Pct: +((100 * over90) / n).toFixed(2),
+    // MUDDY IS AN ABSOLUTE BAND AND DOES NOT SURVIVE AN EXPOSURE CHANGE.
+    // Measured on docs/shots/hero-corridor-dusk.png over a 220x160 bay window,
+    // exposure applied in linear light and re-encoded, ZERO content change:
+    //
+    //   stops    -0.50   -0.25    0.00   +0.25   +0.50   +1.00
+    //   muddyPct 20.12   21.41   26.85   31.32   35.45   40.13
+    //
+    // A round that shifted exposure half a stop and read muddyPct fall by a
+    // quarter would have called that a legibility win. It is the population
+    // walking across a fixed threshold, which is issue #47 and the same shape
+    // of error as the "last radius still over 0.05" crossing in CLAUDE.md.
+    // Kept, because past rounds quoted it and deleting it would silently
+    // rewrite what those numbers meant -- but never compare it across builds.
     muddyPct: +((100 * muddy) / n).toFixed(2),
+    // What to use instead. Percentile spread over the median, in LINEAR light,
+    // where an exposure change is a pure scale and therefore cancels. Same
+    // frame, same window, same stops as the table above:
+    //
+    //   dispersion  8.3325  8.3325  8.3325  8.3325  8.3325  8.3325   (0.00%)
+    //
+    // Exact, not approximate -- and exact only while nothing clips, because a
+    // clipped highlight is not scaled by the exposure it saturated at. Hence
+    // clipPct: if it is not ~0, the invariance claim does not hold and the
+    // number needs saying with that caveat rather than quoting bare.
+    // The same ratio taken on the ENCODED values drifts 20% over the same
+    // range, which is why this one is computed in linear light and not there.
+    dispersion,
+    clipPct,
   };
 }
 
@@ -230,6 +297,66 @@ function selftest() {
   ck('ramp p90', Math.round(r.p90), 89);
   ck('ramp max', Math.round(r.max), 99);
 
+  // ---- issue #47: the exposure invariance the two metrics do and do not have.
+  //
+  // A synthetic bay with real tonal structure -- dark frame, mid wall, bright
+  // glass -- exposed twice, one stop apart, in linear light and re-encoded, so
+  // the CONTENT is identical and only the exposure differs. dispersion must not
+  // move; muddyPct must. The second assertion is the one that matters: without
+  // it this test would still pass against a `dispersion` that had quietly been
+  // made an absolute band again, because a constant 0 is invariant too.
+  {
+    const l2s = (c) => 255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
+    const bay = (stops) => {
+      const g = Math.pow(2, stops);
+      const W = 40, H = 40, data = new Uint8ClampedArray(W * H * 3);
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          // Three bands in LINEAR reflectance plus a gentle gradient, then
+          // exposed and encoded. The gradient is not decoration: with three
+          // flat levels and nothing else, one 8-bit quantisation step moves a
+          // percentile onto a different band and the drift below reads 1.7%
+          // instead of the ~0 a real frame gives. That is the quantisation
+          // floor, not the metric, and the bound asserted below is set by it.
+          const lin = (y < 12 ? 0.012 : y < 28 ? 0.055 : 0.14) * (1 + 0.35 * (x / W));
+          const v = l2s(Math.min(1, lin * g));
+          const i = (y * W + x) * 3;
+          data[i] = data[i + 1] = data[i + 2] = v;
+        }
+      }
+      return { width: W, height: H, channels: 3, data };
+    };
+    const a = bayStats(bay(0), [0, 0, 40, 40]);
+    const b = bayStats(bay(1), [0, 0, 40, 40]);
+    const dDrift = 100 * Math.abs(b.dispersion / a.dispersion - 1);
+    const mDrift = 100 * Math.abs(b.muddyPct - a.muddyPct) /
+      Math.max(1, Math.max(a.muddyPct, b.muddyPct));
+    // The bound is the 8-bit quantisation floor, not a tolerance chosen to pass:
+    // in linear light the exposure is a pure scale and cancels exactly, and on a
+    // real frame (docs/shots/hero-corridor-dusk.png, 220x160 bay window, +/-1
+    // stop) the measured drift is 0.00%. A synthetic 40x40 gives it fewer
+    // distinct levels to land on, so 1% is the floor here.
+    const okd = dDrift < 1.0;
+    if (!okd) fail++;
+    console.log(`${okd ? 'ok  ' : 'FAIL'} dispersion survives a one-stop change: ` +
+      `${a.dispersion} -> ${b.dispersion}, drift ${dDrift.toFixed(2)}% < 1%`);
+    ck('...and nothing clipped, so the claim holds', b.clipPct + a.clipPct, 0);
+    // The assertion that stops `dispersion` being quietly replaced by another
+    // absolute band: a constant would pass the invariance check above on its
+    // own. muddyPct must be seen to MOVE on the very same pair.
+    const ok = mDrift > 20 * Math.max(dDrift, 0.05);
+    if (!ok) fail++;
+    console.log(`${ok ? 'ok  ' : 'FAIL'} muddyPct moves on the same pair ` +
+      `(${a.muddyPct} -> ${b.muddyPct}, ${mDrift.toFixed(1)}% vs dispersion's ` +
+      `${dDrift.toFixed(2)}%): the defect, reproduced`);
+    // And the guard itself: blow the highlights and clipPct must report it,
+    // because past that point dispersion is no longer exposure-invariant.
+    const hot = bayStats(bay(4), [0, 0, 40, 40]);
+    const okc = hot.clipPct > 20;
+    if (!okc) fail++;
+    console.log(`${okc ? 'ok  ' : 'FAIL'} clipPct flags a blown frame: ${hot.clipPct}% > 20`);
+  }
+
   console.log(fail ? `\n${fail} FAILED` : '\nall passed');
   process.exit(fail ? 1 : 0);
 }
@@ -270,8 +397,12 @@ else {
   for (const [view, rects] of Object.entries(views)) {
     const pav = PAVEMENT[view];
     console.log(`\n=== ${view} (pavement reference [${pav}]) ===`);
+    // `30-60%` is muddyPct and is NOT comparable between arms -- it walks a
+    // fixed threshold across a population that moves with exposure (issue #47;
+    // the table in bayStats has the numbers). `disp` is its exposure-invariant
+    // replacement, and `clip%` says whether that invariance holds on this frame.
     console.log('rect                                  arm      mean   p10   p50   p90   max' +
-      '   sd  spread  >200%  >90%  30-60%   p90/pav   local');
+      '   sd  spread  >200%  >90%  30-60%    disp  clip%   p90/pav   local');
     for (const [label, rect] of Object.entries(rects)) {
       for (const arm of arms) {
         const f = `${DIR}/${arm}-${view}.png`;
@@ -282,7 +413,8 @@ else {
         const w = (v, n) => String(v).padStart(n);
         console.log(`${label.padEnd(36)} ${arm.padEnd(6)} ${w(s.mean, 6)} ${w(s.p10, 5)} ` +
           `${w(s.p50, 5)} ${w(s.p90, 5)} ${w(s.max, 5)} ${w(s.sd, 5)} ${w(s.spread, 6)} ` +
-          `${w(s.over200Pct, 6)} ${w(s.over90Pct, 6)} ${w(s.muddyPct, 6)}  ${w((s.p90 / pavMed).toFixed(2), 8)}` +
+          `${w(s.over200Pct, 6)} ${w(s.over90Pct, 6)} ${w(s.muddyPct, 6)} ${w(s.dispersion, 7)} ` +
+          `${w(s.clipPct, 6)}  ${w((s.p90 / pavMed).toFixed(2), 8)}` +
           `  ${w(localContrast(img, rect, 3).rms.toFixed(4), 7)}`);
       }
     }
