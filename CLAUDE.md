@@ -176,8 +176,12 @@ where both kits rolled their own dice over the same wall for 275 m.
   half that matters.** `page.screenshot` inside the framing/time-of-day loop
   threw on a timeout and destroyed every frame after it, so an eight-frame arm
   came back with six and looked like a completed run with a short list rather
-  than like a crash. Its pair partner loses the SAME frames, so the set is
-  internally consistent and there is nothing to notice. `drive-through.mjs` had
+  than like a crash. And the two arms do NOT lose the same frames — the timeout
+  is load-dependent, not per-framing, so the second arm of this very pair
+  captured all eight while the first captured six. Asymmetric arms are the worse
+  case: a pairing that matches by INDEX rather than by NAME will pair
+  fivepoints-dusk against fivepoints-golden and every number after that is
+  nonsense, while looking like a strong signal. `drive-through.mjs` had
   carried both halves for a while, and its own comment says hero-shots "already
   uses 180 s for the same reason" — true of the bound, false of the catch. Three
   other tools were still unguarded when this was found. Patching one tool and
