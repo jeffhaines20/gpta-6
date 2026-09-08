@@ -900,8 +900,15 @@ export function buildTrafficCarGeometry(opts = {}) {
   const trimC = col(0x3a3d42);
   const glassC = col(0x0d1015);
   const tyreC = col(0x0e1013);
-  const rimC = col(0xc2c8ce);          // alloy face
-  const rimGapC = col(0x24282e);        // the shadow a spoke gap sits in
+  // Alloy and the shadow a spoke gap sits in. The first cut of the relief used
+  // 0xc2c8ce over 0x24282e, and it made the wheel WORSE: the lobe averages the
+  // two, so a near-black gap dropped the rim's mean albedo from the old flat
+  // disc's 0.55 to about 0.45, and the recessed gap faces then self-shadowed on
+  // top of that. Measured at the hero framing it took rimTyre from 1.20 to 0.87 -
+  // the rim came out DARKER than the tyre. A spoke gap in daylight is a shadowed
+  // recess, not a hole; these two average to 0.62.
+  const rimC = col(0xd8dee5);           // alloy face
+  const rimGapC = col(0x656b73);        // shadowed recess between spokes
   const lampC = col(0xd8dade);
   const tailC = col(0x8e1c16);
   const grilleC = col(0x121417);
@@ -1093,7 +1100,7 @@ export function buildTrafficCarGeometry(opts = {}) {
     fan(b.vert(wx - out * HW, wy, wz, tyreC, SURFACE.tyre), treadIn, out < 0);
     // Outboard face: bright bead lip, lobed spoke ring, proud hub.
     const lip = lobeRing(HW, 0, RR, 1);
-    const spoke = lobeRing(HW * 0.90, 0.050, RR * 0.46, 0);
+    const spoke = lobeRing(HW * 0.90, 0.032, RR * 0.46, 0);
     band(spoke, lip);
     fan(b.vert(wx + out * HW, wy, wz, rimC, SURFACE.rim), spoke, out > 0);
   }

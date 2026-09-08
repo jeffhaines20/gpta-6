@@ -4755,9 +4755,16 @@ export class StreetFurniture {
       // inside one InstancedMesh; a fleet that is mostly achromatic is the
       // escape. Still driven entirely by the slot hash, so placement and paint
       // stay deterministic.
+      // LIGHTNESS IS DELIBERATELY UNCHANGED from the hue-wheel version it
+      // replaced - only hue and saturation move. The first cut also widened the
+      // lightness range, which repainted the probe's own pinned subject and made
+      // vGrad, spec and edges incomparable across the round: a confound I
+      // introduced into the very A/B I was running, in a commit whose whole
+      // point was to isolate one term at a time.
       const h = s.hue;
-      if (h < 0.66) this._pcol.setHSL(0.58, 0.012 + h * 0.045, 0.20 + ((h * 7) % 1) * 0.58);
-      else this._pcol.setHSL((h - 0.66) / 0.34, 0.26 + h * 0.18, 0.24 + ((h * 7) % 1) * 0.28);
+      const l = 0.26 + ((h * 7) % 1) * 0.4;
+      if (h < 0.66) this._pcol.setHSL(0.58, 0.012 + h * 0.045, l);
+      else this._pcol.setHSL((h - 0.66) / 0.34, 0.26 + h * 0.18, l);
       p.mesh.setColorAt(i, this._pcol);
     }
     for (let k = i; k < p.count; k++) p.mesh.setMatrixAt(k, this._hidden);

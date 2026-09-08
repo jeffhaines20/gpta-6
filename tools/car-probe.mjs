@@ -30,6 +30,11 @@
 //             spokes, a hub, a lip. A flat disc is ~0 whatever its brightness,
 //             which is why rimTyre alone is not enough: a uniformly BRIGHT disc
 //             would score well on rimTyre and still read as a sticker.
+//   deckSpec  the same ratio on the BOOT DECK. Added after the arm sweep showed
+//             `spec` on the flank could not be moved by paint roughness or paint
+//             metalness at all - at noon the sun's lobe lands on surfaces facing
+//             UP, so a vertical door skin is the wrong place to ask whether the
+//             paint has a specular response.
 //   spec      p98 / median luma over the flank quad. A matte body is ~1.2; a
 //             clearcoat with a sun glint in it runs well above that.
 //             LIMIT, measured in the self-test: a highlight covering under ~2%
@@ -77,6 +82,7 @@
 import fs from 'node:fs';
 import { readPNG } from './png.mjs';
 import { writePNG } from './crop.mjs';
+import { createHash } from 'node:crypto';
 
 const OUT = 'docs/probe';
 const ARGS = process.argv.slice(2);
@@ -127,14 +133,42 @@ const stdev = (a) => {
   return Math.sqrt(a.reduce((s, v) => s + (v - m) ** 2, 0) / (a.length - 1));
 };
 
-/** Luma inside the projected wheel disc, split into rim core and tyre annulus. */
-export function wheelMetrics(png, cx, cy, r) {
+/**
+ * Luma inside the projected wheel, split into rim core and tyre annulus.
+ *
+ * THE WHEEL IS AN ELLIPSE, NOT A CIRCLE, and sampling it as a circle is a bug
+ * that flatters nothing and ruins everything. A kerbside car seen from the
+ * carriageway is nearly end-on, so its wheel projects about 17 px wide by 38 px
+ * tall. A circular annulus at 0.80-1.00 of the tall radius spends most of its
+ * area on the bright body and the brighter road either side of the tyre, so the
+ * "tyre" reads far lighter than rubber and the rim/tyre ratio is squeezed toward
+ * 1. That is why the first pass measured a 10:1 albedo step - alloy 0.55 against
+ * rubber 0.055 - as a ratio of 1.20, and then read a real change as a
+ * regression.
+ *
+ * So the caller passes the two projected semi-axis VECTORS of the wheel disc:
+ * `up` is the screen offset of a point one wheel radius above the axle, `fore`
+ * the offset of one radius along the car's axis. The wheel lies in the plane
+ * those two span, and a pixel's normalised radius comes from solving
+ * p - c = a*up + b*fore and taking hypot(a, b).
+ */
+export function wheelMetrics(png, cx, cy, up, fore) {
   const s = sampler(png);
+  // Inverse of the 2x2 [up fore] basis, so screen offsets become disc coords.
+  const det = up[0] * fore[1] - up[1] * fore[0];
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-6) {
+    return { px: 0, samples: 0, rimTyre: null, rimCoV: null, degenerate: true };
+  }
+  const i00 = fore[1] / det, i01 = -fore[0] / det;
+  const i10 = -up[1] / det, i11 = up[0] / det;
   const core = [], tyre = [], inner = [];
-  const R = Math.max(1, r);
-  for (let y = Math.floor(cy - R); y <= Math.ceil(cy + R); y++) {
-    for (let x = Math.floor(cx - R); x <= Math.ceil(cx + R); x++) {
-      const d = Math.hypot(x - cx, y - cy) / R;
+  const rx = Math.abs(up[0]) + Math.abs(fore[0]);
+  const ry = Math.abs(up[1]) + Math.abs(fore[1]);
+  for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++) {
+    for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
+      const dx = x - cx, dy = y - cy;
+      const a = i00 * dx + i01 * dy, b = i10 * dx + i11 * dy;
+      const d = Math.hypot(a, b);
       if (d > 1) continue;
       const L = s.luma(x, y);
       if (L === null) continue;
@@ -145,7 +179,8 @@ export function wheelMetrics(png, cx, cy, r) {
   }
   const tyreMed = median(tyre);
   return {
-    px: +(2 * R).toFixed(1),
+    px: +(2 * Math.hypot(up[0], up[1])).toFixed(1),
+    widthPx: +(2 * Math.hypot(fore[0], fore[1])).toFixed(1),
     samples: core.length + tyre.length,
     rimTyre: tyreMed > 0.5 ? +(median(core) / tyreMed).toFixed(3) : null,
     rimCoV: +(stdev(inner) / Math.max(1e-6, mean(inner))).toFixed(3),
@@ -227,19 +262,24 @@ export function overlay(png, setup, file) {
     const p = (yi * w + xi) * 3;
     rgb[p] = c[0]; rgb[p + 1] = c[1]; rgb[p + 2] = c[2];
   };
-  const circle = (cx, cy, r, c) => {
-    for (let a = 0; a < 720; a++) put(cx + Math.cos(a / 114.6) * r, cy + Math.sin(a / 114.6) * r, c);
+  const ellipse = (cx, cy, up, fore, k, c) => {
+    for (let a = 0; a < 720; a++) {
+      const t = a / 114.6;
+      put(cx + k * (up[0] * Math.cos(t) + fore[0] * Math.sin(t)),
+        cy + k * (up[1] * Math.cos(t) + fore[1] * Math.sin(t)), c);
+    }
   };
   const line = (a, b, c) => {
     const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1])) + 1;
     for (let i = 0; i <= n; i++) put(a[0] + ((b[0] - a[0]) * i) / n, a[1] + ((b[1] - a[1]) * i) / n, c);
   };
   for (const wd of [setup.wheelFront, setup.wheelRear]) {
-    circle(wd.cx, wd.cy, wd.r, [0, 255, 0]);            // the disc the metric uses
-    circle(wd.cx, wd.cy, wd.r * 0.55, [255, 255, 0]);   // rim core
-    circle(wd.cx, wd.cy, wd.r * 0.80, [255, 128, 0]);   // tyre annulus starts
+    ellipse(wd.cx, wd.cy, wd.up, wd.fore, 1, [0, 255, 0]);      // the disc sampled
+    ellipse(wd.cx, wd.cy, wd.up, wd.fore, 0.55, [255, 255, 0]); // rim core
+    ellipse(wd.cx, wd.cy, wd.up, wd.fore, 0.80, [255, 128, 0]); // tyre annulus
   }
   for (let i = 0; i < 4; i++) line(setup.flank[i], setup.flank[(i + 1) % 4], [255, 0, 255]);
+  if (setup.deck) for (let i = 0; i < 4; i++) line(setup.deck[i], setup.deck[(i + 1) % 4], [255, 255, 255]);
   const [x0, y0, x1, y1] = setup.box;
   line([x0, y0], [x1, y0], [0, 200, 255]); line([x1, y0], [x1, y1], [0, 200, 255]);
   line([x1, y1], [x0, y1], [0, 200, 255]); line([x0, y1], [x0, y0], [0, 200, 255]);
@@ -273,25 +313,42 @@ function selftest() {
 
   // 1. The defect this tool was built to name: a featureless dark disc. The rim
   //    must NOT be reported as legible.
+  const UP = [0, 24], FORE = [24, 0];                       // a round-on wheel
   const flat = synth(64, 64, 3, (x, y) =>
     (Math.hypot(x - 32, y - 32) < 24 ? [18, 19, 22] : [140, 140, 140]));
-  const mFlat = wheelMetrics(flat, 32, 32, 24);
+  const mFlat = wheelMetrics(flat, 32, 32, UP, FORE);
   ok('flat disc: rimTyre ~ 1', Math.abs(mFlat.rimTyre - 1) < 0.05, mFlat.rimTyre);
   ok('flat disc: rimCoV ~ 0', mFlat.rimCoV < 0.02, mFlat.rimCoV);
 
   // 2. A rim that IS legible: bright core, dark tyre. Both metrics must rise.
-  const alloy = synth(64, 64, 3, (x, y) => {
-    const d = Math.hypot(x - 32, y - 32);
-    if (d > 24) return [140, 140, 140];
+  const alloyPaint = (sx) => (x, y) => {
+    const d = Math.hypot((x - 32) / sx, y - 32);
+    if (d > 24) return [140, 140, 140];                    // bright background
     if (d > 18) return [18, 19, 22];                       // tyre
-    const a = Math.atan2(y - 32, x - 32);
+    const a = Math.atan2(y - 32, (x - 32) / sx);
     const lobe = 0.5 + 0.5 * Math.cos(5 * a);              // five spokes
     const v = Math.round(40 + 170 * lobe);
     return [v, v, v];
-  });
-  const mAlloy = wheelMetrics(alloy, 32, 32, 24);
+  };
+  const mAlloy = wheelMetrics(synth(64, 64, 3, alloyPaint(1)), 32, 32, UP, FORE);
   ok('alloy disc: rimTyre > 2', mAlloy.rimTyre > 2, mAlloy.rimTyre);
   ok('alloy disc: rimCoV > 0.3', mAlloy.rimCoV > 0.3, mAlloy.rimCoV);
+
+  // 2b. THE ELLIPSE TRAP. The same wheel foreshortened to 0.42 of its width -
+  //     which is roughly what a kerbside car gives from the carriageway. Sampled
+  //     with the correct semi-axes it must read the SAME as the round-on one.
+  //     Sampled as a circle it must not: the annulus fills with bright
+  //     background and the ratio collapses toward 1, which is exactly how a real
+  //     10:1 albedo step came back as 1.20 and made a fix look like a
+  //     regression.
+  const squashed = synth(64, 64, 3, alloyPaint(0.42));
+  const mEll = wheelMetrics(squashed, 32, 32, UP, [24 * 0.42, 0]);
+  const mAsCircle = wheelMetrics(squashed, 32, 32, UP, FORE);
+  ok('foreshortened, elliptical sampling: same answer',
+    Math.abs(mEll.rimTyre - mAlloy.rimTyre) / mAlloy.rimTyre < 0.15,
+    `${mEll.rimTyre} vs ${mAlloy.rimTyre}`);
+  ok('foreshortened, CIRCULAR sampling: collapses toward 1',
+    mAsCircle.rimTyre < 0.5 * mEll.rimTyre, `${mAsCircle.rimTyre} vs ${mEll.rimTyre}`);
 
   // 3. THE STRIDE TRAP. readPNG returns channels 3 for these screenshots. A
   //    4-byte stride misreads every pixel and runs off the buffer in the bottom
@@ -387,6 +444,7 @@ if (ARGS.includes('--report')) {
     row('rimTyre R', A.wheelRear.rimTyre, B.wheelRear.rimTyre);
     row('rimCoV R', A.wheelRear.rimCoV, B.wheelRear.rimCoV);
     row('spec', A.flank.spec, B.flank.spec);
+    row('deckSpec', A.deck && A.deck.spec, B.deck && B.deck.spec);
     row('vGrad', A.flank.vGrad, B.flank.vGrad);
     row('edges', A.edge.edges, B.edge.edges);
     console.log('');
@@ -547,10 +605,16 @@ const setup = await page.evaluate(async (cfg) => {
   refresh();
   for (let i = 0; i < 60; i++) D.world.update(D.vehicle.position);
   // A wheel's on-screen radius: project the axle and a point one radius above it.
+  // The wheel disc lies in the plane spanned by the car's local Y and Z (its
+  // spin axis is local X), so its projection is the ellipse with semi-axes
+  // `up` and `fore`. Both are needed - see wheelMetrics.
   const wheelDisc = (lz) => {
     const c = project(side * 0.79, GROUND_Y + WHEEL_R, lz);
     const t = project(side * 0.79, GROUND_Y + WHEEL_R * 2, lz);
-    return { cx: c[0], cy: c[1], r: Math.hypot(t[0] - c[0], t[1] - c[1]) };
+    const f = project(side * 0.79, GROUND_Y + WHEEL_R, lz + WHEEL_R);
+    return { cx: c[0], cy: c[1],
+      r: Math.hypot(t[0] - c[0], t[1] - c[1]),
+      up: [t[0] - c[0], t[1] - c[1]], fore: [f[0] - c[0], f[1] - c[1]] };
   };
   // The sampled panel is the TAIL, from just under the boot lip down to just
   // above the plate recess, inset from both rear corners. That is where the
@@ -569,6 +633,18 @@ const setup = await page.evaluate(async (cfg) => {
   const flank = [
     px94(0.28, 0.60), px94(0.28, -0.82), px94(-0.46, -0.82), px94(-0.46, 0.60),
   ];
+  // A SECOND panel, on the boot deck, and it exists because of a limit the arm
+  // sweep exposed. `spec` on the flank did not move when paint roughness was
+  // halved or paint metalness cut to a fifth - and it could not have, because at
+  // noon the sun's specular lobe lands on the surfaces facing UP, not on a
+  // vertical door skin. Measuring "the paint has no specular response" on the
+  // flank alone answers a question the geometry never asked. The boot deck faces
+  // the sky and faces the corridor hero camera square on, so it is where a
+  // clearcoat glint would actually appear if there were one.
+  const deck = [
+    project(...bodyPt(-0.60, 0.300, -1.80)), project(...bodyPt(0.60, 0.300, -1.80)),
+    project(...bodyPt(0.60, 0.300, -2.10)), project(...bodyPt(-0.60, 0.300, -2.10)),
+  ];
   // The whole-car box, for the edge density.
   const corners = [];
   for (const lx of [-0.98, 0.98]) for (const ly of [CAR_GROUND, 0.72]) for (const lz of [-2.3, 2.3]) {
@@ -581,6 +657,7 @@ const setup = await page.evaluate(async (cfg) => {
     slot: `${pick.x.toFixed(1)},${pick.z.toFixed(1)}`,
     yaw: +pick.yaw.toFixed(3), side,
     dist: +dist.toFixed(1),
+    deck,
     eye: eye.map((v) => +v.toFixed(2)),
     wheelFront: wheelDisc(F_AXLE), wheelRear: wheelDisc(R_AXLE),
     flank,
@@ -593,8 +670,9 @@ if (setup.error) { console.error(setup.error); await browser.close(); process.ex
 console.log(`subject slot ${setup.slot}  (pin the next run with --slot ${setup.slot})`);
 console.log(`camera ${setup.dist} m down the lane, solved for a ${TARGET_WHEEL_PX} px wheel `
   + `(what the corridor hero frame shows); car ${setup.carPx} px nose-to-tail on screen`);
-console.log(`front wheel ${(2 * setup.wheelFront.r).toFixed(1)} px across, `
-  + `rear ${(2 * setup.wheelRear.r).toFixed(1)} px`);
+console.log(`front wheel ${(2 * setup.wheelFront.r).toFixed(1)} px tall, `
+  + `rear ${(2 * setup.wheelRear.r).toFixed(1)} px tall x `
+  + `${(2 * Math.hypot(...setup.wheelRear.fore)).toFixed(1)} px wide`);
 if (setup.wheelRear.r < 4) {
   console.log('NOTE: a wheel under 8 px across cannot resolve a rim; treat rimCoV as indicative only.');
 }
@@ -607,25 +685,45 @@ const SURF = { paint: 0, trim: 1, chrome: 2, grille: 3, headlight: 4, taillight:
   indicator: 6, plate: 7, tyre: 8, rim: 9, glassy: 10, matte: 11 };
 const ARMS = (process.env.CAR_ARMS ?? '').split(',').map((a) => a.trim()).filter(Boolean);
 if (ARMS.length) {
-  const found = await page.evaluate(() => {
-    let tex = null;
-    __district.scene.traverse((o) => {
-      const m = o.material;
-      if (!tex && m && m.roughnessMap && m.roughnessMap.image && m.roughnessMap.image.width === 16) {
-        tex = m.roughnessMap;
-      }
-    });
-    if (!tex) return null;
+  // FIND THE PALETTE THROUGH THE CAR, NOT BY TRAVERSING THE SCENE.
+  //
+  // The first cut looked for "any material with a 16-wide roughnessMap" and
+  // found one - some other atlas that happens to be 16 texels across, whose
+  // slot 0 reads roughness 237 / metalness 5 where carbody.js's PALETTE[0] is
+  // 66 / 153. Every arm then poked a texture no car was reading, and the sweep
+  // came back with SEVEN ARMS OF BYTE-IDENTICAL NUMBERS. That is the shape
+  // blind-compare refuses to ship - two arms of the same build is a failure that
+  // looks like data - and the only reason it was caught at all is that the
+  // metrics were identical to four decimals rather than merely close.
+  //
+  // So: go through the parked pool's own material, and CHECK the bytes against
+  // what carbody.js authors before believing it.
+  const found = await page.evaluate((want) => {
+    const m = __district.furniture.parked && __district.furniture.parked.mesh.material;
+    const tex = m && m.roughnessMap;
+    if (!tex || !tex.image || tex.image.width !== 16) {
+      return { error: 'no 16x1 palette on the parked car material' };
+    }
+    const d = tex.image.data;
+    if (Math.abs(d[1] - want.r) > 2 || Math.abs(d[2] - want.m) > 2) {
+      return { error: `palette slot 0 reads r=${d[1]} m=${d[2]}, expected r=${want.r} m=${want.m}` };
+    }
     window.__palTex = tex;
-    window.__palBase = Uint8Array.from(tex.image.data);
-    return Array.from(tex.image.data.slice(0, 12));
-  });
-  if (!found) { console.error('ABORT: no 16x1 car palette in the scene; arms would measure nothing.'); await browser.close(); process.exit(2); }
-  console.log(`palette found, paint bytes r=${found[1]} m=${found[2]}`);
+    window.__palBase = Uint8Array.from(d);
+    return { r: d[1], m: d[2] };
+  }, { r: Math.round(0.26 * 255), m: Math.round(0.60 * 255) });
+  if (found.error) {
+    console.error(`ABORT: ${found.error} - the arms would measure nothing.`);
+    await browser.close();
+    process.exit(2);
+  }
+  console.log(`palette confirmed on the parked car material: paint r=${found.r} m=${found.m}`);
 }
 
 const run = { tag: TAG, slot: setup.slot, dist: setup.dist, targetWheelPx: TARGET_WHEEL_PX, carPx: setup.carPx, arms: ARMS, tod: {} };
+const seen = new Map();
 for (const tod of TIMES) {
+  seen.clear();
   await page.evaluate((t) => __district.setTimeOfDay(t), tod);
   const f0 = await page.evaluate(() => __district.frames);
   await page.waitForFunction((f) => __district.frames > f + 6, f0, { timeout: 180000, polling: 200 });
@@ -661,12 +759,26 @@ for (const tod of TIMES) {
     const key = arm ? `${tod}/${arm}` : tod;
     const file = `${OUT}/${TAG}-${tod}${arm ? `-${arm.replace(/[^a-z0-9]/gi, '_')}` : ''}.png`;
     await page.screenshot({ path: file, timeout: 180000 });
+    // Proof the arm reached the frame. Two arms rendering pixel-identical means
+    // the poke went somewhere nothing reads, which is how the first sweep
+    // produced seven arms of one build and looked like a result.
+    const digest = createHash('sha1').update(fs.readFileSync(file)).digest('hex').slice(0, 12);
+    if (arm && seen.has(digest)) {
+      console.error(`ABORT: arm ${arm} rendered pixel-identical to ${seen.get(digest)}. `
+        + 'The palette poke is not reaching the frame; nothing here would be measured.');
+      await browser.close();
+      process.exit(2);
+    }
+    if (arm) seen.set(digest, arm);
     const png = readPNG(file);
     const rec = {
       file,
-      wheelFront: wheelMetrics(png, setup.wheelFront.cx, setup.wheelFront.cy, setup.wheelFront.r),
-      wheelRear: wheelMetrics(png, setup.wheelRear.cx, setup.wheelRear.cy, setup.wheelRear.r),
+      wheelFront: wheelMetrics(png, setup.wheelFront.cx, setup.wheelFront.cy,
+        setup.wheelFront.up, setup.wheelFront.fore),
+      wheelRear: wheelMetrics(png, setup.wheelRear.cx, setup.wheelRear.cy,
+        setup.wheelRear.up, setup.wheelRear.fore),
       flank: flankMetrics(png, setup.flank),
+      deck: flankMetrics(png, setup.deck),
       edge: edgeMetrics(png, setup.box),
     };
     if (ARGS.includes('--overlay')) {
@@ -677,7 +789,7 @@ for (const tod of TIMES) {
       + `R ${String(rec.wheelRear.rimTyre).padStart(6)}   `
       + `rimCoV F ${String(rec.wheelFront.rimCoV).padStart(5)} R ${String(rec.wheelRear.rimCoV).padStart(5)}   `
       + `spec ${String(rec.flank.spec).padStart(5)}  vGrad ${String(rec.flank.vGrad).padStart(6)}  `
-      + `edges ${String(rec.edge.edges).padStart(6)}`);
+      + `deckSpec ${String(rec.deck.spec).padStart(5)}  edges ${String(rec.edge.edges).padStart(6)}`);
   }
 }
 if (ARMS.length) await page.evaluate(() => { window.__palTex.image.data.set(window.__palBase); window.__palTex.needsUpdate = true; });
