@@ -10,6 +10,10 @@
    "standoff": 22,
    "hfov": 84.5,
    "street": true,
+   "clear": {
+    "clear": 0,
+    "insideOf": 71
+   },
    "cam": [
     -61.576619704164,
     1.75,
@@ -23,48 +27,32 @@
    "fov": 54.167101728737336,
    "lots": [
     {
-     "s0": 8.7,
-     "w": 11.5,
+     "s0": 11.6,
+     "w": 14,
      "par": 0.95,
      "head": 3.34,
      "door": true,
      "awn": true
     },
     {
-     "s0": 20.2,
-     "w": 8.9,
+     "s0": 25.6,
+     "w": 13.3,
      "par": 0.95,
      "head": 3.34,
      "door": true,
      "awn": false
     },
     {
-     "s0": 29.2,
-     "w": 11,
+     "s0": 38.9,
+     "w": 14,
      "par": 0.95,
      "head": 3.34,
      "door": false,
      "awn": true
     },
     {
-     "s0": 40.1,
-     "w": 11,
-     "par": 0.95,
-     "head": 3.34,
-     "door": true,
-     "awn": false
-    },
-    {
-     "s0": 51.1,
-     "w": 7.6,
-     "par": 0.95,
-     "head": 3.34,
-     "door": true,
-     "awn": true
-    },
-    {
-     "s0": 58.6,
-     "w": 11.5,
+     "s0": 52.9,
+     "w": 14,
      "par": 0.95,
      "head": 3.34,
      "door": true,
@@ -82,6 +70,10 @@
    "standoff": 22,
    "hfov": 84.5,
    "street": true,
+   "clear": {
+    "clear": 9.165831942363829,
+    "insideOf": null
+   },
    "cam": [
     69.7995881037926,
     1.75,
@@ -95,44 +87,36 @@
    "fov": 54.167101728737336,
    "lots": [
     {
-     "s0": 11.6,
-     "w": 10.5,
+     "s0": 13.5,
+     "w": 12.2,
      "par": 0.95,
      "head": 3.34,
      "door": false,
      "awn": true
     },
     {
-     "s0": 22.1,
-     "w": 11.8,
+     "s0": 25.7,
+     "w": 13.7,
      "par": 0.95,
      "head": 3.34,
      "door": true,
      "awn": true
     },
     {
-     "s0": 33.8,
-     "w": 9.3,
+     "s0": 39.5,
+     "w": 11.5,
      "par": 0.95,
      "head": 3.34,
      "door": true,
      "awn": false
     },
     {
-     "s0": 43.2,
-     "w": 11.8,
+     "s0": 51,
+     "w": 13.7,
      "par": 0.95,
      "head": 3.34,
      "door": true,
      "awn": false
-    },
-    {
-     "s0": 54.9,
-     "w": 11.8,
-     "par": 0.95,
-     "head": 3.34,
-     "door": true,
-     "awn": true
     }
    ]
   }
@@ -142,7 +126,7 @@
    "b": 76,
    "tod": "noon",
    "file": "docs/shots/afterB-elev76e0-noon.png",
-   "triangles": 612188,
+   "triangles": 607420,
    "drawCalls": 196,
    "near": 16,
    "chunks": 83,
@@ -152,7 +136,7 @@
    "b": 76,
    "tod": "noon",
    "file": "docs/shots/afterB-elev76e2-noon.png",
-   "triangles": 583381,
+   "triangles": 579220,
    "drawCalls": 166,
    "near": 16,
    "chunks": 85,

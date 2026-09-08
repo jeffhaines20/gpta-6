@@ -181,7 +181,13 @@ const heapAfter = await page.evaluate(() => {
 
 const world = await page.evaluate(() => __district.worldReport());
 const trafficReport = await page.evaluate(() => __district.trafficReport());
-await page.screenshot({ path: `${OUT}/district-drive${WITH_TRAFFIC ? '-traffic' : ''}.png` });
+// 180 s, not Playwright's default 30. A SwiftShader frame takes seconds on an
+// idle box and tens of seconds with other headless browsers alive; this gate
+// completed all three circuits and then threw on the screenshot, throwing away
+// the measurement it had just spent five minutes taking. tools/hero-shots.mjs
+// and tools/lot-shots.mjs already use 180 s for the same reason.
+await page.screenshot({ path: `${OUT}/district-drive${WITH_TRAFFIC ? '-traffic' : ''}.png`,
+  timeout: 180000 });
 
 // ---- aggregate
 const num = (k) => samples.map((s) => s[k]).filter((v) => v !== null && v !== undefined);

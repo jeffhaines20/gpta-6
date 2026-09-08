@@ -77,22 +77,22 @@
     "hasEnvironment": true,
     "sky": {
      "preset": "noon",
-     "generationMs": 4404.3,
+     "generationMs": 6149.4,
      "generationMsByPhase": {
-      "setup": 15.2,
-      "cloudNoiseBake": 10,
-      "lutAndCompile": 4188.5,
-      "probeReadback": 174.1,
-      "environment": 26.4,
-      "total": 4404.3
+      "setup": 158.1,
+      "cloudNoiseBake": 152,
+      "lutAndCompile": 1584.7,
+      "probeReadback": 4376.2,
+      "environment": 30.3,
+      "total": 6149.4
      },
      "lut": "256x128 RGBA16F",
      "envMap": "PMREM 336x256",
      "refreshes": 4,
-     "lastRefreshMs": 5842.7,
-     "worstRefreshMs": 5842.7,
-     "envMs": 2.5,
-     "readbackMs": 5839.7,
+     "lastRefreshMs": 8661.9,
+     "worstRefreshMs": 8661.9,
+     "envMs": 2.4,
+     "readbackMs": 8658.8,
      "drawCalls": 1,
      "triangles": 1,
      "turbidity": 2.6,
@@ -102,7 +102,7 @@
       "baseM": 2200,
       "litFaceNits": 7799.9,
       "underlitNits": 0,
-      "noiseBakeMs": 10,
+      "noiseBakeMs": 152,
       "inLut": false
      },
      "msAniso": 0,
@@ -175,7 +175,7 @@
      "maxDrops": 12000,
      "drawCalls": 0,
      "boundMaterials": 14,
-     "generationMs": 8.9
+     "generationMs": 13.9
     },
     "samplePointLightCandela": 0,
     "shadowCasters": 103,
@@ -184,7 +184,7 @@
     "drawCalls": 163,
     "sceneCalls": 155,
     "postPasses": 8,
-    "triangles": 689660,
+    "triangles": 681835,
     "chunks": 83,
     "lodNear": 16,
     "lodFar": 67,
@@ -196,14 +196,14 @@
      "textures": 19,
      "textureLayers": 33,
      "textureMemoryMB": 22.75,
-     "generationMs": 735,
+     "generationMs": 753.3,
      "surfaceLayers": 8,
      "timingsMs": {
       "markings": 0,
-      "surfaces": 440.8,
-      "ground": 270.1,
-      "water": 8.6,
-      "trim": 15.4
+      "surfaces": 487.7,
+      "ground": 241.5,
+      "water": 8.9,
+      "trim": 15.2
      },
      "keys": [
       "road",
@@ -226,8 +226,8 @@
      ]
     },
     "population": {
-     "pedsAlive": 64,
-     "pedsInFrustum": 2,
+     "pedsAlive": 65,
+     "pedsInFrustum": 6,
      "trafficFleet": null,
      "trafficAlive": null,
      "parkedFilled": 30,
@@ -237,7 +237,7 @@
       "queen": 135,
       "oak": 12
      },
-     "propCount": 7934,
+     "propCount": 7907,
      "frustumWorks": true
     }
    }
@@ -319,22 +319,22 @@
     "hasEnvironment": true,
     "sky": {
      "preset": "noon",
-     "generationMs": 4404.3,
+     "generationMs": 6149.4,
      "generationMsByPhase": {
-      "setup": 15.2,
-      "cloudNoiseBake": 10,
-      "lutAndCompile": 4188.5,
-      "probeReadback": 174.1,
-      "environment": 26.4,
-      "total": 4404.3
+      "setup": 158.1,
+      "cloudNoiseBake": 152,
+      "lutAndCompile": 1584.7,
+      "probeReadback": 4376.2,
+      "environment": 30.3,
+      "total": 6149.4
      },
      "lut": "256x128 RGBA16F",
      "envMap": "PMREM 336x256",
      "refreshes": 5,
-     "lastRefreshMs": 6066.5,
-     "worstRefreshMs": 6066.5,
-     "envMs": 1.7,
-     "readbackMs": 6064.4,
+     "lastRefreshMs": 8333.4,
+     "worstRefreshMs": 8661.9,
+     "envMs": 2,
+     "readbackMs": 8330.8,
      "drawCalls": 1,
      "triangles": 1,
      "turbidity": 2.6,
@@ -344,7 +344,7 @@
       "baseM": 2200,
       "litFaceNits": 7799.9,
       "underlitNits": 0,
-      "noiseBakeMs": 10,
+      "noiseBakeMs": 152,
       "inLut": false
      },
      "msAniso": 0,
@@ -417,7 +417,7 @@
      "maxDrops": 12000,
      "drawCalls": 0,
      "boundMaterials": 14,
-     "generationMs": 8.9
+     "generationMs": 13.9
     },
     "samplePointLightCandela": 0,
     "shadowCasters": 104,
@@ -426,7 +426,7 @@
     "drawCalls": 183,
     "sceneCalls": 175,
     "postPasses": 8,
-    "triangles": 726379,
+    "triangles": 727156,
     "chunks": 83,
     "lodNear": 16,
     "lodFar": 67,
@@ -438,14 +438,14 @@
      "textures": 19,
      "textureLayers": 33,
      "textureMemoryMB": 22.75,
-     "generationMs": 735,
+     "generationMs": 753.3,
      "surfaceLayers": 8,
      "timingsMs": {
       "markings": 0,
-      "surfaces": 440.8,
-      "ground": 270.1,
-      "water": 8.6,
-      "trim": 15.4
+      "surfaces": 487.7,
+      "ground": 241.5,
+      "water": 8.9,
+      "trim": 15.2
      },
      "keys": [
       "road",
@@ -468,8 +468,8 @@
      ]
     },
     "population": {
-     "pedsAlive": 93,
-     "pedsInFrustum": 22,
+     "pedsAlive": 94,
+     "pedsInFrustum": 13,
      "trafficFleet": null,
      "trafficAlive": null,
      "parkedFilled": 30,
@@ -479,7 +479,7 @@
       "queen": 135,
       "oak": 12
      },
-     "propCount": 7934,
+     "propCount": 7907,
      "frustumWorks": true
     }
    }

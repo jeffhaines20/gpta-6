@@ -35,7 +35,12 @@ page.on('pageerror', (e) => errors.push(e.message));
 // search string works.
 const HERO_QUERY = process.env.HERO_QUERY ? `?${process.env.HERO_QUERY}` : '';
 await page.goto(`http://127.0.0.1:${HERO_PORT}/district/${HERO_QUERY}`, { waitUntil: 'networkidle' });
-await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
+// HERO_BOOT, matching LOT_BOOT / DRIVE_BOOT / TB_BOOT. Five rendered frames
+// through SwiftShader take well over 60 s when other agents' headless browsers
+// are alive on the same box; this timed out three times in one session and each
+// time threw away a capture that was working.
+await page.waitForFunction('window.__district && window.__district.frames > 5', null,
+  { timeout: Number(process.env.HERO_BOOT ?? 60000) });
 
 // Hide the debug overlay: it is not part of what is being judged.
 await page.addStyleTag({ content: '#attr{display:none!important}' });
