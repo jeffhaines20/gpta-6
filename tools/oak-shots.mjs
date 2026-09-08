@@ -100,7 +100,14 @@ for (const s of SHOTS) {
     });
     await page.waitForTimeout(3000);
     const file = `docs/shots/oak2-${TAG}-${s.name}-${tod}.png`;
-    await page.screenshot({ path: file, timeout: 180000 });
+    // Bounded AND non-fatal: a timeout here used to throw out of the loop and
+    // destroy every frame after it. See tools/hero-shots.mjs for the instance
+    // that cost an arm, and tools/drive-through.mjs for the first fix.
+    try {
+      await page.screenshot({ path: file, timeout: 180000 });
+    } catch (e) {
+      console.log(`  SCREENSHOT FAILED (continuing): ${file} — ${e.message.split('\n')[0]}`);
+    }
     const audit = await page.evaluate(() => {
       const w = __district.worldReport(), r = __district.renderStats(), a = __district.audit();
       return { chunks: w.chunksLoaded, lodNear: w.lodNear, lodFar: w.lodFar,

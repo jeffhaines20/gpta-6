@@ -172,6 +172,16 @@ where both kits rolled their own dice over the same wall for 275 m.
   other tree. Both readings were plausible and both were about the wrong
   directory. Put an absolute `cd` at the top of any script that measures or
   writes, and prefer absolute paths in one-off checks.
+- **A screenshot must be bounded AND non-fatal, and in a loop the catch is the
+  half that matters.** `page.screenshot` inside the framing/time-of-day loop
+  threw on a timeout and destroyed every frame after it, so an eight-frame arm
+  came back with six and looked like a completed run with a short list rather
+  than like a crash. Its pair partner loses the SAME frames, so the set is
+  internally consistent and there is nothing to notice. `drive-through.mjs` had
+  carried both halves for a while, and its own comment says hero-shots "already
+  uses 180 s for the same reason" — true of the bound, false of the catch. Three
+  other tools were still unguarded when this was found. Patching one tool and
+  leaving its siblings is the recurring shape of defect in this repo.
 - Headless capture runs through SwiftShader well under 1 fps. Budget minutes per
   frame, and never report frame rate as a performance result.
 - `blind-compare` refuses to build a pair set carrying under 8% facade-band

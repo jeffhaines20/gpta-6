@@ -244,7 +244,14 @@ for (const f of frames) {
     await page.evaluate((t) => __district.setTimeOfDay(t), tod);
     await page.waitForTimeout(12000);
     const file = `${OUT}/${TAG}-elev${f.bi}e${f.edge}-${tod}.png`;
-    await page.screenshot({ path: file, timeout: 180000 });
+    // Bounded AND non-fatal: a timeout here used to throw out of the loop and
+    // destroy every frame after it. See tools/hero-shots.mjs for the instance
+    // that cost an arm, and tools/drive-through.mjs for the first fix.
+    try {
+      await page.screenshot({ path: file, timeout: 180000 });
+    } catch (e) {
+      console.log(`  SCREENSHOT FAILED (continuing): ${file} — ${e.message.split('\n')[0]}`);
+    }
     const a = await page.evaluate(() => {
       const r = __district.renderStats(); const w = __district.worldReport();
       return { triangles: r.triangles, drawCalls: r.calls, near: w.lodNear, chunks: w.chunksLoaded,

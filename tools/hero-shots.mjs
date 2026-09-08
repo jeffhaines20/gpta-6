@@ -11,6 +11,9 @@ const OUT = 'docs/shots';
 fs.mkdirSync(OUT, { recursive: true });
 const TIMES = (process.env.HERO_TIMES ?? 'dusk,night,noon').split(',');
 const TAG = process.env.HERO_TAG ?? 'hero';
+// Frames this run could not capture. Printed at the end so a short arm is
+// visibly a short arm rather than something a reader has to count to notice.
+const shotErrors = [];
 // HERO_ARMS=ground0,ground1 captures every framing and every hour under two
 // UNIFORM states in one session instead of under two builds in two sessions.
 // See tools/ground-albedo.mjs for what an arm is and why it exists.
@@ -229,7 +232,29 @@ for (const s of shots) {
         await page.waitForFunction((f) => __district.frames > f + 4, f0, { timeout: 120000, polling: 100 });
       }
       const file = `${OUT}/${TAG}${arm ? `-${arm}` : ''}-${s.name}-${tod}.png`;
-      await page.screenshot({ path: file, timeout: 180000 });
+      // BOUNDED **AND** NON-FATAL. The 180 s bound has been here for a while;
+      // the catch had not, and the catch is the half that matters in a loop.
+      //
+      // A screenshot that times out threw straight out of the framing/tod loop,
+      // so ONE slow frame destroyed every frame after it. That is what it did:
+      // an eight-frame arm came back with six, missing both fivepoints night-side
+      // captures, and the arm looked like a completed run with a short list
+      // rather than like a crash. Its pair partner would have lost the same two,
+      // so the loss is invisible in a pair set — six pairs, all consistent,
+      // nothing to notice.
+      //
+      // tools/drive-through.mjs already carries both halves and its comment even
+      // says "tools/hero-shots.mjs and tools/lot-shots.mjs already use 180 s for
+      // the same reason" — true of the timeout, false of the catch. One round
+      // fixed one half here and both halves there, leaving the trap armed in
+      // three other tools. See CLAUDE.md on patching one tool and leaving the
+      // rest.
+      try {
+        await page.screenshot({ path: file, timeout: 180000 });
+      } catch (e) {
+        shotErrors.push(`${file}: ${e.message.split('\n')[0]}`);
+        console.log(`  SCREENSHOT FAILED (continuing): ${file}`);
+      }
       const audit = await page.evaluate(() => {
         const a = __district.audit();
         const w = __district.worldReport();
@@ -333,6 +358,13 @@ for (const s of shots) {
     }
   }
 }
-fs.writeFileSync(`docs/${TAG}-audits.json`, JSON.stringify({ results, errors }, null, 1));
+fs.writeFileSync(`docs/${TAG}-audits.json`,
+  JSON.stringify({ results, errors, shotErrors }, null, 1));
 console.log(`\nwrote docs/${TAG}-audits.json (${results.length} captures)`);
+// Say it loudly. A short arm that reads as a completed run is how two arms of a
+// pair set quietly lose the same frames and nobody counts.
+if (shotErrors.length) {
+  console.log(`\n${shotErrors.length} FRAME(S) NOT CAPTURED — this arm is INCOMPLETE:`);
+  for (const e of shotErrors) console.log(`  ${e}`);
+}
 await browser.close();

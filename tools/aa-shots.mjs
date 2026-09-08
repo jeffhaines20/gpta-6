@@ -149,7 +149,14 @@ for (const s of SHOTS) {
       const waited = ((Date.now() - t0) / 1000).toFixed(1);
 
       const file = `${OUT}/${TAG}-${arm.replace('+', '-')}-${s.name}-${tod}.png`;
+      // Bounded AND non-fatal: a timeout here used to throw out of the loop and
+    // destroy every frame after it. See tools/hero-shots.mjs for the instance
+    // that cost an arm, and tools/drive-through.mjs for the first fix.
+    try {
       await page.screenshot({ path: file, timeout: 180000 });
+    } catch (e) {
+      console.log(`  SCREENSHOT FAILED (continuing): ${file} — ${e.message.split('\n')[0]}`);
+    }
       const stats = await page.evaluate(() => ({ ...__district.renderStats(), aa: __district.aaState() }));
       const digest = crypto.createHash('sha1').update(fs.readFileSync(file)).digest('hex').slice(0, 12);
       const key = `${s.name}/${tod}`;
