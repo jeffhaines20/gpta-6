@@ -345,9 +345,13 @@ export const RECIPES = {
     // door, no sign and no awning on all 185 m of it, and a blind critic called
     // it a 1970s parking deck.
     //
-    // 10.6 m, against retailStrip's 7.6: a tower's structural bay is wider than
-    // a platted 1920s Main Street shopfront and the tenancies under one are
-    // fewer and bigger. Used ONLY by the ground pass - see `groundLots`.
+    // 12.5 m, against retailStrip's 7.6: a tower's structural bay is 9-10 m and
+    // a tenancy under one spans one or two of them, so the units are fewer and
+    // bigger than a platted 1920s Main Street shopfront. It went out at 10.6 and
+    // came back at 12.5 for the budget - see LOT.groundMax, and the commit that
+    // measured the district's real headroom at 359 triangles. Used ONLY by the
+    // ground pass; `lotM` is still absent and still means this footprint is one
+    // property. See `groundLots`.
     groundM: 12.5,
     rhythm: [1.2, 0.85, 1, 1, 0.85, 1.2],
     wall: { h: 38, s: 10, l: 84 },
