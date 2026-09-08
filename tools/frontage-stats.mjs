@@ -477,7 +477,12 @@ let sig = null;
 try {
   const r = SIGN.districtSignageBuffers(d, {
     styleOf: (b) => capStyle(buildingStyle(b), b),
+    // BOTH, exactly as district/main.js passes them. Passing only the primary
+    // undercounted the district by 126 tenancies and 6,482 shop triangles - it
+    // was measuring a signage pass nobody builds, for the same reason the
+    // frontage selection above was.
     streetDirFor,
+    streetDirsFor: (b) => geomStreetDirsFor(d, b, 2),
   });
   sig = r.stats;
   console.log(`  signage: ${sig.tenancies} tenancies on ${sig.signedBuildings} buildings, ` +
