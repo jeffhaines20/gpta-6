@@ -147,7 +147,17 @@ export class Traffic {
     const color = new THREE.Color();
     this.cars = new Array(this.count).fill(null);
     for (let i = 0; i < this.count; i++) {
-      color.setHSL(Math.random(), 0.32 + Math.random() * 0.3, 0.34 + Math.random() * 0.26);
+      // Same fleet distribution as the parked pool in streetfurniture.js, and
+      // for the same two reasons: the reference photographs of Main Street are
+      // overwhelmingly white, silver, grey and black, and instanceColor
+      // multiplies the vertex colour, so a saturated body would tint its own
+      // alloy rims. Uniform random hue at saturation 0.32-0.62 was a fairground.
+      // Lightness range unchanged from the hue-wheel version; only hue and
+      // saturation move. See the note in streetfurniture.js.
+      const r = Math.random();
+      const l = 0.34 + Math.random() * 0.26;
+      if (r < 0.66) color.setHSL(0.58, 0.012 + r * 0.045, l);
+      else color.setHSL(Math.random(), 0.26 + Math.random() * 0.18, l);
       this.mesh.setColorAt(i, color);
     }
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
