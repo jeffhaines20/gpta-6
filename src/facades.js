@@ -4570,10 +4570,32 @@ export function appendBuilding(ring, height, style, wall, trim, opts = {}) {
         ...style.storefront, edges: plainEdges, seed: style.seed, ...tArgs,
       });
     }
-    // Awnings on a LOTTED frontage belong to signage.js, which hangs one per
-    // tenancy off the same lot plan and can letter its valance. Emitting the
-    // plain kit's awnings here as well would put two layers of cloth on one bay.
-    if (style.awnings && plainEdges.length) {
+    // AWNINGS BELONG TO signage.js, and `opts.awnings` is how a caller says it
+    // is not running signage. Default off, because the shipped path always is.
+    //
+    // The guard here used to be `plainEdges` alone -- no facade cloth over a
+    // LOTTED bay, because there the lot plan holds one flag both kits read.
+    // That covered half the problem. On an UNLOTTED frontage signage.js still
+    // plans a tenancy per bay and still decides awning-or-fascia per tenancy
+    // (`t.lot ? t.lot.awning : aw < 0.48`), so both kits were rolling their own
+    // dice over the same wall. tools/awning-overlap.mjs measured the result
+    // district-wide by intersecting what the two emitters actually put on the
+    // wall, not by re-deriving their selection:
+    //
+    //   facade-kit cloth      286.2 m   5,562 triangles
+    //   double-covered wall   130.0 m   26 edges on 23 buildings
+    //   fascia under cloth    145.3 m
+    //   redundant             275.4 m   96.2% of it, 5,352 triangles
+    //
+    // The second line is the one that matters more than the triangles. A tenant
+    // "either awns or plates its fascia, never both", so signage.js chooses one
+    // to keep the NAME readable -- and the facade kit's independent dice were
+    // hanging a canopy over 145.3 m of the wordmarks it had just placed. Ten
+    // point eight metres of the district's facade cloth was doing anything at
+    // all, and this is the integration step signage.js's own header has asked
+    // callers to perform since it was written ("set style.awnings = false").
+    // Making it the default is what stops the next caller forgetting again.
+    if (opts.awnings === true && style.awnings && plainEdges.length) {
       awnings(ring, trim.pos, trim.nrm, trim.uv, trim.idx, {
         head: style.storefront.head, edges: plainEdges, cell: style.fabric,
         seed: style.seed, ...tArgs,

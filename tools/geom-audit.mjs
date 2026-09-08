@@ -126,7 +126,7 @@ function unsupported(list, hostY) {
 
 const fail = [];
 const note = (kind, id, gap, detail) => fail.push({ kind, id, gap: +gap.toFixed(3), ...detail });
-const stat = { roofUnits: 0, fireEscapes: 0, signBlanks: 0, awningsFac: 0, awningsSig: 0, streetPosts: 0 };
+const stat = { roofUnits: 0, fireEscapes: 0, signBlanks: 0, awningsFacKit: 0, awningsSig: 0, streetPosts: 0 };
 let worstRoof = 0, worstArm = 0, worstFE = 0, worstBlank = 0;
 
 for (let bi = 0; bi < d.buildings.length; bi++) {
@@ -201,13 +201,18 @@ for (let bi = 0; bi < d.buildings.length; bi++) {
     if (worst > TOL) { note(`awningArm:${tag}`, bi, worst, at); worstArm = Math.max(worstArm, worst); }
   };
   if (style.storefront) {
+    // KIT CHECK, NOT A DISTRICT CENSUS. appendBuilding stopped emitting these
+    // (signage.js owns awnings; see the comment there and tools/awning-overlap.mjs),
+    // so `awningsFacKit` counts what the exported kit WOULD build if a caller
+    // opted in -- the arm-above-fabric gate still has to hold for it. It is not
+    // a count of awnings on screen; the district ships zero from this kit.
     if (style.awnings) {
       for (const e of streetEdges) {
         const buf = buffers(); buf.col = null;
         awnings(b.p, buf.pos, buf.nrm, buf.uv, buf.idx,
           { head: style.storefront.head, edges: [e], cell: style.fabric, seed: style.seed });
         if (!buf.pos.length) continue;
-        stat.awningsFac += Math.max(1, Math.round(e.len / 3.2));
+        stat.awningsFacKit += Math.max(1, Math.round(e.len / 3.2));
         checkAwningBuf('fac', buf, e, style.storefront.head + 0.35, 0.55, 1.35);
       }
     }
