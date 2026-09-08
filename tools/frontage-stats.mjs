@@ -116,16 +116,127 @@ const stats = (a) => {
 const hex = (t) => t.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255)
   .toString(16).padStart(2, '0')).join('');
 
+// The street elevations appendBuilding builds on, replayed EXACTLY: the union
+// over every street direction, each direction contributing at most `faces`
+// edges, the union capped one above that for a corner site.
+//
+// This used to be `facingEdges(primary, max 2)` - the cone around the PRIMARY
+// direction alone - which is not what the kit does and has not been since
+// streetDirsFor arrived. On building #76 the two selections differ outright:
+// the primary-only answer is edges 0 and 4 (79.9 m and 27.0 m) while the engine
+// builds 0, 2 and 4 (79.9 + 78.4 + 27.0), so the tool was reporting 106.9 m of a
+// 185.3 m frontage and calling it the building. Same class of fault as the
+// hand-copied streetDirFor that measured a world nobody renders; the rule in
+// this repo is that a measurement replays the engine's own call or it is not a
+// measurement.
+export function streetEdgesOf(district, b, faces = 2) {
+  const dirs = geomStreetDirsFor(district, b, 2);
+  if (!dirs.length) return edgesOf(b.p, { minLen: 4, longest: faces });
+  const seen = new Map();
+  for (const dir of dirs) {
+    for (const e of facingEdges(b.p, dir[0], dir[1], { minLen: 4, max: faces })) {
+      if (!seen.has(e.i)) seen.set(e.i, e);
+    }
+  }
+  return [...seen.values()].sort((a, b2) => b2.len - a.len)
+    .slice(0, dirs.length > 1 ? faces + 1 : faces);
+}
+
+// --------------------------------------------------------------------- selftest
+//
+//   node tools/frontage-stats.mjs --selftest
+//
+// Three assertions, each of which FAILS on a specific known-bad input this file
+// has actually shipped or nearly shipped:
+//
+//   1. A corner site's street selection must contain BOTH perpendicular
+//      elevations. The primary-only selection this tool used until today returns
+//      one of them, and the check below is run against that exact wrong answer
+//      so the test proves it can tell them apart. Without this, a tool measuring
+//      106.9 m of a 185.3 m frontage looks like a tool measuring a frontage.
+//   2. A lot plan must TILE its edge: the run widths sum to the edge length and
+//      the first and last lot land on the corners. lotCuts clamps every interior
+//      boundary twice and an off-by-one there leaves a sliver or a gap, which is
+//      a wall with a hole in it and run statistics that are quietly wrong.
+//   3. A ground-only subdivision must leave ONE wall colour, ONE parapet and ONE
+//      head on the elevation. That is the entire difference between it and a
+//      property subdivision, and a plan that got it wrong would still look like
+//      a lot plan to every count in this file.
+function selftest() {
+  let fails = 0;
+  const ok = (name, cond, detail) => {
+    console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${name}${detail ? '  ' + detail : ''}`);
+    if (!cond) fails++;
+  };
+
+  // 1. Corner selection. A square footprint handed two perpendicular street
+  //    directions, the shape streetDirsFor returns for a corner site.
+  const sq = [[0, 0], [40, 0], [40, 40], [0, 40]];
+  const dirs = [[0, -1], [1, 0]];
+  const union = (faces = 2) => {
+    const seen = new Map();
+    for (const dir of dirs) {
+      for (const e of facingEdges(sq, dir[0], dir[1], { minLen: 4, max: faces })) {
+        if (!seen.has(e.i)) seen.set(e.i, e);
+      }
+    }
+    return [...seen.values()].sort((a, b) => b.len - a.len).slice(0, faces + 1);
+  };
+  const both = union();
+  const primaryOnly = facingEdges(sq, dirs[0][0], dirs[0][1], { minLen: 4, max: 2 });
+  const hasBoth = (es) => es.some((e) => Math.abs(e.nz + 1) < 0.01) &&
+                          es.some((e) => Math.abs(e.nx - 1) < 0.01);
+  const normals = (es) => es.map((e) => `(${e.nx.toFixed(0)},${e.nz.toFixed(0)})`).join(' ');
+  ok('corner union carries both street elevations', hasBoth(both), normals(both));
+  ok('and the primary-only answer does NOT (the bug this replaces)',
+    !hasBoth(primaryOnly), normals(primaryOnly));
+
+  // 2 and 3, over the real district: every lot plan the kit will build.
+  let tiled = 0, badTile = null, groundEdges = 0, badGround = null, lotEdges = 0;
+  for (let bi = 0; bi < d.buildings.length; bi++) {
+    const b = d.buildings[bi];
+    const style = capStyle(buildingStyle(b), b);
+    const plan = FAC.lotPlanFor(b.p, style, b.h ?? 6, streetEdgesOf(d, b));
+    for (const [, lp] of plan) {
+      const last = lp.lots[lp.lots.length - 1];
+      const sum = lp.lots.reduce((a, L) => a + L.len, 0);
+      if (Math.abs(sum - lp.e.len) > 1e-6) {
+        badTile = badTile ?? `#${bi} edge ${lp.e.i}: lots sum ${sum.toFixed(4)} vs edge ${lp.e.len.toFixed(4)}`;
+      }
+      if (Math.abs(lp.lots[0].s0) > 1e-9 || Math.abs(last.s1 - lp.e.len) > 1e-6) {
+        badTile = badTile ?? `#${bi} edge ${lp.e.i}: covers ${lp.lots[0].s0.toFixed(4)}..${last.s1.toFixed(4)}`;
+      }
+      tiled++;
+      if (lp.ground) {
+        groundEdges++;
+        const tints = new Set(lp.lots.map((L) => L.tint.join(',')));
+        const pars = new Set(lp.lots.map((L) => L.parapetH.toFixed(4)));
+        const heads = new Set(lp.lots.map((L) => (L.head ?? 0).toFixed(4)));
+        if (tints.size !== 1 || pars.size !== 1 || heads.size !== 1) {
+          badGround = badGround ??
+            `#${bi} edge ${lp.e.i}: ${tints.size} colours, ${pars.size} parapets, ${heads.size} heads`;
+        }
+      } else lotEdges++;
+    }
+  }
+  ok(`every lot plan tiles its edge (${tiled} planned edges)`, !badTile, badTile ?? '');
+  ok(`ground-only edges keep one colour, one parapet, one head (${groundEdges} of them)`,
+    !badGround, badGround ?? `${lotEdges} property-lotted edges also present`);
+  // A ground subdivision that never happens cannot fail assertion 3, so say so
+  // rather than letting a green line stand for a check that never ran.
+  if (!groundEdges) console.log('  NOTE  no ground-only subdivision in this build; assertion 3 is vacuous');
+  console.log(fails ? `\nSELFTEST FAILED (${fails})` : '\nSELFTEST OK');
+  return fails;
+}
+if (process.argv.includes('--selftest')) process.exit(selftest() ? 1 : 0);
+
 // ------------------------------------------------------------------ frontage
 const band = { footprints: [], runs: [], lots: [] };
 for (let bi = 0; bi < d.buildings.length; bi++) {
   const b = d.buildings[bi];
   if (!touchesBand(b)) continue;
   const style = capStyle(buildingStyle(b), b);
-  const street = streetDirFor(b);
-  const streetEdges = street
-    ? facingEdges(b.p, street[0], street[1], { minLen: 4, max: 2 })
-    : edgesOf(b.p, { minLen: 4, longest: 2 });
+  const streetEdges = streetEdgesOf(d, b);
   // The lot plan the kit itself will build, asked for by the same call
   // appendBuilding makes. Before the lot pass this export does not exist and the
   // run IS the edge, which is exactly the measurement being compared.
@@ -134,26 +245,34 @@ for (let bi = 0; bi < d.buildings.length; bi++) {
     : null;
   const rec = [];
   for (const e of streetEdges) {
-    const lots = plan?.get(e.i)?.lots;
+    const lp = plan?.get(e.i);
+    const lots = lp?.lots;
+    // A PROPERTY lot and a GROUND tenancy are both runs of frontage and are not
+    // the same claim. A property lot changes the wall colour, the parapet and
+    // the window phase for the full height; a ground tenancy changes only what
+    // happens under the fascia, and the tower above it stays one wall. Counting
+    // them together would let a change that only subdivides ground floors read
+    // as if it had subdivided buildings.
+    const kind = lots && lots.length ? (lp.ground ? 'ground' : 'lot') : 'whole';
     if (lots && lots.length) {
       for (const L of lots) {
         band.runs.push(L.len);
         band.lots.push({
-          b: bi, len: +L.len.toFixed(1), tint: hex(L.tint),
+          b: bi, len: +L.len.toFixed(1), tint: hex(L.tint), kind,
           parapet: +L.parapetH.toFixed(2), head: L.head ? +L.head.toFixed(2) : null,
           door: !!L.doorSpan, awning: !!L.awning,
         });
       }
-      rec.push({ len: +e.len.toFixed(1), lots: lots.length });
+      rec.push({ len: +e.len.toFixed(1), lots: lots.length, kind });
     } else {
       band.runs.push(e.len);
       band.lots.push({
-        b: bi, len: +e.len.toFixed(1), tint: hex(style.tint),
+        b: bi, len: +e.len.toFixed(1), tint: hex(style.tint), kind,
         parapet: +(style.parapet?.height ?? 0).toFixed(2),
         head: style.storefront ? +style.storefront.head.toFixed(2) : null,
         door: !!style.entrance, awning: !!style.awnings,
       });
-      rec.push({ len: +e.len.toFixed(1), lots: 1 });
+      rec.push({ len: +e.len.toFixed(1), lots: 1, kind });
     }
   }
   band.footprints.push({ i: bi, recipe: style.recipe, h: b.h, edges: rec });
@@ -172,10 +291,91 @@ console.log(`  distinct parapet heights     : ${distinct((L) => L.parapet)}`);
 console.log(`  distinct shopfront heads     : ${distinct((L) => L.head)}`);
 console.log(`  runs with a street door      : ${band.lots.filter((L) => L.door).length}` +
   ` of ${band.lots.length}`);
+console.log(`  runs with an awning          : ${band.lots.filter((L) => L.awning).length}` +
+  ` of ${band.lots.length}`);
+console.log(`  runs by kind                 : ` +
+  `${band.lots.filter((L) => L.kind === 'lot').length} property lot, ` +
+  `${band.lots.filter((L) => L.kind === 'ground').length} ground tenancy, ` +
+  `${band.lots.filter((L) => L.kind === 'whole').length} whole edge`);
 console.log('  per footprint:');
 for (const f of band.footprints.sort((a, b2) => b2.edges[0]?.len - a.edges[0]?.len)) {
   console.log(`    #${String(f.i).padStart(3)}  ${f.recipe.padEnd(11)} h ${String(f.h).padStart(5)}  ` +
-    f.edges.map((e) => `${e.len} m -> ${e.lots} lot${e.lots === 1 ? '' : 's'}`).join(', '));
+    f.edges.map((e) => `${e.len} m -> ${e.lots} ${e.kind === 'ground' ? 'tenanc' + (e.lots === 1 ? 'y' : 'ies') : 'lot' + (e.lots === 1 ? '' : 's')}`).join(', '));
+}
+
+// -------------------------------------------------------------------- census
+//
+//   node tools/frontage-stats.mjs --census
+//
+// The band above is the hero corridor. This is the whole district, and it exists
+// because "how many buildings does this affect" is a different question from
+// "how does the hero block look". Every street elevation the kit builds on,
+// classified by what subdivides it, plus the population of frontages that
+// nothing subdivides at all and the reason each one is in that population.
+if (process.argv.includes('--census')) {
+  const per = new Map();
+  const blocked = [];
+  let streetM = 0, lotM = 0, groundM = 0, wholeM = 0;
+  for (let bi = 0; bi < d.buildings.length; bi++) {
+    const b = d.buildings[bi];
+    const style = capStyle(buildingStyle(b), b);
+    const ses = streetEdgesOf(d, b);
+    const plan = FAC.lotPlanFor(b.p, style, b.h ?? 6, ses);
+    const row = per.get(style.recipe) ??
+      { n: 0, shop: 0, lot: 0, ground: 0, lotM: 0, groundM: 0, wholeM: 0 };
+    row.n++; if (style.storefront) row.shop++;
+    let kinds = new Set();
+    for (const e of ses) {
+      streetM += e.len;
+      const lp = plan.get(e.i);
+      if (lp && lp.lots.length > 1) {
+        if (lp.ground) { groundM += e.len; row.groundM += e.len; kinds.add('ground'); }
+        else { lotM += e.len; row.lotM += e.len; kinds.add('lot'); }
+      } else { wholeM += e.len; row.wholeM += e.len; }
+    }
+    if (kinds.has('lot')) row.lot++;
+    if (kinds.has('ground')) row.ground++;
+    per.set(style.recipe, row);
+    // The population the gate holds back: enough street frontage to hold more
+    // than one tenancy, and nothing subdividing any of it.
+    const total = ses.reduce((a, e) => a + e.len, 0);
+    if (!kinds.size && ses.some((e) => e.len >= FAC.LOT.minEdge)) {
+      blocked.push({
+        i: bi, recipe: style.recipe, h: b.h, z: b.z ?? '', k: b.k ?? '',
+        shop: !!style.storefront, lotM: style.rec.lotM ?? null,
+        groundM: style.rec.groundM ?? null,
+        why: style.rec.lotM ? ((b.h ?? 6) > 22 ? 'h>22' : 'edges<13m') : 'no lotM',
+        edges: ses.map((e) => +e.len.toFixed(1)), sum: +total.toFixed(1),
+      });
+    }
+  }
+  const pc = (v) => `${(100 * v / streetM).toFixed(1)}%`;
+  console.log('\nCENSUS  every street elevation the kit builds on, district-wide');
+  console.log(`  street frontage total        : ${streetM.toFixed(0)} m`);
+  console.log(`    subdivided into properties : ${lotM.toFixed(0)} m  ${pc(lotM)}`);
+  console.log(`    ground floor tenanted only : ${groundM.toFixed(0)} m  ${pc(groundM)}`);
+  console.log(`    one wall end to end        : ${wholeM.toFixed(0)} m  ${pc(wholeM)}`);
+  console.log('  per recipe (buildings):');
+  for (const [k, v] of [...per].sort((a, b2) => b2[1].n - a[1].n)) {
+    console.log(`    ${k.padEnd(12)} n ${String(v.n).padStart(3)}  shopfront ${String(v.shop).padStart(3)}  ` +
+      `property-lotted ${String(v.lot).padStart(3)}  ground-tenanted ${String(v.ground).padStart(3)}  ` +
+      `[${v.lotM.toFixed(0)} / ${v.groundM.toFixed(0)} / ${v.wholeM.toFixed(0)} m]`);
+  }
+  blocked.sort((a, b2) => b2.sum - a.sum);
+  console.log(`  ${blocked.length} buildings with >= ${FAC.LOT.minEdge} m of street frontage and NO subdivision:`);
+  const why = new Map();
+  for (const t of blocked) {
+    const key = `${t.why} / ${t.recipe}`;
+    why.set(key, (why.get(key) ?? 0) + 1);
+  }
+  for (const [k, v] of [...why].sort((a, b2) => b2[1] - a[1])) console.log(`    ${String(v).padStart(4)}  ${k}`);
+  const N = Number(arg('top', 12));
+  console.log(`  worst ${N} by total street frontage:`);
+  for (const t of blocked.slice(0, N)) {
+    console.log(`    #${String(t.i).padStart(3)} ${t.recipe.padEnd(12)} h ${String(t.h).padStart(6)} ` +
+      `z=${(t.z || '-').padEnd(11)} k=${(t.k || '-').padEnd(11)} shop=${t.shop ? 'Y' : 'n'} ` +
+      `${t.why.padEnd(9)} ${t.edges.join(' + ')} = ${t.sum} m`);
+  }
 }
 
 // ----------------------------------------------------------------- triangles
