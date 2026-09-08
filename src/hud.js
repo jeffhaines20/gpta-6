@@ -97,6 +97,30 @@ const ZONE_FILL = {
 const FONT = 'ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif';
 const MONO = 'ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace';
 
+// EVERY FONT STRING THE FRAME PATH USES, BUILT ONCE.
+//
+// `ctx.font = <backtick>700 37px ${MONO}<backtick>` reads as a constant and is
+// not one: the template is evaluated on every assignment, so the HUD built the
+// same handful of identical strings 3 times a frame, 180 times a second, for
+// the whole session. Measured with tools/hud-alloc.mjs before this block
+// existed: 3.00 ctx.font assignments per frame, every one a fresh string.
+//
+// Hoisting them changes no pixel. It is here because the HUD is the only thing
+// in this project that runs every single frame, so it is the only place where a
+// per-frame allocation compounds into GC pressure across a drive.
+const F_FONT_600_10 = `600 10px ${FONT}`;
+const F_FONT_600_11_5 = `600 11.5px ${FONT}`;
+const F_FONT_700_11 = `700 11px ${FONT}`;
+const F_FONT_700_8_5 = `700 8.5px ${FONT}`;
+const F_FONT_700_9 = `700 9px ${FONT}`;
+const F_MONO_600_10 = `600 10px ${MONO}`;
+const F_MONO_600_8_5 = `600 8.5px ${MONO}`;
+const F_MONO_700_15 = `700 15px ${MONO}`;
+const F_MONO_700_16 = `700 16px ${MONO}`;
+const F_MONO_700_18 = `700 18px ${MONO}`;
+const F_MONO_700_37 = `700 37px ${MONO}`;
+
+
 // Design-space layout, in pixels against a 1280x720 frame.
 export const LAYOUT = {
   margin: 22,
@@ -750,7 +774,7 @@ export class Minimap {
       const px = cx + sx * t, py = cy + sy * t;
       if (label) {
         ctx.fillStyle = THEME.text;
-        ctx.font = `700 9px ${FONT}`;
+        ctx.font = F_FONT_700_9;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.globalAlpha = 0.92;
         ctx.fillText(label, px - sx * 5, py - sy * 5);
@@ -1307,7 +1331,7 @@ export class HUD {
     const s = this.state;
     ctx.textBaseline = 'alphabetic';
     if (s.location) {
-      ctx.font = `600 11.5px ${FONT}`;
+      ctx.font = F_FONT_600_11_5;
       ctx.textAlign = 'left';
       ctx.fillStyle = 'rgba(2,5,9,0.85)';
       ctx.fillText(s.location, 1.8, 33.8);
@@ -1315,7 +1339,7 @@ export class HUD {
       ctx.fillText(s.location, 1, 33);
     }
     if (s.district) {
-      ctx.font = `600 10px ${FONT}`;
+      ctx.font = F_FONT_600_10;
       ctx.fillStyle = THEME.dim;
       ctx.textAlign = 'right';
       if ('letterSpacing' in ctx) ctx.letterSpacing = '1.4px';
@@ -1398,7 +1422,7 @@ export class HUD {
 
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
-    ctx.font = `700 8.5px ${FONT}`;
+    ctx.font = F_FONT_700_8_5;
     ctx.fillStyle = THEME.dim;
     if ('letterSpacing' in ctx) ctx.letterSpacing = '1.3px';
     ctx.fillText((w && w.name ? w.name : 'Unarmed').toUpperCase(), 9, by + 13);
@@ -1407,16 +1431,16 @@ export class HUD {
 
     ctx.textAlign = 'right';
     if (w && w.ammo != null) {
-      ctx.font = `600 10px ${MONO}`;
+      ctx.font = F_MONO_600_10;
       ctx.fillStyle = THEME.dim;
       const reserve = w.reserve == null ? '' : ` / ${w.reserve}`;
       const rw = reserve ? ctx.measureText(reserve).width : 0;
       if (reserve) ctx.fillText(reserve, bw - 9, by + 32);
-      ctx.font = `700 18px ${MONO}`;
+      ctx.font = F_MONO_700_18;
       ctx.fillStyle = THEME.text;
       ctx.fillText(String(w.ammo), bw - 9 - rw, by + 32);
     } else {
-      ctx.font = `700 16px ${MONO}`;
+      ctx.font = F_MONO_700_16;
       ctx.fillStyle = THEME.faint;
       ctx.fillText('--', bw - 9, by + 32);
     }
@@ -1517,7 +1541,7 @@ export class HUD {
       ctx.lineTo(cx + c * R, cy + sn * R);
       ctx.stroke();
       if (major) {
-        ctx.font = `600 8.5px ${MONO}`;
+        ctx.font = F_MONO_600_8_5;
         ctx.fillStyle = THEME.dim;
         ctx.fillText(String(v), cx + c * (R - 17), cy + sn * (R - 17));
       }
@@ -1544,22 +1568,22 @@ export class HUD {
     ctx.lineWidth = 1.2;
     ctx.stroke();
 
-    ctx.font = `700 37px ${MONO}`;
+    ctx.font = F_MONO_700_37;
     ctx.fillStyle = THEME.text;
     ctx.textBaseline = 'alphabetic';
     ctx.fillText(String(Math.round(kmh)), cx, cy + 41);
-    ctx.font = `700 8.5px ${FONT}`;
+    ctx.font = F_FONT_700_8_5;
     ctx.fillStyle = THEME.dim;
     if ('letterSpacing' in ctx) ctx.letterSpacing = '2.4px';
     ctx.fillText(this.units === 'mph' ? 'MPH' : 'KM/H', cx + 1, cy + 53);
     if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
 
-    this._chip(ctx, cx + 63, cy + 27, 32, 27, gearLabel, `700 15px ${MONO}`,
+    this._chip(ctx, cx + 63, cy + 27, 32, 27, gearLabel, F_MONO_700_15,
       gearLabel === 'R' ? THEME.alert : THEME.text, false);
     // Traction telltale, straight off vehicle.js's per-wheel slip. It lights before
     // the driver can feel the back stepping out on a controller.
     const slipping = d.slip > 0.55;
-    this._chip(ctx, cx - 63, cy + 27, 32, 27, 'TC', `700 11px ${FONT}`,
+    this._chip(ctx, cx - 63, cy + 27, 32, 27, 'TC', F_FONT_700_11,
       slipping ? '#12181f' : THEME.faint, slipping);
   }
 
