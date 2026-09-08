@@ -174,7 +174,25 @@ const heapAfter = await page.evaluate(() => {
 
 const world = await page.evaluate(() => __district.worldReport());
 const trafficReport = await page.evaluate(() => __district.trafficReport());
-await page.screenshot({ path: `${OUT}/district-drive${WITH_TRAFFIC ? '-traffic' : ''}.png` });
+// The screenshot is an artifact, not a measurement, and it must not be able to
+// destroy one. Under SwiftShader with the district resident it has exceeded
+// Playwright's 30 s default here, and because it stood between the last
+// page.evaluate() and the writeFileSync below, a TIMEOUT THREW AWAY A COMPLETED
+// SEVEN-MINUTE RUN - no JSON written, no gate printed, non-zero exit.
+//
+// That is worse than it sounds. A caller that copies docs/drive-traffic.json
+// after the run then picks up the PREVIOUS run's file and cannot tell: this was
+// found because two "sequential runs" of a metric whose noise band is 8.2-15.1
+// ms both reported 8.6 ms, 22 ms and 793,020 triangles to the digit. Two
+// identical readings of this metric are not a result, they are a copy.
+//
+// So it is bounded and non-fatal, and its failure is recorded in `errors` where
+// the reader can see it rather than inferred from a missing file.
+try {
+  await page.screenshot({ path: `${OUT}/district-drive${WITH_TRAFFIC ? '-traffic' : ''}.png`, timeout: 120000 });
+} catch (e) {
+  errors.push(`SCREENSHOT FAILED (measurement kept): ${e.message.split('\n')[0]}`);
+}
 
 // ---- aggregate
 const num = (k) => samples.map((s) => s[k]).filter((v) => v !== null && v !== undefined);

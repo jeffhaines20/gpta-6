@@ -297,7 +297,12 @@ export class StreamingWorld {
     const t0 = performance.now();
     this.stats.scanMs = t0 - tScan0;
     if (this.stats.scanMs > this.stats.worstScanMs) this.stats.worstScanMs = this.stats.scanMs;
-    this._accScan = this.stats.scanMs;
+    // NOT `= this.stats.scanMs`. That mark is taken AFTER the rescan's own
+    // unload loop, so scanMs already contains a _dispose - and _dispose has
+    // separately added itself to _accDispose. Counting it in both makes
+    // scan + dispose + steps overshoot the slice and drives the residual
+    // NEGATIVE, which is a double-count that reads like a rounding error.
+    this._accScan = this.stats.scanMs - this._accDispose;
     const built = this._drainQueue(want, pcx, pcz, t0);
     this.stats.sliceMs = performance.now() - tScan0;
     if (this.stats.sliceMs > this.stats.worstSliceMs) this.stats.worstSliceMs = this.stats.sliceMs;
