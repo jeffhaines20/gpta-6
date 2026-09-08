@@ -1,0 +1,255 @@
+{
+  "tag": "after3",
+  "slot": "107.1,-159.0",
+  "dist": 21.4,
+  "targetWheelPx": 38,
+  "carPx": 51.2,
+  "arms": [],
+  "tod": {
+    "noon": {
+      "file": "docs/probe/after3-noon.png",
+      "wheelFront": {
+        "px": 33.8,
+        "widthPx": 6.3,
+        "samples": 103,
+        "rimTyre": 1.016,
+        "rimCoV": 0.595,
+        "rimLuma": 94.9,
+        "tyreLuma": 93.4
+      },
+      "wheelRear": {
+        "px": 38,
+        "widthPx": 8,
+        "samples": 153,
+        "rimTyre": 4.354,
+        "rimCoV": 0.539,
+        "rimLuma": 72.6,
+        "tyreLuma": 16.7
+      },
+      "flank": {
+        "samples": 2401,
+        "spec": 1.179,
+        "vGrad": 2.275,
+        "topLuma": 114.9,
+        "botLuma": 50.5
+      },
+      "deck": {
+        "samples": 2401,
+        "spec": 1.168,
+        "vGrad": 0.914,
+        "topLuma": 177.2,
+        "botLuma": 194
+      },
+      "edge": {
+        "px": 12516,
+        "boxW": 149,
+        "boxH": 84,
+        "edges": 0.2925
+      }
+    },
+    "golden": {
+      "file": "docs/probe/after3-golden.png",
+      "wheelFront": {
+        "px": 33.8,
+        "widthPx": 6.3,
+        "samples": 103,
+        "rimTyre": 1.013,
+        "rimCoV": 0.586,
+        "rimLuma": 100.3,
+        "tyreLuma": 99
+      },
+      "wheelRear": {
+        "px": 38,
+        "widthPx": 8,
+        "samples": 153,
+        "rimTyre": 3.295,
+        "rimCoV": 0.495,
+        "rimLuma": 68.7,
+        "tyreLuma": 20.8
+      },
+      "flank": {
+        "samples": 2401,
+        "spec": 1.222,
+        "vGrad": 2.946,
+        "topLuma": 135.3,
+        "botLuma": 45.9
+      },
+      "deck": {
+        "samples": 2401,
+        "spec": 1.022,
+        "vGrad": 1.794,
+        "topLuma": 172.8,
+        "botLuma": 96.3
+      },
+      "edge": {
+        "px": 12516,
+        "boxW": 149,
+        "boxH": 84,
+        "edges": 0.2519
+      }
+    },
+    "dusk": {
+      "file": "docs/probe/after3-dusk.png",
+      "wheelFront": {
+        "px": 33.8,
+        "widthPx": 6.3,
+        "samples": 103,
+        "rimTyre": 1.04,
+        "rimCoV": 0.568,
+        "rimLuma": 51.6,
+        "tyreLuma": 49.6
+      },
+      "wheelRear": {
+        "px": 38,
+        "widthPx": 8,
+        "samples": 153,
+        "rimTyre": 3.403,
+        "rimCoV": 0.503,
+        "rimLuma": 40.1,
+        "tyreLuma": 11.8
+      },
+      "flank": {
+        "samples": 2401,
+        "spec": 1.399,
+        "vGrad": 2.641,
+        "topLuma": 84.8,
+        "botLuma": 32.1
+      },
+      "deck": {
+        "samples": 2401,
+        "spec": 1.042,
+        "vGrad": 1.501,
+        "topLuma": 120.4,
+        "botLuma": 80.2
+      },
+      "edge": {
+        "px": 12516,
+        "boxW": 149,
+        "boxH": 84,
+        "edges": 0.2264
+      }
+    },
+    "night": {
+      "file": "docs/probe/after3-night.png",
+      "wheelFront": {
+        "px": 33.8,
+        "widthPx": 6.3,
+        "samples": 103,
+        "rimTyre": 1.06,
+        "rimCoV": 0.643,
+        "rimLuma": 27.8,
+        "tyreLuma": 26.3
+      },
+      "wheelRear": {
+        "px": 38,
+        "widthPx": 8,
+        "samples": 153,
+        "rimTyre": 8.496,
+        "rimCoV": 0.647,
+        "rimLuma": 19.7,
+        "tyreLuma": 2.3
+      },
+      "flank": {
+        "samples": 2401,
+        "spec": 1.536,
+        "vGrad": 2.408,
+        "topLuma": 45.2,
+        "botLuma": 18.8
+      },
+      "deck": {
+        "samples": 2401,
+        "spec": 1.298,
+        "vGrad": 1.007,
+        "topLuma": 29.6,
+        "botLuma": 29.3
+      },
+      "edge": {
+        "px": 12516,
+        "boxW": 149,
+        "boxH": 84,
+        "edges": 0.3114
+      }
+    }
+  },
+  "setup": {
+    "slot": "107.1,-159.0",
+    "yaw": 1.551,
+    "side": 1,
+    "dist": 21.4,
+    "deck": [
+      [
+        836.1833224510602,
+        429.46341334292316
+      ],
+      [
+        773.7755581891736,
+        429.88986471753446
+      ],
+      [
+        777.3790659677982,
+        430.32910324813093
+      ],
+      [
+        840.6375462383686,
+        429.89013241781095
+      ]
+    ],
+    "eye": [
+      85.75,
+      1.5,
+      -164.4
+    ],
+    "wheelFront": {
+      "cx": 732.9645074948448,
+      "cy": 456.917677062229,
+      "r": 16.91564611432196,
+      "up": [
+        -0.04808472109311879,
+        -16.91557777093567
+      ],
+      "fore": [
+        -3.044665891092677,
+        -0.847155493220157
+      ]
+    },
+    "wheelRear": {
+      "cx": 758.2344483057202,
+      "cy": 463.94884893363724,
+      "r": 19.00000000000128,
+      "up": [
+        -0.03366015483072715,
+        -18.999970184029905
+      ],
+      "fore": [
+        -3.835809848210829,
+        -1.0672853771470159
+      ]
+    },
+    "flank": [
+      [
+        732.0839845100647,
+        427.857231864867
+      ],
+      [
+        745.461104094281,
+        429.6879391493875
+      ],
+      [
+        745.5495184130937,
+        467.9617742598254
+      ],
+      [
+        732.1873135282838,
+        463.7799753192544
+      ]
+    ],
+    "box": [
+      716.2257622379074,
+      405.8856293980206,
+      863.569521276609,
+      487.2215826644538
+    ],
+    "carPx": 51.2
+  },
+  "errors": []
+}
