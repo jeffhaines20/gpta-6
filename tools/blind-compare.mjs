@@ -130,14 +130,29 @@ if (!args.includes('--no-check')) {
   for (const suffix of matched) {
     const a = readPNG(path.join(SHOTS, L.get(suffix)));
     const b = readPNG(path.join(SHOTS, R.get(suffix)));
-    const facade = diffBands(a, b).find((r) => r.band === 'facade');
-    if (facade.over4Pct < MIN_SIGNAL) degenerate.push({ id: suffix, pct: facade.over4Pct });
+    // The BEST band, not the facade band.
+    //
+    // This gate exists to catch two arms of the same build, and it originally
+    // read the facade band alone because that is where the round it was written
+    // for did its work. That makes it wrong for any round whose change lives
+    // somewhere else: a car round refused four of eight pairs at 2.97-3.25%
+    // facade signal while the GROUND band of the same pairs carried 24.65%,
+    // 12.8% and 8.49%. The arms differed enormously; they differed on the road.
+    //
+    // A pair with nothing in it to judge has nothing in ANY band, so taking the
+    // maximum keeps the guard's real purpose and drops a false refusal that
+    // would otherwise recur for every round that is not about facades.
+    const bands = diffBands(a, b);
+    const best = bands.reduce((m, r) => (r.over4Pct > m.over4Pct ? r : m));
+    if (best.over4Pct < MIN_SIGNAL) {
+      degenerate.push({ id: suffix, pct: best.over4Pct, band: best.band });
+    }
   }
 }
 if (degenerate.length && !args.includes('--force')) {
   console.error(`REFUSING to build a blind set: ${degenerate.length} of ${matched.length} pairs carry`);
-  console.error(`almost no signal in the facade band (under ${MIN_SIGNAL}% of samples differing by >4/255).`);
-  for (const d of degenerate) console.error(`    ${d.id.padEnd(28)} ${d.pct}%`);
+  console.error(`almost no signal in ANY band (under ${MIN_SIGNAL}% of samples differing by >4/255).`);
+  for (const d of degenerate) console.error(`    ${d.id.padEnd(28)} ${d.pct}%  (best band: ${d.band})`);
   console.error('\nThe usual cause is that both arms rendered the SAME BUILD -- a capture that');
   console.error('reused an HTTP server rooted in another tree, or a tag that was overwritten.');
   console.error('Check the two arms are what you think before spending a reviewer round on them:');
