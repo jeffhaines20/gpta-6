@@ -329,6 +329,26 @@ export const RECIPES = {
   bayTower: {
     label: 'Bayfront residential tower',
     tileU: 19.2, floors: 6, floorM: 3.15, panel: 1024,
+    // NO lotM, and that stays true: a tower is ONE property and its upper floors
+    // must stay one wall. `groundM` is the other half of that sentence - the
+    // module its GROUND FLOOR subdivides at. A tower on a downtown block has a
+    // row of shops at its foot under a single tower above; the reference is
+    // 03-Five-Points, where the block left of the roundabout runs one unbroken
+    // volume past a continuous canopy with separate tenancies under it, and
+    // 07-1777-Main-Street, whose base is one recessed glazed storey under ten
+    // identical ones.
+    //
+    // Before this the kit could not say that, because `lots` was a single flag
+    // for "many properties" and "subdivided at street level" at once. Building
+    // #76 - 35.2 m, three street elevations of 79.9 + 78.4 + 27.0 m - therefore
+    // got one wall colour, one parapet, one window rhythm, no shopfront, no
+    // door, no sign and no awning on all 185 m of it, and a blind critic called
+    // it a 1970s parking deck.
+    //
+    // 10.6 m, against retailStrip's 7.6: a tower's structural bay is wider than
+    // a platted 1920s Main Street shopfront and the tenancies under one are
+    // fewer and bigger. Used ONLY by the ground pass - see `groundLots`.
+    groundM: 10.6,
     rhythm: [1.2, 0.85, 1, 1, 0.85, 1.2],
     wall: { h: 38, s: 10, l: 84 },
     trimHue: 36,
@@ -2259,6 +2279,38 @@ function tintOf(rec, r) {
 }
 
 /**
+ * The highest a shopfront head may sit on this recipe without DELETING the
+ * window band above it.
+ *
+ * facadeEdge skips any band whose bottom is under `ground.top + 0.14`, so a head
+ * set over a band bottom does not push that band up - it removes it, and leaves
+ * blank wall from the fascia to the next band instead of a sill course.
+ *
+ * Nothing noticed because the flat 4.0 m head only ever met recipes whose first
+ * qualifying band bottom is well above it: retailStrip 5.23 m, deco 5.13,
+ * midOffice 4.97. bayTower's is 4.06 - its floorM is 3.15 and its win.top 0.09,
+ * so its ground band runs 0.91-2.87 m - and a 4.0 m head there swallows BOTH
+ * bands and leaves 3.2 m of blank wall over the fascia, which is the "1970s
+ * parking deck" reading arriving by a different route. So this is a latent bug
+ * that only had no subject until towers were given a shopfront.
+ *
+ * 0.72 is the fascia's own maximum depth (0.58) plus the 0.14 clearance
+ * lotPlanFor already keeps between a fascia top and the sill above it.
+ *
+ * @returns {number} metres, or Infinity when no band would be at risk
+ */
+export function headCapFor(rec, height) {
+  const nF = Math.floor(height / rec.floorM);
+  for (let F = 0; F < nF; F++) {
+    const bt = rec.floorM * (F + 1 - rec.win.top);
+    if (bt > height - 0.06) break;
+    const bb = bt - rec.floorM * rec.win.h;
+    if (bb >= 2.9) return bb - 0.72;
+  }
+  return Infinity;
+}
+
+/**
  * The full deterministic style for one building: recipe, storey count, colour
  * and which kit parts it carries.
  *
@@ -2276,23 +2328,56 @@ export function buildingStyle(b) {
 
   const commercialGround = name === 'retailStrip' || name === 'deco' ||
     (name === 'midOffice' && r() < 0.7);
+  // A TOWER ON A COMMERCIAL STREET TRADES AT STREET LEVEL; a tower on a
+  // residential street has a lobby. `b.z` is baked OSM landuse, so this is the
+  // district's own answer and not a roll: of the 32 bayTowers, 23 stand in the
+  // commercial zone and 9 do not, and those 9 keep the single recessed entrance
+  // they have always had.
+  const towerGround = name === 'bayTower' && (b.z ?? '') === 'commercial';
+  // The tower base draws from its OWN stream. `r` is the building's identity and
+  // every draw after this point - fabric, fire escape, BALCONIES, roof units -
+  // shifts if a new draw is spliced into it. Splicing would have reshuffled the
+  // balconies of 23 towers whose upper floors this change does not touch, and a
+  // before/after in which the massing moved as well as the base is one nobody
+  // can read. Isolate one term at a time.
+  const gr = rng(hash32('towerbase', seed));
   // Drawn in this order because the random stream is the building's identity:
   // tintOf consumes from `r` first, exactly as it did when the storefront was
   // built inline in the object literal below.
   const tint = tintOf(rec, r);
-  const shop = commercialGround && h > 4.2
-    ? { head: Math.min(4.0, h - 0.8), depth: 0.55 + r() * 0.35, bulkhead: 0.42 }
+  const shop = (commercialGround || towerGround) && h > 4.2
+    ? { head: Math.max(2.9, Math.min(4.0, h - 0.8, headCapFor(rec, h))),
+        depth: 0.55 + (commercialGround ? r() : gr()) * 0.35, bulkhead: 0.42 }
     : null;
+  // Hoisted out of the literal below so `groundLots` can be stated against it.
+  const lots = !!rec.lotM && h <= 22;
 
   return {
     recipe: name, rec, seed, height: h, floors,
     tint: tint.tint, tintIdx: tint.idx,
-    // Whether this building's street frontage is subdivided into LOTS. A tower,
-    // a parking deck, a shed and a house are each ONE property and must stay one
-    // wall; a low-rise downtown block is a row of tenancies and reads wrong as
-    // anything else. `lotM` on the recipe is the gate, height is the second: a
-    // 22 m commercial block is a single development, not a parade.
-    lots: !!rec.lotM && h <= 22,
+    // TWO QUESTIONS, AND CONFLATING THEM IS WHAT MADE #76 A PARKING DECK.
+    //
+    // `lots`: is this footprint MANY PROPERTIES? A tower, a parking deck, a shed
+    // and a house are each ONE property and must stay one wall; a low-rise
+    // downtown block is a row of tenancies and reads wrong as anything else.
+    // `lotM` on the recipe is the gate, height is the second: a 22 m commercial
+    // block is a single development, not a parade. Unchanged, and it should be -
+    // that reasoning is about the UPPER FLOORS, which is all it now governs.
+    lots,
+    // `groundLots`: is the frontage SUBDIVIDED AT STREET LEVEL? A different
+    // question with a different answer, because a tall building on a retail
+    // street still has a row of shops at its foot. What varies per tenancy is
+    // what a TENANT owns - the shopfront recess, the street door, the fascia and
+    // its colour, the awning, the sign, whether the lights are on after dark -
+    // and a pier stands between neighbours. What does not vary is anything above
+    // the fascia: one wall colour, one parapet line, one window rhythm, one
+    // spandrel stripe, because up there it is one building. See lotPlanFor,
+    // which builds both plans, and appendBuilding, which emits ONE facadeEdge
+    // per elevation for a ground plan against one per lot for a property plan.
+    //
+    // Never both: a footprint that is many properties already subdivides its
+    // ground floor with them.
+    groundLots: !lots && !!shop && !!(rec.groundM ?? rec.lotM),
     // A parapet is nearly universal on a flat-roofed building and is the single
     // cheapest silhouette upgrade: without it every roof is a bare cut edge.
     parapet: { height: name === 'deco' ? 1.5 : name === 'bayTower' ? 0.95 : 1.15,
@@ -2470,7 +2555,11 @@ function phaseFor(rec, len, r) {
  */
 export function lotPlanFor(ring, style, height, fronts) {
   const plan = new Map();
-  if (!style.lots) return plan;
+  // GROUND-ONLY. Same cutting, same tenancy structure, same party lines - and
+  // then everything belonging to the BUILDING rather than to the tenant is held
+  // at the building's own value. See buildingStyle's `groundLots`.
+  const ground = !style.lots && !!style.groundLots;
+  if (!style.lots && !ground) return plan;
   const rec = style.rec, pal = rec.palette;
   const baseParapet = style.parapet?.height ?? 1.15;
   const shop = style.storefront;
@@ -2490,7 +2579,13 @@ export function lotPlanFor(ring, style, height, fronts) {
   // of any recipe was built on the narrower lots the street was platted in, which
   // is why the reference photograph shows three tenancies in 24.5 m of a block
   // this kit had drawn as one 181 m wall.
-  const lotM = rec.lotM * (height <= 12 ? 0.88 : 1);
+  const lotM = ground ? (rec.groundM ?? rec.lotM) : rec.lotM * (height <= 12 ? 0.88 : 1);
+  // See headCapFor. buildingStyle already caps `shop.head`; this caps the value
+  // AFTER the per-lot step, which can add 0.36. It is a no-op on every
+  // property-lotted recipe in the district - the cap is 4.51 m on retailStrip,
+  // 4.41 on deco and 4.25 on midOffice against a maximum stepped head of 4.36 -
+  // and it binds on bayTower, at 3.34.
+  const headCap = headCapFor(rec, height);
 
   for (const e of fronts) {
     if (e.len < LOT.minEdge) continue;
@@ -2509,45 +2604,56 @@ export function lotPlanFor(ring, style, height, fronts) {
 
       // Colourway. Mostly the block's own, sometimes the neighbour's again, and
       // sometimes another entry of the same recipe. Never a new hue.
-      let idx;
-      if (k && r() < 0.30) idx = prevIdx;
-      else if (r() < 0.55) idx = style.tintIdx ?? 0;
-      else idx = (((style.tintIdx ?? 0) + 1 + ((r() * (pal.length - 1)) | 0)) % pal.length);
-      // The VALUE, and then the check that actually matters. Two lots that draw
-      // different palette entries can still land on the same brightness - most of
-      // midOffice's palette clamps against its own wall colour, so four authored
-      // colourways collapse to about two - and a party line you cannot see is not
-      // a party line. So the luminance of the finished tint is compared with the
-      // neighbour's and pushed apart until it reads. The lever is the value nudge
-      // tintOf already applies per building, widened from +-11% to +-18%; no hue
-      // moves, no entry is added, RECIPES is untouched.
-      let v = 0.86 + r() * 0.28;
-      let tint = paletteTint(rec, pal[idx], v);
-      if (k) {
-        // Push AWAY from the neighbour, whichever side of it this lot fell on, so
-        // the rule does not quietly darken every lotted frontage in the district;
-        // reverse at the clamp, because an entry already clamped to white cannot
-        // be separated by going brighter. The floor sits further from 1 than the
-        // ceiling on purpose: midOffice's palette entry 2 divides out ABOVE 1 in
-        // every channel, so it is white for any nudge over about 0.80, and
-        // darkening is the only lever that entry leaves.
-        let dir = lum(tint) >= prevV ? 1 : -1;
-        for (let g = 0; g < 8 && Math.abs(lum(tint) - prevV) < 0.055; g++) {
-          if (v + dir * 0.09 > 1.18 || v + dir * 0.09 < 0.70) dir = -dir;
-          v = Math.max(0.70, Math.min(1.18, v + dir * 0.09));
-          tint = paletteTint(rec, pal[idx], v);
-        }
-        // Last resort: if the nudge cannot separate them - both entries clamp to
-        // white whatever it does - take the palette's most contrasting entry
-        // instead. Still this recipe's own colour, and it beats two identical
-        // shops sharing a party pier.
-        if (Math.abs(lum(tint) - prevV) < 0.055) {
-          let bj = idx, bd = 0;
-          for (let j = 0; j < pal.length; j++) {
-            const dd = Math.abs(lum(paletteTint(rec, pal[j], 0.92)) - prevV);
-            if (dd > bd) { bd = dd; bj = j; }
+      //
+      // A GROUND-ONLY frontage skips every line of this and takes the building's
+      // own colour, unchanged, on every tenancy. The wall over these shopfronts
+      // is ONE wall and appendBuilding emits it as one facadeEdge, so a per-lot
+      // tint here would be a colour nothing draws with - and if anything ever
+      // did draw with it, it would be the full-height parade this split exists
+      // to prevent. The distinct-wall-colour count for such a frontage is 1 by
+      // construction, and tools/frontage-stats.mjs --selftest asserts it.
+      let idx = style.tintIdx ?? 0;
+      let tint = style.tint;
+      if (!ground) {
+        if (k && r() < 0.30) idx = prevIdx;
+        else if (r() < 0.55) idx = style.tintIdx ?? 0;
+        else idx = (((style.tintIdx ?? 0) + 1 + ((r() * (pal.length - 1)) | 0)) % pal.length);
+        // The VALUE, and then the check that actually matters. Two lots that draw
+        // different palette entries can still land on the same brightness - most of
+        // midOffice's palette clamps against its own wall colour, so four authored
+        // colourways collapse to about two - and a party line you cannot see is not
+        // a party line. So the luminance of the finished tint is compared with the
+        // neighbour's and pushed apart until it reads. The lever is the value nudge
+        // tintOf already applies per building, widened from +-11% to +-18%; no hue
+        // moves, no entry is added, RECIPES is untouched.
+        let v = 0.86 + r() * 0.28;
+        tint = paletteTint(rec, pal[idx], v);
+        if (k) {
+          // Push AWAY from the neighbour, whichever side of it this lot fell on, so
+          // the rule does not quietly darken every lotted frontage in the district;
+          // reverse at the clamp, because an entry already clamped to white cannot
+          // be separated by going brighter. The floor sits further from 1 than the
+          // ceiling on purpose: midOffice's palette entry 2 divides out ABOVE 1 in
+          // every channel, so it is white for any nudge over about 0.80, and
+          // darkening is the only lever that entry leaves.
+          let dir = lum(tint) >= prevV ? 1 : -1;
+          for (let g = 0; g < 8 && Math.abs(lum(tint) - prevV) < 0.055; g++) {
+            if (v + dir * 0.09 > 1.18 || v + dir * 0.09 < 0.70) dir = -dir;
+            v = Math.max(0.70, Math.min(1.18, v + dir * 0.09));
+            tint = paletteTint(rec, pal[idx], v);
           }
-          if (bd >= 0.055) { idx = bj; v = 0.92; tint = paletteTint(rec, pal[idx], v); }
+          // Last resort: if the nudge cannot separate them - both entries clamp to
+          // white whatever it does - take the palette's most contrasting entry
+          // instead. Still this recipe's own colour, and it beats two identical
+          // shops sharing a party pier.
+          if (Math.abs(lum(tint) - prevV) < 0.055) {
+            let bj = idx, bd = 0;
+            for (let j = 0; j < pal.length; j++) {
+              const dd = Math.abs(lum(paletteTint(rec, pal[j], 0.92)) - prevV);
+              if (dd > bd) { bd = dd; bj = j; }
+            }
+            if (bd >= 0.055) { idx = bj; v = 0.92; tint = paletteTint(rec, pal[idx], v); }
+          }
         }
       }
 
@@ -2563,8 +2669,10 @@ export function lotPlanFor(ring, style, height, fronts) {
 
       // Parapet. Pinned to the building's own height at both ends of the edge so
       // the corners meet the returning walls exactly as they did before lots.
+      // A ground-only frontage never steps at all: that parapet is 30 m over the
+      // shopkeeper's head and belongs to the tower, not to the shop.
       const end = k === 0 || k === cuts.length - 1;
-      const pstep = end ? 0 : stepAfter(r, PARAPET_STEP, prevPar);
+      const pstep = (ground || end) ? 0 : stepAfter(r, PARAPET_STEP, prevPar);
       const parapetH = Math.max(0.55, baseParapet + pstep);
 
       // Shopfront head - the fascia line, and the horizontal the eye reads first.
@@ -2572,8 +2680,15 @@ export function lotPlanFor(ring, style, height, fronts) {
       // is precisely the "constant storey height to the pavement" finding.
       let head = null, depth = null, doorSpan = null, fasciaY = null;
       if (shop) {
-        const hstep = stepAfter(r, HEAD_STEP, prevHead);
-        head = Math.max(2.9, Math.min(Math.min(4.6, height - 0.7), shop.head + hstep));
+        // ONE HEAD FOR THE WHOLE ELEVATION on a ground-only frontage. A tower
+        // has one continuous soffit over its shops - 07-1777-Main-Street and
+        // 08-1819-Main-Street both carry a dead-level band over a subdivided
+        // base - and a stepped one would put the building straight into the "row
+        // of sheds" failure the lot pass already had to avoid. It also keeps the
+        // wall over the shopfronts a single uncut run, which is what makes this
+        // nearly free in triangles.
+        const hstep = ground ? 0 : stepAfter(r, HEAD_STEP, prevHead);
+        head = Math.max(2.9, Math.min(Math.min(4.6, height - 0.7, headCap), shop.head + hstep));
         prevHead = hstep;
         depth = 0.42 + r() * 0.46;
         const bays = storefrontBays(len);
@@ -2607,7 +2722,9 @@ export function lotPlanFor(ring, style, height, fronts) {
         // a pier's width so the first opening clears the party line. Adjacent
         // lots therefore do not line their windows up, which is the single
         // cheapest cue that two neighbours were built by different people.
-        u0: phaseFor(rec, len, r),
+        // A ground-only lot does not choose a phase: the window rhythm above it
+        // belongs to the BUILDING and is emitted once for the whole elevation.
+        u0: ground ? undefined : phaseFor(rec, len, r),
         parapetH, head, depth, doorSpan, fasciaY,
         // Open, closed-with-the-light-on, or dark? Off a separate hash stream, so
         // the whole sequence above - colourway, value nudge, parapet step, head
@@ -2622,7 +2739,12 @@ export function lotPlanFor(ring, style, height, fronts) {
       });
       prevIdx = idx; prevV = lum(tint); prevPar = pstep;
     }
-    plan.set(e.i, { e, lots });
+    // `ground` is on the PLAN, not only on the lots, because every consumer
+    // decides per elevation: facadeWalls emits one wall or many, parapet() steps
+    // or does not, appendBuilding stops the party piers at the fascia or carries
+    // them to the cornice. tools/frontage-stats.mjs reads it to keep the two
+    // kinds of run apart in its counts.
+    plan.set(e.i, { e, lots, ground });
   }
   return plan;
 }
@@ -3905,7 +4027,16 @@ export function facadeWalls(ring, height, rec, pos, nrm, uv, idx, opts = {}) {
     // glazing plane and the head soffit are all cut at the party line, so the
     // colour change runs the full height of the building rather than stopping at
     // a course, and the window rhythm restarts on the far side of it.
-    if (p.lots && p.lots.length > 1) {
+    // ... and a GROUND-ONLY subdivision is the opposite instruction. Its lots
+    // are tenancies inside ONE building, so the wall over them is emitted once
+    // for the whole elevation - one tint, one texture phase, one window rhythm,
+    // one spandrel stripe running the full length - with every tenancy's
+    // shopfront bays cut out of its street level as a single gap list that
+    // appendBuilding assembled. Falling into the per-lot branch here is exactly
+    // the parade the split exists to avoid, and it would cost the extra sill
+    // course, glazing plane and head soffit at every party line for the whole
+    // height of a tower.
+    if (p.lots && p.lots.length > 1 && !p.groundOnly) {
       for (const L of p.lots) {
         facadeEdge(L.sub, height, rec, pos, nrm, uv, idx, {
           col: o.col, tint: L.tint, u0: L.u0,
@@ -3954,7 +4085,10 @@ export function plinth(ring, pos, nrm, uv, idx, opts = {}) {
   for (const e of opts.edges ?? edgesOf(ring, { minLen: 1.2 })) {
     if (e.len < 1.2) continue;
     const p = plan.get(e.i);
-    if (p?.lots && p.lots.length > 1) {
+    // A ground-only frontage falls through to the whole-edge band: one base
+    // course in the building's colour, interrupted by every tenancy's bays,
+    // because a plinth under one tower is one plinth.
+    if (p?.lots && p.lots.length > 1 && !p.groundOnly) {
       for (const L of p.lots) band(L.sub, L, L.tint);
       continue;
     }
@@ -4264,6 +4398,23 @@ export function appendBuilding(ring, height, style, wall, trim, opts = {}) {
     const p = plan.get(i) ?? {};
     p.lots = lp.lots;
     plan.set(i, p);
+    // GROUND-ONLY: the tenancies are a row of shopfronts at the foot of ONE
+    // wall. Their bays are collected into a single edge-metres gap list, which
+    // is what facadeWalls cuts the street level with and what plinth() steps
+    // around; the lot keeps its own lot-metres copy because storefront() and
+    // fasciaBand() below are handed L.sub and work in its coordinates.
+    if (lp.ground) {
+      p.groundOnly = true;
+      const gaps = [];
+      for (const L of lp.lots) {
+        L.ground = { top: L.head, gaps: storefrontBays(L.len) };
+        for (const [a, b] of L.ground.gaps) gaps.push([L.s0 + a, L.s0 + b]);
+      }
+      // Every head on a ground plan is the same by construction (lotPlanFor
+      // holds it at the building's value), so lots[0] is the elevation's head.
+      p.ground = { top: lp.lots[0].head, gaps };
+      continue;
+    }
     for (const L of lp.lots) {
       if (style.storefront && streetSet.has(i)) {
         L.ground = { top: L.head, gaps: storefrontBays(L.len) };
@@ -4309,9 +4460,13 @@ export function appendBuilding(ring, height, style, wall, trim, opts = {}) {
 
   const tArgs = { col: trim.col, tint: [1, 1, 1] };
   if (style.parapet) {
+    // Only PROPERTY lots step the parapet. A ground-only frontage is one
+    // building and its parapet is one line, 30 m over the shopkeeper's head.
+    const stepped = new Map();
+    for (const [i, lp] of lotPlan) if (!lp.ground) stepped.set(i, lp.lots);
     parapet(ring, height, trim.pos, trim.nrm, trim.uv, trim.idx, {
       ...style.parapet, cell: TRIM.stone, ...tArgs, tint: t,
-      lots: lotPlan.size ? new Map([...lotPlan].map(([i, lp]) => [i, lp.lots])) : null,
+      lots: stepped.size ? stepped : null,
     });
   }
   if (style.plinth) {
@@ -4331,8 +4486,17 @@ export function appendBuilding(ring, height, style, wall, trim, opts = {}) {
   // slab, or its last 0.4 m stands inside the cornice band and crosses its soffit.
   const pierTop = height - (style.parapet?.height ?? 0) * 0.35;
   for (const [, lp] of lotPlan) {
+    // A PROPERTY boundary is a pilaster to the cornice. A TENANCY boundary
+    // inside one building is a SHOPFRONT PIER and stops at the top of the
+    // fascia, because above that line there is one building and not two -
+    // carrying it up a 35 m tower would draw 30 m of party wall between two
+    // shops that share a landlord, which is the parade in a different costume.
+    const L0 = lp.lots[0];
+    const top = lp.ground
+      ? (L0.fasciaY ? L0.fasciaY[1] : (L0.head ?? 0) + 0.2)
+      : pierTop;
     for (let k = 1; k < lp.lots.length; k++) {
-      partyPier(lp.e, lp.lots[k].s0, pierTop, trim.pos, trim.nrm, trim.uv, trim.idx,
+      partyPier(lp.e, lp.lots[k].s0, top, trim.pos, trim.nrm, trim.uv, trim.idx,
         { col: trim.col, tint: lp.lots[k - 1].tint });
     }
   }

@@ -1856,14 +1856,25 @@ export function wideSign(x, z, yaw, key, sign, trim, opts = {}) {
 
 const TENANCY_M = 9.0, TENANCY_MIN = 5.5, TENANCY_MAX = 15.0;
 
-// A LOT is a tenancy. facades.js cuts a long frontage into lots and gives each
-// one its own wall colour, parapet step, shopfront head, recess depth and street
-// door; this module then has to hang that lot's NAME on that lot's fascia. Two
-// independent subdivisions of the same wall - a 9 m tenancy here and an 8.4 m lot
-// there - would put every third sign across a party pier, which is worse than not
-// splitting the wall at all. So when the facade kit has a lot plan for an edge,
-// it is the tenancy plan; TENANCY_M only still governs frontages too short to
-// have been lotted.
+// A LOT IS A TENANCY, AND THERE ARE NOW TWO KINDS OF LOT.
+//
+// facades.js cuts a long frontage into lots and this module hangs each lot's
+// NAME on that lot's fascia. Two independent subdivisions of the same wall - a
+// 9 m tenancy here and an 8.4 m lot there - would put every third sign across a
+// party pier, which is worse than not splitting the wall at all. So when the
+// facade kit has a lot plan for an edge, it IS the tenancy plan; TENANCY_M only
+// still governs frontages too short to have been lotted.
+//
+// What differs between the two kinds is not read here and must not be assumed
+// here. A PROPERTY lot (buildingStyle `lots`) carries its own wall colour,
+// parapet step, shopfront head and texture phase for the full height of the
+// building. A GROUND tenancy (buildingStyle `groundLots`, which is how a tower
+// gets a row of shops under a single tower) carries its own recess depth, door,
+// fascia colour, awning and after-dark state and NOTHING above the fascia: one
+// colour, one parapet, one head on the whole elevation. Everything this module
+// reads off a lot - s0, s1, head, fasciaY, awning, doorSpan - is per-tenancy in
+// both, which is exactly why signage needed no branch for the tower case; if a
+// future consumer here starts reading `parapetH` or `tint`, it does.
 function tenanciesOn(e, lots) {
   if (!lots || !lots.length) {
     const n = Math.max(1, Math.round(e.len / TENANCY_M));
@@ -1921,6 +1932,14 @@ export function signPlanFor(b, style, opts = {}) {
   // than shared, because the two modules do not otherwise depend on each other;
   // if either changes, change both. The rule: each direction contributes at most
   // `faces` edges, and a multi-street building is capped one above that.
+  //
+  // tools/frontage-stats.mjs --selftest now asserts the two agree over the whole
+  // district - every edge appendBuilding cuts shopfront bays into is an edge
+  // this function puts tenancies on, and the reverse - so the next change to
+  // either can be caught by a tool instead of by a blind reviewer. It caught
+  // nothing when the tower ground floor went in, which is the point: the tower
+  // population reaches this function through `style.storefront` alone and needs
+  // no edge-selection change at all.
   const dirs = opts.streets?.length ? opts.streets : (opts.street ? [opts.street] : null);
   const faces = opts.faces ?? 2;
   let edges;
@@ -1937,6 +1956,13 @@ export function signPlanFor(b, style, opts = {}) {
     edges = edgesOf(ring, { minLen: 4, longest: faces });
   }
   const plan = { tenants: [], parapet: null, edges };
+  // `storefront` is the whole gate, and it is what admitted towers: buildingStyle
+  // gives a commercial-zone bayTower a shopfront for the first time, so 23 towers
+  // arrive here with tenancies, fascias, awnings and after-dark states without a
+  // line changing below this one. A tower's head is lower than a shop's - 3.34 m
+  // against 4.00, because bayTower's first floor sits at 4.06 and a 4.00 m head
+  // would delete the window band above it (facades.js headCapFor) - and every
+  // placement here is already relative to `t.head`.
   if (!style?.storefront || !edges.length) return plan;
 
   const head = style.storefront.head;
