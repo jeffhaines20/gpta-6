@@ -3180,6 +3180,44 @@ export function tenancyStateCapped(run, ...parts) {
   return { state: st, run: st === TRIM_DARK ? run + 1 : 0 };
 }
 
+/**
+ * The street door for an IMPLIED tenancy, on a frontage with no lot plan.
+ *
+ * A lotted frontage gets its door from the lot planner, which hands storefront()
+ * one `doorSpan`. An unlotted one was handed nothing, so `opts.doorSpan ?? null`
+ * resolved to null and NO DOOR WAS EMITTED ANYWHERE ON IT. Measured before this
+ * existed: 139 of 387 street edges and 1,166 m of the district's 8,397 m of
+ * frontage — 13.9% — carried display glazing, a bulkhead, a transom and a
+ * threshold, and no way in. The lot pass fixed "the ground floor does not meet
+ * the street" for the frontages it cut and left the rest exactly as it found
+ * them, which is why the finding kept coming back for the shorter buildings.
+ *
+ * Same rule as lotPlanFor's, deliberately, so the two paths cannot drift into
+ * two different-looking high streets: a bay biased to the end of the unit, a
+ * leaf half the bay wide capped at 1.35 m, a minimum of 0.85 m so a narrow bay
+ * does not get a door too thin to walk through, and 82% of units rather than all
+ * of them — a row where every single unit has its own door at the same spacing
+ * is its own kind of regularity, and two units trading as one is ordinary.
+ *
+ * Pure in (seed, edge, pair), like tenancyState: there is no rng STREAM in this
+ * loop to advance, and adding one would have resequenced every lit-tenancy
+ * decision in the district.
+ *
+ * @returns {[number,number]|null} the door span in edge metres, or null
+ */
+export function impliedDoor(seed, ei, pair, bays) {
+  if (!bays.length) return null;
+  const r = rng(hash32('shopdoor', seed, ei, pair));
+  const lo = pair * 2, hi = Math.min(lo + 1, bays.length - 1);
+  if (lo > hi) return null;
+  const atEnd = r() < 0.72;
+  const bi = atEnd ? (r() < 0.5 ? lo : hi) : lo + ((r() * (hi - lo + 1)) | 0);
+  const [b0, b1] = bays[Math.min(bi, bays.length - 1)];
+  const dw = Math.min(1.35, (b1 - b0) * 0.5);
+  if (!(dw > 0.85) || !(r() < 0.82)) return null;
+  return bi === lo ? [b0, b0 + dw] : [b1 - dw, b1];
+}
+
 export function storefrontBays(len, opts = {}) {
   const bayM = opts.bayM ?? 3.2, pier = opts.pier ?? 0.32;
   const bays = Math.max(1, Math.round((len - pier * 2) / bayM));
@@ -3210,7 +3248,12 @@ export function storefront(ring, pos, nrm, uv, idx, opts = {}) {
   // entrances" - is answered here and nowhere else, because before the lot pass
   // a shopfront building had NO door at all: buildingStyle only gives an
   // `entrance` to buildings with no shopfront.
+  // A LOTTED frontage is handed one door span by the lot planner. An UNLOTTED
+  // one is handed nothing, and used to get no door at all; impliedDoor() gives
+  // each implied tenancy its own, on the same rule. `null` here now means "work
+  // it out per pair" rather than "there is no door on this elevation".
   const door = opts.doorSpan ?? null;
+  const doorSeed = opts.seed ?? 0;
 
   for (const e of edges) {
     const P = (x) => [e.a[0] + e.tx * x, e.a[1] + e.tz * x];
@@ -3277,7 +3320,12 @@ export function storefront(ring, pos, nrm, uv, idx, opts = {}) {
       // the display glazing rather than behind it: that is where a door in its
       // frame actually sits, it occludes the pane instead of z-fighting it, and
       // it needs no second copy of the bay to make room.
-      if (door && door[0] >= s0 - 1e-6 && door[1] <= s1 + 1e-6) {
+      //
+      // Lotted: one span for the elevation, from the lot planner. Unlotted: one
+      // per implied pair, decided by the same hash that decided the pair's lit
+      // state, so a unit's door and its lights agree about where it begins.
+      const bayDoor = door ?? impliedDoor(doorSeed, e.i, bi >> 1, bays);
+      if (bayDoor && bayDoor[0] >= s0 - 1e-6 && bayDoor[1] <= s1 + 1e-6) {
         const o2 = { col, tint: t };
         const dOut = -(depth - 0.05);
         const leaf = Math.min(2.35, head - 0.5);
@@ -3305,12 +3353,12 @@ export function storefront(ring, pos, nrm, uv, idx, opts = {}) {
         const frameC = trimCell(TRIM.metalDark);
         const gq = [glass.u0, glass.v0, glass.u1, glass.v1];
         const fq = [frameC.u0, frameC.v0, frameC.u1, frameC.v1];
-        faceQ(e, door[0], door[1], 0.02, kick, dOut, fq, pos, nrm, uv, idx, o2);
-        faceQ(e, door[0], door[1], kick, leaf, dOut, gq, pos, nrm, uv, idx, o2);
-        jambQ(e, door[0], 0.02, leaf, -depth, dOut, -1, fq, pos, nrm, uv, idx, o2);
-        jambQ(e, door[1], 0.02, leaf, -depth, dOut, 1, fq, pos, nrm, uv, idx, o2);
-        shelfQ(e, door[0], door[1], leaf, -depth, dOut, -1, fq, pos, nrm, uv, idx, o2);
-        shelfQ(e, door[0], door[1], 0.02, -depth, dOut, 1, fq, pos, nrm, uv, idx, o2);
+        faceQ(e, bayDoor[0], bayDoor[1], 0.02, kick, dOut, fq, pos, nrm, uv, idx, o2);
+        faceQ(e, bayDoor[0], bayDoor[1], kick, leaf, dOut, gq, pos, nrm, uv, idx, o2);
+        jambQ(e, bayDoor[0], 0.02, leaf, -depth, dOut, -1, fq, pos, nrm, uv, idx, o2);
+        jambQ(e, bayDoor[1], 0.02, leaf, -depth, dOut, 1, fq, pos, nrm, uv, idx, o2);
+        shelfQ(e, bayDoor[0], bayDoor[1], leaf, -depth, dOut, -1, fq, pos, nrm, uv, idx, o2);
+        shelfQ(e, bayDoor[0], bayDoor[1], 0.02, -depth, dOut, 1, fq, pos, nrm, uv, idx, o2);
       }
     }
   }

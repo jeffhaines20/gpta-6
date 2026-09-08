@@ -16,7 +16,7 @@
 //
 // No browser: this is arithmetic over data/district.json, so it is a cheap gate.
 import fs from 'node:fs';
-import { streetDirFor as geomStreetDirFor } from '../src/geom.js';
+import { streetDirFor as geomStreetDirFor, streetDirsFor as geomStreetDirsFor } from '../src/geom.js';
 
 // signage.js paints its atlases at import-of-first-use, and this audit reads
 // VERTEX POSITIONS only — never a pixel and never a UV — so a no-op 2D context
@@ -49,7 +49,7 @@ if (typeof document === 'undefined') {
 }
 import {
   buildingStyle, buffers, edgesOf, facingEdges, roofUnits, fireEscape, signBlank, awnings,
-  awningFabricY,
+  awningFabricY, impliedDoor, storefrontBays, lotPlanFor,
 } from '../src/facades.js';
 import {
   signPlanFor, awning as signAwning, shopRect, planStreetSignage,
@@ -76,6 +76,38 @@ const keyOf = (x, z) => `${Math.floor(x / CHUNK)},${Math.floor(z / CHUNK)}`;
 // that turned out to be backwards on 99 buildings the copy in each tool would
 // have gone on measuring a world nobody renders.
 const streetDirFor = (b) => geomStreetDirFor(d, b);
+const streetDirsFor = (b) => geomStreetDirsFor(d, b, 2);
+
+/**
+ * The street elevations the STREAMER builds, which is not the same set as the
+ * one this audit used to walk.
+ *
+ * It asked streetDirFor for a single direction and took facingEdges' 0.35 cone
+ * around it. appendBuilding takes streetDirsFor and UNIONS the cones, because a
+ * corner site fronts two streets and one direction can only ever admit one of
+ * them — the perpendicular elevation dots to ~0 and is dropped. So every prop
+ * check in this file — roof units, fire escapes, sign blanks, awning arms,
+ * street doors — has been blind to the second elevation of every corner site in
+ * the district. An audit that walks a smaller set than the build cannot fail on
+ * what it never looks at, which is the quietest way for a gate to be useless.
+ */
+function streetEdgesFor(b) {
+  const dirs = streetDirsFor(b);
+  const faces = 2;
+  if (!dirs || !dirs.length) {
+    const one = streetDirFor(b);
+    return one ? facingEdges(b.p, one[0], one[1], { minLen: 4, max: faces })
+      : edgesOf(b.p, { minLen: 4, longest: faces });
+  }
+  const seen = new Map();
+  for (const dir of dirs) {
+    for (const e of facingEdges(b.p, dir[0], dir[1], { minLen: 4, max: faces })) {
+      if (!seen.has(e.i)) seen.set(e.i, e);
+    }
+  }
+  return [...seen.values()].sort((x, y) => y.len - x.len)
+    .slice(0, dirs.length > 1 ? faces + 1 : faces);
+}
 // streaming.js _capStyle, replayed: an audit that used a different style than
 // the streamer would be auditing a world nobody renders.
 // The cap was a hand copy of StreamingWorld._capStyle. It is now imported from
@@ -126,7 +158,7 @@ function unsupported(list, hostY) {
 
 const fail = [];
 const note = (kind, id, gap, detail) => fail.push({ kind, id, gap: +gap.toFixed(3), ...detail });
-const stat = { roofUnits: 0, fireEscapes: 0, signBlanks: 0, awningsFacKit: 0, awningsSig: 0, streetPosts: 0 };
+const stat = { roofUnits: 0, fireEscapes: 0, signBlanks: 0, awningsFacKit: 0, awningsSig: 0, doorsImplied: 0, streetPosts: 0 };
 let worstRoof = 0, worstArm = 0, worstFE = 0, worstBlank = 0;
 
 for (let bi = 0; bi < d.buildings.length; bi++) {
@@ -134,9 +166,7 @@ for (let bi = 0; bi < d.buildings.length; bi++) {
   const style = capStyle(buildingStyle(b), b);
   const h = b.h ?? 6;
   const street = streetDirFor(b);
-  const streetEdges = street
-    ? facingEdges(b.p, street[0], street[1], { minLen: 4, max: 2 })
-    : edgesOf(b.p, { minLen: 4, longest: 2 });
+  const streetEdges = streetEdgesFor(b);
 
   // --- roof mechanical: every unit must sit ON the roof slab at y = h.
   if (style.roofUnits) {
@@ -200,6 +230,34 @@ for (let bi = 0; bi < d.buildings.length; bi++) {
     }
     if (worst > TOL) { note(`awningArm:${tag}`, bi, worst, at); worstArm = Math.max(worstArm, worst); }
   };
+  // --- street doors on an UNLOTTED frontage.
+  //
+  // A lotted frontage takes its door from the lot planner, which already picks
+  // the bay it lands in. An unlotted one derives it from impliedDoor(), and a
+  // door that misses its bay is a leaf floating in front of a pier -- so the
+  // span it returns has to be inside the bay storefront() will actually build,
+  // and wide enough to walk through. Both were true of the lot planner by
+  // construction and neither is free here.
+  if (style.storefront) {
+    const lotPlan = lotPlanFor(b.p, style, h, streetEdges);
+    for (const e of streetEdges) {
+      if (lotPlan.has(e.i)) continue;
+      const bays = storefrontBays(e.len, style.storefront);
+      const pairs = Math.ceil(bays.length / 2);
+      for (let pr = 0; pr < pairs; pr++) {
+        const dsp = impliedDoor(style.seed ?? 0, e.i, pr, bays);
+        if (!dsp) continue;
+        stat.doorsImplied++;
+        const inBay = bays.some(([q0, q1]) => dsp[0] >= q0 - 1e-6 && dsp[1] <= q1 + 1e-6);
+        if (!inBay) note('doorOffBay', bi, 0, { edge: e.i, span: dsp.map((v) => +v.toFixed(2)) });
+        const w = dsp[1] - dsp[0];
+        if (w < 0.85) note('doorNarrow', bi, 0.85 - w, { edge: e.i, w: +w.toFixed(3) });
+        const leaf = Math.min(2.35, style.storefront.head - 0.5);
+        if (leaf < 1.9) note('doorShort', bi, 1.9 - leaf, { edge: e.i, leaf: +leaf.toFixed(2) });
+      }
+    }
+  }
+
   if (style.storefront) {
     // KIT CHECK, NOT A DISTRICT CENSUS. appendBuilding stopped emitting these
     // (signage.js owns awnings; see the comment there and tools/awning-overlap.mjs),
@@ -216,7 +274,10 @@ for (let bi = 0; bi < d.buildings.length; bi++) {
         checkAwningBuf('fac', buf, e, style.storefront.head + 0.35, 0.55, 1.35);
       }
     }
-    const plan = signPlanFor(b, style, { street });
+    // `streets` as well as `street`, for the same reason streetEdgesFor exists:
+    // the streamer passes both, and a corner site plans tenancies on an
+    // elevation a single direction never admits.
+    const plan = signPlanFor(b, style, { street, streets: streetDirsFor(b) });
     for (const t of plan.tenants) {
       if (!t.awning) continue;
       stat.awningsSig++;
