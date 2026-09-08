@@ -20,6 +20,7 @@ import {
   buildingStyle, appendBuilding, buffers, facadeMaterial, trimMaterial,
   generateFacadeLibrary, setAllFacadeTimes,
 } from './facades.js';
+import { capStyle } from './build-cost.js';
 
 export const LOD = { NEAR: 0, FAR: 1 };
 
@@ -109,6 +110,11 @@ export class StreamingWorld {
     // different, rather than two trees whose frames turn out to be of the same
     // commit -- which is how two rounds in this project were spent.
     this.kerbsOn = opts.kerbs !== false;
+    // 'lazy' restores the pre-fix behaviour: frontage computed on first touch,
+    // inside a timed chunk slice. It exists so the before/after for that change
+    // is ONE build on ONE port with one thing different, the way ?kerbs=0 is -
+    // two commits measured on a shared box would be comparing neighbours.
+    this.frontageLazy = opts.frontage === 'lazy';
     this.kerbPlan = undefined;
     generateFacadeLibrary();
     // Planned HERE and not on first use. It is 89 ms of arithmetic over the
@@ -117,7 +123,43 @@ export class StreamingWorld {
     // warn. The constructor runs inside the loading screen's own phase, where
     // 89 ms is load time and is accounted as load time.
     this._kerbPlan();
+    this._primeFrontage();
     this._buildWater();
+  }
+
+  // Every building's street elevations, computed HERE and not on first touch.
+  //
+  // _streetDirFor/_streetDirsFor cache on the building for the life of the
+  // session, and the comment on _streetDirFor used to present that as the whole
+  // answer: "paid once per building for the life of the session -- 64 ms across
+  // all 523, spread over streaming". Spread over streaming is the problem. The
+  // building that pays it is whichever one a chunk build happens to touch first,
+  // and it pays inside the 3 ms slice the stall gate measures.
+  //
+  // It is also two searches, not one. _streetDirFor asks for the best elevation
+  // and _streetDirsFor for both elevations of a corner site, and appendBuilding
+  // consumes both. The 64 ms accounted for one of them.
+  //
+  // Measured offline over all 523 buildings, min of 5 passes
+  // (tools/append-cost.mjs -> docs/append-cost.json):
+  //
+  //     _streetDirFor    65.6 ms      _streetDirsFor   62.6 ms      total 128.2
+  //     the facade kit itself, every build                          total 100.3
+  //
+  // so 56% of what a chunk's FIRST build costs is this search, and none of what
+  // its rebuilds cost. Per chunk that is a first build of up to 10.83 ms against
+  // a rebuild of at most 3.76 ms - and the live ledger's worst append:near step
+  // was 10.9 ms, on a chunk this predicts at 10.83. Two instruments, one offline
+  // and deterministic, one inside the running page, agreeing to 0.07 ms.
+  //
+  // planKerbs() was moved into this constructor for exactly this reason and says
+  // so four lines up ("on first use it would land inside a chunk build's timed
+  // slice"). This is the same move, for the same reason, on the term that was
+  // left behind. 128 ms of arithmetic behind the loading screen is load time and
+  // is accounted as load time.
+  _primeFrontage() {
+    if (this.frontageLazy) return;
+    for (const b of this.d.buildings) { this._streetDirFor(b); this._streetDirsFor(b); }
   }
 
   // ---------------------------------------------------------------- ground API
@@ -419,8 +461,17 @@ export class StreamingWorld {
   //
   // Cached on the building, like _perim below: the frontage search is 122 us
   // against the nearest-vertex search's 2.7 us, which would be 1-2 ms of a 3 ms
-  // chunk slice if it ran per build. Cached it is paid once per building for the
-  // life of the session -- 64 ms across all 523, spread over streaming.
+  // chunk slice if it ran per build.
+  //
+  // CACHING IT WAS NOT ENOUGH, and this comment used to stop here. "Paid once
+  // per building for the life of the session -- 64 ms across all 523, spread
+  // over streaming" is true and is also the defect: spread over streaming means
+  // spread over the timed slices the stall gate measures, so the building that
+  // pays is whichever one a chunk build touches first. The 64 ms also counted
+  // one of the two searches; _streetDirsFor is a second one and appendBuilding
+  // consumes both, measured at 65.6 + 62.6 = 128.2 ms across the district.
+  // _primeFrontage() now pays all of it in the constructor, behind the loading
+  // screen, and this cache is what makes that a one-off rather than a doubling.
   //
   // tools/street-dir.mjs holds the same three methods side by side with a
   // self-test that isolates the failure: a road 15 m in front whose vertices are
@@ -440,25 +491,15 @@ export class StreamingWorld {
   }
 
   // Per-building cost cap. The stall gate is a hard constraint, so an
-  // individually expensive style is trimmed here rather than allowed to blow a
-  // frame. Measured worst case falls from 22.3 ms to ~2 ms.
-  _capStyle(style, b) {
-    // Balcony count scales as floors x PERIMETER, not floors x vertex count: a
-    // four-point 737 m2 tower emitted 19k trim vertices in 28.5 ms because its
-    // edges are long, not because it has many of them.
-    if (b._perim === undefined) {
-      let per = 0;
-      for (let i = 0; i < b.p.length; i++) {
-        const a = b.p[i], c = b.p[(i + 1) % b.p.length];
-        per += Math.hypot(c[0] - a[0], c[1] - a[1]);
-      }
-      b._perim = per;
-    }
-    const cost = style.floors * b._perim;
-    if (cost > 1400) { style.balconies = false; style.fireEscape = false; }
-    if (cost > 1800) style.roofUnits = Math.min(style.roofUnits, 3);
-    return style;
-  }
+  // individually expensive style is trimmed rather than allowed to blow a frame.
+  // Measured worst case falls from 22.3 ms to ~2 ms.
+  //
+  // The rule itself now lives in src/build-cost.js because there was a second,
+  // hand-written copy of it in tools/geom-audit.mjs. Two copies of the rule that
+  // decides which buildings get balconies is two answers the moment either is
+  // touched, and the audit would have gone on reporting the geometry of a cap
+  // the streamer had stopped applying while looking entirely healthy.
+  _capStyle(style, b) { return capStyle(style, b); }
 
   _meshFromBuffers(buf, material, shadow) {
     if (!buf.pos.length) return null;
