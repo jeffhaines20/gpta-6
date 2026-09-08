@@ -56,10 +56,47 @@ await page.addStyleTag({ content: '#attr{display:none!important}' });
 if (process.env.HERO_SHOW_HUD !== '1') {
   await page.addStyleTag({ content: '#hud,.pv-hud{display:none!important}' });
 }
+
+// SETTLE ON RENDERED FRAMES, NEVER ON WALL CLOCK.
+//
+// This file already knew the rule and applied it in exactly one place -- the
+// arm switch below says "Rendered FRAMES after the uniforms were pushed, never
+// milliseconds" -- while every other settle here was a waitForTimeout. That is
+// the difference between an A/B whose two arms are registered and one whose
+// arms are not.
+//
+// Why it matters more than it looks. district/main.js advances the world with
+//   const dt = Math.min(0.05, (now - last) / 1000 || 0.016);
+// and a SwiftShader frame takes seconds, so EVERY frame clamps to dt = 0.05.
+// The simulation is therefore exactly deterministic in the frame COUNT: frame N
+// is always world-time 0.05*N. Wait 14 wall-clock seconds and you get however
+// many frames the box felt like giving you, which is a different world state in
+// each arm -- pedestrians further along their paths, foliage at a different
+// phase, traffic somewhere else.
+//
+// Measured on the car A/B this was found in. Two arms differing ONLY in
+// src/carbody.js came back with 68-85% of upper-band pixels identical and
+// differences spanning 900-1570 of 1600 columns. A car cannot change the sky.
+// peds-in-frustum differed in all 8 pairs (2 vs 3, 16 vs 19) while cars, parked
+// cars and trees matched, which is the signature of a world simulated for
+// different lengths of time rather than of anything the diff did.
+//
+// `frames` is also now recorded in the audit, so registration is checkable after
+// the fact instead of having to be inferred from the pixels.
+const FRAME_SETTLE = Number(process.env.HERO_SETTLE_FRAMES ?? 30);
+async function settleFrames(page, n = FRAME_SETTLE, why = '') {
+  const f0 = await page.evaluate(() => __district.frames);
+  await page.waitForFunction((t) => __district.frames >= t, f0 + n,
+    { timeout: 600000, polling: 250 });
+  const f1 = await page.evaluate(() => __district.frames);
+  if (why) console.log(`  settled ${why}: frames ${f0} -> ${f1}`);
+  return f1;
+}
+
 const HERO_TRAFFIC = Number(process.env.HERO_TRAFFIC ?? 0);
 if (HERO_TRAFFIC > 0) {
   await page.evaluate((n) => __district.setTraffic(n), HERO_TRAFFIC);
-  await page.waitForTimeout(6000);
+  await settleFrames(page, FRAME_SETTLE, 'traffic spawn');
 }
 
 // Stand in the carriageway on the Main Street corridor looking east toward
@@ -196,7 +233,7 @@ for (const s of shots) {
     `${placed.clearance} m clear of the nearest footprint` +
     (placed.back !== placed.requestedBack ? ` (pulled in from ${placed.requestedBack})` : '') +
     (placed.stillInside >= 0 ? `  WARNING: still inside building ${placed.stillInside}` : ''));
-  await page.waitForTimeout(14000);
+  await settleFrames(page, FRAME_SETTLE, `camera ${s.name}`);
 
   for (const tod of TIMES) {
     // HERO_AO=radius/intensity/strength overrides the SSAO parameters for the
@@ -216,7 +253,7 @@ for (const s of shots) {
       console.log(`  HERO_AO applied: radius ${got.r} intensity ${got.i} strength ${got.s}`);
     }
     await page.evaluate((t) => __district.setTimeOfDay(t), tod);
-    await page.waitForTimeout(15000);
+    await settleFrames(page, FRAME_SETTLE, `tod ${tod}`);
     // One camera, one settled district, every arm. See tools/ground-albedo.mjs:
     // capturing a lighting A/B by editing the source between two runs only
     // measures that edit if nothing else in src/ moved in between, and in a tree
@@ -266,6 +303,10 @@ for (const s of shots) {
         });
         return {
           ...a,
+          // The simulation step this frame belongs to. Two arms of an A/B that
+          // do not share it are not registered, and every absolute comparison
+          // between them is measuring the world moving as well as the diff.
+          frames: __district.frames,
           drawCalls: r.calls, sceneCalls: r.sceneCalls, postPasses: r.postPasses, triangles: r.triangles,
           chunks: w.chunksLoaded, lodNear: w.lodNear, lodFar: w.lodFar,
           plainMeshes: plain, instancedMeshes: inst, distinctMaterialsInScene: mats.size,
