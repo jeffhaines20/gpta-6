@@ -1038,8 +1038,16 @@ export function buildTrafficCarGeometry(opts = {}) {
   // buildWheelGeometry's five-lobed relief - where the lobe is BOTH a depth and a
   // brightness, so spokes read without any cut geometry. 80 triangles a wheel
   // against 64: +64 per car, +5,760 across the 90 cars a frame can hold.
-  const seg = 10;              // even, because 5 spokes need alternating lobes
-  const SPOKES = 5;
+  // seg 8 / 4 spokes, NOT 10 / 5, and the reason is arithmetic rather than taste.
+  // The wheel costs 8*seg triangles, so seg 8 is 64 a wheel - exactly what the
+  // old flat-disc wheel cost - and the whole rebuild lands at zero. At seg 10 it
+  // would be 80 a wheel, +64 a car, +5,760 across 90 cars, against a frame that
+  // has 359 triangles of headroom. Measured at the hero framing the wheel is
+  // 38 px tall and 8 px WIDE - a kerbside car is seen nearly end-on from the
+  // carriageway - so neither the 8-gon's faceting nor the fifth spoke was ever
+  // going to resolve. The relief still buys the rim/tyre step, which does.
+  const seg = 8;               // even, because the lobes must alternate
+  const SPOKES = 4;
   const staticSuspLen = 0.257;
   for (const [wx, wz] of [
     [-0.78, P.frontAxleZ], [0.78, P.frontAxleZ],
