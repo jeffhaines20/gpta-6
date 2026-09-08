@@ -77,22 +77,22 @@
     "hasEnvironment": true,
     "sky": {
      "preset": "noon",
-     "generationMs": 6391.6,
+     "generationMs": 4404.3,
      "generationMsByPhase": {
-      "setup": 14.5,
-      "cloudNoiseBake": 9.9,
-      "lutAndCompile": 5997.6,
-      "probeReadback": 321.6,
-      "environment": 57.8,
-      "total": 6391.6
+      "setup": 15.2,
+      "cloudNoiseBake": 10,
+      "lutAndCompile": 4188.5,
+      "probeReadback": 174.1,
+      "environment": 26.4,
+      "total": 4404.3
      },
      "lut": "256x128 RGBA16F",
      "envMap": "PMREM 336x256",
      "refreshes": 4,
-     "lastRefreshMs": 8425.9,
-     "worstRefreshMs": 8425.9,
-     "envMs": 4.7,
-     "readbackMs": 8420,
+     "lastRefreshMs": 5842.7,
+     "worstRefreshMs": 5842.7,
+     "envMs": 2.5,
+     "readbackMs": 5839.7,
      "drawCalls": 1,
      "triangles": 1,
      "turbidity": 2.6,
@@ -102,7 +102,7 @@
       "baseM": 2200,
       "litFaceNits": 7799.9,
       "underlitNits": 0,
-      "noiseBakeMs": 9.9,
+      "noiseBakeMs": 10,
       "inLut": false
      },
      "msAniso": 0,
@@ -175,7 +175,7 @@
      "maxDrops": 12000,
      "drawCalls": 0,
      "boundMaterials": 14,
-     "generationMs": 10.3
+     "generationMs": 8.9
     },
     "samplePointLightCandela": 0,
     "shadowCasters": 103,
@@ -196,14 +196,14 @@
      "textures": 19,
      "textureLayers": 33,
      "textureMemoryMB": 22.75,
-     "generationMs": 657.9,
+     "generationMs": 735,
      "surfaceLayers": 8,
      "timingsMs": {
       "markings": 0,
-      "surfaces": 381.3,
-      "ground": 246.8,
-      "water": 10.9,
-      "trim": 18.7
+      "surfaces": 440.8,
+      "ground": 270.1,
+      "water": 8.6,
+      "trim": 15.4
      },
      "keys": [
       "road",
@@ -226,7 +226,7 @@
      ]
     },
     "population": {
-     "pedsAlive": 73,
+     "pedsAlive": 64,
      "pedsInFrustum": 2,
      "trafficFleet": null,
      "trafficAlive": null,
@@ -319,22 +319,22 @@
     "hasEnvironment": true,
     "sky": {
      "preset": "noon",
-     "generationMs": 6391.6,
+     "generationMs": 4404.3,
      "generationMsByPhase": {
-      "setup": 14.5,
-      "cloudNoiseBake": 9.9,
-      "lutAndCompile": 5997.6,
-      "probeReadback": 321.6,
-      "environment": 57.8,
-      "total": 6391.6
+      "setup": 15.2,
+      "cloudNoiseBake": 10,
+      "lutAndCompile": 4188.5,
+      "probeReadback": 174.1,
+      "environment": 26.4,
+      "total": 4404.3
      },
      "lut": "256x128 RGBA16F",
      "envMap": "PMREM 336x256",
      "refreshes": 5,
-     "lastRefreshMs": 8853.2,
-     "worstRefreshMs": 8853.2,
-     "envMs": 1.8,
-     "readbackMs": 8850.9,
+     "lastRefreshMs": 6066.5,
+     "worstRefreshMs": 6066.5,
+     "envMs": 1.7,
+     "readbackMs": 6064.4,
      "drawCalls": 1,
      "triangles": 1,
      "turbidity": 2.6,
@@ -344,7 +344,7 @@
       "baseM": 2200,
       "litFaceNits": 7799.9,
       "underlitNits": 0,
-      "noiseBakeMs": 9.9,
+      "noiseBakeMs": 10,
       "inLut": false
      },
      "msAniso": 0,
@@ -417,7 +417,7 @@
      "maxDrops": 12000,
      "drawCalls": 0,
      "boundMaterials": 14,
-     "generationMs": 10.3
+     "generationMs": 8.9
     },
     "samplePointLightCandela": 0,
     "shadowCasters": 104,
@@ -438,14 +438,14 @@
      "textures": 19,
      "textureLayers": 33,
      "textureMemoryMB": 22.75,
-     "generationMs": 657.9,
+     "generationMs": 735,
      "surfaceLayers": 8,
      "timingsMs": {
       "markings": 0,
-      "surfaces": 381.3,
-      "ground": 246.8,
-      "water": 10.9,
-      "trim": 18.7
+      "surfaces": 440.8,
+      "ground": 270.1,
+      "water": 8.6,
+      "trim": 15.4
      },
      "keys": [
       "road",
@@ -468,8 +468,8 @@
      ]
     },
     "population": {
-     "pedsAlive": 95,
-     "pedsInFrustum": 15,
+     "pedsAlive": 93,
+     "pedsInFrustum": 22,
      "trafficFleet": null,
      "trafficAlive": null,
      "parkedFilled": 30,
