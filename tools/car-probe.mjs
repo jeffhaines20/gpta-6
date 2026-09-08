@@ -81,334 +81,21 @@
 //              wrong by reverting the lever that was carrying 1% of the move.
 import fs from 'node:fs';
 import { readPNG } from './png.mjs';
-import { writePNG } from './crop.mjs';
 import { createHash } from 'node:crypto';
 
 const OUT = 'docs/probe';
 const ARGS = process.argv.slice(2);
 const argOf = (name) => { const i = ARGS.indexOf(name); return i >= 0 ? ARGS[i + 1] : null; };
 
-// ------------------------------------------------------------------ sampling
-//
-// readPNG returns `channels`, and for these screenshots it is 3, not 4. A
-// hardcoded 4-byte stride misaligns every sample and runs off the end of the
-// buffer in the bottom quarter, where the reads come back undefined -> NaN.
-// NaN then fails every `>` comparison silently, so the corrupted rows report NO
-// DIFFERENCE, which is the most dangerous shape a measurement bug can take.
-// Everything below goes through this one accessor, and it throws rather than
-// return a non-finite sample.
-function sampler(png) {
-  const { width: w, height: h, channels: ch, data } = png;
-  if (!(ch === 3 || ch === 4)) throw new Error(`unexpected channels ${ch}`);
-  return {
-    w, h, ch,
-    luma(x, y) {
-      const xi = x | 0, yi = y | 0;
-      if (xi < 0 || yi < 0 || xi >= w || yi >= h) return null;
-      const p = (yi * w + xi) * ch;
-      const v = 0.2126 * data[p] + 0.7152 * data[p + 1] + 0.0722 * data[p + 2];
-      if (!Number.isFinite(v)) {
-        throw new Error(`non-finite sample at ${xi},${yi} (channels=${ch}) - stride bug`);
-      }
-      return v;
-    },
-  };
-}
+// The metrics live in tools/car-metrics.mjs so they can be imported without
+// starting a browser - see the note at the top of that file. Re-exported here
+// because callers and older notes refer to them by this module's name.
+import {
+  sampler, median, pct, mean, stdev, LIN,
+  wheelMetrics, flankMetrics, edgeMetrics, hubMetrics, noseMetrics, overlay, selftest,
+} from './car-metrics.mjs';
 
-const median = (a) => {
-  if (!a.length) return NaN;
-  const s = Float64Array.from(a).sort();
-  const m = s.length >> 1;
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-};
-const pct = (a, q) => {
-  if (!a.length) return NaN;
-  const s = Float64Array.from(a).sort();
-  return s[Math.min(s.length - 1, Math.max(0, Math.round(q * (s.length - 1))))];
-};
-const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : NaN);
-const stdev = (a) => {
-  if (a.length < 2) return NaN;
-  const m = mean(a);
-  return Math.sqrt(a.reduce((s, v) => s + (v - m) ** 2, 0) / (a.length - 1));
-};
-
-/**
- * Luma inside the projected wheel, split into rim core and tyre annulus.
- *
- * THE WHEEL IS AN ELLIPSE, NOT A CIRCLE, and sampling it as a circle is a bug
- * that flatters nothing and ruins everything. A kerbside car seen from the
- * carriageway is nearly end-on, so its wheel projects about 17 px wide by 38 px
- * tall. A circular annulus at 0.80-1.00 of the tall radius spends most of its
- * area on the bright body and the brighter road either side of the tyre, so the
- * "tyre" reads far lighter than rubber and the rim/tyre ratio is squeezed toward
- * 1. That is why the first pass measured a 10:1 albedo step - alloy 0.55 against
- * rubber 0.055 - as a ratio of 1.20, and then read a real change as a
- * regression.
- *
- * So the caller passes the two projected semi-axis VECTORS of the wheel disc:
- * `up` is the screen offset of a point one wheel radius above the axle, `fore`
- * the offset of one radius along the car's axis. The wheel lies in the plane
- * those two span, and a pixel's normalised radius comes from solving
- * p - c = a*up + b*fore and taking hypot(a, b).
- */
-export function wheelMetrics(png, cx, cy, up, fore) {
-  const s = sampler(png);
-  // Inverse of the 2x2 [up fore] basis, so screen offsets become disc coords.
-  const det = up[0] * fore[1] - up[1] * fore[0];
-  if (!Number.isFinite(det) || Math.abs(det) < 1e-6) {
-    return { px: 0, samples: 0, rimTyre: null, rimCoV: null, degenerate: true };
-  }
-  const i00 = fore[1] / det, i01 = -fore[0] / det;
-  const i10 = -up[1] / det, i11 = up[0] / det;
-  const core = [], tyre = [], inner = [];
-  const rx = Math.abs(up[0]) + Math.abs(fore[0]);
-  const ry = Math.abs(up[1]) + Math.abs(fore[1]);
-  for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++) {
-    for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
-      const dx = x - cx, dy = y - cy;
-      const a = i00 * dx + i01 * dy, b = i10 * dx + i11 * dy;
-      const d = Math.hypot(a, b);
-      if (d > 1) continue;
-      const L = s.luma(x, y);
-      if (L === null) continue;
-      if (d < 0.55) core.push(L);
-      if (d < 0.75) inner.push(L);
-      if (d >= 0.80) tyre.push(L);
-    }
-  }
-  const tyreMed = median(tyre);
-  return {
-    px: +(2 * Math.hypot(up[0], up[1])).toFixed(1),
-    widthPx: +(2 * Math.hypot(fore[0], fore[1])).toFixed(1),
-    samples: core.length + tyre.length,
-    rimTyre: tyreMed > 0.5 ? +(median(core) / tyreMed).toFixed(3) : null,
-    rimCoV: +(stdev(inner) / Math.max(1e-6, mean(inner))).toFixed(3),
-    rimLuma: +median(core).toFixed(1),
-    tyreLuma: +tyreMed.toFixed(1),
-  };
-}
-
-/** Specular response and vertical gradient over a projected quad on the flank. */
-export function flankMetrics(png, quad) {
-  const s = sampler(png);
-  // quad: [tl, tr, br, bl] in screen px. Sample on a regular (u,v) grid inside it.
-  const N = 48;
-  const all = [], top = [], bot = [];
-  for (let iv = 0; iv <= N; iv++) {
-    const v = iv / N;
-    for (let iu = 0; iu <= N; iu++) {
-      const u = iu / N;
-      const x = (1 - u) * ((1 - v) * quad[0][0] + v * quad[3][0])
-              + u * ((1 - v) * quad[1][0] + v * quad[2][0]);
-      const y = (1 - u) * ((1 - v) * quad[0][1] + v * quad[3][1])
-              + u * ((1 - v) * quad[1][1] + v * quad[2][1]);
-      const L = s.luma(x, y);
-      if (L === null) continue;
-      all.push(L);
-      if (v < 1 / 3) top.push(L);
-      else if (v > 2 / 3) bot.push(L);
-    }
-  }
-  const med = median(all);
-  const botMed = median(bot);
-  return {
-    samples: all.length,
-    spec: med > 0.5 ? +(pct(all, 0.98) / med).toFixed(3) : null,
-    vGrad: botMed > 0.5 ? +(median(top) / botMed).toFixed(3) : null,
-    topLuma: +median(top).toFixed(1),
-    botLuma: +botMed.toFixed(1),
-  };
-}
-
-/** Detail density over the car's projected box: mean |Laplacian| / mean luma. */
-export function edgeMetrics(png, box) {
-  const s = sampler(png);
-  const x0 = Math.max(1, Math.floor(box[0])), y0 = Math.max(1, Math.floor(box[1]));
-  const x1 = Math.min(s.w - 2, Math.ceil(box[2])), y1 = Math.min(s.h - 2, Math.ceil(box[3]));
-  let lap = 0, lum = 0, n = 0;
-  for (let y = y0; y <= y1; y++) {
-    for (let x = x0; x <= x1; x++) {
-      const c = s.luma(x, y);
-      const v = Math.abs(4 * c - s.luma(x - 1, y) - s.luma(x + 1, y)
-                             - s.luma(x, y - 1) - s.luma(x, y + 1));
-      lap += v; lum += c; n++;
-    }
-  }
-  if (!n) return { edges: null, px: 0 };
-  return {
-    px: n,
-    boxW: x1 - x0 + 1,
-    boxH: y1 - y0 + 1,
-    edges: +(lap / Math.max(1e-6, lum)).toFixed(4),
-  };
-}
-
-/**
- * Draw the sampled regions onto a copy of the frame. This is not decoration:
- * the first framing this tool used put its "flank" quad on a surface the camera
- * could barely see, and the metric obligingly returned a number for it. A rect
- * that is not looked at is a rect that is measuring the background.
- */
-export function overlay(png, setup, file) {
-  const { width: w, height: h, channels: ch, data } = png;
-  const rgb = new Uint8Array(w * h * 3);
-  for (let i = 0; i < w * h; i++) {
-    rgb[i * 3] = data[i * ch]; rgb[i * 3 + 1] = data[i * ch + 1]; rgb[i * 3 + 2] = data[i * ch + 2];
-  }
-  const put = (x, y, c) => {
-    const xi = Math.round(x), yi = Math.round(y);
-    if (xi < 0 || yi < 0 || xi >= w || yi >= h) return;
-    const p = (yi * w + xi) * 3;
-    rgb[p] = c[0]; rgb[p + 1] = c[1]; rgb[p + 2] = c[2];
-  };
-  const ellipse = (cx, cy, up, fore, k, c) => {
-    for (let a = 0; a < 720; a++) {
-      const t = a / 114.6;
-      put(cx + k * (up[0] * Math.cos(t) + fore[0] * Math.sin(t)),
-        cy + k * (up[1] * Math.cos(t) + fore[1] * Math.sin(t)), c);
-    }
-  };
-  const line = (a, b, c) => {
-    const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1])) + 1;
-    for (let i = 0; i <= n; i++) put(a[0] + ((b[0] - a[0]) * i) / n, a[1] + ((b[1] - a[1]) * i) / n, c);
-  };
-  for (const wd of [setup.wheelFront, setup.wheelRear]) {
-    ellipse(wd.cx, wd.cy, wd.up, wd.fore, 1, [0, 255, 0]);      // the disc sampled
-    ellipse(wd.cx, wd.cy, wd.up, wd.fore, 0.55, [255, 255, 0]); // rim core
-    ellipse(wd.cx, wd.cy, wd.up, wd.fore, 0.80, [255, 128, 0]); // tyre annulus
-  }
-  for (let i = 0; i < 4; i++) line(setup.flank[i], setup.flank[(i + 1) % 4], [255, 0, 255]);
-  if (setup.deck) for (let i = 0; i < 4; i++) line(setup.deck[i], setup.deck[(i + 1) % 4], [255, 255, 255]);
-  const [x0, y0, x1, y1] = setup.box;
-  line([x0, y0], [x1, y0], [0, 200, 255]); line([x1, y0], [x1, y1], [0, 200, 255]);
-  line([x1, y1], [x0, y1], [0, 200, 255]); line([x0, y1], [x0, y0], [0, 200, 255]);
-  writePNG(file, w, h, rgb);
-}
-
-// ------------------------------------------------------------------ selftest
-//
-// Each case is a KNOWN-BAD or KNOWN-GOOD synthetic frame, because a metric that
-// has never been shown a wrong answer is not an instrument. Two probes in this
-// project shipped bugs their own self-tests caught.
-function synth(w, h, ch, paint) {
-  const data = new Uint8Array(w * h * ch);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const c = paint(x, y);
-      const p = (y * w + x) * ch;
-      data[p] = c[0]; data[p + 1] = c[1]; data[p + 2] = c[2];
-      if (ch === 4) data[p + 3] = 255;
-    }
-  }
-  return { width: w, height: h, channels: ch, data };
-}
-
-function selftest() {
-  const fail = [];
-  const ok = (name, cond, got) => {
-    console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${name}${got !== undefined ? `  (${got})` : ''}`);
-    if (!cond) fail.push(name);
-  };
-
-  // 1. The defect this tool was built to name: a featureless dark disc. The rim
-  //    must NOT be reported as legible.
-  const UP = [0, 24], FORE = [24, 0];                       // a round-on wheel
-  const flat = synth(64, 64, 3, (x, y) =>
-    (Math.hypot(x - 32, y - 32) < 24 ? [18, 19, 22] : [140, 140, 140]));
-  const mFlat = wheelMetrics(flat, 32, 32, UP, FORE);
-  ok('flat disc: rimTyre ~ 1', Math.abs(mFlat.rimTyre - 1) < 0.05, mFlat.rimTyre);
-  ok('flat disc: rimCoV ~ 0', mFlat.rimCoV < 0.02, mFlat.rimCoV);
-
-  // 2. A rim that IS legible: bright core, dark tyre. Both metrics must rise.
-  const alloyPaint = (sx) => (x, y) => {
-    const d = Math.hypot((x - 32) / sx, y - 32);
-    if (d > 24) return [140, 140, 140];                    // bright background
-    if (d > 18) return [18, 19, 22];                       // tyre
-    const a = Math.atan2(y - 32, (x - 32) / sx);
-    const lobe = 0.5 + 0.5 * Math.cos(5 * a);              // five spokes
-    const v = Math.round(40 + 170 * lobe);
-    return [v, v, v];
-  };
-  const mAlloy = wheelMetrics(synth(64, 64, 3, alloyPaint(1)), 32, 32, UP, FORE);
-  ok('alloy disc: rimTyre > 2', mAlloy.rimTyre > 2, mAlloy.rimTyre);
-  ok('alloy disc: rimCoV > 0.3', mAlloy.rimCoV > 0.3, mAlloy.rimCoV);
-
-  // 2b. THE ELLIPSE TRAP. The same wheel foreshortened to 0.42 of its width -
-  //     which is roughly what a kerbside car gives from the carriageway. Sampled
-  //     with the correct semi-axes it must read the SAME as the round-on one.
-  //     Sampled as a circle it must not: the annulus fills with bright
-  //     background and the ratio collapses toward 1, which is exactly how a real
-  //     10:1 albedo step came back as 1.20 and made a fix look like a
-  //     regression.
-  const squashed = synth(64, 64, 3, alloyPaint(0.42));
-  const mEll = wheelMetrics(squashed, 32, 32, UP, [24 * 0.42, 0]);
-  const mAsCircle = wheelMetrics(squashed, 32, 32, UP, FORE);
-  ok('foreshortened, elliptical sampling: same answer',
-    Math.abs(mEll.rimTyre - mAlloy.rimTyre) / mAlloy.rimTyre < 0.15,
-    `${mEll.rimTyre} vs ${mAlloy.rimTyre}`);
-  ok('foreshortened, CIRCULAR sampling: collapses toward 1',
-    mAsCircle.rimTyre < 0.5 * mEll.rimTyre, `${mAsCircle.rimTyre} vs ${mEll.rimTyre}`);
-
-  // 3. THE STRIDE TRAP. readPNG returns channels 3 for these screenshots. A
-  //    4-byte stride misreads every pixel and runs off the buffer in the bottom
-  //    quarter, where the samples come back NaN - and NaN loses every comparison
-  //    silently, so the corrupted rows report "no difference". A known value is
-  //    planted in the BOTTOM quarter of a 3-channel image; a tool with the bug
-  //    cannot read it back.
-  const planted = synth(40, 40, 3, (x, y) => (y >= 30 ? [200, 200, 200] : [10, 10, 10]));
-  const sp = sampler(planted);
-  ok('3ch: bottom quarter reads planted 200', Math.abs(sp.luma(20, 35) - 200) < 1,
-    sp.luma(20, 35).toFixed(1));
-  ok('3ch: top reads planted 10', Math.abs(sp.luma(20, 5) - 10) < 1, sp.luma(20, 5).toFixed(1));
-  // The same image at 4 channels must give the SAME answer through the accessor.
-  const planted4 = synth(40, 40, 4, (x, y) => (y >= 30 ? [200, 200, 200] : [10, 10, 10]));
-  ok('4ch: same answer as 3ch', Math.abs(sampler(planted4).luma(20, 35) - 200) < 1);
-  // And the naive 4-stride read of that same 3-channel buffer: index
-  // (35*40+20)*4 = 5680 against a 4800-byte buffer, so it runs off the end and
-  // comes back `undefined`. The second assertion is the point of the whole
-  // case - `Math.abs(undefined - 200) > 1` is FALSE, so a tool written that way
-  // reports the corrupted rows as MATCHING. That is the reassuring wrong answer.
-  const bad = planted.data[(35 * 40 + 20) * 4];
-  ok('a 4-stride read of a 3ch buffer runs off the end', bad === undefined, String(bad));
-  ok('...and the naive NaN guard does not fire', (Math.abs(bad - 200) > 1) === false);
-
-  // 4. vGrad must SEE a top-to-bottom fade, must report ~1 on a flat panel, and
-  //    must be MONOTONIC in the steepness of the fade - that last property is
-  //    the one a before/after comparison actually rests on.
-  const fadeOf = (drop) => synth(64, 64, 3, (x, y) => {
-    const v = Math.round(240 - drop * (y / 63)); return [v, v, v];
-  });
-  const q = [[8, 8], [56, 8], [56, 56], [8, 56]];
-  const gentle = flankMetrics(fadeOf(120), q).vGrad;
-  const steep = flankMetrics(fadeOf(220), q).vGrad;
-  ok('fade: vGrad > 1.4', gentle > 1.4, gentle);
-  ok('steeper fade reads higher', steep > gentle + 0.5, `${gentle} -> ${steep}`);
-  const flatPanel = synth(64, 64, 3, () => [120, 120, 120]);
-  const mFlatP = flankMetrics(flatPanel, q);
-  ok('flat panel: vGrad ~ 1', Math.abs(mFlatP.vGrad - 1) < 0.02, mFlatP.vGrad);
-  ok('flat panel: spec ~ 1', Math.abs(mFlatP.spec - 1) < 0.02, mFlatP.spec);
-
-  // 5. A glint must raise spec - and a glint too SMALL to reach the top 2% of
-  //    the samples must not, which is this metric's resolution limit stated as a
-  //    test so that nobody later quotes spec for a highlight it cannot see.
-  const glintOf = (r) => synth(64, 64, 3, (x, y) =>
-    (Math.hypot(x - 32, y - 20) < r ? [250, 250, 250] : [110, 110, 110]));
-  const bigGlint = flankMetrics(glintOf(9), q).spec;      // 9.4% of the quad
-  const tinyGlint = flankMetrics(glintOf(4), q).spec;     // 1.87% of the quad
-  ok('broad glint: spec > 1.5', bigGlint > 1.5, bigGlint);
-  ok('sub-2% glint is BELOW this metric resolution', tinyGlint === 1, tinyGlint);
-
-  // 6. edges must rise on a striped panel and sit near zero on a flat one.
-  const stripes = synth(64, 64, 3, (x) => { const v = x % 6 < 3 ? 60 : 180; return [v, v, v]; });
-  const eFlat = edgeMetrics(flatPanel, [8, 8, 56, 56]).edges;
-  const eStripe = edgeMetrics(stripes, [8, 8, 56, 56]).edges;
-  ok('flat panel: edges ~ 0', eFlat < 0.01, eFlat);
-  ok('striped panel: edges > 10x flat', eStripe > 10 * Math.max(eFlat, 1e-4), eStripe);
-
-  console.log(fail.length ? `\nSELFTEST FAILED: ${fail.join(', ')}` : '\nSELFTEST OK');
-  return fail.length === 0;
-}
+export { wheelMetrics, flankMetrics, edgeMetrics, hubMetrics, noseMetrics, overlay };
 
 if (ARGS.includes('--selftest')) process.exit(selftest() ? 0 : 1);
 
@@ -443,6 +130,10 @@ if (ARGS.includes('--report')) {
     row('rimCoV F', A.wheelFront.rimCoV, B.wheelFront.rimCoV);
     row('rimTyre R', A.wheelRear.rimTyre, B.wheelRear.rimTyre);
     row('rimCoV R', A.wheelRear.rimCoV, B.wheelRear.rimCoV);
+    row('hubPeak F', A.hubFront && A.hubFront.hubPeak, B.hubFront && B.hubFront.hubPeak);
+    row('hubFrac F', A.hubFront && A.hubFront.hubFrac, B.hubFront && B.hubFront.hubFrac);
+    row('hubPeak R', A.hubRear && A.hubRear.hubPeak, B.hubRear && B.hubRear.hubPeak);
+    row('hubFrac R', A.hubRear && A.hubRear.hubFrac, B.hubRear && B.hubRear.hubFrac);
     row('spec', A.flank.spec, B.flank.spec);
     row('deckSpec', A.deck && A.deck.spec, B.deck && B.deck.spec);
     row('vGrad', A.flank.vGrad, B.flank.vGrad);
@@ -676,13 +367,30 @@ console.log(`front wheel ${(2 * setup.wheelFront.r).toFixed(1)} px tall, `
 if (setup.wheelRear.r < 4) {
   console.log('NOTE: a wheel under 8 px across cannot resolve a rim; treat rimCoV as indicative only.');
 }
+// AND A STRONGER WARNING THAN THAT ONE, measured in the round-2 car pass. This
+// tool frames the car from its TAIL QUARTER, one lane out, which is the honest
+// street view and is why the flank quad it samples is worth having. But it makes
+// the wheel 38 px tall and EIGHT PIXELS WIDE, and at that width the d >= 0.80
+// annulus wheelMetrics calls "tyre" is mostly road and arch. On one unchanged
+// frame that gave rimTyre 1.016 / hubFrac 0% on the front wheel and 4.354 / 92.8%
+// on the rear - the same geometry, the same material, the same light, a factor of
+// four apart. Neither number is about the rim.
+//
+// The wheel numbers both round-1 blind reviews quoted, and the real-photograph
+// baselines attached to them, come from the CORRIDOR HERO FRAME instead, where
+// the same cars are seen at a quarter angle 34x24 px and 62x52 px.
+// tools/car-frames.mjs measures there. Use this tool for the flank, the deck and
+// the edge density; use that one for wheels.
+console.log('NOTE: this framing is near-axial - see the comment above on why its '
+  + 'wheel numbers are not the ones to judge a rim by. tools/car-frames.mjs is.');
 
 // The shared 16x1 palette, found by identity (a 16-wide roughnessMap on a car
 // material) rather than by guessing at scene order. It is a singleton in
 // carbody.js, so poking it moves the player car, traffic and the parked pool at
 // once - which is the point.
 const SURF = { paint: 0, trim: 1, chrome: 2, grille: 3, headlight: 4, taillight: 5,
-  indicator: 6, plate: 7, tyre: 8, rim: 9, glassy: 10, matte: 11 };
+  indicator: 6, plate: 7, tyre: 8, rim: 9, glassy: 10, matte: 11,
+  meshCoarse: 12, rimCoarse: 13 };
 const ARMS = (process.env.CAR_ARMS ?? '').split(',').map((a) => a.trim()).filter(Boolean);
 if (ARMS.length) {
   // FIND THE PALETTE THROUGH THE CAR, NOT BY TRAVERSING THE SCENE.
@@ -734,7 +442,8 @@ for (const tod of TIMES) {
         const t = window.__palTex, d = t.image.data;
         d.set(window.__palBase);                       // every arm starts from the build's own palette
         const SU = { paint: 0, trim: 1, chrome: 2, grille: 3, headlight: 4, taillight: 5,
-          indicator: 6, plate: 7, tyre: 8, rim: 9, glassy: 10, matte: 11 };
+          indicator: 6, plate: 7, tyre: 8, rim: 9, glassy: 10, matte: 11,
+          meshCoarse: 12, rimCoarse: 13 };
         const out = [];
         if (spec !== 'base') {
           for (const part of spec.split('+')) {
@@ -777,6 +486,15 @@ for (const tod of TIMES) {
         setup.wheelFront.up, setup.wheelFront.fore),
       wheelRear: wheelMetrics(png, setup.wheelRear.cx, setup.wheelRear.cy,
         setup.wheelRear.up, setup.wheelRear.fore),
+      // hubPeak/hubFrac beside rimTyre, never instead of it. rimTyre averages
+      // "a bright face over most of the core" and "a dark face with one hot dot"
+      // into the same number, and round 1 shipped the second believing it had
+      // built the first. These are the only wheel numbers here with real
+      // photograph baselines: Mustang 1.67 / 28.6%, parked SUV 1.60 / 7.9%.
+      hubFront: hubMetrics(png, setup.wheelFront.cx, setup.wheelFront.cy,
+        setup.wheelFront.up, setup.wheelFront.fore),
+      hubRear: hubMetrics(png, setup.wheelRear.cx, setup.wheelRear.cy,
+        setup.wheelRear.up, setup.wheelRear.fore),
       flank: flankMetrics(png, setup.flank),
       deck: flankMetrics(png, setup.deck),
       edge: edgeMetrics(png, setup.box),
@@ -790,6 +508,10 @@ for (const tod of TIMES) {
       + `rimCoV F ${String(rec.wheelFront.rimCoV).padStart(5)} R ${String(rec.wheelRear.rimCoV).padStart(5)}   `
       + `spec ${String(rec.flank.spec).padStart(5)}  vGrad ${String(rec.flank.vGrad).padStart(6)}  `
       + `deckSpec ${String(rec.deck.spec).padStart(5)}  edges ${String(rec.edge.edges).padStart(6)}`);
+    console.log(`${''.padEnd(30)} hubPeak F ${String(rec.hubFront.hubPeak).padStart(6)} `
+      + `R ${String(rec.hubRear.hubPeak).padStart(6)}   `
+      + `hubFrac F ${String(rec.hubFront.hubFrac).padStart(5)} R ${String(rec.hubRear.hubFrac).padStart(5)}   `
+      + `[photo target: peak 1.5-2.3, frac ~8%, rimTyre ~1.0]`);
   }
 }
 if (ARMS.length) await page.evaluate(() => { window.__palTex.image.data.set(window.__palBase); window.__palTex.needsUpdate = true; });
