@@ -2330,14 +2330,14 @@ export function buildingStyle(b) {
     (name === 'midOffice' && r() < 0.7);
   // A TOWER ON A COMMERCIAL STREET TRADES AT STREET LEVEL; a tower on a
   // residential street has a lobby. `b.z` is baked OSM landuse, so this is the
-  // district's own answer and not a roll: of the 32 bayTowers, 23 stand in the
-  // commercial zone and 9 do not, and those 9 keep the single recessed entrance
-  // they have always had.
+  // district's own answer and not a roll: of the 32 bayTowers, 25 stand in the
+  // commercial zone and 7 do not, and those 7 keep the single recessed entrance
+  // they have always had. Counted with tools/frontage-stats.mjs --census.
   const towerGround = name === 'bayTower' && (b.z ?? '') === 'commercial';
   // The tower base draws from its OWN stream. `r` is the building's identity and
   // every draw after this point - fabric, fire escape, BALCONIES, roof units -
   // shifts if a new draw is spliced into it. Splicing would have reshuffled the
-  // balconies of 23 towers whose upper floors this change does not touch, and a
+  // balconies of 25 towers whose upper floors this change does not touch, and a
   // before/after in which the massing moved as well as the base is one nobody
   // can read. Isolate one term at a time.
   const gr = rng(hash32('towerbase', seed));

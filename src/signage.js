@@ -1957,7 +1957,7 @@ export function signPlanFor(b, style, opts = {}) {
   }
   const plan = { tenants: [], parapet: null, edges };
   // `storefront` is the whole gate, and it is what admitted towers: buildingStyle
-  // gives a commercial-zone bayTower a shopfront for the first time, so 23 towers
+  // gives a commercial-zone bayTower a shopfront for the first time, so 25 towers
   // arrive here with tenancies, fascias, awnings and after-dark states without a
   // line changing below this one. A tower's head is lower than a shop's - 3.34 m
   // against 4.00, because bayTower's first floor sits at 4.06 and a 4.00 m head
