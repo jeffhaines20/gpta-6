@@ -348,7 +348,7 @@ export const RECIPES = {
     // 10.6 m, against retailStrip's 7.6: a tower's structural bay is wider than
     // a platted 1920s Main Street shopfront and the tenancies under one are
     // fewer and bigger. Used ONLY by the ground pass - see `groundLots`.
-    groundM: 10.6,
+    groundM: 12.5,
     rhythm: [1.2, 0.85, 1, 1, 0.85, 1.2],
     wall: { h: 38, s: 10, l: 84 },
     trimHue: 36,
@@ -2360,7 +2360,15 @@ export function buildingStyle(b) {
     ? { head: towerGround
           ? Math.max(2.9, Math.min(4.0, h - 0.8, headCapFor(rec, h)))
           : Math.min(4.0, h - 0.8),
-        depth: 0.55 + (commercialGround ? r() : gr()) * 0.35, bulkhead: 0.42 }
+        depth: 0.55 + (commercialGround ? r() : gr()) * 0.35, bulkhead: 0.42,
+        // A TOWER'S GROUND FLOOR IS GLAZED IN BIG PANES, not in 3.2 m shop bays.
+        // 07-1777-Main-Street's base is one recessed storey of wide panels
+        // between wide piers, and 08-1819-Main-Street's is a single glazed wall
+        // under a canopy - neither is a row of 3.2 m display windows. So the
+        // tower takes its own bay module. It is also where a third of this
+        // change's triangles were: storefront() emits per BAY, and the bay count
+        // over 1,596 m of tower frontage does not care how the tenancies are cut.
+        ...(towerGround ? { bayM: 4.8 } : {}) }
     : null;
   // Hoisted out of the literal below so `groundLots` can be stated against it.
   const lots = !!rec.lotM && h <= 22;
@@ -2466,6 +2474,13 @@ export const LOT = {
   max: 11.5,         // wider than this and the row stops reading as a row
   minEdge: 13.0,     // an edge shorter than this is already one shopfront
   jitter: 0.30,      // boundary wander, as a fraction of the nominal lot width
+  // A GROUND tenancy under a tower is not a platted 1920s shopfront and does not
+  // cap at the same width. A tower's structural bay is 9-10 m and a tenancy
+  // under one spans one or two of them; 11.5 m forced #76's 79.9 m elevation
+  // into eight units where six is the honest number. It is also the single
+  // biggest lever on what this costs: every boundary buys a pier, a fascia, a
+  // sign, and a piece of shopfront furniture, so tenancy COUNT is the price.
+  groundMax: 13.5,
 };
 
 /**
@@ -2604,7 +2619,8 @@ export function lotPlanFor(ring, style, height, fronts) {
 
   for (const e of fronts) {
     if (e.len < LOT.minEdge) continue;
-    const cuts = lotCuts(e.len, hash32('lot', style.seed, e.i), { m: lotM });
+    const cuts = lotCuts(e.len, hash32('lot', style.seed, e.i),
+      ground ? { m: lotM, max: LOT.groundMax } : { m: lotM });
     if (cuts.length < 2) continue;
     const r = rng(hash32('lotstyle', style.seed, e.i));
     const lots = [];
@@ -2706,7 +2722,9 @@ export function lotPlanFor(ring, style, height, fronts) {
         head = Math.max(2.9, Math.min(Math.min(4.6, height - 0.7, headCap), shop.head + hstep));
         prevHead = hstep;
         depth = 0.42 + r() * 0.46;
-        const bays = storefrontBays(len);
+        // MUST use the same module storefront() will, or the door lands where
+        // there is no bay to put it in.
+        const bays = storefrontBays(len, shop);
         if (bays.length) {
           const bi = r() < 0.72 ? (r() < 0.5 ? 0 : bays.length - 1) : ((r() * bays.length) | 0);
           const [b0, b1] = bays[bi];
@@ -4422,7 +4440,9 @@ export function appendBuilding(ring, height, style, wall, trim, opts = {}) {
       p.groundOnly = true;
       const gaps = [];
       for (const L of lp.lots) {
-        L.ground = { top: L.head, gaps: storefrontBays(L.len) };
+        // storefront() below is handed `...style.storefront`, so the bay module
+        // is whatever that object carries; the wall must be cut on the same one.
+        L.ground = { top: L.head, gaps: storefrontBays(L.len, style.storefront) };
         for (const [a, b] of L.ground.gaps) gaps.push([L.s0 + a, L.s0 + b]);
       }
       // Every head on a ground plan is the same by construction (lotPlanFor
@@ -4432,7 +4452,7 @@ export function appendBuilding(ring, height, style, wall, trim, opts = {}) {
     }
     for (const L of lp.lots) {
       if (style.storefront && streetSet.has(i)) {
-        L.ground = { top: L.head, gaps: storefrontBays(L.len) };
+        L.ground = { top: L.head, gaps: storefrontBays(L.len, style.storefront) };
       } else if (L.entrance) {
         const ops = openingsAlong(rec, L.len, { u0: L.u0, margin: 0.34 });
         const top = rec.floorM * (1 - rec.win.top);
@@ -4447,7 +4467,7 @@ export function appendBuilding(ring, height, style, wall, trim, opts = {}) {
   if (style.storefront) {
     for (const e of streetEdges) {
       const p = plan.get(e.i) ?? {};
-      if (!p.lots) p.ground = { top: style.storefront.head, gaps: storefrontBays(e.len) };
+      if (!p.lots) p.ground = { top: style.storefront.head, gaps: storefrontBays(e.len, style.storefront) };
       plan.set(e.i, p);
     }
   }
