@@ -20,7 +20,7 @@ import { chromium } from 'playwright';
 import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
 import fs from 'node:fs';
-import { streetDirFor as geomStreetDirFor } from '../src/geom.js';
+import { streetDirFor as geomStreetDirFor, streetDirsFor as geomStreetDirsFor } from '../src/geom.js';
 
 if (typeof document === 'undefined') {
   const grad = { addColorStop() {} };
@@ -54,7 +54,9 @@ const TAG = arg('tag', process.env.LOT_TAG ?? 'lot');
 const TIMES = arg('times', 'noon,golden').split(',');
 const SPAN = Number(arg('span', 26));           // metres of frontage to frame
 const STANDOFF = Number(arg('standoff', 18));   // metres out from the wall
-const IDS = arg('b', '18,29,49').split(',').map(Number);
+// `76` frames the primary frontage; `76:1` frames ring edge 1 of the same
+// building. See frameFor().
+const IDS = arg('b', '18,29,49').split(',');
 // Pedestrian population. The crowd is instanced and its size varies run to run
 // (74-96 alive at the same camera on the same commit), which moves the reported
 // triangle count by more than this whole change costs - so a triangle A/B has to
@@ -72,13 +74,27 @@ const keyOf = (x, z) => `${Math.floor(x / CHUNK)},${Math.floor(z / CHUNK)}`;
 const streetDirFor = (b) => geomStreetDirFor(d, b);
 
 // Where to stand and where to point, derived from the footprint alone.
-function frameFor(bi) {
+//
+// `--edge N` frames a NAMED ring edge instead of the primary frontage. It exists
+// because the elevation a critic complains about is not always the elevation the
+// frontage code picked: building #76's 123.2 m south wall faces the Five Points
+// junction and has a 2.8 m SERVICE alley 2.4 m off its face, so streetDirsFor
+// (rightly) fronts the building on its two tertiary streets instead and this
+// tool framed a wall nobody was complaining about. An edge index is not a
+// frontage claim - it is a way to photograph a specific piece of wall.
+function frameFor(spec) {
+  const [bi, forceEdge] = String(spec).split(':');
+  return frameOf(Number(bi), forceEdge === undefined ? null : Number(forceEdge));
+}
+
+function frameOf(bi, forceEdge) {
   const b = d.buildings[bi];
   const street = streetDirFor(b);
   const fronts = street
     ? facingEdges(b.p, street[0], street[1], { minLen: 4, max: 2 })
     : edgesOf(b.p, { minLen: 4, longest: 2 });
-  const e = fronts[0];
+  const e = forceEdge === null ? fronts[0]
+    : edgesOf(b.p, { minLen: 0.05 }).find((x) => x.i === forceEdge);
   if (!e) return null;
   const style = buildingStyle(b);
   const h = b.h ?? 6;
@@ -93,15 +109,32 @@ function frameFor(bi) {
   const ax = e.a[0] + e.tx * s, az = e.a[1] + e.tz * s;
   const eye = 1.75;
   const vfov = (2 * Math.atan(Math.tan((hfov * Math.PI) / 360) / ASPECT) * 180) / Math.PI;
+  // The lot report is asked of the edges the ENGINE plans, which is the UNION
+  // over every street direction (appendBuilding's `streetEdges`), not the cone
+  // around the primary alone. The camera above is left on `fronts[0]` so every
+  // frame this tool has ever taken is still the same frame; only the numbers
+  // printed beside it are corrected. On a corner site the two differ.
+  const engineEdges = (() => {
+    const dirs = geomStreetDirsFor(d, b, 2);
+    if (!dirs.length) return edgesOf(b.p, { minLen: 4, longest: 2 });
+    const seen = new Map();
+    for (const dir of dirs) {
+      for (const x of facingEdges(b.p, dir[0], dir[1], { minLen: 4, max: 2 })) {
+        if (!seen.has(x.i)) seen.set(x.i, x);
+      }
+    }
+    return [...seen.values()].sort((p, q) => q.len - p.len).slice(0, dirs.length > 1 ? 3 : 2);
+  })();
   return {
     bi, edge: e.i, len: +e.len.toFixed(1), recipe: style.recipe, h,
     span: SPAN, standoff: +standoff.toFixed(1), hfov: +hfov.toFixed(1),
+    street: engineEdges.some((x) => x.i === e.i),
     cam: [ax + e.nx * standoff, eye, az + e.nz * standoff],
     // Aim a little above the shopfront so the ground floor and the parapet are
     // both in frame on a two- to three-storey block.
     tgt: [ax, Math.min(h * 0.55, 6.5), az],
     fov: vfov,
-    lots: (FAC.lotPlanFor ? (FAC.lotPlanFor(b.p, style, h, fronts).get(e.i)?.lots ?? []) : [])
+    lots: (FAC.lotPlanFor ? (FAC.lotPlanFor(b.p, style, h, engineEdges).get(e.i)?.lots ?? []) : [])
       .filter((L) => L.s1 > s - SPAN / 2 && L.s0 < s + SPAN / 2)
       .map((L) => ({ s0: +L.s0.toFixed(1), w: +L.len.toFixed(1), par: +L.parapetH.toFixed(2),
         head: L.head ? +L.head.toFixed(2) : null, door: !!L.doorSpan, awn: !!L.awning })),
@@ -118,7 +151,8 @@ if (has('hero')) {
   });
 }
 for (const f of frames) {
-  console.log(`#${f.bi} ${f.recipe} h ${f.h}  edge ${f.edge} ${f.len} m  ` +
+  console.log(`#${f.bi} ${f.recipe} h ${f.h}  edge ${f.edge} ${f.len} m` +
+    `${f.street === false ? ' (NOT a street edge: the kit builds no frontage here)' : ''}  ` +
     `camera (${f.cam[0].toFixed(1)}, ${f.cam[2].toFixed(1)}) at ${f.standoff} m, ` +
     `${f.span} m of frontage at ${f.hfov} deg, ${f.lots.length} lot(s) in frame`);
   if (f.lots.length) {
@@ -138,7 +172,14 @@ const page = await browser.newPage({ viewport: { width: W, height: H } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 await page.goto(`http://127.0.0.1:${LOT_PORT}/district/`, { waitUntil: 'networkidle' });
-await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
+// LOT_BOOT: the district has to render five frames before anything can be
+// framed, and headless SwiftShader does that in well under 1 fps. 60 s is
+// enough on an idle box and is NOT enough when other agents are running their
+// own headless browsers on the same machine - this timed out at 60 s with two
+// other worktrees' servers alive. Raise it rather than reading the timeout as
+// a broken build.
+await page.waitForFunction('window.__district && window.__district.frames > 5', null,
+  { timeout: Number(process.env.LOT_BOOT ?? 60000) });
 await page.addStyleTag({ content: '#attr{display:none!important}#hud,.pv-hud{display:none!important}' });
 if (PEDS >= 0) {
   await page.evaluate((n) => __district.setPedestrians(n), PEDS);
@@ -159,7 +200,7 @@ for (const f of frames) {
   for (const tod of TIMES) {
     await page.evaluate((t) => __district.setTimeOfDay(t), tod);
     await page.waitForTimeout(12000);
-    const file = `${OUT}/${TAG}-elev${f.bi}-${tod}.png`;
+    const file = `${OUT}/${TAG}-elev${f.bi}e${f.edge}-${tod}.png`;
     await page.screenshot({ path: file, timeout: 180000 });
     const a = await page.evaluate(() => {
       const r = __district.renderStats(); const w = __district.worldReport();
