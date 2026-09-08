@@ -1,0 +1,8 @@
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+page.evaluate: Target page, context or browser has been closed
+    at /home/user/gpta-6/.claude/worktrees/agent-aed05b75f4c084cf1/tools/drive-through.mjs:42:30
+
+Node.js v22.22.2
