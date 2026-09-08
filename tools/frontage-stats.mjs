@@ -331,6 +331,56 @@ for (const f of band.footprints.sort((a, b2) => b2.edges[0]?.len - a.edges[0]?.l
     f.edges.map((e) => `${e.len} m -> ${e.lots} ${e.kind === 'ground' ? 'tenanc' + (e.lots === 1 ? 'y' : 'ies') : 'lot' + (e.lots === 1 ? '' : 's')}`).join(', '));
 }
 
+// --------------------------------------------------------------------- plans
+//
+//   node tools/frontage-stats.mjs --plans before.json     (on the old tree)
+//   node tools/frontage-stats.mjs --plans after.json      (on the new one)
+//   diff <(jq -S . before.json) <(jq -S . after.json)
+//
+// Every lot plan the kit will build, every field, as a digest one tree's worth
+// of arithmetic can be diffed against another's. It exists because "this change
+// touches nothing else" is the easiest claim in this repo to make and the
+// hardest to notice being wrong.
+//
+// It has already caught one: the tower ground floor shipped with a shopfront
+// head cap applied to EVERY recipe, which moved 23 of the 241 existing property
+// lot plans - midOffice heads from 4.36 m to 4.25 - under a commit whose message
+// said no property-lotted frontage moved. Triangle counts did not move, the
+// selftest passed, the captures looked right, and the frontage counts were
+// identical; only a field-by-field digest showed it. With the cap gated on the
+// case that needs it the digest reads 241 identical, 0 changed, 44 added.
+if (process.argv.includes('--plans')) {
+  const out = {};
+  for (let bi = 0; bi < d.buildings.length; bi++) {
+    const b = d.buildings[bi];
+    const style = capStyle(buildingStyle(b), b);
+    for (const [ei, lp] of FAC.lotPlanFor(b.p, style, b.h ?? 6, streetEdgesOf(d, b))) {
+      out[`${bi}:${ei}`] = {
+        ground: !!lp.ground,
+        // Every field a consumer reads off a lot. A field left out of this list
+        // is a field a change can move without this tool noticing.
+        lots: lp.lots.map((L) => [
+          +L.s0.toFixed(4), +L.len.toFixed(4), L.tint.map((v) => +v.toFixed(5)).join(','),
+          +L.parapetH.toFixed(4), L.head === null ? null : +L.head.toFixed(4),
+          L.depth === null ? null : +L.depth.toFixed(4),
+          L.doorSpan ? L.doorSpan.map((v) => +v.toFixed(3)).join(',') : null,
+          L.fasciaY ? L.fasciaY.map((v) => +v.toFixed(4)).join(',') : null,
+          L.fasciaTint.map((v) => +v.toFixed(5)).join(','),
+          L.awning ? 1 : 0, L.litState, L.entrance ? 1 : 0,
+          L.u0 === undefined ? null : +L.u0.toFixed(4),
+        ]),
+      };
+    }
+  }
+  const file = arg('plans', 'docs/lot-plans.json');
+  fs.writeFileSync(file, JSON.stringify(out, null, 1));
+  const n = Object.keys(out).length;
+  let g = 0;
+  for (const k of Object.keys(out)) if (out[k].ground) g++;
+  console.log(`wrote ${file}: ${n} lot plans (${g} ground-only, ${n - g} property)`);
+  process.exit(0);
+}
+
 // -------------------------------------------------------------------- census
 //
 //   node tools/frontage-stats.mjs --census

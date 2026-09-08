@@ -29,7 +29,14 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 await page.goto(`http://127.0.0.1:${PORT}/district/`, { waitUntil: 'networkidle' });
-await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
+// The district has to render five frames before anything can be measured, and
+// headless SwiftShader does that in well under 1 fps. 60 s is enough on an idle
+// box and is NOT enough with other agents' headless browsers alive on the same
+// machine - both of these timed out at 60 s in this session while a capture was
+// running. A boot timeout is not a failing gate; raise it rather than reading it
+// as one. Same knob as LOT_BOOT in tools/lot-shots.mjs.
+await page.waitForFunction('window.__district && window.__district.frames > 5', null,
+  { timeout: Number(process.env.TB_BOOT ?? 60000) });
 await page.waitForTimeout(Number(process.env.TB_SETTLE ?? 20000));
 
 // WHAT ACTUALLY GOT DRAWN, not what I calculate should have been.

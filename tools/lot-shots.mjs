@@ -73,6 +73,36 @@ const keyOf = (x, z) => `${Math.floor(x / CHUNK)},${Math.floor(z / CHUNK)}`;
 // have gone on measuring a world nobody renders.
 const streetDirFor = (b) => geomStreetDirFor(d, b);
 
+// How much room the camera has. hero-shots refuses to place a camera inside a
+// building and prints its clearance; this tool derived its camera from the
+// subject's footprint alone and never asked, which cost a frame in this round:
+// #76 edge 0 at 22 m standoff lands INSIDE building #71, and after #71 got a
+// ground-floor shopfront the three pale slabs a metre from the lens were its
+// party piers. The before arm looked clean only because there had been nothing
+// there to stand inside.
+//
+// It REPORTS rather than moves. Moving the camera would silently break
+// comparability with every frame this tool has already taken; a line saying the
+// frame is unusable is worth more than a different frame that looks fine.
+function clearanceAt(x, z) {
+  let best = Infinity, insideOf = null;
+  for (let i = 0; i < d.buildings.length; i++) {
+    const ring = d.buildings[i].p;
+    let inside = false, near = Infinity;
+    for (let a = 0, b = ring.length - 1; a < ring.length; b = a++) {
+      const [xi, zi] = ring[a], [xj, zj] = ring[b];
+      if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+      // distance to this edge
+      const dx = xj - xi, dz = zj - zi, L2 = dx * dx + dz * dz;
+      const t = L2 > 0 ? Math.max(0, Math.min(1, ((x - xi) * dx + (z - zi) * dz) / L2)) : 0;
+      near = Math.min(near, Math.hypot(x - (xi + dx * t), z - (zi + dz * t)));
+    }
+    if (inside) { insideOf = i; best = 0; }
+    else if (near < best) best = near;
+  }
+  return { clear: best, insideOf };
+}
+
 // Where to stand and where to point, derived from the footprint alone.
 //
 // `--edge N` frames a NAMED ring edge instead of the primary frontage. It exists
@@ -129,6 +159,7 @@ function frameOf(bi, forceEdge) {
     bi, edge: e.i, len: +e.len.toFixed(1), recipe: style.recipe, h,
     span: SPAN, standoff: +standoff.toFixed(1), hfov: +hfov.toFixed(1),
     street: engineEdges.some((x) => x.i === e.i),
+    clear: clearanceAt(ax + e.nx * standoff, az + e.nz * standoff),
     cam: [ax + e.nx * standoff, eye, az + e.nz * standoff],
     // Aim a little above the shopfront so the ground floor and the parapet are
     // both in frame on a two- to three-storey block.
@@ -161,6 +192,12 @@ for (const f of frames) {
     `${f.street === false ? ' (NOT a street edge: the kit builds no frontage here)' : ''}  ` +
     `camera (${f.cam[0].toFixed(1)}, ${f.cam[2].toFixed(1)}) at ${f.standoff} m, ` +
     `${f.span} m of frontage at ${f.hfov} deg, ${f.lots.length} lot(s) in frame`);
+  if (f.clear) {
+    console.log(f.clear.insideOf !== null
+      ? `    CAMERA IS INSIDE BUILDING #${f.clear.insideOf} - this frame photographs that building's`
+        + ' near geometry, not the subject. Reframe with --standoff or --s before comparing arms.'
+      : `    camera ${f.clear.clear.toFixed(1)} m clear of the nearest footprint`);
+  }
   if (f.lots.length) {
     console.log(`    widths ${f.lots.map((L) => L.w).join(' ')}`);
     console.log(`    parapet ${f.lots.map((L) => L.par).join(' ')}`);

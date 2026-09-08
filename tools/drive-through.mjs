@@ -37,7 +37,14 @@ page.on('console', (m) => { if (m.type() === 'error' && !/favicon/.test(m.text()
 // before/after would have charged that to the furniture.
 const DRIVE_QUERY = process.env.DRIVE_QUERY ? `?${process.env.DRIVE_QUERY}` : '';
 await page.goto(`http://127.0.0.1:${DRIVE_PORT}/district/${DRIVE_QUERY}`, { waitUntil: 'networkidle' });
-await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
+// The district has to render five frames before anything can be measured, and
+// headless SwiftShader does that in well under 1 fps. 60 s is enough on an idle
+// box and is NOT enough with other agents' headless browsers alive on the same
+// machine - both of these timed out at 60 s in this session while a capture was
+// running. A boot timeout is not a failing gate; raise it rather than reading it
+// as one. Same knob as LOT_BOOT in tools/lot-shots.mjs.
+await page.waitForFunction('window.__district && window.__district.frames > 5', null,
+  { timeout: Number(process.env.DRIVE_BOOT ?? 60000) });
 
 if (WITH_TRAFFIC) await page.evaluate(() => __district.setTraffic(true));
 

@@ -2345,8 +2345,21 @@ export function buildingStyle(b) {
   // tintOf consumes from `r` first, exactly as it did when the storefront was
   // built inline in the object literal below.
   const tint = tintOf(rec, r);
+  // headCapFor is applied to the TOWER case only, and I got that wrong once:
+  // capping every recipe moved 40-odd midOffice lots' heads from 4.36 to 4.25 m
+  // - a real 11 cm change to buildings this round is not about, riding along
+  // unmeasured under a commit that claimed it was a no-op. The cap reserves the
+  // fascia's full 0.58 depth, and midOffice's first qualifying band bottom is
+  // 4.968, so its cap is 4.248 and the stepped head can reach 4.36. It was never
+  // the no-op I asserted; tools/lot-shots.mjs --report printed 4.25 where the
+  // committed number was 4.36 and that is how it was caught. Loosening the cap
+  // to bb - 0.34 would clear midOffice but leaves a bayTower fascia 0.20 m deep,
+  // under the 0.24 m signage.js needs to letter it, so the shops would lose
+  // their names. Gating on the case that needs it is the honest fix.
   const shop = (commercialGround || towerGround) && h > 4.2
-    ? { head: Math.max(2.9, Math.min(4.0, h - 0.8, headCapFor(rec, h))),
+    ? { head: towerGround
+          ? Math.max(2.9, Math.min(4.0, h - 0.8, headCapFor(rec, h)))
+          : Math.min(4.0, h - 0.8),
         depth: 0.55 + (commercialGround ? r() : gr()) * 0.35, bulkhead: 0.42 }
     : null;
   // Hoisted out of the literal below so `groundLots` can be stated against it.
@@ -2580,12 +2593,14 @@ export function lotPlanFor(ring, style, height, fronts) {
   // is why the reference photograph shows three tenancies in 24.5 m of a block
   // this kit had drawn as one 181 m wall.
   const lotM = ground ? (rec.groundM ?? rec.lotM) : rec.lotM * (height <= 12 ? 0.88 : 1);
-  // See headCapFor. buildingStyle already caps `shop.head`; this caps the value
-  // AFTER the per-lot step, which can add 0.36. It is a no-op on every
-  // property-lotted recipe in the district - the cap is 4.51 m on retailStrip,
-  // 4.41 on deco and 4.25 on midOffice against a maximum stepped head of 4.36 -
-  // and it binds on bayTower, at 3.34.
-  const headCap = headCapFor(rec, height);
+  // See headCapFor. buildingStyle already caps `shop.head` on a tower; this caps
+  // the value AFTER the per-lot step, which can add 0.36. GROUND-ONLY, for the
+  // reason spelled out at that call: the cap reserves a full-depth fascia, and
+  // midOffice's cap of 4.25 m sits UNDER its maximum stepped head of 4.36, so
+  // applying it everywhere silently reheads every tall midOffice lot in the
+  // district. A ground-only frontage takes no step at all, so the two caps agree
+  // there and this line is belt and braces.
+  const headCap = ground ? headCapFor(rec, height) : Infinity;
 
   for (const e of fronts) {
     if (e.len < LOT.minEdge) continue;
