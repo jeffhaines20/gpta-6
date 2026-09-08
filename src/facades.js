@@ -3181,6 +3181,43 @@ export function tenancyStateCapped(run, ...parts) {
 }
 
 /**
+ * The after-dark state of every bay on an UNLOTTED frontage, in bay order.
+ *
+ * This was inline in storefront()'s bay loop and is out here for the reason
+ * build-cost.js capStyle() is: signage.js has to know which shop is lit before
+ * it can spill light onto the pavement in front of it or onto the soffit of its
+ * awning, and a second hand-copy of this rule is two answers the moment either
+ * is edited. tools/awning-overlap.mjs's header already names that failure - "a
+ * second copy of `r() < 0.42` is the thing most likely to drift". The LOTTED
+ * case needs nothing like this: the lot object carries `litState` and both kits
+ * read the one field.
+ *
+ * The rule itself is unchanged. Bays are grouped in PAIRS - retailStrip's lotM
+ * is 7.6 m against a 3.2 m bay, so a pair is about one tenancy - and each pair
+ * decides for itself off the building seed, the edge index and the pair index,
+ * with MAX_DARK_RUN applied along the edge. `lastPair` exists because a pair is
+ * decided ONCE and then reused by its second bay: without it the same pair would
+ * be rolled twice and would advance darkRun twice, capping at 1 instead of 2.
+ *
+ * @param {Object} e     the edge; only e.i is read
+ * @param {number} nBays storefrontBays(e.len, style.storefront).length
+ * @param {number} seed  buildingStyle seed, as storefront() is handed it
+ * @returns {number[]}   TRIM_DARK / TRIM_DIM / TRIM_LIT, one per bay
+ */
+export function impliedBayStates(e, nBays, seed = 0) {
+  const out = new Array(nBays);
+  let darkRun = 0, lastPair = -1, pairState = TRIM_NONE;
+  for (let bi = 0; bi < nBays; bi++) {
+    if (bi >> 1 === lastPair) { out[bi] = pairState; continue; }
+    const capped = tenancyStateCapped(darkRun, seed, e.i, bi >> 1);
+    darkRun = capped.run;
+    lastPair = bi >> 1; pairState = capped.state;
+    out[bi] = capped.state;
+  }
+  return out;
+}
+
+/**
  * The street door for an IMPLIED tenancy, on a frontage with no lot plan.
  *
  * A lotted frontage gets its door from the lot planner, which hands storefront()
@@ -3260,31 +3297,17 @@ export function storefront(ring, pos, nrm, uv, idx, opts = {}) {
     const back = (p, d) => [p[0] - e.nx * d, p[1] - e.nz * d];
 
     const bays = storefrontBays(e.len, opts);
-    // The implied-tenancy state for an unlotted frontage, and the run cap along
-    // it. `lastPair` exists because the pair is decided ONCE and then reused by
-    // its second bay: without it the same pair would be rolled twice and would
-    // advance darkRun twice, which caps at 1 instead of 2.
-    let darkRun = 0, lastPair = -1, pairState = TRIM_NONE;
+    // A LOTTED frontage is one tenancy and lights as one - opts.state is the lot
+    // planner's decision for it, and every bay of that shop agrees, because a
+    // shop with the lights on in half its window is not a thing. An UNLOTTED
+    // frontage has no tenancy structure to inherit and implies one per PAIR of
+    // bays; that loop is now impliedBayStates(), so signage.js can ask for the
+    // same answer rather than keeping a second copy of it. See there.
+    const implied = opts.state === undefined
+      ? impliedBayStates(e, bays.length, opts.seed ?? 0) : null;
     for (let bi = 0; bi < bays.length; bi++) {
       const [s0, s1] = bays[bi];
-      // A LOTTED frontage is one tenancy and lights as one - opts.state is the lot
-      // planner's decision for it, and every bay of that shop agrees, because a
-      // shop with the lights on in half its window is not a thing.
-      //
-      // An UNLOTTED frontage has no tenancy structure to inherit, so one is
-      // implied here at the same scale the lot planner works at: retailStrip's
-      // lotM is 7.6 m against a 3.2 m bay, so bays are grouped in pairs and each
-      // pair decides for itself. Without this the whole-edge shopfronts - the
-      // frontages too short to cut into lots - would be uniformly lit or
-      // uniformly dark down their entire length.
-      let st;
-      if (opts.state !== undefined) st = opts.state;
-      else if (bi >> 1 === lastPair) st = pairState;
-      else {
-        const capped = tenancyStateCapped(darkRun, opts.seed ?? 0, e.i, bi >> 1);
-        st = capped.state; darkRun = capped.run;
-        lastPair = bi >> 1; pairState = st;
-      }
+      const st = implied ? implied[bi] : opts.state;
       const glass = glassC[st], bulkC = bulkCs[st], jambC = jambCs[st];
       const o0 = P(s0), o1 = P(s1);            // opening edges at the wall line
       const g0 = back(o0, depth), g1 = back(o1, depth);

@@ -90,6 +90,12 @@ docs/shots/glazing-after-*.png
 # whitebox-repeat.mjs's capture set: N full frames per run, 1.9 MB each, and the
 # finding is in docs/whitebox-repeat-*.json rather than in any one of them.
 docs/shots/repeat/
+# Night-spill A/B frames: six per camera per page load at 1.4 MB, regenerable
+# from tools/shop-spill.mjs, and what the round is read from is the JSON beside
+# them (docs/shop-spill-*.json), which IS tracked. Same policy as the oak bench,
+# the glazing heroes and the canopy A/B sets above.
+docs/shots/shop-spill/
+
 .serve-sentinel
 
 # Subagent worktrees. The agent system checks out a full copy of the repo per
