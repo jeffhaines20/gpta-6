@@ -58,6 +58,9 @@ if (typeof document === 'undefined') {
 if (typeof performance === 'undefined') globalThis.performance = { now: () => Date.now() };
 
 const FAC = await import('../src/facades.js');
+// Imported here rather than lazily inside the triangle section, because
+// --selftest asserts facades and signage agree and needs both.
+const SIGN = await import('../src/signage.js');
 const {
   buildingStyle, buffers, appendBuilding, edgesOf, facingEdges,
 } = FAC;
@@ -220,6 +223,31 @@ function selftest() {
     }
   }
   ok(`every lot plan tiles its edge (${tiled} planned edges)`, !badTile, badTile ?? '');
+
+  // 4. THE TWO EDGE SELECTIONS AGREE. facades.js appendBuilding and signage.js
+  //    signPlanFor each carry their own copy of the union-over-street-directions
+  //    rule and neither imports the other. Last time one moved and the other did
+  //    not, the Five Points corner building came out with shopfront bays and no
+  //    awning over them, and it took two blind reviewers to find it. This asks
+  //    signPlanFor for the edges it actually used - it returns them - and
+  //    compares against the set appendBuilding builds on, over every shopfront
+  //    building in the district.
+  let checked = 0, badPair = null;
+  for (let bi = 0; bi < d.buildings.length && !badPair; bi++) {
+    const b = d.buildings[bi];
+    const style = capStyle(buildingStyle(b), b);
+    if (!style.storefront) continue;
+    const built = streetEdgesOf(d, b).map((e) => e.i).sort((x, y) => x - y);
+    const signed = SIGN.signPlanFor(b, style,
+      { street: streetDirFor(b), streets: geomStreetDirsFor(d, b, 2) })
+      .edges.map((e) => e.i).sort((x, y) => x - y);
+    if (built.join(',') !== signed.join(',')) {
+      badPair = `#${bi} ${style.recipe}: facades builds [${built}], signage signs [${signed}]`;
+    }
+    checked++;
+  }
+  ok(`facades and signage select the same elevations (${checked} shopfront buildings)`,
+    !badPair, badPair ?? '');
   ok(`ground-only edges keep one colour, one parapet, one head (${groundEdges} of them)`,
     !badGround, badGround ?? `${lotEdges} property-lotted edges also present`);
   // A ground subdivision that never happens cannot fail assertion 3, so say so
@@ -447,8 +475,7 @@ console.log(`  5x5 NEAR window at the hero   : ${heroWin.toFixed(0)}`);
 // Shop signage rides the same lot plan, so it is priced here too.
 let sig = null;
 try {
-  const SIG = await import('../src/signage.js');
-  const r = SIG.districtSignageBuffers(d, {
+  const r = SIGN.districtSignageBuffers(d, {
     styleOf: (b) => capStyle(buildingStyle(b), b),
     streetDirFor,
   });

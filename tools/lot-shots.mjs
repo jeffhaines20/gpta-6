@@ -132,7 +132,13 @@ function frameOf(bi, forceEdge) {
     cam: [ax + e.nx * standoff, eye, az + e.nz * standoff],
     // Aim a little above the shopfront so the ground floor and the parapet are
     // both in frame on a two- to three-storey block.
-    tgt: [ax, Math.min(h * 0.55, 6.5), az],
+    //
+    // `--tgty` overrides it, and a TOWER needs it. h * 0.55 capped at 6.5 m puts
+    // the frame centre 6.5 m up on anything over 11.8 m tall, which on a 35 m
+    // tower means five storeys of repeating window band and a ground floor in
+    // the last few rows of pixels - the wrong picture for judging a ground
+    // floor. `--tgty 3.5 --span 40 --standoff 22` is the tower framing.
+    tgt: [ax, Number(arg('tgty', Math.min(h * 0.55, 6.5))), az],
     fov: vfov,
     lots: (FAC.lotPlanFor ? (FAC.lotPlanFor(b.p, style, h, engineEdges).get(e.i)?.lots ?? []) : [])
       .filter((L) => L.s1 > s - SPAN / 2 && L.s0 < s + SPAN / 2)
