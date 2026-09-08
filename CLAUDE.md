@@ -76,7 +76,30 @@ less than one that says what moved and by how much.
   *unchanged* configuration. It cannot resolve a 1,000-triangle margin against
   the 830,000 warn. Price changes with a deterministic offline count
   (`tools/frontage-stats.mjs`, `tools/tri-breakdown.mjs`).
-- **The budget gate's triangle "p95" is the 3rd-highest of 51 frames.** The drive
+- **The budget gate is PRECISE on a clean box and noisy only on a dirty one, and
+  the difference is the whole argument.** Three runs of identical code with no
+  browsers and no orphaned servers alive:
+
+      p95   852,605   851,671   852,605     spread    934  (0.11%)
+      p50   705,037   705,037   705,153     spread    116
+      min   562,399   562,399   562,399     spread      0
+      frames    89        89        89
+
+  A spread of 934 resolves a ~1,900-triangle change. The "~20k of run-to-run
+  noise" below was measured while other agents' browsers were alive, and it is a
+  statement about CONTENTION, not about the gate. Clean the box and the gate
+  becomes a usable instrument.
+
+  This cost a wrong conclusion. A WARN at 851,836 was explained away as sampling
+  noise on the strength of that 20k figure, with an arithmetic ledger showing the
+  round was deterministically −222 triangles. The ledger was right about the
+  DELTA and wrong about the BASELINE, and the WARN was real the whole time: the
+  tree reads 852,605 against an 830,000 warn, over by 22,605 (2.7%). **Before
+  explaining a gate reading away, clean the box and run it three times.** It
+  takes twenty minutes and it is the difference between a measurement and an
+  argument.
+- **The budget gate's triangle "p95" is the 3rd-highest of 51 frames on a LOADED
+  box (89 frames, 5th-highest, when clean).** The drive
   samples 51 times in 53.5 s — dt 1.05 s — over a quantity that swings from
   563,766 to 868,617, a range of 41% of its own p50. A near-maximum over 51
   coarse samples is not a tail statistic: which frames land in the top three
