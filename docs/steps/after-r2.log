@@ -1,0 +1,8 @@
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+page.waitForFunction: Target page, context or browser has been closed
+    at /home/user/gpta-6/.claude/worktrees/agent-aed05b75f4c084cf1/tools/chunk-steps.mjs:255:12
+
+Node.js v22.22.2

@@ -38,7 +38,7 @@ for r in $(seq 1 "$ROUNDS"); do
         const k=a.kinds.find(x=>x.kind==='append:near')||{};
         console.log('r${r} ${name}: append:near n='+k.n+' p50='+k.p50_ms+' p95='+k.p95_ms+' max='+k.max_ms+
           '  | slice p50='+a.slice_ms.p50+' p95='+a.slice_ms.p95+' max='+a.slice_ms.max+
-          '  | gate='+a.gate_worst_slice_ms+'  [load ${load} chrome ${chrome}] '+ (( $(date +%s) - t0 ))+'s');
+          '  | gate='+a.gate_worst_slice_ms+'  [load ${load} chrome ${chrome}] $(( $(date +%s) - t0 ))s');
       "
     else
       echo "r${r} ${name}: ERR rc=${rc}"

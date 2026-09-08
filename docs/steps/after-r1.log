@@ -1,0 +1,88 @@
+{
+  "slices_recorded": 158,
+  "slices_total": 1320,
+  "idle_slices": 1162,
+  "dropped_rows": 0,
+  "steps_recorded": 1536,
+  "slice_ms": {
+    "p50": 3.6,
+    "p95": 8.2,
+    "max": 24.8
+  },
+  "total_ms": {
+    "slice": 694.9,
+    "scan": 6.4,
+    "dispose": 16,
+    "step": 659.8,
+    "unattributed": 12.7
+  },
+  "share_pct": {
+    "scan": 0.9,
+    "dispose": 2.3,
+    "step": 94.9,
+    "unattributed": 1.8
+  },
+  "worst_step": {
+    "kind": "append:near",
+    "ms": 24.8,
+    "chunk": "-4,-2"
+  },
+  "gate_worst_slice_ms": 24.8,
+  "gate_worst_build_ms": 85.1,
+  "gate_worst_dispose_ms": 1.9,
+  "gate_worst_scan_ms": 1.7,
+  "ledger_vs_gate_ms": 0,
+  "laps": 0,
+  "query": "",
+  "traffic": true,
+  "errors": []
+}
+
+--- per kind (sorted by max) ---
+  append:near            n=  143  sum=   392.6  p50=    1.9  p95=    8.2  max=   24.8  @-4,-2
+  road                   n=   71  sum=    25.9  p50=    0.2  p95=    0.7  max=    7.1  @-2,-3
+  far-road               n=  189  sum=    51.6  p50=    0.1  p95=    0.6  max=    5.5  @1,3
+  kerb                   n=   71  sum=    31.3  p50=    0.1  p95=    2.5  max=    5.3  @-5,-1
+  facade:midOffice       n=   41  sum=      23  p50=    0.4  p95=    0.9  max=    4.5  @4,-2
+  trim                   n=   71  sum=    50.5  p50=    0.4  p95=    2.4  max=    4.5  @-4,-2
+  facade:bayTower        n=   19  sum=    20.9  p50=    0.6  p95=    4.1  max=    4.1  @0,-2
+  append:far             n=  198  sum=    19.3  p50=      0  p95=    0.3  max=    3.2  @-4,-3
+  facade:deco            n=   24  sum=       8  p50=    0.2  p95=    0.7  max=    2.8  @-1,0
+  facade:parking         n=    7  sum=     4.3  p50=    0.4  p95=    2.2  max=    2.2  @0,-1
+  zone-tri               n=  276  sum=    10.8  p50=      0  p95=    0.1  max=    1.9  @-4,0
+  far                    n=  189  sum=     9.9  p50=      0  p95=    0.2  max=    1.8  @0,-2
+  facade:stuccoHouse     n=    8  sum=     1.8  p50=    0.2  p95=    0.6  max=    0.6  @2,-2
+  facade:retailStrip     n=   39  sum=     5.6  p50=    0.1  p95=    0.5  max=    0.5  @0,0
+  zone:grass             n=   29  sum=     0.9  p50=      0  p95=    0.1  max=    0.2  @-5,-1
+  facade:warehouse       n=    1  sum=     0.2  p50=    0.2  p95=    0.2  max=    0.2  @3,0
+  zone:parkingLot        n=  154  sum=     3.2  p50=      0  p95=    0.1  max=    0.1  @-5,-2
+  zone:dirt              n=    4  sum=       0  p50=      0  p95=      0  max=      0  @null
+  zone:concrete          n=    2  sum=       0  p50=      0  p95=      0  max=      0  @null
+
+--- worst slices ---
+  24.8 ms  scan 0  dispose 0  steps 24.8 (1)  unattributed 0
+      append:near            24.8 ms  @-4,-2 lod0
+  20.2 ms  scan 0.5  dispose 0  steps 19.6 (2)  unattributed 0.1
+      append:near            19.4 ms  @-3,-1 lod0
+      zone:grass             0.2 ms  @-5,-1 lod1
+  13.9 ms  scan 0  dispose 0.1  steps 13.8 (2)  unattributed 0
+      append:near            13.7 ms  @-4,-2 lod0
+      zone:parkingLot        0.1 ms  @-3,-3 lod1
+  10.9 ms  scan 0  dispose 0  steps 10.9 (1)  unattributed 0
+      append:near            10.9 ms  @-4,-2 lod0
+  10.3 ms  scan 0  dispose 0  steps 10.1 (1)  unattributed 0.2
+      append:near            10.1 ms  @-4,-2 lod0
+  9.6 ms  scan 0  dispose 0.2  steps 9.2 (15)  unattributed 0.2
+      append:near            7 ms  @1,-2 lod0
+      append:near            0.5 ms  @1,-1 lod0
+      trim                   0.4 ms  @1,-1 lod0
+      facade:midOffice       0.3 ms  @1,-1 lod0
+      facade:retailStrip     0.2 ms  @1,-1 lod0
+      facade:parking         0.2 ms  @1,-1 lod0
+  8.3 ms  scan 0  dispose 0  steps 8.3 (1)  unattributed 0
+      append:near            8.3 ms  @-1,-1 lod0
+  8.2 ms  scan 0  dispose 0  steps 8.2 (2)  unattributed 0
+      append:near            8.2 ms  @0,-3 lod0
+      zone-tri               0 ms  @0,-3 lod0
+
+written docs/steps/after-r1.json

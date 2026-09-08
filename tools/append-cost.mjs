@@ -285,6 +285,15 @@ const out = {
   frontage_plural_total_ms: +sum(pluralMs).toFixed(1),   // _streetDirsFor - nothing warms this
   rollup_plural_only: rollUp(d, pluralMs, warmMs).first_build_ms,
   append_per_building_ms: +(sum(warmMs) / n).toFixed(4),
+  // Per BUILDING, not per chunk. This is the quantity that bounds a slice once
+  // the frontage search is out of it: _stepBuild always starts one more building
+  // after its deadline check passes, so the worst append step is roughly
+  // budgetMs plus the most expensive single building it can start.
+  append_per_building: (() => {
+    const q = [...warmMs].sort((a, b) => a - b);
+    return { p50: +pct(q, 0.5).toFixed(3), p95: +pct(q, 0.95).toFixed(3),
+      p99: +pct(q, 0.99).toFixed(3), max: +q[q.length - 1].toFixed(3) };
+  })(),
   ...r,
 };
 const { rows, ...head } = out;
