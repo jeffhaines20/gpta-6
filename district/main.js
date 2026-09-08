@@ -23,7 +23,7 @@ import { Sky, SKY_PRESETS } from '../src/sky.js';
 import { Weather } from '../src/weather.js';
 import {
   generateSignageLibrary, districtSignageBuffers, signMaterial, streetSignMaterial,
-  setSignageTime,
+  setSignageTime, spillMaterial, soffitMaterial, setSpillScale, setSoffitScale, spillScaleOf,
 } from '../src/signage.js';
 import { buildingStyle } from '../src/facades.js';
 import { buildPlayerCar } from '../src/carbody.js';
@@ -88,7 +88,17 @@ await loading
   })
   .add('signage', async () => {
     generateSignageLibrary({ streetNames: Object.values(district.streetNames ?? {}) });
-    const { buckets, street, stats } = districtSignageBuffers(district, {
+    // ?nospill=1 and ?nosoffit=1 build the district WITHOUT issue #45's two
+    // terms, so their TRIANGLE cost can be priced from one build on one port --
+    // the same reason ?nofrontage=1 exists, and the same four-hour review round
+    // it exists to prevent. For the LOOK, use setSpillScale/setSoffitScale
+    // instead: those turn each term off with every triangle still in the scene,
+    // which is what makes the four measurement arms one page load rather than
+    // four.
+    const _sq = new URLSearchParams(location.search);
+    const { buckets, street, spill, glow, stats } = districtSignageBuffers(district, {
+      spill: !_sq.has('nospill'),
+      soffit: !_sq.has('nosoffit'),
       styleOf: (b) => world._capStyle(buildingStyle(b), b),
       streetDirFor: (b) => world._streetDirFor(b),
       // Both, so signage selects the same elevations the facade kit built on.
@@ -117,6 +127,25 @@ await loading
     }
     const sm = meshOf(street, streetSignMaterial({ time: 'dusk' }));
     if (sm) signageRoot.add(sm);
+    // Issue #45: the pavement pools and the awning-soffit glow. One mesh each,
+    // one draw call each, and neither casts or receives a shadow -- they are not
+    // surfaces, they are light lying on one. Two meshes rather than one because
+    // the two terms carry independent runtime levels; see soffitMaterial.
+    //
+    // Neither is culled: its bounding sphere is the whole district, which is
+    // fine, because frustum culling 1,428 and 1,360 triangles saves nothing
+    // worth a per-bucket mesh set. They are in the transparent queue because
+    // depthWrite is off.
+    for (const [buf, mat, name] of [[spill, spillMaterial, 'shopSpill'],
+      [glow, soffitMaterial, 'shopSoffitGlow']]) {
+      if (!buf) continue;
+      const pm = meshOf(buf, mat({ time: 'dusk' }));
+      if (!pm) continue;
+      pm.name = name;
+      pm.castShadow = false; pm.receiveShadow = false;
+      pm.renderOrder = 1;
+      signageRoot.add(pm);
+    }
     scene.add(signageRoot);
     signageStats = stats;
   })
@@ -898,6 +927,12 @@ window.__district = {
   audioReport: () => (audio ? audio.report() : null),
   setTimeOfDay: (n) => { const r = tod.apply(n); setSignageTime(n); return r; },
   signageStats: () => signageStats,
+  // Issue #45's A/B and its level sweep, in one session rather than one build
+  // per candidate. 0 on both is the before arm with the geometry left in place,
+  // and the two are separate so each term can be isolated on its own.
+  setSpillScale: (k) => { setSpillScale(k); return spillScaleOf(); },
+  setSoffitScale: (k) => { setSoffitScale(k); return spillScaleOf(); },
+  spillScale: () => spillScaleOf(),
   // Isolation switch for the harnesses: the HUD is per-frame canvas work and a GC
   // pause it provokes lands inside whatever is running, including world.update().
   setHudEnabled: (on) => { if (hud2) { hud2.state.visible = on; hudEnabled = on; } },

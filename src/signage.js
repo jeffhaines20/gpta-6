@@ -37,6 +37,7 @@ import * as THREE from '../vendor/three.module.min.js';
 import {
   hash32, rng, seedOf, edgesOf, facingEdges, TRIM, box, awningFrame,
   AWNING_SEGS, awningProfile, lotPlanFor,
+  storefrontBays, impliedBayStates, TRIM_NONE, TRIM_DIM, TRIM_LIT,
   buildingStyle as facadeStyle,
 } from './facades.js';
 
@@ -128,6 +129,102 @@ export const SIGN_EMISSIVE = { noon: 0, golden: 430, dusk: 430, night: 7.4 };
 // return, and a sign facing a 34,470 lux sun is being lit for real. Leaving it on
 // would double-count the one hour of the cycle where the cheat is least needed.
 export const STREET_EMISSIVE = { noon: 0, golden: 0, dusk: 150, night: 1.15 };
+
+// The pavement pool a lit shopfront throws, in RADIANCE, before exposure.
+//
+// This is not an emissiveIntensity: spillMaterial is a MeshBasicMaterial, so
+// what it writes into the HDR target is colour x vertex colour x map, and the
+// composite then multiplies by the hour's exposure and runs ACES exactly as it
+// does for every other surface. So the number here is scene radiance in the same
+// units daynight.js's presets are written in, and it survives the tonemap the
+// same way the shopfront's own emissive does.
+//
+// NIGHT, and why not more. A well-exposed mid-tone at night sits near ACES input
+// 0.18, and night exposure is 1/5.378, so mid-grey is about 0.97 of radiance.
+// Lamp-lit pavement is well under that. 0.28 at the wall line puts the brightest
+// texel of the pool at 29% of a mid-tone -- a pool you can see the shape of, not
+// a second sun. The measured near/far ratio it produces is in the commit.
+//
+// DUSK IS THE SAME NUMBER, not a second decision. SIGN_EMISSIVE runs 430 at dusk
+// against 7.4 at night, a ratio of 58.1, which after the two exposures
+// (1/1947 and 1/5.378) is the same texel arriving one sixth as strong at dusk as
+// at night. Multiplying the night radiance by that same 58.1 gives a spill that
+// stands in exactly the same relation to the shop lighting at both hours, so the
+// pair cannot be right at one and wrong at the other for a reason this table
+// hides. It is written as the arithmetic rather than as 16.3 so the tie is
+// visible: change SPILL_NIGHT and dusk follows.
+//
+// NOON AND GOLDEN ARE ZERO, and that zero is the daylight PROOF, exactly as
+// TRIM_EMISSIVE's is. An additive material whose colour is black adds nothing,
+// so a lit tenancy and a dark one differ in nothing a daylight frame can sample
+// and the whole change is invisible before dusk. It is also why the mesh is
+// still submitted rather than hidden: a hidden mesh is a second state to get
+// wrong, and 1,428 triangles of black additive is 8 microseconds of fill.
+export const SPILL_NIGHT = 0.28;
+export const SPILL_EMISSIVE = {
+  noon: 0, golden: 0, dusk: SPILL_NIGHT * (430 / 7.4), night: SPILL_NIGHT,
+};
+
+// The awning soffit rides the SAME level table, and this is what it has to be
+// multiplied by to stand in the right relation to the pavement.
+//
+// THE FORM FACTOR. Both terms are E(d) for the same strip source (see
+// spillFalloff). The pavement's brightest sample is 0.65 m out from the glass;
+// the soffit's is 0.35 m out along the canopy but 2.4 m up, so what matters is
+// the slant range, about hypot(0.35, 2.4) = 2.43 m. stripE(0.65) = 0.519 against
+// stripE(2.43) = 0.130 -- but the soffit's receiver cosine is far better than the
+// pavement's, because the strip source faces the street and the soffit looks
+// along it rather than down at it. The two effects together land near 0.55: an
+// awning soffit gets about half what the pavement at the wall line gets.
+//
+// AND THEN THE TINT TAKES ANOTHER 0.65, WHICH I DOUBLE-COUNTED FIRST. The
+// pavement's vertex tint is SPILL_HUE alone, luma 0.598. The soffit's is
+// SPILL_HUE times the FABRIC's own colour, luma 0.389 -- because unlike the
+// pavement decal, the soffit glow stands in for light REFLECTED off a coloured
+// cloth and has to carry that cloth's reflectance. 0.389 / 0.598 = 0.65. Shipping
+// 0.55 on top of that put the soffit at 0.36 of the pavement, not 0.55, and it
+// measured a x1.11 lift where the arithmetic predicted more. Dividing it out:
+// 0.55 / 0.65 = 0.85.
+//
+// IT IS STILL A SMALL TERM AND THAT IS THE HONEST ANSWER, not a level to keep
+// raising until it shows. Measured, an UNLIT awning soffit at night is not black:
+// 0.0148 in linear display units against the unlit pavement's 0.0105 and the
+// sky's 0.0076. It is already lit, by the district's interreflection and by the
+// street lamps, to about the level of the ground. Half the pavement's irradiance
+// added to that is a lift of roughly a sixth, and the way it reads is as WARMTH
+// rather than as brightness -- which is why tools/shop-spill.mjs measures the
+// soffit's (R-B)/luma as well as its level.
+export const SOFFIT_GAIN = 0.85;
+
+// How far out from the wall the pool reaches, and how high off the pad it sits.
+// Declared up here rather than beside spillPatch() because the atlas painter
+// reads the reach too, and the atlas is built the first time anything asks for a
+// cell -- which is before the geometry helpers are ever called.
+//
+// REACH. 2.6 m is not a look: it is what the pavement will take. kerb.js's
+// section runs to o = 2.74 m outboard of the road ribbon and streetfurniture.js
+// stands its kerb-line props at w/2 + 2.85, and kerb.js measured 96.2% of
+// stations with at least 2.85 m between the road edge and the nearest footprint
+// (p5 = 3.46 m). The profile is windowed to zero over the last 28% of it, so on
+// a p5 pavement the pool has faded before the kerb rather than being cut by it.
+// It is NOT clipped to the pavement polygon - a pool that spills a little onto
+// the gutter is what one does - but it IS clipped to the free distance in front
+// of the shop, because that is a wall and not a gutter. See spillClearance().
+//
+// Y. The drawn land pad is at -0.050 (kerb.js's second datum, GROUND_DRAWN in
+// geom-audit) and the chunk paving sits ON it, so 8 mm of lift clears the paving
+// without floating. depthWrite is off and polygonOffset is on, so this number
+// decides nothing but z-fight margin -- and geom-audit's float test is over
+// PROPS, which a decal is not.
+export const SPILL_REACH = 2.6, SPILL_Y = -0.042;
+
+// The colour of shop light landing on brick pavers, LINEAR, as a vertex tint.
+// Taken from the shopfront's own emissive rather than invented: the pane's floor
+// band is sRGB (116,83,43) -> linear (0.1651, 0.0865, 0.0241), normalised
+// (1, 0.524, 0.146). The pavers then redden it further, which is not modelled --
+// the ground material multiplies nothing here, because this is ADDITIVE light,
+// not a reflectance. Stated so the next round knows the omission is deliberate.
+export const SPILL_HUE = [1, 0.524, 0.146];
 
 export const TIMES = ['noon', 'golden', 'dusk', 'night'];
 
@@ -255,6 +352,33 @@ const SCELL = {
 };
 
 const STRIPES = 10;
+
+// THE NIGHT-SPILL CELLS. Three 104 px cells that ride the tail of the stripe
+// shelf, which held ten stripes and four 32 px misc swatches in a 2048 px row:
+// 10*112 + 4*40 = 1,280 px used, 768 free, and three more stripe-sized cells
+// cost 336 of it. So the shop atlas is the SAME 2048 x 1664 it was and this
+// change adds no VRAM at all -- checked by generateSignageLibrary's own report,
+// which prints the atlas size and the utilisation.
+//
+//   spill   the pool a lit shopfront throws on the PAVEMENT.
+//   soffit  the light it throws on the underside of its own awning.
+//
+// Both are GREYSCALE PROFILES in the albedo layer and nothing else, because both
+// are drawn by ADDITIVE MeshBasicMaterials: the hour is the material's colour,
+// the tenancy's state and the fabric's colour are the vertex tint, and the cell
+// carries only the shape of the falloff.
+//
+// THE SOFFIT WAS AN EMISSIVE CELL FIRST AND THAT WAS WRONG, in a way that is
+// worth leaving written down because it very nearly shipped. Painting the glow
+// into the signage atlas's EMISSIVE layer meant the soffit quads had to sample a
+// new cell -- and a cell has an ALBEDO too. Plain canvas where the stripe used
+// to be is a change to 340 awning undersides AT NOON, where SIGN_EMISSIVE is 0
+// and the albedo is all there is. The whole point of this change is that it is
+// invisible before dusk, and the emissive route could not have that: one UV
+// addresses both layers. An additive quad LAID OVER the unchanged fabric has no
+// such coupling, costs 4 triangles an awning, and gets a runtime level as a
+// bonus -- which is what lets both halves of issue #45 be isolated from ONE page
+// load instead of four.
 const MISC = ['plateEdge', 'steel', 'darkVinyl', 'whiteEnamel'];
 const SMISC = ['bladeBack', 'signBack', 'postBand', 'darkVinyl'];
 export const REG_SIGNS = ['stop', 'doNotEnter', 'yield', 'noLeft'];
@@ -872,6 +996,197 @@ function drawStripe(L, x, y, size, i, r) {
   patina(g, x, y, size, size, r, 0.05);
 }
 
+// ------------------------------------------------------ night spill: the cells
+//
+// Issue #45: at night the glazing is emissive and reads correctly, and NOTHING
+// ELSE IN THE BAY KNOWS. A lit shop threw no light on the pavement in front of
+// it and none on the soffit of its own awning, so a canopy over a bright window
+// was a black band and the shopfronts read as glowing rectangles pasted onto an
+// unlit street. facades.js buildTrimEmissive's `spill` comment states the limit
+// this lifts: "the public pavement beyond it is a different material ... putting
+// light on it would need either a real emitter - the pool is ten slots against
+// 543 lamps, so no - or a new quad per bay, which is triangles this budget does
+// not have". The quad is per TENANCY, not per bay, and only where a tenancy is
+// actually lit and has room in front of it: 714 quads, 1,428 triangles, priced
+// offline by tools/shop-spill.mjs --census.
+//
+// Both cells are painted from a level with its derivation written down, because
+// issue #46 was exactly the failure of setting one from the nearest bay:
+
+// Closed-with-the-light-on, as a fraction of open-and-trading. Same 0.42 the
+// facades trim atlas gives the recess in TRIM_DIM, so a dim shop's awning, its
+// recess and its pavement all step together instead of three ways.
+const SOFFIT_DIM = 0.42;
+
+function srgbByte(l) {
+  const c = l <= 0.0031308 ? 12.92 * l : 1.055 * Math.pow(l, 1 / 2.4) - 0.055;
+  return Math.max(0, Math.min(255, Math.round(c * 255)));
+}
+
+// How the pool falls off with distance from the wall, DERIVED rather than drawn.
+//
+// The first version of this was an authored curve, (1-t)^1.5 / (1 + 2.2t^2), and
+// it was wrong in a way worth recording: it fell 25x across the reach where the
+// arithmetic below falls 6.3x, so it painted a pool that stopped about a metre
+// from the shopfront. What it was missing is that the source is a TALL strip and
+// the receiver is a HORIZONTAL plane, and that geometry has a long tail.
+//
+// Treat the shopfront as a vertical strip of uniform luminance from the top of
+// the stallriser (SPILL_H0) to the shopfront head (SPILL_H1), and the pavement as
+// a horizontal plane. For a strip element at height h seen from a floor point at
+// horizontal distance d, r^2 = d^2 + h^2, the source's cosine is d/r and the
+// receiver's is h/r, so
+//
+//     E(d) = k integral_{h0}^{h1} d h / r^4 dh
+//          = (k d / 2) [ 1/(d^2 + h0^2) - 1/(d^2 + h1^2) ]
+//
+// which is the closed form below. It PEAKS about 0.4 m out from the glass and is
+// exactly zero in the plane of the glass -- a floor point directly under a window
+// sees that window edge-on. That is also, checked on the way, why facades.js
+// paints the recess THRESHOLD SLAB brighter at the wall line than at the glass:
+// it looked inverted and it is not. The slab was nearly reported as a bug.
+//
+// d is measured from the GLASS, and the decal starts at the WALL line, which is
+// SPILL_INSET further out: lotPlanFor draws the recess depth as 0.42 + r()*0.46,
+// so 0.65 m is its mean. The profile is then normalised to 1 at the wall line,
+// because the level lives in SPILL_EMISSIVE and not here.
+//
+// THE TAIL IS TRUNCATED AND THAT IS A COMPROMISE, stated rather than hidden. The
+// closed form is still at 0.25 of peak at the far end of a 2.6 m reach, and a
+// decal that ends at 0.25 has a visible straight edge across the pavement. So the
+// last 28% of the reach is windowed to zero. The cost is that the pool is
+// physically short by about a metre; the alternative is a rectangle you can see
+// the corner of, which is worse and is the thing every decal gets wrong.
+const SPILL_H0 = 0.42, SPILL_H1 = 3.6, SPILL_INSET = 0.65;
+function stripE(d) {
+  return 0.5 * d * (1 / (d * d + SPILL_H0 * SPILL_H0) - 1 / (d * d + SPILL_H1 * SPILL_H1));
+}
+export function spillFalloff(t) {
+  const e = stripE(SPILL_INSET + t * SPILL_REACH) / stripE(SPILL_INSET);
+  const w = Math.max(0, Math.min(1, (1 - t) / 0.28));
+  return e * w * w * (3 - 2 * w);
+}
+
+// How the awning soffit's glow falls off from the wall to the hem.
+//
+// Same closed form the pavement uses, and for the same reason: the source is a
+// tall strip and the receiver is a plane it looks along. The receiver here is
+// the underside of the canopy at about 3.9 m, so the strip is BELOW it rather
+// than beside it and the distance that matters runs along the projection. Taken
+// with the same E(d) shape, measured from the glass, and normalised at the wall
+// end. It reaches zero AT the hem, because a bright last texel row would draw a
+// line down the leading edge of every awning in the district.
+//
+// t = 0 at the WALL, 1 at the hem.
+//
+// WHICH CANVAS ROW IS THE WALL, and it is NOT the same answer as the pavement
+// cell's. That asymmetry is the trap, and this comment is the guard.
+//
+//   uvOf     v0 is the cell's BOTTOM canvas row, v1 its TOP.
+//   awning() `sr` gives arc position s the v-coordinate v1 + (v0 - v1)(1 - s).
+//            s = 0 is the WALL and lands on v0, the canvas BOTTOM. s = 1 is the
+//            hem and lands on v1, the canvas TOP.
+//   spillPatch  lists its corners far-pair first, so the WALL pair takes v1 --
+//            the canvas TOP. The opposite way round.
+//
+// So drawSpill paints its bright end at canvas row 0 and drawSoffit paints its
+// bright end at canvas row N-1. I got this wrong first and painted both the same
+// way, which put the awning's brightest texels along the HEM: a bright line down
+// the leading edge of every lit canopy and darkness where the light actually
+// comes from. It is invisible to the capture, too - the same energy redistributed
+// still moves the soffit's median by about as much - so no measurement would have
+// caught it. It was found by re-deriving the mapping on paper.
+export function soffitFalloff(t) {
+  const d = 0.35 + t * 1.3;                       // 1.3 m of projection
+  const e = stripE(d) / stripE(0.35);
+  return e * (1 - t);
+}
+
+/**
+ * The glow on the underside of an awning over a lit shop, as a greyscale decal.
+ *
+ * Read by the same additive material family as the pavement pool. The ALBEDO is
+ * a profile and the emissive and rm are flat, so this cell can never change what
+ * a daylight frame draws: the material's colour is 0 at noon and golden.
+ */
+function drawSoffit(L, x, y, size) {
+  const N = 52, step = size / N;
+  for (let j = 0; j < N; j++) {
+    // ROW N-1 IS THE WALL, row 0 the hem. See soffitFalloff's header: the awning
+    // maps arc position 0 (the wall) onto v0, which uvOf puts at the BOTTOM of
+    // the canvas cell. drawSpill is the other way round and says so.
+    const t = 1 - (j + 0.5) / N;
+    const along = soffitFalloff(t);
+    for (let i = 0; i < N; i++) {
+      const u = (i + 0.5) / N;
+      // A soffit is bounded by its own side cheeks, so it does not round off
+      // across the awning the way a pavement pool does -- but the last few
+      // centimetres are in the cheek's own shade, so the taper is short and
+      // constant rather than widening with distance.
+      const edge = Math.min(1, Math.min(u, 1 - u) / 0.07);
+      const b = srgbByte(along * edge * edge * (3 - 2 * edge));
+      L.al.g.fillStyle = `rgb(${b},${b},${b})`;
+      L.al.g.fillRect(x + i * step, y + j * step, step + 1, step + 1);
+    }
+  }
+  blackGutter(L, x, y, size);
+}
+
+/**
+ * The pool a lit shopfront throws on the pavement, as a greyscale decal.
+ *
+ * Read by an ADDITIVE MeshBasicMaterial, so this cell is a PROFILE and nothing
+ * else: the hour is spillMaterial's colour, the tenancy's state and the shop
+ * light's warmth are the vertex tint. That split is what lets one 104 px cell
+ * serve 728 tenancies and lets a harness sweep the level at runtime without
+ * repainting an atlas.
+ *
+ * v: the cell's TOP row is at the WALL LINE, the bottom row at the far end of
+ * the reach (SPILL_REACH metres out). u: across the tenancy.
+ *
+ * The horizontal taper WIDENS with distance on purpose. A rectangle of light
+ * with parallel sides reads as a projected slide; a real pool off a shop window
+ * is widest at the glass and rounds off as it runs out, because the far end of
+ * it is lit by a source it can only see obliquely.
+ */
+function drawSpill(L, x, y, size) {
+  const N = 52, step = size / N;
+  for (let j = 0; j < N; j++) {
+    // ROW 0 IS THE WALL here, the opposite of drawSoffit, because spillPatch
+    // lists its far corners first and so gives the wall pair v1. Both are
+    // derived in soffitFalloff's header.
+    const t = (j + 0.5) / N;                     // 0 at the wall, 1 at the reach
+    const along = spillFalloff(t);
+    for (let i = 0; i < N; i++) {
+      const u = (i + 0.5) / N;
+      const edge = Math.min(u, 1 - u) / (0.09 + 0.34 * t);
+      const e = Math.min(1, edge);
+      const across = e * e * (3 - 2 * e);         // smoothstep, so no hard end
+      const b = srgbByte(along * across);
+      L.al.g.fillStyle = `rgb(${b},${b},${b})`;
+      L.al.g.fillRect(x + i * step, y + j * step, step + 1, step + 1);
+    }
+  }
+  blackGutter(L, x, y, size);
+}
+
+// A BLACK gutter, not plateFill's own colour. plateFill fills the gutter with
+// the plate's colour so a coarse mip degrades to "the sign's own colour"; for an
+// ADDITIVE cell the equivalent is black, so a coarse mip degrades to "no light"
+// rather than to a neighbouring stripe's gold bleeding across the pavement.
+function blackGutter(L, x, y, size) {
+  const p = PAD;
+  for (const [gx, gy, gw, gh] of [[x - p, y - p, size + p * 2, p], [x - p, y + size, size + p * 2, p],
+    [x - p, y, p, size], [x + size, y, p, size]]) {
+    L.al.g.fillStyle = '#000';
+    L.al.g.fillRect(gx, gy, gw, gh);
+  }
+  L.rm.g.fillStyle = rmColor(1, 0);
+  L.rm.g.fillRect(x - p, y - p, size + p * 2, size + p * 2);
+  L.em.g.fillStyle = '#000';
+  L.em.g.fillRect(x - p, y - p, size + p * 2, size + p * 2);
+}
+
 function drawMisc(L, key, x, y, size) {
   const map = {
     plateEdge: ['#2a2d33', 0.45, 0.4],
@@ -1182,6 +1497,17 @@ function buildShopAtlas() {
   // 32 px squares would cost 40 px of atlas for 4096 texels of content.
   for (let i = 0; i < STRIPES; i++) p.add(`stripe:${i}`, ...CELL.stripe);
   for (const k of MISC) p.add(`misc:${k}`, ...CELL.misc);
+  // AFTER the misc swatches, not before them. The shelf packer lays cells out in
+  // call order, so inserting these two ahead of `misc` slid every misc cell 224
+  // px to the right -- which changes the UV rect of misc:plateEdge, which every
+  // awning frame, bracket and plate edge in the district addresses. The painted
+  // content is identical either way and no frame would look different, but the
+  // opaque signage buffer stops hashing the same, and "the daylight frame is
+  // untouched" then rests on an argument instead of on a checksum. Appended, the
+  // hash matches the baseline byte for byte: 97,812 verts, 48,906 triangles,
+  // sha256 32911b92f02f5f0062375ae1cf3b42fd, before and after.
+  p.add('soffit:0', ...CELL.stripe);
+  p.add('spill:0', ...CELL.stripe);
   const H = p.finish();
 
   const L = layers(SHOP_W, H);
@@ -1211,6 +1537,12 @@ function buildShopAtlas() {
   for (const k of MISC) {
     const c = p.rects.get(`misc:${k}`);
     drawMisc(L, k, c.x, c.y, c.w);
+  }
+  {
+    const c = p.rects.get('soffit:0');
+    drawSoffit(L, c.x, c.y, c.w);
+    const d = p.rects.get('spill:0');
+    drawSpill(L, d.x, d.y, d.w);
   }
   return { L, packer: p, W: SHOP_W, H };
 }
@@ -1336,6 +1668,81 @@ export function signMaterial({ time = 'night' } = {}) {
   return m;
 }
 
+/**
+ * The pavement pool, and the one material in this file that is not opaque.
+ *
+ * ADDITIVE, not translucent. A pool of light on a pavement adds to what the
+ * pavement already reflects; it does not replace it, and an alpha-blended decal
+ * would erase the paver bond and the slab variation under it. Additive is also
+ * order-independent, which is what lets the whole district ship as ONE mesh with
+ * no sorting: +1 draw call, not +1 per bucket.
+ *
+ * MeshBasicMaterial because the quad is not a surface to be lit -- it IS the
+ * light. A MeshStandardMaterial here would have the pool respond to the sun,
+ * take a shadow, and cost a lighting evaluation to produce a value the lights
+ * must not touch.
+ *
+ * depthWrite false and polygonOffset for the reason roadMarkings has both: it
+ * lies 8 mm over paving that is itself 8 mm over the pad, and it must occlude
+ * nothing at all.
+ *
+ * fog FALSE, and this one is a trap rather than a preference. three's fog is
+ * mix(colour, fogColour, f) applied to the fragment, and under ADDITIVE blending
+ * that adds fogColour * f everywhere the decal is - including the black three
+ * quarters of the cell that are supposed to add nothing. The whole rectangle
+ * would light up as a grey slab on the pavement, brighter the further away it
+ * is, which is precisely the "glowing rectangle pasted on the street" this
+ * change exists to remove. It costs nothing to be right about here: the district
+ * runs a PostStack, so daynight.js sets scene.fog = null and this flag is inert
+ * in the shipped path - but labs/materials has no post stack and does get a
+ * FogExp2, and a decal that is correct only on some pages is a defect waiting
+ * for a page.
+ */
+export function spillMaterial({ time = 'night' } = {}) {
+  const m = memo('mat:spill', () => additiveGlow(true));
+  setSignageTime(time);
+  return m;
+}
+
+/**
+ * The awning-soffit glow. A SECOND material of the same family, and the second
+ * one is not an accident.
+ *
+ * One material would be one draw call and would also mean one colour, and the
+ * two halves of issue #45 have to be separable AT RUNTIME or the four arms of
+ * the capture (neither / pavement only / soffit only / both) cost four page
+ * loads instead of one. On SwiftShader that is the difference between a
+ * forty-minute run and a three-hour one, and a capture that takes three hours is
+ * a capture that gets run once with the wrong camera. Measured cost of the
+ * second call: the smoke run reads 131-137 draw calls at the four hours against
+ * a warn line of 275.
+ *
+ * polygonOffset here too. The glow quads are 50 mm BELOW the fabric in world Y,
+ * which is unambiguous for a surface you are always under, but the barrel is
+ * seen nearly edge-on from the street and depth separation there is a fraction
+ * of the offset. See awning() for the two offsets that were tried first, both of
+ * which left the glow behind the cloth and measured EXACTLY ZERO.
+ */
+export function soffitMaterial({ time = 'night' } = {}) {
+  const m = memo('mat:soffit', () => additiveGlow(true));
+  setSignageTime(time);
+  return m;
+}
+
+function additiveGlow(depthBias) {
+  return new THREE.MeshBasicMaterial({
+    map: shopAtlas().map,
+    color: 0x000000,
+    blending: THREE.AdditiveBlending,
+    transparent: true, depthWrite: false,
+    side: THREE.DoubleSide,
+    ...(depthBias
+      ? { polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 }
+      : {}),
+    vertexColors: true, fog: false,
+  });
+}
+
 /** The single material for all street and regulatory signage. */
 export function streetSignMaterial({ time = 'night', names } = {}) {
   const m = memo('mat:street', () => {
@@ -1361,14 +1768,33 @@ export function streetSignMaterial({ time = 'night', names } = {}) {
  * table row. Adding the 'golden' preset is what made that reachable.
  */
 export function setSignageTime(time) {
-  if (!(time in SIGN_EMISSIVE) || !(time in STREET_EMISSIVE)) {
+  if (!(time in SIGN_EMISSIVE) || !(time in STREET_EMISSIVE) || !(time in SPILL_EMISSIVE)) {
     throw new Error(`signage has no emissive level for time of day: ${time}`);
   }
   const s = cache.get('mat:sign');
   if (s) { s.emissiveIntensity = SIGN_EMISSIVE[time]; s.needsUpdate = true; }
   const t = cache.get('mat:street');
   if (t) { t.emissiveIntensity = STREET_EMISSIVE[time]; t.needsUpdate = true; }
+  spillTime = time;
+  applySpillLevel();
 }
+
+// Both glow materials' levels, and the two scales that isolate them. The scales
+// exist so the whole before/after matrix comes out of ONE page load; setting
+// both to 0 is the "before" arm with every triangle still in the scene, which
+// is what the budget arm wants to price.
+let spillTime = 'night', spillScale = 1, soffitScale = 1;
+function applySpillLevel() {
+  const a = cache.get('mat:spill');
+  if (a) a.color.setScalar(SPILL_EMISSIVE[spillTime] * spillScale);
+  const b = cache.get('mat:soffit');
+  if (b) b.color.setScalar(SPILL_EMISSIVE[spillTime] * soffitScale);
+}
+/** Multiply the pavement pool. 1 is the shipped level; 0 is off. */
+export function setSpillScale(k) { spillScale = k; applySpillLevel(); }
+/** Multiply the awning-soffit glow. 1 is the shipped level; 0 is off. */
+export function setSoffitScale(k) { soffitScale = k; applySpillLevel(); }
+export function spillScaleOf() { return { spill: spillScale, soffit: soffitScale }; }
 
 /**
  * Generate everything up front behind the loading screen and report the cost.
@@ -1717,6 +2143,48 @@ export function awning(e, s0, s1, head, stripeRect, valanceRect, sign, trim, opt
       [B.p1[0], B.y, B.p1[1]], [B.p0[0], B.y, B.p0[1]],
       [-nm[0], -nm[1], -nm[2]], sr(A, B), col, t);
   }
+  // ISSUE #45, THE AWNING HALF. The soffit is the second quad of each pair above
+  // and it is UNCHANGED: same stripe cell, same tint, same vertices. What the
+  // light is, is a second set of quads laid 15 mm under it in the additive
+  // glow mesh, so a canopy over a bright window stops reading as a black band
+  // without one texel of the fabric moving in daylight. The emissive-cell version
+  // of this was written first and was wrong; see THE NIGHT-SPILL CELLS.
+  //
+  // THE OFFSET IS STRAIGHT DOWN, and getting that wrong is what made the first
+  // build of this measure ZERO. It offset along the soffit's own outward normal,
+  // which is the textbook answer and is wrong on a BARREL: near the wall the
+  // surface is horizontal and its underside normal points down, but near the hem
+  // the fabric is falling steeply and that normal has swung round to point at the
+  // WALL. So the last third of every glow quad was pushed 13 mm AWAY from the
+  // street, behind the fabric, and the depth test threw it away. It rendered -
+  // 457,834 pixels of the frame moved when it was switched on - and every one of
+  // the thirteen soffit samples the probe took read bit-identical, because the
+  // pixels the probe was looking at were fabric with the glow hidden behind it.
+  // A raycast from the capture camera is what showed it: fabric at 18.28 m, glow
+  // at 18.31 m, on the wrong side by 30 mm.
+  //
+  // Down is right for the whole barrel because the thing looking at an awning
+  // soffit is always underneath it. 50 mm, not 12: at 16 m the fabric is 8 px
+  // tall on screen and the surface is nearly edge-on, so a small offset buys
+  // almost no depth separation and the raycast still put the glow behind the
+  // cloth. 50 mm is 2 px at that distance and it hides under the valance, which
+  // hangs 340 mm. polygonOffset on the material as well.
+  if (opts.glow) {
+    const gt = opts.glowTint ?? [1, 1, 1];
+    const sg = (A, B) => {
+      const r = opts.glowRect;
+      return [r[0], r[3] + (r[1] - r[3]) * (1 - A.s), r[2], r[3] + (r[1] - r[3]) * (1 - B.s)];
+    };
+    const DROP = 0.05;
+    for (let k = 0; k < AWNING_SEGS; k++) {
+      const A = st[k], B = st[k + 1];
+      const nm = [(A.n[0] + B.n[0]) / 2, (A.n[1] + B.n[1]) / 2, (A.n[2] + B.n[2]) / 2];
+      const P = (h, p) => [p[0], h.y - DROP, p[1]];
+      quad(opts.glow.pos, opts.glow.nrm, opts.glow.uv, opts.glow.idx,
+        P(A, A.p0), P(A, A.p1), P(B, B.p1), P(B, B.p0),
+        [-nm[0], -nm[1], -nm[2]], sg(A, B), opts.glow.col, gt);
+    }
+  }
   // Valance, both faces, carrying the name. THE valance is the third text-on-edge
   // emitter and the one that actually produced the reversed "Verano Wash House" a
   // critic found - fasciaPlate and bladeSign were fixed first and neither draws it.
@@ -1771,6 +2239,43 @@ export function awning(e, s0, s1, head, stripeRect, valanceRect, sign, trim, opt
       yTop, yFront, out, sign.pos, sign.nrm, sign.uv, sign.idx,
       { uvRect: shopRect('misc', 'plateEdge'), col: sign.col, tint: t });
   }
+}
+
+// --------------------------------------------------------------- pavement spill
+//
+// SPILL_REACH and SPILL_Y are declared up with SPILL_EMISSIVE: the atlas painter
+// reads the reach, and the atlas is built the first time anything asks for a
+// cell, which is before any of the geometry below runs.
+
+/**
+ * One lit tenancy's pool of light on the pavement: two triangles, lying flat,
+ * facing up, from the wall line out.
+ *
+ * It is emitted into its OWN buffer bundle because it is the only thing in the
+ * signage kit that is not opaque -- see spillMaterial. Everything else about it
+ * is ordinary signage geometry: same atlas, same quad helper, same vertex tint.
+ *
+ * @param {Object} e     edge from edgesOf()
+ * @param {number} s0,s1 the tenancy's span in edge metres
+ * @param {Object} out   buffer bundle
+ * @param {number[]} rect  shopRect('spill', 0)
+ * @param {number[]} tint  [r,g,b] LINEAR: the shop light's colour times its state
+ */
+export function spillPatch(e, s0, s1, out, rect, tint, opts = {}) {
+  const reach = opts.reach ?? SPILL_REACH, y = opts.y ?? SPILL_Y;
+  // Widen a little past the party piers. The pool is not bounded by the tenancy
+  // -- light does not stop at a pilaster -- and the cell's own taper is what
+  // ends it. 0.35 m each side is half a pier plus the recess jamb.
+  const a = s0 - 0.35, b = s1 + 0.35;
+  const P = (s, o) => [e.a[0] + e.tx * s + e.nx * o, e.a[1] + e.tz * s + e.nz * o];
+  const w0 = P(a, 0), w1 = P(b, 0);            // at the wall line
+  const f0 = P(a, reach), f1 = P(b, reach);    // at the far end of the reach
+  // uvq maps a=(u0,v0) b=(u1,v0) c=(u1,v1) d=(u0,v1), and drawSpill paints the
+  // cell's TOP row (v1) at the wall. So the wall pair takes v1 and the far pair
+  // v0, which is the reverse of the order the corners are listed in.
+  quad(out.pos, out.nrm, out.uv, out.idx,
+    [f0[0], y, f0[1]], [f1[0], y, f1[1]], [w1[0], y, w1[1]], [w0[0], y, w0[1]],
+    [0, 1, 0], rect, out.col, tint);
 }
 
 /**
@@ -1894,6 +2399,27 @@ function tenanciesOn(e, lots) {
 }
 
 /**
+ * The state of the bays an implied tenancy actually stands over.
+ *
+ * signage.js cuts an unlotted frontage on TENANCY_M and the facade kit cuts it
+ * on the 3.2 m bay module, so the two subdivisions do not line up and one
+ * tenancy can straddle two pair-states. The BRIGHTEST bay overlapping the span
+ * wins, because the thing being decided is whether there is a source here at
+ * all: a tenancy that is half lit throws light on the pavement, and calling it
+ * dark because its other half is would put a black gap in the middle of a lit
+ * row. The overlap has to be a real length, not a touch, or a tenancy that ends
+ * exactly on a bay boundary picks up the state of the bay beyond it.
+ */
+function bayStateOver(bays, states, s0, s1) {
+  let best = TRIM_NONE;
+  for (let i = 0; i < bays.length; i++) {
+    const ov = Math.min(s1, bays[i][1]) - Math.max(s0, bays[i][0]);
+    if (ov > 0.2 && states[i] > best) best = states[i];
+  }
+  return best;
+}
+
+/**
  * The business occupying a given tenancy slot of a building.
  *
  * @param {Object} b     a district.json building
@@ -1971,6 +2497,20 @@ export function signPlanFor(b, style, opts = {}) {
   let slot = 0;
   for (const e of edges) {
     const lots = lotPlan.get(e.i)?.lots;
+    // WHICH SHOP HAS ITS LIGHTS ON, on an UNLOTTED frontage. A lotted tenancy
+    // reads `t.lot.litState`, which is the same field the facade kit hands
+    // storefront() as `opts.state`; an unlotted one has no lot to ask, and the
+    // facade kit implies a state per PAIR of bays instead. That loop is
+    // facades.js impliedBayStates() and this is the only other caller: a second
+    // copy of it here would put a pool of light on the pavement in front of a
+    // shopfront the facade kit had drawn dark, which is a worse defect than the
+    // one this change fixes and one no daylight gate could see.
+    //
+    // 139 of the district's 1,001 tenancies are on such a frontage - 13.9%, the
+    // same population impliedDoor() was written for - so it is not an edge case
+    // to be skipped.
+    const bays = lots ? null : storefrontBays(e.len, style.storefront);
+    const impl = lots ? null : impliedBayStates(e, bays.length, style.seed ?? 0);
     for (const t of tenanciesOn(e, lots)) {
       const span = t.s1 - t.s0;
       const biz = businessFor(b, slot);
@@ -2000,6 +2540,13 @@ export function signPlanFor(b, style, opts = {}) {
         // ON the fascia instead of over the display window under it.
         fasciaY: t.lot?.fasciaY ?? null,
         lit: LIT_STYLES.has(biz.w),
+        // The AFTER-DARK state of the shop itself: TRIM_DARK / TRIM_DIM /
+        // TRIM_LIT. Not the same thing as `lit` above, which is about the
+        // WORDMARK's style - a neon script sign on a shop that is shut. Named
+        // apart on purpose; the two were conflated in a first draft of this and
+        // it put pavement spill in front of 103 shops and none in front of the
+        // 182 dim ones, which is the wrong 285.
+        litState: t.lot ? t.lot.litState : bayStateOver(bays, impl, t.s0, t.s1),
       });
       slot++;
     }
@@ -2028,23 +2575,69 @@ export function signPlanFor(b, style, opts = {}) {
  * @param {Object} sign   buffer bundle for the signage material
  * @param {Object} trim   buffer bundle for the facades trim material, for posts
  *                        and brackets; null keeps that hardware in `sign`
- * @returns {{signs:number, emitters:Array}}  emitters are lit-sign positions for
- *          a LightPool, in the candela range daynight.js calls plausible for shops
+ * @param {{spill?:Object}} opts  `spill` is the buffer bundle for the additive
+ *                        pavement-pool decals (spillMaterial). Omit it and no
+ *                        pool is emitted and nothing else changes -- that is the
+ *                        A arm of the before/after pair, and the ?nospill=1 path.
+ * @returns {{signs:number, emitters:Array, spills:number}}  emitters are lit-sign
+ *          positions for a LightPool, in the candela range daynight.js calls
+ *          plausible for shops
  */
 export function appendBuildingSignage(b, style, sign, trim, opts = {}) {
   const plan = opts.plan ?? signPlanFor(b, style, opts);
   const emitters = [];
-  let signs = 0;
+  let signs = 0, spills = 0, clipped = 0, soffits = 0;
   const h = b.h ?? 6;
   const tint = opts.tint;
+  const spill = opts.spill ?? null;
 
   for (const t of plan.tenants) {
     const e = t.e;
     const bizI = t.biz.index;
+    // ---- issue #45. Both terms are gated on the SHOPFRONT's state, and neither
+    // touches a tenancy the facade kit drew dark.
+    const on = t.litState === TRIM_LIT || t.litState === TRIM_DIM;
+    const glow = opts.soffit === false ? null : opts.glow ?? null;
     if (t.awning) {
       awning(e, t.s0, t.s1, t.head, shopRect('stripe', t.biz.a % STRIPES),
-        shopRect('valance', bizI), sign, trim, { tint });
+        shopRect('valance', bizI), sign, trim, {
+          tint,
+          ...(glow && on
+            ? {
+              glow,
+              glowRect: shopRect('soffit', 0),
+              glowTint: soffitTint(t.biz.a, t.litState, tint),
+            }
+            : {}),
+        });
       signs++;
+      if (glow && on) soffits++;
+    }
+    if (spill && on) {
+      // The pool is per TENANCY and not per bay: it is one room's light coming
+      // out of one shopfront, and a quad per bay would put three overlapping
+      // additive copies of it on the pavement in front of a three-bay shop.
+      //
+      // CLIPPED TO WHAT IS ACTUALLY IN FRONT OF IT. The decal is a flat
+      // rectangle projected off a wall and nothing stops it running through the
+      // building across a service lane. Measured before this line existed:
+      // 3.48% of the district's falloff-weighted pool area lay inside a
+      // footprint, and ONE tenancy was 100% inside one - a shopfront facing a
+      // wall two metres away, throwing its entire pool into it. `freeAhead` is
+      // supplied by districtSignageBuffers, which is the only caller that has
+      // the footprints; without it nothing is clipped and the behaviour is what
+      // it was.
+      const free = opts.freeAhead
+        ? opts.freeAhead(e.a[0] + e.tx * t.mid, e.a[1] + e.tz * t.mid, e.nx, e.nz)
+        : SPILL_REACH;
+      // Under 0.9 m there is no pavement to light: the recess floor already
+      // carries that light (facades.js's threshold slab) and a 0.6 m stub of
+      // decal is two triangles buying nothing.
+      if (free >= 0.9) {
+        spillPatch(e, t.s0, t.s1, spill, shopRect('spill', 0),
+          spillTint(t.litState, tint), { reach: Math.min(SPILL_REACH, free) });
+        spills++;
+      } else clipped++;
     }
     if (t.fascia) {
       // On a LOTTED shopfront the facade kit has already built the lintel band
@@ -2151,7 +2744,40 @@ export function appendBuildingSignage(b, style, sign, trim, opts = {}) {
       }
     }
   }
-  return { signs, emitters };
+  return { signs, emitters, spills, clipped, soffits };
+}
+
+/**
+ * The colour and strength of the glow under one awning, as a vertex tint.
+ *
+ * Warm shop light TIMES the fabric it lands on. That product is the whole reason
+ * this is a vertex tint and not a painted colour: the glow cell is one greyscale
+ * profile shared by all ten colourways, and a teal canopy and a gold one do not
+ * return the same light. Saturation is held low because the fabric is lit from
+ * BEHIND as well as below - a single layer of acrylic canvas transmits - so its
+ * underside washes toward the source's own colour.
+ */
+function soffitTint(a, state, tint) {
+  const hue = STRIPE_HUES[a % STRIPE_HUES.length] / 360;
+  const [r, g, bl] = hslToRgb(hue, 0.34, 0.62);
+  const k = (state === TRIM_LIT ? 1 : SOFFIT_DIM) * SOFFIT_GAIN;
+  const t = tint ?? [1, 1, 1];
+  return [SPILL_HUE[0] * r * k * t[0], SPILL_HUE[1] * g * k * t[1], SPILL_HUE[2] * bl * k * t[2]];
+}
+
+/** The colour and strength of one tenancy's pavement pool, as a vertex tint. */
+function spillTint(state, tint) {
+  const k = state === TRIM_LIT ? 1 : SOFFIT_DIM;
+  const t = tint ?? [1, 1, 1];
+  return [SPILL_HUE[0] * k * t[0], SPILL_HUE[1] * k * t[1], SPILL_HUE[2] * k * t[2]];
+}
+
+function hslToRgb(h, s, l) {
+  const f = (n) => {
+    const k = (n + h * 12) % 12;
+    return l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+  };
+  return [f(0), f(8), f(4)];
 }
 
 // ------------------------------------------------------------ street planning
@@ -2314,6 +2940,48 @@ export function planStreetSignage(district, opts = {}) {
  *          street direction the streamer passes to appendBuilding
  * @returns {{buckets:Array, street:Object, stats:Object}}
  */
+/**
+ * How far a pavement pool may run before it walks into a building, as a function
+ * of (wall point, outward normal).
+ *
+ * Exported so tools/shop-spill.mjs's census scores the pools that SHIP rather
+ * than a second copy of the rule -- the same reason facades.js exports
+ * impliedBayStates(). Marched in 0.1 m steps against footprint bounding boxes
+ * and then rings, which is exact enough for a decal already under a quarter of
+ * peak by 2 m. The boxes are built once for the district; without them this is
+ * 739 tenancies x 26 steps x 523 rings.
+ */
+export function spillClearance(district) {
+  const boxes = district.buildings.map((b) => {
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const [x, z] of b.p) {
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (z < z0) z0 = z;
+      if (z > z1) z1 = z;
+    }
+    return { p: b.p, x0, x1, z0, z1 };
+  });
+  const inRing = (ring, x, z) => {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0], zi = ring[i][1], xj = ring[j][0], zj = ring[j][1];
+      if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+    }
+    return inside;
+  };
+  return (x, z, nx, nz) => {
+    for (let d = 0.1; d <= SPILL_REACH + 1e-9; d += 0.1) {
+      const px = x + nx * d, pz = z + nz * d;
+      for (const b of boxes) {
+        if (px < b.x0 || px > b.x1 || pz < b.z0 || pz > b.z1) continue;
+        if (inRing(b.p, px, pz)) return d - 0.1;
+      }
+    }
+    return SPILL_REACH;
+  };
+}
+
 export function districtSignageBuffers(district, opts = {}) {
   const bucketM = opts.bucketM ?? 512;
   const styleOf = opts.styleOf ?? defaultStyleOf;
@@ -2325,7 +2993,21 @@ export function districtSignageBuffers(district, opts = {}) {
     return buckets.get(key);
   };
 
-  let signed = 0, tenancies = 0;
+  // ONE district-wide buffer for the pavement pools, not one per bucket.
+  //
+  // The bucket argument is about DRAW CALLS and it does not reach this: the
+  // pools need their own material (additive, depth-write off) and seven buckets
+  // of them would be seven more calls against a 275 warn, where one mesh is one.
+  // The thing buckets buy is frustum culling, and there is nothing to cull -- the
+  // whole district's spill is 1,456 triangles, which is a sixth of what the
+  // street-signage mesh already ships district-wide for the same reason. Additive
+  // blending is order-independent, so one unsorted mesh is also correct.
+  const spill = opts.spill === false ? null : buffers();
+  const glow = opts.soffit === false ? null : buffers();
+
+  const freeAhead = spillClearance(district);
+
+  let signed = 0, tenancies = 0, spills = 0, litSoffits = 0, clipped = 0;
   for (const b of district.buildings) {
     const style = styleOf(b);
     if (!style || !style.storefront) continue;
@@ -2333,10 +3015,12 @@ export function districtSignageBuffers(district, opts = {}) {
       { street: opts.streetDirFor?.(b), streets: opts.streetDirsFor?.(b) });
     if (!plan.tenants.length && !plan.parapet) continue;
     const bk = bucketFor(b.p[0][0], b.p[0][1]);
-    const res = appendBuildingSignage(b, style, bk.sign, null, { plan });
+    const res = appendBuildingSignage(b, style, bk.sign, null,
+      { plan, spill, glow, soffit: opts.soffit, freeAhead });
     bk.signs += res.signs;
     bk.emitters.push(...res.emitters);
-    signed++; tenancies += plan.tenants.length;
+    signed++; tenancies += plan.tenants.length; spills += res.spills; clipped += res.clipped;
+    litSoffits += res.soffits;
   }
 
   // Street signage stays one mesh: it is sparse, district-wide and 9k triangles,
@@ -2351,6 +3035,8 @@ export function districtSignageBuffers(district, opts = {}) {
   return {
     buckets: [...buckets.values()],
     street,
+    spill,
+    glow,
     stats: {
       ms: +(performance.now() - t0).toFixed(1),
       signedBuildings: signed, tenancies,
@@ -2358,7 +3044,10 @@ export function districtSignageBuffers(district, opts = {}) {
       shopSigns: [...buckets.values()].reduce((a, b) => a + b.signs, 0),
       streetSigns: sres.signs,
       shopTriangles: shopTris, streetTriangles: tri(street),
-      drawCalls: buckets.size + 1,
+      spills, spillTriangles: spill ? tri(spill) : 0, spillsDropped: clipped,
+      litSoffits, soffitTriangles: glow ? tri(glow) : 0,
+      drawCalls: buckets.size + 1 + (spill && spill.idx.length ? 1 : 0)
+        + (glow && glow.idx.length ? 1 : 0),
     },
   };
 }
