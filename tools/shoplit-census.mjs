@@ -261,7 +261,10 @@ const darkRuns = [];
 for (let i = 0; i < buildings.length; i++) {
   const b = buildings[i];
   const style = buildingStyle(b, i);
-  if (!style.storefront || !style.lots) continue;
+  // `lots` OR `groundLots`: a tower's ground floor is a row of tenancies with
+  // its own lit states, and gating on `lots` alone made this census blind to
+  // 162 of them the moment towers got shopfronts. lotPlanFor answers for both.
+  if (!style.storefront || !(style.lots || style.groundLots)) continue;
   const ring = b.p;
   const all = edgesOf(ring, { minLen: 0, longest: ring.length });
   const plan = lotPlanFor(ring, style, b.h, all);
