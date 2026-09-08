@@ -56,9 +56,27 @@
 //   CAR_TIMES  times of day (default 'noon,night')
 //   CAR_PORT   http port. NOT 8123 - that belongs to the main tree, and a
 //              worktree that reuses it photographs the wrong build.
-//   CAR_DIST   camera distance from the subject in metres (default 7)
+//   CAR_WHEEL_PX  on-screen wheel DIAMETER to frame the car at (default 38, which
+//              is what a parked car's wheel measures in the corridor hero frame).
+//              The stand-off is bisected to hit it, because `edges` and `rimCoV`
+//              are per-pixel statistics and two runs at different apparent sizes
+//              are not comparable. Diameter, not car length: a kerbside car is
+//              seen almost end-on from the carriageway, so its length is the one
+//              dimension perspective destroys.
+//   CAR_DIST   unused once CAR_WHEEL_PX solves the stand-off; kept as the seed
+//   CAR_ARMS   comma-separated palette arms, captured in ONE session off ONE
+//              build. An arm is `surface:roughness/metalness`, several joined
+//              with '+', e.g. 'base,paint:0.18/0.35,paint:0.18/0.35+glass:0.05/0'.
+//              The palette is a shared 16x1 DataTexture whose green byte is
+//              roughness and blue byte metalness, so an arm is four bytes and
+//              needs no rebuild. This is the same argument as HERO_ARMS: an A/B
+//              shot by editing src/ between two runs only measures that edit if
+//              nothing else in the tree moved in between, and it lets one term
+//              be isolated at a time, which CLAUDE.md records a round getting
+//              wrong by reverting the lever that was carrying 1% of the move.
 import fs from 'node:fs';
 import { readPNG } from './png.mjs';
+import { writePNG } from './crop.mjs';
 
 const OUT = 'docs/probe';
 const ARGS = process.argv.slice(2);
@@ -189,6 +207,43 @@ export function edgeMetrics(png, box) {
     boxH: y1 - y0 + 1,
     edges: +(lap / Math.max(1e-6, lum)).toFixed(4),
   };
+}
+
+/**
+ * Draw the sampled regions onto a copy of the frame. This is not decoration:
+ * the first framing this tool used put its "flank" quad on a surface the camera
+ * could barely see, and the metric obligingly returned a number for it. A rect
+ * that is not looked at is a rect that is measuring the background.
+ */
+export function overlay(png, setup, file) {
+  const { width: w, height: h, channels: ch, data } = png;
+  const rgb = new Uint8Array(w * h * 3);
+  for (let i = 0; i < w * h; i++) {
+    rgb[i * 3] = data[i * ch]; rgb[i * 3 + 1] = data[i * ch + 1]; rgb[i * 3 + 2] = data[i * ch + 2];
+  }
+  const put = (x, y, c) => {
+    const xi = Math.round(x), yi = Math.round(y);
+    if (xi < 0 || yi < 0 || xi >= w || yi >= h) return;
+    const p = (yi * w + xi) * 3;
+    rgb[p] = c[0]; rgb[p + 1] = c[1]; rgb[p + 2] = c[2];
+  };
+  const circle = (cx, cy, r, c) => {
+    for (let a = 0; a < 720; a++) put(cx + Math.cos(a / 114.6) * r, cy + Math.sin(a / 114.6) * r, c);
+  };
+  const line = (a, b, c) => {
+    const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1])) + 1;
+    for (let i = 0; i <= n; i++) put(a[0] + ((b[0] - a[0]) * i) / n, a[1] + ((b[1] - a[1]) * i) / n, c);
+  };
+  for (const wd of [setup.wheelFront, setup.wheelRear]) {
+    circle(wd.cx, wd.cy, wd.r, [0, 255, 0]);            // the disc the metric uses
+    circle(wd.cx, wd.cy, wd.r * 0.55, [255, 255, 0]);   // rim core
+    circle(wd.cx, wd.cy, wd.r * 0.80, [255, 128, 0]);   // tyre annulus starts
+  }
+  for (let i = 0; i < 4; i++) line(setup.flank[i], setup.flank[(i + 1) % 4], [255, 0, 255]);
+  const [x0, y0, x1, y1] = setup.box;
+  line([x0, y0], [x1, y0], [0, 200, 255]); line([x1, y0], [x1, y1], [0, 200, 255]);
+  line([x1, y1], [x0, y1], [0, 200, 255]); line([x0, y1], [x0, y0], [0, 200, 255]);
+  writePNG(file, w, h, rgb);
 }
 
 // ------------------------------------------------------------------ selftest
@@ -348,6 +403,7 @@ const TAG = process.env.CAR_TAG ?? 'car';
 const TIMES = (process.env.CAR_TIMES ?? 'noon,night').split(',');
 const PORT = Number(process.env.CAR_PORT ?? 8161);
 const DIST = Number(process.env.CAR_DIST ?? 7);
+const TARGET_WHEEL_PX = Number(process.env.CAR_WHEEL_PX ?? 38);
 const SLOT = argOf('--slot');
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -357,7 +413,7 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 await page.goto(`http://127.0.0.1:${PORT}/district/`, { waitUntil: 'networkidle' });
-await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
+await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 240000 });
 await page.addStyleTag({ content: '#attr,#hud,.pv-hud{display:none!important}' });
 
 // Anchor on the Main Street east leg, the same carriageway the corridor hero
@@ -413,83 +469,218 @@ const setup = await page.evaluate(async (cfg) => {
     const p = local(1, 0, 0);
     return Math.hypot(p[0] - rx, p[2] - rz) < Math.hypot(pick.x - rx, pick.z - rz) ? 1 : -1;
   })();
-  const eye = local(side * cfg.dist * 0.62, 1.55, -cfg.dist * 0.78);
-  const tgt = local(0, 0.62, -0.35);
-  D.freeCam(eye, tgt, 40);
-  for (let i = 0; i < 60; i++) D.world.update(D.vehicle.position);
-
+  // Down the lane, not out into the shopfronts. The lateral stand-off is FIXED
+  // at roughly one lane; only the along-street distance varies. Scaling the
+  // lateral offset with the distance (the first cut did) walks the camera 28 m
+  // sideways at street range, which is inside the buildings - and a camera
+  // inside a wall manufactures exactly the defect class it is used to look for,
+  // which hero-shots records costing three rounds of blind critique.
+  //
   // Project the geometry the metrics need. Local Y of the wheel centre is
   // groundY + wheelR: buildTrafficCarGeometry translates the body so the tyres
   // rest on groundY, and the axle sits one wheel radius above that.
   const GROUND_Y = -0.05 - 0.02;         // PAD_Y - 0.02, streetfurniture.js
   const WHEEL_R = 0.36, F_AXLE = 1.32, R_AXLE = -1.30;
+  // buildTrafficCarGeometry ends with translate(0, groundY - CAR.ground, 0), so
+  // every y AUTHORED in carbody.js sits Y0 higher in the instance's frame. The
+  // first cut of this tool skipped that for the body points and only got the
+  // wheels right by accident (GROUND_Y + WHEEL_R happens to be the same sum), so
+  // the sampled panel projected 0.65 m low - onto the ROAD under the bumper -
+  // and the metric returned a perfectly reasonable-looking gradient for it. The
+  // --overlay pass is what caught it; nothing in the numbers looked wrong.
+  const CAR_GROUND = -0.717;
+  const Y0 = GROUND_Y - CAR_GROUND;
+  const bodyPt = (lx, ly, lz) => [lx, Y0 + ly, lz];
+  // Vector3.project() reads camera.matrixWorldInverse, and THAT IS ONLY
+  // REFRESHED INSIDE renderer.render(). The first cut of the solve below moved
+  // the camera 40 times without rendering and projected through the stale
+  // placeAt() view every single time, so it "converged" to the midpoint of its
+  // own bracket and framed the car at 2.4 px while reporting it had solved for
+  // 200. Refresh the inverse by hand after every camera move.
+  const refresh = () => {
+    D.camera.updateMatrixWorld(true);
+    D.camera.matrixWorldInverse.copy(D.camera.matrixWorld).invert();
+  };
   const project = (lx, ly, lz) => {
     const w = new V3(...local(lx, ly, lz));
     w.project(D.camera);
     return [(w.x * 0.5 + 0.5) * innerWidth, (-w.y * 0.5 + 0.5) * innerHeight];
   };
+  const lengthPx = () => {
+    const n = project(0, 0.2, 2.24), t = project(0, 0.2, -2.24);
+    return Math.hypot(n[0] - t[0], n[1] - t[1]);
+  };
+  // FRAME THE SUBJECT TO A FIXED WHEEL SIZE, not to a fixed distance, and not to
+  // a fixed car LENGTH either.
+  //
+  // Two mistakes are buried here, both worth keeping. The first cut solved for
+  // nose-to-tail pixels; but a kerbside car photographed from the carriageway is
+  // seen almost end-on, so its length is the one dimension perspective destroys -
+  // solving for 200 px of it put the camera 8.8 m away with a 114 px wheel, a
+  // close-up dressed up as a street view. A wheel's DIAMETER is vertical, so it
+  // is not foreshortened by the axial view and is the honest handle on apparent
+  // size. It is also the thing the wheel metrics have to resolve.
+  //
+  // The second is that there is no 3/4 view of a parked car to be had here at
+  // range. At a 38 degree quarter angle a 38 px wheel needs a 17.8 m stand-off
+  // and 11 m of lateral offset, which is inside the shopfronts. The street's own
+  // geometry forces the near-axial view, and the corridor hero frame is that
+  // view - so the camera takes one lane of lateral offset and lives with it.
+  // That is also WHY the panel sampled below is the tail and not the door skin.
+  const LAT = 5.0;                       // kerb to mid-carriageway, in metres
+  let lo = 4, hi = 200, dist = cfg.dist;
+  const eyeAt = (d) => local(side * LAT, 1.5, -d);
+  const tgt = local(0, 0.55, -1.4);
+  const wheelPx = () => {
+    const c = project(side * 0.79, GROUND_Y + WHEEL_R, R_AXLE);
+    const t = project(side * 0.79, GROUND_Y + WHEEL_R * 2, R_AXLE);
+    return 2 * Math.hypot(t[0] - c[0], t[1] - c[1]);
+  };
+  for (let it = 0; it < 44; it++) {
+    dist = (lo + hi) / 2;
+    D.freeCam(eyeAt(dist), tgt, 45);
+    refresh();
+    if (wheelPx() > cfg.wheelPx) lo = dist; else hi = dist;
+  }
+  const eye = eyeAt(dist);
+  D.freeCam(eye, tgt, 45);
+  refresh();
+  for (let i = 0; i < 60; i++) D.world.update(D.vehicle.position);
   // A wheel's on-screen radius: project the axle and a point one radius above it.
   const wheelDisc = (lz) => {
     const c = project(side * 0.79, GROUND_Y + WHEEL_R, lz);
     const t = project(side * 0.79, GROUND_Y + WHEEL_R * 2, lz);
     return { cx: c[0], cy: c[1], r: Math.hypot(t[0] - c[0], t[1] - c[1]) };
   };
-  // The flank quad: a rectangle on the door skin, shoulder down to rocker,
-  // between the two arches. Deliberately clear of the glass and of the arches.
+  // The sampled panel is the TAIL, from just under the boot lip down to just
+  // above the plate recess, inset from both rear corners. That is where the
+  // complaint actually lives - "pale at the shoulder, near-black along the
+  // bottom third" is visibly true of the tail panel in the corridor hero frame -
+  // and unlike the door skin it faces the camera in the only view this street
+  // geometry allows. Kept clear of the tail lamps in u so the lamp division work
+  // cannot flatter the paint numbers.
+  // The sampled panel is the DOOR SKIN on the visible flank, shoulder down to
+  // rocker, between the two wheel arches (the rear arch reaches z = -0.855 and
+  // the front one z = 0.875, so -0.80..0.05 is clear of both). That is where the
+  // complaint lives - "pale at the shoulder, near-black along the bottom third" -
+  // and it is deliberately clear of the tail lamps, so the lamp work cannot
+  // flatter the paint numbers.
+  const px94 = (ly, lz) => project(...bodyPt(side * 0.94, ly, lz));
   const flank = [
-    project(side * 0.94, 0.30, 0.55), project(side * 0.94, 0.30, -0.90),
-    project(side * 0.94, -0.46, -0.90), project(side * 0.94, -0.46, 0.55),
+    px94(0.28, 0.60), px94(0.28, -0.82), px94(-0.46, -0.82), px94(-0.46, 0.60),
   ];
   // The whole-car box, for the edge density.
   const corners = [];
-  for (const lx of [-0.98, 0.98]) for (const ly of [GROUND_Y, 0.75]) for (const lz of [-2.3, 2.3]) {
-    corners.push(project(lx, ly, lz));
+  for (const lx of [-0.98, 0.98]) for (const ly of [CAR_GROUND, 0.72]) for (const lz of [-2.3, 2.3]) {
+    corners.push(project(...bodyPt(lx, ly, lz)));
   }
   const xs = corners.map((c) => c[0]), ys = corners.map((c) => c[1]);
-  const nose = project(0, 0.2, 2.24), tail = project(0, 0.2, -2.24);
+  const nose = project(...bodyPt(0, 0.2, 2.24)), tail = project(...bodyPt(0, 0.2, -2.24));
 
   return {
     slot: `${pick.x.toFixed(1)},${pick.z.toFixed(1)}`,
     yaw: +pick.yaw.toFixed(3), side,
+    dist: +dist.toFixed(1),
     eye: eye.map((v) => +v.toFixed(2)),
     wheelFront: wheelDisc(F_AXLE), wheelRear: wheelDisc(R_AXLE),
     flank,
     box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)],
     carPx: +Math.hypot(nose[0] - tail[0], nose[1] - tail[1]).toFixed(1),
   };
-}, { slot: SLOT, dist: DIST });
+}, { slot: SLOT, dist: DIST, wheelPx: TARGET_WHEEL_PX });
 
 if (setup.error) { console.error(setup.error); await browser.close(); process.exit(2); }
 console.log(`subject slot ${setup.slot}  (pin the next run with --slot ${setup.slot})`);
-console.log(`camera ${DIST} m off the tail quarter, car ${setup.carPx} px long on screen`);
+console.log(`camera ${setup.dist} m down the lane, solved for a ${TARGET_WHEEL_PX} px wheel `
+  + `(what the corridor hero frame shows); car ${setup.carPx} px nose-to-tail on screen`);
 console.log(`front wheel ${(2 * setup.wheelFront.r).toFixed(1)} px across, `
   + `rear ${(2 * setup.wheelRear.r).toFixed(1)} px`);
 if (setup.wheelRear.r < 4) {
   console.log('NOTE: a wheel under 8 px across cannot resolve a rim; treat rimCoV as indicative only.');
 }
 
-const run = { tag: TAG, slot: setup.slot, dist: DIST, carPx: setup.carPx, tod: {} };
+// The shared 16x1 palette, found by identity (a 16-wide roughnessMap on a car
+// material) rather than by guessing at scene order. It is a singleton in
+// carbody.js, so poking it moves the player car, traffic and the parked pool at
+// once - which is the point.
+const SURF = { paint: 0, trim: 1, chrome: 2, grille: 3, headlight: 4, taillight: 5,
+  indicator: 6, plate: 7, tyre: 8, rim: 9, glassy: 10, matte: 11 };
+const ARMS = (process.env.CAR_ARMS ?? '').split(',').map((a) => a.trim()).filter(Boolean);
+if (ARMS.length) {
+  const found = await page.evaluate(() => {
+    let tex = null;
+    __district.scene.traverse((o) => {
+      const m = o.material;
+      if (!tex && m && m.roughnessMap && m.roughnessMap.image && m.roughnessMap.image.width === 16) {
+        tex = m.roughnessMap;
+      }
+    });
+    if (!tex) return null;
+    window.__palTex = tex;
+    window.__palBase = Uint8Array.from(tex.image.data);
+    return Array.from(tex.image.data.slice(0, 12));
+  });
+  if (!found) { console.error('ABORT: no 16x1 car palette in the scene; arms would measure nothing.'); await browser.close(); process.exit(2); }
+  console.log(`palette found, paint bytes r=${found[1]} m=${found[2]}`);
+}
+
+const run = { tag: TAG, slot: setup.slot, dist: setup.dist, targetWheelPx: TARGET_WHEEL_PX, carPx: setup.carPx, arms: ARMS, tod: {} };
 for (const tod of TIMES) {
   await page.evaluate((t) => __district.setTimeOfDay(t), tod);
   const f0 = await page.evaluate(() => __district.frames);
   await page.waitForFunction((f) => __district.frames > f + 6, f0, { timeout: 180000, polling: 200 });
-  const file = `${OUT}/${TAG}-${tod}.png`;
-  await page.screenshot({ path: file, timeout: 180000 });
-  const png = readPNG(file);
-  const rec = {
-    file,
-    wheelFront: wheelMetrics(png, setup.wheelFront.cx, setup.wheelFront.cy, setup.wheelFront.r),
-    wheelRear: wheelMetrics(png, setup.wheelRear.cx, setup.wheelRear.cy, setup.wheelRear.r),
-    flank: flankMetrics(png, setup.flank),
-    edge: edgeMetrics(png, setup.box),
-  };
-  run.tod[tod] = rec;
-  console.log(`${tod.padEnd(7)} rimTyre F ${String(rec.wheelFront.rimTyre).padStart(6)} `
-    + `R ${String(rec.wheelRear.rimTyre).padStart(6)}   `
-    + `rimCoV F ${String(rec.wheelFront.rimCoV).padStart(5)} R ${String(rec.wheelRear.rimCoV).padStart(5)}   `
-    + `spec ${String(rec.flank.spec).padStart(5)}  vGrad ${String(rec.flank.vGrad).padStart(6)}  `
-    + `edges ${String(rec.edge.edges).padStart(6)}`);
+
+  for (const arm of (ARMS.length ? ARMS : [null])) {
+    if (arm) {
+      const applied = await page.evaluate((spec) => {
+        const t = window.__palTex, d = t.image.data;
+        d.set(window.__palBase);                       // every arm starts from the build's own palette
+        const SU = { paint: 0, trim: 1, chrome: 2, grille: 3, headlight: 4, taillight: 5,
+          indicator: 6, plate: 7, tyre: 8, rim: 9, glassy: 10, matte: 11 };
+        const out = [];
+        if (spec !== 'base') {
+          for (const part of spec.split('+')) {
+            const [name, rm] = part.split(':');
+            const [r, m] = rm.split('/').map(Number);
+            const i = SU[name];
+            d[i * 4 + 1] = Math.round(r * 255);
+            d[i * 4 + 2] = Math.round(m * 255);
+            out.push(`${name} r=${d[i * 4 + 1]} m=${d[i * 4 + 2]}`);
+          }
+        }
+        t.needsUpdate = true;
+        return out.join(', ') || 'build default';
+      }, arm);
+      // Rendered FRAMES, never milliseconds: on the software rasteriser a short
+      // wait can be less than one frame and the screenshot then belongs to the
+      // previous arm. hero-shots learned this the same way.
+      const fa = await page.evaluate(() => __district.frames);
+      await page.waitForFunction((f) => __district.frames > f + 4, fa, { timeout: 180000, polling: 200 });
+      console.log(`  arm ${arm}: ${applied}`);
+    }
+    const key = arm ? `${tod}/${arm}` : tod;
+    const file = `${OUT}/${TAG}-${tod}${arm ? `-${arm.replace(/[^a-z0-9]/gi, '_')}` : ''}.png`;
+    await page.screenshot({ path: file, timeout: 180000 });
+    const png = readPNG(file);
+    const rec = {
+      file,
+      wheelFront: wheelMetrics(png, setup.wheelFront.cx, setup.wheelFront.cy, setup.wheelFront.r),
+      wheelRear: wheelMetrics(png, setup.wheelRear.cx, setup.wheelRear.cy, setup.wheelRear.r),
+      flank: flankMetrics(png, setup.flank),
+      edge: edgeMetrics(png, setup.box),
+    };
+    if (ARGS.includes('--overlay')) {
+      overlay(png, setup, file.replace(/\.png$/, '-overlay.png'));
+    }
+    run.tod[key] = rec;
+    console.log(`${key.padEnd(30)} rimTyre F ${String(rec.wheelFront.rimTyre).padStart(6)} `
+      + `R ${String(rec.wheelRear.rimTyre).padStart(6)}   `
+      + `rimCoV F ${String(rec.wheelFront.rimCoV).padStart(5)} R ${String(rec.wheelRear.rimCoV).padStart(5)}   `
+      + `spec ${String(rec.flank.spec).padStart(5)}  vGrad ${String(rec.flank.vGrad).padStart(6)}  `
+      + `edges ${String(rec.edge.edges).padStart(6)}`);
+  }
 }
+if (ARMS.length) await page.evaluate(() => { window.__palTex.image.data.set(window.__palBase); window.__palTex.needsUpdate = true; });
 
 fs.writeFileSync(`${OUT}/${TAG}.json`, JSON.stringify({ ...run, setup, errors }, null, 2));
 console.log(`\nwrote ${OUT}/${TAG}.json`);
