@@ -164,6 +164,14 @@ where both kits rolled their own dice over the same wall for 275 m.
   "still busy" from a one-shot check. Wait on a PID you captured (`kill -0 $PID`),
   or if you must match by name, use a pattern that cannot match itself —
   `pgrep -f "[h]ero-shots"`.
+- **A `cd` into a worktree persists into your next command, and the tree you then
+  measure is not the one you think.** This has cost real work twice: once a
+  CLAUDE.md edit written into an abandoned worktree, where the commit silently
+  carried nothing, and once a capture reported as "0 frames produced" that was
+  in fact producing frames correctly — the `ls docs/shots/` had run from the
+  other tree. Both readings were plausible and both were about the wrong
+  directory. Put an absolute `cd` at the top of any script that measures or
+  writes, and prefer absolute paths in one-off checks.
 - Headless capture runs through SwiftShader well under 1 fps. Budget minutes per
   frame, and never report frame rate as a performance result.
 - `blind-compare` refuses to build a pair set carrying under 8% facade-band
