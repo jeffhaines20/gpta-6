@@ -1,0 +1,40 @@
+{
+ "frames": [
+  {
+   "bi": 76,
+   "edge": 2,
+   "len": 78.4,
+   "recipe": "bayTower",
+   "h": 35.2,
+   "span": 40,
+   "standoff": 22,
+   "hfov": 84.5,
+   "street": true,
+   "cam": [
+    69.7995881037926,
+    1.75,
+    -75.91462267070143
+   ],
+   "tgt": [
+    47.8,
+    3.5,
+    -75.78
+   ],
+   "fov": 54.167101728737336,
+   "lots": []
+  }
+ ],
+ "results": [
+  {
+   "b": 76,
+   "tod": "noon",
+   "file": "docs/shots/beforeB-elev76e2-noon.png",
+   "triangles": 562009,
+   "drawCalls": 166,
+   "near": 16,
+   "chunks": 85,
+   "peds": 0
+  }
+ ],
+ "errors": []
+}
