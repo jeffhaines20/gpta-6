@@ -1,0 +1,8 @@
+=== interleaved A/B, 2 rounds x 2 arms, port 8137 ===
+r1 afterQ: stall 9.1 ms  tri.p95 819495  draw.p95 240  [load 5.35 chrome 10]  rc=0  402s
+r1 beforeQ: stall 8.5 ms  tri.p95 825129  draw.p95 241  [load 7.99 chrome 15]  rc=0  402s
+r2 afterQ: stall 18.3 ms  tri.p95 819495  draw.p95 236  [load 12.24 chrome 26]  rc=1  418s
+r2 beforeQ: stall 13.5 ms  tri.p95 810531  draw.p95 235  [load 7.92 chrome 4]  rc=0  359s
+--- summary ---
+afterQ     runs [9.1,18.3]  median 13.7  range 9.1-18.3  n=2
+beforeQ    runs [8.5,13.5]  median 11  range 8.5-13.5  n=2

@@ -1,0 +1,6 @@
+=== base-kerbs-on: 3 sequential runs, port 8137, query='' ===
+run 1: stall 10.7 ms   worst_total 23.1 ms   tri.p95 821785   draw.p95 237   rc=0   388s
+run 2: stall 14.7 ms   worst_total 22.2 ms   tri.p95 829641   draw.p95 241   rc=0   390s
+run 3: stall 10.7 ms   worst_total 27.9 ms   tri.p95 826634   draw.p95 240   rc=0   394s
+--- base-kerbs-on summary ---
+base-kerbs-on  runs [10.7,14.7,10.7]  median 10.7  range 10.7-14.7  n=3

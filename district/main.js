@@ -65,6 +65,7 @@ await loading
     district = await (await fetch('../data/district.json')).json();
   })
   .add('generating materials', async () => {
+    const _boot = new URLSearchParams(location.search);
     // Constructing the world builds the material registry and facade library.
     // ?kerbs=0 streams the district with no kerb, gutter pan or parking lane, so
     // a before/after capture is ONE build on ONE port with one thing different.
@@ -72,7 +73,12 @@ await loading
     // project came back with both arms photographing the same commit.
     world = new StreamingWorld(scene, district, {
       nearRadius: 2, farRadius: 5, budgetMs: 3,
-      kerbs: new URLSearchParams(location.search).get('kerbs') !== '0',
+      kerbs: _boot.get('kerbs') !== '0',
+      // ?frontage=lazy restores the pre-fix behaviour - every building's street
+      // elevations computed on first touch, inside a timed chunk slice - so the
+      // before/after for that change is one build on one port with one thing
+      // different. Default (primed in the constructor) is the shipped path.
+      frontage: _boot.get('frontage') === 'lazy' ? 'lazy' : 'primed',
     });
   })
   .add('atmosphere', async () => {

@@ -78,17 +78,11 @@ const keyOf = (x, z) => `${Math.floor(x / CHUNK)},${Math.floor(z / CHUNK)}`;
 const streetDirFor = (b) => geomStreetDirFor(d, b);
 // streaming.js _capStyle, replayed: an audit that used a different style than
 // the streamer would be auditing a world nobody renders.
-function capStyle(style, b) {
-  let per = 0;
-  for (let i = 0; i < b.p.length; i++) {
-    const a = b.p[i], c = b.p[(i + 1) % b.p.length];
-    per += Math.hypot(c[0] - a[0], c[1] - a[1]);
-  }
-  const cost = style.floors * per;
-  if (cost > 1400) { style.balconies = false; style.fireEscape = false; }
-  if (cost > 1800) style.roofUnits = Math.min(style.roofUnits, 3);
-  return style;
-}
+// The cap was a hand copy of StreamingWorld._capStyle. It is now imported from
+// the module they both read, so this audit cannot go on checking the geometry of
+// a rule the streamer has stopped applying - which it would have done silently,
+// and which is the whole failure mode an audit exists to prevent.
+import { capStyle } from '../src/build-cost.js';
 
 // Split a buffer written only by box() back into its solids. box() emits six
 // quads = 24 vertices, so solid boundaries fall on multiples of 24.

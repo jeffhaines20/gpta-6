@@ -181,13 +181,32 @@ const heapAfter = await page.evaluate(() => {
 
 const world = await page.evaluate(() => __district.worldReport());
 const trafficReport = await page.evaluate(() => __district.trafficReport());
-// 180 s, not Playwright's default 30. A SwiftShader frame takes seconds on an
-// idle box and tens of seconds with other headless browsers alive; this gate
-// completed all three circuits and then threw on the screenshot, throwing away
-// the measurement it had just spent five minutes taking. tools/hero-shots.mjs
-// and tools/lot-shots.mjs already use 180 s for the same reason.
-await page.screenshot({ path: `${OUT}/district-drive${WITH_TRAFFIC ? '-traffic' : ''}.png`,
-  timeout: 180000 });
+// The screenshot is an artifact, not a measurement, and it must not be able to
+// destroy one. Two rounds hit this independently and each fixed one half of it;
+// this is both halves.
+//
+// The timeout: Playwright's default is 30 s, and a SwiftShader frame takes
+// seconds on an idle box and tens of seconds with other headless browsers alive.
+// tools/hero-shots.mjs and tools/lot-shots.mjs already use 180 s for the same
+// reason, so this does too.
+//
+// The catch: because the screenshot stood between the last page.evaluate() and
+// the writeFileSync below, a timeout THREW AWAY A COMPLETED SEVEN-MINUTE RUN --
+// no JSON written, no gate printed, non-zero exit. That is worse than it sounds.
+// A caller that copies docs/drive-traffic.json after the run then picks up the
+// PREVIOUS run's file and cannot tell. It was found because two "sequential
+// runs" of a metric whose noise band is 8.2-15.1 ms both reported 8.6 ms, 22 ms
+// and 793,020 triangles to the digit. Two identical readings of this metric are
+// not a result, they are a copy.
+//
+// So it is bounded AND non-fatal, and its failure is recorded in `errors` where
+// a reader can see it rather than having to infer it from a missing file.
+try {
+  await page.screenshot({ path: `${OUT}/district-drive${WITH_TRAFFIC ? '-traffic' : ''}.png`,
+    timeout: 180000 });
+} catch (e) {
+  errors.push(`SCREENSHOT FAILED (measurement kept): ${e.message.split('\n')[0]}`);
+}
 
 // ---- aggregate
 const num = (k) => samples.map((s) => s[k]).filter((v) => v !== null && v !== undefined);

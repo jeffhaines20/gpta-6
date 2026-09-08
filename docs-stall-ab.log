@@ -1,0 +1,4 @@
+=== interleaved A/B, 3 rounds x 2 arms, port 8137 ===
+r1 after: stall 25.5 ms  tri.p95 829016  draw.p95 241  [load 9.31 chrome 22]  rc=1  433s
+r1 before: stall 105.5 ms  tri.p95 826634  draw.p95 241  [load 9.90 chrome 14]  rc=1  381s
+r2 after: stall 109.4 ms  tri.p95 824504  draw.p95 241  [load 9.39 chrome 15]  rc=1  432s
