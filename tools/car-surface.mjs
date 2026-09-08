@@ -229,3 +229,37 @@ export function windingSelftest() {
   console.log(fail.length ? `\nWINDING SELFTEST FAILED: ${fail.join(', ')}` : '\nWINDING SELFTEST OK');
   return fail.length === 0;
 }
+
+// ---------------------------------------------------------------------------
+// INDEPENDENT REPRODUCTION of round 2's central claim, run from the main tree
+// after the merge rather than taken on the builder's word. CLAUDE.md: reproduce
+// the number, then test the diagnosis separately.
+//
+// Whole-car face audit, round 1 (4e5f603) against round 2 (merged), counting a
+// triangle as outboard when its winding normal points away from the car centre:
+//
+//   round 1   outward-facing 392 tris / 11.3484 m²   inboard-facing 102 / 2.0816 m²
+//   round 2   outward-facing 520 tris / 11.9166 m²   inboard-facing  38 / 1.4821 m²
+//
+// inboard 102 -> 38 is EXACTLY -64, which is the 16 culled rim-face triangles per
+// wheel across four wheels that the round set out to fix. Reproduced.
+//
+// It also settles the third-ring question the builder left open. Flipping moves
+// 0.5995 m² off the inboard side; the outward side gains only 0.5682 m². If the
+// ring's 64 triangles carried real area the outward gain would EXCEED the
+// inboard loss, and it does not -- so the ring contributes about zero
+// front-facing area, as the builder said.
+//
+// It is kept anyway, and this is the reasoning rather than an oversight: the
+// on-screen wheel numbers that currently pass (front rimTyre ~1.0, hubPeak
+// inside the 1.5-2.3 photograph band at all four hours) were all measured WITH
+// the ring present. Removing it would trade a measured result for an unmeasured
+// saving of 64 tris/car -- 1,920 district-wide, 0.23% of a budget the round is
+// already net-negative against. Zero projected area is also not the same as zero
+// visual effect at a grazing angle. The place to settle it is a blind review of
+// a with/without pair, not an offline area sum.
+//
+// Note for anyone repeating this: buildWheelGeometry() is the PLAYER car's wheel
+// and is byte-identical across the two rounds. The traffic wheel is built inline
+// in buildTrafficCarGeometry, so isolating it through that export measures
+// nothing and reads as "no change".
