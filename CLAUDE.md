@@ -76,6 +76,20 @@ less than one that says what moved and by how much.
   *unchanged* configuration. It cannot resolve a 1,000-triangle margin against
   the 830,000 warn. Price changes with a deterministic offline count
   (`tools/frontage-stats.mjs`, `tools/tri-breakdown.mjs`).
+- **The budget gate's triangle "p95" is the 3rd-highest of 51 frames.** The drive
+  samples 51 times in 53.5 s — dt 1.05 s — over a quantity that swings from
+  563,766 to 868,617, a range of 41% of its own p50. A near-maximum over 51
+  coarse samples is not a tail statistic: which frames land in the top three
+  depends on where the drive was when the sampler fired, and the count tracks
+  resident chunks (NEAR 16-17, FAR 54-73) rather than anything a diff changed.
+  `tools/tri-ledger.mjs` prints the rank a percentile actually selects alongside
+  the deterministic ledger, so a round can price itself before arguing with the
+  gate. **Price first, run the gate second.** One round lost four hours to a
+  same-box baseline for a WARN that arithmetic disposed of in minutes.
+- **Check the fleet size before pricing anything per-car.** Three rounds argued
+  over a +6,300-triangle body detail on an assumed 90-car fleet. The gate's own
+  output says `"traffic": {"fleet": 30}`. The real figure was +1,560, and the
+  decision that had been deferred twice for not fitting had always fitted.
 - **`chunk stall ms` is unusable while anything else runs on the box.** The same
   code has measured 7.1, 24.1, 7.9, 68.5 and 11.6 ms depending only on how many
   headless browsers were alive. It is a max, not a percentile.
