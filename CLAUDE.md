@@ -46,6 +46,28 @@ less than one that says what moved and by how much.
   ground contact; if the metric cannot see it, say so instead of quoting it.
 - **Isolate one term at a time.** A round reverted the wrong lever because it
   never isolated, then found roughness carried 99% of the move it was chasing.
+- **A probe that measures the OPPORTUNITY does not measure the FIX.** A HUD probe
+  counted `ctx.font` assignments — 3.00 a frame, every one building an identical
+  string — and its own self-test warned in as many words that "a build that
+  hoisted the constants but still assigned every frame would look fixed". The
+  hoist landed, the probe read 3.00 before and 3.00 after, correctly, and it was
+  used to check the fix anyway. Before quoting a number as evidence a change
+  worked, say out loud which quantity the change alters and check the instrument
+  moves when that quantity does.
+- **When two instruments disagree, the tie-break is the one that isolates a
+  single operation at high repetition.** V8's heap sampling profiler reported
+  0.0 B/iter for both a rebuilt template literal and a hoisted constant. A timing
+  loop at 5,000,000 repetitions read 11.14 ns against 0.98 ns. Stopping at the
+  first would have concluded V8 constant-folds the template and the change is a
+  no-op. It does not, and it is not.
+- **Measure coverage of emitted geometry by CONNECTIVITY, not by vertex
+  proximity.** Fabric, glass and any ruled surface carries vertices only at its
+  two rails. A 2.70 m awning has vertices at s=6.15 and s=8.85 and nothing in
+  between, so a proximity merge read 0.49 m of cloth on a wall carrying 5.40 and
+  reported no overlap with anything. No threshold rescues it: the interior gap of
+  one awning (2.46 m) is eight times the real gap between two (0.30 m). Connected
+  components cannot merge two pieces that share no vertices, or split one that
+  does.
 
 ## Numbers that are not what they look like
 
@@ -68,12 +90,45 @@ less than one that says what moved and by how much.
   pins it, and a sweep meant to be compared with an earlier one must pass the
   earlier one's slot. The same caution applies to its facade pick, which chose
   `retailStrip@12.7m` in some runs and `midOffice@24.6m` in others.
+- **An absolute luma band is not comparable between builds, and the direction it
+  lies in is flattering.** `muddyPct` counted pixels in [30,60]. A pure exposure
+  change with ZERO content change walks the population across it: 20.12 at −0.5
+  stops, 40.13 at +1. The tool's own report contained a live instance — a bay
+  where `muddyPct` fell 6.11 → 3.89, reading as a legibility win, in a frame that
+  had got 6.6× brighter. Ratios of percentiles taken in LINEAR light are exactly
+  invariant under an exposure change, because there it is a pure scale: the same
+  bay measured 8.3325 at every stop from −0.5 to +1, drift 0.00%. The same ratio
+  on the sRGB-ENCODED values drifts 20%, because the OETF is not a scale — so
+  "take a ratio" is not enough on its own, it has to be a ratio in linear light.
+  Exact only while nothing clips; report the clipped fraction beside it.
 - **A "last radius still over 0.05" is a threshold crossing, and on a rippled
   profile it reads the ripple.** The pedestrian halo extinction moved 4.4 → 4.6
   bw on a change whose profile was LOWER at every radius out to 2.9 bw, because
   both arms dip under 0.05 at 3.4 bw and both come back over it at 3.9 bw. The
   level readings at 1, 3 and 6 body widths are the trustworthy statement; the
   crossing is decided by 0.006 of ripple.
+
+## An audit that walks less than the build cannot fail
+
+`geom-audit` asked `streetDirFor` for ONE street direction and took `facingEdges`'
+cone around it. `appendBuilding` asks `streetDirsFor` and UNIONS the cones,
+because a corner site fronts two streets and one direction can only ever admit
+one of them. So every prop check in that file — roof units, fire escapes, sign
+blanks, awning arms, street doors — was blind to the second elevation of every
+corner site in the district, and had been for as long as corner sites existed.
+
+It passed the whole time. That was luck, not evidence.
+
+**When a tool replays the build, it must replay the build's own selection, and
+the cheap proof is that its counts match.** After the fix the audit's numbers
+agreed with two independent censuses to the unit — 157 doors, 450 sign awnings —
+where before it had reported 133 and 375. A count that disagrees with the build
+by 15% is the audit telling you it is looking somewhere else.
+
+The same trap has a second mouth: a guard that covers half a case reads as a
+guard. `facades.js` refused to emit awnings over a LOTTED bay, which is exactly
+right and covered so much of the problem that nobody looked at the unlotted half,
+where both kits rolled their own dice over the same wall for 275 m.
 
 ## Captures
 
@@ -133,6 +188,22 @@ that was ~1% of the band, mostly gaps in the oak canopy. The observation was
 real, the offered cause was not, and the actual cause was a wall term that
 assumed the whole canyon wall was lit. **Reproduce the number, then test the
 diagnosis separately.**
+
+## Pricing a change
+
+**Count triangles by building the geometry and reading the buffer, never by
+counting quads in your head.** Six quads, twelve triangles, 157 doors, 1,884 —
+that arithmetic was confident, written down, and wrong by a factor of two. The
+offline bill said +3,780, because `faceQ`/`jambQ`/`shelfQ` do not each emit the
+one quad the estimate assumed. `tools/frontage-stats.mjs` and
+`tools/tri-breakdown.mjs` are deterministic and take seconds; the budget gate
+carries ~20k of noise and cannot arbitrate.
+
+**Price a per-frame cost against the frame budget before calling it a win.** An
+11× speedup on an operation that runs three times a frame is 30 ns, which is
+0.0002% of a 60 fps frame. Keep the change if it is free and correct; do not
+report it as performance. Saying "this is real and it does not matter" is a
+result, and it stops the next person spending a day on it.
 
 ## Committing
 
