@@ -99,6 +99,28 @@ if (HERO_TRAFFIC > 0) {
   await settleFrames(page, FRAME_SETTLE, 'traffic spawn');
 }
 
+// HERO_PEDS, and the reason it exists is the reason HERO_TRAFFIC is not enough.
+//
+// src/traffic.js calls Math.random() ten times and src/pedestrians.js thirteen,
+// all unseeded, for spawn edge, direction, position along the edge, speed, limit
+// and paint. So two page loads of the SAME BUILD carry different cars in
+// different places with different colours, and different people walking. Frame
+// settling fixes when the simulation is; it cannot fix what is in it.
+//
+// That makes a source-level A/B unregisterable while either population is alive,
+// and it is not a small effect: two arms of one unchanged build at the SAME
+// frame number (101 and 101) differed on 5.01% of pixels at noon, 27,745 of them
+// BRIGHTER in the arm that had strictly less emissive in it.
+//
+// Setting both to 0 leaves the district, the props and the PARKED cars, which
+// are placed from a position hash and are deterministic. That is a registered
+// pair, and it is the only way to attribute a small change to its cause here.
+const HERO_PEDS = process.env.HERO_PEDS;
+if (HERO_PEDS !== undefined) {
+  await page.evaluate((n) => __district.setPedestrians(n), Number(HERO_PEDS));
+  await settleFrames(page, FRAME_SETTLE, `pedestrians ${HERO_PEDS}`);
+}
+
 // Stand in the carriageway on the Main Street corridor looking east toward
 // Five Points, which is the district's hero view.
 //
