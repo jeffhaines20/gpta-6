@@ -146,11 +146,22 @@ export class StreamingWorld {
   //     _streetDirFor    65.6 ms      _streetDirsFor   62.6 ms      total 128.2
   //     the facade kit itself, every build                          total 100.3
   //
-  // so 56% of what a chunk's FIRST build costs is this search, and none of what
-  // its rebuilds cost. Per chunk that is a first build of up to 10.83 ms against
-  // a rebuild of at most 3.76 ms - and the live ledger's worst append:near step
-  // was 10.9 ms, on a chunk this predicts at 10.83. Two instruments, one offline
-  // and deterministic, one inside the running page, agreeing to 0.07 ms.
+  // so 55% of what a chunk's FIRST build costs is this search, and none of what
+  // its rebuilds cost.
+  //
+  // Trust the SHARE, not the milliseconds. Both terms above are timed in one
+  // process in one pass, so their ratio survives the environment; the absolute
+  // numbers do not. Measured against the live ledger over 28 build episodes, the
+  // page runs this work 1.95x slower than node does offline (per-episode ratio
+  // p50 1.65, p10 1.08, p90 3.71), and the probe cannot pick which chunk will be
+  // worst - Spearman rho 0.500 against the live per-chunk maxima.
+  //
+  // An earlier version of this comment claimed the two instruments agreed to
+  // 0.07 ms on chunk 1,-2. They do not. 10.83 ms was the probe's maximum over
+  // ALL chunks and belonged to chunk -4,-2; the probe's figure for 1,-2 is 3.86
+  // against the live 10.90. A global max was matched to a per-chunk reading and
+  // the coincidence was reported as corroboration. Left here because the wrong
+  // version was convincing, which is the whole reason it survived two commits.
   //
   // planKerbs() was moved into this constructor for exactly this reason and says
   // so four lines up ("on first use it would land inside a chunk build's timed
