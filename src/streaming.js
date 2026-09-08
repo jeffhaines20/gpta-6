@@ -84,6 +84,17 @@ export class StreamingWorld {
       sliceMs: 0, worstSliceMs: 0, scanMs: 0, worstScanMs: 0,
       worstDisposeMs: 0, worstUploadMs: 0 };
 
+    // Per-step attribution ledger. See the block comment above _kindId().
+    // OFF by default: the budget gate's baseline must not be measured through
+    // instrumentation that was not there when the thresholds were set.
+    this._log = {
+      on: false, cap: 400000, seq: 0, idle: 0, dropped: 0,
+      kinds: [], kindId: new Map(), chunks: [], chunkId: new Map(),
+      slice: { seq: [], ms: [], scan: [], dispose: [], step: [], n: [] },
+      step: { slice: [], kind: [], ms: [], chunk: [], lod: [] },
+    };
+    this._accScan = 0; this._accDispose = 0; this._accStep = 0; this._accN = 0;
+
     // One shared registry for the whole district: N buildings share M materials,
     // and M is a number the budget gate can hold.
     this.registry = opts.registry ?? getMaterials(opts.materialOpts);
@@ -160,6 +171,7 @@ export class StreamingWorld {
 
   update(pos) {
     const tScan0 = performance.now();
+    this._accScan = 0; this._accDispose = 0; this._accStep = 0; this._accN = 0;
     const pcx = Math.floor(pos.x / this.chunkSize), pcz = Math.floor(pos.z / this.chunkSize);
 
     // Rescan only when the player crosses a chunk boundary. Recomputing the want
@@ -180,6 +192,7 @@ export class StreamingWorld {
       const built = this._drainQueue(this._want, pcx, pcz, t0q);
       this.stats.sliceMs = performance.now() - t0q;
       if (this.stats.sliceMs > this.stats.worstSliceMs) this.stats.worstSliceMs = this.stats.sliceMs;
+      this._logSlice(this.stats.sliceMs);
       return built;
     }
     this._lastCx = pcx; this._lastCz = pcz;
@@ -284,9 +297,11 @@ export class StreamingWorld {
     const t0 = performance.now();
     this.stats.scanMs = t0 - tScan0;
     if (this.stats.scanMs > this.stats.worstScanMs) this.stats.worstScanMs = this.stats.scanMs;
+    this._accScan = this.stats.scanMs;
     const built = this._drainQueue(want, pcx, pcz, t0);
     this.stats.sliceMs = performance.now() - tScan0;
     if (this.stats.sliceMs > this.stats.worstSliceMs) this.stats.worstSliceMs = this.stats.sliceMs;
+    this._logSlice(this.stats.sliceMs);
     return built;
   }
 
@@ -369,6 +384,7 @@ export class StreamingWorld {
       if (o.isMesh) { o.geometry.dispose(); }
     });
     const dm = performance.now() - td0;
+    this._accDispose += dm;
     if (dm > (this.stats.worstDisposeMs ?? 0)) this.stats.worstDisposeMs = dm;
   }
 
@@ -483,10 +499,14 @@ export class StreamingWorld {
   _stepBuild(job, deadline) {
     const t0 = performance.now();
     const { chunk, lod } = job;
+    // `yielded` replaces three `return false` exits that each recomputed the
+    // clock. The phases are timed separately because they are separately
+    // expensive and the ledger has to say which one ran long.
+    let yielded = false;
     if (lod === LOD.NEAR) {
       let didWork = false;
       while (job.i < chunk.buildings.length) {
-        if (didWork && performance.now() >= deadline) { job.ms += performance.now() - t0; return false; }
+        if (didWork && performance.now() >= deadline) { yielded = true; break; }
         const b = this.d.buildings[chunk.buildings[job.i]];
         const style = this._capStyle(buildingStyle(b), b);
         if (!job.byRecipe.has(style.recipe)) job.byRecipe.set(style.recipe, buffers());
@@ -508,7 +528,7 @@ export class StreamingWorld {
       };
       let didFar = false;
       while (job.i < chunk.buildings.length) {
-        if (didFar && performance.now() >= deadline) { job.ms += performance.now() - t0; return false; }
+        if (didFar && performance.now() >= deadline) { yielded = true; break; }
         const bi = chunk.buildings[job.i];
         const b = this.d.buildings[bi];
         const wall = wallFamilyFor(b, bi), roof = roofFor(b, bi);
@@ -527,11 +547,15 @@ export class StreamingWorld {
       }
     }
 
+    const tAppend = performance.now();
+    this._logStep(lod === LOD.NEAR ? 'append:near' : 'append:far', tAppend - t0, job);
+    if (yielded) { job.ms += tAppend - t0; return false; }
+
     // Zones, one polygon per iteration so a chunk full of car parks cannot blow
     // the slice the way it did when they were triangulated in a single step.
     const zoneList = chunk.zones ?? [];
     while (job.zoneIdx < zoneList.length) {
-      if (performance.now() >= deadline) { job.ms += performance.now() - t0; return false; }
+      if (performance.now() >= deadline) { yielded = true; break; }
       const z = this.d.zones[zoneList[job.zoneIdx]];
       job.zoneIdx++;
       const key = ZONE_MATERIAL[z.z];
@@ -553,8 +577,10 @@ export class StreamingWorld {
       }
     }
 
-    job.ms += performance.now() - t0;
-    return true;
+    const tZone = performance.now();
+    this._logStep('zone-tri', tZone - tAppend, job);
+    job.ms += tZone - t0;
+    return !yielded;
   }
 
   // Every mesh a chunk emits says which chunk and what it is.
@@ -577,13 +603,17 @@ export class StreamingWorld {
   // gateable, which is what keeps the worst slice bounded.
   _planUploads(job) {
     const steps = [];
+    // Each step carries its own label. It was already computing one for _named();
+    // hoisting it out of the closure is what lets the ledger say WHICH step, and
+    // costs nothing - the string was being built either way.
+    const push = (what, run) => steps.push({ what, run });
     if (job.lod === LOD.NEAR) {
       for (const [recipe, buf] of job.byRecipe) {
-        steps.push(() => this._named(
+        push(`facade:${recipe}`, () => this._named(
           this._meshFromBuffers(buf, facadeMaterial(recipe, { time: this.facadeTime }), true),
           job, `facade:${recipe}`));
       }
-      steps.push(() => this._named(this._meshFromBuffers(job.trim, trimMaterial(), true), job, 'trim'));
+      push('trim', () => this._named(this._meshFromBuffers(job.trim, trimMaterial(), true), job, 'trim'));
     } else {
       // The far tier stays a receiver and not a caster, and that is now a
       // measured choice rather than an unset flag. Near chunks run to
@@ -593,16 +623,16 @@ export class StreamingWorld {
       // per chunk in the shadow pass. Forcing every chunk mesh to cast at the
       // corridor camera measured 0.50% of the frame darkened for 205 extra
       // caster meshes, and none of that 0.50% was on the near ground.
-      steps.push(() => this._named(this._mergedMesh(job), job, 'far'));
+      push('far', () => this._named(this._mergedMesh(job), job, 'far'));
     }
     if (job.lod === LOD.NEAR) {
-      steps.push(() => this._named(this._roadMesh(job.chunk, job.key), job, 'road'));
-      steps.push(() => this._named(this._kerbMesh(job.chunk, job.key), job, 'kerb'));
+      push('road', () => this._named(this._roadMesh(job.chunk, job.key), job, 'road'));
+      push('kerb', () => this._named(this._kerbMesh(job.chunk, job.key), job, 'kerb'));
     } else {
-      steps.push(() => this._named(this._farRoadMesh(job.chunk, job.key), job, 'road'));
+      push('far-road', () => this._named(this._farRoadMesh(job.chunk, job.key), job, 'road'));
     }
     for (const [key, buf] of job.zoneBuf) {
-      steps.push(() => this._named(this._zoneMeshFromBuffer(buf, key), job, `zone:${key}`));
+      push(`zone:${key}`, () => this._named(this._zoneMeshFromBuffer(buf, key), job, `zone:${key}`));
     }
     return steps;
   }
@@ -611,11 +641,13 @@ export class StreamingWorld {
     if (!job.uploads) { job.uploads = this._planUploads(job); job.up = 0; }
     while (job.up < job.uploads.length) {
       const t0 = performance.now();
-      const mesh = job.uploads[job.up]();
+      const st = job.uploads[job.up];
+      const mesh = st.run();
       if (mesh) job.group.add(mesh);
       job.up++;
       const cost = performance.now() - t0;
       job.ms += cost;
+      this._logStep(st.what, cost, job);
       if (cost > (this.stats.worstUploadMs ?? 0)) this.stats.worstUploadMs = cost;
       if (job.up < job.uploads.length && performance.now() >= deadline) return false;
     }
@@ -897,6 +929,109 @@ export class StreamingWorld {
     return { lod, group };
   }
 
+  // --------------------------------------------------------- step attribution
+  //
+  // The stall gate reads ONE number - the worst uninterrupted slice - and until
+  // now there was no way to ask which of the ~30 things a slice can do produced
+  // it. Four rounds of this project guessed instead, and the file's own comments
+  // record two of the guesses being wrong (the "HUD adds 4 ms" claim no harness
+  // could reproduce; the shadow-pass hypothesis that needed DRIVE_SHADOW built to
+  // test it). So this records it.
+  //
+  // Every slice writes what it spent where - scan, dispose, steps - and every
+  // step writes its own cost, its kind and its chunk. The design constraint is
+  // that measuring the slice must not move the slice: after warmup this is five
+  // array pushes of NUMBERS per step into preallocated flat arrays, with kind and
+  // chunk strings interned to integers. No object is allocated in the timed path.
+  // The performance.now() pairs it reads were already there.
+  //
+  // It is OFF by default and turned on by tools/chunk-steps.mjs. The budget
+  // gate's own runs must measure the code the thresholds were set against, not
+  // the code plus a probe.
+  //
+  // All aggregation - max, median, the sum-vs-slice residual check - lives in
+  // tools/chunk-steps.mjs, where --selftest can reach it. Nothing here decides
+  // anything; it only records.
+  setStepLog(on) {
+    this._log.on = !!on;
+    if (on) this._clearStepLog();
+    return this._log.on;
+  }
+
+  _clearStepLog() {
+    const L = this._log;
+    L.seq = 0; L.idle = 0; L.dropped = 0;
+    L.kinds = []; L.kindId = new Map();
+    L.chunks = []; L.chunkId = new Map();
+    for (const a of Object.values(L.slice)) a.length = 0;
+    for (const a of Object.values(L.step)) a.length = 0;
+  }
+
+  _kindId(name) {
+    const L = this._log;
+    let id = L.kindId.get(name);
+    if (id === undefined) { id = L.kinds.length; L.kinds.push(name); L.kindId.set(name, id); }
+    return id;
+  }
+
+  _chunkKeyId(key) {
+    const L = this._log;
+    let id = L.chunkId.get(key);
+    if (id === undefined) { id = L.chunks.length; L.chunks.push(key); L.chunkId.set(key, id); }
+    return id;
+  }
+
+  // Called from the timed path. `_accStep`/`_accN` are accumulated even when the
+  // ledger is off, because they cost two additions and keep the two modes'
+  // control flow identical.
+  _logStep(what, ms, job) {
+    this._accStep += ms;
+    this._accN++;
+    const L = this._log;
+    if (!L.on) return;
+    if (L.step.ms.length >= L.cap) { L.dropped++; return; }
+    L.step.slice.push(L.seq);
+    L.step.kind.push(this._kindId(what));
+    L.step.ms.push(ms);
+    L.step.chunk.push(this._chunkKeyId(job.key));
+    L.step.lod.push(job.lod);
+  }
+
+  // One row per slice that did something. Slices that did nothing are counted,
+  // not stored: there are tens of thousands of them (timeScale drives update()
+  // 22x per rendered frame) and they cost nothing, so storing them would bury
+  // the signal and inflate the transfer for no reading.
+  _logSlice(ms) {
+    const L = this._log;
+    const seq = L.seq++;
+    if (!L.on) return;
+    if (this._accN === 0 && this._accDispose === 0 && this._accScan === 0) { L.idle++; return; }
+    if (L.slice.ms.length >= L.cap) { L.dropped++; return; }
+    L.slice.seq.push(seq);
+    L.slice.ms.push(ms);
+    L.slice.scan.push(this._accScan);
+    L.slice.dispose.push(this._accDispose);
+    L.slice.step.push(this._accStep);
+    L.slice.n.push(this._accN);
+  }
+
+  /** The raw ledger. Aggregation is the caller's job - see tools/chunk-steps.mjs. */
+  stepLog() {
+    const L = this._log;
+    return {
+      on: L.on, cap: L.cap, slices: L.seq, idleSlices: L.idle, dropped: L.dropped,
+      kinds: L.kinds.slice(), chunks: L.chunks.slice(),
+      slice: {
+        seq: L.slice.seq.slice(), ms: L.slice.ms.slice(), scan: L.slice.scan.slice(),
+        dispose: L.slice.dispose.slice(), step: L.slice.step.slice(), n: L.slice.n.slice(),
+      },
+      step: {
+        slice: L.step.slice.slice(), kind: L.step.kind.slice(), ms: L.step.ms.slice(),
+        chunk: L.step.chunk.slice(), lod: L.step.lod.slice(),
+      },
+    };
+  }
+
   // The gate must measure the window a harness actually recorded. worstSliceMs
   // otherwise carries the initial fill burst - dozens of chunks built while the
   // loading screen is still up - into a steady-state churn measurement, and
@@ -907,6 +1042,7 @@ export class StreamingWorld {
     this.stats.worstScanMs = 0;
     this.stats.worstDisposeMs = 0;
     this.stats.worstUploadMs = 0;
+    if (this._log.on) this._clearStepLog();
   }
 
   report() {
