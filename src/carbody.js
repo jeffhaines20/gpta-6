@@ -900,9 +900,16 @@ export function buildTrafficCarGeometry(opts = {}) {
   const trimC = col(0x3a3d42);
   const glassC = col(0x0d1015);
   const tyreC = col(0x0e1013);
-  const rimC = col(0x8c939b);
+  const rimC = col(0xc2c8ce);          // alloy face
+  const rimGapC = col(0x24282e);        // the shadow a spoke gap sits in
   const lampC = col(0xd8dade);
   const tailC = col(0x8e1c16);
+  const grilleC = col(0x121417);
+  const plateC = col(0xdadfe2);
+  const shutC = col(0x1d2126);
+  // 0.42 of white, so after the instance colour multiplies it the crease arrives
+  // as a shade of that car's own paint rather than as a grey stripe on it.
+  const swageC = col(0xffffff).multiplyScalar(0.42);
 
   const b = new Builder();
   const pts = silhouette(P, { archSegments: 6, decimate: true });
@@ -911,7 +918,10 @@ export function buildTrafficCarGeometry(opts = {}) {
 
   const tagIndex = (name) => pts.findIndex((p) => p.tag === name);
   const iLampLo = tagIndex('lampLo'), iLampHi = tagIndex('lampHi');
+  const iGrilleLo = tagIndex('grilleLo'), iGrilleHi = tagIndex('grilleHi');
   const iTailHi = tagIndex('tailHi'), iTailLo = tagIndex('tailLo');
+  const iPlateHi = tagIndex('plateHi'), iPlateLo = tagIndex('plateLo');
+  const iBootFront = tagIndex('bootFront'), iBootLip = tagIndex('bootLip');
   const iScreenLo = tagIndex('screenLo'), iScreenHi = tagIndex('screenHi');
   const iBackHi = tagIndex('backlightHi'), iBackLo = tagIndex('backlightLo');
 
@@ -921,9 +931,43 @@ export function buildTrafficCarGeometry(opts = {}) {
         SURFACE.headlight, lampC, 1);
     }
   }
+  // --- grille. The nose was a blank painted wall: the aperture is already a real
+  // 40 mm step in the silhouette, and nothing was ever put in it. 8 triangles.
+  if (iGrilleLo >= 0 && iGrilleHi > iGrilleLo) {
+    overlayBand(b, pts, nrm, iGrilleLo, iGrilleHi, -0.60, 0.60, 0.010,
+      SURFACE.grille, grilleC, 2);
+  }
+  // --- tail lamps: two lenses either side of a dark applique, NOT one band right
+  // across. That is not a preference; buildPlayerCar records the same mistake and
+  // what it cost - "one lens ran right across and, blown out by the night
+  // exposure, it read as a glowing wall rather than as lamps". The traffic car
+  // still had the wall: a critic looking at the parked sedan called it "one flat
+  // maroon rectangle - no lens, no housing, no division". 12 triangles.
   if (iTailHi >= 0 && iTailLo > iTailHi) {
-    overlayBand(b, pts, nrm, iTailHi, iTailLo, -0.88, 0.88, 0.012,
-      SURFACE.taillight, tailC, 2);
+    for (const s of [-1, 1]) {
+      overlayBand(b, pts, nrm, iTailHi, iTailLo, s * 0.32, s * 0.88, 0.012,
+        SURFACE.taillight, tailC, 2);
+    }
+    overlayBand(b, pts, nrm, iTailHi, iTailLo, -0.30, 0.30, 0.009,
+      SURFACE.trim, trimC, 1);
+  }
+  // --- number plate. Two triangles, and it is the cheapest "this is a car" cue
+  // on the whole body: a light rectangle low on a dark tail, exactly where every
+  // photograph of a parked car has one.
+  if (iPlateHi >= 0 && iPlateLo > iPlateHi) {
+    overlayBand(b, pts, nrm, iPlateHi, iPlateLo, -0.26, 0.26, 0.014,
+      SURFACE.plate, plateC, 1);
+  }
+  // --- boot shut. The bonnet shut is deliberately NOT built: from a street
+  // camera the bonnet is edge-on and its shut is under a pixel, while the boot
+  // deck faces the corridor hero square on. Not black - a sub-pixel black line
+  // antialiases into a dashed stitch and reads as an artifact, which is the note
+  // buildPlayerCar's own shut lines carry.
+  if (iBootFront >= 0 && iBootLip > iBootFront) {
+    for (const s of [-1, 1]) {
+      overlayBand(b, pts, nrm, iBootFront, iBootLip, s * 0.66, s * 0.70, 0.004,
+        SURFACE.matte, shutC, 1);
+    }
   }
   if (iScreenLo >= 0 && iScreenHi > iScreenLo) {
     overlayBand(b, pts, nrm, iScreenLo, iScreenHi, -0.86, 0.86, 0.013,
@@ -941,51 +985,117 @@ export function buildTrafficCarGeometry(opts = {}) {
   for (const s of [-1, 1]) {
     flankPanel(b, shell.capPoly, shell.faces, sideGlass, s, 0.014, SURFACE.glassy, glassC);
   }
+  // --- flank detail: two door shuts and a swage line, 12 triangles for both
+  // sides. The swage is the one that matters. The complaint was "a baked vertical
+  // gradient - pale at the shoulder, near-black along the bottom third - which
+  // reads as painted-on shading rather than as form catching light", and that
+  // gradient is real: the paint is metallic enough to mirror an environment that
+  // is bright sky above and dark ground below, over a flank with nothing on it to
+  // interrupt the sweep. A horizontal line at the beltline breaks the sweep in
+  // the one direction the gradient runs. Authored at 0.42 of the paint so it
+  // arrives as a shade of whatever colour the instance is painted, the way
+  // buildPlayerCar's swage does.
+  const vline = (z, y0, y1, w) => [[z - w, y0], [z + w, y0], [z + w, y1], [z - w, y1]];
+  for (const s of [-1, 1]) {
+    flankPanel(b, shell.capPoly, shell.faces, vline(0.86, -0.42, 0.27, 0.018), s,
+      0.004, SURFACE.matte, shutC);
+    flankPanel(b, shell.capPoly, shell.faces, vline(-0.70, -0.42, 0.33, 0.018), s,
+      0.004, SURFACE.matte, shutC);
+    flankPanel(b, shell.capPoly, shell.faces,
+      [[0.90, 0.014], [-0.72, 0.048], [-0.72, 0.076], [0.90, 0.042]], s,
+      0.005, SURFACE.paint, swageC);
+  }
+  // --- wing mirrors. 24 triangles for the pair, and the only thing in this list
+  // that changes the SILHOUETTE rather than the surface: a car with nothing
+  // sticking out of it reads as a soap bar however well it is shaded.
+  for (const s of [-1, 1]) {
+    boxAt(b, s * 0.99, 0.318, 0.47, 0.055, 0.042, 0.035, trimC, SURFACE.trim);
+  }
 
-  // Static wheels: a coarse tyre ring plus a flat rim disc at each face. Traffic
-  // cars have no suspension to read, so they are baked in at the ride height a
-  // loaded car settles to: the anchor at y = -0.10 less the static spring
-  // deflection, mass*g/(4*k) = 1400*19.6/(4*42000) = 0.163 m off the 0.42 m
-  // free length. Track and wheelbase match the player's WHEEL_LAYOUT so a traffic
-  // car and the player's car are visibly the same class of object.
-  const seg = 8;
+  // Static wheels. Traffic cars have no suspension to read, so they are baked in
+  // at the ride height a loaded car settles to: the anchor at y = -0.10 less the
+  // static spring deflection, mass*g/(4*k) = 1400*19.6/(4*42000) = 0.163 m off
+  // the 0.42 m free length. Track and wheelbase match the player's WHEEL_LAYOUT
+  // so a traffic car and the player's car are visibly the same class of object.
+  //
+  // WHAT THIS REPLACED, and why it was 64 triangles of nothing. The old wheel was
+  // an 8-sided tyre ring with a flat rim disc at EACH face, every vertex one flat
+  // colour. Two rounds of blind critique called it a "featureless black disc"
+  // without either of them having been asked to look at the wheels. The triangles
+  // were not the problem; they were being spent SYMMETRICALLY, on two faces of
+  // which only one is ever visible. The inboard face of a wheel is behind its own
+  // tyre and inside the arch from every exterior camera.
+  //
+  // So the inboard sidewall is deleted outright and the inboard end closed with
+  // one flat cap at the tread radius, and the saving buys the outboard face
+  // buildWheelGeometry's five-lobed relief - where the lobe is BOTH a depth and a
+  // brightness, so spokes read without any cut geometry. 80 triangles a wheel
+  // against 64: +64 per car, +5,760 across the 90 cars a frame can hold.
+  const seg = 10;              // even, because 5 spokes need alternating lobes
+  const SPOKES = 5;
   const staticSuspLen = 0.257;
   for (const [wx, wz] of [
     [-0.78, P.frontAxleZ], [0.78, P.frontAxleZ],
     [-0.80, P.rearAxleZ], [0.80, P.rearAxleZ],
   ]) {
     const wy = -0.10 - staticSuspLen;
-    const HW = P.tyreHalfW;
-    const rows = [];
-    for (const [dx, r] of [[-HW, P.rimR], [-HW, P.wheelR], [HW, P.wheelR], [HW, P.rimR]]) {
+    const HW = P.tyreHalfW, R = P.wheelR, RR = P.rimR;
+    // Which way this wheel faces the street. Detail is spent on that side only,
+    // and because the geometry is authored per wheel rather than instanced, the
+    // left pair and the right pair each get their own outboard face for free.
+    const out = wx < 0 ? -1 : 1;
+    const ring = (xo, r, colour, pal) => {
       const row = [];
       for (let s = 0; s < seg; s++) {
         const a = (s / seg) * Math.PI * 2;
-        row.push(b.vert(wx + dx, wy + Math.cos(a) * r, wz + Math.sin(a) * r,
-          tyreC, SURFACE.tyre));
+        row.push(b.vert(wx + out * xo, wy + Math.cos(a) * r, wz + Math.sin(a) * r, colour, pal));
       }
-      rows.push(row);
-    }
-    for (let r = 0; r < rows.length - 1; r++) {
-      for (let s = 0; s < seg; s++) {
-        const t = (s + 1) % seg;
-        b.quad(rows[r][s], rows[r][t], rows[r + 1][t], rows[r + 1][s]);
-      }
-    }
-    for (const sx of [-1, 1]) {
-      const hub = b.vert(wx + sx * HW * 0.9, wy, wz, rimC, SURFACE.rim);
-      const ring = [];
+      return row;
+    };
+    // The relief ring: dip recesses the spoke GAPS and the same lobe drives the
+    // colour, so a gap is both further in and darker. One term doing two jobs is
+    // what makes five spokes legible at ten segments.
+    const lobeRing = (xo, dip, r, lit) => {
+      const row = [];
       for (let s = 0; s < seg; s++) {
         const a = (s / seg) * Math.PI * 2;
-        ring.push(b.vert(wx + sx * HW * 0.95, wy + Math.cos(a) * P.rimR,
-          wz + Math.sin(a) * P.rimR, rimC, SURFACE.rim));
+        const lobe = 0.5 + 0.5 * Math.cos(SPOKES * a);
+        _c.copy(rimGapC).lerp(rimC, Math.min(1, lit + (1 - lit) * lobe));
+        row.push(b.vert(wx + out * (xo - dip * (1 - lobe)),
+          wy + Math.cos(a) * r, wz + Math.sin(a) * r, _c, SURFACE.rim));
       }
+      return row;
+    };
+    // Rings run inboard -> outboard. For the +X wheels that is increasing world
+    // x and the quad order below is outward; for the -X wheels it is decreasing,
+    // so the quad is reversed. Getting this backwards inverts the normals in a
+    // way that only shows up under a low sun, which is how the shell's own
+    // winding note came to be written.
+    const band = (r0, r1) => {
       for (let s = 0; s < seg; s++) {
         const t = (s + 1) % seg;
-        if (sx > 0) b.tri(hub, ring[s], ring[t]);
-        else b.tri(hub, ring[t], ring[s]);
+        if (out > 0) b.quad(r0[s], r0[t], r1[t], r1[s]);
+        else b.quad(r0[s], r1[s], r1[t], r0[t]);
       }
-    }
+    };
+    const fan = (centre, r0, outward) => {
+      for (let s = 0; s < seg; s++) {
+        const t = (s + 1) % seg;
+        if (outward) b.tri(centre, r0[s], r0[t]);
+        else b.tri(centre, r0[t], r0[s]);
+      }
+    };
+    const treadIn = ring(-HW, R, tyreC, SURFACE.tyre);
+    const treadOut = ring(HW * 0.74, R, tyreC, SURFACE.tyre);
+    const bead = ring(HW, RR, tyreC, SURFACE.tyre);
+    band(treadIn, treadOut);                       // tread
+    band(treadOut, bead);                          // outboard sidewall
+    fan(b.vert(wx - out * HW, wy, wz, tyreC, SURFACE.tyre), treadIn, out < 0);
+    // Outboard face: bright bead lip, lobed spoke ring, proud hub.
+    const lip = lobeRing(HW, 0, RR, 1);
+    const spoke = lobeRing(HW * 0.90, 0.050, RR * 0.46, 0);
+    band(spoke, lip);
+    fan(b.vert(wx + out * HW, wy, wz, rimC, SURFACE.rim), spoke, out > 0);
   }
 
   const g = b.geometry();

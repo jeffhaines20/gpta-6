@@ -4741,7 +4741,23 @@ export class StreetFurniture {
       this._m.makeRotationY(s.yaw);
       this._m.setPosition(s.x, 0, s.z);
       p.mesh.setMatrixAt(i, this._m);
-      this._pcol.setHSL(s.hue, 0.06 + s.hue * 0.34, 0.26 + ((s.hue * 7) % 1) * 0.4);
+      // Kerbside colour, taken off the reference photographs rather than off a
+      // hue wheel. reference/sarasota/mapillary shows Main Street's parked
+      // population as overwhelmingly white, silver, grey and black with the
+      // occasional red or blue; a hue swept uniformly round the wheel gave a
+      // fairground. Two thirds are now achromatic.
+      //
+      // It also matters to the WHEELS, and that is the real reason this moved.
+      // instanceColor MULTIPLIES the vertex colour, which is what keeps 30
+      // parked cars in one draw call - so a saturated body tints its own alloy
+      // rims, and the rim relief carbody.js now carries would have arrived as
+      // five red spokes on a red car. There is no per-instance escape from that
+      // inside one InstancedMesh; a fleet that is mostly achromatic is the
+      // escape. Still driven entirely by the slot hash, so placement and paint
+      // stay deterministic.
+      const h = s.hue;
+      if (h < 0.66) this._pcol.setHSL(0.58, 0.012 + h * 0.045, 0.20 + ((h * 7) % 1) * 0.58);
+      else this._pcol.setHSL((h - 0.66) / 0.34, 0.26 + h * 0.18, 0.24 + ((h * 7) % 1) * 0.28);
       p.mesh.setColorAt(i, this._pcol);
     }
     for (let k = i; k < p.count; k++) p.mesh.setMatrixAt(k, this._hidden);
