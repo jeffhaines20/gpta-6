@@ -4862,7 +4862,30 @@ export class StreetFurniture {
       this.propMat.emissive.setScalar(lampEmissive(true, this._exposure, 1.9));
     }
     if (this.parked) {
-      this.parked.mesh.material.emissive.setScalar(lampEmissive(this._lit, this._exposure, 1.1));
+      // A PARKED CAR HAS ITS LIGHTS OFF. This used to read
+      //   lampEmissive(this._lit, this._exposure, 1.1)
+      // where `this._lit` is the STREET LAMP flag, so every parked car in the
+      // district lit its headlights and tail lamps the moment the lamps came on
+      // at dusk. carSurfaceMaterial carries an emissiveMap that masks emissive
+      // to the lens cells, so the glow landed exactly on the lamps rather than
+      // on the body, which is what made it read as "lights on" rather than as a
+      // shading error.
+      //
+      // Nobody ever decided this. The parked pool sits in _applyEmissive()
+      // directly under the line that lights the street-lamp HEADS and inherited
+      // its treatment; a later round tuned the level (daynight.js: "its
+      // parked-car lens 1.1 -> 0.545") while restating display bytes through a
+      // transfer-function change, which reads as intent and was only ever
+      // arithmetic. A user looking at the night frame caught it immediately.
+      //
+      // Zero, not a lower number. Kerbside cars at night are unlit in every
+      // reference frame in reference/sarasota/; what picks their lenses out is
+      // the street lamp reflecting off them, which the roughness/metalness maps
+      // and the env term already do. Moving traffic and the player's car are
+      // unaffected: traffic.js:141 builds its own trafficCarMaterial() instance
+      // and the player goes through carMesh.setLights(), so this line reaches
+      // the parked pool alone.
+      this.parked.mesh.material.emissive.setScalar(0);
     }
   }
 
