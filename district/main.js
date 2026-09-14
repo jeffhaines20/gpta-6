@@ -26,7 +26,7 @@ import {
   setSignageTime, spillMaterial, soffitMaterial, setSpillScale, setSoffitScale, spillScaleOf,
 } from '../src/signage.js';
 import { buildingStyle } from '../src/facades.js';
-import { buildPlayerCar } from '../src/carbody.js';
+import { buildPlayerCar, setTrafficRimScale } from '../src/carbody.js';
 import { HUD } from '../src/hud.js';
 import { WantedSystem, bindPursuit, CRIMES, STATES } from '../src/wanted.js';
 import { createAudio } from '../src/audio.js';
@@ -283,6 +283,15 @@ const lightPool = new LightPool(scene, { size: 10, maxDistance: 130 });
   // slot in the render loop, so the whole system is two calls from here.
   furniture.bindView(camera, { exposure: () => post.params.exposure });
   console.log('street furniture', JSON.stringify(furniture.report()));
+  // ?rim=K darkens (or brightens) the traffic/parked alloy at boot, so a capture
+  // harness that must not be edited - hero-shots is a gate - can still sweep the
+  // one number three rounds have now argued about, from one build on one port.
+  // Same mechanism and same argument as ?kerbs=0 and ?nospill=1 above.
+  const _rim = Number(new URLSearchParams(location.search).get('rim'));
+  if (Number.isFinite(_rim) && _rim > 0) {
+    console.log('car rim scale', JSON.stringify(setTrafficRimScale(furniture.parked.mesh.geometry, _rim)));
+    window.__rimScale = _rim;
+  }
 }
 tod.setFurniture(furniture, lightPool);
 
@@ -601,8 +610,26 @@ function setTraffic(on) {
     // Let traffic ask the streamer whether a car's chunk is actually resident,
     // so "orphan" means something real rather than a distance guess.
     traffic.isChunkLoaded = (x, z) => world.loaded.has(world.keyOf(x, z));
+    // A fleet spawned AFTER boot has to pick up ?rim= too, or a capture with
+    // HERO_TRAFFIC set would have swept the parked cars and left the moving ones
+    // on the old alloy - two different rims in one frame, which is worse than
+    // either and would read as noise.
+    if (window.__rimScale) setTrafficRimScale(traffic.mesh.geometry, window.__rimScale);
   }
-  else if (!on && traffic) { scene.remove(traffic.mesh); traffic.mesh.geometry.dispose(); traffic = null; }
+  else if (!on && traffic) {
+    scene.remove(traffic.mesh); traffic.mesh.geometry.dispose();
+    // The lamp-spill mesh is a SECOND object in the scene and a second geometry
+    // on the GPU. Removing only the body mesh left an invisible additive mesh
+    // behind that setTraffic(0) was supposed to have taken away - and because it
+    // is invisible by day, a harness that switches traffic off at noon would
+    // have found nothing wrong until it captured at dusk.
+    if (traffic.glow) {
+      scene.remove(traffic.glow);
+      traffic.glow.geometry.dispose();
+      traffic.glow.material.dispose();
+    }
+    traffic = null;
+  }
   return !!traffic;
 }
 
@@ -931,6 +958,32 @@ window.__district = {
   // per candidate. 0 on both is the before arm with the geometry left in place,
   // and the two are separate so each term can be isolated on its own.
   setSpillScale: (k) => { setSpillScale(k); return spillScaleOf(); },
+  // The car lamp spill's own A/B, and the same argument as the line above: 0 is
+  // the arm round 3 replaces, 1 is the arm it ships, and BOTH ARMS COME OFF ONE
+  // PAGE LOAD. Two builds on two trees is how this project has twice compared a
+  // build against itself. Returns what was actually reached so a harness can
+  // assert the arm it thinks it is photographing rather than trusting its own
+  // call - tools/car-spill.mjs does assert it.
+  // Traffic/parked ALLOY brightness, as one scalar over both fleets. 1 is the
+  // build this lever was added to. See setTrafficRimScale for the measurement
+  // that made it necessary: the rim has been tuned twice against a ratio whose
+  // denominator is sunlit road. ?rim=K applies it at boot so a capture harness
+  // that must not be modified (tools/hero-shots.mjs is a gate) can still sweep
+  // it - the same mechanism as ?kerbs=0 and ?nospill=1.
+  setCarRim: (k) => {
+    const n = { traffic: 0, parked: 0 };
+    if (traffic) n.traffic = setTrafficRimScale(traffic.mesh.geometry, k);
+    if (furniture && furniture.parked) n.parked = setTrafficRimScale(furniture.parked.mesh.geometry, k);
+    return { scale: k, verticesTouched: n };
+  },
+  setCarSpill: (k) => {
+    const player = carMesh.setSpillScale ? carMesh.setSpillScale(k) : null;
+    const fleet = traffic && traffic.setSpillScale ? traffic.setSpillScale(k) : null;
+    return { player, fleet,
+      playerVisible: !!(carMesh.glowMesh && carMesh.glowMesh.visible),
+      fleetVisible: !!(traffic && traffic.glow && traffic.glow.visible),
+      fleetSlots: traffic ? traffic.glow.count : 0 };
+  },
   setSoffitScale: (k) => { setSoffitScale(k); return spillScaleOf(); },
   spillScale: () => spillScaleOf(),
   // Isolation switch for the harnesses: the HUD is per-frame canvas work and a GC
