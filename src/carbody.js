@@ -37,6 +37,14 @@ export const SURFACE = {
   paint: 0, trim: 1, chrome: 2, grille: 3,
   headlight: 4, taillight: 5, indicator: 6, plate: 7,
   tyre: 8, rim: 9, glassy: 10, matte: 11,
+  // 12 and 13 are the TRAFFIC car's own grille and rim finishes. They exist so
+  // that fixing the ambient fleet cannot touch the player's car, which two blind
+  // reviewers independently measured as the best asset in the frame - one of
+  // them scored its wheel against real photographs and it passes on all four
+  // measures at 21.6 px, two thirds the size of the ambient wheel that fails.
+  // The palette texture has always been 16 texels wide with 12 in use, so these
+  // cost nothing: no draw call, no triangle, no texture.
+  meshCoarse: 12, rimCoarse: 13,
 };
 
 //                 roughness metalness  emissive (sRGB bytes)
@@ -55,6 +63,23 @@ const PALETTE = [
   [0.34, 0.72, [0, 0, 0]],          // 9  alloy rim
   [0.06, 0.86, [0, 0, 0]],          // 10 glazing (traffic cars, mirror faces)
   [0.86, 0.00, [0, 0, 0]],          // 11 matte black (mirror stalks, wells)
+  // 12 traffic grille. NOT slot 3's 0.50/0.55. A near-black albedo at metalness
+  // 0.55 has no diffuse term worth the name (0.45 x 0.006) and an F0 of 0.021,
+  // so it responds to neither sun nor street lamp: the round-1 grille measured
+  // luma 2.47 at night sitting directly under its own lit headlamps, and 9.9 at
+  // noon, DARKER than the shadow the car casts (16.4). A grille is a shadowed
+  // mesh, not a mirror - mostly diffuse, and rough.
+  [0.66, 0.08, [0, 0, 0]],
+  // 13 traffic alloy. Slot 9's 0.34/0.72 is a semi-mirror: with no diffuse floor
+  // it renders whatever the environment hands each facet, which on the round-1
+  // relief is a dark street for most of the rim and the sun for one facet of the
+  // hub. That is the bimodal "hole plus a speck" the second review measured -
+  // hubPeak 5.2 to 27.9 against 1.6-2.3 in real photographs, over a bright
+  // fraction of 0.5% against 8-29%. Round 1 tested this lever at NOON on the OLD
+  // FLAT DISC and recorded that it moved rimTyre the wrong way; that finding does
+  // not transfer to a relief measured at dusk and night, and re-testing it is
+  // where most of this round's wheel move came from.
+  [0.42, 0.45, [0, 0, 0]],
 ];
 const PAL_W = 16;
 
@@ -471,7 +496,16 @@ function flankX(capPoly, faces, z, y) {
 
 // A panel floated on the swept surface between two silhouette points: headlamps,
 // grille, tail lamps, number plate. Follows the body exactly, so it never floats.
+//
+// `colour` may be a FUNCTION (row, lastRow) -> THREE.Color, which is how the
+// grille gets a slat in it for nothing. Two blind reviewers measured the round-1
+// grille at stdev 0.42 and 0.46 luma over 3,600-6,900 px - dead flat, and flatter
+// than every other surface on the car (the bonnet reads 13.3). A band's rows are
+// already there; giving them different colours costs no triangles at all, and
+// vertex colour interpolates, so three rows dark/light/dark arrive as a lit slat
+// with soft edges rather than as a painted stripe.
 function overlayBand(b, pts, nrm, i0, i1, u0, u1, off, pal, colour, nu = 4) {
+  const colAt = typeof colour === 'function' ? colour : () => colour;
   // Always sweep u upward. Mirroring a band by passing u0 > u1 reverses the quad
   // winding and back-faces the whole panel, which is how the car shipped its
   // first render with exactly one headlamp.
@@ -486,7 +520,7 @@ function overlayBand(b, pts, nrm, i0, i1, u0, u1, off, pal, colour, nu = 4) {
       // + off is proud of the skin, along the silhouette's outward normal.
       const y = p.y + n.y * off + (p.crown ? p.crown * (1 - u * u) : 0);
       const z = p.z + n.z * off;
-      row.push(b.vert(x, y, z, colour, pal));
+      row.push(b.vert(x, y, z, colAt(i - i0, i1 - i0), pal));
     }
     rows.push(row);
   }
@@ -908,10 +942,63 @@ export function buildTrafficCarGeometry(opts = {}) {
   // the rim came out DARKER than the tyre. A spoke gap in daylight is a shadowed
   // recess, not a hole; these two average to 0.62.
   const rimC = col(0xd8dee5);           // alloy face
-  const rimGapC = col(0x656b73);        // shadowed recess between spokes
+  // The spoke gap, and the one number in this file that has now been set twice
+  // for opposite reasons. Round 1 tried 0x24282e, measured the rim coming out
+  // DARKER than the tyre (rimTyre 1.20 -> 0.87), and lightened it to 0x656b73 to
+  // pull the mean back up. That was the right response to the wrong cause: at
+  // SURFACE.rim's metalness 0.72 there is no diffuse term, so the albedo barely
+  // reaches the screen and lightening the gap mostly just flattened the pattern
+  // out. With the traffic rim moved to its own mostly-diffuse slot the albedo is
+  // what is actually rendered, and a dark gap is what makes the rim bimodal in
+  // SPACE - which is what the photographs show and what hubFrac measures.
+  // 0x3a4048 rather than the player car's 0x1e2227, because at seg 8 one dark
+  // facet is an eighth of the ring and the hero's 18 segments spread it much finer.
+  const rimGapC = col(0x3a4048);        // shadowed recess between spokes
   const lampC = col(0xd8dade);
   const tailC = col(0x8e1c16);
-  const grilleC = col(0x121417);
+  // The aperture, and the slat across it. NOT one flat near-black rectangle:
+  // both blind reviewers of round 1 measured that rectangle independently and
+  // both put it top of the list. Numbers, on the corridor near car at noon:
+  // mean luma 9.9-10.1, stdev 0.42-0.46 over 3,600-6,900 px, against a body
+  // fascia at 107 in the build it replaced. It was darker than the car's own
+  // tinted windscreen (48.9) and darker than the SHADOW the car casts (16.4),
+  // and at 0.264 m2 projecting almost square-on it is the third largest surface
+  // on the nose - 3.6x the projected area of all four rims together at that
+  // angle, for 8 triangles. tools/car-surface.mjs is the offline probe that
+  // prices area rather than triangles, and it exists because round 1 counted
+  // only triangles and so had no way to notice this.
+  // Anchored to trim (0x3a3d42 at 0.68/0.06), which is the unpainted-plastic
+  // finish already on this car's bumper and valance and which no reviewer has
+  // ever called a slab. The aperture averages a little above it and modulates
+  // either side, so the grille reads as a darker, textured member of a family
+  // the frame already contains rather than as a value picked in the abstract.
+  // Set against a MEASURED reference in the same frame rather than picked. The
+  // unpainted plastic valance directly below the grille - trim, 0x3a3d42 at
+  // 0.68/0.06 - reads median 20.9 luma at noon, 13.8 golden, 21.1 dusk, 9.1
+  // night on the corridor near car, and nobody has ever called it a slab. The
+  // round-1 grille read 9.8 / 7.0 / 9.7 / 2.2 in the same frames: about HALF its
+  // own bumper by day and a quarter of it at night, on a nose that is entirely in
+  // shade at noon (the bonnet above it reads 168.7, the nose face 92.8). These
+  // two colours average 0.90 of the valance's albedo in linear light and split
+  // 0.22 / 1.58 either side of it, which puts the aperture's median next to its
+  // bumper instead of under the shadow of its own car, and gives it a spread.
+  const grilleDarkC = col(0x171a21);    // the recess: dark, but above the shadow floor
+  const grilleSlatC = col(0x646b76);    // one lit slat across it
+  // NO CHROME BROW, and this is a thing I built, measured and took out again.
+  // buildPlayerCar puts a SURFACE.chrome brow along the top of its grille and the
+  // traffic car had never had one, so the first cut of this round copied it: 2
+  // triangles, u +/-0.56, on the silhouette segment between grilleHi and lampLo.
+  // Measured on the corridor near car at noon, median luma per 2-px row over
+  // x 40..140, it replaced a fascia band reading 115.7 / 105.1 / 92.7 / 81.9 /
+  // 84.0 - a real gradient - with a DEAD FLAT 73.9 across all five rows. Darker
+  // than what it covered and flatter than what it covered, which is the same
+  // defect this round exists to remove, in miniature. The cause is the same too:
+  // SURFACE.chrome is roughness 0.16 / metalness 1.00, a mirror, and a mirror on
+  // a vertical panel pointed down a street reflects the street. The player car
+  // gets away with it because its nose carries the undecimated silhouette and a
+  // real bumper apex to catch light; this one is a flat wall.
+  // The aperture's surround is instead the painted fascia either side of it,
+  // which narrowing u from 0.60 to 0.52 put back.
   const plateC = col(0xdadfe2);
   const shutC = col(0x1d2126);
   // 0.42 of white, so after the instance colour multiplies it the crease arrives
@@ -938,11 +1025,29 @@ export function buildTrafficCarGeometry(opts = {}) {
         SURFACE.headlight, lampC, 1);
     }
   }
-  // --- grille. The nose was a blank painted wall: the aperture is already a real
-  // 40 mm step in the silhouette, and nothing was ever put in it. 8 triangles.
+  // --- grille. Three fixes to the round-1 slab, two of them free.
+  //
+  //   1. It is no longer one colour. The band's three rows run dark / slat /
+  //      dark, and because vertex colour interpolates that arrives as a lit
+  //      horizontal bar with soft edges. Zero triangles: the rows were already
+  //      there. This is what the reviewers' stdev measures.
+  //   2. It is narrower - 0.52 of the half-width against 0.60 - so painted
+  //      fascia shows either side of it instead of the aperture running out to
+  //      the fenders with hard square corners and no surround.
+  //   3. A chrome brow was tried and removed; see the "NO CHROME BROW" note above
+  //      for what it measured.
+  //
+  // And it is on SURFACE.meshCoarse rather than slot 3, so none of this reaches
+  // the player's car.
   if (iGrilleLo >= 0 && iGrilleHi > iGrilleLo) {
-    overlayBand(b, pts, nrm, iGrilleLo, iGrilleHi, -0.60, 0.60, 0.010,
-      SURFACE.grille, grilleC, 2);
+    overlayBand(b, pts, nrm, iGrilleLo, iGrilleHi, -0.52, 0.52, 0.010,
+      SURFACE.meshCoarse,
+      // A slat at mid height, dark above and below it. With three rows this is
+      // exactly one bright row; with more it is a raised-cosine so the band does
+      // not depend on the silhouette's decimation happening to give three.
+      (r, n) => _c.copy(grilleDarkC).lerp(grilleSlatC,
+        0.5 + 0.5 * Math.cos(2 * Math.PI * (r / Math.max(1, n) - 0.5))).clone(),
+      2);
   }
   // --- tail lamps: two lenses either side of a dark applique, NOT one band right
   // across. That is not a preference; buildPlayerCar records the same mistake and
@@ -965,17 +1070,19 @@ export function buildTrafficCarGeometry(opts = {}) {
     overlayBand(b, pts, nrm, iPlateHi, iPlateLo, -0.26, 0.26, 0.014,
       SURFACE.plate, plateC, 1);
   }
-  // --- boot shut. The bonnet shut is deliberately NOT built: from a street
-  // camera the bonnet is edge-on and its shut is under a pixel, while the boot
-  // deck faces the corridor hero square on. Not black - a sub-pixel black line
-  // antialiases into a dashed stitch and reads as an artifact, which is the note
-  // buildPlayerCar's own shut lines carry.
-  if (iBootFront >= 0 && iBootLip > iBootFront) {
-    for (const s of [-1, 1]) {
-      overlayBand(b, pts, nrm, iBootFront, iBootLip, s * 0.66, s * 0.70, 0.004,
-        SURFACE.matte, shutC, 1);
-    }
-  }
+  // --- NO boot shut. Round 1 built one as two dark strips running fore-and-aft
+  // along the boot deck at x = +/-0.60, and the second blind review of that round
+  // reported them, unprompted and from the frames alone, as "two wiper blades
+  // lying on the boot lid, pivots visible at 10x" - and checked the car's
+  // orientation against the night frame (white lamps one end, red lamps and
+  // plate the other) before saying so. It was right: a real boot shut is a
+  // CLOSED line around the lid, and two floating parallel bars in the middle of
+  // a deck are what a wiper pair looks like. They also sat 0.28 m inboard of the
+  // lid's actual edge. Removed rather than closed: 12 triangles, spent instead
+  // on the wheel, where the same review found a measured 5-40x gap to the
+  // player's car. The bonnet shut was already deliberately absent (edge-on from
+  // a street camera, under a pixel), so the only shut lines left on the car are
+  // the two vertical door shuts on the flank, which is the honest set at 90 px.
   if (iScreenLo >= 0 && iScreenHi > iScreenLo) {
     overlayBand(b, pts, nrm, iScreenLo, iScreenHi, -0.86, 0.86, 0.013,
       SURFACE.glassy, glassC, 2);
@@ -1077,7 +1184,7 @@ export function buildTrafficCarGeometry(opts = {}) {
         const lobe = 0.5 + 0.5 * Math.cos(SPOKES * a);
         _c.copy(rimGapC).lerp(rimC, Math.min(1, lit + (1 - lit) * lobe));
         row.push(b.vert(wx + out * (xo - dip * (1 - lobe)),
-          wy + Math.cos(a) * r, wz + Math.sin(a) * r, _c, SURFACE.rim));
+          wy + Math.cos(a) * r, wz + Math.sin(a) * r, _c, SURFACE.rimCoarse));
       }
       return row;
     };
@@ -1093,6 +1200,33 @@ export function buildTrafficCarGeometry(opts = {}) {
         else b.quad(r0[s], r1[s], r1[t], r0[t]);
       }
     };
+    // THE RIM FACE NEEDS THE OPPOSITE WINDING, and round 1 did not give it one.
+    //
+    // `band` above sweeps ALONG THE AXLE: its two rings differ in x, and its quad
+    // order is correct for that. The rim face sweeps OUTWARD IN RADIUS at
+    // constant-ish x, which is the opposite handedness, so the same quad order
+    // faces the triangles inboard. The material is FrontSide, so inboard means
+    // CULLED: the shipped round-1 wheel drew 8 of its 24 rim triangles - the hub
+    // fan and nothing else. Every wheel, every car, all four corners.
+    //
+    // This is why two independent blind reviews measured the round-1 wheel as "a
+    // hole plus a speck" and "only visible at 6x gain": the hole is the culled
+    // spoke ring, and the speck is the hub fan, which is a 20 degree cone and so
+    // always presents a facet at the mirror angle - hubPeak 27.9 against 1.6-2.3
+    // in photographs. It also explains why the wheel got WORSE at dusk and night:
+    // with no sun there is nothing for the cone to catch, and nothing else drawn.
+    //
+    // Nothing in this project could have caught it. The triangle count was right,
+    // the colours were right, the palette was right. tools/car-surface.mjs
+    // --selftest now carries a winding audit, because a geometry that is wrong
+    // only in its index order is invisible to every metric that reads pixels.
+    const faceBand = (r0, r1) => {
+      for (let s = 0; s < seg; s++) {
+        const t = (s + 1) % seg;
+        if (out > 0) b.quad(r0[s], r1[s], r1[t], r0[t]);
+        else b.quad(r0[s], r0[t], r1[t], r1[s]);
+      }
+    };
     const fan = (centre, r0, outward) => {
       for (let s = 0; s < seg; s++) {
         const t = (s + 1) % seg;
@@ -1106,11 +1240,43 @@ export function buildTrafficCarGeometry(opts = {}) {
     band(treadIn, treadOut);                       // tread
     band(treadOut, bead);                          // outboard sidewall
     fan(b.vert(wx - out * HW, wy, wz, tyreC, SURFACE.tyre), treadIn, out < 0);
-    // Outboard face: bright bead lip, lobed spoke ring, proud hub.
+    // Outboard face: bright lip, a lobed spoke annulus, a FLAT bright hub disc.
+    //
+    // Round 1 built this as one lobed ring plus a hub CONE - a single centre
+    // vertex at x = HW fanning out to a ring recessed 32 mm, which is a 20 degree
+    // spike sticking out of the wheel. The second blind review measured what that
+    // costs: hubPeak (p95 of the rim core over the tyre median) 5.2 to 27.9,
+    // against 1.6-2.3 measured on real photographs of parked cars, over a bright
+    // fraction of 0.5% where the photographs read 8-29%. In words: a dark hole
+    // with one blown specular dot in it. A cone is the one shape guaranteed to
+    // present some facet at the mirror angle whatever the sun is doing.
+    //
+    // The profile below is buildPlayerCar's, coarsened. That car is in the same
+    // frames, on the same renderer, under the same light, and it PASSES all four
+    // photograph measures at 21.6 px - two thirds the size of the ambient wheel
+    // that fails - so the gap is an asset gap, not a resolution limit, and the
+    // asset that closes it already exists in this file. Its shape is: bright hub
+    // disc, dark lobed annulus, bright outer lip. Three things at three radii,
+    // which is what gives a bright MINORITY rather than a bright disc or a hole.
+    //
+    // 40 triangles a wheel against 24, +64 a car; the deleted boot shut pays 12
+    // of that back. Priced by building it, not by counting quads - the round-1
+    // note in this file got that arithmetic wrong by a factor of two.
     const lip = lobeRing(HW, 0, RR, 1);
-    const spoke = lobeRing(HW * 0.90, 0.032, RR * 0.46, 0);
-    band(spoke, lip);
-    fan(b.vert(wx + out * HW, wy, wz, rimC, SURFACE.rim), spoke, out > 0);
+    // dip 0.008, not round 1's 0.032, and the reason is Nyquist. At seg 8 with 4
+    // spokes the lobe is sampled exactly twice per period, so it is not a smooth
+    // relief - it is a hard alternation, every quad spanning one dipped vertex
+    // and one proud one. At a 32 mm dip that quad is twisted enough that its two
+    // triangles disagree about which way they face, and the winding audit above
+    // reports 8 of 32 still inward AFTER the handedness fix. It is also invisible:
+    // 32 mm on a 0.72 m wheel at 34 px is 1.4 px of depth. The lobe's real work
+    // here is the COLOUR, which reads at any size; the depth only has to be
+    // enough to break the shading up under a low sun.
+    const spoke = lobeRing(HW * 0.88, 0.008, RR * 0.66, 0);
+    const hubR = lobeRing(HW * 0.99, 0, RR * 0.30, 1);
+    faceBand(spoke, lip);
+    faceBand(hubR, spoke);
+    fan(b.vert(wx + out * HW * 0.99, wy, wz, rimC, SURFACE.rimCoarse), hubR, out > 0);
   }
 
   const g = b.geometry();
