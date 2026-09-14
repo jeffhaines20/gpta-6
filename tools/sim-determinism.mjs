@@ -90,7 +90,23 @@ if (args.includes('--selftest')) {
 // on purpose: it cannot be defeated by a run that happens to agree, and it is
 // the thing that regresses -- one new Math.random() added later silently
 // un-registers every future A/B, and nothing else would notice.
-const files = ['src/traffic.js', 'src/pedestrians.js'];
+// EVERY simulation and generator file, not the two that were found first.
+//
+// Seeding traffic.js and pedestrians.js cut a two-run difference from 5.01% to
+// 0.365% of bytes at corridor-noon -- a 13x improvement and still not zero,
+// because textures.js was painting its grime, cracks and LIT WINDOWS from
+// fifteen more unseeded draws on every page load. That is why the night frames
+// differed most (7.786% at fivepoints-night): `isLit = night && random() < lit`
+// re-rolled which windows were on. Fixing only what the first grep found would
+// have left the gate green and the A/B still unregistered.
+//
+// So this walks the whole of src/ and district/ rather than a list, and a new
+// file with an unseeded draw fails it without anyone remembering to add it.
+const files = fs.readdirSync(new URL('../src/', import.meta.url))
+  .filter((f) => f.endsWith('.js')).map((f) => 'src/' + f)
+  .concat(fs.readdirSync(new URL('../district/', import.meta.url))
+    .filter((f) => f.endsWith('.js')).map((f) => 'district/' + f))
+  .sort();
 let leaks = 0;
 for (const f of files) {
   const src = fs.readFileSync(new URL('../' + f, import.meta.url), 'utf8');
@@ -98,16 +114,23 @@ for (const f of files) {
   src.split('\n').forEach((line, i) => {
     if (/Math\.random\s*\(/.test(line) && !/^\s*(\/\/|\*)/.test(line)) hits.push(i + 1);
   });
-  console.log(`${f.padEnd(22)} unseeded draws: ${hits.length}` +
-    (hits.length ? `  at lines ${hits.join(', ')}` : ''));
+  if (hits.length) console.log(`${f.padEnd(24)} UNSEEDED DRAWS: ${hits.join(', ')}`);
   leaks += hits.length;
 }
-const seeded = files.map((f) =>
-  /this\._r = rng\(hash32\(/.test(fs.readFileSync(new URL('../' + f, import.meta.url), 'utf8')));
-console.log(`seeded stream present: ${files.map((f, i) => `${f.split('/')[1]} ${seeded[i] ? 'yes' : 'NO'}`).join(', ')}`);
+console.log(`scanned ${files.length} files in src/ and district/`);
+// The files that MUST carry a stream. Listed explicitly because "no
+// Math.random" is also true of a file that does no randomness at all, and the
+// check has to notice a seeding that was deleted rather than only one never added.
+const MUST_SEED = ['src/traffic.js', 'src/pedestrians.js', 'src/pursuit.js',
+  'src/textures.js', 'src/character.js'];
+const unseeded = MUST_SEED.filter((f) =>
+  !/rng\(hash32\(/.test(fs.readFileSync(new URL('../' + f, import.meta.url), 'utf8')));
+console.log(`streams present: ${MUST_SEED.length - unseeded.length}/${MUST_SEED.length}` +
+  (unseeded.length ? `  MISSING in ${unseeded.join(', ')}` : ''));
 
-if (leaks || seeded.some((v) => !v)) {
-  console.error(`\nSIM-DETERMINISM: FAIL — ${leaks} unseeded draw(s); a populated A/B cannot be registered`);
+if (leaks || unseeded.length) {
+  console.error(`\nSIM-DETERMINISM: FAIL — ${leaks} unseeded draw(s), ${unseeded.length} file(s) missing a stream;` +
+    ' a populated A/B cannot be registered');
   process.exit(1);
 }
-console.log('\nSIM-DETERMINISM: PASS — both simulations draw from a seeded stream');
+console.log('\nSIM-DETERMINISM: PASS — every generator draws from a seeded stream');

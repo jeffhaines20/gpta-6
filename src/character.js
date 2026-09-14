@@ -9,6 +9,7 @@
 // replace this file entirely as long as it applies the same pose.
 
 import * as THREE from '../vendor/three.module.min.js';
+import { rng, hash32 } from './facades.js';
 
 // Rescaled to REFLECTANCE, tone for tone with src/pedestrians.js SKIN - the long
 // note there is the argument, and it applies here for the same reason: the
@@ -26,7 +27,12 @@ function pick(list, r) { return list[Math.floor(r() * list.length) % list.length
 
 export class Character {
   constructor(opts = {}) {
-    const r = opts.rng ?? Math.random;
+    // This class already takes an injectable rng; only the DEFAULT was
+    // unseeded, so a caller that did not pass one got a differently-dressed
+    // character every page load. Default to a seeded stream instead: a caller
+    // wanting variety still passes `rng`, and now so does a caller wanting
+    // reproducibility without knowing to ask.
+    const r = opts.rng ?? rng(hash32('character', opts.seed ?? 0xC4A2AC7E));
     const skin = new THREE.MeshStandardMaterial({ color: pick(SKIN, r), roughness: 0.72 });
     const shirt = new THREE.MeshStandardMaterial({ color: pick(SHIRT, r), roughness: 0.85 });
     const pants = new THREE.MeshStandardMaterial({ color: pick(PANTS, r), roughness: 0.88 });

@@ -10,6 +10,7 @@
 // harness as its load test.
 
 import * as THREE from '../vendor/three.module.min.js';
+import { rng, hash32 } from './facades.js';
 import { buildTrafficCarGeometry, trafficCarMaterial, lampEmissive } from './carbody.js';
 
 export class PursuitUnits {
@@ -20,6 +21,10 @@ export class PursuitUnits {
     this.giveUpRadius = opts.giveUpRadius ?? 600;
 
     this._buildAdjacency();
+
+    // Seeded, for the reason in src/traffic.js: an unseeded spawn makes a
+    // pursuit A/B compare two different chases.
+    this._r = rng(hash32('pursuit', opts.seed ?? 0x9D17CA5E));
 
     // Same instanced car shell as civilian traffic (src/carbody.js), painted
     // white by the material's base colour rather than per-instance.
@@ -99,11 +104,11 @@ export class PursuitUnits {
     // Spawn behind the player at pursuit distance: close enough to be a real load
     // on streaming, far enough not to appear out of thin air in view.
     for (let a = 0; a < 50; a++) {
-      const e = this.drivable[(Math.random() * this.drivable.length) | 0];
+      const e = this.drivable[(this._r() * this.drivable.length) | 0];
       const edge = this.d.edges[e];
-      const forward = edge.o === -1 ? false : edge.o === 1 ? true : Math.random() < 0.5;
+      const forward = edge.o === -1 ? false : edge.o === 1 ? true : this._r() < 0.5;
       const len = this._len(e);
-      const t = Math.random() * len;
+      const t = this._r() * len;
       const p = this._pointOn(e, forward, t);
       if (!p) continue;
       const dist = Math.hypot(p.x - target.x, p.z - target.z);

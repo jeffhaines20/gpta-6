@@ -3,6 +3,7 @@
 // library; they are cached by key so a district can reuse a few dozen atlases.
 
 import * as THREE from '../vendor/three.module.min.js';
+import { rng, hash32 } from './facades.js';
 
 const cache = new Map();
 function canvas(size) {
@@ -18,8 +19,27 @@ function tex(c, repeat = 1, srgb = true) {
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
+// The stream every generator in this file draws from. Re-seeded FROM THE MEMO
+// KEY before each build, so a texture is a pure function of its key and two page
+// loads paint the same grime, the same cracks and the same lit windows.
+//
+// Fifteen unseeded draws lived here, and they were the largest remaining source
+// of non-determinism after traffic and pedestrians were seeded. Two runs of
+// identical code still differed on 0.365% of bytes at corridor-noon and 7.786%
+// at fivepoints-night; the night figures are the larger ones because
+// `isLit = night && random() < lit` re-rolls WHICH WINDOWS ARE ON on every load.
+//
+// Every generator here goes through memo() and every noiseCanvas() call sits
+// inside one, so seeding here covers the file. If a builder is ever added that
+// bypasses memo, it will draw from whichever key was seeded last -- so add it
+// through memo, or give it its own stream.
+let _r = rng(hash32('tex', 'boot'));
+
 function memo(key, fn) {
-  if (!cache.has(key)) cache.set(key, fn());
+  if (!cache.has(key)) {
+    _r = rng(hash32('tex', key));
+    cache.set(key, fn());
+  }
   return cache.get(key);
 }
 
@@ -29,7 +49,7 @@ function noiseCanvas(size, scale, contrast = 1) {
   const img = g.createImageData(size, size);
   const grid = Math.max(2, Math.floor(size / scale));
   const rnd = new Float32Array(grid * grid);
-  for (let i = 0; i < rnd.length; i++) rnd[i] = Math.random();
+  for (let i = 0; i < rnd.length; i++) rnd[i] = _r();
   const at = (x, y) => rnd[(y % grid) * grid + (x % grid)];
   const smooth = (t) => t * t * (3 - 2 * t);
   for (let y = 0; y < size; y++) {
@@ -59,9 +79,9 @@ export function asphalt() {
     const S = 512, [c, g] = canvas(S);
     g.fillStyle = '#3a3d42'; g.fillRect(0, 0, S, S);
     for (let i = 0; i < 26000; i++) {
-      const v = 30 + Math.random() * 80;
-      g.fillStyle = `rgba(${v},${v + 2},${v + 5},${0.15 + Math.random() * 0.5})`;
-      g.fillRect(Math.random() * S, Math.random() * S, 1 + Math.random() * 2.2, 1 + Math.random() * 2.2);
+      const v = 30 + _r() * 80;
+      g.fillStyle = `rgba(${v},${v + 2},${v + 5},${0.15 + _r() * 0.5})`;
+      g.fillRect(_r() * S, _r() * S, 1 + _r() * 2.2, 1 + _r() * 2.2);
     }
     g.globalAlpha = 0.35;
     g.drawImage(noiseCanvas(S, 48, 1.5), 0, 0, S, S);
@@ -69,9 +89,9 @@ export function asphalt() {
     g.strokeStyle = 'rgba(20,20,22,0.55)'; g.lineWidth = 3;
     for (let i = 0; i < 3; i++) {
       g.beginPath();
-      let y = Math.random() * S;
+      let y = _r() * S;
       g.moveTo(0, y);
-      for (let x = 0; x <= S; x += 32) { y += (Math.random() - 0.5) * 14; g.lineTo(x, y); }
+      for (let x = 0; x <= S; x += 32) { y += (_r() - 0.5) * 14; g.lineTo(x, y); }
       g.stroke();
     }
     return c;
@@ -88,13 +108,13 @@ export function wetRoughness() {
     g.globalAlpha = 1;
     // Dark = smooth = mirror-like puddles.
     for (let i = 0; i < 22; i++) {
-      const x = Math.random() * S, y = Math.random() * S, r = 18 + Math.random() * 70;
+      const x = _r() * S, y = _r() * S, r = 18 + _r() * 70;
       const grad = g.createRadialGradient(x, y, 0, x, y, r);
       grad.addColorStop(0, 'rgba(10,10,10,0.95)');
       grad.addColorStop(0.7, 'rgba(40,40,40,0.5)');
       grad.addColorStop(1, 'rgba(200,200,200,0)');
       g.fillStyle = grad;
-      g.beginPath(); g.ellipse(x, y, r, r * (0.4 + Math.random() * 0.5), Math.random() * 3, 0, 7); g.fill();
+      g.beginPath(); g.ellipse(x, y, r, r * (0.4 + _r() * 0.5), _r() * 3, 0, 7); g.fill();
     }
     return c;
   });
@@ -107,9 +127,9 @@ export function sidewalk() {
     g.fillStyle = '#9a978f'; g.fillRect(0, 0, S, S);
     g.globalAlpha = 0.45; g.drawImage(noiseCanvas(S, 40, 1.4), 0, 0, S, S); g.globalAlpha = 1;
     for (let i = 0; i < 9000; i++) {
-      const v = 110 + Math.random() * 90;
-      g.fillStyle = `rgba(${v},${v - 3},${v - 10},${0.1 + Math.random() * 0.25})`;
-      g.fillRect(Math.random() * S, Math.random() * S, 1.5, 1.5);
+      const v = 110 + _r() * 90;
+      g.fillStyle = `rgba(${v},${v - 3},${v - 10},${0.1 + _r() * 0.25})`;
+      g.fillRect(_r() * S, _r() * S, 1.5, 1.5);
     }
     g.strokeStyle = 'rgba(60,58,55,0.55)'; g.lineWidth = 2.5;
     for (let i = 0; i <= 4; i++) {
@@ -158,10 +178,10 @@ function buildFacade(opts) {
     for (let cI = 0; cI < cols; cI++) {
       const x = cI * cw + cw * 0.16, y = r * ch + ch * 0.12;
       const w = cw * 0.68, h = ch * 0.58;
-      const isLit = night && Math.random() < lit;
+      const isLit = night && _r() < lit;
 
       if (isLit) {
-        const a = 0.55 + Math.random() * 0.45;
+        const a = 0.55 + _r() * 0.45;
         const gr = g.createLinearGradient(x, y, x, y + h);
         gr.addColorStop(0, `rgba(${warm},${a})`);
         gr.addColorStop(1, `rgba(${warm},${a * 0.55})`);
@@ -183,8 +203,8 @@ function buildFacade(opts) {
 
       // Blinds / occupancy variation, masked from the emissive too so a covered
       // window does not glow.
-      if (Math.random() < 0.3) {
-        const bh = h * (0.2 + Math.random() * 0.5);
+      if (_r() < 0.3) {
+        const bh = h * (0.2 + _r() * 0.5);
         g.fillStyle = 'rgba(15,18,22,0.75)';
         g.fillRect(x, y, w, bh);
         if (isLit) { eg.fillStyle = 'rgba(0,0,0,0.75)'; eg.fillRect(x, y, w, bh); }
