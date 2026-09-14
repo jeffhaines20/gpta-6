@@ -88,8 +88,37 @@ async function settleFrames(page, n = FRAME_SETTLE, why = '') {
   const f0 = await page.evaluate(() => __district.frames);
   await page.waitForFunction((t) => __district.frames >= t, f0 + n,
     { timeout: 600000, polling: 250 });
+
+  // AND WAIT FOR THE STREAMER TO GO QUIET, which frames alone do not give you.
+  //
+  // streaming.js budgets its uploads against the WALL CLOCK -- `while
+  // (performance.now() < deadline)` on a 3 ms slice -- so how much geometry
+  // lands per frame depends on how fast the box was feeling. Two runs at the
+  // same frame number therefore hold DIFFERENT resident sets, and the frame is
+  // a picture of a half-built district in one arm and a differently-half-built
+  // one in the other.
+  //
+  // That is what was left after seeding every generator: two runs of identical
+  // code still differed, and a tile map put the differences in a few localised
+  // patches rather than scattered everywhere -- 85.4% of one tile, nothing in
+  // most of the others. Not noise; whole objects present in one arm and not the
+  // other.
+  //
+  // `queued` counts the build queue plus the job in flight, `pendingUnload` the
+  // chunks on the way out. Both zero, held for a few frames so a queue that is
+  // briefly empty between two fills does not read as finished, means the
+  // district the camera is looking at is fully built.
+  const quiet = await page.waitForFunction(() => {
+    const w = __district.worldReport();
+    const idle = (w.queued | 0) === 0 && (w.pendingUnload | 0) === 0;
+    window.__quietRun = idle ? (window.__quietRun ?? 0) + 1 : 0;
+    return window.__quietRun >= 5;
+  }, null, { timeout: 600000, polling: 200 }).then(() => true).catch(() => false);
+  await page.evaluate(() => { window.__quietRun = 0; });
+
   const f1 = await page.evaluate(() => __district.frames);
-  if (why) console.log(`  settled ${why}: frames ${f0} -> ${f1}`);
+  if (why) console.log(`  settled ${why}: frames ${f0} -> ${f1}` +
+    (quiet ? ' (streamer quiet)' : '  STREAMER NEVER WENT QUIET'));
   return f1;
 }
 
