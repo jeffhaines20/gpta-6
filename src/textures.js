@@ -1,3 +1,16 @@
+// UNUSED. Nothing in src/ or district/ imports this file — it is referenced only
+// from comments in signage.js and materials.js. Whatever ships the asphalt,
+// pavement and facade surfaces, it is not this.
+//
+// Recorded here because I claimed the opposite in a commit: that its fifteen
+// unseeded draws were "painting the grime, the cracks and the LIT WINDOWS on
+// every page load" and were why two runs of identical code differed most at
+// night. They cannot have been. The file is dead, the seeding below changes no
+// pixel, and the real cause of that residual is still open.
+//
+// Kept and seeded anyway rather than deleted: deleting a file on the strength of
+// "grep found no importer" is a bigger claim than this session has earned, and
+// if it is ever wired up it should be deterministic from the first frame.
 // Every texture in this project is drawn into a canvas at runtime. No image
 // files, no downloads. These generators are the seed of the Phase 2 material
 // library; they are cached by key so a district can reuse a few dozen atlases.
