@@ -128,6 +128,7 @@
 // any leg length and any frame rate.
 
 import * as THREE from '../vendor/three.module.min.js';
+import { rng, hash32 } from './facades.js';
 
 // ------------------------------------------------------------------ skeleton
 // Metres, at height scale 1: a 1.70 m adult. Per-ped scale spreads the
@@ -330,7 +331,9 @@ const BLOCKED_TOLERANCE = 0.15;            // fraction of samples allowed to cli
 
 const TAU = Math.PI * 2;
 
-function pick(list) { return list[(Math.random() * list.length) | 0]; }
+// Takes the stream explicitly: this is module level, so there is no `this`
+// to reach a seeded generator through. See the Pedestrians constructor.
+function pick(r, list) { return list[(r() * list.length) | 0]; }
 
 export class Pedestrians {
   constructor(scene, district, opts = {}) {
@@ -345,6 +348,12 @@ export class Pedestrians {
 
     this._buildAdjacency();
     this._buildBuildingIndex();
+
+    // SEEDED, for the reason set out in src/traffic.js: thirteen unseeded draws
+    // here and ten there made two page loads of one build put different people
+    // in different places, which is what stopped any populated A/B on this
+    // project from being registered. Fixed default seed; pass `seed` for variety.
+    this._r = rng(hash32('peds', opts.seed ?? 0x9EDE5719));
 
     // --- geometry, authored so the instance matrix pivot is the JOINT CENTRE.
     // The capsule keeps a cap radius of material above its pivot and below its
@@ -1047,7 +1056,7 @@ export class Pedestrians {
         const dx = q2.x - q.x, dz = q2.z - q.z;
         const l = Math.hypot(dx, dz) || 1;
         const straight = fx * (dx / l) + fz * (dz / l);
-        const score = straight * 0.9 - corner * 0.32 + Math.random() * 0.55
+        const score = straight * 0.9 - corner * 0.32 + this._r() * 0.55
           - (straightBack ? 1.6 : 0);
         if (score > bestScore) { bestScore = score; best = { e: o.e, forward: o.forward, side }; }
       }
@@ -1108,14 +1117,14 @@ export class Pedestrians {
 
   // ---------------------------------------------------------------- spawning
   _appearance(ped) {
-    ped.skin = pick(SKIN);
-    ped.shirt = pick(SHIRT);
-    ped.pants = pick(PANTS);
-    ped.bare = Math.random() < 0.45;       // short sleeves -> forearms are skin
-    ped.hscale = 0.92 + Math.random() * 0.18;
-    ped.build = 0.86 + Math.random() * 0.32;
-    ped.desired = WALK_MIN + Math.random() * (WALK_MAX - WALK_MIN);
-    ped.laneJitter = Math.random();
+    ped.skin = pick(this._r, SKIN);
+    ped.shirt = pick(this._r, SHIRT);
+    ped.pants = pick(this._r, PANTS);
+    ped.bare = this._r() < 0.45;       // short sleeves -> forearms are skin
+    ped.hscale = 0.92 + this._r() * 0.18;
+    ped.build = 0.86 + this._r() * 0.32;
+    ped.desired = WALK_MIN + this._r() * (WALK_MAX - WALK_MIN);
+    ped.laneJitter = this._r();
   }
 
   // Waypoint `k` of a walk in TRAVEL order, which is the polyline forwards or
@@ -1128,15 +1137,15 @@ export class Pedestrians {
     const pool = this._edgesNear(focus.x, focus.z);
     if (!pool.length) { this.stats.spawnFailures++; return false; }
     for (let a = 0; a < budget; a++) {
-      const ei = pool[(Math.random() * pool.length) | 0];
-      const side = Math.random() < 0.5 ? 0 : 1;
+      const ei = pool[(this._r() * pool.length) | 0];
+      const side = this._r() < 0.5 ? 0 : 1;
       const walk = this._walk(ei, side);
       if (!walk || walk.pts.length < 2) continue;
-      const forward = Math.random() < 0.5;
-      const k = 1 + ((Math.random() * (walk.pts.length - 1)) | 0);
+      const forward = this._r() < 0.5;
+      const k = 1 + ((this._r() * (walk.pts.length - 1)) | 0);
       const from = Pedestrians._at(walk, forward, k - 1);
       const to = Pedestrians._at(walk, forward, k);
-      const f = Math.random();
+      const f = this._r();
       const x = from.x + (to.x - from.x) * f, z = from.z + (to.z - from.z) * f;
 
       const dist = Math.hypot(x - focus.x, z - focus.z);
@@ -1154,7 +1163,7 @@ export class Pedestrians {
       const ped = {
         id: ++this._nextId, edge: ei, side, forward, walk, node: k,
         x, z, yaw: Math.atan2(to.x - from.x, to.z - from.z),
-        v: 0, phase: Math.random() * TAU, stuck: 0, turned: false, lateral: 0,
+        v: 0, phase: this._r() * TAU, stuck: 0, turned: false, lateral: 0,
       };
       this._appearance(ped);
       ped.lateral = this._laneOf(ped);

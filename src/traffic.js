@@ -17,6 +17,7 @@
 
 import * as THREE from '../vendor/three.module.min.js';
 import { buildTrafficCarGeometry, trafficCarMaterial, lampEmissive } from './carbody.js';
+import { rng, hash32 } from './facades.js';
 
 // Intelligent Driver Model. Standard, stable, and it produces the stop-and-go
 // platooning that makes traffic read as traffic rather than as beads on a wire.
@@ -131,6 +132,27 @@ export class Traffic {
 
     this._buildAdjacency();
 
+    // SEEDED. Every random draw in this file now comes from this stream.
+    //
+    // Ten call sites here and thirteen in pedestrians.js were unseeded, so two
+    // page loads of the SAME BUILD spawned different cars, on different edges,
+    // at different speeds, in different colours. That made every populated A/B
+    // on this project unregisterable: two arms captured at the IDENTICAL frame
+    // number (101 and 101) differed on 5.01% of pixels at noon, 27,745 of them
+    // brighter in the arm that had strictly less emissive in it. A change small
+    // enough to matter cannot be seen through that.
+    //
+    // The default is a FIXED seed rather than a random one, deliberately. This
+    // project's expensive failures have almost all been measurement failures,
+    // and a reproducible world costs nothing here; a caller that wants variety
+    // between sessions passes its own `seed`.
+    //
+    // The determinism this buys is exact only while the frame sequence is:
+    // district/main.js advances on dt = min(0.05, wall clock), which clamps to
+    // 0.05 for every frame of a SwiftShader capture (well under 20 fps) and does
+    // NOT clamp at 60 fps. So captures are reproducible; live play still varies.
+    this._r = rng(hash32('traffic', opts.seed ?? 0x5ACA5017));
+
     // One geometry, one material, one InstancedMesh — same as the box it replaces.
     // Body panels are authored WHITE because InstancedMesh colour multiplies the
     // vertex colour, so white takes the per-car paint while the glass, tyres and
@@ -154,10 +176,10 @@ export class Traffic {
       // alloy rims. Uniform random hue at saturation 0.32-0.62 was a fairground.
       // Lightness range unchanged from the hue-wheel version; only hue and
       // saturation move. See the note in streetfurniture.js.
-      const r = Math.random();
-      const l = 0.34 + Math.random() * 0.26;
+      const r = this._r();
+      const l = 0.34 + this._r() * 0.26;
       if (r < 0.66) color.setHSL(0.58, 0.012 + r * 0.045, l);
-      else color.setHSL(Math.random(), 0.26 + Math.random() * 0.18, l);
+      else color.setHSL(this._r(), 0.26 + this._r() * 0.18, l);
       this.mesh.setColorAt(i, color);
     }
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
@@ -294,11 +316,11 @@ export class Traffic {
 
   _spawn(i, playerPos) {
     for (let a = 0; a < 40; a++) {
-      const edge = this.spawnable[(Math.random() * this.spawnable.length) | 0];
+      const edge = this.spawnable[(this._r() * this.spawnable.length) | 0];
       const e = this.d.edges[edge];
-      const forward = e.o === -1 ? false : e.o === 1 ? true : Math.random() < 0.5;
+      const forward = e.o === -1 ? false : e.o === 1 ? true : this._r() < 0.5;
       const len = this._len(edge);
-      const t = Math.random() * len;
+      const t = this._r() * len;
       const p = this._pointOn(edge, forward, t);
       if (!p) continue;
       const dist = Math.hypot(p.x - playerPos.x, p.z - playerPos.z);
@@ -318,8 +340,8 @@ export class Traffic {
       const limit = this._speedLimit(edge);
       this.cars[i] = {
         id: ++this._nextId, edge, forward, t, len,
-        v: limit * (0.55 + Math.random() * 0.35),
-        limit: limit * (0.85 + Math.random() * 0.3),
+        v: limit * (0.55 + this._r() * 0.35),
+        limit: limit * (0.85 + this._r() * 0.3),
         lane: this._laneOffset(edge),
         holds: [],
         waitS: 0, stuckS: 0, sinceReplanS: 0, fromArm: null, lastDeny: null,
@@ -521,7 +543,7 @@ export class Traffic {
         const p = this._pointOn(o.e, o.forward, 0);
         if (!p) continue;
         const straight = here ? here.dx * p.dx + here.dz * p.dz : 0;
-        const score = straight + Math.random() * 0.55;
+        const score = straight + this._r() * 0.55;
         if (score > bestScore) { bestScore = score; best = o; }
       }
       if (best) return best;
@@ -832,7 +854,7 @@ export class Traffic {
         car.t = 0;
         car.len = this._len(next.e);
         car.lane = this._laneOffset(next.e);
-        car.limit = this._speedLimit(next.e) * (0.85 + Math.random() * 0.3);
+        car.limit = this._speedLimit(next.e) * (0.85 + this._r() * 0.3);
         if (next.uTurn) car.v = Math.min(car.v, 2.5);
         p = this._pointOn(car.edge, car.forward, 0);
         if (!p) { this._release(car); this.cars[i] = null; this.mesh.setMatrixAt(i, this._hidden); continue; }
