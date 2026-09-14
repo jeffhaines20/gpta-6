@@ -16,7 +16,10 @@
 // breaks the draw-call budget.
 
 import * as THREE from '../vendor/three.module.min.js';
-import { buildTrafficCarGeometry, trafficCarMaterial, lampEmissive } from './carbody.js';
+import {
+  buildTrafficCarGeometry, trafficCarMaterial, lampEmissive,
+  buildCarGlowGeometry, carGlowMaterial,
+} from './carbody.js';
 import { rng, hash32 } from './facades.js';
 
 // Intelligent Driver Model. Standard, stable, and it produces the stop-and-go
@@ -166,6 +169,53 @@ export class Traffic {
     this.mesh.frustumCulled = false;
     scene.add(this.mesh);
 
+    // The light the lamps put on the world. ONE extra draw call for the whole
+    // fleet and none at all by day, because the mesh is hidden whenever the
+    // lamps are off. See buildCarGlowGeometry for why this is additive geometry
+    // rather than lights or emissive decals.
+    //
+    // NEAREST-N, NOT THE WHOLE FLEET, and the precedent is in this codebase:
+    // src/lightpool.js serves 543 street lamps from ten real PointLights on the
+    // same argument. A pool of light on the road is a near-field effect - at
+    // 80 m a tail lamp's puddle is under two pixels - and an InstancedMesh is
+    // billed by renderer.info at count x geometry, so the slot limit is the
+    // whole triangle price of this change.
+    //
+    // SIX SLOTS, and the number is measured rather than chosen.
+    // tools/spill-cost.mjs toggles this mesh in one live frame with the fleet
+    // and the chunks unchanged, so the difference IS the cost. With the player
+    // standing on Main Street east at dusk, 30 cars alive:
+    //
+    //   dusk   spill off  181 calls  779,662 tris
+    //   dusk   spill on   185 calls  780,302 tris   4 slots filled
+    //   noon   off/on     163 calls  753,985 tris   (hidden: lamps are off)
+    //
+    // +640 triangles for 4 filled slots and the player's own mesh - i.e. the
+    // gate charges 128 per 64-triangle geometry, because PostStack renders the
+    // scene a second time for depth and renderer.info counts both. So each
+    // further slot is 128, and the worst case is (6 + 1) x 128 = 896, which is
+    // under the 934 run-to-run spread CLAUDE.md measures for this gate on a
+    // clean box. At 8 slots the worst case is 1,152 and IS resolvable; at 12 it
+    // is 1,664. Measured occupancy on a real street is 4-6 slots with the
+    // outermost at 97-105 m, so 6 costs nothing that is ever drawn - the
+    // GLOW_FAR cut-off in _updateGlow is what actually binds.
+    //
+    // _updateGlow fades the outermost slot to black, so the slot boundary cannot
+    // pop as the ranking churns.
+    this.glowSlots = Math.min(this.count, opts.glowSlots ?? 6);
+    const glowGeo = buildCarGlowGeometry({ groundY: 0 });
+    this.glow = new THREE.InstancedMesh(glowGeo, carGlowMaterial(), this.glowSlots);
+    this.glow.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.glow.castShadow = false;
+    this.glow.receiveShadow = false;
+    this.glow.frustumCulled = false;      // instances move; the geometry's sphere does not
+    this.glow.visible = false;            // until setLights says the lamps are on
+    this.glow.count = 0;
+    this.glow.name = 'trafficLampSpill';
+    this._glowTris = (glowGeo.index ? glowGeo.index.count : glowGeo.attributes.position.count) / 3;
+    scene.add(this.glow);
+    this._gc = new THREE.Color();
+
     const color = new THREE.Color();
     this.cars = new Array(this.count).fill(null);
     for (let i = 0; i < this.count; i++) {
@@ -207,6 +257,10 @@ export class Traffic {
       spawns: 0, despawns: 0, deadEnds: 0, uTurns: 0,
       orphaned: 0, maxSimultaneousOrphans: 0, worstOrphanS: 0,
       overlapFrames: 0, frames: 0,
+      // Lamp-spill slots actually drawn last frame, and how far out the last one
+      // was. Reported so a harness can check the near-field assumption on a real
+      // drive instead of trusting the 12 chosen in the constructor.
+      glowSlotsUsed: 0, glowEdgeM: 0,
       junctionWaitCarFrames: 0, followBrakeCarFrames: 0, stoppedCarFrames: 0,
       entryBlockedCarFrames: 0,
       carFrames: 0,
@@ -892,6 +946,11 @@ export class Traffic {
       positions.push({ x, z, edge: car.edge, toEnd: car.len - car.t, id: car.id,
         box: car.t < JUNCTION_BOX_R || car.len - car.t < JUNCTION_BOX_R,
         v: car.v, key: this._edgeKey(car), holds: car.holds, blocked: false,
+        // yaw and viewer distance are carried for _updateGlow, which has to
+        // rebuild a matrix for the nearest few cars AFTER this loop has decided
+        // which cars are alive. Recomputing them there would mean re-walking the
+        // edge geometry for cars the loop has already placed.
+        yaw: p.yaw, dView: dist,
         mv: car.mv ? car.mv.key : null });
       this._m.makeRotationY(p.yaw);
       this._m.setPosition(x, 0, z);
@@ -940,6 +999,67 @@ export class Traffic {
       this.stats.maxSimultaneousOrphans = orphansThisFrame;
     }
     this.mesh.instanceMatrix.needsUpdate = true;
+    this._updateGlow(positions);
+  }
+
+  /**
+   * Point the lamp-spill slots at the nearest cars.
+   *
+   * The pool is a near-field effect and an InstancedMesh is billed at count x
+   * geometry, so the slot count IS the triangle price. src/lightpool.js makes
+   * the same trade for the street lamps and for the same reason.
+   *
+   * THE OUTERMOST SLOT IS FADED TO BLACK, and that is not polish. With a hard
+   * cut, the car holding the last slot draws a full-strength pool and the car
+   * one metre behind it draws none, so a pool appears and vanishes as the
+   * ranking churns - which at 20 fps is a flicker, not a fade. The fade band is
+   * derived from the first car that MISSED a slot rather than from a fixed
+   * distance, because how far out the slots run depends on how the fleet is
+   * spread, which changes street by street. Where there are fewer cars than
+   * slots there is no boundary to hide and the band falls back to GLOW_FAR.
+   */
+  _updateGlow(positions) {
+    const g = this.glow;
+    if (!g) return;
+    // Runs whether or not the spill is visible. An early return on `visible`
+    // looked like a saving and was a trap: three skips an invisible object
+    // before it reaches renderer.info, so the triangles are already zero, and
+    // leaving `count` stale meant that anything which switched the spill back on
+    // WITHOUT the simulation running - a frozen measurement page, a paused
+    // game - got a visible mesh with count 0 and drew nothing. The work saved is
+    // a sort of at most 30 items.
+    // Sorted in a REUSED array. This file's own history is the argument: building
+    // one small object per car per frame here is what turned a 0.18 ms frame into
+    // a 44 ms GC spike, and the movement interning above exists because of it.
+    // A 30-element sort is about a microsecond either way - 0.006% of a 60 fps
+    // frame, which is not a performance result - but the garbage is not.
+    const rank = this._rank ?? (this._rank = []);
+    rank.length = 0;
+    for (let i = 0; i < positions.length; i++) rank.push(positions[i]);
+    rank.sort((a, b) => a.dView - b.dView);
+    const n = Math.min(this.glowSlots, rank.length);
+    // Beyond GLOW_FAR a tail lamp's puddle is under two pixels at this camera's
+    // fov, so it is not worth a slot even when one is free.
+    const GLOW_FAR = 110;
+    const dCut = rank.length > n ? rank[n].dView : GLOW_FAR;
+    const dEnd = Math.min(dCut, GLOW_FAR);
+    const dStart = dEnd * 0.7;
+    let used = 0;
+    for (let s = 0; s < n; s++) {
+      const p = rank[s];
+      const f = Math.max(0, Math.min(1, (dEnd - p.dView) / Math.max(1e-3, dEnd - dStart)));
+      if (f <= 0) break;                       // the list is sorted, so the rest are further
+      this._m.makeRotationY(p.yaw);
+      this._m.setPosition(p.x, 0, p.z);
+      g.setMatrixAt(used, this._m);
+      g.setColorAt(used, this._gc.setScalar(f));
+      used++;
+    }
+    g.count = used;
+    this.stats.glowSlotsUsed = used;
+    this.stats.glowEdgeM = used ? +rank[used - 1].dView.toFixed(1) : 0;
+    g.instanceMatrix.needsUpdate = true;
+    if (g.instanceColor) g.instanceColor.needsUpdate = true;
   }
 
   // Lamps on the whole fleet at once: the emissive palette texel already knows
@@ -950,6 +1070,45 @@ export class Traffic {
     if (e === this._lit) return;
     this._lit = e;
     this.mesh.material.emissive.setScalar(e);
+    // The spill rides the same switch and the same stop. Its vertex colours are
+    // authored as DISPLAYED radiance, so the material scales them by 1/exposure
+    // for the same reason lampEmissive divides: the stop spans 1/22,100 at noon
+    // to 1/5.378 at night, and a constant scene-referred pool is invisible at
+    // one end and a slab at the other.
+    //
+    // Hidden rather than emptied when the lamps are off, AND emptied by
+    // _updateGlow as well: `visible` keeps it out of the render, `count = 0`
+    // keeps it out of renderer.info, and the budget gate reads renderer.info.
+    this._exposure = exposure;
+    this._applySpill();
+  }
+
+  /**
+   * A/B handle for the lamp spill: 0 is the arm this round replaces, 1 is the
+   * arm it ships. It exists for the same reason src/signage.js's spill scale
+   * does - "0 is the before arm with the geometry left in place" - and it is
+   * worth more here than a second build is.
+   *
+   * Two builds on two trees is how this project loses rounds: a worktree capture
+   * that silently reuses another tree's HTTP server photographs the wrong build,
+   * a `git add -A` while a script holds a file reverted photographs the wrong
+   * build, and neither failure looks like a failure. One build, one page load,
+   * one frozen fleet, two shutters: the arms differ in this scalar and in
+   * nothing else, including which cars are where.
+   */
+  setSpillScale(k) {
+    this._spill = Math.max(0, k);
+    this._applySpill();
+    return this._spill;
+  }
+
+  _applySpill() {
+    const g = this.glow;
+    if (!g) return;
+    const k = this._spill ?? 1;
+    const on = this._lit > 0 && k > 0;
+    g.visible = on;
+    g.material.color.setScalar(on ? k / Math.max(this._exposure ?? 1 / 660, 1e-6) : 0);
   }
 
   report() {
@@ -962,6 +1121,11 @@ export class Traffic {
     }
     return {
       fleet: this.count,
+      // The lamp spill is one extra draw call and glowSlotsUsed x glowTriangles
+      // triangles, and it is zero of both whenever the lamps are off.
+      glow: { slots: this.glowSlots, used: this.stats.glowSlotsUsed,
+        edgeM: this.stats.glowEdgeM, trianglesEach: this._glowTris,
+        visible: !!(this.glow && this.glow.visible) },
       alive: alive.length,
       ...this.stats,
       overlapPctOfFrames: +((this.stats.overlapFrames / f) * 100).toFixed(1),

@@ -656,6 +656,227 @@ export function buildWheelGeometry(opts = {}) {
   return b.geometry();
 }
 
+// ---------------------------------------------------------------- lamp spill
+/**
+ * The light a car's lamps put ON THE WORLD, as additive geometry.
+ *
+ * WHY THIS EXISTS, in one measurement. The second blind review of round 2
+ * swapped the ENTIRE tail-lamp geometry between two arms and measured the road
+ * behind the car move from redness 11.53 to 11.56 - three tenths of one percent.
+ * Two rounds had reshaped, divided, recoloured and re-wound the lenses, and the
+ * lamps still lit nothing, because an emissive texel is a value on a triangle
+ * and not a light. At night, which is where a game like this lives, that is the
+ * loudest remaining "this is not a car" cue in the district.
+ *
+ * WHY IT IS GEOMETRY AND NOT A LIGHT. src/lightpool.js is a nearest-N pool of
+ * ten real PointLights serving 543 street lamps; a fleet of 30 cars with two
+ * lamps each cannot have any of those slots, and adding lights would cost a
+ * per-fragment lighting evaluation across the whole district for an effect that
+ * is a few metres across.
+ *
+ * WHY IT IS ADDITIVE AND NOT EMISSIVE. A pool of light on a road ADDS to what
+ * the road already reflects. An emissive quad REPLACES the road, so its rim -
+ * where the glow has fallen to nothing - is painted black over asphalt that the
+ * street lamps are lighting, and the pool arrives with a dark halo round it.
+ * Additive blending makes a black vertex add exactly zero, which is what lets
+ * this fade out with no edge at all. src/signage.js's spillMaterial is the same
+ * argument for the same reason, and it is also order-independent, which is what
+ * keeps a whole fleet in one unsorted draw call.
+ *
+ * WHAT IS IN IT, per car:
+ *   4 ground pools  - two red behind the tail lamps, two warm-white ahead of the
+ *                     headlamps, lying on the road, brightest at the bumper and
+ *                     black at every outer vertex.
+ *   4 lamp halos    - a small quad standing at each lens with a bright centre
+ *                     and black corners. This is the "no bloom, hard rectangular
+ *                     edges" half of the complaint: the halo puts real light
+ *                     immediately outside the lens, where a lens's glow is.
+ *
+ * WHAT IS NOT IN IT, and it is a refusal rather than an oversight: the lens
+ * itself still has no INTERNAL gradient. Emission here is read from a 16x1
+ * palette texture indexed by UV.x, so grading the inside of a lens needs either
+ * a second palette slot (and then every triangle spanning both slots samples
+ * every texel in between - tyre, rim, glass - because the texture is NEAREST) or
+ * separate geometry for the core, which prices at +16 triangles a car. At the
+ * 6-10 px a tail lamp occupies in these frames a two-step gradient inside the
+ * lens is under one pixel per step. The halo buys the same perception outside
+ * the lens, where there is room for it, for the same money.
+ *
+ * Levels are authored in DISPLAYED units and divided by the camera stop at
+ * runtime, exactly like lampEmissive: this project's exposure spans 1/22,100 at
+ * noon to 1/5.378 at night, and a constant scene-referred value is invisible at
+ * one end and a supernova at the other.
+ *
+ * The head:tail ratio is NOT a taste. Both pools are painted in their own lens's
+ * emissive colour from PALETTE, so the ratio between them is the ratio the
+ * palette already fixes: linear luma 0.9339 for the headlight lens against
+ * 0.1085 for the tail lens, 8.6:1.
+ */
+export function buildCarGlowGeometry(opts = {}) {
+  const P = CAR;
+  const b = new Builder();
+  // Authored in carbody.js's own frame (road at CAR.ground) and translated the
+  // way buildTrafficCarGeometry translates its body, so the two share a frame.
+  const yRoad = P.ground + 0.03;
+  // Peak DISPLAYED radiance of the brightest vertex of a tail pool. The road at
+  // night reads about 11/255 = 0.0034 in linear light, and daynight.js's own
+  // note puts a photographed lamp pool at 3-6x the road it sits on; 0.27 in the
+  // red channel against a road at 0.0034 is that range once the transfer curve
+  // has been through it. Carried as one gain over the palette's own lens colours
+  // so head and tail keep their authored ratio.
+  // 0.22, not the 0.55 the first cut used, and the frame is why. At 0.55 the
+  // probe's tail view came back with the road behind the car a saturated red
+  // slab running off the side of the frame - a light source rather than a car
+  // with its lights on. The number is still anchored the same way: 0.487 (the
+  // tail lens's linear red) x 0.22 = 0.107 of peak DISPLAYED red added to a road
+  // that reads about 0.0034 linear at the night stop, which is inside the 3-6x
+  // band daynight.js records for a photographed lamp pool.
+  const gain = opts.gain ?? 0.22;
+  // PALETTE's emissive is authored as sRGB BYTES (emissiveTexture tags the
+  // texture SRGBColorSpace), and a vertex colour attribute is consumed as
+  // working-space linear with no conversion at all. So the decode has to be done
+  // here, with the real sRGB EOTF rather than a 2.2 power - the two differ by
+  // 12% near black, which is exactly where the tail lens's green and blue live
+  // and therefore exactly where the pool's hue is decided.
+  const srgbToLinear = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const lin = (i) => {
+    const e = PALETTE[i][2];
+    return new THREE.Color(
+      srgbToLinear(e[0] / 255) * gain,
+      srgbToLinear(e[1] / 255) * gain,
+      srgbToLinear(e[2] / 255) * gain);
+  };
+  const tailLit = lin(SURFACE.taillight);
+  const headLit = lin(SURFACE.headlight);
+  const black = new THREE.Color(0, 0, 0);
+
+  /**
+   * A pool on the road. `rows` is [distance from the bumper, half-width,
+   * level], near to far; the centre column carries the level and BOTH outer
+   * columns are black, so the pool is a tent that fades to nothing sideways as
+   * well as lengthways and therefore has no edge anywhere.
+   */
+  const pool = (cx, z0, dir, rows, colour) => {
+    const grid = rows.map(([dz, hw, lvl]) => [-1, 0, 1].map((s) => {
+      if (s === 0) _c.copy(colour).multiplyScalar(lvl); else _c.copy(black);
+      return b.vert(cx + s * hw, yRoad, z0 + dir * dz, _c, SURFACE.paint);
+    }));
+    for (let i = 0; i < grid.length - 1; i++) {
+      for (let j = 0; j < 2; j++) {
+        b.quad(grid[i][j], grid[i][j + 1], grid[i + 1][j + 1], grid[i + 1][j]);
+      }
+    }
+  };
+  /**
+   * A halo at a lens: centre bright, four corners black. Four triangles, and the
+   * material is DoubleSide so neither this nor the pools depend on a winding.
+   */
+  const halo = (cx, cy, cz, hx, hy, colour, lvl, n = 8) => {
+    _c.copy(colour).multiplyScalar(lvl);
+    const c0 = b.vert(cx, cy, cz, _c, SURFACE.paint);
+    const rim = [];
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      rim.push(b.vert(cx + Math.cos(a) * hx, cy + Math.sin(a) * hy, cz, black, SURFACE.paint));
+    }
+    for (let i = 0; i < n; i++) b.tri(c0, rim[i], rim[(i + 1) % n]);
+  };
+
+  // Lamp centres, read off the same silhouette tags the lenses are built from:
+  // the tail band spans tailHi (y 0.052) to tailLo (-0.072) at z about -2.25,
+  // the head band lampLo (0.062, z 2.214) to lampHi (0.192, z 2.062).
+  //
+  // THESE ARE CAR-LOCAL Y, WHERE THE ROAD IS AT CAR.ground = -0.717, and the
+  // first cut of this block had them as +0.717 - the value they take in the
+  // INSTANCE frame, after buildTrafficCarGeometry's translate. That put both
+  // halos 1.42 m above the road, a clear half-metre over the roof, glowing in
+  // mid-air. Nothing would have thrown, no count would have changed, and the
+  // frames would simply have shown a car with two lights floating above it.
+  // silhouette() authors in CAR-local; everything in this function must too.
+  const TAIL_Z = -2.25, HEAD_Z = 2.16;
+  const TAIL_Y = -0.010, HEAD_Y = 0.127;
+  const LAMP_X = 0.53;
+  for (const s of [-1, 1]) {
+    // Tail: a short, wide pool - a tail lamp is a low-output lamp close to the
+    // ground and its pool is a puddle, not a beam.
+    pool(s * LAMP_X, TAIL_Z, -1,
+      [[0.25, 0.40, 1.0], [1.45, 0.78, 0.42], [3.60, 1.20, 0.0]], tailLit);
+    // Head: the same shape thrown further, because a headlamp is aimed down the
+    // road rather than spilled onto it.
+    pool(s * LAMP_X, HEAD_Z, 1,
+      [[0.35, 0.45, 1.0], [2.40, 0.95, 0.46], [7.00, 1.85, 0.0]], headLit);
+    // Halo size against the LENS it belongs to, not picked. The tail band spans
+    // u 0.32-0.88 of a half-width of 0.879 (x 0.28-0.77, half-width 0.245) and y
+    // 0.052 to -0.072 (half-height 0.062); the halo is 1.4x that in x and 2.4x
+    // in y. The vertical figure is deliberately the larger: a lens's glare is
+    // round, and the lens is three times as wide as it is tall, so an isotropic
+    // halo has to be the taller multiple of the two.
+    //
+    // The headlamp halo's top edge reaches 0.287 in car-local, which is ABOVE
+    // the nose profile at the z it stands on - the bonnet's leading edge is at
+    // y 0.06 there. That is left as it is: additive geometry cannot darken, the
+    // rim is black, and a headlamp glowing into the air above its own lens is
+    // what a headlamp does. The first cut had it at 0.26 half-height and reached
+    // 1.10 m, which is most of the way up the windscreen, and that is a fog bank
+    // rather than a lamp.
+    // EIGHT rim vertices, not four, and 18 cm proud of the lens rather than 6.
+    //
+    // The four-vertex version is visible as a LOZENGE in the probe's tail frame:
+    // a fan with four rim points has four straight edges, and at the sizes a
+    // lamp occupies that reads as a diamond decal stuck on the car rather than
+    // as glare. Eight costs 4 triangles a halo, 16 a car, and the slot count
+    // below was cut from 12 to 8 to pay for it.
+    //
+    // The 18 cm stand-off is not cosmetic either. The tail is a lofted surface
+    // that draws in toward the corners, so a flat quad 6 cm behind the lens has
+    // its OUTER half inside the bodywork, where the depth test removes it - the
+    // half of the halo that matters, since the inner half only brightens a lens
+    // that is already clipped. The first cut measured the lens centre rising
+    // 0.172 -> 0.185 while the surround did not move, which is that failure.
+    halo(s * LAMP_X, TAIL_Y, TAIL_Z - 0.18, 0.62, 0.34, tailLit, 0.55);
+    halo(s * LAMP_X, HEAD_Y, HEAD_Z + 0.18, 0.64, 0.36, headLit, 0.55);
+  }
+
+  const g = b.geometry();
+  // The halo quads stand in the car's own YZ plane and the pools lie flat; both
+  // are unlit (MeshBasicMaterial), so the normals computeVertexNormals() derives
+  // are never read. They are left rather than stripped because a geometry
+  // without them is a trap for any future caller that puts a lit material on it.
+  if (opts.groundY !== undefined) g.translate(0, opts.groundY - P.ground, 0);
+  g.computeBoundingSphere();
+  return g;
+}
+
+/**
+ * The material for buildCarGlowGeometry. See src/signage.js spillMaterial for
+ * the same four decisions argued at length on the pavement pools:
+ *   Basic, not Standard - the quad is not a surface to be lit, it IS the light.
+ *   Additive            - a pool adds to the road; it must not replace it.
+ *   depthWrite false    - it occludes nothing, ever.
+ *   fog false           - three's fog is mix(colour, fogColour, f) applied to the
+ *                         fragment, and under ADDITIVE blending that adds
+ *                         fogColour*f everywhere the quad is, INCLUDING the parts
+ *                         authored black that are supposed to add nothing. The
+ *                         district nulls scene.fog behind a PostStack so this is
+ *                         inert in the shipped path, and it is still wrong to
+ *                         leave off: labs pages do get a FogExp2.
+ *
+ * polygonOffset because the ground pools lie 3 cm over a road that is itself
+ * carrying markings at 8 mm, and depth precision at 80 m does not respect 3 cm.
+ */
+export function carGlowMaterial() {
+  return new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    blending: THREE.AdditiveBlending,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6,
+    fog: false,
+  });
+}
+
 // ---------------------------------------------------------------- player car
 /**
  * The player's vehicle: three draw calls (body, glazing, four instanced wheels).
@@ -829,12 +1050,40 @@ export function buildPlayerCar(opts = {}) {
   wheelMesh.frustumCulled = false;
   group.add(wheelMesh);
 
+  // The light this car's own lamps put on the road. A FOURTH draw call, and the
+  // one place in this file where that is worth arguing about: the chase camera
+  // sits behind this car for most of the time anyone spends in the district, so
+  // at night its tail lamps are the largest pair of lamps on screen and the road
+  // under them is the largest patch of road on screen. They lit exactly none of
+  // it. 48 triangles, and zero draw calls by day because the mesh is hidden
+  // whenever the lamps are off.
+  //
+  // No groundY: the player's car is authored in CAR's own frame with the contact
+  // patch at CAR.ground, unlike the traffic car which is translated to sit on an
+  // instance origin, so the pools want the untranslated build.
+  const glowGeo = buildCarGlowGeometry({ gain: opts.glowGain ?? 0.55 });
+  const glowMesh = new THREE.Mesh(glowGeo, carGlowMaterial());
+  glowMesh.name = 'playerLampSpill';
+  glowMesh.castShadow = false;
+  glowMesh.receiveShadow = false;
+  glowMesh.visible = false;
+  group.add(glowMesh);
+
   const _m = new THREE.Matrix4();
   const _q = new THREE.Quaternion();
   const _e = new THREE.Euler(0, 0, 0, 'YXZ');
   const _p = new THREE.Vector3();
   const _s = new THREE.Vector3(1, 1, 1);
   let lit = -1;
+  // Declared after `lit` on purpose: applySpill reads it, and a closure over a
+  // `let` that has not executed yet is a temporal-dead-zone throw waiting for
+  // the first caller who reorders anything here.
+  let spillScale = 1, lampExposure = 1 / 660;
+  const applySpill = () => {
+    const on = lit > 0 && spillScale > 0;
+    glowMesh.visible = on;
+    glowMesh.material.color.setScalar(on ? spillScale / Math.max(lampExposure, 1e-6) : 0);
+  };
 
   const colourAttr = bodyGeo.getAttribute('color');
   const uvAttr = bodyGeo.getAttribute('uv');
@@ -844,7 +1093,7 @@ export function buildPlayerCar(opts = {}) {
   const tris = (g) => (g.getIndex() ? g.getIndex().count : g.getAttribute('position').count) / 3;
 
   return {
-    group, bodyMesh, glassMesh, wheelMesh,
+    group, bodyMesh, glassMesh, wheelMesh, glowMesh,
     materials: { body: bodyMat, glass: glassMat, wheel: wheelMesh.material },
 
     /**
@@ -874,6 +1123,22 @@ export function buildPlayerCar(opts = {}) {
       if (want === lit) return;
       lit = want;
       bodyMat.emissive.setRGB(want, want, want);
+      // The spill rides the same switch and the same stop. Its vertex colours
+      // are authored as DISPLAYED radiance, so the material scales by 1/exposure
+      // for the same reason the emissive above is divided by it.
+      lampExposure = exposure;
+      applySpill();
+    },
+
+    /**
+     * A/B handle for the lamp spill: 0 is the arm this round replaces, 1 is the
+     * arm it ships. See Traffic.setSpillScale for why this is a runtime scalar
+     * rather than a second build.
+     */
+    setSpillScale(k) {
+      spillScale = Math.max(0, k);
+      applySpill();
+      return spillScale;
     },
 
     /**
@@ -896,8 +1161,11 @@ export function buildPlayerCar(opts = {}) {
 
     report() {
       return {
-        drawCalls: 3,
-        triangles: tris(bodyGeo) + tris(glassGeo) + tris(wheelGeo) * 4,
+        // 4 with the lamps on, 3 with them off: the spill mesh is hidden by day.
+        drawCalls: glowMesh.visible ? 4 : 3,
+        triangles: tris(bodyGeo) + tris(glassGeo) + tris(wheelGeo) * 4
+          + (glowMesh.visible ? tris(glowGeo) : 0),
+        glowTriangles: tris(glowGeo),
         bodyTriangles: tris(bodyGeo),
         glassTriangles: tris(glassGeo),
         wheelTriangles: tris(wheelGeo),
@@ -907,8 +1175,9 @@ export function buildPlayerCar(opts = {}) {
     },
 
     dispose() {
-      bodyGeo.dispose(); glassGeo.dispose(); wheelGeo.dispose();
+      bodyGeo.dispose(); glassGeo.dispose(); wheelGeo.dispose(); glowGeo.dispose();
       bodyMat.dispose(); glassMat.dispose(); wheelMesh.material.dispose();
+      glowMesh.material.dispose();
     },
   };
 }
@@ -941,19 +1210,82 @@ export function buildTrafficCarGeometry(opts = {}) {
   // top of that. Measured at the hero framing it took rimTyre from 1.20 to 0.87 -
   // the rim came out DARKER than the tyre. A spoke gap in daylight is a shadowed
   // recess, not a hole; these two average to 0.62.
-  const rimC = col(0xd8dee5);           // alloy face
-  // The spoke gap, and the one number in this file that has now been set twice
-  // for opposite reasons. Round 1 tried 0x24282e, measured the rim coming out
-  // DARKER than the tyre (rimTyre 1.20 -> 0.87), and lightened it to 0x656b73 to
-  // pull the mean back up. That was the right response to the wrong cause: at
-  // SURFACE.rim's metalness 0.72 there is no diffuse term, so the albedo barely
-  // reaches the screen and lightening the gap mostly just flattened the pattern
-  // out. With the traffic rim moved to its own mostly-diffuse slot the albedo is
-  // what is actually rendered, and a dark gap is what makes the rim bimodal in
-  // SPACE - which is what the photographs show and what hubFrac measures.
-  // 0x3a4048 rather than the player car's 0x1e2227, because at seg 8 one dark
-  // facet is an eighth of the ring and the hero's 18 segments spread it much finer.
-  const rimGapC = col(0x3a4048);        // shadowed recess between spokes
+  // THE RIM, RE-AUTHORED AGAINST A DENOMINATOR THAT IS ACTUALLY TYRE.
+  //
+  // Rounds 1 and 2 both set these colours from `rimTyre` measured at the
+  // corridor camera's FAR car, and that subject's denominator is road. On one
+  // unchanged frame at noon, median luma of the d>=0.80 annulus the metric calls
+  // "tyre", beside the annulus immediately outside the wheel:
+  //
+  //   corridor/nearleft  62x52 px   core 66.7   "tyre" 25.8   outside 15.9
+  //   corridor/nearleft  46x34 px   core 61.6   "tyre" 29.0   outside  7.7
+  //   corridor/right     34x24 px   core 41.0   "tyre" 60.2   outside 94.9
+  //
+  // The near car sits in its own arch shadow and its annulus is rubber; the far
+  // car's is sunlit tarmac at 94.9, and the "tyre" it is divided by reads 60.2.
+  // So round 2's headline wheel result - "front rimTyre 0.72 -> 0.99, target
+  // ~1.0" - tuned the alloy to match the brightness of the ROAD BEHIND IT, and
+  // round 1's rejection of a dark spoke gap came off the same ratio.
+  //
+  // At the near car, where the ratio means what it says, the round-2 rim is a
+  // bright disc: rimTyre 2.59 against 0.96-1.05 in real photographs, hubFrac
+  // 94.2% against 8-29%. The crop shows what that is - a pale grey blob filling
+  // the arch.
+  //
+  // ALBEDO ALONE CANNOT FIX IT, and this was measured rather than assumed.
+  // ?rim=K scales every rim vertex colour; four arms off one build, front wheel
+  // at the near car, noon:
+  //
+  //   K         1.00    0.55    0.35    0.22
+  //   rimTyre   2.587   2.050   1.765   1.595
+  //   hubFrac   94.2%   82.1%   68.9%   56.0%
+  //
+  // Fitting L = a*K + b in LINEAR light gives a = 0.0492, b = 0.0069: 88% of the
+  // rim's radiance does scale with the vertex colour, but the curve is still
+  // asymptotic to about 1.4 because of WHERE the bright colour is. Two of the
+  // three face rings were authored `lit = 1`, i.e. pure alloy at every vertex,
+  // and the third alternates to pure alloy at each lobe peak. The rim was 2/3
+  // alloy by construction, so scaling it just makes a darker bright disc.
+  //
+  // So the fix is structural and costs nothing: THREE colours instead of two,
+  // and a dark PLATEAU instead of two ramps.
+  //   - the hub ring moves out 0.30 -> 0.34 RR and stops being pure alloy
+  //   - the spoke ring moves out 0.66 -> 0.82 RR
+  //   - between them, 55.6% of the rim's area is now dark at both ends
+  //   - only the centre disc and the outer lip stay bright, and the centre is
+  //     the 8.8% of the core that hubFrac is supposed to be measuring
+  // Predicted from the fit above: rimTyre 1.02, hubPeak ~2.0, hubFrac ~9%.
+  // Measured after: see the commit message.
+  // Lifted 1.7x in LINEAR light from the first cut of this change, and the
+  // reason is a frame rather than a metric. The first cut set these from the
+  // noon fit alone (rimC 0x8a8f93 / spoke 0x404244 / gap 0x15171b) and it landed
+  // rimTyre 1.363 at the near car - close to the 0.96-1.05 anchor - while taking
+  // the NIGHT rim core from luma 13.4 to 2.2. At the night exposure that is a
+  // wheel that has gone out: the crop shows the front wheel disappearing into
+  // its own arch. CLAUDE.md names this exact failure - "never calibrate at
+  // dusk/night on a ratio between two near-black quantities; that is how round 1
+  // shipped a wheel that was darker at night than the one it replaced" - and the
+  // noon ratio walked into it from the other side, because at noon a specular
+  // floor holds the rim up (fitted b = 0.0069 linear) and at night there is no
+  // floor at all, so the same albedo cut is 6x rather than 3x.
+  //
+  // So the albedo is set where NIGHT is still a wheel, and the shape - a bright
+  // hub in a dark field - is what carries the daytime number. The lift is
+  // applied equally to all three colours, so the structure is unchanged.
+  const rimC = col(0xb0b6bb);           // lit alloy: the outer lip and the hub face
+  // The spoke FACE - the flat of a spoke, which is neither a mirror nor a hole.
+  // It did not exist before: the lobe ran from the gap straight to the lip's
+  // full alloy, so every spoke crown was as bright as the brightest thing on the
+  // wheel. Linear luma 0.051, a seventh of the old alloy.
+  const rimSpokeC = col(0x535658);
+  // The gap, set for the third time and the first time against real tyre.
+  // Round 1 tried 0x24282e and measured rimTyre 1.20 -> 0.87 - "the rim came out
+  // DARKER than the tyre" - and lightened it to 0x656b73; round 2 set it to
+  // 0x3a4048. Both readings were rim-over-road. 0x15171b is linear 0.0074, which
+  // with the fitted b = 0.0069 floor renders at about 0.0124 linear against a
+  // tyre at 0.0105: a gap that is just under the rubber beside it, which is what
+  // a shadowed recess between spokes is.
+  const rimGapC = col(0x1e2025);        // shadowed recess between spokes
   const lampC = col(0xd8dade);
   const tailC = col(0x8e1c16);
   // The aperture, and the slat across it. NOT one flat near-black rectangle:
@@ -1177,12 +1509,15 @@ export function buildTrafficCarGeometry(opts = {}) {
     // The relief ring: dip recesses the spoke GAPS and the same lobe drives the
     // colour, so a gap is both further in and darker. One term doing two jobs is
     // what makes five spokes legible at ten segments.
-    const lobeRing = (xo, dip, r, lit) => {
+    // `hi` is what the lobe crest reaches, and it is a parameter now rather than
+    // always rimC. That single default was what made two of three rings pure
+    // alloy; see the block at the top of this function.
+    const lobeRing = (xo, dip, r, lit, hi = rimC) => {
       const row = [];
       for (let s = 0; s < seg; s++) {
         const a = (s / seg) * Math.PI * 2;
         const lobe = 0.5 + 0.5 * Math.cos(SPOKES * a);
-        _c.copy(rimGapC).lerp(rimC, Math.min(1, lit + (1 - lit) * lobe));
+        _c.copy(rimGapC).lerp(hi, Math.min(1, lit + (1 - lit) * lobe));
         row.push(b.vert(wx + out * (xo - dip * (1 - lobe)),
           wy + Math.cos(a) * r, wz + Math.sin(a) * r, _c, SURFACE.rimCoarse));
       }
@@ -1272,8 +1607,11 @@ export function buildTrafficCarGeometry(opts = {}) {
     // 32 mm on a 0.72 m wheel at 34 px is 1.4 px of depth. The lobe's real work
     // here is the COLOUR, which reads at any size; the depth only has to be
     // enough to break the shading up under a low sun.
-    const spoke = lobeRing(HW * 0.88, 0.008, RR * 0.66, 0);
-    const hubR = lobeRing(HW * 0.99, 0, RR * 0.30, 1);
+    const spoke = lobeRing(HW * 0.88, 0.008, RR * 0.82, 0, rimSpokeC);
+    // lit 0, not 1. This ring used to be pure alloy at every vertex, which is
+    // what turned the inner 44% of the rim into the bright disc the near car
+    // measures. It is now the inner rail of the dark plateau.
+    const hubR = lobeRing(HW * 0.99, 0, RR * 0.34, 0, rimSpokeC);
     faceBand(spoke, lip);
     faceBand(hubR, spoke);
     fan(b.vert(wx + out * HW * 0.99, wy, wz, rimC, SURFACE.rimCoarse), hubR, out > 0);
@@ -1283,6 +1621,60 @@ export function buildTrafficCarGeometry(opts = {}) {
   g.translate(0, (opts.groundY ?? 0) - P.ground, 0);
   g.computeBoundingSphere();
   return g;
+}
+
+/**
+ * Rescale every TRAFFIC-RIM vertex colour in a built geometry, in place.
+ *
+ * A measurement lever, and the reason it is worth one. Two rounds have now tuned
+ * this rim against `rimTyre` measured at the corridor camera's FAR car, and that
+ * subject's denominator is not tyre. Measured on one unchanged frame, median
+ * luma of the d>=0.80 annulus the metric calls "tyre", beside the annulus just
+ * outside the wheel:
+ *
+ *   subject                         core   "tyre"   just outside   rimTyre
+ *   corridor/nearleft  62x52 px     66.7     25.8            15.9     2.587
+ *   corridor/nearleft  46x34 px     61.6     29.0             7.7     2.123
+ *   corridor/right     34x24 px     41.0     60.2            94.9     0.681
+ *
+ * At the near car the ring outside the wheel is dark (7.7-15.9): the wheel sits
+ * in its own arch shadow and the annulus really is rubber. At the far car it is
+ * 94.9 - sunlit road - and the "tyre" annulus reads 60.2, four fifths of the way
+ * there. So the far car's rimTyre is RIM OVER ROAD, and tuning it to 1.0, which
+ * is what round 2 reported as its headline wheel result, tuned the alloy to
+ * match the brightness of the tarmac behind it. Round 1's rejection of a darker
+ * spoke gap ("rimTyre 1.20 -> 0.87, the rim came out DARKER than the tyre") was
+ * read off the same contaminated ratio.
+ *
+ * At the near car, where the ratio means what it says, the rim is a bright disc:
+ * rimTyre 2.1-4.2 against 0.96-1.05 in real photographs, and hubFrac 72-98%
+ * against 8-29%. This lever exists so that can be swept from ONE page load
+ * instead of one build per candidate - ?rim=K in district/main.js - rather than
+ * being argued about for a third round.
+ *
+ * Only SURFACE.rimCoarse is touched, which is the traffic car's own alloy slot.
+ * The player's car uses SURFACE.rim and is not reachable from here.
+ */
+export function setTrafficRimScale(geo, k) {
+  const uv = geo.getAttribute('uv'), col = geo.getAttribute('color');
+  if (!uv || !col) return 0;
+  if (!geo.userData.rimBase) {
+    const u = paletteU(SURFACE.rimCoarse);
+    const idx = [];
+    for (let i = 0; i < uv.count; i++) if (Math.abs(uv.getX(i) - u) < 1e-4) idx.push(i);
+    // The BASE is captured once, so repeated calls compose as k and not as k^n -
+    // which is the bug every "scale it again" hook in this file's history has had.
+    geo.userData.rimBase = {
+      idx,
+      rgb: idx.map((i) => [col.getX(i), col.getY(i), col.getZ(i)]),
+    };
+  }
+  const { idx, rgb } = geo.userData.rimBase;
+  for (let n = 0; n < idx.length; n++) {
+    col.setXYZ(idx[n], rgb[n][0] * k, rgb[n][1] * k, rgb[n][2] * k);
+  }
+  col.needsUpdate = true;
+  return idx.length;
 }
 
 /** The material a traffic/pursuit InstancedMesh needs to read the palette. */
