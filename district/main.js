@@ -26,7 +26,10 @@ import {
   setSignageTime, spillMaterial, soffitMaterial, setSpillScale, setSoffitScale, spillScaleOf,
 } from '../src/signage.js';
 import { buildingStyle } from '../src/facades.js';
-import { buildPlayerCar, setTrafficRimScale, setCarLensArm, carLensArm } from '../src/carbody.js';
+import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubScale,
+  setTrafficLampAlbedo, setCarLensArm,
+  carLensArm, setFrontLensScale, frontLensScale, frontLensLuma,
+  setLensFinish, lensFinish } from '../src/carbody.js';
 import { HUD } from '../src/hud.js';
 import { WantedSystem, bindPursuit, CRIMES, STATES } from '../src/wanted.js';
 import { createAudio } from '../src/audio.js';
@@ -77,6 +80,13 @@ await loading
     if (_boot.has('lens')) {
       const k = Number(_boot.get('lens'));
       console.log('car lens arm', JSON.stringify(setCarLensArm(Number.isFinite(k) ? k : 0)));
+    }
+    // ?front=K is the round-5 FRONT reflector, read at the same point and for the
+    // same reason: the retro palette's texels are baked the first time the parked
+    // pool asks for the texture. ?front=0 is round 4 exactly.
+    if (_boot.has('front')) {
+      const k = Number(_boot.get('front'));
+      console.log('car front lens', JSON.stringify(setFrontLensScale(Number.isFinite(k) ? k : 1)));
     }
     // Constructing the world builds the material registry and facade library.
     // ?kerbs=0 streams the district with no kerb, gutter pan or parking lane, so
@@ -988,6 +998,48 @@ window.__district = {
     if (furniture && furniture.parked) n.parked = setTrafficRimScale(furniture.parked.mesh.geometry, k);
     return { scale: k, verticesTouched: n };
   },
+  // The round-5 tyre lever, same mechanism and same argument as setCarRim: the
+  // wheel has been tuned four times and the denominator of the one metric still
+  // outside its band has never had a knob. verticesTouched is returned because a
+  // lever that reaches nothing is how a round concludes "this does not work".
+  setCarTyre: (k) => {
+    const n = { traffic: 0, parked: 0 };
+    if (traffic) n.traffic = setTrafficTyreScale(traffic.mesh.geometry, k);
+    if (furniture && furniture.parked) n.parked = setTrafficTyreScale(furniture.parked.mesh.geometry, k);
+    return { scale: k, verticesTouched: n };
+  },
+  // The round-5 FRONT reflector level, independent of the rear one. 0 is
+  // round 4 exactly - a zero headlight texel in the retro palette - so a sweep
+  // that includes 0 carries its own before-arm off the same page load.
+  // The hub-centre lever. One vertex a wheel, four a car; verticesTouched is
+  // the assertion that it found them, since a lever that reaches nothing looks
+  // exactly like a lever that does nothing.
+  setCarHub: (k) => {
+    const n = { traffic: 0, parked: 0 };
+    if (traffic) n.traffic = setTrafficHubScale(traffic.mesh.geometry, k);
+    if (furniture && furniture.parked) n.parked = setTrafficHubScale(furniture.parked.mesh.geometry, k);
+    return { scale: k, verticesTouched: n };
+  },
+  // The headlamp's ALBEDO, the third front-lens term.
+  setCarLampAlbedo: (k) => {
+    const n = { traffic: 0, parked: 0 };
+    if (traffic) n.traffic = setTrafficLampAlbedo(traffic.mesh.geometry, k);
+    if (furniture && furniture.parked) n.parked = setTrafficLampAlbedo(furniture.parked.mesh.geometry, k);
+    return { scale: k, verticesTouched: n };
+  },
+  setCarFrontLens: (k) => {
+    const st = setFrontLensScale(k);
+    // The texture is shared by the pool's material; the emissive SCALAR has not
+    // moved, so nothing else has to be pushed. Read the pool's own level back
+    // anyway, so the arm is asserted against the app rather than against the call.
+    return { ...st, parkedEmissive: furniture && furniture.parked
+      ? +furniture.parked.mesh.material.emissive.r.toFixed(2) : null };
+  },
+  carFrontLens: () => ({ scale: frontLensScale(), linearLuma: +frontLensLuma().toFixed(5) }),
+  // The headlamp's SURFACE, independent of the emissive floor above: one is a
+  // mirror that tracks the sky and the other a level that does not.
+  setCarLensFinish: (r, m) => setLensFinish(r, m),
+  carLensFinish: () => lensFinish(),
   // The round-4 lens/reflector arm at RUNTIME, so a harness can shoot both arms
   // from one page load with the fleet frozen where it stands. Returns what was
   // actually reached, so a tool asserts the arm it photographed rather than

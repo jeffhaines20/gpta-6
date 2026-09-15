@@ -1,0 +1,149 @@
+{
+  "tag": "r5night",
+  "tod": "night",
+  "slot": "112.0,-114.6",
+  "fleet": 30,
+  "carPx": 33,
+  "arms": {
+    "0": {
+      "player": 0,
+      "fleet": 0,
+      "playerVisible": false,
+      "fleetVisible": false,
+      "fleetSlots": 5
+    },
+    "1": {
+      "player": 1,
+      "fleet": 1,
+      "playerVisible": true,
+      "fleetVisible": true,
+      "fleetSlots": 5
+    }
+  },
+  "views": {
+    "tail": {
+      "dist": 18,
+      "carPx": 33,
+      "off": {
+        "side": {
+          "n": 4914,
+          "nCtrl": 4914,
+          "poolLum": 1.09,
+          "poolRed": 1.333,
+          "redShift": 1.376,
+          "clipPct": 0,
+          "clipPctCtrl": 0
+        },
+        "far": {
+          "n": 4914,
+          "nCtrl": 27014,
+          "poolLum": 0.735,
+          "poolRed": 0.8,
+          "redShift": 0.918,
+          "clipPct": 0,
+          "clipPctCtrl": 0
+        },
+        "lamp": {
+          "centre": 0.194,
+          "haloDecay": [
+            0.193,
+            0.008,
+            0.002
+          ],
+          "edgeStep": 0.844
+        }
+      },
+      "on": {
+        "side": {
+          "n": 4914,
+          "nCtrl": 4914,
+          "poolLum": 4.922,
+          "poolRed": 15.048,
+          "redShift": 4.016,
+          "clipPct": 0,
+          "clipPctCtrl": 0
+        },
+        "far": {
+          "n": 4914,
+          "nCtrl": 27014,
+          "poolLum": 3.317,
+          "poolRed": 9.029,
+          "redShift": 2.68,
+          "clipPct": 0,
+          "clipPctCtrl": 0
+        },
+        "lamp": {
+          "centre": 0.196,
+          "haloDecay": [
+            0.24,
+            0.011,
+            0.026
+          ],
+          "edgeStep": 0.753
+        }
+      }
+    },
+    "nose": {
+      "dist": 18,
+      "carPx": 33,
+      "off": {
+        "side": {
+          "n": 4914,
+          "nCtrl": 4914,
+          "poolLum": 451.097,
+          "poolRed": 407.693,
+          "redShift": 1.195,
+          "clipPct": 0,
+          "clipPctCtrl": 0
+        },
+        "far": {
+          "n": 4914,
+          "nCtrl": 27014,
+          "poolLum": 35.594,
+          "poolRed": 28.594,
+          "redShift": 0.903,
+          "clipPct": 0,
+          "clipPctCtrl": 0
+        },
+        "lamp": {
+          "centre": 0.404,
+          "haloDecay": [
+            0.995,
+            1.002,
+            1.035
+          ],
+          "edgeStep": 0.034
+        }
+      },
+      "on": {
+        "side": {
+          "n": 4914,
+          "nCtrl": 4914,
+          "poolLum": 451.097,
+          "poolRed": 407.693,
+          "redShift": 1.195,
+          "clipPct": 0,
+          "clipPctCtrl": 0
+        },
+        "far": {
+          "n": 4914,
+          "nCtrl": 27014,
+          "poolLum": 35.594,
+          "poolRed": 28.594,
+          "redShift": 0.903,
+          "clipPct": 0,
+          "clipPctCtrl": 0
+        },
+        "lamp": {
+          "centre": 0.404,
+          "haloDecay": [
+            0.995,
+            1.002,
+            1.035
+          ],
+          "edgeStep": 0.034
+        }
+      }
+    }
+  }
+}

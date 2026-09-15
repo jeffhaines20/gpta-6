@@ -101,3 +101,17 @@ docs/shots/shop-spill/
 # Subagent worktrees. The agent system checks out a full copy of the repo per
 # builder under here; the work comes back as a branch, never as these files.
 .claude/worktrees/
+
+# Round-5 car sweep frames: ten arms at dusk (r5b-*), six at night (r5c-*), five
+# front levels (r5f-*) and the two isolation arms of the final pair, at 1.8 MB
+# each. Regenerable from tools/hero-shots.mjs with the HERO_ARMS list in
+# tools/ground-albedo.mjs, and what the round is read from is the JSON beside
+# them (docs/r5*-audits.json, docs/car-lens-landmarks-*.json), which IS tracked.
+# Same policy as the oak bench, the glazing heroes and the canopy A/B sets above.
+# The PAIR the finding is read from - r5ab-r4car-* and r5ab-r5car-* - stays, as
+# does docs/shots/car-r5-lamp-*, the crops it is looked at in.
+docs/shots/r5b-*.png
+docs/shots/r5c-*.png
+docs/shots/r5f-*.png
+docs/shots/r5ab-r5albOnly-*.png
+docs/shots/r5ab-r5frontOnly-*.png
