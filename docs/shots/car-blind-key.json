@@ -1,0 +1,10 @@
+{
+ "night": {
+  "A": "round3",
+  "B": "round1"
+ },
+ "dusk": {
+  "A": "round1",
+  "B": "round3"
+ }
+}
