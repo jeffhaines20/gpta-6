@@ -51,7 +51,8 @@
 // rather than asserting it in a comment.
 
 import * as THREE from '../vendor/three.module.min.js';
-import { buildTrafficCarGeometry, trafficCarMaterial, lampEmissive } from './carbody.js';
+import { buildTrafficCarGeometry, trafficCarMaterial, lampEmissive,
+  retroEmissiveMap, retroEmissive } from './carbody.js';
 // The frontage row is keyed to the TENANCY, not to the carriageway, so it has to
 // read the same lot plan and the same business the facade and the sign read. All
 // three come from one call: signage.js signPlanFor() already runs lotPlanFor()
@@ -4672,7 +4673,15 @@ export class StreetFurniture {
   buildParkedCars(opts = {}) {
     const count = opts.count ?? 44;
     const geo = buildTrafficCarGeometry({ groundY: PAD_Y - 0.02 });
-    const mesh = new THREE.InstancedMesh(geo, trafficCarMaterial(), count);
+    // THE PARKED POOL EMITS FROM A DIFFERENT PALETTE TO EVERY OTHER CAR, and the
+    // reason is that `emissive` is ONE colour over the whole material: with the
+    // shipped emissive map, any level that lights the tail lens lights the
+    // headlamp texel by the same factor, and that is precisely the bug the owner
+    // reported and _applyEmissive below removed. retroEmissiveMap() is the same
+    // 16x1 palette with every texel but the tail lens zeroed, so the level this
+    // pool runs at CANNOT reach a headlamp however it is tuned later.
+    const mesh = new THREE.InstancedMesh(
+      geo, trafficCarMaterial({ emissiveMap: retroEmissiveMap() }), count);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.castShadow = true;
     mesh.frustumCulled = false;
@@ -4885,7 +4894,25 @@ export class StreetFurniture {
       // unaffected: traffic.js:141 builds its own trafficCarMaterial() instance
       // and the player goes through carMesh.setLights(), so this line reaches
       // the parked pool alone.
-      this.parked.mesh.material.emissive.setScalar(0);
+      //
+      // WHAT CHANGED SINCE THAT WAS WRITTEN, and it does not reopen any of it.
+      // Lights off was right and stays. But a blind reviewer measured what it
+      // cost in the same corridor night frame: saturated-red tail-lamp blobs
+      // 6 -> 0, and the near kerb car's right lens (37x10 px) from redness 204
+      // to 45.5 - which is a lens reading 0.179x the LINEAR luma of the matte
+      // paint beside it, five and a half times DARKER than its own bodywork.
+      // Five of the six cars in that frame stopped reading as cars.
+      //
+      // So the lens gets a RETROREFLECTOR instead of a lamp. Red only, because
+      // the palette above has nothing else in it; keyed to `_lit` rather than to
+      // an hour, because a reflector with nothing shining on it returns nothing;
+      // and at 0.62 displayed against the 1.1 the lamps used to run at, so it
+      // sits visibly under the lit traffic sharing the frame. carbody.js's lens
+      // falloff then puts a core and a rim on it, which is the other half of why
+      // this is not simply the old bug at a lower number: the old one was a flat
+      // rectangle of constant emission and this is a graded lens.
+      this.parked.mesh.material.emissive.setScalar(
+        retroEmissive(this._lit, this._exposure));
     }
   }
 

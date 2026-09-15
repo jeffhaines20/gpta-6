@@ -119,6 +119,21 @@ export const ARM_STATE = {
   anti25:  { albedo: null, skyProxy: false, nightGlowLux: 0, msWhitenAnti: 0.25 },
   anti00:  { albedo: null, skyProxy: false, nightGlowLux: 0, msWhitenAnti: 0.0 },
 
+  // ROUND 4's CAR LENS. carLens is the scalar district/main.js's setCarLens()
+  // takes: 0 is the flat lens and the dark parked tail lamp this round replaces,
+  // 1 is what it ships, and the rest are a level sweep on the parked car's rear
+  // reflector. The sky fields are all null, so these arms leave the district's
+  // light exactly where the build has it and move only the cars.
+  //
+  // Every one of them shoots from ONE page load, ONE camera and ONE settled
+  // district, which is the whole reason they live here rather than in a query
+  // string: two page loads is two traffic simulations, and this project has
+  // twice shipped a comparison whose two arms were the same build.
+  lens0:    { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 0 },
+  lens1:    { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1 },
+  lensHalf: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 0.5 },
+  lensHi:   { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1.6 },
+
   // THE DISTRICT BOUNCE, scaled. It is a HemisphereLight and three.js gives it no
   // occlusion, so it reaches the road under a closed oak canopy in full - which is
   // exactly where noon's dapple is read. bounce00 is the build with the bounce
@@ -214,6 +229,17 @@ export async function setArm(page, name) {
       const ao = s.ao ?? window.__armSavedAO;
       q.aoRadius = ao[0]; q.aoIntensity = ao[1]; q.aoStrength = ao[2]; q.aoEnabled = true;
     }
+    // THE CAR LENS ARM. Pushed through the app's own entry point rather than at
+    // the material, so an arm cannot drift from what ?lens= does; setCarLens
+    // re-applies the parked pool's emissive itself, because that pool only
+    // recomputes when the camera STOP changes and switching arms does not
+    // change the stop.
+    let carLens = null;
+    if (s.carLens != null && window.__district && window.__district.setCarLens) {
+      carLens = window.__district.setCarLens(s.carLens);
+    } else if (window.__district && window.__district.carLens) {
+      carLens = window.__district.carLens();
+    }
     sky._dirty = true;
     sky.refresh({ force: true, environment: true, sync: true });
     const g = u.uGroundAlbedo.value;
@@ -225,6 +251,9 @@ export async function setArm(page, name) {
       msWhitenAnti: u.uMsWhitenAnti ? +u.uMsWhitenAnti.value.toFixed(3) : null,
       bounceLux: dn ? +dn.bounce.intensity.toFixed(2) : null,
       ao: q ? [q.aoRadius, q.aoIntensity, q.aoStrength] : null,
+      // Read back off what the app actually reached, not off what was asked for.
+      carLens: carLens ? [carLens.retroScale, carLens.lens && carLens.lens.edge,
+        carLens.parkedEmissive ?? null] : null,
       skyLuxUpper: +(sky.audit().skyLux ?? 0).toFixed(1) };
   }, st);
 }
@@ -241,7 +270,11 @@ export async function proveArmsDiffer(page, arms) {
   // msWhitenAnti is in the key because the sky arms differ in NOTHING ELSE: with
   // the old two-field key, four whitening arms would have hashed identical and
   // this guard would have passed a set of frames that were all the same build.
-  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao]))).size;
+  // carLens is in the key for exactly the reason msWhitenAnti is: the round-4
+  // lens arms differ in NOTHING ELSE, so without it four of them would hash
+  // identical and this guard would wave through a set of frames that were all
+  // the same build - the failure it exists to catch, for the second time.
+  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens]))).size;
   return { seen, ok: distinct === arms.length };
 }
 
