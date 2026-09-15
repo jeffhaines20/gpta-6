@@ -124,6 +124,140 @@ function emissiveTexture() {
   return t;
 }
 
+// ---------------------------------------------------------------- lens falloff
+/**
+ * THE LENS PROFILE. Shared by every car material in the scene, so one write
+ * moves the whole district and an A/B needs no second build.
+ *
+ * WHAT IT REPLACES. Two blind reviewers cut horizontally through a tail lamp and
+ * got the same shape from both arms of the last comparison: a step up in ONE
+ * pixel, a dead-flat interior, a step down in two. Measured here on the same
+ * frames, the near kerb car's right lens (37x10 px at x1115-1152, y636-646) reads
+ *
+ *   round 1 (lit)   redness 39 -> 200 in one pixel, 200-204 across 37 px,
+ *                   interior CoV 0.0032
+ *   round 3 (off)   redness 33 -> 43 in one pixel, 38-43 across, CoV 0.0249
+ *
+ * Both are rectangles of constant emission. A lens is not: it has a bright core
+ * and it falls off, and the falloff is most of what says "lamp" rather than
+ * "red sticker".
+ *
+ * WHY THIS IS NOT DONE WITH GEOMETRY OR WITH VERTEX COLOUR. The refusal written
+ * into buildCarGlowGeometry is still correct as far as it goes - the emissive is
+ * a 16x1 palette indexed by uv.x, so every vertex of a lens gets the same
+ * emissive, and vertex colour cannot help because MeshStandardMaterial multiplies
+ * vertex colour into the DIFFUSE term and never into the emissive one. What that
+ * note missed is that uv.Y IS FREE. The palette is one texel tall, so uv.y
+ * selects nothing, and it has carried the constant 0.5 on every vertex this file
+ * has ever emitted. It now carries the lens coordinate instead, and the falloff
+ * is evaluated per fragment from it. Zero triangles, zero attributes, zero bytes.
+ *
+ * WHY A FRAGMENT FUNCTION AND NOT A VERTEX RAMP. The tail band has three columns
+ * of vertices. A brightness interpolated between them is a linear TENT: its peak
+ * is a knife edge one pixel wide and its shoulders are straight lines, which
+ * reads as a crease, not as a lens. Interpolating the COORDINATE and shaping it
+ * in the fragment gives a smooth dome from the same three columns.
+ *
+ * uEdge = 1 collapses the profile to a constant 1.0, i.e. exactly the flat lens
+ * this replaces, so ?lens=0 is a true before-arm off one page load rather than a
+ * second build on a second tree - the failure mode this repo has hit twice.
+ */
+const LENS_PROFILE = {
+  // Emission at the lens rim as a fraction of its core. Not 0: a real lens rim
+  // still glows, and a lamp that fades to black at its own edge reads as a
+  // sphere floating in the bodywork rather than as a lens in a housing.
+  uLensEdge: { value: 0.16 },
+  // Shoulder shape. 1.0 is a paraboloid (shoulders too straight, still creased);
+  // above ~2.2 the core flattens back into the plateau this exists to remove.
+  uLensPow: { value: 1.55 },
+  // THE PROFILE MUST REDISTRIBUTE, NOT ATTENUATE, and the first cut of this round
+  // did not.
+  //
+  // mix(edge, 1, dome) has a maximum of 1 and a mean well under it, so putting it
+  // on a lamp already at its authored level makes that lamp DIMMER everywhere and
+  // brighter nowhere. The size of that is computed from the rho FIELD rather than
+  // read off a frame - integrate dome(rho) over each band's own lattice with the
+  // bilinear interpolation the rasteriser actually uses:
+  //
+  //   band                        mean(dome)   old mean   this profile
+  //   traffic tail   3 rows x 3      0.2862      0.386        0.801
+  //   traffic head   3 rows x 2      0.5827      0.641        1.299
+  //   player head    3 rows x 5      0.2862      0.386        0.801
+  //   player tail    3 rows x 6      0.2758      0.377        0.783
+  //   player indic   2 rows x 3      0.5827      0.641        1.299
+  //
+  // So the first cut took every full-ellipse lamp to 0.38 of its authored mean -
+  // a stop and a half - while grading it correctly. Two blind reviewers have
+  // called the player's car the best asset in these frames; shipping that would
+  // have traded the round's win for it.
+  //
+  // The gain is therefore set from the SHAPE's own mean rather than picked:
+  //   gain * (edge + (1 - edge) * mean(dome))
+  // at gain 2.0 and edge 0.16 is 0.78-0.80 on the full-ellipse bands and 1.30 on
+  // the two that carry only a vertical dome, while the core goes to 2.0x and the
+  // rim to 0.32x. In the renderer's own units a lit traffic tail lamp goes from
+  // 100% of the lens over the night bloom threshold - a uniform slab, which is
+  // what a decal is - to 44.4% of it, at the core, mean preserved at 0.801.
+  //
+  // AND A CAUTION ABOUT HOW THIS WAS FIRST MEASURED, because it is the mistake
+  // CLAUDE.md warns about and I made it. The first evidence for the attenuation
+  // was a 47x74 px box on the left of the corridor night frame that read mean
+  // 130.4 in the flat arm and 45.9 in the domed one. That box holds MOVING
+  // CONTENT: it reads 130.4 in the first arm of a run and the same 45.9 in every
+  // later arm of that run AND in both arms of the next run, which is an object
+  // leaving the frame between two shutters, not a material responding to a
+  // uniform. The attenuation is real - the table above is computed from geometry
+  // and cannot be confounded - but that frame was not evidence of it. Reproduce
+  // the number, then test the diagnosis separately.
+  uLensGain: { value: 2.0 },
+};
+/**
+ * Lens falloff on (1) or off (0 - the flat decal this round replaces).
+ * Off is EXACT, not approximate: gain 1 and edge 1 make the whole expression
+ * identically 1.0 for every fragment.
+ */
+export function setLensProfile(on, edge = 0.16, pow = 1.55, gain = 2.0) {
+  LENS_PROFILE.uLensEdge.value = on ? edge : 1;
+  LENS_PROFILE.uLensGain.value = on ? gain : 1;
+  LENS_PROFILE.uLensPow.value = pow;
+  return { on: !!on, edge: LENS_PROFILE.uLensEdge.value,
+    pow: LENS_PROFILE.uLensPow.value, gain: LENS_PROFILE.uLensGain.value };
+}
+export function lensProfile() {
+  return { edge: LENS_PROFILE.uLensEdge.value, pow: LENS_PROFILE.uLensPow.value,
+    gain: LENS_PROFILE.uLensGain.value };
+}
+
+// The exact chunk MeshStandardMaterial's fragment shader opens its emissive with.
+// It appears four times in the vendored three (physical, phong, lambert, toon)
+// but onBeforeCompile hands us ONE material's shader, so a plain replace is
+// unambiguous. Asserted rather than assumed: a silent no-op here would leave the
+// flat lens in place and every number would look like a change that did not work.
+const EMISSIVE_DECL = 'vec3 totalEmissiveRadiance = emissive;';
+function patchLensFalloff(m) {
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.uLensEdge = LENS_PROFILE.uLensEdge;
+    shader.uniforms.uLensPow = LENS_PROFILE.uLensPow;
+    shader.uniforms.uLensGain = LENS_PROFILE.uLensGain;
+    if (!shader.fragmentShader.includes(EMISSIVE_DECL)) {
+      throw new Error('carSurfaceMaterial: emissive declaration not found; lens falloff would silently no-op');
+    }
+    shader.fragmentShader = shader.fragmentShader
+      .replace('void main() {', `uniform float uLensEdge;
+uniform float uLensPow;
+uniform float uLensGain;
+void main() {`)
+      .replace(EMISSIVE_DECL, `float lensRho = clamp( vEmissiveMapUv.y, 0.0, 1.0 );
+	float lensDome = pow( max( 0.0, 1.0 - lensRho * lensRho ), uLensPow );
+	${EMISSIVE_DECL.replace('emissive;', 'emissive * uLensGain * mix( uLensEdge, 1.0, lensDome );')}`);
+  };
+  // Two car materials exist with different envMapIntensity; without a cache key
+  // three would share one compiled program between them and the second would
+  // silently take the first's uniforms.
+  m.customProgramCacheKey = () => 'carLensFalloff2';
+  return m;
+}
+
 /**
  * The one material every painted / trimmed / lit surface of a car shares.
  * Colour comes from the vertex colour attribute; finish and emission come from
@@ -137,12 +271,130 @@ export function carSurfaceMaterial(opts = {}) {
     roughness: 1, metalness: 1,          // the maps are the authority
     roughnessMap: packTexture(),
     metalnessMap: packTexture(),
-    emissiveMap: emissiveTexture(),
+    emissiveMap: opts.emissiveMap ?? emissiveTexture(),
     emissive: 0x000000,
     emissiveIntensity: 1,
     envMapIntensity: opts.envMapIntensity ?? 1.5,
   });
-  return m;
+  return patchLensFalloff(m);
+}
+
+// ------------------------------------------------------- the rear reflector
+/**
+ * A SECOND emissive palette in which only the tail lens is non-zero.
+ *
+ * WHAT IT IS FOR. A parked car has its lights off - the owner asked for that and
+ * it shipped - and the measured consequence was that five of the six cars in a
+ * night corridor frame stopped reading as cars. Saturated-red tail-lamp blobs in
+ * that frame went 6 -> 0; the near kerb car's right lens went from redness 204 to
+ * 45.5, and its lens/bodywork luma ratio in LINEAR light from 3.838x to 0.179x.
+ * That last number is the one that matters: the lens is now five and a half times
+ * DARKER than the matte paint beside it. Nothing on a real car at night is.
+ *
+ * WHAT IT IS NOT. It is not the lamps coming back on. Every real car carries a
+ * mandatory RED RETROREFLECTOR at the back - a corner-cube sheet behind the tail
+ * lens - which returns light with no power of its own, and it is the thing that
+ * makes a parked car visible at night. So this palette lights the TAIL LENS AND
+ * NOTHING ELSE: the headlamp texel stays 0, the indicator texel stays 0. A
+ * headlamp is clear glass over a reflector aimed down the road and returns almost
+ * nothing to a camera at the kerb, which is why an unlit car shows red at the
+ * back and no white at the front - and why "white lamps one end, red lamps and
+ * the plate at the other" survives as the orientation cue a previous blind
+ * reviewer used, without either end being switched on.
+ *
+ * src/signage.js reached the same place for street blades and its note is the
+ * precedent: "Street signs are retroreflective, not emissive: they return
+ * headlight light... a constant glow stands in for headlight return."
+ */
+let _retroTex = null;
+function retroEmissiveTexture() {
+  if (_retroTex) return _retroTex;
+  const data = new Uint8Array(PAL_W * 4);
+  const e = PALETTE[SURFACE.taillight][2];
+  const i = SURFACE.taillight * 4;
+  data[i] = e[0]; data[i + 1] = e[1]; data[i + 2] = e[2]; data[i + 3] = 255;
+  for (let k = 0; k < PAL_W; k++) data[k * 4 + 3] = 255;
+  const t = new THREE.DataTexture(data, PAL_W, 1, THREE.RGBAFormat);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.needsUpdate = true;
+  _retroTex = t;
+  return t;
+}
+/** The retroreflector palette, for a material that must not emit. */
+export function retroEmissiveMap() { return retroEmissiveTexture(); }
+
+/**
+ * Peak DISPLAYED radiance of a parked car's rear reflector, divided by the
+ * camera stop for the same reason lampEmissive divides.
+ *
+ * 0.62 IS ANCHORED TO THE BLOOM THRESHOLD, not picked. src/signage.js sets the
+ * rule for every retroreflective cheat in this project and says why: the glow
+ * "is deliberately kept BELOW the bloom threshold - a stop sign that blooms
+ * reads as a lamp, which is worse than one that reads as slightly self-lit."
+ *
+ * The arithmetic, all of it checkable. src/post.js's bright pass thresholds on
+ * dot(c, luma) * exposure, so what matters is the lens's EXPOSED LUMA, and the
+ * tail texel [186,20,10] is linear (0.49102, 0.00700, 0.00304) - luma weight
+ * 0.10961, because a deep red carries almost none of its level in luma. Against
+ * daynight.js's thresholds of 0.118 at night and 0.314 at dusk:
+ *
+ *   display   exposed luma   x night threshold   bloom contribution at night
+ *   1.10      0.1206         1.02x              15.8%     <- the OLD parked lamp
+ *   0.62      0.0680         0.58x               2.2%     <- this
+ *
+ * So the level the parked pool used to run its lamps at sat exactly ON the night
+ * bloom threshold, and that is the mechanism behind what the reviewers measured:
+ * a lens holding 200-204 across 37 px, rising in one pixel and falling in two,
+ * is a bloomed emitter. 0.62 sits at 0.58 of the threshold and contributes 2.2%
+ * where the old level contributed 15.8% - seven times less halo - while still
+ * peaking at 0.304 in the red channel against the old 0.540. At dusk it is 0.22x
+ * the threshold and contributes nothing at all.
+ *
+ * With the lens falloff above, 0.62 is the value at the lens CORE and the rim
+ * sits at 0.14 of it, so the MEAN over the lens is 0.386 of that again.
+ *
+ * `lit` is the street-lamp flag, not a time of day: a reflector with nothing
+ * shining on it returns nothing, so this is 0 by day for the same reason
+ * signage.js's sign glow is ("golden is 0 for the reason noon is").
+ */
+const RETRO = { scale: 1 };
+export function retroEmissive(lit, exposure = 1 / 660, display = 0.62) {
+  // display is the level at the lens CORE, which is where the bloom argument
+  // above is anchored, so it is divided by the profile's gain rather than
+  // multiplied through it - otherwise adding the gain would have quietly doubled
+  // the reflector and put it back over the bloom threshold it was chosen to
+  // clear. Measured at gain 1: core red 177.5 DN, chromatic step +101.4 DN,
+  // interior CoV 0.2047, lens/paint 2.236x in linear light. This keeps the core.
+  const d = (display * RETRO.scale) / Math.max(1e-6, LENS_PROFILE.uLensGain.value);
+  return lit && d > 0 ? Math.min(6000, d / Math.max(exposure, 1e-6)) : 0;
+}
+
+/**
+ * ONE SWITCH FOR THE WHOLE ROUND: 0 is the arm this round replaces (flat lens,
+ * dark parked reflector), 1 is the arm it ships. Both arms therefore come off
+ * ONE page load, ONE build and ONE port.
+ *
+ * That is not a convenience. This repo has twice compared a build against
+ * itself - once because a worktree capture silently reused another tree's HTTP
+ * server, once because `git add -A` held eight commits reverted while a capture
+ * ran - and neither failure looked like a failure. traffic.js's setSpillScale
+ * exists for the same reason and says so.
+ *
+ * Arm 0 must be EXACTLY the old behaviour, not approximately: uLensEdge = 1
+ * makes mix(edge, 1, dome) identically 1 for every fragment, and scale = 0 makes
+ * retroEmissive return 0, which is the literal `emissive.setScalar(0)` it
+ * replaced.
+ */
+export function setCarLensArm(k) {
+  const on = k > 0;
+  RETRO.scale = on ? k : 0;
+  setLensProfile(on);
+  return { arm: on ? 1 : 0, retroScale: RETRO.scale, lens: lensProfile() };
+}
+export function carLensArm() {
+  return { retroScale: RETRO.scale, lens: lensProfile() };
 }
 
 /**
@@ -172,10 +424,26 @@ export function carGlassMaterial(opts = {}) {
 class Builder {
   constructor() { this.pos = []; this.col = []; this.uv = []; this.idx = []; }
   get count() { return this.pos.length / 3; }
-  vert(x, y, z, c, pal) {
+  /**
+   * `rho` is the LENS COORDINATE and it rides in uv.y, which this project has
+   * never used: both palette textures are 16x1 with NearestFilter, so uv.y
+   * selects the only row there is and any value in [0,1] samples the same texel.
+   * It is therefore a free per-vertex float - no new attribute, no extra buffer,
+   * nothing for a missing-attribute default to break.
+   *
+   * 0 is a lens's centre and 1 its rim; carSurfaceMaterial turns it into an
+   * emissive falloff per FRAGMENT, so three columns of vertices buy a smooth
+   * dome rather than the linear tent an interpolated vertex value would give.
+   *
+   * It cannot leak onto anything that is not a lens, and that is a property of
+   * the palette rather than of care taken here: PALETTE's emissive is [0,0,0]
+   * for all thirteen non-lens slots, so scaling emissive by any function of uv.y
+   * multiplies zero by something everywhere except slots 4, 5 and 6.
+   */
+  vert(x, y, z, c, pal, rho = 0.5) {
     this.pos.push(x, y, z);
     this.col.push(c.r, c.g, c.b);
-    this.uv.push(paletteU(pal), 0.5);
+    this.uv.push(paletteU(pal), rho);
     return this.count - 1;
   }
   tri(a, b, c) { this.idx.push(a, b, c); }
@@ -504,23 +772,54 @@ function flankX(capPoly, faces, z, y) {
 // already there; giving them different colours costs no triangles at all, and
 // vertex colour interpolates, so three rows dark/light/dark arrive as a lit slat
 // with soft edges rather than as a painted stripe.
-function overlayBand(b, pts, nrm, i0, i1, u0, u1, off, pal, colour, nu = 4) {
+function overlayBand(b, pts, nrm, i0, i1, u0, u1, off, pal, colour, nu = 4, lens = false) {
   const colAt = typeof colour === 'function' ? colour : () => colour;
   // Always sweep u upward. Mirroring a band by passing u0 > u1 reverses the quad
   // winding and back-faces the whole panel, which is how the car shipped its
   // first render with exactly one headlamp.
   if (u1 < u0) { const t = u0; u0 = u1; u1 = t; }
+  const nRow = i1 - i0;
+  // THE LENS COORDINATE, and why the horizontal half of it is conditional.
+  //
+  // rho is the distance from the band's centre in its own (across, along) frame,
+  // clamped at the rim. Both axes need at least THREE samples to carry a dome:
+  // with two, every vertex sits at +/-1 on that axis and the dome is pinned to
+  // its rim value everywhere, i.e. a flat lens one seventh as bright - a silent
+  // regression that no triangle count and no gate would show.
+  //
+  // The traffic car's tail band is 3 rows x 3 columns and gets the full ellipse.
+  // Its HEAD band is 3 rows x 2 columns (nu = 1), so it gets the vertical dome
+  // only. That is a deliberate refusal to spend triangles: widening it to nu = 2
+  // costs 4 quads a side, 8 triangles a car, 480 over the 60-car ambient fleet,
+  // against a budget already 22,605 over its own warn line. A headlamp graded
+  // top-to-bottom and flat left-to-right is most of the cue for a third of the
+  // cost of none, and the player's car - whose bands carry nu = 4 and 5 - gets
+  // the full ellipse at both ends for nothing.
+  // The SAME rule on the other axis, and it is not hypothetical: the player
+  // car's indicator band is (iLampLo, iLampLo + 1), two rows, so every one of its
+  // 12 vertices landed at qv = +/-1 and the whole lens sat at the rim value. It
+  // cost 74% of that lamp's mean luma in the frame before this line existed, and
+  // nothing would have reported it - the geometry, the triangle count and the
+  // palette are all unchanged by a rho that is simply wrong.
+  const uAxis = nu >= 2;
+  const vAxis = i1 - i0 >= 2;
   const rows = [];
   for (let i = i0; i <= i1; i++) {
     const p = pts[i], n = nrm[i];
     const row = [];
+    const qv = vAxis ? (2 * (i - i0)) / nRow - 1 : 0;
     for (let s = 0; s <= nu; s++) {
       const u = u0 + ((u1 - u0) * s) / nu;
       const x = u * p.w;
       // + off is proud of the skin, along the silhouette's outward normal.
       const y = p.y + n.y * off + (p.crown ? p.crown * (1 - u * u) : 0);
       const z = p.z + n.z * off;
-      row.push(b.vert(x, y, z, colAt(i - i0, i1 - i0), pal));
+      let rho = 0.5;
+      if (lens) {
+        const qu = uAxis ? (2 * s) / nu - 1 : 0;
+        rho = Math.min(1, Math.hypot(qu, qv));
+      }
+      row.push(b.vert(x, y, z, colAt(i - i0, i1 - i0), pal, rho));
     }
     rows.push(row);
   }
@@ -921,9 +1220,9 @@ export function buildPlayerCar(opts = {}) {
   if (iLampLo >= 0 && iLampHi > iLampLo) {
     for (const s of [-1, 1]) {
       overlayBand(b, pts, nrm, iLampLo, iLampHi, s * 0.34, s * 0.82, 0.012,
-        SURFACE.headlight, lampCol, 4);
+        SURFACE.headlight, lampCol, 4, true);
       overlayBand(b, pts, nrm, iLampLo, iLampLo + 1, s * 0.62, s * 0.84, 0.018,
-        SURFACE.indicator, amber, 2);
+        SURFACE.indicator, amber, 2, true);
     }
   }
   // --- tail lamps: two lenses either side of a dark applique. The first pass ran
@@ -932,7 +1231,7 @@ export function buildPlayerCar(opts = {}) {
   if (iTailHi >= 0 && iTailLo > iTailHi) {
     for (const s of [-1, 1]) {
       overlayBand(b, pts, nrm, iTailHi, iTailLo, s * 0.34, s * 0.86, 0.012,
-        SURFACE.taillight, tailCol, 5);
+        SURFACE.taillight, tailCol, 5, true);
     }
     overlayBand(b, pts, nrm, iTailHi, iTailLo, -0.34, 0.34, 0.010,
       SURFACE.trim, trim, 3);
@@ -1354,7 +1653,7 @@ export function buildTrafficCarGeometry(opts = {}) {
   if (iLampLo >= 0 && iLampHi > iLampLo) {
     for (const s of [-1, 1]) {
       overlayBand(b, pts, nrm, iLampLo, iLampHi, s * 0.34, s * 0.86, 0.012,
-        SURFACE.headlight, lampC, 1);
+        SURFACE.headlight, lampC, 1, true);
     }
   }
   // --- grille. Three fixes to the round-1 slab, two of them free.
@@ -1390,7 +1689,7 @@ export function buildTrafficCarGeometry(opts = {}) {
   if (iTailHi >= 0 && iTailLo > iTailHi) {
     for (const s of [-1, 1]) {
       overlayBand(b, pts, nrm, iTailHi, iTailLo, s * 0.32, s * 0.88, 0.012,
-        SURFACE.taillight, tailC, 2);
+        SURFACE.taillight, tailC, 2, true);
     }
     overlayBand(b, pts, nrm, iTailHi, iTailLo, -0.30, 0.30, 0.009,
       SURFACE.trim, trimC, 1);
@@ -1415,6 +1714,23 @@ export function buildTrafficCarGeometry(opts = {}) {
   // player's car. The bonnet shut was already deliberately absent (edge-on from
   // a street camera, under a pixel), so the only shut lines left on the car are
   // the two vertical door shuts on the flank, which is the honest set at 90 px.
+  // ROUND 4 RE-EXAMINED THIS AND IT STAYS OUT. A later blind reviewer, looking
+  // at frames from this build against round 1's, reported the strokes' ABSENCE
+  // as a loss - "two rear-deck strokes were removed" - so two blind reviewers
+  // now disagree about the same 12 triangles. Measured on the near kerb car's
+  // boot lid at dusk, column-mean luma over y 607-620, round 1 carries three
+  // dark groups, not two: x1113-1115 (-5 DN below its neighbours), x1124-1125
+  // (-20, -19) and x1214-1216 (-15, -16). They are the +/-0.60 strips seen at a
+  // quarter angle, and the pair on the near side reads as TWO parallel bars 10 px
+  // apart on an otherwise clean deck.
+  //
+  // The earlier objection is the stronger one and it is geometric rather than
+  // aesthetic: a real boot shut is a CLOSED line around the lid, and the thing
+  // that identifies these as wipers rather than as a shut is exactly that they
+  // are open-ended bars lying in the middle of the deck. Restoring them without
+  // closing the line restores the defect; closing it costs triangles this round
+  // has none of. So they stay out, and this note exists so the next round does
+  // not re-litigate it a third time.
   if (iScreenLo >= 0 && iScreenHi > iScreenLo) {
     overlayBand(b, pts, nrm, iScreenLo, iScreenHi, -0.86, 0.86, 0.013,
       SURFACE.glassy, glassC, 2);
@@ -1679,7 +1995,10 @@ export function setTrafficRimScale(geo, k) {
 
 /** The material a traffic/pursuit InstancedMesh needs to read the palette. */
 export function trafficCarMaterial(opts = {}) {
-  const m = carSurfaceMaterial({ envMapIntensity: opts.envMapIntensity ?? 1.2 });
+  const m = carSurfaceMaterial({
+    envMapIntensity: opts.envMapIntensity ?? 1.2,
+    emissiveMap: opts.emissiveMap,
+  });
   m.color.setHex(opts.color ?? 0xffffff);
   return m;
 }

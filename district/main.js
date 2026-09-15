@@ -26,7 +26,7 @@ import {
   setSignageTime, spillMaterial, soffitMaterial, setSpillScale, setSoffitScale, spillScaleOf,
 } from '../src/signage.js';
 import { buildingStyle } from '../src/facades.js';
-import { buildPlayerCar, setTrafficRimScale } from '../src/carbody.js';
+import { buildPlayerCar, setTrafficRimScale, setCarLensArm, carLensArm } from '../src/carbody.js';
 import { HUD } from '../src/hud.js';
 import { WantedSystem, bindPursuit, CRIMES, STATES } from '../src/wanted.js';
 import { createAudio } from '../src/audio.js';
@@ -66,6 +66,18 @@ await loading
   })
   .add('generating materials', async () => {
     const _boot = new URLSearchParams(location.search);
+    // ?lens=0 is the round-4 car pass turned OFF: flat lens emission and a dark
+    // parked tail lens, i.e. exactly the build this round replaces. Read here,
+    // before any car geometry or car material exists, because the lens falloff
+    // is a uniform every car material picks up at compile time and the parked
+    // reflector level is read the first time the pool's exposure is applied.
+    // Same mechanism and same argument as ?kerbs=0, ?nospill=1 and ?rim=K: the
+    // alternative is two trees, which is how this project has twice compared a
+    // build against itself.
+    if (_boot.has('lens')) {
+      const k = Number(_boot.get('lens'));
+      console.log('car lens arm', JSON.stringify(setCarLensArm(Number.isFinite(k) ? k : 0)));
+    }
     // Constructing the world builds the material registry and facade library.
     // ?kerbs=0 streams the district with no kerb, gutter pan or parking lane, so
     // a before/after capture is ONE build on ONE port with one thing different.
@@ -976,6 +988,20 @@ window.__district = {
     if (furniture && furniture.parked) n.parked = setTrafficRimScale(furniture.parked.mesh.geometry, k);
     return { scale: k, verticesTouched: n };
   },
+  // The round-4 lens/reflector arm at RUNTIME, so a harness can shoot both arms
+  // from one page load with the fleet frozen where it stands. Returns what was
+  // actually reached, so a tool asserts the arm it photographed rather than
+  // trusting its own call - tools/car-spill.mjs makes the same point.
+  setCarLens: (k) => {
+    const st = setCarLensArm(k);
+    // The parked pool caches its emissive against the camera stop, so the level
+    // has to be pushed rather than waited for: its rAF only re-applies when the
+    // EXPOSURE changes, and switching arms does not change the exposure.
+    if (furniture && furniture._applyEmissive) furniture._applyEmissive();
+    return { ...st, parkedEmissive: furniture && furniture.parked
+      ? +furniture.parked.mesh.material.emissive.r.toFixed(2) : null };
+  },
+  carLens: () => carLensArm(),
   setCarSpill: (k) => {
     const player = carMesh.setSpillScale ? carMesh.setSpillScale(k) : null;
     const fleet = traffic && traffic.setSpillScale ? traffic.setSpillScale(k) : null;
