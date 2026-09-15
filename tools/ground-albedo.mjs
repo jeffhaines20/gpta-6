@@ -134,6 +134,73 @@ export const ARM_STATE = {
   lensHalf: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 0.5 },
   lensHi:   { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1.6 },
 
+  // ROUND 5, THE FRONT REFLECTOR. carLens stays at 1 in all of them - these arms
+  // move the headlight texel of the retro palette and NOTHING else, so a pair of
+  // them isolates the front lens from the round-4 rear one that shares its
+  // emissive scalar. front0 is round 4 exactly (zero headlight texel).
+  // EVERY round-5 arm names BOTH terms. setArm restores nothing it is not told
+  // about, so an arm list that mixes a front sweep with a tyre sweep would carry
+  // the last tyre value into every front frame - a confound introduced into the
+  // very A/B that exists to isolate.
+  front0:  { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carTyre: 1 },
+  front1:  { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 1, carTyre: 1 },
+  front2:  { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 2, carTyre: 1 },
+  front4:  { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 4, carTyre: 1 },
+  front8:  { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 8, carTyre: 1 },
+
+  // ROUND 5, THE TYRE. Same isolation argument: rimCoV, hubPeak and hubFrac are
+  // all computed inside rho < 0.55 and the tyre is the outer annulus, so these
+  // arms can only move rimTyre. 1 is the build.
+  tyre1:   { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carTyre: 1 },
+  tyre2:   { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carTyre: 2 },
+  tyre3:   { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carTyre: 3 },
+  tyre5:   { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carTyre: 5 },
+  tyre8:   { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carTyre: 8 },
+
+  // ROUND 5, THE LENS FINISH. carFront stays at 0 in all of them, so what these
+  // measure is the SURFACE alone - a dielectric at 0.07/0.03 against a bowl -
+  // with no emissive floor underneath it to share the credit.
+  finA: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carTyre: 1, carFinish: [0.07, 0.03] },
+  finB: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carTyre: 1, carFinish: [0.18, 0.85] },
+  finC: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carTyre: 1, carFinish: [0.32, 0.85] },
+  finD: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carTyre: 1, carFinish: [0.32, 1.00] },
+
+  // ROUND 5, THE HUB. hubPeak is p95/median inside the rim band, so the tyre
+  // lever cannot reach it; these scale the one bright vertex at each wheel's
+  // centre and nothing else. Paired with the tyre value the sweep settles on,
+  // so the two wheel numbers are read off ONE frame each rather than two.
+  hub10: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carHub: 1.0 },
+  hub07: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carHub: 0.7 },
+  hub05: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carHub: 0.5 },
+  hub03: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carHub: 0.3 },
+
+  // ROUND 5, THE LAMP ALBEDO. 1.456 is 1/0.687, i.e. the lens painted the same
+  // albedo as the body rather than darker than it; past that the vertex colour
+  // is authoring a reflectance over 1 and the arm exists only to bound the fit.
+  alb10: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carAlbedo: 1.0 },
+  alb15: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carAlbedo: 1.456 },
+  alb20: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carAlbedo: 2.0 },
+
+  // THE ROUND-5 PAIR. r5car is the build untouched; r4car undoes all four of the
+  // round's terms and is round 4 EXACTLY - the three colour scales are the exact
+  // linear inverses of the authored ones and round-trip to the original bytes
+  // (tyre and lamp to 0 DN, the hub to 1 DN on one channel), and carFront 0 is a
+  // zero headlight texel in the retro palette, which is what round 4 had.
+  //
+  // Both arms therefore come off ONE page load, ONE build and ONE port. This
+  // project has twice compared a build against itself; setCarLensArm's own note
+  // says why that is not a convenience.
+  r4car: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1,
+    carFront: 0, carAlbedo: 1 / 1.3611, carTyre: 1 / 1.97946, carHub: 1 / 0.50067 },
+  r5car: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1,
+    carFront: 1, carAlbedo: 1, carTyre: 1, carHub: 1 },
+  // ...and the two halves of the front lens on their own, so the round can say
+  // which term carried it rather than claiming both.
+  r5albOnly:   { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1,
+    carFront: 0, carAlbedo: 1, carTyre: 1, carHub: 1 },
+  r5frontOnly: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1,
+    carFront: 1, carAlbedo: 1 / 1.3611, carTyre: 1, carHub: 1 },
+
   // THE DISTRICT BOUNCE, scaled. It is a HemisphereLight and three.js gives it no
   // occlusion, so it reaches the road under a closed oak canopy in full - which is
   // exactly where noon's dapple is read. bounce00 is the build with the bounce
@@ -240,6 +307,42 @@ export async function setArm(page, name) {
     } else if (window.__district && window.__district.carLens) {
       carLens = window.__district.carLens();
     }
+    // THE ROUND-5 ARMS. carFront is the front reflector level and carTyre the
+    // tyre albedo, both independent of carLens so a sweep can isolate one term
+    // at a time off ONE page load. Read back off the app, like carLens, because
+    // a knob that clamps silently is how a round concludes a lever does nothing.
+    //
+    // SAVED AND RESTORED, like the albedo and msWhitenAnti above, and for a
+    // reason this file has already been bitten by once: setArm restores nothing
+    // it is not told about, so an arm list that mixes a front sweep with a
+    // finish sweep would carry the last finish into every front frame. That is a
+    // confound introduced into the very A/B that exists to isolate. An arm that
+    // does not name a term now gets the BUILD's value for it, not the previous
+    // arm's.
+    const D = window.__district;
+    if (D && !window.__armSavedCar) {
+      window.__armSavedCar = {
+        front: D.carFrontLens ? D.carFrontLens().scale : null,
+        tyre: 1,                                   // setCarTyre composes as k off a captured base
+        hub: 1,                                    // so does setCarHub
+        lampAlbedo: 1,                             // and setCarLampAlbedo
+        finish: D.carLensFinish ? D.carLensFinish() : null,
+      };
+    }
+    const sv = window.__armSavedCar ?? {};
+    let carFront = null;
+    if (D && D.setCarFrontLens) carFront = D.setCarFrontLens(s.carFront ?? sv.front ?? 1);
+    let carTyre = null;
+    if (D && D.setCarTyre) carTyre = D.setCarTyre(s.carTyre ?? sv.tyre ?? 1);
+    let carHub = null;
+    if (D && D.setCarHub) carHub = D.setCarHub(s.carHub ?? sv.hub ?? 1);
+    let carAlbedo = null;
+    if (D && D.setCarLampAlbedo) carAlbedo = D.setCarLampAlbedo(s.carAlbedo ?? sv.lampAlbedo ?? 1);
+    let carFinish = null;
+    if (D && D.setCarLensFinish) {
+      const fin = s.carFinish ?? [sv.finish.roughness, sv.finish.metalness];
+      carFinish = D.setCarLensFinish(fin[0], fin[1]);
+    }
     sky._dirty = true;
     sky.refresh({ force: true, environment: true, sync: true });
     const g = u.uGroundAlbedo.value;
@@ -254,6 +357,16 @@ export async function setArm(page, name) {
       // Read back off what the app actually reached, not off what was asked for.
       carLens: carLens ? [carLens.retroScale, carLens.lens && carLens.lens.edge,
         carLens.parkedEmissive ?? null] : null,
+      // In the key for the reason msWhitenAnti and carLens are: the round-5 arms
+      // differ in NOTHING ELSE, so without them a four-arm sweep would hash
+      // identical and proveArmsDiffer would pass a set of frames that are all
+      // the same build.
+      carFront: carFront ? [carFront.scale ?? null, carFront.linearLuma ?? null] : null,
+      carTyre: carTyre ? [carTyre.scale, carTyre.verticesTouched.traffic,
+        carTyre.verticesTouched.parked] : null,
+      carFinish: carFinish ? [carFinish.roughness, carFinish.metalness] : null,
+      carHub: carHub ? [carHub.scale, carHub.verticesTouched.parked] : null,
+      carAlbedo: carAlbedo ? [carAlbedo.scale, carAlbedo.verticesTouched.parked] : null,
       skyLuxUpper: +(sky.audit().skyLux ?? 0).toFixed(1) };
   }, st);
 }
@@ -274,7 +387,10 @@ export async function proveArmsDiffer(page, arms) {
   // lens arms differ in NOTHING ELSE, so without it four of them would hash
   // identical and this guard would wave through a set of frames that were all
   // the same build - the failure it exists to catch, for the second time.
-  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens]))).size;
+  // carFront and carTyre joined the key in round 5 for the same reason, for the
+  // third time: those arms move one texel and one vertex-colour set and nothing
+  // a uniform readback would otherwise show.
+  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo]))).size;
   return { seen, ok: distinct === arms.length };
 }
 

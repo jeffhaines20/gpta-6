@@ -88,17 +88,56 @@ export function paletteU(index) { return (index + 0.5) / PAL_W; }
 
 let _packTex = null, _emisTex = null;
 
+/**
+ * THE HEADLAMP'S FINISH, as a lever rather than as a constant.
+ *
+ * PALETTE slot 4 is authored roughness 0.07 / metalness 0.03: a smooth
+ * DIELECTRIC, whose whole environment response is an F0 of 0.04. A real headlamp
+ * is clear glass over an ALUMINISED BOWL, and the bowl is the part you see - a
+ * curved mirror sampling a wide cone of sky. The two render nothing like each
+ * other at dusk, and which of them the build should carry is a question with a
+ * measurable answer, so this is a knob and not an edit.
+ *
+ * It is separate from the front reflector above ON PURPOSE. The reflector is an
+ * EMISSIVE floor that does not move with the hour; this is a SURFACE that does,
+ * because it returns whatever the sky is handing it. One of them carries dusk
+ * and the other carries night, and a round that moved both at once could not say
+ * which (CLAUDE.md: isolate one term at a time).
+ */
+const LENS_FINISH = { roughness: PALETTE[SURFACE.headlight][0], metalness: PALETTE[SURFACE.headlight][1] };
+function writePackTexel(data, i, rough, metal) {
+  data[i * 4 + 0] = 255;
+  data[i * 4 + 1] = Math.round(THREE.MathUtils.clamp(rough, 0, 1) * 255);
+  data[i * 4 + 2] = Math.round(THREE.MathUtils.clamp(metal, 0, 1) * 255);
+  data[i * 4 + 3] = 255;
+}
+/**
+ * Rewrite the headlamp's roughness/metalness on the live palette.
+ *
+ * ONE texel of a 16x1 texture, shared by every car material in the district, so
+ * a sweep is four bytes and a needsUpdate - no rebuild, no second port, no
+ * second tree. Returns what it wrote, quantised: the texture is 8-bit and a
+ * roughness asked for as 0.2 is stored as 51/255 = 0.2000, which is worth
+ * printing rather than assuming.
+ */
+export function setLensFinish(rough, metal) {
+  LENS_FINISH.roughness = rough; LENS_FINISH.metalness = metal;
+  const t = _packTex;
+  if (t) { writePackTexel(t.image.data, SURFACE.headlight, rough, metal); t.needsUpdate = true; }
+  return { roughness: Math.round(THREE.MathUtils.clamp(rough, 0, 1) * 255) / 255,
+    metalness: Math.round(THREE.MathUtils.clamp(metal, 0, 1) * 255) / 255 };
+}
+export function lensFinish() { return { ...LENS_FINISH }; }
+
 // roughnessMap reads .g and metalnessMap reads .b, so one texture serves both.
 function packTexture() {
   if (_packTex) return _packTex;
   const data = new Uint8Array(PAL_W * 4);
   for (let i = 0; i < PAL_W; i++) {
     const p = PALETTE[i] ?? PALETTE[0];
-    data[i * 4 + 0] = 255;
-    data[i * 4 + 1] = Math.round(THREE.MathUtils.clamp(p[0], 0, 1) * 255);
-    data[i * 4 + 2] = Math.round(THREE.MathUtils.clamp(p[1], 0, 1) * 255);
-    data[i * 4 + 3] = 255;
+    writePackTexel(data, i, p[0], p[1]);
   }
+  writePackTexel(data, SURFACE.headlight, LENS_FINISH.roughness, LENS_FINISH.metalness);
   const t = new THREE.DataTexture(data, PAL_W, 1, THREE.RGBAFormat);
   t.magFilter = t.minFilter = THREE.NearestFilter;
   t.generateMipmaps = false;
@@ -306,13 +345,90 @@ export function carSurfaceMaterial(opts = {}) {
  * precedent: "Street signs are retroreflective, not emissive: they return
  * headlight light... a constant glow stands in for headlight return."
  */
+/**
+ * THE FRONT LENS, and why it is in this palette rather than in the lit one.
+ *
+ * Round 4 gave the parked pool a rear retroreflector and left the headlamp texel
+ * at zero, on the argument quoted above: a headlamp "returns almost nothing to a
+ * camera at the kerb". That argument is about RETROREFLECTION - light sent back
+ * down the axis it arrived on - and it is correct about it. It is not the term
+ * that decides what a parked headlamp looks like at dusk.
+ *
+ * WHAT THE FRAME SAID. A fourth blind reviewer measured the dusk corridor and
+ * found the parked cars' headlamps at 0.75x the luma of the bonnet paint beside
+ * them - "right now no car in the dusk frame has a lamp cue" - and the mechanism
+ * is in this file rather than in the lighting. SURFACE.headlight is roughness
+ * 0.07 / metalness 0.03, i.e. a smooth DIELECTRIC whose specular is F0 = 0.04,
+ * and buildTrafficCarGeometry paints it 0xd8dade, which instanceColor then
+ * multiplies. So an unlit headlamp renders as the car's own paint at 0.687 of
+ * its albedo with no environment gain worth the name. It is not glass over a
+ * reflector; it is slightly darker paint, and 0.687 explains the 0.75 to within
+ * the specular floor.
+ *
+ * A real headlamp is a clear lens over an ALUMINISED BOWL. The bowl is a curved
+ * mirror that samples a wide solid angle of sky, so at dusk it is one of the
+ * brightest things on an unlit car - which is why headlamps read as pale silver
+ * ovals in every kerbside photograph in reference/sarasota/ and why "white lamps
+ * one end, red lamps and the plate at the other" is legible at all before dark.
+ *
+ * SO THE FRONT GETS A LEVEL TOO, anchored exactly as the rear one is. Both
+ * texels are lit by the SAME emissive scalar, so their ratio is fixed here, in
+ * bytes, and cannot drift when the level is tuned.
+ *
+ *   texel                     linear luma   x scalar 0.62   x night threshold
+ *   tail [186, 20, 10]          0.10963        0.06797          0.576
+ *   head [ 88, 96, 110]         0.11566        0.07171          0.608
+ *
+ * The head texel is therefore 1.06x the rear reflector in EXPOSED LUMA, which is
+ * the quantity src/post.js's bright pass thresholds on - dot(c, luma) * exposure
+ * - so it sits under the night bloom threshold on the same margin the rear one
+ * was chosen for, and at dusk it is 0.23x of 0.314 and contributes nothing.
+ * It is 12.7x dimmer than the 0.9338-luma white the LIT lamp runs at display 1.5,
+ * so this cannot be mistaken for the lights coming on, and it is measured that
+ * way below rather than asserted.
+ *
+ * COOL, NOT WARM, and the choice is doing work. The lit lens is [255, 247, 228],
+ * a tungsten white. A reflector returning sky and street lamp is neutral-to-cool,
+ * and authoring it at a blue-grey (b/r = 1.25) keeps the two readable apart at
+ * the 6-10 px a lamp occupies: a moving car in the same frame has WARM lamps and
+ * a parked one has COOL glass, which is the cue a photograph carries.
+ *
+ * WHAT IT IS NOT. It is not a pool on the road: buildCarGlowGeometry is a
+ * separate mesh that the parked pool does not carry, so nothing here lights
+ * anything. And it is keyed to `lit` like the rear one, for the reason
+ * signage.js gives - a reflector with nothing shining on it returns nothing.
+ */
+const RETRO_HEAD = [88, 96, 110];
+// Sweep lever, in the shape setTrafficRimScale established: a level this project
+// has tuned by eye three times gets a knob so the next round fits it instead.
+// 1 is the authored byte triple above; the scale is applied in LINEAR light and
+// re-encoded, so a 2x here is 2x the radiance rather than 2x the byte.
+const FRONT = { scale: 1 };
+const SRGB_TO_LIN = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+const LIN_TO_SRGB = (c) => (c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055);
+function frontTexel(scale) {
+  return RETRO_HEAD.map((v) => Math.max(0, Math.min(255,
+    Math.round(255 * LIN_TO_SRGB(SRGB_TO_LIN(v / 255) * scale)))));
+}
+/** The head texel's linear luma at the current scale — what the anchor is on. */
+export function frontLensLuma(scale = FRONT.scale) {
+  const [r, g, b] = frontTexel(scale).map((v) => SRGB_TO_LIN(v / 255));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
 let _retroTex = null;
+function writeRetroTexels(data) {
+  const e = PALETTE[SURFACE.taillight][2];
+  const i = SURFACE.taillight * 4;
+  data[i] = e[0]; data[i + 1] = e[1]; data[i + 2] = e[2];
+  const h = frontTexel(FRONT.scale);
+  const j = SURFACE.headlight * 4;
+  data[j] = h[0]; data[j + 1] = h[1]; data[j + 2] = h[2];
+}
 function retroEmissiveTexture() {
   if (_retroTex) return _retroTex;
   const data = new Uint8Array(PAL_W * 4);
-  const e = PALETTE[SURFACE.taillight][2];
-  const i = SURFACE.taillight * 4;
-  data[i] = e[0]; data[i + 1] = e[1]; data[i + 2] = e[2]; data[i + 3] = 255;
+  writeRetroTexels(data);
   for (let k = 0; k < PAL_W; k++) data[k * 4 + 3] = 255;
   const t = new THREE.DataTexture(data, PAL_W, 1, THREE.RGBAFormat);
   t.magFilter = t.minFilter = THREE.NearestFilter;
@@ -322,6 +438,23 @@ function retroEmissiveTexture() {
   _retroTex = t;
   return t;
 }
+/**
+ * Rescale the FRONT reflector alone, in place, on the live texture.
+ *
+ * The rear level is a material uniform (retroEmissive -> emissive.setScalar) and
+ * the two texels share it, so the only per-lens lever is the texel itself. A
+ * sweep therefore rewrites four bytes and flags the texture, which is why this
+ * returns what it actually wrote: a knob that silently clamps is how a round
+ * concludes "the lever does nothing".
+ */
+export function setFrontLensScale(k) {
+  FRONT.scale = Math.max(0, k);
+  const t = _retroTex;
+  if (t) { writeRetroTexels(t.image.data); t.needsUpdate = true; }
+  return { scale: FRONT.scale, texel: frontTexel(FRONT.scale),
+    linearLuma: +frontLensLuma().toFixed(5) };
+}
+export function frontLensScale() { return FRONT.scale; }
 /** The retroreflector palette, for a material that must not emit. */
 export function retroEmissiveMap() { return retroEmissiveTexture(); }
 
@@ -391,10 +524,11 @@ export function setCarLensArm(k) {
   const on = k > 0;
   RETRO.scale = on ? k : 0;
   setLensProfile(on);
-  return { arm: on ? 1 : 0, retroScale: RETRO.scale, lens: lensProfile() };
+  return { arm: on ? 1 : 0, retroScale: RETRO.scale, lens: lensProfile(),
+    front: FRONT.scale };
 }
 export function carLensArm() {
-  return { retroScale: RETRO.scale, lens: lensProfile() };
+  return { retroScale: RETRO.scale, lens: lensProfile(), front: FRONT.scale };
 }
 
 /**
@@ -1501,7 +1635,31 @@ export function buildTrafficCarGeometry(opts = {}) {
   const white = col(0xffffff);
   const trimC = col(0x3a3d42);
   const glassC = col(0x0d1015);
-  const tyreC = col(0x0e1013);
+  // THE TYRE, RAISED x1.99 IN LINEAR LIGHT (0x0e1013 -> 0x171a1e, linear luma
+  // 0.00511 -> 0.01015), and the measurement is the reason it is only x2.
+  //
+  // rimTyre is the one wheel measure still outside its photograph band, and its
+  // denominator is this colour, so a sweep was the obvious move: ?tyre=K off one
+  // page load, four arms, at the near car's projected ellipse at dusk.
+  //
+  //   K            1      3      5      8
+  //   rimTyre  2.367  2.177  2.089  1.877     (p1 RB, 27x74 px at 8.6 m)
+  //   rimTyre  2.959  2.606  2.446  2.043     (p3 RB, 16x51 px at 14.7 m)
+  //
+  // EIGHT TIMES the albedo buys 21-31%, and K = 8 is linear luma 0.0407, which
+  // is a real tyre's reflectance. So rimTyre CANNOT be brought to ~1.0 from
+  // here: the tyre's rendered radiance is not albedo-limited. tools/car-lens.mjs
+  // --measure says why, with the band-response probe written for it: of the
+  // pixels the metric calls tyre, only 51% move AT ALL when the albedo is
+  // multiplied by eight (35% on round 4's hand-pinned ellipse). The rest is arch,
+  // bodywork and road that happen to be dark, and the genuine tyre pixels are a
+  // few px of sidewall deep in an occluded arch.
+  //
+  // x2 is therefore shipped on its own merits rather than to close a metric:
+  // 0.00511 is an eighth of rubber's real reflectance and this is a quarter of
+  // it, which is conservative in the direction the night frame cares about. It
+  // buys 8-12% of rimTyre and is stated as that, not as the fix.
+  const tyreC = col(0x171a1e);
   // Alloy and the shadow a spoke gap sits in. The first cut of the relief used
   // 0xc2c8ce over 0x24282e, and it made the wheel WORSE: the lobe averages the
   // two, so a near-black gap dropped the rim's mean albedo from the old flat
@@ -1585,7 +1743,65 @@ export function buildTrafficCarGeometry(opts = {}) {
   // tyre at 0.0105: a gap that is just under the rubber beside it, which is what
   // a shadowed recess between spokes is.
   const rimGapC = col(0x1e2025);        // shadowed recess between spokes
-  const lampC = col(0xd8dade);
+  // THE HUB CENTRE, at half the lip's albedo in linear light (0xb0b6bb ->
+  // 0x808589, linear luma 0.46274 -> 0.23170, x0.5007 measured rather than
+  // asserted).
+  //
+  // WHY THE CENTRE ALONE. Round 4 landed rimCoV and hubFrac at the ambient wheel
+  // and left hubPeak - p95 over median INSIDE the rim band - at 2.18-2.82 against
+  // a 1.5-1.7 photograph band. Both are computed inside rho < 0.55, so neither
+  // the tyre nor the lip can reach them; what sets them is the CONTRAST between
+  // the brightest thing in the rim band and the plateau around it, and the
+  // brightest thing is this one vertex. The hub is fanned from it out to a ring
+  // authored `lit = 0`, so it is a bright POINT falling to dark over 86 mm - a
+  // gradient spike, which is the shape that puts p95 far above the median. A real
+  // alloy has a flat centre cap.
+  //
+  // MEASURED, ?hub=K off one page load, four projected-and-verified ellipses at
+  // dusk (tools/car-lens.mjs --landmarks picks them off the rim vertices, so they
+  // are the wheel rather than a rectangle near it):
+  //
+  //   K              1.0    0.7    0.5        band
+  //   rimCoV  p1 RB  0.619  0.537  0.498      0.31-0.54
+  //           p1 RF  0.667  0.574  0.534
+  //           p3 RB  0.578  0.495  0.455
+  //           p3 RF  0.457  0.387  0.355
+  //   hubPeak p1 RB  2.480  2.270  2.136      1.5-1.7
+  //           p1 RF  2.816  2.363  2.062
+  //           p3 RB  2.426  2.185  2.034
+  //           p3 RF  2.318  2.011  1.880
+  //
+  // K = 0.5 puts rimCoV INSIDE its band on all four wheels, where round 4 was
+  // outside it on three, and takes 14-27% off hubPeak. It does not reach the
+  // hubPeak band, and K = 0.3 would not either without pushing p3 RF's rimCoV
+  // under 0.31 - trading a measure that is in for one that is not.
+  //
+  // It is the OUTBOARD face only, at night as well as by day: the fan is 8 of a
+  // wheel's 648 triangles and the lip and spoke ring keep their albedo, which is
+  // what round 3 established the night rim needs ("the albedo is set where NIGHT
+  // is still a wheel").
+  const rimHubC = col(0x808589);
+  // THE HEADLAMP APERTURE, AT THE BODY'S OWN ALBEDO RATHER THAN BELOW IT.
+  //
+  // 0xd8dade is linear 0.70016 and instanceColor multiplies it, so an unlit
+  // headlamp rendered at 0.687 of the paint beside it - darker paint with a
+  // smoother finish. That is most of the "lamp median / bonnet paint = 0.75x" a
+  // reviewer measured on the round-4 dusk frame, reproduced here at 0.652-0.687
+  // on the foreground car's own bonnet.
+  //
+  // 0xf7fafe is linear luma 0.95301, x1.3611, and 1.3611 is the CEILING: the
+  // blue channel of 0xd8dade is linear 0.73046 and any larger scale clips it at
+  // 255. A vertex colour is an albedo, so this is the aperture at essentially
+  // the body's own reflectance and no more - nothing here emits, the term scales
+  // with the light, and it therefore cannot be right at one hour and a supernova
+  // at another, which is the failure the retro level had to be anchored against.
+  //
+  // Stopping at the clip point is also what makes the BEFORE-ARM exact. The
+  // round-4 arm is this colour scaled by 1/1.3611 in linear light, and with no
+  // channel clipped that round-trips to 216, 218, 222 - the original bytes, to
+  // 0 DN. At 0xffffff it would have come back 3 DN out on blue, and an A/B whose
+  // before-arm is not the build is the failure this project keeps finding.
+  const lampC = col(0xf7fafe);
   const tailC = col(0x8e1c16);
   // The aperture, and the slat across it. NOT one flat near-black rectangle:
   // both blind reviewers of round 1 measured that rectangle independently and
@@ -1930,7 +2146,9 @@ export function buildTrafficCarGeometry(opts = {}) {
     const hubR = lobeRing(HW * 0.99, 0, RR * 0.34, 0, rimSpokeC);
     faceBand(spoke, lip);
     faceBand(hubR, spoke);
-    fan(b.vert(wx + out * HW * 0.99, wy, wz, rimC, SURFACE.rimCoarse), hubR, out > 0);
+    // THE HUB CENTRE AT HALF THE LIP'S ALBEDO, and it is the only wheel change
+    // this round that moves a measure into its band. See rimHubC above.
+    fan(b.vert(wx + out * HW * 0.99, wy, wz, rimHubC, SURFACE.rimCoarse), hubR, out > 0);
   }
 
   const g = b.geometry();
@@ -1986,6 +2204,154 @@ export function setTrafficRimScale(geo, k) {
     };
   }
   const { idx, rgb } = geo.userData.rimBase;
+  for (let n = 0; n < idx.length; n++) {
+    col.setXYZ(idx[n], rgb[n][0] * k, rgb[n][1] * k, rgb[n][2] * k);
+  }
+  col.needsUpdate = true;
+  return idx.length;
+}
+
+/**
+ * Rescale every TYRE vertex colour in a built geometry, in place.
+ *
+ * WHY THIS LEVER AND NOT ANOTHER ONE. The wheel benchmark has four numbers and
+ * round 4 landed three of them at the 22 px ambient wheel - rimCoV 0.516 (band
+ * 0.31-0.54), hubFrac 21.3% (8-29%), hubPeak 1.940 (1.5-1.7) - while rimTyre
+ * went the WRONG way, 0.656 -> 1.366 against a ~1.0 anchor, and on the 36 px
+ * rear wheel 0.838 -> 2.232.
+ *
+ * Read the metric and the lever falls out. rimTyre is median(rho < 0.55) over
+ * median(rho >= 0.72); rimCoV, hubPeak and hubFrac are all computed INSIDE
+ * rho < 0.55 and never touch the outer annulus. So the tyre is the one term in
+ * the wheel that moves rimTyre and provably cannot move the other three - the
+ * isolation CLAUDE.md asks for, for free, and the reason this is not another
+ * pass at the alloy. Darkening the alloy would move all four and walk straight
+ * back into the trap this file already records: the first cut of round 3 set the
+ * rim from a noon fit and took the NIGHT rim core from luma 13.4 to 2.2, "a
+ * wheel that has gone out".
+ *
+ * WHAT IT MEASURED, and it is not what this lever was added expecting. Eight
+ * times the albedo - which is a REAL tyre's reflectance, 0.0407 linear against
+ * the 0.00511 the build had - buys 21-31% of rimTyre and no more. The tyre's
+ * rendered radiance is not albedo-limited at these sizes, and the reason is in
+ * the mask rather than in the material: bandResponse in tools/car-lens.mjs
+ * reports that only 51% of the pixels the metric calls TYRE move at all under
+ * that 8x (35% on round 4's hand-pinned ellipse). The rest is arch, bodywork and
+ * road that happen to be dark, and the genuine tyre pixels are a few px of
+ * sidewall inside an occluded arch.
+ *
+ * So the lever stays - it is how that was established, and the next round should
+ * not have to re-derive it - and the build ships x1.98 of it on the physical
+ * argument alone: 0.00511 was an eighth of rubber's reflectance and 0.01015 is a
+ * quarter of it. It is not the fix for rimTyre and is not reported as one.
+ *
+ * Only SURFACE.tyre is touched. The player car's wheels are a separate geometry
+ * built by buildWheelGeometry, so a call on a traffic/parked geometry cannot
+ * reach the car the reviewers rated best.
+ */
+export function setTrafficTyreScale(geo, k) {
+  const uv = geo.getAttribute('uv'), col = geo.getAttribute('color');
+  if (!uv || !col) return 0;
+  if (!geo.userData.tyreBase) {
+    const u = paletteU(SURFACE.tyre);
+    const idx = [];
+    for (let i = 0; i < uv.count; i++) if (Math.abs(uv.getX(i) - u) < 1e-4) idx.push(i);
+    // Captured once, so repeated calls compose as k and not as k^n - the bug
+    // setTrafficRimScale records having had.
+    geo.userData.tyreBase = {
+      idx,
+      rgb: idx.map((i) => [col.getX(i), col.getY(i), col.getZ(i)]),
+    };
+  }
+  const { idx, rgb } = geo.userData.tyreBase;
+  for (let n = 0; n < idx.length; n++) {
+    col.setXYZ(idx[n], rgb[n][0] * k, rgb[n][1] * k, rgb[n][2] * k);
+  }
+  col.needsUpdate = true;
+  return idx.length;
+}
+
+/**
+ * Rescale every HEADLAMP vertex colour in a built geometry, in place.
+ *
+ * The third of the three terms that decide what an unlit headlamp looks like,
+ * and the simplest: its ALBEDO. buildTrafficCarGeometry paints the lens
+ * 0xd8dade and instanceColor multiplies, so the lens renders at 0.687 of the
+ * paint's own albedo - and 0.687 is most of the 0.75x a reviewer measured.
+ * Nothing on a car is DARKER paint where the headlamp is.
+ *
+ * Unlike the emissive floor this scales with the light, so it cannot be bright
+ * at night and invisible at noon or the other way round; and unlike the finish
+ * it changes no BRDF, so it cannot turn the lens into a mirror that catches the
+ * sun in one frame and nothing in the next. It is also the only one of the three
+ * that is bounded by physics: a lens cannot reflect more than it receives, so a
+ * scale past 1/0.687 = 1.456 is authoring an albedo over 1.
+ */
+export function setTrafficLampAlbedo(geo, k) {
+  const uv = geo.getAttribute('uv'), col = geo.getAttribute('color');
+  if (!uv || !col) return 0;
+  if (!geo.userData.lampBase) {
+    const u = paletteU(SURFACE.headlight);
+    const idx = [];
+    for (let i = 0; i < uv.count; i++) if (Math.abs(uv.getX(i) - u) < 1e-4) idx.push(i);
+    geo.userData.lampBase = { idx, rgb: idx.map((i) => [col.getX(i), col.getY(i), col.getZ(i)]) };
+  }
+  const { idx, rgb } = geo.userData.lampBase;
+  for (let n = 0; n < idx.length; n++) {
+    col.setXYZ(idx[n], rgb[n][0] * k, rgb[n][1] * k, rgb[n][2] * k);
+  }
+  col.needsUpdate = true;
+  return idx.length;
+}
+
+/**
+ * Rescale the HUB CENTRE vertex of each traffic wheel, in place.
+ *
+ * WHAT IT IS FOR. Round 4 landed three of the four wheel measures at the 22 px
+ * ambient wheel and left hubPeak at 1.940 against a 1.5-1.7 photograph band.
+ * hubPeak is p95 over median INSIDE the rim band, so neither the tyre lever
+ * above nor the alloy's overall level moves it: what moves it is the CONTRAST
+ * between the brightest thing in the rim band and the plateau around it.
+ *
+ * And the brightest thing is a single vertex. buildTrafficCarGeometry fans the
+ * hub from one centre vertex at full alloy out to a ring authored `lit = 0`,
+ * so the hub is a bright POINT fading to dark over 86 mm - a gradient spike,
+ * which is exactly the shape that puts p95 far above the median. A real alloy
+ * has a flat centre CAP. Scaling that one vertex per wheel is the smallest
+ * change that moves the spike, and because it is one vertex out of the 25 each
+ * wheel carries it cannot touch the plateau that sets the median.
+ *
+ * IDENTIFIED BY POSITION, NOT BY PALETTE. Every vertex of the rim shares
+ * SURFACE.rimCoarse, so the uv trick setTrafficRimScale uses cannot separate
+ * them. The hub centre is the only rim vertex ON the axle axis: its distance
+ * from the wheel's own (y, z) centre is zero where every ring vertex is at
+ * 0.086 m or more. The tolerance below is 0.02 m, a quarter of the nearest
+ * ring, and the returned count says how many it found - 4 on a whole car, and a
+ * run that reports anything else has found the wrong vertices.
+ */
+export function setTrafficHubScale(geo, k) {
+  const uv = geo.getAttribute('uv'), col = geo.getAttribute('color'), pos = geo.getAttribute('position');
+  if (!uv || !col || !pos) return 0;
+  if (!geo.userData.hubBase) {
+    const u = paletteU(SURFACE.rimCoarse);
+    // Wheel centres in the geometry's own frame, from the rim vertices
+    // themselves rather than from CAR - the geometry may have been translated.
+    const rim = [];
+    for (let i = 0; i < uv.count; i++) if (Math.abs(uv.getX(i) - u) < 1e-4) rim.push(i);
+    const corner = (i) => `${pos.getX(i) > 0 ? 'R' : 'L'}${pos.getZ(i) > 0 ? 'F' : 'B'}`;
+    const acc = {};
+    for (const i of rim) {
+      const c = (acc[corner(i)] ??= { y: 0, z: 0, n: 0 });
+      c.y += pos.getY(i); c.z += pos.getZ(i); c.n++;
+    }
+    for (const c of Object.values(acc)) { c.y /= c.n; c.z /= c.n; }
+    const idx = rim.filter((i) => {
+      const c = acc[corner(i)];
+      return Math.hypot(pos.getY(i) - c.y, pos.getZ(i) - c.z) < 0.02;
+    });
+    geo.userData.hubBase = { idx, rgb: idx.map((i) => [col.getX(i), col.getY(i), col.getZ(i)]) };
+  }
+  const { idx, rgb } = geo.userData.hubBase;
   for (let n = 0; n < idx.length; n++) {
     col.setXYZ(idx[n], rgb[n][0] * k, rgb[n][1] * k, rgb[n][2] * k);
   }
