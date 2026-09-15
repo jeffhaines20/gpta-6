@@ -201,8 +201,20 @@ const shots = [
   { name: 'fivepoints', wpA: 3, wpB: 4, back: 26, side: 7, height: 3.0, fov: 48, tgtY: 12, fwd: 200 },
 ];
 
+// HERO_SHOTS picks which framings to run, comma-separated. Capture here is well
+// under 1 fps through SwiftShader and this container has repeatedly been
+// restarted mid-run, losing an eight-frame arm each time; being able to ask for
+// one camera turns a lost round into a lost frame.
+const ONLY = (process.env.HERO_SHOTS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+const chosen = ONLY.length ? shots.filter((s) => ONLY.includes(s.name)) : shots;
+if (ONLY.length && chosen.length !== ONLY.length) {
+  // A typo here would silently capture nothing and read as a completed run.
+  throw new Error(`HERO_SHOTS names no such framing: ${ONLY.filter((n) => !shots.some((s) => s.name === n)).join(', ')}` +
+    `  (have: ${shots.map((s) => s.name).join(', ')})`);
+}
+
 const results = [];
-for (const s of shots) {
+for (const s of chosen) {
   const placed = await page.evaluate((cfg) => {
     const r = __district.district.meta.route;
     const a = r[cfg.wpA], b = r[cfg.wpB];
