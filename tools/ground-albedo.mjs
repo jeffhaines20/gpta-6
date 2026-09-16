@@ -157,6 +157,39 @@ export const ARM_STATE = {
   tyre5:   { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carTyre: 5 },
   tyre8:   { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carTyre: 8 },
 
+  // ROUND 6, THE PARKED REFLECTOR AGAINST THE STANDING CONSTRAINT.
+  //
+  // The night corridor frame carries SEVEN saturated red blobs (redness > 120,
+  // n >= 8) on the shipped build, against seven in round 1 - the build whose
+  // parked lamps were reported as "all seem to have their lights on" - at 44% of
+  // round 1's area and 88% of its peak. Round 4 put them back on purpose and had
+  // a reason: lights fully off cost six of the seven and five of six cars
+  // stopped reading as cars. So this is not a revert, it is a search for the
+  // level and profile at which a parked lens still carries a chromatic step and
+  // a gradient but no longer has a SATURATED CORE.
+  //
+  // Two levers, swept separately because CLAUDE.md's rule is one term at a time:
+  //
+  //   pk* move the LEVEL (carLens), profile left at the shipped 0.16/1.55/2.0.
+  //        A level cut scales peak and step together, so it buys a clean core by
+  //        spending the step the round-4 reviewer asked for.
+  //   pf* move the PROFILE at the shipped level. Raising uLensEdge moves light
+  //        out of the core into the rim: the peak falls while the MEAN over the
+  //        lens - which is what the chromatic step is - is far less affected.
+  //        If that works it is strictly the better lever, and the sweep is how
+  //        this round finds out rather than assuming.
+  //
+  // Every arm names carLens AND carProfile, for the reason the round-5 block
+  // gives: setArm restores nothing it is not told about, so a mixed list would
+  // carry the last profile into every level frame.
+  pk100: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1.0,  carProfile: [0.16, 1.55, 2.0] },
+  pk070: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 0.70, carProfile: [0.16, 1.55, 2.0] },
+  pk050: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 0.50, carProfile: [0.16, 1.55, 2.0] },
+  pk035: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 0.35, carProfile: [0.16, 1.55, 2.0] },
+  pf045: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1.0,  carProfile: [0.45, 1.25, 2.0] },
+  pf065: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1.0,  carProfile: [0.65, 1.10, 2.0] },
+  pf045g: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1.0, carProfile: [0.45, 1.25, 1.4] },
+
   // ROUND 5, THE LENS FINISH. carFront stays at 0 in all of them, so what these
   // measure is the SURFACE alone - a dielectric at 0.07/0.03 against a bowl -
   // with no emissive floor underneath it to share the credit.
@@ -307,6 +340,24 @@ export async function setArm(page, name) {
     } else if (window.__district && window.__district.carLens) {
       carLens = window.__district.carLens();
     }
+    // THE PROFILE, applied AFTER the level, because setCarLens calls
+    // setLensProfile itself: setCarLensArm(k) does setLensProfile(on), which
+    // resets edge/pow/gain to their defaults. Setting the profile first would
+    // therefore have been silently undone by the very next line, and the sweep
+    // would have reported that the profile lever does nothing - a knob that
+    // clamps silently is how a round concludes a lever is a no-op (this file,
+    // setFrontLensScale). Saved and restored like every other term.
+    let carProfile = null;
+    const DP = window.__district;
+    if (DP && DP.carLensProfile) {
+      if (window.__armSavedProfile === undefined) {
+        const p0 = DP.carLensProfile();
+        window.__armSavedProfile = p0 ? [p0.edge, p0.pow, p0.gain] : null;
+      }
+      const want = s.carProfile ?? window.__armSavedProfile;
+      if (want && DP.setCarLensProfile) carProfile = DP.setCarLensProfile(want[0], want[1], want[2]);
+      else if (DP.carLensProfile) carProfile = DP.carLensProfile();
+    }
     // THE ROUND-5 ARMS. carFront is the front reflector level and carTyre the
     // tyre albedo, both independent of carLens so a sweep can isolate one term
     // at a time off ONE page load. Read back off the app, like carLens, because
@@ -357,6 +408,14 @@ export async function setArm(page, name) {
       // Read back off what the app actually reached, not off what was asked for.
       carLens: carLens ? [carLens.retroScale, carLens.lens && carLens.lens.edge,
         carLens.parkedEmissive ?? null] : null,
+      // THE PROFILE IS IN THE KEY, and it has to be: the round-6 arms pf045,
+      // pf065 and pf045g all run carLens 1.0 and differ ONLY here, so a key
+      // without it hashes three distinct arms to one value and proveArmsDiffer
+      // aborts a sweep that would have measured perfectly well. That is the same
+      // failure msWhitenAnti and carLens were added to this key for. Read back
+      // off the app, not off the arm table.
+      carProfile: carProfile
+        ? [carProfile.edge, carProfile.pow, carProfile.gain] : null,
       // In the key for the reason msWhitenAnti and carLens are: the round-5 arms
       // differ in NOTHING ELSE, so without them a four-arm sweep would hash
       // identical and proveArmsDiffer would pass a set of frames that are all
@@ -390,7 +449,7 @@ export async function proveArmsDiffer(page, arms) {
   // carFront and carTyre joined the key in round 5 for the same reason, for the
   // third time: those arms move one texel and one vertex-colour set and nothing
   // a uniform readback would otherwise show.
-  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo]))).size;
+  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo]))).size;
   return { seen, ok: distinct === arms.length };
 }
 

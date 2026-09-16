@@ -29,7 +29,8 @@ import { buildingStyle } from '../src/facades.js';
 import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubScale,
   setTrafficLampAlbedo, setCarLensArm,
   carLensArm, setFrontLensScale, frontLensScale, frontLensLuma,
-  setLensFinish, lensFinish } from '../src/carbody.js';
+  setLensFinish, lensFinish,
+  setLensProfile, lensProfile } from '../src/carbody.js';
 import { HUD } from '../src/hud.js';
 import { WantedSystem, bindPursuit, CRIMES, STATES } from '../src/wanted.js';
 import { createAudio } from '../src/audio.js';
@@ -1054,6 +1055,19 @@ window.__district = {
       ? +furniture.parked.mesh.material.emissive.r.toFixed(2) : null };
   },
   carLens: () => carLensArm(),
+  // THE LENS PROFILE, separately from the level. Two different ways to stop a
+  // parked reflector reading as a lamp, and they are not the same change: the
+  // level scales the whole lens, and the profile moves light OUT OF THE CORE and
+  // into the rim without changing how much of it there is. A round that only has
+  // the level has to trade the chromatic step against the saturated core; with
+  // the profile it can hold the step and drop the peak. `on` false is arm 0's
+  // identically-flat lens, kept so a sweep can bracket both ends.
+  setCarLensProfile: (edge, pow, gain) => {
+    const st = setLensProfile(true, edge, pow, gain);
+    if (furniture && furniture._applyEmissive) furniture._applyEmissive();
+    return st;
+  },
+  carLensProfile: () => lensProfile(),
   setCarSpill: (k) => {
     const player = carMesh.setSpillScale ? carMesh.setSpillScale(k) : null;
     const fleet = traffic && traffic.setSpillScale ? traffic.setSpillScale(k) : null;
