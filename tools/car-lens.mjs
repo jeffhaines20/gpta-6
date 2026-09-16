@@ -193,6 +193,39 @@ export function bandResponse(imgA, imgB, e, r0, r1, thr = 0.5) {
 
 // ---------------------------------------------------------------- selftest
 /**
+ * A tail lens's REDNESS statistics over its own projected surface points.
+ *
+ * Three numbers, and they are the three the round-4 reviewer judged the parked
+ * reflector on, so a round-6 sweep is directly comparable with the bar that was
+ * set: peak redness (R - max(G,B)), the chromatic STEP over the paint of the
+ * same panel at the same height, and the interior CoV of redness, which is what
+ * separates a graded lens from a flat decal. The reviewer asked for a step "well
+ * above the current +24.8 without returning to the +140.3 flat decal" and for
+ * CoV out of the dead-flat 0.003-0.04 band.
+ *
+ * Redness is used rather than luma because a deep red carries almost none of its
+ * level in luma - the tail texel [186,20,10] has luma weight 0.10961 - so a luma
+ * ratio understates a red lens by an order of magnitude and would read a lamp
+ * and a reflector as nearly the same thing.
+ */
+export function tailRedness(img, lensPts, paintPts) {
+  const red = (px, py) => {
+    const x = Math.round(px), y = Math.round(py);
+    if (x < 0 || y < 0 || x >= img.width || y >= img.height) return null;
+    const i = (y * img.width + x) * img.channels;
+    return img.data[i] - Math.max(img.data[i + 1], img.data[i + 2]);
+  };
+  const lens = lensPts.map(([x, y]) => red(x, y)).filter((v) => v !== null);
+  const paint = paintPts.map(([x, y]) => red(x, y)).filter((v) => v !== null);
+  if (!lens.length || !paint.length) throw new Error('tail lens or paint entirely off the frame');
+  const mean = lens.reduce((t, v) => t + v, 0) / lens.length;
+  const sd = Math.sqrt(lens.reduce((t, v) => t + (v - mean) ** 2, 0) / lens.length);
+  return { peak: Math.max(...lens), mean: +mean.toFixed(1), med: median(lens),
+    paintMed: median(paint), step: +(median(lens) - median(paint)).toFixed(1),
+    cov: +(sd / Math.max(1e-6, Math.abs(mean))).toFixed(4), n: lens.length };
+}
+
+/**
  * Connected components of SATURATED RED pixels in a screen band.
  *
  * redness = R - max(G, B), the measure the round-4 reviewer counted parked tail
@@ -371,6 +404,46 @@ function selftest() {
   try { wheelRead(wheel(0.01), { cx, cy, rx: 0.4, ry: 0.4 }); } catch { refused = true; }
   console.log(`  a 0.8 px ellipse is ${refused ? 'REFUSED' : 'ACCEPTED — bad'}`);
   if (!refused) { console.log('FAIL a degenerate ellipse was scored'); f++; }
+  // 5b. TAIL REDNESS, on the distinction the whole parked-lamp argument turns on:
+  //     a flat decal and a graded lens can carry the SAME mean and the same step
+  //     and are not the same thing to look at. Round 4's case rested on exactly
+  //     that - it raised the step from +24.8 to +103.9 while taking the interior
+  //     CoV from 0.0249 to 0.1935 - so a metric that cannot separate them cannot
+  //     check the round it is being used on.
+  {
+    const w = 200, h = 900;
+    const frame = (fill) => {
+      const d = new Uint8Array(w * h * 3);
+      for (let i = 0; i < w * h; i++) { d[i * 3] = 30; d[i * 3 + 1] = 28; d[i * 3 + 2] = 32; }
+      for (let y = 690; y < 710; y++) for (let x = 60; x < 140; x++) {
+        const v = fill((x - 60) / 79, (y - 690) / 19);
+        const i = (y * w + x) * 3; d[i] = Math.min(255, 30 + v); d[i + 1] = 28; d[i + 2] = 32;
+      }
+      return { width: w, height: h, channels: 3, data: d };
+    };
+    const grid = (x0, x1, y0, y1) => { const q = [];
+      for (let j = 0; j <= 6; j++) for (let i = 0; i <= 10; i++)
+        q.push([x0 + (x1 - x0) * i / 10, y0 + (y1 - y0) * j / 6]);
+      return q; };
+    const lensPts = grid(62, 138, 692, 708), paintPts = grid(150, 190, 692, 708);
+    const flat = tailRedness(frame(() => 120), lensPts, paintPts);
+    const grad = tailRedness(frame((u, v) => Math.round(200 *
+      (1 - Math.hypot(u * 2 - 1, v * 2 - 1) ** 2) ** 0.6)), lensPts, paintPts);
+    const chk2 = (name, ok, got) => { if (!ok) { console.log(`  FAIL ${name}: ${got}`); f++; }
+      else console.log(`  ok   ${name}: ${got}`); };
+    chk2('tail/flat decal reads flat', flat.cov < 0.05,
+      `CoV ${flat.cov}, peak ${flat.peak}, step ${flat.step}`);
+    chk2('tail/graded lens reads graded', grad.cov > 0.15,
+      `CoV ${grad.cov}, peak ${grad.peak}, step ${grad.step}`);
+    // KNOWN-BAD: the lens window slid 200 px off the car onto bare ground. The
+    // step must collapse, or the metric is reading the background and calling it
+    // a lens - the same failure the headlamp block above tests for.
+    const off = tailRedness(frame(() => 120),
+      lensPts.map(([x, y]) => [x, y - 200]), paintPts);
+    chk2('tail/lens slid off the car (KNOWN-BAD)', Math.abs(off.step) < 5,
+      `step ${off.step}, want ~0 against the real ${flat.step}`);
+  }
+
   // 6. THE REDNESS BLOB CENSUS, on the failure it exists to catch.
   //
   //    The census is the instrument for a standing constraint - parked cars must
@@ -579,6 +652,28 @@ async function measure() {
   // what separates them: a blob within 40 px of a parked car's projected nose
   // or deck is on a parked car, and a parked car is the one thing in the frame
   // that must not be emitting. That attribution is printed, not assumed.
+  // THE TAIL LENS ITSELF, per car, which is the subject the blob census only sees
+  // the shadow of. A landmarks file written before tailCars existed has none, and
+  // the table says so rather than printing nothing and looking complete.
+  if ((lm.tailCars ?? []).length) {
+    console.log(`\n=== TAIL LENS REDNESS, ${lm.tod} @ ${lm.camera}   (round-4 bar: step >> +24.8, CoV out of 0.003-0.04)`);
+    console.log(`  ${pad('car', 28)} ${pad('arm', 10)}  peak  mean   med  paint   step     CoV   n`);
+    for (const c of lm.tailCars) {
+      for (const t of c.tails) {
+        if (!t.onScreen) continue;
+        for (const { name, img } of imgs) {
+          let r; try { r = tailRedness(img, t.pts, c.tailPaint.pts); }
+          catch (e) { console.log(`  ${pad(`${c.id} ${t.side}`, 28)} ${pad(name, 10)} ${e.message}`); continue; }
+          console.log(`  ${pad(`${c.id} ${t.side} ${t.wpx}x${t.hpx}px @${c.dist}m`, 28)} ${pad(name.split('-')[1] ?? name, 10)}` +
+            ` ${String(r.peak).padStart(5)} ${String(r.mean).padStart(5)} ${String(r.med).padStart(5)}` +
+            ` ${String(r.paintMed).padStart(6)} ${String(r.step).padStart(6)} ${String(r.cov).padStart(7)} ${String(r.n).padStart(3)}`);
+        }
+      }
+    }
+  } else {
+    console.log(`\n=== TAIL LENS REDNESS: this landmarks file carries no tailCars — regenerate with --landmarks`);
+  }
+
   const REDNESS = 120, MINPX = 8;
   console.log(`\n=== SATURATED RED BLOBS, redness>${REDNESS}, n>=${MINPX}, ground band y 430-900`);
   console.log(`  ${pad('frame', 32)} blobs   px   onParked  largest`);
@@ -754,16 +849,17 @@ async function landmarks() {
       // vertices: two columns (inboard / outboard) by three rows (low / mid /
       // high), of which the corners are the extremes. Sorting by |x| and then
       // by y is the build's own ordering - overlayBand emits row by row.
-      const lampVerts = (side) => {
+      const slotVerts = (slot, side) => {
         const v = [];
         for (let i = 0; i < pos.count; i++) {
-          if (slotOf(i) !== 4) continue;
+          if (slotOf(i) !== slot) continue;
           const x = pos.getX(i);
           if (side * x <= 0) continue;
           v.push([x, pos.getY(i), pos.getZ(i)]);
         }
         return v;
       };
+      const lampVerts = (side) => slotVerts(4, side);
       const lamps = [];
       for (const side of [-1, 1]) {
         const v = lampVerts(side);
@@ -784,6 +880,67 @@ async function landmarks() {
           hpx: +(Math.max(...ys) - Math.min(...ys)).toFixed(1),
           onScreen: pts.every((q) => q[0] >= 1 && q[0] <= 1598 && q[1] >= 1 && q[1] <= 898) });
       }
+      // THE TAIL LAMPS, which are the lenses the "parked cars must not have their
+      // lights on" constraint is actually about and which this file has never
+      // carried. Slot 5, 9 vertices a side in a 3x3 grid at x 0.281/0.527/0.773,
+      // y 0.643/0.707/0.772, z -2.26, so the same corner-extremes construction
+      // the headlamp uses reads them - `at` sorts by |x| and takes the ends,
+      // which is right for three columns as well as two.
+      //
+      // The FACING TEST IS THE OPPOSITE ONE. A headlamp is a subject when the
+      // nose points at the camera; a tail lamp is a subject when it points away.
+      // Every landmarks file written before this carried only nose-on and side-on
+      // cars, so the one kind of car whose rear lens can show red was in neither
+      // list - which is how a blob census reported 0 parked blobs in a frame with
+      // two of them.
+      const tails = [];
+      for (const side of [-1, 1]) {
+        const v = slotVerts(5, side);
+        if (v.length !== 9) continue;                  // 9 a side; anything else is not this geometry
+        const rows = [...new Set(v.map((q) => +q[1].toFixed(3)))].sort((a, b) => a - b);
+        const at = (row, inboard) => {
+          const cand = v.filter((q) => Math.abs(q[1] - row) < 1e-3);
+          cand.sort((a, b) => Math.abs(a[0]) - Math.abs(b[0]));
+          return inboard ? cand[0] : cand[cand.length - 1];
+        };
+        const corners = [at(rows[0], true), at(rows[0], false),
+          at(rows[rows.length - 1], true), at(rows[rows.length - 1], false)];
+        const pts = gridOf(corners, 7, 5);
+        if (pts.length < 20) continue;
+        const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
+        tails.push({ side: side < 0 ? 'L' : 'R', pts, verts: v.length,
+          wpx: +(Math.max(...xs) - Math.min(...xs)).toFixed(1),
+          hpx: +(Math.max(...ys) - Math.min(...ys)).toFixed(1),
+          onScreen: pts.every((q) => q[0] >= 1 && q[0] <= 1598 && q[1] >= 1 && q[1] <= 898) });
+      }
+      // THE TAIL PAINT, the strip of body colour between the two tail lamps, and
+      // it is the right denominator for the same reason the nose strip is: the
+      // rear centre column carries paint vertices at y 0.645/0.707/0.769 against
+      // the lamps' 0.643/0.707/0.772 - the same panel at the same height, so a
+      // difference between them is the material and not the angle.
+      const tailPaint = (() => {
+        const col = [];
+        for (let i = 0; i < pos.count; i++) {
+          if (slotOf(i) !== 0) continue;
+          if (Math.abs(pos.getX(i)) > 1e-3 || pos.getZ(i) > -1.9) continue;
+          col.push([pos.getY(i), pos.getZ(i)]);
+        }
+        col.sort((a, b) => a[0] - b[0]);
+        // Only the rows at the lamps' own height; the column also carries the
+        // boot lid at y 0.985 and 1.019, which faces the SKY and is a different
+        // surface in exactly the way the bonnet comment warns about.
+        const band = col.filter((q) => q[0] <= 0.85);
+        if (band.length < 2) return null;
+        const lo = band[0], hi = band[band.length - 1];
+        const corners = [[-0.24, lo[0], lo[1]], [0.24, lo[0], lo[1]],
+          [-0.24, hi[0], hi[1]], [0.24, hi[0], hi[1]]];
+        const pts = gridOf(corners, 9, 5);
+        const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
+        return { pts, rows: band.length,
+          wpx: +(Math.max(...xs) - Math.min(...xs)).toFixed(1),
+          hpx: +(Math.max(...ys) - Math.min(...ys)).toFixed(1),
+          onScreen: pts.every((q) => q[0] >= 1 && q[0] <= 1598 && q[1] >= 1 && q[1] <= 898) };
+      })();
       // THE NOSE PAINT: the strip of body colour between the two lamps.
       //
       // The lamps span |x| 0.30 to 0.77, so x in [-0.28, 0.28] is paint and
@@ -903,17 +1060,17 @@ async function landmarks() {
           verts: bodyBB.n });
       }
       cars.push({ id: `p${inst}`, dist: +dist.toFixed(1), facing: +facing.toFixed(2),
-        x: +px0.toFixed(1), z: +pz0.toFixed(1), lamps, nose, bonnet, wheels });
+        x: +px0.toFixed(1), z: +pz0.toFixed(1), lamps, nose, bonnet, wheels, tails, tailPaint });
     }
     return { counts, filled: p.filled, cars, fleet, camPos: camPos.map((v) => +v.toFixed(1)) };
   });
   // THE COUNTS ARE THE PROOF. buildTrafficCarGeometry emits these; an audit that
   // disagrees with the build is looking somewhere else (CLAUDE.md).
-  const want = { 4: 12, 8: 100, 13: 100 };
+  const want = { 4: 12, 5: 18, 8: 100, 13: 100 };
   const bad = Object.entries(want).filter(([s, n]) => data.counts[s] !== n);
   console.log(`parked geometry vertex census: ${JSON.stringify(data.counts)}`);
   if (bad.length) throw new Error(`geometry census disagrees with the build: ${JSON.stringify(bad)}`);
-  console.log(`  headlight 12 / tyre 100 / rim 100 per car — matches buildTrafficCarGeometry`);
+  console.log(`  headlight 12 / taillight 18 / tyre 100 / rim 100 per car — matches buildTrafficCarGeometry`);
   // TWO SUBJECT LISTS, BECAUSE THEY ARE NOT THE SAME CARS.
   //
   // A car that shows its headlamps is pointing AT the camera, and a car pointing
@@ -943,12 +1100,28 @@ async function landmarks() {
       && w.ell.cy - w.ell.ry > 1 && w.ell.cy + w.ell.ry < 898),
   })).filter((c) => c.wheels.length).sort((a, b) => a.dist - b.dist);
   for (const c of lampCars) c.wheels = [];
+  // A THIRD SUBJECT LIST, for the same reason there are two: these are not the
+  // same cars. A tail lamp is a subject when the nose points AWAY, which is the
+  // exact complement of the headlamp test, so a tail-on car appears in neither
+  // of the other lists and a file carrying only those two cannot measure the
+  // lens the parked-lamp constraint is about.
+  const tailCars = data.cars
+    .filter((c) => c.facing < -0.35 && c.tails && c.tails.length
+      && c.tails.some((t) => t.onScreen && t.wpx >= 3) && c.tailPaint && c.tailPaint.onScreen)
+    .map((c) => ({ ...c, lamps: [], nose: null, bonnet: null, wheels: [] }))
+    .sort((a, b) => a.dist - b.dist);
+  for (const c of lampCars) { c.tails = []; c.tailPaint = null; }
   const res = { tod, camera: 'corridor', camPos: data.camPos, filled: data.filled,
-    counts: data.counts, cars: lampCars, wheelCars, fleet: data.fleet };
+    counts: data.counts, cars: lampCars, wheelCars, tailCars, fleet: data.fleet };
   const outFile = process.env.CL_OUT ?? `docs/car-lens-landmarks-${tod}.json`;
   fs.writeFileSync(outFile, JSON.stringify(res, null, 1));
   console.log(`camera ${JSON.stringify(out)}  parked filled ${data.filled}  nose-on and on screen: ${lampCars.length}` +
-    `   wheel subjects: ${wheelCars.length}`);
+    `   wheel subjects: ${wheelCars.length}   tail-on subjects: ${tailCars.length}   fleet in frustum: ${data.fleet.length}`);
+  for (const c of tailCars.slice(0, 10)) {
+    console.log(`  TAILS  ${c.id} @${c.dist}m facing ${c.facing}  ` +
+      c.tails.map((t) => `${t.side} ${t.wpx}x${t.hpx}px`).join(' | ') +
+      `  paint ${c.tailPaint.wpx}x${c.tailPaint.hpx}px`);
+  }
   for (const c of wheelCars.slice(0, 10)) {
     console.log(`  WHEELS ${c.id} @${c.dist}m facing ${c.facing}  ` +
       c.wheels.map((w) => `${w.id} ${w.wpx}x${w.hpx}px`).join('  '));
