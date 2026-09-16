@@ -652,6 +652,34 @@ async function measure() {
   // what separates them: a blob within 40 px of a parked car's projected nose
   // or deck is on a parked car, and a parked car is the one thing in the frame
   // that must not be emitting. That attribution is printed, not assumed.
+  // THE GREENHOUSE. Slot 10 is roughness 0.06 / metalness 0.86 with a near-black
+  // albedo, so almost everything it shows is the environment reflection scaled by
+  // trafficCarMaterial's envMapIntensity - 1.2, against the PLAYER car's 2.6. The
+  // number to watch is glass/paint in linear light on the same instance in the
+  // same frame, which is exposure-invariant by construction; an absolute level
+  // is not comparable between builds (CLAUDE.md) and this one spans 1/22100 at
+  // noon to 1/5 at night.
+  //
+  // p90 is printed beside the median because a greenhouse is not uniform: a
+  // windscreen catching one street lamp along its top edge can sit 60x its own
+  // median, and a round that moved only that edge would look like a fix.
+  if ((lm.glassCars ?? []).length) {
+    console.log(`\n=== GREENHOUSE, linear light, ${lm.tod} @ ${lm.camera}`);
+    console.log(`  ${pad('car', 28)} ${pad('arm', 10)}  glassMed  glassP90  paintMed  glass/paint  p90/paint  clip%`);
+    for (const c of lm.glassCars) {
+      for (const { name, img } of imgs) {
+        let g, q; try { g = ptsLin(img, c.glass.pts); q = ptsLin(img, c.paintAll.pts); }
+        catch (e) { console.log(`  ${pad(c.id, 28)} ${pad(name, 10)} ${e.message}`); continue; }
+        console.log(`  ${pad(`${c.id} ${c.glass.wpx}x${c.glass.hpx}px @${c.dist}m (${c.glass.tris}t)`, 28)}` +
+          ` ${pad(name.split('-')[1] ?? name, 10)} ${g.med.toExponential(3)} ${g.p95.toExponential(3)}` +
+          ` ${q.med.toExponential(3)} ${String((g.med / q.med).toFixed(4)).padStart(12)}` +
+          ` ${String((g.p95 / q.med).toFixed(3)).padStart(10)} ${String(g.clipPct.toFixed(2)).padStart(6)}`);
+      }
+    }
+  } else {
+    console.log(`\n=== GREENHOUSE: this landmarks file carries no glassCars — regenerate with --landmarks`);
+  }
+
   // THE TAIL LENS ITSELF, per car, which is the subject the blob census only sees
   // the shadow of. A landmarks file written before tailCars existed has none, and
   // the table says so rather than printing nothing and looking complete.
@@ -780,6 +808,12 @@ async function landmarks() {
       return [(cx / cw * 0.5 + 0.5) * W, (1 - (cy / cw * 0.5 + 0.5)) * H];
     };
     const geo = p.mesh.geometry, pos = geo.getAttribute('position'), uv = geo.getAttribute('uv');
+    // The index buffer, for slotPatch below. The traffic car IS indexed (3,150
+    // indices over 637 vertices); a non-indexed geometry would make every
+    // triangle its own three vertices and the mixed-triangle count meaningless,
+    // so say so rather than sampling something else.
+    const idx = geo.index;
+    if (!idx) throw new Error('traffic car geometry is not indexed; slotPatch cannot walk its triangles');
     const slotOf = (i) => Math.round(uv.getX(i) * 16 - 0.5);
     // The counts this file's header promises. Read off the geometry, not hoped for.
     const counts = {};
@@ -880,6 +914,54 @@ async function landmarks() {
           hpx: +(Math.max(...ys) - Math.min(...ys)).toFixed(1),
           onScreen: pts.every((q) => q[0] >= 1 && q[0] <= 1598 && q[1] >= 1 && q[1] <= 898) });
       }
+      // A SLOT'S OWN TRIANGLES, SAMPLED AT BARYCENTRIC INTERIOR POINTS.
+      //
+      // Every other subject in this file is a QUAD fitted to a slot's corner
+      // vertices, which works for a headlamp band, a nose strip and a tail lens
+      // because each is a flat patch with a known two-column-by-n-row layout.
+      // The glazing is not: 26 vertices wrapping windscreen, side and backlight,
+      // with inset chamfer rings at z 0.5, 0.2, -1.16 and -1.42 whose x is WIDER
+      // than the rings either side of them. Fitting a quad to its extremes would
+      // cut across the roof and the pillars, and the number would look fine.
+      //
+      // So sample the triangles the build actually emitted. A barycentric point
+      // strictly inside a triangle is on that triangle's material by
+      // construction - no topology has to be guessed and no threshold chosen.
+      //
+      // MIXED TRIANGLES ARE SKIPPED AND COUNTED. Slot 0 has 56 of its 500
+      // triangles sharing a vertex with another slot, and slot 1 has 48 of 168;
+      // a centroid inside one of those is a blend. Slot 10 has 20 triangles and
+      // NONE mixed, which is why this is safe for the glazing - and the count is
+      // printed so a slot where it is not safe says so instead of quietly
+      // averaging in the trim.
+      const slotPatch = (slot, sub = 3) => {
+        const pts = []; let tris = 0, mixed = 0;
+        for (let t = 0; t < idx.count; t += 3) {
+          const a = idx.getX(t), b = idx.getX(t + 1), c = idx.getX(t + 2);
+          if (slotOf(a) !== slot && slotOf(b) !== slot && slotOf(c) !== slot) continue;
+          if (slotOf(a) !== slot || slotOf(b) !== slot || slotOf(c) !== slot) { mixed++; continue; }
+          tris++;
+          const P = [a, b, c].map((i) => [pos.getX(i), pos.getY(i), pos.getZ(i)]);
+          for (let i = 1; i < sub; i++) for (let j = 1; i + j < sub; j++) {
+            const u = i / sub, v = j / sub, w = 1 - u - v;
+            const q = [0, 1, 2].map((k) => u * P[0][k] + v * P[1][k] + w * P[2][k]);
+            const W = xf(q[0], q[1], q[2]), sp = proj(W[0], W[1], W[2]);
+            if (sp) pts.push([+sp[0].toFixed(1), +sp[1].toFixed(1)]);
+          }
+        }
+        if (!pts.length) return null;
+        const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
+        return { pts, tris, mixed,
+          wpx: +(Math.max(...xs) - Math.min(...xs)).toFixed(1),
+          hpx: +(Math.max(...ys) - Math.min(...ys)).toFixed(1),
+          onScreen: pts.every((q) => q[0] >= 1 && q[0] <= 1598 && q[1] >= 1 && q[1] <= 898) };
+      };
+      // The greenhouse, and the car's own paint as its denominator. Both from the
+      // same instance in the same frame, so a ratio between them is the material
+      // and not the hour.
+      const glass = slotPatch(10, 4);
+      const paintAll = slotPatch(0, 2);
+
       // THE TAIL LAMPS, which are the lenses the "parked cars must not have their
       // lights on" constraint is actually about and which this file has never
       // carried. Slot 5, 9 vertices a side in a 3x3 grid at x 0.281/0.527/0.773,
@@ -1060,7 +1142,8 @@ async function landmarks() {
           verts: bodyBB.n });
       }
       cars.push({ id: `p${inst}`, dist: +dist.toFixed(1), facing: +facing.toFixed(2),
-        x: +px0.toFixed(1), z: +pz0.toFixed(1), lamps, nose, bonnet, wheels, tails, tailPaint });
+        x: +px0.toFixed(1), z: +pz0.toFixed(1), lamps, nose, bonnet, wheels, tails, tailPaint,
+        glass, paintAll });
     }
     return { counts, filled: p.filled, cars, fleet, camPos: camPos.map((v) => +v.toFixed(1)) };
   });
@@ -1105,18 +1188,27 @@ async function landmarks() {
   // exact complement of the headlamp test, so a tail-on car appears in neither
   // of the other lists and a file carrying only those two cannot measure the
   // lens the parked-lamp constraint is about.
+  // Cars whose GREENHOUSE is big enough to resolve. 12 px across is about where
+  // a window stops being a window and becomes two pixels of dark trim; the cars
+  // this selects are the ones a reviewer is looking at anyway.
+  const glassCars = data.cars
+    .filter((c) => c.glass && c.glass.onScreen && c.glass.wpx >= 12
+      && c.paintAll && c.paintAll.onScreen)
+    .map((c) => ({ id: c.id, dist: c.dist, facing: c.facing, glass: c.glass, paintAll: c.paintAll }))
+    .sort((a, b) => a.dist - b.dist);
   const tailCars = data.cars
     .filter((c) => c.facing < -0.35 && c.tails && c.tails.length
       && c.tails.some((t) => t.onScreen && t.wpx >= 3) && c.tailPaint && c.tailPaint.onScreen)
     .map((c) => ({ ...c, lamps: [], nose: null, bonnet: null, wheels: [] }))
     .sort((a, b) => a.dist - b.dist);
-  for (const c of lampCars) { c.tails = []; c.tailPaint = null; }
+  for (const c of lampCars) { c.tails = []; c.tailPaint = null; c.glass = null; c.paintAll = null; }
   const res = { tod, camera: 'corridor', camPos: data.camPos, filled: data.filled,
-    counts: data.counts, cars: lampCars, wheelCars, tailCars, fleet: data.fleet };
+    counts: data.counts, cars: lampCars, wheelCars, tailCars, glassCars, fleet: data.fleet };
   const outFile = process.env.CL_OUT ?? `docs/car-lens-landmarks-${tod}.json`;
   fs.writeFileSync(outFile, JSON.stringify(res, null, 1));
   console.log(`camera ${JSON.stringify(out)}  parked filled ${data.filled}  nose-on and on screen: ${lampCars.length}` +
-    `   wheel subjects: ${wheelCars.length}   tail-on subjects: ${tailCars.length}   fleet in frustum: ${data.fleet.length}`);
+    `   wheel subjects: ${wheelCars.length}   tail-on subjects: ${tailCars.length}` +
+    `   glass subjects: ${glassCars.length}   fleet in frustum: ${data.fleet.length}`);
   for (const c of tailCars.slice(0, 10)) {
     console.log(`  TAILS  ${c.id} @${c.dist}m facing ${c.facing}  ` +
       c.tails.map((t) => `${t.side} ${t.wpx}x${t.hpx}px`).join(' | ') +
