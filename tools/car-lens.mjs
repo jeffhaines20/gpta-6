@@ -192,6 +192,51 @@ export function bandResponse(imgA, imgB, e, r0, r1, thr = 0.5) {
 }
 
 // ---------------------------------------------------------------- selftest
+/**
+ * Connected components of SATURATED RED pixels in a screen band.
+ *
+ * redness = R - max(G, B), the measure the round-4 reviewer counted parked tail
+ * lamps with, on 4-connected runs of at least `minPx`. Exported and separated
+ * from the report so it has a self-test: it lives here rather than inline
+ * because the quantity it decides - whether a parked car reads as emitting -
+ * is a standing constraint on this project, and an inline metric cannot be
+ * failed on known-bad input.
+ *
+ * `peak` is the component's own maximum redness, and it is the number a level
+ * change moves. `n` is its area, which a level change moves much less: the blob
+ * is the part of the lens above the threshold, so lowering a graded lens shrinks
+ * it from the rim inward while the core stays over. A round that reports only
+ * the count can therefore halve the emission and see the count unchanged, which
+ * is exactly what happened between round 1 (7 blobs, 960 px, peak 200) and
+ * round 5 (7 blobs, 427 px, peak 176) - same count, 44% of the area.
+ */
+export function rednessBlobs(img, opts = {}) {
+  const threshold = opts.threshold ?? 120, minPx = opts.minPx ?? 8;
+  const W = img.width;
+  const y0 = Math.max(0, opts.y0 ?? 430), y1 = Math.min(opts.y1 ?? 900, img.height);
+  const seen = new Uint8Array(W * img.height);
+  const red = (x, y) => { const i = (y * W + x) * img.channels;
+    return img.data[i] - Math.max(img.data[i + 1], img.data[i + 2]); };
+  const blobs = [];
+  for (let y = y0; y < y1; y++) for (let x = 0; x < W; x++) {
+    if (seen[y * W + x] || red(x, y) <= threshold) { seen[y * W + x] = 1; continue; }
+    const st = [[x, y]]; seen[y * W + x] = 1;
+    const c = { n: 0, x0: 1e9, x1: -1, y0: 1e9, y1: -1, peak: 0 };
+    while (st.length) {
+      const [a, b] = st.pop(); c.n++; c.peak = Math.max(c.peak, red(a, b));
+      c.x0 = Math.min(c.x0, a); c.x1 = Math.max(c.x1, a); c.y0 = Math.min(c.y0, b); c.y1 = Math.max(c.y1, b);
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = a + dx, ny = b + dy;
+        if (nx < 0 || nx >= W || ny < y0 || ny >= y1 || seen[ny * W + nx]) continue;
+        seen[ny * W + nx] = 1;
+        if (red(nx, ny) > threshold) st.push([nx, ny]);
+      }
+    }
+    if (c.n >= minPx) blobs.push(c);
+  }
+  return blobs.sort((a, b) => b.n - a.n);
+}
+
 function selftest() {
   let f = 0;
   const enc = (v) => { const s = v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055;
@@ -326,6 +371,58 @@ function selftest() {
   try { wheelRead(wheel(0.01), { cx, cy, rx: 0.4, ry: 0.4 }); } catch { refused = true; }
   console.log(`  a 0.8 px ellipse is ${refused ? 'REFUSED' : 'ACCEPTED — bad'}`);
   if (!refused) { console.log('FAIL a degenerate ellipse was scored'); f++; }
+  // 6. THE REDNESS BLOB CENSUS, on the failure it exists to catch.
+  //
+  //    The census is the instrument for a standing constraint - parked cars must
+  //    not read as having their lights on - so its known-bad input is the build
+  //    that LOOKS fixed: one whose lens level came down while its core still
+  //    saturates. Three synthetic lenses, each a 30x10 graded ellipse on a dark
+  //    ground, differing only in peak redness:
+  //
+  //      lit     peak 200   - a lamp
+  //      half    peak 150   - half the emission, core STILL over the threshold
+  //      reflect peak  95   - under the threshold everywhere
+  //
+  //    A census that counted area alone would call `half` a large improvement;
+  //    it is 43% of `lit`'s area. It is still a saturated red blob and the
+  //    census has to say so. `reflect` must return NOTHING - a census that
+  //    reported a blob there would fail a build that had actually complied.
+  const lens = (peak) => {
+    const w = 400, h = 900, d = new Uint8Array(w * h * 3);
+    for (let i = 0; i < w * h; i++) { d[i * 3] = 20; d[i * 3 + 1] = 18; d[i * 3 + 2] = 22; }
+    const cx = 200, cy = 700, rx = 15, ry = 5;
+    for (let y = cy - ry; y <= cy + ry; y++) for (let x = cx - rx; x <= cx + rx; x++) {
+      const rho = Math.hypot((x - cx) / rx, (y - cy) / ry);
+      if (rho > 1) continue;
+      // Graded, not flat: the whole argument of round 4 was that a lens has a
+      // core and a rectangle does not, and a census tuned on a flat patch would
+      // not transfer.
+      const v = Math.round(peak * (1 - rho * rho) ** 0.6);
+      const i = (y * w + x) * 3;
+      d[i] = Math.min(255, 22 + v); d[i + 1] = 18; d[i + 2] = 22;
+    }
+    return { width: w, height: h, channels: 3, data: d };
+  };
+  const cen = (peak) => rednessBlobs(lens(peak), { threshold: 120, minPx: 8 });
+  const rbLit = cen(200), rbHalf = cen(150), rbRefl = cen(95);
+  const chk = (name, ok, got) => { if (!ok) { console.log(`  FAIL ${name}: ${got}`); f++; }
+    else console.log(`  ok   ${name}: ${got}`); };
+  chk('redness/lit saturates', rbLit.length === 1 && rbLit[0].peak >= 190,
+    `${rbLit.length} blob(s), peak ${rbLit[0]?.peak}, ${rbLit[0]?.n} px`);
+  chk('redness/half STILL saturates (the reassuring failure)',
+    rbHalf.length === 1 && rbHalf[0].peak >= 130,
+    `${rbHalf.length} blob(s), peak ${rbHalf[0]?.peak}, ${rbHalf[0]?.n} px` +
+    (rbLit[0] && rbHalf[0] ? ` = ${(100 * rbHalf[0].n / rbLit[0].n).toFixed(0)}% of lit's area` : ''));
+  chk('redness/reflector is clean', rbRefl.length === 0, `${rbRefl.length} blob(s)`);
+  // And the peak has to MOVE with the level, or the metric cannot price a fix.
+  chk('redness/peak tracks the level',
+    rbLit[0] && rbHalf[0] && rbLit[0].peak > rbHalf[0].peak + 30,
+    `${rbLit[0]?.peak} -> ${rbHalf[0]?.peak}`);
+  // The band is honoured: the same lens above y 430 must not be counted by a
+  // census asked for the ground band.
+  const above = rednessBlobs(lens(200), { threshold: 120, minPx: 8, y0: 0, y1: 400 });
+  chk('redness/band honoured', above.length === 0, `${above.length} blob(s) in y 0-400`);
+
   console.log(f ? `CAR-LENS SELFTEST FAIL (${f})` : 'CAR-LENS SELFTEST OK');
   process.exit(f ? 1 : 0);
 }
@@ -419,12 +516,29 @@ async function measure() {
       }
     }
   }
-  // DOES IT READ AS A LIT LAMP? Clipping is the one absolute the arms share: a
-  // pixel at 255 is at 255 whatever the exposure, so unlike a luma band it does
-  // not walk under an exposure change (CLAUDE.md). Blobs are 4-connected runs of
-  // clipped pixels in the GROUND BAND, which is the band the reviewer counted
-  // saturated tail blobs in.
-  console.log(`\n=== CLIPPED BLOBS in the ground band y 430-900 (a lit lamp clips; a reflector must not)`);
+  // DOES IT READ AS A LIT LAMP? Two censuses, and the second exists because the
+  // first CANNOT SEE A TAIL LAMP AND THIS FILE USED TO SAY IT COULD.
+  //
+  // Clipping is the one absolute the arms share: a pixel at 255 is at 255
+  // whatever the exposure, so unlike a luma band it does not walk under an
+  // exposure change (CLAUDE.md). That is a good test for a WHITE lamp. It is
+  // blind to a red one: the tail texel is [186,20,10] and its green and blue
+  // never come near 250, so no red tail lamp at any level clips this test. The
+  // heading above this block used to read "the band the reviewer counted
+  // saturated tail blobs in" - and the reviewer's criterion was REDNESS > 120,
+  // a different quantity entirely. Run on three frames spanning the whole
+  // parked-lamp history - round 1 with the lamps lit, the hard `setScalar(0)`
+  // fix, and the round-5 retroreflector - it returned 2 blobs / 23 px / the same
+  // two coordinates for all three. Byte-identical answers on three frames that
+  // differ by a factor of nine in lens level is the instrument saying it is
+  // looking somewhere else, and it was: those two blobs are a lit shopfront at
+  // (988,453), present in every arm, and the parked lamps were never in it.
+  //
+  // So the redness census below is the one that answers the question the
+  // headings claim to answer, and it is the number the round-4 commit quoted
+  // (1 -> 7 blobs) and the number the standing "parked cars must not have their
+  // lights on" constraint is about.
+  console.log(`\n=== CLIPPED-WHITE BLOBS in the ground band y 430-900 (sees a white lamp; CANNOT see a red one)`);
   for (const { name, img } of imgs) {
     const W = img.width, seen = new Uint8Array(W * img.height);
     const isClip = (x, y) => { const i = (y * W + x) * img.channels;
@@ -450,6 +564,55 @@ async function measure() {
     console.log(`  ${pad(name, 32)} ${String(blobs.length).padStart(3)} blobs, ${String(blobs.reduce((t, c) => t + c.n, 0)).padStart(5)} px` +
       (blobs.length ? `   largest ${blobs.slice(0, 3).map((c) => `${c.x1 - c.x0 + 1}x${c.y1 - c.y0 + 1}@${c.x0},${c.y0}`).join(' ')}` : ''));
   }
+  // SATURATED RED BLOBS, which is the parked tail lamp's own test.
+  //
+  // redness = R - max(G, B), the reviewer's measure, on a 4-connected component
+  // of at least MINPX pixels in the same ground band. A retroreflector returns
+  // light and a lamp emits it, and the line between them that this project can
+  // actually hold is saturation: signage.js's rule for every retroreflective
+  // cheat here is that it stays BELOW the bloom threshold, "a stop sign that
+  // blooms reads as a lamp, which is worse than one that reads as slightly
+  // self-lit". A blob census is the frame-level form of that rule.
+  //
+  // Traffic signals and the moving fleet's own tail lamps land in this census
+  // too and SHOULD - they are lit. The landmark file's parked-car positions are
+  // what separates them: a blob within 40 px of a parked car's projected nose
+  // or deck is on a parked car, and a parked car is the one thing in the frame
+  // that must not be emitting. That attribution is printed, not assumed.
+  const REDNESS = 120, MINPX = 8;
+  console.log(`\n=== SATURATED RED BLOBS, redness>${REDNESS}, n>=${MINPX}, ground band y 430-900`);
+  console.log(`  ${pad('frame', 32)} blobs   px   onParked  largest`);
+  if (!(lm.fleet ?? []).length) {
+    console.log(`  (this landmarks file predates lm.fleet: ${(lm.cars ?? []).length} nose-on and ` +
+      `${(lm.wheelCars ?? []).length} side-on subjects, no tail-on cars, so onParked is n/a)`);
+  }
+  // ATTRIBUTION BY THE CAR'S WHOLE SCREEN EXTENT, NOT BY A CENTROID. The first
+  // cut of this took the mean of the lamp, nose and bonnet points and asked for
+  // a blob within 40 px of it. Every one of those landmarks is on the NOSE, and
+  // the tail lenses this census is about sit at the other end of the car - the
+  // near kerb car's are at x 1115 and x 1195 against a nose centroid near x 170.
+  // So it reported onParked 0 on a frame with two tail blobs sitting squarely on
+  // a parked car, which is the reassuring direction and therefore the dangerous
+  // one. The extent is the union of every landmark this car carries INCLUDING
+  // its wheel ellipses, which are what actually span its length, padded by 8 px.
+  // Attribution comes from lm.fleet - every filled parked instance, by the screen
+  // bbox of every vertex it carries. A landmarks file written before that field
+  // existed has only the SUBJECT lists, which cannot see a tail-on car, so the
+  // column reads n/a rather than a 0 that would be read as "none".
+  const PAD = 8;
+  const parkedAt = (lm.fleet ?? []).map((f) => ({ id: f.id,
+    x0: f.rect[0] - PAD, y0: f.rect[1] - PAD, x1: f.rect[2] + PAD, y1: f.rect[3] + PAD }));
+  const canAttribute = parkedAt.length > 0;
+  for (const { name, img } of imgs) {
+    const blobs = rednessBlobs(img, { threshold: REDNESS, minPx: MINPX });
+    const near = (c) => { const mx = (c.x0 + c.x1) / 2, my = (c.y0 + c.y1) / 2;
+      return parkedAt.find((p) => mx >= p.x0 && mx <= p.x1 && my >= p.y0 && my <= p.y1); };
+    const onParked = canAttribute ? blobs.filter(near) : null;
+    console.log(`  ${pad(name, 32)} ${String(blobs.length).padStart(5)} ${String(blobs.reduce((t, c) => t + c.n, 0)).padStart(5)}` +
+      ` ${String(onParked ? onParked.length : 'n/a').padStart(9)}   ` +
+      blobs.slice(0, 3).map((c) => `${c.x1 - c.x0 + 1}x${c.y1 - c.y0 + 1}@${c.x0},${c.y0} pk${c.peak}${near(c) ? ` [${near(c).id}]` : ''}`).join('  '));
+  }
+
   console.log(`\n=== WHEELS (rim rho<0.55, tyre rho>=0.72), bands rimCoV .31-.54  hubPeak 1.5-1.7  hubFrac 8-29%  rimTyre ~1.0`);
   console.log(`  ${pad('wheel', 28)} ${pad('arm', 10)} rimTyre  rimCoV  hubPeak  hubFrac%  tyre/outside  clip%`);
   const { onTyre } = await import('./wheel-mask.mjs');
@@ -526,6 +689,7 @@ async function landmarks() {
     // The counts this file's header promises. Read off the geometry, not hoped for.
     const counts = {};
     for (let i = 0; i < uv.count; i++) { const s = slotOf(i); counts[s] = (counts[s] ?? 0) + 1; }
+    const fleet = [];
     const cars = [];
     const camPos = [cam.position.x, cam.position.y, cam.position.z];
     for (let inst = 0; inst < p.filled; inst++) {
@@ -719,10 +883,29 @@ async function landmarks() {
           rimPx: [+(a1 - a0).toFixed(1), +(b1 - b0).toFixed(1)],
           wpx: +(2 * rx).toFixed(1), hpx: +(2 * ry).toFixed(1) });
       }
+      // THE WHOLE FLEET, NOT JUST THE SUBJECTS, because the saturated-red blob
+      // census has to say WHICH blobs are on a parked car and the subject lists
+      // cannot answer that. `cars` holds cars whose NOSE faces the camera and
+      // `wheelCars` cars that are side on; a car showing its TAIL - the one
+      // whose rear lens a red blob would be - is in neither. Run against the
+      // night corridor frame the subject lists placed the near kerb car's nose
+      // at x 54-245 while its two saturated tail blobs sat at x 1115 and 1195,
+      // and the census dutifully reported 0 blobs on parked cars in a frame with
+      // two of them, which is the flattering direction.
+      //
+      // So this is every filled instance in the frustum, as the screen bbox of
+      // EVERY vertex it carries, with no facing test at all.
+      const bodyBB = bbox(() => true);
+      if (bodyBB) {
+        const [bx0, by0, bx1, by1] = bodyBB.rect;
+        fleet.push({ id: `p${inst}`, dist: +dist.toFixed(1), facing: +facing.toFixed(2),
+          rect: [+bx0.toFixed(1), +by0.toFixed(1), +bx1.toFixed(1), +by1.toFixed(1)],
+          verts: bodyBB.n });
+      }
       cars.push({ id: `p${inst}`, dist: +dist.toFixed(1), facing: +facing.toFixed(2),
         x: +px0.toFixed(1), z: +pz0.toFixed(1), lamps, nose, bonnet, wheels });
     }
-    return { counts, filled: p.filled, cars, camPos: camPos.map((v) => +v.toFixed(1)) };
+    return { counts, filled: p.filled, cars, fleet, camPos: camPos.map((v) => +v.toFixed(1)) };
   });
   // THE COUNTS ARE THE PROOF. buildTrafficCarGeometry emits these; an audit that
   // disagrees with the build is looking somewhere else (CLAUDE.md).
@@ -761,7 +944,7 @@ async function landmarks() {
   })).filter((c) => c.wheels.length).sort((a, b) => a.dist - b.dist);
   for (const c of lampCars) c.wheels = [];
   const res = { tod, camera: 'corridor', camPos: data.camPos, filled: data.filled,
-    counts: data.counts, cars: lampCars, wheelCars };
+    counts: data.counts, cars: lampCars, wheelCars, fleet: data.fleet };
   const outFile = process.env.CL_OUT ?? `docs/car-lens-landmarks-${tod}.json`;
   fs.writeFileSync(outFile, JSON.stringify(res, null, 1));
   console.log(`camera ${JSON.stringify(out)}  parked filled ${data.filled}  nose-on and on screen: ${lampCars.length}` +
