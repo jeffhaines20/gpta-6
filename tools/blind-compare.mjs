@@ -45,11 +45,42 @@ const OUT = path.join(SHOTS, 'blind');
 // the file was, and disclosed that its review had to be treated as sighted
 // rather than blind -- an honest report that still cost the round one of three
 // independent verdicts. A blind set is not blind if the answer is in the room.
-const KEY = path.join(path.dirname(OUT), 'blind-key.json');
+//
+// AND IT IS NAMED FOR ITS ARMS, because a fixed name destroys the last one.
+//
+// This ran as blind-key.json for every round, so building a new set silently
+// overwrote the previous round's key - and a key that is gone means a review
+// that can never be decoded again. It was caught on the round that would have
+// destroyed the 2026-09-08 "final vs cars" key: git reported a DELETION of a
+// tracked file at a path this tool had just rewritten, which is the only reason
+// anyone looked. Nothing warned.
+//
+// --reveal with no arguments now reads the newest key, so the common case is
+// unchanged; --reveal <left> <right> names one.
+const keyPath = (l, r) => path.join(path.dirname(OUT), `blind-key-${l}-${r}.json`);
 const args = process.argv.slice(2);
 
 if (args[0] === '--reveal') {
-  if (!fs.existsSync(KEY)) { console.error(`no blind set at ${OUT}`); process.exit(2); }
+  const named = args.filter((a) => !a.startsWith('--'));
+  let KEY;
+  if (named.length === 2) {
+    KEY = keyPath(named[0], named[1]);
+  } else {
+    // Newest by mtime, and the legacy fixed name is a candidate so old sets
+    // still decode.
+    const dir = path.dirname(OUT);
+    const cands = fs.readdirSync(dir)
+      .filter((f) => /^blind-key(-.*)?\.json$/.test(f))
+      .map((f) => ({ f: path.join(dir, f), t: fs.statSync(path.join(dir, f)).mtimeMs }))
+      .sort((a, b) => b.t - a.t);
+    if (!cands.length) { console.error(`no blind key beside ${OUT}`); process.exit(2); }
+    KEY = cands[0].f;
+    if (cands.length > 1) {
+      console.log(`${cands.length} keys present; reading the newest: ${path.basename(KEY)}`);
+      console.log(`  (name both arms to pick another: --reveal <left> <right>)\n`);
+    }
+  }
+  if (!fs.existsSync(KEY)) { console.error(`no key at ${KEY}`); process.exit(2); }
   const k = JSON.parse(fs.readFileSync(KEY, 'utf8'));
   console.log(`blind set built ${k.generated}   ${k.left} (left) vs ${k.right} (right)\n`);
   for (const p of k.pairs) {
@@ -101,6 +132,50 @@ const matched = [...L.keys()].filter((k) => R.has(k)).sort();
 const order = [...matched].sort((a, b) => (rank(a) < rank(b) ? -1 : 1));
 const swapSet = new Set(order.slice(0, Math.floor(order.length / 2)));
 
+const ROI = (() => {
+  const v = argVal('roi', null);
+  if (!v) return null;
+  const q = v.split(',').map(Number);
+  if (q.length !== 4 || q.some((n) => !Number.isFinite(n))) {
+    throw new Error(`--roi wants x0,y0,x1,y1; got "${v}"`);
+  }
+  return q;
+})();
+/**
+ * The same >4/255 fraction diffBands reports, over a stated rectangle.
+ *
+ * Throws on a non-finite difference for the reason arm-diff does: readPNG
+ * returns channels 3 for these screenshots, and a hardcoded 4-byte stride reads
+ * NaN in the bottom quarter - where NaN fails every comparison silently and the
+ * bad rows report NO DIFFERENCE. The most dangerous shape a measurement bug can
+ * take is the one whose wrong answer is reassuring.
+ */
+function roiOver4(A, B, [x0, y0, x1, y1]) {
+  if (A.width !== B.width || A.height !== B.height) throw new Error('size mismatch');
+  if (A.channels !== B.channels) throw new Error('channel mismatch');
+  const C = A.channels;
+  const ax0 = Math.max(0, x0 | 0), ay0 = Math.max(0, y0 | 0);
+  const ax1 = Math.min(A.width, x1 | 0), ay1 = Math.min(A.height, y1 | 0);
+  // A SET CAN MIX FULL FRAMES AND CROPS, and the region is stated in the full
+  // frame's coordinates. Against a crop it clamps to nothing, and that is not an
+  // error: the crop IS the subject, so its bands already look at the car and the
+  // region has nothing to add. Returning null drops it from the candidates
+  // instead of throwing and killing a set that is otherwise fine. Throwing here
+  // cost a run - the first version died on a 984x544 crop in a set whose full
+  // frames the region was written for.
+  if (ax1 <= ax0 || ay1 <= ay0) return null;
+  let n = 0, over4 = 0;
+  for (let y = ay0; y < ay1; y++) for (let x = ax0; x < ax1; x++) {
+    const i = (y * A.width + x) * C;
+    for (let c = 0; c < 3; c++) {
+      const d = Math.abs(A.data[i + c] - B.data[i + c]);
+      if (!Number.isFinite(d)) throw new Error(`non-finite difference at ${x},${y} — wrong stride`);
+      n++; if (d > 4) over4++;
+    }
+  }
+  return +(100 * over4 / n).toFixed(2);
+}
+
 // ---------------------------------------------------------- the degeneracy gate
 //
 // REFUSE TO SHIP A PAIR THAT IS THE SAME BUILD TWICE.
@@ -142,7 +217,30 @@ if (!args.includes('--no-check')) {
     // A pair with nothing in it to judge has nothing in ANY band, so taking the
     // maximum keeps the guard's real purpose and drops a false refusal that
     // would otherwise recur for every round that is not about facades.
+    //
+    // --roi x0,y0,x1,y1 ADDS A REGION, and it is not a loosened threshold.
+    //
+    // The bands are thirds of a 1600x900 frame, and a car is a small object in
+    // one. Five rounds of car work measured 1.27% / 1.62% / 2.41% of the WHOLE
+    // frame differing by >4/255 at dusk, night and noon, and 4.08% / 4.88% /
+    // 6.69% in the best band - under the 8% line at every hour. Inside the near
+    // parked car's own rectangle the same pairs carry 11.59% / 11.98% / 16.75%.
+    // Every one of those numbers is true; they answer different questions, and
+    // the gate's question is "is there anything here to judge", which for a car
+    // round is asked of the car.
+    //
+    // So the region is a THIRD candidate alongside the bands and the maximum
+    // still decides. MIN_SIGNAL is untouched at 8. A pair that is two arms of
+    // one build has nothing in the region either, which is the property the
+    // guard actually depends on.
+    //
+    // The refusal below prints the frame-wide figure beside the region's, so a
+    // region that rescues a pair cannot hide how small the change is overall.
     const bands = diffBands(a, b);
+    if (ROI) {
+      const r = roiOver4(a, b, ROI);
+      if (r !== null) bands.push({ band: `roi ${ROI.join(',')}`, over4Pct: r });
+    }
     const best = bands.reduce((m, r) => (r.over4Pct > m.over4Pct ? r : m));
     if (best.over4Pct < MIN_SIGNAL) {
       degenerate.push({ id: suffix, pct: best.over4Pct, band: best.band });
@@ -152,7 +250,7 @@ if (!args.includes('--no-check')) {
 if (degenerate.length && !args.includes('--force')) {
   console.error(`REFUSING to build a blind set: ${degenerate.length} of ${matched.length} pairs carry`);
   console.error(`almost no signal in ANY band (under ${MIN_SIGNAL}% of samples differing by >4/255).`);
-  for (const d of degenerate) console.error(`    ${d.id.padEnd(28)} ${d.pct}%  (best band: ${d.band})`);
+  for (const d of degenerate) console.error(`    ${d.id.padEnd(28)} ${d.pct}%  (best of bands${ROI ? ' and roi' : ''}: ${d.band})`);
   console.error('\nThe usual cause is that both arms rendered the SAME BUILD -- a capture that');
   console.error('reused an HTTP server rooted in another tree, or a tag that was overwritten.');
   console.error('Check the two arms are what you think before spending a reviewer round on them:');
@@ -172,6 +270,10 @@ for (const suffix of matched) {
   pairs.push({ id, A, B });
 }
 
+const KEY = keyPath(LEFT, RIGHT);
+if (fs.existsSync(KEY)) {
+  console.log(`NOTE: overwriting an existing key for this exact arm pair at ${KEY}`);
+}
 fs.writeFileSync(KEY, JSON.stringify({
   generated: new Date().toISOString(), left: LEFT, right: RIGHT, salt,
   unpairedLeft: onlyL, unpairedRight: onlyR, pairs,
