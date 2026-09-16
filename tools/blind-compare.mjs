@@ -129,7 +129,56 @@ const rank = (id) => createHash('sha256').update(salt + id).digest('hex');
 // unpredictable. The first build of this file flipped independently and came out
 // 5-1, which is what prompted the change.
 const matched = [...L.keys()].filter((k) => R.has(k)).sort();
-const order = [...matched].sort((a, b) => (rank(a) < rank(b) ? -1 : 1));
+// PAIRS THAT ARE VIEWS OF ONE FRAME MUST GET ONE ASSIGNMENT.
+//
+// Assignment is a keyed hash of the PAIR NAME, deliberately so: a reviewer who
+// works out that A is always the new arm has learned nothing, and one who
+// notices A/B/A/B has learned everything. That is right when the pairs are
+// independent. It is WRONG when some of them are crops of the others, and this
+// round found out how wrong.
+//
+// A nine-pair set of three corridor heroes plus x2 and x4 magnifications of each
+// went out with `corridor-noon--A` and `rear-noon--A` cut from DIFFERENT builds,
+// and the dusk hero assigned opposite to noon and night. All three reviewers
+// caught it, independently, and each reconstructed the true parentage the same
+// way: crop.mjs magnifies by nearest-neighbour replication, so a crop matches
+// its parent frame BIT-EXACTLY at the right origin and scale, and 0.000 against
+// one arm with 2-3 counts against the other is not ambiguous. One reported it
+// had first written the opposite answer to the parked-lamp question off
+// `rear-night--A` and caught itself; another said "a reviewer judging from the
+// crops alone would have got half the answers backwards while the data looked
+// perfectly strong". That is CLAUDE.md's index-versus-name pairing trap wearing
+// a new coat, and it cost three reviewers a large part of their round.
+//
+// --group <token> puts every pair whose id CONTAINS that token into one
+// assignment, so all three views of the dusk frame agree. The hash is then taken
+// over the group name rather than the pair name, which keeps the property the
+// randomisation is for: nothing about a group's assignment can be predicted from
+// another group's.
+const GROUPS = (argVal('group', '') || '').split(',').map((g) => g.trim()).filter(Boolean);
+const groupOf = (id) => GROUPS.find((g) => id.includes(g)) ?? null;
+if (GROUPS.length) {
+  const ungrouped = matched.map((f) => f.replace(/\.png$/, '')).filter((id) => !groupOf(id));
+  if (ungrouped.length) {
+    console.error(`--group named ${GROUPS.join(', ')} but these pairs match none of them:`);
+    for (const id of ungrouped) console.error(`    ${id}`);
+    console.error('Every pair must fall in a group, or the set is half-grouped and half-not,');
+    console.error('which is the failure --group exists to prevent.');
+    process.exit(2);
+  }
+  const byGroup = {};
+  for (const f of matched) {
+    const g = groupOf(f.replace(/\.png$/, ''));
+    (byGroup[g] ??= []).push(f.replace(/\.png$/, ''));
+  }
+  for (const [g, ids] of Object.entries(byGroup)) {
+    console.log(`group ${g}: ${ids.length} pair(s) share one assignment — ${ids.join(', ')}`);
+  }
+}
+// What the balance is struck over: groups when grouping, pairs otherwise.
+const units = GROUPS.length ? [...GROUPS] : [...matched];
+
+const order = [...units].sort((a, b) => (rank(a) < rank(b) ? -1 : 1));
 const swapSet = new Set(order.slice(0, Math.floor(order.length / 2)));
 
 const ROI = (() => {
@@ -263,7 +312,8 @@ if (degenerate.length) console.log(`--force: shipping ${degenerate.length} pair(
 const pairs = [];
 for (const suffix of matched) {
   const id = suffix.replace(/\.png$/, '');
-  const swap = swapSet.has(suffix);
+  // The ASSIGNMENT UNIT: the group when grouping, otherwise the pair itself.
+  const swap = swapSet.has(GROUPS.length ? groupOf(id) : suffix);
   const A = swap ? RIGHT : LEFT, B = swap ? LEFT : RIGHT;
   fs.copyFileSync(path.join(SHOTS, (swap ? R : L).get(suffix)), path.join(OUT, `${id}--A.png`));
   fs.copyFileSync(path.join(SHOTS, (swap ? L : R).get(suffix)), path.join(OUT, `${id}--B.png`));

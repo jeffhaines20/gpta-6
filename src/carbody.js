@@ -403,7 +403,15 @@ const RETRO_HEAD = [88, 96, 110];
 // has tuned by eye three times gets a knob so the next round fits it instead.
 // 1 is the authored byte triple above; the scale is applied in LINEAR light and
 // re-encoded, so a 2x here is 2x the radiance rather than 2x the byte.
-const FRONT = { scale: 1 };
+//
+// SHIPS AT 0. Three independent blind reviewers measured this texel emitting on
+// parked cars and one of them caught it emitting AT NOON - +0.106 linear of
+// neutral light, 34% over the arm without it, simply swamped by daylight. A
+// parked car's headlamp does not glow, and this was the element most likely to
+// read as "lights on". The texel and its sweep stay so a future round can put a
+// real reflectance model behind them; the level does not ship above zero until
+// something other than an emissive term is doing the work.
+const FRONT = { scale: 0 };
 const SRGB_TO_LIN = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 const LIN_TO_SRGB = (c) => (c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055);
 function frontTexel(scale) {
@@ -492,7 +500,53 @@ export function retroEmissiveMap() { return retroEmissiveTexture(); }
  * shining on it returns nothing, so this is 0 by day for the same reason
  * signage.js's sign glow is ("golden is 0 for the reason noon is").
  */
-const RETRO = { scale: 1 };
+//
+// SHIPS AT 0, AND ROUND 4's ARGUMENT FOR SHIPPING IT AT 1 WAS CIRCULAR.
+//
+// Round 4 replaced the parked pool's `emissive.setScalar(0)` with the graded
+// reflector below, on the strength of a blind reviewer's finding that with the
+// lamps fully off, "five of the six cars in that frame stopped reading as cars".
+// The evidence for that was a count of SATURATED RED BLOBS: 1 with the lamps
+// off, 7 with them on. But a saturated-blob count can only ever be satisfied by
+// emission - it is not a measure of whether a car reads as a car, it is a
+// measure of whether something is bright enough to clip a redness threshold. The
+// round used a metric that could only be moved by the change it was evaluating.
+// CLAUDE.md has the general form of this: a probe that measures the OPPORTUNITY
+// does not measure the FIX.
+//
+// Three independent blind reviewers, judging pixels without knowing which arm
+// was which, then took the opposite view of the same two builds, and each
+// brought a different physical argument:
+//
+//   - a passive lens reflects at most 100% of the light falling on it, and the
+//     pale panel beside it reflects 80-90%. This one out-reflected that panel by
+//     3.33x in linear red and out-luminated it by 1.25x. Not possible passively.
+//   - lamp/panel rose 11.4x and 19.0x from noon to night. A synthetic PASSIVE
+//     lens under the same illumination fall moves 1.05x; a synthetic EMITTER
+//     moves 7.06x.
+//   - subtract the two arms in linear light and ask what colour the ADDED light
+//     is: near-pure red on the tails and near-neutral white on the heads, at
+//     every hour, while the illuminant swings from blue sky (R-B)/Y = -0.23 at
+//     noon to sodium +1.07 at night. A reflection cannot hold its own colour
+//     against that.
+//
+// And all three found the same thing independently: THE GLOW LIGHTS NOTHING. The
+// road behind the car, the kerb beside it and the bumper 6-10 px below it are
+// identical between the arms to four or five decimal places. A lens 3.3x
+// brighter than its own panel that casts nothing is a decal, which reads as
+// broken in a way that neither "off" nor "properly on" does.
+//
+// With this at 0 the tail lenses still read - the same reviewers measured them
+// at sRGB 43/3/3, lamp/body 0.155 at night, rising 2.05x from noon and
+// chromatically indistinguishable from the illuminant, which is what a passive
+// reflector does. Two of the three classified that as "passive reflector", not
+// "dark". So the thing round 4 was trying to protect survives without the
+// emissive; what it lost was the blob count, which was never the point.
+//
+// The lever, the profile, the texture and the sweep arms all stay. What has to
+// change before any of it ships again is the MECHANISM: a lens that returns
+// light because it is reflective, not because it emits.
+const RETRO = { scale: 0 };
 export function retroEmissive(lit, exposure = 1 / 660, display = 0.62) {
   // display is the level at the lens CORE, which is where the bloom argument
   // above is anchored, so it is divided by the profile's gain rather than

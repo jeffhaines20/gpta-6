@@ -1,0 +1,55 @@
+{
+ "generated": "2026-09-16T02:56:17.739Z",
+ "left": "p6r1",
+ "right": "p6r5",
+ "salt": "8016f2827559",
+ "unpairedLeft": [],
+ "unpairedRight": [],
+ "pairs": [
+  {
+   "id": "corridor-dusk",
+   "A": "p6r1",
+   "B": "p6r5"
+  },
+  {
+   "id": "corridor-night",
+   "A": "p6r1",
+   "B": "p6r5"
+  },
+  {
+   "id": "corridor-noon",
+   "A": "p6r5",
+   "B": "p6r1"
+  },
+  {
+   "id": "nearleft-dusk",
+   "A": "p6r1",
+   "B": "p6r5"
+  },
+  {
+   "id": "nearleft-night",
+   "A": "p6r1",
+   "B": "p6r5"
+  },
+  {
+   "id": "nearleft-noon",
+   "A": "p6r5",
+   "B": "p6r1"
+  },
+  {
+   "id": "rear-dusk",
+   "A": "p6r1",
+   "B": "p6r5"
+  },
+  {
+   "id": "rear-night",
+   "A": "p6r1",
+   "B": "p6r5"
+  },
+  {
+   "id": "rear-noon",
+   "A": "p6r5",
+   "B": "p6r1"
+  }
+ ]
+}
