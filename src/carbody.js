@@ -760,7 +760,55 @@ export const CAR = {
   wheelR: 0.36,
   tyreHalfW: 0.112,
   rimR: 0.252,
+  // Where the roofline breaks into the backlight. The silhouette table below is
+  // authored at this value; a variant that moves it gets its greenhouse rescaled
+  // rather than a second table. See SHAPES.
+  backlightZ: -1.080,
 };
+
+/**
+ * BODY SHELLS, and why they are a warp of one table rather than three tables.
+ *
+ * Three independent blind reviewers ranked "every parked car is the same body
+ * shell" the single worst thing about these cars - "one fastback coupe
+ * silhouette, one greenhouse, one wheelbase, one three-bar tail treatment; only
+ * the paint varies", "this costs more than every other item combined". Thirty of
+ * them line one street.
+ *
+ * THE PRICE IS WHY IT IS A WARP. A warp moves the silhouette's POINTS; it does
+ * not change how many there are, so every shell emits the same triangle count
+ * and a fleet of three shells costs exactly what a fleet of one did. That
+ * matters here more than usual: the budget gate is already 22,605 triangles over
+ * its warn, so a variety pass that added geometry could not ship at all. What it
+ * costs instead is draw calls - one InstancedMesh per shell per pool - and the
+ * corridor frame measures 169-186 against a warn of 200.
+ *
+ * WHAT VARIES, all of it read by code that already existed:
+ *   hw, planTaper, tumble   halfWidth() - plan-view taper and how hard the
+ *                           greenhouse pulls in above the beltline. These change
+ *                           the car's WIDTH and shoulder, which is the silhouette
+ *                           cue that survives to the far end of the street.
+ *   roofY                   halfWidth()'s tumble ramp AND, through the warp
+ *                           below, the actual height of the roof.
+ *   backlightZ              where the roof breaks into the backlight: forward for
+ *                           a notchback, far back for a wagon.
+ *
+ * The wheelbase, the axles and the arches are NOT varied, deliberately. They are
+ * shared by the underside, the arch notches and the wheel placement, and moving
+ * them means moving all three in step; getting that wrong detaches a wheel from
+ * its arch, which is worse than three cars of one length.
+ */
+export const SHAPES = {
+  // The shell every previous round measured. Must build byte-identical geometry
+  // to no shape at all, and there is a self-test for exactly that.
+  coupe: {},
+  // Boxier, wider, taller, and the roof breaks 200 mm further forward: a
+  // three-box saloon rather than a fastback.
+  saloon: { hw: 0.985, planTaper: 0.050, tumble: 0.155, roofY: 0.775, backlightZ: -0.880 },
+  // Roof carried almost to the tail over a near-vertical backlight.
+  wagon: { hw: 0.985, planTaper: 0.045, tumble: 0.140, roofY: 0.790, backlightZ: -1.460 },
+};
+export const SHAPE_NAMES = Object.keys(SHAPES);
 
 /**
  * Half-width of the body at a silhouette point. Two effects, both essential to
@@ -789,13 +837,61 @@ function halfWidth(z, y, P = CAR) {
  *   pal    SURFACE index
  *   dark   true -> unpainted plastic colour rather than body colour
  */
+// The literals the table below is authored at. A warp reads these as its FROM
+// and P as its TO, so the table stays the one shape everything else in this file
+// was measured against and a variant is a transform of it.
+const BASE = { belt: 0.30, roofY: 0.716, screenHiZ: -0.095, backlightZ: -1.080,
+  backlightLoZ: -1.700, screenLoZ: 0.640 };
+
+/**
+ * Warp a silhouette point from the authored shell to P's.
+ *
+ * TWO TRANSFORMS, both confined to the greenhouse.
+ *
+ * ROOF HEIGHT scales (y - belt) so the beltline is the pivot: the flank, the
+ * bonnet, the boot deck and the whole underside are untouched, and the roof and
+ * the glass in it rise together. The pivot is the AUTHORED belt rather than P's,
+ * because the thing being scaled is this table's geometry.
+ *
+ * GREENHOUSE LENGTH is a piecewise-linear remap in z with the break at
+ * backlightZ: the roof run from screenHi to the break stretches or compresses,
+ * and the backlight run from the break to backlightLo takes up the rest. So a
+ * variant moves where the roof ends without moving where the boot starts, which
+ * is the difference between a fastback and a notchback.
+ *
+ * THE GATE IS z AND y TOGETHER, and y alone is not enough: bootFront sits at
+ * y 0.316, above the beltline, and would lift with the roof and tear the boot
+ * off the tail. It is excluded by being at z -1.752, outside the greenhouse run.
+ * The underside runs through the same z at low y and is excluded by the belt.
+ */
+function warpPoint(z, y, P) {
+  if (y <= BASE.belt || z > BASE.screenLoZ || z < BASE.backlightLoZ) return [z, y];
+  const wy = BASE.belt + (y - BASE.belt) * ((P.roofY - BASE.belt) / (BASE.roofY - BASE.belt));
+  const bz = P.backlightZ ?? BASE.backlightZ;
+  let wz = z;
+  if (z <= BASE.screenHiZ && z >= BASE.backlightZ) {
+    const t = (z - BASE.screenHiZ) / (BASE.backlightZ - BASE.screenHiZ);
+    wz = BASE.screenHiZ + t * (bz - BASE.screenHiZ);
+  } else if (z < BASE.backlightZ) {
+    const t = (z - BASE.backlightZ) / (BASE.backlightLoZ - BASE.backlightZ);
+    wz = bz + t * (BASE.backlightLoZ - bz);
+  }
+  return [wz, wy];
+}
+
 function silhouette(P = CAR, detail = {}) {
   const archSegments = detail.archSegments ?? 11;
   const decimate = detail.decimate ?? false;
   const pts = [];
-  const add = (z, y, o = {}) => {
+  const add = (rawZ, rawY, o = {}) => {
+    // WARP FIRST, THEN MEASURE THE WIDTH. halfWidth() is a function of (z, y),
+    // so computing it at the authored position and storing it against the warped
+    // one would give a taller roof the width of a lower one - a variant whose
+    // plan view belongs to a different car. This ordering is the whole reason
+    // the warp lives inside add() rather than in a pass over `pts`.
+    const [z, y] = warpPoint(rawZ, rawY, P);
     pts.push({
-      z, y, y0: o.y0 ?? y,
+      z, y, y0: o.y0 != null ? warpPoint(rawZ, o.y0, P)[1] : y,
       w: (o.w ?? halfWidth(z, y, P)) * (o.wMul ?? 1),
       crown: o.crown ?? 0,
       pal: o.pal ?? SURFACE.paint,
@@ -1772,7 +1868,9 @@ export function buildPlayerCar(opts = {}) {
  * @returns {THREE.BufferGeometry}
  */
 export function buildTrafficCarGeometry(opts = {}) {
-  const P = CAR;
+  // opts.shape is a SHAPES entry (or any subset of CAR's fields). Omitted, this
+  // is byte-for-byte the shell every previous round measured.
+  const P = opts.shape && Object.keys(opts.shape).length ? { ...CAR, ...opts.shape } : CAR;
   const white = col(0xffffff);
   const trimC = col(0x3a3d42);
   const glassC = col(0x0d1015);

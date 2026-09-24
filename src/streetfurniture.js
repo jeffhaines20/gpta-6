@@ -52,7 +52,7 @@
 
 import * as THREE from '../vendor/three.module.min.js';
 import { buildTrafficCarGeometry, trafficCarMaterial, lampEmissive,
-  retroEmissiveMap, retroEmissive } from './carbody.js';
+  retroEmissiveMap, retroEmissive, SHAPES, SHAPE_NAMES } from './carbody.js';
 // The frontage row is keyed to the TENANCY, not to the carriageway, so it has to
 // read the same lot plan and the same business the facade and the sign read. All
 // three come from one call: signage.js signPlanFor() already runs lotPlanFor()
@@ -4658,6 +4658,13 @@ export class StreetFurniture {
               x, z,
               yaw: yaw + ((h >>> 7) % 100 / 100 - 0.5) * 0.06,
               hue: (h >>> 3) % 1000 / 1000,
+              // WHICH BODY SHELL, from the SLOT's own hash and not from the pool
+              // index. The pool refills in distance order as the camera moves, so
+              // a shell taken from the instance index would change shape under a
+              // car that has not moved - a pop on every re-seed. Taken from the
+              // slot, a kerbside space always holds the same kind of car. A
+              // separate bit range from hue and yaw so the three do not correlate.
+              shell: (h >>> 11) % SHAPE_NAMES.length,
             });
             slots++;
           }
@@ -4672,7 +4679,24 @@ export class StreetFurniture {
   /** Build the pool. Called after dressDistrict(). */
   buildParkedCars(opts = {}) {
     const count = opts.count ?? 44;
-    const geo = buildTrafficCarGeometry({ groundY: PAD_Y - 0.02 });
+    // ONE GEOMETRY PER BODY SHELL, ONE MATERIAL FOR ALL OF THEM.
+    //
+    // Three blind reviewers ranked "every parked car is the same body shell" the
+    // worst thing about these cars - thirty of them line one street. The shells
+    // are a warp of one silhouette table (see SHAPES), so every one emits 1,050
+    // triangles and the fleet's triangle bill is EXACTLY what it was: the same
+    // 30 instances, drawn from three geometries instead of one. What it costs is
+    // draw calls, +2 here, against a corridor frame measuring 169-186 and a warn
+    // at 200. tools/car-shapes.mjs asserts the equal-cost claim off the built
+    // buffers rather than leaving it as arithmetic.
+    //
+    // The material is SHARED, deliberately. Everything that tunes this pool -
+    // the emissive level, the lens palette, the pack texture - writes one
+    // material, and giving each shell its own would mean every such write
+    // silently reaching a third of the fleet.
+    const geos = SHAPE_NAMES.map((n) =>
+      buildTrafficCarGeometry({ groundY: PAD_Y - 0.02, shape: SHAPES[n] }));
+    const geo = geos[0];
     // THE PARKED POOL EMITS FROM A DIFFERENT PALETTE TO EVERY OTHER CAR, and the
     // reason is that `emissive` is ONE colour over the whole material: with the
     // shipped emissive map, any level that lights the tail lens lights the
@@ -4680,22 +4704,42 @@ export class StreetFurniture {
     // reported and _applyEmissive below removed. retroEmissiveMap() is the same
     // 16x1 palette with every texel but the tail lens zeroed, so the level this
     // pool runs at CANNOT reach a headlamp however it is tuned later.
-    const mesh = new THREE.InstancedMesh(
-      geo, trafficCarMaterial({ emissiveMap: retroEmissiveMap() }), count);
-    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    mesh.castShadow = true;
-    mesh.frustumCulled = false;
-    this.root.add(mesh);
+    const material = trafficCarMaterial({ emissiveMap: retroEmissiveMap() });
+    // EACH SHELL GETS THE FULL POOL CAPACITY, and it is not waste. The fill
+    // takes the nearest slots in distance order and their shells fall wherever
+    // the slot hashes put them, so any one shell can take every place in a given
+    // refill; sizing each mesh at count/3 would drop cars whenever the nearby
+    // slots happened to agree. An instance costs 19 floats, so three full pools
+    // is under 7 kB of buffer, and what RENDERS is mesh.count, set to the number
+    // actually used after each fill. The triangle bill follows the fill, not the
+    // capacity.
+    const meshes = geos.map((g) => {
+      const m = new THREE.InstancedMesh(g, material, count);
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      m.castShadow = true;
+      m.frustumCulled = false;
+      m.count = 0;
+      this.root.add(m);
+      return m;
+    });
     const idx = geo.getIndex();
     this.parked = {
-      mesh, count, radius: opts.radius ?? 3,
+      // `mesh` is shell 0 and is kept because it is the handle for the SHARED
+      // material and for a geometry census. Anything that walks instances or
+      // edits vertex data must use `meshes`/`geometries`: a caller that reaches
+      // through `mesh` alone now touches one shell in three, which is the shape
+      // of defect this repo keeps finding (patch one, leave its siblings).
+      mesh: meshes[0], meshes, geometries: geos, material,
+      count, radius: opts.radius ?? 3,
       tris: (idx ? idx.count / 3 : 0) * count,
       filled: 0, lastX: Infinity, lastZ: Infinity, lastT: -1e9,
     };
     this._hidden = new THREE.Matrix4().makeScale(0, 0, 0);
     this._pcol = new THREE.Color();
-    for (let i = 0; i < count; i++) mesh.setMatrixAt(i, this._hidden);
-    mesh.instanceMatrix.needsUpdate = true;
+    for (const m of meshes) {
+      for (let i = 0; i < count; i++) m.setMatrixAt(i, this._hidden);
+      m.instanceMatrix.needsUpdate = true;
+    }
     return this.parked;
   }
 
@@ -4744,12 +4788,19 @@ export class StreetFurniture {
       if (cand.length >= p.count * 3) break;
     }
     cand.sort((a, b) => a.d - b.d);
+    // One cursor per shell. `i` still counts the cars placed, so `filled` and
+    // every distance-ordered decision below are unchanged; `used[shell]` is
+    // where this car lands inside its own mesh.
+    const used = new Array(p.meshes.length).fill(0);
     let i = 0;
     for (; i < p.count && i < cand.length; i++) {
       const s = cand[i];
+      const sh = s.shell ?? 0;
+      const mesh = p.meshes[sh] ?? p.meshes[0];
+      const li = used[sh]++;
       this._m.makeRotationY(s.yaw);
       this._m.setPosition(s.x, 0, s.z);
-      p.mesh.setMatrixAt(i, this._m);
+      mesh.setMatrixAt(li, this._m);
       // Kerbside colour, taken off the reference photographs rather than off a
       // hue wheel. reference/sarasota/mapillary shows Main Street's parked
       // population as overwhelmingly white, silver, grey and black with the
@@ -4774,12 +4825,22 @@ export class StreetFurniture {
       const l = 0.26 + ((h * 7) % 1) * 0.4;
       if (h < 0.66) this._pcol.setHSL(0.58, 0.012 + h * 0.045, l);
       else this._pcol.setHSL((h - 0.66) / 0.34, 0.26 + h * 0.18, l);
-      p.mesh.setColorAt(i, this._pcol);
+      mesh.setColorAt(li, this._pcol);
     }
-    for (let k = i; k < p.count; k++) p.mesh.setMatrixAt(k, this._hidden);
-    p.mesh.instanceMatrix.needsUpdate = true;
-    if (p.mesh.instanceColor) p.mesh.instanceColor.needsUpdate = true;
+    // What RENDERS is mesh.count. Setting it to the number this fill actually
+    // placed is what keeps the triangle bill equal to the one-shell version:
+    // capacity is three pools, draw is one fleet. The trailing hide is kept as
+    // well as the count rather than instead of it - a stale matrix behind the
+    // count is invisible until something raises the count again.
+    for (let sh = 0; sh < p.meshes.length; sh++) {
+      const m = p.meshes[sh];
+      for (let k = used[sh]; k < p.count; k++) m.setMatrixAt(k, this._hidden);
+      m.count = used[sh];
+      m.instanceMatrix.needsUpdate = true;
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    }
     p.filled = i;
+    p.perShell = used.slice();
     return i;
   }
 
@@ -4911,7 +4972,8 @@ export class StreetFurniture {
       // falloff then puts a core and a rim on it, which is the other half of why
       // this is not simply the old bug at a lower number: the old one was a flat
       // rectangle of constant emission and this is a graded lens.
-      this.parked.mesh.material.emissive.setScalar(
+      // ONE material across every shell, so this reaches the whole fleet.
+      this.parked.material.emissive.setScalar(
         retroEmissive(this._lit, this._exposure));
     }
   }
@@ -4926,8 +4988,19 @@ export class StreetFurniture {
 
   report() {
     const parked = this.parked
+      // `triangles` is the CAPACITY bill and is left exactly as it was, because
+      // a gate reading it would silently shift if it changed meaning. What the
+      // body-shell round actually needs reporting is alongside it: how many
+      // shells there are, how the fill split between them, and the triangles
+      // that were really DRAWN. perShell summing to filled is the cheap proof
+      // that no car was lost to a shell's cursor.
       ? { pool: this.parked.count, filled: this.parked.filled, slots: this.parkSlots,
-          triangles: this.parked.tris }
+          triangles: this.parked.tris,
+          shells: this.parked.meshes ? this.parked.meshes.length : 1,
+          perShell: this.parked.perShell ?? null,
+          trianglesDrawn: this.parked.filled *
+            (this.parked.geometries && this.parked.geometries[0].getIndex()
+              ? this.parked.geometries[0].getIndex().count / 3 : 0) }
       : null;
     // 'treeDetail' is the near-tier half of a tree, not a seventeenth kind of
     // prop, so it is reported but kept out of propCount — otherwise the prop

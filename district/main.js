@@ -313,7 +313,7 @@ const lightPool = new LightPool(scene, { size: 10, maxDistance: 130 });
   // Same mechanism and same argument as ?kerbs=0 and ?nospill=1 above.
   const _rim = Number(new URLSearchParams(location.search).get('rim'));
   if (Number.isFinite(_rim) && _rim > 0) {
-    console.log('car rim scale', JSON.stringify(setTrafficRimScale(furniture.parked.mesh.geometry, _rim)));
+    console.log('car rim scale', JSON.stringify(forEachParkedGeometry((g) => setTrafficRimScale(g, _rim))));
     window.__rimScale = _rim;
   }
 }
@@ -925,6 +925,28 @@ resize();
 requestAnimationFrame(animate);
 
 // ------------------------------------------------------------------ test hooks
+
+// THE PARKED POOL IS THREE GEOMETRIES NOW, AND A LEVER THAT EDITS ONE IS WORSE
+// THAN A LEVER THAT EDITS NONE.
+//
+// setTrafficRimScale and its siblings rewrite VERTEX COLOURS in place. They were
+// written when the pool was one InstancedMesh over one geometry and were called
+// as `fn(furniture.parked.mesh.geometry, k)`. With body shells that reaches
+// shell 0 alone, so a sweep would repaint a third of the kerb and report a
+// number taken over all of it - a confound inside the very A/B that exists to
+// isolate. This applies the lever to every shell and returns the SUM of the
+// vertices touched, so a caller that expects 100 rim vertices a car and gets a
+// third of that finds out.
+function forEachParkedGeometry(fn) {
+  const p = furniture && furniture.parked;
+  if (!p) return null;
+  const geos = p.geometries ?? [p.mesh.geometry];
+  const each = geos.map((g) => fn(g));
+  const total = each.reduce((t, r) => t + (r && r.verticesTouched != null ? r.verticesTouched : 0), 0);
+  return { ...each[0], shells: geos.length, verticesTouched: total,
+    perShell: each.map((r) => (r ? r.verticesTouched : null)) };
+}
+
 window.__district = {
   district, world, vehicle, traffic: () => traffic, tod, post, renderer, scene, camera, chase, metrics,
   loadReport: () => loadReport,
@@ -997,7 +1019,7 @@ window.__district = {
   setCarRim: (k) => {
     const n = { traffic: 0, parked: 0 };
     if (traffic) n.traffic = setTrafficRimScale(traffic.mesh.geometry, k);
-    if (furniture && furniture.parked) n.parked = setTrafficRimScale(furniture.parked.mesh.geometry, k);
+    n.parked = forEachParkedGeometry((g) => setTrafficRimScale(g, k));
     return { scale: k, verticesTouched: n };
   },
   // The round-5 tyre lever, same mechanism and same argument as setCarRim: the
@@ -1007,7 +1029,7 @@ window.__district = {
   setCarTyre: (k) => {
     const n = { traffic: 0, parked: 0 };
     if (traffic) n.traffic = setTrafficTyreScale(traffic.mesh.geometry, k);
-    if (furniture && furniture.parked) n.parked = setTrafficTyreScale(furniture.parked.mesh.geometry, k);
+    n.parked = forEachParkedGeometry((g) => setTrafficTyreScale(g, k));
     return { scale: k, verticesTouched: n };
   },
   // The round-5 FRONT reflector level, independent of the rear one. 0 is
@@ -1019,14 +1041,14 @@ window.__district = {
   setCarHub: (k) => {
     const n = { traffic: 0, parked: 0 };
     if (traffic) n.traffic = setTrafficHubScale(traffic.mesh.geometry, k);
-    if (furniture && furniture.parked) n.parked = setTrafficHubScale(furniture.parked.mesh.geometry, k);
+    n.parked = forEachParkedGeometry((g) => setTrafficHubScale(g, k));
     return { scale: k, verticesTouched: n };
   },
   // The headlamp's ALBEDO, the third front-lens term.
   setCarLampAlbedo: (k) => {
     const n = { traffic: 0, parked: 0 };
     if (traffic) n.traffic = setTrafficLampAlbedo(traffic.mesh.geometry, k);
-    if (furniture && furniture.parked) n.parked = setTrafficLampAlbedo(furniture.parked.mesh.geometry, k);
+    n.parked = forEachParkedGeometry((g) => setTrafficLampAlbedo(g, k));
     return { scale: k, verticesTouched: n };
   },
   setCarFrontLens: (k) => {
@@ -1035,7 +1057,7 @@ window.__district = {
     // moved, so nothing else has to be pushed. Read the pool's own level back
     // anyway, so the arm is asserted against the app rather than against the call.
     return { ...st, parkedEmissive: furniture && furniture.parked
-      ? +furniture.parked.mesh.material.emissive.r.toFixed(2) : null };
+      ? +furniture.parked.material.emissive.r.toFixed(2) : null };
   },
   carFrontLens: () => ({ scale: frontLensScale(), linearLuma: +frontLensLuma().toFixed(5) }),
   // The headlamp's SURFACE, independent of the emissive floor above: one is a
@@ -1053,7 +1075,7 @@ window.__district = {
     // EXPOSURE changes, and switching arms does not change the exposure.
     if (furniture && furniture._applyEmissive) furniture._applyEmissive();
     return { ...st, parkedEmissive: furniture && furniture.parked
-      ? +furniture.parked.mesh.material.emissive.r.toFixed(2) : null };
+      ? +furniture.parked.material.emissive.r.toFixed(2) : null };
   },
   carLens: () => carLensArm(),
   // THE LENS PROFILE, separately from the level. Two different ways to stop a

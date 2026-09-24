@@ -807,25 +807,44 @@ async function landmarks() {
       if (cw <= 0) return null;
       return [(cx / cw * 0.5 + 0.5) * W, (1 - (cy / cw * 0.5 + 0.5)) * H];
     };
-    const geo = p.mesh.geometry, pos = geo.getAttribute('position'), uv = geo.getAttribute('uv');
-    // The index buffer, for slotPatch below. The traffic car IS indexed (3,150
-    // indices over 637 vertices); a non-indexed geometry would make every
-    // triangle its own three vertices and the mixed-triangle count meaningless,
-    // so say so rather than sampling something else.
-    const idx = geo.index;
-    if (!idx) throw new Error('traffic car geometry is not indexed; slotPatch cannot walk its triangles');
-    const slotOf = (i) => Math.round(uv.getX(i) * 16 - 0.5);
-    // The counts this file's header promises. Read off the geometry, not hoped for.
+    // WALK EVERY SHELL. The parked pool is one InstancedMesh PER BODY SHELL now,
+    // each with its own geometry and its own instance matrices, and `p.mesh` is
+    // only the first of them. A tool that reads p.mesh alone would replay a
+    // third of the build while reporting over all of it - CLAUDE.md's rule is
+    // that a tool replaying the build must replay the build's own selection, and
+    // the cheap proof is that its counts match. They are checked below against
+    // p.filled.
+    const meshList = p.meshes ?? [p.mesh];
+    // The counts this file's header promises, accumulated PER SHELL below and
+    // reported per shell: three shells of 12 headlight vertices is 36, and a
+    // census that summed them would pass while one shell carried none.
     const counts = {};
-    for (let i = 0; i < uv.count; i++) { const s = slotOf(i); counts[s] = (counts[s] ?? 0) + 1; }
+    const shellCounts = [];
     const fleet = [];
     const cars = [];
     const camPos = [cam.position.x, cam.position.y, cam.position.z];
-    for (let inst = 0; inst < p.filled; inst++) {
+    let instSeen = 0;
+    for (let shellIdx = 0; shellIdx < meshList.length; shellIdx++) {
+     const mesh = meshList[shellIdx];
+     const geo = mesh.geometry, pos = geo.getAttribute('position'), uv = geo.getAttribute('uv');
+     // The index buffer, for slotPatch below. The traffic car IS indexed (3,150
+     // indices over 637 vertices); a non-indexed geometry would make every
+     // triangle its own three vertices and the mixed-triangle count meaningless,
+     // so say so rather than sampling something else.
+     const idx = geo.index;
+     if (!idx) throw new Error('traffic car geometry is not indexed; slotPatch cannot walk its triangles');
+     const slotOf = (i) => Math.round(uv.getX(i) * 16 - 0.5);
+     const cShell = {};
+     for (let i = 0; i < uv.count; i++) { const sl = slotOf(i); cShell[sl] = (cShell[sl] ?? 0) + 1; counts[sl] = (counts[sl] ?? 0) + 1; }
+     shellCounts.push(cShell);
+     // mesh.count is what RENDERS; capacity is three full pools and only the
+     // used prefix of each carries a real matrix.
+     const nInst = mesh.count ?? 0;
+     for (let inst = 0; inst < nInst; inst++, instSeen++) {
       // Straight off the attribute's backing array. instanceMatrix is a
       // BufferAttribute, not a Matrix4: .toArray() on it is a TypeError, which
       // is how the first run of this tool died.
-      const arr = []; for (let k = 0; k < 16; k++) arr[k] = p.mesh.instanceMatrix.array[inst * 16 + k];
+      const arr = []; for (let k = 0; k < 16; k++) arr[k] = mesh.instanceMatrix.array[inst * 16 + k];
       const xf = (x, y, z) => [
         arr[0] * x + arr[4] * y + arr[8] * z + arr[12],
         arr[1] * x + arr[5] * y + arr[9] * z + arr[13],
@@ -935,6 +954,18 @@ async function landmarks() {
       // printed so a slot where it is not safe says so instead of quietly
       // averaging in the trim.
       const slotPatch = (slot, sub = 3) => {
+        // SUB IS A SUBDIVISION COUNT AND 2 YIELDS NOTHING. The loop below walks
+        // i from 1 and j from 1 while i + j < sub, so sub = 2 asks for
+        // 1 + 1 < 2, which is false, and the patch comes back with zero points
+        // and null from the check at the end. That is not hypothetical: the
+        // paint denominator shipped as slotPatch(0, 2) and every car in the
+        // district was rejected for having "no slot-0 patch", on a frame with
+        // eight of them in frustum. An empty sampler that returns null looks
+        // exactly like a subject that is genuinely absent. Throw instead.
+        if (!(sub >= 3)) {
+          throw new Error(`slotPatch(${slot}, ${sub}): sub must be >= 3; ` +
+            'the barycentric loop emits (sub-1)(sub-2)/2 points a triangle, which is 0 at sub 2');
+        }
         const pts = []; let tris = 0, mixed = 0;
         for (let t = 0; t < idx.count; t += 3) {
           const a = idx.getX(t), b = idx.getX(t + 1), c = idx.getX(t + 2);
@@ -960,7 +991,8 @@ async function landmarks() {
       // same instance in the same frame, so a ratio between them is the material
       // and not the hour.
       const glass = slotPatch(10, 4);
-      const paintAll = slotPatch(0, 2);
+      // sub 3: one interior point a triangle, over ~444 non-mixed paint triangles.
+      const paintAll = slotPatch(0, 3);
 
       // THE TAIL LAMPS, which are the lenses the "parked cars must not have their
       // lights on" constraint is actually about and which this file has never
@@ -1137,23 +1169,40 @@ async function landmarks() {
       const bodyBB = bbox(() => true);
       if (bodyBB) {
         const [bx0, by0, bx1, by1] = bodyBB.rect;
-        fleet.push({ id: `p${inst}`, dist: +dist.toFixed(1), facing: +facing.toFixed(2),
+        fleet.push({ id: `p${instSeen}`, shell: shellIdx, dist: +dist.toFixed(1), facing: +facing.toFixed(2),
           rect: [+bx0.toFixed(1), +by0.toFixed(1), +bx1.toFixed(1), +by1.toFixed(1)],
           verts: bodyBB.n });
       }
-      cars.push({ id: `p${inst}`, dist: +dist.toFixed(1), facing: +facing.toFixed(2),
+      cars.push({ id: `p${instSeen}`, shell: shellIdx, dist: +dist.toFixed(1), facing: +facing.toFixed(2),
         x: +px0.toFixed(1), z: +pz0.toFixed(1), lamps, nose, bonnet, wheels, tails, tailPaint,
         glass, paintAll });
     }
-    return { counts, filled: p.filled, cars, fleet, camPos: camPos.map((v) => +v.toFixed(1)) };
+    }
+    return { counts, shellCounts, shells: meshList.length, instSeen,
+      filled: p.filled, cars, fleet, camPos: camPos.map((v) => +v.toFixed(1)) };
   });
   // THE COUNTS ARE THE PROOF. buildTrafficCarGeometry emits these; an audit that
   // disagrees with the build is looking somewhere else (CLAUDE.md).
   const want = { 4: 12, 5: 18, 8: 100, 13: 100 };
-  const bad = Object.entries(want).filter(([s, n]) => data.counts[s] !== n);
-  console.log(`parked geometry vertex census: ${JSON.stringify(data.counts)}`);
-  if (bad.length) throw new Error(`geometry census disagrees with the build: ${JSON.stringify(bad)}`);
-  console.log(`  headlight 12 / taillight 18 / tyre 100 / rim 100 per car — matches buildTrafficCarGeometry`);
+  // PER SHELL, not summed. The parked pool is one mesh per body shell, so a
+  // summed census reads 3 x 12 headlight vertices and would pass while one shell
+  // carried none of them. Each shell must match the build on its own.
+  console.log(`parked pool: ${data.shells} shell(s), ${data.instSeen} instances walked against p.filled ${data.filled}`);
+  for (let i = 0; i < data.shellCounts.length; i++) {
+    const bad = Object.entries(want).filter(([sl, n]) => data.shellCounts[i][sl] !== n);
+    console.log(`  shell ${i} vertex census: ${JSON.stringify(data.shellCounts[i])}`);
+    if (bad.length) throw new Error(`shell ${i} census disagrees with the build: ${JSON.stringify(bad)}`);
+  }
+  // THE CHEAP PROOF THAT THE TOOL REPLAYS THE BUILD'S OWN SELECTION. If the
+  // instances walked do not add up to what the pool says it filled, this tool is
+  // looking at a different set of cars than the renderer drew - which is exactly
+  // the failure mode CLAUDE.md records for geom-audit, where a 15% count
+  // disagreement was the audit telling everyone it was looking somewhere else.
+  if (data.instSeen !== data.filled) {
+    throw new Error(`walked ${data.instSeen} parked instances but the pool filled ${data.filled};` +
+      ' the landmarks would describe a different fleet than the frame');
+  }
+  console.log(`  headlight 12 / taillight 18 / tyre 100 / rim 100 per car, every shell — matches buildTrafficCarGeometry`);
   // TWO SUBJECT LISTS, BECAUSE THEY ARE NOT THE SAME CARS.
   //
   // A car that shows its headlamps is pointing AT the camera, and a car pointing
