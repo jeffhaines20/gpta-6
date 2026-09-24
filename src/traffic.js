@@ -18,7 +18,7 @@
 import * as THREE from '../vendor/three.module.min.js';
 import {
   buildTrafficCarGeometry, trafficCarMaterial, lampEmissive,
-  buildCarGlowGeometry, carGlowMaterial,
+  buildCarGlowGeometry, carGlowMaterial, SHAPES, SHAPE_NAMES,
 } from './carbody.js';
 import { rng, hash32 } from './facades.js';
 
@@ -162,12 +162,54 @@ export class Traffic {
     // lamps are authored dark and stay dark whatever the car is painted. Finish
     // (roughness/metalness) rides on a palette texture, so one material still
     // gives rubber, glass and steel. See src/carbody.js.
-    const geo = buildTrafficCarGeometry({ groundY: 0 });
-    this.mesh = new THREE.InstancedMesh(geo, trafficCarMaterial(), this.count);
-    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.mesh.castShadow = true;
-    this.mesh.frustumCulled = false;
-    scene.add(this.mesh);
+    // ONE MESH PER BODY SHELL. The kerb got three shells first; a fleet of
+    // identical moving cars beside a kerb of varied parked ones is worse than
+    // either, because the eye reads the repetition against its own counterexample.
+    // Same economics as the parked pool: a shell is a warp of one silhouette
+    // table, so all three emit 1,050 triangles and the same `count` instances are
+    // drawn from three geometries. Triangles: zero. Draw calls: +2 in the colour
+    // pass and +2 in the shadow pass, because each mesh carries castShadow - a
+    // number I got wrong on the parked pool by forgetting the second pass.
+    //
+    // THE SHELL IS HASHED FROM THE SLOT INDEX, NOT DRAWN FROM this._r. Taking it
+    // from the traffic stream would consume draws and shift every routing,
+    // spawn and colour decision after it, changing the whole simulation for a
+    // cosmetic split - and golden-trace pins that simulation. hash32 over the
+    // slot is deterministic and costs the stream nothing.
+    //
+    // The partition is FIXED at construction, so each mesh can be sized exactly
+    // and its count never changes: a slot is always the same shell, and an empty
+    // slot is hidden the way it always was.
+    this._shellOf = new Uint8Array(this.count);
+    this._localOf = new Uint16Array(this.count);
+    const perShell = SHAPE_NAMES.map(() => 0);
+    for (let i = 0; i < this.count; i++) {
+      const sh = hash32('carshell', i) % SHAPE_NAMES.length;
+      this._shellOf[i] = sh;
+      this._localOf[i] = perShell[sh]++;
+    }
+    this.perShell = perShell.slice();
+    // ONE material for every shell: the emissive level, the lens palette and the
+    // pack texture all write one material, and a material per shell would make
+    // each of those silently reach a third of the fleet.
+    this.material = trafficCarMaterial();
+    this.geometries = SHAPE_NAMES.map((n) =>
+      buildTrafficCarGeometry({ groundY: 0, shape: SHAPES[n] }));
+    this.meshes = this.geometries.map((g, sh) => {
+      const m = new THREE.InstancedMesh(g, this.material, Math.max(1, perShell[sh]));
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      m.castShadow = true;
+      m.frustumCulled = false;
+      m.count = perShell[sh];
+      scene.add(m);
+      return m;
+    });
+    // `mesh` is shell 0 and stays because it is the handle for the SHARED
+    // material. Anything that walks instances or edits vertex data must use
+    // `meshes`/`geometries`; reaching through `mesh` alone now touches one shell
+    // in three, which is the recurring shape of defect in this repo.
+    this.mesh = this.meshes[0];
+    const geo = this.geometries[0];
 
     // The light the lamps put on the world. ONE extra draw call for the whole
     // fleet and none at all by day, because the mesh is hidden whenever the
@@ -230,9 +272,9 @@ export class Traffic {
       const l = 0.34 + this._r() * 0.26;
       if (r < 0.66) color.setHSL(0.58, 0.012 + r * 0.045, l);
       else color.setHSL(this._r(), 0.26 + this._r() * 0.18, l);
-      this.mesh.setColorAt(i, color);
+      this._setColorAt(i, color);
     }
-    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    for (const m of this.meshes) if (m.instanceColor) m.instanceColor.needsUpdate = true;
 
     this._m = new THREE.Matrix4();
     this._hidden = new THREE.Matrix4().makeScale(0, 0, 0);
@@ -653,7 +695,7 @@ export class Traffic {
     for (let i = 0; i < this.count; i++) {
       let car = this.cars[i];
       if (!car) { this._spawn(i, playerPos); car = this.cars[i]; }
-      if (!car) { this.mesh.setMatrixAt(i, this._hidden); continue; }
+      if (!car) { this._setMatrixAt(i, this._hidden); continue; }
 
       const list = this._byEdge.get(this._edgeKey(car)) ?? [car];
       let { gap, leader } = this._gapAhead(car, list);
@@ -860,7 +902,7 @@ export class Traffic {
         this.cars[i] = null;
         this.stats.gridlockRecoveries++;
         this.stats.gridlockByReason[car.lastDeny ?? 'none']++;
-        this.mesh.setMatrixAt(i, this._hidden);
+        this._setMatrixAt(i, this._hidden);
         continue;
       }
 
@@ -886,7 +928,7 @@ export class Traffic {
               mv: car.mv ? car.mv.key : null });
             this._m.makeRotationY(p.yaw);
             this._m.setPosition(bx, 0, bz);
-            this.mesh.setMatrixAt(i, this._m);
+            this._setMatrixAt(i, this._m);
           }
           continue;
         }
@@ -897,7 +939,7 @@ export class Traffic {
         if (!next) {
           this._release(car);
           this.cars[i] = null;
-          this.mesh.setMatrixAt(i, this._hidden);
+          this._setMatrixAt(i, this._hidden);
           continue;
         }
         this._leaveQueue(car);
@@ -911,7 +953,7 @@ export class Traffic {
         car.limit = this._speedLimit(next.e) * (0.85 + this._r() * 0.3);
         if (next.uTurn) car.v = Math.min(car.v, 2.5);
         p = this._pointOn(car.edge, car.forward, 0);
-        if (!p) { this._release(car); this.cars[i] = null; this.mesh.setMatrixAt(i, this._hidden); continue; }
+        if (!p) { this._release(car); this.cars[i] = null; this._setMatrixAt(i, this._hidden); continue; }
       } else if (car.holds.length && car.t > JUNCTION_CLEAR_DIST) {
         // Clear of the entry: drop what is behind us, but keep the junction ahead if
         // it has already been claimed.
@@ -928,7 +970,7 @@ export class Traffic {
         this._release(car);
         this.cars[i] = null;
         this.stats.despawns++;
-        this.mesh.setMatrixAt(i, this._hidden);
+        this._setMatrixAt(i, this._hidden);
         continue;
       }
 
@@ -954,7 +996,7 @@ export class Traffic {
         mv: car.mv ? car.mv.key : null });
       this._m.makeRotationY(p.yaw);
       this._m.setPosition(x, 0, z);
-      this.mesh.setMatrixAt(i, this._m);
+      this._setMatrixAt(i, this._m);
     }
 
     // Overlap, measured exactly as the stub measured it so the comparison holds.
@@ -998,7 +1040,7 @@ export class Traffic {
     if (orphansThisFrame > this.stats.maxSimultaneousOrphans) {
       this.stats.maxSimultaneousOrphans = orphansThisFrame;
     }
-    this.mesh.instanceMatrix.needsUpdate = true;
+    for (const m of this.meshes) m.instanceMatrix.needsUpdate = true;
     this._updateGlow(positions);
   }
 
@@ -1065,11 +1107,29 @@ export class Traffic {
   // Lamps on the whole fleet at once: the emissive palette texel already knows
   // which triangles are headlamps and which are tail lamps, so one uniform does
   // 60 cars without costing a draw call.
+  /**
+   * Route a pool slot to its shell's mesh and local index.
+   *
+   * The pool is indexed by SLOT everywhere - this.cars[i], the spawn and release
+   * paths, the hidden-matrix writes - and splitting the fleet across three
+   * meshes must not leak into any of that. These two are the whole seam: every
+   * `this.mesh.setMatrixAt(i, ...)` became `this._setMatrixAt(i, ...)` and
+   * nothing else about slot handling moved.
+   */
+  _setMatrixAt(i, m) {
+    this.meshes[this._shellOf[i]].setMatrixAt(this._localOf[i], m);
+  }
+
+  _setColorAt(i, c) {
+    this.meshes[this._shellOf[i]].setColorAt(this._localOf[i], c);
+  }
+
   setLights(on, exposure) {
     const e = lampEmissive(on, exposure, 1.5);
     if (e === this._lit) return;
     this._lit = e;
-    this.mesh.material.emissive.setScalar(e);
+    // One shared material, so this reaches every shell.
+    this.material.emissive.setScalar(e);
     // The spill rides the same switch and the same stop. Its vertex colours are
     // authored as DISPLAYED radiance, so the material scales them by 1/exposure
     // for the same reason lampEmissive divides: the stop spans 1/22,100 at noon

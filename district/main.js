@@ -638,10 +638,16 @@ function setTraffic(on) {
     // HERO_TRAFFIC set would have swept the parked cars and left the moving ones
     // on the old alloy - two different rims in one frame, which is worse than
     // either and would read as noise.
-    if (window.__rimScale) setTrafficRimScale(traffic.mesh.geometry, window.__rimScale);
+    if (window.__rimScale) forEachTrafficGeometry((g) => setTrafficRimScale(g, window.__rimScale));
   }
   else if (!on && traffic) {
-    scene.remove(traffic.mesh); traffic.mesh.geometry.dispose();
+    // EVERY shell, not just the first. Removing traffic.mesh alone left two
+    // invisible InstancedMeshes and two geometries on the GPU, which is the
+    // same defect the glow-mesh comment below records - setTraffic(0) has to
+    // take away everything setTraffic(n) put there.
+    for (const m of (traffic.meshes ?? [traffic.mesh])) scene.remove(m);
+    for (const g of (traffic.geometries ?? [traffic.mesh.geometry])) g.dispose();
+    if (traffic.material) traffic.material.dispose();
     // The lamp-spill mesh is a SECOND object in the scene and a second geometry
     // on the GPU. Removing only the body mesh left an invisible additive mesh
     // behind that setTraffic(0) was supposed to have taken away - and because it
@@ -936,6 +942,19 @@ requestAnimationFrame(animate);
 // number taken over all of it - a confound inside the very A/B that exists to
 // isolate. This applies the lever to every shell and returns the SUM of the
 // vertices touched, so a caller that expects 100 rim vertices a car and gets a
+// THE MOVING FLEET IS THREE GEOMETRIES TOO. Same argument as
+// forEachParkedGeometry: these levers rewrite vertex colours in place, and a
+// call through traffic.mesh.geometry reaches shell 0 alone - a sweep that
+// repaints a third of the fleet and reports over all of it.
+function forEachTrafficGeometry(fn) {
+  if (!traffic) return null;
+  const geos = traffic.geometries ?? [traffic.mesh.geometry];
+  const each = geos.map((g) => fn(g));
+  const total = each.reduce((t, r) => t + (r && r.verticesTouched != null ? r.verticesTouched : 0), 0);
+  return { ...each[0], shells: geos.length, verticesTouched: total,
+    perShell: each.map((r) => (r ? r.verticesTouched : null)) };
+}
+
 // third of that finds out.
 function forEachParkedGeometry(fn) {
   const p = furniture && furniture.parked;
@@ -1018,7 +1037,7 @@ window.__district = {
   // it - the same mechanism as ?kerbs=0 and ?nospill=1.
   setCarRim: (k) => {
     const n = { traffic: 0, parked: 0 };
-    if (traffic) n.traffic = setTrafficRimScale(traffic.mesh.geometry, k);
+    n.traffic = forEachTrafficGeometry((g) => setTrafficRimScale(g, k));
     n.parked = forEachParkedGeometry((g) => setTrafficRimScale(g, k));
     return { scale: k, verticesTouched: n };
   },
@@ -1028,7 +1047,7 @@ window.__district = {
   // lever that reaches nothing is how a round concludes "this does not work".
   setCarTyre: (k) => {
     const n = { traffic: 0, parked: 0 };
-    if (traffic) n.traffic = setTrafficTyreScale(traffic.mesh.geometry, k);
+    n.traffic = forEachTrafficGeometry((g) => setTrafficTyreScale(g, k));
     n.parked = forEachParkedGeometry((g) => setTrafficTyreScale(g, k));
     return { scale: k, verticesTouched: n };
   },
@@ -1040,14 +1059,14 @@ window.__district = {
   // exactly like a lever that does nothing.
   setCarHub: (k) => {
     const n = { traffic: 0, parked: 0 };
-    if (traffic) n.traffic = setTrafficHubScale(traffic.mesh.geometry, k);
+    n.traffic = forEachTrafficGeometry((g) => setTrafficHubScale(g, k));
     n.parked = forEachParkedGeometry((g) => setTrafficHubScale(g, k));
     return { scale: k, verticesTouched: n };
   },
   // The headlamp's ALBEDO, the third front-lens term.
   setCarLampAlbedo: (k) => {
     const n = { traffic: 0, parked: 0 };
-    if (traffic) n.traffic = setTrafficLampAlbedo(traffic.mesh.geometry, k);
+    n.traffic = forEachTrafficGeometry((g) => setTrafficLampAlbedo(g, k));
     n.parked = forEachParkedGeometry((g) => setTrafficLampAlbedo(g, k));
     return { scale: k, verticesTouched: n };
   },
