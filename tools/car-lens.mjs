@@ -226,6 +226,89 @@ export function tailRedness(img, lensPts, paintPts) {
 }
 
 /**
+ * THE CONTACT PATCH, PER WHEEL, ON THAT WHEEL'S OWN CONTACT LINE.
+ *
+ * A blind reviewer measured the near car's under-body road at sRGB 20, 7, 2, 11,
+ * 30, 52 across 100 px: "a ~100 px soft ramp with no crisp tyre/road edge
+ * anywhere. The darkest point is under the BODY, not at the tyre."
+ *
+ * THE FIRST CUT OF THIS TOOK ONE HORIZONTAL BAND UNDER THE WHOLE CAR AND IT
+ * COULD NOT RESOLVE WHAT IT WAS ASKED. A car at this camera is seen at an angle,
+ * so its two near-side wheels touch the road at very different screen heights -
+ * measured on the near parked car, the rear tyre's contact is at y 757 and the
+ * front's at y 866, 109 px apart. A single band at the lowest of them samples
+ * the rear wheel's column 110 px BELOW where that wheel actually touches, which
+ * is under the body. It duly reported a minimum of exactly 0.000 luma "not under
+ * a tyre" - a true statement about the under-body void, presented as a fact
+ * about a contact patch. The conclusion would have been right by accident and
+ * the number wrong.
+ *
+ * So each wheel is measured on its OWN contact line, over its OWN radius:
+ *
+ *   underTyre   median over |x - cx| < 0.4 rx, a few rows below cy + ry
+ *   localRoad   median over 1.4 rx < |x - cx| < 2.2 rx on the same rows: road
+ *               that is clear of this tyre but under the same light
+ *   minOffset   where the darkest column in that run sits, in units of rx.
+ *               0 is at the tyre. A contact patch keeps it near 0; an ambient
+ *               occlusion pool centred on the body pushes it toward the inboard
+ *               end of the run.
+ *
+ * Ratios inside one frame in linear light, so they survive the exposure stop,
+ * and `n` is printed because a wheel with rx 5.6 px cannot resolve a 2 px notch
+ * and should say so rather than quote one.
+ */
+export function contactProfile(img, wheels, opts = {}) {
+  const below = opts.below ?? 2, band = opts.band ?? 3, minRx = opts.minRx ?? 6;
+  const out = [];
+  for (const w of (wheels ?? [])) {
+    const e = w.ell;
+    if (!e || e.rx < minRx) continue;
+    const yA = Math.round(e.cy + e.ry + below), yB = yA + band;
+    const col = (x) => {
+      const v = [];
+      for (let y = yA; y < yB; y++) {
+        if (x < 0 || y < 0 || x >= img.width || y >= img.height) continue;
+        v.push(linLuma(img, x, y));
+      }
+      return v.length ? median(v) : null;
+    };
+    const runA = Math.round(e.cx - 2.2 * e.rx), runB = Math.round(e.cx + 2.2 * e.rx);
+    const prof = [];
+    for (let x = runA; x <= runB; x++) { const m = col(x); if (m !== null) prof.push([x, m]); }
+    if (prof.length < 8) continue;
+    const inBand = (lo, hi, side) => {
+      const v = prof.filter(([x]) => {
+        const s0 = (x - e.cx) / e.rx, d = Math.abs(s0);
+        if (side && Math.sign(s0) !== side) return false;
+        return d >= lo && d < hi;
+      }).map(([, m]) => m);
+      return v.length ? median(v) : null;
+    };
+    const underTyre = inBand(0, 0.4);
+    // THE BRIGHTER SIDE IS THE ROAD, and taking both together does not work.
+    //
+    // The reference is meant to be road clear of this tyre. But the thing being
+    // detected is a broad darkening centred INBOARD of the wheel, and on that
+    // side the 1.4-2.2 rx band sits INSIDE the pool it is supposed to be clear
+    // of. The self-test caught it: on a synthetic pool the two-sided reference
+    // read road/tyre 0.752 - the "road" darker than the tyre - which inverts the
+    // number and would have reported an occlusion pool as a contact patch that
+    // is somehow brighter than its surroundings. Whichever side is clear gives
+    // the road, so take the brighter.
+    const roadL = inBand(1.4, 2.2, -1), roadR = inBand(1.4, 2.2, 1);
+    const localRoad = roadL === null ? roadR : roadR === null ? roadL : Math.max(roadL, roadR);
+    if (underTyre === null || localRoad === null) continue;
+    const minPt = prof.reduce((m, r) => (r[1] < m[1] ? r : m));
+    out.push({ id: w.id, rx: +e.rx.toFixed(1), n: prof.length,
+      underTyre, localRoad, roadL, roadR,
+      roadOverTyre: +(localRoad / Math.max(underTyre, 1e-9)).toFixed(3),
+      minOffset: +(Math.abs(minPt[0] - e.cx) / e.rx).toFixed(2),
+      tyreOverMin: +(Math.max(minPt[1], 1e-9) / Math.max(underTyre, 1e-9)).toFixed(3) });
+  }
+  return out.length ? out : null;
+}
+
+/**
  * Connected components of SATURATED RED pixels in a screen band.
  *
  * redness = R - max(G, B), the measure the round-4 reviewer counted parked tail
@@ -442,6 +525,50 @@ function selftest() {
       lensPts.map(([x, y]) => [x, y - 200]), paintPts);
     chk2('tail/lens slid off the car (KNOWN-BAD)', Math.abs(off.step) < 5,
       `step ${off.step}, want ~0 against the real ${flat.step}`);
+  }
+
+  // 5c. THE CONTACT PROFILE, on the two pictures it exists to tell apart, and on
+  //     the sampling failure that made its first version unable to.
+  //
+  //     A: a CONTACT PATCH - road at a mid grey, a hard dark notch a few px wide
+  //        directly under the tyre.
+  //     B: an OCCLUSION POOL - the same road, a broad smooth darkening centred
+  //        INBOARD of the tyre, with no notch at the tyre at all.
+  //
+  //     Both are "darker under the car", and a metric that only asked that would
+  //     call them the same. minOffset is what separates them: ~0 when the darkest
+  //     column IS the tyre, large when it is somewhere else.
+  {
+    const w = 500, h = 900;
+    const wheel = { id: 'RF', ell: { cx: 250, cy: 700, rx: 30, ry: 40 } };
+    const y0 = 740;
+    const frame = (fill) => {
+      const d = new Uint8Array(w * h * 3);
+      for (let i = 0; i < w * h; i++) { d[i * 3] = 100; d[i * 3 + 1] = 100; d[i * 3 + 2] = 100; }
+      for (let y = y0; y < y0 + 14; y++) for (let x = 0; x < w; x++) {
+        const v = fill(x); const i = (y * w + x) * 3; d[i] = d[i + 1] = d[i + 2] = v;
+      }
+      return { width: w, height: h, channels: 3, data: d };
+    };
+    const patch = frame((x) => (Math.abs(x - 250) < 10 ? 14 : 100));
+    const pool = frame((x) => Math.round(100 - 78 * Math.exp(0 - (((x - 190) / 45) ** 2))));
+    const A = contactProfile(patch, [wheel]), B = contactProfile(pool, [wheel]);
+    const chk3 = (name, ok, got) => { if (!ok) { console.log(`  FAIL ${name}: ${got}`); f++; }
+      else console.log(`  ok   ${name}: ${got}`); };
+    chk3('contact/patch is darker than local road', A && A[0].roadOverTyre > 3,
+      `road/tyre ${A && A[0].roadOverTyre}`);
+    chk3('contact/patch puts the darkest column AT the tyre', A && A[0].minOffset < 0.35,
+      `minOffset ${A && A[0].minOffset} rx`);
+    // KNOWN-BAD: the pool is ALSO darker than its local road, so that test alone
+    // accepts it. Only minOffset refuses it.
+    chk3('contact/pool is ALSO darker than local road (so that test alone is not enough)',
+      B && B[0].roadOverTyre > 1.3, `road/tyre ${B && B[0].roadOverTyre}`);
+    chk3('contact/pool is REFUSED by minOffset (KNOWN-BAD)', B && B[0].minOffset > 1.0,
+      `minOffset ${B && B[0].minOffset} rx`);
+    // KNOWN-BAD: a wheel too small to resolve a notch must be dropped, not
+    // quoted. The near cars' far wheels and every car past ~40 m are this.
+    const tiny = contactProfile(patch, [{ id: 'X', ell: { cx: 250, cy: 700, rx: 3, ry: 4 } }]);
+    chk3('contact/a 3 px wheel is refused', tiny === null, `${tiny === null ? 'null' : 'quoted a number'}`);
   }
 
   // 6. THE REDNESS BLOB CENSUS, on the failure it exists to catch.
@@ -734,6 +861,21 @@ async function measure() {
     console.log(`  ${pad(name, 32)} ${String(blobs.length).padStart(5)} ${String(blobs.reduce((t, c) => t + c.n, 0)).padStart(5)}` +
       ` ${String(onParked ? onParked.length : 'n/a').padStart(9)}   ` +
       blobs.slice(0, 3).map((c) => `${c.x1 - c.x0 + 1}x${c.y1 - c.y0 + 1}@${c.x0},${c.y0} pk${c.peak}${near(c) ? ` [${near(c).id}]` : ''}`).join('  '));
+  }
+
+  // THE CONTACT PATCH, on the same wheel ellipses the table below uses.
+  console.log(`\n=== CONTACT PATCH   road/tyre > 1 means the tyre is darker than open road`);
+  console.log(`  ${pad('car / wheel', 24)} ${pad('arm', 10)} road/tyre  tyre/min  minOff  n`);
+  for (const c of (lm.wheelCars ?? lm.cars)) {
+    for (const { name, img } of imgs) {
+      const rows = contactProfile(img, c.wheels);
+      if (!rows) { console.log(`  ${pad(c.id, 24)} ${pad(name.split('-')[1] ?? name, 10)} (no wheel wide enough to resolve)`); continue; }
+      for (const r of rows) {
+        console.log(`  ${pad(`${c.id} ${r.id} rx${r.rx} @${c.dist}m`, 24)} ${pad(name.split('-')[1] ?? name, 10)}` +
+          ` ${String(r.roadOverTyre).padStart(9)} ${String(r.tyreOverMin).padStart(9)}` +
+          ` ${String(r.minOffset).padStart(6)} ${String(r.n).padStart(11)}`);
+      }
+    }
   }
 
   console.log(`\n=== WHEELS (rim rho<0.55, tyre rho>=0.72), bands rimCoV .31-.54  hubPeak 1.5-1.7  hubFrac 8-29%  rimTyre ~1.0`);
