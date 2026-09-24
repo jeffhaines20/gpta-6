@@ -443,6 +443,24 @@ for (const s of chosen) {
               pedsInFrustum: peds.filter(inView).length,
               trafficFleet: traf?.fleet ?? null,
               trafficAlive: traf?.alive ?? null,
+              // MOVING CARS ACTUALLY IN VIEW, and the reason this field exists is
+              // a review round that went wrong without it. Three blind reviewers
+              // judged the fleet's lamp spill from six frames and one of them
+              // wrote "there is no moving traffic visible in any of the six
+              // frames" - correctly. The audits said trafficAlive 30 at both
+              // hours, so nobody checked. Thirty cars alive somewhere in the
+              // district is not thirty cars in the picture, which is the same
+              // distinction pedsInFrustum was added for and which was never
+              // carried across to traffic. Patch one, leave its siblings.
+              trafficInFrustum: __district.trafficPositions
+                ? __district.trafficPositions().filter(inView).length : null,
+              // THE FLEET'S LAMP SPILL, which traffic.report() has exposed all
+              // along and no capture has ever written down. `used` is how many
+              // cars are casting a puddle on the road this frame and `edgeM` how
+              // far the furthest of them is; `visible` is false by day. A round
+              // that concludes "the lamps light nothing" needs to be able to say
+              // whether any lamp was in frame to light anything with.
+              fleetGlow: traf?.glow ?? null,
               parkedFilled: fur?.parked?.filled ?? null,
               trees, treeSpecies: fur?.treeSpecies ?? null,
               propCount: fur?.propCount ?? null,
