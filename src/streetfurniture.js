@@ -52,8 +52,7 @@
 
 import * as THREE from '../vendor/three.module.min.js';
 import { buildTrafficCarGeometry, trafficCarMaterial, lampEmissive,
-  retroEmissiveMap, retroEmissive, SHAPES, SHAPE_NAMES,
-  buildCarContactGeometry, carContactMaterial } from './carbody.js';
+  retroEmissiveMap, retroEmissive, SHAPES, SHAPE_NAMES } from './carbody.js';
 // The frontage row is keyed to the TENANCY, not to the carriageway, so it has to
 // read the same lot plan and the same business the facade and the sign read. All
 // three come from one call: signage.js signPlanFor() already runs lotPlanFor()
@@ -4723,24 +4722,8 @@ export class StreetFurniture {
       this.root.add(m);
       return m;
     });
-    // THE CONTACT SHADOW. ONE mesh for all three shells, because the patch sits
-    // under the wheels and SHAPES deliberately does not vary the wheelbase or the
-    // track. Indexed by the FILL index rather than by a shell-local one, which is
-    // why it is written separately in _fill.
-    //
-    // No shadow pass and no depth write: +1 draw call for the whole kerb.
-    const contact = new THREE.InstancedMesh(
-      buildCarContactGeometry({ groundY: PAD_Y - 0.02 }), carContactMaterial(), count);
-    contact.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    contact.castShadow = false;
-    contact.receiveShadow = false;
-    contact.frustumCulled = false;
-    contact.count = 0;
-    contact.name = 'parkedContact';
-    this.root.add(contact);
     const idx = geo.getIndex();
     this.parked = {
-      contact,
       // `mesh` is shell 0 and is kept because it is the handle for the SHARED
       // material and for a geometry census. Anything that walks instances or
       // edits vertex data must use `meshes`/`geometries`: a caller that reaches
@@ -4818,9 +4801,6 @@ export class StreetFurniture {
       this._m.makeRotationY(s.yaw);
       this._m.setPosition(s.x, 0, s.z);
       mesh.setMatrixAt(li, this._m);
-      // The patch follows the body. At the FILL index, not the shell-local one:
-      // one contact mesh serves all three shells.
-      if (p.contact) p.contact.setMatrixAt(i, this._m);
       // Kerbside colour, taken off the reference photographs rather than off a
       // hue wheel. reference/sarasota/mapillary shows Main Street's parked
       // population as overwhelmingly white, silver, grey and black with the
@@ -4858,10 +4838,6 @@ export class StreetFurniture {
       m.count = used[sh];
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
-    }
-    if (p.contact) {
-      p.contact.count = i;
-      p.contact.instanceMatrix.needsUpdate = true;
     }
     p.filled = i;
     p.perShell = used.slice();

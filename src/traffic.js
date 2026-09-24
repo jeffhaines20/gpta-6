@@ -19,7 +19,6 @@ import * as THREE from '../vendor/three.module.min.js';
 import {
   buildTrafficCarGeometry, trafficCarMaterial, lampEmissive,
   buildCarGlowGeometry, carGlowMaterial, SHAPES, SHAPE_NAMES,
-  buildCarContactGeometry, carContactMaterial,
 } from './carbody.js';
 import { rng, hash32 } from './facades.js';
 
@@ -211,23 +210,6 @@ export class Traffic {
     // in three, which is the recurring shape of defect in this repo.
     this.mesh = this.meshes[0];
     const geo = this.geometries[0];
-
-    // THE CONTACT SHADOW. ONE mesh, not one per shell: the patch sits under the
-    // wheels and SHAPES deliberately does not vary the wheelbase or the track, so
-    // all three shells want the identical geometry. It is therefore indexed by
-    // SLOT rather than by the shell-local index the body meshes use - which is
-    // why _setMatrixAt writes it separately and at `i`.
-    //
-    // No shadow pass (a shadow does not cast a shadow) and no depth write, so
-    // this is +1 draw call for the whole fleet.
-    this.contact = new THREE.InstancedMesh(
-      buildCarContactGeometry({ groundY: 0 }), carContactMaterial(), this.count);
-    this.contact.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.contact.castShadow = false;
-    this.contact.receiveShadow = false;
-    this.contact.frustumCulled = false;
-    this.contact.name = 'trafficContact';
-    scene.add(this.contact);
 
     // The light the lamps put on the world. ONE extra draw call for the whole
     // fleet and none at all by day, because the mesh is hidden whenever the
@@ -1059,7 +1041,6 @@ export class Traffic {
       this.stats.maxSimultaneousOrphans = orphansThisFrame;
     }
     for (const m of this.meshes) m.instanceMatrix.needsUpdate = true;
-    if (this.contact) this.contact.instanceMatrix.needsUpdate = true;
     this._updateGlow(positions);
   }
 
@@ -1137,10 +1118,6 @@ export class Traffic {
    */
   _setMatrixAt(i, m) {
     this.meshes[this._shellOf[i]].setMatrixAt(this._localOf[i], m);
-    // The contact patch follows the body exactly, including the hidden matrix -
-    // a scale-zero body with a visible shadow under it would be a shadow with no
-    // car, which is the shape of the glow-mesh bug this file already records.
-    if (this.contact) this.contact.setMatrixAt(i, m);
   }
 
   _setColorAt(i, c) {
