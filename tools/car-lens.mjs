@@ -980,8 +980,17 @@ async function landmarks() {
             if (sp) pts.push([+sp[0].toFixed(1), +sp[1].toFixed(1)]);
           }
         }
-        if (!pts.length) return null;
+        // ALWAYS RETURN THE CENSUS, even when it found nothing.
+        //
+        // This used to `return null` on an empty patch, and the caller could then
+        // only say "no slot-10 patch" - which is the same sentence whether the
+        // slot has no triangles, whether every triangle was mixed, or whether the
+        // points were built and every one of them projected off. Those are three
+        // different defects and the message could not tell them apart; a whole
+        // debugging round went into geometry that turned out to be fine. The
+        // counts are cheap and they are the diagnosis.
         const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
+        if (!pts.length) return { pts, tris, mixed, empty: true, wpx: 0, hpx: 0, onScreen: false };
         return { pts, tris, mixed,
           wpx: +(Math.max(...xs) - Math.min(...xs)).toFixed(1),
           hpx: +(Math.max(...ys) - Math.min(...ys)).toFixed(1),
@@ -1257,10 +1266,13 @@ async function landmarks() {
   const glassRejects = [];
   const glassCars = data.cars
     .filter((c) => {
-      const why = !c.glass ? 'no slot-10 patch'
+      const cen = (g, slot) => (g
+        ? `slot-${slot}: ${g.tris} tris, ${g.mixed} mixed, ${g.pts.length} pts`
+        : `slot-${slot}: no patch object at all`);
+      const why = !c.glass || c.glass.empty ? `glass empty — ${cen(c.glass, 10)}`
         : !c.glass.onScreen ? `glass clipped (${c.glass.wpx}x${c.glass.hpx}px)`
         : c.glass.wpx < 12 ? `glass ${c.glass.wpx}px < 12`
-        : !c.paintAll ? 'no slot-0 patch'
+        : !c.paintAll || c.paintAll.empty ? `paint empty — ${cen(c.paintAll, 0)}`
         : null;
       if (why) glassRejects.push(`${c.id} @${c.dist}m: ${why}`);
       return !why;
