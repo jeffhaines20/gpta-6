@@ -61,7 +61,50 @@ const PALETTE = [
   [0.42, 0.00, [0, 0, 0]],          // 7  number plate
   [0.94, 0.00, [0, 0, 0]],          // 8  tyre rubber
   [0.34, 0.72, [0, 0, 0]],          // 9  alloy rim
-  [0.06, 0.86, [0, 0, 0]],          // 10 glazing (traffic cars, mirror faces)
+  // 10 glazing. METALNESS 0, BECAUSE GLASS IS A DIELECTRIC AND THIS SHIPPED AS A
+  // METAL. At 0.86 over a vertex albedo of (0.0040, 0.0052, 0.0075) the BRDF
+  // gives F0 = mix(0.04, albedo, 0.86) = 0.0099 and a diffuse term of 0.0007 - a
+  // 1% reflector, which cannot look like anything but a hole whatever the sky is
+  // doing. Slot 12's comment two entries down makes this exact argument about
+  // metalness 0.55 and an F0 of 0.021; slot 10's was HALF that and nobody
+  // carried it across. Three blind reviewers ranked the black glass the
+  // second-worst thing about these cars, one measuring the windscreen at 0.0089
+  // of the bonnet's linear luminance at noon.
+  //
+  // At metalness 0 the BRDF uses a fixed F0 of 0.04 with a full Fresnel rise
+  // toward 1.0 at grazing incidence, which is the term that makes a windscreen
+  // mirror the sky at an angle and go dark head-on. The dark albedo stays: it
+  // stands in for an unlit interior, and at metalness 0 it contributes 0.005 of
+  // diffuse rather than 0.0007 - still negligible, which is right.
+  //
+  // MEASURED, four arms off one page load, glass over adjacent paint in LINEAR
+  // light inside one frame, 0.00% clipped everywhere:
+  //
+  //                        noon                      night
+  //   r/m           backlight   windscreen    backlight   windscreen
+  //   0.06/0.86      0.0386      0.0346        0.0225      0.0245
+  //   0.06/0.25      0.0633      0.0568        0.0272      0.0294
+  //   0.06/0.00      0.0748      0.0665        0.0283      0.0473
+  //   0.12/0.00      0.0935      0.0631        0.0283      0.0473
+  //
+  // 1.94x and 1.92x at noon on two independent subjects, which agreeing to two
+  // decimal places is the reason to believe either. I had predicted 4x from the
+  // F0 ratio and that was a NORMAL-INCIDENCE figure; these surfaces are seen at
+  // an angle where Fresnel already lifts both arms toward each other.
+  //
+  // ROUGHNESS STAYS AT 0.06, and the sweep is why rather than taste. 0.12 buys
+  // the backlight 2.43x at noon but COSTS the windscreen (1.83x against 1.92x),
+  // so it trades one subject for another; and at night it is identical to 0.06
+  // to four decimal places, because widening the sampling cone changes nothing
+  // when the environment has no structure in it. Real automotive glass is smooth.
+  //
+  // WHAT THIS DOES NOT FIX, stated because the prediction was made before the
+  // capture: at night the glass still sits at 3-5% of the paint beside it. The
+  // hole is smaller, not closed. Its p90 reaches 1.41x the boot lid, so the
+  // glass does catch a street lamp somewhere and the MEDIAN is the dark majority
+  // - the rest needs an interior, or an environment probe that carries the lit
+  // shopfronts, not more reflectance.
+  [0.06, 0.00, [0, 0, 0]],
   [0.86, 0.00, [0, 0, 0]],          // 11 matte black (mirror stalks, wells)
   // 12 traffic grille. NOT slot 3's 0.50/0.55. A near-black albedo at metalness
   // 0.55 has no diffuse term worth the name (0.45 x 0.006) and an F0 of 0.021,
