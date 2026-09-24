@@ -129,6 +129,50 @@ export function setLensFinish(rough, metal) {
 }
 export function lensFinish() { return { ...LENS_FINISH }; }
 
+/**
+ * THE GLAZING'S FINISH, on the same four bytes, and the reason it needs a lever.
+ *
+ * Slot 10 ships at roughness 0.06 / metalness 0.86 over a vertex albedo of
+ * (0.0040, 0.0052, 0.0075). In a metallic-roughness BRDF a metal's reflectance
+ * IS its albedo, so that pair gives
+ *
+ *   F0      = mix(0.04, albedo, metalness) = 0.14*0.04 + 0.86*0.005 = 0.0099
+ *   diffuse = albedo * (1 - metalness)     = 0.005 * 0.14           = 0.0007
+ *
+ * A surface that reflects 1% of the environment and diffuses 0.07% of the
+ * irradiance is a hole, and it is a hole BY CONSTRUCTION rather than by
+ * lighting. This file already makes exactly this argument one slot over, about
+ * slot 12: "a near-black albedo at metalness 0.55 has no diffuse term worth the
+ * name and an F0 of 0.021, so it responds to neither sun nor street lamp". Slot
+ * 10's F0 is half that. Nobody carried the argument across.
+ *
+ * Three independent blind reviewers ranked this the second-worst thing about
+ * these cars, behind only every car being the same shell. One measured the
+ * windscreen at 0.0089 of the bonnet's linear luminance at noon and 0.031 of the
+ * sky it is facing, and the backlight at 0.045 of the boot lid, and called it
+ * "the single biggest reason the cars read as painted solids rather than
+ * vehicles".
+ *
+ * CAR GLASS IS A DIELECTRIC, NOT A METAL. At metalness 0 the BRDF uses a fixed
+ * F0 of 0.04 with a full Fresnel rise toward 1.0 at grazing incidence, which is
+ * what makes a windscreen mirror the sky at an angle and go dark head-on. The
+ * dark albedo stays, because it is standing in for an unlit interior, and at
+ * metalness 0 it contributes 0.005 of diffuse rather than 0.0007 - still
+ * negligible, which is correct.
+ *
+ * Swept rather than assumed: the prediction is a ~4x rise in the specular term
+ * at normal incidence and more at grazing, and a prediction is not a result.
+ */
+const GLASS_FINISH = { roughness: PALETTE[SURFACE.glassy][0], metalness: PALETTE[SURFACE.glassy][1] };
+export function setGlassFinish(rough, metal) {
+  GLASS_FINISH.roughness = rough; GLASS_FINISH.metalness = metal;
+  const t = _packTex;
+  if (t) { writePackTexel(t.image.data, SURFACE.glassy, rough, metal); t.needsUpdate = true; }
+  return { roughness: Math.round(THREE.MathUtils.clamp(rough, 0, 1) * 255) / 255,
+    metalness: Math.round(THREE.MathUtils.clamp(metal, 0, 1) * 255) / 255 };
+}
+export function glassFinish() { return { ...GLASS_FINISH }; }
+
 // roughnessMap reads .g and metalnessMap reads .b, so one texture serves both.
 function packTexture() {
   if (_packTex) return _packTex;

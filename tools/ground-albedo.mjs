@@ -157,6 +157,27 @@ export const ARM_STATE = {
   tyre5:   { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carTyre: 5 },
   tyre8:   { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carTyre: 8 },
 
+  // ROUND 6, THE GLAZING. Slot 10 ships roughness 0.06 / metalness 0.86 over a
+  // vertex albedo of (0.0040, 0.0052, 0.0075), which in a metallic-roughness
+  // BRDF is F0 = 0.0099 and a diffuse term of 0.0007 - a 1% reflector, i.e. a
+  // hole by construction. Car glass is a DIELECTRIC: at metalness 0 the BRDF
+  // uses F0 = 0.04 with a full Fresnel rise toward 1.0 at grazing incidence,
+  // which is the term that makes a windscreen mirror the sky at an angle.
+  //
+  // The prediction is ~4x the specular at normal incidence and more at grazing.
+  // gl086 is the shipped control and MUST reproduce a no-arm capture; if it does
+  // not, the arms are measuring something other than this change. gl000 is the
+  // dielectric; gl025 brackets it in case a full dielectric reads as chrome; and
+  // gl000r12 asks whether a slightly rougher dielectric reads better than a
+  // mirror-sharp one at this pixel size.
+  //
+  // Every arm names carLens AND carGlass, for the reason the round-5 block
+  // gives: setArm restores nothing it is not told about.
+  gl086:    { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 0, carGlass: [0.06, 0.86] },
+  gl025:    { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 0, carGlass: [0.06, 0.25] },
+  gl000:    { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 0, carGlass: [0.06, 0.00] },
+  gl000r12: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 0, carGlass: [0.12, 0.00] },
+
   // ROUND 6, THE PARKED REFLECTOR AGAINST THE STANDING CONSTRAINT.
   //
   // The night corridor frame carries SEVEN saturated red blobs (redness > 120,
@@ -347,6 +368,20 @@ export async function setArm(page, name) {
     // would have reported that the profile lever does nothing - a knob that
     // clamps silently is how a round concludes a lever is a no-op (this file,
     // setFrontLensScale). Saved and restored like every other term.
+    // THE GLAZING FINISH. Saved and restored like every other term, so an arm
+    // that does not name it gets the BUILD's value rather than the previous
+    // arm's - the confound this file has already been bitten by twice.
+    let carGlass = null;
+    const DG = window.__district;
+    if (DG && DG.carGlass) {
+      if (window.__armSavedGlass === undefined) {
+        const g0 = DG.carGlass();
+        window.__armSavedGlass = g0 ? [g0.roughness, g0.metalness] : null;
+      }
+      const wantG = s.carGlass ?? window.__armSavedGlass;
+      if (wantG && DG.setCarGlass) carGlass = DG.setCarGlass(wantG[0], wantG[1]);
+      else carGlass = DG.carGlass();
+    }
     let carProfile = null;
     const DP = window.__district;
     if (DP && DP.carLensProfile) {
@@ -416,6 +451,12 @@ export async function setArm(page, name) {
       // off the app, not off the arm table.
       carProfile: carProfile
         ? [carProfile.edge, carProfile.pow, carProfile.gain] : null,
+      // In the key, because gl086/gl025/gl000 differ in NOTHING else and a key
+      // without it would hash three distinct arms to one value and abort a sweep
+      // that would have measured perfectly well. Read back off the app, so a
+      // knob that quantises (the pack texture is 8-bit: 0.06 stores as 15/255 =
+      // 0.0588) reports what it actually wrote.
+      carGlass: carGlass ? [carGlass.roughness, carGlass.metalness] : null,
       // In the key for the reason msWhitenAnti and carLens are: the round-5 arms
       // differ in NOTHING ELSE, so without them a four-arm sweep would hash
       // identical and proveArmsDiffer would pass a set of frames that are all
@@ -449,7 +490,7 @@ export async function proveArmsDiffer(page, arms) {
   // carFront and carTyre joined the key in round 5 for the same reason, for the
   // third time: those arms move one texel and one vertex-colour set and nothing
   // a uniform readback would otherwise show.
-  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo]))).size;
+  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carGlass, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo]))).size;
   return { seen, ok: distinct === arms.length };
 }
 

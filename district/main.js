@@ -30,7 +30,8 @@ import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubS
   setTrafficLampAlbedo, setCarLensArm,
   carLensArm, setFrontLensScale, frontLensScale, frontLensLuma,
   setLensFinish, lensFinish,
-  setLensProfile, lensProfile } from '../src/carbody.js';
+  setLensProfile, lensProfile,
+  setGlassFinish, glassFinish } from '../src/carbody.js';
 import { HUD } from '../src/hud.js';
 import { WantedSystem, bindPursuit, CRIMES, STATES } from '../src/wanted.js';
 import { createAudio } from '../src/audio.js';
@@ -1068,6 +1069,11 @@ window.__district = {
     return st;
   },
   carLensProfile: () => lensProfile(),
+  // The GLAZING's finish, separately from the headlamp's. Four bytes on the
+  // shared 16x1 pack texture, so a sweep is a write and a needsUpdate - no
+  // rebuild, no second port, no second tree, and every arm off one page load.
+  setCarGlass: (rough, metal) => setGlassFinish(rough, metal),
+  carGlass: () => glassFinish(),
   setCarSpill: (k) => {
     const player = carMesh.setSpillScale ? carMesh.setSpillScale(k) : null;
     const fleet = traffic && traffic.setSpillScale ? traffic.setSpillScale(k) : null;
