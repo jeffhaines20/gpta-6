@@ -1188,12 +1188,34 @@ async function landmarks() {
   // exact complement of the headlamp test, so a tail-on car appears in neither
   // of the other lists and a file carrying only those two cannot measure the
   // lens the parked-lamp constraint is about.
-  // Cars whose GREENHOUSE is big enough to resolve. 12 px across is about where
-  // a window stops being a window and becomes two pixels of dark trim; the cars
-  // this selects are the ones a reviewer is looking at anyway.
+  // Cars whose GREENHOUSE is big enough to resolve. 12 px across is about where a
+  // window stops being a window and becomes two pixels of dark trim.
+  //
+  // THE FIRST CUT OF THIS SELECTED NOTHING, on a frame with a 490 px car in it,
+  // and printed "0 glass subjects" without saying why. It required
+  // paintAll.onScreen, and paintAll is EVERY paint triangle the car carries - so
+  // it spans the whole body, and any car even slightly off the frame edge fails
+  // it. The nearest parked car runs off the left edge at x < 0, which is exactly
+  // why it is the biggest subject available; the test threw away the only car
+  // worth measuring, for being large.
+  //
+  // The glass itself must be fully on screen, because a clipped window would be
+  // averaged against nothing. The paint denominator need not: ptsLin already
+  // drops off-frame points and reports how many, so a body running off the edge
+  // simply contributes fewer samples. The rejects are printed with their reason
+  // rather than silently dropped - a selector that returns an empty list should
+  // have to say what it rejected.
+  const glassRejects = [];
   const glassCars = data.cars
-    .filter((c) => c.glass && c.glass.onScreen && c.glass.wpx >= 12
-      && c.paintAll && c.paintAll.onScreen)
+    .filter((c) => {
+      const why = !c.glass ? 'no slot-10 patch'
+        : !c.glass.onScreen ? `glass clipped (${c.glass.wpx}x${c.glass.hpx}px)`
+        : c.glass.wpx < 12 ? `glass ${c.glass.wpx}px < 12`
+        : !c.paintAll ? 'no slot-0 patch'
+        : null;
+      if (why) glassRejects.push(`${c.id} @${c.dist}m: ${why}`);
+      return !why;
+    })
     .map((c) => ({ id: c.id, dist: c.dist, facing: c.facing, glass: c.glass, paintAll: c.paintAll }))
     .sort((a, b) => a.dist - b.dist);
   const tailCars = data.cars
@@ -1209,6 +1231,11 @@ async function landmarks() {
   console.log(`camera ${JSON.stringify(out)}  parked filled ${data.filled}  nose-on and on screen: ${lampCars.length}` +
     `   wheel subjects: ${wheelCars.length}   tail-on subjects: ${tailCars.length}` +
     `   glass subjects: ${glassCars.length}   fleet in frustum: ${data.fleet.length}`);
+  for (const c of glassCars.slice(0, 10)) {
+    console.log(`  GLASS  ${c.id} @${c.dist}m facing ${c.facing}  ${c.glass.wpx}x${c.glass.hpx}px ` +
+      `(${c.glass.tris} tris, ${c.glass.mixed} mixed)  paint ${c.paintAll.tris} tris`);
+  }
+  for (const r of glassRejects) console.log(`  glass reject  ${r}`);
   for (const c of tailCars.slice(0, 10)) {
     console.log(`  TAILS  ${c.id} @${c.dist}m facing ${c.facing}  ` +
       c.tails.map((t) => `${t.side} ${t.wpx}x${t.hpx}px`).join(' | ') +
