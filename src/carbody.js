@@ -1534,6 +1534,101 @@ export function buildCarGlowGeometry(opts = {}) {
  * polygonOffset because the ground pools lie 3 cm over a road that is itself
  * carrying markings at 8 mm, and depth precision at 80 m does not respect 3 cm.
  */
+/**
+ * A CONTACT SHADOW UNDER EACH TYRE, and why it is a separate mesh.
+ *
+ * MEASURED FIRST. tools/car-lens.mjs's contact profile reads, per wheel, on that
+ * wheel's own contact line: the road 1.4-2.2 rx clear of the tyre against the
+ * column under it, and where the darkest column in that run actually sits.
+ *
+ *                        road/tyre   tyre/min   darkest column
+ *   near car RB night      12.485      0.036      2.12 rx inboard
+ *   near car RF night       9.856      0.000      1.73 rx
+ *   near car RB noon       24.449      0.282      2.05 rx
+ *   near car RF noon        6.858      0.071      1.52 rx
+ *
+ * So the cars are not floating - the under-tyre road is 2x to 24x darker than
+ * clear road - but the darkest column sits one and a half to two wheel radii
+ * INBOARD at every wheel at both hours, and the tyre's own contact is 4 to 25
+ * times brighter than it. The probe's synthetic contact patch reads 0.30; its
+ * synthetic occlusion pool reads 2.1. The frames read like the pool, which is
+ * what an ambient occlusion term centred on the body produces and what a tyre
+ * standing on tarmac does not.
+ *
+ * WHY NOT JUST TIGHTEN SSAO. aoRadius is 0.6 m against a 0.36 m wheel, so the
+ * pool's width is the radius doing exactly what it is for. Narrowing it is a
+ * DISTRICT-wide change - every prop, every pedestrian, every kerb - to fix a
+ * car, and there is already an open question about that kernel. A patch under
+ * the tyre is the targeted lever.
+ *
+ * WHY A SEPARATE MESH AND NOT PART OF THE BODY. An opaque quad on the road is a
+ * sticker: it cannot know what the road under it looks like, so it reads as a
+ * black decal wherever the tarmac is not exactly its colour. Under
+ * MultiplyBlending a white vertex is the identity and a dark one scales whatever
+ * is already there, so the patch fades into any road at any hour with no edge -
+ * the same reason buildCarGlowGeometry is a tent that goes to black at its rim,
+ * inverted.
+ *
+ * ONE GEOMETRY FOR ALL THREE BODY SHELLS, because the wheelbase and the track
+ * are the things SHAPES deliberately does not vary.
+ */
+export function buildCarContactGeometry(opts = {}) {
+  const P = CAR;
+  const b = new Builder();
+  // Just clear of the road. The glow pools sit at +0.03 and this has to be under
+  // them, but a patch flat ON the road z-fights with it.
+  const yRoad = (opts.groundY ?? P.ground) + 0.008;
+  // How dark the centre gets, as a multiplier. 0.34 is not a taste: the measured
+  // road/tyre on the near car's front wheel is 9.86 at night and 6.86 at noon,
+  // and the darkest column - the pool the body already casts - sits at 0.071 to
+  // 0.000 of the under-tyre value. A patch that multiplied to near zero would put
+  // a second, harder hole beside the one being complained about. 0.34 lands the
+  // tyre's own contact between the clear road and that pool instead of past it.
+  const DARK = opts.dark ?? 0.34;
+  const _c = new THREE.Color();
+  const white = new THREE.Color(1, 1, 1);
+  // Slightly wider than long: a tyre's contact patch is a rectangle across the
+  // tread, and at 8-28 px of screen radius the shape that matters is that it is
+  // not a circle centred on the hub.
+  const HX = P.tyreHalfW * 1.9, HZ = P.wheelR * 0.62, N = 6;
+  const patch = (cx, cz) => {
+    _c.setRGB(DARK, DARK, DARK);
+    const c0 = b.vert(cx, yRoad, cz, _c, SURFACE.paint);
+    const rim = [];
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2;
+      rim.push(b.vert(cx + Math.cos(a) * HX, yRoad, cz + Math.sin(a) * HZ, white, SURFACE.paint));
+    }
+    for (let i = 0; i < N; i++) b.tri(c0, rim[i], rim[(i + 1) % N]);
+  };
+  // The same four wheel centres buildTrafficCarGeometry places its wheels at.
+  for (const [wx, wz] of [
+    [-0.78, P.frontAxleZ], [0.78, P.frontAxleZ],
+    [-0.80, P.rearAxleZ], [0.80, P.rearAxleZ],
+  ]) patch(wx, wz);
+  return b.geometry();
+}
+
+/**
+ * Multiplicative, unlit, and it writes no depth.
+ *
+ * DoubleSide for the same reason the glow material is: neither this nor the
+ * pools should depend on a winding, and a patch that vanished when the camera
+ * crossed the road plane would be a bug nobody could reproduce on demand.
+ */
+export function carContactMaterial() {
+  return new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    blending: THREE.MultiplyBlending,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4,
+    fog: false,
+  });
+}
+
 export function carGlowMaterial() {
   return new THREE.MeshBasicMaterial({
     color: 0xffffff,

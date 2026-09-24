@@ -646,6 +646,11 @@ function setTraffic(on) {
     // same defect the glow-mesh comment below records - setTraffic(0) has to
     // take away everything setTraffic(n) put there.
     for (const m of (traffic.meshes ?? [traffic.mesh])) scene.remove(m);
+    if (traffic.contact) {
+      scene.remove(traffic.contact);
+      traffic.contact.geometry.dispose();
+      traffic.contact.material.dispose();
+    }
     for (const g of (traffic.geometries ?? [traffic.mesh.geometry])) g.dispose();
     if (traffic.material) traffic.material.dispose();
     // The lamp-spill mesh is a SECOND object in the scene and a second geometry
