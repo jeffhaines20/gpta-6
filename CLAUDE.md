@@ -145,6 +145,24 @@ less than one that says what moved and by how much.
   level readings at 1, 3 and 6 body widths are the trustworthy statement; the
   crossing is decided by 0.006 of ripple.
 
+## Do not reason from a truncated diagnostic
+
+A monitor printed `tail -20` of a 30-line rejection list. Every line in the tail
+said the same thing, so the list looked uniform, and an hour went into
+reproducing geometry offline to explain why *all thirty* cars had failed. Four of
+them had not: the lines that said something different were the ten the tail cut
+off. The instrument was right, the filter was right, the geometry was right, and
+the only broken thing was the window I was reading them through.
+
+The tell was available and ignored: an earlier view of the same file showed two
+different messages, and the later view showed one. A diagnostic that becomes MORE
+uniform after a fix is either a fix that worked or a view that shrank.
+
+**Count the lines against the population before drawing a conclusion from them.**
+30 slots, 30 rejects, 20 lines shown — the arithmetic does not close, and that is
+visible before any theory is required. `sort | uniq -c` over the reason field
+takes one command and would have shown two reasons where I had seen one.
+
 ## An audit that walks less than the build cannot fail
 
 `geom-audit` asked `streetDirFor` for ONE street direction and took `facingEdges`'
