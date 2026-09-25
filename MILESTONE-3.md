@@ -105,14 +105,20 @@ M3 is the milestone that makes this a game rather than a city.
    over and the growth is unaccounted; price it with the deterministic offline
    bill first (`tri-ledger`, `frontage-stats`, `tri-breakdown`) and run the gate
    three times on a clean box second. The stall needs the same clean-box N=5.
-3. **Finish the car line or stop it, explicitly.** Three blind reviewers say the
-   cars are improved but **not markedly**. The lamps are off and proven passive,
-   the shells are real and cost zero triangles, and the one live lever is the
-   pane's *modulation* — 1.06 to 1.14, which means nothing is reflected in the
-   glass at any brightness. A glazing albedo sweep is running now; if F0 0.04
-   turns out to deliver nothing against this environment, the answer is that this
-   pool cannot fix it (one material serves every slot on the car) and the round
-   should close as a priced refusal rather than a fourth attempt.
+3. **The car line's remaining defect is now isolated, and the next lever is
+   free.** Three blind reviewers say the cars are improved but **not markedly**.
+   The lamps are off and proven passive, the shells are real and cost zero
+   triangles, and the glazing albedo sweep has closed the albedo axis: at ZERO
+   albedo the pane still reads 1.77x the old build's total, so the dielectric's
+   benefit is the F0 reflection and not the diffuse lift; albedo adds only ~30% on
+   top; and **no albedo setting improves the pane's modulation** (1.140-1.152
+   against 1.278 for the old metal). The pane has no reflected content at any
+   setting, which is exactly what all three reviewers said. What is missing is a
+   per-slot ENVIRONMENT GAIN, and it costs nothing: `writePackTexel` writes R=255
+   and A=255 into the 16x1 pack texture while three reads roughness from `.g` and
+   metalness from `.b`, so two channels are already free, and the material already
+   runs `onBeforeCompile` for the lens falloff. No new texture, no second
+   material, no draw call.
 4. **The remaining open visual items, in priority order**: glass reads blue at
    noon (#36), the traffic-car greenhouse at night (#54), `aoKernel` 3 parked for
    a reviewer (#48), and shell variety past the three that shipped (#56).
