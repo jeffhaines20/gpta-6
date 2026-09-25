@@ -1,0 +1,82 @@
+{
+ "query": "",
+ "tod": "noon",
+ "shells": null,
+ "frames": 3,
+ "rows": [
+  {
+   "bucket": "street furniture + trees",
+   "meshes": 11,
+   "tris": 164026
+  },
+  {
+   "bucket": "pedestrians",
+   "meshes": 6,
+   "tris": 59136
+  },
+  {
+   "bucket": "signage",
+   "meshes": 5,
+   "tris": 46260
+  },
+  {
+   "bucket": "roads",
+   "meshes": 31,
+   "tris": 7092
+  },
+  {
+   "bucket": "vehicles",
+   "meshes": 3,
+   "tris": 5484
+  },
+  {
+   "bucket": "other: shopSpill",
+   "meshes": 1,
+   "tris": 1428
+  },
+  {
+   "bucket": "other: shopSoffitGlow",
+   "meshes": 1,
+   "tris": 1360
+  },
+  {
+   "bucket": "kerbs (near LOD)",
+   "meshes": 3,
+   "tris": 1328
+  },
+  {
+   "bucket": "buildings (far LOD)",
+   "meshes": 19,
+   "tris": 1000
+  },
+  {
+   "bucket": "facade trim (near LOD)",
+   "meshes": 1,
+   "tris": 504
+  },
+  {
+   "bucket": "ground zones",
+   "meshes": 25,
+   "tris": 352
+  },
+  {
+   "bucket": "facade (near LOD)",
+   "meshes": 1,
+   "tris": 146
+  },
+  {
+   "bucket": "other: district",
+   "meshes": 2,
+   "tris": 4
+  },
+  {
+   "bucket": "sky dome",
+   "meshes": 1,
+   "tris": 1
+  }
+ ],
+ "colourPass": 288121,
+ "engine": 468403,
+ "shadowByDifference": 180282,
+ "drawCalls": 131
+}

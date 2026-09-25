@@ -145,42 +145,58 @@ less than one that says what moved and by how much.
   level readings at 1, 3 and 6 body widths are the trustworthy statement; the
   crossing is decided by 0.006 of ripple.
 
-- **`daynight-sweep` is DETERMINISTIC on a clean box, so a delta that survives a
-  re-run is structural.** Three runs of the gate, two of them compared field by
-  field: the triangle column came back byte-identical at all four hours
-  (764,720 / 786,849 / 786,066 / 788,697). Residency varies between runs and
-  this does not, so "it is chunk residency" is a claim that a second run
-  refutes in twenty minutes. Run it twice before attributing anything to noise.
+- **Before attributing a gate's triangle delta to the build, run `tri-breakdown`
+  on BOTH builds at a FIXED camera.** If the two are triangle-identical there,
+  no source change can explain the gate's delta and reading the diff is wasted
+  time. This test is eight minutes and it should be step one. I spent a whole
+  round on `daynight-sweep`'s -9,024 (noon, golden, dusk) / -4,512 (night) and
+  got the attribution wrong FOUR times before running it. The answer, HEAD
+  against the baseline artifact's own commit `e916078`, both at the default
+  camera:
 
-  Two ways to misread its triangle column, both of which cost a round here:
+                      noon              night
+      colour pass   288,121 = 288,121   288,185 = 288,185
+      engine        468,403 = 468,403   483,907 = 483,907
+      shadow pass   180,282 = 180,282   195,722 = 195,722
+      draw calls        135 vs 131          138 vs 134
 
-  *Cross-hour consistency proves nothing.* The sweep does ONE `page.goto` and
-  then loops the four times of day on that single load, so residency is fixed
-  within a run and every hour carries the same offset. A structural change is
-  also constant across hours. Both hypotheses predict the same thing, so the
-  consistency is not evidence for either - and it is convincing precisely
-  because it looks like the signature of a fixed difference.
+  Identical to the unit, in every column, at both hours. The +4 draw calls are
+  the body-shell split at 0 triangles - and because four independent numbers
+  agree exactly, the test also proves the two runs held the SAME resident set,
+  so it validates itself. Whatever the sweep measured, it was not the code.
 
-  *Read all four rows.* A delta reported as uniform turned out to be -9,024 at
-  noon, golden and dusk and -4,512 at night, which is exactly half. Whatever
-  causes it, an exact 2:1 day-to-night split is not something residency
-  produces - residency is one offset shared by all four hours, and half of a
-  number is not that offset. So the fourth row carried the evidence the first
-  three could not, and it was visible in the first diff and missed because only
-  the first three rows were read. (The obvious reading is a shadow pass, an
-  object drawn twice while the sun is up and once when it is not. That is a
-  DIAGNOSIS, not the observation, and it is not yet tested - see the rule on
-  reviewers being wrong: reproduce the number first, then test the cause
-  separately.)
+  The four wrong attributions, because each was plausible and each cost hours:
 
-  The gate had been reading residency at every hour and throwing it away before
-  writing the file, which is why two separate rounds attributed swings to it -
-  +49,868 at `e916078`, -9,024 later - with nobody, including their authors, able
-  to check. `daynight-sweep.mjs` now persists `chunks`, `lodNear` and `lodFar`
-  beside `drawCalls` and `triangles`, so the NEXT run's artifact carries them;
-  the one committed here predates the patch and does not, and a diff against it
-  still cannot separate the two. Read the tool, not the file, to know which
-  fields a given artifact has.
+  1. *"It is structural, because the delta is IDENTICAL at every hour."* The
+     sweep does ONE `page.goto` and loops the four times of day on that single
+     load, so residency is fixed within a run and every hour carries it.
+     Structure predicts a constant too. Both hypotheses predict the observation.
+  2. *"Then it is residency."* Also unshown at the time.
+  3. *"Residency is refuted, because two re-runs came back byte-identical."*
+     INVALID, and this is the subtle one. Two re-runs at HEAD on one box prove
+     HEAD is self-consistent. They say nothing about whether HEAD's resident set
+     matches a run made at a different commit on a differently-loaded box, which
+     is the only comparison the artifact actually offers. `streaming.js` budgets
+     uploads against the WALL CLOCK (`while (performance.now() < deadline)` on a
+     3 ms slice), so how much geometry lands per frame depends on how fast the box
+     was feeling - see the same warning in `hero-shots`' `settleFrames`.
+  4. *"A 2:1 day-to-night split cannot be residency, because residency is one
+     offset shared by all four hours."* ALSO INVALID. Residency is one set of
+     missing OBJECTS across the hours; its triangle COST is not one number,
+     because `renderer.info` counts an object once in the colour pass and again
+     in every shadow map that contains it, and which maps those are changes with
+     the hour. A far chunk can sit inside the sun's shadow frustum at noon and
+     inside no point light's at night, which is a 2:1 cost from one unchanged
+     residency difference. The split was never evidence of anything.
+
+  So the delta is in what was resident or in frame when each run fired, and the
+  committed baseline predates the residency fields, so it cannot be separated
+  further than that. `daynight-sweep` now persists `chunks`, `lodNear`, `lodFar`
+  and the parked pool's `pool`/`filled`/`shells`/`perShell`/`trianglesDrawn`, so
+  the next two artifacts can settle it in one line. The gate IS deterministic on
+  a clean box - three runs, triangle column byte-identical at all four hours
+  (764,720 / 786,849 / 786,066 / 788,697) - and that is worth knowing; it is just
+  not what decides whether a delta against an older artifact is structural.
 
 ## Do not reason from a truncated diagnostic
 
