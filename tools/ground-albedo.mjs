@@ -157,6 +157,38 @@ export const ARM_STATE = {
   tyre5:   { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carTyre: 5 },
   tyre8:   { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1, carFront: 0, carTyre: 8 },
 
+  // ROUND 8: LIFTING THE POOL UNDER THE CARS.
+  //
+  // The composite is `scene * ao` with nothing under it, and ao is
+  // pow(1 - occlusion, 8.5). Measured on the near parked car, the darkest column
+  // under it reaches LINEAR ZERO (tyre/min 0.000 at night, 0.071 at noon) and
+  // sits 1.5-2.15 wheel radii inboard of the tyre. A contact patch that tried to
+  // darken the tyre did nothing there, because multiply cannot darken black -
+  // so the lever is the pool, not the tyre.
+  //
+  // TWO LEVERS, AND THEY REACH DIFFERENT PIXELS. That is the whole reason both
+  // are swept rather than one picked.
+  //
+  //   INTENSITY is the exponent, and it is preferentially targeted at exactly
+  //   the crushed region: raw ao 0.90 (a facade corner) lifts 1.6x going 8.5 ->
+  //   4.0, while raw ao 0.35 (under a car) lifts 113x. It cannot touch a pixel
+  //   the estimator calls FULLY occluded, because pow(0, n) is 0 for every n.
+  //
+  //   FLOOR is the only thing that reaches those. It lifts everything by the
+  //   same affine amount, so it is the blunter of the two and the one more
+  //   likely to wash out the junction darkening the exponent exists to produce.
+  //
+  // aoShip must reproduce a no-arm capture or the arms are measuring something
+  // else. aoOff is the diagnostic: if the under-car black does not lift with AO
+  // switched off entirely, AO is not the cause and this whole round is wrong.
+  aoShip:  { albedo: null, skyProxy: false, nightGlowLux: 0, ao: [0.6, 8.5, 1.0, 0.00] },
+  aoOff:   { albedo: null, skyProxy: false, nightGlowLux: 0, ao: [0.6, 8.5, 0.0, 0.00] },
+  aoInt55: { albedo: null, skyProxy: false, nightGlowLux: 0, ao: [0.6, 5.5, 1.0, 0.00] },
+  aoInt40: { albedo: null, skyProxy: false, nightGlowLux: 0, ao: [0.6, 4.0, 1.0, 0.00] },
+  aoFlr04: { albedo: null, skyProxy: false, nightGlowLux: 0, ao: [0.6, 8.5, 1.0, 0.04] },
+  aoFlr10: { albedo: null, skyProxy: false, nightGlowLux: 0, ao: [0.6, 8.5, 1.0, 0.10] },
+  aoMix:   { albedo: null, skyProxy: false, nightGlowLux: 0, ao: [0.6, 5.5, 1.0, 0.04] },
+
   // ROUND 6, THE GLAZING. Slot 10 ships roughness 0.06 / metalness 0.86 over a
   // vertex albedo of (0.0040, 0.0052, 0.0075), which in a metallic-roughness
   // BRDF is F0 = 0.0099 and a diffuse term of 0.0007 - a 1% reflector, i.e. a
@@ -346,9 +378,14 @@ export async function setArm(page, name) {
     // the build's own parameters rather than the previous arm's.
     const q = window.__district && window.__district.postParams && window.__district.postParams();
     if (q) {
-      if (!window.__armSavedAO) window.__armSavedAO = [q.aoRadius, q.aoIntensity, q.aoStrength];
+      if (!window.__armSavedAO) window.__armSavedAO = [q.aoRadius, q.aoIntensity, q.aoStrength, q.aoFloor ?? 0];
       const ao = s.ao ?? window.__armSavedAO;
       q.aoRadius = ao[0]; q.aoIntensity = ao[1]; q.aoStrength = ao[2]; q.aoEnabled = true;
+      // A FOURTH ELEMENT, optional. An arm that names only three gets the
+      // build's floor rather than zero: writing 0 here for every arm that did
+      // not ask would silently reset a shipped floor the moment any other arm
+      // ran, which is the confound this file has been bitten by three times.
+      q.aoFloor = ao.length > 3 ? ao[3] : (window.__armSavedAO[3] ?? 0);
     }
     // THE CAR LENS ARM. Pushed through the app's own entry point rather than at
     // the material, so an arm cannot drift from what ?lens= does; setCarLens
@@ -439,7 +476,7 @@ export async function setArm(page, name) {
       // nothing, and this is the number proveArmsDiffer keys on.
       msWhitenAnti: u.uMsWhitenAnti ? +u.uMsWhitenAnti.value.toFixed(3) : null,
       bounceLux: dn ? +dn.bounce.intensity.toFixed(2) : null,
-      ao: q ? [q.aoRadius, q.aoIntensity, q.aoStrength] : null,
+      ao: q ? [q.aoRadius, q.aoIntensity, q.aoStrength, q.aoFloor ?? 0] : null,
       // Read back off what the app actually reached, not off what was asked for.
       carLens: carLens ? [carLens.retroScale, carLens.lens && carLens.lens.edge,
         carLens.parkedEmissive ?? null] : null,

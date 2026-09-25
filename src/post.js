@@ -433,6 +433,7 @@ uniform sampler2D tBloom;
 uniform sampler2D tDepth;
 uniform sampler2D tAO;
 uniform float aoStrength;
+uniform float aoFloor;
 uniform float bloomStrength;
 uniform float exposure;
 uniform vec3  fogColor;
@@ -637,6 +638,8 @@ void main() {
   // windows, lamps, signage - and those are light sources, not surfaces receiving
   // ambient. Occluding them would dim the very things that read as light at night.
   float ao = mix(1.0, texture2D(tAO, vUv).r, aoStrength);
+  // The floor. At aoFloor 0 this is the identity and the composite is unchanged.
+  ao = aoFloor + (1.0 - aoFloor) * ao;
   vec3 color = scene * ao + bloom * bloomStrength;
 
   // --- Height fog with aerial perspective.
@@ -946,6 +949,24 @@ export class PostStack {
       aoRadius: 0.6,
       aoBias: 0.035,
       aoIntensity: 8.5,
+      // A FLOOR UNDER THE OCCLUSION, and it ships at 0 - today's behaviour
+      // exactly - because it is a lever for a sweep, not yet a decision.
+      //
+      // WHY IT IS NEEDED SEPARATELY FROM THE EXPONENT. The composite is
+      // `scene * ao` with nothing under it, and ao is pow(1 - occ, intensity).
+      // The exponent lifts PARTIAL occlusion enormously and FULL occlusion not
+      // at all: pow(0, n) is 0 for every n. So a pixel the estimator calls
+      // completely occluded is multiplied to black and no exponent can retrieve
+      // it, which is what the under-car road measured at - linear zero, tyre/min
+      // 0.000 on the near parked car at night.
+      //
+      // That is not physical. Nothing outdoors is unlit; the underside of a car
+      // is filled by bounce off the road it stands on, and AO is a model of the
+      // AMBIENT term rather than a licence to remove all the light. The composite
+      // comment above already draws this line for bloom - "those are light
+      // sources, not surfaces receiving ambient" - and stops one term short of
+      // drawing it for the floor.
+      aoFloor: 0.0,
       // THE BUFFER THE KERNEL ABOVE IS DRAWN INTO. This is a separate question
       // from the kernel, and it was not re-asked when the radius moved.
       //
@@ -1478,6 +1499,7 @@ export class PostStack {
       uniforms: {
         tScene: { value: null }, tBloom: { value: null }, tDepth: { value: null },
         tAO: { value: null }, aoStrength: { value: this.params.aoStrength },
+        aoFloor: { value: this.params.aoFloor },
         bloomStrength: { value: this.params.bloomStrength },
         exposure: { value: this.params.exposure },
         fogColor: { value: new THREE.Vector3() },
@@ -1760,6 +1782,7 @@ export class PostStack {
     u.tDepth.value = this.hdr.depthTexture;
     u.tAO.value = p.aoEnabled ? this.aoBlurRT.texture : this.whiteTex;
     u.aoStrength.value = p.aoEnabled ? p.aoStrength : 0;
+    u.aoFloor.value = p.aoEnabled ? (p.aoFloor ?? 0) : 0;
     u.bloomStrength.value = p.bloomStrength;
     u.exposure.value = p.exposure;
     u.fogColor.value.set(p.fogColor.r, p.fogColor.g, p.fogColor.b);
