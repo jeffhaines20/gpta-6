@@ -1,0 +1,149 @@
+{
+ "note": "linear B/R across the glazing env gain sweep; a fixed tint cannot move, a reflection marches toward what it reflects",
+ "skyGradientNoon": {
+  "y2-40": 3.094,
+  "y60-100": 2.695,
+  "y120-160": 2.71,
+  "y175-215": 1.958,
+  "y240-280": 1.117,
+  "y300-340": 0.837
+ },
+ "arms": {
+  "noon": {
+   "windscreen": [
+    {
+     "extra": 0,
+     "br": 4.309
+    },
+    {
+     "extra": 1,
+     "br": 5.115
+    },
+    {
+     "extra": 2,
+     "br": 5.38
+    },
+    {
+     "extra": 3,
+     "br": 5.396
+    },
+    {
+     "extra": 5,
+     "br": 5.108
+    }
+   ],
+   "backlight": [
+    {
+     "extra": 0,
+     "br": 3.034
+    },
+    {
+     "extra": 1,
+     "br": 3.166
+    },
+    {
+     "extra": 2,
+     "br": 3.098
+    },
+    {
+     "extra": 3,
+     "br": 2.963
+    },
+    {
+     "extra": 5,
+     "br": 2.665
+    }
+   ],
+   "bonnetPaint": [
+    {
+     "extra": 0,
+     "br": 1.226
+    },
+    {
+     "extra": 1,
+     "br": 1.226
+    },
+    {
+     "extra": 2,
+     "br": 1.226
+    },
+    {
+     "extra": 3,
+     "br": 1.226
+    },
+    {
+     "extra": 5,
+     "br": 1.226
+    }
+   ]
+  },
+  "night": {
+   "windscreen": [
+    {
+     "extra": 0,
+     "br": 1.595
+    },
+    {
+     "extra": 1,
+     "br": 2.333
+    },
+    {
+     "extra": 2,
+     "br": 2.953
+    },
+    {
+     "extra": 3,
+     "br": 3.473
+    },
+    {
+     "extra": 5,
+     "br": 4.383
+    }
+   ],
+   "backlight": [
+    {
+     "extra": 0,
+     "br": 1.15
+    },
+    {
+     "extra": 1,
+     "br": 1.709
+    },
+    {
+     "extra": 2,
+     "br": 2.213
+    },
+    {
+     "extra": 3,
+     "br": 2.685
+    },
+    {
+     "extra": 5,
+     "br": 3.508
+    }
+   ],
+   "bonnetPaint": [
+    {
+     "extra": 0,
+     "br": 0.257
+    },
+    {
+     "extra": 1,
+     "br": 0.257
+    },
+    {
+     "extra": 2,
+     "br": 0.257
+    },
+    {
+     "extra": 3,
+     "br": 0.257
+    },
+    {
+     "extra": 5,
+     "br": 0.257
+    }
+   ]
+  }
+ }
+}
