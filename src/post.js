@@ -966,7 +966,44 @@ export class PostStack {
       // comment above already draws this line for bloom - "those are light
       // sources, not surfaces receiving ambient" - and stops one term short of
       // drawing it for the floor.
-      aoFloor: 0.0,
+      // SHIPS AT 0.04, MEASURED. Five arms off one page load, corridor, contact
+      // profile per wheel in linear light inside one frame:
+      //
+      //                        night p16 RB            noon p1 RB
+      //                    road/tyre tyre/min minOff  road/tyre tyre/min minOff
+      //   shipped 8.5/0      12.474    0.036   2.12    25.966    0.327   2.20
+      //   AO off              1.476    0.463   1.25         -        -      -
+      //   exponent 4.0        5.389    0.137   1.98    13.940    0.255   1.98
+      //   floor 0.04         10.672    0.175   2.20    23.356    0.361   1.39
+      //
+      // THE FALSIFIER ANSWERED FIRST. With AO off entirely, road/tyre collapses
+      // from 12.5 to 1.5 - so AO is the WHOLE source of the under-car darkening,
+      // and turning it down is not available: it does not sharpen the contact,
+      // it removes the thing that makes a car sit on the road at all.
+      //
+      // The exponent buys a 3.8x lift of the crushed pixels and pays 57% of the
+      // grounding for it, plus a real cost in the AO buffer that ao-sweep reads
+      // deterministically: ground crease 0.248 -> 0.168, wall crease 0.367 ->
+      // 0.257, reveal 0.124 -> 0.079 at exponent 4.0. That is the contrast the
+      // exponent exists to produce, and 32% of it is too much to pay.
+      //
+      // The floor buys MORE - 4.9x - for 14% of the grounding, and pays nothing
+      // in the buffer by construction, because it acts in the composite
+      // downstream of it (ao-sweep cannot see it at all, which is why both
+      // instruments were run). Its frame-side cost is bounded and was measured
+      // rather than argued: the lift is confined to the bottom decile (p1 x1.16,
+      // p5 x1.43, p10 x1.13 at night) and everything above the 25th percentile
+      // moves by at most 1.4%.
+      //
+      // WHAT IT DOES NOT DO, said plainly. The reviewer's complaint was "the
+      // darkest point is under the BODY, not at the tyre". At night it still is:
+      // minOff 2.12 -> 2.20, no movement. At noon it moves usefully (2.20 ->
+      // 1.39 rear, 1.52 -> 1.06 front) but does not reach the tyre. The pool is
+      // centred under the body because that is where the geometry occludes most,
+      // which is correct, and no floor or exponent relocates it. What this fixes
+      // is the PHYSICAL wrongness underneath that complaint: pixels with no light
+      // in them at all, on an outdoor surface bounced into by the road it sits on.
+      aoFloor: 0.04,
       // THE BUFFER THE KERNEL ABOVE IS DRAWN INTO. This is a separate question
       // from the kernel, and it was not re-asked when the radius moved.
       //

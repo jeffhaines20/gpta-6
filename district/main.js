@@ -949,10 +949,21 @@ requestAnimationFrame(animate);
 function forEachTrafficGeometry(fn) {
   if (!traffic) return null;
   const geos = traffic.geometries ?? [traffic.mesh.geometry];
+  // THE LEVERS RETURN A NUMBER, NOT AN OBJECT, and the first cut of this assumed
+  // the opposite. setTrafficTyreScale and its siblings `return idx.length`, so
+  // `{...each[0]}` spread a number - which is `{}` - and `r.verticesTouched` was
+  // undefined, summing to 0. The arm proof duly printed
+  // {"shells":3,"verticesTouched":0,"perShell":[null,null,null]} for every one of
+  // them: a key that looks like a measurement, reports nothing, and would have
+  // hashed three genuinely different tyre arms to the same value in
+  // proveArmsDiffer. Handle both shapes rather than assume either.
+  const val = (r) => (typeof r === 'number' ? r
+    : (r && typeof r.verticesTouched === 'number' ? r.verticesTouched : null));
   const each = geos.map((g) => fn(g));
-  const total = each.reduce((t, r) => t + (r && r.verticesTouched != null ? r.verticesTouched : 0), 0);
-  return { ...each[0], shells: geos.length, verticesTouched: total,
-    perShell: each.map((r) => (r ? r.verticesTouched : null)) };
+  const per = each.map(val);
+  const total = per.reduce((t, v) => t + (v ?? 0), 0);
+  const head = (each[0] && typeof each[0] === 'object') ? each[0] : {};
+  return { ...head, shells: geos.length, verticesTouched: total, perShell: per };
 }
 
 // third of that finds out.
@@ -960,10 +971,21 @@ function forEachParkedGeometry(fn) {
   const p = furniture && furniture.parked;
   if (!p) return null;
   const geos = p.geometries ?? [p.mesh.geometry];
+  // THE LEVERS RETURN A NUMBER, NOT AN OBJECT, and the first cut of this assumed
+  // the opposite. setTrafficTyreScale and its siblings `return idx.length`, so
+  // `{...each[0]}` spread a number - which is `{}` - and `r.verticesTouched` was
+  // undefined, summing to 0. The arm proof duly printed
+  // {"shells":3,"verticesTouched":0,"perShell":[null,null,null]} for every one of
+  // them: a key that looks like a measurement, reports nothing, and would have
+  // hashed three genuinely different tyre arms to the same value in
+  // proveArmsDiffer. Handle both shapes rather than assume either.
+  const val = (r) => (typeof r === 'number' ? r
+    : (r && typeof r.verticesTouched === 'number' ? r.verticesTouched : null));
   const each = geos.map((g) => fn(g));
-  const total = each.reduce((t, r) => t + (r && r.verticesTouched != null ? r.verticesTouched : 0), 0);
-  return { ...each[0], shells: geos.length, verticesTouched: total,
-    perShell: each.map((r) => (r ? r.verticesTouched : null)) };
+  const per = each.map(val);
+  const total = per.reduce((t, v) => t + (v ?? 0), 0);
+  const head = (each[0] && typeof each[0] === 'object') ? each[0] : {};
+  return { ...head, shells: geos.length, verticesTouched: total, perShell: per };
 }
 
 window.__district = {
