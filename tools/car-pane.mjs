@@ -1,0 +1,245 @@
+// Is a car's window a WINDOW, measured as two separate numbers rather than one?
+//
+// Round 9 moved the glazing from metalness 0.86 to 0 and three independent blind
+// reviewers measured the result as a window that had stopped reading as one. The
+// pane's MEDIAN rose 1.7-1.9x while its bright end went FLAT OR DOWN - brightest
+// 2% / own paint 0.2077 -> 0.1933, and on another car p95/p50 3.93 -> 1.91, "its
+// highlight came down while its floor came up". The rear quarter light ended at
+// 1.350 of the body paint directly below it: brighter than the paint.
+//
+// That is two findings, and the round's own metric was one number. A pane has a
+// FLOOR (how black it goes, which is the "hole" complaint) and a CEILING (whether
+// anything is reflected in it, which is the "reads as glass" requirement), and a
+// change can move them in opposite directions. So this reports them separately,
+// always, and refuses to collapse them.
+//
+//   node tools/car-pane.mjs --selftest
+//   node tools/car-pane.mjs <tag>...            # one row per pane per frame
+//
+// EVERY RATIO IS TAKEN IN LINEAR LIGHT INSIDE ONE FRAME, against a paint box on
+// the SAME car. Exposure here spans 1/22100 at noon to 1/5 at night; a ratio of
+// percentiles in linear light is exactly invariant under that because there it is
+// a pure scale, and the same ratio on sRGB bytes drifts ~20% because the OETF is
+// not a scale. The selftest measures both, so the claim is comparative and checked
+// rather than asserted.
+import fs from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import { readPNG } from './png.mjs';
+
+const SHOTS = 'docs/shots';
+
+/** sRGB byte -> linear, the exact piecewise transfer function. */
+export function toLinear(b) {
+  const c = b / 255;
+  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+}
+const LUMA = (r, g, b) => 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+
+function pct(sorted, p) {
+  if (!sorted.length) return NaN;
+  const i = (sorted.length - 1) * p;
+  const lo = Math.floor(i), hi = Math.ceil(i);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
+}
+
+/**
+ * Linear-light percentiles inside a box.
+ *
+ * THE STRIDE IS `channels`, READ OFF THE FILE. These screenshots are 3-channel and
+ * a hardcoded 4 misaligns every sample and reads NaN in the bottom quarter - where
+ * the near car is - and NaN fails every `>` silently, so the bad rows report NO
+ * DIFFERENCE. Throwing on a non-finite sample is why this cannot happen quietly.
+ */
+export function paneStats(png, [x0, y0, x1, y1]) {
+  const { data, width, height, channels } = png;
+  if (x0 < 0 || y0 < 0 || x1 >= width || y1 >= height) {
+    throw new Error(`box ${[x0, y0, x1, y1]} outside ${width}x${height}`);
+  }
+  const v = [];
+  let clipped = 0;
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const i = (y * width + x) * channels;
+      const L = LUMA(data[i], data[i + 1], data[i + 2]);
+      if (!Number.isFinite(L)) throw new Error(`non-finite luma at ${x},${y} - stride or channels wrong`);
+      if (data[i] >= 254 || data[i + 1] >= 254 || data[i + 2] >= 254) clipped++;
+      v.push(L);
+    }
+  }
+  v.sort((a, b) => a - b);
+  const p05 = pct(v, 0.05), p50 = pct(v, 0.50), p95 = pct(v, 0.95);
+  return { n: v.length, p05, p50, p95,
+    // FLOOR and CEILING, never one number. modulation is the ceiling relative to
+    // the pane's own middle, which is what "there is something in the window"
+    // means; spread is the absolute range, which a paint reference then scales.
+    modulation: p50 > 0 ? p95 / p50 : Infinity,
+    spread: p95 - p05,
+    // Exposure invariance is exact only while nothing clips. Reported beside every
+    // ratio rather than assumed away.
+    clippedPct: +(100 * clipped / v.length).toFixed(2) };
+}
+
+/** The pane against a paint box on the same car in the same frame. */
+export function paneVsPaint(png, paneBox, paintBox) {
+  const g = paneStats(png, paneBox), p = paneStats(png, paintBox);
+  return { pane: g, paint: p,
+    medianOverPaint: g.p50 / p.p50,
+    p95OverPaint: g.p95 / p.p50,
+    floorOverPaint: g.p05 / p.p50,
+    modulation: g.modulation };
+}
+
+// SUBJECTS, taken verbatim from the three blind reviewers' own boxes so that a
+// before/after is comparable to what they said, and named with who measured what.
+// The corridor camera is identical at both hours (a +/-3 px landmark search put the
+// best cross-hour match at exactly (0,0)), so one box list serves both.
+export const PANES = {
+  // Reviewer 2's CORRECTED interior box. Its first attempt clipped the changed rim
+  // on one arm and reported a 14x rise in modulation; moved inside both arms' panes
+  // it was 1.10 -> 1.36. A box valid for one arm's geometry is not automatically
+  // valid for the other's when the geometry is what changed.
+  nearWindscreen: { pane: [190, 642, 300, 668], paint: [120, 700, 260, 730],
+    what: '8.6 m windscreen interior (rev2), paint = bonnet below' },
+  // A NEGATIVE CONTROL, AND IT USED TO BE THE HEADLINE FINDING.
+  //
+  // All three reviewers reported the rear quarter light as deleted, replaced with
+  // painted metal, or absent, measured on this box: 0.2751 of the paint below it in
+  // one arm and 1.3499 in the other, with modulation collapsing 4.576 -> 1.081. I
+  // published that as a glazing regression. It is not. Holding the glazing at the
+  // OLD metalness 0.86 and changing only the body shell moves this box the WHOLE
+  // WAY:
+  //
+  //   cumS1-r5cum  coupe,  metalness 0.86   0.2751   modulation 4.576
+  //   cumS3-r5cum  saloon, metalness 0.86   1.3680   modulation 1.081
+  //   cumS3-r9cum  saloon, metalness 0.00   1.3499   modulation 1.081
+  //
+  // The saloon's roofline break is 0.2 m forward of the coupe's (-0.880 against
+  // -1.080), so the quarter light moved and the box did not. It lands on glass in
+  // the coupe and on body panel in the saloon. Nothing was deleted. Reviewer 2 had
+  // written the exact warning for its OTHER box - "a box that is valid for one
+  // arm's geometry is not automatically valid for the other's when the geometry is
+  // what changed" - and then had the same fault here; so did I, reading it.
+  //
+  // Kept, relabelled, because in a 3-shell frame it is body panel and the glass
+  // albedo lever must NOT move it. A sweep where it moves is reaching the wrong
+  // vertices.
+  r1QuarterControl: { pane: [1056, 590, 1082, 602], paint: [1056, 612, 1082, 620],
+    what: 'NEGATIVE CONTROL: body panel in a 3-shell frame (was read as a deleted window)' },
+  r1Backlight: { pane: [1125, 582, 1185, 598], paint: [1120, 604, 1200, 616],
+    what: '14.7 m rear screen interior (rev2), paint = boot lid below' },
+};
+
+function selftest() {
+  let f = 0;
+  const chk = (name, ok, got) => { if (!ok) { console.log(`  FAIL ${name}: ${got}`); f++; } else console.log(`  ok   ${name}: ${got}`); };
+
+  // A synthetic frame, built rather than borrowed, so the expected answers are known.
+  const W = 64, H = 64, ch = 3;
+  const mk = (fn) => {
+    const data = new Uint8Array(W * H * ch);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const [r, g, b] = fn(x, y); const i = (y * W + x) * ch;
+      data[i] = r; data[i + 1] = g; data[i + 2] = b;
+    }
+    return { data, width: W, height: H, channels: ch };
+  };
+
+  // 1. KNOWN-BAD: a flat pane must report modulation EXACTLY 1 and spread 0. A
+  //    probe that cannot say "there is nothing in this window" cannot detect the
+  //    defect it exists for.
+  const flat = paneStats(mk(() => [40, 40, 40]), [8, 8, 40, 40]);
+  chk('flat pane reads modulation 1.000 and spread 0',
+    Math.abs(flat.modulation - 1) < 1e-9 && flat.spread < 1e-12,
+    `modulation ${flat.modulation.toFixed(6)} spread ${flat.spread.toExponential(2)}`);
+
+  // 2. ...and a pane with content must not. A 40->120 horizontal ramp.
+  const ramp = paneStats(mk((x) => { const v = 40 + Math.round(80 * x / (W - 1)); return [v, v, v]; }), [8, 8, 40, 40]);
+  chk('a pane with a gradient reads modulation > 1', ramp.modulation > 1.5,
+    `modulation ${ramp.modulation.toFixed(3)} over a 40-120 ramp`);
+
+  // 3. THE INVARIANCE CLAIM, measured comparatively rather than asserted. Scale the
+  //    LINEAR signal by an exposure factor and re-encode: the linear ratio must hold
+  //    and the sRGB-byte ratio must drift. This is CLAUDE.md's rule with a number
+  //    attached.
+  const enc = (lin) => {
+    const c = lin <= 0.0031308 ? 12.92 * lin : 1.055 * lin ** (1 / 2.4) - 0.055;
+    return Math.max(0, Math.min(255, Math.round(c * 255)));
+  };
+  // A range a real pane actually spans - a near-black floor to a sky highlight.
+  // My first version used 0.02-0.12, which is narrow enough that the OETF is close
+  // to a power law over it and the sRGB ratio barely drifts (3.74%): the test could
+  // not tell the two encodings apart, which made it a weak discriminator dressed as
+  // a strong one. CLAUDE.md's ~20% figure is over a real bay's much wider span.
+  const scene = (x) => 0.002 + 0.50 * (x / (W - 1)) ** 2;    // linear pane content
+  const ratioAt = (k) => {
+    const png = mk((x) => { const v = enc(scene(x) * k); return [v, v, v]; });
+    const st = paneStats(png, [8, 8, 40, 40]);
+    // and the same ratio computed on the raw bytes, for the comparison
+    const { data, width, channels } = png;
+    const bytes = [];
+    for (let y = 8; y <= 40; y++) for (let x = 8; x <= 40; x++) bytes.push(data[(y * width + x) * channels]);
+    bytes.sort((a, b) => a - b);
+    return { lin: st.modulation, srgb: pct(bytes, 0.95) / pct(bytes, 0.50) };
+  };
+  const a = ratioAt(1), b = ratioAt(0.25), c = ratioAt(4);
+  const linDrift = 100 * (Math.max(a.lin, b.lin, c.lin) - Math.min(a.lin, b.lin, c.lin)) / a.lin;
+  const srgbDrift = 100 * (Math.max(a.srgb, b.srgb, c.srgb) - Math.min(a.srgb, b.srgb, c.srgb)) / a.srgb;
+  // The linear residual is 8-BIT QUANTISATION, not a failure of the invariance -
+  // reviewer 2 independently measured the same floor at 5.2% around linear 0.01.
+  // So the assertion is comparative and both numbers are printed, which is the only
+  // honest form for a claim whose exactness has a known floor.
+  chk('the linear modulation survives 16x of exposure far better than the sRGB one',
+    linDrift < srgbDrift / 4 && linDrift < 3,
+    `linear drift ${linDrift.toFixed(2)}% vs sRGB ${srgbDrift.toFixed(2)}% over x0.25..x4` +
+    ` (the linear residual is 8-bit quantisation, floor ~5% near linear 0.01)`);
+
+  // 4. KNOWN-BAD: a 4-byte stride on a 3-channel buffer must THROW, not return a
+  //    plausible number. This is the bug class CLAUDE.md names as the most
+  //    dangerous, because its wrong answer is reassuring.
+  // MY FIRST VERSION OF THIS TEST PASSED A UNIFORM GREY IMAGE AND DID NOT THROW,
+  // and it was right not to: a misaligned read of a uniform buffer returns the same
+  // value, and inside a box near the TOP the 4-stride index is still in range. So
+  // the known-bad input has to be non-uniform AND low in the frame - which is
+  // exactly where CLAUDE.md says the real bug reads NaN, "in the bottom quarter",
+  // where the near car is. A test that cannot fail is not a test, and this one
+  // could not until it was pointed at the right rows.
+  let threw = false;
+  try {
+    const bad = mk((x, y) => { const v = (x * 3 + y * 5) % 200; return [v, v, v]; });
+    bad.channels = 4;                       // a 3-channel buffer read with stride 4
+    paneStats(bad, [8, H - 9, 40, H - 2]);  // the bottom rows, where it runs off the end
+  } catch (e) { threw = true; }
+  chk('a wrong stride throws rather than reading past the buffer', threw,
+    threw ? 'threw on the bottom rows of a non-uniform image' : 'RETURNED A NUMBER');
+
+  // 5. The clipped fraction must be reported and must be right, since the
+  //    invariance above is exact only while nothing clips.
+  const hot = paneStats(mk(() => [255, 255, 255]), [8, 8, 40, 40]);
+  chk('clipping is counted', hot.clippedPct === 100, `${hot.clippedPct}% of a white box`);
+
+  console.log(f ? `CAR-PANE SELFTEST FAIL (${f})` : 'CAR-PANE SELFTEST OK');
+  return f === 0;
+}
+
+const DIRECT = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (DIRECT && process.argv.includes('--selftest')) process.exit(selftest() ? 0 : 1);
+
+if (DIRECT) {
+  const tags = process.argv.slice(2).filter((x) => !x.startsWith('--'));
+  const TIMES = (process.env.CP_TIMES ?? 'noon,night').split(',');
+  if (!tags.length) { console.error('usage: car-pane.mjs <tag>...   (or --selftest)'); process.exit(2); }
+  for (const [key, S] of Object.entries(PANES)) {
+    console.log(`\n=== ${key}: ${S.what}`);
+    console.log('  tod    tag                    med/paint  p95/paint  floor/paint  modulation  clipped   n');
+    for (const tod of TIMES) {
+      for (const tag of tags) {
+        const file = `${SHOTS}/${tag}-corridor-${tod}.png`;
+        if (!fs.existsSync(file)) { console.log(`  ${tod.padEnd(6)} ${tag.padEnd(22)} MISSING ${file}`); continue; }
+        const r = paneVsPaint(readPNG(file), S.pane, S.paint);
+        console.log(`  ${tod.padEnd(6)} ${tag.padEnd(22)} ${r.medianOverPaint.toFixed(4).padStart(9)}` +
+          ` ${r.p95OverPaint.toFixed(4).padStart(10)} ${r.floorOverPaint.toFixed(4).padStart(12)}` +
+          ` ${r.modulation.toFixed(3).padStart(11)} ${String(r.pane.clippedPct).padStart(8)}% ${String(r.pane.n).padStart(5)}`);
+      }
+    }
+  }
+}

@@ -324,6 +324,56 @@ export const ARM_STATE = {
     carTyre: 1, carHub: 1, carAlbedo: 1, carFinish: [0.07, 0.03],
     ao: [0.6, 8.5, 1.0, 0.04] },
 
+  // ROUND 10: WHICH TERM CARRIES THE PANE, because last round moved two at once.
+  //
+  // metalness is not one knob, it is two:
+  //     F0      = mix(0.04, albedo, metalness)     the reflection
+  //     diffuse = albedo * (1 - metalness)         the floor
+  // so 0.86 -> 0 raised F0 4x AND the diffuse 7x, and there was no way to tell
+  // which the reviewers were looking at. All three said the same thing about the
+  // result - "the lift raised the median without putting any content in the
+  // window" - and the quarter light went from 0.275 to 1.350 of the paint below
+  // it, brighter than the paint.
+  //
+  // carGlassAlbedo is the missing axis. Holding metalness at 0 and scaling the
+  // albedo moves the diffuse floor proportionally and leaves F0 fixed at 0.04:
+  //
+  //   gaOld    m 0.86, albedo x1     last round. F0 0.0099, diffuse 0.0007
+  //   gaShip   m 0.00, albedo x1     the build.  F0 0.04,   diffuse 0.0050
+  //   gaA033   m 0.00, albedo x0.33              F0 0.04,   diffuse 0.0017
+  //   gaA014   m 0.00, albedo x0.14              F0 0.04,   diffuse 0.0007
+  //   gaA000   m 0.00, albedo x0.00              F0 0.04,   diffuse 0
+  //
+  // gaA014 IS THE HYPOTHESIS: 0.14 is 1 - 0.86, so its diffuse floor equals
+  // gaOld's exactly while its F0 is four times higher. If the pane looks like
+  // gaOld there, the dielectric bought nothing and the whole visible change last
+  // round was the floor. If it looks like glass, that is the fix.
+  //
+  // gaA000 IS THE DIAGNOSTIC and the reason this sweep can fail honestly: at zero
+  // albedo the pane's ONLY content is the Fresnel reflection of the environment.
+  // If it renders black, then F0 0.04 against this scene delivers nothing
+  // visible, the dielectric change was a grey floor and nothing else, and no
+  // albedo setting fixes it - the next lever would have to be the environment
+  // response, which this pool cannot raise for the glass alone because one
+  // material serves every slot on the car.
+  //
+  // gaShip must reproduce a no-arm capture. Every car term is named in all five.
+  ...(() => {
+    const base = {
+      albedo: null, skyProxy: false, nightGlowLux: 0,
+      carLens: 0, carFront: 0, carProfile: [0.16, 1.55, 2.0],
+      carTyre: 1, carHub: 1, carAlbedo: 1, carFinish: [0.07, 0.03],
+      ao: [0.6, 8.5, 1.0, 0.04],
+    };
+    return {
+      gaOld:  { ...base, carGlass: [0.06, 0.86], carGlassAlbedo: 1 },
+      gaShip: { ...base, carGlass: [0.06, 0.00], carGlassAlbedo: 1 },
+      gaA033: { ...base, carGlass: [0.06, 0.00], carGlassAlbedo: 0.33 },
+      gaA014: { ...base, carGlass: [0.06, 0.00], carGlassAlbedo: 0.14 },
+      gaA000: { ...base, carGlass: [0.06, 0.00], carGlassAlbedo: 0.00 },
+    };
+  })(),
+
   // THE DISTRICT BOUNCE, scaled. It is a HemisphereLight and three.js gives it no
   // occlusion, so it reaches the road under a closed oak canopy in full - which is
   // exactly where noon's dapple is read. bounce00 is the build with the bounce
@@ -498,6 +548,13 @@ export async function setArm(page, name) {
     if (D && D.setCarHub) carHub = D.setCarHub(s.carHub ?? sv.hub ?? 1);
     let carAlbedo = null;
     if (D && D.setCarLampAlbedo) carAlbedo = D.setCarLampAlbedo(s.carAlbedo ?? sv.lampAlbedo ?? 1);
+    // THE GLAZING ALBEDO. Saved and restored like every other term; scaled from a
+    // captured base inside setGlassAlbedo, so k = 1 restores exactly and repeated
+    // arms do not compound.
+    let carGlassAlbedo = null;
+    if (D && D.setCarGlassAlbedo) {
+      carGlassAlbedo = D.setCarGlassAlbedo(s.carGlassAlbedo ?? 1);
+    }
     let carFinish = null;
     if (D && D.setCarLensFinish) {
       const fin = s.carFinish ?? [sv.finish.roughness, sv.finish.metalness];
@@ -541,6 +598,16 @@ export async function setArm(page, name) {
       carFinish: carFinish ? [carFinish.roughness, carFinish.metalness] : null,
       carHub: carHub ? [carHub.scale, carHub.verticesTouched.parked] : null,
       carAlbedo: carAlbedo ? [carAlbedo.scale, carAlbedo.verticesTouched.parked] : null,
+      // IN THE KEY, and it has to be: gaShip, gaA033, gaA014 and gaA000 differ in
+      // NOTHING ELSE, so without it four distinct arms hash to one value and
+      // proveArmsDiffer waves through a set of frames that are all the same build.
+      // That is the fourth time a term has had to be added here for exactly this
+      // reason. The vertex count rides along so a run that reached no glass says so.
+      carGlassAlbedo: carGlassAlbedo
+        ? [carGlassAlbedo.scale,
+          carGlassAlbedo.verticesTouched.parked && carGlassAlbedo.verticesTouched.parked.verticesTouched,
+          carGlassAlbedo.verticesTouched.traffic && carGlassAlbedo.verticesTouched.traffic.verticesTouched]
+        : null,
       // WHICH SHELL SET THE POOLS BUILT WITH. Constant within a page load, so it
       // cannot make two arms distinct - it is here so a captured frame records
       // whether it is the one-shell or the three-shell load, which is the one
@@ -572,7 +639,7 @@ export async function proveArmsDiffer(page, arms) {
   // carFront and carTyre joined the key in round 5 for the same reason, for the
   // third time: those arms move one texel and one vertex-colour set and nothing
   // a uniform readback would otherwise show.
-  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carGlass, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo, s.carShells]))).size;
+  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carGlass, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo, s.carGlassAlbedo, s.carShells]))).size;
   return { seen, ok: distinct === arms.length };
 }
 

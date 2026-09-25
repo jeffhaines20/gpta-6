@@ -27,7 +27,7 @@ import {
 } from '../src/signage.js';
 import { buildingStyle } from '../src/facades.js';
 import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubScale,
-  setTrafficLampAlbedo, setCarLensArm, setShellNames, shellNames,
+  setTrafficLampAlbedo, setGlassAlbedo, setCarLensArm, setShellNames, shellNames,
   carLensArm, setFrontLensScale, frontLensScale, frontLensLuma,
   setLensFinish, lensFinish,
   setLensProfile, lensProfile,
@@ -1108,6 +1108,16 @@ window.__district = {
     const n = { traffic: 0, parked: 0 };
     n.traffic = forEachTrafficGeometry((g) => setTrafficLampAlbedo(g, k));
     n.parked = forEachParkedGeometry((g) => setTrafficLampAlbedo(g, k));
+    return { scale: k, verticesTouched: n };
+  },
+  // THE GLAZING'S ALBEDO, which is the axis the metalness knob could not separate.
+  // Both pools, every shell. verticesTouched is the assertion that it found the
+  // glass: a lever that reaches nothing is how a round concludes a term does not
+  // matter, and this one was mis-concluded once already in the other direction.
+  setCarGlassAlbedo: (k) => {
+    const n = { traffic: 0, parked: 0 };
+    n.traffic = forEachTrafficGeometry((g) => setGlassAlbedo(g, k));
+    n.parked = forEachParkedGeometry((g) => setGlassAlbedo(g, k));
     return { scale: k, verticesTouched: n };
   },
   setCarFrontLens: (k) => {

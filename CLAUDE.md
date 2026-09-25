@@ -198,6 +198,38 @@ less than one that says what moved and by how much.
   (764,720 / 786,849 / 786,066 / 788,697) - and that is worth knowing; it is just
   not what decides whether a delta against an older artifact is structural.
 
+## A fixed box over moved geometry is not a measurement of the material
+
+Three blind reviewers independently reported that a car's rear quarter light had
+been deleted and replaced with painted metal. Their box read 0.2751 of the paint
+below it in one arm and 1.3499 in the other, with internal modulation collapsing
+4.576 → 1.081. I reproduced it, believed it, wrote it into `src/carbody.js` as a
+shipped-material regression, and committed it.
+
+It was the BODY SHELL. The same box, with the material held at its old value and
+only the shell changed:
+
+    coupe,  metalness 0.86     0.2751   modulation 4.576
+    saloon, metalness 0.86     1.3680   modulation 1.081      material unchanged
+    saloon, metalness 0.00     1.3499   modulation 1.081
+
+The saloon's roofline break is 0.2 m forward of the coupe's, so the quarter light
+moved and the box did not: it lands on glass in one shell and on body panel in the
+other. The material change then moved it 1.368 → 1.350, **down** by 1.3%.
+
+The tell was in the reviewers' own reports. One of them had hit the same fault on a
+different box earlier in its round, caught it, and wrote the rule down — *"a box
+that is valid for one arm's geometry is not automatically valid for the other's
+when the geometry is what changed"* — and then had it again on this box. Another
+flagged the consequence without being able to resolve it: *"in that case the newer
+build has also lost a body variant and a quarter-light, which is worth checking
+against the diff."* Nobody checked, including me.
+
+**When an arm changes geometry, no fixed box measures a material.** Either hold the
+geometry and sweep the material alone, or find the subject in each arm before
+sampling it. And when three reviewers agree on a number, that agreement is evidence
+they used the same box, not evidence the box is right — they were handed it.
+
 ## Do not reason from a truncated diagnostic
 
 A monitor printed `tail -20` of a 30-line rejection list. Every line in the tail

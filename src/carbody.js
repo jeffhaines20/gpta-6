@@ -203,34 +203,54 @@ export function lensFinish() { return { ...LENS_FINISH }; }
  * metalness 0 it contributes 0.005 of diffuse rather than 0.0007 - still
  * negligible, which is correct.
  *
- * THAT LAST SENTENCE IS WRONG AND THREE BLIND REVIEWERS FALSIFIED IT
- * INDEPENDENTLY. 0.005 of diffuse is not negligible when the specular has
- * nothing to reflect. Measured on the shipped build against this one:
+ * WHAT HAPPENED NEXT, IN TWO STEPS, BECAUSE I GOT THE MIDDLE ONE WRONG IN PUBLIC.
  *
- *   the rear quarter light, as a fraction of the body paint directly below it,
- *   median in linear light:   0.275 at metalness 0.86  ->  1.350 at metalness 0
+ * Step one: three blind reviewers independently reported the rear quarter light as
+ * deleted - "replaces the rear quarter light with painted metal", "removed glazed
+ * area on the rear quarter", "the separate rear quarter-light is absent" - one of
+ * them inverting its whole A/B direction over it, reasoning that builds add body
+ * variants and rarely delete one. Their box read 0.2751 of the paint below it in
+ * one arm and 1.3499 in the other, modulation 4.576 -> 1.081. I wrote that here as
+ * proof this change had made the glass stop being glass.
  *
- * The pane became BRIGHTER than the paint around it. All three reviewers
- * reported the same thing in different words - "P replaces the rear quarter
- * light with painted metal", "TALL removed glazed area on the rear quarter",
- * "the separate rear quarter-light is absent" - and one of them inverted its
- * whole A/B direction over it, reasoning that builds add body variants and
- * rarely delete one. It had not been deleted; it had stopped reading as glass.
+ * Step two, measured with the shells held fixed: IT IS THE SHELL, NOT THE GLAZING.
  *
- * AND THE SPECULAR DID NOT RISE, which is the part I cannot yet explain and am
- * therefore not explaining. F0 goes 0.0099 -> 0.04, so the prediction was ~4x
- * more environment reflection. Two reviewers measured the opposite on the pane's
- * bright end: brightest 2% / own paint 0.2077 -> 0.1933 (-7%), and on another
- * car p95/p50 3.93 -> 1.91, "its highlight came down while its floor came up".
- * So the visible change is a lifted FLOOR and a flat-or-lower CEILING - a lighter
- * grey hole rather than a black one, which is what all three then said in so
- * many words: "the lift raised the median without putting any content in the
- * window", "a fresnel-weighted sky term or a probe reflection is what is
- * missing; more lift alone will just make it grey".
+ *   cumS1-r5cum  coupe,  metalness 0.86   0.2751   modulation 4.576
+ *   cumS3-r5cum  saloon, metalness 0.86   1.3680   modulation 1.081   <- glazing UNCHANGED
+ *   cumS3-r9cum  saloon, metalness 0.00   1.3499   modulation 1.081
  *
- * The next round isolates albedo from metalness with a sweep and a per-pane
- * median/p95 split, because those are two different quantities and this round
- * moved both with one knob. Do not change this pair again without that sweep.
+ * The saloon's roofline break is 0.2 m forward of the coupe's, so the quarter light
+ * moved and the fixed box did not: it lands on glass in the coupe and on body panel
+ * in the saloon. The glazing then moves it 1.368 -> 1.350, DOWN by 1.3%. Nothing
+ * was deleted, nothing went grey, and the four reviewers-plus-me who read that box
+ * were reading a moved silhouette. Reviewer 2 had written the exact warning for its
+ * other box - "a box that is valid for one arm's geometry is not automatically
+ * valid for the other's when the geometry is what changed" - and then had the same
+ * fault here.
+ *
+ * WHAT THE CHANGE ACTUALLY DID, boxes valid in both arms, three shells both sides,
+ * linear light, against paint on the same car at noon:
+ *
+ *                      median/paint      p95/paint      modulation
+ *   windscreen      0.0077 -> 0.0177  0.0098 -> 0.0201  1.278 -> 1.140
+ *   backlight       0.0170 -> 0.0337  0.0180 -> 0.0356  1.061 -> 1.056
+ *
+ * Floor and ceiling both roughly DOUBLE (1.98x - 2.3x), so the earlier reading of
+ * "lifted floor, flat-or-lower ceiling" was also the box. The panes stay at
+ * 1.8-3.4% of the body paint: much darker than the paint, not brighter.
+ *
+ * SO THE LIFT IS REAL AND THE REVIEWERS' PRESCRIPTION STILL STANDS, for a reason
+ * that survives the correction: modulation barely moved (1.278 -> 1.140 and
+ * 1.061 -> 1.056), which is the number that says whether anything is REFLECTED in
+ * the pane. A pane at modulation 1.06 has no content in it at any brightness. All
+ * three said so independently - "the lift raised the median without putting any
+ * content in the window", "a fresnel-weighted sky term or a probe reflection is
+ * what is missing; more lift alone will just make it grey".
+ *
+ * And the diffuse is still not negligible, just not in the way I claimed: 7.1x
+ * more diffuse and 4.0x more F0 produced 2.0x more pane, so a floor term dilutes
+ * both and neither knob alone explains it. That is what the albedo sweep exists to
+ * separate. Do not change this pair again without it.
  *
  * Swept rather than assumed: the prediction is a ~4x rise in the specular term
  * at normal incidence and more at grazing, and a prediction is not a result.
@@ -2585,6 +2605,51 @@ export function setTrafficTyreScale(geo, k) {
  * that is bounded by physics: a lens cannot reflect more than it receives, so a
  * scale past 1/0.687 = 1.456 is authoring an albedo over 1.
  */
+/**
+ * Rescale the GLAZING's vertex albedo, in place, on one geometry.
+ *
+ * WHY THIS LEVER EXISTS. Last round moved the glazing from metalness 0.86 to 0
+ * and three blind reviewers independently measured the result as a window that
+ * had stopped being a window: the rear quarter light went from 0.275 to 1.350 of
+ * the body paint directly below it, i.e. BRIGHTER than the paint, with no
+ * reflected content in it. One of them inverted its whole A/B direction over it.
+ *
+ * The reason that happened is that the metalness knob moves TWO terms at once:
+ *
+ *   F0      = mix(0.04, albedo, metalness)     the reflection
+ *   diffuse = albedo * (1 - metalness)         the floor
+ *
+ * so there was no way to buy the first without the second, and the round's own
+ * note called the diffuse lift "negligible, which is correct". It is not. This
+ * lever is the missing axis: it scales the glazing albedo alone, which moves the
+ * diffuse floor proportionally and F0 only at high metalness, so a sweep can
+ * finally ask which of the two carries the pane's appearance.
+ *
+ * The authored colour is col(0x0d1015) = sRGB (13, 16, 21), linear
+ * (0.0040, 0.0052, 0.0075). k = 1 is the build.
+ *
+ * SCALED FROM A CAPTURED BASE, not from the current value, so repeated calls do
+ * not compound and k = 1 always restores - the same contract setTrafficLampAlbedo
+ * and setTrafficTyreScale hold, and the reason every ARM_STATE entry can name a
+ * term without knowing what ran before it.
+ */
+export function setGlassAlbedo(geo, k) {
+  const uv = geo.getAttribute('uv'), col = geo.getAttribute('color');
+  if (!uv || !col) return 0;
+  if (!geo.userData.glassBase) {
+    const u = paletteU(SURFACE.glassy);
+    const idx = [];
+    for (let i = 0; i < uv.count; i++) if (Math.abs(uv.getX(i) - u) < 1e-4) idx.push(i);
+    geo.userData.glassBase = { idx, rgb: idx.map((i) => [col.getX(i), col.getY(i), col.getZ(i)]) };
+  }
+  const { idx, rgb } = geo.userData.glassBase;
+  for (let n = 0; n < idx.length; n++) {
+    col.setXYZ(idx[n], rgb[n][0] * k, rgb[n][1] * k, rgb[n][2] * k);
+  }
+  col.needsUpdate = true;
+  return idx.length;
+}
+
 export function setTrafficLampAlbedo(geo, k) {
   const uv = geo.getAttribute('uv'), col = geo.getAttribute('color');
   if (!uv || !col) return 0;
