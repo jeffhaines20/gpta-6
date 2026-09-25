@@ -306,6 +306,70 @@ geometry and sweep the material alone, or find the subject in each arm before
 sampling it. And when three reviewers agree on a number, that agreement is evidence
 they used the same box, not evidence the box is right — they were handed it.
 
+## The budget gate's autopilot drives through a third of the city
+
+`drive-through` steers in a straight line at route waypoints 75 to 512 m apart. Measured
+against the wall index, **829 m of that 2,528 m course is inside a building — 32.8%**,
+with individual legs at 59%, 50% and 47%. That was free until body collision existed. With
+walls solid the car is wrecked 10.6 s in at 89 km/h and 55 degrees of incidence, after
+which it has no engine power and the drive's own stuck-nudge teleports it round the rest of
+the route once every 2.65 s. The gate still finishes and still prints numbers, and they are
+numbers about a different traversal than every committed baseline.
+
+`__district.setBodyCollision(false)` and the gate says so in its output. `src/roadpath.js`
+is the real fix — Dijkstra on the graph `traffic.js` already walks, 0 of 851 points blocked
+even for the full car body — and it is not the gate's course yet, because changing what a
+gate measures needs a fresh baseline and the triangle WARN is unresolved.
+
+**Look for the road inside the building before blaming the driver.** 14 of 935 edges carry
+a car-sized obstruction on their own centreline and 7 have their centreline INSIDE a
+footprint; every one is class `service`, a 2.8 m alley, and the worst is 36 m long with 23
+of its 24 samples inside a building. The router excludes 11 of them, 1.2% of the network
+and 317 m. No follower can steer out of a road that is inside a building.
+
+## Five ways a path follower reports everything nominal while driving into a wall
+
+Every one of these was found by tracing, and every one produced a controller whose own
+numbers looked fine. They are listed because the shape recurs.
+
+1. **A gap in the path.** `nearestOn` projects onto an edge at some fraction along it while
+   `route` can only start from an endpoint vertex, so prepending the projection inserted a
+   75 m straight segment. An arc-length look-ahead then aimed at the far side of it,
+   reported a heading error of **0.00**, and drove 78 km/h across a city block for four
+   seconds. Off-line distance went 25 → 75 m with the error at zero the whole way.
+2. **A radial look-ahead aims backwards.** The aim was "the first point at least a
+   look-ahead away, searched from the current index". Cutting a corner stops the index
+   advancing; once the car is far enough from that stuck point, the radial test *selects
+   it*. Traced: at 73.67 s the car aims correctly at a point ahead; one second later the
+   aim is 11 m behind it and the error is −2.29 rad. It turned round, ran 109 m back up the
+   street and hit a building. Progress must be the closest point in a forward-only window,
+   and the aim must be measured in **arc length**, which cannot select a point behind.
+3. **Curvature over three points reads the resampling, not the road.** A resample leaves
+   short segments at its joins; a three-point window on one reads arc 0.6 m over 1.57 rad
+   and reports a **0.38 m** corner. The tell was that corner smoothing changed nothing —
+   0.45 m at 0, 1, 2, 3 and 4 passes, and smoothing cannot fail to round a real corner. The
+   wrong number was worse than wrong, it was *actionable*: 0.38 m is not steerable at any
+   speed, so the limiter demanded a standstill at every junction and the drive was carried
+   by 136 stuck-nudges. Measure curvature over a **fixed arc**.
+4. **A fixed-arc window still needs two segments.** If the first segment alone exceeds the
+   window, the end heading is read off the same segment as the start and the turn is exactly
+   zero — a 10 m square made entirely of right angles reported a minimum radius of
+   *Infinity*.
+5. **Grip is not the only corner ceiling.** `vehicle.js` scales steering authority down with
+   speed, so the minimum turning radius *grows*: 4.3 m at rest, 6.2 m at 40 km/h. A 6 m
+   junction at 40 km/h is geometrically impossible and no grip helps. Symptom: full steering
+   lock, a 1.39 rad heading error, off-line climbing 1.9 → 8.2 m, throttle at 0.35.
+
+**Fewer contacts is not better driving.** An intermediate reading of 187 contacts looked
+better than the 1,654 that replaced it and was worse: the 187 was measured while the
+limiter demanded 0 km/h at every junction, so the car crawled and 136 nudges carried it.
+
+**Localise before tuning.** Identical impacts at 50, 65 and 79 km/h — same three junctions,
+delta-v within 3% — is not a speed problem, and three afternoons of throttle tuning would
+not have found it. Clearance from the finished course to the nearest wall is a minimum of
+1.92 m and a median of 11.23 m, with not one point of 737 within 1.5 m: so every remaining
+contact comes from the follower's 26.79 m excursions and nothing from the course.
+
 ## A check whose two sides are both zero is not a check
 
 `crash-test`'s speed sweep launched every arm from 160 m back and ran 1,400 fixed

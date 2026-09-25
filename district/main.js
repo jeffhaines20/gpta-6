@@ -1344,6 +1344,29 @@ window.__district = {
   }),
   repairCar: () => { damage.repair(); vehicle.contacts = 0; vehicle.pendingImpact = null; return damage.report(); },
   /**
+   * Turn body collision off, or back on.
+   *
+   * WHY THIS EXISTS, because a switch that disables a feature needs a better reason than
+   * convenience. tools/drive-through.mjs — the budget gate — drives the district on an
+   * autopilot that steers in a STRAIGHT LINE at route waypoints 75 to 512 m apart, and
+   * 829 m of that 2,528 m course is inside a building: 32.8% of it. That was harmless
+   * until this round. With walls solid the gate's car is wrecked 10.6 s in and the drive's
+   * own stuck-nudge teleports it round the rest of the route, so the gate would be
+   * sampling triangles over a completely different set of resident chunks than every
+   * committed baseline it is compared against — and the triangle p95 is already a standing
+   * unresolved WARN. Changing what a gate measures while trying to explain its reading is
+   * how a round loses four hours.
+   *
+   * So the gate turns collision off and SAYS SO in its output. src/roadpath.js is the
+   * actual fix — a course on the road graph, 0 of 851 points blocked even for the car body
+   * — and it is not the gate's default yet because making it so needs a fresh baseline.
+   */
+  setBodyCollision(on) {
+    vehicle.blockers = on ? blockers : null;
+    return !!vehicle.blockers;
+  },
+  bodyCollision: () => !!vehicle.blockers,
+  /**
    * Charge a synthetic impact, bypassing the geometry. Used to exercise the fail paths
    * and the HUD without driving: a headless page renders under one frame a second, so
    * crashing a car into a building on purpose costs minutes.

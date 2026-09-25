@@ -121,6 +121,29 @@ if (process.env.DRIVE_HUD === 'off') {
   console.log('canvas HUD DISABLED for this run');
 }
 
+/**
+ * BODY COLLISION OFF, DELIBERATELY, AND THIS LINE IS THE WHOLE REASON THE GATE STILL
+ * MEANS ANYTHING.
+ *
+ * The autopilot below steers in a straight line at route waypoints 75 to 512 m apart.
+ * Measured against the wall index: 829 m of that 2,528 m course is inside a building —
+ * 32.8% of it, with individual legs at 59%, 50% and 47%. That cost nothing until body
+ * collision existed. With walls solid the car is wrecked 10.6 s in at 89 km/h and 55
+ * degrees of incidence, after which it has no engine power, and the stuck-nudge below
+ * teleports it round the remaining route once every 2.65 s — 23 teleports per circuit.
+ * The drive would still finish and the gate would still print numbers, and they would be
+ * numbers about a different traversal than every committed baseline.
+ *
+ * tools/route-drive.mjs is the offline record of both arms, and src/roadpath.js is the
+ * real fix: a course on the road graph with 0 of 851 points blocked even for the full car
+ * body. It is not this gate's course yet, because changing what the gate measures
+ * requires a fresh baseline and the triangle p95 WARN is unresolved.
+ */
+const collisionWas = await page.evaluate(() =>
+  (__district.setBodyCollision ? __district.setBodyCollision(false) : null));
+console.log(`body collision: OFF for this run (was ${collisionWas === null ? 'unavailable' : 'on'})`);
+console.log('  the straight-line course is 32.8% inside buildings; see the comment above.');
+
 // Install the autopilot: steer toward the next waypoint, advance on arrival.
 // Because the sim is fixed-step, this behaves the same however slowly the
 // software renderer produces frames.
