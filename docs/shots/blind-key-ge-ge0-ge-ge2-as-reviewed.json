@@ -1,0 +1,40 @@
+{
+ "generated": "2026-09-25T15:48:46.825Z",
+ "left": "ge-ge0",
+ "right": "ge-ge2",
+ "salt": "9b2a15c2dd08",
+ "unpairedLeft": [],
+ "unpairedRight": [],
+ "pairs": [
+  {
+   "id": "corridor-night-backlight",
+   "A": "ge-ge2",
+   "B": "ge-ge0"
+  },
+  {
+   "id": "corridor-night-windscreen",
+   "A": "ge-ge2",
+   "B": "ge-ge0"
+  },
+  {
+   "id": "corridor-night",
+   "A": "ge-ge2",
+   "B": "ge-ge0"
+  },
+  {
+   "id": "corridor-noon-backlight",
+   "A": "ge-ge0",
+   "B": "ge-ge2"
+  },
+  {
+   "id": "corridor-noon-windscreen",
+   "A": "ge-ge0",
+   "B": "ge-ge2"
+  },
+  {
+   "id": "corridor-noon",
+   "A": "ge-ge0",
+   "B": "ge-ge2"
+  }
+ ]
+}

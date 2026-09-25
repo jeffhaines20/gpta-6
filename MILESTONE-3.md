@@ -105,20 +105,34 @@ M3 is the milestone that makes this a game rather than a city.
    over and the growth is unaccounted; price it with the deterministic offline
    bill first (`tri-ledger`, `frontage-stats`, `tri-breakdown`) and run the gate
    three times on a clean box second. The stall needs the same clean-box N=5.
-3. **The car line's remaining defect is now isolated, and the next lever is
-   free.** Three blind reviewers say the cars are improved but **not markedly**.
-   The lamps are off and proven passive, the shells are real and cost zero
-   triangles, and the glazing albedo sweep has closed the albedo axis: at ZERO
-   albedo the pane still reads 1.77x the old build's total, so the dielectric's
-   benefit is the F0 reflection and not the diffuse lift; albedo adds only ~30% on
-   top; and **no albedo setting improves the pane's modulation** (1.140-1.152
-   against 1.278 for the old metal). The pane has no reflected content at any
-   setting, which is exactly what all three reviewers said. What is missing is a
-   per-slot ENVIRONMENT GAIN, and it costs nothing: `writePackTexel` writes R=255
-   and A=255 into the 16x1 pack texture while three reads roughness from `.g` and
-   metalness from `.b`, so two channels are already free, and the material already
-   runs `onBeforeCompile` for the lens falloff. No new texture, no second
-   material, no draw call.
+3. **The car line is CLOSED, at the level the architecture allows.** Three blind
+   reviewers judged the closing pair and all three said **improved, not markedly** -
+   the same verdict as the round before. The line stops here, and it stops with a
+   number for what is missing rather than a shrug:
+
+   - **The level is now right, checked against photographs for the first time.** A
+     reviewer found six resolvable real cars in the repo's own reprojected Mapillary
+     spheres. Before this round the windscreen sat at 0.0167 of its own paint, which
+     is the level of *heavily privacy-tinted SUV glass*; windscreens are never
+     privacy-tinted. Shipped it sits at 0.0619, between clear side glass (0.0298) and
+     a clear rear screen with a lit cabin (0.11-0.13). `docs/measurements/car-glass-photo-anchor.json`.
+   - **The content is not, and the gap is measured.** After removing a fitted
+     quadratic, every render pane sits at the level of *smooth painted sheet metal in
+     its own frame* (0.41-1.61 q-steps against the bonnet's 0.26). Real car glass
+     clears that floor by 4-10x (2.74-4.04 q) and its residual contains headrests,
+     parcel shelves and heated-rear-screen elements; the render's contains ordered
+     dither. `docs/measurements/car-glass-content-anchor.json`.
+   - **No gain can close that**, because `scene.environment` is
+     `pmrem.fromEquirectangular(this.lut.texture)` - the sky LUT alone, no buildings,
+     no street, no cars. The next lever is a reflection probe, and it is a different
+     order of cost from everything shipped so far.
+   - **Night is untouched and cannot be fixed this way.** The pane goes 0.0037 ->
+     0.0103 of its paint; both are a hole, `skyLux` is 0.15, and every night number
+     sits at encoded bytes 5-7. Issue #54 stays open.
+   - **One cost, stated.** The gain makes the noon pane bluer (linear B/R 4.31 ->
+     5.38) because what it amplifies is bluer than what the pane was. Issue #36 now
+     has a number: the pane reads 5.38 against the bluest *measurable* sky at 3.09.
+
 4. **The remaining open visual items, in priority order**: glass reads blue at
    noon (#36), the traffic-car greenhouse at night (#54), `aoKernel` 3 parked for
    a reviewer (#48), and shell variety past the three that shipped (#56).
