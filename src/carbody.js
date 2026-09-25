@@ -148,11 +148,56 @@ let _packTex = null, _emisTex = null;
  * which (CLAUDE.md: isolate one term at a time).
  */
 const LENS_FINISH = { roughness: PALETTE[SURFACE.headlight][0], metalness: PALETTE[SURFACE.headlight][1] };
+/**
+ * THE ALPHA CHANNEL CARRIES A PER-SLOT ENVIRONMENT GAIN, and it was always free.
+ *
+ * three reads roughness from `.g` and metalness from `.b` of this 16x1 texture.
+ * `.r` and `.a` have been written as 255 and ignored since the texture existed.
+ * The glazing sweep established that no albedo setting adds CONTENT to a car
+ * window - modulation 1.140-1.152 at every setting against 1.278 for the old
+ * metal - and that what is missing is a stronger environment answer from the
+ * glass alone. envMapIntensity is per-MATERIAL and one material serves every slot
+ * on the car, so raising it would brighten the paint and the chrome too. A second
+ * material would cost +3 colour-pass draw calls on the parked pool and the same
+ * again on the fleet.
+ *
+ * So the gain rides here. The encoding is deliberately chosen so the DEFAULT IS
+ * BIT-EXACT: gain = 1 + (1 - a) * uGlassEnvExtra, and every slot but the glazing
+ * keeps a = 255, which is gain exactly 1.0 for them at every value of the
+ * uniform. Shipping uGlassEnvExtra at 0 makes the whole change a no-op until
+ * something sets it, so the arm that reproduces today's build is exact rather
+ * than approximately exact.
+ *
+ * THE SLOT DECIDES ITS OWN ALPHA, not the caller. setGlassFinish and
+ * setLensFinish both rewrite texels at runtime and either could have dropped the
+ * glazing's alpha back to 255 and silently disabled the gain. Deriving it from
+ * `i` here means there is no call site that can forget - the recurring defect
+ * shape in this repo is a fix applied to one caller and not its siblings.
+ */
+const ENV_GAIN_SLOTS = new Set([SURFACE.glassy]);
 function writePackTexel(data, i, rough, metal) {
   data[i * 4 + 0] = 255;
   data[i * 4 + 1] = Math.round(THREE.MathUtils.clamp(rough, 0, 1) * 255);
   data[i * 4 + 2] = Math.round(THREE.MathUtils.clamp(metal, 0, 1) * 255);
-  data[i * 4 + 3] = 255;
+  data[i * 4 + 3] = ENV_GAIN_SLOTS.has(i) ? 0 : 255;
+}
+
+/**
+ * How much harder the glazing answers the environment than everything else.
+ *
+ * 0 IS TODAY'S BUILD, EXACTLY. See writePackTexel: at 0 the gain is 1.0 for every
+ * slot including the glazing, so this ships inert and the before-arm of any sweep
+ * over it is the build itself rather than an emulation of it.
+ */
+const GLASS_ENV = { uGlassEnvExtra: { value: 0 } };
+export function setGlassEnv(k) {
+  GLASS_ENV.uGlassEnvExtra.value = Math.max(0, k);
+  return { extra: GLASS_ENV.uGlassEnvExtra.value,
+    gainOnGlass: 1 + GLASS_ENV.uGlassEnvExtra.value, gainElsewhere: 1 };
+}
+export function glassEnv() {
+  return { extra: GLASS_ENV.uGlassEnvExtra.value,
+    gainOnGlass: 1 + GLASS_ENV.uGlassEnvExtra.value, gainElsewhere: 1 };
 }
 /**
  * Rewrite the headlamp's roughness/metalness on the live palette.
@@ -409,18 +454,52 @@ export function lensProfile() {
 // unambiguous. Asserted rather than assumed: a silent no-op here would leave the
 // flat lens in place and every number would look like a change that did not work.
 const EMISSIVE_DECL = 'vec3 totalEmissiveRadiance = emissive;';
+// WHERE THE IMAGE-BASED SPECULAR CAN ACTUALLY BE REACHED, and the first answer was
+// wrong in a way only an assertion caught.
+//
+// I grepped the vendored three for `radiance += getIBLRadiance( ... );`, found it
+// exactly once, and replaced it. The page then threw
+// "IBL radiance line not found" on every car material and never rendered a frame,
+// because that line lives INSIDE the `lights_fragment_maps` chunk and
+// onBeforeCompile hands back the shader with its `#include` directives still
+// UNRESOLVED. EMISSIVE_DECL works because `vec3 totalEmissiveRadiance = emissive;`
+// is top-level in meshphysical; this was not. Without the assertion the injection
+// would have silently no-opped and a ten-frame sweep would have concluded, with
+// perfectly consistent numbers, that the environment term does nothing.
+//
+// The include directive IS top-level, and `radiance` is in scope between it and
+// `lights_fragment_end`, where RE_IndirectSpecular( radiance, ... ) consumes it.
+// So the injection goes immediately after the include, under the same guard three
+// declares the variable under. The directive appears four times in the vendored
+// build (physical, phong, lambert, toon) and onBeforeCompile hands us ONE
+// material's shader, so a plain replace is unambiguous - the same argument
+// EMISSIVE_DECL's note makes.
+const IBL_DECL = '#include <lights_fragment_maps>';
 function patchLensFalloff(m) {
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uLensEdge = LENS_PROFILE.uLensEdge;
     shader.uniforms.uLensPow = LENS_PROFILE.uLensPow;
     shader.uniforms.uLensGain = LENS_PROFILE.uLensGain;
+    shader.uniforms.uGlassEnvExtra = GLASS_ENV.uGlassEnvExtra;
     if (!shader.fragmentShader.includes(EMISSIVE_DECL)) {
       throw new Error('carSurfaceMaterial: emissive declaration not found; lens falloff would silently no-op');
     }
+    if (!shader.fragmentShader.includes(IBL_DECL)) {
+      throw new Error('carSurfaceMaterial: lights_fragment_maps include not found; the glazing environment gain would silently no-op');
+    }
     shader.fragmentShader = shader.fragmentShader
+      // THE PER-SLOT ENVIRONMENT GAIN. The alpha of the pack texture, sampled at
+      // the SAME uv three samples roughness at, so it cannot drift from the slot
+      // the shader actually used. 255 everywhere but the glazing, so this is the
+      // identity for every other surface at every value of the uniform.
+      .replace(IBL_DECL, `${IBL_DECL}
+#if defined( RE_IndirectSpecular )
+	radiance *= ( 1.0 + ( 1.0 - texture2D( roughnessMap, vRoughnessMapUv ).a ) * uGlassEnvExtra );
+#endif`)
       .replace('void main() {', `uniform float uLensEdge;
 uniform float uLensPow;
 uniform float uLensGain;
+uniform float uGlassEnvExtra;
 void main() {`)
       .replace(EMISSIVE_DECL, `float lensRho = clamp( vEmissiveMapUv.y, 0.0, 1.0 );
 	float lensDome = pow( max( 0.0, 1.0 - lensRho * lensRho ), uLensPow );
@@ -429,7 +508,11 @@ void main() {`)
   // Two car materials exist with different envMapIntensity; without a cache key
   // three would share one compiled program between them and the second would
   // silently take the first's uniforms.
-  m.customProgramCacheKey = () => 'carLensFalloff2';
+  // BUMPED FOR THE ENVIRONMENT GAIN. A new uniform and a new injection with the
+  // old key means three hands back the previously compiled program and the change
+  // silently does nothing - which is the exact failure the assertions above exist
+  // to catch, arriving by a route they cannot see.
+  m.customProgramCacheKey = () => 'carLensFalloff3env';
   return m;
 }
 

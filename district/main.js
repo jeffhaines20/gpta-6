@@ -27,7 +27,7 @@ import {
 } from '../src/signage.js';
 import { buildingStyle } from '../src/facades.js';
 import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubScale,
-  setTrafficLampAlbedo, setGlassAlbedo, setCarLensArm, setShellNames, shellNames,
+  setTrafficLampAlbedo, setGlassAlbedo, setGlassEnv, glassEnv, setCarLensArm, setShellNames, shellNames,
   carLensArm, setFrontLensScale, frontLensScale, frontLensLuma,
   setLensFinish, lensFinish,
   setLensProfile, lensProfile,
@@ -1120,6 +1120,16 @@ window.__district = {
     n.parked = forEachParkedGeometry((g) => setGlassAlbedo(g, k));
     return { scale: k, verticesTouched: n };
   },
+  // HOW MUCH HARDER THE GLASS ANSWERS THE ENVIRONMENT than the paint beside it.
+  // One uniform, shared by every car material, gated per slot by the pack
+  // texture's alpha - so it reaches the glazing and nothing else. 0 is the build.
+  //
+  // This is the lever the albedo sweep proved was needed: no albedo setting moved
+  // the pane's modulation off 1.14, which is the number that says whether anything
+  // is REFLECTED in the window. A level knob cannot add content; a stronger
+  // environment term can.
+  setCarGlassEnv: (k) => setGlassEnv(k),
+  carGlassEnv: () => glassEnv(),
   setCarFrontLens: (k) => {
     const st = setFrontLensScale(k);
     // The texture is shared by the pool's material; the emissive SCALAR has not

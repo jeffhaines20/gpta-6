@@ -198,6 +198,41 @@ less than one that says what moved and by how much.
   (764,720 / 786,849 / 786,066 / 788,697) - and that is worth knowing; it is just
   not what decides whether a delta against an older artifact is structural.
 
+## `onBeforeCompile` hands you UNRESOLVED includes
+
+A shader injection aimed at `radiance += getIBLRadiance( ... );` threw
+"IBL radiance line not found" on every car material and the page never rendered a
+frame. The string is in the vendored three exactly once, and grepping for it is how
+the target was chosen — but it lives inside the `lights_fragment_maps` CHUNK, and
+`onBeforeCompile` gives you the material's shader with its `#include` directives
+still unexpanded. `patchLensFalloff`'s existing injection works because
+`vec3 totalEmissiveRadiance = emissive;` is top-level in `meshphysical`; this was
+not.
+
+**Grep the vendored bundle to find the mechanism, then target a string that is
+top-level in the material's own shader.** `#include <lights_fragment_maps>` is such
+a string, and `radiance` is in scope between it and `lights_fragment_end` where
+`RE_IndirectSpecular( radiance, … )` consumes it — so the injection goes
+immediately after the include, under the same `#if defined( RE_IndirectSpecular )`
+guard three declares the variable under.
+
+Two things made this cheap instead of expensive, and both are the rule:
+
+- **The injection asserted its own seam.** Without `if (!shader.fragmentShader
+  .includes(SEAM)) throw`, the replace would have silently matched nothing, the
+  page would have rendered perfectly, and a ten-frame sweep would have concluded
+  with beautifully consistent numbers that the lever does nothing. That is the
+  same failure `proveArmsDiffer` exists for, arriving through the shader instead
+  of the uniforms.
+- **A two-frame smoke test ran before the ten-frame sweep.** Ten frames is an hour
+  on SwiftShader; two is ten minutes. Check that a new lever reaches the pixels
+  before you spend the hour measuring it.
+
+And when adding a uniform or an injection to a material that sets
+`customProgramCacheKey`, **bump the key**. Three will otherwise hand back the
+previously compiled program and the change does nothing — a failure the seam
+assertion cannot see, because the assertion runs on a compile that never happens.
+
 ## A fixed box over moved geometry is not a measurement of the material
 
 Three blind reviewers independently reported that a car's rear quarter light had

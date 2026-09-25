@@ -374,6 +374,41 @@ export const ARM_STATE = {
     };
   })(),
 
+  // ROUND 11: THE ONE LEVER THE ALBEDO SWEEP PROVED WAS NEEDED.
+  //
+  // gaA000 through gaShip moved the pane's LEVEL over a 1.3x range and its
+  // MODULATION not at all - 1.140 to 1.152 against 1.278 for the old metal. A
+  // level knob cannot put content in a window; modulation is the number that says
+  // whether anything is reflected, and three blind reviewers said the same thing
+  // in three different ways.
+  //
+  // carGlassEnv scales the image-based specular for the glazing SLOT alone, gated
+  // by the pack texture's alpha, which has been written as 255 and ignored since
+  // the texture existed. ge0 is the build EXACTLY - at extra 0 the gain is 1.0 for
+  // every slot including the glass, so the before-arm is the build itself and not
+  // an emulation of it.
+  //
+  // Bracketed wide on purpose. If modulation does not move across a 6x range of
+  // the environment term then the pane has nothing to reflect and the defect is in
+  // the environment, not in the glass - which is a finding, and the round closes on
+  // it rather than trying a fifth knob.
+  ...(() => {
+    const base = {
+      albedo: null, skyProxy: false, nightGlowLux: 0,
+      carLens: 0, carFront: 0, carProfile: [0.16, 1.55, 2.0],
+      carTyre: 1, carHub: 1, carAlbedo: 1, carFinish: [0.07, 0.03],
+      carGlass: [0.06, 0.00], carGlassAlbedo: 1,
+      ao: [0.6, 8.5, 1.0, 0.04],
+    };
+    return {
+      ge0: { ...base, carGlassEnv: 0 },
+      ge1: { ...base, carGlassEnv: 1 },
+      ge2: { ...base, carGlassEnv: 2 },
+      ge3: { ...base, carGlassEnv: 3 },
+      ge5: { ...base, carGlassEnv: 5 },
+    };
+  })(),
+
   // THE DISTRICT BOUNCE, scaled. It is a HemisphereLight and three.js gives it no
   // occlusion, so it reaches the road under a closed oak canopy in full - which is
   // exactly where noon's dapple is read. bounce00 is the build with the bounce
@@ -555,6 +590,10 @@ export async function setArm(page, name) {
     if (D && D.setCarGlassAlbedo) {
       carGlassAlbedo = D.setCarGlassAlbedo(s.carGlassAlbedo ?? 1);
     }
+    // THE GLAZING'S ENVIRONMENT GAIN. Saved and restored like every other term; 0
+    // is the build, so an arm that does not name it gets the build's value.
+    let carGlassEnv = null;
+    if (D && D.setCarGlassEnv) carGlassEnv = D.setCarGlassEnv(s.carGlassEnv ?? 0);
     let carFinish = null;
     if (D && D.setCarLensFinish) {
       const fin = s.carFinish ?? [sv.finish.roughness, sv.finish.metalness];
@@ -603,6 +642,10 @@ export async function setArm(page, name) {
       // proveArmsDiffer waves through a set of frames that are all the same build.
       // That is the fourth time a term has had to be added here for exactly this
       // reason. The vertex count rides along so a run that reached no glass says so.
+      // IN THE KEY: ge0..ge5 differ in NOTHING ELSE, so without it five distinct
+      // arms hash to one value and proveArmsDiffer waves through a set of frames
+      // that are all the same build. Fifth time a term has needed this.
+      carGlassEnv: carGlassEnv ? [carGlassEnv.extra, carGlassEnv.gainOnGlass] : null,
       carGlassAlbedo: carGlassAlbedo
         ? [carGlassAlbedo.scale,
           carGlassAlbedo.verticesTouched.parked && carGlassAlbedo.verticesTouched.parked.verticesTouched,
@@ -639,7 +682,7 @@ export async function proveArmsDiffer(page, arms) {
   // carFront and carTyre joined the key in round 5 for the same reason, for the
   // third time: those arms move one texel and one vertex-colour set and nothing
   // a uniform readback would otherwise show.
-  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carGlass, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo, s.carGlassAlbedo, s.carShells]))).size;
+  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carGlass, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo, s.carGlassAlbedo, s.carGlassEnv, s.carShells]))).size;
   return { seen, ok: distinct === arms.length };
 }
 

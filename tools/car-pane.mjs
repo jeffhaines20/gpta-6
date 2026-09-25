@@ -79,6 +79,88 @@ export function paneStats(png, [x0, y0, x1, y1]) {
     clippedPct: +(100 * clipped / v.length).toFixed(2) };
 }
 
+/**
+ * GRADIENT OR CONTENT? Modulation cannot tell them apart, and the difference is
+ * the whole question.
+ *
+ * p95/p50 is a histogram statistic. A smooth Fresnel ramp across a windscreen's
+ * changing incidence angle and a reflected shopfront can produce the SAME
+ * modulation, and only one of them is what "the window has something in it"
+ * means. So fit a plane in linear light and split the variance:
+ *
+ *   planePct     how much of the pane's variance a single tilted plane explains
+ *   residualRms  what is left, as a fraction of the pane's own median
+ *
+ * A pane reflecting a featureless sky is a plane: planePct near 100, residual
+ * near 0. A pane reflecting a street has structure a plane cannot follow. This
+ * matters here because scene.environment is built with
+ * `pmrem.fromEquirectangular(this.lut.texture)` - the SKY LUT and nothing else,
+ * no buildings, no street, no cars - so the correct prediction for any gain on
+ * the environment term is that it raises the level and the gradient and leaves
+ * the residual where it is. An instrument that could not see that distinction
+ * would have called such a change a success.
+ *
+ * Least squares on (x, y, 1), which is exact and needs no iteration.
+ */
+export function planeFit(png, [x0, y0, x1, y1]) {
+  const { data, width, channels } = png;
+  let n = 0, sx = 0, sy = 0, sz = 0, sxx = 0, sxy = 0, syy = 0, sxz = 0, syz = 0;
+  const vals = [];
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const i = (y * width + x) * channels;
+      const L = LUMA(data[i], data[i + 1], data[i + 2]);
+      if (!Number.isFinite(L)) throw new Error(`non-finite luma at ${x},${y}`);
+      // Centre the coordinates so the normal equations stay well conditioned.
+      const u = x - (x0 + x1) / 2, v = y - (y0 + y1) / 2;
+      n++; sx += u; sy += v; sz += L;
+      sxx += u * u; sxy += u * v; syy += v * v; sxz += u * L; syz += v * L;
+      vals.push([u, v, L]);
+    }
+  }
+  const mz = sz / n;
+  // Solve the 3x3 normal equations for z = a*u + b*v + c.
+  const A = [[sxx, sxy, sx], [sxy, syy, sy], [sx, sy, n]];
+  const B = [sxz, syz, sz];
+  const det = A[0][0] * (A[1][1] * A[2][2] - A[1][2] * A[2][1])
+            - A[0][1] * (A[1][0] * A[2][2] - A[1][2] * A[2][0])
+            + A[0][2] * (A[1][0] * A[2][1] - A[1][1] * A[2][0]);
+  let a = 0, b = 0, c = mz;
+  if (Math.abs(det) > 1e-12) {
+    const d = (m) => m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+                   - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+                   + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+    const sub = (col) => A.map((row, i) => row.map((val, j) => (j === col ? B[i] : val)));
+    a = d(sub(0)) / det; b = d(sub(1)) / det; c = d(sub(2)) / det;
+  }
+  let ssTot = 0, ssRes = 0;
+  const absRes = [];
+  for (const [u, v, L] of vals) {
+    ssTot += (L - mz) ** 2;
+    const r = L - (a * u + b * v + c);
+    ssRes += r * r;
+    absRes.push(Math.abs(r));
+  }
+  absRes.sort((x, y) => x - y);
+  return { n,
+    planePct: ssTot > 0 ? +(100 * (1 - ssRes / ssTot)).toFixed(2) : 100,
+    // RMS AND A ROBUST TWIN, BECAUSE THE RMS ALONE LIED ON THE FIRST REAL PANE IT
+    // SAW. The 8.6 m windscreen read residualRms 1.4023 - deviation larger than the
+    // pane's own median - on a box whose modulation is 1.278, which means 95% of it
+    // lies within 1.278x of the median. Both cannot describe the same population
+    // unless a handful of pixels carry the RMS, and they do: a squared statistic is
+    // dominated by its outliers. residualMad is the MEDIAN absolute residual, which
+    // is not, so a large RMS beside a small MAD reads as "a few hot pixels, not
+    // structure" instead of as content that is not there.
+    residualRms: mz > 0 ? +(Math.sqrt(ssRes / n) / mz).toFixed(4) : 0,
+    residualMad: mz > 0 ? +(pct(absRes, 0.5) / mz).toFixed(4) : 0,
+    residualP95: mz > 0 ? +(pct(absRes, 0.95) / mz).toFixed(4) : 0,
+    // The plane's own tilt across the box, as a fraction of the median: how strong
+    // the smooth gradient is, which is what a Fresnel term across changing
+    // incidence actually looks like.
+    tiltOverMedian: mz > 0 ? +((Math.abs(a) * (x1 - x0) + Math.abs(b) * (y1 - y0)) / mz).toFixed(4) : 0 };
+}
+
 /** The pane against a paint box on the same car in the same frame. */
 export function paneVsPaint(png, paneBox, paintBox) {
   const g = paneStats(png, paneBox), p = paneStats(png, paintBox);
@@ -135,6 +217,10 @@ function selftest() {
 
   // A synthetic frame, built rather than borrowed, so the expected answers are known.
   const W = 64, H = 64, ch = 3;
+  const enc = (lin) => {
+    const c = lin <= 0.0031308 ? 12.92 * lin : 1.055 * lin ** (1 / 2.4) - 0.055;
+    return Math.max(0, Math.min(255, Math.round(c * 255)));
+  };
   const mk = (fn) => {
     const data = new Uint8Array(W * H * ch);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -161,10 +247,6 @@ function selftest() {
   //    LINEAR signal by an exposure factor and re-encode: the linear ratio must hold
   //    and the sRGB-byte ratio must drift. This is CLAUDE.md's rule with a number
   //    attached.
-  const enc = (lin) => {
-    const c = lin <= 0.0031308 ? 12.92 * lin : 1.055 * lin ** (1 / 2.4) - 0.055;
-    return Math.max(0, Math.min(255, Math.round(c * 255)));
-  };
   // A range a real pane actually spans - a near-black floor to a sky highlight.
   // My first version used 0.02-0.12, which is narrow enough that the OETF is close
   // to a power law over it and the sRGB ratio barely drifts (3.74%): the test could
@@ -217,6 +299,61 @@ function selftest() {
   const hot = paneStats(mk(() => [255, 255, 255]), [8, 8, 40, 40]);
   chk('clipping is counted', hot.clippedPct === 100, `${hot.clippedPct}% of a white box`);
 
+  // 6. THE GRADIENT/CONTENT SPLIT, and the known-bad input is a PLANE. A probe that
+  //    reports structure on a pure ramp cannot be used to argue a window has
+  //    content in it.
+  // THE RAMP HAS TO BE LINEAR IN LINEAR LIGHT, not in bytes. My first version built
+  //    it as a byte ramp and read 99.19% / residual 0.0205 - correct behaviour, and
+  //    it failed the test, because sRGB->linear is not a scale so a byte ramp is a
+  //    CURVED surface in the space the fit works in. The probe was right and the
+  //    fixture was wrong, which is the third time in this file.
+  const linRamp = (x, y) => 0.02 + 0.30 * (x + y) / (2 * (W - 1));
+  const ramp3 = mk((x, y) => { const v = enc(linRamp(x, y)); return [v, v, v]; });
+  const pf1 = planeFit(ramp3, [8, 8, 40, 40]);
+  chk('a pure tilted ramp is explained by a plane', pf1.planePct > 99.9 && pf1.residualRms < 0.01,
+    `planeFit ${pf1.planePct}% residualRms ${pf1.residualRms} tilt ${pf1.tiltOverMedian}`);
+
+  // 7. ...and structure must NOT be. A ramp plus a hard rectangle, which is what a
+  //    reflected object looks like.
+  const ramp3plus = mk((x, y) => {
+    let lin = linRamp(x, y);
+    if (x > 18 && x < 30 && y > 14 && y < 26) lin = 0.55;
+    const v = enc(lin); return [v, v, v];
+  });
+  const pf2 = planeFit(ramp3plus, [8, 8, 40, 40]);
+  chk('a ramp with an object in it is NOT', pf2.planePct < 90 && pf2.residualRms > pf1.residualRms * 5,
+    `planeFit ${pf2.planePct}% residualRms ${pf2.residualRms} against the plain ramp's ${pf1.residualRms}`);
+
+  //    AND THE ROBUST TWIN MUST SEPARATE THE TWO FAILURE MODES. A few hot pixels
+  //    must move the RMS and NOT the MAD; real structure over a large area must
+  //    move both. Without this the probe cannot tell "there is an object reflected
+  //    in the window" from "three pixels caught the sun", and it read 1.4023 on a
+  //    real windscreen whose modulation was 1.278 - which is the second case.
+  const speck = mk((x, y) => {
+    let lin = linRamp(x, y);
+    if (x === 20 && y === 20) lin = 0.9;        // one pixel in 1,089
+    const v = enc(lin); return [v, v, v];
+  });
+  const pf4 = planeFit(speck, [8, 8, 40, 40]);
+  chk('one hot pixel moves the RMS and not the MAD',
+    pf4.residualRms > pf1.residualRms * 3 && Math.abs(pf4.residualMad - pf1.residualMad) < 0.005,
+    `RMS ${pf1.residualRms} -> ${pf4.residualRms}, MAD ${pf1.residualMad} -> ${pf4.residualMad}`);
+  chk('...while real structure moves both',
+    pf2.residualMad > pf1.residualMad * 3,
+    `MAD ${pf1.residualMad} (ramp) -> ${pf2.residualMad} (ramp + object)`);
+
+  // 8. And the split must survive an exposure change, or it cannot compare two
+  //    builds: residualRms is normalised by the pane's own median for that reason.
+  const dim = mk((x, y) => {
+    let lin = linRamp(x, y);
+    if (x > 18 && x < 30 && y > 14 && y < 26) lin = 0.55;
+    const v = enc(lin * 0.25); return [v, v, v];
+  });
+  const pf3 = planeFit(dim, [8, 8, 40, 40]);
+  chk('the gradient/content split survives a 4x exposure cut',
+    Math.abs(pf3.residualRms - pf2.residualRms) / pf2.residualRms < 0.25,
+    `residualRms ${pf3.residualRms} at x0.25 against ${pf2.residualRms} at x1`);
+
   console.log(f ? `CAR-PANE SELFTEST FAIL (${f})` : 'CAR-PANE SELFTEST OK');
   return f === 0;
 }
@@ -230,15 +367,18 @@ if (DIRECT) {
   if (!tags.length) { console.error('usage: car-pane.mjs <tag>...   (or --selftest)'); process.exit(2); }
   for (const [key, S] of Object.entries(PANES)) {
     console.log(`\n=== ${key}: ${S.what}`);
-    console.log('  tod    tag                    med/paint  p95/paint  floor/paint  modulation  clipped   n');
+    console.log('  tod    tag                    med/paint  modulation  planeFit  residMAD  residP95  residRMS    tilt clipped');
     for (const tod of TIMES) {
       for (const tag of tags) {
         const file = `${SHOTS}/${tag}-corridor-${tod}.png`;
         if (!fs.existsSync(file)) { console.log(`  ${tod.padEnd(6)} ${tag.padEnd(22)} MISSING ${file}`); continue; }
-        const r = paneVsPaint(readPNG(file), S.pane, S.paint);
+        const png = readPNG(file);
+        const r = paneVsPaint(png, S.pane, S.paint);
+        const f = planeFit(png, S.pane);
         console.log(`  ${tod.padEnd(6)} ${tag.padEnd(22)} ${r.medianOverPaint.toFixed(4).padStart(9)}` +
-          ` ${r.p95OverPaint.toFixed(4).padStart(10)} ${r.floorOverPaint.toFixed(4).padStart(12)}` +
-          ` ${r.modulation.toFixed(3).padStart(11)} ${String(r.pane.clippedPct).padStart(8)}% ${String(r.pane.n).padStart(5)}`);
+          ` ${r.modulation.toFixed(3).padStart(10)} ${String(f.planePct).padStart(8)}%` +
+          ` ${f.residualMad.toFixed(4).padStart(9)} ${f.residualP95.toFixed(4).padStart(9)} ${f.residualRms.toFixed(4).padStart(9)}` +
+          ` ${f.tiltOverMedian.toFixed(4).padStart(7)} ${String(r.pane.clippedPct).padStart(6)}%`);
       }
     }
   }
