@@ -128,7 +128,30 @@ const rank = (id) => createHash('sha256').update(salt + id).digest('hex');
 // the first half gives an exactly even split whose per-pair assignment is still
 // unpredictable. The first build of this file flipped independently and came out
 // 5-1, which is what prompted the change.
-const matched = [...L.keys()].filter((k) => R.has(k)).sort();
+// --only <tokens> KEEPS ONLY THE PAIRS WHOSE ID CONTAINS ONE OF THEM, and it is
+// an alternative to --force rather than a flavour of it.
+//
+// A car round captured two framings and the junction one carried 0.87% of its
+// GROUND band differing by >4/255 - the cars are barely in that picture, and its
+// best band was the SKY. The degeneracy gate correctly refused the set. The two
+// ways out without this flag are both bad: --force ships a low-signal pair into a
+// review and spends a reviewer's attention where there is nothing to see, and
+// renaming the tag to `<tag>-corridor` silently relabels every pair id. This
+// drops the framing and says so, and the gate then judges only what ships.
+//
+// It cannot be used to hide a refusal: what it excludes is PRINTED, and a pair
+// that survives the filter still has to clear MIN_SIGNAL.
+const ONLY = (argVal('only', '') || '').split(',').map((t) => t.trim()).filter(Boolean);
+const allMatched = [...L.keys()].filter((k) => R.has(k)).sort();
+const matched = ONLY.length
+  ? allMatched.filter((k) => ONLY.some((t) => k.includes(t)))
+  : allMatched;
+if (ONLY.length) {
+  const dropped = allMatched.filter((k) => !matched.includes(k));
+  console.log(`--only ${ONLY.join(',')}: keeping ${matched.length} of ${allMatched.length} pairs`);
+  for (const d of dropped) console.log(`  excluded: ${d}`);
+  if (!matched.length) { console.error('--only matched no pairs; nothing to build'); process.exit(2); }
+}
 // PAIRS THAT ARE VIEWS OF ONE FRAME MUST GET ONE ASSIGNMENT.
 //
 // Assignment is a keyed hash of the PAIR NAME, deliberately so: a reviewer who
