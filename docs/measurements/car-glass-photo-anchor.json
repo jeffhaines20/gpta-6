@@ -1,0 +1,20 @@
+{
+ "what": "Pane median / that same car's own paint median, in LINEAR light, inside one image. The first photographic anchor this project has for CAR GLASS; every previous car anchor was for wheels.",
+ "why": "Ten rounds of car work argued about whether the glazing was too dark with no reference. Found by a blind reviewer in the closing round, in reprojected Mapillary spheres of real Sarasota streets that were already in the repo.",
+ "method": "A ratio inside one image, so the unknown camera response cancels to first order. Files are gnomonic resamples of JPEGs and the response is assumed sRGB; the views are 4-channel where the render captures are 3-channel, so any probe must read png.channels.",
+ "photographs": [
+  { "file": "reference/sarasota/mapillary/views/2436143166765945-L.png", "subject": "heavy privacy tint, side glass, full sun", "paneOverPaint": 0.0025, "caveat": "at the photograph's own byte floor - a LOWER BOUND only" },
+  { "file": "reference/sarasota/mapillary/views/1193658445724950-R.png", "subject": "SUV rear screen, open shade", "paneOverPaint": 0.0172 },
+  { "file": "reference/sarasota/mapillary/views/1349590039583660-L.png", "subject": "SUV rear screen, full sun", "paneOverPaint": 0.0203 },
+  { "file": "reference/sarasota/mapillary/views/1352682759105330-R.png", "subject": "police SUV, CLEAR side glass, full sun", "paneOverPaint": 0.0298, "caveat": "paint clips 25%, so the true value is lower" },
+  { "file": "reference/sarasota/mapillary/views/1352682759105330-R.png", "subject": "saloon, CLEAR rear screen, lit cabin", "paneOverPaint": 0.1137, "caveat": "paint clips 71%, so the true value is lower" },
+  { "file": "reference/sarasota/mapillary/views/1350670166052380-L.png", "subject": "saloon, CLEAR rear screen, lit cabin", "paneOverPaint": 0.1268, "caveat": "paint clips 79%, so the true value is lower" }
+ ],
+ "render": {
+  "note": "corridor framing, noon, boxes re-cut clear of the A-pillar and of the glass rows",
+  "beforeThisRound": { "windscreen": 0.0167, "backlight": 0.0320 },
+  "shipped_extra2":  { "windscreen": 0.0619, "backlight": 0.1217 }
+ },
+ "verdict": "Before this round the windscreen sat at the level of heavily privacy-tinted SUV glass, and windscreens are never privacy-tinted - darker relative to its own paint than any clear glazing measurable in the reference. Shipped, it sits between clear side glass (0.030) and a clear rear screen with a lit cabin (0.11-0.13). On MAGNITUDE the shipped level is the defensible one.",
+ "limit": "The real spread is 50:1 across six cars, so magnitude alone cannot settle a round. The statistic that can is CONTENT, and on that one both render arms are indistinguishable from painted sheet metal - see car-glass-content-anchor in the same directory."
+}

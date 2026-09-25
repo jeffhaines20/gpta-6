@@ -1,0 +1,22 @@
+{
+ "what": "How much STRUCTURE a car window carries, in units of the one-byte quantisation step at that pane's own level, after removing a fitted smooth quadratic. The floor is anchored by measuring a surface in the SAME frame that is definitionally featureless.",
+ "why": "Level and content are different questions and this project spent several rounds conflating them. A pane can be lifted well off black and still be a flat sheet. p95/p50 cannot tell a smooth Fresnel ramp from a reflected shopfront; this can.",
+ "units": "q = one 8-bit code at the pane's own level. An 8-bit-encoded pure ramp already reads Laplacian p99 1.38 q, so zero is not the floor and the floor must be measured, not assumed.",
+ "render": [
+  { "surface": "smooth bonnet paint, same frame - THE FLOOR", "residualQ": 0.26, "laplacianP99Q": 3.82 },
+  { "surface": "near windscreen, before this round", "residualQ": 0.41, "laplacianP99Q": 3.89 },
+  { "surface": "near windscreen, shipped extra 2",   "residualQ": 0.73, "laplacianP99Q": 3.95 },
+  { "surface": "far backlight, before this round",   "residualQ": 1.61, "laplacianP99Q": 4.09 },
+  { "surface": "far backlight, shipped extra 2",     "residualQ": 1.32, "laplacianP99Q": 4.27 }
+ ],
+ "photographs": [
+  { "subject": "police SUV clear side glass",      "residualQ": 2.74, "laplacianP99Q": 8.65 },
+  { "subject": "SUV rear screen, shade",           "residualQ": 2.94, "laplacianP99Q": 5.74 },
+  { "subject": "SUV rear screen, sun",             "residualQ": 3.38, "laplacianP99Q": 15.52 },
+  { "subject": "saloon rear screen, sun",          "residualQ": 3.49, "laplacianP99Q": 13.04 },
+  { "subject": "saloon rear screen, sun",          "residualQ": 4.04, "laplacianP99Q": 19.15 }
+ ],
+ "verdict": "Every render pane sits at the level of smooth painted sheet metal in its own frame. Real car glass clears that floor by 4-10x. Remove the quadratic and contrast-stretch what is left: the real cars show headrests, parcel shelves, heated-rear-screen elements and door frames; the render panes show ordered dither. The shipped gain moved the LEVEL 3.7x and left this statistic where it was - 0.41 -> 0.73 on the windscreen against a real-glass range of 2.7-4.0, and the WRONG WAY on the backlight, 1.61 -> 1.32.",
+ "target": "To call a render pane glass: residual above ~2 q and Laplacian p99 above ~8 in this frame, with recognisable shapes in the residual image. That needs CONTENT in the environment. scene.environment is pmrem.fromEquirectangular(this.lut.texture) - the sky LUT alone, no buildings, no street, no cars - so no gain on it can deliver this. The remaining lever is a reflection probe, which is a different order of cost: a per-car cube probe across 30 parked cars and a 30-car fleet.",
+ "exception": "The 14.7 m car's rear screen carries one genuine specular glow at its lower-left corner, present in BOTH arms and unchanged by this round. It is real content in glass and the gain dilutes it: that pane's p95/p05 falls 1.87 -> 1.42 because an unchanged highlight is now a smaller fraction of a brighter pane."
+}
