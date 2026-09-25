@@ -462,6 +462,19 @@ for (const s of chosen) {
               // whether any lamp was in frame to light anything with.
               fleetGlow: traf?.glow ?? null,
               parkedFilled: fur?.parked?.filled ?? null,
+              // THE POOL'S OWN ACCOUNTING, because a triangle delta nobody can
+              // attribute is how a gate stops being evidence. daynight-sweep read
+              // 9,024 FEWER triangles at every hour after this round's pool
+              // changes, consistently, and neither the shell split (zero by
+              // construction, asserted by car-shapes) nor anything else in the
+              // round predicts that number. `pool` is the capacity, `filled` how
+              // many were placed, `perShell` how the fill split, and
+              // trianglesDrawn what those actually cost - so the next reading can
+              // be attributed instead of argued about.
+              parkedPool: fur?.parked?.pool ?? null,
+              parkedPerShell: fur?.parked?.perShell ?? null,
+              parkedShells: fur?.parked?.shells ?? null,
+              parkedTrianglesDrawn: fur?.parked?.trianglesDrawn ?? null,
               trees, treeSpecies: fur?.treeSpecies ?? null,
               propCount: fur?.propCount ?? null,
               frustumWorks,
