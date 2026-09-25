@@ -287,6 +287,43 @@ export const ARM_STATE = {
   r5frontOnly: { albedo: null, skyProxy: false, nightGlowLux: 0, carLens: 1,
     carFront: 1, carAlbedo: 1 / 1.3611, carTyre: 1, carHub: 1 },
 
+  // ROUND 9: THE CUMULATIVE PAIR THE REVIEWERS ARE ASKED TO JUDGE.
+  //
+  // Three blind reviewers said the cars were NOT markedly improved. Four changes
+  // shipped after that verdict and none has been put back in front of them:
+  //
+  //   35cba0b  RETRO.scale 1 -> 0   parked tail lamps off   carLens
+  //   35cba0b  FRONT.scale 1 -> 0   parked headlamps off    carFront
+  //   10ecf14  PALETTE[10] metalness 0.86 -> 0.00           carGlass
+  //   e30b4ce  post aoFloor 0 -> 0.04                       ao[3]
+  //   94a5b34  three body shells on both pools              ?shells= AT BOOT
+  //
+  // r5cum is b1bff3f - the tree they judged - and r9cum is the tree now. The
+  // first four terms are runtime levers so both arms come off ONE page load,
+  // ONE camera and ONE settled district. The shells cannot: a slot's shell is
+  // fixed when its matrix is written, so THAT term is a boot query parameter and
+  // the honest pair is `?shells=1` + r5cum against default + r9cum, two loads.
+  // Capturing all four cells also isolates the shells from the other three,
+  // which is the only reason to shoot the crosses at all.
+  //
+  // EVERY CAR TERM IS NAMED IN BOTH ARMS, including the four that do not move.
+  // setArm restores nothing it is not told about, and this file has been bitten
+  // three times by an arm inheriting the previous one's value - a confound
+  // introduced into the very A/B that exists to isolate. carProfile is named
+  // because setCarLens calls setLensProfile itself: at carLens 0 that writes
+  // edge 1 / gain 1, so an unnamed profile would be captured from the AFTER arm
+  // and then applied to the BEFORE arm, which is the confound in reverse.
+  // 0.16/1.55/2.0 is setLensProfile's own `on` default and therefore exactly
+  // what b1bff3f shipped; [0.07, 0.03] is PALETTE[4], unchanged by this round.
+  r5cum: { albedo: null, skyProxy: false, nightGlowLux: 0,
+    carLens: 1, carFront: 1, carGlass: [0.06, 0.86], carProfile: [0.16, 1.55, 2.0],
+    carTyre: 1, carHub: 1, carAlbedo: 1, carFinish: [0.07, 0.03],
+    ao: [0.6, 8.5, 1.0, 0.00] },
+  r9cum: { albedo: null, skyProxy: false, nightGlowLux: 0,
+    carLens: 0, carFront: 0, carGlass: [0.06, 0.00], carProfile: [0.16, 1.55, 2.0],
+    carTyre: 1, carHub: 1, carAlbedo: 1, carFinish: [0.07, 0.03],
+    ao: [0.6, 8.5, 1.0, 0.04] },
+
   // THE DISTRICT BOUNCE, scaled. It is a HemisphereLight and three.js gives it no
   // occlusion, so it reaches the road under a closed oak canopy in full - which is
   // exactly where noon's dapple is read. bounce00 is the build with the bounce
@@ -504,6 +541,14 @@ export async function setArm(page, name) {
       carFinish: carFinish ? [carFinish.roughness, carFinish.metalness] : null,
       carHub: carHub ? [carHub.scale, carHub.verticesTouched.parked] : null,
       carAlbedo: carAlbedo ? [carAlbedo.scale, carAlbedo.verticesTouched.parked] : null,
+      // WHICH SHELL SET THE POOLS BUILT WITH. Constant within a page load, so it
+      // cannot make two arms distinct - it is here so a captured frame records
+      // whether it is the one-shell or the three-shell load, which is the one
+      // term of this round's pair that a runtime arm cannot carry. A pair whose
+      // two halves came off two loads and did not record this is how an
+      // index-matched comparison ends up pairing the wrong cells.
+      carShells: (window.__district && window.__district.carShells)
+        ? window.__district.carShells().shells : null,
       skyLuxUpper: +(sky.audit().skyLux ?? 0).toFixed(1) };
   }, st);
 }
@@ -527,7 +572,7 @@ export async function proveArmsDiffer(page, arms) {
   // carFront and carTyre joined the key in round 5 for the same reason, for the
   // third time: those arms move one texel and one vertex-colour set and nothing
   // a uniform readback would otherwise show.
-  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carGlass, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo]))).size;
+  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carGlass, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo, s.carShells]))).size;
   return { seen, ok: distinct === arms.length };
 }
 

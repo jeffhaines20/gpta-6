@@ -27,7 +27,7 @@ import {
 } from '../src/signage.js';
 import { buildingStyle } from '../src/facades.js';
 import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubScale,
-  setTrafficLampAlbedo, setCarLensArm,
+  setTrafficLampAlbedo, setCarLensArm, setShellNames, shellNames,
   carLensArm, setFrontLensScale, frontLensScale, frontLensLuma,
   setLensFinish, lensFinish,
   setLensProfile, lensProfile,
@@ -89,6 +89,24 @@ await loading
     if (_boot.has('front')) {
       const k = Number(_boot.get('front'));
       console.log('car front lens', JSON.stringify(setFrontLensScale(Number.isFinite(k) ? k : 1)));
+    }
+    // ?shells=1 IS THE PRE-SHELL BUILD, and it is the only one of this round's
+    // four car changes that no runtime lever can reach: a slot's shell is chosen
+    // when the pool BUILDS, from its own hash modulo the shell count, and the
+    // matrices are written per shell thereafter. Read here, before either pool
+    // exists, for the same reason ?lens= and ?front= are.
+    //
+    // It is not an approximation of the before-arm. SHAPES.coupe is `{}`,
+    // buildTrafficCarGeometry falls back to CAR on an empty shape object, and
+    // tools/car-shapes.mjs asserts the coupe is byte-identical to no shape at
+    // all - so at 1 the modulus collapses to 0 for every slot and both pools
+    // emit exactly the geometry the reviewers judged. The alternative was a
+    // second checkout on a second port: 1.8 GB of docs/ on a box with 9.3 GB
+    // free, and the setup that cost this project a four-hour round comparing a
+    // build against itself.
+    if (_boot.has('shells')) {
+      const k = Number(_boot.get('shells'));
+      console.log('car shells', JSON.stringify(setShellNames(Number.isFinite(k) ? k : 3)));
     }
     // Constructing the world builds the material registry and facade library.
     // ?kerbs=0 streams the district with no kerb, gutter pan or parking lane, so
@@ -1159,6 +1177,21 @@ window.__district = {
     postPasses: post.stats.passes, triangles: post.stats.sceneTriangles }),
   worldReport: () => world.report(),
   trafficReport: () => (traffic ? traffic.report() : null),
+  // WHERE THE MOVING CARS ARE, so an audit can say how many of them are in the
+  // picture rather than how many are alive. hero-shots has been asking for this
+  // hook since the fleet round and getting `undefined`, so its trafficInFrustum
+  // column has read null in every artifact - and "30 cars" was quoted as though
+  // it were 30 cars in frame. It was 30 alive across the whole district; the
+  // frame held none inside the 110 m glow radius.
+  //
+  // traffic.js already retains the array (this._lastPositions, written at the end
+  // of every update), so this costs nothing and invents nothing: it is the same
+  // objects the overlap test and the glow ranking read, in world space.
+  trafficPositions: () => (traffic && traffic._lastPositions ? traffic._lastPositions : []),
+  // WHICH SHELL SET THE POOLS ACTUALLY BUILT WITH. Returned so a capture asserts
+  // the arm it photographed rather than trusting its own query string - the same
+  // argument setCarLens's note makes, and the reason ?shells= is checkable at all.
+  carShells: () => ({ shells: shellNames().length, names: shellNames().slice() }),
   startRecording() { metrics.recording = true; metrics.samples.length = 0; world.resetPeakStats(); },
   stopRecording() { metrics.recording = false; return metrics.samples; },
   setAutopilot(fn) { autopilot = fn; },

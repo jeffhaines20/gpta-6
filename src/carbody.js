@@ -811,6 +811,36 @@ export const SHAPES = {
 export const SHAPE_NAMES = Object.keys(SHAPES);
 
 /**
+ * THE SHELL SET, SO THE BEFORE-ARM OF THIS ROUND CAN BE SHOT AT ALL.
+ *
+ * Three of this round's four car changes are runtime levers (the tail lamp, the
+ * headlamp, the glazing metalness) and one is not: the shells are chosen when
+ * the pools BUILD, from a slot hash modulo the number of shells. Without a knob
+ * here the only before-arm available is a second checkout on a second port -
+ * which is the exact setup that cost this project a four-hour review round
+ * comparing a build against itself, and which costs 1.8 GB of docs/ on a box
+ * with 9.3 GB free.
+ *
+ * Truncating to one is EXACTLY the pre-shell build, not an approximation of it:
+ * SHAPES.coupe is `{}`, buildTrafficCarGeometry falls back to CAR when the shape
+ * object is empty, and tools/car-shapes.mjs already asserts that the coupe is
+ * byte-identical to no shape at all. So `?shells=1` reproduces the reviewers'
+ * geometry to the vertex, and the modulus collapses to 0 for every slot.
+ *
+ * Read through shellNames() at build time by both pools. NOT a live setter: the
+ * shell of a slot is fixed when its matrix is written, so changing this after
+ * the district exists would leave the two pools disagreeing with their own
+ * cursors. main.js applies it from the query string before anything builds.
+ */
+let ACTIVE_SHELLS = SHAPE_NAMES.slice();
+export function shellNames() { return ACTIVE_SHELLS; }
+export function setShellNames(n) {
+  const k = Math.max(1, Math.min(SHAPE_NAMES.length, Math.round(n)));
+  ACTIVE_SHELLS = SHAPE_NAMES.slice(0, k);
+  return { shells: ACTIVE_SHELLS.length, names: ACTIVE_SHELLS.slice() };
+}
+
+/**
  * Half-width of the body at a silhouette point. Two effects, both essential to
  * the read: the greenhouse narrows above the beltline, and the extremities draw
  * in toward the bumpers. A car whose plan view is a rectangle looks like a bus.

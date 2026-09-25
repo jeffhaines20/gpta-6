@@ -18,7 +18,7 @@
 import * as THREE from '../vendor/three.module.min.js';
 import {
   buildTrafficCarGeometry, trafficCarMaterial, lampEmissive,
-  buildCarGlowGeometry, carGlowMaterial, SHAPES, SHAPE_NAMES,
+  buildCarGlowGeometry, carGlowMaterial, SHAPES, SHAPE_NAMES, shellNames,
 } from './carbody.js';
 import { rng, hash32 } from './facades.js';
 
@@ -182,9 +182,9 @@ export class Traffic {
     // slot is hidden the way it always was.
     this._shellOf = new Uint8Array(this.count);
     this._localOf = new Uint16Array(this.count);
-    const perShell = SHAPE_NAMES.map(() => 0);
+    const perShell = shellNames().map(() => 0);
     for (let i = 0; i < this.count; i++) {
-      const sh = hash32('carshell', i) % SHAPE_NAMES.length;
+      const sh = hash32('carshell', i) % shellNames().length;
       this._shellOf[i] = sh;
       this._localOf[i] = perShell[sh]++;
     }
@@ -193,7 +193,7 @@ export class Traffic {
     // pack texture all write one material, and a material per shell would make
     // each of those silently reach a third of the fleet.
     this.material = trafficCarMaterial();
-    this.geometries = SHAPE_NAMES.map((n) =>
+    this.geometries = shellNames().map((n) =>
       buildTrafficCarGeometry({ groundY: 0, shape: SHAPES[n] }));
     this.meshes = this.geometries.map((g, sh) => {
       const m = new THREE.InstancedMesh(g, this.material, Math.max(1, perShell[sh]));

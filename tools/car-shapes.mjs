@@ -26,8 +26,10 @@
 //                  point - produces three identical cars and a commit message
 //                  saying there are three shells. That is the failure this file
 //                  exists for.
+import fs from 'node:fs';
 import { createHash } from 'node:crypto';
-import { buildTrafficCarGeometry, SHAPES, SHAPE_NAMES, CAR } from '../src/carbody.js';
+import { buildTrafficCarGeometry, SHAPES, SHAPE_NAMES, CAR,
+  shellNames, setShellNames } from '../src/carbody.js';
 
 const DIRECT = process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('/car-shapes.mjs');
 
@@ -202,6 +204,48 @@ function selftest() {
   const worst = overs.reduce((m, r) => (r.over > m.over ? r : m));
   chk('track/wheel-to-body overhang stays sane', worst.over <= 0.150,
     `base ${(baseOver * 1000).toFixed(0)} mm, widest "${worst.n}" ${(worst.over * 1000).toFixed(0)} mm, guard 150 mm`);
+
+  // 7. THE ?shells= KNOB, which is the before-arm of the review round and the one
+  //    car change no runtime lever can reach. It is a new lever, so it gets a
+  //    test that fails on known-bad input, and there are two kinds of bad here.
+  const was = shellNames().length;
+  const one = setShellNames(1);
+  chk('shells/1 gives exactly the coupe', one.shells === 1 && one.names[0] === 'coupe',
+    `${one.shells} shell(s): ${one.names.join(',')}`);
+  //    The modulus has to collapse, or a slot hash still splits the fleet three
+  //    ways over a one-entry list and every parked car past the first reads as
+  //    undefined geometry.
+  let allZero = true;
+  for (let h = 0; h < 4096; h++) if (((h * 2654435761) >>> 11) % shellNames().length !== 0) allZero = false;
+  chk('shells/the slot modulus collapses to 0', allZero, '4096 hashes, all shell 0');
+  chk('shells/clamps below', setShellNames(0).shells === 1, 'setShellNames(0) -> 1');
+  chk('shells/clamps above', setShellNames(99).shells === SHAPE_NAMES.length,
+    `setShellNames(99) -> ${SHAPE_NAMES.length}`);
+  setShellNames(was);
+  chk('shells/restores', shellNames().length === was, `back to ${shellNames().length}`);
+
+  // 8. KNOWN-BAD, AND IT IS THE ONE THAT ACTUALLY BITES: a knob that exists and
+  //    is not read. The pools choose a shell from `hash % <list>.length` and build
+  //    one geometry per entry; if either still reaches for the FROZEN SHAPE_NAMES
+  //    instead of shellNames(), `?shells=1` is silently ignored, the before-arm is
+  //    the same build as the after-arm, and the review compares a build against
+  //    itself. This project has shipped that comparison twice. A source assertion
+  //    rather than a behavioural one because the pools need a WebGL context to
+  //    construct, and an untestable guard is how the other half of a two-sided
+  //    fix stays unpatched here - see CLAUDE.md on facades.js refusing awnings
+  //    over a lotted bay and rolling dice over the unlotted half for 275 m.
+  const POOLS = ['src/streetfurniture.js', 'src/traffic.js'];
+  const frozen = [];
+  for (const rel of POOLS) {
+    const src = fs.readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
+    for (const line of src.split('\n')) {
+      // The import line legitimately names SHAPE_NAMES; a USE of its length or a
+      // map over it is the defect.
+      if (/SHAPE_NAMES\s*\.\s*(length|map)/.test(line)) frozen.push(`${rel}: ${line.trim()}`);
+    }
+  }
+  chk('shells/both pools read the knob, not the frozen list', frozen.length === 0,
+    frozen.length ? frozen.join(' | ') : `${POOLS.length} pools clean`);
 
   console.log(f ? `CAR-SHAPES SELFTEST FAIL (${f})` : 'CAR-SHAPES SELFTEST OK');
   return f === 0;

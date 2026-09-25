@@ -18,6 +18,17 @@
 //
 //   node tools/tri-breakdown.mjs
 //   TB_PORT=8135 node tools/tri-breakdown.mjs
+//   TB_QUERY=shells=1 TB_TOD=night TB_JSON=docs/tri-b-s1-night.json node tools/tri-breakdown.mjs
+//
+// TB_QUERY, TB_TOD and TB_JSON exist to answer ONE question this tool was the
+// right instrument for and could not be pointed at: daynight-sweep lost 9,024
+// triangles at noon, golden and dusk and 4,512 at night, exactly half, and two
+// rounds guessed at the cause instead of measuring it. A 2:1 day-to-night split
+// is a statement about the SHADOW PASS, which this tool already reports - by
+// difference against the engine's own counter, because three does not call
+// onBeforeRender in the depth pass. Without a time-of-day knob it could only
+// ever read one hour, and without a query string it could not shoot the arm the
+// suspected change is in.
 import { chromium } from 'playwright';
 import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
@@ -28,7 +39,8 @@ const browser = await chromium.launch(launchOptions());
 const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
-await page.goto(`http://127.0.0.1:${PORT}/district/`, { waitUntil: 'networkidle' });
+const QUERY = process.env.TB_QUERY ? `?${process.env.TB_QUERY}` : '';
+await page.goto(`http://127.0.0.1:${PORT}/district/${QUERY}`, { waitUntil: 'networkidle' });
 // The district has to render five frames before anything can be measured, and
 // headless SwiftShader does that in well under 1 fps. 60 s is enough on an idle
 // box and is NOT enough with other agents' headless browsers alive on the same
@@ -38,6 +50,24 @@ await page.goto(`http://127.0.0.1:${PORT}/district/`, { waitUntil: 'networkidle'
 await page.waitForFunction('window.__district && window.__district.frames > 5', null,
   { timeout: Number(process.env.TB_BOOT ?? 60000) });
 await page.waitForTimeout(Number(process.env.TB_SETTLE ?? 20000));
+// TB_TOD, applied after the settle and settled again. The shadow share is the
+// whole point of reading more than one hour: at night the sun's caster list
+// collapses, so a difference that halves between day and night is in the depth
+// pass and a difference that does not is in the colour pass. Those are different
+// defects and the tool cannot tell them apart from one hour.
+if (process.env.TB_TOD) {
+  const tod = process.env.TB_TOD;
+  const applied = await page.evaluate((t) => __district.setTimeOfDay(t), tod);
+  await page.waitForTimeout(Number(process.env.TB_TOD_SETTLE ?? 8000));
+  console.log(`time of day: ${tod} -> ${JSON.stringify(applied && applied.tod ? applied.tod : applied)}`);
+}
+// WHAT THE PAGE ACTUALLY BUILT, not what the query string asked for. ?shells=1 is
+// silently ignored by a tree that does not have the knob, and a run that reports
+// a shell count it never checked is the "both arms are the same build" failure
+// this project has shipped twice.
+const shellsBuilt = await page.evaluate(() =>
+  (window.__district.carShells ? window.__district.carShells() : null));
+console.log(`shells built: ${JSON.stringify(shellsBuilt)}`);
 
 // WHAT ACTUALLY GOT DRAWN, not what I calculate should have been.
 //
@@ -132,6 +162,18 @@ console.log(`${'COLOUR PASS TOTAL'.padEnd(34)} ${String(rows.reduce((a, r) => a 
 const engine = out.stats.triangles;
 console.log(`\nengine counter (post.stats.sceneTriangles): ${engine}`);
 console.log(`shadow pass, by difference               : ${Math.round(engine - drawn)}  (${(100 * (engine - drawn) / Math.max(1, engine)).toFixed(1)}% of the gate's number)`);
+if (process.env.TB_JSON) {
+  const fs = await import('node:fs');
+  fs.writeFileSync(process.env.TB_JSON, JSON.stringify({
+    query: process.env.TB_QUERY ?? '', tod: process.env.TB_TOD ?? 'default',
+    shells: shellsBuilt, frames: out.frames,
+    rows: rows.map(([k, r]) => ({ bucket: k, meshes: r.meshes, tris: Math.round(r.tris) })),
+    colourPass: Math.round(drawn), engine,
+    shadowByDifference: Math.round(engine - drawn),
+    drawCalls: out.stats.calls ?? null,
+  }, null, 1));
+  console.log(`wrote ${process.env.TB_JSON}`);
+}
 if (engine < drawn * 0.95) {
   console.log('\nWARNING: the colour pass alone exceeds the engine counter — the hook is');
   console.log('double-counting, or the counter excludes something. Do not trust this table.');

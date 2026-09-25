@@ -52,7 +52,7 @@
 
 import * as THREE from '../vendor/three.module.min.js';
 import { buildTrafficCarGeometry, trafficCarMaterial, lampEmissive,
-  retroEmissiveMap, retroEmissive, SHAPES, SHAPE_NAMES } from './carbody.js';
+  retroEmissiveMap, retroEmissive, SHAPES, SHAPE_NAMES, shellNames } from './carbody.js';
 // The frontage row is keyed to the TENANCY, not to the carriageway, so it has to
 // read the same lot plan and the same business the facade and the sign read. All
 // three come from one call: signage.js signPlanFor() already runs lotPlanFor()
@@ -4664,7 +4664,7 @@ export class StreetFurniture {
               // car that has not moved - a pop on every re-seed. Taken from the
               // slot, a kerbside space always holds the same kind of car. A
               // separate bit range from hue and yaw so the three do not correlate.
-              shell: (h >>> 11) % SHAPE_NAMES.length,
+              shell: (h >>> 11) % shellNames().length,
             });
             slots++;
           }
@@ -4694,7 +4694,7 @@ export class StreetFurniture {
     // the emissive level, the lens palette, the pack texture - writes one
     // material, and giving each shell its own would mean every such write
     // silently reaching a third of the fleet.
-    const geos = SHAPE_NAMES.map((n) =>
+    const geos = shellNames().map((n) =>
       buildTrafficCarGeometry({ groundY: PAD_Y - 0.02, shape: SHAPES[n] }));
     const geo = geos[0];
     // THE PARKED POOL EMITS FROM A DIFFERENT PALETTE TO EVERY OTHER CAR, and the
