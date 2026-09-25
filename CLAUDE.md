@@ -145,23 +145,42 @@ less than one that says what moved and by how much.
   level readings at 1, 3 and 6 body widths are the trustworthy statement; the
   crossing is decided by 0.006 of ripple.
 
-- **In `daynight-sweep`, a delta that is IDENTICAL at all four hours is the
-  signature of chunk residency, not of structure.** The sweep does one
-  `page.goto` and then loops the four times of day on that single load, so
-  residency is fixed WITHIN a run and varies BETWEEN runs. Every hour therefore
-  carries the same residency offset, and "the same number at every hour" -
-  which reads like a fixed structural difference and is the reason it convinces -
-  is exactly what residency noise produces. A structural change would also be
-  constant, so the consistency distinguishes nothing at all.
+- **`daynight-sweep` is DETERMINISTIC on a clean box, so a delta that survives a
+  re-run is structural.** Three runs of the gate, two of them compared field by
+  field: the triangle column came back byte-identical at all four hours
+  (764,720 / 786,849 / 786,066 / 788,697). Residency varies between runs and
+  this does not, so "it is chunk residency" is a claim that a second run
+  refutes in twenty minutes. Run it twice before attributing anything to noise.
 
-  The band is large and already recorded: the artifacts committed at `e916078`
-  moved +49,868 triangles at one hour and its own message says "the +50k is
-  chunk residency between two runs of the sweep... quoting it as this round's
-  cost would be exactly the wrong conclusion". A later round then read -9,024
-  against that baseline, argued from the cross-hour consistency that it could not
-  be residency, and was wrong on both counts - wrong that the delta was
-  structural, and wrong that consistency was evidence. Price with the offline
-  bill; the sweep's triangle column cannot arbitrate a change of this size.
+  Two ways to misread its triangle column, both of which cost a round here:
+
+  *Cross-hour consistency proves nothing.* The sweep does ONE `page.goto` and
+  then loops the four times of day on that single load, so residency is fixed
+  within a run and every hour carries the same offset. A structural change is
+  also constant across hours. Both hypotheses predict the same thing, so the
+  consistency is not evidence for either - and it is convincing precisely
+  because it looks like the signature of a fixed difference.
+
+  *Read all four rows.* A delta reported as uniform turned out to be -9,024 at
+  noon, golden and dusk and -4,512 at night, which is exactly half. Whatever
+  causes it, an exact 2:1 day-to-night split is not something residency
+  produces - residency is one offset shared by all four hours, and half of a
+  number is not that offset. So the fourth row carried the evidence the first
+  three could not, and it was visible in the first diff and missed because only
+  the first three rows were read. (The obvious reading is a shadow pass, an
+  object drawn twice while the sun is up and once when it is not. That is a
+  DIAGNOSIS, not the observation, and it is not yet tested - see the rule on
+  reviewers being wrong: reproduce the number first, then test the cause
+  separately.)
+
+  The gate had been reading residency at every hour and throwing it away before
+  writing the file, which is why two separate rounds attributed swings to it -
+  +49,868 at `e916078`, -9,024 later - with nobody, including their authors, able
+  to check. `daynight-sweep.mjs` now persists `chunks`, `lodNear` and `lodFar`
+  beside `drawCalls` and `triangles`, so the NEXT run's artifact carries them;
+  the one committed here predates the patch and does not, and a diff against it
+  still cannot separate the two. Read the tool, not the file, to know which
+  fields a given artifact has.
 
 ## Do not reason from a truncated diagnostic
 
