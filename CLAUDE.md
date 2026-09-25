@@ -145,6 +145,24 @@ less than one that says what moved and by how much.
   level readings at 1, 3 and 6 body widths are the trustworthy statement; the
   crossing is decided by 0.006 of ripple.
 
+- **In `daynight-sweep`, a delta that is IDENTICAL at all four hours is the
+  signature of chunk residency, not of structure.** The sweep does one
+  `page.goto` and then loops the four times of day on that single load, so
+  residency is fixed WITHIN a run and varies BETWEEN runs. Every hour therefore
+  carries the same residency offset, and "the same number at every hour" -
+  which reads like a fixed structural difference and is the reason it convinces -
+  is exactly what residency noise produces. A structural change would also be
+  constant, so the consistency distinguishes nothing at all.
+
+  The band is large and already recorded: the artifacts committed at `e916078`
+  moved +49,868 triangles at one hour and its own message says "the +50k is
+  chunk residency between two runs of the sweep... quoting it as this round's
+  cost would be exactly the wrong conclusion". A later round then read -9,024
+  against that baseline, argued from the cross-hour consistency that it could not
+  be residency, and was wrong on both counts - wrong that the delta was
+  structural, and wrong that consistency was evidence. Price with the offline
+  bill; the sweep's triangle column cannot arbitrate a change of this size.
+
 ## Do not reason from a truncated diagnostic
 
 A monitor printed `tail -20` of a 30-line rejection list. Every line in the tail
