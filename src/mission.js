@@ -294,6 +294,17 @@ export class MissionRunner {
     this.transitions = 0;
     this.chainOverflows = 0;
     this._checkedSnapshot = false;
+    // THE RANGE EACH READ FIELD ACTUALLY TOOK, so a trigger nobody can satisfy shows
+    // up as a number instead of as a mystery.
+    //
+    // The absent-field check below catches a field that was never SUPPLIED. This
+    // catches the other half: a field supplied as a constant. district/main.js has no
+    // damage model, so `health` is 1.000 every frame and every healthBelow trigger in
+    // every mission is inert - a fail condition that cannot fire, which reads as a
+    // mission being generous rather than as a mission being broken. CLAUDE.md's
+    // recurring complaint is levers that reach nothing; this is the same defect seen
+    // from the mission's side, and report().fieldRange puts it in the audit.
+    this._range = new Map();
     this._fireEnter(mission.stages[0]);
     return this.report();
   }
@@ -335,6 +346,13 @@ export class MissionRunner {
         throw new Error(`MissionRunner: snapshot field(s) ${nonFinite.join(', ')} are not finite;`
           + ' NaN fails every comparison silently and every distance trigger would never fire.');
       }
+    }
+    for (const f of this.mission.needs ?? []) {
+      const v = snap[f];
+      if (typeof v !== 'number') continue;
+      const r = this._range.get(f);
+      if (!r) this._range.set(f, { min: v, max: v });
+      else { if (v < r.min) r.min = v; if (v > r.max) r.max = v; }
     }
     const d = clamp(dt, 0, 0.25);
     this.time += d;
@@ -389,12 +407,28 @@ export class MissionRunner {
     this.transitions++;
     this.visited.push(goto);
     this.emit('stage', { from: prevId, to: goto, outcome: null, why, elapsed: this.time });
-    this._fireEnter(this.mission.stages[next]);
-    return true;
+    // AN INTENT ENDS THE CHAIN FOR THIS FRAME, and the gate found out why.
+    //
+    // The Marlin Street ambush stage declares `onEnter: { setWanted: 2 }` and waits
+    // for `evaded` - stars 0 and the search over. Without this break the runner
+    // entered the stage, emitted the intent, and then evaluated `evaded` in the SAME
+    // update against a snapshot still reading zero stars, because main.js had not
+    // been given a frame to apply it. The chase was skipped entirely and the mission
+    // slid from the ambush to the drop on one frame. The coverage walk caught it as
+    // "clean -> passed at t=1.1s" on a mission whose chase alone is meant to take
+    // twenty seconds.
+    //
+    // It is general, not specific to that mission: any intent that changes the world
+    // has to land before the next trigger sees the world. So a stage whose entry
+    // declares side effects gets its first evaluation on the NEXT tick.
+    return !this._fireEnter(this.mission.stages[next]);
   }
 
+  /** Emits the stage's declared side effects. Returns whether any were declared. */
   _fireEnter(s) {
-    if (s.onEnter) this.emit('intent', { stage: s.id, ...s.onEnter });
+    if (!s.onEnter) return false;
+    this.emit('intent', { stage: s.id, ...s.onEnter });
+    return true;
   }
 
   /** Straight into src/hud.js's own state contract. Null when nothing is running. */
@@ -424,6 +458,11 @@ export class MissionRunner {
       visited: this.visited.slice(),
       chainOverflows: this.chainOverflows,
       secondsLeft: s && s.timeLimit != null ? +Math.max(0, s.timeLimit - this.stageTime).toFixed(3) : null,
+      // Numeric fields this mission read, and the range they took. A field whose min
+      // equals its max never varied, so any trigger that needed it to cross a
+      // threshold could not have fired. `constantFields` names them outright.
+      fieldRange: Object.fromEntries([...this._range].map(([k, r]) => [k, [+r.min.toFixed(4), +r.max.toFixed(4)]])),
+      constantFields: [...this._range].filter(([, r]) => r.min === r.max).map(([k]) => k).sort(),
     };
   }
 }

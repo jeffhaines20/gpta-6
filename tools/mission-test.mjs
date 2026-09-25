@@ -315,6 +315,152 @@ console.log('\n=== 8. the HUD contract');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\n=== 9. THE AUTHORED MISSIONS, walked stage by stage');
+//
+// A gate that only exercises a synthetic fixture is the "audit that walks less than
+// the build" CLAUDE.md records: geom-audit asked for ONE street direction where the
+// build unions two, and was blind to every corner site for as long as corner sites
+// existed. So this section drives src/missions.js itself, and its headline assertion
+// is COVERAGE: every authored stage must be entered by at least one scripted path.
+// A stage no path reaches is content nobody will ever see, which is the mission
+// equivalent of an unreachable branch.
+{
+  const { MISSIONS } = await import('../src/missions.js');
+  const ROUTE = JSON.parse(await (await import('node:fs')).promises
+    .readFile(new URL('../data/district.json', import.meta.url), 'utf8')).meta.route;
+
+  check('every authored mission validated at import', Object.keys(MISSIONS).length >= 2,
+    Object.keys(MISSIONS).join(', '));
+
+  // Markers must be ON the district, and near its baked route - a waypoint in the bay
+  // or outside the bounds is a marker a player cannot stand on.
+  const B = JSON.parse(await (await import('node:fs')).promises
+    .readFile(new URL('../data/district.json', import.meta.url), 'utf8')).meta.bounds;
+  const offRoute = [];
+  for (const m of Object.values(MISSIONS)) {
+    for (const st of m.stages) {
+      if (!st.marker) continue;
+      const { x, z } = st.marker;
+      const inBounds = x > B.x0 && x < B.x1 && z > B.z0 && z < B.z1;
+      const d = Math.min(...ROUTE.map((w) => Math.hypot(w.x - x, w.z - z)));
+      if (!inBounds || d > 5) offRoute.push(`${m.id}/${st.id} at (${x},${z}) is ${d.toFixed(1)} m from the route${inBounds ? '' : ', OUT OF BOUNDS'}`);
+    }
+  }
+  check('every marker is in bounds and on the baked route', offRoute.length === 0,
+    offRoute.length ? offRoute.join(' | ') : 'all markers within 5 m of a route waypoint');
+
+  // Walk each mission down scripted paths and union the stages entered.
+  const walk = (mission, script, steps = 40000) => {
+    const r = new MissionRunner(); r.start(mission);
+    const seen = new Set(r.report().visited);
+    for (let i = 0; i < steps; i++) {
+      const rep = r.update(DT, script(i * DT, r.report()));
+      for (const v of rep.visited) seen.add(v);
+      if (rep.outcome !== OUTCOMES.RUNNING) return { seen, outcome: rep.outcome, t: rep.elapsed };
+    }
+    return { seen, outcome: r.report().outcome, t: r.report().elapsed };
+  };
+  const atMarker = (m, id) => { const st = m.stages.find((s) => s.id === id); return st.marker; };
+
+  // --- marlin-street, four paths that between them must touch all six stages.
+  const MS = MISSIONS['marlin-street'];
+  const fp = atMarker(MS, 'eastbound'), dropAt = atMarker(MS, 'drop');
+  const paths = {
+    // 1. clean run: drive to Five Points, take the heat, shake it, deliver.
+    clean: (t, rep) => {
+      if (t < 1) return snap();
+      if (rep.stage === 'eastbound' || rep.stage === 'toCar') return snap({ inVehicle: true, px: fp.x, pz: fp.z });
+      if (rep.stage === 'ambush') return snap({ inVehicle: true, px: fp.x, pz: fp.z,
+        wantedStars: t < 20 ? 2 : 0, wantedState: t < 20 ? 'active' : 'clear' });
+      return snap({ inVehicle: true, px: dropAt.x, pz: dropAt.z });
+    },
+    // 2. steps out of the car mid-run, which must route through backToCar.
+    //
+    // THIS SCRIPT DRIVES INSTEAD OF TELEPORTING, and the first version did not. It
+    // put the player on the Five Points marker from the frame it entered the car, so
+    // `eastbound` completed instantly and the scripted step-out at t=2 landed inside
+    // `ambush`, which has no onFoot edge - the path reported PASSED without ever
+    // seeing backToCar, and the coverage check was the only thing that noticed. A
+    // script that teleports to a marker also never exercises the reach radius it is
+    // supposed to be testing.
+    //
+    // Spawn is the marina at (-471, 205); Five Points is (57, -164). 20 m/s along the
+    // straight line is ~32 s, which leaves plenty of room to stop at t=6 and restart.
+    interrupted: (t, rep) => {
+      if (t < 1) return snap();
+      const from = { x: -471, z: 205 };
+      const span = Math.hypot(fp.x - from.x, fp.z - from.z);
+      const travelled = Math.min(span, 20 * Math.max(0, t - 1));
+      const k = travelled / span;
+      const at = { px: from.x + (fp.x - from.x) * k, pz: from.z + (fp.z - from.z) * k };
+      if (t >= 6 && t < 8) return snap({ ...at, inVehicle: false });
+      if (rep.stage === 'ambush') return snap({ ...at, inVehicle: true, wantedStars: 0, wantedState: 'clear' });
+      if (rep.stage === 'drop' || rep.stage === 'dropHot') return snap({ inVehicle: true, px: dropAt.x, pz: dropAt.z });
+      return snap({ ...at, inVehicle: true });
+    },
+    // 3. never shakes the police: the 240 s deadline must route to dropHot and that
+    //    path must still be winnable.
+    hot: (t, rep) => {
+      if (t < 1) return snap();
+      if (rep.stage === 'dropHot') return snap({ inVehicle: true, px: dropAt.x, pz: dropAt.z, wantedStars: 3, wantedState: 'active' });
+      if (rep.stage === 'ambush') return snap({ inVehicle: true, px: fp.x, pz: fp.z, wantedStars: 3, wantedState: 'active' });
+      return snap({ inVehicle: true, px: fp.x, pz: fp.z });
+    },
+    // 4. wrecked during the chase.
+    wrecked: (t, rep) => {
+      if (t < 1) return snap();
+      if (rep.stage === 'ambush') return snap({ inVehicle: true, px: fp.x, pz: fp.z, wantedStars: 2, wantedState: 'active', health: 0.05 });
+      return snap({ inVehicle: true, px: fp.x, pz: fp.z });
+    },
+  };
+  const results = {};
+  const covered = new Set();
+  for (const [name, script] of Object.entries(paths)) {
+    const out = walk(MS, script);
+    results[name] = out;
+    for (const v of out.seen) covered.add(v);
+    console.log(`   ${name.padEnd(12)} -> ${out.outcome.padEnd(7)} at t=${out.t.toFixed(1)}s   stages ${[...out.seen].join(' > ')}`);
+  }
+  check('the clean path passes', results.clean.outcome === OUTCOMES.PASSED, results.clean.outcome);
+  check('stepping out routes through backToCar and still passes',
+    results.interrupted.seen.has('backToCar') && results.interrupted.outcome === OUTCOMES.PASSED,
+    `${results.interrupted.outcome}, saw backToCar: ${results.interrupted.seen.has('backToCar')}`);
+  check('never shaking the police routes to dropHot and is STILL winnable',
+    results.hot.seen.has('dropHot') && results.hot.outcome === OUTCOMES.PASSED,
+    `${results.hot.outcome}, saw dropHot: ${results.hot.seen.has('dropHot')}`);
+  check('being wrecked fails it', results.wrecked.outcome === OUTCOMES.FAILED, results.wrecked.outcome);
+
+  const missed = MS.stages.map((s) => s.id).filter((id) => !covered.has(id));
+  check('COVERAGE: every authored stage of marlin-street is entered by some path',
+    missed.length === 0, missed.length ? `never entered: ${missed.join(', ')}` : `all ${MS.stages.length} stages`);
+
+  // --- shakedown, the short wiring check.
+  const SH = MISSIONS.shakedown;
+  const shOut = walk(SH, (t, rep) => {
+    if (t < 1) return snap();
+    const st = SH.stages.find((s) => s.id === rep.stage);
+    return snap({ inVehicle: true, px: st?.marker?.x ?? 0, pz: st?.marker?.z ?? 0 });
+  });
+  // A CONSTANT FIELD IS AN INERT TRIGGER, and it must be visible in the report.
+  {
+    const r = new MissionRunner(); r.start(MS);
+    for (let i = 0; i < 200; i++) r.update(DT, snap({ inVehicle: true, px: fp.x, pz: fp.z }));
+    const rep = r.report();
+    check('report() names fields that never varied',
+      rep.constantFields.includes('health') && rep.fieldRange.health[0] === rep.fieldRange.health[1],
+      `constant: ${rep.constantFields.join(', ')}  health range ${JSON.stringify(rep.fieldRange.health)}`);
+    const r2 = new MissionRunner(); r2.start(MS);
+    for (let i = 0; i < 200; i++) r2.update(DT, snap({ inVehicle: true, px: fp.x, pz: fp.z, health: 1 - i / 400 }));
+    check('...and does not name one that did', !r2.report().constantFields.includes('health'),
+      `health range ${JSON.stringify(r2.report().fieldRange.health)}`);
+  }
+
+  check('shakedown passes and covers all of its stages',
+    shOut.outcome === OUTCOMES.PASSED && shOut.seen.size === SH.stages.length,
+    `${shOut.outcome}, ${shOut.seen.size}/${SH.stages.length} stages`);
+}
+
+// ---------------------------------------------------------------------------
 const failed = checks.filter((c) => !c.ok);
 console.log('\n=== CHECKS');
 for (const c of checks) console.log(`  ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);

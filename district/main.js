@@ -33,6 +33,8 @@ import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubS
   setLensProfile, lensProfile,
   setGlassFinish, glassFinish } from '../src/carbody.js';
 import { HUD } from '../src/hud.js';
+import { MissionRunner, OUTCOMES } from '../src/mission.js';
+import { MISSIONS } from '../src/missions.js';
 import { WantedSystem, bindPursuit, CRIMES, STATES } from '../src/wanted.js';
 import { createAudio } from '../src/audio.js';
 
@@ -387,6 +389,55 @@ function setPursuit(n) {
 // A fresh load renders exactly the frame it rendered before this file imported
 // the module. The police only become real when a crime is reported.
 const wanted = new WantedSystem();
+
+// ------------------------------------------------------------------ missions
+//
+// The runner is pure state and never touches the game: it emits INTENTS and this
+// block is the only place that executes them. See src/mission.js for why - a mission
+// layer that calls into the engine cannot be driven offline, and mission code is
+// almost entirely branching, which is the code that rots unseen.
+const mission = new MissionRunner();
+const missionLog = [];
+mission.on('stage', (e) => {
+  missionLog.push(e.to ? `${e.from} -> ${e.to} (${e.why})` : `${e.from} -> [${e.outcome}] (${e.why})`);
+  if (missionLog.length > 24) missionLog.shift();
+});
+mission.on('intent', (i) => {
+  // EVERY INTENT THIS BLOCK CANNOT HONOUR IS RECORDED, not ignored. A mission that
+  // declares `stinger: 'chase'` against a host with no audio graph should say so in
+  // the audit rather than look like it worked - the same argument wantedReport()'s
+  // `notHonoured` makes about setUnitGoal and setSpawnBand.
+  if (typeof i.setWanted === 'number') wanted.setStars(i.setWanted, `mission:${i.stage}`);
+  if (i.stinger) {
+    if (audio && audio.available && audio.stinger) audio.stinger(i.stinger);
+    else missionUnhonoured.add(`stinger:${i.stinger}`);
+  }
+  if (i.hudFlash) missionUnhonoured.add('hudFlash');
+});
+const missionUnhonoured = new Set();
+
+/**
+ * The snapshot the runner reads. Plain numbers only.
+ *
+ * `health` IS A STUB AND THE CONSEQUENCE IS NAMED: there is no damage model in this
+ * build - nothing in src/vehicle.js accumulates impact and nothing calls
+ * wanted.reportCrime - so this is 1 every frame and every `healthBelow` trigger in
+ * every mission is INERT. report().constantFields says so at runtime, and
+ * missionReport() surfaces it. The fail-on-wreck paths are authored and gated
+ * offline; they will start firing the day a damage model feeds this field, and not
+ * before.
+ */
+function missionSnapshot() {
+  return {
+    px: focusX, pz: focusZ,
+    inVehicle: mode === 'car',
+    speed: mode === 'car' ? vehicle.speed : 0,
+    health: 1,
+    wantedStars: wanted.stars,
+    wantedState: wanted.state,
+  };
+}
+let focusX = 0, focusZ = 0;
 
 // The bridge between the two owners' files.
 //
@@ -900,6 +951,11 @@ function animate(now) {
 
   const w = world.report();
   const near = mode === 'foot' && player.position.distanceTo(vehicle.position) <= ENTER_RANGE;
+
+  // The mission tick. After `focus` is known and before the HUD is fed, so an
+  // objective that changes this frame is drawn this frame rather than one late.
+  focusX = focus.x; focusZ = focus.z;
+  const missionHud = mission.mission ? (mission.update(dt, missionSnapshot()), mission.hud()) : null;
   if (hud2 && hudEnabled) {
     const q = vehicle.quaternion;
     const heading = mode === 'foot'
@@ -922,6 +978,15 @@ function animate(now) {
       // clean as it was before the meter had a source.
       wanted: wanted.stars,
       wantedFlash: wanted.state === STATES.SEARCH,
+      // src/hud.js has carried objective, subtitle, markers and waypoint since it was
+      // written and nothing ever fed them. MissionRunner.hud() returns exactly those
+      // names, so this is the whole of the presentation wiring.
+      //
+      // The mission's objective takes the band only while one is running; the enter-
+      // vehicle prompt keeps it otherwise, so the two never fight over one line.
+      objective: missionHud ? missionHud.objective : null,
+      subtitle: missionHud ? missionHud.subtitle : null,
+      waypoint: missionHud && missionHud.waypoint ? missionHud.waypoint : null,
     });
   }
   hud.textContent =
@@ -1041,6 +1106,34 @@ window.__district = {
   toggleVehicle,
   setMode(m) { if (m !== mode) toggleVehicle(); },
   pursuitReport: () => (pursuit ? pursuit.report() : null),
+
+  // ----------------------------------------------------------------- missions
+  //
+  // Named so a harness can start, drive and audit a mission without synthesising key
+  // events, the same argument press()/release() make above.
+  missions: () => Object.keys(MISSIONS),
+  startMission(id) {
+    const m = MISSIONS[id];
+    if (!m) throw new Error(`no such mission "${id}"; have ${Object.keys(MISSIONS).join(', ')}`);
+    missionUnhonoured.clear();
+    missionLog.length = 0;
+    return mission.start(m);
+  },
+  abortMission: (reason) => mission.abort(reason ?? 'aborted'),
+  missionHud: () => mission.hud(),
+  /**
+   * The audit. `constantFields` is the part worth reading: a numeric field that never
+   * moved is a trigger that could not fire, and `health` is 1 in this build because
+   * nothing produces damage. `intentsNotHonoured` is the same honesty on the other
+   * side - an intent this host cannot execute is listed rather than dropped.
+   */
+  missionReport: () => ({
+    ...mission.report(),
+    title: mission.mission ? mission.mission.title : null,
+    log: missionLog.slice(),
+    intentsNotHonoured: [...missionUnhonoured].sort(),
+    snapshot: missionSnapshot(),
+  }),
 
   // ---------------------------------------------------------- wanted / police
   // The decision layer itself, so a tool can subscribe to its events, and the
