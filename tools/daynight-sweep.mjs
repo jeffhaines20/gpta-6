@@ -96,6 +96,22 @@ const summary = {
     toneMapping: r.audit.toneMapping,
     lights: r.audit.lightCount, shadowCasters: r.audit.shadowCasters,
     drawCalls: r.render.calls, triangles: r.render.triangles,
+    // CHUNK RESIDENCY, WHICH THIS FILE COLLECTED AND THEN THREW AWAY.
+    //
+    // worldReport().chunksLoaded is read every hour above and never reached the
+    // artifact, so the gate recorded the one quantity that explains its own
+    // triangle column and did not persist it. CLAUDE.md warns that the budget
+    // gate's count "tracks resident chunks rather than anything a diff changed",
+    // and e916078 attributed a +49,868 swing on THIS gate to exactly that - both
+    // of them arguments nobody could check against the file.
+    //
+    // A later round then read -9,024 here, could not tell residency from
+    // structure, and guessed twice: first that cross-hour consistency proved it
+    // was structural (it does not - the sweep does one page.goto and loops the
+    // hours, so residency is shared by all four), then that it must therefore be
+    // residency (also unshown). With this field a reader diffs two artifacts and
+    // knows in one line.
+    chunks: r.chunks, lodNear: r.audit.lodNear ?? null, lodFar: r.audit.lodFar ?? null,
     implausible: r.audit.implausible,
   })),
   anyImplausible: flagged.length > 0,
