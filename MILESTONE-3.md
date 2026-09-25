@@ -334,7 +334,92 @@ silently skipped. There is no visible deformation and no player-body damage mode
 | `physics-test` | PASS — 10 checks |
 | `check-syntax` | PASS — 183 modules |
 
-**Next, in order.** Traffic and pedestrian reaction — the other half of every collision,
-and it lives in two other owners' files. Then a crash voice in `audio.js`, then more
-missions, which are now data rather than code. The two budget WARNs still stand between
-this and a shippable milestone.
+## 7. Driving: a road router and a finished path follower
+
+**The budget gate's autopilot drove through a third of the city.** `drive-through` steers in a
+straight line at route waypoints 75 to 512 m apart, and against the wall index **829 m of that
+2,528 m course is inside a building — 32.8%**, with individual legs at 59%, 50% and 47%. Free
+until §6 made walls solid; after it, the car is wrecked 10.6 s in at 89 km/h and 55° of
+incidence and the drive's own stuck-nudge teleports it round the rest of the route once every
+2.65 s. The gate would still print numbers, about a different traversal than every committed
+baseline. `__district.setBodyCollision(false)` and the gate says so in its output.
+
+**`src/roadpath.js`** is the fix: Dijkstra on the graph `traffic.js` already walks, with the
+same one-way rule, resampled and followed by pure pursuit. The finished course is 3,272 m
+against 2,528 m of straight line — a 1.29× detour — with **0 of 818 points blocked**, for a
+0.95 m circle *and* for the full car body oriented along the path, and clearance to the nearest
+wall of min 1.92 m / median 11.23 m.
+
+**Seven roads are drawn inside buildings.** 14 of 935 edges carry a car-sized obstruction on
+their own centreline and 7 have their centreline *inside* a footprint — all 2.8 m `service`
+alleys, the worst 36 m long with 23 of its 24 samples inside. The router excludes 11 of them:
+1.2% of the network, 317 m, nothing that looks like a street. A follower cannot steer out of a
+road that is inside a building.
+
+**The cornering model is measured, not derived, and the first one was wrong by 1.75×.** Taking
+`grip` and `gravity` out of `vehicle.js`'s friction circle and Ackermann bicycle geometry out of
+a textbook gives a lateral ceiling of 22.54 m/s² and a 4.3 m minimum radius. Measured by
+holding a steer input and a speed until the radius settles: **16.2 m/s² and 10.6 m**, growing
+to 14.7 m at 80 km/h. A safety factor of 0.55 masked half of it — 0.55 × 22.54 = 12.40, just
+under the real 16.2, so the *speed* ceilings were roughly right by accident. The steering
+figure was not masked, and it was the one that mattered.
+
+The response turned out to be exactly linear, which is what makes the measurement a model
+rather than a table: radius × steer is constant at a given speed to within 2%, so
+
+    R_min(v) = 8.446 + 0.2826 · v        metres, v in m/s
+
+fits to **0.1%** at every speed from 20 to 80 km/h, and `steer = R_min(v)/R` is the exact
+inversion of the car's own steady-state response. `roadpath-test` re-measures all four
+constants against `vehicle.js` and fails if the car changes under them.
+
+**The drive:**
+
+| | before | after |
+|---|---|---|
+| circuits | 2/3 | **3/3 in 793.5 s**, mean 44.5 km/h |
+| health | 0.000 | **1.000** |
+| applied impacts | 5 | **0** |
+| stuck-nudges | 112 | **0** |
+| body contacts | 1,654 | 264 |
+| worst off the line | 26.79 m | **9.79 m** |
+| worst charged delta-v | 30.93 m/s | **1.425 m/s** |
+
+All 264 contacts are at one corner — path indices 561–563, where the course turns at 8.3 m of
+radius and the car's minimum at that speed is 8.9 m. It scrapes for 0.73 s a lap at a worst
+charged delta-v of 1.425 m/s, under `damage.js`'s 2.2 m/s free band, so it costs nothing and no
+controller can fix it: `R_min` at a standstill is 8.446 m.
+
+**Nine bugs, four in the course and five in the controller**, each of which produced a
+controller reporting everything nominal. CLAUDE.md has all nine; the shape they share is that
+the instrument reads nominal because it is computed from the same wrong quantity the controller
+is acting on. The two most expensive: a windowed *global* nearest-point search teleports the
+progress index 184 m wherever a route passes near itself (heading error 0.00 → 1.543 rad at
+77 km/h), and pure pursuit's `2·sin(α)/d` is zero at 180° as well as at 0°, so a course that
+doubled back left the car driving away in a straight line for four hundred seconds with its
+error reading −3.14 throughout.
+
+**The HUD route line now has a source**, which is the fourth and last of `hud.js`'s unfed
+fields — `objective`, `subtitle` and `waypoint` were the other three, and this one needed a
+router to exist first, because a line to a marker is only useful if it follows the streets.
+
+### Gates after this round
+
+| Gate | Result |
+|---|---|
+| `roadpath-test` | PASS — 75 checks, 9 of them known-bad input |
+| `route-drive` | PASS — 19 checks, three arms (roads, straight, straight + no walls) |
+| `damage-test` | PASS — 101 checks |
+| `blocker-test` | PASS — 46 checks |
+| `crash-test` | PASS — 76 checks |
+| `damage-live` | PASS — live wiring, no page errors |
+| `mission-test` | PASS — 55 checks |
+| `wanted-test` | PASS — 97 checks |
+| `golden-trace` / `physics-test` / `sim-determinism` / `traffic-selftest` | PASS |
+| `check-syntax` | PASS — 186 modules |
+
+**Next, in order.** Traffic and pedestrian reaction — the other half of every collision, and it
+lives in two other owners' files. Then a crash voice in `audio.js`. Then more missions, which
+are now data rather than code, and can use the router for turn-by-turn directions. The budget
+gate can take the road course with `DRIVE_COURSE=roads` when someone is ready to re-baseline
+it; until then the two WARNs stand between this and a shippable milestone.

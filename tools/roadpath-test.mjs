@@ -16,8 +16,11 @@
 //   §5  grip alone is not the corner ceiling; the car's steering authority falls with speed
 //   §6  a lane offset wider than the road puts the course inside the buildings
 import fs from 'node:fs';
-import { RoadGraph, followPath, pathSpeedLimit, steerableSpeed, CORNER,
+import { RoadGraph, followPath, pathSpeedLimit, steerableSpeed, gripSpeed, cornerSpeed,
+  minTurnRadius, steerForRadius, RESPONSE,
   resample, smooth, minRadius, worstGap, offsetRight, pathCurvature, ARC_WINDOW } from '../src/roadpath.js';
+import { Vehicle } from '../src/vehicle.js';
+import { FlatGround } from '../src/ground.js';
 import { BlockerIndex } from '../src/blockers.js';
 
 const checks = [];
@@ -174,19 +177,21 @@ console.log(`    a straight line with one 0.4 m segment in it:`);
 console.log(`      KNOWN-BAD three-point radius: ${threePoint.toFixed(2)} m`);
 console.log(`      over a ${ARC_WINDOW} m arc:            ${arcBased.radius.toFixed(1)} m`);
 check('KNOWN-BAD: three points report an impossibly tight corner on a straight line',
-  threePoint < CORNER.wheelbase, `${threePoint.toFixed(2)} m`);
+  threePoint < RESPONSE.rMin0, `${threePoint.toFixed(2)} m`);
 // 7.6 m, not 0.38: over the 12 m the window spans, that shape genuinely does turn 90
-// degrees, so a radius of about 7.6 m is the right answer and not a large one. The claim
-// being tested is that the reading is a corner a car can take, not that the corner vanishes.
-check('the arc window sees a corner a car can take', arcBased.radius > CORNER.wheelbase,
-  `${arcBased.radius.toFixed(1)} m against a ${CORNER.wheelbase} m wheelbase`);
-check('and a speed it can take it at', steerableSpeed(arcBased.radius) > 5,
-  `${(steerableSpeed(arcBased.radius) * 3.6).toFixed(0)} km/h`);
+// degrees, so a radius of about 7.6 m is the right answer. The claim is that the reading is a
+// plausible corner rather than an artefact — NOT that the car can hold it. 7.6 m is under the
+// car's 8.45 m standstill minimum, and so is the district's own tightest junction at 6.04 m,
+// which is why cornerSpeed() has a crawl floor rather than returning zero.
+check('the arc window sees a plausible corner, not an artefact', arcBased.radius > 4,
+  `${arcBased.radius.toFixed(1)} m`);
+check('and a speed the car can creep through it at', cornerSpeed(arcBased.radius) > 1,
+  `${(cornerSpeed(arcBased.radius) * 3.6).toFixed(1)} km/h`);
 // And the consequence: the bad reading is ACTIONABLE.
 console.log(`      a ${threePoint.toFixed(2)} m radius is steerable at ${(steerableSpeed(threePoint) * 3.6).toFixed(0)} km/h`);
 check('KNOWN-BAD: which is why the limiter demanded a standstill', steerableSpeed(threePoint) === 0);
 check('the district course has no such artefact',
-  minRadius(tour.points).radius > CORNER.wheelbase,
+  minRadius(tour.points).radius > 4,
   `${minRadius(tour.points).radius.toFixed(2)} m`);
 console.log(`    the district course's tightest corner: ${minRadius(tour.points).radius.toFixed(2)} m, ` +
   `steerable at ${(steerableSpeed(minRadius(tour.points).radius) * 3.6).toFixed(0)} km/h`);
@@ -194,34 +199,254 @@ console.log(`    the district course's tightest corner: ${minRadius(tour.points)
 // ---------------------------------------------------------------------------
 // §5  Two ceilings, and the one the first draft did not have.
 // ---------------------------------------------------------------------------
-console.log('\n§5  Grip is not the only corner ceiling');
-console.log('    radius   grip     steering   binding');
-for (const r of [4, 5, 6, 8, 10, 20, 40]) {
-  const grip = Math.sqrt(CORNER.useful * r), steer = steerableSpeed(r);
-  console.log(`    ${String(r).padStart(5)} m  ${(grip * 3.6).toFixed(0).padStart(4)} km/h  ` +
-    `${(steer * 3.6).toFixed(0).padStart(5)} km/h   ${steer < grip ? 'STEERING' : 'grip'}`);
+console.log('\n§5  The cornering envelope, re-measured against src/vehicle.js');
+/**
+ * RESPONSE is a MEASURED model, so the gate's job is to re-measure it. A measured constant
+ * that nothing re-derives is a magic number waiting for the car to change under it — and the
+ * car did change under the derived version, which is how it came to be out by 1.75x.
+ *
+ * Steady-state: hold a steer input and a speed until the radius settles, then read the yaw
+ * rate. Nothing here reads RESPONSE to decide what to do; it only compares.
+ */
+const ground = new FlatGround(0);
+function steady(kmh, steerIn, settle = 10, hold = 3) {
+  const v = new Vehicle();
+  v.position.set(0, 0.55, 0);
+  const want = kmh / 3.6;
+  const drive = () => v.setControls({ throttle: v.speed < want ? 1 : 0,
+    brake: v.speed > want * 1.02 ? 0.3 : 0, steer: steerIn });
+  for (let k = 0; k < 120 * settle; k++) { drive(); v.stepFixed(1 / 120, ground, 120); }
+  let sw = 0, sv = 0, n = 0, minV = Infinity;
+  for (let k = 0; k < 120 * hold; k++) {
+    drive(); v.stepFixed(1 / 120, ground, 120);
+    sw += Math.abs(v.angularVelocity.y); sv += v.speed; n++;
+    if (v.speed < minV) minV = v.speed;
+  }
+  const w = sw / n, sp = sv / n;
+  return { w, sp, R: w > 1e-4 ? sp / w : Infinity, lat: w * sp, held: minV / want };
 }
-check('the corner budget is derived from src/vehicle.js\'s own constants',
-  CORNER.grip === 1.15 && CORNER.gravity === 19.6 && CORNER.maxSteer === 0.55);
-check('steering binds below 6 m of radius', steerableSpeed(5) < Math.sqrt(CORNER.useful * 5));
-check('grip binds above 10 m of radius', steerableSpeed(10) > Math.sqrt(CORNER.useful * 10));
-check('a radius under the wheelbase is not steerable at any speed', steerableSpeed(1) === 0);
-let steerMono = true;
-for (let r = 4.5; r < 60; r += 0.5) if (steerableSpeed(r + 0.5) < steerableSpeed(r)) steerMono = false;
-check('steerable speed is monotonic in radius', steerMono);
-// The speed limiter obeys both, and brakes early enough to stop.
+
+// --- the linearity claim: radius x steer is constant at a given speed.
+console.log('    radius x steer input, which RESPONSE claims is constant at a given speed:');
+console.log('     speed   steer 0.1   steer 0.2   steer 0.4     spread    R_min(v) says');
+let worstLin = 0, worstFit = 0;
+for (const kmh of [20, 40, 60, 80]) {
+  const cs = [0.1, 0.2, 0.4].map((si) => steady(kmh, si).R * si);
+  const mean = cs.reduce((x, y) => x + y) / cs.length;
+  const spread = (Math.max(...cs) - Math.min(...cs)) / mean;
+  const predicted = minTurnRadius(kmh / 3.6);
+  const fitErr = Math.abs(predicted - mean) / mean;
+  if (spread > worstLin) worstLin = spread;
+  if (fitErr > worstFit) worstFit = fitErr;
+  console.log(`    ${String(kmh).padStart(4)} km/h ${cs.map((c) => c.toFixed(2).padStart(11)).join('')}   ` +
+    `${(spread * 100).toFixed(1).padStart(5)}%   ${predicted.toFixed(2).padStart(6)} m  (${(fitErr * 100).toFixed(1)}% out)`);
+}
+check('the steady-state response is linear in steer input to 3%', worstLin < 0.03,
+  `${(worstLin * 100).toFixed(1)}%`);
+check('minTurnRadius() matches the measurement to 3%', worstFit < 0.03,
+  `${(worstFit * 100).toFixed(1)}%`);
+
+// --- the lateral ceiling. Find the tightest radius the car HOLDS at each speed.
+console.log('\n    the sustainable envelope (tightest radius held without scrubbing speed):');
+console.log('     speed   min radius   lat accel   cornerSpeed() for that radius');
+let maxLat = 0, envelopeOk = true;
+for (const kmh of [30, 50, 70, 80]) {
+  let best = null;
+  for (const si of [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.85, 1.0]) {
+    const r = steady(kmh, si);
+    if (r.held > 0.95) best = r;
+  }
+  if (!best) { envelopeOk = false; continue; }
+  if (best.lat > maxLat) maxLat = best.lat;
+  const allowed = cornerSpeed(best.R) * 3.6;
+  console.log(`    ${String(kmh).padStart(4)} km/h   ${best.R.toFixed(1).padStart(7)} m   ` +
+    `${best.lat.toFixed(2).padStart(7)} m/s2   ${allowed.toFixed(0).padStart(4)} km/h`);
+  // The controller must never allow MORE than the car can hold.
+  if (allowed > kmh * 1.02) envelopeOk = false;
+}
+console.log(`    measured lateral ceiling ${maxLat.toFixed(2)} m/s2; RESPONSE.latMax ${RESPONSE.latMax}`);
+check('the envelope was found at every speed', envelopeOk);
+check('RESPONSE.latMax matches the measured ceiling to 8%',
+  Math.abs(maxLat - RESPONSE.latMax) / maxLat < 0.08,
+  `measured ${maxLat.toFixed(2)} against ${RESPONSE.latMax}`);
+check('cornerSpeed never allows more than the car can hold', envelopeOk);
+
+// --- braking, which the speed limiter's scan distance depends on.
+const bv = new Vehicle();
+bv.position.set(0, 0.55, 0);
+for (let k = 0; k < 120 * 30 && bv.speed < 80 / 3.6; k++) { bv.setControls({ throttle: 1, brake: 0, steer: 0 }); bv.stepFixed(1 / 120, ground, 120); }
+const z0 = bv.position.z, v0 = bv.speed;
+for (let k = 0; k < 120 * 30 && bv.speed > 0.05; k++) { bv.setControls({ throttle: 0, brake: 1, steer: 0 }); bv.stepFixed(1 / 120, ground, 120); }
+const measuredBrake = (v0 * v0) / (2 * Math.abs(bv.position.z - z0));
+console.log(`    braking from ${(v0 * 3.6).toFixed(0)} km/h: ${Math.abs(bv.position.z - z0).toFixed(1)} m, ` +
+  `${measuredBrake.toFixed(2)} m/s2; RESPONSE.brake ${RESPONSE.brake}`);
+check('RESPONSE.brake matches the measurement to 8%',
+  Math.abs(measuredBrake - RESPONSE.brake) / measuredBrake < 0.08,
+  `measured ${measuredBrake.toFixed(2)} against ${RESPONSE.brake}`);
+
+// --- steerForRadius is the inversion, so asking for R_min gives full lock.
+check('steerForRadius(v, R_min(v)) is exactly full lock',
+  near(steerForRadius(13.9, minTurnRadius(13.9)), 1, 1e-12));
+check('steerForRadius halves when the radius doubles',
+  near(steerForRadius(13.9, 40), 2 * steerForRadius(13.9, 80), 1e-12));
+check('a radius under the standstill minimum needs more than full lock',
+  steerForRadius(0, RESPONSE.rMin0 - 1) > 1);
+
+// --- the two ceilings, and which binds where.
+console.log('\n    radius   grip     steering   binding');
+for (const r of [9, 11, 13, 16, 20, 30, 60]) {
+  console.log(`    ${String(r).padStart(5)} m  ${(gripSpeed(r) * 3.6).toFixed(0).padStart(4)} km/h  ` +
+    `${(steerableSpeed(r) * 3.6).toFixed(0).padStart(5)} km/h   ${steerableSpeed(r) < gripSpeed(r) ? 'STEERING' : 'grip'}`);
+}
+check('steering binds at 11 m of radius', steerableSpeed(11) < gripSpeed(11));
+check('grip binds at 30 m of radius', steerableSpeed(30) > gripSpeed(30));
+check('a radius under the standstill minimum is not steerable at any speed',
+  steerableSpeed(RESPONSE.rMin0) === 0);
+let mono = true;
+for (let r = 9; r < 80; r += 0.5) if (cornerSpeed(r + 0.5) < cornerSpeed(r)) mono = false;
+check('cornerSpeed is monotonic in radius', mono);
+
+// --- the limiter brakes early enough, and does not oscillate.
 const tight = [];
-for (let x = 0; x <= 120; x += 4) tight.push([x, 0, 0]);
-for (let z = -4; z >= -60; z -= 4) tight.push([120, z, 0]);
-const far = pathSpeedLimit(tight, 0, 22, 22);
-const close = pathSpeedLimit(tight, 27, 22, 22);
-console.log(`    120 m before a right-angle turn: limit ${(far * 3.6).toFixed(0)} km/h;  ` +
-  `12 m before it: ${(close * 3.6).toFixed(0)} km/h`);
-check('the limiter is unrestricted far from a corner', near(far, 22, 0.01), `${far}`);
-check('and restricts near one', close < 22 * 0.9, `${close}`);
-check('the restriction leaves enough room to stop',
-  (close * close - steerableSpeed(8) ** 2) / (2 * CORNER.useful) < 40,
-  `${((close * close) / (2 * CORNER.useful)).toFixed(1)} m of braking distance`);
+for (let x = 0; x <= 200; x += 4) tight.push([x, 0, 0]);
+for (let z = -4; z >= -80; z -= 4) tight.push([200, z, 0]);
+console.log('\n    the limiter approaching a right-angle turn 200 m away:');
+let prev = null, oscillations = 0;
+for (let k = 0; k < 50; k += 4) {
+  const lim = pathSpeedLimit(tight, k, 22, 22);
+  if (prev !== null && lim > prev + 0.01) oscillations++;
+  prev = lim;
+}
+// THE SCAN IS TAKEN FROM maxSpeed, NOT THE CURRENT SPEED, so the limit is a function of
+// position alone. Feeding a different current speed must not change the answer.
+const atSpeed = [4, 10, 16, 22].map((v) => pathSpeedLimit(tight, 40, v, 22));
+console.log(`      at index 40, fed current speeds 4/10/16/22 m/s: ${atSpeed.map((v) => (v * 3.6).toFixed(1)).join(' / ')} km/h`);
+check('the limit does not depend on the current speed — no feedback loop',
+  atSpeed.every((v) => near(v, atSpeed[0], 1e-9)), atSpeed.join(', '));
+check('the limit is monotonically non-increasing on the approach', oscillations === 0,
+  `${oscillations} rises`);
+
+// ---------------------------------------------------------------------------
+// §5b  Four more ways a follower reports nominal while driving into a wall.
+// ---------------------------------------------------------------------------
+console.log('\n§5b Known-bad: the four that finishing this cost');
+
+// (a) A WINDOWED GLOBAL CLOSEST POINT TELEPORTS where the route passes near itself.
+// A path that runs out and back 0.6 m away: the nearest point in a forward window is on the
+// return leg, 180 m further along, and the progress index jumps there in one step.
+const nearTouch = [];
+for (let x = 0; x <= 200; x += 4) nearTouch.push([x, 0, 0]);
+for (let x = 200; x >= 0; x -= 4) nearTouch.push([x, 1.6, 0]);
+{
+  // The car 1.0 m off its own leg and therefore 0.6 m from the return leg, which is the
+  // geometry the real failure had: off-line 1.17 m on the outbound, 0.63 m from the leg
+  // 184 m further along. Sitting exactly ON the line does not reproduce it, because then
+  // nothing is nearer than the point underneath.
+  const at = { x: 100, z: 1.0, yaw: Math.PI / 2, speed: 21 };
+  // The old rule, reproduced: nearest point in an 80-forward window.
+  let bestI = 25, bestD = Infinity;
+  for (let k = 25; k < Math.min(nearTouch.length, 25 + 80); k++) {
+    const dd = (nearTouch[k][0] - at.x) ** 2 + (nearTouch[k][1] - at.z) ** 2;
+    if (dd < bestD) { bestD = dd; bestI = k; }
+  }
+  const f = followPath(nearTouch, at, { i: 25 });
+  console.log(`    a route that doubles back 0.6 m away, car at index 25:`);
+  console.log(`      KNOWN-BAD windowed-nearest picks index ${bestI} (${nearTouch[bestI][0]}, ${nearTouch[bestI][1]})`);
+  console.log(`      projection picks index ${f.i} (${nearTouch[f.i][0]}, ${nearTouch[f.i][1]}), err ${f.err.toFixed(3)}`);
+  check('KNOWN-BAD: a windowed nearest-point search teleports across the touch', bestI > 50,
+    `${bestI}`);
+  check('the projection stays on the leg the car is on', f.i < 40, `${f.i}`);
+  check('and so the heading error stays at zero', Math.abs(f.err) < 0.2, `${f.err.toFixed(3)}`);
+}
+
+// (b) PURE PURSUIT IS ZERO AT 180 DEGREES as well as at zero.
+{
+  const line = [];
+  for (let x = 0; x <= 80; x += 4) line.push([x, 0, 0]);
+  // Car on the line but facing exactly backwards.
+  const back = { x: 20, z: 0, yaw: -Math.PI / 2, speed: 3 };
+  const f = followPath(line, back, { i: 5 });
+  const naive = Math.sin(f.err) * 2 / Math.max(Math.hypot(f.aim[0] - back.x, f.aim[1] - back.z), 1e-3);
+  console.log(`    a car on the line facing exactly backwards: err ${f.err.toFixed(3)} rad`);
+  console.log(`      KNOWN-BAD uncapped 2 sin(err)/d curvature: ${naive.toExponential(2)} — essentially zero`);
+  console.log(`      with the quarter-turn cap: steer ${f.controls.steer.toFixed(3)}`);
+  check('KNOWN-BAD: the uncapped curvature at 180 degrees is nearly zero',
+    Math.abs(naive) < 1e-6, `${naive}`);
+  check('the capped law commands full lock instead',
+    Math.abs(f.controls.steer) > 0.99, `${f.controls.steer}`);
+  check('and it commands it in a consistent direction',
+    Math.sign(f.controls.steer) === Math.sign(f.err) || f.err === 0);
+}
+
+// (c) THE TURN THE CAR IS IN IS ALSO A CEILING. pathSpeedLimit looks forward only, so once
+// the apex is behind the index it sees the straight beyond and the target jumps.
+{
+  const corner = [];
+  for (let x = 0; x <= 40; x += 4) corner.push([x, 0, 0]);
+  for (let a = 0; a <= 90; a += 12) {
+    const r = 8, cx = 40, cz = -r;
+    corner.push([cx + r * Math.sin(a * Math.PI / 180), cz + r * Math.cos(a * Math.PI / 180), 0]);
+  }
+  for (let z = -8; z >= -60; z -= 4) corner.push([48, z, 0]);
+  // Mid-corner: the index is past the apex, the scan ahead is the straight.
+  const midIdx = 14;
+  const ahead = pathSpeedLimit(corner, midIdx, 3, 22);
+  // The car is holding a tight radius right now; cornerSpeed of it is the real ceiling.
+  const holding = cornerSpeed(8);
+  console.log(`    mid-corner at index ${midIdx} of an 8 m bend:`);
+  console.log(`      KNOWN-BAD forward-only limit: ${(ahead * 3.6).toFixed(0)} km/h`);
+  console.log(`      the turn being held allows:   ${(holding * 3.6).toFixed(0)} km/h`);
+  check('KNOWN-BAD: the forward-only limit is far above what the current turn allows',
+    ahead > holding * 2, `${(ahead * 3.6).toFixed(0)} vs ${(holding * 3.6).toFixed(0)} km/h`);
+  // followPath takes the min of the two, so its target respects the turn.
+  const f = followPath(corner, { x: corner[midIdx][0], z: corner[midIdx][1], yaw: 1.0, speed: 3 }, { i: midIdx });
+  check('followPath caps the target by the turn it is asking for',
+    f.target <= cornerSpeed(f.reqRadius) + 1e-9,
+    `target ${(f.target * 3.6).toFixed(1)} against ${(cornerSpeed(f.reqRadius) * 3.6).toFixed(1)} km/h`);
+}
+
+// (d) A RING WALKED AT A FIXED STEP LEAVES A REVERSE SPUR.
+{
+  const ring = [];
+  for (let a = 0; a < 360; a += 30) ring.push([50 * Math.cos(a * Math.PI / 180), 50 * Math.sin(a * Math.PI / 180), 0]);
+  const open = resample(ring, 7);                 // walked as an open line, then closed by hand
+  open.push([ring[0][0], ring[0][1], 0]);
+  const closed = resample(ring, 7, true);
+  const lastSeg = Math.hypot(open[open.length - 1][0] - open[open.length - 2][0],
+    open[open.length - 1][1] - open[open.length - 2][1]);
+  // UNIFORMITY, not the requested spacing. Dividing a ring evenly cannot also hit an
+  // arbitrary step exactly: the step becomes length/round(length/spacing), which for this
+  // 310.6 m ring at 7 m is 7.06. The claim is that every segment is the SAME, which is what
+  // a look-ahead measured in arc length needs.
+  let lo = Infinity, hi = 0;
+  for (let i = 0; i < closed.length; i++) {
+    const a = closed[i], b = closed[(i + 1) % closed.length];
+    const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    lo = Math.min(lo, L); hi = Math.max(hi, L);
+  }
+  console.log(`    a 50 m-radius 12-gon ring resampled at 7 m:`);
+  console.log(`      KNOWN-BAD open walk then hand-closed: last segment ${lastSeg.toFixed(2)} m against a 7 m step`);
+  console.log(`      divided evenly as a ring: segments ${lo.toFixed(3)}..${hi.toFixed(3)} m, spread ${(hi - lo).toFixed(4)} m`);
+  check('KNOWN-BAD: the open walk leaves a remainder segment', Math.abs(lastSeg - 7) > 1,
+    `${lastSeg.toFixed(2)} m`);
+  check('dividing the ring evenly makes every segment the same length', hi - lo < 0.25,
+    `${(hi - lo).toFixed(4)} m`);
+  check('and each one is within 5% of the requested spacing',
+    Math.abs(hi - 7) / 7 < 0.05 && Math.abs(lo - 7) / 7 < 0.05, `${lo.toFixed(2)}..${hi.toFixed(2)}`);
+  check('and the ring carries no duplicate closing point',
+    Math.hypot(closed[closed.length - 1][0] - closed[0][0], closed[closed.length - 1][1] - closed[0][1]) > 1);
+  // The district course must close exactly and have no reversal at the seam.
+  const n = tour.points.length;
+  check('the district course closes exactly',
+    Math.hypot(tour.points[n - 1][0] - tour.points[0][0], tour.points[n - 1][1] - tour.points[0][1]) < 1e-6);
+}
+
+// (e) The crawl floor, which is a design decision and not a fudge.
+console.log(`    cornerSpeed floor: ${(cornerSpeed(1) * 3.6).toFixed(1)} km/h for a corner the car cannot hold`);
+check('an impossible corner still gets a crawl speed, not a standstill', cornerSpeed(1) > 2,
+  `${cornerSpeed(1)}`);
+check('the floor is at or under the damage model\'s free threshold, so a contact there is free',
+  cornerSpeed(1) <= 2.2 + 1e-9, `${cornerSpeed(1)}`);
 
 // ---------------------------------------------------------------------------
 // §6  The lane offset, and the road that is narrower than it.

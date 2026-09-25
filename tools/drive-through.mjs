@@ -139,17 +139,52 @@ if (process.env.DRIVE_HUD === 'off') {
  * body. It is not this gate's course yet, because changing what the gate measures
  * requires a fresh baseline and the triangle p95 WARN is unresolved.
  */
-const collisionWas = await page.evaluate(() =>
-  (__district.setBodyCollision ? __district.setBodyCollision(false) : null));
-console.log(`body collision: OFF for this run (was ${collisionWas === null ? 'unavailable' : 'on'})`);
-console.log('  the straight-line course is 32.8% inside buildings; see the comment above.');
+const ROAD_COURSE = process.env.DRIVE_COURSE === 'roads';
+const collisionWas = await page.evaluate((on) =>
+  (__district.setBodyCollision ? __district.setBodyCollision(on) : null), ROAD_COURSE);
+if (ROAD_COURSE) {
+  console.log('body collision: ON, and the course is the ROAD GRAPH (DRIVE_COURSE=roads).');
+  console.log('  This is NOT the committed baseline\'s traversal. tools/route-drive.mjs measures');
+  console.log('  it offline: 3 circuits, health 1.000, no applied impacts, no stuck-nudges, and');
+  console.log('  every contact under the FMVSS free threshold. It is a better drive and a');
+  console.log('  different one, so a run with it needs its own baseline.');
+} else {
+  console.log(`body collision: OFF for this run (was ${collisionWas === null ? 'unavailable' : 'on'})`);
+  console.log('  the straight-line course is 32.8% inside buildings; see the comment above.');
+  console.log('  DRIVE_COURSE=roads drives the road graph with collision on instead.');
+}
 
 // Install the autopilot: steer toward the next waypoint, advance on arrival.
 // Because the sim is fixed-step, this behaves the same however slowly the
 // software renderer produces frames.
-await page.evaluate((circuits) => {
+await page.evaluate(({ circuits, roadCourse }) => {
   const route = __district.district.meta.route;
   const v = __district.vehicle;
+  if (roadCourse) {
+    // The road course, followed by src/roadpath.js's own controller. Same lap counting, so
+    // the CIRCUITS loop below is unchanged.
+    const tour = __district.tourRoute();
+    const pts = tour.points;
+    let lap = 0, stuckFor = 0;
+    const state = { i: 0 };
+    __district.placeAt(pts[0][0], pts[0][1],
+      Math.atan2(pts[3][0] - pts[0][0], pts[3][1] - pts[0][1]));
+    window.__routeState = () => ({ wp: state.i, lap });
+    __district.setAutopilot((dt) => {
+      const q = v.quaternion;
+      const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
+      const f = __district.followPath(pts, { x: v.position.x, z: v.position.z, yaw, speed: v.speed },
+        state, { maxSpeed: 22 });
+      if (f.done) { state.i = 0; lap++; window.__lapCount = lap; return; }
+      v.setControls(f.controls);
+      if (v.speed < 0.6) { stuckFor += dt; if (stuckFor > 2.5) { __district.placeAt(f.aim[0], f.aim[1]); stuckFor = 0; } }
+      else stuckFor = 0;
+      window.__lapCount = lap;
+    });
+    window.__lapCount = 0;
+    __district.setTimeScale(22);
+    return;
+  }
   __district.placeAt(route[1].x, route[1].z);
   let wp = 2, lap = 0, stuckFor = 0;
   window.__routeState = () => ({ wp, lap });
@@ -179,7 +214,7 @@ await page.evaluate((circuits) => {
   });
   window.__lapCount = 0;
   __district.setTimeScale(22);
-}, CIRCUITS);
+}, { circuits: CIRCUITS, roadCourse: ROAD_COURSE });
 
 // Warm up so first-load chunk building is not counted as steady-state churn.
 await page.waitForTimeout(6000);

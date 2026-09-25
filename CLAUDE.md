@@ -327,48 +327,114 @@ footprint; every one is class `service`, a 2.8 m alley, and the worst is 36 m lo
 of its 24 samples inside a building. The router excludes 11 of them, 1.2% of the network
 and 317 m. No follower can steer out of a road that is inside a building.
 
-## Five ways a path follower reports everything nominal while driving into a wall
+## Nine ways a path follower reports everything nominal while driving into a wall
 
-Every one of these was found by tracing, and every one produced a controller whose own
-numbers looked fine. They are listed because the shape recurs.
+Every one of these was found by tracing, every one produced a controller whose own numbers
+looked fine, and together they are the whole cost of getting `src/roadpath.js` from "two of
+three circuits, wrecked" to "three of three, undamaged". They are listed because the shape
+recurs: the instrument says nominal because the instrument is computed from the same wrong
+quantity the controller is acting on.
+
+**The course:**
 
 1. **A gap in the path.** `nearestOn` projects onto an edge at some fraction along it while
    `route` can only start from an endpoint vertex, so prepending the projection inserted a
-   75 m straight segment. An arc-length look-ahead then aimed at the far side of it,
-   reported a heading error of **0.00**, and drove 78 km/h across a city block for four
-   seconds. Off-line distance went 25 → 75 m with the error at zero the whole way.
-2. **A radial look-ahead aims backwards.** The aim was "the first point at least a
-   look-ahead away, searched from the current index". Cutting a corner stops the index
-   advancing; once the car is far enough from that stuck point, the radial test *selects
-   it*. Traced: at 73.67 s the car aims correctly at a point ahead; one second later the
-   aim is 11 m behind it and the error is −2.29 rad. It turned round, ran 109 m back up the
-   street and hit a building. Progress must be the closest point in a forward-only window,
-   and the aim must be measured in **arc length**, which cannot select a point behind.
-3. **Curvature over three points reads the resampling, not the road.** A resample leaves
-   short segments at its joins; a three-point window on one reads arc 0.6 m over 1.57 rad
-   and reports a **0.38 m** corner. The tell was that corner smoothing changed nothing —
-   0.45 m at 0, 1, 2, 3 and 4 passes, and smoothing cannot fail to round a real corner. The
-   wrong number was worse than wrong, it was *actionable*: 0.38 m is not steerable at any
-   speed, so the limiter demanded a standstill at every junction and the drive was carried
-   by 136 stuck-nudges. Measure curvature over a **fixed arc**.
-4. **A fixed-arc window still needs two segments.** If the first segment alone exceeds the
-   window, the end heading is read off the same segment as the start and the turn is exactly
-   zero — a 10 m square made entirely of right angles reported a minimum radius of
-   *Infinity*.
-5. **Grip is not the only corner ceiling.** `vehicle.js` scales steering authority down with
-   speed, so the minimum turning radius *grows*: 4.3 m at rest, 6.2 m at 40 km/h. A 6 m
-   junction at 40 km/h is geometrically impossible and no grip helps. Symptom: full steering
-   lock, a 1.39 rad heading error, off-line climbing 1.9 → 8.2 m, throttle at 0.35.
+   75 m straight segment. An arc-length look-ahead then aimed at the far side of it, reported
+   a heading error of **0.00**, and drove 78 km/h across a city block for four seconds.
+   Off-line went 25 → 75 m with the error at zero the whole way.
+2. **Per-leg routing doubles back at every join.** Leg N walks up to the waypoint's
+   projection and leg N+1 walks from that projection back to whichever vertex its own
+   Dijkstra chose — often the one leg N came from. The course read `(21,-9) (21,-8) (17,-8)
+   (20,-11)`: forward, back 4 m, forward again. Chaining the legs through the graph fixed the
+   reversal and opened a **158 m gap**, because the previous leg still ended at its
+   projection. Route the whole thing as **one edge list** and densify once; continuity is
+   then a property of the construction, not something to patch at the seams.
+3. **A ring's seam is the one corner nothing smooths.** `smooth()` pins its endpoints, and on
+   a closed tour the seam *is* the endpoint. A clean lap finished 0.6 m from where it started
+   with a heading error of 1.59 rad — 91° — had to turn a right angle from a standstill, and
+   clipped the corner. And because that impact leaves asymmetric damage and therefore a
+   steering pull, the contacts for the rest of the lap went from 22 to 5,300: one unsmoothed
+   corner degrades the whole drive.
+4. **A closed curve is divided evenly, not walked at a fixed step.** Walking a ring at a
+   fixed spacing leaves a remainder, and the remainder is a reverse spur. Dropping it "when
+   it is within half a spacing of the start" is a threshold, and thresholds miss: the point
+   landed **2.10 m from the start against a 2.00 m threshold**, and that 2.10 m reversal was
+   the course's tightest corner at 2.43 m of radius on a course whose next tightest was 6.14.
+   Choose the point count from the ring's own length instead.
+5. **Look for the road inside the building before blaming the driver.** 14 of 935 edges carry
+   a car-sized obstruction on their own centreline and 7 have their centreline *inside* a
+   footprint; all are 2.8 m `service` alleys, the worst 36 m long with 23 of 24 samples
+   inside. No follower can steer out of a road that is inside a building; only the router can.
 
-**Fewer contacts is not better driving.** An intermediate reading of 187 contacts looked
-better than the 1,654 that replaced it and was worse: the 187 was measured while the
-limiter demanded 0 km/h at every junction, so the car crawled and 136 nudges carried it.
+**The controller:**
 
-**Localise before tuning.** Identical impacts at 50, 65 and 79 km/h — same three junctions,
-delta-v within 3% — is not a speed problem, and three afternoons of throttle tuning would
-not have found it. Clearance from the finished course to the nearest wall is a minimum of
-1.92 m and a median of 11.23 m, with not one point of 737 within 1.5 m: so every remaining
-contact comes from the follower's 26.79 m excursions and nothing from the course.
+6. **Progress is a local projection, not the nearest point in a window.** A windowed *global*
+   nearest-point search is monotonic and still teleports: wherever a route passes near
+   itself, a point 180 m further on can be nearer than the one the car is on. Traced at
+   77 km/h — `i` 615 → 661 in one step, heading error 0.00 → +1.543 rad, 22.4 m off the line.
+   Step forward only past segments the car is beyond in the along-path direction.
+7. **A radial look-ahead aims backwards.** Cutting a corner stops the index advancing; once
+   the car is far enough from that stuck point, the radial test *selects it*. Measure the
+   look-ahead in **arc length**, which cannot select a point behind the index it starts from.
+8. **Pure pursuit's command is zero at 180° as well as at 0°.** `2·sin(α)/d` cannot tell
+   "pointing at it" from "pointing exactly away from it". With the aim point behind, the
+   steering came out at −0.03 and the car drove away in a straight line for four hundred
+   seconds with its heading error reading −3.14 throughout. Cap the sine at a quarter turn:
+   past that there is nothing to compute and the tightest turn available is the answer.
+9. **The corner the car is IN is a speed ceiling too.** A forward-looking limiter is blind to
+   the turn being negotiated, so once the apex is behind the index the scan sees the straight
+   beyond and the target jumps. Traced: crawling into a 7.5 m junction at 9 km/h with the
+   target at 8, and one step later the target read 54, then 79. It floored the throttle at
+   full lock, reached 39.5 km/h in 2.5 s and hit the building on the outside of the turn —
+   the single impact that wrecked the car on an otherwise clean lap. `cornerSpeed()` of the
+   radius the steering is currently asking for is the missing term.
+
+**And a scan whose length depends on the current speed is a feedback loop.** Slowing shortens
+it, the corner leaves it, the target jumps up, the car accelerates, the corner reappears. The
+throttle chattered 0 → 1 → 0.66 → 0.81 → 0 through every bend. Scan from the *maximum* speed,
+so the limit is a function of position alone.
+
+## Do not derive a vehicle's envelope from a model it is not
+
+`src/roadpath.js`'s first cornering model took `grip = 1.15` and `gravity = 19.6` out of
+`vehicle.js`'s friction circle and Ackermann bicycle geometry out of a textbook. Measured by
+holding a steer input and a speed until the radius settles:
+
+                        derived      measured
+    lateral ceiling     22.54        16.2 m/s2
+    R_min at 50 km/h     6.2         12.4 m
+    R_min at full lock   4.3         10.6 m at 20 km/h, and it GROWS with speed
+    braking             12.40        11.0 m/s2
+
+**A safety factor masked half of it.** 0.55 × 22.54 = 12.40, which sits just under the real
+16.2, so the *speed* ceilings came out roughly right by accident. The steering figure was not
+masked, and it was the one that mattered: the controller asked for 0.37 of lock where the car
+needed 0.64, and drifted 8 m wide of a 38 m bend at 78 km/h with its own numbers reading
+nominal.
+
+**The response turned out to be exactly linear, which is what makes the measurement a model
+rather than a table.** Radius × steer input is constant at a given speed — within 2% across
+inputs from 0.1 to 0.4 — so that constant *is* the radius at full lock, and it is linear in
+speed: `R_min(v) = 8.446 + 0.2826·v`, fitting to **0.1%** at every speed from 20 to 80 km/h.
+The steer input for a wanted radius is then the exact inversion, `steer = R_min(v)/R`, and the
+whole understeer factor comes out in the wash instead of needing a fudge.
+
+A measured constant that nothing re-derives is a magic number waiting for the car to change
+under it, so `roadpath-test` re-measures all four against `vehicle.js` and fails if they move.
+
+## An impossible corner needs a crawl speed, not a standstill
+
+116 of this district's 851 course points turn tighter than 12 m of radius, because a graph
+junction is a point and a right-angle turn across it reads as 2 m. A radius under the car's
+standstill minimum of 8.45 m cannot be followed at any speed, so both ceilings return zero —
+and a target of zero means the car stops dead and never reaches the corner at all, which is
+worse than cutting it. A real driver in an alley too tight for their turning circle creeps
+round and clips the kerb.
+
+The floor is 2.2 m/s, which is `damage.js`'s FMVSS free threshold, so a contact taken at the
+floor speed is free **by construction**. That is what makes it a derivation and not a fudge:
+the finished drive's 264 contacts are all at one 8.3 m corner against a 8.9 m minimum, at a
+worst charged delta-v of 1.425 m/s, and they cost exactly nothing.
 
 ## A check whose two sides are both zero is not a check
 
@@ -549,8 +615,11 @@ where both kits rolled their own dice over the same wall for 275 m.
 ## Gates
 
 `check-syntax`, `geom-audit`, `golden-trace`, `physics-test`, `daynight-sweep`,
-`budget` (`drive-through --traffic`), `leaf-mask`. Run the ones your change can
-touch before claiming done.
+`budget` (`drive-through --traffic`), `leaf-mask`, `wanted-test`, `mission-test`,
+`damage-test`, `blocker-test`, `crash-test`, `roadpath-test`, `route-drive`,
+`sim-determinism`, `traffic-selftest`. The offline ones together take under a
+minute; `damage-live` needs a browser and takes about seven. Run the ones your
+change can touch before claiming done.
 
 **A gate is never loosened silently.** If a change moves a threshold, restate the
 threshold *in the same commit*, with the derivation. One commit shipped a

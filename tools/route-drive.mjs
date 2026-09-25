@@ -19,13 +19,24 @@
 //   - the autopilot reads only the route, the vehicle's position and its quaternion
 //
 // What is missing is traffic and the crowd, which this says nothing about. It answers
-// one question: does the car get stuck on a building, and how much does it hit.
+// two questions: is the COURSE driveable, and does the FOLLOWER drive it.
+//
+// WHERE IT ENDED UP. Three circuits of a 3,272 m road-graph tour in 793.5 s at a mean of
+// 44.5 km/h, health 1.000, no applied impacts, no stuck-nudges, never more than 9.79 m off
+// the line, and every one of its 264 body contacts under the FMVSS free threshold — all of
+// them at one 8.3 m corner the car needs 8.9 m for. The straight-line arm, run for contrast,
+// still wrecks the car ten seconds in and gets hand-carried round by the stuck-nudge.
+//
+// It took nine distinct bugs to get there, four in the course and five in the controller, and
+// each one is written up where it was fixed. CLAUDE.md collects them: they all have the same
+// shape, which is that the instrument reads nominal because it is computed from the same
+// wrong quantity the controller is acting on.
 import fs from 'node:fs';
 import { Vehicle, BODY_RADIUS, BODY_SAMPLES } from '../src/vehicle.js';
 import { FlatGround } from '../src/ground.js';
 import { BlockerIndex } from '../src/blockers.js';
 import { DamageModel } from '../src/damage.js';
-import { RoadGraph, followPath, minRadius, worstGap, steerableSpeed, CORNER } from '../src/roadpath.js';
+import { RoadGraph, followPath, minRadius, worstGap, cornerSpeed, RESPONSE } from '../src/roadpath.js';
 
 /**
  * The right-hand lane offset. A path down the centreline of a 14 m carriageway is a path
@@ -189,43 +200,30 @@ if (nudges) {
 }
 
 /**
- * WHAT THIS GATES AND WHAT IT ONLY REPORTS, kept apart on purpose.
+ * THE FOLLOWER IS FINISHED, so these are assertions now rather than recorded figures.
  *
- * SETTLED, and therefore asserted: the road-graph COURSE is clean. Every point of it holds
- * a car, and holds a car oriented along the path, and its tightest corner is a real
- * junction rather than an artefact. The straight-line course is not clean, and that is
- * asserted too, because a future change that makes it look clean means the collision
- * stopped working rather than the course got better.
+ * It was not, two rounds ago: 1,654 contacts, 5 applied impacts, 112 stuck-nudges, 26.79 m
+ * off the line, and the damage model correctly writing the car off three times a lap. The
+ * figures are kept here because the shape of the improvement is the useful part:
  *
- * NOT SETTLED, and therefore printed with its current value rather than gated: the
- * FOLLOWER's drive quality. It gets three circuits round, it never leaves the car inside a
- * building, and it is nowhere near a clean drive — it still takes three impacts per circuit
- * and the damage model, correctly, writes the car off. Five distinct bugs have been found
- * and fixed in it during this round, each with its own number in src/roadpath.js, and the
- * trend is right (contacts 737 -> 187, nudges 571 -> 112, 1,800 s -> 782 s for three
- * circuits) without being finished. A gate that passed on those figures would be a gate
- * asserting that a car which writes itself off three times a lap is driving properly, which
- * is the exact shape of guard CLAUDE.md complains about: "it passed the whole time. That
- * was luck, not evidence."
+ *                       before    after
+ *     circuits            2/3      3/3 in 793.5 s
+ *     health             0.000    1.000
+ *     applied impacts        5        0
+ *     stuck-nudges         112        0
+ *     body contacts      1,654      264
+ *     worst off the line 26.79 m   9.79 m
+ *     worst charged dv   30.93 m/s  1.425 m/s
  *
- * So the drive numbers are printed, compared against the values recorded here, and a
- * REGRESSION in them fails. An improvement does not pass the gate; it updates the numbers.
+ * THE 264 CONTACTS ARE ONE CORNER, AND THEY ARE FREE. Every one of them, across all three
+ * laps, is at path indices 561..563, where the course turns at 8.3 m of radius and the car's
+ * own minimum at that speed is 8.9 m — 0.6 m tighter than it can physically turn. So it
+ * scrapes for 0.73 s a lap at a worst charged delta-v of 1.425 m/s, which is under the 2.2 m/s
+ * FMVSS threshold src/damage.js takes its free band from. It costs nothing, and no controller
+ * can fix it: R_min at a standstill is 8.446 m, so a corner of 8.3 m is beyond the car at any
+ * speed. Widening the line through it is a racing-line problem, not a tracking one.
  */
-const RECORDED = { contacts: 1654, nudges: 112, applied: 5, offLine: 27 };
-// These are the figures for the current follower, and two consecutive runs reproduce them
-// to the unit (781.5 s, 1654, 5, 112, 26.79 m) — the whole simulation is deterministic, so
-// any movement in them is a change in the code and not in the weather.
-//
-// 1,654 contacts with 1,596 of them below the damage threshold is a car SCRAPING, not a car
-// crashing, and the course is not the cause: measured clearance from the course to the
-// nearest wall is a minimum of 1.92 m and a median of 11.23 m at every lane offset from 0
-// to 3 m, with not one point of 737 within 1.5 m of a wall. Every contact therefore comes
-// from the follower's excursions — worst 26.79 m off the line — which localises what is
-// left to one thing.
-//
-// An earlier reading of 187 contacts looked better and was worse: it was measured while the
-// speed limiter was demanding 0 km/h at every junction, so the car crawled and was carried
-// by 136 nudges. Fewer contacts per second is not better driving.
+const EXPECT = { contacts: 300, applied: 0, nudges: 0, offLine: 12, freeDv: 2.2 };
 
 check(`all ${CIRCUITS} circuits completed`, lap >= CIRCUITS, `${lap}/${CIRCUITS} in ${simSeconds.toFixed(0)}s`);
 check('the car is never left inside a building',
@@ -234,7 +232,9 @@ check('the car is never left inside a building',
     : blockers.insideAny(v.position.x, v.position.z) < 0,
   `insideAny ${blockers.insideAny(v.position.x, v.position.z)}`);
 if (MODE === 'straight') {
-  // THE STRAIGHT ARM IS EXPECTED TO FAIL, and asserting that is the measurement.
+  // THE STRAIGHT ARM IS EXPECTED TO FAIL, and asserting that is the measurement. If a future
+  // change makes it survive, the thing to check is whether the collision stopped working
+  // rather than whether the autopilot got better.
   if (NO_COLLISION) {
     check('with walls off, the straight course drives through the city', v.contacts === 0);
   } else {
@@ -244,42 +244,70 @@ if (MODE === 'straight') {
       `${nudges} nudges`);
   }
 } else if (!NO_COLLISION) {
-  // --- the course. Settled.
+  // --- the course.
   check('no point of the planned course is blocked for a car',
     blockedPts === 0, `${blockedPts}/${pathPts}`);
   check('no point of the planned course is blocked for the CAR BODY along it',
     bodyBlockedPts === 0, `${bodyBlockedPts}/${pathPts}`);
   const mr = minRadius(tour.points);
   console.log(`  tightest corner on the course: ${mr.radius.toFixed(2)} m at index ${mr.at}, ` +
-    `steerable at ${(steerableSpeed(mr.radius) * 3.6).toFixed(0)} km/h`);
+    `cornerSpeed ${(cornerSpeed(mr.radius) * 3.6).toFixed(0)} km/h ` +
+    `(the car's standstill minimum is ${RESPONSE.rMin0.toFixed(2)} m)`);
   check('the tightest corner is a real junction, not a resampling artefact',
-    mr.radius > CORNER.wheelbase, `${mr.radius.toFixed(2)} m against a ${CORNER.wheelbase} m wheelbase`);
+    mr.radius > 5, `${mr.radius.toFixed(2)} m`);
+  // Reversals and the seam. See RoadGraph.tour().
+  let reversals = 0;
+  for (let k = 1; k < tour.points.length - 1; k++) {
+    const a = tour.points[k - 1], b = tour.points[k], c = tour.points[k + 1];
+    const h1 = Math.atan2(b[0] - a[0], b[1] - a[1]), h2 = Math.atan2(c[0] - b[0], c[1] - b[1]);
+    let dd = h2 - h1;
+    while (dd > Math.PI) dd -= Math.PI * 2;
+    while (dd < -Math.PI) dd += Math.PI * 2;
+    if (Math.abs(dd) > 2.09) reversals++;
+  }
+  const n = tour.points.length;
+  const closure = Math.hypot(tour.points[n - 1][0] - tour.points[0][0], tour.points[n - 1][1] - tour.points[0][1]);
+  const inH = Math.atan2(tour.points[n - 1][0] - tour.points[n - 2][0], tour.points[n - 1][1] - tour.points[n - 2][1]);
+  const outH = Math.atan2(tour.points[1][0] - tour.points[0][0], tour.points[1][1] - tour.points[0][1]);
+  let seam = outH - inH;
+  while (seam > Math.PI) seam -= Math.PI * 2;
+  while (seam < -Math.PI) seam += Math.PI * 2;
+  console.log(`  reversals in the course: ${reversals};  closure ${closure.toFixed(3)} m;  ` +
+    `heading across the seam ${(seam * 180 / Math.PI).toFixed(1)} deg`);
+  check('the course never doubles back on itself', reversals === 0, `${reversals}`);
+  check('the course closes exactly, so a lap ends where the next begins', closure < 1e-6,
+    `${closure.toFixed(4)} m`);
+  check('the seam is an ordinary corner, not a discontinuity', Math.abs(seam) < 0.5,
+    `${(seam * 180 / Math.PI).toFixed(1)} deg`);
   const wg = worstGap(tour.points);
   console.log(`  worst gap between consecutive points: ${wg.gap.toFixed(2)} m at index ${wg.at}`);
   check('no gap in the course exceeds twice the spacing', wg.gap < 8, `${wg.gap.toFixed(2)} m`);
   check('the router excluded the impassable service edges',
     graph.stats.blockedEdges === 11, `${graph.stats.blockedEdges}`);
-  // --- the follower. Not settled: reported, and regressions fail.
-  console.log('\n  FOLLOWER (not settled — reported against the values recorded in this file):');
+
+  // --- the drive.
+  console.log('\n  THE DRIVE:');
   const rows = [
-    ['body contacts', v.contacts, RECORDED.contacts],
-    ['stuck-nudges', nudges, RECORDED.nudges],
-    ['impacts applied', rep.stats.applied, RECORDED.applied],
-    ['worst m off the line', +worstOffPath.toFixed(0), RECORDED.offLine],
+    ['body contacts', v.contacts, EXPECT.contacts],
+    ['stuck-nudges', nudges, EXPECT.nudges],
+    ['impacts applied', rep.stats.applied, EXPECT.applied],
+    ['worst m off the line', +worstOffPath.toFixed(1), EXPECT.offLine],
   ];
   for (const [label, got, want] of rows) {
-    const d = got - want;
-    console.log(`    ${label.padEnd(22)} ${String(got).padStart(5)}   recorded ${String(want).padStart(5)}   ` +
-      `${d === 0 ? 'unchanged' : d < 0 ? `${-d} better` : `${d} WORSE`}`);
-    // A 25% margin, because these are a chaotic simulation and not a clean measurement.
-    check(`${label} has not regressed`, got <= want * 1.25 + 1, `${got} against ${want}`);
+    console.log(`    ${label.padEnd(22)} ${String(got).padStart(6)}   budget ${String(want).padStart(5)}`);
+    check(`${label} is within budget`, got <= want, `${got} against ${want}`);
   }
-  check('the follower never leaves the car inside a building',
-    !nudgeAt.some((n) => n.inside), `${nudgeAt.filter((n) => n.inside).length} nudges fired from inside`);
+  console.log(`    ${'health'.padEnd(22)} ${rep.health.toFixed(4).padStart(6)}`);
+  console.log(`    ${'worst charged delta-v'.padEnd(22)} ${rep.stats.worstDv.toFixed(3).padStart(6)} m/s   ` +
+    `budget ${EXPECT.freeDv} (the FMVSS free band)`);
+  check('the car finishes undamaged', rep.health === 1, `${rep.health}`);
+  check('every contact is below the free threshold, i.e. paint',
+    rep.stats.worstDv < EXPECT.freeDv, `${rep.stats.worstDv.toFixed(3)} m/s`);
+  check('no nudge fired from inside a building', !nudgeAt.some((nn) => nn.inside),
+    `${nudgeAt.filter((nn) => nn.inside).length}`);
   check('the collider never holds the car deeper than 5 cm', worstOff < 0.05,
     `${worstOff.toFixed(4)} m`);
-  console.log('    the car still writes itself off on this drive. That is the damage model');
-  console.log('    being right about a follower that is not finished, not a damage bug.');
+  console.log(`    mean speed ${(3 * pathLen / simSeconds * 3.6).toFixed(1)} km/h over ${CIRCUITS} circuits`);
 }
 // Determinism, because the gate's whole argument depends on the drive being repeatable.
 check('the path is finite everywhere', path.every(([x, z]) => Number.isFinite(x) && Number.isFinite(z)));

@@ -122,24 +122,6 @@ export class RoadGraph {
     return false;
   }
 
-  /** Metres along edge `i`, following its shape points. */
-  edgeLength(i) { return this._len.get(i) ?? 0; }
-
-  /**
-   * The graph NODE nearest (x, z). Nodes are edge endpoints, so this is not the nearest
-   * point on the road — see nearestOn() for that. Linear over the node set, which is
-   * ~1,400 entries and is called a handful of times per route rather than per frame.
-   */
-  nearestNode(x, z) {
-    let best = -1, bestD = Infinity;
-    for (const v of this.out.keys()) {
-      const p = this.d.verts[v];
-      const dd = (p.x - x) ** 2 + (p.z - z) ** 2;
-      if (dd < bestD) { bestD = dd; best = v; }
-    }
-    return { vertex: best, dist: Math.sqrt(bestD) };
-  }
-
   /**
    * The nearest point on any road centreline, and which edge it is on. This is what a
    * caller wants when the subject is a building entrance or a marker dropped in a car
@@ -312,7 +294,7 @@ export class RoadGraph {
     let len = 0;
     for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
     return { points: pts, length: len, graphLength: best.length, edges: best.edges,
-      start: a, end: b };
+      start: a, end: b, endVertex: best.vertices[best.vertices.length - 1] };
   }
 
   /**
@@ -364,25 +346,97 @@ export class RoadGraph {
    * which is what the braking-distance scan was written to do.
    */
   tour(waypoints, opts = {}) {
+    const { spacing = 5, offset = 0, smoothPasses = 2 } = opts;
+    /**
+     * ONE EDGE LIST FOR THE WHOLE ROUTE, densified once.
+     *
+     * TWO EARLIER VERSIONS OF THIS JOINED PER-LEG POLYLINES AND BOTH BROKE CONTINUITY, in
+     * opposite directions, and both were invisible in the route's length.
+     *
+     * Routing each leg from its own `nearestOn` projection makes the course DOUBLE BACK at
+     * every join, because leg N walks up to the waypoint's projection and leg N+1 walks from
+     * that projection back to whichever vertex its own Dijkstra chose — often the one leg N
+     * just came from. The course read
+     *
+     *     (18,-12) (21,-9) (21,-8) (17,-8) (20,-11) (23,-14)
+     *
+     * at the Main St / Pineapple waypoint: forward, back 4 m, forward again. A follower
+     * meeting that gets an aim point BEHIND it, and pure pursuit's command is 2*sin(alpha)/d,
+     * which is zero at alpha = pi as well as at zero — so the car drove straight on at 1 km/h
+     * for four hundred seconds with its heading error reading -3.14 the whole time.
+     *
+     * Chaining the legs through the graph instead — leg N+1 starting from the vertex leg N
+     * ended at — fixed the reversal and opened a 158 m GAP, because the previous leg's points
+     * still ended at its projection while the next leg's began at the routing vertex.
+     *
+     * So there are no legs. The waypoints are snapped, Dijkstra is run between consecutive
+     * snapped vertices, the edge sequences are concatenated, and the result is densified,
+     * offset and smoothed as a single polyline. Continuity is then a property of the
+     * construction rather than something to patch at the seams.
+     */
+    const snaps = waypoints.map((w) => this.nearestOn(w.x, w.z));
+    if (snaps.some((sn) => !sn)) return { points: [], legs: [], length: 0, failed: waypoints.length };
+    // The first vertex: whichever end of the first waypoint's edge starts the shortest tour.
     const legs = [];
-    const points = [];
-    for (let i = 0; i < waypoints.length; i++) {
-      const a = waypoints[i], b = waypoints[(i + 1) % waypoints.length];
-      if (Math.hypot(b.x - a.x, b.z - a.z) < 1) continue;
-      const p = this.path(a.x, a.z, b.x, b.z, opts);
-      if (!p) { legs.push({ from: i, failed: true }); continue; }
-      legs.push({ from: i, length: p.length, points: p.points.length, at: points.length });
-      for (const q of p.points) {
-        const last = points[points.length - 1];
-        if (last && Math.hypot(q[0] - last[0], q[1] - last[1]) < 1e-6) continue;
-        points.push(q);
+    let bestStart = null;
+    for (const v0 of [snaps[0].v0, snaps[0].v1]) {
+      let cur = v0, total = 0, edges = [], marks = [], ok = true;
+      for (let i = 1; i <= snaps.length; i++) {
+        const target = snaps[i % snaps.length];
+        let leg = null;
+        for (const to of [target.v0, target.v1]) {
+          const r = this.route(cur, to);
+          if (r && (!leg || r.length < leg.length)) leg = r;
+        }
+        if (!leg) { ok = false; break; }
+        marks.push({ to: i % snaps.length, edges: leg.edges.length, length: leg.length });
+        edges = edges.concat(leg.edges);
+        total += leg.length;
+        cur = leg.vertices[leg.vertices.length - 1];
       }
+      if (ok && (!bestStart || total < bestStart.total)) bestStart = { v0, total, edges, marks, endVertex: cur };
     }
+    if (!bestStart) return { points: [], legs: [], length: 0, failed: waypoints.length };
+    for (const m of bestStart.marks) legs.push(m);
+
+    /**
+     * CLOSED, AND SMOOTHED ACROSS THE SEAM. A tour is a ring: its last waypoint routes back to
+     * its first, so the two ends are the same place — measured at 3.05 m apart on this
+     * district, which is one resample step.
+     *
+     * They were not the same DIRECTION, and smooth() pins its endpoints, so the seam was the
+     * one corner on the whole course that never got rounded. The car finished a clean lap
+     * 0.6 m from where it started with a heading error of 1.59 rad — 91 degrees — had to turn
+     * a right angle from a standstill, and clipped the corner 5.6 s later at index 4. Twice,
+     * identically, on laps 2 and 3. And because that first impact leaves the car with
+     * asymmetric damage and therefore a steering pull, the contact count for the rest of the
+     * lap went from 22 to 5,300: one unsmoothed corner, and the whole drive degrades.
+     *
+     * Closing the ring before smoothing makes the seam an ordinary corner.
+     */
+    // A RING THROUGHOUT, opened only at the very end. Every step — resample, smooth,
+    // resample — treats the seam as one more segment, so it ends up rounded exactly like
+    // every other junction instead of being the one corner nothing touched.
+    let pts = this.densify(bestStart.edges, spacing);
+    pts = resample(pts, spacing, true);
+    if (smoothPasses > 0) pts = resample(smooth(pts, smoothPasses, true), spacing, true);
+    if (offset) {
+      pts = offsetRight(pts, offset, (i) => {
+        const ei = pts[i][2];
+        const e = ei >= 0 ? this.d.edges[ei] : null;
+        if (!e) return offset;
+        const half = (e.w * Math.max(1, e.lanes)) / 2;
+        return Math.min(offset, Math.max(0, half - 1.2));
+      });
+    }
+    // Opened: the follower needs a last point to reach, and it is the first one again, so a
+    // lap ends exactly where the next one begins and the reset to index 0 is a no-op in space.
+    pts.push([pts[0][0], pts[0][1], pts[0][2]]);
     let len = 0;
-    for (let i = 1; i < points.length; i++) {
-      len += Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]);
+    for (let i = 1; i < pts.length; i++) {
+      len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
     }
-    return { points, legs, length: len, failed: legs.filter((l) => l.failed).length };
+    return { points: pts, legs, length: len, failed: 0, edges: bestStart.edges, closed: true };
   }
 }
 
@@ -392,12 +446,61 @@ export class RoadGraph {
  * point the far end of it and the car drives straight there, off-road, reporting a heading
  * error of zero the whole way.
  */
-export function resample(pts, spacing) {
+export function resample(pts, spacing, closed = false) {
   if (pts.length < 2) return pts.slice();
   const out = [pts[0].slice()];
   let carry = 0;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const a = pts[i], b = pts[i + 1];
+  // With `closed`, the segment from the last point back to the first is walked too, and no
+  // duplicate endpoint is appended — so the result is a RING of uniformly spaced points.
+  // Without it, forcing closure after an open resample leaves a short reverse spur at the
+  // seam: measured at a 3.94 m corner radius where the rest of the course was 6.14 m, and
+  // the contacts on a lap went from 22 to 158 because of it.
+  /**
+   * A CLOSED CURVE IS DIVIDED EVENLY, NOT WALKED AT A FIXED STEP. Walking a ring at a fixed
+   * spacing leaves a remainder, and the remainder is a spur: the last emitted point lands
+   * short of the start and the closing segment runs BACKWARDS to reach it.
+   *
+   * The first attempt dropped that point when it was within half a spacing of the start —
+   * which is a threshold, and thresholds miss. Measured: the point landed 2.10 m from the
+   * start against a 2.00 m threshold, so it was kept, and the course ended
+   *
+   *     (-298.40, 18.00) -> (-293.72, 18.80) -> (-295.80, 19.13)
+   *
+   * forward 4.74 m, then back 2.10 m. That 2.10 m reversal was the course's tightest corner
+   * at 2.43 m of radius, on a course whose next tightest was 6.14, and it is the reason a
+   * clean lap still carried 158 contacts.
+   *
+   * Choosing the number of points from the ring's own length and spacing them exactly
+   * length/n apart closes it by construction, with no remainder to dispose of.
+   */
+  if (closed) {
+    let total = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      total += Math.hypot(b[0] - a[0], b[1] - a[1]);
+    }
+    const count = Math.max(3, Math.round(total / spacing));
+    const step = total / count;
+    const ring = [];
+    let seg = 0, along = 0, acc = 0;
+    for (let k = 0; k < count; k++) {
+      const want = k * step;
+      while (seg < pts.length) {
+        const a = pts[seg], b = pts[(seg + 1) % pts.length];
+        const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+        if (acc + L >= want - 1e-9 || seg === pts.length - 1) { along = want - acc; break; }
+        acc += L; seg++;
+      }
+      const a = pts[Math.min(seg, pts.length - 1)], b = pts[(Math.min(seg, pts.length - 1) + 1) % pts.length];
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      const t = Math.min(1, Math.max(0, along / L));
+      ring.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, b[2]]);
+    }
+    return ring;
+  }
+  const n = pts.length - 1;
+  for (let i = 0; i < n; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
     const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
     if (!(L > 0)) continue;
     let d = spacing - carry;
@@ -434,17 +537,18 @@ export function resample(pts, spacing) {
  * Endpoints are pinned, because they are the lead-in and lead-out that _walkAlong went to
  * the trouble of making continuous.
  */
-export function smooth(pts, passes = 1) {
+export function smooth(pts, passes = 1, closed = false) {
   let cur = pts;
   for (let p = 0; p < passes; p++) {
     if (cur.length < 3) return cur;
-    const out = [cur[0].slice()];
-    for (let i = 0; i < cur.length - 1; i++) {
-      const a = cur[i], b = cur[i + 1];
+    const out = closed ? [] : [cur[0].slice()];
+    const n = closed ? cur.length : cur.length - 1;
+    for (let i = 0; i < n; i++) {
+      const a = cur[i], b = cur[(i + 1) % cur.length];
       out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25, a[2]]);
       out.push([a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75, b[2]]);
     }
-    out.push(cur[cur.length - 1].slice());
+    if (!closed) out.push(cur[cur.length - 1].slice());
     cur = out;
   }
   return cur;
@@ -496,67 +600,104 @@ export function offsetRight(pts, d, perPoint = null) {
 }
 
 /**
- * THE CORNERING BUDGET, DERIVED FROM src/vehicle.js RATHER THAN TUNED.
+ * THE CAR'S CORNERING ENVELOPE, MEASURED RATHER THAN DERIVED — and the first version of this
+ * was derived, was wrong by 1.75x, and is why the follower could not hold a line.
  *
- * That module's tyre model clamps the combined force into a friction circle of
- * `grip = 1.15` times the normal load, and runs at `gravity = -19.6` — 2 g of arcade
- * weight. So the lateral acceleration available is
+ * WHAT THE DERIVED VERSION SAID. It took `grip = 1.15` and `gravity = 19.6` straight out of
+ * src/vehicle.js's friction circle for a lateral ceiling of 22.54 m/s2, and Ackermann bicycle
+ * geometry — `R = wheelbase / tan(steer)` — for a minimum turning radius of 4.3 m at rest.
+ * Both are properties of a model the car is not. Measured on flat ground by holding a steer
+ * input and a speed until the radius settles:
  *
- *     a = grip * |gravity| = 1.15 * 19.6 = 22.54 m/s^2
+ *                        derived      measured
+ *     lateral ceiling    22.54        16.2 m/s2
+ *     R_min at 50 km/h    6.2         12.4 m
+ *     R_min at full lock  4.3         10.6 m at 20 km/h, and it GROWS with speed
+ *     braking            12.40        11.0 m/s2
  *
- * and a corner of radius R can be taken at v <= sqrt(a * R). The same budget is what
- * stops the car, so the braking distance from v to vTarget is (v^2 - vTarget^2) / 2a.
+ * The lateral figure was masked: a safety factor of 0.55 on 22.54 gives 12.40, which happens
+ * to sit just under the real 16.2, so the SPEED ceilings came out roughly right by accident.
+ * The steering figure was not masked at all, and it is the one that mattered — the controller
+ * asked for 0.37 of lock where the car needed 0.64, and drifted 8 m wide of a 38 m bend at
+ * 78 km/h while its own numbers read nominal.
  *
- * SAFETY is a flat 0.55 of that, and the reason it is not 1.0 is that the radius comes
- * from three points of a 4 m-resampled polyline, which is a crude estimate of a junction
- * radius, and the penalty for over-estimating is a building. tools/route-drive.mjs
- * measures what the factor buys: the whole point of stating it here is that a future
- * round changing it can see what it is trading.
+ * THE RESPONSE IS EXACTLY LINEAR, WHICH IS WHAT MAKES THIS A MODEL AND NOT A TABLE. Radius
+ * times steer input is constant at a given speed — to within 2% across inputs from 0.1 to
+ * 0.4 — so that constant IS the radius at full lock, and it is linear in speed:
  *
- * WHY THIS IS NEEDED AT ALL. The first draft eased the THROTTLE for corners and never
- * touched the brake. On this district's 500 m stretch of Main Street the car reached
- * 119 km/h, the curvature reading rose 12 m before the junction, the throttle dropped to
- * 0.28 — and the car arrived at the junction still doing 110 km/h and was wrecked
- * against the building opposite. Coasting is not braking.
+ *     R_min(v) = 8.446 + 0.2826 * v        metres, v in m/s
+ *
+ * fitting the measurement to 0.1% at every speed from 20 to 80 km/h. So the steer input for
+ * a wanted radius is the exact inversion of the car's own steady-state response:
+ *
+ *     steer = R_min(v) / R
+ *
+ * which is 1 exactly when R is the tightest the car can hold, and the whole understeer factor
+ * comes out in the wash instead of needing a fudge.
+ *
+ * tools/roadpath-test.mjs re-measures all four numbers against src/vehicle.js and fails if
+ * the car changes under them, which is the only thing that keeps a measured model honest.
  */
-export const CORNER = Object.freeze({
-  grip: 1.15,            // src/vehicle.js's friction-circle coefficient
-  gravity: 19.6,         // src/vehicle.js's arcade 2 g
-  safety: 0.55,
-  // src/vehicle.js's steering geometry, and its speed-dependent authority.
-  maxSteer: 0.55,        // radians at the wheel
-  wheelbase: 2.62,       // 1.32 + 1.30, from WHEEL_LAYOUT
-  steerFalloff: 0.035,   // setControls: steer *= 1 / (1 + |forwardSpeed| * this)
-  get accel() { return this.grip * this.gravity; },
-  get useful() { return this.accel * this.safety; },
+export const RESPONSE = Object.freeze({
+  rMin0: 8.446,        // m — R_min at a standstill (fit intercept)
+  rMinPerV: 0.2826,    // m per m/s — how much the minimum radius grows with speed
+  latMax: 16.2,        // m/s2 — sustainable lateral acceleration
+  brake: 11.0,         // m/s2 — measured full-brake deceleration, 10.5 to 11.6 over the range
+  accel: 3.3,          // m/s2 — measured at the top of the range, 4.6 at the bottom
+  /**
+   * Margins. The grip figure is what the car can just hold, so a follower running at it has
+   * nothing left to correct with; 0.8 leaves a fifth in hand. The steering figure is a
+   * geometric limit rather than a friction one, so the margin is taken as lock in reserve:
+   * 0.85 means never asking for more than 85% of available lock in steady state.
+   */
+  gripSafety: 0.8,
+  steerReserve: 0.85,
 });
 
+/** The tightest radius the car can hold at speed `v`. Measured; see RESPONSE. */
+export function minTurnRadius(v) {
+  return RESPONSE.rMin0 + RESPONSE.rMinPerV * Math.max(0, v);
+}
+
 /**
- * THE SECOND LIMIT, AND GRIP IS NOT IT. A corner has two ceilings and the first draft of
- * pathSpeedLimit only knew about one.
- *
- * src/vehicle.js scales steering authority DOWN with speed — `speedFactor = 1 / (1 +
- * |forwardSpeed| * 0.035)`, so the car is deliberately less twitchy at 120 km/h — which
- * means its minimum turning radius GROWS with speed:
- *
- *     R_min(v) = wheelbase / tan( maxSteer / (1 + v * falloff) )
- *
- * At rest that is 4.3 m; at 40 km/h it is 6.2 m. So a 6 m junction radius is not merely
- * uncomfortable at 40 km/h, it is geometrically impossible, and no amount of grip helps.
- * Inverting for the fastest speed at which a radius R is still steerable:
- *
- *     v <= ( maxSteer / atan(wheelbase / R) - 1 ) / falloff
- *
- * Grip binds above about 8 m of radius and steering binds below it. The symptom of missing
- * this was unmistakable once traced: full steering lock, a heading error of 1.39 rad, and
- * the off-line distance climbing 1.9 -> 8.2 m while the throttle sat at 0.35 — a car
- * asking for more lock than it has and driving into the building on the outside of the
- * turn. It happened at maxSpeed 22 and again at maxSpeed 16, at different junctions.
+ * The steer INPUT that produces radius `R` at speed `v`. The exact inversion of the measured
+ * steady-state response, so 1.0 is full lock and anything over 1 is a radius the car cannot
+ * hold at this speed.
  */
+export function steerForRadius(v, R) {
+  return minTurnRadius(v) / Math.max(Math.abs(R), 1e-3);
+}
+
+/** The fastest a radius can be taken before the steering runs out of lock. */
 export function steerableSpeed(radius) {
-  const inner = Math.atan(CORNER.wheelbase / Math.max(radius, 0.1));
-  if (!(inner > 0) || inner >= CORNER.maxSteer) return 0;
-  return Math.max(0, (CORNER.maxSteer / inner - 1) / CORNER.steerFalloff);
+  return Math.max(0, (radius * RESPONSE.steerReserve - RESPONSE.rMin0) / RESPONSE.rMinPerV);
+}
+
+/** The fastest a radius can be taken before the tyres run out of grip. */
+export function gripSpeed(radius) {
+  return Math.sqrt(RESPONSE.latMax * RESPONSE.gripSafety * Math.max(radius, 0));
+}
+
+/**
+ * The corner speed for a radius: the lower of the two ceilings.
+ *
+ * Steering binds below about 13 m of radius and grip above it, which the measurement bears
+ * out — at 50 km/h the car needs full lock for 13.1 m, and at 80 km/h it runs out of grip at
+ * 30.4 m long before it runs out of lock.
+ */
+export function cornerSpeed(radius) {
+  /**
+   * FLOORED AT A CRAWL, and the floor is not a fudge. A radius under the car's standstill
+   * minimum of 8.45 m cannot be followed at any speed, so both ceilings return 0 — and a
+   * target of 0 means the car stops dead and never reaches the corner at all, which is worse
+   * than cutting it. 116 of this district's 851 course points are under 12 m of radius,
+   * because a graph junction is a point and a right-angle turn across it reads as 2 m.
+   *
+   * A real driver in an alley too tight for the turning circle does not stop; they creep
+   * round and clip the kerb. 2.2 m/s is 8 km/h, which is the FMVSS bumper threshold in
+   * src/damage.js — so a contact taken at the floor speed is, by construction, free.
+   */
+  return Math.max(2.2, Math.min(gripSpeed(radius), steerableSpeed(radius)));
 }
 
 /**
@@ -611,8 +752,12 @@ export const ARC_WINDOW = 10;
  * than it needs.
  */
 export function pathSpeedLimit(points, from, speed, maxSpeed) {
-  const a = CORNER.useful;
-  const scan = Math.max(25, (speed * speed) / (2 * a));
+  const a = RESPONSE.brake;
+  // Scanned from maxSpeed, not from the CURRENT speed. A scan whose length depends on how
+  // fast the car is going right now is a feedback loop: slowing shortens the scan, the corner
+  // leaves it, the target jumps back up, the car accelerates, the corner reappears. The
+  // throttle then chatters 0 -> 1 -> 0.66 -> 0.81 -> 0 through every bend.
+  const scan = Math.max(25, (maxSpeed * maxSpeed) / (2 * a));
   let limit = maxSpeed;
   let d = 0;
   for (let k = from; k < points.length - 2 && d < scan; k++) {
@@ -620,8 +765,7 @@ export function pathSpeedLimit(points, from, speed, maxSpeed) {
     if (w) {
       if (w.turn > 1e-3) {
         const radius = w.arc / w.turn;
-        // The lower of the two ceilings: grip, and the steering geometry.
-        const vCorner = Math.min(Math.sqrt(a * radius), steerableSpeed(radius));
+        const vCorner = cornerSpeed(radius);
         // The speed we may hold NOW is the corner speed plus whatever the brakes can shed
         // between here and there.
         const allowed = Math.sqrt(vCorner * vCorner + 2 * a * d);
@@ -673,14 +817,41 @@ export function followPath(points, { x, z, yaw, speed }, state = { i: 0 }, opts 
    * can never go backwards — and arc length cannot select a point behind the index it
    * starts from.
    */
+  /**
+   * PROGRESS IS A LOCAL PROJECTION, NOT THE CLOSEST POINT IN A WINDOW. The second draft
+   * searched an 80-point window forward for the globally nearest point, which is monotonic
+   * and still teleports: wherever the route passes near itself, a point 180 m further on can
+   * be nearer than the one the car is actually on.
+   *
+   * Traced on 2nd Street westbound. At t=133.5 s the car is at (-135.2, -383.8) doing
+   * 77 km/h with i=615, off-line 1.17 m, heading error -0.04 rad — nominal. One quarter of a
+   * second later i is 661, forty-six points and 184 m further on, because that part of the
+   * route runs 0.63 m from where the car is and the window found it. The heading error goes
+   * to +1.543 rad — 88 degrees — at 77 km/h, and the car leaves the line by 22.4 m.
+   *
+   * Advancing by PROJECTION cannot do that: step forward only past segments the car is
+   * already beyond in the along-path direction, and stop at the first segment its projection
+   * falls inside. Local, monotonic, and indifferent to what the rest of the path is doing.
+   */
   let i = state.i;
-  let bestD = Infinity;
-  const window = Math.min(points.length, i + 80);
-  for (let k = i; k < window; k++) {
-    const dd = (points[k][0] - x) ** 2 + (points[k][1] - z) ** 2;
-    if (dd < bestD) { bestD = dd; i = k; }
+  let frac = 0;
+  for (let n = 0; n < 400 && i < points.length - 2; n++) {
+    const a = points[i], b = points[i + 1];
+    const ex = b[0] - a[0], ez = b[1] - a[1];
+    const L2 = ex * ex + ez * ez;
+    const t = L2 > 0 ? ((x - a[0]) * ex + (z - a[1]) * ez) / L2 : 1;
+    if (t < 1) { frac = t > 0 ? t : 0; break; }
+    i++;
   }
-  let acc = 0, j = i;
+  // Cross-track error, from the projection rather than from the nearest vertex.
+  const pa = points[i], pb = points[Math.min(i + 1, points.length - 1)];
+  const projX = pa[0] + (pb[0] - pa[0]) * frac, projZ = pa[1] + (pb[1] - pa[1]) * frac;
+  const offLine = Math.hypot(x - projX, z - projZ);
+
+  // The aim point: `lookAhead` metres of ARC from the projection, not from points[i], so the
+  // look-ahead does not shorten and lengthen by up to one segment as the car crosses each.
+  let acc = -frac * Math.hypot(pb[0] - pa[0], pb[1] - pa[1]);
+  let j = i;
   for (; j < points.length - 1; j++) {
     acc += Math.hypot(points[j + 1][0] - points[j][0], points[j + 1][1] - points[j][1]);
     if (acc >= lookAhead) break;
@@ -690,22 +861,66 @@ export function followPath(points, { x, z, yaw, speed }, state = { i: 0 }, opts 
   let err = Math.atan2(dx, dz) - yaw;
   while (err > Math.PI) err -= Math.PI * 2;
   while (err < -Math.PI) err += Math.PI * 2;
-  const steer = clamp(err * 1.8, -1, 1);
 
-  const target = Math.min(maxSpeed, pathSpeedLimit(points, i, speed, maxSpeed));
+  /**
+   * PURE PURSUIT FOR THE GEOMETRY, THE MEASURED RESPONSE FOR THE ACTUATOR.
+   *
+   * The arc through the car's current position to the aim point, at distance d and subtending
+   * alpha, has curvature 2*sin(alpha)/d — so the radius the car must hold is d/(2 sin alpha).
+   * That much is geometry and every version of this got it right. What to DO with it is the
+   * part that was wrong twice: first a flat gain of 1.8 on the heading error, then Ackermann
+   * bicycle geometry, and the car is neither. steerForRadius() inverts the response that was
+   * actually measured, so the input is right at every speed without a correction factor.
+   *
+   * An input over 1 means the radius is beyond the car at this speed. It clamps, and the
+   * speed ceiling is what stops the situation arising.
+   */
+  const aimDist = Math.max(Math.hypot(dx, dz), 1e-3);
+  /**
+   * THE SINE IS CAPPED AT A QUARTER TURN, because 2*sin(alpha)/d is zero at alpha = pi as
+   * well as at alpha = 0 and pure pursuit cannot tell "pointing at it" from "pointing exactly
+   * away from it". A course that doubled back put the aim point 180 degrees behind the car,
+   * the steering command came out at -0.03, and the car drove away in a straight line at
+   * 1 km/h for four hundred seconds with its own heading error reading -3.14 the whole time.
+   *
+   * Past a quarter turn there is nothing to compute: the tightest turn available is the right
+   * answer, and the cap delivers it continuously rather than as a special case.
+   */
+  const a90 = Math.min(Math.abs(err), Math.PI / 2);
+  const sinA = Math.sin(a90);
+  const reqRadius = sinA > 1e-6 ? aimDist / (2 * sinA) : Infinity;
+  const steer = clamp(Math.sign(err) * steerForRadius(speed, reqRadius), -1, 1);
+
+  /**
+   * Speed. `pathSpeedLimit` already folds the braking distance in, so its answer is the speed
+   * the car should be at NOW, and a proportional controller on the error is enough. The
+   * deadband is what stops the throttle and the brake trading places every other frame.
+   *
+   * THE TURN THE CAR IS ALREADY IN IS ALSO A CEILING, and leaving it out was the last thing
+   * wrong with this controller. `pathSpeedLimit` looks FORWARD from the progress index, which
+   * is right for anticipating a corner and blind to the one being negotiated: once the apex is
+   * behind the index the scan sees the straight beyond it and the target jumps.
+   *
+   * Traced at a 7.5 m junction: the car crawls in at 9 km/h with the target at 8 and full
+   * lock, and one step later the target reads 54, then 79. It floors the throttle while still
+   * at full lock, accelerates 9 -> 39.5 km/h in two and a half seconds, runs 7.6 m wide and
+   * hits the building on the outside of the turn — the single impact that wrecked the car on
+   * an otherwise clean lap.
+   *
+   * A car at full lock has no grip left to accelerate with, and `reqRadius` is exactly the
+   * radius the steering is being asked to hold, so cornerSpeed() of it is the ceiling. It
+   * lifts by itself as the car straightens.
+   */
+  const target = Math.min(maxSpeed, pathSpeedLimit(points, i, speed, maxSpeed),
+    cornerSpeed(reqRadius));
+  const over = speed - target;
   let throttle = 0, brake = 0;
-  if (speed > target * 1.03) {
-    // Proportional on the excess, and firm: half the target over is full brakes.
-    brake = clamp((speed - target) / Math.max(target * 0.5, 2), 0.2, 1);
-  } else {
-    throttle = clamp((target - speed) / 3 + 0.3, 0, 1);
-    // Still ease for a heading error the steering is fighting.
-    if (Math.abs(err) > 0.6) throttle = Math.min(throttle, 0.35);
-  }
+  if (over > 0.3) brake = clamp(over / 3, 0.15, 1);
+  else throttle = clamp(-over / 4 + 0.2, 0, 1);
   state.i = i;
   return { controls: { throttle, brake, steer, handbrake: false },
-    i, aim, err, target, speed, offLine: Math.sqrt(bestD), curve: pathCurvature(points, j, 3),
-    remaining: points.length - 1 - i, done: i >= points.length - 1 };
+    i, frac, aim, err, target, speed, offLine, reqRadius, curve: pathCurvature(points, j, 3),
+    remaining: points.length - 1 - i, done: i >= points.length - 2 };
 }
 
 /**

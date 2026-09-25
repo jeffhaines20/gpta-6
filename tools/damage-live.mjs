@@ -256,6 +256,104 @@ if (anyPed) {
 }
 
 // ---------------------------------------------------------------------------
+// §7  The HUD route line, on the streets.
+// ---------------------------------------------------------------------------
+console.log('\n§7  Routing and the HUD route line');
+const graph = await page.evaluate(() => __district.roads.stats);
+console.log(`    road graph: ${JSON.stringify(graph)}`);
+check('main.js built a road graph', graph && graph.vertices > 500, JSON.stringify(graph));
+check('it refused the 11 impassable service edges', graph.blockedEdges === 11, `${graph.blockedEdges}`);
+const tourLive = await page.evaluate(() => {
+  const t = __district.tourRoute();
+  let blocked = 0;
+  for (const q of t.points) if (!__district.clearAt(q[0], q[1], 0.95)) blocked++;
+  return { points: t.points.length, length: Math.round(t.length), blocked };
+});
+console.log(`    the whole route as a driveable tour: ${tourLive.points} points, ${tourLive.length} m, ` +
+  `${tourLive.blocked} blocked for a car`);
+check('the live tour matches the offline figure', tourLive.points === 818, `${tourLive.points}`);
+check('no point of the live tour is blocked', tourLive.blocked === 0, `${tourLive.blocked}`);
+
+// The route line only has a source while a mission is running, so start one.
+await page.evaluate(() => { __district.setMode('car'); __district.repairCar(); __district.startMission('marlin-street'); });
+await settle(8);
+const routed = await page.evaluate(() => {
+  const h = __district.hud && __district.hud();
+  // THE PATH2D LIVES ON THE MINIMAP, NOT ON THE HUD. hud.js has two setRoute()s: the HUD's
+  // forwards to update({route}), and the Minimap's builds the Path2D — hud.draw() calls
+  // `this.minimap.setRoute(s.route)`. The first draft of this probe read `hud._routePath`,
+  // found undefined, and reported the wiring broken when it was the probe looking one object
+  // too high. A live check that reads the wrong object is worse than no live check.
+  const m = h && h.minimap;
+  const line = __district.routeLine();
+  return {
+    stage: __district.missionReport().stage,
+    waypoint: __district.missionHud().waypoint,
+    points: line ? line.length : 0,
+    first: line ? line[0].slice(0, 2) : null,
+    last: line ? line[line.length - 1].slice(0, 2) : null,
+    hudHasPath: !!(m && m._routePath),
+    hudSrcLen: m && m._routeSrc ? m._routeSrc.length : 0,
+  };
+});
+console.log(`    stage "${routed.stage}", waypoint ${JSON.stringify(routed.waypoint)}`);
+console.log(`    route line: ${routed.points} points, ${JSON.stringify(routed.first)} -> ${JSON.stringify(routed.last)}`);
+console.log(`    hud._routePath built: ${routed.hudHasPath}, from ${routed.hudSrcLen} points`);
+check('the mission stage has a waypoint to route to', !!routed.waypoint, JSON.stringify(routed));
+check('main.js planned a route to it', routed.points > 2, `${routed.points} points`);
+check('the route ends at the waypoint',
+  routed.last && routed.waypoint &&
+  Math.hypot(routed.last[0] - routed.waypoint.x, routed.last[1] - routed.waypoint.z) < 60,
+  `${JSON.stringify(routed.last)} vs ${JSON.stringify(routed.waypoint)}`);
+// THE POINT OF THIS SECTION. hud.js has had setRoute() and a cyan Path2D since it was
+// written, and nothing ever called it — the same as objective, subtitle and waypoint before
+// the mission round. A built Path2D is the only proof it is fed.
+check('the HUD built its route Path2D, which nothing has ever fed before',
+  routed.hudHasPath, `src ${routed.hudSrcLen}`);
+check('the HUD got the same points main.js planned', routed.hudSrcLen === routed.points,
+  `${routed.hudSrcLen} vs ${routed.points}`);
+// And it follows the STREETS: a straight line would be shorter than a routed one.
+const straightVsRouted = await page.evaluate(() => {
+  const wp = __district.missionHud().waypoint;
+  const line = __district.routeLine();
+  const s0 = line[0];
+  let len = 0;
+  for (let i = 1; i < line.length; i++) len += Math.hypot(line[i][0] - line[i - 1][0], line[i][1] - line[i - 1][1]);
+  return { routed: len, straight: Math.hypot(wp.x - s0[0], wp.z - s0[1]) };
+});
+console.log(`    routed ${straightVsRouted.routed.toFixed(0)} m against ${straightVsRouted.straight.toFixed(0)} m ` +
+  `as the crow flies — a ${(straightVsRouted.routed / straightVsRouted.straight).toFixed(2)}x detour`);
+// A ROUTE ALONG A STRAIGHT STREET IS NOT A DETOUR, and asserting one was a misreading of what
+// the router is for. This leg is Main St east to Five Points, which IS Main Street: 544 m of
+// road against 538 m of straight line, a 1.01x "detour", and that is the correct answer. The
+// property worth asserting is that the route is never SHORTER than the straight line and that
+// every point of it is on the road — and, separately, that a leg which does need to detour
+// does detour.
+check('the route is never shorter than the straight line',
+  straightVsRouted.routed >= straightVsRouted.straight * 0.999,
+  `${straightVsRouted.routed.toFixed(0)} vs ${straightVsRouted.straight.toFixed(0)}`);
+const onRoad = await page.evaluate(() =>
+  __district.routeLine().every((q) => __district.clearAt(q[0], q[1], 0.95)));
+check('every point of the route is clear for a car', onRoad);
+// A leg that genuinely has to go round: the marina, from the far east end of Main Street.
+const detour = await page.evaluate(() => {
+  const p = __district.routeTo(-471, 205);
+  if (!p) return null;
+  const s0 = p.points[0];
+  return { routed: p.length, straight: Math.hypot(-471 - s0[0], 205 - s0[1]) };
+});
+if (detour) {
+  console.log(`    and to the marina: ${detour.routed.toFixed(0)} m of road against ` +
+    `${detour.straight.toFixed(0)} m straight — a ${(detour.routed / detour.straight).toFixed(2)}x detour`);
+  check('a leg that needs to go round does go round',
+    detour.routed > detour.straight * 1.05,
+    `${detour.routed.toFixed(0)} vs ${detour.straight.toFixed(0)}`);
+} else {
+  check('a route to the marina exists', false);
+}
+await page.evaluate(() => __district.abortMission('live-test'));
+
+// ---------------------------------------------------------------------------
 console.log('\n' + '='.repeat(78));
 check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 const failed = checks.filter((c) => !c.ok);

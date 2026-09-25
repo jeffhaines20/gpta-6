@@ -8,6 +8,7 @@ import { Input } from '../src/input.js';
 import { Vehicle, BODY_SAMPLES, BODY_RADIUS, BODY_ENCLOSING } from '../src/vehicle.js';
 import { BlockerIndex } from '../src/blockers.js';
 import { DamageModel, IMPACT, dynamicContact } from '../src/damage.js';
+import { RoadGraph, followPath } from '../src/roadpath.js';
 import { ChaseCamera } from '../src/camera.js';
 import { StreamingWorld } from '../src/streaming.js';
 import { TrafficStub } from '../src/traffic.js';
@@ -676,6 +677,39 @@ const blockers = new BlockerIndex(district);
 const damage = new DamageModel();
 vehicle.blockers = blockers;
 vehicle.damage = damage;
+
+/**
+ * The road graph, for routing. Built with the wall index so it refuses the 11 `service` edges
+ * whose own centreline a car cannot pass — see src/roadpath.js.
+ *
+ * Costs 9.3 ms once at load, and a whole-route path is 18.7 ms, so a route is recomputed only
+ * when the destination changes or the player has strayed far enough that the old one is no
+ * longer a route from where they are.
+ */
+const roads = new RoadGraph(district, { blockers, carRadius: BODY_RADIUS });
+let routeLine = null, routeTo = null, routeFrom = null;
+const ROUTE_RESTALE = 60;      // metres of drift before the line is replanned
+/**
+ * Feed src/hud.js's route line.
+ *
+ * IT HAS NEVER HAD A SOURCE. `setRoute()` and the cyan Path2D it builds have been in hud.js
+ * since it was written, alongside `objective`, `subtitle` and `waypoint` — and the mission
+ * round found those three unfed too. This is the last of the four, and it is the one that
+ * needed something to exist first: a line to the marker is only useful if it follows the
+ * streets, and until src/roadpath.js there was no way to ask for that.
+ */
+function routeToMarker(wp) {
+  if (!wp) { routeLine = null; routeTo = null; return null; }
+  const movedTo = !routeTo || Math.hypot(wp.x - routeTo.x, wp.z - routeTo.z) > 2;
+  const strayed = !routeFrom || Math.hypot(focusX - routeFrom.x, focusZ - routeFrom.z) > ROUTE_RESTALE;
+  if (movedTo || strayed || !routeLine) {
+    const p = roads.path(focusX, focusZ, wp.x, wp.z, { spacing: 8, offset: 0, smoothPasses: 1 });
+    routeLine = p ? p.points : null;
+    routeTo = { x: wp.x, z: wp.z };
+    routeFrom = { x: focusX, z: focusZ };
+  }
+  return routeLine;
+}
 let damageCrimes = 0, damageIgnored = 0;
 /** Carried from the sim substeps to the HUD feed, which runs once per rendered frame. */
 let hudHitPending = 0;
@@ -1168,6 +1202,8 @@ function animate(now) {
       // reads full, for the reason missionSnapshot() gives.
       health: mode === 'car' ? damage.health : 1,
       damage: mode === 'car' ? damage.smoke : 0,
+      // The route line, on the streets rather than as the crow flies. See routeToMarker().
+      route: routeToMarker(missionHud ? missionHud.waypoint : null),
     });
     // One flash per applied impact, scaled by how much of the car it cost. hud.js
     // decays it at `damageDecay` per second, so this is a hit and not a state.
@@ -1385,6 +1421,15 @@ window.__district = {
   },
   /** Is a circle of radius r at (x,z) clear of every building wall? */
   clearAt: (x, z, r = 0.95) => !blockers.resolveCircle(x, z, r),
+
+  // -------------------------------------------------------------------- roads
+  // The road graph and a route on it, so a harness can ask for a driveable course rather
+  // than steering at a waypoint in a straight line — which, on this district, spends 32.8%
+  // of its length inside a building.
+  roads, followPath,
+  routeTo: (x, z, opts) => roads.path(focusX, focusZ, x, z, { spacing: 8, offset: 0, ...opts }),
+  routeLine: () => routeLine,
+  tourRoute: (opts) => roads.tour(district.meta.route.slice(1), { spacing: 4, offset: 3, ...opts }),
 
   // ---------------------------------------------------------- wanted / police
   // The decision layer itself, so a tool can subscribe to its events, and the
