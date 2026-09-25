@@ -185,11 +185,53 @@ function writePackTexel(data, i, rough, metal) {
 /**
  * How much harder the glazing answers the environment than everything else.
  *
- * 0 IS TODAY'S BUILD, EXACTLY. See writePackTexel: at 0 the gain is 1.0 for every
- * slot including the glazing, so this ships inert and the before-arm of any sweep
- * over it is the build itself rather than an emulation of it.
+ * 0 is the build this shipped into, exactly: at 0 the gain is 1.0 for every slot
+ * including the glazing. That is why ge0 in the arm table is a true before-arm and
+ * not an emulation of one. The shipped value is 2; see the derivation below.
  */
-const GLASS_ENV = { uGlassEnvExtra: { value: 0 } };
+// SHIPPING AT 2, DERIVED RATHER THAN CHOSEN BY EYE.
+//
+// A dielectric windscreen at the corridor camera's incidence returns roughly
+// 0.05-0.08 of what it reflects. The sky reads 5.21e-1 in display linear and the
+// near car's bonnet 4.75e-1, so the pane should sit near 0.055 of its own paint.
+// Measured across the sweep at noon:
+//
+//   extra   gain   pane median / its own paint
+//     0      1.0     0.0177      well under the estimate
+//     1      2.0     0.0386      -30%
+//     2      3.0     0.0663      +21%      <- shipped
+//     3      4.0     0.0971
+//     5      6.0     0.1700      3x over
+//
+// So the deficit the dielectric alone left is a factor of 2-3, not 6. At 2 the
+// negative control - a body panel box on the same car - reads 1.3499 to four
+// decimals at extras 0, 1 AND 2, so the isolation is measured and not just argued
+// from the encoding. It drifts 0.27% at extra 3 and 1.2% at extra 5, which is that
+// box's top rows catching the adjacent quarter light once it is bright enough: a
+// limit on the instrument, not on the render, since the shader's gain is exactly
+// 1.0 for every slot with a = 255 by construction.
+//
+// WHAT THIS DOES NOT FIX, stated because the sweep is unambiguous about it.
+// MODULATION - p95/p50, the number that says whether anything is REFLECTED in the
+// pane - moves 1.140 -> 1.163 at noon across the whole sweep, and 3% is nothing.
+// planeFit climbs 2.58% -> 28.53% while the residual FALLS, so what the gain buys
+// is a brighter and SMOOTHER pane. It cannot buy content, because
+// scene.environment is `pmrem.fromEquirectangular(this.lut.texture)` - the sky LUT
+// alone, no buildings, no street, no cars. Three blind reviewers said the same
+// thing three ways: "a fresnel-weighted sky term or a probe reflection is what is
+// missing". This is the fresnel-weighted sky term. The probe reflection is the
+// other half and it is not free - a per-car cube probe across 30 parked cars and a
+// 30-car fleet is a different order of cost.
+//
+// AND IT DOES NOTHING AT NIGHT, correctly. The night pane goes 0.0037 -> 0.0103 of
+// its paint at extra 2, both of which are a hole, because skyLux is 0.15 and there
+// is nothing in the environment to reflect. Every night number in that sweep sits
+// at encoded bytes 5-7: modulation reads 1.933, 1.034, 1.119, 1.251, 1.077 across
+// the arms, which is non-monotonic noise at the 8-bit floor and not a measurement.
+// Issue #54 - the traffic greenhouse as a night hole - is NOT closed by this, and
+// its fix is the lit shopfronts reaching the environment, which a sky-only PMREM
+// cannot carry.
+const GLASS_ENV = { uGlassEnvExtra: { value: 2 } };
 export function setGlassEnv(k) {
   GLASS_ENV.uGlassEnvExtra.value = Math.max(0, k);
   return { extra: GLASS_ENV.uGlassEnvExtra.value,

@@ -590,10 +590,24 @@ export async function setArm(page, name) {
     if (D && D.setCarGlassAlbedo) {
       carGlassAlbedo = D.setCarGlassAlbedo(s.carGlassAlbedo ?? 1);
     }
-    // THE GLAZING'S ENVIRONMENT GAIN. Saved and restored like every other term; 0
-    // is the build, so an arm that does not name it gets the build's value.
+    // THE GLAZING'S ENVIRONMENT GAIN, saved and restored off the APP rather than
+    // defaulted to a literal.
+    //
+    // This read `s.carGlassEnv ?? 0` while the build shipped 0, which was correct
+    // and became wrong the moment the build shipped 2: every arm that does not name
+    // the term - aoShip, gl086, r5cum, the whole existing table - would have been
+    // silently given extra 0 instead of the build's value, which is a confound
+    // introduced into the very A/B that exists to isolate. That is the fourth time
+    // this file has been bitten by "setArm restores nothing it is not told about",
+    // and the first three are why the rule is written down. Captured on first call,
+    // like the albedo and msWhitenAnti.
     let carGlassEnv = null;
-    if (D && D.setCarGlassEnv) carGlassEnv = D.setCarGlassEnv(s.carGlassEnv ?? 0);
+    if (D && D.setCarGlassEnv) {
+      if (window.__armSavedGlassEnv === undefined) {
+        window.__armSavedGlassEnv = D.carGlassEnv ? D.carGlassEnv().extra : 0;
+      }
+      carGlassEnv = D.setCarGlassEnv(s.carGlassEnv ?? window.__armSavedGlassEnv);
+    }
     let carFinish = null;
     if (D && D.setCarLensFinish) {
       const fin = s.carFinish ?? [sv.finish.roughness, sv.finish.metalness];
