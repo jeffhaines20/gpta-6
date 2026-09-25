@@ -57,8 +57,26 @@ for (const tod of ['noon', 'golden', 'dusk', 'night']) {
   const audit = await page.evaluate(() => __district.audit());
   const render = await page.evaluate(() => __district.renderStats());
   const world = await page.evaluate(() => __district.worldReport());
+  // THE PARKED POOL, because it is the other half of this gate's triangle column
+  // and the file has never recorded it either.
+  //
+  // Chasing the -9,024/-4,512 split found that before the body-shell round the
+  // pool was `new InstancedMesh(geo, mat, 44)` with unused instances hidden by a
+  // scale-0 matrix and mesh.count NEVER lowered - so it drew all 44 every frame
+  // and renderer.info counted all 44. It now sets count to the fill. That is a
+  // structural, day-and-night change to this gate's number, invisible in every
+  // artifact it has written, and it took reading two revisions of another file to
+  // see. `pool` against `filled` says it in one line; trianglesDrawn is the
+  // pool's own bill, so a future reader does not have to know tris/car.
+  //
+  // Recorded, not gated. No threshold in this file moves.
+  const parked = await page.evaluate(() => {
+    const f = __district.furniture;
+    const r = f && f.report ? f.report() : null;
+    return r && r.parked ? r.parked : null;
+  });
   await page.screenshot({ path: `${OUT}/tod-${tod}.png`, timeout: 150000 });
-  results.push({ tod, audit, render, chunks: world.chunksLoaded });
+  results.push({ tod, audit, render, chunks: world.chunksLoaded, parked });
   console.log(`\n=== ${tod.toUpperCase()} ===`);
   console.log(JSON.stringify(audit, null, 1));
 }
@@ -112,6 +130,10 @@ const summary = {
     // residency (also unshown). With this field a reader diffs two artifacts and
     // knows in one line.
     chunks: r.chunks, lodNear: r.audit.lodNear ?? null, lodFar: r.audit.lodFar ?? null,
+    parkedPool: r.parked ? r.parked.pool ?? null : null,
+    parkedFilled: r.parked ? r.parked.filled ?? null : null,
+    parkedShells: r.parked ? r.parked.shells ?? null : null,
+    parkedTrianglesDrawn: r.parked ? r.parked.trianglesDrawn ?? null : null,
     implausible: r.audit.implausible,
   })),
   anyImplausible: flagged.length > 0,
