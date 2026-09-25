@@ -233,6 +233,47 @@ And when adding a uniform or an injection to a material that sets
 previously compiled program and the change does nothing — a failure the seam
 assertion cannot see, because the assertion runs on a compile that never happens.
 
+## The sky was still moving inside a "one page load" pair
+
+`hero-shots` exists so that every arm comes off ONE page load, ONE camera and ONE
+settled district. Geometry, materials, streaming, traffic and crowd are pinned. The
+sky was not: `sky.js` advected the cloud deck off `performance.now()` under a comment
+saying "5.5 m/s at 2.2 km over a 34 km tile is 0.00016 UV per second: the deck moves,
+but a capture taken 20 s later than another is still the same sky."
+
+That arithmetic is correct and the harness is not 20 s. Headless capture through
+SwiftShader is **minutes per frame**, so two arms of an A/B are a hundred times
+further apart than the comment assumed.
+
+All three blind reviewers in one round independently reported it, and none could
+resolve it: 36.9% of the noon pair's difference energy and 79.9% of the night's lay
+above the car band; 56.5% of the off-car noon energy was sky. Each offered the same
+two readings — a second term shipped in the pair, or an unseeded/time-driven cloud
+field caught in two states — and each said the PNGs could not tell them apart.
+
+**A scrambled capture order settles it, and it was an accident worth keeping.** The
+five arms were shot in the order ge0, ge5, ge1, ge2, ge3 so the go/no-go pair came
+first, which left capture order disagreeing with the swept value. Mean |d| over the
+sky band against both:
+
+    with CAPTURE distance    r = 0.9674
+    with SWEPT-VALUE distance r = 0.0295
+
+The pair with the LARGEST value difference and the smallest capture separation
+(ge0 vs ge5, adjacent) moved the sky least, 1.296; the pair with a smaller value
+difference and the largest separation (ge0 vs ge3) moved it most, 3.298.
+
+`__district.freezeClouds()` pins the deck, and `hero-shots` calls it before any arm
+is shot unless `HERO_CLOUDS=live`. **Every arm pair this harness produced before that
+carried a sky offset proportional to how far apart its arms were captured** — small
+in the car band, and the largest single component of several pairs' whole-frame
+difference. When re-reading an old pair, discount whole-frame and sky-band numbers
+accordingly; the car-band and control-box numbers stand.
+
+The general rule: **when a tool claims a registered pair, enumerate every clock the
+scene reads.** Frames, streamer quiet, traffic and crowd were all pinned here, and
+the one unpinned clock produced more difference than the term under test.
+
 ## A fixed box over moved geometry is not a measurement of the material
 
 Three blind reviewers independently reported that a car's rear quarter light had

@@ -1512,6 +1512,7 @@ export class Sky {
 
     this._lastRefresh = -1e9;
     this._t0 = performance.now();     // cloud advection origin
+    this._cloudPinnedS = null;        // non-null freezes the deck; see freezeCloudDrift
     this._dirty = true;
     this._rayMatrix = new THREE.Matrix4();
     this._camRotation = new THREE.Matrix4();
@@ -1996,10 +1997,53 @@ export class Sky {
     this._pushCloudDrift(d);
   }
 
+  /**
+   * PIN THE CLOUD CLOCK, because the comment below was true and the harness is not.
+   *
+   * "a capture taken 20 s later than another is still the same sky" is correct
+   * arithmetic for a 20 s gap. Headless capture through SwiftShader runs well under
+   * 1 fps, so two arms of one A/B are MINUTES apart, not seconds, and the deck moves
+   * a hundred times further than the comment assumed.
+   *
+   * Measured, on a five-arm sweep whose capture order (ge0, ge5, ge1, ge2, ge3) was
+   * deliberately scrambled against its gain order (0,1,2,3,5) - which turned it into
+   * a natural experiment. Mean |d| over the sky band, correlated against both:
+   *
+   *     with CAPTURE distance   r = 0.9674
+   *     with GAIN    distance   r = 0.0295
+   *
+   * The pair with the LARGEST gain difference and the smallest capture separation
+   * (ge0 vs ge5, adjacent) moved the sky least at 1.296; the pair with a smaller gain
+   * difference and the largest separation (ge0 vs ge3) moved it most at 3.298. Two
+   * blind reviewers independently reported the sky as a large fraction of the pair -
+   * 36.9% of the noon difference energy and 79.9% of the night - and both said they
+   * could not tell from the PNGs whether it was an evolving cloud field or a second
+   * changed term. It is the clouds.
+   *
+   * So every arm pair this harness has ever shot carries a sky offset proportional to
+   * how far apart the two arms were captured. Frozen, one sky serves every arm.
+   */
+  freezeCloudDrift(atSeconds = null) {
+    this._cloudPinnedS = atSeconds == null ? (performance.now() - this._t0) / 1000 : atSeconds;
+    return { frozen: true, atSeconds: +this._cloudPinnedS.toFixed(3) };
+  }
+
+  unfreezeCloudDrift() {
+    this._cloudPinnedS = null;
+    return { frozen: false };
+  }
+
+  cloudDriftState() {
+    return { frozen: this._cloudPinnedS != null,
+      atSeconds: this._cloudPinnedS == null
+        ? +((performance.now() - this._t0) / 1000).toFixed(3) : +this._cloudPinnedS.toFixed(3) };
+  }
+
   _pushCloudDrift(d, now = performance.now()) {
-    // 5.5 m/s at 2.2 km over a 34 km tile is 0.00016 UV per second: the deck
-    // moves, but a capture taken 20 s later than another is still the same sky.
-    const s = (now - this._t0) / 1000;
+    // 5.5 m/s at 2.2 km over a 34 km tile is 0.00016 UV per second. See
+    // freezeCloudDrift above: that is negligible over 20 s and NOT negligible over
+    // the minutes a headless arm sweep takes.
+    const s = this._cloudPinnedS != null ? this._cloudPinnedS : (now - this._t0) / 1000;
     d.uCloudDrift.value.set(
       (-this.cloudWind.x * s) / this.cloudTileMetres,
       (-this.cloudWind.y * s) / this.cloudTileMetres,

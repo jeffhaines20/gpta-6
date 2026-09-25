@@ -1006,6 +1006,21 @@ function forEachParkedGeometry(fn) {
   return { ...head, shells: geos.length, verticesTouched: total, perShell: per };
 }
 
+// Freezing has to PUSH the drift as well as pin it, or the uniform keeps whatever
+// the last frame wrote until the next refresh and the first frame after the freeze
+// is still on the old sky.
+function __districtSkyFreeze(atSeconds) {
+  // The MODULE-level `sky`, not tod.sky. main.js declares `let ... sky ...` at the
+  // top and hands it to the day/night controller with tod.setSky(sky, weather); the
+  // controller does not re-expose it under that name, so `tod.sky` is undefined and
+  // this whole hook would have returned null while looking like it worked.
+  if (!sky) return null;
+  const st = sky.freezeCloudDrift(atSeconds);
+  sky._dirty = true;
+  sky.refresh({ force: true, environment: false, sync: true });
+  return { ...st, ...sky.cloudDriftState() };
+}
+
 window.__district = {
   district, world, vehicle, traffic: () => traffic, tod, post, renderer, scene, camera, chase, metrics,
   loadReport: () => loadReport,
@@ -1128,6 +1143,22 @@ window.__district = {
   // the pane's modulation off 1.14, which is the number that says whether anything
   // is REFLECTED in the window. A level knob cannot add content; a stronger
   // environment term can.
+  // FREEZE THE CLOUD DECK, for any harness that shoots more than one arm.
+  //
+  // sky.js advected the cloud deck off performance.now() with a comment saying "a
+  // capture taken 20 s later than another is still the same sky" - true arithmetic,
+  // and the harness is not 20 s. Headless capture is minutes per frame, and all
+  // three blind reviewers in the closing car round independently reported the sky as
+  // a large fraction of the pair (36.9% of the noon difference energy, 79.9% of the
+  // night, 56.5% of the off-car noon energy) with none of them able to tell from the
+  // PNGs whether it was a second shipped term or a moving cloud field.
+  //
+  // It is the clouds, and a scrambled capture order proved it: mean sky |d| correlates
+  // r = 0.9674 with how far apart two arms were CAPTURED and r = 0.0295 with how far
+  // apart their gain values were.
+  freezeClouds: (atSeconds = null) => __districtSkyFreeze(atSeconds),
+  unfreezeClouds: () => (sky ? sky.unfreezeCloudDrift() : null),
+  cloudDrift: () => (sky ? sky.cloudDriftState() : null),
   setCarGlassEnv: (k) => setGlassEnv(k),
   carGlassEnv: () => glassEnv(),
   setCarFrontLens: (k) => {

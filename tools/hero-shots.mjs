@@ -122,6 +122,24 @@ async function settleFrames(page, n = FRAME_SETTLE, why = '') {
   return f1;
 }
 
+// FREEZE THE CLOUD DECK BEFORE ANY ARM IS SHOT, unless HERO_CLOUDS=live.
+//
+// This tool's whole purpose is that every arm comes off ONE page load, ONE camera and
+// ONE settled district - and the sky was the one thing still moving. sky.js advected
+// the deck off performance.now() under a comment saying a capture 20 s later is the
+// same sky; headless capture is MINUTES per frame. All three blind reviewers in the
+// closing car round independently measured the sky as a large fraction of the pair
+// and none could tell from the PNGs whether it was a second shipped term. A scrambled
+// capture order settled it: sky difference correlates r = 0.9674 with capture
+// separation and r = 0.0295 with the value of the term being swept.
+//
+// So every arm pair this tool has ever produced carried a sky offset proportional to
+// how far apart its arms were shot. One frozen deck serves them all.
+if (process.env.HERO_CLOUDS !== 'live') {
+  const froze = await page.evaluate(() => (__district.freezeClouds ? __district.freezeClouds() : null));
+  console.log(`cloud deck: ${froze ? `frozen at ${froze.atSeconds}s` : 'NOT FROZEN - no hook in this tree'}`);
+}
+
 const HERO_TRAFFIC = Number(process.env.HERO_TRAFFIC ?? 0);
 if (HERO_TRAFFIC > 0) {
   await page.evaluate((n) => __district.setTraffic(n), HERO_TRAFFIC);

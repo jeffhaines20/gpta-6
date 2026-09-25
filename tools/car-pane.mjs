@@ -191,12 +191,25 @@ export function paneVsPaint(png, paneBox, paintBox) {
 // The corridor camera is identical at both hours (a +/-3 px landmark search put the
 // best cross-hour match at exactly (0,0)), so one box list serves both.
 export const PANES = {
-  // Reviewer 2's CORRECTED interior box. Its first attempt clipped the changed rim
-  // on one arm and reported a 14x rise in modulation; moved inside both arms' panes
-  // it was 1.10 -> 1.36. A box valid for one arm's geometry is not automatically
-  // valid for the other's when the geometry is what changed.
-  nearWindscreen: { pane: [190, 642, 300, 668], paint: [120, 700, 260, 730],
-    what: '8.6 m windscreen interior (rev2), paint = bonnet below' },
+  // RE-CUT, BECAUSE THE BOX I HANDED THREE REVIEWERS MANUFACTURED A WRONG ANSWER.
+  //
+  // [190,642]-[300,668] clips the A-pillar highlight: max byte 164/168 inside a pane
+  // whose own range is 12-26 and 28-56. Those pillar pixels are IDENTICAL in both
+  // arms, so a cross-arm per-pixel regression is anchored at slope 1 and the whole
+  // pane difference lands in the intercept:
+  //
+  //   handed box   B = 1.0000*A + 2.33e-2   R2 0.853   "a flat lift, a brighter hole"
+  //   clean cut    B = 4.4422*A - 5.25e-3   R2 0.991   a SCALE, not a lift
+  //
+  // Reviewer 3 found it and said the thing that matters: three reviewers handed that
+  // box and running the obvious probe on it would all independently report a flat
+  // lift, and AGREE, because they were handed the same box. That is the second round
+  // running in which a box of mine produced an agreement rather than a measurement -
+  // last time a fixed box over moved geometry, this time a highlight anchoring a
+  // regression. The bonnet reference is kept: it is byte-identical between arms at
+  // both hours over 4,200 px, which is the one control that has never failed.
+  nearWindscreen: { pane: [216, 628, 344, 684], paint: [120, 700, 260, 730],
+    what: '8.6 m windscreen interior, re-cut clear of the A-pillar (rev3), paint = bonnet' },
   // A NEGATIVE CONTROL, AND IT USED TO BE THE HEADLINE FINDING.
   //
   // All three reviewers reported the rear quarter light as deleted, replaced with
@@ -222,8 +235,18 @@ export const PANES = {
   // vertices.
   r1QuarterControl: { pane: [1056, 590, 1082, 602], paint: [1056, 612, 1082, 620],
     what: 'NEGATIVE CONTROL: body panel in a 3-shell frame (was read as a deleted window)' },
-  r1Backlight: { pane: [1125, 582, 1185, 598], paint: [1120, 604, 1200, 616],
-    what: '14.7 m rear screen interior (rev2), paint = boot lid below' },
+  // ALSO RE-CUT. The paint reference [1120,604]-[1200,616] is HALF GLASS: rows
+  // 604-609 are backlight at byte ~28 and only 610-615 are paint at ~195, so the
+  // quantity under test was in the denominator. Reviewer 2 localised it to the row
+  // and reviewer 3 to the byte, independently: p95/p05 reads 59.4 and 21.2 across
+  // the arms on a panel whose clean cut reads 1.257 in BOTH. Medians survived - the
+  // published ratios are ~6% off - but every shape statistic taken on it was noise.
+  //
+  // Reviewer 2 also found a warm sliver at x 1096-1110 that is identical in both
+  // arms and dominates any night mean over the whole pane, so the pane box starts
+  // at 1125 and stays there.
+  r1Backlight: { pane: [1125, 582, 1185, 598], paint: [1100, 609, 1200, 616],
+    what: '14.7 m rear screen interior, paint = boot lid clear of the glass (rev2/rev3)' },
 };
 
 function selftest() {
