@@ -193,6 +193,16 @@ for (const target of [8, 15, 25, 40, 50, 60]) {
 }
 const fatal = crashInto({ speedKmh: 60, incidence: Math.PI / 2 });
 console.log(`    60 km/h leaves health ${fatal.dmg.health.toFixed(4)}, wrecked ${fatal.dmg.wrecked}, enginePower ${fatal.v.enginePower}`);
+// src/vehicle.js passes `kind: 'wall'` as a LITERAL rather than importing IMPACT, so
+// that it does not depend on damage.js for a string. A typo there would silently stop
+// every wall impact producing a crime, with health still falling correctly — so the
+// crime that comes out the far end is asserted here rather than assumed.
+console.log(`    and the crime it produced is "${fatal.seen[0] && fatal.seen[0].crime}"`);
+check('a wall impact through the real vehicle produces propertyDamage',
+  fatal.seen[0] && fatal.seen[0].crime === 'propertyDamage',
+  `${fatal.seen[0] && fatal.seen[0].crime}`);
+check('and the kind reached the model intact',
+  fatal.seen[0] && fatal.seen[0].kind === 'wall', `${fatal.seen[0] && fatal.seen[0].kind}`);
 check('a 60 km/h hit fails the mission threshold of 0.2', fatal.dmg.health < 0.2,
   `${fatal.dmg.health}`);
 check('a wrecked car has no engine power', fatal.v.enginePower === 0);

@@ -306,6 +306,82 @@ geometry and sweep the material alone, or find the subject in each arm before
 sampling it. And when three reviewers agree on a number, that agreement is evidence
 they used the same box, not evidence the box is right — they were handed it.
 
+## A check whose two sides are both zero is not a check
+
+`crash-test`'s speed sweep launched every arm from 160 m back and ran 1,400 fixed
+steps. At 10 km/h that covers 32 m, so four of the five arms never touched the wall.
+Each read a charged delta-v of 0.000, predicted `severityFor(0.000)` = 0.000 damage,
+found they agreed, and **passed**. The table printed five neat rows and two of them
+were measurements.
+
+The same shape in the same file's scrape arm: `yaw -0.10` into a wall that runs along
+x is 84 degrees of incidence, not 6 — a solid crash labelled a scrape, which then
+"confirmed" that scrapes are expensive. `blocker-test` made the identical mistake in
+its own contact-impulse section on the same afternoon, passing `vx: 20` against a
+normal of `(-1, 0)` and calling it a 5-degree graze.
+
+**Every arm has to assert that the thing it is measuring HAPPENED.** `contacts > 0`,
+`applied > 0`, a non-zero denominator. And when an arm's geometry is an angle, print
+the angle you actually built, not the one you meant: the incidence sweep only became
+trustworthy when the charged delta-v was printed beside
+`speed * sin(incidence) * (1 + e)` at every angle from 3 to 90 degrees.
+
+## Instrument the iteration count of anything iterative
+
+`resolveCircle` pushes a circle out of a wall and repeats for the corner case. It
+reported correctly resolved contacts and ran its **entire** iteration budget on every
+call: pushing a circle to exactly `r` from a wall leaves it, in floating point, a few
+times 1e-17 short of clear, so the next pass finds a penetration of 1e-17, pushes by
+1e-17, and never terminates. Measured on the real road network with the budget raised
+to 32: 37 contacts at 32 iterations with the depth unchanged after the first, and a
+non-null contact returned for a correction of 0.0000 m — which would have charged the
+damage model an impact every frame for a car parked next to a wall.
+
+A 1 micrometre epsilon, required for a penetration to count and added again to the
+push, took the worst count to **1**. Nothing else about the module's behaviour
+changed, which is the point: from the outside a non-terminating resolver and a
+converged one are identical. The two checks that pin it are the residual ones —
+resolving a resolved position must report clear, and must never leave the subject
+inside the geometry.
+
+## Size a circle-set collider by the notch it leaves, and measure the notch
+
+"A circle at each end" is the obvious body collider for a car and it is catastrophic.
+For a 1.9 x 4.3 m body with the end circles placed to reach the nose and tail
+(centres +/-1.2, r 0.95), the deepest point of the gap between them is 0.95 m from the
+axis — the entire half-width. A wall here is a line segment with no thickness, so it
+slots into the gap and the car drives through its own midships. Worst side notch
+against circle count:
+
+    n=2   950 mm      n=4    88 mm      n=6   31 mm
+    n=3   213 mm      n=5    49 mm      n=7   21 mm
+
+Five samples is 49 mm and 600 lookups a second, which costs nothing measurable. The
+gate builds a thin pier whose near corner sits 0.25 m inside the body at midships:
+five samples correct 0.250 m, two samples do not see it at all.
+
+State what the shape gets wrong, too. A circle centred on the axis cannot reach a
+square corner, so the nose and tail corners sit 0.394 m outside the collider. That is
+a real approximation with a number on it, not a defect to be surprised by later.
+
+## The contact point is on the surface, not at the sample centre
+
+Body collision resolved correctly and the car stopped at the wall every time, so the
+thing that was wrong was invisible: the impulse and the damage were charged at the
+sample CENTRE. The samples lie on the body axis, so every lever arm had zero lateral
+component. The consequences, none of which touch the position:
+
+- every crash in the district was filed as pure front or pure rear damage
+- the left/right asymmetry that drives a steering pull could never be non-zero
+- a 40 km/h clip at 17 degrees imparted 0.0016 rad/s of yaw instead of 0.883
+
+**A bounding-box collider is a bounding box of a POLYGON.** The same round found
+`refreshFootColliders` had been handing player.js the axis-aligned bbox of each
+building footprint since collision existed. Inside some box and outside every polygon:
+142,932 m2, 30.9% of all box area, 21,588 m2 of it on the carriageway. Sampled every
+2 m along every road centreline, a body-sized circle cannot fit at 64 of 24,517 points
+with the real wall segments and 1,806 with the boxes.
+
 ## Do not reason from a truncated diagnostic
 
 A monitor printed `tail -20` of a 30-line rejection list. Every line in the tail

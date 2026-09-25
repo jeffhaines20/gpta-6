@@ -270,6 +270,14 @@ export class MissionRunner {
     // a mission that trips this is authored wrong and the gate asserts it is seen.
     this.maxChainPerFrame = opts.maxChainPerFrame ?? 8;
     this.chainOverflows = 0;
+    // CREATED HERE AND NOT ONLY IN start(), because report() reads it. A runner that
+    // has never started a mission is a perfectly ordinary state — district/main.js
+    // holds one from page load, and any harness that asks what the mission layer is
+    // doing before starting one gets here first — and report() threw "this._range is
+    // not iterable" on it. tools/damage-live.mjs found that on its first run, which is
+    // three rounds after the offline gate passed 51 checks without ever calling
+    // report() on a fresh runner.
+    this._range = new Map();
   }
 
   on(event, fn) {

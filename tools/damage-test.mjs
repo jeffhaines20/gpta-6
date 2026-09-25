@@ -24,7 +24,7 @@
 // §1 checks the three published anchors, and the 15 km/h one is a PREDICTION of the
 // energy curve rather than an input to it, which is the only evidence available here
 // that the curve shape is right.
-import { DamageModel, IMPACT, ANCHORS, HALF_EXTENT, normalDv, pairDv } from '../src/damage.js';
+import { DamageModel, IMPACT, ANCHORS, HALF_EXTENT, normalDv, pairDv, dynamicContact } from '../src/damage.js';
 import fs from 'node:fs';
 
 const checks = [];
@@ -322,6 +322,70 @@ check('a pedestrian costs under 1% of the car at any reachable speed',
 check('a heavier obstacle hurts more than a lighter one',
   pairDv(kmh(50), CAR, 3500) > pairDv(kmh(50), CAR, CAR));
 check('pairDv rejects nonsense masses', pairDv(10, 0, 100) === 0 && pairDv(10, 100, -1) === 0);
+
+// ---------------------------------------------------------------------------
+// §9b  Moving bodies: the convoy case, which is the whole argument in one row.
+// ---------------------------------------------------------------------------
+console.log('\n§9b Contacts against moving bodies');
+const S = [-1.2, -0.6, 0, 0.6, 1.2];
+const carBase = { carX: 0, carZ: 0, fwdX: 0, fwdZ: 1, rightX: 1, rightZ: 0,
+  samples: S, carRadius: 0.95, carMass: 1400 };
+const dyn = (o) => dynamicContact({ ...carBase, ...o });
+const CAR_B = { bodyRadius: 0.95, bodyMass: 1400 };
+const dq = new DamageModel();
+const dynRows = [
+  ['head-on, 60 and 60',      { ...CAR_B, carVX: 0, carVZ: 16.67, bodyX: 0, bodyZ: 3.0, bodyVX: 0, bodyVZ: -16.67 }],
+  ['convoy, both at 60',      { ...CAR_B, carVX: 0, carVZ: 16.67, bodyX: 0, bodyZ: 3.0, bodyVX: 0, bodyVZ: 16.67 }],
+  ['rear-end, 60 into 40',    { ...CAR_B, carVX: 0, carVZ: 16.67, bodyX: 0, bodyZ: 3.0, bodyVX: 0, bodyVZ: 11.11 }],
+  ['into a parked car at 50', { ...CAR_B, carVX: 0, carVZ: 13.89, bodyX: 0, bodyZ: 3.0, bodyVX: 0, bodyVZ: 0 }],
+  ['side-swipe at 5 lateral', { ...CAR_B, carVX: 5, carVZ: 16.67, bodyX: 1.6, bodyZ: 0.6, bodyVX: 0, bodyVZ: 16.67 }],
+  ['pedestrian, car at 60',   { bodyRadius: 0.35, bodyMass: 80, carVX: 0, carVZ: 16.67, bodyX: 0, bodyZ: 2.4, bodyVX: 1.2, bodyVZ: 0 }],
+];
+console.log('    case                       closing    charged dv   severity   contact (body space)');
+for (const [label, o] of dynRows) {
+  const r = dyn(o);
+  if (!r) { console.log(`    ${label.padEnd(26)}   no contact / separating`); continue; }
+  console.log(`    ${label.padEnd(26)} ${r.closing.toFixed(2).padStart(6)} m/s  ` +
+    `${r.dv.toFixed(3).padStart(8)} m/s   ${dq.severityFor(r.dv).toFixed(4)}   ` +
+    `(${r.dirX.toFixed(2)}, ${r.dirZ.toFixed(2)})  depth ${r.depth.toFixed(3)}`);
+}
+// THE ROW THAT MATTERS. Two cars travelling together at 60 that touch have a closing
+// speed of zero; a model reading either car's SPEED calls that a write-off, and calls
+// the head-on at 60 each — which is twice the barrier test — survivable. Backwards.
+check('a convoy touch at 60 km/h is not a contact at all',
+  dyn(dynRows[1][1]) === null);
+check('KNOWN-BAD: a speed-based model would write the convoy car off',
+  dq.severityFor(16.67) === 1);
+check('a head-on at 60 each is twice the barrier and a write-off',
+  near(dyn(dynRows[0][1]).closing, 2 * 16.67, 0.01) && dq.severityFor(dyn(dynRows[0][1]).dv) === 1);
+check('a 60-into-40 rear-end costs a few per cent',
+  dq.severityFor(dyn(dynRows[2][1]).dv) < 0.05,
+  `${dq.severityFor(dyn(dynRows[2][1]).dv).toFixed(4)}`);
+check('hitting a parked car at 50 is the barrier test halved',
+  near(dyn(dynRows[3][1]).dv, 13.89 / 2 * 1.15, 0.01));
+const swipe = dyn(dynRows[4][1]);
+check('a side-swipe is filed to a side, not to the front',
+  Math.abs(swipe.dirX) / 0.95 > Math.abs(swipe.dirZ) / 2.15,
+  `dirX ${swipe.dirX.toFixed(2)} dirZ ${swipe.dirZ.toFixed(2)}`);
+check('the side-swipe region is right or left',
+  ['right', 'left'].includes(dq.regionWeights(swipe.dirX, swipe.dirZ).right > 0 ? 'right' : 'left'));
+const pedHit = dyn(dynRows[5][1]);
+check('a pedestrian is a contact', !!pedHit);
+check('a pedestrian at 60 km/h costs the car essentially nothing',
+  dq.severityFor(pedHit.dv) < 0.001, `${dq.severityFor(pedHit.dv).toFixed(6)}`);
+// And the five samples matter here too: one enclosing circle would collide with a
+// pedestrian well clear of the car.
+const farPed = dyn({ bodyRadius: 0.35, bodyMass: 80, carVX: 0, carVZ: 16.67,
+  bodyX: 2.0, bodyZ: 0, bodyVX: 0, bodyVZ: 0 });
+console.log(`    a pedestrian 2.0 m to the side of the car's centre: ${farPed ? 'CONTACT' : 'clear'}`);
+check('a pedestrian 2.0 m abeam is clear of the car', farPed === null);
+check('KNOWN-BAD: one enclosing circle of 2.36 m would have hit them',
+  Math.hypot(2.0, 0) < 2.36 + 0.35);
+// A body exactly on the car's centre has no direction: must not return NaN.
+const degen = dyn({ ...CAR_B, carVX: 0, carVZ: 10, bodyX: 0, bodyZ: 0, bodyVX: 0, bodyVZ: 0 });
+check('a body at the car\'s exact centre gives finite numbers',
+  degen && Number.isFinite(degen.dv) && Number.isFinite(degen.dirX) && Number.isFinite(degen.dirZ),
+  JSON.stringify(degen));
 
 // ---------------------------------------------------------------------------
 // §10  Determinism, purity and cost.

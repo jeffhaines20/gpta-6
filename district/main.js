@@ -5,7 +5,9 @@
 
 import * as THREE from '../vendor/three.module.min.js';
 import { Input } from '../src/input.js';
-import { Vehicle } from '../src/vehicle.js';
+import { Vehicle, BODY_SAMPLES, BODY_RADIUS, BODY_ENCLOSING } from '../src/vehicle.js';
+import { BlockerIndex } from '../src/blockers.js';
+import { DamageModel, IMPACT, dynamicContact } from '../src/damage.js';
 import { ChaseCamera } from '../src/camera.js';
 import { StreamingWorld } from '../src/streaming.js';
 import { TrafficStub } from '../src/traffic.js';
@@ -419,20 +421,24 @@ const missionUnhonoured = new Set();
 /**
  * The snapshot the runner reads. Plain numbers only.
  *
- * `health` IS A STUB AND THE CONSEQUENCE IS NAMED: there is no damage model in this
- * build - nothing in src/vehicle.js accumulates impact and nothing calls
- * wanted.reportCrime - so this is 1 every frame and every `healthBelow` trigger in
- * every mission is INERT. report().constantFields says so at runtime, and
- * missionReport() surfaces it. The fail-on-wreck paths are authored and gated
- * offline; they will start firing the day a damage model feeds this field, and not
- * before.
+ * `health` IS THE CAR'S, and that is a deliberate reading of what the authored missions
+ * mean. Every `healthBelow 0.2 -> failed` in src/missions.js sits on a stage the player
+ * spends in a car — `ambush`, `drop`, `dropHot` — and what fails those stages is the car
+ * being wrecked, not the driver being hurt. There is no player-body damage model, so on
+ * foot this reads 1; a mission that wants to fail on the driver's condition will need a
+ * second field and a source for it, and should not quietly borrow this one.
+ *
+ * This field was a hard-coded 1 for the whole of the round that authored those missions,
+ * and the comment here said so: "every `healthBelow` trigger in every mission is INERT
+ * ... they will start firing the day a damage model feeds this field". This is that day.
+ * report().constantFields is the instrument that would say if it stopped varying again.
  */
 function missionSnapshot() {
   return {
     px: focusX, pz: focusZ,
     inVehicle: mode === 'car',
     speed: mode === 'car' ? vehicle.speed : 0,
-    health: 1,
+    health: mode === 'car' ? damage.health : 1,
     wantedStars: wanted.stars,
     wantedState: wanted.state,
   };
@@ -644,35 +650,181 @@ let enterCooldown = 0;
 const ENTER_RANGE = 3.6;
 const ENTER_TIME = 0.45;
 
-// The car is a moving obstacle while on foot.
-const carCollider = { x: 0, z: 0, y: 0, hx: 1.25, hy: 1.5, hz: 2.4 };
-// Buildings near the player, refreshed only when the player changes chunk:
-// rebuilding this from the district every frame is pointless work.
-let footColliders = [];
-let footColliderKey = '';
-function refreshFootColliders(pos) {
-  const key = world.keyOf(pos.x, pos.z);
-  if (key === footColliderKey) return;
-  footColliderKey = key;
-  footColliders = [];
-  const [cx, cz] = key.split(',').map(Number);
-  for (let dz = -1; dz <= 1; dz++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      const c = district.chunks[`${cx + dx},${cz + dz}`];
-      if (!c) continue;
-      for (const bi of c.buildings) {
-        const b = district.buildings[bi];
-        let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
-        for (const [x, z] of b.p) {
-          if (x < x0) x0 = x; if (x > x1) x1 = x;
-          if (z < z0) z0 = z; if (z > z1) z1 = z;
-        }
-        footColliders.push({ x: (x0 + x1) / 2, z: (z0 + z1) / 2, y: 0,
-          hx: (x1 - x0) / 2, hy: b.h, hz: (z1 - z0) / 2 });
-      }
+// --------------------------------------------------------------- collision
+/**
+ * WALL SEGMENTS FOR EVERYTHING THAT MOVES. One index, built once, 3,950 segments.
+ *
+ * WHAT WAS HERE BEFORE, AND WHY IT HAD TO GO. `refreshFootColliders` built the
+ * axis-aligned BOUNDING BOX of each nearby footprint ring and handed those to
+ * player.js. That is cheap and it hangs invisible walls over every notch of every
+ * L-shaped building in the district. Measured (tools/blocker-test.mjs gates all
+ * three figures): the area inside some footprint's box but outside every polygon is
+ * 142,932 m2, 30.9% of all box area; sampling every 2 m along every road centreline,
+ * a car-sized circle cannot fit at 64 of 24,517 points with the real segments and
+ * 1,806 with the boxes — the boxes block 28 times as much street. 161 of 523
+ * buildings carry more than a quarter of their box as nothing at all, and the worst
+ * single one is 6,329 m2 of phantom. Anyone walking this district has been colliding
+ * with it the whole time.
+ */
+const blockers = new BlockerIndex(district);
+
+/**
+ * Vehicle damage. See src/damage.js: the input is delta-v along the contact normal
+ * and the thresholds are the FMVSS 581 bumper standard, the IIHS low-speed series and
+ * the NCAP full-frontal barrier.
+ */
+const damage = new DamageModel();
+vehicle.blockers = blockers;
+vehicle.damage = damage;
+let damageCrimes = 0, damageIgnored = 0;
+/** Carried from the sim substeps to the HUD feed, which runs once per rendered frame. */
+let hudHitPending = 0;
+/**
+ * src/audio.js has no crash voice. Counted rather than silently skipped, for the same
+ * reason the mission layer records an unhonoured `stinger` intent instead of ignoring
+ * it: a missing sound should appear in the audit, not look like it played.
+ */
+let audioImpactsWanted = 0;
+
+/**
+ * Impacts against things that MOVE: traffic cars, pedestrians, pursuit units.
+ *
+ * WHY THIS IS HERE AND NOT IN src/vehicle.js. The vehicle owns its body and the static
+ * index; it does not know what a traffic car is, and src/traffic.js and
+ * src/pedestrians.js are both other owners' files. main.js already owns both
+ * lifecycles, so the collection happens here and the arithmetic happens in
+ * src/damage.js's dynamicContact(), which is pure and gated offline.
+ *
+ * ONE CONTACT PER FRAME, THE WORST ONE, for the reason src/vehicle.js gives about its
+ * five samples: driving into a queue of stopped traffic touches three cars in one frame
+ * and that is one crash, not three.
+ *
+ * WHAT THIS DOES NOT DO, said plainly rather than discovered later. The traffic car is
+ * not displaced and the pedestrian is not knocked down: src/traffic.js runs its fleet on
+ * the road graph and src/pedestrians.js runs its crowd on the pavement graph, and
+ * neither has a notion of being hit. So the player's car takes the damage, the crime is
+ * reported, the player is pushed off — and the other party drives or walks on. That is
+ * visibly wrong and it is a separate round in two other owners' files.
+ *
+ * MASSES. 1,400 kg for a car, the same as the player's, which makes a head-on between
+ * equals the barrier test. 80 kg for a person. Radii are the collision radius of the
+ * other body: 0.95 m for a car, matching BODY_RADIUS, and 0.35 m for a person, which is
+ * a shoulder width.
+ */
+const OTHER_CAR = { bodyRadius: 0.95, bodyMass: 1400 };
+const PERSON = { bodyRadius: 0.35, bodyMass: 80 };
+const dynStats = { tested: 0, contacts: 0, frames: 0, pedHits: 0, carHits: 0, policeHits: 0 };
+function dynamicImpacts() {
+  if (mode !== 'car') return;
+  dynStats.frames++;
+  const fwd = _dynFwd.set(0, 0, 1).applyQuaternion(vehicle.quaternion);
+  const right = _dynRight.set(1, 0, 0).applyQuaternion(vehicle.quaternion);
+  const base = {
+    carX: vehicle.position.x, carZ: vehicle.position.z,
+    fwdX: fwd.x, fwdZ: fwd.z, rightX: right.x, rightZ: right.z,
+    carVX: vehicle.velocity.x, carVZ: vehicle.velocity.z,
+    carMass: vehicle.mass, samples: BODY_SAMPLES, carRadius: BODY_RADIUS,
+    restitution: vehicle.wallRestitution,
+  };
+  let worst = null, worstKind = null;
+
+  // --- traffic. `_lastPositions` is held for the frame by src/traffic.js precisely so
+  // a consumer can classify overlaps; its entries carry x, z, v and yaw.
+  const cars = traffic && traffic._lastPositions ? traffic._lastPositions : null;
+  if (cars) {
+    for (const c of cars) {
+      const dx = c.x - base.carX, dz = c.z - base.carZ;
+      // One distance test rules out almost every car. BODY_ENCLOSING is the radius of
+      // the whole body from its centre, so nothing inside the collider can be missed.
+      if (dx * dx + dz * dz > (BODY_ENCLOSING + OTHER_CAR.bodyRadius) ** 2) continue;
+      dynStats.tested++;
+      // The traffic car's velocity: speed along its own heading. `v` is m/s, `yaw` is
+      // only carried for the nearest few cars, so fall back to stationary — which
+      // OVERSTATES the closing speed for a car moving away and understates nothing.
+      const cy = typeof c.yaw === 'number' ? c.yaw : null;
+      const hit = dynamicContact({ ...base, ...OTHER_CAR,
+        bodyX: c.x, bodyZ: c.z,
+        bodyVX: cy === null ? 0 : Math.sin(cy) * (c.v ?? 0),
+        bodyVZ: cy === null ? 0 : Math.cos(cy) * (c.v ?? 0) });
+      if (hit && (!worst || hit.dv > worst.dv)) { worst = hit; worstKind = IMPACT.vehicle; }
     }
   }
+  // --- pedestrians.
+  const people = peds ? peds.positions() : null;
+  if (people) {
+    for (const p of people) {
+      const dx = p.x - base.carX, dz = p.z - base.carZ;
+      if (dx * dx + dz * dz > (BODY_ENCLOSING + PERSON.bodyRadius) ** 2) continue;
+      dynStats.tested++;
+      const hit = dynamicContact({ ...base, ...PERSON, bodyX: p.x, bodyZ: p.z });
+      if (hit && (!worst || hit.dv > worst.dv)) { worst = hit; worstKind = IMPACT.pedestrian; }
+    }
+  }
+  /**
+   * --- pursuit units. Ramming a police car is a different crime and a worse one.
+   *
+   * READ OUT OF THE INSTANCE MATRIX, and that is deliberate rather than a shortcut.
+   * src/pursuit.js's `units` hold `{edge, forward, t, len}` — a position along an edge —
+   * and the world position is computed inside its update loop, written straight into
+   * `mesh.instanceMatrix`, and never stored. So the matrix IS the only record of where
+   * those cars are, and it is also exactly what is on screen, which is the right thing
+   * to collide with. A hidden unit is `makeScale(0,0,0)`, whose translation is (0,0,0)
+   * and whose scale row is zero, so the scale is what distinguishes it — testing the
+   * position alone would collide with every despawned unit at the world origin.
+   */
+  if (pursuit && pursuit.mesh && pursuit.mesh.visible) {
+    const a = pursuit.mesh.instanceMatrix.array;
+    for (let i = 0; i < pursuit.count; i++) {
+      const o = i * 16;
+      if (a[o] === 0 && a[o + 5] === 0 && a[o + 10] === 0) continue;   // hidden
+      const ux = a[o + 12], uz = a[o + 14];
+      const dx = ux - base.carX, dz = uz - base.carZ;
+      if (dx * dx + dz * dz > (BODY_ENCLOSING + OTHER_CAR.bodyRadius) ** 2) continue;
+      dynStats.tested++;
+      const hit = dynamicContact({ ...base, ...OTHER_CAR, bodyX: ux, bodyZ: uz });
+      if (hit && (!worst || hit.dv > worst.dv)) { worst = hit; worstKind = IMPACT.police; }
+    }
+  }
+  if (!worst) return;
+  dynStats.contacts++;
+  if (worstKind === IMPACT.pedestrian) dynStats.pedHits++;
+  else if (worstKind === IMPACT.police) dynStats.policeHits++;
+  else dynStats.carHits++;
+
+  // Push the player's car out, and take the impulse. A pedestrian does not push a car
+  // around, so the separation is only applied for the car-mass bodies.
+  if (worstKind !== IMPACT.pedestrian) {
+    vehicle.position.x += worst.nx * worst.depth;
+    vehicle.position.z += worst.nz * worst.depth;
+    const j = worst.dv * (OTHER_CAR.bodyMass / (vehicle.mass + OTHER_CAR.bodyMass)) * vehicle.mass;
+    vehicle.applyImpulseAt(
+      _dynImp.set(worst.nx * j, 0, worst.nz * j),
+      _dynOff.set(worst.dirX * right.x + worst.dirZ * fwd.x, 0,
+        worst.dirX * right.z + worst.dirZ * fwd.z));
+  }
+  const rec = damage.impact({ dv: worst.dv, kind: worstKind,
+    dirX: worst.dirX, dirZ: worst.dirZ, speed: vehicle.speed });
+  // A pedestrian is a crime at any speed even though it costs the car nothing, so the
+  // crime is taken from the record whether or not the impact was applied to health.
+  if (rec.crime) {
+    const r = wanted.reportCrime(rec.crime, { at: { x: vehicle.position.x, z: vehicle.position.z } });
+    if (r.applied) damageCrimes++; else damageIgnored++;
+  }
+  if (rec.applied) hudHitPending = Math.max(hudHitPending, rec.severity);
 }
+const _dynFwd = new THREE.Vector3(), _dynRight = new THREE.Vector3();
+const _dynImp = new THREE.Vector3(), _dynOff = new THREE.Vector3();
+
+// The car is a moving obstacle while on foot.
+const carCollider = { x: 0, z: 0, y: 0, hx: 1.25, hy: 1.5, hz: 2.4 };
+/**
+ * The on-foot collider list is now just the CAR. Every building wall reaches
+ * src/player.js as a segment index instead, which is why this list no longer has a
+ * building loop in it at all: see the BlockerIndex note above for the 142,932 m2 of
+ * phantom wall the old bounding boxes hung over this district, and player.js's own
+ * comment for what it replaced.
+ */
+const footColliders = [carCollider];
 
 function toggleVehicle() {
   if (enterCooldown > 0 || fsm.locked) return false;
@@ -817,16 +969,39 @@ function animate(now) {
     if (autopilot) autopilot(dt);
     if (mode === 'foot') {
       carCollider.x = vehicle.position.x; carCollider.z = vehicle.position.z;
-      refreshFootColliders(player.position);
-      player.update(dt, input, chase.yaw, world, [...footColliders, carCollider]);
+      player.update(dt, input, chase.yaw, world, footColliders, blockers);
     }
     vehicle.stepFixed(dt, world);
+    // The damage clock runs on simulated time, like everything else in this loop, so
+    // a fire burns at the same rate under ?timeScale as it does at 1.
+    damage.update(dt);
+    // IMPACTS BECOME CRIMES HERE, and this is the first thing in the project that has
+    // ever called reportCrime. src/damage.js classifies the contact — it knows the
+    // delta-v and what was hit — and src/wanted.js owns the refractory that stops a
+    // bumper grinding along a wall from being a five-star felony, which is the same
+    // defect damage.js guards against on the health side with its own.
+    if (vehicle.pendingImpact) {
+      const hit = vehicle.pendingImpact;
+      vehicle.pendingImpact = null;              // consumed once, never twice
+      hudHitPending = Math.max(hudHitPending, hit.severity);
+      if (hit.crime) {
+        const r = wanted.reportCrime(hit.crime, { at: { x: vehicle.position.x, z: vehicle.position.z } });
+        if (r.applied) damageCrimes++; else damageIgnored++;
+      }
+      if (audio && audio.available && audio.stinger && hit.severity >= damage.majorSeverity) {
+        audioImpactsWanted++;
+      }
+    }
     world.update(mode === 'foot' ? player.position : vehicle.position);
     if (traffic) traffic.update(dt, vehicle.position);
     // Peds follow whatever the camera is actually near, not the parked car:
     // on foot the crowd has to be around the player or the pavement is empty
     // exactly where it is most visible.
     if (peds) peds.update(dt, mode === 'foot' ? player.position : vehicle.position);
+    // AFTER both have moved, so the positions tested are the ones on screen. Testing
+    // before they move measures last frame's crowd against this frame's car, which at
+    // 60 km/h is 28 cm of error and, worse, is a different error every frame.
+    dynamicImpacts();
     // The police decide, then the cars move. bindPursuit pushes this frame's plan
     // through the shim above; movement stays entirely with src/pursuit.js, driven
     // at the plan's target - the player while they are being seen, the last known
@@ -987,7 +1162,16 @@ function animate(now) {
       objective: missionHud ? missionHud.objective : null,
       subtitle: missionHud ? missionHud.subtitle : null,
       waypoint: missionHud && missionHud.waypoint ? missionHud.waypoint : null,
+      // src/hud.js has drawn a health bar, a damage vignette and a low-health pulse
+      // since it was written, against a `health` that was hard-coded to 1 and a
+      // `damage` that nothing ever raised. Both now have a source. On foot the bar
+      // reads full, for the reason missionSnapshot() gives.
+      health: mode === 'car' ? damage.health : 1,
+      damage: mode === 'car' ? damage.smoke : 0,
     });
+    // One flash per applied impact, scaled by how much of the car it cost. hud.js
+    // decays it at `damageDecay` per second, so this is a hit and not a state.
+    if (hudHitPending > 0) { hud2.flashDamage(Math.min(1, 0.25 + hudHitPending * 2)); hudHitPending = 0; }
   }
   hud.textContent =
     `${district.meta.city}  ·  ${PRESETS[tod.presetName].label}  ·  ` +
@@ -1123,9 +1307,10 @@ window.__district = {
   missionHud: () => mission.hud(),
   /**
    * The audit. `constantFields` is the part worth reading: a numeric field that never
-   * moved is a trigger that could not fire, and `health` is 1 in this build because
-   * nothing produces damage. `intentsNotHonoured` is the same honesty on the other
-   * side - an intent this host cannot execute is listed rather than dropped.
+   * moved is a trigger that could not fire. It listed `health` for the whole of the
+   * round that authored these missions, because nothing produced damage; it should not
+   * list it any more. `intentsNotHonoured` is the same honesty on the other side - an
+   * intent this host cannot execute is listed rather than dropped.
    */
   missionReport: () => ({
     ...mission.report(),
@@ -1134,6 +1319,49 @@ window.__district = {
     intentsNotHonoured: [...missionUnhonoured].sort(),
     snapshot: missionSnapshot(),
   }),
+
+  // ------------------------------------------------------------------ damage
+  //
+  // The whole collision and damage layer, for a harness and for a reviewer driving the
+  // page by hand. `crash()` is the one that matters: it is how you see a crash without
+  // needing to steer into a building in a headless browser at under one frame a second.
+  damage, blockers,
+  damageReport: () => ({
+    ...damage.report(),
+    contacts: vehicle.contacts,
+    lastContact: vehicle.lastContact,
+    crimesReported: damageCrimes,
+    crimesIgnored: damageIgnored,
+    /** src/audio.js has no crash voice; this counts the ones it would have played. */
+    impactSoundsWanted: audioImpactsWanted,
+    index: blockers.report(),
+    /**
+     * Moving-body contacts. `pedHits` and `carHits` are the counts src/traffic.js and
+     * src/pedestrians.js do NOT react to: the other party drives or walks on, which is
+     * a separate round in two other owners' files.
+     */
+    dynamic: { ...dynStats },
+  }),
+  repairCar: () => { damage.repair(); vehicle.contacts = 0; vehicle.pendingImpact = null; return damage.report(); },
+  /**
+   * Charge a synthetic impact, bypassing the geometry. Used to exercise the fail paths
+   * and the HUD without driving: a headless page renders under one frame a second, so
+   * crashing a car into a building on purpose costs minutes.
+   *
+   *   __district.crash(50)              50 km/h square-on into the front
+   *   __district.crash(30, 'left')      30 km/h into the near side
+   */
+  crash(speedKmh = 40, where = 'front') {
+    const dirs = { front: [0, 1], rear: [0, -1], left: [-1, 0], right: [1, 0],
+      frontLeft: [-0.95, 2.15], frontRight: [0.95, 2.15] };
+    const d = dirs[where] ?? dirs.front;
+    const rec = damage.impact({ dv: (speedKmh / 3.6) * 1.15, kind: IMPACT.wall,
+      dirX: d[0], dirZ: d[1], speed: speedKmh / 3.6 });
+    if (rec.applied) vehicle.pendingImpact = rec;
+    return rec;
+  },
+  /** Is a circle of radius r at (x,z) clear of every building wall? */
+  clearAt: (x, z, r = 0.95) => !blockers.resolveCircle(x, z, r),
 
   // ---------------------------------------------------------- wanted / police
   // The decision layer itself, so a tool can subscribe to its events, and the

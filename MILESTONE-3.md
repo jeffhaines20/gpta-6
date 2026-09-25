@@ -189,7 +189,152 @@ and the mission slid ambush→drop on one frame. The coverage walk caught it as
 "clean → passed at t=1.1s". An intent now ends the transition chain for that frame,
 which is general rather than specific to that mission.
 
-**Next, in order.** A damage model would bring every authored fail path to life at
-once and is the single highest-value gameplay item left. Then more missions, which are
-now data rather than code. The two budget WARNs still stand between this and a
-shippable milestone.
+## 6. Damage, and the collision that had to exist first
+
+**There was no body collision anywhere in the project.** The car drove through
+buildings. `src/vehicle.js` casts four wheel rays at the ground and nothing else, and
+`main.js`'s own comment said "the collision body ... is `src/vehicle.js`'s alone" — there
+was no collision body. A damage model with no impacts is a number that never changes, so
+this round is three modules and four gates.
+
+**`src/damage.js`** — impacts in, health and degradation out, pure state in the
+`wanted.js` idiom. The input is **delta-v along the contact normal, not speed**, and that
+one decision is the module: 60 km/h along a wall at 5 degrees of incidence is 1.45 m/s of
+normal delta-v, the same car square-on is 16.7, and a model fed `speed` cannot tell a
+scuff from a write-off. The thresholds are anchored to published crash tests:
+
+| | | | |
+|---|---|---|---|
+| 2.2 m/s | 8 km/h | FMVSS Part 581 bumper standard | severity 0 |
+| 4.17 | 15 km/h | IIHS low-speed series | 0.067 |
+| 13.9 | 50 km/h | NCAP full-frontal rigid barrier | 1.000 |
+
+Severity goes as delta-v **squared**, because crush energy does — which is what makes the
+middle anchor a *prediction* rather than a third knob. The model puts 15 km/h at 0.0666
+against a reference that says cosmetic-to-moderate. A linear-in-delta-v model with the
+same endpoints says 0.167, two and a half times as much, and would make city driving feel
+made of glass. The mass ratio then falls out for free: an 80 kg pedestrian changes a
+1400 kg car's velocity by 5.4%, so there is no pedestrian special case, and a head-on
+between equals at 100 km/h closing **is** the 50 km/h barrier test, to 0.08%.
+
+Degradation is directional on purpose. Engine power comes off FRONT damage, not overall
+health, so a car reversed into things four times still pulls — the gate measures the
+counterfactual at 0.845 to make that concrete. Steering pull comes off the left/right
+asymmetry, capped at a quarter of the steering authority. Fire latches at 12% health and
+drains it: 2.05 s of "get out now".
+
+**`src/blockers.js`** — 3,950 wall segments in a uniform grid, which are the *build's*
+own edges. `facades.js`'s `minLen` filter and its winding-derived outward normal, with
+the gate importing the real `edgesOf` and comparing building by building, edge by edge,
+normal by normal: 3950 = 3950, zero endpoint disagreements, zero normal disagreements,
+`ringArea` bit-identical over all 523 rings.
+
+Why segments and not the bounding boxes `main.js` had been using on foot since collision
+existed — the area inside some footprint's box and outside every polygon is **142,932 m²**,
+30.9% of all box area, 21,588 m² of it on the carriageway. Sampled every 2 m along every
+road centreline, a car-sized circle cannot fit at **64 of 24,517** points with the real
+segments and **1,806** with the boxes. The box hangs 28 times as much invisible wall
+across the streets.
+
+**Five collider samples, because two leaves a 950 mm hole in the middle of the car.**
+"A circle at each end" is the obvious choice and it is catastrophic: with the end circles
+reaching the nose and tail, the deepest point between them is 0.95 m from the axis — the
+whole half-width — and a wall is a line with no thickness. Worst side notch by count:
+n=2 950 mm, n=3 213, n=4 88, **n=5 49**, n=7 21. The nose corners sit 0.394 m outside the
+collider, which is stated rather than discovered later: it is a rounded car.
+
+**The result.** Incidence sweep at 60 km/h, charged delta-v against the analytic
+prediction `speed·sin(incidence)·(1+e)`:
+
+     incidence  contacts   charged dv  predicted    health  applied  below-thresh
+        3°         1533     1.000 m/s   1.003 m/s   1.0000       0          1533
+        6°         1948     2.000       2.003       1.0000       0          1948
+       10°         2112     3.327       3.328       0.9669       1          2111
+       15°         2191     4.962       4.961       0.8950       1          2188
+       25°         2241     8.106       8.100       0.6445       2          2238
+       40°         1816    12.309      12.320       0.1966       3          1813
+       90°            1    19.156      19.167       0.0000       1             0
+
+Three decimal places at every angle. A 6-degree scrape holding against the wall for 1,948
+consecutive contact steps costs nothing and leaves the car doing 60.0 km/h; any *one* of
+those steps charged on speed writes the car off.
+
+**What the gates caught**, because all four were worth their runtime:
+
+- **The resolver never terminated.** Pushing a circle to exactly `r` from a wall leaves it
+  a few times 1e-17 short of clear in floating point, so the next pass finds a 1e-17
+  penetration and pushes by 1e-17 — 37 real road contacts burning all 32 iterations of a
+  raised budget with the depth unchanged after the first, and a non-null contact returned
+  for a 0.0000 m correction, which would have charged an impact every frame for a car
+  parked next to a wall. A 1 µm epsilon takes the worst count to 1.
+- **The contact offset was the sample centre, not the circle surface.** The samples lie on
+  the body axis, so every lever arm had zero lateral component: every crash in the
+  district was filed as pure front or pure rear, `steerPull` could never leave zero, and a
+  40 km/h clip at 17 degrees imparted 0.0016 rad/s of yaw instead of 0.883. The position
+  was correct throughout, which is why nothing else could see it.
+- **The speed handed to the damage model was the post-collision speed.** A 15 km/h wall
+  hit reported 2.3 km/h. `damage.js` reads that field only for the pedestrian fatality
+  line, so it would have quietly moved a published 45 km/h threshold to near 250.
+- **`MissionRunner.report()` threw on a runner that had never started a mission** —
+  `_range` was created in `start()` and read in `report()`. That is `main.js`'s state from
+  page load; 51 offline checks passed for three rounds without ever asking a fresh runner
+  what it was doing.
+- **A check whose two sides are both zero is not a check.** The speed sweep launched every
+  arm from 160 m back for 1,400 steps; at 10 km/h that covers 32 m, so four of five arms
+  never touched the wall, read 0.000 charged delta-v, predicted 0.000 damage, agreed, and
+  passed. Every arm now asserts that the thing it measures happened.
+
+**The live wiring**, because none of the above says `main.js` uses any of it:
+
+    index live in the page              3,950 segments, 523 buildings
+    mission snapshot health             1 -> 0.5381 after a 30 km/h charge
+    runner constantFields               [] — `health` is no longer inert
+    an impact becomes a crime           heat 0 -> 0.3, propertyDamage; first
+                                        reportCrime call this project has made
+    a 4 km/h nudge                      not a crime, heat stays 0
+    HUD health bar                      disp.health 1.0000 -> 0.0000
+    HUD damage overlay                  disp.damage 0.0000 -> 1.0000
+    a real drive into a real building   112 s of wall clock, 1 contact,
+                                        charged dv 16.331407347186495 m/s at
+                                        localZ 2.1499 (the nose, which is
+                                        BODY_SAMPLES[4] + BODY_RADIUS exactly),
+                                        regions front 1.0, health -> 0
+    the same drive, run twice           charged dv identical to the last digit
+    a pedestrian struck at 60 km/h      3 hits, health 1 -> 1, heat 0 -> 2,
+                                        stars 2 — a two-star crime that does
+                                        not dent the car, which is the mass
+                                        ratio and not a special case
+
+**Cost.** `step()` is 2.49 µs with collision off, 2.14 µs on open road — the early-out is
+one grid lookup, so it is not measurably dearer than off — and 8.76 µs while in contact,
+0.105% of wall clock at 120 Hz. `damage.update()` is 20 ns.
+
+**What this does NOT do, stated plainly.** The traffic car is not displaced and the
+pedestrian is not knocked down: `src/traffic.js` runs its fleet on the road graph and
+`src/pedestrians.js` runs its crowd on the pavement graph, and neither has a notion of
+being hit. So the player's car takes the damage, the crime is reported, the player is
+pushed off — and the other party drives or walks on. That is visibly wrong and it is a
+separate round in two other owners' files. `src/audio.js` has no crash voice; the impacts
+that would have played one are counted in `damageReport().impactSoundsWanted` rather than
+silently skipped. There is no visible deformation and no player-body damage model.
+
+### Gates after this round
+
+| Gate | Result |
+|---|---|
+| `damage-test` | PASS — 101 checks, of which 20 are known-bad input |
+| `blocker-test` | PASS — 46 checks |
+| `crash-test` | PASS — 76 checks |
+| `damage-live` | PASS — 26 checks in a live page, no page errors |
+| `wanted-test` | PASS — 97 checks |
+| `sim-determinism` | PASS |
+| `traffic-selftest` | PASS — 22 checks |
+| `mission-test` | PASS — 55 checks |
+| `golden-trace` | PASS — 30 samples, and the crash gate asserts bit-identity with collision off |
+| `physics-test` | PASS — 10 checks |
+| `check-syntax` | PASS — 183 modules |
+
+**Next, in order.** Traffic and pedestrian reaction — the other half of every collision,
+and it lives in two other owners' files. Then a crash voice in `audio.js`, then more
+missions, which are now data rather than code. The two budget WARNs still stand between
+this and a shippable milestone.

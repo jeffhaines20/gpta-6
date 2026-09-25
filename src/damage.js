@@ -374,3 +374,68 @@ export function pairDv(closingSpeed, massA, massB, restitution = 0) {
   if (!(closingSpeed > 0) || !(massA > 0) || !(massB > 0)) return 0;
   return closingSpeed * (massB / (massA + massB)) * (1 + clamp(restitution, 0, 1));
 }
+
+/**
+ * One contact against a MOVING body — a traffic car, a pedestrian, a police unit.
+ *
+ * Kept here, with the thresholds, because the quantity that matters is the CLOSING
+ * speed along the contact normal and the mass ratio, and both are easy to get wrong in
+ * a way that looks fine. Two cars travelling the same way at 60 km/h that touch have a
+ * closing speed of nearly zero and should cost nothing; a head-on at 60 each is 120
+ * km/h of closing and half of it lands on each car. A model that used either car's
+ * SPEED would make the first a write-off and the second survivable, which is backwards.
+ *
+ * THE CAR IS FIVE CIRCLES, NOT ONE. src/vehicle.js's BODY_SAMPLES exist because one
+ * circle round a 1.9 x 4.3 m body is 2.36 m in radius and would collide with things
+ * over a metre clear of the paintwork. The nearest sample to the body is the contact.
+ *
+ * Returns null when clear or separating, otherwise the event `impact()` wants plus the
+ * push-out the caller should apply:
+ *
+ *   { dv, dirX, dirZ, nx, nz, depth, closing, sampleZ }
+ *
+ * (nx, nz) points from the body toward the car, i.e. the direction the CAR should be
+ * pushed. (dirX, dirZ) is the contact in the car's own body space, for the regions.
+ */
+export function dynamicContact({
+  carX, carZ, fwdX, fwdZ, rightX, rightZ, carVX, carVZ, carMass = 1400,
+  samples, carRadius,
+  bodyX, bodyZ, bodyVX = 0, bodyVZ = 0, bodyRadius, bodyMass,
+  restitution = 0.15,
+}) {
+  // Nearest sample first. The caller is expected to have already ruled out bodies
+  // further than (enclosing + bodyRadius) away with one distance test.
+  let bestS = 0, bestD = Infinity, bsx = 0, bsz = 0;
+  for (const sz of samples) {
+    const sx = carX + fwdX * sz, sw = carZ + fwdZ * sz;
+    const d = Math.hypot(bodyX - sx, bodyZ - sw);
+    if (d < bestD) { bestD = d; bestS = sz; bsx = sx; bsz = sw; }
+  }
+  const reach = carRadius + bodyRadius;
+  if (!(bestD < reach)) return null;
+  // Normal from the body toward the car. At zero separation there is no direction, and
+  // the fallback has to be MINUS the car's forward, not plus: the normal points from the
+  // body to the car, so a body at the car's own centre is treated as one directly ahead,
+  // which files the contact to the front — damage.js's stated convention for a
+  // degenerate contact, "because a degenerate contact almost always means a spawn
+  // overlap and the front is where the least damage does the least harm". The first
+  // draft used +forward, which made `closing` negative and returned null: a car
+  // spawned exactly on top of another would have reported no contact at all.
+  let nx, nz;
+  if (bestD > 1e-6) { nx = (bsx - bodyX) / bestD; nz = (bsz - bodyZ) / bestD; }
+  else { nx = -fwdX; nz = -fwdZ; }
+  const closing = (carVX - bodyVX) * -nx + (carVZ - bodyVZ) * -nz;
+  if (!(closing > 0)) return null;                 // touching but moving apart
+  const dv = pairDv(closing, carMass, bodyMass, restitution);
+  // Contact point on the car's collider surface, in body space, so a side-swipe reads
+  // as a side. Same correction vehicle.js needed for walls: the SAMPLE CENTRE has no
+  // lateral component and would file every collision as pure front or pure rear.
+  const cx = bsx - nx * carRadius, cz = bsz - nz * carRadius;
+  const ox = cx - carX, oz = cz - carZ;
+  return {
+    dv, closing, sampleZ: bestS,
+    nx, nz, depth: reach - bestD,
+    dirX: ox * rightX + oz * rightZ,
+    dirZ: ox * fwdX + oz * fwdZ,
+  };
+}

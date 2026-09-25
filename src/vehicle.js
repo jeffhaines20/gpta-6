@@ -111,6 +111,8 @@ export class Vehicle {
     this.damage = opts.damage ?? null;
     this.contacts = 0;
     this.lastContact = null;
+    /** The worst APPLIED impact since the host last cleared it. See _collideBody. */
+    this.pendingImpact = null;
 
     this.gravity = -19.6;       // 2g: arcade weight, keeps the car planted
     this.wheels = WHEEL_LAYOUT.map((w) => ({
@@ -376,8 +378,17 @@ export class Vehicle {
       x: this.position.x, z: this.position.z,
       movedX: this.position.x - px, movedZ: this.position.z - pz };
     if (this.damage && worstDv > 0) {
-      this.damage.impact({ dv: worstDv, kind: 'wall',
+      const rec = this.damage.impact({ dv: worstDv, kind: 'wall',
         dirX: worstLocalX, dirZ: worstLocalZ, speed: speedIn });
+      // THE HOST CANNOT READ damage.lastImpact FOR THIS, and the reason is stepFixed.
+      // One rendered frame is up to 16 fixed substeps, and damage.lastImpact is
+      // overwritten by every impact including the rejected ones — so a real crash
+      // followed by one below-threshold scrape in the same frame leaves the host
+      // looking at the scrape. `pendingImpact` only ever holds an APPLIED record, and
+      // keeps the worst of them until whoever consumes it clears it.
+      if (rec.applied && (!this.pendingImpact || rec.severity > this.pendingImpact.severity)) {
+        this.pendingImpact = rec;
+      }
     }
   }
 }

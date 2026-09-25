@@ -43,6 +43,26 @@ function drive(runner, steps, fn) {
 }
 
 // ---------------------------------------------------------------------------
+// A runner that has never started anything. This is district/main.js's state from page
+// load, and report() threw on it — "this._range is not iterable" — for three rounds,
+// because `_range` was created in start() and read in report(). 51 checks passed here
+// without ever asking a fresh runner what it was doing. tools/damage-live.mjs asked.
+// ---------------------------------------------------------------------------
+{
+  const fresh = new MissionRunner();
+  let threw = null, r = null;
+  try { r = fresh.report(); } catch (e) { threw = e.message; }
+  check('report() on a runner with no mission does not throw', !threw, threw);
+  check('it reports no mission', r && r.mission === null && r.stage === null,
+    JSON.stringify(r).slice(0, 120));
+  check('its field ranges are empty rather than absent',
+    r && r.fieldRange && Object.keys(r.fieldRange).length === 0 && Array.isArray(r.constantFields));
+  let threwHud = null;
+  try { fresh.hud(); } catch (e) { threwHud = e.message; }
+  check('hud() on a runner with no mission does not throw', !threwHud, threwHud);
+}
+
+// ---------------------------------------------------------------------------
 // A small well-formed mission used by the behaviour sections.
 // ---------------------------------------------------------------------------
 const M = defineMission({
