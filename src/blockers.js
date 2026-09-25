@@ -186,6 +186,21 @@ export class BlockerIndex {
     return out;
   }
 
+  /**
+   * Is there any wall segment in the neighbourhood of a circle? The whole-body early
+   * out: src/vehicle.js tests five circles along the body, and on open road — which is
+   * almost every frame — one grid lookup answers all five at once.
+   */
+  anyNear(x, z, r) {
+    const C = this.cell;
+    const cx0 = Math.floor((x - r) / C), cx1 = Math.floor((x + r) / C);
+    const cz0 = Math.floor((z - r) / C), cz1 = Math.floor((z + r) / C);
+    for (let cz = cz0; cz <= cz1; cz++) for (let cx = cx0; cx <= cx1; cx++) {
+      if (this._segGrid.has(this._key(cx, cz))) return true;
+    }
+    return false;
+  }
+
   /** The building a point is inside, or -1. Index into `this.boxes`. */
   insideAny(x, z) {
     const C = this.cell;
