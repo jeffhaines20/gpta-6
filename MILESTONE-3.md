@@ -65,7 +65,7 @@ been started.**
 | 2. Integrate audio and the wanted system | **done.** `WantedSystem` constructed at boot; the audio graph builds on first gesture and is reachable headlessly. |
 | 3. Fix the three critic-confirmed geometry defects | **done** — 99 of 519 buildings faced the wrong street; the parapet sign panel rendered mirrored; and the kerb round then found three more, including **half the district's kerbs back-facing**, which no number had reported. |
 | 4. AO / contact shadows | **done.** SSAO at full resolution, 0.6 m radius at exponent 8.5, plus an AO floor of 0.04; pedestrian grounding fixed (the cause was the radius, not the shadow path); the AO seam closed as a priced refusal rather than a fix. |
-| 5. **Mission scripting + the Marlin Street mission** | **zero lines written.** There is no `src/mission*.js`. |
+| 5. **Mission scripting + the Marlin Street mission** | **STARTED.** `src/mission.js` is the engine, `src/missions.js` authors Marlin Street on the district's own baked route, `tools/mission-test.mjs` is the gate (51 checks, 16 of them known-bad graphs) and `tools/mission-live.mjs` confirms the wiring reaches a real page (11 checks). See §5. |
 
 Those 381 commits went almost entirely into **visual fidelity that was never on
 the M3 line**: Main Street photographic reference matching, facades and implied
@@ -141,3 +141,55 @@ M3 is the milestone that makes this a game rather than a city.
 next block on item 1. M3's acceptance is gameplay, and there is currently none of
 it; every round spent on a 40-pixel car is a round not spent on the thing the
 milestone is named for.
+
+---
+
+## 5. Mission scripting, as it now stands
+
+**The engine.** `src/mission.js` is pure state in the `wanted.js` idiom: no THREE, no
+DOM, no `Math.random`, a fixed-dt `update()` over plain numbers, and side effects
+declared as data (`onEnter: { setWanted: 2, stinger: 'chase' }`) emitted as intents
+for `district/main.js` to execute. 13 trigger kinds including `all`/`any` composites
+that nest. `hud()` returns `src/hud.js`'s own field names — `objective`, `subtitle`
+and `waypoint` had existed since the HUD was written and were never fed.
+
+**Three guards against the quiet failure**, which is the only kind that matters in a
+branching layer:
+
+1. `defineMission()` refuses, at load, a `goto` naming no stage, a stage nothing can
+   reach, a stage nothing can leave, a mission with no path to `passed`, duplicate
+   ids, a composite whose sub-trigger carries an edge, and a typo four levels deep.
+   It reports every fault in one pass.
+2. A trigger reading an absent snapshot field is **false forever**, so every trigger
+   declares what it reads and the runner checks the first snapshot against the union
+   and throws with the missing names.
+3. `report().constantFields` names numeric fields that never varied. `health` is a
+   stub in this build — nothing accumulates damage — so every `healthBelow` trigger
+   is **inert**, and the audit says so rather than the mission looking generous.
+
+**The gate.** 51 offline checks, of which 16 are known-bad graphs the validator must
+refuse; `update()` costs 0.653 µs, 0.0038% of a 60 fps frame. Coverage is the headline
+assertion: four scripted paths must between them enter every authored stage.
+
+    clean        -> passed at  20.1s   toCar > eastbound > ambush > drop
+    interrupted  -> passed at  33.8s   toCar > eastbound > backToCar > ambush > drop
+    hot          -> passed at 241.1s   toCar > eastbound > ambush > dropHot
+    wrecked      -> failed at   1.1s   toCar > eastbound > ambush
+
+**The live wiring**, 11 checks, because the offline gate says nothing about whether
+`main.js` ticks the runner: the frame loop ticks it (elapsed 0.983 s), the snapshot
+carries every field, the HUD receives `DRIVE TO THE BAYFRONT MARKER @ (-328, 63)`, the
+markers complete the mission, and **an `onEnter` intent reaches the wanted system in
+the live game** — `stage ambush, stars 2`. No page errors.
+
+**What the round found in its own design.** `ambush` declares `setWanted: 2` and waits
+for `evaded`; the runner was emitting the intent and then evaluating `evaded` in the
+*same* update against a snapshot still reading zero stars, so the chase was skipped
+and the mission slid ambush→drop on one frame. The coverage walk caught it as
+"clean → passed at t=1.1s". An intent now ends the transition chain for that frame,
+which is general rather than specific to that mission.
+
+**Next, in order.** A damage model would bring every authored fail path to life at
+once and is the single highest-value gameplay item left. Then more missions, which are
+now data rather than code. The two budget WARNs still stand between this and a
+shippable milestone.
