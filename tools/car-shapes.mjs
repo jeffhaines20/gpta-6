@@ -70,8 +70,62 @@ export function shellStats(g) {
     }
     if (s === 10) { glassZ0 = Math.min(glassZ0, z); glassZ1 = Math.max(glassZ1, z); glassY = Math.max(glassY, y); }
   }
+  // WHERE THE ROOFLINE BREAKS, and why glassLen cannot tell you.
+  //
+  // glassLen is 2.354 / 2.354 / 2.359 across all three shells - a 0.2% spread -
+  // and I published that column as if it characterised them. It cannot: warpPoint
+  // PINS both greenhouse rails (screenLoZ 0.640 and backlightLoZ -1.700) and moves
+  // only the interior break, so glassLen is 0.640 - (-1.700) by construction for
+  // every shell that will ever be authored. A column that is constant by
+  // construction is not evidence of anything, and presenting it beside a
+  // pass/fail invited exactly the reading a blind reviewer then made
+  // independently: "one greenhouse, one shared model edited once".
+  //
+  // The profile lives in the break. The glazing carries ten distinct z rings and
+  // seven of them are fixed; the three that move are the break and its
+  // neighbours, and the break lands within 2 mm of the authored backlightZ:
+  //
+  //   coupe  -1.0817 (authored -1.080)   saloon -0.8821 (-0.880)
+  //   wagon  -1.4618 (-1.460)            a 0.580 m range
+  //
+  // roofApexZ is the second descriptor, and it moves on its own: -0.380 / -0.322
+  // / -0.490, a 0.168 m range. Together they are the fastback-notchback-wagon
+  // axis the reviewers' complaint was actually about.
+  //
+  // Found by measuring rather than by reading the warp: the ring nearest the
+  // authored break, excluding the two pinned rails, which is robust to the warp
+  // gaining or losing a ring.
+  const rings = [...new Set([])];
+  const zset = new Set();
+  for (let i = 0; i < p.count; i++) {
+    if (Math.round(uv.getX(i) * 16 - 0.5) === 10) zset.add(+p.getZ(i).toFixed(4));
+  }
+  const zs = [...zset].sort((a, b) => a - b);
+  const interior = zs.slice(1, -1);
+  // The roof apex: the body ring at the maximum y. Its z is the fore/aft position
+  // of the roof's high point.
+  let apexZ = 0, apexY = -1e9;
+  for (let i = 0; i < p.count; i++) {
+    if (Math.round(uv.getX(i) * 16 - 0.5) !== 0) continue;
+    if (p.getY(i) > apexY) { apexY = p.getY(i); apexZ = p.getZ(i); }
+  }
   return { tris: triCount(g), verts: p.count, bodyX, roofX, roofY, glassY,
-    glassLen: glassZ1 - glassZ0 };
+    glassLen: glassZ1 - glassZ0, glassRings: zs.length, interiorRings: interior,
+    roofApexZ: apexZ };
+}
+
+/**
+ * The break ring, given the shape's authored backlightZ. Measured, not assumed:
+ * the nearest INTERIOR glazing ring, so a warp that adds or drops a ring still
+ * reports the right one, and the distance is returned so a silent mismatch shows.
+ */
+export function breakRing(st, authored) {
+  let best = null, bestD = Infinity;
+  for (const z of st.interiorRings) {
+    const d = Math.abs(z - authored);
+    if (d < bestD) { bestD = d; best = z; }
+  }
+  return { z: best, offBy: bestD };
 }
 
 function census() {
@@ -83,17 +137,34 @@ function census() {
     const g = buildTrafficCarGeometry({ shape: SHAPES[name] });
     const st = shellStats(g);
     const d = digest(g);
-    rows.push({ name, ...st, same: d === baseD });
+    const authored = SHAPES[name].backlightZ ?? CAR.backlightZ;
+    const br = breakRing(st, authored);
+    rows.push({ name, ...st, breakZ: br.z, breakOffBy: br.offBy, authoredBreak: authored,
+      same: d === baseD });
   }
   const pad = (s, n) => String(s).padEnd(n);
   console.log(`\nSHELLS (${SHAPE_NAMES.length}), all built and read off the buffer`);
-  console.log(`  ${pad('shell', 10)} ${pad('tris', 6)} ${pad('verts', 6)} bodyHalfW  roofHalfW   roofY   glassTop  glassLen  vs base`);
+  console.log(`  ${pad('shell', 10)} ${pad('tris', 6)} bodyHalfW  roofHalfW   roofY   breakZ  apexZ  glassLen  vs base`);
   for (const r of rows) {
-    console.log(`  ${pad(r.name, 10)} ${pad(r.tris, 6)} ${pad(r.verts, 6)}` +
+    console.log(`  ${pad(r.name, 10)} ${pad(r.tris, 6)}` +
       ` ${r.bodyX.toFixed(4).padStart(9)} ${r.roofX.toFixed(4).padStart(10)}` +
-      ` ${r.roofY.toFixed(4).padStart(8)} ${r.glassY.toFixed(4).padStart(9)}` +
+      ` ${r.roofY.toFixed(4).padStart(8)} ${r.breakZ.toFixed(3).padStart(7)}` +
+      ` ${r.roofApexZ.toFixed(3).padStart(6)}` +
       ` ${r.glassLen.toFixed(3).padStart(9)}  ${r.same ? 'IDENTICAL' : 'differs'}`);
   }
+  // glassLen IS PINNED BY CONSTRUCTION and is printed only so nobody reads it as
+  // evidence again. warpPoint holds both greenhouse rails, so the column is
+  // 0.640 - (-1.700) for every shell that will ever be authored. A blind reviewer
+  // read the 0.2% spread across it, independently, as "one greenhouse, one shared
+  // model edited once" - which is what a constant column beside a pass/fail
+  // invites. breakZ and apexZ are the descriptors that carry the profile.
+  const spread = (f) => {
+    const v = rows.map(f); return Math.max(...v) - Math.min(...v);
+  };
+  console.log(`\n  what actually varies across the shells:`);
+  console.log(`    roofY     ${spread((r) => r.roofY).toFixed(3)} m      breakZ  ${spread((r) => r.breakZ).toFixed(3)} m`);
+  console.log(`    roofHalfW ${spread((r) => r.roofX).toFixed(3)} m      apexZ   ${spread((r) => r.roofApexZ).toFixed(3)} m`);
+  console.log(`    glassLen  ${spread((r) => r.glassLen).toFixed(3)} m      <- PINNED by warpPoint, not a measurement of the shells`);
 
   // 1. EQUAL COST.
   const odd = rows.filter((r) => r.tris !== baseT || r.verts !== rows[0].verts);
@@ -246,6 +317,37 @@ function selftest() {
   }
   chk('shells/both pools read the knob, not the frozen list', frozen.length === 0,
     frozen.length ? frozen.join(' | ') : `${POOLS.length} pools clean`);
+
+  // 9. THE PROFILE DESCRIPTORS, and the reason they exist.
+  //
+  //    Two blind reviewers independently concluded the shells are "one shared
+  //    model edited once". One of them had the disproof in its own numbers: roof
+  //    rise as a fraction of car height read 4.5% on the 8.6 m car and 3.8% on the
+  //    14.7 m car, which is the wagon's 4.8% and the saloon's 3.9% - and it read
+  //    the spread as noise. The other took glassLen's 0.2% spread at face value.
+  //
+  //    So: the break must land where it was authored (or the warp is not doing the
+  //    thing the shells are for), the descriptors must actually vary, and glassLen
+  //    must be shown to be PINNED so that a constant is never read as evidence again.
+  const prof = SHAPE_NAMES.map((n) => {
+    const st = shellStats(buildTrafficCarGeometry({ shape: SHAPES[n] }));
+    const authored = SHAPES[n].backlightZ ?? CAR.backlightZ;
+    return { n, st, authored, br: breakRing(st, authored) };
+  });
+  const worstOff = prof.reduce((m, r) => (r.br.offBy > m.br.offBy ? r : m));
+  chk('profile/the break lands where it was authored', worstOff.br.offBy <= 0.005,
+    prof.map((r) => `${r.n} ${r.br.z.toFixed(4)} vs ${r.authored}`).join(', ') +
+    `  worst off by ${(worstOff.br.offBy * 1000).toFixed(1)} mm`);
+  const sp = (f) => { const v = prof.map(f); return Math.max(...v) - Math.min(...v); };
+  chk('profile/breakZ varies', sp((r) => r.br.z) > 0.30, `${sp((r) => r.br.z).toFixed(3)} m range`);
+  chk('profile/apexZ varies', sp((r) => r.st.roofApexZ) > 0.10, `${sp((r) => r.st.roofApexZ).toFixed(3)} m range`);
+  // KNOWN-BAD, and it is the point: glassLen must be CONSTANT. If a future warp
+  // makes it vary, this fails and whoever reads it learns that the column has
+  // started meaning something - which is strictly better than it silently
+  // continuing to mean nothing.
+  chk('profile/glassLen is pinned, so it cannot characterise a shell',
+    sp((r) => r.st.glassLen) < 0.010, `${(sp((r) => r.st.glassLen) * 1000).toFixed(1)} mm range over ` +
+    `a ${prof[0].st.glassLen.toFixed(3)} m greenhouse`);
 
   console.log(f ? `CAR-SHAPES SELFTEST FAIL (${f})` : 'CAR-SHAPES SELFTEST OK');
   return f === 0;

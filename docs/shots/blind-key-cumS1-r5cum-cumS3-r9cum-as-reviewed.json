@@ -1,0 +1,40 @@
+{
+ "generated": "2026-09-25T05:18:34.896Z",
+ "left": "cumS1-r5cum",
+ "right": "cumS3-r9cum",
+ "salt": "e61fe8aaeb49",
+ "unpairedLeft": [],
+ "unpairedRight": [],
+ "pairs": [
+  {
+   "id": "corridor-night-near",
+   "A": "cumS1-r5cum",
+   "B": "cumS3-r9cum"
+  },
+  {
+   "id": "corridor-night-row",
+   "A": "cumS1-r5cum",
+   "B": "cumS3-r9cum"
+  },
+  {
+   "id": "corridor-night",
+   "A": "cumS1-r5cum",
+   "B": "cumS3-r9cum"
+  },
+  {
+   "id": "corridor-noon-near",
+   "A": "cumS3-r9cum",
+   "B": "cumS1-r5cum"
+  },
+  {
+   "id": "corridor-noon-row",
+   "A": "cumS3-r9cum",
+   "B": "cumS1-r5cum"
+  },
+  {
+   "id": "corridor-noon",
+   "A": "cumS3-r9cum",
+   "B": "cumS1-r5cum"
+  }
+ ]
+}

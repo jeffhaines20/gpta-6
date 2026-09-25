@@ -203,6 +203,35 @@ export function lensFinish() { return { ...LENS_FINISH }; }
  * metalness 0 it contributes 0.005 of diffuse rather than 0.0007 - still
  * negligible, which is correct.
  *
+ * THAT LAST SENTENCE IS WRONG AND THREE BLIND REVIEWERS FALSIFIED IT
+ * INDEPENDENTLY. 0.005 of diffuse is not negligible when the specular has
+ * nothing to reflect. Measured on the shipped build against this one:
+ *
+ *   the rear quarter light, as a fraction of the body paint directly below it,
+ *   median in linear light:   0.275 at metalness 0.86  ->  1.350 at metalness 0
+ *
+ * The pane became BRIGHTER than the paint around it. All three reviewers
+ * reported the same thing in different words - "P replaces the rear quarter
+ * light with painted metal", "TALL removed glazed area on the rear quarter",
+ * "the separate rear quarter-light is absent" - and one of them inverted its
+ * whole A/B direction over it, reasoning that builds add body variants and
+ * rarely delete one. It had not been deleted; it had stopped reading as glass.
+ *
+ * AND THE SPECULAR DID NOT RISE, which is the part I cannot yet explain and am
+ * therefore not explaining. F0 goes 0.0099 -> 0.04, so the prediction was ~4x
+ * more environment reflection. Two reviewers measured the opposite on the pane's
+ * bright end: brightest 2% / own paint 0.2077 -> 0.1933 (-7%), and on another
+ * car p95/p50 3.93 -> 1.91, "its highlight came down while its floor came up".
+ * So the visible change is a lifted FLOOR and a flat-or-lower CEILING - a lighter
+ * grey hole rather than a black one, which is what all three then said in so
+ * many words: "the lift raised the median without putting any content in the
+ * window", "a fresnel-weighted sky term or a probe reflection is what is
+ * missing; more lift alone will just make it grey".
+ *
+ * The next round isolates albedo from metalness with a sweep and a per-pane
+ * median/p95 split, because those are two different quantities and this round
+ * moved both with one knob. Do not change this pair again without that sweep.
+ *
  * Swept rather than assumed: the prediction is a ~4x rise in the specular term
  * at normal incidence and more at grazing, and a prediction is not a result.
  */
