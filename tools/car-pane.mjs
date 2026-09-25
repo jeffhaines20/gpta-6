@@ -22,6 +22,21 @@
 // a pure scale, and the same ratio on sRGB bytes drifts ~20% because the OETF is
 // not a scale. The selftest measures both, so the claim is comparative and checked
 // rather than asserted.
+//
+// THE LINEARISATION UNDOES THE ENCODING, NOT THE TONE MAP, and that matters when
+// the two populations sit in different parts of the curve. A 6x gain on the
+// glazing's environment term moved the near windscreen's displayed p50 from
+// 8.397e-3 to 8.078e-2 - a factor of 9.62 - with its paint reference IDENTICAL at
+// 4.752e-1 in both arms, so the excess is not a moved denominator. It is the ACES
+// toe: the pane started deep in the compressed darks and ended outside them, so
+// equal steps in scene radiance are unequal steps here.
+//
+// So these ratios are exactly comparable BETWEEN ARMS at one exposure, which is
+// what they are used for, and they are NOT a measurement of a shader gain. Read a
+// 9.6x displayed rise as "the pane got much brighter", never as "the term was
+// scaled 9.6x". CLAUDE.md's invariance rule covers an exposure change, which moves
+// one population uniformly along the curve; it does not cover a population moving
+// 10x through the curve while another stays put.
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { readPNG } from './png.mjs';
