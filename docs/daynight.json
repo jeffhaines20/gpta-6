@@ -54,6 +54,13 @@
    "shadowCasters": 103,
    "drawCalls": 216,
    "triangles": 764720,
+   "chunks": 89,
+   "lodNear": null,
+   "lodFar": null,
+   "parkedPool": 30,
+   "parkedFilled": 30,
+   "parkedShells": 3,
+   "parkedTrianglesDrawn": 31500,
    "implausible": []
   },
   {
@@ -86,6 +93,13 @@
    "shadowCasters": 103,
    "drawCalls": 231,
    "triangles": 786849,
+   "chunks": 89,
+   "lodNear": null,
+   "lodFar": null,
+   "parkedPool": 30,
+   "parkedFilled": 30,
+   "parkedShells": 3,
+   "parkedTrianglesDrawn": 31500,
    "implausible": []
   },
   {
@@ -118,6 +132,13 @@
    "shadowCasters": 103,
    "drawCalls": 226,
    "triangles": 786066,
+   "chunks": 89,
+   "lodNear": null,
+   "lodFar": null,
+   "parkedPool": 30,
+   "parkedFilled": 30,
+   "parkedShells": 3,
+   "parkedTrianglesDrawn": 31500,
    "implausible": []
   },
   {
@@ -150,6 +171,13 @@
    "shadowCasters": 103,
    "drawCalls": 224,
    "triangles": 788697,
+   "chunks": 89,
+   "lodNear": null,
+   "lodFar": null,
+   "parkedPool": 30,
+   "parkedFilled": 30,
+   "parkedShells": 3,
+   "parkedTrianglesDrawn": 31500,
    "implausible": []
   }
  ],
