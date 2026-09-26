@@ -130,7 +130,11 @@ const facts = await page.evaluate(() => {
   return {
     alive: P.aliveCount, count: P.count,
     meshes,
-    crowdTrisTotal: Object.values(meshes).reduce((s, m) => s + m.crowdTris, 0),
+    // The loop above nulls a mesh this build does not have, and until now this
+    // line dereferenced it anyway: the guard covered the producer and not the
+    // consumer, so the whole audit has thrown since 0687a53 removed the contact
+    // blob. Sum what exists.
+    crowdTrisTotal: Object.values(meshes).reduce((s, m) => s + (m ? m.crowdTris : 0), 0),
     nearest: onScreen,
     nearestFive: dists.slice(0, 5).map((d) => +d.toFixed(1)),
     envIntensity: __district.scene.environmentIntensity,
@@ -210,23 +214,44 @@ const pose = await page.evaluate(() => {
       + e[8] * (e[1] * e[6] - e[2] * e[5]);
     return +det.toFixed(4);
   };
+  /**
+   * READ THE TIER THAT ACTUALLY DRAWS THE PED. The crowd has a near pool: a ped inside it is
+   * written to nearTorsos/nearHeads/nearLimbs and the FAR slot is set to the hidden matrix,
+   * whose determinant is 0. This probe read the far meshes only, so its headline subject — the
+   * close-up ped, 2.8 m from the lens and therefore certainly in the near pool — reported
+   * torsoDet 0, headDet 0 and eight limbDets of 0, and the whole-crowd census counted every
+   * near ped as ten zeros. A determinant of 0 is not a determinant that passed a check for
+   * being negative: it is a matrix that is not drawn. `zeroDeterminants` is reported for the
+   * same reason, because a tier that stops being written would otherwise read as clean.
+   */
+  const tierOf = (slot) => {
+    const ns = P._nearSlot[slot];
+    return ns >= 0
+      ? { torso: P.nearTorsos, head: P.nearHeads, limb: P.nearLimbs, s: ns, base: ns * 14, near: true }
+      : { torso: P.torsos, head: P.heads, limb: P.limbs, s: slot, base: slot * 8, near: false };
+  };
+  const T = tierOf(i);
   out.slot = i;
+  out.tier = T.near ? 'near' : 'far';
   out.speedMs = +best.p.v.toFixed(3);
-  out.torsoDet = read(P.torsos, i);
-  out.headDet = read(P.heads, i);
+  out.torsoDet = read(T.torso, T.s);
+  out.headDet = read(T.head, T.s);
   out.limbDets = [];
-  for (let k = 0; k < 8; k++) out.limbDets.push(read(P.limbs, i * 8 + k));
+  for (let k = 0; k < 8; k++) out.limbDets.push(read(T.limb, T.base + k));
   // Every determinant over the whole live crowd, so one mirrored instance cannot
   // hide behind a sample of one.
-  let neg = 0, tot = 0;
+  let neg = 0, tot = 0, zero = 0, nearPeds = 0;
   for (let j = 0; j < P.count; j++) {
     if (!P.peds[j]) continue;
-    if (read(P.torsos, j) < 0) neg++;
-    if (read(P.heads, j) < 0) neg++;
-    tot += 2;
-    for (let k = 0; k < 8; k++) { if (read(P.limbs, j * 8 + k) < 0) neg++; tot++; }
+    const t = tierOf(j);
+    if (t.near) nearPeds++;
+    const dets = [read(t.torso, t.s), read(t.head, t.s)];
+    for (let k = 0; k < 8; k++) dets.push(read(t.limb, t.base + k));
+    for (const dd of dets) { if (dd < 0) neg++; if (dd === 0) zero++; tot++; }
   }
   out.negativeDeterminantInstances = neg;
+  out.zeroDeterminants = zero;
+  out.nearTierPeds = nearPeds;
   out.instancesChecked = tot;
   return out;
 });

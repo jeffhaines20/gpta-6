@@ -733,12 +733,12 @@ let audioImpactsWanted = 0;
  * five samples: driving into a queue of stopped traffic touches three cars in one frame
  * and that is one crash, not three.
  *
- * WHAT THIS DOES NOT DO, said plainly rather than discovered later. The traffic car is
- * not displaced and the pedestrian is not knocked down: src/traffic.js runs its fleet on
- * the road graph and src/pedestrians.js runs its crowd on the pavement graph, and
- * neither has a notion of being hit. So the player's car takes the damage, the crime is
- * reported, the player is pushed off — and the other party drives or walks on. That is
- * visibly wrong and it is a separate round in two other owners' files.
+ * WHAT REACTS AND WHAT STILL DOES NOT. A struck pedestrian is knocked down and thrown
+ * (`peds.hit`, thrown the distance accident reconstruction says: 9.5 m at 40 km/h) and a
+ * rammed traffic car is displaced off its lane, yawed out of line and stopped for a few
+ * seconds (`traffic.hit`). A rammed POLICE car still does not react: src/pursuit.js holds
+ * its units as an edge parameter and an instance matrix with no per-unit state to shunt,
+ * so `dynStats.policeHits` counts them and nothing moves. Counted rather than hidden.
  *
  * MASSES. 1,400 kg for a car, the same as the player's, which makes a head-on between
  * equals the barrier test. 80 kg for a person. Radii are the collision radius of the
@@ -747,7 +747,8 @@ let audioImpactsWanted = 0;
  */
 const OTHER_CAR = { bodyRadius: 0.95, bodyMass: 1400 };
 const PERSON = { bodyRadius: 0.35, bodyMass: 80 };
-const dynStats = { tested: 0, contacts: 0, frames: 0, pedHits: 0, carHits: 0, policeHits: 0 };
+const dynStats = { tested: 0, contacts: 0, frames: 0, pedHits: 0, carHits: 0, policeHits: 0,
+  pedKnockdowns: 0, pedFatal: 0, carShunts: 0 };
 function dynamicImpacts() {
   if (mode !== 'car') return;
   dynStats.frames++;
@@ -780,18 +781,30 @@ function dynamicImpacts() {
         bodyX: c.x, bodyZ: c.z,
         bodyVX: cy === null ? 0 : Math.sin(cy) * (c.v ?? 0),
         bodyVZ: cy === null ? 0 : Math.cos(cy) * (c.v ?? 0) });
-      if (hit && (!worst || hit.dv > worst.dv)) { worst = hit; worstKind = IMPACT.vehicle; }
+      if (hit && (!worst || hit.dv > worst.dv)) {
+        worst = hit; worstKind = IMPACT.vehicle;
+        worst.carId = c.id; worst.pedIndex = -1;
+      }
     }
   }
   // --- pedestrians.
   const people = peds ? peds.positions() : null;
   if (people) {
     for (const p of people) {
+      // A body already on the ground is not a fresh crime and not a fresh knockdown. Without
+      // this, driving over a casualty reports `pedestrianKilled` once a second for as long as
+      // the car sits on them.
+      if (p.down) continue;
       const dx = p.x - base.carX, dz = p.z - base.carZ;
       if (dx * dx + dz * dz > (BODY_ENCLOSING + PERSON.bodyRadius) ** 2) continue;
       dynStats.tested++;
       const hit = dynamicContact({ ...base, ...PERSON, bodyX: p.x, bodyZ: p.z });
-      if (hit && (!worst || hit.dv > worst.dv)) { worst = hit; worstKind = IMPACT.pedestrian; }
+      if (hit && (!worst || hit.dv > worst.dv)) {
+        worst = hit; worstKind = IMPACT.pedestrian;
+        // `p.i` is the crowd slot. positions() used to filter and throw the index away, so this
+        // pass could tell that a pedestrian had been struck and not WHICH one.
+        worst.pedIndex = p.i; worst.carId = null;
+      }
     }
   }
   /**
@@ -816,7 +829,12 @@ function dynamicImpacts() {
       if (dx * dx + dz * dz > (BODY_ENCLOSING + OTHER_CAR.bodyRadius) ** 2) continue;
       dynStats.tested++;
       const hit = dynamicContact({ ...base, ...OTHER_CAR, bodyX: ux, bodyZ: uz });
-      if (hit && (!worst || hit.dv > worst.dv)) { worst = hit; worstKind = IMPACT.police; }
+      if (hit && (!worst || hit.dv > worst.dv)) {
+        // src/pursuit.js has no per-unit state to shunt — its cars are an edge parameter and an
+        // instance matrix — so a rammed police car still does not react. Counted, not hidden.
+        worst = hit; worstKind = IMPACT.police;
+        worst.carId = null; worst.pedIndex = -1;
+      }
     }
   }
   if (!worst) return;
@@ -824,6 +842,27 @@ function dynamicImpacts() {
   if (worstKind === IMPACT.pedestrian) dynStats.pedHits++;
   else if (worstKind === IMPACT.police) dynStats.policeHits++;
   else dynStats.carHits++;
+
+  /**
+   * THE OTHER PARTY REACTS. This is what the damage round left out and said so: the player's car
+   * took the damage, the crime was reported, the player was pushed off — and the traffic car
+   * drove on and the pedestrian kept walking. Live-measured at the time: three pedestrian strikes
+   * at 60 km/h, health 1 -> 1, two stars, and nothing visibly happened to the people.
+   *
+   * Both reactions live in their own module (`peds.hit`, `traffic.hit`) because the state belongs
+   * to whoever owns the crowd and the fleet; this block only says WHO was hit and HOW HARD. The
+   * direction handed over is the player car's own direction of travel, because that is the way a
+   * struck body or a shunted car goes.
+   */
+  const travel = Math.hypot(vehicle.velocity.x, vehicle.velocity.z) || 1;
+  const tx = vehicle.velocity.x / travel, tz = vehicle.velocity.z / travel;
+  if (worstKind === IMPACT.pedestrian && worst.pedIndex >= 0) {
+    const r = peds.hit(worst.pedIndex, { speed: vehicle.speed, dirX: tx, dirZ: tz });
+    if (r) { dynStats.pedKnockdowns++; if (r.fatal) dynStats.pedFatal++; }
+  } else if (worstKind === IMPACT.vehicle && worst.carId != null) {
+    const r = traffic.hit(worst.carId, { dv: worst.dv, dirX: tx, dirZ: tz, kind: 'vehicle' });
+    if (r) dynStats.carShunts++;
+  }
 
   // Push the player's car out, and take the impulse. A pedestrian does not push a car
   // around, so the separation is only applied for the car-mass bodies.
@@ -889,6 +928,10 @@ function setTraffic(on) {
     // Let traffic ask the streamer whether a car's chunk is actually resident,
     // so "orphan" means something real rather than a distance guess.
     traffic.isChunkLoaded = (x, z) => world.loaded.has(world.keyOf(x, z));
+    // And whether a shunted car would be knocked through a shopfront. src/traffic.js fits the
+    // offset to what is clear at the publish site; without this hook it does not fit at all,
+    // which put 0.8% of worst-case shunts inside a building.
+    traffic.clearAt = (x, z, r) => !blockers.resolveCircle(x, z, r);
     // A fleet spawned AFTER boot has to pick up ?rim= too, or a capture with
     // HERO_TRAFFIC set would have swept the parked cars and left the moving ones
     // on the old alloy - two different rims in one frame, which is worse than
@@ -1372,11 +1415,15 @@ window.__district = {
     impactSoundsWanted: audioImpactsWanted,
     index: blockers.report(),
     /**
-     * Moving-body contacts. `pedHits` and `carHits` are the counts src/traffic.js and
-     * src/pedestrians.js do NOT react to: the other party drives or walks on, which is
-     * a separate round in two other owners' files.
+     * Moving-body contacts, and what each one did. `pedKnockdowns`/`pedFatal` and `carShunts`
+     * are reactions that actually happened; `policeHits` is the one kind that still has no
+     * reaction, because src/pursuit.js has no per-unit state to shunt.
      */
     dynamic: { ...dynStats },
+    crowd: peds ? { knockdowns: peds.stats.knockdowns, fatal: peds.stats.knockdownsFatal,
+      recoveries: peds.stats.recoveries, worstSpeed: peds.stats.worstKnockdownSpeed } : null,
+    fleet: traffic ? { shunts: traffic.stats.shunts, recoveries: traffic.stats.shuntRecoveries,
+      stoppedFrames: traffic.stats.shuntStoppedFrames, worstDv: traffic.stats.worstShuntDv } : null,
   }),
   repairCar: () => { damage.repair(); vehicle.contacts = 0; vehicle.pendingImpact = null; return damage.report(); },
   /**
@@ -1419,6 +1466,39 @@ window.__district = {
     if (rec.applied) vehicle.pendingImpact = rec;
     return rec;
   },
+  /**
+   * Knock down the nearest pedestrian, or shunt the nearest traffic car, at a given impact
+   * speed. For the same reason __district.crash() exists: a headless page renders under one
+   * frame a second, so hitting a specific pedestrian on purpose by driving costs minutes.
+   */
+  knockNearestPed(speedKmh = 40) {
+    if (!peds) return null;
+    let best = null, bestD = Infinity;
+    for (const p of peds.positions()) {
+      if (p.down) continue;
+      const d = Math.hypot(p.x - focusX, p.z - focusZ);
+      if (d < bestD) { bestD = d; best = p; }
+    }
+    if (!best) return null;
+    const fwd = _dynFwd.set(0, 0, 1).applyQuaternion(vehicle.quaternion);
+    const r = peds.hit(best.i, { speed: speedKmh / 3.6, dirX: fwd.x, dirZ: fwd.z });
+    // The direction is returned because a probe cannot check which way a body went over
+    // without it, and which way it goes over is the whole kinematics of the thing.
+    return r ? { ...r, distance: +bestD.toFixed(2), dirX: fwd.x, dirZ: fwd.z } : null;
+  },
+  shuntNearestCar(dv = 8) {
+    if (!traffic || !traffic._lastPositions) return null;
+    let best = null, bestD = Infinity;
+    for (const c of traffic._lastPositions) {
+      const d = Math.hypot(c.x - focusX, c.z - focusZ);
+      if (d < bestD) { bestD = d; best = c; }
+    }
+    if (!best) return null;
+    const fwd = _dynFwd.set(0, 0, 1).applyQuaternion(vehicle.quaternion);
+    const r = traffic.hit(best.id, { dv, dirX: fwd.x, dirZ: fwd.z });
+    return r ? { ...r, distance: +bestD.toFixed(2) } : null;
+  },
+
   /** Is a circle of radius r at (x,z) clear of every building wall? */
   clearAt: (x, z, r = 0.95) => !blockers.resolveCircle(x, z, r),
 

@@ -436,6 +436,48 @@ floor speed is free **by construction**. That is what makes it a derivation and 
 the finished drive's 264 contacts are all at one 8.3 m corner against a 8.9 m minimum, at a
 worst charged delta-v of 1.425 m/s, and they cost exactly nothing.
 
+## A model integrated at the game's dt is measured at the harness's
+
+The pedestrian throw distance is `v^2 / (2 mu g)` — a real reconstruction figure, checked
+against published data at three speeds. The slide that realises it was written as a plain Euler
+step, which carries the whole step at the ENTRY speed. Measured against a closed form of
+9.534 m at 40 km/h:
+
+    dt 1/120   9.580 m   +0.5%        dt 1/6   10.479 m    +9.9%
+    dt 1/60    9.627 m   +1.0%        dt 1/2   12.510 m   +31.2%
+                                      dt 1     15.748 m   +65.2%
+
+1% at 60 Hz is why nobody would ever see it. **The harness does not run at 60 Hz.** Headless
+capture here is under one frame a second, and `district/main.js` clamps dt to 0.05, so every
+live capture of a knockdown threw the body up to 65% further than the model says — and so did
+any frame hitch in the game. The instrument that checks the model was changing the answer.
+
+Constant deceleration has a closed form, so there was nothing to approximate:
+`ds = v*h - a*h^2/2` with `v' = v - a*h` is exact for any `h`, and exact piecewise, which is
+what lets it be sub-stepped. It now reads 9.534 m at every step size from 1/120 s to 1 s, and
+the gate asserts that spread is under 0.1% and re-runs the sampled form in the test file so a
+regression to it cannot pass.
+
+**Sub-step any swept test against geometry, and size the step by the subject, not by dt.** The
+slide's wall test samples the DESTINATION, so at a 1 s frame it was testing a point 11 m away
+and could jump a whole shopfront. Steps are capped at 0.3 m — a third of a body — which costs
+nothing because the integration is exact piecewise.
+
+## Measure the rare case AT THE CAP, because that is the one a player goes to look at
+
+A rammed traffic car is knocked off its lane by up to 4.5 m. Placing every car of three 30-car
+fleets at that cap in 16 directions, **11 of 1,440 placements (0.8%) landed inside a building,
+the worst 2.15 m in.** At the dv the collision pass actually produces most often — 8 m/s, a
+2.84 m push — it was 0 of 30. So the defect exists only at the cap, the cap is a 72 km/h ram,
+and a 72 km/h ram is precisely the crash a player stops the car and walks back to look at. A
+sweep that only exercises the common case would have shipped it.
+
+The fix is a fit at the publish site, not in `hit()`: that is where the offset is applied, so
+it is the only place the drawn car and the collision pass cannot disagree. **And the two counts
+validate each other** — 11 bad placements, 11 offsets fitted short, so the fit fired exactly
+where it was needed and nowhere else. A fit count above the bad count would mean it was
+shrinking offsets that were fine.
+
 ## A check whose two sides are both zero is not a check
 
 `crash-test`'s speed sweep launched every arm from 160 m back and ran 1,400 fixed
@@ -617,9 +659,19 @@ where both kits rolled their own dice over the same wall for 275 m.
 `check-syntax`, `geom-audit`, `golden-trace`, `physics-test`, `daynight-sweep`,
 `budget` (`drive-through --traffic`), `leaf-mask`, `wanted-test`, `mission-test`,
 `damage-test`, `blocker-test`, `crash-test`, `roadpath-test`, `route-drive`,
-`sim-determinism`, `traffic-selftest`. The offline ones together take under a
-minute; `damage-live` needs a browser and takes about seven. Run the ones your
+`reaction-test`, `sim-determinism`, `traffic-selftest`. The offline ones together
+take under a minute; `damage-live` needs a browser and takes about twelve, and
+`ped-audit` about fifteen. Run the ones your
 change can touch before claiming done.
+
+**A tool that throws is not a tool that passes, and nobody notices which.**
+`ped-audit` handled a build with no contact-blob mesh in its per-mesh loop —
+`if (!m) { meshes[k] = null; continue; }`, with a comment saying exactly why — and
+then summed `m.crowdTris` over those same values twelve lines later. It had thrown
+`Cannot read properties of null` on every run since commit `0687a53` removed that
+mesh, through every round since, and the failure surfaced only when a later round
+ran the whole gate list. A guard on the producer is not a guard on the consumer.
+Run the list, and read the exit codes rather than the last lines.
 
 **A gate is never loosened silently.** If a change moves a threshold, restate the
 threshold *in the same commit*, with the derivation. One commit shipped a

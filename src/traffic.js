@@ -92,6 +92,44 @@ const EXIT_CLEAR_SPEED = 2.0;     // below this a car on the exit counts as bloc
 // the ledger - this is the one parameter here with a real throughput cost.
 const STOP_LINE = 6.0;
 const REPLAN_AFTER_S = 3.0;       // denied this long, take a different exit
+/**
+ * Shunt constants. See Traffic.hit() for where the displacement comes from.
+ *
+ * SHUNT_DECEL is src/vehicle.js's own friction-circle grip of 1.15 against the real 9.81 —
+ * 11.28 m/s^2 — because a car pushed sideways slides on its tyres, not on the arcade 2 g the
+ * player's car accelerates under. SHUNT_MAX is where the model stops describing the car: past
+ * 4.5 m of lateral displacement it has left the carriageway, and this module has no notion of
+ * being off it.
+ */
+const SHUNT_MIN_DV = 1.0;      // m/s — below this a contact is a scuff and nothing moves
+const SHUNT_DECEL = 1.15 * 9.81;
+const SHUNT_MAX = 4.5;         // m
+const SHUNT_YAW = 0.55;        // rad
+const SHUNT_STOP_MAX = 5;      // s
+const SHUNT_RECOVER_S = 2.2;   // s time constant for unwinding the offset once moving again
+/**
+ * When a shunt is considered over. The decay is exponential with a 2.2 s time constant and only
+ * runs once the car is moving again, so measured end to end: an 8 m/s delta-v knocks a car 2.84 m
+ * sideways, it sits stopped for 3.20 s, and the offset is under 5 cm 8.85 s after it pulls away —
+ * 12.05 s in total. A 2 cm threshold adds three more seconds and leaves `shuntRecoveries` reading
+ * zero through any window short enough to watch. 5 cm of lane offset is not visible at any camera
+ * distance this game uses.
+ */
+const SHUNT_CLEAR_M = 0.05;
+const SHUNT_CLEAR_RAD = 0.02;
+/**
+ * A shunt must not push a car through a shopfront. Measured before this existed: placing every
+ * car of three 30-car fleets at the 4.5 m cap in 16 directions, 11 of 1,440 placements (0.8%)
+ * landed inside a building, the worst 2.15 m in. Rare, and rare is exactly the defect that ships
+ * — it only happens at the cap, which is a 72 km/h ram, which is the crash a player will go and
+ * look at. The fit is tried at the publish site rather than in hit(), because that is where the
+ * offset is applied and therefore the only place where the drawn car and the collision pass
+ * cannot disagree. The shunt RECORD is not clamped: it decays on its own schedule, so a car
+ * fitted short this frame re-emerges as the geometry allows.
+ */
+const SHUNT_FIT = [0.75, 0.5, 0.25, 0];
+const SHUNT_BODY_R = 0.95;              // the collision radius district/main.js uses for a car
+
 const STUCK_LIMIT_S = 20;         // immobile this long, the car is recovered
 const WAIT_BUCKETS = 121;         // wait histogram: 0.5 s buckets out to 60 s
 
@@ -326,6 +364,8 @@ export class Traffic {
       gridlockRecoveries: 0,
       gridlockByReason: { conflict: 0, queue: 0, box: 0, none: 0 },
       maxActiveInAJunction: 0,
+      shunts: 0, shuntsPolice: 0, shuntRecoveries: 0, worstShuntDv: 0,
+      shuntStoppedFrames: 0, shuntFitFrames: 0,
     };
     // Exposed so a harness can turn the anti-gridlock rule OFF as a control. A
     // result that only holds because jammed cars are being deleted is not a result.
@@ -443,6 +483,7 @@ export class Traffic {
         waitS: 0, stuckS: 0, sinceReplanS: 0, fromArm: null, lastDeny: null,
         plan: null, planJv: null, mv: null, ticket: 0, queuedAt: null,
         orphanFor: 0, countedOrphan: false,
+        shunt: null, stopS: 0,
       };
       this.stats.spawns++;
       return true;
@@ -677,6 +718,83 @@ export class Traffic {
     return { gap: best - CAR_LENGTH, leader };
   }
 
+  /**
+   * RAM A TRAFFIC CAR. Called by district/main.js when src/damage.js reports a contact between
+   * the player's car and this one.
+   *
+   * WHAT WAS HERE BEFORE: nothing. The fleet runs on the road graph, and being hit was not a
+   * state it had — so the player's car took its damage, `wanted.js` logged a
+   * `civilianCollision`, and the other car carried on at its speed limit as though nothing had
+   * happened.
+   *
+   * WHAT THIS DOES AND WHAT IT DOES NOT, stated rather than discovered later. The car stays on
+   * its edge: it is still `{edge, forward, t}` and the junction reservation, the following model
+   * and the anti-gridlock rule all still see it where they expect. What changes is that it is
+   * DISPLACED off its lane, yawed out of line, and stopped for a few seconds. So a rammed car
+   * visibly lurches sideways, sits there askew, and then straightens and drives on — and the
+   * cars behind it queue, because the following model already handles a stationary leader. It
+   * does not spin out, mount the kerb or leave the network, and doing any of those means giving
+   * the fleet a second, off-graph simulation.
+   *
+   * THE DISPLACEMENT IS THE MOMENTUM EXCHANGE, not a chosen number. Equal masses at closing
+   * speed c give the struck car c/2 of delta-v (times 1+e), and a car pushed sideways on locked
+   * tyres slides at about mu*g — src/vehicle.js's own grip of 1.15 against the real 9.81, so
+   * 11.3 m/s^2. The distance is then dv^2/(2a):
+   *
+   *      5 m/s of delta-v -> 1.11 m        15 km/h side-swipe
+   *     10 m/s            -> 4.43 m        a solid t-bone
+   *
+   * capped at `SHUNT_MAX` because past that the car has left the road and this model no longer
+   * describes it.
+   */
+  hit(id, { dv = 0, dirX = 0, dirZ = 1, kind = 'vehicle' } = {}) {
+    const car = this.cars.find((c) => c && c.id === id);
+    if (!car) return null;
+    const v = Math.abs(dv);
+    if (!(v > SHUNT_MIN_DV)) return null;
+    const L = Math.hypot(dirX, dirZ) || 1;
+    const push = Math.min(SHUNT_MAX, (v * v) / (2 * SHUNT_DECEL));
+    // Along the direction the striking car was travelling.
+    const ox = (dirX / L) * push, oz = (dirZ / L) * push;
+    const prev = car.shunt;
+    car.shunt = {
+      // Accumulate: a car rammed twice is knocked further, and the cap still holds.
+      ox: Math.max(-SHUNT_MAX, Math.min(SHUNT_MAX, (prev ? prev.ox : 0) + ox)),
+      oz: Math.max(-SHUNT_MAX, Math.min(SHUNT_MAX, (prev ? prev.oz : 0) + oz)),
+      // A side impact spins the car; the sign comes from which side it landed.
+      yaw: Math.max(-SHUNT_YAW, Math.min(SHUNT_YAW, (prev ? prev.yaw : 0) + v * 0.06)),
+      t: 0,
+    };
+    car.stopS = Math.max(car.stopS ?? 0, Math.min(SHUNT_STOP_MAX, 1.2 + v * 0.25));
+    this.stats.shunts++;
+    if (kind === 'police') this.stats.shuntsPolice++;
+    if (v > this.stats.worstShuntDv) this.stats.worstShuntDv = +v.toFixed(2);
+    return { id, dv: v, push, stopS: car.stopS };
+  }
+
+  /** Is this car currently knocked askew? */
+  isShunted(id) {
+    const car = this.cars.find((c) => c && c.id === id);
+    return !!(car && (car.shunt || (car.stopS ?? 0) > 0));
+  }
+
+  /**
+   * Decay a shunt. The offset holds while the car is stopped — it HAS been moved — and unwinds
+   * as it pulls away, which reads as the driver straightening up and rejoining the lane.
+   */
+  _shuntStep(car, dt) {
+    if (!car.shunt) return;
+    car.shunt.t += dt;
+    if ((car.stopS ?? 0) > 0) return;
+    const k = Math.max(0, 1 - dt / SHUNT_RECOVER_S);
+    car.shunt.ox *= k; car.shunt.oz *= k; car.shunt.yaw *= k;
+    if (Math.hypot(car.shunt.ox, car.shunt.oz) < SHUNT_CLEAR_M
+      && Math.abs(car.shunt.yaw) < SHUNT_CLEAR_RAD) {
+      car.shunt = null;
+      this.stats.shuntRecoveries++;
+    }
+  }
+
   update(dt, playerPos) {
     this.stats.frames++;
 
@@ -856,6 +974,20 @@ export class Traffic {
       else if (car.waitS > 0) { this._recordWait(car.waitS); car.waitS = 0; }
 
       car.v = Math.max(0, Math.min(car.limit, v + accel * dt));
+      /**
+       * A SHUNTED CAR IS STOPPED, AND IS NOT GRIDLOCKED. The anti-gridlock rule below removes a
+       * car stationary at a junction for `stuckLimitS`, which is right for a deadlock and wrong
+       * for a car that has just been rammed and is stationary for a known and bounded reason.
+       * Without this exclusion, ramming a car in a junction deletes it a few seconds later and
+       * the reaction reads as a despawn.
+       */
+      if ((car.stopS ?? 0) > 0) {
+        car.stopS = Math.max(0, car.stopS - dt);
+        car.v = 0;
+        car.stuckS = 0;
+        this.stats.shuntStoppedFrames++;
+      }
+      this._shuntStep(car, dt);
       if (car.v < 0.15) this.stats.stoppedCarFrames++;
       // Stuck time for the anti-gridlock rule below. It counts only while a car is
       // stationary AND involved with a junction: refused a claim, or holding one it
@@ -960,10 +1092,29 @@ export class Traffic {
         this._releaseBehind(car, this._endVertex(car.edge, car.forward));
       }
 
-      // Right-hand lane offset, perpendicular to travel.
+      // Right-hand lane offset, perpendicular to travel, plus any shunt.
+      //
+      // APPLIED BEFORE THE POSITION IS PUBLISHED, so the overlap statistics, _updateGlow and
+      // district/main.js's collision pass all see the car where it is actually drawn. A shunt
+      // applied only at the matrix would put the visible car somewhere the collision does not
+      // know about, which is the same defect as the phantom bounding boxes.
       const nx = -p.dz, nz = p.dx;
-      const x = p.x + nx * car.lane;
-      const z = p.z + nz * car.lane;
+      const sh = car.shunt;
+      let ox = sh ? sh.ox : 0, oz = sh ? sh.oz : 0;
+      if (sh && this.clearAt && (ox || oz)) {
+        const bx = p.x + nx * car.lane, bz = p.z + nz * car.lane;
+        if (!this.clearAt(bx + ox, bz + oz, SHUNT_BODY_R)) {
+          let fit = 0;
+          for (const f of SHUNT_FIT) {
+            if (this.clearAt(bx + ox * f, bz + oz * f, SHUNT_BODY_R)) { fit = f; break; }
+          }
+          ox *= fit; oz *= fit;
+          this.stats.shuntFitFrames++;
+        }
+      }
+      const x = p.x + nx * car.lane + ox;
+      const z = p.z + nz * car.lane + oz;
+      const yawOut = p.yaw + (sh ? sh.yaw : 0);
 
       const dist = Math.hypot(x - playerPos.x, z - playerPos.z);
       if (dist > this.despawnRadius) {
@@ -992,9 +1143,9 @@ export class Traffic {
         // rebuild a matrix for the nearest few cars AFTER this loop has decided
         // which cars are alive. Recomputing them there would mean re-walking the
         // edge geometry for cars the loop has already placed.
-        yaw: p.yaw, dView: dist,
+        yaw: yawOut, dView: dist, shunted: !!sh,
         mv: car.mv ? car.mv.key : null });
-      this._m.makeRotationY(p.yaw);
+      this._m.makeRotationY(yawOut);
       this._m.setPosition(x, 0, z);
       this._setMatrixAt(i, this._m);
     }

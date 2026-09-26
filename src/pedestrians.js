@@ -129,6 +129,7 @@
 
 import * as THREE from '../vendor/three.module.min.js';
 import { rng, hash32 } from './facades.js';
+import { throwDistance, slideDecel } from './damage.js';
 
 // ------------------------------------------------------------------ skeleton
 // Metres, at height scale 1: a 1.70 m adult. Per-ped scale spreads the
@@ -317,6 +318,38 @@ const SEP_CELL = 2.0;                      // neighbour hash cell, m
 const OVERLAP_DIST = 0.55;
 const BODY_OVERLAP = 0.34;
 const BUILDING_MARGIN = 0.28;              // keep this far off a wall
+
+/**
+ * Knockdown timings. Seconds, and deliberately not dice-rolled: src/pedestrians.js draws every
+ * random number from a seeded stream (tools/sim-determinism.mjs asserts it), and a knockdown
+ * that varied per run would make every capture of a crowd a different capture.
+ *
+ * PED_KILL_SPEED is src/damage.js's own pedestrian fatality line — 12.5 m/s, 45 km/h, the 50%
+ * point of the published speed-versus-fatality curve — and it is the SAME threshold that
+ * decides whether the crime reported is `pedestrianHit` or `pedestrianKilled`. Written here as
+ * a constant rather than imported so this module does not depend on damage.js for a policy it
+ * only reads; the gate asserts the two agree.
+ */
+const PED_FALL_S = 0.32;      // upright to flat
+const PED_PRONE_S = 3.2;      // flat, before getting up
+const PED_RISE_S = 0.9;       // flat to upright
+/**
+ * A fatal casualty is cleared after PED_CLEAR_S — but only from beyond PED_CLEAR_DIST_M, because
+ * the crowd is one InstancedMesh with no per-instance opacity, so there is no fade available and
+ * a body removed in shot simply blinks out. PED_CLEAR_MAX_S is the hard cap: without it a player
+ * parked on top of a casualty would hold that slot for ever, and the crowd would quietly lose a
+ * body every time somebody stopped to look.
+ */
+const PED_CLEAR_S = 12;
+const PED_CLEAR_DIST_M = 35;
+const PED_CLEAR_MAX_S = 45;
+const PED_KILL_SPEED = 12.5;  // m/s — damage.js's ANCHORS.pedKillSpeed
+/**
+ * The slide is advanced in steps no longer than this. Not a tolerance — a wall test: `_blocked`
+ * samples the DESTINATION, so a step longer than the body can jump a shopfront. A headless frame
+ * here is around a second, which at 40 km/h is an 11 m step through anything in the way.
+ */
+const SLIDE_STEP_M = 0.3;
 const STUCK_TURN_S = 2.5;                  // blocked this long -> turn around
 const STUCK_DESPAWN_S = 7.0;               // still blocked -> give the slot back
 const SPAWN_SLOTS_PER_FRAME = 20;          // bounded refill work per frame
@@ -521,6 +554,15 @@ export class Pedestrians {
     this._s = new THREE.Vector3();
     this._col = new THREE.Color();
     this._axisY = new THREE.Vector3(0, 1, 0);
+    // Knockdown scratch. Private to _pose/_put for the reason vehicle.js's applyImpulseAt
+    // gives about sharing one: a scratch a caller also holds turned a cross product into a
+    // self-cross and silently removed every suspension torque.
+    this._fallM = null;
+    this._fm = new THREE.Matrix4();
+    this._tA = new THREE.Matrix4();
+    this._tB = new THREE.Matrix4();
+    this._qf = new THREE.Quaternion();
+    this._fallAxis = new THREE.Vector3();
     this._axisX = new THREE.Vector3(1, 0, 0);
     this._tipOut = [0, 0, 0];
     this._fL = { rel: 0, y: 0, stance: true };
@@ -535,6 +577,7 @@ export class Pedestrians {
       buildingPushes: 0, avoidBrakeFrames: 0, orphanPedFrames: 0,
       overlapFrames: 0, bodyOverlapFrames: 0, closestApproachM: Infinity,
       sidewalksBaked: 0, sidewalksRejected: 0,
+      knockdowns: 0, knockdownsFatal: 0, recoveries: 0, worstKnockdownSpeed: 0,
     };
     this._minHist = new Array(6).fill(0);   // closest pair per frame, 0.25 m buckets
   }
@@ -1222,6 +1265,134 @@ export class Pedestrians {
   }
 
   // ------------------------------------------------------------------ update
+  /**
+   * KNOCK A PEDESTRIAN DOWN. Called by district/main.js when src/damage.js reports a contact
+   * between the player's car and this slot.
+   *
+   * WHAT WAS HERE BEFORE: nothing. The damage round measured three pedestrian strikes at
+   * 60 km/h in a live page — the car took no damage (correct, an 80 kg body cannot dent a
+   * 1400 kg car), `wanted.js` went to two stars (correct, it is a two-star crime), and the
+   * people carried on walking. The crime was reported and the collision was invisible.
+   *
+   * THE THROW DISTANCE IS THE NUMBER A VIEWER CAN JUDGE, so it comes from accident
+   * reconstruction rather than from taste: src/damage.js's throwDistance() is the
+   * projection-and-slide form d = v^2/(2 mu g), matching published data at 30, 40 and 50 km/h
+   * to within 7%. The body leaves at the impact speed and slides at mu*g, so integrating the
+   * slide reproduces that distance rather than restating it — which the gate checks, because
+   * an integrator that disagrees with its own closed form is the easiest thing here to get
+   * wrong.
+   *
+   * WHETHER THEY GET UP is decided by the same threshold that decides the CRIME. damage.js
+   * puts the pedestrian fatality line at 45 km/h, the 50% point of the published
+   * speed-versus-fatality curve, and reports `pedestrianKilled` above it. So above that speed
+   * the body stays down and is cleared after `clearS`; below it the ped gets up and walks on.
+   * One threshold, two consequences, and they cannot drift apart.
+   *
+   * `dirX`/`dirZ` is the direction of travel of whatever struck them — the body goes that way.
+   */
+  hit(index, { speed = 0, dirX = 0, dirZ = 1, kill = null } = {}) {
+    const ped = this.peds[index];
+    if (!ped || ped.down) return null;
+    const v = Math.abs(speed);
+    const L = Math.hypot(dirX, dirZ) || 1;
+    const ux = dirX / L, uz = dirZ / L;
+    const fatal = kill === null ? v >= PED_KILL_SPEED : !!kill;
+    ped.down = {
+      t: 0,
+      // The slide: leaves at the impact speed, decelerates at mu*g. See throwDistance().
+      vx: ux * v, vz: uz * v,
+      // Fall about the horizontal axis perpendicular to the direction of travel, so the body
+      // goes over the way it was hit rather than in some fixed direction.
+      axisX: -uz, axisZ: ux,
+      travelled: 0,
+      want: throwDistance(v),
+      fatal,
+      phase: 'falling',
+    };
+    ped.v = 0;
+    this.stats.knockdowns++;
+    if (fatal) this.stats.knockdownsFatal++;
+    if (v > this.stats.worstKnockdownSpeed) this.stats.worstKnockdownSpeed = +v.toFixed(2);
+    return { index, id: ped.id, speed: v, fatal, throwWanted: ped.down.want };
+  }
+
+  /** One definition, so the walk and a knockdown cannot pose different skeletons. */
+  _legLen(ped) { return LEG_LEN * ped.hscale; }
+
+  /** Is this slot on the ground? */
+  isDown(index) { return !!(this.peds[index] && this.peds[index].down); }
+
+  /**
+   * Advance a knocked-down pedestrian. Returns false when the slot should be freed.
+   *
+   * The slide is clamped by the same `_blocked` test the walk uses, so a body thrown at a
+   * shopfront stops at the wall instead of sliding through it. That check is the reason the
+   * slide is integrated rather than solved: a closed form cannot notice a building.
+   */
+  _fallStep(ped, dt) {
+    const d = ped.down;
+    d.t += dt;
+    const sp = Math.hypot(d.vx, d.vz);
+    if (sp > 0.05) {
+      /**
+       * INTEGRATED EXACTLY, NOT SAMPLED. Constant deceleration has a closed form, so there is no
+       * reason for the thrown distance to depend on the frame rate — and with a plain Euler step
+       * it did, because the whole step is carried at the ENTRY speed. The same 40 km/h impact,
+       * measured before this was changed, against a closed form of 9.534 m:
+       *
+       *     dt 1/120   9.580 m   +0.5%        dt 1/6   10.479 m    +9.9%
+       *     dt 1/60    9.627 m   +1.0%        dt 1/2   12.510 m   +31.2%
+       *                                       dt 1     15.748 m   +65.2%
+       *
+       * 1% at 60 Hz is why this was easy to miss and 65% at 1 Hz is why it mattered: every
+       * headless capture threw bodies half again as far as the model says, and in the game a
+       * frame hitch did the same. `ds = v*h - a*h^2/2` with `v' = v - a*h` is exact for any h,
+       * and exact piecewise, so the sub-stepping below costs no accuracy.
+       */
+      const a = slideDecel();
+      const ux = d.vx / sp, uz = d.vz / sp;
+      const h = Math.min(dt, sp / a);                    // the slide stops at v/a, not at dt
+      const reach = sp * h - 0.5 * a * h * h;
+      const n = Math.max(1, Math.ceil(reach / SLIDE_STEP_M));
+      const hk = h / n;
+      let v = sp, stopped = false;
+      for (let k = 0; k < n; k++) {
+        const ds = v * hk - 0.5 * a * hk * hk;
+        const nx = ped.x + ux * ds, nz = ped.z + uz * ds;
+        if (this._blocked(nx, nz, BUILDING_MARGIN)) { stopped = true; break; }
+        d.travelled += ds;
+        ped.x = nx; ped.z = nz;
+        v = Math.max(0, v - a * hk);
+      }
+      if (stopped) { d.vx = 0; d.vz = 0; } else { d.vx = ux * v; d.vz = uz * v; }
+    } else { d.vx = 0; d.vz = 0; }
+    if (d.phase === 'falling' && d.t >= PED_FALL_S) d.phase = 'prone';
+    if (d.phase === 'prone') {
+      if (d.fatal) {
+        if (d.t >= PED_CLEAR_MAX_S) return false;
+        if (d.t >= PED_CLEAR_S) {
+          const dx = ped.x - this._focus.x, dz = ped.z - this._focus.z;
+          if (dx * dx + dz * dz > PED_CLEAR_DIST_M * PED_CLEAR_DIST_M) return false;
+        }
+      }
+      else if (d.t >= PED_FALL_S + PED_PRONE_S) { d.phase = 'rising'; d.riseAt = d.t; }
+    }
+    if (d.phase === 'rising' && d.t - d.riseAt >= PED_RISE_S) {
+      ped.down = null;
+      ped.stuck = 0;
+      this.stats.recoveries++;
+      return true;
+    }
+    return true;
+  }
+
+  /** 0 flat on the ground, 1 fully upright. Drives the pose and nothing else. */
+  _uprightness(d) {
+    if (d.phase === 'falling') return 1 - Math.min(1, d.t / PED_FALL_S);
+    if (d.phase === 'rising') return Math.min(1, (d.t - d.riseAt) / PED_RISE_S);
+    return 0;
+  }
+
   update(dt, focus) {
     this.stats.frames++;
     const fx = focus?.x ?? 0, fz = focus?.z ?? 0;
@@ -1262,6 +1433,17 @@ export class Pedestrians {
       const ped = this.peds[i];
       if (!ped) { this._hide(i); continue; }
       this.stats.pedFrames++;
+
+      // --- on the ground. No waypoints, no separation, no gait: a body slides and is posed.
+      // BEFORE the walk, not inside it, because every branch below assumes a ped that is
+      // trying to get somewhere and half of them would put a casualty back on its feet.
+      if (ped.down) {
+        if (!this._fallStep(ped, dt)) { this.peds[i] = null; this._hide(i); continue; }
+        // The same pose call the walk makes, with the same leg length, so a casualty's
+        // skeleton is the walking skeleton lying down rather than a second one.
+        this._writePose(i, ped, this._legLen(ped));
+        continue;
+      }
 
       // --- waypoint following
       let target = this._targetAt(ped, ped.node, this._tgt);
@@ -1345,7 +1527,7 @@ export class Pedestrians {
       // --- stride phase advances with DISTANCE, never with time (animfsm.js).
       // Stride scales with the ped's own legs, so a tall ped covers ground in
       // fewer, longer steps at the same cadence, and stretches slightly at pace.
-      const legLen = LEG_LEN * ped.hscale;
+      const legLen = this._legLen(ped);
       ped.stride = legLen * STRIDE_K * (0.86 + 0.14 * (ped.v / 1.35));
       ped.phase = (ped.phase + (TAU * ped.v * dt) / ped.stride) % TAU;
 
@@ -1496,16 +1678,37 @@ export class Pedestrians {
 
     this._qy.setFromAxisAngle(this._axisY, yaw);
 
+    /**
+     * THE FALL IS ONE RIGID TRANSFORM, PRE-MULTIPLIED ONTO EVERY WRITE. A knockdown rotates
+     * the whole body about a horizontal axis through the feet, and that is a rigid motion of
+     * the skeleton this method has already built — so there is no need to teach ten separate
+     * bone placements about it. `_fallM` is F = T(root) * R(axis, angle) * T(-root), and
+     * `_put` applies F * M on the way to setMatrixAt().
+     *
+     * Building it here also means the skeleton is IDENTICAL upright and prone, so a fallen ped
+     * cannot acquire a limb length or a girth the walking version does not have.
+     */
+    this._fallM = null;
+    if (ped.down) {
+      const up = this._uprightness(ped.down);
+      const angle = (1 - up) * Math.PI * 0.5;
+      this._fallAxis.set(ped.down.axisX, 0, ped.down.axisZ).normalize();
+      this._qf.setFromAxisAngle(this._fallAxis, angle);
+      this._fallM = this._fm.makeRotationFromQuaternion(this._qf);
+      this._fallM.premultiply(this._tA.makeTranslation(ped.x, rootY, ped.z));
+      this._fallM.multiply(this._tB.makeTranslation(-ped.x, -rootY, -ped.z));
+    }
+
     // --- torso and head
     this._v.set(ped.x, rootY + hipY, ped.z);
     this._s.set(g, ((HEAD_Y + 0.06) * s) / TORSO_BASE, g);
     this._m.compose(this._v, this._qy, this._s);
-    torsoMesh.setMatrixAt(tSlot, this._m);
+    this._put(torsoMesh, tSlot);
 
     this._v.set(ped.x, rootY + neckY, ped.z);
     this._s.set(s, s, s);
     this._m.compose(this._v, this._qy, this._s);
-    headMesh.setMatrixAt(tSlot, this._m);
+    this._put(headMesh, tSlot);
 
     // --- limbs. Each shank/forearm hangs off the tip of the bone above it, so
     // the chain never comes apart however the joints are driven.
@@ -1649,6 +1852,18 @@ export class Pedestrians {
     this._v.set(px, py, pz);
     this._s.set(thick, len / LIMB_BASE, thickZ);
     this._m.compose(this._v, this._q, this._s);
+    this._put(mesh, slot);
+  }
+
+  /**
+   * Write `this._m` to an instance slot, through the fall transform when there is one.
+   *
+   * Every matrix a pose produces goes through here. That is the whole reason a knockdown did
+   * not need ten separate changes, and it is also why a future pose addition cannot forget to
+   * fall over: there is no other way to write a matrix in this file.
+   */
+  _put(mesh, slot) {
+    if (this._fallM) this._m.premultiply(this._fallM);
     mesh.setMatrixAt(slot, this._m);
   }
 
@@ -1707,10 +1922,21 @@ export class Pedestrians {
   }
 
   // Live positions, for harnesses that need to prove peds are where they claim.
+  /**
+   * `i` IS THE SLOT, and it is here so a collision consumer can act on what it hit. The list
+   * was filtered before, which threw the index away — district/main.js could tell that the
+   * player's car had struck a pedestrian and had no way to say WHICH one, so the crime was
+   * reported and the person walked on.
+   */
   positions() {
-    return this.peds.filter(Boolean).map((p) => ({
-      x: +p.x.toFixed(2), z: +p.z.toFixed(2), v: +p.v.toFixed(2), edge: p.edge, side: p.side,
-    }));
+    const out = [];
+    for (let i = 0; i < this.peds.length; i++) {
+      const p = this.peds[i];
+      if (!p) continue;
+      out.push({ i, x: +p.x.toFixed(2), z: +p.z.toFixed(2), v: +p.v.toFixed(2),
+        edge: p.edge, side: p.side, down: !!p.down });
+    }
+    return out;
   }
 
   dispose() {

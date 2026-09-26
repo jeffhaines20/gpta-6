@@ -439,3 +439,47 @@ export function dynamicContact({
     dirZ: ox * fwdX + oz * fwdZ,
   };
 }
+
+/**
+ * How far a struck pedestrian is thrown, in metres, from the vehicle's impact speed.
+ *
+ * ANCHORED TO FORENSIC RECONSTRUCTION, not chosen for looks. Accident reconstruction uses a
+ * projection-and-slide model whose first-order form is
+ *
+ *     d = v^2 / (2 * mu * g)
+ *
+ * with `mu` the sliding coefficient of a clothed body on asphalt, quoted between 0.6 and 0.7,
+ * and g the real 9.81 — this is a body on tarmac, not the arcade 2 g the car drives under.
+ * Taking the midpoint, 0.66:
+ *
+ *     30 km/h ->  5.36 m       published ~5 m      -7%
+ *     40 km/h ->  9.53 m       published ~10 m     -5%
+ *     50 km/h -> 14.90 m       published ~15 m     -1%
+ *
+ * within 7% at all three. The other figure often quoted — throw distance in metres is a
+ * quarter to a third of impact speed in km/h — agrees with this over roughly 30 to 60 km/h
+ * and diverges at both ends, which is what a linear approximation to a quadratic does: at
+ * 15 km/h the rule says 3.8 to 5.0 m against 1.34 here, and at 80 km/h it says 20 to 26
+ * against 38.1. The data points are the anchor; the rule of thumb is not a second one.
+ *
+ * tools/reaction-test.mjs checks all three rows, because a throw distance is the one number
+ * in a knockdown a viewer can judge by eye and get right.
+ */
+export const THROW = Object.freeze({ mu: 0.66, g: 9.81 });
+
+export function throwDistance(speed) {
+  const v = Math.abs(speed);
+  if (!(v > 0)) return 0;
+  return (v * v) / (2 * THROW.mu * THROW.g);
+}
+
+/**
+ * The speed a thrown body leaves at, for a wanted throw distance — the inverse of the above,
+ * so a caller that wants the published distance can integrate a decelerating slide to it
+ * instead of teleporting the body there.
+ *
+ * Sliding at `mu * g` from v0 covers v0^2/(2 mu g), so v0 IS the impact speed and the slide
+ * simply runs the formula forwards. Exported so the gate can assert the round trip rather
+ * than trusting that an integrator agrees with the closed form.
+ */
+export function slideDecel() { return THROW.mu * THROW.g; }

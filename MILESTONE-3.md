@@ -423,3 +423,143 @@ lives in two other owners' files. Then a crash voice in `audio.js`. Then more mi
 are now data rather than code, and can use the router for turn-by-turn directions. The budget
 gate can take the road course with `DRIVE_COURSE=roads` when someone is ready to re-baseline
 it; until then the two WARNs stand between this and a shippable milestone.
+
+## 8. The other party reacts
+
+§6 shipped a collision that charged the player and left everyone else alone, and said so in the
+source: *"the player's car takes the damage, the crime is reported, the player is pushed off —
+and the other party drives or walks on."* The live measurement of that state is three
+pedestrians struck at 60 km/h, health 1 → 1, two stars, and three people who kept walking. This
+round is the half that was missing, in the two modules that own the crowd and the fleet.
+
+**A struck pedestrian is thrown the distance accident reconstruction says**, not a distance
+chosen by feel. `d = v² / (2 μ g)` with μ 0.66 for a clothed body on asphalt:
+
+| speed | model | published |
+|---|---|---|
+| 30 km/h | 5.36 m | ~5 m (−7%) |
+| 40 km/h | 9.53 m | ~10 m (−5%) |
+| 50 km/h | 14.90 m | ~15 m (−1%) |
+
+The linear rule of thumb people quote — a quarter to a third of the speed in km/h — agrees over
+roughly 30–60 km/h and diverges at both ends, so a "2 m per 10 km/h" version of this is 20% out
+at 30 and 33% out at 50. The data points are the anchor; the rule of thumb is not a second one.
+
+**The throw distance was a function of the frame rate, which is the kind of defect a harness
+hides.** The slide was first integrated with a plain Euler step, which carries the whole step at
+the entry speed: 1.0% long at 60 Hz, 9.9% at 6 Hz, **65.2% at 1 Hz** — and headless capture here
+runs under one frame a second, with dt clamped to 0.05 s. Every live capture of a knockdown, and
+every frame hitch in the game, threw the body further than the model. Constant deceleration has
+a closed form, so the step is now integrated exactly and sub-stepped at 0.3 m (a third of a body,
+so the wall test cannot jump a shopfront): **9.534 m at every step size from 1/120 s to 1 s.**
+
+**The fatality line is the crime line.** `damage.js`'s pedestrian threshold, 12.5 m/s = 45 km/h,
+is the 50% point of the published speed-versus-fatality curve, and it is the same number that
+decides `pedestrianHit` against `pedestrianKilled`. 44 km/h is a casualty who gets up at 4.4 s;
+46 km/h is one who does not, and is cleared at 12 s.
+
+**A rammed traffic car is knocked off its lane, spun out of line and stopped** — a 2.84 m push
+and 0.48 rad of yaw at dv 8, unwinding over 2.2 s once it can pull away, driving on at 9.2 m/s
+after 12 s. Two ways that goes wrong, both found by measurement:
+
+- **A shunt applied at the matrix would move the drawn car and not the published one**, which is
+  the phantom-bounding-box defect in motion: `district/main.js` reads the published positions for
+  collision. The offset is applied *before* publication, and the live gate reads the instance
+  matrix back and asserts the two agree to 1 mm.
+- **A shunt can knock a car into a shopfront.** At the 4.5 m cap in 16 directions over three
+  fleets, 11 of 1,440 placements (0.8%) landed inside a building, the worst 2.15 m in — 0 of 30
+  at the dv the collision pass usually produces, so only the cap does it, and the cap is a
+  72 km/h ram, which is the one crash a player walks back to look at. The offset is now fitted to
+  what is clear at the publish site: 0 of 1,440, with exactly 11 offsets shortened.
+
+**And a shunted car must not read as gridlocked.** `traffic.js` deletes a car that has been
+immobile past a 20 s limit while holding a junction, which is the right rule and would have
+despawned every rammed car a few seconds after the impact — the reaction would have read as the
+car vanishing. A stopped-by-impact car is excluded from it: alive after 23 s holding a junction,
+worst `stuckS` 0.02.
+
+**A police car still does not react**, and that is counted rather than hidden: `src/pursuit.js`
+holds its units as an edge parameter and an instance matrix with no per-unit state to shunt, so
+`damageReport().dynamic.policeHits` records the hits and nothing moves.
+
+**A casualty does not blink out in front of the camera.** A fatal body is cleared after 12 s,
+which is right when nobody is watching and wrong when somebody is: the crowd is one
+`InstancedMesh` with no per-instance opacity, so there is no fade available and the removal is a
+body vanishing mid-shot. It now clears at 12 s only from beyond 35 m, with a 45 s hard cap so a
+player parked on top of a casualty cannot hold that slot for ever. Measured: in shot, not cleared
+within 20 s and freed by the cap at 45.0 s; from 200 m away, cleared at 12.0 s.
+
+**The reaction is posed through one write, and the live gate checks it with a control.** Every
+matrix a pedestrian pose produces goes through `_put()`, which premultiplies the fall transform
+when there is one — so the knockdown needed no changes in the ten places a body is written, and
+a pose added later cannot forget it. The live gate reads the instance matrices back out of the
+page: torso tilt 0.0° → 90.0°, head Y 1.29 m → −0.05 m, and **0 of the other 63 bodies tipped**,
+which is the control that says the transform is per-instance and not on the mesh.
+
+It also caught something I had wrong. The drawn torso moved 20.62 m against a 21.45 m slide, and
+I read the 0.83 m as an error before working out that it is the body rotating: the slide is the
+ROOT's travel, and a body that has gone over lies with its torso centre about its own standing
+height *behind* the root. That direction is a claim worth asserting rather than tolerating — a car
+strikes a pedestrian below the centre of mass, the legs are accelerated forward, the upper body
+lags, and the head trails. So the gate now asserts the shortfall is 0.4–1.4 m and that the torso's
+up axis points against the direction of travel (measured −1.000): a fall composed the other way
+would read 22.3 m and, in a screenshot, look like the body had been tipped over forwards.
+
+**Priced, and the first price was wrong in a way worth writing down.** 24 casualties in a crowd
+of 96 cost 35–73 µs a frame over the same crowd walking, about 1.5–3 µs each and 0.2–0.4% of a
+60 fps frame. The first version of that comparison timed the quiet crowd once, last, and read
+−0.5, 12.5 and 42.1 µs over three runs — a negative cost is not a cost. The cause was ORDER: the
+casualty arm runs first and warms the code paths, so the single quiet arm that followed was
+measured in a differently-warmed process, and its own readings trend downward run to run (243.3,
+215.2, 202.6 µs). Timing the quiet crowd twice, back to back, gives a spread of 1.2–6.2 µs
+between identical code, against which the casualty delta is an order of magnitude clear. The gate
+now prints that spread beside the delta and asserts the bound, not the figure.
+
+The shunt's building fit is one `clearAt` per shunted car per frame at 212.8 ns, up to five when
+the destination is blocked: 10.6 µs a frame with ten cars shunted at once and every one of them
+blocked, 0.064% of the frame.
+
+**Two bugs the gates caught in their own harness**, both the shape CLAUDE.md keeps recording.
+`reaction-test` §2 first measured straight-line displacement rather than the slide: at 15 km/h it
+read 4.55 m for a 1.34 m slide and at 50 km/h 11.26 m for a 14.90 m slide, because the casualty
+got up at 4.4 s and walked — both directions of error at once, from one wrong quantity. And §8
+priced casualties on a crowd where all 24 had recovered before the timing loop started, reporting
+"crowd of 96 with 0 down": a cost measured on a population of zero.
+
+**And two tools had been broken for longer than this round.** `ped-audit` threw
+`Cannot read properties of null` on every run since `0687a53` removed the contact-blob mesh: its
+per-mesh loop nulls a mesh the build does not have, with a comment saying exactly why, and twelve
+lines later it summed `m.crowdTris` over those nulls. A guard on the producer is not a guard on the
+consumer, and nothing noticed for a session of rounds because nobody ran the gate whose subject had
+not changed. Its determinant census then turned out to read the FAR crowd meshes only — a ped in
+the near pool is written to `nearTorsos`/`nearHeads`/`nearLimbs` with the far slot hidden, so the
+headline subject, the close-up ped 2.8 m from the lens, reported `torsoDet` 0, `headDet` 0 and eight
+`limbDets` of 0, and a check for a NEGATIVE determinant passed on ten zeros. It now reads the tier
+that draws each ped (`torsoDet` 1.602, `headDet` 1.241, eight non-zero limbs) and reports
+`zeroDeterminants` beside the negative count, because a tier that stopped being written would
+otherwise read as clean.
+
+### Gates after this round
+
+| Gate | Result |
+|---|---|
+| `reaction-test` (new) | PASS — 65 checks, 6 of them known-bad input |
+| `damage-live` | PASS — 67 checks, including the instance matrices of a thrown body |
+| `ped-audit` | PASS — ran at all for the first time since `0687a53` |
+| `damage-test` | PASS — 101 checks |
+| `blocker-test` | PASS — 46 checks |
+| `crash-test` | PASS — 76 checks |
+| `roadpath-test` | PASS — 75 checks |
+| `route-drive` | PASS — 19 checks |
+| `mission-test` | PASS — 55 checks |
+| `wanted-test` | PASS — 97 checks |
+| `traffic-selftest` | PASS — 22 checks |
+| `geom-audit` / `golden-trace` / `physics-test` / `leaf-mask` / `sim-determinism` | PASS |
+| `check-syntax` | PASS — 187 modules |
+
+**Next, in order.** A crash voice in `audio.js`, which is the last unfed hook in a shipped module
+and is already counted (`damageReport().impactSoundsWanted`). Then police cars, which need
+`pursuit.js` to hold per-unit state before they can be shunted. Then more missions, which are data
+rather than code now. The budget gate can take the road course with `DRIVE_COURSE=roads` when
+someone re-baselines it; until then the triangle and chunk-stall WARNs stand between this and a
+shippable milestone.
