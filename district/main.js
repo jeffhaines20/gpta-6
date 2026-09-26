@@ -244,6 +244,8 @@ await loading
 // still promotes only 10 emitters to real lights, so the price of this is
 // triangles and nothing else.
 const furniture = new StreetFurniture(scene, { max: 1200 });
+// Every prop's ground footprint, kept for the crowd's collider set. See dressDistrict below.
+let furnitureProps = null;
 const lightPool = new LightPool(scene, { size: 10, maxDistance: 130 });
 {
   // Every drivable edge, not just the named ones, and no slice: an unnamed
@@ -311,10 +313,19 @@ const lightPool = new LightPool(scene, { size: 10, maxDistance: 130 });
   // can be DIFFED rather than argued -- tools/arm-diff.mjs against the two arms
   // of one build.
   const _q = new URLSearchParams(location.search);
+  /**
+   * `audit: true` makes dressDistrict record every placement's ground-level footprint. It was
+   * a measurement-only flag; the crowd now uses the same list as a collider set, so it is on
+   * in the shipped build. The cost is the array itself — 8,259 records, one push per prop at
+   * load — and nothing per frame.
+   */
   furniture.dressDistrict(district, {
+    audit: true,
     shopFrontage: !_q.has('nofrontage'),
     ...(_q.has('shadowreach') ? { shadowReach: Number(_q.get('shadowreach')) } : {}),
   });
+  furnitureProps = furniture.placed ?? null;
+  if (peds && furnitureProps) peds.setProps(furnitureProps);
   // The pool is 30 cars and always will be — it is one InstancedMesh and its
   // cost does not move with the number. What DID move is which thirty slots it
   // picks. A second critic reported "zero parked vehicles along roughly 1,400 px
@@ -1082,6 +1093,10 @@ function setPedestrians(n) {
     // Same hook traffic uses: "orphan" then means a ped simulated in a chunk the
     // streamer has not loaded, rather than a guess from distance.
     peds.isChunkLoaded = (x, z) => world.loaded.has(world.keyOf(x, z));
+    // And the street furniture, so a thrown body stops at a bench and a walker steps round a
+    // bin. src/streetfurniture.js records every placement's ground footprint when dressed with
+    // `audit`, which is the same list tools/furniture-density.mjs reads.
+    if (furnitureProps) peds.setProps(furnitureProps);
   }
   return !!peds;
 }

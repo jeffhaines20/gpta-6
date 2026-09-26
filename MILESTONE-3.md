@@ -666,6 +666,25 @@ wall and wrong here, because what repeats is the victim. A 20 s per-victim windo
 longer than the knockdown cycle — collapses it to 2 charged and 5 suppressed, heat 1.15, one
 star, and leaves a genuinely different pedestrian a second later fully chargeable.
 
-**Still open from the reviews, and worth saying rather than burying.** A thrown body slides
-through walkers — the slide tests buildings only, and a body at 14 m/s crossed 6 cm from a
-pedestrian. And the crowd walks through street furniture, which predates all of this (#67).
+**The crowd can feel the street furniture now (#67).** `_blocked` tested building footprint
+rings and nothing else, so a walker passed through a planter and a thrown body slid through one
+at 14 m/s. Replaying the furniture pass with its audit on: **8,259 placements, 5,100 m² of ground
+footprint, and 1.20% of pavement centreline samples inside a solid prop** plus a body radius.
+
+"Solid" is carrying weight there. Taken at face value the audit blocks 2.07%, because a manhole
+is flush with the pavement and a span wire crosses it eight metres up — the audit's ground-level
+bounding box for a `span` has a worst radius of **14.50 m**, which is the wire. 6,180 of the
+8,259 are solid at body height, median radius 0.38 m.
+
+**Two different treatments, because one would have been wrong.** A thrown body STOPS at a bench,
+through the same hard test the slide already does against walls: measured, a body thrown at a
+signal mast 4 m away slides 3.88 m and stops outside it, where without the set it slides 10.27 m
+and ends up inside. A walker only VEERS, through the same wish vector the crowd uses for each
+other — a hard wall on a centreline that is 1.2% occupied would pin walkers against signal masts
+until the stuck-despawn freed them, and the crowd would thin out on exactly the streets that are
+most dressed. Measured over 90 s of a 96-crowd on Main Street: 96 alive in both arms, 0
+stuck-despawns in both, 8,484 prop brushes, and 271.4 µs/frame without the set against 270.1
+with it.
+
+**Still open from the reviews.** A thrown body slides through WALKERS — the slide tests buildings
+and furniture, not the crowd, and a body at 14 m/s crossed 6 cm from a pedestrian.

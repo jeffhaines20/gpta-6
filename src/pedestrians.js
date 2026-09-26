@@ -376,6 +376,25 @@ const PED_CLEAR_MAX_S = 45;
  * shorter than twice the margin it tests with.
  */
 const SLIDE_STEP_M = 0.3;
+/**
+ * Which kinds of street furniture a body can walk into. The three excluded sets are measured
+ * facts about the audit's ground-level bounding boxes, not taste: FLUSH sits in the pavement,
+ * OVERHEAD is a wire or a canopy whose box is drawn at ground level and is up to 14.50 m wide,
+ * and ONWALL hangs off a facade the crowd already avoids. 6,180 of 8,259 placements are solid.
+ */
+const PROP_FLUSH = new Set(['manhole', 'gully', 'cellardoor', 'grate', 'drain']);
+const PROP_OVERHEAD = new Set(['span', 'wire', 'catenary', 'umbrella', 'awning', 'banner']);
+const PROP_ONWALL = new Set(['wallbox', 'downpipe', 'standpipe', 'meter', 'aboard', 'sign', 'plaque']);
+const PROP_SOLID = (k) => !PROP_FLUSH.has(k) && !PROP_OVERHEAD.has(k) && !PROP_ONWALL.has(k);
+const PROP_CELL = 8;                       // m, the prop lookup grid
+/**
+ * How far out a prop starts pushing a walker, and how hard. 0.6 m is a pace: far enough that
+ * the veer looks like someone stepping round a bin rather than bouncing off it. The push is
+ * the same magnitude the crowd uses on itself (1.9), because a bollard and a person are the
+ * same kind of obstacle to walk around, and a smaller one let walkers clip the prop.
+ */
+const PROP_AVOID_M = 0.6;
+const PROP_AVOID_PUSH = 1.9;
 const STUCK_TURN_S = 2.5;                  // blocked this long -> turn around
 const STUCK_DESPAWN_S = 7.0;               // still blocked -> give the slot back
 const SPAWN_SLOTS_PER_FRAME = 20;          // bounded refill work per frame
@@ -602,7 +621,7 @@ export class Pedestrians {
       corners: 0, deadEndTurns: 0, uTurnsWhenStuck: 0, stuckDespawns: 0,
       buildingPushes: 0, avoidBrakeFrames: 0, orphanPedFrames: 0,
       overlapFrames: 0, bodyOverlapFrames: 0, closestApproachM: Infinity,
-      sidewalksBaked: 0, sidewalksRejected: 0,
+      sidewalksBaked: 0, sidewalksRejected: 0, propBrushes: 0,
       knockdowns: 0, knockdownsFatal: 0, recoveries: 0, worstKnockdownSpeed: 0,
     };
     this._minHist = new Array(6).fill(0);   // closest pair per frame, 0.25 m buckets
@@ -976,6 +995,63 @@ export class Pedestrians {
   }
 
   // Is this point inside a building, or within `margin` of one?
+  /**
+   * STREET FURNITURE THE CROWD CAN FEEL. `_blocked` tests building footprint rings and nothing
+   * else, so a walker passed through a planter and — once bodies were thrown — a casualty slid
+   * through one at 14 m/s. Measured on the shipped district by replaying the furniture pass
+   * with its audit on: 8,259 placements, 5,100 m2 of ground footprint, and **1.20% of pavement
+   * centreline samples sit inside a solid prop** plus a body radius.
+   *
+   * NOT ALL OF THEM ARE SOLID, and taking the audit at face value would have walled off 2.07%
+   * of the pavement with things a person walks over or under. A manhole is flush; a span wire
+   * crosses the street eight metres up, and its ground-level bounding box has a worst radius of
+   * 14.50 m, which is the WIRE. 6,180 of the 8,259 are solid at body height, median radius
+   * 0.38 m.
+   *
+   * TWO DIFFERENT TREATMENTS, because one would be wrong. A thrown body STOPS at a bench —
+   * a hard test, the same one the slide already does against walls. A walker only VEERS around
+   * it, through the same separation term it uses for other pedestrians, because a hard wall on
+   * a 1.2%-occupied centreline would leave walkers stuck against a signal mast until the
+   * stuck-despawn frees them, and the crowd would thin out on exactly the streets that are
+   * most dressed.
+   */
+  setProps(list) {
+    this._props = [];
+    this._propGrid = new Map();
+    if (!list) return 0;
+    for (const q of list) {
+      if (!q || !PROP_SOLID(q.kind)) continue;
+      const r = Math.hypot(q.rx ?? 0, q.rz ?? 0);
+      if (!(r > 0.05)) continue;
+      const i = this._props.length;
+      this._props.push({ x: q.x, z: q.z, r, kind: q.kind });
+      const gx0 = Math.floor((q.x - r) / PROP_CELL), gx1 = Math.floor((q.x + r) / PROP_CELL);
+      const gz0 = Math.floor((q.z - r) / PROP_CELL), gz1 = Math.floor((q.z + r) / PROP_CELL);
+      for (let gx = gx0; gx <= gx1; gx++) {
+        for (let gz = gz0; gz <= gz1; gz++) {
+          const k = `${gx},${gz}`;
+          let a = this._propGrid.get(k);
+          if (!a) { a = []; this._propGrid.set(k, a); }
+          a.push(i);
+        }
+      }
+    }
+    return this._props.length;
+  }
+
+  /** The solid prop a point is inside, or null. Margin is the subject's own radius. */
+  _propAt(x, z, margin) {
+    if (!this._propGrid) return null;
+    const a = this._propGrid.get(`${Math.floor(x / PROP_CELL)},${Math.floor(z / PROP_CELL)}`);
+    if (!a) return null;
+    for (const i of a) {
+      const q = this._props[i];
+      const dx = x - q.x, dz = z - q.z, rr = q.r + margin;
+      if (dx * dx + dz * dz < rr * rr) return q;
+    }
+    return null;
+  }
+
   _blocked(x, z, margin) {
     const list = this._bucketAt(x, z);
     if (!list) return false;
@@ -1405,7 +1481,10 @@ export class Pedestrians {
       for (let k = 0; k < n; k++) {
         const ds = v * hk - 0.5 * a * hk * hk;
         const nx = ped.x + ux * ds, nz = ped.z + uz * ds;
-        if (this._blocked(nx, nz, BUILDING_MARGIN)) { stopped = true; break; }
+        // A wall OR a bench: a body thrown at street furniture stops at it.
+        if (this._blocked(nx, nz, BUILDING_MARGIN) || this._propAt(nx, nz, BUILDING_MARGIN)) {
+          stopped = true; break;
+        }
         d.travelled += ds;
         ped.x = nx; ped.z = nz;
         v = Math.max(0, v - a * hk);
@@ -1552,6 +1631,26 @@ export class Pedestrians {
             wishZ += (dz / d) * w * 1.9;
             // Ahead and close: slow down instead of shouldering through.
             if (d < 0.95 && (-dx * fwdX - dz * fwdZ) / d > 0.55) brake = Math.min(brake, 0.25);
+          }
+        }
+      }
+      /**
+       * AND VEER ROUND THE FURNITURE. Soft, through the same wish vector the crowd uses for
+       * each other, rather than the hard `_blocked` test the slide uses: a bollard on the
+       * centreline is something to walk around, and a hard wall there would pin the walker
+       * until the stuck-despawn freed it. The push is scaled by how far inside the prop's
+       * influence the ped is, so it does nothing until it is close.
+       */
+      if (this._propGrid) {
+        const q = this._propAt(ped.x, ped.z, PROP_AVOID_M);
+        if (q) {
+          const dx = ped.x - q.x, dz = ped.z - q.z;
+          const d = Math.hypot(dx, dz);
+          if (d > 1e-4) {
+            const w = 1 - d / (q.r + PROP_AVOID_M);
+            wishX += (dx / d) * w * PROP_AVOID_PUSH;
+            wishZ += (dz / d) * w * PROP_AVOID_PUSH;
+            if (d < q.r + BODY_OVERLAP) this.stats.propBrushes++;
           }
         }
       }

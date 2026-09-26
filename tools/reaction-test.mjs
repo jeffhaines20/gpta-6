@@ -26,6 +26,8 @@ import { Pedestrians } from '../src/pedestrians.js';
 import { Traffic } from '../src/traffic.js';
 import { throwDistance, slideDecel, THROW, ANCHORS, pedFatalityRisk } from '../src/damage.js';
 import { BlockerIndex } from '../src/blockers.js';
+import * as THREE from '../vendor/three.module.min.js';
+import { StreetFurniture } from '../src/streetfurniture.js';
 
 const checks = [];
 const check = (name, ok, detail) => { checks.push({ name, ok: !!ok, detail }); return !!ok; };
@@ -556,6 +558,101 @@ console.log('\n§3  The slide stops at a wall');
     `${d1.toFixed(3)} against ${ctrlD.toFixed(3)}`);
   check('and the crowd cannot move a body on the ground', ped.x === x0 && ped.z === z0,
     `${ped.x - x0}, ${ped.z - z0}`);
+}
+
+// ---------------------------------------------------------------------------
+// §3c  Street furniture: a body stops at a bench, a walker steps round a bin.
+//
+// `_blocked` tested building footprint rings and nothing else, so the crowd walked through
+// planters and — once bodies were thrown — a casualty slid through one at 14 m/s. Replaying the
+// furniture pass with its audit on: 8,259 placements, 5,100 m2 of ground footprint, and 1.20%
+// of pavement centreline samples inside a SOLID prop plus a body radius.
+//
+// "Solid" is doing work there. Taken at face value the audit blocks 2.07%, because a manhole is
+// flush with the pavement and a span wire crosses it eight metres up with a ground-level
+// bounding box 14.50 m wide. 6,180 of the 8,259 are solid at body height.
+// ---------------------------------------------------------------------------
+console.log('\n§3c A body stops at the street furniture');
+{
+  // src/pedestrians.js's own margin, which is not exported; the gate uses the same figure it
+  // does rather than a rounder one, so the two cannot drift.
+  const BUILDING_MARGIN = 0.28;
+  const fu = new StreetFurniture(new THREE.Scene(), { max: 1200 });
+  fu.commit();
+  fu.dressDistrict(district, { audit: true, shopFrontage: true });
+  const props = fu.placed ?? [];
+  const probe = crowd(48, 90);
+  const n = probe.setProps(props);
+  console.log(`    ${props.length} placements audited, ${n} solid enough to walk into`);
+  check('the furniture pass produced a population to collide with', props.length > 5000,
+    `${props.length}`);
+  check('and most of it is solid, but not all', n > 5000 && n < props.length,
+    `${n} of ${props.length}`);
+  // A subject with a prop 2-6 m away in some direction, found WITH the set so the geometry is
+  // the same in both arms; the arms differ only in whether the crowd can feel it.
+  let subj = null;
+  for (const c of probe.positions()) {
+    for (let a = 0; a < 64 && !subj; a++) {
+      const th = (a / 64) * Math.PI * 2, ux = Math.sin(th), uz = Math.cos(th);
+      for (const r of [2, 3, 4, 5]) {
+        if (probe._propAt(c.x + ux * r, c.z + uz * r, BUILDING_MARGIN)) {
+          subj = { i: c.i, ux, uz, r, kind: probe._propAt(c.x + ux * r, c.z + uz * r, BUILDING_MARGIN).kind };
+          break;
+        }
+      }
+    }
+    if (subj) break;
+  }
+  check('a pedestrian was found with street furniture to be thrown at', !!subj,
+    JSON.stringify(subj));
+  if (subj) {
+    const run = (withProps) => {
+      const p2 = crowd(48, 90);
+      if (withProps) p2.setProps(props);
+      p2.hit(subj.i, { speed: 50 / 3.6, dirX: subj.ux, dirZ: subj.uz, kill: true });
+      let slid = 0, inside = false;
+      for (let k = 0; k < 60 * 6; k++) {
+        p2.update(DT, FOCUS);
+        const ped = p2.peds[subj.i];
+        if (!ped || !ped.down) break;
+        slid = ped.down.travelled;
+        if (probe._propAt(ped.x, ped.z, BUILDING_MARGIN)) inside = true;
+        if (Math.hypot(ped.down.vx, ped.down.vz) < 0.05) break;
+      }
+      return { slid, inside };
+    };
+    const on = run(true), off = run(false);
+    console.log(`    thrown at a ${subj.kind} ${subj.r} m away, at 50 km/h (14.90 m in the open):`);
+    console.log(`      with the furniture:    slid ${on.slid.toFixed(2)} m, ended inside it ${on.inside}`);
+    console.log(`      KNOWN-BAD, without it: slid ${off.slid.toFixed(2)} m, ended inside it ${off.inside}`);
+    check('the body stops at the furniture', on.slid < subj.r + 1, `${on.slid.toFixed(2)} m`);
+    check('and does not end up inside it', on.inside === false);
+    check('KNOWN-BAD: without the set it slides straight through', off.inside === true,
+      `${off.slid.toFixed(2)} m, inside ${off.inside}`);
+  }
+  /**
+   * AND THE WALK IS NOT WALLED OFF BY IT. A hard test on a centreline that is 1.2% occupied
+   * would pin walkers against signal masts until the stuck-despawn freed them, and the crowd
+   * would thin out on exactly the streets that are most dressed. Walkers VEER — the same wish
+   * vector they use for each other — so this arm checks the two arms of a two-minute walk
+   * against each other.
+   */
+  const walk = (withProps) => {
+    const p2 = crowd(96, 60);
+    if (withProps) p2.setProps(props);
+    for (let k = 0; k < 60 * 90; k++) p2.update(DT, { x: 19, z: -6 });
+    return { alive: p2.positions().length, stuck: p2.stats.stuckDespawns ?? 0,
+      uTurns: p2.stats.uTurnsWhenStuck ?? 0, brushes: p2.stats.propBrushes ?? 0 };
+  };
+  const wOn = walk(true), wOff = walk(false);
+  console.log(`    90 s of a 96-crowd on Main Street: alive ${wOff.alive} -> ${wOn.alive}, ` +
+    `stuck-despawns ${wOff.stuck} -> ${wOn.stuck}, ${wOn.brushes} prop brushes`);
+  check('the crowd still fills the pavement with the furniture in the way',
+    wOn.alive >= wOff.alive - 2, `${wOff.alive} -> ${wOn.alive}`);
+  check('and nobody is pinned against a bollard', wOn.stuck <= wOff.stuck && wOn.uTurns <= wOff.uTurns + 2,
+    `stuck ${wOn.stuck}, u-turns ${wOn.uTurns}`);
+  check('the walkers did meet the furniture, so that means something', wOn.brushes > 500,
+    `${wOn.brushes} brushes`);
 }
 
 // ---------------------------------------------------------------------------
