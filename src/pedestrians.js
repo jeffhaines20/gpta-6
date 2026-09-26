@@ -413,6 +413,12 @@ const TAU = Math.PI * 2;
 // to reach a seeded generator through. See the Pedestrians constructor.
 function pick(r, list) { return list[(r() * list.length) | 0]; }
 
+/**
+ * Below this closing speed a pedestrian contact is not a knockdown and not an offence. FMVSS
+ * 208's free threshold, the same figure src/damage.js charges nothing under. See hit().
+ */
+export const PED_FREE_MS = 2.2;
+
 export class Pedestrians {
   constructor(scene, district, opts = {}) {
     this.d = district;
@@ -1392,11 +1398,37 @@ export class Pedestrians {
    *
    * `dirX`/`dirZ` is the direction of travel of whatever struck them — the body goes that way.
    */
-  hit(index, { speed = 0, dirX = 0, dirZ = 1, kill = null } = {}) {
+  hit(index, { speed = 0, dirX = 0, dirZ = 1, kill = null, force = false } = {}) {
     const ped = this.peds[index];
     if (!ped || ped.down) return null;
     const v = Math.abs(speed);
     if (!Number.isFinite(v)) return null;
+    /**
+     * A TOUCH AT WALKING PACE IS NOT A KNOCKDOWN, and until this floor existed it was — with a
+     * star on it. A playtester's transcript of the first mission, verbatim:
+     *
+     *     205.0s  DELIVER THE PARCEL TO THE MARINA   wp 502 m
+     *     205.81s HIT a pedestrian at 1 km/h — thrown 0.0 m   CRIME pedestrianHit — 1 star
+     *     205.81s OBJECTIVE  LOSE THEM                        (no waypoint; sit still 19.4 s)
+     *     225.2s  DELIVER THE PARCEL TO THE MARINA   wp 502 m
+     *     225.67s HIT a pedestrian at 1 km/h — thrown 0.0 m   CRIME pedestrianHit — 1 star
+     *
+     * Fourteen bounces. Between t=205.0 and t=437.2 the waypoint went from 502 m to 480 m: 22
+     * metres of progress in 232 seconds, because `drop` carries `wantedAtLeast: 1 -> ambush` and
+     * a brush at 1 km/h was worth a star. The twelve triggering hits were at 1, 1, 2, 2, 2, 3,
+     * 4, 5, 5, 5 and 6 km/h and every one reported a throw of 0.0-0.2 m.
+     *
+     * THE FLOOR IS THE ONE THE CAR ALREADY GETS. src/damage.js charges nothing below 2.2 m/s,
+     * which is FMVSS 208's free barrier-test threshold, and src/roadpath.js's crawl speed is the
+     * same figure for the same reason — "a contact taken at the floor speed is free by
+     * construction". Extending it to the person is a symmetry, not a new number: below the speed
+     * at which the impact costs the car anything, it does not knock a pedestrian off their feet
+     * either. 2.2 m/s is 7.9 km/h; a pedestrian walks at 1.4.
+     *
+     * `force` is for a harness that means it — `knockNearestPed` exists so a gate can stage a
+     * casualty at an exact speed, and one of those speeds has to be able to be low.
+     */
+    if (!force && v < PED_FREE_MS) return null;
     /**
      * THE DIRECTION IS GUARDED TOO, and it was not. `Math.hypot(dirX, dirZ) || 1` turns a NaN
      * direction into 1 and a ZERO direction into (0, 0), and both were accepted:

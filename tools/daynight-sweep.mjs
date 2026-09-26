@@ -27,6 +27,15 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 await page.goto(`http://127.0.0.1:${SWEEP_PORT}/district/`, { waitUntil: 'networkidle' });
 await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
+/**
+ * NO FLEET, SAID OUT LOUD. district/main.js now starts 30 traffic cars on load, because the
+ * shipped page had never had any moving traffic at all. This sweep's triangle columns are a
+ * committed baseline (288,121 in the colour pass at noon, 483,907 in the engine at night), and
+ * those numbers were taken with an empty street — so the gate asks for an empty street rather
+ * than inheriting one. The request is the restatement: nothing here is loosened, and a later
+ * change to the default cannot move this gate's readings without touching this line.
+ */
+await page.evaluate(() => __district.setTraffic(0));
 
 // Park on the Main Street corridor just west of Five Points, looking east
 // down the corridor. Identical camera for every capture.

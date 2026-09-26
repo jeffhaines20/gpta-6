@@ -50,6 +50,14 @@ export const MARLIN_STREET = defineMission({
   id: 'marlin-street',
   title: 'Marlin Street',
   brief: 'A parcel from the marina to the east end of Marlin Street. Should be simple.',
+  /**
+   * THE PICKUP, and why it is 354 m from the spawn rather than on top of it. A job you are
+   * standing in when the page loads is not a job you chose; a job 354 m up the road is a reason
+   * to drive into town, which is the one thing this district is for. (19, -6) is route waypoint
+   * 2, Marlin Street at Tarpon Row, on the centreline of a 6.6 m street with 6 m of clearance
+   * either side and the crowd already around it.
+   */
+  start: { x: 19, z: -6, radius: 12 },
   stages: [
     {
       id: 'toCar',
@@ -84,7 +92,14 @@ export const MARLIN_STREET = defineMission({
       // system; the runner itself never calls it.
       id: 'ambush',
       objective: 'LOSE THEM',
-      subtitle: 'Somebody talked. Police at Five Points.',
+      /**
+       * THE SUBTITLE HAS TO SAY WHAT TO DO, because this stage is the only one with no waypoint.
+       * A playtester sat through fourteen of them and reported the line as it read from the seat:
+       * "'LOSE THEM — Somebody talked. Police at Five Points.' with no waypoint, 500 m from Five
+       * Points ... from the seat it reads as a broken objective". The old text says where the
+       * trouble came from; a player needs to know that the answer is distance and time.
+       */
+      subtitle: 'Somebody talked. Get clear of them and stay clear — watch the stars drop.',
       triggers: [
         // A MINIMUM DWELL BEFORE `evaded` COUNTS, and it is not belt-and-braces for
         // its own sake. The runner now breaks its transition chain whenever a stage
@@ -139,12 +154,23 @@ export const SHAKEDOWN = defineMission({
   id: 'shakedown',
   title: 'Shakedown',
   brief: 'Two markers by the bayfront. Exists so the wiring can be checked in a minute.',
+  // 30 m along Marlin Street from the spawn: far enough not to fire on the first frame, close
+  // enough to still be the one-minute wiring check this mission exists to be.
+  start: { x: -308.9, z: 40, radius: 12 },
   stages: [
     { id: 'a', objective: 'GET IN THE CAR',
       triggers: [{ kind: 'inVehicle', goto: 'b' }] },
-    { id: 'b', objective: 'DRIVE TO THE BAYFRONT MARKER', marker: { x: -328, z: 63 },
+    /**
+     * STAGE b'S MARKER WAS 0.35 m FROM THE SPAWN, so it cleared on the same frame stage `a` did
+     * and the objective line was never read by anybody. Both playtesters found it independently:
+     * "two of its three objectives are already satisfied", "the played mission is one 201 m
+     * drive". (-328, 63) is route waypoint 1 and the spawn is (-327.84, 63.30) — inside a 30 m
+     * radius by a factor of eighty. It is now 86 m up South Gulfstream Avenue, which is 8 s at
+     * town speed and still visible from the start.
+     */
+    { id: 'b', objective: 'DRIVE TO THE BAYFRONT MARKER', marker: { x: -242.3, z: 68.6 },
       triggers: [
-        { kind: 'reach', x: -328, z: 63, radius: 30, goto: 'c' },
+        { kind: 'reach', x: -242.3, z: 68.6, radius: 24, goto: 'c' },
         { kind: 'onFoot', goto: 'a' },
       ] },
     { id: 'c', objective: 'NOW THE MARINA', marker: { x: -471, z: 205 },

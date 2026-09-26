@@ -16,7 +16,8 @@
 // that read as guards: geom-audit "passed the whole time. That was luck, not
 // evidence." So every fault defineMission() is documented to catch gets a mission
 // authored to contain it, and the test fails if the throw does not happen.
-import { MissionRunner, defineMission, OUTCOMES, TRIGGERS, snapshotFields } from '../src/mission.js';
+import { MissionRunner, defineMission, OUTCOMES, TRIGGERS, snapshotFields,
+  MissionBoard, OFFER_RADIUS_M } from '../src/mission.js';
 
 const DT = 1 / 30;
 const checks = [];
@@ -346,27 +347,75 @@ console.log('\n=== 9. THE AUTHORED MISSIONS, walked stage by stage');
 // equivalent of an unreachable branch.
 {
   const { MISSIONS } = await import('../src/missions.js');
-  const ROUTE = JSON.parse(await (await import('node:fs')).promises
-    .readFile(new URL('../data/district.json', import.meta.url), 'utf8')).meta.route;
 
   check('every authored mission validated at import', Object.keys(MISSIONS).length >= 2,
     Object.keys(MISSIONS).join(', '));
 
-  // Markers must be ON the district, and near its baked route - a waypoint in the bay
-  // or outside the bounds is a marker a player cannot stand on.
-  const B = JSON.parse(await (await import('node:fs')).promises
-    .readFile(new URL('../data/district.json', import.meta.url), 'utf8')).meta.bounds;
-  const offRoute = [];
+  /**
+   * MARKERS MUST BE SOMEWHERE A CAR CAN GET TO — and the rule this replaces did not say that,
+   * it said "within 5 m of one of the nine baked route WAYPOINTS", which is a much narrower
+   * thing and it CAUSED a defect rather than catching one.
+   *
+   * Route waypoint 1 is (-328, 63) and the district spawn is (-327.84, 63.30). Shakedown's
+   * stage `b` needed a marker, the only legal positions were the nine waypoints, so it got
+   * waypoint 1 — 0.35 m from where the player starts, inside its own 30 m reach radius by a
+   * factor of eighty. Both playtesters reported the consequence in the same words: two of that
+   * mission's three objective lines can never be read, because stage `a` and stage `b` both
+   * clear on the first frame. The gate was green throughout.
+   *
+   * What a marker actually owes is: inside the bounds, and close enough to a road the ROUTER
+   * will use that a car can arrive. `nearestOn` measures exactly that against the real graph,
+   * with the blocked service alleys already excluded, so the whole street network is legal and
+   * a marker in the bay or inside a block is not. 15 m is a wide pavement plus a kerb.
+   *
+   * AND NO STAGE MAY BE STANDING IN ITS OWN DESTINATION. The second check is the one that would
+   * have caught shakedown/b: a `reach` trigger whose radius contains the spawn is a stage that
+   * completes itself.
+   */
+  const meta = JSON.parse(await (await import('node:fs')).promises
+    .readFile(new URL('../data/district.json', import.meta.url), 'utf8'));
+  const B = meta.meta.bounds, SPAWN = meta.meta.spawn;
+  const { BlockerIndex } = await import('../src/blockers.js');
+  const { RoadGraph } = await import('../src/roadpath.js');
+  const roadBlockers = new BlockerIndex(meta);
+  const roads = new RoadGraph(meta, { blockers: roadBlockers, carRadius: 0.95 });
+  const MARKER_ROAD_M = 15;
+  const offRoute = [], selfClearing = [];
   for (const m of Object.values(MISSIONS)) {
     for (const st of m.stages) {
       if (!st.marker) continue;
       const { x, z } = st.marker;
       const inBounds = x > B.x0 && x < B.x1 && z > B.z0 && z < B.z1;
-      const d = Math.min(...ROUTE.map((w) => Math.hypot(w.x - x, w.z - z)));
-      if (!inBounds || d > 5) offRoute.push(`${m.id}/${st.id} at (${x},${z}) is ${d.toFixed(1)} m from the route${inBounds ? '' : ', OUT OF BOUNDS'}`);
+      const near = roads.nearestOn(x, z);
+      const d = near ? near.dist : Infinity;
+      if (!inBounds || !(d <= MARKER_ROAD_M)) {
+        offRoute.push(`${m.id}/${st.id} at (${x},${z}) is ${d.toFixed(1)} m from a routable ` +
+          `road${inBounds ? '' : ', OUT OF BOUNDS'}`);
+      }
+    }
+    for (const st of m.stages) {
+      for (const t of st.triggers ?? []) {
+        if (t.kind !== 'reach') continue;
+        const d = Math.hypot(t.x - SPAWN.x, t.z - SPAWN.z);
+        if (d <= t.radius) {
+          selfClearing.push(`${m.id}/${st.id} reach (${t.x},${t.z}) r${t.radius} contains the ` +
+            `spawn, ${d.toFixed(2)} m away`);
+        }
+      }
     }
   }
-  check('every marker is in bounds and on the baked route', offRoute.length === 0,
+  console.log(`    marker distance to the nearest routable road:`);
+  for (const m of Object.values(MISSIONS)) {
+    for (const st of m.stages) {
+      if (!st.marker) continue;
+      const near = roads.nearestOn(st.marker.x, st.marker.z);
+      console.log(`      ${(m.id + '/' + st.id).padEnd(24)} ${(near ? near.dist : Infinity).toFixed(1)} m` +
+        `  (edge ${near ? near.edge : '-'})`);
+    }
+  }
+  check('no stage sits inside its own reach radius at the spawn', selfClearing.length === 0,
+    selfClearing.join('; ') || '0 of them');
+  check('every marker is in bounds and on a routable road', offRoute.length === 0,
     offRoute.length ? offRoute.join(' | ') : 'all markers within 5 m of a route waypoint');
 
   // Walk each mission down scripted paths and union the stages entered.
@@ -478,6 +527,93 @@ console.log('\n=== 9. THE AUTHORED MISSIONS, walked stage by stage');
   check('shakedown passes and covers all of its stages',
     shOut.outcome === OUTCOMES.PASSED && shOut.seen.size === SH.stages.length,
     `${shOut.outcome}, ${shOut.seen.size}/${SH.stages.length} stages`);
+}
+
+// ---------------------------------------------------------------------------
+// §10  THE BOARD: can a player reach a mission at all?
+//
+// This section exists because 347 gate checks were green over a first mission that could only
+// be started from the browser console. Every check here is about the world, not the graph.
+// ---------------------------------------------------------------------------
+console.log('\n=== 10. the mission board — what a player can walk into');
+{
+  const { MISSIONS } = await import('../src/missions.js');
+  const meta = JSON.parse(await (await import('node:fs')).promises
+    .readFile(new URL('../data/district.json', import.meta.url), 'utf8'));
+  const SPAWN = meta.meta.spawn, B = meta.meta.bounds;
+  const { BlockerIndex } = await import('../src/blockers.js');
+  const { RoadGraph } = await import('../src/roadpath.js');
+  const bi = new BlockerIndex(meta);
+  const roads = new RoadGraph(meta, { blockers: bi, carRadius: 0.95 });
+  const board = new MissionBoard(MISSIONS);
+  console.log(`    ${JSON.stringify(board.report())}`);
+  check('every authored mission is on the board', board.unreachable.length === 0,
+    board.unreachable.join(', ') || 'none left off');
+  check('and there is more than one', board.available().length >= 2,
+    `${board.available().length}`);
+
+  for (const m of board.list) {
+    const near = roads.nearestOn(m.start.x, m.start.z);
+    const dSpawn = Math.hypot(m.start.x - SPAWN.x, m.start.z - SPAWN.z);
+    const inBounds = m.start.x > B.x0 && m.start.x < B.x1 && m.start.z > B.z0 && m.start.z < B.z1;
+    console.log(`    ${m.id.padEnd(16)} pickup (${m.start.x}, ${m.start.z}) r${board.radiusOf(m)}` +
+      `  road ${near ? near.dist.toFixed(1) : '-'} m, ${dSpawn.toFixed(0)} m from the spawn`);
+    check(`${m.id}: the pickup is in bounds`, inBounds);
+    // A pickup a car cannot reach is a console call with extra steps.
+    check(`${m.id}: the pickup is on a routable road`, !!near && near.dist <= 8,
+      `${near ? near.dist.toFixed(2) : 'no road'} m`);
+    check(`${m.id}: the car body fits on it`, !bi.resolveCircle(m.start.x, m.start.z, 0.95));
+    // AND IT MUST NOT FIRE AT LOAD. A mission you are standing in is not a mission you chose,
+    // and it is the same defect shakedown/b had one layer down.
+    check(`${m.id}: the spawn is outside the pickup radius`, dSpawn > board.radiusOf(m),
+      `${dSpawn.toFixed(1)} m against r${board.radiusOf(m)}`);
+    // The route the player would drive to get there has to exist.
+    const p = roads.path(SPAWN.x, SPAWN.z, m.start.x, m.start.z, { spacing: 4, offset: 0 });
+    check(`${m.id}: it can be driven to from the spawn`, !!p && p.points.length > 1,
+      p ? `${p.length.toFixed(0)} m of road` : 'no route');
+  }
+
+  // Nothing is on offer at the spawn, which is the whole-board form of the check above.
+  check('no mission fires on the first frame', board.offerAt(SPAWN.x, SPAWN.z) === null,
+    JSON.stringify(board.offerAt(SPAWN.x, SPAWN.z)));
+  // The notice radius announces before the start radius fires, or a marker can only be found
+  // by driving through it.
+  const m0 = board.list[0];
+  const r = board.radiusOf(m0);
+  const justOutside = { x: m0.start.x + r * 2, z: m0.start.z };
+  check('an offer is announced before it fires',
+    board.offerAt(justOutside.x, justOutside.z) === null
+    && board.offerAt(justOutside.x, justOutside.z, 'notice') !== null,
+    `at ${r * 2} m: start ${JSON.stringify(board.offerAt(justOutside.x, justOutside.z))}, ` +
+    `notice ${JSON.stringify(board.offerAt(justOutside.x, justOutside.z, 'notice'))}`);
+  check('and standing on the marker offers it',
+    board.offerAt(m0.start.x, m0.start.z)?.mission.id === m0.id);
+  check('the nearer of two offers wins', (() => {
+    const two = new MissionBoard([
+      { id: 'near', start: { x: 0, z: 0, radius: 50 }, stages: [] },
+      { id: 'far', start: { x: 40, z: 0, radius: 50 }, stages: [] },
+    ]);
+    return two.offerAt(5, 0).mission.id === 'near' && two.offerAt(35, 0).mission.id === 'far';
+  })());
+
+  // A passed mission leaves the board; a failed one comes back. A game that deletes its own
+  // content on the player's first mistake has one mission fewer.
+  const before = board.available().length;
+  board.record(m0.id, OUTCOMES.PASSED);
+  check('a passed mission stops being offered', board.available().length === before - 1
+    && board.offerAt(m0.start.x, m0.start.z) === null, `${board.available().length} left`);
+  check('and it is off the minimap too',
+    !board.markers().some((k) => k.id === m0.id), JSON.stringify(board.markers()));
+  board.record(m0.id, OUTCOMES.FAILED);
+  check('a failed mission is offered again', board.available().length === before
+    && board.offerAt(m0.start.x, m0.start.z)?.mission.id === m0.id);
+  board.record(m0.id, OUTCOMES.ABORTED);
+  check('so is an aborted one', board.offerAt(m0.start.x, m0.start.z)?.mission.id === m0.id);
+  check('markers match what is available',
+    board.markers().length === board.available().length
+    && board.markers().every((k) => k.kind === 'offer'), JSON.stringify(board.markers()));
+  check('the default offer radius is a disc a street can hold', OFFER_RADIUS_M >= 8
+    && OFFER_RADIUS_M <= 20, `${OFFER_RADIUS_M} m`);
 }
 
 // ---------------------------------------------------------------------------

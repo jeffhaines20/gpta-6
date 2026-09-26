@@ -713,15 +713,85 @@ where both kits rolled their own dice over the same wall for 275 m.
   measured X, and was not shipped because Y" is worth more than one that says
   what to build.
 
+## The offline gates cannot see the page, and for three commits the page did not load
+
+`fab3e2d` added one line to `district/main.js`:
+
+    if (peds && furnitureProps) peds.setProps(furnitureProps);
+
+inside the top-level `await loading` block, which is evaluated before the module's
+later declarations exist. `peds` is a module-level `let`, so that read came out of
+the temporal dead zone as `ReferenceError: Cannot access 'peds' before
+initialization`, init aborted, `window.__district` was never assigned, and the
+district rendered **nothing at all**. Three commits shipped on top of it.
+
+All fifteen offline gates were green the whole time, because **not one of them loads
+`district/main.js`** — they import `src/` modules directly and assert numbers. The
+browser gates would have caught it in their first ten seconds, and they cost twelve
+to twenty minutes each, so a round that changes a module and runs the offline list is
+a round that does not know whether the game still starts.
+
+`tools/boot-check.mjs` is that missing gate and it is **nineteen seconds**: no
+`pageerror`, no failing request, `window.__district` exists, `frames` ADVANCES
+(a page that assembles and then throws inside its render loop leaves the global
+behind with the counter stuck), the renderer drew triangles, and the crowd, the
+fleet and the mission board all report themselves alive. **Run it after any change
+to `district/` or `src/`.** It found a second defect on its first run, below.
+
+## A system that is never switched on is not a feature
+
+Three of these in one round, all found by playing rather than by measuring:
+
+- **The missions could not be started.** Both authored missions worked, both passed
+  their gate stage by stage, and the only door into either was
+  `window.__district.startMission(id)` from the browser console — whose own comment
+  says it is named "so a harness can start, drive and audit a mission". 347 gate
+  checks were green over a first mission nobody could reach.
+- **The fleet was never created.** `setTraffic` was reachable only from
+  `__district`, so the shipped page had 96 pedestrians, 30 parked cars and nothing
+  moving. Both playtesters reported on traffic behaviour in detail — "a median
+  36 km/h, 90th 52, max 64" — because `tools/playtest.mjs` builds a 30-car fleet in
+  its constructor. Neither had any way to know the page does not.
+- **`shakedown`'s second marker was 0.35 m from the spawn**, inside its own 30 m
+  reach radius by a factor of eighty, so two of its three objective lines could
+  never be read. It was there because `mission-test` REQUIRED every marker to be
+  within 5 m of one of the nine baked route waypoints, and waypoint 1 *is* the
+  spawn. The gate did not miss that defect, it demanded it.
+
+The shape is the same every time: the module is right, its gate asserts the module,
+and nothing asserts that the game reaches it. **When a feature lands, write down how
+a player gets to it, and then check that path from the outside.**
+
+## A threshold that holds at one value and fails at every other is a coincidence
+
+`route-drive` asserted `Math.abs(seam) < 0.5` on the tour's closing corner and had
+been green since the tour existed. Measured across the offset it is run at:
+
+    offset 0   67.4 deg      offset 2   53.6      offset 6   -67.5
+    offset 1   67.9          offset 3   14.0  <- the only value this gate runs at
+
+The tour closes ON a junction, where the road itself turns about 70 degrees, so the
+assertion held at one offset and would have failed at every other — on geometry
+nobody was worried about. The swing came from `offsetRight` taking a ONE-SIDED
+tangent at a ring's first and last point; with that fixed the seam reads the
+junction's own turn at every offset from 2 m up.
+
+**A check that compares against an absolute number needs the same sweep a
+measurement does.** The replacement compares the seam's turn with the worst turn
+ELSEWHERE on the same course — one frame of reference, which survives a change of
+offset — plus a separate reversal test. Both are printed with the course's own worst
+turn beside them.
+
 ## Gates
 
 `check-syntax`, `geom-audit`, `golden-trace`, `physics-test`, `daynight-sweep`,
 `budget` (`drive-through --traffic`), `leaf-mask`, `wanted-test`, `mission-test`,
 `damage-test`, `blocker-test`, `crash-test`, `roadpath-test`, `route-drive`,
-`reaction-test`, `sim-determinism`, `traffic-selftest`. The offline ones together
-take under a minute; `damage-live` needs a browser and takes about twelve, and
-`ped-audit` about fifteen. Run the ones your
-change can touch before claiming done.
+`reaction-test`, `sim-determinism`, `traffic-selftest`, `playtest --selftest`.
+The offline ones together take under a minute. `boot-check` needs a browser and
+takes twenty seconds — run it whenever `district/` or `src/` changed, because it is
+the only gate that loads the game. `damage-live` takes about twelve minutes and
+`ped-audit` about fifteen. Run the ones your change can touch before claiming done.
 
 **A tool that throws is not a tool that passes, and nobody notices which.**
 `ped-audit` handled a build with no contact-blob mesh in its per-mesh loop —

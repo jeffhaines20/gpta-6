@@ -280,11 +280,37 @@ export class RoadGraph {
     // destination edge. Four combinations, and the shortest wins — picking the "obvious"
     // endpoint sends a car the wrong way up a street whenever the projection landed past
     // the midpoint.
-    let best = null;
+    /**
+     * SCORED BY THE WHOLE DRIVE, NOT BY THE GRAPH ALONE. This compared `r.length` — the Dijkstra
+     * cost between two VERTICES — and ignored the lead-in walk from the car's projection to the
+     * start vertex and the tail walk from the end vertex to the target's. Each of those is up to
+     * a whole edge long, and on a short route the lead-in is most of the distance.
+     *
+     * Measured on the 38 m drive from the district spawn to Shakedown's own pickup marker: the
+     * combination it chose put the start vertex 4 m BEHIND the car, so the path read
+     *
+     *     (-328,63) (-330,66) (-329,65) (-327,62) (-324,59) ...
+     *
+     * — out 4 m, back 4 m, then away. `followPath` cannot advance its index past a reversal (it
+     * steps forward only past segments the car is beyond in the along-path direction, which is
+     * what stops the teleport this file's comment #6 describes), so the index stuck at 0, the
+     * steering sat on full lock, and the car drove in circles for the whole 120 s timeout while
+     * every number the follower reported looked nominal. Adding the two walks to the score is
+     * both more honest and, here, decisive.
+     */
+    let best = null, bestScore = Infinity;
+    const walkLen = (pts) => {
+      let L = 0;
+      for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+      return L;
+    };
     for (const from of [a.v0, a.v1]) {
       for (const to of [b.v0, b.v1]) {
         const r = this.route(from, to);
-        if (r && (!best || r.length < best.length)) best = r;
+        if (!r) continue;
+        const score = r.length + walkLen(this._walkAlong(a, from, spacing))
+          + walkLen(this._walkAlong(b, to, spacing, true));
+        if (score < bestScore) { bestScore = score; best = r; }
       }
     }
     if (!best) return null;
@@ -308,6 +334,32 @@ export class RoadGraph {
     const lead = this._walkAlong(a, best.vertices[0], spacing);
     const tail = this._walkAlong(b, best.vertices[best.vertices.length - 1], spacing, true);
     let pts = [...lead, ...this.densify(best.edges, spacing), ...tail];
+    /**
+     * THE CAR AND THE TARGET ON THE SAME EDGE IS ITS OWN CASE, and without it the answer is a
+     * U-turn. `route` works between end VERTICES, so two points on one street both route to the
+     * same vertex for a graph cost of zero — and the path then walks BACK to that vertex and
+     * forward again. Measured from the district spawn to Shakedown's pickup, 19 m apart on
+     * Marlin Street: out 10.9 m to the shared vertex, back, then away. `followPath` cannot step
+     * its index past a reversal, so the car circled at index 0 for the whole 120 s timeout with
+     * the steering on full lock and every number it printed reading nominal — the same shape as
+     * the eight other follower faults recorded in CLAUDE.md, arriving from the router's side.
+     *
+     * The direct walk is compared with the routed answer on length and the shorter wins, so a
+     * one-way street the target sits the wrong way up still goes round the block.
+     */
+    const direct = this._walkSameEdge(a, b, spacing);
+    if (direct) {
+      let dl = 0;
+      for (let i = 1; i < direct.length; i++) {
+        dl += Math.hypot(direct[i][0] - direct[i - 1][0], direct[i][1] - direct[i - 1][1]);
+      }
+      let pl = 0;
+      for (let i = 1; i < pts.length; i++) {
+        pl += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+      }
+      if (dl < pl) pts = direct;
+    }
+    pts = trimSpur(pts);
     // Belt and braces: resample the whole polyline uniformly, so no joining mistake
     // anywhere above can leave a gap a look-ahead could swallow.
     pts = resample(pts, spacing);
@@ -331,6 +383,37 @@ export class RoadGraph {
    * With `reverse`, the walk runs FROM the vertex TO the projection instead, which is what
    * the tail of a path needs.
    */
+  /**
+   * Both projections on one edge: the points from `a` to `b` straight along it, through whatever
+   * shape points lie between, or null when that edge's direction forbids it. See `path` for why.
+   */
+  _walkSameEdge(a, b, spacing) {
+    if (a.edge !== b.edge) return null;
+    const e = this.d.edges[a.edge];
+    const ev = e.v;
+    const pa = a.seg + a.t, pb = b.seg + b.t;
+    const forward = pb >= pa;
+    // `o` is the same one-way convention the adjacency uses: >= 0 admits v0 -> v1, <= 0 admits
+    // v1 -> v0. Driving the wrong way up a one-way street is not a shortcut.
+    if (forward ? !(e.o >= 0) : !(e.o <= 0)) return null;
+    const seq = [[a.x, a.z]];
+    if (forward) for (let k = a.seg + 1; k <= b.seg; k++) seq.push([this.d.verts[ev[k]].x, this.d.verts[ev[k]].z]);
+    else for (let k = a.seg; k > b.seg; k--) seq.push([this.d.verts[ev[k]].x, this.d.verts[ev[k]].z]);
+    seq.push([b.x, b.z]);
+    const out = [];
+    for (let k = 0; k < seq.length - 1; k++) {
+      const [ax, az] = seq[k], [bx, bz] = seq[k + 1];
+      const L = Math.hypot(bx - ax, bz - az);
+      const n = Math.max(1, Math.ceil(L / spacing));
+      for (let i = 0; i < n; i++) {
+        const t = i / n;
+        out.push([ax + (bx - ax) * t, az + (bz - az) * t, a.edge]);
+      }
+    }
+    out.push([b.x, b.z, a.edge]);
+    return out;
+  }
+
   _walkAlong(proj, vertex, spacing, reverse = false) {
     const ev = this.d.edges[proj.edge].v;
     const out = [];
@@ -733,6 +816,42 @@ export function laneOffsets(pts, offset, edgeOf, clearAt, spacing, opts = {}) {
  * tour existed. With wrapped neighbours the two end points are offset along the same tangent as
  * their neighbours and the seam reads the ring's own corner at every offset.
  */
+/**
+ * Remove an out-and-back spur from either end of an open path.
+ *
+ * WHY THIS IS NEEDED EVEN WITH THE SCORING FIXED. `route` can only start from an end VERTEX of
+ * the car's edge, while `nearestOn` projects onto that edge wherever the car happens to be — so
+ * when both end vertices route to the target at a similar cost, the cheaper one can still be
+ * behind the car, and the path then opens with a short reversal. A reversal anywhere is a wall
+ * for `followPath`, whose index cannot step past a segment it is not beyond, and at the HEAD of
+ * the path there is no momentum to carry it through: the car circles at index 0 for ever.
+ *
+ * The test is the angle between the first segment and the next: over 120 degrees is not a corner
+ * a car takes, it is a direction reversal, so the first point is dropped and the test repeated.
+ * Bounded at a quarter of the points so a pathological path cannot be trimmed to nothing, and
+ * applied at both ends because the tail walk has the same shape from the other side.
+ */
+export function trimSpur(pts, maxTurn = 2.09) {
+  if (pts.length < 4) return pts;
+  const out = pts.slice();
+  const limit = Math.max(1, Math.floor(pts.length / 4));
+  const turn = (a, b, c) => {
+    const h1 = Math.atan2(b[0] - a[0], b[1] - a[1]), h2 = Math.atan2(c[0] - b[0], c[1] - b[1]);
+    let d = h2 - h1;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return Math.abs(d);
+  };
+  let cut = 0;
+  while (out.length > 3 && cut < limit && turn(out[0], out[1], out[2]) > maxTurn) { out.shift(); cut++; }
+  cut = 0;
+  while (out.length > 3 && cut < limit
+    && turn(out[out.length - 3], out[out.length - 2], out[out.length - 1]) > maxTurn) {
+    out.pop(); cut++;
+  }
+  return out;
+}
+
 export function offsetRight(pts, d, perPoint = null, closed = false) {
   const out = [];
   const n0 = pts.length;
@@ -940,6 +1059,11 @@ export function pathSpeedLimit(points, from, speed, maxSpeed) {
  * 80 m, and the uncapped car reaches 119 km/h on Main Street, which is not a drive any
  * measurement of this district should be made from.
  */
+/** Past this much heading error an unreachable aim is behind the car, not round a corner. */
+const REVERSE_ERR = 1.75;                 // 100 degrees
+/** Enough to back out of a kerbside standstill and no more. */
+const REVERSE_THROTTLE = 0.35;
+
 export function followPath(points, { x, z, yaw, speed }, state = { i: 0 }, opts = {}) {
   const maxSpeed = opts.maxSpeed ?? 22;
   const lookAhead = clamp(6 + speed * 0.9, 8, 28);
@@ -1040,7 +1164,7 @@ export function followPath(points, { x, z, yaw, speed }, state = { i: 0 }, opts 
   const a90 = Math.min(Math.abs(err), Math.PI / 2);
   const sinA = Math.sin(a90);
   const reqRadius = sinA > 1e-6 ? aimDist / (2 * sinA) : Infinity;
-  const steer = clamp(Math.sign(err) * steerForRadius(speed, reqRadius), -1, 1);
+  let steer = clamp(Math.sign(err) * steerForRadius(speed, reqRadius), -1, 1);
 
   /**
    * Speed. `pathSpeedLimit` already folds the braking distance in, so its answer is the speed
@@ -1068,9 +1192,42 @@ export function followPath(points, { x, z, yaw, speed }, state = { i: 0 }, opts 
   let throttle = 0, brake = 0;
   if (over > 0.3) brake = clamp(over / 3, 0.15, 1);
   else throttle = clamp(-over / 4 + 0.2, 0, 1);
+
+  /**
+   * A TENTH WAY TO REPORT EVERYTHING NOMINAL WHILE GETTING NOWHERE: THE CAR CANNOT TURN INSIDE
+   * ITS OWN TURNING CIRCLE, AND FULL LOCK IS NOT THE ANSWER — REVERSE IS.
+   *
+   * The nine faults recorded in CLAUDE.md are all about choosing the wrong aim point. This one
+   * is about an aim point that is correct and unreachable. `steerForRadius` clamps at 1 when the
+   * wanted radius is under the car's minimum, which is right on a tight corner — you run a
+   * little wide, the index advances, the drive continues. It is not right when the aim point is
+   * BEHIND the car: there the car orbits at full lock around a circle that never contains the
+   * point, the progress index cannot advance because the car is never beyond segment `i` in the
+   * along-path direction, and every number the follower reports is correct.
+   *
+   * Traced twice, both times a `driveTo` from a standstill with the path leading off behind:
+   *
+   *     spawn -> Shakedown's pickup, 30 m    i stuck at 0 for the whole 120 s timeout,
+   *                                          steer +1.00, speed 9 km/h, orbit radius 9.15 m
+   *     stage b's marker -> the marina       i stuck at 0 at t=6.0 s, steer -1.00, 337 m of
+   *                                          path never entered, health 1.00 throughout
+   *
+   * `route-drive` and `drive-through` never met it because both point the car along the path
+   * before they start. A player never meets it because a player reverses.
+   *
+   * THE CONDITION IS GEOMETRIC AND NEEDS NO STATE: the aim is unreachable when the arc it asks
+   * for is tighter than the car can hold AND it is more than `REVERSE_ERR` off the nose. Under
+   * that, reverse with the steering mirrored, which swings the nose toward the aim — a
+   * three-point turn — and the condition clears itself as the heading comes round, so there is
+   * no latch to get stuck in and no dt to thread through. A gentle reverse, because this is a
+   * manoeuvre and not a getaway.
+   */
+  const reversing = Math.abs(err) > REVERSE_ERR && reqRadius < minTurnRadius(speed) * 0.95;
+  if (reversing) { steer = -steer; throttle = -REVERSE_THROTTLE; brake = 0; }
   state.i = i;
   return { controls: { throttle, brake, steer, handbrake: false },
-    i, frac, aim, err, target, speed, offLine, reqRadius, curve: pathCurvature(points, j, 3),
+    i, frac, aim, err, target, speed, offLine, reqRadius, reversing,
+    curve: pathCurvature(points, j, 3),
     remaining: points.length - 1 - i, done: i >= points.length - 2 };
 }
 

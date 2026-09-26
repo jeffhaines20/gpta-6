@@ -375,8 +375,34 @@ for (let x = 200; x >= 0; x -= 4) nearTouch.push([x, 1.6, 0]);
     Math.abs(naive) < 1e-6, `${naive}`);
   check('the capped law commands full lock instead',
     Math.abs(f.controls.steer) > 0.99, `${f.controls.steer}`);
-  check('and it commands it in a consistent direction',
-    Math.sign(f.controls.steer) === Math.sign(f.err) || f.err === 0);
+  /**
+   * AND AT 180 DEGREES FULL LOCK IS STILL NOT ENOUGH, SO IT REVERSES. This arm used to assert
+   * that the steering sign matches the heading error's, which is right while the car is driving
+   * forward and wrong here: an aim point directly behind is inside the car's turning circle at
+   * any speed, so full lock orbits a circle that never contains it. Measured on two real
+   * `driveTo` legs from a standstill — 30 m to Shakedown's own pickup and 337 m to the marina —
+   * the progress index sat at 0 for the whole timeout with the steering on full lock and every
+   * reported number correct. Reversing mirrors the steering on purpose, which is what a
+   * three-point turn is, so the direction check is now stated per direction of travel.
+   */
+  console.log(`      reversing ${f.reversing}, throttle ${f.controls.throttle.toFixed(2)}, ` +
+    `required radius ${f.reqRadius.toFixed(2)} m against a minimum of ` +
+    `${minTurnRadius(back.speed).toFixed(2)} m`);
+  check('an aim point directly behind is unreachable at full lock',
+    f.reqRadius < minTurnRadius(back.speed),
+    `${f.reqRadius.toFixed(2)} m wanted, ${minTurnRadius(back.speed).toFixed(2)} m available`);
+  check('so the follower reverses out of it', f.reversing && f.controls.throttle < 0,
+    `reversing ${f.reversing}, throttle ${f.controls.throttle.toFixed(2)}`);
+  check('and mirrors the steering, which is what swings the nose round',
+    Math.sign(f.controls.steer) === -Math.sign(f.err),
+    `steer ${f.controls.steer.toFixed(2)} against err ${f.err.toFixed(2)}`);
+  // Driving forward, the sign still follows the error — the manoeuvre must not leak into
+  // ordinary cornering. 40 degrees off the line at 10 m/s is a corner, not a reversal.
+  const off = { x: 20, z: 0, yaw: Math.PI / 2 - 0.7, speed: 10 };
+  const g = followPath(line, off, { i: 5 });
+  check('a car merely off-line does not reverse', !g.reversing
+    && Math.sign(g.controls.steer) === Math.sign(g.err),
+    `err ${g.err.toFixed(2)}, steer ${g.controls.steer.toFixed(2)}, reversing ${g.reversing}`);
 }
 
 // (c) THE TURN THE CAR IS IN IS ALSO A CEILING. pathSpeedLimit looks forward only, so once

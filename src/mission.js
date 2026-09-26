@@ -152,6 +152,22 @@ export function defineMission(m) {
   if (!m.id) errs.push('mission needs an id');
   if (!m.title) errs.push('mission needs a title');
   if (!Array.isArray(m.stages) || !m.stages.length) errs.push('mission needs at least one stage');
+  /**
+   * `start` IS WHERE A PLAYER PICKS THE JOB UP, and it is optional only because a harness may
+   * want a mission that cannot be stumbled into. A mission WITHOUT one is unreachable from the
+   * world: before this existed the only way to begin either authored mission was
+   * `window.__district.startMission(id)` from the browser console, which a playtester reported
+   * as the finding that dwarfed the rest of its round — "I was asked to play the first mission
+   * and a player has no way to reach it".
+   */
+  if (m.start !== undefined) {
+    const st = m.start;
+    if (!st || typeof st !== 'object') errs.push('start must be { x, z, radius? }');
+    else {
+      if (!Number.isFinite(st.x) || !Number.isFinite(st.z)) errs.push('start needs finite x and z');
+      if (st.radius !== undefined && !(st.radius > 0)) errs.push('start.radius must be above 0');
+    }
+  }
 
   const stages = Array.isArray(m.stages) ? m.stages : [];
   const ids = new Map();
@@ -471,6 +487,92 @@ export class MissionRunner {
       // threshold could not have fired. `constantFields` names them outright.
       fieldRange: Object.fromEntries([...this._range].map(([k, r]) => [k, [+r.min.toFixed(4), +r.max.toFixed(4)]])),
       constantFields: [...this._range].filter(([, r]) => r.min === r.max).map(([k]) => k).sort(),
+    };
+  }
+}
+
+/**
+ * WHAT A PLAYER CAN ACTUALLY START, and where.
+ *
+ * THIS EXISTS BECAUSE THE MISSIONS DID NOT. Both authored missions worked, both passed their
+ * gate stage by stage, and neither could be begun by anybody holding a keyboard: the only entry
+ * point was `window.__district.startMission(id)`, whose own comment says it is named "so a
+ * harness can start, drive and audit a mission". A playtester put it plainly — "load the page
+ * and you get free roam; the two authored missions are reachable only from the browser console"
+ * — and called it the finding that dwarfed its other eleven. 347 gate checks were green over a
+ * first mission nobody could reach.
+ *
+ * DRIVE INTO THE MARKER AND IT STARTS. That is the genre's own convention and it needs no new
+ * input plumbing, which matters: a prompt-and-confirm would have wanted a key, a key wants
+ * src/input.js, and the thing being fixed is that the mission layer has no connection to the
+ * world at all. The marker is a position with a radius; entering it while nothing is running
+ * starts that mission.
+ *
+ * THERE IS A NOTICE RADIUS AS WELL AS A START RADIUS, because a marker you can only discover by
+ * driving through it is barely better than a console call. Inside `noticeFactor` times the start
+ * radius the board reports the offer so the HUD can name it and count down the distance; inside
+ * the start radius it fires. 12 m and 48 m: a 12 m disc across a 6.6 m street is hard to miss
+ * and impossible to sit in accidentally, and 48 m is about two seconds at town speed.
+ *
+ * A PASSED MISSION STOPS BEING OFFERED; A FAILED ONE DOES NOT. Wrecking the car on the way to
+ * the marina should cost the run, not the mission — a game that deletes its own content on the
+ * player's first mistake has one mission fewer, and this one has two.
+ */
+export const OFFER_RADIUS_M = 12;
+export const OFFER_NOTICE_FACTOR = 4;
+
+export class MissionBoard {
+  constructor(missions, opts = {}) {
+    const all = Array.isArray(missions) ? missions : Object.values(missions ?? {});
+    this.list = all.filter((m) => m && m.start);
+    /** Missions with no pickup point, named rather than silently dropped. */
+    this.unreachable = all.filter((m) => m && !m.start).map((m) => m.id);
+    this.radius = opts.radius ?? OFFER_RADIUS_M;
+    this.noticeFactor = opts.noticeFactor ?? OFFER_NOTICE_FACTOR;
+    this.outcomes = new Map();
+    this.starts = 0;
+  }
+
+  radiusOf(m) { return m.start.radius ?? this.radius; }
+
+  /** Every mission that has not been passed, in authoring order. */
+  available() {
+    return this.list.filter((m) => this.outcomes.get(m.id) !== OUTCOMES.PASSED);
+  }
+
+  /**
+   * The nearest available offer within `range` of (x, z), with how far away it is.
+   * `mode` is 'start' for the pickup radius and 'notice' for the wider announcement.
+   */
+  offerAt(x, z, mode = 'start') {
+    let best = null;
+    for (const m of this.available()) {
+      const d = Math.hypot(m.start.x - x, m.start.z - z);
+      const r = this.radiusOf(m) * (mode === 'notice' ? this.noticeFactor : 1);
+      if (d <= r && (!best || d < best.distance)) {
+        best = { mission: m, distance: +d.toFixed(2), radius: r };
+      }
+    }
+    return best;
+  }
+
+  /** Every available offer as a HUD blip. The same shape MissionRunner.hud()'s markers use. */
+  markers() {
+    return this.available().map((m) => ({ x: m.start.x, z: m.start.z, kind: 'offer', id: m.id }));
+  }
+
+  /** Called when a mission finishes, so the board stops offering a job already done. */
+  record(id, outcome) { this.outcomes.set(id, outcome); return this; }
+
+  report() {
+    return {
+      offered: this.list.map((m) => m.id),
+      unreachable: this.unreachable.slice(),
+      available: this.available().map((m) => m.id),
+      outcomes: Object.fromEntries(this.outcomes),
+      starts: this.starts,
+      radius: this.radius,
+      noticeRadius: this.radius * this.noticeFactor,
     };
   }
 }

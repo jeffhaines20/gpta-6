@@ -22,7 +22,7 @@
 //       makes the reaction read as a despawn
 //   §7  a shunt with no building test, which knocks 0.8% of worst-case cars into a shopfront
 import fs from 'node:fs';
-import { Pedestrians } from '../src/pedestrians.js';
+import { Pedestrians, PED_FREE_MS } from '../src/pedestrians.js';
 import { Traffic } from '../src/traffic.js';
 import { throwDistance, slideDecel, THROW, ANCHORS, pedFatalityRisk } from '../src/damage.js';
 import { BlockerIndex } from '../src/blockers.js';
@@ -237,6 +237,42 @@ console.log('\n§1b The fall reaches the instance matrices');
 // ---------------------------------------------------------------------------
 // §2  The throw distance is the published one.
 // ---------------------------------------------------------------------------
+/**
+ * §1c THE FREE THRESHOLD. A brush at walking pace was a full knockdown with a star on it, and
+ * a playtester measured what that costs: fourteen rounds of `drop -> ambush -> drop` on the first
+ * mission, 22 metres of progress in 232 seconds, from twelve triggering hits at 1 to 6 km/h that
+ * each reported a throw of 0.0-0.2 m. The floor is FMVSS 208's 2.2 m/s — the same figure
+ * src/damage.js charges the car nothing under, and src/roadpath.js's crawl speed.
+ */
+console.log('\n§1c A touch at walking pace is not a knockdown');
+{
+  const walk = 1.4;                                   // a pedestrian's own walking speed, m/s
+  const rows = [0.3, walk, PED_FREE_MS - 0.01, PED_FREE_MS, PED_FREE_MS + 0.01, 8.3];
+  console.log('    speed        knocked down   throw');
+  for (const v of rows) {
+    const p = crowd(8);
+    const i = p.positions()[0].i;
+    const r = p.hit(i, { speed: v, dirX: 1, dirZ: 0, kill: false });
+    console.log(`    ${v.toFixed(2)} m/s (${(v * 3.6).toFixed(1).padStart(4)} km/h)  ` +
+      `${r ? 'yes' : 'no '}            ${r ? r.throwWanted.toFixed(2) + ' m' : '-'}`);
+    check(`${(v * 3.6).toFixed(1)} km/h ${v < PED_FREE_MS ? 'does not knock anybody down' : 'does'}`,
+      (v < PED_FREE_MS) === (r === null), `${r ? 'knocked down' : 'ignored'}`);
+    check(`and the person is still ${v < PED_FREE_MS ? 'standing' : 'down'}`,
+      p.isDown(i) === (v >= PED_FREE_MS), `${p.isDown(i)}`);
+  }
+  // The boundary is the constant, not a number written twice.
+  check('the floor is the free band src/damage.js uses', PED_FREE_MS === ANCHORS.freeDv,
+    `${PED_FREE_MS} against ${ANCHORS.freeDv}`);
+  // `force` is what a probe uses when it means it, and it must still work below the floor.
+  {
+    const p = crowd(8);
+    const i = p.positions()[0].i;
+    const r = p.hit(i, { speed: 0.001, dirX: 1, dirZ: 0, kill: true, force: true });
+    check('force still stages a casualty below the floor', !!r && p.isDown(i),
+      `${r ? 'down' : 'refused'}`);
+  }
+}
+
 console.log('\n§2  Throw distance against accident reconstruction');
 console.log(`    d = v^2 / (2 * mu * g), mu ${THROW.mu} (clothed body on asphalt), g ${THROW.g}`);
 console.log('    speed    closed form   integrated slide   published');
@@ -508,8 +544,10 @@ console.log('\n§3  The slide stops at a wall');
   const p = crowd(32, 120);
   const cands = p.positions();
   const v = cands[0];
-  // Zero throw speed, so the only thing that could move this body is the crowd.
-  p.hit(v.i, { speed: 0.001, dirX: 1, dirZ: 0, kill: true });
+  // Zero throw speed, so the only thing that could move this body is the crowd. `force` because
+  // 0.001 m/s is now under the module's free threshold and would otherwise not be a knockdown at
+  // all — which is what this arm needs and exactly why `force` exists.
+  p.hit(v.i, { speed: 0.001, dirX: 1, dirZ: 0, kill: true, force: true });
   const ped = p.peds[v.i];
   const x0 = ped.x, z0 = ped.z;
   /**

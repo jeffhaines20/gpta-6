@@ -41,7 +41,7 @@ import { WantedSystem } from '../src/wanted.js';
 import { Traffic } from '../src/traffic.js';
 import { Pedestrians } from '../src/pedestrians.js';
 import { RoadGraph, followPath } from '../src/roadpath.js';
-import { MissionRunner, OUTCOMES } from '../src/mission.js';
+import { MissionRunner, OUTCOMES, MissionBoard } from '../src/mission.js';
 import { MISSIONS } from '../src/missions.js';
 
 const HZ = 120, DT = 1 / HZ;
@@ -49,6 +49,8 @@ const OTHER_CAR = { bodyRadius: 0.95, bodyMass: 1400 };
 const PERSON = { bodyRadius: 0.35, bodyMass: 80 };
 /** One victim, one offence, within this window. district/main.js's own figure and reason. */
 const PED_CRIME_WINDOW_S = 20;
+/** How long a wreck is held before a replacement arrives. district/main.js's own figure. */
+const WRECK_HOLD_S = 4;
 // Four distinct scratch vectors, not two reused, for the reason applyImpulseAt's own comment
 // gives: sharing one with a caller turned `offset.cross(impulse)` into a self-cross.
 const _fwd = new THREE.Vector3(), _right = new THREE.Vector3();
@@ -81,6 +83,16 @@ export class Session {
     this.peds = new Pedestrians(scene, this.district, { count: opts.peds ?? 64 });
     this.roads = new RoadGraph(this.district, { blockers: this.blockers, carRadius: BODY_RADIUS });
     this.mission = new MissionRunner();
+    /**
+     * THE BOARD, so a playtester exercises the loop a player has rather than the one a console
+     * has. `startMission()` is still here for a scenario that wants to jump straight into a
+     * mission, but the honest way in is to drive into a marker, and that is what the real page
+     * now does too.
+     */
+    this.board = new MissionBoard(MISSIONS);
+    this.mission.on('finished', (e) => {
+      if (this.mission.mission) this.board.record(this.mission.mission.id, e.outcome);
+    });
     this.t = 0;
     this.log = [];
     // `impacts` is every damage record; `voices` is the subset src/audio.js would actually
@@ -89,10 +101,12 @@ export class Session {
     // called "sounds" was wrong by two orders of magnitude, in the alarming direction.
     this.stats = { crashes: 0, crimes: 0, knockdowns: 0, fatal: 0, shunts: 0,
       impacts: 0, voices: 0, tested: 0, contacts: 0, pedRepeats: 0,
-      worstDv: 0, distance: 0, topSpeed: 0 };
+      wrecks: 0, respawns: 0, worstDv: 0, distance: 0, topSpeed: 0 };
     this._lastPos = { x: 0, z: 0 };
     this._controls = { throttle: 0, brake: 0, steer: 0, handbrake: false };
     this._route = null;
+    this._offer = null;
+    this._wreckFor = 0;
     this._outcome = OUTCOMES.RUNNING;
     /** When each pedestrian was last reported as a crime, by their own id. See _contacts. */
     this._pedCrimeAt = new Map();
@@ -157,6 +171,9 @@ export class Session {
       this.peds.update(DT, this.vehicle.position);
       this._moving();
       this._contacts();
+      this._wreckWatch(DT);
+      // Drive into a marker and the job starts, exactly as district/main.js does it.
+      if (!this.mission.hud()) this._offers();
       if (this.mission.mission) {
         /**
          * `hud()` RETURNS NULL THE INSTANT THE OUTCOME STOPS BEING RUNNING (mission.js:445),
@@ -182,6 +199,28 @@ export class Session {
     return this;
   }
 
+  /**
+   * The offer pass. Inside a pickup radius with nothing running, the mission starts; inside the
+   * notice radius it is named, so `look()` can show a player what a marker is before they are
+   * standing in it.
+   */
+  _offers() {
+    const hot = this.board.offerAt(this.vehicle.position.x, this.vehicle.position.z);
+    if (hot) {
+      this.board.starts++;
+      this._outcome = OUTCOMES.RUNNING;
+      this.mission.start(hot.mission);
+      this.say(`MISSION ${hot.mission.id}: ${hot.mission.title} — ` +
+        `${this.mission.hud()?.objective ?? ''}`);
+      this._offer = null;
+      return;
+    }
+    const seen = this.board.offerAt(this.vehicle.position.x, this.vehicle.position.z, 'notice');
+    this._offer = seen
+      ? { title: seen.mission.title, brief: seen.mission.brief, range: seen.distance }
+      : null;
+  }
+
   _snapshot() {
     return { px: this.vehicle.position.x, pz: this.vehicle.position.z, inVehicle: true,
       speed: this.vehicle.speed, health: this.damage.health,
@@ -201,6 +240,62 @@ export class Session {
       this.stats.crashes++;
       if (hit.crime) this._crime(hit.crime);
     }
+  }
+
+  /**
+   * A WRECKED CAR IS NOT THE END OF THE SESSION. district/main.js's own rule, mirrored here so a
+   * playtester plays the game rather than a version of it that strands them: four seconds of
+   * wreck, the mission called off, then a replacement car on the nearest road. Before this a
+   * playtester measured 60 s of full throttle and 60 s of full reverse both giving 0 km/h, with
+   * the mission outcome stuck on 'running' and the objective still on the HUD.
+   */
+  _wreckWatch(dt) {
+    if (!this.damage.wrecked) { this._wreckFor = 0; return; }
+    if (this._wreckFor === 0) {
+      this.stats.wrecks++;
+      this.say('WRECK   the car is destroyed — a replacement in ' + WRECK_HOLD_S + ' s');
+      if (this.mission.mission && this.mission.outcome === OUTCOMES.RUNNING) {
+        this.mission.abort('the car is wrecked');
+      }
+    }
+    this._wreckFor += dt;
+    if (this._wreckFor < WRECK_HOLD_S) return;
+    this.respawn();
+  }
+
+  /** Of a heading and its reverse, the one with more clear road ahead. */
+  _clearerHeading(x, z, yaw, reach = 30, step = 2) {
+    const run = (h) => {
+      const sx = Math.sin(h), sz = Math.cos(h);
+      for (let d = step; d <= reach; d += step) {
+        if (this.blockers.resolveCircle(x + sx * d, z + sz * d, BODY_RADIUS)) return d - step;
+      }
+      return reach;
+    };
+    return run(yaw) >= run(yaw + Math.PI) ? yaw : yaw + Math.PI;
+  }
+
+  /** The replacement car, on the nearest road centreline, facing along it. */
+  respawn() {
+    this._wreckFor = 0;
+    this.stats.respawns++;
+    this.damage.repair();
+    this.vehicle.contacts = 0;
+    this.vehicle.pendingImpact = null;
+    const near = this.roads.nearestOn(this.vehicle.position.x, this.vehicle.position.z);
+    let x = this.district.meta.spawn.x, z = this.district.meta.spawn.z, yaw = 0;
+    if (near && near.dist < 80 && !this.blockers.resolveCircle(near.x, near.z, BODY_RADIUS)) {
+      x = near.x; z = near.z;
+      const a = this.district.verts[near.a], b = this.district.verts[near.b];
+      yaw = Math.atan2(b.x - a.x, b.z - a.z);
+      // Facing the way there is road: an edge has two directions and the first one pointed the
+      // replacement at the building it had just been destroyed against, 11 m off.
+      yaw = this._clearerHeading(x, z, yaw);
+    }
+    this.placeAt(x, z, yaw);
+    this.vehicle.angularVelocity.set(0, 0, 0);
+    this.say(`RESPAWN a replacement car at (${x.toFixed(0)}, ${z.toFixed(0)})`);
+    return { x: +x.toFixed(1), z: +z.toFixed(1) };
   }
 
   _crime(name) {
@@ -322,9 +417,12 @@ export class Session {
       dirX: worst.dirX, dirZ: worst.dirZ, speed: travel });
     // The pedestrian's own crime is filed from what happened to the BODY, so the record's copy
     // of it is dropped rather than filed twice.
+    // The pedestrian crime is the BODY's and only the body's: damage.js reports `pedestrianHit`
+    // at any speed by design, so taking it from the record filed an offence for a touch that
+    // knocked nobody down. Measured: 0 knockdowns, 6 crimes and five stars from a creep.
     const crimes = [];
     if (pedCrime) crimes.push(pedCrime);
-    if (rec.crime && !(worstKind === IMPACT.pedestrian && pedCrime)) crimes.push(rec.crime);
+    if (rec.crime && worstKind !== IMPACT.pedestrian) crimes.push(rec.crime);
     for (const c of crimes) this._crime(c);
   }
 
@@ -413,6 +511,8 @@ export class Session {
       // hud() goes null when the mission ends, so without this a finished mission and no
       // mission at all look identical from the seat.
       missionOutcome: this.mission.mission ? this.mission.outcome : null,
+      // A job on offer nearby, the way the objective band names it in the page.
+      offer: this._offer ?? null,
       waypoint,
       // What is in front of the windscreen, nearest first, capped the way attention is.
       carsAhead: cars.slice(0, 6),
@@ -433,6 +533,7 @@ export class Session {
       damage: this.damage.report(),
       wanted: this.wanted.report(),
       mission: this.mission.mission ? this.mission.report() : null,
+      board: this.board.report(),
       traffic: (this.traffic._lastPositions ?? []).length,
       crowd: this.peds.positions().length,
       stats: { ...this.stats, distance: +this.stats.distance.toFixed(0) },
@@ -546,9 +647,14 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
   console.log('\n§2  a wall');
   const crash = new Session({ traffic: 0, peds: 0 });
   crash.placeAt(576.2 - 26, -85, Math.PI / 2);
-  crash.drive({ throttle: 1 }).step(12);
+  // STOPPED AT THE FIRST IMPACT, NOT AFTER A FIXED 12 s. The wreck respawn added in §2b repairs
+  // the car four seconds after it is destroyed, so a fixed run read health 1.000 and this arm
+  // reported that driving into a building is free — the instrument measuring a different thing
+  // than it did yesterday, which is the failure this whole file is about.
+  for (let k = 0; k < 400 && crash.stats.impacts === 0; k++) crash.drive({ throttle: 1 }).step(0.05);
+  crash.drive({ throttle: 0, brake: 1 }).step(0.5);
   check('driving into a building costs health', crash.damage.health < 1,
-    `${crash.damage.health.toFixed(3)}`);
+    `${crash.damage.health.toFixed(3)} after ${crash.t.toFixed(1)} s`);
   check('the transcript says so', crash.log.some((l) => l.line.startsWith('CRUNCH')),
     crash.log.map((l) => l.line)[0] ?? '(nothing)');
   // worstDv used to be set only inside the dynamic pass, so a head-on into a building reported
@@ -559,6 +665,50 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
   check('look() hides what a player cannot see', !('traffic' in seen) && !('at' in seen),
     Object.keys(seen).join(','));
   check('and debug() shows it', typeof crash.debug().at.x === 'number');
+
+  /**
+   * §2b A WRECK IS NOT THE END OF THE SESSION. A playtester measured the old behaviour
+   * exactly: one crash at 47 km/h wrecks the car, and then "60 s of full throttle gives 0 km/h,
+   * 60 s of full reverse gives 0 km/h, and the mission outcome stays 'running' for ever with the
+   * objective still on screen". The only repair in the codebase was a console call.
+   */
+  console.log('\n§2b a wreck, and what happens next');
+  const dead = new Session({ traffic: 0, peds: 0 });
+  dead.startMission('marlin-street');
+  dead.placeAt(576.2 - 40, -85, Math.PI / 2);
+  for (let k = 0; k < 400 && !dead.damage.wrecked; k++) dead.drive({ throttle: 1 }).step(0.05);
+  const wreckAt = { t: dead.t, x: dead.vehicle.position.x, z: dead.vehicle.position.z };
+  check('a hard enough crash wrecks the car', dead.damage.wrecked && dead.stats.wrecks === 1,
+    `wrecked ${dead.damage.wrecked} at t=${wreckAt.t.toFixed(1)}, worst dv ${dead.stats.worstDv}`);
+  check('and the mission is called off', dead.mission.outcome !== OUTCOMES.RUNNING,
+    `${dead.mission.outcome}`);
+  check('the wreck is held, not resolved instantly', dead.stats.respawns === 0,
+    `${dead.stats.respawns} respawns at t=${dead.t.toFixed(2)}`);
+  dead.drive({ throttle: 0 }).step(WRECK_HOLD_S + 0.5);
+  check('then a replacement car arrives', dead.stats.respawns === 1 && !dead.damage.wrecked
+    && dead.damage.health === 1, `${dead.stats.respawns} respawns, health ${dead.damage.health}`);
+  check('on a road, not in the wall it died against',
+    !dead.blockers.resolveCircle(dead.vehicle.position.x, dead.vehicle.position.z, BODY_RADIUS)
+    && dead.roads.nearestOn(dead.vehicle.position.x, dead.vehicle.position.z).dist < 1,
+    `(${dead.vehicle.position.x.toFixed(0)}, ${dead.vehicle.position.z.toFixed(0)}), ` +
+    `${dead.roads.nearestOn(dead.vehicle.position.x, dead.vehicle.position.z).dist.toFixed(2)} m from a centreline`);
+  check('and it drives', (() => {
+    dead.drive({ throttle: 1 }).step(4);
+    return dead.look().speedKmh > 15;
+  })(), `${dead.look().speedKmh} km/h after 4 s of throttle`);
+  check('the transcript records the wreck and the replacement',
+    dead.log.some((l) => l.line.startsWith('WRECK')) && dead.log.some((l) => l.line.startsWith('RESPAWN')),
+    dead.log.filter((l) => l.line.startsWith('WRECK') || l.line.startsWith('RESPAWN'))
+      .map((l) => l.line).join(' | ') || '(nothing)');
+  check('the job it lost is back on the board',
+    dead.board.available().some((m) => m.id === 'marlin-street'),
+    dead.board.available().map((m) => m.id).join(', '));
+  // THE CONTROL: a session that never wrecks never respawns, so the counter is not a clock.
+  const alive = new Session({ traffic: 0, peds: 0 });
+  alive.drive({ throttle: 0.5 }).step(20);
+  check('a session that never wrecks never respawns',
+    alive.stats.wrecks === 0 && alive.stats.respawns === 0,
+    `${alive.stats.wrecks} wrecks, ${alive.stats.respawns} respawns, health ${alive.damage.health.toFixed(2)}`);
 
   /**
    * §3 and §4 are the two the old selftest could not have: they take the harness within
@@ -653,6 +803,39 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
   check('a parked car in the same crowd hits nobody', parked.stats.knockdowns === 0,
     `${parked.stats.knockdowns} knockdowns in 30 s, ${parked.peds.positions().length} people about`);
 
+  /**
+   * AND CREEPING THROUGH A CROWD IS NOT A CRIME WAVE. The defect this arm is about cost a
+   * playtester 232 of its 487 seconds on the first mission: `drop` carries
+   * `wantedAtLeast: 1 -> ambush`, a brush at 1 km/h was a full `pedestrianHit` worth a star, and
+   * the objective bounced fourteen times for 22 metres of progress. The twelve triggering hits
+   * were at 1 to 6 km/h and every one reported a throw of 0.0-0.2 m.
+   *
+   * The arm has to CONTACT people to mean anything — `stats.tested` counts the bodies the
+   * moving-body pass actually examined, so a creep that met nobody is not a pass.
+   */
+  const creep = new Session({ traffic: 0, peds: 48 });
+  creep.placeAt(CROWD_HOME.x, CROWD_HOME.z, Math.PI / 2);
+  for (let k = 0; k < 600; k++) {
+    // 1 km/h: throttle just enough to hold a walking pace against the drag.
+    creep.drive({ throttle: creep.vehicle.speed > 0.4 ? 0 : 0.12,
+      brake: creep.vehicle.speed > 0.6 ? 0.3 : 0 }).step(0.1);
+  }
+  check('creeping through a crowd meets people', creep.stats.tested > 0,
+    `${creep.stats.tested} bodies examined over ${creep.stats.distance.toFixed(0)} m at ` +
+    `${(creep.stats.topSpeed).toFixed(1)} km/h top`);
+  check('and knocks none of them down', creep.stats.knockdowns === 0 && creep.stats.crimes === 0,
+    `${creep.stats.knockdowns} knockdowns, ${creep.stats.crimes} crimes, ` +
+    `${creep.wanted.stars} stars`);
+  // THE CONTROL: the same crowd at a speed above the floor does knock people down, so the arm
+  // above is about the threshold and not about the crowd being out of reach.
+  const fast = new Session({ traffic: 0, peds: 48 });
+  fast.placeAt(CROWD_HOME.x, CROWD_HOME.z, Math.PI / 2);
+  fast.step(3);
+  const hitFast = chase(fast, (ss) => nearest(ss.peds.positions().filter((q) => !q.down),
+    ss.vehicle.position));
+  check('the same crowd at speed is a different story', hitFast && fast.stats.knockdowns > 0,
+    `${fast.stats.knockdowns} knockdowns at up to ${fast.stats.topSpeed} km/h`);
+
   console.log('\n§4  a traffic car');
   const ram = new Session({ traffic: 30, peds: 0 });
   ram.placeAt(CROWD_HOME.x, CROWD_HOME.z, Math.PI / 2);
@@ -726,15 +909,34 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
   const mis = new Session({ traffic: 0, peds: 0 });
   const hud0 = mis.startMission('shakedown');
   check('a mission starts with an objective', !!(hud0 && hud0.objective), hud0 ? hud0.objective : 'null');
-  const drove = driveTo(mis, -471, 205, { maxSpeed: 14, timeout: 120 });
-  check('the marina is reachable by the route the HUD draws', drove.arrived,
-    JSON.stringify(drove));
-  check('the mission passes', mis.mission.outcome === OUTCOMES.PASSED, mis.mission.outcome);
+  /**
+   * DRIVEN TO ITS OWN WAYPOINTS, NOT TO A HARD-CODED ONE. The first version of this arm drove
+   * straight to the marina because that was where shakedown's last stage ended, and when stage
+   * b's marker moved off the spawn — which was the defect being fixed — the arm reported the
+   * mission simply not passing. An arm that only works on one authoring of the mission is not
+   * testing the mission layer.
+   */
+  const legs = [];
+  for (let k = 0; k < 6; k++) {
+    const h = mis.mission.hud();
+    if (!h) break;
+    if (!h.waypoint) { mis.step(0.5); continue; }
+    const r = driveTo(mis, h.waypoint.x, h.waypoint.z, { maxSpeed: 14, timeout: 120 });
+    legs.push(`${h.objective} -> ${r.arrived ? r.seconds + ' s' : r.why}`);
+    if (!r.arrived) break;
+    mis.step(0.5);                                  // a beat for the reach trigger to fire
+  }
+  console.log(`    ${legs.join('\n    ')}`);
+  check('the mission can be driven to its end', mis.mission.outcome === OUTCOMES.PASSED,
+    `${mis.mission.outcome} after ${legs.length} legs`);
+  check('and every stage was visited', mis.mission.report().visited.length
+    === mis.mission.mission.stages.length,
+    mis.mission.report().visited.join(' -> '));
   // THE FRAME A MISSION ENDS used to throw: hud() returns null the instant the outcome stops
   // being RUNNING, so this harness had never seen a mission finish.
   let afterErr = null;
   try { mis.step(2); mis.look(); } catch (e) { afterErr = e.message; }
-  check('and the session survives the frame it ends on', afterErr === null, afterErr ?? 'no throw');
+  check('the session survives the frame it ends on', afterErr === null, afterErr ?? 'no throw');
   check('the transcript says it passed', mis.log.some((l) => l.line.includes('MISSION PASSED')),
     mis.log.filter((l) => l.line.startsWith('MISSION')).map((l) => l.line).join(' | ') || '(nothing)');
   const stalled = new Session({ traffic: 0, peds: 0 });
@@ -742,6 +944,46 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
   stalled.step(30);
   check('a mission nobody drives stays running', stalled.mission.outcome === OUTCOMES.RUNNING,
     stalled.mission.outcome);
+
+  /**
+   * §5b  THE WAY A PLAYER ACTUALLY STARTS ONE. Until this round the only door into either
+   * authored mission was `window.__district.startMission(id)` from the browser console, and a
+   * playtester led its report with it. This arm never calls startMission: it drives to the
+   * marker and the marker starts the job.
+   */
+  console.log('\n§5b a mission found by driving into it');
+  const found = new Session({ traffic: 0, peds: 0 });
+  check('nothing is running at the spawn', found.mission.mission === null
+    && found.board.available().length >= 2, `${found.board.available().length} on offer`);
+  found.step(0.5);
+  check('and no job fires on the first frame', found.mission.mission === null,
+    found.mission.mission ? found.mission.mission.id : 'none');
+  const job = found.board.available().find((m) => m.id === 'shakedown');
+  const toMarker = driveTo(found, job.start.x, job.start.z, { maxSpeed: 12, timeout: 120 });
+  check('the pickup is reachable from the spawn', toMarker.arrived, JSON.stringify(toMarker));
+  check('driving into the marker starts the job',
+    found.mission.mission && found.mission.mission.id === 'shakedown',
+    found.mission.mission ? found.mission.mission.id : 'nothing started');
+  check('the transcript says which job it was',
+    found.log.some((l) => l.line.startsWith('MISSION shakedown')),
+    found.log.map((l) => l.line).find((l) => l.startsWith('MISSION')) ?? '(nothing)');
+  check('and it is off the board while it runs',
+    found.look().offer === null, JSON.stringify(found.look().offer));
+  // THE CONTROL: the same drive with the marker already passed must start nothing. Without it,
+  // "the job started" could just mean "a job starts wherever you go".
+  const done = new Session({ traffic: 0, peds: 0 });
+  done.board.record('shakedown', OUTCOMES.PASSED);
+  done.board.record('marlin-street', OUTCOMES.PASSED);
+  driveTo(done, job.start.x, job.start.z, { maxSpeed: 12, timeout: 120 });
+  check('a job already passed does not start again', done.mission.mission === null,
+    done.mission.mission ? done.mission.mission.id : 'nothing, correctly');
+  // And a player is told a marker is there before they are standing in it.
+  const nearby = new Session({ traffic: 0, peds: 0 });
+  const r0 = nearby.board.radiusOf(job);
+  nearby.placeAt(job.start.x + r0 * 2, job.start.z, 0);
+  nearby.step(0.1);
+  check('an offer is announced from outside its radius', nearby.look().offer !== null
+    && nearby.mission.mission === null, JSON.stringify(nearby.look().offer));
 
   console.log(`\n${pass} passed, ${fail} failed in ${((Date.now() - t00) / 1000).toFixed(1)} s ` +
     'of wall clock');

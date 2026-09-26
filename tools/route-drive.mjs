@@ -97,6 +97,13 @@ const nudgeAt = [];
 const path = [];
 let worstOff = 0, offAt = null, blockedPts = 0, bodyBlockedPts = 0, pathPts = 0, pathLen = 0;
 let worstOffPath = 0;
+/**
+ * How often the follower had to reverse out of an unreachable aim point. On THIS course it
+ * should be nearly never: the car is pointed along the path before the first step and the tour
+ * has no reversals in it. The count is printed so that a change to the manoeuvre cannot quietly
+ * alter what this gate measures — which is the whole reason it is here rather than in a comment.
+ */
+let reverseFrames = 0;
 const CAP_STEPS = HZ * 60 * 30;         // 30 minutes of simulated time
 
 // ONE CONTINUOUS PATH, not eight. See RoadGraph.tour(): following the legs
@@ -139,6 +146,7 @@ while (lap < CIRCUITS && steps < CAP_STEPS) {
     const f = followPath(tour.points, { x: v.position.x, z: v.position.z, yaw, speed: v.speed },
       follow.state, { maxSpeed: MAX_SPEED });
     if (f.done) { follow.state = { i: 0 }; lap++; steps++; continue; }
+    if (f.reversing) reverseFrames++;
     v.setControls(f.controls);
     target = { x: f.aim[0], z: f.aim[1] };
     // How far off the line is it? The single most useful number about a follower, and it
@@ -309,6 +317,11 @@ if (MODE === 'straight') {
   let seam = outH - inH;
   while (seam > Math.PI) seam -= Math.PI * 2;
   while (seam < -Math.PI) seam += Math.PI * 2;
+  console.log(`  frames the follower spent reversing: ${reverseFrames} of ${steps} ` +
+    `(${(reverseFrames / Math.max(1, steps) * 100).toFixed(2)}%)`);
+  check('the follower almost never has to reverse on this course',
+    reverseFrames / Math.max(1, steps) < 0.01,
+    `${reverseFrames} of ${steps} frames`);
   console.log(`  reversals in the course: ${reversals};  closure ${closure.toFixed(3)} m;  ` +
     `heading across the seam ${(seam * 180 / Math.PI).toFixed(1)} deg, ` +
     `worst turn elsewhere ${(worstTurn * 180 / Math.PI).toFixed(1)} deg at index ${worstTurnAt}`);

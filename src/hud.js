@@ -584,6 +584,10 @@ export function disposeDistrictMaps() {
 const MARKER_STYLE = {
   objective: { fill: THEME.accent, shape: 'pin' },
   waypoint: { fill: THEME.route, shape: 'pin' },
+  // A job on offer, as opposed to the objective of one already running. Square, because at
+  // minimap size a pin and a square are told apart at a glance where two pins are not, and
+  // green because it is the one blip that means "you may" rather than "you must".
+  offer: { fill: THEME.health, shape: 'square' },
   enemy: { fill: THEME.alert, shape: 'dot' },
   friend: { fill: THEME.health, shape: 'dot' },
   vehicle: { fill: '#cfd8e6', shape: 'square' },

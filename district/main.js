@@ -36,7 +36,7 @@ import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubS
   setLensProfile, lensProfile,
   setGlassFinish, glassFinish } from '../src/carbody.js';
 import { HUD } from '../src/hud.js';
-import { MissionRunner, OUTCOMES } from '../src/mission.js';
+import { MissionRunner, OUTCOMES, MissionBoard } from '../src/mission.js';
 import { MISSIONS } from '../src/missions.js';
 import { WantedSystem, bindPursuit, CRIMES, STATES } from '../src/wanted.js';
 import { createAudio, hardnessFor } from '../src/audio.js';
@@ -325,7 +325,21 @@ const lightPool = new LightPool(scene, { size: 10, maxDistance: 130 });
     ...(_q.has('shadowreach') ? { shadowReach: Number(_q.get('shadowreach')) } : {}),
   });
   furnitureProps = furniture.placed ?? null;
-  if (peds && furnitureProps) peds.setProps(furnitureProps);
+  /**
+   * AND NOTHING CALLS peds.setProps() HERE, because it cannot. This block runs inside the
+   * top-level `await loading` at line 73, which is evaluated BEFORE the module's later
+   * declarations exist — so `if (peds && ...)`, which looks like the safest line in the file,
+   * threw `ReferenceError: Cannot access 'peds' before initialization` out of the temporal dead
+   * zone and took the whole page with it. The district did not boot at all from fab3e2d until
+   * this commit: no `window.__district`, no first frame, a black page.
+   *
+   * Every offline gate stayed green through it, because not one of them loads district/main.js.
+   * That is what tools/boot-check.mjs now exists for.
+   *
+   * The call was redundant as well as fatal: `setPedestrians()` does it at the point the crowd
+   * is constructed, and `setPedestrians(96)` runs after this await, with `furnitureProps`
+   * already set. One owner for one wiring.
+   */
   // The pool is 30 cars and always will be — it is one InstancedMesh and its
   // cost does not move with the number. What DID move is which thirty slots it
   // picks. A second critic reported "zero parked vehicles along roughly 1,400 px
@@ -411,11 +425,179 @@ const wanted = new WantedSystem();
 // layer that calls into the engine cannot be driven offline, and mission code is
 // almost entirely branching, which is the code that rots unseen.
 const mission = new MissionRunner();
+/**
+ * THE BOARD, which is what makes the missions reachable at all.
+ *
+ * Both authored missions worked, both passed their gate stage by stage, and until this existed
+ * neither could be started by anybody holding a keyboard: `startMission` below is named "so a
+ * harness can start, drive and audit a mission", and it was the only door. A playtester spent
+ * its round on the first mission and led its report with it — "load the page and you get free
+ * roam; the two authored missions are reachable only from the browser console".
+ *
+ * Drive into the marker and it starts. See src/mission.js's MissionBoard for why that shape and
+ * not a prompt with a key.
+ */
+const board = new MissionBoard(MISSIONS);
+/** The last thing the mission layer had to say, held on screen for a few seconds after it ends. */
+let missionEnd = null, missionEndFor = 0;
+const MISSION_END_S = 6;
+
+/**
+ * THE MARKER YOU CAN SEE OUT OF THE WINDSCREEN. A blip on the minimap is not a destination; a
+ * disc of light standing in the street is, and a player who never opens the minimap still finds
+ * it. One open-ended cylinder per available job, at the job's own radius.
+ *
+ * PRICED BEFORE IT WAS WRITTEN, because this project's rule is that a per-frame cost is counted
+ * rather than assumed. 24 radial segments, open both ends, is 48 triangles; there are two
+ * authored missions and a mission that has started takes its marker down, so the standing cost
+ * is 96 triangles and 2 draw calls against a scene that carries 288,121 in its colour pass —
+ * 0.03%. `depthWrite: false` keeps it out of the depth buffer so it cannot punch a hole in the
+ * SSAO or the fog, and it is NOT added to the shadow pass (`castShadow` stays false), which is
+ * where a decorative mesh would otherwise cost twice.
+ */
+const OFFER_MARKER_H = 5;
+const offerMarkers = [];
+const offerRings = new Map();
+let offerRingGeom = null, offerRingMat = null;
+function updateOfferMarkers() {
+  offerMarkers.length = 0;
+  const live = new Set();
+  for (const m of board.available()) {
+    const r = board.radiusOf(m);
+    offerMarkers.push({ x: m.start.x, z: m.start.z, kind: 'offer' });
+    live.add(m.id);
+    if (!world) continue;
+    let ring = offerRings.get(m.id);
+    if (!ring) {
+      if (!offerRingGeom) {
+        offerRingGeom = new THREE.CylinderGeometry(1, 1, 1, 24, 1, true);
+        offerRingMat = new THREE.MeshBasicMaterial({
+          color: 0x5ad98d, transparent: true, opacity: 0.22,
+          side: THREE.DoubleSide, depthWrite: false, fog: false,
+        });
+      }
+      ring = new THREE.Mesh(offerRingGeom, offerRingMat);
+      ring.castShadow = false; ring.receiveShadow = false;
+      ring.matrixAutoUpdate = false;
+      scene.add(ring);
+      offerRings.set(m.id, ring);
+    }
+    ring.visible = true;
+    ring.position.set(m.start.x, world.heightAt() + OFFER_MARKER_H / 2, m.start.z);
+    ring.scale.set(r, OFFER_MARKER_H, r);
+    ring.updateMatrix();
+  }
+  // A mission in progress, or one already passed, has no marker. Hidden rather than disposed:
+  // a failed mission puts its own marker back and the geometry is 48 triangles.
+  for (const [id, ring] of offerRings) if (!live.has(id)) ring.visible = false;
+}
 const missionLog = [];
 mission.on('stage', (e) => {
   missionLog.push(e.to ? `${e.from} -> ${e.to} (${e.why})` : `${e.from} -> [${e.outcome}] (${e.why})`);
   if (missionLog.length > 24) missionLog.shift();
 });
+/**
+ * A FINISHED MISSION LEAVES THE BOARD IF IT PASSED, and says so on the objective band either
+ * way. Without the banner a mission simply stops: `hud()` returns null the instant the outcome
+ * stops being RUNNING, so the line clears and the player is told nothing at all. One playtester
+ * completed a mission and only learned it had passed by reading `report()` after the harness
+ * threw on the null.
+ */
+mission.on('finished', (e) => {
+  if (mission.mission) board.record(mission.mission.id, e.outcome);
+  const title = mission.mission ? mission.mission.title : 'MISSION';
+  missionEnd = e.outcome === OUTCOMES.PASSED
+    ? { objective: 'MISSION COMPLETE', subtitle: title }
+    : { objective: `MISSION ${String(e.outcome).toUpperCase()}`,
+      subtitle: `${title}${e.reason ? ' — ' + e.reason : ''} — the marker is back on the map` };
+  missionEndFor = MISSION_END_S;
+});
+
+/**
+ * A WRECKED CAR WAS A DEAD END WITH NO WAY OUT, and a playtester measured exactly how dead:
+ * "60 s of full throttle gives 0 km/h, 60 s of full reverse gives 0 km/h, and the mission
+ * outcome stays 'running' for ever with the objective still on screen". The only repair in the
+ * codebase was `window.__district.repairCar()`, a console call. One crash at 47 km/h — 15.0 m/s
+ * of charged delta-v against a car that does 146 km/h — ends the session permanently.
+ *
+ * So: the wreck holds for four seconds, which is long enough to see what you did and short
+ * enough not to be a punishment, the mission is called off, and a replacement car is put on the
+ * nearest road. That is the genre's own answer and it is the difference between a game and a
+ * demonstration.
+ *
+ * THE MISSION IS ABORTED RATHER THAN FAILED, and the distinction is not pedantry: the authored
+ * missions already carry `healthBelow 0.2 -> failed` on the three stages a player spends in a
+ * car, so a wreck on one of those fails through the mission's own rules and this never sees it.
+ * What this catches is the stages with no health trigger at all — `toCar`, `eastbound`,
+ * `backToCar` — where the car can be destroyed and the objective simply stays on screen. Either
+ * way the board re-offers the job, because a game that deletes its own content on the player's
+ * first mistake has one mission fewer.
+ */
+const WRECK_HOLD_S = 4;
+let wreckFor = 0;
+const wreckStats = { wrecks: 0, respawns: 0, lastAt: null };
+/**
+ * Of a heading and its reverse, the one with more clear road ahead. Used by the respawn; see
+ * there for the crash that made it necessary.
+ */
+function clearerHeading(x, z, yaw, reach = 30, step = 2) {
+  const run = (h) => {
+    const sx = Math.sin(h), sz = Math.cos(h);
+    for (let d = step; d <= reach; d += step) {
+      if (blockers.resolveCircle(x + sx * d, z + sz * d, BODY_RADIUS)) return d - step;
+    }
+    return reach;
+  };
+  return run(yaw) >= run(yaw + Math.PI) ? yaw : yaw + Math.PI;
+}
+function respawnCar() {
+  wreckFor = 0;
+  wreckStats.respawns++;
+  damage.repair();
+  vehicle.contacts = 0;
+  vehicle.pendingImpact = null;
+  /**
+   * PUT BACK ON A ROAD, NOT WHERE IT DIED. A car wrecked against a facade is often half inside
+   * it, and repairing it in place hands the player a car the collision pass immediately pushes
+   * out of a wall. `nearestOn` is the router's own projection, so the replacement lands on a
+   * centreline the router will actually route from; if that point is not clear for the body — or
+   * there is no road within 80 m, which happens out past the district edge — it falls back to
+   * the district's own spawn.
+   */
+  const near = roads.nearestOn(vehicle.position.x, vehicle.position.z);
+  let x = district.meta.spawn.x, z = district.meta.spawn.z, yaw = 0;
+  if (near && near.dist < 80 && !blockers.resolveCircle(near.x, near.z, BODY_RADIUS)) {
+    x = near.x; z = near.z;
+    const a = district.verts[near.a], b = district.verts[near.b];
+    yaw = Math.atan2(b.x - a.x, b.z - a.z);
+    /**
+     * AND FACING THE WAY THERE IS ROAD. An edge has two directions and the replacement was given
+     * the first one, which on the very crash this was written for pointed it at the building it
+     * had just been destroyed against, 11 m away: full throttle wrecked it again inside four
+     * seconds. Whichever direction holds the body clear for longer wins, sampled every 2 m out
+     * to 30 m, which is a whole car length of margin either side of the decision.
+     */
+    yaw = clearerHeading(x, z, yaw);
+  }
+  vehicle.position.set(x, 0.55, z);
+  vehicle.velocity.set(0, 0, 0);
+  vehicle.angularVelocity.set(0, 0, 0);
+  vehicle.quaternion.setFromAxisAngle(_wreckAxis.set(0, 1, 0), yaw);
+  wreckStats.lastAt = { x: +x.toFixed(1), z: +z.toFixed(1) };
+  return wreckStats.lastAt;
+}
+const _wreckAxis = new THREE.Vector3();
+function wreckWatch(dt) {
+  if (!damage.wrecked) { wreckFor = 0; return null; }
+  if (wreckFor === 0) {
+    wreckStats.wrecks++;
+    if (mission.mission && mission.outcome === OUTCOMES.RUNNING) mission.abort('the car is wrecked');
+  }
+  wreckFor += dt;
+  if (wreckFor >= WRECK_HOLD_S) { respawnCar(); return null; }
+  return { objective: 'THE CAR IS WRECKED',
+    subtitle: `a replacement in ${Math.max(0, WRECK_HOLD_S - wreckFor).toFixed(0)} s` };
+}
 mission.on('intent', (i) => {
   // EVERY INTENT THIS BLOCK CANNOT HONOUR IS RECORDED, not ignored. A mission that
   // declares `stinger: 'chase'` against a host with no audio graph should say so in
@@ -984,9 +1166,20 @@ function dynamicImpacts() {
   // crime is taken from the record whether or not the impact was applied to health. The
   // pedestrian's own crime is reported above, from what happened to the body, so the record's
   // copy of it is dropped rather than filed twice.
+  /**
+   * THE PEDESTRIAN CRIME IS THE BODY'S, AND ONLY THE BODY'S. This read "the record's crime unless
+   * the body already gave us one", which is right when the body gives one and wrong when it
+   * refuses. `damage.js`'s `_crimeFor` returns `pedestrianHit` for a pedestrian contact AT ANY
+   * SPEED by design — "a pedestrian is a crime at any speed even though it costs the car nothing"
+   * — so once src/pedestrians.js gained a free threshold, a touch below it knocked nobody down
+   * and still filed an offence. Measured in the harness: 600 frames creeping through a 48-strong
+   * crowd at under 7 km/h gave 0 knockdowns, 6 crimes and FIVE STARS.
+   *
+   * One outcome, one crime: if nobody went down, nothing happened.
+   */
   const crimes = [];
   if (pedCrime) crimes.push(pedCrime);
-  if (rec.crime && !(worstKind === IMPACT.pedestrian && pedCrime)) crimes.push(rec.crime);
+  if (rec.crime && worstKind !== IMPACT.pedestrian) crimes.push(rec.crime);
   for (const c of crimes) {
     const r = wanted.reportCrime(c, { at: { x: vehicle.position.x, z: vehicle.position.z } });
     if (r.applied) damageCrimes++; else damageIgnored++;
@@ -1101,6 +1294,38 @@ function setPedestrians(n) {
   return !!peds;
 }
 setPedestrians(96);
+
+/**
+ * AND THE FLEET, WHICH THE SHIPPED PAGE HAS NEVER HAD. `setTraffic` was reachable only through
+ * `window.__district.setTraffic(n)`, so in the browser this district has 96 pedestrians, 30
+ * parked cars and NOTHING MOVING. Both playtesters reported on traffic behaviour in detail — "a
+ * median 36 km/h, 90th 52, max 64; city speeds, not toy speeds" — because tools/playtest.mjs
+ * builds a 30-car fleet in its constructor. Neither had any way to know the page does not.
+ *
+ * Found by tools/boot-check.mjs on its first run, which is the whole argument for that gate: the
+ * feature worked, its own selftest passed, twenty browser tools switched it on by hand, and the
+ * game did not.
+ *
+ * THIRTY IS THE NUMBER EVERY OTHER CALLER USES and the number the fleet was tuned at — see
+ * src/traffic.js's junction-capacity work and the budget gate, whose own output reads
+ * `"traffic": {"fleet": 30}`. `?traffic=0` turns it off, and `?traffic=N` sets the count, because
+ * a measurement tool that wants an empty street should say so in its URL rather than depend on a
+ * default that can move under it.
+ *
+ * WHAT THIS CHANGES FOR THE GATES, stated here rather than discovered: `drive-through --traffic`
+ * (the budget gate) and `damage-live` already set the fleet explicitly and are unaffected.
+ * `daynight-sweep` did NOT, and its triangle columns are a committed baseline, so it now asks for
+ * `setTraffic(0)` in as many words — the gate keeps measuring exactly what it measured, and says
+ * why. Every other browser tool in tools/ either sets traffic itself or is a probe rather than a
+ * gate.
+ */
+const TRAFFIC_DEFAULT = 30;
+{
+  const q = new URLSearchParams(location.search).get('traffic');
+  const n = q === null ? TRAFFIC_DEFAULT : Number(q);
+  if (Number.isFinite(n) && n > 0) setTraffic(n);
+  console.log(`traffic ${n > 0 ? n + ' cars' : 'off'}${q === null ? ' (default)' : ' (?traffic=' + q + ')'}`);
+}
 
 // ------------------------------------------------------------------ metrics
 const metrics = {
@@ -1318,6 +1543,44 @@ function animate(now) {
   // objective that changes this frame is drawn this frame rather than one late.
   focusX = focus.x; focusZ = focus.z;
   const missionHud = mission.mission ? (mission.update(dt, missionSnapshot()), mission.hud()) : null;
+  /**
+   * THE OFFER. Nothing is running -> the board is live: drive into a marker and the mission
+   * starts, and within the notice radius the band names it and counts the distance down.
+   *
+   * `missionHud` is null both before a mission and after one, which is why the offer is tested
+   * on it rather than on `mission.mission`: a finished mission must put its own marker back on
+   * the board (if it failed) and be offerable again immediately.
+   */
+  const wreckLine = mode === 'car' ? wreckWatch(dt) : null;
+  let offerLine = null;
+  if (!missionHud && !wreckLine) {
+    const hot = board.offerAt(focus.x, focus.z);
+    if (hot) {
+      board.starts++;
+      missionUnhonoured.clear();
+      missionLog.length = 0;
+      mission.start(hot.mission);
+      missionEnd = null; missionEndFor = 0;
+    } else {
+      const seen = board.offerAt(focus.x, focus.z, 'notice');
+      if (seen) {
+        offerLine = { objective: seen.mission.title.toUpperCase(),
+          subtitle: `${seen.mission.brief} — ${seen.distance.toFixed(0)} m` };
+      }
+    }
+  }
+  if (missionEndFor > 0) { missionEndFor -= dt; if (missionEndFor <= 0) missionEnd = null; }
+  /**
+   * The band's three tenants, in priority order: a running mission, then the "you finished it"
+   * line for six seconds, then a job on offer. They never fight over the line because only one
+   * of the three conditions can hold at a time — a mission that has just ended cannot also be
+   * running, and an offer is only read when nothing is.
+   */
+  const bandObjective = wreckLine ? wreckLine.objective : missionHud ? missionHud.objective
+    : missionEnd ? missionEnd.objective : offerLine ? offerLine.objective : null;
+  const bandSubtitle = wreckLine ? wreckLine.subtitle : missionHud ? missionHud.subtitle
+    : missionEnd ? missionEnd.subtitle : offerLine ? offerLine.subtitle : null;
+  updateOfferMarkers();
   if (hud2 && hudEnabled) {
     const q = vehicle.quaternion;
     const heading = mode === 'foot'
@@ -1346,9 +1609,12 @@ function animate(now) {
       //
       // The mission's objective takes the band only while one is running; the enter-
       // vehicle prompt keeps it otherwise, so the two never fight over one line.
-      objective: missionHud ? missionHud.objective : null,
-      subtitle: missionHud ? missionHud.subtitle : null,
+      objective: bandObjective,
+      subtitle: bandSubtitle,
       waypoint: missionHud && missionHud.waypoint ? missionHud.waypoint : null,
+      // The jobs on offer, as minimap blips. src/hud.js has drawn `markers` since it was written
+      // and nothing had ever posted one.
+      markers: missionHud ? null : offerMarkers,
       // src/hud.js has drawn a health bar, a damage vignette and a low-health pulse
       // since it was written, against a `health` that was hard-coded to 1 and a
       // `damage` that nothing ever raised. Both now have a source. On foot the bar
@@ -1494,6 +1760,11 @@ window.__district = {
   },
   abortMission: (reason) => mission.abort(reason ?? 'aborted'),
   missionHud: () => mission.hud(),
+  /** The board: which jobs are on offer, where, and what the player is standing in. */
+  missionBoard: () => ({ ...board.report(),
+    offerHere: board.offerAt(focusX, focusZ),
+    noticeHere: board.offerAt(focusX, focusZ, 'notice'),
+    markers: board.markers() }),
   /**
    * The audit. `constantFields` is the part worth reading: a numeric field that never
    * moved is a trigger that could not fire. It listed `health` for the whole of the
@@ -1540,6 +1811,10 @@ window.__district = {
       stoppedFrames: traffic.stats.shuntStoppedFrames, worstDv: traffic.stats.worstShuntDv } : null,
   }),
   repairCar: () => { damage.repair(); vehicle.contacts = 0; vehicle.pendingImpact = null; return damage.report(); },
+  /** The replacement car, and the wreck ledger. See wreckWatch(). */
+  respawnCar: () => respawnCar(),
+  wreckReport: () => ({ ...wreckStats, wreckedNow: damage.wrecked,
+    holdS: WRECK_HOLD_S, heldFor: +wreckFor.toFixed(2) }),
   /**
    * Turn body collision off, or back on.
    *
@@ -1597,7 +1872,9 @@ window.__district = {
     const fwd = _dynFwd.set(0, 0, 1).applyQuaternion(vehicle.quaternion);
     // `kill` is exposed because the outcome is now a draw against the published fatality curve:
     // a probe that needs a body to stay down cannot get one by picking a speed.
-    const r = peds.hit(best.i, { speed: speedKmh / 3.6, dirX: fwd.x, dirZ: fwd.z, kill });
+    // `force`, for the same reason `kill` is here: a probe that needs a casualty at an exact
+    // speed cannot be refused because that speed is under the free threshold.
+    const r = peds.hit(best.i, { speed: speedKmh / 3.6, dirX: fwd.x, dirZ: fwd.z, kill, force: true });
     // The direction is returned because a probe cannot check which way a body went over
     // without it, and which way it goes over is the whole kinematics of the thing.
     return r ? { ...r, distance: +bestD.toFixed(2), dirX: fwd.x, dirZ: fwd.z } : null;
