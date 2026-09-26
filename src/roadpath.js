@@ -36,6 +36,11 @@
 /** NaN-safe clamp, as everywhere else in src/. */
 const clamp = (v, lo, hi) => (v > lo ? (v > hi ? hi : v) : lo);
 
+/** Narrower than this and there is no second lane to sit in. src/traffic.js's own threshold. */
+const TWO_WAY_MIN_W = 3.8;
+/** Clearance from the kerb line: the car's 0.95 m body radius plus a quarter metre of slop. */
+const LANE_MARGIN_M = 1.2;
+
 export class RoadGraph {
   /**
    * `blockers` is an optional src/blockers.js index. Given one, edges whose own
@@ -65,6 +70,10 @@ export class RoadGraph {
     this.blocked = new Set();
     const carRadius = opts.carRadius ?? 0.95;
     const sample = opts.sampleEvery ?? 2;
+    // Held so the lane offset can be fitted against the same geometry, by the same predicate,
+    // that decides whether an edge is driveable at all. See laneOffsets().
+    this.blockers = opts.blockers ?? null;
+    this.carRadius = carRadius;
     const add = (v, e, forward, to, len) => {
       if (!this.out.has(v)) this.out.set(v, []);
       this.out.get(v).push({ e, forward, to, len });
@@ -106,6 +115,30 @@ export class RoadGraph {
    * whose worst reading is 0.34, 0.11 and 0.10 m (all long streets, 158/151/143 m) and
    * refuses the 11 whose worst is 0.95 m or more.
    */
+  /**
+   * ONE DEFINITION OF PASSABLE, used for the centreline and for the lane offset alike. A
+   * penetration under half the car's radius is a road that runs tight to a building, which is
+   * what a downtown alley does and is drivable with care; `insideAny` is not.
+   */
+  passableAt(x, z, carRadius = this.carRadius) {
+    if (!this.blockers) return true;
+    if (this.blockers.insideAny(x, z) >= 0) return false;
+    const r = this.blockers.resolveCircle(x, z, carRadius);
+    return !(r && r.depth > carRadius * 0.5);
+  }
+
+  /**
+   * STRICTLY CLEAR, which is a different question from passable, and the difference is the whole
+   * reason the lane fit uses this one. A centreline is allowed to penetrate a wall by up to half
+   * the car's radius because three of this district's long streets do and there is no alternative
+   * route — refusing them would disconnect the network. A LANE OFFSET always has an alternative:
+   * zero. So a lane is only taken where the body is completely clear, and the 0.475 m of tolerated
+   * overlap that keeps a tight street driveable is not extended to a choice nobody has to make.
+   */
+  clearAt(x, z, carRadius = this.carRadius) {
+    return !this.blockers || !this.blockers.resolveCircle(x, z, carRadius);
+  }
+
   _isBlocked(i, blockers, carRadius, sampleEvery) {
     const e = this.d.edges[i];
     for (let k = 0; k < e.v.length - 1; k++) {
@@ -281,15 +314,11 @@ export class RoadGraph {
     // Round the junctions, then resample again so the spacing survives the smoothing.
     if (smoothPasses > 0) pts = resample(smooth(pts, smoothPasses), spacing);
     if (offset) {
-      // Per point, capped by that road's own half-width less a 1.2 m margin, so the
-      // course stays on the tarmac whatever was asked for.
-      pts = offsetRight(pts, offset, (i) => {
+      const amt = laneOffsets(pts, offset, (i) => {
         const ei = pts[i][2];
-        const e = ei >= 0 ? this.d.edges[ei] : null;
-        if (!e) return offset;
-        const half = (e.w * Math.max(1, e.lanes)) / 2;
-        return Math.min(offset, Math.max(0, half - 1.2));
-      });
+        return ei >= 0 ? this.d.edges[ei] : null;
+      }, (x, z) => this.clearAt(x, z), spacing);
+      pts = offsetRight(pts, offset, (i) => amt[i]);
     }
     let len = 0;
     for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
@@ -421,13 +450,11 @@ export class RoadGraph {
     pts = resample(pts, spacing, true);
     if (smoothPasses > 0) pts = resample(smooth(pts, smoothPasses, true), spacing, true);
     if (offset) {
-      pts = offsetRight(pts, offset, (i) => {
+      const amt = laneOffsets(pts, offset, (i) => {
         const ei = pts[i][2];
-        const e = ei >= 0 ? this.d.edges[ei] : null;
-        if (!e) return offset;
-        const half = (e.w * Math.max(1, e.lanes)) / 2;
-        return Math.min(offset, Math.max(0, half - 1.2));
-      });
+        return ei >= 0 ? this.d.edges[ei] : null;
+      }, (x, z) => this.clearAt(x, z), spacing, { closed: true });
+      pts = offsetRight(pts, offset, (i) => amt[i], true);
     }
     // Opened: the follower needs a last point to reach, and it is the first one again, so a
     // lap ends exactly where the next one begins and the reset to index 0 is a no-op in space.
@@ -584,12 +611,136 @@ export function worstGap(pts) {
  * Shift a polyline to its own right-hand side. `d` is metres, or a function of the point
  * index returning metres — which is what lets the offset respect each road's own width.
  */
-export function offsetRight(pts, d, perPoint = null) {
+/**
+ * How far right of the centreline a route may sit on one edge, from the road's nominal width.
+ *
+ * `e.w` IS THE WHOLE CARRIAGEWAY, NOT ONE LANE, and the first version of this multiplied it by
+ * `e.lanes` — so on Main Street (`w: 6.6, lanes: 2`) it believed the road was 13.2 m wide and
+ * let a 3 m offset through unchanged. 3 m plus the car's 0.95 m radius reaches 3.95 m from the
+ * centre of a road whose kerb is at 3.3. src/traffic.js reads the same field as a total
+ * (`e.w / 2 - CAR_HALF_W`), and that is the reading the drawn road agrees with.
+ *
+ * SINGLE-TRACKING A NARROW EDGE IS THE SAME RULE src/traffic.js APPLIES, for the same reason:
+ * 353 of this district's 935 edges are 2.8 m service alleys, where there is no second lane to
+ * move into and the centreline is the only line that fits.
+ */
+export function laneOffsetFor(e, offset) {
+  if (!e || !(offset > 0)) return 0;
+  if (e.w < TWO_WAY_MIN_W) return 0;                       // single track: down the middle
+  return Math.min(offset, Math.max(0, e.w / 2 - LANE_MARGIN_M));
+}
+
+/**
+ * The per-point right-hand offset for a route: what the road's width allows, reduced to what is
+ * actually CLEAR, with the rate of change bounded.
+ *
+ * THE NOMINAL WIDTH IS NOT ENOUGH, AND THIS DISTRICT PROVES IT BY 0.45 m. Two playtesters had
+ * the game's own follower wreck the car on the game's own route at (-189.8, -95), one of them in
+ * 5 of 6 starting headings. Sweeping the actual clearance along that stretch of Main Street —
+ * edge 303, `w: 6.6`, so a nominal kerb at 3.30 m:
+ *
+ *     i=76   wall 3.10 m right of centre        i=82   wall 2.90 m
+ *     i=78   wall 3.05 m                        i=84   wall 2.85 m
+ *     i=80   wall 2.95 m                        i=86   wall 4.25 m (clear)
+ *
+ * The footprint encroaches 0.20-0.45 m into the drawn carriageway, so the widest lane the width
+ * rule can justify (2.10 m, plus a 0.95 m body, reaching 3.05) still clips it. No width policy
+ * fixes that; only measuring does. The same census over the whole network, counting edges whose
+ * CENTRELINE is clear while a ±offset lane is not:
+ *
+ *     offset 3, no cap at all             103 of 935 edges   6,734 m
+ *     offset 3, w * lanes / 2 - 1.2        21                1,943 m
+ *     offset 3, w / 2 - 1.2                13                1,309 m
+ *     offset 3, and single-track < 3.8 m    8                  760 m
+ *     offset 3, and fitted against the blockers   0               0 m
+ *
+ * The 103 is worth keeping because a reviewer's census quoted it as the live figure: it is the
+ * UNCAPPED number, and the cap that already existed removed four fifths of it. The defect was
+ * real and one fifth the size claimed.
+ *
+ * THE FIT TAKES THE LONGEST CLEAR RUNG, and the check that it means anything is that the rung
+ * above the one chosen is genuinely blocked — the lesson src/traffic.js's shunt fit wrote down,
+ * where two counts that closed over the same predicate validated nothing.
+ *
+ * AND A STEP IN THE OFFSET IS A KINK IN THE PATH. Dropping from 2.1 m to 0 between two points
+ * 4 m apart is a 27-degree corner that the follower's look-ahead reads as a real turn. The slope
+ * limiter bounds it to `maxSlope` (0.25, about 14 degrees at a 4 m spacing) by two sweeps that
+ * can only ever REDUCE an amount, so every point the fit cleared stays clear — which is what
+ * makes it safe to apply after the fit rather than before.
+ */
+export function laneOffsets(pts, offset, edgeOf, clearAt, spacing, opts = {}) {
+  const { maxSlope = 0.25, closed = false, rungs = [1, 0.75, 0.5, 0.25] } = opts;
+  const n = pts.length;
+  const amt = new Array(n).fill(0);
+  let fitted = 0, dropped = 0;
+  for (let i = 0; i < n; i++) {
+    const want = laneOffsetFor(edgeOf(i), offset);
+    amt[i] = want;
+    if (!(want > 0) || !clearAt) continue;
+    // The same wrapped tangent offsetRight uses, for the same reason: on a ring the seam's
+    // neighbours are each other, and a one-sided difference there fits the offset to the wrong
+    // direction.
+    const a = pts[closed ? (i - 1 + n) % n : Math.max(0, i - 1)];
+    const b = pts[closed ? (i + 1) % n : Math.min(n - 1, i + 1)];
+    const dx = b[0] - a[0], dz = b[1] - a[1], L = Math.hypot(dx, dz);
+    if (!(L > 0)) continue;
+    const nx = dz / L, nz = -dx / L;
+    if (clearAt(pts[i][0] + nx * want, pts[i][1] + nz * want)) continue;
+    let chosen = 0;
+    for (const f of rungs) {
+      const t = want * f;
+      if (clearAt(pts[i][0] + nx * t, pts[i][1] + nz * t)) { chosen = t; break; }
+    }
+    amt[i] = chosen;
+    fitted++;
+    if (chosen === 0) dropped++;
+  }
+  /**
+   * AND ON A RING THE SEAM IS THE PAIR THE SWEEP NEVER VISITS. The first version ran the two
+   * sweeps over indices 1..n-1 and n-2..0, which touches every adjacent pair EXCEPT (n-1, 0) —
+   * so a closed tour could carry a full step across its own seam. route-drive's heading across
+   * the seam went from 14.0 to 40.3 degrees and failed the gate that exists for exactly this,
+   * which is the third time in this file a ring's seam has been the one corner nothing smoothed.
+   * The wrap pair is now swept explicitly, twice, so the constraint propagates through it.
+   */
+  const maxStep = spacing * maxSlope;
+  const limit = (i, j) => { amt[i] = Math.min(amt[i], amt[j] + maxStep); };
+  for (let p = 0; p < (closed ? 2 : 1); p++) {
+    for (let k = 1; k < n; k++) limit(k, k - 1);
+    if (closed) limit(0, n - 1);
+    for (let k = n - 2; k >= 0; k--) limit(k, k + 1);
+    if (closed) limit(n - 1, 0);
+  }
+  amt.fitted = fitted;
+  amt.dropped = dropped;
+  return amt;
+}
+
+/**
+ * AND ON A CLOSED RING THE NEIGHBOURS WRAP. Clamping to [0, n-1] gives the first and last points
+ * a ONE-SIDED tangent — a forward difference at index 0 and a backward difference at n-1 — so on
+ * a ring whose seam lands on a junction those two points are pushed in a direction rotated by
+ * that junction's whole turn. Measured on the 3.3 km tour, `heading across the seam`, which is
+ * route-drive's own metric:
+ *
+ *     offset   0 m    67.4 deg      (no offset applied at all: the ring's own junction)
+ *     offset   1 m    67.9
+ *     offset   2 m    53.6
+ *     offset   3 m    14.0          <- the one value the gate runs at
+ *     offset   6 m   -67.5
+ *
+ * The gate asserts |seam| < 0.5 rad and had been passing on that single coincidence since the
+ * tour existed. With wrapped neighbours the two end points are offset along the same tangent as
+ * their neighbours and the seam reads the ring's own corner at every offset.
+ */
+export function offsetRight(pts, d, perPoint = null, closed = false) {
   const out = [];
+  const n0 = pts.length;
   for (let i = 0; i < pts.length; i++) {
     const p = pts[i];
     const amt = perPoint ? perPoint(i) : d;
-    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+    const a = pts[closed ? (i - 1 + n0) % n0 : Math.max(0, i - 1)];
+    const b = pts[closed ? (i + 1) % n0 : Math.min(n0 - 1, i + 1)];
     const dx = b[0] - a[0], dz = b[1] - a[1];
     const L = Math.hypot(dx, dz);
     if (!(L > 0)) { out.push([p[0], p[1], p[2]]); continue; }

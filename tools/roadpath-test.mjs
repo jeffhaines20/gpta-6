@@ -18,7 +18,8 @@
 import fs from 'node:fs';
 import { RoadGraph, followPath, pathSpeedLimit, steerableSpeed, gripSpeed, cornerSpeed,
   minTurnRadius, steerForRadius, RESPONSE,
-  resample, smooth, minRadius, worstGap, offsetRight, pathCurvature, ARC_WINDOW } from '../src/roadpath.js';
+  resample, smooth, minRadius, worstGap, offsetRight, pathCurvature, ARC_WINDOW,
+  laneOffsetFor, laneOffsets } from '../src/roadpath.js';
 import { Vehicle } from '../src/vehicle.js';
 import { FlatGround } from '../src/ground.js';
 import { BlockerIndex } from '../src/blockers.js';
@@ -471,6 +472,106 @@ for (const off of [0, 1, 2, 3, 6]) {
 }
 console.log('    (a `service` road in this district is 2.8 m wide, so an uncapped 3 m offset');
 console.log('     is off the tarmac entirely — the cap is per point, from that road\'s own width.)');
+
+/**
+ * §6b  THE SAME OFFSET ON EVERY EDGE IN THE DISTRICT, not just on the nine-waypoint tour.
+ *
+ * §6 above passed the whole time while the offset was wrecking cars, because the tour happens to
+ * avoid the edges where it fails. Two playtesters found it on `path()` — the point-to-point route
+ * the missions use — one of them at the same spot in 5 of 6 starting headings. This section walks
+ * every edge, both lanes, every 2 m, and it is the census the fix was measured against.
+ *
+ * The residual is the interesting part. After the fit, every blocked lane sample is a blocked
+ * CENTRELINE sample, on the 12 edges whose own centreline is not strictly clear, 11 of which the
+ * router already excludes. So the offset contributes no blocked point of its own, and that is an
+ * equality between two different quantities at two different offsets rather than a tautology.
+ */
+console.log('\n§6b The same offset on every edge in the district');
+const OFF = 3, LANE_STEP = 2, RUNGS = [1, 0.75, 0.5, 0.25];
+function laneCensus(capFor, fit) {
+  let pts = 0, laneBad = 0, centreBad = 0, laneOnly = 0, fitted = 0, longest = 0, notLongest = 0;
+  const badEdges = new Set();
+  for (let i = 0; i < district.edges.length; i++) {
+    const e = district.edges[i];
+    const want = capFor(e, OFF);
+    for (let k = 0; k < e.v.length - 1; k++) {
+      const a = district.verts[e.v[k]], b = district.verts[e.v[k + 1]];
+      const L = Math.hypot(b.x - a.x, b.z - a.z);
+      if (!(L > 0)) continue;
+      const n = Math.max(1, Math.ceil(L / LANE_STEP));
+      const ux = (b.x - a.x) / L, uz = (b.z - a.z) / L;
+      for (let sp = 0; sp <= n; sp++) {
+        const t = sp / n, x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t;
+        const centreClear = g.clearAt(x, z);
+        for (const sign of [1, -1]) {
+          pts++;
+          if (!centreClear) centreBad++;
+          let chosen = want, above = null;
+          if (fit && want > 0) {
+            chosen = 0;
+            for (const f of RUNGS) {
+              const amt = want * f;
+              if (g.clearAt(x + uz * amt * sign, z - ux * amt * sign)) { chosen = amt; break; }
+              above = amt;
+            }
+            if (above !== null) {
+              fitted++;
+              // THE FIT OWES THE LONGEST CLEAR RUNG: the rung above the one taken must really be
+              // blocked, or the ladder is just a constant wearing a ladder's clothes.
+              // The good case is that the rung above IS blocked. Written the other way round
+              // first, which read as 82 failures against a fit that was working correctly.
+              if (g.clearAt(x + uz * above * sign, z - ux * above * sign)) notLongest++;
+              else longest++;
+            }
+          }
+          const clear = g.clearAt(x + uz * chosen * sign, z - ux * chosen * sign);
+          if (!clear) { laneBad++; badEdges.add(i); if (centreClear) laneOnly++; }
+        }
+      }
+    }
+  }
+  return { pts, laneBad, centreBad, laneOnly, fitted, longest, notLongest, edges: badEdges.size };
+}
+const capNow = (e, off) => laneOffsetFor(e, off);
+const capOld = (e, off) => Math.min(off, Math.max(0, (e.w * Math.max(1, e.lanes)) / 2 - 1.2));
+const fitOn = laneCensus(capNow, true);
+const widthOnly = laneCensus(capNow, false);
+const oldCap = laneCensus(capOld, false);
+console.log(`    ${fitOn.pts} lane samples over ${district.edges.length} edges`);
+console.log(`      cap w * lanes / 2 - 1.2, no fit   ${String(oldCap.laneBad).padStart(5)} blocked` +
+  `  (${oldCap.laneOnly} of them on a clear centreline, ${oldCap.edges} edges)`);
+console.log(`      cap w / 2 - 1.2, no fit           ${String(widthOnly.laneBad).padStart(5)} blocked` +
+  `  (${widthOnly.laneOnly} of them on a clear centreline, ${widthOnly.edges} edges)`);
+console.log(`      fitted against the blockers       ${String(fitOn.laneBad).padStart(5)} blocked` +
+  `  (${fitOn.laneOnly} of them on a clear centreline, ${fitOn.edges} edges)`);
+console.log(`      the centreline itself             ${String(fitOn.centreBad).padStart(5)} blocked`);
+console.log(`      ${fitOn.fitted} samples took a reduced rung; the rung above was blocked at ` +
+  `${fitOn.longest} of them`);
+check('the fit leaves no lane point blocked that the centreline does not',
+  fitOn.laneOnly === 0, `${fitOn.laneOnly} lane-only`);
+check('and its residual is exactly the centreline\'s own',
+  fitOn.laneBad === fitOn.centreBad, `${fitOn.laneBad} vs ${fitOn.centreBad}`);
+// TEETH: the two caps that were tried before must both fail this, or the check above is decoration.
+check('the cap that shipped before this fails the same census',
+  oldCap.laneOnly > 0, `${oldCap.laneOnly} lane-only points on ${oldCap.edges} edges`);
+check('and so does the corrected width cap on its own',
+  widthOnly.laneOnly > 0, `${widthOnly.laneOnly} lane-only points`);
+check('the fit always takes the longest clear rung',
+  fitOn.notLongest === 0 && fitOn.longest > 0,
+  `${fitOn.longest} verified, ${fitOn.notLongest} took a short rung with a clear one above`);
+// And the slope limiter: a step in the offset is a kink in the path.
+const strip = [];
+for (let i = 0; i < 40; i++) strip.push([i * 4, 0, 0]);
+const halfBlocked = (x, z) => !(x > 60 && x < 100 && z < -0.5);
+const amts = laneOffsets(strip, 3, () => ({ w: 20, lanes: 1 }), halfBlocked, 4);
+let worstStep = 0;
+for (let i = 1; i < amts.length; i++) worstStep = Math.max(worstStep, Math.abs(amts[i] - amts[i - 1]));
+console.log(`    a 40-point strip with one blocked stretch: offsets ` +
+  `${amts.map((a) => a.toFixed(1)).join(' ')}`);
+check('the offset never steps more than the slope limit', worstStep <= 4 * 0.25 + 1e-9,
+  `worst step ${worstStep.toFixed(3)} m against ${(4 * 0.25).toFixed(2)}`);
+check('and it does reach zero where the lane is blocked', Math.min(...amts) === 0,
+  `min ${Math.min(...amts).toFixed(2)}, max ${Math.max(...amts).toFixed(2)}`);
 
 // ---------------------------------------------------------------------------
 // §7  Smoothing, determinism and cost.

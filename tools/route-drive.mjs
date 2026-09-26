@@ -292,7 +292,7 @@ if (MODE === 'straight') {
   check('the tightest corner is a real junction, not a resampling artefact',
     mr.radius > 5, `${mr.radius.toFixed(2)} m`);
   // Reversals and the seam. See RoadGraph.tour().
-  let reversals = 0;
+  let reversals = 0, worstTurn = 0, worstTurnAt = -1;
   for (let k = 1; k < tour.points.length - 1; k++) {
     const a = tour.points[k - 1], b = tour.points[k], c = tour.points[k + 1];
     const h1 = Math.atan2(b[0] - a[0], b[1] - a[1]), h2 = Math.atan2(c[0] - b[0], c[1] - b[1]);
@@ -300,6 +300,7 @@ if (MODE === 'straight') {
     while (dd > Math.PI) dd -= Math.PI * 2;
     while (dd < -Math.PI) dd += Math.PI * 2;
     if (Math.abs(dd) > 2.09) reversals++;
+    if (Math.abs(dd) > worstTurn) { worstTurn = Math.abs(dd); worstTurnAt = k; }
   }
   const n = tour.points.length;
   const closure = Math.hypot(tour.points[n - 1][0] - tour.points[0][0], tour.points[n - 1][1] - tour.points[0][1]);
@@ -309,11 +310,36 @@ if (MODE === 'straight') {
   while (seam > Math.PI) seam -= Math.PI * 2;
   while (seam < -Math.PI) seam += Math.PI * 2;
   console.log(`  reversals in the course: ${reversals};  closure ${closure.toFixed(3)} m;  ` +
-    `heading across the seam ${(seam * 180 / Math.PI).toFixed(1)} deg`);
+    `heading across the seam ${(seam * 180 / Math.PI).toFixed(1)} deg, ` +
+    `worst turn elsewhere ${(worstTurn * 180 / Math.PI).toFixed(1)} deg at index ${worstTurnAt}`);
   check('the course never doubles back on itself', reversals === 0, `${reversals}`);
   check('the course closes exactly, so a lap ends where the next begins', closure < 1e-6,
     `${closure.toFixed(4)} m`);
-  check('the seam is an ordinary corner, not a discontinuity', Math.abs(seam) < 0.5,
+  /**
+   * THE SEAM IS COMPARED WITH THE COURSE'S OWN CORNERS, AND THE THRESHOLD IT REPLACES WAS
+   * PASSING ON A COINCIDENCE. This read `Math.abs(seam) < 0.5` — 28.6 degrees — and the tour
+   * closes ON A JUNCTION, where the road itself turns about 70 degrees. Measured across offsets,
+   * on the tree where the check was green:
+   *
+   *     offset 0   67.4 deg      offset 2   53.6      offset 6   -67.5
+   *     offset 1   67.9          offset 3   14.0  <- the only value this gate runs at
+   *
+   * So the assertion held at the one offset in use and would have failed at every other, on
+   * geometry nobody was worried about. The swing came from `offsetRight` taking a ONE-SIDED
+   * tangent at a ring's first and last point, which is now fixed, and with that fixed the seam
+   * reads the junction's own turn (70.2 deg) at every offset from 2 m up.
+   *
+   * What the check is FOR is CLAUDE.md's "a ring's seam is the one corner nothing smooths": the
+   * failure it must catch is a 91-degree turn from a standstill where the road is straight, not
+   * a junction that happens to be where the lap closes. So the seam's turn is required to be no
+   * worse than the worst turn ELSEWHERE on the same course — a comparison within one frame of
+   * reference, which is the form that survives a change of offset — and separately not to be a
+   * reversal by the same 2.09 rad test the reversal count uses.
+   */
+  check('the seam turns no harder than the worst corner elsewhere on the course',
+    Math.abs(seam) <= worstTurn + 1e-9,
+    `${(seam * 180 / Math.PI).toFixed(1)} deg against ${(worstTurn * 180 / Math.PI).toFixed(1)}`);
+  check('and the seam is not a reversal', Math.abs(seam) < 2.09,
     `${(seam * 180 / Math.PI).toFixed(1)} deg`);
   const wg = worstGap(tour.points);
   console.log(`  worst gap between consecutive points: ${wg.gap.toFixed(2)} m at index ${wg.at}`);
