@@ -237,8 +237,7 @@ export class DamageModel {
     if (!finite(dv) || !finite(dirX) || !finite(dirZ)) {
       out.reason = 'non-finite';
       this.stats.rejected++;
-      this.lastImpact = out;
-      return out;
+      return this._finish(out);
     }
     out.dv = Math.abs(dv);
     if (out.dv > this.stats.worstDv) this.stats.worstDv = out.dv;
@@ -253,8 +252,7 @@ export class DamageModel {
     if (severity <= 0) {
       out.reason = 'below-threshold';
       this.stats.rejected++;
-      this.lastImpact = out;
-      return out;
+      return this._finish(out);
     }
 
     // Minor impacts refract per region; a major one always lands.
@@ -262,8 +260,7 @@ export class DamageModel {
         this.time - this._lastMinorAt[out.region] < this.minorRefractory) {
       out.reason = 'refractory';
       this.stats.refracted++;
-      this.lastImpact = out;
-      return out;
+      return this._finish(out);
     }
     if (severity < this.majorSeverity) this._lastMinorAt[out.region] = this.time;
 
@@ -277,7 +274,21 @@ export class DamageModel {
     out.reason = 'applied';
     this._checkFire();
     out.health = this.health;
+    return this._finish(out);
+  }
+
+  /**
+   * THE ONE EXIT. Every record leaves through here, including the rejected ones, because
+   * this method's own doc comment already says why: "a caller that wants to play a sound
+   * needs to know a graze happened even when it cost nothing". There were four returns and
+   * each set `lastImpact` by hand; a fifth would have forgotten.
+   *
+   * `onImpact` is optional and unset by default, so nothing about this module's behaviour
+   * depends on a host attaching one. district/main.js uses it for the crash voice.
+   */
+  _finish(out) {
     this.lastImpact = out;
+    if (this.onImpact) this.onImpact(out);
     return out;
   }
 

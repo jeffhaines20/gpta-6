@@ -90,6 +90,39 @@ console.log('REACTION GATE — what happens to the other party');
 console.log('='.repeat(78));
 
 // ---------------------------------------------------------------------------
+// §0  There is a crowd where the game starts.
+//
+// Found while shooting the reaction frames, which came back with no pedestrian in them: the
+// district's spawn was `route[0]`, the marina, which is a 2.8 m service stub at the end of the
+// network. `Pedestrians.spawnable` is `walkableEdges.filter(len > 18)`, so neither edge within
+// 100 m qualifies, and replaying _spawn's own candidate generation rejects all 384 pavement
+// samples as TOO FAR — the nearest is 167.3 m against a 12-90 m band. The game booted into an
+// empty city and stayed that way until the player drove 150 m inland.
+//
+// tools/bake/bake.mjs now DERIVES the spawn — the first route waypoint standing on an edge
+// that is not a service alley and is long enough for the crowd — rather than indexing route[0].
+// This is the check that says the rule did its job on the shipped data.
+// ---------------------------------------------------------------------------
+console.log('\n§0  The opening position has a crowd');
+{
+  const sp = district.meta.spawn;
+  const p = new Pedestrians(scene, district, { count: 48, despawnRadius: 125, spawnMin: 12, spawnMax: 90 });
+  for (let k = 0; k < 20; k++) p.update(DT, { x: sp.x, z: sp.z });
+  const alive = p.positions().length;
+  // What the old spawn gave, for contrast, through the same code.
+  const marina = district.meta.route[0];
+  const q = new Pedestrians(scene, district, { count: 48, despawnRadius: 125, spawnMin: 12, spawnMax: 90 });
+  for (let k = 0; k < 20; k++) q.update(DT, { x: marina.x, z: marina.z });
+  console.log(`    spawn ${JSON.stringify(sp)}: ${alive} of 48 slots filled`);
+  console.log(`    KNOWN-BAD, the old spawn at route[0] "${marina.name}": ` +
+    `${q.positions().length} of 48`);
+  check('the game starts somewhere the crowd can stand', alive >= 40, `${alive} of 48`);
+  check('KNOWN-BAD: the marina fills none of them', q.positions().length === 0,
+    `${q.positions().length}`);
+  check('and the spawn records which waypoint it is', typeof sp.at === 'string', JSON.stringify(sp));
+}
+
+// ---------------------------------------------------------------------------
 // §1  The crowd reacts at all.
 // ---------------------------------------------------------------------------
 console.log('\n§1  A pedestrian is knocked down');

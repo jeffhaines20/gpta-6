@@ -65,6 +65,17 @@ console.log(`route: ${route.length} waypoints, ${CIRCUITS} circuits, ${HZ} Hz fi
 
 const v = new Vehicle();
 const damage = new DamageModel();
+// Every impact record, with its time, for the crash-voice rate reported below.
+const voiceRows = [];
+let voiceRate = { perMin: 0, burst: 0 };
+{
+  const real = damage.impact.bind(damage);
+  damage.impact = (ev) => {
+    const r = real(ev);
+    voiceRows.push({ t: steps * DT, dv: r.dv || 0 });
+    return r;
+  };
+}
 if (!NO_COLLISION) { v.blockers = blockers; v.damage = damage; }
 const ground = new FlatGround(0);
 v.position.set(route[1].x, 0.55, route[1].z);
@@ -184,6 +195,26 @@ const simSeconds = steps * DT;
 const rep = damage.report();
 console.log(`\ncompleted ${lap}/${CIRCUITS} circuits in ${simSeconds.toFixed(1)} s of simulated time`);
 console.log(`  body contacts        ${v.contacts}`);
+/**
+ * AND HOW OFTEN THE CRASH VOICE WOULD FIRE, because district/main.js plays a sound for every
+ * impact record and the question "does that machine-gun" is answerable here for free. The
+ * drive already produces every record; audio.js refuses anything under 0.6 m/s.
+ */
+{
+  const over = voiceRows.filter((r) => r.dv >= 0.6);
+  let worst = 0;
+  for (let i = 0; i < over.length; i++) {
+    let n = 0;
+    for (let j = i; j < over.length && over[j].t - over[i].t < 1; j++) n++;
+    worst = Math.max(worst, n);
+  }
+  const mins = (steps * DT) / 60;
+  console.log(`  crash voices         ${over.length} of ${voiceRows.length} records clear ` +
+    `audio.js's 0.6 m/s floor — ${(over.length / mins).toFixed(1)} a minute, worst ${worst} in any second`);
+  // Measured 0.9 a minute over three circuits, worst 3 in any one second at the single
+  // 8.3 m corner the car needs 8.9 m for. Six is a bound with room, not a target.
+  voiceRate = { perMin: over.length / mins, burst: worst };
+}
 console.log(`  damage taken         ${(1 - rep.health).toFixed(4)}  (health ${rep.health}, wrecked ${rep.wrecked})`);
 console.log(`  impacts applied      ${rep.stats.applied}  refracted ${rep.stats.refracted}  below threshold ${rep.stats.rejected}`);
 console.log(`  worst charged dv     ${rep.stats.worstDv} m/s`);
@@ -223,8 +254,13 @@ if (nudges) {
  * can fix it: R_min at a standstill is 8.446 m, so a corner of 8.3 m is beyond the car at any
  * speed. Widening the line through it is a racing-line problem, not a tracking one.
  */
-const EXPECT = { contacts: 300, applied: 0, nudges: 0, offLine: 12, freeDv: 2.2 };
+const EXPECT = { contacts: 300, applied: 0, nudges: 0, offLine: 12, freeDv: 2.2,
+  voicesPerMin: 6, voiceBurst: 6 };
 
+check('the crash voice does not machine-gun', voiceRate.perMin <= EXPECT.voicesPerMin,
+  `${voiceRate.perMin.toFixed(2)} a minute`);
+check('and the worst second holds no more than a crash-worth',
+  voiceRate.burst <= EXPECT.voiceBurst, `${voiceRate.burst}`);
 check(`all ${CIRCUITS} circuits completed`, lap >= CIRCUITS, `${lap}/${CIRCUITS} in ${simSeconds.toFixed(0)}s`);
 check('the car is never left inside a building',
   MODE === 'straight' && NO_COLLISION

@@ -26,6 +26,7 @@
 // that the curve shape is right.
 import { DamageModel, IMPACT, ANCHORS, HALF_EXTENT, normalDv, pairDv, dynamicContact,
   pedFatalityRisk } from '../src/damage.js';
+import { hardnessFor } from '../src/audio.js';
 import fs from 'node:fs';
 
 const checks = [];
@@ -470,6 +471,61 @@ console.log(`    update()  ${updNs.toFixed(3)} ns  = ${(updNs / 16.67e6 * 100).t
 console.log(`    impact()  ${impNs.toFixed(3)} ns  = ${(impNs / 16.67e6 * 100).toFixed(6)}% of a 60 fps frame`);
 check('update() is under 1 us', updNs < 1000, `${updNs.toFixed(1)} ns`);
 check('impact() is under 5 us', impNs < 5000, `${impNs.toFixed(1)} ns`);
+
+// ---------------------------------------------------------------------------
+// §10b  The crash voice: one exit, every record, and a hardness that is derived.
+// ---------------------------------------------------------------------------
+console.log('\n§10b The crash voice');
+{
+  const dm = new DamageModel();
+  const seen = [];
+  dm.onImpact = (rec) => seen.push(rec);
+  // One of each outcome: applied, below-threshold, refracted, non-finite.
+  dm.impact({ dv: kmh(50), kind: IMPACT.wall, dirX: 0, dirZ: 1 });
+  dm.impact({ dv: 1.0, kind: IMPACT.wall, dirX: 0, dirZ: 1 });
+  dm.impact({ dv: 3.0, kind: IMPACT.wall, dirX: 0, dirZ: 1 });
+  dm.impact({ dv: 3.0, kind: IMPACT.wall, dirX: 0, dirZ: 1 });
+  dm.impact({ dv: NaN, kind: IMPACT.wall, dirX: 0, dirZ: 1 });
+  const reasons = seen.map((r) => r.reason);
+  console.log(`    five impacts -> ${seen.length} records: ${reasons.join(', ')}`);
+  /**
+   * EVERY RECORD, NOT ONLY THE APPLIED ONES. impact()'s own doc says a caller that wants to
+   * play a sound needs to know a graze happened even when it cost nothing — and the four
+   * return paths each set `lastImpact` by hand, so a fifth would have forgotten one. They
+   * now leave through `_finish`.
+   */
+  check('onImpact fires once per impact, whatever the outcome', seen.length === 5,
+    `${seen.length}`);
+  check('including the ones that cost nothing',
+    reasons.includes('below-threshold') && reasons.includes('refractory')
+      && reasons.includes('non-finite'), reasons.join(','));
+  check('and the record it hands over is the one impact() returns',
+    seen[0].applied === true && seen[0].dv > 0, JSON.stringify(seen[0]).slice(0, 80));
+  // The hardness map, against the reduced mass it claims to be.
+  const M = 1400, PED = 80;
+  const reduced = { wall: M, vehicle: M / 2, pedestrian: (M * PED) / (M + PED) };
+  for (const [kind, m] of Object.entries(reduced)) {
+    const want = m / M, got = hardnessFor(kind);
+    console.log(`    ${kind.padEnd(11)} reduced mass ${m.toFixed(1).padStart(6)} kg -> ` +
+      `${want.toFixed(3)} against the shipped ${got}`);
+    check(`${kind} hardness is its reduced-mass ratio`, Math.abs(got - want) < 0.001,
+      `${got} vs ${want.toFixed(4)}`);
+  }
+  check('an unknown kind falls back to the loudest rather than to silence',
+    hardnessFor('something-else') === 1.0, `${hardnessFor('something-else')}`);
+  // And what that means in the mix, through audio.js's own gain law.
+  const amp = (dv, h) => Math.pow(Math.min(1.25, Math.max(0.02, dv / 22)), 1.15) * 0.23
+    * Math.min(2, Math.max(0.1, h));
+  const dB = (a, b) => 20 * Math.log10(a / b);
+  const wallAmp = amp(ANCHORS.killDv, hardnessFor('wall'));
+  const pedDb = dB(amp(ANCHORS.killDv, hardnessFor('pedestrian')), wallAmp);
+  const carDb = dB(amp(ANCHORS.killDv, hardnessFor('vehicle')), wallAmp);
+  console.log(`    at the NCAP delta-v: a body ${pedDb.toFixed(1)} dB under masonry, ` +
+    `a car ${carDb.toFixed(1)} dB`);
+  check('a body strike is about 20 dB under the same blow into masonry',
+    Math.abs(pedDb + 20) < 0.5, `${pedDb.toFixed(2)} dB`);
+  check('and a car is 6 dB under it', Math.abs(carDb + 6) < 0.1, `${carDb.toFixed(2)} dB`);
+}
 
 // ---------------------------------------------------------------------------
 // §11  The mission fail path this exists to light up.

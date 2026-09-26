@@ -313,10 +313,43 @@ const route = WAYPOINTS.map((w) => {
   return { name: w.name, x: verts[snap.v].x, z: verts[snap.v].z, snapDist: snap.dist };
 });
 
+/**
+ * WHERE THE GAME STARTS, and it was `route[0]` — which is the marina, and the marina is a
+ * 2.8 m service stub at the end of the network. Measured through the crowd's own code path:
+ * asking a 48-strong crowd to fill around it produces **0 of 48**, because
+ * `Pedestrians.spawnable` is `walkableEdges.filter(len > 18)` and neither edge within 100 m
+ * qualifies. The nearest pavement sample is 167.3 m away against a 12-90 m spawn band and a
+ * 125 m despawn radius, so the player booted into a city with nobody in it and stayed there
+ * until they drove inland. Every other route waypoint fills 48/48.
+ *
+ * So the spawn is DERIVED rather than indexed: the first waypoint standing on an edge that is
+ * not a service alley and is long enough for the crowd to use. On this district that is
+ * route[1], "Bayfront @ Main St" — still the bayfront, still the water in shot.
+ */
+const SPAWN_MIN_EDGE_M = 18;              // Pedestrians.spawnable's own threshold
+function spawnWaypoint() {
+  const edgeLen = (e) => {
+    let l = 0;
+    for (let k = 0; k < e.v.length - 1; k++) {
+      l += Math.hypot(verts[e.v[k + 1]].x - verts[e.v[k]].x, verts[e.v[k + 1]].z - verts[e.v[k]].z);
+    }
+    return l;
+  };
+  for (const w of route) {
+    const vi = verts.findIndex((q) => q.x === w.x && q.z === w.z);
+    if (vi < 0) continue;
+    if (edges.some((e) => e.v.includes(vi) && e.c !== 'service' && edgeLen(e) > SPAWN_MIN_EDGE_M)) {
+      return w;
+    }
+  }
+  return route[0];
+}
+const spawnAt = spawnWaypoint();
+
 const district = {
   meta: {
     route,
-    spawn: { x: route[0].x, z: route[0].z },
+    spawn: { x: spawnAt.x, z: spawnAt.z, at: spawnAt.name },
     city: CITY.name, bay: CITY.bay,
     attribution: '© OpenStreetMap contributors',
     license: 'ODbL 1.0',

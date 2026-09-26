@@ -260,6 +260,40 @@ const STINGERS = {
 
 export const STINGER_NAMES = Object.keys(STINGERS);
 
+/**
+ * HOW HARD A COLLISION SOUNDS, BY WHAT WAS HIT — and derived rather than dialled.
+ *
+ * `_transient` takes `hardness` as a linear gain on the panel ring and a super-linear one
+ * on the crunch band, so it is an energy scale, and the energy available to deform metal
+ * and radiate sound at a given delta-v goes with the pair's REDUCED MASS. For a 1,400 kg
+ * car (src/damage.js's own figure, and the mass it gives a traffic car too):
+ *
+ *     a building, immovable      m               1400 kg     1.000   the reference
+ *     another car, 1400 kg       m/2              700 kg     0.500
+ *     a pedestrian, 80 kg        m*80/(m+80)     75.7 kg     0.054   floored at 0.1 below
+ *
+ * so a body strike is about 20 dB under the same delta-v into masonry, which is what a thud
+ * against a thump should be. `_transient` clamps hardness to [0.1, 2] in the amplitude, so
+ * the pedestrian figure lands on that floor; it is quoted here unfloored because the ratio
+ * is the derivation and the floor is the synth's.
+ *
+ * `ground` is the one exception and it is not a reduced mass: landing from a jump is the
+ * SUSPENSION taking the load, not the shell, so it is given the car-on-car value rather
+ * than the immovable-object one.
+ */
+export const IMPACT_HARDNESS = Object.freeze({
+  wall: 1.0,
+  roadblock: 1.0,
+  vehicle: 0.5,
+  police: 0.5,
+  pedestrian: 0.054,
+  ground: 0.5,
+});
+export function hardnessFor(kind) {
+  const h = IMPACT_HARDNESS[kind];
+  return h === undefined ? 1.0 : h;
+}
+
 // ============================================================================
 
 export class GameAudio {

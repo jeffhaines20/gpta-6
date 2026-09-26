@@ -118,6 +118,32 @@ check('a 4 km/h nudge is not a crime', nudge.crime === null && w2.heat === 0,
 // ---------------------------------------------------------------------------
 // §4  The HUD is fed. Only the pixels can say this.
 // ---------------------------------------------------------------------------
+/**
+ * §3b  The crash voice fires, and says so when it cannot be heard.
+ *
+ * src/audio.js's impact() had never been called. It is called now for EVERY damage record,
+ * and headless Chromium has no AudioContext without a gesture — so what this checks is that
+ * the hook runs and that the silence is COUNTED rather than lost. `wanted` is every record,
+ * `played` the ones that reached a running graph, `silent` the rest.
+ */
+{
+  const before = await page.evaluate(() => __district.damageReport().impactSounds);
+  await page.evaluate(() => __district.crash(35, 'front'));
+  await settle(2);
+  const after = await page.evaluate(() => __district.damageReport().impactSounds);
+  console.log(`\n§3b The crash voice: ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
+  check('a crash asks for a sound', after.wanted > before.wanted,
+    `${before.wanted} -> ${after.wanted}`);
+  check('and every one is accounted for, played or silent',
+    after.played + after.silent === after.wanted,
+    `${after.played} + ${after.silent} vs ${after.wanted}`);
+  const aud = await page.evaluate(() => {
+    const a = __district.audioReport ? __district.audioReport() : null;
+    return a ? { available: a.available, impacts: a.impacts, dropped: a.droppedWhileSuspended } : null;
+  });
+  console.log(`    audio: ${JSON.stringify(aud)}`);
+}
+
 console.log('\n§4  The HUD');
 await page.evaluate(() => { __district.repairCar(); __district.clearWanted('live-test'); });
 await settle(8);

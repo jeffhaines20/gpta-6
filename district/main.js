@@ -39,7 +39,7 @@ import { HUD } from '../src/hud.js';
 import { MissionRunner, OUTCOMES } from '../src/mission.js';
 import { MISSIONS } from '../src/missions.js';
 import { WantedSystem, bindPursuit, CRIMES, STATES } from '../src/wanted.js';
-import { createAudio } from '../src/audio.js';
+import { createAudio, hardnessFor } from '../src/audio.js';
 
 const canvas = document.getElementById('c');
 // antialias: false, deliberately. The flag configures multisampling on the
@@ -675,6 +675,20 @@ const blockers = new BlockerIndex(district);
  * the NCAP full-frontal barrier.
  */
 const damage = new DamageModel();
+/**
+ * One exit, one voice. src/damage.js fires this for EVERY record — applied, refracted,
+ * below-threshold and rejected — and the filtering lives here because what is audible is a
+ * host question. `hardnessFor` is the reduced-mass ratio of the pair; see src/audio.js.
+ */
+damage.onImpact = (rec) => {
+  audioImpactsWanted++;
+  if (!(rec.dv > 0)) return;
+  if (audio && audio.available && audio.impact(rec.dv, { hardness: hardnessFor(rec.kind) })) {
+    audioImpactsPlayed++;
+  } else {
+    audioImpactsSilent++;
+  }
+};
 vehicle.blockers = blockers;
 vehicle.damage = damage;
 
@@ -714,11 +728,29 @@ let damageCrimes = 0, damageIgnored = 0;
 /** Carried from the sim substeps to the HUD feed, which runs once per rendered frame. */
 let hudHitPending = 0;
 /**
- * src/audio.js has no crash voice. Counted rather than silently skipped, for the same
- * reason the mission layer records an unhonoured `stinger` intent instead of ignoring
- * it: a missing sound should appear in the audit, not look like it played.
+ * THE CRASH VOICE. src/audio.js has had `impact()` — four pooled voices, a panel ring and a
+ * crunch band, and a gain law whose own comment records getting the exponent the wrong side
+ * of 1 and flattening every collision into the limiter — since it was written, and nothing
+ * ever called it. This counter stood in for it, in the same spirit as the mission layer's
+ * unhonoured `stinger`: a missing sound in the audit rather than a silence that looks fine.
+ *
+ * EVERY RECORD SOUNDS, NOT ONLY THE APPLIED ONES, because `damage.impact`'s own doc says so:
+ * "a caller that wants to play a sound needs to know a graze happened even when it cost
+ * nothing". The free threshold is 2.2 m/s and audio.js refuses under 0.6, so the band
+ * between them is exactly the kerb-strike its scale is written around.
+ *
+ * AND THERE IS NO RATE LIMIT, which was measured rather than assumed. Replaying both offline
+ * courses and recording every record the drive produces:
+ *
+ *     road course, one circuit, 261 s    42 records,  4 over audio's 0.6 m/s floor
+ *     straight course, 120 s             138 records, 4 over the floor
+ *
+ * — 0.9 voices a minute on a clean drive, and the worst burst is 4 inside one second, which
+ * is the single 89 km/h wreck at t=10.2 s on the course that drives through buildings. A
+ * cooldown of 0.12 s would have thrown away half of that crash and changed nothing else.
+ * damage.js's own refractory and the median record's 0.007 m/s do the work already.
  */
-let audioImpactsWanted = 0;
+let audioImpactsWanted = 0, audioImpactsPlayed = 0, audioImpactsSilent = 0;
 
 /**
  * Impacts against things that MOVE: traffic cars, pedestrians, pursuit units.
@@ -1130,9 +1162,7 @@ function animate(now) {
         const r = wanted.reportCrime(hit.crime, { at: { x: vehicle.position.x, z: vehicle.position.z } });
         if (r.applied) damageCrimes++; else damageIgnored++;
       }
-      if (audio && audio.available && audio.stinger && hit.severity >= damage.majorSeverity) {
-        audioImpactsWanted++;
-      }
+
     }
     world.update(mode === 'foot' ? player.position : vehicle.position);
     if (traffic) traffic.update(dt, vehicle.position);
@@ -1477,6 +1507,10 @@ window.__district = {
     crimesReported: damageCrimes,
     crimesIgnored: damageIgnored,
     /** src/audio.js has no crash voice; this counts the ones it would have played. */
+    impactSounds: { wanted: audioImpactsWanted, played: audioImpactsPlayed,
+      silent: audioImpactsSilent },
+    // Kept under its old name so an older artifact still reads: it counted impacts that
+    // WOULD have sounded, and that is now `wanted`.
     impactSoundsWanted: audioImpactsWanted,
     index: blockers.report(),
     /**
