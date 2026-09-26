@@ -657,8 +657,15 @@ model is unchanged and the comment now says what it is.
 | `mission-test` / `wanted-test` / `physics-test` / `golden-trace` | PASS |
 | `geom-audit` / `leaf-mask` / `sim-determinism` / `check-syntax` | PASS |
 
+**One victim, one offence.** A casualty gets back on its feet 4.42 s after it goes down, and from
+that instant it can be knocked down again — so a player creeping back and forth over one person
+collected a fresh crime every cycle. Measured against the real wanted system: **7 knockdowns in
+30 s, all 7 charged, heat 5.99, five stars** from one pedestrian and a car that never left the
+spot. `wanted.js`'s refractory is per crime TYPE, which is right for a bumper grinding along a
+wall and wrong here, because what repeats is the victim. A 20 s per-victim window — a little
+longer than the knockdown cycle — collapses it to 2 charged and 5 suppressed, heat 1.15, one
+star, and leaves a genuinely different pedestrian a second later fully chargeable.
+
 **Still open from the reviews, and worth saying rather than burying.** A thrown body slides
 through walkers — the slide tests buildings only, and a body at 14 m/s crossed 6 cm from a
-pedestrian. A player who sits on a casualty can knock it down again every 4.42 s as it rises,
-which is seven `pedestrianHit` crimes in 30 s. And the crowd walks through street furniture,
-which predates all of this (#67).
+pedestrian. And the crowd walks through street furniture, which predates all of this (#67).

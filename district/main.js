@@ -748,7 +748,10 @@ let audioImpactsWanted = 0;
 const OTHER_CAR = { bodyRadius: 0.95, bodyMass: 1400 };
 const PERSON = { bodyRadius: 0.35, bodyMass: 80 };
 const dynStats = { tested: 0, contacts: 0, frames: 0, pedHits: 0, carHits: 0, policeHits: 0,
-  pedKnockdowns: 0, pedFatal: 0, carShunts: 0 };
+  pedKnockdowns: 0, pedFatal: 0, carShunts: 0, pedRepeats: 0 };
+/** When each pedestrian was last reported as a crime, by their own id. See pedCrime below. */
+const pedCrimeAt = new Map();
+const PED_CRIME_WINDOW_S = 20;
 function dynamicImpacts() {
   if (mode !== 'car') return;
   dynStats.frames++;
@@ -896,6 +899,24 @@ function dynamicImpacts() {
        * crime: `pedestrianKilled` if the body stays down, `pedestrianHit` if it gets up.
        */
       pedCrime = r.fatal ? 'pedestrianKilled' : 'pedestrianHit';
+      /**
+       * ONE VICTIM, ONE OFFENCE, within a window. A casualty gets back on its feet 4.42 s after
+       * it goes down, and from that instant `dynamicImpacts` can knock it down again — so a
+       * player creeping back and forth over one person collects a fresh crime every 4.42 s.
+       * Measured against the real wanted system: 7 knockdowns in 30 s, all 7 charged (the 1.0 s
+       * refractory in wanted.js is far too short to see them), heat 5.99, FIVE STARS from one
+       * pedestrian and a car that never left the spot.
+       *
+       * wanted.js's refractory is per CRIME TYPE, which is the right shape for a bumper grinding
+       * along a wall and the wrong one here, because the thing being repeated is the victim. A
+       * window a little longer than the knockdown cycle collapses the loop to one report and
+       * leaves a genuinely separate pedestrian, a second later, fully chargeable.
+       */
+      const now = simTime;
+      for (const [vid, t] of pedCrimeAt) if (now - t > PED_CRIME_WINDOW_S) pedCrimeAt.delete(vid);
+      const last = pedCrimeAt.get(r.id);
+      if (last !== undefined && now - last <= PED_CRIME_WINDOW_S) { pedCrime = null; dynStats.pedRepeats++; }
+      else pedCrimeAt.set(r.id, now);
     }
   }
   if (worstCar && worstCar.carId != null) {
