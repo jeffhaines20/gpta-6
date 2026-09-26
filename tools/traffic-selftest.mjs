@@ -9,6 +9,7 @@
 //   node tools/traffic-selftest.mjs
 import fs from 'node:fs';
 import { Traffic } from '../src/traffic.js';
+import { BlockerIndex } from '../src/blockers.js';
 import * as TrafficMod from '../src/traffic.js';
 
 const district = JSON.parse(fs.readFileSync('data/district.json', 'utf8'));
@@ -196,5 +197,64 @@ function runOnce30() {
   return tr.stats.gridlockRecoveries;
 }
 
+// ---------------------------------------------------------------------------
+const tr0 = new Traffic(scene, district, { count: 1 });
+console.log('\n7. the lane offset fits inside the road it is on');
+//
+// `_laneOffset` was `min(3.6, max(2.2, w/4))`, and the 2.2 m FLOOR was the defect: on a 2.8 m
+// service alley the carriageway's half-width is 1.40 m, so a car pushed 2.2 m off the
+// centreline had its CENTRE 0.80 m outside the road and its body reaching 3.15 m — 1.75 m of
+// car over the kerb line. The district is 38.3% service alley by length.
+{
+  const CAR_HALF_W = 0.95, TWO_WAY_MIN_W = 3.8;
+  const widths = [...new Set(district.edges.map((e) => e.w))].sort((a, b) => a - b);
+  const old = (w) => Math.min(3.6, Math.max(2.2, w / 4));
+  let worstOld = 0, worstNew = 0;
+  for (const w of widths) {
+    // A two-way edge of this width, taken from the data rather than invented.
+    const ei = district.edges.findIndex((e) => e.w === w && e.o === 0);
+    if (ei < 0) continue;
+    const got = tr0._laneOffset(ei);
+    const reachOld = old(w) + CAR_HALF_W, reachNew = got + CAR_HALF_W;
+    worstOld = Math.max(worstOld, reachOld - w / 2);
+    worstNew = Math.max(worstNew, reachNew - w / 2);
+    check(`a ${w} m road keeps the body inside the carriageway`, reachNew <= w / 2 + 1e-9,
+      `body reaches ${reachNew.toFixed(2)} m against a ${(w / 2).toFixed(2)} m half-width`);
+    if (w < TWO_WAY_MIN_W) {
+      check(`and a ${w} m road is single track`, got === 0, `${got}`);
+    }
+  }
+  console.log(`  worst overhang: was ${worstOld.toFixed(2)} m past the kerb line, now ${worstNew.toFixed(2)}`);
+  check('KNOWN-BAD: the old rule hung the body over the kerb', worstOld > 1.5,
+    `${worstOld.toFixed(2)} m`);
+}
+
+console.log('\n8. no car is ever published inside a building');
+{
+  const ix = new BlockerIndex(district);
+  const tr = new Traffic(scene, district, { count: 30 });
+  let frames = 0, inside = 0, worst = 0;
+  for (let k = 0; k < 60 * 120; k++) {
+    tr.update(1 / 60, { x: 19, z: -6 });
+    for (const p of tr._lastPositions) {
+      frames++;
+      const r = ix.resolveCircle(p.x, p.z, 0.95);
+      if (r) { inside++; worst = Math.max(worst, Math.hypot(r.x - p.x, r.z - p.z)); }
+    }
+  }
+  console.log(`  120 s of a 30-car fleet: ${frames} car-frames, ${inside} inside a building, ` +
+    `worst ${worst.toFixed(2)} m`);
+  check('the fleet was actually driving', frames > 100000, `${frames} car-frames`);
+  check('no car body is published inside a building', inside === 0, `${inside}, worst ${worst.toFixed(2)} m`);
+  // The other half: single-tracking narrow roads is what keeps them from meeting head-on.
+  console.log(`  overlap pair-frames ${tr.stats.overlapPairFrames}, ` +
+    `closest approach ${tr.stats.closestApproachM} m`);
+  check('and no two cars overlap', tr.stats.overlapPairFrames === 0,
+    `${tr.stats.overlapPairFrames}`);
+}
+
+// THE SUMMARY AND THE EXIT ARE THE LAST THING IN THIS FILE, and they have to be: appending
+// two sections after a mid-file `process.exit` ran them exactly zero times and the gate still
+// printed "22 passed, 0 failed". A gate that cannot reach its own checks passes.
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

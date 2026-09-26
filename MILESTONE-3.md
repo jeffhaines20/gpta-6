@@ -688,3 +688,42 @@ with it.
 
 **Still open from the reviews.** A thrown body slides through WALKERS — the slide tests buildings
 and furniture, not the crowd, and a body at 14 m/s crossed 6 cm from a pedestrian.
+
+## 10. Traffic drove inside buildings, and the road-inside-a-building issue was the other one
+
+**#63 as filed was about the district data**, and the data is as described: 11 of 935 edges have
+a car-sized obstruction on their own centreline, all class `service`, and three are severe —
+edge 742 is 36.2 m with 24 of 24 samples inside a building and a worst depth of **18.45 m**.
+`src/roadpath.js` already refuses them.
+
+**Nothing drives or walks on them.** Measured: 0 of 431,921 car-frames over 240 s are on a
+refused edge, and 0 of 96 pedestrians stand on one. So the filed defect has no live consumer.
+
+**What the same measurement found instead is worse and was not filed at all: 1.21% of car-frames
+published a car INSIDE a building**, worst 1.46 m in, on six edges whose centrelines are 0%
+inside. It was entirely the lane offset.
+
+`_laneOffset` was `min(3.6, max(2.2, w/4))`, and the **2.2 m floor** is the bug. On a 2.8 m
+service alley the carriageway's half-width is 1.40 m, so a car pushed 2.2 m off the centreline
+has its centre 0.80 m outside the road and its body reaching 3.15 m — **1.75 m of car over the
+kerb line**, into whatever is built there. The rule put the body outside the carriageway on
+every road narrower than 6.3 m, which is six of the eleven widths in the data, and the district
+is 38.3% service alley by length.
+
+**Both halves of the fix were needed, and the middle row is why:**
+
+| rule | car-frames inside a building | worst | overlap pair-frames | closest approach |
+|---|---|---|---|---|
+| shipped | 5,209 of 431,921 — 1.206% | 1.46 m | 0 | 3.92 m |
+| offset bounded by the road | 233 — 0.054% | 0.75 m | 40 | 0.90 m |
+| bounded + narrow roads single-track | **0** | **0** | **0** | 2.65 m |
+
+Bounding the offset alone puts two cars on a 2.8 m alley 0.9 m apart centre to centre, which is
+an overlap of two 1.9 m bodies. A road that cannot hold two bodies SIDE BY SIDE cannot carry two
+directions, and 2 × 1.9 m is where that line sits: narrower than that and the edge is entered in
+one direction only, at offset 0, down the middle — which is what an alley is.
+
+**And the gate that checks it could not reach itself.** The two new sections were appended after
+`traffic-selftest`'s mid-file `process.exit`, so they ran zero times and the gate still printed
+"22 passed, 0 failed". The summary and the exit are now the last thing in the file, with a
+comment saying why. 32 checks.
