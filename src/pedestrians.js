@@ -129,7 +129,7 @@
 
 import * as THREE from '../vendor/three.module.min.js';
 import { rng, hash32 } from './facades.js';
-import { throwDistance, slideDecel } from './damage.js';
+import { throwDistance, slideDecel, pedFatalityRisk } from './damage.js';
 
 // ------------------------------------------------------------------ skeleton
 // Metres, at height scale 1: a 1.70 m adult. Per-ped scale spreads the
@@ -324,11 +324,18 @@ const BUILDING_MARGIN = 0.28;              // keep this far off a wall
  * random number from a seeded stream (tools/sim-determinism.mjs asserts it), and a knockdown
  * that varied per run would make every capture of a crowd a different capture.
  *
- * PED_KILL_SPEED is src/damage.js's own pedestrian fatality line — 12.5 m/s, 45 km/h, the 50%
- * point of the published speed-versus-fatality curve — and it is the SAME threshold that
- * decides whether the crime reported is `pedestrianHit` or `pedestrianKilled`. Written here as
- * a constant rather than imported so this module does not depend on damage.js for a policy it
- * only reads; the gate asserts the two agree.
+ * WHETHER THEY DIE IS A CURVE, NOT A LINE, and getting that wrong was this round's largest
+ * error. The first version killed everyone above 45 km/h and nobody below, citing that speed as
+ * the 50% point of the published curve. It is not: Rosen & Sander (2009) put 45 km/h at 5.5%
+ * and the 50% point at 76.7 km/h, and the paper co-cited beside it exists to correct the older,
+ * bias-inflated estimate the 45 figure came from. See src/damage.js's ANCHORS for the citation.
+ *
+ * So the outcome is drawn against `pedFatalityRisk()` — the published logistic — rather than
+ * compared to a step. The draw is DETERMINISTIC: a hash of the pedestrian's own id and the
+ * impact speed, so it does not depend on call order, does not consume the shared random stream,
+ * and gives the same capture twice. (The reason first written here for using a threshold — that
+ * a dice roll "would make every capture of a crowd a different capture" — was wrong: a hash is
+ * not a dice roll, and hash32 was already imported in this file.)
  */
 const PED_FALL_S = 0.32;      // upright to flat
 const PED_PRONE_S = 3.2;      // flat, before getting up
@@ -341,13 +348,32 @@ const PED_RISE_S = 0.9;       // flat to upright
  * body every time somebody stopped to look.
  */
 const PED_CLEAR_S = 12;
-const PED_CLEAR_DIST_M = 35;
+/**
+ * MEASURED FROM THE CAR, WHICH IS NOT WHERE THE LENS IS. The crowd is updated with the vehicle
+ * position as its focus, and src/camera.js's chase camera sits CAR.dist = 8.2 m behind the car,
+ * so a body 35 m behind the car was 26.8 m from the lens when it blinked out — a reviewer held
+ * the car on a body, stepped back to 35.1 m, and watched it clear one frame later, in shot. The
+ * threshold is the distance wanted from the LENS plus that standoff: 35 + 8.2, rounded up.
+ */
+const PED_CLEAR_DIST_M = 45;
 const PED_CLEAR_MAX_S = 45;
-const PED_KILL_SPEED = 12.5;  // m/s — damage.js's ANCHORS.pedKillSpeed
 /**
  * The slide is advanced in steps no longer than this. Not a tolerance — a wall test: `_blocked`
  * samples the DESTINATION, so a step longer than the body can jump a shopfront. A headless frame
  * here is around a second, which at 40 km/h is an 11 m step through anything in the way.
+ *
+ * THE BOUND IS 2 * BUILDING_MARGIN, AND THE FIRST VERSION MISSED IT BY A FACTOR OF TWO. The
+ * sub-steps are equal in TIME, not in distance, so the first one is the fastest: a reviewer
+ * instrumented the gaps between consecutive `_blocked` calls and measured a worst step of
+ * 0.5969 m against a claimed 0.3 — `n` was computed from the whole step's DISTANCE, which is the
+ * average. The margin that saved it was luck: the thinnest blocked band in this district is
+ * 0.670 m, 12% clear of that worst step, and all of it comes from the 0.28 m margin rather than
+ * from any footprint's thickness (the thinnest footprint is 0.11 m).
+ *
+ * `n` is now taken from the ENTRY SPEED, so every sub-step is at most SLIDE_STEP_M: ds <= v*hk
+ * <= sp*hk = sp*h/n. And 0.3 m is under 2 * BUILDING_MARGIN = 0.56 m, which is the real
+ * requirement — a destination test can only be trusted to notice a wall while the step is
+ * shorter than twice the margin it tests with.
  */
 const SLIDE_STEP_M = 0.3;
 const STUCK_TURN_S = 2.5;                  // blocked this long -> turn around
@@ -1294,9 +1320,29 @@ export class Pedestrians {
     const ped = this.peds[index];
     if (!ped || ped.down) return null;
     const v = Math.abs(speed);
-    const L = Math.hypot(dirX, dirZ) || 1;
+    if (!Number.isFinite(v)) return null;
+    /**
+     * THE DIRECTION IS GUARDED TOO, and it was not. `Math.hypot(dirX, dirZ) || 1` turns a NaN
+     * direction into 1 and a ZERO direction into (0, 0), and both were accepted:
+     *
+     *   NaN    — 16 of 16 entries of the head matrix went non-finite while `travelled` stayed
+     *            0 and the counters recorded a normal knockdown.
+     *   (0, 0) — the fall axis is (-uz, 0, ux), so a zero direction makes it the zero vector;
+     *            `normalize()` leaves it zero, `setFromAxisAngle` returns the identity whatever
+     *            the angle, and the casualty stands bolt upright and motionless for up to 45 s
+     *            while `isDown()` and `positions().down` both say it is on the ground.
+     *
+     * Reachable through __district.knockNearestPed, which takes the car's forward vector and
+     * does not normalise its horizontal part: a car pitched vertical hands over (0, 0).
+     */
+    const L = Math.hypot(dirX, dirZ);
+    if (!(L > 0) || !Number.isFinite(L)) return null;
     const ux = dirX / L, uz = dirZ / L;
-    const fatal = kill === null ? v >= PED_KILL_SPEED : !!kill;
+    // The draw: uniform in [0,1) from the ped's id and the impact speed to the nearest 0.1 m/s.
+    // Quantised so that two hits a hair apart do not become independent coin flips.
+    const risk = pedFatalityRisk(v);
+    const draw = hash32('ped-fatal', ped.id, Math.round(v * 10)) / 4294967296;
+    const fatal = kill === null ? draw < risk : !!kill;
     ped.down = {
       t: 0,
       // The slide: leaves at the impact speed, decelerates at mu*g. See throwDistance().
@@ -1313,7 +1359,7 @@ export class Pedestrians {
     this.stats.knockdowns++;
     if (fatal) this.stats.knockdownsFatal++;
     if (v > this.stats.worstKnockdownSpeed) this.stats.worstKnockdownSpeed = +v.toFixed(2);
-    return { index, id: ped.id, speed: v, fatal, throwWanted: ped.down.want };
+    return { index, id: ped.id, speed: v, fatal, risk, throwWanted: ped.down.want };
   }
 
   /** One definition, so the walk and a knockdown cannot pose different skeletons. */
@@ -1352,8 +1398,8 @@ export class Pedestrians {
       const a = slideDecel();
       const ux = d.vx / sp, uz = d.vz / sp;
       const h = Math.min(dt, sp / a);                    // the slide stops at v/a, not at dt
-      const reach = sp * h - 0.5 * a * h * h;
-      const n = Math.max(1, Math.ceil(reach / SLIDE_STEP_M));
+      // From the ENTRY speed, so the FIRST sub-step is bounded and not merely the average one.
+      const n = Math.max(1, Math.ceil((sp * h) / SLIDE_STEP_M));
       const hk = h / n;
       let v = sp, stopped = false;
       for (let k = 0; k < n; k++) {
@@ -1438,6 +1484,22 @@ export class Pedestrians {
       // BEFORE the walk, not inside it, because every branch below assumes a ped that is
       // trying to get somewhere and half of them would put a casualty back on its feet.
       if (ped.down) {
+        /**
+         * A BODY IS STILL SUBJECT TO THE DESPAWN RADIUS AND STILL COUNTS AS AN ORPHAN. This
+         * branch `continue`d before both tests, and a blind review drove away from a casualty:
+         * the body was simulated and posed into the instanced mesh **329 m** from the player at
+         * 100 km/h — 2.6 times the 125 m despawn radius — for the whole 12 s before the clear
+         * rule fired, and `orphanPedFrames`, the census that exists to catch exactly a ped
+         * simulated in an unloaded chunk, counted none of it.
+         *
+         * Beyond the despawn radius the slot is simply freed: a body that far away cannot be in
+         * shot, which is the only thing the in-shot clear rule is protecting.
+         */
+        const bdx = ped.x - fx, bdz = ped.z - fz;
+        if (bdx * bdx + bdz * bdz > this.despawnRadius * this.despawnRadius) {
+          this.peds[i] = null; this._hide(i); this.stats.despawns++; continue;
+        }
+        if (this.isChunkLoaded && !this.isChunkLoaded(ped.x, ped.z)) this.stats.orphanPedFrames++;
         if (!this._fallStep(ped, dt)) { this.peds[i] = null; this._hide(i); continue; }
         // The same pose call the walk makes, with the same leg length, so a casualty's
         // skeleton is the walking skeleton lying down rather than a second one.

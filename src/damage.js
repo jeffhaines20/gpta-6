@@ -92,14 +92,42 @@ export const ANCHORS = Object.freeze({
   refSeverity: 0.067,
   killDv: 13.9,     // m/s — NCAP full-frontal rigid barrier (50 km/h)
   /**
-   * Pedestrian fatality against impact speed is one of the best-measured curves in
-   * road safety: roughly 10% at 30 km/h, 50% at 45 km/h, 90% at 80 km/h (Ashton &
-   * Mackay; Rosen & Sander). 45 km/h is where it crosses even, so that is the line
-   * between `pedestrianHit` and `pedestrianKilled`. It is a speed, not a delta-v,
-   * because what matters to the person is how fast the bumper was travelling.
+   * THE FATALITY LINE, AND THE CITATION THAT REFUTED THE FIRST ONE. This read "roughly 10% at
+   * 30 km/h, 50% at 45 km/h, 90% at 80 km/h (Ashton & Mackay; Rosen & Sander)" and put the line
+   * at 12.5 m/s. A blind reviewer checked the source and the two halves of that citation
+   * disagree by a factor of nine: Rosen & Sander (2009) fit
+   *
+   *     P(fatal) = 1 / (1 + exp(6.9 - 0.090 v))        v in km/h
+   *
+   * to 490 weighted GIDAS cases, which gives 1.5% at 30, 5.5% at 45, 8.3% at 50 and 57% at 80,
+   * and puts the 50% point at 76.7 km/h. The 10/50/90 shape is the older Ashton-family curve,
+   * and Rosen, Stigson & Sander's own 2011 literature review exists to correct it: studies
+   * biased toward severe accidents, "Ashton (1980) among them", gave 35-90% at 50 km/h and "the
+   * data bias inevitably rendered these risk estimates too high", against ~10% from the
+   * unbiased studies — a point Ashton himself made about his own sample.
+   *
+   * So the curve is now the model (see pedFatalityRisk below) and this constant is its 50%
+   * point: the speed above which a struck pedestrian is more likely than not to die. A host
+   * with no crowd module still classifies its crime from it; src/pedestrians.js draws against
+   * the whole curve instead, because a threshold makes 46 km/h certainly fatal where the data
+   * says 5.6%.
    */
-  pedKillSpeed: 12.5,   // m/s (45 km/h)
+  pedKillSpeed: 21.3,   // m/s (76.7 km/h) — the 50% point of Rosen & Sander (2009)
 });
+
+/**
+ * Rosen & Sander (2009), equation (2): pedestrian fatality risk against car impact speed, for
+ * pedestrians aged 15 or over struck by the front of a passenger car. `v` is in m/s here
+ * because everything else in this file is SI; the published form takes km/h.
+ *
+ * Exported so the crowd can draw against the curve rather than against a step, and so the gate
+ * can assert the published points rather than a copy of them.
+ */
+export function pedFatalityRisk(speedMs) {
+  const v = Math.abs(speedMs) * 3.6;
+  if (!(v > 0) || !Number.isFinite(v)) return 0;
+  return 1 / (1 + Math.exp(6.9 - 0.090 * v));
+}
 
 /**
  * Region weights come from the contact direction in BOX space, not in metres. The
@@ -443,8 +471,7 @@ export function dynamicContact({
 /**
  * How far a struck pedestrian is thrown, in metres, from the vehicle's impact speed.
  *
- * ANCHORED TO FORENSIC RECONSTRUCTION, not chosen for looks. Accident reconstruction uses a
- * projection-and-slide model whose first-order form is
+ * ANCHORED TO FORENSIC RECONSTRUCTION, not chosen for looks:
  *
  *     d = v^2 / (2 * mu * g)
  *
@@ -452,15 +479,42 @@ export function dynamicContact({
  * and g the real 9.81 — this is a body on tarmac, not the arcade 2 g the car drives under.
  * Taking the midpoint, 0.66:
  *
- *     30 km/h ->  5.36 m       published ~5 m      -7%
- *     40 km/h ->  9.53 m       published ~10 m     -5%
- *     50 km/h -> 14.90 m       published ~15 m     -1%
+ *     30 km/h ->  5.3628 m     published ~5 m      +7.26%
+ *     40 km/h ->  9.5339 m     published ~10 m     -4.66%
+ *     50 km/h -> 14.8968 m     published ~15 m     -0.69%
  *
- * within 7% at all three. The other figure often quoted — throw distance in metres is a
- * quarter to a third of impact speed in km/h — agrees with this over roughly 30 to 60 km/h
- * and diverges at both ends, which is what a linear approximation to a quadratic does: at
- * 15 km/h the rule says 3.8 to 5.0 m against 1.34 here, and at 80 km/h it says 20 to 26
- * against 38.1. The data points are the anchor; the rule of thumb is not a second one.
+ * WHERE THIS SITS IN ITS OWN FAMILY, because a reviewer worked it out and the first version of
+ * this comment was wrong twice over. It said "within 7% at all three", and 30 km/h is 7.26% —
+ * outside the claim, and ABOVE the anchor, where the comment wrote -7%. The tool printed it as
+ * "7" through toFixed(0), which is how a prose claim came to be a rounding artefact.
+ *
+ * And this is not the "first-order form" of a projection-and-slide model: it is that family's
+ * MINIMUM. Add a launch angle to a ground-level launch with a plastic landing and
+ * S(th) = v^2 sin(2 th)/g + v^2 cos^2(th)/(2 mu g), whose value at th = 0 is exactly the formula
+ * above and whose derivative there is 4 mu/g > 0. The optimum at mu 0.66 is 34.6 degrees and
+ * throws 1.91x as far. Searle's published pair of bounds says the same from the other side: the
+ * inversion of his maximum-speed bound IS d = v^2/(2 mu g), and his minimum-speed bound inverts
+ * to d = v^2 (1 + mu^2)/(2 mu g), 43.6% further.
+ *
+ * It reproduces the anchors because two errors cancel: no launch angle under-throws, and taking
+ * the launch speed to be the whole VEHICLE speed over-throws by roughly the 20% Searle reports
+ * between the two, which in a v^2 law is +44%. So mu 0.66 is a three-point empirical fit — the
+ * values each anchor implies are 0.7079, 0.6292 and 0.6555, mean 0.664 — that happens to land on
+ * the midpoint of the quoted band. It is a calibration absorbing the missing terms, it has no
+ * warrant outside the 30-50 km/h window its anchors occupy, and it extrapolates to 38.1 m at
+ * 80 km/h, which nothing here checks.
+ *
+ * ONE MORE THING THE MODEL AND THE LITERATURE DO NOT AGREE ABOUT: a published throw distance is
+ * impact point to the body's final REST POSITION, and what this drives is the slide of the
+ * body's ROOT. src/pedestrians.js lands the drawn torso about 0.93 m short of the root — 8.7% at
+ * 40 km/h, larger than the 4.66% being argued about at that speed.
+ *
+ * The other figure often quoted — throw distance in metres is a quarter to a third of impact
+ * speed in km/h — is a linear approximation to a quadratic, so it can only agree over a window.
+ * Solving exactly, this model is inside that band from 41.96 to 55.94 km/h: it is BELOW it at 30
+ * (5.36 against 7.50) and at 40 (9.53 against 10.00), and above it from 56 km/h up. The comment
+ * used to say "roughly 30 to 60", which was a guess. The data points are the anchor; the rule of
+ * thumb is not a second one.
  *
  * tools/reaction-test.mjs checks all three rows, because a throw distance is the one number
  * in a knockdown a viewer can judge by eye and get right.

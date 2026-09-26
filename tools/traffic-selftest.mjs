@@ -35,7 +35,7 @@ function place(tr, slot, edge, forward, t, opts = {}) {
     stuckS: 0, sinceReplanS: 0, fromArm: null, lastDeny: null,
     plan: null, planJv: null, mv: null, ticket: 0, queuedAt: null,
     orphanFor: 0, countedOrphan: false,
-    shunt: null, stopS: 0,
+    shunt: null, stopS: 0, shuntHeldS: 0,
   };
   tr.cars[slot] = car;
   return car;

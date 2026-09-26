@@ -460,8 +460,19 @@ regression to it cannot pass.
 
 **Sub-step any swept test against geometry, and size the step by the subject, not by dt.** The
 slide's wall test samples the DESTINATION, so at a 1 s frame it was testing a point 11 m away
-and could jump a whole shopfront. Steps are capped at 0.3 m — a third of a body — which costs
-nothing because the integration is exact piecewise.
+and could jump a whole shopfront.
+
+**And size it from the ENTRY speed, not from the step's length.** Sub-steps cut evenly in TIME
+are not even in distance — under constant deceleration the first is up to twice the average — so
+a count derived from the whole step's distance bounds the mean and not the maximum. Measured
+gaps between consecutive wall tests: 0.5073 m at a 1 s frame and 0.5911 m at 5 s, against a
+claimed 0.3. The thinnest blocked band in this district is 0.670 m, so it held by 12% and by
+luck. Taking `n = ceil(v_entry * h / step)` bounds every sub-step, and the same measurement then
+reads 0.2857 and 0.2983.
+
+**The real bound is twice the margin the test uses.** A destination test with a 0.28 m margin
+can only notice a wall while the step is under 0.56 m; 0.3 m is chosen under that, and the gate
+now asserts the relation rather than the number.
 
 ## Measure the rare case AT THE CAP, because that is the one a player goes to look at
 
@@ -473,10 +484,58 @@ and a 72 km/h ram is precisely the crash a player stops the car and walks back t
 sweep that only exercises the common case would have shipped it.
 
 The fix is a fit at the publish site, not in `hit()`: that is where the offset is applied, so
-it is the only place the drawn car and the collision pass cannot disagree. **And the two counts
-validate each other** — 11 bad placements, 11 offsets fitted short, so the fit fired exactly
-where it was needed and nowhere else. A fit count above the bad count would mean it was
-shrinking offsets that were fine.
+it is the only place the drawn car and the collision pass cannot disagree.
+
+**Two things I got wrong writing that down, both found by blind review.** The cap is a 63 km/h
+ram, not the 72 I wrote: the cap engages at `dv = sqrt(2 a d)` = 9.95 m/s, and converting that
+to a closing speed has to use the same `pairDv` the code uses (e = 0.15, dv = 0.575 c), not
+dv/2. Three different conversions were live at once — the code's, the commit message's and the
+gate comment's. **Use the one the code uses, everywhere.**
+
+And "the two counts validate each other — 11 bad placements, 11 fits" is not a validation: the
+fit fires on `!clearAt(destination)` and the bad sweep counts `resolveCircle(destination)`, the
+same predicate at the same point on a bit-identical fleet, so the equality cannot fail.
+Collapsing the fit ladder to `[0]` — every blocked shunt becoming no shunt at all — leaves both
+counts reading 11. **A self-validation that closes over the same quantity twice validates
+nothing.** What the fit owes is the LONGEST clear offset, so the check is that the rung above
+the one chosen is genuinely blocked.
+
+## Three reviewers, 40 findings, and the ones that cost the most
+
+A round that shipped with 65 passing checks went to three blind reviewers — one on the physics,
+one mutating the modules to see which checks had teeth, one on integration. The gate caught 15
+of 27 mutations and **missed 12**. What the misses had in common is worth more than the list:
+
+- **A module's own bookkeeping is not a measurement of the module.** Every section read
+  `down.travelled`, the field the slide increments itself. A mutation that advanced the BODY by
+  a third of each step while still adding the full step to `travelled` threw the body 3.18 m
+  instead of 9.53 and passed all 65 checks. The position was printed and never asserted.
+- **A gate that cannot see the render cannot see the feature.** Five mutations — the fall
+  transform disabled, the fall angle negated, a fixed fall axis, the throw reversed, the drawn
+  car written from its un-shunted lane position — were invisible offline and all caught by the
+  browser gate. Both modules build their InstancedMeshes against a `{ add() {} }` scene and
+  never touch a GL context, so **`getMatrixAt` works in node**: the same assertions moved
+  offline cost 295 ms against twelve minutes, which is the difference between a check that runs
+  per edit and one that runs once a round.
+- **A control that the system quietly repairs is not a control.** The "empty ground" arm nulled
+  a pedestrian slot and compared against it — and the refill pass fills a freed slot on the
+  **next frame**, so the control was "the same ground with a fresh pedestrian standing on it".
+  It agreed with the test arm to 0.17 m, which read as a small effect rather than as no control.
+- **A section can measure nothing while printing a number.** The gridlock arm put a car "in the
+  state the rule watches" with `car.holds = [car.edge]` — `holds` holds junction VERTEX ids,
+  `car.edge` is an EDGE index, and the module clears it next update. 0 frames in the state, both
+  arms reading 0.02 s against a 20 s limit, and the known-bad check under them was
+  `1.2 + 10 * 0.25 > 0`.
+- **The thing a feature is exempted from needs a bound.** That exemption let a car be pinned
+  indefinitely by repeated 1.01 m/s nudges, and the anti-gridlock rule then deleted the innocent
+  cars queued behind it: 9 deletions in 240 s against 0 in the control. The module's own
+  derivation says "no car is stationary longer than stuckLimitS" and the new code made that
+  false without restating it.
+- **Guard the DIRECTION as well as the magnitude.** `Math.hypot(NaN, NaN) || 1` is 1, so a NaN
+  direction sailed past a guard on the delta-v and produced a car drawn at (NaN, NaN) that could
+  never despawn — `NaN > radius` is false — and never recover. A ZERO direction was worse: the
+  fall axis became the zero vector, `setFromAxisAngle` returned the identity, and the casualty
+  stood bolt upright for 45 s while `isDown()` said otherwise.
 
 ## A check whose two sides are both zero is not a check
 

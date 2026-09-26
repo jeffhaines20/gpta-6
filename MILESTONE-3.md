@@ -472,11 +472,22 @@ after 12 s. Two ways that goes wrong, both found by measurement:
   72 km/h ram, which is the one crash a player walks back to look at. The offset is now fitted to
   what is clear at the publish site: 0 of 1,440, with exactly 11 offsets shortened.
 
-**And a shunted car must not read as gridlocked.** `traffic.js` deletes a car that has been
-immobile past a 20 s limit while holding a junction, which is the right rule and would have
-despawned every rammed car a few seconds after the impact — the reaction would have read as the
-car vanishing. A stopped-by-impact car is excluded from it: alive after 23 s holding a junction,
-worst `stuckS` 0.02.
+**And a shunted car must not read as gridlocked** — which turned out to be half right, and the
+half that was wrong cost more than the half that was right. `traffic.js` deletes a car immobile
+past a 20 s limit while holding a junction. A single ram stops a car for at most 5 s, so it
+cannot trip that rule by itself: "it would have despawned every rammed car" was not reachable,
+and the section of the gate that claimed to prove it never entered the state it named. What the
+exemption actually protects is a car that was ALREADY near the limit when it was hit.
+
+And the exemption was unbounded. `stopS` is a max rather than an accumulator, so a blind review
+pinned a car indefinitely with 215 nudges of `dv 1.01` over 300 s — and the rule then deleted the
+innocent cars queued behind it instead: **9 gridlock deletions in a 240 s run against 0 in the
+control, none of them the pinned car.** The module's own derivation ends "no car is stationary
+longer than `stuckLimitS`", and the shunt was the first mechanism that could make that false; it
+was loosened without being restated, which is the thing this repo has a rule about. The exemption
+now expires after 10 s of accumulated shunt-stopped time — two full-length stops, the longest a
+single collision can honestly justify — and a ram FREEZES the stuck counter rather than zeroing
+it, because zeroing also forgave a car that was genuinely gridlocked before it was hit.
 
 **A police car still does not react**, and that is counted rather than hidden: `src/pursuit.js`
 holds its units as an edge parameter and an instance matrix with no per-unit state to shunt, so
@@ -505,15 +516,20 @@ lags, and the head trails. So the gate now asserts the shortfall is 0.4–1.4 m 
 up axis points against the direction of travel (measured −1.000): a fall composed the other way
 would read 22.3 m and, in a screenshot, look like the body had been tipped over forwards.
 
-**Priced, and the first price was wrong in a way worth writing down.** 24 casualties in a crowd
-of 96 cost 35–73 µs a frame over the same crowd walking, about 1.5–3 µs each and 0.2–0.4% of a
-60 fps frame. The first version of that comparison timed the quiet crowd once, last, and read
-−0.5, 12.5 and 42.1 µs over three runs — a negative cost is not a cost. The cause was ORDER: the
-casualty arm runs first and warms the code paths, so the single quiet arm that followed was
-measured in a differently-warmed process, and its own readings trend downward run to run (243.3,
-215.2, 202.6 µs). Timing the quiet crowd twice, back to back, gives a spread of 1.2–6.2 µs
-between identical code, against which the casualty delta is an order of magnitude clear. The gate
-now prints that spread beside the delta and asserts the bound, not the figure.
+**Priced — and the price was wrong twice before it was right.** The honest answer is that the
+casualty cost is BELOW THE RESOLUTION of this measurement. The first version timed the quiet
+crowd once, last, and read −0.5, 12.5 and 42.1 µs over three runs; a negative cost is not a cost.
+I diagnosed ordering, ran the quiet arm twice back to back, got a consistent 35–73 µs, and wrote
+"about 1.5–3 µs each" here. A blind review then interleaved the arms properly — six alternating
+repetitions, both equally warm, minima compared — and got −14.3, +6.0 and −10.6 µs. The 35–73 was
+still the ordering: the casualty arm ran first and warmed the paths, and comparing it against the
+MINIMUM of two later quiet runs biases the difference high by construction. Its own runs of the
+shipped gate spanned 19.6 to 187.8 µs and failed the 100 µs bound in 2 of 11.
+
+The gate now interleaves, prints each arm's spread beside the difference, and asserts only a
+per-frame ceiling with a 13× margin. Five consecutive clean-box runs give differences of +1.0,
+−33.1, −4.2, −20.2 and −10.5 µs against spreads of 29–163: the cost is real in principle and this
+instrument cannot see it, which is the result.
 
 The shunt's building fit is one `clearAt` per shunted car per frame at 212.8 ns, up to five when
 the destination is blocked: 10.6 µs a frame with ten cars shunted at once and every one of them
@@ -563,3 +579,86 @@ and is already counted (`damageReport().impactSoundsWanted`). Then police cars, 
 rather than code now. The budget gate can take the road course with `DRIVE_COURSE=roads` when
 someone re-baselines it; until then the triangle and chunk-stall WARNs stand between this and a
 shippable milestone.
+
+## 9. Three blind reviewers took section 8 apart
+
+The reaction round shipped with 65 passing checks, a live gate, and five frames. Three
+independent reviewers — one on the physics, one mutating the modules to see which checks had
+teeth, one on integration and edge cases — returned about forty findings between them. Almost
+everything below is a correction to something section 8 asserts.
+
+**The fatality threshold was the wrong number, and its own citation refuted it.** `damage.js`
+said "roughly 10% at 30 km/h, 50% at 45 km/h, 90% at 80 km/h (Ashton & Mackay; Rosen & Sander)"
+and put the line at 45 km/h. Rosén & Sander (2009) fit
+
+    P(fatal) = 1 / (1 + exp(6.9 - 0.090 v))        v in km/h
+
+to 490 weighted GIDAS cases, which gives **1.5% at 30, 5.5% at 45, 8.3% at 50, 57% at 80, and
+50% at 76.7 km/h** — the comment's figures are 6.8×, 9.1× and 1.6× that curve. The 10/50/90 shape
+is the older Ashton-family estimate, and Rosén, Stigson & Sander's 2011 review — the same
+authors, co-cited in the same line — exists to correct it: studies biased toward severe
+accidents, "Ashton (1980) among them", gave 35–90% at 50 km/h and "the data bias inevitably
+rendered these risk estimates too high". The gate could not see any of this, because what it
+asserted was that `pedestrians.js` and `damage.js` agreed on the number.
+
+So the curve is now the model. `pedestrians.js` draws against it with a hash of the pedestrian's
+id and the impact speed — deterministic, order-independent, and drawing nothing from the shared
+random stream, so the reason first given for preferring a threshold ("a dice roll would make
+every capture different") does not apply. Over 4,000 bodies the outcome tracks the published
+curve to 0.6 points. The gameplay follows the evidence: at 50 km/h eight people in a hundred die
+where before everyone did, and the crime `main.js` files now follows what happened to the body
+rather than being recomputed from the speed.
+
+**Twelve of twenty-seven mutations passed the gate.** The reviewer who ran them copied the
+modules, broke them one way at a time, and ran the shipped gate against each. The catalogue is in
+CLAUDE.md; the shape is that the gate read the module's own bookkeeping (`down.travelled`) rather
+than where the body was, and could not see the render at all. Both modules build their
+InstancedMeshes against a `{ add() {} }` scene, so the browser gate's pose assertions moved
+offline for **295 ms** against twelve minutes. All twelve now fail their mutation, and the gate
+has gone from 65 checks to 112.
+
+**Nine defects in the module, in order of how much they cost.**
+
+| | found | fixed |
+|---|---|---|
+| The gridlock exemption was unbounded | 215 nudges pinned a car for ever; 9 innocent cars deleted in 240 s against 0 in the control | expires at 10 s of shunt-stopped time; a ram freezes the stuck counter instead of zeroing it |
+| A NaN direction was accepted | car drawn at (NaN, NaN), never despawns (`NaN > radius` is false), never recovers | both `hit()`s guard the direction, not just the magnitude |
+| A zero direction made the fall the identity | casualty stands bolt upright for 45 s while `isDown()` says otherwise | same guard |
+| The shunt cap was per-axis | two orthogonal rams reach 6.364 m against a documented 4.5 | the cap is on the offset vector |
+| The spin had no sign | every car span the same way whichever side it was hit; a head-on ram span it as hard as a t-bone | signed by the cross product of heading and blow, scaled by the lateral share |
+| The shunt was a teleport | 2.84 m in one 1/60 s frame, an implied 170 m/s, under a comment saying it "slides" | walked out at the same deceleration, exactly integrated |
+| Shunts pushed cars into each other | mid-block overlap is impossible in this fleet (0 pair-frames); one ram every 2 s made 11, two made 338, closest pair 0.62 m | the fit tests other cars as well as buildings |
+| A body was exempt from the despawn radius | simulated and posed **329 m** behind the player, and the streaming-orphan census counted none of it | the down branch respects both |
+| A pedestrian hit alongside a car produced no crime at all | an 80 kg body can never out-delta-v a 1400 kg car: 1.04 against 9.60 | the worst of each KIND reacts; the damage charge stays one |
+
+**And four numbers in the prose were wrong.** The throw model is 7.26% ABOVE the 30 km/h anchor
+where the comment claimed −7% (the tool printed it through `toFixed(0)`); the rule-of-thumb band
+is 42–56 km/h, not "roughly 30 to 60"; the shunt cap is a 63 km/h ram, not 72, and three
+different delta-v-to-speed conversions were in use at once; and the sub-step bound was out by a
+factor of two, because sub-steps cut evenly in time are not even in distance.
+
+**One thing the review corrected in my favour, which is worth recording too.** `d = v²/(2μg)` is
+not the "first-order form" of a projection-and-slide model — it is that family's MINIMUM, the
+inversion of Searle's maximum-speed bound, and adding a launch angle throws 1.91× further at the
+optimum. It reproduces the published anchors because two errors cancel: no launch angle
+under-throws, and using the whole vehicle speed as the launch speed over-throws by about as much.
+So μ = 0.66 is a three-point empirical fit (the anchors imply 0.7079, 0.6292, 0.6555, mean 0.664)
+that lands on the midpoint of the quoted band, not an independently measured coefficient. The
+model is unchanged and the comment now says what it is.
+
+### Gates after this round
+
+| Gate | Result |
+|---|---|
+| `reaction-test` | PASS — 112 checks, and 12 mutations that used to pass now fail it |
+| `damage-test` | PASS — 111 checks, including the published curve at four speeds |
+| `traffic-selftest` | PASS — 22 checks |
+| `blocker-test` / `crash-test` / `roadpath-test` / `route-drive` | PASS |
+| `mission-test` / `wanted-test` / `physics-test` / `golden-trace` | PASS |
+| `geom-audit` / `leaf-mask` / `sim-determinism` / `check-syntax` | PASS |
+
+**Still open from the reviews, and worth saying rather than burying.** A thrown body slides
+through walkers — the slide tests buildings only, and a body at 14 m/s crossed 6 cm from a
+pedestrian. A player who sits on a casualty can knock it down again every 4.42 s as it rises,
+which is seven `pedestrianHit` crimes in 30 s. And the crowd walks through street furniture,
+which predates all of this (#67).

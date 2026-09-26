@@ -24,7 +24,8 @@
 // §1 checks the three published anchors, and the 15 km/h one is a PREDICTION of the
 // energy curve rather than an input to it, which is the only evidence available here
 // that the curve shape is right.
-import { DamageModel, IMPACT, ANCHORS, HALF_EXTENT, normalDv, pairDv, dynamicContact } from '../src/damage.js';
+import { DamageModel, IMPACT, ANCHORS, HALF_EXTENT, normalDv, pairDv, dynamicContact,
+  pedFatalityRisk } from '../src/damage.js';
 import fs from 'node:fs';
 
 const checks = [];
@@ -272,7 +273,9 @@ const crimeRows = [
   ['roadblock',             { dv: kmh(30), kind: IMPACT.roadblock },               'roadblockRun'],
   ['ped at 20 km/h',        { dv: 0.2, kind: IMPACT.pedestrian, speed: kmh(20) },  'pedestrianHit'],
   ['ped at 44 km/h',        { dv: 0.6, kind: IMPACT.pedestrian, speed: kmh(44) },  'pedestrianHit'],
-  ['ped at 46 km/h',        { dv: 0.7, kind: IMPACT.pedestrian, speed: kmh(46) },  'pedestrianKilled'],
+  ['ped at 46 km/h',        { dv: 0.7, kind: IMPACT.pedestrian, speed: kmh(46) },  'pedestrianHit'],
+  ['ped at 76 km/h',        { dv: 1.1, kind: IMPACT.pedestrian, speed: kmh(76) },  'pedestrianHit'],
+  ['ped at 78 km/h',        { dv: 1.1, kind: IMPACT.pedestrian, speed: kmh(78) },  'pedestrianKilled'],
 ];
 for (const [label, ev, want] of crimeRows) {
   dm.repair();
@@ -281,8 +284,42 @@ for (const [label, ev, want] of crimeRows) {
   check(`${label} reports ${want}`, got === want, `got ${got}`);
   if (want) check(`${want} exists in wanted.js`, !!CRIMES[want]);
 }
+/**
+ * THE LINE MOVED, AND HERE IS WHY, because a gate threshold is never restated without its
+ * derivation. It was 45 km/h, cited as the 50% point of the published speed-versus-fatality
+ * curve. It is not the 50% point of any curve either cited paper offers: Rosen & Sander (2009)
+ * fit P = 1/(1 + exp(6.9 - 0.090v)), which reads 5.5% at 45 km/h and crosses 50% at 76.7. The
+ * 10/50/90-at-30/45/80 shape came from the older Ashton-family studies, which Rosen, Stigson &
+ * Sander's 2011 review — the same authors, co-cited in the old comment — corrects explicitly as
+ * biased toward severe accidents and therefore too high.
+ *
+ * `pedKillSpeed` is now that 50% point and nothing else. A host with a crowd module does not use
+ * it at all: src/pedestrians.js draws against the whole curve, and district/main.js files the
+ * crime from what actually happened to the body.
+ */
 check('the pedestrian fatality line is the 50% point of the published curve',
-  near(ANCHORS.pedKillSpeed * 3.6, 45, 0.1));
+  near(ANCHORS.pedKillSpeed * 3.6, 76.7, 0.3));
+for (const [kmh, want] of [[30, 1.48], [45, 5.47], [50, 8.32], [80, 57.44]]) {
+  const got = pedFatalityRisk(kmh / 3.6) * 100;
+  console.log(`    fatality risk at ${kmh} km/h: ${got.toFixed(2)}% (published ${want}%)`);
+  check(`the curve reproduces Rosen & Sander at ${kmh} km/h`, near(got, want, 0.02),
+    `${got.toFixed(3)} vs ${want}`);
+}
+check('and it crosses 50% exactly at the anchor',
+  near(pedFatalityRisk(ANCHORS.pedKillSpeed), 0.5, 0.002),
+  `${(pedFatalityRisk(ANCHORS.pedKillSpeed) * 100).toFixed(2)}%`);
+// KNOWN-BAD: the curve this used to quote, against the one it cited.
+console.log('    KNOWN-BAD, the old 10/50/90 shape against the published curve:');
+let worstRatio = 0;
+for (const [kmh, old] of [[30, 10], [45, 50], [80, 90]]) {
+  const got = pedFatalityRisk(kmh / 3.6) * 100;
+  const ratio = old / got;
+  worstRatio = Math.max(worstRatio, ratio);
+  console.log(`      ${kmh} km/h: the old comment said ${old}%, the curve says ${got.toFixed(2)}% ` +
+    `— ${ratio.toFixed(1)}x`);
+}
+check('KNOWN-BAD: the old figures are out by up to an order of magnitude', worstRatio > 5,
+  `${worstRatio.toFixed(1)}x`);
 
 // ---------------------------------------------------------------------------
 // §9  The mass ratio, which is the reason there is no pedestrian special case.

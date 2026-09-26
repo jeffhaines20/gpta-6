@@ -762,6 +762,16 @@ function dynamicImpacts() {
     restitution: vehicle.wallRestitution,
   };
   let worst = null, worstKind = null;
+  /**
+   * AND THE WORST OF EACH KIND SEPARATELY. One `worst` by delta-v is right for the DAMAGE charge
+   * — driving into a queue of stopped traffic is one crash, not three — and wrong for everything
+   * else, because an 80 kg body can never out-delta-v a 1400 kg car: at a 16.7 m/s closing speed
+   * a pedestrian is 1.04 and a car is 9.60. So a frame that touched both a person and a car
+   * produced no knockdown AND NO `pedestrianHit` CRIME AT ALL. Found by a blind review; the
+   * worst-only rule was documented for the damage and inherited silently by the crime and the
+   * reaction.
+   */
+  let worstPed = null, worstCar = null;
 
   // --- traffic. `_lastPositions` is held for the frame by src/traffic.js precisely so
   // a consumer can classify overlaps; its entries carry x, z, v and yaw.
@@ -776,7 +786,14 @@ function dynamicImpacts() {
       // The traffic car's velocity: speed along its own heading. `v` is m/s, `yaw` is
       // only carried for the nearest few cars, so fall back to stationary — which
       // OVERSTATES the closing speed for a car moving away and understates nothing.
-      const cy = typeof c.yaw === 'number' ? c.yaw : null;
+      /**
+       * THE DIRECTION OF TRAVEL, NOT THE DIRECTION IT IS POINTING. `yaw` is the DRAWN heading and
+       * now carries the shunt's spin, so on a recovering car the two differ: measured worst
+       * 0.214 rad at 4.43 m/s, a velocity error of 0.947 m/s and up to 0.544 m/s of charged
+       * delta-v. `heading` is the direction along the edge, which is what a velocity needs.
+       */
+      const cy = typeof c.heading === 'number' ? c.heading
+        : (typeof c.yaw === 'number' ? c.yaw : null);
       const hit = dynamicContact({ ...base, ...OTHER_CAR,
         bodyX: c.x, bodyZ: c.z,
         bodyVX: cy === null ? 0 : Math.sin(cy) * (c.v ?? 0),
@@ -785,6 +802,7 @@ function dynamicImpacts() {
         worst = hit; worstKind = IMPACT.vehicle;
         worst.carId = c.id; worst.pedIndex = -1;
       }
+      if (hit && (!worstCar || hit.dv > worstCar.dv)) { worstCar = hit; worstCar.carId = c.id; }
     }
   }
   // --- pedestrians.
@@ -805,6 +823,7 @@ function dynamicImpacts() {
         // pass could tell that a pedestrian had been struck and not WHICH one.
         worst.pedIndex = p.i; worst.carId = null;
       }
+      if (hit && (!worstPed || hit.dv > worstPed.dv)) { worstPed = hit; worstPed.pedIndex = p.i; }
     }
   }
   /**
@@ -854,13 +873,33 @@ function dynamicImpacts() {
    * direction handed over is the player car's own direction of travel, because that is the way a
    * struck body or a shunted car goes.
    */
-  const travel = Math.hypot(vehicle.velocity.x, vehicle.velocity.z) || 1;
+  const travel = Math.hypot(vehicle.velocity.x, vehicle.velocity.z);
+  if (!(travel > 0) || !Number.isFinite(travel)) return;   // no direction, nothing to hand over
   const tx = vehicle.velocity.x / travel, tz = vehicle.velocity.z / travel;
-  if (worstKind === IMPACT.pedestrian && worst.pedIndex >= 0) {
-    const r = peds.hit(worst.pedIndex, { speed: vehicle.speed, dirX: tx, dirZ: tz });
-    if (r) { dynStats.pedKnockdowns++; if (r.fatal) dynStats.pedFatal++; }
-  } else if (worstKind === IMPACT.vehicle && worst.carId != null) {
-    const r = traffic.hit(worst.carId, { dv: worst.dv, dirX: tx, dirZ: tz, kind: 'vehicle' });
+  /**
+   * THE SPEED HANDED TO THE CROWD IS THE HORIZONTAL ONE. `vehicle.speed` is the 3-D velocity
+   * magnitude, and the throw direction is the horizontal projection, so a car landing hard threw
+   * a pedestrian its full 3-D speed sideways and could cross the fatality line on vertical
+   * velocity alone.
+   */
+  let pedCrime = null;
+  if (worstPed && worstPed.pedIndex >= 0) {
+    const r = peds.hit(worstPed.pedIndex, { speed: travel, dirX: tx, dirZ: tz });
+    if (r) {
+      dynStats.pedKnockdowns++;
+      if (r.fatal) dynStats.pedFatal++;
+      /**
+       * AND THE CRIME FOLLOWS THE PERSON. Two things were wrong with taking it from the damage
+       * record alone. It is filed against the FRAME'S worst contact, so a pedestrian struck
+       * alongside a car was never reported at all; and it is classified from the speed, while
+       * whether the person actually died is decided by src/pedestrians.js. One outcome, one
+       * crime: `pedestrianKilled` if the body stays down, `pedestrianHit` if it gets up.
+       */
+      pedCrime = r.fatal ? 'pedestrianKilled' : 'pedestrianHit';
+    }
+  }
+  if (worstCar && worstCar.carId != null) {
+    const r = traffic.hit(worstCar.carId, { dv: worstCar.dv, dirX: tx, dirZ: tz, kind: 'vehicle' });
     if (r) dynStats.carShunts++;
   }
 
@@ -876,11 +915,16 @@ function dynamicImpacts() {
         worst.dirX * right.z + worst.dirZ * fwd.z));
   }
   const rec = damage.impact({ dv: worst.dv, kind: worstKind,
-    dirX: worst.dirX, dirZ: worst.dirZ, speed: vehicle.speed });
+    dirX: worst.dirX, dirZ: worst.dirZ, speed: travel });
   // A pedestrian is a crime at any speed even though it costs the car nothing, so the
-  // crime is taken from the record whether or not the impact was applied to health.
-  if (rec.crime) {
-    const r = wanted.reportCrime(rec.crime, { at: { x: vehicle.position.x, z: vehicle.position.z } });
+  // crime is taken from the record whether or not the impact was applied to health. The
+  // pedestrian's own crime is reported above, from what happened to the body, so the record's
+  // copy of it is dropped rather than filed twice.
+  const crimes = [];
+  if (pedCrime) crimes.push(pedCrime);
+  if (rec.crime && !(worstKind === IMPACT.pedestrian && pedCrime)) crimes.push(rec.crime);
+  for (const c of crimes) {
+    const r = wanted.reportCrime(c, { at: { x: vehicle.position.x, z: vehicle.position.z } });
     if (r.applied) damageCrimes++; else damageIgnored++;
   }
   if (rec.applied) hudHitPending = Math.max(hudHitPending, rec.severity);
@@ -1471,7 +1515,7 @@ window.__district = {
    * speed. For the same reason __district.crash() exists: a headless page renders under one
    * frame a second, so hitting a specific pedestrian on purpose by driving costs minutes.
    */
-  knockNearestPed(speedKmh = 40) {
+  knockNearestPed(speedKmh = 40, { kill = null } = {}) {
     if (!peds) return null;
     let best = null, bestD = Infinity;
     for (const p of peds.positions()) {
@@ -1481,7 +1525,9 @@ window.__district = {
     }
     if (!best) return null;
     const fwd = _dynFwd.set(0, 0, 1).applyQuaternion(vehicle.quaternion);
-    const r = peds.hit(best.i, { speed: speedKmh / 3.6, dirX: fwd.x, dirZ: fwd.z });
+    // `kill` is exposed because the outcome is now a draw against the published fatality curve:
+    // a probe that needs a body to stay down cannot get one by picking a speed.
+    const r = peds.hit(best.i, { speed: speedKmh / 3.6, dirX: fwd.x, dirZ: fwd.z, kill });
     // The direction is returned because a probe cannot check which way a body went over
     // without it, and which way it goes over is the whole kinematics of the thing.
     return r ? { ...r, distance: +bestD.toFixed(2), dirX: fwd.x, dirZ: fwd.z } : null;

@@ -255,8 +255,13 @@ if (anyPed) {
     check('and the crowd module counted the same knockdown',
       after.crowd.knockdowns >= after.dynamic.pedKnockdowns,
       `${after.crowd.knockdowns} vs ${after.dynamic.pedKnockdowns}`);
-    check('60 km/h is over the fatality line, so it is counted as one',
-      after.crowd.fatal > 0 && after.crowd.worstSpeed >= 12.5,
+    // Whether THIS body died is a draw against the curve (16.7 m/s is 18.2%), so what is
+    // asserted is that the speed reached the crowd and the outcome is one of the two.
+    check('the crowd saw the real impact speed',
+      after.crowd.worstSpeed >= 16 && after.crowd.worstSpeed <= 17.5,
+      JSON.stringify(after.crowd));
+    check('and the fatality count is a subset of the knockdowns',
+      after.crowd.fatal >= 0 && after.crowd.fatal <= after.crowd.knockdowns,
       JSON.stringify(after.crowd));
   } else {
     // A crowd that walks is a crowd that may not be where it was 12 frames ago, and at
@@ -409,11 +414,16 @@ const POSE_FN = `(() => {
   return out;
 })()`;
 const poseBefore = await page.evaluate(POSE_FN);
-const victim = await page.evaluate(() => __district.knockNearestPed(60));
+// FORCED FATAL. The outcome is a draw against Rosen & Sander's curve now — 60 km/h is 18.2% —
+// so a probe that needs the body to stay prone for the length of a screenshot asks for it
+// rather than inferring it from the speed.
+const victim = await page.evaluate(() => __district.knockNearestPed(60, { kill: true }));
 console.log(`    knocked down: ${JSON.stringify(victim)}`);
 check('the harness found a pedestrian to knock down', !!victim, JSON.stringify(victim));
 if (victim) {
-  check('60 km/h is over damage.js fatality line', victim.fatal === true, JSON.stringify(victim));
+  check('the casualty is fatal, as asked', victim.fatal === true, JSON.stringify(victim));
+  check('and the curve puts 60 km/h at 18%, which is why it had to be asked for',
+    victim.risk > 0.17 && victim.risk < 0.19, `${victim.risk}`);
   check('and the throw distance is the reconstruction figure',
     near(victim.throwWanted, 21.45, 0.05), `${victim.throwWanted}`);
   // The fall is 0.32 s and dt is clamped to 0.05, so it completes in about seven frames. Wait on
