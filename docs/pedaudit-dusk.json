@@ -1,7 +1,7 @@
 {
  "tod": "dusk",
  "facts": {
-  "alive": 61,
+  "alive": 52,
   "count": 96,
   "meshes": {
    "shadows": null,
@@ -53,42 +53,42 @@
   },
   "crowdTrisTotal": 59136,
   "nearest": {
-   "distM": 7.48,
+   "distM": 7.47,
    "footPx": {
-    "x": 2484,
-    "y": 1116
+    "x": 2506,
+    "y": 1122
    },
    "headPx": {
-    "x": 2445,
-    "y": 660
+    "x": 2465,
+    "y": 661
    },
-   "pixelHeight": 456,
-   "speedMs": 0.76
+   "pixelHeight": 461,
+   "speedMs": 0.57
   },
   "nearestFive": [
    7.5,
    7.7,
    18.5,
-   18.7,
+   18.8,
    19.3
   ],
   "envIntensity": 1,
-  "sceneTriangles": 790017,
+  "sceneTriangles": 785505,
   "sceneCalls": 229
  },
  "framing": {
-  "x": -8.1,
+  "x": -8.2,
   "z": 20.6,
   "yaw": 2.22,
-  "v": 1.01,
-  "nearestNeighbourM": 10.6,
+  "v": 0.97,
+  "nearestNeighbourM": 10.5,
   "camDistM": 2.8,
   "ground": 0
  },
  "pose": {
   "slot": 29,
   "tier": "near",
-  "speedMs": 1.049,
+  "speedMs": 1.023,
   "torsoDet": 1.602,
   "headDet": 1.2411,
   "limbDets": [
@@ -103,115 +103,115 @@
   ],
   "negativeDeterminantInstances": 0,
   "zeroDeterminants": 0,
-  "nearTierPeds": 8,
-  "instancesChecked": 940
+  "nearTierPeds": 7,
+  "instancesChecked": 860
  },
  "mask": {
-  "px": 181514
+  "px": 179170
  },
  "noiseFloor": {
-  "meanR": 65.8,
-  "meanG": 29.6,
+  "meanR": 66.3,
+  "meanG": 29.7,
   "meanB": 22,
-  "meanLum": 36.7,
+  "meanLum": 36.9,
   "meanAbsDiff": 0,
   "pctChanged": 0,
   "clipPct": 0,
-  "maskPx": 181514
+  "maskPx": 179170
  },
  "baseline": {
-  "meanR": 65.8,
-  "meanG": 29.6,
+  "meanR": 66.3,
+  "meanG": 29.7,
   "meanB": 22,
-  "meanLum": 36.7,
+  "meanLum": 36.9,
   "meanAbsDiff": null,
   "pctChanged": null,
   "clipPct": 0,
-  "maskPx": 181514
+  "maskPx": 179170
  },
  "rows": [
   {
    "label": "clothVC",
-   "meanR": 65.4,
-   "meanG": 29.3,
-   "meanB": 21.7,
-   "meanLum": 36.4,
-   "meanAbsDiff": 0.34,
-   "pctChanged": 1.1,
+   "meanR": 65.9,
+   "meanG": 29.4,
+   "meanB": 21.8,
+   "meanLum": 36.6,
+   "meanAbsDiff": 0.32,
+   "pctChanged": 1,
    "clipPct": 0,
-   "maskPx": 181514,
+   "maskPx": 179170,
    "aboveNoiseFloor": false
   },
   {
    "label": "doubleSide",
-   "meanR": 65.8,
-   "meanG": 29.6,
-   "meanB": 21.9,
-   "meanLum": 36.7,
+   "meanR": 66.3,
+   "meanG": 29.7,
+   "meanB": 22,
+   "meanLum": 36.9,
    "meanAbsDiff": 0.02,
    "pctChanged": 0.1,
    "clipPct": 0,
-   "maskPx": 181514,
+   "maskPx": 179170,
    "aboveNoiseFloor": false
   },
   {
    "label": "flipWinding",
-   "meanR": 65.5,
-   "meanG": 29.4,
-   "meanB": 21.9,
-   "meanLum": 36.6,
-   "meanAbsDiff": 0.17,
-   "pctChanged": 0.8,
+   "meanR": 66,
+   "meanG": 29.6,
+   "meanB": 22,
+   "meanLum": 36.8,
+   "meanAbsDiff": 0.16,
+   "pctChanged": 0.7,
    "clipPct": 0,
-   "maskPx": 181514,
+   "maskPx": 179170,
    "aboveNoiseFloor": false
   },
   {
    "label": "nosun",
-   "meanR": 65.7,
-   "meanG": 29.5,
-   "meanB": 21.9,
-   "meanLum": 36.7,
+   "meanR": 66.2,
+   "meanG": 29.7,
+   "meanB": 22,
+   "meanLum": 36.9,
    "meanAbsDiff": 0.06,
    "pctChanged": 0.1,
    "clipPct": 0,
-   "maskPx": 181514,
+   "maskPx": 179170,
    "aboveNoiseFloor": false
   },
   {
    "label": "noenv",
    "meanR": 2.3,
-   "meanG": 1.3,
+   "meanG": 1.2,
    "meanB": 1.1,
-   "meanLum": 1.5,
-   "meanAbsDiff": 35.26,
-   "pctChanged": 94.1,
+   "meanLum": 1.4,
+   "meanAbsDiff": 35.5,
+   "pctChanged": 93.9,
    "clipPct": 0,
-   "maskPx": 181514,
+   "maskPx": 179170,
    "aboveNoiseFloor": true
   },
   {
    "label": "nohemi",
-   "meanR": 65.8,
-   "meanG": 29.6,
-   "meanB": 21.9,
-   "meanLum": 36.7,
+   "meanR": 66.3,
+   "meanG": 29.7,
+   "meanB": 22,
+   "meanLum": 36.9,
    "meanAbsDiff": 0.01,
    "pctChanged": 0.1,
    "clipPct": 0,
-   "maskPx": 181514,
+   "maskPx": 179170,
    "aboveNoiseFloor": false
   },
   {
    "label": "nolamps",
-   "meanR": 65.7,
-   "meanG": 29.5,
-   "meanB": 21.9,
-   "meanLum": 36.7,
+   "meanR": 66.2,
+   "meanG": 29.7,
+   "meanB": 22,
+   "meanLum": 36.9,
    "meanAbsDiff": 0.06,
    "pctChanged": 0.1,
    "clipPct": 0,
-   "maskPx": 181514,
+   "maskPx": 179170,
    "aboveNoiseFloor": false
   }
  ]
