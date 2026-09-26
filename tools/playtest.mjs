@@ -32,7 +32,8 @@
 // the real HUD does not show is behind `debug()`, which a scenario may read when it is
 // diagnosing something but should not steer by.
 import fs from 'node:fs';
-import { Vehicle, BODY_RADIUS } from '../src/vehicle.js';
+import * as THREE from '../vendor/three.module.min.js';
+import { Vehicle, BODY_SAMPLES, BODY_RADIUS, BODY_ENCLOSING } from '../src/vehicle.js';
 import { FlatGround } from '../src/ground.js';
 import { BlockerIndex } from '../src/blockers.js';
 import { DamageModel, IMPACT, dynamicContact } from '../src/damage.js';
@@ -40,14 +41,18 @@ import { WantedSystem } from '../src/wanted.js';
 import { Traffic } from '../src/traffic.js';
 import { Pedestrians } from '../src/pedestrians.js';
 import { RoadGraph, followPath } from '../src/roadpath.js';
-import { MissionRunner } from '../src/mission.js';
+import { MissionRunner, OUTCOMES } from '../src/mission.js';
 import { MISSIONS } from '../src/missions.js';
-import { hardnessFor } from '../src/audio.js';
 
 const HZ = 120, DT = 1 / HZ;
 const OTHER_CAR = { bodyRadius: 0.95, bodyMass: 1400 };
 const PERSON = { bodyRadius: 0.35, bodyMass: 80 };
-const BODY_ENCLOSING = Math.hypot(0.95, 2.15);
+/** One victim, one offence, within this window. district/main.js's own figure and reason. */
+const PED_CRIME_WINDOW_S = 20;
+// Four distinct scratch vectors, not two reused, for the reason applyImpulseAt's own comment
+// gives: sharing one with a caller turned `offset.cross(impulse)` into a self-cross.
+const _fwd = new THREE.Vector3(), _right = new THREE.Vector3();
+const _imp = new THREE.Vector3(), _off = new THREE.Vector3();
 /** How far ahead a player can make out a car or a person, and how wide the view is. */
 const SIGHT_M = 70, SIGHT_HALF_ANGLE = 0.65;       // ~75 degrees across
 
@@ -78,15 +83,30 @@ export class Session {
     this.mission = new MissionRunner();
     this.t = 0;
     this.log = [];
-    this.stats = { crashes: 0, crimes: 0, knockdowns: 0, shunts: 0, sounds: 0,
+    // `impacts` is every damage record; `voices` is the subset src/audio.js would actually
+    // play. Those read 458 and 3 over 76 m of ordinary driving, because the median record is
+    // 0.007 m/s of kerb rumble and audio.js refuses anything under 0.6 — so a single number
+    // called "sounds" was wrong by two orders of magnitude, in the alarming direction.
+    this.stats = { crashes: 0, crimes: 0, knockdowns: 0, fatal: 0, shunts: 0,
+      impacts: 0, voices: 0, tested: 0, contacts: 0, pedRepeats: 0,
       worstDv: 0, distance: 0, topSpeed: 0 };
     this._lastPos = { x: 0, z: 0 };
     this._controls = { throttle: 0, brake: 0, steer: 0, handbrake: false };
     this._route = null;
+    this._outcome = OUTCOMES.RUNNING;
+    /** When each pedestrian was last reported as a crime, by their own id. See _contacts. */
+    this._pedCrimeAt = new Map();
+    /** The last pedestrian this session struck: who, how hard, and whether it was charged. */
+    this.lastHit = null;
     // Every damage record, as a line in the transcript — the same hook the crash voice uses.
     this.damage.onImpact = (rec) => {
-      this.stats.sounds++;
+      this.stats.impacts++;
+      // EVERY record, not only the moving-body ones. `worstDv` used to be set inside the
+      // dynamic pass alone, so a session that drove head-on into a building at 50 km/h
+      // reported a worst delta-v of 0.00 — the number a reader would quote first.
+      if (rec.dv > this.stats.worstDv) this.stats.worstDv = +rec.dv.toFixed(2);
       if (!(rec.dv > 0.6)) return;
+      this.stats.voices++;
       this.say(`CRUNCH  ${rec.dv.toFixed(1)} m/s into ${rec.kind}, ${rec.region}` +
         (rec.applied ? `, health now ${this.damage.health.toFixed(2)}` : ', no damage'));
     };
@@ -105,8 +125,22 @@ export class Session {
 
   say(line) { this.log.push({ t: +this.t.toFixed(2), line }); return this; }
 
-  /** What the player is doing with the controls. Same shape src/input.js produces. */
+  /**
+   * What the player is doing with the controls. Same shape src/input.js produces.
+   *
+   * IT REFUSES A NON-FINITE INPUT, because a player's hands cannot produce one and a
+   * scenario's arithmetic can. A playtester computed a steer angle from `route[i].x` on a
+   * route whose points are `[x, z, edge]` triples, got NaN, and drove the car to (NaN, NaN),
+   * where the game kept running: the speedo read NaN, the waypoint read NaN, and every object
+   * in the city appeared in `carsAhead` because `NaN > SIGHT_M` and `NaN < 0.01` are both
+   * false. A harness that lets that through reports a broken world instead of a broken input.
+   */
   drive({ throttle = 0, brake = 0, steer = 0, handbrake = false } = {}) {
+    for (const [k, n] of [['throttle', throttle], ['brake', brake], ['steer', steer]]) {
+      if (!Number.isFinite(n)) throw new Error(`drive(): ${k} is ${n}. A control input has to ` +
+        `be a finite number — check for an undefined field. routeToWaypoint() returns ` +
+        `[x, z, edgeIndex] triples, not {x, z} objects.`);
+    }
     this._controls = { throttle, brake, steer, handbrake };
     return this;
   }
@@ -124,10 +158,24 @@ export class Session {
       this._moving();
       this._contacts();
       if (this.mission.mission) {
-        const before = this.mission.hud().objective;
+        /**
+         * `hud()` RETURNS NULL THE INSTANT THE OUTCOME STOPS BEING RUNNING (mission.js:445),
+         * which is how a mission ends — so reading `.objective` off it unconditionally threw on
+         * the frame the last stage passed, every time, and this harness had therefore never
+         * once seen a mission finish. Both playtesters hit it; one had to reach `report()`
+         * instead to find out it had won.
+         */
+        const before = this.mission.hud();
         this.mission.update(DT, this._snapshot());
-        const after = this.mission.hud().objective;
-        if (after !== before) this.say(`OBJECTIVE  ${after ?? '(none)'}`);
+        const after = this.mission.hud();
+        const objBefore = before ? before.objective : null;
+        const objAfter = after ? after.objective : null;
+        if (objAfter !== objBefore) this.say(`OBJECTIVE  ${objAfter ?? '(none)'}`);
+        if (this.mission.outcome !== this._outcome) {
+          this._outcome = this.mission.outcome;
+          this.say(`MISSION ${this._outcome.toUpperCase()} after ` +
+            `${this.mission.time.toFixed(1)} s`);
+        }
       }
       this.t += DT;
     }
@@ -165,59 +213,119 @@ export class Session {
 
   /**
    * The moving-body pass, in the same shape district/main.js runs it: the worst contact of
-   * each KIND reacts, and the damage charge is the single worst. See main.js's own comment
-   * about why the worst-only rule is right for the charge and wrong for everything else.
+   * each KIND reacts, the damage charge is the single worst, and the crime follows the person.
+   *
+   * IT IS THE SAME CALL NOW, AND THE FIRST DRAFT WAS A PARAPHRASE OF IT. `base` carried a
+   * `yaw` scalar where src/damage.js's `dynamicContact` destructures
+   * `fwdX/fwdZ/rightX/rightZ/samples/carRadius`, so `for (const sz of samples)` threw on
+   * `undefined` the first time the car came within 3.3 m of anybody — 10.68 s and 208 m into
+   * a playtester's first session. It also skipped the push-out impulse, the pedestrian crime
+   * window and `restitution`, and it gated the whole pass behind `speed > 0.3` where main.js
+   * gates nothing and lets `closing > 0` decide.
+   *
+   * THE SELFTEST COULD NOT SEE ANY OF IT, which is the part worth keeping. Every arm ran
+   * `traffic: 0, peds: 0`, so the harness passed 7 of 7 while being unable to survive touching
+   * a single pedestrian — the exact shape CLAUDE.md's "a check whose two sides are both zero"
+   * section is about, in the file written to catch it in the game.
    */
   _contacts() {
     const v = this.vehicle;
-    const speed = Math.hypot(v.velocity.x, v.velocity.z);
-    if (!(speed > 0.3)) return;
-    const base = { carX: v.position.x, carZ: v.position.z, carVX: v.velocity.x,
-      carVZ: v.velocity.z, carMass: v.mass ?? 1400, yaw: this._yaw() };
-    let worstPed = null, worstCar = null;
-    for (const c of this.traffic._lastPositions) {
+    const fwd = _fwd.set(0, 0, 1).applyQuaternion(v.quaternion);
+    const right = _right.set(1, 0, 0).applyQuaternion(v.quaternion);
+    const base = {
+      carX: v.position.x, carZ: v.position.z,
+      fwdX: fwd.x, fwdZ: fwd.z, rightX: right.x, rightZ: right.z,
+      carVX: v.velocity.x, carVZ: v.velocity.z,
+      carMass: v.mass, samples: BODY_SAMPLES, carRadius: BODY_RADIUS,
+      restitution: v.wallRestitution,
+    };
+    // One `worst` by delta-v for the damage charge, and the worst of each KIND for the
+    // reactions, because an 80 kg body can never out-delta-v a 1,400 kg car: at 16.7 m/s of
+    // closing a pedestrian is 1.04 and a car is 9.60, so a frame that touched both used to
+    // produce no knockdown and no pedestrian crime at all.
+    let worst = null, worstKind = null, worstPed = null, worstCar = null;
+    for (const c of this.traffic._lastPositions ?? []) {
       const dx = c.x - base.carX, dz = c.z - base.carZ;
       if (dx * dx + dz * dz > (BODY_ENCLOSING + OTHER_CAR.bodyRadius) ** 2) continue;
+      this.stats.tested++;
+      // The direction of TRAVEL, not the direction it is pointing: `yaw` carries the shunt's
+      // spin and `heading` is the direction along the edge.
+      const cy = typeof c.heading === 'number' ? c.heading
+        : (typeof c.yaw === 'number' ? c.yaw : null);
       const hit = dynamicContact({ ...base, ...OTHER_CAR, bodyX: c.x, bodyZ: c.z,
-        bodyVX: Math.sin(c.heading ?? c.yaw ?? 0) * (c.v ?? 0),
-        bodyVZ: Math.cos(c.heading ?? c.yaw ?? 0) * (c.v ?? 0) });
-      if (hit && (!worstCar || hit.dv > worstCar.dv)) { worstCar = hit; worstCar.id = c.id; }
+        bodyVX: cy === null ? 0 : Math.sin(cy) * (c.v ?? 0),
+        bodyVZ: cy === null ? 0 : Math.cos(cy) * (c.v ?? 0) });
+      if (!hit) continue;
+      if (!worst || hit.dv > worst.dv) { worst = hit; worstKind = IMPACT.vehicle; }
+      if (!worstCar || hit.dv > worstCar.dv) { worstCar = hit; worstCar.carId = c.id; }
     }
     for (const p of this.peds.positions()) {
-      if (p.down) continue;
+      if (p.down) continue;          // a body on the ground is not a fresh crime
       const dx = p.x - base.carX, dz = p.z - base.carZ;
       if (dx * dx + dz * dz > (BODY_ENCLOSING + PERSON.bodyRadius) ** 2) continue;
+      this.stats.tested++;
       const hit = dynamicContact({ ...base, ...PERSON, bodyX: p.x, bodyZ: p.z });
-      if (hit && (!worstPed || hit.dv > worstPed.dv)) { worstPed = hit; worstPed.i = p.i; }
+      if (!hit) continue;
+      if (!worst || hit.dv > worst.dv) { worst = hit; worstKind = IMPACT.pedestrian; }
+      if (!worstPed || hit.dv > worstPed.dv) { worstPed = hit; worstPed.pedIndex = p.i; }
     }
-    if (!worstPed && !worstCar) return;
-    const tx = v.velocity.x / speed, tz = v.velocity.z / speed;
-    if (worstPed) {
-      const r = this.peds.hit(worstPed.i, { speed, dirX: tx, dirZ: tz });
+    if (!worst) return;
+    this.stats.contacts++;
+    const travel = Math.hypot(v.velocity.x, v.velocity.z);
+    if (!(travel > 0) || !Number.isFinite(travel)) return;   // no direction to hand over
+    const tx = v.velocity.x / travel, tz = v.velocity.z / travel;
+    let pedCrime = null;
+    if (worstPed && worstPed.pedIndex >= 0) {
+      const r = this.peds.hit(worstPed.pedIndex, { speed: travel, dirX: tx, dirZ: tz });
       if (r) {
         this.stats.knockdowns++;
-        this.say(`HIT     a pedestrian at ${(speed * 3.6).toFixed(0)} km/h — ` +
+        if (r.fatal) this.stats.fatal++;
+        pedCrime = r.fatal ? 'pedestrianKilled' : 'pedestrianHit';
+        // A casualty gets up 4.42 s after it goes down and can be knocked down again, so a
+        // player creeping back and forth over one person used to collect five stars from a
+        // single pedestrian. The window collapses the loop to one report.
+        for (const [vid, t] of this._pedCrimeAt) {
+          if (this.t - t > PED_CRIME_WINDOW_S) this._pedCrimeAt.delete(vid);
+        }
+        const last = this._pedCrimeAt.get(r.id);
+        if (last !== undefined && this.t - last <= PED_CRIME_WINDOW_S) {
+          pedCrime = null; this.stats.pedRepeats++;
+        } else this._pedCrimeAt.set(r.id, this.t);
+        this.lastHit = { id: r.id, fatal: !!r.fatal, speedKmh: +(travel * 3.6).toFixed(1),
+          throwM: +r.throwWanted.toFixed(2), charged: pedCrime !== null, t: +this.t.toFixed(2) };
+        this.say(`HIT     a pedestrian at ${(travel * 3.6).toFixed(0)} km/h — ` +
           `${r.fatal ? 'they do not get up' : 'thrown ' + r.throwWanted.toFixed(1) + ' m'}`);
-        this._crime(r.fatal ? 'pedestrianKilled' : 'pedestrianHit');
       }
     }
-    if (worstCar) {
-      const r = this.traffic.hit(worstCar.id, { dv: worstCar.dv, dirX: tx, dirZ: tz });
+    if (worstCar && worstCar.carId != null) {
+      const r = this.traffic.hit(worstCar.carId,
+        { dv: worstCar.dv, dirX: tx, dirZ: tz, kind: 'vehicle' });
       if (r) {
         this.stats.shunts++;
         this.say(`RAM     a traffic car, ${r.dv.toFixed(1)} m/s — knocked ${r.push.toFixed(1)} m`);
       }
     }
-    const worst = (worstCar && (!worstPed || worstCar.dv > worstPed.dv)) ? worstCar : worstPed;
-    const kind = worst === worstCar ? IMPACT.vehicle : IMPACT.pedestrian;
-    if (worst.dv > this.stats.worstDv) this.stats.worstDv = +worst.dv.toFixed(2);
-    const rec = this.damage.impact({ dv: worst.dv, kind, dirX: worst.dirX, dirZ: worst.dirZ,
-      speed });
-    if (rec.crime && kind !== IMPACT.pedestrian) this._crime(rec.crime);
-    if (kind !== IMPACT.pedestrian) {
+    // Push the car out and TAKE THE IMPULSE. A pedestrian does not push a car around, so the
+    // separation and the impulse are only for the car-mass bodies. Leaving the impulse out was
+    // not cosmetic: it is what spins the car after a side-on ram, so the harness answered
+    // "what does ramming feel like" with a car that stopped dead in its own lane.
+    if (worstKind !== IMPACT.pedestrian) {
       v.position.x += worst.nx * worst.depth;
       v.position.z += worst.nz * worst.depth;
+      const j = worst.dv * (OTHER_CAR.bodyMass / (v.mass + OTHER_CAR.bodyMass)) * v.mass;
+      v.applyImpulseAt(
+        _imp.set(worst.nx * j, 0, worst.nz * j),
+        _off.set(worst.dirX * right.x + worst.dirZ * fwd.x, 0,
+          worst.dirX * right.z + worst.dirZ * fwd.z));
     }
+    const rec = this.damage.impact({ dv: worst.dv, kind: worstKind,
+      dirX: worst.dirX, dirZ: worst.dirZ, speed: travel });
+    // The pedestrian's own crime is filed from what happened to the BODY, so the record's copy
+    // of it is dropped rather than filed twice.
+    const crimes = [];
+    if (pedCrime) crimes.push(pedCrime);
+    if (rec.crime && !(worstKind === IMPACT.pedestrian && pedCrime)) crimes.push(rec.crime);
+    for (const c of crimes) this._crime(c);
   }
 
   _yaw() {
@@ -234,7 +342,13 @@ export class Session {
     return this.mission.hud();
   }
 
-  /** The route line the HUD draws, as a player would follow it. */
+  /**
+   * The route line the HUD draws, as a player would follow it.
+   *
+   * THE POINTS ARE `[x, z, edgeIndex]` TRIPLES, not `{x, z}` objects — src/roadpath.js's own
+   * shape, and src/hud.js reads them that way. Said here because a playtester wrote
+   * `route[i].x`, got `undefined`, and steered the car to (NaN, NaN).
+   */
   routeToWaypoint() {
     const wp = this.mission.mission ? this.mission.hud().waypoint : null;
     if (!wp) { this._route = null; return null; }
@@ -265,7 +379,9 @@ export class Session {
       return { range: +d.toFixed(1), bearing: +Math.atan2(cross, dot).toFixed(2) };
     };
     const cars = [], people = [];
-    for (const c of this.traffic._lastPositions) {
+    // `_lastPositions` is assigned at the END of Traffic.update(), so it does not exist at all
+    // before the first step() — and look() at frame zero is the first thing a player does.
+    for (const c of this.traffic._lastPositions ?? []) {
       const a = ahead(c.x, c.z);
       if (a) cars.push({ ...a, speedKmh: +((c.v ?? 0) * 3.6).toFixed(0), askew: !!c.shunted });
     }
@@ -294,6 +410,9 @@ export class Session {
       stars: this.wanted.stars,
       objective: hud ? hud.objective : null,
       subtitle: hud ? hud.subtitle : null,
+      // hud() goes null when the mission ends, so without this a finished mission and no
+      // mission at all look identical from the seat.
+      missionOutcome: this.mission.mission ? this.mission.outcome : null,
       waypoint,
       // What is in front of the windscreen, nearest first, capped the way attention is.
       carsAhead: cars.slice(0, 6),
@@ -314,7 +433,7 @@ export class Session {
       damage: this.damage.report(),
       wanted: this.wanted.report(),
       mission: this.mission.mission ? this.mission.report() : null,
-      traffic: this.traffic._lastPositions.length,
+      traffic: (this.traffic._lastPositions ?? []).length,
       crowd: this.peds.positions().length,
       stats: { ...this.stats, distance: +this.stats.distance.toFixed(0) },
     };
@@ -331,21 +450,50 @@ export class Session {
  * driving. It is src/roadpath.js's own follower, which is the same one the route gate drives,
  * so a scenario that uses it is testing the world and not the controller.
  */
-export function driveTo(session, x, z, { maxSpeed = 16, timeout = 180 } = {}) {
+export function driveTo(session, x, z, { maxSpeed = 16, timeout = 180, offset = 0 } = {}) {
   const from = session.vehicle.position;
-  const path = session.roads.path(from.x, from.z, x, z, { spacing: 4, offset: 3, smoothPasses: 2 });
+  /**
+   * OFFSET 0, THE SAME LINE district/main.js DRAWS. This was `offset: 3` — a right-hand lane —
+   * and on this district's own roads a flat 3 m offset leaves the carriageway: both playtesters
+   * had the autopilot wreck the car on the mission's own return leg, one of them 5 times out of
+   * 6 starting headings at the identical point, (-189.8, -95). Isolated one term at a time, on
+   * the Five Points -> marina route, everything else held:
+   *
+   *     offset  0      0 of 181 route points blocked   arrived, health 1.00
+   *     offset  1.5    0 of 181                        arrived, health 1.00
+   *     offset -3      0 of 181                        arrived, health 0.60
+   *     offset  3     11 of 181                        WRECKED 411 m short
+   *
+   * The offset itself is fixed in src/roadpath.js (see the cap on `path`'s per-point width);
+   * this default is 0 because that is what a player is shown.
+   */
+  const path = session.roads.path(from.x, from.z, x, z, { spacing: 4, offset, smoothPasses: 2 });
   if (!path || !path.points || path.points.length < 2) return { arrived: false, why: 'no route' };
+  /**
+   * AND IT SAYS SO WHEN THE ROUTE IS INSIDE A BUILDING, rather than driving into it and
+   * reporting 'wrecked'. No follower can steer out of a road that is inside a building — the
+   * blocked count tells a reader which of the two they are looking at.
+   */
+  let blocked = 0;
+  for (const p of path.points) if (session.blockers.resolveCircle(p[0], p[1], BODY_RADIUS)) blocked++;
   const state = { i: 0 };
   const t0 = session.t;
   while (session.t - t0 < timeout) {
     const v = session.vehicle;
     const f = followPath(path.points, { x: v.position.x, z: v.position.z, yaw: session._yaw(),
       speed: v.speed }, state, { maxSpeed });
-    if (f.done) return { arrived: true, seconds: +(session.t - t0).toFixed(1) };
+    if (f.done) {
+      return { arrived: true, seconds: +(session.t - t0).toFixed(1), points: path.points.length,
+        metres: +path.length.toFixed(0), blocked };
+    }
     session.drive(f.controls).step(DT * 8);
-    if (session.damage.wrecked) return { arrived: false, why: 'wrecked', seconds: +(session.t - t0).toFixed(1) };
+    if (session.damage.wrecked) {
+      return { arrived: false, why: blocked ? `wrecked (route has ${blocked} of ` +
+        `${path.points.length} points inside a building)` : 'wrecked',
+      seconds: +(session.t - t0).toFixed(1), blocked };
+    }
   }
-  return { arrived: false, why: 'timeout' };
+  return { arrived: false, why: 'timeout', blocked };
 }
 
 // ---------------------------------------------------------------------------
@@ -358,34 +506,245 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
   await (mod.default ?? mod.run)({ Session, driveTo });
 } else if (SELFTEST) {
   /**
-   * A harness that cannot fail is not a harness. Two arms: a session that drives into a
-   * building must lose health and say so in its transcript, and one that idles must not.
+   * A HARNESS THAT CANNOT FAIL IS NOT A HARNESS, AND THIS ONE COULD NOT.
+   *
+   * The first version passed 7 of 7 while being unable to survive touching a single pedestrian,
+   * because every one of its arms ran `traffic: 0, peds: 0` — so the whole moving-body pass, the
+   * `HIT`/`RAM` transcript lines and the crowd and fleet reactions were unreachable code that
+   * nothing exercised. Two playtesters found it inside sixteen seconds of play each and both had
+   * to patch the harness before they could start. It is CLAUDE.md's "a check whose two sides are
+   * both zero is not a check", in the file written to catch that class of fault in the game.
+   *
+   * So every arm below asserts that the thing it measures HAPPENED — a knockdown, a shunt, a
+   * mission outcome — and each has a control that must read zero for the same instrument.
    */
   let pass = 0, fail = 0;
   const check = (name, ok, detail) => {
     if (ok) { pass++; console.log(`  ok   ${name}${detail ? '  ' + detail : ''}`); }
     else { fail++; console.log(`  FAIL ${name}  ${detail ?? ''}`); }
   };
+  const t00 = Date.now();
   console.log('PLAYTEST HARNESS SELFTEST');
+
+  console.log('\n§1  the world, and the car');
   const idle = new Session({ traffic: 0, peds: 0 });
+  // look() BEFORE the first step(), which is the first thing a player does and used to throw:
+  // traffic._lastPositions is only assigned at the end of Traffic.update().
+  let frameZero = null, frameZeroErr = null;
+  try { frameZero = idle.look(); } catch (e) { frameZeroErr = e.message; }
+  check('look() works at frame zero', frameZero !== null, frameZeroErr ?? `${frameZero.speedKmh} km/h`);
   idle.step(10);
   check('an idle session takes no damage', idle.damage.health === 1, `${idle.damage.health}`);
   check('and its transcript is empty', idle.log.length === 0, `${idle.log.length} lines`);
+  const speed = new Session({ traffic: 0, peds: 0 });
+  speed.drive({ throttle: 1 }).step(8);
+  check('the car accelerates', speed.look().speedKmh > 30, `${speed.look().speedKmh} km/h`);
+  let nanThrew = false;
+  try { speed.drive({ steer: NaN }); } catch { nanThrew = true; }
+  check('drive() refuses a non-finite control', nanThrew);
+
+  console.log('\n§2  a wall');
   const crash = new Session({ traffic: 0, peds: 0 });
   crash.placeAt(576.2 - 26, -85, Math.PI / 2);
   crash.drive({ throttle: 1 }).step(12);
   check('driving into a building costs health', crash.damage.health < 1,
     `${crash.damage.health.toFixed(3)}`);
-  check('and the transcript says so', crash.log.some((l) => l.line.startsWith('CRUNCH')),
+  check('the transcript says so', crash.log.some((l) => l.line.startsWith('CRUNCH')),
     crash.log.map((l) => l.line)[0] ?? '(nothing)');
+  // worstDv used to be set only inside the dynamic pass, so a head-on into a building reported
+  // 0.00 — the first number a reader would quote.
+  check('and the worst delta-v is recorded', crash.stats.worstDv > 2,
+    `${crash.stats.worstDv} m/s`);
   const seen = crash.look();
   check('look() hides what a player cannot see', !('traffic' in seen) && !('at' in seen),
     Object.keys(seen).join(','));
   check('and debug() shows it', typeof crash.debug().at.x === 'number');
-  const speed = new Session({ traffic: 0, peds: 0 });
-  speed.drive({ throttle: 1 }).step(8);
-  check('the car actually accelerates', speed.look().speedKmh > 30, `${speed.look().speedKmh} km/h`);
-  console.log(`\n${pass} passed, ${fail} failed`);
+
+  /**
+   * §3 and §4 are the two the old selftest could not have: they take the harness within
+   * 3.3 m of a moving body, which is the point at which `_contacts` used to throw.
+   *
+   * THE ARM CHASES ITS SUBJECT rather than aiming once and hoping. A body that walks at 1.4 m/s
+   * sidesteps a 12 m run-up often enough that a fixed aim is a flaky check, and a flaky check
+   * gets deleted. Re-aiming every 0.1 s is deterministic, converges, and is honest about what it
+   * is: this is the harness diagnosing itself, not a player driving.
+   */
+  const chase = (session, pick, seconds = 30,
+    stop = (ss) => ss.stats.knockdowns + ss.stats.shunts > 0) => {
+    for (let k = 0; k < seconds * 10; k++) {
+      const target = pick(session);
+      if (!target) { session.drive({ throttle: 0, brake: 1 }).step(0.1); continue; }
+      const yaw = session._yaw();
+      const dx = target.x - session.vehicle.position.x, dz = target.z - session.vehicle.position.z;
+      let err = Math.atan2(dx, dz) - yaw;
+      while (err > Math.PI) err -= Math.PI * 2;
+      while (err < -Math.PI) err += Math.PI * 2;
+      session.drive({ throttle: Math.abs(err) > 1.2 ? 0.25 : 0.55, brake: 0,
+        steer: Math.max(-1, Math.min(1, err * 2)) }).step(0.1);
+      if (stop(session)) return true;
+      if (session.damage.wrecked) return false;
+    }
+    return false;
+  };
+  const nearest = (list, from) => {
+    let best = null, bd = Infinity;
+    for (const q of list) {
+      const d = Math.hypot(q.x - from.x, q.z - from.z);
+      if (d < bd) { bd = d; best = q; }
+    }
+    return best;
+  };
+  /** Main St @ Pineapple Ave: the district's own spawn is 167 m from the nearest pavement and
+   *  fills 0 of 48 crowd slots, which tools/reaction-shots.mjs measured the hard way. */
+  const CROWD_HOME = { x: 19, z: -6 };
+
+  console.log('\n§3  a pedestrian');
+  const town = new Session({ traffic: 0, peds: 48 });
+  town.placeAt(CROWD_HOME.x, CROWD_HOME.z, Math.PI / 2);
+  town.step(3);                                        // let the crowd fill and start walking
+  check('the crowd fills in town', town.peds.positions().length > 8,
+    `${town.peds.positions().length} of 48 slots`);
+  const hitSomebody = chase(town, (ss) => nearest(ss.peds.positions().filter((q) => !q.down),
+    ss.vehicle.position));
+  check('driving at a pedestrian knocks them down', hitSomebody && town.stats.knockdowns > 0,
+    `${town.stats.knockdowns} knockdowns, worst dv ${town.stats.worstDv} m/s`);
+  check('the transcript carries the HIT', town.log.some((l) => l.line.startsWith('HIT')),
+    town.log.filter((l) => l.line.startsWith('HIT')).map((l) => l.line)[0] ?? '(nothing)');
+  check('and it is a crime', town.stats.crimes > 0 && town.wanted.stars > 0,
+    `${town.stats.crimes} crimes, ${town.wanted.stars} stars`);
+  // THE CONTROL IS A PARKED CAR IN THE SAME CROWD, not an empty street: it proves the count
+  // tracks the CAR's motion and not merely the crowd's existence. Measured by a playtester:
+  // over 40 s parked at four locations the nearest anybody came was 3.98 m, against a 2.71 m
+  // contact reach, so a stationary car collects nothing.
+  /**
+   * ONE VICTIM, ONE OFFENCE. A casualty gets back up 4.42 s after it goes down and can then be
+   * knocked down again, so without a per-victim window a player creeping back and forth over one
+   * person collects a star every 4.42 s — measured against the real wanted system at five stars
+   * from one pedestrian and a car that never left the spot. wanted.js's own refractory is per
+   * CRIME TYPE, which is the right shape for a bumper grinding along a wall and the wrong one
+   * here, because the thing being repeated is the person.
+   */
+  const victimId = town.lastHit ? town.lastHit.id : null;
+  const crimesAfterFirst = town.stats.crimes;
+  let hitsOnVictim = 1;
+  for (let k = 0; k < 400 && hitsOnVictim < 2; k++) {
+    const p = town.peds.peds.find((q) => q && q.id === victimId);
+    // Only while they are on their feet: `_contacts` skips a body on the ground, and so does
+    // the real game, so driving over a casualty is not a fresh offence.
+    if (!p || p.down) { town.drive({ throttle: 0, brake: 1 }).step(0.1); continue; }
+    const before = town.stats.knockdowns;
+    const yaw = town._yaw();
+    let err = Math.atan2(p.x - town.vehicle.position.x, p.z - town.vehicle.position.z) - yaw;
+    while (err > Math.PI) err -= Math.PI * 2;
+    while (err < -Math.PI) err += Math.PI * 2;
+    town.drive({ throttle: Math.abs(err) > 1.2 ? 0.25 : 0.5, brake: 0,
+      steer: Math.max(-1, Math.min(1, err * 2)) }).step(0.1);
+    if (town.stats.knockdowns > before && town.lastHit && town.lastHit.id === victimId) hitsOnVictim++;
+  }
+  check('the same person can be run over twice', hitsOnVictim >= 2,
+    `${hitsOnVictim} hits on id ${victimId} by t=${town.t.toFixed(1)} s`);
+  check('and the repeat is not a second offence', town.stats.pedRepeats > 0,
+    `${town.stats.crimes} crimes total (${crimesAfterFirst} after the first hit), ` +
+    `${town.stats.pedRepeats} repeats suppressed, ${town.wanted.stars} stars`);
+
+  const parked = new Session({ traffic: 0, peds: 48 });
+  parked.placeAt(CROWD_HOME.x, CROWD_HOME.z, Math.PI / 2);
+  parked.drive({ handbrake: true }).step(30);
+  check('a parked car in the same crowd hits nobody', parked.stats.knockdowns === 0,
+    `${parked.stats.knockdowns} knockdowns in 30 s, ${parked.peds.positions().length} people about`);
+
+  console.log('\n§4  a traffic car');
+  const ram = new Session({ traffic: 30, peds: 0 });
+  ram.placeAt(CROWD_HOME.x, CROWD_HOME.z, Math.PI / 2);
+  ram.step(4);
+  check('the fleet publishes', (ram.traffic._lastPositions ?? []).length > 0,
+    `${(ram.traffic._lastPositions ?? []).length} cars`);
+  /**
+   * HEAD-ON, NOT A CHASE. The chase policy §3 uses cannot reach a traffic car: the nearest
+   * published car is 128-184 m away down streets that bend, a straight-line aim drives through
+   * the intervening block, and the arm wrecked itself on a building at t=16.6 s with `tested`
+   * still at 0 — an arm that measured nothing while printing a number. The player car is instead
+   * parked 16 m up the road IN FRONT of a moving car, facing it, and driven gently at it. The
+   * traffic car holds its lane regardless, which is one of this round's findings and is exactly
+   * what makes the contact certain.
+   */
+  let onc = null, oncD = Infinity;
+  for (const q of ram.traffic._lastPositions ?? []) {
+    if (!(q.v > 4)) continue;
+    const d = Math.hypot(q.x - ram.vehicle.position.x, q.z - ram.vehicle.position.z);
+    if (d < oncD) { oncD = d; onc = q; }
+  }
+  check('some car in the fleet is moving', !!onc,
+    onc ? `id ${onc.id} at ${onc.v.toFixed(1)} m/s, ${oncD.toFixed(0)} m off` : 'none');
+  /**
+   * STEPPED ONE FRAME AT A TIME THROUGH THE CONTACT, so the arm can see the impulse rather
+   * than infer it. `worstDrop` is the largest fall in speed inside a single 1/120 s frame: the
+   * tyres can shed 11 m/s^2, which is 0.09 m/s in a frame, so anything above ~0.5 m/s can only
+   * be a collision impulse. The first version of this arm checked `angularVelocity.y` instead
+   * and a mutation that deleted `applyImpulseAt` outright still passed it, because the car was
+   * already yawing from the steering — the check read a quantity the change does not own.
+   */
+  let worstDrop = 0;
+  if (onc) {
+    ram.placeAt(onc.x + Math.sin(onc.heading) * 16, onc.z + Math.cos(onc.heading) * 16,
+      onc.heading + Math.PI);
+    let prev = ram.vehicle.speed;
+    for (let k = 0; k < 1500 && !ram.stats.shunts && !ram.damage.wrecked; k++) {
+      ram.drive({ throttle: 0.4 }).step(DT);
+      worstDrop = Math.max(worstDrop, prev - ram.vehicle.speed);
+      prev = ram.vehicle.speed;
+    }
+  }
+  check('ramming a traffic car shunts it', ram.stats.shunts > 0,
+    `${ram.stats.shunts} shunts, worst dv ${ram.stats.worstDv} m/s`);
+  check('the transcript carries the RAM', ram.log.some((l) => l.line.startsWith('RAM')),
+    ram.log.filter((l) => l.line.startsWith('RAM')).map((l) => l.line)[0] ?? '(nothing)');
+  // The impulse reaches the body: 0.5 * 1400 * dv newton-seconds on 1400 kg is dv/2 of velocity
+  // change, so a 6 m/s ram is about 3 m/s in one frame. Without applyImpulseAt the car is pushed
+  // out of the overlap and does not slow at all, and the harness answers "what does ramming feel
+  // like" with a car that drove on through.
+  check('and the player car takes the impulse from it', worstDrop > 0.5,
+    `worst speed drop in one frame ${worstDrop.toFixed(2)} m/s ` +
+    `(tyres alone can do ${(11 / HZ).toFixed(2)})`);
+  // And the charge lands on the player's own health, which nothing asserted: a mutation that
+  // charged `dv: 0` passed every other check in this file.
+  check('the ram costs the player health', ram.damage.health < 1 && ram.damage.health > 0,
+    `health ${ram.damage.health.toFixed(3)}, ` +
+    `${ram.log.filter((l) => l.line.includes('into vehicle')).length} vehicle-kind records`);
+  // THE CONTROL: the same stretch of road with no fleet at all. It must produce no shunt, which
+  // is what says the arm above measured the fleet and not the kerb.
+  const noFleet = new Session({ traffic: 0, peds: 0 });
+  if (onc) {
+    noFleet.placeAt(onc.x + Math.sin(onc.heading) * 16, onc.z + Math.cos(onc.heading) * 16,
+      onc.heading + Math.PI);
+    for (let k = 0; k < 150; k++) noFleet.drive({ throttle: 0.4 }).step(0.1);
+  }
+  check('the same road with no fleet shunts nothing', noFleet.stats.shunts === 0,
+    `${noFleet.stats.shunts} shunts, health ${noFleet.damage.health.toFixed(2)}`);
+
+  console.log('\n§5  a mission, to its end');
+  const mis = new Session({ traffic: 0, peds: 0 });
+  const hud0 = mis.startMission('shakedown');
+  check('a mission starts with an objective', !!(hud0 && hud0.objective), hud0 ? hud0.objective : 'null');
+  const drove = driveTo(mis, -471, 205, { maxSpeed: 14, timeout: 120 });
+  check('the marina is reachable by the route the HUD draws', drove.arrived,
+    JSON.stringify(drove));
+  check('the mission passes', mis.mission.outcome === OUTCOMES.PASSED, mis.mission.outcome);
+  // THE FRAME A MISSION ENDS used to throw: hud() returns null the instant the outcome stops
+  // being RUNNING, so this harness had never seen a mission finish.
+  let afterErr = null;
+  try { mis.step(2); mis.look(); } catch (e) { afterErr = e.message; }
+  check('and the session survives the frame it ends on', afterErr === null, afterErr ?? 'no throw');
+  check('the transcript says it passed', mis.log.some((l) => l.line.includes('MISSION PASSED')),
+    mis.log.filter((l) => l.line.startsWith('MISSION')).map((l) => l.line).join(' | ') || '(nothing)');
+  const stalled = new Session({ traffic: 0, peds: 0 });
+  stalled.startMission('shakedown');
+  stalled.step(30);
+  check('a mission nobody drives stays running', stalled.mission.outcome === OUTCOMES.RUNNING,
+    stalled.mission.outcome);
+
+  console.log(`\n${pass} passed, ${fail} failed in ${((Date.now() - t00) / 1000).toFixed(1)} s ` +
+    'of wall clock');
   process.exit(fail ? 1 : 0);
 } else {
   const s = new Session();
