@@ -762,6 +762,53 @@ The shape is the same every time: the module is right, its gate asserts the modu
 and nothing asserts that the game reaches it. **When a feature lands, write down how
 a player gets to it, and then check that path from the outside.**
 
+## A change that perturbs a seeded sequence exposes content nothing has tested
+
+Making the player's car a leader in `traffic.js`'s car-following term took
+`traffic-selftest`'s building check from **0 of 215,960 car-frames inside a building
+to 342, worst 0.31 m**. Nothing about the lane rule had changed. Cars that brake take
+different `_chooseNext` draws, so the fleet drives a different set of edges — and some
+of those edges were ones the old sequence never reached, where the lane offset had
+been wrong all along. A playtester had found the same thing from the outside in the
+same round and rated it low confidence: *"2 of 567 traffic samples were inside a
+building, worst depth 0.25 m ... may be a junction pinch or may be my sampling."* It
+was neither.
+
+**A regression that appears in a module you did not touch is evidence about coverage,
+not about your change.** Before reverting, ask what the change moved through the seeded
+stream, and check whether the newly-visited cases were ever right. Here the answer was
+the same defect `roadpath.js` had had for the route's lane one commit earlier: a nominal
+road width against footprints that encroach up to 0.45 m into the drawn carriageway.
+Both are fitted against the blockers now.
+
+The same round found `traffic-selftest` building its `Traffic` with no `clearAt` at all,
+so the gate measuring cars-inside-buildings was measuring a configuration the game never
+runs. **A gate that constructs the subject itself has to construct it the way the game
+does**, and the cheap proof is that the fix changed its reading.
+
+## A barrier that refuses all power is the dead end you already shipped
+
+Two of this round's findings were the same defect in different clothes. A wrecked car
+had no engine power and no repair but a console call, so **60 s of full throttle and
+60 s of full reverse both gave 0 km/h** and the session was over. Then the first
+version of the world fence cut the throttle outside the district — and stranded the car
+in exactly the same way, 786 m out with no way home.
+
+Then the *second* version stranded it again, more subtly: the brake ramped with DEPTH,
+so at 70 m out it sat at 1.0 whether the car was leaving or coming home, and thirty
+seconds of full throttle pointing at town moved it **0.1 m**.
+
+**Make the refusal directional and put the brake on the velocity.** Out is refused at
+both ends of the throttle, home is allowed at both, and the brake only applies while the
+car is actually travelling outward. Measured: 180 s of full throttle at the fence stops
+the car 61.3 m out at 0 km/h, turning round drives home at 140 km/h, and reverse from
+20 m out with the nose still outward comes home at 27 km/h.
+
+And the fence is the **road network's own extent** plus 60 m, not `meta.bounds`: the
+declared bounds are ±716.95 by ±500.94 while the roads run x −862..814 and z −524..719,
+so a fence at the declared bounds would cut off real driveable street — worse than no
+fence at all. Check what a bounds field actually bounds before fencing with it.
+
 ## A threshold that holds at one value and fails at every other is a coincidence
 
 `route-drive` asserted `Math.abs(seam) < 0.5` on the tour's closing corner and had

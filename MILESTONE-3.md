@@ -727,3 +727,104 @@ one direction only, at offset 0, down the middle — which is what an alley is.
 `traffic-selftest`'s mid-file `process.exit`, so they ran zero times and the gate still printed
 "22 passed, 0 failed". The summary and the exit are now the last thing in the file, with a
 comment saying why. 32 checks.
+
+## 11. Two playtesters played it, and the game had not booted for three commits
+
+The harness in `tools/playtest.mjs` runs the whole simulation in node at 27x real time, so an
+agent can PLAY the game rather than assert it. Two went out: one on the missions and the
+driving, one on crime and consequence. Both had to repair the harness before they could start,
+and between them they found that most of the game was not reachable.
+
+### The harness could not survive touching anybody
+
+`_contacts()` built `dynamicContact`'s argument with a `yaw` scalar where it destructures
+`fwdX/fwdZ/rightX/rightZ/samples/carRadius`, so `for (const sz of samples)` threw on `undefined`
+the first time the car came within 3.31 m of anyone. Measured with a control: crowd-only threw at
+t=15.9 s / 76 m, traffic-only at 16.1 s / 78 m, the shipping city at 15.9 s / 76 m, an empty city
+drove 504 m clean. Every `HIT` and `RAM` line in the file was unreachable code.
+
+`step()` read `this.mission.hud().objective` unconditionally, and `hud()` returns null the
+instant the outcome stops being RUNNING — so the harness threw on the frame every mission was
+won or lost and had never once seen one finish. `look()` threw before the first `step()`.
+`driveTo` routed at a 3 m lane offset that puts the course inside buildings.
+
+**The selftest passed 7 of 7 through all of it, because every one of its five arms ran
+`traffic: 0, peds: 0`.** It is 50 checks now, with arms that knock a pedestrian down, run the
+same person over twice, ram a traffic car head-on, wreck a car and drive the replacement away,
+and drive a mission to PASSED through its own waypoints. 10 of 10 mutations caught against a
+shadow tree.
+
+### The district had not rendered a frame since `fab3e2d`
+
+One line, `if (peds && furnitureProps) peds.setProps(furnitureProps)`, inside the top-level
+`await loading` block, which is evaluated before the module's later declarations exist. `peds` is
+a module-level `let`, so that read came out of the temporal dead zone as a `ReferenceError`, init
+aborted, `window.__district` was never assigned, and the page was black. **Three commits shipped
+on top of it with all fifteen offline gates green, because not one of them loads
+`district/main.js`.**
+
+`tools/boot-check.mjs` is 11 checks in under 30 seconds: no error of any kind, the global exists,
+`frames` ADVANCES rather than merely existing, the renderer drew triangles, and the crowd, fleet
+and mission board each report themselves alive. It found the next defect on its first run.
+
+### Three systems that worked and were never switched on
+
+| system | state | now |
+|---|---|---|
+| the two authored missions | reachable only from the browser console | a marker you drive into |
+| the traffic fleet | `setTraffic` never called; 0 moving cars in the page | 30 by default, `?traffic=0` off |
+| `shakedown` stage b | marker 0.35 m from the spawn, cleared on frame 1 | 86 m up the street |
+
+Stage b's marker was there because `mission-test` REQUIRED every marker to be within 5 m of one
+of the nine baked route waypoints, and waypoint 1 *is* the spawn: the gate did not miss that
+defect, it demanded it. The rule is now "in bounds and within 15 m of a road the router will
+use", plus a new check that no `reach` trigger's radius contains the spawn.
+
+### The consequences that were missing
+
+- **A wrecked car was permanent.** "60 s of full throttle gives 0 km/h, 60 s of full reverse
+  gives 0 km/h, and the mission outcome stays 'running' for ever with the objective still on
+  screen." One crash at 47 km/h ends the session. It now holds 4 s, calls the mission off, and
+  puts a replacement on the nearest road facing whichever way has more clear road.
+- **A brush at walking pace was a crime worth a star.** Fourteen `drop -> ambush` bounces on the
+  first mission: **22 metres of progress in 232 seconds**, from twelve triggering hits at 1 to
+  6 km/h that each threw the body 0.0-0.2 m. The floor is FMVSS 208's 2.2 m/s, the same figure
+  `damage.js` charges the car nothing under.
+- **The fleet drove into the player and the player was charged.** 150 s creeping at 3 km/h at the
+  bayfront: 187 contacts, an 8.0 m/s charged delta-v, health 1.00 -> 0.638, two
+  `civilianCollision` crimes. The player's car is a leader in the IDM term now — closest approach
+  1.83 -> 6.29 m, car-frames inside the contact radius 239 -> 0, health 0.434 -> 1.000.
+- **The map had no edge.** 146 km/h at 4,595 m out, 8,990 m past anything modelled. A one-way
+  fence at the road network's extent plus 60 m, refusing only the power that takes the car
+  further out.
+- **Reverse reached 130 km/h** and the speedo read 7 km/h on a parked car. One short gear
+  (27 km/h terminal) and a road-speed dial.
+
+### The route's lane offset, again, one module over
+
+`roadpath.js` capped the offset at `(e.w * max(1, e.lanes)) / 2 - 1.2`, reading the width as
+per-lane: on Main Street (`w: 6.6, lanes: 2`) it believed the road was 13.2 m wide. Both
+playtesters had the follower wreck the car at (-189.8, -95), one of them in 5 of 6 starting
+headings. Census over the network, counting samples where the chosen lane is not clear:
+
+| cap | blocked | on a clear centreline | edges |
+|---|---|---|---|
+| `w * lanes / 2 - 1.2` | 344 | 206 | 33 |
+| `w / 2 - 1.2` | 220 | 82 | 20 |
+| fitted against the blockers | 138 | **0** | 12 |
+| the centreline itself | 138 | — | 12 |
+
+The width is not enough either: footprints encroach up to **0.45 m** into the drawn carriageway,
+so the widest lane the width rule can justify still clips them. The residual after the fit is
+exactly the centreline's own, on 12 edges of which the router already excludes 11.
+
+A reviewer's census quoted 103 edges and 6,734 m for this. That is the UNCAPPED number — the cap
+that already existed removed four fifths of it. **The defect was real and one fifth the size
+claimed.**
+
+### And a gate that had been passing on a coincidence
+
+`route-drive` asserted `|seam| < 0.5 rad` on the tour's closing corner. The tour closes ON a
+junction, where the road turns about 70 degrees; the assertion held at offset 3 (14.0 deg) and
+would have failed at 0, 1, 2 and 6 (67.4, 67.9, 53.6, -67.5). It now compares the seam's turn
+with the worst turn elsewhere on the same course.
