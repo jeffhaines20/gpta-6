@@ -415,6 +415,61 @@ console.log('\n=== 9. THE AUTHORED MISSIONS, walked stage by stage');
   }
   check('no stage sits inside its own reach radius at the spawn', selfClearing.length === 0,
     selfClearing.join('; ') || '0 of them');
+
+  /**
+   * A STAGE WITH A CLOCK NEEDS SOMEWHERE TO GO. `ambush` had a 240 s limit and no marker, so the
+   * waypoint was gone for the whole of it — a playtester measured 156.3 s of a 249.4 s run, 63%,
+   * with a blank HUD. `toCar` and `backToCar` have no marker either and correctly so: the car is
+   * where you left it. The distinguishing property is the clock.
+   */
+  const timedNoMarker = [];
+  for (const m of Object.values(MISSIONS)) {
+    for (const st of m.stages) {
+      if (st.timeLimit != null && !st.marker) timedNoMarker.push(`${m.id}/${st.id}`);
+    }
+  }
+  check('every stage with a time limit has somewhere to go', timedNoMarker.length === 0,
+    timedNoMarker.join(', ') || '0 of them');
+
+  /**
+   * AND ONE ACCIDENT DOES NOT RESUME A CHASE. `drop` carried `wantedAtLeast: 1`, and
+   * `pedestrianHit` carries `min: 1` — so one star is the FLOOR of the least serious thing a
+   * driver can do, and the trigger fired on it. `ambush`'s `onEnter: {setWanted: 2}` fires on
+   * every entry, so the mission's own re-entry then doubled an accident into a 30-second stage.
+   *
+   * Driven through the real runner and the real wanted system rather than asserted from the data,
+   * because the quantity that matters is what `reportCrime` produces and not what the table says.
+   */
+  {
+    const { WantedSystem } = await import('../src/wanted.js');
+    const M = MISSIONS['marlin-street'];
+    const atDrop = (crimes) => {
+      const r = new MissionRunner(), w = new WantedSystem();
+      r.start(M);
+      r.stageIndex = M.stages.findIndex((st) => st.id === 'drop');
+      r.stageTime = 0;
+      const snap = () => ({ px: 0, pz: 0, inVehicle: true, speed: 10, health: 1,
+        wantedStars: w.stars, wantedState: w.state });
+      r.update(1 / 60, snap());
+      for (const c of crimes) w.reportCrime(c, { at: { x: 0, z: 0 } });
+      w.update(0.02, { x: 0, z: 0 });
+      r.update(1 / 60, snap());
+      return { stars: w.stars, stage: r.report().stage };
+    };
+    const one = atDrop(['pedestrianHit']);
+    const two = atDrop(['pedestrianHit', 'pedestrianKilled']);
+    console.log(`    at the drop: one pedestrianHit -> ${one.stars} star, stage ${one.stage}; ` +
+      `a hit and a death -> ${two.stars} stars, stage ${two.stage}`);
+    check('one accidental star does not resume the chase', one.stage === 'drop',
+      `${one.stars} star -> ${one.stage}`);
+    check('and the police finding you does', two.stage === 'ambush',
+      `${two.stars} stars -> ${two.stage}`);
+    // KNOWN-BAD: the threshold this replaces. At 1 the same single accident re-entered.
+    const trig = M.stages.find((st) => st.id === 'drop').triggers
+      .find((t) => t.kind === 'wantedAtLeast');
+    check('KNOWN-BAD: the threshold is above the one-star floor a single accident produces',
+      trig.stars > 1 && one.stars === 1, `threshold ${trig.stars}, one accident gives ${one.stars}`);
+  }
   check('every marker is in bounds and on a routable road', offRoute.length === 0,
     offRoute.length ? offRoute.join(' | ') : 'all markers within 5 m of a route waypoint');
 

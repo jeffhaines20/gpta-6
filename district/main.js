@@ -8,7 +8,7 @@ import { Input } from '../src/input.js';
 import { Vehicle, BODY_SAMPLES, BODY_RADIUS, BODY_ENCLOSING } from '../src/vehicle.js';
 import { BlockerIndex, districtBounds, worldFence } from '../src/blockers.js';
 import { DamageModel, IMPACT, dynamicContact } from '../src/damage.js';
-import { RoadGraph, followPath } from '../src/roadpath.js';
+import { RoadGraph, followPath, ROUTE_LANE_M } from '../src/roadpath.js';
 import { ChaseCamera } from '../src/camera.js';
 import { StreamingWorld } from '../src/streaming.js';
 import { TrafficStub } from '../src/traffic.js';
@@ -929,7 +929,11 @@ function routeToMarker(wp) {
   const movedTo = !routeTo || Math.hypot(wp.x - routeTo.x, wp.z - routeTo.z) > 2;
   const strayed = !routeFrom || Math.hypot(focusX - routeFrom.x, focusZ - routeFrom.z) > ROUTE_RESTALE;
   if (movedTo || strayed || !routeLine) {
-    const p = roads.path(focusX, focusZ, wp.x, wp.z, { spacing: 8, offset: 0, smoothPasses: 1 });
+    // THE RIGHT-HAND LANE, not the centreline. See ROUTE_LANE_M: the centreline is the one place
+    // on a two-way street that meets both directions, and a playtester measured 16 of 30 cars
+    // within 0.95 m of the line this function draws. 2.17 shunts/km against 3.81.
+    const p = roads.path(focusX, focusZ, wp.x, wp.z,
+      { spacing: 8, offset: ROUTE_LANE_M, smoothPasses: 1 });
     routeLine = p ? p.points : null;
     routeTo = { x: wp.x, z: wp.z };
     routeFrom = { x: focusX, z: focusZ };

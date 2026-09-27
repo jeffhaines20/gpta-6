@@ -41,6 +41,32 @@ const TWO_WAY_MIN_W = 3.8;
 /** Clearance from the kerb line: the car's 0.95 m body radius plus a quarter metre of slop. */
 const LANE_MARGIN_M = 1.2;
 
+/**
+ * HOW FAR RIGHT THE ROUTE LINE A PLAYER FOLLOWS SHOULD SIT, and it is neither 0 nor the lane the
+ * fleet uses. district/main.js drew the line on the CENTRELINE, which is the one place on a
+ * two-way street that meets both directions of traffic: a playtester measured 16 of 30 cars
+ * within 0.95 m of the line the game was telling them to follow, with health 1.00 -> 0.46 over
+ * 760 m of driving it.
+ *
+ * Swept over six legs of the district's own route and three fleet arrangements from the seeded
+ * stream, following the line at an 11 m/s target with a 30-car fleet:
+ *
+ *     offset          0.00      0.75      1.50      2.20
+ *     shunts/km       3.81      4.69      2.17     18.44
+ *     mean health    0.950     0.931     0.965     0.689
+ *
+ * 1.5 m is the minimum in every one of the three states individually (1.1, 2.5, 2.9 against
+ * 2.9, 2.6, 5.9 on the centreline), and the fleet's own lane is eight times worse than that and
+ * wrecks the car. The shape is explainable rather than tuned: src/traffic.js puts its cars at
+ * 2.05-2.2 m, so a route THERE drives up the queue it is following, while the centreline meets
+ * the oncoming stream head-on. 1.5 threads between the two.
+ *
+ * It is also below `w / 2 - LANE_MARGIN_M` on every two-way road in the district, so the request
+ * is honoured as asked rather than capped — which is what makes one constant the right shape for
+ * it. `roadpath-test` asserts that.
+ */
+export const ROUTE_LANE_M = 1.5;
+
 export class RoadGraph {
   /**
    * `blockers` is an optional src/blockers.js index. Given one, edges whose own

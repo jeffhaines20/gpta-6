@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import { RoadGraph, followPath, pathSpeedLimit, steerableSpeed, gripSpeed, cornerSpeed,
   minTurnRadius, steerForRadius, RESPONSE,
   resample, smooth, minRadius, worstGap, offsetRight, pathCurvature, ARC_WINDOW,
-  laneOffsetFor, laneOffsets } from '../src/roadpath.js';
+  laneOffsetFor, laneOffsets, ROUTE_LANE_M } from '../src/roadpath.js';
 import { Vehicle } from '../src/vehicle.js';
 import { FlatGround } from '../src/ground.js';
 import { BlockerIndex } from '../src/blockers.js';
@@ -598,6 +598,48 @@ check('the offset never steps more than the slope limit', worstStep <= 4 * 0.25 
   `worst step ${worstStep.toFixed(3)} m against ${(4 * 0.25).toFixed(2)}`);
 check('and it does reach zero where the lane is blocked', Math.min(...amts) === 0,
   `min ${Math.min(...amts).toFixed(2)}, max ${Math.max(...amts).toFixed(2)}`);
+
+/**
+ * THE ROUTE LANE. The line a player follows is 1.5 m right of the centreline, chosen by sweeping
+ * it against the collision rate rather than by reasoning — 2.17 shunts/km against the centreline's
+ * 3.81 and the fleet's own lane's 18.44, over six legs of the district's route and three fleet
+ * states. What this section owes is the property that makes ONE constant the right shape for it:
+ * that the request is honoured as asked on every two-way road, rather than silently capped on
+ * some and not others.
+ */
+{
+  let capped = 0, twoWay = 0, narrow = 0;
+  for (const e of district.edges) {
+    const got = laneOffsetFor(e, ROUTE_LANE_M);
+    if (e.o !== 0 || e.w < 3.8) { narrow++; continue; }
+    twoWay++;
+    if (Math.abs(got - ROUTE_LANE_M) > 1e-9) capped++;
+  }
+  console.log(`    the route lane (${ROUTE_LANE_M} m) over ${twoWay} two-way edges: ` +
+    `${capped} capped below it, ${narrow} single-track or one-way (offset 0)`);
+  check('the route lane is honoured as asked on every two-way road', capped === 0,
+    `${capped} of ${twoWay} capped`);
+  /**
+   * THE NARROWEST TWO-WAY ROAD IS THE ONE IN THE DATA, not the threshold. Written against
+   * TWO_WAY_MIN_W (3.8 m) this check failed — 2.45 m of body against a 1.90 m half-width — and
+   * it was the check that was wrong, not the constant: an edge at exactly 3.8 m would be capped
+   * to 0.70 by `w / 2 - LANE_MARGIN_M` long before the body reached the kerb, and in any case the
+   * narrowest two-way edge this district HAS is 6.0 m. Asserting against a threshold rather than
+   * the population is how a gate reports a defect the build does not have.
+   */
+  const narrowestTwoWay = Math.min(...district.edges
+    .filter((e) => e.o === 0 && e.w >= 3.8).map((e) => e.w));
+  const reach = ROUTE_LANE_M + 0.95;
+  console.log(`    the narrowest two-way edge in the data is ${narrowestTwoWay.toFixed(1)} m; ` +
+    `the body on the route lane reaches ${reach.toFixed(2)} m of its ` +
+    `${(narrowestTwoWay / 2).toFixed(2)} m half-width`);
+  check('and the body on it clears the narrowest two-way kerb line in the data',
+    reach <= narrowestTwoWay / 2 + 1e-9,
+    `reaches ${reach.toFixed(2)} m against ${(narrowestTwoWay / 2).toFixed(2)} m`);
+  check('it is right of the centreline and inside the fleet\'s own lane',
+    ROUTE_LANE_M > 0 && ROUTE_LANE_M < 2.05,
+    `${ROUTE_LANE_M} m against the fleet's 2.05-2.20`);
+}
 
 // ---------------------------------------------------------------------------
 // §7  Smoothing, determinism and cost.

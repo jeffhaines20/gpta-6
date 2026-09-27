@@ -40,7 +40,7 @@ import { DamageModel, IMPACT, dynamicContact } from '../src/damage.js';
 import { WantedSystem } from '../src/wanted.js';
 import { Traffic } from '../src/traffic.js';
 import { Pedestrians } from '../src/pedestrians.js';
-import { RoadGraph, followPath } from '../src/roadpath.js';
+import { RoadGraph, followPath, ROUTE_LANE_M } from '../src/roadpath.js';
 import { MissionRunner, OUTCOMES, MissionBoard } from '../src/mission.js';
 import { MISSIONS } from '../src/missions.js';
 
@@ -468,7 +468,7 @@ export class Session {
     if (!wp) { this._route = null; return null; }
     // The same call district/main.js's routeToMarker makes, with the same spacing.
     const p = this.roads.path(this.vehicle.position.x, this.vehicle.position.z, wp.x, wp.z,
-      { spacing: 8, offset: 0, smoothPasses: 1 });
+      { spacing: 8, offset: ROUTE_LANE_M, smoothPasses: 1 });
     this._route = p && p.points ? p.points : null;
     return this._route;
   }
@@ -572,10 +572,15 @@ export class Session {
  * driving. It is src/roadpath.js's own follower, which is the same one the route gate drives,
  * so a scenario that uses it is testing the world and not the controller.
  */
-export function driveTo(session, x, z, { maxSpeed = 16, timeout = 180, offset = 0 } = {}) {
+export function driveTo(session, x, z,
+  { maxSpeed = 16, timeout = 180, offset = ROUTE_LANE_M } = {}) {
   const from = session.vehicle.position;
   /**
-   * OFFSET 0, THE SAME LINE district/main.js DRAWS. This was `offset: 3` — a right-hand lane —
+   * THE SAME LANE district/main.js DRAWS, which is now 1.5 m right of the centreline rather than
+   * on it: see ROUTE_LANE_M for the sweep that chose it — 2.17 shunts/km against the centreline's
+   * 3.81 and the fleet's own lane's 18.44. What follows is why it was 0 for one round.
+   *
+   * IT WAS `offset: 3` — a right-hand lane —
    * and on this district's own roads a flat 3 m offset leaves the carriageway: both playtesters
    * had the autopilot wreck the car on the mission's own return leg, one of them 5 times out of
    * 6 starting headings at the identical point, (-189.8, -95). Isolated one term at a time, on

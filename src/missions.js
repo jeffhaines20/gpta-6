@@ -93,6 +93,18 @@ export const MARLIN_STREET = defineMission({
       id: 'ambush',
       objective: 'LOSE THEM',
       /**
+       * AND IT POINTS AT THE DROP WHILE YOU SHAKE THEM, because a stage with no marker is a stage
+       * with no waypoint, and this is the only one in either mission that had none. A playtester
+       * measured 156.3 s of a 249.4 s run — 63% — with a blank HUD, across five entries, and
+       * called it the worst thing in the game.
+       *
+       * `dropHot` already establishes the pattern: it is the harder ending and it points at the
+       * marina while you are still wanted. There is no reading of this fiction where the courier
+       * stops wanting to reach the drop, so being told where it is while being told to lose them
+       * is coherent — and a player who does not know which way to run cannot run.
+       */
+      marker: { x: -471, z: 205 },
+      /**
        * THE SUBTITLE HAS TO SAY WHAT TO DO, because this stage is the only one with no waypoint.
        * A playtester sat through fourteen of them and reported the line as it read from the seat:
        * "'LOSE THEM — Somebody talked. Police at Five Points.' with no waypoint, 500 m from Five
@@ -123,8 +135,28 @@ export const MARLIN_STREET = defineMission({
       triggers: [
         { kind: 'reach', x: -471, z: 205, radius: 28, outcome: 'passed' },
         { kind: 'healthBelow', fraction: 0.2, outcome: 'failed' },
-        // The heat coming back does not undo the delivery, it puts the chase back on.
-        { kind: 'wantedAtLeast', stars: 1, goto: 'ambush' },
+        /**
+         * THE HEAT COMING BACK DOES NOT UNDO THE DELIVERY, IT PUTS THE CHASE BACK ON — but ONE
+         * star is not the heat coming back, it is an accident, and at `stars: 1` this trigger was
+         * the single worst thing in the mission.
+         *
+         * The chain, isolated with the runner and the wanted system directly:
+         *
+         *     one pedestrianHit            -> 1 star  -> drop re-enters ambush
+         *     ambush's onEnter setWanted:2 -> 2 stars (it fires on EVERY entry)
+         *     escape clock, 1 star  12.1 s
+         *     escape clock, 2 stars 30.2 s
+         *
+         * So a single clip at 8 km/h — one of a playtester's was 0.08 km/h over the free
+         * threshold, thrown 0.4 m — was escalated by the mission's own re-entry into a 30-second
+         * stage, five times in one run, for 63% of the mission with no waypoint. `pedestrianHit`
+         * carries `min: 1`, so one star is the FLOOR of the least serious thing a driver can do.
+         *
+         * Two stars is the police having found you: two offences, or one `pedestrianKilled`
+         * (`min: 2`). That is the quantity this trigger was always reaching for, and it is the
+         * reviewer's own diagnosis — the threshold was doing two jobs.
+         */
+        { kind: 'wantedAtLeast', stars: 2, goto: 'ambush' },
       ],
       onEnter: { stinger: 'clear' },
     },
