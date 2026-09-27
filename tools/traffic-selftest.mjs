@@ -227,12 +227,117 @@ console.log('\n7. the lane offset fits inside the road it is on');
   console.log(`  worst overhang: was ${worstOld.toFixed(2)} m past the kerb line, now ${worstNew.toFixed(2)}`);
   check('KNOWN-BAD: the old rule hung the body over the kerb', worstOld > 1.5,
     `${worstOld.toFixed(2)} m`);
+
+  /**
+   * AND THE WIDTH IS STILL NOT ENOUGH, which this district settles by 0.45 m: a footprint can
+   * encroach that far into the drawn carriageway, so the widest lane the width rule can justify
+   * still clips it. The fit measures instead. Census over every two-way edge, both directions.
+   */
+  const ix7 = new BlockerIndex(district);
+  const fitted = new Traffic(scene, district, { count: 1 });
+  fitted.clearAt = (x, z, r) => !ix7.resolveCircle(x, z, r);
+  let nominalBad = 0, fitBad = 0, reduced = 0, longest = 0, shortRung = 0;
+  for (let i = 0; i < district.edges.length; i++) {
+    for (const forward of [true, false]) {
+      const want = fitted._laneNominal(i);
+      if (!(want > 0)) continue;
+      const got = fitted._laneOffset(i, forward);
+      if (!fitted._laneClear(i, forward, want)) nominalBad++;
+      if (!fitted._laneClear(i, forward, got)) fitBad++;
+      if (got < want) {
+        reduced++;
+        // THE FIT OWES THE LONGEST CLEAR RUNG: the rung above the one taken must be blocked.
+        const rungs = [1, 0.75, 0.5, 0.25];
+        const above = rungs[Math.max(0, rungs.findIndex((f) => Math.abs(want * f - got) < 1e-9) - 1)];
+        if (got === 0 || !fitted._laneClear(i, forward, want * above)) longest++;
+        else shortRung++;
+      }
+    }
+  }
+  console.log(`  lane fit over every two-way edge, both directions: ` +
+    `${nominalBad} blocked at the width rule's offset, ${fitBad} after the fit, ` +
+    `${reduced} reduced`);
+  check('KNOWN-BAD: the width rule alone leaves lanes inside buildings', nominalBad > 0,
+    `${nominalBad} directions`);
+  check('the fit leaves none of them blocked', fitBad === 0, `${fitBad}`);
+  check('and it takes the longest clear rung', shortRung === 0 && longest === reduced,
+    `${longest} of ${reduced} verified, ${shortRung} took a short rung with a clear one above`);
+  // With no clearAt the module still works and the width rule stands, which is what keeps it
+  // usable without a blocker index.
+  const bare = new Traffic(scene, district, { count: 1 });
+  const someTwoWay = district.edges.findIndex((e) => e.o === 0 && e.w >= 3.8);
+  check('with no blocker predicate the width rule stands',
+    bare._laneOffset(someTwoWay, true) === bare._laneNominal(someTwoWay),
+    `${bare._laneOffset(someTwoWay, true)}`);
+}
+
+/**
+ * 7b. THE PLAYER'S CAR IS A LEADER, and until this round it was invisible to the fleet.
+ *
+ * A playtester crept forward at 3 km/h for 150 s at the first mission's start point, with an
+ * empty-city control, so that anything charged above 2 m/s had to be the other car's: 187
+ * contacts, an 8.0 m/s charged delta-v, health 1.00 -> 0.638, and TWO `civilianCollision` crimes
+ * filed against the player for sitting in their own lane. The same run with `traffic: 0` took no
+ * contacts at all.
+ */
+console.log('\n7b. the fleet brakes for the player');
+{
+  const ix = new BlockerIndex(district);
+  const near = new Traffic(scene, district, { count: 30 });
+  near.clearAt = (x, z, r) => !ix.resolveCircle(x, z, r);
+  const P = { x: 19, z: -6 }, STILL = { x: 0, y: 0, z: 0 };
+  // 3.31 m is BODY_ENCLOSING + a car's 0.95 m radius: the distance at which district/main.js's
+  // moving-body pass tests for a contact at all, so a car-frame inside it is a crash waiting.
+  const CONTACT_R = 3.31;
+  let closest = Infinity, inside = 0, frames = 0;
+  for (let k = 0; k < 60 * 120; k++) {
+    near.update(1 / 60, P, STILL);
+    for (const p of near._lastPositions) {
+      frames++;
+      const d = Math.hypot(p.x - P.x, p.z - P.z);
+      if (d < closest) closest = d;
+      if (d < CONTACT_R) inside++;
+    }
+  }
+  console.log(`  120 s parked on Marlin Street: closest approach ${closest.toFixed(2)} m, ` +
+    `${inside} of ${frames} car-frames inside ${CONTACT_R} m, ` +
+    `braked for the player on ${near.stats.playerLeaderFrames} frames`);
+  console.log('  (the same measurement before this change: 1.83 m closest, 239 car-frames inside)');
+  check('the fleet was driving', frames > 100000, `${frames} car-frames`);
+  check('the mechanism fired', near.stats.playerLeaderFrames > 0,
+    `${near.stats.playerLeaderFrames} frames`);
+  check('no car drives onto a parked player', inside === 0, `${inside} car-frames inside ${CONTACT_R} m`);
+  check('and it keeps a real gap, not a grazing one', closest > 4, `${closest.toFixed(2)} m`);
+  /**
+   * THE CONTROL IS THE SAME FLEET WITH THE PLAYER MOVED OFF IT. One Traffic, 60 s parked in the
+   * middle of it and then 60 s with the player 400 m away: the second half must brake for nobody.
+   * That is what says the counter is about the player rather than about traffic braking for its
+   * own reasons, which it does constantly — `followBrakeCarFrames` is in the thousands either way.
+   */
+  const away = new Traffic(scene, district, { count: 30 });
+  away.clearAt = (x, z, r) => !ix.resolveCircle(x, z, r);
+  for (let k = 0; k < 60 * 60; k++) away.update(1 / 60, P, STILL);
+  const brakedWhileParkedInIt = away.stats.playerLeaderFrames;
+  for (let k = 0; k < 60 * 60; k++) away.update(1 / 60, { x: P.x + 400, z: P.z }, STILL);
+  const brakedAfterMovingOff = away.stats.playerLeaderFrames - brakedWhileParkedInIt;
+  check('the control braked for the player while they were parked in it',
+    brakedWhileParkedInIt > 0, `${brakedWhileParkedInIt} frames`);
+  check('and a player 400 m away is nobody\'s leader', brakedAfterMovingOff === 0,
+    `${brakedAfterMovingOff} frames after moving off, against ${brakedWhileParkedInIt} in it`);
 }
 
 console.log('\n8. no car is ever published inside a building');
 {
   const ix = new BlockerIndex(district);
   const tr = new Traffic(scene, district, { count: 30 });
+  /**
+   * AND IT WIRES `clearAt`, WHICH IT DID NOT. district/main.js and tools/playtest.mjs both hand
+   * the fleet a blocker predicate; this gate built a Traffic with none, so it was measuring a
+   * configuration the game never runs — the lane fit added in this round was skipped entirely and
+   * the check then read the unfitted offset. CLAUDE.md's own rule: when a tool replays the build,
+   * it must replay the build's own selection.
+   */
+  tr.clearAt = (x, z, r) => !ix.resolveCircle(x, z, r);
   let frames = 0, inside = 0, worst = 0;
   for (let k = 0; k < 60 * 120; k++) {
     tr.update(1 / 60, { x: 19, z: -6 });

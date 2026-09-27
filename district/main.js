@@ -6,7 +6,7 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { Input } from '../src/input.js';
 import { Vehicle, BODY_SAMPLES, BODY_RADIUS, BODY_ENCLOSING } from '../src/vehicle.js';
-import { BlockerIndex } from '../src/blockers.js';
+import { BlockerIndex, districtBounds, worldFence } from '../src/blockers.js';
 import { DamageModel, IMPACT, dynamicContact } from '../src/damage.js';
 import { RoadGraph, followPath } from '../src/roadpath.js';
 import { ChaseCamera } from '../src/camera.js';
@@ -587,6 +587,10 @@ function respawnCar() {
   return wreckStats.lastAt;
 }
 const _wreckAxis = new THREE.Vector3();
+const _fenceFwd = new THREE.Vector3();
+/** How far outside the district the car is, in metres. 0 everywhere a player ever drives. */
+let outsideWorld = 0;
+let worldBox = null;
 function wreckWatch(dt) {
   if (!damage.wrecked) { wreckFor = 0; return null; }
   if (wreckFor === 0) {
@@ -861,6 +865,9 @@ const ENTER_TIME = 0.45;
  * with it the whole time.
  */
 const blockers = new BlockerIndex(district);
+// The fence, computed once from the road network's own extent. See src/blockers.js.
+worldBox = districtBounds(district);
+console.log(`world fence ${JSON.stringify(worldBox)}`);
 
 /**
  * Vehicle damage. See src/damage.js: the input is delta-v along the contact normal
@@ -1373,7 +1380,17 @@ function animate(now) {
     let throttle = 0, brake = 0;
     if (axis.y > 0) { if (vehicle.forwardSpeed < -0.5) brake = 1; else throttle = 1; }
     else if (axis.y < 0) { if (vehicle.forwardSpeed > 0.5) brake = 1; else throttle = -0.55; }
-    vehicle.setControls({ throttle, brake, steer: -axis.x, handbrake: input.down('Space') });
+    /**
+     * AND THE EDGE OF THE WORLD, which did not exist. See src/blockers.js's worldFence: the fence
+     * is the road network's own extent plus 60 m, it refuses only the power that would take the
+     * car further out, and it never strands anybody.
+     */
+    const ff = _fenceFwd.set(0, 0, 1).applyQuaternion(vehicle.quaternion);
+    const fenced = worldFence(worldBox, vehicle.position.x, vehicle.position.z, ff.x, ff.z,
+      vehicle.velocity.x, vehicle.velocity.z,
+      { throttle, brake, steer: -axis.x, handbrake: input.down('Space') });
+    outsideWorld = fenced.out;
+    vehicle.setControls(fenced.controls);
   }
 
   // timeScale exists for the headless harness only: it advances sim + streaming
@@ -1405,7 +1422,7 @@ function animate(now) {
 
     }
     world.update(mode === 'foot' ? player.position : vehicle.position);
-    if (traffic) traffic.update(dt, vehicle.position);
+    if (traffic) traffic.update(dt, vehicle.position, mode === 'car' ? vehicle.velocity : null);
     // Peds follow whatever the camera is actually near, not the parked car:
     // on foot the crowd has to be around the player or the pavement is empty
     // exactly where it is most visible.
@@ -1552,6 +1569,9 @@ function animate(now) {
    * the board (if it failed) and be offerable again immediately.
    */
   const wreckLine = mode === 'car' ? wreckWatch(dt) : null;
+  const fenceLine = outsideWorld > 0
+    ? { objective: 'TURN BACK', subtitle: `the district ends here — ${outsideWorld.toFixed(0)} m out` }
+    : null;
   let offerLine = null;
   if (!missionHud && !wreckLine) {
     const hot = board.offerAt(focus.x, focus.z);
@@ -1576,9 +1596,11 @@ function animate(now) {
    * of the three conditions can hold at a time — a mission that has just ended cannot also be
    * running, and an offer is only read when nothing is.
    */
-  const bandObjective = wreckLine ? wreckLine.objective : missionHud ? missionHud.objective
+  const bandObjective = wreckLine ? wreckLine.objective : fenceLine ? fenceLine.objective
+    : missionHud ? missionHud.objective
     : missionEnd ? missionEnd.objective : offerLine ? offerLine.objective : null;
-  const bandSubtitle = wreckLine ? wreckLine.subtitle : missionHud ? missionHud.subtitle
+  const bandSubtitle = wreckLine ? wreckLine.subtitle : fenceLine ? fenceLine.subtitle
+    : missionHud ? missionHud.subtitle
     : missionEnd ? missionEnd.subtitle : offerLine ? offerLine.subtitle : null;
   updateOfferMarkers();
   if (hud2 && hudEnabled) {
@@ -1815,6 +1837,8 @@ window.__district = {
   respawnCar: () => respawnCar(),
   wreckReport: () => ({ ...wreckStats, wreckedNow: damage.wrecked,
     holdS: WRECK_HOLD_S, heldFor: +wreckFor.toFixed(2) }),
+  /** The fence: where the world ends and how far outside it the car is. */
+  worldReport2: () => ({ box: worldBox, outside: outsideWorld }),
   /**
    * Turn body collision off, or back on.
    *

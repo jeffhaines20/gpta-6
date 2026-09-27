@@ -140,6 +140,35 @@ const REPLAN_AFTER_S = 3.0;       // denied this long, take a different exit
  */
 const SHUNT_MIN_DV = 1.0;      // m/s — below this a contact is a scuff and nothing moves
 const SHUNT_DECEL = RESPONSE.brake;
+/**
+ * THE PLAYER'S CAR IS A LEADER TOO, and until this existed it was invisible to the fleet.
+ *
+ * Measured by a playtester, creeping forward at 3 km/h so that anything charged above 2 m/s has
+ * to be the other car's, with an empty-city control:
+ *
+ *     (300,-164) Main St east     150 s:   4 contacts, 4.9 m/s front + 3.2 m/s right, health 1.00 -> 0.87
+ *     (-328,63) the bayfront      150 s: 187 contacts, 8.0 m/s front + 3.7 m/s left,  health 1.00 -> 0.638
+ *     the same, traffic: 0          0 contacts anywhere, health 1.00
+ *
+ * An 8.0 m/s charged delta-v against the player's own 0.83 m/s means a traffic car arrived at
+ * about 26 km/h. Both impacts were filed as `civilianCollision` crimes AGAINST THE PLAYER. Doing
+ * nothing but creeping in your own lane at the first mission's start point cost 36% of the car
+ * and two crime reports in two and a half minutes.
+ *
+ * `WATCH_M` is a pre-filter against LAST frame's published position, which is why it exists at
+ * all: the IDM term runs before this loop computes a car's pose, so testing every car would mean
+ * a second `_pointOn` for all thirty every frame. A one-frame-stale position is accurate to about
+ * 0.3 m at 40 km/h, which is nothing against a 50 m gate.
+ *
+ * `LANE_HALF_W` is the player's own half width (0.95) plus half a metre: the test is "is it in my
+ * lane", not "is it somewhere ahead", and a cone would brake for the whole street.
+ */
+const PLAYER_WATCH_M = 50;
+const PLAYER_LANE_HALF_W = 1.45;
+/** Rungs the lane offset backs off through when the nominal one is not clear. */
+const LANE_FIT = [1, 0.75, 0.5, 0.25];
+/** How finely the lane fit samples an edge. Half a car length. */
+const LANE_SAMPLE_M = 2;
 const SHUNT_MAX = 4.5;         // m
 const SHUNT_YAW = 0.55;        // rad
 const SHUNT_STOP_MAX = 5;      // s
@@ -396,6 +425,8 @@ export class Traffic {
     // edgeKey -> cars on it, so leader lookup is a sorted scan of a short list
     // rather than an O(n^2) sweep over the whole fleet.
     this._byEdge = new Map();
+    // (edge, direction) -> the lane offset that fits there. See _laneOffset.
+    this._laneCache = new Map();
     // junction vertex -> { active: Map<carId, movement>, queue: Map<carId, request> }
     // `active` is the set of movements currently being made through the junction,
     // which is the whole change: it used to be one car id.
@@ -418,6 +449,7 @@ export class Traffic {
       // drive instead of trusting the 12 chosen in the constructor.
       glowSlotsUsed: 0, glowEdgeM: 0,
       junctionWaitCarFrames: 0, followBrakeCarFrames: 0, stoppedCarFrames: 0,
+      playerLeaderFrames: 0, laneFitEdges: 0,
       entryBlockedCarFrames: 0,
       carFrames: 0,
       // Where overlaps actually happen, so the number can be acted on.
@@ -492,14 +524,72 @@ export class Traffic {
     return 6.5;                   // service
   }
 
-  // Lateral offset for right-hand traffic. Without this, opposing streams share a
-  // centreline and every head-on pass counts as an overlap.
-  _laneOffset(edgeIdx) {
+  /**
+   * Lateral offset for right-hand traffic. Without this, opposing streams share a centreline and
+   * every head-on pass counts as an overlap.
+   *
+   * WHAT THE ROAD'S WIDTH ALLOWS, THEN WHAT IS ACTUALLY CLEAR. The width rule alone is not
+   * enough, and this district settles it by 0.45 m: sweeping the real clearance along Main Street
+   * (edge 303, `w: 6.6`, so a nominal kerb at 3.30 m) the facade sits 2.85-3.10 m from the
+   * centreline, so a footprint encroaches up to 0.45 m into the drawn carriageway. src/roadpath.js
+   * has the same finding written up at length for the ROUTE's lane; this is the fleet's.
+   *
+   * It surfaced here as a regression from an unrelated change. Making the player's car a leader
+   * perturbs `_chooseNext`'s draw order, so the fleet takes different routes and visits edges the
+   * old sequence never drove: traffic-selftest's building check went from 0 of 215,960 car-frames
+   * to 342, worst 0.31 m. Nothing about the lane rule had changed — the new route set simply
+   * reached the edges where it was already wrong. A playtester had found the same thing from the
+   * outside and rated it low confidence: "2 of 567 traffic samples were inside a building, worst
+   * depth 0.25 m ... may be a junction pinch or may be my sampling". It was neither.
+   *
+   * SAMPLED ALONG THE WHOLE EDGE AND CACHED PER (edge, direction). Clearance varies along an
+   * edge, so one number per edge has to be the minimum over it; and the offset is to the RIGHT OF
+   * TRAVEL, so the two directions sit on opposite sides of the centreline and cannot share an
+   * answer. 935 edges and two directions is a bounded cache filled on demand, and it is
+   * per-edge-entry work rather than per-frame work either way.
+   *
+   * With no `clearAt` wired the fit is skipped and the width rule stands, which is what keeps
+   * this module usable without a blocker index — but a caller that publishes into a rendered
+   * world should wire it, and the gate now does.
+   */
+  _laneOffset(edgeIdx, forward = true) {
+    const key = edgeIdx * 2 + (forward ? 1 : 0);
+    const hit = this._laneCache.get(key);
+    if (hit !== undefined) return hit;
+    const want = this._laneNominal(edgeIdx);
+    let amt = want;
+    if (want > 0 && this.clearAt) {
+      amt = 0;
+      for (const f of LANE_FIT) {
+        const a = want * f;
+        if (this._laneClear(edgeIdx, forward, a)) { amt = a; break; }
+      }
+      if (amt < want) this.stats.laneFitEdges++;
+    }
+    this._laneCache.set(key, amt);
+    return amt;
+  }
+
+  /** The offset the road's own width justifies, before anything is measured. */
+  _laneNominal(edgeIdx) {
     const e = this.d.edges[edgeIdx];
     if (e.o !== 0) return 0;                      // one-way: use the centre
     if (e.w < TWO_WAY_MIN_W) return 0;            // single track: down the middle
     // Bounded by the carriageway the car is actually on. See TWO_WAY_MIN_W.
     return Math.max(0, Math.min(Math.min(3.6, Math.max(2.2, e.w / 4)), e.w / 2 - CAR_HALF_W));
+  }
+
+  /** Is a lane `amt` right of this edge's centreline clear for a car body, all the way along? */
+  _laneClear(edgeIdx, forward, amt) {
+    const len = this._len(edgeIdx);
+    const n = Math.max(2, Math.ceil(len / LANE_SAMPLE_M));
+    for (let k = 0; k <= n; k++) {
+      const p = this._pointOn(edgeIdx, forward, (len * k) / n);
+      if (!p) return false;
+      const nx = -p.dz, nz = p.dx;
+      if (!this.clearAt(p.x + nx * amt, p.z + nz * amt, CAR_HALF_W)) return false;
+    }
+    return true;
   }
 
   /** Is this edge wide enough to carry cars in both directions? */
@@ -564,7 +654,7 @@ export class Traffic {
         id: ++this._nextId, edge, forward, t, len,
         v: limit * (0.55 + this._r() * 0.35),
         limit: limit * (0.85 + this._r() * 0.3),
-        lane: this._laneOffset(edge),
+        lane: this._laneOffset(edge, forward),
         holds: [],
         waitS: 0, stuckS: 0, sinceReplanS: 0, fromArm: null, lastDeny: null,
         plan: null, planJv: null, mv: null, ticket: 0, queuedAt: null,
@@ -598,7 +688,7 @@ export class Traffic {
   _arm(edge, forward, entry) {
     const len = this._len(edge);
     const span = Math.min(JUNCTION_BOX_R, len);
-    const lane = this._laneOffset(edge);
+    const lane = this._laneOffset(edge, forward);
     const from = entry ? len - span : 0;
     const to = entry ? len : span;
     const pts = [];
@@ -793,6 +883,26 @@ export class Traffic {
     return false;
   }
 
+  /**
+   * The along-track gap from a car at pose `p` (with its lane offset) to the player's car, or
+   * Infinity when the player is not in front of it in its own lane.
+   *
+   * IN THE CAR'S OWN FRAME, not by straight-line distance: `along` is the component of the
+   * separation down the car's heading and `lateral` is the component across it, so a car passing
+   * the player in the other lane does not brake and a car behind never sees them at all. The
+   * gap is bumper-to-bumper, hence the car length.
+   */
+  _playerGap(p, lane, px, pz) {
+    const nx = -p.dz, nz = p.dx;
+    const cx = p.x + nx * lane, cz = p.z + nz * lane;
+    const dx = px - cx, dz = pz - cz;
+    const along = dx * p.dx + dz * p.dz;
+    if (!(along > 0)) return Infinity;
+    const lateral = Math.abs(dx * nx + dz * nz);
+    if (lateral > PLAYER_LANE_HALF_W + CAR_HALF_W) return Infinity;
+    return along - CAR_LENGTH;
+  }
+
   // Distance to the vehicle ahead on the same edge and direction, or Infinity.
   _gapAhead(car, list) {
     let best = Infinity, leader = null;
@@ -944,9 +1054,13 @@ export class Traffic {
     }
   }
 
-  update(dt, playerPos) {
+  update(dt, playerPos, playerVel = null) {
     this.stats.frames++;
 
+    // Last frame's published positions, by id: the cheap pre-filter for the player-as-leader
+    // test below, which runs before this loop knows where any car is.
+    const lastById = new Map();
+    for (const q of this._lastPositions ?? []) lastById.set(q.id, q);
     // Bucket by edge+direction once per frame so leader lookup is cheap.
     this._byEdge.clear();
     for (const car of this.cars) {
@@ -1020,6 +1134,32 @@ export class Traffic {
             if (other === car || other.fromArm !== myArm || other.t > JUNCTION_BOX_R) continue;
             const g = toEnd + other.t - CAR_LENGTH;
             if (g < gap) { gap = g; leader = other; }
+          }
+        }
+      }
+
+      /**
+       * --- THE PLAYER, AS A LEADER. Tested against last frame's published position first so the
+       * pose is only rebuilt for cars that could plausibly be looking at them. The player's own
+       * speed along this car's heading is the leader speed the IDM term wants: a player driving
+       * away is a leader pulling ahead, and a player reversing towards the car is worse than a
+       * stationary one.
+       */
+      if (playerPos) {
+        const seen = lastById.get(car.id);
+        if (!seen || Math.abs(seen.x - playerPos.x) < PLAYER_WATCH_M
+          && Math.abs(seen.z - playerPos.z) < PLAYER_WATCH_M) {
+          const pp = this._pointOn(car.edge, car.forward, car.t);
+          if (pp) {
+            const g = this._playerGap(pp, car.lane, playerPos.x, playerPos.z);
+            if (g < gap) {
+              gap = g;
+              const pv = playerVel
+                ? playerVel.x * pp.dx + playerVel.z * pp.dz
+                : 0;
+              leader = { v: Math.max(0, pv) };
+              this.stats.playerLeaderFrames++;
+            }
           }
         }
       }
@@ -1260,7 +1400,7 @@ export class Traffic {
         car.forward = next.forward;
         car.t = 0;
         car.len = this._len(next.e);
-        car.lane = this._laneOffset(next.e);
+        car.lane = this._laneOffset(next.e, next.forward);
         car.limit = this._speedLimit(next.e) * (0.85 + this._r() * 0.3);
         if (next.uTurn) car.v = Math.min(car.v, 2.5);
         p = this._pointOn(car.edge, car.forward, 0);

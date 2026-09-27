@@ -35,7 +35,7 @@ import fs from 'node:fs';
 import * as THREE from '../vendor/three.module.min.js';
 import { Vehicle, BODY_SAMPLES, BODY_RADIUS, BODY_ENCLOSING } from '../src/vehicle.js';
 import { FlatGround } from '../src/ground.js';
-import { BlockerIndex } from '../src/blockers.js';
+import { BlockerIndex, districtBounds, worldFence } from '../src/blockers.js';
 import { DamageModel, IMPACT, dynamicContact } from '../src/damage.js';
 import { WantedSystem } from '../src/wanted.js';
 import { Traffic } from '../src/traffic.js';
@@ -72,6 +72,9 @@ export class Session {
       ?? JSON.parse(fs.readFileSync(new URL('../data/district.json', import.meta.url), 'utf8'));
     const scene = { add() {} };
     this.blockers = new BlockerIndex(this.district);
+    /** The edge of the world: the road network's extent plus a margin. See worldFence. */
+    this.worldBox = districtBounds(this.district);
+    this.outsideWorld = 0;
     this.vehicle = new Vehicle();
     this.damage = new DamageModel();
     this.vehicle.blockers = this.blockers;
@@ -163,11 +166,21 @@ export class Session {
   step(seconds) {
     const n = Math.max(1, Math.round(seconds * HZ));
     for (let k = 0; k < n; k++) {
-      this.vehicle.setControls(this._controls);
+      /**
+       * THE FENCE, the same one district/main.js applies. A playtester drove 4,595 m off the map
+       * at 146 km/h over nothing; the fence refuses only the power that takes the car further out,
+       * so it cannot strand anybody.
+       */
+      const yaw = this._yaw();
+      const fenced = worldFence(this.worldBox, this.vehicle.position.x, this.vehicle.position.z,
+        Math.sin(yaw), Math.cos(yaw), this.vehicle.velocity.x, this.vehicle.velocity.z,
+        this._controls);
+      this.outsideWorld = fenced.out;
+      this.vehicle.setControls(fenced.controls);
       this.vehicle.stepFixed(DT, this.ground, HZ);
       this.damage.update(DT);
       this.wanted.update(DT, { x: this.vehicle.position.x, z: this.vehicle.position.z });
-      this.traffic.update(DT, this.vehicle.position);
+      this.traffic.update(DT, this.vehicle.position, this.vehicle.velocity);
       this.peds.update(DT, this.vehicle.position);
       this._moving();
       this._contacts();
@@ -500,11 +513,15 @@ export class Session {
     }
     return {
       t: +this.t.toFixed(1),
-      speedKmh: +(v.speed * 3.6).toFixed(0),
+      // The dial reads ROAD speed, the same quantity src/hud.js shows. `vehicle.speed` is the
+      // 3-D magnitude and reads 7 km/h on a parked car for the first second of a session.
+      speedKmh: +(v.roadSpeed * 3.6).toFixed(0),
       // The HUD's own fields, and only those: health, the damage vignette, the star count.
       health: +this.damage.health.toFixed(3),
       smoke: +this.damage.smoke.toFixed(2),
       wreck: this.damage.wrecked,
+      // The one thing outside the windscreen a player is told about in words.
+      offMap: this.outsideWorld > 0 ? +this.outsideWorld.toFixed(0) : null,
       stars: this.wanted.stars,
       objective: hud ? hud.objective : null,
       subtitle: hud ? hud.subtitle : null,
@@ -529,6 +546,7 @@ export class Session {
       at: { x: +this.vehicle.position.x.toFixed(1), z: +this.vehicle.position.z.toFixed(1) },
       yaw: +this._yaw().toFixed(2),
       insideBuilding: this.blockers.insideAny(this.vehicle.position.x, this.vehicle.position.z) >= 0,
+      worldBox: this.worldBox, outsideWorld: this.outsideWorld,
       contacts: this.vehicle.contacts,
       damage: this.damage.report(),
       wanted: this.wanted.report(),

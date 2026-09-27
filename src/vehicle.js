@@ -91,6 +91,23 @@ export class Vehicle {
     this.wheelRadius = 0.36;
 
     this.engineForce = 7000;    // N at the driven axle
+    /**
+     * REVERSE IS ONE SHORT GEAR, AND IT WAS NOT A GEAR AT ALL. The drive force was symmetric in
+     * the throttle's sign, so reverse accelerated exactly like forward and kept going: a
+     * playtester measured it at 17 34 48 62 73 84 93 101 108 114 119 123 127 130 km/h, one
+     * reading a second, and wrote it up as "reverse is not a gear, it is negative throttle with
+     * full engine power".
+     *
+     * A real car's reverse tops out in the thirties because there is a single short ratio and
+     * nothing to change up into. The force is therefore tapered to zero as the reverse road speed
+     * approaches this, which is a gear rather than a governor: full torque off the mark, where
+     * reverse is actually used, and nothing left at the top. The terminal speed is a little under
+     * it, where the taper meets the rolling drag.
+     *
+     * 8.3 m/s is 30 km/h. It has to stay well above src/roadpath.js's reverse manoeuvre, which
+     * backs out of an unreachable aim point at 0.35 of throttle and needs only a few m/s.
+     */
+    this.reverseMax = opts.reverseMax ?? 8.3;
     this.brakeForce = 7000;
     this.maxSteer = 0.55;       // radians
     this.steer = 0;
@@ -132,6 +149,20 @@ export class Vehicle {
   get steerPull() { return this.damage ? this.damage.steerPull : 0; }
 
   get speed() { return this.velocity.length(); }
+  /**
+   * ROAD SPEED: the horizontal magnitude, which is what a speedometer reads.
+   *
+   * `speed` is the 3-D magnitude and that is right for the physics — src/damage.js prices an
+   * impact off it, and a car landing hard really is moving that fast. It is wrong on a dial. The
+   * spawn sets y = 0.550 while the suspension rests at 0.717, so for the first second of every
+   * session the springs push the body up at 1.84 m/s and the speedo reads 7 km/h ON A PARKED CAR.
+   * A playtester led its "small things that read as bugs from the seat" list with it.
+   *
+   * The same conflation was a real fault one layer up: district/main.js used to hand
+   * `vehicle.speed` to the crowd as the impact speed, so a car landing hard threw a pedestrian
+   * its full 3-D speed sideways and could cross the fatality line on vertical velocity alone.
+   */
+  get roadSpeed() { return Math.hypot(this.velocity.x, this.velocity.z); }
   get forwardSpeed() {
     return this.velocity.dot(_v1.set(0, 0, 1).applyQuaternion(this.quaternion));
   }
@@ -242,7 +273,15 @@ export class Vehicle {
       let latForce = -vLat * this.mass * 0.55 / Math.max(dt, 1e-4) * 0.02;
       // Longitudinal: engine, brake, rolling resistance.
       let longForce = 0;
-      if (w.drive) longForce += this.throttle * this.engineForce * this.enginePower * 0.5;
+      if (w.drive) {
+        let t = this.throttle;
+        // The reverse gear's taper. See `reverseMax`.
+        if (t < 0 && this.reverseMax > 0) {
+          const rev = Math.max(0, -vLong);
+          t *= THREE.MathUtils.clamp(1 - rev / this.reverseMax, 0, 1);
+        }
+        longForce += t * this.engineForce * this.enginePower * 0.5;
+      }
       if (this.brake > 0) longForce += -Math.sign(vLong) * this.brake * this.brakeForce * w.brake;
       if (this.handbrake && !w.steer) longForce += -Math.sign(vLong) * this.brakeForce * 0.18;
       longForce += -vLong * 22; // rolling drag

@@ -23,7 +23,8 @@
 //       that clips a building corner. The gate builds the shortcut and measures the
 //       error.
 import fs from 'node:fs';
-import { BlockerIndex, insideRing, ringArea, contactImpulse } from '../src/blockers.js';
+import { BlockerIndex, insideRing, ringArea, contactImpulse,
+  districtBounds, worldFence, WORLD_MARGIN_M } from '../src/blockers.js';
 import { edgesOf, ringArea as facadeRingArea } from '../src/facades.js';
 
 const checks = [];
@@ -419,6 +420,81 @@ for (let i = 0; i < N; i++) ix.insideAny(-700 + (i * 1.37) % 1400, -500 + (i * 2
 const insNs = Number(process.hrtime.bigint() - tIns) / N;
 console.log(`    insideAny                        ${insNs.toFixed(1).padStart(7)} ns`);
 console.log(`    the whole collision budget at 240 calls/s is well under 0.1% of wall clock.`);
+
+// ---------------------------------------------------------------------------
+// THE EDGE OF THE WORLD. There was none: a playtester held the throttle north from the bayfront
+// and the car was still doing 146 km/h at 4,595 m out, 8,990 m past anything modelled.
+// ---------------------------------------------------------------------------
+console.log('\n§ the world fence');
+{
+  const b = districtBounds(district);
+  let rx0 = Infinity, rx1 = -Infinity, rz0 = Infinity, rz1 = -Infinity;
+  for (const v of district.verts) {
+    rx0 = Math.min(rx0, v.x); rx1 = Math.max(rx1, v.x);
+    rz0 = Math.min(rz0, v.z); rz1 = Math.max(rz1, v.z);
+  }
+  console.log(`    roads run x ${rx0.toFixed(0)}..${rx1.toFixed(0)}, z ${rz0.toFixed(0)}..${rz1.toFixed(0)}`);
+  console.log(`    meta.bounds  x ${district.meta.bounds.x0.toFixed(0)}..${district.meta.bounds.x1.toFixed(0)}, ` +
+    `z ${district.meta.bounds.z0.toFixed(0)}..${district.meta.bounds.z1.toFixed(0)}`);
+  console.log(`    the fence    x ${b.x0.toFixed(0)}..${b.x1.toFixed(0)}, z ${b.z0.toFixed(0)}..${b.z1.toFixed(0)}`);
+  /**
+   * THE FENCE IS THE ROADS, NOT `meta.bounds`, and the two disagree by hundreds of metres: the
+   * declared bounds are +/-716.95 by +/-500.94 while the network runs to x 814 and z 719. A fence
+   * at the declared bounds would cut off real driveable street, which is worse than no fence.
+   */
+  check('the fence contains every road vertex', b.x0 < rx0 && b.x1 > rx1 && b.z0 < rz0 && b.z1 > rz1,
+    `${b.x1.toFixed(0)} vs ${rx1.toFixed(0)}, ${b.z1.toFixed(0)} vs ${rz1.toFixed(0)}`);
+  check('KNOWN-BAD: meta.bounds does not', district.meta.bounds.x1 < rx1 || district.meta.bounds.z1 < rz1,
+    `roads reach ${rx1.toFixed(0)}/${rz1.toFixed(0)} against bounds ` +
+    `${district.meta.bounds.x1.toFixed(0)}/${district.meta.bounds.z1.toFixed(0)}`);
+  check('the margin is the run-off it claims', Math.abs((b.x1 - rx1) - WORLD_MARGIN_M) < 1e-6,
+    `${(b.x1 - rx1).toFixed(2)} m`);
+  // Inside, the fence is not there at all. Every road vertex and the spawn.
+  let touched = 0;
+  for (const v of district.verts) {
+    if (worldFence(b, v.x, v.z, 0, 1, 0, 0, { throttle: 1 }).held) touched++;
+  }
+  check('no road vertex is outside the fence', touched === 0, `${touched} of ${district.verts.length}`);
+  const sp = district.meta.spawn;
+  check('and the spawn is well inside it',
+    worldFence(b, sp.x, sp.z, 0, 1, 0, 0, { throttle: 1 }).out === 0);
+  /**
+   * OUTSIDE, IT IS A ONE-WAY FENCE. Refusing all power is the dead end this project already
+   * shipped once in the wrecked car, so the refusal is by the direction the car would MOVE: out is
+   * refused at both ends of the throttle, in is allowed at both.
+   */
+  const out = { x: b.x1 + 20, z: 0 };
+  const push = (fx, fz, throttle, vx = 0, vz = 0) =>
+    worldFence(b, out.x, out.z, fx, fz, vx, vz, { throttle, brake: 0 });
+  const nose = push(1, 0, 1), noseRev = push(1, 0, -1);
+  const home = push(-1, 0, 1), homeRev = push(-1, 0, -1);
+  console.log(`    20 m out past x1, nose outward:  throttle +1 -> ${nose.controls.throttle}, ` +
+    `-1 -> ${noseRev.controls.throttle}`);
+  console.log(`    the same spot, nose inward:      throttle +1 -> ${home.controls.throttle}, ` +
+    `-1 -> ${homeRev.controls.throttle}`);
+  check('driving further out is refused', nose.controls.throttle === 0);
+  check('reversing further out is refused', homeRev.controls.throttle === 0);
+  check('driving home is allowed', home.controls.throttle === 1);
+  check('and so is reversing home', noseRev.controls.throttle === -1);
+  /**
+   * AND THE BRAKE IS ON THE VELOCITY, NOT THE DEPTH, which the first version got wrong: measured
+   * at 786 m out, a brake ramped on depth sat at 1.0 while the car tried to leave, so thirty
+   * seconds of full throttle pointing home moved it 0.1 m — the same dead end by another route.
+   */
+  check('a car travelling outward is braked', push(1, 0, 1, 10, 0).controls.brake > 0,
+    `${push(1, 0, 1, 10, 0).controls.brake}`);
+  check('a car travelling home is not', push(-1, 0, 1, -10, 0).controls.brake === 0,
+    `${push(-1, 0, 1, -10, 0).controls.brake}`);
+  check('a car standing still outside is not', push(1, 0, 1, 0, 0).controls.brake === 0,
+    `${push(1, 0, 1, 0, 0).controls.brake}`);
+  check('the brake ramps with depth', worldFence(b, b.x1 + 30, 0, 1, 0, 10, 0, { throttle: 1 }).controls.brake
+    > worldFence(b, b.x1 + 3, 0, 1, 0, 10, 0, { throttle: 1 }).controls.brake,
+    `${worldFence(b, b.x1 + 3, 0, 1, 0, 10, 0, { throttle: 1 }).controls.brake.toFixed(2)} at 3 m, ` +
+    `${worldFence(b, b.x1 + 30, 0, 1, 0, 10, 0, { throttle: 1 }).controls.brake.toFixed(2)} at 30 m`);
+  console.log('    (live, on open ground: 180 s of full throttle at the fence stops the car 61.3 m');
+  console.log('     out at 0 km/h; turning round drives home at 140 km/h; reverse from 20 m out');
+  console.log('     with the nose still outward comes home at 27 km/h.)');
+}
 
 // ---------------------------------------------------------------------------
 console.log('\n' + '='.repeat(78));

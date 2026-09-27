@@ -188,6 +188,51 @@ check('4 wheels grounded under power', out.acceleration.wheels_on_ground === 4,
 check('turn radius 8-40 m', out.cornering.turn_radius_m >= 8 && out.cornering.turn_radius_m <= 40,
   `${out.cornering.turn_radius_m} m`);
 
+/**
+ * 6. REVERSE IS ONE SHORT GEAR, and it was not a gear at all: the drive force was symmetric in
+ *    the throttle's sign, so reverse accelerated exactly like forward and kept going. A
+ *    playtester measured 17 34 48 62 73 84 93 101 108 114 119 123 127 130 km/h, one reading a
+ *    second, and called it "negative throttle with full engine power".
+ *
+ *    The pair is the check: reverse has to top out in the thirties AND forward has to be
+ *    untouched, because a governor on the whole drivetrain would satisfy the first alone.
+ */
+const rev = run('reverse', null, 20, () => ({ throttle: -1, brake: 0, steer: 0 }));
+const fwd20 = run('forward20', null, 20, () => ({ throttle: 1, brake: 0, steer: 0 }));
+const revKmh = +(Math.hypot(rev.v.velocity.x, rev.v.velocity.z) * 3.6).toFixed(1);
+const fwdKmh = +(Math.hypot(fwd20.v.velocity.x, fwd20.v.velocity.z) * 3.6).toFixed(1);
+out.reverse = { after_20s_kmh: revKmh, forward_after_20s_kmh: fwdKmh,
+  cap_kmh: +(new Vehicle().reverseMax * 3.6).toFixed(1) };
+check('reverse tops out at the gear, not the engine', revKmh > 15 && revKmh <= out.reverse.cap_kmh,
+  `${revKmh} km/h against a ${out.reverse.cap_kmh} km/h gear`);
+check('and forward is untouched by the taper', fwdKmh > 120, `${fwdKmh} km/h`);
+check('reverse still has authority off the mark', (() => {
+  const r2 = run('rev-short', null, 2, () => ({ throttle: -1, brake: 0, steer: 0 }));
+  return Math.hypot(r2.v.velocity.x, r2.v.velocity.z) > 3;
+})(), 'over 3 m/s within 2 s');
+
+/**
+ * 7. ROAD SPEED IS THE HORIZONTAL MAGNITUDE. `speed` is the 3-D one, which is right for the
+ *    physics and wrong on a dial: the spawn sets y = 0.550 while the suspension rests at 0.717,
+ *    so the springs push the body up at 1.84 m/s and the speedo read 7 km/h ON A PARKED CAR.
+ */
+{
+  const v = new Vehicle();
+  v.position.set(0, 0.55, 0);
+  let worst3d = 0, worstRoad = 0;
+  for (let i = 0; i < 60; i++) {
+    v.setControls({ throttle: 0, brake: 0, steer: 0 });
+    v.step(DT, ground);
+    worst3d = Math.max(worst3d, v.speed * 3.6);
+    worstRoad = Math.max(worstRoad, v.roadSpeed * 3.6);
+  }
+  out.parked = { worst_3d_kmh: +worst3d.toFixed(2), worst_road_kmh: +worstRoad.toFixed(2) };
+  check('KNOWN-BAD: the 3-D speed reads a parked car as moving', worst3d > 1,
+    `${worst3d.toFixed(2)} km/h off the spawn bounce`);
+  check('road speed reads a parked car as parked', worstRoad < 0.1,
+    `${worstRoad.toFixed(3)} km/h`);
+}
+
 // 5. Cost. Measured 2.32 us per vehicle-step. Bound 10 us catches a 4x
 //    regression without flaking on a loaded container.
 check('step cost < 10 us', out.cost_per_vehicle_step_us < 10, `${out.cost_per_vehicle_step_us} us`);

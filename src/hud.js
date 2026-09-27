@@ -1153,7 +1153,9 @@ export class HUD {
 
   _readVehicle(v) {
     const s = this.state;
-    s.speed = v.speed ?? 0;
+    // ROAD SPEED, not the 3-D magnitude: see Vehicle.roadSpeed for the parked car that read
+    // 7 km/h. `speed` is kept as the fallback for a host that has no such getter.
+    s.speed = v.roadSpeed ?? v.speed ?? 0;
     s.forwardSpeed = v.forwardSpeed ?? 0;
     let slip = 0;
     if (v.wheels) for (const w of v.wheels) slip = Math.max(slip, w.slip || 0);

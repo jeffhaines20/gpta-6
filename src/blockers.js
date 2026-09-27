@@ -382,3 +382,78 @@ export function contactImpulse({ vx, vz, rx, rz, nx, nz, mass, inertiaY,
     dv: -vn * (1 + clamp(restitution, 0, 1)),
   };
 }
+
+/**
+ * WHERE THE WORLD ENDS.
+ *
+ * There was no boundary at all. A playtester pointed the car north from the bayfront and held the
+ * throttle: the fleet and the crowd both drop to zero after 829 m, and the car was still doing
+ * 146 km/h at 4,595 m out — 8,990 m past anything modelled — over nothing. Driving east or south
+ * from the same spawn wrecks the car in 95-116 m, so the district is boxed in on two of four
+ * sides by buildings and open on the others by accident.
+ *
+ * THE FENCE IS THE ROAD NETWORK'S OWN EXTENT, NOT `meta.bounds`, and that distinction is the
+ * whole of the derivation. `meta.bounds` is ±716.95 by ±500.94, while the roads run from
+ * x -862 to 814 and z -524 to 719 — so a fence at the declared bounds would cut off real
+ * driveable street, which is worse than no fence. Every road has to stay reachable, and nothing
+ * beyond the roads is modelled, so the roads plus a margin is exactly the right box.
+ *
+ * `margin` is 60 m: two blocks' worth of run-off past the last junction, enough that a player
+ * chasing the edge of the map meets the fence rather than the end of the pavement.
+ */
+export const WORLD_MARGIN_M = 60;
+
+export function districtBounds(district, margin = WORLD_MARGIN_M) {
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const v of district.verts) {
+    if (v.x < x0) x0 = v.x;
+    if (v.x > x1) x1 = v.x;
+    if (v.z < z0) z0 = v.z;
+    if (v.z > z1) z1 = v.z;
+  }
+  return { x0: x0 - margin, x1: x1 + margin, z0: z0 - margin, z1: z1 + margin, margin };
+}
+
+/**
+ * A ONE-WAY FENCE, which is the only kind that cannot strand the player.
+ *
+ * The obvious implementation — cut the engine outside the box — is the dead end this project has
+ * already shipped once, in the wrecked car that could not be driven anywhere: outside the fence
+ * with no power, there is no way back in. So the refusal is DIRECTIONAL. Power that would take
+ * the car further out is refused; power that brings it back always works, at both ends of the
+ * throttle, because a car that left the map nose-first comes back in reverse.
+ *
+ * The brake ramps with depth rather than slamming on, so meeting the fence at 140 km/h reads as
+ * running out of road and not as hitting a wall that is not drawn. `out / 30` reaches full brake
+ * 30 m past the line, which is about a second and a half at that speed.
+ *
+ * AND THE BRAKE IS ON THE VELOCITY, NOT ON THE POSITION, which the first version got wrong and
+ * which stranded the car exactly as thoroughly as cutting the engine would have. Measured: 786 m
+ * north of the bayfront at full throttle, the fence stopped the car 70.7 m out — correctly — and
+ * then thirty seconds of full throttle pointing back at town moved it 0.1 m, because a brake
+ * ramped on DEPTH is still at 1.0 when the car is trying to leave. Braking only while the car is
+ * actually travelling outward gives the same stop and lets it drive home.
+ *
+ * Returns the controls to use plus `out`, the metres outside the box, so a HUD can say so and a
+ * gate can assert on it. `out` is 0 everywhere inside, which is everywhere a player ever drives.
+ */
+export function worldFence(bounds, x, z, fwdX, fwdZ, vx, vz, controls) {
+  const dx = Math.max(bounds.x0 - x, 0, x - bounds.x1);
+  const dz = Math.max(bounds.z0 - z, 0, z - bounds.z1);
+  const out = Math.hypot(dx, dz);
+  if (!(out > 0)) return { controls, out: 0, held: false };
+  // The outward normal: which way is away from the box. Signed per axis, then normalised.
+  const ox = x < bounds.x0 ? -dx : dx, oz = z < bounds.z0 ? -dz : dz;
+  const L = Math.hypot(ox, oz) || 1;
+  const nx = ox / L, nz = oz / L;
+  // How much of the car's nose points outward. Positive: driving forward takes it further out.
+  const dot = nx * fwdX + nz * fwdZ;
+  let throttle = controls.throttle ?? 0;
+  // Refused by the direction the car would MOVE, not by the direction it points: reverse with an
+  // outward nose drives home and has to be allowed.
+  if (throttle !== 0 && Math.sign(throttle) * dot > 0) throttle = 0;
+  const leaving = nx * (vx ?? 0) + nz * (vz ?? 0) > 0;
+  const brake = leaving ? Math.max(controls.brake ?? 0, Math.min(1, out / 30)) : (controls.brake ?? 0);
+  return { controls: { ...controls, throttle, brake }, out: +out.toFixed(2), held: true,
+    leaving, outward: +dot.toFixed(3) };
+}
