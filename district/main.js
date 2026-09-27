@@ -35,7 +35,7 @@ import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubS
   setLensFinish, lensFinish,
   setLensProfile, lensProfile,
   setGlassFinish, glassFinish } from '../src/carbody.js';
-import { HUD } from '../src/hud.js';
+import { HUD, composeBand, MINIMAP_ZOOM_M } from '../src/hud.js';
 import { MissionRunner, OUTCOMES, MissionBoard } from '../src/mission.js';
 import { MISSIONS } from '../src/missions.js';
 import { WantedSystem, bindPursuit, CRIMES, STATES } from '../src/wanted.js';
@@ -199,7 +199,7 @@ await loading
   .add('hud', async () => {
     // DOM + 2D canvas overlay: zero WebGL draw calls, so it costs nothing against
     // the budget the rest of this file is fighting for.
-    hud2 = new HUD({ district, zoomMetres: 220 });
+    hud2 = new HUD({ district, zoomMetres: MINIMAP_ZOOM_M });
     // The debug text overlay is redundant once the real HUD is up.
     hud.style.display = 'none';
   })
@@ -1601,6 +1601,18 @@ function animate(now) {
     ? { objective: 'TURN BACK', subtitle: `the district ends here — ${outsideWorld.toFixed(0)} m out` }
     : null;
   board.refresh(focus.x, focus.z);
+  /**
+   * The nearest job on the board, at any distance, for the HUD to point at while nothing is
+   * running. Straight-line nearest; `routeToMarker` then draws the streets to it.
+   */
+  let idleTarget = null;
+  if (!missionHud) {
+    let best = Infinity;
+    for (const k of board.markers()) {
+      const d = Math.hypot(k.x - focus.x, k.z - focus.z);
+      if (d < best) { best = d; idleTarget = k; }
+    }
+  }
   let offerLine = null;
   if (!missionHud && !wreckLine) {
     const hot = board.offerAt(focus.x, focus.z);
@@ -1626,12 +1638,14 @@ function animate(now) {
    * of the three conditions can hold at a time — a mission that has just ended cannot also be
    * running, and an offer is only read when nothing is.
    */
-  const bandObjective = wreckLine ? wreckLine.objective : fenceLine ? fenceLine.objective
-    : missionHud ? missionHud.objective
-    : missionEnd ? missionEnd.objective : offerLine ? offerLine.objective : null;
-  const bandSubtitle = wreckLine ? wreckLine.subtitle : fenceLine ? fenceLine.subtitle
-    : missionHud ? missionHud.subtitle
-    : missionEnd ? missionEnd.subtitle : offerLine ? offerLine.subtitle : null;
+  /**
+   * The band's five tenants, in one priority order that now lives in src/hud.js's `composeBand`
+   * rather than here — so tools/playtest.mjs's `look()` can compose the same thing and a
+   * playtester is shown what a player is shown. It was four-fifths missing from the harness.
+   */
+  const band = composeBand({ wreck: wreckLine, fence: fenceLine, mission: missionHud,
+    ended: missionEnd, offer: offerLine });
+  const bandObjective = band.objective, bandSubtitle = band.subtitle;
   if (hud2 && hudEnabled) {
     const q = vehicle.quaternion;
     const heading = mode === 'foot'
@@ -1662,7 +1676,22 @@ function animate(now) {
       // vehicle prompt keeps it otherwise, so the two never fight over one line.
       objective: bandObjective,
       subtitle: bandSubtitle,
-      waypoint: missionHud && missionHud.waypoint ? missionHud.waypoint : null,
+      /**
+       * AND WITH NO MISSION RUNNING THE WAYPOINT POINTS AT THE NEAREST JOB, because otherwise
+       * there is nothing on screen pointing at the only content left.
+       *
+       * A playtester finished the tutorial at the marina and could not find the second mission by
+       * exploring: 145 hops, 1,522 s of game time, 4,121 m driven, closest approach 339 m, and the
+       * offer line never lit. The coverage arithmetic is why — of 44.11 km of road, 71 m (0.16%)
+       * starts a job, 548 m (1.24%) announces one, and 2,232 m (5.06%) shows a blip. The marina is
+       * also the most isolated point on the map: 9 road vertices within 30 m, then a 111 m gap.
+       *
+       * The HUD has drawn a waypoint and a routed line since it was written and the mission layer
+       * was its only source. A job on the board is a destination in exactly the same sense, so it
+       * gets the same treatment, and `routeToMarker` draws the streets to it.
+       */
+      waypoint: missionHud && missionHud.waypoint ? missionHud.waypoint
+        : (idleTarget ? { x: idleTarget.x, z: idleTarget.z } : null),
       // The jobs on offer, as minimap blips. src/hud.js has drawn `markers` since it was written
       // and nothing had ever posted one.
       markers: missionHud ? null : offerMarkers,
@@ -1673,7 +1702,7 @@ function animate(now) {
       health: mode === 'car' ? damage.health : 1,
       damage: mode === 'car' ? damage.smoke : 0,
       // The route line, on the streets rather than as the crow flies. See routeToMarker().
-      route: routeToMarker(missionHud ? missionHud.waypoint : null),
+      route: routeToMarker(missionHud && missionHud.waypoint ? missionHud.waypoint : idleTarget),
     });
     // One flash per applied impact, scaled by how much of the car it cost. hud.js
     // decays it at `damageDecay` per second, so this is a hit and not a state.

@@ -42,6 +42,7 @@ import { Traffic } from '../src/traffic.js';
 import { Pedestrians } from '../src/pedestrians.js';
 import { RoadGraph, followPath, ROUTE_LANE_M } from '../src/roadpath.js';
 import { MissionRunner, OUTCOMES, MissionBoard } from '../src/mission.js';
+import { composeBand, MINIMAP_REACH_M } from '../src/hud.js';
 import { MISSIONS } from '../src/missions.js';
 
 const HZ = 120, DT = 1 / HZ;
@@ -51,6 +52,8 @@ const PERSON = { bodyRadius: 0.35, bodyMass: 80 };
 const PED_CRIME_WINDOW_S = 20;
 /** How long a wreck is held before a replacement arrives. district/main.js's own figure. */
 const WRECK_HOLD_S = 4;
+/** And how long the band holds the line saying a mission ended. main.js's own figure. */
+const MISSION_END_S = 6;
 // Four distinct scratch vectors, not two reused, for the reason applyImpulseAt's own comment
 // gives: sharing one with a caller turned `offset.cross(impulse)` into a self-cross.
 const _fwd = new THREE.Vector3(), _right = new THREE.Vector3();
@@ -97,6 +100,14 @@ export class Session {
       if (!this.mission.mission) return;
       // Latched, so a mission that ends where it started does not restart on the next frame.
       this.board.record(this.mission.mission.id, e.outcome).arm(this.mission.mission.id);
+      // And the band says so for MISSION_END_S, because hud() goes null the instant it ends and
+      // without this a finished mission and no mission at all look identical from the seat.
+      const title = this.mission.mission.title;
+      this._ended = e.outcome === OUTCOMES.PASSED
+        ? { objective: 'MISSION COMPLETE', subtitle: title }
+        : { objective: `MISSION ${String(e.outcome).toUpperCase()}`,
+          subtitle: `${title}${e.reason ? ' — ' + e.reason : ''} — the marker is back on the map` };
+      this._endFor = MISSION_END_S;
     });
     this.t = 0;
     this.log = [];
@@ -111,6 +122,8 @@ export class Session {
     this._controls = { throttle: 0, brake: 0, steer: 0, handbrake: false };
     this._route = null;
     this._offer = null;
+    this._ended = null;
+    this._endFor = 0;
     this._wreckFor = 0;
     this._outcome = OUTCOMES.RUNNING;
     /** When each pedestrian was last reported as a crime, by their own id. See _contacts. */
@@ -187,6 +200,7 @@ export class Session {
       this._moving();
       this._contacts();
       this._wreckWatch(DT);
+      if (this._endFor > 0) { this._endFor -= DT; if (this._endFor <= 0) this._ended = null; }
       // Drive into a marker and the job starts, exactly as district/main.js does it.
       if (!this.mission.hud()) this._offers();
       if (this.mission.mission) {
@@ -233,7 +247,8 @@ export class Session {
     }
     const seen = this.board.offerAt(this.vehicle.position.x, this.vehicle.position.z, 'notice');
     this._offer = seen
-      ? { title: seen.mission.title, brief: seen.mission.brief, range: seen.distance }
+      ? { id: seen.mission.id, title: seen.mission.title, brief: seen.mission.brief,
+        range: seen.distance, x: seen.mission.start.x, z: seen.mission.start.z }
       : null;
   }
 
@@ -464,7 +479,16 @@ export class Session {
    * `route[i].x`, got `undefined`, and steered the car to (NaN, NaN).
    */
   routeToWaypoint() {
-    const wp = this.mission.mission ? this.mission.hud().waypoint : null;
+    const h = this.mission.mission ? this.mission.hud() : null;
+    let wp = h && h.waypoint ? h.waypoint : null;
+    if (!wp) {
+      // The same idle target look() points at: the nearest job on the board.
+      let best = Infinity;
+      for (const k of this.board.markers()) {
+        const d = Math.hypot(k.x - this.vehicle.position.x, k.z - this.vehicle.position.z);
+        if (d < best) { best = d; wp = k; }
+      }
+    }
     if (!wp) { this._route = null; return null; }
     // The same call district/main.js's routeToMarker makes, with the same spacing.
     const p = this.roads.path(this.vehicle.position.x, this.vehicle.position.z, wp.x, wp.z,
@@ -483,6 +507,20 @@ export class Session {
   look() {
     const v = this.vehicle, yaw = this._yaw();
     const fwd = { x: Math.sin(yaw), z: Math.cos(yaw) };
+    /**
+     * A BEARING IS NOT PRIVILEGED INFORMATION, IT IS THE MINIMAP. `look()` gave the offer a range
+     * and no direction, and a playtester steering by range alone — drive a leg, turn if it grew —
+     * covered 703 m over 76 legs in 241.7 s and never found the job, because the notice radius is
+     * 48 m and outside it there is no gradient. With the bearing the minimap blip gives, the same
+     * drive took 11.0 s. Withholding it was not restricting the player to what they can see; the
+     * page draws every board marker within MINIMAP_REACH_M of them.
+     */
+    const bearingTo = (x, z) => {
+      const dx = x - v.position.x, dz = z - v.position.z, d = Math.hypot(dx, dz) || 1;
+      const dot = (dx * fwd.x + dz * fwd.z) / d;
+      const cross = fwd.x * (dz / d) - fwd.z * (dx / d);
+      return { range: +d.toFixed(0), bearing: +Math.atan2(cross, dot).toFixed(2) };
+    };
     const ahead = (x, z) => {
       const dx = x - v.position.x, dz = z - v.position.z;
       const d = Math.hypot(dx, dz);
@@ -505,8 +543,23 @@ export class Session {
     }
     cars.sort((a, b) => a.range - b.range);
     people.sort((a, b) => a.range - b.range);
+    const band = this._band();
     const hud = this.mission.mission ? this.mission.hud() : null;
-    const wp = hud ? hud.waypoint : null;
+    /**
+     * WITH NO MISSION RUNNING THE WAYPOINT POINTS AT THE NEAREST JOB, at any distance, the same
+     * as district/main.js. Without it a playtester who finished the tutorial at the marina drove
+     * 4,121 m over 145 hops and 1,522 s and never came within 339 m of the only content left: of
+     * 44.11 km of road, 0.16% starts a job and 1.24% announces one.
+     */
+    let idle = null;
+    if (!hud) {
+      let best = Infinity;
+      for (const k of this.board.markers()) {
+        const d = Math.hypot(k.x - v.position.x, k.z - v.position.z);
+        if (d < best) { best = d; idle = k; }
+      }
+    }
+    const wp = hud && hud.waypoint ? hud.waypoint : idle;
     let waypoint = null;
     if (wp) {
       const dx = wp.x - v.position.x, dz = wp.z - v.position.z, d = Math.hypot(dx, dz);
@@ -526,13 +579,25 @@ export class Session {
       // The one thing outside the windscreen a player is told about in words.
       offMap: this.outsideWorld > 0 ? +this.outsideWorld.toFixed(0) : null,
       stars: this.wanted.stars,
-      objective: hud ? hud.objective : null,
-      subtitle: hud ? hud.subtitle : null,
+      // The band, exactly as the page composes it. `objective`/`subtitle` are what is on screen.
+      objective: band.objective,
+      subtitle: band.subtitle,
+      bandFrom: band.from,
       // hud() goes null when the mission ends, so without this a finished mission and no
       // mission at all look identical from the seat.
       missionOutcome: this.mission.mission ? this.mission.outcome : null,
-      // A job on offer nearby, the way the objective band names it in the page.
-      offer: this._offer ?? null,
+      // A job on offer nearby, the way the objective band names it in the page, WITH a bearing.
+      offer: this._offer
+        ? { ...this._offer, ...bearingTo(this._offer.x, this._offer.z) } : null,
+      /**
+       * The minimap's contents: every job on the board within its reach, with a bearing. This is
+       * the blip a player is looking at, and without it `look()` is harder to navigate by than
+       * the game.
+       */
+      blips: this.board.markers()
+        .map((k) => ({ id: k.id, ...bearingTo(k.x, k.z) }))
+        .filter((k) => k.range <= MINIMAP_REACH_M)
+        .sort((a, b) => a.range - b.range),
       waypoint,
       // What is in front of the windscreen, nearest first, capped the way attention is.
       carsAhead: cars.slice(0, 6),
@@ -559,6 +624,31 @@ export class Session {
       crowd: this.peds.positions().length,
       stats: { ...this.stats, distance: +this.stats.distance.toFixed(0) },
     };
+  }
+
+  /**
+   * THE OBJECTIVE BAND, composed by src/hud.js's `composeBand` — the same call district/main.js
+   * makes, so a playtester reads what a player reads. Four of its five tenants were missing from
+   * `look()`: a playtester got `wreck: true, objective: null` during the four seconds a wrecked
+   * car is held, with no words at all, while the page was saying "THE CAR IS WRECKED / a
+   * replacement in 3 s".
+   */
+  _band() {
+    const hud = this.mission.mission ? this.mission.hud() : null;
+    const wreck = this.damage.wrecked
+      ? { objective: 'THE CAR IS WRECKED',
+        subtitle: `a replacement in ${Math.max(0, WRECK_HOLD_S - this._wreckFor).toFixed(0)} s` }
+      : null;
+    const fence = this.outsideWorld > 0
+      ? { objective: 'TURN BACK',
+        subtitle: `the district ends here — ${this.outsideWorld.toFixed(0)} m out` }
+      : null;
+    const ended = this._endFor > 0 ? this._ended : null;
+    const offer = this._offer
+      ? { objective: this._offer.title.toUpperCase(),
+        subtitle: `${this._offer.brief} — ${this._offer.range.toFixed(0)} m` }
+      : null;
+    return composeBand({ wreck, fence, mission: hud, ended, offer });
   }
 
   /** The session as a reviewer would read it. */
@@ -1010,6 +1100,78 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
   nearby.step(0.1);
   check('an offer is announced from outside its radius', nearby.look().offer !== null
     && nearby.mission.mission === null, JSON.stringify(nearby.look().offer));
+
+  /**
+   * §6  WHAT THE BAND SAYS, and it is the reviewer-facing half of this harness. A playtester
+   * measured `look()` giving `wreck: true, objective: null` — no words at all — through the four
+   * seconds a wrecked car is held, while the page said "THE CAR IS WRECKED / a replacement in
+   * 3 s". Four of the band's five tenants were missing, and the offer had a range and no bearing,
+   * which cost that reviewer 703 m over 76 legs in 241.7 s finding nothing that a bearing found
+   * in 11.0 s.
+   */
+  console.log('\n§6  the objective band, and somewhere to go');
+  const spawnLook = new Session({ traffic: 0, peds: 0 });
+  spawnLook.step(0.2);
+  const sl = spawnLook.look();
+  console.log(`    at the spawn: [${sl.bandFrom}] "${sl.objective}"`);
+  console.log(`      offer ${JSON.stringify(sl.offer && { id: sl.offer.id, range: sl.offer.range, bearing: sl.offer.bearing })}`);
+  console.log(`      waypoint ${JSON.stringify(sl.waypoint)}, blips ${JSON.stringify(sl.blips)}`);
+  check('an offer carries a bearing, not just a range',
+    !!sl.offer && Number.isFinite(sl.offer.bearing) && Number.isFinite(sl.offer.range),
+    JSON.stringify(sl.offer && { range: sl.offer.range, bearing: sl.offer.bearing }));
+  check('the minimap\'s blips are visible to a player', sl.blips.length > 0
+    && Number.isFinite(sl.blips[0].bearing), JSON.stringify(sl.blips));
+  check('and the band names the job', sl.bandFrom === 'offer' && !!sl.objective, sl.objective);
+  /**
+   * SOMEWHERE TO GO WITH NOTHING RUNNING. A playtester finished the tutorial at the marina and
+   * could not find the only remaining job: 145 hops, 1,522 s, 4,121 m, closest approach 339 m. Of
+   * 44.11 km of road, 0.16% starts a job and 1.24% announces one, so exploring cannot work.
+   */
+  const tutDone = new Session({ traffic: 0, peds: 0 });
+  tutDone.board.record('shakedown', OUTCOMES.PASSED);
+  tutDone.placeAt(-471, 205, 0);
+  tutDone.step(0.2);
+  const dl = tutDone.look();
+  check('a finished tutorial still leaves a waypoint', !!dl.waypoint && dl.waypoint.range > 300,
+    JSON.stringify(dl.waypoint));
+  const rt = tutDone.routeToWaypoint();
+  check('and a routed line to follow', !!rt && rt.length > 2, rt ? `${rt.length} points` : 'none');
+  // THE CONTROL: with every job passed there is nothing to point at, so the waypoint must be null
+  // rather than pointing somewhere arbitrary.
+  const empty = new Session({ traffic: 0, peds: 0 });
+  empty.board.record('shakedown', OUTCOMES.PASSED);
+  empty.board.record('marlin-street', OUTCOMES.PASSED);
+  empty.step(0.2);
+  check('with nothing left on the board there is no waypoint',
+    empty.look().waypoint === null && empty.look().blips.length === 0,
+    JSON.stringify(empty.look().waypoint));
+
+  // The wreck line, in words, for the four seconds it is held.
+  const wl = new Session({ traffic: 0, peds: 0 });
+  wl.placeAt(576.2 - 40, -85, Math.PI / 2);
+  for (let k = 0; k < 400 && !wl.damage.wrecked; k++) wl.drive({ throttle: 1 }).step(0.05);
+  wl.step(0.1);
+  const wb = wl.look();
+  console.log(`    wrecked:     [${wb.bandFrom}] "${wb.objective}" / "${wb.subtitle}"`);
+  check('a wrecked car says so in words', wb.bandFrom === 'wreck' && /WRECKED/.test(wb.objective)
+    && /replacement/.test(wb.subtitle), `${wb.objective} / ${wb.subtitle}`);
+  // And the fence line, which outranks everything except the wreck.
+  const fl = new Session({ traffic: 0, peds: 0 });
+  fl.vehicle.blockers = null;
+  fl.placeAt(0, fl.worldBox.z1 + 20, 0);
+  fl.step(0.1);
+  const fb = fl.look();
+  console.log(`    off the map:  [${fb.bandFrom}] "${fb.objective}" / "${fb.subtitle}"`);
+  check('and being off the map does too', fb.bandFrom === 'fence' && /TURN BACK/.test(fb.objective),
+    `${fb.objective} / ${fb.subtitle}`);
+  // A running mission outranks an offer it is standing in; the band has one tenant at a time.
+  const mb = new Session({ traffic: 0, peds: 0 });
+  const mj = mb.board.available().find((m) => m.id === 'shakedown');
+  mb.placeAt(mj.start.x, mj.start.z, 0);
+  mb.step(0.2);
+  console.log(`    on a marker:  [${mb.look().bandFrom}] "${mb.look().objective}"`);
+  check('a running mission outranks the offer it started from',
+    mb.look().bandFrom === 'mission', `${mb.look().bandFrom}`);
 
   console.log(`\n${pass} passed, ${fail} failed in ${((Date.now() - t00) / 1000).toFixed(1)} s ` +
     'of wall clock');

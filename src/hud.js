@@ -580,6 +580,49 @@ export function disposeDistrictMaps() {
   bakeCache.clear();
 }
 
+/**
+ * THE OBJECTIVE BAND HAS FIVE TENANTS AND ONE PRIORITY ORDER, and it lived in district/main.js
+ * where nothing could test it and the node harness could not reproduce it.
+ *
+ * A playtester found the consequence: `tools/playtest.mjs`'s `look()` — the only thing a
+ * playtester is allowed to steer by — was missing FOUR of the five. During the four seconds a
+ * wrecked car is held it gave `wreck: true, objective: null`, no words at all, while the page
+ * said "THE CAR IS WRECKED / a replacement in 3 s"; the mission-end line, the fence's "TURN
+ * BACK" and the offer were all absent too. So the harness was harder to play than the game, in
+ * ways that read as the game being broken.
+ *
+ * The order is what it is because only one of the five can be true at a time in the cases that
+ * matter, and where two can, the more urgent is the one you can act on:
+ *
+ *   1. the car is wrecked        — nothing else you do matters for four seconds
+ *   2. you are off the map       — and the only control that works is reverse
+ *   3. a mission is running      — its own objective
+ *   4. one just ended            — for MISSION_END_S, because `hud()` goes null the instant it does
+ *   5. a job is on offer nearby  — the only one that is an invitation rather than an instruction
+ *
+ * Pure, so both hosts compose it identically and `hud-test`'s own arm can walk all five.
+ */
+export function composeBand({ wreck = null, fence = null, mission = null, ended = null, offer = null } = {}) {
+  const pick = wreck ?? fence ?? mission ?? ended ?? offer ?? null;
+  if (!pick) return { objective: null, subtitle: null, from: null };
+  const from = wreck ? 'wreck' : fence ? 'fence' : mission ? 'mission' : ended ? 'ended' : 'offer';
+  return { objective: pick.objective ?? null, subtitle: pick.subtitle ?? null, from };
+}
+
+/**
+ * How far the minimap reaches, in metres from the player, at the default zoom. `zoomMetres` is
+ * 220 across the whole widget, so a blip is on screen out to half that. Exported because the
+ * node harness has no minimap and has to answer the same question: a playtester steering by
+ * range alone, with no bearing, drove 703 m over 76 legs in 241.7 s and never found the job —
+ * the notice radius is 48 m, so outside it there is no gradient to follow. With the bearing the
+ * blip gives, the same drive took 11.0 s. A harness that withholds it is not restricting the
+ * player to what they can see, it is blindfolding them.
+ */
+export const MINIMAP_ZOOM_M = 220;
+export const MINIMAP_REACH_M = MINIMAP_ZOOM_M / 2;
+// (The Minimap class's own fallback is 210 for a caller that passes nothing; district/main.js
+//  passes MINIMAP_ZOOM_M, and that is the number a player's screen is actually showing.)
+
 // ---------------------------------------------------------------- minimap
 const MARKER_STYLE = {
   objective: { fill: THEME.accent, shape: 'pin' },
