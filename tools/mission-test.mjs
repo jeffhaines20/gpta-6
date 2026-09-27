@@ -609,6 +609,37 @@ console.log('\n=== 10. the mission board — what a player can walk into');
     && board.offerAt(m0.start.x, m0.start.z)?.mission.id === m0.id);
   board.record(m0.id, OUTCOMES.ABORTED);
   check('so is an aborted one', board.offerAt(m0.start.x, m0.start.z)?.mission.id === m0.id);
+  /**
+   * THE LATCH. A mission that ends while the player is standing in its own pickup used to restart
+   * on the next frame — found by tools/mission-live.mjs, which aborted `shakedown` on its marker
+   * and got stage `a` back before it could observe the abort. Every ending reaches it: wreck the
+   * car on top of a marker and the job you just failed begins again.
+   */
+  const latch = new MissionBoard(MISSIONS);
+  const lm = latch.list.find((m) => m.id === 'shakedown');
+  const at = { x: lm.start.x, z: lm.start.z };
+  check('a marker fires when you drive into it', latch.offerAt(at.x, at.z)?.mission.id === 'shakedown');
+  latch.record('shakedown', OUTCOMES.ABORTED).arm('shakedown');
+  latch.refresh(at.x, at.z);
+  check('and not again while you are still standing in it',
+    latch.offerAt(at.x, at.z) === null, JSON.stringify(latch.offerAt(at.x, at.z)));
+  check('though the job is still on the board and still named',
+    latch.available().some((m) => m.id === 'shakedown')
+    && latch.offerAt(at.x, at.z, 'notice')?.mission.id === 'shakedown',
+    `${latch.report().latched.join(',')} latched`);
+  // Leaving re-arms it. One radius out is outside, by definition of the radius.
+  latch.refresh(at.x + latch.radiusOf(lm) + 1, at.z);
+  check('leaving the marker re-arms it', latch.report().latched.length === 0);
+  latch.refresh(at.x, at.z);
+  check('and driving back in starts it again',
+    latch.offerAt(at.x, at.z)?.mission.id === 'shakedown');
+  // A latch on a marker the player never left must not decay on its own: refresh INSIDE the
+  // radius is what a player standing still produces, and it has to be a no-op.
+  latch.arm('shakedown');
+  for (let k = 0; k < 50; k++) latch.refresh(at.x, at.z);
+  check('and a latch does not expire on its own', latch.offerAt(at.x, at.z) === null,
+    `${latch.report().latched.length} still latched after 50 frames standing still`);
+
   check('markers match what is available',
     board.markers().length === board.available().length
     && board.markers().every((k) => k.kind === 'offer'), JSON.stringify(board.markers()));

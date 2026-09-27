@@ -94,7 +94,9 @@ export class Session {
      */
     this.board = new MissionBoard(MISSIONS);
     this.mission.on('finished', (e) => {
-      if (this.mission.mission) this.board.record(this.mission.mission.id, e.outcome);
+      if (!this.mission.mission) return;
+      // Latched, so a mission that ends where it started does not restart on the next frame.
+      this.board.record(this.mission.mission.id, e.outcome).arm(this.mission.mission.id);
     });
     this.t = 0;
     this.log = [];
@@ -218,6 +220,7 @@ export class Session {
    * standing in it.
    */
   _offers() {
+    this.board.refresh(this.vehicle.position.x, this.vehicle.position.z);
     const hot = this.board.offerAt(this.vehicle.position.x, this.vehicle.position.z);
     if (hot) {
       this.board.starts++;

@@ -515,7 +515,8 @@ mission.on('stage', (e) => {
  * threw on the null.
  */
 mission.on('finished', (e) => {
-  if (mission.mission) board.record(mission.mission.id, e.outcome);
+  // Latch the marker so a mission that ends where it started does not restart on the next frame.
+  if (mission.mission) { board.record(mission.mission.id, e.outcome); board.arm(mission.mission.id); }
   const title = mission.mission ? mission.mission.title : 'MISSION';
   missionEnd = e.outcome === OUTCOMES.PASSED
     ? { objective: 'MISSION COMPLETE', subtitle: title }
@@ -1595,6 +1596,7 @@ function animate(now) {
   const fenceLine = outsideWorld > 0
     ? { objective: 'TURN BACK', subtitle: `the district ends here — ${outsideWorld.toFixed(0)} m out` }
     : null;
+  board.refresh(focus.x, focus.z);
   let offerLine = null;
   if (!missionHud && !wreckLine) {
     const hot = board.offerAt(focus.x, focus.z);

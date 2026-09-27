@@ -530,7 +530,36 @@ export class MissionBoard {
     this.radius = opts.radius ?? OFFER_RADIUS_M;
     this.noticeFactor = opts.noticeFactor ?? OFFER_NOTICE_FACTOR;
     this.outcomes = new Map();
+    /**
+     * MARKERS THAT MAY NOT FIRE AGAIN UNTIL THE PLAYER LEAVES THEM.
+     *
+     * Without this, a mission that ends while the player is standing in its own pickup restarts on
+     * the very next frame. Found by tools/mission-live.mjs: aborting `shakedown` while parked on
+     * its marker put it straight back into stage `a`, so the rings never came back and the abort
+     * could not be observed at all. The same loop is reachable by every ending: wreck the car on
+     * top of a marker and the job you just failed begins again before the band can say so.
+     *
+     * Entering a marker is an ACTION, so it needs an edge and not a level. A mission's marker is
+     * latched when it ends and re-armed by `refresh()` the moment the player is outside its
+     * radius — which is the same shape as the per-victim crime window in district/main.js, for the
+     * same reason: the thing being repeated is one subject, not one kind of event.
+     */
+    this.latched = new Set();
     this.starts = 0;
+  }
+
+  /** Latch a marker so it cannot fire again until the player has left it. */
+  arm(id) { this.latched.add(id); return this; }
+
+  /** Re-arm every latched marker the player is now clear of. Call once a frame. */
+  refresh(x, z) {
+    if (!this.latched.size) return this;
+    for (const id of [...this.latched]) {
+      const m = this.list.find((k) => k.id === id);
+      if (!m) { this.latched.delete(id); continue; }
+      if (Math.hypot(m.start.x - x, m.start.z - z) > this.radiusOf(m)) this.latched.delete(id);
+    }
+    return this;
   }
 
   radiusOf(m) { return m.start.radius ?? this.radius; }
@@ -547,6 +576,9 @@ export class MissionBoard {
   offerAt(x, z, mode = 'start') {
     let best = null;
     for (const m of this.available()) {
+      // A latched marker is invisible to the START test and still NAMED by the notice test: the
+      // job is on the board, it is simply not being entered again without leaving first.
+      if (mode === 'start' && this.latched.has(m.id)) continue;
       const d = Math.hypot(m.start.x - x, m.start.z - z);
       const r = this.radiusOf(m) * (mode === 'notice' ? this.noticeFactor : 1);
       if (d <= r && (!best || d < best.distance)) {
@@ -570,6 +602,7 @@ export class MissionBoard {
       unreachable: this.unreachable.slice(),
       available: this.available().map((m) => m.id),
       outcomes: Object.fromEntries(this.outcomes),
+      latched: [...this.latched],
       starts: this.starts,
       radius: this.radius,
       noticeRadius: this.radius * this.noticeFactor,
