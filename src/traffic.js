@@ -160,11 +160,32 @@ const SHUNT_DECEL = RESPONSE.brake;
  * a second `_pointOn` for all thirty every frame. A one-frame-stale position is accurate to about
  * 0.3 m at 40 km/h, which is nothing against a 50 m gate.
  *
- * `LANE_HALF_W` is the player's own half width (0.95) plus half a metre: the test is "is it in my
- * lane", not "is it somewhere ahead", and a cone would brake for the whole street.
+ * `LANE_MARGIN` is half a metre of slop on top of the two bodies: the test is "is it in my lane",
+ * not "is it somewhere ahead", and a cone would brake for the whole street.
+ *
+ * AND THE PLAYER IS A BOX, NOT A POINT, which is the second thing a blind reviewer broke. The
+ * corridor was the player's half WIDTH plus a margin, measured from their centre — so a car
+ * parked ACROSS a lane presented 2.15 m of itself to the traffic and was invisible. Holding
+ * everything else identical and changing only the player's yaw, so the centre is bit-identical
+ * and `playerLeaderFrames` reads the same 11,963 in all three arms:
+ *
+ *     seed     centre closest   along the lane        across it
+ *     default      6.29 m       body 3.21 m clear     body 4.30 m clear
+ *     3            2.46 m       body 0.28 m clear     body -0.61 m, 32 overlaps, all BLIND
+ *     8            2.46 m       body 0.28 m clear     body -0.61 m, 79 overlaps, all BLIND
+ *
+ * "BLIND" is the reviewer's own term for an overlap where the striking car's `_playerGap` had
+ * returned Infinity, and it equalled the overlap count in every row. In the harness the same
+ * thing cost health and a crime: parked across a lane with the handbrake on and never touching a
+ * control, 1-2 `civilianCollision` reports filed AGAINST the player and health 1.000 -> 0.899.
+ * That is the exact defect this feature was built to remove, surviving in another orientation.
+ *
+ * The support function of the player's own box along the car's lateral axis is the right width,
+ * and it is the same idea as src/vehicle.js's BODY_ENCLOSING: 0.95 across, 2.15 along, projected.
  */
 const PLAYER_WATCH_M = 50;
-const PLAYER_LANE_HALF_W = 1.45;
+const PLAYER_LANE_MARGIN = 0.5;
+const PLAYER_HALF_W = 0.95, PLAYER_HALF_L = 2.15;
 /** Rungs the lane offset backs off through when the nominal one is not clear. */
 const LANE_FIT = [1, 0.75, 0.5, 0.25];
 /** How finely the lane fit samples an edge. Half a car length. */
@@ -323,8 +344,13 @@ export class Traffic {
     // The partition is FIXED at construction, so each mesh can be sized exactly
     // and its count never changes: a slot is always the same shell, and an empty
     // slot is hidden the way it always was.
-    this._shellOf = new Uint8Array(this.count);
-    this._localOf = new Uint16Array(this.count);
+    // Sized from the count, and a count of 0 used to leave these empty while the publish path
+    // still indexed them: `new Traffic(scene, district, { count: 0 })` threw
+    // `Cannot read properties of undefined (reading 'setMatrixAt')` on the first update that
+    // published anything. A blind reviewer hit it building an empty fleet as a control. One slot
+    // is allocated either way so an empty fleet is a usable configuration rather than a crash.
+    this._shellOf = new Uint8Array(Math.max(1, this.count));
+    this._localOf = new Uint16Array(Math.max(1, this.count));
     const perShell = shellNames().map(() => 0);
     for (let i = 0; i < this.count; i++) {
       const sh = hash32('carshell', i) % shellNames().length;
@@ -450,6 +476,7 @@ export class Traffic {
       glowSlotsUsed: 0, glowEdgeM: 0,
       junctionWaitCarFrames: 0, followBrakeCarFrames: 0, stoppedCarFrames: 0,
       playerLeaderFrames: 0, laneFitEdges: 0,
+      playerPinnedFrames: 0, playerPinnedCars: 0,
       entryBlockedCarFrames: 0,
       carFrames: 0,
       // Where overlaps actually happen, so the number can be acted on.
@@ -892,15 +919,58 @@ export class Traffic {
    * the player in the other lane does not brake and a car behind never sees them at all. The
    * gap is bumper-to-bumper, hence the car length.
    */
-  _playerGap(p, lane, px, pz) {
+  _playerGap(p, lane, px, pz, pfx = null, pfz = null) {
     const nx = -p.dz, nz = p.dx;
     const cx = p.x + nx * lane, cz = p.z + nz * lane;
     const dx = px - cx, dz = pz - cz;
     const along = dx * p.dx + dz * p.dz;
-    if (!(along > 0)) return Infinity;
+    /**
+     * A LEADER IS AHEAD, NOT ALONGSIDE, and testing `along > 0` made every car that drew level
+     * with the player brake as hard as it possibly could and stop there.
+     *
+     * The gap handed to the IDM term is bumper to bumper, `along - CAR_LENGTH`, so a car whose
+     * centre is level with the player's reads -4.4 m; `s = Math.max(0.6, gap)` then clamps it to
+     * 0.6 and the interaction term `(sStar/s)^2` is (3.2/0.6)^2 = 28 times the free-road
+     * acceleration. The car slams to a halt beside the player and sits there.
+     *
+     * Measured, 120 s parked at (19,-6), 30 cars, the closest any car's CENTRE came:
+     *
+     *     dt        1/60     1/120     1/50     1/20
+     *     before    1.83      1.83     1.83     1.83      (the player term removed entirely)
+     *     after     6.29      2.03     2.03     2.46      (as shipped last commit)
+     *
+     * A blind reviewer found that and named it correctly: the 6.29 m the gate asserts is a
+     * coincidence at one dt, and the district's own frame time is `min(0.05, real)` — so 1/120 on
+     * a fast display and ~1/50 on a loaded one. The BEFORE arm reads 1.83 m at EVERY dt, which is
+     * what says the instrument is sound and the dt dependence is mine.
+     *
+     * Requiring the player's centre to be more than a car length ahead is the whole fix: past
+     * that the two bodies overlap along the axis, which is a collision or a pass, and neither is
+     * a following situation.
+     */
+    if (!(along > CAR_LENGTH)) return Infinity;
     const lateral = Math.abs(dx * nx + dz * nz);
-    if (lateral > PLAYER_LANE_HALF_W + CAR_HALF_W) return Infinity;
-    return along - CAR_LENGTH;
+    /**
+     * The player's own half-extent across THIS car's lane, from the support function of their box.
+     * With no heading given it falls back to the half width, which is what this did before and is
+     * right for a car pointing along the lane.
+     */
+    const across = (pfx === null || pfz === null)
+      ? PLAYER_HALF_W
+      : PLAYER_HALF_W * Math.abs(-pfz * nx + pfx * nz) + PLAYER_HALF_L * Math.abs(pfx * nx + pfz * nz);
+    if (lateral > across + CAR_HALF_W + PLAYER_LANE_MARGIN) return Infinity;
+    /**
+     * AND A LEADER 600 m AWAY IS NOT A LEADER. There was no range bound at all: the pre-filter is
+     * skipped on a car's first published frame (`!seen`), so a reviewer measured 956 finite
+     * answers beyond 50 m, out to a 64.8 m bumper gap, and 165 more "leader frames" with the
+     * player 600 m off the network. IDM's term at that range is ~0.014 m/s^2 and a distant player
+     * can never shadow a nearer real leader, so it changed no behaviour — but
+     * `playerLeaderFrames` is the gate's "the mechanism fired" counter, and it was counting cars
+     * braking for nobody. CLAUDE.md's "a probe that measures the OPPORTUNITY does not measure the
+     * FIX", in the gate written to prove this feature works.
+     */
+    const gap = along - CAR_LENGTH;
+    return gap > PLAYER_WATCH_M ? Infinity : gap;
   }
 
   // Distance to the vehicle ahead on the same edge and direction, or Infinity.
@@ -1054,7 +1124,7 @@ export class Traffic {
     }
   }
 
-  update(dt, playerPos, playerVel = null) {
+  update(dt, playerPos, playerVel = null, playerFwd = null) {
     this.stats.frames++;
 
     // Last frame's published positions, by id: the cheap pre-filter for the player-as-leader
@@ -1080,6 +1150,8 @@ export class Traffic {
 
       const list = this._byEdge.get(this._edgeKey(car)) ?? [car];
       let { gap, leader } = this._gapAhead(car, list);
+      /** Is the PLAYER this car's leader this frame? Read by the stuck timer below. */
+      let playerIsLeader = false;
 
       // Plan the turn here rather than at the transition: the conflict predicate is
       // over (approach, exit) pairs, so the exit has to be known before the claim,
@@ -1151,13 +1223,15 @@ export class Traffic {
           && Math.abs(seen.z - playerPos.z) < PLAYER_WATCH_M) {
           const pp = this._pointOn(car.edge, car.forward, car.t);
           if (pp) {
-            const g = this._playerGap(pp, car.lane, playerPos.x, playerPos.z);
+            const g = this._playerGap(pp, car.lane, playerPos.x, playerPos.z,
+              playerFwd ? playerFwd.x : null, playerFwd ? playerFwd.z : null);
             if (g < gap) {
               gap = g;
               const pv = playerVel
                 ? playerVel.x * pp.dx + playerVel.z * pp.dz
                 : 0;
               leader = { v: Math.max(0, pv) };
+              playerIsLeader = true;
               this.stats.playerLeaderFrames++;
             }
           }
@@ -1306,7 +1380,43 @@ export class Traffic {
       // version: 32 runs, identical to the last digit, so the rule was already only
       // firing on junction-involved cars. It is written down because the argument
       // needs it, not because it moved a number.
-      if (car.v < 0.15 && (denied || car.holds.length) && !shuntPinned) car.stuckS += dt;
+      /**
+       * AND A CAR WAITING FOR THE PLAYER IS NOT IN A DEADLOCK. The rule below deletes a car that
+       * has been stationary at a junction for `stuckLimitS`, and its derivation is about
+       * ARBITRATION cycles: "every cycle contains at least one car this rule can see, and removing
+       * one breaks the cycle". A car stopped because the player's car is in front of it is in no
+       * cycle at all — the player is not part of the reservation system — so the rule's premise is
+       * false and it deletes an innocent car.
+       *
+       * Measured by a blind reviewer, parked in a lane for 300 s with 30 cars: **30 cars taken
+       * away, 24 of them within 70 m of the player and EVERY ONE at 6.8 m** — one car length
+       * ahead, blinking out of existence every 12.5 s. `gridlockByReason.none` read 0 in every arm
+       * without the player term and 0 in the control with the player 600 m off the network; with
+       * it, 11-12.
+       *
+       * This is CLAUDE.md's own recorded lesson arriving again verbatim — "the thing a feature is
+       * exempted from needs a bound ... the anti-gridlock rule then deleted the innocent cars
+       * queued behind it: 9 deletions in 240 s against 0 in the control". The shunt got
+       * `shuntPinned`; the player-as-leader got nothing.
+       *
+       * THE EXEMPTION IS UNBOUNDED, WHICH IS THE OPPOSITE OF THE SHUNT'S, AND DELIBERATELY. The
+       * shunt's bound exists because a car pinned by repeated nudges is a car the player is
+       * actively preventing from moving, and letting that run for ever lets one car block a
+       * junction indefinitely. A car queueing behind a parked car is not that: waiting is the
+       * CORRECT behaviour, and a real driver who cannot pass simply waits. What the bound is
+       * replaced by is a count — `playerPinnedFrames` and `playerPinnedCars` — so the exemption
+       * can never be silent, and traffic-selftest asserts the fleet still recovers from a real
+       * deadlock with the player nowhere near.
+       *
+       * FREEZE, DO NOT FORGIVE, the same as the shunt: `stuckS` is left where it is rather than
+       * zeroed, so a car that was genuinely stuck before the player arrived is still stuck after.
+       */
+      const playerPinned = playerIsLeader && car.v < 0.15;
+      if (playerPinned) {
+        this.stats.playerPinnedFrames++;
+        if (!car.countedPlayerPinned) { car.countedPlayerPinned = true; this.stats.playerPinnedCars++; }
+      }
+      if (car.v < 0.15 && (denied || car.holds.length) && !shuntPinned && !playerPinned) car.stuckS += dt;
       else if (car.v >= 0.15) car.stuckS = 0;
       this.stats.carFrames++;
       car.t += car.v * dt;

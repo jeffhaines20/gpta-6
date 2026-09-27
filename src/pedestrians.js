@@ -419,6 +419,13 @@ function pick(r, list) { return list[(r() * list.length) | 0]; }
  */
 export const PED_FREE_MS = 2.2;
 
+/**
+ * How close the player's car has to be before a pedestrian steps out of the way. src/vehicle.js's
+ * BODY_ENCLOSING is 2.36 m — the radius of the whole body from its centre — plus half a metre so
+ * the step starts before the bumper arrives. See avoidPlayer's use of it.
+ */
+export const AVOID_R = 2.86;
+
 export class Pedestrians {
   constructor(scene, district, opts = {}) {
     this.d = district;
@@ -1689,8 +1696,21 @@ export class Pedestrians {
       if (this.avoidPlayer) {
         const dx = ped.x - fx, dz = ped.z - fz;
         const d = Math.hypot(dx, dz);
-        if (d < 1.6 && d > 1e-4) {
-          const w = 1 - d / 1.6;
+        /**
+         * THE RADIUS HAS TO COVER THE CAR'S BODY, NOT ITS CENTRE. This was 1.6 m from the car's
+         * focus point, and the body reaches 2.15 m — so a person standing 1.6 to 2.15 m ahead was
+         * geometrically INSIDE the car and got no avoidance push at all. Combined with the 2.2 m/s
+         * free threshold, which correctly refuses to knock them down, the result was nothing
+         * happening whatsoever: a blind reviewer drove at one person under the floor for 60 s and
+         * measured 764 frames with them inside the car body, deepest overlap 1.08 m — their centre
+         * 0.22 m from the car's axis — with 0 knockdowns, 0 crimes and the person still standing.
+         *
+         * `AVOID_R` is the body's own enclosing radius plus half a metre of reaction, so the push
+         * starts before the bumper arrives rather than after it has passed through them. The free
+         * threshold is right and stays; what was missing was any OTHER reaction.
+         */
+        if (d < AVOID_R && d > 1e-4) {
+          const w = 1 - d / AVOID_R;
           wishX += (dx / d) * w * 2.6;
           wishZ += (dz / d) * w * 2.6;
         }

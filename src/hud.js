@@ -600,13 +600,25 @@ export function disposeDistrictMaps() {
  *   4. one just ended            — for MISSION_END_S, because `hud()` goes null the instant it does
  *   5. a job is on offer nearby  — the only one that is an invitation rather than an instruction
  *
- * Pure, so both hosts compose it identically and `hud-test`'s own arm can walk all five.
+ * AND THE FENCE DOES NOT SILENTLY TAKE A RUNNING MISSION'S LINE. A blind reviewer drove a live
+ * `shakedown` outside the fence and watched the objective and subtitle both replaced by "TURN
+ * BACK" while `mission.update()` kept running — verified still on stage `b`, still `running`,
+ * after 60 s outside — with no sign on screen that the job was still live. The fence keeps the
+ * objective, because turning back is the only thing the player can act on out there, and the
+ * mission keeps the subtitle, because that is where "your job is still waiting" belongs. That
+ * costs nothing: the fence's own subtitle is a distance the objective already implies.
+ *
+ * Pure, so both hosts compose it identically and either can walk all five.
  */
 export function composeBand({ wreck = null, fence = null, mission = null, ended = null, offer = null } = {}) {
   const pick = wreck ?? fence ?? mission ?? ended ?? offer ?? null;
   if (!pick) return { objective: null, subtitle: null, from: null };
   const from = wreck ? 'wreck' : fence ? 'fence' : mission ? 'mission' : ended ? 'ended' : 'offer';
-  return { objective: pick.objective ?? null, subtitle: pick.subtitle ?? null, from };
+  let subtitle = pick.subtitle ?? null;
+  if (from === 'fence' && mission && mission.objective) {
+    subtitle = `still on: ${mission.objective}`;
+  }
+  return { objective: pick.objective ?? null, subtitle, from };
 }
 
 /**

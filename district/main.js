@@ -547,7 +547,7 @@ mission.on('finished', (e) => {
  */
 const WRECK_HOLD_S = 4;
 let wreckFor = 0;
-const wreckStats = { wrecks: 0, respawns: 0, lastAt: null };
+const wreckStats = { wrecks: 0, respawns: 0, lastAt: null, lastAtT: -1e9, loopsBroken: 0 };
 /**
  * Of a heading and its reverse, the one with more clear road ahead. Used by the respawn; see
  * there for the crash that made it necessary.
@@ -562,6 +562,22 @@ function clearerHeading(x, z, yaw, reach = 30, step = 2) {
   };
   return run(yaw) >= run(yaw + Math.PI) ? yaw : yaw + Math.PI;
 }
+/**
+ * A RESPAWN THAT PUTS YOU BACK WHERE YOU DIED IS A LOOP, and two sites in this district close
+ * one. A blind reviewer replayed `respawnCar`'s exact decision over 3,960 grid sites and found the
+ * geometry sound — 0 with less than a car length of clear road ahead, 0 with both directions
+ * blocked, 0 outside the fence — and then held full throttle from each of 430 respawn points: 243
+ * wreck again, but the sequence WANDERS, and 85 of 86 sampled never close within 10 m. One does:
+ * (518,77) -> (472,78) -> (524,77) -> (472,78) -> ... a wreck every 9.6 s, for ever. A second
+ * instance alternates x~562 west and x~477 east on the selftest's own crash street.
+ *
+ * So the general claim "the respawn loops" is false and two specific sites are true. The bound is
+ * on the SEQUENCE rather than the site: a second wreck within LOOP_R of the last respawn, inside
+ * LOOP_S, means the replacement is being handed back into whatever killed it, and the district's
+ * own spawn is used instead. Counted, so it can never be silent.
+ */
+const LOOP_R = 60, LOOP_S = 45, LOOP_KEEP = 3;
+const respawnHistory = [];
 function respawnCar() {
   wreckFor = 0;
   wreckStats.respawns++;
@@ -578,7 +594,21 @@ function respawnCar() {
    */
   const near = roads.nearestOn(vehicle.position.x, vehicle.position.z);
   let x = district.meta.spawn.x, z = district.meta.spawn.z, yaw = 0;
-  if (near && near.dist < 80 && !blockers.resolveCircle(near.x, near.z, BODY_RADIUS)) {
+  /**
+   * THE REPEATING THING IS THE RESPAWN POINT, NOT THE WRECK. The first version of this compared
+   * where the car died with where it was last put, and the loop it was written for sailed straight
+   * through: 21 wrecks, 21 respawns, 0 loops broken, and the log reading
+   * (527,77) (472,78) (525,77) (472,78) ... — a period-2 cycle whose two points are 53 m apart,
+   * against a 40 m test on the wrong pair of positions. Comparing the CANDIDATE against the last
+   * few respawn points catches a cycle of any period up to LOOP_KEEP.
+   */
+  const candidate = near && near.dist < 80 && !blockers.resolveCircle(near.x, near.z, BODY_RADIUS)
+    ? near : null;
+  const looping = !!candidate && respawnHistory.some((h) => simTime - h.t < LOOP_S
+    && Math.hypot(candidate.x - h.x, candidate.z - h.z) < LOOP_R);
+  if (looping) wreckStats.loopsBroken++;
+  if (!looping && candidate) {
+    const near = candidate;
     x = near.x; z = near.z;
     const a = district.verts[near.a], b = district.verts[near.b];
     yaw = Math.atan2(b.x - a.x, b.z - a.z);
@@ -596,6 +626,9 @@ function respawnCar() {
   vehicle.angularVelocity.set(0, 0, 0);
   vehicle.quaternion.setFromAxisAngle(_wreckAxis.set(0, 1, 0), yaw);
   wreckStats.lastAt = { x: +x.toFixed(1), z: +z.toFixed(1) };
+  wreckStats.lastAtT = simTime;
+  respawnHistory.push({ x, z, t: simTime });
+  while (respawnHistory.length > LOOP_KEEP) respawnHistory.shift();
   return wreckStats.lastAt;
 }
 const _wreckAxis = new THREE.Vector3();
@@ -1442,7 +1475,8 @@ function animate(now) {
 
     }
     world.update(mode === 'foot' ? player.position : vehicle.position);
-    if (traffic) traffic.update(dt, vehicle.position, mode === 'car' ? vehicle.velocity : null);
+    if (traffic) traffic.update(dt, vehicle.position, mode === 'car' ? vehicle.velocity : null,
+      _dynFwd.set(0, 0, 1).applyQuaternion(vehicle.quaternion));
     // Peds follow whatever the camera is actually near, not the parked car:
     // on foot the crowd has to be around the player or the pavement is empty
     // exactly where it is most visible.

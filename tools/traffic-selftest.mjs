@@ -272,58 +272,169 @@ console.log('\n7. the lane offset fits inside the road it is on');
 }
 
 /**
- * 7b. THE PLAYER'S CAR IS A LEADER, and until this round it was invisible to the fleet.
+ * 7b. THE PLAYER'S CAR IS A LEADER, and this section asserted a coincidence.
  *
  * A playtester crept forward at 3 km/h for 150 s at the first mission's start point, with an
  * empty-city control, so that anything charged above 2 m/s had to be the other car's: 187
  * contacts, an 8.0 m/s charged delta-v, health 1.00 -> 0.638, and TWO `civilianCollision` crimes
- * filed against the player for sitting in their own lane. The same run with `traffic: 0` took no
- * contacts at all.
+ * filed against the player for sitting in their own lane. The fix for that is real.
+ *
+ * WHAT THIS SECTION GOT WRONG IS THE NUMBER IT ASSERTED. It checked a closest CENTRE approach of
+ * 6.29 m and zero car-frames inside the contact radius, at one dt, one seed and one fleet size. A
+ * second reviewer swept all three:
+ *
+ *     closest centre approach     dt 1/60   dt 1/120   dt 1/50   dt 1/20
+ *     the player term removed        1.83       1.83      1.83      1.83
+ *     as it shipped                  6.29       2.03      2.03      2.46
+ *
+ * The removed-term arm reads 1.83 m at EVERY dt, which is what says the instrument is sound and
+ * the dt dependence belonged to the fix. district/main.js's own frame time is `min(0.05, real)`,
+ * so the shipped game runs at 1/120 on a fast display and ~1/50 on a loaded one — never at the
+ * one value this gate used. 8 of 10 seeds put a car inside the contact radius, and 40 and 60-car
+ * fleets did too. It is CLAUDE.md's "a threshold that holds at one value and fails at every other
+ * is a coincidence", in a gate written three commits after that lesson was recorded.
+ *
+ * SO IT SWEEPS, AND IT MEASURES THE RIGHT QUANTITY. Centre distance is not a collision: two cars
+ * abeam at 2.46 m have 0.56 m of clearance between 1.9 m bodies. Body separation through the
+ * game's own five-circle collider is the quantity that matters, and it is what caught the
+ * remaining defect — a player parked ACROSS a lane, which the point-like corridor could not see.
  */
-console.log('\n7b. the fleet brakes for the player');
+console.log('\n7b. the fleet brakes for the player, at every dt, seed and fleet size');
 {
   const ix = new BlockerIndex(district);
-  const near = new Traffic(scene, district, { count: 30 });
-  near.clearAt = (x, z, r) => !ix.resolveCircle(x, z, r);
   const P = { x: 19, z: -6 }, STILL = { x: 0, y: 0, z: 0 };
-  // 3.31 m is BODY_ENCLOSING + a car's 0.95 m radius: the distance at which district/main.js's
-  // moving-body pass tests for a contact at all, so a car-frame inside it is a crash waiting.
-  const CONTACT_R = 3.31;
-  let closest = Infinity, inside = 0, frames = 0;
-  for (let k = 0; k < 60 * 120; k++) {
-    near.update(1 / 60, P, STILL);
-    for (const p of near._lastPositions) {
-      frames++;
-      const d = Math.hypot(p.x - P.x, p.z - P.z);
-      if (d < closest) closest = d;
-      if (d < CONTACT_R) inside++;
+  const SAMPLES = [-1.2, -0.6, 0, 0.6, 1.2], R = 0.95;
+  // Body-to-body separation, both cars as the five circles src/vehicle.js collides with.
+  const sep = (ax, az, afx, afz, bx, bz, bfx, bfz) => {
+    let best = Infinity;
+    for (const sa of SAMPLES) {
+      const px = ax + afx * sa, pz = az + afz * sa;
+      for (const sb of SAMPLES) {
+        best = Math.min(best, Math.hypot(bx + bfx * sb - px, bz + bfz * sb - pz) - 2 * R);
+      }
+    }
+    return best;
+  };
+  // The lane's own direction at P, from the data, so ALONG and ACROSS are the real orientations.
+  let lane = null;
+  for (let i = 0; i < district.edges.length && !lane; i++) {
+    const e = district.edges[i];
+    for (let k = 0; k < e.v.length - 1; k++) {
+      const a = district.verts[e.v[k]], b = district.verts[e.v[k + 1]];
+      if (Math.hypot(a.x - P.x, a.z - P.z) < 12 || Math.hypot(b.x - P.x, b.z - P.z) < 12) {
+        const L = Math.hypot(b.x - a.x, b.z - a.z);
+        lane = { x: (b.x - a.x) / L, z: (b.z - a.z) / L };
+        break;
+      }
     }
   }
-  console.log(`  120 s parked on Marlin Street: closest approach ${closest.toFixed(2)} m, ` +
-    `${inside} of ${frames} car-frames inside ${CONTACT_R} m, ` +
-    `braked for the player on ${near.stats.playerLeaderFrames} frames`);
-  console.log('  (the same measurement before this change: 1.83 m closest, 239 car-frames inside)');
-  check('the fleet was driving', frames > 100000, `${frames} car-frames`);
-  check('the mechanism fired', near.stats.playerLeaderFrames > 0,
-    `${near.stats.playerLeaderFrames} frames`);
-  check('no car drives onto a parked player', inside === 0, `${inside} car-frames inside ${CONTACT_R} m`);
-  check('and it keeps a real gap, not a grazing one', closest > 4, `${closest.toFixed(2)} m`);
+  const ACROSS = { x: -lane.z, z: lane.x };
+  const arm = ({ dt = 1 / 60, seed, count = 30, fwd = lane, secs = 120, noTerm = false }) => {
+    const tr = new Traffic(scene, district, seed === undefined ? { count } : { count, seed });
+    tr.clearAt = (x, z, r) => !ix.resolveCircle(x, z, r);
+    if (noTerm) tr._playerGap = () => Infinity;
+    let body = Infinity, overlaps = 0, frames = 0;
+    for (let k = 0; k < Math.round(secs / dt); k++) {
+      tr.update(dt, P, STILL, fwd);
+      for (const p of tr._lastPositions) {
+        frames++;
+        const cy = p.heading ?? p.yaw;
+        const d = sep(P.x, P.z, fwd.x, fwd.z, p.x, p.z, Math.sin(cy), Math.cos(cy));
+        if (d < body) body = d;
+        if (d < 0) overlaps++;
+      }
+    }
+    return { body, overlaps, frames, none: tr.stats.gridlockByReason.none,
+      leader: tr.stats.playerLeaderFrames, pinned: tr.stats.playerPinnedCars,
+      recovered: tr.stats.gridlockRecoveries };
+  };
+
+  // --- the sweep. Every combination must keep the bodies apart, not just the gate's own one.
+  const DTS = [1 / 60, 1 / 120, 1 / 50, 1 / 20];
+  console.log('    dt        body closest   overlaps   gridlock.none   leaderFrames');
+  let worstBody = Infinity, totalOverlaps = 0, totalNone = 0;
+  for (const dt of DTS) {
+    const a = arm({ dt });
+    worstBody = Math.min(worstBody, a.body);
+    totalOverlaps += a.overlaps; totalNone += a.none;
+    console.log(`    ${dt.toFixed(5)}   ${a.body.toFixed(2).padStart(10)}   ` +
+      `${String(a.overlaps).padStart(8)}   ${String(a.none).padStart(13)}   ${a.leader}`);
+  }
+  check('no dt lets a car touch a parked player', totalOverlaps === 0, `${totalOverlaps} overlaps`);
+  check('and the gap is the same at every dt, which is what an equilibrium looks like',
+    worstBody > 2, `worst body separation ${worstBody.toFixed(2)} m`);
+  // KNOWN-BAD: the term removed. The reviewer's own control, and it must fail the same test.
+  const off = arm({ noTerm: true });
+  console.log(`    the player term removed:  body ${off.body.toFixed(2)} m, ` +
+    `${off.overlaps} overlaps`);
+  check('KNOWN-BAD: without the term a car does touch a parked player', off.body < worstBody,
+    `${off.body.toFixed(2)} m against ${worstBody.toFixed(2)}`);
+
+  console.log('    seed  along the lane        across it');
+  let seedOverlaps = 0, seedWorst = Infinity;
+  for (let seed = 0; seed < 10; seed++) {
+    const al = arm({ seed, secs: 60 }), ac = arm({ seed, fwd: ACROSS, secs: 60 });
+    seedOverlaps += al.overlaps + ac.overlaps;
+    seedWorst = Math.min(seedWorst, al.body, ac.body);
+    if (seed < 3 || al.overlaps || ac.overlaps) {
+      console.log(`    ${seed}     ${al.body.toFixed(2).padStart(6)} m / ${al.overlaps} ` +
+        `          ${ac.body.toFixed(2).padStart(6)} m / ${ac.overlaps}`);
+    }
+  }
   /**
-   * THE CONTROL IS THE SAME FLEET WITH THE PLAYER MOVED OFF IT. One Traffic, 60 s parked in the
-   * middle of it and then 60 s with the player 400 m away: the second half must brake for nobody.
-   * That is what says the counter is about the player rather than about traffic braking for its
-   * own reasons, which it does constantly — `followBrakeCarFrames` is in the thousands either way.
+   * ACROSS THE LANE IS THE ORIENTATION THAT BROKE IT. `_playerGap` measured its corridor from the
+   * player's centre POINT, so a car parked across a lane presented 2.15 m of itself to traffic
+   * that could not see it: body separation -0.64 m, 29-77 overlaps at seeds 2 and 8, every one by
+   * a car whose own `_playerGap` had returned Infinity. Passing the player's heading and taking
+   * the support function of their box turns that into +3.3 m of clearance.
    */
-  const away = new Traffic(scene, district, { count: 30 });
-  away.clearAt = (x, z, r) => !ix.resolveCircle(x, z, r);
-  for (let k = 0; k < 60 * 60; k++) away.update(1 / 60, P, STILL);
-  const brakedWhileParkedInIt = away.stats.playerLeaderFrames;
-  for (let k = 0; k < 60 * 60; k++) away.update(1 / 60, { x: P.x + 400, z: P.z }, STILL);
-  const brakedAfterMovingOff = away.stats.playerLeaderFrames - brakedWhileParkedInIt;
-  check('the control braked for the player while they were parked in it',
-    brakedWhileParkedInIt > 0, `${brakedWhileParkedInIt} frames`);
-  check('and a player 400 m away is nobody\'s leader', brakedAfterMovingOff === 0,
-    `${brakedAfterMovingOff} frames after moving off, against ${brakedWhileParkedInIt} in it`);
+  check('no seed and no orientation lets a car touch a parked player', seedOverlaps === 0,
+    `${seedOverlaps} overlaps over 20 arms`);
+  check('and the worst separation across them all is a real gap', seedWorst > 1.5,
+    `${seedWorst.toFixed(2)} m`);
+
+  console.log('    cars  body closest  gridlock.none');
+  let sizeOverlaps = 0, sizeNone = 0;
+  for (const count of [10, 20, 30, 40, 60]) {
+    const a = arm({ count, secs: 60 });
+    sizeOverlaps += a.overlaps; sizeNone += a.none;
+    console.log(`    ${String(count).padStart(3)}   ${a.body.toFixed(2).padStart(11)}  ${a.none}`);
+  }
+  check('no fleet size lets a car touch a parked player', sizeOverlaps === 0,
+    `${sizeOverlaps} overlaps`);
+
+  /**
+   * AND A CAR WAITING FOR THE PLAYER IS NOT DELETED AS GRIDLOCKED. `gridlockByReason.none` is the
+   * channel for "stationary for no arbitration reason", and it read 0 in every arm without the
+   * player term and 0 with the player 600 m off the network. With the term and no exemption it
+   * read 11-12: a reviewer measured 30 cars taken away over 300 s, 24 of them within 70 m of the
+   * player and EVERY ONE at 6.8 m — one car length ahead, blinking out every 12.5 s.
+   */
+  check('a car stopped for the player is not deleted as gridlocked',
+    totalNone === 0 && sizeNone === 0, `${totalNone + sizeNone} 'none'-reason recoveries`);
+  const pinned = arm({ secs: 120 });
+  console.log(`    cars pinned by the parked player: ${pinned.pinned}, ` +
+    `gridlock recoveries ${pinned.recovered}, reason none ${pinned.none}`);
+  check('the exemption fired, so the check above is not vacuous', pinned.pinned > 0,
+    `${pinned.pinned} cars pinned`);
+  // THE CONTROL: with the player far away nothing is pinned, and the anti-gridlock rule is still
+  // free to fire for its own reasons — the exemption must not have disabled it.
+  const far = new Traffic(scene, district, { count: 30 });
+  far.clearAt = (x, z, r) => !ix.resolveCircle(x, z, r);
+  for (let k = 0; k < 60 * 120; k++) far.update(1 / 60, { x: 4000, z: 4000 }, STILL, lane);
+  console.log(`    with the player 4 km off: pinned ${far.stats.playerPinnedCars}, ` +
+    `leaderFrames ${far.stats.playerLeaderFrames}, gridlock.none ${far.stats.gridlockByReason.none}`);
+  check('a player 4 km away pins nobody', far.stats.playerPinnedCars === 0,
+    `${far.stats.playerPinnedCars}`);
+  /**
+   * AND IS NOBODY'S LEADER. There was no range bound at all, and the pre-filter is skipped on a
+   * car's first published frame, so a reviewer measured 956 finite gaps beyond 50 m and 165
+   * "leader frames" with the player 600 m off the network. Harmless numerically — IDM's term at
+   * that range is ~0.014 m/s^2 — but `playerLeaderFrames` is this gate's "the mechanism fired"
+   * counter, so it was a probe measuring the opportunity rather than the fix.
+   */
+  check('and is nobody\'s leader, at any distance', far.stats.playerLeaderFrames === 0,
+    `${far.stats.playerLeaderFrames} frames`);
 }
 
 console.log('\n8. no car is ever published inside a building');

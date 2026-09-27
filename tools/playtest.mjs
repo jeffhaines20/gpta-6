@@ -54,6 +54,12 @@ const PED_CRIME_WINDOW_S = 20;
 const WRECK_HOLD_S = 4;
 /** And how long the band holds the line saying a mission ended. main.js's own figure. */
 const MISSION_END_S = 6;
+/**
+ * A respawn point within LOOP_R of one of the last LOOP_KEEP, inside LOOP_S seconds, is a cycle.
+ * district/main.js's own figures: the loop this catches has two points 53 m apart, which a 40 m
+ * test on the wrong pair of positions missed entirely.
+ */
+const LOOP_R = 60, LOOP_S = 45, LOOP_KEEP = 3;
 // Four distinct scratch vectors, not two reused, for the reason applyImpulseAt's own comment
 // gives: sharing one with a caller turned `offset.cross(impulse)` into a self-cross.
 const _fwd = new THREE.Vector3(), _right = new THREE.Vector3();
@@ -117,7 +123,7 @@ export class Session {
     // called "sounds" was wrong by two orders of magnitude, in the alarming direction.
     this.stats = { crashes: 0, crimes: 0, knockdowns: 0, fatal: 0, shunts: 0,
       impacts: 0, voices: 0, tested: 0, contacts: 0, pedRepeats: 0,
-      wrecks: 0, respawns: 0, worstDv: 0, distance: 0, topSpeed: 0 };
+      wrecks: 0, respawns: 0, loopsBroken: 0, worstDv: 0, distance: 0, topSpeed: 0 };
     this._lastPos = { x: 0, z: 0 };
     this._controls = { throttle: 0, brake: 0, steer: 0, handbrake: false };
     this._route = null;
@@ -125,6 +131,7 @@ export class Session {
     this._ended = null;
     this._endFor = 0;
     this._wreckFor = 0;
+    this._respawns = [];
     this._outcome = OUTCOMES.RUNNING;
     /** When each pedestrian was last reported as a crime, by their own id. See _contacts. */
     this._pedCrimeAt = new Map();
@@ -195,14 +202,22 @@ export class Session {
       this.vehicle.stepFixed(DT, this.ground, HZ);
       this.damage.update(DT);
       this.wanted.update(DT, { x: this.vehicle.position.x, z: this.vehicle.position.z });
-      this.traffic.update(DT, this.vehicle.position, this.vehicle.velocity);
+      this.traffic.update(DT, this.vehicle.position, this.vehicle.velocity,
+        { x: Math.sin(this._yaw()), z: Math.cos(this._yaw()) });
       this.peds.update(DT, this.vehicle.position);
       this._moving();
       this._contacts();
       this._wreckWatch(DT);
       if (this._endFor > 0) { this._endFor -= DT; if (this._endFor <= 0) this._ended = null; }
-      // Drive into a marker and the job starts, exactly as district/main.js does it.
-      if (!this.mission.hud()) this._offers();
+      /**
+       * Drive into a marker and the job starts, exactly as district/main.js does it — INCLUDING
+       * its wreck gate. Without `!this.damage.wrecked` a wrecked car sitting in a marker started a
+       * mission, and since `_wreckWatch` only aborts on the FIRST wreck frame that mission then
+       * ran through the whole four-second hold and the teleport. A blind reviewer found it with a
+       * two-line repro; it is a harness defect rather than a game one, but it made this file
+       * unusable for testing that path.
+       */
+      if (!this.mission.hud() && !this.damage.wrecked) this._offers();
       if (this.mission.mission) {
         /**
          * `hud()` RETURNS NULL THE INSTANT THE OUTCOME STOPS BEING RUNNING (mission.js:445),
@@ -315,7 +330,19 @@ export class Session {
     this.vehicle.pendingImpact = null;
     const near = this.roads.nearestOn(this.vehicle.position.x, this.vehicle.position.z);
     let x = this.district.meta.spawn.x, z = this.district.meta.spawn.z, yaw = 0;
-    if (near && near.dist < 80 && !this.blockers.resolveCircle(near.x, near.z, BODY_RADIUS)) {
+    /**
+     * AND A SECOND WRECK IN THE SAME PLACE IS A LOOP. district/main.js's own rule: two of this
+     * district's respawn points close a period-2 cycle under held throttle — (518,77) -> (472,78)
+     * -> (524,77) -> ... a wreck every 9.6 s for ever. A reviewer found 1 in 86 sampled points
+     * does this; the other 85 wander, so the bound is on the SEQUENCE and not on the site.
+     */
+    const candidate = near && near.dist < 80
+      && !this.blockers.resolveCircle(near.x, near.z, BODY_RADIUS) ? near : null;
+    const looping = !!candidate && this._respawns.some((h) => this.t - h.t < LOOP_S
+      && Math.hypot(candidate.x - h.x, candidate.z - h.z) < LOOP_R);
+    if (looping) this.stats.loopsBroken++;
+    if (!looping && candidate) {
+      const near = candidate;
       x = near.x; z = near.z;
       const a = this.district.verts[near.a], b = this.district.verts[near.b];
       yaw = Math.atan2(b.x - a.x, b.z - a.z);
@@ -325,7 +352,10 @@ export class Session {
     }
     this.placeAt(x, z, yaw);
     this.vehicle.angularVelocity.set(0, 0, 0);
-    this.say(`RESPAWN a replacement car at (${x.toFixed(0)}, ${z.toFixed(0)})`);
+    this._respawns.push({ x, z, t: this.t });
+    while (this._respawns.length > LOOP_KEEP) this._respawns.shift();
+    this.say(`RESPAWN a replacement car at (${x.toFixed(0)}, ${z.toFixed(0)})` +
+      (looping ? ' — back at the spawn, that site was looping' : ''));
     return { x: +x.toFixed(1), z: +z.toFixed(1) };
   }
 
