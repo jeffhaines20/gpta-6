@@ -459,10 +459,21 @@ const OFFER_MARKER_H = 5;
 const offerMarkers = [];
 const offerRings = new Map();
 let offerRingGeom = null, offerRingMat = null;
-function updateOfferMarkers() {
+function updateOfferMarkers(suppress = false) {
   offerMarkers.length = 0;
   const live = new Set();
-  for (const m of board.available()) {
+  /**
+   * WHILE A MISSION RUNS THERE ARE NO OFFER RINGS AT ALL, and the first version left them all
+   * standing — including the ring of the job the player was in the middle of doing. Found by
+   * tools/mission-live.mjs's new board arm on its first run: `standing on it: shakedown / b,
+   * board now ["marlin-street","shakedown"]`, two rings visible. `available()` means "not yet
+   * passed", which is the right question for the board and the wrong one for what to draw.
+   *
+   * The minimap blips were already hidden this way, and the objective band is taken by the
+   * mission, so the rings follow: a ring you cannot enter is an instruction you cannot obey. The
+   * other job is still on the board and its ring comes back the moment this one ends.
+   */
+  for (const m of (suppress ? [] : board.available())) {
     const r = board.radiusOf(m);
     offerMarkers.push({ x: m.start.x, z: m.start.z, kind: 'offer' });
     live.add(m.id);
@@ -1602,6 +1613,7 @@ function animate(now) {
     }
   }
   if (missionEndFor > 0) { missionEndFor -= dt; if (missionEndFor <= 0) missionEnd = null; }
+  updateOfferMarkers(!!missionHud);
   /**
    * The band's three tenants, in priority order: a running mission, then the "you finished it"
    * line for six seconds, then a job on offer. They never fight over the line because only one
@@ -1614,7 +1626,6 @@ function animate(now) {
   const bandSubtitle = wreckLine ? wreckLine.subtitle : fenceLine ? fenceLine.subtitle
     : missionHud ? missionHud.subtitle
     : missionEnd ? missionEnd.subtitle : offerLine ? offerLine.subtitle : null;
-  updateOfferMarkers();
   if (hud2 && hudEnabled) {
     const q = vehicle.quaternion;
     const heading = mode === 'foot'

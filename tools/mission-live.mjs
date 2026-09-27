@@ -102,16 +102,37 @@ const settle = async (n = 4) => {
     `${inIt.report.mission}`);
   check('the HUD has an objective for it', !!(inIt.hud && inIt.hud.objective),
     inIt.hud ? inIt.hud.objective : 'null');
-  check('and its ring comes down while it runs', (await page.evaluate(() => {
+  /**
+   * AND EVERY RING COMES DOWN WHILE A MISSION RUNS, not just the one that was taken. This arm
+   * first expected one ring left — for the other job, still on the board — and got two, because
+   * `available()` means "not yet passed" and a RUNNING mission is still that. A ring you cannot
+   * enter is an instruction you cannot obey, and the ring of the job you are in the middle of
+   * doing is worse than either.
+   */
+  const ringsNow = await page.evaluate(() => {
     let visible = 0;
     __district.scene.traverse((o) => {
       const p = o.isMesh && o.geometry && o.geometry.parameters;
       if (p && p.openEnded === true && p.radialSegments === 24 && o.visible) visible++;
     });
     return visible;
-  })) === 1, 'one ring left, for the job still on offer');
+  });
+  check('every ring comes down while a mission runs', ringsNow === 0, `${ringsNow} still up`);
   await page.evaluate(() => __district.abortMission('board check done'));
-  await settle(4);
+  await settle(6);
+  const back = await page.evaluate(() => {
+    let visible = 0;
+    __district.scene.traverse((o) => {
+      const p = o.isMesh && o.geometry && o.geometry.parameters;
+      if (p && p.openEnded === true && p.radialSegments === 24 && o.visible) visible++;
+    });
+    return { visible, available: __district.missionBoard().available };
+  });
+  console.log(`  after aborting: ${back.visible} rings, board ${JSON.stringify(back.available)}`);
+  // An aborted job goes back on the board, so both rings return. A game that deletes its own
+  // content on the player's first mistake has one mission fewer.
+  check('and they come back when it ends', back.visible === 2 && back.available.length === 2,
+    `${back.visible} rings, ${back.available.length} on the board`);
 }
 
 // The surface exists at all.
