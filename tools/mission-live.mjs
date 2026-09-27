@@ -35,6 +35,85 @@ const settle = async (n = 4) => {
     { timeout: 120000, polling: 100 });
 };
 
+/**
+ * THE BOARD, FIRST, because this is the only door a player has and every other check in this
+ * file opens it with a console call. Until this round both authored missions were reachable
+ * only from `startMission`, and a playtester led its report with it. The board is 23 checks in
+ * mission-test and 8 in playtest --selftest, all of them offline; what nothing asserted is that
+ * driving into the marker starts the job IN THE PAGE, or that the marker is drawn at all.
+ *
+ * Done before the scripted run below so the board is still untouched: a passed mission leaves it.
+ */
+{
+  const b0 = await page.evaluate(() => __district.missionBoard());
+  console.log(`  board at the spawn: ${JSON.stringify({ available: b0.available,
+    markers: b0.markers, offerHere: b0.offerHere, noticeHere: b0.noticeHere
+      ? { id: b0.noticeHere.mission.id, distance: b0.noticeHere.distance } : null })}`);
+  check('the board offers both jobs on a fresh load',
+    b0.available.length === 2 && b0.markers.length === 2, b0.available.join(', '));
+  check('and none of them fires where the player is standing', b0.offerHere === null,
+    JSON.stringify(b0.offerHere));
+
+  // THE MARKER IS DRAWN. A blip on the minimap is not a destination; the disc in the street is,
+  // and it is the only thing in the world telling a player where to go.
+  const drawn = await page.evaluate(() => {
+    let n = 0, visible = 0, tris = 0;
+    __district.scene.traverse((o) => {
+      if (!o.isMesh || !o.geometry || !o.geometry.parameters) return;
+      const p = o.geometry.parameters;
+      // The offer ring: an open-ended cylinder of unit radius, scaled per marker.
+      if (p.openEnded !== true || p.radialSegments !== 24) return;
+      n++;
+      if (o.visible) visible++;
+      tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3;
+    });
+    return { n, visible, tris };
+  });
+  console.log(`  offer rings in the scene: ${JSON.stringify(drawn)}`);
+  check('a ring is in the scene for each job on offer', drawn.visible === 2,
+    `${drawn.visible} visible of ${drawn.n}`);
+  check('and it is cheap enough to give away', drawn.tris <= 200, `${drawn.tris} triangles`);
+
+  // Just outside the pickup: announced, not started.
+  const st = await page.evaluate(() => {
+    const m = __district.missionBoard().markers.find((k) => k.id === 'shakedown');
+    __district.setMode('car');
+    __district.placeAt(m.x + 26, m.z, 0);              // 26 m out: past 12, inside 48
+    return m;
+  });
+  await settle(6);
+  const near = await page.evaluate(() => ({ board: __district.missionBoard(),
+    running: __district.missionReport().mission }));
+  console.log(`  26 m from the marker: running ${JSON.stringify(near.running)}, ` +
+    `notice ${near.board.noticeHere ? near.board.noticeHere.mission.id + ' @ ' +
+      near.board.noticeHere.distance + ' m' : 'none'}`);
+  check('26 m from a marker announces it and starts nothing',
+    near.running === null && !!near.board.noticeHere,
+    `${near.running}, ${near.board.noticeHere ? near.board.noticeHere.mission.id : 'no notice'}`);
+
+  // Driving into it starts the job, with no console call.
+  await page.evaluate((m) => __district.placeAt(m.x, m.z, 0), st);
+  await settle(6);
+  const inIt = await page.evaluate(() => ({ report: __district.missionReport(),
+    board: __district.missionBoard(), hud: __district.missionHud() }));
+  console.log(`  standing on it: ${inIt.report.mission} / ${inIt.report.stage}, ` +
+    `board now ${JSON.stringify(inIt.board.available)}`);
+  check('driving into the marker starts that job', inIt.report.mission === 'shakedown',
+    `${inIt.report.mission}`);
+  check('the HUD has an objective for it', !!(inIt.hud && inIt.hud.objective),
+    inIt.hud ? inIt.hud.objective : 'null');
+  check('and its ring comes down while it runs', (await page.evaluate(() => {
+    let visible = 0;
+    __district.scene.traverse((o) => {
+      const p = o.isMesh && o.geometry && o.geometry.parameters;
+      if (p && p.openEnded === true && p.radialSegments === 24 && o.visible) visible++;
+    });
+    return visible;
+  })) === 1, 'one ring left, for the job still on offer');
+  await page.evaluate(() => __district.abortMission('board check done'));
+  await settle(4);
+}
+
 // The surface exists at all.
 const names = await page.evaluate(() => (__district.missions ? __district.missions() : null));
 check('__district exposes the authored missions', Array.isArray(names) && names.includes('shakedown'),

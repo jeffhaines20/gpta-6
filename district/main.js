@@ -1375,6 +1375,10 @@ function animate(now) {
   if (!autopilot && mode === 'foot') {
     // On foot the vehicle idles on its springs rather than sinking.
     vehicle.setControls({ throttle: 0, brake: 1, steer: 0 });
+    // AND THE FENCE READING IS CLEARED, because it is only computed in the car branch below:
+    // left stale, a player who drove to the edge and got out kept "TURN BACK" on the band for
+    // the rest of the session. Found re-reading this round's own diff.
+    outsideWorld = 0;
   } else if (!autopilot) {
     const axis = input.moveAxis();
     let throttle = 0, brake = 0;
@@ -1568,7 +1572,15 @@ function animate(now) {
    * on it rather than on `mission.mission`: a finished mission must put its own marker back on
    * the board (if it failed) and be offerable again immediately.
    */
-  const wreckLine = mode === 'car' ? wreckWatch(dt) : null;
+  /**
+   * THE WRECK CLOCK RUNS IN BOTH MODES. Gated on `mode === 'car'` it did not: a player who got
+   * out of a burning car froze the hold at wherever it had reached, so the replacement never
+   * arrived and the wreck was permanent again — the same dead end this round removed, reachable
+   * by pressing F. The car is wrecked whether or not anybody is sitting in it. The band only
+   * shows the countdown in the car, because on foot it is not the thing in front of you.
+   */
+  const wreckState = wreckWatch(dt);
+  const wreckLine = mode === 'car' ? wreckState : null;
   const fenceLine = outsideWorld > 0
     ? { objective: 'TURN BACK', subtitle: `the district ends here — ${outsideWorld.toFixed(0)} m out` }
     : null;
