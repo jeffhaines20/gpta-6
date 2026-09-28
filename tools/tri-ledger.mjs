@@ -26,6 +26,8 @@
 import fs from 'node:fs';
 
 const args = process.argv.slice(2);
+/** The gate's own precision on a clean box, and its spread under contention. See `noise` below. */
+const CLEAN_SPREAD = 934, DIRTY_SPREAD = 20000;
 const has = (f) => args.includes(f);
 const val = (f, d) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : d; };
 
@@ -78,13 +80,63 @@ if (has('--selftest')) {
   say(verdict(828000, 828000, 0).call === 'WITHIN SAMPLING NOISE',
     'an exact match with zero noise still passes');
 
+  /**
+   * 3. THE TWO BANDS, AND WHAT I GOT WRONG SETTING THEM UP.
+   *
+   * I added these expecting the contention band to EXCUSE the WARN that was explained away, and
+   * asserted `verdict(851836, 830000, 20000)` would read as noise. It failed: that gap is 21,836
+   * and even 20,000 rejects it.
+   *
+   * The check was wrong, not the record. CLAUDE.md's account is that the round was "right about
+   * the DELTA and wrong about the BASELINE" — it compared 851,836 against its own ASSUMED
+   * baseline, not against the 830,000 warn line, and against that assumption the gap was small
+   * enough for 20,000 to swallow. I had computed the gap from the wrong pair of numbers, which is
+   * the same mistake that story is about, arriving in the check written to pin it.
+   *
+   * What the bands are actually worth is the range where they DISAGREE, and that is what the
+   * default decides: a 5,000 gap is noise on a loaded box and a regression on a clean one, and a
+   * ~1,900-triangle change — the size this project ships — is invisible at 20,000 and resolvable
+   * at 934. Both bands reject 21,836, which is worth pinning too, because it means that WARN was
+   * never inside either.
+   */
+  say(verdict(851836, 830000, DIRTY_SPREAD).call === 'EXCEEDS NOISE — investigate',
+    'even the contention band rejects the 21,836 WARN that was explained away');
+  say(verdict(851836, 830000, CLEAN_SPREAD).call === 'EXCEEDS NOISE — investigate',
+    'and the clean band rejects it far more decisively');
+  say(verdict(835000, 830000, DIRTY_SPREAD).call === 'WITHIN SAMPLING NOISE'
+    && verdict(835000, 830000, CLEAN_SPREAD).call === 'EXCEEDS NOISE — investigate',
+    'a 5,000 gap is where the two bands actually disagree');
+  say(verdict(831900, 830000, CLEAN_SPREAD).call === 'EXCEEDS NOISE — investigate'
+    && verdict(831900, 830000, DIRTY_SPREAD).call === 'WITHIN SAMPLING NOISE',
+    'a 1,900-triangle change is resolvable on a clean box and invisible on a dirty one');
+  say(DIRTY_SPREAD > CLEAN_SPREAD * 20, 'the two bands differ by more than a factor of 20');
+
   console.log(bad ? `\n${bad} SELFTEST FAILURE(S)` : '\nselftest ok');
   process.exit(bad ? 1 : 0);
 }
 
 const file = args.find((a) => !a.startsWith('--')) ?? 'docs/drive-traffic.json';
 const baseline = +val('--baseline', NaN);
-const noise = +val('--noise', 20000);
+/**
+ * THE NOISE BAND DEFAULTED TO THE DIRTY-BOX FIGURE, and that is the number this project has
+ * already been burned by once. 20,000 was measured while other agents' headless browsers were
+ * alive; a WARN at 851,836 was then explained away as sampling noise on the strength of it, and
+ * the WARN was real the whole time. Three runs of identical code on a box with no browsers and no
+ * orphaned servers:
+ *
+ *     p95   852,605   851,671   852,605     spread    934  (0.11%)
+ *     p50   705,037   705,037   705,153     spread    116
+ *     min   562,399   562,399   562,399     spread      0
+ *
+ * So 20,000 is a statement about CONTENTION and 934 is the gate's own precision. Defaulting to
+ * the contention figure means the tool's first answer is its least discriminating one: at 20,000 a
+ * ~1,900-triangle change is invisible, and at 934 it is resolvable.
+ *
+ * `--dirty` restores the contention band for a reading taken on a loaded box, and the tool now
+ * says which one it used and what that assumes, because a band without its box is not a bound.
+ */
+const dirty = has('--dirty');
+const noise = +val('--noise', dirty ? DIRTY_SPREAD : CLEAN_SPREAD);
 const j = JSON.parse(fs.readFileSync(new URL('../' + file.replace(/^\.\//, ''), import.meta.url)));
 const r = j.result ?? j;
 const t = r.triangles;
@@ -119,4 +171,12 @@ if (Number.isFinite(baseline)) {
   console.log(`  measured p95       ${t.p95.toLocaleString()}`);
   console.log(`  unexplained        ${v.gap >= 0 ? '+' : ''}${v.gap.toLocaleString()}  -> ${v.call}` +
     `  (noise band +/-${noise.toLocaleString()})`);
+  const named = args.includes('--noise');
+  console.log(`  the band assumes    ${named ? 'the value you passed'
+    : dirty ? 'a LOADED box — 20,000 is contention, not the gate'
+      : 'a CLEAN box — no browsers, no orphaned servers'}`);
+  if (!named && !dirty) {
+    console.log('  if anything else was running, this band is too tight: re-run --dirty, or');
+    console.log('  better, clean the box and take the gate three times (CLAUDE.md says why).');
+  }
 }
