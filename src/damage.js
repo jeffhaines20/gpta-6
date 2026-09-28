@@ -249,6 +249,14 @@ export class DamageModel {
 
     const severity = this.severityFor(out.dv);
     out.severity = severity;
+    /**
+     * HOW BIG AN OFFENCE THIS WAS, for src/wanted.js's `opts.scale`. See `_crimeScaleFor`.
+     * It rides on the record because this module is the one that knows the delta-v and the
+     * speed; wanted.js owns the ladder and must not learn the physics.
+     */
+    out.crimeScale = out.crime
+      ? this._crimeScaleFor(kind, out.dv, finite(speed) ? Math.abs(speed) : 0, severity)
+      : 0;
     if (severity <= 0) {
       out.reason = 'below-threshold';
       this.stats.rejected++;
@@ -331,7 +339,14 @@ export class DamageModel {
     if (kind === IMPACT.pedestrian) {
       return speed >= this.pedKillSpeed ? 'pedestrianKilled' : 'pedestrianHit';
     }
-    if (dv < this.freeDv) return null;
+    /**
+     * THE SAME TEST `severityFor` USES, and it was `dv < this.freeDv` while that reads
+     * `!(a > this.freeDv)`. The two disagree at exactly `dv === freeDv`: the crime was filed
+     * and the severity was 0, so the offence charged no heat, burned its refractory, and
+     * reported itself applied. One quantity, two predicates, differing on a boundary the
+     * gate walks — CLAUDE.md's "a check whose two sides are both zero", inside the classifier.
+     */
+    if (!(dv > this.freeDv)) return null;
     switch (kind) {
       case IMPACT.police: return 'policeProperty';
       case IMPACT.roadblock: return 'roadblockRun';
@@ -339,6 +354,63 @@ export class DamageModel {
       case IMPACT.wall: case IMPACT.prop: return 'propertyDamage';
       default: return null;
     }
+  }
+
+  /**
+   * HOW BAD THIS INSTANCE OF THE OFFENCE WAS, as a multiplier on the crime's table heat.
+   * src/wanted.js's `reportCrime` has taken `opts.scale` since it was written, and its own doc
+   * comment says why — "a 90 km/h impact is not a 10 km/h one" — and no caller ever passed one.
+   *
+   * A blind playtester priced the consequence of that. From a clean record, isolating one
+   * offence (the damage model's severity beside it, so the two can be compared):
+   *
+   *     closing km/h    dv    severity   charged   stars      the same, scaled
+   *             10    3.19      0.028      0.30      0        0.07      0
+   *             20    6.39      0.191      0.30      0        0.48      0
+   *             40   12.78      0.841      0.30      0        2.10      2
+   *            110   35.14      1.000      0.30      0        2.50      2
+   *
+   * Every row charged 0.30 and read 0 stars. Writing the car off against a building at 110 km/h
+   * — health 1.000 to 0.000, delta-v 18.88, the loudest thing in the game — was a free action,
+   * and so was a 107 km/h head-on into an occupied civilian car (0.50, 0 stars). Thirty-one
+   * separate building crashes were needed for one star, and seven car rams. Meanwhile ONE
+   * pedestrian knocked down at 9 km/h was 1.15 and one star immediately. The damage model was
+   * fully speed-aware over that sweep — severity 0.028 to 1.000, a 36x range — and the crime
+   * heat was a constant across the same rows.
+   *
+   * The scale is `severity / majorSeverity` for anything with a delta-v. Both terms are already
+   * in this module: `majorSeverity` (0.12) is its own line between an impact that refracts per
+   * region and one that always lands, so the table's heat becomes the charge for a minimum
+   * MAJOR impact, a scrape costs proportionally less, and a fatal-range one costs up to 8.33x.
+   * Bounded by construction rather than by a clamp, because severity is already bounded to 1.
+   *
+   * A PEDESTRIAN IS DIFFERENT, AND ANY MULTIPLIER ON ONE IS ALMOST ENTIRELY INVISIBLE. Tried
+   * first with `pedFatalityRisk(speed) / pedFatalityRisk(pedKillSpeed)`, which is 1.000 exactly
+   * at the speed where `_crimeFor` switches from `pedestrianHit` to `pedestrianKilled` — a
+   * self-validating join, since `pedKillSpeed` IS that curve's 50% point. Measured:
+   *
+   *     km/h     risk    crime   scale   charged   stars
+   *        8   0.0021      hit    0.00      1.00      1
+   *       40   0.0356      hit    0.07      1.00      1
+   *       60   0.1824      hit    0.36      1.00      1
+   *     76.7   0.5007   KILLED    1.00      2.00      2
+   *      110   0.9526   KILLED    1.90      3.81      3
+   *
+   * `pedestrianHit` carries `min: 1`, and `min` is a floor on HEAT, not on stars — so every
+   * scale below 0.87 comes back out as exactly 1.00 and the charge is one star from 8 km/h to
+   * 76 km/h however the scale is computed. The quadratic energy form `(v/pedKillSpeed)^2` was
+   * tried too and collapses identically. That floor is right — hitting a person is hitting a
+   * person, and the escalation is the classification switch at a published fatality speed, not
+   * a curve — so the pedestrian charge is left alone and the invisible range is stated here
+   * with its number rather than fixed with a fudge. Above the switch the scale does graduate,
+   * and that range is where it earns its place.
+   */
+  _crimeScaleFor(kind, dv, speed, severity) {
+    if (kind === IMPACT.pedestrian) {
+      const ref = pedFatalityRisk(this.pedKillSpeed);
+      return ref > 0 ? pedFatalityRisk(speed) / ref : 1;
+    }
+    return this.majorSeverity > 0 ? severity / this.majorSeverity : 1;
   }
 
   _checkFire() {

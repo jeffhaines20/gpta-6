@@ -122,7 +122,7 @@ export class Session {
     // 0.007 m/s of kerb rumble and audio.js refuses anything under 0.6 — so a single number
     // called "sounds" was wrong by two orders of magnitude, in the alarming direction.
     this.stats = { crashes: 0, crimes: 0, knockdowns: 0, fatal: 0, shunts: 0,
-      impacts: 0, voices: 0, tested: 0, contacts: 0, pedRepeats: 0,
+      impacts: 0, voices: 0, tested: 0, contacts: 0, pedRepeats: 0, runOvers: 0,
       wrecks: 0, respawns: 0, loopsBroken: 0, worstDv: 0, distance: 0, topSpeed: 0 };
     this._lastPos = { x: 0, z: 0 };
     this._controls = { throttle: 0, brake: 0, steer: 0, handbrake: false };
@@ -284,7 +284,7 @@ export class Session {
       const hit = this.vehicle.pendingImpact;
       this.vehicle.pendingImpact = null;
       this.stats.crashes++;
-      if (hit.crime) this._crime(hit.crime);
+      if (hit.crime) this._crime(hit.crime, hit.crimeScale);
     }
   }
 
@@ -359,9 +359,25 @@ export class Session {
     return { x: +x.toFixed(1), z: +z.toFixed(1) };
   }
 
-  _crime(name) {
+  /**
+   * ONE VICTIM, ONE OFFENCE, within a window — and one implementation, because there are two ways
+   * to be charged for the same person now (knocked down, then driven over). A casualty gets up
+   * 4.42 s after going down and can be knocked down again, so a player creeping back and forth
+   * over one person used to collect five stars from a single pedestrian.
+   */
+  _chargeVictim(id) {
+    for (const [vid, t] of this._pedCrimeAt) {
+      if (this.t - t > PED_CRIME_WINDOW_S) this._pedCrimeAt.delete(vid);
+    }
+    const last = this._pedCrimeAt.get(id);
+    if (last !== undefined && this.t - last <= PED_CRIME_WINDOW_S) return false;
+    this._pedCrimeAt.set(id, this.t);
+    return true;
+  }
+
+  _crime(name, scale = 1) {
     const r = this.wanted.reportCrime(name,
-      { at: { x: this.vehicle.position.x, z: this.vehicle.position.z } });
+      { at: { x: this.vehicle.position.x, z: this.vehicle.position.z }, scale });
     if (!r.applied) return;
     this.stats.crimes++;
     this.say(`CRIME   ${name} — ${this.wanted.stars} star${this.wanted.stars === 1 ? '' : 's'}`);
@@ -415,8 +431,18 @@ export class Session {
       if (!worst || hit.dv > worst.dv) { worst = hit; worstKind = IMPACT.vehicle; }
       if (!worstCar || hit.dv > worstCar.dv) { worstCar = hit; worstCar.carId = c.id; }
     }
+    let proneUnder = null;
     for (const p of this.peds.positions()) {
-      if (p.down) continue;          // a body on the ground is not a fresh crime
+      // A body on the ground never enters `dynamicContact` — it must not shove 1,400 kg of car
+      // or take a second throw — but it IS still an offence to drive over. See main.js's own
+      // run-over block and `peds.runOver`. Collected here, charged below.
+      if (p.down) {
+        const rx = p.x - base.carX, rz = p.z - base.carZ;
+        const r2 = rx * rx + rz * rz;
+        if (r2 <= (BODY_ENCLOSING + PERSON.bodyRadius) ** 2
+          && (!proneUnder || r2 < proneUnder.r2)) proneUnder = { i: p.i, r2 };
+        continue;
+      }
       const dx = p.x - base.carX, dz = p.z - base.carZ;
       if (dx * dx + dz * dz > (BODY_ENCLOSING + PERSON.bodyRadius) ** 2) continue;
       this.stats.tested++;
@@ -424,6 +450,23 @@ export class Session {
       if (!hit) continue;
       if (!worst || hit.dv > worst.dv) { worst = hit; worstKind = IMPACT.pedestrian; }
       if (!worstPed || hit.dv > worstPed.dv) { worstPed = hit; worstPed.pedIndex = p.i; }
+    }
+    /**
+     * The run-over charge, BEFORE the `!worst` return, because a lone casualty under the car sets
+     * no contact at all and `worst` is null in exactly the case this is for. main.js's copy was
+     * written after its return first and could never fire.
+     */
+    if (proneUnder) {
+      const over = Math.hypot(v.velocity.x, v.velocity.z);
+      const r = this.peds.runOver(proneUnder.i, { speed: over });
+      if (r) {
+        this.stats.runOvers++;
+        if (this._chargeVictim(r.id)) {
+          this._crime(r.fatal ? 'pedestrianKilled' : 'pedestrianHit', 1);
+          this.say(`OVER    drove over a casualty at ${(over * 3.6).toFixed(0)} km/h` +
+            (r.fatal ? ' — they do not get up' : ''));
+        } else this.stats.pedRepeats++;
+      }
     }
     if (!worst) return;
     this.stats.contacts++;
@@ -437,16 +480,8 @@ export class Session {
         this.stats.knockdowns++;
         if (r.fatal) this.stats.fatal++;
         pedCrime = r.fatal ? 'pedestrianKilled' : 'pedestrianHit';
-        // A casualty gets up 4.42 s after it goes down and can be knocked down again, so a
-        // player creeping back and forth over one person used to collect five stars from a
-        // single pedestrian. The window collapses the loop to one report.
-        for (const [vid, t] of this._pedCrimeAt) {
-          if (this.t - t > PED_CRIME_WINDOW_S) this._pedCrimeAt.delete(vid);
-        }
-        const last = this._pedCrimeAt.get(r.id);
-        if (last !== undefined && this.t - last <= PED_CRIME_WINDOW_S) {
-          pedCrime = null; this.stats.pedRepeats++;
-        } else this._pedCrimeAt.set(r.id, this.t);
+        // One victim, one offence, within a window. See `_chargeVictim`.
+        if (!this._chargeVictim(r.id)) { pedCrime = null; this.stats.pedRepeats++; }
         this.lastHit = { id: r.id, fatal: !!r.fatal, speedKmh: +(travel * 3.6).toFixed(1),
           throwM: +r.throwWanted.toFixed(2), charged: pedCrime !== null, t: +this.t.toFixed(2) };
         this.say(`HIT     a pedestrian at ${(travel * 3.6).toFixed(0)} km/h — ` +
@@ -484,7 +519,8 @@ export class Session {
     const crimes = [];
     if (pedCrime) crimes.push(pedCrime);
     if (rec.crime && worstKind !== IMPACT.pedestrian) crimes.push(rec.crime);
-    for (const c of crimes) this._crime(c);
+    // The same scale main.js passes, from the same record. See DamageModel._crimeScaleFor.
+    for (const c of crimes) this._crime(c, rec.crimeScale);
   }
 
   _yaw() {
@@ -981,6 +1017,113 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
     ss.vehicle.position));
   check('the same crowd at speed is a different story', hitFast && fast.stats.knockdowns > 0,
     `${fast.stats.knockdowns} knockdowns at up to ${fast.stats.topSpeed} km/h`);
+
+  /**
+   * §3b THE CLOSING SPEED AND THE CASUALTY ON THE GROUND. Both were found by a blind playtester
+   * and neither had a check anywhere: the free threshold was compared with the CAR's ground speed,
+   * so a person walking into a crawling car was free at 12.92 km/h of closing, and a body already
+   * down was not an event of any kind at 101 km/h.
+   *
+   * Driven directly rather than through a chase, because both are about a specific relative
+   * velocity and a chase cannot hold one. The pedestrian's velocity is SET and the closing speed
+   * PRINTED beside the one `hit()` reports, so the arm states the geometry it built.
+   */
+  console.log('\n§3b the closing speed, and a body on the ground');
+  {
+    const s3 = new Session({ traffic: 0, peds: 8 });
+    s3.placeAt(CROWD_HOME.x, CROWD_HOME.z, 0);
+    s3.step(1);
+    const ped = s3.peds.peds[0];
+    // The car travels +z at 2.19 m/s — under the 2.2 m/s floor — and the person walks INTO it.
+    const rows = [];
+    for (const [pyaw, pv] of [[0, 0], [Math.PI, 1.4], [0, 1.4]]) {
+      ped.down = null; ped.yaw = pyaw; ped.v = pv;
+      const built = 2.19 - Math.cos(pyaw) * pv;
+      const r = s3.peds.hit(0, { speed: 2.19, dirX: 0, dirZ: 1 });
+      rows.push({ built, down: !!r, reported: r ? r.closing : null });
+      console.log(`    car 2.19 m/s, person ${(Math.cos(pyaw) * pv).toFixed(2).padStart(5)} m/s ` +
+        `-> closing ${built.toFixed(2)} (${(built * 3.6).toFixed(2)} km/h)  ` +
+        `${r ? `knocked down, reported ${r.closing.toFixed(4)}` : 'free'}`);
+    }
+    check('a person walking INTO a car under the floor is still knocked down',
+      rows[1].down, `closing ${rows[1].built.toFixed(2)} m/s`);
+    check('and the closing speed reported is the one the arm built',
+      Math.abs(rows[1].reported - rows[1].built) < 1e-9,
+      `${rows[1].reported?.toFixed(6)} vs ${rows[1].built.toFixed(6)}`);
+    check('a stationary person under the floor is still free', !rows[0].down,
+      `closing ${rows[0].built.toFixed(2)} m/s`);
+    // It cuts both ways, which is what makes it a model rather than a one-way loosening.
+    check('and a person walking AWAY is free where the car alone would not be', !rows[2].down,
+      `closing ${rows[2].built.toFixed(2)} m/s from a 2.19 m/s car`);
+
+    // A body on the ground: an offence, once, and no second throw.
+    const s4 = new Session({ traffic: 0, peds: 8 });
+    s4.placeAt(CROWD_HOME.x, CROWD_HOME.z, 0);
+    s4.step(1);
+    const victim = s4.peds.peds[1];
+    victim.yaw = 0; victim.v = 0;
+    const first = s4.peds.hit(1, { speed: 12, dirX: 0, dirZ: 1 });
+    check('a casualty is on the ground to drive over', !!first && !!victim.down,
+      first ? `down at ${first.speed.toFixed(1)} m/s` : 'not down');
+    const before = { x: victim.x, z: victim.z, travelled: victim.down.travelled };
+    const over = s4.peds.runOver(1, { speed: 28.1 });
+    console.log(`    driven over at 101 km/h: ${over ? `charged, fatal ${over.fatal}` : 'NOTHING'}`);
+    check('driving over a casualty at 101 km/h is an offence', !!over && over.alreadyDown,
+      over ? `fatal ${over.fatal}` : 'null');
+    check('above the kill speed they do not get up', !!victim.down.fatal, `${victim.down.fatal}`);
+    check('and it does not move the body or re-throw it',
+      victim.x === before.x && victim.z === before.z
+        && victim.down.travelled === before.travelled,
+      `moved ${Math.hypot(victim.x - before.x, victim.z - before.z).toFixed(4)} m`);
+    // The free threshold applies here too, so a car rolling onto a body at walking pace is not
+    // a felony — the same floor, on the same quantity.
+    const s5 = new Session({ traffic: 0, peds: 8 });
+    s5.placeAt(CROWD_HOME.x, CROWD_HOME.z, 0);
+    s5.step(1);
+    s5.peds.peds[1].yaw = 0; s5.peds.peds[1].v = 0;
+    s5.peds.hit(1, { speed: 12, dirX: 0, dirZ: 1 });
+    check('and a body rolled over under the floor is free',
+      s5.peds.runOver(1, { speed: 1.5 }) === null, 'null at 1.5 m/s');
+    check('the counters say it happened', s4.peds.stats.runOvers === 1,
+      `runOvers ${s4.peds.stats.runOvers}`);
+
+    /**
+     * AND THE CONTACT PASS REACHES IT, which is the half that is easy to leave out — every arm
+     * above calls `runOver` directly and would pass on a build whose `_contacts` still skipped
+     * every downed body outright, which is the build this fixes. So: put a casualty on the road
+     * IN FRONT of the car, drive over it through the ordinary step loop, and read the crime off
+     * the session. main.js's copy of this block was originally written after its own `!worst`
+     * return, where it could never fire, so this is the assertion that would have caught it.
+     */
+    const s6 = new Session({ traffic: 0, peds: 8 });
+    s6.placeAt(CROWD_HOME.x, CROWD_HOME.z, 0);
+    s6.step(1);
+    const mark = s6.peds.peds[2];
+    mark.yaw = 0; mark.v = 0;
+    // 14 m ahead along +z, and put down there, so the car arrives at speed with nobody standing.
+    mark.x = s6.vehicle.position.x;
+    mark.z = s6.vehicle.position.z + 14;
+    s6.peds.hit(2, { speed: 12, dirX: 0, dirZ: 1, force: true });
+    mark.x = s6.vehicle.position.x;
+    mark.z = s6.vehicle.position.z + 14;
+    mark.down.vx = 0; mark.down.vz = 0;              // stop the slide so it stays put
+    const crimes0 = s6.stats.crimes;
+    for (let k = 0; k < 400 && s6.stats.runOvers === 0; k++) {
+      s6.drive({ throttle: 1 });
+      s6.step(1 / 60);
+    }
+    console.log(`    driven over through the real step loop: runOvers ${s6.stats.runOvers}, ` +
+      `crimes +${s6.stats.crimes - crimes0}, ${s6.wanted.stars} stars`);
+    check('the contact pass reaches a body on the ground', s6.stats.runOvers > 0,
+      `${s6.stats.runOvers} run-overs`);
+    check('and it files a crime the player can see', s6.stats.crimes > crimes0 && s6.wanted.stars > 0,
+      `+${s6.stats.crimes - crimes0} crimes, ${s6.wanted.stars} stars`);
+    // Parked on the body: the window collapses the repeat to the one report already filed.
+    const held = s6.stats.crimes;
+    for (let k = 0; k < 600; k++) { s6.drive({ brake: 1 }); s6.step(1 / 60); }
+    check('and sitting on the body does not charge again', s6.stats.crimes === held,
+      `${s6.stats.crimes} against ${held} after 10 s parked on it`);
+  }
 
   console.log('\n§4  a traffic car');
   const ram = new Session({ traffic: 30, peds: 0 });

@@ -248,10 +248,23 @@ console.log('\n§1c A touch at walking pace is not a knockdown');
 {
   const walk = 1.4;                                   // a pedestrian's own walking speed, m/s
   const rows = [0.3, walk, PED_FREE_MS - 0.01, PED_FREE_MS, PED_FREE_MS + 0.01, 8.3];
+  /**
+   * THE SUBJECT IS HELD STILL, so `closing === speed` by construction and this sweep measures the
+   * threshold rather than the threshold plus one pedestrian's heading.
+   *
+   * `hit()` now tests the CLOSING speed — the car's, less the person's own velocity along the
+   * contact direction — and this sweep asserted against the car's alone. It passed, and it passed
+   * by luck: `positions()[0]` is always slot 0 and its settled yaw gives sin(yaw) = -0.002, so the
+   * offset was 0.0024 m/s against the sweep's 0.01 m/s margin. A factor of four, on a heading
+   * nothing chose. Any change that reshuffled the walk would have broken a gate that was testing
+   * the right thing for the wrong reason — CLAUDE.md's "a threshold that holds at one value",
+   * arriving in a check that predates the closing speed by a round.
+   */
   console.log('    speed        knocked down   throw');
   for (const v of rows) {
     const p = crowd(8);
     const i = p.positions()[0].i;
+    p.peds[i].v = 0;
     const r = p.hit(i, { speed: v, dirX: 1, dirZ: 0, kill: false });
     console.log(`    ${v.toFixed(2)} m/s (${(v * 3.6).toFixed(1).padStart(4)} km/h)  ` +
       `${r ? 'yes' : 'no '}            ${r ? r.throwWanted.toFixed(2) + ' m' : '-'}`);
@@ -263,6 +276,56 @@ console.log('\n§1c A touch at walking pace is not a knockdown');
   // The boundary is the constant, not a number written twice.
   check('the floor is the free band src/damage.js uses', PED_FREE_MS === ANCHORS.freeDv,
     `${PED_FREE_MS} against ${ANCHORS.freeDv}`);
+
+  /**
+   * AND THE FLOOR IS ON THE CLOSING SPEED, which is what FMVSS 581's 2.2 m/s actually is: a
+   * BARRIER impact, against something that is not moving. It was compared with the car's own
+   * ground speed, so a person walking into a crawling car contributed nothing. A blind playtester
+   * measured it: 12.92 km/h of closing was free, and so was 8.28 km/h from a car doing 1.8.
+   *
+   * The car travels +x here and the person's velocity is SET, so every row's closing speed is
+   * built rather than hoped for, and the value `hit()` reports is printed beside it.
+   */
+  console.log('\n    the floor is on the CLOSING speed, not the car\'s');
+  console.log('    car m/s   person m/s   closing   km/h    down?   reported');
+  {
+    let built = 0, agreed = 0, downInto = 0, freeAway = 0, intoN = 0, awayN = 0;
+    const sweep = [
+      [2.19,  0.0], [2.19, -1.0], [2.19, -1.4], [2.19, -1.8],
+      [1.00, -1.4], [0.50, -1.8], [2.19,  1.4], [3.00,  1.4],
+    ];
+    for (const [cv, comp] of sweep) {
+      const p = crowd(8);
+      const i = p.positions()[0].i;
+      const ped = p.peds[i];
+      // The car goes along +x, so the component along it is pv*sin(yaw): yaw +/-pi/2 gives +/-pv.
+      ped.yaw = comp >= 0 ? Math.PI / 2 : -Math.PI / 2;
+      ped.v = Math.abs(comp);
+      const want = cv - comp;
+      const r = p.hit(i, { speed: cv, dirX: 1, dirZ: 0, kill: false });
+      console.log(`    ${cv.toFixed(2).padStart(7)}   ${comp.toFixed(2).padStart(10)}   ` +
+        `${want.toFixed(2).padStart(7)}   ${(want * 3.6).toFixed(2).padStart(5)}   ` +
+        `${(r ? 'yes' : 'no ').padStart(5)}   ${r ? r.closing.toFixed(4) : '-'}`);
+      built++;
+      if ((want >= PED_FREE_MS) === (r !== null)) agreed++;
+      /**
+       * The two halves counted from the sweep's OWN rows rather than against a number written
+       * here. The first version hardcoded "3 of 3" and failed reading 5 of 3, because five rows
+       * qualify and I had counted three by eye — the check was right and its expectation was
+       * invented. A population derived from the data cannot drift from the data.
+       */
+      if (comp < 0 && cv < PED_FREE_MS) { intoN++; if (r) downInto++; }
+      if (comp > 0 && cv >= PED_FREE_MS) { awayN++; if (!r) freeAway++; }
+    }
+    check('every row agrees with its own built closing speed', agreed === built,
+      `${agreed} of ${built}`);
+    // Each half asserted separately AND shown to be non-empty: an arm whose population is zero
+    // agrees with anything, which is the failure the "both sides zero" rule is about.
+    check('a person walking INTO a car under the floor is knocked down',
+      intoN > 0 && downInto === intoN, `${downInto} of ${intoN} rows`);
+    check('and one walking AWAY is free where the car alone would not be',
+      awayN > 0 && freeAway === awayN, `${freeAway} of ${awayN} rows`);
+  }
   // `force` is what a probe uses when it means it, and it must still work below the floor.
   {
     const p = crowd(8);

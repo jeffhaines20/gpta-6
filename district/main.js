@@ -1029,7 +1029,27 @@ let audioImpactsWanted = 0, audioImpactsPlayed = 0, audioImpactsSilent = 0;
 const OTHER_CAR = { bodyRadius: 0.95, bodyMass: 1400 };
 const PERSON = { bodyRadius: 0.35, bodyMass: 80 };
 const dynStats = { tested: 0, contacts: 0, frames: 0, pedHits: 0, carHits: 0, policeHits: 0,
-  pedKnockdowns: 0, pedFatal: 0, carShunts: 0, pedRepeats: 0 };
+  pedKnockdowns: 0, pedFatal: 0, carShunts: 0, pedRepeats: 0, pedRunOvers: 0 };
+/**
+ * ONE VICTIM, ONE OFFENCE, within a window — and ONE implementation of it, because there are now
+ * two ways to be charged for the same person (knocked down, then driven over) and two copies of
+ * this test would eventually disagree. Returns true when the crime should be filed.
+ *
+ * A casualty gets back on its feet 4.42 s after going down and can immediately be knocked down
+ * again, so a player creeping back and forth over one person used to collect a fresh crime every
+ * cycle. Measured against the real wanted system: 7 knockdowns in 30 s, all 7 charged (wanted.js's
+ * own 1.0 s refractory is far too short to see them), heat 5.99, FIVE STARS from one pedestrian and
+ * a car that never left the spot. wanted.js's refractory is per CRIME TYPE, which is right for a
+ * bumper grinding along a wall and wrong here, because the thing being repeated is the victim.
+ */
+function chargeVictim(id) {
+  const now = simTime;
+  for (const [vid, t] of pedCrimeAt) if (now - t > PED_CRIME_WINDOW_S) pedCrimeAt.delete(vid);
+  const last = pedCrimeAt.get(id);
+  if (last !== undefined && now - last <= PED_CRIME_WINDOW_S) return false;
+  pedCrimeAt.set(id, now);
+  return true;
+}
 /** When each pedestrian was last reported as a crime, by their own id. See pedCrime below. */
 const pedCrimeAt = new Map();
 const PED_CRIME_WINDOW_S = 20;
@@ -1056,6 +1076,9 @@ function dynamicImpacts() {
    * reaction.
    */
   let worstPed = null, worstCar = null;
+  /** The nearest casualty under the car this frame, for the run-over charge. See the crowd loop. */
+  let proneUnder = null;
+
 
   // --- traffic. `_lastPositions` is held for the frame by src/traffic.js precisely so
   // a consumer can classify overlaps; its entries carry x, z, v and yaw.
@@ -1093,10 +1116,25 @@ function dynamicImpacts() {
   const people = peds ? peds.positions() : null;
   if (people) {
     for (const p of people) {
-      // A body already on the ground is not a fresh crime and not a fresh knockdown. Without
-      // this, driving over a casualty reports `pedestrianKilled` once a second for as long as
-      // the car sits on them.
-      if (p.down) continue;
+      /**
+       * A BODY ON THE GROUND IS NOT A FRESH KNOCKDOWN — but it was not an event of any kind
+       * either, and that was the defect. This read `if (p.down) continue;` under a comment saying
+       * the skip stopped a car parked on a casualty reporting `pedestrianKilled` once a second.
+       * True, and the repeat is what the 20 s per-victim window below is for; the skip threw away
+       * the whole event. A playtester drove over a casualty at 101 km/h and measured nothing: no
+       * crime, no counter, no injury, not even with `force`.
+       *
+       * It still never enters `dynamicContact`, because a 75 kg body must not impart an impulse
+       * to 1,400 kg of car or take a second throw. It is collected here and charged after the
+       * loop, through the same per-victim window the standing case uses.
+       */
+      if (p.down) {
+        const rx = p.x - base.carX, rz = p.z - base.carZ;
+        const r2 = rx * rx + rz * rz;
+        if (r2 <= (BODY_ENCLOSING + PERSON.bodyRadius) ** 2
+          && (!proneUnder || r2 < proneUnder.r2)) proneUnder = { i: p.i, r2 };
+        continue;
+      }
       const dx = p.x - base.carX, dz = p.z - base.carZ;
       if (dx * dx + dz * dz > (BODY_ENCLOSING + PERSON.bodyRadius) ** 2) continue;
       dynStats.tested++;
@@ -1140,6 +1178,34 @@ function dynamicImpacts() {
       }
     }
   }
+  /**
+   * A CASUALTY DRIVEN OVER IS STILL AN OFFENCE, and this runs BEFORE the `!worst` return because
+   * a lone body under the car sets no contact at all — it never enters `dynamicContact`, by
+   * design, so `worst` is null in exactly the case this is for. Written after the return first,
+   * where it could never fire: CLAUDE.md's "a system that is never switched on is not a feature",
+   * in the fix for a system that was not switched on.
+   *
+   * The crowd loop collected the nearest body under the car; `peds.runOver` decides what it costs
+   * and refuses below the free threshold. It shares `chargeVictim` with the standing case, so a
+   * car parked on a body reports once rather than once a frame — which is the problem the old
+   * blanket skip was reaching for when it deleted the whole event instead.
+   */
+  if (proneUnder && peds) {
+    const over = Math.hypot(vehicle.velocity.x, vehicle.velocity.z);
+    const r = peds.runOver(proneUnder.i, { speed: over });
+    if (r) {
+      dynStats.pedRunOvers++;
+      if (chargeVictim(r.id)) {
+        const c = r.fatal ? 'pedestrianKilled' : 'pedestrianHit';
+        const res = wanted.reportCrime(c, { at: { x: vehicle.position.x, z: vehicle.position.z },
+          // A run-over has no delta-v of its own — the body does not resist — so the charge is the
+          // crime's own table value, which `min` floors at one star either way. See
+          // DamageModel._crimeScaleFor for why a pedestrian scale is invisible below 73.8 km/h.
+          scale: 1 });
+        if (res.applied) damageCrimes++; else damageIgnored++;
+      } else dynStats.pedRepeats++;
+    }
+  }
   if (!worst) return;
   dynStats.contacts++;
   if (worstKind === IMPACT.pedestrian) dynStats.pedHits++;
@@ -1180,24 +1246,8 @@ function dynamicImpacts() {
        * crime: `pedestrianKilled` if the body stays down, `pedestrianHit` if it gets up.
        */
       pedCrime = r.fatal ? 'pedestrianKilled' : 'pedestrianHit';
-      /**
-       * ONE VICTIM, ONE OFFENCE, within a window. A casualty gets back on its feet 4.42 s after
-       * it goes down, and from that instant `dynamicImpacts` can knock it down again — so a
-       * player creeping back and forth over one person collects a fresh crime every 4.42 s.
-       * Measured against the real wanted system: 7 knockdowns in 30 s, all 7 charged (the 1.0 s
-       * refractory in wanted.js is far too short to see them), heat 5.99, FIVE STARS from one
-       * pedestrian and a car that never left the spot.
-       *
-       * wanted.js's refractory is per CRIME TYPE, which is the right shape for a bumper grinding
-       * along a wall and the wrong one here, because the thing being repeated is the victim. A
-       * window a little longer than the knockdown cycle collapses the loop to one report and
-       * leaves a genuinely separate pedestrian, a second later, fully chargeable.
-       */
-      const now = simTime;
-      for (const [vid, t] of pedCrimeAt) if (now - t > PED_CRIME_WINDOW_S) pedCrimeAt.delete(vid);
-      const last = pedCrimeAt.get(r.id);
-      if (last !== undefined && now - last <= PED_CRIME_WINDOW_S) { pedCrime = null; dynStats.pedRepeats++; }
-      else pedCrimeAt.set(r.id, now);
+      // One victim, one offence, within a window. See `chargeVictim` for the measurement.
+      if (!chargeVictim(r.id)) { pedCrime = null; dynStats.pedRepeats++; }
     }
   }
   if (worstCar && worstCar.carId != null) {
@@ -1236,8 +1286,15 @@ function dynamicImpacts() {
   const crimes = [];
   if (pedCrime) crimes.push(pedCrime);
   if (rec.crime && worstKind !== IMPACT.pedestrian) crimes.push(rec.crime);
+  /**
+   * AND HOW BAD IT WAS, which nothing passed until a playtester priced what that cost: a
+   * 110 km/h write-off was 0 stars and a 9 km/h pedestrian nudge was 1. See
+   * `DamageModel._crimeScaleFor` for the sweep and the derivation. `rec.crimeScale` is the
+   * record's own, so it cannot drift from the delta-v the same record charged the car.
+   */
   for (const c of crimes) {
-    const r = wanted.reportCrime(c, { at: { x: vehicle.position.x, z: vehicle.position.z } });
+    const r = wanted.reportCrime(c, { at: { x: vehicle.position.x, z: vehicle.position.z },
+      scale: rec.crimeScale });
     if (r.applied) damageCrimes++; else damageIgnored++;
   }
   if (rec.applied) hudHitPending = Math.max(hudHitPending, rec.severity);
@@ -1469,7 +1526,8 @@ function animate(now) {
       vehicle.pendingImpact = null;              // consumed once, never twice
       hudHitPending = Math.max(hudHitPending, hit.severity);
       if (hit.crime) {
-        const r = wanted.reportCrime(hit.crime, { at: { x: vehicle.position.x, z: vehicle.position.z } });
+        const r = wanted.reportCrime(hit.crime, { at: { x: vehicle.position.x, z: vehicle.position.z },
+          scale: hit.crimeScale });
         if (r.applied) damageCrimes++; else damageIgnored++;
       }
 

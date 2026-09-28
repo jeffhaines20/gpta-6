@@ -129,7 +129,7 @@
 
 import * as THREE from '../vendor/three.module.min.js';
 import { rng, hash32 } from './facades.js';
-import { throwDistance, slideDecel, pedFatalityRisk } from './damage.js';
+import { throwDistance, slideDecel, pedFatalityRisk, ANCHORS } from './damage.js';
 
 // ------------------------------------------------------------------ skeleton
 // Metres, at height scale 1: a 1.70 m adult. Per-ped scale spreads the
@@ -636,6 +636,7 @@ export class Pedestrians {
       overlapFrames: 0, bodyOverlapFrames: 0, closestApproachM: Infinity,
       sidewalksBaked: 0, sidewalksRejected: 0, propBrushes: 0,
       knockdowns: 0, knockdownsFatal: 0, recoveries: 0, worstKnockdownSpeed: 0,
+      runOvers: 0, worstRunOverSpeed: 0,
     };
     this._minHist = new Array(6).fill(0);   // closest pair per frame, 0.25 m buckets
   }
@@ -1435,9 +1436,8 @@ export class Pedestrians {
      * `force` is for a harness that means it — `knockNearestPed` exists so a gate can stage a
      * casualty at an exact speed, and one of those speeds has to be able to be low.
      */
-    if (!force && v < PED_FREE_MS) return null;
     /**
-     * THE DIRECTION IS GUARDED TOO, and it was not. `Math.hypot(dirX, dirZ) || 1` turns a NaN
+     * THE DIRECTION IS GUARDED FIRST, and it was not guarded at all. `Math.hypot(dirX, dirZ) || 1` turns a NaN
      * direction into 1 and a ZERO direction into (0, 0), and both were accepted:
      *
      *   NaN    — 16 of 16 entries of the head matrix went non-finite while `travelled` stayed
@@ -1449,10 +1449,42 @@ export class Pedestrians {
      *
      * Reachable through __district.knockNearestPed, which takes the car's forward vector and
      * does not normalise its horizontal part: a car pitched vertical hands over (0, 0).
+     *
+     * It runs BEFORE the free-threshold test now, because the closing speed below projects the
+     * person's own velocity onto this direction and must not do that with a NaN.
      */
     const L = Math.hypot(dirX, dirZ);
     if (!(L > 0) || !Number.isFinite(L)) return null;
     const ux = dirX / L, uz = dirZ / L;
+    /**
+     * AGAINST THE CLOSING SPEED, NOT THE CAR'S. FMVSS 581 is a 2.2 m/s BARRIER impact — a closing
+     * speed against something that is not moving — and this compared it with one of the two
+     * bodies' ground speeds, so a person walking into the car contributed nothing at all. A blind
+     * playtester priced it. Measured, a head-on with the car held just under the floor:
+     *
+     *     car m/s   person m/s   closing m/s   closing km/h   knocked down?
+     *        2.19         0.00          2.19           7.88   no — free, correctly
+     *        2.19         1.40          3.59          12.92   no — FREE, and it should not be
+     *        2.19         1.80          3.99          14.36   no — FREE
+     *        0.50         1.80          2.30           8.28   no — FREE, at half a metre a second
+     *
+     * The last row is the one that says it is a defect rather than a tuning choice: 8.28 km/h of
+     * closing is over the threshold outright, and the car was doing 1.8 km/h.
+     *
+     * The closing speed is the relative velocity along the car's direction of travel, which is
+     * what the contact normal is here. A person walking AWAY reduces it, which is equally right:
+     * being clipped from behind at a walking pace is the gentler impact.
+     *
+     * ONLY THE THRESHOLD TAKES IT. `throwDistance` is a reconstruction figure in terms of the
+     * VEHICLE's impact speed, and `pedFatalityRisk` is Rosen & Sander's curve in the same terms,
+     * so both keep `v`. A 75 kg person's own 1.4 m/s does not move where a 1,500 kg car puts
+     * them; it decides whether there was an impact, not how far it threw them. That split is why
+     * nothing downstream of this line moved, and reaction-test's published anchors still read the
+     * same numbers.
+     */
+    const pv = ped.v ?? 0;
+    const closing = v - pv * (Math.sin(ped.yaw) * ux + Math.cos(ped.yaw) * uz);
+    if (!force && closing < PED_FREE_MS) return null;
     // The draw: uniform in [0,1) from the ped's id and the impact speed to the nearest 0.1 m/s.
     // Quantised so that two hits a hair apart do not become independent coin flips.
     const risk = pedFatalityRisk(v);
@@ -1474,7 +1506,40 @@ export class Pedestrians {
     this.stats.knockdowns++;
     if (fatal) this.stats.knockdownsFatal++;
     if (v > this.stats.worstKnockdownSpeed) this.stats.worstKnockdownSpeed = +v.toFixed(2);
-    return { index, id: ped.id, speed: v, fatal, risk, throwWanted: ped.down.want };
+    return { index, id: ped.id, speed: v, closing, fatal, risk, throwWanted: ped.down.want };
+  }
+
+  /**
+   * DRIVING OVER A BODY THAT IS ALREADY ON THE GROUND. `hit()` refuses a downed pedestrian and is
+   * right to — there is nothing left to knock down, and a second throw would teleport the body —
+   * but district/main.js's contact pass also skipped them outright, so the whole event produced
+   * nothing at all. Measured before this existed, on a casualty put down at 12 m/s:
+   *
+   *     driven over at  43 km/h   nothing: no crime, no injury, no counter
+   *     driven over at 101 km/h   nothing
+   *     the same with force: true  nothing
+   *
+   * The skip was the fix for a REPEAT problem — its own comment says a car parked on a casualty
+   * reported `pedestrianKilled` once a second — and it removed every consequence rather than the
+   * repetition. main.js already owns a 20 s per-victim window keyed by the casualty's id, which is
+   * the mechanism that belongs to that problem, so this path goes through it and reports once.
+   *
+   * What a run-over is, and is not: no impulse on the car (a body does not shove 1,400 kg), no new
+   * throw, no fresh knockdown. Above `pedKillSpeed` — the published 50% fatality point the
+   * standing case already uses — the casualty does not get up, which is the only state this
+   * changes. Below it, it is an offence and nothing more.
+   */
+  runOver(index, { speed = 0, force = false } = {}) {
+    const ped = this.peds[index];
+    if (!ped || !ped.down) return null;
+    const v = Math.abs(speed);
+    if (!Number.isFinite(v)) return null;
+    if (!force && v < PED_FREE_MS) return null;
+    const fatal = v >= ANCHORS.pedKillSpeed;
+    if (fatal && !ped.down.fatal) { ped.down.fatal = true; this.stats.knockdownsFatal++; }
+    this.stats.runOvers++;
+    if (v > this.stats.worstRunOverSpeed) this.stats.worstRunOverSpeed = +v.toFixed(2);
+    return { index, id: ped.id, speed: v, fatal, alreadyDown: true };
   }
 
   /** One definition, so the walk and a knockdown cannot pose different skeletons. */

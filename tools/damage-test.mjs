@@ -27,6 +27,7 @@
 import { DamageModel, IMPACT, ANCHORS, HALF_EXTENT, normalDv, pairDv, dynamicContact,
   pedFatalityRisk } from '../src/damage.js';
 import { hardnessFor } from '../src/audio.js';
+import { WantedSystem, CRIMES as CRIME_TABLE } from '../src/wanted.js';
 import fs from 'node:fs';
 
 const checks = [];
@@ -584,6 +585,151 @@ console.log(`    Marlin Street, 48 km/h wall hit once on \`ambush\`: ${reached.j
 check('the run reached the stage that owns the health trigger', reached.includes('ambush'),
   reached.join(' > '));
 check('the real mission fails on real damage', outcome === 'failed', `${outcome} at ${at}`);
+
+// ---------------------------------------------------------------------------
+/**
+ * THE CRIME SCALE, which nothing could see. A playtester found that writing the car off at
+ * 110 km/h cost 0 stars while a 9 km/h pedestrian nudge cost 1, because `reportCrime`'s
+ * `opts.scale` had never been passed by any caller since the day it was written. The fix landed
+ * and all 120 checks in this file, 97 in wanted-test and 76 in crash-test still passed — none of
+ * them looked at the charge. So these arms assert the QUANTITY THE CHANGE ALTERS, which is
+ * CLAUDE.md's rule about a probe that measures the opportunity instead of the fix.
+ */
+console.log('\n' + '='.repeat(78));
+console.log('CRIME SCALE — how big an offence was, not just which offence');
+{
+  const d = new DamageModel();
+  // The record carries it, and it is the record's own severity over the module's own major line.
+  const light = d.impact({ dv: kmh(20) * 1.15, kind: IMPACT.wall, dirX: 0, dirZ: 1, speed: kmh(20) });
+  const d2 = new DamageModel();
+  const heavy = d2.impact({ dv: kmh(110) * 1.15, kind: IMPACT.wall, dirX: 0, dirZ: 1, speed: kmh(110) });
+  console.log(`  20 km/h:  severity ${light.severity.toFixed(3)}  crimeScale ${light.crimeScale.toFixed(2)}`);
+  console.log(` 110 km/h:  severity ${heavy.severity.toFixed(3)}  crimeScale ${heavy.crimeScale.toFixed(2)}`);
+  check('the impact record carries a crime scale', Number.isFinite(light.crimeScale),
+    `${light.crimeScale}`);
+  check('it is severity over the major-impact line',
+    Math.abs(light.crimeScale - light.severity / d.majorSeverity) < 1e-12,
+    `${light.crimeScale} vs ${light.severity / d.majorSeverity}`);
+  check('a write-off scales up by more than 8x', heavy.crimeScale > 8 && heavy.crimeScale <= 1 / d.majorSeverity + 1e-9,
+    `${heavy.crimeScale.toFixed(3)}`);
+  check('and a light scrape scales DOWN', light.crimeScale < heavy.crimeScale && light.crimeScale > 0,
+    `${light.crimeScale.toFixed(3)} < ${heavy.crimeScale.toFixed(3)}`);
+
+  // Monotonic, and it has to actually move: a constant would pass a >0 test at every speed.
+  let mono = true, seen = new Set();
+  let prev = -1;
+  for (const k of [10, 15, 20, 25, 30, 40, 50, 60]) {
+    const m = new DamageModel();
+    const r = m.impact({ dv: kmh(k) * 1.15, kind: IMPACT.wall, dirX: 0, dirZ: 1, speed: kmh(k) });
+    if (r.crimeScale < prev - 1e-12) mono = false;
+    prev = r.crimeScale;
+    seen.add(r.crimeScale.toFixed(4));
+  }
+  check('the scale rises with speed and is not a constant', mono && seen.size >= 6,
+    `${seen.size} distinct values over 8 speeds, monotonic ${mono}`);
+
+  // No crime, no scale: a caller that passes it blindly must not invent heat out of a graze.
+  const m = new DamageModel();
+  const graze = m.impact({ dv: kmh(3), kind: IMPACT.wall, dirX: 0, dirZ: 1, speed: kmh(3) });
+  check('a contact below the free threshold carries no crime and no scale',
+    graze.crime === null && graze.crimeScale === 0, `${graze.crime} / ${graze.crimeScale}`);
+
+  /**
+   * THE BOUNDARY THE TWO PREDICATES DISAGREED ON. `_crimeFor` read `dv < freeDv` and
+   * `severityFor` reads `!(a > freeDv)`, so at exactly `dv === freeDv` a crime was filed with a
+   * severity of 0 — an offence that charged no heat, burned its refractory and reported itself
+   * applied. Both now use the same test, and this is the arm that would fail if either moved.
+   */
+  const at = new DamageModel();
+  const edge = at.impact({ dv: at.freeDv, kind: IMPACT.wall, dirX: 0, dirZ: 1, speed: at.freeDv });
+  check('at exactly the free threshold there is no crime, matching severity 0',
+    edge.crime === null && edge.severity === 0, `crime ${edge.crime}, severity ${edge.severity}`);
+
+  // AND IT REACHES THE STARS. The scale is worth nothing if the ladder ignores it.
+  const wl = new WantedSystem(), wh = new WantedSystem();
+  wl.reportCrime('propertyDamage', { at: { x: 0, z: 0 }, scale: light.crimeScale });
+  wh.reportCrime('propertyDamage', { at: { x: 0, z: 0 }, scale: heavy.crimeScale });
+  console.log(`  one building hit:  20 km/h -> ${wl.stars}* (heat ${wl.heat.toFixed(2)})   ` +
+    `110 km/h -> ${wh.stars}* (heat ${wh.heat.toFixed(2)})`);
+  check('a write-off is worth stars where a scrape is not', wh.stars >= 2 && wl.stars === 0,
+    `${wl.stars}* vs ${wh.stars}*`);
+  // The known-bad: the shipped behaviour before the fix. Both arms scale 1 and both read 0.
+  const b1 = new WantedSystem(), b2 = new WantedSystem();
+  b1.reportCrime('propertyDamage', { at: { x: 0, z: 0 } });
+  b2.reportCrime('propertyDamage', { at: { x: 0, z: 0 } });
+  check('and the unscaled call this replaced cannot tell them apart',
+    b1.stars === b2.stars && b1.stars === 0 && Math.abs(b1.heat - b2.heat) < 1e-12,
+    `both ${b1.stars}* at heat ${b1.heat.toFixed(2)} — the defect this arm exists for`);
+
+  /**
+   * THE PEDESTRIAN RANGE WHERE THE SCALE IS INVISIBLE, asserted rather than left as a comment.
+   * `pedestrianHit` carries `min: 1` and `min` floors HEAT, so a scale under 1/1.15 = 0.870 comes
+   * back out as exactly 1.00 and the charge cannot move. That is deliberate — the escalation is
+   * the switch to `pedestrianKilled` at a published fatality speed, not a curve.
+   *
+   * THE FIRST VERSION OF THIS CHECK ASSERTED HEAT === 1 UP TO 76 km/h AND FAILED AT 75, which is
+   * CLAUDE.md's "a threshold that holds at one value" arriving in a check I had just written from
+   * five sample points. The floor stops dominating where `1.15 * risk(v)/risk(pedKillSpeed) = 1`,
+   * which is 73.8 km/h, not 76.7 — so between 73.8 and the switch the heat does creep (1.06 at
+   * 75) while the STARS stay at one throughout, because reaching two needs heat 2.00 and the
+   * scale caps at 1.00 where the crime changes. Stars across the whole non-fatal range is the
+   * invariant; the crossover is computed here rather than written down, so it moves with the
+   * curve instead of becoming a magic number.
+   */
+  const ref = pedFatalityRisk(d.pedKillSpeed);
+  const pedScale = (k) => pedFatalityRisk(kmh(k)) / ref;
+  const pedRows = [8, 20, 40, 60, 73, 75, 76.6].map((k) => {
+    const w = new WantedSystem();
+    w.reportCrime('pedestrianHit', { at: { x: 0, z: 0 }, scale: pedScale(k) });
+    return { k, sc: pedScale(k), stars: w.stars, heat: w.heat };
+  });
+  // Where the min stops dominating, found by bisection on the curve rather than asserted.
+  let lo = 0, hi = d.pedKillSpeed * 3.6;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (CRIME_TABLE.pedestrianHit.heat * pedScale(mid) > CRIME_TABLE.pedestrianHit.min) hi = mid;
+    else lo = mid;
+  }
+  console.log('  pedestrian below the kill speed: ' +
+    pedRows.map((r) => `${r.k}km/h ${r.stars}* ${r.heat.toFixed(2)}`).join('  '));
+  console.log(`  the min:1 floor stops dominating at ${hi.toFixed(1)} km/h ` +
+    `(scale ${pedScale(hi).toFixed(3)} against 1/${CRIME_TABLE.pedestrianHit.heat} = ` +
+    `${(CRIME_TABLE.pedestrianHit.min / CRIME_TABLE.pedestrianHit.heat).toFixed(3)})`);
+  check('every non-fatal pedestrian hit is exactly one star, whatever the scale',
+    pedRows.every((r) => r.stars === 1),
+    pedRows.map((r) => `${r.k}:${r.stars}*`).join(' '));
+  check('and the heat floor holds flat below the crossover it derives',
+    pedRows.filter((r) => r.k < hi - 0.5).every((r) => Math.abs(r.heat - 1) < 1e-12)
+      && pedRows.some((r) => r.k > hi + 0.5 && r.heat > 1),
+    `crossover ${hi.toFixed(1)} km/h, ` + pedRows.map((r) => `${r.k}:${r.heat.toFixed(2)}`).join(' '));
+  check('and the two pedestrian crimes join at 1.00 where the classification switches',
+    Math.abs(pedFatalityRisk(d.pedKillSpeed) / ref - 1) < 1e-12,
+    `scale at pedKillSpeed = ${(pedFatalityRisk(d.pedKillSpeed) / ref).toFixed(6)}`);
+  const wk = new WantedSystem();
+  const fast = kmh(110);
+  wk.reportCrime('pedestrianKilled', { at: { x: 0, z: 0 }, scale: pedFatalityRisk(fast) / ref });
+  console.log(`  and above it: 110 km/h -> ${wk.stars}* (heat ${wk.heat.toFixed(2)})`);
+  check('above the kill speed the pedestrian charge does graduate', wk.stars > 2,
+    `${wk.stars}* at heat ${wk.heat.toFixed(2)} against 2* unscaled`);
+
+  /**
+   * HOW MANY CRIMES NOTHING NAMES. Ten of sixteen are named by no module in the game, because the
+   * systems that would file them do not exist: weapons (brandish, discharge), theft
+   * (vehicleTheft), police on foot (assault, officerAssault, officerDown), restricted zones
+   * (restrictedArea), and the pursuit layer's own (evading, hitAndRun) and reckless driving, which
+   * has no speed limit to break. That is a priced refusal, not an oversight, and the number is
+   * pinned here so adding a crime without a reporter is visible in the diff.
+   */
+  const named = ['propertyDamage', 'civilianCollision', 'pedestrianHit', 'pedestrianKilled',
+    'policeProperty', 'roadblockRun'];
+  const orphans = Object.keys(CRIME_TABLE).filter((k) => !named.includes(k));
+  console.log(`  crimes nothing files: ${orphans.length} of ${Object.keys(CRIME_TABLE).length} — ${orphans.join(', ')}`);
+  check('the unreported-crime list is exactly the one that has been priced',
+    orphans.length === 10, `${orphans.length}: ${orphans.join(', ')}`);
+  check('and every crime the damage model names is in the reported set',
+    ['propertyDamage', 'civilianCollision', 'pedestrianHit', 'pedestrianKilled', 'policeProperty',
+      'roadblockRun'].every((k) => k in CRIME_TABLE), 'all six exist in CRIMES');
+}
 
 // ---------------------------------------------------------------------------
 console.log('\n' + '='.repeat(78));
