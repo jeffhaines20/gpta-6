@@ -958,6 +958,8 @@ export class HUD {
       px: 0, pz: 0, heading: 0,
       wanted: 0, wantedFlash: false,
       health: 1, armour: 0,
+      // Which way a bent corner drags, -1..1. See the pull indicator in _drawVitals.
+      steerPull: 0,
       weapon: null, prompt: null, objective: null, subtitle: null,
       location: '', district: '',
       markers: null, waypoint: null, route: null,
@@ -966,7 +968,7 @@ export class HUD {
     };
     // Smoothed mirror of the state. Needles and bars must not step.
     this.disp = { speed: 0, rpm: 0.11, health: 1, armour: 0, heading: 0,
-      px: 0, pz: 0, damage: 0, vignette: 0, slip: 0 };
+      px: 0, pz: 0, damage: 0, vignette: 0, slip: 0, steerPull: 0 };
 
     this._hit = 0;
     this._wantedPrev = 0;
@@ -1155,7 +1157,9 @@ export class HUD {
     // DISPLAY value, so flagging on the change alone drew one frame of the old
     // value and then stopped: a hit for 14% of health left the bar reading the
     // pre-hit number forever. Stay dirty until the animation has actually landed.
-    if (Math.abs(d.health - s.health) > 0.0015 || Math.abs(d.armour - s.armour) > 0.0015) {
+    d.steerPull = damp(d.steerPull, clamp(s.steerPull, -1, 1), 10, dt);
+    if (Math.abs(d.health - s.health) > 0.0015 || Math.abs(d.armour - s.armour) > 0.0015
+      || Math.abs(d.steerPull - s.steerPull) > 0.0015) {
       this._dirty.vitals = true;
     }
     d.px = s.px; d.pz = s.pz;
@@ -1212,6 +1216,8 @@ export class HUD {
     // 7 km/h. `speed` is kept as the fallback for a host that has no such getter.
     s.speed = v.roadSpeed ?? v.speed ?? 0;
     s.forwardSpeed = v.forwardSpeed ?? 0;
+    // How hard a bent corner is dragging, and which way. Drawn in _drawVitals.
+    s.steerPull = v.steerPull ?? 0;
     let slip = 0;
     if (v.wheels) for (const w of v.wheels) slip = Math.max(slip, w.slip || 0);
     s.slip = slip;
@@ -1388,6 +1394,7 @@ export class HUD {
     const hpColour = hp > 0.34 ? THEME.health : hp > 0.16 ? THEME.healthLow : THEME.healthCrit;
     this._bar(ctx, 0, 2, L.w, 7, hp, hpColour);
     this._bar(ctx, 0, 13, L.w, 5, d.armour, THEME.armour);
+    this._pullCue(ctx, L, d.steerPull);
 
     const s = this.state;
     ctx.textBaseline = 'alphabetic';
@@ -1411,6 +1418,39 @@ export class HUD {
 
   // Segmented, because a segmented bar is readable at a glance without being read:
   // "four notches left" lands faster than a bar length does.
+  /**
+   * WHICH WAY THE CAR IS DRAGGING, AND HOW HARD. A playtester reported the damage steer pull as
+   * violent and, separately, that nothing on screen says it is happening or which way to hold.
+   * Measured hands-off with a pull at its 0.25 cap, over four seconds: the car turns 46 degrees at
+   * 30 km/h and 98 at 100, drifting 14.5 m and 52.9 m off line. A player who has just been hit has
+   * no way to know whether the car is broken or they are.
+   *
+   * It is correctable — full opposite lock overshoots at every speed — so what was missing was the
+   * information, not the authority. A marker offset from a centre tick reads as "hold this much the
+   * other way", which is the actual instruction; a number would not.
+   *
+   * Nothing is drawn below a 2% pull, so an undamaged car has no extra chrome and this costs one
+   * comparison. Amber past a third of the cap, red past two thirds, matching the health bar's
+   * convention so peripheral vision alone reports it.
+   */
+  _pullCue(ctx, L, pull) {
+    const mag = Math.abs(pull);
+    if (!(mag > 0.02)) return;
+    const y = 20.5, h = 3.5, cx = L.w / 2;
+    // The track, dim, so the centre tick is readable as "straight".
+    ctx.fillStyle = 'rgba(2,5,9,0.55)';
+    ctx.fillRect(0, y, L.w, h);
+    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    ctx.fillRect(cx - 0.5, y, 1, h);
+    // Against the 0.25 cap, so a pull at the cap fills the arm. See src/damage.js's steerPull.
+    const frac = Math.min(1, mag / 0.25);
+    const arm = (L.w / 2 - 1) * frac;
+    ctx.fillStyle = frac > 0.66 ? THEME.healthCrit : frac > 0.33 ? THEME.healthLow : THEME.health;
+    // Drawn on the side the car pulls TOWARDS, which is the side the player steers away from.
+    if (pull >= 0) ctx.fillRect(cx + 0.5, y, arm, h);
+    else ctx.fillRect(cx - 0.5 - arm, y, arm, h);
+  }
+
   _bar(ctx, x, y, w, h, v, colour) {
     const r = h / 2;
     roundRect(ctx, x, y, w, h, r);

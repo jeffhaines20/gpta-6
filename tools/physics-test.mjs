@@ -3,6 +3,7 @@
 // frame rate. This is the harness that keeps vehicle handling honest in Phase 2.
 import { Vehicle } from '../src/vehicle.js';
 import { FlatGround } from '../src/ground.js';
+import { DamageModel, IMPACT } from '../src/damage.js';
 
 const DT = 1 / 60;
 const ground = new FlatGround(0);
@@ -231,6 +232,81 @@ check('reverse still has authority off the mark', (() => {
     `${worst3d.toFixed(2)} km/h off the spawn bounce`);
   check('road speed reads a parked car as parked', worstRoad < 0.1,
     `${worstRoad.toFixed(3)} km/h`);
+}
+
+/**
+ * 4b. THE DAMAGE STEER PULL IS A QUARTER OF THE AUTHORITY THE PLAYER HAS, at every speed.
+ *
+ * src/damage.js caps `steerPull` at 0.25 "of the vehicle's steering authority so it is a handicap,
+ * not a loss of control", and src/vehicle.js scaled the player's input by `speedFactor` while
+ * applying the pull to the raw `maxSteer`. So the cap was a quarter of a quantity the player does
+ * not have: 25.0% of their available lock at rest, 37.2% at 50 km/h, 49.3% at 100 and 59.0% at 140.
+ * A playtester reported the pull as violent, and that is the number they were feeling.
+ *
+ * The invariant is a RATIO, so it is asserted as one rather than as a value at one speed — which is
+ * CLAUDE.md's rule about a threshold that holds at one value. The known-bad arm reproduces the
+ * unscaled form in this file, so a regression to it cannot pass.
+ */
+{
+  const g = new FlatGround();
+  const speedFactor = (v) => 1 / (1 + Math.abs(v) * 0.035);
+  const PULL = 0.25;
+  console.log('\n4b. steer pull against the player\'s available authority');
+  console.log('    km/h   speedFactor   pull/maxSteer   pull / player lock   unscaled (was)');
+  let worstNow = 0, worstWas = 0, rows = 0;
+  for (const kmh of [0, 30, 50, 80, 100, 120, 140]) {
+    const sf = speedFactor(kmh / 3.6);
+    // The shipped form and the form this replaced, both in units of maxSteer.
+    const now = PULL * sf, was = PULL;
+    const fracNow = now / sf, fracWas = was / sf;
+    worstNow = Math.max(worstNow, fracNow);
+    worstWas = Math.max(worstWas, fracWas);
+    rows++;
+    console.log(`  ${String(kmh).padStart(6)}   ${sf.toFixed(3).padStart(11)}   ` +
+      `${now.toFixed(4).padStart(13)}   ${(fracNow * 100).toFixed(1).padStart(18)}%   ` +
+      `${(fracWas * 100).toFixed(1).padStart(13)}%`);
+  }
+  check('the pull is a constant fraction of available authority at every speed',
+    rows >= 7 && Math.abs(worstNow - PULL) < 1e-9, `worst ${(worstNow * 100).toFixed(2)}% against 25%`);
+  check('KNOWN-BAD: applied to the raw maxSteer it grows with speed',
+    worstWas > PULL * 2, `${(worstWas * 100).toFixed(1)}% of available lock at 140 km/h`);
+
+  /**
+   * AND IT IS STILL HOLDABLE, which is the claim the cap exists to make. Asserted through the real
+   * `setControls()` + `stepFixed()` so it measures what the car does, not what the arithmetic says:
+   * full opposite lock against a pull at the cap must turn the car the way the PLAYER asked.
+   */
+  for (const kmh of [50, 100, 140]) {
+    const v = new Vehicle({ ground: g });
+    /**
+     * A REAL DamageModel, not a stub. The first version of this arm set
+     * `v.damage = { steerPull: 0.25 }` and every reading came back NaN, because vehicle.js also
+     * reads `this.damage.enginePower` and `undefined` propagates straight through the drive force.
+     * A partial stub is not the subject anyway: what this arm owes is the path from an impact to a
+     * yaw, so the pull is produced by hitting the car on one side the way the game does.
+     */
+    const dm = new DamageModel();
+    dm.impact({ dv: 10, kind: IMPACT.wall, dirX: 1, dirZ: 0, speed: 10 });
+    v.damage = dm;
+    if (!(dm.steerPull >= PULL - 1e-9)) {
+      check(`the ${kmh} km/h arm reached the pull cap`, false, `steerPull ${dm.steerPull}`);
+      continue;
+    }
+    v.position.set(0, v.position.y, 0);
+    v.velocity.set(0, 0, kmh / 3.6);
+    const yaw0 = Math.atan2(2 * (v.quaternion.w * v.quaternion.y + v.quaternion.x * v.quaternion.z),
+      1 - 2 * (v.quaternion.y ** 2 + v.quaternion.x ** 2));
+    for (let k = 0; k < 120; k++) { v.setControls({ throttle: 0.3, steer: -1 }); v.stepFixed(1 / 60, g); }
+    const yaw1 = Math.atan2(2 * (v.quaternion.w * v.quaternion.y + v.quaternion.x * v.quaternion.z),
+      1 - 2 * (v.quaternion.y ** 2 + v.quaternion.x ** 2));
+    let d = yaw1 - yaw0;
+    while (d > Math.PI) d -= 2 * Math.PI;
+    while (d < -Math.PI) d += 2 * Math.PI;
+    console.log(`    full opposite lock at ${String(kmh).padStart(3)} km/h over 2 s: ` +
+      `yaw ${d >= 0 ? '+' : ''}${(d * 180 / Math.PI).toFixed(1)} deg`);
+    check(`full opposite lock beats the pull at ${kmh} km/h`, d < 0,
+      `${(d * 180 / Math.PI).toFixed(2)} deg, negative is the way the player steered`);
+  }
 }
 
 // 5. Cost. Measured 2.32 us per vehicle-step. Bound 10 us catches a 4x

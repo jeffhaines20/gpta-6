@@ -186,11 +186,34 @@ export class Vehicle {
     this.brake = THREE.MathUtils.clamp(brake, 0, 1);
     // Steering authority falls off with speed so the car is not twitchy at 120 km/h.
     const speedFactor = 1 / (1 + Math.abs(this.forwardSpeed) * 0.035);
-    // A bent corner drags. src/damage.js caps this at a quarter of the steering
-    // authority, so it is a handicap the player can hold against, not a loss of
-    // control; with no damage model attached it is exactly zero and this line is a
-    // `+ 0`, which is what keeps tools/golden-trace.mjs bit-identical.
-    const target = steer * this.maxSteer * speedFactor + this.steerPull * this.maxSteer;
+    /**
+     * A bent corner drags, and `src/damage.js` caps that at a quarter of the steering authority so
+     * it is a handicap the player can hold against rather than a loss of control.
+     *
+     * IT WAS A QUARTER OF THE WRONG QUANTITY. The player's input is scaled by `speedFactor` and
+     * the pull was not, so the cap was a quarter of the RAW `maxSteer` while the authority the
+     * player actually commands shrinks with speed. As a fraction of what is available to hold it
+     * with:
+     *
+     *       km/h   speedFactor   player's full lock   pull at the cap   pull / player
+     *          0         1.000                1.000             0.250           25.0%
+     *         50         0.673                0.673             0.250           37.2%
+     *        100         0.507                0.507             0.250           49.3%
+     *        140         0.424                0.424             0.250           59.0%
+     *
+     * A playtester called it violent and that is what they were feeling: at 140 km/h it is 2.4
+     * times the handicap the derivation claims, and going straight costs 59% of the wheel.
+     *
+     * The comment's other claim does survive, and it is worth writing down because it bounds how
+     * bad this was: full opposite lock nets -0.423 of maxSteer at 50 km/h, -0.257 at 100 and
+     * -0.174 at 140, so the pull was always holdable. It was a bigger handicap than stated, not a
+     * loss of control. One 10 m/s one-sided impact is enough to reach the cap.
+     *
+     * Scaling the pull by the same `speedFactor` makes the cap mean what it says at every speed.
+     * With no damage model attached `steerPull` is exactly zero, so this whole term is a `+ 0` and
+     * tools/golden-trace.mjs stays bit-identical.
+     */
+    const target = (steer * this.maxSteer + this.steerPull * this.maxSteer) * speedFactor;
     this._steerTarget = target;
     this.handbrake = handbrake;
   }

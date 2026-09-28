@@ -834,8 +834,20 @@ turn beside them.
 `check-syntax`, `geom-audit`, `golden-trace`, `physics-test`, `daynight-sweep`,
 `budget` (`drive-through --traffic`), `leaf-mask`, `wanted-test`, `mission-test`,
 `damage-test`, `blocker-test`, `crash-test`, `roadpath-test`, `route-drive`,
-`reaction-test`, `sim-determinism`, `traffic-selftest`, `playtest --selftest`.
-The offline ones together take under a minute. `boot-check` needs a browser and
+`reaction-test`, `sim-determinism`, `traffic-selftest`, `hud-cue`,
+`playtest --selftest`.
+The offline ones together take under a minute.
+
+`hud-cue` is the only gate that looks at what `src/hud.js` DRAWS. Everything else over
+that module tests pure functions — `composeBand`'s five tenants, the marker styles, the
+layout arithmetic — so a panel could stop drawing entirely and the whole list would stay
+green. It runs the real HUD against a recording 2D context and asserts the rectangles.
+Two things to know before writing another check in it: **the HUD dirty-flags its panels,
+so a settled value is not redrawn** — sampling one late frame reads an empty list however
+well the thing works, and the first version of that probe read zero at every input while
+the code was correct; and **the last pass drawn is up to `eps * exp(rate*dt)` short of the
+target**, because `update()` damps first and tests after, which is 0.82 px where the naive
+0.69 px bound fails. `boot-check` needs a browser and
 takes twenty seconds — run it whenever `district/` or `src/` changed, because it is
 the only gate that loads the game. `damage-live` takes about twelve minutes and
 `ped-audit` about fifteen. Run the ones your change can touch before claiming done.
