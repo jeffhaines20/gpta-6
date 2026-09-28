@@ -34,6 +34,7 @@
 import fs from 'node:fs';
 import * as THREE from '../vendor/three.module.min.js';
 import { Vehicle, BODY_SAMPLES, BODY_RADIUS, BODY_ENCLOSING } from '../src/vehicle.js';
+import { Player } from '../src/player.js';
 import { FlatGround } from '../src/ground.js';
 import { BlockerIndex, districtBounds, worldFence } from '../src/blockers.js';
 import { DamageModel, IMPACT, dynamicContact } from '../src/damage.js';
@@ -46,6 +47,26 @@ import { composeBand, MINIMAP_REACH_M } from '../src/hud.js';
 import { MISSIONS } from '../src/missions.js';
 
 const HZ = 120, DT = 1 / HZ;
+/** district/main.js's own reach and the side offset it steps out to. See `exit`/`enter`. */
+const ENTER_RANGE = 3.6, EXIT_SIDE_M = 1.9;
+/**
+ * SRC/PLAYER.JS AND EVERYTHING ELSE HERE DISAGREE ABOUT THE SIGN OF X, and this is the one place
+ * that knows it. `moveAxis` returns y = +1 for W, and player.js maps that to a wish of
+ * `(-sin(cameraYaw), cos(cameraYaw))` — mirrored in x against the convention `placeAt`, `_yaw()`
+ * and the vehicle all use, where forward at yaw t is `(sin t, cos t)`.
+ *
+ * Feeding a vehicle-convention yaw straight in as `cameraYaw` therefore points the view at the
+ * mirror image of where it was asked to look. Measured: stepping out of a car at yaw 0 put the
+ * person 1.9 m to its left with the view set to -pi/2, and walking forward took them back INTO the
+ * car — 0.32 m in 4 s against a 3.2 m/s walk speed, because the car collider stopped them. Walking
+ * "at" the car from 6 m out ended 20.89 m away.
+ *
+ * `camYawFor(t)` converts a world heading in this harness's convention into player.js's, so the
+ * whole API keeps ONE convention and the mirror lives here.
+ */
+const camYawFor = (t) => Math.atan2(-Math.sin(t), Math.cos(t));
+/** The world direction a given cameraYaw looks along, in player.js's own convention. */
+const camFwd = (c) => ({ x: -Math.sin(c), z: Math.cos(c) });
 const OTHER_CAR = { bodyRadius: 0.95, bodyMass: 1400 };
 const PERSON = { bodyRadius: 0.35, bodyMass: 80 };
 /** One victim, one offence, within this window. district/main.js's own figure and reason. */
@@ -89,6 +110,50 @@ export class Session {
     this.vehicle.blockers = this.blockers;
     this.vehicle.damage = this.damage;
     this.ground = new FlatGround(0);
+    /**
+     * ON FOOT. Three authored stage transitions could never fire from this harness, because
+     * `_snapshot()` reported `inVehicle: true` unconditionally: `marlin-street`'s
+     * `eastbound -> backToCar` and `backToCar -> eastbound`, and `shakedown`'s `b -> a`. Both
+     * playtesters reported on the driving and neither could get out of the car.
+     *
+     * src/player.js is used AS IT IS rather than paraphrased. It is pure — Vector3 arithmetic, no
+     * scene, no GL — and it takes exactly what this harness already holds: a ground, the blocker
+     * index, and the car as a moving obstacle. The one thing it needs that does not exist here is
+     * an `input`, so `walk()` fills a stub with the same two methods district/main.js's real input
+     * exposes to it. CLAUDE.md's `_contacts` lesson is why: a paraphrase of the game measures
+     * something else, and this file has already made that mistake once.
+     */
+    this.mode = 'car';
+    this.player = new Player();
+    /**
+     * THE CAMERA'S YAW, WHICH IS NOT THE PLAYER'S. src/player.js's movement is camera-relative and
+     * it turns the body to face whatever the axis asked for, so feeding the player's OWN live yaw
+     * back in as the camera makes the frame rotate with them: `walk({ forward: -1 })` then turns
+     * them round and walks them forward again, and a scenario trying to retreat goes the wrong way.
+     * Measured on the first version: 4 s out from the car reached 12.7 m, and 10 s of
+     * `forward: -1` took that to 36.0 m instead of back to 0.
+     *
+     * district/main.js passes `chase.yaw`, a camera that does not spin with the body, so the
+     * harness keeps its own and only `walk({ turn })` moves it. `forward: 1` is then "the way the
+     * view faces" and `forward: -1` is "back away", which is what both mean in the game.
+     */
+    this._camYaw = 0;
+    /** The car as an obstacle to a person on foot — district/main.js's own `carCollider`. */
+    this._carCollider = { x: 0, z: 0, y: 0, hx: 1.25, hy: 1.5, hz: 2.4 };
+    /**
+     * The three methods src/player.js reads off an input, and no more — enumerated from the module
+     * (`grep -o "input\.[a-zA-Z]*"`) rather than guessed, because the first version omitted `hit`
+     * and threw `input.hit is not a function` on the first on-foot frame. `jump` is a one-shot, so
+     * `hit` consumes it the way a real edge-triggered key does.
+     */
+    this._footInput = { _ax: 0, _ay: 0, _run: false, _jump: false,
+      moveAxis() { return { x: this._ax, y: this._ay }; },
+      down(k) { return this._run && (k === 'ShiftLeft' || k === 'ShiftRight'); },
+      hit(k) {
+        if (k !== 'Space' || !this._jump) return false;
+        this._jump = false;                       // consumed, like a key edge
+        return true;
+      } };
     this.wanted = new WantedSystem();
     /**
      * EVERY CRIME REACHES THE TRANSCRIPT, including the ones this harness does not file itself.
@@ -175,6 +240,14 @@ export class Session {
     this.vehicle.position.set(x, 0.55, z);
     this.vehicle.velocity.set(0, 0, 0);
     this.vehicle.quaternion.setFromAxisAngle({ x: 0, y: 1, z: 0 }, yaw);
+    // ON FOOT, MOVE THE PERSON TOO, or a teleport leaves them standing in the street they came
+    // from while every reader that follows the active body reports the old position.
+    if (this.mode === 'foot') {
+      this.player.position.set(x + EXIT_SIDE_M, this.player.position.y, z);
+      this.player.velocity.set(0, 0, 0);
+      this.player.yaw = yaw;
+      this._camYaw = camYawFor(yaw);
+    }
     this._lastPos = { x, z };
     return this;
   }
@@ -201,6 +274,86 @@ export class Session {
     return this;
   }
 
+  /**
+   * STEP OUT. district/main.js's `toggleVehicle` rules, with its numbers: the player appears
+   * `EXIT_SIDE_M` to the car's left, facing that way, at rest.
+   *
+   * There is no enter/exit animation lock here and that is a deliberate difference, stated rather
+   * than hidden: main.js holds an `ENTER_TIME` transition through its state machine, which exists
+   * for the camera and the pose. A harness that reproduced the lock would be testing the FSM, and
+   * what these three stage transitions need is the `inVehicle` flag flipping.
+   */
+  exit() {
+    if (this.mode === 'foot') return false;
+    const yaw = this._yaw();
+    // The car's own left, which is what main.js takes: (-1,0,0) through the body quaternion.
+    const sx = -Math.cos(yaw), sz = Math.sin(yaw);
+    this.player.position.set(
+      this.vehicle.position.x + sx * EXIT_SIDE_M, 0,
+      this.vehicle.position.z + sz * EXIT_SIDE_M);
+    this.player.position.y = this.ground.heightAt
+      ? this.ground.heightAt(this.player.position.x, this.player.position.z) : 0;
+    this.player.velocity.set(0, 0, 0);
+    this.player.yaw = Math.atan2(sx, sz);
+    // The VIEW looks the way they stepped, in player.js's convention. See camYawFor.
+    this._camYaw = camYawFor(this.player.yaw);
+    this.mode = 'foot';
+    this._footInput._ax = 0; this._footInput._ay = 0; this._footInput._run = false;
+    this.say(`OUT     stepped out at (${this.player.position.x.toFixed(0)}, ` +
+      `${this.player.position.z.toFixed(0)})`);
+    return true;
+  }
+
+  /** Get back in, if close enough. main.js's `ENTER_RANGE`. */
+  enter() {
+    if (this.mode === 'car') return false;
+    const d = Math.hypot(this.player.position.x - this.vehicle.position.x,
+      this.player.position.z - this.vehicle.position.z);
+    if (d > ENTER_RANGE) return false;
+    this.mode = 'car';
+    this._footInput._ax = 0; this._footInput._ay = 0; this._footInput._run = false;
+    this.say(`IN      back in the car (${d.toFixed(1)} m away)`);
+    return true;
+  }
+
+  /** How far the car is, for a scenario deciding whether `enter()` will work. */
+  get carRange() {
+    return this.mode === 'car' ? 0
+      : Math.hypot(this.player.position.x - this.vehicle.position.x,
+        this.player.position.z - this.vehicle.position.z);
+  }
+
+  /**
+   * WALK. The on-foot analogue of `drive()`, and the same refusal: a non-finite axis is a
+   * scenario bug, not a world to report on.
+   *
+   * `forward`/`right` are the move axis src/player.js reads, in ITS convention — movement is
+   * camera-relative there, and the harness has no camera, so the player's own yaw is the frame.
+   * That makes `forward: 1` mean "the way they are facing", which is what a scenario wants.
+   */
+  walk({ forward = 0, right = 0, run = false, turn = null, jump = false } = {}) {
+    for (const [k, n] of [['forward', forward], ['right', right]]) {
+      if (!Number.isFinite(n)) throw new Error(`walk(): ${k} is ${n}. A control input has to be ` +
+        `a finite number.`);
+    }
+    if (turn !== null) {
+      if (!Number.isFinite(turn)) throw new Error(`walk(): turn is ${turn}.`);
+      // The VIEW turns, and `turn` is a world heading in THIS harness's convention — the same one
+      // `placeAt` takes — converted for player.js. The body then follows whatever the axis asks
+      // for in that frame, which is how the game behaves; setting the body's yaw directly would be
+      // overwritten on the next step.
+      this._camYaw = camYawFor(turn);
+    }
+    this._footInput._ax = right;
+    this._footInput._ay = forward;
+    this._footInput._run = !!run;
+    if (jump) this._footInput._jump = true;
+    return this;
+  }
+
+  /** The body a player IS: the car when driving, the person when on foot. */
+  _pos() { return this.mode === 'foot' ? this.player.position : this.vehicle.position; }
+
   /** Advance the world. Seconds of GAME time, not of waiting. */
   step(seconds) {
     const n = Math.max(1, Math.round(seconds * HZ));
@@ -211,17 +364,44 @@ export class Session {
        * so it cannot strand anybody.
        */
       const yaw = this._yaw();
+      /**
+       * THE FENCE FOLLOWS THE BODY THE PLAYER IS, which district/main.js learned the hard way:
+       * its `outsideWorld` went stale on foot and left a dead end reachable by pressing F. On
+       * foot the refusal is applied to the WALK axis rather than the throttle, because that is
+       * the control that would take a person further out.
+       */
+      const ap = this._pos();
+      if (this.mode === 'foot') {
+        const pv = this.player.velocity;
+        const pf = camFwd(this._camYaw);
+        const f = worldFence(this.worldBox, ap.x, ap.z, pf.x, pf.z, pv.x, pv.z,
+          { throttle: this._footInput._ay, brake: 0, steer: 0, handbrake: false });
+        this.outsideWorld = f.out;
+        this._footInput._ay = f.controls.throttle;
+      }
       const fenced = worldFence(this.worldBox, this.vehicle.position.x, this.vehicle.position.z,
         Math.sin(yaw), Math.cos(yaw), this.vehicle.velocity.x, this.vehicle.velocity.z,
         this._controls);
-      this.outsideWorld = fenced.out;
-      this.vehicle.setControls(fenced.controls);
+      if (this.mode === 'car') this.outsideWorld = fenced.out;
+      // The car is stepped either way: it is still in the world, parked, while you walk about.
+      this.vehicle.setControls(this.mode === 'foot'
+        ? { throttle: 0, brake: 1, steer: 0, handbrake: true } : fenced.controls);
       this.vehicle.stepFixed(DT, this.ground, HZ);
+      if (this.mode === 'foot') {
+        // The car as a moving obstacle, exactly as main.js hands it over.
+        this._carCollider.x = this.vehicle.position.x;
+        this._carCollider.z = this.vehicle.position.z;
+        this.player.update(DT, this._footInput, this._camYaw, this.ground,
+          [this._carCollider], this.blockers);
+      }
       this.damage.update(DT);
-      this.wanted.update(DT, { x: this.vehicle.position.x, z: this.vehicle.position.z });
-      this.traffic.update(DT, this.vehicle.position, this.vehicle.velocity,
+      this.wanted.update(DT, { x: ap.x, z: ap.z });
+      // The CAR is what traffic has to avoid, on foot as much as in it — main.js passes the
+      // vehicle unconditionally for the same reason.
+      this.traffic.update(DT, this.vehicle.position, this.mode === 'car' ? this.vehicle.velocity : null,
         { x: Math.sin(this._yaw()), z: Math.cos(this._yaw()) });
-      this.peds.update(DT, this.vehicle.position);
+      // And the crowd follows the CAMERA, which is whatever the player is.
+      this.peds.update(DT, ap);
       this._moving();
       this._contacts();
       this._wreckWatch(DT);
@@ -266,8 +446,9 @@ export class Session {
    * standing in it.
    */
   _offers() {
-    this.board.refresh(this.vehicle.position.x, this.vehicle.position.z);
-    const hot = this.board.offerAt(this.vehicle.position.x, this.vehicle.position.z);
+    const ap = this._pos();
+    this.board.refresh(ap.x, ap.z);
+    const hot = this.board.offerAt(ap.x, ap.z);
     if (hot) {
       this.board.starts++;
       this._outcome = OUTCOMES.RUNNING;
@@ -277,7 +458,7 @@ export class Session {
       this._offer = null;
       return;
     }
-    const seen = this.board.offerAt(this.vehicle.position.x, this.vehicle.position.z, 'notice');
+    const seen = this.board.offerAt(ap.x, ap.z, 'notice');
     this._offer = seen
       ? { id: seen.mission.id, title: seen.mission.title, brief: seen.mission.brief,
         range: seen.distance, x: seen.mission.start.x, z: seen.mission.start.z }
@@ -285,16 +466,22 @@ export class Session {
   }
 
   _snapshot() {
-    return { px: this.vehicle.position.x, pz: this.vehicle.position.z, inVehicle: true,
-      speed: this.vehicle.speed, health: this.damage.health,
+    const ap = this._pos();
+    // `inVehicle` WAS HARDCODED TRUE, which is what made three authored stage transitions
+    // unreachable from this harness. On foot the speed reported is the person's.
+    return { px: ap.x, pz: ap.z, inVehicle: this.mode === 'car',
+      speed: this.mode === 'foot' ? Math.hypot(this.player.velocity.x, this.player.velocity.z)
+        : this.vehicle.speed,
+      health: this.damage.health,
       wantedStars: this.wanted.stars, wantedState: this.wanted.state };
   }
 
   _moving() {
-    const d = Math.hypot(this.vehicle.position.x - this._lastPos.x,
-      this.vehicle.position.z - this._lastPos.z);
+    // The body the player IS, so a walk adds to the odometer instead of reading zero.
+    const ap = this._pos();
+    const d = Math.hypot(ap.x - this._lastPos.x, ap.z - this._lastPos.z);
     this.stats.distance += d;
-    this._lastPos = { x: this.vehicle.position.x, z: this.vehicle.position.z };
+    this._lastPos = { x: ap.x, z: ap.z };
     const kmh = this.vehicle.speed * 3.6;
     if (kmh > this.stats.topSpeed) this.stats.topSpeed = +kmh.toFixed(1);
     if (this.vehicle.pendingImpact) {
@@ -397,7 +584,7 @@ export class Session {
     // must not count this one twice.
     this._lastFiled = name;
     const r = this.wanted.reportCrime(name,
-      { at: { x: this.vehicle.position.x, z: this.vehicle.position.z }, scale });
+      { at: { x: this._pos().x, z: this._pos().z }, scale });
     this._lastFiled = null;
     if (!r.applied) return;
     this.stats.crimes++;
@@ -572,13 +759,13 @@ export class Session {
       // The same idle target look() points at: the nearest job on the board.
       let best = Infinity;
       for (const k of this.board.markers()) {
-        const d = Math.hypot(k.x - this.vehicle.position.x, k.z - this.vehicle.position.z);
+        const d = Math.hypot(k.x - this._pos().x, k.z - this._pos().z);
         if (d < best) { best = d; wp = k; }
       }
     }
     if (!wp) { this._route = null; return null; }
     // The same call district/main.js's routeToMarker makes, with the same spacing.
-    const p = this.roads.path(this.vehicle.position.x, this.vehicle.position.z, wp.x, wp.z,
+    const p = this.roads.path(this._pos().x, this._pos().z, wp.x, wp.z,
       { spacing: 8, offset: ROUTE_LANE_M, smoothPasses: 1 });
     this._route = p && p.points ? p.points : null;
     return this._route;
@@ -592,8 +779,18 @@ export class Session {
    * should say so by calling debug().
    */
   look() {
-    const v = this.vehicle, yaw = this._yaw();
-    const fwd = { x: Math.sin(yaw), z: Math.cos(yaw) };
+    const v = this.vehicle;
+    /**
+     * THE EYE IS THE BODY THE PLAYER IS. On foot the bearings, the sight cone and the ranges all
+     * have to come from where the person is standing and which way they face, or a player who
+     * steps out is handed the parked car's view of the street.
+     */
+    const onFoot = this.mode === 'foot';
+    const eye = this._pos();
+    // On foot you look where the CAMERA looks; the body may be mid-turn. `camFwd` undoes the
+    // convention mirror so the cone points where the scenario aimed it.
+    const fwd = onFoot ? camFwd(this._camYaw)
+      : { x: Math.sin(this._yaw()), z: Math.cos(this._yaw()) };
     /**
      * A BEARING IS NOT PRIVILEGED INFORMATION, IT IS THE MINIMAP. `look()` gave the offer a range
      * and no direction, and a playtester steering by range alone — drive a leg, turn if it grew —
@@ -603,13 +800,13 @@ export class Session {
      * page draws every board marker within MINIMAP_REACH_M of them.
      */
     const bearingTo = (x, z) => {
-      const dx = x - v.position.x, dz = z - v.position.z, d = Math.hypot(dx, dz) || 1;
+      const dx = x - eye.x, dz = z - eye.z, d = Math.hypot(dx, dz) || 1;
       const dot = (dx * fwd.x + dz * fwd.z) / d;
       const cross = fwd.x * (dz / d) - fwd.z * (dx / d);
       return { range: +d.toFixed(0), bearing: +Math.atan2(cross, dot).toFixed(2) };
     };
     const ahead = (x, z) => {
-      const dx = x - v.position.x, dz = z - v.position.z;
+      const dx = x - eye.x, dz = z - eye.z;
       const d = Math.hypot(dx, dz);
       if (d > SIGHT_M || d < 0.01) return null;
       const dot = (dx * fwd.x + dz * fwd.z) / d;
@@ -642,14 +839,14 @@ export class Session {
     if (!hud) {
       let best = Infinity;
       for (const k of this.board.markers()) {
-        const d = Math.hypot(k.x - v.position.x, k.z - v.position.z);
+        const d = Math.hypot(k.x - eye.x, k.z - eye.z);
         if (d < best) { best = d; idle = k; }
       }
     }
     const wp = hud && hud.waypoint ? hud.waypoint : idle;
     let waypoint = null;
     if (wp) {
-      const dx = wp.x - v.position.x, dz = wp.z - v.position.z, d = Math.hypot(dx, dz);
+      const dx = wp.x - eye.x, dz = wp.z - eye.z, d = Math.hypot(dx, dz);
       const dot = (dx * fwd.x + dz * fwd.z) / (d || 1);
       const cross = fwd.x * (dz / (d || 1)) - fwd.z * (dx / (d || 1));
       waypoint = { range: +d.toFixed(0), bearing: +Math.atan2(cross, dot).toFixed(2) };
@@ -658,7 +855,16 @@ export class Session {
       t: +this.t.toFixed(1),
       // The dial reads ROAD speed, the same quantity src/hud.js shows. `vehicle.speed` is the
       // 3-D magnitude and reads 7 km/h on a parked car for the first second of a session.
-      speedKmh: +(v.roadSpeed * 3.6).toFixed(0),
+      speedKmh: onFoot
+        ? +(Math.hypot(this.player.velocity.x, this.player.velocity.z) * 3.6).toFixed(0)
+        : +(v.roadSpeed * 3.6).toFixed(0),
+      /**
+       * ON FOOT, and how far the car is. Both are on screen in the page — the mode is obvious from
+       * the camera and the car is a minimap blip — and a scenario cannot decide whether `enter()`
+       * will work without the range, since `ENTER_RANGE` is 3.6 m.
+       */
+      onFoot,
+      carRange: onFoot ? +this.carRange.toFixed(1) : null,
       // The HUD's own fields, and only those: health, the damage vignette, the star count.
       health: +this.damage.health.toFixed(3),
       smoke: +this.damage.smoke.toFixed(2),
@@ -698,9 +904,14 @@ export class Session {
   /** Everything the player cannot see. For diagnosing a session, never for steering it. */
   debug() {
     return {
-      at: { x: +this.vehicle.position.x.toFixed(1), z: +this.vehicle.position.z.toFixed(1) },
+      mode: this.mode,
+      at: { x: +this._pos().x.toFixed(1), z: +this._pos().z.toFixed(1) },
+      car: { x: +this.vehicle.position.x.toFixed(1), z: +this.vehicle.position.z.toFixed(1) },
+      onFoot: this.mode === 'foot'
+        ? { x: +this.player.position.x.toFixed(1), z: +this.player.position.z.toFixed(1),
+          carRange: +this.carRange.toFixed(1) } : null,
       yaw: +this._yaw().toFixed(2),
-      insideBuilding: this.blockers.insideAny(this.vehicle.position.x, this.vehicle.position.z) >= 0,
+      insideBuilding: this.blockers.insideAny(this._pos().x, this._pos().z) >= 0,
       worldBox: this.worldBox, outsideWorld: this.outsideWorld,
       contacts: this.vehicle.contacts,
       damage: this.damage.report(),
@@ -1303,6 +1514,133 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
    * which cost that reviewer 703 m over 76 legs in 241.7 s finding nothing that a bearing found
    * in 11.0 s.
    */
+  /**
+   * §5c ON FOOT. Three authored stage transitions were unreachable from this harness because
+   * `_snapshot()` reported `inVehicle: true` unconditionally: `marlin-street`'s
+   * `eastbound -> backToCar` and `backToCar -> eastbound`, and `shakedown`'s `b -> a`. Both
+   * playtesters reported at length on the driving and neither could get out of the car.
+   *
+   * These arms walk the whole cycle rather than asserting the flag, because the flag flipping is
+   * not the feature — getting out, walking somewhere, and getting back in is.
+   */
+  console.log('\n§5c out of the car, and back in');
+  {
+    const f = new Session({ traffic: 0, peds: 0 });
+    f.placeAt(19, -6, 0);
+    f.startMission('marlin-street');
+    f.step(0.5);
+    check('the mission is on a stage that watches for stepping out',
+      f.mission.report().stage === 'eastbound', f.mission.report().stage);
+    check('and the harness reports being in the car', f._snapshot().inVehicle === true,
+      `${f._snapshot().inVehicle}`);
+
+    const out = f.exit();
+    f.step(0.2);
+    console.log(`    stepped out ${f.carRange.toFixed(2)} m from the car, ` +
+      `look(): onFoot ${f.look().onFoot}, carRange ${f.look().carRange}, ` +
+      `"${f.look().objective}"`);
+    check('exit() puts a person beside the car', out && f.mode === 'foot'
+      && f.carRange > 1 && f.carRange < 3, `${f.carRange.toFixed(2)} m`);
+    check('the snapshot says so, which is what the stage watches',
+      f._snapshot().inVehicle === false, `${f._snapshot().inVehicle}`);
+    check('KNOWN-BAD: stepping out interrupts the job, it does not fail it',
+      f.mission.report().stage === 'backToCar' && f.mission.outcome === OUTCOMES.RUNNING,
+      `${f.mission.report().stage} / ${f.mission.outcome}`);
+    check('and look() reports being on foot, with the car\'s range',
+      f.look().onFoot === true && f.look().carRange > 1, `${f.look().carRange} m`);
+
+    /**
+     * THE WALK IS src/player.js's OWN, measured against its own constants. This is the arm that
+     * would have caught the convention bug: `moveAxis` maps W to a wish of
+     * `(-sin(cameraYaw), cos(cameraYaw))`, mirrored in x against the yaw convention the rest of
+     * this file uses, so feeding a heading straight through pointed the view at its mirror image.
+     * Measured before the fix: 0.32 m in 4 s against a 3.2 m/s walk speed, because the person
+     * walked back into the car they had just left.
+     */
+    const legs = [];
+    for (const [label, run] of [['walk', false], ['run', true]]) {
+      const g = new Session({ traffic: 0, peds: 0 });
+      g.placeAt(19, -6, 0);
+      g.step(0.2);
+      g.exit();
+      // Straight out along the car's own left, which is the way `exit` faced them.
+      const yaw = Math.atan2(g.player.position.x - g.vehicle.position.x,
+        g.player.position.z - g.vehicle.position.z);
+      const x0 = g.player.position.x, z0 = g.player.position.z;
+      g.walk({ forward: 1, run, turn: yaw });
+      for (let i = 0; i < 240; i++) g.step(1 / 60);
+      const d = Math.hypot(g.player.position.x - x0, g.player.position.z - z0);
+      legs.push({ label, d, v: d / 4, top: run ? g.player.runSpeed : g.player.walkSpeed });
+      console.log(`    ${label} 4 s: ${d.toFixed(2)} m = ${(d / 4).toFixed(2)} m/s ` +
+        `against a top of ${legs[legs.length - 1].top.toFixed(2)}`);
+    }
+    check('walking covers ground at close to src/player.js\'s own walk speed',
+      legs[0].v > legs[0].top * 0.9 && legs[0].v <= legs[0].top,
+      `${legs[0].v.toFixed(2)} m/s against ${legs[0].top}`);
+    check('and running is faster than walking', legs[1].v > legs[0].v * 1.3,
+      `${legs[1].v.toFixed(2)} against ${legs[0].v.toFixed(2)} m/s`);
+
+    // The car is an obstacle, not a ghost — main.js's own carCollider, same half-extents.
+    const h = new Session({ traffic: 0, peds: 0 });
+    h.placeAt(19, -6, 0);
+    h.step(0.2);
+    h.exit();
+    for (let i = 0; i < 360; i++) {
+      const dx = h.vehicle.position.x - h.player.position.x;
+      const dz = h.vehicle.position.z - h.player.position.z;
+      h.walk({ forward: 1, turn: Math.atan2(dx, dz) });
+      h.step(1 / 60);
+    }
+    console.log(`    6 s walking INTO the car: stopped ${h.carRange.toFixed(2)} m out`);
+    check('walking into the car is stopped by it', h.carRange > 1.2 && h.carRange < 2.6,
+      `${h.carRange.toFixed(2)} m, against a collider of hx 1.25 / hz 2.4`);
+
+    /**
+     * OUT OF REACH FIRST, THEN BACK IN — and the order matters. The first version of this asserted
+     * `enter()` was refused while the person was still standing 1.9 m from the car, which is INSIDE
+     * `ENTER_RANGE`: it returned true, put them back in the car, and a tangled ternary I had written
+     * around it passed anyway. Everything after it then measured a session that was driving, and
+     * the walk-distance arm read 3.8 m because nobody had walked. A check that cannot fail, written
+     * while fixing a round about checks that cannot fail.
+     *
+     * So: walk clear of the reach, assert the refusal there, then walk back and assert it works.
+     */
+    let away = 0;
+    const outYaw = Math.atan2(f.player.position.x - f.vehicle.position.x,
+      f.player.position.z - f.vehicle.position.z);
+    f.walk({ forward: 1, turn: outYaw });
+    while (f.carRange < ENTER_RANGE * 2 && away < 1200) { f.step(1 / 60); away++; }
+    console.log(`    walked out to ${f.carRange.toFixed(2)} m (reach is ${ENTER_RANGE} m)`);
+    check('walking gets clear of the car\'s reach', f.carRange > ENTER_RANGE,
+      `${f.carRange.toFixed(2)} m against ${ENTER_RANGE}`);
+    check('and enter() is refused from out there',
+      f.enter() === false && f.mode === 'foot', `${f.mode} at ${f.carRange.toFixed(2)} m`);
+    let steps = 0;
+    while (f.carRange > 2.5 && steps < 1200) {
+      const dx = f.vehicle.position.x - f.player.position.x;
+      const dz = f.vehicle.position.z - f.player.position.z;
+      f.walk({ forward: 1, turn: Math.atan2(dx, dz) });
+      f.step(1 / 60);
+      steps++;
+    }
+    const back = f.enter();
+    f.step(0.2);
+    console.log(`    walked back to ${f.carRange.toFixed(2)} m and got in: ${back}; ` +
+      `stage ${f.mission.report().stage}`);
+    check('getting back in resumes the job', back && f.mode === 'car'
+      && f.mission.report().stage === 'eastbound', f.mission.report().stage);
+    check('and the whole cycle visited all four stage entries',
+      f.mission.report().visited.join(' > ') === 'toCar > eastbound > backToCar > eastbound',
+      f.mission.report().visited.join(' > '));
+    check('the transcript names both transitions', f.log.some((l) => l.line.startsWith('OUT'))
+      && f.log.some((l) => l.line.startsWith('IN')),
+      f.log.filter((l) => /^(OUT|IN)/.test(l.line)).map((l) => l.line.slice(0, 3)).join(','));
+
+    // And a walk adds to the odometer, so "distance" is not the car's alone.
+    check('walking adds to the distance travelled', f.stats.distance > 10,
+      `${f.stats.distance.toFixed(1)} m including the walk`);
+  }
+
   console.log('\n§6  the objective band, and somewhere to go');
   const spawnLook = new Session({ traffic: 0, peds: 0 });
   spawnLook.step(0.2);
