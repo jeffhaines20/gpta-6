@@ -713,22 +713,30 @@ console.log('CRIME SCALE — how big an offence was, not just which offence');
     `${wk.stars}* at heat ${wk.heat.toFixed(2)} against 2* unscaled`);
 
   /**
-   * HOW MANY CRIMES NOTHING NAMES. Ten of sixteen are named by no module in the game, because the
-   * systems that would file them do not exist: weapons (brandish, discharge), theft
-   * (vehicleTheft), police on foot (assault, officerAssault, officerDown), restricted zones
-   * (restrictedArea), and the pursuit layer's own (evading, hitAndRun) and reckless driving, which
-   * has no speed limit to break. That is a priced refusal, not an oversight, and the number is
-   * pinned here so adding a crime without a reporter is visible in the diff.
+   * HOW MANY CRIMES NOTHING NAMES. It was ten of sixteen; `hitAndRun` has since been wired, because
+   * it was the only one of the ten whose every input already existed — see `_watchScene` in
+   * src/wanted.js and section 21 of wanted-test.
+   *
+   * The remaining nine are a priced refusal, not an oversight: the systems that would file them do
+   * not exist. Weapons (brandish, discharge), theft (vehicleTheft), police on foot (assault,
+   * officerAssault, officerDown), restricted zones (restrictedArea), the pursuit layer's own
+   * `evading`, and reckless driving, which has no speed limit to break. The count is pinned so
+   * adding a crime without a reporter is visible in the diff.
    */
   const named = ['propertyDamage', 'civilianCollision', 'pedestrianHit', 'pedestrianKilled',
-    'policeProperty', 'roadblockRun'];
+    'policeProperty', 'roadblockRun', 'hitAndRun'];
   const orphans = Object.keys(CRIME_TABLE).filter((k) => !named.includes(k));
   console.log(`  crimes nothing files: ${orphans.length} of ${Object.keys(CRIME_TABLE).length} — ${orphans.join(', ')}`);
   check('the unreported-crime list is exactly the one that has been priced',
-    orphans.length === 10, `${orphans.length}: ${orphans.join(', ')}`);
-  check('and every crime the damage model names is in the reported set',
-    ['propertyDamage', 'civilianCollision', 'pedestrianHit', 'pedestrianKilled', 'policeProperty',
-      'roadblockRun'].every((k) => k in CRIME_TABLE), 'all six exist in CRIMES');
+    orphans.length === 9, `${orphans.length}: ${orphans.join(', ')}`);
+  check('and every crime something names is in the table',
+    named.every((k) => k in CRIME_TABLE), `all ${named.length} exist in CRIMES`);
+  // hitAndRun is filed by wanted.js itself rather than by a damage record, so it is named but not
+  // classified by `_crimeFor` — the distinction the list above would otherwise blur.
+  check('hitAndRun is filed by the wanted system, not by an impact',
+    CRIME_TABLE.hitAndRun && !['propertyDamage', 'civilianCollision', 'pedestrianHit',
+      'pedestrianKilled', 'policeProperty', 'roadblockRun'].includes('hitAndRun'),
+    'reported from _watchScene');
 }
 
 // ---------------------------------------------------------------------------

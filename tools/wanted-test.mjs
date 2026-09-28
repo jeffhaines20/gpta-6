@@ -13,7 +13,8 @@
 // Exits 1 on any failed check.
 
 import fs from 'node:fs';
-import { WantedSystem, CRIMES, RESPONSE, STATES, bindPursuit } from '../src/wanted.js';
+import { WantedSystem, CRIMES, RESPONSE, STATES, bindPursuit,
+  SCENE_LEAVE_M, SCENE_STOP_MS } from '../src/wanted.js';
 
 const DT = 1 / 30;                      // the rate the game reports at, fixed
 const checks = [];
@@ -653,6 +654,150 @@ let searchSample;
     worst <= MAIN_CAPACITY, { worst, MAIN_CAPACITY });
   check('...and neither does the module default', dflt <= MAIN_CAPACITY, { dflt, MAIN_CAPACITY });
   out.capacity = { tableWorst: worst, moduleDefault: dflt, wired: MAIN_CAPACITY };
+}
+
+// ------------------------------------------- 21. leaving the scene of an injury
+/**
+ * `hitAndRun` sat in this table from the day it was written and NOTHING in the game ever filed it:
+ * one of ten crimes named by no module. It was the only one of the ten whose every input already
+ * existed here — the scene arrives as `at`, the player's position every `update`, and `playerVel` is
+ * already smoothed for the interceptors — so it is wired and the other nine stay priced as a refusal.
+ *
+ * The thresholds and why only one of them is a choice are in `_watchScene`. What this section owes
+ * is that BOTH outcomes happen, because an arm where nobody ever flees and an arm where nobody ever
+ * stops would each pass half of it.
+ */
+{
+  const DT = 1 / 60;
+  /**
+   * APPROACH AT SPEED, hit someone, then either stop or keep going — which is the case the game
+   * produces and the only one that tests anything.
+   *
+   * The first version of this helper settled the tracker AT REST for a second before reporting the
+   * crime, and the crawl sweep below then read "counted as stopping" at every speed including
+   * 3 m/s. That is correct behaviour and a worthless test: a player who is stationary at the moment
+   * of the impact HAS stopped at the scene, so the scene is discharged on the first frame and
+   * nothing after it can charge them. Every arm started already discharged.
+   *
+   * So the approach run is part of the arm: `run-up` metres at `speed` BEFORE the crime, so
+   * `playerVel` holds a real driving speed when the scene arms. The smoothing rate is 6, so 1 s of
+   * run-up is six time constants and the tracked speed is within 0.25% of the true one — printed
+   * by the sweep rather than assumed.
+   */
+  const drive = (crime, { stopFirst = false, speed = 14, dist = 140, runUp = 1.0 } = {}) => {
+    const w = new WantedSystem();
+    const fired = [];
+    w.on('crime', (p) => { if (p.applied) fired.push({ id: p.id, at: p.at }); });
+    // Approach from behind the scene so the crime lands at x = 0 with the car already moving.
+    let x = -speed * runUp;
+    while (x < 0) { x += speed * DT; w.update(DT, { x, z: 0 }); }
+    const approach = Math.hypot(w.playerVel.x, w.playerVel.z);
+    w.reportCrime(crime, { at: { x: 0, z: 0 } });
+    if (stopFirst) for (let i = 0; i < 180; i++) w.update(DT, { x: 0, z: 0 });   // 3 s at rest
+    let firedAt = null;
+    while (x < dist) {
+      x += speed * DT;
+      w.update(DT, { x, z: 0 });
+      if (firedAt === null && fired.some((f) => f.id === 'hitAndRun')) firedAt = x;
+    }
+    return { w, fired, firedAt, approach, stats: w.stats };
+  };
+
+  const fled = drive('pedestrianHit');
+  const stayed = drive('pedestrianHit', { stopFirst: true });
+  console.log(`\n21. leaving the scene (radius ${SCENE_LEAVE_M} m, stop under ${SCENE_STOP_MS} m/s)`);
+  console.log(`    drove off:      ${fled.fired.map((f) => f.id).join(' + ')} — ` +
+    `${fled.w.stars} stars, heat ${fled.w.heat.toFixed(2)}, fired at ${fled.firedAt?.toFixed(1)} m`);
+  console.log(`    stopped first:  ${stayed.fired.map((f) => f.id).join(' + ')} — ` +
+    `${stayed.w.stars} stars, heat ${stayed.w.heat.toFixed(2)}`);
+  console.log(`    scenes armed ${fled.stats.scenesArmed}/${stayed.stats.scenesArmed}, ` +
+    `stopped ${fled.stats.scenesStopped}/${stayed.stats.scenesStopped}, ` +
+    `fled ${fled.stats.scenesFled}/${stayed.stats.scenesFled}`);
+
+  check('driving away from a pedestrian you hit files hitAndRun',
+    fled.fired.some((f) => f.id === 'hitAndRun'), fled.fired.map((f) => f.id).join(' + '));
+  check('and stopping at the scene does not',
+    !stayed.fired.some((f) => f.id === 'hitAndRun'), stayed.fired.map((f) => f.id).join(' + '));
+  check('both arms reported the original crime, so neither measured nothing',
+    fled.fired.some((f) => f.id === 'pedestrianHit')
+      && stayed.fired.some((f) => f.id === 'pedestrianHit'),
+    `${fled.fired.length} / ${stayed.fired.length} crimes`);
+  check('it fires at the leave radius, not before or well after',
+    fled.firedAt > SCENE_LEAVE_M && fled.firedAt < SCENE_LEAVE_M + 1,
+    `${fled.firedAt?.toFixed(2)} m against ${SCENE_LEAVE_M}`);
+  // Reported AT THE SCENE: it is the only position a witness could give, and it is what the
+  // search should converge on. The car is 85 m away by then.
+  const hr = fled.fired.find((f) => f.id === 'hitAndRun');
+  check('and it is reported at the scene, not where the car got to',
+    hr && Math.abs(hr.at.x) < 1e-9 && Math.abs(hr.at.z) < 1e-9, JSON.stringify(hr?.at));
+
+  // Every `scene: true` crime arms one, and nothing else does.
+  const marked = Object.entries(CRIMES).filter(([, c]) => c.scene).map(([k]) => k);
+  console.log(`    crimes that arm a scene: ${marked.join(', ')}`);
+  check('the crimes that leave a victim are the ones that arm a scene',
+    marked.length === 3 && marked.includes('pedestrianHit') && marked.includes('pedestrianKilled')
+      && marked.includes('civilianCollision'), marked.join(', '));
+  const wall = drive('propertyDamage');
+  check('KNOWN-BAD: property damage arms nothing, because a wall needs no aid',
+    wall.stats.scenesArmed === 0 && !wall.fired.some((f) => f.id === 'hitAndRun'),
+    `${wall.stats.scenesArmed} scenes, ${wall.fired.map((f) => f.id).join(' + ')}`);
+  for (const id of marked) {
+    const r = drive(id);
+    check(`${id} arms a scene and charges the flight`,
+      r.stats.scenesArmed === 1 && r.stats.scenesFled === 1
+        && r.fired.some((f) => f.id === 'hitAndRun'),
+      `armed ${r.stats.scenesArmed}, fled ${r.stats.scenesFled}`);
+  }
+
+  /**
+   * THE STOP THRESHOLD'S RELATION, not its value. SCENE_STOP_MS is the one chosen number here, so
+   * what is asserted is the two bounds it has to sit between: below damage.js's 2.2 m/s free
+   * threshold, or "stopped at the scene" and "rolling slowly enough for a contact to be free" would
+   * be the same reading; and above the velocity tracker's floor for a stationary car, which is
+   * measured rather than assumed.
+   */
+  const rest = new WantedSystem();
+  for (let i = 0; i < 300; i++) rest.update(DT, { x: 12, z: -7 });
+  const floor = Math.hypot(rest.playerVel.x, rest.playerVel.z);
+  console.log(`    a parked car's tracked speed: ${floor.toExponential(2)} m/s; ` +
+    `stop threshold ${SCENE_STOP_MS}; free-contact threshold 2.2`);
+  check('the stop threshold is below the free-contact threshold', SCENE_STOP_MS < 2.2,
+    `${SCENE_STOP_MS} < 2.2`);
+  check('and clear of the tracker floor for a parked car', floor < SCENE_STOP_MS / 10,
+    `${floor.toExponential(2)} against ${SCENE_STOP_MS}`);
+  // Crawling past the scene under the threshold counts as stopping; this is the boundary the
+  // choice actually decides, so it is walked rather than asserted at one speed.
+  console.log('    crawling away instead of stopping (tracked speed printed, not assumed):');
+  for (const sp of [0.4, 0.9, 1.2, 3.0, 14]) {
+    const r = drive('pedestrianHit', { speed: sp, dist: SCENE_LEAVE_M + 6 });
+    const flew = r.fired.some((f) => f.id === 'hitAndRun');
+    console.log(`      ${sp.toFixed(1).padStart(4)} m/s commanded, ${r.approach.toFixed(3)} tracked ` +
+      `-> ${flew ? 'hitAndRun' : 'counted as stopping'}`);
+    check(`crawling at ${sp} m/s is ${sp >= SCENE_STOP_MS ? 'fleeing' : 'stopping'}`,
+      flew === (sp >= SCENE_STOP_MS), `${flew ? 'fired' : 'did not fire'} at ${sp} m/s ` +
+      `(tracked ${r.approach.toFixed(3)})`);
+  }
+  // The run-up has to actually establish the speed, or the sweep is testing the tracker's lag.
+  const fast = drive('pedestrianHit', { speed: 14 });
+  check('the approach run establishes the tracked speed it commands',
+    Math.abs(fast.approach - 14) / 14 < 0.01, `${fast.approach.toFixed(3)} against 14`);
+
+  // The leave radius is READ from the response table, not copied.
+  check('the leave radius is one star\'s own spot radius', SCENE_LEAVE_M === RESPONSE[1].spotRadius,
+    `${SCENE_LEAVE_M} against ${RESPONSE[1].spotRadius}`);
+
+  /**
+   * AND THE NEAR MISS IS WRITTEN DOWN RATHER THAN TUNED AWAY. A pedestrian hit plus fleeing is
+   * 1.15 + 0.80 = 1.95 heat, which is one hundredth short of two stars. That is the table's own
+   * arithmetic and neither number was chosen with the other in mind; nudging either to land on a
+   * round outcome would be a fudge. What fleeing buys you at one star is 10 s of extra `cool`,
+   * which lengthens the escape rather than raising the response.
+   */
+  check('fleeing adds heat and cooldown without, here, adding a star',
+    fled.w.heat > stayed.w.heat && fled.w.stars === stayed.w.stars,
+    `heat ${stayed.w.heat.toFixed(2)} -> ${fled.w.heat.toFixed(2)}, stars ${fled.w.stars}`);
+  check('and it is the cooldown that does the work', fled.w.cool > stayed.w.cool,
+    `cool ${stayed.w.cool} -> ${fled.w.cool}`);
 }
 
 // ---------------------------------------------------------------- scenario trace

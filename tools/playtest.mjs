@@ -90,6 +90,21 @@ export class Session {
     this.vehicle.damage = this.damage;
     this.ground = new FlatGround(0);
     this.wanted = new WantedSystem();
+    /**
+     * EVERY CRIME REACHES THE TRANSCRIPT, including the ones this harness does not file itself.
+     * `_crime()` counts and narrates the offences the contact pass reports, and `hitAndRun` is
+     * filed from INSIDE `wanted.update` when the player leaves the scene of an injury — so it
+     * would raise the star level with nothing in the log saying why, which is the one thing a
+     * playtester cannot diagnose. Listening to the module covers both routes with one path.
+     *
+     * `_crime()` narrates before this fires for its own reports, so the guard is on the id it
+     * already logged this frame rather than a general de-duplication.
+     */
+    this.wanted.on('crime', (p) => {
+      if (!p.applied || p.id === this._lastFiled) return;
+      this.stats.crimes++;
+      this.say(`CRIME   ${p.id} — ${this.wanted.stars} star${this.wanted.stars === 1 ? '' : 's'}`);
+    });
     this.traffic = new Traffic(scene, this.district, { count: opts.traffic ?? 30 });
     this.traffic.clearAt = (x, z, r) => !this.blockers.resolveCircle(x, z, r);
     this.peds = new Pedestrians(scene, this.district, { count: opts.peds ?? 64 });
@@ -135,6 +150,8 @@ export class Session {
     this._outcome = OUTCOMES.RUNNING;
     /** When each pedestrian was last reported as a crime, by their own id. See _contacts. */
     this._pedCrimeAt = new Map();
+    /** Set while `_crime` is filing, so the module listener does not count the same report twice. */
+    this._lastFiled = null;
     /** The last pedestrian this session struck: who, how hard, and whether it was charged. */
     this.lastHit = null;
     // Every damage record, as a line in the transcript — the same hook the crash voice uses.
@@ -376,8 +393,12 @@ export class Session {
   }
 
   _crime(name, scale = 1) {
+    // Claimed before the call, because `reportCrime` emits synchronously and the listener above
+    // must not count this one twice.
+    this._lastFiled = name;
     const r = this.wanted.reportCrime(name,
       { at: { x: this.vehicle.position.x, z: this.vehicle.position.z }, scale });
+    this._lastFiled = null;
     if (!r.applied) return;
     this.stats.crimes++;
     this.say(`CRIME   ${name} — ${this.wanted.stars} star${this.wanted.stars === 1 ? '' : 's'}`);

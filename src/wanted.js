@@ -77,10 +77,10 @@ export const STATES = { CLEAR: 'clear', ACTIVE: 'active', SEARCH: 'search' };
 export const CRIMES = Object.freeze({
   reckless:          f({ label: 'Reckless driving',          heat: 0.40, cool: 2,  refractory: 3.0 }),
   propertyDamage:    f({ label: 'Property damage',           heat: 0.30, cool: 2,  refractory: 2.5 }),
-  civilianCollision: f({ label: 'Collision with a vehicle',  heat: 0.50, cool: 3,  refractory: 1.5 }),
+  civilianCollision: f({ label: 'Collision with a vehicle',  heat: 0.50, cool: 3,  refractory: 1.5, scene: true }),
   hitAndRun:         f({ label: 'Left the scene',            heat: 0.80, cool: 10, refractory: 8.0, min: 1 }),
-  pedestrianHit:     f({ label: 'Pedestrian struck',         heat: 1.15, cool: 8,  refractory: 1.0, min: 1 }),
-  pedestrianKilled:  f({ label: 'Pedestrian killed',         heat: 2.00, cool: 15, refractory: 1.0, min: 2 }),
+  pedestrianHit:     f({ label: 'Pedestrian struck',         heat: 1.15, cool: 8,  refractory: 1.0, min: 1, scene: true }),
+  pedestrianKilled:  f({ label: 'Pedestrian killed',         heat: 2.00, cool: 15, refractory: 1.0, min: 2, scene: true }),
   vehicleTheft:      f({ label: 'Vehicle taken',             heat: 1.00, cool: 6,  refractory: 2.0, min: 1 }),
   assault:           f({ label: 'Assault',                   heat: 1.00, cool: 6,  refractory: 1.0, min: 1 }),
   brandish:          f({ label: 'Weapon brandished',         heat: 0.60, cool: 3,  refractory: 3.0 }),
@@ -93,7 +93,11 @@ export const CRIMES = Object.freeze({
   evading:           f({ label: 'Evading pursuit',           heat: 0.15, cool: 4,  refractory: 4.0, requiresWanted: true }),
 });
 
-function f(c) { return Object.freeze({ cool: 0, refractory: 0, min: 0, requiresWanted: false, ...c }); }
+/**
+ * `scene: true` marks an offence that leaves someone owed aid, so driving away from it is a second
+ * offence. Property damage is not one of them: a wall does not need help. See `_watchScene`.
+ */
+function f(c) { return Object.freeze({ cool: 0, refractory: 0, min: 0, requiresWanted: false, scene: false, ...c }); }
 
 /**
  * Per-star response tuning, indexed by star level 0..5.
@@ -115,6 +119,14 @@ function f(c) { return Object.freeze({ cool: 0, refractory: 0, min: 0, requiresW
  * tuning table that accidentally makes four stars gentler than three is the kind
  * of defect that hides for months.
  */
+/**
+ * How far from the scene of an injury counts as having left it, and how slowly the car has to be
+ * going to count as having stopped there. See `_watchScene` for the derivation of each.
+ * SCENE_LEAVE_M is assigned from RESPONSE below, once that table exists.
+ */
+export let SCENE_LEAVE_M = 0;
+export const SCENE_STOP_MS = 1.0;
+
 export const RESPONSE = Object.freeze([
   Object.freeze({ units: 0, spawnMin: 0,   spawnMax: 0,   giveUpRadius: 0,   speedMul: 0,    intercept: false, aggression: 0.00, cooldown: 0,  searchGrow: 0,  spotRadius: 0,   siren: 0.00 }),
   Object.freeze({ units: 1, spawnMin: 80,  spawnMax: 190, giveUpRadius: 380, speedMul: 0.94, intercept: false, aggression: 0.15, cooldown: 12, searchGrow: 7,  spotRadius: 85,  siren: 0.35 }),
@@ -123,6 +135,10 @@ export const RESPONSE = Object.freeze([
   Object.freeze({ units: 6, spawnMin: 130, spawnMax: 390, giveUpRadius: 700, speedMul: 1.16, intercept: true,  aggression: 0.74, cooldown: 34, searchGrow: 15, spotRadius: 150, siren: 0.87 }),
   Object.freeze({ units: 8, spawnMin: 150, spawnMax: 470, giveUpRadius: 860, speedMul: 1.26, intercept: true,  aggression: 1.00, cooldown: 44, searchGrow: 18, spotRadius: 175, siren: 1.00 }),
 ]);
+
+// One star's `spotRadius` IS the leave radius: see `_watchScene`. Taken from the table rather
+// than written twice, so a retune of the response moves both together.
+SCENE_LEAVE_M = RESPONSE[1].spotRadius;
 
 // Deterministic PRNG. The search ring needs a little per-unit jitter so eight
 // cars do not fan out in a perfect snowflake, but "a little jitter" must not
@@ -181,6 +197,8 @@ export class WantedSystem {
     this._sweep = 0;
     this._nextUnitId = 0;
     this._prevPlayer = null;
+    /** The scene of the last injury, until the player stops at it or leaves it. See _watchScene. */
+    this._scene = null;
     // Reused in place so sanitising costs no per-frame allocation.
     this._safePlayer = { x: 0, z: 0, seen: undefined };
     this.playerVel = { x: 0, z: 0 };
@@ -192,6 +210,9 @@ export class WantedSystem {
       crimes: 0, crimesIgnored: 0, escalations: 0, decays: 0,
       searches: 0, reacquires: 0, escapes: 0, unitsRequested: 0,
       unitsLost: 0, listenerErrors: 0, updates: 0,
+      // The scene of an injury: armed on a `scene: true` crime, discharged by stopping, charged
+      // as `hitAndRun` by leaving. See _watchScene.
+      scenesArmed: 0, scenesStopped: 0, scenesFled: 0,
     };
 
     // One stable object, mutated in place: consumers hold a reference and read
@@ -280,6 +301,21 @@ export class WantedSystem {
     if (at) this._setLastKnown(at.x, at.z);
     if (opts.witnessed !== false) this._forcedSightUntil = this.time + this.witnessSeconds;
 
+    /**
+     * ARM THE SCENE. `hitAndRun` has existed in this table since the day it was written and nothing
+     * in the game ever filed it — one of ten such crimes, and the only one whose every input was
+     * already here: the scene comes in as `at`, the player's position arrives every `update`, and
+     * `playerVel` is already smoothed for the interceptors. See `_watchScene`.
+     *
+     * A fresh scene replaces an older one rather than queueing. Two victims in four seconds is one
+     * event a driver either stops for or does not, and a queue would charge them twice for the same
+     * decision.
+     */
+    if (c.scene && at && Number.isFinite(at.x) && Number.isFinite(at.z)) {
+      this._scene = { x: at.x, z: at.z, at: this.time, stopped: false, id };
+      this.stats.scenesArmed++;
+    }
+
     const payload = { id, label: c.label, applied: true, heat: this.heat, stars: this.stars, at };
     this._applyStars(prev, 'crime');
     payload.stars = this.stars;
@@ -354,6 +390,7 @@ export class WantedSystem {
     player = this._sanitize(player);
 
     this._trackVelocity(step, player);
+    this._watchScene(player);
 
     const seen = this._evaluateContact(player);
     if (seen !== this.seen) {
@@ -437,6 +474,47 @@ export class WantedSystem {
     if (Number.isFinite(player.z)) p.z = player.z;
     p.seen = player.seen;
     return p;
+  }
+
+  /**
+   * LEAVING THE SCENE OF AN INJURY IS A SECOND OFFENCE, and this is what files `hitAndRun`.
+   *
+   * Two thresholds, and only one of them is a choice:
+   *
+   * SCENE_LEAVE_M is `RESPONSE[1].spotRadius`, this module's own statement of how close a unit has
+   * to be, with line of sight, to hold contact on the player. That is the game's existing
+   * definition of "within sight", so leaving the scene is getting beyond where a witness could
+   * still see you. It is read from the table rather than copied, so it moves with it.
+   *
+   * SCENE_STOP_MS is a choice, and is stated as one. It has to be below `damage.js`'s free
+   * threshold of 2.2 m/s, or "stopped at the scene" and "still rolling fast enough for a contact
+   * to cost nothing" would be the same reading; and above the velocity tracker's own floor, which
+   * is exactly 0 for a stationary car because `_trackVelocity` smooths towards the true value.
+   * 1.0 m/s sits between with margin at both ends, and `wanted-test` asserts the relation rather
+   * than the number.
+   *
+   * Stopping anywhere inside the leave radius discharges it permanently for that scene: a driver
+   * who stops, waits, and then drives off has stopped. Whether they should also have to STAY is a
+   * design question this does not answer, and the honest reason is that there is nothing in the
+   * codebase to anchor a dwell time to.
+   */
+  _watchScene(player) {
+    const sc = this._scene;
+    if (!sc) return;
+    const d = Math.hypot(player.x - sc.x, player.z - sc.z);
+    if (d <= SCENE_LEAVE_M) {
+      if (Math.hypot(this.playerVel.x, this.playerVel.z) < SCENE_STOP_MS) {
+        if (!sc.stopped) { sc.stopped = true; this.stats.scenesStopped++; }
+      }
+      return;
+    }
+    // Beyond witness range. Either they stopped and this is over, or it is an offence.
+    this._scene = null;
+    if (sc.stopped) return;
+    this.stats.scenesFled++;
+    // Reported at the SCENE, not where the car is now: that is where the search should anchor,
+    // and it is the only position a witness could give.
+    this.reportCrime('hitAndRun', { at: { x: sc.x, z: sc.z } });
   }
 
   _trackVelocity(dt, player) {
