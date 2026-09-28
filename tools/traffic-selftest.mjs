@@ -8,7 +8,7 @@
 //
 //   node tools/traffic-selftest.mjs
 import fs from 'node:fs';
-import { Traffic } from '../src/traffic.js';
+import { Traffic, LANE_FIT } from '../src/traffic.js';
 import { BlockerIndex } from '../src/blockers.js';
 import * as TrafficMod from '../src/traffic.js';
 
@@ -237,18 +237,56 @@ console.log('\n7. the lane offset fits inside the road it is on');
   const fitted = new Traffic(scene, district, { count: 1 });
   fitted.clearAt = (x, z, r) => !ix7.resolveCircle(x, z, r);
   let nominalBad = 0, fitBad = 0, reduced = 0, longest = 0, shortRung = 0;
+  // Every lane the census WALKS, and every one it used to skip. See the block below.
+  let walked = 0, centreBad = 0, centreBadM = 0, fellThrough = 0;
+  const centreBadLanes = [];
+  const centreBadClasses = new Map();
   for (let i = 0; i < district.edges.length; i++) {
     for (const forward of [true, false]) {
       const want = fitted._laneNominal(i);
-      if (!(want > 0)) continue;
+      /**
+       * THE CENSUS USED TO SKIP EVERY LANE WITH NO OFFSET — `if (!(want > 0)) continue` — which is
+       * 1,312 of 1,870 (edge, direction) lanes: every one-way edge and every single-track road
+       * under TWO_WAY_MIN_W. So it walked 558 lanes out of a network the fleet drives 1,198 states
+       * of, and CLAUDE.md's "an audit that walks less than the build cannot fail" is precisely this
+       * file. A blind playtester found it and found what it hid.
+       *
+       * Those lanes have an offset of 0 — they are driven down the centreline — so the clearance
+       * question is not "is there no offset to check", it is "is the centreline clear". 24 of them
+       * are not, over 12 distinct edges, all 2.8 m `service` alleys: 107.4 m of road a car body
+       * cannot fit along, with edges 742 and 766 blocked at every single sample for 36.2 and
+       * 32.5 m. And they were REACHABLE: a BFS over the states `_chooseNext` walks reached 9 of
+       * the 12, 742 among them.
+       */
+      if (!(want > 0)) {
+        if (!fitted._laneClear(i, forward, 0)) {
+          centreBad++;
+          centreBadM += fitted._len(i);
+          const c = district.edges[i].c ?? '?';
+          centreBadClasses.set(c, (centreBadClasses.get(c) ?? 0) + 1);
+          centreBadLanes.push({ i, forward });
+        }
+        continue;
+      }
+      walked++;
+      /**
+       * AND `LANE_FIT` HAS NO 0 RUNG, so a two-way lane with no clear rung falls through to
+       * `amt = 0` — the centreline — which the ladder never tested. Counted here rather than
+       * assumed absent: 1 lane in this district falls through, and its centreline happens to be
+       * clear. Latent, and `_edgeDrivable` now tests the offset the fit actually chose, so the
+       * fallback is covered by the same predicate as everything else.
+       */
+      if (!LANE_FIT.some((f) => fitted._laneClear(i, forward, want * f))) fellThrough++;
       const got = fitted._laneOffset(i, forward);
       if (!fitted._laneClear(i, forward, want)) nominalBad++;
       if (!fitted._laneClear(i, forward, got)) fitBad++;
       if (got < want) {
         reduced++;
         // THE FIT OWES THE LONGEST CLEAR RUNG: the rung above the one taken must be blocked.
-        const rungs = [1, 0.75, 0.5, 0.25];
-        const above = rungs[Math.max(0, rungs.findIndex((f) => Math.abs(want * f - got) < 1e-9) - 1)];
+        // The module's own ladder, imported rather than copied: a duplicate is a magic number
+        // waiting for LANE_FIT to change under it.
+        const above = LANE_FIT[Math.max(0,
+          LANE_FIT.findIndex((f) => Math.abs(want * f - got) < 1e-9) - 1)];
         if (got === 0 || !fitted._laneClear(i, forward, want * above)) longest++;
         else shortRung++;
       }
@@ -257,6 +295,170 @@ console.log('\n7. the lane offset fits inside the road it is on');
   console.log(`  lane fit over every two-way edge, both directions: ` +
     `${nominalBad} blocked at the width rule's offset, ${fitBad} after the fit, ` +
     `${reduced} reduced`);
+  console.log(`  lanes walked ${walked} of ${district.edges.length * 2}; ` +
+    `the other ${district.edges.length * 2 - walked} have no offset and are tested below`);
+  console.log(`  CENTRELINE lanes (the 1,312 this census used to skip): ` +
+    `${centreBad} a car body cannot follow, ${centreBadM.toFixed(1)} m of edge, ` +
+    `classes ${[...centreBadClasses].map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}`);
+  console.log(`  two-way lanes whose whole ladder is blocked (fall through to the untested 0): ` +
+    `${fellThrough}`);
+  check('KNOWN-BAD: some roads cannot carry a car body down their own centreline',
+    centreBad > 0, `${centreBad} lanes, ${centreBadM.toFixed(1)} m`);
+  /**
+   * THE EXCLUSION IS ASSERTED BY REACHABILITY, NOT BY ITS OWN PREDICATE. The first version of this
+   * check asked `_edgeDrivable` about exactly the lanes that had just failed
+   * `_laneClear(i, forward, 0)` — and for a lane with no offset those are the SAME CALL, so the
+   * equality could not fail however broken the exclusion was. CLAUDE.md's "a self-validation that
+   * closes over the same quantity twice validates nothing", one round after the shunt fit wrote it
+   * down. Collapsing the filter in `_chooseNext` to `() => true` left it reading 24 of 24.
+   *
+   * What the exclusion owes is that a car can never BE on one of these lanes, so the check is a
+   * BFS over the (edge, direction) states `_chooseNext` actually walks, from the spawn set, through
+   * the same filter the module applies. Independent of the predicate: it can only pass if the
+   * filter is wired into the walk.
+   */
+  {
+    const key = (e, f) => `${e}:${f ? 1 : 0}`;
+    const reach = (filtered) => {
+      const seen = new Set(), q = [];
+      const ok = (e, f) => !filtered || fitted._edgeDrivable(e, f);
+      for (const e of fitted.spawnable) {
+        const ed = district.edges[e];
+        const single = ed.o === 0 && ed.w < TWO_WAY_MIN_W;
+        for (const f of [true, false]) {
+          if (f && ed.o < 0) continue;
+          if (!f && (ed.o > 0 || single)) continue;
+          if (!ok(e, f)) continue;
+          if (!seen.has(key(e, f))) { seen.add(key(e, f)); q.push({ e, f }); }
+        }
+      }
+      for (let h = 0; h < q.length; h++) {
+        const st = q[h];
+        const v = fitted._endVertex(st.e, st.f);
+        const opts = (fitted.out.get(v) ?? [])
+          .filter((o) => !(o.e === st.e && o.forward !== st.f) && ok(o.e, o.forward));
+        if (!opts.length && district.edges[st.e].o === 0) opts.push({ e: st.e, forward: !st.f });
+        for (const o of opts) {
+          if (!seen.has(key(o.e, o.forward))) { seen.add(key(o.e, o.forward)); q.push({ e: o.e, f: o.forward }); }
+        }
+      }
+      return seen;
+    };
+    const before = reach(false), after = reach(true);
+    const hitBefore = centreBadLanes.filter((l) => before.has(key(l.i, l.forward))).length;
+    const hitAfter = centreBadLanes.filter((l) => after.has(key(l.i, l.forward))).length;
+    console.log(`  reachable (edge,direction) states: ${before.size} unfiltered, ${after.size} filtered`);
+    console.log(`  of the ${centreBadLanes.length} undrivable lanes, reachable: ` +
+      `${hitBefore} unfiltered -> ${hitAfter} filtered`);
+    check('KNOWN-BAD: a car could route onto a road it cannot fit down', hitBefore > 0,
+      `${hitBefore} of ${centreBadLanes.length} reachable without the filter`);
+    check('and none of them is reachable once the filter is applied', hitAfter === 0,
+      `${hitAfter} still reachable`);
+    /**
+     * AND THE COLLATERAL IS ACCOUNTED FOR RATHER THAN DENIED. The first version of this asserted
+     * that exactly the undrivable lanes are lost, and it failed reading 12 against 9 — because
+     * three MORE lanes become unreachable, and they should: an alley whose only route in ran
+     * through a building is not reachable once the building is respected. All three are 2.8 m
+     * service alleys (edges 436, 431 and 775, 122.3 m in all), each with a single inbound state
+     * and that state now gone.
+     *
+     * So the property is not "nothing else is lost", it is "everything lost is either undrivable
+     * or has no route in left". That distinguishes correct collateral from a filter that cut a
+     * through street, which is what this check is for.
+     */
+    const lost = [...before].filter((k) => !after.has(k));
+    const undrivableLost = [], orphaned = [], unexplained = [];
+    let orphanM = 0;
+    for (const k of lost) {
+      const [es, fs2] = k.split(':');
+      const i = +es, forward = fs2 === '1';
+      if (!fitted._edgeDrivable(i, forward)) { undrivableLost.push(k); continue; }
+      const ed = district.edges[i];
+      const v = ed.v[forward ? 0 : ed.v.length - 1];
+      const inbound = [...after].filter((k2) => {
+        const [e2, f2] = k2.split(':');
+        return +e2 !== i && fitted._endVertex(+e2, f2 === '1') === v;
+      });
+      if (inbound.length === 0) { orphaned.push(k); orphanM += fitted._len(i); }
+      else unexplained.push(k);
+    }
+    console.log(`  ${lost.length} states lost: ${undrivableLost.length} undrivable, ` +
+      `${orphaned.length} left with no route in (${orphanM.toFixed(1)} m of service alley), ` +
+      `${unexplained.length} unexplained`);
+    check('every lane the filter costs is undrivable or has no route in left',
+      unexplained.length === 0, unexplained.join(' ') || 'none unexplained');
+    check('and the filter is what did it, not a disconnected graph',
+      undrivableLost.length === hitBefore, `${undrivableLost.length} against ${hitBefore}`);
+
+    /**
+     * AND THE MODULE'S OWN `_chooseNext` IS WHAT IS ASKED, because the BFS above is not.
+     *
+     * Deleting the `_edgeDrivable` term from `_chooseNext`'s option filter — which IS the
+     * shipped-before behaviour — left every check in this file passing, 52 of 52. The BFS walks a
+     * REIMPLEMENTATION of the option rule and applies the predicate itself, so it proves the
+     * predicate and says nothing about whether the module consults it. That is CLAUDE.md's
+     * "nothing asserts that the game reaches it", in the arm written to assert exactly that.
+     *
+     * So: every state that is itself drivable and has an undrivable exit, hammered through the
+     * real `_chooseNext` 400 times each, and the undrivable exit must never come back. Measured
+     * with the filter deleted, 400 of 3,200 calls returned it — a non-empty known-bad, which is
+     * what makes the zero meaningful.
+     */
+    const hammer = (filtered) => {
+      const t = new Traffic(scene, district, { count: 1 });
+      t.clearAt = (x, z, r) => !ix7.resolveCircle(x, z, r);
+      const real = t._edgeDrivable.bind(t);
+      if (!filtered) t._edgeDrivable = () => true;
+      let picks = 0, calls = 0, pairs = 0;
+      for (let i = 0; i < district.edges.length; i++) {
+        for (const f of [true, false]) {
+          const v = t._endVertex(i, f);
+          const opts = (t.out.get(v) ?? []).filter((o) => !(o.e === i && o.forward !== f));
+          const bad = opts.filter((o) => !real(o.e, o.forward));
+          if (!bad.length || !real(i, f)) continue;
+          pairs++;
+          const car = { edge: i, forward: f, len: t._len(i) };
+          for (let k = 0; k < 400; k++) {
+            const got = t._chooseNext(car);
+            calls++;
+            if (got && bad.some((o) => o.e === got.e && o.forward === got.forward)) picks++;
+          }
+        }
+      }
+      return { pairs, calls, picks };
+    };
+    const unfiltered = hammer(false), live = hammer(true);
+    console.log(`  _chooseNext from the ${live.pairs} drivable states that have an undrivable exit: ` +
+      `${unfiltered.picks} of ${unfiltered.calls} calls returned it with the filter removed, ` +
+      `${live.picks} of ${live.calls} as shipped`);
+    check('KNOWN-BAD: without the filter _chooseNext hands back the undrivable exit',
+      unfiltered.pairs > 0 && unfiltered.picks > 0,
+      `${unfiltered.picks} of ${unfiltered.calls} over ${unfiltered.pairs} states`);
+    check('the shipped _chooseNext never hands back an undrivable exit', live.picks === 0,
+      `${live.picks} of ${live.calls}`);
+
+    /**
+     * AND THE SPAWN GUARD IS UNTESTABLE AGAINST THIS DISTRICT, which is worth saying rather than
+     * leaving as a passing file. Deleting `_spawn`'s `_edgeDrivable` check leaves all 54 checks
+     * green, because every undrivable edge here is rank 8 and `spawnable` filters at rank <= 6 —
+     * so no spawn can reach one whether the guard exists or not.
+     *
+     * That is their rank agreeing with their geometry by accident, not a rule, so the guard stays
+     * and the coincidence is asserted instead. If a re-baked graph ever puts an undrivable edge in
+     * the spawn set this check fails, which is the moment the guard starts earning its place.
+     */
+    const spawnUndrivable = fitted.spawnable.filter(
+      (e) => [true, false].some((f) => !fitted._edgeDrivable(e, f)));
+    const ranks = [...new Set(centreBadLanes.map((l) => district.edges[l.i].r))].sort((a, b) => a - b);
+    console.log(`  spawnable edges that are undrivable: ${spawnUndrivable.length} ` +
+      `(the undrivable edges are rank ${ranks.join('/')}; spawnable is rank <= 6), so _spawn's own ` +
+      `guard cannot be exercised by this district`);
+    check('no spawnable edge is undrivable, so the spawn guard is belt-and-braces here',
+      spawnUndrivable.length === 0, `${spawnUndrivable.length} of ${fitted.spawnable.length}`);
+  }
+  check('the census walks every lane, not just the ones with an offset',
+    walked + centreBad > 0 && walked < district.edges.length * 2,
+    `${walked} with an offset, ${district.edges.length * 2 - walked} without, all now tested`);
   check('KNOWN-BAD: the width rule alone leaves lanes inside buildings', nominalBad > 0,
     `${nominalBad} directions`);
   check('the fit leaves none of them blocked', fitBad === 0, `${fitBad}`);

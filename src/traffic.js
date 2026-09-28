@@ -187,7 +187,7 @@ const PLAYER_WATCH_M = 50;
 const PLAYER_LANE_MARGIN = 0.5;
 const PLAYER_HALF_W = 0.95, PLAYER_HALF_L = 2.15;
 /** Rungs the lane offset backs off through when the nominal one is not clear. */
-const LANE_FIT = [1, 0.75, 0.5, 0.25];
+export const LANE_FIT = Object.freeze([1, 0.75, 0.5, 0.25]);
 /** How finely the lane fit samples an edge. Half a car length. */
 const LANE_SAMPLE_M = 2;
 const SHUNT_MAX = 4.5;         // m
@@ -453,6 +453,8 @@ export class Traffic {
     this._byEdge = new Map();
     // (edge, direction) -> the lane offset that fits there. See _laneOffset.
     this._laneCache = new Map();
+    // See _edgeDrivable: keyed the same way, and for the same reason.
+    this._drivableCache = new Map();
     // junction vertex -> { active: Map<carId, movement>, queue: Map<carId, request> }
     // `active` is the set of movements currently being made through the junction,
     // which is the whole change: it used to be one car id.
@@ -477,6 +479,7 @@ export class Traffic {
       junctionWaitCarFrames: 0, followBrakeCarFrames: 0, stoppedCarFrames: 0,
       playerLeaderFrames: 0, laneFitEdges: 0,
       playerPinnedFrames: 0, playerPinnedCars: 0,
+      undrivableLanes: 0, undrivableMetres: 0,
       entryBlockedCarFrames: 0,
       carFrames: 0,
       // Where overlaps actually happen, so the number can be acted on.
@@ -606,6 +609,60 @@ export class Traffic {
     return Math.max(0, Math.min(Math.min(3.6, Math.max(2.2, e.w / 4)), e.w / 2 - CAR_HALF_W));
   }
 
+  /**
+   * CAN A CAR BODY FOLLOW THIS EDGE AT ALL, in this direction? `src/roadpath.js`'s router has
+   * excluded such edges since the day it existed — "a follower cannot steer out of a road that is
+   * inside a building; only the router can" — and this module had no equivalent, so `_chooseNext`
+   * could route a car onto one.
+   *
+   * Measured against the blocker index, sampling every 2 m: 12 of 935 edges carry a stretch their
+   * own centreline cannot fit a car body along, 107.4 m of blocked road in all, and every one is a
+   * 2.8 m `service` alley. The distribution matters, because it is two populations:
+   *
+   *     edge 742   36.2 m long   20/20 samples blocked   36.2 m   entirely inside a building
+   *     edge 766   32.5 m        18/18                   32.5 m   entirely inside
+   *     edge 476   21.9 m        11/12                   20.1 m
+   *     nine more  2.9-158.3 m   1-2 samples each        1.3-3.8 m   junction pinches
+   *
+   * A BFS over (edge, direction) states from the spawn set, walking exactly what `_chooseNext`
+   * walks, says 9 of the 12 are REACHABLE — including both of the fully blocked ones: 742 is
+   * entered from 434, which is entered from ordinary streets 218 and 219.
+   *
+   * And yet a 30-car fleet never went near one: 0 car-frames on any of the 12 over 400 s, then 0
+   * again with the player parked on each of the first six in turn, 1,619,609 car-frames with 0
+   * bodies inside a building. So the defect is rare rather than live — the alleys are all rank 8
+   * and therefore unspawnable, the straightness bias disfavours a sharp turn into one, and a car
+   * has to survive within the despawn radius long enough to reach the entrance. None of that is a
+   * rule, it is a probability, and CLAUDE.md's own note about measuring the rare case at the cap
+   * applies: 0 observations in 1.6 million frames is not the same statement as unreachable, and
+   * the graph says reachable.
+   *
+   * ONE PREDICATE CLOSES THE OTHER HALF OF THIS TOO. `LANE_FIT` is [1, 0.75, 0.5, 0.25] with no 0
+   * rung, and `_laneOffset` initialises `amt = 0` before the ladder — so a two-way lane with no
+   * clear rung falls through to the centreline and the centreline is never tested. Asking whether
+   * the offset the fit CHOSE is clear covers both cases in one test: the centreline for a
+   * single-track or one-way edge, the fallback for a ladder that fell through, and a trivial pass
+   * for a lane that found a rung. Measured, 1 lane in the district falls through and its
+   * centreline happens to be clear — latent, and now asserted rather than hoped for.
+   *
+   * Lazy and cached because `clearAt` is assigned AFTER construction (district/main.js sets it on
+   * the instance), so there is no adjacency-building moment at which this could be decided the way
+   * roadpath.js decides it.
+   */
+  _edgeDrivable(edgeIdx, forward) {
+    if (!this.clearAt) return true;                  // no predicate, nothing to exclude
+    const key = edgeIdx * 2 + (forward ? 1 : 0);
+    const hit = this._drivableCache.get(key);
+    if (hit !== undefined) return hit;
+    const ok = this._laneClear(edgeIdx, forward, this._laneOffset(edgeIdx, forward));
+    this._drivableCache.set(key, ok);
+    if (!ok) {
+      this.stats.undrivableLanes++;
+      this.stats.undrivableMetres += this._len(edgeIdx);
+    }
+    return ok;
+  }
+
   /** Is a lane `amt` right of this edge's centreline clear for a car body, all the way along? */
   _laneClear(edgeIdx, forward, amt) {
     const len = this._len(edgeIdx);
@@ -662,6 +719,10 @@ export class Traffic {
       const t = this._r() * len;
       const p = this._pointOn(edge, forward, t);
       if (!p) continue;
+      // Not onto a road a car body cannot follow. Every such edge in this district is rank 8 and
+      // so already outside `spawnable`, but that is their rank agreeing with their geometry by
+      // accident, and a re-baked graph need not keep the coincidence.
+      if (!this._edgeDrivable(edge, forward)) continue;
       const dist = Math.hypot(p.x - playerPos.x, p.z - playerPos.z);
       if (dist < this.spawnMin || dist > this.spawnMax) continue;
 
@@ -867,6 +928,8 @@ export class Traffic {
     const v = this._endVertex(car.edge, car.forward);
     let options = (this.out.get(v) ?? []).filter(
       (o) => !(o.e === car.edge && o.forward !== car.forward)
+        // A road a car body cannot follow is not an exit. See _edgeDrivable.
+        && this._edgeDrivable(o.e, o.forward)
     );
     // A replan that can return the exit it is replanning away from is not a replan.
     // Without this the straightness bias returns the same edge nearly every time and
