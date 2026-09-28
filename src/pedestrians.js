@@ -436,6 +436,13 @@ export class Pedestrians {
     this.spawnMax = opts.spawnMax ?? 100;
     this.overlapDistance = opts.overlapDistance ?? OVERLAP_DIST;
     this.avoidPlayer = opts.avoidPlayer ?? true;
+    /**
+     * How close the car gets before people step aside. Defaults to `AVOID_R` and is an option only
+     * so a gate can drive the SAME code path at two radii: reverting `AVOID_R` to the 1.6 m it
+     * replaced passed every gate in the offline list, and a behavioural arm that cannot vary the
+     * radius can only compare a build against itself. See reaction-test §1d.
+     */
+    this.avoidR = opts.avoidR ?? AVOID_R;
 
     this._buildAdjacency();
     this._buildBuildingIndex();
@@ -1774,8 +1781,8 @@ export class Pedestrians {
          * starts before the bumper arrives rather than after it has passed through them. The free
          * threshold is right and stays; what was missing was any OTHER reaction.
          */
-        if (d < AVOID_R && d > 1e-4) {
-          const w = 1 - d / AVOID_R;
+        if (d < this.avoidR && d > 1e-4) {
+          const w = 1 - d / this.avoidR;
           wishX += (dx / d) * w * 2.6;
           wishZ += (dz / d) * w * 2.6;
         }

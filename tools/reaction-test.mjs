@@ -22,10 +22,12 @@
 //       makes the reaction read as a despawn
 //   §7  a shunt with no building test, which knocks 0.8% of worst-case cars into a shopfront
 import fs from 'node:fs';
-import { Pedestrians, PED_FREE_MS } from '../src/pedestrians.js';
+import { Pedestrians, PED_FREE_MS, AVOID_R } from '../src/pedestrians.js';
 import { Traffic } from '../src/traffic.js';
 import { throwDistance, slideDecel, THROW, ANCHORS, pedFatalityRisk } from '../src/damage.js';
 import { BlockerIndex } from '../src/blockers.js';
+import { BODY_ENCLOSING } from '../src/vehicle.js';
+import { HALF_EXTENT } from '../src/damage.js';
 import * as THREE from '../vendor/three.module.min.js';
 import { StreetFurniture } from '../src/streetfurniture.js';
 
@@ -1347,7 +1349,102 @@ check('casualties are not dearer than the walk they replace', pedNs < quietNs * 
   `${(pedNs / 1000).toFixed(0)} against ${(quietNs / 1000).toFixed(0)} us`);
 
 // ---------------------------------------------------------------------------
-console.log('\n' + '='.repeat(78));
+console.log('\n' + '='.repeat(78));/**
+ * 1d. THE AVOIDANCE RADIUS HAS TO COVER THE CAR'S BODY, and nothing asserted that.
+ *
+ * `avoidPlayer` pushed people out of the way from 1.6 m of the car's focus point while the body
+ * reaches 2.15 m, so a person standing between those two distances was geometrically INSIDE the car
+ * and got no push at all. Combined with the 2.2 m/s free threshold — which correctly refuses to
+ * knock them down — the result was nothing happening whatsoever: 60 s creeping at one person under
+ * the floor measured 764 frames with them inside the car body, deepest overlap 1.08 m, 0 knockdowns,
+ * 0 crimes, person still standing. `AVOID_R` fixed it and took that to 6 frames.
+ *
+ * A BLIND REVIEWER THEN SHOWED THE FIX WAS UNPINNED: reverting `AVOID_R` to the old 1.6 passed
+ * reaction-test's 141 checks, traffic-selftest's 55, damage-test's 136, physics-test's 20 and
+ * playtest --selftest's 72 — every gate in the offline list. I had measured the fix with a probe and
+ * never asserted it, which is CLAUDE.md's own "a probe that measures the OPPORTUNITY does not
+ * measure the FIX" with the roles reversed: the probe measured the fix and the GATE measured
+ * nothing.
+ *
+ * The relation is the check, because it is what the derivation says: the radius has to be at least
+ * the body's own enclosing radius, or there is a band inside the car that receives no push. The
+ * reaction margin on top is stated separately so a change to either is visible.
+ */
+console.log('\n§1d The avoidance radius covers the car body');
+{
+  console.log(`    AVOID_R ${AVOID_R} m; BODY_ENCLOSING ${BODY_ENCLOSING} m; ` +
+    `body half-length ${HALF_EXTENT.z} m; reach margin ${(AVOID_R - BODY_ENCLOSING).toFixed(2)} m`);
+  check('the avoidance radius reaches at least the whole car body',
+    AVOID_R >= BODY_ENCLOSING, `${AVOID_R} against ${BODY_ENCLOSING}`);
+  check('and it clears the body before the bumper arrives',
+    AVOID_R > HALF_EXTENT.z && AVOID_R - BODY_ENCLOSING > 0,
+    `${AVOID_R} against a ${HALF_EXTENT.z} m half-length`);
+  // KNOWN-BAD, stated as the arithmetic it is: the value this replaced leaves a band inside the car.
+  const OLD = 1.6;
+  const band = HALF_EXTENT.z - OLD;
+  console.log(`    the old 1.6 m radius left a ${band.toFixed(2)} m band inside the body with no push`);
+  check('KNOWN-BAD: the old radius left a band inside the body unpushed', band > 0.5,
+    `${band.toFixed(2)} m from ${OLD} m to the ${HALF_EXTENT.z} m half-length`);
+
+  /**
+   * AND IT SHOWS UP IN BEHAVIOUR, not only in arithmetic. A person is put directly ahead and the
+   * car's focus creeps at them below the free threshold, so no knockdown is possible and the push
+   * is the only thing that can happen. Counted: frames with the person's centre inside the body.
+   *
+   * Both radii are exercised by CONSTRUCTING two crowds and setting the radius each uses, rather
+   * than by editing the module — `avoidR` is read from the instance so this is the same code path.
+   */
+  const trial = (radius) => {
+    const p = new Pedestrians(scene, district, { count: 6, avoidPlayer: true });
+    for (let k = 0; k < 60; k++) p.update(DT, FOCUS);
+    p.avoidR = radius;
+    const i = p.positions()[0].i;
+    const ped = p.peds[i];
+    // Straight ahead of a car creeping along +z at 2.0 m/s, which is under PED_FREE_MS.
+    let cz = ped.z - 10;
+    const cx = ped.x;
+    let inside = 0, deepest = 0, frames = 0;
+    for (let k = 0; k < 1200; k++) {
+      cz += 2.0 * DT;
+      p.update(DT, { x: cx, z: cz });
+      frames++;
+      const d = Math.hypot(p.peds[i].x - cx, p.peds[i].z - cz);
+      if (d < HALF_EXTENT.z) { inside++; deepest = Math.max(deepest, HALF_EXTENT.z - d); }
+    }
+    return { inside, deepest, frames, down: p.stats.knockdowns };
+  };
+  const shipped = trial(AVOID_R);
+  const old = trial(1.6);
+  console.log(`    creeping at 2.0 m/s (under the ${PED_FREE_MS} m/s floor), ${shipped.frames} frames:`);
+  console.log(`      radius ${AVOID_R}: ${shipped.inside} frames inside the body, ` +
+    `deepest ${shipped.deepest.toFixed(2)} m, ${shipped.down} knockdowns`);
+  console.log(`      radius 1.6 : ${old.inside} frames inside the body, ` +
+    `deepest ${old.deepest.toFixed(2)} m, ${old.down} knockdowns`);
+  check('neither arm knocks anybody down, so the push is the only term moving',
+    shipped.down === 0 && old.down === 0, `${shipped.down} / ${old.down}`);
+  check('KNOWN-BAD: the old radius leaves the person inside the car', old.inside > 0,
+    `${old.inside} frames, deepest ${old.deepest.toFixed(2)} m`);
+  /**
+   * THE DEPTH IS THE QUANTITY, NOT THE FRAME COUNT, and the first version of this arm asserted the
+   * count and failed: 147 frames against 149. In a drive-THROUGH the car covers 40 m and keeps
+   * coming, so the person spends about the same time within a body length of it whatever the push
+   * does — the radius changes how far INSIDE they get, not how long they are near. The counts are
+   * printed above so nobody reaches for them again; the deepest overlap is what moves, 1.02 m to
+   * 0.65 m, and the 0.37 m of that is the push arriving before the bumper.
+   *
+   * The original probe that found the defect read 764 frames against 6, and that was a different
+   * arm: a car creeping AT someone and stopping, where the time near them is exactly what the push
+   * changes. Both are honest; only one of them is this one.
+   */
+  check('and the shipped radius keeps them meaningfully further out',
+    shipped.deepest < old.deepest * 0.75,
+    `deepest ${shipped.deepest.toFixed(2)} m against ${old.deepest.toFixed(2)} m`);
+  check('the frame count does NOT discriminate here, and is not asserted',
+    Math.abs(shipped.inside - old.inside) < old.inside * 0.1,
+    `${shipped.inside} against ${old.inside} — within 10%, which is why depth is the check`);
+}
+
+
 const failed = checks.filter((c) => !c.ok);
 for (const c of failed) console.log(`FAIL  ${c.name}${c.detail ? `  [${c.detail}]` : ''}`);
 if (failed.length) {

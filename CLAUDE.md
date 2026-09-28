@@ -700,6 +700,26 @@ where both kits rolled their own dice over the same wall for 275 m.
 - `blind-compare` refuses to build a pair set carrying under 8% facade-band
   signal, because two arms of the same build is a failure that looks like data.
 
+## Do not edit the tree a reviewer is measuring
+
+A blind playtester reported, mid-round: *"Same arm gave 6 crimes/1 star earlier and 9 crimes/2
+stars now, with knockdowns and distance byte-identical. Let me check determinism."* The
+observation was exact and the instinct was right, and the harness is fine — the same arm run
+three times in one process and three times in three processes gives crimes 4, stars 5, heat
+5.9900, knockdowns 1, distance 187.0707951521316, byte-identical every time.
+
+It was me. Two commits landed in `/home/user/gpta-6` while that agent was reading it: the crime
+scale, then `hitAndRun`. Both change what an offence COSTS and neither touches the physics, which
+is exactly the signature they described — the charge moved and the collision did not.
+
+The reviewer lost time on it and very nearly filed a determinism bug against a deterministic
+harness. **Give a reviewer a tree nothing else is writing to.** Copy the checkout, or brief them
+against a commit and have them check it out; a mutation reviewer already needs its own tree to
+mutate, so say so for the playtester too. And note the shape: their two runs disagreed in the
+quantity I had changed and agreed in every quantity I had not, which is a diff arriving
+underneath a measurement, not noise. A round that reads "the numbers moved and nothing I did
+moved them" should check `git log` on the tree before it checks the module.
+
 ## Orchestrating builders
 
 - **Do not remove a worktree you may still want to talk to.** Removing merged
