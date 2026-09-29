@@ -114,6 +114,7 @@ const out = await page.evaluate(async () => {
   };
 
   const rows = new Map();
+  const detail = new Map();
   const hooked = [];
   scene.traverse((o) => {
     if (!o.isMesh) return;
@@ -135,6 +136,27 @@ const out = await page.evaluate(async () => {
         const r = per.get(k) ?? { meshes: 0, tris: 0 };
         r.meshes++; r.tris += n;
         per.set(k, r); rows.set(fr, per);
+        // A bucket the tool cannot name is a bucket a reader cannot price, and
+        // 'unnamed' was 9.4% of this frame's colour pass when #52 went looking
+        // for 19,582 triangles. So record enough to identify the mesh itself:
+        // the parent chain, the instance count, and the material. Only for the
+        // buckets that failed to attribute, so the payload stays small.
+        if (k === 'unnamed' || k.startsWith('other:')) {
+          const chain = [];
+          for (let q = this; q && chain.length < 6; q = q.parent) {
+            chain.push(q.name || `<${q.type}>`);
+          }
+          const per2 = detail.get(fr) ?? [];
+          per2.push({
+            bucket: k, chain: chain.join(' < '),
+            tris: tris, instances: this.isInstancedMesh ? this.count : 1, drawn: n,
+            material: Array.isArray(this.material)
+              ? this.material.map((mm) => mm.type).join('+') : (this.material?.type ?? '?'),
+            geo: g.name || '', groups: g.groups ? g.groups.length : 0,
+            visible: this.visible, layers: this.layers?.mask ?? null,
+          });
+          detail.set(fr, per2);
+        }
       }
       if (prev) prev.apply(this, a);
     };
@@ -146,7 +168,8 @@ const out = await page.evaluate(async () => {
   // the last may be cut short by unhooking.
   const frames = [...rows.keys()].sort((a, b) => a - b);
   const pick = frames[Math.max(0, Math.min(frames.length - 1, 1))];
-  return { rows: [...(rows.get(pick) ?? new Map()).entries()], frames: frames.length, stats: renderStats() };
+  return { rows: [...(rows.get(pick) ?? new Map()).entries()], detail: detail.get(pick) ?? [],
+    frames: frames.length, stats: renderStats() };
 });
 await browser.close();
 if (errors.length) console.log(`page errors: ${errors.length} — ${errors[0]}`);
@@ -159,6 +182,17 @@ for (const [k, r] of rows) {
   console.log(`${k.padEnd(34)} ${String(r.meshes).padStart(5)}  ${String(Math.round(r.tris)).padStart(12)}  ${(100 * r.tris / drawn).toFixed(1).padStart(15)}%`);
 }
 console.log(`${'COLOUR PASS TOTAL'.padEnd(34)} ${String(rows.reduce((a, r) => a + r[1].meshes, 0)).padStart(5)}  ${String(Math.round(drawn)).padStart(12)}`);
+if (out.detail.length) {
+  console.log('\nWHAT THE TABLE COULD NOT NAME (every mesh in an unnamed/other row)');
+  console.log('   drawn tris  inst   material                    parent chain');
+  for (const d of out.detail.sort((a, b) => b.drawn - a.drawn)) {
+    console.log(`  ${String(Math.round(d.drawn)).padStart(10)} ${String(d.instances).padStart(6)}` +
+      `   ${d.material.padEnd(26)}  ${d.chain}`);
+  }
+  console.log('  A row here is geometry no subsystem claimed. Name the mesh in src/ and');
+  console.log('  it moves into a priced bucket; until then it is 100% of nobody\'s budget.');
+}
+
 const engine = out.stats.triangles;
 console.log(`\nengine counter (post.stats.sceneTriangles): ${engine}`);
 console.log(`shadow pass, by difference               : ${Math.round(engine - drawn)}  (${(100 * (engine - drawn) / Math.max(1, engine)).toFixed(1)}% of the gate's number)`);
@@ -168,6 +202,7 @@ if (process.env.TB_JSON) {
     query: process.env.TB_QUERY ?? '', tod: process.env.TB_TOD ?? 'default',
     shells: shellsBuilt, frames: out.frames,
     rows: rows.map(([k, r]) => ({ bucket: k, meshes: r.meshes, tris: Math.round(r.tris) })),
+    unattributed: out.detail,
     colourPass: Math.round(drawn), engine,
     shadowByDifference: Math.round(engine - drawn),
     drawCalls: out.stats.calls ?? null,

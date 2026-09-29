@@ -370,6 +370,12 @@ export class Traffic {
       m.castShadow = true;
       m.frustumCulled = false;
       m.count = perShell[sh];
+      // NAME the shell, because an unnamed mesh is invisible to every instrument
+      // that buckets by name. These three carried 31,548 triangles -- 9.4% of the
+      // colour pass -- into tri-breakdown's 'unnamed' row, and #52 spent a round
+      // hunting 19,582 triangles with the fleet sitting unattributed in the table
+      // the whole time. `glow` below was already named; this is its sibling.
+      m.name = `trafficCar:${shellNames()[sh]}`;
       scene.add(m);
       return m;
     });

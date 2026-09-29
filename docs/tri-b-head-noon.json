@@ -1,0 +1,168 @@
+{
+ "query": "",
+ "tod": "default",
+ "shells": {
+  "shells": 3,
+  "names": [
+   "coupe",
+   "saloon",
+   "wagon"
+  ]
+ },
+ "frames": 3,
+ "rows": [
+  {
+   "bucket": "street furniture + trees",
+   "meshes": 14,
+   "tris": 171917
+  },
+  {
+   "bucket": "pedestrians",
+   "meshes": 6,
+   "tris": 70416
+  },
+  {
+   "bucket": "signage",
+   "meshes": 5,
+   "tris": 46260
+  },
+  {
+   "bucket": "vehicles",
+   "meshes": 5,
+   "tris": 34092
+  },
+  {
+   "bucket": "facade trim (near LOD)",
+   "meshes": 2,
+   "tris": 5288
+  },
+  {
+   "bucket": "facade (near LOD)",
+   "meshes": 5,
+   "tris": 2698
+  },
+  {
+   "bucket": "other: shopSpill",
+   "meshes": 1,
+   "tris": 1428
+  },
+  {
+   "bucket": "other: shopSoffitGlow",
+   "meshes": 1,
+   "tris": 1360
+  },
+  {
+   "bucket": "kerbs (near LOD)",
+   "meshes": 3,
+   "tris": 1344
+  },
+  {
+   "bucket": "roads",
+   "meshes": 3,
+   "tris": 1171
+  },
+  {
+   "bucket": "other: playerLampSpill",
+   "meshes": 1,
+   "tris": 64
+  },
+  {
+   "bucket": "unnamed",
+   "meshes": 1,
+   "tris": 48
+  },
+  {
+   "bucket": "ground zones",
+   "meshes": 2,
+   "tris": 24
+  },
+  {
+   "bucket": "other: district",
+   "meshes": 2,
+   "tris": 4
+  },
+  {
+   "bucket": "sky dome",
+   "meshes": 1,
+   "tris": 1
+  }
+ ],
+ "unattributed": [
+  {
+   "bucket": "other: shopSpill",
+   "chain": "shopSpill < signage < <Scene>",
+   "tris": 1428,
+   "instances": 1,
+   "drawn": 1428,
+   "material": "MeshBasicMaterial",
+   "geo": "",
+   "groups": 0,
+   "visible": true,
+   "layers": 1
+  },
+  {
+   "bucket": "other: shopSoffitGlow",
+   "chain": "shopSoffitGlow < signage < <Scene>",
+   "tris": 1360,
+   "instances": 1,
+   "drawn": 1360,
+   "material": "MeshBasicMaterial",
+   "geo": "",
+   "groups": 0,
+   "visible": true,
+   "layers": 1
+  },
+  {
+   "bucket": "other: playerLampSpill",
+   "chain": "playerLampSpill < playerCar < <Scene>",
+   "tris": 64,
+   "instances": 1,
+   "drawn": 64,
+   "material": "MeshBasicMaterial",
+   "geo": "",
+   "groups": 0,
+   "visible": true,
+   "layers": 1
+  },
+  {
+   "bucket": "unnamed",
+   "chain": "<Mesh> < <Scene>",
+   "tris": 48,
+   "instances": 1,
+   "drawn": 48,
+   "material": "MeshBasicMaterial",
+   "geo": "",
+   "groups": 1,
+   "visible": true,
+   "layers": 1
+  },
+  {
+   "bucket": "other: district",
+   "chain": "<Mesh> < district < <Scene>",
+   "tris": 2,
+   "instances": 1,
+   "drawn": 2,
+   "material": "MeshStandardMaterial",
+   "geo": "",
+   "groups": 0,
+   "visible": true,
+   "layers": 1
+  },
+  {
+   "bucket": "other: district",
+   "chain": "<Mesh> < district < <Scene>",
+   "tris": 2,
+   "instances": 1,
+   "drawn": 2,
+   "material": "MeshStandardMaterial",
+   "geo": "",
+   "groups": 0,
+   "visible": true,
+   "layers": 1
+  }
+ ],
+ "colourPass": 336115,
+ "engine": 665979,
+ "shadowByDifference": 329864,
+ "drawCalls": 100
+}

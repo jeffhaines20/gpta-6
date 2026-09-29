@@ -309,14 +309,68 @@ console.log('\n=== 7. determinism, purity and cost');
   check('...and touches no THREE, window or document',
     !/\bTHREE\b|\bwindow\b|\bdocument\b/.test(code), 'none in code');
 
-  const r = new MissionRunner(); r.start(M);
-  const s = snap({ inVehicle: true, px: 100, wantedStars: 2, wantedState: 'active' });
-  const N = 200000;
-  const t0 = process.hrtime.bigint();
-  for (let i = 0; i < N; i++) r.update(DT, s);
-  const us = Number(process.hrtime.bigint() - t0) / 1000 / N;
-  check('update costs well under a frame', us < 5, `${us.toFixed(3)} us per update over ${N.toLocaleString()}`);
-  console.log(`   update(): ${us.toFixed(3)} us  —  ${(us / 16700 * 100).toFixed(5)}% of a 60 fps frame`);
+  // THE OLD BOUND HERE WAS `us < 5`, AND IT WAS A COIN FLIP ON BOX SPEED.
+  //
+  // Measured on one idle box, unchanged code, six runs: 4.861, 4.953, 5.111,
+  // 5.133, 5.366, 5.690 us. A hardcoded 5 sits inside that spread, so this gate
+  // failed about half the time and said "1 of 88" while nothing was wrong -- the
+  // same shape as `route-drive`'s seam assertion that held at one offset only.
+  // A microsecond figure is a statement about the machine; the CLAIM is "well
+  // under a frame", so the bound is restated as the fraction it means.
+  //
+  //   update() runs once per frame. A 60 Hz frame is 16,700 us. One percent of a
+  //   frame is 167 us, which is a bound a structural regression breaks and box
+  //   noise does not: the measurements above are 29-34x inside it.
+  //
+  // That is looser as a number and it is not a quiet loosening, because the thing
+  // the old check was really guarding gets asserted directly below instead, and it
+  // could not have been caught by any wall-clock bound: the runner must look at
+  // the ACTIVE stage, not at every stage. A linear scan over stages would cost
+  // ~68x more at 406 stages and still come in under a microsecond bound on a fast
+  // enough box.
+  const FRAME_US = 16700, FRAME_FRACTION = 0.01;
+  const timeUpdate = (mission, N = 200000) => {
+    const warm = new MissionRunner(); warm.start(mission);
+    const s = snap({ inVehicle: true, px: 100, wantedStars: 2, wantedState: 'active' });
+    for (let i = 0; i < 20000; i++) warm.update(DT, s);
+    const r = new MissionRunner(); r.start(mission);
+    const t0 = process.hrtime.bigint();
+    for (let i = 0; i < N; i++) r.update(DT, s);
+    return Number(process.hrtime.bigint() - t0) / 1000 / N;
+  };
+  const us = timeUpdate(M);
+  check('update costs well under a frame', us < FRAME_US * FRAME_FRACTION,
+    `${us.toFixed(3)} us is ${(us / FRAME_US * 100).toFixed(4)}% of a 60 fps frame,` +
+    ` against a ${(FRAME_FRACTION * 100).toFixed(0)}% bound (${FRAME_US * FRAME_FRACTION} us)`);
+
+  // Cost must not scale with the mission's TOTAL stage count. The fillers chain
+  // off the LAST stage so defineMission's reachability check passes and the active
+  // stage's own trigger list is untouched -- inflating that would measure a
+  // different question. Compared as a RATIO inside one process of the SAME
+  // operation, so box speed cancels; an absolute second number would not.
+  const inflate = (m, k) => {
+    const far = (i) => ({ kind: 'reach', x: 9000 + i, z: 9000, radius: 1 });
+    const extra = [];
+    for (let i = 0; i < k; i++) {
+      extra.push({ id: `filler${i}`, objective: 'X', subtitle: null,
+        triggers: [i + 1 < k ? { ...far(i), goto: `filler${i + 1}` }
+                             : { ...far(i), outcome: 'passed' }] });
+    }
+    const stages = m.stages.map((st, i) => (i === m.stages.length - 1
+      ? { ...st, triggers: [...st.triggers, { ...far(999), goto: 'filler0' }] } : st));
+    return defineMission({ ...m, id: `${m.id}-x${k}`, stages: [...stages, ...extra] });
+  };
+  const BIG = 400;
+  const big = inflate(M, BIG);
+  check(`inflating the mission to ${big.stages.length} stages is still validated`,
+    big.stages.length === M.stages.length + BIG + 1 || big.stages.length === M.stages.length + BIG,
+    `${M.stages.length} -> ${big.stages.length} stages`);
+  const usBig = timeUpdate(big, 100000);
+  const ratio = usBig / us;
+  check('...and update() does not scale with stage count', ratio < 2,
+    `${us.toFixed(3)} us at ${M.stages.length} stages vs ${usBig.toFixed(3)} us at` +
+    ` ${big.stages.length}: x${ratio.toFixed(2)} (a linear scan would be ~x${(big.stages.length / M.stages.length).toFixed(0)})`);
+  console.log(`   update(): ${us.toFixed(3)} us  —  ${(us / FRAME_US * 100).toFixed(5)}% of a 60 fps frame`);
 }
 
 // ---------------------------------------------------------------------------

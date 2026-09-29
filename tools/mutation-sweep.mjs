@@ -230,6 +230,22 @@ const MUTATIONS = [
     to: '  arm(id) { return this; }',
     why: 'aborting a mission on its own marker restarts it immediately',
   },
+  {
+    /**
+     * BEHAVIOUR-PRESERVING AND LINEAR IN THE MISSION'S TOTAL SIZE. The list is built over
+     * every stage and then filtered back down to the active stage's own triggers, so every
+     * outcome is identical and only the cost moves. It exists because mission-test's cost
+     * check used to be `us < 5` on a box where unchanged code measures 4.861 to 5.690 - a
+     * bound like that catches this mutation at 7.04 us on THIS box and passes it on a box
+     * 1.5x faster, while failing correct code half the time here. The replacement compares
+     * 4 stages against 404 inside one process, which is a ratio of the same operation, so
+     * box speed cancels: x7.89 against a x2 bound.
+     */
+    id: 'stage-scan', file: 'src/mission.js',
+    find: '    const list = Array.isArray(s.triggers) ? s.triggers : [];',
+    to: '    const list = (this.mission.stages ?? []).flatMap((q) => (Array.isArray(q.triggers) ? q.triggers : [])).filter((t) => (Array.isArray(s.triggers) ? s.triggers : []).includes(t));',
+    why: 'the runner scans every stage every frame; cost grows with the mission, not the stage',
+  },
   // ---- src/roadpath.js
   {
     id: 'sine-cap', file: 'src/roadpath.js',
