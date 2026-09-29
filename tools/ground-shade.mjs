@@ -643,12 +643,18 @@ async function setSubject(page, which, on) {
     const D = __district, P = D.pedestrians();
     if (w === 'proxy') { D._gsProxy.visible = want; return { proxy: D._gsProxy.visible }; }
     const i = D._gsPedIdx;
+    // THE FAR TIER IS PACKED: ped i's torso/head/limb instances live at _farAt[i],
+    // not at i. `shadows` is NOT packed and stays keyed by ped. Every far-tier
+    // address below -- save, blank, restore and the read-back that proves the arm
+    // took -- has to use the same slot, or the arm blanks one body and reads
+    // another's scale back as evidence it worked.
+    const fs = P._farAt ? P._farAt[i] : i;
     const zero = new THREE.Matrix4().makeScale(0, 0, 0);
     if (!want) {
       D._gsSaved = {
-        torso: P.torsos.instanceMatrix.array.slice(i * 16, i * 16 + 16),
-        head: P.heads.instanceMatrix.array.slice(i * 16, i * 16 + 16),
-        limbs: P.limbs.instanceMatrix.array.slice(i * 8 * 16, i * 8 * 16 + 16 * 8),
+        torso: P.torsos.instanceMatrix.array.slice(fs * 16, fs * 16 + 16),
+        head: P.heads.instanceMatrix.array.slice(fs * 16, fs * 16 + 16),
+        limbs: P.limbs.instanceMatrix.array.slice(fs * 8 * 16, fs * 8 * 16 + 16 * 8),
         blob: P.shadows ? P.shadows.instanceMatrix.array.slice(i * 16, i * 16 + 16) : null,
         ns: P._nearSlot[i],
         near: null,
@@ -663,14 +669,14 @@ async function setSubject(page, which, on) {
         P.nearTorsos.setMatrixAt(ns, zero); P.nearHeads.setMatrixAt(ns, zero);
         for (let k = 0; k < 14; k++) P.nearLimbs.setMatrixAt(ns * 14 + k, zero);
       }
-      P.torsos.setMatrixAt(i, zero); P.heads.setMatrixAt(i, zero);
+      P.torsos.setMatrixAt(fs, zero); P.heads.setMatrixAt(fs, zero);
       if (P.shadows) P.shadows.setMatrixAt(i, zero);
-      for (let k = 0; k < 8; k++) P.limbs.setMatrixAt(i * 8 + k, zero);
+      for (let k = 0; k < 8; k++) P.limbs.setMatrixAt(fs * 8 + k, zero);
     } else if (D._gsSaved) {
       const s = D._gsSaved;
-      P.torsos.instanceMatrix.array.set(s.torso, i * 16);
-      P.heads.instanceMatrix.array.set(s.head, i * 16);
-      P.limbs.instanceMatrix.array.set(s.limbs, i * 8 * 16);
+      P.torsos.instanceMatrix.array.set(s.torso, fs * 16);
+      P.heads.instanceMatrix.array.set(s.head, fs * 16);
+      P.limbs.instanceMatrix.array.set(s.limbs, fs * 8 * 16);
       if (P.shadows && s.blob) P.shadows.instanceMatrix.array.set(s.blob, i * 16);
       if (s.near && s.ns >= 0) {
         P.nearTorsos.instanceMatrix.array.set(s.near.torso, s.ns * 16);
@@ -683,7 +689,7 @@ async function setSubject(page, which, on) {
     }
     // Read back the torso's scale so the caller can PROVE the arm took.
     const t = P.torsos.instanceMatrix.array;
-    return { pedScaleX: +Math.hypot(t[i * 16], t[i * 16 + 1], t[i * 16 + 2]).toFixed(4) };
+    return { pedScaleX: +Math.hypot(t[fs * 16], t[fs * 16 + 1], t[fs * 16 + 2]).toFixed(4) };
   }, [which, on]);
 }
 

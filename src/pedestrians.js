@@ -592,6 +592,23 @@ export class Pedestrians {
     // --- state
     this.peds = new Array(this.count).fill(null);
     this._shown = new Uint8Array(this.count);
+    // THE FAR TIER IS PACKED. An InstancedMesh bills every instance below `count`,
+    // so hiding a ped with a zero-scale matrix stops it being SEEN and not being
+    // PAID for -- and both tiers cast shadows, so it was paid for twice.
+    // tools/crowd-bill.mjs measured 7,392 triangles of that at the frame the budget
+    // gate's p95 selects, which x2.00 (tools/shadow-bill.mjs, pedestrians row) is
+    // 14,784 of the gate's number.
+    //
+    // So the drawn range is a PREFIX: slots [0, _farLive) hold exactly the peds the
+    // far tier should draw, and a ped leaving the far tier swaps with the last live
+    // slot rather than leaving a hole. Swap-remove, not compaction: colours are
+    // written once per spawn, so rewriting them every frame would be a new per-frame
+    // upload, while a swap touches two peds and happens only when near membership
+    // changes.
+    this._farAt = new Int16Array(this.count);     // ped index -> far slot
+    this._farOf = new Int16Array(this.count);     // far slot  -> ped index
+    for (let i = 0; i < this.count; i++) { this._farAt[i] = i; this._farOf[i] = i; }
+    this._farLive = 0;                            // nothing is spawned yet
     // Which near-pool slot each ped holds, or -1. Packed 0..nearLive-1 so the
     // near meshes can submit exactly the instances that are in use.
     this._nearSlot = new Int16Array(this.count).fill(-1);
@@ -1334,7 +1351,8 @@ export class Pedestrians {
       this._appearance(ped);
       ped.lateral = this._laneOf(ped);
       this.peds[i] = ped;
-      this._writeColors(i, ped);
+      // The COLOURS are keyed by far slot, not by ped index -- see _farSwap.
+      this._writeColors(this._farAt[i], ped);
       this.stats.spawns++;
       return true;
     }
@@ -1367,6 +1385,48 @@ export class Pedestrians {
   }
 
   // Empty slots collapse to a zero-scale matrix, the same trick traffic uses.
+  // ------------------------------------------------------- the packed far tier
+  /**
+   * Exchange the far slots of two peds, carrying their colours with them.
+   *
+   * Matrices are rewritten every frame anyway, so only the COLOURS have to move
+   * here -- and they have to, because instanceColor is indexed by slot and a ped's
+   * shirt and skin are its identity. Getting this wrong does not misplace a body,
+   * it dresses the wrong one, which is why crowd-bill checks the colour at each
+   * drawn slot against the ped that slot holds.
+   */
+  _farSwap(a, b) {
+    if (a === b) return;
+    const pa = this._farOf[a], pb = this._farOf[b];
+    this._farOf[a] = pb; this._farOf[b] = pa;
+    if (pa >= 0) this._farAt[pa] = b;
+    if (pb >= 0) this._farAt[pb] = a;
+    if (pb >= 0 && this.peds[pb]) this._writeColors(a, this.peds[pb]);
+    if (pa >= 0 && this.peds[pa]) this._writeColors(b, this.peds[pa]);
+  }
+
+  /** Put ped `i` inside the drawn prefix. */
+  _farShow(i) {
+    const s = this._farAt[i];
+    if (s < this._farLive) return;
+    this._farSwap(s, this._farLive);
+    this._farLive++;
+  }
+
+  /** Take ped `i` out of the drawn prefix. */
+  _farHide(i) {
+    const s = this._farAt[i];
+    if (s >= this._farLive) return;
+    this._farSwap(s, this._farLive - 1);
+    this._farLive--;
+  }
+
+  _syncFarCounts() {
+    this.torsos.count = this._farLive;
+    this.heads.count = this._farLive;
+    this.limbs.count = this._farLive * 8;
+  }
+
   // Written once on the transition, not every frame: an idle slot should cost
   // nothing at all.
   _hide(i) {
@@ -1382,9 +1442,14 @@ export class Pedestrians {
     }
     if (!this._shown[i]) return;
     this._shown[i] = 0;
-    this.torsos.setMatrixAt(i, this._hidden);
-    this.heads.setMatrixAt(i, this._hidden);
-    for (let k = 0; k < 8; k++) this.limbs.setMatrixAt(i * 8 + k, this._hidden);
+    // The zero-scale write still happens, because the slot this ped is about to
+    // give up may be inside the prefix a moment later holding somebody else's
+    // stale matrix for one frame. It is one write on a transition, not per frame.
+    const s = this._farAt[i];
+    this.torsos.setMatrixAt(s, this._hidden);
+    this.heads.setMatrixAt(s, this._hidden);
+    for (let k = 0; k < 8; k++) this.limbs.setMatrixAt(s * 8 + k, this._hidden);
+    this._farHide(i);
   }
 
   // ------------------------------------------------------------------ update
@@ -1645,6 +1710,15 @@ export class Pedestrians {
     // walking pace: a ped covers 25 mm in a 60 Hz frame, against a 6 m hysteresis
     // band.
     this._assignNearLod(fx, fz);
+    // RECONCILE THE PACKED FAR TIER against the near tier just chosen. One pass over
+    // the population rather than a hook on every transition: the update loop is
+    // already O(count) and a scattered set of enter/leave hooks is how a packed
+    // array quietly stops being a permutation. _farShow and _farHide are both no-ops
+    // when the ped is already on the right side, so this costs a comparison a ped.
+    for (let i = 0; i < this.count; i++) {
+      if (this.peds[i] && this._nearSlot[i] < 0) this._farShow(i);
+      else this._farHide(i);
+    }
     let slots = SPAWN_SLOTS_PER_FRAME;
     for (let i = 0; i < this.count && slots > 0; i++) {
       if (this.peds[i]) continue;
@@ -1869,6 +1943,7 @@ export class Pedestrians {
     this.torsos.instanceMatrix.needsUpdate = true;
     this.heads.instanceMatrix.needsUpdate = true;
     this.limbs.instanceMatrix.needsUpdate = true;
+    this._syncFarCounts();
     this._syncNearCounts();
     if (this._colorDirty) {
       for (const m of [this.torsos, this.heads, this.limbs]) {
@@ -1953,12 +2028,17 @@ export class Pedestrians {
     const torsoMesh = near ? this.nearTorsos : this.torsos;
     const headMesh = near ? this.nearHeads : this.heads;
     const limbMesh = near ? this.nearLimbs : this.limbs;
-    const tSlot = near ? ns : i;
+    // The far tier is PACKED, so a ped's far slot is _farAt[i], not i.
+    const fSlot = this._farAt[i];
+    const tSlot = near ? ns : fSlot;
     if (near) {
-      // ...and the far tier must not draw it a second time.
-      this.torsos.setMatrixAt(i, this._hidden);
-      this.heads.setMatrixAt(i, this._hidden);
-      for (let k = 0; k < 8; k++) this.limbs.setMatrixAt(i * 8 + k, this._hidden);
+      // ...and the far tier must not draw it a second time. It is now outside the
+      // drawn prefix as well, so this write is belt and braces for the one frame
+      // between a slot changing hands and its new owner writing itself -- which is
+      // why it addresses fSlot and not i.
+      this.torsos.setMatrixAt(fSlot, this._hidden);
+      this.heads.setMatrixAt(fSlot, this._hidden);
+      for (let k = 0; k < 8; k++) this.limbs.setMatrixAt(fSlot * 8 + k, this._hidden);
     }
 
     this._qy.setFromAxisAngle(this._axisY, yaw);
@@ -1997,7 +2077,7 @@ export class Pedestrians {
 
     // --- limbs. Each shank/forearm hangs off the tip of the bone above it, so
     // the chain never comes apart however the joints are driven.
-    const base = near ? ns * NEAR_SLOTS : i * 8;
+    const base = near ? ns * NEAR_SLOTS : fSlot * 8;
     const hipYW = rootY + hipY, shYW = rootY + shY;
     const t = this._tipOut;
 

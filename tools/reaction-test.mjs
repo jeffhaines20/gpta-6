@@ -69,7 +69,12 @@ function fleet(count = 8, frames = 120) {
  * and its far slot is set to the hidden matrix, whose determinant is zero.
  */
 function poseOf(p, i) {
-  const ns = p._nearSlot[i], near = ns >= 0, slot = near ? ns : i;
+  // The FAR tier is packed, so ped i's far slot is _farAt[i]. These five checks are
+  // the ones that caught the packing change, which is what they are for: they assert
+  // the DRAWN pose rather than the module's own bookkeeping, so an indexing error
+  // shows up here as a body that never fell.
+  const ns = p._nearSlot[i], near = ns >= 0;
+  const slot = near ? ns : (p._farAt ? p._farAt[i] : i);
   const M = new (p._m.constructor)();
   (near ? p.nearTorsos : p.torsos).getMatrixAt(slot, M);
   const t = M.elements.slice();

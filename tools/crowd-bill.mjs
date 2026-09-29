@@ -53,6 +53,45 @@ function hiddenAt(mesh, i, m = new THREE.Matrix4(), v = new THREE.Vector3()) {
   return !(v.x > 1e-6 && v.y > 1e-6 && v.z > 1e-6);
 }
 
+/**
+ * Does the colour at each drawn far slot belong to the ped that slot holds?
+ *
+ * This is the invariant swap-remove can break and nothing else can see. Matrices are
+ * rewritten every frame, so a swap that moved the matrix and not the colour would
+ * place every body correctly and dress the wrong one -- a defect that looks like
+ * art direction, not like a bug.
+ */
+export function colourIdentity(crowd) {
+  if (!crowd.torsos.instanceColor || !crowd.heads.instanceColor) return { checked: 0, wrong: 0 };
+  const c = new THREE.Color(), want = new THREE.Color();
+  let checked = 0, wrong = 0;
+  for (let s = 0; s < crowd.torsos.count; s++) {
+    const i = crowd._farOf ? crowd._farOf[s] : s;
+    const ped = crowd.peds[i];
+    if (!ped) continue;
+    checked++;
+    crowd.torsos.getColorAt(s, c); want.setHex(ped.shirt);
+    if (Math.abs(c.r - want.r) + Math.abs(c.g - want.g) + Math.abs(c.b - want.b) > 1e-4) { wrong++; continue; }
+    crowd.heads.getColorAt(s, c); want.setHex(ped.skin);
+    if (Math.abs(c.r - want.r) + Math.abs(c.g - want.g) + Math.abs(c.b - want.b) > 1e-4) wrong++;
+  }
+  return { checked, wrong };
+}
+
+/** Are _farAt and _farOf mutually inverse over the whole population? */
+export function permutationOk(crowd) {
+  if (!crowd._farAt) return { ok: true, slots: 0, note: 'not packed' };
+  const n = crowd.count;
+  const seen = new Uint8Array(n);
+  let bad = 0;
+  for (let i = 0; i < n; i++) {
+    const s = crowd._farAt[i];
+    if (s < 0 || s >= n || crowd._farOf[s] !== i || seen[s]) bad++;
+    else seen[s] = 1;
+  }
+  return { ok: bad === 0, bad, slots: n };
+}
+
 export function bill(crowd) {
   const far = [crowd.torsos, crowd.heads, crowd.limbs];
   const near = [crowd.nearTorsos, crowd.nearHeads, crowd.nearLimbs];
@@ -119,11 +158,14 @@ function report() {
     ` bodies the near tier is already drawing`);
   console.log(`  crowd total    ${b.total} triangles, of which ${b.wasted}` +
     ` (${(100 * b.wasted / Math.max(1, b.total)).toFixed(1)}%) is invisible`);
+  const perm = permutationOk(crowd), col = colourIdentity(crowd);
+  console.log(`  packing: ${perm.ok ? 'a permutation' : `BROKEN, ${perm.bad} bad slots`}` +
+    `, colours ${col.wrong === 0 ? 'match' : `WRONG on ${col.wrong}`} of ${col.checked} drawn slots`);
   console.log(`\ncoverage: ${c.farOnly} far-only, ${c.nearOnly} near-only,` +
     ` ${c.bothVisible} drawn TWICE, ${c.neitherVisible} drawn NOWHERE`);
   console.log(`  (both and neither must be 0: a ped drawn twice is a double image and a ped`);
   console.log(`   drawn nowhere is a hole in the crowd. Neither is about the triangle count.)`);
-  const fail = c.bothVisible || c.neitherVisible;
+  const fail = c.bothVisible || c.neitherVisible || !perm.ok || col.wrong;
   if (fail) { console.log('\nCROWD BILL: FAIL — the tier split is not a partition'); process.exit(1); }
   console.log('\nCROWD BILL: the tier split is a partition; the waste figure above is the lever.');
 }
@@ -161,15 +203,39 @@ function selftest() {
   ok(bo.wasted === 0, '...so the waste is exactly 0, not a leftover', `${bo.wasted}`);
   ok(co.bothVisible === 0 && co.neitherVisible === 0, '...and it is still a partition');
 
-  console.log('4. KNOWN BAD: hiddenAt must not call a VISIBLE instance hidden');
-  // If the scale test were inverted or its epsilon wrong, every figure above would
-  // be nonsense in the flattering direction: waste would read 0 and the lever would
-  // look absent. So assert it both ways on instances whose state is known.
+  console.log('4. the far tier is PACKED: nothing inside the drawn range is invisible');
+  ok(b.hiddenInRange === 0, 'no drawn far instance is hidden', `${b.hiddenInRange}`);
+  ok(b.drawnFar === crowd.peds.filter(Boolean).length - b.nearLive,
+    'and the drawn count is alive minus near-held',
+    `${b.drawnFar} against ${crowd.peds.filter(Boolean).length} - ${b.nearLive}`);
+  // hiddenAt still needs its POSITIVE case exercised, or the two checks above pass
+  // for the most flattering possible reason: a predicate that never says "hidden"
+  // reports no waste whatever the code does. A near-held ped's own far slot sits
+  // outside the prefix and is written with the zero scale, so it is the known-hidden
+  // instance this check needs.
+  const THREE2 = THREE, mm = new THREE2.Matrix4(), vv = new THREE2.Vector3();
+  let outsideHidden = 0, outsideChecked = 0;
+  for (let i = 0; i < crowd.count; i++) {
+    if (!crowd.peds[i] || crowd._nearSlot[i] < 0) continue;
+    outsideChecked++;
+    if (hiddenAt(crowd.torsos, crowd._farAt[i], mm, vv)) outsideHidden++;
+  }
+  ok(outsideChecked > 0 && outsideHidden === outsideChecked,
+    'and a near-held ped\'s own far slot, outside the prefix, does read hidden',
+    `${outsideHidden}/${outsideChecked}`);
   const nOff = bill(off).hiddenInRange;
-  ok(nOff === 0, 'with no near tier, no drawn far instance reads hidden', `${nOff}`);
-  ok(b.hiddenInRange === b.nearLive,
-    'and with a near tier, exactly the near-held peds read hidden',
-    `${b.hiddenInRange} hidden against ${b.nearLive} near`);
+  ok(nOff === 0, 'with no near tier at all, nothing reads hidden either', `${nOff}`);
+
+  console.log('4b. the packing is a permutation, and it carries the colours');
+  const perm = permutationOk(crowd);
+  ok(perm.ok, '_farAt and _farOf are mutually inverse over all slots',
+    `${perm.bad ?? 0} bad of ${perm.slots}`);
+  const col = colourIdentity(crowd);
+  ok(col.checked > 0, 'the colour check reads something', `${col.checked} slots`);
+  ok(col.wrong === 0, '...and every drawn slot wears the shirt and skin of the ped it holds',
+    `${col.wrong} wrong of ${col.checked}`);
+  const permOff = permutationOk(off);
+  ok(permOff.ok, 'and with the near tier off it is still a permutation');
 
   console.log('5. and the total moves the way the tiers say it should');
   ok(b.total === b.farBill + b.nearBill, 'total is the two tiers summed');

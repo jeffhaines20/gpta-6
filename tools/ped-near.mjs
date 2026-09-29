@@ -198,15 +198,21 @@ const boxes = await page.evaluate(() => {
     return new V(M.elements[12], M.elements[13], M.elements[14]); };
   const proj = (v) => { const q = v.clone().project(cam);
     return { x: (q.x * 0.5 + 0.5) * 1600, y: (-q.y * 0.5 + 0.5) * 900 }; };
-  const head = at(P.heads, 0);
-  const hipL = at(P.limbs, 0);
-  const kneeL = at(P.limbs, 1);
-  const kneeR = at(P.limbs, 3);
+  // THE FAR TIER IS PACKED, so ped 0's far slot is _farAt[0], not 0. It happens to
+  // still be 0 here because this tool writes the pose directly and never runs
+  // update(), which is what reconciles the packing -- correct by luck is not the
+  // same as correct, and the next tool to call update() first would read a
+  // different pedestrian's knee.
+  const fs = P._farAt ? P._farAt[0] : 0;
+  const head = at(P.heads, fs);
+  const hipL = at(P.limbs, fs * 8 + 0);
+  const kneeL = at(P.limbs, fs * 8 + 1);
+  const kneeR = at(P.limbs, fs * 8 + 3);
   // Ankle from the shank's own matrix: a bone's far end is pivot - LIMB_BASE *
   // (its second basis column), because that column is the rotated Y axis times
   // the y scale, and the y scale IS len / LIMB_BASE. No bone length needed.
   const shankMid = (() => {
-    P.limbs.getMatrixAt(1, M);
+    P.limbs.getMatrixAt(fs * 8 + 1, M);
     const e = M.elements;
     const kx = e[12], ky = e[13], kz = e[14];
     const ax = kx - 0.5 * e[4], ay = ky - 0.5 * e[5], az = kz - 0.5 * e[6];

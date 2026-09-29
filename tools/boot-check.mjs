@@ -113,6 +113,18 @@ if (state.global && state.frames > 2) {
       board: d.missionBoard ? d.missionBoard() : null,
       wreck: d.wreckReport ? d.wreckReport() : null,
       chunks: d.world ? d.world.report().chunksLoaded : null,
+      // The crowd's PACKED far tier, read off the live page. crowd-bill proves the
+      // arithmetic offline; this is the only place that says the running game draws
+      // it, which is the "check the path from the outside" rule.
+      tiers: (() => {
+        const P = d.pedestrians ? d.pedestrians() : null;
+        if (!P || !P._farAt) return null;
+        let alive = 0;
+        for (const q of P.peds) if (q) alive++;
+        return { alive, nearLive: P._nearLive ?? 0, farCount: P.torsos.count,
+          headCount: P.heads.count, limbCount: P.limbs.count,
+          nearCount: P.nearTorsos.count };
+      })(),
     };
   });
   console.log(`  ${JSON.stringify(live)}`);
@@ -121,6 +133,21 @@ if (state.global && state.frames > 2) {
     `${live.tris} triangles`);
   check('chunks streamed in', live.chunks === null || live.chunks > 0, `${live.chunks}`);
   check('the crowd is alive', live.crowd === null || live.crowd > 0, `${live.crowd} people`);
+  if (live.tiers) {
+    const t = live.tiers;
+    check('the far tier draws alive minus near-held, not everybody',
+      t.farCount === t.alive - t.nearLive,
+      `${t.farCount} drawn = ${t.alive} alive - ${t.nearLive} near`);
+    check('...and its three meshes agree with each other',
+      t.headCount === t.farCount && t.limbCount === t.farCount * 8,
+      `torsos ${t.farCount}, heads ${t.headCount}, limbs ${t.limbCount}`);
+    check('...and the near tier draws exactly the peds holding a near slot',
+      t.nearCount === t.nearLive, `${t.nearCount} against ${t.nearLive}`);
+    // A packing that never packs anything would pass all three above, so say whether
+    // the saving is actually being taken on this page.
+    check('and the near tier is populated here, so the packing is doing something',
+      t.nearLive > 0, `${t.nearLive} near, saving ${t.nearLive * 616} triangles`);
+  }
   check('the fleet is alive', live.fleet === null || live.fleet > 0, `${live.fleet} cars`);
   // The jobs a player can start. A board with nothing on it is the defect the playtest round
   // found: two authored missions reachable only from the browser console.

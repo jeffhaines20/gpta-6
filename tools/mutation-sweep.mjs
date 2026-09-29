@@ -55,6 +55,7 @@ const OFFLINE = [
   'check-syntax', 'geom-audit', 'golden-trace', 'physics-test', 'leaf-mask', 'wanted-test',
   'mission-test', 'damage-test', 'blocker-test', 'crash-test', 'roadpath-test', 'route-drive',
   'reaction-test', 'sim-determinism', 'traffic-selftest', 'hud-cue',
+  'crowd-bill --selftest',
 ];
 
 /**
@@ -114,6 +115,31 @@ const MUTATIONS = [
     why: 'traffic routes onto roads a car body cannot fit down',
   },
   // ---- src/pedestrians.js
+  {
+    /**
+     * NOTHING VISIBLE CHANGES. Every body is still drawn in exactly the right place with
+     * exactly the right pose -- the far tier simply goes back to submitting an invisible
+     * instance for each near-held ped, which is 7,392 triangles at the frame the budget
+     * gate's p95 selects and x2.00 in the gate's own number. A screenshot cannot see it and
+     * neither can any pose assertion; only a bill can.
+     */
+    id: 'far-pack', file: 'src/pedestrians.js',
+    find: '    if (s >= this._farLive) return;',
+    to: '    if (true) return;',
+    why: 'the far tier bills an invisible body for every near-held ped again',
+  },
+  {
+    /**
+     * The swap carries indices and not colours, so every drawn body is in the right place
+     * wearing somebody else's shirt. This is the defect that looks like art direction
+     * rather than a bug, and crowd-bill's colour-identity check is the only thing in the
+     * list that can see it.
+     */
+    id: 'far-colour', file: 'src/pedestrians.js',
+    find: '    if (pb >= 0 && this.peds[pb]) this._writeColors(a, this.peds[pb]);',
+    to: '    if (false && this.peds[pb]) this._writeColors(a, this.peds[pb]);',
+    why: 'a packed slot keeps the previous occupant\'s shirt and skin',
+  },
   {
     id: 'avoid-r', file: 'src/pedestrians.js',
     find: 'export const AVOID_R = 2.86;',
@@ -323,8 +349,13 @@ const tracked = (f) => {
 function runGate(name) {
   const t0 = Date.now();
   let out = '', rc = 0;
+  // A gate may carry its own flags -- `crowd-bill --selftest` is one tool and one
+  // argument, not a file called "crowd-bill --selftest.mjs". Without this split the
+  // entry silently becomes an ENOENT, which exits non-zero and would have read as
+  // "caught by crowd-bill" for every single mutation in the table.
+  const [tool, ...flags] = name.split(/\s+/);
   try {
-    out = execFileSync('node', [`tools/${name}.mjs`], {
+    out = execFileSync('node', [`tools/${tool}.mjs`, ...flags], {
       cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 600000,
     });
   } catch (e) {
