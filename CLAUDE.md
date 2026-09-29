@@ -69,6 +69,153 @@ less than one that says what moved and by how much.
   components cannot merge two pieces that share no vertices, or split one that
   does.
 
+## A geometry price is not a frame price: x2.00 for anything the sun can see
+
+Every price this project has quoted is a GEOMETRY count: 157 doors are +3,780
+triangles, the awning round saved 5,562, a traffic car is 1,050, the fleet is
++1,560. The budget gate reads `renderer.info`, which counts an object once in the
+colour pass and **again in every shadow map that contains it** — `src/post.js`
+takes `info.autoReset` itself precisely so that it does.
+
+`tools/shadow-bill.mjs` measures the factor per subsystem by turning a subsystem's
+casters off and asking the renderer what it stopped drawing. At noon, default
+camera:
+
+    subsystem                  drawn      shadow    x bill   fwd/back apart
+    pedestrians                83,952     83,639    x2.00     2.7%
+    vehicles                   36,984     37,124    x2.00     2.8%
+    signage                    46,260     46,701    x2.01    34%   <- weak
+    facade trim (near LOD)     15,708     15,233    x1.97     0.0%
+    street furniture + trees  171,917     70,467    x1.41     0.4%
+    roads, kerbs, spill, sky        —          0    x1.00    no casters
+    WHOLE FRAME               491,351    232,415    x1.473
+
+**So a triangle added to the crowd, the fleet, the signage or the facade trim
+costs exactly two in the gate's number.** Street furniture is x1.41 because much
+of it — distant oaks — lies outside the sun's shadow frustum, and the non-casting
+rows are free. The whole-frame x1.473 is the content-weighted average and is the
+wrong number to price a change with; use the row.
+
+This is most of why #52's session ledger of ~+2,600 would not reconcile with
+~+24,000 of gate: the ledger was in the wrong units. Done in the right ones it
+closes to 87%:
+
+    buildings, resident 5x5 NEAR window   +2,436 x~2      +4,800
+    signage, resident share of +6,362     +2,602 x2.01    +5,230
+    traffic fleet, +52 a car x 30         +1,560 x2.00    +3,120
+    crowd near tier, seed against seed      +533 x2.00    +1,066
+    night spill meshes, no casters        +2,788 x1.00    +2,788
+                                                        -------
+                                                         +17,004
+    measured structurally by gate-align                  +19,582
+
+**And the other half is that a district-wide price is not a per-frame price.**
+`frontage-stats` prices the whole district; only the resident chunks are in the
+frame, and the worst 5x5 NEAR window on the route is 137,885 of 337,148 — 40.9%.
+A change spread over all 523 footprints reaches the frame at four tenths of its
+district figure, and then doubles. Say which of the three numbers you mean.
+
+### Seven versions of that tool, and what each wrong one looked like
+
+Worth writing down because every wrong version printed a plausible table and its
+own cross-check is the only thing that stopped it.
+
+1. **The colour pass by walking the SCENE GRAPH.** Street furniture walks 398,010
+   against 171,917 submitted, so every denominator was wrong; the summed shadow
+   disagreed with the total by 184% and the tool refused.
+2. **Colour and counter read on DIFFERENT frames** while the district grew between
+   them: the counter went 700,120 -> 762,717 over a two-minute sweep, 8.94%,
+   because `streaming.js` budgets uploads against the wall clock and a 20 s settle
+   is not the streamer's quiet. Refused at 64%.
+3. **A settle on the streamer's own quiet** fixed the drift in the colour pass to
+   exactly 0 and the control still read 62.7%, because the hooks and the caster
+   list were installed BEFORE the settle: one stale traverse, two symptoms — the
+   hooked colour froze while the engine's climbed past it, and the casters added
+   during the settle were never toggled.
+4. **Re-hooking every read** got it to 66.5% and no further. The hooked walk still
+   came in 115,990 short of what the renderer drew, because the streamer swaps
+   meshes even once the COUNTER has gone quiet: a quiet counter means the triangle
+   total is stable, not that the mesh set is.
+5. **The fix was to stop using the hooked walk as the denominator at all.**
+   `castShadow` does not change the colour pass, so with every caster off the
+   ENGINE'S OWN COUNTER is the colour pass — one instrument on both sides of the
+   ratio, and it reproduces to 0.24% across three runs (491,016 / 492,166 /
+   491,351). Using the hooked figure had inflated the whole-frame ratio to
+   x1.93-2.05 where it is x1.47.
+
+**And the obvious cross-check was circular.** The forward sweep's per-bucket diffs
+add up to `base - allOff` BY CONSTRUCTION, so comparing the sum with the total is
+the same quantity twice — the trap this file already records under the shunt-fit
+ladder. What is independent is a second PROTOCOL: re-measuring the biggest bucket
+with a standalone four-read ABBA gave 83,952 against the sweep's 83,639, 0.4%
+apart. That is the check worth keeping, and the per-row forward/backward spread is
+what says which rows the drift beat — signage's two readings are 34% apart and its
+x2.01 should not be leaned on.
+
+## An unnamed mesh is invisible to every instrument that buckets by name
+
+`tri-breakdown` reported an `unnamed` row of 31,548 triangles, 9.4% of the colour
+pass, in four draws — and #52 spent a round hunting 19,582 triangles with that row
+sitting in the table the whole time. It was the traffic fleet: 30 instances at
+1,050 across three shell meshes. `traffic.js` named `glow` and never named its
+siblings, so `/car|vehicle|traffic/` missed them.
+
+The fix is one line, and the check that it is only a relabelling is that **the
+colour-pass total does not move**: vehicles 2 draws / 2,592 -> 5 / 34,092,
+unnamed 4 / 31,548 -> 1 / 48, total 336,115 both times.
+
+`tools/tri-buckets.mjs` is now the single definition of the buckets, with its own
+self-test, because `shadow-bill` needs the same ones and copying the regexes into
+a second `page.evaluate` is the recurring shape of defect here. Name a mesh when
+you add it; an instrument that cannot attribute a tenth of its own number should
+at least say what it could not attribute, which that tool now does.
+
+## The drive IS a registered pair, and the p95 subtraction overstated the growth
+
+Both `drive-through` artifacts carry `x`, `z`, `near` and `far` **per sample**, so
+the comparison this project could not make was available all along. The two runs
+drive the same 2,654 m course and every sample in one lands a **median of 0.10 m**
+from a sample in the other (p95 0.41, max 0.54). Matching by position instead of
+by percentile holds camera, route and resident set fixed:
+
+    p95 subtraction, 828,184 -> 852,605                +24,421
+    matched position, 86 pairs, p50                    +19,978
+    and residency held too (same near/far), 81 pairs   +19,582   <- structural
+    misregistration error a typical pair can hide          69
+
+4,839 of that delta was the sampler. `tools/gate-align.mjs` does this, reports
+whether a claim clears its own misregistration bound rather than assuming it, and
+refuses a pair that does not register. It also prints what index pairing would
+have said, because index pairing on runs of 92 and 89 samples compares different
+ground — the same defect as pairing hero-shots frames by index rather than by name.
+
+**Two confounds it exposed, both of which read as growth.** The crowd's geometry
+is IDENTICAL between the two commits, mesh for mesh, 59,136 as built and 86,208
+at capacity — `tri-breakdown`'s +11,280 on the pedestrians row is the spawn-point
+fix (#66) putting the default camera on a populated street, and replaying each
+artifact's own course offline through the crowd the near tier differs by +533 on
+the mean with identical p25/p50/p75/max. And a fixed-camera `tri-breakdown` pair
+across those commits is **not** a controlled pair: roads went 12 draws to 3 and
+ground zones 11 to 2, so the two runs held different resident sets, and 31,548 of
+its apparent delta is the fleet existing on the plain page at all.
+
+## The daynight-sweep delta was near-tier pedestrians, and the 2:1 split was the shadow pass
+
+CLAUDE.md spent a long section on `daynight-sweep` losing **9,024 triangles at
+noon, golden and dusk and 4,512 at night** and concluded only that "the delta is
+in what was resident or in frame when each run fired". The quantity is now named.
+Two runs of UNCHANGED code at HEAD, same camera, same hour, differ by exactly
+4,512 in the pedestrians row with every other row byte-identical to the unit —
+furniture 171,917, signage 46,260, vehicles 34,092, roads 1,171 — and the total
+moves by exactly that.
+
+`src/pedestrians.js`'s near tier costs **2,256 triangles a ped**, which is its own
+documented figure. 4,512 is two peds. 9,024 is two peds billed twice, which is
+what daylight does: the sun's shadow map contains them and at night it does not.
+So both numbers are the same two pedestrians standing inside 24 m of the camera in
+one run and not the other, and the 2:1 split that looked like evidence of
+structure is the factor of two above.
+
 ## Numbers that are not what they look like
 
 - **The budget gate's triangle count carries ~20k of run-to-run noise** from
@@ -849,14 +996,50 @@ ELSEWHERE on the same course — one frame of reference, which survives a change
 offset — plus a separate reversal test. Both are printed with the course's own worst
 turn beside them.
 
+The same shape in a TIMING bound. `mission-test` asserted `us < 5` on a 200,000
+iteration microbenchmark, and unchanged code on one idle box measures 4.861,
+4.953, 5.111, 5.133, 5.366 and 5.690 us — the bound sits *inside* its own
+measurement spread, so the gate failed about half the time and read "1 of 88"
+with nothing wrong. I first assumed contention from a headless browser and was
+wrong; it reproduced on an idle box three times running, which is the thing to
+check before explaining a reading away.
+
+A microsecond figure is a statement about the MACHINE. The claim was "well under a
+frame", so the bound is now the fraction it means — 1% of a 16,700 us frame, which
+the measurements are 29 to 34x inside — and the property the bound was really
+guarding is asserted directly instead, because no wall-clock number can see it:
+**cost must not scale with the mission's total stage count.** 4 stages against 404
+in one process, x1.07 against a x2 bound, where a linear scan would be x101. That
+comparison is a ratio of the SAME operation inside one process, so box speed
+cancels; a ratio against a different kind of work does not — a calibration kernel
+measured 20.91, 22.53 and 20.00 ns on this box, a 12% spread of its own, and
+dividing one noisy timing by another is worse than either.
+
+Note which way the numbers move: the absolute bound got 33x looser and the gate
+got stronger. `mutation-sweep`'s `stage-scan` is the proof — behaviour-preserving,
+linear in the mission's size, caught at x7.89 while passing the absolute bound at
+7.043 us. The old `us < 5` would have caught it on THIS box and passed it on one
+1.5x faster.
+
 ## Gates
 
 `check-syntax`, `geom-audit`, `golden-trace`, `physics-test`, `daynight-sweep`,
 `budget` (`drive-through --traffic`), `leaf-mask`, `wanted-test`, `mission-test`,
 `damage-test`, `blocker-test`, `crash-test`, `roadpath-test`, `route-drive`,
 `reaction-test`, `sim-determinism`, `traffic-selftest`, `hud-cue`,
-`playtest --selftest`.
+`crowd-bill --selftest`, `tri-buckets --selftest`, `gate-align --selftest`,
+`mutation-sweep --selftest`, `playtest --selftest`.
 The offline ones together take under a minute.
+
+`shadow-bill` needs a browser and takes about seven minutes; it is how a change is
+priced in the units the gate reads, and its header records five wrong versions.
+`crowd-bill` asserts that the two pedestrian tiers are a PARTITION — no ped drawn
+twice, none drawn nowhere — which is the invariant any change to the tier split has
+to keep, and it prints the far tier's invisible submissions beside it.
+`tri-buckets` is the one definition of the subsystem buckets that `tri-breakdown`
+and `shadow-bill` both inject. `gate-align` and `mutation-sweep` are comparators
+rather than gates, but their self-tests belong on the list because both are
+load-bearing for what a round is allowed to claim.
 
 `hud-cue` is the only gate that looks at what `src/hud.js` DRAWS. Everything else over
 that module tests pure functions — `composeBand`'s five tenants, the marker styles, the

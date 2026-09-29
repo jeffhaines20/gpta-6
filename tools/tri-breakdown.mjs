@@ -32,6 +32,7 @@
 import { chromium } from 'playwright';
 import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
+import { bucketSource } from './tri-buckets.mjs';
 
 const PORT = Number(process.env.TB_PORT ?? 8123);
 await ensureServer(PORT);
@@ -82,36 +83,14 @@ console.log(`shells built: ${JSON.stringify(shellsBuilt)}`);
 // hooking that is not a model of the render, it IS the render. The shadow pass
 // does not call it, so the shadow share falls out as the difference against the
 // engine's own counter rather than being estimated.
-const out = await page.evaluate(async () => {
+const out = await page.evaluate(async ({ bSrc }) => {
+  // The bucketing is injected from tools/tri-buckets.mjs rather than written here,
+  // so this tool and tools/shadow-bill.mjs cannot drift apart. That module carries
+  // the notes on why each regex is what it is, and a self-test over the two bugs
+  // this table has already had: the streamer key holds a comma, and an unnamed mesh
+  // must read 'unnamed' because the detail table below keys on exactly that string.
+  const bucketOf = new Function(`return (${bSrc})`)();
   const { scene, renderStats } = window.__district;
-  const bucketOf = (o) => {
-    let n = o, name = '';
-    while (n) { if (n.name) { name = n.name; break; } n = n.parent; }
-    // Streamer meshes are named chunk:<key>:lod<N>:<part>, so the PART is the
-    // last segment. Bucketing on the first non-empty name put every one of them
-    // in its own row and buried the answer.
-    // chunk:<key>:lod<N>:<part> -- the key holds a comma, not a colon, so the
-    // part is everything from the fourth segment on. Slicing from the third left
-    // 'lod1:road' and every regex below missed, scattering the streamer's meshes
-    // into a dozen 'other:' rows.
-    const part = /^chunk:/.test(name) ? name.split(':').slice(3).join(':') : name;
-    if (/^facade/.test(part)) return 'facade (near LOD)';
-    if (/^trim/.test(part)) return 'facade trim (near LOD)';
-    if (/^far/.test(part)) return 'buildings (far LOD)';
-    if (/^road/.test(part)) return 'roads';
-    // The kerb's asphalt half rides in the road mesh; this is the concrete half
-    // (gutter pan, face, top, chamfer), one mesh per near chunk. Without its own
-    // row it lands in 'other: kerb' and the one thing a reader wants to price is
-    // the one thing the table does not name.
-    if (/^kerb/.test(part)) return 'kerbs (near LOD)';
-    if (/^zone/.test(part)) return 'ground zones';
-    if (/furniture|prop/i.test(name)) return 'street furniture + trees';
-    if (/sign/i.test(name)) return 'signage';
-    if (/ped|crowd|character/i.test(name)) return 'pedestrians';
-    if (/car|vehicle|traffic|pursuit/i.test(name)) return 'vehicles';
-    if (/sky|dome/i.test(name)) return 'sky dome';
-    return name ? `other: ${part || name}` : 'unnamed';
-  };
 
   const rows = new Map();
   const detail = new Map();
@@ -170,7 +149,7 @@ const out = await page.evaluate(async () => {
   const pick = frames[Math.max(0, Math.min(frames.length - 1, 1))];
   return { rows: [...(rows.get(pick) ?? new Map()).entries()], detail: detail.get(pick) ?? [],
     frames: frames.length, stats: renderStats() };
-});
+}, { bSrc: bucketSource });
 await browser.close();
 if (errors.length) console.log(`page errors: ${errors.length} — ${errors[0]}`);
 

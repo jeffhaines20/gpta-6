@@ -1,0 +1,153 @@
+{
+ "tod": "default",
+ "colour": 491351,
+ "engine": 723766,
+ "shadowTotal": 232415,
+ "control": {
+  "allOff": 491351,
+  "restored": 764766,
+  "hookedFloor": 375361,
+  "drift": 41000
+ },
+ "abba": {
+  "bucket": "pedestrians",
+  "value": 83952,
+  "sweep": 83638.5,
+  "reads": [
+   764766,
+   680814,
+   680814,
+   764766
+  ]
+ },
+ "rows": [
+  {
+   "bucket": "pedestrians",
+   "casters": 6,
+   "meshes": 6,
+   "drawn": 83952,
+   "fwd": 82510,
+   "back": 84767,
+   "shadow": 83638.5,
+   "disagree": 2257
+  },
+  {
+   "bucket": "street furniture + trees",
+   "casters": 13,
+   "meshes": 48,
+   "drawn": 171917,
+   "fwd": 70338,
+   "back": 70596,
+   "shadow": 70467,
+   "disagree": 258
+  },
+  {
+   "bucket": "signage",
+   "casters": 8,
+   "meshes": 8,
+   "drawn": 46260,
+   "fwd": 38867,
+   "back": 54534,
+   "shadow": 46700.5,
+   "disagree": 15667
+  },
+  {
+   "bucket": "vehicles",
+   "casters": 6,
+   "meshes": 7,
+   "drawn": 36984,
+   "fwd": 36602,
+   "back": 37646,
+   "shadow": 37124,
+   "disagree": 1044
+  },
+  {
+   "bucket": "facade trim (near LOD)",
+   "casters": 7,
+   "meshes": 7,
+   "drawn": 15708,
+   "fwd": 15233,
+   "back": 15233,
+   "shadow": 15233,
+   "disagree": 0
+  },
+  {
+   "bucket": "facade (near LOD)",
+   "casters": 17,
+   "meshes": 17,
+   "drawn": 9962,
+   "fwd": -3584,
+   "back": 9252,
+   "shadow": 2834,
+   "disagree": 12836
+  },
+  {
+   "bucket": "unnamed",
+   "casters": 14,
+   "meshes": 16,
+   "drawn": 48,
+   "fwd": -7551,
+   "back": 1387,
+   "shadow": -3082,
+   "disagree": 8938
+  }
+ ],
+ "noCasters": [
+  {
+   "bucket": "other: district",
+   "meshes": 2,
+   "drawn": 4
+  },
+  {
+   "bucket": "roads",
+   "meshes": 13,
+   "drawn": 3516
+  },
+  {
+   "bucket": "kerbs (near LOD)",
+   "meshes": 9,
+   "drawn": 3960
+  },
+  {
+   "bucket": "ground zones",
+   "meshes": 11,
+   "drawn": 97
+  },
+  {
+   "bucket": "buildings (far LOD)",
+   "meshes": 2,
+   "drawn": 100
+  },
+  {
+   "bucket": "sky dome",
+   "meshes": 1,
+   "drawn": 1
+  },
+  {
+   "bucket": "other: rain",
+   "meshes": 1,
+   "drawn": 0
+  },
+  {
+   "bucket": "other: rain-splashes",
+   "meshes": 1,
+   "drawn": 0
+  },
+  {
+   "bucket": "other: shopSpill",
+   "meshes": 1,
+   "drawn": 1428
+  },
+  {
+   "bucket": "other: shopSoffitGlow",
+   "meshes": 1,
+   "drawn": 1360
+  },
+  {
+   "bucket": "other: playerLampSpill",
+   "meshes": 1,
+   "drawn": 64
+  }
+ ],
+ "summed": 252915
+}
