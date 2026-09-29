@@ -15,7 +15,7 @@
 //   node tools/mutation-sweep.mjs --browser       also run boot-check where a mutation asks
 //   node tools/mutation-sweep.mjs --selftest      prove the harness itself
 //
-// LAST FULL RUN, `--browser`, at bb1ade0: **caught 28, MISSED 0, inert 1, stale 0, of 29.**
+// LAST FULL RUN, `--browser`, at 5fa3a6d: **caught 31, MISSED 0, inert 1, stale 0, of 32.**
 // Each mutation was caught by the gate that should own it — traffic-selftest for the lane and
 // junction rules, reaction-test for the crowd, damage-test for the charge, wanted-test for the
 // wanted ladder and the victim window, physics-test for the vehicle, hud-cue for anything drawn,

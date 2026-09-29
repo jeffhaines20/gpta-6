@@ -152,6 +152,73 @@ apart. That is the check worth keeping, and the per-row forward/backward spread 
 what says which rows the drift beat — signage's two readings are 34% apart and its
 x2.01 should not be leaned on.
 
+## Hiding an instance is not the same as not paying for it
+
+`src/pedestrians.js` hid a near-held pedestrian's far-tier instance with a
+zero-scale matrix, under a comment saying "the far tier must not draw it a second
+time". That is visually correct and it is a different statement from "the far tier
+must not BILL it a second time": an InstancedMesh submits every instance below
+`count`, `count` was fixed at the population size, and both tiers set `castShadow`,
+so each near-held ped cost 616 triangles of nothing in the colour pass and 616 more
+in the sun's shadow map.
+
+    far tier            96 slots      85 slots
+    drawing nothing     6,776 tris    0
+    crowd total         83,952        77,176      -8.1%
+
+The lever is worth taking because of WHERE it lands, not how big it is. Replayed
+along the budget gate's own drive, the frame its p95 selects holds twelve near peds,
+so the saving there is 7,392 geometry and x2.00 of that in the gate's number —
+14,784 of the 22,605 the tree is over its warn. Far-tier waste over the top tenth of
+frames is saturated at 7,392 while its median over all frames is 1,848: a reduction
+that only moved the median could not touch a near-maximum statistic at all.
+
+**Swap-remove, not compaction, and the reason is the colour.** Matrices are
+rewritten every frame, so moving them is free; `instanceColor` is written once per
+spawn, so a compaction that renumbered every slot each frame would have added a
+per-frame upload that did not exist. A swap touches two peds and only when near
+membership changes. And the reconcile is ONE pass over the population after the near
+tier is chosen, not hooks on every transition — a scattered set of enter/leave hooks
+is how a packed array quietly stops being a permutation.
+
+**The defect a packed array invites is not a misplaced body, it is a misdressed
+one.** A swap that carries the index and not the colour draws every body in exactly
+the right place wearing somebody else's shirt, which reads as art direction rather
+than as a bug. `crowd-bill` checks the colour at each drawn slot against the ped
+that slot holds, and `mutation-sweep`'s `far-colour` is that mutation; nothing else
+in the list sees it.
+
+**And `far-pack` is the mutation to remember.** It reverts the packing, and NOTHING
+VISIBLE CHANGES — every body is drawn in the right place with the right pose, and
+the far tier simply goes back to submitting an invisible instance per near-held ped.
+No screenshot and no pose assertion can see it. Only a bill can, which is why the
+bill is a committed tool and on the offline list.
+
+`crowd-bill`'s old check `hiddenInRange === nearLive` was a statement about the
+unpacked behaviour and correctly failed. It was REPLACED rather than deleted,
+because it was carrying something the replacement needs: it exercised `hiddenAt`'s
+POSITIVE case. Without that, "nothing inside the drawn range is invisible" passes
+for the most flattering possible reason — a predicate that never says "hidden"
+reports no waste whatever the code does. A near-held ped's own far slot sits outside
+the prefix and is written with the zero scale, so that is the known-hidden instance
+the check now uses.
+
+**Three tools indexed far instances by pedestrian number and all three had to move
+with it**, which is the recurring shape here. `reaction-test` caught the change
+itself, failing 5 of 148 with "the drawn torso is on its side" reading 0.0 degrees —
+those five checks exist to assert the DRAWN pose rather than the module's own
+bookkeeping, and an indexing change is exactly what they notice. `ground-shade` had
+four addresses to move, including the read-back that PROVES its arm took: leave that
+one behind and the arm blanks one body and reads another's scale as evidence it
+worked. `ped-near` was correct by luck — it writes a pose directly and never calls
+`update()`, so the permutation was still the identity.
+
+And one trap in the sweep itself: `runGate` built `tools/${name}.mjs`, so adding
+`crowd-bill --selftest` to its list produced a file called
+`"crowd-bill --selftest.mjs"`. That is an ENOENT, ENOENT exits non-zero, and
+non-zero is how the sweep spells "caught" — so every mutation in the table would
+have reported itself caught by a gate that never ran.
+
 ## An unnamed mesh is invisible to every instrument that buckets by name
 
 `tri-breakdown` reported an `unnamed` row of 31,548 triangles, 9.4% of the colour
