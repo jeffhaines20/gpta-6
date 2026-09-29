@@ -152,6 +152,49 @@ apart. That is the check worth keeping, and the per-row forward/backward spread 
 what says which rows the drift beat — signage's two readings are 34% apart and its
 x2.01 should not be leaned on.
 
+## The budget gate's p95 is comparable WITHIN a session, and the spread across sessions is 17,173
+
+This is the correction that matters most for anything the gate is asked to arbitrate,
+and it was found by trying to confirm a change the gate should have been able to see.
+The packed far tier removes a deterministic 14,784 triangles from the gate's own units
+at a high-occupancy frame. Three runs:
+
+    run                              samples   distance   triangle p95
+    baseline, earlier session          89       3,112 m      852,605
+    today, packing ON                  95       3,300 m      869,561
+    today, packing OFF (control)       87       2,272 m      869,778
+
+**Two different builds, back to back on one box, differ by 217. The same billing
+measured in two different sessions differs by 17,173.** The gate is dominated by
+session state, not by the build.
+
+The mechanism is visible in the same table: **the drive does not traverse the same
+course twice.** It runs a fixed number of frames, so how far it gets depends on how
+much sim time each frame carried, and the distance driven over one nominal 2,654 m
+route came out at 2,272, 3,112 and 3,300 m — a spread of 45%. The sampler therefore
+fires at different arc positions, and `tools/gate-align.mjs` refuses both pairs:
+21.1% of the same-box arms register against each other, 6.3% of the cross-session
+pair. The earlier clean-box triple that measured a spread of 934 had `frames 89 89
+89` — it was three runs that happened to share a cadence, inside one session, and
+**934 is a within-session figure, not the gate's precision.**
+
+Two consequences to carry:
+
+- **The WARN is real and its MAGNITUDE is not a stable number.** 852,605 against an
+  830,000 warn is over by 22,605; the same billing today reads 869,778, over by
+  39,778. Both are over. Neither figure is the tree's triangle count in any sense
+  that survives a session boundary.
+- **Do not ask the gate to confirm a change under ~20,000 across sessions.** Price it
+  offline (`crowd-bill`, `frontage-stats`, `tri-breakdown`), convert to the gate's
+  units with the subsystem's own multiplier (`shadow-bill`), and assert the result
+  where it is deterministic. The packing's saving is asserted by `crowd-bill` offline
+  and by `boot-check` on the live page precisely because the gate cannot see it.
+
+And a smaller trap, paid for in a seven-minute run: **`drive-through` writes to a
+fixed path and ignores `--json`.** Passing one silently overwrote the committed
+baseline artifact with the new run — recoverable from git, and only because the
+overwrite was noticed. Copy the artifact out after the run; do not expect a flag.
+
 ## Hiding an instance is not the same as not paying for it
 
 `src/pedestrians.js` hid a near-held pedestrian's far-tier instance with a
@@ -299,10 +342,15 @@ structure is the factor of two above.
       min   562,399   562,399   562,399     spread      0
       frames    89        89        89
 
-  A spread of 934 resolves a ~1,900-triangle change. The "~20k of run-to-run
-  noise" below was measured while other agents' browsers were alive, and it is a
-  statement about CONTENTION, not about the gate. Clean the box and the gate
-  becomes a usable instrument.
+  **RESTATED: 934 is a WITHIN-SESSION figure.** Note `frames 89 89 89` — those three
+  runs shared a cadence, and the drive does not traverse the same course twice. The
+  same billing measured in another session read 869,778 over 87 samples and 2,272 m,
+  against this triple's 3,112 m: a p95 spread of 17,173. See "The budget gate's p95
+  is comparable WITHIN a session" above before using 934 for anything. The "~20k of
+  run-to-run noise" below was measured while other agents' browsers were alive and is
+  a statement about CONTENTION; clean the box and the gate becomes precise *for the
+  rest of that session*, which is not the same as comparable against an artifact from
+  a different one.
 
   This cost a wrong conclusion. A WARN at 851,836 was explained away as sampling
   noise on the strength of that 20k figure, with an arithmetic ledger showing the
