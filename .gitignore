@@ -115,3 +115,7 @@ docs/shots/r5c-*.png
 docs/shots/r5f-*.png
 docs/shots/r5ab-r5albOnly-*.png
 docs/shots/r5ab-r5frontOnly-*.png
+
+# tools/mutation-sweep.mjs holds this while it runs, so two instances cannot share the
+# working tree and revert each other mid-gate. Never committed.
+.mutation-sweep.lock
