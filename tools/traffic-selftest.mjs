@@ -555,16 +555,44 @@ console.log('\n7b. the fleet brakes for the player, at every dt, seed and fleet 
   const DTS = [1 / 60, 1 / 120, 1 / 50, 1 / 20];
   console.log('    dt        body closest   overlaps   gridlock.none   leaderFrames');
   let worstBody = Infinity, totalOverlaps = 0, totalNone = 0;
+  const bodies = [];
   for (const dt of DTS) {
     const a = arm({ dt });
     worstBody = Math.min(worstBody, a.body);
+    bodies.push(a.body);
     totalOverlaps += a.overlaps; totalNone += a.none;
     console.log(`    ${dt.toFixed(5)}   ${a.body.toFixed(2).padStart(10)}   ` +
       `${String(a.overlaps).padStart(8)}   ${String(a.none).padStart(13)}   ${a.leader}`);
   }
   check('no dt lets a car touch a parked player', totalOverlaps === 0, `${totalOverlaps} overlaps`);
-  check('and the gap is the same at every dt, which is what an equilibrium looks like',
-    worstBody > 2, `worst body separation ${worstBody.toFixed(2)} m`);
+  /**
+   * THE LABEL SAID "THE SAME AT EVERY dt" AND THE ASSERTION WAS A FLOOR, which is not the same
+   * statement and is why a revert walked through it. `tools/mutation-sweep.mjs` put
+   * `_playerGap`'s `along > CAR_LENGTH` back to `along > 0` — the defect that made a car drawing
+   * level with the player read a bumper gap of -4.4 m and brake at 28x the free-road acceleration
+   * — and every gate in the offline list passed, because a car that slams to a halt beside the
+   * player does not OVERLAP it and the gap stays over 2 m. The behaviour is wrong and both
+   * predicates were satisfied.
+   *
+   * What the fix actually alters is the dt-INVARIANCE of the settled gap. Measured at the time:
+   *
+   *     dt          1/60   1/120   1/50   1/20
+   *     before      1.83    1.83   1.83   1.83   (the player term removed entirely)
+   *     partial     6.29    2.03   2.03   2.46   (`along > 0`)
+   *     shipped     6.29    6.29   6.29   6.29
+   *
+   * So the check is the SPREAD, and the floor stays beside it as a separate statement. The spread
+   * bound is a fraction of the gap rather than an absolute, because the gap is an equilibrium of
+   * the IDM term and a re-tune should move it without failing this.
+   */
+  const spread = Math.max(...bodies) - Math.min(...bodies);
+  const rel = spread / Math.min(...bodies);
+  console.log(`    body separation across dt: ${bodies.map((b) => b.toFixed(2)).join(' ')} ` +
+    `-> spread ${spread.toFixed(3)} m = ${(rel * 100).toFixed(1)}% of the smallest`);
+  check('the gap is an equilibrium, so it is the SAME at every dt, not merely above a floor',
+    rel < 0.05, `spread ${spread.toFixed(3)} m, ${(rel * 100).toFixed(1)}% of ${Math.min(...bodies).toFixed(2)}`);
+  check('and that gap clears both bodies', worstBody > 2,
+    `worst body separation ${worstBody.toFixed(2)} m`);
   // KNOWN-BAD: the term removed. The reviewer's own control, and it must fail the same test.
   const off = arm({ noTerm: true });
   console.log(`    the player term removed:  body ${off.body.toFixed(2)} m, ` +
@@ -635,6 +663,56 @@ console.log('\n7b. the fleet brakes for the player, at every dt, seed and fleet 
    * that range is ~0.014 m/s^2 — but `playerLeaderFrames` is this gate's "the mechanism fired"
    * counter, so it was a probe measuring the opportunity rather than the fix.
    */
+  /**
+   * THE 4 km ARM DOES NOT TEST THE RANGE BOUND, which is why removing the bound passed this file.
+   * `_playerGap` rejects on THREE things in order: the player must be more than a car length ahead
+   * ALONG the lane, within the lateral corridor, and inside `PLAYER_WATCH_M`. A player 4 km off the
+   * network fails the lateral test, so the range bound is never reached and the mutation sweep's
+   * `return gap;` — the 50 m bound deleted — read as caught by nothing.
+   *
+   * ISOLATING IT needs a player who passes the first two tests and only the third: standing ON a
+   * lane's own centreline, far down the same edge. Then the lateral distance is ~0 and the range is
+   * the only thing that can refuse. The arm asserts the gap it BUILT so it cannot quietly become
+   * another lateral rejection.
+   */
+  {
+    // A long edge, and a point on its centreline well beyond the watch range.
+    const probe = new Traffic(scene, district, { count: 1 });
+    probe.clearAt = (x, z, r) => !ix.resolveCircle(x, z, r);
+    let best = null;
+    for (let i = 0; i < district.edges.length; i++) {
+      const len = probe._len(i);
+      if (len < 160) continue;
+      const a = probe._pointOn(i, true, 4), b = probe._pointOn(i, true, len - 4);
+      if (a && b) { best = { i, len, a, b }; break; }
+    }
+    if (!best) {
+      check('a long edge exists to isolate the range bound on', false, 'none over 160 m');
+    } else {
+      const lane = probe._laneOffset(best.i, true);
+      const nx = -best.a.dz, nz = best.a.dx;
+      // The player, on the lane the car at `a` is driving, `along` metres ahead of it.
+      const at = (along) => {
+        const p = probe._pointOn(best.i, true, 4 + along);
+        return { x: p.x + nx * lane, z: p.z + nz * lane };
+      };
+      const gapAt = (along) => {
+        const q = at(along);
+        return probe._playerGap(best.a, lane, q.x, q.z, best.a.dx, best.a.dz);
+      };
+      const near = gapAt(30), far2 = gapAt(140);
+      console.log(`    on edge ${best.i} (${best.len.toFixed(0)} m), player ON the lane:`);
+      console.log(`      30 m ahead  -> gap ${Number.isFinite(near) ? near.toFixed(2) + ' m' : 'Infinity'}`);
+      console.log(`      140 m ahead -> gap ${Number.isFinite(far2) ? far2.toFixed(2) + ' m' : 'Infinity'}`);
+      // The arm has to prove it got PAST the lateral test, or it is measuring that instead.
+      check('a player standing in the lane 30 m ahead IS a leader, so the arm clears the corridor',
+        Number.isFinite(near) && near > 0, `${near}`);
+      check('and the same player 140 m ahead is refused by the RANGE bound alone',
+        !Number.isFinite(far2), `${far2}`);
+      check('the two differ only in distance along one lane, nothing else',
+        Math.abs(near - (30 - 4.4)) < 1.5, `near gap ${near.toFixed(2)} against 30 m minus a car`);
+    }
+  }
   check('and is nobody\'s leader, at any distance', far.stats.playerLeaderFrames === 0,
     `${far.stats.playerLeaderFrames} frames`);
 }

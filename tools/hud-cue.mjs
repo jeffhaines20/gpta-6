@@ -24,7 +24,7 @@
 //      drawn in a THEME colour, so it is identified by fill.
 //
 //   node tools/hud-cue.mjs
-import { THEME } from '../src/hud.js';
+import { THEME, composeBand, MINIMAP_ZOOM_M, MINIMAP_REACH_M } from '../src/hud.js';
 
 const checks = [];
 const check = (name, ok, detail) => { checks.push({ name, ok: !!ok, detail }); return !!ok; };
@@ -240,6 +240,90 @@ check('and at the cap it is critical', at(0.25).arm?.fill === THEME.healthCrit,
 check('the colour depends on the magnitude, not the direction',
   at(0.06).arm?.fill === at(-0.06).arm?.fill,
   `${at(0.06).arm?.fill} / ${at(-0.06).arm?.fill}`);
+
+/**
+ * THE OBJECTIVE BAND'S PRIORITY ORDER, WALKED AS A LADDER — because testing it one tenant at a
+ * time asserts nothing about priority, and that is what was happening.
+ *
+ * `composeBand` has five tenants and one order: wreck, fence, mission, ended, offer. Every check
+ * over it supplied ONE of them and asserted that one won, which is true for any order whatsoever.
+ * `tools/mutation-sweep.mjs` reversed the order to `offer ?? ended ?? mission ?? fence ?? wreck`
+ * and nothing in the 16-gate offline list or playtest --selftest noticed: with only a wreck set,
+ * `pick` is the wreck under both orders.
+ *
+ * So: supply ALL FIVE, assert the winner, remove it, assert the next, down to nothing. A reversed
+ * or shuffled order cannot survive that, and the ladder is printed so the order is legible rather
+ * than implied by five separate checks.
+ */
+console.log('\nOBJECTIVE BAND — the priority order, as a ladder');
+{
+  const all = {
+    wreck: { objective: 'THE CAR IS WRECKED', subtitle: 'a replacement in 4 s' },
+    fence: { objective: 'TURN BACK', subtitle: 'the district ends here' },
+    mission: { objective: 'DRIVE TO THE MARKER', subtitle: 'Five Points' },
+    ended: { objective: 'JOB DONE', subtitle: null },
+    offer: { objective: 'SHAKEDOWN', subtitle: 'two markers by the bayfront' },
+  };
+  const ORDER = ['wreck', 'fence', 'mission', 'ended', 'offer'];
+  const live = { ...all };
+  const walked = [];
+  for (const expect of ORDER) {
+    const band = composeBand(live);
+    walked.push(band.from);
+    console.log(`    ${Object.keys(live).length} tenant(s) live -> "${band.from}" ` +
+      `("${band.objective}")`);
+    check(`with ${Object.keys(live).join(', ')} live the band is the ${expect}`,
+      band.from === expect, `${band.from}`);
+    delete live[expect];
+  }
+  const empty = composeBand(live);
+  console.log(`    none live -> ${JSON.stringify(empty)}`);
+  check('the ladder came down in exactly the declared order', walked.join(' > ') === ORDER.join(' > '),
+    walked.join(' > '));
+  check('and with nothing live the band is empty, not a stale line',
+    empty.from === null && empty.objective === null && empty.subtitle === null,
+    JSON.stringify(empty));
+  // Every tenant must be distinguishable, or the ladder could pass by returning one of them twice.
+  check('the five tenants carry five different objectives',
+    new Set(ORDER.map((k) => all[k].objective)).size === 5, 'all distinct');
+
+  /**
+   * AND THE FENCE KEEPS A RUNNING MISSION'S SUBTITLE. Driving a live mission outside the world
+   * fence replaced both lines with TURN BACK while `mission.update()` kept running, so the job was
+   * still live with nothing on screen saying so. The mutation sweep dropped that rule and nothing
+   * noticed either — the existing fence check supplies no mission, so the branch never ran.
+   */
+  const outside = composeBand({ fence: all.fence, mission: all.mission });
+  console.log(`    fence + live mission -> "${outside.objective}" / "${outside.subtitle}"`);
+  check('the fence takes the objective, because turning back is the only actionable thing',
+    outside.from === 'fence' && outside.objective === all.fence.objective, outside.objective);
+  check('and the mission keeps the subtitle, so the job is not silently invisible',
+    typeof outside.subtitle === 'string' && outside.subtitle.includes(all.mission.objective),
+    `${outside.subtitle}`);
+  // Without a mission the fence keeps its own subtitle — the rule is conditional, not a rewrite.
+  const alone = composeBand({ fence: all.fence });
+  check('a fence with no mission behind it keeps its own subtitle',
+    alone.subtitle === all.fence.subtitle, `${alone.subtitle}`);
+}
+
+/**
+ * THE MINIMAP'S REACH IS HALF ITS ZOOM, and nothing asserted the relation. The sweep set
+ * `MINIMAP_REACH_M` to 1e9 — every job on the board becoming a blip from anywhere in the district
+ * — and all 16 offline gates and playtest --selftest passed, because the only consumer filters by
+ * whatever the constant says and agrees with itself by construction.
+ *
+ * The reach is half the zoom because the minimap draws a box `MINIMAP_ZOOM_M` across centred on
+ * the player, so the furthest thing inside it is half that away. Asserting the derivation is what
+ * makes it a reach rather than a number.
+ */
+console.log('\nMINIMAP — the reach is derived from the zoom');
+{
+  console.log(`    zoom ${MINIMAP_ZOOM_M} m across, reach ${MINIMAP_REACH_M} m from the centre`);
+  check('the reach is exactly half the zoom box', MINIMAP_REACH_M === MINIMAP_ZOOM_M / 2,
+    `${MINIMAP_REACH_M} against ${MINIMAP_ZOOM_M / 2}`);
+  check('and it is a district distance, not an unbounded one',
+    MINIMAP_REACH_M > 20 && MINIMAP_REACH_M < 1000, `${MINIMAP_REACH_M} m`);
+}
 
 const failed = checks.filter((c) => !c.ok);
 console.log();

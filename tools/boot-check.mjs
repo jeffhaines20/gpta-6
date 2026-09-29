@@ -131,6 +131,50 @@ if (state.global && state.frames > 2) {
   check('the wreck ledger is clean on a fresh load',
     !!live.wreck && live.wreck.wrecks === 0 && !live.wreck.wreckedNow,
     live.wreck ? JSON.stringify(live.wreck) : '-');
+
+/**
+ * THE RESPAWN LOOP BREAKER, which only this gate can see. `respawnCar` lives in district/main.js
+ * and no offline gate imports that file: `tools/mutation-sweep.mjs` disabled the breaker outright
+ * and all sixteen offline gates, playtest --selftest AND this gate passed, because nothing here
+ * asked it anything.
+ *
+ * It is driveable from the page without a crash. Two respawns from one place must trip it: the
+ * second candidate lands within LOOP_R of the first entry in the history, so the district's own
+ * spawn is used instead and `loopsBroken` rises. That is the whole rule, and the reason it exists
+ * is a site at (518,77) that wrecked a car every 9.6 s for ever.
+ */
+{
+  const loop = await page.evaluate(async () => {
+    const d = __district;
+    const before = d.wreckReport();
+    // Somewhere on the road network, so `nearestOn` gives a candidate at all.
+    d.setMode('car');
+    d.placeAt(518, 77, 0);
+    const a = d.respawnCar();
+    const mid = d.wreckReport();
+    // Straight back to the same place: the next candidate is the one just used.
+    d.placeAt(518, 77, 0);
+    const b = d.respawnCar();
+    const after = d.wreckReport();
+    return { before, a, mid, b, after, spawn: { x: d.district.meta.spawn.x, z: d.district.meta.spawn.z } };
+  });
+  console.log(`  respawn from (518,77) twice: ${JSON.stringify(loop.a)} then ${JSON.stringify(loop.b)}`);
+  console.log(`  loopsBroken ${loop.before.loopsBroken} -> ${loop.mid.loopsBroken} -> ${loop.after.loopsBroken}` +
+    `, district spawn (${loop.spawn.x.toFixed(0)}, ${loop.spawn.z.toFixed(0)})`);
+  check('a respawn puts the car somewhere', !!loop.a && Number.isFinite(loop.a.x),
+    JSON.stringify(loop.a));
+  check('the first respawn is not treated as a loop', loop.mid.loopsBroken === loop.before.loopsBroken,
+    `${loop.before.loopsBroken} -> ${loop.mid.loopsBroken}`);
+  check('but a second from the same place is, so the breaker fires',
+    loop.after.loopsBroken > loop.mid.loopsBroken,
+    `${loop.mid.loopsBroken} -> ${loop.after.loopsBroken}`);
+  check('and the replacement goes to the district spawn instead of back into the loop',
+    Math.hypot(loop.b.x - loop.spawn.x, loop.b.z - loop.spawn.z) < 1.5,
+    `(${loop.b.x}, ${loop.b.z}) against the spawn (${loop.spawn.x.toFixed(1)}, ${loop.spawn.z.toFixed(1)})`);
+  check('the two respawns went to different places, so the arm is not comparing one to itself',
+    Math.hypot(loop.a.x - loop.b.x, loop.a.z - loop.b.z) > 1,
+    `${Math.hypot(loop.a.x - loop.b.x, loop.a.z - loop.b.z).toFixed(1)} m apart`);
+}
 }
 
 await browser.close();

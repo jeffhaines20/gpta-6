@@ -253,23 +253,72 @@ check('reverse still has authority off the mark', (() => {
   const PULL = 0.25;
   console.log('\n4b. steer pull against the player\'s available authority');
   console.log('    km/h   speedFactor   pull/maxSteer   pull / player lock   unscaled (was)');
-  let worstNow = 0, worstWas = 0, rows = 0;
+  /**
+   * READ OFF `setControls`, NOT RECOMPUTED HERE. The first version of this arm calculated
+   * `const now = PULL * sf` — the shipped formula, written again inside the test — and therefore
+   * asserted arithmetic I had typed rather than anything vehicle.js does. `tools/mutation-sweep.mjs`
+   * reverted the fix one commit later and every gate in the offline list passed, including this
+   * one. A gate that reimplements the code path it is meant to verify cannot fail, which is the
+   * thing I had put in a reviewer's brief to look for.
+   *
+   * The two quantities come out of the module itself, from `_steerTarget` after a real
+   * `setControls`: with a pull and NO stick, the target IS the pull's contribution; with full stick
+   * and no pull, it is the authority the player commands. Their ratio is what the cap claims to
+   * bound, and it is measured at each speed rather than derived.
+   */
+  const pullAt = (kmh) => {
+    const v = new Vehicle({ ground: g });
+    v.damage = { steerPull: PULL, enginePower: 1 };
+    v.velocity.set(0, 0, kmh / 3.6);
+    v.setControls({ throttle: 0, brake: 0, steer: 0, handbrake: false });
+    return Math.abs(v._steerTarget);
+  };
+  const authorityAt = (kmh) => {
+    const v = new Vehicle({ ground: g });
+    v.velocity.set(0, 0, kmh / 3.6);          // no damage model: steerPull is exactly 0
+    v.setControls({ throttle: 0, brake: 0, steer: 1, handbrake: false });
+    return Math.abs(v._steerTarget);
+  };
+  let worstNow = 0, rows = 0, anyMoved = false;
+  const fracs = [];
   for (const kmh of [0, 30, 50, 80, 100, 120, 140]) {
     const sf = speedFactor(kmh / 3.6);
-    // The shipped form and the form this replaced, both in units of maxSteer.
-    const now = PULL * sf, was = PULL;
-    const fracNow = now / sf, fracWas = was / sf;
-    worstNow = Math.max(worstNow, fracNow);
-    worstWas = Math.max(worstWas, fracWas);
+    const pull = pullAt(kmh), auth = authorityAt(kmh);
+    const frac = pull / auth;
+    fracs.push(frac);
+    worstNow = Math.max(worstNow, frac);
+    if (kmh > 0 && Math.abs(auth - authorityAt(0)) > 1e-9) anyMoved = true;
     rows++;
     console.log(`  ${String(kmh).padStart(6)}   ${sf.toFixed(3).padStart(11)}   ` +
-      `${now.toFixed(4).padStart(13)}   ${(fracNow * 100).toFixed(1).padStart(18)}%   ` +
-      `${(fracWas * 100).toFixed(1).padStart(13)}%`);
+      `${pull.toFixed(4).padStart(13)}   ${(frac * 100).toFixed(1).padStart(18)}%   ` +
+      `${((PULL / sf) * 100 / (1 / sf)).toFixed(1).padStart(13)}%`);
   }
-  check('the pull is a constant fraction of available authority at every speed',
-    rows >= 7 && Math.abs(worstNow - PULL) < 1e-9, `worst ${(worstNow * 100).toFixed(2)}% against 25%`);
-  check('KNOWN-BAD: applied to the raw maxSteer it grows with speed',
-    worstWas > PULL * 2, `${(worstWas * 100).toFixed(1)}% of available lock at 140 km/h`);
+  /**
+   * The cap is a RATIO, so it is asserted as one across every speed, and the spread is the check
+   * rather than any single value — CLAUDE.md's rule about a threshold that holds at one value.
+   */
+  const spread = Math.max(...fracs) - Math.min(...fracs);
+  console.log(`    pull / available lock: ${fracs.map((f) => (f * 100).toFixed(1) + '%').join(' ')}` +
+    `  -> spread ${(spread * 100).toFixed(3)} points`);
+  check('the pull is the same fraction of available authority at every speed',
+    rows >= 7 && spread < 1e-9, `spread ${(spread * 100).toFixed(4)} points`);
+  check('and that fraction is the cap src/damage.js states',
+    Math.abs(worstNow - PULL) < 1e-9, `${(worstNow * 100).toFixed(2)}% against ${PULL * 100}%`);
+  // The arm is only meaningful if the authority it divides by actually varies with speed.
+  check('the denominator moves with speed, so the ratio is not a constant over a constant',
+    anyMoved, `authority ${authorityAt(0).toFixed(4)} at rest, ${authorityAt(140).toFixed(4)} at 140`);
+  /**
+   * KNOWN-BAD, reproduced through the module rather than on paper: the replaced form applied the
+   * pull to the raw `maxSteer`, which is what `_steerTarget` reads if the scaling is removed. Built
+   * here by dividing the shipped pull back out by `speedFactor`, then asserting the ratio grows.
+   */
+  const wasFracs = [0, 140].map((kmh) => {
+    const sf = speedFactor(kmh / 3.6);
+    return (pullAt(kmh) / sf) / authorityAt(kmh);
+  });
+  console.log(`    unscaled (the form this replaced): ${wasFracs.map((f) => (f * 100).toFixed(1) + '%').join(' -> ')}`);
+  check('KNOWN-BAD: applied to the raw maxSteer the fraction grows with speed',
+    wasFracs[1] > wasFracs[0] * 2, `${(wasFracs[0] * 100).toFixed(1)}% to ${(wasFracs[1] * 100).toFixed(1)}%`);
 
   /**
    * AND IT IS STILL HOLDABLE, which is the claim the cap exists to make. Asserted through the real

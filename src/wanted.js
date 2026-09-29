@@ -771,6 +771,47 @@ export class WantedSystem {
  *   bridge.update(dt, player);
  *   pursuit.update(dt, wanted.plan.target);
  */
+/**
+ * ONE VICTIM, ONE OFFENCE, WITHIN A WINDOW — and it lives here because it is crime attribution,
+ * not because wanted.js needs it. It was a Map and eight lines inside `district/main.js`, which no
+ * offline gate imports: `tools/mutation-sweep.mjs` deleted the window test and all sixteen gates
+ * plus playtest --selftest passed, because none of them can see that file. A rule with real teeth
+ * in a place nothing can reach is a rule that will be broken silently.
+ *
+ * WHY IT EXISTS. A casualty gets back on its feet 4.42 s after going down and can be knocked down
+ * again immediately, so a player creeping back and forth over one person collected a fresh crime
+ * every cycle. Measured against the real wanted system: 7 knockdowns in 30 s, all 7 charged — the
+ * per-CRIME refractory in `reportCrime` is 1.0 s and far too short to see them — heat 5.99, FIVE
+ * STARS from one pedestrian and a car that never left the spot.
+ *
+ * That refractory is per crime TYPE, which is the right shape for a bumper grinding along a wall
+ * and the wrong one here, because the thing being repeated is the VICTIM. The window is a little
+ * longer than the knockdown cycle, so the loop collapses to one report while a genuinely separate
+ * pedestrian a second later stays fully chargeable.
+ */
+export class VictimWindow {
+  constructor(seconds) {
+    this.seconds = seconds;
+    /** victim id -> the time they were last charged for. */
+    this.seen = new Map();
+  }
+
+  /**
+   * Should this victim be charged now? Expires stale entries first, so the map cannot grow for a
+   * session's worth of casualties.
+   */
+  charge(id, now) {
+    for (const [vid, t] of this.seen) if (now - t > this.seconds) this.seen.delete(vid);
+    const last = this.seen.get(id);
+    if (last !== undefined && now - last <= this.seconds) return false;
+    this.seen.set(id, now);
+    return true;
+  }
+
+  /** How many victims are inside the window right now. */
+  get tracked() { return this.seen.size; }
+}
+
 export function bindPursuit(wanted, pursuit, opts = {}) {
   const baseSpeed = opts.baseSpeed ?? pursuit.speed ?? 22;
   const unsub = [

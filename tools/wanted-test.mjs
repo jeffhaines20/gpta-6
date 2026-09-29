@@ -14,7 +14,7 @@
 
 import fs from 'node:fs';
 import { WantedSystem, CRIMES, RESPONSE, STATES, bindPursuit,
-  SCENE_LEAVE_M, SCENE_STOP_MS } from '../src/wanted.js';
+  SCENE_LEAVE_M, SCENE_STOP_MS, VictimWindow } from '../src/wanted.js';
 
 const DT = 1 / 30;                      // the rate the game reports at, fixed
 const checks = [];
@@ -798,6 +798,90 @@ let searchSample;
     `heat ${stayed.w.heat.toFixed(2)} -> ${fled.w.heat.toFixed(2)}, stars ${fled.w.stars}`);
   check('and it is the cooldown that does the work', fled.w.cool > stayed.w.cool,
     `cool ${stayed.w.cool} -> ${fled.w.cool}`);
+}
+
+// ------------------------------------------------- 22. one victim, one offence, in a window
+/**
+ * This rule was a Map and eight lines inside `district/main.js`, which no offline gate imports.
+ * `tools/mutation-sweep.mjs` deleted its window test — the edit that lets one pedestrian be charged
+ * every knockdown cycle again — and all sixteen offline gates plus playtest --selftest passed,
+ * because not one of them can see that file. It is `VictimWindow` in src/wanted.js now, and these
+ * are the checks that were impossible before.
+ */
+{
+  const W = 20;
+  console.log(`\n22. the per-victim window (${W} s)`);
+  const w = new VictimWindow(W);
+  // The same victim, inside the window: charged once.
+  const first = w.charge('ped-7', 100);
+  const again = w.charge('ped-7', 104.42);     // one knockdown cycle later
+  const third = w.charge('ped-7', 119.9);      // still inside
+  const after = w.charge('ped-7', 120.1);      // 20.1 s later: a fresh offence
+  console.log(`    ped-7 at t=100 ${first}, 104.42 ${again}, 119.9 ${third}, 120.1 ${after}`);
+  check('a victim is charged the first time', first === true, `${first}`);
+  check('and not again one knockdown cycle later', again === false, `${again}`);
+  check('nor anywhere else inside the window', third === false, `${third}`);
+  check('but is charged again once the window has passed', after === true, `${after}`);
+  // A DIFFERENT victim a second later is fully chargeable — the window is per victim, not global.
+  const other = new VictimWindow(W);
+  other.charge('ped-1', 100);
+  check('a different victim one second later is a separate offence',
+    other.charge('ped-2', 101) === true, 'ped-2 charged');
+  check('and the first is still inside their own window',
+    other.charge('ped-1', 101) === false, 'ped-1 refused');
+
+  /**
+   * THE MEASUREMENT IT EXISTS FOR, replayed against the real ladder rather than asserted. Seven
+   * knockdowns in 30 s with no window gave heat 5.99 and five stars from ONE pedestrian, because
+   * `reportCrime`'s own refractory is per crime TYPE and 1.0 s long — far too short to see a 4.42 s
+   * knockdown cycle. Both arms are run, so the window's value is a difference and not a claim.
+   */
+  const run = (useWindow) => {
+    const sys = new WantedSystem();
+    const win = new VictimWindow(W);
+    let charged = 0;
+    for (let k = 0; k < 7; k++) {
+      const t = 100 + k * 4.42;
+      sys.update(4.42, { x: 0, z: 0 });
+      if (!useWindow || win.charge('ped-7', t)) { sys.reportCrime('pedestrianHit', { at: { x: 0, z: 0 } }); charged++; }
+    }
+    return { charged, heat: +sys.heat.toFixed(2), stars: sys.stars };
+  };
+  const without = run(false), withIt = run(true);
+  console.log(`    7 knockdowns of one person in 30 s:`);
+  console.log(`      no window: ${without.charged} charged, heat ${without.heat}, ${without.stars} stars`);
+  console.log(`      window:    ${withIt.charged} charged, heat ${withIt.heat}, ${withIt.stars} stars`);
+  /**
+   * TWO NUMBERS I ASSERTED FROM A DIFFERENT ARM, and both were wrong — the third time this session.
+   *
+   * I wrote `without.stars >= 5` from the live measurement of heat 5.99 and five stars. This arm
+   * reads 2 stars, and it is right to: it calls `sys.update(4.42)` between reports, so heat DECAYS
+   * across the 30 s, where the live run held five stars because the pursuit kept contact and the
+   * escape clock never ran. Same rule, different arm, and the star count belongs to the arm rather
+   * than to the rule.
+   *
+   * And I wrote `withIt.charged === 1`. Seven knockdowns at 4.42 s spacing span 26.5 s, so the
+   * seventh falls OUTSIDE a 20 s window and is charged: 2 is the correct answer and 1 would mean
+   * the window never expires. The check is the reduction, and the expiry is asserted separately
+   * above rather than smuggled in here.
+   */
+  check('KNOWN-BAD: without the window every knockdown of one person is charged',
+    without.charged === 7, `${without.charged} of 7 charged, heat ${without.heat}`);
+  check('with it, the loop collapses to the window\'s own count',
+    withIt.charged === 2 && withIt.charged < without.charged,
+    `${withIt.charged} of 7 charged — 30 s of knockdowns against a ${W} s window`);
+  check('and the heat it saves is real', withIt.heat < without.heat || withIt.charged < without.charged,
+    `heat ${without.heat} -> ${withIt.heat}, charges ${without.charged} -> ${withIt.charged}`);
+  check('and the per-crime refractory is too short to substitute for it',
+    CRIMES.pedestrianHit.refractory < 4.42,
+    `${CRIMES.pedestrianHit.refractory} s against a 4.42 s knockdown cycle`);
+
+  // The map does not grow for a session's worth of casualties.
+  const many = new VictimWindow(W);
+  for (let i = 0; i < 500; i++) many.charge(`ped-${i}`, i * 0.5);
+  console.log(`    500 victims over 250 s -> ${many.tracked} tracked`);
+  check('stale victims are expired, so the map does not grow all session',
+    many.tracked > 0 && many.tracked <= 2 * W / 0.5 + 2, `${many.tracked} tracked`);
 }
 
 // ---------------------------------------------------------------- scenario trace

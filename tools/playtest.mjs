@@ -38,7 +38,7 @@ import { Player } from '../src/player.js';
 import { FlatGround } from '../src/ground.js';
 import { BlockerIndex, districtBounds, worldFence } from '../src/blockers.js';
 import { DamageModel, IMPACT, dynamicContact } from '../src/damage.js';
-import { WantedSystem } from '../src/wanted.js';
+import { WantedSystem, VictimWindow } from '../src/wanted.js';
 import { Traffic } from '../src/traffic.js';
 import { Pedestrians } from '../src/pedestrians.js';
 import { RoadGraph, followPath, ROUTE_LANE_M } from '../src/roadpath.js';
@@ -214,7 +214,7 @@ export class Session {
     this._respawns = [];
     this._outcome = OUTCOMES.RUNNING;
     /** When each pedestrian was last reported as a crime, by their own id. See _contacts. */
-    this._pedCrimeAt = new Map();
+    this._victims = new VictimWindow(PED_CRIME_WINDOW_S);
     /** Set while `_crime` is filing, so the module listener does not count the same report twice. */
     this._lastFiled = null;
     /** The last pedestrian this session struck: who, how hard, and whether it was charged. */
@@ -564,20 +564,12 @@ export class Session {
   }
 
   /**
-   * ONE VICTIM, ONE OFFENCE, within a window — and one implementation, because there are two ways
-   * to be charged for the same person now (knocked down, then driven over). A casualty gets up
-   * 4.42 s after going down and can be knocked down again, so a player creeping back and forth
-   * over one person used to collect five stars from a single pedestrian.
+   * One victim, one offence, within a window — src/wanted.js's `VictimWindow`, the same object
+   * district/main.js uses, so the harness cannot drift from the game on the rule that decides
+   * whether a repeat is charged. There are two ways to be charged for one person (knocked down,
+   * then driven over) and they share it.
    */
-  _chargeVictim(id) {
-    for (const [vid, t] of this._pedCrimeAt) {
-      if (this.t - t > PED_CRIME_WINDOW_S) this._pedCrimeAt.delete(vid);
-    }
-    const last = this._pedCrimeAt.get(id);
-    if (last !== undefined && this.t - last <= PED_CRIME_WINDOW_S) return false;
-    this._pedCrimeAt.set(id, this.t);
-    return true;
-  }
+  _chargeVictim(id) { return this._victims.charge(id, this.t); }
 
   _crime(name, scale = 1) {
     // Claimed before the call, because `reportCrime` emits synchronously and the listener above

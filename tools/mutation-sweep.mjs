@@ -56,10 +56,26 @@ const OFFLINE = [
 const MUTATIONS = [
   // ---- src/traffic.js
   {
+    /**
+     * MEASURED INERT AT HEAD, so its MISS is not a gate gap. When this fix landed the revert was
+     * plainly visible — the settled gap went dt-dependent, 6.29/2.03/2.03/2.46 against 6.29 at every
+     * dt — and it is now bit-identical: sweeping six long two-way edges at three dt each, 0 of 18
+     * (edge, dt) pairs differ at all, worst difference 0.000 m.
+     *
+     * The range bound and the OBB corridor landed between those two measurements and changed which
+     * cars treat the player as a leader at all, and I have not bisected which of them made this
+     * term redundant — it is not worth the hours for a predicate that is still the correct one (a
+     * leader is ahead, not overlapping) and costs nothing to keep.
+     *
+     * Recorded rather than deleted, because a row that is inert TODAY is the row that tells you
+     * something changed if it ever stops being inert. `inert` is asserted: if any gate ever catches
+     * it, the sweep says the note is out of date.
+     */
     id: 'gap-level', file: 'src/traffic.js',
     find: 'if (!(along > CAR_LENGTH)) return Infinity;',
     to: 'if (!(along > 0)) return Infinity;',
     why: 'a car drawing level with the player reads a negative bumper gap and brakes 28x',
+    inert: '0 of 18 (edge, dt) pairs differ, worst 0.000 m — nothing to notice',
   },
   {
     id: 'gap-range', file: 'src/traffic.js',
@@ -184,10 +200,9 @@ const MUTATIONS = [
   // ---- src/roadpath.js
   {
     id: 'crawl-floor', file: 'src/roadpath.js',
-    find: 'CRAWL_MS',
-    to: '0 * CRAWL_MS',
+    find: '  return Math.max(2.2, Math.min(gripSpeed(radius), steerableSpeed(radius)));',
+    to: '  return Math.min(gripSpeed(radius), steerableSpeed(radius));',
     why: 'an impossible corner stops the car dead instead of letting it creep round',
-    firstOnly: true,
   },
   // ---- src/blockers.js
   {
@@ -232,19 +247,28 @@ const MUTATIONS = [
   },
   // ---- district/main.js: no offline gate imports it, so these are invisible by construction.
   {
-    id: 'charge-window', file: 'district/main.js',
-    find: '  if (last !== undefined && now - last <= PED_CRIME_WINDOW_S) return false;',
-    to: '  if (false) return false;',
-    why: 'one pedestrian becomes five stars again, charged every knockdown cycle',
-    browser: true,
+    /**
+     * This line used to target district/main.js, where it was MISSED by every gate because no
+     * offline gate imports that file. The rule is `VictimWindow` in src/wanted.js now — moved there
+     * BECAUSE of this miss — so the mutation follows it, and wanted-test owns it.
+     */
+    id: 'charge-window', file: 'src/wanted.js',
+    find: '    if (last !== undefined && now - last <= this.seconds) return false;',
+    to: '    if (false) return false;',
+    why: 'one pedestrian is charged every knockdown cycle again',
   },
   {
     id: 'loop-breaker', file: 'district/main.js',
-    find: '  if (looping) wreckStats.loopsBroken++;',
-    to: '  looping = false;',
+    /**
+     * The condition, not an assignment: `looping` is a `const`, so `looping = false` THROWS, and a
+     * gate that catches a malformed mutation has told you nothing about the rule. It read
+     * "caught by boot-check(threw)" until this was fixed, which is exactly the distinction this
+     * tool reports separately.
+     */
+    find: '  const looping = !!candidate && respawnHistory.some((h) => simTime - h.t < LOOP_S',
+    to: '  const looping = false && respawnHistory.some((h) => simTime - h.t < LOOP_S',
     why: 'the respawn puts the car back into whatever wrecked it, for ever',
     browser: true,
-    expectStale: true,
   },
 ];
 
@@ -395,6 +419,14 @@ if (has('--selftest')) {
   // tool locks itself out on its own second check.
   say(fs.existsSync(LOCK) && gitClean(), 'holding the lock does not make the tree read as dirty');
 
+  // An inert row must not be counted as a gate gap, and a row with no note must be.
+  const inertRows = MUTATIONS.filter((m) => m.inert);
+  say(inertRows.length > 0 && inertRows.every((m) => typeof m.inert === 'string' && m.inert.length > 20),
+    'every inert row carries the measurement that says it is inert',
+    inertRows.map((m) => m.id).join(', ') || 'none');
+  say(MUTATIONS.filter((m) => !m.inert).length > MUTATIONS.length / 2,
+    'and most rows are not excused, so the table is not mostly notes');
+
   // 5. And the throw/fail distinction, on real output shapes.
   say(/^\s+at .+:\d+:\d+\)?$/m.test('    at file:///x/y.mjs:12:3'), 'a node stack frame reads as a throw');
   say(!/^\s+at .+:\d+:\d+\)?$/m.test('  FAIL  some check — 3 against 4'),
@@ -462,7 +494,14 @@ for (const m of list) {
   if (browser && m.browser) gates.push(runGate('boot-check'));
   restore(m);
   const caught = gates.filter((g) => g.rc !== 0);
-  const verdict = caught.length ? 'caught' : 'MISSED';
+  /**
+   * A MUTATION MEASURED TO CHANGE NOTHING IS NOT A GATE GAP. Without this a permanently inert row
+   * either nags for ever or gets deleted, and deleting it loses the measurement that says it is
+   * inert. `inert` rows are reported apart from real misses — and if one is ever CAUGHT, that is a
+   * finding too, because the note claiming it changes nothing has stopped being true.
+   */
+  const verdict = caught.length ? (m.inert ? 'caught-but-noted-inert' : 'caught')
+    : (m.inert ? 'inert' : 'MISSED');
   rows.push({ m, verdict, gates: caught });
   console.log(`${verdict}${caught.length ? ` by ${caught.map((g) => g.name + (g.threw ? '(threw)' : '')).join(', ')}` : ''}`);
   if (!gitClean()) {
@@ -475,9 +514,22 @@ for (const m of list) {
 console.log('\n' + '='.repeat(78));
 const missed = rows.filter((r) => r.verdict === 'MISSED');
 const stale = rows.filter((r) => r.verdict === 'STALE' || r.verdict === 'AMBIGUOUS');
-const caught = rows.filter((r) => r.verdict === 'caught');
-console.log(`caught ${caught.length}   MISSED ${missed.length}   stale/ambiguous ${stale.length}` +
-  `   of ${rows.length}`);
+const caught = rows.filter((r) => r.verdict.startsWith('caught'));
+const inert = rows.filter((r) => r.verdict === 'inert');
+const wrongNote = rows.filter((r) => r.verdict === 'caught-but-noted-inert');
+console.log(`caught ${caught.length}   MISSED ${missed.length}   inert ${inert.length}` +
+  `   stale/ambiguous ${stale.length}   of ${rows.length}`);
+if (inert.length) {
+  console.log('\nINERT — measured to change nothing at HEAD, so there is nothing for a gate to see:');
+  for (const r of inert) console.log(`  ${r.m.id}  ${r.m.inert}`);
+}
+if (wrongNote.length) {
+  console.log('\nNOTED INERT BUT CAUGHT — the note has stopped being true, which is a finding:');
+  for (const r of wrongNote) {
+    console.log(`  ${r.m.id}  caught by ${r.gates.map((g) => g.name).join(', ')}`);
+    console.log(`      the note says: ${r.m.inert}`);
+  }
+}
 
 if (missed.length) {
   console.log('\nMISSED — a defect no gate in the list noticed:');

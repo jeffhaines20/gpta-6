@@ -38,7 +38,7 @@ import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubS
 import { HUD, composeBand, MINIMAP_ZOOM_M } from '../src/hud.js';
 import { MissionRunner, OUTCOMES, MissionBoard } from '../src/mission.js';
 import { MISSIONS } from '../src/missions.js';
-import { WantedSystem, bindPursuit, CRIMES, STATES } from '../src/wanted.js';
+import { WantedSystem, bindPursuit, CRIMES, STATES, VictimWindow } from '../src/wanted.js';
 import { createAudio, hardnessFor } from '../src/audio.js';
 
 const canvas = document.getElementById('c');
@@ -1031,28 +1031,22 @@ const PERSON = { bodyRadius: 0.35, bodyMass: 80 };
 const dynStats = { tested: 0, contacts: 0, frames: 0, pedHits: 0, carHits: 0, policeHits: 0,
   pedKnockdowns: 0, pedFatal: 0, carShunts: 0, pedRepeats: 0, pedRunOvers: 0 };
 /**
- * ONE VICTIM, ONE OFFENCE, within a window — and ONE implementation of it, because there are now
- * two ways to be charged for the same person (knocked down, then driven over) and two copies of
- * this test would eventually disagree. Returns true when the crime should be filed.
- *
- * A casualty gets back on its feet 4.42 s after going down and can immediately be knocked down
- * again, so a player creeping back and forth over one person used to collect a fresh crime every
- * cycle. Measured against the real wanted system: 7 knockdowns in 30 s, all 7 charged (wanted.js's
- * own 1.0 s refractory is far too short to see them), heat 5.99, FIVE STARS from one pedestrian and
- * a car that never left the spot. wanted.js's refractory is per CRIME TYPE, which is right for a
- * bumper grinding along a wall and wrong here, because the thing being repeated is the victim.
+ * One victim, one offence, within a window. The rule and its measurement are in
+ * `src/wanted.js`'s `VictimWindow`, because it is crime attribution and because nothing could
+ * test it here: no offline gate imports this file, so a mutation deleting the window passed all
+ * sixteen of them plus playtest --selftest.
  */
-function chargeVictim(id) {
-  const now = simTime;
-  for (const [vid, t] of pedCrimeAt) if (now - t > PED_CRIME_WINDOW_S) pedCrimeAt.delete(vid);
-  const last = pedCrimeAt.get(id);
-  if (last !== undefined && now - last <= PED_CRIME_WINDOW_S) return false;
-  pedCrimeAt.set(id, now);
-  return true;
-}
-/** When each pedestrian was last reported as a crime, by their own id. See pedCrime below. */
-const pedCrimeAt = new Map();
 const PED_CRIME_WINDOW_S = 20;
+/**
+ * DECLARED BEFORE IT IS USED, and the first version of this was not: `new VictimWindow(
+ * PED_CRIME_WINDOW_S)` sat two lines ABOVE the `const PED_CRIME_WINDOW_S = 20` it reads, which is
+ * the temporal dead zone and a `ReferenceError` at module evaluation. That is the exact shape of
+ * `fab3e2d`, which left the district rendering nothing at all for three commits with every offline
+ * gate green — and `check-syntax` passed this too, because a TDZ read is valid syntax. `boot-check`
+ * is the gate that catches it, in nineteen seconds.
+ */
+const victimWindow = new VictimWindow(PED_CRIME_WINDOW_S);
+const chargeVictim = (id) => victimWindow.charge(id, simTime);
 function dynamicImpacts() {
   if (mode !== 'car') return;
   dynStats.frames++;
