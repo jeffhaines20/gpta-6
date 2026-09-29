@@ -15,6 +15,18 @@
 //   node tools/mutation-sweep.mjs --browser       also run boot-check where a mutation asks
 //   node tools/mutation-sweep.mjs --selftest      prove the harness itself
 //
+// LAST FULL RUN, `--browser`, at bb1ade0: **caught 28, MISSED 0, inert 1, stale 0, of 29.**
+// Each mutation was caught by the gate that should own it — traffic-selftest for the lane and
+// junction rules, reaction-test for the crowd, damage-test for the charge, wanted-test for the
+// wanted ladder and the victim window, physics-test for the vehicle, hud-cue for anything drawn,
+// blocker-test for the fence and the resolver, roadpath-test and route-drive for the follower,
+// mission-test for the board, playtest --selftest for the integration, boot-check for the one rule
+// that lives in district/main.js.
+//
+// That is a baseline, not a guarantee: it was 6 MISSES on the first run and those six holes are
+// what the gate additions in bb1ade0 closed. A later run reporting fewer than 28 caught means
+// either a gate lost its teeth or a row went stale, and the difference matters — see STALE below.
+//
 // HOW IT RESTORES, AND WHY THE TREE MUST BE CLEAN. The district is 16 GB against 7 GB of free
 // disk, so there is no shadow copy to mutate: it edits in place and restores with
 // `git checkout --`, which is exact. That is only safe on a clean tree, so it REFUSES to start
