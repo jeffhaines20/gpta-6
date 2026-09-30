@@ -1032,6 +1032,15 @@ console.log('\nMINIMAP — the blips');
   console.log('\n    the marker hash, per term');
   {
     const live = [{ x: AT.x, z: AT.z - 40, kind: 'enemy' }];
+    /**
+     * ONE WAYPOINT OBJECT, MUTATED IN PLACE, and that correction came from the mutation sweep
+     * catching this arm rather than the code. Dropping the hash's waypoint term was MISSED, because
+     * `_set` already dirties the map on a waypoint IDENTITY change — and the first version of this
+     * arm handed it a fresh `{x, z}` each time, so the identity did the work and the hash term was
+     * never needed. It is load-bearing only for an object reused across frames, which is exactly
+     * what district/main.js does with `_carWaypoint` for the on-foot car.
+     */
+    const wpObj = { x: AT.x, z: AT.z - 30 };
     let wp = null;
     const feed = () => {
       rects.length = 0; fills.length = 0; texts.length = 0; paths.length = 0;
@@ -1055,8 +1064,9 @@ console.log('\nMINIMAP — the blips');
     const small = moves('a blip 0.4 m, under a metre', () => { live[0].x += 0.4; });
     const kind = moves('a blip changing kind in place', () => { live[0].kind = 'objective'; });
     const added = moves('a second blip appearing', () => { live.push({ x: AT.x + 20, z: AT.z, kind: 'vehicle' }); });
-    const wpOn = moves('a waypoint appearing', () => { wp = { x: AT.x, z: AT.z - 30 }; });
-    const wpMove = moves('the waypoint moving 5 m', () => { wp = { x: AT.x, z: AT.z - 25 }; });
+    const wpOn = moves('a waypoint appearing', () => { wp = wpObj; });
+    // IN PLACE, on the object already posted — the only case the hash term exists for.
+    const wpMove = moves('the same waypoint object moved 5 m', () => { wpObj.z += 5; });
     const all = { inZ, inX, small, kind, added, wpOn, wpMove };
     check('a settled pose with an unchanged marker set stops redrawing the map',
       Object.values(all).every((r) => r.quiet === 0),
