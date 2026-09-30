@@ -1351,7 +1351,16 @@ export class Pedestrians {
       this._appearance(ped);
       ped.lateral = this._laneOf(ped);
       this.peds[i] = ped;
-      // The COLOURS are keyed by far slot, not by ped index -- see _farSwap.
+      // INTO THE DRAWN PREFIX NOW, not at the next reconcile. The reconcile pass runs
+      // BEFORE this spawn loop, so without this a ped spawned on frame N is alive,
+      // not near-held, and outside the far tier's drawn range until frame N+1 -- it
+      // pops in one frame late and the count invariant is short by however many
+      // spawned. boot-check caught it as "78 drawn = 91 alive - 9 near", and it had
+      // passed twice before that only because no spawn happened to land on the
+      // sampled frame: a flake that was hiding a real transient.
+      this._farShow(i);
+      // The COLOURS are keyed by far slot, not by ped index -- see _farSwap, and note
+      // this has to come AFTER _farShow, which may have moved the slot.
       this._writeColors(this._farAt[i], ped);
       this.stats.spawns++;
       return true;

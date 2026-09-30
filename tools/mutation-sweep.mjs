@@ -258,6 +258,19 @@ const MUTATIONS = [
   },
   {
     /**
+     * PUTS THE AMBUSH MARKER BACK ON THE DROP. Nothing errors, every stage still reaches every
+     * other, the mission still passes -- it just passes 0.033 s after the player is told to make
+     * the delivery, so the flagship mission's final objective is two frames long and the beat the
+     * mission is named for does not happen. A playtester found the original; no gate could see it
+     * until mission-test asserted that a marker never lands inside the next stage's reach radius.
+     */
+    id: 'drop-flash', file: 'src/missions.js',
+    find: '      marker: { x: -194.8, z: 38.6 },',
+    to: '      marker: { x: -471, z: 205 },',
+    why: "the delivery mission's delivery leg disappears again",
+  },
+  {
+    /**
      * BEHAVIOUR-PRESERVING AND LINEAR IN THE MISSION'S TOTAL SIZE. The list is built over
      * every stage and then filtered back down to the active stage's own triggers, so every
      * outcome is identical and only the cost moves. It exists because mission-test's cost

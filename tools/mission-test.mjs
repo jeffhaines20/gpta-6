@@ -486,6 +486,63 @@ console.log('\n=== 9. THE AUTHORED MISSIONS, walked stage by stage');
     timedNoMarker.join(', ') || '0 of them');
 
   /**
+   * AND WHEREVER IT SENDS YOU MUST NOT ALREADY BE THE NEXT STAGE'S DESTINATION.
+   *
+   * This is the second time a marker has landed inside the following stage's own reach radius,
+   * and both times the gate had a hand in it. `shakedown`'s second marker sat 0.35 m from the
+   * spawn against a 30 m radius, because an older rule REQUIRED every marker within 5 m of a
+   * baked route waypoint and waypoint 1 is the spawn. Then `ambush` was given a marker at
+   * (-471, 205) to satisfy the clock rule above — the exact coordinates of `drop`'s reach
+   * trigger, 0.0 m away, radius 28 m. A player who follows the HUD shakes the tail standing on
+   * the drop, so `drop` fires and is satisfied in the same breath and the flagship mission's
+   * final objective is the active stage for 0.033 s: two frames at 60 Hz. The delivery leg of
+   * the delivery mission did not exist.
+   *
+   * The assertion is the exact property that breaks, not a design minimum: walking from the
+   * previous stage's marker must not already satisfy the next stage's reach trigger. A margin
+   * would be a number somebody picked; the radius is the number the mission itself declares.
+   * The ratio is printed beside it so an author can see whether a passing margin is also a
+   * sensible one — 322.5 m against 28 m is x11.5, and 29 m would pass while being absurd.
+   *
+   * It only checks edges whose SOURCE has a marker. Where it does not — `toCar`, `backToCar` —
+   * the player's position on entry is unconstrained and there is nothing to assert.
+   */
+  const instantOnEntry = [], entryMargins = [];
+  for (const m of Object.values(MISSIONS)) {
+    const byId = new Map(m.stages.map((s) => [s.id, s]));
+    for (const from of m.stages) {
+      if (!from.marker) continue;
+      const gotos = [];
+      const walk = (trigs) => {
+        for (const t of trigs ?? []) {
+          if (t.goto) gotos.push(t.goto);
+          if (Array.isArray(t.of)) walk(t.of);
+        }
+      };
+      walk(from.triggers);
+      if (from.onTimeout && byId.has(from.onTimeout)) gotos.push(from.onTimeout);
+      for (const id of gotos) {
+        const to = byId.get(id);
+        if (!to || to === from) continue;
+        for (const t of to.triggers ?? []) {
+          if (t.kind !== 'reach' || t.x === undefined) continue;
+          const sep = Math.hypot(from.marker.x - t.x, from.marker.z - t.z);
+          entryMargins.push(`${m.id}/${from.id}->${to.id} ${sep.toFixed(1)} m vs r=${t.radius}` +
+            ` (x${(sep / t.radius).toFixed(1)})`);
+          if (sep <= t.radius) {
+            instantOnEntry.push(`${m.id}: ${from.id}'s marker is ${sep.toFixed(2)} m from` +
+              ` ${to.id}'s reach trigger (radius ${t.radius}), so ${to.id}'s objective cannot be read`);
+          }
+        }
+      }
+    }
+  }
+  console.log(`    marker to the NEXT stage's reach trigger:`);
+  for (const line of entryMargins) console.log(`      ${line}`);
+  check("a stage's marker never lands inside the next stage's reach radius",
+    instantOnEntry.length === 0, instantOnEntry.join(' | ') || `${entryMargins.length} edges checked, all clear`);
+
+  /**
    * AND ONE ACCIDENT DOES NOT RESUME A CHASE. `drop` carried `wantedAtLeast: 1`, and
    * `pedestrianHit` carries `min: 1` — so one star is the FLOOR of the least serious thing a
    * driver can do, and the trigger fired on it. `ambush`'s `onEnter: {setWanted: 2}` fires on

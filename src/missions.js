@@ -93,17 +93,29 @@ export const MARLIN_STREET = defineMission({
       id: 'ambush',
       objective: 'LOSE THEM',
       /**
-       * AND IT POINTS AT THE DROP WHILE YOU SHAKE THEM, because a stage with no marker is a stage
-       * with no waypoint, and this is the only one in either mission that had none. A playtester
-       * measured 156.3 s of a 249.4 s run — 63% — with a blank HUD, across five entries, and
-       * called it the worst thing in the game.
+       * A STAGING POINT SHORT OF THE DROP, and the history is the whole argument.
        *
-       * `dropHot` already establishes the pattern: it is the harder ending and it points at the
-       * marina while you are still wanted. There is no reading of this fiction where the courier
-       * stops wanting to reach the drop, so being told where it is while being told to lose them
-       * is coherent — and a player who does not know which way to run cannot run.
+       * This stage originally had NO marker, and that was measured as the worst thing in the
+       * game: a playtester sat through 156.3 s of a 249.4 s run — 63% — with a blank HUD across
+       * five entries. So it was given one, pointed at the drop, on the reasoning that there is no
+       * reading of the fiction where the courier stops wanting to reach the marina.
+       *
+       * THAT FIX HAD AN UNMEASURED CONSEQUENCE. `drop`'s reach trigger is at (-471, 205) with a
+       * radius of 28 m, and the marker was at (-471, 205) — 0.0 m away. So a player who follows
+       * the HUD shakes the tail standing on the drop, `drop` fires and is satisfied in the same
+       * breath, and the mission's final objective — "DELIVER THE PARCEL TO THE MARINA" — is the
+       * active stage for 0.033 s. Two frames at 60 Hz. The delivery leg of the delivery mission
+       * did not exist, and the beat the player never saw is the one the mission is named for.
+       * A playtester found it; tools/mission-test.mjs now asserts the general property, because
+       * this is the second time a marker has landed inside the next stage's own reach radius —
+       * `shakedown`'s was 0.35 m from the spawn against 30 m.
+       *
+       * (-194.8, 38.6) is 322 m from the drop, 11.5x its radius, and 0.06 m off a routable road.
+       * It also reads better than the old marker did: pointing at the handover WHILE WANTED tells
+       * the player to bring a police tail to it, which is the one thing a courier would not do.
+       * Shake them first, then deliver — which is what the two stages now actually say.
        */
-      marker: { x: -471, z: 205 },
+      marker: { x: -194.8, z: 38.6 },
       /**
        * THE SUBTITLE HAS TO SAY WHAT TO DO, because this stage is the only one with no waypoint.
        * A playtester sat through fourteen of them and reported the line as it read from the seat:
