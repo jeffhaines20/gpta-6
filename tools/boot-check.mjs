@@ -399,6 +399,108 @@ if (state.global && state.frames > 2) {
   await page.evaluate(() => __district.clearWanted('boot-check'));
 }
 
+
+/**
+ * THE RUN-OVER CHARGE'S WIRE, which is the one rule in this round no offline gate could reach.
+ * `DamageModel.runOverCrime` is gated by damage-test; that district/main.js ASKS it, rather than
+ * deciding for itself as it used to with a literal `scale: 1`, is only visible from the page —
+ * `mutation-sweep`'s `runover-wire` came back MISSED before this arm existed.
+ *
+ * Staged, then DRIVEN, and the second half is not optional: `peds.runOver` refuses below its own
+ * free speed, so a car teleported on top of a casualty rolls over nobody — the first version of
+ * this arm placed the car exactly on the body at rest and measured 1 body down, 0 run-overs, and
+ * called the wire broken. The car is put a few metres short and creeps onto the body at walking
+ * pace, which is also the case whose charge the old literal got wrong by a factor of 400.
+ */
+{
+  const ro = await page.evaluate(async () => {
+    const d = __district;
+    const peds = d.pedestrians();
+    if (!peds) return { skipped: 'no crowd' };
+    d.clearWanted('boot-check');
+    d.setMode('car');
+    /**
+     * A BODY ON THE GROUND, AND ONE THE CAR HAS NEVER TOUCHED. The first version took
+     * `positions()[0]`, and every one of its 56 run-overs came back a REPEAT — `pedRepeats`
+     * 0 -> 56 with `lastRunOver` still null — because `chargeVictim`'s 20 s per-victim window had
+     * already been spent on that id by an earlier arm's car, parked on a populated street. So the
+     * subject is chosen for distance from the car: outside any radius the contact pass can reach,
+     * which makes the first charge the arm's own.
+     */
+    const v0 = d.vehicle.position;
+    const all = peds.positions()
+      .map((p) => ({ ...p, d: Math.hypot(p.x - v0.x, p.z - v0.z) }))
+      .filter((p) => !p.down && p.d > 60)
+      .sort((a, b) => b.d - a.d);
+    const spot = all[0];
+    if (!spot) return { skipped: 'no untouched pedestrian over 60 m out' };
+    // Above damage.js's kill speed the crowd keeps a body down, the same threshold the crime uses.
+    peds.hit(spot.i, { speed: 30, dirX: 0, dirZ: 1, force: true });
+    await new Promise((r) => requestAnimationFrame(() => r()));
+    const down = peds.positions().filter((p) => p.down && p.i === spot.i);
+    if (!down.length) return { skipped: 'the chosen pedestrian did not go down' };
+    const body = down[0];
+    // Now roll onto it at walking pace, which is what the old literal charged as a 76 km/h strike.
+    // A few metres short of the body, pointing at it, and then crawl.
+    const v = d.vehicle;
+    const back = 14;                                  // room to reach 4 m/s before the body
+    d.placeAt(body.x, body.z - back, 0);
+    d.setTimeScale(8);
+    const seen = [];
+    let overs = 0, repeats = 0, closest = Infinity, speeds = [];
+    const dyn0 = d.damageReport().dynamic;
+    d.setAutopilot(() => {
+      /**
+       * OVER src/pedestrians.js's `PED_FREE_MS` (2.2 m/s) AND FAR UNDER `pedKillSpeed` (21.3).
+       * The first version crawled at 1.6 m/s, cleared 0.33 m of the body, and measured 0 run-overs
+       * — `runOver` refuses below its free speed and the arm read that as the wire being broken.
+       * 4 m/s is 14 km/h: a crime with a scale of about 0.006, against the 1.00 the old literal
+       * charged, so the two readings are a factor of 170 apart rather than a rounding.
+       */
+      v.setControls({ throttle: v.speed < 4 ? 0.5 : 0, brake: 0, steer: 0, handbrake: false });
+    });
+    const t1 = Date.now();
+    while (Date.now() - t1 < 25000) {
+      await new Promise((r) => requestAnimationFrame(() => r()));
+      closest = Math.min(closest, Math.hypot(v.position.x - body.x, v.position.z - body.z));
+      speeds.push(+(v.speed * 3.6).toFixed(1));
+      const dyn = d.damageReport().dynamic;
+      overs = dyn.pedRunOvers;
+      repeats = dyn.pedRepeats;
+      if (dyn.lastRunOver) { seen.push(dyn.lastRunOver); break; }
+    }
+    d.setAutopilot(null);
+    d.setTimeScale(1);
+    v.setControls({ throttle: 0, brake: 1, steer: 0, handbrake: false });
+    return { bodies: down.length, seen, overs, repeats, stars: d.wanted.stars,
+      at: { x: body.x, z: body.z }, closest: +closest.toFixed(2),
+      topKmh: Math.max(...speeds, 0), repeats0: dyn0.pedRepeats, overs0: dyn0.pedRunOvers,
+      knock: d.damageReport().dynamic.pedKnockdowns, crimes: d.damageReport().crimesReported };
+  });
+  if (ro.skipped) {
+    console.log(`  run-over wire: SKIPPED — ${ro.skipped}`);
+    check('the run-over arm could stage a body on the ground', false, ro.skipped);
+  } else {
+    const last = ro.seen[0] ?? null;
+    console.log(`  run-over: ${ro.bodies} down at (${ro.at.x}, ${ro.at.z}), crept to ` +
+      `${ro.closest} m at up to ${ro.topKmh} km/h, ${ro.overs} rolled over, ` +
+      `charge ${JSON.stringify(last)}, stars ${ro.stars}`);
+    console.log(`    repeats ${ro.repeats0} -> ${ro.repeats}, overs ${ro.overs0} -> ${ro.overs}, ` +
+      `knockdowns ${ro.knock}, crimes reported ${ro.crimes}`);
+    console.log(`    the old literal charged scale 1.00 here, which is ` +
+      `${last ? (1 / last.scale).toFixed(0) : '?'}x what the speed says`);
+    check('the arm actually drove over the body, so both sides are not zero',
+      ro.overs > 0 && ro.closest < 2, `${ro.overs} over, closest ${ro.closest} m`);
+    check('a run-over reaches the crime path at all', !!last, JSON.stringify(ro.seen));
+    check('and its scale comes from the speed, not a literal 1',
+      !!last && last.scale < 0.5 && last.crime === 'pedestrianHit',
+      last ? `${last.kmh} km/h -> ${last.crime} at ${last.scale}` : 'none');
+    check('so a roll at walking pace is one star, not the reference case\'s two',
+      ro.stars === 1, `${ro.stars}*`);
+  }
+  await page.evaluate(() => __district.clearWanted('boot-check'));
+}
+
 await browser.close();
 console.log(`\nBOOT: ${fail ? `FAIL — ${fail} of ${pass + fail}` : `PASS — ${pass} checks`} ` +
   `in ${((Date.now() - t0) / 1000).toFixed(0)} s`);

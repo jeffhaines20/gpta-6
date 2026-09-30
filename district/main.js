@@ -1170,7 +1170,15 @@ let audioImpactsWanted = 0, audioImpactsPlayed = 0, audioImpactsSilent = 0;
 const OTHER_CAR = { bodyRadius: 0.95, bodyMass: 1400 };
 const PERSON = { bodyRadius: 0.35, bodyMass: 80 };
 const dynStats = { tested: 0, contacts: 0, frames: 0, pedHits: 0, carHits: 0, policeHits: 0,
-  pedKnockdowns: 0, pedFatal: 0, carShunts: 0, pedRepeats: 0, pedRunOvers: 0 };
+  pedKnockdowns: 0, pedFatal: 0, carShunts: 0, pedRepeats: 0, pedRunOvers: 0,
+  /**
+   * WHAT THE LAST RUN-OVER CHARGED, because the wire below is the one rule in this round that no
+   * gate could reach. `DamageModel.runOverCrime` is gated by damage-test; that this file asks it
+   * rather than deciding for itself is only visible from the page, and `mutation-sweep`'s
+   * `runover-wire` came back MISSED until boot-check could read this. Recorded in the stats object
+   * this file already keeps for exactly that argument — "counted rather than hidden".
+   */
+  lastRunOver: null };
 /**
  * One victim, one offence, within a window. The rule and its measurement are in
  * `src/wanted.js`'s `VictimWindow`, because it is crime attribution and because nothing could
@@ -1341,6 +1349,8 @@ function dynamicImpacts() {
          * reach them — nothing offline imports this file.
          */
         const rv = damage.runOverCrime(over, r.fatal);
+        dynStats.lastRunOver = { kmh: +(over * 3.6).toFixed(1), crime: rv.crime,
+          scale: +rv.scale.toFixed(4) };
         const res = wanted.reportCrime(rv.crime, { at: { x: vehicle.position.x, z: vehicle.position.z },
           scale: rv.scale });
         if (res.applied) damageCrimes++; else damageIgnored++;
