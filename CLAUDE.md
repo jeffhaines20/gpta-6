@@ -1115,6 +1115,108 @@ The shape is the same every time: the module is right, its gate asserts the modu
 and nothing asserts that the game reaches it. **When a feature lands, write down how
 a player gets to it, and then check that path from the outside.**
 
+### And the harness had no police, so "I escaped" was never evidence
+
+The same shape one level deeper, and it invalidated a whole class of playtest finding.
+`tools/playtest.mjs` built no pursuit layer at all, so `_evaluateContact` had nothing to
+evaluate. Measured: five stars, engine off, never moving —
+
+    units 6/0        six units requested, ZERO reporting a position
+    4* -> 0 in 87 s  the level bled away while the player sat still
+
+Both playtesters reported in detail on evading the police, against a game with no police
+in it. `wanted.clear()` and `damage.repair()` had existed since their modules did with the
+tests and two console hooks as their only callers, so there was no way to lose.
+
+**And the pursuit could not stop, which made any "a unit is holding you" rule
+unsatisfiable.** Greedy road-graph pursuit drives its edge at 22 m/s for ever. Against a
+stationary target, 400 s, two spots, three seeds:
+
+    longest contiguous hold   4.3 m  0.8 s    20 m  5.4 s
+                              8.6 m  1.7 s    30 m 10.7 s
+                             12 m    2.8 s    45 m 13.8 s
+    minimum distance reached  0.1 m
+
+Touching the player constantly and holding him never. A bust rule written against that,
+gated with hand-placed units, would have shipped and never fired. `PursuitUnits.HOLD_R`
+clamps a unit at its edge's closest approach; toggling it to 0 in one process is
+byte-identical at 70 km/h and within noise at 40, so the hold costs the chase nothing.
+
+**Two defects in that hold, both of which read as the police being unreliable rather than
+as broken code.** The tell was `stats.bustHolds` against `stats.busts` — armed 21 times in
+80 s, fired 0:
+
+- The condition `u.t <= near.t` was a strict ratchet, and **a stationary player is not
+  stationary**: the plan's target is the live position and a braked car settles by
+  sub-millimetre amounts. Any backwards drift failed it and the unit left for good. `held`
+  was true for exactly TWO frames at a time. Once sticky, six variants of one scenario all
+  bust at 16 s with the clock armed once.
+- Two arms of that scenario 0.2 m apart — coasting against braked — disagreed about whether
+  the player was ever caught, because the greedy router is chaotic in the target position.
+  **"Sometimes it works" is what a broken conjunction looks like from outside.**
+
+A third guard went in on a plausible wrong diagnosis (a held unit rerouting at its edge's
+end) and `mutation-sweep` reverted it and came back MISSED. It was redundant once the hold
+was sticky — bit-identical, same bust times, same hold durations — so the guard was deleted
+and the row with it. **A row nothing can tell apart is not evidence of coverage.**
+
+### A host rule is a rule no offline gate can reach
+
+`district/main.js` is imported by nothing offline, so every rule that lives there is a rule
+`mutation-sweep` cannot test. The fix is to MOVE it, not to write a browser check:
+`VictimWindow` moved into `src/wanted.js` for this reason and `DamageModel.runOverCrime`
+followed. What is left in the host is one wire per rule, and `boot-check` owns those.
+
+Writing the mutation is what finds the misplacement. `runover-scale` was drafted against
+`district/main.js`, which is how the run-over charge turned out to be three decisions in
+the call site — which crime, what scale, and nothing tying either to the module's own
+threshold — with a literal `scale: 1` that charged a 2 km/h roll over a body exactly what a
+76 km/h one cost.
+
+**And three versions of the browser arm for the remaining wire each printed a number and
+measured nothing:**
+
+1. Teleported the car onto the body at rest: 1 body down, 0 run-overs. `peds.runOver`
+   refuses below `PED_FREE_MS`, so a car PLACED on a casualty rolls over nobody.
+2. Crept at 1.6 m/s: cleared 0.33 m of the body, still 0 run-overs. 1.6 is under 2.2.
+3. Took `positions()[0]`: 56 run-overs and **every one a REPEAT** — `pedRepeats` 0 -> 56
+   with the charge still null — because `chargeVictim`'s 20 s per-victim window had been
+   spent on that id by an earlier arm's car parked on a populated street. The subject is
+   chosen for distance from the car now, over 60 m, outside any radius the contact pass can
+   reach.
+
+Each read as the wire being broken. The arm asserts it drove over the body at all before
+asserting anything about the charge, because both sides of "the scale is not 1" are zero
+when nothing happened.
+
+### Two holds were counting rendered frames instead of simulated time
+
+`wreckWatch` ran once per RENDERED frame from the HUD block, so under `?timeScale=40` a
+four-second wreck hold took 160 s of simulated time. Found by a browser arm that advanced
+34 s of sim across 17 frames and saw 0.85 s of fade. `damage.update(dt)`'s own comment two
+lines away already stated the rule — "the damage clock runs on simulated time, like
+everything else in this loop, so a fire burns at the same rate under `?timeScale` as it does
+at 1" — and the holds were the two things in the frame that did not. No committed baseline
+moved: `drive-through` is the only tool that raises `timeScale` and it drives with
+`setBodyCollision(false)`, so nothing wrecks during it.
+
+### A derived constant beats a picked one, and the floor is measurable
+
+`BUST_HOLD_S` needed a dwell time, and the honest floor is what a driver who is NOT caught
+spends below the stop threshold. `src/vehicle.js` on flat ground, full brake to rest then
+immediately full throttle:
+
+    entry km/h            20    40    60    80   110
+    under 1.0 m/s       0.32  0.30  0.28  0.30  0.32
+    under 2.2 m/s       0.68  0.67  0.65  0.67  0.67
+    with a 2 s pause    2.67 s
+
+Flat in the entry speed, because the last 2.2 m/s of a braking curve does not depend on
+where the braking started. So anything under 0.68 s busts a player for using the brake. The
+VALUE is `WRECK_HOLD_S` — the same beat, "the game has taken over and is about to hand the
+car back" — and `district/main.js` reads the constant rather than keeping its own 4, so a
+retune moves both. **A wall-clock threshold still needs the sweep a measurement needs.**
+
 ## A change that perturbs a seeded sequence exposes content nothing has tested
 
 Making the player's car a leader in `traffic.js`'s car-following term took
@@ -1228,17 +1330,20 @@ rather than gates, but their self-tests belong on the list because both are
 load-bearing for what a round is allowed to claim.
 
 `hud-cue` is the only gate that looks at what `src/hud.js` DRAWS. Everything else over
-that module tests pure functions — `composeBand`'s five tenants, the marker styles, the
+that module tests pure functions — `composeBand`'s seven tenants, the marker styles, the
 layout arithmetic — so a panel could stop drawing entirely and the whole list would stay
-green. It runs the real HUD against a recording 2D context and asserts the rectangles.
+green. Its band ladder now reads the tenant list off `composeBand`'s own signature with a
+regex, because a tenant added to the function and not to the ladder sits ABOVE everything
+the ladder walks and is invisible to it — which is how `law` went untested for a round. It runs the real HUD against a recording 2D context and asserts the rectangles.
 Two things to know before writing another check in it: **the HUD dirty-flags its panels,
 so a settled value is not redrawn** — sampling one late frame reads an empty list however
 well the thing works, and the first version of that probe read zero at every input while
 the code was correct; and **the last pass drawn is up to `eps * exp(rate*dt)` short of the
 target**, because `update()` damps first and tests after, which is 0.82 px where the naive
 0.69 px bound fails. `boot-check` needs a browser and
-takes twenty seconds — run it whenever `district/` or `src/` changed, because it is
-the only gate that loads the game. `damage-live` takes about twelve minutes and
+takes **about a minute** — it was twenty seconds, and the busted flow and the run-over wire
+cost it forty of those, because both are host rules nothing offline imports. Run it
+whenever `district/` or `src/` changed, because it is the only gate that loads the game. `damage-live` takes about twelve minutes and
 `ped-audit` about fifteen. Run the ones your change can touch before claiming done.
 
 **A tool that throws is not a tool that passes, and nobody notices which.**
