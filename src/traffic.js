@@ -35,6 +35,30 @@ const IDM = {
   delta: 4,      // acceleration exponent
 };
 
+/**
+ * ONE LENGTH FOR EVERY CAR, AND THE ERROR IS NOW NAMED RATHER THAN ZERO.
+ *
+ * Every gap in this file is bumper to bumper — `along - CAR_LENGTH` — and the junction clearance,
+ * the queue spacing and the overlap tests all read this one number. The three body shells used to
+ * be 4.493 m each, so a single constant was right to 2.1% for all of them. src/carbody.js now
+ * varies LENGTH by overhang (the coupe's 4.493, the saloon's 4.635, the wagon's 4.689 — measured
+ * off the buffer by tools/car-shapes.mjs), so this models a car up to 6.2% shorter than it is
+ * drawn, worst case 0.289 m on the wagon — 6.2% of its own length.
+ *
+ * LEFT AT 4.4 DELIBERATELY, for now, and the reason is isolation rather than indifference.
+ * Changing it changes which cars brake, which changes `_chooseNext`'s draws, which sends the fleet
+ * down a different set of edges — CLAUDE.md records a round where exactly that took
+ * `traffic-selftest`'s cars-inside-buildings count from 0 of 215,960 to 342 with nothing about the
+ * lane rule changed, because the new edges had been wrong all along. A geometry change and a
+ * traffic-behaviour change in one commit could not be attributed.
+ *
+ * WHAT IT COSTS, priced: 0.289 m on a queue whose minimum rest gap is `IDM.s0` = 3.2 m, so 9.0%
+ * of the standing gap and 0.289 m of a 14.6 m `EXIT_CLEAR_NEEDED`, which is 2.0%. Two wagons nose
+ * to tail at rest sit 0.578 m closer than the model thinks, against 3.2 m of gap — they do not
+ * touch. Making it per-shell needs the shell index, which this file already computes for the mesh
+ * pools (`hash32('carshell', i)`), so it is a small change; it is a change to what the traffic
+ * gates measure, and it wants its own commit and its own before/after.
+ */
 const CAR_LENGTH = 4.4;
 /**
  * THE CAR IS 1.9 m WIDE, AND THE ROAD HAS TO HOLD IT.

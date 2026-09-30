@@ -971,16 +971,40 @@ export const CAR = {
  * shared by the underside, the arch notches and the wheel placement, and moving
  * them means moving all three in step; getting that wrong detaches a wheel from
  * its arch, which is worse than three cars of one length.
+ *
+ * AND THAT REASONING CONFLATED LENGTH WITH WHEELBASE, which is why the first
+ * three shells came out to 4.493 m EACH — measured off the buffer, a spread of
+ * 0.0000 m over three shells, with the bbox width identical too at 2.090
+ * because the arch lips set the extremes. Length is the dimension a viewer reads
+ * furthest down a street and it was the one thing that did not vary.
+ *
+ * A real saloon is longer than a coupe on the SAME wheelbase, by overhang. So
+ * `noseStretch` / `tailStretch` scale the silhouette's z BEYOND EACH ARCH, which
+ * leaves the wheelbase, both axles and both arch notches exactly where they
+ * were — the concern above is answered rather than overruled. The pivots are
+ * derived from the arch's own geometry in `stretchZ` below, not written down:
+ * an arch spans `archR * sin(acos((sill - archCy) / archR))` either side of its
+ * axle, which is 0.402 m here, so the stretch starts at +1.722 and -1.702 and
+ * has 0.524 m of nose and 0.566 m of tail to work with.
+ *
+ * Only LENGTHENING is offered, and the coupe stays at 1.0. `halfWidth` normalises
+ * the plan taper by `|z| / halfLen`, so a tip pushed past `halfLen` is still
+ * fully tapered (the authored tip is already at 2.246 against halfLen 2.24)
+ * while a SHORTENED tip would land inside the ramp and come out blunt. That is a
+ * second knob's worth of argument for no visible gain.
  */
 export const SHAPES = {
   // The shell every previous round measured. Must build byte-identical geometry
   // to no shape at all, and there is a self-test for exactly that.
   coupe: {},
-  // Boxier, wider, taller, and the roof breaks 200 mm further forward: a
-  // three-box saloon rather than a fastback.
-  saloon: { hw: 0.985, planTaper: 0.050, tumble: 0.155, roofY: 0.775, backlightZ: -0.880 },
-  // Roof carried almost to the tail over a near-vertical backlight.
-  wagon: { hw: 0.985, planTaper: 0.045, tumble: 0.140, roofY: 0.790, backlightZ: -1.460 },
+  // Boxier, wider, taller, the roof breaks 200 mm further forward, and it carries
+  // a real boot: a three-box saloon rather than a fastback.
+  saloon: { hw: 0.985, planTaper: 0.050, tumble: 0.155, roofY: 0.775, backlightZ: -0.880,
+    noseStretch: 1.04, tailStretch: 1.22 },
+  // Roof carried almost to the tail over a near-vertical backlight, and the
+  // longest of the three, which is what a wagon is.
+  wagon: { hw: 0.985, planTaper: 0.045, tumble: 0.140, roofY: 0.790, backlightZ: -1.460,
+    noseStretch: 1.06, tailStretch: 1.30 },
 };
 export const SHAPE_NAMES = Object.keys(SHAPES);
 
@@ -1083,6 +1107,40 @@ function warpPoint(z, y, P) {
   return [wz, wy];
 }
 
+/**
+ * HOW FAR AN ARCH NOTCH REACHES EITHER SIDE OF ITS AXLE, in metres, derived from the same three
+ * numbers `arch()` builds it from. This is the pivot the length stretch has to start beyond: the
+ * front arch runs to +1.722 and the rear to -1.702, so scaling z past those moves the bumpers,
+ * the bonnet front, the boot deck and the tail face and leaves every wheel sitting in its own
+ * notch. Derived rather than written down, because `archR`, `archCy` and `sill` are all live
+ * fields and a literal here would go stale the day one of them moves.
+ */
+export function archHalfSpan(P = CAR) {
+  const cosMax = THREE.MathUtils.clamp((P.sill - P.archCy) / P.archR, -1, 1);
+  return P.archR * Math.sin(Math.acos(cosMax));
+}
+
+/**
+ * Stretch the ends of the silhouette without touching the wheelbase. Identity when a shell
+ * declares no stretch, which is what keeps `coupe` byte-identical to building with no shape.
+ *
+ * It does not overlap `warpPoint`: that one returns early for `z > screenLoZ` (0.640) or
+ * `z < backlightLoZ` (-1.700), and this one only acts beyond +1.722 / -1.702. The two transforms
+ * are disjoint in z by construction, so their order cannot matter — but the stretch is applied
+ * SECOND anyway, so `halfWidth` measures the plan taper at the final position for the reason
+ * `add()`'s own comment gives.
+ */
+export function stretchZ(z, P = CAR) {
+  const span = archHalfSpan(P);
+  const f = P.noseStretch ?? 1;
+  const r = P.tailStretch ?? 1;
+  const zf = P.frontAxleZ + span;
+  const zr = P.rearAxleZ - span;
+  if (f !== 1 && z > zf) return zf + (z - zf) * f;
+  if (r !== 1 && z < zr) return zr + (z - zr) * r;
+  return z;
+}
+
 function silhouette(P = CAR, detail = {}) {
   const archSegments = detail.archSegments ?? 11;
   const decimate = detail.decimate ?? false;
@@ -1093,7 +1151,8 @@ function silhouette(P = CAR, detail = {}) {
     // one would give a taller roof the width of a lower one - a variant whose
     // plan view belongs to a different car. This ordering is the whole reason
     // the warp lives inside add() rather than in a pass over `pts`.
-    const [z, y] = warpPoint(rawZ, rawY, P);
+    const [wz, y] = warpPoint(rawZ, rawY, P);
+    const z = stretchZ(wz, P);
     pts.push({
       z, y, y0: o.y0 != null ? warpPoint(rawZ, o.y0, P)[1] : y,
       w: (o.w ?? halfWidth(z, y, P)) * (o.wMul ?? 1),

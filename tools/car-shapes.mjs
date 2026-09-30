@@ -29,7 +29,7 @@
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { buildTrafficCarGeometry, SHAPES, SHAPE_NAMES, CAR,
-  shellNames, setShellNames } from '../src/carbody.js';
+  shellNames, setShellNames, stretchZ, archHalfSpan } from '../src/carbody.js';
 
 const DIRECT = process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('/car-shapes.mjs');
 
@@ -109,9 +109,47 @@ export function shellStats(g) {
     if (Math.round(uv.getX(i) * 16 - 0.5) !== 0) continue;
     if (p.getY(i) > apexY) { apexY = p.getY(i); apexZ = p.getZ(i); }
   }
+  /**
+   * LENGTH, AND THE Z VALUES INSIDE THE WHEELBASE. The first three shells came out 4.493 m EACH —
+   * a spread of 0.0000 m — and nothing here measured it, so the census read as variety while the
+   * dimension a viewer reads furthest down a street was a constant. `bboxW` is printed beside it
+   * because it is ALSO a constant, at 2.090 for every shell: the arch lips set the plan extremes,
+   * so the bounding box cannot characterise a shell either.
+   *
+   * `bandZ` is the sorted set of distinct z among vertices inside the arch span AND BELOW THE
+   * BELTLINE. The first version left the beltline out and the gate failed on saloon and wagon —
+   * correctly, because `warpPoint`'s greenhouse remap moves z between +0.640 and -1.700, which
+   * overlaps the arch span, and those points are SUPPOSED to move. 30 of the 280 vertices in an
+   * arch span are greenhouse; the other 250 are the arch notch and the underbody, and those are
+   * the ones a wheel sits in.
+   *
+   * The belt is converted into buffer coordinates from the buffer's own minimum y, which is the
+   * silhouette's `ground` exactly — asserted below rather than assumed, so a change to how the
+   * body is seated fails the check instead of silently shifting the band.
+   */
+  const span = archHalfSpan(CAR);
+  const zf = CAR.frontAxleZ + span, zr = CAR.rearAxleZ - span;
+  let zmin = Infinity, zmax = -Infinity, xmax = 0, ymin = Infinity;
+  for (let i = 0; i < p.count; i++) {
+    const z = p.getZ(i), y = p.getY(i);
+    if (z < zmin) zmin = z;
+    if (z > zmax) zmax = z;
+    if (y < ymin) ymin = y;
+    if (Math.abs(p.getX(i)) > xmax) xmax = Math.abs(p.getX(i));
+  }
+  const beltY = ymin - CAR.ground + CAR.belt;
+  const band = new Set();
+  let bandHigh = 0;
+  for (let i = 0; i < p.count; i++) {
+    const z = p.getZ(i);
+    if (z < zr || z > zf) continue;
+    if (p.getY(i) > beltY) { bandHigh++; continue; }
+    band.add(+z.toFixed(6));
+  }
   return { tris: triCount(g), verts: p.count, bodyX, roofX, roofY, glassY,
     glassLen: glassZ1 - glassZ0, glassRings: zs.length, interiorRings: interior,
-    roofApexZ: apexZ };
+    roofApexZ: apexZ, length: zmax - zmin, bboxW: xmax * 2, ymin, beltY, bandHigh,
+    bandZ: [...band].sort((a, b) => a - b) };
 }
 
 /**
@@ -144,13 +182,14 @@ function census() {
   }
   const pad = (s, n) => String(s).padEnd(n);
   console.log(`\nSHELLS (${SHAPE_NAMES.length}), all built and read off the buffer`);
-  console.log(`  ${pad('shell', 10)} ${pad('tris', 6)} bodyHalfW  roofHalfW   roofY   breakZ  apexZ  glassLen  vs base`);
+  console.log(`  ${pad('shell', 10)} ${pad('tris', 6)} length  bboxW  bodyHalfW  roofHalfW   roofY   breakZ  apexZ  vs base`);
   for (const r of rows) {
     console.log(`  ${pad(r.name, 10)} ${pad(r.tris, 6)}` +
+      ` ${r.length.toFixed(3).padStart(6)} ${r.bboxW.toFixed(3).padStart(6)}` +
       ` ${r.bodyX.toFixed(4).padStart(9)} ${r.roofX.toFixed(4).padStart(10)}` +
       ` ${r.roofY.toFixed(4).padStart(8)} ${r.breakZ.toFixed(3).padStart(7)}` +
       ` ${r.roofApexZ.toFixed(3).padStart(6)}` +
-      ` ${r.glassLen.toFixed(3).padStart(9)}  ${r.same ? 'IDENTICAL' : 'differs'}`);
+      `  ${r.same ? 'IDENTICAL' : 'differs'}`);
   }
   // glassLen IS PINNED BY CONSTRUCTION and is printed only so nobody reads it as
   // evidence again. warpPoint holds both greenhouse rails, so the column is
@@ -162,8 +201,10 @@ function census() {
     const v = rows.map(f); return Math.max(...v) - Math.min(...v);
   };
   console.log(`\n  what actually varies across the shells:`);
-  console.log(`    roofY     ${spread((r) => r.roofY).toFixed(3)} m      breakZ  ${spread((r) => r.breakZ).toFixed(3)} m`);
-  console.log(`    roofHalfW ${spread((r) => r.roofX).toFixed(3)} m      apexZ   ${spread((r) => r.roofApexZ).toFixed(3)} m`);
+  console.log(`    length    ${spread((r) => r.length).toFixed(3)} m      breakZ  ${spread((r) => r.breakZ).toFixed(3)} m`);
+  console.log(`    roofY     ${spread((r) => r.roofY).toFixed(3)} m      apexZ   ${spread((r) => r.roofApexZ).toFixed(3)} m`);
+  console.log(`    roofHalfW ${spread((r) => r.roofX).toFixed(3)} m`);
+  console.log(`    bboxW     ${spread((r) => r.bboxW).toFixed(3)} m      <- the arch lips set it; it cannot tell shells apart`);
   console.log(`    glassLen  ${spread((r) => r.glassLen).toFixed(3)} m      <- PINNED by warpPoint, not a measurement of the shells`);
 
   // 1. EQUAL COST.
@@ -201,6 +242,111 @@ function census() {
     console.log(`  ok  real variance: every non-base shell differs from the base`);
   }
 
+  /**
+   * 4. LENGTH VARIES, AND THE WHEELBASE DOES NOT.
+   *
+   * These are one check in two halves and neither is worth anything alone. The first three shells
+   * were 4.493 m EACH, so a census with no length column read as variety; and the reason
+   * src/carbody.js gave for that — "moving the axles means moving the underside, the arch notches
+   * and the wheel placement in step, and getting it wrong detaches a wheel from its arch" — is the
+   * thing the second half has to rule out now that the ends move.
+   *
+   * `bandZ` is the sorted set of distinct z among vertices inside the arch span, and every arch
+   * vertex is in it by construction, so "identical to the base's" IS "no wheel has left its
+   * notch". Compared as a set rather than by count, because a stretch that moved one arch point
+   * onto another's z would keep the count.
+   */
+  {
+    const lens = rows.map((r) => r.length);
+    const range = Math.max(...lens) - Math.min(...lens);
+    const baseBand = rows.find((r) => r.name === SHAPE_NAMES[0]).bandZ;
+    /**
+     * A SET DISTANCE BOUNDED BY THE CHAMFER, AND IT TOOK THREE WRONG VERSIONS TO GET THERE. This
+     * is a SANITY BOUND, not the proof: the proof that the lever leaves the wheelbase alone is
+     * `stretchZ`'s own contract in the selftest — identity at every one of 3424 samples across the
+     * arch span, with a known-bad side that fails a no-op. What this adds is that nothing ELSE in
+     * the build conspires to move the arch.
+     *
+     *   1. Bit-identity of the arch-span z values. Failed on saloon and wagon, correctly: the
+     *      greenhouse warp moves z between +0.640 and -1.700, which overlaps the arch span, and
+     *      those points are SUPPOSED to move. Fixed by excluding everything above the beltline —
+     *      86 of the 154 vertices in the span.
+     *   2. Bit-identity of what was left. Still failed, at 4.3 mm over six of 68 z values, none
+     *      within 0.2 m of an axle. That is the CHAMFER: `silhouetteNormals` insets each ring
+     *      along the 2D normal of its NEIGHBOURS, so moving a point 0.16 m outside the span nudges
+     *      the chamfer of the point just inside it. Real, and nothing to do with a wheel.
+     *   3. Index pairing with a tyre-clearance bound. Failed on the wagon with `Infinity`, because
+     *      its band holds 67 values against the base's 68 — a chamfer ring crossed the band's own
+     *      boundary and left. An index pairing cannot survive a set that gains or loses a member,
+     *      and the boundary is mine, not the geometry's.
+     *
+     * So: the symmetric Hausdorff distance between the two z sets, which is defined whatever the
+     * counts, bounded by `CAR.edge` — the chamfer radius, which is the mechanism's own scale and
+     * the largest displacement it can produce. Printed as a fraction so the margin is legible.
+     */
+    const clearance = CAR.edge;
+    const hausdorff = (a, b) => Math.max(0, ...a.map((z) =>
+      Math.min(...b.map((w) => Math.abs(w - z)))));
+    const shifts = rows.map((r) => ({
+      name: r.name,
+      n: r.bandZ.length,
+      worst: Math.max(hausdorff(r.bandZ, baseBand), hausdorff(baseBand, r.bandZ)),
+    }));
+    const worstShift = Math.max(...shifts.map((x) => x.worst));
+    const moved = shifts.filter((x) => x.worst >= clearance);
+    const b0 = rows.find((r) => r.name === SHAPE_NAMES[0]);
+    console.log(`\n  length ${lens.map((v) => v.toFixed(3)).join(' / ')} m, range ` +
+      `${range.toFixed(3)} m (${(100 * range / lens[0]).toFixed(1)}% of the base)`);
+    console.log(`  the arch span is +${(CAR.frontAxleZ + archHalfSpan(CAR)).toFixed(3)} / ` +
+      `${(CAR.rearAxleZ - archHalfSpan(CAR)).toFixed(3)}: ${baseBand.length} distinct z below the ` +
+      `belt (y ${b0.beltY.toFixed(3)}) and ${b0.bandHigh} greenhouse vertices excluded`);
+    if (Math.abs(b0.ymin - 0) > 1e-6) {
+      console.log(`\nFAIL the body is not seated on y=0: ymin ${b0.ymin}`);
+      console.log('  The beltline band above is derived from that, so it is now looking elsewhere.');
+      fail++;
+    }
+    if (b0.bandHigh === 0) {
+      console.log(`\nFAIL the beltline split excludes nothing, so it is not doing its job`);
+      console.log('  The greenhouse warp moves z inside the arch span; if no vertex is being');
+      console.log('  excluded the band is either empty or the belt is in the wrong units.');
+      fail++;
+    }
+    if (range < 0.05) {
+      console.log(`\nFAIL length variance: ${range.toFixed(4)} m across ${lens.length} shells`);
+      console.log('  Length is the dimension a viewer reads furthest down a street, and three');
+      console.log('  shells of one length is what the reviewers complained about.');
+      fail++;
+    } else {
+      console.log(`  ok  length varies: ${range.toFixed(3)} m across ${lens.length} shells`);
+    }
+    console.log(`  worst sub-belt shift inside the span: ` +
+      shifts.map((x) => `${x.name} ${(x.worst * 1000).toFixed(1)} mm (${x.n} z)`).join(', ') +
+      `  against the ${(clearance * 1000).toFixed(0)} mm chamfer`);
+    if (moved.length) {
+      console.log(`\nFAIL the arch moved: ${moved.map((r) => r.name).join(', ')}`);
+      console.log('  A vertex in the arch span moved further than the chamfer that produces the');
+      console.log('  drift, so something other than the chamfer moved it. The end stretch must');
+      console.log('  act only beyond frontAxleZ/rearAxleZ +/- archHalfSpan.');
+      fail++;
+    } else {
+      /**
+       * ONE BOUND, NOT TWO. The chamfer radius and the tyre's clearance in its arch are both
+       * 0.085 m here — `CAR.edge` against `archR - wheelR` — which is a coincidence of this
+       * geometry and not corroboration. Quoting both would be the same number twice wearing two
+       * names, which is the shunt-fit trap CLAUDE.md records. The chamfer is the one this bound
+       * means, because the chamfer is the mechanism that produces the drift.
+       */
+      const tyre = CAR.archR - CAR.wheelR;
+      console.log(`  ok  the wheelbase is untouched: worst shift ` +
+        `${(worstShift * 1000).toFixed(1)} mm is ${(100 * worstShift / clearance).toFixed(0)}% of ` +
+        `the ${(clearance * 1000).toFixed(0)} mm chamfer` +
+        (Math.abs(tyre - clearance) < 1e-9
+          ? ` (the tyre's clearance in its arch is the same 85 mm by coincidence, not as a second bound)`
+          : `, and ${(100 * worstShift / tyre).toFixed(0)}% of the tyre's ` +
+            `${(tyre * 1000).toFixed(0)} mm clearance`));
+    }
+  }
+
   console.log(fail ? `\nCAR-SHAPES: FAIL (${fail})` : '\nCAR-SHAPES: PASS');
   return fail === 0;
 }
@@ -214,6 +360,38 @@ function selftest() {
   //    catch a lever that does nothing.
   const a = buildTrafficCarGeometry({}), b = buildTrafficCarGeometry({});
   chk('digest/identical builds match', digest(a) === digest(b), digest(a).slice(0, 16));
+
+  /**
+   * `stretchZ`'S CONTRACT, ASSERTED DIRECTLY, because the census can only see its consequences.
+   * The arch span is derived from `archR`, `archCy` and `sill` — the same three numbers `arch()`
+   * builds the notch from — so a literal here would go stale the day one of them moves.
+   *
+   * The KNOWN-BAD half is the second sweep: a `stretchZ` that were identity everywhere would pass
+   * the first one and do nothing, which is the shape of every no-op lever this project has shipped.
+   */
+  {
+    const span = archHalfSpan(CAR);
+    const zf = CAR.frontAxleZ + span, zr = CAR.rearAxleZ - span;
+    const shape = SHAPES[SHAPE_NAMES.find((n) => (SHAPES[n].tailStretch ?? 1) !== 1)];
+    const P = { ...CAR, ...shape };
+    let worstIn = 0, movedOut = 0, n = 0;
+    for (let z = zr; z <= zf; z += 0.001) {
+      worstIn = Math.max(worstIn, Math.abs(stretchZ(z, P) - z));
+      n++;
+    }
+    for (const z of [zf + 0.02, zf + 0.3, zf + 0.52, zr - 0.02, zr - 0.3, zr - 0.56]) {
+      if (Math.abs(stretchZ(z, P) - z) > 1e-6) movedOut++;
+    }
+    chk('archHalfSpan is derived from the arch, not written down',
+      Math.abs(span - CAR.archR * Math.sin(Math.acos((CAR.sill - CAR.archCy) / CAR.archR))) < 1e-12,
+      `${span.toFixed(4)} m, so the stretch starts at +${zf.toFixed(3)} / ${zr.toFixed(3)}`);
+    chk('stretchZ is identity everywhere inside the arch span',
+      worstIn === 0, `worst move ${worstIn.toFixed(9)} m over ${n} samples`);
+    chk('KNOWN-BAD: and it is NOT identity outside, or the lever does nothing',
+      movedOut === 6, `${movedOut} of 6 sample points outside the span moved`);
+    chk('a shell with no stretch declared is identity at every z',
+      [zf + 0.4, zr - 0.4, 0].every((z) => stretchZ(z, CAR) === z), 'coupe unchanged');
+  }
 
   // 2. KNOWN-BAD: a shape that genuinely changes the shell must NOT digest the
   //    same. hw is the bluntest lever there is; if this passes, the comparator

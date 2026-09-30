@@ -406,11 +406,25 @@ if (state.global && state.frames > 2) {
  * deciding for itself as it used to with a literal `scale: 1`, is only visible from the page —
  * `mutation-sweep`'s `runover-wire` came back MISSED before this arm existed.
  *
- * Staged, then DRIVEN, and the second half is not optional: `peds.runOver` refuses below its own
- * free speed, so a car teleported on top of a casualty rolls over nobody — the first version of
- * this arm placed the car exactly on the body at rest and measured 1 body down, 0 run-overs, and
- * called the wire broken. The car is put a few metres short and creeps onto the body at walking
- * pace, which is also the case whose charge the old literal got wrong by a factor of 400.
+ * FOUR WRONG VERSIONS OF THIS ARM, each of which printed a number and measured nothing. Worth the
+ * space because each one read as the WIRE being broken:
+ *
+ *   1. Teleported the car onto the body at rest: 1 body down, 0 run-overs. `peds.runOver` refuses
+ *      below `PED_FREE_MS`, so a car PLACED on a casualty rolls over nobody.
+ *   2. Crept at 1.6 m/s: reached 0.33 m of the body, still 0 run-overs, for the same reason —
+ *      1.6 is under 2.2. The crawl is 4 m/s now, over the free speed and far under `pedKillSpeed`.
+ *   3. Took `positions()[0]`: 56 run-overs and EVERY ONE A REPEAT — `pedRepeats` 0 -> 56 with the
+ *      charge still null — because `chargeVictim`'s 20 s per-victim window had been spent on that
+ *      id by an earlier arm's car parked on a populated street.
+ *   4. Picked a body 60 m away and then teleported the car to it. Reached 0.1 m and STILL 0
+ *      run-overs: src/pedestrians.js re-seeds distant slots around the camera, and `placeAt` moves
+ *      the camera 60 m, so the casualty was recycled between the knockdown and the arrival. The
+ *      preceding version of this one stopped 3.93 m short of a different body, because its
+ *      approach line was whatever +z happened to be and this district has buildings in it.
+ *
+ * So the order is: place the car, let the crowd settle around it, knock down somebody in FRONT of
+ * it, then drive. Nothing is teleported after the knockdown and the approach is the car's own
+ * heading, so neither the re-seed nor the geometry can intervene.
  */
 {
   const ro = await page.evaluate(async () => {
@@ -419,83 +433,92 @@ if (state.global && state.frames > 2) {
     if (!peds) return { skipped: 'no crowd' };
     d.clearWanted('boot-check');
     d.setMode('car');
-    /**
-     * A BODY ON THE GROUND, AND ONE THE CAR HAS NEVER TOUCHED. The first version took
-     * `positions()[0]`, and every one of its 56 run-overs came back a REPEAT — `pedRepeats`
-     * 0 -> 56 with `lastRunOver` still null — because `chargeVictim`'s 20 s per-victim window had
-     * already been spent on that id by an earlier arm's car, parked on a populated street. So the
-     * subject is chosen for distance from the car: outside any radius the contact pass can reach,
-     * which makes the first charge the arm's own.
-     */
-    const v0 = d.vehicle.position;
-    const all = peds.positions()
-      .map((p) => ({ ...p, d: Math.hypot(p.x - v0.x, p.z - v0.z) }))
-      .filter((p) => !p.down && p.d > 60)
-      .sort((a, b) => b.d - a.d);
-    const spot = all[0];
-    if (!spot) return { skipped: 'no untouched pedestrian over 60 m out' };
-    // Above damage.js's kill speed the crowd keeps a body down, the same threshold the crime uses.
-    peds.hit(spot.i, { speed: 30, dirX: 0, dirZ: 1, force: true });
-    await new Promise((r) => requestAnimationFrame(() => r()));
-    const down = peds.positions().filter((p) => p.down && p.i === spot.i);
-    if (!down.length) return { skipped: 'the chosen pedestrian did not go down' };
-    const body = down[0];
-    // Now roll onto it at walking pace, which is what the old literal charged as a 76 km/h strike.
-    // A few metres short of the body, pointing at it, and then crawl.
     const v = d.vehicle;
-    const back = 14;                                  // room to reach 4 m/s before the body
-    d.placeAt(body.x, body.z - back, 0);
     d.setTimeScale(8);
+    // Somewhere with road ahead: the district's own spawn, which #66 moved onto a populated street.
+    d.placeAt(d.district.meta.spawn.x, d.district.meta.spawn.z, 0);
+    for (let i = 0; i < 3; i++) await new Promise((r) => requestAnimationFrame(() => r()));
+    // Whoever is in front of the car, within a short run, with clear ground between.
+    const q = v.quaternion;
+    const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
+    const fx = Math.sin(yaw), fz = Math.cos(yaw);
+    const ahead = peds.positions()
+      .map((p) => {
+        const rx = p.x - v.position.x, rz = p.z - v.position.z;
+        return { ...p, along: rx * fx + rz * fz, side: Math.abs(rx * fz - rz * fx) };
+      })
+      .filter((p) => !p.down && p.along > 5 && p.along < 26 && p.side < 1.2)
+      .sort((a, b) => a.along - b.along);
+    if (!ahead.length) {
+      d.setTimeScale(1);
+      return { skipped: 'nobody standing in the car’s path', crowd: peds.positions().length };
+    }
+    const spot = ahead[0];
+    // Above damage.js's kill speed the crowd keeps a body down, the same threshold the crime uses.
+    peds.hit(spot.i, { speed: 30, dirX: fx, dirZ: fz, force: true });
+    await new Promise((r) => requestAnimationFrame(() => r()));
+    const bodyDown = peds.isDown(spot.i);
     const seen = [];
-    let overs = 0, repeats = 0, closest = Infinity, speeds = [];
+    let overs = 0, repeats = 0, closest = Infinity, top = 0;
     const dyn0 = d.damageReport().dynamic;
     d.setAutopilot(() => {
       /**
        * OVER src/pedestrians.js's `PED_FREE_MS` (2.2 m/s) AND FAR UNDER `pedKillSpeed` (21.3).
-       * The first version crawled at 1.6 m/s, cleared 0.33 m of the body, and measured 0 run-overs
-       * — `runOver` refuses below its free speed and the arm read that as the wire being broken.
-       * 4 m/s is 14 km/h: a crime with a scale of about 0.006, against the 1.00 the old literal
-       * charged, so the two readings are a factor of 170 apart rather than a rounding.
+       * 4 m/s is 14 km/h: a run-over charge of about 0.008, against the 1.00 the old literal
+       * applied, so the two readings are two orders of magnitude apart rather than a rounding.
        */
       v.setControls({ throttle: v.speed < 4 ? 0.5 : 0, brake: 0, steer: 0, handbrake: false });
     });
     const t1 = Date.now();
     while (Date.now() - t1 < 25000) {
       await new Promise((r) => requestAnimationFrame(() => r()));
-      closest = Math.min(closest, Math.hypot(v.position.x - body.x, v.position.z - body.z));
-      speeds.push(+(v.speed * 3.6).toFixed(1));
+      const p = peds.positions().find((x) => x.i === spot.i);
+      if (p) closest = Math.min(closest, Math.hypot(p.x - v.position.x, p.z - v.position.z));
+      top = Math.max(top, v.speed * 3.6);
       const dyn = d.damageReport().dynamic;
-      overs = dyn.pedRunOvers;
-      repeats = dyn.pedRepeats;
+      overs = dyn.pedRunOvers; repeats = dyn.pedRepeats;
       if (dyn.lastRunOver) { seen.push(dyn.lastRunOver); break; }
     }
     d.setAutopilot(null);
     d.setTimeScale(1);
     v.setControls({ throttle: 0, brake: 1, steer: 0, handbrake: false });
-    return { bodies: down.length, seen, overs, repeats, stars: d.wanted.stars,
-      at: { x: body.x, z: body.z }, closest: +closest.toFixed(2),
-      topKmh: Math.max(...speeds, 0), repeats0: dyn0.pedRepeats, overs0: dyn0.pedRunOvers,
+    return { seen, overs, repeats, bodyDown, stars: d.wanted.stars,
+      along: +spot.along.toFixed(1), side: +spot.side.toFixed(2),
+      closest: +closest.toFixed(2), topKmh: +top.toFixed(1),
+      repeats0: dyn0.pedRepeats, overs0: dyn0.pedRunOvers,
       knock: d.damageReport().dynamic.pedKnockdowns, crimes: d.damageReport().crimesReported };
   });
   if (ro.skipped) {
     console.log(`  run-over wire: SKIPPED — ${ro.skipped}`);
-    check('the run-over arm could stage a body on the ground', false, ro.skipped);
+    check('the run-over arm could stage a body in the car’s path', false, ro.skipped);
   } else {
     const last = ro.seen[0] ?? null;
-    console.log(`  run-over: ${ro.bodies} down at (${ro.at.x}, ${ro.at.z}), crept to ` +
-      `${ro.closest} m at up to ${ro.topKmh} km/h, ${ro.overs} rolled over, ` +
+    console.log(`  run-over: a body ${ro.along} m ahead (${ro.side} m off the line), down ` +
+      `${ro.bodyDown}; crept to ${ro.closest} m at up to ${ro.topKmh} km/h`);
+    console.log(`    overs ${ro.overs0} -> ${ro.overs}, repeats ${ro.repeats0} -> ${ro.repeats}, ` +
       `charge ${JSON.stringify(last)}, stars ${ro.stars}`);
-    console.log(`    repeats ${ro.repeats0} -> ${ro.repeats}, overs ${ro.overs0} -> ${ro.overs}, ` +
-      `knockdowns ${ro.knock}, crimes reported ${ro.crimes}`);
     console.log(`    the old literal charged scale 1.00 here, which is ` +
       `${last ? (1 / last.scale).toFixed(0) : '?'}x what the speed says`);
-    check('the arm actually drove over the body, so both sides are not zero',
-      ro.overs > 0 && ro.closest < 2, `${ro.overs} over, closest ${ro.closest} m`);
+    check('the body was still on the ground when the car got there', ro.bodyDown === true,
+      `${ro.bodyDown}`);
+    /**
+     * `closest` TRACKS THE SLOT, NOT THE BODY, so it is printed and not asserted: a fatal
+     * knockdown throws the body along the car's heading and src/pedestrians.js recycles the slot
+     * once the casualty clears, after which that index is somebody else standing elsewhere. The
+     * thing that says the car drove over a body is `pedRunOvers`, which only rises inside
+     * `peds.runOver`.
+     */
+    check('the arm actually drove over a body, so both sides are not zero',
+      ro.overs > ro.overs0, `${ro.overs0} -> ${ro.overs} run-overs`);
     check('a run-over reaches the crime path at all', !!last, JSON.stringify(ro.seen));
     check('and its scale comes from the speed, not a literal 1',
       !!last && last.scale < 0.5 && last.crime === 'pedestrianHit',
       last ? `${last.kmh} km/h -> ${last.crime} at ${last.scale}` : 'none');
-    check('so a roll at walking pace is one star, not the reference case\'s two',
+    // And the window is visible either way: a knockdown charges the victim, so the roll that
+    // follows it is a repeat. That is correct, and it is why the record is taken outside the gate.
+    console.log(`    charged ${last ? last.charged : '?'}, repeats ${ro.repeats0} -> ${ro.repeats}` +
+      ` — a body you knocked down yourself is inside its own 20 s victim window`);
+    check('so a roll at walking pace is one star, not the reference case’s two',
       ro.stars === 1, `${ro.stars}*`);
   }
   await page.evaluate(() => __district.clearWanted('boot-check'));

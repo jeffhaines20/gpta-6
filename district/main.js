@@ -1338,19 +1338,27 @@ function dynamicImpacts() {
     const r = peds.runOver(proneUnder.i, { speed: over });
     if (r) {
       dynStats.pedRunOvers++;
+      /**
+       * A run-over has no delta-v of its own — the body does not resist — and this site read
+       * `r.fatal ? 'pedestrianKilled' : 'pedestrianHit'` with a literal `scale: 1`, under a
+       * comment reasoning that the table value was therefore the charge. Right about the delta-v
+       * and wrong about the scale: a PEDESTRIAN scale is a function of SPEED, and `over` above IS
+       * that speed, so a 2 km/h roll over a body charged exactly what a 76 km/h one did. Both
+       * parts live in `DamageModel.runOverCrime` now, where a gate can reach them — nothing
+       * offline imports this file.
+       *
+       * CLASSIFIED OUTSIDE THE VICTIM WINDOW, and that is a correction. It used to sit inside
+       * `if (chargeVictim(...))`, so the record only existed for a run-over that was also
+       * chargeable — and the natural sequence is to knock somebody down (which charges them) and
+       * THEN roll over them, which is always a repeat. Measured while writing boot-check's arm:
+       * 10 run-overs, `pedRepeats` 0 -> 10, and `lastRunOver` null throughout. What the model
+       * says the offence is does not depend on whether this particular one is billable.
+       */
+      const rv = damage.runOverCrime(over, r.fatal);
+      dynStats.lastRunOver = { kmh: +(over * 3.6).toFixed(1), crime: rv.crime,
+        scale: +rv.scale.toFixed(4), charged: false };
       if (chargeVictim(r.id)) {
-        /**
-         * A run-over has no delta-v of its own — the body does not resist — and this site read
-         * `r.fatal ? 'pedestrianKilled' : 'pedestrianHit'` with a literal `scale: 1`, under a
-         * comment reasoning that the table value was therefore the charge. Right about the
-         * delta-v and wrong about the scale: a PEDESTRIAN scale is a function of SPEED, and
-         * `over` above IS that speed, so a 2 km/h roll over a body charged exactly what a
-         * 76 km/h one did. Both parts live in `DamageModel.runOverCrime` now, where a gate can
-         * reach them — nothing offline imports this file.
-         */
-        const rv = damage.runOverCrime(over, r.fatal);
-        dynStats.lastRunOver = { kmh: +(over * 3.6).toFixed(1), crime: rv.crime,
-          scale: +rv.scale.toFixed(4) };
+        dynStats.lastRunOver.charged = true;
         const res = wanted.reportCrime(rv.crime, { at: { x: vehicle.position.x, z: vehicle.position.z },
           scale: rv.scale });
         if (res.applied) damageCrimes++; else damageIgnored++;

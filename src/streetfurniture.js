@@ -4589,6 +4589,14 @@ export class StreetFurniture {
     const d = this.d;
     const chunk = d.meta.chunkSize;
     const cells = new Map();
+    /**
+     * THE SLOT ALLOWANCE, AND IT STILL COVERS THE LONGEST SHELL. src/carbody.js's three shells
+     * used to be 4.493 m each; they now measure 4.493 / 4.635 / 4.689 (tools/car-shapes.mjs, off
+     * the buffer). 4.9 was already generous against 4.493 and it covers 4.689 too, so the step
+     * does not move: adjacent parked cars sit 6.4 - 4.689 = 1.711 m apart at worst, against
+     * 1.907 m before. Checked rather than assumed, because a slot allowance shorter than the car
+     * it holds would park two of them inside each other along a whole street.
+     */
     const CAR_LEN = 4.9, GAP = 1.5;
     const off = opts.parkOffset ?? 1.3;      // beyond the ribbon edge, at the kerb
     let slots = 0;
