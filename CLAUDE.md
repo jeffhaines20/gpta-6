@@ -1064,7 +1064,15 @@ Two smaller things this cost, both of them my own:
 ## A partial lead from a killed round is still the round's result
 
 Three review rounds in a row have now been killed part-way by session rate limits, and
-every one of them got something out first. The two most recent last lines were "the
+every one of them got something out first.
+
+**The limit was ACCOUNT-WIDE, not the reviewers' cost.** I inferred from three
+consecutive deaths that two Opus playtesters were too expensive to run and said the
+next round should use fewer or cheaper agents. Wrong: the owner had other sessions
+running against the same budget. A round that under-provisions its reviewers on the
+strength of that inference gets weaker reviews for no reason, so the rule is the usual
+one — a correlation over three samples is not a cause, and the cheapest way to tell
+was to ask. The two most recent last lines were "the
 final authored objective of the flagship mission shows for 0.300 s" and "routing drove
 into a wall", and both were worth a commit:
 
