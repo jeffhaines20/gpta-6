@@ -1049,11 +1049,23 @@ export function driveTo(session, x, z,
   const t0 = session.t;
   while (session.t - t0 < timeout) {
     const v = session.vehicle;
+    // `dt` is what arms followPath's progress anchor. Without it the stuck detector is inert and
+    // reports `stuckFor: null`, which is how it says so rather than silently doing nothing.
     const f = followPath(path.points, { x: v.position.x, z: v.position.z, yaw: session._yaw(),
-      speed: v.speed }, state, { maxSpeed });
+      speed: v.speed }, state, { maxSpeed, dt: DT * 8 });
     if (f.done) {
       return { arrived: true, seconds: +(session.t - t0).toFixed(1), points: path.points.length,
         metres: +path.length.toFixed(0), blocked };
+    }
+    /**
+     * WEDGED IS NOT A TIMEOUT, and saying so is the point. The follower now backs out of a
+     * blockage; when backing ALSO makes no progress the car is pinned at both ends, and a caller
+     * that reported `timeout` after 180 s of that would be hiding the one thing worth knowing.
+     */
+    if (f.wedged) {
+      return { arrived: false, why: 'wedged — no progress forwards or backwards',
+        seconds: +(session.t - t0).toFixed(1), blocked, at: { x: +v.position.x.toFixed(1),
+          z: +v.position.z.toFixed(1) } };
     }
     session.drive(f.controls).step(DT * 8);
     if (session.damage.wrecked) {
@@ -1758,6 +1770,103 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
   console.log(`    on a marker:  [${mb.look().bandFrom}] "${mb.look().objective}"`);
   check('a running mission outranks the offer it started from',
     mb.look().bandFrom === 'mission', `${mb.look().bandFrom}`);
+
+  /**
+   * §7  THE FOLLOWER AGAINST A BUILDING, WHICH ONLY THIS HARNESS REPRODUCES.
+   *
+   * A round-5 playtester found `followPath` holding the throttle open against a building for 400
+   * seconds with `state.i` stuck at 0 of a clean 41-point route and 37,018 contacts at about 97 a
+   * second. `src/roadpath.js`'s progress anchor is the fix and `tools/roadpath-test.mjs` asserts
+   * its CONTRACT against a car pinned by construction — but the end-to-end pair has to live here,
+   * because a bare `Vehicle` against real district geometry grinds along the wall and escapes.
+   * Two poses built in that file both did: a long facade (arrived after 207 s with 11,009
+   * contacts) and a notch with 5 of 8 directions blocked (arrived in 19.1 s, detector never
+   * fired). This Session, with damage accumulating and the sim's own stepping, pins the car.
+   *
+   * THEIR EXACT SETUP DID NOT REPRODUCE and that is recorded rather than smoothed over: planning
+   * the same route at 0, 20 and 40 km/h and following it at control rates from 1/30 s to 1 s, the
+   * follower reaches the marina every time in 38.7 to 46 s with 0 contacts and health 1.0000.
+   * Their route was 41 points against 45 here, so their start differed. The BEHAVIOUR is exactly
+   * real once the pose is built deliberately.
+   */
+  console.log('\n§7  the follower against a building');
+  {
+    const R = 0.95, STEP = 0.25;
+    const probe = new Session({ traffic: 0, peds: 0 });
+    // A long facade with open ground in front and a clear route running alongside it.
+    let spot = null;
+    for (let k = 0; k < probe.blockers.segs.length && !spot; k++) {
+      const seg = probe.blockers.segs[k];
+      if (seg.len < 14) continue;
+      const mx = (seg.ax + seg.bx) / 2, mz = (seg.az + seg.bz) / 2;
+      for (const sgn of [1, -1]) {
+        const nx = seg.nx * sgn, nz = seg.nz * sgn;
+        const px = mx + nx * 3.2, pz = mz + nz * 3.2;
+        if (probe.blockers.resolveCircle(px, pz, R)) continue;
+        if (probe.blockers.resolveCircle(px + nx * 14, pz + nz * 14, R)) continue;
+        const pts = [];
+        let ok = true;
+        for (let d = -40; d <= 160; d += 8) {
+          const qx = px + nx * 10 + seg.tx * d, qz = pz + nz * 10 + seg.tz * d;
+          if (probe.blockers.resolveCircle(qx, qz, R)) { ok = false; break; }
+          pts.push([qx, qz]);
+        }
+        if (!ok || pts.length < 20) continue;
+        spot = { x: px, z: pz, yaw: Math.atan2(-nx, -nz), pts };
+        break;
+      }
+    }
+    check('a pinning pose exists in this district, or §7 is vacuous', !!spot,
+      spot ? `(${spot.x.toFixed(1)}, ${spot.z.toFixed(1)}), ${spot.pts.length}-point route` : 'none');
+
+    if (spot) {
+      let blocked = 0;
+      for (const p of spot.pts) if (probe.blockers.resolveCircle(p[0], p[1], R)) blocked++;
+      check('and its route is CLEAR, so this is the pinned car and not a road inside a building',
+        blocked === 0, `${blocked} of ${spot.pts.length} points blocked`);
+
+      const arm = (armDt) => {
+        const s = new Session({ traffic: 0, peds: 0 });
+        s.placeAt(spot.x, spot.z, spot.yaw);
+        const st = { i: 0 };
+        const p0 = { x: s.vehicle.position.x, z: s.vehicle.position.z };
+        let backing = 0, n = 0, doneAt = null;
+        for (let k = 0; k < 400 / STEP; k++) {
+          const v = s.vehicle;
+          const f = followPath(spot.pts, { x: v.position.x, z: v.position.z, yaw: s._yaw(),
+            speed: v.speed }, st, { maxSpeed: 12, dt: armDt ? STEP : undefined });
+          if (f.done) { doneAt = +(k * STEP).toFixed(1); break; }
+          if (f.backing) backing++;
+          n++;
+          s.drive(f.controls).step(STEP);
+        }
+        const v = s.vehicle;
+        return { i: st.i, of: spot.pts.length, doneAt, backing, n,
+          moved: Math.hypot(v.position.x - p0.x, v.position.z - p0.z),
+          contacts: v.contacts, health: s.damage.health, seconds: +(n * STEP).toFixed(1) };
+      };
+      const off = arm(false), on = arm(true);
+      console.log(`    nose into a facade at (${spot.x.toFixed(1)}, ${spot.z.toFixed(1)}), ` +
+        `${spot.pts.length}-point clear route alongside`);
+      console.log(`      detector off: i ${off.i}/${off.of}, moved ${off.moved.toFixed(2)} m, ` +
+        `${off.contacts} contacts (${(off.contacts / Math.max(off.seconds, 1)).toFixed(0)}/s), ` +
+        `done ${off.doneAt ?? 'never'}`);
+      console.log(`      detector on:  i ${on.i}/${on.of}, moved ${on.moved.toFixed(2)} m, ` +
+        `${on.contacts} contacts (${(on.contacts / Math.max(on.seconds, 1)).toFixed(0)}/s), ` +
+        `done ${on.doneAt ?? 'never'}, backing ${on.backing}/${on.n}`);
+      check('KNOWN-BAD: without the progress anchor the follower never gets there',
+        off.doneAt === null && off.i < off.of / 2,
+        `i ${off.i}/${off.of}, done ${off.doneAt ?? 'never'}`);
+      check('and it grinds against the building the whole time',
+        off.contacts > 5000, `${off.contacts} contacts`);
+      check('with the anchor it backs out and finishes the route',
+        on.doneAt !== null, `done at ${on.doneAt ?? 'never'} s`);
+      check('the recovery is the backing manoeuvre and not luck',
+        on.backing > 0 && off.backing === 0, `${on.backing} frames against ${off.backing}`);
+      check('and the contacts collapse, because the car stops pushing',
+        on.contacts < off.contacts / 10, `${on.contacts} against ${off.contacts}`);
+    }
+  }
 
   console.log(`\n${pass} passed, ${fail} failed in ${((Date.now() - t00) / 1000).toFixed(1)} s ` +
     'of wall clock');

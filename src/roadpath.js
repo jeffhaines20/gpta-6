@@ -1125,6 +1125,44 @@ const REVERSE_ERR = 1.75;                 // 100 degrees
 /** Enough to back out of a kerbside standstill and no more. */
 const REVERSE_THROTTLE = 0.35;
 
+/**
+ * AN ELEVENTH WAY TO REPORT EVERYTHING NOMINAL WHILE GETTING NOWHERE: THE AIM IS REACHABLE, THE
+ * ROUTE IS CLEAR, AND THERE IS A BUILDING IN BETWEEN.
+ *
+ * The tenth, below, is an aim point the car cannot turn tightly enough to reach, and it is
+ * detected purely geometrically. This one is not geometric at all: every number the follower
+ * computes is correct. The aim is a clear point on a clear route, the heading error is modest,
+ * `reqRadius` is comfortably larger than the car's minimum so the reverse manoeuvre does not fire,
+ * and the car is physically pinned.
+ *
+ * Found by a round-5 playtester, who reported a 400-second stall: `state.i` stuck at 0 of a clean
+ * 41-point route, the car at one spot +/- 0.3 m, throttle commanded every frame, and 37,018
+ * contacts at about 97 a second. THEIR EXACT SETUP DID NOT REPRODUCE — planning the same route at
+ * 0, 20 and 40 km/h and following it at control rates from 1/30 s to 1 s, the follower reaches the
+ * marina every time in 38.7 to 46 s with 0 contacts and health 1.0000 — so something about their
+ * start position differed and their route was 41 points against my 45. The BEHAVIOUR is exactly
+ * real, and constructing the pose deliberately shows it: nose against a wall with a 26-point route
+ * alongside it and 0 of those points blocked, 400 s gives `i` stuck at 5/26, 9.64 m of movement,
+ * 35,903 contacts at 90 a second, mean throttle 0.67, and the geometric reverse firing on 4 frames
+ * out of 400.
+ *
+ * SPEED IS THE WRONG TEST and that was measured too. A car jittering against a wall is not
+ * stationary: the same arm reads up to 4.8 km/h, so `speed < 0.5` would miss it. What is
+ * unarguable is PROGRESS — the car has not gone anywhere — so the detector anchors a position and
+ * asks whether the car has left it.
+ *
+ * `STUCK_M` is one body length, `2 * HALF_EXTENT.z` from src/damage.js, which is the distance below
+ * which "the car has not moved" needs no argument. `STUCK_S` has to be longer than HONEST
+ * acceleration or the follower would back out of every standing start: measured from rest at the
+ * follower's own lowest commanded throttle (its floor is `clamp(-over/4 + 0.2, 0, 1)`, so 0.20) and
+ * at the damage model's engine-power floor of 0.25, the car takes **6.30 s** to travel one body
+ * length. 1.5x that is the timeout, and `roadpath-test` asserts the relation rather than the
+ * number. The window costs nothing: 35,903 contacts over 400 s took 0.0232 of health, so the ~850
+ * contacts inside one window take about 0.0005.
+ */
+const STUCK_M = 4.30;                     // 2 * HALF_EXTENT.z from src/damage.js
+const STUCK_S = 9.5;                      // 1.5x the measured 6.30 s worst honest case
+
 export function followPath(points, { x, z, yaw, speed }, state = { i: 0 }, opts = {}) {
   const maxSpeed = opts.maxSpeed ?? 22;
   const lookAhead = clamp(6 + speed * 0.9, 8, 28);
@@ -1285,10 +1323,56 @@ export function followPath(points, { x, z, yaw, speed }, state = { i: 0 }, opts 
    */
   const reversing = Math.abs(err) > REVERSE_ERR && reqRadius < minTurnRadius(speed) * 0.95;
   if (reversing) { steer = -steer; throttle = -REVERSE_THROTTLE; brake = 0; }
+
+  /**
+   * THE PROGRESS ANCHOR. See STUCK_M / STUCK_S above for what this is and why speed is the wrong
+   * test. `dt` has to come from the caller: this is a time-based detector and the project's rule
+   * is that behaviour must not be a function of frame rate, so counting frames is not an option.
+   * Without it the detector is INERT AND SAYS SO — `stuckFor: null` rather than 0 — because a
+   * system that is silently never switched on is this project's most repeated defect.
+   */
+  const dt = opts.dt ?? 0;
+  let wedged = false;
+  if (dt > 0) {
+    if (state.anchorX === undefined) { state.anchorX = x; state.anchorZ = z; state.anchorFor = 0; }
+    const gone = Math.hypot(x - state.anchorX, z - state.anchorZ);
+    if (gone > STUCK_M) {
+      // Real progress: move the anchor up and forget everything.
+      state.anchorX = x; state.anchorZ = z; state.anchorFor = 0;
+      state.backing = false; state.backFor = 0;
+    } else if (state.backing) {
+      /**
+       * BACKING IS LATCHED UNTIL THE CAR HAS ACTUALLY MOVED, and the reason is the guard above it:
+       * while backing, the commanded throttle is negative, so a detector conditioned on "drive is
+       * commanded" clears itself and the reverse lasts exactly one frame. The latch clears on the
+       * `gone > STUCK_M` branch, which is the same test that armed it — so it cannot stick.
+       */
+      state.backFor = (state.backFor ?? 0) + dt;
+      steer = -steer; throttle = -REVERSE_THROTTLE; brake = 0;
+      // Pinned at both ends. Say so rather than backing into the same wall for ever: the caller
+      // can stop and report, which is what `driveTo` does with it.
+      if (state.backFor > STUCK_S) wedged = true;
+    } else if (throttle > 0 || reversing) {
+      state.anchorFor = (state.anchorFor ?? 0) + dt;
+      if (state.anchorFor > STUCK_S) {
+        state.backing = true; state.backFor = 0;
+        steer = -steer; throttle = -REVERSE_THROTTLE; brake = 0;
+      }
+    } else {
+      // Not asking the car to move, so not stuck — a caller that brakes for a corner is not
+      // making no progress, it is making a decision.
+      state.anchorX = x; state.anchorZ = z; state.anchorFor = 0;
+    }
+  }
+
   state.i = i;
   return { controls: { throttle, brake, steer, handbrake: false },
     i, frac, aim, err, target, speed, offLine, reqRadius, reversing,
     curve: pathCurvature(points, j, 3),
+    // `stuckFor` is null when the detector is off for want of a dt, 0..STUCK_S while it is
+    // counting, and reset by any real progress. `backing` is the recovery manoeuvre it commands.
+    stuckFor: dt > 0 ? +(state.anchorFor ?? 0).toFixed(2) : null,
+    backing: !!state.backing, wedged,
     remaining: points.length - 1 - i, done: i >= points.length - 2 };
 }
 

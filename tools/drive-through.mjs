@@ -173,11 +173,21 @@ await page.evaluate(({ circuits, roadCourse }) => {
     __district.setAutopilot((dt) => {
       const q = v.quaternion;
       const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
+      /**
+       * `dt` arms followPath's own progress anchor, which now backs the car out of a blockage —
+       * see STUCK_M / STUCK_S in src/roadpath.js. THE TELEPORT BELOW STAYS, and it is the reason
+       * no gate ever saw the stall the anchor fixes: CLAUDE.md records that 32.8% of this gate's
+       * own course is inside a building, so the nudge fires every 2.65 s on a wrecked car and the
+       * gate finishes and prints numbers about a traversal no player could make. Removing it would
+       * change what this gate measures, and that needs a fresh baseline while the triangle WARN is
+       * unresolved. What IS new is that the follower tries to recover first, so the teleport counts
+       * only the places it could not.
+       */
       const f = __district.followPath(pts, { x: v.position.x, z: v.position.z, yaw, speed: v.speed },
-        state, { maxSpeed: 22 });
+        state, { maxSpeed: 22, dt });
       if (f.done) { state.i = 0; lap++; window.__lapCount = lap; return; }
       v.setControls(f.controls);
-      if (v.speed < 0.6) { stuckFor += dt; if (stuckFor > 2.5) { __district.placeAt(f.aim[0], f.aim[1]); stuckFor = 0; } }
+      if (v.speed < 0.6 && !f.backing) { stuckFor += dt; if (stuckFor > 2.5) { __district.placeAt(f.aim[0], f.aim[1]); stuckFor = 0; } }
       else stuckFor = 0;
       window.__lapCount = lap;
     });

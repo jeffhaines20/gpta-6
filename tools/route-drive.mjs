@@ -143,8 +143,9 @@ while (lap < CIRCUITS && steps < CAP_STEPS) {
   if (MODE === 'roads') {
     const q = v.quaternion;
     const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
+    // `dt` arms followPath's progress anchor; without it the stuck detector is inert.
     const f = followPath(tour.points, { x: v.position.x, z: v.position.z, yaw, speed: v.speed },
-      follow.state, { maxSpeed: MAX_SPEED });
+      follow.state, { maxSpeed: MAX_SPEED, dt: DT });
     if (f.done) { follow.state = { i: 0 }; lap++; steps++; continue; }
     if (f.reversing) reverseFrames++;
     v.setControls(f.controls);

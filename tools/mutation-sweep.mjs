@@ -372,6 +372,44 @@ const MUTATIONS = [
     to: '    if (false) { this._markerSig = sig; this._dirty.map = true; }',
     why: 'a moving blip stops redrawing the minimap for a stationary player',
   },
+  {
+    /**
+     * TURNS THE PROGRESS ANCHOR OFF. Nothing errors, nothing about the geometry changes, and the
+     * follower goes back to holding the throttle open against a building for as long as the caller
+     * lets it: measured at `i` 5/26 of a CLEAR route, 3.38 m of movement and 36,892 contacts over
+     * 400 s. Invisible to every gate in the list before this round, because `route-drive` and
+     * `roadpath-test` both point the car along the path before they start.
+     */
+    id: 'stuck-anchor', file: 'src/roadpath.js',
+    find: '  const dt = opts.dt ?? 0;',
+    to: '  const dt = 0;',
+    why: 'the follower pushes a building at full throttle for ever again',
+  },
+  {
+    /**
+     * DROPS THE BACKING LATCH. This is the subtle one and it looks like a simplification: while
+     * backing, the commanded throttle is NEGATIVE, so a detector conditioned on "drive is
+     * commanded" clears its own counter and the reverse lasts exactly one frame. The car then
+     * creeps forward for another full timeout and repeats, which reads as a recovery that is
+     * trying and is not.
+     */
+    id: 'stuck-latch', file: 'src/roadpath.js',
+    find: '    } else if (state.backing) {',
+    to: '    } else if (false) {',
+    why: 'the recovery reverse lasts one frame and the car never gets clear',
+  },
+  {
+    /**
+     * PUTS THE TIMEOUT INSIDE HONEST ACCELERATION. 9.5 s is 1.5x the measured 6.30 s a damaged car
+     * at the follower's lowest commanded throttle needs to travel one body length from rest, so a
+     * 2 s timeout backs the car out of every standing start — while a route it can drive still
+     * finishes, so nothing looks broken.
+     */
+    id: 'stuck-early', file: 'src/roadpath.js',
+    find: 'const STUCK_S = 9.5;',
+    to: 'const STUCK_S = 2.0;',
+    why: 'the follower reverses out of its own standing starts',
+  },
   // ---- src/blockers.js: the world fence
   {
     /**

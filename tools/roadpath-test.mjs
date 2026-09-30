@@ -23,6 +23,7 @@ import { RoadGraph, followPath, pathSpeedLimit, steerableSpeed, gripSpeed, corne
 import { Vehicle } from '../src/vehicle.js';
 import { FlatGround } from '../src/ground.js';
 import { BlockerIndex } from '../src/blockers.js';
+import { DamageModel, HALF_EXTENT } from '../src/damage.js';
 
 const checks = [];
 const check = (name, ok, detail) => { checks.push({ name, ok: !!ok, detail }); return !!ok; };
@@ -720,6 +721,180 @@ const stripped = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '
 check('the comment stripper works', src.includes('WHY THIS EXISTS') && !stripped.includes('WHY THIS EXISTS'));
 for (const f of ['Math.random', 'performance.now', 'Date.now', 'from \'three', 'document.', 'window.']) {
   check(`no ${f} in src/roadpath.js`, !stripped.includes(f));
+}
+
+// ---------------------------------------------------------------------------
+/**
+ * § BEING BLOCKED IS NOT THE SAME AS GOING SLOWLY — the eleventh way to report everything
+ * nominal while getting nowhere.
+ *
+ * `src/roadpath.js`'s STUCK_M / STUCK_S comment has the whole story. The short version: a
+ * round-5 playtester found the follower holding the throttle open against a building for 400
+ * seconds with `state.i` stuck and 37,018 contacts, and NO GATE COULD SEE IT. `route-drive` and
+ * this file both point the car along the path before they start, so neither meets a blockage;
+ * `drive-through` meets it constantly and papers over it with a stuck-nudge teleport, which is why
+ * the budget gate finishes and prints numbers about a traversal no player could make.
+ *
+ * WHAT THIS SECTION TESTS AND WHAT IT DOES NOT, because getting that wrong cost four wrong arms.
+ * The detector's CONTRACT is tested here, against a car that is pinned by construction: that is
+ * the exact antecedent — "the car is commanding drive and not moving" — so pinning it is the
+ * cleanest way to state it, not a fake. The end-to-end before/after belongs in
+ * `tools/playtest.mjs --selftest`, because the stall only reproduces in the Session harness: a
+ * bare `Vehicle` against real district geometry GRINDS ALONG THE WALL AND ESCAPES. Both poses I
+ * built here did — a long facade (160.90 m, 11,009 contacts, arrived after 207 s) and a notch with
+ * 5 of 8 directions blocked (159.44 m, 110 contacts, arrived in 19.1 s, detector never fired).
+ * Reporting either as a known-bad would have been a check whose two sides are the same.
+ */
+console.log('\n§ blocked, not slow: the progress anchor');
+{
+  const HZ = 60, DT = 1 / HZ;
+  const ground = new FlatGround(0);
+  const BODY_L = 4.30;                     // 2 * HALF_EXTENT.z, src/damage.js
+  const yawOf = (q) => Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
+  const STUCK_S_CLAIMED = 9.5;             // src/roadpath.js's own value, asserted below
+
+  /** A straight clear path from the origin, 400 m along +z. */
+  const straight = [];
+  for (let d = 0; d <= 400; d += 8) straight.push([0, d]);
+
+  /**
+   * Drive the follower for `seconds`. `pin` holds the car exactly where it started after every
+   * sub-step, which is the detector's antecedent stated directly.
+   */
+  function follow(pts, { dt = 0, seconds = 60, maxSpeed = 12, pin = false,
+    stopAtDone = true } = {}) {
+    const v = new Vehicle();
+    v.damage = new DamageModel();
+    const st = { i: 0 };
+    const p0 = { x: v.position.x, z: v.position.z };
+    let backing = 0, wedgedAt = null, backingFrom = null, n = 0, doneAt = null, worstStuck = 0;
+    const step = 1 / 8;
+    const sub = Math.round(step * HZ);
+    const realStep = sub / HZ;             // derived, so dt and the sub-steps cannot disagree
+    for (let k = 0; k < seconds / realStep; k++) {
+      const f = followPath(pts, { x: v.position.x, z: v.position.z, yaw: yawOf(v.quaternion),
+        speed: v.speed }, st, { maxSpeed, dt: dt > 0 ? realStep : undefined });
+      if (f.done && doneAt === null) doneAt = +(k * realStep).toFixed(1);
+      if (f.done && stopAtDone) break;
+      if (f.backing) { backing++; if (backingFrom === null) backingFrom = +(k * realStep).toFixed(2); }
+      if (f.wedged && wedgedAt === null) wedgedAt = +(k * realStep).toFixed(2);
+      if (f.stuckFor !== null) worstStuck = Math.max(worstStuck, f.stuckFor);
+      n++;
+      v.setControls(f.controls);
+      for (let q = 0; q < sub; q++) {
+        v.stepFixed(DT, ground, HZ);
+        if (pin) { v.position.set(p0.x, v.position.y, p0.z); v.velocity.set(0, v.velocity.y, 0); }
+      }
+      v.damage.update(realStep);
+    }
+    return { i: st.i, of: pts.length, moved: Math.hypot(v.position.x - p0.x, v.position.z - p0.z),
+      backing, n, wedgedAt, backingFrom, doneAt, worstStuck, seconds: +(n * realStep).toFixed(1) };
+  }
+
+  // 1. The contract, against a pinned car.
+  const pinnedOff = follow(straight, { dt: 0, seconds: 40, pin: true });
+  const pinnedOn = follow(straight, { dt: 1, seconds: 40, pin: true });
+  console.log(`    a car commanding drive and pinned in place, 40 s:`);
+  console.log(`      detector off:  worst stuckFor ${pinnedOff.worstStuck}, backing ` +
+    `${pinnedOff.backing}/${pinnedOff.n}, wedged ${pinnedOff.wedgedAt ?? 'never'}`);
+  console.log(`      detector on:   worst stuckFor ${pinnedOn.worstStuck}, backing ` +
+    `${pinnedOn.backing}/${pinnedOn.n} from ${pinnedOn.backingFrom} s, ` +
+    `wedged from ${pinnedOn.wedgedAt ?? 'never'} s`);
+  check('KNOWN-BAD: with no dt the detector never notices a car that cannot move',
+    pinnedOff.worstStuck === 0 && pinnedOff.backing === 0 && pinnedOff.wedgedAt === null,
+    `stuckFor ${pinnedOff.worstStuck}, backing ${pinnedOff.backing}`);
+  /**
+   * WITHIN ONE CONTROL STEP OF THE TIMEOUT, and the tolerance is that step rather than a number
+   * chosen to pass. `state.anchorFor` accumulates `dt` BEFORE the comparison, so the frame on
+   * which backing is first reported is the one whose counter crossed the line — and the time this
+   * arm records for it is the frame's own start, one step earlier. The counter's value there is
+   * printed beside it: 9.6 against a 9.5 s timeout, one 0.133 s step over.
+   */
+  const CTRL_STEP = 8 / 60;
+  check('with a dt it notices, within one control step of the timeout and not before',
+    pinnedOn.backingFrom !== null
+    && pinnedOn.backingFrom >= STUCK_S_CLAIMED - CTRL_STEP
+    && pinnedOn.backingFrom < STUCK_S_CLAIMED + CTRL_STEP,
+    `backing from ${pinnedOn.backingFrom} s, counter ${pinnedOn.worstStuck} s, against a ` +
+    `${STUCK_S_CLAIMED} s timeout and a ${CTRL_STEP.toFixed(3)} s step`);
+  check('and the counter itself crossed the timeout, which is the quantity the rule reads',
+    pinnedOn.worstStuck >= STUCK_S_CLAIMED
+    && pinnedOn.worstStuck < STUCK_S_CLAIMED + CTRL_STEP,
+    `${pinnedOn.worstStuck} s`);
+  check('and it reports WEDGED once backing has also failed, so a caller can give up',
+    pinnedOn.wedgedAt !== null && pinnedOn.wedgedAt > pinnedOn.backingFrom,
+    `wedged from ${pinnedOn.wedgedAt} s, backing from ${pinnedOn.backingFrom} s`);
+  check('wedged comes a full timeout after backing began, not immediately',
+    pinnedOn.wedgedAt - pinnedOn.backingFrom >= STUCK_S_CLAIMED - 0.2,
+    `${(pinnedOn.wedgedAt - pinnedOn.backingFrom).toFixed(2)} s apart`);
+  /**
+   * THE DETECTOR IS INERT WITHOUT A dt, AND SAYS SO. It is time-based and this project's rule is
+   * that behaviour must not be a function of frame rate, so counting frames is not an option — but
+   * a system silently never switched on is its most repeated defect, so the off state is reported
+   * rather than being indistinguishable from "not stuck".
+   */
+  {
+    const noDt = followPath(straight, { x: 0, z: 0, yaw: 0, speed: 0 }, { i: 0 });
+    const withDt = followPath(straight, { x: 0, z: 0, yaw: 0, speed: 0 }, { i: 0 }, { dt: 1 / 8 });
+    check('stuckFor is null with no dt and a number with one, which is how it says it is off',
+      noDt.stuckFor === null && typeof withDt.stuckFor === 'number',
+      `${noDt.stuckFor} / ${withDt.stuckFor}`);
+    check('and a caller can see the manoeuvre it commands',
+      typeof withDt.backing === 'boolean' && typeof withDt.wedged === 'boolean',
+      `backing ${withDt.backing}, wedged ${withDt.wedged}`);
+  }
+
+  /**
+   * 2. AND IT MUST NOT FIRE ON HONEST ACCELERATION. `STUCK_S` is 9.5 s because the car takes
+   *    6.30 s to travel one body length from rest at the follower's own lowest commanded throttle
+   *    (0.20) and the damage model's engine-power floor (0.25). Re-measured here rather than
+   *    quoted, so a change to either module fails this instead of passing quietly.
+   */
+  {
+    const worstHonest = (() => {
+      const v = new Vehicle();
+      const dm = new DamageModel();
+      dm.regions.front = 0.9;              // enginePower bottoms at 0.25 past front damage 0.85
+      v.damage = dm;
+      const x0 = v.position.x, z0 = v.position.z;
+      for (let k = 0; k < 300 * HZ; k++) {
+        v.setControls({ throttle: 0.20, brake: 0, steer: 0 });
+        v.stepFixed(DT, ground, HZ);
+        if (Math.hypot(v.position.x - x0, v.position.z - z0) >= BODY_L) return k / HZ;
+      }
+      return Infinity;
+    })();
+    const clean = follow(straight, { dt: 1, seconds: 180, maxSpeed: 12 });
+    console.log(`    honest acceleration from rest at throttle 0.20 and enginePower 0.25 covers ` +
+      `one body length (${BODY_L} m) in ${worstHonest.toFixed(2)} s`);
+    console.log(`    a clean 400 m straight from rest: i ${clean.i}/${clean.of}, moved ` +
+      `${clean.moved.toFixed(0)} m in ${clean.seconds} s, worst stuckFor ` +
+      `${clean.worstStuck.toFixed(2)} s, backing ${clean.backing}/${clean.n}`);
+    check('the timeout is longer than the worst honest time to travel one body length',
+      STUCK_S_CLAIMED > worstHonest,
+      `${STUCK_S_CLAIMED} s against ${worstHonest.toFixed(2)} s`);
+    check('and not so much longer that a stall is indistinguishable from a drive',
+      STUCK_S_CLAIMED < worstHonest * 2.5,
+      `${STUCK_S_CLAIMED} s against ${(worstHonest * 2.5).toFixed(2)} s`);
+    check('a clean drive from rest never trips the detector',
+      clean.backing === 0 && clean.worstStuck < STUCK_S_CLAIMED,
+      `backing ${clean.backing}, worst stuckFor ${clean.worstStuck.toFixed(2)} s`);
+    check('and that clean drive actually drove, or the check above is vacuous',
+      clean.moved > 300, `${clean.moved.toFixed(0)} m`);
+    check('the anchor resets on progress rather than accumulating over the drive',
+      clean.worstStuck < STUCK_S_CLAIMED && clean.seconds > 30,
+      `worst ${clean.worstStuck.toFixed(2)} s over ${clean.seconds} s of driving`);
+    // The timeout must also be long enough to cover the case it was derived from, which is a
+    // DAMAGED car: a check on an undamaged one would pass at a third of the value.
+    check('the derivation uses the damaged car, which is the case that needs the room',
+      worstHonest > 4, `${worstHonest.toFixed(2)} s at enginePower 0.25`);
+  }
+
+  /**
+   * 3. THE DISTANCE IS ONE BODY LENGTH, and it is the vehicle's, not a number picked here.
+   */
+  check('the stuck distance is one car body length', Math.abs(BODY_L - 2 * HALF_EXTENT.z) < 1e-9,
+    `${BODY_L} against ${2 * HALF_EXTENT.z}`);
 }
 
 // ---------------------------------------------------------------------------
