@@ -718,19 +718,26 @@ console.log('\nSTATUS PANEL — does a changing readout reach the screen?');
  * THE OBJECTIVE BAND'S PRIORITY ORDER, WALKED AS A LADDER — because testing it one tenant at a
  * time asserts nothing about priority, and that is what was happening.
  *
- * `composeBand` has five tenants and one order: wreck, fence, mission, ended, offer. Every check
+ * `composeBand` had five tenants and one order: wreck, fence, mission, ended, offer. Every check
  * over it supplied ONE of them and asserted that one won, which is true for any order whatsoever.
  * `tools/mutation-sweep.mjs` reversed the order to `offer ?? ended ?? mission ?? fence ?? wreck`
  * and nothing in the 16-gate offline list or playtest --selftest noticed: with only a wreck set,
  * `pick` is the wreck under both orders.
  *
- * So: supply ALL FIVE, assert the winner, remove it, assert the next, down to nothing. A reversed
- * or shuffled order cannot survive that, and the ladder is printed so the order is legible rather
- * than implied by five separate checks.
+ * So: supply ALL OF THEM, assert the winner, remove it, assert the next, down to nothing. A
+ * reversed or shuffled order cannot survive that, and the ladder is printed so the order is legible
+ * rather than implied by separate checks.
+ *
+ * SEVEN NOW: `busted` went in above `wreck`. A new tenant this ladder does not list is a tenant
+ * the ladder cannot see, which is the same defect in a different place — so the count is asserted
+ * against `composeBand`'s own parameter list below rather than written down here.
  */
 console.log('\nOBJECTIVE BAND — the priority order, as a ladder');
 {
   const all = {
+    // The seventh, and the top: being arrested outranks the car being destroyed, and both can be
+    // true at once. Built from src/wanted.js's own composer, like `law` below.
+    busted: { objective: 'BUSTED', subtitle: 'released in 4 s' },
     wreck: { objective: 'THE CAR IS WRECKED', subtitle: 'a replacement in 4 s' },
     fence: { objective: 'TURN BACK', subtitle: 'the district ends here' },
     // The sixth tenant, and the one that was missing: src/wanted.js's composeLaw. Built from a
@@ -741,7 +748,20 @@ console.log('\nOBJECTIVE BAND — the priority order, as a ladder');
     ended: { objective: 'JOB DONE', subtitle: null },
     offer: { objective: 'SHAKEDOWN', subtitle: 'two markers by the bayfront' },
   };
-  const ORDER = ['wreck', 'fence', 'law', 'mission', 'ended', 'offer'];
+  const ORDER = ['busted', 'wreck', 'fence', 'law', 'mission', 'ended', 'offer'];
+  /**
+   * THE LADDER'S OWN COVERAGE, read off the function rather than trusted. `composeBand` destructures
+   * its tenants by name in its signature, so the names are recoverable — and a tenant added to the
+   * function and not to ORDER would otherwise sit above everything here, untested, exactly as
+   * `law` did for a round.
+   */
+  const declared = /composeBand\(\{([^}]*)\}/.exec(composeBand.toString());
+  const names = declared ? declared[1].split(',').map((t) => t.trim().split(/[ =]/)[0])
+    .filter(Boolean) : [];
+  console.log(`    composeBand declares ${names.length}: ${names.join(', ')}`);
+  check('the ladder walks every tenant composeBand declares, in its own order',
+    names.length === ORDER.length && names.every((n, i) => n === ORDER[i]),
+    `declared ${names.join(' ')} against ladder ${ORDER.join(' ')}`);
   const live = { ...all };
   const walked = [];
   for (const expect of ORDER) {
@@ -761,8 +781,21 @@ console.log('\nOBJECTIVE BAND — the priority order, as a ladder');
     empty.from === null && empty.objective === null && empty.subtitle === null,
     JSON.stringify(empty));
   // Every tenant must be distinguishable, or the ladder could pass by returning one of them twice.
-  check('the six tenants carry six different objectives',
-    new Set(ORDER.map((k) => all[k].objective)).size === 6, 'all distinct');
+  check('every tenant carries a different objective, or the ladder could pass by repeating one',
+    new Set(ORDER.map((k) => all[k].objective)).size === ORDER.length, 'all distinct');
+
+  /**
+   * AND THE BUST LINE DOES NOT KEEP A RUNNING MISSION'S SUBTITLE, which is the opposite of what
+   * the fence does one block below and is deliberate: the bust has just ABORTED the mission, so
+   * "still on: DRIVE TO THE MARKER" would be a lie in the one place a player is looking.
+   */
+  const arrested = composeBand({ busted: all.busted, wreck: all.wreck, mission: all.mission });
+  console.log(`    busted + wreck + live mission -> "${arrested.objective}" / ` +
+    `"${arrested.subtitle}"`);
+  check('being arrested outranks the car being wrecked', arrested.from === 'busted',
+    `${arrested.from}`);
+  check('and it keeps its own subtitle, because the mission is already gone',
+    arrested.subtitle === all.busted.subtitle, `${arrested.subtitle}`);
 
   /**
    * AND THE FENCE KEEPS A RUNNING MISSION'S SUBTITLE. Driving a live mission outside the world

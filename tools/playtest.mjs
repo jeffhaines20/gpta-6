@@ -38,10 +38,11 @@ import { Player } from '../src/player.js';
 import { FlatGround } from '../src/ground.js';
 import { BlockerIndex, districtBounds, worldFence } from '../src/blockers.js';
 import { DamageModel, IMPACT, dynamicContact } from '../src/damage.js';
-import { WantedSystem, VictimWindow, composeWanted, composeLaw } from '../src/wanted.js';
+import { WantedSystem, VictimWindow, composeWanted, composeLaw, BUST_HOLD_S, bindPursuit } from '../src/wanted.js';
 import { Traffic } from '../src/traffic.js';
 import { Pedestrians } from '../src/pedestrians.js';
 import { RoadGraph, followPath, ROUTE_LANE_M } from '../src/roadpath.js';
+import { PursuitUnits } from '../src/pursuit.js';
 import { MissionRunner, OUTCOMES, MissionBoard } from '../src/mission.js';
 import { composeBand, objectiveLine, MINIMAP_REACH_M, PULL_MIN } from '../src/hud.js';
 import { MISSIONS } from '../src/missions.js';
@@ -170,7 +171,63 @@ export class Session {
       this.stats.crimes++;
       this.say(`CRIME   ${p.id} — ${this.wanted.stars} star${this.wanted.stars === 1 ? '' : 's'}`);
     });
+    /**
+     * THE POLICE, WHICH THIS HARNESS DID NOT HAVE. Measured before it did: five stars, engine off,
+     * never moving, `units 6/0` — six units requested by the wanted system and ZERO reporting a
+     * position, because nothing built a pursuit layer — and the level bled 4* to 0 over 87 s while
+     * the player sat still. So the escape was automatic and unconditional, and both playtesters'
+     * reports on evasion were measured against a game with no police in it. The browser had them
+     * all along, through district/main.js's own bridge.
+     *
+     * `PursuitUnits` is used AS IT IS, for the reason src/player.js is: it is pure enough to build
+     * against `{ add() {} }` and its car positions live in an InstancedMesh matrix, which
+     * `getMatrixAt` reads in node. The bridge below is the same duck-typed shim main.js has, cut
+     * down to what this harness honours — no light bars, no visibility, no manual override.
+     */
+    this.pursuit = new PursuitUnits(scene, this.district, { count: 8, seed: opts.seed ?? 0 });
+    this.pursuit.units.fill(null);
+    this._pursuitIds = [];
+    this._pursuitOut = [];
+    this._pursuitMat = new THREE.Matrix4();
+    this._pursuitVec = new THREE.Vector3();
     this.traffic = new Traffic(scene, this.district, { count: opts.traffic ?? 30 });
+    /**
+     * The bridge. `count` is what the plan asks for, and the slots above it are nulled so the
+     * fleet never drives cars the wanted system has not requested — the same masking main.js does
+     * with `pursuit.count` and `mesh.count`, minus the mesh.
+     */
+    const bridge = {
+      spawnUnit: (id) => { this._pursuitIds.push(id); this._fleet(this._pursuitIds.length); },
+      releaseUnit: (id) => {
+        const k = this._pursuitIds.indexOf(id);
+        if (k < 0) return;
+        this._pursuitIds.splice(k, 1);
+        this.pursuit.units.splice(k, 1); this.pursuit.units.push(null);
+        this._fleet(this._pursuitIds.length);
+      },
+      setUnitCount: (n) => this._fleet(Math.min(n, 8)),
+      setTarget: (x, z) => { this._pursuitTarget.x = x; this._pursuitTarget.z = z; },
+      setSpeedMultiplier: (m) => { if (m > 0) this.pursuit.speed = 22 * m; },
+      setGiveUpRadius: (r) => { if (r > 0) this.pursuit.giveUpRadius = r; },
+      getUnitPositions: () => this._unitPositions(),
+    };
+    this._pursuitTarget = { x: 0, z: 0 };
+    this.wantedBridge = bindPursuit(this.wanted, bridge, { baseSpeed: 22 });
+    /**
+     * BEING BUSTED, the harness's half of it. district/main.js runs the same shape: the module
+     * clears the level and this pays for it — the mission goes, the car comes back repaired, and
+     * a player who was on foot is put back in it rather than left beside a car that has moved.
+     */
+    this.wanted.on('busted', (e) => {
+      if (this._bustedFor > 0) return;
+      this._bustedFor = 1e-9;
+      this.stats.busts++;
+      this.say(`BUSTED  a unit held you for ${BUST_HOLD_S} s — released in ${BUST_HOLD_S} s`);
+      if (this.mission.mission && this.mission.outcome === OUTCOMES.RUNNING) {
+        this.mission.abort('busted');
+      }
+    });
+    this._bustedFor = 0;
     this.traffic.clearAt = (x, z, r) => !this.blockers.resolveCircle(x, z, r);
     this.peds = new Pedestrians(scene, this.district, { count: opts.peds ?? 64 });
     this.roads = new RoadGraph(this.district, { blockers: this.blockers, carRadius: BODY_RADIUS });
@@ -223,7 +280,9 @@ export class Session {
     // play. Those read 458 and 3 over 76 m of ordinary driving, because the median record is
     // 0.007 m/s of kerb rumble and audio.js refuses anything under 0.6 — so a single number
     // called "sounds" was wrong by two orders of magnitude, in the alarming direction.
-    this.stats = { crashes: 0, crimes: 0, knockdowns: 0, fatal: 0, shunts: 0,
+    /** The player position handed to the wanted system, with the host's `held` verdict on it. */
+    this._wantedPlayer = { x: 0, z: 0, held: false };
+    this.stats = { busts: 0, released: 0, crashes: 0, crimes: 0, knockdowns: 0, fatal: 0, shunts: 0,
       impacts: 0, voices: 0, tested: 0, contacts: 0, pedRepeats: 0, runOvers: 0,
       wrecks: 0, respawns: 0, loopsBroken: 0, worstDv: 0, distance: 0, topSpeed: 0 };
     this._lastPos = { x: 0, z: 0 };
@@ -417,7 +476,23 @@ export class Session {
           [this._carCollider], this.blockers);
       }
       this.damage.update(DT);
-      this.wanted.update(DT, { x: ap.x, z: ap.z });
+      /**
+       * IS A UNIT HOLDING YOU — the host's verdict, computed here exactly as district/main.js
+       * computes it, against the PLAYER rather than against the pursuit target. See
+       * `_watchBust` in src/wanted.js for why the module does not own this.
+       */
+      this._wantedPlayer.x = ap.x; this._wantedPlayer.z = ap.z;
+      this._wantedPlayer.held = false;
+      const holdR = this.pursuit.holdRadius ?? 0;
+      if (holdR > 0) {
+        for (const u of this._unitPositions()) {
+          if (!u.held) continue;
+          if (Math.hypot(u.x - ap.x, u.z - ap.z) <= holdR) { this._wantedPlayer.held = true; break; }
+        }
+      }
+      this.wantedBridge.update(DT, this._wantedPlayer);
+      if (this._pursuitIds.length) this.pursuit.update(DT, this._pursuitTarget);
+      this._bustWatch(DT);
       // The CAR is what traffic has to avoid, on foot as much as in it — main.js passes the
       // vehicle unconditionally for the same reason.
       this.traffic.update(DT, this.vehicle.position, this.mode === 'car' ? this.vehicle.velocity : null,
@@ -521,6 +596,46 @@ export class Session {
    * playtester measured 60 s of full throttle and 60 s of full reverse both giving 0 km/h, with
    * the mission outcome stuck on 'running' and the objective still on the HUD.
    */
+  /** Mask the fleet to what the plan asked for. Slots above `n` are nulled, not driven. */
+  _fleet(n) {
+    this.pursuit.count = Math.max(0, Math.min(n, 8));
+    for (let i = this.pursuit.count; i < 8; i++) this.pursuit.units[i] = null;
+  }
+
+  /**
+   * Where each requested unit is, and whether it has stopped on the target. Read out of the
+   * instance matrix, which is the only place PursuitUnits keeps a position — the same route
+   * district/main.js's bridge and src/audio.js's sirens take.
+   */
+  _unitPositions() {
+    const out = this._pursuitOut;
+    out.length = 0;
+    const n = Math.min(this._pursuitIds.length, this.pursuit.count);
+    for (let i = 0; i < n; i++) {
+      const u = this.pursuit.units[i];
+      if (!u) continue;
+      this.pursuit.mesh.getMatrixAt(i, this._pursuitMat);
+      this._pursuitVec.setFromMatrixPosition(this._pursuitMat);
+      out.push({ id: this._pursuitIds[i], x: this._pursuitVec.x, z: this._pursuitVec.z,
+        held: u.held === true });
+    }
+    return out;
+  }
+
+  /** The fade after a bust. Same beat as the wreck, and the same constant. */
+  _bustWatch(dt) {
+    if (this._bustedFor <= 0) return;
+    this._bustedFor += dt;
+    if (this._bustedFor < WRECK_HOLD_S) return;
+    this._bustedFor = 0;
+    this.stats.released++;
+    this.respawn();
+    if (this.mode === 'foot') { this.mode = 'car'; }
+    this.player.position.copy(this.vehicle.position);
+    this.player.velocity.set(0, 0, 0);
+    this.say('OUT     released, the car is back and repaired');
+  }
+
   _wreckWatch(dt) {
     if (!this.damage.wrecked) { this._wreckFor = 0; return; }
     if (this._wreckFor === 0) {
@@ -1026,7 +1141,13 @@ export class Session {
      * learn either from playing.
      */
     const law = composeLaw(this.wanted.hudState());
-    return composeBand({ wreck, fence, law, mission: hud, ended, offer });
+    // `busted` is the top tenant: while the fade runs it is the only thing on screen, and a
+    // playtester who could not see it would report being teleported for no stated reason.
+    const busted = this._bustedFor > 0
+      ? { objective: 'BUSTED',
+        subtitle: `released in ${Math.max(0, WRECK_HOLD_S - this._bustedFor).toFixed(0)} s` }
+      : null;
+    return composeBand({ busted, wreck, fence, law, mission: hud, ended, offer });
   }
 
   /** The session as a reviewer would read it. */
@@ -1915,6 +2036,87 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
       check('and the contacts collapse, because the car stops pushing',
         on.contacts < off.contacts / 10, `${on.contacts} against ${off.contacts}`);
     }
+  }
+
+  /**
+   * §8 BEING CAUGHT, END TO END, because a rule nothing can reach is not a rule. Before this
+   * harness had a pursuit layer the measurement was: five stars, engine off, never moving,
+   * `units 6/0` — six units requested and zero reporting a position — and the level bled
+   * 4* -> 0 over 87 s. Sitting still was a guaranteed escape, and both playtesters' reports on
+   * evasion were made against that.
+   *
+   * What this arm asserts is the whole chain: units arrive, one of them STOPS on the player,
+   * src/wanted.js's clock runs, the level clears, the mission is lost, and the car comes back
+   * repaired and drivable. Every link has been broken separately in a shipped build.
+   */
+  {
+    console.log('\n§8  being caught');
+    const s = new Session({ seed: 3, peds: 0, traffic: 0 });
+    s.startMission('marlin-street');
+    s.wanted.reportCrime('officerDown', { at: { x: s.vehicle.position.x, z: s.vehicle.position.z } });
+    const hurt = s.damage.impact({ dv: 8, kind: IMPACT.wall, dirZ: 1, speed: 8 });
+    const healthBefore = s.damage.health;
+    let heldEver = 0, minD = Infinity, sawCountdown = null, unitsEver = 0;
+    // Sit still. A minute of game time is ample: measured, the fleet takes 37 s to pin a
+    // stationary car from four stars, and that figure is printed so a regression reads as a
+    // number rather than as a timeout.
+    for (let k = 0; k < 60 && s.stats.released === 0; k++) {
+      s.drive({ throttle: 0, brake: 1 }).step(1);
+      const u = s._unitPositions();
+      heldEver = Math.max(heldEver, u.filter((x) => x.held).length);
+      unitsEver = Math.max(unitsEver, u.length);
+      for (const x of u) {
+        minD = Math.min(minD, Math.hypot(x.x - s.vehicle.position.x, x.z - s.vehicle.position.z));
+      }
+      const bi = s.wanted.hudState().bustIn;
+      if (bi != null && sawCountdown === null) sawCountdown = bi;
+    }
+    const caughtAt = s.log.find((l) => l.line.startsWith('BUSTED'));
+    const outAt = s.log.find((l) => l.line.startsWith('OUT'));
+    console.log(`    units reporting ${unitsEver} at the peak (0 now: the bust released them), ` +
+      `closest approach ${minD.toFixed(1)} m, ${heldEver} holding at once`);
+    console.log(`    busted at ${caughtAt ? caughtAt.t : 'never'} s, released at ` +
+      `${outAt ? outAt.t : 'never'} s, health ${healthBefore.toFixed(3)} -> ` +
+      `${s.damage.health.toFixed(3)}, mission ${s.mission.outcome}`);
+    check('the harness has police that report where they are',
+      s.wanted.stats.bustHolds > 0 && unitsEver > 0,
+      `armed ${s.wanted.stats.bustHolds}x, ${unitsEver} units reported a position`);
+    check('a unit stops ON the stationary player rather than driving past',
+      heldEver > 0 && minD < s.pursuit.holdRadius,
+      `${heldEver} held, closest ${minD.toFixed(1)} m against holdRadius ` +
+      `${s.pursuit.holdRadius.toFixed(2)}`);
+    check('sitting still at four stars gets you arrested, where it used to clear the level',
+      s.stats.busts === 1, `${s.stats.busts} busts in ${s.t.toFixed(0)} s`);
+    check('the countdown was visible before it fired, not only after',
+      sawCountdown != null && sawCountdown > 0 && sawCountdown <= BUST_HOLD_S,
+      `first reading ${sawCountdown}`);
+    check('the wanted level is cleared', s.wanted.stars === 0, `${s.wanted.stars}*`);
+    check('the mission is lost, which is what being busted costs',
+      s.mission.outcome === OUTCOMES.ABORTED, `${s.mission.outcome}`);
+    check('the car comes back repaired, which no player could do before',
+      s.stats.released === 1 && s.damage.health === 1 && healthBefore < 1,
+      `${healthBefore.toFixed(3)} -> ${s.damage.health.toFixed(3)}`);
+    // And it drives: a release that hands back a car that cannot move is the wreck dead end again.
+    const before = { x: s.vehicle.position.x, z: s.vehicle.position.z };
+    s.drive({ throttle: 1, brake: 0, steer: 0 }).step(4);
+    const moved = Math.hypot(s.vehicle.position.x - before.x, s.vehicle.position.z - before.z);
+    console.log(`    and four seconds of throttle after release: ${moved.toFixed(1)} m, ` +
+      `${s.look().speedKmh} km/h`);
+    check('and it drives away', moved > 5, `${moved.toFixed(1)} m`);
+    /**
+     * KNOWN-BAD: THE OUT IS THE THROTTLE, and a rule with no out is the "barrier that refuses all
+     * power" this project has shipped twice. Same seed, same crime, but driving — so the units
+     * arrive and never hold a player who keeps moving.
+     */
+    const g = new Session({ seed: 3, peds: 0, traffic: 0 });
+    g.wanted.reportCrime('officerDown', { at: { x: g.vehicle.position.x, z: g.vehicle.position.z } });
+    for (let k = 0; k < 60 && g.stats.busts === 0; k++) {
+      g.drive({ throttle: 0.55, brake: 0, steer: k % 8 < 4 ? 0.18 : -0.18 }).step(1);
+    }
+    console.log(`    KNOWN-BAD, the same seed while driving: ${g.stats.busts} busts in ` +
+      `${g.t.toFixed(0)} s, ${g.wanted.stars}* left, armed ${g.wanted.stats.bustHolds}x`);
+    check('KNOWN-BAD: a player who keeps driving is not busted',
+      g.stats.busts === 0, `${g.stats.busts} busts`);
   }
 
   console.log(`\n${pass} passed, ${fail} failed in ${((Date.now() - t00) / 1000).toFixed(1)} s ` +

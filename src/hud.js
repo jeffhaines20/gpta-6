@@ -691,13 +691,23 @@ export function objectiveLine(o) {
   if (o == null) return null;
   if (typeof o === 'string') return o;
   const head = o.text || o.title || '';
-  return o.distance == null ? head : `${head} — ${Math.round(o.distance)} m`;
+  // `unit` defaults to metres because every objective in the game until the bust countdown was a
+  // distance, and a tenant that means seconds must not be able to print them as metres.
+  return o.distance == null ? head : `${head} — ${Math.round(o.distance)} ${o.unit || 'm'}`;
 }
-export function composeBand({ wreck = null, fence = null, law = null, mission = null,
-  ended = null, offer = null } = {}) {
-  const pick = wreck ?? fence ?? law ?? mission ?? ended ?? offer ?? null;
+export function composeBand({ busted = null, wreck = null, fence = null, law = null,
+  mission = null, ended = null, offer = null } = {}) {
+  /**
+   * `busted` OUTRANKS `wreck`, and both can be true at once: a car written off against a wall
+   * with a unit parked on it is wrecked AND its driver is under arrest. Being arrested is the
+   * more final of the two and the one whose countdown is running, so it takes the band.
+   *
+   * It is deliberately NOT in HOLDS_MISSION_SUBTITLE: the bust has just aborted the mission, so
+   * "still on: DELIVER THE PARCEL" would be a lie in the one place a player is looking.
+   */
+  const pick = busted ?? wreck ?? fence ?? law ?? mission ?? ended ?? offer ?? null;
   if (!pick) return { objective: null, subtitle: null, from: null };
-  const from = wreck ? 'wreck' : fence ? 'fence' : law ? 'law'
+  const from = busted ? 'busted' : wreck ? 'wreck' : fence ? 'fence' : law ? 'law'
     : mission ? 'mission' : ended ? 'ended' : 'offer';
   let subtitle = pick.subtitle ?? null;
   if (HOLDS_MISSION_SUBTITLE.has(from) && mission && mission.objective) {
@@ -1417,9 +1427,12 @@ export class HUD {
       // evaluated BEFORE that check, so a stationary objective still allocated a
       // string every frame for a value it then discarded.
       const dm = obj.distance == null ? null : Math.round(obj.distance);
-      if (dm !== this._objDistM) {
-        this._objDistM = dm;
-        this._write('objDist', this.elObjDist, dm == null ? '' : `${dm} m`);
+      // The unit is part of the dirty key, or a tenant switching between a distance and a
+      // countdown at the same rounded number would keep the previous tenant's suffix.
+      const du = obj.distance == null ? null : (obj.unit || 'm');
+      if (dm !== this._objDistM || du !== this._objDistU) {
+        this._objDistM = dm; this._objDistU = du;
+        this._write('objDist', this.elObjDist, dm == null ? '' : `${dm} ${du}`);
       }
     }
     this._band(this.elObj, !!o);

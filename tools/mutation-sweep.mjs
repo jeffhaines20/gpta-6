@@ -765,6 +765,99 @@ const MUTATIONS = [
     why: 'the call site decides the charge again, past the module that owns it',
     browser: true,
   },
+  {
+    /**
+     * THE BUST NEVER FIRES. The clock still arms and still shows the player a countdown, and the
+     * countdown simply never reaches the end — which reads as "the police are bad at catching you"
+     * rather than as a broken rule, and is exactly how the pursuit shipped for months.
+     */
+    id: 'bust-never', file: 'src/wanted.js',
+    find: '    if (this.bustFor < BUST_HOLD_S) return false;',
+    to: '    if (true) return false;',
+    why: 'the countdown runs to zero and nothing happens, for ever',
+  },
+  {
+    /**
+     * THE CLOCK ACCUMULATES INSTEAD OF RESETTING, so four separate one-second stops add up to a
+     * bust. Nothing looks wrong from a single stop; what breaks is that moving away no longer
+     * saves you, which is the one thing the rule promises.
+     */
+    id: 'bust-accumulate', file: 'src/wanted.js',
+    find: '      this.bustFor = 0;\n      return false;\n    }\n    if (this.bustFor === 0) this.stats.bustHolds++;',
+    to: '      return false;\n    }\n    if (this.bustFor === 0) this.stats.bustHolds++;',
+    why: 'the out stops working: four interrupted stops become an arrest',
+  },
+  {
+    /**
+     * THE SPEED TERM GOES, so the clock runs while you are driving. A unit that pulls alongside on
+     * a straight busts you at 70 km/h. It is the term whose absence a stationary test cannot see.
+     */
+    id: 'bust-any-speed', file: 'src/wanted.js',
+    find: '    if (this.stars <= 0 || !player.held ||\n        Math.hypot(this.playerVel.x, this.playerVel.z) >= SCENE_STOP_MS) {',
+    to: '    if (this.stars <= 0 || !player.held) {',
+    why: 'a unit alongside you at speed is an arrest',
+  },
+  {
+    /**
+     * A PURSUIT UNIT CANNOT STOP AGAIN, which is how it shipped: greedy road-graph pursuit drives
+     * through the player at 22 m/s for ever. Measured against a stationary target over 400 s, the
+     * longest contiguous time any unit spent within a car length was 0.8 s while the minimum
+     * distance reached was 0.1 m — touching constantly, holding never. NOTHING about the chase
+     * looks different; the bust simply becomes unreachable.
+     */
+    id: 'hold-never', file: 'src/pursuit.js',
+    find: '      if (near.d <= PursuitUnits.HOLD_R && (u.held || (wantT > near.t && u.t <= near.t))) {',
+    to: '      if (false) {',
+    why: 'the police drive through you at 79 km/h and can never catch anybody',
+  },
+  {
+    /**
+     * THE HOLD STOPS BEING STICKY, which is the defect this round actually shipped and had to
+     * trace at the frame. A stationary player is not stationary — the plan's target is the live
+     * position and a braked car settles by sub-millimetre amounts — so any backwards drift in the
+     * closest approach fails `u.t <= near.t` and the unit leaves for good. `held` was true for
+     * exactly two frames at a time, 21 arms of the clock in 80 s, peak 0.017 s, and two arms of
+     * one scenario 0.2 m apart disagreed about whether the player was ever caught.
+     */
+    id: 'hold-ratchet', file: 'src/pursuit.js',
+    find: '      if (near.d <= PursuitUnits.HOLD_R && (u.held || (wantT > near.t && u.t <= near.t))) {',
+    to: '      if (near.d <= PursuitUnits.HOLD_R && wantT > near.t && u.t <= near.t) {',
+    why: 'a hold lasts two frames, so being caught becomes a coin flip',
+  },
+  {
+    /**
+     * A HELD UNIT REROUTES AT THE END OF ITS EDGE, the second half of the same trace. The closest
+     * approach to a player standing at a junction IS the end of the edge, so the clamp satisfies
+     * the end-of-edge test and the unit takes a new edge every frame.
+     */
+    id: 'hold-reroute', file: 'src/pursuit.js',
+    find: '      if (!u.held && (!p || u.t >= u.len)) {',
+    to: '      if (!p || u.t >= u.len) {',
+    why: 'a unit that arrives at a junction can never hold there',
+  },
+  {
+    /**
+     * THE BAND STOPS SAYING IT. Four seconds with no cue is a player being teleported for no
+     * stated reason — and `composeLaw` still returns the scene line underneath, so the HUD looks
+     * busy and correct while the thing about to happen is invisible.
+     */
+    id: 'bust-silent', file: 'src/wanted.js',
+    find: '  if (s.bustIn != null) {',
+    to: '  if (false) {',
+    why: 'you are arrested with no warning and no countdown',
+  },
+  {
+    /**
+     * THE HOST STOPS PAYING FOR IT: the level clears, and the mission, the repair and the return
+     * do not happen. [browser] because nothing offline imports district/main.js — tools/playtest
+     * carries its own copy of this wiring, which is why THAT one is gated and this one is recorded.
+     */
+    id: 'bust-free', file: 'district/main.js',
+    find: "  if (mission.mission && mission.outcome === OUTCOMES.RUNNING) mission.abort('busted');",
+    to: '  void 0;',
+    why: 'being arrested costs nothing: the mission survives it',
+    browser: true,
+  },
 ];
 
 // --------------------------------------------------------------------------- mechanics

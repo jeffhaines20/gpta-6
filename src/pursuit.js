@@ -95,6 +95,57 @@ export class PursuitUnits {
     return null;
   }
 
+  /**
+   * HOW CLOSE A UNIT HAS TO GET BEFORE IT STOPS DRIVING AND HOLDS, and it is derived from the
+   * district rather than picked. Units run the road-graph CENTRELINE; a player can be anywhere on
+   * the carriageway or on the pavement beside it, so the widest drivable half-width in the data
+   * (`r` is at most 5 for the 582 drivable edges: 79 primary at 2, 262 tertiary at 4, 233
+   * residential at 5) plus the car's own half-length from src/damage.js is the furthest a unit
+   * that has genuinely arrived can measure. 5 + 2.15 = 7.15.
+   *
+   * WHY THIS EXISTS AT ALL. Without it the fleet drives its edge at `speed` for ever and cannot
+   * stop, so no unit ever holds contact — measured against a STATIONARY target over 400 s at two
+   * spots and three seeds, the longest contiguous time any unit spent within 4.30 m (a car length)
+   * was 0.8 s, within 12 m 2.8 s, within 45 m 13.8 s, while the minimum distance reached was
+   * 0.1 m. The pursuit was touching the player constantly and holding him never. Any rule of the
+   * form "a unit is holding you" was therefore unsatisfiable, which is how a busted flow gets
+   * written, gated against hand-placed units, and never fires in the shipped game.
+   */
+  static HOLD_R = 5 + 2.15;
+
+  /**
+   * The same number as an instance property, so a host can ask the pursuit layer it was handed
+   * rather than importing this class to read a static off it. district/main.js's bridge is
+   * duck-typed on purpose (see its header) and this is the field it duck-types on.
+   */
+  get holdRadius() { return PursuitUnits.HOLD_R; }
+
+  /**
+   * The point on an edge nearest the target, as an along-edge distance and a distance. This is
+   * what a unit stops AT: a radius alone cannot say where to stop, and stopping at the moment the
+   * radius is first crossed parks the car short of the player on a long approach.
+   */
+  _closestOn(i, forward, target) {
+    const e = this.d.edges[i];
+    const pts = forward ? e.v.map((v) => this.d.verts[v])
+      : [...e.v].reverse().map((v) => this.d.verts[v]);
+    let run = 0, bestT = 0, bestD = Infinity;
+    for (let k = 0; k < pts.length - 1; k++) {
+      const a = pts[k], b = pts[k + 1];
+      const dx = b.x - a.x, dz = b.z - a.z;
+      const seg = Math.hypot(dx, dz);
+      if (seg > 1e-9) {
+        const f = Math.max(0, Math.min(1,
+          ((target.x - a.x) * dx + (target.z - a.z) * dz) / (seg * seg)));
+        const px = a.x + dx * f, pz = a.z + dz * f;
+        const d = Math.hypot(target.x - px, target.z - pz);
+        if (d < bestD) { bestD = d; bestT = run + seg * f; }
+      }
+      run += seg;
+    }
+    return { t: bestT, d: bestD };
+  }
+
   _endVertex(i, forward) {
     const e = this.d.edges[i];
     return forward ? e.v[e.v.length - 1] : e.v[0];
@@ -113,7 +164,7 @@ export class PursuitUnits {
       if (!p) continue;
       const dist = Math.hypot(p.x - target.x, p.z - target.z);
       if (dist < 70 || dist > 260) continue;
-      this.units[idx] = { edge: e, forward, t, len };
+      this.units[idx] = { edge: e, forward, t, len, held: false };
       this.stats.spawns++;
       return true;
     }
@@ -156,12 +207,60 @@ export class PursuitUnits {
       if (!u) { this._spawn(i, target); u = this.units[i]; }
       if (!u) { this.mesh.setMatrixAt(i, this._hidden); this.bars.setMatrixAt(i, this._hidden); continue; }
 
-      u.t += this.speed * dt;
+      /**
+       * DRIVE UP TO THE PLAYER AND STOP THERE, rather than through him at 22 m/s. `u.t` is clamped
+       * at the edge's closest approach whenever that approach is inside HOLD_R, so a unit that has
+       * arrived sits on the player until he moves — and `held` is what src/wanted.js's bust rule
+       * reads. It cannot chatter: the clamp is a ceiling on `t`, not a state machine, so a unit at
+       * the closest approach stays there for exactly as long as the target does.
+       *
+       * The unit does not REVERSE to follow a target that moves back down the edge — `t` only
+       * grows — so it drives on and comes round again, which is what the greedy router already
+       * does at every junction.
+       */
+      const near = this._closestOn(u.edge, u.forward, target);
+      const wantT = u.t + this.speed * dt;
+      /**
+       * ONCE HELD, HELD WHILE THE TARGET IS STILL BY THIS EDGE — `u.held` is in the condition that
+       * decides `u.held`, and that is the whole point of it.
+       *
+       * The first version tested `wantT > near.t && u.t <= near.t` every frame with no tolerance,
+       * and a stationary player is not stationary: the plan's target is the player's live position,
+       * which drifts sub-millimetre amounts while a braked car settles. Any drift that moves the
+       * closest approach BACKWARDS by 1e-9 fails `u.t <= near.t`, the unit takes the else branch,
+       * and it drives off for good. Traced at the frame: `held` was true for exactly TWO frames at
+       * a time, 34 such frames across 80 s, 21 arms of the bust clock and a peak of 0.017 s.
+       *
+       * Sticky, it also does the right thing when the player creeps: `u.t` tracks `near.t`, so the
+       * unit keeps station along the kerb instead of being shaken off by a walking pace. It
+       * releases when the target leaves the edge's neighbourhood, where `near.d > HOLD_R`, and
+       * resumes from wherever it was rather than from the start of the edge.
+       */
+      if (near.d <= PursuitUnits.HOLD_R && (u.held || (wantT > near.t && u.t <= near.t))) {
+        u.t = near.t;
+        u.held = true;
+      } else {
+        u.t = wantT;
+        u.held = false;
+      }
       let p = this._pointOn(u.edge, u.forward, u.t);
-      if (!p || u.t >= u.len) {
+      /**
+       * A HELD UNIT DOES NOT REROUTE, and without this it flickered instead of holding. The
+       * closest approach to a target standing at a junction is the END of the edge, so `u.t`
+       * clamped to it also satisfies `u.t >= u.len` — the end-of-edge test below — and the unit
+       * took a new edge, reset `t` to 0 and cleared `held`, every single frame.
+       *
+       * It cost the whole feature and it read as the feature being unreliable rather than broken:
+       * the bust clock ARMED 21 times in 80 s and never once reached 2 s, and one arm of the same
+       * scenario 0.2 m away (brake on instead of coasting) busted at 37 s while the other never
+       * did. The greedy router is chaotic in the target position, so "sometimes it works" was a
+       * plausible reading; `stats.bustHolds` against `stats.busts` is what said it was not.
+       */
+      if (!u.held && (!p || u.t >= u.len)) {
         const next = this._chooseNext(u, target);
         if (!next) { this.units[i] = null; this.mesh.setMatrixAt(i, this._hidden); this.bars.setMatrixAt(i, this._hidden); continue; }
         u.edge = next.e; u.forward = next.forward; u.t = 0; u.len = this._len(next.e);
+        u.held = false;
         p = this._pointOn(u.edge, u.forward, 0);
       }
 
@@ -194,6 +293,8 @@ export class PursuitUnits {
     return {
       units: this.count,
       active: this.units.filter(Boolean).length,
+      held: this.units.filter((u) => u && u.held).length,
+      holdR: PursuitUnits.HOLD_R,
       ...this.stats,
       drawCalls: 2,
     };

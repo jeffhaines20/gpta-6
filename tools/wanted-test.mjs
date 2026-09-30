@@ -15,7 +15,7 @@
 import fs from 'node:fs';
 import { WantedSystem, CRIMES, RESPONSE, STATES, bindPursuit,
   SCENE_LEAVE_M, SCENE_STOP_MS, VictimWindow,
-  composeWanted, composeLaw, LAW_NOTICE_S } from '../src/wanted.js';
+  composeWanted, composeLaw, LAW_NOTICE_S, BUST_HOLD_S } from '../src/wanted.js';
 import { objectiveLine } from '../src/hud.js';
 import { DamageModel, IMPACT } from '../src/damage.js';
 
@@ -1479,6 +1479,188 @@ let searchSample;
     check('and stays one star there, because min is a floor and the next rung is 2',
       band.every((b) => b.stars === 1), band.map((b) => b.stars).join(' '));
   }
+}
+
+// ------------------------------- 25. being busted, which nothing in the game could do
+/**
+ * `clear()` AND `damage.repair()` HAVE ALWAYS EXISTED AND NOTHING EVER CALLED THEM. Measured
+ * before this section was written: five stars, engine off, never moving, `units 6/0` — six units
+ * requested and ZERO reporting a position, because tools/playtest.mjs builds no pursuit layer — and
+ * the level bled 4* -> 3* -> 2* -> ... -> 0 over 87 s while the player sat still. The escape was
+ * automatic and unconditional, so every playtester's report on evasion was measured against a game
+ * with no police in it.
+ *
+ * THE RULE IS A CONJUNCTION AND EVERY TERM OF IT IS TESTED HERE SEPARATELY, because the failure
+ * mode of a rule like this is not firing wrongly — it is never firing at all, which looks exactly
+ * like a player who keeps escaping.
+ */
+{
+  console.log('\n25. being busted');
+  const at = (x, z) => ({ x, z });
+  /**
+   * Hold the player at one spot with `held` as given. `run` cannot be used: it does not carry a
+   * `held` flag, and adding one there would put a bust-specific field in every other section's
+   * helper.
+   */
+  const hold = (w, seconds, opts = {}) => {
+    const steps = Math.round(seconds / DT);
+    for (let i = 0; i < steps; i++) {
+      const p = { ...(opts.at ?? ORIGIN), seen: opts.seen ?? true, held: opts.held ?? true };
+      if (opts.each) opts.each(w, i, p);
+      w.update(DT, p);
+    }
+    return w;
+  };
+  const wanted1 = () => {
+    const w = new WantedSystem({ seed: 25 });
+    w.reportCrime('pedestrianHit', { at: ORIGIN, scale: 0.01 });
+    return w;
+  };
+
+  // (a) the whole flow, once, with the event and the numbers it carries.
+  {
+    const w = wanted1();
+    const busts = [];
+    w.on('busted', (e) => busts.push({ t: +w.time.toFixed(2), stars: w.stars, at: e.at,
+      heldFor: e.heldFor }));
+    const before = w.stars;
+    hold(w, BUST_HOLD_S + 0.2, { at: at(12, -4) });
+    console.log(`    held stopped for ${(BUST_HOLD_S + 0.2).toFixed(1)} s at ${before} star: ` +
+      `${busts.length} bust, stars now ${w.stars}, state ${w.state}`);
+    check('a unit holding a stopped player busts them', busts.length === 1,
+      `${busts.length} busts`);
+    check('and the level is already zero when the event lands, not five',
+      busts[0] && busts[0].stars === 0, busts[0] ? `${busts[0].stars}` : 'no event');
+    check('the event carries where it happened and how long the hold was',
+      busts[0] && Math.abs(busts[0].at.x - 12) < 1e-9 && Math.abs(busts[0].at.z + 4) < 1e-9
+        && busts[0].heldFor === BUST_HOLD_S,
+      busts[0] ? `${busts[0].at.x},${busts[0].at.z} for ${busts[0].heldFor}` : 'no event');
+    check('the reason is `busted`, so a host can tell it from an escape',
+      w.stars === 0 && w.state === STATES.CLEAR, `${w.stars}* ${w.state}`);
+    check('and it is counted, so a rule that never fires is visible',
+      w.stats.busts === 1 && w.stats.bustHolds === 1,
+      `busts ${w.stats.busts}, holds ${w.stats.bustHolds}`);
+  }
+
+  // (b) KNOWN-BAD on the clock: shorter than BUST_HOLD_S must not bust.
+  {
+    const w = wanted1();
+    let n = 0;
+    w.on('busted', () => n++);
+    hold(w, BUST_HOLD_S - 0.2, { at: ORIGIN });
+    console.log(`    held for ${(BUST_HOLD_S - 0.2).toFixed(1)} s: ${n} busts, ` +
+      `clock at ${w.bustFor.toFixed(2)} s, HUD says ${w.hudState().bustIn?.toFixed(2)} s left`);
+    check('KNOWN-BAD: a hold shorter than the full clock does not bust',
+      n === 0 && w.stars > 0, `${n} busts at ${w.stars}*`);
+    check('and the HUD countdown is running, not null and not frozen',
+      w.hudState().bustIn > 0 && w.hudState().bustIn < 0.3,
+      `${w.hudState().bustIn}`);
+  }
+
+  // (c) every term of the conjunction, each removed alone.
+  {
+    const arms = [
+      { name: 'nobody holding you', opts: { held: false } },
+      { name: 'moving faster than the stop threshold',
+        opts: { each: (w, i, p) => { p.x = i * DT * 6; } } },
+      { name: 'no wanted level at all', crime: false, opts: {} },
+    ];
+    for (const a of arms) {
+      const w = a.crime === false ? new WantedSystem({ seed: 25 }) : wanted1();
+      let n = 0;
+      w.on('busted', () => n++);
+      hold(w, BUST_HOLD_S * 3, a.opts);
+      console.log(`    ${a.name.padEnd(38)} ${n} busts over ${(BUST_HOLD_S * 3).toFixed(0)} s ` +
+        `(armed ${w.stats.bustHolds})`);
+      check(`no bust while ${a.name}`, n === 0, `${n} busts`);
+    }
+  }
+
+  /**
+   * (d) THE CLOCK RESETS RATHER THAN DECAYS, and this is the arm that says so. Four separate
+   * holds of 0.9 * BUST_HOLD_S with a moment of movement between them add to 3.6x the clock; a
+   * decaying or accumulating timer busts on the second one and calls it "a unit held you".
+   */
+  {
+    const w = wanted1();
+    let n = 0;
+    w.on('busted', () => n++);
+    const peaks = [];
+    for (let k = 0; k < 4; k++) {
+      hold(w, BUST_HOLD_S * 0.9, { at: ORIGIN });
+      peaks.push(+w.bustFor.toFixed(2));
+      // One step of real movement: 6 m/s for 0.5 s is past the threshold with the smoothing.
+      hold(w, 0.5, { held: true, each: (ww, i, p) => { p.x = i * DT * 6; } });
+    }
+    console.log(`    four holds of ${(BUST_HOLD_S * 0.9).toFixed(1)} s with movement between: ` +
+      `${n} busts, clock peaked at ${peaks.join(' ')} s, armed ${w.stats.bustHolds}x`);
+    check('four interrupted holds do not add up to a bust', n === 0, `${n} busts`);
+    check('and the clock started over each time, which is what makes that true',
+      w.stats.bustHolds === 4 && peaks.every((v) => v < BUST_HOLD_S),
+      `armed ${w.stats.bustHolds}, peaks ${peaks.join(' ')}`);
+  }
+
+  // (e) what the player is shown while it runs, through the real composer.
+  {
+    const w = wanted1();
+    const lines = [];
+    for (let k = 0; k < 4; k++) {
+      hold(w, BUST_HOLD_S / 5, { at: ORIGIN });
+      const st = w.hudState();
+      lines.push({ bustIn: +st.bustIn.toFixed(2), law: composeLaw(st) });
+    }
+    const texts = lines.map((l) => objectiveLine(l.law.objective));
+    console.log(`    the band while held: ${texts.join(' | ')}`);
+    check('the law band says you are being busted and in how long',
+      lines.every((l) => l.law && /BUSTED IN/.test(l.law.objective.text)),
+      texts.join(' | '));
+    check('in SECONDS, not metres — the one objective in the game that is not a distance',
+      texts.every((t) => / s$/.test(t)), texts.join(' | '));
+    /**
+     * THE COUNTDOWN IS THE `bustIn` VALUE; THE TEXT IS THAT VALUE ROUNDED. The first version of
+     * this asserted four DISTINCT rendered strings and failed on 2.4 s and 1.6 s both printing
+     * "2 s" — a check on the renderer's rounding wearing a countdown's name. What matters is that
+     * the quantity falls monotonically and that the drawn string is not frozen.
+     */
+    check('and the number falls, so it is a countdown rather than one frozen value',
+      lines.every((l, i) => i === 0 || l.bustIn < lines[i - 1].bustIn),
+      lines.map((l) => l.bustIn).join(' '));
+    check('and the drawn string moves with it rather than sticking',
+      new Set(texts).size >= 3, texts.join(' | '));
+    check('the subtitle says what to do about it, because the out is not obvious',
+      lines[0].law.subtitle === 'drive', `${lines[0].law.subtitle}`);
+    // And it outranks the scene of the injury that put the police there.
+    const w2 = wanted1();
+    w2.reportCrime('pedestrianHit', { at: at(200, 0), scale: 0.01 });
+    hold(w2, BUST_HOLD_S / 2, { at: at(200, 0) });
+    const st2 = w2.hudState();
+    check('being held outranks the scene line, which cannot both fit in four seconds',
+      st2.scene && /BUSTED IN/.test(composeLaw(st2).objective.text),
+      `scene ${!!st2.scene}, band ${composeLaw(st2).objective.text}`);
+  }
+
+  /**
+   * (f) THE DERIVATION, ASSERTED AS A RELATION. BUST_HOLD_S's comment measures the floor at
+   * 0.68 s — the contiguous time a full brake to rest followed immediately by full throttle spends
+   * under 2.2 m/s, flat across entry speeds from 20 to 110 km/h. What must hold is the ordering,
+   * not the number: the clock has to outlast an unavoidable stop-and-go and a deliberate pause,
+   * and must not outlast a player's patience.
+   */
+  {
+    const FLOOR_STOPGO = 0.68, FLOOR_PAUSE_2S = 2.67;   // src/vehicle.js, measured; see BUST_HOLD_S
+    console.log(`    BUST_HOLD_S ${BUST_HOLD_S} s against a ${FLOOR_STOPGO} s stop-and-go ` +
+      `(x${(BUST_HOLD_S / FLOOR_STOPGO).toFixed(1)}) and a ${FLOOR_PAUSE_2S} s pause ` +
+      `(x${(BUST_HOLD_S / FLOOR_PAUSE_2S).toFixed(2)})`);
+    check('the clock outlasts an unavoidable stop-and-go by at least 3x',
+      BUST_HOLD_S > FLOOR_STOPGO * 3, `${BUST_HOLD_S} against ${FLOOR_STOPGO}`);
+    check('and outlasts a deliberate two-second pause',
+      BUST_HOLD_S > FLOOR_PAUSE_2S, `${BUST_HOLD_S} against ${FLOOR_PAUSE_2S}`);
+    check('and is under the shortest star cooldown, or being caught is slower than escaping',
+      BUST_HOLD_S < RESPONSE[1].cooldown, `${BUST_HOLD_S} against ${RESPONSE[1].cooldown}`);
+    check('the stop test is the scene watcher\'s threshold and not a second one',
+      SCENE_STOP_MS === 1.0, `${SCENE_STOP_MS}`);
+  }
+  out.bust = { holdS: BUST_HOLD_S };
 }
 
 // ---------------------------------------------------------------- scenario trace

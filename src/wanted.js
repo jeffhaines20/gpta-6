@@ -160,6 +160,33 @@ function f(c) { return Object.freeze({ cool: 0, refractory: 0, min: 0, requiresW
 export let SCENE_LEAVE_M = 0;
 export const SCENE_STOP_MS = 1.0;
 
+/**
+ * HOW LONG A UNIT HAS TO HOLD YOU, STOPPED, BEFORE YOU ARE BUSTED.
+ *
+ * THE FLOOR IS MEASURED AND IT IS NOT ZERO. A driver who brakes hard to a standstill and
+ * immediately floors it away spends time below the stop threshold whether they like it or not, and
+ * a bust that fires inside that window busts a player for using the brake. src/vehicle.js on flat
+ * ground, full brake to rest then full throttle, at 20 / 40 / 60 / 80 / 110 km/h entry:
+ *
+ *     contiguous seconds under 1.0 m/s   0.32 0.30 0.28 0.30 0.32
+ *     contiguous seconds under 2.2 m/s   0.68 0.67 0.65 0.67 0.67
+ *
+ * Flat in the entry speed, because the last 2.2 m/s of a braking curve and the first 2.2 m/s of an
+ * acceleration do not depend on where the braking started. Sitting still for 2 s on top of that
+ * reads 2.67 s. So the floor is 0.68 s and a deliberate 2 s pause is 2.67 s.
+ *
+ * THE VALUE IS THE WRECK BEAT, `WRECK_HOLD_S` in district/main.js, and that is a derivation rather
+ * than a coincidence: both are "the game has taken control and is about to fade you out and hand
+ * the car back", and a retune of one has to move the other or the two consequences stop feeling
+ * like the same game. 4.0 s is 5.9x the unavoidable floor and 1.5x a deliberate 2 s stop.
+ * district/main.js reads this constant for both, so there is one number and not two.
+ *
+ * THE CLOCK IS NOT THE WHOLE RULE. It runs only while the host says a unit is HOLDING you — see
+ * `player.held` in `update` — so a player who can drive away is never busted, and the out is
+ * always the throttle.
+ */
+export const BUST_HOLD_S = 4.0;
+
 export const RESPONSE = Object.freeze([
   Object.freeze({ units: 0, spawnMin: 0,   spawnMax: 0,   giveUpRadius: 0,   speedMul: 0,    intercept: false, aggression: 0.00, cooldown: 0,  searchGrow: 0,  spotRadius: 0,   siren: 0.00 }),
   Object.freeze({ units: 1, spawnMin: 80,  spawnMax: 190, giveUpRadius: 380, speedMul: 0.94, intercept: false, aggression: 0.15, cooldown: 12, searchGrow: 7,  spotRadius: 85,  siren: 0.35 }),
@@ -268,6 +295,12 @@ export class WantedSystem {
     this._sweep = 0;
     this._nextUnitId = 0;
     this._prevPlayer = null;
+    /**
+     * HOW LONG A UNIT HAS BEEN HOLDING THE PLAYER STOPPED, in seconds, and 0 whenever it is not.
+     * Read by `hudState` so the player can watch it run; see `_watchBust`.
+     */
+    this.bustFor = 0;
+
     /** The scene of the last injury, until the player stops at it or leaves it. See _watchScene. */
     this._scene = null;
     // Reused in place so sanitising costs no per-frame allocation.
@@ -284,6 +317,8 @@ export class WantedSystem {
       // The scene of an injury: armed on a `scene: true` crime, discharged by stopping, charged
       // as `hitAndRun` by leaving. See _watchScene.
       scenesArmed: 0, scenesStopped: 0, scenesFled: 0,
+      // Busted: the host held you stopped for BUST_HOLD_S. See `_watchBust`.
+      busts: 0, bustHolds: 0,
     };
 
     // One stable object, mutated in place: consumers hold a reference and read
@@ -472,6 +507,14 @@ export class WantedSystem {
 
     this._trackVelocity(step, player);
     this._watchScene(player);
+    /**
+     * Before contact is evaluated, because a bust clears the level and everything below this line
+     * is about a level that still exists. It deliberately does NOT return early: with `stars` now
+     * 0 the rest of this function writes the cleared plan, where an early return would leave the
+     * pursuit bridge reading last frame's target for a frame — eight cars still converging on a
+     * player who has just been arrested.
+     */
+    this._watchBust(step, player);
 
     const seen = this._evaluateContact(player);
     if (seen !== this.seen) {
@@ -586,6 +629,13 @@ export class WantedSystem {
         : null,
       notice: this._notice ? { id: this._notice.id, label: this._notice.label,
         age: this.time - this._notice.t } : null,
+      /**
+       * SECONDS OF HOLD STILL TO SURVIVE, or null when nobody is holding you. A countdown rather
+       * than the elapsed figure, because what the player needs is how long they have to get out,
+       * and because `bustFor === 0` and "not held" are the same number and must not read as the
+       * same state. See `_watchBust`.
+       */
+      bustIn: this.bustFor > 0 ? Math.max(0, BUST_HOLD_S - this.bustFor) : null,
     };
   }
 
@@ -595,6 +645,7 @@ export class WantedSystem {
     if (Number.isFinite(player.x)) p.x = player.x;
     if (Number.isFinite(player.z)) p.z = player.z;
     p.seen = player.seen;
+    p.held = player.held === true;
     return p;
   }
 
@@ -638,6 +689,47 @@ export class WantedSystem {
     // Reported at the SCENE, not where the car is now: that is where the search should anchor,
     // and it is the only position a witness could give.
     this.reportCrime('hitAndRun', { at: { x: sc.x, z: sc.z } });
+  }
+
+  /**
+   * BEING CAUGHT. `player.held` is the HOST's verdict that a unit has pulled up on the player and
+   * stopped there, for exactly the reason `player.seen` is the host's verdict on line of sight:
+   * this module owns the consequence and must not own the geometry. src/pursuit.js decides it from
+   * its own `HOLD_R` (5 m, the widest drivable half-width in the district, plus the car's 2.15 m
+   * half-length) and district/main.js checks that unit against the player rather than against the
+   * pursuit target — which are the same point in contact and 300 m apart during a search.
+   *
+   * THE SPEED TEST IS `_watchScene`'s, not a second threshold. "Stopped" already has a definition
+   * in this file and a derivation above it; a bust that used its own number would drift from it.
+   *
+   * THE CLOCK RESETS RATHER THAN DECAYS. A player who inches forward out of the hold has got away,
+   * and a decaying clock would let four separate one-second stops add up to a bust — which is not
+   * "a unit held you", it is bookkeeping. `bustHolds` counts how often the clock started, so a
+   * rule that arms constantly and never fires is visible instead of silent.
+   *
+   * A HOST THAT NEVER SETS `held` NEVER BUSTS ANYBODY, which is the failure this round exists to
+   * avoid, so it is reported rather than left to be discovered: `stats.bustHolds` counts how often
+   * the clock has ARMED, against `stats.busts` for how often it fired, and district/main.js lists
+   * `held` in `wantedReport().notHonoured` when the pursuit layer under it exposes no `holdRadius`.
+   * A rule that never arms reads as `bustHolds: 0` instead of as silence.
+   */
+  _watchBust(dt, player) {
+    if (this.stars <= 0 || !player.held ||
+        Math.hypot(this.playerVel.x, this.playerVel.z) >= SCENE_STOP_MS) {
+      this.bustFor = 0;
+      return false;
+    }
+    if (this.bustFor === 0) this.stats.bustHolds++;
+    this.bustFor += dt;
+    if (this.bustFor < BUST_HOLD_S) return false;
+    this.bustFor = 0;
+    this.stats.busts++;
+    // The level goes first, so a listener that reads `stars` sees the cleared value: being busted
+    // is the end of the chase, not a state you are in with five stars showing.
+    const at = { x: player.x, z: player.z };
+    this.clear('busted');
+    this.emit('busted', { at, heldFor: BUST_HOLD_S });
+    return true;
   }
 
   _trackVelocity(dt, player) {
@@ -936,6 +1028,16 @@ export function composeWanted(s = {}) {
  * no gap and no second slot in the priority order.
  */
 export function composeLaw(s = {}) {
+  /**
+   * BEING HELD OUTRANKS EVERYTHING, including the scene of the injury that got you here: four
+   * seconds is not long enough to read two lines, and the only action it leaves is the throttle.
+   * The subtitle says what to do rather than what is happening, because a player who has never
+   * been busted before has no way to know that moving is the out.
+   */
+  if (s.bustIn != null) {
+    return { objective: { text: 'BUSTED IN', distance: Math.max(0, s.bustIn), unit: 's' },
+      subtitle: 'drive' };
+  }
   const sc = s.scene;
   if (sc) {
     /**

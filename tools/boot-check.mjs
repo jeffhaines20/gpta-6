@@ -322,6 +322,83 @@ if (state.global && state.frames > 2) {
 }
 }
 
+
+/**
+ * BEING BUSTED, WHICH ONLY THIS GATE CAN SEE END TO END. src/wanted.js owns the clock and
+ * wanted-test §25 owns that; tools/playtest carries its own copy of the host wiring and §8 owns
+ * that. What lives ONLY in district/main.js is this: the `busted` listener that takes the mission,
+ * `bustWatch`'s fade, and the `respawnCar()` that hands the car back repaired. No offline gate
+ * imports that file — `charge-window` and `loop-breaker` in mutation-sweep are the same lesson.
+ *
+ * THE CLOCK IS DRIVEN THROUGH THE MODULE RATHER THAN BY WAITING FOR THE FLEET. Being caught for
+ * real takes about 16 s of sim from four stars, and this page renders through SwiftShader at about
+ * one frame a second, so waiting for six pursuit cars to converge would be a ten-minute gate. The
+ * host's own `held` geometry is checked separately below, off `notHonoured`.
+ */
+{
+  const bust = await page.evaluate(async () => {
+    const d = __district;
+    const before = d.bustReport();
+    d.setMode('car');
+    d.placeAt(-327.8, 63.3, 0);
+    d.startMission('marlin-street');
+    d.reportCrime('officerDown', { at: { x: -327.8, z: 63.3 } });
+    const notHonoured = d.wantedReport().notHonoured.slice();
+    const fleet = d.wantedReport().fleet;
+    const holdR = fleet ? fleet.holdR : null;
+    // Hurt the car, so "it came back repaired" has two different numbers in it.
+    const hurt = d.damage.impact({ dv: 9, kind: 'wall', dirX: 0, dirZ: 1, speed: 9 });
+    const healthBefore = d.damage.health;
+    // The clock, driven straight at the module: BUST_HOLD_S of held-and-stopped.
+    const at = { x: -327.8, z: 63.3, held: true, seen: true };
+    const seen = [];
+    for (let i = 0; i < 40; i++) {
+      d.wanted.update(0.2, at);
+      const bi = d.wanted.hudState().bustIn;
+      if (bi != null) seen.push(+bi.toFixed(2));
+      if (d.bustReport().busts > before.busts) break;
+    }
+    const fired = d.bustReport();
+    const missionAfter = d.missionReport ? d.missionReport().outcome : null;
+    // And the fade, which needs real frames. timeScale is the harness hook for exactly this.
+    d.setTimeScale(40);
+    const f0 = d.frames;
+    const t1 = Date.now();
+    while (d.bustReport().released === fired.released && Date.now() - t1 < 25000) {
+      await new Promise((r) => requestAnimationFrame(() => r()));
+    }
+    d.setTimeScale(1);
+    return { before, notHonoured, holdR, fleet, healthBefore, hurt: hurt.applied, seen,
+      fired, after: d.bustReport(), missionAfter, health: d.damage.health,
+      frames: d.frames - f0, wreck: d.wreckReport() };
+  });
+  console.log(`  held stopped: countdown ${bust.seen.slice(0, 3).join(' -> ')} ... ` +
+    `${bust.seen.slice(-1)[0]}, busts ${bust.before.busts} -> ${bust.fired.busts}`);
+  console.log(`  mission ${bust.missionAfter}, released ${bust.fired.released} -> ` +
+    `${bust.after.released} after ${bust.frames} frames, health ` +
+    `${bust.healthBefore.toFixed(3)} -> ${bust.health.toFixed(3)}`);
+  console.log(`  notHonoured ${JSON.stringify(bust.notHonoured)}, fleet holdR ${bust.holdR}`);
+  check('the page can be busted at all, which nothing in the shipped game could do',
+    bust.fired.busts === bust.before.busts + 1,
+    `${bust.before.busts} -> ${bust.fired.busts}`);
+  check('the countdown was readable off the module while it ran',
+    bust.seen.length > 3 && bust.seen[0] > bust.seen[bust.seen.length - 1],
+    bust.seen.join(' '));
+  check('the host takes the mission for it, which is what being busted costs',
+    bust.missionAfter === 'aborted', `${bust.missionAfter}`);
+  check('KNOWN-BAD: the car was damaged first, so the repair is two different numbers',
+    bust.hurt === true && bust.healthBefore < 1, `${bust.healthBefore.toFixed(3)}`);
+  check('and the fade ends with the car back and repaired',
+    bust.after.released === bust.fired.released + 1 && bust.health === 1,
+    `released ${bust.after.released}, health ${bust.health.toFixed(3)}`);
+  check('the release went through the respawn, not a second code path',
+    bust.wreck.respawns > 0, `${bust.wreck.respawns} respawns`);
+  check('the pursuit layer reports that it can hold, so the clock can arm in play',
+    !bust.notHonoured.includes('held') && bust.holdR > 0,
+    `${JSON.stringify(bust.notHonoured)}, holdR ${bust.holdR}`);
+  await page.evaluate(() => __district.clearWanted('boot-check'));
+}
+
 await browser.close();
 console.log(`\nBOOT: ${fail ? `FAIL — ${fail} of ${pass + fail}` : `PASS — ${pass} checks`} ` +
   `in ${((Date.now() - t0) / 1000).toFixed(0)} s`);

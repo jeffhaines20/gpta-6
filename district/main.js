@@ -38,7 +38,7 @@ import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubS
 import { HUD, composeBand, MINIMAP_ZOOM_M } from '../src/hud.js';
 import { MissionRunner, OUTCOMES, MissionBoard } from '../src/mission.js';
 import { MISSIONS } from '../src/missions.js';
-import { WantedSystem, bindPursuit, CRIMES, VictimWindow,
+import { WantedSystem, bindPursuit, CRIMES, VictimWindow, BUST_HOLD_S,
   composeWanted, composeLaw } from '../src/wanted.js';
 import { createAudio, hardnessFor } from '../src/audio.js';
 
@@ -535,6 +535,16 @@ mission.on('finished', (e) => {
     'trigger:healthBelow': 'the car is too damaged',
     'trigger:wrecked': 'the car is wrecked',
     timeout: 'out of time',
+    /**
+     * `wrecked` AND `busted` ARE THE HOST'S OWN ABORTS, and the first was silently dropped: this
+     * table is keyed on what a mission TRIGGER emits, and `wreckWatch` called
+     * `mission.abort('the car is wrecked')` with the prose rather than a key, so the lookup
+     * missed and the reason was thrown away by the very rule that exists to drop unknown ones.
+     * Measured through the real runner: reason "the car is wrecked" -> HUD text null. Both aborts
+     * pass a key now and both are mapped.
+     */
+    wrecked: 'the car is wrecked',
+    busted: 'you were arrested',
   };
   const said = REASON_TEXT[e.reason] ?? null;
   missionEnd = e.outcome === OUTCOMES.PASSED
@@ -564,7 +574,13 @@ mission.on('finished', (e) => {
  * way the board re-offers the job, because a game that deletes its own content on the player's
  * first mistake has one mission fewer.
  */
-const WRECK_HOLD_S = 4;
+/**
+ * ONE BEAT FOR "THE GAME HAS TAKEN OVER", and it is src/wanted.js's, not a second 4. Both this
+ * and the bust hold are the same pause — the player has lost control, the screen holds, then the
+ * car comes back — so a retune has to move both or the two consequences stop reading as one game.
+ * BUST_HOLD_S carries the derivation, against a measured stop-and-go floor of 0.68 s.
+ */
+const WRECK_HOLD_S = BUST_HOLD_S;
 let wreckFor = 0;
 const wreckStats = { wrecks: 0, respawns: 0, lastAt: null, lastAtT: -1e9, loopsBroken: 0 };
 /**
@@ -659,12 +675,65 @@ function wreckWatch(dt) {
   if (!damage.wrecked) { wreckFor = 0; return null; }
   if (wreckFor === 0) {
     wreckStats.wrecks++;
-    if (mission.mission && mission.outcome === OUTCOMES.RUNNING) mission.abort('the car is wrecked');
+    // A KEY, not the prose: see REASON_TEXT, which dropped the prose form for as long as it existed.
+    if (mission.mission && mission.outcome === OUTCOMES.RUNNING) mission.abort('wrecked');
   }
   wreckFor += dt;
   if (wreckFor >= WRECK_HOLD_S) { respawnCar(); return null; }
   return { objective: 'THE CAR IS WRECKED',
     subtitle: `a replacement in ${Math.max(0, WRECK_HOLD_S - wreckFor).toFixed(0)} s` };
+}
+/**
+ * BEING BUSTED, WHICH IS THE THING THAT WAS MISSING. `wanted.clear()` and `damage.repair()` have
+ * both existed since their modules did, and until now the only callers were the tests and two
+ * console hooks: there was no way to lose. So the level bled to zero on its own however long you
+ * sat there, a wrecked car was the ONLY consequence in the game, and the repair was a button in
+ * the dev console.
+ *
+ * src/wanted.js runs the clock (BUST_HOLD_S, derived there against a measured stop-and-go floor)
+ * and clears the level; this is what it costs. Deliberately the same shape as the wreck flow —
+ * a hold, a line in the band, then `respawnCar()` — because it is the same beat, and it reuses
+ * WRECK_HOLD_S so a retune cannot move one without the other.
+ *
+ * WHAT YOU LOSE IS THE MISSION, and the honest reason is that there is nothing else to take:
+ * there is no cash in this game. `mission.abort('busted')` puts the job back on the board rather
+ * than deleting it, for the reason respawnCar's own comment gives — a game that removes its own
+ * content on a first mistake has one mission fewer.
+ */
+const bustStats = { busts: 0, released: 0, lastAt: null, holdS: BUST_HOLD_S };
+let bustedFor = 0;
+wanted.on('busted', (e) => {
+  // Re-entrant guard: `clear()` inside _watchBust has already zeroed the level, so a second
+  // `busted` cannot arrive during the fade — but a scripted `clear` could, and a restarted fade
+  // would hold the player for ever.
+  if (bustedFor > 0) return;
+  bustedFor = 1e-9;
+  bustStats.busts++;
+  bustStats.lastAt = { x: +e.at.x.toFixed(1), z: +e.at.z.toFixed(1) };
+  if (mission.mission && mission.outcome === OUTCOMES.RUNNING) mission.abort('busted');
+});
+/**
+ * The fade. Returns the band line while it runs and null otherwise, exactly like `wreckWatch`.
+ *
+ * ON FOOT YOU ARE PUT BACK IN THE CAR, because the alternative is being released standing next to
+ * a car that has been moved to a road 80 m away with no waypoint to it — #79's on-foot car hunt,
+ * reintroduced by the fix for it. `fsm` is not driven through `toggleVehicle` here: that path
+ * enforces ENTER_RANGE and a lock, and the player is being placed by the game rather than walking.
+ */
+function bustWatch(dt) {
+  if (bustedFor <= 0) return null;
+  bustedFor += dt;
+  if (bustedFor < WRECK_HOLD_S) {
+    return { objective: 'BUSTED',
+      subtitle: `released in ${Math.max(0, WRECK_HOLD_S - bustedFor).toFixed(0)} s` };
+  }
+  bustedFor = 0;
+  bustStats.released++;
+  respawnCar();
+  if (mode === 'foot') { mode = 'car'; chase.mode = 'car'; enterCooldown = ENTER_TIME; }
+  player.position.copy(vehicle.position);
+  player.velocity.set(0, 0, 0);
+  return null;
 }
 mission.on('intent', (i) => {
   // EVERY INTENT THIS BLOCK CANNOT HONOUR IS RECORDED, not ignored. A mission that
@@ -818,8 +887,11 @@ const pursuitBridge = {
       if (!pursuit.units[i]) continue;
       pursuit.mesh.getMatrixAt(i, _pursuitMat);
       _pursuitVec.setFromMatrixPosition(_pursuitMat);
-      const slot = this.posPool[i] ?? (this.posPool[i] = { id: 0, x: 0, z: 0 });
+      const slot = this.posPool[i] ?? (this.posPool[i] = { id: 0, x: 0, z: 0, held: false });
       slot.id = this.ids[i]; slot.x = _pursuitVec.x; slot.z = _pursuitVec.z;
+      // Whether this car has stopped ON the target. src/wanted.js's bust clock runs off it; see
+      // the `_wantedPlayer.held` block in the frame loop for why the host and not the module.
+      slot.held = pursuit.units[i].held === true;
       out.push(slot);
     }
     return out;
@@ -1536,6 +1608,8 @@ function sample(dt) {
 let last = performance.now();
 let autopilot = null;
 let timeScale = 1;
+/** The band lines from the two holds, written on sim time and read once per rendered frame. */
+let wreckHoldLine = null, bustHoldLine = null;
 let simTime = 0;
 
 function animate(now) {
@@ -1585,6 +1659,21 @@ function animate(now) {
     // The damage clock runs on simulated time, like everything else in this loop, so
     // a fire burns at the same rate under ?timeScale as it does at 1.
     damage.update(dt);
+    /**
+     * AND SO DO THE TWO HOLDS, for exactly the reason stated one line above. `wreckWatch` was
+     * called once per RENDERED frame, from the HUD block below: under `?timeScale=40` that made a
+     * four-second wreck hold take 160 s of simulated time, and the same would have been true of
+     * the bust fade. Found by writing boot-check's bust arm, which advanced 34 s of sim across 17
+     * frames and saw 0.85 s of fade.
+     *
+     * No committed baseline moves with it: `drive-through` is the only tool that raises timeScale
+     * and it drives with `setBodyCollision(false)`, so nothing wrecks during it.
+     *
+     * The lines they return are stored rather than returned up, because the band is composed once
+     * per rendered frame and these now run `timeScale` times inside it.
+     */
+    bustHoldLine = bustWatch(dt);
+    wreckHoldLine = wreckWatch(dt);
     // IMPACTS BECOME CRIMES HERE, and this is the first thing in the project that has
     // ever called reportCrime. src/damage.js classifies the contact — it knows the
     // delta-v and what was hit — and src/wanted.js owns the refractory that stops a
@@ -1622,6 +1711,31 @@ function animate(now) {
     // event, no unit, no allocation, and `pursuit` is still null.
     const wpos = mode === 'foot' ? player.position : vehicle.position;
     _wantedPlayer.x = wpos.x; _wantedPlayer.z = wpos.z;
+    /**
+     * IS A UNIT HOLDING YOU. src/wanted.js owns the four-second clock and the consequence and
+     * must not own this geometry, for the same reason it does not own `seen`: it would have to
+     * learn what a road is. src/pursuit.js decides `held` per unit from its own `holdRadius`
+     * (the district's widest drivable half-width plus the car's half-length, 7.15 m) and stops
+     * the car there; this line checks the held unit against the PLAYER rather than against the
+     * pursuit target, which are the same point while contact is held and up to a give-up radius
+     * apart during a search — a unit parked on the last known position is not holding anybody.
+     *
+     * On foot the position is the player's, so stepping out of the car is not an escape from
+     * this: a unit that has pulled up holds a standing player exactly as it holds a stopped car.
+     * What it does NOT do is chase on foot, and `player.js`'s walk speed of 3.2 m/s is over the
+     * 1.0 m/s stop threshold, so a player who keeps walking is never busted. That is a real gap
+     * with a number on it rather than a solved problem.
+     */
+    _wantedPlayer.held = false;
+    if (pursuit && !pursuitManual && pursuit.mesh.visible) {
+      const r = pursuit.holdRadius ?? 0;
+      if (r > 0) {
+        for (const u of pursuitBridge.getUnitPositions()) {
+          if (!u.held) continue;
+          if (Math.hypot(u.x - wpos.x, u.z - wpos.z) <= r) { _wantedPlayer.held = true; break; }
+        }
+      }
+    }
     const plan = wantedBridge.update(dt, _wantedPlayer);
     // A parked fleet is skipped outright. PursuitUnits.update() ends by flagging
     // both instance matrices needsUpdate, so calling it on a hidden fleet with
@@ -1756,7 +1870,7 @@ function animate(now) {
    * by pressing F. The car is wrecked whether or not anybody is sitting in it. The band only
    * shows the countdown in the car, because on foot it is not the thing in front of you.
    */
-  const wreckState = wreckWatch(dt);
+  const wreckState = wreckHoldLine;
   const wreckLine = mode === 'car' ? wreckState : null;
   const fenceLine = outsideWorld > 0
     ? { objective: 'TURN BACK', subtitle: `the district ends here — ${outsideWorld.toFixed(0)} m out` }
@@ -1813,7 +1927,8 @@ function animate(now) {
   const wantedHud = wanted.hudState();
   const wantedLine = composeWanted(wantedHud);
   const lawLine = composeLaw(wantedHud);
-  const band = composeBand({ wreck: wreckLine, fence: fenceLine, law: lawLine,
+  const bustLine = bustHoldLine;
+  const band = composeBand({ busted: bustLine, wreck: wreckLine, fence: fenceLine, law: lawLine,
     mission: missionHud, ended: missionEnd, offer: offerLine });
   const bandObjective = band.objective, bandSubtitle = band.subtitle;
   // Once, before the HUD feed: `waypoint`, `markers` and `route` all read it, and a marker set
@@ -2104,6 +2219,10 @@ window.__district = {
       stoppedFrames: traffic.stats.shuntStoppedFrames, worstDv: traffic.stats.worstShuntDv } : null,
   }),
   repairCar: () => { damage.repair(); vehicle.contacts = 0; vehicle.pendingImpact = null; return damage.report(); },
+  /** Being caught: the clock's own counters live in wanted.stats. See bustWatch(). */
+  bustReport: () => ({ ...bustStats, fadeFor: +bustedFor.toFixed(2),
+    armed: wanted.stats.bustHolds, fired: wanted.stats.busts,
+    bustIn: wanted.hudState().bustIn }),
   /** The replacement car, and the wreck ledger. See wreckWatch(). */
   respawnCar: () => respawnCar(),
   wreckReport: () => ({ ...wreckStats, wreckedNow: damage.wrecked,
@@ -2217,7 +2336,10 @@ window.__district = {
     // Honest about the seam: PursuitUnits drives every car at one shared target
     // and picks its own spawn distance, so these two parts of the plan reach it
     // and are dropped. Nothing else in the plan is.
-    notHonoured: ['setUnitGoal', 'setSpawnBand'],
+    notHonoured: ['setUnitGoal', 'setSpawnBand',
+      // A pursuit layer with no `holdRadius` cannot say it has stopped on the player, so the bust
+      // clock can never arm. Listed so that reads as a gap rather than as a quiet nothing.
+      ...(pursuit && pursuit.holdRadius > 0 ? [] : ['held'])],
   }),
 
   // ------------------------------------------------------------------- audio
