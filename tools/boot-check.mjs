@@ -184,10 +184,21 @@ if (state.global && state.frames > 2) {
       }
       return d.frames >= from + n;
     };
+    /**
+     * THE OBJECTIVE IS READ AS THE PAGE DRAWS IT, off the two DOM elements, not off the state.
+     * `objective` can be `{ text, distance }` — the law tenant's distance lives there so that a
+     * running mission's subtitle cannot delete it — and this arm read the state object and
+     * stringified it to `[object Object]`. Reading the elements is also strictly better: it is
+     * what a player sees, and it covers `_syncText` as well as the composer.
+     */
     const snap = () => {
       const s = d.hud().state;
+      const h = d.hud();
+      const text = h.elObjText ? h.elObjText.textContent : '';
+      const dist = h.elObjDist ? h.elObjDist.textContent : '';
       return { wanted: s.wanted, flash: s.wantedFlash, evade: +Number(s.evade).toFixed(3),
-        note: s.wantedNote, objective: s.objective, subtitle: s.subtitle,
+        note: s.wantedNote, objective: dist ? `${text} — ${dist}` : text,
+        objDist: dist, subtitle: h.elSub ? h.elSub.textContent : s.subtitle,
         markers: (s.markers ?? []).map((m) => m.kind).sort(),
         waypoint: !!s.waypoint };
     };
@@ -242,7 +253,7 @@ if (state.global && state.frames > 2) {
    */
   const LAW_LINES = ['STOP AT THE SCENE', 'STOPPED AT THE SCENE'];
   check('the scene of the injury takes the objective band off the job on offer',
-    LAW_LINES.includes(hudLive.charged.objective)
+    LAW_LINES.some((l) => hudLive.charged.objective.startsWith(l))
     && hudLive.charged.objective !== hudLive.clean.objective,
     `${hudLive.clean.objective} -> ${hudLive.charged.objective} / ${hudLive.charged.subtitle}`);
   check('and it carries a subtitle of its own, not the offer\'s',
