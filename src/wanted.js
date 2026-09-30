@@ -214,6 +214,14 @@ export class WantedSystem {
     this.stateSince = 0;
     this._forcedSightUntil = -1;
     this._lastCrimeAt = -1e9;
+    /**
+     * The last crime that was actually FILED, for `hudState()`. Nothing in the game said a word
+     * when an offence landed: a playtester drove off from a pedestrian at 40 km/h, watched heat go
+     * 1.00 -> 1.80 and `hitAndRun` file itself 4.61 s later, and not one field of the HUD changed.
+     * Kept here rather than in a host because the module that knows a crime happened is the one
+     * that should be able to say so, and because both hosts would otherwise time it themselves.
+     */
+    this._notice = null;
     this._sweep = 0;
     this._nextUnitId = 0;
     this._prevPlayer = null;
@@ -311,6 +319,9 @@ export class WantedSystem {
     this.heat = Math.min(Math.max(this.heat + delta, c.min), this.maxStars + 0.99);
     this.cool = Math.min(this.cool + c.cool, this.maxCool);
     this._lastCrimeAt = this.time;
+    // No star count here: `_applyStars` has not run yet, so `this.stars` is still the PRE-crime
+    // value at this point. `hudState()` reads the live one.
+    this._notice = { id, label: c.label, t: this.time };
     this.stats.crimes++;
 
     // The scene of the crime is information whoever reported it has, so it
@@ -332,7 +343,11 @@ export class WantedSystem {
      * decision.
      */
     if (c.scene && at && Number.isFinite(at.x) && Number.isFinite(at.z)) {
-      this._scene = { x: at.x, z: at.z, at: this.time, stopped: false, id };
+      // `d` is the player's distance from the scene, refreshed every `_watchScene`. It starts at
+      // 0 because the player IS at the scene at the instant the crime is filed, and it is stored
+      // here rather than recomputed by the HUD so that the number on screen is the same one the
+      // rule is deciding on. A second copy of that arithmetic is how the two would drift apart.
+      this._scene = { x: at.x, z: at.z, at: this.time, stopped: false, id, d: 0 };
       this.stats.scenesArmed++;
     }
 
@@ -487,6 +502,47 @@ export class WantedSystem {
    */
   get hasFreshFix() { return this.time < this._forcedSightUntil; }
 
+  /**
+   * EVERYTHING THE PLAYER IS ALLOWED TO KNOW ABOUT THE LAW, as a plain snapshot.
+   *
+   * Two playtesters reported the same hole from opposite ends. Over a whole 96 s escape from four
+   * stars the only field of the HUD that ever differed was the star COUNT: the shed times are
+   * 40/66/84/96 s, the rule is good, and nothing expressed it. And a hit-and-run filed itself
+   * 85.6 m and 4.61 s after the impact with the band still reading "DRIVE EAST ALONG MARLIN
+   * STREET" — the one mechanic in the game with a 3.6 km/h threshold and an 85 m deadline, and no
+   * way to learn either from playing.
+   *
+   * This exists as a snapshot rather than as six getters because the two composers below have to
+   * be pure functions over numbers a test can write down. `composeBand` was moved out of
+   * district/main.js for exactly that reason and the move found four of its five tenants missing
+   * from the harness; presentation state assembled inside a host is presentation state nothing
+   * can walk.
+   *
+   * Allocates: one object per call, called once a frame by each host. The plan object next door
+   * is mutated in place because it is read every frame by the pursuit bridge AND held across
+   * frames; this is read and discarded inside the same frame, and a reused one would alias
+   * between the two hosts in the harness, where one process runs both.
+   */
+  hudState() {
+    const sc = this._scene;
+    const req = this.evadeRequired();
+    return {
+      stars: this.stars,
+      state: this.state,
+      // 0 at the moment contact is lost, 1 the instant before a star goes. In contact the timer
+      // is pinned at zero by `update`, so this is 0 there and the meter reads full.
+      evade: this.evadeProgress,
+      remaining: this.stars > 0 ? Math.max(0, req - this.evadeTimer) : 0,
+      hasFreshFix: this.hasFreshFix,
+      units: this.units.length,
+      scene: sc
+        ? { x: sc.x, z: sc.z, stopped: sc.stopped, d: sc.d, leaveIn: Math.max(0, SCENE_LEAVE_M - sc.d) }
+        : null,
+      notice: this._notice ? { id: this._notice.id, label: this._notice.label,
+        age: this.time - this._notice.t } : null,
+    };
+  }
+
   // ------------------------------------------------------------ internals
   _sanitize(player) {
     const p = this._safePlayer;
@@ -522,6 +578,7 @@ export class WantedSystem {
     const sc = this._scene;
     if (!sc) return;
     const d = Math.hypot(player.x - sc.x, player.z - sc.z);
+    sc.d = d;
     if (d <= SCENE_LEAVE_M) {
       if (Math.hypot(this.playerVel.x, this.playerVel.z) < SCENE_STOP_MS) {
         if (!sc.stopped) { sc.stopped = true; this.stats.scenesStopped++; }
@@ -760,9 +817,93 @@ export class WantedSystem {
       units: this.units.map((u) => ({ id: u.id, role: u.role,
         goal: { x: +u.goal.x.toFixed(1), z: +u.goal.z.toFixed(1) } })),
       tuning: this.tune(),
+      // What the player is being shown, beside what is true. A round spent an hour on a hit-and-run
+      // that had fired correctly and silently; the diagnostic that would have settled it in a line
+      // is the scene and the notice next to each other.
+      hud: this.hudState(),
       stats: { ...this.stats },
     };
   }
+}
+
+/**
+ * HOW LONG AN OFFENCE STAYS ON SCREEN AFTER IT IS FILED.
+ *
+ * Matched to src/hud.js's `escalateSeconds` default, which is how long the star meter's own alarm
+ * flashes after a level change: the words and the alarm should stop together, or the player is
+ * left reading "PEDESTRIAN STRUCK" over a meter that has gone quiet. The two constants live in two
+ * modules because wanted.js must not import the presentation layer, so `tools/hud-cue.mjs` — the
+ * one gate that imports both — asserts they are equal rather than leaving it to a comment.
+ */
+export const LAW_NOTICE_S = 4;
+
+/**
+ * THE STAR METER'S WORDS, AND WHICH OF TWO THINGS THE FLASH MEANS.
+ *
+ * district/main.js fed `wantedFlash: wanted.state === SEARCH` under a comment arguing that the
+ * flash should mean the level is DRAINING. src/hud.js ALSO flashes for `escalateSeconds` after any
+ * star increase. So "they have just spotted me" and "I have shaken them" were the same animation,
+ * which is the one distinction a chase is made of. Restated here:
+ *
+ *   flash  = they have a fix on you        — the alarm. Contact, by eyes or by a fresh report.
+ *   evade  = how far through shedding a star you are, 0..1 — drawn as the top star draining out.
+ *
+ * The drain is what the old comment wanted and could not have from a boolean: it is a reading, so
+ * it says how nearly clear rather than only that you are. With it drawn, the flash is free to mean
+ * the other thing, and the two states are no longer one animation.
+ *
+ * `note` is the same quantity in words, because the harness has no canvas and a playtester was
+ * given only the star COUNT for a whole 96 s escape. Pure over a snapshot for that reason: both
+ * hosts compose the same string and either can be walked in a test.
+ */
+export function composeWanted(s = {}) {
+  const stars = Math.max(0, s.stars | 0);
+  if (stars <= 0) return { stars: 0, evade: 0, note: null, flash: false };
+  const evade = clamp(s.evade ?? 0, 0, 1);
+  // In contact, by eyes or by a witness's report — `_evaluateContact` treats both as seen, and
+  // `update` pins the escape clock at zero for both, so one alarm covers them.
+  const flash = s.state === STATES.ACTIVE;
+  let note;
+  if (flash) note = s.hasFreshFix ? 'REPORTED' : 'SEEN';
+  else if (s.state === STATES.SEARCH) note = `EVADING ${Math.ceil(s.remaining ?? 0)}s`;
+  // stars > 0 and neither state: the frame a crime is filed, before the next `update` picks a
+  // state. One frame in the page and a whole step in a 28x harness, so it gets a word rather
+  // than a blank.
+  else note = 'WANTED';
+  return { stars, evade, note, flash };
+}
+
+/**
+ * THE BAND'S LAW TENANT: the scene of an injury while it is live, then the offence that was filed.
+ *
+ * `hitAndRun` fires at exactly SCENE_LEAVE_M and discharges below SCENE_STOP_MS, and neither
+ * number was learnable from playing. A playtester drove off at 40 km/h, the offence filed itself
+ * 85.6 m and 4.61 s later, and the band still read "DRIVE EAST ALONG MARLIN STREET"; stopping
+ * instead produced a decay indistinguishable from doing nothing. Both thresholds are good rules.
+ *
+ * So the line is a distance to the charge rather than a distance from the scene: `leaveIn` counts
+ * down to the thing that is about to happen, which is the number a driver can act on. And stopping
+ * gets a line of its own, because a mechanic whose reward is "nothing happens" teaches nothing.
+ *
+ * One tenant for both, because the scene and the charge are the same event: the scene clears at
+ * the instant `hitAndRun` is filed, so the stop line hands straight over to "LEFT THE SCENE" with
+ * no gap and no second slot in the priority order.
+ */
+export function composeLaw(s = {}) {
+  const sc = s.scene;
+  if (sc) {
+    return sc.stopped
+      ? { objective: 'STOPPED AT THE SCENE', subtitle: 'leaving costs nothing now' }
+      : { objective: 'STOP AT THE SCENE',
+        subtitle: `leaving is a second offence — ${Math.max(0, sc.leaveIn ?? 0).toFixed(0)} m` };
+  }
+  const n = s.notice;
+  if (n && (n.age ?? Infinity) < LAW_NOTICE_S) {
+    const stars = Math.max(0, s.stars | 0);
+    return { objective: String(n.label).toUpperCase(),
+      subtitle: stars > 0 ? `wanted — ${stars} star${stars === 1 ? '' : 's'}` : 'nobody saw it' };
+  }
+  return null;
 }
 
 /**

@@ -38,7 +38,8 @@ import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubS
 import { HUD, composeBand, MINIMAP_ZOOM_M } from '../src/hud.js';
 import { MissionRunner, OUTCOMES, MissionBoard } from '../src/mission.js';
 import { MISSIONS } from '../src/missions.js';
-import { WantedSystem, bindPursuit, CRIMES, STATES, VictimWindow } from '../src/wanted.js';
+import { WantedSystem, bindPursuit, CRIMES, VictimWindow,
+  composeWanted, composeLaw } from '../src/wanted.js';
 import { createAudio, hardnessFor } from '../src/audio.js';
 
 const canvas = document.getElementById('c');
@@ -825,6 +826,56 @@ const pursuitBridge = {
   },
 };
 
+/**
+ * EVERY BLIP THE MINIMAP SHOWS, in one reused array.
+ *
+ * `markers` was `missionHud ? null : offerMarkers` — so the only blip the game ever drew was a job
+ * on the board, and it drew none at all while a mission ran. Two playtesters hit the two halves of
+ * that. A five-star chase spawning eight units 150-470 m out showed no police anywhere, with
+ * `MARKER_STYLE.enemy` defined in src/hud.js and the string 'enemy' appearing nowhere else in the
+ * tree; and three authored on-foot stages say "GET IN THE CAR" with the minimap blanked, where one
+ * playtester spent 130 s getting FURTHER from it (1.7 m -> 71.2 m) with nothing to steer by.
+ *
+ * One array, mutated in place, with the marker objects pooled: the minimap's own draw pass
+ * deliberately allocates nothing, and an earlier version of it that spread a fresh object per blip
+ * is called out in its comments. `HUD.update` hashes the contents so a MOVING blip still dirties
+ * the map — without that, identity comparison alone froze the map for a stationary player, which
+ * is exactly when a closing police car matters.
+ *
+ * `getUnitPositions()` returns nothing in `pursuitManual` mode (the risk-5 console harness), so a
+ * hand-built fleet draws no blips. That is the bridge's existing rule — a manual fleet must not
+ * feed contact detection either — and the debug fleet is visible out of the windscreen anyway.
+ */
+// Reused, so the on-foot waypoint allocates nothing per frame. Safe because HUD.update hashes the
+// waypoint's coordinates rather than comparing the object's identity. DECLARED BEFORE the function
+// that reads it, even though a module-level const would be initialised long before the first frame:
+// commit fab3e2d cost this project three shipped commits and a district that rendered nothing at
+// all by reading a module-level `let` out of its temporal dead zone.
+const _carWaypoint = { x: 0, z: 0 };
+const hudMarkers = [];
+const _hudMarkerPool = [];
+function pushHudMarker(n, x, z, kind) {
+  const m = _hudMarkerPool[n] ?? (_hudMarkerPool[n] = { x: 0, z: 0, kind: '' });
+  m.x = x; m.z = z; m.kind = kind;
+  hudMarkers.push(m);
+  return n + 1;
+}
+function updateHudMarkers(onFoot) {
+  hudMarkers.length = 0;
+  let n = 0;
+  // Jobs on the board. `updateOfferMarkers` has already emptied this while a mission runs.
+  for (let i = 0; i < offerMarkers.length; i++) {
+    const m = offerMarkers[i];
+    n = pushHudMarker(n, m.x, m.z, m.kind);
+  }
+  // The police, wherever they actually are — the same positions wanted.js decides contact on.
+  const units = pursuitBridge.getUnitPositions();
+  for (let i = 0; i < units.length; i++) n = pushHudMarker(n, units[i].x, units[i].z, 'enemy');
+  // The car you got out of. MARKER_STYLE.vehicle has existed since src/hud.js was written and
+  // nothing had ever posted one.
+  if (onFoot) n = pushHudMarker(n, _carWaypoint.x, _carWaypoint.z, 'vehicle');
+  return hudMarkers;
+}
 const wantedBridge = bindPursuit(wanted, pursuitBridge, { baseSpeed: PURSUIT_BASE_SPEED });
 // Reused, so the per-frame police update allocates nothing at all.
 const _wantedPlayer = { x: 0, z: 0 };
@@ -1747,9 +1798,26 @@ function animate(now) {
    * rather than here — so tools/playtest.mjs's `look()` can compose the same thing and a
    * playtester is shown what a player is shown. It was four-fifths missing from the harness.
    */
-  const band = composeBand({ wreck: wreckLine, fence: fenceLine, mission: missionHud,
-    ended: missionEnd, offer: offerLine });
+  /**
+   * THE LAW TENANT. `composeWanted` and `composeLaw` are in src/wanted.js for the reason
+   * `composeBand` is in src/hud.js: presentation assembled inside this file is presentation the
+   * node harness cannot reproduce, and when `composeBand` lived here four of its five tenants were
+   * missing from `look()` — so the harness was harder to play than the game.
+   */
+  const wantedHud = wanted.hudState();
+  const wantedLine = composeWanted(wantedHud);
+  const lawLine = composeLaw(wantedHud);
+  const band = composeBand({ wreck: wreckLine, fence: fenceLine, law: lawLine,
+    mission: missionHud, ended: missionEnd, offer: offerLine });
   const bandObjective = band.objective, bandSubtitle = band.subtitle;
+  // Once, before the HUD feed: `waypoint`, `markers` and `route` all read it, and a marker set
+  // built inside the object literal would have been one frame behind the waypoint beside it.
+  const onFoot = mode === 'foot';
+  if (onFoot) { _carWaypoint.x = vehicle.position.x; _carWaypoint.z = vehicle.position.z; }
+  const hudBlips = updateHudMarkers(onFoot);
+  const hudWaypoint = missionHud && missionHud.waypoint ? missionHud.waypoint
+    : onFoot ? _carWaypoint
+      : (idleTarget ? { x: idleTarget.x, z: idleTarget.z } : null);
   if (hud2 && hudEnabled) {
     const q = vehicle.quaternion;
     const heading = mode === 'foot'
@@ -1770,8 +1838,26 @@ function animate(now) {
       // HUD._set() ignores a value that has not changed, so at zero stars this
       // is one comparison and no redraw: the status canvas stays exactly as
       // clean as it was before the meter had a source.
-      wanted: wanted.stars,
-      wantedFlash: wanted.state === STATES.SEARCH,
+      wanted: wantedLine.stars,
+      /**
+       * THE FLASH MEANS THEY HAVE A FIX ON YOU, and it used to mean both that and the opposite.
+       *
+       * This field was `wanted.state === STATES.SEARCH` under a comment arguing the flash should
+       * mean the level is DRAINING — "the genre's own tell that you are nearly clear". But
+       * src/hud.js ALSO flashes for its `escalateSeconds` after any star increase, so "they have
+       * just spotted me" and "I have shaken them" were one animation, which is the single
+       * distinction a chase is made of. A playtester escaped four stars over 96 s and reported the
+       * star COUNT as the only field of the HUD that ever differed.
+       *
+       * Restated rather than moved: the old comment wanted a reading and a boolean could not be
+       * one. `evade` is that reading — 0 at the moment contact is lost, 1 the instant before a star
+       * goes — drawn as the top star draining out, which says how nearly clear and not merely
+       * that you are. With it drawn the flash is free to mean contact, which is what an alarm is
+       * for. See composeWanted.
+       */
+      wantedFlash: wantedLine.flash,
+      evade: wantedLine.evade,
+      wantedNote: wantedLine.note,
       // src/hud.js has carried objective, subtitle, markers and waypoint since it was
       // written and nothing ever fed them. MissionRunner.hud() returns exactly those
       // names, so this is the whole of the presentation wiring.
@@ -1794,19 +1880,36 @@ function animate(now) {
        * was its only source. A job on the board is a destination in exactly the same sense, so it
        * gets the same treatment, and `routeToMarker` draws the streets to it.
        */
-      waypoint: missionHud && missionHud.waypoint ? missionHud.waypoint
-        : (idleTarget ? { x: idleTarget.x, z: idleTarget.z } : null),
+      /**
+       * AND ON FOOT, WITH NO WAYPOINT OF ITS OWN, THE STAGE'S WAYPOINT IS THE CAR. `shakedown`'s
+       * `a` and `marlin-street`'s `toCar`/`backToCar` all say "GET IN THE CAR" with `waypoint`
+       * null and no blips, and a playtester spent 130 s in one of them getting further away, from
+       * 1.7 m to 71.2 m, with a blank map and the mission still running. When the objective is the
+       * car, the car is the destination, so it takes the waypoint and `routeToMarker` draws the
+       * streets to it.
+       */
+      waypoint: hudWaypoint,
       // The jobs on offer, as minimap blips. src/hud.js has drawn `markers` since it was written
       // and nothing had ever posted one.
-      markers: missionHud ? null : offerMarkers,
-      // src/hud.js has drawn a health bar, a damage vignette and a low-health pulse
-      // since it was written, against a `health` that was hard-coded to 1 and a
-      // `damage` that nothing ever raised. Both now have a source. On foot the bar
-      // reads full, for the reason missionSnapshot() gives.
-      health: mode === 'car' ? damage.health : 1,
+      markers: hudBlips,
+      /**
+       * src/hud.js has drawn a health bar, a damage vignette and a low-health pulse since it was
+       * written, against a `health` that was hard-coded to 1 and a `damage` that nothing ever
+       * raised. Both now have a source.
+       *
+       * THE BAR IS THE CAR'S CONDITION IN BOTH MODES. It read 1 on foot, so stepping out of a
+       * smoking 15% car made it jump to full — a playtester reported exactly that. The player has
+       * no health of their own to show (see the on-foot consequence gap, still open), and of the
+       * two available readings "the car you are walking back to is nearly dead" is true and "you
+       * are fine" is not. `missionSnapshot`'s `health` keeps its 1 on foot deliberately and for a
+       * different reason: a `healthBelow` trigger must not fire at a player who is not driving.
+       *
+       * `damage` stays car-only, because that veil means "you are being hit right now".
+       */
+      health: damage.health,
       damage: mode === 'car' ? damage.smoke : 0,
       // The route line, on the streets rather than as the crow flies. See routeToMarker().
-      route: routeToMarker(missionHud && missionHud.waypoint ? missionHud.waypoint : idleTarget),
+      route: routeToMarker(hudWaypoint),
     });
     // One flash per applied impact, scaled by how much of the car it cost. hud.js
     // decays it at `damageDecay` per second, so this is a hit and not a state.

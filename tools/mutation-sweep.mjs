@@ -312,6 +312,53 @@ const MUTATIONS = [
     to: 'export const MINIMAP_REACH_M = 1e9;',
     why: 'every job on the board shows as a blip from anywhere in the district',
   },
+  {
+    /**
+     * DROPS THE BAND'S SIXTH TENANT. Nothing errors and five of the six lines still work, so the
+     * whole band reads fine — the scene of an injury and the offence that was filed simply never
+     * appear, which is the state the game shipped in for as long as `hitAndRun` has existed.
+     */
+    id: 'law-tenant', file: 'src/hud.js',
+    find: '  const pick = wreck ?? fence ?? law ?? mission ?? ended ?? offer ?? null;',
+    to: '  const pick = wreck ?? fence ?? mission ?? ended ?? offer ?? null;',
+    why: 'the 85 m hit-and-run deadline is back to having no words on screen',
+  },
+  {
+    /**
+     * TAKES THE LAW OUT OF THE SET THAT KEEPS A MISSION'S SUBTITLE. This is the defect a SET
+     * exists to prevent: the fence's rule was written as one `from === 'fence'` branch, and a
+     * sixth tenant needing the same rule would silently not have it. A live mission goes
+     * invisible for as long as a scene is up.
+     */
+    id: 'law-subtitle', file: 'src/hud.js',
+    find: "const HOLDS_MISSION_SUBTITLE = new Set(['fence', 'law']);",
+    to: "const HOLDS_MISSION_SUBTITLE = new Set(['fence']);",
+    why: 'a running mission vanishes from the band while the law line is up',
+  },
+  {
+    /**
+     * PINS THE STAR DRAIN OFF. Nothing else changes: the meter still counts, still flashes, and
+     * still sheds — it just stops saying how nearly clear you are, which is the state a playtester
+     * escaped four stars in over 96 s while reporting the count as the only field that ever moved.
+     * Invisible to every gate but hud-cue, because it is a colour on a path fill.
+     */
+    id: 'star-drain', file: 'src/hud.js',
+    find: '    const drain = flashing ? 0 : clamp(s.evade, 0, 1);',
+    to: '    const drain = 0;',
+    why: 'the top star stops draining, so the escape clock is unreadable again',
+  },
+  {
+    /**
+     * DROPS THE MARKER HASH. The map still redraws whenever the PLAYER moves, so nothing looks
+     * wrong while driving — and a police car closing on a player who has STOPPED leaves the map
+     * holding its last frame, which is exactly when it is being read. Every blip the HUD had
+     * before this round was a fixed job on the board, so identity comparison was enough.
+     */
+    id: 'marker-sig', file: 'src/hud.js',
+    find: '    if (sig !== this._markerSig) { this._markerSig = sig; this._dirty.map = true; }',
+    to: '    if (false) { this._markerSig = sig; this._dirty.map = true; }',
+    why: 'a moving blip stops redrawing the minimap for a stationary player',
+  },
   // ---- district/main.js: no offline gate imports it, so these are invisible by construction.
   {
     /**
@@ -337,6 +384,42 @@ const MUTATIONS = [
     why: 'one pedestrian is charged every knockdown cycle again',
   },
   {
+    /**
+     * THE FLASH GOES BACK TO MEANING THE OPPOSITE THING. `state === SEARCH` is what
+     * district/main.js fed for a whole round, under a comment arguing the flash should mean the
+     * level is DRAINING — while src/hud.js also raised it on any star increase, so "they have
+     * just spotted me" and "I have shaken them" were one animation. Nothing errors; the alarm
+     * simply fires when you are getting away and goes quiet when you are caught.
+     */
+    id: 'flash-search', file: 'src/wanted.js',
+    find: '  const flash = s.state === STATES.ACTIVE;',
+    to: '  const flash = s.state === STATES.SEARCH;',
+    why: 'the star meter\'s alarm means "you are nearly clear" again, as well as "they have you"',
+  },
+  {
+    /**
+     * THE OFFENCE IS NEVER RECORDED, so the band never names one. The rules are untouched: heat
+     * rises, stars rise, `hitAndRun` still files itself at 85 m — and a playtester drove off from
+     * a pedestrian at 40 km/h with not one field of the HUD changing, which is this exact state.
+     */
+    id: 'crime-notice', file: 'src/wanted.js',
+    find: "    this._notice = { id, label: c.label, t: this.time };",
+    to: "    this._notice = null;",
+    why: 'a filed crime goes back to being silent',
+  },
+  {
+    /**
+     * THE SCENE'S DISTANCE STOPS TRACKING. `_watchScene` still decides correctly — the rule reads
+     * its own local `d` — so the charge fires at exactly the same place; only the number on screen
+     * freezes at 0, so the band promises 85 m of room for ever. A rule and its readout computed
+     * from two different quantities is the drift this field exists to prevent.
+     */
+    id: 'scene-distance', file: 'src/wanted.js',
+    find: '    sc.d = d;',
+    to: '    sc.d = 0;',
+    why: 'the countdown to the hit-and-run charge never moves',
+  },
+  {
     id: 'loop-breaker', file: 'district/main.js',
     /**
      * The condition, not an assignment: `looping` is a `const`, so `looping = false` THROWS, and a
@@ -347,6 +430,20 @@ const MUTATIONS = [
     find: '  const looping = !!candidate && respawnHistory.some((h) => simTime - h.t < LOOP_S',
     to: '  const looping = false && respawnHistory.some((h) => simTime - h.t < LOOP_S',
     why: 'the respawn puts the car back into whatever wrecked it, for ever',
+    browser: true,
+  },
+  {
+    /**
+     * THE POLICE COME OFF THE MINIMAP. `MARKER_STYLE.enemy` was defined in src/hud.js and the
+     * string 'enemy' appeared nowhere else in the tree, so a five-star chase with eight units
+     * spawning 150-470 m out showed nothing at all. Only a gate that loads the page can see it:
+     * the harness has no pursuit layer, so there are no unit positions for an offline gate to
+     * check against.
+     */
+    id: 'enemy-blips', file: 'district/main.js',
+    find: "  for (let i = 0; i < units.length; i++) n = pushHudMarker(n, units[i].x, units[i].z, 'enemy');",
+    to: "  for (let i = 0; i < 0; i++) n = pushHudMarker(n, units[i].x, units[i].z, 'enemy');",
+    why: 'a chase shows no police anywhere on the map again',
     browser: true,
   },
 ];

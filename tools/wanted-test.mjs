@@ -14,7 +14,8 @@
 
 import fs from 'node:fs';
 import { WantedSystem, CRIMES, RESPONSE, STATES, bindPursuit,
-  SCENE_LEAVE_M, SCENE_STOP_MS, VictimWindow } from '../src/wanted.js';
+  SCENE_LEAVE_M, SCENE_STOP_MS, VictimWindow,
+  composeWanted, composeLaw, LAW_NOTICE_S } from '../src/wanted.js';
 
 const DT = 1 / 30;                      // the rate the game reports at, fixed
 const checks = [];
@@ -919,6 +920,243 @@ let searchSample;
   console.log(`    500 victims over 250 s -> ${many.tracked} tracked`);
   check('stale victims are expired, so the map does not grow all session',
     many.tracked > 0 && many.tracked <= 2 * W / 0.5 + 2, `${many.tracked} tracked`);
+}
+
+// ------------------- 23. what the player is SHOWN, which was almost nothing
+/**
+ * TWO PLAYTESTERS REPORTED THE SAME HOLE FROM OPPOSITE ENDS, and neither was about the rules.
+ *
+ * Over a whole 96 s escape from four stars the only field of the HUD that ever differed was the
+ * star COUNT — no state, no clock, no reason — while the shed times are 40/66/84/96 s. And a
+ * hit-and-run filed itself 85.6 m and 4.61 s after the impact with the band reading "DRIVE EAST
+ * ALONG MARLIN STREET": the one mechanic in the game with an 85 m deadline and a 3.6 km/h
+ * discharge, and no way to learn either from playing. `hudState`, `composeWanted` and `composeLaw`
+ * are the answer and this section is what they owe.
+ *
+ * The composers are pure over a snapshot precisely so this can be a table rather than a drive, but
+ * every reading below that could be wrong in a flattering direction is taken from a LIVE system:
+ * a note ladder walked over literals proves the ladder and says nothing about whether the machine
+ * ever reaches those states.
+ */
+{
+  const DT = 1 / 60;
+  console.log('\n23. the HUD state');
+
+  // --- (a) a snapshot at zero stars says nothing at all. This is the known-bad guard for the
+  //     whole section: a composer that always returns a line would pass every check after it.
+  {
+    const w = new WantedSystem();
+    const s = w.hudState();
+    const cw = composeWanted(s);
+    const law = composeLaw(s);
+    console.log(`    clean:  ${JSON.stringify(cw)}  law ${JSON.stringify(law)}`);
+    check('KNOWN-BAD: a clean record draws no note, no drain and no alarm',
+      cw.note === null && cw.evade === 0 && cw.flash === false && cw.stars === 0, cw);
+    check('and no law line either', law === null, law);
+    check('a clean snapshot carries no scene and no notice',
+      s.scene === null && s.notice === null, s);
+  }
+
+  // --- (b) the flash is CONTACT and the drain is the escape clock, and they were one animation.
+  //     district/main.js fed `state === SEARCH` as the flash while src/hud.js also flashed on any
+  //     star increase, so "they have just spotted me" and "I have shaken them" looked identical.
+  {
+    const w = new WantedSystem();
+    w.reportCrime('assault', { at: ORIGIN });
+    /**
+     * REPORTED FIRST, THEN SEEN, and the order is the module's and not a detail of this arm. A
+     * witnessed crime hands dispatch a fix for `witnessSeconds` whether or not a car is near, so
+     * for the first 6 s contact is being held by the REPORT. Only once that lapses is a player who
+     * is still in contact being held by somebody's eyes. The first version of this check asserted
+     * SEEN at 3 s and read REPORTED, which is the module answering correctly.
+     */
+    run(w, 3, ORIGIN, { seen: true });
+    const reported = composeWanted(w.hudState());
+    run(w, w.witnessSeconds, ORIGIN, { seen: true });
+    const active = composeWanted(w.hudState());
+    /**
+     * Out of contact the clock runs, so the alarm must drop and the drain must climb — but both
+     * arms have to stay INSIDE the star's own cooldown, or the level sheds and the note goes null.
+     * The first version ran 8 s and then 6 more after a 6 s witness hold and overran it, and the
+     * gate THREW on `null.padEnd` rather than failing, which is the shape CLAUDE.md records: a
+     * tool that throws is not a tool that passes and nobody notices which. Sized against the
+     * module's own figure, and `stars > 0` is asserted below so an overrun fails instead.
+     */
+    const leg = w.evadeRequired() / 3;
+    run(w, leg, ORIGIN, { seen: false });
+    const searching = composeWanted(w.hudState());
+    const midEvade = searching.evade;
+    run(w, leg, ORIGIN, { seen: false });
+    const later = composeWanted(w.hudState());
+    const show = (r) => `${String(r.note ?? '—').padEnd(12)} flash ${r.flash}  evade ${r.evade.toFixed(3)}`;
+    console.log(`    reported:    ${show(reported)}`);
+    console.log(`    in contact:  ${show(active)}`);
+    console.log(`    evading:     ${show(searching)}`);
+    console.log(`    ${leg.toFixed(1)} s later:  ${show(later)}`);
+    check('the out-of-contact arms stayed inside the cooldown, so they measured a live level',
+      w.stars > 0, `${w.stars} stars after ${(2 * leg).toFixed(1)} s of a ` +
+      `${w.evadeRequired().toFixed(1)} s cooldown`);
+    check('in contact the alarm is up', active.flash === true && reported.flash === true,
+      [reported.flash, active.flash]);
+    check('and out of contact it is DOWN, which is the whole point of the change',
+      searching.flash === false && later.flash === false, [searching.flash, later.flash]);
+    check('in contact the drain reads empty, because the escape clock is pinned at zero',
+      active.evade === 0 && reported.evade === 0, [reported.evade, active.evade]);
+    check('and out of contact it climbs', later.evade > midEvade && midEvade > 0,
+      `${midEvade.toFixed(3)} -> ${later.evade.toFixed(3)}`);
+    check('the two signals are not the same signal',
+      active.flash !== searching.flash && active.evade !== later.evade, 'distinct');
+    // The note names which of the three it is, in words, for a host with no canvas.
+    check('a fresh witness report reads REPORTED, then eyes alone read SEEN',
+      reported.note === 'REPORTED' && active.note === 'SEEN',
+      `${reported.note} -> ${active.note}`);
+    check('and out of contact it reads EVADING with a countdown',
+      /^EVADING \d+s$/.test(searching.note), searching.note);
+  }
+
+  // --- (c) the drain is a READING: it reaches the top just before the star goes, and resets.
+  {
+    const w = new WantedSystem();
+    w.reportCrime('assault', { at: ORIGIN });
+    run(w, 2, ORIGIN, { seen: true });
+    const before = w.stars;
+    let peak = 0, shedAt = null;
+    for (let i = 0; i < Math.round(200 / DT); i++) {
+      w.update(DT, { x: 0, z: 0, seen: false });
+      const e = composeWanted(w.hudState()).evade;
+      if (w.stars === before) peak = Math.max(peak, e);
+      else if (shedAt === null) shedAt = +w.time.toFixed(2);
+    }
+    console.log(`    the drain peaked at ${peak.toFixed(3)} and the star went at t=${shedAt}s`);
+    check('the drain fills before the star sheds, so it is a countdown and not a light',
+      peak > 0.97, peak);
+    check('and the star did shed, or the peak above measured nothing',
+      shedAt !== null && w.stars < before, `${before} -> ${w.stars}`);
+    check('the drain is bounded to 0..1', peak <= 1, peak);
+  }
+
+  // --- (d) the four notes are four DIFFERENT strings. The band's five tenants had this defect:
+  //     a ladder can pass by returning one tenant twice.
+  {
+    const notes = [
+      composeWanted({ stars: 2, state: STATES.ACTIVE, hasFreshFix: false }).note,
+      composeWanted({ stars: 2, state: STATES.ACTIVE, hasFreshFix: true }).note,
+      composeWanted({ stars: 2, state: STATES.SEARCH, remaining: 24 }).note,
+      composeWanted({ stars: 2, state: STATES.CLEAR }).note,
+    ];
+    console.log(`    notes: ${notes.join(' | ')}`);
+    check('the four wanted notes are four different strings', new Set(notes).size === 4,
+      notes.join(' | '));
+    check('a witnessed report reads differently from being seen',
+      notes[0] === 'SEEN' && notes[1] === 'REPORTED', notes.slice(0, 2).join(' / '));
+    check('the evading note carries the seconds, rounded up so it never shows 0s while running',
+      composeWanted({ stars: 1, state: STATES.SEARCH, remaining: 0.2 }).note === 'EVADING 1s',
+      composeWanted({ stars: 1, state: STATES.SEARCH, remaining: 0.2 }).note);
+  }
+
+  // --- (e) the scene line, driven rather than tabulated: it has to count DOWN to the charge.
+  {
+    const w = new WantedSystem();
+    const speed = 14;
+    let x = -speed;
+    while (x < 0) { x += speed * DT; w.update(DT, { x, z: 0 }); }
+    w.reportCrime('pedestrianHit', { at: { x: 0, z: 0 } });
+    const atScene = composeLaw(w.hudState());
+    const seen = [];
+    let fledLine = null;
+    while (x < SCENE_LEAVE_M + 20) {
+      x += speed * DT;
+      w.update(DT, { x, z: 0 });
+      const s = w.hudState();
+      if (s.scene) seen.push({ d: s.scene.d, leaveIn: s.scene.leaveIn, line: composeLaw(s) });
+      else if (!fledLine) fledLine = composeLaw(s);
+    }
+    const first = seen[0], last = seen[seen.length - 1];
+    console.log(`    at the scene:  "${atScene.objective}" / "${atScene.subtitle}"`);
+    console.log(`    ${first.d.toFixed(1)} m out -> ${last.d.toFixed(1)} m out: ` +
+      `leaveIn ${first.leaveIn.toFixed(1)} -> ${last.leaveIn.toFixed(1)} m`);
+    console.log(`    once it fired: "${fledLine?.objective}" / "${fledLine?.subtitle}"`);
+    check('a live scene takes the band', atScene && atScene.objective === 'STOP AT THE SCENE',
+      atScene);
+    check('the subtitle counts DOWN to the charge, not up from the scene',
+      last.leaveIn < first.leaveIn && last.leaveIn >= 0,
+      `${first.leaveIn.toFixed(1)} -> ${last.leaveIn.toFixed(1)}`);
+    check('and leaveIn is the leave radius less the distance, so it cannot drift from the rule',
+      seen.every((r) => near(r.d + r.leaveIn, SCENE_LEAVE_M, 1e-9) || r.d > SCENE_LEAVE_M),
+      `${(first.d + first.leaveIn).toFixed(3)} against ${SCENE_LEAVE_M}`);
+    check('the offence that fired is named in the band the instant the scene clears',
+      fledLine && fledLine.objective === CRIMES.hitAndRun.label.toUpperCase(),
+      fledLine?.objective);
+    // Non-empty by construction: an arm that never left the radius would satisfy the two above.
+    check('the drive actually crossed the leave radius',
+      seen.length > 0 && fledLine !== null && w.stats.scenesFled === 1,
+      `${seen.length} frames inside, fled ${w.stats.scenesFled}`);
+  }
+
+  // --- (f) stopping gets its own line, because a mechanic whose reward is "nothing happens"
+  //     teaches nothing. A playtester measured a decay indistinguishable from doing nothing.
+  {
+    const w = new WantedSystem();
+    const speed = 14;
+    let x = -speed;
+    while (x < 0) { x += speed * DT; w.update(DT, { x, z: 0 }); }
+    w.reportCrime('pedestrianHit', { at: { x: 0, z: 0 } });
+    for (let i = 0; i < 180; i++) w.update(DT, { x: 0, z: 0 });
+    const stopped = composeLaw(w.hudState());
+    console.log(`    stopped:       "${stopped.objective}" / "${stopped.subtitle}"`);
+    check('stopping at the scene says so', stopped && stopped.objective === 'STOPPED AT THE SCENE',
+      stopped);
+    check('and it is a different line from the instruction it replaces',
+      stopped.objective !== 'STOP AT THE SCENE' && w.stats.scenesStopped === 1,
+      `scenesStopped ${w.stats.scenesStopped}`);
+    // Drive off afterwards: no charge, and the line goes rather than sticking.
+    while (x < SCENE_LEAVE_M + 20) { x += speed * DT; w.update(DT, { x, z: 0 }); }
+    check('driving off after stopping files nothing and leaves no line',
+      w.stats.scenesFled === 0 && composeLaw(w.hudState()) === null,
+      `fled ${w.stats.scenesFled}, line ${JSON.stringify(composeLaw(w.hudState()))}`);
+  }
+
+  // --- (g) the notice expires, and an IGNORED crime never sets one.
+  {
+    const w = new WantedSystem();
+    w.reportCrime('assault', { at: ORIGIN });
+    const fresh = composeLaw(w.hudState());
+    run(w, LAW_NOTICE_S - 0.5, ORIGIN, { seen: false });
+    const nearly = composeLaw(w.hudState());
+    run(w, 1.0, ORIGIN, { seen: false });
+    const gone = composeLaw(w.hudState());
+    console.log(`    notice at 0 s "${fresh?.objective}", at ${(LAW_NOTICE_S - 0.5).toFixed(1)} s ` +
+      `"${nearly?.objective}", at ${(LAW_NOTICE_S + 0.5).toFixed(1)} s ${JSON.stringify(gone)}`);
+    check('a filed crime is named in the band', fresh && fresh.objective === CRIMES.assault.label.toUpperCase(),
+      fresh?.objective);
+    check('it is still there just before the notice expires', nearly !== null, nearly);
+    check(`and gone after LAW_NOTICE_S (${LAW_NOTICE_S} s)`, gone === null, gone);
+
+    // An ignored crime is not an event, so it must not produce a line. `requiresWanted` with no
+    // stars is the cleanest ignore in the table.
+    const w2 = new WantedSystem();
+    const p = w2.reportCrime('evading', { at: ORIGIN });
+    check('an IGNORED crime sets no notice, so the band does not name something that never happened',
+      p.applied === false && w2.hudState().notice === null && composeLaw(w2.hudState()) === null,
+      `${p.reason}, notice ${JSON.stringify(w2.hudState().notice)}`);
+  }
+
+  // --- (h) the snapshot tracks the live system rather than being a second copy of it.
+  {
+    const w = new WantedSystem();
+    w.reportCrime('officerDown', { at: ORIGIN });
+    run(w, 4, ORIGIN, { seen: true });
+    const s = w.hudState();
+    check('the snapshot reports the live stars, state and unit count',
+      s.stars === w.stars && s.state === w.state && s.units === w.units.length, s);
+    check('and the live escape progress and the seconds left',
+      near(s.evade, w.evadeProgress, 1e-12)
+      && near(s.remaining, Math.max(0, w.evadeRequired() - w.evadeTimer), 1e-12),
+      `${s.evade} / ${s.remaining}`);
+    check('remaining is the required cooldown while in contact, not zero',
+      s.remaining > 0 && near(s.remaining, w.evadeRequired(), 1e-9),
+      `${s.remaining.toFixed(2)} against ${w.evadeRequired().toFixed(2)}`);
+  }
 }
 
 // ---------------------------------------------------------------- scenario trace

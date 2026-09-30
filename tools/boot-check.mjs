@@ -159,6 +159,113 @@ if (state.global && state.frames > 2) {
     !!live.wreck && live.wreck.wrecks === 0 && !live.wreck.wreckedNow,
     live.wreck ? JSON.stringify(live.wreck) : '-');
 
+
+/**
+ * WHAT THE HUD IS ACTUALLY FED, which only this gate can see.
+ *
+ * `composeWanted`, `composeLaw` and the marker set are gated offline — wanted-test walks the
+ * composers and hud-cue walks the canvas — and NEITHER can see the twenty lines of
+ * district/main.js that join them up. That is the same blind spot this whole file exists for: the
+ * wanted meter itself sat unfed for a whole round with `setWanted()` exported and nothing calling
+ * it, and two playtesters reported crime showing them nothing while every offline gate was green.
+ *
+ * So this asserts the wiring and nothing else: a crime reported through the page's own hook has to
+ * arrive in `hud().state` within a frame or two of the game's real loop.
+ */
+{
+  const hudLive = await page.evaluate(async () => {
+    const d = __district;
+    const step = async (n) => {
+      const from = d.frames;
+      // Wait on the game's OWN counter, not on a timer: headless SwiftShader runs well under
+      // 1 fps here and a fixed sleep would read the frame before the feed.
+      for (let i = 0; i < 400 && d.frames < from + n; i++) {
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      return d.frames >= from + n;
+    };
+    const snap = () => {
+      const s = d.hud().state;
+      return { wanted: s.wanted, flash: s.wantedFlash, evade: +Number(s.evade).toFixed(3),
+        note: s.wantedNote, objective: s.objective, subtitle: s.subtitle,
+        markers: (s.markers ?? []).map((m) => m.kind).sort(),
+        waypoint: !!s.waypoint };
+    };
+    d.setMode('car');
+    d.clearWanted('boot-check');
+    const advanced = await step(2);
+    const clean = snap();
+    // A crime at the car's own position, through the page's hook. `pedestrianHit` is the one that
+    // arms a scene, which is the half of this that had an 85 m deadline and no words.
+    const at = { x: d.vehicle.position.x, z: d.vehicle.position.z };
+    d.reportCrime('pedestrianHit', { at });
+    // Four frames, not two: the first raises the level and asks the pursuit layer for a unit, and
+    // the blip is read out of that unit's instance matrix, which PursuitUnits writes on its own
+    // update. Waiting on the game's counter rather than a timer, so this is frames and not seconds.
+    await step(4);
+    const charged = snap();
+    const w = d.wantedReport();
+    return { advanced, clean, charged, stars: w.stars,
+      scene: w.hud ? w.hud.scene !== null : null, notice: w.hud ? w.hud.notice : null,
+      mode: d.mode };
+  });
+  console.log(`  clean:   ${JSON.stringify(hudLive.clean)}`);
+  console.log(`  charged: ${JSON.stringify(hudLive.charged)}`);
+  check('the page advanced frames for this arm, so it read a live feed rather than frame zero',
+    hudLive.advanced, `${hudLive.advanced}`);
+  // The marker set. `markers` was `missionHud ? null : offerMarkers` and this is the pipeline that
+  // replaced it; with no mission running, the board's two jobs are the blips.
+  check('the minimap is fed blips on the live page',
+    hudLive.clean.markers.length > 0, hudLive.clean.markers.join(', ') || 'none');
+  check('and a waypoint to steer by', hudLive.clean.waypoint, `${hudLive.clean.waypoint}`);
+  // KNOWN-BAD: with no crime reported the wanted fields have to be quiet, or every check below
+  // passes for a HUD that says the same thing whatever happens.
+  check('KNOWN-BAD: a clean record feeds the meter nothing',
+    hudLive.clean.wanted === 0 && hudLive.clean.note === null && hudLive.clean.evade === 0,
+    JSON.stringify(hudLive.clean));
+  check('a crime reported through the page raises the meter',
+    hudLive.charged.wanted > 0 && hudLive.charged.wanted === hudLive.stars,
+    `${hudLive.charged.wanted} against wantedReport's ${hudLive.stars}`);
+  check('and gives it words, which is the whole of this finding',
+    typeof hudLive.charged.note === 'string' && hudLive.charged.note.length > 0,
+    `${hudLive.charged.note}`);
+  /**
+   * THE LAW TENANT TAKES THE BAND OFF THE OFFER, which is the priority order working in the page
+   * and not only in `composeBand`'s unit test.
+   *
+   * It is the STOPPED line, and that is correct: the car is parked at the spawn, so `playerVel` is
+   * zero and the scene is discharged on the frame it arms — a driver who is stationary at the
+   * moment of impact HAS stopped at the scene. wanted-test §21 records the same trap costing it a
+   * whole worthless sweep, and §23 drives the moving case at 60 Hz offline, where an approach run
+   * is affordable. Both lines come from the one tenant down this one path, so what this arm owes
+   * is that the path carries them.
+   */
+  const LAW_LINES = ['STOP AT THE SCENE', 'STOPPED AT THE SCENE'];
+  check('the scene of the injury takes the objective band off the job on offer',
+    LAW_LINES.includes(hudLive.charged.objective)
+    && hudLive.charged.objective !== hudLive.clean.objective,
+    `${hudLive.clean.objective} -> ${hudLive.charged.objective} / ${hudLive.charged.subtitle}`);
+  check('and it carries a subtitle of its own, not the offer\'s',
+    typeof hudLive.charged.subtitle === 'string'
+    && hudLive.charged.subtitle !== hudLive.clean.subtitle, `${hudLive.charged.subtitle}`);
+  /**
+   * AND THE POLICE ARE ON THE MINIMAP. `MARKER_STYLE.enemy` was defined in src/hud.js and the
+   * string 'enemy' appeared nowhere else in the tree, so a five-star chase with eight units
+   * spawning 150-470 m out showed nothing. This is the only place in the project that can say a
+   * running unit reaches the map, because the harness has no pursuit layer at all.
+   */
+  check('a unit that spawned is drawn on the minimap',
+    hudLive.charged.markers.includes('enemy'),
+    hudLive.charged.markers.join(', ') || 'none');
+  check('KNOWN-BAD: and there was no such blip before the crime',
+    !hudLive.clean.markers.includes('enemy'), hudLive.clean.markers.join(', '));
+  check('the module agrees a scene is live, so the band is not saying so on its own',
+    hudLive.scene === true, `${hudLive.scene}`);
+  // Leave the page as it was found: later arms place and respawn the car and a live wanted level
+  // would follow them around.
+  await page.evaluate(() => __district.clearWanted('boot-check'));
+}
+
 /**
  * THE RESPAWN LOOP BREAKER, which only this gate can see. `respawnCar` lives in district/main.js
  * and no offline gate imports that file: `tools/mutation-sweep.mjs` disabled the breaker outright

@@ -133,6 +133,24 @@ export const LAYOUT = {
 
 // ---------------------------------------------------------------- small helpers
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+
+/**
+ * `THEME.alert` at an alpha. The star meter's own "lit but flashed off" colour was written as a
+ * literal `rgba(255,79,94,0.26)` beside a fill of `THEME.alert`, so the two agreed only by hand;
+ * the draining star walks between exactly those two and needs the whole range, not two ends. Parsed
+ * once at module load from whatever THEME says, so a change of alert colour carries the meter with
+ * it. Falls back to the theme colour unchanged for a non-hex value, which is the only shape this
+ * cannot take an alpha from.
+ */
+const ALERT_RGB = (() => {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(THEME.alert);
+  return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : null;
+})();
+const ALERT_STAR_GHOST = 0.26;   // the flashed-off alpha the meter has always used
+function alertAt(alpha) {
+  if (!ALERT_RGB) return THEME.alert;
+  return `rgba(${ALERT_RGB[0]},${ALERT_RGB[1]},${ALERT_RGB[2]},${alpha.toFixed(3)})`;
+}
 const TAU = Math.PI * 2;
 
 // Frame-rate independent approach. vehicle.js learned this the hard way: a fixed
@@ -596,11 +614,18 @@ export function disposeDistrictMaps() {
  *
  *   1. the car is wrecked        — nothing else you do matters for four seconds
  *   2. you are off the map       — and the only control that works is reverse
- *   3. a mission is running      — its own objective
- *   4. one just ended            — for MISSION_END_S, because `hud()` goes null the instant it does
- *   5. a job is on offer nearby  — the only one that is an invitation rather than an instruction
+ *   3. the law wants something   — see below; a few seconds, with a deadline attached
+ *   4. a mission is running      — its own objective
+ *   5. one just ended            — for MISSION_END_S, because `hud()` goes null the instant it does
+ *   6. a job is on offer nearby  — the only one that is an invitation rather than an instruction
  *
- * AND THE FENCE DOES NOT SILENTLY TAKE A RUNNING MISSION'S LINE. A blind reviewer drove a live
+ * THE LAW TENANT WAS THE SIXTH AND IT WAS MISSING, which is most of why two playtesters
+ * independently reported that crime shows the player nothing. It is `composeLaw` in src/wanted.js:
+ * the scene of an injury while it is live, then the offence that was filed. It outranks a mission
+ * because both of its lines carry a deadline measured in seconds — stop within 85 m or it is a
+ * second offence — where a mission objective will still be there afterwards.
+ *
+ * AND NEITHER TENANT ABOVE A MISSION SILENTLY TAKES ITS LINE. A blind reviewer drove a live
  * `shakedown` outside the fence and watched the objective and subtitle both replaced by "TURN
  * BACK" while `mission.update()` kept running — verified still on stage `b`, still `running`,
  * after 60 s outside — with no sign on screen that the job was still live. The fence keeps the
@@ -608,14 +633,27 @@ export function disposeDistrictMaps() {
  * mission keeps the subtitle, because that is where "your job is still waiting" belongs. That
  * costs nothing: the fence's own subtitle is a distance the objective already implies.
  *
- * Pure, so both hosts compose it identically and either can walk all five.
+ * `HOLDS_MISSION_SUBTITLE` is that rule as a set rather than as a branch on one name, because the
+ * law tenant needs it for the same reason and a second `from === '...'` test is how the first one
+ * would have been left behind. A tenant BELOW the mission cannot be in it: there is no running
+ * mission when one of those wins.
+ *
+ * `wreck` is deliberately not in the set. Its own subtitle is a countdown to the replacement car,
+ * which is the only thing the player is waiting on for those four seconds, and a wrecked car has
+ * almost certainly failed the mission it was on anyway — every authored `healthBelow` gate fires
+ * well above zero.
+ *
+ * Pure, so both hosts compose it identically and either can walk all six.
  */
-export function composeBand({ wreck = null, fence = null, mission = null, ended = null, offer = null } = {}) {
-  const pick = wreck ?? fence ?? mission ?? ended ?? offer ?? null;
+const HOLDS_MISSION_SUBTITLE = new Set(['fence', 'law']);
+export function composeBand({ wreck = null, fence = null, law = null, mission = null,
+  ended = null, offer = null } = {}) {
+  const pick = wreck ?? fence ?? law ?? mission ?? ended ?? offer ?? null;
   if (!pick) return { objective: null, subtitle: null, from: null };
-  const from = wreck ? 'wreck' : fence ? 'fence' : mission ? 'mission' : ended ? 'ended' : 'offer';
+  const from = wreck ? 'wreck' : fence ? 'fence' : law ? 'law'
+    : mission ? 'mission' : ended ? 'ended' : 'offer';
   let subtitle = pick.subtitle ?? null;
-  if (from === 'fence' && mission && mission.objective) {
+  if (HOLDS_MISSION_SUBTITLE.has(from) && mission && mission.objective) {
     subtitle = `still on: ${mission.objective}`;
   }
   return { objective: pick.objective ?? null, subtitle, from };
@@ -956,7 +994,11 @@ export class HUD {
       visible: true, inVehicle: false,
       speed: 0, forwardSpeed: 0, slip: 0, gear: null, rpm: null,
       px: 0, pz: 0, heading: 0,
-      wanted: 0, wantedFlash: false,
+      // `wanted` is the count, `wantedFlash` the alarm (they have a fix on you), `evade` how far
+      // through shedding the next star you are, and `wantedNote` the same two in words for a host
+      // with no canvas. See composeWanted in src/wanted.js for why the flash and the drain are
+      // two signals and were one.
+      wanted: 0, wantedFlash: false, evade: 0, wantedNote: null,
       health: 1, armour: 0,
       // Which way a bent corner drags, -1..1. See the pull indicator in _drawVitals.
       steerPull: 0,
@@ -976,6 +1018,7 @@ export class HUD {
     this._flashPhase = 0;
     this._dirty = { vitals: true, status: true, gauge: true, map: true };
     this._mapAtX = NaN; this._mapAtZ = NaN; this._mapAtH = NaN;
+    this._markerSig = NaN;
     this._text = {};
     this._last = null;
 
@@ -1162,6 +1205,34 @@ export class HUD {
       || Math.abs(d.steerPull - s.steerPull) > 0.0015) {
       this._dirty.vitals = true;
     }
+    /**
+     * A MOVING BLIP HAS TO DIRTY THE MAP, and until the police were on it none did.
+     *
+     * `_set` compares by identity and `markers` is one array mutated in place — which is what the
+     * minimap wants, since its own draw pass allocates nothing — so the only thing that used to
+     * force a redraw was the PLAYER moving, at 0.02 m. Every blip the HUD had was a fixed job on
+     * the board, so that was enough. A police car closing on a player who has stopped is not: the
+     * map would hold its last frame for as long as the player stood still, which is exactly when
+     * they are reading it.
+     *
+     * Cheap enough to be unconditional: a sum over at most a handful of blips, against a count
+     * that is normally 0 or 1. The kind is folded in so a blip that changes kind in place — the
+     * parked car becoming the objective — is seen too.
+     */
+    let sig = 0;
+    if (s.markers) {
+      for (let i = 0; i < s.markers.length; i++) {
+        const m = s.markers[i];
+        sig += m.x + m.z * 7.13 + (m.kind ? m.kind.charCodeAt(0) : 0) * 131 + i * 0.011;
+      }
+      sig += s.markers.length * 977;
+    }
+    // The waypoint is in it for the same reason: it is drawn by the same pass, and a caller who
+    // starts reusing one object for it — which the on-foot car waypoint wants to do — would
+    // otherwise have the map hold its last frame.
+    if (s.waypoint) sig += s.waypoint.x * 3.7 + s.waypoint.z * 11.9 + 4409;
+    if (sig !== this._markerSig) { this._markerSig = sig; this._dirty.map = true; }
+
     d.px = s.px; d.pz = s.pz;
     let dh = s.heading - d.heading;
     dh = ((dh + Math.PI) % TAU + TAU) % TAU - Math.PI;
@@ -1206,7 +1277,8 @@ export class HUD {
     if (s[k] === v) return;
     s[k] = v;
     if (k === 'health' || k === 'armour' || k === 'location' || k === 'district') this._dirty.vitals = true;
-    else if (k === 'wanted' || k === 'weapon' || k === 'wantedFlash') this._dirty.status = true;
+    else if (k === 'wanted' || k === 'weapon' || k === 'wantedFlash'
+      || k === 'evade' || k === 'wantedNote') this._dirty.status = true;
     else if (k === 'markers' || k === 'waypoint' || k === 'route' || k === 'northUp' || k === 'zoomMetres') this._dirty.map = true;
   }
 
@@ -1489,25 +1561,61 @@ export class HUD {
     // A 2 Hz square wave, not a sine: the escalation flash has to read as an alarm,
     // and a sine spends most of its time in the middle where it reads as a fade.
     const beat = Math.sin(this._flashPhase * Math.PI) > 0;
+    /**
+     * THE TOP STAR DRAINS AS THE ESCAPE CLOCK RUNS. `evade` is 0 the moment contact is lost and 1
+     * the instant before a star goes, so the star this is about to take fades from solid to the
+     * meter's own flashed-off ghost — arriving, at the end, already looking like the thing it
+     * becomes. It is the only reading on this HUD of a rule the player could otherwise learn only
+     * by timing it: the shed times are 40/66/84/96 s from four stars.
+     *
+     * Not drawn while the flash is up, because the two mean opposite things — the alarm is "they
+     * have a fix on you", and in contact the escape clock is pinned at zero anyway, so `evade` is
+     * 0 there and this branch is a no-op rather than a conflict.
+     */
+    const drainAt = s.wanted - 1;
+    const drain = flashing ? 0 : clamp(s.evade, 0, 1);
     for (let i = 0; i < n; i++) {
       const cx = x0 + size / 2 + i * (size + gap);
       const lit = i < s.wanted;
       const on = lit && (!flashing || beat);
       const ghost = lit && !on;
+      const draining = on && i === drainAt && drain > 0;
       if (on) {
         // A fat translucent stroke instead of shadowBlur: a real blur is a
         // per-pixel gather and this runs every frame while the flash is up.
         starPath(ctx, cx, cy, size / 2 + 2.4, size / 4.6);
-        ctx.strokeStyle = 'rgba(255,79,94,0.22)';
+        ctx.strokeStyle = alertAt(0.22 * (draining ? 1 - drain : 1));
         ctx.lineWidth = 3;
         ctx.stroke();
       }
       starPath(ctx, cx, cy, size / 2, size / 4.4);
-      ctx.fillStyle = on ? THEME.alert : ghost ? 'rgba(255,79,94,0.26)' : 'rgba(10,15,23,0.55)';
+      ctx.fillStyle = draining ? alertAt(1 - drain * (1 - ALERT_STAR_GHOST))
+        : on ? THEME.alert : ghost ? alertAt(ALERT_STAR_GHOST) : 'rgba(10,15,23,0.55)';
       ctx.fill();
-      ctx.strokeStyle = on ? 'rgba(12,4,6,0.85)' : ghost ? 'rgba(255,79,94,0.5)' : THEME.faint;
+      ctx.strokeStyle = on ? 'rgba(12,4,6,0.85)' : ghost ? alertAt(0.5) : THEME.faint;
       ctx.lineWidth = 1.3;
       ctx.stroke();
+    }
+
+    /**
+     * AND THE SAME THING IN WORDS, in the 13 px between the meter and the weapon plate.
+     *
+     * A playtester escaped four stars over 96 s and reported that the star COUNT was the only
+     * field of the HUD that ever differed — no state, no clock, no reason. `SEEN` and `REPORTED`
+     * say which of the two things has a fix on you; `EVADING 24s` is the drain as a number, for
+     * the player who wants to know whether to keep driving or to park. Composed in src/wanted.js
+     * so the harness shows a playtester the identical string.
+     */
+    if (s.wantedNote) {
+      ctx.textBaseline = 'alphabetic';
+      ctx.textAlign = 'right';
+      ctx.font = F_FONT_700_8_5;
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '1.1px';
+      // Amber while the clock is running, alert while they have you: the health bar's own
+      // convention, so peripheral vision reports which of the two it is without being read.
+      ctx.fillStyle = flashing ? THEME.alert : THEME.healthLow;
+      ctx.fillText(s.wantedNote, L.w, 32);
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
     }
 
     // --- weapon slot. A stub by design: the shapes are placeholders, the slot,

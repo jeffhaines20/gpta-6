@@ -38,7 +38,7 @@ import { Player } from '../src/player.js';
 import { FlatGround } from '../src/ground.js';
 import { BlockerIndex, districtBounds, worldFence } from '../src/blockers.js';
 import { DamageModel, IMPACT, dynamicContact } from '../src/damage.js';
-import { WantedSystem, VictimWindow } from '../src/wanted.js';
+import { WantedSystem, VictimWindow, composeWanted, composeLaw } from '../src/wanted.js';
 import { Traffic } from '../src/traffic.js';
 import { Pedestrians } from '../src/pedestrians.js';
 import { RoadGraph, followPath, ROUTE_LANE_M } from '../src/roadpath.js';
@@ -842,6 +842,7 @@ export class Session {
     cars.sort((a, b) => a.range - b.range);
     people.sort((a, b) => a.range - b.range);
     const band = this._band();
+    const wantedLine = composeWanted(this.wanted.hudState());
     const hud = this.mission.mission ? this.mission.hud() : null;
     /**
      * WITH NO MISSION RUNNING THE WAYPOINT POINTS AT THE NEAREST JOB, at any distance, the same
@@ -886,6 +887,20 @@ export class Session {
       // The one thing outside the windscreen a player is told about in words.
       offMap: this.outsideWorld > 0 ? +this.outsideWorld.toFixed(0) : null,
       stars: this.wanted.stars,
+      /**
+       * THE STAR METER'S OTHER TWO READINGS. A playtester escaped four stars over 96 s and
+       * reported that `stars` was the ONLY field of `look()` that ever differed over the whole
+       * run — no state, no clock, no reason — and the shed times are 40/66/84/96 s, so the rule
+       * was good and nothing expressed it. `wantedNote` is the string the page draws under the
+       * stars and `evade` the drain it draws on the top one.
+       *
+       * The police blips the page now posts have no counterpart here on purpose: this harness has
+       * no pursuit layer, so there are no unit positions to give a bearing to, and reporting the
+       * requested COUNT as blips would tell a playtester that eight cars are on their map when the
+       * sim holds none. That gap is reported by `notHonoured` rather than papered over.
+       */
+      evade: +wantedLine.evade.toFixed(3),
+      wantedNote: wantedLine.note,
       // The band, exactly as the page composes it. `objective`/`subtitle` are what is on screen.
       objective: band.objective,
       subtitle: band.subtitle,
@@ -903,6 +918,14 @@ export class Session {
        */
       blips: this.board.markers()
         .map((k) => ({ id: k.id, ...bearingTo(k.x, k.z) }))
+        // AND THE CAR, WHEN YOU ARE NOT IN IT. `MARKER_STYLE.vehicle` had existed in src/hud.js
+        // since it was written with nothing ever posting one, so three authored stages said "GET
+        // IN THE CAR" over a blank map: a playtester spent 130 s in one of them going from 1.7 m
+        // to 71.2 m away. `carRange` was already here and a range with no bearing is what the
+        // board offer used to give — 703 m over 76 legs and never found.
+        .concat(onFoot
+          ? [{ id: 'car', ...bearingTo(this.vehicle.position.x, this.vehicle.position.z) }]
+          : [])
         .filter((k) => k.range <= MINIMAP_REACH_M)
         .sort((a, b) => a.range - b.range),
       waypoint,
@@ -960,7 +983,15 @@ export class Session {
       ? { objective: this._offer.title.toUpperCase(),
         subtitle: `${this._offer.brief} — ${this._offer.range.toFixed(0)} m` }
       : null;
-    return composeBand({ wreck, fence, mission: hud, ended, offer });
+    /**
+     * THE LAW TENANT, composed by src/wanted.js from the same snapshot the page composes it from.
+     * Its absence is why a playtester could drive off from a pedestrian at 40 km/h, have
+     * `hitAndRun` file itself 85.6 m and 4.61 s later, and see no field of `look()` change at all:
+     * the one mechanic in the game with an 85 m deadline and a 3.6 km/h discharge, and no way to
+     * learn either from playing.
+     */
+    const law = composeLaw(this.wanted.hudState());
+    return composeBand({ wreck, fence, law, mission: hud, ended, offer });
   }
 
   /** The session as a reviewer would read it. */
