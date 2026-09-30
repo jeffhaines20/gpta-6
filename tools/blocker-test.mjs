@@ -493,10 +493,21 @@ console.log('\n§ the world fence');
     `${push(-1, 0, 1, -10, 0).controls.brake}`);
   check('a car standing still outside is not', push(1, 0, 1, 0, 0).controls.brake === 0,
     `${push(1, 0, 1, 0, 0).controls.brake}`);
-  check('the brake ramps with depth', worldFence(b, b.x1 + 30, 0, 1, 0, 10, 0, { throttle: 1 }).controls.brake
-    > worldFence(b, b.x1 + 3, 0, 1, 0, 10, 0, { throttle: 1 }).controls.brake,
-    `${worldFence(b, b.x1 + 3, 0, 1, 0, 10, 0, { throttle: 1 }).controls.brake.toFixed(2)} at 3 m, ` +
-    `${worldFence(b, b.x1 + 30, 0, 1, 0, 10, 0, { throttle: 1 }).controls.brake.toFixed(2)} at 30 m`);
+  /**
+   * THE DEPTH RAMP IS ON THE LEAVING TERM, RESTATED IN THE COMMIT THAT MOVED IT. This read the
+   * COMPOSED brake and asserted it grows with depth, which was true while the crawl was
+   * depth-scaled too. The crawl is not any more — it applies as soon as you are outside at all,
+   * because scaling it meant it barely applied near the line and a car 2 to 15 m out toured at
+   * 143 km/h — so a car leaving at 10 m/s is over the crawl and the composed brake is 1.00 at both
+   * depths. The property is intact and belongs to the term that still has it, which the fence now
+   * reports separately: the further out you are, the harder it pushes BACK.
+   */
+  const deep = worldFence(b, b.x1 + 30, 0, 1, 0, 10, 0, { throttle: 1 });
+  const shallow = worldFence(b, b.x1 + 3, 0, 1, 0, 10, 0, { throttle: 1 });
+  check('the LEAVING brake ramps with depth', deep.leavingK > shallow.leavingK,
+    `${shallow.leavingK} at 3 m, ${deep.leavingK} at 30 m`);
+  check('and the crawl does not, which is this round\'s correction',
+    deep.crawlK === shallow.crawlK, `${shallow.crawlK} at 3 m, ${deep.crawlK} at 30 m`);
   console.log('    (live, on open ground: 180 s of full throttle at the fence stops the car 61.3 m');
   console.log('     out at 0 km/h; turning round drives home at 140 km/h; reverse from 20 m out');
   console.log('     with the nose still outward comes home at 27 km/h.)');
@@ -532,9 +543,19 @@ console.log('\n§ the fence, swept over the pose');
     v.quaternion.setFromAxisAngle({ x: 0, y: 1, z: 0 }, yaw);
     return v;
   };
-  /** One arm: hold `pick(v)` from a pose and report where the car got to. */
-  const run = (v, pick, seconds) => {
-    let along = 0, worst = 0, peak = 0, brakeSum = 0, drift = 0, n = 0, homeAt = null;
+  /**
+   * One arm: hold `pick(v)` from a pose and report where the car got to.
+   *
+   * `stopHome` ENDS THE ARM ONCE THE CAR IS INSIDE, and without it the containment table lies. A
+   * car whose nose points INWARD drives home, is free the moment it crosses the line, accelerates
+   * legitimately inside, and may leave again somewhere else at speed — and an arm that kept
+   * accumulating read 139 km/h and 74 m out for a pose that was doing exactly the right thing.
+   * A containment number has to be about the time spent OUTSIDE.
+   */
+  const run = (v, pick, seconds, { stopHome = false, settleS = 2 } = {}) => {
+    let along = 0, worst = 0, peak = 0, settled = 0, brakeSum = 0, drift = 0, n = 0, homeAt = null;
+    const p0 = { x: v.position.x, z: v.position.z };
+    let arc = 0, prev = { x: v.position.x, z: v.position.z };
     for (let i = 0; i < Math.round(seconds * HZ); i++) {
       const y = yawOf(v.quaternion);
       const f = worldFence(BOX, v.position.x, v.position.z, Math.sin(y), Math.cos(y),
@@ -542,15 +563,20 @@ console.log('\n§ the fence, swept over the pose');
       v.setControls(f.controls);
       v.stepFixed(DT, ground, HZ);
       const d = depthAt(v.position.x, v.position.z);
-      along = Math.max(along, Math.abs(v.position.z));
+      if (homeAt === null && d === 0) homeAt = i / HZ;
+      if (stopHome && d === 0) break;
+      arc += Math.hypot(v.position.x - prev.x, v.position.z - prev.z);
+      prev = { x: v.position.x, z: v.position.z };
+      along = Math.max(along, Math.hypot(v.position.x - p0.x, v.position.z - p0.z));
       worst = Math.max(worst, d);
-      peak = Math.max(peak, Math.hypot(v.velocity.x, v.velocity.z) * 3.6);
+      const kmh = Math.hypot(v.velocity.x, v.velocity.z) * 3.6;
+      peak = Math.max(peak, kmh);
+      if (i > settleS * HZ) settled = Math.max(settled, kmh);
       if (i > 5) drift = Math.max(drift, Math.abs(v.velocity.x));
       brakeSum += f.controls.brake ?? 0; n++;
-      if (homeAt === null && d === 0) homeAt = i / HZ;
     }
-    return { out: depthAt(v.position.x, v.position.z), along, worst, peak, drift,
-      brake: brakeSum / n, homeAt,
+    return { out: depthAt(v.position.x, v.position.z), along, arc, worst, peak, settled, drift,
+      brake: n ? brakeSum / n : 0, homeAt,
       kmh: Math.hypot(v.velocity.x, v.velocity.z) * 3.6 };
   };
   const HOLD = (c) => () => c;
@@ -595,11 +621,26 @@ console.log('\n§ the fence, swept over the pose');
   const hard = worldFence(BOX, BOX.x1 + FENCE_FULL_M, 0, 1, 0, 1, 0, { throttle: 1, brake: 0 });
   const half = worldFence(BOX, BOX.x1 + FENCE_FULL_M / 2, 0, 1, 0, 1, 0, { throttle: 1, brake: 0 });
   console.log(`    leaving at 1 m/s: brake ${hard.controls.brake.toFixed(2)} at ${FENCE_FULL_M} m, ` +
-    `${half.controls.brake.toFixed(2)} at ${FENCE_FULL_M / 2} m`);
+    `${half.controls.brake.toFixed(2)} at ${FENCE_FULL_M / 2} m ` +
+    `(leaving term ${hard.leavingK} / ${half.leavingK})`);
   check('a car actually leaving is braked fully at the full-authority depth',
     hard.controls.brake === 1, `${hard.controls.brake}`);
-  check('and the depth ramp still halves it at half the depth',
-    Math.abs(half.controls.brake - 0.5) < 1e-9, `${half.controls.brake}`);
+  /**
+   * THE DEPTH RAMP IS ON THE LEAVING TERM, RESTATED. This check read the COMPOSED brake and
+   * asserted 0.5 at half the depth; it now reads `leavingK`, because the crawl stopped being
+   * depth-scaled in the same commit — a car leaving at 1 m/s is over the crawl, so the composed
+   * brake is 1.00 at both depths and the old form failed. The property it was guarding is intact
+   * and it belongs to the term that still has it: the further out you are, the harder the fence
+   * pushes BACK, while the crawl applies as soon as you are outside at all.
+   */
+  check('and the depth ramp still halves the LEAVING term at half the depth',
+    Math.abs(half.leavingK - 0.5) < 1e-3 && Math.abs(hard.leavingK - 1) < 1e-9,
+    `${half.leavingK} at ${FENCE_FULL_M / 2} m against ${hard.leavingK} at ${FENCE_FULL_M} m`);
+  check('the crawl term is NOT depth-scaled, which is this round\'s correction',
+    Math.abs(worldFence(BOX, BOX.x1 + 2, 0, 0, 1, 0, 10, { throttle: 0, brake: 0 }).crawlK
+      - worldFence(BOX, BOX.x1 + 60, 0, 0, 1, 0, 10, { throttle: 0, brake: 0 }).crawlK) < 1e-9,
+    `${worldFence(BOX, BOX.x1 + 2, 0, 0, 1, 0, 10, { throttle: 0, brake: 0 }).crawlK} at 2 m, ` +
+    `${worldFence(BOX, BOX.x1 + 60, 0, 0, 1, 0, 10, { throttle: 0, brake: 0 }).crawlK} at 60 m`);
 
   /**
    * 3. THE CRAWL, and its derivation asserted across modules rather than left to a comment. It is
@@ -617,17 +658,103 @@ console.log('\n§ the fence, swept over the pose');
    *    3,074 m at 146 km/h, which is the "drove 4,595 m off the map over nothing" this fence
    *    exists for.
    */
-  const tan = run(place(FENCE_FULL_M, 0), HOLD({ throttle: 1, brake: 0, steer: 0 }), ARM_S);
-  console.log(`    tangential, ${ARM_S} s of full throttle: ${tan.along.toFixed(0)} m along, ` +
-    `${tan.worst.toFixed(1)} m out at worst, peak ${tan.peak.toFixed(0)} km/h`);
-  check('holding the throttle along the fence does not get the car further out',
-    tan.worst < FENCE_FULL_M + 2, `${tan.worst.toFixed(1)} m against ${FENCE_FULL_M} m`);
-  check('and the crawl holds the speed near its own limit, so the outside cannot be toured',
-    tan.peak < FENCE_CRAWL_MS * 3.6 * 3, `${tan.peak.toFixed(0)} km/h against a ` +
-    `${(FENCE_CRAWL_MS * 3.6).toFixed(1)} km/h crawl`);
+  /**
+   * SWEPT OVER DEPTH, and that is a correction a blind reviewer had to make. The first version ran
+   * this at ONE depth — `FENCE_FULL_M`, the only depth where the depth scale is 1 — and asserted a
+   * 23.8 km/h ceiling. At 2, 5, 10 and 15 m out the same arm read **143 km/h**, because the crawl
+   * was multiplied by `out / FENCE_FULL_M` and so barely applied near the line, which is exactly
+   * where a player who has drifted past it is. "585 m at 12 km/h" was exact at 30 m and wrong
+   * everywhere else — the identical defect shape this section already records for the POSE axis,
+   * swept on pose and not on depth. The crawl is no longer depth-scaled; the sweep is here so that
+   * cannot come back.
+   */
+  const CRAWL_CEIL = FENCE_CRAWL_MS * 3.6 * 3;
+  /** The car's measured braking deceleration; tools/roadpath-test.mjs re-measures it at 11.0. */
+  const BRAKE_MS2 = 11.0;
+  console.log(`\n    holding full throttle for ${ARM_S} s, by depth and pose ` +
+    `(ceiling ${CRAWL_CEIL.toFixed(1)} km/h = 3x the crawl)`);
+  console.log('      out m   nose     start     arc outside   peak km/h  settled   worst out   settle');
+  /**
+   * ONLY POSES THE THROTTLE IS NOT REFUSED FOR, because an OUTWARD nose gets zero throttle and its
+   * row is trivially contained — arc 1 m, peak 0 km/h, which is a check whose two sides are both
+   * zero. The refusal is asserted on its own below. So: tangential, and a few degrees INWARD,
+   * which is where the reviewer's 143 km/h reading came from.
+   */
+  const tours = [];
+  for (const [out, deg, kmh] of [[2, 0, 0], [5, 0, 0], [10, 0, 0], [20, 0, 0],
+    [FENCE_FULL_M, 0, 0], [60, 0, 0],
+    // And at SPEED, which is the reviewer's case: a shallow inward nose at 143 km/h satisfied an
+    // inward-COMPONENT test of 2.2 m/s, so the crawl switched itself off entirely.
+    [FENCE_FULL_M, 0, 140], [FENCE_FULL_M, -3, 140], [FENCE_FULL_M, -6, 140], [10, -3, 140]]) {
+    const v = place(out, deg * Math.PI / 180);
+    if (kmh > 0) {
+      const y = yawOf(v.quaternion);
+      v.velocity.set(Math.sin(y) * kmh / 3.6, v.velocity.y, Math.cos(y) * kmh / 3.6);
+    }
+    /**
+     * THE SETTLE WINDOW IS THE BRAKING CURVE, not a fixed 2 s. An arm entering at 140 km/h needs
+     * 140/3.6/11 = 3.54 s to stop at the measured braking deceleration, so a 2 s window read
+     * 50 km/h and called it the settled speed — which is a point on the deceleration, not a
+     * limit the fence imposes.
+     */
+    const settleS = kmh / 3.6 / BRAKE_MS2 + 1;
+    const r = run(v, HOLD({ throttle: 1, brake: 0, steer: 0 }), ARM_S, { stopHome: true, settleS });
+    tours.push({ ...r, start: out, deg, kmh });
+    console.log(`      ${String(out).padStart(5)}   ${`${deg} deg`.padEnd(7)} ` +
+      `${String(kmh).padStart(6)}   ${r.arc.toFixed(0).padStart(11)}   ` +
+      `${r.peak.toFixed(0).padStart(9)} ${r.settled.toFixed(0).padStart(8)}   ` +
+      `${r.worst.toFixed(1).padStart(9)}   ${settleS.toFixed(1)} s`);
+  }
+  const tan = tours.find((t) => t.start === FENCE_FULL_M && t.deg === 0 && t.kmh === 0);
+  /**
+   * THE SETTLED SPEED, NOT THE PEAK, for an arm that STARTS at 140 km/h — the peak there is the
+   * initial condition and says nothing about what the fence allowed. `settled` is the worst speed
+   * after the first two seconds, which is longer than the brake needs: 140 km/h at 11 m/s2 stops in
+   * 3.5 s, and the crawl only has to get it under its own ceiling.
+   */
+  check('the crawl holds the speed near its own limit at EVERY depth, not just the deepest',
+    tours.every((t) => t.settled < CRAWL_CEIL),
+    tours.filter((t) => t.settled >= CRAWL_CEIL)
+      .map((t) => `${t.start}m/${t.deg}deg/${t.kmh}:${t.settled.toFixed(0)}`)
+      .join(' ') || `worst ${Math.max(...tours.map((t) => t.settled)).toFixed(1)} km/h`);
+  check('and holding the throttle never gets the car further out than it started, at any depth',
+    tours.every((t) => t.worst < t.start + 2),
+    tours.filter((t) => t.worst >= t.start + 2)
+      .map((t) => `${t.start}m -> ${t.worst.toFixed(1)}`).join(' ') || 'none');
   // Non-empty by construction: an arm where the car never moved would satisfy both above.
-  check('the car did move, so those two bounds measured something',
-    tan.along > 10, `${tan.along.toFixed(0)} m along`);
+  check('the car did move in every one of these arms, so the bounds measured something',
+    tours.every((t) => t.arc > 5), tours.map((t) => t.arc.toFixed(0)).join(' '));
+  check('and the sweep covers the shallow depths, which is where the defect was',
+    tours.some((t) => t.out <= 5) && tours.some((t) => t.out >= 60),
+    tours.map((t) => t.out).join(' '));
+  check('and it covers a car already AT SPEED with a shallow inward nose, which is the pose that ' +
+    'switched the crawl off',
+    tours.some((t) => t.kmh > 100 && t.deg < 0), tours.filter((t) => t.kmh > 100).length + ' arms');
+  /**
+   * AND AN OUTWARD NOSE IS REFUSED OUTRIGHT, which is what makes those rows unnecessary above.
+   * Swept over the angle rather than asserted at dot = 1: every check in this section before this
+   * round used `fwd = (+-1, 0)` exactly.
+   */
+  {
+    // The angle is measured FROM THE TANGENT, so `dot = sin(a)` — which is what makes 0.06 of a
+    // degree the interesting case. The first version measured it from DEAD OUTWARD instead and
+    // reported "90 degrees past the tangent gets throttle 1.00", which is the tangent itself.
+    const angles = [0.06, 1, 3, 6, 15, 45, 90];
+    const refused = angles.map((deg) => {
+      const a = deg * Math.PI / 180;
+      return worldFence(BOX, BOX.x1 + FENCE_FULL_M, 0, Math.sin(a), Math.cos(a),
+        0, 0, { throttle: 1, brake: 0 }).controls.throttle;
+    });
+    console.log(`      an outward nose at ${angles.join(', ')} degrees past the tangent gets ` +
+      `throttle ${refused.map((t) => t.toFixed(2)).join(', ')}`);
+    check('any outward nose is refused the throttle, at every angle and not only dead-outward',
+      refused.every((t) => t === 0), refused.join(' '));
+    // And the tangent itself is NOT refused, or the car could never get moving at all.
+    const atTangent = worldFence(BOX, BOX.x1 + FENCE_FULL_M, 0, 0, 1, 0, 0,
+      { throttle: 1, brake: 0 }).controls.throttle;
+    check('but the tangent itself is not, or a stationary car could never get moving',
+      atTangent === 1, `${atTangent}`);
+  }
 
   /**
    * 5. AND A CAR ON ITS WAY IN IS NEVER SLOWED BY THE CRAWL. Capping a car that is heading home is

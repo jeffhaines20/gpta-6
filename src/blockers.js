@@ -458,7 +458,10 @@ export const FENCE_FULL_M = 30;
  * **0.030**, a 33x reduction, and the tangential pose recovers.
  *
  * It is a choice, stated as one, bounded at both ends:
- *   - ABOVE the drift of a car at rest, 8.87e-3 m/s measured, by 28x. That is what stops the latch.
+ *   - ABOVE the drift of a car at rest, which `blocker-test` measures at 7.88e-3 m/s and asserts
+ *     a 20x margin against. Two readings of that drift were live in one commit — 8.87e-3 from an
+ *     earlier sweep and 7.88e-3 from the gate — which is the "three different conversions were live
+ *     at once" trap; the gate's is the one to quote, because it is the one that runs.
  *   - BELOW anything a player would call moving. 0.25 m/s is 0.9 km/h; a car leaving that slowly
  *     takes four minutes to cross the fence's own 60 m margin, and anything faster is fully braked.
  * `blocker-test` asserts both relations rather than the number.
@@ -488,8 +491,19 @@ export const FENCE_BRAKE_MS = 0.25;
  * VELOCITY, not the nose, for the same reason the throttle refusal is: reverse with an outward
  * nose is driving home. Measured: without it, recovering from the dead-outward pose costs 10.7 s
  * against the old code's 6.7 s; with it, 6.7 s exactly.
+ *
+ * AND IT TAKES A DIRECTION, NOT JUST A COMPONENT, which the first version got wrong in the way
+ * this whole file keeps getting wrong. An inward component of 2.2 m/s is satisfied by a car doing
+ * 143 km/h with its nose FOUR DEGREES inward of the tangent — which is not coming home, it is
+ * touring the outside of the world at full speed — so a blind reviewer found the crawl switching
+ * itself off at 3 degrees of inward nose and 143 km/h, ending 74 m out. "Coming home" is a
+ * statement about direction: more than half the velocity has to be inward, which is the 45 degree
+ * line, `-outV > speed / sqrt(2)`. A car genuinely driving in clears it at any speed; a tangential
+ * one at any speed does not.
  */
 export const FENCE_CRAWL_MS = 2.2;
+/** cos 45 degrees: past this, the velocity is more inward than tangential. See FENCE_CRAWL_MS. */
+const FENCE_HOMING_COS = Math.SQRT1_2;
 
 export function worldFence(bounds, x, z, fwdX, fwdZ, vx, vz, controls) {
   const dx = Math.max(bounds.x0 - x, 0, x - bounds.x1);
@@ -516,19 +530,48 @@ export function worldFence(bounds, x, z, fwdX, fwdZ, vx, vz, controls) {
   if (throttle !== 0 && Math.sign(throttle) * dot > 0) throttle = 0;
 
   const outV = nx * (vx ?? 0) + nz * (vz ?? 0);
+  const speed = Math.hypot(vx ?? 0, vz ?? 0);
   const depthK = Math.min(1, out / FENCE_FULL_M);
-  // (a) How fast it is leaving, in proportion. See FENCE_BRAKE_MS: this replaced a sign test on a
-  //     quantity that is numerical noise in the one pose nothing had ever exercised.
-  let k = Math.min(1, Math.max(0, outV) / FENCE_BRAKE_MS);
-  // (b) And a crawl in any direction, unless the car is already coming home faster than one.
-  const homing = outV < -FENCE_CRAWL_MS;
-  if (!homing) {
-    const speed = Math.hypot(vx ?? 0, vz ?? 0);
-    k = Math.max(k, Math.min(1, Math.max(0, speed - FENCE_CRAWL_MS) / FENCE_CRAWL_MS));
-  }
-  const brake = Math.max(controls.brake ?? 0, depthK * k);
+  /**
+   * (a) HOW FAST IT IS LEAVING, in proportion, and scaled by depth. See FENCE_BRAKE_MS: this
+   *     replaced a sign test on a quantity that is numerical noise in the one pose nothing had ever
+   *     exercised. The depth scale belongs here — the further out you are, the harder the fence
+   *     pushes back — and `out / FENCE_FULL_M` is that.
+   */
+  const leavingK = depthK * Math.min(1, Math.max(0, outV) / FENCE_BRAKE_MS);
+  /**
+   * (b) AND A CRAWL IN ANY DIRECTION, NOT SCALED BY DEPTH, which is the correction a blind reviewer
+   *     found. Scaling the crawl by `out / FENCE_FULL_M` means it barely applies near the line,
+   *     which is exactly where a player who has drifted past it actually is: measured, holding the
+   *     throttle from 2, 5, 10 and 15 m out toured at **143 km/h** against a crawl of 7.9, and
+   *     recovery from 5 and 10 m out failed outright inside 180 s where 30 m out recovered in 141.
+   *     My own claim of "585 m at 12 km/h" was exact at 30 m and tangential and wrong everywhere
+   *     else — the same defect shape this section already records for the POSE axis, swept on pose
+   *     and not on depth.
+   *
+   *     The crawl is a statement about being outside at all, so it applies as soon as you are.
+   */
+  const homing = outV < -FENCE_CRAWL_MS && -outV > speed * FENCE_HOMING_COS;
+  const crawlK = homing ? 0 : Math.min(1, Math.max(0, speed - FENCE_CRAWL_MS) / FENCE_CRAWL_MS);
+  /**
+   * AND THE CRAWL TAKES THE DRIVE AS WELL AS APPLYING THE BRAKE, because the brake alone cannot
+   * hold a car whose throttle is held. Measured: entering the fence at 140 km/h with full throttle
+   * and a few degrees of inward nose, full brake settles the car at **81 km/h** — `brakeForce` is
+   * 7000 N and the engine simply out-pulls it. So "the outside cannot be toured" was true from rest
+   * (12 km/h at every depth) and false for a car that arrives fast, which is how a player gets
+   * there. The refusal is the other half of the same limiter.
+   *
+   * It is exempt under exactly the same condition as the brake, so nothing about driving home is
+   * refused: a car predominantly inward faster than a crawl keeps everything. Below the crawl the
+   * throttle is untouched, so a stationary car can always get moving — which is what the whole of
+   * this section exists to protect.
+   */
+  if (!homing && speed > FENCE_CRAWL_MS) throttle = 0;
+  const brake = Math.max(controls.brake ?? 0, leavingK, crawlK);
   return { controls: { ...controls, throttle, brake }, out: +out.toFixed(2), held: true,
     // `leaving` is any outward motion at all, which is what it always meant; the BRAKE is what
     // stopped being a step. Kept because both hosts and the gate report it.
-    leaving: outV > 0, homing, outward: +dot.toFixed(3), outwardMs: +outV.toFixed(4) };
+    leaving: outV > 0, homing, outward: +dot.toFixed(3), outwardMs: +outV.toFixed(4),
+    // Which term is holding the car, so a gate and a reader can tell them apart.
+    leavingK: +leavingK.toFixed(3), crawlK: +crawlK.toFixed(3) };
 }
