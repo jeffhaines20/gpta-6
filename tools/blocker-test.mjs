@@ -24,8 +24,15 @@
 //       error.
 import fs from 'node:fs';
 import { BlockerIndex, insideRing, ringArea, contactImpulse,
-  districtBounds, worldFence, WORLD_MARGIN_M } from '../src/blockers.js';
+  districtBounds, worldFence, WORLD_MARGIN_M,
+  FENCE_FULL_M, FENCE_BRAKE_MS, FENCE_CRAWL_MS } from '../src/blockers.js';
+import { Vehicle } from '../src/vehicle.js';
+import { FlatGround } from '../src/ground.js';
 import { edgesOf, ringArea as facadeRingArea } from '../src/facades.js';
+// One import for both the contact-impulse section and the fence sweep: the file used to pull it
+// in inside a block, and a second top-level import of the same name is a redeclaration.
+const damageMod = await import('../src/damage.js');
+const { DamageModel } = damageMod;
 
 const checks = [];
 const check = (name, ok, detail) => { checks.push({ name, ok: !!ok, detail }); return !!ok; };
@@ -361,7 +368,6 @@ check('scrape friction is capped at the friction coefficient',
   scrape.jt <= 0.4 * scrape.jn + 1e-9, `${(scrape.jt / scrape.jn).toFixed(4)}`);
 check('a 20 m/s scrape at 5 degrees is charged a small delta-v', scrape.dv < 3,
   `${scrape.dv.toFixed(3)}`);
-const { DamageModel } = await import('../src/damage.js');
 const dmg = new DamageModel();
 console.log(`    and src/damage.js scores that scrape at ${dmg.severityFor(scrape.dv).toFixed(4)}, ` +
   `against ${dmg.severityFor(contactImpulse({ vx: SCR, vz: 0, rx: 0, rz: 0, nx: -1, nz: 0, mass: M, inertiaY: IY, restitution: 0.15 }).dv).toFixed(4)} for the same speed square-on`);
@@ -494,6 +500,203 @@ console.log('\n§ the world fence');
   console.log('    (live, on open ground: 180 s of full throttle at the fence stops the car 61.3 m');
   console.log('     out at 0 km/h; turning round drives home at 140 km/h; reverse from 20 m out');
   console.log('     with the nose still outward comes home at 27 km/h.)');
+}
+
+// ---------------------------------------------------------------------------
+/**
+ * § THE FENCE, SWEPT OVER THE POSE — which is the gap that let a dead pose ship.
+ *
+ * Every check in the section above uses `fwd = (+-1, 0)` on the +x face, so the nose dot is
+ * exactly +1 or -1 and NOTHING between has ever been exercised. That is CLAUDE.md's "a threshold
+ * that holds at one value and fails at every other is a coincidence", and the round-5 crime
+ * playtester found what it hid: at the pure TANGENTIAL pose both of the fence's tests were on
+ * quantities that are numerically zero.
+ *
+ * These arms drive a real `Vehicle` through the real fence, in tools/playtest.mjs's own loop,
+ * which is district/main.js's. A synthetic box, so nothing but the fence is under test: out past
+ * the real fence there are no buildings, roads or props. The box is deliberately much larger than
+ * the district (1,676 x 1,243 m) — the first version used +-400 m and a 60 s arm at 146 km/h drove
+ * clean across it and out of the far side, reading "drives home, ends 73 m out".
+ */
+console.log('\n§ the fence, swept over the pose');
+{
+  const HZ = 60, DT = 1 / HZ, ARM_S = 60;
+  const BOX = { x0: -3000, x1: 3000, z0: -3000, z1: 3000 };
+  const ground = new FlatGround(0);
+  const depthAt = (x, z) => Math.hypot(Math.max(BOX.x0 - x, 0, x - BOX.x1),
+    Math.max(BOX.z0 - z, 0, z - BOX.z1));
+  const yawOf = (q) => Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
+  const place = (out, yaw) => {
+    const v = new Vehicle();
+    v.position.set(BOX.x1 + out, v.position.y, 0);
+    v.quaternion.setFromAxisAngle({ x: 0, y: 1, z: 0 }, yaw);
+    return v;
+  };
+  /** One arm: hold `pick(v)` from a pose and report where the car got to. */
+  const run = (v, pick, seconds) => {
+    let along = 0, worst = 0, peak = 0, brakeSum = 0, drift = 0, n = 0, homeAt = null;
+    for (let i = 0; i < Math.round(seconds * HZ); i++) {
+      const y = yawOf(v.quaternion);
+      const f = worldFence(BOX, v.position.x, v.position.z, Math.sin(y), Math.cos(y),
+        v.velocity.x, v.velocity.z, pick(v, y));
+      v.setControls(f.controls);
+      v.stepFixed(DT, ground, HZ);
+      const d = depthAt(v.position.x, v.position.z);
+      along = Math.max(along, Math.abs(v.position.z));
+      worst = Math.max(worst, d);
+      peak = Math.max(peak, Math.hypot(v.velocity.x, v.velocity.z) * 3.6);
+      if (i > 5) drift = Math.max(drift, Math.abs(v.velocity.x));
+      brakeSum += f.controls.brake ?? 0; n++;
+      if (homeAt === null && d === 0) homeAt = i / HZ;
+    }
+    return { out: depthAt(v.position.x, v.position.z), along, worst, peak, drift,
+      brake: brakeSum / n, homeAt,
+      kmh: Math.hypot(v.velocity.x, v.velocity.z) * 3.6 };
+  };
+  const HOLD = (c) => () => c;
+  /** A player heading home: full throttle, steering at the district, reversing out of a corner. */
+  const HOMEWARD = (v, y) => {
+    const fx = Math.sin(y), fz = Math.cos(y);
+    const hx = -v.position.x, hz = -v.position.z, hl = Math.hypot(hx, hz) || 1;
+    const cross = fx * (hz / hl) - fz * (hx / hl);
+    const ahead = (fx * hx + fz * hz) / hl;
+    const steer = Math.max(-1, Math.min(1, cross * 3));
+    return ahead < -0.2
+      ? { throttle: -0.55, brake: 0, steer: -steer }
+      : { throttle: 1, brake: 0, steer };
+  };
+
+  /**
+   * 1. THE LATCH. A car standing still outside must not be held on the brake by its own rounding
+   *    error. This is the defect, and the measurement that is its own known-bad: with the old sign
+   *    test the same arm read a mean brake of 0.990.
+   */
+  const rest = run(place(FENCE_FULL_M, 0), HOLD({ throttle: 0, brake: 0, steer: 0 }), 10);
+  console.log(`    at rest ${FENCE_FULL_M} m out, tangential: worst |v_out| ${rest.drift.toExponential(2)} m/s, ` +
+    `mean fence brake ${rest.brake.toFixed(3)} (the sign test it replaced read 0.990)`);
+  check('a car standing still outside is not held on the brake by numerical noise',
+    rest.brake < 0.05, `mean brake ${rest.brake.toFixed(3)}`);
+  check('and the drift that used to latch it is real, so the arm is not measuring nothing',
+    rest.drift > 1e-4 && rest.drift < 0.05, `${rest.drift.toExponential(2)} m/s`);
+  /**
+   * AND THE THRESHOLD IS ABOVE THAT DRIFT BY A STATED MARGIN. This is the relation the constant
+   * is chosen on, so it is asserted rather than the number: a threshold that sat near the drift
+   * would be the same defect one decimal place further down.
+   */
+  check('the brake scale is at least 20x the drift it has to ignore',
+    FENCE_BRAKE_MS > 20 * rest.drift,
+    `${FENCE_BRAKE_MS} against ${rest.drift.toExponential(2)} — x${(FENCE_BRAKE_MS / rest.drift).toFixed(0)}`);
+
+  /**
+   * 2. AND THE BRAKE IS STILL FULL FOR A REAL ESCAPE. The point of a ramp is that the small case
+   *    is small, not that the large case is weak — without this, "no latch" is satisfied by a
+   *    fence with no brake at all.
+   */
+  const hard = worldFence(BOX, BOX.x1 + FENCE_FULL_M, 0, 1, 0, 1, 0, { throttle: 1, brake: 0 });
+  const half = worldFence(BOX, BOX.x1 + FENCE_FULL_M / 2, 0, 1, 0, 1, 0, { throttle: 1, brake: 0 });
+  console.log(`    leaving at 1 m/s: brake ${hard.controls.brake.toFixed(2)} at ${FENCE_FULL_M} m, ` +
+    `${half.controls.brake.toFixed(2)} at ${FENCE_FULL_M / 2} m`);
+  check('a car actually leaving is braked fully at the full-authority depth',
+    hard.controls.brake === 1, `${hard.controls.brake}`);
+  check('and the depth ramp still halves it at half the depth',
+    Math.abs(half.controls.brake - 0.5) < 1e-9, `${half.controls.brake}`);
+
+  /**
+   * 3. THE CRAWL, and its derivation asserted across modules rather than left to a comment. It is
+   *    src/damage.js's FMVSS free threshold, so a contact taken at the fence's own speed limit is
+   *    free by construction — the same derivation src/roadpath.js's corner floor makes.
+   */
+  console.log(`    the crawl is ${FENCE_CRAWL_MS} m/s against DamageModel.freeDv ${new DamageModel().freeDv}`);
+  check('the fence crawl IS the damage model\'s free-contact threshold',
+    FENCE_CRAWL_MS === new DamageModel().freeDv,
+    `${FENCE_CRAWL_MS} against ${new DamageModel().freeDv}`);
+
+  /**
+   * 4. CONTAINMENT ALONG THE FENCE, which the latch was providing by accident. The old code held a
+   *    tangential car at 1 m in 180 s; with the latch gone and nothing in its place it toured
+   *    3,074 m at 146 km/h, which is the "drove 4,595 m off the map over nothing" this fence
+   *    exists for.
+   */
+  const tan = run(place(FENCE_FULL_M, 0), HOLD({ throttle: 1, brake: 0, steer: 0 }), ARM_S);
+  console.log(`    tangential, ${ARM_S} s of full throttle: ${tan.along.toFixed(0)} m along, ` +
+    `${tan.worst.toFixed(1)} m out at worst, peak ${tan.peak.toFixed(0)} km/h`);
+  check('holding the throttle along the fence does not get the car further out',
+    tan.worst < FENCE_FULL_M + 2, `${tan.worst.toFixed(1)} m against ${FENCE_FULL_M} m`);
+  check('and the crawl holds the speed near its own limit, so the outside cannot be toured',
+    tan.peak < FENCE_CRAWL_MS * 3.6 * 3, `${tan.peak.toFixed(0)} km/h against a ` +
+    `${(FENCE_CRAWL_MS * 3.6).toFixed(1)} km/h crawl`);
+  // Non-empty by construction: an arm where the car never moved would satisfy both above.
+  check('the car did move, so those two bounds measured something',
+    tan.along > 10, `${tan.along.toFixed(0)} m along`);
+
+  /**
+   * 5. AND A CAR ON ITS WAY IN IS NEVER SLOWED BY THE CRAWL. Capping a car that is heading home is
+   *    the dead end CLAUDE.md records twice, and the crawl would be exactly that without the
+   *    exemption. Measured: without it, recovering from the dead-outward pose costs 10.7 s against
+   *    the old code's 6.7 s.
+   */
+  const fast = worldFence(BOX, BOX.x1 + FENCE_FULL_M, 0, -1, 0, -20, 0, { throttle: 1, brake: 0 });
+  const slow = worldFence(BOX, BOX.x1 + FENCE_FULL_M, 0, -1, 0, -1, 0, { throttle: 1, brake: 0 });
+  console.log(`    coming home at 20 m/s: brake ${fast.controls.brake.toFixed(2)}, ` +
+    `homing ${fast.homing};  at 1 m/s: brake ${slow.controls.brake.toFixed(2)}, homing ${slow.homing}`);
+  check('a car coming home faster than the crawl is exempt from it',
+    fast.controls.brake === 0 && fast.homing === true, `${fast.controls.brake}`);
+  check('and its throttle is untouched, so nothing about driving home is refused',
+    fast.controls.throttle === 1, `${fast.controls.throttle}`);
+  // The exemption is on the VELOCITY, not the nose: reverse with an outward nose is driving home.
+  const revHome = worldFence(BOX, BOX.x1 + FENCE_FULL_M, 0, 1, 0, -20, 0, { throttle: -1, brake: 0 });
+  check('reversing home with the nose still outward is exempt too',
+    revHome.controls.brake === 0 && revHome.controls.throttle === -1,
+    `brake ${revHome.controls.brake}, throttle ${revHome.controls.throttle}`);
+
+  /**
+   * 6. THE FLAT-OUT CHARGE still stops, which is what containment finally means. 200 m of run-up
+   *    inside, nose dead outward, throttle pinned: unchanged at 54 m by this round's edit.
+   */
+  {
+    const v = new Vehicle();
+    v.position.set(BOX.x1 - 200, v.position.y, 0);
+    v.quaternion.setFromAxisAngle({ x: 0, y: 1, z: 0 }, Math.PI / 2);
+    const r = run(v, HOLD({ throttle: 1, brake: 0, steer: 0 }), 120);
+    console.log(`    a flat-out charge: overran to ${r.worst.toFixed(1)} m, ended ` +
+      `${r.out.toFixed(1)} m out at ${r.kmh.toFixed(1)} km/h`);
+    check('a flat-out charge at the fence is stopped', r.kmh < 1, `${r.kmh.toFixed(2)} km/h`);
+    check('and the overrun is bounded', r.worst < 80, `${r.worst.toFixed(1)} m`);
+    check('the charge actually crossed the fence, or the two above measured a car inside it',
+      r.worst > 10, `${r.worst.toFixed(1)} m`);
+  }
+
+  /**
+   * 7. AND THE POSE SWEEP ITSELF: can a player get home from every pose? Under ONE fixed homing
+   *    controller, so the arms are comparable with each other — the absolute seconds are that
+   *    controller's and not the fence's, which is why what is asserted is "recovers at all".
+   *
+   * With the old code the four poses at and near tangential recovered from NONE of them inside
+   * 180 s, while +-30 degrees and dead-outward recovered in 8.2 s and 6.7 s: the defect exactly.
+   */
+  console.log('\n    pose         dot    home in    worst m');
+  const POSES = [['tangential', 0], ['+1 deg out', 0.0175], ['+6 deg out', 0.105],
+    ['-6 deg out', -0.105], ['+30 deg out', 0.524], ['dead outward', Math.PI / 2],
+    ['dead home', -Math.PI / 2]];
+  const homes = [];
+  for (const [label, yaw] of POSES) {
+    const r = run(place(FENCE_FULL_M, yaw), HOMEWARD, 180);
+    homes.push({ label, yaw, ...r });
+    console.log(`    ${label.padEnd(13)}${Math.sin(yaw).toFixed(3).padStart(6)}   ` +
+      `${(r.homeAt === null ? 'never' : `${r.homeAt.toFixed(1)}s`).padStart(8)}   ${r.worst.toFixed(1).padStart(7)}`);
+  }
+  check('a player can get home from EVERY pose, including the tangential one that was dead',
+    homes.every((h) => h.homeAt !== null),
+    homes.filter((h) => h.homeAt === null).map((h) => h.label).join(', ') || 'all recovered');
+  check('and the sweep covers the band between the two poses every other check uses',
+    homes.some((h) => Math.abs(Math.sin(h.yaw)) < 0.001)
+    && homes.some((h) => Math.abs(Math.sin(h.yaw)) > 0.01 && Math.abs(Math.sin(h.yaw)) < 0.2),
+    homes.map((h) => Math.sin(h.yaw).toFixed(3)).join(' '));
+  // The poses that already worked must not have got slower than the fence can explain.
+  const deadOut = homes.find((h) => h.label === 'dead outward');
+  check('the pose that already recovered still does, at about the same cost',
+    deadOut.homeAt !== null && deadOut.homeAt < 12,
+    `${deadOut.homeAt?.toFixed(1)}s against the old code's 6.7s`);
 }
 
 // ---------------------------------------------------------------------------

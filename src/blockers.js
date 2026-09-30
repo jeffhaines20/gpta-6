@@ -437,6 +437,60 @@ export function districtBounds(district, margin = WORLD_MARGIN_M) {
  * Returns the controls to use plus `out`, the metres outside the box, so a HUD can say so and a
  * gate can assert on it. `out` is 0 everywhere inside, which is everywhere a player ever drives.
  */
+/**
+ * THE DEPTH AT WHICH THE FENCE INSISTS FULLY. Everything below scales with `out / FENCE_FULL_M`,
+ * so at the line the fence is a nudge and 30 m out it is the whole of its authority.
+ */
+export const FENCE_FULL_M = 30;
+
+/**
+ * HOW FAST THE CAR HAS TO BE LEAVING FOR THE BRAKE TO BE FULL, and this number is the fix.
+ *
+ * The fence used to ask `nx*vx + nz*vz > 0` — a SIGN test — and then brake at `min(1, out/30)`,
+ * which is 1.0 from 30 m out. A car standing still outside has an outward velocity of numerical
+ * noise: measured at up to 8.87e-3 m/s at rest, which flips sign, so about half of all frames
+ * scored a full brake and the mean brake on a parked car 30 m out was **0.990**. Held on maximum
+ * brake by its own rounding error, the car went nowhere: 180 s of full throttle at the pure
+ * TANGENTIAL pose moved it **1 metre**, and no single input recovered that pose at all.
+ *
+ * Ramped instead of tested, so there is no line for a near-zero quantity to be the wrong side of —
+ * which is the whole defect, and a deadband would only move it. The same measurement now reads
+ * **0.030**, a 33x reduction, and the tangential pose recovers.
+ *
+ * It is a choice, stated as one, bounded at both ends:
+ *   - ABOVE the drift of a car at rest, 8.87e-3 m/s measured, by 28x. That is what stops the latch.
+ *   - BELOW anything a player would call moving. 0.25 m/s is 0.9 km/h; a car leaving that slowly
+ *     takes four minutes to cross the fence's own 60 m margin, and anything faster is fully braked.
+ * `blocker-test` asserts both relations rather than the number.
+ */
+export const FENCE_BRAKE_MS = 0.25;
+
+/**
+ * AND A CRAWL WHILE OUTSIDE, IN ANY DIRECTION, because removing the latch removed the containment
+ * the latch was accidentally providing.
+ *
+ * The fence's own comments say it refuses only the power that takes the car FURTHER out, which
+ * leaves motion ALONG the fence untouched — and the old code only stopped that by the bug above.
+ * Measured with the latch removed and nothing in its place: 180 s of held throttle at the
+ * tangential pose tours **3,074 m along the outside of the world at 146 km/h**, which is the
+ * "drove 4,595 m off the map at 146 km/h over nothing" this fence was built for. So the
+ * containment is now stated instead of accidental: with the crawl it is 585 m at 12 km/h.
+ *
+ * 2.2 m/s is 8 km/h, `src/damage.js`'s FMVSS 581 bumper threshold, and it is the same derivation
+ * `src/roadpath.js`'s `cornerSpeed` floor makes for the same kind of problem — a pose the car
+ * cannot drive out of needs a crawl, not a standstill, and a contact taken at this speed is free
+ * by construction. `blocker-test` asserts it against `DamageModel.freeDv` rather than trusting
+ * the comment.
+ *
+ * AND A CAR ALREADY ON ITS WAY IN IS EXEMPT, which is not a detail: capping the speed of a car
+ * heading home is the dead end CLAUDE.md records twice — the wrecked car with no power and the
+ * first world fence, both of which stranded the player 786 m out. The exemption is on the
+ * VELOCITY, not the nose, for the same reason the throttle refusal is: reverse with an outward
+ * nose is driving home. Measured: without it, recovering from the dead-outward pose costs 10.7 s
+ * against the old code's 6.7 s; with it, 6.7 s exactly.
+ */
+export const FENCE_CRAWL_MS = 2.2;
+
 export function worldFence(bounds, x, z, fwdX, fwdZ, vx, vz, controls) {
   const dx = Math.max(bounds.x0 - x, 0, x - bounds.x1);
   const dz = Math.max(bounds.z0 - z, 0, z - bounds.z1);
@@ -451,9 +505,30 @@ export function worldFence(bounds, x, z, fwdX, fwdZ, vx, vz, controls) {
   let throttle = controls.throttle ?? 0;
   // Refused by the direction the car would MOVE, not by the direction it points: reverse with an
   // outward nose drives home and has to be allowed.
+  //
+  // NOT RAMPED, and that was measured rather than assumed. The round-5 playtester proposed ramping
+  // this refusal so the car "keeps enough drive to steer with", which is the obvious reading and is
+  // wrong: swept over band widths from 0.02 to 0.30 of dot, a ramp made recovery from the dead
+  // poses WORSE — never, against 137 s for the hard refusal — because partial throttle at a small
+  // outward angle builds outward speed for a controller that then has a faster car to turn. The
+  // hard refusal only lets the car move once it is pointing home, which is what recovers it. Their
+  // OBSERVATION was exact and their proposed lever was the wrong one; CLAUDE.md's own rule.
   if (throttle !== 0 && Math.sign(throttle) * dot > 0) throttle = 0;
-  const leaving = nx * (vx ?? 0) + nz * (vz ?? 0) > 0;
-  const brake = leaving ? Math.max(controls.brake ?? 0, Math.min(1, out / 30)) : (controls.brake ?? 0);
+
+  const outV = nx * (vx ?? 0) + nz * (vz ?? 0);
+  const depthK = Math.min(1, out / FENCE_FULL_M);
+  // (a) How fast it is leaving, in proportion. See FENCE_BRAKE_MS: this replaced a sign test on a
+  //     quantity that is numerical noise in the one pose nothing had ever exercised.
+  let k = Math.min(1, Math.max(0, outV) / FENCE_BRAKE_MS);
+  // (b) And a crawl in any direction, unless the car is already coming home faster than one.
+  const homing = outV < -FENCE_CRAWL_MS;
+  if (!homing) {
+    const speed = Math.hypot(vx ?? 0, vz ?? 0);
+    k = Math.max(k, Math.min(1, Math.max(0, speed - FENCE_CRAWL_MS) / FENCE_CRAWL_MS));
+  }
+  const brake = Math.max(controls.brake ?? 0, depthK * k);
   return { controls: { ...controls, throttle, brake }, out: +out.toFixed(2), held: true,
-    leaving, outward: +dot.toFixed(3) };
+    // `leaving` is any outward motion at all, which is what it always meant; the BRAKE is what
+    // stopped being a step. Kept because both hosts and the gate report it.
+    leaving: outV > 0, homing, outward: +dot.toFixed(3), outwardMs: +outV.toFixed(4) };
 }

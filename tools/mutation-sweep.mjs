@@ -359,6 +359,44 @@ const MUTATIONS = [
     to: '    if (false) { this._markerSig = sig; this._dirty.map = true; }',
     why: 'a moving blip stops redrawing the minimap for a stationary player',
   },
+  // ---- src/blockers.js: the world fence
+  {
+    /**
+     * PUTS THE SIGN TEST BACK. This is the defect itself: a car at rest outside the fence has an
+     * outward velocity of numerical noise whose sign flips, so about half of all frames scored a
+     * full brake and a parked car 30 m out was held on a mean brake of 0.990. Nothing errors and
+     * the fence still contains — it contains by pinning the car, and 180 s of full throttle at the
+     * tangential pose then moves it one metre.
+     */
+    id: 'fence-latch', file: 'src/blockers.js',
+    find: '  let k = Math.min(1, Math.max(0, outV) / FENCE_BRAKE_MS);',
+    to: '  let k = outV > 0 ? 1 : 0;',
+    why: 'a parked car outside the fence is held on full brake by its own rounding error',
+  },
+  {
+    /**
+     * DROPS THE CRAWL. The car is un-pinned and nothing replaces the containment the pin was
+     * accidentally providing: measured, 180 s of held throttle tours 3,074 m along the outside of
+     * the world at 146 km/h. Every other fence property still holds, which is why this needs its
+     * own check rather than riding on the ones above.
+     */
+    id: 'fence-crawl', file: 'src/blockers.js',
+    find: '    k = Math.max(k, Math.min(1, Math.max(0, speed - FENCE_CRAWL_MS) / FENCE_CRAWL_MS));',
+    to: '    k = Math.max(k, 0);',
+    why: 'the outside of the world can be toured at 146 km/h again',
+  },
+  {
+    /**
+     * CAPS A CAR THAT IS COMING HOME. The dead end CLAUDE.md records twice — the wrecked car with
+     * no power, and the first world fence that stranded the player 786 m out — arriving a third
+     * time through the crawl. Everything still recovers, just slower, which is exactly the kind of
+     * regression a gate has to measure rather than look at.
+     */
+    id: 'fence-homing', file: 'src/blockers.js',
+    find: '  const homing = outV < -FENCE_CRAWL_MS;',
+    to: '  const homing = false;',
+    why: 'driving home is slowed to a crawl, which is how the fence stranded a player before',
+  },
   // ---- district/main.js: no offline gate imports it, so these are invisible by construction.
   {
     /**
