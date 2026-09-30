@@ -892,15 +892,25 @@ export function composeWanted(s = {}) {
 export function composeLaw(s = {}) {
   const sc = s.scene;
   if (sc) {
+    /**
+     * THE DISTANCE IS IN THE OBJECTIVE, NOT THE SUBTITLE, and that is a correction. It was a
+     * subtitle, and src/hud.js's `HOLDS_MISSION_SUBTITLE` hands a running mission's objective to
+     * the subtitle of any tenant above it — so the number was deleted whenever a mission was live,
+     * which is most of the game. A blind playtester measured it at **0 of 289** law glances with a
+     * distance while a mission ran, against 46 of 57 when none was, on one 1.04 km drive.
+     *
+     * The page has an element for an objective's distance and dirty-checks it per whole metre, so
+     * this is also where it is cheapest; `objectiveLine` renders it for a host with no canvas.
+     */
     return sc.stopped
-      ? { objective: 'STOPPED AT THE SCENE', subtitle: 'leaving costs nothing now' }
-      : { objective: 'STOP AT THE SCENE',
-        subtitle: `leaving is a second offence — ${Math.max(0, sc.leaveIn ?? 0).toFixed(0)} m` };
+      ? { objective: { text: 'STOPPED AT THE SCENE' }, subtitle: 'leaving costs nothing now' }
+      : { objective: { text: 'STOP AT THE SCENE', distance: Math.max(0, sc.leaveIn ?? 0) },
+        subtitle: 'leaving is a second offence' };
   }
   const n = s.notice;
   if (n && (n.age ?? Infinity) < LAW_NOTICE_S) {
     const stars = Math.max(0, s.stars | 0);
-    return { objective: String(n.label).toUpperCase(),
+    return { objective: { text: String(n.label).toUpperCase() },
       subtitle: stars > 0 ? `wanted — ${stars} star${stars === 1 ? '' : 's'}` : 'nobody saw it' };
   }
   return null;

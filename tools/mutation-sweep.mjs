@@ -337,6 +337,137 @@ const MUTATIONS = [
   },
   {
     /**
+     * PUTS THE LAW LINE'S DISTANCE BACK IN THE SUBTITLE, where `HOLDS_MISSION_SUBTITLE` deletes it
+     * whenever a mission is live — which a blind playtester measured at 0 of 289 law glances with a
+     * distance against 46 of 57 with no mission, on one 1.04 km drive. Nothing errors; the line
+     * still reads perfectly with no mission running, which is why it shipped.
+     */
+    id: 'law-distance', file: 'src/wanted.js',
+    find: "      : { objective: { text: 'STOP AT THE SCENE', distance: Math.max(0, sc.leaveIn ?? 0) },\n        subtitle: 'leaving is a second offence' };",
+    to: "      : { objective: { text: 'STOP AT THE SCENE' },\n        subtitle: `leaving is a second offence — ${Math.max(0, sc.leaveIn ?? 0).toFixed(0)} m` };",
+    why: 'the 85 m countdown disappears again whenever a mission is running',
+  },
+  {
+    /**
+     * PRINTS THE DISTANCE FROM THE SCENE INSTEAD OF THE DISTANCE TO THE CHARGE — the exact
+     * inversion the line exists to avoid, and a number that counts UP while the danger grows.
+     * Every check read `leaveIn` off the snapshot rather than off the composed line, so this was
+     * missed by the whole offline list.
+     */
+    id: 'law-inverted', file: 'src/wanted.js',
+    find: "      : { objective: { text: 'STOP AT THE SCENE', distance: Math.max(0, sc.leaveIn ?? 0) },",
+    to: "      : { objective: { text: 'STOP AT THE SCENE', distance: Math.max(0, sc.d ?? 0) },",
+    why: 'the band counts up from the scene instead of down to the charge',
+  },
+  {
+    /**
+     * DECOUPLES THE SCENE'S REPORTED DISTANCE FROM THE REAL ONE. `_watchScene` still decides
+     * correctly on its own local, so the charge fires at exactly the same place and only the number
+     * on screen is wrong — and the old relation check (`d + leaveIn === SCENE_LEAVE_M`) is an
+     * algebraic identity in `sc.d`, so it passed for this and for `sc.d = 0` alike.
+     */
+    id: 'scene-halved', file: 'src/wanted.js',
+    find: '    sc.d = d;',
+    to: '    sc.d = d * 0.5;',
+    why: 'the band promises 42 m of room when there are 21',
+  },
+  {
+    /**
+     * FREEZES THE EVADE COUNTDOWN at the full cooldown. Every sample of `remaining` was taken IN
+     * CONTACT, where `evadeTimer` is pinned at zero and the two sides of the check are the same
+     * number — so `EVADING 44s` for ever passed the whole offline list, which is the playtester's
+     * original complaint reinstated.
+     */
+    id: 'evade-frozen', file: 'src/wanted.js',
+    find: '      remaining: this.stars > 0 ? Math.max(0, req - this.evadeTimer) : 0,',
+    to: '      remaining: this.stars > 0 ? req : 0,',
+    why: 'the escape countdown stops counting down',
+  },
+  {
+    /**
+     * DROPS THE NOTICE'S SUBTITLE. Only `objective` was ever asserted for the notice line, so a
+     * crime that has just made the player wanted says "nobody saw it".
+     */
+    id: 'notice-quiet', file: 'src/wanted.js',
+    find: "      subtitle: stars > 0 ? `wanted — ${stars} star${stars === 1 ? '' : 's'}` : 'nobody saw it' };",
+    to: "      subtitle: 'nobody saw it' };",
+    why: 'a crime that raised the wanted level reports that nobody saw it',
+  },
+  {
+    /**
+     * STOPS THE MINIMAP ROTATING WITH THE CAR — the most visible minimap bug there is, and it
+     * passed all 68 checks the file had, because they held the heading at 0 and asserted only
+     * direction and monotonicity.
+     */
+    id: 'map-norotate', file: 'src/hud.js',
+    find: '    const rot = northUp ? 0 : -s.heading;',
+    to: '    const rot = 0;',
+    why: 'the minimap freezes north-up and stops being car-relative',
+  },
+  {
+    /**
+     * HALVES THE MAP SCALE. The blip checks asserted "further away draws further out", which a
+     * uniform scale error satisfies exactly.
+     */
+    id: 'map-scale', file: 'src/hud.js',
+    find: '    const ppm = w / zoom;                       // design px per world metre',
+    to: '    const ppm = w / zoom / 2;                       // design px per world metre',
+    why: 'every blip draws at half its real distance from the car',
+  },
+  {
+    /**
+     * DROPS THE `m.x` TERM FROM THE MARKER HASH. The only arm over it moved a blip in Z, so a
+     * police car closing purely in x stops redrawing the map for a stationary player.
+     */
+    id: 'hash-x', file: 'src/hud.js',
+    find: '        sig += m.x + m.z * 7.13 + (m.kind ? m.kind.charCodeAt(0) : 0) * 131 + i * 0.011;',
+    to: '        sig += m.z * 7.13 + (m.kind ? m.kind.charCodeAt(0) : 0) * 131 + i * 0.011;',
+    why: 'a blip moving along x stops redrawing the minimap',
+  },
+  {
+    /**
+     * DROPS THE WAYPOINT FROM THE HASH. Its own comment says it is there so the on-foot car
+     * waypoint, which is one reused object, still redraws the map.
+     */
+    id: 'hash-wp', file: 'src/hud.js',
+    find: '    if (s.waypoint) sig += s.waypoint.x * 3.7 + s.waypoint.z * 11.9 + 4409;',
+    to: '    if (false) sig += 0;',
+    why: 'a moving waypoint stops redrawing the minimap',
+  },
+  {
+    /**
+     * DECOUPLES THE CUE'S THRESHOLD FROM THE EXPORTED ONE, one line below the constant that exists
+     * to stop it — leaving a band 0.9% wide where the page draws a cue and `look()` says null.
+     */
+    id: 'pull-local', file: 'src/hud.js',
+    find: '    const armFull = PULL_FULL_PX;',
+    to: '    const armFull = L.w / 2;',
+    why: 'the page and the harness disagree about the smallest visible steering pull',
+  },
+  {
+    /**
+     * THE DRAIN NEVER SHOWS AT ONE STAR, which is the case that matters most — am I about to be
+     * clear? The drain arm used three stars only.
+     */
+    id: 'drain-onestar', file: 'src/hud.js',
+    find: '    const drainAt = s.wanted - 1;',
+    to: '    const drainAt = s.wanted > 1 ? s.wanted - 1 : -1;',
+    why: 'the last star never drains, so the last escape has no countdown on the meter',
+  },
+  {
+    /**
+     * DROPS `evade` AND `wantedNote` FROM THE STATUS PANEL'S DIRTY LIST. Nothing errors and the
+     * panel still draws — once. Measured over an 18 s four-star escape: 1 redraw instead of 1,079,
+     * one note instead of eighteen, one star alpha instead of 739. The playtester's original
+     * complaint, verbatim, with every check green.
+     */
+    id: 'status-dirty', file: 'src/hud.js',
+    find: "    else if (k === 'wanted' || k === 'weapon' || k === 'wantedFlash'\n      || k === 'evade' || k === 'wantedNote') this._dirty.status = true;",
+    to: "    else if (k === 'wanted' || k === 'weapon' || k === 'wantedFlash') this._dirty.status = true;",
+    why: 'the whole wanted readout freezes on its first frame',
+  },
+  {
+    /**
      * PINS THE STAR DRAIN OFF. Nothing else changes: the meter still counts, still flashes, and
      * still sheds — it just stops saying how nearly clear you are, which is the state a playtester
      * escaped four stars in over 96 s while reporting the count as the only field that ever moved.

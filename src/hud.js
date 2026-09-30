@@ -654,6 +654,21 @@ export function disposeDistrictMaps() {
  * would have been left behind. A tenant BELOW the mission cannot be in it: there is no running
  * mission when one of those wins.
  *
+ * AND THE RULE COST THE LAW LINE ITS NUMBER, WHICH IS WHY THE NUMBER MOVED. The justification
+ * above — "the fence's own subtitle is a distance the objective already implies" — is true of
+ * "TURN BACK" and false of "STOP AT THE SCENE", which implies no distance at all. A blind
+ * playtester cross-tabbed one 1.04 km drive: the law tenant held the objective band in 346 of 511
+ * glances, and the distance to the charge appeared in **0 of 289** of them while a mission was
+ * live against 46 of 57 when none was. The three lines they read most were
+ * "STOPPED AT THE SCENE / still on: LOSE THEM" (129x), "STOP AT THE SCENE / still on: DELIVER THE
+ * PARCEL TO THE MARINA" (61x) and "STOP AT THE SCENE / still on: LOSE THEM" (46x) — the last of
+ * which tells a player to stop at a casualty and shake a police tail in two lines, with the number
+ * that would let them trade the two off deleted to fit the second instruction.
+ *
+ * So the law tenant's distance is in its OBJECTIVE now, where the page has an element for it and
+ * nothing can overwrite it, and the mission keeps the subtitle. Both hosts render it through
+ * `objectiveLine`.
+ *
  * `wreck` is deliberately not in the set. Its own subtitle is a countdown to the replacement car,
  * which is the only thing the player is waiting on for those four seconds, and a wrecked car has
  * almost certainly failed the mission it was on anyway — every authored `healthBelow` gate fires
@@ -662,6 +677,22 @@ export function disposeDistrictMaps() {
  * Pure, so both hosts compose it identically and either can walk all six.
  */
 const HOLDS_MISSION_SUBTITLE = new Set(['fence', 'law']);
+
+/**
+ * AN OBJECTIVE AS ONE LINE OF WORDS, for a host with no canvas.
+ *
+ * The page draws an objective's `distance` in its own element, dirty-checked per whole metre, so
+ * the structured form is what it wants. A harness has no element, and `look()` returning
+ * `[object Object]` — or, worse, dropping the number — is how the two hosts stop showing the same
+ * thing, which is the entire reason `composeBand` was moved out of district/main.js. One
+ * flattening, exported, used by everything without a canvas.
+ */
+export function objectiveLine(o) {
+  if (o == null) return null;
+  if (typeof o === 'string') return o;
+  const head = o.text || o.title || '';
+  return o.distance == null ? head : `${head} — ${Math.round(o.distance)} m`;
+}
 export function composeBand({ wreck = null, fence = null, law = null, mission = null,
   ended = null, offer = null } = {}) {
   const pick = wreck ?? fence ?? law ?? mission ?? ended ?? offer ?? null;
@@ -1541,7 +1572,14 @@ export class HUD {
   _pullCue(ctx, L, pull) {
     const mag = Math.abs(pull);
     const frac = Math.min(1, mag / PULL_CAP);
-    const armFull = L.w / 2 - 1;
+    /**
+     * FROM THE EXPORT, NOT RECOMPUTED. This read `L.w / 2 - 1` locally, one line below the constant
+     * that exists to stop exactly that — so the cue's real threshold and the `PULL_MIN` the harness
+     * imports were two separate computations of one quantity. A blind reviewer changed the local to
+     * `L.w / 2` and every check passed, leaving a band 0.9% wide where the page draws a cue and
+     * `look()` reports null. `LAYOUT` is this module's own, so the two cannot diverge.
+     */
+    const armFull = PULL_FULL_PX;
     if (!(armFull * frac >= 1)) return;
     const y = 20.5, h = 3.5, cx = L.w / 2;
     // The track, dim, so the centre tick is readable as "straight".

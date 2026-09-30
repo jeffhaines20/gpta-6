@@ -25,7 +25,7 @@
 //
 //   node tools/hud-cue.mjs
 import { THEME, LAYOUT, composeBand, MINIMAP_ZOOM_M, MINIMAP_REACH_M,
-  PULL_CAP, PULL_MIN, PULL_MIN_PX, PULL_FULL_PX, PULL_TICK_PX } from '../src/hud.js';
+  PULL_CAP, PULL_MIN, PULL_MIN_PX, PULL_FULL_PX, PULL_TICK_PX, objectiveLine } from '../src/hud.js';
 import { composeWanted, composeLaw, LAW_NOTICE_S, STATES } from '../src/wanted.js';
 
 const checks = [];
@@ -87,7 +87,9 @@ function mkEl() {
     style: { setProperty() {}, removeProperty() {}, getPropertyValue: () => '' },
     dataset: {}, children: [], width: 512, height: 512, textContent: '',
     classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
-    appendChild(c) { el.children.push(c); return c; },
+    appendChild(c) { el.children.push(c); if (c && c.nodeType === 3) el.textContent += c.textContent; return c; },
+    replaceChildren(...cs) { el.children.length = 0; el.textContent = '';
+      for (const c of cs) el.appendChild(c); },
     setAttribute() {}, removeAttribute() {}, remove() {}, getContext: () => mkCtx(id),
     addEventListener() {}, removeEventListener() {},
     querySelector: () => null, querySelectorAll: () => [],
@@ -103,6 +105,12 @@ globalThis.window = {
 };
 globalThis.document = {
   createElement: () => mkEl(), createElementNS: () => mkEl(),
+  /**
+   * `_syncText` builds the subtitle out of text nodes when it has a speaker, so the stub needs
+   * one. It carries `textContent` because that is what this gate reads the objective's distance
+   * off — the distance is DOM text, not a canvas fill, so the recorder cannot see it.
+   */
+  createTextNode: (t) => ({ textContent: String(t ?? ''), nodeType: 3 }),
   head: mkEl(), body: mkEl(), getElementById: () => null,
   querySelector: () => null, querySelectorAll: () => [],
   addEventListener() {}, removeEventListener() {},
@@ -276,9 +284,24 @@ console.log(`\n  the cue's arm is ${PULL_FULL_PX} px at the ${PULL_CAP} cap, so 
     console.log(`    ${q.toFixed(5).padStart(8)}  ${(f.arm ? f.arm.w.toFixed(2) : 'none').padStart(14)}`);
   }
 }
-check('the threshold is one pixel of arm, derived from the layout',
-  Math.abs(PULL_MIN - PULL_CAP / PULL_FULL_PX) < 1e-12 && PULL_FULL_PX === LAYOUT.vitals.w / 2 - 1,
-  `${PULL_MIN.toFixed(5)} from ${PULL_FULL_PX} px`);
+/**
+ * MEASURED OFF THE DRAWN ARM, because the first version of this check was circular twice over:
+ * `PULL_MIN === PULL_CAP / PULL_FULL_PX` compares a constant with the expression it is DEFINED as,
+ * and the second clause re-derived `LAYOUT.vitals.w / 2 - 1`, which is the copied 115 in a
+ * different spelling — the very thing the neighbouring comment says not to do. A reviewer changed
+ * `_pullCue`'s own local `armFull` to `L.w / 2` and it passed.
+ *
+ * What has teeth is the arm the cue actually DRAWS at the cap: `PULL_MIN` must be one pixel of
+ * THAT, so the page's threshold and the harness's are one quantity.
+ */
+const drawnFull = settledAt(PULL_CAP).arm?.w ?? NaN;
+console.log(`  the arm drawn at the ${PULL_CAP} cap is ${drawnFull.toFixed(2)} px; one pixel of it ` +
+  `is ${(PULL_CAP / drawnFull).toFixed(5)} of pull against PULL_MIN ${PULL_MIN.toFixed(5)}`);
+check('the threshold is one pixel of the arm the cue actually draws',
+  Math.abs(PULL_MIN - PULL_CAP / drawnFull) < 1e-6,
+  `${PULL_MIN.toFixed(6)} against ${(PULL_CAP / drawnFull).toFixed(6)}`);
+check('and the exported arm length is the one drawn, not a second copy of it',
+  Math.abs(PULL_FULL_PX - drawnFull) < 1e-6, `${PULL_FULL_PX} against ${drawnFull.toFixed(2)}`);
 check('a pull below one pixel of arm draws nothing', settledAt(PULL_MIN * 0.5).band.length === 0,
   `${settledAt(PULL_MIN * 0.5).band.length} rects at ${(PULL_MIN * 0.5).toFixed(5)}`);
 check('and a pull above it draws', settledAt(PULL_MIN * 1.5).band.length > 0,
@@ -465,6 +488,23 @@ const alphaOf = (c) => {
     seen.push({ e, top, below });
     console.log(`  ${e.toFixed(2).padStart(5)}   ${top.toFixed(3).padStart(13)}   ${below.toFixed(3)}`);
   }
+  /**
+   * AT EVERY STAR COUNT, and one star is the case that matters most — "am I about to be clear?".
+   * This arm used `stars: 3` only, so a reviewer's `drainAt = stars > 1 ? stars - 1 : -1` — the
+   * drain never showing at one star — passed every check in the file.
+   */
+  console.log('\n  stars   drained top-star alpha at evade 0.75');
+  const perStar = [];
+  for (const n of [1, 2, 3, 4, 5]) {
+    const f = statusAt(composeWanted({ stars: n, state: STATES.SEARCH, remaining: 9, evade: 0.75 }));
+    perStar.push({ n, top: alphaOf(f.star[n - 1]) });
+    console.log(`  ${String(n).padStart(5)}   ${alphaOf(f.star[n - 1]).toFixed(3)}`);
+  }
+  check('the drain shows at every star count, including one',
+    perStar.every((r) => r.top > 0.26 && r.top < 1), perStar.map((r) => r.top.toFixed(3)).join(' '));
+  check('and it is the same reading at each, because it is the same quantity',
+    new Set(perStar.map((r) => r.top.toFixed(6))).size === 1,
+    perStar.map((r) => r.top.toFixed(3)).join(' '));
   check('the top star drains monotonically with the escape clock',
     seen.every((r, i) => i === 0 || r.top < seen[i - 1].top),
     seen.map((r) => r.top.toFixed(3)).join(' > '));
@@ -547,6 +587,131 @@ const alphaOf = (c) => {
   check('the offence line and the star meter\'s alarm end together',
     LAW_NOTICE_S === fresh, `${LAW_NOTICE_S} against ${fresh}`);
   hud.escalateSeconds = fresh;    // leave the shared HUD as it was found
+}
+
+/**
+ * THE OBJECTIVE'S DISTANCE ELEMENT, which nothing looked at — and a playtester measured the
+ * consequence from the other end: the law tenant's number appeared in 0 of 289 glances while a
+ * mission was live, because `HOLDS_MISSION_SUBTITLE` overwrote the subtitle it used to live in.
+ * It is in the OBJECTIVE now, where the page has an element for it and dirty-checks it per whole
+ * metre. `_write` sets `textContent`, so this is read off the DOM stub rather than the canvas.
+ */
+console.log('\nTHE OBJECTIVE BAND — the distance element');
+{
+  const feed = (objective, subtitle) => {
+    hud.update({ dt: 1 / 60, visible: true, speed: 0, health: 1, armour: 0,
+      objective, subtitle: subtitle ?? null,
+      vehicle: { roadSpeed: 0, forwardSpeed: 0, steerPull: 0,
+        position: { x: 0, z: 0 }, quaternion: { w: 1, x: 0, y: 0, z: 0 } } });
+    return { text: hud.elObjText.textContent, dist: hud.elObjDist.textContent,
+      sub: hud.elSub.textContent };
+  };
+  const plain = feed('TURN BACK', 'the district ends here');
+  const withD = feed({ text: 'STOP AT THE SCENE', distance: 67 }, 'leaving is a second offence');
+  const closer = feed({ text: 'STOP AT THE SCENE', distance: 12 }, 'leaving is a second offence');
+  const none = feed({ text: 'STOPPED AT THE SCENE' }, 'leaving costs nothing now');
+  console.log(`    "TURN BACK"                      -> text "${plain.text}" dist "${plain.dist}"`);
+  console.log(`    STOP AT THE SCENE, distance 67   -> text "${withD.text}" dist "${withD.dist}"`);
+  console.log(`    the same, distance 12            -> text "${closer.text}" dist "${closer.dist}"`);
+  console.log(`    STOPPED, no distance             -> text "${none.text}" dist "${none.dist}"`);
+  check('an objective with a distance draws it', withD.dist === '67 m', `"${withD.dist}"`);
+  check('and the number follows the value', closer.dist === '12 m', `"${closer.dist}"`);
+  check('KNOWN-BAD: an objective with no distance draws none', none.dist === '' && plain.dist === '',
+    `"${none.dist}" / "${plain.dist}"`);
+  check('and the words are drawn either way', withD.text === 'STOP AT THE SCENE'
+    && plain.text === 'TURN BACK', `${withD.text} / ${plain.text}`);
+  /**
+   * AND `objectiveLine` IS THE SAME WORDS FOR A HOST WITH NO CANVAS. The harness has no element,
+   * so a flattening that dropped the number would put a playtester back where they started.
+   */
+  const line = objectiveLine({ text: 'STOP AT THE SCENE', distance: 67 });
+  console.log(`    objectiveLine -> "${line}"`);
+  check('objectiveLine carries the same words and the same number as the page draws',
+    line.startsWith(withD.text) && line.endsWith(withD.dist), `"${line}" against "${withD.text}" + "${withD.dist}"`);
+  check('and it passes a plain string through unchanged',
+    objectiveLine('TURN BACK') === 'TURN BACK' && objectiveLine(null) === null, 'ok');
+  /**
+   * AND THE NUMBER SURVIVES A RUNNING MISSION, which is the whole finding. `composeBand` hands the
+   * mission's objective to the subtitle of any tenant above it, so a distance in the SUBTITLE is
+   * deleted whenever a mission is live — most of the game.
+   */
+  const law = composeLaw({ stars: 1, scene: { d: 18, leaveIn: 67, stopped: false } });
+  const alone = composeBand({ law });
+  const running = composeBand({ law, mission: { objective: 'DRIVE EAST ALONG MARLIN STREET' } });
+  console.log(`    law alone     -> "${objectiveLine(alone.objective)}" / "${alone.subtitle}"`);
+  console.log(`    law + mission -> "${objectiveLine(running.objective)}" / "${running.subtitle}"`);
+  check('the law line keeps its distance with a mission running',
+    /\d+\s*m$/.test(objectiveLine(running.objective)), objectiveLine(running.objective));
+  check('and it is the same number as with no mission',
+    objectiveLine(running.objective) === objectiveLine(alone.objective),
+    `${objectiveLine(running.objective)} / ${objectiveLine(alone.objective)}`);
+  check('while the mission still keeps the subtitle', running.subtitle.includes('DRIVE EAST'),
+    running.subtitle);
+  // And the page draws it in that state, not just the composer.
+  const drawn = feed(running.objective, running.subtitle);
+  check('the page draws that distance too, with the mission in the subtitle',
+    drawn.dist === '67 m', `"${drawn.dist}" / "${drawn.sub}"`);
+}
+
+/**
+ * THE STATUS PANEL'S DIRTY WIRING, which every check above is blind to because `statusAt` calls
+ * `layout()` to force a pass. That was the right fix for the clean-record arm — at zero stars
+ * nothing dirties the panel, so 200 frames pass with no draw and the arm cannot tell "no note
+ * drawn" from "nothing drawn" — and it blinds the gate to `_set`'s dirty list.
+ *
+ * A blind reviewer dropped `evade` and `wantedNote` from that list and ALL 68 CHECKS PASSED, with
+ * the panel redrawing ONCE over an 18 second four-star escape instead of 1,080 times: one note
+ * drawn instead of eighteen, one star alpha instead of 740. That is the playtester's original
+ * complaint reinstated verbatim — "the only field of the HUD that ever differed was the star
+ * count" — with the gate green. So this arm forces nothing and counts.
+ */
+console.log('\nSTATUS PANEL — does a changing readout reach the screen?');
+{
+  const run = (vary) => {
+    hud.escalateSeconds = 0; hud._escalateUntil = -1;
+    hud.layout();
+    // Settle at the starting state so the forced redraw is not what we count.
+    for (let i = 0; i < 20; i++) {
+      hud.update({ dt: 1 / 60, visible: true, speed: 0, health: 1, armour: 0,
+        wanted: 3, wantedFlash: false, evade: 0, wantedNote: 'EVADING 18s',
+        vehicle: { roadSpeed: 0, forwardSpeed: 0, steerPull: 0,
+          position: { x: 0, z: 0 }, quaternion: { w: 1, x: 0, y: 0, z: 0 } } });
+    }
+    let passes = 0;
+    const notes = new Set(), alphas = new Set();
+    const N = 1080;                        // 18 s at 60 Hz
+    for (let i = 0; i < N; i++) {
+      rects.length = 0; fills.length = 0; texts.length = 0; paths.length = 0;
+      const frac = i / N;
+      hud.update({ dt: 1 / 60, visible: true, speed: 0, health: 1, armour: 0,
+        wanted: 3, wantedFlash: false,
+        evade: vary ? frac : 0,
+        wantedNote: vary ? `EVADING ${Math.max(1, Math.ceil(18 * (1 - frac)))}s` : 'EVADING 18s',
+        vehicle: { roadSpeed: 0, forwardSpeed: 0, steerPull: 0,
+          position: { x: 0, z: 0 }, quaternion: { w: 1, x: 0, y: 0, z: 0 } } });
+      if (isStatusPass(texts)) {
+        passes++;
+        const t = onStatus(texts).find((q) => q.y === 32);
+        if (t) notes.add(t.text);
+        alphas.add(alphaOf(onStatus(fills)[2].fill));
+      }
+    }
+    return { passes, notes: notes.size, alphas: alphas.size, of: N };
+  };
+  const varying = run(true), fixed = run(false);
+  console.log(`    over ${varying.of} frames of a four-star escape, evade and the note changing:`);
+  console.log(`      status redraws ${varying.passes}, distinct notes ${varying.notes}, ` +
+    `distinct top-star alphas ${varying.alphas}`);
+  console.log(`    the same with both HELD fixed: redraws ${fixed.passes}, notes ${fixed.notes}, ` +
+    `alphas ${fixed.alphas}`);
+  check('a changing evade and note redraw the status panel every frame, not once',
+    varying.passes > varying.of * 0.9, `${varying.passes} of ${varying.of}`);
+  check('and the drain and the words both reach the screen as they change',
+    varying.notes > 10 && varying.alphas > 100,
+    `${varying.notes} notes, ${varying.alphas} alphas`);
+  check('KNOWN-BAD: holding both fixed stops the redraws, so the count above is the wiring',
+    fixed.passes <= 1, `${fixed.passes} redraws with nothing changing`);
+  hud.escalateSeconds = new HUD({}).escalateSeconds;
 }
 
 /**
@@ -766,6 +931,143 @@ console.log('\nMINIMAP — the blips');
   check('and the on-map ones are at the on-map radius',
     [north, south, east, far].every((r) => Math.abs(b(r).r - ON_MAP_R) < 1e-9),
     [north, south, east, far].map((r) => b(r).r).join(' '));
+
+
+  /**
+   * THE PROJECTION ITSELF, which direction-and-monotonicity did not test. A blind reviewer wrote
+   * four wrong projections that ALL PASSED the 68 checks: `rot = 0` (the map stops rotating with
+   * the car, the most visible minimap bug there is), the rotation reversed, every blip at half
+   * scale, and an anisotropic squash. The commit that added those checks quoted a hand-derived
+   * coordinate — 71.97 for a marker 40 m north — and left it in the commit message rather than
+   * the gate.
+   *
+   * What is asserted here is the minimap's own CONTRACT rather than its arithmetic: the map is
+   * `zoomMetres` across its width (`MINIMAP_ZOOM_M / 2` is why the reach is what it is), it rotates
+   * with the car unless `northUp`, and it is isotropic. Re-deriving the transform and checking it
+   * agrees with itself is the circular check CLAUDE.md records under the shunt-fit ladder.
+   */
+  console.log('\n    the projection: scale, rotation and isotropy');
+  {
+    const ppm = LAYOUT.map.w / hud.state.zoomMetres;   // design px per world metre, the contract
+    /** Where a marker `m` metres away on bearing `b` (0 = north) lands, at a given car heading. */
+    const at = (metres, bearing, heading) => {
+      const wx = AT.x + Math.sin(bearing) * metres, wz = AT.z - Math.cos(bearing) * metres;
+      const feed = () => {
+        rects.length = 0; fills.length = 0; texts.length = 0; paths.length = 0;
+        hud.update({ dt: 1 / 60, visible: true, speed: 0, health: 1, armour: 0,
+          wanted: 0, wantedNote: null, evade: 0, objective: null, subtitle: null,
+          markers: [{ x: wx, z: wz, kind: 'enemy' }], waypoint: null,
+          player: { x: AT.x, z: AT.z, heading } });
+      };
+      for (let i = 0; i < 600; i++) feed();
+      hud.layout();
+      feed();
+      const b = blipsOf(paths.filter((q) => q.el === MAP_EL))[0];
+      if (!b) return null;
+      // The car's own position on the plate: centre, pushed below by the forward bias.
+      const cx = LAYOUT.map.w / 2, cy = LAYOUT.map.h / 2 + LAYOUT.map.h * hud.minimap.forwardBias;
+      return { x: b.x, y: b.y, r: Math.hypot(b.x - cx, b.y - cy),
+        th: Math.atan2(b.x - cx, -(b.y - cy)) };
+    };
+    const n40 = at(40, 0, 0), n80 = at(80, 0, 0), e40 = at(40, Math.PI / 2, 0);
+    console.log(`      40 m north, heading 0: ${n40.r.toFixed(2)} px from the car ` +
+      `(contract: ${(40 * ppm).toFixed(2)})`);
+    console.log(`      80 m north:            ${n80.r.toFixed(2)} px`);
+    console.log(`      40 m east:             ${e40.r.toFixed(2)} px`);
+    check('a blip sits at its world distance times the map scale, which is the zoom contract',
+      Math.abs(n40.r - 40 * ppm) < 1, `${n40.r.toFixed(2)} against ${(40 * ppm).toFixed(2)} px`);
+    check('and twice as far draws twice as far out, so the scale is not halved',
+      Math.abs(n80.r - 2 * n40.r) < 1, `${n80.r.toFixed(2)} against ${(2 * n40.r).toFixed(2)}`);
+    check('the projection is isotropic: 40 m east is as far from the car as 40 m north',
+      Math.abs(e40.r - n40.r) < 0.5, `${e40.r.toFixed(2)} against ${n40.r.toFixed(2)}`);
+    /**
+     * AND THE MAP ROTATES WITH THE CAR. `rot = 0` — the map frozen north-up while `northUp` is
+     * false — passed every check this file had.
+     */
+    const headings = [0, Math.PI / 4, Math.PI / 2, Math.PI];
+    const bearings = headings.map((h) => at(40, 0, h));
+    console.log('      a marker 40 m north, by car heading:');
+    for (let i = 0; i < headings.length; i++) {
+      console.log(`        heading ${(headings[i] * 180 / Math.PI).toFixed(0).padStart(3)} deg -> ` +
+        `(${bearings[i].x.toFixed(1)}, ${bearings[i].y.toFixed(1)}), ` +
+        `${(bearings[i].th * 180 / Math.PI).toFixed(1)} deg on the plate`);
+    }
+    check('the map rotates with the car, so a fixed marker moves round the plate',
+      new Set(bearings.map((b) => b.y.toFixed(1))).size === headings.length,
+      bearings.map((b) => b.y.toFixed(1)).join(' '));
+    // And it rotates the RIGHT WAY: a marker ahead stays ahead, so the plate angle is MINUS the
+    // heading. Checked as a relation over the sweep rather than a sign copied out of the source.
+    check('and it rotates the right way, so what is ahead of the car draws above it',
+      bearings.every((b, i) => {
+        const want = -headings[i];
+        let d = b.th - want;
+        while (d > Math.PI) d -= Math.PI * 2;
+        while (d < -Math.PI) d += Math.PI * 2;
+        return Math.abs(d) < 0.05;
+      }), bearings.map((b, i) => `${(b.th * 180 / Math.PI).toFixed(0)}/${(-headings[i] * 180 / Math.PI).toFixed(0)}`).join(' '));
+    check('and north-up mode holds it still, which is the control for that',
+      (() => {
+        const feed = (heading) => {
+          rects.length = 0; fills.length = 0; texts.length = 0; paths.length = 0;
+          hud.update({ dt: 1 / 60, visible: true, speed: 0, health: 1, armour: 0,
+            northUp: true, markers: [{ x: AT.x, z: AT.z - 40, kind: 'enemy' }], waypoint: null,
+            player: { x: AT.x, z: AT.z, heading } });
+        };
+        const ys = [0, Math.PI / 2].map((h) => {
+          for (let i = 0; i < 600; i++) feed(h);
+          hud.layout(); feed(h);
+          return blipsOf(paths.filter((q) => q.el === MAP_EL))[0]?.y;
+        });
+        hud.update({ northUp: false });
+        return ys[0] != null && Math.abs(ys[0] - ys[1]) < 0.5;
+      })(), 'north-up is heading-invariant');
+  }
+
+  /**
+   * AND THE MARKER HASH ON EVERY TERM IT CARRIES. The only arm this file had moved one blip 5 m in
+   * Z, so a reviewer dropped the `m.x` term, the `m.kind` term, the whole waypoint term and
+   * rounded the sum to the nearest integer — four mutations, all missed. Two of those terms exist
+   * only because a comment says why.
+   */
+  console.log('\n    the marker hash, per term');
+  {
+    const live = [{ x: AT.x, z: AT.z - 40, kind: 'enemy' }];
+    let wp = null;
+    const feed = () => {
+      rects.length = 0; fills.length = 0; texts.length = 0; paths.length = 0;
+      hud.update({ dt: 1 / 60, visible: true, speed: 0, health: 1, armour: 0,
+        wanted: 0, wantedNote: null, evade: 0, objective: null, subtitle: null,
+        markers: live, waypoint: wp, player: { x: AT.x, z: AT.z, heading: 0 } });
+    };
+    /** Settle, confirm the map is quiet, then apply `mutate` and report whether it redrew. */
+    const moves = (label, mutate) => {
+      for (let i = 0; i < 600; i++) feed();
+      let quiet = 0;
+      for (let i = 0; i < 20; i++) { feed(); if (isMapPass(rects)) quiet++; }
+      mutate();
+      feed();
+      const redrew = isMapPass(rects);
+      console.log(`      ${label.padEnd(34)} quiet ${quiet}, then ${redrew ? 'redrew' : 'DID NOT REDRAW'}`);
+      return { quiet, redrew };
+    };
+    const inZ = moves('a blip 5 m in z', () => { live[0].z += 5; });
+    const inX = moves('a blip 5 m in x', () => { live[0].x += 5; });
+    const small = moves('a blip 0.4 m, under a metre', () => { live[0].x += 0.4; });
+    const kind = moves('a blip changing kind in place', () => { live[0].kind = 'objective'; });
+    const added = moves('a second blip appearing', () => { live.push({ x: AT.x + 20, z: AT.z, kind: 'vehicle' }); });
+    const wpOn = moves('a waypoint appearing', () => { wp = { x: AT.x, z: AT.z - 30 }; });
+    const wpMove = moves('the waypoint moving 5 m', () => { wp = { x: AT.x, z: AT.z - 25 }; });
+    const all = { inZ, inX, small, kind, added, wpOn, wpMove };
+    check('a settled pose with an unchanged marker set stops redrawing the map',
+      Object.values(all).every((r) => r.quiet === 0),
+      Object.entries(all).map(([k, r]) => `${k}:${r.quiet}`).join(' '));
+    check('every term of the hash redraws the map: x, z, kind, count and the waypoint',
+      Object.values(all).every((r) => r.redrew),
+      Object.entries(all).filter(([, r]) => !r.redrew).map(([k]) => k).join(' ') || 'all seven');
+    check('and a sub-metre move counts, so the hash is not rounded',
+      small.redrew, `${small.redrew}`);
+    hud.update({ waypoint: null });
+  }
 
   /**
    * AND A BLIP THAT MOVES REDRAWS THE MAP. `HUD._set` compares by identity and the host mutates one

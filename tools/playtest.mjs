@@ -43,7 +43,7 @@ import { Traffic } from '../src/traffic.js';
 import { Pedestrians } from '../src/pedestrians.js';
 import { RoadGraph, followPath, ROUTE_LANE_M } from '../src/roadpath.js';
 import { MissionRunner, OUTCOMES, MissionBoard } from '../src/mission.js';
-import { composeBand, MINIMAP_REACH_M, PULL_MIN } from '../src/hud.js';
+import { composeBand, objectiveLine, MINIMAP_REACH_M, PULL_MIN } from '../src/hud.js';
 import { MISSIONS } from '../src/missions.js';
 
 const HZ = 120, DT = 1 / HZ;
@@ -858,7 +858,17 @@ export class Session {
         if (d < best) { best = d; idle = k; }
       }
     }
-    const wp = hud && hud.waypoint ? hud.waypoint : idle;
+    /**
+     * AND ON FOOT THE CAR IS THE WAYPOINT, which district/main.js has done since the marker round
+     * and this did not. A blind playtester stepped out, ran, and read `waypoint: null` at every
+     * distance out to 404 m while the band went on saying "GET BACK IN THE CAR" — and filed it as
+     * a page defect. It is not: `main.js:1819` posts `_carWaypoint` for exactly this case. The
+     * harness's copy of the same fallback was missing, which is the shape CLAUDE.md records as
+     * patching one tool and leaving its siblings, arriving from the harness side.
+     */
+    const wp = hud && hud.waypoint ? hud.waypoint
+      : onFoot ? { x: this.vehicle.position.x, z: this.vehicle.position.z }
+        : idle;
     let waypoint = null;
     if (wp) {
       const dx = wp.x - eye.x, dz = wp.z - eye.z, d = Math.hypot(dx, dz);
@@ -901,8 +911,16 @@ export class Session {
        */
       evade: +wantedLine.evade.toFixed(3),
       wantedNote: wantedLine.note,
-      // The band, exactly as the page composes it. `objective`/`subtitle` are what is on screen.
-      objective: band.objective,
+      /**
+       * The band, exactly as the page composes it. `objective`/`subtitle` are what is on screen.
+       *
+       * THROUGH `objectiveLine`, because an objective can carry a `distance` the page draws in its
+       * own element — and a harness that returned the object would give a playtester
+       * `[object Object]`, while one that returned only the words would drop the number. A
+       * playtester measured exactly that loss from the other end: 0 of 289 law glances with a
+       * distance while a mission was live.
+       */
+      objective: objectiveLine(band.objective),
       subtitle: band.subtitle,
       bandFrom: band.from,
       // hud() goes null when the mission ends, so without this a finished mission and no
@@ -916,17 +934,25 @@ export class Session {
        * the blip a player is looking at, and without it `look()` is harder to navigate by than
        * the game.
        */
+      /**
+       * THE MINIMAP'S CONTENTS. Every job on the board, plus THE CAR WHEN YOU ARE NOT IN IT —
+       * `MARKER_STYLE.vehicle` had existed in src/hud.js since it was written with nothing ever
+       * posting one, so three authored stages said "GET IN THE CAR" over a blank map.
+       *
+       * AND A BLIP BEYOND THE REACH IS CLAMPED TO THE EDGE, NOT DROPPED, because that is what the
+       * page does: `Minimap._marker` clamps any off-plate blip into the padded frame and draws it
+       * at the smaller of its two radii. This filtered by `range <= MINIMAP_REACH_M` and threw
+       * them away, so a blind playtester who ran 110.3 m from the car watched the blip vanish and
+       * searched for 191 s over eight legs without recovering it — on a page that was drawing it
+       * at the map edge the whole time. `edge` marks the clamped ones, because a player can see
+       * that a blip is pinned to the frame and knows the range is at least the reach.
+       */
       blips: this.board.markers()
         .map((k) => ({ id: k.id, ...bearingTo(k.x, k.z) }))
-        // AND THE CAR, WHEN YOU ARE NOT IN IT. `MARKER_STYLE.vehicle` had existed in src/hud.js
-        // since it was written with nothing ever posting one, so three authored stages said "GET
-        // IN THE CAR" over a blank map: a playtester spent 130 s in one of them going from 1.7 m
-        // to 71.2 m away. `carRange` was already here and a range with no bearing is what the
-        // board offer used to give — 703 m over 76 legs and never found.
         .concat(onFoot
           ? [{ id: 'car', ...bearingTo(this.vehicle.position.x, this.vehicle.position.z) }]
           : [])
-        .filter((k) => k.range <= MINIMAP_REACH_M)
+        .map((k) => (k.range > MINIMAP_REACH_M ? { ...k, edge: true } : k))
         .sort((a, b) => a.range - b.range),
       waypoint,
       // What is in front of the windscreen, nearest first, capped the way attention is.
@@ -1014,6 +1040,21 @@ export class Session {
  * driving. It is src/roadpath.js's own follower, which is the same one the route gate drives,
  * so a scenario that uses it is testing the world and not the controller.
  */
+/**
+ * TWO THINGS A SCENARIO AUTHOR NEEDS TO KNOW, both of which have cost a blind playtester runs:
+ *
+ * `arrived` CAN COST NO TIME. A route of two points is `done` on the first call, so this returns
+ * without stepping the session — a caller looping on it never advances the clock. Check
+ * `alreadyThere` and break.
+ *
+ * AND `look()`'s BEARING IS SIGNED OPPOSITE TO `drive({ steer })`. `steer = -bearing` converges
+ * (measured: bearing -2.46 -> -0.01); `steer = +bearing` diverges (range 30 -> 214 m). On foot
+ * `walk({ turn })` wants `heading - bearing` for the same reason. A playtester lost two scenarios
+ * and half a round to it, reporting that a player cannot run anybody over using only the
+ * windscreen — four controller configs, 120 s each, 0 hits, every arm ending against a wall. With
+ * the sign right a hit takes 2.8 s. The header's existing note about the on-foot x-mirror does not
+ * cover this, so it is written here where the autopilot is.
+ */
 export function driveTo(session, x, z,
   { maxSpeed = 16, timeout = 180, offset = ROUTE_LANE_M } = {}) {
   const from = session.vehicle.position;
@@ -1054,8 +1095,16 @@ export function driveTo(session, x, z,
     const f = followPath(path.points, { x: v.position.x, z: v.position.z, yaw: session._yaw(),
       speed: v.speed }, state, { maxSpeed, dt: DT * 8 });
     if (f.done) {
-      return { arrived: true, seconds: +(session.t - t0).toFixed(1), points: path.points.length,
-        metres: +path.length.toFixed(0), blocked };
+      /**
+       * `alreadyThere` MARKS AN ARRIVAL THAT COST NO TIME, and it is not cosmetic. A route of two
+       * points is `done` on the first call — `i >= points.length - 2` — so this returns without
+       * stepping the session at all, and a caller looping `while (...) driveTo(...)` never advances
+       * the clock and hangs. That killed two of a blind playtester's runs on a loop that looks
+       * correct. The flag lets a scenario break instead of spinning.
+       */
+      const seconds = +(session.t - t0).toFixed(1);
+      return { arrived: true, seconds, alreadyThere: seconds === 0,
+        points: path.points.length, metres: +path.length.toFixed(0), blocked };
     }
     /**
      * WEDGED IS NOT A TIMEOUT, and saying so is the point. The follower now backs out of a

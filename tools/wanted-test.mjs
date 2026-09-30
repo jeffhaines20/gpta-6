@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import { WantedSystem, CRIMES, RESPONSE, STATES, bindPursuit,
   SCENE_LEAVE_M, SCENE_STOP_MS, VictimWindow,
   composeWanted, composeLaw, LAW_NOTICE_S } from '../src/wanted.js';
+import { objectiveLine } from '../src/hud.js';
 
 const DT = 1 / 30;                      // the rate the game reports at, fixed
 const checks = [];
@@ -1068,25 +1069,59 @@ let searchSample;
       x += speed * DT;
       w.update(DT, { x, z: 0 });
       const s = w.hudState();
-      if (s.scene) seen.push({ d: s.scene.d, leaveIn: s.scene.leaveIn, line: composeLaw(s) });
+      if (s.scene) {
+        seen.push({ d: s.scene.d, leaveIn: s.scene.leaveIn, line: composeLaw(s),
+          // The distance recomputed from the car's own position and the scene's, which is what
+          // `_watchScene` decides on. `sc.d` has to BE this, not agree with a sibling field.
+          trueD: Math.hypot(x - s.scene.x, 0 - s.scene.z) });
+      }
       else if (!fledLine) fledLine = composeLaw(s);
     }
     const first = seen[0], last = seen[seen.length - 1];
-    console.log(`    at the scene:  "${atScene.objective}" / "${atScene.subtitle}"`);
+    console.log(`    at the scene:  "${objectiveLine(atScene.objective)}" / "${atScene.subtitle}"`);
     console.log(`    ${first.d.toFixed(1)} m out -> ${last.d.toFixed(1)} m out: ` +
       `leaveIn ${first.leaveIn.toFixed(1)} -> ${last.leaveIn.toFixed(1)} m`);
-    console.log(`    once it fired: "${fledLine?.objective}" / "${fledLine?.subtitle}"`);
-    check('a live scene takes the band', atScene && atScene.objective === 'STOP AT THE SCENE',
-      atScene);
-    check('the subtitle counts DOWN to the charge, not up from the scene',
+    console.log(`    once it fired: "${objectiveLine(fledLine?.objective)}" / "${fledLine?.subtitle}"`);
+    check('a live scene takes the band',
+      atScene && objectiveLine(atScene.objective).startsWith('STOP AT THE SCENE'), atScene);
+    check('the distance counts DOWN to the charge, not up from the scene',
       last.leaveIn < first.leaveIn && last.leaveIn >= 0,
       `${first.leaveIn.toFixed(1)} -> ${last.leaveIn.toFixed(1)}`);
-    check('and leaveIn is the leave radius less the distance, so it cannot drift from the rule',
-      seen.every((r) => near(r.d + r.leaveIn, SCENE_LEAVE_M, 1e-9) || r.d > SCENE_LEAVE_M),
-      `${(first.d + first.leaveIn).toFixed(3)} against ${SCENE_LEAVE_M}`);
+    /**
+     * AND THE NUMBER IS READ OFF THE COMPOSED LINE, not off the snapshot it came from. Every check
+     * here read `leaveIn` from `hudState()`, so a composer that dropped the number, or printed the
+     * wrong field, passed — a blind reviewer's mutation replacing `sc.leaveIn` with `sc.d` in the
+     * string, which inverts the whole meaning, was missed by the entire offline list.
+     */
+    const lineAt = seen.map((r) => ({ d: r.d, leaveIn: r.leaveIn, line: objectiveLine(r.line.objective) }));
+    const nums = lineAt.map((r) => {
+      const m = /(\d+)\s*m$/.exec(r.line);
+      return m ? +m[1] : null;
+    });
+    console.log(`    the line carries it: "${lineAt[0].line}" ... "${lineAt[lineAt.length - 1].line}"`);
+    check('the composed line carries the distance, and it is the one the rule counts down',
+      nums.every((n, i) => n !== null && Math.abs(n - lineAt[i].leaveIn) <= 1),
+      `${nums[0]} vs ${lineAt[0].leaveIn.toFixed(1)}, ` +
+      `${nums[nums.length - 1]} vs ${lineAt[lineAt.length - 1].leaveIn.toFixed(1)}`);
+    check('and it is leaveIn and NOT the distance from the scene, which is the inversion',
+      nums.some((n, i) => Math.abs(n - lineAt[i].d) > 5),
+      `first: line ${nums[0]} m, leaveIn ${lineAt[0].leaveIn.toFixed(1)}, ` +
+      `d ${lineAt[0].d.toFixed(1)}`);
+    check('the number on the line goes DOWN as the car drives away',
+      nums[nums.length - 1] < nums[0], `${nums[0]} -> ${nums[nums.length - 1]}`);
+    /**
+     * AND `sc.d` IS THE REAL DISTANCE, recomputed from the drive's own coordinates. The old check
+     * asserted `d + leaveIn === SCENE_LEAVE_M`, which is an algebraic identity between two fields
+     * written in one return statement — it cannot fail for any `sc.d` whatsoever, and a reviewer
+     * showed it passing for both `sc.d = 0` and `sc.d = d * 0.5`. The rule's `d` is a local in
+     * `_watchScene`; the readout's is a field; nothing compared them.
+     */
+    check('and the scene distance is the real distance, not a decoupled copy of it',
+      seen.every((r) => near(r.d, r.trueD, 1e-6)),
+      `worst ${Math.max(...seen.map((r) => Math.abs(r.d - r.trueD))).toExponential(2)} m apart`);
     check('the offence that fired is named in the band the instant the scene clears',
-      fledLine && fledLine.objective === CRIMES.hitAndRun.label.toUpperCase(),
-      fledLine?.objective);
+      fledLine && objectiveLine(fledLine.objective) === CRIMES.hitAndRun.label.toUpperCase(),
+      objectiveLine(fledLine?.objective));
     // Non-empty by construction: an arm that never left the radius would satisfy the two above.
     check('the drive actually crossed the leave radius',
       seen.length > 0 && fledLine !== null && w.stats.scenesFled === 1,
@@ -1103,12 +1138,15 @@ let searchSample;
     w.reportCrime('pedestrianHit', { at: { x: 0, z: 0 } });
     for (let i = 0; i < 180; i++) w.update(DT, { x: 0, z: 0 });
     const stopped = composeLaw(w.hudState());
-    console.log(`    stopped:       "${stopped.objective}" / "${stopped.subtitle}"`);
-    check('stopping at the scene says so', stopped && stopped.objective === 'STOPPED AT THE SCENE',
-      stopped);
+    console.log(`    stopped:       "${objectiveLine(stopped.objective)}" / "${stopped.subtitle}"`);
+    check('stopping at the scene says so',
+      stopped && objectiveLine(stopped.objective) === 'STOPPED AT THE SCENE', stopped);
     check('and it is a different line from the instruction it replaces',
-      stopped.objective !== 'STOP AT THE SCENE' && w.stats.scenesStopped === 1,
+      objectiveLine(stopped.objective) !== 'STOP AT THE SCENE' && w.stats.scenesStopped === 1,
       `scenesStopped ${w.stats.scenesStopped}`);
+    // The stopped line carries NO distance, because there is nothing left to count down to.
+    check('and the stopped line drops the distance, there being nothing to count down to',
+      !/\d+\s*m$/.test(objectiveLine(stopped.objective)), objectiveLine(stopped.objective));
     // Drive off afterwards: no charge, and the line goes rather than sticking.
     while (x < SCENE_LEAVE_M + 20) { x += speed * DT; w.update(DT, { x, z: 0 }); }
     check('driving off after stopping files nothing and leaves no line',
@@ -1125,10 +1163,26 @@ let searchSample;
     const nearly = composeLaw(w.hudState());
     run(w, 1.0, ORIGIN, { seen: false });
     const gone = composeLaw(w.hudState());
-    console.log(`    notice at 0 s "${fresh?.objective}", at ${(LAW_NOTICE_S - 0.5).toFixed(1)} s ` +
-      `"${nearly?.objective}", at ${(LAW_NOTICE_S + 0.5).toFixed(1)} s ${JSON.stringify(gone)}`);
-    check('a filed crime is named in the band', fresh && fresh.objective === CRIMES.assault.label.toUpperCase(),
-      fresh?.objective);
+    console.log(`    notice at 0 s "${objectiveLine(fresh?.objective)}" / "${fresh?.subtitle}", at ` +
+      `${(LAW_NOTICE_S - 0.5).toFixed(1)} s "${objectiveLine(nearly?.objective)}", at ` +
+      `${(LAW_NOTICE_S + 0.5).toFixed(1)} s ${JSON.stringify(gone)}`);
+    check('a filed crime is named in the band',
+      fresh && objectiveLine(fresh.objective) === CRIMES.assault.label.toUpperCase(),
+      objectiveLine(fresh?.objective));
+    /**
+     * AND THE NOTICE'S SUBTITLE SAYS WHAT IT COST, which nothing asserted: only `objective` was
+     * ever read, so a composer that always said "nobody saw it" — on a crime that had just made
+     * the player wanted — passed the whole offline list.
+     */
+    check('the notice says what the crime cost, and it is the live star count',
+      /wanted — \d+ star/.test(fresh.subtitle) && fresh.subtitle.includes(String(w.stars)),
+      `${fresh.subtitle} at ${w.stars} stars`);
+    const quiet = new WantedSystem();
+    quiet.reportCrime('propertyDamage', { at: ORIGIN, witnessed: false });
+    const qLine = composeLaw(quiet.hudState());
+    check('and an unwitnessed crime with no level says the other thing',
+      qLine && qLine.subtitle !== fresh.subtitle,
+      `${qLine?.subtitle} against ${fresh.subtitle}`);
     check('it is still there just before the notice expires', nearly !== null, nearly);
     check(`and gone after LAW_NOTICE_S (${LAW_NOTICE_S} s)`, gone === null, gone);
 
@@ -1156,6 +1210,32 @@ let searchSample;
     check('remaining is the required cooldown while in contact, not zero',
       s.remaining > 0 && near(s.remaining, w.evadeRequired(), 1e-9),
       `${s.remaining.toFixed(2)} against ${w.evadeRequired().toFixed(2)}`);
+    /**
+     * AND OUT OF CONTACT, WHICH IS THE ONLY PLACE THE CHECK MEANS ANYTHING. Every sample above is
+     * taken IN CONTACT, where `evadeTimer` is pinned at zero — so `remaining` and
+     * `evadeRequired()` are the same number and `near(remaining, required - timer)` compares a
+     * value with itself. A blind reviewer replaced the whole expression with `req`, freezing the
+     * `EVADING 24s` countdown at the full cooldown for ever, and the entire offline list missed it:
+     * §23(b) only regex-matches `/^EVADING \d+s$/`.
+     */
+    const ticks = [];
+    for (let k = 0; k < 4; k++) {
+      run(w, w.evadeRequired() / 6, ORIGIN, { seen: false });
+      const t = w.hudState();
+      ticks.push({ remaining: t.remaining, timer: w.evadeTimer, req: w.evadeRequired(),
+        note: composeWanted(t).note });
+    }
+    console.log(`    out of contact, remaining ticks down: ` +
+      ticks.map((t) => t.remaining.toFixed(1)).join(' -> ') +
+      `  (notes ${ticks.map((t) => t.note).join(', ')})`);
+    check('out of contact the seconds left tick DOWN, so the countdown is a countdown',
+      ticks.every((t, i) => i === 0 || t.remaining < ticks[i - 1].remaining),
+      ticks.map((t) => t.remaining.toFixed(2)).join(' '));
+    check('and each one is the cooldown less the clock, measured where those differ',
+      ticks.every((t) => near(t.remaining, t.req - t.timer, 1e-9) && t.timer > 0),
+      ticks.map((t) => `${t.remaining.toFixed(1)}=${t.req.toFixed(1)}-${t.timer.toFixed(1)}`).join(' '));
+    check('the note carries those falling seconds, not one frozen number',
+      new Set(ticks.map((t) => t.note)).size === ticks.length, ticks.map((t) => t.note).join(' '));
   }
 }
 
