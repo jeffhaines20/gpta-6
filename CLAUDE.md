@@ -1020,6 +1020,69 @@ behind with the counter stuck), the renderer drew triangles, and the crowd, the
 fleet and the mission board all report themselves alive. **Run it after any change
 to `district/` or `src/`.** It found a second defect on its first run, below.
 
+## A marker rule produced the defect it did not forbid, twice
+
+Both of this project's mission markers have been wrong, and both times a GATE RULE put
+them there.
+
+`shakedown`'s second marker sat 0.35 m from the spawn, inside its own 30 m reach
+radius by a factor of eighty, because an older rule required every marker within 5 m
+of a baked route waypoint and waypoint 1 IS the spawn. Then `ambush` was given a
+marker at (-471, 205) to satisfy a newer rule — a stage with a clock needs somewhere
+to go, earned honestly by a playtester measuring 156.3 s of a 249.4 s run with a blank
+HUD. (-471, 205) is the exact position of `drop`'s reach trigger, radius 28 m, 0.0 m
+away. So a player following the HUD shakes the tail standing on the drop, `drop` fires
+and is satisfied in the same breath, and the flagship mission's final objective —
+"DELIVER THE PARCEL TO THE MARINA" — is the active stage for **0.033 s**. Two frames at
+60 Hz. The delivery leg of the delivery mission did not exist.
+
+Each rule was right about what it demanded and silent about the consequence. So the
+check to write is not another rule about where a marker may sit; it is the property
+that breaks: **walking from a stage's marker must not already satisfy the NEXT stage's
+reach trigger.** That is the exact failure and it needs no invented margin — the radius
+is a number the mission itself declares, where a minimum leg length would be a number
+somebody picked. Print the ratio beside it so an author can see that 322.5 m against
+28 m is x11.5 and that 29 m would pass while being absurd, and skip edges whose source
+has no marker, because there the player's position on entry is unconstrained and there
+is nothing to assert.
+
+**And check which way a marker points, not just where it is.** The old one pointed at
+the handover while the player was wanted, which instructs them to bring a police tail
+to it — the one thing a courier would not do. The fix reads better as fiction as well
+as measuring better.
+
+Two smaller things this cost, both of them my own:
+
+- **A probe that hardcodes the value it is testing cannot see the fix.** The first
+  version of the before/after read `(-471,205)` as a literal, so it measured the old
+  arm no matter what the source said, and reported the defect unchanged after the fix.
+  Read the quantity from the module.
+- **`git checkout -- file` on an UNCOMMITTED file reverts your own work with the test
+  mutation.** Verifying the new check bit meant planting the defect by hand; undoing it
+  that way threw away the fix too. Commit first, or keep the edit in a patch.
+
+## A partial lead from a killed round is still the round's result
+
+Three review rounds in a row have now been killed part-way by session rate limits, and
+every one of them got something out first. The two most recent last lines were "the
+final authored objective of the flagship mission shows for 0.300 s" and "routing drove
+into a wall", and both were worth a commit:
+
+- The first was real and its number was out by 10x — I measure 0.033 s, not 0.300.
+  **Reproduce before quoting.** A reviewer's observation is much stronger than their
+  arithmetic, which this file already says about their diagnosis.
+- The second was real in a different place than it sounded. The routes are clear: over
+  397 routes and 37,605 route points, 4 routes touch one point where a 0.95 m body
+  circle does not fit, worst correction 0.109 m, which is inside the free-contact class
+  the crawl floor derives. What was broken was `RoadGraph.stats.isolated`, which read
+  `district.verts.length - out.size` and so reported 1,496 isolated endpoints where the
+  truth is 13 — the adjacency keys on edge ENDPOINTS and 1,483 of this district's 2,159
+  vertices are interior points of road polylines that can never appear in it. The
+  network is 98.5% one component; the statistic said 31%.
+
+So do not treat a killed round as a round that produced nothing, and do not fill the
+gap with your own reading of the module either — chase the lead the player left.
+
 ## A system that is never switched on is not a feature
 
 Three of these in one round, all found by playing rather than by measuring:
