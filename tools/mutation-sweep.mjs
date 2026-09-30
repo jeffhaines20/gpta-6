@@ -315,6 +315,18 @@ const MUTATIONS = [
   // ---- district/main.js: no offline gate imports it, so these are invisible by construction.
   {
     /**
+     * PUTS THE 1 s TYPE REFRACTORY BACK ON A PEDESTRIAN. Nothing errors and the repeat case still
+     * behaves, because VictimWindow owns it — what comes back is that a SECOND, DIFFERENT person
+     * struck within a second is free. At 40 km/h that is 11.1 m of pavement, and a playtester
+     * measured 8 charges for 15 knockdowns in a live crowd.
+     */
+    id: 'ped-refractory', file: 'src/wanted.js',
+    find: "  pedestrianHit:     f({ label: 'Pedestrian struck',         heat: 1.15, cool: 8,  refractory: 0, min: 1, scene: true }),",
+    to: "  pedestrianHit:     f({ label: 'Pedestrian struck',         heat: 1.15, cool: 8,  refractory: 1.0, min: 1, scene: true }),",
+    why: 'a second casualty within 11 m is forgiven again',
+  },
+  {
+    /**
      * This line used to target district/main.js, where it was MISSED by every gate because no
      * offline gate imports that file. The rule is `VictimWindow` in src/wanted.js now — moved there
      * BECAUSE of this miss — so the mutation follows it, and wanted-test owns it.

@@ -79,8 +79,28 @@ export const CRIMES = Object.freeze({
   propertyDamage:    f({ label: 'Property damage',           heat: 0.30, cool: 2,  refractory: 2.5 }),
   civilianCollision: f({ label: 'Collision with a vehicle',  heat: 0.50, cool: 3,  refractory: 1.5, scene: true }),
   hitAndRun:         f({ label: 'Left the scene',            heat: 0.80, cool: 10, refractory: 8.0, min: 1 }),
-  pedestrianHit:     f({ label: 'Pedestrian struck',         heat: 1.15, cool: 8,  refractory: 1.0, min: 1, scene: true }),
-  pedestrianKilled:  f({ label: 'Pedestrian killed',         heat: 2.00, cool: 15, refractory: 1.0, min: 2, scene: true }),
+  /**
+   * THE PEDESTRIAN CRIMES CARRY NO TYPE REFRACTORY, AND THAT IS DELIBERATE.
+   *
+   * They both used to carry 1.0 s, and a playtester measured what it cost: two DIFFERENT people
+   * struck 0.2, 0.5 or 0.9 s apart produced two knockdowns and ONE crime, refused with reason
+   * `refractory`; at 1.0 s and 1.1 s apart both were charged. At 40 km/h one second is 11.1 m,
+   * so two people standing less than 11 m apart on a pavement were one offence, and a live
+   * 96-pedestrian rampage filed 8 charges for 15 knockdowns.
+   *
+   * The refractory's own purpose — see the note above — is that a bumper grinding along a wall
+   * is not a felony, which is a statement about ONE SUBJECT repeating. For a person the subject
+   * is the victim, not the kind of event, and `VictimWindow` already does exactly that job at
+   * 20 s per victim id: `district/main.js`'s `chargeVictim` guards BOTH pedestrian charge sites
+   * (the standing case and `runOver`), so the same body cannot be billed twice however many
+   * times it is driven over. Stacking a 1 s type window in front of a 20 s victim window adds
+   * nothing to the repeat case and silently forgives the second casualty.
+   *
+   * `f()` defaults `refractory` to 0 and the test is `time - last < c.refractory`, so zero never
+   * ignores. Removing it is the whole change; the repeat protection was never here.
+   */
+  pedestrianHit:     f({ label: 'Pedestrian struck',         heat: 1.15, cool: 8,  refractory: 0, min: 1, scene: true }),
+  pedestrianKilled:  f({ label: 'Pedestrian killed',         heat: 2.00, cool: 15, refractory: 0, min: 2, scene: true }),
   vehicleTheft:      f({ label: 'Vehicle taken',             heat: 1.00, cool: 6,  refractory: 2.0, min: 1 }),
   assault:           f({ label: 'Assault',                   heat: 1.00, cool: 6,  refractory: 1.0, min: 1 }),
   brandish:          f({ label: 'Weapon brandished',         heat: 0.60, cool: 3,  refractory: 3.0 }),

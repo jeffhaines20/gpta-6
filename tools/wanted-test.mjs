@@ -872,9 +872,46 @@ let searchSample;
     `${withIt.charged} of 7 charged — 30 s of knockdowns against a ${W} s window`);
   check('and the heat it saves is real', withIt.heat < without.heat || withIt.charged < without.charged,
     `heat ${without.heat} -> ${withIt.heat}, charges ${without.charged} -> ${withIt.charged}`);
-  check('and the per-crime refractory is too short to substitute for it',
-    CRIMES.pedestrianHit.refractory < 4.42,
-    `${CRIMES.pedestrianHit.refractory} s against a 4.42 s knockdown cycle`);
+  /**
+   * RESTATED. This check used to read `CRIMES.pedestrianHit.refractory < 4.42` — "too short to
+   * substitute for the window". It is now ZERO, so that comparison still passes while saying
+   * something that is no longer true: there is no per-crime refractory on a pedestrian at all.
+   *
+   * It was 1.0 s, and a playtester measured what the 1 s cost: two DIFFERENT people struck 0.2,
+   * 0.5 or 0.9 s apart gave two knockdowns and ONE crime, refused with reason `refractory`. At
+   * 40 km/h a second is 11.1 m, so two people less than 11 m apart on a pavement were one
+   * offence, and a 96-pedestrian rampage filed 8 charges for 15 knockdowns. The repeat case it
+   * was supposed to cover is the SAME victim, which `VictimWindow` above already owns at 20 s
+   * and which `district/main.js`'s `chargeVictim` applies to both pedestrian charge sites.
+   *
+   * So the assertion is now the two halves of the real rule: no type window on a person, and two
+   * distinct victims both charged however close together they are.
+   */
+  check('a pedestrian crime carries NO per-type refractory',
+    CRIMES.pedestrianHit.refractory === 0 && CRIMES.pedestrianKilled.refractory === 0,
+    `hit ${CRIMES.pedestrianHit.refractory}, killed ${CRIMES.pedestrianKilled.refractory}` +
+    ' — de-duplication is per victim, not per kind of event');
+  {
+    // Two DIFFERENT people, as close together in time as the old window was wide.
+    const pair = (gap) => {
+      const sys = new WantedSystem();
+      let n = 0;
+      sys.on('crime', () => n++);
+      sys.reportCrime('pedestrianHit', { at: { x: 0, z: 0 } });
+      for (let t = 0; t < gap; t += 1 / 60) sys.update(1 / 60, { x: 0, z: 0 });
+      sys.reportCrime('pedestrianHit', { at: { x: 11, z: 0 } });
+      return n;
+    };
+    const gaps = [0, 0.2, 0.5, 0.9, 1.0];
+    const counts = gaps.map(pair);
+    console.log(`    two DIFFERENT victims, ${gaps.map((g, i) => `${g}s:${counts[i]}`).join(' ')}`);
+    check('two different victims are both charged however close together',
+      counts.every((c) => c === 2), `charges ${counts.join(',')} at gaps ${gaps.join(',')} s`);
+    check('...and the arm is not vacuous: one report alone charges once',
+      pair(0) === 2 && (() => { const s = new WantedSystem(); let n = 0; s.on('crime', () => n++);
+        s.reportCrime('pedestrianHit', { at: { x: 0, z: 0 } }); return n; })() === 1,
+      'a single report charges exactly once');
+  }
 
   // The map does not grow for a session's worth of casualties.
   const many = new VictimWindow(W);
