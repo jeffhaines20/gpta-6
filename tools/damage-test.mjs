@@ -651,8 +651,25 @@ console.log('CRIME SCALE — how big an offence was, not just which offence');
   wh.reportCrime('propertyDamage', { at: { x: 0, z: 0 }, scale: heavy.crimeScale });
   console.log(`  one building hit:  20 km/h -> ${wl.stars}* (heat ${wl.heat.toFixed(2)})   ` +
     `110 km/h -> ${wh.stars}* (heat ${wh.heat.toFixed(2)})`);
-  check('a write-off is worth stars where a scrape is not', wh.stars >= 2 && wl.stars === 0,
+  /**
+   * RESTATED FROM `wh.stars >= 2`, WHICH ENCODED THE INVERSION THE CAP FIXES. The write-off
+   * charged 2.50 and read two stars — more than the ONE a struck pedestrian reads at any
+   * survivable speed, and two stars is the police actively hunting. `propertyDamage` has no `min`
+   * at all, which is the table saying a wall is not on its own enough to make you wanted, so
+   * src/wanted.js's FLOORLESS_CAP holds it to the lowest floor in the table: 1, the least a
+   * struck person can cost. A write-off is now one star and a scrape is none.
+   *
+   * The property this arm exists for is unchanged — the scale REACHES the stars — and it is
+   * still a 0-to-1 transition, which is the only transition a ceiling of 1 can show. The teeth
+   * are kept by checking the raw product separately below: the cap is what holds the write-off
+   * down, not a scale that stopped graduating.
+   */
+  check('a write-off is worth a star where a scrape is not', wh.stars >= 1 && wl.stars === 0,
     `${wl.stars}* vs ${wh.stars}*`);
+  check('and the cap is what holds it there, not a scale that stopped graduating',
+    heavy.crimeScale > 4 * light.crimeScale && heavy.crimeScale > 8,
+    `scale ${light.crimeScale.toFixed(2)} -> ${heavy.crimeScale.toFixed(2)}, ` +
+    `raw heat ${(0.3 * heavy.crimeScale).toFixed(2)} charged as ${wh.heat.toFixed(2)}`);
   // The known-bad: the shipped behaviour before the fix. Both arms scale 1 and both read 0.
   const b1 = new WantedSystem(), b2 = new WantedSystem();
   b1.reportCrime('propertyDamage', { at: { x: 0, z: 0 } });

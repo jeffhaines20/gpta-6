@@ -634,7 +634,18 @@ console.log('\n=== 9. THE AUTHORED MISSIONS, walked stage by stage');
    */
   {
     const { WantedSystem } = await import('../src/wanted.js');
+    const { DamageModel } = await import('../src/damage.js');
     const M = MISSIONS['marlin-street'];
+    /**
+     * THE CRIMES ARE REPORTED WITH THE SCALE THE GAME PASSES, not unscaled. This arm used to
+     * report bare ids, which made "one accident" mean the crime's raw table heat — and when
+     * `pedestrianHit.heat` moved 1.15 -> 2.00 both checks here failed, correctly, because an
+     * unscaled report is the REFERENCE case (src/damage.js normalises the pedestrian scale at
+     * `pedKillSpeed`) and not the mild one. An accident is a low-speed clip, so the arm has to
+     * say at what speed; 8 km/h is the playtester's own figure from the transcript in
+     * src/pedestrians.js.
+     */
+    const dm = new DamageModel();
     const atDrop = (crimes) => {
       const r = new MissionRunner(), w = new WantedSystem();
       r.start(M);
@@ -643,15 +654,17 @@ console.log('\n=== 9. THE AUTHORED MISSIONS, walked stage by stage');
       const snap = () => ({ px: 0, pz: 0, inVehicle: true, speed: 10, health: 1,
         wantedStars: w.stars, wantedState: w.state });
       r.update(1 / 60, snap());
-      for (const c of crimes) w.reportCrime(c, { at: { x: 0, z: 0 } });
+      for (const c of crimes) {
+        w.reportCrime(c.id, { at: { x: 0, z: 0 }, scale: dm.pedCrimeScale(c.kmh / 3.6) });
+      }
       w.update(0.02, { x: 0, z: 0 });
       r.update(1 / 60, snap());
       return { stars: w.stars, stage: r.report().stage };
     };
-    const one = atDrop(['pedestrianHit']);
-    const two = atDrop(['pedestrianHit', 'pedestrianKilled']);
-    console.log(`    at the drop: one pedestrianHit -> ${one.stars} star, stage ${one.stage}; ` +
-      `a hit and a death -> ${two.stars} stars, stage ${two.stage}`);
+    const one = atDrop([{ id: 'pedestrianHit', kmh: 8 }]);
+    const two = atDrop([{ id: 'pedestrianHit', kmh: 8 }, { id: 'pedestrianKilled', kmh: 90 }]);
+    console.log(`    at the drop: one 8 km/h pedestrianHit -> ${one.stars} star, stage ${one.stage}; ` +
+      `a clip and a 90 km/h death -> ${two.stars} stars, stage ${two.stage}`);
     check('one accidental star does not resume the chase', one.stage === 'drop',
       `${one.stars} star -> ${one.stage}`);
     check('and the police finding you does', two.stage === 'ambush',

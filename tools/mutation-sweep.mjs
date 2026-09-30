@@ -588,8 +588,8 @@ const MUTATIONS = [
      * measured 8 charges for 15 knockdowns in a live crowd.
      */
     id: 'ped-refractory', file: 'src/wanted.js',
-    find: "  pedestrianHit:     f({ label: 'Pedestrian struck',         heat: 1.15, cool: 8,  refractory: 0, min: 1, scene: true }),",
-    to: "  pedestrianHit:     f({ label: 'Pedestrian struck',         heat: 1.15, cool: 8,  refractory: 1.0, min: 1, scene: true }),",
+    find: "  pedestrianHit:     f({ label: 'Pedestrian struck',         heat: 2.00, cool: 8,  refractory: 0, min: 1, scene: true }),",
+    to: "  pedestrianHit:     f({ label: 'Pedestrian struck',         heat: 2.00, cool: 8,  refractory: 1.0, min: 1, scene: true }),",
     why: 'a second casualty within 11 m is forgiven again',
   },
   {
@@ -665,6 +665,80 @@ const MUTATIONS = [
     to: "  for (let i = 0; i < 0; i++) n = pushHudMarker(n, units[i].x, units[i].z, 'enemy');",
     why: 'a chase shows no police anywhere on the map again',
     browser: true,
+  },
+  {
+    /**
+     * THE ORDERING FIX, REVERTED WHOLE. A wall at 60 km/h goes back to 2.50 heat and two stars and
+     * a civilian car to 4.17 and FOUR, against 1.00 and one star for a struck person — two crimes
+     * the table gives no floor at all out-charging every floored one. Nothing errors and nothing
+     * looks wrong from inside either module: damage.js's scale is correct, wanted.js's ladder is
+     * correct, and only the two put side by side show it. wanted-test §24 is that comparison.
+     */
+    id: 'charge-cap', file: 'src/wanted.js',
+    find: '    const delta = (c.min ?? 0) > 0 ? raw : Math.min(raw, FLOORLESS_CAP);',
+    to: '    const delta = raw;',
+    why: 'a wall at 60 km/h is twice the crime of a person again, and a car four times',
+  },
+  {
+    /**
+     * THE CAP PUT ON THE WRONG HALF OF THE TABLE. Floored crimes are the ones that must NOT be
+     * capped — their floor is what ranks them above — so capping those and freeing the floorless
+     * ones is the fix applied exactly backwards. `officerDown` at 8.33x can no longer reach five
+     * stars, which is the whole point of giving it a floor of four.
+     */
+    id: 'cap-inverted', file: 'src/wanted.js',
+    find: '    const delta = (c.min ?? 0) > 0 ? raw : Math.min(raw, FLOORLESS_CAP);',
+    to: '    const delta = (c.min ?? 0) > 0 ? Math.min(raw, FLOORLESS_CAP) : raw;',
+    why: 'the worst offence in the table becomes the mildest',
+  },
+  {
+    /**
+     * THE CAP STOPS BEING THE TABLE'S OWN LOWEST FLOOR and becomes a number. 2.5 is above the
+     * floor a struck person carries, so the wall inversion comes back at full size while every
+     * absolute reading still looks plausible — this is the shape CLAUDE.md records as "a threshold
+     * that holds at one value and fails at every other".
+     */
+    id: 'cap-literal', file: 'src/wanted.js',
+    find: '  .map((c) => c.min ?? 0).filter((m) => m > 0));',
+    to: '  .map((c) => c.min ?? 0).filter((m) => m > 0)) * 2.5;',
+    why: 'the ceiling is no longer derived from the table it is meant to rank against',
+  },
+  {
+    /**
+     * THE PEDESTRIAN CHARGE GOES FLAT AGAIN. `min: 1` swallows every product under 1, so at 1.15
+     * the charge crosses that only at 75 km/h and reads 1.00 from 8 to 75 — the range src/damage.js
+     * documented and refused. Reverting it breaks the continuity at the classification switch as
+     * well: 1.14 below and 2.04 above, a 1.8x step at one published speed.
+     */
+    id: 'ped-heat', file: 'src/wanted.js',
+    find: "  pedestrianHit:     f({ label: 'Pedestrian struck',         heat: 2.00, cool: 8,  refractory: 0, min: 1, scene: true }),",
+    to: "  pedestrianHit:     f({ label: 'Pedestrian struck',         heat: 1.15, cool: 8,  refractory: 0, min: 1, scene: true }),",
+    why: 'the charge is flat from 8 to 75 km/h and steps 1.8x at the fatality switch',
+  },
+  {
+    /**
+     * THE PEDESTRIAN SCALE STOPS BEING A FUNCTION OF SPEED. Every strike charges the reference
+     * case, so an 8 km/h clip is two stars — which is `missions.js`'s `wantedAtLeast: 2` firing on
+     * one accident, the exact defect that trigger's threshold was raised to stop. The ORDERING
+     * checks in §24 all still pass, because two is more than a wall's one: the arms that see this
+     * are the ones that name the mild case, in wanted-test §5b and mission-test.
+     */
+    id: 'ped-scale-flat', file: 'src/damage.js',
+    find: '    return ref > 0 ? pedFatalityRisk(v) / ref : 1;',
+    to: '    return 1;',
+    why: 'an 8 km/h clip costs what a 77 km/h one does, and re-enters the mission ambush',
+  },
+  {
+    /**
+     * THE RUN-OVER SITE GOES BACK TO ITS LITERAL `scale: 1`, which is how it shipped: a 2 km/h roll
+     * over a body charged exactly what a 76 km/h one did. Recorded here even though it lives in
+     * district/main.js — see `charge-window` above for what that costs a mutation row — so the
+     * sweep says which gate, if any, reaches it.
+     */
+    id: 'runover-scale', file: 'district/main.js',
+    find: '          scale: damage.pedCrimeScale(over) });',
+    to: '          scale: 1 });',
+    why: 'a roll at walking pace is charged as a fatal-threshold strike',
   },
 ];
 

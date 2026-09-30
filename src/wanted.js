@@ -99,7 +99,20 @@ export const CRIMES = Object.freeze({
    * `f()` defaults `refractory` to 0 and the test is `time - last < c.refractory`, so zero never
    * ignores. Removing it is the whole change; the repeat protection was never here.
    */
-  pedestrianHit:     f({ label: 'Pedestrian struck',         heat: 1.15, cool: 8,  refractory: 0, min: 1, scene: true }),
+  /**
+   * AND `pedestrianHit`'s HEAT IS `pedestrianKilled`'s FLOOR, so the two meet at the classification
+   * switch instead of jumping. It was 1.15, which put the charge at 0.82 just below the switch and
+   * 2.00 just above it — a step of 2.4x at one published speed. `_crimeFor` switches to
+   * `pedestrianKilled` at `pedKillSpeed`, which is the fatality curve's own 50% point, so a strike
+   * AT that speed should cost exactly what a kill costs at its floor. 2.00 is that number, taken
+   * from the table rather than chosen, and `wanted-test` asserts the equality.
+   *
+   * It does not make the charge graduate in STARS below the switch, and it cannot: `min: 1` is a
+   * floor and the next rung is 2, so every scale under 0.5 comes back out as one star. src/damage.js
+   * records that mechanism and was right about it. What this buys is the graduation in HEAT over the
+   * 50-77 km/h band — which accumulates, and lengthens the cooldown — and no step at the switch.
+   */
+  pedestrianHit:     f({ label: 'Pedestrian struck',         heat: 2.00, cool: 8,  refractory: 0, min: 1, scene: true }),
   pedestrianKilled:  f({ label: 'Pedestrian killed',         heat: 2.00, cool: 15, refractory: 0, min: 2, scene: true }),
   vehicleTheft:      f({ label: 'Vehicle taken',             heat: 1.00, cool: 6,  refractory: 2.0, min: 1 }),
   assault:           f({ label: 'Assault',                   heat: 1.00, cool: 6,  refractory: 1.0, min: 1 }),
@@ -155,6 +168,36 @@ export const RESPONSE = Object.freeze([
   Object.freeze({ units: 6, spawnMin: 130, spawnMax: 390, giveUpRadius: 700, speedMul: 1.16, intercept: true,  aggression: 0.74, cooldown: 34, searchGrow: 15, spotRadius: 150, siren: 0.87 }),
   Object.freeze({ units: 8, spawnMin: 150, spawnMax: 470, giveUpRadius: 860, speedMul: 1.26, intercept: true,  aggression: 1.00, cooldown: 44, searchGrow: 18, spotRadius: 175, siren: 1.00 }),
 ]);
+
+/**
+ * THE CEILING FOR A CRIME THAT HAS NO FLOOR OF ITS OWN, and it is the table's own lowest floor.
+ *
+ * `min` is a floor on heat: it says "this crime is at least N stars". Several crimes have none —
+ * `propertyDamage`, `civilianCollision`, `reckless` — which is the table saying they are not, on
+ * their own, enough to make you wanted. But `opts.scale` had no ceiling, and `damage.js` scales a
+ * delta-v crime by `severity / majorSeverity`, which reaches 8.33x. Measured, on a clean record:
+ *
+ *     km/h   a wall                      a civilian car
+ *       20   0.48 heat, 0 stars          0.80 heat, 0 stars
+ *       40   2.10 heat, 2 stars          3.50 heat, 3 stars
+ *       60   2.50 heat, 2 stars          4.17 heat, **4 STARS**
+ *      110   2.50 heat, 2 stars          4.17 heat, 4 stars
+ *
+ * against a pedestrian struck at any survivable speed: 1.00 heat, ONE star. So ramming another car
+ * was four times the offence of hitting a person, and a wall twice — from two crimes the table
+ * ranks below every floored one. A round-5 playtester reported the wall half; the car half is
+ * larger and nobody had looked.
+ *
+ * The rule is the table's own ordering, not a number: a crime with no floor may not charge more
+ * than the LOWEST FLOOR there is, which is 1 — the least a struck person can cost. Crimes WITH a
+ * floor are untouched, because their floor already ranks them above: `officerDown` still blows
+ * through to five stars, which is the point of having one.
+ *
+ * It composes. The cap is on ONE crime's contribution, not on the total, so five wall strikes still
+ * stack to five heat; what cannot happen is one of them outranking a casualty.
+ */
+const FLOORLESS_CAP = Math.min(...Object.values(CRIMES)
+  .map((c) => c.min ?? 0).filter((m) => m > 0));
 
 // One star's `spotRadius` IS the leave radius: see `_watchScene`. Taken from the table rather
 // than written twice, so a retune of the response moves both together.
@@ -315,7 +358,10 @@ export class WantedSystem {
     this._crimeAt.set(id, this.time);
 
     const prev = this.stars;
-    const delta = c.heat * (opts.scale ?? 1);
+    // See FLOORLESS_CAP: a crime the table gives no floor may not out-charge the lowest floor there
+    // is. One crime's contribution is capped, not the running total, so repeats still stack.
+    const raw = c.heat * (opts.scale ?? 1);
+    const delta = (c.min ?? 0) > 0 ? raw : Math.min(raw, FLOORLESS_CAP);
     this.heat = Math.min(Math.max(this.heat + delta, c.min), this.maxStars + 0.99);
     this.cool = Math.min(this.cool + c.cool, this.maxCool);
     this._lastCrimeAt = this.time;

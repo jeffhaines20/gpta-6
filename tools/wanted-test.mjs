@@ -17,6 +17,7 @@ import { WantedSystem, CRIMES, RESPONSE, STATES, bindPursuit,
   SCENE_LEAVE_M, SCENE_STOP_MS, VictimWindow,
   composeWanted, composeLaw, LAW_NOTICE_S } from '../src/wanted.js';
 import { objectiveLine } from '../src/hud.js';
+import { DamageModel, IMPACT } from '../src/damage.js';
 
 const DT = 1 / 30;                      // the rate the game reports at, fixed
 const checks = [];
@@ -96,11 +97,24 @@ const ORIGIN = { x: 0, z: 0 };
 }
 
 // -------------------------------------------- 5. escalation and per-star response
+/**
+ * THE SUBJECT HERE IS THE RESPONSE TABLE, NOT THE CHARGE, so the ladder is built out of crimes
+ * whose charge does not depend on a scale. It used to open with `pedestrianHit`, reported
+ * unscaled, and so was quietly asserting that crime's table heat: when §24 moved it 1.15 -> 2.00
+ * these three checks failed, correctly, and the failure was the only thing that said the change
+ * had a second consequence. `vehicleTheft` is heat 1.00 / min 1 and takes no scale at all, and
+ * the ladder it builds is step-for-step the one pedestrianHit built — 1, 2, 3, 5 stars.
+ *
+ * What §24 owns instead is the pedestrian charge swept over speed, with the scale the game
+ * actually passes. Asserted here too, at the bottom, because an unscaled report is now the
+ * REFERENCE case — the curve's 50% point — rather than the mild one, and that is a trap for any
+ * new caller that forgets the scale.
+ */
 {
   const w = new WantedSystem({ seed: 5 });
   const requests = events(w, ['unit:request']);
   const steps = [];
-  for (const id of ['pedestrianHit', 'discharge', 'policeProperty', 'officerDown']) {
+  for (const id of ['vehicleTheft', 'discharge', 'policeProperty', 'officerDown']) {
     w.reportCrime(id, { at: ORIGIN });
     run(w, 1.5, ORIGIN, { seen: true });
     steps.push({
@@ -110,7 +124,7 @@ const ORIGIN = { x: 0, z: 0 };
       roles: w.plan.assignments.map((a) => a.role).join('+'),
     });
   }
-  check('a struck pedestrian is one star', steps[0].stars === 1, steps[0]);
+  check('a taken car is one star', steps[0].stars === 1, steps[0]);
   check('one star fields one unit and does not intercept',
     steps[0].units === 1 && steps[0].intercept === false, steps[0]);
   check('escalation raises the unit count', steps[3].units > steps[0].units, steps.map((s) => s.units));
@@ -123,6 +137,25 @@ const ORIGIN = { x: 0, z: 0 };
   check('units were requested once each, cumulatively',
     requests.length === 1 + 1 + 2 + 4, { requested: requests.length });
   out.escalation = steps;
+
+  /**
+   * AND WHAT AN UNSCALED PEDESTRIAN REPORT MEANS, stated rather than left latent. `heat` is the
+   * charge at scale 1, and src/damage.js normalises the pedestrian scale AT `pedKillSpeed`, so
+   * scale 1 is the fatality threshold and an unscaled strike is the reference case. Two stars.
+   * Every production caller passes a scale; a new one that forgets is asking for the worst
+   * survivable case, which is the safe direction to fail but not an obvious one.
+   */
+  const bare = new WantedSystem({ seed: 5 });
+  bare.reportCrime('pedestrianHit', { at: ORIGIN });
+  const scaled = new WantedSystem({ seed: 5 });
+  scaled.reportCrime('pedestrianHit', { at: ORIGIN, scale: new DamageModel().pedCrimeScale(8 / 3.6) });
+  console.log(`\n5b. an unscaled pedestrianHit is ${bare.stars} star(s) at heat ${bare.heat}; ` +
+    `an 8 km/h clip with the game's own scale is ${scaled.stars} at ${scaled.heat.toFixed(2)}`);
+  check('an unscaled pedestrian report is the reference case, which is two stars',
+    bare.stars === 2 && bare.heat === CRIMES.pedestrianHit.heat, { stars: bare.stars, heat: bare.heat });
+  check('and the scale the game passes puts an 8 km/h clip back on the floor at one star',
+    scaled.stars === 1 && Math.abs(scaled.heat - CRIMES.pedestrianHit.min) < 1e-9,
+    { stars: scaled.stars, heat: scaled.heat });
 }
 
 // ---------------------------------------------------------- 6. hard star floors
@@ -1236,6 +1269,215 @@ let searchSample;
       ticks.map((t) => `${t.remaining.toFixed(1)}=${t.req.toFixed(1)}-${t.timer.toFixed(1)}`).join(' '));
     check('the note carries those falling seconds, not one frozen number',
       new Set(ticks.map((t) => t.note)).size === ticks.length, ticks.map((t) => t.note).join(' '));
+  }
+}
+
+// ------------------- 24. the charge ladder: a person over a building, at every speed
+/**
+ * THE TABLE'S ORDER WAS INVERTED AND ITS OWN COMMENTS DID NOT COMPARE THE TWO SIDES.
+ *
+ * `min` is a floor on heat — "this crime is at least N stars" — and several crimes have none,
+ * which is the table saying they are not enough on their own to make you wanted. `opts.scale` had
+ * no ceiling, and src/damage.js scales a delta-v crime by `severity / majorSeverity`, which reaches
+ * 8.33x. So on a clean record a wall at 60 km/h charged 2.50 (two stars) and a civilian car 4.17
+ * (FOUR stars), against 1.00 — one star — for a pedestrian struck at any survivable speed.
+ *
+ * A round-5 playtester reported the wall half. The car half is nearly twice as large and nobody had
+ * looked, because damage.js's own refusal table measures the PEDESTRIAN side in detail and never
+ * puts the two next to each other.
+ *
+ * What this section owes is the RELATION, swept over speed, rather than either side's number: a
+ * crime the table ranks above another must not be out-charged by it.
+ */
+{
+  console.log('\n24. the charge ladder');
+  // Derived here from the table rather than imported from src/wanted.js, so the two derivations
+  // have to agree; the check below asserts this IS the table's lowest positive floor.
+  const FLOORLESS_CAP_EXPECTED = Math.min(...Object.values(CRIMES)
+    .map((c) => c.min ?? 0).filter((m) => m > 0));
+  /**
+   * NOT ROUNDED. This returned `+w.heat.toFixed(4)` and the known-bad check below compares the raw
+   * product against it — so 0.022411 rounded to 0.0224 read as "the cap bit here", and the arm
+   * reported the cap biting at 8 of 8 speeds including 8 km/h, where the raw charge is 0.02 and
+   * nothing is capped at all. The check would have passed for a cap that did nothing. Round at the
+   * print, never before a comparison.
+   */
+  const clean = (id, scale) => {
+    const w = new WantedSystem();
+    w.reportCrime(id, { at: ORIGIN, scale });
+    return { heat: w.heat, stars: w.stars };
+  };
+
+  /**
+   * What ONE impact of `kind` at `kmh` charges, through the model's own scale — never through a
+   * number copied out of it. A fresh DamageModel per call so no refractory and no accumulated
+   * health can decide the answer.
+   */
+  const impactCharge = (kind, kmh) => {
+    const v = kmh / 3.6;
+    // A struck body cannot take the car's whole closing speed: damage.js's own pedestrian dv is
+    // bounded. The pedestrian SCALE is a function of `speed` alone, so this only has to be enough
+    // to file the crime.
+    const dv = kind === IMPACT.pedestrian ? Math.min(v, 12) : v * 1.15;
+    const rec = new DamageModel().impact({ dv, kind, speed: v });
+    if (!rec || !rec.crime) return { id: null, heat: 0, stars: 0, scale: 0 };
+    return { id: rec.crime, scale: rec.crimeScale, ...clean(rec.crime, rec.crimeScale) };
+  };
+
+  const dmg = new DamageModel();
+  const SPEEDS = [8, 20, 40, 60, 70, +(dmg.pedKillSpeed * 3.6).toFixed(1), 90, 110];
+  const rows = SPEEDS.map((kmh) => ({
+    kmh,
+    ped: impactCharge(IMPACT.pedestrian, kmh),
+    wall: impactCharge(IMPACT.wall, kmh),
+    car: impactCharge(IMPACT.vehicle, kmh),
+  }));
+  console.log('    km/h   a person                a wall          a civilian car');
+  for (const r of rows) {
+    const fmt = (c, w) => `${(c.id ?? '-').padEnd(w)} ${c.heat.toFixed(2)}/${c.stars}*`;
+    console.log(`   ${r.kmh.toFixed(1).padStart(5)}   ${fmt(r.ped, 16)}   ${fmt(r.wall, 8)}` +
+      `   ${fmt(r.car, 8)}`);
+  }
+  out.chargeLadder = rows.map((r) => ({ kmh: r.kmh, ped: +r.ped.heat.toFixed(4),
+    pedStars: r.ped.stars, wall: +r.wall.heat.toFixed(4), wallStars: r.wall.stars,
+    car: +r.car.heat.toFixed(4), carStars: r.car.stars }));
+
+  // Every arm has to assert the thing it measures HAPPENED: a sweep where no crime is filed
+  // satisfies every ordering below with both sides at zero.
+  check('every speed in the sweep files all three crimes',
+    rows.every((r) => r.ped.id && r.wall.id && r.car.id),
+    rows.map((r) => `${r.kmh}:${r.ped.id ?? '-'}/${r.wall.id ?? '-'}/${r.car.id ?? '-'}`).join(' '));
+  check('a struck person always costs at least as much as a wall at the same speed',
+    rows.every((r) => r.ped.heat >= r.wall.heat - 1e-9),
+    rows.filter((r) => r.ped.heat < r.wall.heat).map((r) => `${r.kmh}: ${r.ped.heat} vs ${r.wall.heat}`)
+      .join(' ') || 'every speed');
+  check('and at least as much as a civilian car, which was the larger inversion',
+    rows.every((r) => r.ped.heat >= r.car.heat - 1e-9),
+    rows.filter((r) => r.ped.heat < r.car.heat).map((r) => `${r.kmh}: ${r.ped.heat} vs ${r.car.heat}`)
+      .join(' ') || 'every speed');
+  check('in STARS too, which is the only part of it a player reads',
+    rows.every((r) => r.ped.stars >= r.wall.stars && r.ped.stars >= r.car.stars),
+    rows.map((r) => `${r.kmh}:${r.ped.stars}/${r.wall.stars}/${r.car.stars}`).join(' '));
+
+  /**
+   * KNOWN-BAD, AND NOT OPTIONAL: the cap has to BITE, or every check above passes for a model whose
+   * scale never exceeded 1 in the first place. The raw product is what the table used to apply, so
+   * it is this arm's own control — and the number it would have charged is printed beside it.
+   */
+  const rawOf = (c) => (c.id ? CRIMES[c.id].heat * c.scale : 0);
+  const bit = rows.filter((r) => rawOf(r.wall) > r.wall.heat + 1e-9 || rawOf(r.car) > r.car.heat + 1e-9);
+  const unbit = rows.filter((r) => r.kmh < 20);
+  const at60 = rows.find((r) => r.kmh === 60);
+  console.log(`    the cap bites at ${bit.length} of ${rows.length} speeds; at 60 km/h a wall would ` +
+    `raw-charge ${rawOf(at60.wall).toFixed(2)} and charges ${at60.wall.heat.toFixed(2)}, ` +
+    `a car ${rawOf(at60.car).toFixed(2)} -> ${at60.car.heat.toFixed(2)}`);
+  check('KNOWN-BAD: the cap actually bites, so the ordering is not true by accident',
+    bit.length >= 4 && rawOf(at60.car) > 3, `${bit.length} of ${rows.length} speeds, ` +
+    `car raw ${rawOf(at60.car).toFixed(2)}`);
+  // And it bites at SOME speeds and not others, which is the other half of the same statement: a
+  // cap that engaged everywhere would be a flat charge wearing a ceiling's name.
+  check('and does not bite below the speeds where the raw charge is under it',
+    unbit.length > 0 && unbit.every((r) => !bit.includes(r)),
+    unbit.map((r) => `${r.kmh}: wall raw ${rawOf(r.wall).toFixed(3)} charged ` +
+      `${r.wall.heat.toFixed(3)}`).join('; '));
+
+  /**
+   * AND WHERE IT FIRST BITES, because "the cap engages at 60 km/h" is not the same claim as "the
+   * cap engages while driving" and only the second one says the fix is not cosmetic. Swept on a
+   * 1 km/h grid: a wall crosses the ceiling at 29 km/h and a civilian car at 23, both well inside
+   * ordinary street speed, and `severityFor` saturates at 50 so everything above that is one
+   * reading.
+   *
+   * THIS IS ALSO WHAT SAYS THE FIX IS INVISIBLE ON A SLOW DRIVE, which is worth knowing before
+   * quoting it. A recorded 200 m drive of 16 offences — 13 of them `civilianCollision` in a
+   * low-speed traffic scrum — produced a worst scale of 1.82, raw charge 0.91, UNDER the ceiling:
+   * replayed through both policies the cap never engaged once and the whole 3.77 -> 3.85 heat
+   * difference was the pedestrian table value, with the star trajectory identical (1* at offence
+   * 1, 2* at 8, 3* at 13). A drive is not the instrument for this change; the sweep is.
+   */
+  {
+    const firstBite = (id, kind) => {
+      for (let k = 1; k <= 140; k++) {
+        const r = new DamageModel().impact({ dv: (k / 3.6) * 1.15, kind, dirZ: 1, speed: k / 3.6 });
+        if (r.crime === id && CRIMES[id].heat * r.crimeScale > FLOORLESS_CAP_EXPECTED) return k;
+      }
+      return null;
+    };
+    const wallAt = firstBite('propertyDamage', IMPACT.wall);
+    const carAt = firstBite('civilianCollision', IMPACT.vehicle);
+    console.log(`    the cap first bites at ${wallAt} km/h against a wall and ${carAt} km/h ` +
+      `against a civilian car`);
+    check('the cap engages at ordinary street speed, so the fix is not cosmetic',
+      wallAt !== null && carAt !== null && wallAt < 40 && carAt < 40 && carAt < wallAt,
+      `wall ${wallAt} km/h, car ${carAt} km/h`);
+  }
+
+  /**
+   * AND IT IS THE TABLE'S OWN LOWEST FLOOR, not a number somebody picked. A crime WITH a floor is
+   * uncapped, because its floor already ranks it above — `officerDown` still has to reach five.
+   */
+  const lowest = Math.min(...Object.values(CRIMES).map((c) => c.min ?? 0).filter((m) => m > 0));
+  const floorless = Object.entries(CRIMES).filter(([, c]) => (c.min ?? 0) === 0).map(([k]) => k);
+  console.log(`    the lowest floor in the table is ${lowest}; floorless: ${floorless.join(', ')}`);
+  check('the cap is the table\'s own lowest floor, which is the least a struck person can cost',
+    lowest === 1 && lowest === CRIMES.pedestrianHit.min, `${lowest}`);
+  check('every floorless crime is held under it at any scale, however absurd',
+    floorless.length >= 3 && floorless.every((id) => clean(id, 1e6).heat <= lowest + 1e-9),
+    floorless.map((id) => `${id}:${clean(id, 1e6).heat.toFixed(2)}`).join(' '));
+  check('and a crime WITH a floor is NOT capped, or the worst offence would be the mildest',
+    clean('officerDown', 8.33).stars === 5,
+    `officerDown at 8.33x -> ${clean('officerDown', 8.33).heat.toFixed(2)} heat, ` +
+    `${clean('officerDown', 8.33).stars} stars`);
+
+  // The cap is on ONE crime's contribution, not on the running total, so repeats still stack. Run
+  // the clock between them with the module's own stepper, past propertyDamage's 2.5 s refractory.
+  {
+    const w = new WantedSystem();
+    const each = [];
+    for (let k = 0; k < 5; k++) {
+      w.reportCrime('propertyDamage', { at: ORIGIN, scale: 8.33 });
+      each.push(+w.heat.toFixed(2));
+      run(w, 3, ORIGIN, { seen: true });     // seen: no decay, so this isolates the stacking
+    }
+    console.log(`    five wall strikes 3 s apart: heat ${each.join(' -> ')}`);
+    check('the cap is per crime, not per record, so repeats still stack',
+      each[4] > each[0] * 3, each.join(' '));
+  }
+
+  /**
+   * AND THE PEDESTRIAN CHARGE MEETS THE KILLED FLOOR AT THE CLASSIFICATION SWITCH, instead of
+   * jumping at one published speed. `_crimeFor` switches at `pedKillSpeed`, the fatality curve's
+   * own 50% point, so a strike AT that speed should cost what a kill costs at its floor.
+   */
+  console.log(`    pedestrianHit heat ${CRIMES.pedestrianHit.heat} against pedestrianKilled's ` +
+    `floor ${CRIMES.pedestrianKilled.min}`);
+  check('a strike at the fatality threshold costs exactly what a kill costs at its floor',
+    CRIMES.pedestrianHit.heat === CRIMES.pedestrianKilled.min,
+    `${CRIMES.pedestrianHit.heat} against ${CRIMES.pedestrianKilled.min}`);
+  {
+    const kmh = dmg.pedKillSpeed * 3.6;
+    const below = impactCharge(IMPACT.pedestrian, kmh - 0.5);
+    const above = impactCharge(IMPACT.pedestrian, kmh + 0.5);
+    console.log(`    across the switch at ${kmh.toFixed(1)} km/h: ${below.id} ` +
+      `${below.heat.toFixed(2)} -> ${above.id} ${above.heat.toFixed(2)}`);
+    check('the two pedestrian crimes meet at the switch rather than stepping',
+      below.id !== above.id && Math.abs(above.heat - below.heat) < 0.2,
+      `${below.id} ${below.heat.toFixed(2)} -> ${above.id} ${above.heat.toFixed(2)}`);
+  }
+  /**
+   * The graduation is in HEAT and not in STARS below the switch, and that is the table's structure
+   * rather than a defect: `min: 1` is a floor and the next rung is 2, so every scale under 0.5 comes
+   * back out as one star. src/damage.js records that mechanism and was right about it. Asserted both
+   * ways so nobody "fixes" the star half by lowering the floor.
+   */
+  {
+    const band = [50, 60, 70, 76].map((k) => impactCharge(IMPACT.pedestrian, k));
+    console.log(`    50-76 km/h: heat ${band.map((b) => b.heat.toFixed(2)).join(' ')}, ` +
+      `stars ${band.map((b) => b.stars).join(' ')}`);
+    check('the charge graduates in heat over the band where the risk curve is steep',
+      band[3].heat > band[0].heat + 0.3, band.map((b) => b.heat.toFixed(2)).join(' '));
+    check('and stays one star there, because min is a floor and the next rung is 2',
+      band.every((b) => b.stars === 1), band.map((b) => b.stars).join(' '));
   }
 }
 

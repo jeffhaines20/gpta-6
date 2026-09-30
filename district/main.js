@@ -1261,10 +1261,18 @@ function dynamicImpacts() {
       if (chargeVictim(r.id)) {
         const c = r.fatal ? 'pedestrianKilled' : 'pedestrianHit';
         const res = wanted.reportCrime(c, { at: { x: vehicle.position.x, z: vehicle.position.z },
-          // A run-over has no delta-v of its own — the body does not resist — so the charge is the
-          // crime's own table value, which `min` floors at one star either way. See
-          // DamageModel._crimeScaleFor for why a pedestrian scale is invisible below 73.8 km/h.
-          scale: 1 });
+          /**
+           * A run-over has no delta-v of its own — the body does not resist — and this passed a
+           * literal `scale: 1` for that reason, under a comment saying the table value was
+           * therefore the charge. The reason was right about the delta-v and wrong about the
+           * scale: a PEDESTRIAN scale is a function of SPEED, not of delta-v, and `over` above is
+           * that speed. So a 2 km/h roll over a body charged exactly what a 76 km/h one did.
+           *
+           * `pedCrimeScale` is the model's own, so this site cannot drift from the impact path's.
+           * Both run-over crimes are still one star below the fatality switch, which is what the
+           * old comment claimed — but now because the scale says so rather than by assumption.
+           */
+          scale: damage.pedCrimeScale(over) });
         if (res.applied) damageCrimes++; else damageIgnored++;
       } else dynStats.pedRepeats++;
     }

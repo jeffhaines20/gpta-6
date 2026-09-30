@@ -404,13 +404,54 @@ export class DamageModel {
    * a curve — so the pedestrian charge is left alone and the invisible range is stated here
    * with its number rather than fixed with a fudge. Above the switch the scale does graduate,
    * and that range is where it earns its place.
+   *
+   * THE MECHANISM ABOVE IS RIGHT AND THE CONCLUSION WAS INCOMPLETE, so the refusal is recorded
+   * rather than deleted. What it missed is that the flatness was never the defect a player felt:
+   * the table's ORDER was inverted. The same scale on the other side reaches 8.33x with no floor
+   * to stop it, so a wall at 60 km/h charged 2.50 (two stars) and a civilian car 4.17 (FOUR),
+   * against 1.00 for a struck person — that is the inversion, and this comment's own table shows
+   * the person's side of it without ever comparing the two. `src/wanted.js`'s FLOORLESS_CAP is the
+   * fix and it lives there, because the ordering is the ladder's and the ladder is that module's.
+   * The pedestrian scale here is unchanged: still the risk ratio, still normalised at the curve's
+   * 50% point.
+   *
+   * AND THE TABLE VALUE THE SCALE MULTIPLIES MOVED, 1.15 -> 2.00, which is what buys back the
+   * graduation this comment refused. The refusal turned on `min: 1` swallowing every product
+   * below 1, and where that bites depends on the table heat: at 1.15 the product crosses 1 at
+   * 75 km/h and the charge is flat over 8-75; at 2.00 it crosses at 63 and the band reads
+   * 1.00 / 1.00 / 1.42 / 1.96 at 50 / 60 / 70 / 76. Same floor, same curve, 13 km/h of visible
+   * graduation instead of 2 — and the number is not picked, it is `pedestrianKilled.min`, so a
+   * strike AT the switch costs what a kill costs at its floor. See src/wanted.js.
+   *
+   * WHAT THAT COST, because it is not free: `heat` is the charge at scale 1, and scale 1 is this
+   * curve's 50% point, so an UNSCALED `pedestrianHit` is now the reference case and worth two
+   * stars rather than one. Every production caller passes a scale — one defect found by making
+   * this change, district/main.js's run-over site passing a literal `scale: 1` for a crime whose
+   * scale is a function of speed it already had in hand — and `pedCrimeScale` below exists so
+   * that site can ask for the scale rather than copy the formula. `wanted-test` §5 no longer
+   * builds its response ladder out of a scaled crime for the same reason, and mission-test's
+   * "one accident" arm no longer reports bare ids.
    */
   _crimeScaleFor(kind, dv, speed, severity) {
-    if (kind === IMPACT.pedestrian) {
-      const ref = pedFatalityRisk(this.pedKillSpeed);
-      return ref > 0 ? pedFatalityRisk(speed) / ref : 1;
-    }
+    if (kind === IMPACT.pedestrian) return this.pedCrimeScale(speed);
     return this.majorSeverity > 0 ? severity / this.majorSeverity : 1;
+  }
+
+  /**
+   * THE PEDESTRIAN SCALE, PUBLIC, because a caller that has a speed and no delta-v needs it and
+   * must not re-derive it. A run-over is that caller: the body does not resist, so there is no
+   * delta-v to hand `impact()`, and district/main.js passed `scale: 1` — which charged a 2 km/h
+   * roll over a body exactly what a 76 km/h one cost. One definition, called from
+   * `_crimeScaleFor` above, so the two paths cannot drift.
+   *
+   * 1.000 exactly at `pedKillSpeed` by construction, since that IS the curve's 50% point. A
+   * non-finite speed reads 0 rather than throwing, which lands the charge on the crime's floor —
+   * the safe direction, and the one `Math.hypot(NaN, NaN) || 1` got wrong elsewhere in this round.
+   */
+  pedCrimeScale(speed) {
+    const ref = pedFatalityRisk(this.pedKillSpeed);
+    const v = finite(speed) ? Math.abs(speed) : 0;
+    return ref > 0 ? pedFatalityRisk(v) / ref : 1;
   }
 
   _checkFire() {
