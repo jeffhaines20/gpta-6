@@ -46,6 +46,37 @@ check('the graph has nodes and directed links', g.stats.vertices > 500 && g.stat
 check('11 edges are refused as impassable', g.stats.blockedEdges === 11, `${g.stats.blockedEdges}`);
 check('that is 317 m of a 935-edge network', g.stats.blockedMetres === 317, `${g.stats.blockedMetres}`);
 check('the wall index only ever REMOVES links', g.stats.directed < plain.stats.directed);
+
+/**
+ * AND `isolated` MEANS ENDPOINTS, NOT VERTICES. It used to be
+ * `district.verts.length - out.size`, which reported 1,496 where the truth is 13, because the
+ * adjacency keys on edge ENDPOINTS and 1,483 of this district's 2,159 vertices are interior
+ * points of a road's polyline that can never appear in it. A round reading that number would
+ * conclude the network is 69% disconnected when 98.5% of it is one component. The two checks
+ * below pin the definition rather than the figure: isolated is a shortfall against ENDPOINTS,
+ * and it can never exceed them.
+ */
+check('isolated counts edge endpoints, not polyline vertices',
+  g.stats.isolated === g.stats.endpoints - g.stats.vertices,
+  `${g.stats.endpoints} endpoints - ${g.stats.vertices} in graph = ${g.stats.isolated}`);
+check('...so it is a small fraction, not most of the district',
+  g.stats.isolated >= 0 && g.stats.isolated < g.stats.endpoints * 0.1,
+  `${g.stats.isolated} of ${g.stats.endpoints} endpoints` +
+  ` (${(100 * g.stats.isolated / g.stats.endpoints).toFixed(1)}%)`);
+/**
+ * A ROUTER WHOSE NETWORK IS IN PIECES CANNOT TAKE A PLAYER ANYWHERE, and vertex count cannot
+ * see that: a graph of 663 vertices in 663 components has the same `vertices` as this one.
+ * Forward reachability over the same directed adjacency `route` walks, so one-way streets count
+ * the way the router counts them. Blocking 11 edges strands 13 endpoints and 10 more vertices
+ * into 12 fringe pieces; the rest is one network.
+ */
+check('the drivable network is essentially one piece',
+  g.stats.largestComponent >= g.stats.vertices * 0.95,
+  `${g.stats.largestComponent} of ${g.stats.vertices}` +
+  ` (${(100 * g.stats.largestComponent / g.stats.vertices).toFixed(1)}%)`);
+check('and blocking edges is what costs the rest, so the control is not vacuous',
+  plain.stats.largestComponent > g.stats.largestComponent,
+  `${plain.stats.largestComponent} unblocked against ${g.stats.largestComponent} blocked`);
 // Every refused edge is a service alley, which is the claim the source makes.
 const classes = [...g.blocked].map((i) => district.edges[i].c);
 console.log(`    refused edge classes: ${JSON.stringify([...new Set(classes)])}`);
