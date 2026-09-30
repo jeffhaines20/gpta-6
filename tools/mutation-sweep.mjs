@@ -730,15 +730,40 @@ const MUTATIONS = [
   },
   {
     /**
-     * THE RUN-OVER SITE GOES BACK TO ITS LITERAL `scale: 1`, which is how it shipped: a 2 km/h roll
-     * over a body charged exactly what a 76 km/h one did. Recorded here even though it lives in
-     * district/main.js — see `charge-window` above for what that costs a mutation row — so the
-     * sweep says which gate, if any, reaches it.
+     * THE RUN-OVER SITE GOES BACK TO ITS LITERAL `scale: 1`, which is how it shipped: a 2 km/h
+     * roll over a body charged exactly what a 76 km/h one did. This row targets src/damage.js and
+     * not district/main.js BECAUSE of the miss `charge-window` above records — no offline gate
+     * imports main.js, so the rule was moved into `runOverCrime` where damage-test can reach it.
+     * Writing the mutation was what said the rule was in the wrong module.
      */
-    id: 'runover-scale', file: 'district/main.js',
-    find: '          scale: damage.pedCrimeScale(over) });',
-    to: '          scale: 1 });',
+    id: 'runover-scale', file: 'src/damage.js',
+    find: '    return { crime, scale: this.pedCrimeScale(speed) };',
+    to: '    return { crime, scale: 1 };',
     why: 'a roll at walking pace is charged as a fatal-threshold strike',
+  },
+  {
+    /**
+     * AND THE OTHER HALF OF THE SAME CALL: the crime stops following the body's own fatality
+     * verdict and falls back to the classifier's, which reads the CAR's speed. Those agree today,
+     * which is the property damage-test asserts — so this is the mutation that says the agreement
+     * is checked rather than assumed.
+     */
+    id: 'runover-verdict', file: 'src/damage.js',
+    find: '      : (fatal ? \'pedestrianKilled\' : \'pedestrianHit\');',
+    to: '      : \'pedestrianHit\';',
+    why: 'driving over a body at 110 km/h is filed as a non-fatal strike',
+  },
+  {
+    /**
+     * THE WIRE ITSELF, in district/main.js, marked [browser] because nothing offline imports it.
+     * Recorded rather than left out: a reverted wire puts the whole rule back in the call site and
+     * the module's gate still passes, which is the shape this file exists to make visible.
+     */
+    id: 'runover-wire', file: 'district/main.js',
+    find: '        const rv = damage.runOverCrime(over, r.fatal);',
+    to: "        const rv = { crime: r.fatal ? 'pedestrianKilled' : 'pedestrianHit', scale: 1 };",
+    why: 'the call site decides the charge again, past the module that owns it',
+    browser: true,
   },
 ];
 

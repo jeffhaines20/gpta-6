@@ -454,6 +454,26 @@ export class DamageModel {
     return ref > 0 ? pedFatalityRisk(v) / ref : 1;
   }
 
+  /**
+   * THE WHOLE CHARGE FOR DRIVING OVER A BODY THAT IS ALREADY DOWN, in one place, because
+   * district/main.js was deciding it in three: which crime (`r.fatal ? killed : hit`), what scale
+   * (a literal 1), and nothing tying either to this module's own threshold. `charge-window` in
+   * mutation-sweep records what that costs — no offline gate imports district/main.js, so a rule
+   * that lives there is a rule nothing can mutate-test. `VictimWindow` moved into src/wanted.js
+   * for exactly this reason and this is the same move.
+   *
+   * `fatal` is src/pedestrians.js's verdict, which is decided by THIS module's `pedKillSpeed`
+   * (see `hit()` there), so it is passed in rather than re-derived. Left null it falls through to
+   * `_crimeFor`, which is the one definition of the switch — so the two paths cannot disagree
+   * about where it sits, only about who asked.
+   */
+  runOverCrime(speed, fatal = null) {
+    const crime = fatal === null
+      ? this._crimeFor(IMPACT.pedestrian, 0, speed)
+      : (fatal ? 'pedestrianKilled' : 'pedestrianHit');
+    return { crime, scale: this.pedCrimeScale(speed) };
+  }
+
   _checkFire() {
     if (!this.onFire && !this.wrecked && this.health <= this.fireHealth) {
       this.onFire = true;

@@ -680,18 +680,19 @@ console.log('CRIME SCALE — how big an offence was, not just which offence');
 
   /**
    * THE PEDESTRIAN RANGE WHERE THE SCALE IS INVISIBLE, asserted rather than left as a comment.
-   * `pedestrianHit` carries `min: 1` and `min` floors HEAT, so a scale under 1/1.15 = 0.870 comes
+   * `pedestrianHit` carries `min: 1` and `min` floors HEAT, so a scale under `min / heat` comes
    * back out as exactly 1.00 and the charge cannot move. That is deliberate — the escalation is
    * the switch to `pedestrianKilled` at a published fatality speed, not a curve.
    *
    * THE FIRST VERSION OF THIS CHECK ASSERTED HEAT === 1 UP TO 76 km/h AND FAILED AT 75, which is
    * CLAUDE.md's "a threshold that holds at one value" arriving in a check I had just written from
-   * five sample points. The floor stops dominating where `1.15 * risk(v)/risk(pedKillSpeed) = 1`,
-   * which is 73.8 km/h, not 76.7 — so between 73.8 and the switch the heat does creep (1.06 at
-   * 75) while the STARS stay at one throughout, because reaching two needs heat 2.00 and the
-   * scale caps at 1.00 where the crime changes. Stars across the whole non-fatal range is the
-   * invariant; the crossover is computed here rather than written down, so it moves with the
-   * curve instead of becoming a magic number.
+   * five sample points. The floor stops dominating where `heat * risk(v)/risk(pedKillSpeed) = 1`.
+   * At `heat: 1.15` that was 73.8 km/h and the flat range ran 8-73.8; at 2.00 it is 64.5 and the
+   * range runs 8-64.5, with the heat creeping 1.67 / 1.85 / 1.99 at 73 / 75 / 76.6 where it used
+   * to creep 1.02 / 1.06 / 1.14. That is the whole point of the table move — see src/wanted.js —
+   * and this arm needed NO edit to follow it, because it bisects the crossover off the table
+   * instead of writing the number down. Stars stay at one across the whole non-fatal range
+   * either way, since reaching two needs heat 2.00 and the scale caps at 1.00 at the switch.
    */
   const ref = pedFatalityRisk(d.pedKillSpeed);
   const pedScale = (k) => pedFatalityRisk(kmh(k)) / ref;
@@ -728,6 +729,51 @@ console.log('CRIME SCALE — how big an offence was, not just which offence');
   console.log(`  and above it: 110 km/h -> ${wk.stars}* (heat ${wk.heat.toFixed(2)})`);
   check('above the kill speed the pedestrian charge does graduate', wk.stars > 2,
     `${wk.stars}* at heat ${wk.heat.toFixed(2)} against 2* unscaled`);
+
+  /**
+   * THE RUN-OVER CHARGE, WHICH LIVED IN district/main.js AND SO WAS UNGATEABLE. That site read
+   * `r.fatal ? 'pedestrianKilled' : 'pedestrianHit'` and passed a literal `scale: 1`, under a
+   * comment reasoning that a run-over has no delta-v so the table value must be the charge.
+   * Correct about the delta-v; a PEDESTRIAN scale is a function of SPEED, which that site had.
+   * `runOverCrime` is both halves in one place, next to the classifier they have to agree with.
+   *
+   * `charge-window` in mutation-sweep is the precedent: no offline gate imports
+   * district/main.js, so a rule that lives there cannot be mutation-tested at all.
+   */
+  {
+    const speeds = [0, 2, 8, 20, 40, 60, 73, 76.6, 76.8, 90, 110];
+    const rows = speeds.map((k) => {
+      const own = d.runOverCrime(kmh(k));                            // the module's own verdict
+      const told = d.runOverCrime(kmh(k), k >= d.pedKillSpeed * 3.6); // the ped module's
+      const w = new WantedSystem();
+      w.reportCrime(own.crime, { at: { x: 0, z: 0 }, scale: own.scale });
+      return { k, own, told, stars: w.stars, heat: w.heat };
+    });
+    console.log('  a run-over: ' + rows.map((r) =>
+      `${r.k}km/h ${r.own.crime === 'pedestrianKilled' ? 'K' : 'h'}${r.stars}*` +
+      `/${r.own.scale.toFixed(2)}`).join(' '));
+    check('a run-over charge follows the speed, which a literal scale of 1 could not',
+      rows[1].own.scale !== rows[9].own.scale &&
+      rows.slice(1).every((r, i) => r.own.scale > rows[i].own.scale),
+      rows.map((r) => r.own.scale.toFixed(4)).join(' '));
+    check('and the caller\'s fatality verdict agrees with the classifier at every speed',
+      rows.every((r) => r.own.crime === r.told.crime),
+      rows.filter((r) => r.own.crime !== r.told.crime).map((r) => r.k).join(' ') || 'all agree');
+    check('every non-fatal run-over is one star, which the old literal claimed without cause',
+      rows.filter((r) => r.own.crime === 'pedestrianHit').every((r) => r.stars === 1),
+      rows.filter((r) => r.own.crime === 'pedestrianHit')
+        .map((r) => `${r.k}:${r.stars}*`).join(' '));
+    check('and a fatal one is worse, so the two are not the same charge wearing two names',
+      rows[rows.length - 1].stars > 1 &&
+      rows[rows.length - 1].heat > rows.find((r) => r.k === 60).heat,
+      `110 km/h ${rows[rows.length - 1].stars}* vs 60 km/h ` +
+      `${rows.find((r) => r.k === 60).stars}*`);
+    // A speed nothing sane produces still must not throw or return a non-finite scale.
+    const bad = [NaN, Infinity, -30].map((v) => d.runOverCrime(v, false));
+    check('a non-finite or negative speed reads as a finite scale, not a NaN charge',
+      bad.every((b) => Number.isFinite(b.scale) && b.scale >= 0 && b.crime === 'pedestrianHit'),
+      bad.map((b) => b.scale).join(' '));
+  }
 
   /**
    * HOW MANY CRIMES NOTHING NAMES. It was ten of sixteen; `hitAndRun` has since been wired, because
