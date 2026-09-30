@@ -16,6 +16,7 @@
 // that read as guards: geom-audit "passed the whole time. That was luck, not
 // evidence." So every fault defineMission() is documented to catch gets a mission
 // authored to contain it, and the test fails if the throw does not happen.
+import { DamageModel } from '../src/damage.js';
 import { MissionRunner, defineMission, OUTCOMES, TRIGGERS, snapshotFields,
   MissionBoard, OFFER_RADIUS_M } from '../src/mission.js';
 
@@ -539,6 +540,86 @@ console.log('\n=== 9. THE AUTHORED MISSIONS, walked stage by stage');
   }
   console.log(`    marker to the NEXT stage's reach trigger:`);
   for (const line of entryMargins) console.log(`      ${line}`);
+  /**
+   * NO HEALTH AT WHICH A MISSION GIVES UP MAY BE A HEALTH THE CAR CANNOT RECOVER FROM.
+   *
+   * The recoverable set is `health <= fireHealth`: a hit there latches a fire (damage.js:283,
+   * from hit() only — update() merely sustains one already burning), it drains at fireRate,
+   * the car wrecks, and respawnCar() repairs it. Above that there is no fire, no wreck, no
+   * replacement, and `damage.repair()` has no caller a player can reach. So a mission gate
+   * ABOVE fireHealth opens a band in which the car runs, no job can be finished, and nothing
+   * resets it. It was 0.20 against a fireHealth of 0.12 and a playtester spent three attempts
+   * in it at health 0.1542.
+   *
+   * Asserted against damage.js's OWN constant, not against the literal 0.12, because a
+   * constant that nothing re-derives is a magic number waiting for the other one to move.
+   */
+  const dm = new DamageModel();
+  const healthGates = [];
+  for (const m of Object.values(MISSIONS)) {
+    for (const st of m.stages) {
+      for (const t of st.triggers ?? []) {
+        if (t.kind === 'healthBelow') healthGates.push({ id: `${m.id}/${st.id}`, f: t.fraction });
+      }
+    }
+  }
+  console.log(`    mission health gates against damage.js fireHealth ${dm.fireHealth}:`);
+  for (const g of healthGates) console.log(`      ${g.id} ${g.f}`);
+  check('every mission health gate is inside the recoverable band',
+    healthGates.length > 0 && healthGates.every((g) => g.f <= dm.fireHealth),
+    healthGates.map((g) => `${g.id} ${g.f}`).join(', ') + ` vs fireHealth ${dm.fireHealth}`);
+  check('...and there IS a health gate to check, so the arm is not vacuous',
+    healthGates.length >= 3, `${healthGates.length} gates`);
+
+  /**
+   * A FIRST STAGE THAT A DRIVING PLAYER SKIPS MUST NOT BE THE ONLY PLACE ITS WORDS APPEAR.
+   *
+   * A playtester measured both missions' first objective on screen for 0.008333 s — half a frame
+   * at 60 Hz. `toCar`'s only exit is `inVehicle`, which is already true for anyone who drove to
+   * the job's marker, so the stage completes in the frame it began. The stage is not broken: on
+   * foot it holds for as long as you stand there, and "get to the car" only means anything then.
+   * What was broken is that "The parcel is already in the boot." lived ONLY in that subtitle, so
+   * the flagship's single piece of setup narration was never rendered for a player who arrived
+   * by car. It is in the `brief` now, which is shown at the offer whatever mode you arrive in.
+   *
+   * MY FIRST VERSION OF THIS CHECK LOOKED IN THE WRONG PLACE and reported `none` on a defect the
+   * playtester had already measured: it tested stage-to-stage edges, asking whether a stage
+   * exited on the same state trigger that entered it. `toCar` is not entered by a trigger at
+   * all — it is entered at mission START, and the state that satisfies it is how the player got
+   * to the marker. A check aimed at the wrong relation passes cleanly and says nothing, which is
+   * the failure this file's own header warns about twice.
+   */
+  const lostNarration = [];
+  const STATE_EXIT = new Set(['inVehicle', 'onFoot']);
+  for (const m of Object.values(MISSIONS)) {
+    const first = m.stages[0];
+    if (!first || !first.subtitle) continue;
+    const exits = first.triggers ?? [];
+    const skippable = exits.length > 0 && exits.every((t) => STATE_EXIT.has(t.kind));
+    if (!skippable) continue;
+    const brief = m.brief ?? '';
+    // The subtitle's own sentences, so a reworded brief still counts as carrying it.
+    const carried = first.subtitle.split(/(?<=\.)\s+/).filter(Boolean)
+      .every((s) => brief.includes(s.trim()));
+    if (!carried) {
+      lostNarration.push(`${m.id}/${first.id}: subtitle ${JSON.stringify(first.subtitle)}` +
+        ` appears nowhere else, and the stage exits on ${exits.map((t) => t.kind).join('/')}` +
+        ` which a player who drives to the marker already satisfies`);
+    }
+  }
+  console.log(`    first stages that a driving player skips:`);
+  for (const m of Object.values(MISSIONS)) {
+    const f = m.stages[0];
+    const ex = (f.triggers ?? []).map((t) => t.kind).join('/');
+    const sk = (f.triggers ?? []).length && (f.triggers ?? []).every((t) => STATE_EXIT.has(t.kind));
+    console.log(`      ${m.id}/${f.id} exits ${ex}  skippable ${sk}` +
+      `  subtitle ${f.subtitle ? 'yes' : 'none'}`);
+  }
+  check('a skippable first stage carries no narration the brief does not',
+    lostNarration.length === 0, lostNarration.join(' | ') || 'none lost');
+
+
+
   check("a stage's marker never lands inside the next stage's reach radius",
     instantOnEntry.length === 0, instantOnEntry.join(' | ') || `${entryMargins.length} edges checked, all clear`);
 

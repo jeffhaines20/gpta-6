@@ -46,10 +46,50 @@ import { defineMission } from './mission.js';
  * ending, not a lost one. A mission that can only be completed one way is a mission
  * most players do not complete.
  */
+/**
+ * WHERE A MISSION GIVES UP ON THE CAR, AND WHY IT IS THIS NUMBER.
+ *
+ * It was 0.2, and that left an UNWINNABLE BAND 0.08 wide. `src/damage.js`'s `fireHealth` is
+ * 0.12: a hit that takes health to 0.12 or below latches a fire, which drains at 0.04/s, wrecks
+ * the car, and `respawnCar()` repairs it — health 1.000 with a replacement alongside. A hit that
+ * leaves health in [0.12, 0.20) latches nothing. There is no fire, no wreck, no replacement, and
+ * `damage.repair()` has exactly two callers in the whole tree: inside `respawnCar()` and the
+ * `__district.repairCar()` console hook. There is no garage, no spray shop, no repair anywhere a
+ * player can reach.
+ *
+ * So the car was RESCUED BY BEING MORE BROKEN AND STRANDED BY BEING LESS. A playtester found it:
+ * at health 0.1542 they started marlin-street three times, drove the 168 m eastbound leg each
+ * time — `eastbound` carries no health guard, so the mission can always be STARTED — and failed
+ * on entry to `ambush` after 19.8 s, with the marker put back on the map every time. Measured
+ * boundaries: 0.2020 playable, 0.1794 dead, 0.1263 dead, 0.0958 rescued by its own fire. The
+ * only escape was 7.2 s of full throttle into a wall, which nothing in the game tells you about.
+ *
+ * Matching this to `fireHealth` gives the invariant **if the car runs, the job is possible**: a
+ * mission may only give up on health once the car is already burning down to a replacement, so
+ * failing the job and losing the car are the same event instead of two with a gap between them.
+ * It is the smaller of the two available fixes — the other is to make cars catch fire at 20%
+ * health, which removes the band by changing what every collision costs.
+ *
+ * `tools/mission-test.mjs` asserts the RELATION against damage.js's own constant rather than
+ * this literal, so moving either number without the other fails the gate.
+ */
+const MISSION_FAIL_HEALTH = 0.12;
+
 export const MARLIN_STREET = defineMission({
   id: 'marlin-street',
   title: 'Marlin Street',
-  brief: 'A parcel from the marina to the east end of Marlin Street. Should be simple.',
+  /**
+   * THE SETUP LINE LIVES HERE BECAUSE `toCar` IS SKIPPED BY ANYONE WHO DRIVES TO THE JOB.
+   * `toCar`'s only exit is `inVehicle`, which is already true for a player who arrives by car,
+   * so the transition completes in the frame it began: a playtester measured the first objective
+   * on screen for 0.008333 s, half a frame at 60 Hz. "The parcel is already in the boot." was the
+   * flagship's only piece of setup narration and it appeared nowhere else, so a player who drove
+   * to the marker never read it. The brief is shown at the OFFER, whatever mode they arrive in.
+   * `toCar`'s own subtitle stays, because on foot the stage is real and holds for as long as you
+   * stand there.
+   */
+  brief: 'A parcel from the marina to the east end of Marlin Street. The parcel is already in'
+    + ' the boot. Should be simple.',
   /**
    * THE PICKUP, and why it is 354 m from the spawn rather than on top of it. A job you are
    * standing in when the page loads is not a job you chose; a job 354 m up the road is a reason
@@ -133,7 +173,7 @@ export const MARLIN_STREET = defineMission({
         // started. Nobody shakes a pursuit two seconds after it begins, so the
         // composite costs the player nothing and removes the dependency.
         { kind: 'all', of: [{ kind: 'timer', seconds: 2 }, { kind: 'evaded' }], goto: 'drop' },
-        { kind: 'healthBelow', fraction: 0.2, outcome: 'failed' },
+        { kind: 'healthBelow', fraction: MISSION_FAIL_HEALTH, outcome: 'failed' },
       ],
       timeLimit: 240,
       onTimeout: 'dropHot',
@@ -146,7 +186,7 @@ export const MARLIN_STREET = defineMission({
       marker: { x: -471, z: 205 },
       triggers: [
         { kind: 'reach', x: -471, z: 205, radius: 28, outcome: 'passed' },
-        { kind: 'healthBelow', fraction: 0.2, outcome: 'failed' },
+        { kind: 'healthBelow', fraction: MISSION_FAIL_HEALTH, outcome: 'failed' },
         /**
          * THE HEAT COMING BACK DOES NOT UNDO THE DELIVERY, IT PUTS THE CHASE BACK ON — but ONE
          * star is not the heat coming back, it is an accident, and at `stars: 1` this trigger was
@@ -180,7 +220,7 @@ export const MARLIN_STREET = defineMission({
       marker: { x: -471, z: 205 },
       triggers: [
         { kind: 'reach', x: -471, z: 205, radius: 28, outcome: 'passed' },
-        { kind: 'healthBelow', fraction: 0.2, outcome: 'failed' },
+        { kind: 'healthBelow', fraction: MISSION_FAIL_HEALTH, outcome: 'failed' },
       ],
       timeLimit: 300,
       onTimeout: 'failed',

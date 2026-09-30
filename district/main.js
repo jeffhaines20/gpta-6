@@ -518,10 +518,28 @@ mission.on('finished', (e) => {
   // Latch the marker so a mission that ends where it started does not restart on the next frame.
   if (mission.mission) { board.record(mission.mission.id, e.outcome); board.arm(mission.mission.id); }
   const title = mission.mission ? mission.mission.title : 'MISSION';
+  /**
+   * THE REASON IS AN INTERNAL IDENTIFIER AND THIS IS THE PLAYER'S BAND.
+   *
+   * `MissionRunner._take` passes `trigger:${kind}` or `timeout`, and this line used to
+   * interpolate it raw. A playtester read the result off the HUD verbatim: "Marlin Street —
+   * trigger:healthBelow — the marker is back on the map". A player should be told the car is
+   * too damaged, not shown the name of the predicate that noticed.
+   *
+   * Unmapped reasons are DROPPED rather than shown. That is the safe default: a new trigger
+   * kind then reads as a plain "MISSION FAILED / <title> — the marker is back on the map"
+   * instead of leaking its own name the day it is added.
+   */
+  const REASON_TEXT = {
+    'trigger:healthBelow': 'the car is too damaged',
+    'trigger:wrecked': 'the car is wrecked',
+    timeout: 'out of time',
+  };
+  const said = REASON_TEXT[e.reason] ?? null;
   missionEnd = e.outcome === OUTCOMES.PASSED
     ? { objective: 'MISSION COMPLETE', subtitle: title }
     : { objective: `MISSION ${String(e.outcome).toUpperCase()}`,
-      subtitle: `${title}${e.reason ? ' — ' + e.reason : ''} — the marker is back on the map` };
+      subtitle: `${title}${said ? ' — ' + said : ''} — the marker is back on the map` };
   missionEndFor = MISSION_END_S;
 });
 
