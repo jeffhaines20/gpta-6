@@ -349,6 +349,19 @@ const MUTATIONS = [
   },
   {
     /**
+     * PUTS THE STEER-PULL CUE'S BLIND ZONE BACK. `0.02` is a defensible number on its own terms —
+     * a hands-off car at that pull leaves a 2.35 m half-lane in 3.9 s at 50 km/h — and it is a
+     * STEP at 9.2 pixels of arm, so the cue went from nothing straight to a nine-pixel bar. A
+     * round-5 playtester measured an 11.12 m drift over 118.7 m underneath it with no cue at all.
+     * Nothing errors and the cue still works everywhere it used to.
+     */
+    id: 'pull-blind', file: 'src/hud.js',
+    find: '    if (!(armFull * frac >= 1)) return;',
+    to: '    if (!(mag > 0.02)) return;',
+    why: 'a 13 km/h scrape is back to biasing the steering with nothing on screen',
+  },
+  {
+    /**
      * DROPS THE MARKER HASH. The map still redraws whenever the PLAYER moves, so nothing looks
      * wrong while driving — and a police car closing on a player who has STOPPED leaves the map
      * holding its last frame, which is exactly when it is being read. Every blip the HUD had

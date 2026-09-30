@@ -24,7 +24,8 @@
 //      drawn in a THEME colour, so it is identified by fill.
 //
 //   node tools/hud-cue.mjs
-import { THEME, LAYOUT, composeBand, MINIMAP_ZOOM_M, MINIMAP_REACH_M } from '../src/hud.js';
+import { THEME, LAYOUT, composeBand, MINIMAP_ZOOM_M, MINIMAP_REACH_M,
+  PULL_CAP, PULL_MIN, PULL_MIN_PX, PULL_FULL_PX, PULL_TICK_PX } from '../src/hud.js';
 import { composeWanted, composeLaw, LAW_NOTICE_S, STATES } from '../src/wanted.js';
 
 const checks = [];
@@ -196,7 +197,7 @@ console.log('HUD CUE — the damage steer-pull indicator');
 
 console.log('\n  steerPull   rects   arm x      arm w    colour     side');
 const rows = [];
-for (const pull of [0, 0.01, 0.02, 0.06, 0.12, 0.25, -0.06, -0.25]) {
+for (const pull of [0, 0.01, 0.0197, 0.06, 0.12, 0.25, -0.06, -0.25]) {
   const f = frameAt(pull);
   if (!f.vitalsDrew && pull !== 0) {
     check(`the vitals panel drew for pull ${pull}`, false, 'no vitals pass in 200 frames');
@@ -214,10 +215,88 @@ const at = (p) => rows.find((r) => r.pull === p);
 //    draws would pass every other check in this file.
 check('an undamaged car draws no cue', at(0).band.length === 0 && !at(0).arm,
   `${at(0).band.length} rects`);
-check('and a pull under 2% is below the threshold', at(0.01).band.length === 0,
-  `${at(0.01).band.length} rects at 0.01`);
 check('KNOWN-BAD: something IS drawn once the pull is real', at(0.06).band.length > 0,
   `${at(0.06).band.length} rects at 0.06`);
+
+/**
+ * THE THRESHOLD, RESTATED IN THE SAME COMMIT THAT MOVED IT, with the derivation.
+ *
+ * This check used to read "a pull under 2% is below the threshold", asserting `_pullCue`'s old
+ * `mag > 0.02`. That value is defensible on its own terms — a hands-off car at 0.02 of pull leaves
+ * a 2.35 m half-lane in 3.9 s at 50 km/h, measured — and it was still wrong, because it is a STEP
+ * at 9.2 PIXELS of arm: the cue went from nothing at all straight to a nine-pixel bar. A round-5
+ * playtester measured the blind zone underneath it, an 11.12 m drift over 118.7 m with no cue at
+ * all, which I reproduce as 10.92 m over 124.0 m on a 630 m radius.
+ *
+ * The threshold is now one pixel of arm, `PULL_CAP / PULL_FULL_PX`, which is what a reading owes:
+ * visible wherever the quantity is resolvable. There is no noise floor to suppress — src/damage.js
+ * gives EXACTLY zero on an undamaged car — so the canvas is the only floor there is.
+ *
+ * Asserted against the module's own exported geometry, not against a copied 115: a check that
+ * re-derived the arithmetic would be agreeing with itself.
+ */
+/**
+ * AND A SETTLED READER, because near the threshold the dirty flag decides the answer.
+ *
+ * `frameAt` returns the LAST frame the panel drew on, which `update()` leaves up to
+ * `0.0015 * exp(10/60)` of pull short of the commanded value — the epsilon this file already
+ * derives, 0.815 px on a 115 px arm. That shortfall is a rounding error against a 27 px arm and it
+ * is the whole answer against a 1 px one: the first version of these checks read ZERO rects at
+ * 1.5 px of commanded arm, because the last drawn frame carried 0.894 px. Two adjacent sweep
+ * values closer together than the epsilon do it too — 0.0197 then 0.02 never dirties the panel at
+ * all, and reads as "draws nothing" at a value well above the threshold.
+ *
+ * So the threshold arms settle the value first and then force one pass with `layout()`, which is
+ * the public "redraw everything". The checks above keep `frameAt` and its epsilon, because what
+ * they measure is the arm's LENGTH where that shortfall is the right thing to allow for.
+ */
+function settledAt(pull, frames = 300) {
+  for (let i = 0; i < frames; i++) {
+    hud.update({ dt: 1 / 60, visible: true, speed: 40, health: 1, armour: 0,
+      vehicle: { roadSpeed: 11, forwardSpeed: 11, steerPull: pull,
+        position: { x: 0, z: 0 }, quaternion: { w: 1, x: 0, y: 0, z: 0 } } });
+  }
+  hud.layout();
+  rects.length = 0; fills.length = 0; texts.length = 0; paths.length = 0;
+  hud.update({ dt: 1 / 60, visible: true, speed: 40, health: 1, armour: 0,
+    vehicle: { roadSpeed: 11, forwardSpeed: 11, steerPull: pull,
+      position: { x: 0, z: 0 }, quaternion: { w: 1, x: 0, y: 0, z: 0 } } });
+  const band = rects.filter((r) => Math.abs(r.y - CUE_Y) < 1e-9 && Math.abs(r.h - CUE_H) < 1e-9);
+  return { band, arm: band.find((r) => typeof r.fill === 'string' && r.fill.startsWith('#')),
+    drew: isVitalsPass(rects) };
+}
+
+console.log(`\n  the cue's arm is ${PULL_FULL_PX} px at the ${PULL_CAP} cap, so one pixel of arm ` +
+  `is a pull of ${PULL_MIN.toFixed(5)}; the old 0.02 threshold was ${(0.02 / PULL_MIN).toFixed(1)} px`);
+{
+  const rows = [PULL_MIN * 0.5, PULL_MIN * 1.5, 0.01, 0.0197, 0.02];
+  console.log('    pull      settled arm px');
+  for (const q of rows) {
+    const f = settledAt(q);
+    console.log(`    ${q.toFixed(5).padStart(8)}  ${(f.arm ? f.arm.w.toFixed(2) : 'none').padStart(14)}`);
+  }
+}
+check('the threshold is one pixel of arm, derived from the layout',
+  Math.abs(PULL_MIN - PULL_CAP / PULL_FULL_PX) < 1e-12 && PULL_FULL_PX === LAYOUT.vitals.w / 2 - 1,
+  `${PULL_MIN.toFixed(5)} from ${PULL_FULL_PX} px`);
+check('a pull below one pixel of arm draws nothing', settledAt(PULL_MIN * 0.5).band.length === 0,
+  `${settledAt(PULL_MIN * 0.5).band.length} rects at ${(PULL_MIN * 0.5).toFixed(5)}`);
+check('and a pull above it draws', settledAt(PULL_MIN * 1.5).band.length > 0,
+  `${settledAt(PULL_MIN * 1.5).band.length} rects at ${(PULL_MIN * 1.5).toFixed(5)}`);
+check('the settled reader saw a vitals pass at all, so those two are not both vacuous',
+  settledAt(PULL_MIN * 1.5).drew && settledAt(PULL_MIN * 0.5).drew, 'both drew');
+/**
+ * THE BLIND ZONE IS GONE, which is the whole point and needs saying as its own check: the two
+ * above would pass for a threshold anywhere below 0.02.
+ */
+check('the 13 km/h scrape that drew nothing now draws a cue',
+  !!settledAt(0.0197).arm, `${settledAt(0.0197).arm?.w.toFixed(2)} px of arm`);
+check('and so does the half-of-that scrape below it',
+  !!settledAt(0.01).arm, `${settledAt(0.01).arm?.w.toFixed(2)} px of arm`);
+// A small arm has to read as an arm rather than as the centre tick it sits beside.
+check('the shortest arm drawn is wider than the centre tick',
+  PULL_MIN_PX > PULL_TICK_PX && settledAt(PULL_MIN * 1.5).arm?.w >= PULL_MIN_PX,
+  `${settledAt(PULL_MIN * 1.5).arm?.w.toFixed(2)} px against a ${PULL_TICK_PX} px tick`);
 
 /**
  * THE LAST DRAWN FRAME IS ALWAYS A LITTLE SHORT OF THE TARGET, and that is the dirty flag, not a
@@ -239,7 +318,9 @@ const DIRTY_EPS = 0.0015;
  * derived bound and outside the naive one.
  */
 const DAMP_RATE = 10, DT = 1 / 60;
-const armFull = (at(0.25).w / 2) - 1;
+// From the module's own export rather than re-derived off the drawn track: `PULL_FULL_PX` is what
+// `_pullCue` scales the arm by, so a copy here would be this gate agreeing with its own arithmetic.
+const armFull = PULL_FULL_PX;
 const PX_EPS = (DIRTY_EPS * Math.exp(DAMP_RATE * DT) / 0.25) * armFull;
 console.log(`\n  the dirty-flag epsilon is ${DIRTY_EPS} of pull; one damping step wider is ` +
   `${(DIRTY_EPS * Math.exp(DAMP_RATE * DT)).toFixed(6)}, which is ${PX_EPS.toFixed(2)} px on a ` +

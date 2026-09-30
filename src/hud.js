@@ -131,6 +131,22 @@ export const LAYOUT = {
   gap: 6,
 };
 
+/**
+ * THE STEER-PULL CUE'S OWN GEOMETRY, exported because the threshold is DERIVED from it and a gate
+ * that re-derived it from a copied 115 would be asserting its own arithmetic. See `_pullCue`.
+ *
+ *   PULL_CAP      src/damage.js's steerPull cap, which the arm is scaled against
+ *   PULL_TICK_PX  the centre tick's width: "straight", for the arm to be read against
+ *   PULL_MIN_PX   the shortest arm drawn, so a small pull reads as an arm and not as the tick
+ */
+export const PULL_CAP = 0.25;
+export const PULL_TICK_PX = 1;
+export const PULL_MIN_PX = PULL_TICK_PX * 2;
+/** Arm pixels at the cap, for `LAYOUT.vitals.w`. One pixel of this is the cue's threshold. */
+export const PULL_FULL_PX = LAYOUT.vitals.w / 2 - 1;
+/** The smallest pull the cue can draw: one pixel of arm. Derived, not chosen. */
+export const PULL_MIN = PULL_CAP / PULL_FULL_PX;
+
 // ---------------------------------------------------------------- small helpers
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
@@ -1501,22 +1517,40 @@ export class HUD {
    * information, not the authority. A marker offset from a centre tick reads as "hold this much the
    * other way", which is the actual instruction; a number would not.
    *
-   * Nothing is drawn below a 2% pull, so an undamaged car has no extra chrome and this costs one
-   * comparison. Amber past a third of the cap, red past two thirds, matching the health bar's
-   * convention so peripheral vision alone reports it.
+   * Amber past a third of the cap, red past two thirds, matching the health bar's convention so
+   * peripheral vision alone reports it.
+   *
+   * AND THE THRESHOLD IS THE ARM'S OWN RESOLUTION, RESTATED. It was `mag > 0.02`, which is a
+   * driving-relevant number and defensible as one — a hands-off car at 0.02 of pull leaves a
+   * 2.35 m half-lane in 3.9 s at 50 km/h, measured. What made it wrong is that it is a STEP, and
+   * `PULL_FULL_PX` is 115, so 0.02 is **9.2 pixels** of arm: the cue went from nothing at all
+   * straight to a nine-pixel bar. A round-5 playtester measured the blind zone underneath it — a
+   * 3.5 m/s scrape costing 3.9% of health drifts 11.12 m over 118.7 m with no cue whatsoever, which
+   * I reproduce as 10.92 m over 124.0 m on a 630 m radius — and the compounding case is worse,
+   * because minor contacts accumulate and there is no repair but wrecking the car deliberately.
+   *
+   * A cue is a READING, so it is drawn wherever the quantity is visible at all. There is no noise
+   * floor to suppress: `src/damage.js` gives a steerPull of EXACTLY zero on an undamaged car, and
+   * the whole reason the old threshold looked free was that it never had to separate signal from
+   * noise. So the threshold is one pixel of arm, derived from LAYOUT rather than chosen, and an
+   * undamaged car still draws nothing at all.
+   *
+   * `PULL_MIN_PX` is twice the centre tick's width, so the smallest drawn arm reads as an arm
+   * rather than as the tick it sits beside. It engages below 0.0043 of pull and nowhere else.
    */
   _pullCue(ctx, L, pull) {
     const mag = Math.abs(pull);
-    if (!(mag > 0.02)) return;
+    const frac = Math.min(1, mag / PULL_CAP);
+    const armFull = L.w / 2 - 1;
+    if (!(armFull * frac >= 1)) return;
     const y = 20.5, h = 3.5, cx = L.w / 2;
     // The track, dim, so the centre tick is readable as "straight".
     ctx.fillStyle = 'rgba(2,5,9,0.55)';
     ctx.fillRect(0, y, L.w, h);
     ctx.fillStyle = 'rgba(255,255,255,0.22)';
-    ctx.fillRect(cx - 0.5, y, 1, h);
+    ctx.fillRect(cx - 0.5, y, PULL_TICK_PX, h);
     // Against the 0.25 cap, so a pull at the cap fills the arm. See src/damage.js's steerPull.
-    const frac = Math.min(1, mag / 0.25);
-    const arm = (L.w / 2 - 1) * frac;
+    const arm = Math.max(PULL_MIN_PX, armFull * frac);
     ctx.fillStyle = frac > 0.66 ? THEME.healthCrit : frac > 0.33 ? THEME.healthLow : THEME.health;
     // Drawn on the side the car pulls TOWARDS, which is the side the player steers away from.
     if (pull >= 0) ctx.fillRect(cx + 0.5, y, arm, h);

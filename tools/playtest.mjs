@@ -43,7 +43,7 @@ import { Traffic } from '../src/traffic.js';
 import { Pedestrians } from '../src/pedestrians.js';
 import { RoadGraph, followPath, ROUTE_LANE_M } from '../src/roadpath.js';
 import { MissionRunner, OUTCOMES, MissionBoard } from '../src/mission.js';
-import { composeBand, MINIMAP_REACH_M } from '../src/hud.js';
+import { composeBand, MINIMAP_REACH_M, PULL_MIN } from '../src/hud.js';
 import { MISSIONS } from '../src/missions.js';
 
 const HZ = 120, DT = 1 / HZ;
@@ -932,9 +932,18 @@ export class Session {
       // What is in front of the windscreen, nearest first, capped the way attention is.
       carsAhead: cars.slice(0, 6),
       peopleAhead: people.slice(0, 8),
-      // The one thing the player feels that is not on the HUD.
-      pullsTo: this.damage.steerPull > 0.02 ? 'right'
-        : this.damage.steerPull < -0.02 ? 'left' : null,
+      /**
+       * WHICH WAY THE CAR DRAGS, AND IT IS ON THE HUD — the page draws it as an offset marker in
+       * the vitals band, so this is not privileged information, it is that cue in words.
+       *
+       * THE THRESHOLD IS THE CUE'S OWN, imported rather than copied. It was a literal `0.02` here
+       * and a literal `0.02` in src/hud.js's `_pullCue`, which is the recurring shape CLAUDE.md
+       * records as "patching one tool and leaving its siblings": moving the cue's threshold and
+       * leaving this one would have left the harness with a blind zone the page no longer has, and
+       * a playtester steering by `look()` would report a defect that had been fixed.
+       */
+      pullsTo: this.damage.steerPull > PULL_MIN ? 'right'
+        : this.damage.steerPull < -PULL_MIN ? 'left' : null,
     };
   }
 
