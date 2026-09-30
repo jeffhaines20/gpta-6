@@ -245,18 +245,24 @@ export class PursuitUnits {
       }
       let p = this._pointOn(u.edge, u.forward, u.t);
       /**
-       * A HELD UNIT DOES NOT REROUTE, and without this it flickered instead of holding. The
-       * closest approach to a target standing at a junction is the END of the edge, so `u.t`
-       * clamped to it also satisfies `u.t >= u.len` — the end-of-edge test below — and the unit
-       * took a new edge, reset `t` to 0 and cleared `held`, every single frame.
+       * A HELD UNIT REROUTES AT THE END OF ITS EDGE LIKE ANY OTHER, and this carried a `!u.held`
+       * guard for a while on a WRONG DIAGNOSIS, recorded because the mutation sweep is what
+       * removed it.
        *
-       * It cost the whole feature and it read as the feature being unreliable rather than broken:
-       * the bust clock ARMED 21 times in 80 s and never once reached 2 s, and one arm of the same
-       * scenario 0.2 m away (brake on instead of coasting) busted at 37 s while the other never
-       * did. The greedy router is chaotic in the target position, so "sometimes it works" was a
-       * plausible reading; `stats.bustHolds` against `stats.busts` is what said it was not.
+       * The reasoning was: the closest approach to a player standing at a junction is the END of
+       * the edge, so the hold's clamp also satisfies this test and the unit rerouted every frame.
+       * The reasoning is sound and it was not the defect — the defect was the ratchet below. With
+       * the hold sticky, removing the guard is bit-identical: same six scenarios, all busting at
+       * 16 s with the clock armed exactly once, and the same 390-395 s contiguous holds at two
+       * spots and three seeds. `mutation-sweep` could not tell the two versions apart, which is
+       * what a redundant guard looks like.
+       *
+       * And in the case it was written for it is actively wrong: a unit whose closest approach IS
+       * its edge's end should carry on to the next edge toward a player standing beyond the
+       * junction, not stop at the corner. It re-holds on the new edge at `t = 0` instead, without
+       * flickering, because the sticky condition is satisfied there on the next frame.
        */
-      if (!u.held && (!p || u.t >= u.len)) {
+      if (!p || u.t >= u.len) {
         const next = this._chooseNext(u, target);
         if (!next) { this.units[i] = null; this.mesh.setMatrixAt(i, this._hidden); this.bars.setMatrixAt(i, this._hidden); continue; }
         u.edge = next.e; u.forward = next.forward; u.t = 0; u.len = this._len(next.e);

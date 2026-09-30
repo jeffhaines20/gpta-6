@@ -813,7 +813,10 @@ const MUTATIONS = [
   {
     /**
      * THE HOLD STOPS BEING STICKY, which is the defect this round actually shipped and had to
-     * trace at the frame. A stationary player is not stationary — the plan's target is the live
+     * trace at the frame. A `hold-reroute` row sat beside this one for an hour and was DELETED
+     * rather than kept: it reverted a `!u.held` guard that this sweep then could not distinguish
+     * from HEAD, because with the hold sticky the guard is redundant — so the guard went too, and
+     * src/pursuit.js records why. A row nothing can tell apart is not evidence of coverage. A stationary player is not stationary — the plan's target is the live
      * position and a braked car settles by sub-millimetre amounts — so any backwards drift in the
      * closest approach fails `u.t <= near.t` and the unit leaves for good. `held` was true for
      * exactly two frames at a time, 21 arms of the clock in 80 s, peak 0.017 s, and two arms of
@@ -823,17 +826,6 @@ const MUTATIONS = [
     find: '      if (near.d <= PursuitUnits.HOLD_R && (u.held || (wantT > near.t && u.t <= near.t))) {',
     to: '      if (near.d <= PursuitUnits.HOLD_R && wantT > near.t && u.t <= near.t) {',
     why: 'a hold lasts two frames, so being caught becomes a coin flip',
-  },
-  {
-    /**
-     * A HELD UNIT REROUTES AT THE END OF ITS EDGE, the second half of the same trace. The closest
-     * approach to a player standing at a junction IS the end of the edge, so the clamp satisfies
-     * the end-of-edge test and the unit takes a new edge every frame.
-     */
-    id: 'hold-reroute', file: 'src/pursuit.js',
-    find: '      if (!u.held && (!p || u.t >= u.len)) {',
-    to: '      if (!p || u.t >= u.len) {',
-    why: 'a unit that arrives at a junction can never hold there',
   },
   {
     /**
