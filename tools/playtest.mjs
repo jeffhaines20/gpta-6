@@ -182,6 +182,28 @@ export class Session {
      * now does too.
      */
     this.board = new MissionBoard(MISSIONS);
+    /**
+     * THE INTENTS, because without them the flagship's only pursuit beat is two seconds long.
+     *
+     * `MissionRunner` does not touch the wanted system; it EMITS what it wants the host to do and
+     * `district/main.js:668` applies it. This harness never listened, so `ambush`'s
+     * `onEnter: { setWanted: 2 }` landed nowhere — and `ambush` exits on
+     * `all[timer 2 s, evaded]`, so with nobody wanted `evaded` was already true and the stage
+     * lasted exactly its 2 s dwell timer. A playtester found it, wired it by hand, and measured
+     * the same stage at 30.0 s; every ambush number in their report came from the wired arm. A
+     * playtester who did not wire it would report the mission's chase as two seconds of nothing.
+     *
+     * Unhonourable intents are RECORDED rather than dropped, the same way main.js records them:
+     * this harness has no audio graph and no pursuit units, so a `stinger` or a `setUnitGoal`
+     * should show up in the audit as not honoured instead of looking like it worked.
+     */
+    this.missionUnhonoured = new Set();
+    this.mission.on('intent', (i) => {
+      if (typeof i.setWanted === 'number') this.wanted.setStars(i.setWanted, `mission:${i.stage}`);
+      else if (i.stinger) this.missionUnhonoured.add(`stinger:${i.stinger}`);
+      else if (i.setUnitGoal) this.missionUnhonoured.add(`setUnitGoal:${i.setUnitGoal}`);
+      else if (i.setSpawnBand) this.missionUnhonoured.add(`setSpawnBand:${i.setSpawnBand}`);
+    });
     this.mission.on('finished', (e) => {
       if (!this.mission.mission) return;
       // Latched, so a mission that ends where it started does not restart on the next frame.
