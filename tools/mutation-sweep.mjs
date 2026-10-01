@@ -55,6 +55,9 @@ const OFFLINE = [
   'check-syntax', 'geom-audit', 'golden-trace', 'physics-test', 'leaf-mask', 'wanted-test',
   'mission-test', 'damage-test', 'blocker-test', 'crash-test', 'roadpath-test', 'route-drive',
   'reaction-test', 'sim-determinism', 'traffic-selftest', 'hud-cue',
+  // Added because a blind reviewer wrote ten rows against src/pursuit.js and NINE WERE MISSED:
+  // one tool imported it and nothing asserted its geometry. See tools/pursuit-test.mjs.
+  'pursuit-test',
   'crowd-bill --selftest',
 ];
 
@@ -933,6 +936,31 @@ const MUTATIONS = [
     find: "    if ((player.throttle ?? 0) > 0.05) this._bustThrottle = true;",
     to: "    this._bustThrottle = true;",
     why: 'everyone is told to reverse, including a player who only has to drive away',
+  },
+  {
+    /**
+     * AN OFF-BY-ONE IN `_closestOn`'s WALK, and the reason it matters is the shape of this
+     * district: 414 of 935 edges are TWO-POINT, so dropping the last segment drops the only one
+     * and the hold becomes impossible on nearly half the network. A reviewer measured it at 42%
+     * of the drivable network, 116.3 s of hold going to 0 with the closest approach still 0.22 m.
+     * On a multi-point edge the same mutation is nearly harmless, which is why it needs the whole
+     * network walked rather than a sample.
+     */
+    id: 'closest-lastseg', file: 'src/pursuit.js',
+    find: '    for (let k = 0; k < pts.length - 1; k++) {\n      const a = pts[k], b = pts[k + 1];\n      const dx = b.x - a.x, dz = b.z - a.z;',
+    to: '    for (let k = 0; k < pts.length - 2; k++) {\n      const a = pts[k], b = pts[k + 1];\n      const dx = b.x - a.x, dz = b.z - a.z;',
+    why: 'the hold is impossible on the 414 two-point edges — nearly half the district',
+  },
+  {
+    /**
+     * ONCE HELD, HELD FOR EVER: the release condition goes. A reviewer measured that version
+     * reporting held in 100% of frames while the player fled, worst distance 331.9 m, with the
+     * fleet driving 3,056 m instead of 9,170 and a single-frame position jump of 19.59 m.
+     */
+    id: 'hold-forever', file: 'src/pursuit.js',
+    find: '      if (near.d <= this.holdRadius && (u.held || (wantT > near.t && u.t <= near.t))) {',
+    to: '      if (u.held || (near.d <= this.holdRadius && wantT > near.t && u.t <= near.t)) {',
+    why: 'a unit that once held follows the player for ever, 331 m away, in 19.59 m jumps',
   },
 ];
 
