@@ -845,8 +845,8 @@ const MUTATIONS = [
      * carries its own copy of this wiring, which is why THAT one is gated and this one is recorded.
      */
     id: 'bust-free', file: 'district/main.js',
-    find: "  if (mission.mission && mission.outcome === OUTCOMES.RUNNING) mission.abort('busted');",
-    to: '  void 0;',
+    find: "    else mission.abort('busted');",
+    to: '    else bustStats.cooperated++;',
     why: 'being arrested costs nothing: the mission survives it',
     browser: true,
   },

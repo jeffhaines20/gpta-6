@@ -631,6 +631,36 @@ console.log('\nTHE OBJECTIVE BAND — the distance element');
   check('and it passes a plain string through unchanged',
     objectiveLine('TURN BACK') === 'TURN BACK' && objectiveLine(null) === null, 'ok');
   /**
+   * AND THE UNIT, which nothing fed. The bust countdown is the one objective in this game whose
+   * number is SECONDS rather than metres, and `objectiveLine` and the DOM path both default to
+   * "m" — so a dropped `unit` mislabels it and nothing errors. A blind mutation reviewer measured
+   * exactly that through the real HUD: "3 m" for a 3 s countdown, and then "2 s" for a 2 m scene
+   * distance once the key stopped carrying the unit, mislabelled for a full second at each end of
+   * every arrest. No gate fed one before this.
+   */
+  const secs = feed({ text: 'BUSTED IN', distance: 3, unit: 's' }, 'drive');
+  const metres = feed({ text: 'STOP AT THE SCENE', distance: 3 }, 'leaving is a second offence');
+  console.log(`    BUSTED IN, 3 with unit "s"       -> dist "${secs.dist}"`);
+  console.log(`    the same NUMBER as metres        -> dist "${metres.dist}"`);
+  check('a countdown is drawn in seconds, not metres',
+    secs.dist === '3 s', `"${secs.dist}"`);
+  check('KNOWN-BAD: and the same number with no unit is still metres',
+    metres.dist === '3 m', `"${metres.dist}"`);
+  check('objectiveLine agrees, so a host with no canvas reads the same unit',
+    objectiveLine({ text: 'BUSTED IN', distance: 3, unit: 's' }) === 'BUSTED IN — 3 s',
+    objectiveLine({ text: 'BUSTED IN', distance: 3, unit: 's' }));
+  /**
+   * AND THE UNIT IS PART OF THE DIRTY KEY, which is the half a single feed cannot see: the element
+   * is dirty-checked per whole metre, so switching tenant at the SAME rounded number would keep
+   * the previous one's suffix. Fed in sequence, both ways round.
+   */
+  const toSecs = feed({ text: 'BUSTED IN', distance: 3, unit: 's' }, 'drive');
+  const backToM = feed({ text: 'STOP AT THE SCENE', distance: 3 }, 'leaving is a second offence');
+  console.log(`    switched at the same number 3    -> "${toSecs.dist}" then "${backToM.dist}"`);
+  check('switching tenant at the same rounded number changes the unit with it',
+    toSecs.dist === '3 s' && backToM.dist === '3 m',
+    `"${toSecs.dist}" then "${backToM.dist}"`);
+  /**
    * AND THE NUMBER SURVIVES A RUNNING MISSION, which is the whole finding. `composeBand` hands the
    * mission's objective to the subtitle of any tenant above it, so a distance in the SUBTITLE is
    * deleted whenever a mission is live — most of the game.
@@ -732,6 +762,9 @@ console.log('\nSTATUS PANEL — does a changing readout reach the screen?');
  * the ladder cannot see, which is the same defect in a different place — so the count is asserted
  * against `composeBand`'s own parameter list below rather than written down here.
  */
+/** The text of an objective in either of its two shapes, for comparing tenants. */
+const objectiveText = (o) => (o == null ? null : (typeof o === 'string' ? o : (o.text ?? o.title)));
+
 console.log('\nOBJECTIVE BAND — the priority order, as a ladder');
 {
   const all = {
@@ -769,8 +802,19 @@ console.log('\nOBJECTIVE BAND — the priority order, as a ladder');
     walked.push(band.from);
     console.log(`    ${Object.keys(live).length} tenant(s) live -> "${band.from}" ` +
       `("${band.objective}")`);
+    /**
+     * THE OBJECTIVE AS WELL AS `from`, and the first version asserted only `from`. A blind
+     * mutation reviewer transposed `fence` and `law` in `pick` ALONE — leaving the `from` ternary
+     * untouched — and 0 of this ladder's checks failed: outside the world fence with a live law
+     * line the band read "STOP AT THE SCENE — 73 m" while `from` still said "fence". A ladder that
+     * checks the LABEL and not the LINE cannot see a tenant picked wrongly, which is most of what
+     * a priority order can get wrong.
+     */
     check(`with ${Object.keys(live).join(', ')} live the band is the ${expect}`,
-      band.from === expect, `${band.from}`);
+      band.from === expect &&
+      objectiveText(band.objective) === objectiveText(all[expect].objective),
+      `${band.from} / "${objectiveText(band.objective)}" against ` +
+      `"${objectiveText(all[expect].objective)}"`);
     delete live[expect];
   }
   const empty = composeBand(live);

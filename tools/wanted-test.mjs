@@ -1396,10 +1396,24 @@ let searchSample;
    * 1, 2* at 8, 3* at 13). A drive is not the instrument for this change; the sweep is.
    */
   {
+    /**
+     * MEASURED AGAINST THE MODULE, NOT AGAINST THIS FILE'S OWN CONSTANT. The first version
+     * thresholded the raw product on `FLOORLESS_CAP_EXPECTED` — a number computed HERE — so it
+     * printed "wall 29, car 23" whatever the module's cap actually was. A blind mutation reviewer
+     * swept it: with the module's cap at 0, 0.15, 1 and 4 the truths are 7/7, 13/11, 29/23 and
+     * null/43, and this arm said 29/23 at all four. That is CLAUDE.md's self-validation closing
+     * over the same quantity twice, inside the arm whose own comment claims it "says the fix is
+     * not cosmetic".
+     *
+     * So it asks the module: the first speed at which the CHARGE is less than the raw product is
+     * the first speed at which something capped it, whatever the cap is.
+     */
     const firstBite = (id, kind) => {
       for (let k = 1; k <= 140; k++) {
         const r = new DamageModel().impact({ dv: (k / 3.6) * 1.15, kind, dirZ: 1, speed: k / 3.6 });
-        if (r.crime === id && CRIMES[id].heat * r.crimeScale > FLOORLESS_CAP_EXPECTED) return k;
+        if (r.crime !== id) continue;
+        const raw = CRIMES[id].heat * r.crimeScale;
+        if (raw > clean(id, r.crimeScale).heat + 1e-9) return k;
       }
       return null;
     };
@@ -1421,9 +1435,30 @@ let searchSample;
   console.log(`    the lowest floor in the table is ${lowest}; floorless: ${floorless.join(', ')}`);
   check('the cap is the table\'s own lowest floor, which is the least a struck person can cost',
     lowest === 1 && lowest === CRIMES.pedestrianHit.min, `${lowest}`);
-  check('every floorless crime is held under it at any scale, however absurd',
-    floorless.length >= 3 && floorless.every((id) => clean(id, 1e6).heat <= lowest + 1e-9),
-    floorless.map((id) => `${id}:${clean(id, 1e6).heat.toFixed(2)}`).join(' '));
+  /**
+   * AT the cap, not merely under it. This was `<= lowest + 1e-9`, and a reviewer pointed out that
+   * `clean(id, 1e6).heat` reads EXACTLY 1 — so the one-sided bound left room for a cap that
+   * clamped lower than the table's floor and still passed. An equality is one token and says the
+   * whole thing: an absurd scale lands exactly on the ceiling.
+   */
+  /**
+   * AND `evading` IS REFUSED RATHER THAN CAPPED, which the equality found. It reads 0.0000 at an
+   * absurd scale because `reportCrime` ignores it with no wanted level at all — running from a
+   * pursuit that does not exist is not an offence — and §6 owns that rule. So the two cases are
+   * asserted separately rather than the bound being loosened to cover both: a crime that is
+   * ACCEPTED lands exactly on the ceiling, and `evading` is accepted by nobody here.
+   */
+  const accepted = floorless.filter((id) => clean(id, 1).heat > 0);
+  const refused = floorless.filter((id) => clean(id, 1).heat === 0);
+  console.log(`    at an absurd scale: ${accepted.map((id) => `${id} ${clean(id, 1e6).heat}`)
+    .join(', ')}; refused outright: ${refused.join(', ') || 'none'}`);
+  check('every floorless crime that files at all lands exactly ON the cap, not merely under',
+    accepted.length >= 3 &&
+    accepted.every((id) => Math.abs(clean(id, 1e6).heat - lowest) < 1e-9),
+    accepted.map((id) => `${id}:${clean(id, 1e6).heat.toFixed(4)}`).join(' '));
+  check('and the ones that read zero are refused rather than capped to zero',
+    refused.every((id) => clean(id, 1e6).heat === 0 && (CRIMES[id].min ?? 0) === 0),
+    refused.join(' ') || 'none');
   check('and a crime WITH a floor is NOT capped, or the worst offence would be the mildest',
     clean('officerDown', 8.33).stars === 5,
     `officerDown at 8.33x -> ${clean('officerDown', 8.33).heat.toFixed(2)} heat, ` +
@@ -1682,12 +1717,19 @@ let searchSample;
    * and must not outlast a player's patience.
    */
   {
-    const FLOOR_STOPGO = 0.68, FLOOR_PAUSE_2S = 2.67;   // src/vehicle.js, measured; see BUST_HOLD_S
+    /**
+     * THE FLOOR ON THE QUANTITY THE CLOCK READS. These were 0.68 and 2.67 — the car's RAW speed
+     * under `ANCHORS.freeDv` — and `_watchBust` tests the SMOOTHED `playerVel` against
+     * `SCENE_STOP_MS`. A blind mutation reviewer caught the mismatch; re-measured on the right
+     * signal it is 0.20 and 2.28, so the margin was understated rather than overstated.
+     */
+    const FLOOR_STOPGO = 0.20, FLOOR_PAUSE_2S = 2.28;  // src/vehicle.js fed to this module
     console.log(`    BUST_HOLD_S ${BUST_HOLD_S} s against a ${FLOOR_STOPGO} s stop-and-go ` +
       `(x${(BUST_HOLD_S / FLOOR_STOPGO).toFixed(1)}) and a ${FLOOR_PAUSE_2S} s pause ` +
-      `(x${(BUST_HOLD_S / FLOOR_PAUSE_2S).toFixed(2)})`);
-    check('the clock outlasts an unavoidable stop-and-go by at least 3x',
-      BUST_HOLD_S > FLOOR_STOPGO * 3, `${BUST_HOLD_S} against ${FLOOR_STOPGO}`);
+      `(x${(BUST_HOLD_S / FLOOR_PAUSE_2S).toFixed(2)}), both on the SMOOTHED velocity the clock ` +
+      `tests against SCENE_STOP_MS ${SCENE_STOP_MS}`);
+    check('the clock outlasts an unavoidable stop-and-go by at least 10x',
+      BUST_HOLD_S > FLOOR_STOPGO * 10, `${BUST_HOLD_S} against ${FLOOR_STOPGO}`);
     check('and outlasts a deliberate two-second pause',
       BUST_HOLD_S > FLOOR_PAUSE_2S, `${BUST_HOLD_S} against ${FLOOR_PAUSE_2S}`);
     check('and is under the shortest star cooldown, or being caught is slower than escaping',

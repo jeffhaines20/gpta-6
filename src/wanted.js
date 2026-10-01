@@ -165,20 +165,29 @@ export const SCENE_STOP_MS = 1.0;
  *
  * THE FLOOR IS MEASURED AND IT IS NOT ZERO. A driver who brakes hard to a standstill and
  * immediately floors it away spends time below the stop threshold whether they like it or not, and
- * a bust that fires inside that window busts a player for using the brake. src/vehicle.js on flat
- * ground, full brake to rest then full throttle, at 20 / 40 / 60 / 80 / 110 km/h entry:
+ * a bust that fires inside that window busts a player for using the brake.
  *
- *     contiguous seconds under 1.0 m/s   0.32 0.30 0.28 0.30 0.32
- *     contiguous seconds under 2.2 m/s   0.68 0.67 0.65 0.67 0.67
+ * MEASURED ON THE QUANTITY THE CLOCK READS, which is the correction a blind mutation reviewer
+ * made and it was the right call. `_watchBust` tests the SMOOTHED `playerVel` against
+ * `SCENE_STOP_MS` (1.0 m/s); the first version of this derivation quoted the car's RAW speed under
+ * `ANCHORS.freeDv` (2.2), which is a different threshold on a different signal. Both rows, from
+ * src/vehicle.js on flat ground feeding its own positions to this module, full brake to rest then
+ * full throttle, at 20 / 40 / 60 / 80 / 110 km/h entry:
  *
- * Flat in the entry speed, because the last 2.2 m/s of a braking curve and the first 2.2 m/s of an
- * acceleration do not depend on where the braking started. Sitting still for 2 s on top of that
- * reads 2.67 s. So the floor is 0.68 s and a deliberate 2 s pause is 2.67 s.
+ *     smoothed under 1.0 m/s, which the clock reads   0.20 0.17 0.12 0.17 0.17
+ *     raw speed under 2.2 m/s, which it does not      0.68 0.67 0.65 0.67 0.67
+ *     and with a deliberate 2 s pause on top          2.28 / 2.67
+ *
+ * Flat in the entry speed either way, because the last metre per second of a braking curve and the
+ * first of an acceleration do not depend on where the braking started. So the floor is 0.20 s and
+ * a deliberate 2 s pause is 2.28 s. The error was conservative — it understated the margin — but
+ * it is the shape CLAUDE.md calls "a probe that measures the OPPORTUNITY does not measure the
+ * FIX", and the fix is to quote the signal the code reads.
  *
  * THE VALUE IS THE WRECK BEAT, `WRECK_HOLD_S` in district/main.js, and that is a derivation rather
  * than a coincidence: both are "the game has taken control and is about to fade you out and hand
  * the car back", and a retune of one has to move the other or the two consequences stop feeling
- * like the same game. 4.0 s is 5.9x the unavoidable floor and 1.5x a deliberate 2 s stop.
+ * like the same game. 4.0 s is 20.0x the unavoidable floor and 1.75x a deliberate 2 s stop.
  * district/main.js reads this constant for both, so there is one number and not two.
  *
  * THE CLOCK IS NOT THE WHOLE RULE. It runs only while the host says a unit is HOLDING you — see

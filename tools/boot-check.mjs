@@ -339,6 +339,7 @@ if (state.global && state.frames > 2) {
   const bust = await page.evaluate(async () => {
     const d = __district;
     const before = d.bustReport();
+    const respawns0 = d.wreckReport().respawns;
     d.setMode('car');
     d.placeAt(-327.8, 63.3, 0);
     d.startMission('marlin-street');
@@ -368,7 +369,7 @@ if (state.global && state.frames > 2) {
       await new Promise((r) => requestAnimationFrame(() => r()));
     }
     d.setTimeScale(1);
-    return { before, notHonoured, holdR, fleet, healthBefore, hurt: hurt.applied, seen,
+    return { before, respawns0, notHonoured, holdR, fleet, healthBefore, hurt: hurt.applied, seen,
       fired, after: d.bustReport(), missionAfter, health: d.damage.health,
       frames: d.frames - f0, wreck: d.wreckReport() };
   });
@@ -391,8 +392,20 @@ if (state.global && state.frames > 2) {
   check('and the fade ends with the car back and repaired',
     bust.after.released === bust.fired.released + 1 && bust.health === 1,
     `released ${bust.after.released}, health ${bust.health.toFixed(3)}`);
+  /**
+   * A DELTA, NOT A LEVEL, and the first version could not fail. It asserted `respawns > 0`, and the
+   * loop-breaker arm above calls `respawnCar()` twice in the same page load — so the count was
+   * already 2 before the bust and the check passed whatever the release did. A blind mutation
+   * reviewer named it along with the other half: `bustStats.released++` runs BEFORE `respawnCar()`,
+   * so "released rose" is not evidence the respawn ran either.
+   *
+   * The delta across the fade is what says this release went through the same code path as a
+   * wreck's, which is the claim: one respawn, not two and not none.
+   */
+  console.log(`  respawns ${bust.respawns0} -> ${bust.wreck.respawns} across the fade`);
   check('the release went through the respawn, not a second code path',
-    bust.wreck.respawns > 0, `${bust.wreck.respawns} respawns`);
+    bust.wreck.respawns === bust.respawns0 + 1,
+    `${bust.respawns0} -> ${bust.wreck.respawns}`);
   check('the pursuit layer reports that it can hold, so the clock can arm in play',
     !bust.notHonoured.includes('held') && bust.holdR > 0,
     `${JSON.stringify(bust.notHonoured)}, holdR ${bust.holdR}`);
