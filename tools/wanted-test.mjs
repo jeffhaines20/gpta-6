@@ -1660,8 +1660,25 @@ let searchSample;
     check('and the number falls, so it is a countdown rather than one frozen value',
       lines.every((l, i) => i === 0 || l.bustIn < lines[i - 1].bustIn),
       lines.map((l) => l.bustIn).join(' '));
-    check('and the drawn string moves with it rather than sticking',
-      new Set(texts).size >= 3, texts.join(' | '));
+    /**
+     * DERIVED, NOT A THRESHOLD. This was `new Set(texts).size >= 3` and the four samples render
+     * "3 s | 2 s | 2 s | 1 s" — a set of exactly 3 against a bound of 3, MARGIN ZERO. A blind
+     * reviewer flagged it, and CLAUDE.md already has the rule: a check that compares against an
+     * absolute number needs the same sweep a measurement does, and a threshold that holds at one
+     * value is a coincidence. 3 is not a property of the countdown, it is a property of taking
+     * four samples at BUST_HOLD_S/5 through a renderer that rounds.
+     *
+     * `objectiveLine` prints `Math.round(o.distance)`, so how many distinct strings FOUR samples
+     * of a falling quantity must produce is computable exactly from the quantity. Asserting the
+     * computed number instead of a floor means the check follows a change to the sample count,
+     * the hold length or the rounding, and still fails a renderer that freezes.
+     */
+    const wantDistinct = new Set(lines.map((l) => Math.round(l.bustIn))).size;
+    check('the countdown crosses more than one whole second, so a frozen string would be visible',
+      wantDistinct > 1, `${wantDistinct} distinct rounded values in ${lines.length} samples`);
+    check('and the drawn string takes exactly the values the rounded quantity does',
+      new Set(texts).size === wantDistinct,
+      `${new Set(texts).size} drawn against ${wantDistinct} rounded: ${texts.join(' | ')}`);
     check('the subtitle says what to do about it, because the out is not obvious',
       lines[0].law.subtitle === 'drive', `${lines[0].law.subtitle}`);
     /**
