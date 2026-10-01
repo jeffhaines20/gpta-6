@@ -674,9 +674,25 @@ export function disposeDistrictMaps() {
  * almost certainly failed the mission it was on anyway — every authored `healthBelow` gate fires
  * well above zero.
  *
- * Pure, so both hosts compose it identically and either can walk all six.
+ * Pure, so both hosts compose it identically and either can walk every tenant in BAND_ORDER.
+ *
+ * THAT SENTENCE USED TO SAY "all six" AND THE SET WAS SEVEN. It went stale the moment the
+ * `busted` tenant landed, and a count written in prose has no way of noticing. So the
+ * precedence is a LIST now, exported, and `composeBand` picks from it rather than from a
+ * hand-written `??` chain that had to be kept in step with a parallel hand-written ternary
+ * deciding `from`. Two copies of one order is how they disagree; tools/hud-cue.mjs walks the
+ * list, so a tenant added without a check is a tenant the gate reports as unexercised.
  */
 const HOLDS_MISSION_SUBTITLE = new Set(['fence', 'law']);
+
+/**
+ * THE BAND'S TENANTS, HIGHEST PRECEDENCE FIRST. The one definition of the order.
+ *
+ * `busted` OUTRANKS `wreck`, and both can be true at once: a car written off against a wall with
+ * a unit parked on it is wrecked AND its driver is under arrest. Being arrested is the more final
+ * of the two and the one whose countdown is running, so it takes the band.
+ */
+export const BAND_ORDER = ['busted', 'wreck', 'fence', 'law', 'mission', 'ended', 'offer'];
 
 /**
  * AN OBJECTIVE AS ONE LINE OF WORDS, for a host with no canvas.
@@ -697,18 +713,13 @@ export function objectiveLine(o) {
 }
 export function composeBand({ busted = null, wreck = null, fence = null, law = null,
   mission = null, ended = null, offer = null } = {}) {
-  /**
-   * `busted` OUTRANKS `wreck`, and both can be true at once: a car written off against a wall
-   * with a unit parked on it is wrecked AND its driver is under arrest. Being arrested is the
-   * more final of the two and the one whose countdown is running, so it takes the band.
-   *
-   * It is deliberately NOT in HOLDS_MISSION_SUBTITLE: the bust has just aborted the mission, so
-   * "still on: DELIVER THE PARCEL" would be a lie in the one place a player is looking.
-   */
-  const pick = busted ?? wreck ?? fence ?? law ?? mission ?? ended ?? offer ?? null;
-  if (!pick) return { objective: null, subtitle: null, from: null };
-  const from = busted ? 'busted' : wreck ? 'wreck' : fence ? 'fence' : law ? 'law'
-    : mission ? 'mission' : ended ? 'ended' : 'offer';
+  // Precedence and naming from ONE list, so they cannot drift apart. `busted` is deliberately not
+  // in HOLDS_MISSION_SUBTITLE: the bust has just aborted the mission, so "still on: DELIVER THE
+  // PARCEL" would be a lie in the one place a player is looking.
+  const slots = { busted, wreck, fence, law, mission, ended, offer };
+  const from = BAND_ORDER.find((k) => slots[k]) ?? null;
+  if (!from) return { objective: null, subtitle: null, from: null };
+  const pick = slots[from];
   let subtitle = pick.subtitle ?? null;
   /**
    * `ownSubtitle` IS A TENANT SAYING ITS SUBTITLE IS AN INSTRUCTION, and it exists because the

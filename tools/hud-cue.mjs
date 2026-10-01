@@ -24,7 +24,7 @@
 //      drawn in a THEME colour, so it is identified by fill.
 //
 //   node tools/hud-cue.mjs
-import { THEME, LAYOUT, composeBand, MINIMAP_ZOOM_M, MINIMAP_REACH_M,
+import { THEME, LAYOUT, composeBand, BAND_ORDER, MINIMAP_ZOOM_M, MINIMAP_REACH_M,
   PULL_CAP, PULL_MIN, PULL_MIN_PX, PULL_FULL_PX, PULL_TICK_PX, objectiveLine } from '../src/hud.js';
 import { composeWanted, composeLaw, LAW_NOTICE_S, STATES } from '../src/wanted.js';
 
@@ -792,9 +792,31 @@ console.log('\nOBJECTIVE BAND — the priority order, as a ladder');
   const names = declared ? declared[1].split(',').map((t) => t.trim().split(/[ =]/)[0])
     .filter(Boolean) : [];
   console.log(`    composeBand declares ${names.length}: ${names.join(', ')}`);
+  console.log(`    BAND_ORDER is    ${BAND_ORDER.length}: ${BAND_ORDER.join(', ')}`);
   check('the ladder walks every tenant composeBand declares, in its own order',
     names.length === ORDER.length && names.every((n, i) => n === ORDER[i]),
     `declared ${names.join(' ')} against ladder ${ORDER.join(' ')}`);
+  /**
+   * THREE WAYS, NOT TWO, AND THE THIRD IS NEW. The precedence used to live in a `??` chain and a
+   * parallel `from` ternary; it is `BAND_ORDER` now, one list, which removed the chance of those
+   * two disagreeing and opened a different hole: a tenant destructured in the SIGNATURE but left
+   * out of BAND_ORDER can never be picked at all. `composeBand` would accept it, return `from:
+   * null`, and the band would simply be blank whenever that tenant was the only thing to say —
+   * which is the "a system that is never switched on" shape, arriving through a refactor.
+   *
+   * The signature check above cannot see it: the name IS in the signature. So assert the two
+   * against each other as well, which is the pair the refactor made able to drift.
+   */
+  check('...and BAND_ORDER lists exactly what the signature destructures, so none is unpickable',
+    BAND_ORDER.length === names.length && BAND_ORDER.every((n, i) => n === names[i]),
+    `BAND_ORDER ${BAND_ORDER.join(' ')} against signature ${names.join(' ')}`);
+  // KNOWN-BAD, so the check above is not two copies of one list compared with itself: a name the
+  // signature does not declare must be rejected, and a missing one must be too.
+  const bandOrderMatches = (list) => list.length === names.length && list.every((n, i) => n === names[i]);
+  check('KNOWN-BAD: a BAND_ORDER missing a declared tenant fails that check',
+    !bandOrderMatches(BAND_ORDER.filter((n) => n !== 'law')), 'law dropped');
+  check('KNOWN-BAD: and one carrying a tenant the signature does not declare fails it',
+    !bandOrderMatches([...BAND_ORDER, 'ghost']), 'ghost added');
   const live = { ...all };
   const walked = [];
   for (const expect of ORDER) {
