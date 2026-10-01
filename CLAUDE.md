@@ -1541,6 +1541,73 @@ microns over `speed * dt`. 1 mm is 34x the measured noise and 19,590x below the 
 mutation produces, so there is no value in between for the bound to be wrong at. A bound with
 nothing between the noise and the signal is the only kind worth writing down.
 
+## The quarter-light was not deleted the second time either
+
+A blind reviewer opened the #56 car pair and reported, within seconds and before measuring,
+that **two of four visible cars had no side windows at all** in the newer arm — "body-coloured
+sheet metal with no window", a cabin **1.20-1.37x brighter than the car's own paint**, no frame,
+no beltline break, only a 43x4 px dark sliver surviving. They then measured it hard: glazed
+pixel counts halving (3403 -> 1562), cabin-band mean |d| 23.53 against 7.69 on the lower body,
+and two other cars **bit-identical to 0.00** as internal controls. They explicitly considered
+and argued against the shell explanation.
+
+CLAUDE.md already had a section called "A fixed box over moved geometry is not a measurement of
+the material", about three reviewers filing a deleted quarter-light on this same car that was
+the body shell moving under their box. So the first question was whether this was that again.
+
+**It was not, and neither was it a deleted window. Three measurements, all offline:**
+
+1. **The glass is in every shell, identically.** Counted off the built buffer by palette index:
+   20 glass triangles in all three, 4 of them side-facing, side area within 5.4%, glass z span
+   2.354 / 2.354 / 2.358 m.
+2. **The pane did not move, so no box mis-landed.** The +x side pane occupies y [1.072, 1.317]
+   and z [-1.420, 0.500] in all three shells. The 580 mm of `breakZ` travel that moved the
+   quarter-light last time does not reach this pane at all.
+3. **Sampling the pane's OWN projection confirms the reviewer's reading anyway.** Projecting
+   each shell's pane through each arm's own camera and rasterising it — car-probe's rule, the
+   subject found in each arm rather than a box drawn once — glass luma over the door skin
+   beside it, at noon:
+
+       car         shells=1        shells=3     pane normal tilt from vertical
+       (184,-420)  coupe  0.967    coupe 0.967  18.78 deg -> 18.78    control, identical to 3 dp
+       (190,-420)  coupe  0.914    wagon 1.121  18.78 -> 19.45  (+0.67)
+       (196,-420)  coupe  0.985   saloon 1.311  18.78 -> 25.57  (+6.79)
+
+**The mechanism is the pane's SHADING NORMAL, not its existence.** The pane is a non-planar
+quad and the greenhouse tumblehome differs per shell, so its vertex normals tilt skyward by
++0.67 degrees on the wagon and +6.79 on the saloon while every vertex POSITION stays put. A
+pane tilted further skyward catches more sky at noon. **The brightening ranks exactly with the
+tilt change** — coupe zero, wagon small, saloon large — which is what makes this a mechanism
+rather than a story.
+
+A wrong intermediate diagnosis, kept because it was the obvious one: *"`computeVertexNormals`
+is averaging the pane's corners with the rear screen across the pillar."* Measured, the pane's
+four vertices are touched by **2, 2, 1 and 1 faces** — only its own two triangles. Nothing
+outside the pane reaches them. The normals differ because the QUAD ITSELF is warped
+differently, not because of smoothing.
+
+**And the finding underneath is worse than the one reported, and it is in BOTH arms.** At noon
+the before-arm glass reads **0.914 to 0.985 of the door skin beside it** — 1.5% to 8.6% darker
+than the painted panel. The windows do not read as windows in the build the reviewer preferred
+either; the shells take two of three from "barely darker" to "frankly brighter", which is what
+made it visible. At dusk the same panes read 0.681-0.953, and #54 records the opposite extreme
+at night (glass/paint 0.0225 in linear light). The glazing is wrong at both ends of the day and
+only noon makes it look like a missing mesh.
+
+**Three things to carry from this:**
+
+- **A reviewer's observation survived a better instrument and their diagnosis did not**, which
+  is the rule this file already states. Both halves mattered: the geometry-following sample
+  reproduced the brightening they saw, so "they used a bad box" would have been the wrong
+  dismissal — and the buffer count disposed of "the mesh is gone" in one command.
+- **The cheapest decisive test was offline and took seconds.** Counting glass triangles per
+  shell needs no browser, no capture and no argument. Reach for the buffer before the pixels
+  when the question is "is this geometry there".
+- **"Two other cars are bit-identical" is a strong control and it is not a shell control.**
+  Those two hash to `coupe`, which is byte-identical to no shape at all, so they are the
+  unchanged arm standing inside the changed frame. That is exactly what made the reviewer's
+  numbers trustworthy, and it is worth building into any future pair deliberately.
+
 ## When a reviewer is wrong
 
 Blind reviewers here measure before judging and are usually right, but not
