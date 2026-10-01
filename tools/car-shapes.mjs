@@ -29,7 +29,68 @@
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { buildTrafficCarGeometry, SHAPES, SHAPE_NAMES, CAR,
-  shellNames, setShellNames, stretchZ, archHalfSpan } from '../src/carbody.js';
+  shellNames, setShellNames, stretchZ, archHalfSpan,
+  SIDE_GLASS, SIDE_GLASS_PRETRIM, setSideGlass } from '../src/carbody.js';
+
+/**
+ * CAN YOU SEE THE SIDE WINDOW? Ray-cast +x from a grid of points on the +x side
+ * pane and count the ones a BODY triangle blocks.
+ *
+ * This file measured `glassLen` for several rounds and said in its own comment that
+ * the number is "PINNED by warpPoint, not a measurement of the shells" — it knew the
+ * figure was uninformative and never replaced it with one that was. Meanwhile the
+ * saloon lost 95.1% of its side window behind its own bodywork and shipped, and two
+ * blind reviewers found it by LOOKING. Presence is not visibility; this is the
+ * difference, and it costs 100 ms.
+ */
+const PAL_W = 16, GLASS_PAL = 10;
+export function paneOcclusion(geo, n = 10) {
+  const pos = geo.attributes.position.array, uv = geo.attributes.uv.array;
+  const idx = geo.index.array, tris = idx.length / 3;
+  const iu = (u) => Math.round(u * PAL_W - 0.5);
+  const pane = [], body = [];
+  for (let t = 0; t < tris; t++) {
+    const T = [idx[t * 3], idx[t * 3 + 1], idx[t * 3 + 2]];
+    const P = T.map((i) => [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]]);
+    const isGlass = T.every((k) => iu(uv[k * 2]) === GLASS_PAL);
+    const ux = P[1][0] - P[0][0], uy = P[1][1] - P[0][1], uz = P[1][2] - P[0][2];
+    const vx = P[2][0] - P[0][0], vy = P[2][1] - P[0][1], vz = P[2][2] - P[0][2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const L = Math.hypot(nx, ny, nz) || 1;
+    if (isGlass && P.every((q) => q[0] > 0.3) && Math.abs(nx) / L > 0.5) pane.push(P);
+    if (!isGlass) body.push(P);
+  }
+  // Moller-Trumbore, ray from a point on the pane straight out along +x.
+  const hit = (o, A, B, C) => {
+    const e1 = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], e2 = [C[0] - A[0], C[1] - A[1], C[2] - A[2]];
+    // d is (1,0,0), so d x e2 collapses to this and the dot products below drop to
+    // one term each. Written out rather than carrying a general ray: the direction
+    // is the thing being asserted (can you see the pane from outboard), not a
+    // parameter, and a general version invites someone to pass a direction the
+    // claim is not about.
+    const p = [0, -e2[2], e2[1]];
+    const det = e1[0] * p[0] + e1[1] * p[1] + e1[2] * p[2];
+    if (Math.abs(det) < 1e-12) return false;
+    const inv = 1 / det, t0 = [o[0] - A[0], o[1] - A[1], o[2] - A[2]];
+    const u = (t0[0] * p[0] + t0[1] * p[1] + t0[2] * p[2]) * inv;
+    if (u < -1e-6 || u > 1 + 1e-6) return false;
+    const q = [t0[1] * e1[2] - t0[2] * e1[1], t0[2] * e1[0] - t0[0] * e1[2], t0[0] * e1[1] - t0[1] * e1[0]];
+    const v = (1 * q[0]) * inv;
+    if (v < -1e-6 || u + v > 1 + 1e-6) return false;
+    const tt = (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2]) * inv;
+    return tt > 1e-5;
+  };
+  let total = 0, blocked = 0;
+  for (const T of pane) {
+    for (let a = 0; a <= n; a++) for (let b = 0; a + b <= n; b++) {
+      const c = n - a - b, w = [a / n, b / n, c / n];
+      const o = [0, 1, 2].map((k) => T[0][k] * w[0] + T[1][k] * w[1] + T[2][k] * w[2]);
+      total++;
+      for (const B of body) if (hit(o, B[0], B[1], B[2])) { blocked++; break; }
+    }
+  }
+  return { total, blocked, frac: total ? blocked / total : 1, paneTris: pane.length };
+}
 
 const DIRECT = process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('/car-shapes.mjs');
 
@@ -345,6 +406,35 @@ function census() {
           : `, and ${(100 * worstShift / tyre).toFixed(0)}% of the tyre's ` +
             `${(tyre * 1000).toFixed(0)} mm clearance`));
     }
+  }
+
+  /**
+   * AND THE WINDOW IS VISIBLE, not merely emitted. See paneOcclusion above for why
+   * this is a separate question from `glassLen`, and what it cost to learn.
+   */
+  console.log(`\n  can you SEE the side window (0% of the pane behind bodywork is the bar)`);
+  let worst = 0;
+  for (const name of SHAPE_NAMES) {
+    const o = paneOcclusion(buildTrafficCarGeometry({ shape: SHAPES[name] }));
+    worst = Math.max(worst, o.frac);
+    console.log(`    ${name.padEnd(8)} ${o.blocked} of ${o.total} samples blocked  ` +
+      `${(100 * o.frac).toFixed(2)}%  (${o.paneTris} pane triangles)`);
+  }
+  if (worst > 0) { fail++; console.log(`  FAIL side glass is occluded by its own bodywork, worst ${(100 * worst).toFixed(2)}%`); }
+  else console.log(`  ok  no shell hides its own side glass`);
+  // KNOWN-BAD, and it is the real historical defect rather than a synthetic one: the
+  // polygon that shipped with the shells put 95.1% of the saloon's pane inside the
+  // car. A check never shown to fail on the defect it is named for is not a check.
+  setSideGlass(SIDE_GLASS_PRETRIM);
+  const bad = paneOcclusion(buildTrafficCarGeometry({ shape: SHAPES.saloon }));
+  setSideGlass(null);
+  const back = paneOcclusion(buildTrafficCarGeometry({ shape: SHAPES.saloon }));
+  if (bad.frac > 0.5 && back.frac === 0) {
+    console.log(`  ok  KNOWN-BAD: the pre-trim pane hides ${(100 * bad.frac).toFixed(1)}% of the saloon's window, ` +
+      `and restoring it reads ${(100 * back.frac).toFixed(2)}%`);
+  } else {
+    fail++;
+    console.log(`  FAIL the known-bad arm did not bite: pre-trim ${(100 * bad.frac).toFixed(1)}%, restored ${(100 * back.frac).toFixed(2)}%`);
   }
 
   console.log(fail ? `\nCAR-SHAPES: FAIL (${fail})` : '\nCAR-SHAPES: PASS');

@@ -208,12 +208,36 @@ fs.mkdirSync(OUT, { recursive: true });
 await ensureServer(PORT);
 const browser = await chromium.launch(launchOptions());
 
-/** Settle on RENDERED FRAMES, never on the wall clock. See tools/hero-shots.mjs. */
-async function settleFrames(page, n, why) {
-  const f0 = await page.evaluate(() => __district.frames);
-  await page.waitForFunction((t) => __district.frames >= t, f0 + n,
+/**
+ * SETTLE TO AN ABSOLUTE FRAME NUMBER, not to "n more frames".
+ *
+ * Settling on rendered frames rather than the wall clock is the rule hero-shots
+ * records, and it is only half of what a registered pair needs. A RELATIVE settle
+ * preserves whatever offset the boot wait landed on: `waitForFunction('frames > 5')`
+ * polls, so one arm can start at 6 and the other at 11, and every later settle
+ * carries those 5 frames forward. district/main.js clamps dt to 0.05, so a frame IS
+ * 0.05 s of world time — 5 frames of offset is a quarter-second of crowd animation.
+ *
+ * A blind reviewer measured exactly that in this tool's first pair: the parked cars
+ * registered to 0.0000 m and the cloud deck was frozen, but the pedestrians were at
+ * different stride phases, 2-3 px apart, and most of the difference energy outside
+ * the car band was the crowd on the far pavement. It is the unpinned-sky finding
+ * again — "when a tool claims a registered pair, enumerate EVERY clock the scene
+ * reads" — in the tool written after that sentence was added to CLAUDE.md.
+ *
+ * An absolute target makes the whole schedule a function of the capture plan rather
+ * than of how the boot wait happened to land, so the crowd and the traffic are
+ * registered by construction. The frame number reached is recorded in every audit,
+ * so a reader can check the arms matched instead of taking it on trust.
+ */
+let frameTarget = 0;
+async function settleTo(page, target, why) {
+  frameTarget = target;
+  await page.waitForFunction((t) => __district.frames >= t, target,
     { timeout: Number(process.env.PARK_SETTLE_MS ?? 240000) });
-  console.log(`    settled ${n} frames (${why})`);
+  const at = await page.evaluate(() => __district.frames);
+  console.log(`    settled to frame ${target} (at ${at}, ${why})`);
+  return at;
 }
 
 const shotErrors = [];
@@ -226,6 +250,8 @@ for (const shells of (SMOKE ? [ARMS[ARMS.length - 1]] : ARMS)) {
   await page.goto(`http://127.0.0.1:${PORT}/district/?shells=${shells}`, { waitUntil: 'networkidle' });
   await page.waitForFunction('window.__district && window.__district.frames > 5', null,
     { timeout: Number(process.env.PARK_BOOT ?? 120000) });
+  // From here on every wait is to an ABSOLUTE frame, so the two arms share a clock.
+  let frame = 0;
   await page.addStyleTag({ content: '#attr{display:none!important}#hud,.pv-hud{display:none!important}' });
   // PIN THE CLOUD DECK. CLAUDE.md: sky.js advected the deck off performance.now(),
   // and because headless capture is minutes per frame the sky was the largest
@@ -349,11 +375,13 @@ for (const shells of (SMOKE ? [ARMS[ARMS.length - 1]] : ARMS)) {
     (placed.camClear < 3.0 ? `  WARNING inside/against building ${placed.inside}` : '') +
     `; road side ${placed.roadClear} m / wall side ${placed.wallClear} m; pool filled ${placed.filled}` +
     (placed.playerHidden ? '' : '  WARNING: the player car is still visible and will be in shot'));
-  await settleFrames(page, Number(process.env.PARK_FRAMES ?? 14), `camera, ${view}, shells=${shells}`);
+  frame += Number(process.env.PARK_FRAMES ?? 14);
+  await settleTo(page, frame, `camera, ${view}, shells=${shells}`);
 
   for (const tod of TIMES) {
     await page.evaluate((t) => __district.setTimeOfDay(t), tod);
-    await settleFrames(page, 6, `tod ${tod}`);
+    frame += 6;
+    const atFrame = await settleTo(page, frame, `tod ${tod}`);
     // WHICH CARS ARE ACTUALLY DRAWN, and how big each is on the film.
     //
     // Matched to slots BY POSITION, which is exact: refreshParked writes
@@ -445,7 +473,8 @@ for (const shells of (SMOKE ? [ARMS[ARMS.length - 1]] : ARMS)) {
       shotErrors.push(`${name}: ${e.message.split('\n')[0]}`);
       console.log(`    SHOT FAILED ${name}: ${e.message.split('\n')[0]}`);
     }
-    audits.push({ name, view, shells, tod, run: RUN, runLen: +run.len.toFixed(1),
+    audits.push({ name, view, shells, tod, frameTarget: frame, frameAt: atFrame,
+      run: RUN, runLen: +run.len.toFixed(1),
       runShells: run.shells, placed, cam: seen.cam, stand: V,
       cloudsFrozen: !!froze, drawn: seen.drawn,
       inRun: seen.inRun, pageErrors: errors.slice() });
@@ -485,7 +514,11 @@ if (!SMOKE && !has('list') && audits.length >= 2) {
       worst = Math.max(worst, Math.hypot(A.inRun[i].x - B.inRun[i].x, A.inRun[i].z - B.inRun[i].z));
       n++;
     }
-    console.log(`  registered (${view}/${tod}): ${n} cars in both arms, worst position difference ${worst.toFixed(4)} m`);
+    console.log(`  registered (${view}/${tod}): ${n} cars in both arms, worst position difference ${worst.toFixed(4)} m` +
+      `; frame ${A.frameAt} against ${B.frameAt}` +
+      (A.frameAt === B.frameAt ? ' (same world time, so the crowd and the fleet register too)'
+        : `  WARNING: ${Math.abs(A.frameAt - B.frameAt)} frames apart = ` +
+          `${(Math.abs(A.frameAt - B.frameAt) * 0.05).toFixed(2)} s of crowd animation`));
   }
 }
 if (shotErrors.length) console.log(`\nFRAMES LOST: ${shotErrors.length}\n  ${shotErrors.join('\n  ')}`);

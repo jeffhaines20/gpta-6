@@ -1009,6 +1009,19 @@ export const SHAPES = {
 export const SHAPE_NAMES = Object.keys(SHAPES);
 
 /**
+ * The side-glass polygon, in (z, y above the sill), exported so tools/car-shapes.mjs
+ * can assert the pane is VISIBLE rather than merely present. `SIDE_GLASS_PRETRIM` is
+ * the shape that shipped with #56's shells and lost 95.1% of the saloon's window
+ * behind its own bodywork; it is kept as the gate's known-bad, because a check that
+ * has never been shown to fail on the real defect is not a check.
+ */
+export const SIDE_GLASS = [[0.24, 0.360], [0.06, 0.515], [-1.04, 0.590], [-1.22, 0.360]];
+export const SIDE_GLASS_PRETRIM = [[0.50, 0.355], [0.20, 0.520], [-1.16, 0.600], [-1.42, 0.355]];
+let SIDE_GLASS_ACTIVE = SIDE_GLASS;
+/** Swap the pane for a gate's known-bad arm. Returns the polygon now in force. */
+export function setSideGlass(poly) { SIDE_GLASS_ACTIVE = poly ?? SIDE_GLASS; return SIDE_GLASS_ACTIVE; }
+
+/**
  * THE SHELL SET, SO THE BEFORE-ARM OF THIS ROUND CAN BE SHOT AT ALL.
  *
  * Three of this round's four car changes are runtime levers (the tail lamp, the
@@ -1481,6 +1494,7 @@ function flankPanel(b, capPoly, faces, poly, side, off, pal, colour) {
     else b.tri(ids[t[0]], ids[t[2]], ids[t[1]]);
   }
 }
+
 
 // Axis-aligned box, optionally yawed. Mirror stalks and housings, exhaust tips.
 function boxAt(b, cx, cy, cz, hx, hy, hz, colour, pal, yaw = 0) {
@@ -2457,11 +2471,53 @@ export function buildTrafficCarGeometry(opts = {}) {
     overlayBand(b, pts, nrm, iBackHi, iBackLo, -0.86, 0.86, 0.013,
       SURFACE.glassy, glassC, 2);
   }
-  // Side glass as one band per flank: at traffic distance the pillar split is not
-  // resolvable and a second polygon is not worth 60x its triangles. It still has
-  // to ride the flank triangulation — the greenhouse narrows with height, so a
-  // flat plane at a guessed x pokes out through the roof rail.
-  const sideGlass = [[0.50, 0.355], [0.20, 0.520], [-1.16, 0.600], [-1.42, 0.355]];
+  /**
+   * Side glass as one band per flank: at traffic distance the pillar split is not
+   * resolvable and a second polygon is not worth 60x its triangles. It still has
+   * to ride the flank triangulation — the greenhouse narrows with height, so a
+   * flat plane at a guessed x pokes out through the roof rail.
+   *
+   * AND IT SINKS IN AT THE PILLARS, which is the half that comment did not cover
+   * and which cost #56's shells their side windows. Two blind reviewers opened
+   * that round's car pair and independently reported the saloon and the wagon
+   * with no side glazing at all — "body-coloured sheet metal", the cabin reading
+   * within 5 and 26 RGB units of each car's own paint.
+   *
+   * The glass was never missing. `flankPanel` samples `flankX` at the polygon's
+   * four CORNERS and spans a flat chord between them; the cabin flank is convex,
+   * so the body bulges through the panel in its interior. Measured as the body
+   * standing proud of the pane against the 14 mm offset it is given, and as the
+   * fraction of the pane a +x ray cannot reach:
+   *
+   *     coupe    29.6 mm worst, 2.1x the offset    1.1% of the pane occluded
+   *     saloon   54.8 mm        3.9x              95.1% occluded
+   *     wagon    61.9 mm        4.4x              75.3% occluded
+   *
+   * So the shells did not introduce it. The offset was ALREADY exceeded 2.1x on
+   * the coupe and survived on area, not on margin — a taller, fuller greenhouse
+   * is more convex and simply crossed the line.
+   *
+   * THREE FIXES WERE MEASURED AND TWO WERE WRONG:
+   *
+   *   - Raise the offset. It would need 62 mm, which is glass visibly standing
+   *     off the body, and it would need re-deriving every time a shell changes.
+   *   - Subdivide the panel so it rides the flank in its interior. Built and
+   *     swept: saloon 48.7 / 25.7 / 17.4 / 12.8% at 2x2 / 4x4 / 6x6 / 8x8, for
+   *     1062 / 1126 / 1222 / 1350 triangles. It CONVERGES SLOWLY and never
+   *     reaches zero, because the residual is at the A- and C-pillars where the
+   *     flank turns through a large angle rather than bulging gently — 197 of
+   *     396 remaining samples were in the front fifth of the pane. 8x8 costs
+   *     +300 triangles a car, which is 36,000 of the gate's units over both
+   *     fleets at vehicles' x2.00, to still leave 12.8%.
+   *   - TRIM THE PANE OFF THE PILLARS, which is what shipped. The window was
+   *     reaching into the turn; a real car's side glass stops at the pillar and
+   *     shows body colour beyond it. 0.00% occluded on all three shells, at
+   *     1,050 triangles — the SAME count as before, so it is free.
+   *
+   * The cost is 1.460 m of window against 1.920, 24% shorter. That is the price
+   * of the pane being visible at all, and the pillars it uncovers are correct.
+   */
+  const sideGlass = SIDE_GLASS_ACTIVE;
   for (const s of [-1, 1]) {
     flankPanel(b, shell.capPoly, shell.faces, sideGlass, s, 0.014, SURFACE.glassy, glassC);
   }
