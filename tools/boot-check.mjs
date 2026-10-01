@@ -586,21 +586,45 @@ if (state.global && state.frames > 2) {
        */
       v.setControls({ throttle: v.speed < 4 ? 0.5 : 0, brake: 0, steer: 0, handbrake: false });
     });
+    /**
+     * BOUNDED BY THE DISTANCE THE CAR COVERS, NOT BY THE WALL CLOCK.
+     *
+     * This used to be `while (Date.now() - t1 < 25000)`. Headless capture through SwiftShader is
+     * well under 1 fps and district/main.js clamps dt to 0.05, so a FRAME is 0.05 s of sim time
+     * however long it takes to draw: 25 wall seconds buys whatever frame count the box felt like
+     * giving, and the car has 14 m to cover at up to 4 m/s. A blind reviewer measured a slower
+     * box getting 5-10 s of sim out of that window and the arm reporting the WIRE broken when
+     * nothing was wrong with it. That is the worst way for a gate to fail: it names a real
+     * defect that is not there.
+     *
+     * The run is 14 m, so the bound is 14 m plus a margin, measured on the car. The wall clock
+     * stays as a backstop only -- generous, and never the thing that decides a pass -- and the
+     * reason the loop stopped is REPORTED, because "no run-over" and "no run-over, and the car
+     * never got there" are different findings and the old version could not tell them apart.
+     */
+    const RUN_M = 14, TRAVEL_CAP_M = RUN_M * 2.5;
+    const start = { x: v.position.x, z: v.position.z };
     const t1 = Date.now();
-    while (Date.now() - t1 < 25000) {
+    let travelled = 0, frames = 0, why = 'travel';
+    while (true) {
       await new Promise((r) => requestAnimationFrame(() => r()));
+      frames++;
+      travelled = Math.hypot(v.position.x - start.x, v.position.z - start.z);
       const p = peds.positions().find((x) => x.i === spot.i);
       if (p) closest = Math.min(closest, Math.hypot(p.x - v.position.x, p.z - v.position.z));
       top = Math.max(top, v.speed * 3.6);
       const dyn = d.damageReport().dynamic;
       overs = dyn.pedRunOvers; repeats = dyn.pedRepeats;
-      if (dyn.lastRunOver) { seen.push(dyn.lastRunOver); break; }
+      if (dyn.lastRunOver) { seen.push(dyn.lastRunOver); why = 'ranOver'; break; }
+      if (travelled > TRAVEL_CAP_M) { why = 'travelCap'; break; }
+      if (Date.now() - t1 > 180000) { why = 'wallClock'; break; }
     }
     d.setAutopilot(null);
     d.setTimeScale(1);
     v.setControls({ throttle: 0, brake: 1, steer: 0, handbrake: false });
     return { seen, overs, repeats, bodyDown, stars: d.wanted.stars,
-      along: 14, side: +spot.dist.toFixed(1), approach: +(approach * 180 / Math.PI).toFixed(0),
+      why, travelled: +travelled.toFixed(1), frames, wallS: +((Date.now() - t1) / 1000).toFixed(1),
+      along: RUN_M, side: +spot.dist.toFixed(1), approach: +(approach * 180 / Math.PI).toFixed(0),
       closest: +closest.toFixed(2), topKmh: +top.toFixed(1),
       repeats0: dyn0.pedRepeats, overs0: dyn0.pedRunOvers,
       knock: d.damageReport().dynamic.pedKnockdowns, crimes: d.damageReport().crimesReported };
@@ -615,6 +639,16 @@ if (state.global && state.frames > 2) {
       `up to ${ro.topKmh} km/h`);
     console.log(`    overs ${ro.overs0} -> ${ro.overs}, repeats ${ro.repeats0} -> ${ro.repeats}, ` +
       `charge ${JSON.stringify(last)}, stars ${ro.stars}`);
+    console.log(`    the drive ended on "${ro.why}" after ${ro.travelled} m of a ${ro.along} m run, ` +
+      `${ro.frames} frames, ${ro.wallS} s of wall clock`);
+    /**
+     * WHY THE DRIVE ENDED, asserted separately from whether it ran anybody over. A box slow
+     * enough to hit the backstop reports "the car never got there", which is a statement about
+     * the box; the run-over checks below report on the WIRE. Conflating them is how this arm
+     * told a reviewer the wire was broken when the box was just slow.
+     */
+    check('the car covered its run rather than running out of wall clock',
+      ro.why !== 'wallClock', `ended on "${ro.why}" after ${ro.travelled} m in ${ro.wallS} s`);
     console.log(`    the old literal charged scale 1.00 here, which is ` +
       `${last ? (1 / last.scale).toFixed(0) : '?'}x what the speed says`);
     check('the body was still on the ground when the car got there', ro.bodyDown === true,
