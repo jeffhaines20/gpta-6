@@ -806,7 +806,7 @@ const MUTATIONS = [
      * looks different; the bust simply becomes unreachable.
      */
     id: 'hold-never', file: 'src/pursuit.js',
-    find: '      if (near.d <= PursuitUnits.HOLD_R && (u.held || (wantT > near.t && u.t <= near.t))) {',
+    find: '      if (near.d <= this.holdRadius && (u.held || (wantT > near.t && u.t <= near.t))) {',
     to: '      if (false) {',
     why: 'the police drive through you at 79 km/h and can never catch anybody',
   },
@@ -823,8 +823,8 @@ const MUTATIONS = [
      * one scenario 0.2 m apart disagreed about whether the player was ever caught.
      */
     id: 'hold-ratchet', file: 'src/pursuit.js',
-    find: '      if (near.d <= PursuitUnits.HOLD_R && (u.held || (wantT > near.t && u.t <= near.t))) {',
-    to: '      if (near.d <= PursuitUnits.HOLD_R && wantT > near.t && u.t <= near.t) {',
+    find: '      if (near.d <= this.holdRadius && (u.held || (wantT > near.t && u.t <= near.t))) {',
+    to: '      if (near.d <= this.holdRadius && wantT > near.t && u.t <= near.t) {',
     why: 'a hold lasts two frames, so being caught becomes a coin flip',
   },
   {
@@ -849,6 +849,43 @@ const MUTATIONS = [
     to: '  void 0;',
     why: 'being arrested costs nothing: the mission survives it',
     browser: true,
+  },
+  {
+    /**
+     * THE HOLD RADIUS GOES BACK TO READING A CLASS RANK AS A WIDTH, which is how it shipped:
+     * `e.r` is primary 2 / secondary 3 / tertiary 4 / residential 5 / service 8, and `e.w` is the
+     * width in metres. 5 + 2.15 = 7.15 instead of 6.6 + 2.15 = 8.75. A blind playtester measured
+     * what the 1.6 m cost: standing 8, 9 or 10 m from a centreline at five stars was 0 of 5
+     * arrests with the clock never arming, against 5 of 5 at 0, 6 and 7 m.
+     */
+    id: 'hold-rank', file: 'src/pursuit.js',
+    find: '      for (const e of this.d.edges) if (e.w > widest) widest = e.w;',
+    to: '      for (const e of this.d.edges) if (e.r > widest) widest = e.r;',
+    why: 'the hold radius is a road class rank again, so a wide street is immunity',
+  },
+  {
+    /**
+     * A STEP OUT OF THE CAR IS 114 m/s OF TRAVEL AGAIN. `toggleVehicle` moves the body 1.9 m in
+     * one frame and the reported position switches between the player's and the car's, so without
+     * the declaration the smoothed velocity spikes over the stop threshold and the clock is
+     * zeroed. Pressing F every second armed it 109 times in 120 s, peak 0.59 of 4, no arrest.
+     */
+    id: 'teleport-blind', file: 'src/wanted.js',
+    find: '    if (player.teleported) {',
+    to: '    if (false) {',
+    why: 'the F key is immunity from arrest again',
+  },
+  {
+    /**
+     * THE ONE WORD THAT SAYS HOW TO ESCAPE IS DELETED DURING A MISSION. `HOLDS_MISSION_SUBTITLE`
+     * hands a running mission's objective to the subtitle of any tenant above it, and `law` is in
+     * that set, so the bust countdown read "still on: DRIVE EAST ALONG MARLIN STREET" instead of
+     * "drive" in every mission — measured at 0 of them. Nothing errors and the band looks busy.
+     */
+    id: 'verb-eaten', file: 'src/hud.js',
+    find: '  if (!pick.ownSubtitle && HOLDS_MISSION_SUBTITLE.has(from) && mission && mission.objective) {',
+    to: '  if (HOLDS_MISSION_SUBTITLE.has(from) && mission && mission.objective) {',
+    why: 'a player being arrested mid-mission is never told that driving is the out',
   },
 ];
 

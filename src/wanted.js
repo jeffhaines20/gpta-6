@@ -184,6 +184,16 @@ export const SCENE_STOP_MS = 1.0;
  * THE CLOCK IS NOT THE WHOLE RULE. It runs only while the host says a unit is HOLDING you — see
  * `player.held` in `update` — so a player who can drive away is never busted, and the out is
  * always the throttle.
+ *
+ * AND THE STANDSTILL BUDGET IS LESS THAN 4.0 s, because the clock starts while the car is still
+ * rolling: `playerVel` is a smoothed position difference and it crosses `SCENE_STOP_MS` on the way
+ * DOWN, before the car is at rest. A blind playtester reported the budget as 3.65 s and read the
+ * clock at 1.35 of 4 after one second of standstill. Re-measured here — approach at 8 m/s, brake
+ * at 11 m/s2, sit, leave — it reads 0.90 after 1 s and needs about 4.0 s of standstill to fire,
+ * so their MECHANISM is right and their CONSTANT is one braking profile's: how much of the clock a
+ * stop buys depends on how long the tail of the deceleration spends under 1.0 m/s, which a gentler
+ * stop lengthens. There is no single number to write down, which is why the derivation above is
+ * against the 0.68 s floor — a quantity that does not depend on the approach.
  */
 export const BUST_HOLD_S = 4.0;
 
@@ -319,6 +329,9 @@ export class WantedSystem {
       scenesArmed: 0, scenesStopped: 0, scenesFled: 0,
       // Busted: the host held you stopped for BUST_HOLD_S. See `_watchBust`.
       busts: 0, bustHolds: 0,
+      // Frames the host declared a teleport. See `_trackVelocity`: a host that never declares one
+      // is a host where stepping out of the car is immunity, so 0 here is worth seeing.
+      teleports: 0,
     };
 
     // One stable object, mutated in place: consumers hold a reference and read
@@ -646,6 +659,7 @@ export class WantedSystem {
     if (Number.isFinite(player.z)) p.z = player.z;
     p.seen = player.seen;
     p.held = player.held === true;
+    p.teleported = player.teleported === true;
     return p;
   }
 
@@ -695,9 +709,10 @@ export class WantedSystem {
    * BEING CAUGHT. `player.held` is the HOST's verdict that a unit has pulled up on the player and
    * stopped there, for exactly the reason `player.seen` is the host's verdict on line of sight:
    * this module owns the consequence and must not own the geometry. src/pursuit.js decides it from
-   * its own `HOLD_R` (5 m, the widest drivable half-width in the district, plus the car's 2.15 m
-   * half-length) and district/main.js checks that unit against the player rather than against the
-   * pursuit target — which are the same point in contact and 300 m apart during a search.
+   * its own `holdRadius` (half the widest edge in the district plus the car's half-length: 8.75 m,
+   * and it read 7.15 until a blind playtester noticed the derivation was using `e.r`, a CLASS
+   * RANK, as a width) and district/main.js checks that unit against the player rather than against
+   * the pursuit target — which are the same point in contact and 300 m apart during a search.
    *
    * THE SPEED TEST IS `_watchScene`'s, not a second threshold. "Stopped" already has a definition
    * in this file and a derivation above it; a bust that used its own number would drift from it.
@@ -732,7 +747,37 @@ export class WantedSystem {
     return true;
   }
 
+  /**
+   * `teleported` IS THE HOST SAYING THE BODY WAS MOVED RATHER THAN DRIVEN, and without it getting
+   * out of the car was immunity from arrest.
+   *
+   * `toggleVehicle` puts the player 1.9 m beside the car in one frame, and the reported position
+   * is the player's on foot and the car's in it — so a step out is a 1.9 m jump, which at 60 Hz
+   * differences to 114 m/s. Every consumer of `playerVel` reads that as travel: `_watchBust`
+   * zeroes its clock, `_watchScene` stops counting you as stopped, and the interceptors aim at a
+   * ghost. Measured by a blind playtester on the page and reproduced here: sitting still at four
+   * stars and pressing F every second armed the bust clock 109 times in 120 s with a peak of 0.59
+   * of 4 and no arrest, against a control that was arrested at 16 s. Every 4 s it peaked at 3.59
+   * and still never fired.
+   *
+   * THE HOST OWNS THE FACT, for the same reason it owns `seen` and `held`: this module cannot tell
+   * a teleport from a very fast car without a speed threshold, and a threshold would be wrong at
+   * one frame rate or another — 1.9 m is 114 m/s at 60 Hz and 7.6 m/s at the 0.25 s dt clamp,
+   * which is an ordinary speed. So there is no number here to get wrong.
+   *
+   * The previous smoothed value is HELD rather than zeroed, because a teleport says nothing about
+   * whether the player was moving: a respawn lands a stationary car and a step out leaves a
+   * stationary one, and in both cases what the module knew a frame ago is the better estimate.
+   */
   _trackVelocity(dt, player) {
+    if (player.teleported) {
+      // Re-anchor without differencing, so the jump never becomes a velocity.
+      if (!this._prevPlayer) this._prevPlayer = { x: player.x, z: player.z };
+      this._prevPlayer.x = player.x;
+      this._prevPlayer.z = player.z;
+      this.stats.teleports++;
+      return;
+    }
     if (this._prevPlayer && dt > 1e-6) {
       const vx = (player.x - this._prevPlayer.x) / dt;
       const vz = (player.z - this._prevPlayer.z) / dt;
@@ -1035,8 +1080,13 @@ export function composeLaw(s = {}) {
    * been busted before has no way to know that moving is the out.
    */
   if (s.bustIn != null) {
+    /**
+     * `ownSubtitle` because this one word is the only place the game tells a player how to get out
+     * of an arrest, and `src/hud.js`'s HOLDS_MISSION_SUBTITLE replaced it with the mission's
+     * objective in every mission — a playtester measured `drive` in 0 of them. See composeBand.
+     */
     return { objective: { text: 'BUSTED IN', distance: Math.max(0, s.bustIn), unit: 's' },
-      subtitle: 'drive' };
+      subtitle: 'drive', ownSubtitle: true };
   }
   const sc = s.scene;
   if (sc) {

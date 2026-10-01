@@ -12,6 +12,9 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { rng, hash32 } from './facades.js';
 import { buildTrafficCarGeometry, trafficCarMaterial, lampEmissive } from './carbody.js';
+// The car's collision half-length, for `holdRadius` below. The same published anchor
+// src/wanted.js's bust clock takes its stop threshold from.
+import { HALF_EXTENT } from './damage.js';
 
 export class PursuitUnits {
   constructor(scene, district, opts = {}) {
@@ -96,29 +99,41 @@ export class PursuitUnits {
   }
 
   /**
-   * HOW CLOSE A UNIT HAS TO GET BEFORE IT STOPS DRIVING AND HOLDS, and it is derived from the
-   * district rather than picked. Units run the road-graph CENTRELINE; a player can be anywhere on
-   * the carriageway or on the pavement beside it, so the widest drivable half-width in the data
-   * (`r` is at most 5 for the 582 drivable edges: 79 primary at 2, 262 tertiary at 4, 233
-   * residential at 5) plus the car's own half-length from src/damage.js is the furthest a unit
-   * that has genuinely arrived can measure. 5 + 2.15 = 7.15.
-   *
-   * WHY THIS EXISTS AT ALL. Without it the fleet drives its edge at `speed` for ever and cannot
-   * stop, so no unit ever holds contact — measured against a STATIONARY target over 400 s at two
-   * spots and three seeds, the longest contiguous time any unit spent within 4.30 m (a car length)
-   * was 0.8 s, within 12 m 2.8 s, within 45 m 13.8 s, while the minimum distance reached was
-   * 0.1 m. The pursuit was touching the player constantly and holding him never. Any rule of the
-   * form "a unit is holding you" was therefore unsatisfiable, which is how a busted flow gets
+   * WHY A HOLD RADIUS EXISTS AT ALL. Without it the fleet drives its edge at `speed` for ever and
+   * cannot stop, so no unit ever holds contact — measured against a STATIONARY target over 400 s
+   * at two spots and three seeds, the longest contiguous time any unit spent within 4.30 m (a car
+   * length) was 0.8 s, within 12 m 2.8 s, within 45 m 13.8 s, while the minimum distance reached
+   * was 0.1 m. The pursuit was touching the player constantly and holding him never. Any rule of
+   * the form "a unit is holding you" was therefore unsatisfiable, which is how a busted flow gets
    * written, gated against hand-placed units, and never fires in the shipped game.
+   *
+   * AND IT WAS DERIVED FROM THE WRONG FIELD. It read "the widest drivable half-width in the data,
+   * `r` is at most 5" and came out at 5 + 2.15 = 7.15 m. `e.r` IS A CLASS RANK, NOT A WIDTH —
+   * primary 2, secondary 3, tertiary 4, residential 5, service 8 — and `e.w` is the width in
+   * metres. The widest edge in this district is a 13.2 m tertiary, so the derivation the comment
+   * described gives 6.6 + 2.15 = 8.75 and the code was using a rank as a length. Found by a blind
+   * playtester, who also measured what the wrong value cost: standing 8, 9 or 10 m from a
+   * centreline at five stars was total immunity — 0 of 5 arrests with the clock never arming,
+   * against 5 of 5 at 0, 6 and 7 m.
+   *
+   * COMPUTED FROM THE DISTRICT, not written down, for exactly that reason, and over EVERY edge
+   * rather than the `drivable` ones: `_buildAdjacency` adds every edge to `out` and only filters
+   * `r <= 6` for SPAWNING, so `_chooseNext` routes units down the 2.8 m service alleys too — the
+   * same playtester measured 9.4% of 25,072 unit positions on them. Those are narrower, so the
+   * 13.2 m tertiary still sets the bound; taking the max over the edges a unit can actually be ON
+   * is the statement that stays true if that ever changes.
+   *
+   * district/main.js's bridge is duck-typed on purpose (see its header) and this is the field it
+   * duck-types on, so it stays a property rather than becoming a module constant.
    */
-  static HOLD_R = 5 + 2.15;
-
-  /**
-   * The same number as an instance property, so a host can ask the pursuit layer it was handed
-   * rather than importing this class to read a static off it. district/main.js's bridge is
-   * duck-typed on purpose (see its header) and this is the field it duck-types on.
-   */
-  get holdRadius() { return PursuitUnits.HOLD_R; }
+  get holdRadius() {
+    if (this._holdR == null) {
+      let widest = 0;
+      for (const e of this.d.edges) if (e.w > widest) widest = e.w;
+      this._holdR = widest / 2 + HALF_EXTENT.z;
+    }
+    return this._holdR;
+  }
 
   /**
    * The point on an edge nearest the target, as an along-edge distance and a distance. This is
@@ -209,7 +224,7 @@ export class PursuitUnits {
 
       /**
        * DRIVE UP TO THE PLAYER AND STOP THERE, rather than through him at 22 m/s. `u.t` is clamped
-       * at the edge's closest approach whenever that approach is inside HOLD_R, so a unit that has
+       * at the edge's closest approach whenever that approach is inside `holdRadius`, so a unit that has
        * arrived sits on the player until he moves — and `held` is what src/wanted.js's bust rule
        * reads. It cannot chatter: the clamp is a ceiling on `t`, not a state machine, so a unit at
        * the closest approach stays there for exactly as long as the target does.
@@ -233,10 +248,10 @@ export class PursuitUnits {
        *
        * Sticky, it also does the right thing when the player creeps: `u.t` tracks `near.t`, so the
        * unit keeps station along the kerb instead of being shaken off by a walking pace. It
-       * releases when the target leaves the edge's neighbourhood, where `near.d > HOLD_R`, and
+       * releases when the target leaves the edge's neighbourhood, where `near.d > holdRadius`, and
        * resumes from wherever it was rather than from the start of the edge.
        */
-      if (near.d <= PursuitUnits.HOLD_R && (u.held || (wantT > near.t && u.t <= near.t))) {
+      if (near.d <= this.holdRadius && (u.held || (wantT > near.t && u.t <= near.t))) {
         u.t = near.t;
         u.held = true;
       } else {
@@ -300,7 +315,7 @@ export class PursuitUnits {
       units: this.count,
       active: this.units.filter(Boolean).length,
       held: this.units.filter((u) => u && u.held).length,
-      holdR: PursuitUnits.HOLD_R,
+      holdR: this.holdRadius,
       ...this.stats,
       drawCalls: 2,
     };

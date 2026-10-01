@@ -614,6 +614,8 @@ function clearerHeading(x, z, yaw, reach = 30, step = 2) {
 const LOOP_R = 60, LOOP_S = 45, LOOP_KEEP = 3;
 const respawnHistory = [];
 function respawnCar() {
+  // The car is put somewhere else entirely; see `teleportedThisFrame`.
+  teleportedThisFrame = true;
   wreckFor = 0;
   wreckStats.respawns++;
   damage.repair();
@@ -1481,6 +1483,14 @@ const carCollider = { x: 0, z: 0, y: 0, hx: 1.25, hy: 1.5, hz: 2.4 };
  */
 const footColliders = [carCollider];
 
+/**
+ * TRUE FOR THE ONE FRAME AFTER THE BODY WAS MOVED RATHER THAN DRIVEN, and src/wanted.js's
+ * `_trackVelocity` reads it. Getting out of the car moves the reported position 1.9 m in a frame,
+ * which differences to 114 m/s at 60 Hz, and every consumer of `playerVel` read that as travel —
+ * so pressing F once cleared the bust clock. See that method for the measurement.
+ */
+let teleportedThisFrame = false;
+
 function toggleVehicle() {
   if (enterCooldown > 0 || fsm.locked) return false;
   if (mode === 'foot') {
@@ -1488,11 +1498,14 @@ function toggleVehicle() {
     fsm.lockTransition(STATE.ENTER_VEHICLE, ENTER_TIME);
     mode = 'car';
     chase.mode = 'car';
+    // The reported position switches from the player's to the car's, which is the same 1.9 m jump.
+    teleportedThisFrame = true;
     enterCooldown = ENTER_TIME;
   } else {
     fsm.lockTransition(STATE.EXIT_VEHICLE, ENTER_TIME);
     mode = 'foot';
     chase.mode = 'foot';
+    teleportedThisFrame = true;             // 1.9 m beside the car, in one frame
     const side = new THREE.Vector3(-1, 0, 0).applyQuaternion(vehicle.quaternion);
     player.position.copy(vehicle.position).addScaledVector(side, 1.9);
     player.position.y = world.heightAt();
@@ -1742,7 +1755,7 @@ function animate(now) {
      * IS A UNIT HOLDING YOU. src/wanted.js owns the four-second clock and the consequence and
      * must not own this geometry, for the same reason it does not own `seen`: it would have to
      * learn what a road is. src/pursuit.js decides `held` per unit from its own `holdRadius`
-     * (the district's widest drivable half-width plus the car's half-length, 7.15 m) and stops
+     * (half the widest edge in the district plus the car's half-length, 8.75 m) and stops
      * the car there; this line checks the held unit against the PLAYER rather than against the
      * pursuit target, which are the same point while contact is held and up to a give-up radius
      * apart during a search — a unit parked on the last known position is not holding anybody.
@@ -1754,6 +1767,8 @@ function animate(now) {
      * with a number on it rather than a solved problem.
      */
     _wantedPlayer.held = false;
+    _wantedPlayer.teleported = teleportedThisFrame;
+    teleportedThisFrame = false;
     if (pursuit && !pursuitManual && pursuit.mesh.visible) {
       const r = pursuit.holdRadius ?? 0;
       if (r > 0) {

@@ -710,7 +710,22 @@ export function composeBand({ busted = null, wreck = null, fence = null, law = n
   const from = busted ? 'busted' : wreck ? 'wreck' : fence ? 'fence' : law ? 'law'
     : mission ? 'mission' : ended ? 'ended' : 'offer';
   let subtitle = pick.subtitle ?? null;
-  if (HOLDS_MISSION_SUBTITLE.has(from) && mission && mission.objective) {
+  /**
+   * `ownSubtitle` IS A TENANT SAYING ITS SUBTITLE IS AN INSTRUCTION, and it exists because the
+   * rule below ate one. `composeLaw`'s bust countdown reads "BUSTED IN — 4 s" over "drive", which
+   * is the only place the game ever tells a player how to get out of an arrest — and `law` is in
+   * HOLDS_MISSION_SUBTITLE, so during a mission (which is most of the game) it rendered
+   * "still on: DRIVE EAST ALONG MARLIN STREET" instead. A blind playtester measured the word
+   * `drive` in 0 of them, and named the defect class correctly: it is the same one CLAUDE.md
+   * records for the scene distance, 0 of 289 glances, recurring in a new feature because the
+   * warning was added to a tenant already in the set.
+   *
+   * The scene lines were fixed by moving their NUMBER into the objective. That does not work for
+   * a verb, so the rule needs the exception rather than the tenant needing a workaround — and it
+   * is stated as a property: a subtitle that tells the player what to DO outranks the reminder of
+   * what they were doing. Four seconds is not long enough to read two lines.
+   */
+  if (!pick.ownSubtitle && HOLDS_MISSION_SUBTITLE.has(from) && mission && mission.objective) {
     subtitle = `still on: ${mission.objective}`;
   }
   return { objective: pick.objective ?? null, subtitle, from };

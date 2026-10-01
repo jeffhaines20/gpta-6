@@ -281,7 +281,8 @@ export class Session {
     // 0.007 m/s of kerb rumble and audio.js refuses anything under 0.6 — so a single number
     // called "sounds" was wrong by two orders of magnitude, in the alarming direction.
     /** The player position handed to the wanted system, with the host's `held` verdict on it. */
-    this._wantedPlayer = { x: 0, z: 0, held: false };
+    this._wantedPlayer = { x: 0, z: 0, held: false, teleported: false };
+    this._teleported = false;
     this.stats = { busts: 0, released: 0, crashes: 0, crimes: 0, knockdowns: 0, fatal: 0, shunts: 0,
       impacts: 0, voices: 0, tested: 0, contacts: 0, pedRepeats: 0, runOvers: 0,
       wrecks: 0, respawns: 0, loopsBroken: 0, worstDv: 0, distance: 0, topSpeed: 0 };
@@ -365,6 +366,7 @@ export class Session {
    * what these three stage transitions need is the `inVehicle` flag flipping.
    */
   exit() {
+    this._teleported = true;
     if (this.mode === 'foot') return false;
     const yaw = this._yaw();
     // The car's own left, which is what main.js takes: (-1,0,0) through the body quaternion.
@@ -387,6 +389,7 @@ export class Session {
 
   /** Get back in, if close enough. main.js's `ENTER_RANGE`. */
   enter() {
+    this._teleported = true;
     if (this.mode === 'car') return false;
     const d = Math.hypot(this.player.position.x - this.vehicle.position.x,
       this.player.position.z - this.vehicle.position.z);
@@ -483,6 +486,11 @@ export class Session {
        */
       this._wantedPlayer.x = ap.x; this._wantedPlayer.z = ap.z;
       this._wantedPlayer.held = false;
+      // See `_trackVelocity` in src/wanted.js: a step in or out of the car moves the reported
+      // position 1.9 m in one frame, and without this that reads as 114 m/s of travel and clears
+      // the bust clock. district/main.js carries the same flag.
+      this._wantedPlayer.teleported = this._teleported;
+      this._teleported = false;
       const holdR = this.pursuit.holdRadius ?? 0;
       if (holdR > 0) {
         for (const u of this._unitPositions()) {
@@ -672,6 +680,7 @@ export class Session {
 
   /** The replacement car, on the nearest road centreline, facing along it. */
   respawn() {
+    this._teleported = true;
     this._wreckFor = 0;
     this.stats.respawns++;
     this.damage.repair();
@@ -1027,10 +1036,12 @@ export class Session {
        * was good and nothing expressed it. `wantedNote` is the string the page draws under the
        * stars and `evade` the drain it draws on the top one.
        *
-       * The police blips the page now posts have no counterpart here on purpose: this harness has
-       * no pursuit layer, so there are no unit positions to give a bearing to, and reporting the
-       * requested COUNT as blips would tell a playtester that eight cars are on their map when the
-       * sim holds none. That gap is reported by `notHonoured` rather than papered over.
+       * AND THE POLICE BLIPS ARE HERE NOW, which this comment used to say was impossible: "this
+       * harness has no pursuit layer, so there are no unit positions to give a bearing to". True
+       * when it was written and false since the harness gained one — and a blind playtester caught
+       * the consequence, that any legibility claim made from `look()` understated the page by the
+       * ~10 s of enemy-blip warning it measured before an arrest. A stale comment about a gap is
+       * worse than the gap, because it reads as a decision.
        */
       evade: +wantedLine.evade.toFixed(3),
       wantedNote: wantedLine.note,
@@ -1075,6 +1086,9 @@ export class Session {
         .concat(onFoot
           ? [{ id: 'car', ...bearingTo(this.vehicle.position.x, this.vehicle.position.z) }]
           : [])
+        // One per unit that is actually reporting a position, as district/main.js posts them —
+        // never the requested COUNT, which would put eight cars on a map the sim holds none of.
+        .concat(this._unitPositions().map((u) => ({ id: 'enemy', ...bearingTo(u.x, u.z) })))
         .map((k) => (k.range > MINIMAP_REACH_M ? { ...k, edge: true } : k))
         .sort((a, b) => a.range - b.range),
       waypoint,

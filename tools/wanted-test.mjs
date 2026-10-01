@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import { WantedSystem, CRIMES, RESPONSE, STATES, bindPursuit,
   SCENE_LEAVE_M, SCENE_STOP_MS, VictimWindow,
   composeWanted, composeLaw, LAW_NOTICE_S, BUST_HOLD_S } from '../src/wanted.js';
-import { objectiveLine } from '../src/hud.js';
+import { objectiveLine, composeBand } from '../src/hud.js';
 import { DamageModel, IMPACT } from '../src/damage.js';
 
 const DT = 1 / 30;                      // the rate the game reports at, fixed
@@ -1659,6 +1659,70 @@ let searchSample;
       BUST_HOLD_S < RESPONSE[1].cooldown, `${BUST_HOLD_S} against ${RESPONSE[1].cooldown}`);
     check('the stop test is the scene watcher\'s threshold and not a second one',
       SCENE_STOP_MS === 1.0, `${SCENE_STOP_MS}`);
+  }
+  /**
+   * (g) TWO THINGS A BLIND PLAYTESTER FOUND BY PLAYING, both of which made the rule toothless in
+   * a way no number in this file could see.
+   */
+  {
+    // THE VERB SURVIVES A MISSION. `src/hud.js`'s HOLDS_MISSION_SUBTITLE hands a running mission's
+    // objective to the subtitle of any tenant above it, and `law` is in that set — so "drive", the
+    // one place the game says how to get out of an arrest, was replaced by "still on: ..." in
+    // every mission, which is most of the game. Measured at 0 of them.
+    const w = wanted1();
+    hold(w, BUST_HOLD_S / 2, { at: ORIGIN });
+    const line = composeLaw(w.hudState());
+    const alone = composeBand({ law: line });
+    const running = composeBand({ law: line, mission: { objective: 'DRIVE EAST ALONG MARLIN ST' } });
+    console.log(`    the band while held, alone: "${alone.subtitle}"; in a mission: ` +
+      `"${running.subtitle}"`);
+    check('the bust line keeps its own subtitle, because it is an instruction',
+      alone.subtitle === 'drive' && running.subtitle === 'drive',
+      `${alone.subtitle} / ${running.subtitle}`);
+    check('KNOWN-BAD: and a tenant that does NOT claim one still yields to the mission',
+      composeBand({ fence: { objective: 'TURN BACK', subtitle: 'the district ends here' },
+        mission: { objective: 'DRIVE EAST' } }).subtitle === 'still on: DRIVE EAST',
+      'the fence still yields');
+
+    /**
+     * A STEP OUT OF THE CAR IS NOT 114 m/s OF TRAVEL. The host moves the body 1.9 m in one frame
+     * and the reported position switches between the player's and the car's, so without
+     * `player.teleported` the smoothed velocity spikes and the clock is zeroed. Measured through
+     * the harness: pressing F every second armed the clock 109 times in 120 s, peak 0.59 of 4, and
+     * never fired, against a control arrested at 16 s.
+     */
+    const jump = new WantedSystem({ seed: 25 });
+    jump.reportCrime('pedestrianHit', { at: ORIGIN, scale: 0.01 });
+    let n = 0;
+    jump.on('busted', () => n++);
+    const steps = Math.round((BUST_HOLD_S + 0.2) / DT);
+    for (let i = 0; i < steps; i++) {
+      // Every 15th frame, jump 1.9 m and declare it — what toggleVehicle does.
+      const tp = i % 15 === 0 && i > 0;
+      jump.update(DT, { x: tp ? 1.9 * (i / 15) : 1.9 * Math.floor(i / 15), z: 0,
+        held: true, seen: true, teleported: tp });
+    }
+    console.log(`    ${Math.floor(steps / 15)} declared teleports of 1.9 m during a ${BUST_HOLD_S} s ` +
+      `hold: ${n} bust(s), ${jump.stats.teleports} teleports seen, clock armed ` +
+      `${jump.stats.bustHolds}x`);
+    check('a declared teleport does not become velocity, so stepping out is not an escape',
+      n === 1 && jump.stats.teleports > 2 && jump.stats.bustHolds === 1,
+      `${n} busts, ${jump.stats.teleports} teleports, ${jump.stats.bustHolds} arms`);
+    // KNOWN-BAD: the same jumps NOT declared are what the defect looked like.
+    const silent = new WantedSystem({ seed: 25 });
+    silent.reportCrime('pedestrianHit', { at: ORIGIN, scale: 0.01 });
+    let m = 0;
+    silent.on('busted', () => m++);
+    for (let i = 0; i < steps; i++) {
+      const tp = i % 15 === 0 && i > 0;
+      silent.update(DT, { x: tp ? 1.9 * (i / 15) : 1.9 * Math.floor(i / 15), z: 0,
+        held: true, seen: true });
+    }
+    console.log(`    the same jumps undeclared: ${m} bust(s), clock armed ` +
+      `${silent.stats.bustHolds}x — which is what the page did before the flag`);
+    check('KNOWN-BAD: undeclared, those same jumps clear the clock and nobody is arrested',
+      m === 0 && silent.stats.bustHolds > 1,
+      `${m} busts, ${silent.stats.bustHolds} arms`);
   }
   out.bust = { holdS: BUST_HOLD_S };
 }
