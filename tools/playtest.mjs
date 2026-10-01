@@ -37,7 +37,7 @@ import { Vehicle, BODY_SAMPLES, BODY_RADIUS, BODY_ENCLOSING } from '../src/vehic
 import { Player } from '../src/player.js';
 import { FlatGround } from '../src/ground.js';
 import { BlockerIndex, districtBounds, worldFence } from '../src/blockers.js';
-import { DamageModel, IMPACT, dynamicContact } from '../src/damage.js';
+import { DamageModel, IMPACT, dynamicContact, HALF_EXTENT } from '../src/damage.js';
 import { WantedSystem, VictimWindow, composeWanted, composeLaw, BUST_HOLD_S, bindPursuit } from '../src/wanted.js';
 import { Traffic } from '../src/traffic.js';
 import { Pedestrians } from '../src/pedestrians.js';
@@ -2131,6 +2131,31 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
     check('the harness has police that report where they are',
       s.wanted.stats.bustHolds > 0 && unitsEver > 0,
       `armed ${s.wanted.stats.bustHolds}x, ${unitsEver} units reported a position`);
+    /**
+     * THE HOLD RADIUS COVERS THE WIDEST ROAD, which is what it is FOR and the only property that
+     * catches the defect it shipped with. Units run the road-graph CENTRELINE and a player can be
+     * at the far kerb, so the worst honest separation between a unit that has arrived and the
+     * player it has arrived at is half the widest road plus the car's own half-length.
+     *
+     * `src/pursuit.js` derived that from `e.r` for a round — a CLASS RANK (primary 2 … service 8),
+     * not a width — and came out at 7.15 m instead of 8.75. A blind playtester measured the cost:
+     * 8, 9 and 10 m from a centreline at five stars was 0 of 5 arrests with the clock never
+     * arming, against 5 of 5 at 0, 6 and 7 m. `mutation-sweep`'s `hold-rank` reverts it and was
+     * MISSED by every gate, because the wrong value is SMALLER and the arm below still busts at
+     * short range — a radius too small fails only where nothing was looking.
+     */
+    const widest = Math.max(...s.district.edges.map((e) => e.w));
+    const needed = widest / 2 + HALF_EXTENT.z;
+    console.log(`    the widest edge is ${widest} m, so a unit on its centreline can be ` +
+      `${(widest / 2).toFixed(2)} m from a player at the kerb plus ${HALF_EXTENT.z} m of car ` +
+      `= ${needed.toFixed(2)} m; holdRadius is ${s.pursuit.holdRadius.toFixed(2)} m`);
+    check('the hold radius reaches the far kerb of the widest road, plus a car',
+      s.pursuit.holdRadius >= needed - 1e-9,
+      `${s.pursuit.holdRadius.toFixed(2)} against ${needed.toFixed(2)} m`);
+    check('and it is not absurdly wider than that either, or it is not a contact radius',
+      s.pursuit.holdRadius < needed * 1.5,
+      `${s.pursuit.holdRadius.toFixed(2)} against ${(needed * 1.5).toFixed(2)} m`);
+
     check('a unit stops ON the stationary player rather than driving past',
       heldEver > 0 && minD < s.pursuit.holdRadius,
       `${heldEver} held, closest ${minD.toFixed(1)} m against holdRadius ` +
