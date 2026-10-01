@@ -1314,9 +1314,9 @@ linear in the mission's size, caught at x7.89 while passing the absolute bound a
 `check-syntax`, `geom-audit`, `golden-trace`, `physics-test`, `daynight-sweep`,
 `budget` (`drive-through --traffic`), `leaf-mask`, `wanted-test`, `mission-test`,
 `damage-test`, `blocker-test`, `crash-test`, `roadpath-test`, `route-drive`,
-`reaction-test`, `sim-determinism`, `traffic-selftest`, `hud-cue`,
-`crowd-bill --selftest`, `tri-buckets --selftest`, `gate-align --selftest`,
-`mutation-sweep --selftest`, `playtest --selftest`.
+`reaction-test`, `sim-determinism`, `traffic-selftest`, `hud-cue`, `pursuit-test`,
+`car-shapes`, `crowd-bill --selftest`, `tri-buckets --selftest`, `gate-align --selftest`,
+`mutation-sweep --selftest`, `playtest --selftest`, `car-shapes --selftest`.
 The offline ones together take under a minute.
 
 `shadow-bill` needs a browser and takes about seven minutes; it is how a change is
@@ -1359,6 +1359,81 @@ Run the list, and read the exit codes rather than the last lines.
 threshold *in the same commit*, with the derivation. One commit shipped a
 transfer-function change while leaving two fog ceilings unrestated, which
 loosened a gate without saying so.
+
+## A module with no gate, and `--browser` scoring catches it did not earn
+
+Two findings from one blind mutation reviewer, and the second one invalidates evidence.
+
+**`src/pursuit.js` had no gate at all, and nine of ten mutations against it were MISSED.**
+`grep -rn "from '../src/pursuit.js'" tools/*.mjs` returned ONE line, and `sim-determinism` only
+checks the filename appears in a list. What the misses had in common is the point: every one was a
+GEOMETRIC defect that left the module's own reports and the harness's star counts looking exactly
+right. An off-by-one in `_closestOn`'s segment walk makes the hold impossible on the **414
+two-point edges of 935** — nearly half the district — and is nearly harmless on a multi-point one,
+so it needs the whole network walked rather than a sample. One bracket moved makes a held unit held
+for ever: 100% of frames reporting held while the player fled, worst distance 331.9 m, the fleet
+driving 3,056 m instead of 9,170, and a single-frame position jump of **19.59 m**. Neither errors.
+
+`tools/pursuit-test.mjs` is that gate. **Write the gate when you write the module**, and the cheap
+test for whether you did is `grep` for its importers.
+
+**And `mutation-sweep --browser` was a silent no-op in every tree but one.** `boot-check` defaults
+to `BOOT_PORT ?? 8123` and **8123 belongs to the main tree** — this file says so two sections up —
+while `runGate` passed no port. So a sweep from a worktree had `ensureServer` find a foreign
+document root and THROW, and a throw exits non-zero, and non-zero is how that tool spells "caught".
+Every `[browser]` row came back caught whatever it mutated. The reviewer proved it by planting a row
+that was literally the same program, `const WRECK_HOLD_S = BUST_HOLD_S` to `= 4.0` on a tree where
+BUST_HOLD_S is 4.0. It is the Captures trap again, in the one tool it had never been patched in —
+**patching one tool and leaving its siblings is the recurring shape of defect in this repo**, and
+that sentence was already written down here.
+
+Two fixes, both needed: a port derived from the tree's own path, and **`--browser` now runs
+`boot-check` at HEAD FIRST and refuses the sweep if the control is red**. A gate that already fails
+cannot distinguish anything — boot-check was red for three commits, and while it was, every browser
+row was noise that read as signal.
+
+### Four of my own checks could not fail, and the pattern is always the same
+
+All four were written in the same round as the code they guard, which is the condition under which
+this happens:
+
+- **`§24`'s `firstBite` thresholded on a constant computed in the test file**, not on the module's
+  cap, so it printed "wall 29, car 23" whatever the cap was — the reviewer swept it at 0, 0.15, 1
+  and 4, where the truths are 7/7, 13/11, 29/23 and null/43. Self-validation closing over the same
+  quantity twice, inside the arm whose own comment claims it "says the fix is not cosmetic".
+- **A one-sided bound where the quantity lands exactly on the limit.** `heat <= cap` passes for a
+  cap that clamps too low; `=== cap` is one token and says the whole thing. It immediately found a
+  second rule — `evading` reads 0 because it is REFUSED without a wanted level — so two rules got
+  two checks instead of one bound loose enough to cover both.
+- **A priority ladder that asserted the LABEL and not the LINE.** Transposing two tenants in `pick`
+  alone, leaving the `from` ternary untouched, failed 0 of its checks: the band read "STOP AT THE
+  SCENE — 73 m" while `from` still said "fence".
+- **A level where a delta was meant.** `respawns > 0` after an earlier arm in the same page load had
+  already made it 2.
+
+And the other half of the same shape: **a new field that no gate feeds.** The bust countdown is the
+one objective in this game measured in SECONDS, and both render paths default to metres, so a
+dropped `unit` mislabels it silently — "3 m" for a 3 s countdown, then "2 s" for a 2 m distance once
+the dirty key stopped carrying it, wrong for a full second at each end of every arrest.
+
+### Quote the signal the code reads
+
+`BUST_HOLD_S`'s floor was derived from "contiguous seconds under 2.2 m/s" off the car's RAW speed.
+`_watchBust` tests the SMOOTHED `playerVel` against 1.0 m/s. Both rows, measured by feeding
+vehicle.js's own positions to the module:
+
+    smoothed under 1.0, which the clock reads   0.20 0.17 0.12 0.17 0.17
+    raw speed under 2.2, which it does not      0.68 0.67 0.65 0.67 0.67
+
+The floor is 0.20 s, so 4.0 s is **x20.0** of it and not x5.9. Conservative — it understated the
+margin — and still the shape this file already records as "a probe that measures the OPPORTUNITY
+does not measure the FIX".
+
+**And a tolerance has to be measured, not guessed.** The displacement check in `pursuit-test`
+failed at 1e-6 because `_pointOn` walks a polyline summing segment lengths and comes out 28.8
+microns over `speed * dt`. 1 mm is 34x the measured noise and 19,590x below the 19.59 m jump the
+mutation produces, so there is no value in between for the bound to be wrong at. A bound with
+nothing between the noise and the signal is the only kind worth writing down.
 
 ## When a reviewer is wrong
 
