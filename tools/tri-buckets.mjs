@@ -66,6 +66,7 @@ if (process.argv.includes('--selftest')) {
     ['signage', 'signage'],
     ['pedestrians', 'pedestrians'],
     ['trafficCar:coupe', 'vehicles'],
+    ['parkedCar:wagon', 'vehicles'],
     ['playerCar', 'vehicles'],
     ['skyDome', 'sky dome'],
   ];
@@ -81,6 +82,20 @@ if (process.argv.includes('--selftest')) {
     JSON.stringify(bucketOf(mesh(''))));
   ok(bucketOf({ name: '', parent: mesh('signage') }) === 'signage',
     'and it inherits the nearest named ancestor', bucketOf({ name: '', parent: mesh('signage') }));
+  // THE INHERITANCE RULE IS CORRECT AND IT IS WHAT HID 31,500 TRIANGLES.
+  // The parked pool's three shell meshes were unnamed under `furniture`, so they
+  // read as street furniture: a REAL bucket with a REAL name, which is worse than
+  // the `unnamed` row because nothing in the table says it could not be
+  // attributed, and street furniture prices at x1.41 against vehicles' x2.00.
+  // This case is the mechanism, asserted as correct. What it CANNOT see is a car
+  // pool that forgets to name itself - there is no scene here - so that check
+  // lives in tools/boot-check.mjs, over the live graph.
+  ok(bucketOf({ name: '', parent: mesh('furniture') }) === 'street furniture + trees',
+    'an unnamed mesh under `furniture` IS street furniture -- so a car pool that does not name itself',
+    bucketOf({ name: '', parent: mesh('furniture') }));
+  ok(bucketOf({ name: 'parkedCar:coupe', parent: mesh('furniture') }) === 'vehicles',
+    '...is only a vehicle once it says so, even under the same parent',
+    bucketOf({ name: 'parkedCar:coupe', parent: mesh('furniture') }));
 
   console.log('  -- known bad: the source must be injectable --');
   const rebuilt = new Function(`return (${bucketSource})`)();

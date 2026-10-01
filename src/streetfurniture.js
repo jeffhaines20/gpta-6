@@ -4721,12 +4721,33 @@ export class StreetFurniture {
     // is under 7 kB of buffer, and what RENDERS is mesh.count, set to the number
     // actually used after each fill. The triangle bill follows the fill, not the
     // capacity.
-    const meshes = geos.map((g) => {
+    const meshes = geos.map((g, sh) => {
       const m = new THREE.InstancedMesh(g, material, count);
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       m.castShadow = true;
       m.frustumCulled = false;
       m.count = 0;
+      // NAME THE SHELL, and this one is worse than the unnamed row it looks like.
+      //
+      // tools/tri-buckets.mjs walks UP the parent chain to the first named
+      // ancestor, so these three unnamed meshes inherited `furniture` and 31,500
+      // triangles of parked car were reported as `street furniture + trees`.
+      // That is not the `unnamed` row: the unnamed row ANNOUNCES itself ("a row
+      // here is geometry no subsystem claimed"), whereas this landed in a real
+      // bucket under a real name and nothing in the table said otherwise.
+      //
+      // The price was wrong, not just the label. CLAUDE.md's shadow-bill table
+      // gives street furniture x1.41 - much of it distant oaks outside the sun's
+      // shadow frustum - against vehicles x2.00, so 31,500 triangles of parked
+      // car were being priced at 44,415 of the gate's units where they bill at
+      // 63,000. An 18,585 error, which is larger than the 17,173 cross-session
+      // gate spread and the same order as the 22,605 the tree is over its warn.
+      //
+      // `traffic.js` was given exactly this fix for exactly this reason and its
+      // sibling here was left armed, which is the recurring shape of defect in
+      // this repo. The check that it is ONLY a relabelling is that the colour
+      // pass total does not move.
+      m.name = `parkedCar:${shellNames()[sh]}`;
       this.root.add(m);
       return m;
     });

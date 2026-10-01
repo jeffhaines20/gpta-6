@@ -33,6 +33,7 @@
 import { chromium } from 'playwright';
 import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
+import { bucketSource, trisSource } from './tri-buckets.mjs';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const PORT = Number(process.env.BOOT_PORT ?? 8123);
@@ -158,6 +159,70 @@ if (state.global && state.frames > 2) {
   check('the wreck ledger is clean on a fresh load',
     !!live.wreck && live.wreck.wrecks === 0 && !live.wreck.wreckedNow,
     live.wreck ? JSON.stringify(live.wreck) : '-');
+
+/**
+ * EVERY CAR IN THE SCENE IS PRICED AS A CAR.
+ *
+ * tools/tri-buckets.mjs buckets a mesh by walking UP to its first named ancestor, so an unnamed
+ * mesh is attributed to whatever contains it. The parked pool's three shell meshes were unnamed
+ * under `furniture`, and 31,500 triangles of parked car were therefore reported as `street
+ * furniture + trees` by tri-breakdown and shadow-bill alike. That is not the `unnamed` row --
+ * which announces itself -- it is a real bucket with a real name, and street furniture prices at
+ * x1.41 (much of it distant oaks outside the sun's shadow frustum) against vehicles' x2.00. So
+ * 31,500 triangles were being priced at 44,415 of the gate's units where they bill at 63,000: an
+ * 18,585 error, larger than the 17,173 cross-session gate spread.
+ *
+ * `src/traffic.js` was given this exact fix for this exact reason and its sibling pool was left
+ * armed, which is the recurring shape of defect in this repo. tri-buckets' own self-test asserts
+ * the inheritance RULE and is correct; what it cannot see, having no scene, is a pool that forgets
+ * to name itself. Only a gate over the live graph can, so it is here.
+ *
+ * THE MESH HANDLES COME FROM THE MODULES, NOT FROM A NAME OR A TRIANGLE COUNT. Searching the graph
+ * for `/car/` to check that cars are named `/car/` is circular, and searching for geometries of
+ * 1,050 triangles hardcodes a number that any change to the car silently breaks. Asking the pools
+ * for their own meshes is neither.
+ */
+{
+  const cars = await page.evaluate(([bSrc, tSrc]) => {
+    const bucketOf = eval(`(${bSrc})`);
+    const trisOf = eval(`(${tSrc})`);
+    const d = window.__district;
+    const pools = [];
+    const park = d.furniture && d.furniture.parked;
+    if (park && park.meshes) pools.push(['parked', park.meshes]);
+    const tr = d.traffic && d.traffic();
+    if (tr && tr.meshes) pools.push(['traffic', tr.meshes]);
+    const rows = [];
+    for (const [pool, meshes] of pools) {
+      for (const m of meshes) {
+        rows.push({ pool, name: m.name || '', bucket: bucketOf(m),
+          inst: m.count ?? 0, drawn: trisOf(m.geometry, m.count ?? 0),
+          inScene: (() => { let n = m; while (n.parent) n = n.parent; return !!n.isScene; })() });
+      }
+    }
+    return { pools: pools.map(([p]) => p), rows };
+  }, [bucketSource, trisSource]);
+
+  for (const r of cars.rows) {
+    console.log(`    ${r.pool.padEnd(8)} ${(r.name || '<unnamed>').padEnd(20)} ${String(r.drawn).padStart(6)} tris` +
+      ` x${r.inst}  -> ${r.bucket}`);
+  }
+  // BOTH SIDES NON-ZERO, three ways: both pools present, every mesh attached to the scene, and
+  // triangles actually drawn. Without these, "every car mesh buckets as a vehicle" passes over an
+  // empty list for the most flattering possible reason.
+  check('both car pools are reachable, so the next check has something to walk',
+    cars.pools.length === 2, cars.pools.join(', ') || 'none');
+  check('...and every one of their meshes is in the scene graph',
+    cars.rows.length > 0 && cars.rows.every((r) => r.inScene), `${cars.rows.length} meshes`);
+  const drawn = cars.rows.reduce((a, r) => a + r.drawn, 0);
+  check('...and they are drawing triangles, so the bucket carries weight',
+    drawn > 0, `${drawn} triangles over ${cars.rows.filter((r) => r.inst > 0).length} filled meshes`);
+  const stray = cars.rows.filter((r) => r.bucket !== 'vehicles');
+  check('every car-pool mesh is priced as a vehicle, not as whatever contains it',
+    stray.length === 0,
+    stray.length ? stray.map((r) => `${r.pool}/${r.name || '<unnamed>'} -> ${r.bucket}`).join('; ')
+      : `${cars.rows.length} meshes, ${drawn} triangles, all in "vehicles"`);
+}
 
 
 /**

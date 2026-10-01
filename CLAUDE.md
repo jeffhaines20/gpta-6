@@ -78,23 +78,66 @@ colour pass and **again in every shadow map that contains it** — `src/post.js`
 takes `info.autoReset` itself precisely so that it does.
 
 `tools/shadow-bill.mjs` measures the factor per subsystem by turning a subsystem's
-casters off and asking the renderer what it stopped drawing. At noon, default
-camera:
+casters off and asking the renderer what it stopped drawing. **At DUSK** — the page's
+boot preset, which is what a run with no `SB_TOD` measures — default camera:
 
     subsystem                  drawn      shadow    x bill   fwd/back apart
-    pedestrians                83,952     83,639    x2.00     2.7%
-    vehicles                   36,984     37,124    x2.00     2.8%
-    signage                    46,260     46,701    x2.01    34%   <- weak
+    pedestrians                77,176     77,042    x2.00     3.5%
+    vehicles                   68,484     68,484    x2.00     0.0%   <- both car pools
+    signage                    46,260     46,701    x2.01    34%     <- weak
     facade trim (near LOD)     15,708     15,233    x1.97     0.0%
-    street furniture + trees  171,917     70,467    x1.41     0.4%
+    street furniture + trees  140,417     38,776    x1.28     1.7%
+    facade (near LOD)           9,962      2,834    x1.28   453%     <- weak
     roads, kerbs, spill, sky        —          0    x1.00    no casters
-    WHOLE FRAME               491,351    232,415    x1.473
+    WHOLE FRAME               485,390    224,824    x1.463
 
-**So a triangle added to the crowd, the fleet, the signage or the facade trim
-costs exactly two in the gate's number.** Street furniture is x1.41 because much
+**So a triangle added to the crowd, EITHER car pool, the signage or the facade trim
+costs exactly two in the gate's number.** Street furniture is x1.28 because much
 of it — distant oaks — lies outside the sun's shadow frustum, and the non-casting
-rows are free. The whole-frame x1.473 is the content-weighted average and is the
+rows are free. The whole-frame x1.463 is the content-weighted average and is the
 wrong number to price a change with; use the row.
+
+**Three rows moved since the first printing of this table and none of the moves was
+a rendering change.** Worth separating, because each would otherwise read as one:
+
+- `vehicles` 36,984 -> 68,484 and `street furniture + trees` 171,917 -> 140,417 are
+  the SAME 31,500 triangles changing bucket. The parked pool's three shell meshes
+  were unnamed, `tri-buckets` walks up to the first named ancestor, and they were
+  inheriting `furniture`. See "An unnamed mesh is invisible" below — this is that
+  section's second instance, in the sibling of the module it was written about.
+- `pedestrians` 83,952 -> 77,176 is #74's far-tier packing, which is exactly the
+  -8.1% that section claims. The table predates it.
+- The old header said **noon and the run was dusk.** `shadow-bill` and
+  `tri-breakdown` both recorded `tod: process.env.*_TOD ?? 'default'`, and
+  'default' is not an hour — it is the absence of a flag. `TimeOfDay`'s constructor
+  calls `apply('dusk')`, so every run made without the flag is dusk at sunLux 1,200
+  and 0.055 rad of elevation. Both tools now read `presetName` back off the page and
+  record it, which is the only version of this that cannot be mislabelled later.
+  The hour is not a detail in this table: the section below on `daynight-sweep` turns
+  on a subsystem's shadow factor CHANGING with the hour.
+
+The relabelling reconciles against the old table to 0.5%, and that reconciliation is
+also the evidence the old run was dusk:
+
+    predicted, from the OLD table minus the parked cars at the x2.00 just measured
+      drawn   171,917 - 31,500 = 140,417      measured 140,417   exact
+      shadow   70,467 - 31,500 =  38,967      measured  38,776   -0.5%
+      x                           x1.278      measured  x1.276
+
+38,967 sits inside that row's own forward/backward spread of 38,456..39,096. A
+cross-HOUR comparison could not land inside a 1.7% window — the sun's azimuth and
+elevation decide which chunks are in the frustum — so the old run was measured at
+the same boot preset its header misnamed. The `drawn` figures were byte-identical
+between the two sessions (171,917 and 36,984 both times), which is separately what
+says the two runs held the same resident set; `drawn` does not depend on the hour,
+so that agreement alone could not have told us.
+
+**And `facade (near LOD)` at x1.28 should not be leaned on**: its two sweep
+directions read -3,584 and 9,252, 453% of its own figure. The `unnamed` row is worse
+and reads a structurally impossible **x-77.02** on 48 triangles, because turning
+casters off cannot increase what is drawn. The tool's "worst row" line picks by
+absolute magnitude and so names signage at 15,667 rather than either of these; read
+the fwd/back column on every row you intend to quote, not just the flagged one.
 
 This is most of why #52's session ledger of ~+2,600 would not reconcile with
 ~+24,000 of gate: the ledger was in the wrong units. Done in the right ones it
@@ -279,6 +322,69 @@ self-test, because `shadow-bill` needs the same ones and copying the regexes int
 a second `page.evaluate` is the recurring shape of defect here. Name a mesh when
 you add it; an instrument that cannot attribute a tenth of its own number should
 at least say what it could not attribute, which that tool now does.
+
+### It happened again in the sibling pool, and the second one did not announce itself
+
+`src/traffic.js` got that fix. **`src/streetfurniture.js`'s parked pool did not, and
+its three shell meshes carried 31,500 triangles into the WRONG BUCKET for every
+round since.** Same module family, same three-shell split, same missing line —
+patching one and leaving its siblings, again.
+
+**It was harder to see than the first one, and the reason is worth keeping.**
+`bucketOf` walks UP to the first named ancestor, and the parked meshes hang under
+`furniture`, so they did not land in `unnamed` — they landed in `street furniture +
+trees`. The `unnamed` row ANNOUNCES itself: the table prints "a row here is geometry
+no subsystem claimed", which is what eventually got the fleet looked at. A real
+bucket with a real name says nothing at all. So the first instance cost a round of
+hunting and got fixed; the second was never looked for.
+
+Dated, because the two windows are different and only one of them is long:
+
+    the pool has been unnamed since           2026-08-31  c109275
+    the first instrument that buckets by name  2026-09-06  b7f677b  tri-breakdown
+    the first per-subsystem x factor           2026-09-29  8247135  shadow-bill
+    found                                      2026-10-01
+
+So **25 days of every `tri-breakdown` reading mis-attributing 31,500 triangles**, and
+2 days of the x factor being wrong — the table it was wrong in is two days old. The
+attribution error is the long one and the pricing error is the expensive one.
+
+    bucket                     before      after    delta
+    street furniture + trees  171,917    140,417  -31,500
+    vehicles                   36,984     68,484  +31,500
+    11 of 15 rows byte-identical; the other two are roads -136 and kerbs -160
+
+**The price, not just the label, was wrong.** Street furniture bills at x1.28 — much
+of it distant oaks outside the sun's shadow frustum — and vehicles at x2.00, which
+is measured at **fwd/back 68,484/68,484, 0.0% apart, the tightest row in the table**.
+The old table's furniture row read x1.41 (it had the parked cars in it), so 31,500
+triangles of parked car priced off that row come to 44,415 of the gate's units where
+they bill at 63,000: an **18,585 error, larger than the 17,173 cross-session gate
+spread** and the same order as the 22,605 the tree is over its warn. A round pricing
+a parked-car change off the furniture row quotes 0.705 of the true cost — the real
+figure is 42% above what it says — and the error is in the flattering direction.
+
+**The relabelling check is the same one and it needs stating more carefully than
+last time.** "The colour-pass total does not move" was exactly true for the fleet
+(336,115 both times) and is NOT true here: 345,006 -> 344,710, −296. The −296 is
+`roads` −136 and `kerbs` −160, both STREAMED chunk rows, and `streaming.js` budgets
+uploads against the wall clock — the residency confound this file records twice
+elsewhere. What a relabelling actually promises is that **the moved pair sums to zero
+and every row a rename cannot reach is identical**, which is what the table above
+says. A third run reproduced 140,417 and 68,484 exactly while the total moved again,
+which is the same statement from the other side.
+
+**The gate that would have caught it is in `boot-check`, not in `tri-buckets`.**
+tri-buckets' self-test already asserted the inheritance rule — "an unnamed mesh
+inherits the nearest named ancestor" — and was correct; the rule is not the defect.
+It has no scene, so it cannot see a pool that forgets to name itself. `boot-check`
+now walks **both car pools' own mesh handles** and asserts every one buckets as
+`vehicles`. Taking the handles from the modules matters: searching the graph for
+`/car/` to check that cars are named `/car/` is circular, and searching for
+geometries of 1,050 triangles hardcodes a number any change to the car breaks. And
+it asserts three things first — both pools reachable, every mesh attached to the
+scene, triangles actually drawn — because without them "every car mesh is a vehicle"
+passes over an empty list for the most flattering possible reason.
 
 ## The drive IS a registered pair, and the p95 subtraction overstated the growth
 

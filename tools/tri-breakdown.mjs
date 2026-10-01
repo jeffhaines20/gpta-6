@@ -150,6 +150,29 @@ const out = await page.evaluate(async ({ bSrc }) => {
   return { rows: [...(rows.get(pick) ?? new Map()).entries()], detail: detail.get(pick) ?? [],
     frames: frames.length, stats: renderStats() };
 }, { bSrc: bucketSource });
+// THE HOUR IS READ BACK FROM THE PAGE, NOT ECHOED FROM THE ENVIRONMENT, and it is
+// read while the browser is still OPEN.
+//
+// Both tools used to record `tod: process.env.*_TOD ?? 'default'`, and 'default' is
+// not an hour, it is the absence of a flag. CLAUDE.md's committed shadow-bill table
+// is headed "At noon, default camera" and the page boots at DUSK (TimeOfDay's
+// constructor calls apply('dusk'), sunLux 1200, elevation 0.055 rad), so a run made
+// without the flag was dusk and was written down as noon. That matters here more than
+// most: the same CLAUDE.md records that a subsystem's shadow factor DEPENDS on the
+// hour, because which shadow maps contain an object changes with the sun. A table that
+// cannot say which hour it measured cannot be compared with anything.
+//
+// The first version of this read it back next to the JSON write, which is AFTER
+// browser.close() in both tools -- it would have thrown 'Target page has been closed'
+// on every run that passed *_JSON, and the tools are 4 and 20 minutes, so the throw
+// would have landed at the end of the measurement rather than the start of it.
+const todSeen = await page.evaluate(() => {
+  const t = window.__district && window.__district.tod;
+  return t ? { preset: t.presetName, sunLux: t.preset && t.preset.sunLux } : null;
+});
+console.log(`measured at tod ${todSeen ? todSeen.preset : '?'}` +
+  `${process.env.TB_TOD ? '' : ' — the page\'s boot preset, no TB_TOD passed'}`);
+
 await browser.close();
 if (errors.length) console.log(`page errors: ${errors.length} — ${errors[0]}`);
 
@@ -178,7 +201,9 @@ console.log(`shadow pass, by difference               : ${Math.round(engine - dr
 if (process.env.TB_JSON) {
   const fs = await import('node:fs');
   fs.writeFileSync(process.env.TB_JSON, JSON.stringify({
-    query: process.env.TB_QUERY ?? '', tod: process.env.TB_TOD ?? 'default',
+    query: process.env.TB_QUERY ?? '',
+    tod: todSeen ? todSeen.preset : (process.env.TB_TOD ?? 'unknown'),
+    todAsked: process.env.TB_TOD ?? null, sunLux: todSeen ? todSeen.sunLux : null,
     shells: shellsBuilt, frames: out.frames,
     rows: rows.map(([k, r]) => ({ bucket: k, meshes: r.meshes, tris: Math.round(r.tris) })),
     unattributed: out.detail,

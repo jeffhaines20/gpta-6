@@ -79,6 +79,30 @@ if (process.env.SB_TOD) {
   await page.waitForTimeout(Number(process.env.SB_TOD_SETTLE ?? 8000));
 }
 
+// THE HOUR IS READ BACK FROM THE PAGE, NOT ECHOED FROM THE ENVIRONMENT, and it is
+// read while the browser is still OPEN.
+//
+// Both tools used to record `tod: process.env.*_TOD ?? 'default'`, and 'default' is
+// not an hour, it is the absence of a flag. CLAUDE.md's committed shadow-bill table
+// is headed "At noon, default camera" and the page boots at DUSK (TimeOfDay's
+// constructor calls apply('dusk'), sunLux 1200, elevation 0.055 rad), so a run made
+// without the flag was dusk and was written down as noon. That matters here more than
+// most: the same CLAUDE.md records that a subsystem's shadow factor DEPENDS on the
+// hour, because which shadow maps contain an object changes with the sun. A table that
+// cannot say which hour it measured cannot be compared with anything.
+//
+// The first version of this read it back next to the JSON write, which is AFTER
+// browser.close() in both tools -- it would have thrown 'Target page has been closed'
+// on every run that passed *_JSON, and the tools are 4 and 20 minutes, so the throw
+// would have landed at the end of the measurement rather than the start of it.
+const todSeen = await page.evaluate(() => {
+  const t = window.__district && window.__district.tod;
+  return t ? { preset: t.presetName, sunLux: t.preset && t.preset.sunLux } : null;
+});
+console.log(`\nmeasured at tod ${todSeen ? todSeen.preset : '?'}` +
+  `${todSeen ? ` (sunLux ${todSeen.sunLux})` : ''}` +
+  `${process.env.SB_TOD ? '' : ' — the page\'s boot preset, no SB_TOD passed'}`);
+
 const out = await page.evaluate(async ({ bSrc, tSrc, smoke }) => {
   const bucketOf = new Function(`return (${bSrc})`)();
   const trisOf = new Function(`return (${tSrc})`)();
@@ -330,7 +354,9 @@ if (worstRow && worstRow.disagree) {
 if (process.env.SB_JSON) {
   const fs = await import('node:fs');
   fs.writeFileSync(process.env.SB_JSON, JSON.stringify({
-    tod: process.env.SB_TOD ?? 'default', colour, engine: out.base, shadowTotal,
+    tod: todSeen ? todSeen.preset : (process.env.SB_TOD ?? 'unknown'),
+    todAsked: process.env.SB_TOD ?? null, sunLux: todSeen ? todSeen.sunLux : null,
+    colour, engine: out.base, shadowTotal,
     control: { allOff: out.allOff, restored: out.restored, hookedFloor, drift }, abba: out.abba,
     rows, noCasters: out.noCasters, summed,
   }, null, 1));
