@@ -821,8 +821,28 @@ export class Session {
       const r = this.peds.runOver(proneUnder.i, { speed: over });
       if (r) {
         this.stats.runOvers++;
+        /**
+         * THE CHARGE COMES FROM THE MODEL, NOT FROM A LITERAL 1, and this harness was the second
+         * place that got wrong. district/main.js's run-over site passed `scale: 1` and was fixed
+         * to `damage.runOverCrime(over, r.fatal)`; this one was left, which is the recurring
+         * shape of defect here -- patch the caller you are looking at, leave its sibling.
+         *
+         * It is not a rounding difference. `pedCrimeScale` is anchored to the fatality curve, so
+         * at the walking pace boot-check's arm measures it reads 0.0073 against the literal 1.00:
+         * the harness was charging 137x what the game charges, and every playtest round's
+         * run-over reading was a reading of the harness. The pedestrian-HIT site twelve lines
+         * down already took `rec.crimeScale` from the record for exactly this reason.
+         *
+         * `runOverCrime` also decides the CRIME, and asking it rather than re-deriving
+         * `fatal ? killed : hit` here is the point: that ternary is the model's own, and a
+         * harness that keeps its own copy is a harness that can disagree with the game silently.
+         */
+        const rv = this.damage.runOverCrime(over, r.fatal);
+        this.lastRunOver = { kmh: +(over * 3.6).toFixed(1), crime: rv.crime,
+          scale: +rv.scale.toFixed(4), charged: false };
         if (this._chargeVictim(r.id)) {
-          this._crime(r.fatal ? 'pedestrianKilled' : 'pedestrianHit', 1);
+          this.lastRunOver.charged = true;
+          this._crime(rv.crime, rv.scale);
           this.say(`OVER    drove over a casualty at ${(over * 3.6).toFixed(0)} km/h` +
             (r.fatal ? ' — they do not get up' : ''));
         } else this.stats.pedRepeats++;
@@ -1614,6 +1634,82 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
       `${s6.stats.runOvers} run-overs`);
     check('and it files a crime the player can see', s6.stats.crimes > crimes0 && s6.wanted.stars > 0,
       `+${s6.stats.crimes - crimes0} crimes, ${s6.wanted.stars} stars`);
+
+    /**
+     * AND THE CHARGE IS THE MODEL'S, NOT A LITERAL 1.
+     *
+     * This harness charged `_crime(fatal ? killed : hit, 1)` where the game calls
+     * `damage.runOverCrime(speed, fatal)` -- district/main.js had the identical defect, was
+     * fixed, and its sibling here was left. The arm above sat right on top of it for several
+     * rounds and could not see it, because `stars > 0` is true whichever scale is passed. An
+     * arm in the right place with a toothless assertion is the recurring shape here, and it is
+     * worse than no arm: it reads as coverage.
+     *
+     * THE EXPECTATION IS REPLAYED THROUGH A FRESH WantedSystem rather than written down, so a
+     * change to the curve or to the CRIMES table moves the check with it. And the known-bad is
+     * the literal: if charging 1 gave the same stars at this speed, the two sides would agree
+     * and the check would be measuring nothing -- which is exactly the state the 101 km/h arm
+     * was in, and is why the LOW-speed arm below exists as well.
+     */
+    const rec6 = s6.lastRunOver;
+    const replay = (scale) => {
+      const w = new WantedSystem();
+      w.reportCrime(rec6.crime, { at: { x: 0, z: 0 }, scale });
+      return w.stars;
+    };
+    const wantStars = replay(rec6.scale), literalStars = replay(1);
+    console.log(`    charge: ${rec6.kmh} km/h -> ${rec6.crime} at scale ${rec6.scale}` +
+      `  (the model says ${wantStars}*, a literal 1 says ${literalStars}*)`);
+    check('the two sides of this check are not the same number at this speed',
+      wantStars !== literalStars, `${wantStars}* against ${literalStars}*`);
+    check('the harness charges what the model says, not a literal 1',
+      s6.wanted.stars === wantStars, `${s6.wanted.stars}* against the model's ${wantStars}*`);
+
+    /**
+     * AND THE SAME THING AT WALKING PACE, where the defect is largest and points the other way.
+     *
+     * `CRIMES.pedestrianHit` carries `min: 1`, a FLOOR ON HEAT, so every non-fatal run-over
+     * lands at exactly 1.0 heat and one star however slow it was -- measured flat across 3, 6,
+     * 10, 14, 20, 30 and 50 km/h. The literal 1 charges the full 2.0 and two stars at all of
+     * them. So the observable is 1 star against 2 over the whole non-fatal range, and above the
+     * kill speed it inverts: at 101 km/h the model charges 3.59 heat and THREE stars where the
+     * literal charges 2.0 and two. One arm at one speed could have been either accident.
+     */
+    const s7 = new Session({ traffic: 0, peds: 8 });
+    s7.placeAt(CROWD_HOME.x, CROWD_HOME.z, 0);
+    s7.step(1);
+    const slow = s7.peds.peds[3];
+    slow.yaw = 0; slow.v = 0;
+    slow.x = s7.vehicle.position.x;
+    slow.z = s7.vehicle.position.z + 4.5;
+    s7.peds.hit(3, { speed: 12, dirX: 0, dirZ: 1, force: true });
+    slow.x = s7.vehicle.position.x;
+    slow.z = s7.vehicle.position.z + 4.5;
+    slow.down.vx = 0; slow.down.vz = 0;
+    // A gentle throttle over a short run, so the car arrives at a crawl rather than at 100 km/h.
+    for (let k = 0; k < 900 && s7.stats.runOvers === 0; k++) {
+      s7.drive({ throttle: 0.12 });
+      s7.step(1 / 60);
+    }
+    const rec7 = s7.lastRunOver;
+    check('the slow arm actually ran somebody over, so both sides are not zero',
+      s7.stats.runOvers > 0 && !!rec7, `${s7.stats.runOvers} run-overs`);
+    if (rec7) {
+      const w7 = new WantedSystem();
+      w7.reportCrime(rec7.crime, { at: { x: 0, z: 0 }, scale: rec7.scale });
+      const lit7 = new WantedSystem();
+      lit7.reportCrime(rec7.crime, { at: { x: 0, z: 0 }, scale: 1 });
+      console.log(`    slow:   ${rec7.kmh} km/h -> ${rec7.crime} at scale ${rec7.scale}` +
+        `  (model ${w7.heat.toFixed(4)} heat / ${w7.stars}*, literal 1 ` +
+        `${lit7.heat.toFixed(4)} / ${lit7.stars}*)`);
+      check('...at a crawl, not at the speed the arm above arrives at',
+        rec7.kmh < 25, `${rec7.kmh} km/h against the fast arm's ${rec6.kmh}`);
+      check('KNOWN-BAD: a literal 1 would be visibly worse here, so the check can fail',
+        lit7.stars > w7.stars, `${lit7.stars}* against ${w7.stars}*`);
+      check('a roll at walking pace is one star, the way boot-check reads it on the page',
+        s7.wanted.stars === w7.stars && s7.wanted.stars === 1,
+        `${s7.wanted.stars}* at ${rec7.kmh} km/h`);
+    }
     // Parked on the body: the window collapses the repeat to the one report already filed.
     const held = s6.stats.crimes;
     for (let k = 0; k < 600; k++) { s6.drive({ brake: 1 }); s6.step(1 / 60); }
