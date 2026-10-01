@@ -322,6 +322,8 @@ export class WantedSystem {
      * a number nobody derived.
      */
     this.cooperated = false;
+    /** Has the throttle been open during the current hold. See `_watchBust`. */
+    this._bustThrottle = false;
 
     /** The scene of the last injury, until the player stops at it or leaves it. See _watchScene. */
     this._scene = null;
@@ -670,6 +672,11 @@ export class WantedSystem {
        * same state. See `_watchBust`.
        */
       bustIn: this.bustFor > 0 ? Math.max(0, BUST_HOLD_S - this.bustFor) : null,
+      /**
+       * TRUE WHILE THE PLAYER IS BEING HELD AND HAS ALREADY TRIED THE THROTTLE, which is what
+       * turns "drive" into "reverse". See `_watchBust`.
+       */
+      bustStuck: this.bustFor > 0 && this._bustThrottle === true,
     };
   }
 
@@ -681,6 +688,7 @@ export class WantedSystem {
     p.seen = player.seen;
     p.held = player.held === true;
     p.teleported = player.teleported === true;
+    p.throttle = Number.isFinite(player.throttle) ? player.throttle : 0;
     return p;
   }
 
@@ -759,9 +767,26 @@ export class WantedSystem {
     if (this.stars <= 0 || !player.held ||
         Math.hypot(this.playerVel.x, this.playerVel.z) >= SCENE_STOP_MS) {
       this.bustFor = 0;
+      this._bustThrottle = false;
       return false;
     }
-    if (this.bustFor === 0) this.stats.bustHolds++;
+    if (this.bustFor === 0) { this.stats.bustHolds++; this._bustThrottle = false; }
+    /**
+     * HAS THE PLAYER ALREADY TRIED TO DRIVE OUT OF THIS. If the throttle has been open at any
+     * point during the hold and the car is still under the stop threshold, "drive" is advice they
+     * are already following — so the verb becomes "reverse", which is the only out left.
+     *
+     * A blind playtester nosed into a building at full throttle and was arrested at 9.3 / 13.0 /
+     * 19.5 s in 3 of 4 spots, holding throttle 1.0 at 0.07-0.25 km/h, with reverse clearing the
+     * threshold in 2.2 s and nothing saying so. In ordinary play with the game's own follower: one
+     * 9.9 m/s wall impact filed `propertyDamage`, took the level to three stars, and immobilised
+     * the car in the same instant — the crime and the trap were one event, and the longest run
+     * under 1.0 m/s was 10.42 s against a 4.0 s clock.
+     *
+     * LATCHED FOR THE HOLD rather than read per frame, so a player stabbing the throttle does not
+     * make the verb flicker. It resets with the clock.
+     */
+    if ((player.throttle ?? 0) > 0.05) this._bustThrottle = true;
     this.bustFor += dt;
     if (this.bustFor < BUST_HOLD_S) return false;
     this.bustFor = 0;
@@ -1115,7 +1140,9 @@ export function composeLaw(s = {}) {
      * objective in every mission — a playtester measured `drive` in 0 of them. See composeBand.
      */
     return { objective: { text: 'BUSTED IN', distance: Math.max(0, s.bustIn), unit: 's' },
-      subtitle: 'drive', ownSubtitle: true };
+      // `reverse` once the throttle has been tried and the car has not moved: a nose-in crash is
+      // both the crime and the immobilisation, and forward is not the out. See `bustStuck`.
+      subtitle: s.bustStuck ? 'reverse' : 'drive', ownSubtitle: true };
   }
   const sc = s.scene;
   if (sc) {

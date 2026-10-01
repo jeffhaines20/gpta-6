@@ -494,6 +494,9 @@ export class Session {
       // the bust clock. district/main.js carries the same flag.
       this._wantedPlayer.teleported = this._teleported;
       this._teleported = false;
+      // What the car was ASKED for, so the bust line can say "reverse" to a player already
+      // holding the throttle open against a wall. Negative is reverse and does not latch it.
+      this._wantedPlayer.throttle = this.mode === 'car' ? (this._controls.throttle ?? 0) : 0;
       const holdR = this.pursuit.holdRadius ?? 0;
       if (holdR > 0) {
         for (const u of this._unitPositions()) {

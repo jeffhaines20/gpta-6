@@ -911,6 +911,29 @@ const MUTATIONS = [
     to: '\n    const prev = this.stars;',
     why: 'cooperating once protects the job through every offence that follows',
   },
+  {
+    /**
+     * THE BAND TELLS A WEDGED PLAYER TO DRIVE, which is advice they are already following. A blind
+     * playtester nosed into a building at full throttle and was arrested at 9.3 / 13.0 / 19.5 s in
+     * 3 of 4 spots, at 0.07-0.25 km/h, while reverse clears the stop threshold in 2.2 s. In
+     * ordinary play one 9.9 m/s wall impact was BOTH the crime that summoned the police and the
+     * thing that stopped the escape. Nothing errors; the HUD just gives the wrong direction.
+     */
+    id: 'verb-forward', file: 'src/wanted.js',
+    find: "      subtitle: s.bustStuck ? 'reverse' : 'drive', ownSubtitle: true };",
+    to: "      subtitle: 'drive', ownSubtitle: true };",
+    why: 'a player wedged against a wall at full throttle is told to drive',
+  },
+  {
+    /**
+     * AND THE OTHER WAY: every hold says "reverse", including to a player who has not touched the
+     * throttle and could simply drive off. The latch is what makes the verb mean something.
+     */
+    id: 'verb-always-rev', file: 'src/wanted.js',
+    find: "    if ((player.throttle ?? 0) > 0.05) this._bustThrottle = true;",
+    to: "    this._bustThrottle = true;",
+    why: 'everyone is told to reverse, including a player who only has to drive away',
+  },
 ];
 
 // --------------------------------------------------------------------------- mechanics

@@ -1664,6 +1664,16 @@ let autopilot = null;
 let timeScale = 1;
 /** The band lines from the two holds, written on sim time and read once per rendered frame. */
 let wreckHoldLine = null, bustHoldLine = null;
+/**
+ * The forward throttle the car last actually GOT, after the world fence has had its say. Read by
+ * the bust line so it can say "reverse" to a player already holding the throttle open against a
+ * wall; see `_watchBust` in src/wanted.js. Post-fence on purpose: a throttle the fence refused is
+ * the fence's story and has its own band tenant.
+ *
+ * Negative is reverse in this control scheme, and the rule only latches on a POSITIVE request —
+ * so a player who is already reversing is never told to reverse.
+ */
+let lastThrottle = 0;
 let simTime = 0;
 
 function animate(now) {
@@ -1698,6 +1708,7 @@ function animate(now) {
       { throttle, brake, steer: -axis.x, handbrake: input.down('Space') });
     outsideWorld = fenced.out;
     vehicle.setControls(fenced.controls);
+    lastThrottle = fenced.controls.throttle ?? 0;
   }
 
   // timeScale exists for the headless harness only: it advances sim + streaming
@@ -1783,6 +1794,9 @@ function animate(now) {
     _wantedPlayer.held = false;
     _wantedPlayer.teleported = teleportedThisFrame;
     teleportedThisFrame = false;
+    // What the player is ASKING for, so the bust line can say "reverse" to somebody already
+    // holding the throttle open against a wall. See `_watchBust` in src/wanted.js.
+    _wantedPlayer.throttle = mode === 'car' ? lastThrottle : 0;
     if (pursuit && !pursuitManual && pursuit.mesh.visible) {
       const r = pursuit.holdRadius ?? 0;
       if (r > 0) {

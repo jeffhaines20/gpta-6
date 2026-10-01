@@ -1629,6 +1629,41 @@ let searchSample;
       new Set(texts).size >= 3, texts.join(' | '));
     check('the subtitle says what to do about it, because the out is not obvious',
       lines[0].law.subtitle === 'drive', `${lines[0].law.subtitle}`);
+    /**
+     * AND IT SAYS `reverse` TO SOMEBODY ALREADY HOLDING THE THROTTLE OPEN, because "drive" is
+     * advice they are already following. A blind playtester nosed into a building at full throttle
+     * and was arrested at 9.3 / 13.0 / 19.5 s in 3 of 4 spots, at 0.07-0.25 km/h, with reverse
+     * clearing the stop threshold in 2.2 s and nothing saying so. In ordinary play one 9.9 m/s
+     * wall impact was BOTH the crime that summoned the police and the thing that stopped the
+     * escape, with 10.42 s under the threshold against a 4 s clock.
+     *
+     * Swept over the sign, because the whole point is which way to go: a NEGATIVE throttle is
+     * already reverse in both hosts' control schemes and must not latch it.
+     */
+    const verb = (throttle) => {
+      const w = wanted1();
+      const seen = new Set();
+      const steps = Math.round((BUST_HOLD_S * 0.6) / DT);
+      for (let i = 0; i < steps; i++) {
+        w.update(DT, { ...ORIGIN, held: true, seen: true, throttle });
+        const l = composeLaw(w.hudState());
+        if (l && l.subtitle) seen.add(l.subtitle);
+      }
+      return [...seen];
+    };
+    const verbs = [0, 1, 0.5, -0.55, 0.02].map((t) => ({ t, v: verb(t) }));
+    console.log('    the verb against the throttle: ' +
+      verbs.map((x) => `${x.t} -> ${x.v.join('/')}`).join(', '));
+    check('a player already holding the throttle open is told to reverse',
+      verbs.find((x) => x.t === 1).v.join() === 'reverse' &&
+      verbs.find((x) => x.t === 0.5).v.join() === 'reverse',
+      verbs.map((x) => `${x.t}:${x.v.join('/')}`).join(' '));
+    check('KNOWN-BAD: and one who is already reversing is NOT, nor is one coasting',
+      verbs.find((x) => x.t === -0.55).v.join() === 'drive' &&
+      verbs.find((x) => x.t === 0).v.join() === 'drive',
+      verbs.map((x) => `${x.t}:${x.v.join('/')}`).join(' '));
+    check('the verb does not flicker during one hold, because it latches',
+      verbs.every((x) => x.v.length === 1), verbs.map((x) => x.v.length).join(' '));
     // And it outranks the scene of the injury that put the police there.
     const w2 = wanted1();
     w2.reportCrime('pedestrianHit', { at: at(200, 0), scale: 0.01 });
