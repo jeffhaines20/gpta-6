@@ -956,6 +956,28 @@ const tracked = (f) => {
   } catch { return false; }
 };
 
+/**
+ * A PORT OF THIS TREE'S OWN, and without it `--browser` was a silent no-op in every tree but one.
+ *
+ * `tools/boot-check.mjs` defaults to `BOOT_PORT ?? 8123`, and 8123 BELONGS TO THE MAIN TREE —
+ * CLAUDE.md says so in as many words. `runGate` passed no port, so a sweep run from a worktree had
+ * `ensureServer` find a live server with a foreign document root and THROW, and a throw exits
+ * non-zero, and non-zero is how this file spells "caught". A blind reviewer found it by planting a
+ * control mutation that was literally the same program — `const WRECK_HOLD_S = BUST_HOLD_S` to
+ * `= 4.0` on a tree where BUST_HOLD_S is 4.0 — and watching all seven of its `[browser]` rows come
+ * back caught. This tool is the one place that trap was never patched, which is the recurring shape
+ * CLAUDE.md records: patch one tool and leave its siblings armed.
+ *
+ * Derived from the tree's absolute path so two trees never collide and one tree is stable across
+ * runs, in the ephemeral range above 8200 and clear of 8123.
+ */
+function treePort() {
+  let h = 2166136261;
+  for (const c of ROOT) { h ^= c.charCodeAt(0); h = (h * 16777619) >>> 0; }
+  return 8200 + (h % 1200);
+}
+const GATE_ENV = { ...process.env, BOOT_PORT: String(treePort()) };
+
 function runGate(name) {
   const t0 = Date.now();
   let out = '', rc = 0;
@@ -967,6 +989,7 @@ function runGate(name) {
   try {
     out = execFileSync('node', [`tools/${tool}.mjs`, ...flags], {
       cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 600000,
+      env: GATE_ENV,
     });
   } catch (e) {
     rc = e.status ?? 1;
@@ -988,6 +1011,7 @@ function playtestSelftest() {
   try {
     out = execFileSync('node', ['tools/playtest.mjs', '--selftest'], {
       cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 600000,
+      env: GATE_ENV,
     });
   } catch (e) { rc = e.status ?? 1; out = `${e.stdout ?? ''}${e.stderr ?? ''}`; }
   const threw = /^\s+at .+:\d+:\d+\)?$/m.test(out) || /\b(TypeError|ReferenceError|SyntaxError)\b/.test(out);
@@ -1140,7 +1164,32 @@ if (!list.length) { console.error(`no mutation with id "${only}"`); process.exit
 
 console.log(`MUTATION SWEEP — ${list.length} mutation(s), ${OFFLINE.length} offline gates` +
   `${browser ? ' + boot-check where asked' : ''}`);
-console.log(`tree ${execSync('git rev-parse --short HEAD', { cwd: ROOT, encoding: 'utf8' }).trim()}\n`);
+console.log(`tree ${execSync('git rev-parse --short HEAD', { cwd: ROOT, encoding: 'utf8' }).trim()}` +
+  `${browser ? `, browser port ${treePort()}` : ''}\n`);
+
+/**
+ * THE BROWSER GATE HAS TO PASS AT HEAD BEFORE IT CAN JUDGE ANYTHING, and this control is what a
+ * blind reviewer's round was missing. `boot-check` was RED at HEAD for three commits — four of 42,
+ * deterministically, in its own run-over arm — and every `[browser]` row in that reviewer's sweep
+ * came back "caught" regardless of what it mutated, because the sweep reads a non-zero exit as a
+ * gate noticing. They proved it with a row that was the same program either way.
+ *
+ * A gate that already fails cannot distinguish anything, so the sweep refuses rather than
+ * reporting. One run of boot-check, up front, which is a minute against the hour the rows cost.
+ */
+if (browser && list.some((m) => m.browser)) {
+  process.stdout.write('  control         boot-check at HEAD ... ');
+  const ctl = runGate('boot-check');
+  if (ctl.rc !== 0) {
+    console.log(`RED (${ctl.threw ? 'threw' : `${ctl.failed.length} failed`})`);
+    console.error('\nREFUSING: the browser gate does not pass at HEAD, so it cannot tell a');
+    console.error('mutation from the state it is already in — every [browser] row would come');
+    console.error('back "caught" whatever it did. Fix boot-check first.');
+    for (const f of ctl.failed.slice(0, 6)) console.error(`  ${f}`);
+    process.exit(2);
+  }
+  console.log(`green in ${(ctl.ms / 1000).toFixed(0)} s`);
+}
 
 const rows = [];
 for (const m of list) {
