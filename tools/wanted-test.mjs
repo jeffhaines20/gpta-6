@@ -1724,6 +1724,117 @@ let searchSample;
       m === 0 && silent.stats.bustHolds > 1,
       `${m} busts, ${silent.stats.bustHolds} arms`);
   }
+  /**
+   * (h) COOPERATING COSTS TIME, NOT THE JOB, and this is the arm for the choice the band was
+   * offering. A blind playtester obeyed "STOP AT THE SCENE", braked, and was arrested at
+   * 22.5-32.7 s with the mission ABORTED 4 times out of 4 — while ignoring it kept the mission 4
+   * of 4. Priced on this module: fleeing costs 0.80 heat, NO extra star, 10.8 s of cooldown and
+   * 11.7 s longer to clear. Eleven seconds against a mission is not a choice.
+   *
+   * What the hosts do with `cooperated` is theirs; what this asserts is that the flag means what
+   * it says, including the two ways it must go false.
+   */
+  {
+    /** Arrive at the scene DRIVING, which the first version of this probe did not. */
+    const toScene = (seed = 88) => {
+      const w = new WantedSystem({ seed });
+      let x = -50;
+      for (let t = 0; t < 3; t += DT) { x += 16.7 * DT; w.update(DT, { x, z: 0, seen: false }); }
+      w.reportCrime('pedestrianHit', { at: { x, z: 0 }, scale: 0.08 });
+      return { w, x };
+    };
+    /**
+     * THE PROBE HAS TO ARRIVE AT THE SCENE, and the first version did not. It filed the hit at
+     * t = 0 from rest, and `playerVel` is a smoothed difference that starts at ZERO — so the car
+     * read as stopped inside the leave radius on the first frame, `_watchScene` discharged the
+     * scene permanently, and `hitAndRun` never fired at all. The arm measured fleeing as free.
+     * Three seconds of approach fixes it, and the check below is that the control still charges.
+     */
+    {
+      const bad = new WantedSystem({ seed: 88 });
+      bad.reportCrime('pedestrianHit', { at: ORIGIN, scale: 0.08 });
+      let x = 0, fled = 0;
+      bad.on('crime', (p) => { if (p.id === 'hitAndRun' && p.applied) fled++; });
+      while (x < SCENE_LEAVE_M + 40) { x += 16.7 * DT; bad.update(DT, { x, z: 0, seen: false }); }
+      console.log(`    a scene armed from REST discharges itself: hitAndRun fired ${fled} time(s)` +
+        ` — which is why this section drives in`);
+      check('KNOWN-BAD: a probe that does not arrive at the scene measures fleeing as free',
+        fled === 0, `${fled} hitAndRun`);
+    }
+
+    // Stop: the scene discharges, `cooperated` goes true, and no second offence is filed.
+    const { w: stopW, x: sx } = toScene();
+    let fledStop = 0;
+    stopW.on('crime', (p) => { if (p.id === 'hitAndRun' && p.applied) fledStop++; });
+    for (let v = 16.7; v > 0; v -= 11 * DT) stopW.update(DT, { x: sx, z: 0, seen: false });
+    for (let t = 0; t < 4; t += DT) stopW.update(DT, { x: sx, z: 0, seen: false });
+    // Flee: `hitAndRun` is filed and `cooperated` stays false.
+    const { w: fleeW, x: fx } = toScene();
+    let fledFlee = 0;
+    fleeW.on('crime', (p) => { if (p.id === 'hitAndRun' && p.applied) fledFlee++; });
+    let fz = fx;
+    while (fz < fx + SCENE_LEAVE_M + 40) { fz += 16.7 * DT; fleeW.update(DT, { x: fz, z: 0, seen: false }); }
+    console.log(`    stopped: cooperated ${stopW.cooperated}, hitAndRun ${fledStop}, ` +
+      `heat ${stopW.heat.toFixed(2)}, cool ${stopW.cool.toFixed(1)} s`);
+    console.log(`    fled:    cooperated ${fleeW.cooperated}, hitAndRun ${fledFlee}, ` +
+      `heat ${fleeW.heat.toFixed(2)}, cool ${fleeW.cool.toFixed(1)} s`);
+    check('stopping at the scene records that the driver cooperated',
+      stopW.cooperated === true && fledStop === 0,
+      `${stopW.cooperated}, ${fledStop} hitAndRun`);
+    check('and fleeing it does not, and is charged for it',
+      fleeW.cooperated === false && fledFlee === 1,
+      `${fleeW.cooperated}, ${fledFlee} hitAndRun`);
+    check('fleeing costs heat and cooldown but NOT a star, which is why it won',
+      fleeW.heat > stopW.heat && fleeW.cool > stopW.cool + 5 && fleeW.stars === stopW.stars,
+      `${stopW.heat.toFixed(2)}/${stopW.stars}* cool ${stopW.cool.toFixed(1)} against ` +
+      `${fleeW.heat.toFixed(2)}/${fleeW.stars}* cool ${fleeW.cool.toFixed(1)}`);
+
+    // The arrest carries it, which is the whole point.
+    {
+      const { w, x } = toScene();
+      for (let v = 16.7; v > 0; v -= 11 * DT) w.update(DT, { x, z: 0, seen: false });
+      const seen = [];
+      w.on('busted', (e) => seen.push(e.cooperated));
+      hold(w, BUST_HOLD_S + 0.2, { at: { x, z: 0 } });
+      console.log(`    arrested after stopping: busted carries cooperated=${seen[0]}`);
+      check('the busted event carries the cooperation, so a host can price the arrest',
+        seen.length === 1 && seen[0] === true, `${JSON.stringify(seen)}`);
+      check('and the flag is reset by the arrest itself', w.cooperated === false,
+        `${w.cooperated}`);
+    }
+
+    /**
+     * AND A LATER OFFENCE ENDS IT. This is the bound on the flag: you stopped, and then you did
+     * something else, and the job is no longer protected. Without it, cooperating once would
+     * excuse every arrest for the rest of the wanted level.
+     */
+    {
+      const { w, x } = toScene();
+      for (let v = 16.7; v > 0; v -= 11 * DT) w.update(DT, { x, z: 0, seen: false });
+      for (let t = 0; t < 1; t += DT) w.update(DT, { x, z: 0, seen: false });
+      const before = w.cooperated;
+      w.reportCrime('policeProperty', { at: { x, z: 0 } });
+      const seen = [];
+      w.on('busted', (e) => seen.push(e.cooperated));
+      hold(w, BUST_HOLD_S + 0.2, { at: { x, z: 0 } });
+      console.log(`    then rammed a cruiser: cooperated ${before} -> ${seen[0]}`);
+      check('a later crime ends the cooperation, or one stop would excuse everything after it',
+        before === true && seen[0] === false, `${before} -> ${JSON.stringify(seen)}`);
+    }
+
+    // And the band says what stopping bought, through the real composer, in a mission.
+    {
+      const { w, x } = toScene();
+      for (let v = 16.7; v > 0; v -= 11 * DT) w.update(DT, { x, z: 0, seen: false });
+      for (let t = 0; t < 1; t += DT) w.update(DT, { x, z: 0, seen: false });
+      const line = composeLaw(w.hudState());
+      const band = composeBand({ law: line, mission: { objective: 'DRIVE EAST' } });
+      console.log(`    the band after stopping, in a mission: "${objectiveLine(band.objective)}" / ` +
+        `"${band.subtitle}"`);
+      check('the band tells the player what stopping bought, even in a mission',
+        /arrest will not cost the job/.test(String(band.subtitle)), `${band.subtitle}`);
+    }
+  }
   out.bust = { holdS: BUST_HOLD_S };
 }
 

@@ -887,6 +887,30 @@ const MUTATIONS = [
     to: '  if (HOLDS_MISSION_SUBTITLE.has(from) && mission && mission.objective) {',
     why: 'a player being arrested mid-mission is never told that driving is the out',
   },
+  {
+    /**
+     * STOPPING AT THE SCENE STOPS PROTECTING THE JOB, which is how it shipped: a blind playtester
+     * obeyed "STOP AT THE SCENE", braked, and was arrested at 22.5-32.7 s with the mission aborted
+     * 4 times out of 4 — while ignoring the instruction kept the mission 4 of 4 and cost 0.80
+     * heat, no extra star and 11.7 s. The band still SAYS the arrest will not cost the job, so the
+     * defect is the game lying to the player rather than anything looking broken.
+     */
+    id: 'coop-never', file: 'src/wanted.js',
+    find: '          this.cooperated = true;',
+    to: '          this.cooperated = false;',
+    why: 'obeying the instruction costs the mission again, and the band promises it will not',
+  },
+  {
+    /**
+     * AND THE OTHER WAY: one stop excuses every arrest for the rest of the wanted level. The flag
+     * is bounded by the NEXT offence — you stopped, and then you did something else — and without
+     * that bound a driver who cooperated once could ram cruisers with the job protected.
+     */
+    id: 'coop-forever', file: 'src/wanted.js',
+    find: '    this.cooperated = false;\n\n    const prev = this.stars;',
+    to: '\n    const prev = this.stars;',
+    why: 'cooperating once protects the job through every offence that follows',
+  },
 ];
 
 // --------------------------------------------------------------------------- mechanics

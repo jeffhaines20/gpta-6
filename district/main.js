@@ -702,7 +702,7 @@ function wreckWatch(dt) {
  * than deleting it, for the reason respawnCar's own comment gives — a game that removes its own
  * content on a first mistake has one mission fewer.
  */
-const bustStats = { busts: 0, released: 0, lastAt: null, holdS: BUST_HOLD_S };
+const bustStats = { busts: 0, released: 0, cooperated: 0, lastAt: null, holdS: BUST_HOLD_S };
 let bustedFor = 0;
 wanted.on('busted', (e) => {
   // Re-entrant guard: `clear()` inside _watchBust has already zeroed the level, so a second
@@ -712,7 +712,21 @@ wanted.on('busted', (e) => {
   bustedFor = 1e-9;
   bustStats.busts++;
   bustStats.lastAt = { x: +e.at.x.toFixed(1), z: +e.at.z.toFixed(1) };
-  if (mission.mission && mission.outcome === OUTCOMES.RUNNING) mission.abort('busted');
+  /**
+   * COOPERATING COSTS TIME, NOT THE JOB. A blind playtester measured the choice the band was
+   * offering: obey "STOP AT THE SCENE", brake, and you were arrested at 22.5-32.7 s with the
+   * mission ABORTED 4 times out of 4 — while ignoring it kept the mission 4 of 4 and cost 0.80
+   * heat, no extra star, 10.8 s of cooldown and 11.7 s longer to clear. Eleven seconds against a
+   * mission is not a choice, and a player learns that once and never stops again.
+   *
+   * So the arrest still happens, the stars were still earned and the time is still lost — but a
+   * driver who stopped at the scene of the injury keeps the job. `wanted.cooperated` is cleared by
+   * any subsequent crime, so this protects the one offence you owned up to and nothing after it.
+   */
+  if (mission.mission && mission.outcome === OUTCOMES.RUNNING) {
+    if (e.cooperated) bustStats.cooperated++;
+    else mission.abort('busted');
+  }
 });
 /**
  * The fade. Returns the band line while it runs and null otherwise, exactly like `wreckWatch`.

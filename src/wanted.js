@@ -311,6 +311,18 @@ export class WantedSystem {
      */
     this.bustFor = 0;
 
+    /**
+     * DID THE PLAYER STOP AT THE SCENE AND NOTHING HAPPEN SINCE. Carried on the `busted` event so
+     * a host can price an arrest differently for a driver who cooperated; see `_watchScene`.
+     *
+     * It outlives the scene object itself, because the scene is discharged the moment you stop and
+     * the police take another ten seconds to arrive — so the fact has to survive it. Cleared by
+     * any SUBSEQUENT crime, which is the honest bound: you stopped, and then you did something
+     * else. Not on a timer, because "nothing has happened since" is the claim and a clock would be
+     * a number nobody derived.
+     */
+    this.cooperated = false;
+
     /** The scene of the last injury, until the player stops at it or leaves it. See _watchScene. */
     this._scene = null;
     // Reused in place so sanitising costs no per-frame allocation.
@@ -404,6 +416,13 @@ export class WantedSystem {
     const last = this._crimeAt.get(id);
     if (last !== undefined && this.time - last < c.refractory) return ignore('refractory');
     this._crimeAt.set(id, this.time);
+    /**
+     * AND A NEW OFFENCE ENDS THE COOPERATION, which is what bounds that flag: stopping at the
+     * scene protects the job from an arrest, and doing something else afterwards does not.
+     * `hitAndRun` cannot reach this line while `cooperated` is true — `_watchScene` only files it
+     * for a scene that was NOT discharged — so there is no self-cancelling case here.
+     */
+    this.cooperated = false;
 
     const prev = this.stars;
     // See FLOORLESS_CAP: a crime the table gives no floor may not out-charge the lowest floor there
@@ -492,6 +511,7 @@ export class WantedSystem {
   /** Busted, wasted, mission over. Everything resets and every unit is released. */
   clear(reason = 'cleared') {
     const prev = this.stars;
+    this.cooperated = false;
     this.heat = 0;
     this.cool = 0;
     this.evadeTimer = 0;
@@ -640,6 +660,7 @@ export class WantedSystem {
       scene: sc
         ? { x: sc.x, z: sc.z, stopped: sc.stopped, d: sc.d, leaveIn: Math.max(0, SCENE_LEAVE_M - sc.d) }
         : null,
+      cooperated: this.cooperated,
       notice: this._notice ? { id: this._notice.id, label: this._notice.label,
         age: this.time - this._notice.t } : null,
       /**
@@ -692,7 +713,13 @@ export class WantedSystem {
     sc.d = d;
     if (d <= SCENE_LEAVE_M) {
       if (Math.hypot(this.playerVel.x, this.playerVel.z) < SCENE_STOP_MS) {
-        if (!sc.stopped) { sc.stopped = true; this.stats.scenesStopped++; }
+        if (!sc.stopped) {
+          sc.stopped = true;
+          this.stats.scenesStopped++;
+          // See `cooperated`: this outlives `sc`, because the police arrive after it is gone.
+          this.cooperated = true;
+          this.emit('cooperated', { at: { x: sc.x, z: sc.z } });
+        }
       }
       return;
     }
@@ -742,8 +769,10 @@ export class WantedSystem {
     // The level goes first, so a listener that reads `stars` sees the cleared value: being busted
     // is the end of the chase, not a state you are in with five stars showing.
     const at = { x: player.x, z: player.z };
+    // Read BEFORE `clear`, which resets it, and passed on so the host can price the arrest.
+    const cooperated = this.cooperated;
     this.clear('busted');
-    this.emit('busted', { at, heldFor: BUST_HOLD_S });
+    this.emit('busted', { at, heldFor: BUST_HOLD_S, cooperated });
     return true;
   }
 
@@ -1100,8 +1129,17 @@ export function composeLaw(s = {}) {
      * The page has an element for an objective's distance and dirty-checks it per whole metre, so
      * this is also where it is cheapest; `objectiveLine` renders it for a host with no canvas.
      */
+    /**
+     * THE SUBTITLE SAYS WHAT STOPPING BOUGHT. It used to say "leaving costs nothing now" —
+     * permission with no urgency, to a player who has just been told to stop and is about to be
+     * arrested for obeying. A blind playtester priced the whole choice: obeying lost the mission
+     * 4 times in 4, and fleeing cost 0.80 heat, no extra star, 10.8 s of cooldown and 11.7 s
+     * longer to clear. The consequence is priced differently now — see `cooperated` — and this is
+     * where a player can learn it, which is the half that makes it a choice rather than a trap.
+     */
     return sc.stopped
-      ? { objective: { text: 'STOPPED AT THE SCENE' }, subtitle: 'leaving costs nothing now' }
+      ? { objective: { text: 'STOPPED AT THE SCENE' },
+        subtitle: 'an arrest will not cost the job', ownSubtitle: true }
       : { objective: { text: 'STOP AT THE SCENE', distance: Math.max(0, sc.leaveIn ?? 0) },
         subtitle: 'leaving is a second offence' };
   }

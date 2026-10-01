@@ -222,9 +222,12 @@ export class Session {
       if (this._bustedFor > 0) return;
       this._bustedFor = 1e-9;
       this.stats.busts++;
-      this.say(`BUSTED  a unit held you for ${BUST_HOLD_S} s — released in ${BUST_HOLD_S} s`);
+      this.say(`BUSTED  a unit held you for ${BUST_HOLD_S} s — released in ${BUST_HOLD_S} s` +
+        (e.cooperated ? ' (you stopped at the scene, so the job stands)' : ''));
+      // Cooperating costs time, not the job: see the same listener in district/main.js.
       if (this.mission.mission && this.mission.outcome === OUTCOMES.RUNNING) {
-        this.mission.abort('busted');
+        if (e.cooperated) this.stats.cooperated++;
+        else this.mission.abort('busted');
       }
     });
     this._bustedFor = 0;
@@ -283,7 +286,7 @@ export class Session {
     /** The player position handed to the wanted system, with the host's `held` verdict on it. */
     this._wantedPlayer = { x: 0, z: 0, held: false, teleported: false };
     this._teleported = false;
-    this.stats = { busts: 0, released: 0, crashes: 0, crimes: 0, knockdowns: 0, fatal: 0, shunts: 0,
+    this.stats = { busts: 0, released: 0, cooperated: 0, crashes: 0, crimes: 0, knockdowns: 0, fatal: 0, shunts: 0,
       impacts: 0, voices: 0, tested: 0, contacts: 0, pedRepeats: 0, runOvers: 0,
       wrecks: 0, respawns: 0, loopsBroken: 0, worstDv: 0, distance: 0, topSpeed: 0 };
     this._lastPos = { x: 0, z: 0 };
