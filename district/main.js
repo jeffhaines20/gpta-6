@@ -767,6 +767,15 @@ const missionUnhonoured = new Set();
 function missionSnapshot() {
   return {
     px: focusX, pz: focusZ,
+    /**
+     * HOW FAR THE CAR IS, for `MissionRunner.objectiveDistance` to put on an `inVehicle` stage's
+     * objective. NOT a trigger field — no predicate reads it — so it is optional by design and a
+     * host without it simply gets no number; see that method for why the distinction matters.
+     * Zero in the car, because `focus` IS the car then and the stage is already satisfied.
+     */
+    carRange: mode === 'foot'
+      ? Math.hypot(player.position.x - vehicle.position.x, player.position.z - vehicle.position.z)
+      : 0,
     inVehicle: mode === 'car',
     speed: mode === 'car' ? vehicle.speed : 0,
     health: mode === 'car' ? damage.health : 1,

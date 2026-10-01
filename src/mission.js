@@ -318,6 +318,9 @@ export class MissionRunner {
     this.transitions = 0;
     this.chainOverflows = 0;
     this._checkedSnapshot = false;
+    // Cleared with the rest of the per-run state, so a restarted mission cannot put the previous
+    // run's distance on its first frame's objective.
+    this._px = null; this._pz = null; this._carRange = null;
     // THE RANGE EACH READ FIELD ACTUALLY TOOK, so a trigger nobody can satisfy shows
     // up as a number instead of as a mystery.
     //
@@ -378,6 +381,21 @@ export class MissionRunner {
       if (!r) this._range.set(f, { min: v, max: v });
       else { if (v < r.min) r.min = v; if (v > r.max) r.max = v; }
     }
+    /**
+     * WHAT `hud()` NEEDS TO PUT A NUMBER ON THE OBJECTIVE. Copied out as numbers rather than held
+     * as a reference: both hosts reuse one snapshot object across frames, so a reference would
+     * make `hud()` read whatever the NEXT frame wrote if the two were ever called out of order.
+     *
+     * `carRange` is OPTIONAL and is deliberately not in any trigger's `needs`. No predicate reads
+     * it, so requiring it would make `start()` throw for a host that does not compute it — and the
+     * whole point of the `needs` check is that it fires on a field a TRIGGER needs. A host without
+     * it gets an objective with no distance, which `report().objectiveDistance` makes visible
+     * rather than leaving to be discovered.
+     */
+    this._px = Number.isFinite(snap.px) ? snap.px : null;
+    this._pz = Number.isFinite(snap.pz) ? snap.pz : null;
+    this._carRange = Number.isFinite(snap.carRange) ? snap.carRange : null;
+
     const d = clamp(dt, 0, 0.25);
     this.time += d;
     this.stageTime += d;
@@ -456,10 +474,51 @@ export class MissionRunner {
   }
 
   /** Straight into src/hud.js's own state contract. Null when nothing is running. */
+  /**
+   * HOW FAR THE ACTIVE STAGE IS FROM BEING SATISFIED, in metres, or null when the stage names no
+   * destination. `src/hud.js`'s objective band has carried an element for a distance since it was
+   * written, dirty-checked per whole metre, and the only tenant using it was the law line.
+   *
+   * ROUND 6'S PLAYTESTER RAN TO 404 m FROM THE CAR reading "GET IN THE CAR" unchanged the whole
+   * way. Two thirds of that was harness gaps and is fixed; this is the third.
+   *
+   * ONLY A TRIGGER MAY NAME A DESTINATION, and that is the part worth being strict about:
+   *
+   *   `reach`      the remaining distance to its own edge, `max(0, d - radius)`, so it reads 0
+   *                exactly when the stage completes rather than still reading 28 m on arrival.
+   *                Radii in this district's missions are 24, 28, 30 and 30 m.
+   *   `inVehicle`  `carRange`, which is the distance to the thing you have to get into.
+   *
+   * A STAGE'S `marker` IS NOT A DESTINATION. `marlin-street`'s `ambush` carries one at
+   * (-194.8, 38.6) and is satisfied by a timer AND an evasion, so a distance to that marker would
+   * promise the player something arriving there does not deliver — which is the exact defect
+   * CLAUDE.md's marker section records twice, in the other direction. `leave` is excluded for the
+   * same reason: the number that matters there is how far you still have to GO, and the trigger
+   * fires on getting out rather than on getting to anything.
+   */
+  objectiveDistance() {
+    const s = this.stage;
+    if (!s || this.outcome !== OUTCOMES.RUNNING) return null;
+    const list = s.triggers ?? [];
+    for (const t of list) {
+      if (t.kind === 'reach' && this._px != null && this._pz != null) {
+        const d = Math.hypot(this._px - t.x, this._pz - t.z);
+        return Math.max(0, d - t.radius);
+      }
+      if (t.kind === 'inVehicle' && this._carRange != null) return Math.max(0, this._carRange);
+    }
+    return null;
+  }
+
   hud() {
     const s = this.stage;
     if (!s || this.outcome !== OUTCOMES.RUNNING) return null;
-    const out = { objective: s.objective, subtitle: s.subtitle ?? null };
+    const dist = this.objectiveDistance();
+    // A STRING WHEN THERE IS NO NUMBER, an object when there is. `objectiveLine` and src/hud.js's
+    // DOM path both take either, and keeping the string form means every stage that names no
+    // destination renders exactly as it did.
+    const out = { objective: dist == null ? s.objective : { text: s.objective, distance: dist },
+      subtitle: s.subtitle ?? null };
     if (s.marker) out.waypoint = { x: s.marker.x, z: s.marker.z };
     if (s.markers) out.markers = s.markers;
     // Seconds remaining, for a stage that has a deadline. Floored at 0 so a HUD
@@ -482,6 +541,20 @@ export class MissionRunner {
       visited: this.visited.slice(),
       chainOverflows: this.chainOverflows,
       secondsLeft: s && s.timeLimit != null ? +Math.max(0, s.timeLimit - this.stageTime).toFixed(3) : null,
+      /**
+       * Metres still to go on the active stage, or null. Null for a stage that names no
+       * destination — which is correct — AND for a host that does not feed `carRange` on an
+       * `inVehicle` stage, which is not. The two are told apart by `objectiveDistanceFrom`.
+       */
+      objectiveDistance: (() => { const v = this.objectiveDistance(); return v == null ? null : +v.toFixed(2); })(),
+      objectiveDistanceFrom: (() => {
+        if (!s) return null;
+        for (const t of s.triggers ?? []) {
+          if (t.kind === 'reach') return this._px == null ? 'reach:no-position' : 'reach';
+          if (t.kind === 'inVehicle') return this._carRange == null ? 'inVehicle:no-carRange' : 'inVehicle';
+        }
+        return null;
+      })(),
       // Numeric fields this mission read, and the range they took. A field whose min
       // equals its max never varied, so any trigger that needed it to cross a
       // threshold could not have fired. `constantFields` names them outright.

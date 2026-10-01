@@ -570,6 +570,14 @@ export class Session {
       speed: this.mode === 'foot' ? Math.hypot(this.player.velocity.x, this.player.velocity.z)
         : this.vehicle.speed,
       health: this.damage.health,
+      /**
+       * HOW FAR THE CAR IS, so `MissionRunner.objectiveDistance` can put it on an `inVehicle`
+       * stage's objective — the number round 6's playtester did not have while running 404 m from
+       * the car with "GET IN THE CAR" unchanged on the band. Zero in the car, because `_pos()` IS
+       * the car then and the stage is already satisfied. Optional by design: no trigger reads it,
+       * so a host without it gets an objective with no distance rather than a throw.
+       */
+      carRange: this.mode === 'foot' ? this.carRange : 0,
       wantedStars: this.wanted.stars, wantedState: this.wanted.state };
   }
 
@@ -1784,6 +1792,34 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
       `${f.mission.report().stage} / ${f.mission.outcome}`);
     check('and look() reports being on foot, with the car\'s range',
       f.look().onFoot === true && f.look().carRange > 1, `${f.look().carRange} m`);
+
+    /**
+     * AND THE BAND CARRIES THAT RANGE, which it did not. Round 6's playtester ran to 404 m from
+     * the car with "GET IN THE CAR" unchanged on the objective the whole way, and reported it as a
+     * HUD that said nothing. Two thirds of that was harness gaps and are fixed — the page clamps
+     * the blip to the map edge and posts the car as the waypoint — and the BAND was the third.
+     *
+     * Read through `composeBand` and `objectiveLine`, the same two calls district/main.js makes,
+     * so this is the string a player sees rather than a field nobody renders.
+     */
+    const walkRows = [];
+    for (let k = 0; k < 3; k++) {
+      f.walk({ forward: 1, run: true }).step(3);
+      walkRows.push({ range: +f.carRange.toFixed(1), band: objectiveLine(f._band().objective),
+        d: f.mission.report().objectiveDistance, from: f.mission.report().objectiveDistanceFrom });
+    }
+    console.log(`    walking away: ` +
+      walkRows.map((r) => `"${r.band}" at ${r.range} m`).join('  ->  '));
+    check('the objective band carries the range to the car, in metres',
+      walkRows.every((r) => / — \d+ m$/.test(r.band)),
+      walkRows.map((r) => r.band).join(' | '));
+    check('and it is the car\'s own range, not some other number',
+      walkRows.every((r) => Math.abs(r.d - r.range) < 0.15 && r.from === 'inVehicle'),
+      walkRows.map((r) => `${r.d?.toFixed(1)} vs ${r.range}`).join(' '));
+    check('and it RISES as the player walks away, which is what was missing',
+      walkRows[2].range > walkRows[0].range + 10 &&
+      walkRows.every((r, i) => i === 0 || r.d > walkRows[i - 1].d),
+      walkRows.map((r) => r.range).join(' -> '));
 
     /**
      * THE WALK IS src/player.js's OWN, measured against its own constants. This is the arm that

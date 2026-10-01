@@ -17,6 +17,7 @@
 // evidence." So every fault defineMission() is documented to catch gets a mission
 // authored to contain it, and the test fails if the throw does not happen.
 import { DamageModel } from '../src/damage.js';
+import { objectiveLine } from '../src/hud.js';
 import { MissionRunner, defineMission, OUTCOMES, TRIGGERS, snapshotFields,
   MissionBoard, OFFER_RADIUS_M } from '../src/mission.js';
 
@@ -905,6 +906,136 @@ console.log('\n=== 10. the mission board — what a player can walk into');
     && board.markers().every((k) => k.kind === 'offer'), JSON.stringify(board.markers()));
   check('the default offer radius is a disc a street can hold', OFFER_RADIUS_M >= 8
     && OFFER_RADIUS_M <= 20, `${OFFER_RADIUS_M} m`);
+}
+
+// === 10. the objective's own distance, which only a TRIGGER may name
+/**
+ * `src/hud.js`'s objective band has carried an element for a distance since it was written,
+ * dirty-checked per whole metre, and until 77a0690 the only tenant using it was the law line.
+ * Round 6's playtester ran to 404 m from the car reading "GET IN THE CAR" unchanged the whole way.
+ *
+ * WHAT THIS SECTION IS REALLY FOR IS THE NEGATIVE. Attaching a number to a stage's `marker` would
+ * be easy and wrong: `marlin-street`'s `ambush` carries one and is satisfied by a timer AND an
+ * evasion, so a distance to it promises the player something arriving there does not deliver.
+ * CLAUDE.md records that defect twice already, in the other direction — both of this project's
+ * mission markers have been wrong, and both times a gate RULE put them there.
+ */
+console.log('\n=== 10. the objective distance');
+{
+  // Imported here rather than at the top, as section 9 does: this file's own convention.
+  const { MISSIONS } = await import('../src/missions.js');
+  const M = MISSIONS['marlin-street'];
+  const at = (stageId, snap) => {
+    const r = new MissionRunner();
+    r.start(M);
+    r.stageIndex = M.stages.findIndex((st) => st.id === stageId);
+    r.stageTime = 0;
+    r.update(1 / 60, { px: 0, pz: 0, inVehicle: true, speed: 0, health: 1,
+      wantedStars: 0, wantedState: 'clear', ...snap });
+    return { hud: r.hud(), report: r.report() };
+  };
+
+  // (a) a `reach` stage counts down to its own EDGE, not to the marker's centre.
+  {
+    const t = M.stages.find((st) => st.id === 'eastbound').triggers
+      .find((x) => x.kind === 'reach');
+    const far = at('eastbound', { px: t.x, pz: t.z - 500 });
+    const nearly = at('eastbound', { px: t.x, pz: t.z - t.radius - 0.5 });
+    const inside = at('eastbound', { px: t.x, pz: t.z - t.radius + 0.5 });
+    console.log(`  reach r=${t.radius} m: at 500 m out ${far.report.objectiveDistance} m, ` +
+      `0.5 m short of the edge ${nearly.report.objectiveDistance} m, 0.5 m inside it ` +
+      `stage "${inside.report.stage}" distance ${inside.report.objectiveDistance}`);
+    check('a reach stage carries the distance to its edge',
+      Math.abs(far.report.objectiveDistance - (500 - t.radius)) < 0.01,
+      `${far.report.objectiveDistance} against ${500 - t.radius}`);
+    /**
+     * IT NEVER HAS TO READ 0, and the first version of this check asked it to and failed: a player
+     * inside the radius has SATISFIED the trigger, so the stage has already moved on and the
+     * number belongs to the next one. What the player sees is the count going to 0.5 m and the
+     * objective changing. Both halves are asserted, because "distance is null inside the radius"
+     * and "the stage did not advance" would otherwise look the same.
+     */
+    check('the number runs down to the edge and the stage completes there, not at 0',
+      Math.abs(nearly.report.objectiveDistance - 0.5) < 0.01 &&
+      inside.report.stage !== 'eastbound',
+      `${nearly.report.objectiveDistance} m short, then stage "${inside.report.stage}"`);
+    check('and the band is an object with a distance, not a bare string',
+      typeof far.hud.objective === 'object'
+      && far.hud.objective.text === 'DRIVE EAST ALONG MARLIN STREET',
+      objectiveLine(far.hud.objective));
+  }
+
+  // (b) an `inVehicle` stage carries the range to the car.
+  {
+    const with180 = at('backToCar', { inVehicle: false, carRange: 180.4 });
+    const without = at('backToCar', { inVehicle: false });
+    console.log(`  inVehicle: with carRange 180.4 -> "${objectiveLine(with180.hud.objective)}" ` +
+      `(${with180.report.objectiveDistanceFrom}); without -> ` +
+      `"${objectiveLine(without.hud.objective)}" (${without.report.objectiveDistanceFrom})`);
+    check('an inVehicle stage carries the range to the car',
+      with180.report.objectiveDistance === 180.4 &&
+      objectiveLine(with180.hud.objective) === 'GET BACK IN THE CAR — 180 m',
+      objectiveLine(with180.hud.objective));
+    /**
+     * KNOWN-BAD, AND THE REASON `carRange` IS NOT IN ANY TRIGGER'S `needs`: a host that does not
+     * compute it must get an objective with no number rather than a throw, because no PREDICATE
+     * reads it and the `needs` check exists to catch a trigger reading an absent field. The two
+     * cases are told apart by `objectiveDistanceFrom` instead of being indistinguishable nulls.
+     */
+    check('KNOWN-BAD: a host that feeds no carRange gets no number, and says so',
+      without.report.objectiveDistance === null &&
+      without.report.objectiveDistanceFrom === 'inVehicle:no-carRange' &&
+      typeof without.hud.objective === 'string',
+      `${without.report.objectiveDistanceFrom}`);
+  }
+
+  /**
+   * (c) THE NEGATIVE. `ambush` has a marker and no destination, and must carry no number.
+   */
+  {
+    const amb = at('ambush', { carRange: 42 });
+    const st = M.stages.find((x) => x.id === 'ambush');
+    console.log(`  ambush has a marker at (${st.marker.x}, ${st.marker.z}) and triggers ` +
+      `${st.triggers.map((t) => t.kind).join('/')} -> distance ` +
+      `${amb.report.objectiveDistance}, from ${amb.report.objectiveDistanceFrom}`);
+    check('a stage whose marker is a hint and not a destination carries no distance',
+      !!st.marker && amb.report.objectiveDistance === null &&
+      amb.report.objectiveDistanceFrom === null,
+      `${amb.report.objectiveDistance} / ${amb.report.objectiveDistanceFrom}`);
+    check('and its band is still the bare authored string',
+      typeof amb.hud.objective === 'string' && amb.hud.objective === st.objective,
+      `${amb.hud.objective}`);
+  }
+
+  // (d) every stage of every mission: either a destination and a number, or neither.
+  {
+    const rows = [];
+    for (const [id, mission] of Object.entries(MISSIONS)) {
+      for (const st of mission.stages) {
+        const kinds = (st.triggers ?? []).map((t) => t.kind);
+        const names = kinds.find((k) => k === 'reach' || k === 'inVehicle') ?? null;
+        const r = new MissionRunner();
+        r.start(mission);
+        r.stageIndex = mission.stages.findIndex((x) => x.id === st.id);
+        r.stageTime = 0;
+        r.update(1 / 60, { px: 0, pz: 0, inVehicle: true, speed: 0, health: 1,
+          wantedStars: 0, wantedState: 'clear', carRange: 99 });
+        rows.push({ id, stage: st.id, names, d: r.report().objectiveDistance,
+          marker: !!st.marker });
+      }
+    }
+    const bad = rows.filter((x) => (x.names == null) !== (x.d == null));
+    console.log(`  ${rows.length} stages: ` + rows.map((x) =>
+      `${x.stage}${x.names ? `/${x.names}` : ''}${x.d == null ? '' : `=${x.d.toFixed(0)}m`}`).join(' '));
+    check('every stage has a number exactly when a trigger names somewhere to go',
+      bad.length === 0, bad.map((x) => `${x.id}/${x.stage}`).join(' ') || 'all consistent');
+    check('and at least one stage of each kind exists, or this arm asserts nothing',
+      rows.some((x) => x.names === 'reach') && rows.some((x) => x.names === 'inVehicle') &&
+      rows.some((x) => x.names == null && x.marker),
+      `${rows.filter((x) => x.names === 'reach').length} reach, ` +
+      `${rows.filter((x) => x.names === 'inVehicle').length} inVehicle, ` +
+      `${rows.filter((x) => x.names == null && x.marker).length} marker-only`);
+  }
 }
 
 // ---------------------------------------------------------------------------

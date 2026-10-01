@@ -438,24 +438,63 @@ if (state.global && state.frames > 2) {
     // Somewhere with road ahead: the district's own spawn, which #66 moved onto a populated street.
     d.placeAt(d.district.meta.spawn.x, d.district.meta.spawn.z, 0);
     for (let i = 0; i < 3; i++) await new Promise((r) => requestAnimationFrame(() => r()));
-    // Whoever is in front of the car, within a short run, with clear ground between.
+    /**
+     * THE CAR IS AIMED AT A PEDESTRIAN, rather than the arm hoping one stands in its path. The
+     * version before this took whoever happened to be 5-26 m ahead within 1.2 m of the car's line,
+     * and that is a coin flip: run twice on identical code it measured 2 run-overs and then 0, with
+     * the subject 0.64 m off the line in the pass and 0.97 m in the failure. A gate that passes
+     * sometimes is worse than no gate, and this one would have read as the WIRE being broken.
+     *
+     * The move is SHORT, and that is deliberate. Version 2 of this arm picked a body 60 m out and
+     * teleported to it, and src/pedestrians.js recycled the casualty around the new camera position
+     * before the car arrived. The subject here is the nearest standing pedestrian, so the car moves
+     * tens of metres at most — and the arm asserts the body is still down when it gets there rather
+     * than assuming it.
+     */
+    const BODY_SIDE = 1.0;                             // the run-up clearance circle
+    const clearRun = (bx, bz, h) => {
+      const sx = Math.sin(h), sz = Math.cos(h);
+      for (let m = 2; m <= 14; m += 2) {
+        if (d.blockers.resolveCircle(bx + sx * m, bz + sz * m, BODY_SIDE)) return false;
+      }
+      return true;
+    };
+    const near = peds.positions()
+      .map((p) => ({ ...p, dist: Math.hypot(p.x - v.position.x, p.z - v.position.z) }))
+      .filter((p) => !p.down && p.dist < 60)
+      .sort((a, b) => a.dist - b.dist);
+    let spot = null, approach = 0;
+    for (const c of near.slice(0, 24)) {
+      for (let k = 0; k < 24; k++) {
+        const h = (k / 24) * Math.PI * 2;
+        if (clearRun(c.x, c.z, h)) { spot = c; approach = h; break; }
+      }
+      if (spot) break;
+    }
+    if (!spot) {
+      d.setTimeScale(1);
+      return { skipped: 'no pedestrian within 60 m with a clear 14 m run-up',
+        crowd: peds.positions().length };
+    }
+    // Back along the clear heading, pointing AT them, so the body is on the car's own axis.
+    const ax = Math.sin(approach), az = Math.cos(approach);
+    d.placeAt(spot.x + ax * 14, spot.z + az * 14, Math.atan2(-ax, -az));
+    await new Promise((r) => requestAnimationFrame(() => r()));
     const q = v.quaternion;
     const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
     const fx = Math.sin(yaw), fz = Math.cos(yaw);
-    const ahead = peds.positions()
-      .map((p) => {
-        const rx = p.x - v.position.x, rz = p.z - v.position.z;
-        return { ...p, along: rx * fx + rz * fz, side: Math.abs(rx * fz - rz * fx) };
-      })
-      .filter((p) => !p.down && p.along > 5 && p.along < 26 && p.side < 1.2)
-      .sort((a, b) => a.along - b.along);
-    if (!ahead.length) {
-      d.setTimeScale(1);
-      return { skipped: 'nobody standing in the car’s path', crowd: peds.positions().length };
-    }
-    const spot = ahead[0];
-    // Above damage.js's kill speed the crowd keeps a body down, the same threshold the crime uses.
-    peds.hit(spot.i, { speed: 30, dirX: fx, dirZ: fz, force: true });
+    /**
+     * KILLED WITHOUT BEING THROWN, and the throw is what broke the previous version. `hit`'s
+     * fatality is `kill ?? (v >= pedKillSpeed)`, so the obvious way to make a body STAY down is a
+     * 30 m/s strike — and src/pedestrians.js then slides it `v^2 / (2 mu g)` metres along the
+     * direction given, which at 30 m/s is 69 m. Aimed down the car's own heading, as this arm
+     * aims it, the casualty lands 55 m BEYOND the 14 m run-up: three runs, three times zero
+     * run-overs, deterministically, with the body reported down the whole time.
+     *
+     * `kill: true` at 3 m/s is fatal by declaration and slides 0.70 m, so the body stays on the
+     * car's axis where the arm put it. Across the car, not along it, for the same reason.
+     */
+    peds.hit(spot.i, { speed: 3, dirX: fz, dirZ: -fx, kill: true, force: true });
     await new Promise((r) => requestAnimationFrame(() => r()));
     const bodyDown = peds.isDown(spot.i);
     const seen = [];
@@ -483,7 +522,7 @@ if (state.global && state.frames > 2) {
     d.setTimeScale(1);
     v.setControls({ throttle: 0, brake: 1, steer: 0, handbrake: false });
     return { seen, overs, repeats, bodyDown, stars: d.wanted.stars,
-      along: +spot.along.toFixed(1), side: +spot.side.toFixed(2),
+      along: 14, side: +spot.dist.toFixed(1), approach: +(approach * 180 / Math.PI).toFixed(0),
       closest: +closest.toFixed(2), topKmh: +top.toFixed(1),
       repeats0: dyn0.pedRepeats, overs0: dyn0.pedRunOvers,
       knock: d.damageReport().dynamic.pedKnockdowns, crimes: d.damageReport().crimesReported };
@@ -493,8 +532,9 @@ if (state.global && state.frames > 2) {
     check('the run-over arm could stage a body in the car’s path', false, ro.skipped);
   } else {
     const last = ro.seen[0] ?? null;
-    console.log(`  run-over: a body ${ro.along} m ahead (${ro.side} m off the line), down ` +
-      `${ro.bodyDown}; crept to ${ro.closest} m at up to ${ro.topKmh} km/h`);
+    console.log(`  run-over: a body ${ro.along} m straight ahead on a ${ro.approach} deg ` +
+      `approach (${ro.side} m from the car before the move), down ${ro.bodyDown}; ` +
+      `up to ${ro.topKmh} km/h`);
     console.log(`    overs ${ro.overs0} -> ${ro.overs}, repeats ${ro.repeats0} -> ${ro.repeats}, ` +
       `charge ${JSON.stringify(last)}, stars ${ro.stars}`);
     console.log(`    the old literal charged scale 1.00 here, which is ` +
