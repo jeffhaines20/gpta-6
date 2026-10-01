@@ -16,7 +16,20 @@
 //   node tools/mutation-sweep.mjs --selftest      prove the harness itself
 //
 // LAST FULL RUN, `--browser`, at 5fa3a6d: **caught 31, MISSED 0, inert 1, stale 0, of 32.**
-// Each mutation was caught by the gate that should own it — traffic-selftest for the lane and
+//
+// THAT LINE IS NOT A STATEMENT ABOUT THE CURRENT TABLE, and it read like one for 36 commits.
+// 5fa3a6d's table was 32 rows; this one is 86. A reader taking "MISSED 0 of 32" as the state of
+// the gate list is reading a claim about a table where 54 of today's rows did not exist — which
+// is the same shape as every other stale number this file's own sibling tools record, except
+// that this one sits at the top of the mutation harness and so is the most load-bearing stale
+// number in the repo. `--list` prints the real count; believe that over this paragraph.
+//
+// Rows added since have been verified ONE AT A TIME as they landed (the round that added them
+// mutates, runs the owning gate, and restores), which is not the same thing as a full sweep: a
+// full sweep is also the only thing that catches a row going STALE because the code it names
+// moved under it. Re-run the whole table and restate this line before quoting a coverage figure.
+//
+// Each mutation in that run was caught by the gate that should own it — traffic-selftest for the lane and
 // junction rules, reaction-test for the crowd, damage-test for the charge, wanted-test for the
 // wanted ladder and the victim window, physics-test for the vehicle, hud-cue for anything drawn,
 // blocker-test for the fence and the resolver, roadpath-test and route-drive for the follower,
