@@ -1,0 +1,155 @@
+{
+ "name": "r6-park0-along-s3-noon",
+ "view": "along",
+ "shells": 3,
+ "tod": "noon",
+ "run": 0,
+ "runLen": 52.5,
+ "runShells": [
+  0,
+  2,
+  2,
+  0,
+  2,
+  1,
+  1,
+  2,
+  2
+ ],
+ "placed": {
+  "x": 153.94,
+  "z": -416.12,
+  "side": "+n",
+  "pulledIn": 0.3,
+  "standScale": 0.7,
+  "roadClear": 31.5,
+  "wallClear": 23.5,
+  "camClear": 3.7,
+  "inside": -1,
+  "filled": 30,
+  "playerHidden": true
+ },
+ "cam": {
+  "x": 153.94,
+  "y": 1.65,
+  "z": -416.12,
+  "fov": 40
+ },
+ "stand": {
+  "back": 15,
+  "side": 4.5,
+  "height": 1.65,
+  "fov": 40,
+  "from": "first",
+  "tgtY": 1,
+  "w": 1600,
+  "h": 900
+ },
+ "cloudsFrozen": true,
+ "drawn": 30,
+ "inRun": [
+  {
+   "shell": "coupe",
+   "x": 164.38,
+   "z": -419.44,
+   "px": 395,
+   "py": 227,
+   "cx": 503,
+   "cy": 567,
+   "dist": 11,
+   "onScreen": true,
+   "slotShell": 0
+  },
+  {
+   "shell": "wagon",
+   "x": 170.78,
+   "z": -419.55,
+   "px": 222,
+   "py": 134,
+   "cx": 663,
+   "cy": 507,
+   "dist": 17.2,
+   "onScreen": true,
+   "slotShell": 2
+  },
+  {
+   "shell": "wagon",
+   "x": 177.18,
+   "z": -419.67,
+   "px": 144,
+   "py": 92,
+   "cx": 733,
+   "cy": 483,
+   "dist": 23.5,
+   "onScreen": true,
+   "slotShell": 2
+  },
+  {
+   "shell": "coupe",
+   "x": 183.58,
+   "z": -419.79,
+   "px": 104,
+   "py": 67,
+   "cx": 772,
+   "cy": 472,
+   "dist": 29.9,
+   "onScreen": true,
+   "slotShell": 0
+  },
+  {
+   "shell": "wagon",
+   "x": 189.98,
+   "z": -419.9,
+   "px": 89,
+   "py": 57,
+   "cx": 796,
+   "cy": 463,
+   "dist": 36.2,
+   "onScreen": true,
+   "slotShell": 2
+  },
+  {
+   "shell": "saloon",
+   "x": 196.38,
+   "z": -420.02,
+   "px": 70,
+   "py": 47,
+   "cx": 813,
+   "cy": 457,
+   "dist": 42.6,
+   "onScreen": true,
+   "slotShell": 1
+  },
+  {
+   "shell": "saloon",
+   "x": 202.78,
+   "z": -420.13,
+   "px": 63,
+   "py": 41,
+   "cx": 825,
+   "cy": 453,
+   "dist": 49,
+   "onScreen": true,
+   "slotShell": 1
+  },
+  {
+   "shell": "wagon",
+   "x": 210.47,
+   "z": -420.24,
+   "px": 52,
+   "py": 35,
+   "cx": 837,
+   "cy": 450,
+   "dist": 56.7,
+   "onScreen": true,
+   "slotShell": 2
+  },
+  {
+   "x": 216.8694278593156,
+   "z": -420.2980087157242,
+   "slotShell": 2,
+   "missing": true
+  }
+ ],
+ "pageErrors": []
+}

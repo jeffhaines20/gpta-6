@@ -962,6 +962,25 @@ const MUTATIONS = [
     to: '      if (u.held || (near.d <= this.holdRadius && wantT > near.t && u.t <= near.t)) {',
     why: 'a unit that once held follows the player for ever, 331 m away, in 19.59 m jumps',
   },
+  {
+    /**
+     * THE HARNESS ITSELF IS A TARGET, because a wrong harness is a wrong round. This reverts
+     * tools/playtest.mjs's run-over charge to the literal 1 it carried for several rounds while
+     * district/main.js asked `damage.runOverCrime`. `CRIMES.pedestrianHit`'s `min: 1` floor
+     * clamps every non-fatal roll to one star under the model and the literal charges two, flat
+     * from 3 to 50 km/h; above the kill speed it inverts and the model charges three where the
+     * literal charges two.
+     *
+     * WORTH KEEPING FOR WHAT IT SAYS ABOUT THE OLD ARM. §3b has driven a casualty over through
+     * the real step loop for several rounds, sitting on this, asserting `stars > 0` — true under
+     * either charge. The mutation is caught now by two checks and was caught by none then, with
+     * no change to where the arm stands.
+     */
+    id: 'runover-literal', file: 'tools/playtest.mjs',
+    find: '          this._crime(rv.crime, rv.scale);',
+    to: '          this._crime(rv.crime, 1);',
+    why: 'the harness charges a full pedestrianHit for a 3 km/h roll: 2 stars where the game gives 1',
+  },
 ];
 
 // --------------------------------------------------------------------------- mechanics

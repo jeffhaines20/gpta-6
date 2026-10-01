@@ -1,0 +1,161 @@
+{
+ "name": "r6-park0-broadside-s1-noon",
+ "view": "broadside",
+ "shells": 1,
+ "tod": "noon",
+ "run": 0,
+ "runLen": 52.5,
+ "runShells": [
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0
+ ],
+ "placed": {
+  "x": 190.66,
+  "z": -395.9,
+  "side": "+n",
+  "pulledIn": 0,
+  "standScale": 1,
+  "roadClear": 30.1,
+  "wallClear": 5.4,
+  "camClear": 30.1,
+  "inside": -1,
+  "filled": 30,
+  "playerHidden": true
+ },
+ "cam": {
+  "x": 190.66,
+  "y": 1.45,
+  "z": -395.9,
+  "fov": 15
+ },
+ "stand": {
+  "back": 0,
+  "side": 24,
+  "height": 1.45,
+  "fov": 15,
+  "from": "centre",
+  "tgtY": 0.85,
+  "w": 1600,
+  "h": 480
+ },
+ "cloudsFrozen": true,
+ "drawn": 30,
+ "inRun": [
+  {
+   "shell": "coupe",
+   "x": 164.38,
+   "z": -419.44,
+   "px": null,
+   "py": null,
+   "cx": -1182,
+   "cy": 257,
+   "dist": 35.3,
+   "onScreen": false,
+   "slotShell": 0
+  },
+  {
+   "shell": "coupe",
+   "x": 170.78,
+   "z": -419.55,
+   "px": null,
+   "py": null,
+   "cx": -692,
+   "cy": 257,
+   "dist": 30.9,
+   "onScreen": false,
+   "slotShell": 0
+  },
+  {
+   "shell": "coupe",
+   "x": 177.18,
+   "z": -419.67,
+   "px": 430,
+   "py": 116,
+   "cx": -205,
+   "cy": 257,
+   "dist": 27.3,
+   "onScreen": true,
+   "slotShell": 0
+  },
+  {
+   "shell": "coupe",
+   "x": 183.58,
+   "z": -419.79,
+   "px": 386,
+   "py": 116,
+   "cx": 282,
+   "cy": 257,
+   "dist": 24.9,
+   "onScreen": true,
+   "slotShell": 0
+  },
+  {
+   "shell": "coupe",
+   "x": 189.98,
+   "z": -419.9,
+   "px": 356,
+   "py": 116,
+   "cx": 774,
+   "cy": 257,
+   "dist": 24,
+   "onScreen": true,
+   "slotShell": 0
+  },
+  {
+   "shell": "coupe",
+   "x": 196.38,
+   "z": -420.02,
+   "px": 383,
+   "py": 116,
+   "cx": 1270,
+   "cy": 257,
+   "dist": 24.8,
+   "onScreen": true,
+   "slotShell": 0
+  },
+  {
+   "shell": "coupe",
+   "x": 202.78,
+   "z": -420.13,
+   "px": 425,
+   "py": 116,
+   "cx": 1757,
+   "cy": 257,
+   "dist": 27.1,
+   "onScreen": true,
+   "slotShell": 0
+  },
+  {
+   "shell": "coupe",
+   "x": 210.47,
+   "z": -420.24,
+   "px": null,
+   "py": null,
+   "cx": 2342,
+   "cy": 257,
+   "dist": 31.4,
+   "onScreen": false,
+   "slotShell": 0
+  },
+  {
+   "shell": "coupe",
+   "x": 216.87,
+   "z": -420.3,
+   "px": null,
+   "py": null,
+   "cx": 2832,
+   "cy": 257,
+   "dist": 35.8,
+   "onScreen": false,
+   "slotShell": 0
+  }
+ ],
+ "pageErrors": []
+}
