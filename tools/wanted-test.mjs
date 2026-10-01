@@ -1609,6 +1609,73 @@ let searchSample;
         `(armed ${w.stats.bustHolds})`);
       check(`no bust while ${a.name}`, n === 0, `${n} busts`);
     }
+
+    /**
+     * AND THE TERM MISSING ALTOGETHER, which the three arms above cannot reach: each sets
+     * `held: false`, and a HOST that never publishes `held` at all is a different failure with
+     * the same symptom. This is the host-owns-the-geometry / module-owns-the-consequence split
+     * the bust flow is built on — `player.held`, `.seen`, `.throttle` and `.teleported` are all
+     * fields district/main.js has to remember to fill — and CLAUDE.md's standing finding about
+     * it is that the module is right, its gate asserts the module, and nothing asserts that the
+     * game reaches it.
+     *
+     * So: absent must behave as not-held and must not throw. A reviewer flagged that the (c)
+     * table had no arm for it. What this CANNOT see is the page forgetting to publish the field,
+     * because there is no page here; tools/boot-check.mjs busts the live page end to end and is
+     * the only thing that can, which is said here so the pair is visible from either side.
+     */
+    {
+      const w = wanted1();
+      let n = 0, threw = null;
+      w.on('busted', () => n++);
+      try {
+        const steps = Math.round((BUST_HOLD_S * 3) / DT);
+        for (let i = 0; i < steps; i++) w.update(DT, { ...ORIGIN, seen: true });   // no `held` key
+      } catch (e) { threw = e.message; }
+      console.log(`    ${'the host never publishes `held`'.padEnd(38)} ${n} busts, ` +
+        `armed ${w.stats.bustHolds}, bustIn ${w.hudState().bustIn}${threw ? `, THREW ${threw}` : ''}`);
+      check('a player object with no `held` field does not throw', threw === null, `${threw}`);
+      check('no bust while the host never publishes `held`', n === 0, `${n} busts`);
+      /**
+       * ABSENT MUST BEHAVE EXACTLY LIKE EXPLICIT FALSE, asserted as an equivalence against the
+       * `held: false` arm rather than against a value written here. The first version of this
+       * asserted `bustIn === 0` and failed: the module's no-countdown value is `null`, and a
+       * check that hardcodes what it expects the module to say is a check that has to be kept in
+       * step with the module by hand. Comparing the two states means a change to that sentinel
+       * moves both sides together, and a change that makes absent and false DIFFER fails — which
+       * is the property, not the sentinel.
+       */
+      const explicitFalse = wanted1();
+      let f = 0;
+      explicitFalse.on('busted', () => f++);
+      hold(explicitFalse, BUST_HOLD_S * 3, { held: false });
+      const a = w.hudState(), b = explicitFalse.hudState();
+      check('an absent `held` is indistinguishable from an explicit false, in the HUD too',
+        a.bustIn === b.bustIn && a.bustStuck === b.bustStuck && n === f &&
+        w.stats.bustHolds === explicitFalse.stats.bustHolds,
+        `absent {bustIn ${a.bustIn}, armed ${w.stats.bustHolds}, busts ${n}} against ` +
+        `false {bustIn ${b.bustIn}, armed ${explicitFalse.stats.bustHolds}, busts ${f}}`);
+      /**
+       * BOTH SIDES NON-ZERO: the same session WITH `held` does bust, so none of the above is
+       * passing because this setup could not bust under any circumstances.
+       *
+       * THE COUNTDOWN IS SAMPLED MID-HOLD, not at the end. The first version compared the
+       * control's final `bustIn` with the absent arm's and failed reading `null` against `null`:
+       * a bust calls `clear('busted')`, so a session that HAS counted down and fired looks
+       * exactly like one that never started. Reading the clock after the event it resets is the
+       * same shape as sampling a dirty-flagged HUD panel one frame late, which CLAUDE.md records
+       * for `hud-cue` — the quantity is real and the moment is wrong.
+       */
+      const ctl = wanted1();
+      let m = 0;
+      ctl.on('busted', () => m++);
+      hold(ctl, BUST_HOLD_S * 0.5, { at: ORIGIN });
+      const counting = ctl.hudState().bustIn;
+      hold(ctl, BUST_HOLD_S * 3, { at: ORIGIN });
+      check('KNOWN-GOOD: the identical session WITH `held` counts down and busts',
+        m > 0 && counting > 0 && counting !== a.bustIn,
+        `${m} busts with the field against ${n} without; mid-hold bustIn ${counting} against ${a.bustIn}`);
+    }
   }
 
   /**
