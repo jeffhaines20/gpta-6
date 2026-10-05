@@ -44,6 +44,45 @@ import { buildTrafficCarGeometry, SHAPES, SHAPE_NAMES, CAR,
  * difference, and it costs 100 ms.
  */
 const PAL_W = 16, GLASS_PAL = 10;
+/**
+ * THE NUMBER PLATE'S TILT, because orientation decided almost all of how dark it
+ * read and nothing measured it.
+ *
+ * The plate was laid on the silhouette by `overlayBand`, so it inherited the
+ * bumper's tuck-under and came out at a geometric normal of (0, -0.430, -0.903)
+ * — 25.5 degrees BELOW horizontal. A surface tilted that far past vertical sees
+ * (1 - sin 25.5)/2 = 0.285 of the sky against a vertical panel's 0.500, and at
+ * noon catches no direct sun at all. Two blind reviewers reported it as "a dark
+ * rectangle where a white plate belongs" and one measured 0.15x the body paint,
+ * where the plate's ALBEDO is 0.736 of it.
+ *
+ * Returned as the area-weighted mean normal, so a plate split into more
+ * triangles later still reads one number.
+ */
+export function plateTilt(geo) {
+  const pos = geo.attributes.position.array, uv = geo.attributes.uv.array;
+  const idx = geo.index.array, tris = idx.length / 3;
+  const iu = (u) => Math.round(u * PAL_W - 0.5);
+  let area = 0, wy = 0, tn = 0, zlo = Infinity, zhi = -Infinity;
+  for (let t = 0; t < tris; t++) {
+    const T = [idx[t * 3], idx[t * 3 + 1], idx[t * 3 + 2]];
+    if (!T.every((i) => iu(uv[i * 2]) === PLATE_PAL)) continue;
+    const P = T.map((i) => [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]]);
+    const ux = P[1][0] - P[0][0], uy = P[1][1] - P[0][1], uz = P[1][2] - P[0][2];
+    const vx = P[2][0] - P[0][0], vy = P[2][1] - P[0][1], vz = P[2][2] - P[0][2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const L = Math.hypot(nx, ny, nz) || 1;
+    area += L / 2; wy += (ny / L) * (L / 2); tn++;
+    for (const q of P) { zlo = Math.min(zlo, q[2]); zhi = Math.max(zhi, q[2]); }
+  }
+  const normalY = area ? wy / area : NaN;
+  return { tris: tn, area, normalY, zSpan: tn ? zhi - zlo : NaN,
+    degFromVertical: Math.asin(Math.min(1, Math.abs(normalY))) * 180 / Math.PI,
+    // The share of a uniform sky hemisphere the panel can see. 0.500 is vertical.
+    skyView: (1 - Math.abs(normalY)) / 2 + (normalY > 0 ? Math.abs(normalY) : 0) };
+}
+const PLATE_PAL = 7;
+
 export function paneOcclusion(geo, n = 10) {
   const pos = geo.attributes.position.array, uv = geo.attributes.uv.array;
   const idx = geo.index.array, tris = idx.length / 3;
@@ -435,6 +474,41 @@ function census() {
   } else {
     fail++;
     console.log(`  FAIL the known-bad arm did not bite: pre-trim ${(100 * bad.frac).toFixed(1)}%, restored ${(100 * back.frac).toFixed(2)}%`);
+  }
+
+  /**
+   * THE PLATE IS A PANEL, NOT A DECAL. See plateTilt for what the tuck-under cost.
+   * The bar is EXACT rather than a tolerance: a plate laid back on the silhouette
+   * cannot come out at normal.y 0 by accident, so there is no value in between
+   * for a tolerance to be wrong at.
+   */
+  console.log(`\n  the number plate stands vertical (normal.y 0 exactly is the bar)`);
+  let plateBad = 0;
+  for (const name of SHAPE_NAMES) {
+    const t = plateTilt(buildTrafficCarGeometry({ shape: SHAPES[name] }));
+    const ok = t.tris > 0 && t.normalY === 0 && t.zSpan === 0;
+    if (!ok) plateBad++;
+    console.log(`    ${name.padEnd(8)} ${t.tris} tris, ${(t.area * 1e4).toFixed(0)} cm2, ` +
+      `normal.y ${t.normalY.toFixed(4)} = ${t.degFromVertical.toFixed(1)} deg off vertical, ` +
+      `z span ${t.zSpan.toFixed(4)} m, sees ${(t.skyView * 100).toFixed(1)}% of the sky`);
+  }
+  if (plateBad) { fail++; console.log(`  FAIL ${plateBad} shell(s) carry a plate that is not vertical`); }
+  else console.log(`  ok  every shell's plate is vertical, so it sees 50.0% of the sky`);
+  /**
+   * KNOWN-BAD against the HISTORICAL value, not a synthetic one: the plate that
+   * shipped measured normal.y -0.430. The predicate has to reject it, and the sky
+   * view it implies has to be the 0.285 the derivation claims — otherwise the
+   * "it sees 50% of the sky" line above is a sentence rather than a measurement.
+   */
+  const was = { normalY: -0.430 };
+  const wasSky = (1 - Math.abs(was.normalY)) / 2;
+  const wasDeg = Math.asin(Math.abs(was.normalY)) * 180 / Math.PI;
+  if (was.normalY !== 0 && Math.abs(wasSky - 0.285) < 0.001 && Math.abs(wasDeg - 25.5) < 0.1) {
+    console.log(`  ok  KNOWN-BAD: the shipped plate's -0.430 is ${wasDeg.toFixed(1)} deg off vertical ` +
+      `and sees ${(wasSky * 100).toFixed(1)}% of the sky, against a vertical panel's 50.0%`);
+  } else {
+    fail++;
+    console.log(`  FAIL the known-bad arm does not reproduce: ${wasDeg.toFixed(1)} deg, sky ${wasSky.toFixed(3)}`);
   }
 
   console.log(fail ? `\nCAR-SHAPES: FAIL (${fail})` : '\nCAR-SHAPES: PASS');

@@ -2426,12 +2426,46 @@ export function buildTrafficCarGeometry(opts = {}) {
     overlayBand(b, pts, nrm, iTailHi, iTailLo, -0.30, 0.30, 0.009,
       SURFACE.trim, trimC, 1);
   }
-  // --- number plate. Two triangles, and it is the cheapest "this is a car" cue
-  // on the whole body: a light rectangle low on a dark tail, exactly where every
-  // photograph of a parked car has one.
+  /**
+   * --- number plate. Two triangles, and it is the cheapest "this is a car" cue
+   * on the whole body: a light rectangle low on a dark tail, exactly where every
+   * photograph of a parked car has one.
+   *
+   * AND IT WAS A DECAL, NOT A PANEL, SO IT GOT ALMOST NO LIGHT. `overlayBand`
+   * lays its rows on the silhouette, so the plate inherited the bumper's
+   * tuck-under: top edge at z -2.225, bottom at -2.162, geometric normal
+   * (0, -0.430, -0.903) — tilted **25.5 degrees BELOW horizontal**.
+   *
+   * A surface tilted that far past vertical sees (1 - sin 25.5)/2 = 0.285 of the
+   * sky where a vertical panel sees 0.500, a factor of 0.57, and at noon it
+   * catches no direct sun at all while the panel beside it does. Two blind
+   * reviewers independently reported "a dark rectangle where a white plate
+   * belongs", one measuring it at 0.15x the body paint in linear light. Its
+   * ALBEDO is 0.736 of the body (0.701 grey against the 0.995 of paint), so
+   * essentially the whole missing factor of 4.8 was orientation.
+   *
+   * A real plate is a flat rigid panel bolted to a curved bumper, standing proud
+   * of it at the edges. Both rows take the band's REARMOST z, which is vertical
+   * by construction, needs no angle anyone picked, and costs the same two
+   * triangles. The stand-off it leaves at the lower edge is what a real plate
+   * leaves.
+   *
+   * What this does NOT fix: `instanceColor` multiplies every vertex, so the
+   * plate is capped at the car's own paint and carries its hue — 0.736 of the
+   * body on a white car and 0.736 of the body on a purple one. Measured across
+   * the fleet's hue distribution the plate reaches x0.41 of a real plate's ~0.80
+   * reflectance, and no vertex colour can raise it: body panels are already
+   * authored 0.995. That is a property of one InstancedMesh per pool, not of
+   * this quad, and it wants its own round.
+   */
   if (iPlateHi >= 0 && iPlateLo > iPlateHi) {
-    overlayBand(b, pts, nrm, iPlateHi, iPlateLo, -0.26, 0.26, 0.014,
-      SURFACE.plate, plateC, 1);
+    const a = pts[iPlateHi], c = pts[iPlateLo];
+    const zBack = Math.min(a.z, c.z) - 0.014;          // rearmost, then proud of the skin
+    const u0 = -0.26, u1 = 0.26;
+    const corner = (p, u) => b.vert(u * p.w, p.y, zBack, plateC, SURFACE.plate);
+    const tl = corner(a, u0), tr = corner(a, u1);
+    const br = corner(c, u1), bl = corner(c, u0);
+    b.quad(tl, tr, br, bl);
   }
   // --- NO boot shut. Round 1 built one as two dark strips running fore-and-aft
   // along the boot deck at x = +/-0.60, and the second blind review of that round
