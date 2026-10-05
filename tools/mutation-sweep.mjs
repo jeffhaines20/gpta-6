@@ -747,7 +747,7 @@ const MUTATIONS = [
      * correct, and only the two put side by side show it. wanted-test §24 is that comparison.
      */
     id: 'charge-cap', file: 'src/wanted.js',
-    find: '    const delta = (c.min ?? 0) > 0 ? raw : Math.min(raw, FLOORLESS_CAP);',
+    find: '    const delta = (c.min ?? 0) > 0 ? raw : floorlessCharge(raw);',
     to: '    const delta = raw;',
     why: 'a wall at 60 km/h is twice the crime of a person again, and a car four times',
   },
@@ -759,8 +759,8 @@ const MUTATIONS = [
      * stars, which is the whole point of giving it a floor of four.
      */
     id: 'cap-inverted', file: 'src/wanted.js',
-    find: '    const delta = (c.min ?? 0) > 0 ? raw : Math.min(raw, FLOORLESS_CAP);',
-    to: '    const delta = (c.min ?? 0) > 0 ? Math.min(raw, FLOORLESS_CAP) : raw;',
+    find: '    const delta = (c.min ?? 0) > 0 ? raw : floorlessCharge(raw);',
+    to: '    const delta = (c.min ?? 0) > 0 ? floorlessCharge(raw) : raw;',
     why: 'the worst offence in the table becomes the mildest',
   },
   {

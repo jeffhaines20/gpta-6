@@ -1244,6 +1244,31 @@ The refusal is hoisted above both branches now, before the lock and before any w
 operational rule, which no guard replaces: **commit before running any tool that restores by
 `git checkout`.** The gate list is cheap; losing an uncommitted module is not.
 
+### And the other direction: `git add -A` while a sweep is running COMMITS the mutation
+
+The sibling of the above, found an hour later and worse, because it ships. A sweep was running in
+the background with `knee-clip` applied — `floorlessCharge` reverted to `Math.min(raw, cap)` —
+when a commit went in for something else. `git add -A` staged the mutation, the commit carried it,
+and `git status` then read clean because the sweep's `restore()` had nothing left to undo. The
+soft knee was gone from HEAD and the tree looked immaculate.
+
+What made it hard to see is that **every symptom pointed somewhere else.** The next sweep reported
+`knee-clip` and `knee-point` STALE — correctly, because their `find` string was no longer in the
+file — and a stale row reads as "the code moved under the row", which is a thing that had genuinely
+happened twice that afternoon. The gates were all green, because a reverted knee is a working clip
+and only the two arms that assert the CURVE could tell.
+
+Three rules, and the third is the one that would have caught it alone:
+
+- **Never run a sweep in the background.** One at a time, in the foreground, and read its last
+  line. The lock stops a second SWEEP; it does not stop a commit, an editor, or a `git checkout`.
+- **Never `git checkout --` a file to undo something while a sweep holds the lock.** That reverts
+  the sweep's mutation mid-gate, and the row then reports MISSED for a reason that has nothing to
+  do with the row. One row was lost to exactly this before the committed one was noticed.
+- **After any sweep, `git diff HEAD` before you commit anything.** Not `git status` — the tree can
+  be clean against the index and wrong against your intent. The diff is four seconds and it is the
+  only thing that would have shown a `return Math.min(raw, cap);` where a two-branch knee belongs.
+
 ## A partial lead from a killed round is still the round's result
 
 Three review rounds in a row have now been killed part-way by session rate limits, and
