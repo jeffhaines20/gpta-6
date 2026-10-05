@@ -26,7 +26,8 @@ import fs from 'node:fs';
 import { BlockerIndex, insideRing, ringArea, contactImpulse,
   districtBounds, worldFence, WORLD_MARGIN_M,
   FENCE_FULL_M, FENCE_BRAKE_MS, FENCE_CRAWL_MS } from '../src/blockers.js';
-import { Vehicle } from '../src/vehicle.js';
+import { Vehicle, composeStuck, STUCK_HOLD_S, STUCK_THROTTLE,
+  STUCK_SPEED_MS, STUCK_CONTACT_GRACE_S } from '../src/vehicle.js';
 import { FlatGround } from '../src/ground.js';
 import { edgesOf, ringArea as facadeRingArea } from '../src/facades.js';
 // One import for both the contact-impulse section and the fence sweep: the file used to pull it
@@ -824,6 +825,231 @@ console.log('\n§ the fence, swept over the pose');
   check('the pose that already recovered still does, at about the same cost',
     deadOut.homeAt !== null && deadOut.homeAt < 12,
     `${deadOut.homeAt?.toFixed(1)}s against the old code's 6.7s`);
+}
+
+/**
+ * § A WEDGED CAR, AND THE CUE THAT NOW SAYS SO.
+ *
+ * A blind playtester rebuilt one pin five times and held each control for 30 s: full throttle
+ * forward moved the car 0.34 m, full reverse moved it 145.15 m, with engine power at 0.46 and
+ * 34,296 wall contacts over 360 s of which 34,295 charged nothing. Nothing on screen said
+ * anything. `src/wanted.js`'s `composeLaw` is the only place the game has ever suggested
+ * reverse, and only once an arrest is already running.
+ *
+ * BUILT GEOMETRY, NOT A FOUND PIN, and that is a correction. Two scenario arms tried to produce
+ * a pin by driving at the district: sixteen headings of 20 s at full throttle gave a best of
+ * 23.31 m of travel, and a pocket search found a spot where the car simply WRECKED — the contact
+ * counter went negative, because a respawn resets it. A wreck is a different feature with its own
+ * cue. So the wall here is a 20 m box the car is crept into, which pins it by construction and
+ * cannot wreck it, and the detector's own inputs are swept separately below.
+ */
+console.log('\n§ the wedged-car cue');
+{
+  const HZ = 120, DT = 1 / HZ;
+  const ground = new FlatGround(0);
+  /**
+   * A POCKET THE CAR CANNOT DRIVE OUT OF FORWARD: three walls around a 4 m bay, open to the
+   * south. 4 m against a 1.9 m body leaves room to enter and none to turn.
+   *
+   * THE RING FIELD IS `p`, NOT `ring`, and the first version of this used `ring`: `BlockerIndex`
+   * reads `buildings[b].p`, so it built an index of ZERO segments and the car drove 251.656 m
+   * through where the wall was meant to be — with the arm correctly refusing rather than
+   * reporting a pin. A silently empty index is the shape this file's own §1 exists to catch.
+   */
+  const BAY = 2.0, DEPTH = 10;
+  const ix2 = new BlockerIndex({ buildings: [
+    { p: [[-BAY - 8, 0], [-BAY, 0], [-BAY, -DEPTH], [-BAY - 8, -DEPTH]] },     // west wall
+    { p: [[BAY, 0], [BAY + 8, 0], [BAY + 8, -DEPTH], [BAY, -DEPTH]] },         // east wall
+    { p: [[-BAY - 8, 0], [BAY + 8, 0], [BAY + 8, 8], [-BAY - 8, 8]] },         // the end wall
+  ] });
+  console.log(`    the pocket: ${ix2.report().segments} wall segments, a ${BAY * 2} m bay `
+    + `${DEPTH} m deep, closed to the north`);
+  const drive = (controls, seconds, v) => {
+    for (let i = 0; i < Math.round(seconds * HZ); i++) { v.setControls(controls); v.step(DT, ground); }
+    return v;
+  };
+  const pinned = () => {
+    const v = new Vehicle();
+    v.blockers = ix2;
+    v.position.set(0, v.position.y, -8);
+    v.quaternion.setFromAxisAngle({ x: 0, y: 1, z: 0 }, 0);     // +z, into the end wall
+    drive({ throttle: 0.35 }, 8, v);                            // crept in, so nothing wrecks
+    return v;
+  };
+  const v0 = pinned();
+  const before = { x: v0.position.x, z: v0.position.z, c: v0.contacts };
+  drive({ throttle: 1 }, 10, v0);
+  const travelled = Math.hypot(v0.position.x - before.x, v0.position.z - before.z);
+  console.log(`    crept into a wall, then 10 s of full throttle: ${travelled.toFixed(3)} m of `
+    + `travel, ${v0.contacts - before.c} contacts `
+    + `(${((v0.contacts - before.c) / 10).toFixed(0)}/s), stuckFor ${v0.stuckFor.toFixed(2)} s`);
+  /**
+   * THE ARM ASSERTS IT IS PINNED BEFORE ASSERTING ANYTHING ABOUT THE CUE, because both sides of
+   * "the cue fires when the car cannot move" are empty when the car can. Both earlier versions
+   * of this measurement failed exactly here and said so rather than reporting a number.
+   */
+  check('the car really is pinned, so the arms below are measuring a jam',
+    travelled < 1.0 && v0.contacts - before.c > 100,
+    `${travelled.toFixed(3)} m under full power, ${v0.contacts - before.c} contacts`);
+  check('and the cue fires on it, naming the direction that was NOT tried',
+    v0.stuckFor >= STUCK_HOLD_S && composeStuck(v0)?.subtitle === 'reverse',
+    `stuckFor ${v0.stuckFor.toFixed(2)} s, line `
+    + `${JSON.stringify(composeStuck(v0))}`);
+  // AND REVERSE GETS OUT, which is the whole reason the cue says that word.
+  const vr = pinned();
+  const r0 = { x: vr.position.x, z: vr.position.z };
+  drive({ throttle: -1 }, 10, vr);
+  const back = Math.hypot(vr.position.x - r0.x, vr.position.z - r0.z);
+  console.log(`    the same pin, 10 s of full reverse: ${back.toFixed(2)} m — `
+    + `x${(back / Math.max(0.001, travelled)).toFixed(0)} of what forward managed`);
+  check('reverse gets the car out, so the cue is advice and not commentary',
+    back > 20 && back / Math.max(0.001, travelled) > 20,
+    `${back.toFixed(2)} m against ${travelled.toFixed(3)} m forward`);
+  check('and holding reverse into a wall names the other direction',
+    (() => {
+      const v = new Vehicle();
+      v.blockers = ix2;
+      // Reversed into the same pocket: nose south, tail at the end wall.
+      v.position.set(0, v.position.y, -8);
+      v.quaternion.setFromAxisAngle({ x: 0, y: 1, z: 0 }, Math.PI);
+      drive({ throttle: -0.35 }, 8, v);
+      drive({ throttle: -1 }, 10, v);
+      return v.stuckFor >= STUCK_HOLD_S && composeStuck(v)?.subtitle === 'drive';
+    })(), 'tail-in jam -> "drive"');
+
+  /**
+   * THE DETECTOR'S THREE CONDITIONS, SWEPT. A jam needs a contact, an open throttle and no
+   * travel, and each is asserted to be NECESSARY: without this the arms above pass for a
+   * detector that fires on any three seconds of anything.
+   */
+  const rows = [
+    ['no contact, full throttle, stationary', { touched: false, th: 1, v: 0 }, false],
+    ['contact, throttle under the threshold', { touched: true, th: STUCK_THROTTLE - 0.01, v: 0 }, false],
+    ['contact, full throttle, but moving', { touched: true, th: 1, v: STUCK_SPEED_MS + 0.01 }, false],
+    ['contact, full throttle, stationary', { touched: true, th: 1, v: 0 }, true],
+    ['contact, at the throttle threshold exactly', { touched: true, th: STUCK_THROTTLE, v: 0 }, true],
+    ['contact, full reverse, stationary', { touched: true, th: -1, v: 0 }, true],
+  ];
+  const fire = ({ touched, th, v: planar }) => {
+    const v = new Vehicle();
+    v.setControls({ throttle: th });
+    for (let i = 0; i < Math.round((STUCK_HOLD_S + 1) * HZ); i++) {
+      v.velocity.set(planar, 0, 0);
+      v.throttle = th;                       // held directly: setControls clamps and this sweeps
+      v._trackJam(DT, touched);
+    }
+    return { stuckFor: v.stuckFor, line: composeStuck(v) };
+  };
+  /**
+   * THE CONTACT GRACE, RE-MEASURED HERE RATHER THAN TRUSTED. `STUCK_CONTACT_GRACE_S` is
+   * district/main.js's own dt clamp, and what it has to clear is how long a WEDGED car goes
+   * without a corrected sample — which is a property of the collider and the wall, not a
+   * constant anybody chose, so it can move under the feature.
+   */
+  {
+    const v = pinned();
+    let gap = 0, worst = 0, touches = 0, steps = 0;
+    for (let i = 0; i < 30 * HZ; i++) {
+      const c0 = v.contacts;
+      v.setControls({ throttle: 1 });
+      v.step(DT, ground);
+      steps++;
+      if (v.contacts > c0) { touches++; gap = 0; } else { gap += DT; if (gap > worst) worst = gap; }
+    }
+    console.log(`    a wedged car is contact-free on ${(100 * (1 - touches / steps)).toFixed(1)}% `
+      + `of steps; worst gap ${worst.toFixed(4)} s = ${(worst / DT).toFixed(0)} steps, against a `
+      + `grace of ${STUCK_CONTACT_GRACE_S}`);
+    check('the contact grace clears the worst gap a real pin produces',
+      worst > 0 && STUCK_CONTACT_GRACE_S > worst,
+      `grace ${STUCK_CONTACT_GRACE_S} s against a measured worst of ${worst.toFixed(4)} s `
+      + `(x${(STUCK_CONTACT_GRACE_S / worst).toFixed(2)})`);
+    check('and the gap is real, so resetting on one clear step would have been the bug it was',
+      touches < steps && touches > steps * 0.5,
+      `${touches} of ${steps} steps touched`);
+  }
+  console.log(`    the detector's conditions (threshold ${STUCK_THROTTLE} throttle, `
+    + `${STUCK_SPEED_MS} m/s, ${STUCK_HOLD_S} s):`);
+  const wrong = [];
+  for (const [name, inp, want] of rows) {
+    const got = fire(inp);
+    const fired = got.line !== null;
+    console.log(`      ${name.padEnd(42)} ${fired ? 'CUE' : '—  '}  `
+      + `stuckFor ${got.stuckFor.toFixed(2)} s`);
+    if (fired !== want) wrong.push(name);
+  }
+  check('each of the three conditions is necessary, and together they are sufficient',
+    wrong.length === 0, wrong.join('; ') || `${rows.length} cases, all as expected`);
+  /**
+   * AND THE DWELL CLEARS THE WORST HONEST PULL-AWAY. Full brake to rest then full power, time
+   * spent under `STUCK_SPEED_MS`, measured here rather than quoted: the throttle threshold is
+   * 0.5 and not `composeLaw`'s 0.05 precisely because at 0.05 a legitimate crawl away spends
+   * longer under the threshold than the dwell is.
+   */
+  const pullAway = (throttle) => {
+    const v = new Vehicle();
+    drive({ brake: 1 }, 2, v);
+    drive({ throttle: 1 }, 6, v);
+    drive({ brake: 1 }, 6, v);
+    let t = 0;
+    for (let i = 0; i < Math.round(10 * HZ); i++) {
+      v.setControls({ throttle });
+      v.step(DT, ground);
+      if (Math.hypot(v.velocity.x, v.velocity.z) < STUCK_SPEED_MS) t += DT; else break;
+    }
+    return t;
+  };
+  /**
+   * AND THE SAME THING IN THE SHIPPED DISTRICT, not only in a bay built for the purpose. The
+   * synthetic pocket above is the controlled case; this is the one a player can reach.
+   *
+   * (132.89, 221.48) was found by gridding the district at 5 m for clear spots with most of 16
+   * directions blocked within 6 m, then testing each by creeping in and holding full throttle —
+   * 388 candidates, 5 real pins. It reproduces the playtester's own numbers, which is what makes
+   * it the right subject rather than a convenient one:
+   *
+   *     reported by the playtester   forward 0.34 m over 30 s, ~96 contacts/s
+   *     here                         forward 0.185 m over 10 s, 94 contacts/s, reverse 28.7 m
+   */
+  {
+    const PIN = { x: 132.89, z: 221.48, yaw: 1.571 };
+    const atPin = () => {
+      const v = new Vehicle();
+      v.blockers = ix;                                 // the REAL district index, from §1
+      v.position.set(PIN.x, v.position.y, PIN.z);
+      v.quaternion.setFromAxisAngle({ x: 0, y: 1, z: 0 }, PIN.yaw);
+      drive({ throttle: 0.35 }, 8, v);
+      return v;
+    };
+    const f = atPin();
+    const f0 = { x: f.position.x, z: f.position.z, c: f.contacts };
+    drive({ throttle: 1 }, 10, f);
+    const fwd2 = Math.hypot(f.position.x - f0.x, f.position.z - f0.z);
+    const r = atPin();
+    const r0 = { x: r.position.x, z: r.position.z };
+    drive({ throttle: -1 }, 10, r);
+    const back2 = Math.hypot(r.position.x - r0.x, r.position.z - r0.z);
+    console.log(`    a real pin at (${PIN.x}, ${PIN.z}): forward ${fwd2.toFixed(3)} m, reverse `
+      + `${back2.toFixed(1)} m, ${f.contacts - f0.c} contacts `
+      + `(${((f.contacts - f0.c) / 10).toFixed(0)}/s), stuckFor ${f.stuckFor.toFixed(1)} s`);
+    check('the shipped district contains a pin a player can reach, and the cue fires in it',
+      fwd2 < 1.0 && back2 > 15 && f.stuckFor >= STUCK_HOLD_S
+      && composeStuck(f)?.subtitle === 'reverse',
+      `forward ${fwd2.toFixed(3)} m, reverse ${back2.toFixed(1)} m, `
+      + `stuckFor ${f.stuckFor.toFixed(1)} s`);
+  }
+
+  const atThreshold = pullAway(STUCK_THROTTLE);
+  const atBustThrottle = pullAway(0.05);
+  console.log(`    an unobstructed pull-away stays under ${STUCK_SPEED_MS} m/s for `
+    + `${atThreshold.toFixed(3)} s at throttle ${STUCK_THROTTLE}, and `
+    + `${atBustThrottle.toFixed(3)} s at the bust's 0.05`);
+  check('the dwell clears the worst pull-away at its own throttle threshold, by a stated factor',
+    atThreshold > 0 && STUCK_HOLD_S / atThreshold > 5,
+    `x${(STUCK_HOLD_S / atThreshold).toFixed(1)} (${STUCK_HOLD_S} s against `
+    + `${atThreshold.toFixed(3)} s)`);
+  check('KNOWN-BAD: the bust\'s 0.05 would not clear it, which is why this has its own constant',
+    atBustThrottle > STUCK_HOLD_S,
+    `${atBustThrottle.toFixed(3)} s at throttle 0.05 against a dwell of ${STUCK_HOLD_S}`);
 }
 
 // ---------------------------------------------------------------------------

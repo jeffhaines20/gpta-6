@@ -5,7 +5,8 @@
 
 import * as THREE from '../vendor/three.module.min.js';
 import { Input } from '../src/input.js';
-import { Vehicle, BODY_SAMPLES, BODY_RADIUS, BODY_ENCLOSING } from '../src/vehicle.js';
+import { Vehicle, BODY_SAMPLES, BODY_RADIUS, BODY_ENCLOSING,
+  composeStuck } from '../src/vehicle.js';
 import { BlockerIndex, districtBounds, worldFence } from '../src/blockers.js';
 import { DamageModel, IMPACT, dynamicContact } from '../src/damage.js';
 import { RoadGraph, followPath, ROUTE_LANE_M } from '../src/roadpath.js';
@@ -2049,8 +2050,15 @@ function animate(now) {
   const wantedLine = composeWanted(wantedHud);
   const lawLine = composeLaw(wantedHud);
   const bustLine = bustHoldLine;
+  /**
+   * THE WEDGED-CAR LINE. `composeStuck` is in src/vehicle.js, which owns the three facts it needs
+   * — throttle, planar speed and whether a body sample was corrected this step — for the same
+   * reason `composeLaw` is in src/wanted.js: presentation assembled in this file is presentation
+   * no offline gate can reach, and this file is imported by nothing offline.
+   */
+  const stuckLine = mode === 'car' ? composeStuck(vehicle) : null;
   const band = composeBand({ busted: bustLine, wreck: wreckLine, fence: fenceLine, law: lawLine,
-    mission: missionHud, ended: missionEnd, offer: offerLine });
+    stuck: stuckLine, mission: missionHud, ended: missionEnd, offer: offerLine });
   const bandObjective = band.objective, bandSubtitle = band.subtitle;
   // Once, before the HUD feed: `waypoint`, `markers` and `route` all read it, and a marker set
   // built inside the object literal would have been one frame behind the waypoint beside it.

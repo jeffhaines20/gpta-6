@@ -165,6 +165,28 @@ clears `_scene` only when the player moves beyond `SCENE_LEAVE_M` (85 m) — sto
 it sets `stopped = true` with no timeout. One clipped pedestrian plus a stop hides the
 mission objective, the completion line and every job offer until you drive 85 m.
 
+### Being jammed has no cue, and the out is the control a player will not try — FIXED
+`src/vehicle.js` now owns a jam detector and `composeStuck`, and `THE CAR IS WEDGED / reverse` is
+a band tenant between `law` and `mission`. Measured at a real pin found by gridding the shipped
+district — 388 candidate pockets, 5 real pins:
+
+    (132.89, 221.48)   forward 0.183 m over 10 s, 94 contacts/s, reverse 28.7 m
+    the playtester's   forward 0.34 m over 30 s, ~96 contacts/s, reverse 145.15 m
+
+On the page: `stuckFor 4.05 s`, 473 contacts, 0 wrecks, and the DOM reads
+`"THE CAR IS WEDGED" / "reverse"`.
+
+Three derivations, each with its sweep. The throttle threshold is 0.5 and NOT `composeLaw`'s
+0.05, because at 0.05 a legitimate crawl away spends 4.633 s under the stop threshold — longer
+than the 4 s dwell, so the bust's constant would fire the cue on a careful driver. The dwell is
+the same beat `BUST_HOLD_S` and `WRECK_HOLD_S` are, x10 of the 0.400 s worst pull-away at its own
+throttle threshold. And the contact grace is `district/main.js`'s own dt clamp of 0.05 s, because
+a wedged car is contact-free on 23.0% of steps with a worst gap of 0.0333 s — the first version
+reset on any contact-free step and the cue NEVER FIRED.
+
+Still open from #85/#89: a nose-in crash is both the crime and the immobilisation, and beyond the
+pursuit's reach it is total immunity. The original record follows.
+
 ### Being jammed has no cue, and the out is the control a player will not try
 Five identical rebuilds of one pin, 30 s each: full throttle forward **0.34 m**; full
 reverse **145.15 m**. 34,296 wall contacts over 360 s of which 34,295 charged nothing, so

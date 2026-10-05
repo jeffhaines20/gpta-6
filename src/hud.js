@@ -683,6 +683,10 @@ export function disposeDistrictMaps() {
  * deciding `from`. Two copies of one order is how they disagree; tools/hud-cue.mjs walks the
  * list, so a tenant added without a check is a tenant the gate reports as unexercised.
  */
+// `stuck` is NOT in here, and it would be wrong in two ways if it were: the one word it carries
+// is the whole instruction, and a car that cannot move has nothing to say about the objective it
+// cannot reach. `composeStuck` sets `ownSubtitle` as well, so this is belt and braces — see the
+// note in `composeBand` about the rule eating `composeLaw`'s "reverse" for a round.
 const HOLDS_MISSION_SUBTITLE = new Set(['fence', 'law']);
 
 /**
@@ -692,7 +696,20 @@ const HOLDS_MISSION_SUBTITLE = new Set(['fence', 'law']);
  * a unit parked on it is wrecked AND its driver is under arrest. Being arrested is the more final
  * of the two and the one whose countdown is running, so it takes the band.
  */
-export const BAND_ORDER = ['busted', 'wreck', 'fence', 'law', 'mission', 'ended', 'offer'];
+/**
+ * `stuck` SITS BELOW `law` AND ABOVE `mission`, and both halves of that are decisions.
+ *
+ * BELOW `law`, because `composeLaw`'s bust countdown already prints "BUSTED IN — 4 s / reverse"
+ * for a driver who has tried the throttle — the same word, with a clock attached. A player being
+ * arrested in a wedged car must read the clock, not a second opinion about the gearbox.
+ *
+ * ABOVE `mission`, because a car that will not move makes every objective unreachable. The
+ * playtester who found this held full throttle for 30 s and travelled 0.34 m; reverse from the
+ * same pin covered 145.15 m. Nothing on screen said so, and 34,295 of 34,296 wall contacts
+ * charged nothing, so the car was pressing a wall for free with the HUD reporting an objective
+ * it could not reach.
+ */
+export const BAND_ORDER = ['busted', 'wreck', 'fence', 'law', 'stuck', 'mission', 'ended', 'offer'];
 
 /**
  * AN OBJECTIVE AS ONE LINE OF WORDS, for a host with no canvas.
@@ -712,11 +729,11 @@ export function objectiveLine(o) {
   return o.distance == null ? head : `${head} — ${Math.round(o.distance)} ${o.unit || 'm'}`;
 }
 export function composeBand({ busted = null, wreck = null, fence = null, law = null,
-  mission = null, ended = null, offer = null } = {}) {
+  stuck = null, mission = null, ended = null, offer = null } = {}) {
   // Precedence and naming from ONE list, so they cannot drift apart. `busted` is deliberately not
   // in HOLDS_MISSION_SUBTITLE: the bust has just aborted the mission, so "still on: DELIVER THE
   // PARCEL" would be a lie in the one place a player is looking.
-  const slots = { busted, wreck, fence, law, mission, ended, offer };
+  const slots = { busted, wreck, fence, law, stuck, mission, ended, offer };
   const from = BAND_ORDER.find((k) => slots[k]) ?? null;
   if (!from) return { objective: null, subtitle: null, from: null };
   const pick = slots[from];

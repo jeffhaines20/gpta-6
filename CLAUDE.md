@@ -1447,8 +1447,14 @@ well the thing works, and the first version of that probe read zero at every inp
 the code was correct; and **the last pass drawn is up to `eps * exp(rate*dt)` short of the
 target**, because `update()` damps first and tests after, which is 0.82 px where the naive
 0.69 px bound fails. `boot-check` needs a browser and
-takes **about a minute** — it was twenty seconds, and the busted flow and the run-over wire
-cost it forty of those, because both are host rules nothing offline imports. Run it
+takes **about three and a half minutes** — it was twenty seconds, then about a minute once the
+busted flow and the run-over wire went in, and the wedged-car cue took it to 209 s. Every one of
+those is a host rule nothing offline imports, and the newest is the most expensive because it has
+to actually wedge the car: `district/main.js` clamps dt to 0.05 and `stepFixed` caps at 16
+substeps of 1/120, so the physics advances at most **0.133 s of sim per rendered frame however
+long the frame takes**, and `setTimeScale` cannot buy more than that. A four-second dwell is
+thirty frames minimum, and headless is under one frame a second. Budget for it, bound such an arm
+on the STATE rather than the wall clock, and report which of the two ended the run. Run it
 whenever `district/` or `src/` changed, because it is the only gate that loads the game. `damage-live` takes about twelve minutes and
 `ped-audit` about fifteen. Run the ones your change can touch before claiming done.
 

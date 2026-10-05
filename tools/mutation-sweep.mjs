@@ -228,8 +228,8 @@ const MUTATIONS = [
   // ---- src/hud.js
   {
     id: 'band-order', file: 'src/hud.js',
-    find: "export const BAND_ORDER = ['busted', 'wreck', 'fence', 'law', 'mission', 'ended', 'offer'];",
-    to: "export const BAND_ORDER = ['offer', 'ended', 'mission', 'law', 'fence', 'wreck', 'busted'];",
+    find: "export const BAND_ORDER = ['busted', 'wreck', 'fence', 'law', 'stuck', 'mission', 'ended', 'offer'];",
+    to: "export const BAND_ORDER = ['offer', 'ended', 'mission', 'stuck', 'law', 'fence', 'wreck', 'busted'];",
     why: 'an offer outranks a wrecked car and the world fence in the objective band',
   },
   {
@@ -382,8 +382,8 @@ const MUTATIONS = [
      * appear, which is the state the game shipped in for as long as `hitAndRun` has existed.
      */
     id: 'law-tenant', file: 'src/hud.js',
-    find: "export const BAND_ORDER = ['busted', 'wreck', 'fence', 'law', 'mission', 'ended', 'offer'];",
-    to: "export const BAND_ORDER = ['busted', 'wreck', 'fence', 'mission', 'ended', 'offer'];",
+    find: "export const BAND_ORDER = ['busted', 'wreck', 'fence', 'law', 'stuck', 'mission', 'ended', 'offer'];",
+    to: "export const BAND_ORDER = ['busted', 'wreck', 'fence', 'stuck', 'mission', 'ended', 'offer'];",
     why: 'the 85 m hit-and-run deadline is back to having no words on screen',
   },
   {
@@ -889,6 +889,51 @@ const MUTATIONS = [
     find: '      if (near.d <= this.reachRadius && (u.stopped || (wantT > near.t && u.t <= near.t))) {',
     to: '      if (near.d <= this.reachRadius && wantT > near.t && u.t <= near.t) {',
     why: 'a hold lasts two frames, so being caught becomes a coin flip',
+  },
+  {
+    /**
+     * THE JAM CLOCK RESETS ON EVERY CONTACT-FREE STEP, which is how `_trackJam` was first
+     * written and it NEVER FIRED. A wedged car rocks: measured at 120 Hz in a 4 m bay, a body
+     * sample is corrected on 77.0% of steps and the contact-free gaps run p50 0.0167 s, p95 and
+     * worst 0.0333 s — four steps. So the clock was reset about 350 times in 30 s and `stuckFor`
+     * never got past one step, against a dwell of 4 s.
+     *
+     * INVISIBLE TO EVERYTHING BUT A REAL-GEOMETRY ARM. The detector's input sweep passes — it
+     * feeds `touched` every step, so the gap never happens — and so does the band ladder, and so
+     * does the `look()` wire, because all three drive the composer rather than the car.
+     * blocker-test's pin arms are what tell the two apart, which is why they exist.
+     */
+    id: 'jam-reset', file: 'src/vehicle.js',
+    find: '    this._sinceContact = touched ? 0 : (this._sinceContact ?? Infinity) + dt;',
+    to: '    this._sinceContact = touched ? 0 : Infinity;',
+    why: 'the wedged-car cue never fires, because a pinned car is not touching every step',
+  },
+  {
+    /**
+     * THE CUE NAMES THE DIRECTION ALREADY BEING TRIED. Behaviour-preserving in every sense a
+     * simulation can see: the clock, the contacts and the car's position are identical, and the
+     * line is still there with correct English in it. It just tells a player holding full
+     * throttle against a wall to hold full throttle against a wall. Measured at a real pin,
+     * forward moves 0.183 m and reverse 28.7 m, so the word is the entire value of the cue.
+     */
+    id: 'jam-word', file: 'src/vehicle.js',
+    find: "    subtitle: (v.stuckDir ?? 0) < 0 ? 'drive' : 'reverse',",
+    to: "    subtitle: (v.stuckDir ?? 0) < 0 ? 'reverse' : 'drive',",
+    why: 'a nose-in jam is told to drive forward, which is what it is already doing',
+  },
+  {
+    /**
+     * THE HOST STOPS PASSING THE TENANT. [browser], because nothing offline imports
+     * district/main.js. `composeStuck` still works, `BAND_ORDER` still lists `stuck`, hud-cue's
+     * ladder still passes — the line is composed by nobody, so the page never shows it. This is
+     * the same shape as `host-reach` and as the fleet that was never created: a module that is
+     * right and a wire that does not exist.
+     */
+    id: 'jam-tenant', file: 'district/main.js',
+    find: "  const stuckLine = mode === 'car' ? composeStuck(vehicle) : null;",
+    to: '  const stuckLine = null;',
+    why: 'the page never tells a wedged player anything, however right the module is',
+    browser: true,
   },
   {
     /**

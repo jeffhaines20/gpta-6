@@ -27,7 +27,8 @@
 import { THEME, LAYOUT, composeBand, BAND_ORDER, MINIMAP_ZOOM_M, MINIMAP_REACH_M,
   PULL_CAP, PULL_MIN, PULL_MIN_PX, PULL_FULL_PX, PULL_TICK_PX, objectiveLine } from '../src/hud.js';
 import { composeWanted, composeLaw, LAW_NOTICE_S, STATES, WantedSystem,
-  SCENE_LEAVE_M } from '../src/wanted.js';
+  SCENE_LEAVE_M, SCENE_STOP_MS } from '../src/wanted.js';
+import { composeStuck, STUCK_HOLD_S, STUCK_THROTTLE, STUCK_SPEED_MS } from '../src/vehicle.js';
 
 const checks = [];
 const check = (name, ok, detail) => { checks.push({ name, ok: !!ok, detail }); return !!ok; };
@@ -759,7 +760,8 @@ console.log('\nSTATUS PANEL — does a changing readout reach the screen?');
  * reversed or shuffled order cannot survive that, and the ladder is printed so the order is legible
  * rather than implied by separate checks.
  *
- * SEVEN NOW: `busted` went in above `wreck`. A new tenant this ladder does not list is a tenant
+ * EIGHT NOW: `busted` went in above `wreck`, and `stuck` between `law` and `mission`. A new
+ * tenant this ladder does not list is a tenant
  * the ladder cannot see, which is the same defect in a different place — so the count is asserted
  * against `composeBand`'s own parameter list below rather than written down here.
  */
@@ -778,11 +780,16 @@ console.log('\nOBJECTIVE BAND — the priority order, as a ladder');
     // real snapshot rather than a literal, so a rename or a reshape of what the module publishes
     // fails this ladder instead of passing it.
     law: composeLaw({ stars: 2, scene: { d: 12, leaveIn: 73, stopped: false } }),
+    // The eighth, and this ladder found it: adding `stuck` to composeBand and not to ORDER
+    // failed the coverage check below on its first run, which is the mechanism that exists
+    // because `law` sat above everything here untested for a round. Built from src/vehicle.js's
+    // own composer for the same reason `law` is built from wanted.js's.
+    stuck: composeStuck({ stuckFor: STUCK_HOLD_S, stuckDir: 1 }),
     mission: { objective: 'DRIVE TO THE MARKER', subtitle: 'Five Points' },
     ended: { objective: 'JOB DONE', subtitle: null },
     offer: { objective: 'SHAKEDOWN', subtitle: 'two markers by the bayfront' },
   };
-  const ORDER = ['busted', 'wreck', 'fence', 'law', 'mission', 'ended', 'offer'];
+  const ORDER = ['busted', 'wreck', 'fence', 'law', 'stuck', 'mission', 'ended', 'offer'];
   /**
    * THE LADDER'S OWN COVERAGE, read off the function rather than trusted. `composeBand` destructures
    * its tenants by name in its signature, so the names are recoverable — and a tenant added to the

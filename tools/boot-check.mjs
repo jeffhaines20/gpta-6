@@ -506,6 +506,96 @@ if (state.global && state.frames > 2) {
   check('and the host asks the module how far an officer gets, rather than its own old bound',
     bust.reachR > bust.holdR && bust.hostReach === bust.reachR,
     `host ${bust.hostReach} against reach ${bust.reachR} and the old ${bust.holdR}`);
+}
+
+/**
+ * THE WEDGED-CAR CUE, WHICH ONLY THIS GATE CAN SEE REACH THE PAGE.
+ *
+ * `src/vehicle.js` owns the detector and `tools/blocker-test.mjs` gates it against real geometry:
+ * a car crept into a 4 m bay travels 0.305 m under full throttle, pressing the wall 92 times a
+ * second, and reverse covers 63.18 m from the same pin — x207. `src/hud.js`'s `composeBand` owns
+ * the precedence and hud-cue's ladder gates that. What lives ONLY in district/main.js is the one
+ * line that passes `composeStuck(vehicle)` into the band, and nothing offline imports that file.
+ *
+ * READ OFF THE DOM, like the arm above it, because the state object is not what a player sees:
+ * the `stuck` tenant sets `ownSubtitle`, and the whole content of the line is the one word in the
+ * subtitle, so a build that composed it correctly and failed to paint it would be invisible to a
+ * check on `state.subtitle`.
+ *
+ * AT A REAL PIN IN THE SHIPPED DISTRICT, and the first version of this arm was void for an
+ * instructive reason: it set `vehicle.stuckFor` directly, and `_trackJam` runs every physics step
+ * and zeroed it before the band was composed. The injection failing is the detector working — but
+ * it is not a measurement, so it is replaced rather than worked around.
+ *
+ * (132.89, 221.48) was found by gridding the district at 5 m for clear spots with most of sixteen
+ * directions blocked within 6 m and then testing each by creeping in and holding full throttle:
+ * 388 candidates, 5 real pins. Offline it gives forward 0.183 m against reverse 28.7 m with 94
+ * contacts a second, which is the playtester's 0.34 m and ~96/s. tools/blocker-test.mjs asserts
+ * that; what is asserted HERE is only that the line reaches the page.
+ *
+ * BOUNDED BY THE STATE, NOT THE WALL CLOCK, the way the run-over arm above is. district/main.js
+ * clamps dt to 0.05 and `stepFixed` caps at 16 substeps of 1/120, so the physics advances at most
+ * 0.133 s per rendered frame however long the frame takes — `setTimeScale` cannot buy more than
+ * that. The run ends when `stuckFor` clears the dwell, with a generous wall-clock backstop that
+ * never decides a pass, and the reason it ended is reported.
+ */
+{
+  const jam = await page.evaluate(async () => {
+    const d = __district;
+    const v = d.vehicle;
+    const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+    const read = () => {
+      const h = d.hud();
+      return { obj: h.elObjText ? h.elObjText.textContent : '',
+        sub: h.elSub ? h.elSub.textContent : '' };
+    };
+    d.setMode('car');
+    d.clearWanted('boot-check');
+    d.setBodyCollision(true);
+    d.placeAt(132.89, 221.48, 1.571);
+    for (let i = 0; i < 3; i++) await frame();
+    const quiet = read();
+    // Crept in at 0.35 so the impact is gentle: a hard nose-in WRECKS the car, and a wreck is a
+    // different tenant with its own cue. Then full throttle, which is the state under test.
+    let phase = 'creep';
+    d.setAutopilot(() => {
+      v.setControls({ throttle: phase === 'creep' ? 0.35 : 1, brake: 0, steer: 0,
+        handbrake: false });
+    });
+    const t0 = Date.now();
+    let why = 'stuck';
+    for (let i = 0; i < 400; i++) {
+      await frame();
+      if (phase === 'creep' && v.contacts > 20) phase = 'push';
+      if (v.stuckFor >= 4.0) break;
+      if (d.wreckReport().wrecks > 0) { why = 'wrecked'; break; }
+      if (Date.now() - t0 > 240000) { why = 'wall clock'; break; }
+    }
+    const nose = read();
+    const stuckFor = v.stuckFor, contacts = v.contacts, frames = d.frames;
+    // Freed: brake off the wall in reverse, and the line must go.
+    d.setAutopilot(() => {
+      v.setControls({ throttle: -1, brake: 0, steer: 0, handbrake: false });
+    });
+    for (let i = 0; i < 60 && v.stuckFor > 0; i++) await frame();
+    const after = read();
+    d.setAutopilot(null);
+    return { quiet, nose, after, stuckFor, contacts, frames, why,
+      wrecks: d.wreckReport().wrecks };
+  });
+  console.log(`  wedged at the pin: "${jam.quiet.obj}" -> "${jam.nose.obj}" / "${jam.nose.sub}", `
+    + `then "${jam.after.obj}"`);
+  console.log(`    ended on "${jam.why}" with stuckFor ${jam.stuckFor.toFixed(2)} s, `
+    + `${jam.contacts} contacts, ${jam.wrecks} wrecks`);
+  check('the car got itself wedged on the page rather than wrecked or timed out',
+    jam.why === 'stuck' && jam.wrecks === 0 && jam.stuckFor >= 4.0,
+    `ended on "${jam.why}", stuckFor ${jam.stuckFor.toFixed(2)} s, wrecks ${jam.wrecks}`);
+  check('a wedged car reaches the page, with the one word that gets it out',
+    jam.nose.obj.includes('WEDGED') && jam.nose.sub === 'reverse',
+    `"${jam.nose.obj}" / "${jam.nose.sub}"`);
+  check('KNOWN-BAD: and it is gone once the car frees itself, so it is not a stuck panel',
+    !jam.quiet.obj.includes('WEDGED') && !jam.after.obj.includes('WEDGED'),
+    `before "${jam.quiet.obj}", after "${jam.after.obj}"`);
   await page.evaluate(() => __district.clearWanted('boot-check'));
 }
 

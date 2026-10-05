@@ -33,7 +33,8 @@
 // diagnosing something but should not steer by.
 import fs from 'node:fs';
 import * as THREE from '../vendor/three.module.min.js';
-import { Vehicle, BODY_SAMPLES, BODY_RADIUS, BODY_ENCLOSING } from '../src/vehicle.js';
+import { Vehicle, BODY_SAMPLES, BODY_RADIUS, BODY_ENCLOSING,
+  composeStuck, STUCK_HOLD_S } from '../src/vehicle.js';
 import { Player } from '../src/player.js';
 import { FlatGround } from '../src/ground.js';
 import { BlockerIndex, districtBounds, worldFence } from '../src/blockers.js';
@@ -1262,7 +1263,11 @@ export class Session {
       ? { objective: 'BUSTED',
         subtitle: `released in ${Math.max(0, WRECK_HOLD_S - this._bustedFor).toFixed(0)} s` }
       : null;
-    return composeBand({ busted, wreck, fence, law, mission: hud, ended, offer });
+    // `stuck` from src/vehicle.js's own composer, the same call district/main.js makes. Omitting
+    // it here is how this harness would stop being able to see a tenant the page shows — the
+    // defect CLAUDE.md records as four of composeBand's five tenants missing from `look()`.
+    const stuck = this.mode === 'car' ? composeStuck(this.vehicle) : null;
+    return composeBand({ busted, wreck, fence, law, stuck, mission: hud, ended, offer });
   }
 
   /** The session as a reviewer would read it. */
@@ -2413,6 +2418,38 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
       sawCountdown != null && sawCountdown > 0 && sawCountdown <= BUST_HOLD_S,
       `first reading ${sawCountdown}`);
     check('the wanted level is cleared', s.wanted.stars === 0, `${s.wanted.stars}*`);
+    /**
+     * THE WEDGED-CAR CUE REACHES `look()`, which is the half of that feature this file owns.
+     *
+     * The DETECTOR is gated in tools/blocker-test.mjs against real geometry — a car crept into a
+     * 4 m bay travels 0.305 m under full throttle with 92 contacts a second, and reverse covers
+     * 63.18 m from the same pin, x207. What can break HERE is the wire: `_band()` has to pass
+     * `stuck` to `composeBand`, and CLAUDE.md records four of composeBand's five tenants missing
+     * from `look()` for exactly that reason, which made the harness harder to play than the game.
+     *
+     * Driven off the module's own `composeStuck` by setting the fields it reads, because a pin in
+     * the real district is not reliably reachable: two scenario arms tried and got 23.31 m of
+     * travel on the best of sixteen headings, and a pocket search found a spot where the car
+     * WRECKED instead — the contact counter went negative, a respawn having reset it.
+     */
+    const jam = new Session({ traffic: 0, peds: 0 });
+    jam.step(0.5);
+    const quiet = jam.look().objective;
+    jam.vehicle.stuckFor = STUCK_HOLD_S;
+    jam.vehicle.stuckDir = 1;
+    const wedged = jam.look();
+    jam.vehicle.stuckDir = -1;
+    const tailIn = jam.look();
+    console.log(`    wedged: "${quiet}" -> "${wedged.objective}" / "${wedged.subtitle}"; `
+      + `tail-in subtitle "${tailIn.subtitle}"`);
+    check('a wedged car reaches look() through the band, with the word that gets it out',
+      String(wedged.objective).includes('WEDGED') && wedged.subtitle === 'reverse'
+      && tailIn.subtitle === 'drive' && wedged.bandFrom === 'stuck',
+      `${JSON.stringify(wedged.objective)} / ${wedged.subtitle}, from ${wedged.bandFrom}`);
+    check('KNOWN-BAD: and it is absent without the jam, so that is not just the band\'s default',
+      !String(quiet).includes('WEDGED')
+      && composeStuck({ stuckFor: STUCK_HOLD_S - 0.01, stuckDir: 1 }) === null,
+      `${JSON.stringify(quiet)}; under the dwell -> null`);
     check('the mission is lost, which is what being busted costs',
       s.mission.outcome === OUTCOMES.ABORTED, `${s.mission.outcome}`);
     check('the car comes back repaired, which no player could do before',

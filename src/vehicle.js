@@ -54,6 +54,43 @@ const _co = new THREE.Vector3();
  * building corner therefore overlaps the visible body by up to that much before
  * anything resists. It is a rounded car, and it is 20 times better than the hole.
  */
+/**
+ * WHEN THE GAME SHOULD TELL A PLAYER THEY ARE JAMMED. Derivations in `_trackJam`, which carries
+ * the sweep that chose the throttle threshold.
+ *
+ * `STUCK_HOLD_S` IS THE SAME BEAT `BUST_HOLD_S` AND `WRECK_HOLD_S` ARE — "the game has taken
+ * over and is about to tell you something" — and it is declared here rather than imported so
+ * that src/vehicle.js does not have to know about the law. That is the arrangement
+ * `LAW_NOTICE_S` already uses against src/hud.js's `escalateSeconds`: two constants in two
+ * modules, with `tools/hud-cue.mjs` — the one gate that imports both — asserting they are equal
+ * rather than leaving it to a comment.
+ *
+ * `STUCK_SPEED_MS` is src/wanted.js's `SCENE_STOP_MS`, the same way: this file's own statement
+ * of "not moving", gated against that one.
+ */
+export const STUCK_HOLD_S = 4.0;
+export const STUCK_THROTTLE = 0.5;
+export const STUCK_SPEED_MS = 1.0;
+/**
+ * AND A JAM IS NOT A CONTACT EVERY STEP, which the first version of `_trackJam` assumed and so
+ * never fired on a real pin. A wedged car rocks against the wall: measured in a 4 m bay at 120 Hz,
+ * a sample is corrected on 77.0% of steps at full throttle and the contact-free gaps are
+ *
+ *     p50 0.0167 s   p95 0.0333 s   worst 0.0333 s = 4 steps
+ *
+ * stable at throttle 1, 0.75 and 0.5 (77.0 / 77.2 / 78.7% touched). Resetting on the first
+ * contact-free step therefore reset the clock about 350 times in 30 s and `stuckFor` never got
+ * past one step.
+ *
+ * 0.05 s IS `district/main.js`'s OWN dt CLAMP — "a contact within the last frame the host could
+ * possibly have taken" — and it clears the measured worst gap by x1.5. It is not load-bearing in
+ * the other direction: the clock also requires the car to be under `STUCK_SPEED_MS`, and a
+ * legitimate pull-away at the throttle threshold clears that in 0.400 s, a tenth of the dwell. So
+ * there is no value of this between the noise and the signal where the cue could fire wrongly.
+ * `tools/blocker-test.mjs` re-measures the gap and fails if it grows past this.
+ */
+export const STUCK_CONTACT_GRACE_S = 0.05;
+
 export const BODY_SAMPLES = Object.freeze([-1.2, -0.6, 0, 0.6, 1.2]);
 export const BODY_RADIUS = 0.95;
 /** Enclosing radius from the body centre: hypot(0.95, 2.15). The early-out. */
@@ -127,6 +164,10 @@ export class Vehicle {
     this.blockers = opts.blockers ?? null;
     this.damage = opts.damage ?? null;
     this.contacts = 0;
+    // Seconds the car has been pressing geometry under power without moving, and which way it
+    // was being asked to go. See `_trackJam` and `composeStuck`.
+    this.stuckFor = 0;
+    this.stuckDir = 0;
     this.lastContact = null;
     /** The worst APPLIED impact since the host last cleared it. See _collideBody. */
     this.pendingImpact = null;
@@ -362,7 +403,66 @@ export class Vehicle {
     // Body collision LAST, after integration, so it corrects a position that has
     // already moved rather than a velocity that has not yet been applied. Opt-in: with
     // no index attached this is one property read and a return.
+    const contactsIn = this.contacts;
     if (this.blockers) this._collideBody();
+    this._trackJam(dt, this.contacts > contactsIn);
+  }
+
+  /**
+   * HOW LONG THE CAR HAS BEEN PRESSING SOMETHING UNDER POWER AND NOT MOVING.
+   *
+   * A blind playtester rebuilt one pin five times and held each control for 30 s:
+   *
+   *     full throttle forward     0.34 m
+   *     full reverse            145.15 m
+   *
+   * with engine power at 0.46 — not powerless, just pointed at a wall — and 34,296 wall
+   * contacts over 360 s of which 34,295 charged nothing, so the car presses a wall at about 96
+   * contacts a second for free. The game already has the word: `src/wanted.js`'s `composeLaw`
+   * prints "BUSTED IN — 4 s / reverse" for a driver who has tried the throttle, and that is the
+   * only place in the game reverse is ever suggested — available only once an arrest is already
+   * running. So the fix is one tenant away, and this is the half that belongs to the car.
+   *
+   * THREE CONDITIONS, AND THE CONTACT IS THE ONE THAT DOES THE WORK. An unobstructed car
+   * pulling away gently is also slow with the throttle open; what it is not is pressing
+   * anything. `contacts` rises in `_collideBody` only when a sample is actually corrected, so
+   * requiring it removes the whole false-positive class rather than dialling a threshold
+   * against it.
+   *
+   * PLANAR SPEED, not `this.speed`, which is the 3D velocity length: a car settling on its
+   * suspension reads over any threshold from vertical motion alone, and a jam is a question
+   * about travel. The first version of the measurement below read one frame everywhere for
+   * exactly that reason.
+   *
+   * THE THROTTLE THRESHOLD IS 0.5 AND IT IS NOT `composeLaw`'s 0.05, which was the obvious
+   * reuse and is wrong here. 0.05 asks "did they touch it"; this asks "are they holding it
+   * down", and the difference is a measurement. Full brake to rest then full power, time spent
+   * under `SCENE_STOP_MS`, flat across entry speed because the last metre per second of a
+   * braking curve does not depend on where it started:
+   *
+   *     throttle  1.00   0.75   0.50   0.40   0.30   0.25   0.10   0.05   -1.00
+   *     seconds  0.200  0.267  0.408  0.508  0.683  0.825  2.158  4.658   0.217
+   *
+   * At 0.05 a legitimate crawl away spends 4.658 s under the threshold — LONGER than the dwell
+   * below — so the bust's constant would make this cue fire on a player driving off carefully.
+   * At 0.5 the worst honest pull-away is 0.408 s, which the dwell clears by x9.8.
+   */
+  _trackJam(dt, touched) {
+    const planar = Math.hypot(this.velocity.x, this.velocity.z);
+    const pushing = Math.abs(this.throttle) >= STUCK_THROTTLE;
+    // Time since a body sample was last corrected. A wedged car rocks, so it is contact-free on
+    // about a quarter of steps; see STUCK_CONTACT_GRACE_S for the measurement.
+    this._sinceContact = touched ? 0 : (this._sinceContact ?? Infinity) + dt;
+    if (this._sinceContact <= STUCK_CONTACT_GRACE_S && pushing && planar < STUCK_SPEED_MS) {
+      this.stuckFor += dt;
+      // The direction being tried, so the cue can name the other one. Signed, and latched with
+      // the clock rather than read live, so a player who lifts off mid-cue does not flip the
+      // word they are reading.
+      this.stuckDir = Math.sign(this.throttle);
+    } else {
+      this.stuckFor = 0;
+      this.stuckDir = 0;
+    }
   }
 
   /**
@@ -453,4 +553,33 @@ export class Vehicle {
       }
     }
   }
+}
+
+/**
+ * THE BAND LINE FOR A JAMMED CAR, and it lives here for the reason `composeLaw` lives in
+ * src/wanted.js: presentation assembled inside district/main.js is presentation the node harness
+ * cannot reproduce, and when `composeBand` lived there four of its five tenants were missing from
+ * `look()` — so the harness was harder to play than the game.
+ *
+ * `ownSubtitle` BECAUSE THE SUBTITLE IS THE WHOLE POINT. src/hud.js's `HOLDS_MISSION_SUBTITLE`
+ * hands a running mission's objective to the subtitle of any tenant above it, and that rule ate
+ * `composeLaw`'s "reverse" for a whole round — a blind playtester measured the word `drive` in 0
+ * of them. One word is the entire content of this line; a reminder of what the player was doing
+ * before they got wedged is not.
+ *
+ * NAMES THE DIRECTION NOT BEING TRIED, which is the measurement: forward moved the car 0.34 m
+ * and reverse moved it 145.15 m from the same pin. The same two words `composeLaw` uses, so a
+ * player who has seen one has read the other.
+ *
+ * @param {{stuckFor:number, stuckDir:number}} v  a Vehicle, or anything carrying those two.
+ */
+export function composeStuck(v) {
+  if (!v || !((v.stuckFor ?? 0) >= STUCK_HOLD_S)) return null;
+  return {
+    objective: { text: 'THE CAR IS WEDGED' },
+    // Signed: a nose-in jam is told to reverse, a tail-in jam to drive. `stuckDir` is latched
+    // with the clock, so lifting off does not flip the word mid-read.
+    subtitle: (v.stuckDir ?? 0) < 0 ? 'drive' : 'reverse',
+    ownSubtitle: true,
+  };
 }
