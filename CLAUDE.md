@@ -1548,7 +1548,8 @@ linear in the mission's size, caught at x7.89 while passing the absolute bound a
 `damage-test`, `blocker-test`, `crash-test`, `roadpath-test`, `route-drive`,
 `reaction-test`, `sim-determinism`, `traffic-selftest`, `hud-cue`, `pursuit-test`,
 `car-shapes`, `crowd-bill --selftest`, `tri-buckets --selftest`, `gate-align --selftest`,
-`mutation-sweep --selftest`, `playtest --selftest`, `car-shapes --selftest`, `paint-census`.
+`mutation-sweep --selftest`, `playtest --selftest`, `car-shapes --selftest`, `paint-census`,
+`glass-census` (needs a browser to decode the reference JPEGs; about 20 s).
 The offline ones together take under a minute.
 
 `shadow-bill` needs a browser and takes about seven minutes; it is how a change is

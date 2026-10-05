@@ -51,13 +51,32 @@ multiplied, which is why the lens reads red at night, but the parked pool delibe
 every texel but the lens); a separate mesh (+1 draw call per pool); or accept it and fix #91
 first, since two thirds of the fleet is achromatic and the plate is nearly right on those.
 
-### #92 The side glass is within 8.6% of the paint at noon
+### #92 The side glass is within 8.6% of the paint at noon — THE TARGET IS MEASURED NOW
 Measured on the pane's own projection, glass over the door skin beside it: 0.934 / 0.837 /
-0.972 / 1.043 after the pane fix. A window that reads as a window is well under half the paint
-beside it. #54 records the opposite extreme at night (0.0225 in linear light) and #36 the hue
-problem. The glazing is wrong at both ends of the day. Not yet established: whether the lever is
-the normal, the material, or both — isolate one at a time; and what the target ratio IS, which
-should be measured off `reference/sarasota/mapillary` rather than asserted.
+0.972 / 1.043 after the pane fix. #54 records the opposite extreme at night (0.0225 in linear
+light) and #36 the hue problem. The glazing is wrong at both ends of the day.
+
+**The target, measured off `reference/sarasota/mapillary` as this entry asked.**
+`tools/glass-census.mjs` samples a box on the side glass and a box on the door skin beside it on
+the same car in the same frame, in LINEAR light:
+
+    fusion-silver   0.137      rejected: suburban-white, 76% of the paint box clipped
+    lexus-white     0.164                prius-white, paint spread 1.82 and a ratio of 1.254
+    atlas-silver    0.333
+    median          0.164      range 0.137 .. 0.333
+
+So a real window is **a sixth of the paint beside it**, and the shipped car is at 0.914-1.043 —
+a factor of about six. **And a window is a RANGE, not a number**: the widest accepted window
+spans 0% to 56% of its own paint across its own area, because one pane carries a sky reflection,
+the interior behind it and a near-black patch at once. The shipped pane is near-constant, which
+is a second defect the single-number framing hides.
+
+Two cautions on the number. The camera's tone curve is not exactly sRGB, so linearising leaves a
+residual — the claim the gate makes is "well under half", not "0.164 exactly". And Florida cars
+often carry aftermarket tint, which would bias the target dark; the 0.137-0.333 spread is wide
+enough that it is not one tint level, but a bigger sample would narrow it.
+
+Still to do, and unchanged: **isolate whether the lever is the normal, the material, or both.**
 
 ### #91 FIXED — the target is a table with a source now, which is what was actually missing
 Both modules' comments were right about the reference and neither had a DISTRIBUTION or a SOURCE,
