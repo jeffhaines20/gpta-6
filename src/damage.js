@@ -731,6 +731,7 @@ export class Garage {
     this.stopMs = opts.stopMs ?? 1.0;
     this.dwell = 0;
     this.inside = false;
+    this.distance = null;
     this.stats = { entries: 0, repairs: 0, refusedWanted: 0, refusedMoving: 0 };
   }
 
@@ -744,6 +745,14 @@ export class Garage {
    */
   update(dt, player) {
     const d = Math.hypot((player.x ?? 0) - this.x, (player.z ?? 0) - this.z);
+    /**
+     * STORED, because `report()` takes the distance as an argument and a HOOK calls it with none.
+     * `boot-check`'s first run read `distance: -1` on every frame of the drive in and the number
+     * was correct the whole time — the probe was asking a function that had not been told. A
+     * field that only exists on one of two call paths is a field that reads null in whichever
+     * one a tool happens to use.
+     */
+    this.distance = d;
     const wasInside = this.inside;
     this.inside = d <= this.radius;
     if (!this.inside) { this.dwell = 0; return this.report(d, false); }
@@ -770,7 +779,8 @@ export class Garage {
   }
 
   report(d = null, repaired = false) {
-    return { inside: this.inside, distance: d, dwell: +this.dwell.toFixed(3),
+    return { inside: this.inside, distance: d ?? this.distance ?? null,
+      dwell: +this.dwell.toFixed(3),
       left: +Math.max(0, this.holdS - this.dwell).toFixed(3), repaired };
   }
 

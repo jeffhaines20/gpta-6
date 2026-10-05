@@ -1167,6 +1167,31 @@ Two smaller things this cost, both of them my own:
   mutation.** Verifying the new check bit meant planting the defect by hand; undoing it
   that way threw away the fix too. Commit first, or keep the edit in a patch.
 
+### And that is exactly how `mutation-sweep --selftest` deleted a module mid-write
+
+The paragraph above was already here. `mutation-sweep`'s `restore()` is
+`git checkout -- <file>`; its selftest mutates `src/damage.js` and restores it that way. Run
+against a tree carrying an **uncommitted** `src/damage.js`, it reverted a new class and its
+composer — an hour of work, with git holding no copy to give back, recovered only because the
+whole file was still in the session transcript.
+
+**The tool already had the right refusal, twenty lines below the branch that needed it.** The
+sweep path exits 2 on a dirty tree with a four-line explanation. The `--selftest` path instead
+*recorded a failed check* reading "the selftest itself needs a clean tree to prove anything —
+commit first", and then went on to mutate and check out anyway. So:
+
+- **A warning is not a guard.** The selftest printed the correct diagnosis, as a FAIL line among
+  fourteen, after it had already destroyed the thing it was warning about. A check that reports a
+  precondition it does not enforce is strictly worse than no check: it reads as coverage.
+- **A guard on one of two entry points reads as a guard.** This is the repo's recurring shape —
+  patching one tool and leaving its siblings — and here the two siblings were two branches of one
+  `if` in one file, forty lines apart. `grep` for the thing the guard protects (`restore`,
+  `git checkout`) rather than for the guard.
+
+The refusal is hoisted above both branches now, before the lock and before any write. And the
+operational rule, which no guard replaces: **commit before running any tool that restores by
+`git checkout`.** The gate list is cheap; losing an uncommitted module is not.
+
 ## A partial lead from a killed round is still the round's result
 
 Three review rounds in a row have now been killed part-way by session rate limits, and
@@ -1305,6 +1330,30 @@ everything else in this loop, so a fire burns at the same rate under `?timeScale
 at 1" — and the holds were the two things in the frame that did not. No committed baseline
 moved: `drive-through` is the only tool that raises `timeScale` and it drives with
 `setBodyCollision(false)`, so nothing wrecks during it.
+
+**And then I wrote a third one into the same block, in the commit that added it, having read
+this section while writing its comment.** The garage's dwell went in beside `composeBand` rather
+than beside `bustWatch` and `wreckWatch`, which are two screens up inside the `timeScale` loop and
+carry a comment explaining why they are there. Same file, same defect, same round.
+
+Two things about it are worth more than the fix:
+
+- **`tools/playtest.mjs` HAD IT RIGHT, so no offline gate disagreed with the page.** The harness
+  advances it in its own per-DT loop beside `_bustWatch(DT)` and `_wreckWatch(DT)`, and its
+  comment says why in as many words. So the harness and the page differed in exactly the quantity
+  no gate was comparing, and every end-to-end playtest number was correct about a wire the page
+  does not have. A gate that reproduces the host rather than reading it cannot see the host being
+  wrong.
+- **The check has to be a RATE, not an outcome.** "The car got repaired" is true either way at
+  `timeScale` 1. `boot-check` reads the dwell against `simTime` across a dozen frames at
+  `timeScale` 8 — the hold completes in 4.0 s of sim where one step per rendered frame would have
+  delivered 0.5 s — and prints the second figure beside the first as the known-bad. That
+  assertion is only possible BECAUSE the dwell is in the sim loop, so the arm measures the fix
+  rather than benefiting from it.
+
+The general rule: **when you add a clock to the host, count the clocks already there and put
+yours where they are.** There were two, both commented, both correct, and the comment was the
+thing being copied.
 
 ### A derived constant beats a picked one, and the floor is measurable
 
@@ -1447,15 +1496,27 @@ well the thing works, and the first version of that probe read zero at every inp
 the code was correct; and **the last pass drawn is up to `eps * exp(rate*dt)` short of the
 target**, because `update()` damps first and tests after, which is 0.82 px where the naive
 0.69 px bound fails. `boot-check` needs a browser and
-takes **about three and a half minutes** — it was twenty seconds, then about a minute once the
-busted flow and the run-over wire went in, and the wedged-car cue took it to 209 s. Every one of
-those is a host rule nothing offline imports, and the newest is the most expensive because it has
-to actually wedge the car: `district/main.js` clamps dt to 0.05 and `stepFixed` caps at 16
-substeps of 1/120, so the physics advances at most **0.133 s of sim per rendered frame however
-long the frame takes**, and `setTimeScale` cannot buy more than that. A four-second dwell is
-thirty frames minimum, and headless is under one frame a second. Budget for it, bound such an arm
-on the STATE rather than the wall clock, and report which of the two ended the run. Run it
-whenever `district/` or `src/` changed, because it is the only gate that loads the game. `damage-live` takes about twelve minutes and
+takes **about five and a half minutes** — it was twenty seconds, then about a minute once the
+busted flow and the run-over wire went in, 209 s with the wedged-car cue and 319 s with the
+garage. Every one of those is a host rule nothing offline imports, and the expensive ones are
+expensive because they have to let a DWELL run: `district/main.js` clamps dt to 0.05 and
+`stepFixed` caps at 16 substeps of 1/120, so the PHYSICS advances at most **0.133 s of sim per
+rendered frame however long the frame takes**, and `setTimeScale` cannot buy more than that. A
+four-second dwell is thirty frames minimum of physics, and headless is under one frame a second.
+Budget for it, bound such an arm on the STATE rather than the wall clock, and report which of the
+two ended the run.
+
+**A dwell that is NOT in the physics does scale with `timeScale`, and that distinction is the
+cheap version of the arm.** The clamp above is on `stepFixed`'s substeps, not on the sim loop:
+`for (let s = 0; s < timeScale; s++)` runs the whole body — `damage.update(dt)`, `bustWatch`,
+`wreckWatch`, the garage — `timeScale` times at the clamped dt. So a four-second hold that lives
+in that loop completes in ten frames at `timeScale` 8 rather than eighty at 1x, and the garage
+arm costs a dozen frames for that reason. Two consequences worth keeping apart: a gate waiting on
+a HOLD can raise the scale and should, and a gate waiting on the CAR TO TRAVEL cannot, because
+0.133 s a frame is where the substep cap bites. The wedged-car arm is the second kind and the
+garage arm is the first.
+
+Run it whenever `district/` or `src/` changed, because it is the only gate that loads the game. `damage-live` takes about twelve minutes and
 `ped-audit` about fifteen. Run the ones your change can touch before claiming done.
 
 **A tool that throws is not a tool that passes, and nobody notices which.**

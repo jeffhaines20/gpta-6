@@ -1080,6 +1080,22 @@ console.log('THE GARAGE — the repair a player can reach');
   check('the minimap blip is the style src/hud.js has carried since it was written',
     g3.marker().kind === 'shop' && g3.marker().x === G.x && g3.marker().z === G.z,
     JSON.stringify(g3.marker()));
+  /**
+   * AND A BARE `report()` CARRIES THE DISTANCE, which is a field that only existed on one of two
+   * call paths. `report(d)` takes it as an argument, so `update()` supplies it and a HOST HOOK
+   * calling `report()` got null — boot-check's first run printed `distance: -1` on every frame of
+   * the drive in while the number was correct the whole time, and the probe was asking a function
+   * that had not been told.
+   */
+  const g4 = new Garage({ x: G.x, z: G.z, radius: OFFER_RADIUS_M });
+  g4.update(dt, hurtCar({ x: G.x + 37.5 }));
+  console.log(`    a bare report() after a frame 37.5 m out: ` +
+    `distance ${g4.report().distance}, inside ${g4.report().inside}`);
+  check('a bare report() carries the distance the last frame measured',
+    Math.abs(g4.report().distance - 37.5) < 1e-9, `${g4.report().distance}`);
+  check('and a fresh one has no distance rather than a wrong one',
+    new Garage({ x: G.x, z: G.z }).report().distance === null,
+    `${new Garage({ x: G.x, z: G.z }).report().distance}`);
 }
 
 // ---------------------------------------------------------------------------

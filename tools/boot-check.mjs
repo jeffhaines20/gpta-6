@@ -846,6 +846,184 @@ if (state.global && state.frames > 2) {
   await page.evaluate(() => __district.clearWanted('boot-check'));
 }
 
+/**
+ * THE GARAGE'S WIRE, and the only gate that can see it. `src/damage.js`'s `Garage` is gated
+ * offline by damage-test (the dwell swept at four step sizes, the 2x2x2 of refusals, the banking
+ * known-bad) and its POSITION by mission-test against every mission zone in the district. What
+ * neither can see is that this page calls it, with the car's own position and star count, and
+ * calls `damage.repair()` when it says so — the shape CLAUDE.md records three times over as "the
+ * module is right, its gate asserts the module, and nothing asserts that the game reaches it".
+ *
+ * READ AGAINST THE SIM CLOCK, NOT A FRAME COUNT, and that is what found the defect this arm was
+ * written to look for. The garage was the THIRD hold in district/main.js to be written into the
+ * HUD block instead of the sim loop: `bustWatch` and `wreckWatch` both were, and the section of
+ * CLAUDE.md about them is called "Two holds were counting rendered frames instead of simulated
+ * time". `tools/playtest.mjs` had it in the right place, so no offline gate disagreed with the
+ * page — the harness was correct and the page was not, which is why the check has to be here and
+ * has to be a RATE rather than an outcome.
+ *
+ * AND THE TIME SCALE IS WHY THIS COSTS A DOZEN FRAMES RATHER THAN EIGHTY. The frame loop clamps
+ * dt to 0.05 s, so a 4 s hold is 80 rendered frames at 1x and this page draws under one a second.
+ * At `timeScale` 8 the sim loop runs eight 0.05 s steps per rendered frame and the hold completes
+ * in ten — which is only true because the dwell now lives inside that loop. So the arm MEASURES
+ * the fix rather than merely benefiting from it: the same ten frames at one dwell step each would
+ * have delivered 0.5 s, and the known-bad below says so in those units.
+ *
+ * THE APPROACH IS A ROUTE POINT, not a bearing I liked: (-81.34, 68.43) is the last point on the
+ * road graph's own route from the spawn that is still outside the zone, 15.71 m out, and all 51
+ * samples of the corridor from there to the garage are clear for a 1.1 m body circle. A car
+ * placed INSIDE the zone never enters it, so `entries` would read 0 and the arm would be
+ * measuring a state it had assumed.
+ */
+{
+  const gar = await page.evaluate(async () => {
+    const d = __district;
+    const v = d.vehicle;
+    const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+    /**
+     * THE BAND READ OFF THE HUD'S OWN ELEMENTS, like the wanted-strip arm above. `bandReport()`
+     * publishes `{from, endFor}` and nothing else, so the first version of this arm printed
+     * `[garage] undefined / undefined` on every frame and its text check could not pass — three
+     * FAILs that were all one wrong accessor. Reading the elements is also strictly better: it
+     * is what a player sees, and it covers `_syncText` as well as the composer.
+     */
+    const band = () => {
+      const h = d.hud();
+      const text = h.elObjText ? h.elObjText.textContent : '';
+      const dist = h.elObjDist ? h.elObjDist.textContent : '';
+      return { from: d.bandReport().from, objective: dist ? `${text} — ${dist}` : text,
+        subtitle: h.elSub ? h.elSub.textContent : '' };
+    };
+    const g0 = d.garageReport();
+    d.setMode('car');
+    d.clearWanted('boot-check');
+    d.setBodyCollision(true);
+    d.setTimeScale(8);
+    d.placeAt(-81.34, 68.43, 2.115);
+    for (let i = 0; i < 3; i++) await frame();
+    /**
+     * BREAKING THE CAR CHARGES A CRIME, and the garage refuses a wanted car — so the whole first
+     * version of this arm was refused for being wanted and read `dwell 0` on all 30 frames with
+     * `refusedWanted` climbing. The host turns damage records into crimes one block below the
+     * impact (`IMPACTS BECOME CRIMES HERE`), so the level has to be let settle and then cleared,
+     * and `stars` is recorded afterwards so the arm cannot silently be measuring the refusal
+     * again.
+     */
+    d.damage.impact({ dv: 7.5, kind: 'wall', dirX: 0, dirZ: 1, speed: 7.5 });
+    const broken = d.damage.health;
+    for (let i = 0; i < 2; i++) await frame();
+    const chargedFor = d.wantedReport().stars;
+    d.clearWanted('boot-check');
+    await frame();
+    const starsBefore = d.wantedReport().stars;
+    let throttle = 0.3, brake = 0;
+    d.setAutopilot(() => v.setControls({ throttle, brake, steer: 0, handbrake: false }));
+    // Drive forward until the report says we are inside, then stand on the brake.
+    const drive = [];
+    for (let i = 0; i < 24 && !d.garageReport().inside; i++) {
+      await frame();
+      drive.push(+(d.garageReport().distance ?? -1).toFixed(1));
+    }
+    const entered = { ...d.garageReport(), t: d.simTime, band: band() };
+    throttle = 0; brake = 1;
+    const held = [];
+    for (let i = 0; i < 30 && d.garageReport().hostRepairs === 0; i++) {
+      await frame();
+      const r = d.garageReport(), b = band();
+      held.push({ t: +d.simTime.toFixed(2), dwell: r.dwell, from: b.from,
+        line: b.objective, sub: b.subtitle });
+    }
+    const after = { ...d.garageReport(), health: d.damage.health, t: d.simTime };
+    const markers = (d.hud().state.markers ?? []).map((m) => m.kind).sort();
+    /**
+     * AND THE WANTED REFUSAL, from the page: the one of the three that needs the HOST to be
+     * passing the live star count. A host that passed a constant 0 there would pass every check
+     * in damage-test and this one alone.
+     */
+    d.damage.impact({ dv: 7.5, kind: 'wall', dirX: 0, dirZ: 1, speed: 7.5 });
+    d.reportCrime('officerDown');
+    const hotBroken = d.damage.health;
+    const hotStars = d.wantedReport().stars;
+    for (let i = 0; i < 16; i++) await frame();
+    const hot = { ...d.garageReport(), health: d.damage.health, stars: d.wantedReport().stars,
+      band: band() };
+    d.setAutopilot(null);
+    d.clearWanted('boot-check');
+    d.setTimeScale(1);
+    return { g0, broken, chargedFor, starsBefore, drive, entered, held, after, markers,
+      hotBroken, hotStars, hot };
+  });
+  const g = gar;
+  console.log(`  the garage at (${g.g0.at.x}, ${g.g0.at.z}) r${g.g0.radius}, hold ${g.g0.holdS} s,`
+    + ` stop ${g.g0.stopMs} m/s`);
+  console.log(`    drove in over ${g.drive.length} frames: ${g.drive.join(' -> ')} m`);
+  const sims = g.held.length ? g.held[g.held.length - 1].t - g.entered.t : 0;
+  const perFrame = g.held.length ? sims / g.held.length : 0;
+  console.log(`    ${g.held.length} frames of brake covering ${sims.toFixed(2)} s of sim `
+    + `(${perFrame.toFixed(2)} s a frame); dwell ${g.held.map((q) => q.dwell).join(' ')}`);
+  console.log(`    band: ${[...new Set(g.held.map((q) => `[${q.from}] ${q.line} / ${q.sub}`))].join(' -> ')}`);
+  console.log(`    health ${g.broken.toFixed(3)} -> ${g.after.health.toFixed(3)}, `
+    + `entries ${g.after.entries}, module repairs ${g.after.repairs}, host ${g.after.hostRepairs}`);
+  /**
+   * EVERY ARM ASSERTS THAT THE THING IT MEASURES HAPPENED, because all three of the numbers
+   * below are zero for a car that never moved and never entered.
+   */
+  check('the car drove into the garage zone rather than being placed in it',
+    g.after.entries === 1 && g.drive.length > 0 && g.entered.inside === true,
+    `${g.after.entries} entries over ${g.drive.length} frames of throttle`);
+  check('and it was broken when it got there, or there is nothing to repair',
+    g.broken < 1 && g.broken > 0.2, `health ${g.broken.toFixed(3)}`);
+  console.log(`    breaking it charged ${g.chargedFor}*, cleared to ${g.starsBefore}* before the drive`);
+  check('and it is not wanted, or this arm measures the wanted refusal instead of the repair',
+    g.chargedFor > 0 && g.starsBefore === 0,
+    `${g.chargedFor}* charged by the impact, ${g.starsBefore}* at the wheel`);
+  check('the page repairs the car, which is the wire no offline gate can see',
+    g.after.hostRepairs === 1 && g.after.health === 1,
+    `${g.broken.toFixed(3)} -> ${g.after.health.toFixed(3)}, ${g.after.hostRepairs} host repairs`);
+  /**
+   * THE DWELL IS SIMULATED SECONDS. The hold completed inside the sim time the brake covered, to
+   * within one frame's worth of sim either side — which is the property, and it is FALSE for a
+   * dwell advanced once per rendered frame.
+   */
+  check('the repair takes the hold in SIMULATED seconds, not in rendered frames',
+    sims >= g.g0.holdS - perFrame && sims <= g.g0.holdS + perFrame * 2,
+    `${sims.toFixed(2)} s of sim against a ${g.g0.holdS} s hold, ${perFrame.toFixed(2)} s a frame`);
+  console.log(`    a per-frame dwell would have reached ${(g.held.length * 0.05).toFixed(2)} s `
+    + `of its ${g.g0.holdS} s over these ${g.held.length} frames`);
+  check('KNOWN-BAD: and these frames could not have served the hold one step per frame',
+    g.held.length * 0.05 < g.g0.holdS,
+    `${g.held.length} frames x 0.05 s = ${(g.held.length * 0.05).toFixed(2)} s of a ${g.g0.holdS} s hold`);
+  check('the band counted the hold down in seconds while it ran',
+    g.held.some((q) => q.from === 'garage' && /REPAIRING — \d+ s/.test(String(q.line))),
+    [...new Set(g.held.map((q) => `[${q.from}] ${q.line}`))].join(' | '));
+  /**
+   * AND IT IS ON THE MINIMAP. `MARKER_STYLE.shop` had sat in src/hud.js since the file was
+   * written with nothing in the game ever posting one — the third style in that position after
+   * `vehicle`, which left three authored stages saying "GET IN THE CAR" over a blank map. Read
+   * off the HUD's own state, like the police-blip arm above, because that is the buffer the
+   * minimap draws from.
+   */
+  console.log(`    minimap kinds while parked in it: ${g.markers.join(', ') || 'none'}`);
+  check('the garage is a blip on the minimap, or a player cannot find the only repair there is',
+    g.markers.includes('shop'), g.markers.join(', ') || 'none');
+  // A DELTA against what the first arm left, not against an assumed 1: a level read against a
+  // baseline somebody else set is the "respawns > 0 after an earlier arm made it 2" defect.
+  const furtherRepairs = g.hot.hostRepairs - g.after.hostRepairs;
+  const furtherRefusals = g.hot.refusedWanted - g.after.refusedWanted;
+  console.log(`    KNOWN-BAD wanted: ${g.hotStars}* and health ${g.hotBroken.toFixed(3)} parked in `
+    + `the garage -> ${furtherRepairs} further repairs, health ${g.hot.health.toFixed(3)}, `
+    + `${furtherRefusals} refusals charged, band [${g.hot.band.from}] ${g.hot.band.objective}`
+    + ` / ${g.hot.band.subtitle}`);
+  check('KNOWN-BAD: the page refuses to repair a car the police are looking for',
+    g.hotStars > 0 && furtherRefusals > 0 && furtherRepairs === 0 && g.hot.health < 1,
+    `${g.hotStars}*, ${furtherRefusals} refusals, ${furtherRepairs} repairs, `
+    + `health ${g.hot.health.toFixed(3)}`);
+  check('and the page says why, rather than silently doing nothing',
+    g.hot.band.from === 'garage' && /looking/.test(String(g.hot.band.subtitle)),
+    `[${g.hot.band.from}] ${g.hot.band.objective} / ${g.hot.band.subtitle}`);
+  await page.evaluate(() => __district.clearWanted('boot-check'));
+}
+
 await browser.close();
 console.log(`\nBOOT: ${fail ? `FAIL — ${fail} of ${pass + fail}` : `PASS — ${pass} checks`} ` +
   `in ${((Date.now() - t0) / 1000).toFixed(0)} s`);

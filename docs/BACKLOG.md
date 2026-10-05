@@ -232,7 +232,7 @@ pointed at a wall. The game does have the words: `composeLaw`'s `bustStuck` bran
 once an arrest is already running. Refines the known "pinned car rocks and the HUD says
 nothing": the magnitude is 0.34 m against 145 m and the fix exists one tenant away.
 
-### Smaller, from the same round — FIVE OF SIX FIXED
+### Smaller, from the same round — ALL SIX FIXED
 - **The author's note as the game's first words** — `shakedown`'s `brief` now reads "Easy money.
   Two markers by the bayfront, a few hundred metres apart." and `mission-test` gates every
   player-facing mission string against twelve build-vocabulary terms, with the shipped line as its
@@ -249,10 +249,26 @@ nothing": the magnitude is 0.34 m against 145 m and the fix exists one tenant aw
 - **`MISSION FAILED` never read when the car is wrecked** — measured at 1.9 s of a 6 s hold, not
   never: the wreck line ate 4 s of it. The hold is now spent only on frames where `ended` wins the
   band, in both hosts: 1.9 s -> 5.9 s.
-- **No repair short of a write-off** — STILL OPEN, and it needs a design decision rather than a
-  fix: 55 km/h into a wall leaves health 0.39 and 300 s parked leaves it 0.39, so the only routes
-  back to 1.00 are being wrecked or arrested and the fastest repair is destroying the car. The
-  choice is between a garage the player drives to, a slow recovery while parked, and leaving it.
+- **No repair short of a write-off** — FIXED, by the option the owner picked of the three:
+  a garage you drive to, at **(-67.9, 60.3)**, 0.00 m off the centreline of a 6 m street and
+  routable from the spawn in 44 route points over 340 m. Stop in the 12 m zone with a damaged
+  car and it repairs after a 4 s hold; the three constants are `OFFER_RADIUS_M`, `BUST_HOLD_S`
+  and `SCENE_STOP_MS`, passed in by the host from the modules that own them.
+
+  Measured end to end, driving in from 15.7 m out: health **0.727 -> 1.000 at t=8.3 s** after
+  12.2 m, with the band reading `GARAGE / stop here` then `REPAIRING — 4 s` counting to 1. It
+  refuses a wanted car (4* for 10 s -> 0 repairs, "not while they are looking") and a moving one
+  (5.75 s inside the zone at 2.45-5.78 m/s -> 0 repairs).
+
+  Three things it turned up, all in the instruments rather than the feature. `MARKER_STYLE.shop`
+  had sat in `src/hud.js` since the file was written with nothing ever posting one — the third
+  style in that position after `vehicle`. `playtest`'s `look()` had no garage blip either, so a
+  playtester navigating by it could not have found the garage. And **the garage's dwell was the
+  third hold in `district/main.js` to be written into the HUD block instead of the sim loop**,
+  which is the defect CLAUDE.md records for `bustWatch` and `wreckWatch`: under `?timeScale=40`
+  a 4 s repair would have taken 160 s of simulated time. `playtest` had it in the right place, so
+  no offline gate disagreed with the page — `boot-check` reads the dwell against the sim clock for
+  exactly that reason.
 
 ### Smaller, from the same round — the original record
 - **The first words of the game are a note to its own author**: the offer band reads
@@ -271,7 +287,7 @@ nothing": the magnitude is 0.34 m against 145 m and the fix exists one tenant aw
   `shakedown` never got that fix.
 - **No repair short of a write-off.** 55 km/h into a wall -> health 0.39, still 0.39 after
   300 s parked. The only routes back to 1.00 are being wrecked or arrested, so the fastest
-  way to fix a damaged car is to destroy it.
+  way to fix a damaged car is to destroy it. (FIXED — see the garage above.)
 - **Braking for traffic caused more collisions than ignoring it.** Flat out at 40 km/h
   ignoring traffic: 0 rams, 519 m, 48 s. Lifting off for any car within 25 m: 6 rams,
   357 m, 300 s.

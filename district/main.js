@@ -1737,6 +1737,13 @@ let timeScale = 1;
 /** The band lines from the two holds, written on sim time and read once per rendered frame. */
 let wreckHoldLine = null, bustHoldLine = null;
 /**
+ * AND THE GARAGE'S DWELL, stored for the same reason and advanced in the same place. See the
+ * sim loop below: this was the THIRD hold in this file to be written in the HUD block, and the
+ * section of CLAUDE.md about the other two is called "Two holds were counting rendered frames
+ * instead of simulated time".
+ */
+let garageState = null;
+/**
  * The forward throttle the car last actually GOT, after the world fence has had its say. Read by
  * the bust line so it can say "reverse" to a player already holding the throttle open against a
  * wall; see `_watchBust` in src/wanted.js. Post-fence on purpose: a throttle the fence refused is
@@ -1811,6 +1818,24 @@ function animate(now) {
      */
     bustHoldLine = bustWatch(dt);
     wreckHoldLine = wreckWatch(dt);
+    /**
+     * AND THE GARAGE, which is the third hold in this file and was written into the HUD BLOCK —
+     * the identical defect to the two above, by the author of the comment above, in the commit
+     * that added it. Under `?timeScale=40` a four-second repair would have taken 160 s of
+     * simulated time, and `tools/boot-check.mjs` reads the dwell against the sim clock for
+     * exactly that reason. `tools/playtest.mjs` had it in the right place, which is why no
+     * offline gate disagreed with the page: the harness was correct and the page was not.
+     *
+     * ON FOOT IT IS NOT OFFERED, because what gets repaired is the car and the car is elsewhere.
+     */
+    garageState = mode === 'car'
+      ? garage.update(dt, { x: vehicle.position.x, z: vehicle.position.z,
+        speed: vehicle.speed, wantedStars: wanted.stars, health: damage.health })
+      : garage.update(dt, { x: Infinity, z: Infinity, speed: 0, wantedStars: 0, health: 1 });
+    if (garageState.repaired) {
+      damage.repair();
+      garageStats.repairs++;
+    }
     // IMPACTS BECOME CRIMES HERE, and this is the first thing in the project that has
     // ever called reportCrime. src/damage.js classifies the contact — it knows the
     // delta-v and what was hit — and src/wanted.js owns the refractory that stops a
@@ -2110,21 +2135,11 @@ function animate(now) {
    */
   const stuckLine = mode === 'car' ? composeStuck(vehicle) : null;
   /**
-   * THE GARAGE. One wire, exactly as the rule in src/damage.js's `Garage` says: the module owns
-   * the zone, the dwell, the refusals and the decision, and this is the only thing left here —
-   * feed it the car, act on `repaired`, and hand its line to the band.
-   *
-   * ON FOOT IT IS NOT OFFERED, because what gets repaired is the car and the car is elsewhere.
+   * THE GARAGE'S LINE. The dwell and the repair happen in the sim loop above, once per simulated
+   * step; composing the words is a per-rendered-frame job like every other tenant's, so only the
+   * composer is here and it reads the state the loop stored.
    */
-  const garageState = mode === 'car'
-    ? garage.update(dt, { x: vehicle.position.x, z: vehicle.position.z,
-      speed: vehicle.speed, wantedStars: wanted.stars, health: damage.health })
-    : garage.update(dt, { x: Infinity, z: Infinity, speed: 0, wantedStars: 0, health: 1 });
-  if (garageState.repaired) {
-    damage.repair();
-    garageStats.repairs++;
-  }
-  const garageLine = mode === 'car'
+  const garageLine = mode === 'car' && garageState
     ? composeGarage(garageState, { health: damage.health, wantedStars: wanted.stars,
       speed: vehicle.speed })
     : null;
