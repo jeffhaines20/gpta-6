@@ -25,9 +25,12 @@
 // energy curve rather than an input to it, which is the only evidence available here
 // that the curve shape is right.
 import { DamageModel, IMPACT, ANCHORS, HALF_EXTENT, normalDv, pairDv, dynamicContact,
-  pedFatalityRisk } from '../src/damage.js';
+  pedFatalityRisk, Garage, composeGarage } from '../src/damage.js';
 import { hardnessFor } from '../src/audio.js';
-import { WantedSystem, CRIMES as CRIME_TABLE } from '../src/wanted.js';
+import { WantedSystem, CRIMES as CRIME_TABLE, BUST_HOLD_S,
+  SCENE_STOP_MS } from '../src/wanted.js';
+import { OFFER_RADIUS_M } from '../src/mission.js';
+import { objectiveLine } from '../src/hud.js';
 import fs from 'node:fs';
 
 const checks = [];
@@ -800,6 +803,283 @@ console.log('CRIME SCALE — how big an offence was, not just which offence');
     CRIME_TABLE.hitAndRun && !['propertyDamage', 'civilianCollision', 'pedestrianHit',
       'pedestrianKilled', 'policeProperty', 'roadblockRun'].includes('hitAndRun'),
     'reported from _watchScene');
+}
+
+// ---------------------------------------------------------------------------
+/**
+ * THE GARAGE, which exists because destroying the car was the fastest way to repair it. A
+ * playtester measured it: a car at 0.686 health with no engine power and no repair but a console
+ * call, where wrecking it on purpose hands back a perfect one. The owner chose "a garage you
+ * drive to" over an automatic trickle, so the question this section answers is whether the zone
+ * can be driven to, waited in, and refused for the three reasons it refuses for.
+ *
+ * WHY THESE ARMS AND NOT OTHERS. Each one is a defect this file or CLAUDE.md has already paid
+ * for, arriving in a new module:
+ *
+ *   (a) THREE CONSTANTS, ONE COPY. The zone radius, the dwell and the stop threshold are
+ *       OFFER_RADIUS_M, BUST_HOLD_S and SCENE_STOP_MS, owned by src/mission.js and
+ *       src/wanted.js. src/damage.js must not import either — it is the bottom of the stack —
+ *       so the host passes them in and this file asserts the fallbacks equal the real ones.
+ *       A fallback that drifts is the second copy of a number, which CLAUDE.md names as the
+ *       recurring defect in this repo.
+ *   (b) SIMULATED TIME, SWEPT. "Two holds were counting rendered frames instead of simulated
+ *       time" — the wreck hold and the bust hold both did, and under ?timeScale=40 a four-second
+ *       wreck hold took 160 s. The dwell is `+= dt`, which is correct, and a gate that runs at
+ *       one dt cannot tell that from `+= 1/60`. Both are run at four step sizes here and the
+ *       frame-counting version is the known-bad.
+ *   (c) THE DWELL RESETS, IT DOES NOT DECAY. A decaying dwell lets a player bank progress over
+ *       many short visits, which makes the "hold still" instruction a lie. The known-bad is that
+ *       version and it repairs on a vehicle that never once stood still for the hold.
+ *   (d) EVERY REFUSAL IS SEPARABLE. A 2x2x2 over hurt/wanted/moving, so no single predicate can
+ *       be deleted without a row moving. A sweep like this is what blocker-test's six-case
+ *       condition table is for, and it is the answer to "a guard that covers half a case reads
+ *       as a guard".
+ *   (e) THE BAND LINE CARRIES ITS OWN SUBTITLE AND ITS OWN UNIT. src/hud.js's
+ *       HOLDS_MISSION_SUBTITLE ate composeLaw's "reverse" for a round, and the bust countdown
+ *       shipped a dropped `unit` that read "3 m" for three seconds. Both are one token and both
+ *       are asserted on every branch.
+ */
+console.log('\n' + '='.repeat(78));
+console.log('THE GARAGE — the repair a player can reach');
+{
+  const G = { x: -67.9, z: 60.3 };
+  const hurtCar = (over = {}) => ({ x: G.x, z: G.z, speed: 0, wantedStars: 0, health: 0.5, ...over });
+
+  // (a) ------------------------------------------------------------------
+  const bare = new Garage({ x: G.x, z: G.z });
+  console.log(`  fallbacks: radius ${bare.radius} holdS ${bare.holdS} stopMs ${bare.stopMs}` +
+    `  against OFFER_RADIUS_M ${OFFER_RADIUS_M} BUST_HOLD_S ${BUST_HOLD_S} SCENE_STOP_MS ${SCENE_STOP_MS}`);
+  check('the zone radius falls back to the mission layer’s own offer radius',
+    bare.radius === OFFER_RADIUS_M, `${bare.radius} === ${OFFER_RADIUS_M}`);
+  check('the dwell falls back to the bust hold, which is the same beat',
+    bare.holdS === BUST_HOLD_S, `${bare.holdS} === ${BUST_HOLD_S}`);
+  check('the stop threshold falls back to the wanted layer’s own stop threshold',
+    bare.stopMs === SCENE_STOP_MS, `${bare.stopMs} === ${SCENE_STOP_MS}`);
+
+  // (b) ------------------------------------------------------------------
+  /**
+   * The repair time, measured by running the dwell at four step sizes and recording the
+   * SIMULATED time at which `repaired` comes back true. Sub-stepping is not available here —
+   * the dwell is a scalar the host advances — so the figure lands within one step of the hold
+   * by construction, and the claim is that the spread is BOUNDED BY THE STEP rather than that
+   * it is zero. The known-bad is a version that adds a fixed 1/60 whatever dt is: at dt 1/6 it
+   * takes ten times as long, which is the ?timeScale defect in one number.
+   */
+  const dts = [1 / 120, 1 / 60, 1 / 30, 1 / 6];
+  const realAt = [], frameAt = [];
+  for (const dt of dts) {
+    const g = new Garage({ x: G.x, z: G.z, radius: OFFER_RADIUS_M, holdS: BUST_HOLD_S,
+      stopMs: SCENE_STOP_MS });
+    let t = 0, fired = null;
+    for (let i = 0; i < 40000 && fired === null; i++) {
+      t += dt;
+      if (g.update(dt, hurtCar()).repaired) fired = t;
+    }
+    realAt.push(fired);
+    // The frame-counting version: the same code with the step replaced by a constant.
+    let ft = 0, fdwell = 0, ffired = null;
+    for (let i = 0; i < 40000 && ffired === null; i++) {
+      ft += dt;
+      fdwell += 1 / 60;
+      if (fdwell >= BUST_HOLD_S) ffired = ft;
+    }
+    frameAt.push(ffired);
+  }
+  console.log('    dt            repair at (sim s)   frame-counting version');
+  for (let i = 0; i < dts.length; i++) {
+    console.log(`    ${(1 / dts[i]).toFixed(0).padStart(3)} Hz` +
+      `       ${realAt[i].toFixed(4).padStart(8)}` +
+      `            ${frameAt[i].toFixed(4).padStart(8)}`);
+  }
+  /**
+   * THE BOUND IS THE PROPERTY, NOT A TUNED TOLERANCE. A dwell advanced by `+= dt` crosses the
+   * hold on the first step at or after it, so the repair's simulated time lies in
+   * [holdS, holdS + dt] — one step wide, by construction, at every step size. 1e-6 is the
+   * accumulated float error of summing 1/6 twenty-four times, which is why 6 Hz needs a
+   * twenty-fifth step for a hold that divides exactly into twenty-four.
+   */
+  const inWindow = realAt.every((v, i) => v >= BUST_HOLD_S - 1e-6 && v <= BUST_HOLD_S + dts[i] + 1e-6);
+  const worstErr = Math.max(...realAt.map((v, i) => (v - BUST_HOLD_S) / dts[i]));
+  check('the repair lands in [hold, hold + dt] at every step size, which is the exact property',
+    inWindow, `worst ${worstErr.toFixed(4)} steps late, never early`);
+  const realSpread = Math.max(...realAt) - Math.min(...realAt);
+  check('and the spread across step sizes is bounded by the coarsest step',
+    realSpread <= Math.max(...dts) + 1e-9,
+    `${realSpread.toFixed(4)} s against a ${Math.max(...dts).toFixed(4)} s step`);
+  const frameSpread = Math.max(...frameAt) - Math.min(...frameAt);
+  check('KNOWN-BAD: counting frames instead of seconds makes the hold depend on the frame rate',
+    frameSpread > 10 * realSpread && frameAt[3] > 8 * BUST_HOLD_S,
+    `spread ${frameSpread.toFixed(2)} s against ${realSpread.toFixed(4)}; at 6 Hz it takes ` +
+    `${frameAt[3].toFixed(1)} s for a ${BUST_HOLD_S} s hold`);
+
+  // (c) ------------------------------------------------------------------
+  /**
+   * BANKING. Three visits of 1.6 s each, driving out between them, against a 4 s hold. The real
+   * garage repairs nothing — it is three resets — and the decaying version repairs on the third,
+   * never having held the car still for the hold at all.
+   */
+  const dt = 1 / 60;
+  const visit = (g, hold, s) => {
+    let fired = 0;
+    for (let t = 0; t < s; t += dt) if (g.update(dt, hurtCar()).repaired) fired++;
+    // out of the zone and back
+    for (let t = 0; t < 2; t += dt) g.update(dt, hurtCar({ x: G.x + 400 }));
+    return fired;
+  };
+  const real = new Garage({ x: G.x, z: G.z, holdS: BUST_HOLD_S });
+  let realFired = 0;
+  for (let k = 0; k < 3; k++) realFired += visit(real, BUST_HOLD_S, 1.6);
+  /**
+   * The decaying version, written out rather than patched, so the only difference between the two
+   * is the reset. The leak is a tenth of the fill rate, which is the generous case for the broken
+   * version — ANY leak slower than the fill banks, and a faster one is a reset with extra steps.
+   * Three 1.6 s visits is 4.8 s of holding against a 4 s hold, minus 0.4 s of leak over the two
+   * gaps, so it fires on the third visit having never once stood still for four seconds.
+   */
+  let decay = 0, decayFired = 0;
+  for (let k = 0; k < 3; k++) {
+    for (let t = 0; t < 1.6; t += dt) {
+      decay += dt;
+      if (decay >= BUST_HOLD_S) { decay = 0; decayFired++; }
+    }
+    for (let t = 0; t < 2; t += dt) decay = Math.max(0, decay - dt * 0.1);
+  }
+  console.log(`    three 1.6 s visits against a ${BUST_HOLD_S} s hold:` +
+    ` resetting ${realFired} repairs, decaying ${decayFired}`);
+  check('three visits too short to finish the hold repair nothing',
+    realFired === 0, `${realFired} repairs; dwell left at ${real.dwell}`);
+  check('and the dwell is zero after leaving, not merely smaller',
+    real.dwell === 0, `${real.dwell}`);
+  check('KNOWN-BAD: a dwell that decays instead of resetting can be banked over short visits',
+    decayFired > 0, `${decayFired} repairs without ever holding ${BUST_HOLD_S} s`);
+
+  // (d) ------------------------------------------------------------------
+  /**
+   * THE 2x2x2. Every row runs the full hold and reports whether it repaired, so a deleted
+   * predicate moves a row. `inside` is swept separately below because its false case is the
+   * only one where the module returns before any counter can move.
+   */
+  const rows = [];
+  for (const hurt of [true, false]) {
+    for (const wanted of [0, 2]) {
+      for (const speed of [0, 8]) {
+        const g = new Garage({ x: G.x, z: G.z, holdS: BUST_HOLD_S, stopMs: SCENE_STOP_MS });
+        let fired = 0;
+        // Two holds' worth of steps plus the one the second repair lands ON: a dwell of `+= dt`
+        // crosses the hold on the step AFTER it, so `2 * holdS / dt` iterations contain one
+        // repair and not two. The first draft read `1 repairs in two holds` and the arm below
+        // caught it.
+        for (let t = 0; t < BUST_HOLD_S * 2 + dt * 2; t += dt) {
+          if (g.update(dt, hurtCar({ health: hurt ? 0.5 : 1, wantedStars: wanted, speed })).repaired) fired++;
+        }
+        rows.push({ hurt, wanted, speed, fired, ...g.stats });
+      }
+    }
+  }
+  console.log('    hurt  wanted  speed   repairs  refusedWanted  refusedMoving');
+  for (const r of rows) {
+    console.log(`    ${String(r.hurt).padEnd(5)} ${String(r.wanted).padStart(6)} ` +
+      `${String(r.speed).padStart(6)}   ${String(r.fired).padStart(7)} ` +
+      `${String(r.refusedWanted).padStart(14)} ${String(r.refusedMoving).padStart(14)}`);
+  }
+  const only = rows.filter((r) => r.fired > 0);
+  check('exactly one of the eight states repairs, and it is the undamaged-car exclusion too',
+    only.length === 1 && only[0].hurt && only[0].wanted === 0 && only[0].speed === 0,
+    `${only.length} rows repaired: ${only.map((r) => `hurt=${r.hurt} w=${r.wanted} v=${r.speed}`).join('; ')}`);
+  check('and it repairs once per hold rather than once per frame',
+    only[0].fired === 2, `${only[0].fired} repairs in two holds`);
+  /**
+   * EACH REFUSAL COUNTED, which is CLAUDE.md's "every arm has to assert that the thing it is
+   * measuring HAPPENED". A wanted row whose refusedWanted is 0 did not refuse for that reason,
+   * it just never got there.
+   */
+  const wantedRow = rows.find((r) => r.hurt && r.wanted === 2 && r.speed === 0);
+  const movingRow = rows.find((r) => r.hurt && r.wanted === 0 && r.speed === 8);
+  check('the wanted refusal fires for being wanted, and is counted',
+    wantedRow.refusedWanted > 0 && wantedRow.refusedMoving === 0,
+    `wanted ${wantedRow.refusedWanted}, moving ${wantedRow.refusedMoving}`);
+  check('the moving refusal fires for moving, and is counted',
+    movingRow.refusedMoving > 0 && movingRow.refusedWanted === 0,
+    `moving ${movingRow.refusedMoving}, wanted ${movingRow.refusedWanted}`);
+  const fineRow = rows.find((r) => !r.hurt && r.wanted === 0 && r.speed === 0);
+  check('an undamaged car is refused SILENTLY, with no refusal charged against it',
+    fineRow.fired === 0 && fineRow.refusedWanted === 0 && fineRow.refusedMoving === 0,
+    `entries ${fineRow.entries}, refusals ${fineRow.refusedWanted + fineRow.refusedMoving}`);
+
+  // the zone edge, swept, because a radius is a threshold and thresholds are what this file sweeps
+  {
+    const g = new Garage({ x: G.x, z: G.z, radius: OFFER_RADIUS_M, holdS: BUST_HOLD_S });
+    const insideAt = [];
+    for (const d of [0, OFFER_RADIUS_M - 0.01, OFFER_RADIUS_M, OFFER_RADIUS_M + 0.01, 400]) {
+      insideAt.push([d, g.update(dt, hurtCar({ x: G.x + d })).inside]);
+    }
+    console.log(`    the zone edge: ${insideAt.map(([d, i]) => `${d.toFixed(2)}m ${i ? 'in' : 'out'}`).join(', ')}`);
+    check('the zone is the radius, closed at the edge and open beyond it',
+      insideAt[0][1] && insideAt[1][1] && insideAt[2][1] && !insideAt[3][1] && !insideAt[4][1],
+      insideAt.map(([d, i]) => `${d}:${i}`).join(' '));
+    check('and a car outside it has no dwell and no entry',
+      g.dwell === 0, `dwell ${g.dwell}`);
+  }
+
+  // (e) ------------------------------------------------------------------
+  /**
+   * THE BAND LINE. Four states, and the assertions are on the three things a composer in this
+   * project gets wrong: a missing `ownSubtitle`, a missing `unit`, and a line shown when there is
+   * nothing to say.
+   */
+  const line = (g, player) => composeGarage(g, player);
+  const g2 = new Garage({ x: G.x, z: G.z, radius: OFFER_RADIUS_M, holdS: BUST_HOLD_S,
+    stopMs: SCENE_STOP_MS });
+  const out = line(g2.update(dt, hurtCar({ x: G.x + 400 })), { health: 0.5, wantedStars: 0, speed: 0 });
+  const moving = line(g2.update(dt, hurtCar({ speed: 8 })), { health: 0.5, wantedStars: 0, speed: 8 });
+  const wantedL = line(g2.update(dt, hurtCar({ wantedStars: 3 })), { health: 0.5, wantedStars: 3, speed: 0 });
+  g2.update(dt, hurtCar());
+  const holding = line(g2.report(), { health: 0.5, wantedStars: 0, speed: 0 });
+  const fine = line(g2.update(dt, hurtCar({ health: 1 })), { health: 1, wantedStars: 0, speed: 0 });
+  const shown = [moving, wantedL, holding].filter(Boolean);
+  console.log(`    out: ${out === null ? 'null' : objectiveLine(out.objective)}` +
+    ` | moving: "${objectiveLine(moving.objective)}" / "${moving.subtitle}"` +
+    ` | wanted: "${objectiveLine(wantedL.objective)}" / "${wantedL.subtitle}"` +
+    ` | holding: "${objectiveLine(holding.objective)}" / "${holding.subtitle}"` +
+    ` | perfect: ${fine === null ? 'null' : objectiveLine(fine.objective)}`);
+  check('outside the zone the band says nothing about the garage',
+    out === null, `${JSON.stringify(out)}`);
+  check('a perfect car in the zone says nothing either',
+    fine === null, `${JSON.stringify(fine)}`);
+  check('all three live states carry their own subtitle, so the mission objective cannot eat it',
+    shown.length === 3 && shown.every((l) => l.ownSubtitle === true),
+    shown.map((l) => `${l.ownSubtitle}`).join(' '));
+  check('and each one says something different, because three identical lines are one cue',
+    new Set(shown.map((l) => `${objectiveLine(l.objective)}|${l.subtitle}`)).size === 3,
+    shown.map((l) => l.subtitle).join(' / '));
+  check('the countdown is in SECONDS and says so, which the bust countdown once did not',
+    holding.objective.unit === 's' && Number.isInteger(holding.objective.distance) &&
+    holding.objective.distance >= 1 && holding.objective.distance <= BUST_HOLD_S,
+    `${objectiveLine(holding.objective)}`);
+  check('the two refusals do not pretend to be a countdown',
+    moving.objective.distance === undefined && wantedL.objective.distance === undefined,
+    `${JSON.stringify(moving.objective)} ${JSON.stringify(wantedL.objective)}`);
+  /**
+   * THE FRAME THE REPAIR LANDS ON. `update()` zeroes the dwell before reporting, so without the
+   * `repaired` guard this frame is indistinguishable from "just arrived" and flashes "stop here"
+   * at the moment of success — for a host that composes before applying the repair. Asserted at
+   * the UNREPAIRED health, which is the order that would show the flash.
+   */
+  const g3 = new Garage({ x: G.x, z: G.z, holdS: BUST_HOLD_S });
+  let fired = null;
+  for (let t = 0; t < BUST_HOLD_S * 2 && fired === null; t += dt) {
+    const r = g3.update(dt, hurtCar());
+    if (r.repaired) fired = r;
+  }
+  check('the repair frame reports itself, so the host has something to act on',
+    fired && fired.repaired === true, `${JSON.stringify(fired)}`);
+  check('and the band says nothing on it whichever order the host composes in',
+    line(fired, { health: 0.5, wantedStars: 0, speed: 0 }) === null &&
+    line(fired, { health: 1, wantedStars: 0, speed: 0 }) === null,
+    `before ${JSON.stringify(line(fired, { health: 0.5, wantedStars: 0, speed: 0 }))}`);
+  check('the minimap blip is the style src/hud.js has carried since it was written',
+    g3.marker().kind === 'shop' && g3.marker().x === G.x && g3.marker().z === G.z,
+    JSON.stringify(g3.marker()));
 }
 
 // ---------------------------------------------------------------------------

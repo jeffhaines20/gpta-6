@@ -708,8 +708,14 @@ const HOLDS_MISSION_SUBTITLE = new Set(['fence', 'law']);
  * same pin covered 145.15 m. Nothing on screen said so, and 34,295 of 34,296 wall contacts
  * charged nothing, so the car was pressing a wall for free with the HUD reporting an objective
  * it could not reach.
+ *
+ * `garage` SITS BETWEEN `stuck` AND `mission` on the same reasoning from both sides: a car that
+ * cannot move is more urgent than one being repaired, and a repair in progress is more urgent
+ * than the objective it is about to let the player go and reach. Its own line is null whenever
+ * the car is undamaged, so a player parked there between jobs reads the mission instead.
  */
-export const BAND_ORDER = ['busted', 'wreck', 'fence', 'law', 'stuck', 'mission', 'ended', 'offer'];
+export const BAND_ORDER = ['busted', 'wreck', 'fence', 'law', 'stuck', 'garage', 'mission',
+  'ended', 'offer'];
 
 /**
  * AN OBJECTIVE AS ONE LINE OF WORDS, for a host with no canvas.
@@ -729,11 +735,11 @@ export function objectiveLine(o) {
   return o.distance == null ? head : `${head} — ${Math.round(o.distance)} ${o.unit || 'm'}`;
 }
 export function composeBand({ busted = null, wreck = null, fence = null, law = null,
-  stuck = null, mission = null, ended = null, offer = null } = {}) {
+  stuck = null, garage = null, mission = null, ended = null, offer = null } = {}) {
   // Precedence and naming from ONE list, so they cannot drift apart. `busted` is deliberately not
   // in HOLDS_MISSION_SUBTITLE: the bust has just aborted the mission, so "still on: DELIVER THE
   // PARCEL" would be a lie in the one place a player is looking.
-  const slots = { busted, wreck, fence, law, stuck, mission, ended, offer };
+  const slots = { busted, wreck, fence, law, stuck, garage, mission, ended, offer };
   const from = BAND_ORDER.find((k) => slots[k]) ?? null;
   if (!from) return { objective: null, subtitle: null, from: null };
   const pick = slots[from];

@@ -38,17 +38,26 @@ import { Vehicle, BODY_SAMPLES, BODY_RADIUS, BODY_ENCLOSING,
 import { Player } from '../src/player.js';
 import { FlatGround } from '../src/ground.js';
 import { BlockerIndex, districtBounds, worldFence } from '../src/blockers.js';
-import { DamageModel, IMPACT, dynamicContact, HALF_EXTENT } from '../src/damage.js';
-import { WantedSystem, VictimWindow, composeWanted, composeLaw, BUST_HOLD_S, bindPursuit } from '../src/wanted.js';
+import { DamageModel, IMPACT, dynamicContact, HALF_EXTENT,
+  Garage, composeGarage } from '../src/damage.js';
+import { WantedSystem, VictimWindow, composeWanted, composeLaw, BUST_HOLD_S, bindPursuit,
+  SCENE_STOP_MS } from '../src/wanted.js';
 import { Traffic } from '../src/traffic.js';
 import { Pedestrians } from '../src/pedestrians.js';
 import { RoadGraph, followPath, ROUTE_LANE_M } from '../src/roadpath.js';
 import { PursuitUnits } from '../src/pursuit.js';
-import { MissionRunner, OUTCOMES, MissionBoard } from '../src/mission.js';
+import { MissionRunner, OUTCOMES, MissionBoard, OFFER_RADIUS_M } from '../src/mission.js';
 import { composeBand, objectiveLine, MINIMAP_REACH_M, PULL_MIN } from '../src/hud.js';
 import { MISSIONS } from '../src/missions.js';
 
 const HZ = 120, DT = 1 / HZ;
+
+/**
+ * THE GARAGE IS AT THE PAGE'S OWN POSITION. `district/main.js` holds the authoritative copy and
+ * `tools/mission-test.mjs` asserts the two agree, because a harness that repairs the car somewhere
+ * the page does not is a harness whose repair findings are about a different game.
+ */
+const GARAGE_AT = { x: -67.9, z: 60.3 };
 
 /**
  * THE IDENTITY OF AN OBJECTIVE AS A TRANSCRIPT EVENT: the stage it belongs to and the words it
@@ -265,6 +274,15 @@ export class Session {
      */
     this.peds = new Pedestrians(scene, this.district,
       { count: opts.peds ?? 64, seed: opts.seed ?? 0 });
+    /**
+     * THE GARAGE, at the same place and with the same three constants district/main.js gives it,
+     * read from the modules that own them rather than copied. A harness whose garage is 12 m
+     * wide against a page whose garage is something else is a harness that cannot be used to
+     * judge the feature.
+     */
+    this.garage = new Garage({ x: GARAGE_AT.x, z: GARAGE_AT.z,
+      radius: OFFER_RADIUS_M, holdS: BUST_HOLD_S, stopMs: SCENE_STOP_MS });
+    this._garageState = this.garage.report();
     this.roads = new RoadGraph(this.district, { blockers: this.blockers, carRadius: BODY_RADIUS });
     this.mission = new MissionRunner();
     /**
@@ -320,7 +338,8 @@ export class Session {
     this._teleported = false;
     this.stats = { busts: 0, released: 0, cooperated: 0, crashes: 0, crimes: 0, knockdowns: 0, fatal: 0, shunts: 0,
       impacts: 0, voices: 0, tested: 0, contacts: 0, pedRepeats: 0, runOvers: 0,
-      wrecks: 0, respawns: 0, loopsBroken: 0, worstDv: 0, distance: 0, topSpeed: 0 };
+      wrecks: 0, respawns: 0, loopsBroken: 0, worstDv: 0, distance: 0, topSpeed: 0,
+      repairs: 0 };
     this._lastPos = { x: 0, z: 0 };
     this._controls = { throttle: 0, brake: 0, steer: 0, handbrake: false };
     this._route = null;
@@ -557,6 +576,19 @@ export class Session {
       this._moving();
       this._contacts();
       this._wreckWatch(DT);
+      /**
+       * THE GARAGE, exactly as district/main.js wires it: the module owns the zone, the dwell
+       * and the refusals, and this is the one wire. Driven here rather than in `_band()` because
+       * `_band()` is called more than once a frame — `look()` and `debug()` both reach it — and a
+       * dwell advanced from a read would run at whatever rate the caller happened to sample at.
+       */
+      this._garageState = this.mode === 'car'
+        ? this.garage.update(DT, { x: this.vehicle.position.x, z: this.vehicle.position.z,
+          speed: this.vehicle.speed, wantedStars: this.wanted.stars,
+          health: this.damage.health })
+        : this.garage.update(DT, { x: Infinity, z: Infinity, speed: 0, wantedStars: 0,
+          health: 1 });
+      if (this._garageState.repaired) { this.damage.repair(); this.stats.repairs++; }
       /**
        * THE END-OF-MISSION HOLD IS SPENT ONLY WHILE THE LINE IS ON SCREEN, which is what
        * district/main.js now does and what this file has to match or the harness shows a player
@@ -1207,6 +1239,14 @@ export class Session {
         .concat(onFoot
           ? [{ id: 'car', ...bearingTo(this.vehicle.position.x, this.vehicle.position.z) }]
           : [])
+        /**
+         * AND THE GARAGE, ALWAYS, which is what district/main.js posts: `MARKER_STYLE.shop` is
+         * the third style that had sat in src/hud.js since it was written with nothing in the
+         * game ever posting one. A player navigating by `look()` with no garage blip cannot find
+         * the only repair in the game, which is the same defect as the three authored stages
+         * that said "GET IN THE CAR" over a blank map.
+         */
+        .concat([{ id: 'garage', ...bearingTo(GARAGE_AT.x, GARAGE_AT.z) }])
         // One per unit that is actually reporting a position, as district/main.js posts them —
         // never the requested COUNT, which would put eight cars on a map the sim holds none of.
         .concat(this._unitPositions().map((u) => ({ id: 'enemy', ...bearingTo(u.x, u.z) })))
@@ -1294,7 +1334,13 @@ export class Session {
     // it here is how this harness would stop being able to see a tenant the page shows — the
     // defect CLAUDE.md records as four of composeBand's five tenants missing from `look()`.
     const stuck = this.mode === 'car' ? composeStuck(this.vehicle) : null;
-    return composeBand({ busted, wreck, fence, law, stuck, mission: hud, ended, offer });
+    // `garage` from src/damage.js's own composer, the same call district/main.js makes. See the
+    // note on `stuck` above for why omitting one here is how the harness stops being playable.
+    const garage = this.mode === 'car'
+      ? composeGarage(this._garageState, { health: this.damage.health,
+        wantedStars: this.wanted.stars, speed: this.vehicle.speed })
+      : null;
+    return composeBand({ busted, wreck, fence, law, stuck, garage, mission: hud, ended, offer });
   }
 
   /** The session as a reviewer would read it. */
@@ -2251,9 +2297,28 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
   empty.board.record('shakedown', OUTCOMES.PASSED);
   empty.board.record('marlin-street', OUTCOMES.PASSED);
   empty.step(0.2);
-  check('with nothing left on the board there is no waypoint',
-    empty.look().waypoint === null && empty.look().blips.length === 0,
-    JSON.stringify(empty.look().waypoint));
+  /**
+   * THE GARAGE IS A BLIP AND NOT A WAYPOINT, which is why this control counts JOB blips rather
+   * than all of them. It read `blips.length === 0` and broke the moment the garage started
+   * posting one — correctly, because the two statements had been conflated: "nothing is on the
+   * board" and "nothing is on the minimap" are different claims and only the first is true.
+   *
+   * A standing amenity that took the idle waypoint would point a player at the garage instead of
+   * at the only remaining job, which is the defect this very section exists for from the other
+   * end — and it is what district/main.js does too: the garage is `pushHudMarker(..., 'shop')`,
+   * never `hud.waypoint`.
+   */
+  const emptyBlips = empty.look().blips;
+  const jobBlips = emptyBlips.filter((b) => b.id !== 'garage' && b.id !== 'car' && b.id !== 'enemy');
+  console.log(`    with the board cleared: waypoint ${JSON.stringify(empty.look().waypoint)}, ` +
+    `${jobBlips.length} job blips, ${emptyBlips.length} blips in all ` +
+    `(${emptyBlips.map((b) => b.id).join(', ') || 'none'})`);
+  check('with nothing left on the board there is no waypoint, and no job blip either',
+    empty.look().waypoint === null && jobBlips.length === 0,
+    `waypoint ${JSON.stringify(empty.look().waypoint)}, jobs ${JSON.stringify(jobBlips)}`);
+  check('and the garage is still on the map, because it is an amenity rather than an objective',
+    emptyBlips.some((b) => b.id === 'garage'),
+    emptyBlips.map((b) => b.id).join(', ') || 'none');
 
   // The wreck line, in words, for the four seconds it is held.
   const wl = new Session({ traffic: 0, peds: 0 });
@@ -2544,6 +2609,217 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
       `${g.t.toFixed(0)} s, ${g.wanted.stars}* left, armed ${g.wanted.stats.bustHolds}x`);
     check('KNOWN-BAD: a player who keeps driving is not busted',
       g.stats.busts === 0, `${g.stats.busts} busts`);
+  }
+
+
+  /**
+   * §9  THE GARAGE, END TO END, because the thing a playtester actually hit was that there was no
+   * way to fix the car. Measured: a car at 0.686 health with no engine power, 60 s of full
+   * throttle and 60 s of full reverse both giving 0 km/h, and the only repair in the game being
+   * `__district` from a console. The owner chose "a garage you drive to".
+   *
+   * `tools/damage-test.mjs` gates the MODULE — the dwell swept at four step sizes, the 2x2x2 of
+   * refusals, the banking known-bad — and `tools/mission-test.mjs` gates its POSITION against
+   * every mission zone in the district. What is left for this file is the only thing neither can
+   * see: that a player driving this car can get to it, stop in it, and watch the band count down.
+   *
+   * CLAUDE.md's rule is the one this is here for: "when a feature lands, write down how a player
+   * gets to it, and then check that path from the outside." Three systems in one round were right
+   * in their module and unreachable from the game.
+   *
+   * THE DRIVE IS A REAL DRIVE, not a teleport onto the spot: the car is placed on the road
+   * outside the zone and has to cover the last leg under throttle, because "the car is in the
+   * zone" is the one part of this a teleport would assume rather than test.
+   */
+  {
+    console.log('\n§9  the garage');
+    const s = new Session({ seed: 5, peds: 0, traffic: 0 });
+    /**
+     * THE ROUTE FROM THE SPAWN, asserted rather than driven. 242 m of autopilot is a flaky gate
+     * — the follower's own lane-keeping is a known open defect — so the claim is the structural
+     * one: the road network connects the spawn to the garage. A garage on an unreachable island
+     * would pass every module check in this project.
+     */
+    const spawn = { x: s.vehicle.position.x, z: s.vehicle.position.z };
+    const route = s.roads.path(spawn.x, spawn.z, GARAGE_AT.x, GARAGE_AT.z,
+      { spacing: 8, offset: ROUTE_LANE_M, smoothPasses: 1 });
+    // `path()` returns points as `[x, z, edgeIndex]` triples, which is what `followPath` reads.
+    const pts = (route && route.points ? route.points : []).map((q) => ({ x: q[0], z: q[1] }));
+    const ends = pts.length
+      ? Math.hypot(pts[pts.length - 1].x - GARAGE_AT.x, pts[pts.length - 1].z - GARAGE_AT.z)
+      : Infinity;
+    console.log(`    routed from the spawn: ${pts.length} points, ` +
+      `${route ? route.length.toFixed(0) : '?'} m, ending ${ends.toFixed(1)} m from the garage`);
+    check('the road network routes a car from the spawn to the garage',
+      pts.length > 2 && ends <= s.garage.radius,
+      `${pts.length} points, last one ${ends.toFixed(1)} m out against a ${s.garage.radius} m zone`);
+
+    /**
+     * THE APPROACH. Picked off the route rather than chosen: the last route point that is still
+     * outside the zone, which is where a player arrives from. Driving from an arbitrary bearing
+     * is how a wedged-car arm in §8 ended up with 23.31 m of travel on the best of sixteen
+     * headings.
+     */
+    let approach = null;
+    for (const p of pts) {
+      const d = Math.hypot(p.x - GARAGE_AT.x, p.z - GARAGE_AT.z);
+      if (d > s.garage.radius + 2 && d < s.garage.radius + 20) approach = { ...p, d };
+    }
+    check('the route passes within a car-length or two of the zone edge, or there is no approach',
+      approach !== null, approach ? `${approach.d.toFixed(1)} m out` : 'no route point in the band');
+    const yaw = Math.atan2(GARAGE_AT.x - approach.x, GARAGE_AT.z - approach.z);
+    s.placeAt(approach.x, approach.z, yaw);
+    s.step(0.5);
+    // Break the car on the spot rather than by crashing it, so the arm measures the garage and
+    // not the collision pass: a crash here would also move the car and pick up crimes.
+    s.damage.impact({ dv: 7.5, kind: IMPACT.wall, dirZ: 1, speed: 7.5 });
+    const broken = s.damage.health;
+    const linesSeen = [];
+    let repairedAt = null, sawCountdown = null, worstCountdown = 0;
+    for (let k = 0; k < 400 && repairedAt === null; k++) {
+      const d = Math.hypot(s.vehicle.position.x - GARAGE_AT.x, s.vehicle.position.z - GARAGE_AT.z);
+      // Throttle until the zone, then stand on the brake. A player does exactly this.
+      s.drive(d > s.garage.radius * 0.5 ? { throttle: 0.42, brake: 0, steer: 0 }
+        : { throttle: 0, brake: 1, steer: 0 }).step(0.25);
+      const v = s.look();
+      if (v.bandFrom === 'garage') {
+        const line = `${objectiveLine(v.objective)} / ${v.subtitle}`;
+        if (linesSeen[linesSeen.length - 1] !== line) linesSeen.push(line);
+        /**
+         * READ OFF THE FLATTENED LINE, because that is what a player sees: `look()` puts the
+         * objective through `objectiveLine`, so the number and its unit arrive as words. A probe
+         * that reached for `objective.distance` here read null at every input while the countdown
+         * was on screen the whole time — the shape CLAUDE.md records as a probe that measures
+         * something other than the thing it is checking.
+         */
+        const m = /REPAIRING — (\d+) s$/.exec(String(v.objective));
+        const n = m ? +m[1] : null;
+        if (n != null) { if (sawCountdown === null) sawCountdown = n; worstCountdown = Math.max(worstCountdown, n); }
+      }
+      if (s.stats.repairs > 0) repairedAt = s.t;
+    }
+    const g = s.garage.report();
+    console.log(`    drove in from ${approach.d.toFixed(1)} m out, ${s.stats.distance.toFixed(1)} m ` +
+      `travelled; health ${broken.toFixed(3)} -> ${s.damage.health.toFixed(3)} at t=` +
+      `${repairedAt == null ? 'never' : repairedAt.toFixed(1)} s`);
+    console.log(`    the band, in order: ${linesSeen.map((l) => `"${l}"`).join(' -> ')}`);
+    console.log(`    ${JSON.stringify({ ...s.garage.stats, dwell: g.dwell, repairs: s.stats.repairs })}`);
+    /**
+     * THE DRIVE HAPPENED. "A check whose two sides are both zero is not a check": every number
+     * below is zero for a car that never moved and never entered, so the arm asserts the entry
+     * and the travel before it asserts anything about the repair.
+     */
+    check('the car drove into the zone rather than being placed in it',
+      s.garage.stats.entries === 1 && s.stats.distance > 2,
+      `${s.garage.stats.entries} entries after ${s.stats.distance.toFixed(1)} m`);
+    check('and it was broken when it got there, or there is nothing to repair',
+      broken < 1 && broken > 0.2, `health ${broken.toFixed(3)}`);
+    check('a player can drive to the garage and have the car repaired, which was the finding',
+      repairedAt != null && s.damage.health === 1,
+      `${broken.toFixed(3)} -> ${s.damage.health.toFixed(3)} at t=${repairedAt == null ? 'never' : repairedAt.toFixed(1)} s`);
+    /**
+     * AND THE BAND TOLD THEM TO. A repair that happens silently is the same defect as the
+     * mission objective nothing reads: the player stops for an unrelated reason, the car is
+     * fixed, and nothing in the game said a garage exists. The sequence asserted is the one a
+     * player sees — told to stop, then counted down — and the countdown has to START near the
+     * full hold rather than appearing at 1 s.
+     */
+    check('the band told the player to stop, then counted the hold down',
+      linesSeen.length >= 2 && linesSeen[0].startsWith('GARAGE') &&
+      linesSeen.some((l) => l.startsWith('REPAIRING')),
+      linesSeen.join(' -> ') || 'the garage never reached the band');
+    check('and the countdown starts at the hold rather than appearing at the end of it',
+      worstCountdown === Math.ceil(s.garage.holdS) && sawCountdown === worstCountdown,
+      `first ${sawCountdown}, highest ${worstCountdown}, hold ${s.garage.holdS} s`);
+    check('the countdown is in seconds and says so, which the bust countdown once did not',
+      linesSeen.some((l) => /REPAIRING — \d+ s/.test(l)),
+      linesSeen.find((l) => l.startsWith('REPAIRING')) ?? 'no REPAIRING line');
+
+    /**
+     * KNOWN-BAD, the two refusals, driven the same way. Both are here because the module's own
+     * 2x2x2 cannot see the wire: a host that passed a constant 0 for the stars, or the SMOOTHED
+     * speed instead of the car's own, would pass every check in damage-test and fail both of
+     * these.
+     */
+    const hot = new Session({ seed: 5, peds: 0, traffic: 0 });
+    hot.placeAt(GARAGE_AT.x, GARAGE_AT.z, 0);
+    hot.damage.impact({ dv: 7.5, kind: IMPACT.wall, dirZ: 1, speed: 7.5 });
+    hot.wanted.reportCrime('officerDown', { at: { x: GARAGE_AT.x, z: GARAGE_AT.z } });
+    let hotLine = null;
+    for (let k = 0; k < 40; k++) {
+      hot.drive({ throttle: 0, brake: 1 }).step(0.25);
+      const v = hot.look();
+      if (v.bandFrom === 'garage') hotLine = `${objectiveLine(v.objective)} / ${v.subtitle}`;
+    }
+    console.log(`    KNOWN-BAD wanted: ${hot.wanted.stars}* in the garage for ` +
+      `${(40 * 0.25).toFixed(0)} s -> ${hot.stats.repairs} repairs, band "${hotLine}", ` +
+      `refusedWanted ${hot.garage.stats.refusedWanted}`);
+    check('KNOWN-BAD: the garage will not repair a car the police are looking for',
+      hot.wanted.stars > 0 && hot.garage.stats.refusedWanted > 0 && hot.stats.repairs === 0 &&
+      hot.damage.health < 1,
+      `${hot.stats.repairs} repairs at ${hot.wanted.stars}*, ${hot.garage.stats.refusedWanted} refusals`);
+    check('and it says why, rather than silently doing nothing',
+      hotLine != null && /looking/.test(hotLine), `${hotLine}`);
+
+    const past = new Session({ seed: 5, peds: 0, traffic: 0 });
+    past.placeAt(approach.x, approach.z, yaw);
+    past.step(0.5);
+    past.damage.impact({ dv: 7.5, kind: IMPACT.wall, dirZ: 1, speed: 7.5 });
+    let insideFrames = 0;
+    for (let k = 0; k < 40 && past.stats.repairs === 0; k++) {
+      /**
+       * 0.18 OF THROTTLE AND NO BRAKE, measured: 5.75 s inside the 24 m zone at 2.45 to 5.78 m/s,
+       * against a 4 s hold and a 1.0 m/s stop threshold. Both margins matter — a faster pass is
+       * out of the zone before the hold could have finished whatever the rule says, and a brake
+       * drag that crept under 1.0 m/s would repair the car and read as the rule being broken.
+       * 0.42 of throttle gave 3.50 s, which is the first version of this arm and is void.
+       */
+      past.drive({ throttle: 0.18, brake: 0, steer: 0 }).step(0.25);
+      if (past.garage.report().inside) insideFrames++;
+    }
+    console.log(`    KNOWN-BAD driving through: ${insideFrames} frames inside the zone, ` +
+      `${past.stats.repairs} repairs, refusedMoving ${past.garage.stats.refusedMoving}`);
+    check('KNOWN-BAD: driving through the garage does not repair the car',
+      insideFrames > 0 && past.garage.stats.refusedMoving > 0 && past.stats.repairs === 0,
+      `${insideFrames} frames inside, ${past.stats.repairs} repairs`);
+    /**
+     * AND THE REFUSAL IS THE SPEED, NOT THE FRAME COUNT. This car was inside the zone for more
+     * frames than the hold needs, so a host feeding the garage a constant zero speed would have
+     * repaired it. Printed as the comparison, because the two arms differ only in the brake.
+     */
+    check('and it was in there long enough that only the speed stopped it',
+      insideFrames * 0.25 >= s.garage.holdS,
+      `${(insideFrames * 0.25).toFixed(2)} s inside against a ${s.garage.holdS} s hold`);
+
+    /**
+     * THE ZONE IS ON THE MINIMAP. `MARKER_STYLE.shop` had existed in src/hud.js since the file
+     * was written with nothing in the game ever posting one — the same shape as the five
+     * systems that were never switched on. A garage a player cannot find is a garage that does
+     * not exist.
+     */
+    const far = new Session({ seed: 5, peds: 0, traffic: 0 });
+    const blips = far.look().blips ?? [];
+    const shop = blips.filter((b) => b.id === 'garage');
+    const trueRange = Math.hypot(far.vehicle.position.x - GARAGE_AT.x,
+      far.vehicle.position.z - GARAGE_AT.z);
+    console.log(`    minimap from the spawn: ${blips.length} blips, ` +
+      `${shop.length} of them the garage` +
+      `${shop.length ? ` at ${shop[0].range} m bearing ${shop[0].bearing}` +
+        `${shop[0].edge ? ', clamped to the frame' : ''}` : ''}` +
+      `; true range ${trueRange.toFixed(0)} m`);
+    check('the garage posts a minimap blip, in the style src/hud.js has always carried',
+      shop.length === 1 && Math.abs(shop[0].range - trueRange) < 1,
+      `${shop.length} garage blips of ${blips.length}, range ${shop.length ? shop[0].range : '?'}` +
+      ` against ${trueRange.toFixed(0)} m`);
+    /**
+     * AND IT IS STILL THERE WHEN IT IS OUT OF REACH, marked rather than dropped. A blind
+     * playtester ran 110.3 m from the car, watched its blip vanish from `look()`, and searched
+     * 191 s over eight legs for something the page was drawing at the map edge the whole time.
+     * The garage is 242 m from the spawn, so this is that case by default.
+     */
+    check('and out of the map\u2019s reach it is clamped to the frame, not thrown away',
+      shop.length === 1 && trueRange > MINIMAP_REACH_M && shop[0].edge === true,
+      `${trueRange.toFixed(0)} m against a ${MINIMAP_REACH_M} m reach, edge ${shop.length ? shop[0].edge : '?'}`);
   }
 
   console.log(`\n${pass} passed, ${fail} failed in ${((Date.now() - t00) / 1000).toFixed(1)} s ` +

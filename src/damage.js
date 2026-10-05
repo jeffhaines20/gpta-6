@@ -681,3 +681,140 @@ export function throwDistance(speed) {
  * than trusting that an integrator agrees with the closed form.
  */
 export function slideDecel() { return THROW.mu * THROW.g; }
+
+/**
+ * A PLACE TO GET THE CAR FIXED, because until this landed the fastest repair in the game was
+ * destroying the car. A playtester measured the dead end: 0.686 health, no engine power, 60 s of
+ * full throttle and 60 s of full reverse both giving 0 km/h, and the only repair reachable from
+ * the page being `__district.repair()` from a browser console. Wrecking it on purpose hands back
+ * a perfect one, so the optimal play was to drive into a building.
+ *
+ * The owner chose "a garage you drive to" over an automatic trickle, which reuses the reach
+ * trigger and the minimap machinery the missions already have: a zone on the map, stop in it,
+ * wait, drive away with the car fixed.
+ *
+ * WHAT IS IN THIS MODULE AND WHAT IS NOT. Everything that decides anything is here — the zone,
+ * the dwell, the three refusals and the band line — and the host is left with one wire: feed it
+ * the car, act on `repaired`, hand the line to the band. CLAUDE.md records why: "a host rule is
+ * a rule no offline gate can reach", and when `composeBand` lived in district/main.js four of
+ * its five tenants were missing from the node harness's own view of the screen.
+ *
+ * THE THREE REFUSALS, each of which is a rule rather than a safety check:
+ *
+ *   - A CAR THAT IS ALREADY PERFECT gets no dwell and no line. Otherwise a player parked in the
+ *     garage between jobs watches a countdown to a repair that changes nothing, which reads as
+ *     the garage being broken.
+ *   - A WANTED CAR IS REFUSED, and that is most of what makes damage cost anything: with it, a
+ *     damaged car at four stars is a decision — run for it, or shake the tail first.
+ *   - A MOVING CAR IS REFUSED, so the garage is somewhere a player stops rather than something
+ *     they drive through on the way past. Measured: a crossing of the zone at 2.45 to 5.78 m/s
+ *     spends 5.75 s inside it, comfortably more than the hold, so without this rule the feature
+ *     would be collected by accident and never learned.
+ *
+ * The dwell RESETS on every refusal rather than decaying, because a decaying dwell can be banked
+ * over many short visits and "hold still" then stops being a requirement.
+ */
+export class Garage {
+  /**
+   * @param {{x:number,z:number,radius?:number,holdS?:number,stopMs?:number}} opts
+   *   `radius`, `holdS` and `stopMs` default to the three constants above, which the HOST passes
+   *   in from the modules that own them — this file must not import src/wanted.js or
+   *   src/mission.js, and a default copied from either is the second copy of a number that
+   *   CLAUDE.md records as the recurring defect here. A caller that passes none gets the
+   *   fallbacks below and `tools/damage-test.mjs` asserts they equal the real constants.
+   */
+  constructor(opts = {}) {
+    this.x = opts.x ?? 0;
+    this.z = opts.z ?? 0;
+    this.radius = opts.radius ?? 12;
+    this.holdS = opts.holdS ?? 4.0;
+    this.stopMs = opts.stopMs ?? 1.0;
+    this.dwell = 0;
+    this.inside = false;
+    this.stats = { entries: 0, repairs: 0, refusedWanted: 0, refusedMoving: 0 };
+  }
+
+  /**
+   * One frame. `player` is `{ x, z, speed, wantedStars, health }` — the speed is the car's own,
+   * not a smoothed one, because this is a question about whether the car is parked rather than
+   * about whether it is being driven.
+   *
+   * Returns what the host needs to act and to draw: whether the car is in the zone, how far
+   * through the dwell it is, and whether THIS frame completed a repair.
+   */
+  update(dt, player) {
+    const d = Math.hypot((player.x ?? 0) - this.x, (player.z ?? 0) - this.z);
+    const wasInside = this.inside;
+    this.inside = d <= this.radius;
+    if (!this.inside) { this.dwell = 0; return this.report(d, false); }
+    if (!wasInside) this.stats.entries++;
+    // Nothing to do for a car that is already perfect: the dwell would run and the line would
+    // count down to a repair that changes nothing, which reads as the garage being broken.
+    const hurt = (player.health ?? 1) < 1;
+    if (!hurt) { this.dwell = 0; return this.report(d, false); }
+    if ((player.wantedStars ?? 0) > 0) {
+      this.dwell = 0;
+      this.stats.refusedWanted++;
+      return this.report(d, false);
+    }
+    if ((player.speed ?? 0) >= this.stopMs) {
+      this.dwell = 0;
+      this.stats.refusedMoving++;
+      return this.report(d, false);
+    }
+    this.dwell += dt;
+    if (this.dwell < this.holdS) return this.report(d, false);
+    this.dwell = 0;
+    this.stats.repairs++;
+    return this.report(d, true);
+  }
+
+  report(d = null, repaired = false) {
+    return { inside: this.inside, distance: d, dwell: +this.dwell.toFixed(3),
+      left: +Math.max(0, this.holdS - this.dwell).toFixed(3), repaired };
+  }
+
+  /** The minimap blip. `shop` has been in src/hud.js's MARKER_STYLE since it was written. */
+  marker() { return { x: this.x, z: this.z, kind: 'shop' }; }
+}
+
+/**
+ * THE GARAGE'S BAND LINE, beside `composeLaw` and `composeStuck` in shape and for the same
+ * reason: presentation assembled inside district/main.js is presentation the node harness cannot
+ * reproduce, and when `composeBand` lived there four of its five tenants were missing from
+ * `look()`.
+ *
+ * `ownSubtitle` ON EVERY BRANCH, because every one of them is an instruction or a reason, and
+ * src/hud.js's `HOLDS_MISSION_SUBTITLE` would replace it with the mission objective — the rule
+ * that ate `composeLaw`'s "reverse" for a round and was measured at the word `drive` appearing
+ * in 0 of them.
+ *
+ * Null for a car that is already perfect, so a player parked in the garage between jobs is not
+ * reading a panel about nothing.
+ *
+ * @param {object|null} g       the `update()` report
+ * @param {{health:number, wantedStars:number, speed:number}} player
+ */
+export function composeGarage(g, player = {}) {
+  if (!g || !g.inside) return null;
+  /**
+   * THE FRAME THE REPAIR LANDS ON SAYS NOTHING, read off the report rather than off the health.
+   * `update()` zeroes the dwell before reporting, so on that one frame `dwell` is 0 and `left` is
+   * the full hold — the "stop here" branch — and whether the caller sees it depends on whether it
+   * has applied `repaired` to the health yet. district/main.js repairs first and would be fine;
+   * a host that composed first would flash "GARAGE / stop here" at the moment of success. Both
+   * orders now read the same, which is the difference between a wire that is correct and one that
+   * is correct by call order.
+   */
+  if (g.repaired) return null;
+  if ((player.health ?? 1) >= 1) return null;
+  if ((player.wantedStars ?? 0) > 0) {
+    return { objective: { text: 'GARAGE' }, subtitle: 'not while they are looking',
+      ownSubtitle: true };
+  }
+  if (g.dwell <= 0) {
+    return { objective: { text: 'GARAGE' }, subtitle: 'stop here', ownSubtitle: true };
+  }
+  return { objective: { text: 'REPAIRING', distance: Math.ceil(g.left), unit: 's' },
+    subtitle: 'hold still', ownSubtitle: true };
+}

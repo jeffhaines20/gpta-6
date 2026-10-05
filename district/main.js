@@ -8,7 +8,7 @@ import { Input } from '../src/input.js';
 import { Vehicle, BODY_SAMPLES, BODY_RADIUS, BODY_ENCLOSING,
   composeStuck } from '../src/vehicle.js';
 import { BlockerIndex, districtBounds, worldFence } from '../src/blockers.js';
-import { DamageModel, IMPACT, dynamicContact } from '../src/damage.js';
+import { DamageModel, IMPACT, dynamicContact, Garage, composeGarage } from '../src/damage.js';
 import { RoadGraph, followPath, ROUTE_LANE_M } from '../src/roadpath.js';
 import { ChaseCamera } from '../src/camera.js';
 import { StreamingWorld } from '../src/streaming.js';
@@ -37,9 +37,9 @@ import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubS
   setLensProfile, lensProfile,
   setGlassFinish, glassFinish } from '../src/carbody.js';
 import { HUD, composeBand, MINIMAP_ZOOM_M } from '../src/hud.js';
-import { MissionRunner, OUTCOMES, MissionBoard } from '../src/mission.js';
+import { MissionRunner, OUTCOMES, MissionBoard, OFFER_RADIUS_M } from '../src/mission.js';
 import { MISSIONS } from '../src/missions.js';
-import { WantedSystem, bindPursuit, CRIMES, VictimWindow, BUST_HOLD_S,
+import { WantedSystem, bindPursuit, CRIMES, VictimWindow, BUST_HOLD_S, SCENE_STOP_MS,
   composeWanted, composeLaw } from '../src/wanted.js';
 import { createAudio, hardnessFor } from '../src/audio.js';
 
@@ -974,6 +974,12 @@ function updateHudMarkers(onFoot) {
   // The car you got out of. MARKER_STYLE.vehicle has existed since src/hud.js was written and
   // nothing had ever posted one.
   if (onFoot) n = pushHudMarker(n, _carWaypoint.x, _carWaypoint.z, 'vehicle');
+  // The garage, always. `MARKER_STYLE.shop` is the OTHER style that had existed since src/hud.js
+  // was written with nothing ever posting one — green, square, "you may rather than you must",
+  // which is exactly what a repair you can choose to drive to is. Shown whatever the car's
+  // health, because a player cannot plan a trip to a place they only learn about once they need
+  // it; the BAND line is what stays quiet while the car is perfect.
+  n = pushHudMarker(n, GARAGE_AT.x, GARAGE_AT.z, 'shop');
   return hudMarkers;
 }
 const wantedBridge = bindPursuit(wanted, pursuitBridge, { baseSpeed: PURSUIT_BASE_SPEED });
@@ -1079,6 +1085,30 @@ const ENTER_TIME = 0.45;
  * with it the whole time.
  */
 const blockers = new BlockerIndex(district);
+
+/**
+ * THE GARAGE, AT (-67.9, 60.3).
+ *
+ * THE POSITION IS THE TRAP AND IT WAS FOUND RATHER THAN CHOSEN. CLAUDE.md records a marker rule
+ * producing the defect it did not forbid THREE times, every one about where a marker sits — one
+ * 0.35 m from the spawn inside its own 30 m radius, one on top of the next stage's reach
+ * trigger, and one pointing 322 m at a place where nothing happens. So this spot was searched
+ * for against every constraint at once: on the routable centreline of a 6 m street (0.00 m off
+ * it), clear for a car 3 m in every direction, 260 m from the spawn so it is a destination
+ * rather than a thing you start inside, routable from the spawn in 44 points, and clear of every
+ * mission zone — start radius, marker and reach trigger, 12 of them — by 85.3 m, which is its
+ * own radius plus 73.
+ *
+ * `tools/mission-test.mjs` asserts that separation rather than trusting this comment.
+ *
+ * THE THREE NUMBERS COME FROM THE MODULES THAT OWN THEM and are passed in, because
+ * `src/damage.js` must not import the mission or wanted layers to find them, and a default
+ * copied into it would be the second copy of a number — the recurring defect this file records.
+ */
+const GARAGE_AT = { x: -67.9, z: 60.3 };
+const garage = new Garage({ x: GARAGE_AT.x, z: GARAGE_AT.z,
+  radius: OFFER_RADIUS_M, holdS: BUST_HOLD_S, stopMs: SCENE_STOP_MS });
+const garageStats = { repairs: 0 };
 
 /**
  * EVERY PURSUIT FLEET GETS THE BLOCKER PREDICATE, FROM ONE PLACE.
@@ -2079,8 +2109,28 @@ function animate(now) {
    * no offline gate can reach, and this file is imported by nothing offline.
    */
   const stuckLine = mode === 'car' ? composeStuck(vehicle) : null;
+  /**
+   * THE GARAGE. One wire, exactly as the rule in src/damage.js's `Garage` says: the module owns
+   * the zone, the dwell, the refusals and the decision, and this is the only thing left here —
+   * feed it the car, act on `repaired`, and hand its line to the band.
+   *
+   * ON FOOT IT IS NOT OFFERED, because what gets repaired is the car and the car is elsewhere.
+   */
+  const garageState = mode === 'car'
+    ? garage.update(dt, { x: vehicle.position.x, z: vehicle.position.z,
+      speed: vehicle.speed, wantedStars: wanted.stars, health: damage.health })
+    : garage.update(dt, { x: Infinity, z: Infinity, speed: 0, wantedStars: 0, health: 1 });
+  if (garageState.repaired) {
+    damage.repair();
+    garageStats.repairs++;
+  }
+  const garageLine = mode === 'car'
+    ? composeGarage(garageState, { health: damage.health, wantedStars: wanted.stars,
+      speed: vehicle.speed })
+    : null;
   const band = composeBand({ busted: bustLine, wreck: wreckLine, fence: fenceLine, law: lawLine,
-    stuck: stuckLine, mission: missionHud, ended: missionEnd, offer: offerLine });
+    stuck: stuckLine, garage: garageLine, mission: missionHud, ended: missionEnd,
+    offer: offerLine });
   const bandObjective = band.objective, bandSubtitle = band.subtitle;
   lastBandFrom = band.from;
   // See the note above `composeBand`'s inputs: the end-of-mission hold is spent only on frames
@@ -2495,6 +2545,15 @@ window.__district = {
    * assertion for a tenth of the wall time.
    */
   bandReport: () => ({ from: lastBandFrom, endFor: +missionEndFor.toFixed(3) }),
+  /**
+   * THE GARAGE, for `tools/boot-check.mjs`: the module is gated offline in damage-test and this
+   * is the one wire — the zone being fed the car, `repaired` being acted on, and the line
+   * reaching the band. `at` is published so the gate does not hardcode a position the search
+   * that chose it could move.
+   */
+  garageReport: () => ({ at: { x: garage.x, z: garage.z }, radius: garage.radius,
+    holdS: garage.holdS, stopMs: garage.stopMs, ...garage.report(), ...garage.stats,
+    hostRepairs: garageStats.repairs }),
   // The one expression the frame loop's `held` test uses. See `pursuitReach`.
   pursuitReach,
   wantedReport: () => ({

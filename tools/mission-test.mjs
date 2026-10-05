@@ -23,6 +23,7 @@ import { MissionRunner, defineMission, OUTCOMES, TRIGGERS, snapshotFields,
 // For the flee stage's cue: the word the wanted strip prints is read off the module that
 // prints it, not spelled a second time here. See section (c).
 import { composeWanted, STATES } from '../src/wanted.js';
+import fs from 'node:fs';
 
 const DT = 1 / 30;
 const checks = [];
@@ -1249,6 +1250,138 @@ console.log('\n=== 10. the objective distance');
 
 // ---------------------------------------------------------------------------
 const failed = checks.filter((c) => !c.ok);
+// ---------------------------------------------------------------------------
+/**
+ * THE GARAGE'S POSITION, which is the trap this district has fallen into three times.
+ *
+ * CLAUDE.md's section "A marker rule produced the defect it did not forbid, twice" is now three
+ * times: `shakedown`'s second marker 0.35 m from the spawn, `ambush`'s marker on top of `drop`'s
+ * reach trigger, and in both cases a GATE RULE put it there. The garage is a fourth zone with a
+ * radius, placed by hand, in a district that already has twelve — so it is checked against all of
+ * them here rather than eyeballed, and the property asserted is the one that breaks:
+ *
+ *   A PLAYER PARKED IN THE GARAGE MUST NOT BE STANDING IN A MISSION ZONE. If they are, the
+ *   repair and the mission fire together: the band has to choose, `garage` sits below `mission`
+ *   in BAND_ORDER, and the four seconds of "hold still" would be invisible under an objective —
+ *   which is exactly the 0.033 s delivery leg, in a new place.
+ *
+ * THE POSITION IS READ FROM THE SOURCE, not retyped. A probe that hardcodes the value it is
+ * testing cannot see the fix: the first version of the ambush before/after read `(-471,205)` as a
+ * literal and reported the defect unchanged after it was fixed. Both files that declare a garage
+ * are parsed, and they must agree — a harness repairing the car 400 m from where the page does is
+ * a harness whose repair findings are about a different game.
+ */
+console.log('\n=== 11. the garage, against every mission zone in the district');
+{
+  const readGarage = (file) => {
+    const src = fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
+    const m = /const GARAGE_AT = \{\s*x:\s*(-?[\d.]+),\s*z:\s*(-?[\d.]+)\s*\}/.exec(src);
+    return m ? { x: +m[1], z: +m[2] } : null;
+  };
+  const { MISSIONS } = await import('../src/missions.js');
+  const page = readGarage('district/main.js');
+  const harness = readGarage('tools/playtest.mjs');
+  console.log(`    district/main.js  ${page ? `(${page.x}, ${page.z})` : 'NOT FOUND'}`);
+  console.log(`    tools/playtest.mjs ${harness ? `(${harness.x}, ${harness.z})` : 'NOT FOUND'}`);
+  check('both files that place a garage declare one, so neither regex matched nothing',
+    page !== null && harness !== null, `page ${JSON.stringify(page)} harness ${JSON.stringify(harness)}`);
+  check('and the harness repairs the car where the page does, to the centimetre',
+    page && harness && Math.hypot(page.x - harness.x, page.z - harness.z) < 0.01,
+    page && harness ? `${Math.hypot(page.x - harness.x, page.z - harness.z).toFixed(4)} m apart` : 'n/a');
+
+  /**
+   * EVERY ZONE IN THE DISTRICT WITH A RADIUS, enumerated from the mission data rather than
+   * listed: each mission's pickup point at the board's own radius, every stage marker at its own
+   * stage's reach radius, and every reach trigger whether or not a marker posts to it. The last
+   * of the three is the one a hand-check misses — `drop`'s trigger is what `ambush`'s marker
+   * landed on, and `drop` posts no marker of its own there.
+   */
+  const zones = [];
+  for (const m of Object.values(MISSIONS)) {
+    if (m.start) {
+      zones.push({ id: `${m.id}/pickup`, x: m.start.x, z: m.start.z,
+        r: m.start.radius ?? OFFER_RADIUS_M });
+    }
+    for (const st of m.stages) {
+      const walk = (t) => {
+        if (!t || !t.kind) return;
+        if (t.kind === 'reach' && Number.isFinite(t.x)) {
+          zones.push({ id: `${m.id}/${st.id} reach`, x: t.x, z: t.z, r: t.radius });
+        }
+        if ((t.kind === 'all' || t.kind === 'any') && Array.isArray(t.of)) t.of.forEach(walk);
+      };
+      (st.triggers ?? []).forEach(walk);
+      if (st.marker) {
+        zones.push({ id: `${m.id}/${st.id} marker`, x: st.marker.x, z: st.marker.z, r: 0 });
+      }
+    }
+  }
+  /**
+   * THE CLEARANCE IS BETWEEN THE TWO ZONES' EDGES, not between their centres. A player anywhere
+   * in the garage is within `OFFER_RADIUS_M` of its centre, so the quantity is
+   * `distance - garageRadius - zoneRadius`, and a negative value means the two overlap somewhere
+   * — which is what "parked in the garage and standing in a mission zone" means.
+   */
+  const clear = zones.map((z) => ({ ...z,
+    d: Math.hypot(page.x - z.x, page.z - z.z),
+    gap: Math.hypot(page.x - z.x, page.z - z.z) - OFFER_RADIUS_M - z.r }))
+    .sort((a, b) => a.gap - b.gap);
+  console.log(`    ${clear.length} zones; nearest five edge-to-edge:`);
+  for (const z of clear.slice(0, 5)) {
+    console.log(`      ${z.id.padEnd(26)} centre ${z.d.toFixed(1).padStart(6)} m  r${String(z.r).padStart(3)}` +
+      `  gap ${z.gap.toFixed(1).padStart(7)} m`);
+  }
+  check('the district has every kind of zone in this list, or the sweep is not a sweep',
+    clear.some((z) => z.id.endsWith('pickup')) && clear.some((z) => z.id.endsWith('reach')) &&
+    clear.some((z) => z.id.endsWith('marker')) && clear.length >= 12,
+    `${clear.length} zones: ${new Set(clear.map((z) => z.id.split(' ')[1] ?? 'pickup')).size} kinds`);
+  check('a player parked in the garage is not standing in any mission zone',
+    clear[0].gap > 0, `nearest is ${clear[0].id} at ${clear[0].gap.toFixed(1)} m of clearance`);
+  /**
+   * AND IT IS NOT MARGINAL. The ratio is printed for the same reason the marker rule prints
+   * x11.5 beside 322.5 m against 28 m: so an author can see that a gap of 0.4 m would pass this
+   * check while being absurd. The bound is one garage diameter of clearance, which is the
+   * distance a player has to drive to get from one zone to the other.
+   */
+  check('and the clearance is at least a garage wide, so arriving at one is not arriving at both',
+    clear[0].gap >= OFFER_RADIUS_M * 2,
+    `${clear[0].gap.toFixed(1)} m against ${(OFFER_RADIUS_M * 2).toFixed(0)} m,` +
+    ` x${(clear[0].gap / (OFFER_RADIUS_M * 2)).toFixed(1)}`);
+  /**
+   * KNOWN-BAD, three of them, because this predicate has to fail on the three placements that
+   * have actually happened in this district: on a mission's pickup point, on a stage marker, and
+   * on a bare reach trigger with no marker — the `ambush` defect exactly.
+   */
+  const badAt = (z) => {
+    const g = { x: z.x, z: z.z };
+    return Math.min(...zones.map((o) =>
+      Math.hypot(g.x - o.x, g.z - o.z) - OFFER_RADIUS_M - o.r)) <= 0;
+  };
+  const pickup = clear.find((z) => z.id.endsWith('pickup'));
+  const marker = clear.find((z) => z.id.endsWith('marker'));
+  const reach = clear.find((z) => z.id.endsWith('reach'));
+  console.log(`    KNOWN-BAD placements: on ${pickup.id}, on ${marker.id}, on ${reach.id}`);
+  check('KNOWN-BAD: a garage on a mission pickup point fails this check',
+    badAt(pickup), pickup.id);
+  check('KNOWN-BAD: a garage on a stage marker fails it', badAt(marker), marker.id);
+  check('KNOWN-BAD: and a garage on a bare reach trigger fails it too, which is the ambush defect',
+    badAt(reach), reach.id);
+
+  /**
+   * THE SPAWN. Not a mission zone, so it is not in the list above, and it is the one place a
+   * player is guaranteed to be: a garage ON the spawn repairs the car before the player has
+   * done anything to it, and a garage that is unreachable from the spawn is a feature with no
+   * path to it — CLAUDE.md's "a system that is never switched on". The ROUTE is checked in
+   * `tools/boot-check.mjs`, which has the road graph; here it is only the separation.
+   */
+  const spawn = MISSIONS.shakedown?.start;
+  const dSpawn = spawn ? Math.hypot(page.x - spawn.x, page.z - spawn.z) : null;
+  console.log(`    the garage is ${dSpawn == null ? '?' : dSpawn.toFixed(0)} m from shakedown's pickup`);
+  check('the garage is a drive away rather than somewhere the car starts',
+    dSpawn != null && dSpawn > OFFER_RADIUS_M * 4,
+    `${dSpawn == null ? 'n/a' : `${dSpawn.toFixed(0)} m against ${OFFER_RADIUS_M * 4} m`}`);
+}
+
 console.log('\n=== CHECKS');
 for (const c of checks) console.log(`  ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);
 console.log(`\nMISSION: ${failed.length ? `FAIL — ${failed.length} of ${checks.length}` : `PASS — ${checks.length} checks`}`);

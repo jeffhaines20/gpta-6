@@ -227,9 +227,17 @@ const MUTATIONS = [
   },
   // ---- src/hud.js
   {
+    /**
+     * THE WHOLE ORDER, SO THE `find` IS THE WHOLE LITERAL — and it goes STALE every time a tenant
+     * is added, which has now happened twice (`stuck`, then `garage`). That is the designed
+     * behaviour rather than a cost: the staleness check reports it and the row gets re-aimed,
+     * where a `find` narrow enough to survive would be a row about something other than the
+     * order. Both of this file's BAND_ORDER rows were stale on the garage commit and both were
+     * caught by that check.
+     */
     id: 'band-order', file: 'src/hud.js',
-    find: "export const BAND_ORDER = ['busted', 'wreck', 'fence', 'law', 'stuck', 'mission', 'ended', 'offer'];",
-    to: "export const BAND_ORDER = ['offer', 'ended', 'mission', 'stuck', 'law', 'fence', 'wreck', 'busted'];",
+    find: "export const BAND_ORDER = ['busted', 'wreck', 'fence', 'law', 'stuck', 'garage', 'mission',\n  'ended', 'offer'];",
+    to: "export const BAND_ORDER = ['offer', 'ended', 'mission', 'garage', 'stuck', 'law', 'fence',\n  'wreck', 'busted'];",
     why: 'an offer outranks a wrecked car and the world fence in the objective band',
   },
   {
@@ -382,8 +390,9 @@ const MUTATIONS = [
      * appear, which is the state the game shipped in for as long as `hitAndRun` has existed.
      */
     id: 'law-tenant', file: 'src/hud.js',
-    find: "export const BAND_ORDER = ['busted', 'wreck', 'fence', 'law', 'stuck', 'mission', 'ended', 'offer'];",
-    to: "export const BAND_ORDER = ['busted', 'wreck', 'fence', 'stuck', 'mission', 'ended', 'offer'];",
+    // Only the first line of the literal, because dropping one name does not need the rest.
+    find: "export const BAND_ORDER = ['busted', 'wreck', 'fence', 'law', 'stuck', 'garage', 'mission',",
+    to: "export const BAND_ORDER = ['busted', 'wreck', 'fence', 'stuck', 'garage', 'mission',",
     why: 'the 85 m hit-and-run deadline is back to having no words on screen',
   },
   {
@@ -1247,6 +1256,134 @@ const MUTATIONS = [
     to: '          this._crime(rv.crime, 1);',
     why: 'the harness charges a full pedestrianHit for a 3 km/h roll: 2 stars where the game gives 1',
   },
+  {
+    /**
+     * THE GARAGE REPAIRS A CAR THAT IS STILL MOVING. Nothing errors, every mission plays
+     * identically, and the feature even looks more generous — which is the point: a player
+     * driving through on the way somewhere gets a free repair and never learns the garage is
+     * there, and the "stop here" line becomes a lie about a rule that does not exist.
+     * Measured: 23 frames inside the zone at 2.45 to 5.78 m/s, 5.75 s against a 4 s hold, so
+     * a crossing is long enough for the mutant to fire.
+     */
+    id: 'garage-moving', file: 'src/damage.js',
+    find: '    if ((player.speed ?? 0) >= this.stopMs) {',
+    to: '    if (false) {',
+    why: 'driving through the garage repairs the car, so stopping in it is never learned',
+  },
+  {
+    /**
+     * AND IT REPAIRS A CAR THE POLICE ARE CHASING, which is the harder half of the same rule.
+     * The refusal is what makes a damaged car at four stars a decision — run for it or shake
+     * the tail first — and without it the garage is a free reset mid-pursuit.
+     */
+    id: 'garage-wanted', file: 'src/damage.js',
+    find: '    if ((player.wantedStars ?? 0) > 0) {',
+    to: '    if (false) {',
+    why: 'the garage repairs the car mid-pursuit, which removes the only cost of being wanted',
+  },
+  {
+    /**
+     * THE DWELL IS BANKED INSTEAD OF RESET. Behaviour-preserving in everything a single visit
+     * can see — the same four seconds, the same countdown, the same line — and it turns the
+     * rule into "spend four seconds in the garage across as many visits as you like". Three
+     * 1.6 s visits against a 4 s hold repair the car without it ever having stood still.
+     */
+    id: 'garage-bank', file: 'src/damage.js',
+    find: '    if (!this.inside) { this.dwell = 0; return this.report(d, false); }',
+    to: '    if (!this.inside) { return this.report(d, false); }',
+    why: 'the hold can be served in short visits, so "hold still" stops being a requirement',
+  },
+  {
+    /**
+     * THE HOLD COUNTS FRAMES INSTEAD OF SECONDS, which is the defect two of this game's other
+     * holds shipped with — `wreckWatch` and the bust clock both ran off rendered frames, so
+     * under ?timeScale=40 a four-second hold took 160 s. Identical at 60 Hz by construction and
+     * wrong everywhere else: measured 2.01 s at 120 Hz and 40.17 s at 6 Hz for a 4 s hold, and
+     * headless capture here runs under 1 fps.
+     */
+    id: 'garage-frames', file: 'src/damage.js',
+    find: '    this.dwell += dt;',
+    to: '    this.dwell += 1 / 60;',
+    why: 'the repair takes 2 s at 120 Hz and 40 s at 6 Hz, for a 4 s hold',
+  },
+  {
+    /**
+     * THE COUNTDOWN LOSES ITS UNIT, which is exactly what the bust countdown shipped: both HUD
+     * render paths default to metres, so a 3 s countdown draws "3 m". The line is still there,
+     * still counts down, and still reads as a number — it is just the wrong quantity, and for
+     * a full second at each end of every repair it is also the wrong word.
+     */
+    id: 'garage-unit', file: 'src/damage.js',
+    find: "  return { objective: { text: 'REPAIRING', distance: Math.ceil(g.left), unit: 's' },",
+    to: "  return { objective: { text: 'REPAIRING', distance: Math.ceil(g.left) },",
+    why: 'the repair countdown reads "4 m" for four seconds',
+  },
+  {
+    /**
+     * AND THE SUBTITLE GOES BACK TO THE MISSION'S. `src/hud.js`'s HOLDS_MISSION_SUBTITLE
+     * replaces a tenant's subtitle with the running mission's objective unless the tenant says
+     * otherwise, which ate composeLaw's "reverse" for a round. Without `ownSubtitle` the
+     * garage's "hold still" is replaced by whatever job is running, so the one instruction the
+     * player needs is the one thing not on screen.
+     */
+    id: 'garage-subtitle', file: 'src/damage.js',
+    find: "    subtitle: 'hold still', ownSubtitle: true };",
+    to: "    subtitle: 'hold still' };",
+    why: 'the mission objective replaces "hold still", so nothing says to stay put',
+  },
+  {
+    /**
+     * THE REPAIR FRAME FLASHES "STOP HERE" AT THE MOMENT OF SUCCESS, for a host that composes
+     * the band before applying the repair. district/main.js repairs first so the page is
+     * unaffected — this is a row about the MODULE being correct independently of call order,
+     * which is the difference between a wire that works and one that works by accident.
+     */
+    id: 'garage-repaired-frame', file: 'src/damage.js',
+    find: '  if (g.repaired) return null;',
+    to: '  if (false) return null;',
+    why: 'the garage line depends on whether the host repairs before or after composing',
+  },
+  {
+    /**
+     * THE MINIMAP BLIP GOES. [browser], because the push is one line in district/main.js and
+     * nothing offline imports it. `MARKER_STYLE.shop` had sat in src/hud.js since the file was
+     * written with nothing ever posting one — the same shape as `MARKER_STYLE.vehicle`, which
+     * left three authored stages saying "GET IN THE CAR" over a blank map. A garage nobody can
+     * find is a garage that does not exist, and the feature works perfectly from the console.
+     */
+    id: 'garage-blip', file: 'district/main.js',
+    find: "  n = pushHudMarker(n, GARAGE_AT.x, GARAGE_AT.z, 'shop');",
+    to: '  n = n;',
+    why: 'the only repair in the game is not on the map',
+    browser: true,
+  },
+  {
+    /**
+     * AND THE HOST WIRE: the garage counts down, says REPAIRING, finishes — and nothing calls
+     * `damage.repair()`. [browser] for the same reason. This is the shape CLAUDE.md records
+     * three times over: the module is right, its gate asserts the module, and nothing asserts
+     * that the game reaches it.
+     */
+    id: 'garage-wire', file: 'district/main.js',
+    find: '  if (garageState.repaired) {',
+    to: '  if (false) {',
+    why: 'the repair countdown completes and the car stays broken',
+    browser: true,
+  },
+  {
+    /**
+     * THE GARAGE MOVES ONTO A MISSION PICKUP POINT, which is the defect this district has
+     * shipped THREE times — `shakedown`'s marker 0.35 m from the spawn, `ambush`'s on top of
+     * `drop`'s trigger, and both put there by a gate rule. `garage` sits below `mission` in
+     * BAND_ORDER, so a player parked on `marlin-street`'s pickup reads the offer and never the
+     * four seconds of "hold still": the repair works and is invisible, which is the 0.033 s
+     * delivery leg in a new place.
+     */
+    id: 'garage-on-marker', file: 'district/main.js',
+    find: 'const GARAGE_AT = { x: -67.9, z: 60.3 };',
+    to: 'const GARAGE_AT = { x: 19, z: -6 };',
+    why: "the garage sits on marlin-street's pickup point, so its cue is never readable",
+  },
 ];
 
 // --------------------------------------------------------------------------- mechanics
@@ -1375,6 +1512,34 @@ function takeLock(what) {
   for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { drop(); process.exit(130); });
 }
 
+/**
+ * THE DIRTY-TREE REFUSAL, AND IT COVERS BOTH ENTRY POINTS NOW — which it did not, and the half it
+ * left uncovered is the half that destroys work.
+ *
+ * `restore()` is `git checkout -- <file>`, so on an uncommitted file it reverts YOUR edit along
+ * with the mutation. The sweep path refused on a dirty tree; `--selftest` only RECORDED a failed
+ * check saying "the selftest itself needs a clean tree to prove anything" and then went on to
+ * mutate `src/damage.js` and check it out anyway. Run against a tree carrying an uncommitted
+ * `src/damage.js`, it deleted the module under construction — a whole new class and its composer,
+ * gone, with git holding no copy to give back.
+ *
+ * CLAUDE.md already records this exact mechanism ("`git checkout -- file` on an UNCOMMITTED file
+ * reverts your own work with the test mutation") and this tool already had the right refusal
+ * written, twenty lines below the branch that needed it. A warning is not a guard, and a guard on
+ * one of two paths reads as a guard: the recurring shape in this repo is patching one and leaving
+ * its sibling, and these two are siblings in one file.
+ *
+ * So it is hoisted above both branches and runs before the lock, before any mutation, and before
+ * either path can write to a tracked file.
+ */
+if (!gitClean()) {
+  console.error('REFUSING: the working tree is dirty.');
+  console.error('This tool restores by `git checkout -- <file>`, which would discard your changes.');
+  console.error('Commit or stash first. (The district is 16 GB against 7 GB free, so there is no');
+  console.error('shadow copy to mutate instead.)');
+  process.exit(2);
+}
+
 // --------------------------------------------------------------------------- selftest
 if (has('--selftest')) {
   takeLock('selftest');
@@ -1485,13 +1650,6 @@ if (has('--list')) {
 }
 
 // --------------------------------------------------------------------------- the sweep
-if (!gitClean()) {
-  console.error('REFUSING: the working tree is dirty.');
-  console.error('This tool restores by `git checkout -- <file>`, which would discard your changes.');
-  console.error('Commit or stash first. (The district is 16 GB against 7 GB free, so there is no');
-  console.error('shadow copy to mutate instead.)');
-  process.exit(2);
-}
 
 const untracked = [...new Set(MUTATIONS.map((m) => m.file))].filter((f) => !tracked(f));
 if (untracked.length) {

@@ -29,6 +29,7 @@ import { THEME, LAYOUT, composeBand, BAND_ORDER, MINIMAP_ZOOM_M, MINIMAP_REACH_M
 import { composeWanted, composeLaw, LAW_NOTICE_S, STATES, WantedSystem,
   SCENE_LEAVE_M, SCENE_STOP_MS } from '../src/wanted.js';
 import { composeStuck, STUCK_HOLD_S, STUCK_THROTTLE, STUCK_SPEED_MS } from '../src/vehicle.js';
+import { composeGarage } from '../src/damage.js';
 
 const checks = [];
 const check = (name, ok, detail) => { checks.push({ name, ok: !!ok, detail }); return !!ok; };
@@ -785,11 +786,16 @@ console.log('\nOBJECTIVE BAND — the priority order, as a ladder');
     // because `law` sat above everything here untested for a round. Built from src/vehicle.js's
     // own composer for the same reason `law` is built from wanted.js's.
     stuck: composeStuck({ stuckFor: STUCK_HOLD_S, stuckDir: 1 }),
+    // The ninth. Built from src/damage.js's own composer for the same reason `law` and `stuck`
+    // are, and it sits BELOW `stuck`: a wedged car in the garage needs to be told to reverse out
+    // before it needs to be told to hold still, and a car that is wedged is not holding still.
+    garage: composeGarage({ inside: true, dwell: 1 / 60, left: 3.983, repaired: false },
+      { health: 0.5, wantedStars: 0, speed: 0 }),
     mission: { objective: 'DRIVE TO THE MARKER', subtitle: 'Five Points' },
     ended: { objective: 'JOB DONE', subtitle: null },
     offer: { objective: 'SHAKEDOWN', subtitle: 'two markers by the bayfront' },
   };
-  const ORDER = ['busted', 'wreck', 'fence', 'law', 'stuck', 'mission', 'ended', 'offer'];
+  const ORDER = ['busted', 'wreck', 'fence', 'law', 'stuck', 'garage', 'mission', 'ended', 'offer'];
   /**
    * THE LADDER'S OWN COVERAGE, read off the function rather than trusted. `composeBand` destructures
    * its tenants by name in its signature, so the names are recoverable — and a tenant added to the
