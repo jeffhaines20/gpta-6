@@ -48,6 +48,18 @@ import { composeBand, objectiveLine, MINIMAP_REACH_M, PULL_MIN } from '../src/hu
 import { MISSIONS } from '../src/missions.js';
 
 const HZ = 120, DT = 1 / HZ;
+
+/**
+ * THE IDENTITY OF AN OBJECTIVE AS A TRANSCRIPT EVENT: the stage it belongs to and the words it
+ * says, with the DISTANCE deliberately left out. Both halves were paid for in measurement; see
+ * the call site in `step()`.
+ */
+function objKey(h, stageId) {
+  if (!h) return null;
+  const o = h.objective;
+  const text = typeof o === 'string' ? o : (o && o.text) ?? '';
+  return `${stageId ?? ''}\u0000${text}`;
+}
 /** district/main.js's own reach and the side offset it steps out to. See `exit`/`enter`. */
 const ENTER_RANGE = 3.6, EXIT_SIDE_M = 1.9;
 /**
@@ -535,11 +547,47 @@ export class Session {
          * instead to find out it had won.
          */
         const before = this.mission.hud();
+        const stageBefore = this.mission.stage ? this.mission.stage.id : null;
         this.mission.update(DT, this._snapshot());
         const after = this.mission.hud();
-        const objBefore = before ? before.objective : null;
-        const objAfter = after ? after.objective : null;
-        if (objAfter !== objBefore) this.say(`OBJECTIVE  ${objAfter ?? '(none)'}`);
+        const stageAfter = this.mission.stage ? this.mission.stage.id : null;
+        /**
+         * FLATTENED BEFORE IT IS COMPARED, AND THE COMPARISON IS WHY. This read
+         * `before.objective !== after.objective` on the raw field and said
+         * `OBJECTIVE  ${objAfter}`, and `MissionRunner.hud()` returns a FRESH
+         * `{ text, distance }` object every call for any stage with a destination — six of the
+         * nine authored stages. So the identity test was true on every step and the string
+         * conversion printed `[object Object]`: one line per 1/120 s, both halves of the same
+         * two lines.
+         *
+         * Measured on 24.3 s of `marlin-street`: 2,696 transcript lines, 2,695 of them
+         * OBJECTIVE, 2,694 of those `[object Object]`, TWO distinct values in the whole log.
+         * 99.96% of the transcript was one meaningless repeated line, and every real event —
+         * the stage boundaries, HIT, RAM, MISSION — was one line in 2,696. This is the
+         * transcript every playtester reads, and round 8's two read this.
+         *
+         * The one objective that logged correctly was `LOSE THEM`, because `ambush` is the only
+         * stage with no distance, so its objective is the frozen string and its identity holds.
+         * The stage whose cue was the round's headline finding is the one the instrument could
+         * still see.
+         *
+         * `objectiveLine` is imported at the top of this file and already used by `look()` for
+         * exactly this flattening. It was not called here — the same sibling-site miss
+         * CLAUDE.md records for `composeBand`, which printed the identical string on the
+         * shipped page from the same cause.
+         */
+        /**
+         * AND THE EVENT IS A NEW OBJECTIVE, NOT A NEW DISTANCE. Flattening alone took the same
+         * 24.3 s from 2,696 lines to 142 — and 141 of those were one line per whole metre of
+         * approach, because `hud()` recomputes the distance every frame and the flattened
+         * string changes with it. That is the HUD's own dirty granularity, which is right for
+         * something being DRAWN and wrong for a transcript: a distance ticking down is not an
+         * event, and 141 lines for one leg buries the stage boundaries exactly as the object
+         * identity did. Keyed on the stage and the objective's words, the same leg logs 4.
+         */
+        if (objKey(after, stageAfter) !== objKey(before, stageBefore)) {
+          this.say(`OBJECTIVE  ${after ? objectiveLine(after.objective) : '(none)'}`);
+        }
         if (this.mission.outcome !== this._outcome) {
           this._outcome = this.mission.outcome;
           this.say(`MISSION ${this._outcome.toUpperCase()} after ` +
@@ -1798,12 +1846,16 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
    * testing the mission layer.
    */
   const legs = [];
+  let legMetres = 0;
   for (let k = 0; k < 6; k++) {
     const h = mis.mission.hud();
     if (!h) break;
     if (!h.waypoint) { mis.step(0.5); continue; }
     const r = driveTo(mis, h.waypoint.x, h.waypoint.z, { maxSpeed: 14, timeout: 120 });
-    legs.push(`${h.objective} -> ${r.arrived ? r.seconds + ' s' : r.why}`);
+    // Through `objectiveLine` for the third time in this file: `h.objective` is an object
+    // whenever the stage has a destination. This line printed `[object Object] -> 24.7 s`.
+    legs.push(`${objectiveLine(h.objective)} -> ${r.arrived ? r.seconds + ' s' : r.why}`);
+    legMetres += r.metres ?? 0;
     if (!r.arrived) break;
     mis.step(0.5);                                  // a beat for the reach trigger to fire
   }
@@ -1820,6 +1872,51 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
   check('the session survives the frame it ends on', afterErr === null, afterErr ?? 'no throw');
   check('the transcript says it passed', mis.log.some((l) => l.line.includes('MISSION PASSED')),
     mis.log.filter((l) => l.line.startsWith('MISSION')).map((l) => l.line).join(' | ') || '(nothing)');
+  /**
+   * §5a  THE TRANSCRIPT IS THE INSTRUMENT, AND NOTHING HAD EVER ASSERTED ITS SHAPE.
+   *
+   * `step()` logged `OBJECTIVE ${hud().objective}` on an IDENTITY comparison of a field
+   * `MissionRunner.hud()` rebuilds every frame for any stage with a destination — six of the
+   * nine authored stages. Measured on 24.3 s of `marlin-street`: 2,696 lines, 2,695 OBJECTIVE,
+   * 2,694 of them the string `[object Object]`, TWO distinct values in the whole log. Every
+   * real event was one line in 2,696, and that is the transcript two playtesters read in
+   * round 8.
+   *
+   * Three checks, because the two halves of the defect fail differently and the third is the
+   * one a future distance-formatting change would trip:
+   *
+   *   - no `[object Object]` anywhere, which is the flattening;
+   *   - one OBJECTIVE line per stage ENTERED, which is the event rule. Flattening alone left
+   *     141 lines on one leg — one per whole metre, the HUD's draw granularity — so a build
+   *     with the flattening and not the key passes the first check and fails this one;
+   *   - `objKey` is blind to a rebuilt object, asserted against the KNOWN-BAD `!==` on the
+   *     same pair. Without that pair the second check passes for any harness that happens not
+   *     to move, which is CLAUDE.md's "a check whose two sides are both zero".
+   */
+  const objLines = mis.log.filter((l) => l.line.startsWith('OBJECTIVE'));
+  check('no transcript line says [object Object]',
+    !mis.log.some((l) => l.line.includes('[object Object]')),
+    `${mis.log.length} lines, ${objLines.length} of them OBJECTIVE`);
+  const visited = mis.mission.report().visited.length;
+  // The bound is the STAGE COUNT, and the alternative is the METRE COUNT: there is nothing in
+  // between for it to be wrong at, which is the only kind of bound worth writing down. `+ 1`
+  // for the `(none)` line the mission's last frame logs when hud() goes null.
+  check('one OBJECTIVE line per stage entered, not one per metre',
+    objLines.length > 0 && objLines.length <= visited + 1,
+    `${objLines.length} lines over ${visited} stages and ${legMetres.toFixed(0)} m driven: `
+      + objLines.map((l) => l.line.slice(11)).join(' | '));
+  {
+    const k = new Session({ traffic: 0, peds: 0 });
+    k.placeAt(MISSIONS['marlin-street'].start.x, MISSIONS['marlin-street'].start.z, 0);
+    k.startMission('marlin-street');
+    k.step(0.2);                                   // into `eastbound`, which carries a distance
+    const h1 = k.mission.hud(), h2 = k.mission.hud();
+    const rebuilt = h1.objective !== h2.objective;  // the known-bad comparison, on one frame
+    check('two hud() reads of one frame are a fresh object that objKey reads as the same event',
+      rebuilt && objKey(h1, 'eastbound') === objKey(h2, 'eastbound')
+        && typeof h1.objective === 'object',
+      `identity differs ${rebuilt}, key ${JSON.stringify(objKey(h1, 'eastbound'))}`);
+  }
   const stalled = new Session({ traffic: 0, peds: 0 });
   stalled.startMission('shakedown');
   stalled.step(30);

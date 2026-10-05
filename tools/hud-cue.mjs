@@ -823,7 +823,7 @@ console.log('\nOBJECTIVE BAND — the priority order, as a ladder');
     const band = composeBand(live);
     walked.push(band.from);
     console.log(`    ${Object.keys(live).length} tenant(s) live -> "${band.from}" ` +
-      `("${band.objective}")`);
+      `("${objectiveLine(band.objective)}")`);
     /**
      * THE OBJECTIVE AS WELL AS `from`, and the first version asserted only `from`. A blind
      * mutation reviewer transposed `fence` and `law` in `pick` ALONE — leaving the `from` ternary
@@ -856,7 +856,7 @@ console.log('\nOBJECTIVE BAND — the priority order, as a ladder');
    * "still on: DRIVE TO THE MARKER" would be a lie in the one place a player is looking.
    */
   const arrested = composeBand({ busted: all.busted, wreck: all.wreck, mission: all.mission });
-  console.log(`    busted + wreck + live mission -> "${arrested.objective}" / ` +
+  console.log(`    busted + wreck + live mission -> "${objectiveLine(arrested.objective)}" / ` +
     `"${arrested.subtitle}"`);
   check('being arrested outranks the car being wrecked', arrested.from === 'busted',
     `${arrested.from}`);
@@ -870,7 +870,7 @@ console.log('\nOBJECTIVE BAND — the priority order, as a ladder');
    * noticed either — the existing fence check supplies no mission, so the branch never ran.
    */
   const outside = composeBand({ fence: all.fence, mission: all.mission });
-  console.log(`    fence + live mission -> "${outside.objective}" / "${outside.subtitle}"`);
+  console.log(`    fence + live mission -> "${objectiveLine(outside.objective)}" / "${outside.subtitle}"`);
   check('the fence takes the objective, because turning back is the only actionable thing',
     outside.from === 'fence' && outside.objective === all.fence.objective, outside.objective);
   check('and the mission keeps the subtitle, so the job is not silently invisible',
@@ -888,10 +888,10 @@ console.log('\nOBJECTIVE BAND — the priority order, as a ladder');
    * needed it would silently not have it.
    */
   const lawOverMission = composeBand({ law: all.law, mission: all.mission });
-  console.log(`    law + live mission -> "${lawOverMission.objective}" / "${lawOverMission.subtitle}"`);
+  console.log(`    law + live mission -> "${objectiveLine(lawOverMission.objective)}" / "${lawOverMission.subtitle}"`);
   check('the law takes the objective, because its line carries a deadline in seconds',
     lawOverMission.from === 'law' && lawOverMission.objective === all.law.objective,
-    lawOverMission.objective);
+    objectiveLine(lawOverMission.objective));
   check('and the mission keeps the subtitle here too, on the same rule as the fence',
     typeof lawOverMission.subtitle === 'string'
     && lawOverMission.subtitle.includes(all.mission.objective), `${lawOverMission.subtitle}`);
@@ -911,11 +911,22 @@ console.log('\nOBJECTIVE BAND — the priority order, as a ladder');
     composeLaw({ stars: 1, scene: { d: 3, leaveIn: 82, stopped: true } }),
     composeLaw({ stars: 2, notice: { id: 'hitAndRun', label: 'Left the scene', age: 0.5 } }),
   ];
-  console.log(`    the law tenant's three lines: ${lawLines.map((l) => `"${l.objective}"`).join(', ')}`);
+  console.log(`    the law tenant's three lines: ${lawLines.map((l) => `"${objectiveLine(l.objective)}"`).join(', ')}`);
+  /**
+   * DISTINCT AS A PLAYER READS THEM, which is a correction. This was
+   * `new Set(lawLines.map((l) => l.objective)).size === 3` — a Set of three OBJECT REFERENCES
+   * from three separate `composeLaw` calls, so the size is 3 whatever the three lines say and
+   * the check could not fail. It is the shape CLAUDE.md records as "a priority ladder that
+   * asserted the LABEL and not the LINE", and its own printed evidence said so out loud:
+   * `"[object Object]", "[object Object]", "[object Object]"`.
+   *
+   * The pass-through half below is left as an IDENTITY comparison deliberately — there it is
+   * the stronger statement, that the band handed back the very object the tenant gave it.
+   */
   check('the law tenant has three distinct lines and every one wins the band',
-    new Set(lawLines.map((l) => l.objective)).size === 3
+    new Set(lawLines.map((l) => objectiveLine(l.objective))).size === 3
     && lawLines.every((l) => composeBand({ law: l, mission: all.mission }).objective === l.objective),
-    lawLines.map((l) => l.objective).join(' / '));
+    lawLines.map((l) => objectiveLine(l.objective)).join(' / '));
 }
 
 /**

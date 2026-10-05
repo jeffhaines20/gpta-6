@@ -12,6 +12,10 @@
 // Deliberately uses `shakedown`, which exists for this: three stages, both markers
 // near the spawn, no police, no timers. Under a minute of wall clock.
 import { chromium } from 'playwright';
+// `objectiveLine` because `MissionRunner.hud()` returns `{ text, distance }` for any stage with
+// a destination — six of the nine authored stages — and `__district.missionHud()` hands that
+// straight through `page.evaluate`, where a JSON round trip keeps it an object.
+import { objectiveLine } from '../src/hud.js';
 import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
 
@@ -101,7 +105,7 @@ const settle = async (n = 4) => {
   check('driving into the marker starts that job', inIt.report.mission === 'shakedown',
     `${inIt.report.mission}`);
   check('the HUD has an objective for it', !!(inIt.hud && inIt.hud.objective),
-    inIt.hud ? inIt.hud.objective : 'null');
+    inIt.hud ? objectiveLine(inIt.hud.objective) : 'null');
   /**
    * AND EVERY RING COMES DOWN WHILE A MISSION RUNS, not just the one that was taken. This arm
    * first expected one ring left — for the other job, still on the board — and got two, because
@@ -161,9 +165,18 @@ check('getting in the car advances past stage 1', r.stage === 'b', `on ${r.stage
 
 // The HUD is actually being fed the objective and the waypoint.
 const hud = await page.evaluate(() => __district.missionHud());
+/**
+ * ASSERTED ON THE FLATTENED LINE, which is a correction. This read
+ * `typeof hud.objective === 'string'` — true when the check was written, and false from
+ * 2026-10-01 (9b1b126) for every stage that names a destination, which is the stage this arm
+ * runs on. So the assertion inverted under a change in another file and this gate needs a
+ * browser, so nobody saw it. The same four-day gap is recorded in `composeBand`.
+ */
+const hudLine = hud ? objectiveLine(hud.objective) : null;
 check('hud() gives main.js an objective and a waypoint',
-  hud && typeof hud.objective === 'string' && hud.waypoint && Number.isFinite(hud.waypoint.x),
-  `${hud?.objective} @ (${hud?.waypoint?.x}, ${hud?.waypoint?.z})`);
+  !!hudLine && hudLine.length > 0 && !hudLine.includes('[object Object]')
+  && hud.waypoint && Number.isFinite(hud.waypoint.x),
+  `${hudLine} @ (${hud?.waypoint?.x}, ${hud?.waypoint?.z})`);
 
 // Walk the remaining markers by teleporting to each one in turn.
 for (let hop = 0; hop < 4; hop++) {
