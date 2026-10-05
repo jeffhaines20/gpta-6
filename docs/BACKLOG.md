@@ -76,7 +76,32 @@ residual — the claim the gate makes is "well under half", not "0.164 exactly".
 often carry aftermarket tint, which would bias the target dark; the 0.137-0.333 spread is wide
 enough that it is not one tint level, but a bigger sample would narrow it.
 
-Still to do, and unchanged: **isolate whether the lever is the normal, the material, or both.**
+**And the isolation changes the finding: the glazing is wrong in OPPOSITE DIRECTIONS on
+different panes, which one number was hiding.** `tools/car-pane.mjs` measures the windscreen and
+the backlight with fixed, reviewer-vetted boxes against paint on the same car in the same frame,
+and the shipped build reads:
+
+    pane          noon (1-shell / 3-shell)    night            against a target of 0.137-0.333
+    windscreen      0.0201 / 0.0167           0.0039 / 0.0037        5 to 10x TOO DARK
+    backlight       0.0321 / 0.0320           0.0061 / 0.0043        5x TOO DARK
+
+So the two panes with reviewer-vetted boxes are a long way UNDER the target, not over it. The
+0.914-1.043 in this entry is the SIDE pane, measured by the #56 round through a
+geometry-following projection rather than a fixed box — a different pane, measured a different
+way, and not re-measured here. Both can be true, and if they are then one material is producing
+a 5-10x deficit on two panes and a 5.6x excess on a third.
+
+**Which is the isolation, and it rules the material out.** A material change moves every pane
+together — they share palette slot 10 — so it cannot close a deficit and an excess at once. The
+geometry says the same thing from the other side: off the built buffer, the windscreen and
+backlight normals sit 62.3 deg from horizontal and the side pane's 21.8 deg, with shading normals
+tracking face normals to within 0.4 deg on the coupe, so there is no smoothing artefact to blame.
+
+Next, and it needs a capture rather than reasoning: re-measure the SIDE pane with the same
+instrument that produced the windscreen and backlight figures, so all three are one controlled
+comparison instead of two rounds' worth of different methods. `car-pane`'s `r1QuarterControl` is
+NOT that measurement — it is a documented negative control that lands on glass in a 1-shell frame
+(0.357) and on body panel in a 3-shell one (1.350).
 
 ### #91 FIXED — the target is a table with a source now, which is what was actually missing
 Both modules' comments were right about the reference and neither had a DISTRIBUTION or a SOURCE,

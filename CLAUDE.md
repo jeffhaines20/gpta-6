@@ -1791,6 +1791,48 @@ only noon makes it look like a missing mesh.
   unchanged arm standing inside the changed frame. That is exactly what made the reviewer's
   numbers trustworthy, and it is worth building into any future pair deliberately.
 
+## One material, two panes, opposite errors — and each round only ever saw one of them
+
+#92 says "the side glass is within 8.6% of the paint at noon" and quotes 0.914-1.043. `carbody.js`'s
+slot-10 comment, from an earlier round, records the windscreen and backlight at 0.035-0.075 and
+says "the hole is smaller, not closed". Both are about the same material. They are thirteen times
+apart and nobody had put them side by side.
+
+Measured in one frame on the shipped build with `tools/car-pane.mjs`, against a target of
+0.137-0.333 measured off the reference photographs (`tools/glass-census.mjs`):
+
+    pane          noon              night             against the target
+    windscreen    0.0201 / 0.0167   0.0039 / 0.0037   5 to 10x TOO DARK
+    backlight     0.0321 / 0.0320   0.0061 / 0.0043   5x TOO DARK
+
+**So the backlog's framing was upside down for two of the three panes.** The round that wrote the
+`carbody.js` comment was chasing a window that was too DARK and measured the windscreen. The round
+that filed #92 was chasing one that was too BRIGHT and measured the SIDE pane through a
+geometry-following projection. Each was right about its own pane and each wrote its number down as
+though it were "the glazing".
+
+Three things to carry:
+
+- **A number needs its SUBJECT in the sentence, not just its value.** "The glazing reads 0.95 of
+  the paint" and "the glazing reads 0.07 of the paint" are both true of this build. Neither is
+  usable without "which pane, measured how". Every row in the table above names its pane and its
+  paint reference for that reason.
+- **Two measurements of "the same thing" that disagree by 13x are not noise, they are two
+  different things.** The instinct to reconcile them by picking one is the wrong one; the useful
+  move is to find what distinguishes the subjects, which here is the pane and the method.
+- **It rules the material out, and that is the isolation #92 asked for.** Every pane shares
+  palette slot 10, so a material change moves them together and cannot close a 5-10x deficit and a
+  5.6x excess at the same time. Off the built buffer the windscreen and backlight normals sit
+  62.3 deg from horizontal and the side pane's 21.8 deg, and the shading normals track the face
+  normals to 0.4 deg on the coupe — so there is no smoothing artefact to blame either, and the
+  remaining candidates are what each pane REFLECTS and how the side pane is sampled.
+
+And a trap in the tool that would have produced a fourth wrong number: `car-pane`'s
+`r1QuarterControl` reads 0.357 in a 1-shell frame and 1.350 in a 3-shell one, and it is a
+NEGATIVE CONTROL — the box lands on glass in one and on body panel in the other, which is this
+file's own "a fixed box over moved geometry" section. Its 1.350 is a painted panel. Reading it as
+a glass measurement would have "confirmed" #92's figure from a box that is not on glass at all.
+
 ## When a reviewer is wrong
 
 Blind reviewers here measure before judging and are usually right, but not
