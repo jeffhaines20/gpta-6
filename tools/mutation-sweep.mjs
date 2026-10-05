@@ -228,15 +228,28 @@ const MUTATIONS = [
   // ---- src/hud.js
   {
     id: 'band-order', file: 'src/hud.js',
-    find: 'const pick = wreck ?? fence ?? mission ?? ended ?? offer ?? null;',
-    to: 'const pick = offer ?? ended ?? mission ?? fence ?? wreck ?? null;',
+    find: "export const BAND_ORDER = ['busted', 'wreck', 'fence', 'law', 'mission', 'ended', 'offer'];",
+    to: "export const BAND_ORDER = ['offer', 'ended', 'mission', 'law', 'fence', 'wreck', 'busted'];",
     why: 'an offer outranks a wrecked car and the world fence in the objective band',
   },
   {
     id: 'fence-subtitle', file: 'src/hud.js',
-    find: "    subtitle = `still on: ${mission.objective}`;",
+    find: "    subtitle = `still on: ${objectiveLine(mission.objective)}`;",
     to: '    subtitle = null;',
     why: 'the fence eats a running mission\'s only sign of life',
+  },
+  {
+    /**
+     * THE REGRESSION A BLIND PLAYTESTER MEASURED AT 58% OF GLANCES. Drop the
+     * `objectiveLine` call and the band prints `still on: [object Object]` for the
+     * six of nine authored stages whose objective carries a distance. The two
+     * commits that produced it were four days and two files apart and neither was
+     * wrong alone; what failed is that the only gate passed a plain string.
+     */
+    id: 'objective-raw', file: 'src/hud.js',
+    find: "    subtitle = `still on: ${objectiveLine(mission.objective)}`;",
+    to: "    subtitle = `still on: ${mission.objective}`;",
+    why: 'the band reads "still on: [object Object]" whenever the stage has a destination',
   },
   {
     id: 'pull-cue', file: 'src/hud.js',
@@ -335,8 +348,8 @@ const MUTATIONS = [
      * appear, which is the state the game shipped in for as long as `hitAndRun` has existed.
      */
     id: 'law-tenant', file: 'src/hud.js',
-    find: '  const pick = wreck ?? fence ?? law ?? mission ?? ended ?? offer ?? null;',
-    to: '  const pick = wreck ?? fence ?? mission ?? ended ?? offer ?? null;',
+    find: "export const BAND_ORDER = ['busted', 'wreck', 'fence', 'law', 'mission', 'ended', 'offer'];",
+    to: "export const BAND_ORDER = ['busted', 'wreck', 'fence', 'mission', 'ended', 'offer'];",
     why: 'the 85 m hit-and-run deadline is back to having no words on screen',
   },
   {
@@ -567,8 +580,8 @@ const MUTATIONS = [
      * tangential pose then moves it one metre.
      */
     id: 'fence-latch', file: 'src/blockers.js',
-    find: '  let k = Math.min(1, Math.max(0, outV) / FENCE_BRAKE_MS);',
-    to: '  let k = outV > 0 ? 1 : 0;',
+    find: '  const leavingK = depthK * Math.min(1, Math.max(0, outV) / FENCE_BRAKE_MS);',
+    to: '  const leavingK = depthK * (outV > 0 ? 1 : 0);',
     why: 'a parked car outside the fence is held on full brake by its own rounding error',
   },
   {
@@ -579,8 +592,8 @@ const MUTATIONS = [
      * own check rather than riding on the ones above.
      */
     id: 'fence-crawl', file: 'src/blockers.js',
-    find: '    k = Math.max(k, Math.min(1, Math.max(0, speed - FENCE_CRAWL_MS) / FENCE_CRAWL_MS));',
-    to: '    k = Math.max(k, 0);',
+    find: '  const crawlK = homing ? 0 : Math.min(1, Math.max(0, speed - FENCE_CRAWL_MS) / FENCE_CRAWL_MS);',
+    to: '  const crawlK = 0;',
     why: 'the outside of the world can be toured at 146 km/h again',
   },
   {
@@ -591,7 +604,7 @@ const MUTATIONS = [
      * regression a gate has to measure rather than look at.
      */
     id: 'fence-homing', file: 'src/blockers.js',
-    find: '  const homing = outV < -FENCE_CRAWL_MS;',
+    find: '  const homing = outV < -FENCE_CRAWL_MS && -outV > speed * FENCE_HOMING_COS;',
     to: '  const homing = false;',
     why: 'driving home is slowed to a crawl, which is how the fence stranded a player before',
   },
@@ -776,8 +789,8 @@ const MUTATIONS = [
      * the module's gate still passes, which is the shape this file exists to make visible.
      */
     id: 'runover-wire', file: 'district/main.js',
-    find: '        const rv = damage.runOverCrime(over, r.fatal);',
-    to: "        const rv = { crime: r.fatal ? 'pedestrianKilled' : 'pedestrianHit', scale: 1 };",
+    find: '      const rv = damage.runOverCrime(over, r.fatal);',
+    to: "      const rv = { crime: r.fatal ? 'pedestrianKilled' : 'pedestrianHit', scale: 1 };",
     why: 'the call site decides the charge again, past the module that owns it',
     browser: true,
   },
@@ -799,8 +812,8 @@ const MUTATIONS = [
      * saves you, which is the one thing the rule promises.
      */
     id: 'bust-accumulate', file: 'src/wanted.js',
-    find: '      this.bustFor = 0;\n      return false;\n    }\n    if (this.bustFor === 0) this.stats.bustHolds++;',
-    to: '      return false;\n    }\n    if (this.bustFor === 0) this.stats.bustHolds++;',
+    find: '      this.bustFor = 0;\n      this._bustThrottle = false;\n      return false;',
+    to: '      this._bustThrottle = false;\n      return false;',
     why: 'the out stops working: four interrupted stops become an arrest',
   },
   {
@@ -1136,6 +1149,36 @@ if (has('--selftest')) {
   const untracked = [...new Set(MUTATIONS.map((m) => m.file))].filter((f) => !tracked(f));
   say(untracked.length === 0, 'every mutation targets a file git tracks, so restore cannot fail',
     untracked.join(', ') || 'all tracked');
+
+  /**
+   * 1b. EVERY ROW STILL FINDS ITS TARGET, EXACTLY ONCE.
+   *
+   * A full sweep reports STALE for a row whose code moved under it — and a full sweep is
+   * long, so nothing checks between them, and a table can rot for weeks while reading as
+   * coverage. CLAUDE.md says in as many words that a full sweep "is also the only thing that
+   * catches a row going STALE"; that sentence was a description of a gap, not a plan.
+   *
+   * Found the hard way: one round refactored `composeBand`'s `??` chain into `BAND_ORDER`
+   * and a later round rerouted its subtitle through `objectiveLine`, and between them THREE
+   * rows over src/hud.js silently stopped matching anything. A scan of the whole table found
+   * seven stale rows across four files. This is that scan, and it is milliseconds.
+   *
+   * TWO matches is a failure as well as zero: `apply()` replaces the first occurrence, so an
+   * ambiguous target mutates a line the row's `why` is not about.
+   */
+  {
+    const seen = new Map();
+    const bad = [];
+    for (const m of MUTATIONS) {
+      const abs = `${ROOT}/${m.file}`;
+      if (!fs.existsSync(abs)) { bad.push(`${m.id}: no such file ${m.file}`); continue; }
+      const body = seen.get(abs) ?? seen.set(abs, fs.readFileSync(abs, 'utf8')).get(abs);
+      const n = body.split(m.find).length - 1;
+      if (n !== 1) bad.push(`${m.id} (${m.file}): ${n} matches`);
+    }
+    say(bad.length === 0, `every one of ${MUTATIONS.length} rows finds its target exactly once`,
+      bad.length ? bad.join('; ') : `${MUTATIONS.length} rows, ${seen.size} files`);
+  }
 
   /**
    * 2. A MUTATION THAT MUST BE CAUGHT. Breaking syntax in a src file has to fail check-syntax, or

@@ -1844,6 +1844,29 @@ let searchSample;
       composeBand({ fence: { objective: 'TURN BACK', subtitle: 'the district ends here' },
         mission: { objective: 'DRIVE EAST' } }).subtitle === 'still on: DRIVE EAST',
       'the fence still yields');
+    /**
+     * AND THE OBJECTIVE IS NOT ALWAYS A STRING, which is the shape this check was missing
+     * and the shipped page printed for it.
+     *
+     * `MissionRunner.hud()` returns `{ text, distance }` whenever the stage has a
+     * destination — SIX OF THE NINE authored stages — and `composeBand` interpolated it
+     * directly, so the band read **"still on: [object Object]"**. A blind playtester measured
+     * it at 381 of 657 glances, 58.0%, and named it the line they read most across the whole
+     * tutorial.
+     *
+     * The check above passed throughout, because `'DRIVE EAST'` is a plain string and a plain
+     * string was the one shape that still worked. A gate that exercises only the easy shape
+     * of a polymorphic argument is not a gate over that argument. Both shapes now, and the
+     * structured one asserts the DISTANCE comes through as well — dropping it would still
+     * read as a sentence.
+     */
+    const struct = composeBand({ fence: { objective: 'TURN BACK', subtitle: 'the district ends here' },
+      mission: { objective: { text: 'DELIVER THE PARCEL TO THE MARINA', distance: 322 } } }).subtitle;
+    console.log(`    a structured objective in the subtitle: "${struct}"`);
+    check('an objective that carries a distance is flattened, not stringified',
+      struct === 'still on: DELIVER THE PARCEL TO THE MARINA — 322 m', struct);
+    check('...and the failure it guards is the literal string the page printed',
+      !/\[object Object\]/.test(struct), struct);
 
     /**
      * A STEP OUT OF THE CAR IS NOT 114 m/s OF TRAVEL. The host moves the body 1.9 m in one frame

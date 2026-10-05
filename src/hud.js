@@ -737,7 +737,33 @@ export function composeBand({ busted = null, wreck = null, fence = null, law = n
    * what they were doing. Four seconds is not long enough to read two lines.
    */
   if (!pick.ownSubtitle && HOLDS_MISSION_SUBTITLE.has(from) && mission && mission.objective) {
-    subtitle = `still on: ${mission.objective}`;
+    /**
+     * THROUGH `objectiveLine`, BECAUSE AN OBJECTIVE IS NOT ALWAYS A STRING. This line read
+     * `still on: ${mission.objective}` and `MissionRunner.hud()` returns `{ text, distance }`
+     * whenever the stage has a destination — SIX OF THE NINE authored stages — so the band
+     * printed the words **still on: [object Object]** on the shipped page.
+     *
+     * A blind playtester measured it at 381 of 657 glances, 58.0%, and named it the line they
+     * read most across the whole tutorial. Traced to the DOM: district/main.js composes the
+     * band, hands `subtitle` to `hud2.update`, and the string branch makes a text node of it.
+     * The page writes that.
+     *
+     * `objectiveLine` is 34 lines above this one, exists for exactly this flattening, and its
+     * own docstring warns that returning `[object Object]` "is how the two hosts stop showing
+     * the same thing". It was not called here.
+     *
+     * HOW IT GOT IN, because the dates are the lesson. The interpolation landed 2026-09-27
+     * (1fcaa68) when an objective was always a string. The structured objective landed
+     * 2026-10-01 (9b1b126) — four days later, a different round, a different file — and broke
+     * it. Neither commit was wrong alone. What failed is that the only gate over this line
+     * passed a PLAIN STRING, `'DRIVE EAST'`, which is the one shape that still worked, so the
+     * check went on passing while the game printed an object.
+     *
+     * Consequence worth recording: the three lines the comment above quotes as MEASURED from a
+     * playtest — "STOPPED AT THE SCENE / still on: LOSE THEM" at 129x and its siblings — could
+     * not occur in the shipped build between those two dates.
+     */
+    subtitle = `still on: ${objectiveLine(mission.objective)}`;
   }
   return { objective: pick.objective ?? null, subtitle, from };
 }
