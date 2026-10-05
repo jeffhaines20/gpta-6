@@ -21,6 +21,9 @@ import fs from 'node:fs';
 import * as THREE from '../vendor/three.module.min.js';
 import { PursuitUnits } from '../src/pursuit.js';
 import { HALF_EXTENT } from '../src/damage.js';
+import { buildBlockers } from '../src/blockers.js';
+import { RUN_SPEED, ON_FOOT_RADIUS } from '../src/player.js';
+import { BUST_HOLD_S } from '../src/wanted.js';
 
 const district = JSON.parse(fs.readFileSync(new URL('../data/district.json', import.meta.url), 'utf8'));
 const SCENE = { add() {}, remove() {} };
@@ -28,7 +31,25 @@ const checks = [];
 const check = (name, ok, detail) => { checks.push({ name, ok: !!ok, detail }); return !!ok; };
 const mat = new THREE.Matrix4(), vec = new THREE.Vector3();
 
-const build = (opts = {}) => new PursuitUnits(SCENE, district, { count: 8, seed: 5, ...opts });
+/**
+ * BUILT THE WAY THE GAME BUILDS IT, which means `clearAt`.
+ *
+ * `src/pursuit.js` holds a target when a unit has stopped at its edge's closest approach AND an
+ * officer can WALK from there to the player. With no predicate that walk is unrefused, so a
+ * gate that omitted it would measure a 28 m radius straight through walls — a configuration the
+ * page never runs. CLAUDE.md records the same omission in `traffic-selftest`, where the gate
+ * measuring cars-inside-buildings had built its Traffic with no `clearAt` at all, and the cheap
+ * proof it mattered was that supplying it changed the reading. It changes this one too: see the
+ * line-of-sight control in §8.
+ */
+const blockers = buildBlockers(district);
+const CLEAR_AT = (x, z, r = 0.95) => !blockers.resolveCircle(x, z, r);
+const build = (opts = {}) => {
+  const { clearAt = CLEAR_AT, ...rest } = opts;
+  const p = new PursuitUnits(SCENE, district, { count: 8, seed: 5, ...rest });
+  if (clearAt) p.clearAt = clearAt;
+  return p;
+};
 /** Where unit `i` is drawn, which is the only place its position exists. */
 const posOf = (p, i) => {
   p.mesh.getMatrixAt(i, mat);
@@ -193,9 +214,23 @@ console.log('\n3. the hold, and the release');
     `${heldNow.length} holding now, worst held distance ${worstHeldD.toFixed(2)} m`);
   check('a unit holds a stationary target, and keeps holding',
     bestHeld > 60, `${bestHeld.toFixed(1)} s`);
-  check('and a unit that says it is holding is inside the radius',
-    heldNow.length > 0 && worstHeldD <= p.holdRadius + 1e-6,
-    `${worstHeldD.toFixed(2)} against ${p.holdRadius.toFixed(2)} m`);
+  /**
+   * RESTATED FROM `holdRadius` TO `reachRadius`, IN THE COMMIT THAT WIDENED IT.
+   *
+   * It read `worstHeldD <= p.holdRadius` — the distance from an edge's centreline to a car at
+   * the kerb of the widest road, 8.75 m — and that bound was the defect a playtester found by
+   * playing: stop 15.6 m off a centreline and you get 180.5 s on the brake at 4 stars with
+   * 0 busts and a unit holding on 0% of frames. An arrest is made by a PERSON, who covers
+   * `RUN_SPEED * BUST_HOLD_S` = 28.0 m while the clock the HUD is already counting runs down.
+   *
+   * Note which way the numbers move: the absolute bound got 3.2x looser and the section got
+   * stronger, because the walk now has to be CLEAR and that is a separate assertion below with
+   * its own control. A bound alone could not say that.
+   */
+  check('and a unit that says it is holding is inside the officer\'s reach',
+    heldNow.length > 0 && worstHeldD <= p.reachRadius + 1e-6,
+    `${worstHeldD.toFixed(2)} against reach ${p.reachRadius.toFixed(2)} m `
+    + `(the old bound was ${p.holdRadius.toFixed(2)})`);
 
   /**
    * THEN THE TARGET LEAVES. A hold that never releases is the same failure as one that never
@@ -218,9 +253,9 @@ console.log('\n3. the hold, and the release');
   check('the hold releases when the target leaves, rather than following it for ever',
     heldFrames < frames * p.count * 0.5,
     `${heldFrames} of ${frames * p.count} unit-frames`);
-  check('and no unit ever reports holding from outside the radius',
-    worstAfter <= p.holdRadius + 1e-6,
-    `${worstAfter.toFixed(2)} against ${p.holdRadius.toFixed(2)} m`);
+  check('and no unit ever reports holding from outside the officer\'s reach',
+    worstAfter <= p.reachRadius + 1e-6,
+    `${worstAfter.toFixed(2)} against reach ${p.reachRadius.toFixed(2)} m`);
   /**
    * `report().held` IS RECONCILED WHILE UNITS ARE ACTUALLY HELD, which the first version of this
    * check was not: it ran after the fleeing phase, where nothing is held, and compared 0 against
@@ -231,8 +266,9 @@ console.log('\n3. the hold, and the release');
     `holdR ${p.report().holdR}`);
   check('report() agrees with the units it is reporting on, while some ARE held',
     actuallyHeld > 0 && reportedHeld === actuallyHeld &&
-    Math.abs(p.report().holdR - p.holdRadius) < 1e-12,
-    `${reportedHeld} / ${actuallyHeld}, holdR ${p.report().holdR}`);
+    Math.abs(p.report().holdR - p.holdRadius) < 1e-12 &&
+    Math.abs(p.report().reachR - p.reachRadius) < 1e-12,
+    `${reportedHeld} / ${actuallyHeld}, holdR ${p.report().holdR}, reachR ${p.report().reachR}`);
 }
 
 // ----------------------------------------- 4. a unit never moves faster than it drives
@@ -290,6 +326,231 @@ console.log('\n4. displacement per frame');
     excess <= TOL, `${(excess * 1e6).toFixed(1)} microns over`);
   check('and the tolerance is float noise, not room for a jump',
     TOL < bound / 100, `${(TOL * 1000).toFixed(0)} mm against a ${bound.toFixed(3)} m step`);
+}
+
+/**
+ * §9  THE OFFICER'S REACH, which is the fix for the one finding a blind playtester got by
+ * playing rather than by measuring: brake 5.4 m off a centreline and you are busted in 11.0 s;
+ * hold full lock for 3 s first and stop 15.6 m off and you get 180.5 s on the brake at 4 stars
+ * with 0 busts and a unit holding on 0% of frames, byte-identical over three runs.
+ *
+ * The mechanism was that `held` was decided by `holdRadius` — the distance from an edge's
+ * CENTRELINE to a car at the kerb of the widest road, so the hold was a function of how far the
+ * PLAYER was from a road, while `RESPONSE[].spotRadius` lets them SEE you from 85-175 m.
+ *
+ * Four arms, and the one that matters is the first: the statistic is not a mean held fraction,
+ * which averages positions the police cannot reach with positions they hold continuously, but
+ * whether the longest CONTIGUOUS hold clears `BUST_HOLD_S` — the thing a player experiences,
+ * which is binary.
+ */
+{
+  console.log('\n§9  how far off a road the police can take you');
+  // The derivation, read off the two modules that declare it rather than restated here.
+  console.log(`    holdRadius ${build().holdRadius.toFixed(2)} m (widest edge / 2 + car half-length)`);
+  console.log(`    reach      ${build().reachRadius.toFixed(2)} m `
+    + `= RUN_SPEED ${RUN_SPEED} * BUST_HOLD_S ${BUST_HOLD_S}`);
+  check('the reach is the officer\'s run, derived and not written down',
+    Math.abs(build().reachRadius - Math.max(build().holdRadius, RUN_SPEED * BUST_HOLD_S)) < 1e-12,
+    `${build().reachRadius.toFixed(2)} m`);
+  // A MAX, so retuning the district's widest road can widen this and can never narrow it: the
+  // on-road case the module was already right about must not be regressed by this change.
+  check('and it can never be narrower than the car\'s own stop radius',
+    build().reachRadius >= build().holdRadius, `${build().reachRadius} >= ${build().holdRadius}`);
+
+  /**
+   * THE SAMPLING BOUND IS ASSERTED AS A RELATION, not as the number. A circle test of radius r
+   * can only notice a wall while consecutive samples are under 2r apart; CLAUDE.md records a
+   * sampled sweep that held by 12% and by luck because its step came from a mean rather than a
+   * maximum. Measured on the module's own walk: the worst gap between consecutive samples over
+   * a long line, against 2 * ON_FOOT_RADIUS.
+   */
+  {
+    const p = build();
+    let worstGap = 0;
+    const seen = [];
+    const spy = p.clearAt;
+    p.clearAt = (x, z, r) => { seen.push([x, z, r]); return spy(x, z, r); };
+    p._footPathClear(0, 0, 0, 97.3);                    // a 97.3 m line, deliberately not round
+    p.clearAt = spy;
+    for (let k = 1; k < seen.length; k++) {
+      worstGap = Math.max(worstGap, Math.hypot(seen[k][0] - seen[k - 1][0],
+        seen[k][1] - seen[k - 1][1]));
+    }
+    const radii = new Set(seen.map((q) => q[2]));
+    console.log(`    the walk over 97.3 m: ${seen.length} samples, worst gap `
+      + `${worstGap.toFixed(4)} m against the 2r bound of `
+      + `${(2 * ON_FOOT_RADIUS).toFixed(2)} m; radius used ${[...radii].join(',')}`);
+    check('the walk samples closer than twice its own test radius',
+      seen.length > 1 && worstGap < 2 * ON_FOOT_RADIUS,
+      `${worstGap.toFixed(4)} < ${(2 * ON_FOOT_RADIUS).toFixed(2)} m`);
+    check('and it tests a PERSON, not the car it got out of',
+      radii.size === 1 && radii.has(ON_FOOT_RADIUS), [...radii].join(','));
+  }
+
+  // Edge segments once, for "distance to the NEAREST edge" — the axis a player experiences.
+  // Not the unit's own edge: in this network stepping 20 m off edge A can put you 5 m from B.
+  const segs = [];
+  for (const e of district.edges) {
+    const pts = e.v.map((v) => district.verts[v]);
+    for (let k = 0; k < pts.length - 1; k++) segs.push([pts[k], pts[k + 1]]);
+  }
+  const nearestEdge = (x, z) => {
+    let best = Infinity;
+    for (const [a, b] of segs) {
+      const dx = b.x - a.x, dz = b.z - a.z, s2 = dx * dx + dz * dz;
+      if (s2 < 1e-12) continue;
+      const f = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / s2));
+      const d = Math.hypot(x - (a.x + dx * f), z - (a.z + dz * f));
+      if (d < best) best = d;
+    }
+    return best;
+  };
+  // Positions found by walking out from a road and keeping the ones that are clear, so every
+  // one is somewhere a car could be, and their distances are measured rather than assumed.
+  const spots = [];
+  for (const [sx, sz] of [[57, -164], [19, -6], [-242, 68], [-471, 205], [200, 100]]) {
+    for (let ang = 0; ang < 16; ang++) {
+      const a = ang * Math.PI / 8;
+      for (const step of [2, 6, 10, 14, 18, 22, 40, 56]) {
+        const x = sx + Math.cos(a) * step, z = sz + Math.sin(a) * step;
+        if (!CLEAR_AT(x, z)) continue;
+        spots.push({ x, z, d: nearestEdge(x, z) });
+      }
+    }
+  }
+  const longestHold = (sp, oldArm) => {
+    const p = build({ count: 6 });
+    if (oldArm) p._reachR = p.holdRadius;          // the bound that shipped, as the control
+    const t = { x: sp.x, z: sp.z };
+    let cur = 0, longest = 0;
+    for (let f = 0; f < 1800; f++) {
+      p.update(1 / 60, t);
+      if (p.units.some((u) => u && u.held)) { cur++; if (cur > longest) longest = cur; } else cur = 0;
+    }
+    return longest / 60;
+  };
+  const BANDS = [[0, 8.75], [8.75, 16], [16, 28], [28, 1e9]];
+  const rows = [];
+  for (const [lo, hi] of BANDS) {
+    const inB = spots.filter((r) => r.d >= lo && r.d < hi).slice(0, 8);
+    if (inB.length < 3) continue;
+    const nw = inB.map((r) => longestHold(r, false));
+    const od = inB.map((r) => longestHold(r, true));
+    rows.push({ lo, hi, n: inB.length,
+      newOK: nw.filter((v) => v >= BUST_HOLD_S).length,
+      oldOK: od.filter((v) => v >= BUST_HOLD_S).length });
+  }
+  console.log('    nearest edge      n   arrestable BEFORE   AFTER');
+  for (const r of rows) {
+    console.log(`    ${`${r.lo}-${r.hi === 1e9 ? '999' : r.hi} m`.padEnd(16)} `
+      + `${String(r.n).padStart(2)}        ${`${r.oldOK}/${r.n}`.padStart(7)}         `
+      + `${`${r.newOK}/${r.n}`.padStart(7)}`);
+  }
+  const band = (lo) => rows.find((r) => r.lo === lo);
+  const mid = band(8.75), far = band(16), near = band(0), out = band(28);
+  /**
+   * KNOWN-BAD AS A BAND, not as a single position. The control is the same code with `_reachR`
+   * forced back to `holdRadius`, in ONE process against the same seeds and the same spots, so
+   * nothing but the bound differs. Both sides have to be non-zero in the right direction or the
+   * arm says nothing: the near band must be arrestable in BOTH arms (the change did not break
+   * what worked) and the 8.75-16 m band must go from none to all.
+   */
+  check('the near band was arrestable before and still is',
+    !!near && near.oldOK >= near.n - 1 && near.newOK >= near.n - 1,
+    near ? `${near.oldOK}/${near.n} -> ${near.newOK}/${near.n}` : 'no near band');
+  check('KNOWN-BAD: just past the car\'s stop radius, nobody could be arrested at all',
+    !!mid && mid.oldOK === 0, mid ? `${mid.oldOK}/${mid.n} at 8.75-16 m` : 'no band');
+  check('and now they can', !!mid && mid.newOK === mid.n,
+    mid ? `${mid.newOK}/${mid.n} at 8.75-16 m` : 'no band');
+  check('out to the officer\'s reach, where it was also none',
+    !!far && far.oldOK === 0 && far.newOK >= Math.ceil(far.n * 0.6),
+    far ? `${far.oldOK}/${far.n} -> ${far.newOK}/${far.n} at 16-28 m` : 'no band');
+  /**
+   * AND THE LIMIT IS STATED RATHER THAN LEFT TO BE FOUND. Beyond the reach it is still immunity
+   * in BOTH arms — the change closed a band, it did not make the player always arrestable, and
+   * "drive a hundred metres into open land and they cannot take you" needs police who get out
+   * of the car, not a bigger number here. This row is what stops the next round reading the one
+   * above as "the hold is unbounded now".
+   */
+  check('and beyond the reach it is immunity in both arms, which is the design limit',
+    !!out && out.oldOK === 0 && out.newOK === 0,
+    out ? `${out.oldOK}/${out.n} -> ${out.newOK}/${out.n} past 28 m` : 'no band');
+
+  /**
+   * THE LINE-OF-SIGHT CONTROL, and it is the seam assertion for the whole walk test: if
+   * `_footPathClear` never refuses, the reach is a bare 28 m radius through walls and every
+   * number above is the same number it would be with the predicate deleted. Measured in
+   * isolation first, because an end-to-end arm cannot tell "never refuses" from "never asked".
+   */
+  {
+    const p = build({ count: 6 });
+    let clear = 0, blocked = 0;
+    for (let i = 0; i < segs.length; i += 7) {
+      const [a, b] = segs[i];
+      const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
+      const L = Math.hypot(b.x - a.x, b.z - a.z);
+      if (L < 1e-6) continue;
+      const nx = -(b.z - a.z) / L, nz = (b.x - a.x) / L;
+      for (const side of [1, -1]) for (const d of [12, 18, 24]) {
+        const tx = mx + nx * side * d, tz = mz + nz * side * d;
+        if (!CLEAR_AT(tx, tz)) continue;
+        if (p._footPathClear(mx, mz, tx, tz)) clear++; else blocked++;
+      }
+    }
+    console.log(`    the walk predicate over ${clear + blocked} kerb-to-player lines: `
+      + `${clear} clear, ${blocked} BLOCKED (${(100 * blocked / (clear + blocked)).toFixed(1)}%)`);
+    check('the walk test refuses some real lines, so it is not decoration',
+      blocked > 0 && clear > 0, `${blocked} blocked of ${clear + blocked}`);
+    check('and with no predicate wired every one of them is allowed, which is the other half',
+      (() => { const q = build({ clearAt: null }); return q.clearAt == null
+        && q._footPathClear(0, 0, 0, 400) === true; })(), 'unrefused without clearAt');
+
+    // End to end: `stopped` and `held` must DIVERGE where the walk is blocked, and agree where
+    // it is not. Without both sides, `held 0` reads the same whether no unit arrived or every
+    // unit arrived and a wall was in the way — which is why report() now carries both.
+    const tally = (list) => {
+      let heldF = 0, stoppedF = 0, gap = 0;
+      for (const c of list) {
+        const q = build({ count: 6 });
+        const t = { x: c.x, z: c.z };
+        for (let f = 0; f < 900; f++) {
+          q.update(1 / 60, t);
+          for (const u of q.units) {
+            if (!u || !u.stopped) continue;
+            stoppedF++;
+            if (u.held) heldF++; else gap++;
+          }
+        }
+      }
+      return { heldF, stoppedF, gap };
+    };
+    const cands = [];
+    for (let i = 0; i < segs.length && cands.length < 600; i += 3) {
+      const [a, b] = segs[i];
+      const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
+      const L = Math.hypot(b.x - a.x, b.z - a.z);
+      if (L < 1e-6) continue;
+      const nx = -(b.z - a.z) / L, nz = (b.x - a.x) / L;
+      for (const side of [1, -1]) for (const d of [14, 20]) {
+        const tx = mx + nx * side * d, tz = mz + nz * side * d;
+        if (!CLEAR_AT(tx, tz)) continue;
+        cands.push({ x: tx, z: tz, blockedWalk: !p._footPathClear(mx, mz, tx, tz) });
+      }
+    }
+    const B = tally(cands.filter((c) => c.blockedWalk).slice(0, 6));
+    const C = tally(cands.filter((c) => !c.blockedWalk).slice(0, 10));
+    console.log(`    stopped-but-not-held, 15 s per position, 14-20 m off a kerb:`);
+    console.log(`      walk clear   ${C.gap} of ${C.stoppedF} stopped unit-frames`);
+    console.log(`      walk blocked ${B.gap} of ${B.stoppedF} stopped unit-frames`);
+    check('a unit stopped within reach on a clear line always holds',
+      C.stoppedF > 1000 && C.gap === 0, `${C.gap} of ${C.stoppedF}`);
+    // Not all of them: `blockedWalk` is measured from ONE kerb midpoint, and a unit on the
+    // street on the other side has its own clear line. That is correct, and it is why this is a
+    // majority rather than a total.
+    check('and one stopped behind a building mostly cannot, which is the control',
+      B.stoppedF > 1000 && B.gap > B.stoppedF * 0.5,
+      `${B.gap} of ${B.stoppedF} = ${(100 * B.gap / B.stoppedF).toFixed(1)}%`);
+  }
 }
 
 // ---------------------------------------------------------------------------- report

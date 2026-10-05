@@ -15,6 +15,16 @@ import { buildTrafficCarGeometry, trafficCarMaterial, lampEmissive } from './car
 // The car's collision half-length, for `holdRadius` below. The same published anchor
 // src/wanted.js's bust clock takes its stop threshold from.
 import { HALF_EXTENT } from './damage.js';
+// `reachRadius` is derived from these three and nothing else: an officer who leaves the car and
+// runs covers RUN_SPEED * BUST_HOLD_S before the arrest completes, and their path has to be
+// clear for a person-sized circle. See the property's own comment below.
+import { RUN_SPEED, ON_FOOT_RADIUS } from './player.js';
+import { BUST_HOLD_S } from './wanted.js';
+
+// The officer's path is sampled at this spacing. Bounded by the test, not chosen: a circle of
+// radius ON_FOOT_RADIUS can only notice a wall while consecutive samples are under 2r = 0.70 m
+// apart. `pursuit-test` asserts that relation rather than this number.
+const FOOT_STEP_M = 0.5;
 
 export class PursuitUnits {
   constructor(scene, district, opts = {}) {
@@ -136,6 +146,91 @@ export class PursuitUnits {
   }
 
   /**
+   * HOW FAR THE POLICE CAN ACTUALLY TAKE YOU, which is further than a car can park.
+   *
+   * `holdRadius` is the distance from an edge's CENTRELINE to a car at the kerb of the widest
+   * road in the district — 13.2 / 2 + 2.15 = 8.75 m. That is exactly right for "a police car
+   * stops alongside you" and it was the only way to be held, so the hold was a function of how
+   * far the PLAYER was from a road. A blind playtester found what that is worth, pedals and
+   * wheel only, no teleports, two arms off one seed:
+   *
+   *     brake 5.4 m off the centreline    busted in 11.0 s, a unit holding on 41% of frames
+   *     full lock ~3 s, stop 15.6 m off   180.5 s on the brake at 4 stars, 0 busts, held 0%
+   *
+   * Byte-identical over three runs, and `district/main.js` runs the identical check, so it was
+   * not harness-only. Measured here on the right axis — distance to the NEAREST edge of any
+   * kind, not to the unit's own, because in a dense network stepping 20 m off one edge can put
+   * you 5 m from another — over 24 positions, 1,200 frames each, against the old rule:
+   *
+   *     nearest edge     held %   longest hold   closest unit reached
+   *     0 - 8.75 m        52.3%       10.5 s        6.8 m
+   *     8.75 - 12 m        0.0%        0.0 s       11.3 m
+   *     12 - 16 m          0.0%        0.0 s       17.8 m
+   *     16 - 24 m          0.0%        0.0 s       20.0 m
+   *     24 - 40 m          0.0%        0.0 s       30.3 m
+   *
+   * Not degraded past the radius. ZERO, with units arriving 11 m away and driving off again,
+   * against a `RESPONSE[].spotRadius` of 85-175 m in which they can see you — which is what
+   * blocks the evade timer. A 20x gap in radius and 400x in area.
+   *
+   * SO THE REACH IS NOT THE CAR'S, IT IS THE OFFICER'S, and it is derived from two constants
+   * the game already declares rather than chosen:
+   *
+   *     src/wanted.js   BUST_HOLD_S  4.0 s   the dwell the arrest already requires
+   *     src/player.js   RUN_SPEED    7.0 m/s a person running, the game's own figure
+   *     ----------------------------------
+   *     reach                       28.0 m
+   *
+   * An officer who leaves the car the moment it stops and runs arrives exactly as the arrest
+   * completes. The HUD already says "BUSTED IN — 4 s"; that line now describes something. And
+   * the derivation is self-correcting: retune either constant and the reach follows, which is
+   * the opposite of the 7.15 m that was a class RANK read as a width.
+   *
+   * It is a MAX with `holdRadius`, so a change to the district's widest road can widen this and
+   * can never narrow it — the on-road case this was already right about is never regressed.
+   *
+   * WHAT IT DOES NOT DO, stated because it is a design choice and not an oversight: 28 m covers
+   * the forecourt, the verge and the car park, which is where a player actually stops. Gridded
+   * at 4 m against the real blocker index, ground within 24 m of a road is 52.7% of all clear
+   * ground in the district, so driving a hundred metres into open land is still immunity. That
+   * is a separate finding and it needs police who get out of the car, not a bigger number here.
+   */
+  get reachRadius() {
+    return this._reachR ?? (this._reachR = Math.max(this.holdRadius, RUN_SPEED * BUST_HOLD_S));
+  }
+
+  /**
+   * CAN AN OFFICER GET FROM (ax, az) TO (bx, bz) ON FOOT? A straight line, sampled against the
+   * host's own blocker predicate — the one `district/main.js` builds from
+   * `blockers.resolveCircle`, so the walk is refused by exactly the geometry the car collides
+   * with.
+   *
+   * SUB-STEPPED, AND THE STEP IS BOUNDED BY THE TEST AND NOT PICKED. A circle test of radius r
+   * can only notice a wall while consecutive samples are under 2r apart; r is `ON_FOOT_RADIUS`
+   * = 0.35 m, so the bound is 0.70 m and the step is 0.5 m, inside it by 29%. CLAUDE.md records
+   * a sampled sweep that held by 12% and by luck because its step was derived from a mean rather
+   * than a maximum, so `pursuit-test` asserts the RELATION `step < 2 * r` rather than the number.
+   *
+   * With no `clearAt` wired this returns true — "no predicate, nothing to exclude", the same
+   * convention `src/traffic.js` uses. That is the direction that makes a missing wire VISIBLE
+   * rather than silently narrowing the hold back to where it started, and `pursuit-test` asserts
+   * every host wires it, because a gate that builds the subject differently from the game
+   * measures a configuration the game never runs.
+   */
+  _footPathClear(ax, az, bx, bz) {
+    if (!this.clearAt) return true;
+    const dx = bx - ax, dz = bz - az;
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-9) return this.clearAt(ax, az, ON_FOOT_RADIUS);
+    const n = Math.max(1, Math.ceil(len / FOOT_STEP_M));
+    for (let k = 0; k <= n; k++) {
+      const f = k / n;
+      if (!this.clearAt(ax + dx * f, az + dz * f, ON_FOOT_RADIUS)) return false;
+    }
+    return true;
+  }
+
+  /**
    * The point on an edge nearest the target, as an along-edge distance and a distance. This is
    * what a unit stops AT: a radius alone cannot say where to stop, and stopping at the moment the
    * radius is first crossed parks the car short of the player on a long approach.
@@ -144,7 +239,10 @@ export class PursuitUnits {
     const e = this.d.edges[i];
     const pts = forward ? e.v.map((v) => this.d.verts[v])
       : [...e.v].reverse().map((v) => this.d.verts[v]);
-    let run = 0, bestT = 0, bestD = Infinity;
+    // `x`/`z` as well as `t`/`d`, because `u.held` now tests whether an officer can WALK from
+    // that point to the target and the point is already computed here. Deriving it a second
+    // time from `t` would be the same quantity twice, which is how two instruments drift apart.
+    let run = 0, bestT = 0, bestD = Infinity, bestX = 0, bestZ = 0;
     for (let k = 0; k < pts.length - 1; k++) {
       const a = pts[k], b = pts[k + 1];
       const dx = b.x - a.x, dz = b.z - a.z;
@@ -154,11 +252,11 @@ export class PursuitUnits {
           ((target.x - a.x) * dx + (target.z - a.z) * dz) / (seg * seg)));
         const px = a.x + dx * f, pz = a.z + dz * f;
         const d = Math.hypot(target.x - px, target.z - pz);
-        if (d < bestD) { bestD = d; bestT = run + seg * f; }
+        if (d < bestD) { bestD = d; bestT = run + seg * f; bestX = px; bestZ = pz; }
       }
       run += seg;
     }
-    return { t: bestT, d: bestD };
+    return { t: bestT, d: bestD, x: bestX, z: bestZ };
   }
 
   _endVertex(i, forward) {
@@ -179,7 +277,7 @@ export class PursuitUnits {
       if (!p) continue;
       const dist = Math.hypot(p.x - target.x, p.z - target.z);
       if (dist < 70 || dist > 260) continue;
-      this.units[idx] = { edge: e, forward, t, len, held: false };
+      this.units[idx] = { edge: e, forward, t, len, held: false, stopped: false };
       this.stats.spawns++;
       return true;
     }
@@ -236,33 +334,58 @@ export class PursuitUnits {
       const near = this._closestOn(u.edge, u.forward, target);
       const wantT = u.t + this.speed * dt;
       /**
-       * ONCE HELD, HELD WHILE THE TARGET IS STILL BY THIS EDGE — `u.held` is in the condition that
-       * decides `u.held`, and that is the whole point of it.
+       * ONCE STOPPED, STOPPED WHILE THE TARGET IS STILL BY THIS EDGE — `u.stopped` is in the
+       * condition that decides `u.stopped`, and that is the whole point of it.
+       *
+       * (This paragraph was written about `u.held`, when one flag did both jobs. Everything it
+       * says is about where the CAR is, so it is all `u.stopped` now; see TWO STATES at the
+       * condition itself for why the arrest signal had to be separated from it.)
        *
        * The first version tested `wantT > near.t && u.t <= near.t` every frame with no tolerance,
        * and a stationary player is not stationary: the plan's target is the player's live position,
        * which drifts sub-millimetre amounts while a braked car settles. Any drift that moves the
        * closest approach BACKWARDS by 1e-9 fails `u.t <= near.t`, the unit takes the else branch,
-       * and it drives off for good. Traced at the frame: `held` was true for exactly TWO frames at
+       * and it drives off for good. Traced at the frame: it was true for exactly TWO frames at
        * a time, 34 such frames across 80 s, 21 arms of the bust clock and a peak of 0.017 s.
        *
        * Sticky, it also does the right thing when the player creeps: `u.t` tracks `near.t`, so the
        * unit keeps station along the kerb instead of being shaken off by a walking pace. It
-       * releases when the target leaves the edge's neighbourhood, where `near.d > holdRadius`, and
-       * resumes from wherever it was rather than from the start of the edge.
+       * releases when the target leaves the edge's neighbourhood, where `near.d > reachRadius`,
+       * and resumes from wherever it was rather than from the start of the edge.
        */
-      if (near.d <= this.holdRadius && (u.held || (wantT > near.t && u.t <= near.t))) {
+      /**
+       * TWO STATES, BECAUSE THEY ANSWER TWO QUESTIONS. `u.stopped` is where the CAR is — the
+       * clamp on `t`, everything the paragraphs above are about. `u.held` is what
+       * `src/wanted.js`'s bust clock reads, and an arrest is made by a PERSON, who can cover
+       * `reachRadius` on foot while the clock runs. One flag answered both and that is why
+       * standing 15.6 m off a road was immunity: see `reachRadius` for the measurement.
+       *
+       * The clamp widens with it, and it has to: a car that drives past at 22 m/s is inside
+       * 28 m for about 2.1 s against a 4.0 s dwell, so nobody could ever be arrested from a
+       * passing unit however wide the predicate got. The officers get out when the car stops.
+       */
+      if (near.d <= this.reachRadius && (u.stopped || (wantT > near.t && u.t <= near.t))) {
         u.t = near.t;
-        u.held = true;
+        u.stopped = true;
       } else {
         u.t = wantT;
-        u.held = false;
+        u.stopped = false;
       }
+      /**
+       * AND THE WALK IS TESTED ONLY WHERE IT CHANGES THE ANSWER. Inside `holdRadius` the car
+       * itself is alongside, so no officer has to go anywhere and the predicate is skipped —
+       * which keeps the case this module was already right about independent of whether a host
+       * wired `clearAt` at all. Beyond it, the line has to be clear: a player 20 m away with a
+       * building between them is not being held by anybody, and that is the control
+       * `pursuit-test` asserts reads zero.
+       */
+      u.held = u.stopped && (near.d <= this.holdRadius
+        || this._footPathClear(near.x, near.z, target.x, target.z));
       let p = this._pointOn(u.edge, u.forward, u.t);
       /**
-       * A HELD UNIT REROUTES AT THE END OF ITS EDGE LIKE ANY OTHER, and this carried a `!u.held`
-       * guard for a while on a WRONG DIAGNOSIS, recorded because the mutation sweep is what
-       * removed it.
+       * A STOPPED UNIT REROUTES AT THE END OF ITS EDGE LIKE ANY OTHER, and this carried a
+       * `!u.held` guard for a while on a WRONG DIAGNOSIS, recorded because the mutation sweep is
+       * what removed it.
        *
        * The reasoning was: the closest approach to a player standing at a junction is the END of
        * the edge, so the hold's clamp also satisfies this test and the unit rerouted every frame.
@@ -282,6 +405,7 @@ export class PursuitUnits {
         if (!next) { this.units[i] = null; this.mesh.setMatrixAt(i, this._hidden); this.bars.setMatrixAt(i, this._hidden); continue; }
         u.edge = next.e; u.forward = next.forward; u.t = 0; u.len = this._len(next.e);
         u.held = false;
+        u.stopped = false;
         p = this._pointOn(u.edge, u.forward, 0);
       }
 
@@ -315,7 +439,14 @@ export class PursuitUnits {
       units: this.count,
       active: this.units.filter(Boolean).length,
       held: this.units.filter((u) => u && u.held).length,
+      // `stopped` beside `held` because the two can now differ, and the gap between them is
+      // exactly the case this module used to get wrong: a car parked within reach of a player
+      // it cannot walk to. Without both, "held 0" reads the same whether no unit arrived or
+      // every unit arrived and a wall was in the way.
+      stopped: this.units.filter((u) => u && u.stopped).length,
       holdR: this.holdRadius,
+      reachR: this.reachRadius,
+      footPath: !!this.clearAt,
       ...this.stats,
       drawCalls: 2,
     };

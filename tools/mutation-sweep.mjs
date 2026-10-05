@@ -869,7 +869,7 @@ const MUTATIONS = [
      * looks different; the bust simply becomes unreachable.
      */
     id: 'hold-never', file: 'src/pursuit.js',
-    find: '      if (near.d <= this.holdRadius && (u.held || (wantT > near.t && u.t <= near.t))) {',
+    find: '      if (near.d <= this.reachRadius && (u.stopped || (wantT > near.t && u.t <= near.t))) {',
     to: '      if (false) {',
     why: 'the police drive through you at 79 km/h and can never catch anybody',
   },
@@ -886,8 +886,8 @@ const MUTATIONS = [
      * one scenario 0.2 m apart disagreed about whether the player was ever caught.
      */
     id: 'hold-ratchet', file: 'src/pursuit.js',
-    find: '      if (near.d <= this.holdRadius && (u.held || (wantT > near.t && u.t <= near.t))) {',
-    to: '      if (near.d <= this.holdRadius && wantT > near.t && u.t <= near.t) {',
+    find: '      if (near.d <= this.reachRadius && (u.stopped || (wantT > near.t && u.t <= near.t))) {',
+    to: '      if (near.d <= this.reachRadius && wantT > near.t && u.t <= near.t) {',
     why: 'a hold lasts two frames, so being caught becomes a coin flip',
   },
   {
@@ -911,6 +911,58 @@ const MUTATIONS = [
     find: "    else mission.abort('busted');",
     to: '    else bustStats.cooperated++;',
     why: 'being arrested costs nothing: the mission survives it',
+    browser: true,
+  },
+  {
+    /**
+     * THE ARREST GOES BACK TO BEING A CAR'S REACH INSTEAD OF AN OFFICER'S, which is how it
+     * shipped. `holdRadius` is the distance from an edge's centreline to a car at the kerb of
+     * the widest road — 8.75 m — and it decided `held`, so the hold was a function of how far
+     * the PLAYER was from a road while `RESPONSE[].spotRadius` lets the police see you from
+     * 85-175 m. A blind playtester found it by playing: stop 15.6 m off a centreline at four
+     * stars and you get 180.5 s on the brake with 0 busts and a unit holding on 0% of frames.
+     *
+     * Nothing errors and the chase looks identical — the cars drive the same roads at the same
+     * speed and park in the same places. Only an arrest that does not happen is different, and
+     * only at distances no screenshot distinguishes. pursuit-test §9 is what tells them apart,
+     * by band: 0/8 arrestable at 8.75-16 m against 8/8.
+     */
+    id: 'reach-car', file: 'src/pursuit.js',
+    find: '    return this._reachR ?? (this._reachR = Math.max(this.holdRadius, RUN_SPEED * BUST_HOLD_S));',
+    to: '    return this._reachR ?? (this._reachR = this.holdRadius);',
+    why: 'standing 15 m off a road is immunity from arrest again',
+  },
+  {
+    /**
+     * THE OFFICER WALKS THROUGH WALLS. `_footPathClear` is what stops the 28 m reach being a
+     * bare radius, and a version that always returns true is INVISIBLE to every band figure in
+     * pursuit-test §9 — those read the same with the predicate deleted, which is exactly why
+     * the section carries a separate control for it. 37 of 1,624 real kerb-to-player lines are
+     * blocked, and at blocked positions 3,223 of 4,953 stopped unit-frames must NOT hold.
+     *
+     * Behaviour-preserving everywhere the line is clear, which is 97.7% of the district.
+     */
+    id: 'walk-free', file: 'src/pursuit.js',
+    find: '    const n = Math.max(1, Math.ceil(len / FOOT_STEP_M));',
+    to: '    const n = 0;',
+    why: 'the police arrest you through a building wall',
+  },
+  {
+    /**
+     * THE HOST KEEPS ITS OWN OLD COPY OF THE BOUND. [browser], because nothing offline imports
+     * district/main.js — and this is the row that records the most expensive hour of this
+     * change: widening the module did nothing a player could feel, because the frame loop
+     * re-tested the held unit against the player with `holdRadius`. Measured in that state, at
+     * 14.15 m off a road and four stars: held true on 98.5% of samples, longest hold 197.0 s,
+     * busts 0 in 200 s. With the host reading the module instead, an arrest at 7.3 s.
+     *
+     * Caught by boot-check, which compares the number the host lands on against the module's
+     * published `reachR` — the `??` fallback to the old bound is otherwise silent.
+     */
+    id: 'host-reach', file: 'district/main.js',
+    find: '  return pursuit ? (pursuit.reachRadius ?? pursuit.holdRadius ?? 0) : 0;',
+    to: '  return pursuit ? (pursuit.holdRadius ?? 0) : 0;',
+    why: 'the module can reach 28 m and the host still refuses past 8.75',
     browser: true,
   },
   {
@@ -1018,8 +1070,8 @@ const MUTATIONS = [
      * fleet driving 3,056 m instead of 9,170 and a single-frame position jump of 19.59 m.
      */
     id: 'hold-forever', file: 'src/pursuit.js',
-    find: '      if (near.d <= this.holdRadius && (u.held || (wantT > near.t && u.t <= near.t))) {',
-    to: '      if (u.held || (near.d <= this.holdRadius && wantT > near.t && u.t <= near.t)) {',
+    find: '      if (near.d <= this.reachRadius && (u.stopped || (wantT > near.t && u.t <= near.t))) {',
+    to: '      if (u.stopped || (near.d <= this.reachRadius && wantT > near.t && u.t <= near.t)) {',
     why: 'a unit that once held follows the player for ever, 331 m away, in 19.59 m jumps',
   },
   {

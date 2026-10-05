@@ -4,15 +4,30 @@
 
 import * as THREE from '../vendor/three.module.min.js';
 
+/**
+ * A PERSON, AS NUMBERS, EXPORTED BECAUSE A SECOND MODULE NOW NEEDS THEM.
+ *
+ * These were instance fields, which meant anything outside this file that wanted to know how
+ * fast a person moves had to construct a Player — so `src/pursuit.js` would have copied them
+ * instead, and a number copied into a second place is the recurring defect shape in this repo.
+ *
+ * `src/pursuit.js` derives an officer's reach from RUN_SPEED and `src/wanted.js`'s BUST_HOLD_S:
+ * an officer who leaves the car and runs covers RUN_SPEED * BUST_HOLD_S before the arrest
+ * completes, and ON_FOOT_RADIUS is what their path has to be clear for.
+ */
+export const WALK_SPEED = 3.2;
+export const RUN_SPEED = 7.0;
+export const ON_FOOT_RADIUS = 0.35;
+
 export class Player {
   constructor() {
     this.position = new THREE.Vector3(0, 0, -6);
     this.velocity = new THREE.Vector3();
     this.yaw = 0;              // facing, radians
-    this.radius = 0.35;
+    this.radius = ON_FOOT_RADIUS;
     this.height = 1.8;
-    this.walkSpeed = 3.2;
-    this.runSpeed = 7.0;
+    this.walkSpeed = WALK_SPEED;
+    this.runSpeed = RUN_SPEED;
     this.accel = 26;
     this.grounded = true;
     this.gravity = -22;

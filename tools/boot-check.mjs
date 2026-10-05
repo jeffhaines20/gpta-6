@@ -412,6 +412,12 @@ if (state.global && state.frames > 2) {
     const notHonoured = d.wantedReport().notHonoured.slice();
     const fleet = d.wantedReport().fleet;
     const holdR = fleet ? fleet.holdR : null;
+    // The module's published reach, the walk wire, and the number the HOST actually uses —
+    // the same `??` chain the frame loop runs, evaluated here so the two cannot disagree
+    // silently. See the checks below.
+    const reachR = fleet ? fleet.reachR : null;
+    const footPath = fleet ? fleet.footPath : null;
+    const hostReach = d.pursuitReach ? d.pursuitReach() : null;
     // Hurt the car, so "it came back repaired" has two different numbers in it.
     const hurt = d.damage.impact({ dv: 9, kind: 'wall', dirX: 0, dirZ: 1, speed: 9 });
     const healthBefore = d.damage.health;
@@ -434,7 +440,8 @@ if (state.global && state.frames > 2) {
       await new Promise((r) => requestAnimationFrame(() => r()));
     }
     d.setTimeScale(1);
-    return { before, respawns0, notHonoured, holdR, fleet, healthBefore, hurt: hurt.applied, seen,
+    return { before, respawns0, notHonoured, holdR, reachR, footPath, hostReach,
+      fleet, healthBefore, hurt: hurt.applied, seen,
       fired, after: d.bustReport(), missionAfter, health: d.damage.health,
       frames: d.frames - f0, wreck: d.wreckReport() };
   });
@@ -474,6 +481,31 @@ if (state.global && state.frames > 2) {
   check('the pursuit layer reports that it can hold, so the clock can arm in play',
     !bust.notHonoured.includes('held') && bust.holdR > 0,
     `${JSON.stringify(bust.notHonoured)}, holdR ${bust.holdR}`);
+  /**
+   * AND THE OFF-ROAD HALF OF THAT WIRE, WHICH IS WHY THIS GATE EXISTS.
+   *
+   * An arrest is made by a person, so `src/pursuit.js` holds a target out to
+   * `RUN_SPEED * BUST_HOLD_S` = 28 m provided an officer can WALK there — and the host re-tests
+   * the held unit against the PLAYER with its own copy of that radius. Three copies of one
+   * bound: the module, this file, and tools/playtest.mjs. Widening the module alone changed
+   * nothing a player could feel, measured offline at 14.15 m off a road and four stars: `u.held`
+   * true on 98.5% of samples, longest hold 197.0 s, busts 0 in 200 s, because 14.15 failed
+   * `<= 8.75` in the host. With all three read off the module it is an arrest at 7.3 s.
+   *
+   * Two things are asserted and neither is reachable offline. `footPath` says `wirePursuit` ran,
+   * so the walk is refusable by the real blocker index rather than allowed through walls; and
+   * the host's own radius is compared against the module's `reachR`, because the `??` chain
+   * `pursuit.reachRadius ?? pursuit.holdRadius ?? 0` silently falls back to the OLD bound for a
+   * module that does not publish the new one — which is the quietest possible way to lose this.
+   */
+  console.log(`  fleet reachR ${bust.reachR}, holdR ${bust.holdR}, `
+    + `footPath ${bust.footPath}, host reach ${bust.hostReach}`);
+  check('the page wires the blocker predicate into the pursuit, which no offline gate can see',
+    bust.footPath === true && !bust.notHonoured.includes('heldOffRoad'),
+    `footPath ${bust.footPath}, notHonoured ${JSON.stringify(bust.notHonoured)}`);
+  check('and the host asks the module how far an officer gets, rather than its own old bound',
+    bust.reachR > bust.holdR && bust.hostReach === bust.reachR,
+    `host ${bust.hostReach} against reach ${bust.reachR} and the old ${bust.holdR}`);
   await page.evaluate(() => __district.clearWanted('boot-check'));
 }
 

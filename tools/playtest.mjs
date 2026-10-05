@@ -244,6 +244,16 @@ export class Session {
     });
     this._bustedFor = 0;
     this.traffic.clearAt = (x, z, r) => !this.blockers.resolveCircle(x, z, r);
+    /**
+     * AND THE PURSUIT GETS THE SAME PREDICATE, for the reason the line above exists at all:
+     * CLAUDE.md records `traffic-selftest` building its Traffic with no `clearAt`, so the gate
+     * measuring cars-inside-buildings was measuring a configuration the game never runs.
+     * `src/pursuit.js` holds a target only when an officer can WALK from the stopped car to the
+     * player, and with no predicate that walk is unrefused — so a harness without this line
+     * would report arrests through walls that the page refuses, in the direction that flatters.
+     * The default radius matches district/main.js's `wirePursuit`.
+     */
+    this.pursuit.clearAt = (x, z, r = 0.95) => !this.blockers.resolveCircle(x, z, r);
     this.peds = new Pedestrians(scene, this.district, { count: opts.peds ?? 64 });
     this.roads = new RoadGraph(this.district, { blockers: this.blockers, carRadius: BODY_RADIUS });
     this.mission = new MissionRunner();
@@ -509,11 +519,20 @@ export class Session {
       // What the car was ASKED for, so the bust line can say "reverse" to a player already
       // holding the throttle open against a wall. Negative is reverse and does not latch it.
       this._wantedPlayer.throttle = this.mode === 'car' ? (this._controls.throttle ?? 0) : 0;
-      const holdR = this.pursuit.holdRadius ?? 0;
-      if (holdR > 0) {
+      /**
+       * `reachRadius`, NOT `holdRadius`, AND THE DIFFERENCE WAS THE WHOLE FIX. This read
+       * `holdRadius` — 8.75 m, the distance from an edge's centreline to a car at the kerb of
+       * the widest road — so it was a THIRD copy of a bound that also lives in src/pursuit.js
+       * and district/main.js. Widening the module alone changed nothing a player could feel:
+       * measured at 14.15 m off a road at four stars, `u.held` was true on 98.5% of samples with
+       * a longest hold of 197.0 s and the arrest never came, because 14.15 failed `<= 8.75`
+       * here. An arrest is made by a person, and `reachRadius` is how far one gets.
+       */
+      const reachR = this.pursuit.reachRadius ?? this.pursuit.holdRadius ?? 0;
+      if (reachR > 0) {
         for (const u of this._unitPositions()) {
           if (!u.held) continue;
-          if (Math.hypot(u.x - ap.x, u.z - ap.z) <= holdR) { this._wantedPlayer.held = true; break; }
+          if (Math.hypot(u.x - ap.x, u.z - ap.z) <= reachR) { this._wantedPlayer.held = true; break; }
         }
       }
       this.wantedBridge.update(DT, this._wantedPlayer);
@@ -2354,6 +2373,35 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
     check('and it is not absurdly wider than that either, or it is not a contact radius',
       s.pursuit.holdRadius < needed * 1.5,
       `${s.pursuit.holdRadius.toFixed(2)} against ${(needed * 1.5).toFixed(2)} m`);
+
+    /**
+     * AND THIS HARNESS'S OWN COPY OF THE ARREST RADIUS, which is the third of three and the one
+     * that cost an hour. `src/pursuit.js` decides `held` per unit out to `reachRadius`; this
+     * file and district/main.js then RE-TEST the held unit against the player, because during a
+     * search the pursuit target is the last known position and a unit parked on that is not
+     * holding anybody. Both re-tests used `holdRadius`.
+     *
+     * So widening the module changed nothing a player could feel. Measured at 14.15 m off a
+     * road at four stars with the module already fixed: `u.held` true on 98.5% of samples,
+     * longest hold 197.0 s, busts 0 in 200 s — because 14.15 failed `<= 8.75` in the host. With
+     * all three reading the module: arrested at 7.3 s. The ON-ROAD case is byte-identical
+     * either way (51.6% held, longest 4.00 s, bust at t=7.8 s), which is what says the change
+     * widened the band rather than moving it.
+     *
+     * Asserted here as the RELATION between this file's choice and the module's, because a
+     * number copied into a third place is how this went wrong in the first place.
+     */
+    const hostReach = s.pursuit.reachRadius ?? s.pursuit.holdRadius ?? 0;
+    console.log(`    the arrest radius this harness uses: ${hostReach.toFixed(2)} m against the ` +
+      `module's reachRadius ${s.pursuit.reachRadius.toFixed(2)} and holdRadius ` +
+      `${s.pursuit.holdRadius.toFixed(2)}`);
+    check('this harness asks the module how far an arrest reaches, not its own old bound',
+      hostReach === s.pursuit.reachRadius && hostReach > s.pursuit.holdRadius,
+      `${hostReach.toFixed(2)} vs reach ${s.pursuit.reachRadius.toFixed(2)}, ` +
+      `old ${s.pursuit.holdRadius.toFixed(2)}`);
+    check('and the pursuit has the blocker predicate, so the walk can be refused',
+      typeof s.pursuit.clearAt === 'function' && s.pursuit.report().footPath === true,
+      `footPath ${s.pursuit.report().footPath}`);
 
     check('a unit stops ON the stationary player rather than driving past',
       heldEver > 0 && minD < s.pursuit.holdRadius,

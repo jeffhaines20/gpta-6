@@ -403,7 +403,7 @@ let pursuit = null;
 let pursuitManual = false;
 function setPursuit(n) {
   if (pursuit) { scene.remove(pursuit.mesh); scene.remove(pursuit.bars); pursuit = null; }
-  if (n > 0) pursuit = new PursuitUnits(scene, district, { count: n });
+  if (n > 0) pursuit = wirePursuit(new PursuitUnits(scene, district, { count: n }));
   pursuitManual = !!pursuit;
   return !!pursuit;
 }
@@ -850,7 +850,7 @@ const pursuitBridge = {
       return;
     }
     if (!pursuit) {
-      pursuit = new PursuitUnits(scene, district, { count: PURSUIT_CAPACITY });
+      pursuit = wirePursuit(new PursuitUnits(scene, district, { count: PURSUIT_CAPACITY }));
       if (this.giveUp > 0) pursuit.giveUpRadius = this.giveUp;
       if (this.speedMul > 0) pursuit.speed = PURSUIT_BASE_SPEED * this.speedMul;
     }
@@ -1076,6 +1076,45 @@ const ENTER_TIME = 0.45;
  * with it the whole time.
  */
 const blockers = new BlockerIndex(district);
+
+/**
+ * EVERY PURSUIT FLEET GETS THE BLOCKER PREDICATE, FROM ONE PLACE.
+ *
+ * `src/pursuit.js` holds a target when a unit has stopped at its edge's closest approach AND an
+ * officer can WALK from there to the player — `RUN_SPEED * BUST_HOLD_S` = 28 m, because the
+ * arrest is made by a person and the clock the HUD counts down is the time they have. Without
+ * this predicate that walk is unrefused and the reach is a 28 m radius straight through walls.
+ *
+ * A FUNCTION, called from both construction sites rather than copied into them. There are two —
+ * `setPursuit`'s manual path and the wanted bridge's `_ensure` — and patching one and leaving
+ * its sibling is the recurring shape of defect in this repo; it has already cost this project a
+ * mis-priced car pool for 25 days and a silent no-op in `mutation-sweep --browser`. Declared
+ * here, after `blockers`, and reached by hoisting: both callers are function BODIES that run
+ * long after module evaluation, so there is no temporal dead zone to fall into — which is the
+ * one thing worth saying out loud in this file after commit fab3e2d.
+ *
+ * `tools/boot-check.mjs` asserts the live page's fleet has it, because this is a host wire and
+ * no offline gate loads this file.
+ */
+function wirePursuit(p) {
+  if (p) p.clearAt = (x, z, r = 0.95) => !blockers.resolveCircle(x, z, r);
+  return p;
+}
+
+/**
+ * HOW FAR AN ARREST REACHES, AS ONE EXPRESSION. The frame loop's `held` test and the
+ * `__district` hook `boot-check` reads both call this, so the gate cannot be checking a
+ * different number from the one the game uses — which is the whole defect this chases: the
+ * bound existed in three places and widening one of them changed nothing a player could feel.
+ *
+ * The `??` chain falls back to `holdRadius` for a pursuit layer that does not publish a reach,
+ * and that fallback is the OLD behaviour, so it is silent. `boot-check` asserts the value the
+ * host lands on equals the module's own `reachR`, which is what makes the fallback visible.
+ */
+function pursuitReach() {
+  return pursuit ? (pursuit.reachRadius ?? pursuit.holdRadius ?? 0) : 0;
+}
+
 // The fence, computed once from the road network's own extent. See src/blockers.js.
 worldBox = districtBounds(district);
 console.log(`world fence ${JSON.stringify(worldBox)}`);
@@ -1779,11 +1818,23 @@ function animate(now) {
     /**
      * IS A UNIT HOLDING YOU. src/wanted.js owns the four-second clock and the consequence and
      * must not own this geometry, for the same reason it does not own `seen`: it would have to
-     * learn what a road is. src/pursuit.js decides `held` per unit from its own `holdRadius`
-     * (half the widest edge in the district plus the car's half-length, 8.75 m) and stops
-     * the car there; this line checks the held unit against the PLAYER rather than against the
-     * pursuit target, which are the same point while contact is held and up to a give-up radius
-     * apart during a search — a unit parked on the last known position is not holding anybody.
+     * learn what a road is. src/pursuit.js decides `held` per unit; this line checks the held
+     * unit against the PLAYER rather than against the pursuit target, which are the same point
+     * while contact is held and up to a give-up radius apart during a search — a unit parked on
+     * the last known position is not holding anybody.
+     *
+     * THE RADIUS IS `reachRadius` AND IT USED TO BE `holdRadius`, WHICH IS WHY WIDENING THE
+     * MODULE'S OWN BOUND DID NOTHING ON ITS OWN. This line is a SECOND COPY of the bound, in
+     * the host, and `tools/playtest.mjs` carries a third — so a player 14.15 m off a road had
+     * `u.held` true on 98.5% of samples and still could not be arrested in 200 s, because 14.15
+     * failed `<= 8.75` here. Measured in that state: held 98.5%, longest hold 197.0 s, busts 0.
+     * That is the recurring shape in this repo — patching one site and leaving its siblings —
+     * and it is why the number is now read off the module as a property instead of being
+     * re-derived or re-chosen in each host.
+     *
+     * `holdRadius` is still the right bound for where the CAR stops and it is still what
+     * src/pursuit.js clamps with. What this line asks is whether an ARREST can be made, which
+     * is a question about the officer: `RUN_SPEED * BUST_HOLD_S`, 28 m.
      *
      * On foot the position is the player's, so stepping out of the car is not an escape from
      * this: a unit that has pulled up holds a standing player exactly as it holds a stopped car.
@@ -1798,7 +1849,7 @@ function animate(now) {
     // holding the throttle open against a wall. See `_watchBust` in src/wanted.js.
     _wantedPlayer.throttle = mode === 'car' ? lastThrottle : 0;
     if (pursuit && !pursuitManual && pursuit.mesh.visible) {
-      const r = pursuit.holdRadius ?? 0;
+      const r = pursuitReach();
       if (r > 0) {
         for (const u of pursuitBridge.getUnitPositions()) {
           if (!u.held) continue;
@@ -2397,6 +2448,8 @@ window.__district = {
   /** Mission scripting and harnesses: set the level with no crime behind it. */
   setWanted: (n) => wanted.setStars(n),
   clearWanted: (reason) => wanted.clear(reason ?? 'cleared'),
+  // The one expression the frame loop's `held` test uses. See `pursuitReach`.
+  pursuitReach,
   wantedReport: () => ({
     ...wanted.report(),
     fleet: pursuit ? pursuit.report() : null,
@@ -2409,7 +2462,13 @@ window.__district = {
     notHonoured: ['setUnitGoal', 'setSpawnBand',
       // A pursuit layer with no `holdRadius` cannot say it has stopped on the player, so the bust
       // clock can never arm. Listed so that reads as a gap rather than as a quiet nothing.
-      ...(pursuit && pursuit.holdRadius > 0 ? [] : ['held'])],
+      ...(pursuit && pursuit.holdRadius > 0 ? [] : ['held']),
+      // AND THE SAME HONESTY ABOUT THE OFF-ROAD HALF. An arrest beyond `holdRadius` needs an
+      // officer's walk to be refusable, which needs `wirePursuit` to have run. Without it the
+      // reach is 28 m straight through walls — so the gap is DECLARED rather than being a
+      // quietly more generous arrest. `tools/boot-check.mjs` asserts this list stays empty of
+      // both entries, because `wirePursuit` is a host wire and no offline gate loads this file.
+      ...(pursuit && pursuit.clearAt ? [] : ['heldOffRoad'])],
   }),
 
   // ------------------------------------------------------------------- audio

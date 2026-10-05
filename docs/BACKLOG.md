@@ -183,6 +183,31 @@ read well. `eastbound`'s band is the clearest instruction in the game.
 
 ## Crime, damage and the police
 
+### THE POLICE CANNOT HOLD YOU OFF THE ROAD — FIXED
+An arrest is made by a PERSON, so the reach is the officer's and not the car's:
+`RUN_SPEED * BUST_HOLD_S` = 7.0 * 4.0 = **28.0 m**, derived from two constants the game already
+declares, with the walk refusable by the real blocker index. `holdRadius` still decides where the
+CAR stops; `reachRadius` decides whether an arrest can be made.
+
+    nearest road edge   arrestable BEFORE   AFTER      (longest contiguous hold vs BUST_HOLD_S)
+    0 - 8.75 m                7/8            7/8
+    8.75 - 16 m               0/8            8/8
+    16 - 28 m                 0/8            6/8
+    beyond 28 m               0/8            0/8       <- the stated design limit, both arms
+
+End to end at 14.15 m off a road, four stars, on the brake: **0 busts in 200 s -> arrested at
+7.3 s**. On-road is byte-identical between the arms (51.6% held, longest 4.00 s, bust at
+t=7.8 s), which is what says the band widened rather than moved. The chase itself is unchanged:
+spawns, lost, reroutes, deadEnds and minimum distance are byte-identical over three seeds, and
+only 22 and 12 stopped unit-frames of 72,000 differ.
+
+**The bound existed in THREE places and widening one did nothing a player could feel** —
+`src/pursuit.js`, `district/main.js`'s frame loop and `tools/playtest.mjs` each re-tested the
+held unit against the player with `holdRadius`. In that state `u.held` was true on 98.5% of
+samples with a longest hold of 197.0 s and no arrest. All three now read the module. Still open
+from this item: beyond 28 m it is immunity, which needs police who get out of the car. The
+original record follows.
+
 ### THE POLICE CANNOT HOLD YOU OFF THE ROAD — playtest round 8, headline, verified
 A blind playtester found it by playing: two arms off one seed, pedals and wheel only, no
 teleports. Brake 5.4 m off the centreline and you are **busted in 11.0 s** with a unit
