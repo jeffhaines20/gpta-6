@@ -77,6 +77,101 @@ perturbs every routing and spawn decision after it.
 
 ---
 
+## Missions and driving — playtest round 8
+
+### The flagship's chase stage is LOST by obeying the HUD and WON by ignoring it
+Two arms, identical entry into `marlin-street`'s `ambush` stage at t=50.8 s, 2 stars,
+empty world so only the mission and the police are in play. Byte-identical on a re-run.
+
+    obey the arrow   drove to the marker it points at and stopped
+                     -> arrow 1 m, arrested 88 s in, MISSION ABORTED at 142.4 s, 3 of 6 stages
+    ignore it        drove away at 40 km/h
+                     -> `evaded` fired, stage advanced, MISSION PASSED at 273.7 s, 4 stages
+
+`src/missions.js` gives `ambush` a `marker` and **no reach trigger**; its only exit is
+`{ all: [timer 2 s, evaded] }`. So the one navigational cue on screen points at a spot
+where nothing happens, and arriving there and stopping is exactly how you get arrested at
+the 2 stars the stage's own `onEnter: { setWanted: 2 }` just gave you. The arrow and the
+subtitle give opposite instructions.
+
+**Third instance of the family CLAUDE.md records twice** under "A marker rule produced the
+defect it did not forbid". Both recorded instances were about WHERE a marker sits. This one
+is that a **flee** stage has a destination marker at all. The property to assert is not
+another rule about marker placement: *a stage whose exit condition is not positional must
+not post a positional cue.*
+
+### You cannot drive through this city without running people over
+24 autopilot legs, 12.91 km, traffic 0 so pedestrians are isolated, on the lane the game
+draws:
+
+    peds 64   53 struck, 11 killed, 21 hit-and-run charges   4.11 /km
+    peds  0   0 struck over the identical 12.91 km           0.00 /km   <- control
+    speed caps 10 / 20 / 35 km/h -> 3.25 / 4.65 / 4.42 /km   flat over 3.5x
+
+Flat across the speed range, so it is not a speed problem. The bodies land **2.28–3.09 m**
+from the route centreline while the car is 0.66–1.95 m off it — they are in the
+carriageway. And they do not yield: held a dead-straight line at 11 km/h, a pedestrian
+entered at bearing −0.34 / 17.7 m and the bearing NARROWED to −0.24 as range fell to 8.1 m.
+8.5 s of warning, 8 people in the windscreen, knocked down without steering.
+
+The cost of care, one 495 m leg hand-driven on `look()` alone:
+
+    35 km/h cap                    515 m in  54 s, 1 hit
+    16 km/h cap                    500 m in 110 s, 1 hit
+    stop for anyone <20 m      307 of 495 m in 400 s, 0 hits, 328 s stationary
+    stop for anyone <35 m          151 m in 400 s, 0 hits, 376 s stationary
+
+**The only two options on that street are "run somebody over" or "don't arrive."**
+Distinct from the known 3.3/km item, which is the follower hitting BUILDINGS.
+
+### A live scene takes the objective band and nothing below it can ever show
+600 s parked beside a casualty 30 m from a job marker: the band showed ONE line,
+`STOPPED AT THE SCENE / an arrest will not cost the job`, until an arrest broke it. In
+another run that line held 360 s at 5 stars with no mission, distinct-line count over 240 s
+of it exactly 1. `BAND_ORDER` puts `offer` last and `mission` below `law`, and `_watchScene`
+clears `_scene` only when the player moves beyond `SCENE_LEAVE_M` (85 m) — stopping inside
+it sets `stopped = true` with no timeout. One clipped pedestrian plus a stop hides the
+mission objective, the completion line and every job offer until you drive 85 m.
+
+### Being jammed has no cue, and the out is the control a player will not try
+Five identical rebuilds of one pin, 30 s each: full throttle forward **0.34 m**; full
+reverse **145.15 m**. 34,296 wall contacts over 360 s of which 34,295 charged nothing, so
+the car presses a wall at ~96 contacts/s for free. Engine power 0.46 — not powerless, just
+pointed at a wall. The game does have the words: `composeLaw`'s `bustStuck` branch prints
+"BUSTED IN — 4 s / reverse", the only place reverse is ever suggested, and it appears only
+once an arrest is already running. Refines the known "pinned car rocks and the HUD says
+nothing": the magnitude is 0.34 m against 145 m and the fix exists one tenant away.
+
+### Smaller, from the same round
+- **The first words of the game are a note to its own author**: the offer band reads
+  `SHAKEDOWN / Two markers by the bayfront. Exists so the wiring can be checked in a
+  minute. — 30 m`. That is `brief` in `src/missions.js`.
+- **"watch the stars drop" names a cue that never fires.** 109 s of fleeing at 40 km/h:
+  stars read 2 at every sample, `evade` 0.00 at 5 of 6; the count went 2 -> 0 in one step
+  at the stage transition, after the stage was already won. `wantedNote` does change
+  usefully (SEEN -> EVADING 11s -> SEEN -> REPORTED); the stars do not.
+- **Two disagreeing distances for one objective**: `— 42 m` in words with the arrow at
+  66 m. 66 − 24 (the trigger radius) = 42. The words count to the zone edge, the arrow to
+  its centre; the words read "— 0 m" while the blip is still 24–30 m ahead.
+- **`shakedown`'s first objective is "GET IN THE CAR" when you start it by driving in** —
+  stage `a`'s only exit is `inVehicle`, already true, so it lasts one frame.
+  `marlin-street`'s `toCar` has a long comment about this exact defect and works around it;
+  `shakedown` never got that fix.
+- **No repair short of a write-off.** 55 km/h into a wall -> health 0.39, still 0.39 after
+  300 s parked. The only routes back to 1.00 are being wrecked or arrested, so the fastest
+  way to fix a damaged car is to destroy it.
+- **Braking for traffic caused more collisions than ignoring it.** Flat out at 40 km/h
+  ignoring traffic: 0 rams, 519 m, 48 s. Lifting off for any car within 25 m: 6 rams,
+  357 m, 300 s.
+- **`MISSION FAILED` is never read when the car is wrecked** — `wreck` outranks `ended` and
+  the wreck hold is 4 s against `_endFor`'s 6.
+
+### What the same playtester said is good, and worth not breaking
+The car. 0–50 in 3.09 s, 0–100 in 7.80 s, top 145.8 km/h, brakes 10.5–11.9 m/s², coasting
+from 100 km/h takes 60 s. Damage grades cleanly: 20 km/h -> 0.94, 40 -> 0.67, 60 -> 0.21
+with power 0.88 and smoke 0.83, 90 -> wrecked. The wreck->respawn loop and the arrest both
+read well. `eastbound`'s band is the clearest instruction in the game.
+
 ## Crime, damage and the police
 
 ### THE POLICE CANNOT HOLD YOU OFF THE ROAD — playtest round 8, headline, verified
