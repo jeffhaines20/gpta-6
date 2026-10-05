@@ -59,15 +59,42 @@ problem. The glazing is wrong at both ends of the day. Not yet established: whet
 the normal, the material, or both — isolate one at a time; and what the target ratio IS, which
 should be measured off `reference/sarasota/mapillary` rather than asserted.
 
-### #91 Both fleets' chromatic third is still the hue wheel both comments say they replaced
-`src/streetfurniture.js` ~4835 and `src/traffic.js` 472 both say a uniform hue wheel "was a
-fairground" and that the reference is "overwhelmingly white, silver, grey and black with the
-occasional red or blue". The achromatic claim is true (65.7%). The chromatic third is still the
-wheel: green 28.0% of it, magenta/pink 13.2%, violet 10.9%, cyan 8.0% — 60% in families neither
-comment mentions, against red+blue at 24.1%. `traffic.js` is worse: `setHSL(this._r(), ...)` is
-a straight uniform draw. The TARGET should be stated as a table with a source, not chosen by
-taste. `traffic.js`'s draw comes from the seeded stream, so changing how many draws it takes
-perturbs every routing and spawn decision after it.
+### #91 FIXED — the target is a table with a source now, which is what was actually missing
+Both modules' comments were right about the reference and neither had a DISTRIBUTION or a SOURCE,
+so there was nothing for the code to be wrong against. `reference/sarasota/car-colour-census.json`
+is the source: 65 vehicles over 11 panoramas of the corridor, 2024 capture, greedily subsampled so
+no two frames are within 45 m, classified into seven coarse high-contrast families. It carries its
+own method and its own biases.
+
+    achromatic  55  84.6%      red    5   50% of the chromatic set
+    chromatic   10  15.4%      blue   4   40%
+                               beige  1   10%
+                               green  0    0%
+    cyan, violet, magenta, pink, yellow, orange — 0 of 65
+
+**The zeros are the finding.** By the rule of three an unobserved family has a 95% upper bound of
+3/65 = 4.6% of all cars. The shipped wheel gave green 28.0% x 34.3% = 9.6% of all cars, 2.1x that
+bound, and spent 48% of its chromatic third in bands the census never saw once.
+
+`src/carpaint.js` is the one table both fleets draw from — the pair that has now had the same
+defect twice, so it is a shared module rather than two patches. Weights: red 42%, blue 36%,
+beige 14%, green 8%, with a per-family saturation scale so beige is not a saturated orange.
+
+Two things the census does NOT say, and the table respects both. It does not say the chromatic
+share is 15.4% — that is a LOWER bound, because dark red and navy read as black in bright sun and
+only confident calls were counted, so the 0.66 achromatic split is untouched. And it does not say
+green is impossible: zero of 65 is "rare", not "absent", so green keeps 8% of the chromatic third
+= 2.7% of all cars, under the bound its own source supports. Deleting it would be over-fitting a
+sample of ten chromatic cars.
+
+**The draw count is unchanged and gated.** The family AND the hue within it both come out of the
+first draw, so the chromatic branch still takes exactly two numbers from the stream `_chooseNext`
+shares. `tools/paint-census.mjs` counts the `this._r()` calls in the shipped block rather than in
+a copy, and `mutation-sweep`'s `paint-draw` row adds a third draw to prove the gate has teeth.
+
+Still open from the same area: nothing here touches **#92** (the glazing) or **#1** (instanceColor
+capping the light details), and the achromatic/chromatic split remains at its authored 0.66
+because the instrument that would move it cannot resolve the quantity.
 
 ### #54 Traffic-car greenhouse is a hole at night: glass/paint 0.0225 in linear light
 `detail lost` beyond the subject line. Related to #92 and #36.

@@ -24,6 +24,7 @@ import { rng, hash32 } from './facades.js';
 // The vehicle response, MEASURED rather than derived. See SHUNT_DECEL below; roadpath-test
 // re-measures every field of it against src/vehicle.js and fails if one moves.
 import { RESPONSE } from './roadpath.js';
+import { paintFamily } from './carpaint.js';
 
 // Intelligent Driver Model. Standard, stable, and it produces the stop-and-go
 // platooning that makes traffic read as traffic rather than as beads on a wire.
@@ -470,7 +471,23 @@ export class Traffic {
       const r = this._r();
       const l = 0.34 + this._r() * 0.26;
       if (r < 0.66) color.setHSL(0.58, 0.012 + r * 0.045, l);
-      else color.setHSL(this._r(), 0.26 + this._r() * 0.18, l);
+      else {
+        /**
+         * THE CHROMATIC THIRD, from src/carpaint.js's measured table rather than from the wheel
+         * the comment above has claimed to have replaced since the day it was written. See
+         * `reference/sarasota/car-colour-census.json` for the source — 65 vehicles, 0 of them
+         * green, cyan, violet or magenta, against a wheel that spends 60% of this branch there.
+         *
+         * EXACTLY TWO DRAWS, as before and in the same order. This branch takes from the same
+         * seeded stream `_chooseNext` draws from, so a third draw here would move every routing
+         * and spawn decision after it — and CLAUDE.md records what that does: the fleet drives a
+         * different set of edges and defects surface in modules nobody touched. The family and
+         * the hue within it both come out of the FIRST draw; the second is the saturation it
+         * always was, scaled by the family.
+         */
+        const paint = paintFamily(this._r());
+        color.setHSL(paint.h, (0.26 + this._r() * 0.18) * paint.sat, l);
+      }
       this._setColorAt(i, color);
     }
     for (const m of this.meshes) if (m.instanceColor) m.instanceColor.needsUpdate = true;

@@ -1,0 +1,42 @@
+{
+  "what": "A census of car paint colour on the streets the district is modelled on, by family.",
+  "why": "docs/BACKLOG.md #91. src/traffic.js and src/streetfurniture.js both draw their chromatic third from a UNIFORM hue wheel while their own comments say the reference is 'overwhelmingly white, silver, grey and black with the occasional red or blue'. The target had never been stated as a table with a source, so this is that table.",
+  "source": "reference/sarasota/mapillary — Mapillary CC BY-SA 4.0, imagery (c) Mapillary contributors. Reference only; nothing here is traced, sampled or copied into a shipped asset.",
+  "method": {
+    "frame": "2024 panoramas only, one capture campaign, greedily subsampled so no two frames are within 45 m. A pano sees both kerbs, so each frame covers a whole block face.",
+    "instrument": "Visual classification into seven coarse, high-contrast families. NOT a hue measurement: this method can separate white from silver from black from red from blue, and cannot resolve a hue angle. Only cars whose body colour was unambiguous were counted, which in practice means within ~30 m — and that is also what keeps the frames disjoint, since the cars that recur between frames 45 m apart are the distant ones.",
+    "counted": "Parked and moving road vehicles. The capture vehicle itself is excluded."
+  },
+  "biases": [
+    "UNDER-counts chromatic. Dark red and navy read as black in bright Florida midday sun, and only confident calls were counted, so the chromatic share below is a LOWER bound.",
+    "OVER-counts white. Four of the vehicles are commercial vans, which are nearly always white and are not passenger cars. The game's traffic fleet is passenger cars.",
+    "One season, one week, daytime, dry. Nothing here says anything about a different fleet elsewhere."
+  ],
+  "frames": [
+    { "file": "mly-1328081225548925.jpg", "white": 1, "silver": 1, "black": 2, "red": 0, "blue": 0, "beige": 0, "green": 0 },
+    { "file": "mly-1371467967414042.jpg", "white": 5, "silver": 2, "black": 2, "red": 2, "blue": 1, "beige": 0, "green": 0 },
+    { "file": "mly-538231612303303.jpg",  "white": 0, "silver": 5, "black": 5, "red": 2, "blue": 0, "beige": 1, "green": 0 },
+    { "file": "mly-1179731603532315.jpg", "white": 0, "silver": 0, "black": 3, "red": 0, "blue": 1, "beige": 0, "green": 0 },
+    { "file": "mly-646705218152285.jpg",  "white": 0, "silver": 2, "black": 3, "red": 0, "blue": 2, "beige": 0, "green": 0 },
+    { "file": "mly-548044374984819.jpg",  "white": 0, "silver": 0, "black": 0, "red": 0, "blue": 0, "beige": 0, "green": 0,
+      "note": "Main St pedestrianised block, ROAD CLOSED. No vehicles. Kept in the list because a frame with no cars is data about the corridor, and dropping empty frames would bias the per-frame counts." },
+    { "file": "mly-657975413681489.jpg",  "white": 0, "silver": 0, "black": 0, "red": 0, "blue": 0, "beige": 0, "green": 0,
+      "note": "Side street by the parking decks; only distant vehicles, none confidently readable." },
+    { "file": "mly-1662361914398060.jpg", "white": 4, "silver": 0, "black": 2, "red": 1, "blue": 0, "beige": 0, "green": 0,
+      "note": "Three of the four white are commercial vans." },
+    { "file": "mly-682234297680292.jpg",  "white": 3, "silver": 1, "black": 2, "red": 0, "blue": 0, "beige": 0, "green": 0 },
+    { "file": "mly-562274623010141.jpg",  "white": 5, "silver": 2, "black": 4, "red": 0, "blue": 0, "beige": 0, "green": 0 },
+    { "file": "mly-654205917322731.jpg",  "white": 1, "silver": 0, "black": 0, "red": 0, "blue": 0, "beige": 0, "green": 0 }
+  ],
+  "families": {
+    "white": "white and off-white, including commercial vans",
+    "silver": "silver, light grey and mid grey",
+    "black": "black, charcoal and any dark body that could not be separated from black",
+    "red": "red, maroon and dark red",
+    "blue": "navy, steel blue and teal",
+    "beige": "beige, tan, gold and brown",
+    "green": "any green"
+  },
+  "notObserved": ["green", "cyan", "violet", "magenta", "pink", "yellow", "orange"],
+  "note": "`notObserved` is the finding. Zero of the sample fell in any of those families, and four of them are what the shipped uniform hue wheel spends most of its chromatic third on."
+}

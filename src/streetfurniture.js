@@ -62,6 +62,7 @@ import { buildTrafficCarGeometry, trafficCarMaterial, lampEmissive,
 import { buildingStyle } from './facades.js';
 import { signPlanFor } from './signage.js';
 import { streetDirFor } from './geom.js';
+import { paintFamily } from './carpaint.js';
 
 // ---------------------------------------------------------------- ground datum
 const PAD_Y = -0.05;        // streaming.js land pad, the surface the player sees
@@ -4853,7 +4854,17 @@ export class StreetFurniture {
       const h = s.hue;
       const l = 0.26 + ((h * 7) % 1) * 0.4;
       if (h < 0.66) this._pcol.setHSL(0.58, 0.012 + h * 0.045, l);
-      else this._pcol.setHSL((h - 0.66) / 0.34, 0.26 + h * 0.18, l);
+      else {
+        /**
+         * THE CHROMATIC THIRD, from src/carpaint.js — the same table src/traffic.js draws from,
+         * because the two modules carried the same comment and the same wrong draw and patching
+         * one and leaving its sibling is the recurring shape of defect here. The remapped slot
+         * hash goes in where a raw hue used to; nothing else about this line moves, and the slot
+         * hash is still the only input, so placement and paint stay deterministic.
+         */
+        const paint = paintFamily((h - 0.66) / 0.34);
+        this._pcol.setHSL(paint.h, (0.26 + h * 0.18) * paint.sat, l);
+      }
       mesh.setColorAt(li, this._pcol);
     }
     // What RENDERS is mesh.count. Setting it to the number this fill actually

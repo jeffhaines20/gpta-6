@@ -72,6 +72,9 @@ const OFFLINE = [
   // one tool imported it and nothing asserted its geometry. See tools/pursuit-test.mjs.
   'pursuit-test',
   'crowd-bill --selftest',
+  // #91's table is a claim about photographs; every other check over these modules is about
+  // triangles or determinism and stays green for any colours at all.
+  'paint-census',
 ];
 
 /**
@@ -1255,6 +1258,59 @@ const MUTATIONS = [
     find: '          this._crime(rv.crime, rv.scale);',
     to: '          this._crime(rv.crime, 1);',
     why: 'the harness charges a full pedestrianHit for a 3 km/h roll: 2 stars where the game gives 1',
+  },
+  {
+    /**
+     * THE CHROMATIC THIRD GOES BACK TO THE HUE WHEEL. Nothing errors, the fleet drives
+     * identically, the triangle bill is unchanged and every determinism check still passes —
+     * because this is a colour and nothing but a colour. 48% of the chromatic third moves into
+     * yellow, cyan, violet and magenta, families the 65-vehicle census never observed once. The
+     * comment two lines above it goes on saying the wheel "was a fairground", which is how this
+     * shipped in the first place: both fleets claimed the fix in prose and neither made it.
+     */
+    id: 'paint-wheel', file: 'src/traffic.js',
+    find: '        const paint = paintFamily(this._r());\n        color.setHSL(paint.h, (0.26 + this._r() * 0.18) * paint.sat, l);',
+    to: '        color.setHSL(this._r(), 0.26 + this._r() * 0.18, l);',
+    why: 'a third of the moving fleet goes back to being a fairground',
+  },
+  {
+    /**
+     * AND THE PARKED POOL'S DOES, which is the sibling half. These two modules have now had the
+     * same defect twice — the unnamed mesh, then the colour draw — and the second one went
+     * unfixed for 25 days because the first got a one-line patch and nobody looked next door.
+     * The row exists so a gate that only walks `traffic.js` reads as the gap it is.
+     */
+    id: 'paint-wheel-parked', file: 'src/streetfurniture.js',
+    find: '        const paint = paintFamily((h - 0.66) / 0.34);\n        this._pcol.setHSL(paint.h, (0.26 + h * 0.18) * paint.sat, l);',
+    to: '        this._pcol.setHSL((h - 0.66) / 0.34, 0.26 + h * 0.18, l);',
+    why: 'every third parked car goes back to the wheel while the moving fleet stays fixed',
+  },
+  {
+    /**
+     * A THIRD DRAW IN THE COLOUR BLOCK. Behaviour-preserving as a COLOUR — the paint is still
+     * drawn from the measured table and still looks right — and it perturbs the seeded stream
+     * `_chooseNext` shares, so the fleet drives a different set of edges from the first frame on.
+     * CLAUDE.md records what that costs: the same perturbation took `traffic-selftest`'s building
+     * check from 0 of 215,960 car-frames inside a building to 342. The defect it surfaces is real
+     * and it is in code this row does not touch, which is exactly why a draw count is a gated
+     * quantity here and not a style note.
+     */
+    id: 'paint-draw', file: 'src/traffic.js',
+    find: '        const paint = paintFamily(this._r());',
+    to: '        this._r();\n        const paint = paintFamily(this._r());',
+    why: 'every routing and spawn decision after the first car moves, for an identical-looking fleet',
+  },
+  {
+    /**
+     * ONE FAMILY WIDENED INTO A BAND THE CENSUS NEVER SAW. `blue` runs to 0.66; taking it to 0.50
+     * reaches down through cyan, which is 10% of the wheel and 0 of 65 in the photographs. The
+     * weights still sum to 1, every family is still reachable and the distribution still matches
+     * the table — so a check on the WEIGHTS cannot see it, and only a check on the HUES can.
+     */
+    id: 'paint-band', file: 'src/carpaint.js',
+    find: "  Object.freeze({ name: 'blue', w: 0.36, h0: 0.560, h1: 0.660, sat: 1.00 }),",
+    to: "  Object.freeze({ name: 'blue', w: 0.36, h0: 0.460, h1: 0.660, sat: 1.00 }),",
+    why: 'teal and cyan come back under the name blue, which the weights check cannot see',
   },
   {
     /**

@@ -1548,7 +1548,7 @@ linear in the mission's size, caught at x7.89 while passing the absolute bound a
 `damage-test`, `blocker-test`, `crash-test`, `roadpath-test`, `route-drive`,
 `reaction-test`, `sim-determinism`, `traffic-selftest`, `hud-cue`, `pursuit-test`,
 `car-shapes`, `crowd-bill --selftest`, `tri-buckets --selftest`, `gate-align --selftest`,
-`mutation-sweep --selftest`, `playtest --selftest`, `car-shapes --selftest`.
+`mutation-sweep --selftest`, `playtest --selftest`, `car-shapes --selftest`, `paint-census`.
 The offline ones together take under a minute.
 
 `shadow-bill` needs a browser and takes about seven minutes; it is how a change is
@@ -1799,6 +1799,56 @@ that was ~1% of the band, mostly gaps in the oak canopy. The observation was
 real, the offered cause was not, and the actual cause was a wall term that
 assumed the whole canyon wall was lit. **Reproduce the number, then test the
 diagnosis separately.**
+
+## Two modules claimed a fix in prose and neither made it, and the missing thing was the TARGET
+
+`src/traffic.js` and `src/streetfurniture.js` each carry a paragraph saying the reference is
+"overwhelmingly white, silver, grey and black with the occasional red or blue" and that a uniform
+hue wheel "was a fairground". Both are right. Both then drew their chromatic third from a uniform
+hue wheel. The achromatic half of each claim shipped and the chromatic half did not, in two
+modules, for as long as the comment has existed.
+
+**The code was not the gap. The TARGET was.** Neither comment named a distribution and neither
+named a source, so there was nothing the draw could be measured against and no check could be
+written. "Overwhelmingly white, silver and black" is a sentence; 65 vehicles over 11 panoramas is
+a table. A prose claim about appearance is a claim nothing can fail.
+
+So the work was a census, not a patch: `reference/sarasota/car-colour-census.json`, with its method
+and its biases in the file, and `src/carpaint.js` as the one table both fleets draw from — one
+module rather than two patches, because this pair has now had the same defect twice and the second
+instance went 25 days because the first got a one-line fix and nobody looked next door.
+
+Four things worth keeping about measuring from photographs:
+
+- **A coarse instrument you can trust beats a fine one you cannot.** The first probe tried to
+  estimate hue angles from pixel boxes picked by hand over 200 cars. Hand-transcribing 200 boxes
+  introduces more error than it removes, and a box that lands on glass or shadow is silently wrong.
+  Seven high-contrast families — white, silver, black, red, blue, beige, green — is something
+  visual classification resolves reliably, and it is enough to answer the question the fix needed.
+  **State what the instrument CANNOT do**: this one cannot resolve a hue angle, and the file says so.
+- **Sample so the frames are disjoint, and say how.** Panoramas 14 m apart see the same parked
+  cars. Greedy subsampling at 45 m plus "only count cars you can read confidently" — which in
+  practice means within ~30 m — makes the two constraints do the same job, because the cars that
+  recur between frames are the distant ones.
+- **An absence needs a bound, not a zero.** 0 of 65 is not "green cars do not exist". The rule of
+  three gives a 95% upper bound of 3/n = 4.6% of all cars, and that is the number the table is
+  built under: green keeps 8% of the chromatic third (2.7% of all cars, under the bound) rather
+  than being deleted. Deleting it would be over-fitting a sample of ten chromatic cars.
+- **Do not move a figure your instrument cannot resolve.** The census reads 15.4% chromatic, but
+  dark red and navy read as black in bright sun and only confident calls were counted — so that is
+  a LOWER bound, and the authored 0.66 achromatic split was left exactly where it was. Changing it
+  on the strength of a biased number would be the "a metric whose answer is its own quantisation"
+  trap one section up, arriving as a gameplay change.
+
+**And the gated quantity is the DRAW COUNT, not the colour.** `traffic.js` colours from the same
+seeded stream `_chooseNext` draws from, so a third draw in the colour block moves every routing
+decision after the first car — the perturbation this file already records as taking the building
+check from 0 of 215,960 car-frames to 342. The family and the hue within it therefore both come out
+of ONE draw: `paintFamily` uses the draw's position within the chosen family's weight interval as
+the position within that family's hue range, which is still uniform and costs nothing.
+`tools/paint-census.mjs` counts the `this._r()` calls **in the shipped source**, not in the copy of
+the expression its own arm models, and `mutation-sweep`'s `paint-draw` adds a third draw to prove
+that check has teeth.
 
 ## Pricing a change
 
