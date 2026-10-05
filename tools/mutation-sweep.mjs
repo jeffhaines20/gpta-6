@@ -892,6 +892,49 @@ const MUTATIONS = [
   },
   {
     /**
+     * THE PAVEMENTS GO BACK INTO THE ROADS. A walk is offset from its own edge and checked
+     * against BUILDINGS; nothing checked it against other streets, so 2,302 of 6,521 baked
+     * points — 35.30% — lay inside some carriageway, 2,296 of them a NEIGHBOURING street's. The
+     * pavement of a 2.8 m service alley ran down the middle of a 13.2 m tertiary road, and the
+     * crowd walked it: of 31 contacts on a 9.43 km drive with no traffic, 19 had the pedestrian
+     * inside the carriageway.
+     *
+     * The identity here is what the code did before, not an invented break: nothing errors, the
+     * crowd still fills, and the only thing that changes is where people stand.
+     */
+    id: 'walk-in-road', file: 'src/pedestrians.js',
+    find: '    const trimmed = best ? this._trimOffCarriageway(best.pts) : null;',
+    to: '    const trimmed = best ? best.pts : null;',
+    why: 'a third of the pavement network goes back to running down the middle of other streets',
+  },
+  {
+    /**
+     * THE PUSH OUT OF THE ROAD RESOLVES ONE KERB AND STOPS. A junction puts a ped inside two
+     * carriageways at once, so one pass leaves them in the other one: measured, the deepest ped
+     * in a 48-crowd sat 0.5878 m inside a carriageway and 3 of 48 were over 10 cm in, AFTER the
+     * push had run. `src/blockers.js`'s `resolveCircle` documents the identical corner case, and
+     * from the outside a resolver that converges and one that gives up look the same.
+     */
+    id: 'road-push-once', file: 'src/pedestrians.js',
+    find: '    for (let pass = 0; pass < ROAD_PUSH_PASSES; pass++) {',
+    to: '    for (let pass = 0; pass < 1; pass++) {',
+    why: 'at a junction a ped is pushed out of one carriageway and left in the crossing one',
+  },
+  {
+    /**
+     * THE STANDOFF BECOMES THE DISPLACEMENT AGAIN. Standing a ped off the kerb by
+     * `BUILDING_MARGIN` lifts anyone who has just drifted over the line the whole 0.28 m back:
+     * 9,311 pushes on 2.69% of ped-frames at p50 0.2898 m, max 0.3118 — eleven walk steps in one
+     * frame, 9,311 of 9,311 over a centimetre. Nobody ends up in the road, so every head-count
+     * check still passes; what changes is that the crowd twitches.
+     */
+    id: 'road-push-hop', file: 'src/pedestrians.js',
+    find: '      ped.x = px + ox * (sg.half + 1e-4);',
+    to: '      ped.x = px + ox * (sg.half + BUILDING_MARGIN);',
+    why: 'the crowd hops 0.29 m sideways on 2.7% of frames instead of being clamped',
+  },
+  {
+    /**
      * THE JAM CLOCK RESETS ON EVERY CONTACT-FREE STEP, which is how `_trackJam` was first
      * written and it NEVER FIRED. A wedged car rocks: measured at 120 Hz in a 4 m bay, a body
      * sample is corrected on 77.0% of steps and the contact-free gaps run p50 0.0167 s, p95 and

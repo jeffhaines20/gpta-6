@@ -355,7 +355,10 @@ const PED_CLEAR_S = 12;
  * the car on a body, stepped back to 35.1 m, and watched it clear one frame later, in shot. The
  * threshold is the distance wanted from the LENS plus that standoff: 35 + 8.2, rounded up.
  */
-const PED_CLEAR_DIST_M = 45;
+// Exported because `tools/reaction-test.mjs` pins its casualty subject by this distance rather
+// than by slot order: an arm that asserts "a body in shot is not cleared" has to know what in
+// shot means, and reading it here is what stops that arm testing a body 50 m away.
+export const PED_CLEAR_DIST_M = 45;
 const PED_CLEAR_MAX_S = 45;
 /**
  * The slide is advanced in steps no longer than this. Not a tolerance — a wall test: `_blocked`
@@ -397,6 +400,23 @@ const PROP_AVOID_M = 0.6;
 const PROP_AVOID_PUSH = 1.9;
 const STUCK_TURN_S = 2.5;                  // blocked this long -> turn around
 const STUCK_DESPAWN_S = 7.0;               // still blocked -> give the slot back
+/**
+ * BELOW THIS A PED COUNTS AS BLOCKED, and it is named because two other rules have to clear it.
+ * It was the literal `0.2` in the stuck handler, which is fine while nothing else can slow a ped
+ * down — and `_pushOffRoad` can, on 8.6% of ped-frames. Halving the walk speed on each of those
+ * took 1.6 m/s under this in four frames and the handler despawned the ped: 0 stuck-despawns in
+ * 90 s with 96 peds before the road push existed, 50 after. The damping is floored at 1.5x this
+ * now, so the two rules cannot argue.
+ */
+const STUCK_SPEED_MS = 0.2;
+/**
+ * How many times `_pushOffRoad` may resolve. A junction puts a ped inside two carriageways at
+ * once, so one pass is not enough; the worst count is reported as `stats.roadPushWorstPasses` and
+ * `tools/reaction-test.mjs` asserts it stays well inside this, because a resolver that runs its
+ * whole budget every call is indistinguishable from a converged one from the outside — which is
+ * the defect CLAUDE.md records for `resolveCircle`.
+ */
+export const ROAD_PUSH_PASSES = 6;
 const SPAWN_SLOTS_PER_FRAME = 20;          // bounded refill work per frame
 const SPAWN_TRIES = 6;                     // attempts per slot
 
@@ -406,6 +426,31 @@ const SPAWN_TRIES = 6;                     // attempts per slot
 // the kerb edge. Whichever is clear of the buildings on that side wins.
 const INSETS = [1.9, 1.45, 1.05, 0.8];
 const BLOCKED_TOLERANCE = 0.15;            // fraction of samples allowed to clip
+
+// The junction trim's sampling step, and therefore its own margin: the kept span is pulled back
+// one further sample at each end, so a trimmed pavement is clear of every carriageway by at least
+// this much. See `_trimOffCarriageway`.
+const TRIM_STEP_M = 0.5;
+
+/** Total length of a polyline. */
+function polylineLength(pts) {
+  let l = 0;
+  for (let i = 1; i < pts.length; i++) l += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z);
+  return l;
+}
+
+/** The point at arc length `s` along `pts`, given its cumulative lengths `acc`. */
+function pointAtArc(pts, acc, s) {
+  const last = acc.length - 1;
+  if (s <= 0) return { x: pts[0].x, z: pts[0].z };
+  if (s >= acc[last]) return { x: pts[last].x, z: pts[last].z };
+  let i = 1;
+  while (i < last && acc[i] < s) i++;
+  const seg = acc[i] - acc[i - 1];
+  const f = seg > 1e-9 ? (s - acc[i - 1]) / seg : 0;
+  return { x: pts[i - 1].x + (pts[i].x - pts[i - 1].x) * f,
+    z: pts[i - 1].z + (pts[i].z - pts[i - 1].z) * f };
+}
 
 const TAU = Math.PI * 2;
 
@@ -659,6 +704,17 @@ export class Pedestrians {
       buildingPushes: 0, avoidBrakeFrames: 0, orphanPedFrames: 0,
       overlapFrames: 0, bodyOverlapFrames: 0, closestApproachM: Infinity,
       sidewalksBaked: 0, sidewalksRejected: 0, propBrushes: 0,
+      // How much pavement the junction trim removed, and from how many walks. Reported because
+      // a build where the trim silently did nothing reads as zeros rather than as silence.
+      sidewalksTrimmed: 0, sidewalkTrimmedM: 0,
+      // How often a ped had to be pushed out of a carriageway. Beside `buildingPushes`, which
+      // is the same statistic for the other side of the pavement. See `_pushOffRoad`.
+      roadPushes: 0, roadPushWorstPasses: 0,
+      // How often a ped was routed round a junction instead of across it. See `_enter`.
+      cornerDetours: 0,
+      // The road grid `_onCarriageway` looks points up in. Reported so a build where it
+      // was never constructed reads as zeros rather than as silence.
+      roadGridCells: 0, roadGridSegments: 0,
       knockdowns: 0, knockdownsFatal: 0, recoveries: 0, worstKnockdownSpeed: 0,
       runOvers: 0, worstRunOverSpeed: 0,
     };
@@ -1125,6 +1181,88 @@ export class Pedestrians {
     return false;
   }
 
+  /**
+   * AND OUT OF THE ROAD, which nothing did — the third time in this module that a guard covering
+   * one half read as a guard.
+   *
+   * `_laneOf`'s comment is exact about its own half: the personal lane "always points AWAY from
+   * the carriageway ... so nobody can be nudged into the road; the building side is covered by
+   * `_pushOut`". Both halves of that are true and neither covers SEPARATION, which pushes a ped
+   * sideways off anyone close and has no idea where the kerb is. So a crowded pavement squeezes
+   * people into traffic and nothing squeezes them back.
+   *
+   * Measured after the junction trim and the corner detour had taken the other two causes out,
+   * over four seeds: of 16 contacts, 3 still had the pedestrian inside a carriageway — all three
+   * on 2.8 m streets, 4.9-5.0 m from a junction, 1.29-1.54 m off their own walk line. A 2.8 m
+   * street's pavement starts 1.4 m from the centreline, so 1.3 m of sideways push is the whole
+   * kerb.
+   *
+   * PUSHED PERPENDICULAR TO THE STREET, not to the nearest clear point: the segment that claims
+   * the ped is the one whose carriageway they are in, so its own normal is the shortest way out
+   * and it cannot send them across to the far pavement.
+   *
+   * AND PUSHED ONLY AS FAR AS THE KERB, which is a correction. It stood the ped off by
+   * `BUILDING_MARGIN` — this file's figure for how far a person stands off a wall — and that
+   * standoff IS the displacement, because a ped who has just drifted over the line is lifted the
+   * whole 0.28 m back out. Measured over 120 s with 48 peds: 9,311 pushes on 2.69% of ped-frames
+   * at p50 0.2898 m, p90 0.2979, max 0.3118 — about ELEVEN walk steps in a single frame, 11,000
+   * of 11,000 over a centimetre. That is not a correction, it is a twitch, and at 2.7% of frames
+   * it would be the thing a player noticed about the crowd.
+   *
+   * Pushed to the kerb plus a float epsilon instead, the displacement is the PENETRATION — which
+   * is whatever separation managed in one frame, and therefore small. A ped who keeps being
+   * leaned on sits on the kerb line and is nudged by millimetres rather than hopping.
+   */
+  _pushOffRoad(ped) {
+    const { g, CELL, key } = this._roadGrid();
+    const x0 = ped.x, z0 = ped.z;
+    let pushed = false;
+    /**
+     * ITERATED, BECAUSE A JUNCTION IS A CORNER. The first version resolved the first segment it
+     * found inside and returned, and at a crossing a ped can be inside two carriageways at once —
+     * pushing out of one leaves them in the other. Measured: the deepest ped in a 48-crowd sat
+     * 0.5878 m inside a carriageway and 3 of 48 were over 10 cm in, AFTER the push had run.
+     * `src/blockers.js`'s `resolveCircle` documents the identical corner case.
+     *
+     * The DEEPEST intrusion is resolved each pass, so the loop converges on the corner rather
+     * than ping-ponging between two kerbs, and the pass count is INSTRUMENTED: CLAUDE.md records
+     * `resolveCircle` running its entire budget on every call for want of an epsilon, and from
+     * the outside a non-terminating resolver and a converged one look identical. The `+ 1e-4`
+     * standoff is what keeps the next pass's test decided by geometry rather than by float noise,
+     * and nothing more than that: the standoff used to BE the displacement, which is the twitch
+     * recorded at the call site.
+     */
+    for (let pass = 0; pass < ROAD_PUSH_PASSES; pass++) {
+      const list = g.get(key(Math.floor(ped.x / CELL), Math.floor(ped.z / CELL)));
+      if (!list) break;
+      let best = null, deepest = 0;
+      for (let i = 0; i < list.length; i++) {
+        const sg = list[i];
+        const dx = sg.bx - sg.ax, dz = sg.bz - sg.az;
+        const s2 = dx * dx + dz * dz;
+        if (s2 < 1e-12) continue;
+        const f = Math.max(0, Math.min(1, ((ped.x - sg.ax) * dx + (ped.z - sg.az) * dz) / s2));
+        const px = sg.ax + dx * f, pz = sg.az + dz * f;
+        const l = Math.hypot(ped.x - px, ped.z - pz);
+        if (sg.half - l > deepest) { deepest = sg.half - l; best = { sg, px, pz, l, s2, dx, dz }; }
+      }
+      if (!best) break;
+      const { sg, px, pz, l, s2, dx, dz } = best;
+      let ox = ped.x - px, oz = ped.z - pz;
+      if (l < 1e-4) { ox = -dz / Math.sqrt(s2); oz = dx / Math.sqrt(s2); }
+      else { ox /= l; oz /= l; }
+      ped.x = px + ox * (sg.half + 1e-4);
+      ped.z = pz + oz * (sg.half + 1e-4);
+      pushed = true;
+      if (pass + 1 > this.stats.roadPushWorstPasses) this.stats.roadPushWorstPasses = pass + 1;
+    }
+    if (!pushed) return 0;
+    this.stats.roadPushes++;
+    // THE DISPLACEMENT, not a boolean: the caller penalises a teleport and must not penalise a
+    // millimetre. See the call site for what that cost when it could not tell them apart.
+    return Math.hypot(ped.x - x0, ped.z - z0);
+  }
+
   // ----------------------------------------------------------- sidewalk bake
   // The sidewalk for (edge, side) is the street centreline pushed sideways by
   // half the baked width plus an inset. The widest inset whose samples clear the
@@ -1154,11 +1292,103 @@ export class Pedestrians {
         if (blocked === 0) break;
       }
     }
-    const walk = best && best.blocked <= BLOCKED_TOLERANCE
-      ? { pts: best.pts, inset: best.inset } : null;
+    /**
+     * AND THEN THE ENDS ARE TRIMMED BACK OUT OF THE ROAD, WHICH IS A JUNCTION.
+     *
+     * Rejecting a pavement that touches a carriageway was the obvious fix and it is the wrong
+     * one, measured: at zero tolerance only 300 of 1,870 pavements survive, so the crowd would
+     * be confined to a sixth of the network. The reason is that the intrusion is almost all at
+     * the ENDS — a pavement running up to a crossroads necessarily reaches the cross street's
+     * kerb, and the mitred offset carries it a little past. Over all 1,870 candidates, sampled
+     * at 1.5 m:
+     *
+     *     no carriageway intrusion at all           303   16.2%
+     *     intrusion only at the ENDS (a junction)  1418   75.8%
+     *     intrusion through the MIDDLE too          125    6.7%
+     *     entirely inside a carriageway              24    1.3%
+     *
+     * So trimming both ends removes 7.55 km of 88.23 km — 8.6% — and leaves 1,721 of 1,870
+     * pavements clear, 92.0%, against rejection's 84% loss. The 149 that are not end-only fall
+     * to `BLOCKED_TOLERANCE` below, where they belong: a pavement laid down the middle of
+     * another street is not a pavement.
+     *
+     * IT IS SAFE FOR ROUTING because `_enter` sets `node = 0` and the ped STEERS toward it
+     * rather than being moved there, so a trimmed pair of pavements at a corner is a corner the
+     * ped walks round — which is what `_chooseNext` already does, and why it picks the candidate
+     * whose first waypoint is nearest. It does perturb that choice, and therefore the seeded
+     * stream: CLAUDE.md records a change like this exposing content nothing had tested, so read
+     * a regression in another module as evidence about coverage before reverting.
+     */
+    const trimmed = best ? this._trimOffCarriageway(best.pts) : null;
+    const walk = trimmed && best.blocked <= BLOCKED_TOLERANCE
+      && this._carriagewayFraction(trimmed) <= 0
+      ? { pts: trimmed, inset: best.inset, trimmedM: +(polylineLength(best.pts)
+        - polylineLength(trimmed)).toFixed(2) } : null;
     this._walks.set(key, walk);
-    if (walk) this.stats.sidewalksBaked++; else this.stats.sidewalksRejected++;
+    if (walk) {
+      this.stats.sidewalksBaked++;
+      this.stats.sidewalkTrimmedM += walk.trimmedM;
+      if (walk.trimmedM > 0.001) this.stats.sidewalksTrimmed++;
+    } else this.stats.sidewalksRejected++;
     return walk;
+  }
+
+  /**
+   * CUT A PAVEMENT BACK FROM BOTH ENDS UNTIL IT IS CLEAR OF EVERY CARRIAGEWAY.
+   *
+   * Sampled at `TRIM_STEP_M`, and the kept span is pulled back ONE FURTHER SAMPLE at each end, so
+   * the result is clear by at least the sampling step rather than up to it — the trim's margin is
+   * its own resolution, which is the only bound that needs no number of its own. The surviving
+   * endpoints are interpolated to the exact arc position rather than snapped to a sample, so a
+   * 1.5 m street's pavement is not quantised into the road it was trimmed out of.
+   *
+   * Returns null when nothing survives, or when what survives is shorter than two waypoint
+   * captures (`2 * ARRIVE`): a pavement that short is entered and left in the same frame, which
+   * is the one-frame stage defect in a different module.
+   */
+  _trimOffCarriageway(pts) {
+    if (!pts || pts.length < 2) return null;
+    // Arc positions of the samples, and whether each is clear.
+    const acc = [0];
+    for (let i = 1; i < pts.length; i++) {
+      acc.push(acc[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
+    }
+    const total = acc[acc.length - 1];
+    if (!(total > 0)) return null;
+    const n = Math.max(1, Math.ceil(total / TRIM_STEP_M));
+    const clear = new Array(n + 1);
+    for (let k = 0; k <= n; k++) {
+      const p = pointAtArc(pts, acc, (k / n) * total);
+      clear[k] = !this._onCarriageway(p.x, p.z);
+    }
+    let lo = 0; while (lo <= n && !clear[lo]) lo++;
+    let hi = n; while (hi >= 0 && !clear[hi]) hi--;
+    if (lo > hi) return null;
+    // One sample further in at each end, so the span is clear BY the step and not TO it.
+    lo = Math.min(lo + 1, hi);
+    hi = Math.max(hi - 1, lo);
+    const s0 = (lo / n) * total, s1 = (hi / n) * total;
+    if (s1 - s0 < 2 * ARRIVE) return null;
+    const out = [pointAtArc(pts, acc, s0)];
+    for (let i = 0; i < pts.length; i++) if (acc[i] > s0 && acc[i] < s1) out.push(pts[i]);
+    out.push(pointAtArc(pts, acc, s1));
+    return out.length >= 2 ? out : null;
+  }
+
+  /** The share of a polyline's samples that lie inside some carriageway. */
+  _carriagewayFraction(pts) {
+    let total = 0, bad = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const l = Math.hypot(b.x - a.x, b.z - a.z);
+      const steps = Math.max(1, Math.ceil(l / TRIM_STEP_M));
+      for (let s = 0; s <= steps; s++) {
+        const f = s / steps;
+        total++;
+        if (this._onCarriageway(a.x + (b.x - a.x) * f, a.z + (b.z - a.z) * f)) bad++;
+      }
+    }
+    return total ? bad / total : 1;
   }
 
   // Mitred offset: each vertex moves along the bisector of its two segment
@@ -1185,6 +1415,118 @@ export class Pedestrians {
     return out;
   }
 
+  /**
+   * A UNIFORM GRID OVER THE ROAD SEGMENTS, so `_onCarriageway` is a one-cell lookup.
+   *
+   * Each segment is inserted into every cell its bounding box EXPANDED BY ITS OWN HALF-WIDTH
+   * touches, so a point can only be inside a carriageway whose segment is already listed in the
+   * point's own cell — no neighbour scan, and no radius to get wrong. Built once, lazily, because
+   * `_walk` is itself lazy and a district with no pedestrians never pays for it.
+   */
+  _roadGrid() {
+    if (this._rgrid) return this._rgrid;
+    const CELL = 24;
+    const g = new Map();
+    const key = (cx, cz) => cx * 100003 + cz;
+    let n = 0;
+    for (const e of this.d.edges) {
+      const half = e.w / 2;
+      for (let k = 0; k < e.v.length - 1; k++) {
+        const a = this.d.verts[e.v[k]], b = this.d.verts[e.v[k + 1]];
+        if (!a || !b) continue;
+        const seg = { ax: a.x, az: a.z, bx: b.x, bz: b.z, half };
+        n++;
+        const x0 = Math.floor((Math.min(a.x, b.x) - half) / CELL);
+        const x1 = Math.floor((Math.max(a.x, b.x) + half) / CELL);
+        const z0 = Math.floor((Math.min(a.z, b.z) - half) / CELL);
+        const z1 = Math.floor((Math.max(a.z, b.z) + half) / CELL);
+        for (let cx = x0; cx <= x1; cx++) {
+          for (let cz = z0; cz <= z1; cz++) {
+            const kk = key(cx, cz);
+            let list = g.get(kk);
+            if (!list) g.set(kk, (list = []));
+            list.push(seg);
+          }
+        }
+      }
+    }
+    this._rgrid = { g, CELL, key, segments: n, cells: g.size };
+    this.stats.roadGridCells = g.size;
+    this.stats.roadGridSegments = n;
+    return this._rgrid;
+  }
+
+  /**
+   * HOW FAR INSIDE a carriageway (x, z) is, 0 when clear. `_onCarriageway` is the boolean about
+   * the kerb LINE and is what the bake and the push test; a gate that asks whether the crowd is
+   * "in the road" wants the DEPTH, because a ped clamped back to the line is millimetres inside
+   * on the frame before the clamp lands and counting that as standing in the road says nothing.
+   */
+  _carriagewayDepth(x, z) {
+    const { g, CELL, key } = this._roadGrid();
+    const list = g.get(key(Math.floor(x / CELL), Math.floor(z / CELL)));
+    if (!list) return 0;
+    let deepest = 0;
+    for (let i = 0; i < list.length; i++) {
+      const sg = list[i];
+      const dx = sg.bx - sg.ax, dz = sg.bz - sg.az;
+      const s2 = dx * dx + dz * dz;
+      if (s2 < 1e-12) continue;
+      const f = Math.max(0, Math.min(1, ((x - sg.ax) * dx + (z - sg.az) * dz) / s2));
+      const d = Math.hypot(x - (sg.ax + dx * f), z - (sg.az + dz * f));
+      if (sg.half - d > deepest) deepest = sg.half - d;
+    }
+    return deepest;
+  }
+
+  /** Is (x, z) inside the drawn carriageway of ANY street? */
+  _onCarriageway(x, z) {
+    const { g, CELL, key } = this._roadGrid();
+    const list = g.get(key(Math.floor(x / CELL), Math.floor(z / CELL)));
+    if (!list) return false;
+    for (let i = 0; i < list.length; i++) {
+      const sg = list[i];
+      const dx = sg.bx - sg.ax, dz = sg.bz - sg.az;
+      const s2 = dx * dx + dz * dz;
+      if (s2 < 1e-12) continue;
+      const f = Math.max(0, Math.min(1, ((x - sg.ax) * dx + (z - sg.az) * dz) / s2));
+      const px = sg.ax + dx * f, pz = sg.az + dz * f;
+      if (Math.hypot(x - px, z - pz) < sg.half) return true;
+    }
+    return false;
+  }
+
+  /**
+   * A PAVEMENT SAMPLE IS BLOCKED BY A BUILDING **OR BY ANOTHER STREET**, and the second half was
+   * missing for as long as sidewalks have existed.
+   *
+   * A walk is offset from its OWN edge by `e.w / 2 + inset`, so it clears its own carriageway by
+   * construction — and nothing checked it against any other. Measured over the baked set before
+   * this went in, at the polyline vertices:
+   *
+   *     1,813 baked sidewalks, 6,521 points
+   *     inside SOME carriageway   2,302   35.30%
+   *     ...their OWN street's         6   so `_offsetPolyline`'s mitre is not the defect
+   *     worst                      6.36 m inside a 13.2 m street, on a 2.8 m alley's pavement
+   *     by the walk's own width    2.8 m: 865,  3.3 m: 262,  6 m: 545,  6.6 m: 318,  7 m: 193
+   *
+   * So the pavement of a 2.8 m service alley runs down the middle of a 13.2 m tertiary road, and
+   * the crowd walks it. That is the other half of "you cannot drive through this city without
+   * running people over": a drive with 64 pedestrians and no traffic struck 16 in 2.89 km, and at
+   * the INSTANT of contact 9 of those 16 pedestrians were inside the baked carriageway, p05 0.20 m
+   * from the centreline — standing in the road.
+   *
+   * CLAUDE.md records this exact shape: a guard that covers half a case reads as a guard. The
+   * building half was right, covered most of the problem, and nobody looked at the other half.
+   *
+   * THIS FUNCTION STAYS ABOUT BUILDINGS, and that is a correction. The road test went in here
+   * first, so `BLOCKED_TOLERANCE` — a tolerance for CLIPPING A WALL — was being applied to a
+   * score that included road intrusion, and a pavement whose junction ends were in the road was
+   * rejected before the trim could reach it: 1,102 baked where end-trimming alone predicts
+   * 1,721. The two failures want different handling, so they are two functions: a wall clip is
+   * tolerated, a carriageway is trimmed out at the ends and rejected in the middle. See
+   * `_trimOffCarriageway` and `_carriagewayFraction`.
+   */
   _blockedFraction(pts) {
     let total = 0, bad = 0;
     for (let i = 0; i < pts.length - 1; i++) {
@@ -1193,8 +1535,9 @@ export class Pedestrians {
       const steps = Math.max(1, Math.ceil(l / 4));
       for (let s = 0; s <= steps; s++) {
         const f = s / steps;
+        const x = a.x + (b.x - a.x) * f, z = a.z + (b.z - a.z) * f;
         total++;
-        if (this._blocked(a.x + (b.x - a.x) * f, a.z + (b.z - a.z) * f, BUILDING_MARGIN)) bad++;
+        if (this._blocked(x, z, BUILDING_MARGIN)) bad++;
       }
     }
     return total ? bad / total : 1;
@@ -1252,15 +1595,81 @@ export class Pedestrians {
     return { e: ped.edge, forward: !ped.forward, side: ped.side, uTurn: true };
   }
 
+  /**
+   * ROUND THE CORNER, NOT ACROSS IT — the other half of the pedestrians-in-the-road finding, and
+   * the half the junction trim made WORSE before this went in.
+   *
+   * `_enter` hands the ped the next pavement and sets `node = 0`, and the update loop then STEERS
+   * it at that waypoint in a straight line. At a junction that line cuts the corner, and the
+   * corner is the carriageway. Measured after the trim had taken every baked pavement point out
+   * of every carriageway (35.30% -> 0.00%), over four seeds: of 15 contacts, 6 still had the
+   * pedestrian inside a carriageway, and every one of those six was at
+   *
+   *     walk node / nodes   0/11  0/13  0/11  0/13  0/13  0/13
+   *     nearest junction    p50 4.9 m, max 5.9 m
+   *     off its own walk    p50 2.17 m, max 3.16 m
+   *     street width        2.8 m, every one
+   *
+   * Node 0 in every case: they had just entered a pavement and had not reached it yet. The trim
+   * is what opened that gap, so the trim owes the detour.
+   *
+   * THE CORNER IS WHERE THE TWO PAVEMENTS WOULD MEET. Each is offset from its own centreline by
+   * `w / 2 + inset`, so on the same corner — which `_chooseNext` already guarantees, by picking
+   * the candidate whose first waypoint is nearest — their intersection is outside BOTH
+   * carriageways by `inset`. That is a construction, not a margin: it is the point the mitred
+   * polylines used to approximate before the junction stubs were trimmed off.
+   *
+   * It is a ONE-SHOT target rather than a prepended node, because a baked walk is shared by every
+   * ped on that (edge, side) and must not be mutated per ped. Null whenever the two lines are
+   * parallel (a straight-through split, where the gap runs along one pavement line and crosses
+   * nothing), whenever the intersection is behind the ped or absurdly far, and whenever the point
+   * is itself in a building or a carriageway — in all of which the old straight line is what is
+   * left, so this can only improve the route or leave it alone.
+   */
+  _cornerBetween(fromX, fromZ, fromDirX, fromDirZ, to, toDirX, toDirZ) {
+    const cross = fromDirX * toDirZ - fromDirZ * toDirX;
+    if (Math.abs(cross) < 0.08) return null;             // within ~4.6 degrees of parallel
+    // Intersect the ray (from, fromDir) with the line (to, toDir).
+    const t = ((to.x - fromX) * toDirZ - (to.z - fromZ) * toDirX) / cross;
+    if (!(t > 0.05)) return null;                        // behind us, or where we already are
+    const cx = fromX + fromDirX * t, cz = fromZ + fromDirZ * t;
+    // No further than the straight line it replaces, doubled: a corner that is further away than
+    // that is not a corner, it is a different junction.
+    const direct = Math.hypot(to.x - fromX, to.z - fromZ);
+    if (t > Math.max(6, direct * 2)) return null;
+    if (this._blocked(cx, cz, BUILDING_MARGIN) || this._onCarriageway(cx, cz)) return null;
+    return { x: cx, z: cz };
+  }
+
   _enter(ped, next) {
     const walk = this._walk(next.e, next.side);
     if (!walk) return false;
+    // The direction the ped is leaving on, from the pavement it is ON, before that is overwritten.
+    const n0 = this._nodeCount(ped);
+    const prevA = n0 >= 2 ? this._node(ped, n0 - 2) : null;
+    const prevB = n0 >= 1 ? this._node(ped, n0 - 1) : null;
+    const fromX = ped.x, fromZ = ped.z;
+    let fdx = Math.sin(ped.yaw), fdz = Math.cos(ped.yaw);
+    if (prevA && prevB) {
+      const l = Math.hypot(prevB.x - prevA.x, prevB.z - prevA.z);
+      if (l > 1e-4) { fdx = (prevB.x - prevA.x) / l; fdz = (prevB.z - prevA.z) / l; }
+    }
     ped.edge = next.e;
     ped.forward = next.forward;
     ped.side = next.side;
     ped.walk = walk;
     ped.node = 0;
     ped.lateral = this._laneOf(ped);
+    ped.corner = null;
+    const a0 = this._node(ped, 0), a1 = this._node(ped, 1);
+    if (a0 && a1) {
+      const l = Math.hypot(a1.x - a0.x, a1.z - a0.z);
+      if (l > 1e-4) {
+        ped.corner = this._cornerBetween(fromX, fromZ, fdx, fdz, a0,
+          (a1.x - a0.x) / l, (a1.z - a0.z) / l);
+        if (ped.corner) this.stats.cornerDetours++;
+      }
+    }
     return true;
   }
 
@@ -1789,17 +2198,33 @@ export class Pedestrians {
         target = this._targetAt(ped, ped.node, this._tgt);
         if (!target) { this.peds[i] = null; this._hide(i); continue; }
       }
+      /**
+       * THE CORNER COMES FIRST, and it is a ONE-SHOT target rather than a node. `_enter` sets it
+       * when the straight line to the next pavement's first waypoint would cut across a
+       * carriageway; see `_cornerBetween` for the construction and for the measurement that says
+       * every remaining in-road contact was at node 0. Captured on the same `ARRIVE` radius as
+       * any waypoint and then cleared, so it costs one comparison a ped a frame and nothing at
+       * all once a ped is walking a pavement.
+       */
+      if (ped.corner) { target = this._tgt; target.x = ped.corner.x; target.z = ped.corner.z; }
       let tx = target.x - ped.x, tz = target.z - ped.z;
       let td = Math.hypot(tx, tz);
       const fwdX = Math.sin(ped.yaw), fwdZ = Math.cos(ped.yaw);
       if (td < ARRIVE || (td < 3 && (tx * fwdX + tz * fwdZ) < 0)) {
-        ped.node++;
-        if (ped.node >= this._nodeCount(ped)) {
-          const next = this._chooseNext(ped);
-          if (!this._enter(ped, next)) { this.peds[i] = null; this._hide(i); continue; }
-          this.stats.corners++;
+        if (ped.corner) {
+          // Round the corner: drop it and aim at the pavement proper, without advancing a node.
+          ped.corner = null;
+        } else {
+          ped.node++;
+          if (ped.node >= this._nodeCount(ped)) {
+            const next = this._chooseNext(ped);
+            if (!this._enter(ped, next)) { this.peds[i] = null; this._hide(i); continue; }
+            this.stats.corners++;
+          }
         }
-        target = this._targetAt(ped, ped.node, this._tgt);
+        target = ped.corner
+          ? (this._tgt.x = ped.corner.x, this._tgt.z = ped.corner.z, this._tgt)
+          : this._targetAt(ped, ped.node, this._tgt);
         if (!target) { this.peds[i] = null; this._hide(i); continue; }
         tx = target.x - ped.x; tz = target.z - ped.z; td = Math.hypot(tx, tz) || 1;
       }
@@ -1890,7 +2315,40 @@ export class Pedestrians {
       const nx = Math.sin(ped.yaw), nz = Math.cos(ped.yaw);
       ped.x += nx * ped.v * dt;
       ped.z += nz * ped.v * dt;
+      /**
+       * OFF A WALL, THEN OUT OF THE ROAD — AND ONLY A REAL TELEPORT COSTS SPEED.
+       *
+       * `_pushOut` halves the walk speed because a ped shoved half a metre out of a shopfront
+       * should not also appear to sprint out of it, and its own comment says that push is rare.
+       * The road push is NOT rare: a ped leaned on by the crowd sits on the kerb line and is
+       * clamped back by millimetres on 8.62% of ped-frames, often several frames running. Halving
+       * on each of those took 1.6 m/s under the 0.2 m/s stuck threshold in four frames, and the
+       * stuck handler below then despawned the ped: measured 0 stuck-despawns in 90 s with 96
+       * peds before the road push existed, and 50 after — peds visibly blinking out, at a rate of
+       * one every 173 ped-seconds.
+       *
+       * TWO WEAKER FIXES WERE TRIED FIRST, and both are recorded because each looked right:
+       *
+       *   - CONDITION THE PENALTY ON THE SIZE of the push. With no damping on a small clamp a ped
+       *     at full speed bores into the kerb between frames: the push's p50 went 0.0040 ->
+       *     0.0210 m, its max to 0.6447 (x24 of a walk step), and 3 of 48 peds were standing in a
+       *     carriageway at a sampled instant against 0. The halving was doing real work.
+       *   - FLOOR the halving above `STUCK_SPEED_MS`. Better — p50 back to 0.0067 — and still 3
+       *     of 48 in the road, because a floored speed is still enough to cross the kerb.
+       *
+       * THE ACTUAL DISAGREEMENT IS WITH THE STUCK HANDLER, not with the damping. `ped.stuck`
+       * means "not making progress because something is in the way", and a ped walking the kerb
+       * line with the crowd leaning on it is making progress along the pavement — it is simply
+       * being held off the road, which is the system working. So the push keeps its full halving
+       * and CLEARS the stuck clock, and the two rules stop arguing: full damping, no despawns.
+       */
       if (this._pushOut(ped)) ped.v *= 0.5;
+      if (this._pushOffRoad(ped) > 0) {
+        ped.v *= 0.5;
+        // Being held out of the road is not being blocked. See the stuck handler below.
+        ped.stuck = 0;
+        ped.turned = false;
+      }
 
       // --- stride phase advances with DISTANCE, never with time (animfsm.js).
       // Stride scales with the ped's own legs, so a tall ped covers ground in
@@ -1902,7 +2360,7 @@ export class Pedestrians {
       // --- stuck handling. A ped that is not making progress turns around, and
       // if that does not free it, gives its slot back. Neither piling up nor
       // vanishing on the spot is acceptable; this bounds both.
-      if (ped.v < 0.2) {
+      if (ped.v < STUCK_SPEED_MS) {
         ped.stuck += dt;
         if (ped.stuck > STUCK_DESPAWN_S) {
           this.peds[i] = null; this._hide(i);

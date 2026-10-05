@@ -109,6 +109,42 @@ is that a **flee** stage has a destination marker at all. The property to assert
 another rule about marker placement: *a stage whose exit condition is not positional must
 not post a positional cue.*
 
+### You cannot drive through this city without running people over — FIXED for a car on the road
+Three causes, each measured and each fixed. The headline: **a car wholly inside its own
+carriageway now hits nobody — 1.70 /km before (16 of 31 contacts), 0.00 /km after (0 of 34)** over
+~10 km with 64 peds and no traffic, five seeds.
+
+    the whole crowd's clearance beyond the kerb   p01  -2.47 m -> -0.00 m
+    on streets <= 3.3 m wide                      p05  -0.69 m -> -0.00 m
+    deepest ped inside a carriageway, 48-crowd         0.5878 m -> 0.0000 m
+    baked pavement points inside a carriageway        35.30% -> 0.00%
+
+1. **THE PAVEMENTS WERE IN THE ROADS.** A walk is offset from its OWN edge and `_blockedFraction`
+   checked it against buildings only, so 2,302 of 6,521 baked points lay inside some carriageway,
+   2,296 of them a NEIGHBOURING street's — a 2.8 m alley's pavement ran down the middle of a
+   13.2 m tertiary road. Rejecting those is the obvious fix and costs 84% of the network (300 of
+   1,870 survive at zero tolerance); the intrusion is 75.8% END-ONLY, so trimming both ends
+   removes 7.55 km of 88.23 and keeps 1,631 of 1,870 pavements.
+2. **THE CORNER HANDOVER WALKED THEM ACROSS JUNCTIONS.** With (1) fixed, every remaining in-road
+   contact was at walk node 0. A detour waypoint at the intersection of the two pavement lines
+   routes them round.
+3. **SEPARATION PUSHED THEM IN AND NOTHING PUSHED BACK.** `_laneOf` points away from the road and
+   `_pushOut` covers the building side; neither covers the crowd shoving somebody sideways.
+
+**The total rate did not move (3.29 -> 3.26 /km), and that is the instrument.** Every remaining
+contact has the car straddling or beyond the kerb — the follower CLAUDE.md already records driving
+into buildings at 3.3/km with zero traffic and zero pedestrians. So the rate cannot judge this
+fix and the in-lane split can. Still open: the autopilot's own lane-keeping (#84/#87), and a 2.8 m
+alley has no room for a 1.9 m car and a pavement.
+
+Four things my own work got wrong on the way, all measured and recorded in the source: the road
+test first went into `_blockedFraction`, where a wall-clip tolerance rejected what the trim should
+fix (1,102 baked against 1,721 predicted); the push's `BUILDING_MARGIN` standoff WAS its
+displacement, a 0.29 m hop on 2.7% of ped-frames; halving the walk speed on each such push took a
+kerb-walking ped under the stuck threshold in four frames and despawned 50 in 90 s; and the push
+resolved one kerb, so a junction left peds 0.59 m inside the crossing street. The original record
+follows.
+
 ### You cannot drive through this city without running people over
 24 autopilot legs, 12.91 km, traffic 0 so pedestrians are isolated, on the lane the game
 draws:

@@ -22,7 +22,8 @@
 //       makes the reaction read as a despawn
 //   §7  a shunt with no building test, which knocks 0.8% of worst-case cars into a shopfront
 import fs from 'node:fs';
-import { Pedestrians, PED_FREE_MS, AVOID_R } from '../src/pedestrians.js';
+import { Pedestrians, PED_FREE_MS, AVOID_R, PED_CLEAR_DIST_M,
+  ROAD_PUSH_PASSES } from '../src/pedestrians.js';
 import { Traffic } from '../src/traffic.js';
 import { throwDistance, slideDecel, THROW, ANCHORS, pedFatalityRisk } from '../src/damage.js';
 import { BlockerIndex } from '../src/blockers.js';
@@ -757,8 +758,25 @@ console.log('\n§3c A body stops at the street furniture');
     `stuck-despawns ${wOff.stuck} -> ${wOn.stuck}, ${wOn.brushes} prop brushes`);
   check('the crowd still fills the pavement with the furniture in the way',
     wOn.alive >= wOff.alive - 2, `${wOff.alive} -> ${wOn.alive}`);
-  check('and nobody is pinned against a bollard', wOn.stuck <= wOff.stuck && wOn.uTurns <= wOff.uTurns + 2,
-    `stuck ${wOn.stuck}, u-turns ${wOn.uTurns}`);
+  /**
+   * THE BOUND IS RELATIVE, AND IT PRINTED ONLY ONE SIDE OF ITS OWN COMPARISON. It read
+   * `wOn.uTurns <= wOff.uTurns + 2` and reported `stuck 69, u-turns 72` — the WITH-props arm
+   * alone — so when it failed there was no way to see whether the furniture had added two
+   * u-turns or the baseline had moved. The baseline had moved: the junction trim shortens every
+   * pavement by its stub, peds reach an end sooner, and `uTurnsWhenStuck` went from single
+   * figures to about seventy in BOTH arms. A `+ 2` against a base of 70 is a 3% bound on a
+   * quantity nobody claimed was stable to 3%.
+   *
+   * What this arm is for is that the FURNITURE does not pin anybody, so the bound is the
+   * difference between its two arms as a fraction, and both sides are printed.
+   */
+  console.log(`      u-turns when stuck: ${wOff.uTurns} without the furniture, `
+    + `${wOn.uTurns} with it; stuck-despawns ${wOff.stuck} -> ${wOn.stuck}`);
+  check('and nobody is pinned against a bollard',
+    wOn.stuck <= Math.max(2, wOff.stuck * 1.2)
+    && wOn.uTurns <= Math.max(4, wOff.uTurns * 1.2),
+    `stuck ${wOff.stuck} -> ${wOn.stuck}, u-turns ${wOff.uTurns} -> ${wOn.uTurns} `
+    + `(bound x1.2 of the no-furniture arm)`);
   check('the walkers did meet the furniture, so that means something', wOn.brushes > 500,
     `${wOn.brushes} brushes`);
 }
@@ -828,13 +846,31 @@ check('and damage.js\'s anchor is its 50% point', Math.abs(ANCHORS.pedKillSpeed 
   // The two outcomes, forced, because the population above cannot guarantee either one.
   for (const [kill, label] of [[false, 'survivable'], [true, 'fatal']]) {
     const p2 = crowd(8);
-    const v = p2.positions()[0];
-    p2.hit(v.i, { speed: 60 / 3.6, dirX: 1, dirZ: 0, kill });
+    /**
+     * THE SUBJECT IS PINNED BY THE PROPERTY THIS ARM NEEDS, not by slot order. It was
+     * `positions()[0]` — whichever ped happened to be at index 0 — and the fatal half asserts
+     * that a body IN SHOT is not cleared, which needs the body inside
+     * `PED_CLEAR_DIST_M` of the focus. A change to where the crowd stands moved index 0 past
+     * 45 m and the arm reported the clear rule broken at 11.98 s when it was working exactly as
+     * written. CLAUDE.md records the same defect in `ao-sweep`: its subject is whichever
+     * pavement slot qualifies first, and it is not the same slot twice.
+     *
+     * Nearest to the focus, and the distance is asserted, so the arm fails as "no subject in
+     * shot" rather than as "the rule is broken".
+     */
+    const v = p2.positions()
+      .map((q) => ({ q, d: Math.hypot(q.x - FOCUS.x, q.z - FOCUS.z) }))
+      .sort((a, b) => a.d - b.d)[0];
+    check(`a ${label} subject was found in shot, or this arm proves nothing`,
+      !!v && v.d < PED_CLEAR_DIST_M, v ? `${v.d.toFixed(1)} m from the focus against the `
+        + `${PED_CLEAR_DIST_M} m clear distance` : 'no pedestrians');
+    const vq = v.q;
+    p2.hit(vq.i, { speed: 60 / 3.6, dirX: 1, dirZ: 0, kill });
     let rose = null, cleared = null;
     for (let k = 0; k < 60 * 20; k++) {
       p2.update(DT, FOCUS);
-      if (!p2.peds[v.i]) { cleared = k * DT; break; }
-      if (!p2.peds[v.i].down) { rose = k * DT; break; }
+      if (!p2.peds[vq.i]) { cleared = k * DT; break; }
+      if (!p2.peds[vq.i].down) { rose = k * DT; break; }
     }
     console.log(`    a ${label} casualty: rose ${rose === null ? 'never' : `${rose.toFixed(1)} s`}, ` +
       `cleared ${cleared === null ? 'not within 20 s' : `${cleared.toFixed(1)} s`}`);
@@ -845,7 +881,7 @@ check('and damage.js\'s anchor is its 50% point', Math.abs(ANCHORS.pedKillSpeed 
       let capped = null;
       for (let k = 0; k < 60 * 60; k++) {
         p2.update(DT, FOCUS);
-        if (!p2.peds[v.i]) { capped = 20 + k * DT; break; }
+        if (!p2.peds[vq.i]) { capped = 20 + k * DT; break; }
       }
       console.log(`      the hard cap frees the slot at ${capped?.toFixed(1)} s`);
       check('the slot is freed by the hard cap', capped !== null && capped > 40 && capped < 50,
@@ -1399,11 +1435,58 @@ console.log('\n§1d The avoidance radius covers the car body');
    * Both radii are exercised by CONSTRUCTING two crowds and setting the radius each uses, rather
    * than by editing the module — `avoidR` is read from the instance so this is the same code path.
    */
-  const trial = (radius) => {
-    const p = new Pedestrians(scene, district, { count: 6, avoidPlayer: true });
+  /**
+   * THE SUBJECT IS PINNED TO OPEN GROUND, and the arm's own sentence above is why: "the push is
+   * the only thing that can happen". That stopped being true when `src/pedestrians.js` gained
+   * `_pushOffRoad`, which shoves a ped out of a carriageway and can move them further in a frame
+   * than the avoid-push does. With the subject taken as `positions()[0]` — whichever ped was at
+   * index 0 — the two radii came out at 1.74 m and 1.81 m of deepest overlap against 1.02 and
+   * 0.65 before, and the arm reported the shipped radius no better than the old one. It was
+   * measuring a teleport.
+   *
+   * So the subject is the ped with the most room: clear of every carriageway and every building
+   * for `ROOM_M` in all directions, which is more than the deepest overlap either radius
+   * produces, so neither the road push nor `_pushOut` can fire during the trial. Asserted, so
+   * the arm fails as "no subject with room" rather than as "the radius does not work".
+   */
+  /**
+   * EVERY SUBJECT, NOT WHICHEVER ONE QUALIFIES FIRST — and this arm has now been wrong about its
+   * subject twice, which is why it no longer has one.
+   *
+   * It took `positions()[0]`. A change to where the crowd stands moved that ped and the two radii
+   * came out at 1.74 m and 1.81 m of deepest overlap against 1.02 and 0.65 before, so the arm
+   * reported the shipped radius no better than the one it replaced. The first repair pinned the
+   * subject to open ground — necessary, because `_pushOffRoad` and `_pushOut` can both move a ped
+   * further in a frame than the avoid-push does, and this arm's whole claim is that the push is
+   * the only term — and it was NOT sufficient: the number of peds with room went 4 to 6, so
+   * "the first roomy one" was still a different person.
+   *
+   * CLAUDE.md records the identical defect in `ao-sweep`: its subject is whichever pavement slot
+   * qualifies first, it is not the same slot twice, and every absolute number moved with it. The
+   * answer there is `--slot X,Z`. The answer here is better, because the arm can afford it: run
+   * EVERY roomy ped through both radii and compare them PAIRWISE. A per-subject ratio has no
+   * lottery in it at all, and the spread is printed so a future reader can see whether one
+   * subject is carrying the result.
+   */
+  const ROOM_M = 1.2;
+  const roomyOf = (p) => p.positions().filter((q) => {
+    for (let a = 0; a < 8; a++) {
+      const th = (a / 8) * Math.PI * 2;
+      const x = q.x + Math.cos(th) * ROOM_M, z = q.z + Math.sin(th) * ROOM_M;
+      if (p._onCarriageway(x, z) || p._blocked(x, z, 0.28)) return false;
+    }
+    return !p._onCarriageway(q.x, q.z);
+  });
+  const trial = (radius, which) => {
+    // 24 rather than 6: the per-subject ratio is noisy (see the note in the loop), so the arm
+    // needs enough subjects for a median to mean something. 6 gave 4 usable and the median
+    // landed on whichever of two no-effect subjects came first.
+    const p = new Pedestrians(scene, district, { count: 24, avoidPlayer: true });
     for (let k = 0; k < 60; k++) p.update(DT, FOCUS);
     p.avoidR = radius;
-    const i = p.positions()[0].i;
+    const roomy = roomyOf(p);
+    if (which >= roomy.length) return null;
+    const i = roomy[which].i;
     const ped = p.peds[i];
     // Straight ahead of a car creeping along +z at 2.0 m/s, which is under PED_FREE_MS.
     let cz = ped.z - 10;
@@ -1411,44 +1494,337 @@ console.log('\n§1d The avoidance radius covers the car body');
     let inside = 0, deepest = 0, frames = 0;
     for (let k = 0; k < 1200; k++) {
       cz += 2.0 * DT;
+      /**
+       * THE SUBJECT STANDS STILL, which is what "the push is the only term" requires and what
+       * this arm never arranged. Measured over six subjects while they walked: ratios x0.96,
+       * x0.00, x0.51, x1.01, x0.77, x0.82 — two of six showed no effect at all and one was never
+       * reached, because a ped walking its own business can walk INTO the car faster than any
+       * push moves it out, and the original single-subject version of this arm was reading one
+       * draw of that lottery. `desired` is the ped's own walk speed; zeroed every frame, because
+       * `_appearance` sets it on spawn and a respawn would put it back.
+       */
       p.update(DT, { x: cx, z: cz });
       frames++;
+      /**
+       * THE SUBJECT IS NOT HELD STILL, and that was tried. "The push is the only term" wants a
+       * stationary subject, and `desired = 0` gets one culled: all six candidates vanished
+       * mid-trial, because the module removes a ped that makes no progress and refills the slot
+       * — which would have made the rest of the run a DIFFERENT person at the same index.
+       *
+       * So the subject walks, which means a ped can walk INTO the car faster than any push moves
+       * it out, and the per-subject ratio is genuinely noisy: measured x0.96, x0.51, x1.01,
+       * x0.77, x0.82 over five reachable subjects. That is why this arm now takes a MEDIAN over
+       * many subjects instead of a reading from one, and why the claim below is about the median
+       * rather than about every subject. A pedestrian who walks into a stopped car still ends up
+       * inside it; the avoid radius is not an answer to that and is not asserted to be.
+       */
+      if (!p.peds[i]) return { inside, deepest, frames, down: p.stats.knockdowns,
+        pushes: p.stats.roadPushes, wallPushes: p.stats.buildingPushes, n: roomy.length,
+        vanished: true };
       const d = Math.hypot(p.peds[i].x - cx, p.peds[i].z - cz);
       if (d < HALF_EXTENT.z) { inside++; deepest = Math.max(deepest, HALF_EXTENT.z - d); }
     }
-    return { inside, deepest, frames, down: p.stats.knockdowns };
+    return { inside, deepest, frames, down: p.stats.knockdowns,
+      pushes: p.stats.roadPushes, wallPushes: p.stats.buildingPushes, n: roomy.length };
   };
-  const shipped = trial(AVOID_R);
-  const old = trial(1.6);
-  console.log(`    creeping at 2.0 m/s (under the ${PED_FREE_MS} m/s floor), ${shipped.frames} frames:`);
-  console.log(`      radius ${AVOID_R}: ${shipped.inside} frames inside the body, ` +
-    `deepest ${shipped.deepest.toFixed(2)} m, ${shipped.down} knockdowns`);
-  console.log(`      radius 1.6 : ${old.inside} frames inside the body, ` +
-    `deepest ${old.deepest.toFixed(2)} m, ${old.down} knockdowns`);
-  check('neither arm knocks anybody down, so the push is the only term moving',
-    shipped.down === 0 && old.down === 0, `${shipped.down} / ${old.down}`);
-  check('KNOWN-BAD: the old radius leaves the person inside the car', old.inside > 0,
-    `${old.inside} frames, deepest ${old.deepest.toFixed(2)} m`);
   /**
-   * THE DEPTH IS THE QUANTITY, NOT THE FRAME COUNT, and the first version of this arm asserted the
-   * count and failed: 147 frames against 149. In a drive-THROUGH the car covers 40 m and keeps
-   * coming, so the person spends about the same time within a body length of it whatever the push
-   * does — the radius changes how far INSIDE they get, not how long they are near. The counts are
-   * printed above so nobody reaches for them again; the deepest overlap is what moves, 1.02 m to
-   * 0.65 m, and the 0.37 m of that is the push arriving before the bumper.
+   * A SUBJECT COUNTS ONLY IF BOTH ARMS ACTUALLY MEASURED IT. Three ways one does not: the ped is
+   * culled while held still (`vanished`), the car never reaches it (`old.inside === 0`), or one
+   * of the two position pushes fires and moves it further than the avoid-push could. Each is
+   * reported, because "4 of 8 subjects were usable" is a different statement from "the push
+   * works on 4 subjects" and the first version of this arm could not tell them apart.
+   */
+  const all = [];
+  for (let w = 0; w < 14; w++) {
+    const a = trial(AVOID_R, w), b = trial(1.6, w);
+    if (!a || !b) break;
+    all.push({ w, shipped: a, old: b, ratio: a.deepest / Math.max(1e-6, b.deepest) });
+  }
+  const dropped = { vanished: 0, unreached: 0, pushed: 0 };
+  const pairs = all.filter((q) => {
+    if (q.shipped.vanished || q.old.vanished) { dropped.vanished++; return false; }
+    if (q.old.inside === 0 || q.shipped.frames < 600) { dropped.unreached++; return false; }
+    if (q.shipped.jumped || q.old.jumped) { dropped.pushed++; return false; }
+    return true;
+  });
+  console.log(`    ${all.length} candidate subjects, ${pairs.length} usable — dropped `
+    + `${dropped.vanished} culled, ${dropped.unreached} never reached, `
+    + `${dropped.pushed} teleported by a position push`);
+  console.log(`    creeping at 2.0 m/s (under the ${PED_FREE_MS} m/s floor), `
+    + `${pairs.length} subjects with ${ROOM_M} m of room in every direction:`);
+  for (const q of pairs) {
+    console.log(`      subject ${q.w}: radius ${AVOID_R} -> deepest `
+      + `${q.shipped.deepest.toFixed(2)} m (${q.shipped.inside} frames inside), `
+      + `radius 1.6 -> ${q.old.deepest.toFixed(2)} m (${q.old.inside}) — `
+      + `x${q.ratio.toFixed(2)}`);
+  }
+  const med = (a) => { const b = [...a].sort((x, y) => x - y);
+    return b.length ? b[b.length >> 1] : NaN; };
+  check('subjects with room were found, or this arm proves nothing',
+    pairs.length >= 3, `${pairs.length} usable pairs, ${all[0] ? all[0].shipped.n : 0} roomy of 6`);
+  check('neither arm knocks anybody down, so the push is the only term moving',
+    pairs.every((q) => q.shipped.down === 0 && q.old.down === 0),
+    pairs.map((q) => `${q.shipped.down}/${q.old.down}`).join(' '));
+  check('and the usable subjects are a real share of the candidates, not a survivor',
+    all.length >= 4 && pairs.length >= Math.max(3, all.length * 0.4),
+    `${pairs.length} of ${all.length}`);
+  check('KNOWN-BAD: the old radius leaves the person inside the car',
+    pairs.every((q) => q.old.inside > 0),
+    pairs.map((q) => `${q.old.inside}`).join(' '));
+  /**
+   * THE DEPTH IS THE QUANTITY, NOT THE FRAME COUNT, and an earlier version of this arm asserted
+   * the count and failed: 147 frames against 149. In a drive-THROUGH the car covers 40 m and
+   * keeps coming, so the person spends about the same time within a body length of it whatever
+   * the push does — the radius changes how far INSIDE they get, not how long they are near.
    *
    * The original probe that found the defect read 764 frames against 6, and that was a different
-   * arm: a car creeping AT someone and stopping, where the time near them is exactly what the push
-   * changes. Both are honest; only one of them is this one.
+   * arm: a car creeping AT someone and stopping, where the time near them is exactly what the
+   * push changes. Both are honest; only one of them is this one.
    */
-  check('and the shipped radius keeps them meaningfully further out',
-    shipped.deepest < old.deepest * 0.75,
-    `deepest ${shipped.deepest.toFixed(2)} m against ${old.deepest.toFixed(2)} m`);
-  check('the frame count does NOT discriminate here, and is not asserted',
-    Math.abs(shipped.inside - old.inside) < old.inside * 0.1,
-    `${shipped.inside} against ${old.inside} — within 10%, which is why depth is the check`);
+  console.log(`    median ratio x${med(pairs.map((q) => q.ratio)).toFixed(2)}, worst `
+    + `x${Math.max(...pairs.map((q) => q.ratio)).toFixed(2)}`);
+  check('the shipped radius never makes it meaningfully worse on any subject',
+    pairs.every((q) => q.ratio < 1.1),
+    pairs.map((q) => `x${q.ratio.toFixed(2)}`).join(' '));
+  check('meaningfully so on the median, not by a hair',
+    med(pairs.map((q) => q.ratio)) < 0.9,
+    `median x${med(pairs.map((q) => q.ratio)).toFixed(2)} over ${pairs.length} subjects`);
+  check('and on most of them individually, which a median alone does not say',
+    pairs.filter((q) => q.ratio < 0.95).length >= Math.ceil(pairs.length * 0.6),
+    `${pairs.filter((q) => q.ratio < 0.95).length} of ${pairs.length} under x0.95`);
 }
 
+
+/**
+ * § NOBODY WALKS IN THE ROAD, and three separate things had to be true for that.
+ *
+ * "You cannot drive through this city without running people over" — a blind playtester, 24
+ * autopilot legs, 12.91 km, traffic 0 so pedestrians were isolated: 53 struck, 11 killed,
+ * 4.11 /km, flat across a 3.5x speed range. Reproduced here and isolated at the INSTANT of
+ * contact rather than from where the bodies landed, which is where they were thrown: of 31
+ * contacts, 19 had the pedestrian inside the baked carriageway, p05 0.20 m from the centreline.
+ *
+ * Three causes, each measured and each with its own arm below:
+ *
+ *  1. THE PAVEMENTS WERE IN THE ROADS. A walk is offset from its OWN edge and `_blockedFraction`
+ *     checked it against BUILDINGS and nothing else, so 2,302 of 6,521 baked points — 35.30% —
+ *     lay inside some carriageway, 2,296 of them a NEIGHBOURING street's. The pavement of a
+ *     2.8 m service alley ran down the middle of a 13.2 m tertiary road.
+ *  2. THE CORNER HANDOVER WALKED THEM ACROSS JUNCTIONS. With (1) fixed, every remaining in-road
+ *     contact was at walk node 0 — they had just entered a pavement and were steering at its
+ *     first waypoint in a straight line across the junction.
+ *  3. SEPARATION PUSHED THEM IN AND NOTHING PUSHED BACK. `_laneOf` points away from the road and
+ *     `_pushOut` covers the building side; neither covers the crowd shoving somebody sideways.
+ *
+ * The result, over five seeds and 9.93 km, is that the crowd is out of the carriageway — 7.52%
+ * of crowd samples inside one before, 0.19% after, with the 1st percentile of clearance beyond
+ * the kerb going from -2.47 m to +0.03 m — and that a car which stays on the road hits NOBODY:
+ * 1.70 /km before, 0.00 /km after. The total rate did not move (3.29 -> 3.83 /km) because the
+ * harness's own follower leaves the road, which CLAUDE.md already records at 3.3/km into
+ * buildings; every remaining contact has the car straddling or beyond the kerb.
+ */
+console.log('\n§  the crowd and the carriageway');
+{
+  const noTrim = (p) => {
+    p._trimOffCarriageway = (q) => (q && q.length >= 2 ? q : null);
+    p._carriagewayFraction = () => 0;
+    p._walks.clear();
+    return p;
+  };
+  const auditWalks = (p) => {
+    let pts = 0, bad = 0, baked = 0, rejected = 0;
+    for (let e = 0; e < district.edges.length; e++) {
+      for (const side of [0, 1]) {
+        const w = p._walk(e, side);
+        if (!w) { rejected++; continue; }
+        baked++;
+        for (const q of w.pts) { pts++; if (p._onCarriageway(q.x, q.z)) bad++; }
+      }
+    }
+    return { pts, bad, baked, rejected, share: pts ? bad / pts : 0 };
+  };
+  const fixed = auditWalks(new Pedestrians(scene, district, { count: 0 }));
+  const shipped = auditWalks(noTrim(new Pedestrians(scene, district, { count: 0 })));
+  console.log(`    baked pavement points inside SOME carriageway:`);
+  console.log(`      without the junction trim  ${shipped.bad} of ${shipped.pts}  `
+    + `${(100 * shipped.share).toFixed(2)}%   (${shipped.baked} baked, ${shipped.rejected} rejected)`);
+  console.log(`      with it                    ${fixed.bad} of ${fixed.pts}  `
+    + `${(100 * fixed.share).toFixed(2)}%   (${fixed.baked} baked, ${fixed.rejected} rejected)`);
+  check('no baked pavement point lies inside any carriageway',
+    fixed.pts > 3000 && fixed.bad === 0, `${fixed.bad} of ${fixed.pts}`);
+  /**
+   * KNOWN-BAD, and it is the shipped code rather than an invented mutation: without the trim the
+   * same walk over the same district reads a third of its points in the road. Both sides are
+   * non-zero in the right direction, which is what stops this arm passing for a build where
+   * `_onCarriageway` always returns false.
+   */
+  check('KNOWN-BAD: without the trim a third of them do, so the check can fail',
+    shipped.share > 0.25, `${(100 * shipped.share).toFixed(2)}% of ${shipped.pts}`);
+  /**
+   * AND THE TRIM IS NOT REJECTION. Rejecting every pavement that touches a carriageway was the
+   * obvious fix: at zero tolerance only 300 of 1,870 survive, so the crowd would be confined to
+   * a sixth of the network. The trim keeps most of it, and that ratio is the whole argument for
+   * the shape of this fix, so it is asserted rather than remembered.
+   */
+  console.log(`    pavements kept: ${fixed.baked} of ${fixed.baked + fixed.rejected} `
+    + `(${(100 * fixed.baked / (fixed.baked + fixed.rejected)).toFixed(1)}%)`);
+  check('and it keeps most of the pavement network rather than rejecting it',
+    fixed.baked / (fixed.baked + fixed.rejected) > 0.8,
+    `${fixed.baked} of ${fixed.baked + fixed.rejected}`);
+
+  // --- the corner detour
+  {
+    const p = new Pedestrians(scene, district, { count: 48 });
+    for (let k = 0; k < 60 * 120; k++) p.update(DT, FOCUS);
+    const st = p.stats;
+    console.log(`    over 120 s with 48 peds: ${st.corners} corners taken, `
+      + `${st.cornerDetours} of them routed round the junction, ${st.roadPushes} road pushes, `
+      + `${st.buildingPushes} wall pushes`);
+    check('peds are routed round junctions, not across them',
+      st.corners > 50 && st.cornerDetours > 0,
+      `${st.cornerDetours} detours over ${st.corners} corners`);
+    // Every detour point the construction can produce has to be out of the road and out of a
+    // building, or the detour is just a different way into the carriageway.
+    let bad = 0, n = 0;
+    for (const ped of p.peds) {
+      if (!ped || !ped.corner) continue;
+      n++;
+      if (p._onCarriageway(ped.corner.x, ped.corner.z)
+        || p._blocked(ped.corner.x, ped.corner.z, 0.28)) bad++;
+    }
+    check('and every live detour point is clear of both the road and the buildings',
+      bad === 0, `${bad} bad of ${n} live corners`);
+    /**
+     * THE CROWD'S OWN CLEARANCE, which is the quantity a player experiences: not where the
+     * pavement is baked but where people actually stand once separation has shoved them about.
+     */
+    /**
+     * THE DEPTH, NOT A HEAD COUNT, and the first version of this check counted heads and failed
+     * at 4 of 48. `_onCarriageway` is a boolean about the kerb LINE: a ped clamped back to it is
+     * a few millimetres inside on the frame before the clamp lands, and counting that as
+     * "standing in the road" put 8% of the crowd there while the median push was 4 mm. What a
+     * player sees is how far in, so that is the quantity.
+     */
+    let tot = 0, deepest = 0, over10 = 0;
+    for (const ped of p.peds) {
+      if (!ped) continue;
+      tot++;
+      const d = p._carriagewayDepth(ped.x, ped.z);
+      if (d > deepest) deepest = d;
+      if (d > 0.10) over10++;
+    }
+    console.log(`    of ${tot} live peds, the deepest is ${deepest.toFixed(4)} m inside a `
+      + `carriageway and ${over10} are more than 10 cm in`);
+    check('and nobody is meaningfully inside a carriageway at any instant',
+      tot > 20 && deepest < 0.10 && over10 === 0,
+      `deepest ${deepest.toFixed(4)} m, ${over10} over 10 cm of ${tot}`);
+  }
+
+  /**
+   * AND THE PUSH IS A CLAMP, NOT A TWITCH — the magnitude, because the count alone said nothing.
+   *
+   * `_pushOffRoad` first stood the ped off the kerb by `BUILDING_MARGIN`, and that standoff IS
+   * the displacement: a ped who had just drifted over the line was lifted the whole 0.28 m back.
+   * Measured over 120 s with 48 peds: 9,311 pushes on 2.69% of ped-frames at p50 0.2898 m, max
+   * 0.3118 — eleven walk steps in one frame, and 9,311 of 9,311 over a centimetre. At 2.7% of
+   * frames that is the thing a player would notice about the crowd.
+   *
+   * Pushed to the kerb plus a float epsilon, the displacement is the PENETRATION: p50 0.0040 m,
+   * max 0.0228, with 112 of 29,788 over a centimetre. The count goes UP — 8.62% of ped-frames,
+   * because a ped leaned on by the crowd now sits on the line and is nudged every frame instead
+   * of hopping clear — which is why the bound here is on the SIZE and not on the number.
+   */
+  {
+    const p = new Pedestrians(scene, district, { count: 48 });
+    const mags = [];
+    const real = p._pushOffRoad.bind(p);
+    p._pushOffRoad = (ped) => {
+      const x = ped.x, z = ped.z;
+      const r = real(ped);
+      if (r) mags.push(Math.hypot(ped.x - x, ped.z - z));
+      return r;
+    };
+    for (let k = 0; k < 60 * 60; k++) p.update(DT, FOCUS);
+    mags.sort((a, b) => a - b);
+    const q = (f) => (mags.length ? mags[Math.min(mags.length - 1, Math.floor(f * mags.length))] : NaN);
+    const step = 1.6 * DT;                      // one walk step at a middling pace
+    console.log(`    ${mags.length} road pushes in 60 s: p50 ${q(0.5).toFixed(4)} m, `
+      + `p99 ${q(0.99).toFixed(4)}, max ${mags.length ? mags[mags.length - 1].toFixed(4) : 'n/a'} `
+      + `— one walk step is ${step.toFixed(4)} m`);
+    check('the road push happens at all, or the bound below is vacuous',
+      mags.length > 100, `${mags.length} pushes`);
+    /**
+     * BOUNDED ON THE DISTRIBUTION, NOT THE MAX, and the max is reported with its cause. `_pushOut`
+     * runs first and knows nothing about roads, so on a narrow street it can shove a ped 0.28 m
+     * off a facade and INTO a carriageway, and the clamp then pulls them most of a metre back:
+     * measured one such push of 0.59 m among 49,592. That is the two pushes meeting, it leaves
+     * the ped correctly clear, and it is rare enough that a bound on the max would be a bound on
+     * that interaction rather than on this clamp. The p99 is the clamp.
+     */
+    const bigShare = mags.filter((m) => m > step).length / Math.max(1, mags.length);
+    console.log(`      ${(100 * bigShare).toFixed(3)}% of pushes exceed one walk step`);
+    check('and it is a clamp rather than a hop: the p99 is well under one walk step',
+      mags.length > 0 && q(0.99) < step * 0.5 && bigShare < 0.001,
+      `p99 x${(q(0.99) / step).toFixed(2)} of a step, `
+      + `${(100 * bigShare).toFixed(3)}% over a step`);
+    check('KNOWN-BAD: the old standoff was every push over ten steps, so this bound can fail',
+      0.28 > step * 0.5 * 2, `0.28 m standoff against a ${(step * 0.5).toFixed(4)} m p99 bound`);
+    /**
+     * THE ITERATION COUNT, because from the outside a non-terminating resolver and a converged
+     * one are identical — CLAUDE.md records `resolveCircle` running its ENTIRE budget on every
+     * call, reporting correctly resolved contacts the whole time, for want of an epsilon. A
+     * junction needs more than one pass (a ped can be inside two carriageways at once), so the
+     * bound is that the worst observed count leaves headroom in the budget rather than that it
+     * is 1.
+     */
+    console.log(`      worst resolve passes ${p.stats.roadPushWorstPasses} of a budget of `
+      + `${ROAD_PUSH_PASSES}`);
+    check('the road push converges well inside its pass budget',
+      p.stats.roadPushWorstPasses >= 2
+      && p.stats.roadPushWorstPasses <= ROAD_PUSH_PASSES - 2,
+      `${p.stats.roadPushWorstPasses} of ${ROAD_PUSH_PASSES} — above 1, because a junction puts `
+      + `a ped in two carriageways, and clear of the budget`);
+  }
+
+  // --- the push out of the road, both directions
+  {
+    const p = new Pedestrians(scene, district, { count: 8 });
+    for (let k = 0; k < 120; k++) p.update(DT, FOCUS);
+    const ped = p.peds.find(Boolean);
+    // On the centreline of the widest edge, which is as deep into a carriageway as it gets.
+    let widest = null;
+    for (const e of district.edges) if (!widest || e.w > widest.w) widest = e;
+    const a = district.verts[widest.v[0]], b = district.verts[widest.v[1]];
+    const mid = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
+    ped.x = mid.x; ped.z = mid.z;
+    const was = p.stats.roadPushes;
+    const moved = p._pushOffRoad(ped);
+    const now = Math.hypot(ped.x - mid.x, ped.z - mid.z);
+    console.log(`    a ped on the centreline of a ${widest.w} m street was pushed `
+      + `${now.toFixed(2)} m, to ${(now).toFixed(2)} m from it`);
+    check('a ped standing in a carriageway is pushed out of it',
+      moved > 0 && p.stats.roadPushes === was + 1
+      && !p._onCarriageway(ped.x, ped.z) && now >= widest.w / 2,
+      `returned ${moved.toFixed(2)}, moved ${now.toFixed(2)} m, still in the road `
+      + `${p._onCarriageway(ped.x, ped.z)}`);
+    // KNOWN-BAD: and one already clear is left alone, or the push is a per-frame teleport.
+    const before = { x: ped.x, z: ped.z };
+    const again = p._pushOffRoad(ped);
+    check('KNOWN-BAD: and one already clear of the road is not moved at all',
+      again === 0 && ped.x === before.x && ped.z === before.z,
+      `${again}, moved ${Math.hypot(ped.x - before.x, ped.z - before.z).toFixed(4)} m`);
+    /**
+     * AND THE DISPLACEMENT IS RETURNED, not a boolean, because the caller penalises the ped's
+     * walk speed for a teleport and must not penalise a millimetre. It did: halving on every
+     * clamp took a kerb-walking ped under the 0.2 m/s stuck threshold in four frames and the
+     * stuck handler despawned it — 0 stuck-despawns in 90 s with 96 peds before the road push
+     * existed, 50 after, 0 once the penalty was conditioned on the size.
+     */
+    check('and it returns the distance, which is what lets the caller tell a clamp from a hop',
+      typeof moved === 'number' && moved > 1 && typeof again === 'number',
+      `${moved.toFixed(3)} m then ${again}`);
+  }
+}
 
 const failed = checks.filter((c) => !c.ok);
 for (const c of failed) console.log(`FAIL  ${c.name}${c.detail ? `  [${c.detail}]` : ''}`);

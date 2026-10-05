@@ -255,7 +255,16 @@ export class Session {
      * The default radius matches district/main.js's `wirePursuit`.
      */
     this.pursuit.clearAt = (x, z, r = 0.95) => !this.blockers.resolveCircle(x, z, r);
-    this.peds = new Pedestrians(scene, this.district, { count: opts.peds ?? 64 });
+    /**
+     * THE SEED REACHES THE CROWD, which it did not. `Session({ seed })` was passed to the
+     * pursuit and the traffic and NOT to `Pedestrians`, so every seed ran the identical crowd:
+     * `src/pedestrians.js` falls back to `0x9EDE5719` and three "different seeds" placed the same
+     * 64 people in the same places. Found while measuring the junction trim — three seeds gave
+     * byte-identical hit counts, which is what one sample printed three times looks like, and is
+     * the shape CLAUDE.md records as a control that is not one.
+     */
+    this.peds = new Pedestrians(scene, this.district,
+      { count: opts.peds ?? 64, seed: opts.seed ?? 0 });
     this.roads = new RoadGraph(this.district, { blockers: this.blockers, carRadius: BODY_RADIUS });
     this.mission = new MissionRunner();
     /**
