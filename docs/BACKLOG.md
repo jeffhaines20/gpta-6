@@ -79,6 +79,46 @@ perturbs every routing and spawn decision after it.
 
 ## Crime, damage and the police
 
+### THE POLICE CANNOT HOLD YOU OFF THE ROAD — playtest round 8, headline, verified
+A blind playtester found it by playing: two arms off one seed, pedals and wheel only, no
+teleports. Brake 5.4 m off the centreline and you are **busted in 11.0 s** with a unit
+holding you on 41% of frames. Hold full lock for ~3 s first, stop 15.6 m off, and you get
+**180.5 s on the brake at 4 stars with 0 busts**, held on 0% of frames. Reproduces
+byte-identically across three runs. The arrest countdown can be killed mid-count: "BUSTED
+IN — 4 s" was on screen, a touch of throttle and it was gone 1.75 s later.
+
+**Mechanism, confirmed in the source.** `src/pursuit.js` holds on
+`near.d <= this.holdRadius`, and `near` comes from `_closestOn`, which is the closest
+approach of **the unit's own road edge to the player** — not the unit's distance to the
+player. So the hold is a function of how far the PLAYER is from a road.
+
+    holdRadius                  8.75 m   (widest edge 13.2 m / 2 + HALF_EXTENT.z)
+    RESPONSE[].spotRadius   85..175 m   by star level
+
+A 20x gap in radius, 400x in area, in which the police see you — which is what blocks the
+evade timer — and can never touch you. `district/main.js` runs the identical check, so it
+is not harness-only.
+
+**Their exposure figure is wrong and the finding survives it.** They quoted 95.1% of road
+positions, measured as room to park beyond 8.75 m before hitting GEOMETRY. The hold tests
+distance to the nearest ROAD EDGE, and this is a dense network: measured on the pursuit
+module alone, stepping off the widest edge's midpoint, units still held on 782-834 frames
+of 1200 at 10, 12, 15 and 20 m, and only failed outright at 40 and 80 m. Gridding the
+district at 4 m, against the real blocker index:
+
+    clear of buildings                        107,958 of 130,620 grid points   82.7%
+    ...and beyond the hold radius              70,908                          65.7% of clear
+    ...and within 60 m of a road               34,559                          32.0% of clear
+
+So **32%**, not 95% — still a third of the drivable, building-free area within a short
+drive of a road, which is more than enough for a player to find by accident in their first
+chase.
+
+Not yet decided: whether the fix is letting a held unit leave its edge for the last few
+metres, or letting line-of-sight at short range count as a hold. Either changes what
+`pursuit-test` asserts, so restate its bounds in the same commit.
+
+
 ### #90 The cap flattens everything above one star, and the offence floor is 3.3/km on an empty street
 `FLOORLESS_CAP` is 1 and it CLIPS, so every floorless crime is flat from the scale at which
 `heat * scale` first reaches 1 to the top of its range:
