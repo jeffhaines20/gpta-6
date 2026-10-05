@@ -579,10 +579,27 @@ export class MissionRunner {
     // destination renders exactly as it did.
     const out = { objective: dist == null ? s.objective : { text: s.objective, distance: dist },
       subtitle: s.subtitle ?? null };
-    // A WAYPOINT IS A PROMISE THAT ARRIVING DOES SOMETHING, and `defineMission` is what keeps
-    // it: a marker must sit inside one of the stage's own `reach` radii. See `objectiveDistance`
-    // above for the round this cost.
-    if (s.marker) out.waypoint = { x: s.marker.x, z: s.marker.z };
+    /**
+     * A WAYPOINT IS A PROMISE THAT ARRIVING DOES SOMETHING, and `defineMission` is what keeps
+     * it: a marker must sit inside one of the stage's own `reach` radii. See `objectiveDistance`
+     * above for the round this cost.
+     *
+     * AND IT CARRIES THE RADIUS, so the two numbers on screen stop disagreeing. The band counts
+     * to the trigger's EDGE — `max(0, d - radius)`, so it reads 0 exactly when the stage
+     * completes — and the minimap drew a PIN at the centre, so a playtester measured "— 42 m" in
+     * words against a blip 66 m out and the words reaching "0 m" while the blip was still 24 m
+     * ahead. Both numbers were right about different things, which is the worst way for two
+     * readouts to disagree.
+     *
+     * Publishing the radius lets `src/hud.js` draw the ZONE rather than a point, and then "0 m"
+     * coincides with the player being inside the circle they can see. Measured before: the gap
+     * was exactly the radius at every range, 23.5 to 24.0 m against a declared 24.
+     */
+    if (s.marker) {
+      const reach = (s.triggers ?? []).find((t) => t.kind === 'reach' && Number.isFinite(t.x));
+      out.waypoint = { x: s.marker.x, z: s.marker.z,
+        radius: reach && reach.radius > 0 ? reach.radius : 0 };
+    }
     if (s.markers) out.markers = s.markers;
     // Seconds remaining, for a stage that has a deadline. Floored at 0 so a HUD
     // never renders a negative countdown on the frame the timeout resolves.

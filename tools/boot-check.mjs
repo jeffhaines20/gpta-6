@@ -596,6 +596,54 @@ if (state.global && state.frames > 2) {
   check('KNOWN-BAD: and it is gone once the car frees itself, so it is not a stuck panel',
     !jam.quiet.obj.includes('WEDGED') && !jam.after.obj.includes('WEDGED'),
     `before "${jam.quiet.obj}", after "${jam.after.obj}"`);
+}
+
+/**
+ * THE END-OF-MISSION HOLD IS SPENT ONLY WHILE ITS LINE IS ON SCREEN, which is a host rule:
+ * `missionEnd` and its clock live in district/main.js and nothing offline imports that file.
+ *
+ * `src/hud.js`'s BAND_ORDER puts `wreck` above `ended`, and the clock used to tick from the
+ * moment the mission ended — so a mission lost BY being wrecked spent `WRECK_HOLD_S` of its
+ * `MISSION_END_S` behind the wreck line. Measured in tools/playtest.mjs, which carries its own
+ * copy of this wiring: 4.0 s of "THE CAR IS WRECKED" and then 1.9 s of "MISSION ABORTED", t=4.4
+ * to 6.2, against a 6 s hold. A playtester reported that line as never read, which overstates it,
+ * and the number behind it is right.
+ *
+ * READ OFF THE CLOCK, not counted in frames. The alternative arm wrecks the car and watches six
+ * seconds of band, and at 0.05 s of sim per rendered frame on a page that draws under one a
+ * second that is two wall minutes for an assertion the clock answers in ten frames.
+ */
+{
+  const hold = await page.evaluate(async () => {
+    const d = __district;
+    const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+    d.setMode('car');
+    d.clearWanted('boot-check');
+    d.placeAt(19, -6, 0);
+    d.startMission('marlin-street');
+    for (let i = 0; i < 3; i++) await frame();
+    const running = d.bandReport();
+    // Wreck it outright, which is what a hard crash does, and which aborts the mission.
+    d.damage.impact({ dv: 30, kind: 'wall', dirX: 0, dirZ: 1, speed: 30 });
+    await frame();
+    const atWreck = d.bandReport();
+    const samples = [];
+    for (let i = 0; i < 10; i++) { await frame(); samples.push(d.bandReport()); }
+    return { running, atWreck, samples, missionEnd: 6 };
+  });
+  const wreckFrames = hold.samples.filter((q) => q.from === 'wreck');
+  const spent = wreckFrames.length
+    ? hold.atWreck.endFor - wreckFrames[wreckFrames.length - 1].endFor : null;
+  console.log(`  mission end hold: ${hold.atWreck.endFor} s armed at the wreck, `
+    + `${wreckFrames.length} of 10 frames owned by "wreck", `
+    + `${spent === null ? 'n/a' : spent.toFixed(3)} s of the hold spent during them`);
+  check('the wreck line owns the band after a wreck, or this arm proves nothing',
+    hold.atWreck.from === 'wreck' && wreckFrames.length >= 5,
+    `from "${hold.atWreck.from}", ${wreckFrames.length} wreck frames of 10`);
+  check('and the end-of-mission hold does not tick while a line above it is showing',
+    hold.atWreck.endFor > 0 && spent !== null && spent < 1e-6,
+    `${spent === null ? 'n/a' : spent.toFixed(4)} s spent over ${wreckFrames.length} hidden `
+    + `frames, from an armed ${hold.atWreck.endFor} s`);
   await page.evaluate(() => __district.clearWanted('boot-check'));
 }
 

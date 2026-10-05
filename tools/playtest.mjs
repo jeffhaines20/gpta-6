@@ -557,7 +557,25 @@ export class Session {
       this._moving();
       this._contacts();
       this._wreckWatch(DT);
-      if (this._endFor > 0) { this._endFor -= DT; if (this._endFor <= 0) this._ended = null; }
+      /**
+       * THE END-OF-MISSION HOLD IS SPENT ONLY WHILE THE LINE IS ON SCREEN, which is what
+       * district/main.js now does and what this file has to match or the harness shows a player
+       * something the page does not.
+       *
+       * It ticked from the moment the mission ended, and BAND_ORDER puts `wreck` above `ended`,
+       * so a mission lost BY being wrecked spent `WRECK_HOLD_S` of its `MISSION_END_S` behind
+       * the wreck line. Measured here: 4.0 s of "THE CAR IS WRECKED" and then 1.9 s of "MISSION
+       * ABORTED", t=4.4 to 6.2. A playtester reported that line as never read, which overstates
+       * it — 1.9 s is not zero — and the number behind it is right: two thirds of the hold went
+       * to a tenant above it.
+       *
+       * `_band()` is called rather than guessed at, because the question is which tenant WINS
+       * and that is composeBand's answer, not a condition this file can restate.
+       */
+      if (this._endFor > 0 && this._band().from === 'ended') {
+        this._endFor -= DT;
+        if (this._endFor <= 0) this._ended = null;
+      }
       /**
        * Drive into a marker and the job starts, exactly as district/main.js does it — INCLUDING
        * its wreck gate. Without `!this.damage.wrecked` a wrecked car sitting in a marker started a
@@ -1955,6 +1973,47 @@ if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
   stalled.step(30);
   check('a mission nobody drives stays running', stalled.mission.outcome === OUTCOMES.RUNNING,
     stalled.mission.outcome);
+  /**
+   * §5a2  LOSING A MISSION BY BEING WRECKED, and the line that says so getting its full hold.
+   *
+   * `BAND_ORDER` puts `wreck` above `ended`, and the end-of-mission clock used to tick from the
+   * moment the mission ended — so a mission lost BY being wrecked spent `WRECK_HOLD_S` of its
+   * `MISSION_END_S` behind the wreck line. Measured: 4.0 s of "THE CAR IS WRECKED" and then
+   * 1.9 s of "MISSION ABORTED". A playtester reported that line as never read; 1.9 s is not
+   * zero, so the observation overstates it, and the number behind it is right — two thirds of
+   * the hold went to a tenant above it, and 1.9 s is not long enough for a sentence naming the
+   * mission, the reason and the consequence.
+   *
+   * The clock is spent only on frames where `composeBand` picks `ended`, so the bound is the
+   * whole hold. There is nothing between the two outcomes for it to be wrong at: either the
+   * clock runs while hidden and the line gets `MISSION_END_S - WRECK_HOLD_S`, or it does not and
+   * the line gets `MISSION_END_S`.
+   */
+  {
+    const w = new Session({ traffic: 0, peds: 0, seed: 5 });
+    w.placeAt(19, -6, 0);
+    w.startMission('marlin-street');
+    w.step(0.3);
+    w.damage.impact({ dv: 30, kind: 'wall', dirX: 0, dirZ: 1, speed: 30 });
+    let endS = 0, wreckS = 0;
+    for (let k = 0; k < 300; k++) {
+      w.drive({ brake: 1 }).step(0.1);
+      const from = w._band().from;
+      if (from === 'ended') endS += 0.1;
+      if (from === 'wreck') wreckS += 0.1;
+    }
+    console.log(`    wrecked mid-mission: the wreck line held ${wreckS.toFixed(1)} s and `
+      + `"MISSION ABORTED" ${endS.toFixed(1)} s, against a ${MISSION_END_S} s hold and a `
+      + `${WRECK_HOLD_S} s wreck hold`);
+    check('a mission lost to a wreck is actually announced',
+      w.mission.outcome === OUTCOMES.ABORTED && wreckS > 1, `${w.mission.outcome}`);
+    check('and its line gets its whole hold, not what the wreck line leaves of it',
+      endS >= MISSION_END_S - 0.3,
+      `${endS.toFixed(1)} s against ${MISSION_END_S}; the old behaviour gave `
+      + `${MISSION_END_S - WRECK_HOLD_S}`);
+    check('KNOWN-BAD: the wreck line really did own the band first, so that was the whole cost',
+      wreckS >= WRECK_HOLD_S - 0.3, `${wreckS.toFixed(1)} s of ${WRECK_HOLD_S}`);
+  }
 
   /**
    * §5b  THE WAY A PLAYER ACTUALLY STARTS ONE. Until this round the only door into either

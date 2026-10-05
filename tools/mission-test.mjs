@@ -742,6 +742,54 @@ console.log('\n=== 9. THE AUTHORED MISSIONS, walked stage by stage');
   check('a skippable first stage carries no narration the brief does not',
     lostNarration.length === 0, lostNarration.join(' | ') || 'none lost');
 
+  /**
+   * AND A BRIEF IS WRITTEN FOR THE PLAYER, NOT FOR WHOEVER BUILT IT.
+   *
+   * `shakedown`'s read "Two markers by the bayfront. Exists so the wiring can be checked in a
+   * minute." — the reason the mission exists, written for its author — and `shakedown` is the
+   * nearest job to the spawn, so a playtester reported it as the first text in the game:
+   * `SHAKEDOWN / Two markers by the bayfront. Exists so the wiring can be checked in a minute.
+   * — 30 m`.
+   *
+   * A WORD LIST IS CRUDE AND IT IS THE PROPERTY THAT BROKE. There is no way to gate prose for
+   * being in character, but the specific failure is narrow: text about the GAME'S CONSTRUCTION
+   * reaching the band. Every term below is one no courier in Sarasota would say, and the check
+   * is on `brief`, `objective` and `subtitle` — every string the band can render — because the
+   * one that shipped was in a field nobody was looking at.
+   */
+  {
+    const DEV_WORDS = ['wiring', 'harness', 'placeholder', 'todo', 'debug', 'the gate',
+      'reviewer', 'builder', 'exists so', 'for testing', 'smoke test', 'sanity'];
+    const leaks = [];
+    for (const m of Object.values(MISSIONS)) {
+      const fields = [['brief', m.brief]];
+      for (const st of m.stages) {
+        fields.push([`${st.id}.objective`, typeof st.objective === 'string' ? st.objective : ''],
+          [`${st.id}.subtitle`, st.subtitle ?? '']);
+      }
+      for (const [where, text] of fields) {
+        const low = String(text).toLowerCase();
+        for (const w of DEV_WORDS) {
+          if (low.includes(w)) leaks.push(`${m.id}/${where}: "${w}" in ${JSON.stringify(text)}`);
+        }
+      }
+    }
+    console.log(`    player-facing strings checked: ` + Object.values(MISSIONS)
+      .map((m) => `${m.id} ${1 + m.stages.length * 2}`).join(', ')
+      + `, against ${DEV_WORDS.length} terms`);
+    check('no player-facing mission string talks about building the game',
+      leaks.length === 0, leaks.join(' | ') || 'none');
+    /**
+     * KNOWN-BAD: the string that shipped, run through the same predicate. Without it this check
+     * passes for an empty word list or for a build where `brief` is never read, which is
+     * CLAUDE.md's "a check whose two sides are both zero".
+     */
+    const shipped = 'Two markers by the bayfront. Exists so the wiring can be checked in a minute.';
+    check('KNOWN-BAD: and the one that shipped is caught by this very predicate',
+      DEV_WORDS.some((w) => shipped.toLowerCase().includes(w)),
+      `"${DEV_WORDS.filter((w) => shipped.toLowerCase().includes(w)).join('", "')}"`);
+  }
+
 
 
   check("a stage's marker never lands inside the next stage's reach radius",

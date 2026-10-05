@@ -232,7 +232,29 @@ pointed at a wall. The game does have the words: `composeLaw`'s `bustStuck` bran
 once an arrest is already running. Refines the known "pinned car rocks and the HUD says
 nothing": the magnitude is 0.34 m against 145 m and the fix exists one tenant away.
 
-### Smaller, from the same round
+### Smaller, from the same round — FIVE OF SIX FIXED
+- **The author's note as the game's first words** — `shakedown`'s `brief` now reads "Easy money.
+  Two markers by the bayfront, a few hundred metres apart." and `mission-test` gates every
+  player-facing mission string against twelve build-vocabulary terms, with the shipped line as its
+  known-bad.
+- **"watch the stars drop"** — fixed with the ambush marker; the subtitle names `EVADING`, the word
+  `composeWanted` actually prints, read off that module rather than spelled again.
+- **Two disagreeing distances** — the gap was exactly the reach radius at every range, 23.5-24.0 m
+  against a declared 24. `MissionRunner.hud()` publishes the radius and the minimap draws the ZONE,
+  so "0 m" is the moment the player is inside a circle they can see. Gated in `hud-cue` as an arc of
+  the waypoint's own radius in pixels — a blip is 4.4-6 px, the ring is 25.3.
+- **`shakedown`'s one-frame first stage** — the stage stays (on foot it is real, and `b`'s `onFoot`
+  trigger routes back to it) and it gains a subtitle that is a SENTENCE OF THE BRIEF, which
+  `mission-test` required and refused the first attempt at.
+- **`MISSION FAILED` never read when the car is wrecked** — measured at 1.9 s of a 6 s hold, not
+  never: the wreck line ate 4 s of it. The hold is now spent only on frames where `ended` wins the
+  band, in both hosts: 1.9 s -> 5.9 s.
+- **No repair short of a write-off** — STILL OPEN, and it needs a design decision rather than a
+  fix: 55 km/h into a wall leaves health 0.39 and 300 s parked leaves it 0.39, so the only routes
+  back to 1.00 are being wrecked or arrested and the fastest repair is destroying the car. The
+  choice is between a garage the player drives to, a slow recovery while parked, and leaving it.
+
+### Smaller, from the same round — the original record
 - **The first words of the game are a note to its own author**: the offer band reads
   `SHAKEDOWN / Two markers by the bayfront. Exists so the wiring can be checked in a
   minute. — 30 m`. That is `brief` in `src/missions.js`.

@@ -1164,7 +1164,8 @@ console.log('\nMINIMAP — the blips');
       rects.length = 0; fills.length = 0; texts.length = 0; paths.length = 0;
       hud.update({ dt: 1 / 60, visible: true, speed: 0, health: 1, armour: 0,
         wanted: 0, wantedNote: null, evade: 0, objective: null, subtitle: null,
-        markers: live, waypoint: wp, player: { x: AT.x, z: AT.z, heading: 0 } });
+        markers: live, waypoint: wp, zoomMetres: MINIMAP_ZOOM_M,
+        player: { x: AT.x, z: AT.z, heading: 0 } });
     };
     /** Settle, confirm the map is quiet, then apply `mutate` and report whether it redrew. */
     const moves = (label, mutate) => {
@@ -1185,15 +1186,81 @@ console.log('\nMINIMAP — the blips');
     const wpOn = moves('a waypoint appearing', () => { wp = wpObj; });
     // IN PLACE, on the object already posted — the only case the hash term exists for.
     const wpMove = moves('the same waypoint object moved 5 m', () => { wpObj.z += 5; });
-    const all = { inZ, inX, small, kind, added, wpOn, wpMove };
+    // The reach radius is a hash term too: a stage whose zone is a different size has to redraw,
+    // and without it the ring would keep the previous stage's radius on screen.
+    const wpR = moves('the same waypoint\'s reach radius changing', () => { wpObj.radius = 24; });
+    const all = { inZ, inX, small, kind, added, wpOn, wpMove, wpR };
     check('a settled pose with an unchanged marker set stops redrawing the map',
       Object.values(all).every((r) => r.quiet === 0),
       Object.entries(all).map(([k, r]) => `${k}:${r.quiet}`).join(' '));
     check('every term of the hash redraws the map: x, z, kind, count and the waypoint',
       Object.values(all).every((r) => r.redrew),
-      Object.entries(all).filter(([, r]) => !r.redrew).map(([k]) => k).join(' ') || 'all seven');
+      Object.entries(all).filter(([, r]) => !r.redrew).map(([k]) => k).join(' ') || 'all eight');
     check('and a sub-metre move counts, so the hash is not rounded',
       small.redrew, `${small.redrew}`);
+    /**
+     * THE REACH ZONE IS DRAWN, and it is the fix for two readouts disagreeing. The objective
+     * band counts to the trigger's EDGE — `max(0, d - radius)`, so it reads 0 exactly when the
+     * stage completes — and the minimap drew a PIN at the CENTRE. A playtester read "— 42 m" in
+     * words against a blip 66 m out, and the words reached "0 m" while the blip was still a
+     * radius ahead; measured over a drive, the gap was the radius at every range, 23.5-24.0 m
+     * against a declared 24. With the ring drawn, "0 m" is the player inside a circle they can
+     * see.
+     *
+     * Asserted as a RING, not as "something was drawn": the pin is an arc too, so the check is
+     * for an arc of the waypoint's own radius in pixels, which no blip can produce — a blip is
+     * 4.4 or 6 px and this is about 12.
+     */
+    /**
+     * THE REACH ZONE IS DRAWN, and it is the fix for two readouts disagreeing. The objective
+     * band counts to the trigger's EDGE — `max(0, d - radius)`, so it reads 0 exactly when the
+     * stage completes — and the minimap drew a PIN at the CENTRE. A playtester read "— 42 m" in
+     * words against a blip 66 m out, and the words reached "0 m" while the blip was still a
+     * radius ahead; measured over a drive the gap was the radius at every range, 23.5-24.0 m
+     * against a declared 24. With the ring drawn, "0 m" is the player inside a circle they
+     * can see.
+     *
+     * Asserted as a RING OF ITS OWN RADIUS, not as "something was drawn": a pin is an arc too,
+     * so the check is for an arc whose radius is the waypoint's radius in pixels, which no blip
+     * can produce — a blip is 4.4 or 6 px and this is about 12. Driven through the same `feed`
+     * the arms above use, because that is how this gate makes the HUD draw.
+     */
+    {
+      /**
+       * `ppm` IS THE MAP'S WIDTH OVER THE ZOOM, which is what src/hud.js uses — `w / zoom`, not
+       * `min(w, h) / zoom`. The first version of this arm used the minimum, expected 19.2 px and
+       * reported 0 rings found while the ring was being drawn at 25.3. The box is not square, so
+       * the two differ by the aspect ratio and a 10% window does not cover it.
+       *
+       * `zoomMetres` is passed, because the Minimap's own fallback for a caller that passes
+       * nothing is 210 and not MINIMAP_ZOOM_M.
+       */
+      const ppm = LAYOUT.map.w / MINIMAP_ZOOM_M;
+      const want = 24 * ppm;
+      // ONE feed, not several: `feed()` clears `paths` on entry and the map only redraws on the
+      // frame the waypoint changes, so a second call leaves an empty list. The first version of
+      // this arm fed four times and reported 0 rings found with the ring being drawn correctly.
+      wp = { x: AT.x + 30, z: AT.z, radius: 24 };
+      feed();
+      const rings = paths.filter((q) => q.op === 'arc' && Math.abs(q.r - want) < want * 0.1);
+      console.log(`    the reach zone at ${MINIMAP_ZOOM_M} m across: an arc of `
+        + `${want.toFixed(1)} px wanted, ${rings.length} found; arcs present `
+        + paths.filter((q) => q.op === 'arc').map((q) => q.r.toFixed(1)).join(', ')
+        + ` (a blip is 4.4-6 px)`);
+      check('the reach zone is drawn as a ring of its own radius, not just a pin',
+        rings.length >= 1, `${rings.length} arcs within 10% of ${want.toFixed(1)} px`);
+      /**
+       * KNOWN-BAD: a waypoint with NO radius draws no ring, so the check above is not passing on
+       * some other arc of about that size. `mission.js` publishes 0 for a stage whose marker has
+       * no reach trigger — which `defineMission` now refuses, but a host feeding a bare
+       * `{ x, z }` is exactly what `district/main.js`'s on-foot car waypoint is.
+       */
+      wp = { x: AT.x + 30, z: AT.z };
+      feed();
+      const none = paths.filter((q) => q.op === 'arc' && Math.abs(q.r - want) < want * 0.1);
+      check('KNOWN-BAD: and a waypoint with no radius draws no ring at all',
+        none.length === 0, `${none.length} rings without a radius`);
+    }
     hud.update({ waypoint: null });
   }
 

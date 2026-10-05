@@ -442,6 +442,8 @@ const mission = new MissionRunner();
 const board = new MissionBoard(MISSIONS);
 /** The last thing the mission layer had to say, held on screen for a few seconds after it ends. */
 let missionEnd = null, missionEndFor = 0;
+// Which tenant won the objective band last frame, for `bandReport`. See the end-of-mission hold.
+let lastBandFrom = null;
 const MISSION_END_S = 6;
 
 /**
@@ -2027,7 +2029,27 @@ function animate(now) {
       }
     }
   }
-  if (missionEndFor > 0) { missionEndFor -= dt; if (missionEndFor <= 0) missionEnd = null; }
+  /**
+   * THE MISSION-END LINE'S CLOCK RUNS WHILE IT IS ON SCREEN, NOT WHILE IT IS HIDDEN.
+   *
+   * It ticked down from the moment the mission ended, and `src/hud.js`'s BAND_ORDER puts `wreck`
+   * above `ended` — so a mission lost BY being wrecked spent `WRECK_HOLD_S` of its
+   * `MISSION_END_S` behind the wreck line. Measured, a hard crash during `marlin-street`:
+   *
+   *     THE CAR IS WRECKED / a replacement in 4..0 s     4.0 s
+   *     MISSION ABORTED / Marlin Street — the car is wrecked — ...   1.9 s, t=4.4 to 6.2
+   *
+   * A playtester reported it as never read. That is an overstatement — 1.9 s is not zero — and
+   * the number behind it is right: two thirds of the hold went to a line above it, and 1.9 s is
+   * not long enough for a two-clause sentence naming the mission, the reason and the
+   * consequence.
+   *
+   * Moved below `composeBand` and conditioned on who won, so the six seconds are six seconds the
+   * player can read. It is the general property rather than a special case for the wreck: any
+   * tenant above `ended` — a bust, the fence, the law — used to eat the same clock, and the
+   * scene line could eat all of it.
+   */
+  void 0;
   updateOfferMarkers(!!missionHud);
   /**
    * The band's three tenants, in priority order: a running mission, then the "you finished it"
@@ -2060,6 +2082,13 @@ function animate(now) {
   const band = composeBand({ busted: bustLine, wreck: wreckLine, fence: fenceLine, law: lawLine,
     stuck: stuckLine, mission: missionHud, ended: missionEnd, offer: offerLine });
   const bandObjective = band.objective, bandSubtitle = band.subtitle;
+  lastBandFrom = band.from;
+  // See the note above `composeBand`'s inputs: the end-of-mission hold is spent only on frames
+  // where the line is the one being shown.
+  if (missionEndFor > 0 && band.from === 'ended') {
+    missionEndFor -= dt;
+    if (missionEndFor <= 0) missionEnd = null;
+  }
   // Once, before the HUD feed: `waypoint`, `markers` and `route` all read it, and a marker set
   // built inside the object literal would have been one frame behind the waypoint beside it.
   const onFoot = mode === 'foot';
@@ -2456,6 +2485,16 @@ window.__district = {
   /** Mission scripting and harnesses: set the level with no crime behind it. */
   setWanted: (n) => wanted.setStars(n),
   clearWanted: (reason) => wanted.clear(reason ?? 'cleared'),
+  /**
+   * WHO OWNS THE OBJECTIVE BAND THIS FRAME, AND WHAT IS LEFT OF THE END-OF-MISSION HOLD.
+   *
+   * Exposed because that hold is spent only on frames where `ended` wins — see the note by the
+   * decrement — and that is a host rule nothing offline imports. The alternative was a browser
+   * arm that wrecks the car and counts six seconds of band, which at 0.05 s of sim per rendered
+   * frame is 120 frames on a page that draws under one a second. Reading the clock is the same
+   * assertion for a tenth of the wall time.
+   */
+  bandReport: () => ({ from: lastBandFrom, endFor: +missionEndFor.toFixed(3) }),
   // The one expression the frame loop's `held` test uses. See `pursuitReach`.
   pursuitReach,
   wantedReport: () => ({

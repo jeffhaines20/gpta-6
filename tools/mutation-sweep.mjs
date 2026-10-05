@@ -493,8 +493,8 @@ const MUTATIONS = [
      * waypoint, which is one reused object, still redraws the map.
      */
     id: 'hash-wp', file: 'src/hud.js',
-    find: '    if (s.waypoint) sig += s.waypoint.x * 3.7 + s.waypoint.z * 11.9 + 4409;',
-    to: '    if (false) sig += 0;',
+    find: '      sig += s.waypoint.x * 3.7 + s.waypoint.z * 11.9 + 4409',
+    to: '      sig += 4409',
     why: 'a moving waypoint stops redrawing the minimap',
   },
   {
@@ -976,6 +976,47 @@ const MUTATIONS = [
     find: "  const stuckLine = mode === 'car' ? composeStuck(vehicle) : null;",
     to: '  const stuckLine = null;',
     why: 'the page never tells a wedged player anything, however right the module is',
+    browser: true,
+  },
+  {
+    /**
+     * THE REACH RING KEEPS THE PREVIOUS STAGE'S RADIUS. The band counts to a reach trigger's
+     * EDGE and the minimap now draws that zone, so the two readouts agree — and the radius has
+     * to be in the dirty hash or a stage whose zone is a different size never redraws it. The
+     * pin still moves and still redraws, so the map looks alive the whole time; the ring is
+     * simply the wrong size, which is exactly the disagreement the ring exists to remove.
+     */
+    id: 'hash-wp-radius', file: 'src/hud.js',
+    find: '        + (s.waypoint.radius ?? 0) * 17.3;',
+    to: '        + 0;',
+    why: "the minimap keeps the previous stage's reach ring on screen",
+  },
+  {
+    /**
+     * THE FIRST WORDS OF THE GAME GO BACK TO BEING A NOTE TO ITS OWN AUTHOR. `brief` is what the
+     * offer band shows a player standing near a marker, and `shakedown` is the nearest job to
+     * the spawn — so for most players it is the first text in the game. A playtester read
+     * `SHAKEDOWN / Two markers by the bayfront. Exists so the wiring can be checked in a minute.
+     * — 30 m`. Nothing errors and the mission plays identically.
+     */
+    id: 'brief-author', file: 'src/missions.js',
+    find: "  brief: 'Easy money. Two markers by the bayfront, a few hundred metres apart.',",
+    to: "  brief: 'Two markers by the bayfront. Exists so the wiring can be checked in a minute.',",
+    why: "the game's opening line explains why the mission exists to whoever built it",
+  },
+  {
+    /**
+     * THE END-OF-MISSION LINE'S CLOCK TICKS WHILE IT IS HIDDEN AGAIN. [browser], because the hold
+     * lives in district/main.js and nothing offline imports it. BAND_ORDER puts `wreck` above
+     * `ended`, so a mission lost BY being wrecked spent `WRECK_HOLD_S` of its `MISSION_END_S`
+     * behind the wreck line: 4.0 s of "THE CAR IS WRECKED" and then 1.9 s of "MISSION ABORTED"
+     * against a 6 s hold. The line still appears, which is why a check on "is it shown" cannot
+     * see this and boot-check reads the clock instead.
+     */
+    id: 'end-hidden', file: 'district/main.js',
+    find: "  if (missionEndFor > 0 && band.from === 'ended') {",
+    to: '  if (missionEndFor > 0) {',
+    why: 'a mission lost to a wreck is announced for 1.9 s of its 6 s hold',
     browser: true,
   },
   {

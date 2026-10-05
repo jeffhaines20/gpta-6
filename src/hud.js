@@ -911,7 +911,36 @@ export class Minimap {
       const m = s.markers[i];
       blip(m.x, m.z, m.kind);
     }
-    if (s.waypoint) blip(s.waypoint.x, s.waypoint.z, 'waypoint');
+    /**
+     * THE REACH ZONE, DRAWN, so the band's number and the blip stop disagreeing.
+     *
+     * The band counts to the trigger's EDGE — `max(0, d - radius)` — and this drew a PIN at the
+     * centre, so a playtester read "— 42 m" in words against a blip 66 m out, and the words
+     * reached "0 m" while the blip was still a radius ahead. Measured over a drive: the gap was
+     * exactly the radius at every range, 23.5 to 24.0 m against a declared 24. Both numbers were
+     * right about different things.
+     *
+     * With the ring drawn, "0 m" is the moment the player is inside a circle they can see.
+     * Stroked UNDER the pin so the pin stays the thing that reads at 6 px, and only when the
+     * ring is big enough to be a shape rather than a smudge — `ppm` is pixels per metre, so a
+     * 24 m radius on a 220 m box is about 12 px.
+     */
+    if (s.waypoint) {
+      const wr = (s.waypoint.radius ?? 0) * ppm;
+      if (wr >= 4) {
+        const dx = (s.waypoint.x - s.px) * ppm, dz = (s.waypoint.z - s.pz) * ppm;
+        const wx = cx + dx * rc - dz * rn, wy = cy + dx * rn + dz * rc;
+        ctx.save();
+        ctx.lineWidth = 1.4;
+        ctx.strokeStyle = THEME.route;
+        ctx.globalAlpha = 0.55;
+        ctx.beginPath();
+        ctx.arc(wx, wy, wr, 0, TAU);
+        ctx.stroke();
+        ctx.restore();
+      }
+      blip(s.waypoint.x, s.waypoint.z, 'waypoint');
+    }
     this._compass(ctx, box, rot);
     this._arrow(ctx, cx, cy, northUp ? s.heading : 0);
     ctx.restore();
@@ -1356,7 +1385,12 @@ export class HUD {
     // The waypoint is in it for the same reason: it is drawn by the same pass, and a caller who
     // starts reusing one object for it — which the on-foot car waypoint wants to do — would
     // otherwise have the map hold its last frame.
-    if (s.waypoint) sig += s.waypoint.x * 3.7 + s.waypoint.z * 11.9 + 4409;
+    // The radius is in the signature too: a stage whose zone is a different size has to
+    // redraw, and without it the ring would keep the previous stage's radius.
+    if (s.waypoint) {
+      sig += s.waypoint.x * 3.7 + s.waypoint.z * 11.9 + 4409
+        + (s.waypoint.radius ?? 0) * 17.3;
+    }
     if (sig !== this._markerSig) { this._markerSig = sig; this._dirty.map = true; }
 
     d.px = s.px; d.pz = s.pz;

@@ -251,12 +251,52 @@ export const MARLIN_STREET = defineMission({
 export const SHAKEDOWN = defineMission({
   id: 'shakedown',
   title: 'Shakedown',
-  brief: 'Two markers by the bayfront. Exists so the wiring can be checked in a minute.',
+  /**
+   * THE FIRST WORDS OF THE GAME WERE A NOTE TO ITS OWN AUTHOR. `brief` is what the offer band
+   * shows a player standing near a marker, and this one read "Two markers by the bayfront.
+   * Exists so the wiring can be checked in a minute." — the reason the mission exists, written
+   * for whoever was building it. A playtester reported it as the first thing they read:
+   * `SHAKEDOWN / Two markers by the bayfront. Exists so the wiring can be checked in a minute.
+   * — 30 m`. `shakedown` is the nearest job to the spawn, so for most players it is the first
+   * text in the game.
+   *
+   * What the mission IS FOR belongs in this comment, where it already is three lines above, and
+   * what the PLAYER is being offered belongs in `brief`. The job itself is unchanged: a short
+   * run between two bayfront markers.
+   *
+   * THE LINE'S OWN SUBTITLE, AND WHY IT IS SHORT. The stage subtitles below each fit a HUD line;
+   * this one is the only text shown before a player has accepted anything, and the band renders
+   * it in the same place. 61 characters against `marlin-street`'s 109, which wraps.
+   */
+  brief: 'Easy money. Two markers by the bayfront, a few hundred metres apart.',
   // 30 m along Marlin Street from the spawn: far enough not to fire on the first frame, close
   // enough to still be the one-minute wiring check this mission exists to be.
   start: { x: -308.9, z: 40, radius: 12 },
   stages: [
+    /**
+     * `GET IN THE CAR` TO A PLAYER WHO IS ALREADY IN IT, and `marlin-street` fixed this for
+     * itself and left its sibling — the recurring shape in this repo.
+     *
+     * The only exit is `inVehicle`, which is already true for anyone who drove to the marker, so
+     * the stage completes in the frame it begins: a playtester measured `marlin-street`'s
+     * equivalent on screen for 0.008333 s, half a frame at 60 Hz. `toCar` carries a long comment
+     * about exactly that and the answer there was to move its setup line into `brief`, which is
+     * shown at the OFFER whatever mode the player arrives in.
+     *
+     * The stage stays, because on FOOT it is real and holds for as long as the player stands
+     * there — and `b`'s `onFoot` trigger routes back here, so stepping out mid-run needs
+     * somewhere to go. What it gains is a subtitle, so the one frame a driver sees is not the
+     * only thing the stage ever says.
+     *
+     * AND THE SUBTITLE IS A SENTENCE OF THE BRIEF, which `mission-test` required and which the
+     * first attempt at this got wrong: it read "The bayfront run. Two markers." and the gate
+     * refused it, correctly, because a stage a driver sees for half a frame must not be the only
+     * place a piece of narration exists. That is the `toCar` rule — move it into `brief`, which
+     * is shown at the OFFER whatever mode the player arrives in — and the gate checks it
+     * sentence by sentence so a reworded brief still counts as carrying it.
+     */
     { id: 'a', objective: 'GET IN THE CAR',
+      subtitle: 'Two markers by the bayfront, a few hundred metres apart.',
       triggers: [{ kind: 'inVehicle', goto: 'b' }] },
     /**
      * STAGE b'S MARKER WAS 0.35 m FROM THE SPAWN, so it cleared on the same frame stage `a` did
