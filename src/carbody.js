@@ -2450,6 +2450,27 @@ export function buildTrafficCarGeometry(opts = {}) {
    * triangles. The stand-off it leaves at the lower edge is what a real plate
    * leaves.
    *
+   * AND THE SKY-VIEW DERIVATION ABOVE IS RIGHT ABOUT ITS TERM AND WRONG ABOUT
+   * WHAT DOMINATES, which is worth more than the fix. Captured before and after
+   * at the same camera on the same car, with two controls:
+   *
+   *     plate                55.1 -> 59.3    +7.6%
+   *     bumper beside it     13.0 -> 13.0    -0.5%   control, did not move
+   *     lit paint above      87.2 -> 87.2    +0.0%   control, did not move
+   *     plate / lit paint   0.632 -> 0.680
+   *
+   * +7.6%, not the +75% that going from 0.285 to 0.500 of the sky implies. The
+   * sky ratio is correct; the sky is simply not what lights this surface. A rear
+   * panel at noon is lit mostly by BOUNCE, and a down-facing plate was already
+   * collecting more bounce than a vertical one — so the swap gives up some of
+   * what it gains. Most of what the eye notices in the pair is the plate reading
+   * as a crisp panel with an edge rather than a smear, which is shape and not
+   * brightness.
+   *
+   * So the honest claim is: free, correct, measurably better, and small. The
+   * thing still holding the plate at 0.68 of the lit paint, where a real plate
+   * is BRIGHTER than coloured paint, is the instanceColor ceiling below.
+   *
    * What this does NOT fix: `instanceColor` multiplies every vertex, so the
    * plate is capped at the car's own paint and carries its hue — 0.736 of the
    * body on a white car and 0.736 of the body on a purple one. Measured across
