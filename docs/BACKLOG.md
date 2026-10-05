@@ -367,7 +367,65 @@ metres, or letting line-of-sight at short range count as a hold. Either changes 
 `pursuit-test` asserts, so restate its bounds in the same commit.
 
 
-### #90 The cap flattens everything above one star, and the offence floor is 3.3/km on an empty street
+### #90 FIXED, and the diagnosis was half right: a second saturation was being blamed on the cap
+The cap is a soft knee now — `src/wanted.js`'s `floorlessCharge`, `cap - (cap/2)^2 / raw` above
+`k = cap/2` and linear below it, C1 at the join with no constant to tune. Strictly monotonic
+everywhere, so no two severities ever charge the same, and asymptotic to the cap rather than
+meeting it, which makes #80's invariant STRICT. On the pair the finding was about:
+
+    22 vs 88 km/h into a car   clip 0.9854 / 1.0000   0.0146 apart
+                               knee 0.7463 / 0.9400   0.1937 apart, x13.3
+
+**But the flatness above 44.5 km/h is NOT the cap and no shape of cap can fix it.** `crimeScale`
+is `severity / majorSeverity`, and `severityFor` clamps severity at 1 once the delta-v reaches
+`killDv` — the right rule for DAMAGE, since one impact cannot cost more than the whole car — so
+the scale reads **8.333 at 50, 60, 80, 110 and 140 km/h**, identically. Isolating one term at a
+time:
+
+    a wall           the knee bends at 20.5 km/h   the clip flattened from 28.5   the SCALE is flat from 44.5
+    a civilian car   the knee bends at 16.5 km/h   the clip flattened from 22.5   the SCALE is flat from 44.5
+
+So the knee recovers the band between the cap and the scale's own ceiling — 16 km/h wide for a
+wall, 22 for a car, which is where ordinary street driving lives — and the finding's own headline
+example at 88 km/h sits in the region only `severityFor` can reach. **That is a separate open
+item: see #93 below.**
+
+**One gameplay consequence, stated because it is visible.** A knee is asymptotic, so a SINGLE
+110 km/h write-off into a building charges 0.9000 and reads **0 stars** where the clip charged
+exactly 1.0000 and read 1. The argument for keeping it: `propertyDamage` has no `min`, which the
+table says means "not on its own enough to make you wanted", and a ceiling set AT the lowest floor
+granted precisely the star the missing floor denies — every floorless crime at high severity
+landed on exactly one star whatever it was. It is not immunity, because offences stack: two
+building hits are a star, and the 3,304 m drive that produced 11 of them reaches five either way.
+The alternative is to give `propertyDamage` a `min`, which is retracted below for the same reason
+it was retracted before: a floored crime is exempt from the cap and that re-creates #80's
+inversion.
+
+Also fixed in the same line: **`opts.scale` had no validation at all.** A NaN scale made `heat`
+NaN and the meter then never rose again — `NaN >= 1` is false, so the player was immune for the
+rest of the session with the HUD reading 0 stars and nothing in the console. A scale of −1 charged
+0, a crime that makes you less wanted. Both are charged at the table value now and counted in
+`stats.badScales`; `mutation-sweep`'s `scale-nan` and `scale-sign` are the two rows, the second
+because a finite check alone does not cover the sign.
+
+The offence floor is the BUILDINGS, not the driving: 3.3/km over 3,304 m with zero traffic and
+zero pedestrians, 11 of 11 `propertyDamage` — the follower hitting buildings, #84/#87 territory,
+and still open.
+
+### #93 The crime scale inherits the damage model's clamp, so every crash over 44.5 km/h is one offence
+Split out of #90, which was blaming this on the cap. `DamageModel._crimeScaleFor` returns
+`severity / majorSeverity` and `severityFor` clamps severity at 1 at `killDv` (13.9 m/s), so the
+crime scale saturates at `1 / 0.12 = 8.333` and a 50 km/h collision, an 88 and a 140 are the
+same offence to `src/wanted.js`. The clamp is CORRECT where it is: health cannot drop more than
+the whole car in one hit. What is wrong is reusing a damage-bounded quantity as a severity
+report.
+
+The lever is a crime scale that does not inherit the clamp — scaled off the raw delta-v ratio
+rather than off clamped severity — and it is a bigger change than it looks: `crimeScale` appears
+in damage-test, wanted-test §24, crash-test and boot-check's run-over arm, and every number in
+all four moves. Needs #80's gate treatment, which means the sweep over speed has to come with it.
+
+### #90 (original record) The cap flattens everything above one star
 `FLOORLESS_CAP` is 1 and it CLIPS, so every floorless crime is flat from the scale at which
 `heat * scale` first reaches 1 to the top of its range:
 

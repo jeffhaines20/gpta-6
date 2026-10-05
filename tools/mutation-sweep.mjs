@@ -1372,6 +1372,56 @@ const MUTATIONS = [
   },
   {
     /**
+     * THE CAP GOES BACK TO BEING A CLIP, which is behaviour-preserving in everything a single
+     * crime's STARS can see — a floorless crime still cannot reach one star on its own — and it
+     * restores the tie the knee exists to remove: 22 km/h and 88 km/h into a civilian car charge
+     * 0.9854 and 1.0000, 0.0146 apart, where the knee separates them by 0.1937. Nothing errors
+     * and every ordering check in wanted-test §24 still passes, because ordering was never what
+     * broke.
+     */
+    id: 'knee-clip', file: 'src/wanted.js',
+    find: '  if (!(raw > cap / 2)) return raw;\n  return cap - (cap * cap / 4) / raw;',
+    to: '  return Math.min(raw, cap);',
+    why: 'severity stops mattering above the cap again: 0.0146 between a 22 and an 88 km/h crash',
+  },
+  {
+    /**
+     * THE KNEE MOVES TO THE CAP, which leaves the curve continuous and NOT C1: the lower branch
+     * arrives with slope 1 and the upper leaves with slope (cap^2/4)/cap^2 = 0.25, a corner at
+     * the join. It also makes the whole upper branch wrong — at raw = cap the charge reads 0.75
+     * where the two-branch form requires `cap`. Monotonic, so the tie checks cannot see it.
+     */
+    id: 'knee-point', file: 'src/wanted.js',
+    find: '  if (!(raw > cap / 2)) return raw;',
+    to: '  if (!(raw > cap)) return raw;',
+    why: 'the knee has a corner and drops 25% at the join, where the derivation says it is smooth',
+  },
+  {
+    /**
+     * THE MALFORMED-SCALE GUARD GOES. A NaN scale then makes `heat` NaN, and a meter whose heat
+     * is NaN never rises again — `NaN >= 1` is false, so the player is immune for the rest of
+     * the session with the HUD reading 0 stars and nothing in the console. The same shape as
+     * CLAUDE.md's non-finite delta-v buying immortality, through the other door.
+     */
+    id: 'scale-nan', file: 'src/wanted.js',
+    find: '    if (!(Number.isFinite(scale) && scale >= 0)) {',
+    to: '    if (false) {',
+    why: 'a NaN scale poisons the wanted meter permanently and reads as 0 stars',
+  },
+  {
+    /**
+     * AND IT ACCEPTS A NEGATIVE SCALE, which is the half a finite-check alone would miss —
+     * CLAUDE.md's "guard the DIRECTION as well as the magnitude", where `Math.hypot(NaN, NaN)
+     * || 1` sailed past a magnitude guard. A crime at scale −1 charges 0 and so makes you no
+     * more wanted than not committing it.
+     */
+    id: 'scale-sign', file: 'src/wanted.js',
+    find: '    if (!(Number.isFinite(scale) && scale >= 0)) {',
+    to: '    if (!Number.isFinite(scale)) {',
+    why: 'a negative scale is a free crime, and a finite check alone cannot see it',
+  },
+  {
+    /**
      * THE GARAGE MOVES ONTO A MISSION PICKUP POINT, which is the defect this district has
      * shipped THREE times — `shakedown`'s marker 0.35 m from the spawn, `ambush`'s on top of
      * `drop`'s trigger, and both put there by a gate rule. `garage` sits below `mission` in

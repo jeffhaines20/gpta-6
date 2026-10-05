@@ -667,8 +667,44 @@ console.log('CRIME SCALE — how big an offence was, not just which offence');
    * are kept by checking the raw product separately below: the cap is what holds the write-off
    * down, not a scale that stopped graduating.
    */
-  check('a write-off is worth a star where a scrape is not', wh.stars >= 1 && wl.stars === 0,
-    `${wl.stars}* vs ${wh.stars}*`);
+  /**
+   * RESTATED AGAIN, AND THIS TIME THE GAMEPLAY MOVES, SO IT IS SAID OUT LOUD. The cap became a
+   * soft knee (see src/wanted.js's `floorlessCharge`, and wanted-test §24 for the derivation),
+   * and a knee is ASYMPTOTIC to the cap where a clip met it exactly. So:
+   *
+   *     one 110 km/h building hit   raw 2.50   clip 1.0000 -> 1 star   knee 0.9000 -> 0 stars
+   *     two of them                 raw 5.00   clip 2.0000 -> 2        knee 1.8000 -> 1
+   *
+   * A SINGLE write-off into a building no longer makes you wanted, where it used to be worth
+   * exactly one star. That is a change a player can feel and it was not the point of the fix, so
+   * here is the argument for keeping it rather than tuning around it: `propertyDamage` has no
+   * `min`, and this file's own comment above says what that means — "the table saying a wall is
+   * not on its own enough to make you wanted". The clip set the ceiling AT the lowest floor,
+   * which is one star, so it granted precisely the star the missing floor denies. Every floorless
+   * crime at high severity landed on exactly one star, whatever it was. The knee makes the table's
+   * own statement true at every severity instead of at every severity but the top.
+   *
+   * It is not immunity: the offences STACK. Two building hits are a star, and the recorded
+   * 3,304 m drive that produced 11 `propertyDamage` offences reaches five either way.
+   *
+   * The alternative — give `propertyDamage` a `min` so a write-off is a star by right — is
+   * recorded in docs/BACKLOG.md and was retracted there, because a floored crime is exempt from
+   * the cap entirely and that re-creates the inversion #80 fixed: a write-off would out-charge a
+   * struck pedestrian again.
+   *
+   * So the property this arm asserts is the SEPARATION and the ORDER, which is what it was always
+   * for, plus the invariant the knee newly makes true.
+   */
+  console.log(`    two building hits at 110 km/h: heat ${(2 * wh.heat).toFixed(4)} -> ` +
+    `${Math.min(5, Math.floor(2 * wh.heat))}*, so it stacks rather than being immunity`);
+  check('a write-off charges far more than a scrape, which is what the scale is for',
+    wh.heat > 1.5 * wl.heat && wl.stars === 0,
+    `${wl.heat.toFixed(4)} vs ${wh.heat.toFixed(4)}, ${wl.stars}* vs ${wh.stars}*`);
+  check('and no single floorless crime makes you wanted, which the clip granted at the ceiling',
+    wh.stars === 0 && wh.heat < CRIME_TABLE.pedestrianHit.min,
+    `${wh.heat.toFixed(4)} against the lowest floor ${CRIME_TABLE.pedestrianHit.min}`);
+  check('but two of them do, so it is a threshold rather than an exemption',
+    Math.floor(2 * wh.heat) >= 1, `2 x ${wh.heat.toFixed(4)} = ${(2 * wh.heat).toFixed(4)}`);
   check('and the cap is what holds it there, not a scale that stopped graduating',
     heavy.crimeScale > 4 * light.crimeScale && heavy.crimeScale > 8,
     `scale ${light.crimeScale.toFixed(2)} -> ${heavy.crimeScale.toFixed(2)}, ` +

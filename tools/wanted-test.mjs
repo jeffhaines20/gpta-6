@@ -15,7 +15,8 @@
 import fs from 'node:fs';
 import { WantedSystem, CRIMES, RESPONSE, STATES, bindPursuit,
   SCENE_LEAVE_M, SCENE_STOP_MS, VictimWindow,
-  composeWanted, composeLaw, LAW_NOTICE_S, BUST_HOLD_S } from '../src/wanted.js';
+  composeWanted, composeLaw, LAW_NOTICE_S, BUST_HOLD_S,
+  floorlessCharge, FLOORLESS_KNEE } from '../src/wanted.js';
 import { objectiveLine, composeBand } from '../src/hud.js';
 import { DamageModel, IMPACT } from '../src/damage.js';
 
@@ -1546,8 +1547,15 @@ let searchSample;
     };
     const wallAt = firstBite('propertyDamage', IMPACT.wall);
     const carAt = firstBite('civilianCollision', IMPACT.vehicle);
+    /**
+     * AND THESE NUMBERS MOVED WITH THE KNEE, which is why the comment above says 29/23 and the
+     * run says 21/17. A knee bends from k = cap/2, so it starts separating severities at half the
+     * raw charge the clip needed before it started erasing them. The check below is unchanged and
+     * still passes — it was written as a RELATION ("ordinary street speed", "the car before the
+     * wall") rather than against the two numbers, which is the only reason it survived.
+     */
     console.log(`    the cap first bites at ${wallAt} km/h against a wall and ${carAt} km/h ` +
-      `against a civilian car`);
+      `against a civilian car (it was 29 and 23 while the cap was a clip)`);
     check('the cap engages at ordinary street speed, so the fix is not cosmetic',
       wallAt !== null && carAt !== null && wallAt < 40 && carAt < 40 && carAt < wallAt,
       `wall ${wallAt} km/h, car ${carAt} km/h`);
@@ -1579,10 +1587,19 @@ let searchSample;
   const refused = floorless.filter((id) => clean(id, 1).heat === 0);
   console.log(`    at an absurd scale: ${accepted.map((id) => `${id} ${clean(id, 1e6).heat}`)
     .join(', ')}; refused outright: ${refused.join(', ') || 'none'}`);
-  check('every floorless crime that files at all lands exactly ON the cap, not merely under',
+  /**
+   * RESTATED FOR THE KNEE, AND THE EQUALITY IT REPLACES IS STATED SO THE LOOSENING IS NOT SILENT.
+   * This was `Math.abs(clean(id, 1e6).heat - lowest) < 1e-9` — exactly ON the cap — which was the
+   * right check for a CLIP and is false for a knee, whose ceiling is an asymptote. `strictly
+   * under` on its own would be weaker than what it replaces, so it is paired with the approach:
+   * at an absurd scale every accepted floorless crime is within 1e-6 of the cap and none of them
+   * reaches it. See the knee section below for the curve itself.
+   */
+  check('every floorless crime that files at all approaches the cap without reaching it',
     accepted.length >= 3 &&
-    accepted.every((id) => Math.abs(clean(id, 1e6).heat - lowest) < 1e-9),
-    accepted.map((id) => `${id}:${clean(id, 1e6).heat.toFixed(4)}`).join(' '));
+    accepted.every((id) => clean(id, 1e6).heat < lowest &&
+      lowest - clean(id, 1e6).heat < 1e-6),
+    accepted.map((id) => `${id}:${clean(id, 1e6).heat.toFixed(9)}`).join(' '));
   check('and the ones that read zero are refused rather than capped to zero',
     refused.every((id) => clean(id, 1e6).heat === 0 && (CRIMES[id].min ?? 0) === 0),
     refused.join(' ') || 'none');
@@ -1604,6 +1621,243 @@ let searchSample;
     console.log(`    five wall strikes 3 s apart: heat ${each.join(' -> ')}`);
     check('the cap is per crime, not per record, so repeats still stack',
       each[4] > each[0] * 3, each.join(' '));
+  }
+
+
+  /**
+   * THE SHAPE OF THE CAP, which is the other half of #80 and was found by sweeping the fix.
+   *
+   * `Math.min(raw, cap)` kept the ordering and bought a tie: every floorless crime read the same
+   * charge from the severity at which the raw product reaches the cap up to the top of its range.
+   * `src/wanted.js`'s `floorlessCharge` is a soft knee instead. The arms below are in the order
+   * the claim has to be made: the curve is what it says it is, it is strictly monotonic, the OLD
+   * policy is not, and the part of the flatness this does NOT fix is named with its own number.
+   */
+  {
+    const cap = lowest;
+    // The OLD policy, written out rather than imported, so the two are compared and not assumed.
+    const clip = (raw) => Math.min(raw, cap);
+
+    /**
+     * (a) THE CLOSED FORM, pinned at named points rather than at one. `cap - (cap/2)^2 / raw`
+     * above the knee and `raw` below it, which pins the whole curve — where the old
+     * `clean(id, 1e6).heat === cap` pinned a single point and a reviewer had already found that
+     * one-sided version of it too loose.
+     */
+    const named = [[0, 0], [0.25, 0.25], [cap / 2, cap / 2], [0.75, 2 / 3], [1, 0.75],
+      [1.5, 5 / 6], [2.5, 0.9], [25 / 6, 0.94]];
+    const wrong = named.filter(([raw, want]) => Math.abs(floorlessCharge(raw) - want) > 1e-9);
+    console.log(`    the knee at k=${FLOORLESS_KNEE}: ` +
+      named.map(([raw]) => `${raw.toFixed(2)}->${floorlessCharge(raw).toFixed(4)}`).join(' '));
+    check('the cap is the soft knee its derivation says, at every point of it',
+      wrong.length === 0,
+      wrong.map(([r, w]) => `${r}: ${floorlessCharge(r)} not ${w}`).join('; ') || `${named.length} points`);
+    check('and the knee is half the cap, so the linear region is the bottom half of it',
+      FLOORLESS_KNEE === cap / 2, `${FLOORLESS_KNEE} against ${cap / 2}`);
+
+    /**
+     * (b) C1 AT THE KNEE, which is what makes this a derivation rather than two curves taped
+     * together. The upper branch's derivative is (cap^2/4)/raw^2, exactly 1 at raw = cap/2, so
+     * the branches meet in VALUE and in SLOPE and there is no corner to tune.
+     */
+    const h = 1e-7;
+    const below = (floorlessCharge(FLOORLESS_KNEE) - floorlessCharge(FLOORLESS_KNEE - h)) / h;
+    const above = (floorlessCharge(FLOORLESS_KNEE + 2 * h) - floorlessCharge(FLOORLESS_KNEE + h)) / h;
+    console.log(`    at the knee: value ${floorlessCharge(FLOORLESS_KNEE)} both sides, ` +
+      `slope ${below.toFixed(5)} below and ${above.toFixed(5)} above`);
+    check('the two branches meet in value and in slope, so the knee has no corner',
+      Math.abs(below - 1) < 1e-4 && Math.abs(above - 1) < 1e-4,
+      `${below.toFixed(6)} / ${above.toFixed(6)}`);
+
+    /**
+     * (c) STRICTLY MONOTONIC, EVERYWHERE, with the old policy as the known-bad. This is the whole
+     * point and it needs no epsilon: for a < b the charge must be strictly less. Swept over the
+     * scale range `src/damage.js` can actually produce — 0 to 8.333, which is
+     * `severityFor`'s ceiling over `majorSeverity` — times the largest floorless heat.
+     */
+    const maxRaw = 8.3334 * Math.max(...floorless.map((id) => CRIMES[id].heat));
+    const N = 20000;
+    let kneeTies = 0, clipTies = 0, overCap = 0, pk = -1, pc = -1;
+    for (let i = 0; i <= N; i++) {
+      const raw = (maxRaw * i) / N;
+      const vk = floorlessCharge(raw), vc = clip(raw);
+      if (i && !(vk > pk)) kneeTies++;
+      if (i && !(vc > pc)) clipTies++;
+      if (vk >= cap) overCap++;
+      pk = vk; pc = vc;
+    }
+    console.log(`    over raw 0..${maxRaw.toFixed(3)} on ${N} steps: the knee ties ${kneeTies} ` +
+      `times, the clip ${clipTies}; charges at or above the cap: ${overCap}`);
+    check('no two severities ever charge the same, which is what a clip could not do',
+      kneeTies === 0, `${kneeTies} ties of ${N} steps`);
+    check('KNOWN-BAD: and the old clip ties over most of that range, so this is a real change',
+      clipTies > N * 0.4, `${clipTies} of ${N} steps, ${(100 * clipTies / N).toFixed(0)}%`);
+    /**
+     * AND #80'S INVARIANT IS NOW STRICT. It needed "a floorless crime may not out-charge the
+     * lowest floor there is"; the clip met that with equality and the knee never reaches the cap
+     * at all. The asymptote is asserted from the other side so "strictly under" cannot cover for
+     * a cap that clamps far too low — at an absurd scale it is within 1e-6 of the ceiling.
+     */
+    const absurd = floorlessCharge(cap * 1e6);
+    console.log(`    at an absurd raw charge the knee reads ${absurd.toFixed(9)} against a ` +
+      `${cap} cap: ${(cap - absurd).toExponential(2)} under it`);
+    check('a floorless crime is now STRICTLY under the lowest floor, where the clip met it',
+      overCap === 0 && absurd < cap && clip(cap * 1e6) === cap,
+      `knee ${absurd.toFixed(9)} < ${cap}, clip ${clip(cap * 1e6)}`);
+    check('and it approaches the cap, so "under" is not covering for a cap that clamps low',
+      cap - absurd < 1e-6, `${(cap - absurd).toExponential(2)} short of ${cap}`);
+
+    /**
+     * (d) BELOW THE KNEE NOTHING MOVED — and the note two blocks up, which was written against a
+     * CLIP, DOES NOT CARRY OVER. It says a recorded 200 m drive of 16 offences had a worst scale
+     * of 1.82 and a worst raw charge of 0.91, and concludes "replayed through both policies the
+     * cap never engaged once ... a drive is not the instrument for this change". True of a
+     * ceiling at 1.00 and false of a knee at 0.50: 0.91 is well above it, and that drive's worst
+     * offence now charges 0.7253 instead of 0.9100, −20.3%.
+     *
+     * So the knee is visible on an ordinary drive where the clip was not, which is an ARGUMENT FOR
+     * it rather than a problem with it — and it is also why that old note is restated here instead
+     * of being left to be read as still true. A threshold's consequences do not survive a change
+     * of threshold.
+     */
+    const lowRaw = [0, 0.1, 0.25, 0.4, 0.49];
+    check('under the knee the charge is the raw product, unchanged from the old policy',
+      lowRaw.every((r) => floorlessCharge(r) === clip(r) && floorlessCharge(r) === r),
+      lowRaw.map((r) => `${r}->${floorlessCharge(r)}`).join(' '));
+    const driveWorst = 0.91;
+    console.log(`    the recorded drive's worst offence, raw ${driveWorst}: clip ` +
+      `${clip(driveWorst).toFixed(4)} -> knee ${floorlessCharge(driveWorst).toFixed(4)} ` +
+      `(${(100 * (floorlessCharge(driveWorst) / clip(driveWorst) - 1)).toFixed(1)}%)`);
+    check('and the knee IS visible on that drive, where the note above says the clip was not',
+      driveWorst > FLOORLESS_KNEE && clip(driveWorst) === driveWorst &&
+      floorlessCharge(driveWorst) < driveWorst * 0.85,
+      `raw ${driveWorst} against a knee at ${FLOORLESS_KNEE} and a cap at ${cap}`);
+
+    /**
+     * (e) THE PAIR THE FINDING WAS ABOUT. "An 88 km/h head-on into an occupied car is flat
+     * against a collision at a quarter of that severity" — driven through the real damage model
+     * at both speeds, not asserted from the curve.
+     */
+    const rawFor = (kind, kmh, id) => {
+      const v = kmh / 3.6;
+      const r = new DamageModel().impact({ dv: v * 1.15, kind, dirZ: 1, speed: v });
+      return r && r.crime === id ? CRIMES[id].heat * r.crimeScale : null;
+    };
+    const light = rawFor(IMPACT.vehicle, 22, 'civilianCollision');
+    const heavy = rawFor(IMPACT.vehicle, 88, 'civilianCollision');
+    const sepClip = clip(heavy) - clip(light), sepKnee = floorlessCharge(heavy) - floorlessCharge(light);
+    console.log(`    22 vs 88 km/h into a car: raw ${light.toFixed(3)}/${heavy.toFixed(3)}, ` +
+      `clip ${clip(light).toFixed(4)}/${clip(heavy).toFixed(4)} (${sepClip.toFixed(4)} apart), ` +
+      `knee ${floorlessCharge(light).toFixed(4)}/${floorlessCharge(heavy).toFixed(4)} ` +
+      `(${sepKnee.toFixed(4)}, x${(sepKnee / sepClip).toFixed(1)})`);
+    check('both speeds file the collision, or this arm compares two nulls',
+      light !== null && heavy !== null && heavy > light,
+      `${light} / ${heavy}`);
+    check('a severe collision now charges measurably more than a mild one',
+      sepKnee > 10 * sepClip, `${sepKnee.toFixed(4)} against the clip's ${sepClip.toFixed(4)}`);
+
+    /**
+     * (f) AND THE SATURATION THIS DOES NOT FIX, named with its own number, because the finding
+     * blamed all of the flatness on the cap and that is not where all of it is. `crimeScale` is
+     * `severity / majorSeverity` and `severityFor` CLAMPS severity at 1 once the delta-v reaches
+     * `killDv` — correct for damage, since one impact cannot cost more than the whole car — so
+     * the scale itself is identical at 50, 60, 80, 110 and 140 km/h. No shape of cap can separate
+     * inputs that are already equal.
+     *
+     * One term at a time, which is the only way this decomposes: where the knee starts bending,
+     * where the clip started flattening, and where the SCALE stops moving.
+     */
+    const crossings = (kind, id) => {
+      let knee = null, clipAt = null, sat = null, maxScale = 0;
+      for (let k = 1; k <= 200; k += 0.5) {
+        const v = k / 3.6;
+        const r = new DamageModel().impact({ dv: v * 1.15, kind, dirZ: 1, speed: v });
+        if (!r || r.crime !== id) continue;
+        const raw = CRIMES[id].heat * r.crimeScale;
+        if (knee === null && raw > FLOORLESS_KNEE) knee = k;
+        if (clipAt === null && raw > cap) clipAt = k;
+        if (r.crimeScale > maxScale + 1e-9) { maxScale = r.crimeScale; sat = null; }
+        else if (sat === null) sat = k;
+      }
+      return { knee, clipAt, sat, maxScale };
+    };
+    const cw = crossings(IMPACT.wall, 'propertyDamage');
+    const cc = crossings(IMPACT.vehicle, 'civilianCollision');
+    console.log('    where each saturation starts, km/h:        knee   old clip   the SCALE itself');
+    for (const [name, c] of [['a wall', cw], ['a civilian car', cc]]) {
+      console.log(`      ${name.padEnd(36)}${String(c.knee).padStart(5)}` +
+        `${String(c.clipAt).padStart(11)}${String(c.sat).padStart(18)}`);
+    }
+    check('the knee bends before the clip did, so the band it recovers is real',
+      cw.knee < cw.clipAt && cc.knee < cc.clipAt,
+      `wall ${cw.knee} < ${cw.clipAt}, car ${cc.knee} < ${cc.clipAt}`);
+    check('and that band sits below the speed the SCALE saturates at, or it recovers nothing',
+      cw.clipAt < cw.sat && cc.clipAt < cc.sat,
+      `wall ${cw.clipAt}..${cw.sat} km/h, car ${cc.clipAt}..${cc.sat}`);
+    /**
+     * ASSERTED AS A LIMIT OF THIS CHANGE, deliberately. Above the scale's own ceiling the two
+     * policies are equally flat, and a round that quotes the knee as fixing a 90 km/h crash is
+     * quoting it wrong. `severityFor`'s clamp is the lever for that and it lives in
+     * src/damage.js.
+     */
+    const hiScales = [50, 60, 80, 110, 140].map((kmh) => {
+      const v = kmh / 3.6;
+      const r = new DamageModel().impact({ dv: v * 1.15, kind: IMPACT.vehicle, dirZ: 1, speed: v });
+      return r ? r.crimeScale : null;
+    });
+    console.log(`    the crime scale at 50/60/80/110/140 km/h: ${hiScales.map((x) => x.toFixed(3)).join(' ')}` +
+      ` — identical, so neither cap can tell them apart`);
+    check('above killDv the scale is one number, which is the flatness the knee does NOT fix',
+      hiScales.every((x) => Math.abs(x - hiScales[0]) < 1e-9) &&
+      Math.abs(hiScales[0] - 1 / new DamageModel().majorSeverity) < 1e-6,
+      `${hiScales.map((x) => x.toFixed(4)).join(' ')} against 1/majorSeverity ` +
+      `${(1 / new DamageModel().majorSeverity).toFixed(4)}`);
+
+    /**
+     * (g) A MALFORMED SCALE, which the cap was quietly covering for. `opts.scale` had no
+     * validation; measured before the guard:
+     *
+     *     NaN        heat NaN, stars 0, and PERMANENT — every comparison against NaN is false
+     *     -1         heat 0 — a crime that makes you less wanted
+     *     Infinity   heat 1 — survived only because the clip clamped it
+     *
+     * The NaN row is the immortality CLAUDE.md records for a non-finite delta-v, arriving through
+     * the other door. Each is now charged at the table value and counted.
+     */
+    const bad = [['NaN', NaN], ['-1', -1], ['-0.5', -0.5], ['Infinity', Infinity],
+      ['a string', '2']];
+    const rows2 = bad.map(([label, scale]) => {
+      const w = new WantedSystem();
+      w.reportCrime('propertyDamage', { at: ORIGIN, scale });
+      return { label, heat: w.heat, stars: w.stars, bad: w.stats.badScales };
+    });
+    console.log(`    a malformed scale: ${rows2.map((r) =>
+      `${r.label} -> ${r.heat}/${r.stars}* (${r.bad} counted)`).join(', ')}`);
+    const tableValue = CRIMES.propertyDamage.heat;
+    check('every malformed scale charges the table value rather than poisoning the meter',
+      rows2.every((r) => Math.abs(r.heat - tableValue) < 1e-9 && r.bad === 1),
+      rows2.map((r) => `${r.label}:${r.heat}`).join(' '));
+    /**
+     * KNOWN-BAD, AGAINST THE MODULE AND NOT AGAINST JAVASCRIPT. The first version of this arm
+     * asserted `NaN >= 1` is false, which is a fact about the language and would pass whatever
+     * src/wanted.js did. What is worth asserting is that a WantedSystem whose heat has gone NaN
+     * is DEAD — so the heat is poisoned directly, the way the old expression poisoned it, and the
+     * system is then given the worst crime in the table.
+     */
+    const dead = new WantedSystem();
+    dead.heat = CRIMES.propertyDamage.heat * NaN;
+    dead.reportCrime('officerDown', { at: ORIGIN });
+    run(dead, 2, ORIGIN, { seen: true });
+    console.log(`    KNOWN-BAD: a poisoned meter given officerDown reads heat ${dead.heat}, ` +
+      `${dead.stars}* after 2 s`);
+    check('KNOWN-BAD: a meter whose heat went NaN never rises again, whatever you do',
+      Number.isNaN(dead.heat) && dead.stars === 0,
+      `heat ${dead.heat}, ${dead.stars}* after the worst crime in the table`);
+    check('and a legitimate scale is not counted as bad, or the guard refuses everything',
+      (() => { const w = new WantedSystem();
+        w.reportCrime('propertyDamage', { at: ORIGIN, scale: 3.5 });
+        return w.stats.badScales === 0 && w.heat > tableValue; })(),
+      'scale 3.5 passes and charges more than the table value');
   }
 
   /**

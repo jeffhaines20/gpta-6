@@ -432,6 +432,58 @@ So both numbers are the same two pedestrians standing inside 24 m of the camera 
 one run and not the other, and the 2:1 split that looked like evidence of
 structure is the factor of two above.
 
+## Two saturations stacked, and the finding blamed the one it could see
+
+`FLOORLESS_CAP` clipped: `Math.min(raw, cap)`. So a floorless crime charged the same from the
+severity at which the raw product reached the cap to the top of its range, and #90 was filed as
+"the cap flattens everything above one star" with a table of flat fractions per crime. Replacing
+the clip with a soft knee — `cap - (cap/2)^2 / raw` above `k = cap/2`, linear below, C1 at the
+join with no constant to tune — fixes that, and the pair the finding named separates x13.3:
+
+    22 vs 88 km/h into a civilian car   clip 0.9854 / 1.0000   0.0146 apart
+                                        knee 0.7463 / 0.9400   0.1937 apart
+
+**And it does not flatten any less above 44.5 km/h, because the second saturation is upstream and
+no shape of cap can reach it.** `crimeScale` is `severity / majorSeverity`, and `severityFor`
+clamps severity at 1 once the delta-v reaches `killDv` — the right rule for DAMAGE, since one
+impact cannot cost more than the whole car — so the scale itself reads **8.333 at 50, 60, 80, 110
+and 140 km/h**. Isolating one term at a time, which is the only way this decomposes:
+
+    a wall           the knee bends at 20.5 km/h   the clip flattened from 28.5   the SCALE is flat from 44.5
+    a civilian car   the knee bends at 16.5 km/h   the clip flattened from 22.5   the SCALE is flat from 44.5
+
+So the knee recovers the band between the cap and the scale's own ceiling, and the finding's
+headline example at 88 km/h sits in the region only `severityFor` can reach. Split out as #93
+rather than fixed here, because a crime scale that does not inherit a damage-bounded quantity
+moves every `crimeScale` number in four gates.
+
+**I measured the wrong thing first, and the wrong answer was the instrument.** The first probe
+counted what fraction of each crime's severity range was "flat" by stepping the range and
+comparing successive charges at four decimal places. The knee is strictly monotonic, so it is
+never flat — the figures it printed (53%, 47%, 57%) were the resolution of `toFixed(4)`, and
+`evading` came out MORE flat under the knee than under the clip, which is impossible. A metric
+whose answer is its own quantisation reads as a result. The honest statements are the two that
+need no epsilon: **how many ties there are** (0 of 20,000 steps for the knee, 16,000 for the clip)
+and **how far apart two named severities land**.
+
+**One gameplay consequence, worth separating from the fix.** A knee is asymptotic, so a single
+110 km/h write-off into a building charges 0.9000 and reads **0 stars** where the clip charged
+exactly 1.0000 and read 1. Keeping it is the argument that `propertyDamage` has no `min` — which
+the table says means "not on its own enough to make you wanted" — and a ceiling set AT the lowest
+floor granted precisely the star the missing floor denies. It is not immunity: two building hits
+are a star. But it is a change a player can feel, so `damage-test`'s "a write-off is worth a star
+where a scrape is not" was restated rather than quietly re-tuned, and the alternative is recorded
+in the backlog.
+
+**And the cap was covering for a missing guard.** `opts.scale` had no validation at all. A NaN
+scale made `heat` NaN and the meter then never rose again — `NaN >= 1` is false, so the player was
+immune for the rest of the session with the HUD reading 0 stars and nothing in the console, which
+is this file's "non-finite delta-v, and the immortality it buys" arriving through the other door.
+A scale of −1 charged 0. `Infinity` survived only because the clip clamped it, so the knee would
+have inherited that one too. Both are charged at the table value now, counted in
+`stats.badScales`, and have two mutation rows rather than one: a finite check alone does not cover
+the sign, which is this file's "guard the DIRECTION as well as the magnitude".
+
 ## Numbers that are not what they look like
 
 - **The budget gate's triangle count carries ~20k of run-to-run noise** from

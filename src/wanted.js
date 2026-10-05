@@ -245,6 +245,62 @@ export const RESPONSE = Object.freeze([
 const FLOORLESS_CAP = Math.min(...Object.values(CRIMES)
   .map((c) => c.min ?? 0).filter((m) => m > 0));
 
+/**
+ * AND THE CAP IS A SOFT KNEE, NOT A CLIP, BECAUSE A CLIP IS THE ONE SATURATION THAT TIES.
+ *
+ * `Math.min(raw, cap)` kept the ordering #80 was about and bought a new defect in the same line:
+ * every floorless crime became FLAT from the severity at which `heat * scale` first reaches the
+ * cap up to the top of its range. An 88 km/h head-on into an occupied car charged 1.0000 and the
+ * same crime at a quarter of that severity charged 0.9854 — 0.0146 apart, which no player can
+ * read. The complaint is that severity stops mattering, and a clip is what makes it stop.
+ *
+ * THE SHAPE IS DERIVED, NOT PICKED. A saturation that is C1 at its knee, strictly increasing
+ * everywhere, and asymptotic to the cap is
+ *
+ *     out = cap - (cap - k)^2 / (raw + cap - 2k)        for raw > k
+ *
+ * and at k = cap/2 the `cap - 2k` term vanishes, leaving `cap - (cap/2)^2 / raw`. Both halves of
+ * "derived" are checkable and `tools/wanted-test.mjs` checks them: the two branches meet at
+ * raw = k with value k AND with slope 1 — the upper branch's derivative is (cap^2/4)/raw^2, which
+ * is exactly 1 at raw = cap/2 — so there is no corner to tune and nothing to fudge.
+ *
+ * WHAT IT CHANGES, AND WHAT IT CANNOT. The knee is strictly monotonic, so no two severities ever
+ * charge the same, and on the pair above it separates them 0.1937 against the clip's 0.0146 —
+ * x13.3. Below k nothing moves at all, so the low-speed scrum that produced #87's 13
+ * civilianCollisions in 200 m is untouched.
+ *
+ * It does NOT flatten any less above 44.5 km/h, and that is a SECOND saturation this cap was
+ * being blamed for. `crimeScale` is `severity / majorSeverity` and `severityFor` clamps severity
+ * at 1 when the delta-v reaches `killDv` — the right rule for DAMAGE, since one hit cannot cost
+ * more than the whole car — so the scale itself reads 8.333 at 50, 60, 80, 110 and 140 km/h. No
+ * shape of cap can distinguish inputs that are already identical. Measured, with one term moved
+ * at a time:
+ *
+ *     a wall           the knee bends at 20.5 km/h   the clip flattened from 28.5   scale flat from 44.5
+ *     a civilian car   the knee bends at 16.5 km/h   the clip flattened from 22.5   scale flat from 44.5
+ *
+ * So this fixes the band between the cap and the scale's own ceiling — 16 km/h wide for a wall and
+ * 22 for a car, which is where ordinary street driving lives — and the flatness above 44.5 km/h
+ * belongs to `severityFor`'s clamp in src/damage.js, which is a different lever and a different
+ * argument.
+ *
+ * It still composes: the cap is on ONE crime's contribution, so repeats stack.
+ */
+export const FLOORLESS_KNEE = FLOORLESS_CAP / 2;
+
+/**
+ * The charge a floorless crime actually contributes. Exported so the gate can walk the curve
+ * without constructing crimes, which is why `severityFor` is exported from src/damage.js too.
+ *
+ * A non-finite `raw` is returned unchanged rather than smoothed, because the only honest thing to
+ * do with a number that is not one is to let the caller's guard see it; `reportCrime` refuses it
+ * before this is reached.
+ */
+export function floorlessCharge(raw, cap = FLOORLESS_CAP) {
+  if (!(raw > cap / 2)) return raw;
+  return cap - (cap * cap / 4) / raw;
+}
+
 // One star's `spotRadius` IS the leave radius: see `_watchScene`. Taken from the table rather
 // than written twice, so a retune of the response moves both together.
 SCENE_LEAVE_M = RESPONSE[1].spotRadius;
@@ -345,6 +401,10 @@ export class WantedSystem {
 
     this.stats = {
       crimes: 0, crimesIgnored: 0, escalations: 0, decays: 0,
+      // A caller passed a scale that is not a finite non-negative number and was charged the
+      // table value instead. Counted rather than thrown, and visible rather than silent: see
+      // `reportCrime`, where a NaN scale used to make `heat` NaN for the rest of the session.
+      badScales: 0,
       searches: 0, reacquires: 0, escapes: 0, unitsRequested: 0,
       unitsLost: 0, listenerErrors: 0, updates: 0,
       // The scene of an injury: armed on a `scene: true` crime, discharged by stopping, charged
@@ -439,10 +499,36 @@ export class WantedSystem {
     this.cooperated = false;
 
     const prev = this.stars;
+    /**
+     * A MALFORMED SCALE IS REFUSED, not multiplied. `opts.scale` had no validation and every
+     * caller in the tree happens to pass a finite non-negative number, so this was a hole rather
+     * than a bug — but the hole is the worst-shaped one there is. Measured, before the guard:
+     *
+     *     scale NaN        heat NaN,  stars 0   and PERMANENT: every comparison against NaN is
+     *                                           false, so the level never rises again
+     *     scale -1         heat 0,    stars 0   a crime that makes you less wanted
+     *     scale Infinity   heat 1,    stars 1   survived only because the cap clipped it
+     *
+     * The NaN row is CLAUDE.md's "non-finite delta-v, and the immortality it buys" arriving
+     * through the other door: `health < 0.2` is false for NaN and so is `heat >= 1`, so the wrong
+     * answer is the reassuring one and nothing errors.
+     *
+     * CHARGED AT THE TABLE VALUE rather than ignored, because a malformed scale is a CALLER bug
+     * and not a rule: the crime happened, and the only thing in doubt is how bad it was. The
+     * `ignore()` path above is for rules a player can satisfy — no wanted level, refractory — and
+     * putting a programming error on it would make a typo look like gameplay. Counted, so it is
+     * visible rather than silent.
+     */
+    let scale = opts.scale ?? 1;
+    if (!(Number.isFinite(scale) && scale >= 0)) {
+      this.stats.badScales++;
+      scale = 1;
+    }
     // See FLOORLESS_CAP: a crime the table gives no floor may not out-charge the lowest floor there
-    // is. One crime's contribution is capped, not the running total, so repeats still stack.
-    const raw = c.heat * (opts.scale ?? 1);
-    const delta = (c.min ?? 0) > 0 ? raw : Math.min(raw, FLOORLESS_CAP);
+    // is, and the cap is a soft knee so that severity never stops mattering. One crime's
+    // contribution is capped, not the running total, so repeats still stack.
+    const raw = c.heat * scale;
+    const delta = (c.min ?? 0) > 0 ? raw : floorlessCharge(raw);
     this.heat = Math.min(Math.max(this.heat + delta, c.min), this.maxStars + 0.99);
     this.cool = Math.min(this.cool + c.cool, this.maxCool);
     this._lastCrimeAt = this.time;
