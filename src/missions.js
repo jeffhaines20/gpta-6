@@ -133,37 +133,51 @@ export const MARLIN_STREET = defineMission({
       id: 'ambush',
       objective: 'LOSE THEM',
       /**
-       * A STAGING POINT SHORT OF THE DROP, and the history is the whole argument.
+       * NO MARKER, AND THE HISTORY IS THE WHOLE ARGUMENT — three markers in three rounds, and a
+       * GATE RULE PUT EVERY ONE OF THEM THERE.
        *
-       * This stage originally had NO marker, and that was measured as the worst thing in the
-       * game: a playtester sat through 156.3 s of a 249.4 s run — 63% — with a blank HUD across
-       * five entries. So it was given one, pointed at the drop, on the reasoning that there is no
-       * reading of the fiction where the courier stops wanting to reach the marina.
+       * 1. The stage originally had none, and that was measured as the worst thing in the game:
+       *    a playtester sat through 156.3 s of a 249.4 s run — 63% — with a blank HUD across
+       *    five entries. So `mission-test` grew "every stage with a time limit has somewhere to
+       *    go".
+       * 2. To satisfy it the marker went at the drop, (-471, 205) — which is `drop`'s own reach
+       *    trigger, 0.0 m away, radius 28 m. A player who follows the HUD shakes the tail
+       *    standing on the drop, `drop` fires in the same breath, and "DELIVER THE PARCEL TO THE
+       *    MARINA" is the active stage for 0.033 s. The delivery leg of the delivery mission did
+       *    not exist. So `mission-test` grew a second rule: a marker must not sit inside the next
+       *    stage's reach radius.
+       * 3. (-194.8, 38.6) satisfies both rules — 322 m from the drop, 11.5x its radius, 0.06 m
+       *    off a routable road — and is still wrong, because THIS STAGE HAS NO DESTINATION AT
+       *    ALL. Its only exit is `{ all: [timer 2 s, evaded] }`. A playtester drove the arrow to
+       *    1 m and stopped, which is what you do with an arrow, and was arrested at the two stars
+       *    this stage's own `onEnter` had just given them: MISSION ABORTED, 3 of 6 stages.
+       *    Reproduced here — arrived at the cue, held the brake, busted, aborted at t=198.3 s.
+       *    Driving away instead passed the mission at 273.7 s.
        *
-       * THAT FIX HAD AN UNMEASURED CONSEQUENCE. `drop`'s reach trigger is at (-471, 205) with a
-       * radius of 28 m, and the marker was at (-471, 205) — 0.0 m away. So a player who follows
-       * the HUD shakes the tail standing on the drop, `drop` fires and is satisfied in the same
-       * breath, and the mission's final objective — "DELIVER THE PARCEL TO THE MARINA" — is the
-       * active stage for 0.033 s. Two frames at 60 Hz. The delivery leg of the delivery mission
-       * did not exist, and the beat the player never saw is the one the mission is named for.
-       * A playtester found it; tools/mission-test.mjs now asserts the general property, because
-       * this is the second time a marker has landed inside the next stage's own reach radius —
-       * `shakedown`'s was 0.35 m from the spawn against 30 m.
+       * So the property is not another rule about WHERE a marker may sit. It is that **a stage
+       * whose exit condition is not positional must not post a positional cue** — `src/mission.js`
+       * now refuses one in `defineMission`, which makes it an authoring error rather than a gate
+       * rule a later round can satisfy sideways for a fourth time.
        *
-       * (-194.8, 38.6) is 322 m from the drop, 11.5x its radius, and 0.06 m off a routable road.
-       * It also reads better than the old marker did: pointing at the handover WHILE WANTED tells
-       * the player to bring a police tail to it, which is the one thing a courier would not do.
-       * Shake them first, then deliver — which is what the two stages now actually say.
+       * AND THE CUE IS NOT GONE, IT IS THE RIGHT ONE. Measured on entry to this stage, with
+       * nothing else in the world: the wanted strip reads `EVADING 16s` and the minimap carries
+       * two `enemy` blips at 128 m and 265 m. Both already existed. A red dot chasing you cannot
+       * be misread as a destination, which is exactly what the old arrow was.
        */
-      marker: { x: -194.8, z: 38.6 },
       /**
        * THE SUBTITLE HAS TO SAY WHAT TO DO, because this stage is the only one with no waypoint.
        * A playtester sat through fourteen of them and reported the line as it read from the seat:
        * "'LOSE THEM — Somebody talked. Police at Five Points.' with no waypoint, 500 m from Five
        * Points ... from the seat it reads as a broken objective". The old text says where the
        * trouble came from; a player needs to know that the answer is distance and time.
+       *
+       * IT NAMED A CUE THAT NEVER FIRES. "watch the stars drop" was measured over 109 s of
+       * fleeing at 40 km/h: the stars read 2 at EVERY sample and went 2 -> 0 in one step at the
+       * stage transition, after the stage was already won. The thing that does move is the wanted
+       * note — SEEN -> EVADING 11s -> SEEN -> REPORTED — so the line names that word instead,
+       * exactly as `composeWanted` spells it.
        */
-      subtitle: 'Somebody talked. Get clear of them and stay clear — watch the stars drop.',
+      subtitle: 'Somebody talked. Break away and run the EVADING clock down.',
       triggers: [
         // A MINIMUM DWELL BEFORE `evaded` COUNTS, and it is not belt-and-braces for
         // its own sake. The runner now breaks its transition chain whenever a stage

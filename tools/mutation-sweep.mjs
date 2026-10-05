@@ -287,16 +287,50 @@ const MUTATIONS = [
   },
   {
     /**
-     * PUTS THE AMBUSH MARKER BACK ON THE DROP. Nothing errors, every stage still reaches every
-     * other, the mission still passes -- it just passes 0.033 s after the player is told to make
-     * the delivery, so the flagship mission's final objective is two frames long and the beat the
-     * mission is named for does not happen. A playtester found the original; no gate could see it
-     * until mission-test asserted that a marker never lands inside the next stage's reach radius.
+     * NEUTERS THE REFUSAL THAT KEEPS A POSITIONAL CUE OFF A NON-POSITIONAL STAGE.
+     *
+     * THIS ROW REPLACES `drop-flash`, which put `ambush`'s marker back on the drop and was the
+     * record of the second of three wrong markers on that one stage. Its target line is gone:
+     * `ambush` has no marker at all now, and `defineMission` refuses to let it have one, so the
+     * old row went stale -- caught by the staleness check in this file's own selftest, which is
+     * what that check is for.
+     *
+     * A row that simply re-added the marker would be worthless as evidence: `defineMission`
+     * throws at import, every gate that reads src/missions.js exits non-zero, and non-zero is
+     * how this tool spells "caught" -- the same trap CLAUDE.md records for `--browser` finding a
+     * foreign document root. So the mutation is aimed at the GUARD instead. It is
+     * behaviour-preserving on this tree, because nothing currently violates the rule; what it
+     * removes is the ability to refuse the next violation.
+     *
+     * Caught by mission-test's known-bad arm, which plants four invalid shapes -- the ambush
+     * that shipped, a marker 322 m from its reach, a marker whose only positional trigger is
+     * `leave`, and one 0.1 m outside the radius -- and asserts every one is refused while four
+     * legitimate shapes are accepted.
      */
-    id: 'drop-flash', file: 'src/missions.js',
-    find: '      marker: { x: -194.8, z: 38.6 },',
-    to: '      marker: { x: -471, z: 205 },',
-    why: "the delivery mission's delivery leg disappears again",
+    id: 'marker-guard', file: 'src/mission.js',
+    find: '        if (!reaches.length) {',
+    to: '        if (false && !reaches.length) {',
+    why: 'a flee stage can be given a destination marker again, and nothing says no',
+  },
+  {
+    /**
+     * PUTS BACK A SUBTITLE THAT NAMES A CUE THAT NEVER FIRES.
+     *
+     * `ambush` is the one stage with no waypoint, so its subtitle is the WHOLE instruction, and
+     * it used to end "watch the stars drop". Measured over 109 s of fleeing at 40 km/h: the
+     * stars read 2 at every sample and went 2 -> 0 in ONE step at the stage transition, after
+     * the stage was already won. The thing that does move is the wanted note -- SEEN ->
+     * EVADING 11s -> SEEN -> REPORTED.
+     *
+     * Behaviour-preserving in every sense a simulation can see: identical geometry, identical
+     * triggers, identical outcomes. Only a check that reads the WORDS against the module that
+     * prints them can tell the two apart, which is why mission-test asks `composeWanted` for
+     * the word rather than spelling it a second time.
+     */
+    id: 'flee-cue', file: 'src/missions.js',
+    find: "      subtitle: 'Somebody talked. Break away and run the EVADING clock down.',",
+    to: "      subtitle: 'Somebody talked. Get clear of them and stay clear — watch the stars drop.',",
+    why: 'the only instruction on the only waypointless stage names a cue that never fires',
   },
   {
     /**

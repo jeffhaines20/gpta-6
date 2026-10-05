@@ -216,6 +216,59 @@ export function defineMission(m) {
       }
       if (hasGoto && !ids.has(t.goto)) errs.push(`${where}: goto "${t.goto}" is not a stage id`);
     });
+    /**
+     * A POSITIONAL CUE NEEDS A POSITIONAL EXIT, and this is here rather than in a gate because
+     * a gate rule has now put a wrong marker on one stage THREE TIMES. The ledger is in
+     * `src/missions.js` under `ambush`; the short version is that each rule was right about
+     * what it demanded and silent about the consequence, and the third marker satisfied both
+     * earlier rules while pointing 322 m at a place where nothing whatever happens. A player
+     * drove to it and stopped — which is what an arrow is for — and was arrested at the two
+     * stars the stage itself had just given them.
+     *
+     * `marker` IS A DESTINATION: `MissionRunner.hud()` posts it as `waypoint`, which
+     * `district/main.js` hands to the minimap as a `MARKER_STYLE.waypoint` pin and
+     * `tools/playtest.mjs` reports as `look().waypoint` with a bearing and a range. There is no
+     * reading of that in which it means anything but "go here".
+     *
+     * So: a stage with a marker must carry a `reach` trigger, and the marker must lie inside
+     * that trigger's radius — the stage's OWN declared number, not a margin anybody picked, and
+     * the exact property that makes arriving at the cue satisfy the stage. Measured over the
+     * district when this landed, every correct marker was at 0.000 m from its reach target
+     * (eastbound, drop, dropHot, shakedown/b, shakedown/c) and `ambush` was the only stage with
+     * a marker and no `reach` at all. `tools/mission-test.mjs` prints those separations so a
+     * drift off centre shows up as a number rather than waiting for the radius to be crossed.
+     *
+     * A composite is walked, because `{ all: [reach, ...] }` names a destination just as much
+     * as a bare one does. `leave` is NOT a destination — `objectiveDistance` excludes it for
+     * the same reason — so a stage whose only positional trigger is `leave` may not post a
+     * marker either: an arrow pointing AT the thing you must get away from is the same defect
+     * with the sign flipped.
+     */
+    if (s.marker) {
+      const mk = s.marker;
+      if (!Number.isFinite(mk.x) || !Number.isFinite(mk.z)) {
+        errs.push(`${at(s)}: marker needs finite x and z`);
+      } else {
+        const reaches = [];
+        const walk = (t) => {
+          if (!t || !t.kind) return;
+          if (t.kind === 'reach') reaches.push(t);
+          if (COMPOSITE.has(t.kind) && Array.isArray(t.of)) t.of.forEach(walk);
+        };
+        es.forEach(walk);
+        if (!reaches.length) {
+          errs.push(`${at(s)}: posts a marker at (${mk.x}, ${mk.z}) and has no reach trigger,`
+            + ' so the one navigational cue on screen points where nothing happens. A stage'
+            + ' whose exit is not positional must not post a positional cue.');
+        } else if (!reaches.some((t) => Number.isFinite(t.x) && Number.isFinite(t.z)
+          && t.radius > 0 && Math.hypot(mk.x - t.x, mk.z - t.z) <= t.radius)) {
+          const best = Math.min(...reaches.map((t) => Math.hypot(mk.x - t.x, mk.z - t.z)));
+          errs.push(`${at(s)}: its marker is ${best.toFixed(1)} m from the nearest reach`
+            + ` trigger, outside every one of their radii — arriving at the cue does not`
+            + ' satisfy the stage');
+        }
+      }
+    }
     if (s.timeLimit != null && !(s.timeLimit > 0)) errs.push(`${at(s)}: timeLimit must be above 0`);
     if (s.timeLimit != null && !s.onTimeout) {
       errs.push(`${at(s)}: timeLimit needs onTimeout ("failed", "passed" or a stage id)`);
@@ -489,12 +542,19 @@ export class MissionRunner {
    *                Radii in this district's missions are 24, 28, 30 and 30 m.
    *   `inVehicle`  `carRange`, which is the distance to the thing you have to get into.
    *
-   * A STAGE'S `marker` IS NOT A DESTINATION. `marlin-street`'s `ambush` carries one at
-   * (-194.8, 38.6) and is satisfied by a timer AND an evasion, so a distance to that marker would
-   * promise the player something arriving there does not deliver — which is the exact defect
-   * CLAUDE.md's marker section records twice, in the other direction. `leave` is excluded for the
-   * same reason: the number that matters there is how far you still have to GO, and the trigger
-   * fires on getting out rather than on getting to anything.
+   * A STAGE'S `marker` WAS NOT A DESTINATION, AND THIS GUARD COVERED HALF THE CASE.
+   * `marlin-street`'s `ambush` carried one at (-194.8, 38.6) while being satisfied by a timer
+   * AND an evasion, so this function correctly refused to put a number on it — and `hud()`
+   * eleven lines below went on posting the same marker as `waypoint`, which the minimap draws
+   * as a pin and `tools/playtest.mjs` reports with a bearing and a range. The distance was
+   * fixed and the arrow was not, so the stage shipped with no number and a cue pointing 322 m
+   * at a place where nothing happens; a playtester drove to it, stopped, and was arrested.
+   * CLAUDE.md: a guard that covers half a case reads as a guard.
+   *
+   * `defineMission` now refuses that authoring outright — a marker must lie inside a `reach`
+   * trigger's own radius — so a marker IS a destination and the two halves cannot disagree
+   * again. `leave` is still excluded here: the number that matters there is how far you have
+   * to GO, and the trigger fires on getting out rather than on getting to anything.
    */
   objectiveDistance() {
     const s = this.stage;
@@ -519,6 +579,9 @@ export class MissionRunner {
     // destination renders exactly as it did.
     const out = { objective: dist == null ? s.objective : { text: s.objective, distance: dist },
       subtitle: s.subtitle ?? null };
+    // A WAYPOINT IS A PROMISE THAT ARRIVING DOES SOMETHING, and `defineMission` is what keeps
+    // it: a marker must sit inside one of the stage's own `reach` radii. See `objectiveDistance`
+    // above for the round this cost.
     if (s.marker) out.waypoint = { x: s.marker.x, z: s.marker.z };
     if (s.markers) out.markers = s.markers;
     // Seconds remaining, for a stage that has a deadline. Floored at 0 so a HUD

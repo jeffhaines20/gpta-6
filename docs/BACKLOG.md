@@ -79,6 +79,15 @@ perturbs every routing and spawn decision after it.
 
 ## Missions and driving — playtest round 8
 
+### The flagship's chase stage is LOST by obeying the HUD and WON by ignoring it — FIXED
+Fixed in the commit that removed `ambush`'s marker. The root was that a GATE RULE put each of
+three wrong markers on that one stage, so the property moved into `src/mission.js`'s
+`defineMission`, where it is an authoring error a later round cannot satisfy sideways: a stage
+posting a `marker` must carry a `reach` trigger and the marker must lie inside its radius. Five
+gate rules in this tree had baked the marker in and all five are restated. What the player gets
+instead was already on screen and is measured: `EVADING 16s` in the wanted strip and two `enemy`
+blips at 128 m and 265 m. The original record follows.
+
 ### The flagship's chase stage is LOST by obeying the HUD and WON by ignoring it
 Two arms, identical entry into `marlin-street`'s `ambush` stage at t=50.8 s, 2 stars,
 empty world so only the mission and the police are in play. Byte-identical on a re-run.

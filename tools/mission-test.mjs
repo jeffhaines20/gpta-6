@@ -20,6 +20,9 @@ import { DamageModel } from '../src/damage.js';
 import { objectiveLine } from '../src/hud.js';
 import { MissionRunner, defineMission, OUTCOMES, TRIGGERS, snapshotFields,
   MissionBoard, OFFER_RADIUS_M } from '../src/mission.js';
+// For the flee stage's cue: the word the wanted strip prints is read off the module that
+// prints it, not spelled a second time here. See section (c).
+import { composeWanted, STATES } from '../src/wanted.js';
 
 const DT = 1 / 30;
 const checks = [];
@@ -473,19 +476,110 @@ console.log('\n=== 9. THE AUTHORED MISSIONS, walked stage by stage');
     selfClearing.join('; ') || '0 of them');
 
   /**
-   * A STAGE WITH A CLOCK NEEDS SOMEWHERE TO GO. `ambush` had a 240 s limit and no marker, so the
-   * waypoint was gone for the whole of it — a playtester measured 156.3 s of a 249.4 s run, 63%,
-   * with a blank HUD. `toCar` and `backToCar` have no marker either and correctly so: the car is
-   * where you left it. The distinguishing property is the clock.
+   * A STAGE WITH A CLOCK NEEDS TO SAY WHAT TO DO — AND THIS RULE USED TO DEMAND A MARKER, WHICH
+   * IS THE THIRD TIME A RULE IN THIS FILE HAS PUT A WRONG MARKER ON ONE STAGE.
+   *
+   * It read `st.timeLimit != null && !st.marker` and was written because `ambush` had a 240 s
+   * limit and no marker, and a playtester measured 156.3 s of a 249.4 s run — 63% — with a blank
+   * HUD. That observation was right. The INFERENCE was that a clock implies a destination, and
+   * `ambush` is the counter-example: its only exit is `{ all: [timer 2 s, evaded] }`, so there
+   * is nowhere to go, and every marker the rule extracted pointed somewhere arriving at was
+   * either instant completion of the NEXT stage (the drop, 0.0 m) or an arrest (322 m away, a
+   * playtester drove to 1 m and stopped and was busted).
+   *
+   * What the clock actually owes the player is an INSTRUCTION, which is a subtitle, not a pin:
+   * the cue a flee stage has is the wanted note (`EVADING 16s`, measured on entry here) and the
+   * police as `enemy` blips (two at 128 m and 265 m, same measurement). Both already exist.
+   *
+   * So the rule is the honest one, and `src/mission.js`'s `defineMission` now REFUSES a marker
+   * on a stage with no `reach` — a module rule a later round cannot satisfy sideways.
    */
-  const timedNoMarker = [];
+  const timedNoCue = [];
   for (const m of Object.values(MISSIONS)) {
     for (const st of m.stages) {
-      if (st.timeLimit != null && !st.marker) timedNoMarker.push(`${m.id}/${st.id}`);
+      if (st.timeLimit == null) continue;
+      if (!st.marker && !(typeof st.subtitle === 'string' && st.subtitle.trim().length > 0)) {
+        timedNoCue.push(`${m.id}/${st.id}`);
+      }
     }
   }
-  check('every stage with a time limit has somewhere to go', timedNoMarker.length === 0,
-    timedNoMarker.join(', ') || '0 of them');
+  console.log('    stages with a clock: ' + Object.values(MISSIONS).flatMap((m) => m.stages
+    .filter((st) => st.timeLimit != null)
+    .map((st) => `${st.id} ${st.timeLimit}s ${st.marker ? 'marker' : 'no marker'}`
+      + `, subtitle ${st.subtitle ? `"${st.subtitle.slice(0, 40)}…"` : 'NONE'}`)).join(' | '));
+  check('every stage with a time limit tells the player what to do', timedNoCue.length === 0,
+    timedNoCue.join(', ') || '0 of them');
+
+  /**
+   * AND A POSITIONAL CUE NEEDS A POSITIONAL EXIT. `src/mission.js` refuses the authoring, so
+   * this walks the real district and prints the separations — the number the module's radius
+   * test cannot show — plus the known-bad table, because a rule that only ever sees valid input
+   * passes for the most flattering possible reason.
+   *
+   * Every correct marker in this district is at 0.000 m from its own reach target. That is the
+   * measurement that makes "inside the radius" a generous bound rather than a chosen one.
+   */
+  {
+    const rows = [];
+    for (const m of Object.values(MISSIONS)) {
+      for (const st of m.stages) {
+        if (!st.marker) continue;
+        const rs = [];
+        const walk = (t) => {
+          if (!t || !t.kind) return;
+          if (t.kind === 'reach') rs.push(t);
+          if ((t.kind === 'all' || t.kind === 'any') && Array.isArray(t.of)) t.of.forEach(walk);
+        };
+        (st.triggers ?? []).forEach(walk);
+        const sep = rs.length
+          ? Math.min(...rs.map((t) => Math.hypot(st.marker.x - t.x, st.marker.z - t.z))) : null;
+        rows.push({ id: `${m.id}/${st.id}`, n: rs.length, sep,
+          r: rs.length ? Math.max(...rs.map((t) => t.radius)) : null });
+      }
+    }
+    console.log('    marker to its own reach target: ' + rows.map((x) =>
+      `${x.id.split('/')[1]} ${x.sep == null ? 'NO REACH' : `${x.sep.toFixed(3)} m / r${x.r}`}`)
+      .join(' | '));
+    check('every marker in the district is its own stage\'s reach target, to the millimetre',
+      rows.length > 0 && rows.every((x) => x.sep != null && x.sep < 0.001),
+      `${rows.length} markers, worst ${Math.max(...rows.map((x) => x.sep ?? Infinity)).toFixed(3)} m`);
+    // The KNOWN-BAD table. `b` must stay reachable and able to pass or an unrelated fault masks
+    // the one under test — the first version of this fixture made it unreachable and all four
+    // valid cases came back REFUSED, which would have read as the rule being broken.
+    const fixture = (extra) => ({ id: 'probe', title: 'Probe', stages: [
+      { id: 'a', objective: 'GO', triggers: [{ kind: 'inVehicle', goto: 'b' }] },
+      { id: 'b', objective: 'FLEE', triggers: [{ kind: 'all',
+        of: [{ kind: 'timer', seconds: 2 }, { kind: 'evaded' }], outcome: 'passed' }], ...extra },
+    ] });
+    const refuses = (extra) => {
+      try { defineMission(fixture(extra)); return false; } catch { return true; }
+    };
+    const REACH28 = [{ kind: 'reach', x: 0, z: 0, radius: 28, outcome: 'passed' }];
+    const bad = [
+      ['the ambush that shipped: a marker and no reach at all', { marker: { x: -194.8, z: 38.6 } }],
+      ['a marker 322 m from its reach trigger', { marker: { x: -194.8, z: 38.6 },
+        triggers: [{ kind: 'reach', x: -471, z: 205, radius: 28, outcome: 'passed' }] }],
+      ['a marker whose only positional trigger is `leave`', { marker: { x: 0, z: 0 },
+        triggers: [{ kind: 'leave', x: 0, z: 0, radius: 10, outcome: 'passed' }] }],
+      ['a marker 0.1 m outside the radius', { marker: { x: 0, z: 28.1 }, triggers: REACH28 }],
+    ];
+    const good = [
+      ['a marker on its reach target', { marker: { x: 0, z: 0 }, triggers: REACH28 }],
+      ['a marker 0.1 m inside the radius', { marker: { x: 0, z: 27.9 }, triggers: REACH28 }],
+      ['a reach inside a composite', { marker: { x: 5, z: 0 }, triggers: [{ kind: 'all',
+        of: [{ kind: 'timer', seconds: 2 }, { kind: 'reach', x: 0, z: 0, radius: 10 }],
+        outcome: 'passed' }] }],
+      ['no marker and no reach, which is what `ambush` is now', {}],
+    ];
+    const missedBad = bad.filter(([, e]) => !refuses(e)).map(([n]) => n);
+    const falseAlarm = good.filter(([, e]) => refuses(e)).map(([n]) => n);
+    check('KNOWN-BAD: defineMission refuses a positional cue with no positional exit',
+      missedBad.length === 0, missedBad.join('; ')
+        || `all ${bad.length} refused, including 28.1 m against a radius of 28`);
+    check('and accepts every legitimate shape, so the bound is sharp not blanket',
+      falseAlarm.length === 0, falseAlarm.join('; ')
+        || `all ${good.length} accepted, including 27.9 m against the same radius`);
+  }
 
   /**
    * AND WHEREVER IT SENDS YOU MUST NOT ALREADY BE THE NEXT STAGE'S DESTINATION.
@@ -541,6 +635,35 @@ console.log('\n=== 9. THE AUTHORED MISSIONS, walked stage by stage');
   }
   console.log(`    marker to the NEXT stage's reach trigger:`);
   for (const line of entryMargins) console.log(`      ${line}`);
+  /**
+   * AND ITS OWN KNOWN-BAD, BECAUSE REMOVING `ambush`'s MARKER HALVED THIS ARM'S COVERAGE.
+   *
+   * It read 2 edges and now reads 1: `ambush -> drop` was the edge the original defect lived
+   * on, and the fix for the round-8 finding deleted the marker that made it checkable. One
+   * remaining edge is not vacuous, but "1 edge, all clear" is thin evidence for a rule this
+   * file has now been wrong about three times, and losing coverage without restating it is
+   * exactly the silent loosening CLAUDE.md forbids.
+   *
+   * So the detector is run against the historical configuration it was written for — the
+   * marker at (-471, 205), 0.0 m from `drop`'s own trigger — and must catch it. The predicate
+   * is the same one the loop above uses, applied to planted data rather than re-derived, so
+   * this cannot drift away from what it guards.
+   */
+  {
+    const detect = (mk, t) => Math.hypot(mk.x - t.x, mk.z - t.z) <= t.radius;
+    const drop = MISSIONS['marlin-street'].stages.find((x) => x.id === 'drop');
+    const trig = (drop.triggers ?? []).find((t) => t.kind === 'reach');
+    const atTheDrop = { x: trig.x, z: trig.z };                 // what shipped, and was found
+    const shortOfIt = { x: -194.8, z: 38.6 };                   // what replaced it, and also wrong
+    check('KNOWN-BAD: the marker that shipped at the drop is caught by this very predicate',
+      detect(atTheDrop, trig) && !detect(shortOfIt, trig),
+      `at the drop: ${Math.hypot(atTheDrop.x - trig.x, atTheDrop.z - trig.z).toFixed(2)} m vs `
+      + `r=${trig.radius} -> caught; 322 m short of it: `
+      + `${(Math.hypot(shortOfIt.x - trig.x, shortOfIt.z - trig.z) / trig.radius).toFixed(1)}x `
+      + `the radius -> passes this rule, which is why it needed the other one`);
+    check('and the arm still has a live edge of its own to walk',
+      entryMargins.length > 0, `${entryMargins.length}: ${entryMargins.join(' | ')}`);
+  }
   /**
    * NO HEALTH AT WHICH A MISSION GIVES UP MAY BE A HEALTH THE CAR CANNOT RECOVER FROM.
    *
@@ -990,21 +1113,47 @@ console.log('\n=== 10. the objective distance');
   }
 
   /**
-   * (c) THE NEGATIVE. `ambush` has a marker and no destination, and must carry no number.
+   * (c) THE NEGATIVE, RESTATED. This section's premise was `!!st.marker` — "ambush has a marker
+   * and no destination, and must carry no number" — so it was the FOURTH gate rule in this tree
+   * depending on a marker that should never have existed, and it would have gone green on the
+   * defect for as long as the defect lasted.
+   *
+   * What `ambush` actually owes is: no destination, therefore no distance, no waypoint, and an
+   * objective that is still the bare authored string. All four, because the first three are
+   * different ways of saying "nothing positional" and a stage could lose one and keep another —
+   * `objectiveDistance` already excluded this stage by name while `hud()` went on posting the
+   * waypoint, which is precisely how the half-covered guard shipped.
    */
   {
     const amb = at('ambush', { carRange: 42 });
     const st = M.stages.find((x) => x.id === 'ambush');
-    console.log(`  ambush has a marker at (${st.marker.x}, ${st.marker.z}) and triggers ` +
-      `${st.triggers.map((t) => t.kind).join('/')} -> distance ` +
-      `${amb.report.objectiveDistance}, from ${amb.report.objectiveDistanceFrom}`);
-    check('a stage whose marker is a hint and not a destination carries no distance',
-      !!st.marker && amb.report.objectiveDistance === null &&
-      amb.report.objectiveDistanceFrom === null,
+    console.log(`  ambush triggers ${st.triggers.map((t) => t.kind).join('/')}, marker ` +
+      `${st.marker ? `(${st.marker.x}, ${st.marker.z})` : 'none'} -> distance ` +
+      `${amb.report.objectiveDistance}, from ${amb.report.objectiveDistanceFrom}, waypoint ` +
+      `${JSON.stringify(amb.hud.waypoint ?? null)}`);
+    check('a flee stage carries no distance, because nothing it does is positional',
+      amb.report.objectiveDistance === null && amb.report.objectiveDistanceFrom === null,
       `${amb.report.objectiveDistance} / ${amb.report.objectiveDistanceFrom}`);
+    check('and no waypoint either, which is the half the old guard did not cover',
+      !st.marker && !amb.hud.waypoint,
+      `marker ${JSON.stringify(st.marker ?? null)}, waypoint ${JSON.stringify(amb.hud.waypoint ?? null)}`);
     check('and its band is still the bare authored string',
       typeof amb.hud.objective === 'string' && amb.hud.objective === st.objective,
       `${amb.hud.objective}`);
+    /**
+     * AND IT STILL SAYS WHAT TO DO, because taking the pin away without this is the 63%-blank-HUD
+     * defect coming back. The subtitle is now the whole instruction, so it is asserted here, and
+     * it must name a cue that FIRES: "watch the stars drop" did not — 109 s of fleeing at 40 km/h
+     * read 2 stars at every sample and went 2 -> 0 in one step after the stage was already won.
+     * `EVADING` is the word `composeWanted` actually puts on screen, read off that module rather
+     * than spelled again here, since a probe that hardcodes the value it tests cannot see the fix.
+     */
+    const note = composeWanted({ stars: 2, state: STATES.SEARCH, remaining: 16, evade: 0.3 }).note;
+    const word = String(note).split(' ')[0];
+    check('a flee stage names a cue that fires, in the word the wanted strip uses',
+      typeof st.subtitle === 'string' && st.subtitle.includes(word)
+      && !/stars? drop/i.test(st.subtitle),
+      `note "${note}" -> word "${word}"; subtitle "${st.subtitle}"`);
   }
 
   // (d) every stage of every mission: either a destination and a number, or neither.
@@ -1029,12 +1178,24 @@ console.log('\n=== 10. the objective distance');
       `${x.stage}${x.names ? `/${x.names}` : ''}${x.d == null ? '' : `=${x.d.toFixed(0)}m`}`).join(' '));
     check('every stage has a number exactly when a trigger names somewhere to go',
       bad.length === 0, bad.map((x) => `${x.id}/${x.stage}`).join(' ') || 'all consistent');
+    /**
+     * THE THIRD KIND USED TO BE "MARKER-ONLY", WHICH MAKES THIS THE FIFTH RULE IN THIS TREE
+     * THAT REQUIRED `ambush`'s MARKER TO EXIST. A marker with no reach is now refused by
+     * `defineMission`, so that class is empty BY CONSTRUCTION and the arm went red — correctly,
+     * and for a reason that reads nothing like its own message.
+     *
+     * The class this arm actually needs is a stage with NO DESTINATION OF ANY KIND, which is
+     * what makes the consistency check above non-vacuous in the null direction: without one,
+     * `(names == null) !== (d == null)` is only ever tested where both are non-null.
+     */
+    const noDest = rows.filter((x) => x.names == null);
     check('and at least one stage of each kind exists, or this arm asserts nothing',
       rows.some((x) => x.names === 'reach') && rows.some((x) => x.names === 'inVehicle') &&
-      rows.some((x) => x.names == null && x.marker),
+      noDest.length > 0 && noDest.every((x) => !x.marker),
       `${rows.filter((x) => x.names === 'reach').length} reach, ` +
       `${rows.filter((x) => x.names === 'inVehicle').length} inVehicle, ` +
-      `${rows.filter((x) => x.names == null && x.marker).length} marker-only`);
+      `${noDest.length} with no destination (${noDest.map((x) => x.stage).join('/')}), ` +
+      `${noDest.filter((x) => x.marker).length} of those wrongly carrying a marker`);
   }
 }
 
