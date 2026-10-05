@@ -349,7 +349,10 @@ export class WantedSystem {
       unitsLost: 0, listenerErrors: 0, updates: 0,
       // The scene of an injury: armed on a `scene: true` crime, discharged by stopping, charged
       // as `hitAndRun` by leaving. See _watchScene.
-      scenesArmed: 0, scenesStopped: 0, scenesFled: 0,
+      // `scenesDischarged` beside `scenesStopped` because the two are different events now:
+      // a scene is stopped at once and discharged LAW_NOTICE_S later, and a build where the
+      // second never happens reads as a held band rather than as a missing counter.
+      scenesArmed: 0, scenesStopped: 0, scenesDischarged: 0, scenesFled: 0,
       // Busted: the host held you stopped for BUST_HOLD_S. See `_watchBust`.
       busts: 0, bustHolds: 0,
       // Frames the host declared a teleport. See `_trackVelocity`: a host that never declares one
@@ -471,7 +474,10 @@ export class WantedSystem {
       // 0 because the player IS at the scene at the instant the crime is filed, and it is stored
       // here rather than recomputed by the HUD so that the number on screen is the same one the
       // rule is deciding on. A second copy of that arithmetic is how the two would drift apart.
-      this._scene = { x: at.x, z: at.z, at: this.time, stopped: false, id, d: 0 };
+      this._scene = { x: at.x, z: at.z, at: this.time, stopped: false,
+        // When the player stopped, so the acknowledgement can time out instead of holding
+        // the objective band for ever. See `_watchScene`.
+        stoppedAt: 0, id, d: 0 };
       this.stats.scenesArmed++;
     }
 
@@ -722,6 +728,33 @@ export class WantedSystem {
    * who stops, waits, and then drives off has stopped. Whether they should also have to STAY is a
    * design question this does not answer, and the honest reason is that there is nothing in the
    * codebase to anchor a dwell time to.
+   *
+   * AND THE SCENE ITSELF IS DISCHARGED `LAW_NOTICE_S` AFTER THAT, WHICH IT WAS NOT. The scene
+   * stayed live until the player drove 85 m, and `composeLaw` returns a line for any live scene
+   * while `src/hud.js`'s BAND_ORDER puts `law` above `mission` and `offer` — so stopping at the
+   * scene took the objective band and never gave it back. Measured, 600 s parked at a scene with
+   * a live mission:
+   *
+   *     band from `law`      600.0 s   100.0%
+   *     band from `mission`    0.0 s
+   *     band from `offer`      0.0 s
+   *     distinct lines over the whole 600 s: 1
+   *
+   * One clipped pedestrian plus a stop hid the mission objective, the completion line and every
+   * job offer until the player drove 85 m. A blind playtester found it twice — once at 600 s
+   * beside a job marker 30 m away, once holding for 360 s at five stars with no mission at all.
+   *
+   * `LAW_NOTICE_S` RATHER THAN A NEW NUMBER, because that is already this file's answer to "how
+   * long does a law line stay on screen after the thing it reports" — matched to src/hud.js's
+   * `escalateSeconds` so the words and the star alarm stop together, with `tools/hud-cue.mjs`
+   * asserting the two are equal. "STOPPED AT THE SCENE" is a notice of a fact, so it behaves
+   * like every other notice in the file instead of being the one that never leaves.
+   *
+   * NOTHING ABOUT THE CRIME CHANGES, and that is what makes this safe to isolate. `cooperated`
+   * is latched on the same frame and its own comment already says it outlives `sc`, because the
+   * police arrive after the scene is gone; and the branch below only files `hitAndRun` when
+   * `!sc.stopped`, so a scene that was stopped at never filed one whether it lived four seconds
+   * or four hundred. The only thing the extra 596 s bought was a band nobody else could use.
    */
   _watchScene(player) {
     const sc = this._scene;
@@ -732,11 +765,17 @@ export class WantedSystem {
       if (Math.hypot(this.playerVel.x, this.playerVel.z) < SCENE_STOP_MS) {
         if (!sc.stopped) {
           sc.stopped = true;
+          sc.stoppedAt = this.time;
           this.stats.scenesStopped++;
           // See `cooperated`: this outlives `sc`, because the police arrive after it is gone.
           this.cooperated = true;
           this.emit('cooperated', { at: { x: sc.x, z: sc.z } });
         }
+      }
+      // The acknowledgement has been read by now. `cooperated` carries the consequence on.
+      if (sc.stopped && this.time - sc.stoppedAt >= LAW_NOTICE_S) {
+        this._scene = null;
+        this.stats.scenesDischarged++;
       }
       return;
     }
@@ -753,10 +792,17 @@ export class WantedSystem {
    * BEING CAUGHT. `player.held` is the HOST's verdict that a unit has pulled up on the player and
    * stopped there, for exactly the reason `player.seen` is the host's verdict on line of sight:
    * this module owns the consequence and must not own the geometry. src/pursuit.js decides it from
-   * its own `holdRadius` (half the widest edge in the district plus the car's half-length: 8.75 m,
-   * and it read 7.15 until a blind playtester noticed the derivation was using `e.r`, a CLASS
-   * RANK, as a width) and district/main.js checks that unit against the player rather than against
-   * the pursuit target — which are the same point in contact and 300 m apart during a search.
+   * its own `reachRadius` and district/main.js checks that unit against the player rather than
+   * against the pursuit target — which are the same point in contact and 300 m apart during a
+   * search.
+   *
+   * THAT RADIUS IS AN OFFICER'S AND NOT A CAR'S, and it is derived from `BUST_HOLD_S` below:
+   * `RUN_SPEED * BUST_HOLD_S` = 28 m, the distance a person covers while this clock runs. It was
+   * `holdRadius` — half the widest edge plus the car's half-length, 8.75 m — so the arrest was a
+   * function of how far the PLAYER was from a road, and stopping 15.6 m off a centreline at four
+   * stars was 180.5 s on the brake with 0 busts. (Before that it read 7.15, because the
+   * derivation was using `e.r`, a CLASS RANK, as a width.) src/pursuit.js's `reachRadius` carries
+   * the measurement; what matters here is that the dwell this clock requires is half of it.
    *
    * THE SPEED TEST IS `_watchScene`'s, not a second threshold. "Stopped" already has a definition
    * in this file and a derivation above it; a bust that used its own number would drift from it.

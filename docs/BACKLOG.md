@@ -133,6 +133,29 @@ The cost of care, one 495 m leg hand-driven on `look()` alone:
 **The only two options on that street are "run somebody over" or "don't arrive."**
 Distinct from the known 3.3/km item, which is the follower hitting BUILDINGS.
 
+### A live scene takes the objective band and nothing below it can ever show — FIXED
+A scene is now discharged `LAW_NOTICE_S` (4 s) after the player stops at it, which is already
+this file's answer to "how long does a law line stay on screen after the thing it reports".
+Measured, 600 s parked at a scene:
+
+    band from `law`     600.0 s -> 4.52 s   (0.50 telling + 4.02 acknowledging)
+    band from `mission`   0.0 s -> 595.5 s
+    distinct lines            1 -> 3        instruction, acknowledgement, what was below
+
+Nothing about the crime moved, which is what made it safe to isolate: `cooperated` is latched on
+the stop and its own comment already said it outlives the scene, and the leave branch only files
+`hitAndRun` when the driver did NOT stop. Five arms confirm it — a driver who never stops is still
+charged (fled 1, cooperated false), every stopping arm files nothing.
+
+Two things my own gates got wrong on the way, both worth keeping: wanted-test §23(f) had been
+sampling ONE point inside the window (180 frames at a local `DT = 1/60` is 3 s against a 4 s
+constant — it would have failed at the file's outer `DT = 1/30`), and the first version of the
+hud-cue bound capped the whole `law` occupancy, failing by 0.45 s because `_trackVelocity` smooths
+towards the true speed so a car arriving at 20 m/s is TOLD to stop for ln(20)/6 = 0.50 s before it
+is acknowledged as stopped. Only the acknowledgement is bounded now. Also noted: `_watchScene`'s
+leave-branch early-return is now reachable only above `SCENE_LEAVE_M / LAW_NOTICE_S` = 21.25 m/s,
+so the gate drives it at 29.75. The original record follows.
+
 ### A live scene takes the objective band and nothing below it can ever show
 600 s parked beside a casualty 30 m from a job marker: the band showed ONE line,
 `STOPPED AT THE SCENE / an arrest will not cost the job`, until an arrest broke it. In

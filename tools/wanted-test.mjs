@@ -1163,28 +1163,155 @@ let searchSample;
 
   // --- (f) stopping gets its own line, because a mechanic whose reward is "nothing happens"
   //     teaches nothing. A playtester measured a decay indistinguishable from doing nothing.
+  /**
+   * AND IT IS A NOTICE, NOT A TENANCY — swept across its own window rather than sampled once.
+   *
+   * This arm held the car still for 180 frames and read the line, and at this block's local
+   * `DT = 1 / 60` that is 3 s against a `LAW_NOTICE_S` of 4. It passed by one second with
+   * nothing saying so, which is CLAUDE.md's "a threshold that holds at one value and fails at
+   * every other is a coincidence": the same arm at the file's outer `DT = 1 / 30` reads 6 s and
+   * would have failed. So the window is swept, and the bound is the constant rather than a
+   * frame count.
+   *
+   * The scene used to stay live until the player drove 85 m, and `src/hud.js`'s BAND_ORDER puts
+   * `law` above `mission` and `offer`, so stopping at the scene took the objective band and
+   * never gave it back — 600 s parked at a scene with a live mission read 100.0% `law`, ONE
+   * distinct line, and 0.0 s of mission. See `_watchScene`; the band half is in hud-cue.
+   */
   {
-    const w = new WantedSystem();
     const speed = 14;
-    let x = -speed;
-    while (x < 0) { x += speed * DT; w.update(DT, { x, z: 0 }); }
-    w.reportCrime('pedestrianHit', { at: { x: 0, z: 0 } });
-    for (let i = 0; i < 180; i++) w.update(DT, { x: 0, z: 0 });
-    const stopped = composeLaw(w.hudState());
+    const atScene = (stopFor) => {
+      const w = new WantedSystem();
+      let x = -speed;
+      while (x < 0) { x += speed * DT; w.update(DT, { x, z: 0 }); }
+      w.reportCrime('pedestrianHit', { at: { x: 0, z: 0 } });
+      for (let i = 0; i < Math.round(stopFor / DT); i++) w.update(DT, { x: 0, z: 0 });
+      return { w, x, line: composeLaw(w.hudState()) };
+    };
+    const held = atScene(1);
+    const stopped = held.line;
     console.log(`    stopped:       "${objectiveLine(stopped.objective)}" / "${stopped.subtitle}"`);
     check('stopping at the scene says so',
       stopped && objectiveLine(stopped.objective) === 'STOPPED AT THE SCENE', stopped);
     check('and it is a different line from the instruction it replaces',
-      objectiveLine(stopped.objective) !== 'STOP AT THE SCENE' && w.stats.scenesStopped === 1,
-      `scenesStopped ${w.stats.scenesStopped}`);
+      objectiveLine(stopped.objective) !== 'STOP AT THE SCENE' && held.w.stats.scenesStopped === 1,
+      `scenesStopped ${held.w.stats.scenesStopped}`);
     // The stopped line carries NO distance, because there is nothing left to count down to.
     check('and the stopped line drops the distance, there being nothing to count down to',
       !/\d+\s*m$/.test(objectiveLine(stopped.objective)), objectiveLine(stopped.objective));
-    // Drive off afterwards: no charge, and the line goes rather than sticking.
-    while (x < SCENE_LEAVE_M + 20) { x += speed * DT; w.update(DT, { x, z: 0 }); }
-    check('driving off after stopping files nothing and leaves no line',
-      w.stats.scenesFled === 0 && composeLaw(w.hudState()) === null,
-      `fled ${w.stats.scenesFled}, line ${JSON.stringify(composeLaw(w.hudState()))}`);
+    /**
+     * THE WINDOW, SWEPT — AND MEASURED FROM WHEN THE LINE APPEARS, not from the crime.
+     *
+     * The first version swept time-since-crime and read the line still shown at 4.02 s against a
+     * 4 s constant, which looked like an off-by-one in the module and is not: `stoppedAt` is set
+     * on the frame the SMOOTHED velocity first falls under `SCENE_STOP_MS`, and a 14 m/s car
+     * takes some frames to get there. Measuring the clock from the wrong end is CLAUDE.md's
+     * "quote the signal the code reads", so the walk below finds both edges itself.
+     */
+    const edges = (() => {
+      const w = new WantedSystem();
+      let x = -speed;
+      while (x < 0) { x += speed * DT; w.update(DT, { x, z: 0 }); }
+      w.reportCrime('pedestrianHit', { at: { x: 0, z: 0 } });
+      let shownFrom = null, goneFrom = null, frames = 0;
+      for (let i = 0; i < Math.round((LAW_NOTICE_S * 4) / DT); i++) {
+        w.update(DT, { x: 0, z: 0 });
+        const l = composeLaw(w.hudState());
+        const isStopped = !!l && objectiveLine(l.objective) === 'STOPPED AT THE SCENE';
+        // `w.time` RAW, not `report().time`, which rounds to 2 dp: the difference of two
+        // roundings added 0.005 s to a window measured against a one-frame bound, and read as
+        // the module being off by one when it is not.
+        if (isStopped && shownFrom === null) shownFrom = w.time;
+        if (shownFrom !== null && goneFrom === null) {
+          if (isStopped) frames++;
+          else goneFrom = w.time;
+        }
+      }
+      return { shownFrom, goneFrom, frames, w };
+    })();
+    const window = edges.goneFrom - edges.shownFrom;
+    /**
+     * THE BOUND IS ONE FRAME WIDE AND LEANS LATE, FOR TWO STATED REASONS. The discharge tests
+     * `time - stoppedAt >= LAW_NOTICE_S`, so it fires on the first frame at or past the mark —
+     * one frame of lateness by construction. And summing 240 increments of 1/60 lands at
+     * 3.99999999999999 rather than 4, so the comparison waits one more: measured 241 frames,
+     * 4.0167 s. Both are late, never early, so the window may never be SHORTER than the
+     * constant. The alternatives either side are 0 s (a build that discharges on the stop) and
+     * the whole 16 s sweep (one that never discharges), so there is nothing between the noise
+     * and the signal for this to be wrong at.
+     */
+    console.log(`    the stopped line: shown from ${edges.shownFrom.toFixed(4)} s, gone from `
+      + `${edges.goneFrom.toFixed(4)} s — ${edges.frames} frames, ${window.toFixed(4)} s, `
+      + `against LAW_NOTICE_S ${LAW_NOTICE_S}`);
+    check('the stopped line is readable for LAW_NOTICE_S, to within a frame, and then goes',
+      edges.shownFrom !== null && edges.goneFrom !== null
+      && window >= LAW_NOTICE_S - 1e-9 && window <= LAW_NOTICE_S + 2 * DT,
+      `${window.toFixed(4)} s (${edges.frames} frames) against ${LAW_NOTICE_S}, `
+      + `bound [${LAW_NOTICE_S}, ${(LAW_NOTICE_S + 2 * DT).toFixed(4)}]`);
+    /**
+     * THE SCENE IS GONE, NOT THE WHOLE LAW LINE — and the first version asserted the latter and
+     * failed for a correct reason. `composeLaw` falls through to the OFFENCE NOTICE once the
+     * scene is discharged, and the notice is live for its own `LAW_NOTICE_S` from when the crime
+     * was filed, which overlaps. The property is that the scene stops holding the band, so that
+     * is what is read.
+     */
+    check('and the scene is discharged, so the band is free for whatever is below it',
+      !edges.w.hudState().scene && edges.w.stats.scenesDischarged === 1
+      && edges.w.stats.scenesStopped === 1,
+      `scene ${JSON.stringify(edges.w.hudState().scene ?? null)}, `
+      + `stopped ${edges.w.stats.scenesStopped}, discharged ${edges.w.stats.scenesDischarged}`);
+    /**
+     * AND THE EARLY-RETURN PATH THE DISCHARGE COULD HAVE ORPHANED. `_watchScene`'s leave branch
+     * returns without filing when `sc.stopped`, and that is the only thing stopping a
+     * cooperating driver being charged `hitAndRun` — but once the scene is discharged the
+     * function returns at the TOP instead, so that branch is now reachable only INSIDE the
+     * window.
+     *
+     * WHICH MAKES IT A HIGH-SPEED PATH, and the threshold is arithmetic rather than a choice:
+     * covering `SCENE_LEAVE_M` within `LAW_NOTICE_S` needs 85 / 4 = 21.25 m/s, 76.5 km/h. The
+     * car tops out at 40 m/s so it is reachable, but the 14 m/s this section drives at cannot
+     * get there — the first version of this arm used that speed, took 6.07 s to clear 85 m, and
+     * reported `discharged 1`, which is the branch NOT being exercised. Driven at 30 m/s here,
+     * which clears it in 2.83 s.
+     */
+    const FAST = SCENE_LEAVE_M / LAW_NOTICE_S;
+    const fast = FAST * 1.4;                        // 29.75 m/s, comfortably inside the window
+    const inWindow = atScene(0.5);
+    let xi = inWindow.x;
+    while (xi < SCENE_LEAVE_M + 5) { xi += fast * DT; inWindow.w.update(DT, { x: xi, z: 0 }); }
+    console.log(`    clearing ${SCENE_LEAVE_M} m inside a ${LAW_NOTICE_S} s window needs `
+      + `${FAST.toFixed(2)} m/s; driven at ${fast.toFixed(2)}`);
+    check('driving off INSIDE the window files nothing — the stopped early-return still runs',
+      inWindow.w.stats.scenesFled === 0 && inWindow.w.stats.scenesDischarged === 0
+      && !inWindow.w.hudState().scene,
+      `fled ${inWindow.w.stats.scenesFled}, discharged ${inWindow.w.stats.scenesDischarged} `
+      + `at ${fast.toFixed(1)} m/s, scene `
+      + `${JSON.stringify(inWindow.w.hudState().scene ?? null)}`);
+    const after = atScene(LAW_NOTICE_S + 1);
+    let xa = after.x;
+    while (xa < SCENE_LEAVE_M + 20) { xa += speed * DT; after.w.update(DT, { x: xa, z: 0 }); }
+    check('and driving off after the discharge files nothing either',
+      after.w.stats.scenesFled === 0 && after.w.stats.scenesDischarged === 1
+      && !after.w.hudState().scene && composeLaw(after.w.hudState()) === null,
+      `fled ${after.w.stats.scenesFled}, discharged ${after.w.stats.scenesDischarged}`);
+    /**
+     * KNOWN-BAD: a driver who never stops is still charged. Without this the four checks above
+     * pass for a build where `_watchScene` files nothing at all, which is the shape CLAUDE.md
+     * records as "a check whose two sides are both zero".
+     */
+    const fled = (() => {
+      const w = new WantedSystem();
+      let x = -speed;
+      while (x < 0) { x += speed * DT; w.update(DT, { x, z: 0 }); }
+      w.reportCrime('pedestrianHit', { at: { x: 0, z: 0 } });
+      while (x < SCENE_LEAVE_M + 20) { x += speed * DT; w.update(DT, { x, z: 0 }); }
+      return w;
+    })();
+    check('KNOWN-BAD: a driver who never stops IS charged, so the arms above are not vacuous',
+      fled.stats.scenesFled === 1 && fled.stats.scenesStopped === 0
+      && fled.stats.scenesDischarged === 0 && fled.cooperated === false,
+      `fled ${fled.stats.scenesFled}, stopped ${fled.stats.scenesStopped}, `
+      + `cooperated ${fled.cooperated}`);
   }
 
   // --- (g) the notice expires, and an IGNORED crime never sets one.

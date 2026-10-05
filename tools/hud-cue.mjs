@@ -26,7 +26,8 @@
 //   node tools/hud-cue.mjs
 import { THEME, LAYOUT, composeBand, BAND_ORDER, MINIMAP_ZOOM_M, MINIMAP_REACH_M,
   PULL_CAP, PULL_MIN, PULL_MIN_PX, PULL_FULL_PX, PULL_TICK_PX, objectiveLine } from '../src/hud.js';
-import { composeWanted, composeLaw, LAW_NOTICE_S, STATES } from '../src/wanted.js';
+import { composeWanted, composeLaw, LAW_NOTICE_S, STATES, WantedSystem,
+  SCENE_LEAVE_M } from '../src/wanted.js';
 
 const checks = [];
 const check = (name, ok, detail) => { checks.push({ name, ok: !!ok, detail }); return !!ok; };
@@ -1234,6 +1235,148 @@ console.log('\nMINIMAP — the reach is derived from the zoom');
     `${MINIMAP_REACH_M} against ${MINIMAP_ZOOM_M / 2}`);
   check('and it is a district distance, not an unbounded one',
     MINIMAP_REACH_M > 20 && MINIMAP_REACH_M < 1000, `${MINIMAP_REACH_M} m`);
+}
+
+/**
+ * NO TENANT MAY HOLD THE BAND FOR EVER, and the scene did.
+ *
+ * This is the only gate that imports both modules, so it is the only place the end-to-end
+ * property can be stated: `src/wanted.js` decides how long a scene is live and `src/hud.js`'s
+ * BAND_ORDER decides what that costs the tenants below it. Neither file is wrong on its own,
+ * which is why the defect survived both of their gates.
+ *
+ * `BAND_ORDER` puts `law` above `mission` and `offer`, and `_watchScene` kept a scene live until
+ * the player drove `SCENE_LEAVE_M` = 85 m — stopping inside it set `stopped` with no timeout. So
+ * one clipped pedestrian plus a stop hid the mission objective, the completion line and every
+ * job offer indefinitely. Measured before the fix, 600 s parked at a scene with a live mission:
+ *
+ *     band from `law`      600.0 s   100.0%      distinct lines over the whole 600 s: 1
+ *     band from `mission`    0.0 s
+ *     band from `offer`      0.0 s
+ *
+ * A blind playtester found it twice — 600 s beside a job marker 30 m away, and 360 s at five
+ * stars with no mission at all, distinct-line count over 240 s of it exactly 1.
+ *
+ * DRIVEN, not tabulated: the scene comes from a real `reportCrime` and a real stop, because a
+ * hand-built `{ scene: { stopped: true } }` would assert `composeBand`'s ladder and say nothing
+ * about how long wanted.js keeps the scene alive, which is the half that was broken.
+ */
+{
+  console.log('\n  a live scene must not hold the objective band for ever');
+  const DT = 1 / 60;
+  const run = (seconds, mission, offer) => {
+    const w = new WantedSystem();
+    const p = { x: 0, z: 0, held: false, teleported: false, throttle: 0, seen: false };
+    // Warmed first: `playerVel` starts at (0, 0) and `_trackVelocity` only records a position on
+    // its first call, so on a fresh system frame one reads a stationary car whatever it is doing.
+    for (let i = 0; i < 1 / DT; i++) { p.x = -20 + i * DT * 20; w.update(DT, p); }
+    p.x = 0;
+    w.reportCrime('pedestrianHit', { at: { x: 0, z: 0 }, severity: 0.3 });
+    const seen = new Set();
+    let law = 0, below = 0, telling = 0, acking = 0;
+    for (let i = 0; i < seconds / DT; i++) {
+      w.update(DT, p);
+      const band = composeBand({ law: composeLaw(w.hudState()), mission, offer });
+      const line = objectiveLine(band.objective);
+      seen.add(`${line} / ${band.subtitle ?? '-'}`);
+      if (band.from === 'law') {
+        law += DT;
+        // THE TWO PHASES ARE DIFFERENT CLAIMS. "STOP AT THE SCENE" is an INSTRUCTION to a car
+        // that is still rolling, and it is correct for it to persist until the car stops or
+        // leaves — there is no bound to assert on it. "STOPPED AT THE SCENE" is an
+        // ACKNOWLEDGEMENT of a fact, and that is the one that used to be permanent.
+        if (line.startsWith('STOPPED AT THE SCENE')) acking += DT; else telling += DT;
+      } else below += DT;
+    }
+    return { law, below, telling, acking, seen: [...seen], w };
+  };
+  const MISSION = { objective: { text: 'DELIVER THE PARCEL TO THE MARINA', distance: 318 },
+    subtitle: 'Clear. Take it back to the bayfront.' };
+  const OFFER = { objective: { text: 'SHAKEDOWN', distance: 30 }, subtitle: 'Two markers.' };
+  const SECS = 600;
+  const withMission = run(SECS, MISSION, OFFER);
+  const noMission = run(SECS, null, OFFER);
+  for (const [name, r] of [['mission live', withMission], ['no mission', noMission]]) {
+    console.log(`    ${SECS} s parked at the scene, ${name}: law ${r.law.toFixed(2)} s `
+      + `(${(100 * r.law / SECS).toFixed(1)}%) = ${r.telling.toFixed(2)} telling + `
+      + `${r.acking.toFixed(2)} acknowledging; below it ${r.below.toFixed(1)} s, `
+      + `${r.seen.length} distinct lines`);
+    for (const l of r.seen) console.log(`      "${l}"`);
+  }
+  /**
+   * THE BOUND IS ON THE ACKNOWLEDGEMENT, and the first version of this check put it on the whole
+   * `law` occupancy and failed by 0.45 s for a correct reason: `_trackVelocity` smooths towards
+   * the true speed, so a car that arrives at 20 m/s spends about half a second reading as
+   * "still rolling" and is TOLD to stop before it is acknowledged as stopped. That half second
+   * is the instruction doing its job. Bounding it would have been a bound on the smoothing rate
+   * in another module, dressed up as a bound on the band.
+   *
+   * So the two phases are counted separately and only the acknowledgement is capped. There is
+   * nothing between the outcomes: either the scene times out and the cap is four seconds, or it
+   * does not and the acknowledgement runs for the whole 600.
+   */
+  const CAP = LAW_NOTICE_S + 4 * DT;
+  check('the acknowledgement of a stop lasts LAW_NOTICE_S, not the rest of the session',
+    withMission.acking <= CAP && noMission.acking <= CAP
+    && withMission.acking > LAW_NOTICE_S / 2,
+    `${withMission.acking.toFixed(3)} s and ${noMission.acking.toFixed(3)} s against a cap of `
+    + `${CAP.toFixed(3)} (the run is ${SECS} s)`);
+  check('and what was underneath it becomes readable for the rest of the run',
+    withMission.below > SECS * 0.95 && noMission.below > SECS * 0.95,
+    `${withMission.below.toFixed(1)} s and ${noMission.below.toFixed(1)} s of ${SECS}`);
+  // The instruction phase is reported rather than bounded, and it has to be non-zero or the
+  // split above is measuring one phase and calling it two.
+  check('and the instruction phase happened, so the two phases are really two',
+    withMission.telling > 0 && withMission.telling < LAW_NOTICE_S,
+    `${withMission.telling.toFixed(3)} s of "STOP AT THE SCENE" before the acknowledgement`);
+  /**
+   * THREE LINES, NOT ONE — and the first version of this check asserted two and was wrong.
+   *
+   * The distinct-line count is the statistic the playtester reported: they read the same words
+   * for 240 s. It is a different claim from the occupancy above, because a build that alternated
+   * two tenants every frame would pass the seconds and fail a player. The three are the whole
+   * sequence a stop at a scene should read as, and the one in the middle was the only one that
+   * ever showed:
+   *
+   *   1  STOP AT THE SCENE — 85 m    the instruction, while the car is still rolling
+   *   2  STOPPED AT THE SCENE       the acknowledgement, for LAW_NOTICE_S
+   *   3  whatever was underneath    the mission, or the job on offer
+   *
+   * Asserted as the SET rather than as a count, because "3" is also what two tenants flickering
+   * plus one would read.
+   */
+  const want = (r, below) => r.seen.length === 3
+    && r.seen.some((l) => l.startsWith('STOP AT THE SCENE'))
+    && r.seen.some((l) => l.startsWith('STOPPED AT THE SCENE'))
+    && r.seen.some((l) => l.startsWith(below));
+  check('and the player reads the whole sequence rather than one line for ten minutes',
+    want(withMission, 'DELIVER THE PARCEL') && want(noMission, 'SHAKEDOWN'),
+    `${withMission.seen.length} lines with a mission, ${noMission.seen.length} without`);
+  check('the instruction comes before the acknowledgement, which comes before what is below',
+    withMission.seen[0].startsWith('STOP AT THE SCENE —')
+    && withMission.seen[1].startsWith('STOPPED AT THE SCENE')
+    && withMission.seen[2].startsWith('DELIVER THE PARCEL'),
+    withMission.seen.map((l) => l.split(' / ')[0]).join(' -> '));
+  /**
+   * KNOWN-BAD: `law` really is above `mission` and `offer`, so the arms above are measuring the
+   * precedence they claim to. Without this they pass for a BAND_ORDER that never gave the law
+   * tenant the band in the first place — CLAUDE.md's "a check whose two sides are both zero",
+   * and the exact shape that let `law` go untested for a round.
+   */
+  const live = composeBand({ law: { objective: { text: 'STOPPED AT THE SCENE' },
+    subtitle: 'x', ownSubtitle: true }, mission: MISSION, offer: OFFER });
+  check('KNOWN-BAD: law does outrank both of them, so the arms above measure a real precedence',
+    live.from === 'law' && BAND_ORDER.indexOf('law') < BAND_ORDER.indexOf('mission')
+    && BAND_ORDER.indexOf('mission') < BAND_ORDER.indexOf('offer'),
+    `${live.from}; order ${BAND_ORDER.join(' > ')}`);
+  // And the scene it was all driven from really did arm and discharge, or none of it happened.
+  check('the scene armed, was stopped at, and was discharged once',
+    withMission.w.stats.scenesArmed === 1 && withMission.w.stats.scenesStopped === 1
+    && withMission.w.stats.scenesDischarged === 1 && withMission.w.stats.scenesFled === 0,
+    JSON.stringify({ armed: withMission.w.stats.scenesArmed,
+      stopped: withMission.w.stats.scenesStopped,
+      discharged: withMission.w.stats.scenesDischarged,
+      fled: withMission.w.stats.scenesFled, leaveM: SCENE_LEAVE_M }));
 }
 
 const failed = checks.filter((c) => !c.ok);

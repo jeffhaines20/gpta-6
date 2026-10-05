@@ -892,6 +892,31 @@ const MUTATIONS = [
   },
   {
     /**
+     * THE SCENE NEVER LETS GO OF THE OBJECTIVE BAND AGAIN.
+     *
+     * `src/hud.js`'s BAND_ORDER puts `law` above `mission` and `offer`, and `_watchScene` used to
+     * keep a scene live until the player drove `SCENE_LEAVE_M` = 85 m — stopping inside it set
+     * `stopped` with no timeout. So one clipped pedestrian plus a stop hid the mission objective,
+     * the completion line and every job offer indefinitely. Measured, 600 s parked at a scene
+     * with a live mission: band from `law` 600.0 s, 100.0%, ONE distinct line, mission 0.0 s.
+     *
+     * A blind playtester found it twice — 600 s beside a job marker 30 m away, and 360 s at five
+     * stars with no mission at all. Nothing errors, no crime changes (`cooperated` is latched on
+     * the stop and outlives the scene, and the leave branch only files `hitAndRun` when the
+     * driver did NOT stop), and the line on screen is correct English about a true fact. It is
+     * only never anything else.
+     *
+     * Caught in two places on purpose, because the defect spans two modules and neither is wrong
+     * alone: wanted-test §23(f) sweeps the acknowledgement's own window, and hud-cue — the one
+     * gate that imports both — measures what the band is occupied by over 600 s.
+     */
+    id: 'scene-forever', file: 'src/wanted.js',
+    find: '      if (sc.stopped && this.time - sc.stoppedAt >= LAW_NOTICE_S) {',
+    to: '      if (false) {',
+    why: 'stopping at a scene takes the objective band and never gives it back',
+  },
+  {
+    /**
      * THE BAND STOPS SAYING IT. Four seconds with no cue is a player being teleported for no
      * stated reason — and `composeLaw` still returns the scene line underneath, so the HUD looks
      * busy and correct while the thing about to happen is invisible.
