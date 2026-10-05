@@ -1452,7 +1452,25 @@ function runGate(name) {
    */
   const threw = /^\s+at .+:\d+:\d+\)?$/m.test(out) || /\b(TypeError|ReferenceError|SyntaxError|RangeError)\b/.test(out);
   const failed = out.split('\n').filter((l) => /^\s*FAIL\b/.test(l)).map((l) => l.trim());
-  return { name, rc, threw, failed, ms: Date.now() - t0 };
+  /**
+   * AND A GATE THAT PRINTS FAIL AND EXITS 0 IS A BROKEN GATE, NOT A MISSED MUTATION. This tool
+   * already read both halves and compared neither, so the two cases were indistinguishable in its
+   * own output — and the one that happened read as the flattering one.
+   *
+   * `tools/mission-test.mjs` computed `const failed = checks.filter(...)` a hundred and thirty
+   * lines above its last section, which is a SNAPSHOT of a growing array. Section 11's nine
+   * checks printed in the listing and none of them reached the exit code: with
+   * `garage-on-marker` applied the gate printed three FAIL lines and said
+   * `MISSION: PASS — 121 checks`, rc 0, and this sweep recorded the row MISSED. The check that
+   * was written for that exact defect was sitting there failing.
+   *
+   * A MISSED row sends a round looking for a check to write. This row needed the OPPOSITE — the
+   * check existed and the accounting was broken — and nothing in the report could say so. It is
+   * reported separately now, and it is the more urgent of the two: a gate whose rc does not
+   * follow its own checks cannot be trusted about any row, not just this one.
+   */
+  const brokenAccounting = rc === 0 && failed.length > 0;
+  return { name, rc, threw, failed, brokenAccounting, ms: Date.now() - t0 };
 }
 
 function playtestSelftest() {
@@ -1611,6 +1629,44 @@ if (has('--selftest')) {
   say(!!a2 && g2.rc === 0 && g2b.rc === 0, 'a semantically identical edit is caught by nothing',
     g2 ? `check-syntax rc ${g2.rc}, damage-test rc ${g2b.rc}` : 'find string missing');
 
+  /**
+   * 3b. A GATE THAT PRINTS FAIL AND EXITS 0 IS REPORTED AS A BROKEN GATE, NOT AS A MISSED ROW.
+   *
+   * This is the arm the defect that prompted it would have needed. `mission-test` snapshotted
+   * `const failed = checks.filter(...)` a hundred and thirty lines above its last section, so
+   * that section's nine checks printed in the listing and none reached the exit code: with the
+   * garage moved onto a mission pickup point it printed three FAIL lines, said
+   * `MISSION: PASS — 121 checks`, exited 0, and this sweep recorded the row MISSED. A MISSED row
+   * sends a round out to write a check; the check was already there and failing.
+   *
+   * TWO MUTATIONS AT ONCE, IN TWO FILES, which is what makes this an integration arm rather than
+   * a test of one boolean: a real defect in the subject AND the accounting broken on top of it.
+   * The control is the same subject defect with the accounting intact, and the two have to
+   * disagree — otherwise this arm would pass for a sweep that called everything broken.
+   */
+  const subject = { id: 'selftest-garage', file: 'district/main.js',
+    find: 'const GARAGE_AT = { x: -67.9, z: 60.3 };', to: 'const GARAGE_AT = { x: 19, z: -6 };' };
+  const blind = { id: 'selftest-blind', file: 'tools/mission-test.mjs',
+    find: 'const failed = checks.filter((c) => !c.ok);',
+    to: 'const failed = checks.slice(0, 0).filter((c) => !c.ok);' };
+  const sApplied = apply(subject);
+  const honest = sApplied ? runGate('mission-test') : null;
+  const bApplied = sApplied ? apply(blind) : null;
+  const blinded = bApplied ? runGate('mission-test') : null;
+  if (bApplied) restore(blind);
+  if (sApplied) restore(subject);
+  say(!!honest && honest.rc !== 0 && honest.failed.length > 0 && !honest.brokenAccounting,
+    'a real defect makes the gate exit non-zero, which is the control for the next one',
+    honest ? `rc ${honest.rc}, ${honest.failed.length} FAIL line(s), broken ${honest.brokenAccounting}`
+      : 'the garage line is not in district/main.js');
+  say(!!blinded && blinded.rc === 0 && blinded.failed.length > 0 && blinded.brokenAccounting,
+    'and a gate whose accounting is broken is reported as broken, not as a missed row',
+    blinded ? `rc ${blinded.rc}, ${blinded.failed.length} FAIL line(s), broken ` +
+      `${blinded.brokenAccounting}` : 'the accounting line is not in tools/mission-test.mjs');
+  say(!!honest && !!blinded && honest.failed.length === blinded.failed.length,
+    'and both printed the same failures, so only the accounting differed',
+    honest && blinded ? `${honest.failed.length} vs ${blinded.failed.length} FAIL lines` : 'n/a');
+
   // 4. A STALE line is reported as stale, not as a miss.
   const stale = { id: 'selftest-stale', file: 'src/damage.js',
     find: 'a string that is certainly not in this file 8f3a', to: 'x' };
@@ -1713,6 +1769,22 @@ for (const m of list) {
   if (browser && m.browser) gates.push(runGate('boot-check'));
   restore(m);
   const caught = gates.filter((g) => g.rc !== 0);
+  /**
+   * SURFACED ON THE ROW, because a gate that printed FAIL and exited 0 makes every verdict on
+   * this row meaningless — including a `caught` from some other gate, which may be masking the
+   * same thing. See `runGate`.
+   */
+  const broken = gates.filter((g) => g.brokenAccounting);
+  if (broken.length) {
+    console.log(`BROKEN GATE — ${broken.map((g) => `${g.name} printed ` +
+      `${g.failed.length} FAIL line(s) and exited 0`).join('; ')}`);
+    console.error(`\nSTOPPING: ${broken.map((g) => g.name).join(', ')} does not exit non-zero on` +
+      ' its own failing checks, so no row in this sweep can be trusted. Its accounting has to be');
+    console.error('fixed before the table means anything. First FAIL line(s):');
+    for (const g of broken) for (const f of g.failed.slice(0, 4)) console.error(`  ${g.name}: ${f}`);
+    restore(m);
+    process.exit(2);
+  }
   /**
    * A MUTATION MEASURED TO CHANGE NOTHING IS NOT A GATE GAP. Without this a permanently inert row
    * either nags for ever or gets deleted, and deleting it loses the measurement that says it is

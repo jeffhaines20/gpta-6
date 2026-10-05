@@ -1249,8 +1249,6 @@ console.log('\n=== 10. the objective distance');
 }
 
 // ---------------------------------------------------------------------------
-const failed = checks.filter((c) => !c.ok);
-// ---------------------------------------------------------------------------
 /**
  * THE GARAGE'S POSITION, which is the trap this district has fallen into three times.
  *
@@ -1382,7 +1380,22 @@ console.log('\n=== 11. the garage, against every mission zone in the district');
     `${dSpawn == null ? 'n/a' : `${dSpawn.toFixed(0)} m against ${OFFER_RADIUS_M * 4} m`}`);
 }
 
+/**
+ * COMPUTED HERE, AT THE POINT OF USE, AND THAT IS THE WHOLE POINT. This was
+ * `const failed = checks.filter(...)` a hundred and thirty lines up, which is a SNAPSHOT of an
+ * array that is still growing: section 11 was added below it, all nine of its checks printed in
+ * the listing, and not one of them could reach the exit code. The gate printed three FAIL lines
+ * and said `MISSION: PASS — 121 checks` with rc 0.
+ *
+ * Found by `mutation-sweep`, whose `garage-on-marker` row — the garage moved onto marlin-street's
+ * pickup point, the defect this district has shipped three times — came back MISSED while the
+ * check written for it was sitting there printing FAIL. CLAUDE.md's "read the exit codes rather
+ * than the last lines" does not cover this one: the exit code was 0 and the last line said PASS.
+ *
+ * Never snapshot the accumulator. Count where you report.
+ */
 console.log('\n=== CHECKS');
 for (const c of checks) console.log(`  ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);
+const failed = checks.filter((c) => !c.ok);
 console.log(`\nMISSION: ${failed.length ? `FAIL — ${failed.length} of ${checks.length}` : `PASS — ${checks.length} checks`}`);
 process.exit(failed.length ? 1 : 0);

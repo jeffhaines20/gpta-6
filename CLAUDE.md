@@ -1519,6 +1519,44 @@ garage arm is the first.
 Run it whenever `district/` or `src/` changed, because it is the only gate that loads the game. `damage-live` takes about twelve minutes and
 `ped-audit` about fifteen. Run the ones your change can touch before claiming done.
 
+### A gate printed three FAIL lines and said PASS, and the sweep called it a missed mutation
+
+`mission-test` had `const failed = checks.filter((c) => !c.ok)` a hundred and thirty lines above
+its last section — a SNAPSHOT of an array that was still growing. A section added below it printed
+all nine of its checks in the listing and not one of them reached the exit code. With the garage
+moved onto a mission pickup point the gate printed
+
+    FAIL and the harness repairs the car where the page does  109.3037 m apart
+    FAIL a player parked in the garage is not standing in any mission zone  -24.0 m
+    FAIL and the clearance is at least a garage wide  -24.0 m against 24 m
+
+and then `MISSION: PASS — 121 checks`, rc 0.
+
+**This is not covered by "read the exit codes rather than the last lines".** The exit code was 0
+and the last line said PASS; the only disagreement was between the listing and the summary, four
+lines apart. Three things to carry:
+
+- **Never snapshot the accumulator. Count where you report.** Every other gate in `tools/` computes
+  `failed` immediately before printing it, which is why only this one was wrong — and it was wrong
+  because the new section was inserted at the `=== CHECKS` anchor, which sits AFTER the snapshot.
+  A grep over the fifteen gates comparing the line of the snapshot with the line of the last
+  `check(` call finds this in one command and found nothing else.
+- **`mutation-sweep` read both halves and compared neither, so it reported the flattering one.**
+  `runGate` already collected `rc` AND the printed FAIL lines. A row came back MISSED, which sends
+  a round out to write a check — and the check was already there, failing. It now reports
+  `rc === 0 && failed.length > 0` as a BROKEN GATE and stops the sweep, because a gate whose exit
+  code does not follow its own checks cannot be trusted about any row.
+- **The arm for it is an integration arm, and it needs a control.** Two mutations at once in two
+  files — the real defect in `district/main.js` AND the accounting broken in the gate itself — and
+  the control is the same defect with the accounting intact. Measured: rc 1 with 3 FAIL lines and
+  `broken false`, against rc 0 with the SAME 3 FAIL lines and `broken true`. Without the control
+  the arm would pass for a sweep that called everything broken.
+
+The row that found this is `garage-on-marker`, and it was written in the same round as the check it
+caught — which is the condition under which this file's four other unfailable checks were written
+too. A row that comes back MISSED against a check you believe you wrote is worth half an hour
+before it is worth a second check.
+
 **A tool that throws is not a tool that passes, and nobody notices which.**
 `ped-audit` handled a build with no contact-blob mesh in its per-mesh loop —
 `if (!m) { meshes[k] = null; continue; }`, with a comment saying exactly why — and
