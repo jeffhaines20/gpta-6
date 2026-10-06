@@ -32,6 +32,8 @@
 // the real HUD does not show is behind `debug()`, which a scenario may read when it is
 // diagnosing something but should not steer by.
 import fs from 'node:fs';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import * as THREE from '../vendor/three.module.min.js';
 import { Vehicle, BODY_SAMPLES, BODY_RADIUS, BODY_ENCLOSING,
   composeStuck, STUCK_HOLD_S } from '../src/vehicle.js';
@@ -1443,9 +1445,24 @@ export function driveTo(session, x, z,
 // ---------------------------------------------------------------------------
 // The built-in session, which is also the smoke test: it drives, it crashes, it reports.
 // ---------------------------------------------------------------------------
-const SELFTEST = process.argv.includes('--selftest');
-const scenarioArg = process.argv.indexOf('--scenario');
-if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
+/**
+ * RUN NOTHING ON IMPORT. This file is a module as well as a program — `tools/arrest-band.mjs`
+ * imports `Session` from it — and everything below reads `process.argv`, so an importer with its
+ * own `--selftest` ran THIS file's 139-check selftest and exited 0 without running one of its
+ * own. A green exit code from somebody else's gate is the most flattering failure available, and
+ * it took a scrubbed dynamic import at the call site to notice. With no flag at all it instead
+ * ran the demo session, which costs a second and prints a JSON dump into the importer's output.
+ *
+ * The guard is the standard one: argv[1] is the script node was told to run, so comparing it with
+ * this module's own URL answers "am I the program" without any convention about flags.
+ */
+const IS_MAIN = process.argv[1]
+  && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+const SELFTEST = IS_MAIN && process.argv.includes('--selftest');
+const scenarioArg = IS_MAIN ? process.argv.indexOf('--scenario') : -1;
+if (!IS_MAIN) {
+  // Imported. Export surface only.
+} else if (scenarioArg >= 0 && process.argv[scenarioArg + 1]) {
   const mod = await import(new URL(process.argv[scenarioArg + 1], `file://${process.cwd()}/`).href);
   await (mod.default ?? mod.run)({ Session, driveTo });
 } else if (SELFTEST) {

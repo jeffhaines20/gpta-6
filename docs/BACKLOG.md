@@ -840,9 +840,53 @@ The offence floor is the BUILDINGS, not the driving: 3.3/km over 3,304 m with ze
 zero pedestrians, 11 of 11 `propertyDamage`. That is the follower hitting buildings — #84/#87
 territory — and the soft knee would not touch it, since those are all below the knee.
 
-### #89 A nose-in crash is both the crime and the immobilisation, and reverse is the unstated out
-Half open. Beyond the hold radius a nose-in crash is total IMMUNITY — 1 of 14 run-ups into walls
-8-18 m off the road was ever arrested.
+### #89 RE-MEASURED, and the remaining half is a STALEMATE rather than immunity
+The cue half is fixed. The other half was "beyond the hold radius a nose-in crash is total
+IMMUNITY — 1 of 14 run-ups into walls 8-18 m off the road was ever arrested", measured BEFORE the
+28 m reach landed. 8-18 m is now inside the reach and `playtest --selftest` arrests at 14.15 m in
+7.3 s, so that sentence is closed. What is underneath it is worse and was never named.
+
+`tools/arrest-band.mjs` sweeps a stationary four-star player outward from a 412 m primary edge,
+240 s per placement, with the on-road row as a control the tool THROWS without:
+
+      placed   true road d   stars   units  held   seen%   closest   busts   ended
+          0 m         8.0 m   4->0       6     1     97%     7.9 m       1   arrested
+         15 m        22.9 m   4->0       6     1     87%    22.8 m       1   arrested
+         30 m        37.8 m   4->4       6     0     93%    37.0 m       0   STALEMATE
+         45 m        52.6 m   4->4       6     0     93%    51.7 m       0   STALEMATE
+         60 m        67.5 m   4->4       6     0     85%    66.5 m       0   STALEMATE
+         90 m        97.3 m   4->4       6     0     77%    96.2 m       0   STALEMATE
+        130 m       136.7 m   4->4       6     0     55%   135.8 m       0   STALEMATE
+        180 m       185.9 m   4->0       6     0      2%   185.8 m       0   escaped
+        260 m       264.4 m   4->0       0     0      2%       n/a       0   escaped
+
+**Both transitions land on a constant, which is what makes this a mechanism and not a story.**
+Arrest needs a unit within `reachRadius` = max(holdRadius, RUN_SPEED * BUST_HOLD_S) = 28 m, so
+22.9 m is arrested and 37.8 m is not. Escape needs the state out of ACTIVE, and `_evaluateContact`
+holds it there out to `tune().spotRadius` = 150 m at four stars, so 136.7 m never decays and
+185.9 m does. Between them the game can see you, cannot touch you, and will not let you go: five
+of nine placements sat at four stars for the full 240 s with a unit 37-136 m away.
+
+Neither radius is wrong on its own and both are honestly derived. **Nothing compared them** —
+they live in different modules, and the ratio runs 3.04x at one star to 6.25x at five.
+
+Two things that make the band ordinary rather than an edge case:
+- **Neither host narrows it.** `_evaluateContact` short-circuits on `player.seen` and then on
+  `this.losTest`, and `district/main.js` sets neither — its own comment says so. Spotting is pure
+  distance with no line of sight, so a building between you and the unit does not help.
+- **The whole off-road interior is drivable.** Flood-filling the district from the road network
+  over positions where the five-circle body collider fits: 521,354 of 521,552 car-sized cells are
+  reachable, and **53.56% of them are further than 28 m from any centreline**, worst 729 m. (The
+  first version of that sweep reported the same 53% without the flood fill, which was a superset
+  counting the bay; connectivity changed it by 198 cells, so the number stands.)
+
+The fix is not another radius. An officer who can SEE the player and whose car has stopped walks
+to them; the model already says an arrest is made by a person covering ground at `RUN_SPEED`, and
+it simply assumes the walk always fits inside the 4 s clock. Required hold of
+`max(BUST_HOLD_S, (d - holdRadius) / RUN_SPEED)` preserves today's behaviour everywhere it works
+(28 m is exactly where the two terms cross) and lengthens the countdown with the walk beyond it —
+no new constant. Held for the playtest round in flight, whose blind measurement of the pursuit is
+the before-arm for it.
 
 ### #87 driveTo wrecks the car in 200 m: 13 civilianCollision in 32 s at 43 km/h
 `detail lost` beyond the subject line.
