@@ -139,7 +139,7 @@ const MUTATIONS = [
      * it, the sweep says the note is out of date.
      */
     id: 'gap-level', file: 'src/traffic.js',
-    find: 'if (!(along > CAR_LENGTH)) return Infinity;',
+    find: 'if (!(along > reach)) return Infinity;',
     to: 'if (!(along > 0)) return Infinity;',
     why: 'a car drawing level with the player reads a negative bumper gap and brakes 28x',
     inert: '0 of 18 (edge, dt) pairs differ, worst 0.000 m — nothing to notice',
@@ -1304,8 +1304,8 @@ const MUTATIONS = [
      * shipped in the first place: both fleets claimed the fix in prose and neither made it.
      */
     id: 'paint-wheel', file: 'src/traffic.js',
-    find: '        const paint = paintFamily(this._r());\n        color.setHSL(paint.h, (0.26 + this._r() * 0.18) * paint.sat,\n          CHROMATIC_L[0] + u * (CHROMATIC_L[1] - CHROMATIC_L[0]));',
-    to: '        color.setHSL(this._r(), 0.26 + this._r() * 0.18,\n          CHROMATIC_L[0] + u * (CHROMATIC_L[1] - CHROMATIC_L[0]));',
+    find: '        const paint = paintFamily(draws[2]);\n        color.setHSL(paint.h, (0.26 + draws[3] * 0.18) * paint.sat,\n          CHROMATIC_L[0] + u * (CHROMATIC_L[1] - CHROMATIC_L[0]));',
+    to: '        color.setHSL(draws[2], 0.26 + draws[3] * 0.18,\n          CHROMATIC_L[0] + u * (CHROMATIC_L[1] - CHROMATIC_L[0]));',
     why: 'a third of the moving fleet goes back to being a fairground',
   },
   {
@@ -1331,8 +1331,8 @@ const MUTATIONS = [
      * quantity here and not a style note.
      */
     id: 'paint-draw', file: 'src/traffic.js',
-    find: '        const paint = paintFamily(this._r());',
-    to: '        this._r();\n        const paint = paintFamily(this._r());',
+    find: '        draws[2] = this._r();',
+    to: '        this._r();\n        draws[2] = this._r();',
     why: 'every routing and spawn decision after the first car moves, for an identical-looking fleet',
   },
   {
@@ -1356,7 +1356,7 @@ const MUTATIONS = [
      * 35.4% of the real population.
      */
     id: 'tone-black', file: 'src/carpaint.js',
-    find: "  Object.freeze({ name: 'black', w: 0.419, l0: 0.032, l1: 0.062 }),",
+    find: "  Object.freeze({ name: 'black', w: 0.419, l0: 0.040, l1: 0.080 }),",
     to: "  Object.freeze({ name: 'black', w: 0.419, l0: 0.340, l1: 0.600 }),",
     why: '41.9% of the fleet goes back to mid grey and nothing about the table looks wrong',
   },
@@ -1367,11 +1367,19 @@ const MUTATIONS = [
      * and the white/black median ratio falls to x4.71, outside the x5.79..x37.33 the sunlit row's
      * own boxes allow. Only `paint-tone` has the photographs to notice, which is why it is on the
      * offline list despite launching a browser.
+     *
+     * The x2.8 in `why` is against the SHIPPED black median of 0.060, which moved when black's
+     * floor was raised to the BRDF dielectric crossing (0.032 -> 0.040). It read x3.6 before, and
+     * both the `find` strings here went STALE in that commit — caught only when the selftest's
+     * "every row finds its target exactly once" check next ran. A row whose `find` no longer
+     * occurs reports STALE, and CLAUDE.md records that a stale row reads as "the code moved under
+     * the row", which is a thing that genuinely happens — so it is the most expensive kind of
+     * wrong. **Re-point every row that names a constant in the commit that moves the constant.**
      */
     id: 'tone-ratio', file: 'src/carpaint.js',
-    find: "  Object.freeze({ name: 'black', w: 0.419, l0: 0.032, l1: 0.062 }),",
+    find: "  Object.freeze({ name: 'black', w: 0.419, l0: 0.040, l1: 0.080 }),",
     to: "  Object.freeze({ name: 'black', w: 0.419, l0: 0.140, l1: 0.200 }),",
-    why: 'a black car reads x3.6 too bright while still passing every anchor check',
+    why: 'a black car reads x2.8 too bright while still passing every anchor check',
   },
   {
     /**
