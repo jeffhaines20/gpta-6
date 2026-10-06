@@ -4912,6 +4912,16 @@ export class StreetFurniture {
     }
     p.filled = i;
     p.perShell = used.slice();
+    /**
+     * AND AN A/B ARM SURVIVES A RE-SEED. The pool re-fills whenever the camera moves far enough,
+     * and a fill repaints every car from the shipped rule — so an arm set before a refill would
+     * be silently reverted between `setArm` and the shutter, and the capture would be the AFTER
+     * build wearing the BEFORE label. Nothing in the frame would say so.
+     *
+     * This is the shape CLAUDE.md records as "the sky was still moving inside a one page load
+     * pair": every clock the scene reads has to be pinned, and this pool is one of them.
+     */
+    if (this._parkedLegacy) this.recolourParked(true);
     return i;
   }
 
@@ -4929,7 +4939,8 @@ export class StreetFurniture {
    * the flat range it drew before the tone table — so there is no second constant to drift.
    */
   recolourParked(legacy = false) {
-    if (!this.parked || !this._parkedPaint.length) return { legacy: !!legacy, cars: 0 };
+    this._parkedLegacy = !!legacy;        // sticky, so a re-seed cannot revert an arm mid-capture
+    if (!this.parked || !this._parkedPaint?.length) return { legacy: !!legacy, cars: 0 };
     const c = new THREE.Color();          // once per ARM, not per frame
     const flat = (u) => CHROMATIC_L[0] + u * (CHROMATIC_L[1] - CHROMATIC_L[0]);
     let lo = Infinity, hi = -Infinity;

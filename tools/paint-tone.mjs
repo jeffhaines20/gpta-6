@@ -121,10 +121,17 @@ const ROWS = [
   },
 ];
 
+/**
+ * ONE INSTRUMENT ON BOTH SIDES OF THE COMPARISON. A row may name its own directory, so a captured
+ * frame from `docs/shots` is sampled by exactly the code the reference photographs are — same
+ * EOTF, same median, same clipped fraction, same p10/p90 spread. CLAUDE.md's rule about two
+ * instruments disagreeing is a rule about not HAVING two, where one will do.
+ */
 async function sampleRow(page, row) {
-  const file = path.join(DIR, row.file);
+  const file = path.join(row.dir ?? DIR, row.file);
   if (!fs.existsSync(file)) return { ...row, error: 'missing file' };
-  const data = `data:image/jpeg;base64,${fs.readFileSync(file).toString('base64')}`;
+  const mime = file.endsWith('.png') ? 'image/png' : 'image/jpeg';
+  const data = `data:${mime};base64,${fs.readFileSync(file).toString('base64')}`;
   const px = await page.evaluate(([src, boxes]) => new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
@@ -171,7 +178,9 @@ async function sampleRow(page, row) {
 
 /** An annotated crop over one row's boxes, so they can be checked by eye. */
 async function crop(page, row, outFile) {
-  const data = `data:image/jpeg;base64,${fs.readFileSync(path.join(DIR, row.file)).toString('base64')}`;
+  const f = path.join(row.dir ?? DIR, row.file);
+  const mime = f.endsWith('.png') ? 'image/png' : 'image/jpeg';
+  const data = `data:${mime};base64,${fs.readFileSync(f).toString('base64')}`;
   const png = await page.evaluate(([src, boxes]) => new Promise((res) => {
     const img = new Image();
     img.onload = () => {
@@ -333,9 +342,12 @@ if (has('grid')) {
   const file = arg('grid', '');
   const [x0, y0, x1, y1] = String(arg('at', '0,0,2048,1024')).split(',').map(Number);
   const zoom = +arg('zoom', '6');
-  const full = path.join(DIR, file);
+  // A bare name is a reference frame; anything with a separator is a path, so the same grid can
+  // be put over a CAPTURED frame when a box has to be placed on the render.
+  const full = file.includes('/') ? file : path.join(DIR, file);
   if (!fs.existsSync(full)) { console.error(`no such frame: ${full}`); process.exit(2); }
-  const data = `data:image/jpeg;base64,${fs.readFileSync(full).toString('base64')}`;
+  const mime = full.endsWith('.png') ? 'image/png' : 'image/jpeg';
+  const data = `data:${mime};base64,${fs.readFileSync(full).toString('base64')}`;
   const png = await page.evaluate(([src, a, b, c, d, s2]) => new Promise((res) => {
     const img = new Image();
     img.onload = () => {
