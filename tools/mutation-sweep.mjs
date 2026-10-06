@@ -63,6 +63,35 @@ const args = process.argv.slice(2);
 const has = (f) => args.includes(f);
 const val = (f, d) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : d; };
 
+/**
+ * AN UNRECOGNISED FLAG REFUSES, RATHER THAN STARTING A FULL SWEEP.
+ *
+ * `node tools/mutation-sweep.mjs --help` was typed at this tool and it started the whole table —
+ * 124 rows, each mutating a module and restoring it by `git checkout --`. It was killed in the
+ * foreground thirty seconds later and left `src/traffic.js` carrying a live mutation and a stale
+ * lock file, which is precisely the state CLAUDE.md's three rules about this tool exist to keep
+ * the tree out of. Nothing was lost because the work was committed first, which is the other rule.
+ *
+ * A guard, not a warning, and ABOVE the lock and before any write — the same hoisting this file's
+ * own `--selftest` refusal needed, for the same reason.
+ */
+const KNOWN_FLAGS = new Set(['--selftest', '--list', '--only', '--browser']);
+{
+  const bad = args.filter((a) => a.startsWith('--') && !KNOWN_FLAGS.has(a));
+  if (bad.length || has('--help') || has('-h')) {
+    console.error(bad.length ? `unknown flag: ${bad.join(', ')}` : 'mutation-sweep');
+    console.error('\nusage: node tools/mutation-sweep.mjs [--selftest | --list | --only <id>] [--browser]');
+    console.error('  --selftest   prove the harness, without touching the table');
+    console.error('  --list       print the table and exit, writing nothing');
+    console.error('  --only <id>  run one row');
+    console.error('  --browser    also run boot-check on rows marked browser: true');
+    console.error('\nWith no flag it runs the WHOLE table, mutating and restoring a module per row.');
+    console.error('Run it in the foreground, on a clean tree, one at a time.');
+    process.exit(2);
+  }
+}
+
+
 /** The offline list, in CLAUDE.md's own order. All of them run for every mutation. */
 const OFFLINE = [
   'check-syntax', 'geom-audit', 'golden-trace', 'physics-test', 'leaf-mask', 'wanted-test',
