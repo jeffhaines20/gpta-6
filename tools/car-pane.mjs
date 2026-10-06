@@ -245,6 +245,36 @@ export const PANES = {
   // Reviewer 2 also found a warm sliver at x 1096-1110 that is identical in both
   // arms and dominates any night mean over the whole pane, so the pane box starts
   // at 1125 and stays there.
+  /**
+   * THE SIDE PANE, WHICH IS THE ONE #92 IS ABOUT — AND IT IS SCOPED TO ONE TAG ON PURPOSE.
+   *
+   * Two numbers for "the glazing" have been live in this repo at once and are thirteen times
+   * apart: `carbody.js`'s slot-10 comment records the windscreen and backlight at 0.035-0.075,
+   * and docs/BACKLOG.md #92 records the SIDE pane at 0.914-1.043. They were measured in
+   * different rounds by different methods and never put in one frame. This box puts the third
+   * pane beside the other two, on the SAME car in the SAME frame, so all three are one
+   * comparison.
+   *
+   * `onlyTags` EXISTS BECAUSE THE BOX IS VALID IN ONE ARM AND NOT THE OTHER, and I checked
+   * rather than assumed. Annotated crops of both arms: in `cumS1` (one shell, every car a
+   * coupe) the box sits squarely inside the side glass. In `cumS3` the near car is a DIFFERENT
+   * SHELL, its greenhouse is shorter, and the same box lands almost entirely on BODY PANEL with
+   * a corner of glass at its top right. That is this file's own `r1QuarterControl` happening
+   * again one pane forward — "a fixed box over moved geometry is not a measurement of the
+   * material" — and the only reason it did not become a fourth wrong number is that the crop
+   * was looked at before the box was written down.
+   *
+   * So the pane declares which arms it is valid for and the runner SKIPS the others with a
+   * printed reason, rather than quietly producing a figure about painted metal. A pane with no
+   * `onlyTags` is valid everywhere, which is the existing behaviour.
+   *
+   * The paint box is the door skin below the glass, in the band between the glass's lower edge
+   * and the body crease — both of which it clipped in earlier placements, and both of which
+   * move the denominator.
+   */
+  sideGlass: { pane: [410, 643, 452, 663], paint: [410, 671, 452, 681],
+    onlyTags: ['cumS1-r9cum', 'cumS1-r5cum'],
+    what: 'near car SIDE window, paint = door skin below it. 1-SHELL ARMS ONLY: see the note' },
   r1Backlight: { pane: [1125, 582, 1185, 598], paint: [1100, 609, 1200, 616],
     what: '14.7 m rear screen interior, paint = boot lid clear of the glass (rev2/rev3)' },
 };
@@ -408,6 +438,13 @@ if (DIRECT) {
     console.log('  tod    tag                    med/paint  modulation  planeFit  residMAD  residP95  residRMS    tilt clipped');
     for (const tod of TIMES) {
       for (const tag of tags) {
+        // See `sideGlass`: a box that is valid for one arm's geometry is not automatically valid
+        // for another's, and a pane that knows which arms it belongs to is the cheap guard.
+        if (S.onlyTags && !S.onlyTags.includes(tag)) {
+          console.log(`  ${tod.padEnd(6)} ${tag.padEnd(22)} SKIPPED — this box is only valid for ` +
+            `${S.onlyTags.join(', ')}; on other arms the geometry moves under it`);
+          continue;
+        }
         const file = `${SHOTS}/${tag}-corridor-${tod}.png`;
         if (!fs.existsSync(file)) { console.log(`  ${tod.padEnd(6)} ${tag.padEnd(22)} MISSING ${file}`); continue; }
         const png = readPNG(file);

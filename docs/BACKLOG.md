@@ -97,11 +97,40 @@ geometry says the same thing from the other side: off the built buffer, the wind
 backlight normals sit 62.3 deg from horizontal and the side pane's 21.8 deg, with shading normals
 tracking face normals to within 0.4 deg on the coupe, so there is no smoothing artefact to blame.
 
-Next, and it needs a capture rather than reasoning: re-measure the SIDE pane with the same
-instrument that produced the windscreen and backlight figures, so all three are one controlled
-comparison instead of two rounds' worth of different methods. `car-pane`'s `r1QuarterControl` is
-NOT that measurement — it is a documented negative control that lands on glass in a 1-shell frame
-(0.357) and on body panel in a 3-shell one (1.350).
+**DONE, and the premise does not survive it.** `car-pane` gained a `sideGlass` pane — a box on
+the near car's side window with the door skin below it as paint, in the same frame as the other
+two — and real windows were re-measured in the SAME statistic. All three panes and the reference,
+at noon:
+
+                        med/paint    modulation (p95/p50)   ceiling (p95/paint)
+    real cars          0.137-0.333        1.56 - 2.25           0.257 - 0.583
+    shipped side glass    0.2506             5.295                 1.327
+    shipped windscreen    0.0201             1.276                 0.026
+    shipped backlight     0.0321             1.195                 0.038
+
+**The side glass's MEDIAN is 0.2506 — inside the band real cars occupy.** "Within 8.6% of the
+paint" is not this pane's median; 0.914-1.043 is its BRIGHT END, and at a modulation of 5.295 the
+p95 is 1.327 of the paint. Both figures are true of one pane and they are different statistics,
+which is exactly the floor/ceiling split `car-pane`'s own header exists to enforce.
+
+So #92 restates into two defects, neither of which is the one it was filed as:
+
+- **The side pane's CEILING runs away.** 1.327 against a real 0.257-0.583 — its top edge is
+  brighter than the body it is set in, which is what reviewers reported as "body-coloured sheet
+  metal with no window". Its median is fine.
+- **The windscreen and backlight are too dark AND too flat.** 0.02-0.03 against 0.137-0.333, at a
+  modulation of 1.2-1.28 against a real 1.56-2.25. A dark panel, not a window.
+
+A window is therefore not simply "dark": it is dark with a BOUNDED amount of life in it, and the
+shipped panes miss that band on both sides. Any fix has to move three numbers per pane, not one.
+
+Two things found on the way, both recorded in the tools. `car-pane`'s `r1QuarterControl` is a
+documented negative control — glass in a 1-shell frame (0.357), body panel in a 3-shell one
+(1.350) — and reading it as glass would have "confirmed" the old figure off a box that is not on
+glass. And the new `sideGlass` box has the SAME problem one pane forward: annotated crops show it
+inside the glass on `cumS1` and almost entirely on BODY PANEL on `cumS3`, where the near car is a
+different shell with a shorter greenhouse. It carries an `onlyTags` scope and the runner skips the
+arms it is not valid for, with a printed reason.
 
 ### #91 FIXED — the target is a table with a source now, which is what was actually missing
 Both modules' comments were right about the reference and neither had a DISTRIBUTION or a SOURCE,

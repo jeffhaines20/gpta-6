@@ -116,10 +116,19 @@ async function sample(page, subjects) {
       const L = px.map(([r2, g2, b2]) => luma(toLinear(r2), toLinear(g2), toLinear(b2)))
         .sort((a, b) => a - b);
       const q = (f) => L[Math.min(L.length - 1, Math.max(0, Math.round(f * (L.length - 1))))];
-      return { n: L.length, p10: q(0.1), p50: q(0.5), p90: q(0.9), clipped };
+      /**
+       * p95/p50 IS CARRIED SO THIS IS COMPARABLE WITH `tools/car-pane.mjs`, which calls that
+       * ratio `modulation` and exists because "a pane has a FLOOR and a CEILING and a change can
+       * move them in opposite directions". Reporting a spread here and a ratio there would make
+       * the real cars and the shipped ones two measurements that cannot be put side by side —
+       * which is the whole defect #92 turned out to be.
+       */
+      return { n: L.length, p10: q(0.1), p50: q(0.5), p90: q(0.9), p95: q(0.95), clipped };
     };
     const g = stat(r.glass), p = stat(r.paint);
     out.push({ ...s, imgW: r.w, imgH: r.h, g, p, ratio: p.p50 > 0 ? g.p50 / p.p50 : null,
+      modulation: g.p50 > 0 ? g.p95 / g.p50 : null,
+      ceiling: p.p50 > 0 ? g.p95 / p.p50 : null,
       spreadG: g.p50 > 0 ? (g.p90 - g.p10) / g.p50 : Infinity,
       spreadP: p.p50 > 0 ? (p.p90 - p.p10) / p.p50 : Infinity });
   }
@@ -271,13 +280,13 @@ await browser.close();
 
 console.log('GLASS CENSUS — what a real car window reads as, against the paint beside it');
 console.log('='.repeat(78));
-console.log('  car                       frame                       glass    paint    ratio  spread');
+console.log('  car                  med/paint  modul  ceil/paint   spread            clipped');
 for (const r of rows) {
   if (r.error) { console.log(`  ${r.id.padEnd(24)} ${r.error}`); continue; }
   const bad = r.g.clipped > 0 || r.p.clipped > 0 || r.spreadP > 1.0;
-  console.log(`  ${r.id.padEnd(24)}  ${r.file.slice(4, 22).padEnd(20)}` +
-    `${r.g.p50.toFixed(4).padStart(8)}${r.p.p50.toFixed(4).padStart(9)}` +
-    `${r.ratio.toFixed(3).padStart(9)}   g${r.spreadG.toFixed(2)}/p${r.spreadP.toFixed(2)}` +
+  console.log(`  ${r.id.padEnd(22)}${r.ratio.toFixed(3).padStart(8)}` +
+    `${r.modulation.toFixed(2).padStart(8)}${r.ceiling.toFixed(3).padStart(10)}` +
+    `   g${r.spreadG.toFixed(2)}/p${r.spreadP.toFixed(2)}` +
     `  clip ${(100 * r.g.clipped).toFixed(0)}%/${(100 * r.p.clipped).toFixed(0)}%` +
     `${bad ? '   <- REJECTED' : ''}`);
 }
@@ -360,6 +369,41 @@ console.log(`  glass is a range, not a number: the widest accepted window spans 
   `of its own paint (${widest.id})`);
 check('a real window varies across its own area, which a constant ratio cannot reproduce',
   ok.some((r) => r.spreadG > 0.8), ok.map((r) => `${r.id} ${r.spreadG.toFixed(2)}`).join(' '));
+/**
+ * THE MODULATION, in the same statistic `tools/car-pane.mjs` reports, so the real cars and the
+ * shipped ones can be put in one table. A real window's bright end is several times its own
+ * median — it reflects the sky at its top edge and the interior lower down — and a pane whose
+ * p95 is within a few percent of its p50 is a flat panel wearing a window's name, whatever its
+ * median happens to be.
+ */
+const mods = ok.map((r) => r.modulation).sort((a, b) => a - b);
+console.log(`  modulation (p95/p50), the statistic car-pane reports: ` +
+  `${mods.map((m) => m.toFixed(2)).join(', ')}`);
+/**
+ * THE BOUND IS THE MEASURED RANGE, AND MY FIRST GUESS WAS WRONG IN THE USUAL WAY. This asserted
+ * "several times brighter at its top", `modulation > 1.8`, on the strength of the census's own
+ * observation that one window spans 0% to 56% of its paint. Measured, real windows read 1.56,
+ * 1.75 and 2.25 — two of three under the guess. A bound picked before the sweep, failing on the
+ * data it was written from.
+ *
+ * The real figure is more useful than the guess, because it is BOUNDED AT BOTH ENDS and the
+ * shipped panes miss it on both sides:
+ *
+ *     real cars              1.56 .. 2.25
+ *     shipped windscreen     1.276      flatter than glass — a dark panel, not a window
+ *     shipped backlight      1.195      flatter still
+ *     shipped side glass     5.295      runs away: its p95 is ~1.33 of the paint, brighter
+ *                                       than the body, which is what reviewers called
+ *                                       "body-coloured sheet metal with no window"
+ *
+ * So a window is not just "dark" — it is dark WITH a bounded amount of life in it, and a pane
+ * can fail by being too flat or by having a bright end that outruns the paint.
+ */
+check('a real window is modulated but not runaway, which bounds it at both ends',
+  ok.every((r) => r.modulation > 1.3 && r.modulation < 3.0),
+  ok.map((r) => `${r.id} ${r.modulation.toFixed(2)}`).join(' '));
+check('and its bright end stays under the paint beside it, unlike a panel',
+  ok.every((r) => r.ceiling < 1.0), ok.map((r) => `${r.id} ${r.ceiling.toFixed(3)}`).join(' '));
 
 console.log('');
 for (const c of checks) console.log(`  ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);

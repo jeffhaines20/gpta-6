@@ -1833,6 +1833,44 @@ NEGATIVE CONTROL — the box lands on glass in one and on body panel in the othe
 file's own "a fixed box over moved geometry" section. Its 1.350 is a painted panel. Reading it as
 a glass measurement would have "confirmed" #92's figure from a box that is not on glass at all.
 
+### And when the third pane was finally measured, the 13x disagreement was ONE STATISTIC
+
+Putting the side pane in the same frame as the other two, and re-measuring the real cars in the
+same statistic `car-pane` reports, at noon:
+
+                        med/paint    modulation (p95/p50)   ceiling (p95/paint)
+    real cars          0.137-0.333        1.56 - 2.25           0.257 - 0.583
+    shipped side glass    0.2506             5.295                 1.327
+    shipped windscreen    0.0201             1.276                 0.026
+    shipped backlight     0.0321             1.195                 0.038
+
+**The side pane's MEDIAN is 0.2506, inside the band real cars occupy.** The 0.914-1.043 everyone
+had been quoting is its BRIGHT END — at a modulation of 5.295 its p95 is 1.327 of the paint. Both
+numbers are true of one pane. They are a floor and a ceiling, which is the distinction
+`car-pane`'s own header was written to enforce and which the backlog entry had collapsed.
+
+So the whole thing restates, and neither remaining defect is the one that was filed:
+
+- the side pane's CEILING runs away — 1.327 against a real 0.257-0.583, brighter than the body it
+  is set in, which is what reviewers saw and called "sheet metal with no window". Its median is fine.
+- the windscreen and backlight are too dark AND too flat — 0.02-0.03 at a modulation of 1.2-1.28
+  against a real 1.56-2.25. A dark panel, not a window.
+
+**A window is not "dark", it is dark with a BOUNDED amount of life in it**, and the shipped panes
+miss that band on both sides. Three numbers per pane, not one.
+
+Two method notes, both of which cost a wrong bound first:
+
+- **The two instruments have to report the SAME statistic or they cannot be compared.** The census
+  reported a p90-p10 spread and `car-pane` a p95/p50 ratio, so "real glass varies a lot" and "the
+  shipped pane varies 5.3x" could not be put side by side at all — which is how a 13x disagreement
+  survived two rounds. Adding `modulation` to the census is what collapsed it.
+- **And the bound on that statistic was guessed and failed on its own data.** "A real window is
+  several times brighter at its top", `modulation > 1.8`, written from the census's own
+  observation that one window spans 0% to 56% of its paint. Measured: 1.56, 1.75, 2.25 — two of
+  three under it. The measured range is more useful than the guess precisely because it is bounded
+  at BOTH ends, and that is what makes "too flat" a finding rather than a feeling.
+
 ## When a reviewer is wrong
 
 Blind reviewers here measure before judging and are usually right, but not
