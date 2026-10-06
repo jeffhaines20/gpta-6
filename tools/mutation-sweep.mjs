@@ -1275,8 +1275,8 @@ const MUTATIONS = [
      * shipped in the first place: both fleets claimed the fix in prose and neither made it.
      */
     id: 'paint-wheel', file: 'src/traffic.js',
-    find: '        const paint = paintFamily(this._r());\n        color.setHSL(paint.h, (0.26 + this._r() * 0.18) * paint.sat, l);',
-    to: '        color.setHSL(this._r(), 0.26 + this._r() * 0.18, l);',
+    find: '        const paint = paintFamily(this._r());\n        color.setHSL(paint.h, (0.26 + this._r() * 0.18) * paint.sat,\n          CHROMATIC_L[0] + u * (CHROMATIC_L[1] - CHROMATIC_L[0]));',
+    to: '        color.setHSL(this._r(), 0.26 + this._r() * 0.18,\n          CHROMATIC_L[0] + u * (CHROMATIC_L[1] - CHROMATIC_L[0]));',
     why: 'a third of the moving fleet goes back to being a fairground',
   },
   {
@@ -1287,8 +1287,8 @@ const MUTATIONS = [
      * The row exists so a gate that only walks `traffic.js` reads as the gap it is.
      */
     id: 'paint-wheel-parked', file: 'src/streetfurniture.js',
-    find: '        const paint = paintFamily((h - 0.66) / 0.34);\n        this._pcol.setHSL(paint.h, (0.26 + h * 0.18) * paint.sat, l);',
-    to: '        this._pcol.setHSL((h - 0.66) / 0.34, 0.26 + h * 0.18, l);',
+    find: '        const paint = paintFamily((h - ACHROMATIC_SHARE) / (1 - ACHROMATIC_SHARE));\n        this._pcol.setHSL(paint.h, (0.26 + h * 0.18) * paint.sat,\n          CHROMATIC_L[0] + u * (CHROMATIC_L[1] - CHROMATIC_L[0]));',
+    to: '        this._pcol.setHSL((h - ACHROMATIC_SHARE) / (1 - ACHROMATIC_SHARE), 0.26 + h * 0.18,\n          CHROMATIC_L[0] + u * (CHROMATIC_L[1] - CHROMATIC_L[0]));',
     why: 'every third parked car goes back to the wheel while the moving fleet stays fixed',
   },
   {
