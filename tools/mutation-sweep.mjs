@@ -55,6 +55,7 @@
 // than the check noticing. `ped-audit` threw on every run for months while reading as a pass,
 // which is the same confusion from the other side.
 import fs from 'node:fs';
+import { treePort } from './serve.mjs';
 import { execFileSync, execSync } from 'node:child_process';
 import path from 'node:path';
 
@@ -110,6 +111,13 @@ const OFFLINE = [
   // RATIO that is wrong while still reaching both anchors — the `tone-ratio` row below is exactly
   // that mutation and this is the only gate that catches it.
   'paint-tone',
+  // ALSO A BROWSER GATE ON THE OFFLINE LIST, and measured rather than assumed: 1.36 / 1.41 /
+  // 1.43 s over three runs, which is CHEAPER than paint-tone beside it and 260x cheaper than
+  // boot-check. It is the only thing in this repo that samples a PIXEL of a car: the paint-slot
+  // tint is a vertex-shader rule, and paint-census checks source regexes, boot-check the uniform's
+  // own getter, paint-tone committed PNGs a mutated source cannot reach. `tint-invert` passed all
+  // three of those, all 70 of boot-check and all 65 of traffic-selftest.
+  'car-pixel',
 ];
 
 /**
@@ -1675,15 +1683,10 @@ const tracked = (f) => {
  * back caught. This tool is the one place that trap was never patched, which is the recurring shape
  * CLAUDE.md records: patch one tool and leave its siblings armed.
  *
- * Derived from the tree's absolute path so two trees never collide and one tree is stable across
- * runs, in the ephemeral range above 8200 and clear of 8123.
+ * The derivation lives in `tools/serve.mjs` now, as one definition any browser tool can import —
+ * leaving it here was the same shape one level up.
  */
-function treePort() {
-  let h = 2166136261;
-  for (const c of ROOT) { h ^= c.charCodeAt(0); h = (h * 16777619) >>> 0; }
-  return 8200 + (h % 1200);
-}
-const GATE_ENV = { ...process.env, BOOT_PORT: String(treePort()) };
+const GATE_ENV = { ...process.env, BOOT_PORT: String(treePort(ROOT)) };
 
 function runGate(name) {
   const t0 = Date.now();
@@ -1807,6 +1810,21 @@ function takeLock(what) {
  * So it is hoisted above both branches and runs before the lock, before any mutation, and before
  * either path can write to a tracked file.
  */
+/**
+ * `--list` GOES ABOVE THE REFUSAL, because it provably writes nothing and a dirty tree is exactly
+ * when somebody wants to read the table. Hoisting the refusal above both WRITING branches was the
+ * fix for a selftest that destroyed an uncommitted module; hoisting it above the read-only branch
+ * too was overreach in the same commit, and it made the documented "print the table and exit,
+ * writing nothing" impossible to do while holding uncommitted work.
+ */
+if (has('--list')) {
+  console.log(`${MUTATIONS.length} mutations\n`);
+  for (const m of MUTATIONS) {
+    console.log(`  ${m.id.padEnd(16)} ${m.file.padEnd(22)} ${m.browser ? '[browser] ' : ''}${m.why}`);
+  }
+  process.exit(0);
+}
+
 if (!gitClean()) {
   console.error('REFUSING: the working tree is dirty.');
   console.error('This tool restores by `git checkout -- <file>`, which would discard your changes.');
@@ -1954,14 +1972,6 @@ if (has('--selftest')) {
 }
 
 // --------------------------------------------------------------------------- listing
-if (has('--list')) {
-  console.log(`${MUTATIONS.length} mutations\n`);
-  for (const m of MUTATIONS) {
-    console.log(`  ${m.id.padEnd(16)} ${m.file.padEnd(22)} ${m.browser ? '[browser] ' : ''}${m.why}`);
-  }
-  process.exit(0);
-}
-
 // --------------------------------------------------------------------------- the sweep
 
 const untracked = [...new Set(MUTATIONS.map((m) => m.file))].filter((f) => !tracked(f));

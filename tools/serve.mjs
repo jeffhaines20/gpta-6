@@ -82,3 +82,23 @@ export async function ensureServer(port = 8123, timeoutMs = 20000, opts = {}) {
   }
   throw new Error(`static server did not come up on :${port}`);
 }
+
+/**
+ * A PORT OF A TREE'S OWN, lifted here out of `tools/mutation-sweep.mjs` so the next browser tool
+ * does not have to rediscover it.
+ *
+ * 8123 BELONGS TO THE MAIN TREE — CLAUDE.md says so in as many words — so a tool run from a
+ * worktree that asks for 8123 finds a live server with a foreign document root and THROWS. In a
+ * tool whose non-zero exit means something else, that throw reads as a result: `mutation-sweep
+ * --browser` was a silent no-op in every tree but one for exactly this reason, and every
+ * `[browser]` row came back "caught" whatever it mutated. That trap was patched in one tool and
+ * left armed everywhere else, which is this repo's recurring shape — hence one definition.
+ *
+ * Derived from the tree's absolute path, so two trees never collide and one tree is stable across
+ * runs, in the ephemeral range above 8200 and clear of 8123.
+ */
+export function treePort(root = process.cwd()) {
+  let h = 2166136261;
+  for (const c of String(root)) { h ^= c.charCodeAt(0); h = (h * 16777619) >>> 0; }
+  return 8200 + (h % 1200);
+}

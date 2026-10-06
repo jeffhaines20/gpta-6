@@ -1,0 +1,253 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>car-pixel</title>
+<!--
+  NOTHING IN THIS PROJECT SAMPLES A PIXEL OF A CAR, AND CLAUDE.md SAYS SO.
+
+  `src/carbody.js`'s paint-slot tint is a VERTEX SHADER rule: instanceColor reaches the paint slot
+  and nothing else, via `mix( vColor.xyz, color.xyz, uPaintTintOnly * step( 0.5, floor( uv.x * 16 ) ) )`.
+  What checks it today:
+
+    paint-census   three source regexes and the mix's ARGUMENT ORDER, structurally
+    boot-check     the uniform's own getter, which a mutated shader still reports correctly
+    paint-tone     committed PNGs, which a mutated source cannot reach
+
+  So a blind reviewer's `tint-invert` — the mix's two arguments swapped, which sends instanceColor
+  to every slot EXCEPT the paint and is #1 upside down — passed all three regexes, all 70 of
+  boot-check and all 65 of traffic-selftest. paint-census catches it now by asserting the rule
+  rather than the string, and CLAUDE.md records the gap underneath as still open: nothing renders
+  a car and looks at it.
+
+  This page is that. It is NOT the district: it builds ONE car's geometry and the REAL patched
+  material, renders it at a fixed orthographic camera, and reads the framebuffer. A purpose-built
+  page rather than the game because the question is about one shader on one material, and the
+  district brings streaming, residency, exposure and a time of day with it — every confound this
+  project has a CLAUDE.md section about.
+
+  THE MASK IS COMPUTED FROM THE BUFFER, NOT FROM A BOX. `paletteU(i)` is `(i + 0.5) / 16`, so
+  `floor(uv.x * 16)` IS the palette slot — the same number the shader branches on. Each triangle's
+  slot is read off the geometry and its vertices projected through the same camera matrix the
+  renderer uses, so the paint mask and the non-paint mask are exact and move with the geometry.
+  CLAUDE.md: "a fixed box over moved geometry is not a measurement of the material", and
+  "measure coverage of emitted geometry by CONNECTIVITY, not by vertex proximity" — here the
+  connectivity is the triangle itself.
+-->
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+<script type="module">
+import * as THREE from '../vendor/three.module.min.js';
+import { buildTrafficCarGeometry, carSurfaceMaterial, SHAPES, shellNames,
+  SURFACE, paletteU, paintTintOnly } from '../src/carbody.js';
+
+const W = 384, H = 256;
+
+const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.setSize(W, H);
+document.body.appendChild(renderer.domElement);
+
+const geo = buildTrafficCarGeometry({ groundY: 0, shape: SHAPES[shellNames()[0]] });
+geo.computeBoundingBox();
+const bb = geo.boundingBox;
+
+/**
+ * A THREE-QUARTER VIEW, so the mask has a bonnet, a flank, a lamp and a plate in it rather than
+ * one elevation. A pure side view hides both lamps and the plate, which are the slots the whole
+ * question is about — and a check whose non-paint mask is empty passes for the most flattering
+ * possible reason.
+ */
+const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
+const span = Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z);
+const half = span * 0.62;
+cam.left = -half * (W / H); cam.right = half * (W / H);
+cam.top = half; cam.bottom = -half;
+const mid = bb.getCenter(new THREE.Vector3());
+cam.position.set(mid.x + span, mid.y + span * 0.55, mid.z + span * 1.15);
+cam.lookAt(mid);
+cam.updateProjectionMatrix();
+cam.updateMatrixWorld();
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0, 0, 0);
+/**
+ * ONE DIRECTIONAL LIGHT AND A LITTLE AMBIENT, and the ambient matters: with none, a slot whose
+ * normals face away reads 0 whatever its albedo, and the "paint is near-black" check would pass
+ * on geometry that is simply unlit. The fill is small enough that the lamp's own emissive still
+ * dominates the frame.
+ */
+scene.add(new THREE.DirectionalLight(0xffffff, 2.2).translateX(1).translateY(2).translateZ(1.5));
+scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+
+const mat = carSurfaceMaterial();
+const mesh = new THREE.InstancedMesh(geo, mat, 1);
+mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+mesh.setMatrixAt(0, new THREE.Matrix4());
+mesh.instanceMatrix.needsUpdate = true;
+scene.add(mesh);
+
+// --------------------------------------------------- the slot mask, as a DEPTH-CORRECT render
+/**
+ * THE MASK IS A RENDER PASS, NOT A RASTERISED BOX LIST, and the first version was the latter.
+ *
+ * Projecting each triangle and filling it has no depth test, so a paint triangle on the far side
+ * of the car marks the lamp's pixels too. Measured on the first version: 4,474 px of paint, 1,770
+ * of non-paint and **6,363 dropped as ambiguous** — more pixels thrown away than either mask kept,
+ * and what survived in `other` was the biased subset no paint triangle happened to project onto.
+ * It read as two FAILING checks on a shipped build that is correct, which is the most expensive
+ * direction for an instrument error to point.
+ *
+ * So the slot is rendered. A plain `MeshBasicMaterial` with `vertexColors` carries `slot/16` in
+ * the red channel through the same camera and the same depth buffer, and the clear colour is a
+ * value no slot can produce, so background separates from car without a second pass. Linear output
+ * and no tone mapping, so a vertex value v lands on byte round(v*255) and the slot comes back
+ * exactly.
+ *
+ * It is a NON-instanced Mesh on purpose: `color_vertex` multiplies `vColor` by `instanceColor`, so
+ * a mask drawn through the InstancedMesh would be modulated by the very quantity under test.
+ */
+const pos = geo.getAttribute('position');
+const uv = geo.getAttribute('uv');
+const index = geo.getIndex();
+const triCount = index ? index.count / 3 : pos.count / 3;
+
+/**
+ * FLAT PER TRIANGLE, AND MIXED TRIANGLES EXCLUDED. The version before this one wrote the slot
+ * per VERTEX and let the rasteriser interpolate it, which is wrong in a way that read as a finding:
+ * **104 of this car's 1050 triangles (9.9%) span slot 0 and slot 1**, paint and trim, and across
+ * such a triangle an interpolated mask flips at a slightly different u than the shader's
+ * `floor(uv.x * 16.0)` does. The mask flipped at 44.3% of the span (byte quantisation puts the
+ * rounding boundary at r=11.5 of 8..16) against the shader's 50%, so a ~6% sliver of each mixed
+ * triangle was classified as trim while being rendered as tinted paint. Slot 1 read x1.759 between
+ * the arms where every other slot read x1.000 exactly, and the gate called the shipped build
+ * broken.
+ *
+ * THE MIXED TRIANGLES THEMSELVES ARE NOT A DEFECT, and that took checking. `packTexture()` is
+ * `NearestFilter`, so the palette samples texel `floor(u * 16)` — the same expression the tint's
+ * `step( 0.5, floor( uv.x * 16.0 ) )` branches on. The material boundary and the tint boundary are
+ * therefore the SAME boundary by construction rather than by coincidence: half such a triangle is
+ * paint with the tint and half is trim without it, and the two halves agree to the pixel. A
+ * half-and-half triangle is how this car gets a bumper line without a seam in the mesh.
+ *
+ * So they are ambiguous to the INSTRUMENT and correct in the BUILD, which makes exclusion the right
+ * answer rather than a smaller threshold. `toNonIndexed` gives each triangle its own vertices so a
+ * flat colour is possible at all — the indexed buffer shares vertices between paint and trim faces,
+ * which is why the slots mix. The count is reported, because a silent exclusion of a tenth of the
+ * subject is the sort of thing this project has a section about.
+ */
+const slotGeo = geo.toNonIndexed();
+const sPos = slotGeo.getAttribute('position');
+const sUv = slotGeo.getAttribute('uv');
+const slotCol = new Float32Array(sPos.count * 3);
+const slotSeen = new Map();
+let mixedTris = 0;
+for (let t = 0; t * 3 < sPos.count; t++) {
+  const a = t * 3;
+  const s0 = Math.floor(sUv.getX(a) * 16);
+  const s1 = Math.floor(sUv.getX(a + 1) * 16);
+  const s2 = Math.floor(sUv.getX(a + 2) * 16);
+  const mixed = s0 !== s1 || s1 !== s2;
+  if (mixed) mixedTris++;
+  else slotSeen.set(s0, (slotSeen.get(s0) ?? 0) + 1);
+  // (s + 1) / 32 for a pure triangle — offset by one so slot 0 is not the byte "nothing", and
+  // scaled so the 16 slots land on well-separated bytes (8, 16, 24 ... 128). A mixed triangle gets
+  // 1.0, the same byte as the clear colour, so its pixels read as background and are dropped.
+  const v = mixed ? 1 : (s0 + 1) / 32;
+  for (let k = 0; k < 3; k++) { slotCol[(a + k) * 3] = v; slotCol[(a + k) * 3 + 1] = 0; slotCol[(a + k) * 3 + 2] = 0; }
+}
+slotGeo.setAttribute('color', new THREE.BufferAttribute(slotCol, 3));
+const slotMesh = new THREE.Mesh(slotGeo, new THREE.MeshBasicMaterial({ vertexColors: true }));
+
+/** A clear value no slot can produce: slots give 8..128, so 255 is unambiguous background. */
+const BG_BYTE = 255;
+function readSlotMask() {
+  const tone = renderer.toneMapping, out = renderer.outputColorSpace;
+  renderer.toneMapping = THREE.NoToneMapping;
+  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+  const maskScene = new THREE.Scene();
+  maskScene.background = new THREE.Color(1, 1, 1);
+  maskScene.add(slotMesh);
+  renderer.render(maskScene, cam);
+  const gl = renderer.getContext();
+  const buf = new Uint8Array(W * H * 4);
+  gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+  renderer.toneMapping = tone;
+  renderer.outputColorSpace = out;
+  // byte -> slot, by the inverse of the encoding, with anything off-grid left as background.
+  const slotAt = new Int8Array(W * H).fill(-1);
+  const counts = new Map();
+  for (let i = 0; i < W * H; i++) {
+    const r = buf[i * 4];
+    if (r === BG_BYTE || r === 0) continue;
+    const s = Math.round((r / 255) * 32) - 1;
+    if (s < 0 || s > 15) continue;
+    slotAt[i] = s;
+    counts.set(s, (counts.get(s) ?? 0) + 1);
+  }
+  return { slotAt, counts };
+}
+const { slotAt, counts: slotPx } = readSlotMask();
+
+// --------------------------------------------------------------------------------- the two arms
+function toLinear(u) { return u <= 0.04045 ? u / 12.92 : ((u + 0.055) / 1.055) ** 2.4; }
+
+/**
+ * PER SLOT, not two lumped masks, and that is what makes this a statement of the RULE. The rule is
+ * "instanceColor reaches slot 0 and nothing else", so the check is "slot 0's level moves between
+ * the two arms and every other slot's does not" — one ratio per slot, over the same pixels under
+ * two instance colours, which cancels the lighting, the exposure and the camera entirely.
+ *
+ * It also replaces the max-over-median reading the first version asserted. That reading was
+ * dominated by a SPECULAR HIGHLIGHT on the paint — paint max 0.6766 against a lamp at 0.1401 with
+ * instanceColor at 0.02 — because the paint slot is metalness 0.60 and the lamps are not emissive
+ * in this probe's lighting. A max is a statement about one pixel of one highlight; a per-slot
+ * median ratio between two arms is a statement about the rule.
+ */
+function sample(tint) {
+  const c = new THREE.Color();
+  c.setRGB(tint, tint, tint, THREE.LinearSRGBColorSpace);
+  mesh.setColorAt(0, c);
+  mesh.instanceColor.needsUpdate = true;
+  renderer.render(scene, cam);
+  const gl = renderer.getContext();
+  const buf = new Uint8Array(W * H * 4);
+  gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+  const per = new Map();
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      // The mask pass and the colour pass are both read bottom-up by readPixels, so the two
+      // indices agree and no flip is needed between them.
+      const i = y * W + x;
+      const s = slotAt[i];
+      if (s < 0) continue;
+      const o = i * 4;
+      const lum = 0.2126 * toLinear(buf[o] / 255) + 0.7152 * toLinear(buf[o + 1] / 255)
+        + 0.0722 * toLinear(buf[o + 2] / 255);
+      if (!per.has(s)) per.set(s, []);
+      per.get(s).push(lum);
+    }
+  }
+  const stat = (vals) => {
+    vals.sort((p, q) => p - q);
+    const q = (f) => vals[Math.min(vals.length - 1, Math.floor(f * vals.length))];
+    return { n: vals.length, p50: q(0.5), p95: q(0.95), max: vals[vals.length - 1] };
+  };
+  const slots = {};
+  for (const [s, vals] of per) slots[s] = stat(vals);
+  const all = stat([...per.values()].flat());
+  return { tint, slots, all };
+}
+
+window.__carPixel = {
+  size: { w: W, h: H },
+  triangles: triCount,
+  paintSlot: SURFACE.paint,
+  slotTris: [...slotSeen.entries()].sort((a, b) => a[0] - b[0]).map(([s, n]) => ({ slot: s, tris: n })),
+  mixedTris,
+  slotPx: [...slotPx.entries()].sort((a, b) => a[0] - b[0]).map(([s, n]) => ({ slot: s, px: n })),
+  carPx: [...slotPx.values()].reduce((a, b) => a + b, 0),
+  tint: paintTintOnly(),
+  // The two arms. Near-black and near-white rather than 0 and 1, because an exact 0 instanceColor
+  // multiplies to exactly 0 under BOTH rules for the slot it reaches, and a check against zero
+  // cannot tell "tinted to black" from "not drawn".
+  arms: [sample(0.02), sample(0.98)],
+};
+</script>

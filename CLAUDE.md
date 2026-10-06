@@ -1637,7 +1637,7 @@ linear in the mission's size, caught at x7.89 while passing the absolute bound a
 `car-shapes`, `crowd-bill --selftest`, `tri-buckets --selftest`, `gate-align --selftest`,
 `mutation-sweep --selftest`, `playtest --selftest`, `car-shapes --selftest`, `paint-census`,
 `glass-census` (needs a browser to decode the reference JPEGs; about 20 s),
-`paint-tone` (the same, about 2.4 s).
+`paint-tone` (the same, about 2.4 s), `car-pixel` (the same, about 1.4 s).
 The offline ones together take under a minute.
 
 `paint-tone` is cheap enough to be on `mutation-sweep`'s offline list despite launching a
