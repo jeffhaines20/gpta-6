@@ -472,6 +472,8 @@ export class Traffic {
 
     const color = new THREE.Color();
     this.cars = new Array(this.count).fill(null);
+    /** Per car, the four stream numbers its colour came out of. See `recolour`. */
+    this._paintDraws = new Array(this.count);
     for (let i = 0; i < this.count; i++) {
       // Same fleet distribution as the parked pool in streetfurniture.js, and
       // for the same reason: the reference photographs of Main Street are
@@ -490,8 +492,16 @@ export class Traffic {
       // real population with no tone at all. Same two draws in the same order -
       // the first picks the branch and carries the achromatic saturation, the
       // second carries the tone where it used to carry a flat lightness.
+      //
+      // THE DRAWS ARE KEPT, 4 floats a car, so an A/B arm can repaint the whole
+      // fleet under the OLD rule without touching the seeded stream. A lever
+      // that cannot be swept cannot be measured, and the alternative is two
+      // page loads - which this project's own harness exists to avoid, because
+      // residency, traffic, crowd and the cloud deck all move between them.
       const r = this._r();
       const u = this._r();
+      const draws = [r, u, 0, 0];
+      this._paintDraws[i] = draws;
       if (r < ACHROMATIC_SHARE) color.setHSL(0.58, 0.012 + r * 0.045, paintTone(u).l);
       else {
         /**
@@ -507,8 +517,10 @@ export class Traffic {
          * the hue within it both come out of the FIRST draw; the second is the saturation it
          * always was, scaled by the family.
          */
-        const paint = paintFamily(this._r());
-        color.setHSL(paint.h, (0.26 + this._r() * 0.18) * paint.sat,
+        draws[2] = this._r();
+        draws[3] = this._r();
+        const paint = paintFamily(draws[2]);
+        color.setHSL(paint.h, (0.26 + draws[3] * 0.18) * paint.sat,
           CHROMATIC_L[0] + u * (CHROMATIC_L[1] - CHROMATIC_L[0]));
       }
       this._setColorAt(i, color);
@@ -1867,6 +1879,42 @@ export class Traffic {
 
   _setColorAt(i, c) {
     this.meshes[this._shellOf[i]].setColorAt(this._localOf[i], c);
+  }
+
+  /**
+   * REPAINT THE WHOLE FLEET UNDER THE OLD TONE RULE, for an A/B arm, from the draws each car's
+   * colour was built from. Consumes NOTHING from the seeded stream, so every routing and spawn
+   * decision is identical between the two arms — the same property the colour block's own comment
+   * is about, enforced here rather than hoped for.
+   *
+   * `legacy` reproduces the range both fleets drew from before the tone table: ONE flat lightness
+   * band for both branches. In this module that band is exactly `CHROMATIC_L`, because the
+   * chromatic branch kept it — so there is no second constant to drift, and the arm is the shipped
+   * build with one expression swapped rather than a re-implementation of it.
+   *
+   * Returns what it did, so a harness asserts against the module rather than against its own call.
+   */
+  recolour(legacy = false) {
+    const c = new THREE.Color();          // once per ARM, not per frame
+    const flat = (u) => CHROMATIC_L[0] + u * (CHROMATIC_L[1] - CHROMATIC_L[0]);
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < this.count; i++) {
+      const d = this._paintDraws[i];
+      if (!d) continue;
+      const [r, u, a, b] = d;
+      if (r < ACHROMATIC_SHARE) c.setHSL(0.58, 0.012 + r * 0.045, legacy ? flat(u) : paintTone(u).l);
+      else {
+        const paint = paintFamily(a);
+        c.setHSL(paint.h, (0.26 + b * 0.18) * paint.sat, flat(u));
+      }
+      this._setColorAt(i, c);
+      const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+      if (lum < lo) lo = lum;
+      if (lum > hi) hi = lum;
+    }
+    for (const m of this.meshes) if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    this._paintLegacy = !!legacy;
+    return { legacy: !!legacy, cars: this.count, lumaLo: lo, lumaHi: hi, span: hi / lo };
   }
 
   setLights(on, exposure) {

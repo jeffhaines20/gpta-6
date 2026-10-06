@@ -35,7 +35,7 @@ import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubS
   carLensArm, setFrontLensScale, frontLensScale, frontLensLuma,
   setLensFinish, lensFinish,
   setLensProfile, lensProfile,
-  setGlassFinish, glassFinish } from '../src/carbody.js';
+  setGlassFinish, glassFinish, setPaintTintOnly, paintTintOnly } from '../src/carbody.js';
 import { HUD, composeBand, MINIMAP_ZOOM_M } from '../src/hud.js';
 import { MissionRunner, OUTCOMES, MissionBoard, OFFER_RADIUS_M } from '../src/mission.js';
 import { MISSIONS } from '../src/missions.js';
@@ -2690,6 +2690,25 @@ window.__district = {
   cloudDrift: () => (sky ? sky.cloudDriftState() : null),
   setCarGlassEnv: (k) => setGlassEnv(k),
   carGlassEnv: () => glassEnv(),
+  /**
+   * THE TWO HALVES OF #1, AS SWEEPABLE ARMS off one page load.
+   *
+   * `setCarPaintTint(0)` is bit-exactly the build before the paint-slot tint, because the mix
+   * weight is the uniform; `setCarTone(true)` repaints both fleets under the flat lightness band
+   * they drew from before the tone table, from the draws each car's colour was built from, and
+   * consumes nothing from the seeded stream. So an A/B of either half holds camera, geometry,
+   * streaming, traffic, crowd and the cloud deck fixed — which is what `hero-shots` exists for and
+   * what two page loads cannot give.
+   *
+   * BOTH FLEETS, in one call, deliberately: these two modules have had the same defect three
+   * times because one got a fix and its sibling did not.
+   */
+  setCarPaintTint: (k) => setPaintTintOnly(k),
+  carPaintTint: () => paintTintOnly(),
+  setCarTone: (legacy) => ({
+    traffic: traffic ? traffic.recolour(!!legacy) : null,
+    parked: furniture ? furniture.recolourParked(!!legacy) : null,
+  }),
   setCarFrontLens: (k) => {
     const st = setFrontLensScale(k);
     // The texture is shared by the pool's material; the emissive SCALAR has not

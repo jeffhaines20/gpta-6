@@ -4777,6 +4777,9 @@ export class StreetFurniture {
     };
     this._hidden = new THREE.Matrix4().makeScale(0, 0, 0);
     this._pcol = new THREE.Color();
+    /** Which mesh slot each placed car took, and the slot hash it was painted from. See
+     * `recolourParked`. Rebuilt on every fill, because the pool re-seeds as the camera moves. */
+    this._parkedPaint = [];
     for (const m of meshes) {
       for (let i = 0; i < count; i++) m.setMatrixAt(i, this._hidden);
       m.instanceMatrix.needsUpdate = true;
@@ -4833,6 +4836,7 @@ export class StreetFurniture {
     // every distance-ordered decision below are unchanged; `used[shell]` is
     // where this car lands inside its own mesh.
     const used = new Array(p.meshes.length).fill(0);
+    (this._parkedPaint ??= []).length = 0;   // a fill replaces the pool, so the record is rebuilt
     let i = 0;
     for (; i < p.count && i < cand.length; i++) {
       const s = cand[i];
@@ -4873,6 +4877,11 @@ export class StreetFurniture {
       // Still driven entirely by the slot hash, so placement and paint stay
       // deterministic, and still ONE remap of it, where there was one before.
       const h = s.hue;
+      // THE SLOT INDEX IS KEPT BESIDE THE INSTANCE, so `recolourParked` can repaint the pool
+      // under the old rule for an A/B arm. The parked pool needs no stored draws the way
+      // src/traffic.js does — the slot hash IS the only input and it is already here — but the
+      // instance's place in the mesh is not recoverable from the slot, so it is recorded.
+      this._parkedPaint.push({ mesh, li, hue: h });
       const u = (h * 7) % 1;
       if (h < ACHROMATIC_SHARE) this._pcol.setHSL(0.58, 0.012 + h * 0.045, paintTone(u).l);
       else {
@@ -4904,6 +4913,40 @@ export class StreetFurniture {
     p.filled = i;
     p.perShell = used.slice();
     return i;
+  }
+
+  /**
+   * REPAINT THE PARKED POOL UNDER THE OLD TONE RULE, for an A/B arm. The sibling of
+   * `Traffic.recolour`, written at the same time rather than left for a later round to notice —
+   * patching one of this pair and leaving the other is the defect shape this repo keeps finding,
+   * and these two modules have now had the same one three times.
+   *
+   * It needs no stored draws: the slot hash IS the only input and it is already recorded. What is
+   * recorded is which mesh and slot each placed car took, because a fill packs three shells and
+   * that mapping is not recoverable from the hash.
+   *
+   * `legacy` is this module's own `CHROMATIC_L` band applied to BOTH branches, which is exactly
+   * the flat range it drew before the tone table — so there is no second constant to drift.
+   */
+  recolourParked(legacy = false) {
+    if (!this.parked || !this._parkedPaint.length) return { legacy: !!legacy, cars: 0 };
+    const c = new THREE.Color();          // once per ARM, not per frame
+    const flat = (u) => CHROMATIC_L[0] + u * (CHROMATIC_L[1] - CHROMATIC_L[0]);
+    let lo = Infinity, hi = -Infinity;
+    for (const { mesh, li, hue: h } of this._parkedPaint) {
+      const u = (h * 7) % 1;
+      if (h < ACHROMATIC_SHARE) c.setHSL(0.58, 0.012 + h * 0.045, legacy ? flat(u) : paintTone(u).l);
+      else {
+        const paint = paintFamily((h - ACHROMATIC_SHARE) / (1 - ACHROMATIC_SHARE));
+        c.setHSL(paint.h, (0.26 + h * 0.18) * paint.sat, flat(u));
+      }
+      mesh.setColorAt(li, c);
+      const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+      if (lum < lo) lo = lum;
+      if (lum > hi) hi = lum;
+    }
+    for (const m of this.parked.meshes) if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    return { legacy: !!legacy, cars: this._parkedPaint.length, lumaLo: lo, lumaHi: hi, span: hi / lo };
   }
 
   // ============================================================ live hookups

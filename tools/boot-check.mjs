@@ -1024,6 +1024,60 @@ if (state.global && state.frames > 2) {
   await page.evaluate(() => __district.clearWanted('boot-check'));
 }
 
+// --------------------------------------------------------------- the A/B colour arms
+/**
+ * THE TWO HALVES OF #1 ARE SWEEPABLE OFF ONE PAGE LOAD, which is the only reason an A/B of them
+ * can hold camera, geometry, streaming, traffic, crowd and the cloud deck fixed. `traffic-selftest`
+ * proves the moving fleet's arm offline, bit for bit; this is the PARKED pool's arm and the host
+ * wire that reaches both — neither of which any offline gate imports.
+ *
+ * Patching one of this pair and leaving the other is the defect shape these two modules have now
+ * produced three times, so the sibling gets a check in the same round rather than the next one.
+ */
+{
+  const arm = await page.evaluate(() => {
+    const D = window.__district;
+    const before = D.carPaintTint();
+    const off = D.setCarPaintTint(0);
+    const on = D.setCarPaintTint(1);
+    const legacy = D.setCarTone(true);
+    const shipped = D.setCarTone(false);
+    return { before, off, on, legacy, shipped };
+  });
+  console.log(`  tone arms: parked ${arm.legacy.parked ? `${arm.legacy.parked.cars} cars, ` +
+    `legacy span x${arm.legacy.parked.span.toFixed(2)} -> shipped x${arm.shipped.parked.span.toFixed(2)}`
+    : 'NO PARKED POOL'}; traffic ${arm.legacy.traffic ? `${arm.legacy.traffic.cars} cars, ` +
+    `legacy span x${arm.legacy.traffic.span.toFixed(2)} -> shipped x${arm.shipped.traffic.span.toFixed(2)}`
+    : 'NO FLEET'}`);
+  check('the page exposes the paint-slot tint as an arm, and it is shipped ON',
+    arm.before.value === 1 && arm.off.value === 0 && arm.on.value === 1,
+    `${arm.before.value} -> ${arm.off.value} -> ${arm.on.value}`);
+  /**
+   * BOTH POOLS, OR THE ARM MEASURES HALF THE FLEET. A `setCarTone` that silently returned null for
+   * one of them would still print a legacy span and still look like a working A/B.
+   */
+  check('and setCarTone reaches BOTH fleets, not one of them',
+    !!(arm.legacy.parked && arm.legacy.traffic && arm.legacy.parked.cars > 0
+      && arm.legacy.traffic.cars > 0),
+    `parked ${arm.legacy.parked?.cars ?? 'null'}, traffic ${arm.legacy.traffic?.cars ?? 'null'}`);
+  check('the parked pool narrows under the legacy rule, so its arm is not a no-op',
+    arm.legacy.parked.span < arm.shipped.parked.span / 5,
+    `x${arm.legacy.parked.span.toFixed(2)} against x${arm.shipped.parked.span.toFixed(2)}`);
+  check('and so does the moving fleet, through the same one call',
+    arm.legacy.traffic.span < arm.shipped.traffic.span / 5,
+    `x${arm.legacy.traffic.span.toFixed(2)} against x${arm.shipped.traffic.span.toFixed(2)}`);
+  /**
+   * AND THE PAGE IS LEFT AS IT WAS FOUND. An arm that leaves the district in its before-state is
+   * how a later section in the same run measures the wrong build — this file's own run-over arm
+   * was once poisoned by an earlier arm's parked car, and that is the same shape.
+   */
+  const after = await page.evaluate(() => window.__district.carPaintTint());
+  check('and the page is left in the shipped state, so no later arm inherits a swept one',
+    after.value === 1 && arm.shipped.parked.span > 5 && arm.shipped.traffic.span > 5,
+    `tint ${after.value}, parked x${arm.shipped.parked.span.toFixed(2)}, ` +
+    `traffic x${arm.shipped.traffic.span.toFixed(2)}`);
+}
+
 await browser.close();
 console.log(`\nBOOT: ${fail ? `FAIL — ${fail} of ${pass + fail}` : `PASS — ${pass} checks`} ` +
   `in ${((Date.now() - t0) / 1000).toFixed(0)} s`);

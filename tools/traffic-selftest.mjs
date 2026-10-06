@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import { Traffic, LANE_FIT } from '../src/traffic.js';
 import { BlockerIndex } from '../src/blockers.js';
 import * as TrafficMod from '../src/traffic.js';
+import { ACHROMATIC_SHARE } from '../src/carpaint.js';
 
 const district = JSON.parse(fs.readFileSync('data/district.json', 'utf8'));
 const scene = { add() {} };
@@ -747,6 +748,72 @@ console.log('\n8. no car is ever published inside a building');
     `closest approach ${tr.stats.closestApproachM} m`);
   check('and no two cars overlap', tr.stats.overlapPairFrames === 0,
     `${tr.stats.overlapPairFrames}`);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n9. the A/B recolour arm is the shipped rule, and it leaves the stream alone');
+{
+  /**
+   * `Traffic.recolour` exists so an A/B of the tone table can be swept off ONE page load, which
+   * is what `hero-shots` is for. Three things have to be true of it or the arm measures itself:
+   *
+   *   1. recolour(false) must reproduce what the CONSTRUCTOR painted, bit for bit. A re-
+   *      implementation that agreed "closely" would make every after-arm a measurement of the
+   *      arm rather than of the build — this file's own opening paragraph is about instruments
+   *      that return plausible numbers while being inert, and this is the same shape.
+   *   2. recolour(true) must actually MOVE something, and move the right thing: the achromatic
+   *      branch only, because the chromatic lightness did not change this round.
+   *   3. neither may take a number from the seeded stream, or the two arms drive different
+   *      edges and every comparison between them is between two different traversals.
+   */
+  const tr = new Traffic(scene, district, { count: 30 });
+  const colours = (t) => t.meshes.map((m) => (m.instanceColor ? Array.from(m.instanceColor.array) : []));
+  const shipped = JSON.stringify(colours(tr));
+
+  // The stream's own state, either side of the arm. `_r` is a seeded PRNG, so an identical NEXT
+  // DRAW is an identical state — and the reference is a FRESH fleet of the same seed, which is
+  // what makes this a comparison and not a tautology against tr's own already-advanced stream.
+  const reference = new Traffic(scene, district, { count: 30 });
+  const nextBefore = reference._r();
+  const a = tr.recolour(false);
+  check('recolour(false) reproduces the constructor exactly, so an arm measures the build',
+    JSON.stringify(colours(tr)) === shipped, 'instanceColor byte-identical across all three shells');
+  const nextAfter = tr._r();
+  check('and it takes nothing from the seeded stream, so both arms drive the same edges',
+    nextAfter === nextBefore, `next draw ${nextAfter} against a fresh fleet's ${nextBefore}`);
+
+  const b = tr.recolour(true);
+  const c = tr.recolour(false);
+  console.log(`  shipped span x${a.span.toFixed(2)} (${a.lumaLo.toFixed(4)}..${a.lumaHi.toFixed(4)}), ` +
+    `legacy span x${b.span.toFixed(2)} (${b.lumaLo.toFixed(4)}..${b.lumaHi.toFixed(4)})`);
+  check('the legacy arm actually moves the fleet, rather than being a no-op that looks like one',
+    b.span < a.span / 5, `x${b.span.toFixed(2)} against x${a.span.toFixed(2)}`);
+  check('and the shipped arm comes back after it, so an A/B can be run in either order',
+    JSON.stringify(colours(tr)) === shipped, `round-trip over ${c.cars} cars`);
+  /**
+   * AND IT MOVES THE ACHROMATIC CARS ONLY. The chromatic lightness is deliberately unchanged this
+   * round, so a legacy arm that moved a red car too would be sweeping two terms at once — which is
+   * this project's "isolate one term at a time" arriving as a measurement error rather than as a
+   * code one.
+   */
+  const lumaOf = (arr, i) => 0.2126 * arr[i * 3] + 0.7152 * arr[i * 3 + 1] + 0.0722 * arr[i * 3 + 2];
+  tr.recolour(false);
+  const shippedL = colours(tr);
+  tr.recolour(true);
+  const legacyL = colours(tr);
+  let movedAchro = 0, movedChrom = 0, achro = 0, chrom = 0;
+  for (let i = 0; i < tr.count; i++) {
+    const isAchro = tr._paintDraws[i][0] < ACHROMATIC_SHARE;
+    const sh = tr._shellOf[i], li = tr._localOf[i];
+    const d = Math.abs(lumaOf(shippedL[sh], li) - lumaOf(legacyL[sh], li));
+    if (isAchro) { achro++; if (d > 1e-6) movedAchro++; } else { chrom++; if (d > 1e-6) movedChrom++; }
+  }
+  console.log(`  legacy moved ${movedAchro}/${achro} achromatic cars and ${movedChrom}/${chrom} chromatic ones`);
+  check('the legacy arm moves the achromatic cars', movedAchro === achro && achro > 0,
+    `${movedAchro} of ${achro}`);
+  check('and no chromatic one, because that term did not change this round',
+    movedChrom === 0, `${movedChrom} of ${chrom}`);
+  tr.recolour(false);
 }
 
 // THE SUMMARY AND THE EXIT ARE THE LAST THING IN THIS FILE, and they have to be: appending
