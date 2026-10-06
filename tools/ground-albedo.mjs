@@ -409,6 +409,24 @@ export const ARM_STATE = {
     };
   })(),
 
+  /**
+   * #1's PAIR: the car paint as it shipped, and the same cars under the rule that preceded it.
+   *
+   * `paint0` is the BEFORE arm and it is exact rather than approximate — the paint-slot tint's
+   * mix weight is a uniform, so 0 is bit-exactly the old shader, and the tone is replayed from
+   * the draws each car's colour was actually built from. `paint1` is HEAD, named explicitly so a
+   * reader of the pair does not have to know which way round the default falls.
+   *
+   * Two terms at once, deliberately, which is this project's "isolate one term at a time" being
+   * deliberately set aside with a reason: the two are ONE change. Widening the tone without the
+   * tint takes a black car's number plate to x0.029 of a real one, so `paint0h` exists as the
+   * half-arm that shows it — tone shipped, tint off — for a round that wants to see why the two
+   * could not be separated.
+   */
+  paint0: { carPaintTint: 0, carTone: true },
+  paint1: { carPaintTint: 1, carTone: false },
+  paint0h: { carPaintTint: 0, carTone: false },
+
   // THE DISTRICT BOUNCE, scaled. It is a HemisphereLight and three.js gives it no
   // occlusion, so it reaches the road under a closed oak canopy in full - which is
   // exactly where noon's dapple is read. bounce00 is the build with the bounce
@@ -608,6 +626,32 @@ export async function setArm(page, name) {
       }
       carGlassEnv = D.setCarGlassEnv(s.carGlassEnv ?? window.__armSavedGlassEnv);
     }
+    /**
+     * #1's TWO HALVES, saved and restored off the APP rather than defaulted to a literal — the
+     * rule this file has now been bitten by five times, each one written into the comment above
+     * the term it bit. An arm that does not name either gets the BUILD'S value, so the whole
+     * existing table (aoShip, gl086, r5cum, ge0..ge5) is unaffected by these existing at all.
+     *
+     * `carTone` is a BOOLEAN, not a level: true is the flat lightness band both fleets drew from
+     * before the tone table, replayed from the draws each car's colour came out of. It consumes
+     * nothing from the seeded stream, so a pair of arms drives the same edges — which is the only
+     * reason a tone A/B can be a registered pair at all.
+     */
+    let carPaintTint = null;
+    if (D && D.setCarPaintTint) {
+      if (window.__armSavedPaintTint === undefined) {
+        window.__armSavedPaintTint = D.carPaintTint ? D.carPaintTint().value : 1;
+      }
+      carPaintTint = D.setCarPaintTint(s.carPaintTint ?? window.__armSavedPaintTint);
+    }
+    let carTone = null;
+    if (D && D.setCarTone) {
+      // The build's own state is "not legacy", and there is nothing to read back off the app for
+      // it — a recolour leaves no flag the page exposes — so the default is the literal `false`
+      // the build ships. Named here rather than left implicit, because that is exactly the shape
+      // the comment above warns about.
+      carTone = D.setCarTone(s.carTone === true);
+    }
     let carFinish = null;
     if (D && D.setCarLensFinish) {
       const fin = s.carFinish ?? [sv.finish.roughness, sv.finish.metalness];
@@ -671,6 +715,14 @@ export async function setArm(page, name) {
       // term of this round's pair that a runtime arm cannot carry. A pair whose
       // two halves came off two loads and did not record this is how an
       // index-matched comparison ends up pairing the wrong cells.
+      // IN THE KEY, for the reason every term above is: a tone pair and a tint pair differ in
+      // NOTHING ELSE, so without them two distinct arms hash to one value and proveArmsDiffer
+      // waves through a set of frames that are all the same build. Sixth and seventh time.
+      // Read back off what the app reached — the tone's own measured luma span, which is the
+      // number that says the recolour actually landed rather than the boolean that asked for it.
+      carPaintTint: carPaintTint ? [carPaintTint.value, carPaintTint.tintedSlot] : null,
+      carTone: carTone ? [carTone.traffic ? +carTone.traffic.span.toFixed(3) : null,
+        carTone.parked ? +carTone.parked.span.toFixed(3) : null] : null,
       carShells: (window.__district && window.__district.carShells)
         ? window.__district.carShells().shells : null,
       skyLuxUpper: +(sky.audit().skyLux ?? 0).toFixed(1) };
@@ -696,7 +748,7 @@ export async function proveArmsDiffer(page, arms) {
   // carFront and carTyre joined the key in round 5 for the same reason, for the
   // third time: those arms move one texel and one vertex-colour set and nothing
   // a uniform readback would otherwise show.
-  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carGlass, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo, s.carGlassAlbedo, s.carGlassEnv, s.carShells]))).size;
+  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carGlass, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo, s.carGlassAlbedo, s.carGlassEnv, s.carShells, s.carPaintTint, s.carTone]))).size;
   return { seen, ok: distinct === arms.length };
 }
 

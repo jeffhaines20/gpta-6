@@ -1553,6 +1553,13 @@ linear in the mission's size, caught at x7.89 while passing the absolute bound a
 `paint-tone` (the same, about 1 s).
 The offline ones together take under a minute.
 
+`paint-tone` is cheap enough to be on `mutation-sweep`'s offline list despite launching a
+browser, and it is there because `paint-census` cannot see a tone RATIO that is wrong while
+still reaching both anchors — the `tone-ratio` row is exactly that mutation and `paint-tone`
+is the only thing that catches it. Its `--grid` mode writes a view of any region of any
+reference frame labelled in that image's OWN pixel numbers, which is how a box gets placed;
+`--crop` then draws the placed boxes over the image so somebody else can check one.
+
 `shadow-bill` needs a browser and takes about seven minutes; it is how a change is
 priced in the units the gate reads, and its header records five wrong versions.
 `crowd-bill` asserts that the two pedestrian tiers are a PARTITION — no ped drawn
