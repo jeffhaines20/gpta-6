@@ -1202,6 +1202,39 @@ where both kits rolled their own dice over the same wall for 275 m.
   uses 180 s for the same reason" — true of the bound, false of the catch. Three
   other tools were still unguarded when this was found. Patching one tool and
   leaving its siblings is the recurring shape of defect in this repo.
+### Waiting on a PID is wrong when a shell loop supplies the PIDs
+
+CLAUDE.md already says "never wait on a log string — wait on the process (`wait $PID`, or poll
+`kill -0 $PID`)". That is right and it is not enough. Running three mutation rows as
+
+    for r in tint-invert tint-slotless tint-off; do node tools/mutation-sweep.mjs --only $r; done
+
+and then waiting on `pgrep -f "[m]utation-sweep.mjs --only"` captures **the row that happens to be
+running when the watcher starts**. That row exits, the watcher reports the sweep finished, and the
+loop immediately spawns the next one. The watcher is now watching a dead pid and the sweep is live.
+
+**And the failure mode is the dangerous one.** `git status` at that moment read
+`M src/carbody.js`, which is a sweep mid-row doing exactly its job — and it is indistinguishable
+from a sweep that died and left a mutation behind. One is "wait"; the other is "restore". This file
+already records what happens if you guess wrong in either direction: `git add -A` during a sweep
+committed a reverted soft knee to HEAD and left `git status` reading clean, and `git checkout --`
+during a sweep reverted the mutation mid-gate and the row reported MISSED for a reason that had
+nothing to do with the row.
+
+Two rules:
+
+- **Wait on the thing that OWNS the work, not on its current child.** For a shell loop that is the
+  loop's own pid; the children are an implementation detail of it. Waiting on the loop AND then on
+  "no child alive" covers both, and the second clause alone does not, because a loop between
+  iterations has no child.
+- **Before deciding whether a dirty tree is a crash or a sweep, check for a live owner.**
+  `pgrep -af mutation-sweep` answers it in one command and the lock file does not — the lock
+  survives a kill, so a stale lock and a live sweep look the same.
+
+It cost nothing this time only because the check ran before the commit. The same mistake one step
+earlier in the session reported DONE after the last row of a five-row loop, which looked correct
+and was luck.
+
 - Headless capture runs through SwiftShader well under 1 fps. Budget minutes per
   frame, and never report frame rate as a performance result.
 - `blind-compare` refuses to build a pair set carrying under 8% facade-band
@@ -1635,7 +1668,8 @@ linear in the mission's size, caught at x7.89 while passing the absolute bound a
 `damage-test`, `blocker-test`, `crash-test`, `roadpath-test`, `route-drive`,
 `reaction-test`, `sim-determinism`, `traffic-selftest`, `hud-cue`, `pursuit-test`,
 `car-shapes`, `crowd-bill --selftest`, `tri-buckets --selftest`, `gate-align --selftest`,
-`mutation-sweep --selftest`, `playtest --selftest`, `car-shapes --selftest`, `paint-census`,
+`mutation-sweep --selftest`, `playtest --selftest`, `car-shapes --selftest`,
+`arrest-band --selftest`, `paint-census`,
 `glass-census` (needs a browser to decode the reference JPEGs; about 20 s),
 `paint-tone` (the same, about 2.4 s), `car-pixel` (the same, about 1.4 s).
 The offline ones together take under a minute.
@@ -2496,6 +2530,83 @@ Three things to carry:
   achromatic table cannot be reused. Lowering the floor alone would repaint a third of both fleets
   on a uniform distribution nobody measured — this file's own "do not move a figure your instrument
   cannot resolve", arriving as the obvious fix for a real defect.
+
+## Two instrument errors in one probe, and both of them accused the shipped build
+
+`tools/car-pixel.mjs` closes the gap this file recorded as open — "nothing anywhere samples a
+PIXEL of a car" — and it took three versions, of which the first two printed a FAILING gate over
+a build that is correct. Worth the space because that is the dangerous direction: a probe that
+says PASS when it should fail wastes a round, and a probe that says FAIL when it should pass
+sends a round to change working code.
+
+**1. A rasterised triangle list is not a mask, because it has no depth test.** Projecting each
+triangle through the camera and filling it marks the pixels of a paint triangle on the FAR side
+of the car, so the lamp's pixels were in both masks. Measured: 4,474 px of paint, 1,770 of
+non-paint and **6,363 dropped as ambiguous** — more pixels thrown away than either mask kept, and
+what survived in `other` was the biased subset no paint triangle happened to project onto. Two of
+twelve checks failed.
+
+The fix is to RENDER the mask: a flat `MeshBasicMaterial` with `vertexColors` carrying the slot in
+the red channel, through the same camera and the same depth buffer, with linear output and no tone
+mapping so a vertex value `v` lands on byte `round(v*255)`. And it has to be a **non-instanced
+Mesh**: `color_vertex` is `vColor = color; vColor.xyz *= instanceColor.xyz`, so a mask drawn
+through the InstancedMesh would be modulated by the very quantity under test.
+
+**2. A per-vertex mask is interpolated, and 9.9% of this car's triangles span two slots.** 104 of
+1050 span slot 0 and slot 1, paint and trim. Byte quantisation puts the mask's rounding boundary
+at 44.3% of the span — bytes 8..16 round at 11.5 — against the shader's `floor(uv.x * 16.0)`
+crossing at 50%, so a ~6% sliver of each mixed triangle was classified as trim while being
+rendered as tinted paint. **Slot 1 read x1.759 between the arms where every other slot read
+x1.000 exactly**, and the gate called the shipped build broken.
+
+**And the mixed triangles are not a defect, which took checking rather than assuming.**
+`packTexture()` is `NearestFilter`, so the palette samples texel `floor(u * 16)` — the same
+expression the tint's `step( 0.5, floor( uv.x * 16.0 ) )` branches on. The material boundary and
+the tint boundary are therefore the SAME boundary by construction and not by coincidence: half
+such a triangle is paint with the tint and half is trim without it, and the two halves agree to
+the pixel. It is how this car gets a bumper line without a seam in the mesh. So they are
+ambiguous to the INSTRUMENT and correct in the BUILD, which makes exclusion the right answer
+rather than a smaller threshold — `toNonIndexed`, one flat colour per triangle, mixed ones
+excluded and **counted in the report**, because a silent exclusion of a tenth of the subject is
+the thing this file already has a section about.
+
+The signal that separated instrument from build, both times, was that **every other slot read
+exactly x1.000**. A contaminated mask does not produce six exact 1.000s and one outlier; a real
+leak would move several. An instrument whose errors are localised is readable; one whose errors
+are spread is not, which is why the per-slot table is printed in full rather than lumped.
+
+### And a check that vanishes when the build is right
+
+The worst-slot reduce was seeded `{ slot: null, r: 1 }`. Nothing beats that seed when every slot
+reads exactly x1.000 — which is the correct build — so `worst.slot` stayed null, the separation
+check was skipped by its own `!== null` guard, and the gate printed **11 checks where it has 12**.
+
+A check that disappears on a pass is worse than one that fails, because the only thing a reader
+has to notice it by is the count, and a count that moves with the result is not a count. It is
+the mirror of this file's "a gate printed three FAIL lines and said PASS": there the listing and
+the summary disagreed, here the summary quietly shrank. Both are caught by the same discipline —
+**the number of checks is a property of the gate, not of the build** — and `car-pixel --selftest`
+asserts `verdict(good).length === 12` for exactly that reason.
+
+### The statistic is a ratio between two arms, per slot
+
+Neither arm alone is a check, and this is the "a negative needs its positive" rule arriving for
+the third time in this module's story. Near-black `instanceColor` must take the paint dark;
+near-white must take it bright; and both must leave every other slot alone. A material that
+ignores `instanceColor` entirely — the uniform forced to 0, or an injection that matched nothing —
+**passes the near-black arm**, and the selftest has that as a row.
+
+A ratio of the same pixels under two instance colours cancels the lighting, the exposure and the
+camera, which is what lets a purpose-built page stand in for the district at all. The first
+version instead asserted the max-over-median reading this file had sketched, and that reading was
+dominated by a **specular highlight**: paint max 0.6766 against a lamp at 0.1401 with
+`instanceColor` at 0.02, because the paint slot is metalness 0.60 and the lamps are not emissive
+under this probe's lighting. A max is a statement about one pixel of one highlight. Per-slot
+medians are a statement about the rule.
+
+And **per slot rather than lumped**, because slot 1 is 827 px against 4,568 px of other non-paint
+slots: a leak confined to the trim would be buried in a single pooled median, and the selftest
+has that row too.
 
 ## Pricing a change
 
