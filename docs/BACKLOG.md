@@ -116,6 +116,30 @@ dusk: a car stopped ahead of you at a light goes from a brown smear to two red l
 tarmac are harder to pick out than pale ones were — the black car reads 0.15x the shaded lane
 beside it and 0.075x sunlit tarmac. Never invisible, and it is traffic you notice later.
 
+**FOLLOWED UP, and the glazing did not move — its denominator did.** The playtester's observation
+was right and the diagnosis was not. Every glazing figure in this project is glass divided by the
+paint on the SAME car, and the vendored shader says only the denominator carries the tone:
+`material.specularColor = mix( vec3( 0.04 ), diffuseColor.rgb, metalnessFactor )` — `vColor` reaches
+`diffuseColor` and nothing else, and the glazing is slot 10 at metalness 0.00. So **glass/paint is
+1/tone of a material property**, always was, and the 0.137 -> 1.76 is the car having become black.
+
+Three consequences, all now in `glass-census` (13 -> 16 checks):
+
+- The census band is a **LIGHT-CAR band** — all six subjects are white or silver. A dark subject
+  cannot be added without restating it; the gate asserts the families.
+- `uGlassEnvExtra = 5` compared like against like **by luck**: the sweep's subject bonnet reads
+  0.4760 linear (mean sRGB 174,180,190), measured back off the committed frames rather than
+  restated — a light car. The constant stands and the qualifier is written down.
+- A glazing figure needs the car's **TONE** quoted beside it, the way this project already learned
+  it needs its PANE and its GEOMETRY. Three qualifiers, all learned the same way.
+
+The direct test — a real BLACK car's glass over its own paint — was refused twice and recorded as
+refusals: the black saloon is ~45 px wide so its screen/boot boundary is 2-3 px, and the black
+pickup is in deep shade where its own paint reads p50 0.0006, the JPEG's dark floor.
+
+**Still open:** re-deriving the constant for the new fleet needs a capture whose subject tone is
+KNOWN, which `__district.setCarTone` makes possible and nothing does yet.
+
 **The weakest remaining thing is the glazing, and this round made it conspicuous.** The panes are
 untouched (rear window 0.0362 -> 0.0375 at noon, consistent with anti-aliasing on a box edge), so
 lowering the paint under an unchanged pane inverts the relationship: glass over paint on the car

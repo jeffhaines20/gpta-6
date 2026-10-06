@@ -459,6 +459,44 @@ if (screen) {
 }
 
 /**
+ * A GLASS-OVER-PAINT RATIO IS 1/instanceColor OF A MATERIAL PROPERTY, AND NOBODY HAD SAID SO.
+ *
+ * Every figure in this file, in `car-pane` and in CLAUDE.md's glazing sections is glass divided
+ * by the paint on the SAME car. That makes the car's paint tone the DENOMINATOR, and the vendored
+ * shader says the numerator does not carry it:
+ *
+ *     material.specularColor = mix( vec3( 0.04 ), diffuseColor.rgb, metalnessFactor );
+ *
+ * `vColor` — and therefore `instanceColor` — reaches `diffuseColor` and nothing else. The glazing
+ * is palette slot 10 at metalness 0.00, so its specular response is a fixed 0.04 and the
+ * environment reflection it returns is INDEPENDENT of the car's paint. CLAUDE.md records that
+ * reflection as 76% of the pane at extra 1, and more at 5. The paint slot is metalness 0.60, so
+ * its box scales with the tone in full.
+ *
+ * So glass/paint is proportional to 1 / (the car's own tone), always has been, and is not a
+ * property of the glass. Three consequences:
+ *
+ *   - THE BAND BELOW IS A LIGHT-CAR BAND. Every subject in this file is white or silver — there
+ *     is no other kind in it — so 0.137-0.333 is what a window reads on a LIGHT car. The same
+ *     window on a black car reads several times higher, and that is correct rather than a defect.
+ *     The check below asserts the subject families, so a dark subject cannot be added without
+ *     restating the band.
+ *   - AND THE SHIPPED CONSTANT WAS DERIVED LIKE AGAINST LIKE, BY LUCK. The `ge` sweep's subject
+ *     bonnet reads 0.4760 in linear light (mean sRGB 174,180,190) — a light car in the build it
+ *     was measured in. So comparing its windscreen against a light-car band was the right
+ *     comparison and the constant stands; the qualifier was simply never written down.
+ *   - IT BECAME LOAD-BEARING THIS ROUND. The tone table moved 17 of 30 cars by more than 2x, and
+ *     41.9% of the fleet is now in a black family at 0.040..0.080. Every glass/paint figure in the
+ *     record moved by the same factor on those cars, and a blind playtester measured exactly that
+ *     — 0.137 -> 1.76 at noon on a car that became black — and read it as the glazing having been
+ *     made conspicuous. The glazing did not move; its denominator did.
+ *
+ * RE-DERIVING THE CONSTANT FOR THE NEW FLEET needs a capture whose subject tone is KNOWN, which
+ * `__district.setCarTone` now makes possible and which nothing here does. Until then the shipped
+ * value is derived for a light car and stated as such.
+ */
+
+/**
  * AND THE SHIPPED CONSTANT IS DERIVED FROM THIS BAND, so it cannot drift silently.
  *
  * `src/carbody.js`'s `uGlassEnvExtra` scales the glazing's own environment term. The table below
@@ -483,6 +521,71 @@ check('the swept constant has a value that reaches the band at all, or the lever
   inBand.length > 0, `${inBand.join(', ') || 'none of 0,1,2,3,5'}`);
 check('and src/carbody.js ships one of them, so the constant is derived and not picked',
   inBand.includes(shipped), `ships ${shipped}, band-reaching values are ${inBand.join(', ')}`);
+
+/**
+ * THE BAND'S SUBJECTS ARE ALL LIGHT CARS, which is what makes it a band for a LIGHT car rather
+ * than a property of glass. Asserted off each row's own note so that adding a dark subject fails
+ * here and forces the band to be restated — the ratio is 1/tone and a black car belongs to a
+ * different band, not to a wider version of this one.
+ */
+const LIGHT = /white|silver/i;
+const families = ok.map((r) => ({ id: r.id, light: LIGHT.test(r.note || r.id) }));
+console.log(`  the band's subjects: ${families.map((f) =>
+  `${f.id} ${f.light ? 'light' : 'NOT LIGHT'}`).join(', ')}`);
+check('every subject in the band is a white or silver car, so it is a LIGHT-CAR band and not a glass property',
+  families.every((f) => f.light), families.filter((f) => !f.light).map((f) => f.id).join(', ') || 'all light');
+/**
+ * AND THE SWEEP'S OWN SUBJECT IS ONE TOO, measured rather than assumed. `car-pane`'s comment
+ * claims this bonnet is "byte-identical between arms at both hours over 4,200 px, the one control
+ * that has never failed" — a claim nothing asserted until now. Both halves are checked: the
+ * control holds, and the subject is light, which is what makes the comparison above like against
+ * like. Re-measured here off the committed frames rather than restated as a number.
+ */
+const { readPNG } = await import('./png.mjs');
+/**
+ * MEASURED OFF THE COMMITTED FRAMES, not restated as two literals. The first version of this was
+ * `GE_BONNET.ge0 === GE_BONNET.ge5` with 0.4760 written on both sides — which cannot fail for any
+ * edit to anything, and is the exact shape a blind reviewer had just found twice elsewhere in
+ * this round. `readPNG` returns `channels`, which is 3 for these screenshots and not 4; a
+ * hardcoded stride reads NaN in the bottom quarter and NaN fails every comparison silently.
+ */
+const bonnetOf = (file) => {
+  const img = readPNG(file);
+  const c = img.channels, L = [];
+  for (let y = 700; y < 730; y++) {
+    for (let x = 120; x < 260; x++) {
+      const i = (y * img.width + x) * c;
+      const v = luma(toLinear(img.data[i] / 255), toLinear(img.data[i + 1] / 255),
+        toLinear(img.data[i + 2] / 255));
+      if (!Number.isFinite(v)) throw new Error(`${file}: non-finite sample at ${x},${y} — check the stride`);
+      L.push(v);
+    }
+  }
+  L.sort((a, b) => a - b);
+  return { p50: L[L.length >> 1], n: L.length, channels: c };
+};
+const geArms = ['ge-ge0-corridor-noon.png', 'ge-ge5-corridor-noon.png']
+  .map((f) => `${'docs/shots'}/${f}`);
+if (geArms.every((f) => fs.existsSync(f))) {
+  const [b0, b5] = geArms.map(bonnetOf);
+  console.log(`  the sweep's own subject bonnet, read back off the committed frames: ` +
+    `ge0 ${b0.p50.toFixed(4)}, ge5 ${b5.p50.toFixed(4)} linear over ${b0.n} px, channels ${b0.channels}`);
+  check("the sweep's paint reference is byte-identical across its arms, which is what makes it a sweep",
+    b0.p50 === b5.p50, `${b0.p50.toFixed(6)} against ${b5.p50.toFixed(6)}`);
+  /**
+   * AND IT IS A LIGHT CAR, which is what makes the comparison above like against like. The bound
+   * is the band's own darkest accepted subject is not comparable across exposures, so the test is
+   * against the SHIPPED TONE TABLE instead: this bonnet must sit above what the black family can
+   * reach, in a frame where a white car's paint would be far higher still.
+   */
+  const { PAINT_TONES } = await import('../src/carpaint.js');
+  const blackTop = Math.max(...PAINT_TONES.filter((t) => t.name === 'black').map((t) => t.l1));
+  check("and its subject is a LIGHT car, which is what makes the band the right comparison for it",
+    b5.p50 > blackTop * 2, `bonnet ${b5.p50.toFixed(4)} against the black family's ceiling ${blackTop}`);
+} else {
+  check('the swept arms are present, or the derivation above rests on nothing readable',
+    false, `missing ${geArms.filter((f) => !fs.existsSync(f)).join(', ')}`);
+}
 
 console.log('');
 for (const c of checks) console.log(`  ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);

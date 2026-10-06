@@ -2212,6 +2212,69 @@ on a healthy box the loop still exits on the state and costs nothing extra: the 
 435 s against 441 and 448 for the failing ones. **A safety net has to sit above what the real
 budget costs on a bad day, or it is not a net, it is a second budget.**
 
+## A glass-over-paint ratio is 1/TONE of a material property, and it always was
+
+Every glazing figure this project has ever quoted is glass divided by the paint on the SAME car:
+the census band 0.137-0.333, the `ge` sweep's 0.0167..0.1616, #92's 0.914-1.043, #54's 0.0225 at
+night. That makes the car's paint tone the DENOMINATOR, and the vendored shader says the numerator
+does not carry it:
+
+    material.specularColor = mix( vec3( 0.04 ), diffuseColor.rgb, metalnessFactor );
+
+`vColor` — and so `instanceColor` — reaches `diffuseColor` and nothing else. The glazing is palette
+slot 10 at **metalness 0.00**, so its specular response is a fixed 0.04 and the environment
+reflection it returns is independent of the car's paint; this file already records that reflection
+as 76% of the pane at extra 1, and more at 5. The paint slot is metalness 0.60, so its box scales
+with the tone in full. **glass/paint ∝ 1/tone.**
+
+Three things follow, and the first two were true before anybody noticed:
+
+- **The census band is a LIGHT-CAR band.** All six of its subjects are white or silver — there is
+  no other kind in the file. 0.137-0.333 is what a window reads on a light car; the same window on
+  a black one reads several times higher, and that is correct rather than a defect. `glass-census`
+  asserts the subject families now, so a dark subject cannot be added without restating the band.
+- **The shipped `uGlassEnvExtra = 5` compared like against like by luck.** Its sweep's subject
+  bonnet reads **0.4760** in linear light (mean sRGB 174,180,190), measured back off the committed
+  frames — a light car. So matching its windscreen to a light-car band was the right comparison and
+  the constant stands. The qualifier was simply never written down.
+- **It became load-bearing the moment the fleet got black cars.** The tone table moved 17 of 30
+  cars by more than 2x and put 41.9% of the fleet at 0.040-0.080. A blind playtester measured the
+  consequence exactly — glass over paint going **0.137 -> 1.76 at noon on a car that became
+  black** — and read it as the glazing having been made conspicuous. The glazing did not move. Its
+  denominator did. Their observation was right and their diagnosis was not, which is this file's
+  standing rule arriving on a number I had handed them.
+
+**So a glazing figure needs the car's TONE quoted beside it**, the way the last three sections of
+this file established that it needs its PANE and its GEOMETRY. Three qualifiers now, all learned
+the same way: a ratio was quoted as though it were a property of one surface when it is a property
+of two.
+
+Re-deriving the constant for the new fleet needs a capture whose subject tone is KNOWN, which
+`__district.setCarTone` makes possible and which nothing does yet.
+
+### And the direct measurement was refused, twice
+
+The clean way to settle the band's tone dependence is a real BLACK car's glass over its own paint,
+from the same photographs. Two subjects were tried and both are recorded as refusals rather than
+quoted:
+
+- **A black saloon in the sunlit lot** — the one whose boot lid gives the x16.9 paint ratio. The
+  whole car is about 45 px wide, so its rear screen is roughly 25x8 and the screen/boot boundary is
+  two or three pixels. No box on it is not straddling.
+- **A black pickup, large and well resolved** — and in deep building shade, where its own paint
+  boxes read p50 **0.0006 and 0.0048** against p10s of 0.0001. That is the JPEG's dark floor, not a
+  measurement.
+
+"The subject resisted the instrument" is a result, and the band's tone dependence stands on the
+shader line and the subject list without it.
+
+### And two tools here use two different box conventions
+
+`paint-tone --sample` takes `x,y,w,h`; `car-pane`'s `PANES` are `[x0,y0,x1,y1]`. Feeding one to the
+other turned a 128x56 box into 344x684 — 235,296 px of mostly road and sky. It announced itself,
+because the p50 came back **0.0000** on a sunlit bonnet, which is the good case. Convert at the
+boundary and check `n` against the box you meant.
+
 ## When a reviewer is wrong
 
 Blind reviewers here measure before judging and are usually right, but not
