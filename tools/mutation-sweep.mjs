@@ -75,6 +75,12 @@ const OFFLINE = [
   // #91's table is a claim about photographs; every other check over these modules is about
   // triangles or determinism and stays green for any colours at all.
   'paint-census',
+  // IN THE "OFFLINE" LIST THOUGH IT LAUNCHES A BROWSER, and the reason is cost rather than
+  // principle: it only decodes three JPEGs on a blank page, 1 s a run, where boot-check is 443 s
+  // and is gated behind --browser for that. It is here because paint-census cannot see a tone
+  // RATIO that is wrong while still reaching both anchors — the `tone-ratio` row below is exactly
+  // that mutation and this is the only gate that catches it.
+  'paint-tone',
 ];
 
 /**
@@ -1311,6 +1317,76 @@ const MUTATIONS = [
     find: "  Object.freeze({ name: 'blue', w: 0.36, h0: 0.560, h1: 0.660, sat: 1.00 }),",
     to: "  Object.freeze({ name: 'blue', w: 0.36, h0: 0.460, h1: 0.660, sat: 1.00 }),",
     why: 'teal and cyan come back under the name blue, which the weights check cannot see',
+  },
+  {
+    /**
+     * THE BLACK TONE PUT BACK WHERE THE OLD DRAW HAD IT. The table still has three tones, the
+     * weights still sum to 1, every draw still returns a finite lightness inside its own range —
+     * so paintTone's own selftest stays green and so does every structural check. What goes is
+     * the thing the census is about: the fleet stops being able to draw a black car, which is
+     * 35.4% of the real population.
+     */
+    id: 'tone-black', file: 'src/carpaint.js',
+    find: "  Object.freeze({ name: 'black', w: 0.419, l0: 0.032, l1: 0.062 }),",
+    to: "  Object.freeze({ name: 'black', w: 0.419, l0: 0.340, l1: 0.600 }),",
+    why: '41.9% of the fleet goes back to mid grey and nothing about the table looks wrong',
+  },
+  {
+    /**
+     * THE HARDER HALF, AND THE ONE paint-census CANNOT SEE. Black's range moves to 0.140..0.200,
+     * which still reaches under the L~0.15 anchor paint-census asserts, so that check passes —
+     * and the white/black median ratio falls to x4.71, outside the x5.79..x37.33 the sunlit row's
+     * own boxes allow. Only `paint-tone` has the photographs to notice, which is why it is on the
+     * offline list despite launching a browser.
+     */
+    id: 'tone-ratio', file: 'src/carpaint.js',
+    find: "  Object.freeze({ name: 'black', w: 0.419, l0: 0.032, l1: 0.062 }),",
+    to: "  Object.freeze({ name: 'black', w: 0.419, l0: 0.140, l1: 0.200 }),",
+    why: 'a black car reads x3.6 too bright while still passing every anchor check',
+  },
+  {
+    /**
+     * THE PAINT-SLOT TINT SWITCHED OFF. Bit-exactly the build before #1, which is the property
+     * the uniform was given on purpose — so this row is also the proof that an arm sweeping it to
+     * 0 reproduces the old build rather than approximating it. The fleet keeps its new tone range
+     * and every non-painted surface goes back to carrying it: a black car gets a black number
+     * plate at 0.0233 against a real plate's 0.80.
+     */
+    id: 'tint-off', file: 'src/carbody.js',
+    find: 'const PAINT_TINT = { uPaintTintOnly: { value: 1 } };',
+    to: 'const PAINT_TINT = { uPaintTintOnly: { value: 0 } };',
+    why: 'the plate, lamps, rims and tyres go back to carrying the body colour — #1, at the new range',
+  },
+  {
+    /**
+     * THE TINT APPLIED TO EVERY SLOT INSTEAD OF NONE, which is the opposite error and is worse
+     * than it looks. The paint stops being tinted at all, so every car in both fleets renders at
+     * its authored vertex colour and the whole census becomes decorative — AND the lamp spill
+     * stops working, because `src/traffic.js` carries a per-car BRIGHTNESS on that mesh with
+     * `setColorAt(i, setScalar(f))` and every vertex of it is on the paint slot.
+     *
+     * CAUGHT BY A SOURCE REGEX AND NOT BY A MEASUREMENT, and that is worth saying rather than
+     * leaving to be discovered: nothing offline renders a shader, and boot-check does not measure
+     * spill brightness. The regex asserts the rule is still derived from `uv.x`. A stronger check
+     * would need a capture of a lit car at night against an unlit one.
+     */
+    id: 'tint-slotless', file: 'src/carbody.js',
+    find: 'vColor.xyz = mix( vColor.xyz, color.xyz, uPaintTintOnly * step( 0.5, floor( uv.x * 16.0 ) ) );',
+    to: 'vColor.xyz = mix( vColor.xyz, color.xyz, uPaintTintOnly );',
+    why: 'every car renders at its authored colour and the headlamp pools stop dimming per car',
+  },
+  {
+    /**
+     * ONE VERTEX OF THE LAMP SPILL MOVED OFF THE PAINT SLOT. The pools still draw, in the right
+     * place, in the right colour, at the right size — and they stop responding to the car's own
+     * headlamp state, because the per-car brightness rides on instanceColor and instanceColor now
+     * reaches only slot 0. Invisible in every triangle count and every geometry check; the only
+     * thing that sees it is the slot census over the built buffer.
+     */
+    id: 'glow-slot', file: 'src/carbody.js',
+    find: '      return b.vert(cx + s * hw, yRoad, z0 + dir * dz, _c, SURFACE.paint);',
+    to: '      return b.vert(cx + s * hw, yRoad, z0 + dir * dz, _c, SURFACE.matte);',
+    why: 'the headlamp pools stop dimming with the car that casts them, and nothing else changes',
   },
   {
     /**
