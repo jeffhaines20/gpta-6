@@ -165,15 +165,27 @@ window that reads as a window needs STRUCTURE in what it reflects, which is the 
 `carbody.js` reached by a different route — "the lit shopfronts reaching the environment, which a
 sky-only PMREM cannot carry".
 
-**And one tension that is not resolved**: the side pane's median is already 0.2506, inside the
-band, so any uniform gain large enough to bring the windscreen up pushes the side pane out of it.
-Three panes, one knob, and the knob is uniform.
+**THE TENSION I RECORDED HERE DISSOLVED WHEN THE MISSING REFERENCE WAS MEASURED, and the error
+was mine in the way this entry keeps producing.** I wrote that the side pane's ceiling of 1.327
+"runs away" and that a uniform gain would push it out of band — comparing a pane seen at a GRAZING
+angle against a reference measured FACE-ON. A real windscreen seen off its normal in midday sun is
+mirror-bright: 29% of its glass box is clipped at 255 while its own sunlit white bonnet clips 0%,
+so over much of its area it is at least as bright as the brightest paint on the car, and its
+ceiling is at least 3.538 of the paint.
 
-**A caveat on the comparison, stated because it is load-bearing.** The census measured real SIDE
-glass at roughly face-on incidence. The shipped windscreen is also close to face-on in this frame,
-so that comparison is like-for-like; the shipped SIDE pane is seen at a grazing angle, where a real
-window would read brighter than the census band, so its 0.2506 should not be read as "in band" too
-confidently. A reference measurement of glass at grazing incidence is the missing number.
+    ceiling (p95/paint)       real side glass, face-on     0.257 - 0.583
+                              real windscreen, off-normal    >= 3.538
+                              shipped side pane, grazing        1.327
+
+So the shipped side pane's ceiling is well UNDER what a real pane reaches at that geometry, not
+over it. **Every shipped pane is too dark at every geometry that has a matched reference, and a
+uniform environment gain is the right lever after all.** The "three panes, one knob" problem was an
+artefact of comparing two different incidences — the same mistake as quoting a pane ratio without
+naming the pane, one level down.
+
+That windscreen cannot be given a median ratio at all: there is no box on it that does not clip,
+which is why `glass-census` refuses the row and asserts the clipping ASYMMETRY instead. It bounds
+the direction without inventing a precision the sensor cannot give.
 
 Also: the absolute level of the `ge` sweep does not match the shipped `cum` frames — ge0 reads
 0.0167 where `cumS1-r9cum` reads 0.0201 — because the sweep's base holds other car terms off. The

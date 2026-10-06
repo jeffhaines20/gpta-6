@@ -56,15 +56,50 @@ const luma = (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
  * Boxes are [x, y, w, h] in the ORIGINAL image's pixels (2048 x 1024 for these panoramas).
  */
 const SUBJECTS = [
-  { id: 'fusion-silver', file: 'mly-682234297680292.jpg', note: 'silver Ford Fusion, side-on',
+  { id: 'fusion-silver', file: 'mly-682234297680292.jpg', pane: 'side', note: 'silver Ford Fusion, side-on',
     glass: [1470, 681, 30, 9], paint: [1470, 711, 30, 11] },
-  { id: 'suburban-white', file: 'mly-562274623010141.jpg', note: 'white Chevy Suburban',
+  { id: 'suburban-white', file: 'mly-562274623010141.jpg', pane: 'side', note: 'white Chevy Suburban',
     glass: [690, 585, 30, 10], paint: [690, 625, 30, 12] },
-  { id: 'lexus-white', file: 'mly-562274623010141.jpg', note: 'white Lexus sedan, rear quarter',
+  { id: 'lexus-white', file: 'mly-562274623010141.jpg', pane: 'side', note: 'white Lexus sedan, rear quarter',
     glass: [1285, 618, 20, 7], paint: [1285, 640, 20, 7] },
-  { id: 'prius-white', file: 'mly-562274623010141.jpg', note: 'white Toyota Prius',
+  { id: 'prius-white', file: 'mly-562274623010141.jpg', pane: 'side', note: 'white Toyota Prius',
     glass: [1740, 620, 30, 9], paint: [1740, 655, 30, 11] },
-  { id: 'atlas-silver', file: 'mly-1328081225548925.jpg', note: 'silver VW Atlas, close, side-on',
+  /**
+   * DROPPED: a white Chevy Tahoe in mly-1371467967414042.jpg, whose side glass could not be
+   * measured with a fixed box at the scale it occupies. Three placements read 0.006, 0.005 and
+   * 0.002 at modulations of 7.41, 7.30 and 11.25 — every one straddling the B-pillar, the door
+   * shut line or the frame, which the annotated crops show plainly. A number from any of them
+   * would be a measurement of a box. It is recorded here rather than silently absent because
+   * "the subject resisted the instrument" is a result, and because a 0.002 left in the table
+   * would have widened the band by two orders of magnitude on the strength of a bad box.
+   */
+  /**
+   * A WINDSCREEN OVER ITS OWN BONNET, which is the subject `tools/car-pane.mjs`'s `nearWindscreen`
+   * measures and which this census did not have. Without it the shipped windscreen's 0.0201 was
+   * being compared against a band measured on SIDE glass — two panes at two incidences, which is
+   * the error this whole entry turned out to be. A white Nissan Rogue from the front three-quarter:
+   * the screen is seen well off its normal, as the shipped one is.
+   */
+  /**
+   * A WINDSCREEN OVER ITS OWN BONNET — AND IT IS HERE TO BE REJECTED, WHICH IS THE POINT.
+   *
+   * `car-pane`'s `nearWindscreen` measures exactly this subject on the shipped car and reads
+   * 0.0201 of its bonnet. Comparing that against a band measured on SIDE glass is the error this
+   * whole entry turned out to be, so the matching real subject was needed.
+   *
+   * It cannot be given a median ratio from this imagery, and the reason is the finding: a real
+   * windscreen seen off its normal in Florida midday sun is MIRROR-BRIGHT. 29% of the glass box
+   * is clipped at 255 while its own sunlit white bonnet clips 0%, so over much of its area the
+   * screen is at least as bright as the brightest paint on the car. Two earlier placements lower
+   * on the screen read 5% and 29% clipped; there is no box on this pane that does not clip.
+   *
+   * So the ratio is refused and the ASYMMETRY is asserted instead, below. It bounds the
+   * direction without inventing a precision the sensor cannot give: whatever a real windscreen's
+   * number is at this geometry, it is not 0.02 of the bonnet.
+   */
+  { id: 'rogue-windscreen', file: 'mly-682234297680292.jpg', note: 'white Nissan Rogue, windscreen over bonnet',
+    pane: 'windscreen', glass: [1862, 597, 25, 7], paint: [1860, 613, 28, 11] },
+  { id: 'atlas-silver', file: 'mly-1328081225548925.jpg', pane: 'side', note: 'silver VW Atlas, close, side-on',
     glass: [465, 680, 25, 7], paint: [465, 715, 25, 10] },
 ];
 
@@ -280,11 +315,11 @@ await browser.close();
 
 console.log('GLASS CENSUS — what a real car window reads as, against the paint beside it');
 console.log('='.repeat(78));
-console.log('  car                  med/paint  modul  ceil/paint   spread            clipped');
+console.log('  car                 pane       med/paint  modul  ceil/paint   spread            clipped');
 for (const r of rows) {
   if (r.error) { console.log(`  ${r.id.padEnd(24)} ${r.error}`); continue; }
   const bad = r.g.clipped > 0 || r.p.clipped > 0 || r.spreadP > 1.0;
-  console.log(`  ${r.id.padEnd(22)}${r.ratio.toFixed(3).padStart(8)}` +
+  console.log(`  ${r.id.padEnd(20)}${(r.pane ?? '?').padEnd(11)}${r.ratio.toFixed(3).padStart(8)}` +
     `${r.modulation.toFixed(2).padStart(8)}${r.ceiling.toFixed(3).padStart(10)}` +
     `   g${r.spreadG.toFixed(2)}/p${r.spreadP.toFixed(2)}` +
     `  clip ${(100 * r.g.clipped).toFixed(0)}%/${(100 * r.p.clipped).toFixed(0)}%` +
@@ -404,6 +439,24 @@ check('a real window is modulated but not runaway, which bounds it at both ends'
   ok.map((r) => `${r.id} ${r.modulation.toFixed(2)}`).join(' '));
 check('and its bright end stays under the paint beside it, unlike a panel',
   ok.every((r) => r.ceiling < 1.0), ok.map((r) => `${r.id} ${r.ceiling.toFixed(3)}`).join(' '));
+/**
+ * THE WINDSCREEN, BOUNDED BY ITS CLIPPING RATHER THAN MEASURED BY ITS RATIO. See the subject's
+ * own note: there is no box on this pane that does not clip, which is itself the statement. The
+ * asymmetry is what carries it — the glass clips and its own sunlit bonnet does not — and that
+ * holds whatever the true ratio is.
+ */
+const screen = rows.find((r) => r.pane === 'windscreen' && !r.error);
+if (screen) {
+  console.log(`  a real windscreen off its normal: ${(100 * screen.g.clipped).toFixed(0)}% of the ` +
+    `glass box is clipped against ${(100 * screen.p.clipped).toFixed(0)}% of its own sunlit bonnet` +
+    ` — so it is at least as bright as the brightest paint on the car, where the shipped one` +
+    ` reads 0.0201 of its bonnet`);
+  check('a real windscreen off-normal is mirror-bright, which bounds the direction of #92',
+    screen.g.clipped > 0.10 && screen.p.clipped === 0,
+    `glass ${(100 * screen.g.clipped).toFixed(0)}% clipped, bonnet ${(100 * screen.p.clipped).toFixed(0)}%`);
+  check('and it is excluded from the band, because a clipped box has no ratio to give',
+    REJECT(screen), 'rejected');
+}
 
 console.log('');
 for (const c of checks) console.log(`  ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);

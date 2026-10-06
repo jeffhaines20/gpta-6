@@ -1897,16 +1897,34 @@ is not, and that needs structure in what the pane reflects rather than more of i
 `carbody.js` had already arrived from the other direction, "the lit shopfronts reaching the
 environment, which a sky-only PMREM cannot carry".
 
-Two cautions that keep this from being over-read:
+**And then I made the pane-naming mistake again, one level down, inside the correction for it.**
+I wrote that this left a tension — "three panes, one uniform knob", the side pane's ceiling of
+1.327 running away so a gain big enough for the windscreen would push it out of band. That compared
+a pane seen at a GRAZING angle against a reference measured FACE-ON. Measuring a real windscreen
+off its normal dissolves it:
 
-- **Three panes, one uniform knob.** The side pane's median is already 0.2506, so any gain large
-  enough to lift the windscreen pushes the side pane out of the band. The knob cannot be aimed.
-- **Incidence is part of the subject.** The census measured real side glass at roughly FACE-ON
-  incidence, and the shipped windscreen is close to face-on in this frame, so that comparison is
-  like-for-like. The shipped SIDE pane is seen at a GRAZING angle, where real glass reads brighter
-  than the census band — so its 0.2506 should not be called "in band" with confidence. A reference
-  measurement at grazing incidence is the missing number, and it is the same lesson as the pane
-  names: a ratio needs its geometry quoted beside it, not just its value.
+    ceiling (p95/paint)       real side glass, face-on     0.257 - 0.583
+                              real windscreen, off-normal    >= 3.538
+                              shipped side pane, grazing        1.327
+
+A real windscreen off-normal in midday sun is MIRROR-BRIGHT — 29% of its glass box clipped at 255
+while its own sunlit white bonnet clips 0%, so over much of its area it is at least as bright as
+the brightest paint on the car. The shipped side pane's ceiling is well UNDER what a real pane
+reaches at that geometry. **Every shipped pane is too dark at every geometry with a matched
+reference, and the uniform gain is the right lever after all.**
+
+So the rule earns a third statement in three sections, because knowing it did not stop me:
+**a ratio needs its geometry quoted beside it, not just its pane.** Face-on and grazing are
+different subjects on the same pane of the same car.
+
+**And that windscreen has no median to give.** There is no box on it that does not clip — three
+placements read 5%, 29% and 29% — so `glass-census` REFUSES the row and asserts the clipping
+ASYMMETRY instead: the glass clips where its own bonnet does not. That bounds the direction without
+inventing a precision the sensor cannot deliver, which is a better outcome than a number from a
+clipped box. A subject that resists the instrument is a result; the dropped Chevy Tahoe in the same
+file is the other half of that, where three placements read 0.006, 0.005 and 0.002 at modulations
+of 7.4, 7.3 and 11.3 and every one straddled a pillar or a shut line. Left in, its 0.002 would have
+widened the band by two orders of magnitude on the strength of a bad box.
 
 ## When a reviewer is wrong
 
