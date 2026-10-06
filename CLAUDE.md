@@ -484,6 +484,93 @@ have inherited that one too. Both are charged at the table value now, counted in
 `stats.badScales`, and have two mutation rows rather than one: a finite check alone does not cover
 the sign, which is this file's "guard the DIRECTION as well as the magnitude".
 
+## A saturation that costs nothing is not a defect, and the one place it costs is the one nobody looked at
+
+#93 was filed off a correct reading: `crimeScale` is `severity / majorSeverity` and `severityFor`
+clamps severity at 1 at `killDv`, so the scale saturates at **8.333 from 44.5 km/h** and a 50, an
+88 and a 140 km/h collision are one offence to `src/wanted.js`. The entry's lever was a scale that
+does not inherit a damage-bounded quantity, and it priced itself honestly: "every number in
+damage-test, wanted-test §24, crash-test and boot-check's run-over arm moves".
+
+**That price was the whole answer and I read it as a cost rather than as a result.** A change whose
+only measurable effect is on gates is a change with no gameplay effect, and the sweep says so
+flatly — unclamped against shipped, stars over one to six impacts:
+
+       50 km/h  scale   8.33 ->   11.07   012345  against  012345
+       80 km/h  scale   8.33 ->   28.68   012345  against  012345
+      140 km/h  scale   8.33 ->   88.27   012345  against  012345
+      180 km/h  scale   8.33 ->  146.05   012345  against  012345
+
+Byte-identical at every speed. The reason is #90's own fix: `civilianCollision` is floorless,
+`FLOORLESS_CAP` is 1, and the soft knee asymptotes at the cap — so a **x17.5 larger scale buys
+0.06 of a star.** The second saturation that #90 could not reach is doing the work the clamp was
+being blamed for.
+
+**And the one crime where it is NOT invisible is the one the entry never named.** `policeProperty`
+has a floor and no cap, so it is the single row the scale reaches linearly: 180 km/h goes
+**10.0 -> 175.3 of heat**, five stars from one ram with the meter saturated for the rest of the
+session. So unclamping would have moved nothing where the entry said it would and broken the one
+place it was not looking.
+
+Three things to carry:
+
+- **Measure what a saturation COSTS before fixing it.** "The scale is flat above 44.5 km/h" and
+  "the player cannot tell" are both true here. The first is a property of one function; the second
+  is the property anyone cares about, and it needs the downstream ladder, not the scale.
+- **A cap downstream of a saturation hides it, and that is the common case here, not the rare
+  one.** Two of this file's sections are already about stacked saturations. The rule that falls
+  out: when a quantity is flat, follow it to the thing a player reads before calling the flatness
+  a defect.
+- **Ask which rows have a floor and no cap.** They are where an unbounded scale lands, and there
+  was exactly one. A sweep over SPEED alone would have missed it; the sweep has to be over the
+  crime table too.
+
+Closed by measurement rather than by a patch, with the sweep committed as `wanted-test` §f2 so the
+next round does not re-derive it.
+
+## Six sites read one nominal car length, and the price quoted for all six was one site's
+
+#56's last open half was per-shell `CAR_LENGTH` in `src/traffic.js`. The module builds three shell
+geometries and then compared every gap against a single `CAR_LENGTH = 4.4`. The fix measures each
+shell's z extent **off the buffer the module has just built** — 4.493 / 4.635 / 4.689 — rather than
+carrying a table, so an overhang change in `src/carbody.js` cannot drift it, and `tools/car-shapes.mjs`
+reads the same quantity the same way off the same buffers: the two agree by construction instead of
+by a number typed in twice.
+
+**The backlog's 0.289 m was the right number for one site and the wrong one for another, and they
+differ by x3.1.** The two subtractions are not the same shape:
+
+    _gapAhead      `best` is centre to centre, so a WHOLE LEADER stands between them   0.289 m
+    _playerGap     `along` is centre to centre, so HALF of each body does              0.094 m
+
+and the player's half is `PLAYER_HALF_L`, not a pool shell, because the player's car is not a
+traffic shell. So the coupe gives 4.493/2 + 2.15 = 4.396 against the 4.4 it replaces — **four
+millimetres** — and the shipped nominal was very nearly exactly right at that site all along.
+Quoting the car-to-car figure for both overstated the player-following case x3.1, and
+`traffic-selftest` §10 asserts the two numbers APART for that reason rather than asserting one
+length.
+
+**The seeded-stream perturbation the deferral was about was measured, and it is the opposite of
+the one this file already records.** The leader-term change took the building check from 0 of
+215,960 car-frames to 342, because cars that brake take different `_chooseNext` draws and drive
+edges the old sequence never reached. This change moves a threshold by centimetres and does not
+change which edges anyone drives:
+
+    car-frames        215,965 -> 215,959
+    inside a building       0 -> 0
+    overlap pair-frames     0 -> 0
+    closest approach      4.1 -> 3.93 m
+
+**So "it perturbs a seeded stream" is a reason to measure, not a reason to defer.** The deferral
+was three rounds old and cost more than the measurement did.
+
+And one gate caught one of my own defects while I wrote it: `traffic-selftest`'s rig has a check
+that the rig car carries every field a spawned car has, and the rig's `place()` was handing out a
+car with no `body`. Without `body`, `other.t < EXIT_CLEAR_NEEDED - CAR_LENGTH + other.body` is
+`< NaN`, which is false, which is "the junction is clear" — the silent-NaN shape this file records
+under `arm-diff`, arriving through a test rig. A generic "the rig builds what the module builds"
+check found a defect nothing specific to this change was looking for.
+
 ## Numbers that are not what they look like
 
 - **The budget gate's triangle count carries ~20k of run-to-run noise** from

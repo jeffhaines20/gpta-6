@@ -31,7 +31,11 @@ function rig(count = 2) {
 }
 function place(tr, slot, edge, forward, t, opts = {}) {
   const car = {
-    id: ++tr._nextId, edge, forward, t, len: tr._len(edge),
+    // `body` is the shell this slot draws, measured off its own buffer. Taken from the module
+    // the way the spawner takes it rather than typed in here — CLAUDE.md's "a gate that
+    // constructs the subject itself has to construct it the way the game does", and the check
+    // below that compares the rig's fields with a spawned car's is what caught it missing.
+    id: ++tr._nextId, edge, forward, t, len: tr._len(edge), body: tr._bodyLen(slot),
     v: opts.v ?? 0, limit: opts.limit ?? 0,
     lane: tr._laneOffset(edge), holds: [], waitS: 0,
     stuckS: 0, sinceReplanS: 0, fromArm: null, lastDeny: null,
@@ -822,6 +826,62 @@ console.log('\n9. the A/B recolour arm is the shipped rule, and it leaves the st
   check('and no chromatic one — guaranteed by recolour having no legacy chromatic branch, not measured',
     movedChrom === 0, `${movedChrom} of ${chrom}`);
   tr.recolour(false);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n10. the per-shell body length is the buffer\'s, and every gap reads it');
+{
+  /**
+   * `CAR_LENGTH` was one number for three shells that differ by 0.196 m. The gaps read a
+   * measured per-shell length now, taken off the geometry `src/traffic.js` already builds — not
+   * a table, because a table is a magic number waiting for `src/carbody.js` to change an
+   * overhang under it. This asserts the module's measurement against the one `car-shapes` takes
+   * off the same buffers, which is the only thing that says the two paths cannot drift.
+   */
+  const tr = new Traffic(scene, district, { count: 30 });
+  const names = TrafficMod.shellNamesForTests ? TrafficMod.shellNamesForTests() : null;
+  const fromBuffer = tr.geometries.map((g) => {
+    const p2 = g.getAttribute('position');
+    let z0 = Infinity, z1 = -Infinity;
+    for (let i = 0; i < p2.count; i++) { const z = p2.getZ(i); z < z0 && (z0 = z); z > z1 && (z1 = z); }
+    return z1 - z0;
+  });
+  console.log(`  shell lengths off the buffer: ${fromBuffer.map((l) => l.toFixed(3)).join(' ')}` +
+    `  (module ${tr._shellLen.map((l) => l.toFixed(3)).join(' ')})`);
+  check('the module measures each shell off its own buffer',
+    tr._shellLen.every((l, i) => Math.abs(l - fromBuffer[i]) < 1e-9),
+    tr._shellLen.map((l, i) => `${l.toFixed(4)} vs ${fromBuffer[i].toFixed(4)}`).join(', '));
+  /**
+   * AND THEY REALLY DIFFER, or every check above passes over three identical numbers and the
+   * whole change is decorative — the shape this file's own opening paragraph is about.
+   */
+  const spread = Math.max(...fromBuffer) - Math.min(...fromBuffer);
+  check('and the three shells really are different lengths, or this change is decorative',
+    spread > 0.1, `${spread.toFixed(3)} m across ${fromBuffer.length} shells`);
+  /**
+   * THE NOMINAL IT REPLACED WAS THE COUPE'S, AND THE BACKLOG PRICED THE WRONG SITE. 4.4 is
+   * 2 * (CAR_LENGTH - PLAYER_HALF_L) away from the player-following reach, and the coupe's own
+   * half plus the player's gives 4.396 — four millimetres. So the under-modelling at the PLAYER
+   * site was 0.095 m and not the 0.289 the backlog quoted; only the car-to-car gap subtracts a
+   * whole leader body. Both numbers are printed so neither can be quoted for the other.
+   */
+  const worstCarToCar = Math.max(...fromBuffer) - 4.4;
+  const worstToPlayer = Math.max(...fromBuffer) / 2 + 2.15 - 4.4;
+  console.log(`  what the single nominal under-modelled: car-to-car ${worstCarToCar.toFixed(3)} m,` +
+    ` player-following ${worstToPlayer.toFixed(3)} m — the backlog quoted the first for both`);
+  check('the two sites were under-modelled by different amounts, which is why they are priced apart',
+    worstCarToCar > worstToPlayer * 2, `${worstCarToCar.toFixed(3)} against ${worstToPlayer.toFixed(3)}`);
+  /**
+   * EVERY LIVE CAR CARRIES ONE, because `_gapAhead` reads it off a LEADER it only has as an
+   * object. A spawned car without the field makes `best - undefined` NaN, and NaN fails every
+   * `>` comparison silently — this file's own standing warning.
+   */
+  const tr2 = new Traffic(scene, district, { count: 30 });
+  for (let i = 0; i < 400; i++) tr2.update(1 / 60, { x: 0, z: 0 });
+  const live = tr2.cars.filter(Boolean);
+  check('every live car carries a finite body length, or a gap goes NaN and every test of it passes',
+    live.length > 0 && live.every((c) => Number.isFinite(c.body) && c.body > 0),
+    `${live.filter((c) => Number.isFinite(c.body) && c.body > 0).length} of ${live.length} live`);
 }
 
 // THE SUMMARY AND THE EXIT ARE THE LAST THING IN THIS FILE, and they have to be: appending

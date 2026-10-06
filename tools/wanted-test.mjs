@@ -1814,6 +1814,82 @@ let searchSample;
       `${(1 / new DamageModel().majorSeverity).toFixed(4)}`);
 
     /**
+     * (f2) AND #93 IS REAL IN THE SCALE AND INVISIBLE IN THE OUTCOME, which is worth a check
+     * rather than a round.
+     *
+     * #93 was filed off the flatness asserted immediately above: "a 50 km/h collision, an 88 and
+     * a 140 are the same offence". True, and the backlog costed the fix as moving every number in
+     * four gates. What nobody had measured is what unclamping would BUY, and the answer is
+     * nothing a player can see, because the scale's saturation is masked by TWO more downstream:
+     *
+     *   - the FLOORLESS KNEE, for the two crimes #93 names. An unclamped scale takes a
+     *     civilianCollision from 0.940 to 0.997 of heat between 44.5 and 180 km/h — 0.057, and
+     *     the star lines are whole numbers, so the ladder over one to six impacts is IDENTICAL
+     *     either way: 0 1 2 3 4 5.
+     *   - the STAR LADDER'S OWN TOP, for the one crime that has a floor and no cap.
+     *     `policeProperty` reads FIVE STARS at 40 km/h already, so its scale being flat above
+     *     44.5 cannot be seen either.
+     *
+     * And unclamping is dangerous precisely where it is visible: `policeProperty` has `min: 2`
+     * and so bypasses `floorlessCharge`, where the raw quadratic reaches x146 at 180 km/h and
+     * charges 175 of heat against the current 10.
+     *
+     * So this is CLAUDE.md's "this is real and it does not matter" — stated with the number so
+     * the next round does not spend a day on it. The check is written so that it FAILS the day it
+     * starts to matter: if a future knee, cap or threshold change lets the clamped and unclamped
+     * ladders disagree by a star, somebody has to come back here.
+     */
+    {
+      const dm = new DamageModel();
+      const f2 = dm.freeDv * dm.freeDv, k2 = dm.killDv * dm.killDv;
+      /** `severityFor` without its damage clamp — the #93 lever, modelled rather than shipped. */
+      const unclamped = (dv) => Math.max(0, (dv * dv - f2) / (k2 - f2)) / dm.majorSeverity;
+      const P = { x: 0, z: 0, speed: 0, wrecked: false };
+      const ladder = (scale) => {
+        const w = new WantedSystem();
+        const out = [];
+        for (let n = 0; n < 6; n++) {
+          w.reportCrime('civilianCollision', { scale });
+          out.push(w.stars);
+          for (let k = 0; k < 20; k++) w.update(0.1, P);     // clear the 1.5 s refractory
+        }
+        return out;
+      };
+      const rows93 = [50, 80, 140, 180].map((kmh) => {
+        const v = kmh / 3.6, dv = v * 1.15;
+        const now = dm.severityFor(dv) / dm.majorSeverity, raw = unclamped(dv);
+        return { kmh, now, raw, lNow: ladder(now), lRaw: ladder(raw) };
+      });
+      console.log('    #93, what unclamping the scale would buy — stars over 1..6 impacts:');
+      for (const r of rows93) {
+        console.log(`      ${String(r.kmh).padStart(3)} km/h  scale ${r.now.toFixed(2).padStart(6)}` +
+          ` -> ${r.raw.toFixed(2).padStart(7)}   ${r.lNow.join('')}  against  ${r.lRaw.join('')}`);
+      }
+      check('#93: unclamping the crime scale changes no star at any speed or impact count',
+        rows93.every((r) => r.lNow.join('') === r.lRaw.join('')),
+        rows93.map((r) => `${r.kmh}: ${r.lNow.join('')} vs ${r.lRaw.join('')}`).join(', '));
+      /**
+       * AND THE ARM HAS TO MOVE THE THING IT CLAIMS TO HOLD CONSTANT, or it is a check whose two
+       * sides are both the same number. The unclamped scale must actually differ.
+       */
+      check('and the two scales it compares really do differ, or that check compares nothing',
+        rows93.every((r) => r.raw > r.now * 1.01) && rows93[rows93.length - 1].raw > rows93[0].raw * 2,
+        `${rows93.map((r) => `${r.now.toFixed(2)}->${r.raw.toFixed(2)}`).join(' ')}`);
+      /**
+       * THE OTHER HALF: the crime where unclamping IS visible is the one where it runs away.
+       * `policeProperty` has a floor, so it never reaches `floorlessCharge`.
+       */
+      const pp = CRIMES.policeProperty;
+      const dv180 = (180 / 3.6) * 1.15;
+      const ppNow = pp.heat * (dm.severityFor(dv180) / dm.majorSeverity);
+      const ppRaw = pp.heat * unclamped(dv180);
+      console.log(`    and on the one crime with a floor and no cap, policeProperty at 180 km/h:` +
+        ` ${ppNow.toFixed(1)} -> ${ppRaw.toFixed(1)} of heat`);
+      check('KNOWN-BAD: and on a crime with a floor the same change runs away, which is why it is not shipped',
+        ppRaw > ppNow * 10, `${ppNow.toFixed(2)} against ${ppRaw.toFixed(2)}`);
+    }
+
+    /**
      * (g) A MALFORMED SCALE, which the cap was quietly covering for. `opts.scale` had no
      * validation; measured before the guard:
      *

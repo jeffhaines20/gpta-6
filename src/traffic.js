@@ -401,6 +401,28 @@ export class Traffic {
     this.material = trafficCarMaterial();
     this.geometries = shellNames().map((n) =>
       buildTrafficCarGeometry({ groundY: 0, shape: SHAPES[n] }));
+    /**
+     * PER-SHELL BODY LENGTH, MEASURED OFF THE GEOMETRY THIS MODULE HAS JUST BUILT.
+     *
+     * Not a table and not a constant: the shells are warps of one silhouette and their length is
+     * a property of the buffer, so reading it here is the only version that cannot drift when
+     * `src/carbody.js` changes an overhang. CLAUDE.md: "a measured constant that nothing
+     * re-derives is a magic number waiting for the car to change under it". Three shells of 637
+     * vertices, once, at construction.
+     *
+     * `tools/car-shapes.mjs` measures the same quantity the same way off the same buffers, so
+     * the two agree by construction rather than by a number typed in twice.
+     */
+    this._shellLen = this.geometries.map((g) => {
+      const pos = g.getAttribute('position');
+      let z0 = Infinity, z1 = -Infinity;
+      for (let k = 0; k < pos.count; k++) {
+        const z = pos.getZ(k);
+        if (z < z0) z0 = z;
+        if (z > z1) z1 = z;
+      }
+      return z1 - z0;
+    });
     this.meshes = this.geometries.map((g, sh) => {
       const m = new THREE.InstancedMesh(g, this.material, Math.max(1, perShell[sh]));
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -813,7 +835,9 @@ export class Traffic {
       let blocked = false;
       for (const other of this.cars) {
         if (!other) continue;
-        if (other.edge === edge && other.forward === forward && Math.abs(other.t - t) < CAR_LENGTH * 1.8) {
+        // The LONGER of the two bodies, because either one overlapping is a blocked spawn.
+        const pair = Math.max(other.body, this._bodyLen(i));
+        if (other.edge === edge && other.forward === forward && Math.abs(other.t - t) < pair * 1.8) {
           blocked = true; break;
         }
       }
@@ -821,7 +845,9 @@ export class Traffic {
 
       const limit = this._speedLimit(edge);
       this.cars[i] = {
-        id: ++this._nextId, edge, forward, t, len,
+        // The shell this slot draws, measured off its own buffer. Carried on the car because
+        // every gap below is read from a LEADER that the follower only has as an object.
+        id: ++this._nextId, edge, forward, t, len, body: this._bodyLen(i),
         v: limit * (0.55 + this._r() * 0.35),
         limit: limit * (0.85 + this._r() * 0.3),
         lane: this._laneOffset(edge, forward),
@@ -921,7 +947,15 @@ export class Traffic {
     const list = this._byEdge.get(`${edgeIdx}:${forward ? 1 : 0}`);
     if (!list) return false;
     for (const other of list) {
-      if (other.v < EXIT_CLEAR_SPEED && other.t < EXIT_CLEAR_NEEDED) return true;
+      /**
+       * PER THE CAR ACTUALLY SITTING THERE, not the nominal. Written as the nominal with its one
+       * moved term swapped rather than as a fresh sum, so `EXIT_CLEAR_NEEDED` stays the single
+       * definition and a retune of `JUNCTION_CLEAR_DIST` or `IDM.s0` still reaches here. Spelling
+       * it out as a new sum would have left that constant referenced only from comments — live
+       * code that is actually dead, which is this repo's recurring shape one level down.
+       */
+      if (other.v < EXIT_CLEAR_SPEED
+        && other.t < EXIT_CLEAR_NEEDED - CAR_LENGTH + other.body) return true;
     }
     return false;
   }
@@ -1050,7 +1084,7 @@ export class Traffic {
     const list = this._byEdge.get(`${edgeIdx}:${forward ? 1 : 0}`);
     if (!list) return false;
     for (const other of list) {
-      if (other.t < CAR_LENGTH * 1.6) return true;
+      if (other.t < other.body * 1.6) return true;
     }
     return false;
   }
@@ -1064,7 +1098,7 @@ export class Traffic {
    * the player in the other lane does not brake and a car behind never sees them at all. The
    * gap is bumper-to-bumper, hence the car length.
    */
-  _playerGap(p, lane, px, pz, pfx = null, pfz = null) {
+  _playerGap(p, lane, px, pz, pfx = null, pfz = null, bodyLen = 2 * (CAR_LENGTH - PLAYER_HALF_L)) {
     const nx = -p.dz, nz = p.dx;
     const cx = p.x + nx * lane, cz = p.z + nz * lane;
     const dx = px - cx, dz = pz - cz;
@@ -1093,7 +1127,19 @@ export class Traffic {
      * that the two bodies overlap along the axis, which is a collision or a pass, and neither is
      * a following situation.
      */
-    if (!(along > CAR_LENGTH)) return Infinity;
+    /**
+     * AND THE LENGTH HERE IS HALF OF MINE PLUS HALF OF THEIRS, not a whole car. `along` runs
+     * centre to centre, so what has to clear is each body's own half — and the player's car is
+     * not a traffic shell, so its half comes from `PLAYER_HALF_L` rather than from the pool.
+     *
+     * That is why the shipped 4.4 was right and the backlog's 0.289 m is the WRONG price for
+     * this site: the coupe gives 4.493/2 + 2.15 = 4.396, four millimetres from the constant it
+     * replaces, and the wagon 4.495 — so the under-modelling here is 0.095 m, not 0.289. Only
+     * the car-to-car gap subtracts a whole leader. Worth separating, because this site is the
+     * one with a measured dt history (see the table above) and a 4 mm move does not re-open it.
+     */
+    const reach = bodyLen / 2 + PLAYER_HALF_L;
+    if (!(along > reach)) return Infinity;
     const lateral = Math.abs(dx * nx + dz * nz);
     /**
      * The player's own half-extent across THIS car's lane, from the support function of their box.
@@ -1114,8 +1160,17 @@ export class Traffic {
      * braking for nobody. CLAUDE.md's "a probe that measures the OPPORTUNITY does not measure the
      * FIX", in the gate written to prove this feature works.
      */
-    const gap = along - CAR_LENGTH;
+    const gap = along - reach;
     return gap > PLAYER_WATCH_M ? Infinity : gap;
+  }
+
+  /**
+   * This slot's drawn body length. Falls back to the nominal if the pool was built before the
+   * measurement existed, which is a configuration no production path produces and a test rig can.
+   */
+  _bodyLen(i) {
+    const l = this._shellLen && this._shellLen[this._shellOf[i]];
+    return Number.isFinite(l) && l > 0 ? l : CAR_LENGTH;
   }
 
   // Distance to the vehicle ahead on the same edge and direction, or Infinity.
@@ -1126,7 +1181,12 @@ export class Traffic {
       const d = other.t - car.t;
       if (d > 0 && d < best) { best = d; leader = other; }
     }
-    return { gap: best - CAR_LENGTH, leader };
+    /**
+     * THE LEADER'S LENGTH, NOT A NOMINAL. `best` is the separation between the two cars' own
+     * reference points, so what stands between them is the LEADER's body — the follower's is
+     * behind the point being measured from and never entered this subtraction.
+     */
+    return { gap: best - (leader ? leader.body : CAR_LENGTH), leader };
   }
 
   /**
@@ -1334,7 +1394,7 @@ export class Traffic {
         if (ahead) {
           for (const other of ahead) {
             if (other === car) continue;
-            const g = toEnd + other.t - CAR_LENGTH;
+            const g = toEnd + other.t - other.body;
             if (g < gap) { gap = g; leader = other; }
           }
         }
@@ -1349,7 +1409,7 @@ export class Traffic {
           if (!l) continue;
           for (const other of l) {
             if (other === car || other.fromArm !== myArm || other.t > JUNCTION_BOX_R) continue;
-            const g = toEnd + other.t - CAR_LENGTH;
+            const g = toEnd + other.t - other.body;
             if (g < gap) { gap = g; leader = other; }
           }
         }
@@ -1369,7 +1429,7 @@ export class Traffic {
           const pp = this._pointOn(car.edge, car.forward, car.t);
           if (pp) {
             const g = this._playerGap(pp, car.lane, playerPos.x, playerPos.z,
-              playerFwd ? playerFwd.x : null, playerFwd ? playerFwd.z : null);
+              playerFwd ? playerFwd.x : null, playerFwd ? playerFwd.z : null, car.body);
             if (g < gap) {
               gap = g;
               const pv = playerVel

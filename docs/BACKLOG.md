@@ -16,12 +16,16 @@ session is a tracker one timeout from gone.
 ## The cars — the live line, and the owner's standing ask
 
 The owner asked for the cars to be iterated with reviewers "until they conclude that the cars
-are *markedly improved*". Two blind reviewers have now seen the #56 pair. **Neither would use
-that phrase**, and both gave the same reason: what separated the arms was a basic feature
-present or absent on a subset of cars, not a refinement of how the street reads. That
-regression is fixed (f95694d); **the question has not been re-put.**
+are *markedly improved*". **ANSWERED: the question was re-put on the paint0/paint1 pair and the
+blind critic said yes at both hours.** Two earlier blind reviewers had seen the #56 pair and
+neither would use the phrase, both for the same reason: what separated those arms was a basic
+feature present or absent on a subset of cars, not a refinement of how the street reads. That
+regression was fixed (f95694d), the tone range and the plate tint landed together, and the
+re-put question came back affirmative.
 
-What both reviewers ranked ABOVE body-shell variety, independently:
+The list below is what those reviewers ranked ABOVE body-shell variety, independently, and it
+is still the live queue — an affirmative answer on one pair is not a finished car. Item 2 is
+closed and item 7's tone half is closed:
 
 1. **No interior behind any glass.** Panes have the same internal structure as the door skin
    (1.89/1.40 against the door's 1.77/1.40); the building glazing in the same frame reads
@@ -35,12 +39,31 @@ What both reviewers ranked ABOVE body-shell variety, independently:
 7. **The fleet is too uniform**: six wheel centres within 1.1 px of one ride height, all
    parallel to the kerb, all wheels dead ahead.
 
-### #56 Body-shell variety — IN PROGRESS
+### #56 FIXED — per-shell body length, and the 0.289 m price was the wrong one for half the sites
 Offline half landed (2aca6c5): three shells, length range 0.196 m, 1,050 triangles each.
 Visual half run; it found and fixed a shipped regression (the shells' side windows were 95.1%
-and 75.3% behind their own bodywork). Still open: per-shell `CAR_LENGTH` in `traffic.js` as its
-own commit — 4.4 under-models the wagon by 0.289 m, and changing it perturbs the seeded traffic
-stream. Then re-put the "markedly improved" question.
+and 75.3% behind their own bodywork). The "markedly improved" question was re-put and the blind
+critic answered yes at both hours.
+
+Per-shell `CAR_LENGTH` now landed. `traffic.js` measures each shell's z extent off the geometry
+it has just built — 4.493 / 4.635 / 4.689 — rather than carrying a table, so an overhang change
+in `carbody.js` cannot drift it, and `tools/car-shapes.mjs` reads the same quantity the same way
+off the same buffers. Six sites read it: the spawn-overlap refusal, `_exitBlocked`, the junction
+queue, both junction gap scans and `_playerGap`.
+
+**And the backlog's own 0.289 m was the wrong price for half of them.** It is the car-to-car
+figure, where the subtraction removes a whole LEADER. `_playerGap` subtracts half of each body,
+because `along` runs centre to centre and the player's half comes from `PLAYER_HALF_L` rather
+than from the pool: the coupe gives 4.493/2 + 2.15 = 4.396 against the 4.4 it replaces, four
+millimetres. So that site was under-modelled by 0.094 m and the car-to-car site by 0.289, and
+quoting the second for both overstated the player-following case x3.1. `traffic-selftest` §10
+asserts the two numbers apart for exactly that reason.
+
+The seeded-stream perturbation the deferral was about was measured before and after and is
+benign: car-frames 215,965 -> 215,959, **inside a building 0 -> 0**, overlap pair-frames 0 -> 0,
+closest approach 4.1 -> 3.93 m. That is the opposite of the leader-term change recorded in
+CLAUDE.md, which took the building check 0 -> 342 — because this one moves a threshold by
+centimetres rather than changing which edges the fleet drives.
 
 ### #1 FIXED, with the tone range it was entangled with — the plate goes x0.41 -> x0.915
 Two defects, one fix, because either alone makes the other worse.
@@ -760,7 +783,29 @@ The offence floor is the BUILDINGS, not the driving: 3.3/km over 3,304 m with ze
 zero pedestrians, 11 of 11 `propertyDamage` — the follower hitting buildings, #84/#87 territory,
 and still open.
 
-### #93 The crime scale inherits the damage model's clamp, so every crash over 44.5 km/h is one offence
+### #93 CLOSED BY MEASUREMENT — real in the scale, invisible in the outcome, dangerous where it is visible
+The analysis below is correct and the fix should not be taken. The scale does saturate at 8.333
+from 44.5 km/h. What was never measured is what the saturation COSTS, and the answer is nothing a
+player can reach. `wanted-test` §f2 sweeps the unclamped scale against the shipped one over one
+to six impacts:
+
+       50 km/h  scale   8.33 ->   11.07   stars 012345  against  012345
+       80 km/h  scale   8.33 ->   28.68   stars 012345  against  012345
+      140 km/h  scale   8.33 ->   88.27   stars 012345  against  012345
+      180 km/h  scale   8.33 ->  146.05   stars 012345  against  012345
+
+The star ladder is byte-identical at every speed, because `civilianCollision` is floorless and
+`FLOORLESS_CAP` is 1: the soft knee that #90 put in asymptotes at the cap, so a x17 larger scale
+buys 0.06 of a star. The one crime where it is NOT invisible is the one with a floor and no cap —
+`policeProperty` at 180 km/h goes **10.0 -> 175.3 of heat**, which is five stars from a single
+ram and the meter saturated for the rest of the session.
+
+So unclamping would move nothing where the entry said it would and would break the one place it
+was not looking. The entry's own "every number in all four gates moves" was the tell: a change
+whose only measurable effect is on gates is a change with no gameplay effect. Left as it is, with
+the sweep committed so the next round does not re-derive it.
+
+### #93 (original record) The crime scale inherits the damage model's clamp
 Split out of #90, which was blaming this on the cap. `DamageModel._crimeScaleFor` returns
 `severity / majorSeverity` and `severityFor` clamps severity at 1 at `killDv` (13.9 m/s), so the
 crime scale saturates at `1 / 0.12 = 8.333` and a 50 km/h collision, an 88 and a 140 are the
