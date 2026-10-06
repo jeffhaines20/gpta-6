@@ -314,14 +314,26 @@ export function glassEnv() {
  * and it was a factor of two nobody had put side by side. So this is not a new look chosen here -
  * it is the ambient fleet rendering the materials it already declares.
  *
- * THE LAMP SPILL IS THE ONE THING THAT MUST STAY TINTED, and it does, by construction.
- * `src/traffic.js` writes `setColorAt(i, setScalar(f))` on the glow mesh to carry a per-car
- * BRIGHTNESS rather than a paint colour, and every vertex `buildCarGlowGeometry` emits is on
- * SURFACE.paint - the pools and the halos both. So slot 0 staying tinted is what keeps the
- * headlamp pools working, and a future vertex on another slot in that geometry would silently
- * stop responding to it. `tools/paint-census.mjs` asserts the glow geometry is entirely slot 0,
- * and asserts in the same breath that a real share of the CAR is not - a rule confining the
- * tint to slot 0 does nothing at all if everything is slot 0, and that check would pass.
+ * THE LAMP SPILL MUST STAY TINTED, AND THE REASON I FIRST WROTE DOWN WAS WRONG. `src/traffic.js`
+ * writes `setColorAt(i, setScalar(f))` on the glow mesh to carry a per-car BRIGHTNESS rather than
+ * a paint colour, so that multiply has to survive. I wrote that it survives because every vertex
+ * `buildCarGlowGeometry` emits is on SURFACE.paint - true, and not the reason.
+ *
+ * It survives because that mesh's material is never patched at all. `carGlowMaterial()` returns a
+ * bare `MeshBasicMaterial`; `patchLensFalloff` is applied in exactly one place, inside
+ * `carSurfaceMaterial`. So `uPaintTintOnly` and the `floor( uv.x * 16 )` rule are not in the glow
+ * program, and three's stock `color_vertex` carries the instance colour through whatever slot the
+ * vertices are on. Found by a blind reviewer, who checked the caller instead of believing the
+ * comment; the false version had been written into this file, into a gate's message and into two
+ * mutation rows, which is four places a later round would have read it as established.
+ *
+ * `tools/paint-census.mjs` asserts BOTH halves now, and they say different things. That the glow
+ * material is not the patched one is why the spill works TODAY. That the glow geometry is
+ * entirely slot 0 is what would keep it working IF that material were ever moved onto the patched
+ * one - a conditional, which is worth keeping and is not what makes it work. And the same gate
+ * asserts that a real share of the CAR is not slot 0, because a rule confining the tint to slot 0
+ * does nothing at all if everything is slot 0 and that check would pass for the most flattering
+ * possible reason.
  *
  * SHIPPING AT 1, AND 0 IS BIT-EXACTLY THE OLD BUILD. `mix(vColor, color, 0)` is `vColor`, so an
  * arm that sweeps this back to 0 reproduces the previous build rather than approximating it -

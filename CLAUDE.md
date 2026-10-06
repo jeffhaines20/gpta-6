@@ -1550,12 +1550,15 @@ linear in the mission's size, caught at x7.89 while passing the absolute bound a
 `car-shapes`, `crowd-bill --selftest`, `tri-buckets --selftest`, `gate-align --selftest`,
 `mutation-sweep --selftest`, `playtest --selftest`, `car-shapes --selftest`, `paint-census`,
 `glass-census` (needs a browser to decode the reference JPEGs; about 20 s),
-`paint-tone` (the same, about 1 s).
+`paint-tone` (the same, about 2.4 s).
 The offline ones together take under a minute.
 
 `paint-tone` is cheap enough to be on `mutation-sweep`'s offline list despite launching a
-browser, and it is there because `paint-census` cannot see a tone RATIO that is wrong while
-still reaching both anchors — the `tone-ratio` row is exactly that mutation and `paint-tone`
+browser — 2.4 s a run, which over ~124 rows is about five minutes of sweep, against the
+hour and a half the rest of the list costs. (It was written down as "about 1 s" from a
+`date +%s` that rounded; a blind reviewer timed it properly. Time a tool with a clock
+that can resolve it.) It is there because `paint-census` cannot see a tone RATIO that is
+wrong while still reaching both anchors — the `tone-ratio` row is exactly that mutation and `paint-tone`
 is the only thing that catches it. Its `--grid` mode writes a view of any region of any
 reference frame labelled in that image's OWN pixel numbers, which is how a box gets placed;
 `--crop` then draws the placed boxes over the image so somebody else can check one.
@@ -1976,12 +1979,38 @@ the size of the error is the finding:
       open midday sun     0.5303 / 0.0313    x16.9
       deep building shade 0.1693 / 0.0895    x1.89      the same measurement, x9.0 apart
 
-Nothing about the cars differs. What differs is that the shaded pair sits where the camera's
-pipeline lifts shadows, and **a lift compresses a ratio toward 1** — which makes a dim row's
-reading a FLOOR and not an estimate. (The sRGB OETF is itself a lift, which is why CLAUDE.md
-already insists on linear light; the camera's own curve is a second one that linearising cannot
-undo.) `paint-tone --selftest` proves the direction on synthetic input rather than arguing it:
-a true x16 reads x8.44 under a mild lift and x4.00 under a strong one.
+Nothing about the cars differs. What differs is the light the two rows stand in.
+
+**And the explanation I attached to that was overreach, which a blind reviewer caught.** I wrote
+that a camera pipeline LIFTS shadows, that a lift compresses a ratio toward 1, and that a dim
+row's reading is therefore a FLOOR. The selftest proved the lift and the prose generalised from
+it. Run the other curves through the same encode -> curve -> EOTF chain:
+
+    a true ratio of 16 reads
+      identity              16.00
+      lift  ^(1/1.3)         8.99     compresses
+      lift  ^(1/2)           4.33     compresses
+      TOE   ^1.15           22.57     EXPANDS
+      TOE   ^1.3            30.97     EXPANDS
+      S-curve, smoothstep   66.69     EXPANDS, x4.2
+      additive glare +0.002 linear   15.10    compresses
+      additive glare +0.01  linear   12.36    compresses
+
+A contrast S-curve on the encoded value is exactly what a consumer pipeline applies, and it runs
+the wrong way. **So the tone-curve leg bounds nothing in either direction.** What survives is the
+ADDITIVE leg — veiling glare, clearcoat sheen and ambient fill add a floor to both subjects and
+so lift the dark one proportionally more — and that compresses, by 5-23% at plausible magnitudes.
+That is the one direction a photographed car-to-car ratio can be claimed to err in.
+
+What makes x16.9 believable is therefore not a bound argued from a curve nobody has
+characterised. It is that an **independent source agrees**: published white automotive paint is
+0.75-0.85 and black 0.04-0.06, a ratio of x12.5 to x21. Two lines of evidence landing on ~16 is
+the argument. `paint-tone --selftest` now proves BOTH curve directions, so the one-sided claim
+cannot be made again from that file.
+
+The general rule, and this is the third time this file has had to write a version of it:
+**a selftest that proves one case does not license a sentence about every case.** The arm was
+correct; the paragraph above it was not.
 
 Two more rows were tried and thrown away, and both printed plausible numbers:
 
@@ -1996,6 +2025,82 @@ So the rule is three constraints, not one: **same frame** (one exposure), **same
 one surround), **same panel** (one orientation and one incidence). And `--crop` writes the boxes
 over the image, because four of the six boxes in that file were moved at least once after their
 p10/p90 spread announced that they straddled a shut line, a taillight or the edge of a shadow.
+
+## I wrote a mechanism, never checked the caller, and it reached four places
+
+The paint-slot tint confines `instanceColor` to palette slot 0. The lamp spill carries a per-car
+BRIGHTNESS on `instanceColor` rather than a colour, so that multiply has to survive. I wrote down
+why it does: every vertex `buildCarGlowGeometry` emits is on SURFACE.paint, so slot 0 staying
+tinted is what keeps the headlamp pools working.
+
+The first half is true. The second half is not the reason, and one `grep` says so:
+
+    grep -n patchLensFalloff src/carbody.js
+      620   function patchLensFalloff(m) {
+      700     return patchLensFalloff(m);        <- inside carSurfaceMaterial, the only caller
+
+`carGlowMaterial()` returns a bare `MeshBasicMaterial`. The injection is not in that program at
+all, so three's stock `color_vertex` carries the instance colour through whatever slot the
+vertices are on. The spill is immune because its material was never a candidate.
+
+**It had been written into four places by the time a blind reviewer checked the caller**: the
+shipped comment in `src/carbody.js`, a gate's own message in `tools/paint-census.mjs` ("every
+vertex of the lamp spill is on the paint slot, **so** its per-car brightness survives" — a true
+premise with a false consequent), and the `why` strings of two `mutation-sweep` rows. Four places
+a later round would have read it as established, and the gate message was the worst of them
+because a check that states a false reason reads as coverage for it.
+
+Three things to carry:
+
+- **A mechanism is a claim about the CALL GRAPH, and the call graph is greppable.** "This material
+  carries the injection" took one command to check and I checked the geometry instead, because
+  the geometry was the thing I had just changed.
+- **Both checks were worth keeping and they say different things.** That the glow material is not
+  the patched one is why the spill works TODAY; that its geometry is entirely slot 0 is what would
+  keep it working IF that material were ever moved onto the patched one. The second is a
+  conditional and is now labelled as one.
+- **A negative needs its positive.** "The glow material does not carry the injection" passes for
+  any material at all — three gives every `Material` a no-op `onBeforeCompile`, so a test looking
+  only for the uniform's absence reads ok on something that was never a candidate. The check
+  measures both materials the same way and asserts the car surface material DOES carry it.
+
+### And the check that nothing in the repo could fail
+
+Three more of my own, from the same reviewer, and the pattern is this file's standing one — all
+were written in the same round as the code they guard:
+
+- **`0.60 < WHITE_L && 0.66 < WHITE_L && 0.34 > BLACK_L && 0.26 > BLACK_L`**, where `WHITE_L` and
+  `BLACK_L` are two `const`s ten lines above in the same file. Four literals against two
+  constants: **it cannot fail for any edit to any source file in the repo**, and it was being
+  counted among that gate's checks. It is arithmetic about a build that no longer exists, so it
+  is printed as arithmetic now and the check count went down by one. A gate's count is only worth
+  something if every row in it can fail.
+- **A KNOWN-BAD that tested one of the two fleets it named.** The condition read `OLD.traffic`
+  while the message said "the range this replaced" and the detail printed both fleets' figures —
+  and the parked pool's old range CLEARS that floor, so the floor alone never established the
+  defect for that fleet. Half a case guarded, reading as a guard, which this file already records
+  under `facades.js`'s awnings. The fix is two checks, one naming each fleet, with the second
+  saying out loud that the floor does not catch it and which check does.
+- **A check whose answer is guaranteed by the function under test.** `movedChrom === 0` over
+  `recolour`, whose chromatic branch has no legacy ternary in it at all. It can only fail if
+  somebody adds one. Kept at that strength and labelled, because a future round that gives the
+  chromatic lightness its own before-arm has to come here and restate it.
+
+### And a mutation nothing catches, measured rather than assumed
+
+The same reviewer planted `mix(color.xyz, vColor.xyz, …)` for `mix(vColor.xyz, color.xyz, …)`.
+That inverts the whole rule — `instanceColor` then reaches every slot EXCEPT the paint, so every
+car renders at its authored grey and the plate, lamps, rims and tyres carry the body colour,
+which is #1 upside down. It passes **all three of `paint-census`'s source regexes** (the seam
+throw is there, `floor( uv.x * 16.0 )` is there, the cache key is bumped), **all 70 of
+`boot-check`** (which reads the uniform's own getter and never samples a pixel) and all 65 of
+`traffic-selftest`.
+
+It is in the table as `tint-invert` with its `why` saying it is a MEASURED GAP and not a row with
+a gate behind it. Catching it needs a rendered sample of a car's plate against its own paint, and
+the only thing that does that today works on committed PNGs, which a mutated source cannot reach.
+**A row with no gate is worth more in the table than out of it**: it is the difference between a
+gap somebody measured and a gap nobody has looked for.
 
 ## Two defects that each make the other worse have to ship in one commit
 
@@ -2016,6 +2121,27 @@ ask what else reads the quantity it moves** — here the answer was "every non-p
 car", and it was already written down in both modules' own comments as the reason the fleet had to
 be grey.
 
+**Two consequences of a x17 albedo range that the round did not price, both from a blind review.**
+
+- **The palette's paint slot is metalness 0.60, so these albedos are not reflectances.** Three's
+  physical BRDF splits an albedo `a` into `diffuse = a * 0.40` and `F0 = 0.04 * 0.40 + a * 0.60`.
+  So the photographic target of 0.047 ships as 0.0188 of diffuse, 2.5x darker than the number it
+  was derived from, and 0.800 ships as 0.320 of diffuse with an F0 of 0.496 — a white car is a
+  polished reflector rather than a white panel. **And F0 crosses the plain dielectric 0.04 at
+  exactly a = 0.040**, so an albedo under that gives the darkest cars LESS clearcoat sheen than a
+  sheet of glass. The first table ran to 0.032 and put the bottom 27% of the black range there.
+  The floor is the crossing now, and the lever for the rest is the METALNESS — do not reach for
+  the lightness, which would be compensating a BRDF term with an albedo term.
+- **Every paint-denominated ratio in the record is now incomparable, and nothing said so.**
+  Replaying the shipped fleet against the old rule, car for car: the range is x0.08 to x2.14 and
+  **17 of 30 cars move by more than 2x** (8 darker, 9 brighter). `tools/car-pane.mjs` measures
+  glass over the paint ON THE SAME CAR at fixed boxes over captured frames, and every figure in
+  this file's glazing sections is one of those ratios — side glass 0.2506, modulation 5.295,
+  ceiling 1.327, windscreen 0.0201, backlight 0.0321. The denominator just moved for most of the
+  fleet. No GATE breaks (`glass-census` measures photographs and recorded sweep data), but a
+  re-capture at the same camera cannot be compared with those numbers. **When a change moves a
+  quantity other people's numbers are divided by, say which numbers it retires.**
+
 And the escape was free, because the slot was already in the geometry: `paletteU(i)` is
 `(i + 0.5) / 16`, so `floor( uv.x * 16 )` IS the palette slot, in the vertex shader, taken from the
 same number the material reads roughness with. **A rule beats a list** — "instanceColor applies to
@@ -2029,6 +2155,56 @@ carry a per-car BRIGHTNESS rather than a colour, and that only keeps working bec
 responding to its own headlamps. And a rule confining the tint to slot 0 does NOTHING if the car is
 entirely slot 0, so the gate asserts both: the spill is 100% slot 0, and 59.2% of a traffic car is
 not.
+
+## Scramble a blind pair PER HOUR, and let the reviewer recover the assignment from the data
+
+A pair handed to a blind critic as `armA`/`armB` leaks its direction the moment the critic guesses
+that A is always the before. Assigning them **differently at each hour** removes that: the critic
+has to answer per hour, and whether their two answers agree is then information rather than
+bookkeeping.
+
+It worked. The critic preferred one arm at noon and the other at dusk, from the images alone,
+before any number — and those two turned out to be the same build. Then they recovered the
+assignment from the data, using the one quantity no confound can fake:
+
+    on a car whose paint is BYTE-IDENTICAL between the arms, the number plate moves
+      noon   0.0841 -> 0.2272   x2.70      its paint moved x1.00
+      dusk   0.0583 -> 0.1315   x2.26      its paint moved x1.00
+
+A brightness change, an exposure change, a different hour or a mis-registered pair all move the
+plate and the paint the SAME way. Only a de-tint moves them apart. They then cross-checked on a
+wholly independent quantity — a grey car's boot lid, after/before **0.652 at noon and 0.656 at
+dusk, 0.6% apart across two hours**.
+
+**Build the byte-identical control into the pair deliberately.** This file already says so about
+the #56 car pair ("two other cars are bit-identical is a strong control"), where it was an
+accident. Here it was not: the chromatic lightness was deliberately left alone, so a chromatic car
+in frame had to come back byte-identical — and that single number says the arms are registered to
+the pixel, the exposure and the light are the same, and the term that was meant to stay still did.
+Every other number in the pair is unreadable without it.
+
+And the other half of a good blind brief is saying what NOT to file. This one listed the 0.5 s of
+sim between the arms, the byte-identical `triangles`/`chunks`/`lodNear`/`lodFar`/`drawCalls` in
+the audits, and that the HUD is hidden on purpose — so the critic spent none of its round on a
+pedestrian that had walked.
+
+## Two bounds that are numerically coincident are one coin toss
+
+`boot-check`'s wedged-car arm runs at most 400 frames, breaks when `stuckFor` reaches 4.0 s, and
+had a 240 s wall-clock net. Through SwiftShader a frame is about 0.6 s, so **400 frames IS 240 s**:
+the two bounds were the same bound, and which one fired was decided by how fast the box felt. It
+fired the clock at `stuckFor 3.80` against a 4.0 threshold — 5% short — and the gate failed.
+
+Three runs on one tree gave 2, 6 and 2 failures in three different arms, which is what contention
+looks like from outside and is why this file says to clean the box and run three times. What made
+it diagnosable in ONE run instead was that the arm **reports which bound ended it**: "ended on
+'wall clock'" is a budget, "ended on 'stuck'" is the state. That line is why the failure did not
+read as a behaviour change in a round that had just touched the car.
+
+The net is 420 s now — 400 frames at 1.05 s each, which is a slow box rather than a hung one — and
+on a healthy box the loop still exits on the state and costs nothing extra: the same run went
+435 s against 441 and 448 for the failing ones. **A safety net has to sit above what the real
+budget costs on a bad day, or it is not a net, it is a second budget.**
 
 ## When a reviewer is wrong
 

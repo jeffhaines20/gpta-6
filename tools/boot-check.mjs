@@ -569,7 +569,25 @@ if (state.global && state.frames > 2) {
       if (phase === 'creep' && v.contacts > 20) phase = 'push';
       if (v.stuckFor >= 4.0) break;
       if (d.wreckReport().wrecks > 0) { why = 'wrecked'; break; }
-      if (Date.now() - t0 > 240000) { why = 'wall clock'; break; }
+      /**
+       * THE WALL CLOCK IS A SAFETY NET AGAINST A HANG, NOT A BUDGET, AND AT 240 s IT WAS BOTH.
+       *
+       * This arm waits on the CAR TO TRAVEL, so `setTimeScale` cannot buy it anything —
+       * `stepFixed` caps the physics at 0.133 s of sim per rendered frame however long the frame
+       * takes (see CLAUDE.md). Its real bound is the 400-frame budget above. At roughly 0.6 s a
+       * frame through SwiftShader, 400 frames IS 240 s, so the two bounds were numerically
+       * coincident on this box and which one fired was decided by how fast the machine felt.
+       * It fired the clock at `stuckFor 3.80` against a 4.0 threshold — 5% short — and reported
+       * "wall clock", which is the one thing that stopped this being read as a behaviour change.
+       *
+       * 420 s is 400 frames at 1.05 s a frame, which is a slow box rather than a hung one. On a
+       * healthy box the loop still exits on the STATE and costs nothing extra; this only changes
+       * which bound is reachable. CLAUDE.md: "a check that compares against an absolute number
+       * needs the same sweep a measurement does", and "bound such an arm on the STATE rather than
+       * the wall clock, and report which of the two ended the run" — it does report, and that is
+       * what made this diagnosable in one run.
+       */
+      if (Date.now() - t0 > 420000) { why = 'wall clock'; break; }
     }
     const nose = read();
     const stuckFor = v.stuckFor, contacts = v.contacts, frames = d.frames;
@@ -1044,11 +1062,18 @@ if (state.global && state.frames > 2) {
     const shipped = D.setCarTone(false);
     return { before, off, on, legacy, shipped };
   });
-  console.log(`  tone arms: parked ${arm.legacy.parked ? `${arm.legacy.parked.cars} cars, ` +
-    `legacy span x${arm.legacy.parked.span.toFixed(2)} -> shipped x${arm.shipped.parked.span.toFixed(2)}`
-    : 'NO PARKED POOL'}; traffic ${arm.legacy.traffic ? `${arm.legacy.traffic.cars} cars, ` +
-    `legacy span x${arm.legacy.traffic.span.toFixed(2)} -> shipped x${arm.shipped.traffic.span.toFixed(2)}`
-    : 'NO FLEET'}`);
+  /**
+   * `recolourParked` returns `{ legacy, cars: 0 }` with NO `span` when the pool is empty, and the
+   * first version of this line guarded the null and then called `.span.toFixed(2)` on it — so an
+   * empty pool would have THROWN here rather than failing the check below. CLAUDE.md: "a tool
+   * that throws is not a tool that passes, and nobody notices which". Found by a blind reviewer.
+   */
+  const span = (x) => (x && Number.isFinite(x.span) ? `x${x.span.toFixed(2)}` : 'no span');
+  const side = (name, lo, hi) => (lo && lo.cars > 0
+    ? `${lo.cars} cars, legacy span ${span(lo)} -> shipped ${span(hi)}`
+    : `NO ${name.toUpperCase()}`);
+  console.log(`  tone arms: parked ${side('parked pool', arm.legacy.parked, arm.shipped.parked)}` +
+    `; traffic ${side('fleet', arm.legacy.traffic, arm.shipped.traffic)}`);
   check('the page exposes the paint-slot tint as an arm, and it is shipped ON',
     arm.before.value === 1 && arm.off.value === 0 && arm.on.value === 1,
     `${arm.before.value} -> ${arm.off.value} -> ${arm.on.value}`);
@@ -1061,11 +1086,13 @@ if (state.global && state.frames > 2) {
       && arm.legacy.traffic.cars > 0),
     `parked ${arm.legacy.parked?.cars ?? 'null'}, traffic ${arm.legacy.traffic?.cars ?? 'null'}`);
   check('the parked pool narrows under the legacy rule, so its arm is not a no-op',
-    arm.legacy.parked.span < arm.shipped.parked.span / 5,
-    `x${arm.legacy.parked.span.toFixed(2)} against x${arm.shipped.parked.span.toFixed(2)}`);
+    Number.isFinite(arm.legacy.parked?.span) && Number.isFinite(arm.shipped.parked?.span)
+      && arm.legacy.parked.span < arm.shipped.parked.span / 5,
+    `${span(arm.legacy.parked)} against ${span(arm.shipped.parked)}`);
   check('and so does the moving fleet, through the same one call',
-    arm.legacy.traffic.span < arm.shipped.traffic.span / 5,
-    `x${arm.legacy.traffic.span.toFixed(2)} against x${arm.shipped.traffic.span.toFixed(2)}`);
+    Number.isFinite(arm.legacy.traffic?.span) && Number.isFinite(arm.shipped.traffic?.span)
+      && arm.legacy.traffic.span < arm.shipped.traffic.span / 5,
+    `${span(arm.legacy.traffic)} against ${span(arm.shipped.traffic)}`);
   /**
    * AND THE PAGE IS LEFT AS IT WAS FOUND. An arm that leaves the district in its before-state is
    * how a later section in the same run measures the wrong build — this file's own run-over arm
@@ -1073,9 +1100,8 @@ if (state.global && state.frames > 2) {
    */
   const after = await page.evaluate(() => window.__district.carPaintTint());
   check('and the page is left in the shipped state, so no later arm inherits a swept one',
-    after.value === 1 && arm.shipped.parked.span > 5 && arm.shipped.traffic.span > 5,
-    `tint ${after.value}, parked x${arm.shipped.parked.span.toFixed(2)}, ` +
-    `traffic x${arm.shipped.traffic.span.toFixed(2)}`);
+    after.value === 1 && arm.shipped.parked?.span > 5 && arm.shipped.traffic?.span > 5,
+    `tint ${after.value}, parked ${span(arm.shipped.parked)}, traffic ${span(arm.shipped.traffic)}`);
 }
 
 await browser.close();

@@ -1388,34 +1388,64 @@ const MUTATIONS = [
   },
   {
     /**
-     * THE TINT APPLIED TO EVERY SLOT INSTEAD OF NONE, which is the opposite error and is worse
-     * than it looks. The paint stops being tinted at all, so every car in both fleets renders at
-     * its authored vertex colour and the whole census becomes decorative — AND the lamp spill
-     * stops working, because `src/traffic.js` carries a per-car BRIGHTNESS on that mesh with
-     * `setColorAt(i, setScalar(f))` and every vertex of it is on the paint slot.
+     * THE TINT APPLIED TO EVERY SLOT INSTEAD OF NONE, which is the opposite error. The paint
+     * stops being tinted at all, so every car in both fleets renders at its authored vertex
+     * colour and the whole census becomes decorative.
      *
-     * CAUGHT BY A SOURCE REGEX AND NOT BY A MEASUREMENT, and that is worth saying rather than
-     * leaving to be discovered: nothing offline renders a shader, and boot-check does not measure
-     * spill brightness. The regex asserts the rule is still derived from `uv.x`. A stronger check
-     * would need a capture of a lit car at night against an unlit one.
+     * THE FIRST VERSION OF THIS NOTE ALSO SAID THE LAMP SPILL STOPS WORKING. It does not.
+     * `carGlowMaterial()` returns a bare `MeshBasicMaterial` and `patchLensFalloff` is applied
+     * only inside `carSurfaceMaterial`, so the glow program has no `uPaintTintOnly` in it and
+     * three's stock `color_vertex` carries its per-car brightness through untouched. A blind
+     * reviewer checked the caller instead of believing the comment. The false mechanism was in
+     * four places; this is one of them.
+     *
+     * CAUGHT BY A SOURCE REGEX AND NOT BY A MEASUREMENT, which is worth saying rather than
+     * leaving to be discovered: nothing offline renders a shader. The regex asserts the rule is
+     * still derived from `uv.x`, and it has a blind spot — see `tint-invert` below.
      */
     id: 'tint-slotless', file: 'src/carbody.js',
     find: 'vColor.xyz = mix( vColor.xyz, color.xyz, uPaintTintOnly * step( 0.5, floor( uv.x * 16.0 ) ) );',
     to: 'vColor.xyz = mix( vColor.xyz, color.xyz, uPaintTintOnly );',
-    why: 'every car renders at its authored colour and the headlamp pools stop dimming per car',
+    why: 'every car renders at its authored colour and the measured census becomes decorative',
   },
   {
     /**
-     * ONE VERTEX OF THE LAMP SPILL MOVED OFF THE PAINT SLOT. The pools still draw, in the right
-     * place, in the right colour, at the right size — and they stop responding to the car's own
-     * headlamp state, because the per-car brightness rides on instanceColor and instanceColor now
-     * reaches only slot 0. Invisible in every triangle count and every geometry check; the only
-     * thing that sees it is the slot census over the built buffer.
+     * ONE VERTEX OF THE LAMP SPILL MOVED OFF THE PAINT SLOT, and this row's `why` was WRONG when
+     * it was written. It said the pools stop dimming with the car that casts them. They do not:
+     * the glow mesh's material is a bare `MeshBasicMaterial` that `patchLensFalloff` never
+     * touches, so the paint-slot rule is not in that program at all and the slot a glow vertex
+     * sits on does not matter today. A blind reviewer found it.
+     *
+     * The row is KEPT because the property it breaks is still worth holding: if the glow material
+     * were ever moved onto the patched one, every vertex being slot 0 is what would keep the
+     * per-car brightness working. It is a conditional, and `paint-census` now labels it as one.
      */
+    /**
+     * THE MIX ARGUMENTS SWAPPED, which inverts the whole rule: instanceColor then reaches every
+     * slot EXCEPT the paint, so every car renders at its authored grey and the plate, lamps, rims
+     * and tyres carry the body colour — exactly #1, upside down.
+     *
+     * A BLIND REVIEWER PLANTED IT AND NOTHING CAUGHT IT. It passes all three of `paint-census`'s
+     * source regexes (the seam throw is still there, `floor( uv.x * 16.0 )` is still there, the
+     * cache key is still bumped), all of `boot-check` (which reads the uniform's own getter and
+     * never samples a pixel) and all of `traffic-selftest` (which is about instanceColor, not
+     * about the shader). The regex has a blind spot the rest of the table did not cover.
+     *
+     * It is here as a MEASURED GAP rather than as a row with a gate behind it: catching it needs
+     * a rendered sample of a car's plate against its own paint, which `paint-tone`'s RENDER
+     * section does on committed PNGs and therefore cannot do on a mutated source. The honest
+     * version is a boot-check arm that reads pixels, and it is not written yet.
+     */
+    id: 'tint-invert', file: 'src/carbody.js',
+    find: 'vColor.xyz = mix( vColor.xyz, color.xyz, uPaintTintOnly * step( 0.5, floor( uv.x * 16.0 ) ) );',
+    to: 'vColor.xyz = mix( color.xyz, vColor.xyz, uPaintTintOnly * step( 0.5, floor( uv.x * 16.0 ) ) );',
+    why: 'the rule inverts: every car is its authored grey and every light detail carries the body colour',
+  },
+  {
     id: 'glow-slot', file: 'src/carbody.js',
     find: '      return b.vert(cx + s * hw, yRoad, z0 + dir * dz, _c, SURFACE.paint);',
     to: '      return b.vert(cx + s * hw, yRoad, z0 + dir * dz, _c, SURFACE.matte);',
-    why: 'the headlamp pools stop dimming with the car that casts them, and nothing else changes',
+    why: 'breaks the condition that would keep the spill working if its material were ever patched',
   },
   {
     /**

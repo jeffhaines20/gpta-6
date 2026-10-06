@@ -34,10 +34,31 @@
 //      proportionally more. So a measured ratio is a floor on the albedo ratio, not an estimate
 //      of it — which is the right direction for a gate that asks "is the shipped range wide
 //      enough".
-//   2. The camera's curve is not the sRGB OETF. Any phone or pano pipeline LIFTS shadows, and a
-//      lift compresses a ratio toward 1. That is proved on synthetic input in the selftest, and
-//      it is why the SHADED row's 1.89 is quotable as a floor while the sunlit row's 16.9 is the
-//      better estimate and not a bound.
+//   2. The camera's curve is not the sRGB OETF, AND I FIRST CLAIMED MORE THAN THAT ALLOWS. The
+//      first version of this header said a pipeline LIFTS shadows, a lift compresses a ratio
+//      toward 1, and therefore every reading here is a floor. The selftest proved the lift and
+//      the header generalised it. A blind reviewer ran the other curves through the same chain:
+//
+//          true ratio 16, through encode -> curve -> EOTF
+//            identity            16.00
+//            lift  ^(1/1.3)       8.99      compresses
+//            lift  ^(1/2)         4.33      compresses
+//            TOE   ^1.15         22.57      EXPANDS
+//            TOE   ^1.3          30.97      EXPANDS
+//            S-curve smoothstep  66.69      EXPANDS, x4.2
+//            additive glare +0.002 lin  15.10   compresses
+//            additive glare +0.01  lin  12.36   compresses
+//
+//      A contrast S-curve on the encoded value is exactly what a consumer pipeline applies, and
+//      it runs the wrong way. So the TONE-CURVE leg bounds nothing in either direction. What
+//      survives is the ADDITIVE leg — veiling glare, clearcoat sheen and ambient fill lift the
+//      dark car proportionally more, which compresses, by 5-23% at plausible magnitudes. That is
+//      the one direction this file is allowed to claim.
+//
+//      So the two rows are two measurements and neither is a bound. What makes x16.9 believable
+//      is that an INDEPENDENT source agrees: published white automotive paint is 0.75-0.85 and
+//      black 0.04-0.06, a ratio of x12.5 to x21. Two lines of evidence landing on ~16 is the
+//      argument; one photograph with a bound argued from a curve nobody has characterised is not.
 //   3. It cannot resolve a hue or a family. Families here are the census's own labels, assigned
 //      by eye on the annotated crops `--crop` writes.
 //
@@ -85,16 +106,19 @@ const ROWS = [
      * THE SAME MEASUREMENT IN DEEP SHADE, AND IT READS 8.9x SMALLER. Kept, and quoted, because
      * it is the floor the gate is written against and because the disagreement is the finding:
      * nothing about these two cars is unusual, and 1.89 against 16.9 is what the light does.
-     * Both subjects here sit in the shadow region where any camera pipeline lifts, and a lift
-     * compresses a ratio toward 1 — so this row UNDERSTATES, and by an amount nothing in these
-     * JPEGs can recover. A round that had measured only this row would have concluded the real
-     * spread is about 2x and shipped something barely wider than what is already there.
+     * Both subjects sit in the shadow region, and I first wrote that any pipeline lifts there, a
+     * lift compresses, and therefore this row understates. The selftest proves the lift and only
+     * the lift; a toe or an S-curve EXPANDS the same ratio (see the header). So this row is a
+     * second measurement and NOT a bound, and what it is actually good for is the disagreement:
+     * two rows of the same quantity landing x9.0 apart is what says the LIGHT is the dominant
+     * term, which no single row could have told anybody. A round that had measured only this one
+     * would have concluded the real spread is about 2x and shipped something barely wider.
      */
     id: 'kerb-shade',
     file: 'mly-1371467967414042.jpg',
     light: 'deep building shade, no direct sun on either car',
     panel: 'rear face (tailgate), both parked nose-in',
-    note: 'the compressed arm: the floor the gate uses, and the reason the sunlit row is the estimate',
+    note: 'the dim arm: a sanity floor for the gate, and the measurement that says the LIGHT dominates',
     cars: [
       { id: 'suv', family: 'black', note: 'charcoal SUV, tailgate — the census family "black" is "black, charcoal and any dark body"', box: [155, 562, 35, 10] },
       { id: 'pickup', family: 'white', note: 'white pickup, lower tailgate', box: [231, 594, 50, 7] },
@@ -120,6 +144,49 @@ const ROWS = [
     ],
   },
 ];
+
+/**
+ * THE SHIPPED RENDER, MEASURED BY THE SAME INSTRUMENT AS THE PHOTOGRAPHS.
+ *
+ * `hero-shots` with HERO_ARMS=paint0,paint1 captures the before and after off ONE page load, ONE
+ * camera, ONE settled district — see `tools/ground-albedo.mjs`'s arm table. The two arms are 10
+ * rendered frames apart (0.5 s of sim at the clamped dt) and the audits record `triangles`,
+ * `chunks`, `lodNear`, `lodFar` and `drawCalls` byte-identical between them, so the resident set
+ * and the geometry are the same and only the world clock moved.
+ *
+ * THE SUBJECTS ARE TWO PARKED CARS, which do not move at all in that 0.5 s. A moving car does —
+ * up to 5 m — so a fixed box on one would be measuring a different car, which is this project's
+ * "a fixed box over moved geometry" section arriving through the sim instead of the shell.
+ *
+ * AND ONE OF THEM IS A CHROMATIC CAR, WHICH IS THE CONTROL THAT MAKES THE REST READABLE. The
+ * chromatic lightness did not change this round, so its paint must come back BYTE-IDENTICAL. It
+ * does — 0.3575, mean sRGB 161,138,147 in both arms — and that single number says three things at
+ * once: the arms are registered to the pixel on static geometry, the exposure and the light are
+ * the same, and the one term that was supposed to stay still did.
+ */
+const RENDER = {
+  id: 'shipped-render-noon',
+  dir: '.',
+  before: 'docs/shots/paint-paint0-fivepoints-noon.png',
+  after: 'docs/shots/paint-paint1-fivepoints-noon.png',
+  boxes: [
+    { id: 'chromatic.paint', note: "the pink car's boot lid, clear of its tail lights", box: [202, 552, 32, 7] },
+    { id: 'chromatic.plate', note: "and its number plate", box: [217, 578, 13, 4] },
+    { id: 'achromatic.paint', note: "the grey car's boot lid, clear of its tail lights", box: [4, 552, 32, 7] },
+    { id: 'achromatic.plate', note: "and its number plate", box: [17, 575, 15, 4] },
+  ],
+};
+
+async function sampleRender(page) {
+  const out = {};
+  for (const [arm, file] of [['before', RENDER.before], ['after', RENDER.after]]) {
+    if (!fs.existsSync(file)) return { missing: file };
+    const r = await sampleRow(page, { id: arm, dir: RENDER.dir, file,
+      cars: RENDER.boxes.map((b) => ({ ...b, family: 'render' })) });
+    out[arm] = Object.fromEntries(r.cars.map((c) => [c.id, c]));
+  }
+  return out;
+}
 
 /**
  * ONE INSTRUMENT ON BOTH SIDES OF THE COMPARISON. A row may name its own directory, so a captured
@@ -257,16 +324,43 @@ function selftest() {
    * surfaces at a true reflectance ratio R are photographed at something SMALLER than R, and the
    * reading is a floor. Shown here on a plain gamma-style lift rather than argued.
    */
-  const lift = (v, k) => v ** (1 / k);            // k > 1 lifts; k = 1 is the identity
+  const encode0 = (v) => (v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055);
   const trueRatio = 16;
   const brightTrue = 0.50, darkTrue = brightTrue / trueRatio;
-  const lifted = (k) => lift(brightTrue, k) / lift(darkTrue, k);
-  console.log(`    a true ratio of ${trueRatio} reads ${lifted(1).toFixed(2)} with no lift, ` +
-    `${lifted(1.3).toFixed(2)} under a mild one and ${lifted(2).toFixed(2)} under a strong one`);
-  say(lifted(1) === trueRatio, 'no lift reads the truth', lifted(1).toFixed(4));
-  say(lifted(1.3) < trueRatio && lifted(2) < lifted(1.3),
-    'a lift compresses a ratio toward 1, monotonically — so a measured ratio is a FLOOR',
-    `${lifted(1.3).toFixed(2)} then ${lifted(2).toFixed(2)}`);
+  /** The real chain: linear -> encode -> the camera's own curve -> this tool's EOTF. */
+  const through = (curve) => toLinear(curve(encode0(brightTrue))) / toLinear(curve(encode0(darkTrue)));
+  const smoothstep = (x) => x * x * (3 - 2 * x);
+  const id = through((x) => x);
+  const lift13 = through((x) => x ** (1 / 1.3)), lift2 = through((x) => x ** (1 / 2));
+  const toe115 = through((x) => x ** 1.15), toe13 = through((x) => x ** 1.3);
+  const scurve = through(smoothstep);
+  console.log(`    a true ratio of ${trueRatio} reads: identity ${id.toFixed(2)}, ` +
+    `lift^(1/1.3) ${lift13.toFixed(2)}, lift^(1/2) ${lift2.toFixed(2)}, ` +
+    `toe^1.15 ${toe115.toFixed(2)}, toe^1.3 ${toe13.toFixed(2)}, S-curve ${scurve.toFixed(2)}`);
+  say(Math.abs(id - trueRatio) < 1e-9, 'no curve reads the truth', id.toFixed(4));
+  say(lift13 < trueRatio && lift2 < lift13, 'a LIFT compresses a ratio toward 1',
+    `${lift13.toFixed(2)} then ${lift2.toFixed(2)}`);
+  /**
+   * AND THE OTHER DIRECTION, WHICH THE FIRST VERSION OF THIS ARM DID NOT MODEL AND THE HEADER
+   * GENERALISED FROM ANYWAY. A toe or a contrast S-curve — which is exactly what a consumer JPEG
+   * pipeline applies — EXPANDS the same ratio, the S-curve by x4.2. So "a measured ratio is a
+   * floor" was overreach: the tone-curve leg bounds nothing in either direction, and only the
+   * additive leg below does. A blind reviewer found this; the arm now proves both ways so the
+   * claim cannot be made again from this file.
+   */
+  say(toe115 > trueRatio && toe13 > toe115 && scurve > toe13,
+    'KNOWN-BAD: a TOE or an S-curve EXPANDS it, so no curve argument bounds a measured ratio',
+    `${toe115.toFixed(2)}, ${toe13.toFixed(2)}, ${scurve.toFixed(2)} against ${trueRatio}`);
+  /**
+   * The additive leg is the one directional statement that survives: veiling glare, clearcoat
+   * sheen and ambient fill add a floor to BOTH subjects, which lifts the dark one proportionally
+   * more. That compresses, always, and it is why a photographed car-to-car ratio understates the
+   * albedo ratio whatever the curve does.
+   */
+  const glare = (g) => (brightTrue + g) / (darkTrue + g);
+  say(glare(0.002) < trueRatio && glare(0.01) < glare(0.002),
+    'an ADDITIVE floor (glare, sheen, ambient) compresses, monotonically — the one direction that holds',
+    `${glare(0.002).toFixed(2)} at +0.002 and ${glare(0.01).toFixed(2)} at +0.01 linear`);
   /**
    * KNOWN-BAD: the same two surfaces read in sRGB-ENCODED values rather than linear ones. That
    * is a lift too — the OETF is exactly a shadow lift — so it makes the same error, and this
@@ -427,6 +521,14 @@ if (has('crop')) {
 
 const rows = [];
 for (const r of ROWS) rows.push(await sampleRow(page, r));
+/**
+ * THE RENDER PAIR IS SAMPLED ON THE SAME PAGE, not on a second browser. The first version
+ * launched its own chromium for this and doubled the tool's cost — which matters because it is on
+ * `mutation-sweep`'s offline list, where every row pays it. 2.45 s a run against 1.3 s, over ~124
+ * rows, is five minutes of sweep for nothing. A blind reviewer timed it and found the "about 1 s"
+ * in CLAUDE.md was 2.5x optimistic as well; both are restated.
+ */
+const render = await sampleRender(page);
 await browser.close();
 
 const checks = [];
@@ -450,49 +552,6 @@ for (const r of rows) {
   }
 }
 
-/**
- * THE SHIPPED RENDER, MEASURED BY THE SAME INSTRUMENT AS THE PHOTOGRAPHS.
- *
- * `hero-shots` with HERO_ARMS=paint0,paint1 captures the before and after off ONE page load, ONE
- * camera, ONE settled district — see `tools/ground-albedo.mjs`'s arm table. The two arms are 10
- * rendered frames apart (0.5 s of sim at the clamped dt) and the audits record `triangles`,
- * `chunks`, `lodNear`, `lodFar` and `drawCalls` byte-identical between them, so the resident set
- * and the geometry are the same and only the world clock moved.
- *
- * THE SUBJECTS ARE TWO PARKED CARS, which do not move at all in that 0.5 s. A moving car does —
- * up to 5 m — so a fixed box on one would be measuring a different car, which is this project's
- * "a fixed box over moved geometry" section arriving through the sim instead of the shell.
- *
- * AND ONE OF THEM IS A CHROMATIC CAR, WHICH IS THE CONTROL THAT MAKES THE REST READABLE. The
- * chromatic lightness did not change this round, so its paint must come back BYTE-IDENTICAL. It
- * does — 0.3575, mean sRGB 161,138,147 in both arms — and that single number says three things at
- * once: the arms are registered to the pixel on static geometry, the exposure and the light are
- * the same, and the one term that was supposed to stay still did.
- */
-const RENDER = {
-  id: 'shipped-render-noon',
-  dir: '.',
-  before: 'docs/shots/paint-paint0-fivepoints-noon.png',
-  after: 'docs/shots/paint-paint1-fivepoints-noon.png',
-  boxes: [
-    { id: 'chromatic.paint', note: "the pink car's boot lid, clear of its tail lights", box: [202, 552, 32, 7] },
-    { id: 'chromatic.plate', note: "and its number plate", box: [217, 578, 13, 4] },
-    { id: 'achromatic.paint', note: "the grey car's boot lid, clear of its tail lights", box: [4, 552, 32, 7] },
-    { id: 'achromatic.plate', note: "and its number plate", box: [17, 575, 15, 4] },
-  ],
-};
-
-async function sampleRender(page) {
-  const out = {};
-  for (const [arm, file] of [['before', RENDER.before], ['after', RENDER.after]]) {
-    if (!fs.existsSync(file)) return { missing: file };
-    const r = await sampleRow(page, { id: arm, dir: RENDER.dir, file,
-      cars: RENDER.boxes.map((b) => ({ ...b, family: 'render' })) });
-    out[arm] = Object.fromEntries(r.cars.map((c) => [c.id, c]));
-  }
-  return out;
-}
-
 const sun = rows.find((r) => r.id === 'main-lot-sun');
 const shade = rows.find((r) => r.id === 'kerb-shade');
 const t = toneStats();
@@ -500,10 +559,13 @@ const t = toneStats();
 console.log('\n=== WHAT THE TWO USABLE ROWS SAY');
 console.log(`  sunlit   white/black ${sun.ratio.toFixed(2)}   the ESTIMATE; subjects span ` +
   `${sun.cars.map((c) => c.p50.toFixed(3)).join(' .. ')}, most of the usable range`);
-console.log(`  shaded   white/black ${shade.ratio.toFixed(2)}   the FLOOR; both subjects sit in ` +
-  `the shadow region every pipeline lifts, and a lift compresses toward 1`);
+console.log(`  shaded   white/black ${shade.ratio.toFixed(2)}   a SANITY FLOOR, not a bound: both ` +
+  'subjects sit deep in the shadow region and the camera curve there is uncharacterised');
 console.log(`  they disagree by x${(sun.ratio / shade.ratio).toFixed(1)}, and the difference is ` +
   `the light the two rows stand in, not the cars`);
+console.log('  NEITHER is a bound — a lift compresses and a toe or an S-curve expands (see ' +
+  '--selftest). x16.9 is believable because published white/black automotive paint is ' +
+  'x12.5 to x21: two independent lines on ~16.');
 
 console.log('\n=== WHAT THE BUILD DRAWS');
 for (const tone of PAINT_TONES) {
@@ -527,13 +589,7 @@ const OLD = { traffic: [0.34, 0.60], parked: [0.26, 0.66] };
 
 // ---------------------------------------------------------------- the shipped render
 {
-  const R = await (async () => {
-    const b = await chromium.launch(launchOptions());
-    const pg = await b.newPage();
-    const r = await sampleRender(pg);
-    await b.close();
-    return r;
-  })();
+  const R = render;
   if (R.missing) {
     console.log(`\n=== THE SHIPPED RENDER — skipped, no ${R.missing}`);
     console.log('   (capture it with HERO_SHOTS=fivepoints HERO_TIMES=noon,dusk ' +
@@ -593,15 +649,40 @@ const OLD = { traffic: [0.34, 0.60], parked: [0.26, 0.66] };
 
 console.log('\n=== CHECKS');
 check(t.span >= shade.ratio,
-  'the fleet can draw a tone range at least as wide as the most COMPRESSED pair measured',
+  'the fleet can draw a tone range at least as wide as the DIMMEST pair measured — a sanity floor',
   `x${t.span.toFixed(2)} against x${shade.ratio.toFixed(2)}`);
+/**
+ * HALF A CASE, AND IT READ AS A GUARD. This tested `OLD.traffic` alone while its message said
+ * "the range this replaced" and its detail printed BOTH fleets' figures. The parked pool's old
+ * range is x2.54, which CLEARS this floor — so the floor alone never established the defect for
+ * that fleet, and only the tighter check below did. A blind reviewer found it. It now names the
+ * fleet it is about, and the parked pool's own statement is the one under it.
+ */
 check((OLD.traffic[1] / OLD.traffic[0]) < shade.ratio,
-  'KNOWN-BAD: the range this replaced could not, which is what made it a defect',
-  `traffic x${(OLD.traffic[1] / OLD.traffic[0]).toFixed(2)} and parked ` +
-  `x${(OLD.parked[1] / OLD.parked[0]).toFixed(2)} against x${shade.ratio.toFixed(2)}`);
+  "KNOWN-BAD: the MOVING fleet's old range could not reach even that, which is what made it a defect",
+  `traffic x${(OLD.traffic[1] / OLD.traffic[0]).toFixed(2)} against x${shade.ratio.toFixed(2)}`);
+check((OLD.parked[1] / OLD.parked[0]) >= shade.ratio,
+  "and the PARKED pool's old range cleared this floor, so the floor alone never established its defect",
+  `parked x${(OLD.parked[1] / OLD.parked[0]).toFixed(2)} against x${shade.ratio.toFixed(2)} — ` +
+  'the check two lines down is what catches that fleet');
+/**
+ * WHAT THIS CHECK IS AND IS NOT. `PAINT_TONES.black` was CONSTRUCTED as 0.80 / 16.94, so
+ * `t.ratio` is `sun.ratio` by construction and `sun.ratioLo <= sun.ratio <= sun.ratioHi` always
+ * holds — it cannot fail for the shipped value, and presenting it as the photographs validating
+ * the table would be CLAUDE.md's "a self-validation that closes over the same quantity twice".
+ * A blind reviewer said so.
+ *
+ * It is a live check on the TABLE, not evidence for it: `mutation-sweep`'s `tone-ratio` row moves
+ * black to 0.140..0.200 and falls outside. What it really asserts is printed beside it — with
+ * white held at its median the band admits a black median anywhere from 0.021 to 0.138, a factor
+ * of 6.45, and 0.138 is a mid-grey car. That is the strength of this check and it is three times
+ * weaker than it reads.
+ */
 check(t.ratio >= sun.ratioLo && t.ratio <= sun.ratioHi,
-  "a white car over a black one lands inside the sunlit row's OWN box spread",
-  `x${t.ratio.toFixed(2)} in x${sun.ratioLo.toFixed(2)}..x${sun.ratioHi.toFixed(2)}`);
+  "a white car over a black one lands inside the sunlit row's OWN box spread (a check on the table, not evidence for it)",
+  `x${t.ratio.toFixed(2)} in x${sun.ratioLo.toFixed(2)}..x${sun.ratioHi.toFixed(2)} — which admits a ` +
+  `black median anywhere in ${(t.med.white / sun.ratioHi).toFixed(4)}..${(t.med.white / sun.ratioLo).toFixed(4)}, ` +
+  `a factor of ${(sun.ratioHi / sun.ratioLo).toFixed(2)}`);
 check((OLD.parked[1] / OLD.parked[0]) < sun.ratioLo,
   'KNOWN-BAD: and the widest old range did not reach even the bottom of that spread',
   `x${(OLD.parked[1] / OLD.parked[0]).toFixed(2)} against x${sun.ratioLo.toFixed(2)}`);

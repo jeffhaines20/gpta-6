@@ -148,11 +148,50 @@ export const ACHROMATIC_SHARE = 0.66;
 /**
  * Weights sum to 1. `l0`/`l1` are HSL lightness in three's WORKING (linear) colour space, which
  * for an unsaturated colour is the paint's linear albedo directly.
+ *
+ * BLACK'S RANGE IS 0.040..0.080, AND THE TWO ENDS COME FROM DIFFERENT PLACES.
+ *
+ * THE TOP IS THE FAMILY'S OWN DEFINITION. The census calls this family "black, charcoal and any
+ * dark body that could not be separated from black". The first cut ran to 0.054, which contains
+ * no charcoal at all — so the range contradicted the definition it was drawn from, and with
+ * w = 0.419 roughly two cars in five got the same near-black. A blind playtester saw it before
+ * measuring it: "the three parked cars merge into one dark mass", and the family spanned x1.35.
+ * 0.080 is a dark charcoal. This is honouring the family's definition, not inventing data.
+ *
+ * SO THE MEASURED RATIO NOW PINS THE FLOOR REGION AND NOT THE MEDIAN, and that is the restatement
+ * the widening owes. The photographed subject was a true BLACK saloon, not a charcoal one, and
+ * 0.80 / 16.94 = 0.047 is where a true black belongs — which this range contains, 18% up from its
+ * floor. The MEDIAN is 0.060 and the white/black median ratio is x13.3, still inside the sunlit
+ * row's own box spread of x5.79..x37.33. A gate is never loosened silently; this is the
+ * derivation that moved with it.
+ *
+ * WHAT IS STILL OPEN: there is a hole between this family's 0.080 and silver's 0.220, a factor of
+ * x2.75 with nothing drawn in it, and real cars live there as dark grey and gunmetal. Closing it
+ * needs a census that can separate dark grey from black, and the one in this repo explicitly
+ * cannot — its own biases note says dark bodies read as black in bright Florida sun. Do not move
+ * a figure the instrument cannot resolve.
+ *
+ * AND THE FLOOR IS THE BRDF'S, NOT A TASTE. Palette slot 0 is metalness
+ * 0.60, so three's physical BRDF splits an albedo `a` into `diffuse = a * 0.40` and
+ * `F0 = 0.04 * 0.40 + a * 0.60`. That F0 crosses the plain DIELECTRIC value of 0.04 at exactly
+ * a = 0.040: below it the metal mix drives the specular response UNDER what a non-metal would
+ * give, so the darkest cars would have less clearcoat sheen than a sheet of glass. The first cut
+ * of this table ran to 0.032 and put the bottom 27% of the black range there. Found by a blind
+ * reviewer; the floor is now the crossing itself, and the median stays where the measurement put
+ * it above it — see the paragraph on the
+ * family's definition for where the median actually sits now.
+ *
+ * AND THE SAME SPLIT MEANS THE SHIPPED DIFFUSE IS 0.40 OF THESE NUMBERS. The photographic target
+ * is a reflectance; at metalness 0.60 an albedo of 0.800 realises 0.320 of diffuse and an F0 of
+ * 0.496, and 0.047 realises 0.0188 and 0.0442. Whether a white car reads as white paint or as
+ * polished metal is therefore a question about the METALNESS and not about this table, and it is
+ * unmeasured — see docs/BACKLOG.md. Do not "fix" it by raising the lightness: that would be
+ * compensating a BRDF term with an albedo term, which is this project's standing error.
  */
 export const PAINT_TONES = Object.freeze([
   Object.freeze({ name: 'white', w: 0.345, l0: 0.730, l1: 0.870 }),
   Object.freeze({ name: 'silver', w: 0.236, l0: 0.220, l1: 0.580 }),
-  Object.freeze({ name: 'black', w: 0.419, l0: 0.032, l1: 0.062 }),
+  Object.freeze({ name: 'black', w: 0.419, l0: 0.040, l1: 0.080 }),
 ]);
 
 /**

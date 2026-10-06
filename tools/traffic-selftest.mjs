@@ -811,7 +811,15 @@ console.log('\n9. the A/B recolour arm is the shipped rule, and it leaves the st
   console.log(`  legacy moved ${movedAchro}/${achro} achromatic cars and ${movedChrom}/${chrom} chromatic ones`);
   check('the legacy arm moves the achromatic cars', movedAchro === achro && achro > 0,
     `${movedAchro} of ${achro}`);
-  check('and no chromatic one, because that term did not change this round',
+  /**
+   * STRUCTURALLY GUARANTEED, AND SAYING SO IS THE POINT. `recolour`'s chromatic branch has no
+   * `legacy` ternary in it at all, so `movedChrom === 0` cannot fail for any change to
+   * `src/carpaint.js` or to the constructor — only for somebody adding a legacy path to
+   * `recolour` itself. A blind reviewer flagged it. It is kept at that strength, labelled: a
+   * future round that gives the chromatic lightness its own before-arm has to come here and
+   * restate this, which is exactly what it is for.
+   */
+  check('and no chromatic one — guaranteed by recolour having no legacy chromatic branch, not measured',
     movedChrom === 0, `${movedChrom} of ${chrom}`);
   tr.recolour(false);
 }

@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import { paintFamily, PAINT_FAMILIES, PAINT_EXCLUDED,
   paintTone, PAINT_TONES, ACHROMATIC_SHARE } from '../src/carpaint.js';
 import { buildCarGlowGeometry, buildTrafficCarGeometry, SURFACE,
-  paintTintOnly } from '../src/carbody.js';
+  paintTintOnly, carGlowMaterial, carSurfaceMaterial } from '../src/carbody.js';
 
 const checks = [];
 const check = (name, ok, detail) => { checks.push({ name, ok: !!ok, detail }); return !!ok; };
@@ -272,9 +272,16 @@ console.log('\n=== TONE — the half of the table nothing had looked at, now mea
     toneHi >= WHITE_L, `the table tops out at ${toneHi.toFixed(3)} against L~${WHITE_L}`);
   check('RESTATED: and a black one, which is another 35.4%',
     toneLo <= BLACK_L, `the table floors at ${toneLo.toFixed(3)} against L~${BLACK_L}`);
-  check('KNOWN-BAD: and the two ranges it replaced reached neither',
-    0.60 < WHITE_L && 0.66 < WHITE_L && 0.34 > BLACK_L && 0.26 > BLACK_L,
-    'traffic 0.34..0.60 and parked 0.26..0.66');
+  /**
+   * NOT A CHECK, AND IT USED TO BE ONE. `0.60 < WHITE_L && 0.66 < WHITE_L && 0.34 > BLACK_L &&
+   * 0.26 > BLACK_L` is four literals against two `const`s declared ten lines above in this same
+   * file: it cannot fail for any edit to any source file in the repo, and it was being counted
+   * among this gate's checks. A blind reviewer found it. It is arithmetic about a build that no
+   * longer exists, so it is printed as arithmetic.
+   */
+  console.log('  the ranges this replaced reached neither: traffic 0.34..0.60 and parked ' +
+    `0.26..0.66, against white L~${WHITE_L} and black L~${BLACK_L}  (arithmetic over two ` +
+    'literals, not a check — nothing in the repo can change it)');
 
   /**
    * THE WEIGHTS ARE THE CENSUS'S OWN COUNTS. Not "roughly", to the percent — unlike the chromatic
@@ -331,17 +338,46 @@ console.log('\n=== THE PAINT-SLOT TINT — what instanceColor is still allowed t
     return seen;
   };
   /**
-   * THE LAMP SPILL MUST STAY TINTED, and it does only because every vertex of it is on slot 0.
+   * THE LAMP SPILL, AND THE TWO CHECKS SAY DIFFERENT THINGS.
+   *
    * `src/traffic.js` writes `setColorAt(i, setScalar(f))` on the glow mesh to carry a per-car
-   * BRIGHTNESS rather than a colour — so a vertex of that geometry on any other slot would
-   * silently stop responding to the car's own headlamps, with nothing to see but a pool that no
-   * longer dims. This is the check for it, and it is the reason this section exists at all.
+   * BRIGHTNESS rather than a colour, so that multiply has to survive the paint-slot tint. The
+   * first version of this section asserted the slot census and said that was WHY it survives.
+   * It is not: `carGlowMaterial()` returns a bare `MeshBasicMaterial` and `patchLensFalloff` is
+   * applied in exactly one place, inside `carSurfaceMaterial`, so the glow program has no
+   * `uPaintTintOnly` in it at all. Found by a blind reviewer checking the caller instead of
+   * believing the comment.
+   *
+   * So the first check is the real mechanism — the glow material is not the patched one — and
+   * the slot census below is the CONDITIONAL: what would keep the spill working if that material
+   * were ever moved onto the patched one. Both are worth having and only one of them is why it
+   * works today.
    */
-  const glow = slotsOf(buildCarGlowGeometry({}));
+  /**
+   * BOTH WAYS, because "the glow material is not patched" is a negative and a negative on its own
+   * passes for any material at all — three gives every Material a no-op `onBeforeCompile`, so a
+   * test that only looks for the uniform's absence would read ok on a material that was never a
+   * candidate. So: the CAR SURFACE material must carry the injection and the GLOW material must
+   * not, measured the same way on both.
+   */
+  const patched = (m) => /uPaintTintOnly/.test(String(m.onBeforeCompile ?? ''));
+  const glowMat = carGlowMaterial(), surfMat = carSurfaceMaterial();
+  console.log(`  car surface material ${surfMat.type}, injection ${patched(surfMat) ? 'present' : 'ABSENT'};` +
+    ` lamp spill material ${glowMat.type}, injection ${patched(glowMat) ? 'PRESENT' : 'absent'}`);
+  check('the car surface material carries the paint-slot injection, or there is nothing to be immune from',
+    patched(surfMat), `${surfMat.type}`);
+  check('and the lamp spill material does NOT, which is why its per-car brightness survives',
+    !patched(glowMat), `${glowMat.type}`);
+  /**
+   * The GAME builds it with `{ groundY: 0 }`; building it with `{}` here would be the gate
+   * constructing its subject differently from the build, which CLAUDE.md records as the reason
+   * `traffic-selftest` was measuring a configuration the game never runs.
+   */
+  const glow = slotsOf(buildCarGlowGeometry({ groundY: 0 }));
   const glowOff = [...glow.entries()].filter(([k]) => k !== SURFACE.paint);
   console.log(`  buildCarGlowGeometry: ${[...glow.entries()]
     .map(([k, n]) => `slot ${k} x${n}`).join(', ')}`);
-  check('every vertex of the lamp spill is on the paint slot, so its per-car brightness survives',
+  check('CONDITIONAL: and every vertex of it is on the paint slot, so it would still survive if that material were ever patched',
     glowOff.length === 0, glowOff.map(([k, n]) => `slot ${k} x${n}`).join(', ') || 'all slot 0');
 
   /**

@@ -94,6 +94,103 @@ reflectance; black is DERIVED, 0.80 / 16.9 = 0.047. Silver is used for its ORDER
 flake lifts a silver car's photographed luminance well above its diffuse albedo, so its x12.3 is
 not a reflectance ratio and nothing is fitted to it.
 
+**A blind playtester, given the pair with the labels scrambled per hour, says MARKEDLY IMPROVED.**
+That was the owner's question. They preferred the same build at both hours without knowing it was
+the same build, and then determined the assignment from the data rather than from me: on a car
+whose paint is byte-identical, the plate moves (x2.70 noon, x2.26 dusk), which no brightness,
+exposure or registration change can fake. Cross-checked on an independent quantity — the grey
+car's boot lid, after/before 0.652 at noon and 0.656 at dusk, **0.6% apart across two hours**.
+
+Their evidence, in their order: the tone spread on one surface class goes **x3.75 -> x12.4**; the
+per-car albedo multipliers span **x35.5 in both directions** (cars got darker AND lighter, so it
+is a re-draw and not a shift); the plate goes **0.314 -> 1.244** of its own paint with a
+byte-identical control car proving nothing else moved; and **0 clipped pixels** in either arm at
+either hour. Only 2.59% of the noon frame and 1.48% of the dusk frame differ at all, and all of
+it is cars plus two pedestrians who moved.
+
+What a player registers at 50 km/h is **the tone and only the tone** — the parked rows go from one
+pale mass to a mixed row. The plate and the tail lamps are a near-range win and much stronger at
+dusk: a car stopped ahead of you at a light goes from a brown smear to two red lamps and a plate.
+
+**And one player-facing COST, measured and worth owning:** dark cars at distance against shaded
+tarmac are harder to pick out than pale ones were — the black car reads 0.15x the shaded lane
+beside it and 0.075x sunlit tarmac. Never invisible, and it is traffic you notice later.
+
+**The weakest remaining thing is the glazing, and this round made it conspicuous.** The panes are
+untouched (rear window 0.0362 -> 0.0375 at noon, consistent with anti-aliasing on a box edge), so
+lowering the paint under an unchanged pane inverts the relationship: glass over paint on the car
+that became black goes **0.137 -> 1.76 at noon and 0.165 -> 1.83 at dusk**. The greenhouse is now
+substantially brighter than the body under it. Real black cars do that and not by this much, and
+CLAUDE.md already records the panes as 5-10x too dark at a modulation of 1.2-1.28 against a real
+1.56-2.25. **#54/#92 arriving from the opposite side, and now the first thing to look at.**
+
+Two more from the same reviewer, both open:
+
+- **No car reads as a convincingly WHITE car.** The kerbside car is in the white band — its flank
+  moves x2.62 at noon and x2.88 at dusk, which puts it in 0.73-0.87 — and still reads as light
+  silver with a strong metallic gradient (flank p90/p10 = 2.70). White is 29.2% of the census and
+  the frame does not show it. The term is the METALNESS, not the table: at 0.60 an albedo of 0.800
+  realises 0.320 of diffuse and an F0 of 0.496. Do not reach for the lightness.
+- **The headlamp lens is a flat panel** — p10 0.7753 / p50 0.7908 / p90 0.8002, a x1.03 span across
+  the whole lens — and it is now the brightest element on a black car, so it is the first thing
+  that will look cheap at a closer framing than this one.
+- **The plate cannot win on a white car, by construction.** Authored 0.7317 against a white body
+  authored 0.730-0.870. The de-tint takes it from "tinted by the body" to "the same value as the
+  body": an improvement in hue and none in contrast. (Arithmetic, not measurement.)
+
+**And the black family had no internal variety, which the BRDF fix had just made worse.** The
+census family is "black, charcoal and any dark body", and a range topping out at 0.054 contains no
+charcoal at all — with w = 0.419, two cars in five got the same near-black and the reviewer saw
+three parked cars merge into one dark mass. Black is 0.040..0.080 now; the measured ratio pins
+where a TRUE black sits (0.047, 18% up the range) rather than the median, and the median ratio is
+restated at x13.3. A x2.75 hole remains between 0.080 and silver's 0.220, where real dark greys
+and gunmetals live, and closing it needs a census that can separate dark grey from black — which
+this one explicitly cannot.
+
+**I edited the tree while both reviewers were measuring it**, which is CLAUDE.md's own rule and the
+second time this session has had to record it. The code reviewer's source reads and the playtester's
+`src/carpaint.js` reads were against a moving target; both said so, and both sets of frame
+measurements are unaffected because the PNGs are static. Copy the checkout next time.
+
+**A blind review found eight things and five were real.** What it cost and what it bought:
+
+- **The lamp-spill mechanism I wrote down was false, in four places.** `carGlowMaterial()` returns
+  a bare `MeshBasicMaterial` and `patchLensFalloff` is applied only inside `carSurfaceMaterial`,
+  so the spill is immune because its material was never a candidate — not because its vertices are
+  all slot 0. Corrected in `src/carbody.js`, in `paint-census`'s own message and in two
+  `mutation-sweep` rows. The slot census is kept, labelled as the CONDITIONAL it is.
+- **"A measured ratio is a floor" was overreach.** A lift compresses a ratio and a TOE or an
+  S-curve EXPANDS it — a true x16 reads x66.7 through smoothstep. So the tone-curve leg bounds
+  nothing; only the additive leg (glare, sheen, ambient) does, by 5-23%. What makes x16.9
+  believable is that published white/black automotive paint is x12.5 to x21 — two independent
+  lines on ~16. `paint-tone --selftest` proves both directions now.
+- **Black's floor was under the BRDF's dielectric crossing.** Slot 0 is metalness 0.60, so
+  `F0 = 0.016 + 0.6a` crosses the plain dielectric 0.04 at exactly a = 0.040, and the table ran to
+  0.032. The bottom 27% of the black range had less sheen than glass. Floor is the crossing now;
+  the median stays at the measured 0.047.
+- **Three checks that could not fail**, all written in the same round as the code they guard: four
+  literals against two consts in the same file; a KNOWN-BAD testing one of the two fleets it
+  named; and a check guaranteed by the function under test. First deleted, second split in two,
+  third kept and labelled.
+- **A mutation nothing catches.** Swapping `mix`'s first two arguments inverts the rule and passes
+  every regex, all 70 boot-check checks and all 65 traffic-selftest checks. In the table as
+  `tint-invert` with its `why` saying so: catching it needs a rendered sample of a plate against
+  its own paint, which only works on committed PNGs today.
+
+**And one consequence nothing in the round had stated: the record is now incomparable.** Replaying
+the fleet car for car, 17 of 30 move by more than 2x (8 darker, 9 brighter, range x0.08 to x2.14).
+`car-pane` measures glass over the paint ON THE SAME CAR, so every glazing figure in CLAUDE.md —
+side glass 0.2506, modulation 5.295, ceiling 1.327, windscreen 0.0201, backlight 0.0321 — has a
+denominator that just moved. No gate breaks; a re-capture at the same camera cannot be compared
+with those numbers.
+
+**Not yet answered, and it needs a camera and not an instrument.** The render's white/black ratio
+against the photographs' x16.9. Five Points holds no parked black car: the two parked achromatic
+cars in frame read 0.6909 and 0.2637, which is a white against a mid grey (x2.62), and the black
+cars visible are moving ones that shift up to 5 m in the 0.5 s between arms. The albedo ratio is
+17.0 by construction and the RENDERED one must be smaller, because ambient fill lifts the dark
+car. How much smaller is open.
+
 **Still open, deliberately.** The CHROMATIC lightness did not move — one term at a time — and
 measuring it turned up that the two fleets have always disagreed about it (0.34..0.60 in
 `traffic.js`, 0.26..0.66 in `streetfurniture.js`) with nobody having put the two side by side.
