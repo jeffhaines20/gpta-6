@@ -30,10 +30,18 @@ const checks = [];
 const check = (name, ok, detail) => { checks.push({ name, ok: !!ok, detail }); return !!ok; };
 const near = (a, b, tol) => Math.abs(a - b) <= tol;
 
-/** A snapshot with every field the vocabulary can read, so tests opt out, not in. */
+/**
+ * A snapshot with every field the vocabulary can read, so tests opt out, not in.
+ *
+ * `wantedClearedBy` defaults to null — "never cleared" — rather than to 'escaped', even though
+ * null makes `evaded` false and so costs several arms below an explicit field. That is the point:
+ * an arm that means "the player got away" now has to SAY so, and an arm that forgets gets the
+ * truthful answer instead of the flattering one. Defaulting it to 'escaped' would have let every
+ * existing arm keep passing while leaving the new condition untested.
+ */
 const snap = (o = {}) => ({
   px: 0, pz: 0, speed: 0, inVehicle: false, health: 1,
-  wantedStars: 0, wantedState: 'clear', ...o,
+  wantedStars: 0, wantedState: 'clear', wantedClearedBy: null, ...o,
 });
 
 /** Run until the mission finishes or the step budget runs out. */
@@ -98,11 +106,22 @@ console.log('=== 1. the vocabulary and the load-time contract');
 check('every trigger kind declares needs, test and validate',
   Object.entries(TRIGGERS).every(([, d]) => Array.isArray(d.needs) && typeof d.test === 'function' && typeof d.validate === 'function'),
   `${Object.keys(TRIGGERS).length} kinds`);
-check('snapshotFields is the union of every kind\'s needs',
-  snapshotFields().join(',') === 'health,inVehicle,px,pz,speed,wantedStars,wantedState',
-  snapshotFields().join(','));
+/**
+   * THE LIST IS A LITERAL ON PURPOSE, and that is the one place in this file where it is right.
+   * `snapshotFields()` is a union over `TRIGGERS`, so comparing it with a union computed here
+   * would be the same quantity twice. What this guards is that a field cannot be ADDED to the
+   * vocabulary without somebody coming here — and therefore without somebody checking that both
+   * hosts put it in their snapshot, which is the thing nothing else can see. `wantedClearedBy`
+   * was added for `evaded` and this check is what made the round touch `district/main.js` and
+   * `tools/playtest.mjs` rather than leaving a trigger that is false for ever on the page.
+   */
+  check('snapshotFields is the union of every kind\'s needs',
+    snapshotFields().join(',') ===
+      'health,inVehicle,px,pz,speed,wantedClearedBy,wantedStars,wantedState',
+    snapshotFields().join(','));
 check('a valid mission records the fields it will read',
-  M.needs.join(',') === 'health,inVehicle,px,pz,wantedStars,wantedState', M.needs.join(','));
+  M.needs.join(',') === 'health,inVehicle,px,pz,wantedClearedBy,wantedStars,wantedState',
+  M.needs.join(','));
 
 // ---------------------------------------------------------------------------
 console.log('\n=== 2. KNOWN-BAD GRAPHS: defineMission must refuse each one');
@@ -164,8 +183,9 @@ console.log('\n=== 3. KNOWN-BAD SNAPSHOT: an absent field must throw, not dead-e
   const r = new MissionRunner(); r.start(M);
   let threw = null;
   try { r.update(DT, { px: 0, pz: 0, inVehicle: false, health: 1 }); } catch (e) { threw = e.message; }
-  check('a snapshot missing wantedStars/wantedState throws',
-    threw != null && threw.includes('wantedStars') && threw.includes('wantedState'),
+  check('a snapshot missing the wanted fields throws, naming every one of them',
+    threw != null && threw.includes('wantedStars') && threw.includes('wantedState')
+      && threw.includes('wantedClearedBy'),
     threw ? threw.split('.')[0] : 'DID NOT THROW');
 }
 {
@@ -189,7 +209,9 @@ console.log('\n=== 4. the happy path');
     if (t < 4) return snap({ inVehicle: true, px: 100 });           // arrived
     // the hold stage times out at 5 s into itself, then the chase starts wanted
     if (t < 12) return snap({ inVehicle: true, px: 100, wantedStars: 2, wantedState: 'active' });
-    return snap({ inVehicle: true, px: 100, wantedStars: 0, wantedState: 'clear' });
+    // Got away: the decay path, which is what `evaded` means.
+    return snap({ inVehicle: true, px: 100, wantedStars: 0, wantedState: 'clear',
+      wantedClearedBy: 'escaped' });
   });
   for (const s of out.trace) console.log(`   t=${String(s.t).padStart(5)}  ${String(s.from).padEnd(6)} -> ${s.to ?? `[${s.outcome}]`}`);
   check('the happy path passes', out.r.outcome === OUTCOMES.PASSED, out.r.outcome);
@@ -291,7 +313,8 @@ console.log('\n=== 7. determinism, purity and cost');
     return JSON.stringify(drive(r, 4000, (t) => (t < 1 ? snap()
       : t < 4 ? snap({ inVehicle: true, px: 100 })
         : t < 12 ? snap({ inVehicle: true, px: 100, wantedStars: 2, wantedState: 'active' })
-          : snap({ inVehicle: true, px: 100, wantedStars: 0, wantedState: 'clear' }))).r);
+          : snap({ inVehicle: true, px: 100, wantedStars: 0, wantedState: 'clear',
+            wantedClearedBy: 'escaped' }))).r);
   };
   const a = run(), b = run(), c = run();
   check('three runs are byte-identical', a === b && b === c, a === b && b === c ? 'identical' : 'DIFFER');
@@ -825,7 +848,9 @@ console.log('\n=== 9. THE AUTHORED MISSIONS, walked stage by stage');
       r.stageIndex = M.stages.findIndex((st) => st.id === 'drop');
       r.stageTime = 0;
       const snap = () => ({ px: 0, pz: 0, inVehicle: true, speed: 10, health: 1,
-        wantedStars: w.stars, wantedState: w.state });
+        // Read off the live module rather than restated, so this arm cannot fall out of step
+        // with how `wanted.js` actually ends a chase.
+        wantedStars: w.stars, wantedState: w.state, wantedClearedBy: w.clearedBy });
       r.update(1 / 60, snap());
       for (const c of crimes) {
         w.reportCrime(c.id, { at: { x: 0, z: 0 }, scale: dm.pedCrimeScale(c.kmh / 3.6) });
@@ -896,7 +921,8 @@ console.log('\n=== 9. THE AUTHORED MISSIONS, walked stage by stage');
       const k = travelled / span;
       const at = { px: from.x + (fp.x - from.x) * k, pz: from.z + (fp.z - from.z) * k };
       if (t >= 6 && t < 8) return snap({ ...at, inVehicle: false });
-      if (rep.stage === 'ambush') return snap({ ...at, inVehicle: true, wantedStars: 0, wantedState: 'clear' });
+      if (rep.stage === 'ambush') return snap({ ...at, inVehicle: true, wantedStars: 0,
+        wantedState: 'clear', wantedClearedBy: 'escaped' });
       if (rep.stage === 'drop' || rep.stage === 'dropHot') return snap({ inVehicle: true, px: dropAt.x, pz: dropAt.z });
       return snap({ ...at, inVehicle: true });
     },
@@ -1103,7 +1129,7 @@ console.log('\n=== 10. the objective distance');
     r.stageIndex = M.stages.findIndex((st) => st.id === stageId);
     r.stageTime = 0;
     r.update(1 / 60, { px: 0, pz: 0, inVehicle: true, speed: 0, health: 1,
-      wantedStars: 0, wantedState: 'clear', ...snap });
+      wantedStars: 0, wantedState: 'clear', wantedClearedBy: null, ...snap });
     return { hud: r.hud(), report: r.report() };
   };
 
@@ -1217,7 +1243,7 @@ console.log('\n=== 10. the objective distance');
         r.stageIndex = mission.stages.findIndex((x) => x.id === st.id);
         r.stageTime = 0;
         r.update(1 / 60, { px: 0, pz: 0, inVehicle: true, speed: 0, health: 1,
-          wantedStars: 0, wantedState: 'clear', carRange: 99 });
+          wantedStars: 0, wantedState: 'clear', wantedClearedBy: null, carRange: 99 });
         rows.push({ id, stage: st.id, names, d: r.report().objectiveDistance,
           marker: !!st.marker });
       }
@@ -1394,6 +1420,83 @@ console.log('\n=== 11. the garage, against every mission zone in the district');
  *
  * Never snapshot the accumulator. Count where you report.
  */
+/**
+ * §11 BEING ARRESTED IS NOT GETTING AWAY, which `evaded` could not tell apart.
+ *
+ * Found by a blind playtester on the flagship's chase stage, whose exit is
+ * `all[timer 2, evaded]`. The trigger tested `wantedStars <= 0 && wantedState === 'clear'`, and
+ * `wanted.clear('busted')` sets both — so committing a crime, stopping, and being arrested
+ * flipped the stage to `drop` in the SAME FRAME as the bust. Their A/B isolated it to one
+ * variable, whether a pedestrian was knocked down first:
+ *
+ *     crime first   bust at 13.617 s -> stage flips to `drop`, running, health 1.00, 0 stars
+ *     no crime      bust at 14.600 s -> MISSION ABORTED, no flip
+ *
+ * and timed both routes: obeying "LOSE THEM" reached `drop` in 55.1 / 58.6 / 189.9 s over 3 of 5
+ * seeds, against 9.1 / 13.1 / 13.1 / 26.3 s over 4 of 4 by getting arrested. The arrest also
+ * hands the car back repaired, so the fast route was better in every dimension.
+ *
+ * THE MODULE ALREADY KNEW. `_applyStars` has always emitted `clear` with a reason and
+ * `stats.escapes` has always counted only the decay path; `clearedBy` is that word given a name
+ * a consumer can read. So this is not a new rule, it is a trigger finally asking the question it
+ * was written to ask.
+ *
+ * Asserted off the LIVE module, both directions, because a one-sided version is the trap this
+ * file is full of: "an arrest does not evade" passes for a trigger that is false for everything,
+ * including a real escape, which would make the stage unreachable and the mission unwinnable.
+ */
+console.log('\n=== 11. being arrested is not getting away');
+{
+  const { WantedSystem } = await import('../src/wanted.js');
+  const endChase = (how) => {
+    const w = new WantedSystem();
+    w.setStars(3);
+    if (how === 'escaped') {
+      const p = { x: 0, z: 0, vx: 0, vz: 0, speed: 0 };
+      for (let t = 0; t < 300 && w.stars > 0; t += DT) w.update(DT, p);
+    } else {
+      w.clear(how);
+    }
+    const sn = { wantedStars: w.stars, wantedState: w.state, wantedClearedBy: w.clearedBy };
+    return { sn, evaded: TRIGGERS.evaded.test({}, sn), escapes: w.stats.escapes, stars: w.stars };
+  };
+  const busted = endChase('busted'), scripted = endChase('cleared'), escaped = endChase('escaped');
+  for (const [name, r] of [['arrested', busted], ['cleared by script', scripted],
+    ['got away (decay)', escaped]]) {
+    console.log(`    ${name.padEnd(18)} stars ${r.stars}  state ${String(r.sn.wantedState).padEnd(6)} ` +
+      `clearedBy ${String(r.sn.wantedClearedBy).padEnd(9)} evaded ${r.evaded}`);
+  }
+  // Both arms reached zero stars by SOME route, or the comparison below is between two
+  // nothings — the three rows above print the stars so that is visible rather than assumed.
+  check('all three routes actually ended the chase, or there is nothing to tell apart',
+    busted.stars === 0 && scripted.stars === 0 && escaped.stars === 0,
+    `${busted.stars} / ${scripted.stars} / ${escaped.stars} stars`);
+  check('KNOWN-BAD: an ARREST does not satisfy `evaded` — being caught is not getting away',
+    busted.evaded === false, `clearedBy ${busted.sn.wantedClearedBy}, evaded ${busted.evaded}`);
+  check('nor does a scripted clear, which is a third thing again',
+    scripted.evaded === false, `clearedBy ${scripted.sn.wantedClearedBy}`);
+  check('and a REAL escape still does, or the chase stage is unreachable and the job unwinnable',
+    escaped.evaded === true, `clearedBy ${escaped.sn.wantedClearedBy}, escapes ${escaped.escapes}`);
+  // The field and the event cannot disagree: both come off one line in `_applyStars`.
+  const w2 = new WantedSystem();
+  const events = [];
+  w2.on('clear', (p) => events.push(p.reason));
+  w2.setStars(2); w2.clear('busted');
+  check('`clearedBy` carries the same word the `clear` event does',
+    events[0] === w2.clearedBy, `event "${events[0]}" against field "${w2.clearedBy}"`);
+  // And it resets, or one arrest makes every later escape read as an arrest for ever.
+  w2.setStars(2);
+  check('and it resets when the level rises, or one arrest poisons every later escape',
+    w2.clearedBy === null, `${w2.clearedBy} at ${w2.stars} stars`);
+  // The flagship's own stage, read from the module rather than restated: this is the stage the
+  // playtester broke, and the check is that its exit really does go through `evaded`.
+  const { MISSIONS } = await import('../src/missions.js');
+  const amb = MISSIONS['marlin-street'].stages.find((st) => st.id === 'ambush');
+  const kinds = JSON.stringify(amb.triggers);
+  check('and the flagship\'s chase stage really is the stage that reads it',
+    kinds.includes('"evaded"'), `ambush triggers mention evaded: ${kinds.includes('"evaded"')}`);
+}
+
 console.log('\n=== CHECKS');
 for (const c of checks) console.log(`  ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);
 const failed = checks.filter((c) => !c.ok);

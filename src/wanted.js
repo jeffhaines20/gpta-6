@@ -387,6 +387,27 @@ export class WantedSystem {
      * a number nobody derived.
      */
     this.cooperated = false;
+
+    /**
+     * HOW THE LEVEL LAST REACHED ZERO: 'escaped' for the decay path, otherwise the reason the
+     * caller gave — 'busted' for an arrest, 'cleared' / a mission's own word for a script. Null
+     * while wanted.
+     *
+     * IT EXISTS BECAUSE `evaded` COULD NOT TELL BEING CAUGHT FROM GETTING AWAY. `src/mission.js`'s
+     * trigger tested `wantedStars <= 0 && wantedState === 'clear'`, and `clear('busted')` sets
+     * both — so an ARREST satisfied "you got away". A blind playtester found the consequence from
+     * the outside on the flagship's chase stage, whose exit is `all[timer 2, evaded]`: committing
+     * a crime and letting the police take you flipped the stage in the SAME FRAME as the bust,
+     * and because a cooperating arrest does not abort the job and hands the car back repaired,
+     * the chase was won 4-14x faster that way than by obeying the HUD — 13.6 s against 55-190 s
+     * over five seeds, 4 of 4 arms against 3 of 5.
+     *
+     * The information was already here and the trigger ignored it: `_applyStars` has always
+     * emitted `clear` with the reason, and `stats.escapes` has always counted the decay path
+     * alone. So this is not a new concept, it is the existing one given a name a consumer can
+     * read.
+     */
+    this.clearedBy = null;
     /** Has the throttle been open during the current hold. See `_watchBust`. */
     this._bustThrottle = false;
 
@@ -1039,7 +1060,11 @@ export class WantedSystem {
     if (next > prev) this.stats.escalations++;
     this.emit('stars', { stars: next, prev, reason });
     if (next > prev) this.emit('escalate', { stars: next, prev });
+    if (next > 0) this.clearedBy = null;
     if (next === 0) {
+      // The same word the `clear` event carries five lines below, so the field and the event
+      // cannot disagree about one transition.
+      this.clearedBy = reason === 'decay' ? 'escaped' : reason;
       if (reason === 'decay') this.stats.escapes++;
       this.heat = 0;
       this.cool = 0;

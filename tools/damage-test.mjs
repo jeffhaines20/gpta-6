@@ -580,7 +580,9 @@ for (let i = 0; i < 3000; i++) {
   const r = runner.update(1 / 30, {
     px: atFivePoints ? 57 : -471.21, pz: atFivePoints ? -164 : 204.55,
     speed: 12, inVehicle: true, health: hp.health,
-    wantedStars: 2, wantedState: 'active',
+    // Wanted throughout — this arm is about the health trigger, and a player at 2 stars has not
+    // cleared the level by any route, so the field is null rather than 'escaped'.
+    wantedStars: 2, wantedState: 'active', wantedClearedBy: null,
   });
   if (r.outcome !== 'running') { outcome = r.outcome; at = t; break; }
 }

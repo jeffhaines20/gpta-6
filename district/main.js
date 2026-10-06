@@ -800,6 +800,8 @@ function missionSnapshot() {
     health: mode === 'car' ? damage.health : 1,
     wantedStars: wanted.stars,
     wantedState: wanted.state,
+    // How the level last reached zero, so `evaded` can tell escaping from being arrested.
+    wantedClearedBy: wanted.clearedBy,
   };
 }
 let focusX = 0, focusZ = 0;

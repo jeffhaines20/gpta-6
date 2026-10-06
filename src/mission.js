@@ -88,11 +88,24 @@ export const TRIGGERS = Object.freeze({
     test: (t, s) => s.wantedStars <= t.stars,
     validate: (t) => (t.stars >= 0 && t.stars <= 5 ? null : 'wantedAtMost needs stars 0..5'),
   },
-  // Clear AND out of the search state. wantedAtMost:0 is true during the search
-  // phase the moment the last star drops, which is not "you got away".
+  /**
+   * Clear, out of the search state, AND cleared BY GETTING AWAY. `wantedAtMost:0` is true during
+   * the search phase the moment the last star drops, which is not "you got away" — and the first
+   * two conditions alone are also true of an ARREST, which is the opposite of getting away.
+   *
+   * `clear('busted')` sets stars 0 and state 'clear', so this trigger could not tell being caught
+   * from escaping. A blind playtester found the consequence on the flagship's chase stage, whose
+   * exit is `all[timer 2, evaded]`: commit a crime, stop, be arrested, and the stage flipped to
+   * `drop` in the SAME FRAME as the bust. Because a cooperating arrest does not abort the job and
+   * hands the car back repaired, that route beat obeying the HUD by 4-14x — 13.6 s against
+   * 55-190 s across five seeds, 4 of 4 arms reaching `drop` against 3 of 5.
+   *
+   * `src/wanted.js` already knew the difference and nothing asked it: see `clearedBy`.
+   */
   evaded: {
-    needs: ['wantedStars', 'wantedState'],
-    test: (t, s) => s.wantedStars <= 0 && s.wantedState === 'clear',
+    needs: ['wantedStars', 'wantedState', 'wantedClearedBy'],
+    test: (t, s) => s.wantedStars <= 0 && s.wantedState === 'clear'
+      && s.wantedClearedBy === 'escaped',
     validate: () => null,
   },
   // --- the player -----------------------------------------------------------

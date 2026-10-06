@@ -721,7 +721,9 @@ export class Session {
        * so a host without it gets an objective with no distance rather than a throw.
        */
       carRange: this.mode === 'foot' ? this.carRange : 0,
-      wantedStars: this.wanted.stars, wantedState: this.wanted.state };
+      wantedStars: this.wanted.stars, wantedState: this.wanted.state,
+      // How the level last reached zero, so `evaded` can tell escaping from being arrested.
+      wantedClearedBy: this.wanted.clearedBy };
   }
 
   _moving() {

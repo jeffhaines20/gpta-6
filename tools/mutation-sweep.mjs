@@ -334,6 +334,34 @@ const MUTATIONS = [
   },
   // ---- src/mission.js
   {
+    /**
+     * BEING ARRESTED IS GETTING AWAY AGAIN. Reverts `evaded` to the two conditions it had, which
+     * `wanted.clear('busted')` both satisfies — so the flagship's chase stage is beaten by
+     * committing a crime and letting the police take you, 13.6 s against 55-190 s, with a free
+     * repair on top. A blind playtester found it from the outside with a one-variable A/B; no gate
+     * saw it, because every arm that drove a chase to zero drove it there by DECAY and the two
+     * cases were indistinguishable.
+     *
+     * A one-line revert that leaves the field, the event and both hosts' snapshots in place, so
+     * nothing errors and the only thing that changes is which way a stage exits.
+     */
+    id: 'evaded-busted', file: 'src/mission.js',
+    find: "    test: (t, s) => s.wantedStars <= 0 && s.wantedState === 'clear'\n      && s.wantedClearedBy === 'escaped',",
+    to: "    test: (t, s) => s.wantedStars <= 0 && s.wantedState === 'clear',",
+    why: 'an arrest satisfies "you got away", so the flagship\'s chase is won by being caught',
+  },
+  {
+    /**
+     * THE OTHER DIRECTION, and it is the one a one-sided check misses. `evaded` never fires, so
+     * the chase stage cannot be left by evading and the flagship runs to its 240 s timeout every
+     * time. Nothing errors and the mission still "works".
+     */
+    id: 'evaded-never', file: 'src/mission.js',
+    find: "      && s.wantedClearedBy === 'escaped',",
+    to: "      && s.wantedClearedBy === 'nothing-sets-this',",
+    why: 'the chase stage can never be left by evading, so the flagship is unwinnable on its own terms',
+  },
+  {
     id: 'offer-latch', file: 'src/mission.js',
     find: '  arm(id) { this.latched.add(id); return this; }',
     to: '  arm(id) { return this; }',
