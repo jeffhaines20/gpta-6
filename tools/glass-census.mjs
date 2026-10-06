@@ -458,6 +458,32 @@ if (screen) {
     REJECT(screen), 'rejected');
 }
 
+/**
+ * AND THE SHIPPED CONSTANT IS DERIVED FROM THIS BAND, so it cannot drift silently.
+ *
+ * `src/carbody.js`'s `uGlassEnvExtra` scales the glazing's own environment term. The table below
+ * is MEASURED — `tools/ground-albedo.mjs`'s `ge*` arms swept the constant, the frames are in
+ * docs/shots, and `tools/car-pane.mjs` read the near windscreen against its own bonnet at noon.
+ * It is recorded here as data because re-running it needs captures and this gate must not.
+ *
+ * The check is not circular: the SHIPPED value is compared against the one this table and the
+ * census band pick out together. Setting the constant back to 2 fails it, because ge2's measured
+ * 0.0619 is below the 0.137 floor the photographs establish.
+ */
+const GE_SWEEP = { 0: 0.0167, 1: 0.0368, 2: 0.0619, 3: 0.0916, 5: 0.1616 };
+const lo = sorted[0], hi = sorted[sorted.length - 1];
+const inBand = Object.entries(GE_SWEEP).filter(([, v]) => v >= lo && v <= hi).map(([k]) => +k);
+const { glassEnv } = await import('../src/carbody.js');
+const shipped = glassEnv().extra;
+console.log(`\n  the swept constant: ${Object.entries(GE_SWEEP)
+  .map(([k, v]) => `${k}->${v.toFixed(4)}`).join(' ')}`);
+console.log(`  values landing inside the measured band ${lo.toFixed(3)}..${hi.toFixed(3)}: ` +
+  `${inBand.join(', ') || 'none'}; src/carbody.js ships ${shipped}`);
+check('the swept constant has a value that reaches the band at all, or the lever is too weak',
+  inBand.length > 0, `${inBand.join(', ') || 'none of 0,1,2,3,5'}`);
+check('and src/carbody.js ships one of them, so the constant is derived and not picked',
+  inBand.includes(shipped), `ships ${shipped}, band-reaching values are ${inBand.join(', ')}`);
+
 console.log('');
 for (const c of checks) console.log(`  ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);
 const failed = checks.filter((c) => !c.ok);

@@ -231,7 +231,40 @@ function writePackTexel(data, i, rough, metal) {
 // Issue #54 - the traffic greenhouse as a night hole - is NOT closed by this, and
 // its fix is the lit shopfronts reaching the environment, which a sky-only PMREM
 // cannot carry.
-const GLASS_ENV = { uGlassEnvExtra: { value: 2 } };
+/**
+ * THE GLAZING'S OWN ENVIRONMENT GAIN, and 5 is DERIVED from two measurements rather than picked.
+ *
+ * `tools/glass-census.mjs` measures what a real car's glass reads against the paint beside it, off
+ * `reference/sarasota/mapillary`, in linear light: median 0.164, band 0.137 to 0.333. The `ge*`
+ * arms in `tools/ground-albedo.mjs` sweep THIS constant and `tools/car-pane.mjs` reads the result
+ * on the near windscreen against its own bonnet, at noon:
+ *
+ *     extra          0       1       2       3       5
+ *     windscreen  0.0167  0.0368  0.0619  0.0916  0.1616      <- 5 lands on the 0.164 median
+ *     backlight   0.0320  0.0728  0.1217  0.1767  0.2946      <- and inside the 0.137-0.333 band
+ *     modulation   1.207   1.257   1.284   1.275   1.269
+ *
+ * 5 is the value inside the SWEPT range whose windscreen median lands in the census band; it is
+ * not an extrapolation. `glass-census` asserts that relation, so changing this constant without
+ * re-deriving it fails a gate rather than drifting.
+ *
+ * IT WAS 2, AND 2 WAS NOT WRONG SO MUCH AS UNFINISHED. The round that introduced this knob swept
+ * it and shipped 2 while concluding, correctly, that the remaining defect was the environment —
+ * see the comment on the `ge` arms. What it did not have was a TARGET: nothing said what a real
+ * window reads, so there was no way to tell 2 from 5. The census is that number and it says 2
+ * leaves the windscreen at 0.0619 against a 0.137 floor.
+ *
+ * WHAT THIS DOES NOT FIX, and the sweep is unambiguous about it: MODULATION. 1.284 at extra 2 and
+ * 1.269 at extra 5, against real glass at 1.56 to 2.25. A gain multiplies the whole pane, so it
+ * turns a flat dark pane into a flat brighter one — "a level knob cannot put content in a window",
+ * which that earlier round wrote down and which this change does not contradict. The life in a
+ * real window comes from STRUCTURE in what it reflects, and a sky-only PMREM has none to give.
+ * That is #54's lit shopfronts and it is still open.
+ *
+ * At night this moves the windscreen 0.0078 to 0.0156 of the paint. Still a hole, for the same
+ * reason: there is nothing lit in the environment to reflect.
+ */
+const GLASS_ENV = { uGlassEnvExtra: { value: 5 } };
 export function setGlassEnv(k) {
   GLASS_ENV.uGlassEnvExtra.value = Math.max(0, k);
   return { extra: GLASS_ENV.uGlassEnvExtra.value,

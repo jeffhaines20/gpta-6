@@ -51,7 +51,26 @@ multiplied, which is why the lens reads red at night, but the parked pool delibe
 every texel but the lens); a separate mesh (+1 draw call per pool); or accept it and fix #91
 first, since two thirds of the fleet is achromatic and the plate is nearly right on those.
 
-### #92 The side glass is within 8.6% of the paint at noon — THE TARGET IS MEASURED NOW
+### #92 FIXED (the level), and the remaining half is named: uGlassEnvExtra 2 -> 5
+`src/carbody.js`'s glazing environment gain is 5 now, DERIVED from two measurements rather than
+picked: the census band (0.137-0.333, median 0.164) and the `ge*` sweep of this very constant
+(windscreen median/paint at noon: 0.0167 / 0.0368 / 0.0619 / 0.0916 / 0.1616 at extra 0/1/2/3/5).
+5 is the value INSIDE the swept range whose windscreen lands on the band's median — not an
+extrapolation — and `glass-census` asserts that relation, so the constant cannot drift: setting it
+back to 2 fails the gate, because ge2's measured 0.0619 is below the 0.137 floor.
+
+2 was not wrong so much as unfinished. The round that added the knob swept it and shipped 2 while
+correctly concluding the rest was the environment; what it did not have was a TARGET, so nothing
+could tell 2 from 5.
+
+**What this does not fix, and the same sweep says so:** MODULATION. 1.284 at extra 2 and 1.269 at
+extra 5, against real glass at 1.56-2.25. A gain multiplies the whole pane, so it turns a flat dark
+pane into a flat brighter one — "a level knob cannot put content in a window", which that earlier
+round wrote down and this change does not contradict. Still open, and it is #54's lit shopfronts
+reaching the environment; a sky-only PMREM has no structure to give. At night the windscreen moves
+0.0078 -> 0.0156 of the paint: still a hole, same reason.
+
+### #92 (the investigation that got there) The side glass is within 8.6% of the paint at noon
 Measured on the pane's own projection, glass over the door skin beside it: 0.934 / 0.837 /
 0.972 / 1.043 after the pane fix. #54 records the opposite extreme at night (0.0225 in linear
 light) and #36 the hue problem. The glazing is wrong at both ends of the day.

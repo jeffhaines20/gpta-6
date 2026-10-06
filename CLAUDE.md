@@ -1897,6 +1897,21 @@ is not, and that needs structure in what the pane reflects rather than more of i
 `carbody.js` had already arrived from the other direction, "the lit shopfronts reaching the
 environment, which a sky-only PMREM cannot carry".
 
+**The round that built this knob had already found all of that, and shipped 2 anyway, because it
+had no TARGET.** Its own comment reads "if modulation does not move across a 6x range of the
+environment term then the pane has nothing to reflect and the defect is in the environment, not in
+the glass — which is a finding, and the round closes on it rather than trying a fifth knob". That
+is correct and it is the same conclusion reached here. What it could not do was choose the LEVEL:
+nothing said what a real window reads, so 2 and 5 were indistinguishable and 2 shipped. The census
+is that missing number, and it says 2 leaves the windscreen at 0.0619 against a 0.137 floor.
+
+**So the constant is 5 now and it is DERIVED, with a gate that re-derives it.** `glass-census`
+carries the swept table as recorded data and asserts that the shipped value is one whose measured
+windscreen lands inside the photographed band. That is not circular — the two inputs are
+independent measurements and the constant falls out of them — and reverting it to 2 fails the
+check. A measured constant that nothing re-derives is a magic number waiting for the car to change
+under it; this one has the derivation and the gate in the same commit.
+
 **And then I made the pane-naming mistake again, one level down, inside the correction for it.**
 I wrote that this left a tension — "three panes, one uniform knob", the side pane's ceiling of
 1.327 running away so a gain big enough for the windscreen would push it out of band. That compared
