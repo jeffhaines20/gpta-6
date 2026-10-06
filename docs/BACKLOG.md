@@ -917,13 +917,34 @@ Two things that make the band ordinary rather than an edge case:
   first version of that sweep reported the same 53% without the flood fill, which was a superset
   counting the bay; connectivity changed it by 198 cells, so the number stands.)
 
-The fix is not another radius. An officer who can SEE the player and whose car has stopped walks
-to them; the model already says an arrest is made by a person covering ground at `RUN_SPEED`, and
-it simply assumes the walk always fits inside the 4 s clock. Required hold of
-`max(BUST_HOLD_S, (d - holdRadius) / RUN_SPEED)` preserves today's behaviour everywhere it works
-(28 m is exactly where the two terms cross) and lengthens the countdown with the walk beyond it —
-no new constant. Held for the playtest round in flight, whose blind measurement of the pursuit is
-the before-arm for it.
+**The CLOCK half of the fix is derived and the TRIGGER half is not, and the obvious trigger is
+wrong. Traced before writing it, so the next round does not write it.**
+
+The clock is free. An arrest is made by a person covering ground at `RUN_SPEED`; the current model
+evaluates that at one point and calls the answer a radius. Stated as a function instead:
+
+    required(d) = max(BUST_HOLD_S, d / RUN_SPEED)
+
+`reachRadius` is exactly where the two terms cross — `RUN_SPEED * BUST_HOLD_S / RUN_SPEED` is
+`BUST_HOLD_S` — so this is **identical to today's behaviour at every distance the game currently
+arrests at** and lengthens the countdown with the walk beyond it. 14.3 s at 100 m, 21.4 s at 150 m.
+No new constant, and `wanted.js` can compute `d` itself: `reportUnits` already gives it every
+unit's position and `_evaluateContact` already measures exactly that distance.
+
+The trigger is the hard half. **Do not widen `u.stopped` from `reachRadius` to `spotRadius`.** Its
+condition is `near.d <= reachRadius`, where `near` is the closest approach of the player to the
+unit's CURRENT EDGE — so widening it to 150 m makes a unit clamp on the first edge that passes
+within 150 m of the player instead of continuing to route closer. Units would stop further away
+than they do now and the chase would get *worse*, which is the opposite of the finding. Measured in
+the stalemate rows, units never stop at all: `held` is 0 at every placement from 38 m out, and they
+mill about at 37-136 m, because no edge they are on comes within 28 m.
+
+So the arrest cannot key off `u.stopped`. What it needs is "this unit cannot get closer" — the
+minimum over the unit's reachable road of distance to the player — which is a graph query, or an
+approximation of one via the plan's own assigned goal. That is a pursuit design change rather than
+a constant, and it is the open half.
+
+Held for the playtest round in flight, whose blind measurement of the pursuit is the before-arm.
 
 ### #87 driveTo wrecks the car in 200 m: 13 civilianCollision in 32 s at 43 km/h
 `detail lost` beyond the subject line.
