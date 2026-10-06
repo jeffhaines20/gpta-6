@@ -2001,6 +2001,43 @@ the position within that family's hue range, which is still uniform and costs no
 the expression its own arm models, and `mutation-sweep`'s `paint-draw` adds a third draw to prove
 that check has teeth.
 
+## The fleet has no white cars and no black ones, and the reason it was frozen had expired
+
+`src/carpaint.js` fixed which HUES the chromatic third draws. Nothing had looked at the other half
+of the table. Both fleets pick an HSL lightness from a narrow mid band:
+
+    src/traffic.js          l = 0.34 + r * 0.26          ->  0.34 .. 0.60
+    src/streetfurniture.js  l = 0.26 + ((h*7)%1) * 0.4   ->  0.26 .. 0.66
+
+A white car is L~0.85 and a black one L~0.15, so **neither fleet can draw either**. Against the
+census — white 29.2%, silver 20.0%, black 35.4% — that is **64.6% of the real population with no
+tone in either draw**, painted mid-grey instead. It is why every car in a frame reads as one tone.
+
+**It was frozen on purpose and the reason was about a different round.** `streetfurniture.js` says
+so: "LIGHTNESS IS DELIBERATELY UNCHANGED from the hue-wheel version it replaced ... The first cut
+also widened the lightness range, which repainted the probe's own pinned subject and made vGrad,
+spec and edges incomparable across the round: a confound I introduced into the very A/B I was
+running." Correct, and a statement about that A/B rather than about what the range should be — the
+third instance this file now records of **unfinished, not wrong**, after the glazing's gain at 2
+and the hue wheel both modules claimed to have replaced. The shape is always the same: a round
+scopes a change honestly, writes down why it stopped, and the note then reads as a decision.
+
+**And it is entangled with #1, which is why neither should be fixed alone.** `instanceColor`
+MULTIPLIES the vertex colour, so a light detail cannot exceed the car's own paint. Measured off the
+buffer: the plate's vertex colour is 0.7317 and the instanceColor luma spans only 0.339 to 0.529,
+giving x0.43 of a real plate on an achromatic car and x0.37 on a chromatic one — which reproduces
+the x0.41 already recorded. Widening the tone range fixes the plate on a white car (x0.80,
+essentially correct) and makes it strictly worse on a black one (x0.09). A real plate is
+retroreflective white on every car, so the honest fix is both at once: widen the range AND give the
+plate slot an escape from the multiply, which `ENV_GAIN_SLOTS` already proves is possible on this
+material.
+
+**Note which claim in the backlog was wrong and how.** It said "no vertex colour can raise it: body
+panels are already authored 0.995". That is the PAINT slot's range (0.42-1.00); the plate's own
+vertex colour is 0.7317 with headroom to 1.0. The entry named a real defect and the wrong binding
+constraint, which is this file's standing rule about a reviewer's observation outliving their
+diagnosis — arriving here from a backlog entry instead of a reviewer.
+
 ## Pricing a change
 
 **Count triangles by building the geometry and reading the buffer, never by

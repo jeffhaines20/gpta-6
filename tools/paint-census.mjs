@@ -48,10 +48,11 @@ console.log('='.repeat(78));
  *                its sibling is the recurring shape of defect in this repo, and these two are the
  *                pair it has already happened to twice — the unnamed mesh, then the parked pool.
  */
+const census = JSON.parse(fs.readFileSync(new URL('../reference/sarasota/car-colour-census.json',
+  import.meta.url), 'utf8'));
+
 console.log('\n=== PAINT — the families, their weights, and the draw count');
 {
-  const census = JSON.parse(fs.readFileSync(new URL('../reference/sarasota/car-colour-census.json',
-    import.meta.url), 'utf8'));
   const keys = ['white', 'silver', 'black', 'red', 'blue', 'beige', 'green'];
   const tot = Object.fromEntries(keys.map((k) => [k, 0]));
   for (const f of census.frames) for (const k of keys) tot[k] += f[k];
@@ -197,6 +198,83 @@ console.log('\n=== PAINT — the families, their weights, and the draw count');
   check('and neither still has a bare uniform hue draw in its colour block',
     !/setHSL\(this\._r\(\)/.test(src) && !/setHSL\(\(h - 0\.66\) \/ 0\.34/.test(sfSrc),
     'no raw hue-wheel call in either');
+}
+
+// ---------------------------------------------------------------------------
+/**
+ * THE LIGHTNESS, which is the other half of the table and the half nothing had looked at.
+ *
+ * `src/carpaint.js` fixed WHICH HUES the chromatic third draws. It deliberately did not touch the
+ * achromatic/chromatic split, because the census's 15.4% chromatic is a LOWER bound and you do not
+ * move a figure your instrument cannot resolve. But the census resolves something else perfectly
+ * well, because white, silver and black are exactly the families a coarse visual classifier is
+ * good at:
+ *
+ *     white  29.2%      silver  20.0%      black  35.4%
+ *
+ * A white car is HSL lightness around 0.88 and a black one around 0.10. Both fleets draw:
+ *
+ *     src/traffic.js          l = 0.34 + r * 0.26          -> 0.34 .. 0.60
+ *     src/streetfurniture.js  l = 0.26 + ((h*7)%1) * 0.4   -> 0.26 .. 0.66
+ *
+ * **Neither range can produce a white car or a black one.** They cover the SILVER band and paint
+ * the other 64.6% of the real achromatic population mid-grey. That is not a subtle distributional
+ * point: it is why every car in a frame is the same tone.
+ *
+ * AND IT WAS FROZEN ON PURPOSE, FOR A REASON THAT HAS EXPIRED. `src/streetfurniture.js` says so in
+ * as many words — "LIGHTNESS IS DELIBERATELY UNCHANGED from the hue-wheel version it replaced -
+ * only hue and saturation move. The first cut also widened the lightness range, which repainted
+ * the probe's own pinned subject and made vGrad, spec and edges incomparable across the round: a
+ * confound I introduced into the very A/B I was running." Correct at the time, and a statement
+ * about that round's A/B rather than about what the range should be. The same shape as the
+ * glazing's `uGlassEnvExtra` at 2: unfinished, not wrong.
+ *
+ * This section does not fix it — it MEASURES the gap and fails if it is ever closed silently, so
+ * the next round starts from the number instead of re-deriving it.
+ */
+console.log('\n=== LIGHTNESS — the half of the table nothing had looked at');
+{
+  const src = fs.readFileSync(new URL('../src/traffic.js', import.meta.url), 'utf8');
+  const sf = fs.readFileSync(new URL('../src/streetfurniture.js', import.meta.url), 'utf8');
+  /** Read the range out of the SOURCE, never retyped: a probe that hardcodes it cannot see a fix. */
+  const rangeOf = (text, re) => {
+    const m = re.exec(text);
+    return m ? { lo: +m[1], span: +m[2], hi: +m[1] + +m[2] } : null;
+  };
+  const t = rangeOf(src, /const l = ([\d.]+) \+ this\._r\(\) \* ([\d.]+);/);
+  const f = rangeOf(sf, /const l = ([\d.]+) \+ \(\(h \* 7\) % 1\) \* ([\d.]+);/);
+  console.log(`  src/traffic.js          lightness ${t ? `${t.lo} .. ${t.hi.toFixed(2)}` : 'NOT FOUND'}`);
+  console.log(`  src/streetfurniture.js  lightness ${f ? `${f.lo} .. ${f.hi.toFixed(2)}` : 'NOT FOUND'}`);
+  check('both fleets state a lightness range this gate can read from the source',
+    t !== null && f !== null, `traffic ${JSON.stringify(t)}, parked ${JSON.stringify(f)}`);
+
+  const keys = ['white', 'silver', 'black', 'red', 'blue', 'beige', 'green'];
+  const tot = Object.fromEntries(keys.map((k) => [k, 0]));
+  for (const fr of census.frames) for (const k of keys) tot[k] += fr[k];
+  const n2 = keys.reduce((a, k) => a + tot[k], 0);
+  // Representative HSL lightness for each family, which is what the draw has to be able to reach.
+  const WHITE_L = 0.85, BLACK_L = 0.15;
+  const unreachable = (100 * (tot.white + tot.black) / n2);
+  console.log(`  the census: white ${(100 * tot.white / n2).toFixed(1)}%, ` +
+    `silver ${(100 * tot.silver / n2).toFixed(1)}%, black ${(100 * tot.black / n2).toFixed(1)}%` +
+    ` — a white car is L~${WHITE_L}, a black one L~${BLACK_L}`);
+  const reachesWhite = t.hi >= WHITE_L && f.hi >= WHITE_L;
+  const reachesBlack = t.lo <= BLACK_L && f.lo <= BLACK_L;
+  console.log(`  neither fleet reaches white (${t.hi.toFixed(2)}/${f.hi.toFixed(2)} against ` +
+    `${WHITE_L}) or black (${t.lo}/${f.lo} against ${BLACK_L}): ` +
+    `${unreachable.toFixed(1)}% of the real population has no tone in either draw`);
+  /**
+   * ASSERTED AS A KNOWN GAP, not as a pass. The two checks below record the state and will FAIL if
+   * the ranges are widened — which is the point: whoever widens them has to come here, read the
+   * census, and restate the bound with the new numbers. A gate is never loosened silently.
+   */
+  check('KNOWN GAP: neither fleet can draw a white car, which is 29.2% of the real population',
+    !reachesWhite, `traffic tops out at ${t.hi.toFixed(2)}, parked at ${f.hi.toFixed(2)}, ` +
+    `white is L~${WHITE_L}`);
+  check('KNOWN GAP: and neither can draw a black one, which is another 35.4%',
+    !reachesBlack, `traffic floors at ${t.lo}, parked at ${f.lo}, black is L~${BLACK_L}`);
+  check('so the gap is most of the achromatic population, which is most of the fleet',
+    unreachable > 50, `${unreachable.toFixed(1)}% unreachable`);
 }
 
 console.log('\n' + '='.repeat(78));
