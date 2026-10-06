@@ -338,6 +338,38 @@ const page = await browser.newPage();
  * first placement straddled a shut line, a taillight or the boundary of a shadow, and every one
  * of those announced itself as a p10/p90 spread before the crop confirmed it.
  */
+/**
+ * AD-HOC SAMPLING OF ANY FRAME, which is the other half of `--grid`: place a box by reading the
+ * grid, then read what it actually contains before writing it into a table. Every box in ROWS was
+ * moved at least once between those two steps.
+ *
+ *   node tools/paint-tone.mjs --sample docs/shots/x.png --boxes 745,547,40,15;1045,602,85,15
+ */
+if (has('sample')) {
+  const file = arg('sample', '');
+  const boxes = String(arg('boxes', '')).split(';').filter(Boolean)
+    .map((b) => b.split(',').map(Number));
+  if (!fs.existsSync(file) || !boxes.length) {
+    console.error('usage: --sample <path> --boxes x,y,w,h[;x,y,w,h...]');
+    process.exit(2);
+  }
+  const r = await sampleRow(page, { id: 'adhoc', dir: '.', file,
+    cars: boxes.map((b, i) => ({ id: `box${i}`, family: 'n/a', note: '', box: b })) });
+  for (const c of r.cars) {
+    console.log(`${c.box.join(',').padEnd(18)} n=${String(c.n).padStart(5)}  ` +
+      `p10 ${c.p10.toFixed(4)}  p50 ${c.p50.toFixed(4)}  p90 ${c.p90.toFixed(4)}  ` +
+      `clip ${(100 * c.clipped).toFixed(1)}%  meanSRGB ${c.meanSRGB.join(',')}`);
+  }
+  // ALWAYS WRITE THE ANNOTATED CROP. A number from an unverified box is the failure this whole
+  // file is built around, and making the verification opt-in is how it gets skipped.
+  fs.mkdirSync('docs/shots', { recursive: true });
+  const out = 'docs/shots/paint-tone-sample.png';
+  await crop(page, { dir: '.', file, cars: r.cars }, out);
+  console.log(`  boxes drawn over the frame: ${out}`);
+  await browser.close();
+  process.exit(0);
+}
+
 if (has('grid')) {
   const file = arg('grid', '');
   const [x0, y0, x1, y1] = String(arg('at', '0,0,2048,1024')).split(',').map(Number);
@@ -418,6 +450,49 @@ for (const r of rows) {
   }
 }
 
+/**
+ * THE SHIPPED RENDER, MEASURED BY THE SAME INSTRUMENT AS THE PHOTOGRAPHS.
+ *
+ * `hero-shots` with HERO_ARMS=paint0,paint1 captures the before and after off ONE page load, ONE
+ * camera, ONE settled district — see `tools/ground-albedo.mjs`'s arm table. The two arms are 10
+ * rendered frames apart (0.5 s of sim at the clamped dt) and the audits record `triangles`,
+ * `chunks`, `lodNear`, `lodFar` and `drawCalls` byte-identical between them, so the resident set
+ * and the geometry are the same and only the world clock moved.
+ *
+ * THE SUBJECTS ARE TWO PARKED CARS, which do not move at all in that 0.5 s. A moving car does —
+ * up to 5 m — so a fixed box on one would be measuring a different car, which is this project's
+ * "a fixed box over moved geometry" section arriving through the sim instead of the shell.
+ *
+ * AND ONE OF THEM IS A CHROMATIC CAR, WHICH IS THE CONTROL THAT MAKES THE REST READABLE. The
+ * chromatic lightness did not change this round, so its paint must come back BYTE-IDENTICAL. It
+ * does — 0.3575, mean sRGB 161,138,147 in both arms — and that single number says three things at
+ * once: the arms are registered to the pixel on static geometry, the exposure and the light are
+ * the same, and the one term that was supposed to stay still did.
+ */
+const RENDER = {
+  id: 'shipped-render-noon',
+  dir: '.',
+  before: 'docs/shots/paint-paint0-fivepoints-noon.png',
+  after: 'docs/shots/paint-paint1-fivepoints-noon.png',
+  boxes: [
+    { id: 'chromatic.paint', note: "the pink car's boot lid, clear of its tail lights", box: [202, 552, 32, 7] },
+    { id: 'chromatic.plate', note: "and its number plate", box: [217, 578, 13, 4] },
+    { id: 'achromatic.paint', note: "the grey car's boot lid, clear of its tail lights", box: [4, 552, 32, 7] },
+    { id: 'achromatic.plate', note: "and its number plate", box: [17, 575, 15, 4] },
+  ],
+};
+
+async function sampleRender(page) {
+  const out = {};
+  for (const [arm, file] of [['before', RENDER.before], ['after', RENDER.after]]) {
+    if (!fs.existsSync(file)) return { missing: file };
+    const r = await sampleRow(page, { id: arm, dir: RENDER.dir, file,
+      cars: RENDER.boxes.map((b) => ({ ...b, family: 'render' })) });
+    out[arm] = Object.fromEntries(r.cars.map((c) => [c.id, c]));
+  }
+  return out;
+}
+
 const sun = rows.find((r) => r.id === 'main-lot-sun');
 const shade = rows.find((r) => r.id === 'kerb-shade');
 const t = toneStats();
@@ -449,6 +524,72 @@ for (const c of chromaticRanges()) {
  * here to show the checks below have teeth — both fail on them.
  */
 const OLD = { traffic: [0.34, 0.60], parked: [0.26, 0.66] };
+
+// ---------------------------------------------------------------- the shipped render
+{
+  const R = await (async () => {
+    const b = await chromium.launch(launchOptions());
+    const pg = await b.newPage();
+    const r = await sampleRender(pg);
+    await b.close();
+    return r;
+  })();
+  if (R.missing) {
+    console.log(`\n=== THE SHIPPED RENDER — skipped, no ${R.missing}`);
+    console.log('   (capture it with HERO_SHOTS=fivepoints HERO_TIMES=noon,dusk ' +
+      'HERO_ARMS=paint0,paint1 HERO_TAG=paint node tools/hero-shots.mjs)');
+    check(false, 'the committed before/after pair is present', `missing ${R.missing}`);
+  } else {
+    console.log('\n=== THE SHIPPED RENDER, same instrument, same statistic as the rows above');
+    for (const b of RENDER.boxes) {
+      const x = R.before[b.id], y = R.after[b.id];
+      console.log(`  ${b.id.padEnd(17)} ${x.p50.toFixed(4)} -> ${y.p50.toFixed(4)}  ` +
+        `x${(y.p50 / x.p50).toFixed(2)}   clip ${(100 * x.clipped).toFixed(1)}/` +
+        `${(100 * y.clipped).toFixed(1)}%   ${b.note}`);
+    }
+    const cp = [R.before['chromatic.paint'], R.after['chromatic.paint']];
+    const cl = [R.before['chromatic.plate'], R.after['chromatic.plate']];
+    const ap = [R.before['achromatic.paint'], R.after['achromatic.paint']];
+    const al = [R.before['achromatic.plate'], R.after['achromatic.plate']];
+    console.log(`  plate / its own paint:  chromatic ${(cl[0].p50 / cp[0].p50).toFixed(3)} -> ` +
+      `${(cl[1].p50 / cp[1].p50).toFixed(3)},  achromatic ` +
+      `${(al[0].p50 / ap[0].p50).toFixed(3)} -> ${(al[1].p50 / ap[1].p50).toFixed(3)}`);
+
+    /**
+     * THE CONTROL FIRST, because every number under it is unreadable without it. If the chromatic
+     * car's paint moved, the two frames are not registered or the light is not the same, and the
+     * plate figures below are measuring that instead.
+     */
+    check(cp[0].p50 === cp[1].p50,
+      'CONTROL: the chromatic car\'s paint is byte-identical between the arms',
+      `${cp[0].p50.toFixed(4)} both, mean sRGB ${cp[0].meanSRGB.join(',')} / ${cp[1].meanSRGB.join(',')}`);
+    /**
+     * AND THE FINDING, which nothing but a de-tint produces: on the car whose paint got DARKER,
+     * the plate got BRIGHTER. A brightness change, an exposure change, a different hour or a
+     * mis-registered pair all move the two the SAME way.
+     */
+    check(ap[1].p50 < ap[0].p50 && al[1].p50 > al[0].p50,
+      'the achromatic car got darker while its own number plate got brighter',
+      `paint x${(ap[1].p50 / ap[0].p50).toFixed(2)}, plate x${(al[1].p50 / al[0].p50).toFixed(2)}`);
+    check(al[0].p50 / ap[0].p50 < 1 && al[1].p50 / ap[1].p50 > 1,
+      'so the plate goes from darker than the paint it is bolted to, to brighter — which is what a plate is',
+      `${(al[0].p50 / ap[0].p50).toFixed(3)} -> ${(al[1].p50 / ap[1].p50).toFixed(3)}`);
+    /**
+     * The chromatic car's plate moves too, on a body that did not. That is the de-tint ALONE,
+     * with the tone change held at zero by the control above — the cleanest isolation the pair
+     * offers, and it needs no assumption about which tone that car drew.
+     */
+    check(cl[1].p50 > cl[0].p50 * 1.5,
+      'and on the car whose paint did NOT move, the plate still does — the de-tint, isolated',
+      `x${(cl[1].p50 / cl[0].p50).toFixed(2)} on a body that moved x${(cp[1].p50 / cp[0].p50).toFixed(2)}`);
+    for (const b of RENDER.boxes) {
+      const worst = Math.max(R.before[b.id].clipped, R.after[b.id].clipped);
+      if (worst > 0) check(false, `${b.id} clips`, `${(100 * worst).toFixed(2)}%`);
+    }
+    check(RENDER.boxes.every((b) => R.before[b.id].clipped === 0 && R.after[b.id].clipped === 0),
+      'no box in the render pair clips, in either arm', 'worst 0.00%');
+  }
+}
 
 console.log('\n=== CHECKS');
 check(t.span >= shade.ratio,
@@ -485,6 +626,7 @@ const ranges = chromaticRanges();
 check(ranges.every((c) => c.lo !== null),
   "both call sites still declare a chromatic lightness range this tool can read",
   ranges.map((c) => `${path.basename(c.file)} ${c.lo}..${c.hi}`).join('  '));
+
 
 const failed = checks.filter((c) => !c.ok);
 for (const c of checks) console.log(`  ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);
