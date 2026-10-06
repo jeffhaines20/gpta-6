@@ -119,3 +119,12 @@ docs/shots/r5ab-r5frontOnly-*.png
 # tools/mutation-sweep.mjs holds this while it runs, so two instances cannot share the
 # working tree and revert each other mid-gate. Never committed.
 .mutation-sweep.lock
+
+# paint-tone's two VERIFICATION scratch files. `--grid` writes a grid-labelled view
+# of a frame so a box can be placed in that image's own pixel numbers, and `--sample`
+# writes the boxes drawn over the frame so the placement can be checked by eye. Both
+# are overwritten on every invocation and neither is a result: the results are the
+# committed ROWS and RENDER tables in the tool, which anybody can re-derive by running
+# it. Tracking them would mean a 2 MB churn every time somebody checks a box.
+docs/shots/paint-tone-grid.png
+docs/shots/paint-tone-sample.png
