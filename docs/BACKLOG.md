@@ -485,6 +485,264 @@ because the instrument that would move it cannot resolve the quantity.
 
 ---
 
+## Playtest round 10 — two blind Opus playtesters, frozen copies at d042a45
+
+Review A took missions, the garage and the wedged-car cue; review B the crime loop, the police and
+driving. Separate trees nothing else was writing to. Both re-ran their load-bearing arms in fresh
+processes and got byte-identical results; B recorded four reversals of its own readings, A one.
+Reports at `/home/user/review-A/REPORT.md` and `/home/user/review-B/REPORT.md` — **in containers
+that will be reclaimed**, so everything worth keeping is below.
+
+### FIXED — being arrested satisfied "you got away" (A#2)
+`evaded` tested `wantedStars <= 0 && wantedState === 'clear'` and `clear('busted')` sets both, so
+an arrest flipped `ambush` to `drop` in the same frame as the bust. A's one-variable A/B: crime
+first -> bust at 13.617 s -> stage flips; no crime -> bust at 14.600 s -> MISSION ABORTED. Obeying
+"LOSE THEM" took 55.1 / 58.6 / 189.9 s over 3 of 5 seeds; crime-then-arrest 9.1 / 13.1 / 13.1 /
+26.3 s over 4 of 4. See `src/wanted.js`'s `clearedBy` and `mission-test` §11.
+
+### CONFIRMED BY A SECOND PROTOCOL — the arrest band (B#1, and #89 above)
+B measured the same stalemate independently, 5 seeds a row, **driving** off-road as well as placing:
+
+    off-road   arrested/5   escaped/5   stuck/5   nearest unit   seen%
+      2.7 m        5            0          0          3 m        99
+      8.7 m        5            0          0          9 m        99
+     20.7 m        5            0          0         21 m        99
+     32.6 m        0            0          5         33 m        94-99
+     50.6 m        0            0          5         51 m        94-98
+     80.6 m        0            0          5         81 m        91-97
+    128.2 m        0            5          0        128 m         0-2
+
+Two instruments at different levels, agreeing: my `arrest-band` placed one seed at nine distances
+through the play harness, B drove five seeds to seven. **And B measured what I did not:** the band
+objective is `null` for the whole 180 s, the escape clock RESETS 1-5 times over 240 s and the best
+it ever reached was **4.7 s of the 34 s needed**, and the only cue is the star note cycling
+`SEEN -> EVADING 34s -> EVADING 33s -> SEEN`, 21 distinct states in 180 s. So it is not merely
+un-winnable, it is un-winnable with a countdown that visibly restarts and no objective text.
+
+### #95 4.8 km/h of forward motion makes you permanently un-arrestable (B#2)
+Worse than the band, because it needs no distance at all. At 4★ **2.7 m off a road** — the spot
+that arrests a parked car in 9.6 s — driving a 25 m circle so position is held within 50 m:
+
+    mean 2.8 km/h   ARRESTED 3/3   (9.6 / 9.5 / 6.8 s)
+    mean 4.8, 5.8, 6.7, 8.6, 12.4, 19.9 km/h   0/3 arrested, free the full 150 s
+
+None escaped either, so it is a second stalemate and a more comfortable one. The whole pursuit is
+beaten at walking pace without leaving the block. **B reversed itself twice getting here** — a
+straight-line throttle measured POSITION (the car drove 259 m away) and a full-lock circle capped
+the car at 1.5-2.5 km/h, under the threshold; only steering from the car's own `R_min(v)` isolates
+speed. The mechanism is `_watchBust` reading smoothed `playerVel` against `SCENE_STOP_MS` = 1.0 m/s
+= 3.6 km/h, with the smoothing putting the real boundary near 4 km/h.
+
+### #96 An arrest and a wreck are both a free full repair, and the garage is dominated (A#6, B#3)
+Both reviewers, from opposite directions. B: car at health 0.511, 1★, stand still -> **health 1.000
+in 17.1-22.1 s, 3 of 5 seeds**; three laps of crime -> stand still -> arrest gave 21.5 / 19.2 /
+30.8 s, health 1.00 each time, no escalation. Arrest against wreck on the same mission: both abort,
+both hold ~4 s, both return health 1.00 and 0 stars — and the wreck moves the car 25 m while the
+arrest moves it **0 m**, so being arrested is marginally BETTER than being wrecked.
+
+A priced the garage against destroying the car from one damage state: road distance to the garage
+from 24 points spread over the district is min 190 / p25 395 / **median 576** / max 894 m, which is
+18-68 s at 14 m/s plus the 4 s hold — **median ~49 s**, and one measured end to end was 55.4 s over
+356 m. Destroying it: 8 points tried, 5 reached health 1.00 in **9.5 / 11.7 / 13.4 / 13.5 / 13.7 s,
+median 13.4 s**, costing one `propertyDamage` and **0 stars**.
+
+**13.4 s against 49 s — 3.7x, and never worse than the garage's best case.** The garage was built
+so that destroying the car would not be the fastest repair (see above); measured, it is not
+achieving that, and the arrest is a third route that is faster still and costs nothing.
+
+Not fixed here because the cost is a DESIGN choice, not a derivation: there is no money system, so
+the only currencies are time and wanted level. Recorded with both tables so the next round picks a
+number against them rather than inventing one.
+
+### #97 The escalation runs backwards at the top end (B#4)
+13 controlled single impacts into a building, arrival speed measured: heat 0.1050 at 10 km/h rising
+to **0.9000 from 44 km/h up**, and **stars 0 at every one of the 13** — including a 138 km/h
+head-on that destroys the car. Two hits 3.04 s apart: heat 1.0320 = **1 star**; gaps 3.0-7.4 s all
+give a star, 10.1 s does not.
+
+So **two gentle taps costing 0.435 health earn a star and one car-destroying impact earns nothing.**
+This is the soft knee's asymptote (recorded under #90 as "a 110 km/h write-off charges 0.9000 and
+reads 0 stars") met from the outside, and B's pairing is what makes it indefensible rather than
+merely odd. The lever is `propertyDamage`'s missing `min`, which #90 deliberately left alone.
+
+**B's own reversal here is worth keeping:** its first arm hit the wall 8x at 20 km/h, read 0 stars
+and heat decaying 0.5320 -> 0.0000, and it was about to file "buildings can never make you wanted".
+The arm was reversing 25 m between hits, ~40 s, and `idleBleed` 0.09/s wins that race. **It is the
+GAP that decides**, not the count.
+
+### #98 The game's own route follower hands a fleeing player to the police (B#5)
+`followPath` leaving Five Points spends **101 of 601 frames (17%) under 1.0 m/s**, with a dead
+section at t=11-15 s reading 0,1,1,1,1 km/h — **four continuous seconds against a `BUST_HOLD_S` of
+4.0**. Identical at maxSpeed 20 and 30 m/s, so it is the geometry and not a cap. Fleeing at 4★ with
+it: **arrested 2 of 3** (14.4 s / 21 m and 82.4 s / 771 m), escaped 1 of 3 — against parking out of
+sight, which escaped **5 of 5** at 90.1 s. Driving away from the police is worse than parking.
+
+### #99 The `law` tenant owns the headline during a mission, and on `ambush` it says the opposite (A#3)
+Headline ownership while a stage was live, over two `shakedown` runs from the board with full crowd
+and fleet (both PASSED, stage totals byte-identical): seed 1 mission 9.8 s / law 24.3 s, seed 5
+9.4 / 24.7 — **law owns 71-72% of the first mission in the game.** Both runs knocked a pedestrian
+down 4.2 s after the first objective appeared, driving the game's own route line at 15 m/s.
+
+On the flagship it is worse than a share, it is a contradiction: parked on `ambush` at the 2 stars
+the stage itself grants, with no crime, the band showed only `LOSE THEM` then `BUSTED IN — 4/3/2/1/0
+s` and the mission was lost at **14.6 s**. `ambush` is the one stage with no waypoint, so stopping
+to read the band is the natural move, and it is punished inside 15 s. In 3 of 5 flagship runs the
+line read `STOP AT THE SCENE — 85 m` over `still on: LOSE THEM` for 6.43 / 8.32 / 14.00 s.
+
+The `still on:` subtitle is doing the right thing. What inverts is the precedence, on the one stage
+whose point is not to stop.
+
+### #100 A player heading for the flagship is conscripted into the tutorial (A#1)
+Reproduced geometrically at HEAD and it is worse than reported. **Both** mission offer centres sit
+essentially ON a road centreline:
+
+    marlin-street   0.22 m from a centreline, ring radius 12 m -> a car on it crosses 24.0 m of ring
+    shakedown       0.01 m from a centreline, ring radius 12 m -> a car on it crosses 24.0 m of ring
+
+A measured the consequence: `driveTo(flagship)` from the spawn arrived in 52.2 s over 454 m and
+**`shakedown` started at t~13.75 s**; the same route passes 1.4 m from shakedown's first objective
+marker, so on arrival at the flagship the player is on shakedown's FINAL stage reading `NOW THE
+MARINA — 500 m`, pointing 539 m back. 3 of 8 compass routes 400 m out pass inside the ring. Parked
+dead on the flagship marker, 3.2 m inside a 12 m ring, for 30 s: `offer: null`, nothing starts,
+because offers are only evaluated when nothing is running.
+
+**And there is no way out:** 300 s parked mid-mission leaves `outcome running`, and no `look()`
+field matches /abort|decline|cancel|abandon/. Only complete, wreck, or arrest. Cost of choosing the
+flagship first: ~1,450 m of driving to reach a marker 455 m away.
+
+### #101 `ambush`'s 240 s clock has no representation, and expires into a stage nothing reached (A#4)
+`secondsLeft` is 237.933 at entry. Over 237.9 s of running it down the band showed two line
+families — `mission: LOSE THEM` and `law: PROPERTY DAMAGE` — and **no countdown and no number**.
+The only moving `look()` field is `wantedNote`, which is about the police, not the clock. It does
+expire and `dropHot` works (1 of 3 seeds reached it, at 237.9 s, band `DELIVER THE PARCEL — THEY ARE
+STILL BEHIND YOU — 241 m` / `No more time. Get it to the marina.`) — so the objective changes under
+the player saying "No more time" on a deadline never shown.
+
+### #102 The fence band names the one control that does not work (B#9)
+34.0 m out, at rest, 30 s of full throttle, **wheel straight**: nose-off 0-89 deg -> 0.1 m;
+91 deg -> 1.1 m; 100 deg -> 11.4 m; 135 deg -> 135.2 m at 105 km/h; 180 deg -> 162.7 m. **Full lock:
+every angle including 180 deg -> under 7.7 m.** Reverse straight -> **210.9 m home**.
+
+So the fence does NOT strand you — B could not get stuck, which is the thing the last round fixed —
+but nothing forward works until the nose is past 90 deg, and you cannot get the nose past 90 deg by
+driving forward. The only exit is reverse, and the band reads `TURN BACK` / `the district ends here —
+34 m out` while the wedged tenant one priority away already knows the word: `THE CAR IS WEDGED` /
+`reverse`. **B reversed itself here too** — its first sweep used full lock at every angle, read
+under 0.4 m everywhere, and had written "the fence cannot be driven out of at any forward angle".
+
+### #103 Every pedestrian strike up to 59 km/h is the same one star (B#7)
+Single victim isolated: 23.7 / 43.5 / 51.7 / 58.8 km/h all file `pedestrianHit` at heat **exactly
+1.0000, 1 star**, while `pedCrimeScale` rises **0.0169 -> 0.3328, x19.7**. 67.7 km/h -> fatal, 2★.
+97.9 km/h -> 3★. The `min: 1` floor hides the whole graduated range until the scale passes 0.5
+(~62 km/h), so what a player sees is a step function: no-hit -> 1 star -> fatal at 62-68 km/h.
+
+Same shape for a civilian car (B#8): 20 -> 110 km/h gives heat 0.2280 -> 0.9400 and **stars 0 at all
+seven**, with your own car at health 0.000 by 70. The route to a star is leaving the scene — and
+that is **the best-communicated mechanic either reviewer found**: `STOP AT THE SCENE — 84 m` /
+`leaving is a second offence`, then `STOPPED AT THE SCENE` / `an arrest will not cost the job`;
+stop 60 s -> 0 stars, no arrest, 2 of 2.
+
+B also notes `reckless` (heat 0.40) is **never filed by anything**: 120 s, top 94 km/h, 40 swerve
+and handbrake events -> 0 impacts, 0 crimes, heat 0.0000.
+
+### #104 Knockdowns on the carriageway are 1.33-2.17 per km — not fixed (B#6)
+Four drives of 6.0 km, each knockdown classified by the car's distance from a centreline at the
+moment it happened: totals 2.17 / 2.67 / 3.67 / 2.00 per km, of which **on the carriageway (under
+4.5 m) 1.67 / 2.17 / 2.17 / 1.33 per km**. Individual hits at 0.2, 0.3, 0.6, 0.6, 0.7, 1.3, 1.3,
+1.6 m from the centreline — middle of the lane. A separate 10.0 km drive: 4.00 knockdowns/km, 8
+fatal, 94 crimes, 5★ at the end, 17 wrecks, 18 respawns. Knockdown speeds are **bimodal**: a cluster
+at 8.5-9.1 km/h, barely over the 8 km/h free threshold, and one at 50-76.
+
+The earlier "4.11 /km" entry was marked FIXED for a car on the road. At 1.33-2.17 /km on the
+carriageway it is improved and not fixed, and the restatement is owed.
+
+### #105 The run-over charge is correct and almost unreachable (B#10)
+Driving over the body you just knocked down at 14.5 / 22.5 / 32.5 / 47.5 / 58.2 km/h: `charged
+false` 5 of 5, heat stays 1.0000, while the scale graduates 0.0074 -> 0.3191. Coming back 35 s
+later: **vacuous 6 of 6, the body has got up.** The one route that works is kill at 75 km/h, wait
+36 s, drive over the corpse -> `charged true`, 1 star. A body stands up in ~4.4 s and the per-victim
+window is 20 s, so **a survivor can never be charged twice** and the only chargeable body is a
+fatality needing ~68 km/h.
+
+### REFUTED — braking for traffic is not worse than ignoring it (B#11)
+Round 8 measured "flat out at 40 km/h ignoring traffic: 0 rams, 519 m; lifting off for any car
+within 25 m: 6 rams, 357 m". B ran it as a registered pair, 5 seeds, same route: ignore -> 1010 m,
+**2 rams**, health 0.96; lift off -> 1010 m, **2 rams**, health 0.98. Identical in all five seeds,
+1.98 rams/km either way. **Caveat B states itself:** the lift rule fired on only 3% of frames, so
+this is weak evidence about braking and strong evidence that a car rarely gets within 25 m of the
+windscreen.
+
+### The four highest-heat crimes have never been played (B, "what I could not resolve")
+`tools/playtest.mjs`'s contact pass iterates the traffic fleet and the crowd and **not the pursuit
+units**, so `policeProperty`, `roadblockRun`, `officerAssault` and `officerDown` — the four
+highest-heat entries in the crime table — cannot be filed in the harness at all. B tried: 3 seeds x
+120 s steering at the nearest `enemy` blip at 4★ gave closest approaches of 16.26 / 22.27 / 21.30 m
+and **0 police-kind damage records** against 10,401-10,991 wall records. `district/main.js` does have
+that pass, so it is an instrument gap rather than a missing feature — but it means nobody has played
+that branch, and **#89 above leans on `policeProperty` being the one row an unclamped crime scale
+would break.** That claim is now known to rest on an untested branch.
+
+Side observation that IS about the game: steering by the enemy blip's bearing drove the car into
+buildings for 10,000+ damage records. The blip is a bearing with no road between you and it.
+
+### Smaller, with numbers
+- **67.67 s of completely blank band** (`null | null`) between shakedown ending and the flagship
+  starting, on the natural journey between them (A#11). Navigable — the waypoint points — but no text.
+- **`drop` bounces back to `ambush` in one frame at 2 stars**, and one civilian collision reads 2
+  stars, so a single scrape on the delivery leg costs another 55-190 s chase (A#11).
+- **`MISSION FAILED` is 6.000 s but in TWO spells**, 1.050 s then 4.000 s of `THE CAR IS WRECKED`
+  interrupting it then 4.950 s (A#9). Better than the 1.9 s previously recorded, and not one read.
+- **Which of two words a player sees depends on the stage.** `healthBelow` exists only on `ambush`,
+  `drop` and `dropHot`; on `eastbound` the same 49 km/h hit gives `MISSION ABORTED | the car is
+  wrecked` instead of `MISSION FAILED` (A#9).
+- **A failed job can be retaken and the latch is correct**, but for the 60 s before you leave, the
+  band reads `MARLIN STREET | ... — 1 m`, offering a job that cannot start until you leave and
+  return (A#11).
+- **No "nearly there" state at the garage**: repaired at 0.01/6.00/11.00/11.90 m, nothing at
+  12.11 m and no garage line at all — the cue is binary at 12 m (A#7).
+- **No route line to the garage**, only a blip bearing (A#7). With a damaged car at the spawn the
+  waypoint still points at `shakedown`, and driving to the garage from the spawn therefore starts
+  the tutorial — #100 again, through a second door.
+
+### What both reviewers confirmed WORKS, with numbers
+The garage dwell and all five of its refusals (A#7); the wedged cue, 8 of 8 on genuinely pinned
+arms and **0 of 13 false positives** on arms that slid along the wall, with reverse recovering
+131.69 m against 0.52 m forward (A#8); `shakedown`'s opening read correctly both on foot (stage `a`
+holds 720 of 720 frames reading `GET IN THE CAR — 8 m`) and driving in (0 frames, never says it)
+(A#10); `drop` now holds **72.60 s over 626-722 m** where a previous round measured 0.033 s (A#4);
+the arrest itself, **24 of 25 arrested in 7.7-19.9 s** across 1★-5★ including 5 of 5 on foot (B#12);
+the bust countdown in SECONDS with the right unit in every arm (both); the pure decay ladder
+byte-identical over 5 seeds at 251 m from any road — 1★ 12.1 s, 2★ 30.1, 3★ 56.1, 4★ 90.1, 5★ 134.1,
+exactly the cumulative cooldowns (B#12); the throw model exact to 0.04 m at six speeds (B#7); and
+**no dead end found** — five worst service alleys, 40 s of full throttle into each, got out of all
+five, 18.7-137.1 m recovered (B#12).
+
+The car's handling numbers all hold: 0-50 in 3.092 s, 0-100 in 7.800 s, brakes 11.36 m/s2, coasting
+58.7 s to 1 km/h (A#12). A's own earlier top-speed and coasting figures are recorded **void** — that
+run hit a wall at 199 m.
+
+### And the damage ladder does not reproduce at the quoted speeds (A#5) — unresolved
+Nine arms, one wall, head-on along its own normal, standoff sized to the speed, all nine recording a
+contact with impact speed and charged delta-v printed:
+
+    at impact   charged dv   dv/closing   health      previously quoted
+      9 km/h      2.72         1.09       0.987
+     19           5.93         1.12       0.839       20 -> 0.94
+     24           7.50         1.13       0.727
+     39          12.29         1.13       0.223       40 -> 0.67
+     49          15.49         1.14       WRECKED
+     59          18.68         1.14       WRECKED     60 -> 0.21 ; 90 -> wrecked
+
+Smooth curve, `dv/closing` a tight 1.09-1.14 — but the old pairs land on A's curve at about **two
+thirds of the stated speed**. A explicitly declines to call it a regression because it could not
+isolate: yawing the body scrubbed the velocity off through the tyres and **8 of 10 arms never
+reached the wall** (impact speeds 0-2 km/h). The subject resisted the instrument. **The next round
+should compare charged delta-v, not the speedometer**, and A's are above.
+
+The mission consequence is independent of which curve is right: 49 km/h is a write-off and `ambush`
+is driven at 58-79 km/h, so any head-on at chase speed ends the mission — **3 of 5 flagship runs and
+2 of 5 evade runs ended by wrecking**, not by a mission rule.
+
 ## Missions and driving — playtest round 8
 
 ### The flagship's chase stage is LOST by obeying the HUD and WON by ignoring it — FIXED

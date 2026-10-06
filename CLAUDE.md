@@ -512,6 +512,19 @@ has a floor and no cap, so it is the single row the scale reaches linearly: 180 
 session. So unclamping would have moved nothing where the entry said it would and broken the one
 place it was not looking.
 
+**AND THAT ROW HAS NEVER BEEN PLAYED, which a round-10 playtester established while I was writing
+this.** `tools/playtest.mjs`'s contact pass iterates the traffic fleet and the crowd and NOT the
+pursuit units, so `policeProperty`, `roadblockRun`, `officerAssault` and `officerDown` — the four
+highest-heat entries in the crime table — cannot be filed in the harness at all. They tried: 3 seeds
+x 120 s steering at the nearest `enemy` blip at four stars gave closest approaches of 16.26 / 22.27
+/ 21.30 m and **0 police-kind damage records** against 10,401-10,991 wall records. `district/main.js`
+does have that pass, so it is an instrument gap and not a missing feature.
+
+The conclusion above stands — the 175.3 is arithmetic off the crime table, not a play measurement —
+but **the sentence "it would break the one place it was not looking" rests on a branch nothing has
+exercised**, and that is worth knowing before anybody leans on it again. Saying which of your own
+claims sits on untested ground is cheaper than having somebody else find out.
+
 Three things to carry:
 
 - **Measure what a saturation COSTS before fixing it.** "The scale is flat above 44.5 km/h" and
@@ -2395,6 +2408,83 @@ shader line and the subject list without it.
 other turned a 128x56 box into 344x684 — 235,296 px of mostly road and sky. It announced itself,
 because the p50 came back **0.0000** on a sunlit bonnet, which is the good case. Convert at the
 boundary and check `n` against the box you meant.
+
+## Two protocols agreeing is the only cross-check worth having, and round 10 got one for free
+
+`tools/arrest-band.mjs` measured a stalemate — a stationary wanted player between 28 m and the
+star's sight radius can neither be arrested nor escape — by PLACING one seed at nine distances
+through the play harness. A blind playtester, briefed on the gameplay surface and told nothing
+about it, measured the same thing by DRIVING five seeds to seven distances:
+
+    off-road   arrested/5   escaped/5   stuck/5      mine, one seed
+      2.7 m        5            0          0         8.0 m arrested
+     20.7 m        5            0          0        22.9 m arrested
+     32.6 m        0            0          5        37.8 m stuck
+     80.6 m        0            0          5        97.3 m stuck
+    128.2 m        0            5          0       185.9 m escaped
+
+Different protocol, different seeds, different star level, same three bands with their edges on the
+same two constants. That is the independent second protocol this file already demands for the
+shadow bill, arriving because the round measured a thing and then asked somebody else to play it.
+
+**And they measured the half I could not.** My probe reports busts and stars; they report what the
+player SEES — the band objective is `null` for the whole 180 s, the escape clock resets 1-5 times
+over 240 s and the best it ever reaches is **4.7 s of the 34 s needed**, and the only moving cue is
+the star note cycling `SEEN -> EVADING 34s -> EVADING 33s -> SEEN`, 21 distinct states in 180 s. A
+measurement of the mechanism and a measurement of the experience are different measurements.
+
+The brief is what made it independent: it named the systems and the method and said what NOT to
+file, and it did not mention the band. **Do not tell a playtester what you already found** — a
+confirmation from somebody who was looking for it is worth much less than one from somebody who was
+not.
+
+## A finding whose own numbers refute a simpler version of itself
+
+Round 10's second playtester reversed four of its own readings and recorded both versions. Three of
+the four are the same shape and it is worth naming, because each wrong version printed a clean table:
+
+- **A straight-line throttle sweep measured POSITION, not speed.** Testing whether motion defeats
+  the arrest, the first arm held a throttle and read 0 of 3 arrested at every value — because the
+  car had driven 259 m away, out of the pursuit's reach entirely. The second circled on FULL LOCK
+  and read 3 of 3 at every value — because full lock caps the car at 1.5-2.5 km/h, under the
+  threshold. Only the third, steering from the car's own `R_min(v)` so the circle is 25 m and the
+  speed is the variable, isolates it: **2.8 km/h arrested 3 of 3, and 4.8 km/h and up 0 of 3.**
+- **A fence sweep at full lock read "no forward angle escapes".** The lock was the confound; with
+  the wheel straight, 135 degrees of nose-off covers 135.2 m. The real finding is narrower and
+  more useful: nothing forward works until the nose is past 90 degrees, and you cannot get the nose
+  past 90 degrees by driving forward.
+- **A repeated-impact arm read "buildings can never make you wanted".** It reversed 25 m between
+  hits, about 40 s, and `idleBleed` at 0.09/s wins that race. It is the GAP that decides: two taps
+  3.04 s apart are a star, 10.1 s apart are not.
+
+In all three the first instrument varied something other than the intended term, and this file's
+"isolate one term at a time" is the rule — but the operational version is sharper: **say out loud
+which quantity your control holds fixed, and then measure that it held.** The circle arm is
+trustworthy because it reports a 50 m position drift beside the speed.
+
+## A frame counter is not an event counter, and one of them is 368x the other
+
+`stats.runOvers` is incremented per PHYSICS FRAME in which the car overlaps a body. Over a 10 km
+drive it read **3,684** — 368 per kilometre — while the number of distinct CHARGED run-overs on the
+same drive was **0**. A round quoting the first as "run-overs" would be out by three orders of
+magnitude and in the flattering direction for a severity claim and the damning direction for a
+frequency one.
+
+The playtester caught it by asking the other question — "how many were charged" — and the two
+numbers could not both be about events. **When a counter and a charge disagree by orders of
+magnitude, one of them is counting frames.** Name such a field for what it counts.
+
+## `pkill -f PATTERN` matches the shell running it, exactly as `pgrep` does
+
+This file's Captures section records the `pgrep -f` trap: the waiting shell has the pattern in its
+own argv and finds itself for ever. A round-10 playtester hit the same trap through `pkill`, where
+it is worse than a hang: `pkill -f "D4-flatout"` matched the shell running the very command that
+contained that string, **killing it mid-heredoc so a scenario file was silently never written**, and
+taking two sibling background jobs with it.
+
+So the rule applies to the whole family and the consequence differs: `pgrep` spins, `pkill` kills
+the thing asking. Use a pattern that cannot match itself — `pkill -f "[D]4-flatout"` — or a pid you
+captured.
 
 ## When a reviewer is wrong
 
