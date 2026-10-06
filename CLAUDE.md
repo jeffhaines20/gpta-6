@@ -1871,6 +1871,43 @@ Two method notes, both of which cost a wrong bound first:
   three under it. The measured range is more useful than the guess precisely because it is bounded
   at BOTH ends, and that is what makes "too flat" a finding rather than a feeling.
 
+### The two sweeps that answer it were already captured, and no round had read them this way
+
+`docs/shots` carried both: `ga*` scales the glazing albedo at fixed metalness, `ge*` scales the
+glazing's own environment gain. Neither needed a new capture — ten minutes of `car-pane` against
+frames that had been sitting there, against a question nobody had the reference band to ask.
+
+**The albedo is nearly exhausted.** Windscreen median/paint at noon: x1 0.0167, x0.33 0.0145,
+x0.14 0.0135, **x0.00 0.0127**. Zeroing the albedo entirely moves it by 0.0040, so 76% of the pane
+is already the environment reflection. Reaching the 0.164 target on diffuse alone needs about x37
+— a linear albedo near 0.19, a frosted panel. `carbody.js`'s own comment had predicted exactly
+this case and written down what it would mean: "no albedo setting fixes it".
+
+**The environment gain is the lever and it reaches the band.**
+
+    carGlassEnv      0       1       2       3       5
+    windscreen    0.0167  0.0368  0.0619  0.0916  0.1616     target median 0.164
+    backlight     0.0320  0.0728  0.1217  0.1767  0.2946     target band 0.137-0.333
+    modulation     1.207   1.257   1.284   1.275   1.269     real glass 1.56-2.25
+
+**And the same table says the lever only fixes half the defect.** The modulation does not move:
+1.207 to 1.269 across a gain that multiplies the median nearly tenfold. A gain scales the whole
+pane, so it turns a flat dark pane into a flat brighter one. The floor is reachable and the LIFE
+is not, and that needs structure in what the pane reflects rather than more of it — which is where
+`carbody.js` had already arrived from the other direction, "the lit shopfronts reaching the
+environment, which a sky-only PMREM cannot carry".
+
+Two cautions that keep this from being over-read:
+
+- **Three panes, one uniform knob.** The side pane's median is already 0.2506, so any gain large
+  enough to lift the windscreen pushes the side pane out of the band. The knob cannot be aimed.
+- **Incidence is part of the subject.** The census measured real side glass at roughly FACE-ON
+  incidence, and the shipped windscreen is close to face-on in this frame, so that comparison is
+  like-for-like. The shipped SIDE pane is seen at a GRAZING angle, where real glass reads brighter
+  than the census band — so its 0.2506 should not be called "in band" with confidence. A reference
+  measurement at grazing incidence is the missing number, and it is the same lesson as the pane
+  names: a ratio needs its geometry quoted beside it, not just its value.
+
 ## When a reviewer is wrong
 
 Blind reviewers here measure before judging and are usually right, but not

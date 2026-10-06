@@ -132,6 +132,53 @@ inside the glass on `cumS1` and almost entirely on BODY PANEL on `cumS3`, where 
 different shell with a shorter greenhouse. It carries an `onlyTags` scope and the runner skips the
 arms it is not valid for, with a printed reason.
 
+### THE LEVER, isolated against two sweeps that were already captured and never read this way
+
+Both sweeps exist in `docs/shots` and needed no new capture — `ga*` scales the glazing albedo at
+fixed metalness, `ge*` scales the glazing's own environment gain. Measured with `car-pane`:
+
+**The albedo is nearly exhausted.** Windscreen median/paint at noon, over the whole albedo range:
+
+    gaShip x1   0.0167      gaA014 x0.14  0.0135
+    gaA033 x0.33 0.0145     gaA000 x0.00  0.0127
+
+Zeroing the albedo ENTIRELY moves it by 0.0040 — **76% of the pane is already the environment
+reflection**, present with no albedo at all. Reaching 0.164 on the diffuse term alone would need
+roughly x37, a linear albedo near 0.19, which is a frosted panel and not glass. That is the case
+`src/carbody.js`'s own slot-10 comment predicted: "no albedo setting fixes it".
+
+**The environment gain IS the lever, and it reaches the band.** Same pane, same statistic:
+
+    carGlassEnv      0       1       2       3       5
+    windscreen    0.0167  0.0368  0.0619  0.0916  0.1616
+    backlight     0.0320  0.0728  0.1217  0.1767  0.2946
+    modulation     1.207   1.257   1.284   1.275   1.269
+
+Monotonic, near-linear, x9.7 on the windscreen across the range, and **ge5 lands the windscreen on
+0.1616 against a target median of 0.164**. It is per-slot (`ENV_GAIN_SLOTS` is the glazing alone),
+so it does not touch the paint.
+
+**But it does not fix the other half, and the sweep says so plainly: the modulation does not
+move.** 1.207 to 1.269 on the windscreen and 1.056 to 1.033 on the backlight, against real glass
+at 1.56-2.25. A gain multiplies the whole pane, so it lifts a flat pane to a brighter flat pane. A
+window that reads as a window needs STRUCTURE in what it reflects, which is the same conclusion
+`carbody.js` reached by a different route — "the lit shopfronts reaching the environment, which a
+sky-only PMREM cannot carry".
+
+**And one tension that is not resolved**: the side pane's median is already 0.2506, inside the
+band, so any uniform gain large enough to bring the windscreen up pushes the side pane out of it.
+Three panes, one knob, and the knob is uniform.
+
+**A caveat on the comparison, stated because it is load-bearing.** The census measured real SIDE
+glass at roughly face-on incidence. The shipped windscreen is also close to face-on in this frame,
+so that comparison is like-for-like; the shipped SIDE pane is seen at a grazing angle, where a real
+window would read brighter than the census band, so its 0.2506 should not be read as "in band" too
+confidently. A reference measurement of glass at grazing incidence is the missing number.
+
+Also: the absolute level of the `ge` sweep does not match the shipped `cum` frames — ge0 reads
+0.0167 where `cumS1-r9cum` reads 0.0201 — because the sweep's base holds other car terms off. The
+sweep gives the SLOPE reliably; the shipped operating point has to be read off the shipped build.
+
 ### #91 FIXED — the target is a table with a source now, which is what was actually missing
 Both modules' comments were right about the reference and neither had a DISTRIBUTION or a SOURCE,
 so there was nothing for the code to be wrong against. `reference/sarasota/car-colour-census.json`
