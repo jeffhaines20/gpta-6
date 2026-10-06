@@ -24,7 +24,19 @@ import { rng, hash32 } from './facades.js';
 // The vehicle response, MEASURED rather than derived. See SHUNT_DECEL below; roadpath-test
 // re-measures every field of it against src/vehicle.js and fails if one moves.
 import { RESPONSE } from './roadpath.js';
-import { paintFamily } from './carpaint.js';
+import { paintFamily, paintTone, ACHROMATIC_SHARE } from './carpaint.js';
+
+/**
+ * The lightness a CHROMATIC car is drawn at, as a module constant so a gate can read it.
+ *
+ * DELIBERATELY UNCHANGED while the achromatic tone moved, which is this project's "isolate one
+ * term at a time". A red car and a blue one are mid-tone whatever the achromatic split does, and
+ * the measured defect was that 64.6% of the real population had no tone at all - not that a red
+ * car was the wrong red. It is a constant rather than a literal because the parked pool declares
+ * a DIFFERENT one (0.26..0.66) and nobody had noticed the two fleets disagree; `paint-tone` reads
+ * both and prints them side by side so the next round can decide that on purpose.
+ */
+const CHROMATIC_L = [0.34, 0.60];
 
 // Intelligent Driver Model. Standard, stable, and it produces the stop-and-go
 // platooning that makes traffic read as traffic rather than as beads on a wire.
@@ -462,15 +474,25 @@ export class Traffic {
     this.cars = new Array(this.count).fill(null);
     for (let i = 0; i < this.count; i++) {
       // Same fleet distribution as the parked pool in streetfurniture.js, and
-      // for the same two reasons: the reference photographs of Main Street are
-      // overwhelmingly white, silver, grey and black, and instanceColor
-      // multiplies the vertex colour, so a saturated body would tint its own
-      // alloy rims. Uniform random hue at saturation 0.32-0.62 was a fairground.
-      // Lightness range unchanged from the hue-wheel version; only hue and
-      // saturation move. See the note in streetfurniture.js.
+      // for the same reason: the reference photographs of Main Street are
+      // overwhelmingly white, silver, grey and black. Uniform random hue at
+      // saturation 0.32-0.62 was a fairground.
+      //
+      // THE SECOND REASON THIS COMMENT USED TO GIVE IS GONE, and which one it
+      // was is worth keeping: "instanceColor multiplies the vertex colour, so a
+      // saturated body would tint its own alloy rims". That was true, and it is
+      // now confined to palette slot 0 by src/carbody.js's paint-slot tint - so
+      // the achromatic majority is here because the census says so, and no
+      // longer because the renderer left no other way out.
+      //
+      // TONE COMES FROM src/carpaint.js NOW. The old `0.34 + r * 0.26` is a
+      // LINEAR albedo range of x1.77: no white car, no black car, 64.6% of the
+      // real population with no tone at all. Same two draws in the same order -
+      // the first picks the branch and carries the achromatic saturation, the
+      // second carries the tone where it used to carry a flat lightness.
       const r = this._r();
-      const l = 0.34 + this._r() * 0.26;
-      if (r < 0.66) color.setHSL(0.58, 0.012 + r * 0.045, l);
+      const u = this._r();
+      if (r < ACHROMATIC_SHARE) color.setHSL(0.58, 0.012 + r * 0.045, paintTone(u).l);
       else {
         /**
          * THE CHROMATIC THIRD, from src/carpaint.js's measured table rather than from the wheel
@@ -486,7 +508,8 @@ export class Traffic {
          * always was, scaled by the family.
          */
         const paint = paintFamily(this._r());
-        color.setHSL(paint.h, (0.26 + this._r() * 0.18) * paint.sat, l);
+        color.setHSL(paint.h, (0.26 + this._r() * 0.18) * paint.sat,
+          CHROMATIC_L[0] + u * (CHROMATIC_L[1] - CHROMATIC_L[0]));
       }
       this._setColorAt(i, color);
     }

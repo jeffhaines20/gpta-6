@@ -274,6 +274,67 @@ export function glassEnv() {
   return { extra: GLASS_ENV.uGlassEnvExtra.value,
     gainOnGlass: 1 + GLASS_ENV.uGlassEnvExtra.value, gainElsewhere: 1 };
 }
+
+/**
+ * INSTANCECOLOR IS THE PAINT'S COLOUR, SO IT APPLIES TO THE PAINT AND TO NOTHING ELSE.
+ *
+ * `instanceColor` multiplies the vertex colour of EVERY vertex of an instance, and that is what
+ * keeps 30 parked cars and a 30-car fleet in one draw call each. It is also wrong for every
+ * surface on the car that is not painted. A number plate is retroreflective white on a black car
+ * and on a white one; a tyre is black on both; an alloy rim is aluminium on both. Under the
+ * multiply they were all the body's colour, scaled by the body's tone.
+ *
+ * It had been measured and filed twice and not connected:
+ *
+ *   - the plate reaches **x0.41** of a real plate's ~0.80 reflectance (docs/BACKLOG.md #1). The
+ *     authored vertex colour is 0.7317 with headroom to 1.0, so the vertex colour is not what
+ *     binds - the instanceColor luma is, and even a vertex colour of 1.0 caps the plate at x0.66.
+ *   - BOTH fleets' comments justified a mostly-achromatic population partly on the grounds that
+ *     "a saturated body tints its own alloy rims" and "there is no per-instance escape from that
+ *     inside one InstancedMesh".
+ *
+ * There is an escape and it costs nothing: the slot is already in `uv.x`, because that is how the
+ * palette is indexed. `paletteU(i)` is `(i + 0.5) / 16`, so `floor( uv.x * 16 )` IS the slot, in
+ * the vertex shader, from the same number the material reads its roughness and metalness with.
+ * A vertex cannot disagree with itself about which slot it is on.
+ *
+ * SLOT 0 ONLY, AS A RULE RATHER THAN A LIST. "The paint slot is tinted and nothing else is" needs
+ * no set to maintain and cannot fall out of step with a slot somebody adds later - the recurring
+ * shape of defect in this repo is a fix applied to one member of a family and not its siblings.
+ * Every other slot's authored colour is already an absolute statement about a real material.
+ *
+ * WHAT THIS CHANGES, in the two places it is biggest, and both are the TRAFFIC car agreeing with
+ * the PLAYER'S car for the first time. The player's car is not instanced, so its vertex colours
+ * have always been absolute, and two blind reviewers scored it the best asset in the frame:
+ *
+ *     plate     player 0xdadfe2 -> 0.7317     traffic 0xdadfe2 -> 0.7317 x instanceColor ~0.47
+ *     headlamp  player 0xf2f4f6 -> 0.9035     traffic 0xf7fafe -> 0.9530 x instanceColor ~0.47
+ *
+ * The authored colours were already the same to within 5%; the multiply was the whole difference,
+ * and it was a factor of two nobody had put side by side. So this is not a new look chosen here -
+ * it is the ambient fleet rendering the materials it already declares.
+ *
+ * THE LAMP SPILL IS THE ONE THING THAT MUST STAY TINTED, and it does, by construction.
+ * `src/traffic.js` writes `setColorAt(i, setScalar(f))` on the glow mesh to carry a per-car
+ * BRIGHTNESS rather than a paint colour, and every vertex `buildCarGlowGeometry` emits is on
+ * SURFACE.paint - the pools and the halos both. So slot 0 staying tinted is what keeps the
+ * headlamp pools working, and a future vertex on another slot in that geometry would silently
+ * stop responding to it. `tools/paint-census.mjs` asserts the glow geometry is entirely slot 0,
+ * and asserts in the same breath that a real share of the CAR is not - a rule confining the
+ * tint to slot 0 does nothing at all if everything is slot 0, and that check would pass.
+ *
+ * SHIPPING AT 1, AND 0 IS BIT-EXACTLY THE OLD BUILD. `mix(vColor, color, 0)` is `vColor`, so an
+ * arm that sweeps this back to 0 reproduces the previous build rather than approximating it -
+ * the same property `uGlassEnvExtra` was given for the same reason.
+ */
+const PAINT_TINT = { uPaintTintOnly: { value: 1 } };
+export function setPaintTintOnly(k) {
+  PAINT_TINT.uPaintTintOnly.value = Math.min(1, Math.max(0, k));
+  return paintTintOnly();
+}
+export function paintTintOnly() {
+  return { value: PAINT_TINT.uPaintTintOnly.value, tintedSlot: SURFACE.paint, slots: PAL_W };
+}
 /**
  * Rewrite the headlamp's roughness/metalness on the live palette.
  *
@@ -550,6 +611,12 @@ const EMISSIVE_DECL = 'vec3 totalEmissiveRadiance = emissive;';
 // material's shader, so a plain replace is unambiguous - the same argument
 // EMISSIVE_DECL's note makes.
 const IBL_DECL = '#include <lights_fragment_maps>';
+// Where three builds `vColor` out of the vertex colour and the instance colour. It is top-level
+// in meshphysical_vert - unlike the IBL line above, which cost a round by being inside a chunk -
+// and `vColor` is a varying, so it is WRITABLE here and read-only in the fragment shader. That is
+// why the paint-slot tint lives in the vertex shader: the alternative is replacing three's own
+// `color_fragment` chunk, which would silently drop whatever else that chunk ever does.
+const COLOR_VERTEX_DECL = '#include <color_vertex>';
 function patchLensFalloff(m) {
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uLensEdge = LENS_PROFILE.uLensEdge;
@@ -562,6 +629,24 @@ function patchLensFalloff(m) {
     if (!shader.fragmentShader.includes(IBL_DECL)) {
       throw new Error('carSurfaceMaterial: lights_fragment_maps include not found; the glazing environment gain would silently no-op');
     }
+    if (!shader.vertexShader.includes(COLOR_VERTEX_DECL)) {
+      throw new Error('carSurfaceMaterial: color_vertex include not found; the paint-slot tint would silently no-op');
+    }
+    shader.uniforms.uPaintTintOnly = PAINT_TINT.uPaintTintOnly;
+    // THE PAINT-SLOT TINT. `paletteU(i)` is `(i + 0.5) / 16`, so `floor( uv.x * 16 )` is the slot
+    // this vertex points the palette at - exact in float32 for every slot, since (i + 0.5) / 16
+    // is a dyadic rational. step(0.5, slot) is 0 on slot 0 and 1 everywhere else, so the mix
+    // takes the instance-tinted colour on the paint and the authored one on every other surface.
+    // Guarded on USE_INSTANCING_COLOR as well as USE_COLOR because the player's car has no
+    // instance colour: there `vColor` already IS `color` and the mix is the identity, so the
+    // guard costs nothing and keeps the injection honest about what it needs.
+    shader.vertexShader = shader.vertexShader
+      .replace(COLOR_VERTEX_DECL, `${COLOR_VERTEX_DECL}
+#if defined( USE_COLOR ) && defined( USE_INSTANCING_COLOR )
+	vColor.xyz = mix( vColor.xyz, color.xyz, uPaintTintOnly * step( 0.5, floor( uv.x * 16.0 ) ) );
+#endif`)
+      .replace('void main() {', `uniform float uPaintTintOnly;
+void main() {`);
     shader.fragmentShader = shader.fragmentShader
       // THE PER-SLOT ENVIRONMENT GAIN. The alpha of the pack texture, sampled at
       // the SAME uv three samples roughness at, so it cannot drift from the slot
@@ -587,7 +672,10 @@ void main() {`)
   // old key means three hands back the previously compiled program and the change
   // silently does nothing - which is the exact failure the assertions above exist
   // to catch, arriving by a route they cannot see.
-  m.customProgramCacheKey = () => 'carLensFalloff3env';
+  // BUMPED AGAIN FOR THE PAINT-SLOT TINT: a new uniform and a new VERTEX injection. The two
+  // assertions above run inside onBeforeCompile, so they cannot see a compile that three skips
+  // because it already has a program under the old key.
+  m.customProgramCacheKey = () => 'carLensFalloff4tint';
   return m;
 }
 

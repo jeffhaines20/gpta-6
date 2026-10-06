@@ -1549,7 +1549,8 @@ linear in the mission's size, caught at x7.89 while passing the absolute bound a
 `reaction-test`, `sim-determinism`, `traffic-selftest`, `hud-cue`, `pursuit-test`,
 `car-shapes`, `crowd-bill --selftest`, `tri-buckets --selftest`, `gate-align --selftest`,
 `mutation-sweep --selftest`, `playtest --selftest`, `car-shapes --selftest`, `paint-census`,
-`glass-census` (needs a browser to decode the reference JPEGs; about 20 s).
+`glass-census` (needs a browser to decode the reference JPEGs; about 20 s),
+`paint-tone` (the same, about 1 s).
 The offline ones together take under a minute.
 
 `shadow-bill` needs a browser and takes about seven minutes; it is how a change is
@@ -1940,6 +1941,87 @@ clipped box. A subject that resists the instrument is a result; the dropped Chev
 file is the other half of that, where three placements read 0.006, 0.005 and 0.002 at modulations
 of 7.4, 7.3 and 11.3 and every one straddled a pillar or a shut line. Left in, its 0.002 would have
 widened the band by two orders of magnitude on the strength of a bad box.
+
+## `setHSL`'s colour space is the WORKING one, so an HSL lightness here is a LINEAR albedo
+
+Three rounds authored a car's paint lightness as if it were an sRGB level. It is not.
+`Color.setHSL(h, s, l, colorSpace = ColorManagement.workingColorSpace)` defaults to the working
+space, which this build runs as `srgb-linear`. `setHex`/`set`/`setStyle` default to sRGB and DO
+convert — `new Color().setHex(0x808080).r` is 0.2159 — while `setHSL(0, 0, 0.5).r` is exactly 0.5.
+`src/facades.js` passes `THREE.SRGBColorSpace` explicitly where it wants the other behaviour,
+which is the tell that somebody once knew.
+
+The consequence was the whole of #1's second half. `l = 0.34 + r * 0.26` reads like "mid-tone to
+light", and as a LINEAR albedo it is 0.34 to 0.60 — a span of x1.77 where a real white car over a
+real black one is about x17. Both fleets were a single mid grey and no round had noticed, because
+in sRGB terms 0.34..0.60 looks like a reasonable spread.
+
+**Check which constructor a colour came through before reading a number off it.** The two differ by
+a factor of 2.3 at mid grey and by 10x near black, which is exactly where a black car lives.
+
+## One frame is not one measurement: a within-frame ratio needs one LIGHT and one PANEL too
+
+`glass-census` takes glass over the paint beside it ON THE SAME CAR, so the illumination and the
+orientation cancel for free. Carrying that method across to two DIFFERENT cars does not work, and
+the size of the error is the finding:
+
+    white car / black car, linear luma, same frame, same parked row, rear face of each
+      open midday sun     0.5303 / 0.0313    x16.9
+      deep building shade 0.1693 / 0.0895    x1.89      the same measurement, x9.0 apart
+
+Nothing about the cars differs. What differs is that the shaded pair sits where the camera's
+pipeline lifts shadows, and **a lift compresses a ratio toward 1** — which makes a dim row's
+reading a FLOOR and not an estimate. (The sRGB OETF is itself a lift, which is why CLAUDE.md
+already insists on linear light; the camera's own curve is a second one that linearising cannot
+undo.) `paint-tone --selftest` proves the direction on synthetic input rather than arguing it:
+a true x16 reads x8.44 under a mild lift and x4.00 under a strong one.
+
+Two more rows were tried and thrown away, and both printed plausible numbers:
+
+- **A bonnet against a flank.** A bonnet sees the whole sky and a flank does not, so the ratio is
+  a measurement of the sky.
+- **A sunlit car against a shaded one in the same frame.** x1.84, and it was reading the shade.
+  The dark car also turned out to be dark BRONZE rather than black, which is the second half of
+  the same mistake — a family assigned from a thumbnail. It is kept in the tool, labelled
+  REJECTED with both reasons, because "the subject resisted the instrument" is a result.
+
+So the rule is three constraints, not one: **same frame** (one exposure), **same row** (one sun and
+one surround), **same panel** (one orientation and one incidence). And `--crop` writes the boxes
+over the image, because four of the six boxes in that file were moved at least once after their
+p10/p90 spread announced that they straddled a shut line, a taillight or the edge of a shadow.
+
+## Two defects that each make the other worse have to ship in one commit
+
+#1 ("the plate reaches x0.41 of a real one") and "the fleet has no white or black cars" were filed
+as separate entries and were one entry. `instanceColor` multiplies every vertex of an instance, so
+the plate carried the body's tone; widening the tone range to reach black therefore makes the plate
+*worse*, not better:
+
+    plate rendered, against a real plate's ~0.80     fleet tone span
+    before                   0.212 .. 0.482          x2.27
+    tone widened alone       0.023 .. 0.636          x27.30     x0.029 at the dark end
+    tint confined alone      0.7317 on every car     x2.27      correct plates, grey cars
+    both                     0.7317 on every car     x27.30     x0.915
+
+Shipping either half alone would have been a round that measured an improvement in one number and
+a regression in the other, and the regression is the one a player sees. **Before taking a lever,
+ask what else reads the quantity it moves** — here the answer was "every non-painted surface on the
+car", and it was already written down in both modules' own comments as the reason the fleet had to
+be grey.
+
+And the escape was free, because the slot was already in the geometry: `paletteU(i)` is
+`(i + 0.5) / 16`, so `floor( uv.x * 16 )` IS the palette slot, in the vertex shader, taken from the
+same number the material reads roughness with. **A rule beats a list** — "instanceColor applies to
+the paint slot and to nothing else" cannot fall out of step with a slot somebody adds later, which
+a `Set` of slot indices can and which is this repo's recurring shape of defect.
+
+**Two things that rule has to be checked against, and the second is the one that could have passed
+for nothing.** `src/traffic.js` writes `setColorAt(i, setScalar(f))` on the lamp-spill mesh to
+carry a per-car BRIGHTNESS rather than a colour, and that only keeps working because every vertex
+`buildCarGlowGeometry` emits is on slot 0 — a vertex of it on any other slot would silently stop
+responding to its own headlamps. And a rule confining the tint to slot 0 does NOTHING if the car is
+entirely slot 0, so the gate asserts both: the spill is 100% slot 0, and 59.2% of a traffic car is
+not.
 
 ## When a reviewer is wrong
 

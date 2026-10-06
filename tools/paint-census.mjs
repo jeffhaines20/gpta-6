@@ -14,7 +14,10 @@
 // THIS GATE EXISTS BECAUSE THE TABLE IS A CLAIM ABOUT PHOTOGRAPHS. Every other check over these
 // modules is about triangles or determinism and would stay green for any colours at all.
 import fs from 'node:fs';
-import { paintFamily, PAINT_FAMILIES, PAINT_EXCLUDED } from '../src/carpaint.js';
+import { paintFamily, PAINT_FAMILIES, PAINT_EXCLUDED,
+  paintTone, PAINT_TONES, ACHROMATIC_SHARE } from '../src/carpaint.js';
+import { buildCarGlowGeometry, buildTrafficCarGeometry, SURFACE,
+  paintTintOnly } from '../src/carbody.js';
 
 const checks = [];
 const check = (name, ok, detail) => { checks.push({ name, ok: !!ok, detail }); return !!ok; };
@@ -159,10 +162,10 @@ console.log('\n=== PAINT — the families, their weights, and the draw count');
     // point. See the source check below, which asserts the lift is still faithful.
     const _r = counting(seq);
     const r = _r();
-    const l = 0.34 + _r() * 0.26;
-    if (r < 0.66) return { h: 0.58, s: 0.012 + r * 0.045, l };
+    const u = _r();
+    if (r < ACHROMATIC_SHARE) return { h: 0.58, s: 0.012 + r * 0.045, l: paintTone(u).l };
     const paint = paintFamily(_r());
-    return { h: paint.h, s: (0.26 + _r() * 0.18) * paint.sat, l };
+    return { h: paint.h, s: (0.26 + _r() * 0.18) * paint.sat, l: 0.34 + u * 0.26 };
   };
   draws = 0; colourFor([0.2, 0.5]);            const achroDraws = draws;
   draws = 0; colourFor([0.9, 0.5, 0.3, 0.7]);  const chromDraws = draws;
@@ -232,49 +235,154 @@ console.log('\n=== PAINT — the families, their weights, and the draw count');
  * This section does not fix it — it MEASURES the gap and fails if it is ever closed silently, so
  * the next round starts from the number instead of re-deriving it.
  */
-console.log('\n=== LIGHTNESS — the half of the table nothing had looked at');
+console.log('\n=== TONE — the half of the table nothing had looked at, now measured');
 {
   const src = fs.readFileSync(new URL('../src/traffic.js', import.meta.url), 'utf8');
   const sf = fs.readFileSync(new URL('../src/streetfurniture.js', import.meta.url), 'utf8');
-  /** Read the range out of the SOURCE, never retyped: a probe that hardcodes it cannot see a fix. */
-  const rangeOf = (text, re) => {
-    const m = re.exec(text);
-    return m ? { lo: +m[1], span: +m[2], hi: +m[1] + +m[2] } : null;
-  };
-  const t = rangeOf(src, /const l = ([\d.]+) \+ this\._r\(\) \* ([\d.]+);/);
-  const f = rangeOf(sf, /const l = ([\d.]+) \+ \(\(h \* 7\) % 1\) \* ([\d.]+);/);
-  console.log(`  src/traffic.js          lightness ${t ? `${t.lo} .. ${t.hi.toFixed(2)}` : 'NOT FOUND'}`);
-  console.log(`  src/streetfurniture.js  lightness ${f ? `${f.lo} .. ${f.hi.toFixed(2)}` : 'NOT FOUND'}`);
-  check('both fleets state a lightness range this gate can read from the source',
-    t !== null && f !== null, `traffic ${JSON.stringify(t)}, parked ${JSON.stringify(f)}`);
 
   const keys = ['white', 'silver', 'black', 'red', 'blue', 'beige', 'green'];
   const tot = Object.fromEntries(keys.map((k) => [k, 0]));
   for (const fr of census.frames) for (const k of keys) tot[k] += fr[k];
   const n2 = keys.reduce((a, k) => a + tot[k], 0);
-  // Representative HSL lightness for each family, which is what the draw has to be able to reach.
+  const achroN = tot.white + tot.silver + tot.black;
+
+  /**
+   * THE ANCHORS ARE THE SAME TWO NUMBERS THE OLD KNOWN GAP WAS WRITTEN AGAINST, deliberately.
+   * This section used to assert that NEITHER fleet could reach them and would FAIL if the ranges
+   * were widened, so that whoever widened them had to come here and restate the bound. This is
+   * that restatement, against the same L~0.85 / L~0.15 it refused before — a gate is never
+   * loosened silently, and the cheapest proof that it was not is that the bound did not move.
+   *
+   * They are HSL lightness in three's WORKING colour space, which for an unsaturated colour is a
+   * linear albedo. A white car's paint is about 0.80 and a black car's about 0.05, so these are
+   * the loose end of each: anything over 0.85 is unambiguously a white car and anything under
+   * 0.15 unambiguously a black one.
+   */
   const WHITE_L = 0.85, BLACK_L = 0.15;
-  const unreachable = (100 * (tot.white + tot.black) / n2);
+  const toneLo = Math.min(...PAINT_TONES.map((t) => t.l0));
+  const toneHi = Math.max(...PAINT_TONES.map((t) => t.l1));
   console.log(`  the census: white ${(100 * tot.white / n2).toFixed(1)}%, ` +
     `silver ${(100 * tot.silver / n2).toFixed(1)}%, black ${(100 * tot.black / n2).toFixed(1)}%` +
     ` — a white car is L~${WHITE_L}, a black one L~${BLACK_L}`);
-  const reachesWhite = t.hi >= WHITE_L && f.hi >= WHITE_L;
-  const reachesBlack = t.lo <= BLACK_L && f.lo <= BLACK_L;
-  console.log(`  neither fleet reaches white (${t.hi.toFixed(2)}/${f.hi.toFixed(2)} against ` +
-    `${WHITE_L}) or black (${t.lo}/${f.lo} against ${BLACK_L}): ` +
-    `${unreachable.toFixed(1)}% of the real population has no tone in either draw`);
+  console.log(`  the table:  ${PAINT_TONES.map((t) => `${t.name} ${(100 * t.w).toFixed(1)}% ` +
+    `l ${t.l0.toFixed(3)}..${t.l1.toFixed(3)}`).join(', ')}`);
+  console.log(`  span ${toneLo.toFixed(3)} .. ${toneHi.toFixed(3)}, where the ranges this ` +
+    'replaced were 0.34..0.60 (traffic) and 0.26..0.66 (parked)');
+  check('RESTATED: the fleet can now draw a white car, which is 29.2% of the real population',
+    toneHi >= WHITE_L, `the table tops out at ${toneHi.toFixed(3)} against L~${WHITE_L}`);
+  check('RESTATED: and a black one, which is another 35.4%',
+    toneLo <= BLACK_L, `the table floors at ${toneLo.toFixed(3)} against L~${BLACK_L}`);
+  check('KNOWN-BAD: and the two ranges it replaced reached neither',
+    0.60 < WHITE_L && 0.66 < WHITE_L && 0.34 > BLACK_L && 0.26 > BLACK_L,
+    'traffic 0.34..0.60 and parked 0.26..0.66');
+
   /**
-   * ASSERTED AS A KNOWN GAP, not as a pass. The two checks below record the state and will FAIL if
-   * the ranges are widened — which is the point: whoever widens them has to come here, read the
-   * census, and restate the bound with the new numbers. A gate is never loosened silently.
+   * THE WEIGHTS ARE THE CENSUS'S OWN COUNTS. Not "roughly", to the percent — unlike the chromatic
+   * families, where n=10 could not support 50/40/10 and the table rounds toward the middle. Here
+   * n=55 and there is nothing to round away from.
    */
-  check('KNOWN GAP: neither fleet can draw a white car, which is 29.2% of the real population',
-    !reachesWhite, `traffic tops out at ${t.hi.toFixed(2)}, parked at ${f.hi.toFixed(2)}, ` +
-    `white is L~${WHITE_L}`);
-  check('KNOWN GAP: and neither can draw a black one, which is another 35.4%',
-    !reachesBlack, `traffic floors at ${t.lo}, parked at ${f.lo}, black is L~${BLACK_L}`);
-  check('so the gap is most of the achromatic population, which is most of the fleet',
-    unreachable > 50, `${unreachable.toFixed(1)}% unreachable`);
+  const want = { white: tot.white / achroN, silver: tot.silver / achroN, black: tot.black / achroN };
+  const worstW = Math.max(...PAINT_TONES.map((t) => Math.abs(t.w - want[t.name])));
+  console.log(`  weights against the census's own achromatic counts ` +
+    `(${tot.white}/${tot.silver}/${tot.black} of ${achroN}): ` +
+    PAINT_TONES.map((t) => `${t.name} ${t.w.toFixed(3)} vs ${want[t.name].toFixed(3)}`).join(', '));
+  check('the tone weights are the census counts to under a percentage point',
+    worstW < 0.01, `worst off by ${worstW.toFixed(4)}`);
+
+  /** Both call sites reach the table, and the parked pool is the sibling that got missed before. */
+  const usesTone = [['src/traffic.js', src], ['src/streetfurniture.js', sf]]
+    .filter(([, t]) => /paintTone\(/.test(t) && /ACHROMATIC_SHARE/.test(t));
+  check('both fleets draw their tone from the one table',
+    usesTone.length === 2, usesTone.map(([f]) => f).join(', ') || 'none');
+  check('and neither keeps its own flat lightness range any more',
+    !/const l = 0\.34 \+ this\._r\(\)/.test(src) && !/const l = 0\.26 \+ \(\(h \* 7\) % 1\)/.test(sf),
+    'no bare lightness literal in either colour block');
+  check('and neither keeps its own copy of the achromatic share',
+    !/\br < 0\.66\b/.test(src) && !/\bh < 0\.66\b/.test(sf),
+    `both read ACHROMATIC_SHARE = ${ACHROMATIC_SHARE}`);
+}
+
+/**
+ * === THE PAINT-SLOT TINT, which is what makes the range above safe to widen.
+ *
+ * `instanceColor` multiplies EVERY vertex of an instance, so before this the plate, the lamps,
+ * the rims, the tyres and the glass all carried the body's tone. At the OLD range that was a
+ * x2.27 error on the plate and it was filed as #1 at x0.41 of a real plate. At the NEW range it
+ * would have been a black plate on a black car — 0.0233 against a real plate's ~0.80, x0.029.
+ * So the two changes are one change, and this section is the half that cannot be seen in a
+ * colour histogram.
+ */
+console.log('\n=== THE PAINT-SLOT TINT — what instanceColor is still allowed to reach');
+{
+  const cb = fs.readFileSync(new URL('../src/carbody.js', import.meta.url), 'utf8');
+  const tint = paintTintOnly();
+  console.log(`  uPaintTintOnly ${tint.value}, tinted slot ${tint.tintedSlot} of ${tint.slots}`);
+  check('the tint is live in the shipped build, and it is the paint slot it keeps',
+    tint.value === 1 && tint.tintedSlot === SURFACE.paint, JSON.stringify(tint));
+
+  /** Which palette slot each vertex points at, read off the built buffer rather than the source. */
+  const slotsOf = (geo) => {
+    const uv = geo.attributes.uv;
+    const seen = new Map();
+    for (let i = 0; i < uv.count; i++) {
+      const slot = Math.round(uv.getX(i) * tint.slots - 0.5);
+      seen.set(slot, (seen.get(slot) ?? 0) + 1);
+    }
+    return seen;
+  };
+  /**
+   * THE LAMP SPILL MUST STAY TINTED, and it does only because every vertex of it is on slot 0.
+   * `src/traffic.js` writes `setColorAt(i, setScalar(f))` on the glow mesh to carry a per-car
+   * BRIGHTNESS rather than a colour — so a vertex of that geometry on any other slot would
+   * silently stop responding to the car's own headlamps, with nothing to see but a pool that no
+   * longer dims. This is the check for it, and it is the reason this section exists at all.
+   */
+  const glow = slotsOf(buildCarGlowGeometry({}));
+  const glowOff = [...glow.entries()].filter(([k]) => k !== SURFACE.paint);
+  console.log(`  buildCarGlowGeometry: ${[...glow.entries()]
+    .map(([k, n]) => `slot ${k} x${n}`).join(', ')}`);
+  check('every vertex of the lamp spill is on the paint slot, so its per-car brightness survives',
+    glowOff.length === 0, glowOff.map(([k, n]) => `slot ${k} x${n}`).join(', ') || 'all slot 0');
+
+  /**
+   * AND THE TINT HAS TO REACH SOMETHING. A rule that confines instanceColor to slot 0 does
+   * nothing at all if the car is entirely slot 0 — the check above would still pass, for the most
+   * flattering possible reason. So: how much of a traffic car escapes, and are the named surfaces
+   * #1 is about among them.
+   */
+  const car = slotsOf(buildTrafficCarGeometry({}));
+  const total = [...car.values()].reduce((a, b) => a + b, 0);
+  const painted = car.get(SURFACE.paint) ?? 0;
+  console.log(`  buildTrafficCarGeometry: ${total} vertices, ${painted} on the paint slot, ` +
+    `${total - painted} (${(100 * (total - painted) / total).toFixed(1)}%) escaping the tint`);
+  console.log(`    ${[...car.entries()].sort((a, b) => a[0] - b[0])
+    .map(([k, n]) => `${Object.keys(SURFACE).find((x) => SURFACE[x] === k) ?? k} x${n}`).join(', ')}`);
+  check('a real share of the car escapes the tint, so the rule is not a no-op',
+    total - painted > total * 0.1, `${(100 * (total - painted) / total).toFixed(1)}% of ${total}`);
+  /**
+   * The slot names are the TRAFFIC car's, not the player's, and the first version of this check
+   * had `rim` and read 0 vertices. Slot 9 is the player's alloy; the ambient fleet is on slot 13,
+   * `rimCoarse`, which exists precisely so that fixing the ambient fleet cannot touch the player's
+   * car. Reading the names off the built buffer rather than off an assumption is what caught it.
+   */
+  for (const name of ['plate', 'headlight', 'taillight', 'rimCoarse', 'tyre', 'glassy']) {
+    check(`and the ${name} is among them, which is what #1 was about`,
+      (car.get(SURFACE[name]) ?? 0) > 0, `${car.get(SURFACE[name]) ?? 0} vertices`);
+  }
+
+  /**
+   * THE INJECTION ITSELF. A shader change that silently matches nothing is this project's
+   * recorded failure mode — `onBeforeCompile` hands back unresolved includes, and the assertion
+   * inside the patch cannot run on a compile three skips because it already has a program under
+   * the old cache key. So: the seam is asserted in the source, and the key is asserted to have
+   * MOVED from the one the previous injection shipped under.
+   */
+  check('the shader asserts its own seam rather than replacing blind',
+    /color_vertex include not found/.test(cb), 'COLOR_VERTEX_DECL throw present');
+  check('the tint is derived from uv.x, which IS the palette slot, rather than from a list',
+    /floor\(\s*uv\.x \* 16\.0\s*\)/.test(cb), 'floor( uv.x * 16.0 )');
+  check('and the program cache key moved, or three would hand back the old program',
+    /carLensFalloff4tint/.test(cb) && !/'carLensFalloff3env'/.test(cb), 'carLensFalloff4tint');
 }
 
 console.log('\n' + '='.repeat(78));

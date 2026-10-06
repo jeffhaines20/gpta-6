@@ -62,7 +62,18 @@ import { buildTrafficCarGeometry, trafficCarMaterial, lampEmissive,
 import { buildingStyle } from './facades.js';
 import { signPlanFor } from './signage.js';
 import { streetDirFor } from './geom.js';
-import { paintFamily } from './carpaint.js';
+import { paintFamily, paintTone, ACHROMATIC_SHARE } from './carpaint.js';
+
+/**
+ * The lightness a CHROMATIC parked car is drawn at, as a module constant so a gate can read it.
+ *
+ * DELIBERATELY UNCHANGED while the achromatic tone moved - one term at a time. Note that this is
+ * NOT the range `src/traffic.js` declares (0.34..0.60): the two fleets have disagreed about the
+ * chromatic lightness for as long as both have existed, and nobody had put the two numbers side
+ * by side. `tools/paint-tone.mjs` prints both, so the next round can settle it deliberately
+ * rather than by patching whichever module it happens to be reading.
+ */
+const CHROMATIC_L = [0.26, 0.66];
 
 // ---------------------------------------------------------------- ground datum
 const PAD_Y = -0.05;        // streaming.js land pad, the surface the player sees
@@ -4835,25 +4846,35 @@ export class StreetFurniture {
       // hue wheel. reference/sarasota/mapillary shows Main Street's parked
       // population as overwhelmingly white, silver, grey and black with the
       // occasional red or blue; a hue swept uniformly round the wheel gave a
-      // fairground. Two thirds are now achromatic.
+      // fairground. Two thirds are achromatic.
       //
-      // It also matters to the WHEELS, and that is the real reason this moved.
-      // instanceColor MULTIPLIES the vertex colour, which is what keeps 30
-      // parked cars in one draw call - so a saturated body tints its own alloy
-      // rims, and the rim relief carbody.js now carries would have arrived as
-      // five red spokes on a red car. There is no per-instance escape from that
-      // inside one InstancedMesh; a fleet that is mostly achromatic is the
-      // escape. Still driven entirely by the slot hash, so placement and paint
-      // stay deterministic.
-      // LIGHTNESS IS DELIBERATELY UNCHANGED from the hue-wheel version it
-      // replaced - only hue and saturation move. The first cut also widened the
-      // lightness range, which repainted the probe's own pinned subject and made
-      // vGrad, spec and edges incomparable across the round: a confound I
-      // introduced into the very A/B I was running, in a commit whose whole
-      // point was to isolate one term at a time.
+      // THE WHEEL ARGUMENT THAT USED TO BE HERE IS SPENT, and it is worth
+      // recording what it was, because it was correct and load-bearing for a
+      // year: "instanceColor MULTIPLIES the vertex colour, which is what keeps
+      // 30 parked cars in one draw call - so a saturated body tints its own
+      // alloy rims, and the rim relief would have arrived as five red spokes on
+      // a red car. There is no per-instance escape from that inside one
+      // InstancedMesh; a fleet that is mostly achromatic is the escape."
+      //
+      // There IS a per-instance escape now, and it cost no draw call:
+      // src/carbody.js confines instanceColor to palette slot 0, so the rims,
+      // the plate, the lamps and the glass keep their own authored colours on
+      // every car. The achromatic majority stays because the census says 84.6%,
+      // which is a measurement rather than a workaround.
+      //
+      // AND THE LIGHTNESS MOVED, under the same argument the old comment used to
+      // refuse it. That comment said widening the range "repainted the probe's
+      // own pinned subject and made vGrad, spec and edges incomparable across
+      // the round" - true of a round whose subject was a pinned parked car, and
+      // spent now: the A/B it was protecting shipped two rounds ago, and what
+      // was left was a fleet that could not draw a white car or a black one.
+      // Tone comes from src/carpaint.js, measured; see paint-tone.
+      //
+      // Still driven entirely by the slot hash, so placement and paint stay
+      // deterministic, and still ONE remap of it, where there was one before.
       const h = s.hue;
-      const l = 0.26 + ((h * 7) % 1) * 0.4;
-      if (h < 0.66) this._pcol.setHSL(0.58, 0.012 + h * 0.045, l);
+      const u = (h * 7) % 1;
+      if (h < ACHROMATIC_SHARE) this._pcol.setHSL(0.58, 0.012 + h * 0.045, paintTone(u).l);
       else {
         /**
          * THE CHROMATIC THIRD, from src/carpaint.js — the same table src/traffic.js draws from,
@@ -4862,8 +4883,9 @@ export class StreetFurniture {
          * hash goes in where a raw hue used to; nothing else about this line moves, and the slot
          * hash is still the only input, so placement and paint stay deterministic.
          */
-        const paint = paintFamily((h - 0.66) / 0.34);
-        this._pcol.setHSL(paint.h, (0.26 + h * 0.18) * paint.sat, l);
+        const paint = paintFamily((h - ACHROMATIC_SHARE) / (1 - ACHROMATIC_SHARE));
+        this._pcol.setHSL(paint.h, (0.26 + h * 0.18) * paint.sat,
+          CHROMATIC_L[0] + u * (CHROMATIC_L[1] - CHROMATIC_L[0]));
       }
       mesh.setColorAt(li, this._pcol);
     }

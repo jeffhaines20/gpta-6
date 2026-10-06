@@ -42,48 +42,63 @@ and 75.3% behind their own bodywork). Still open: per-shell `CAR_LENGTH` in `tra
 own commit — 4.4 under-models the wagon by 0.289 m, and changing it perturbs the seeded traffic
 stream. Then re-put the "markedly improved" question.
 
-### instanceColor caps every light detail at the car's own paint — REPRODUCED, and the cause restated
-Measured off the built buffer and the shipped colour draw, no capture needed. The recorded x0.41
-reproduces: **x0.43 on an achromatic car, x0.37 on a chromatic one** (plate vertex colour 0.7317
-times an instanceColor luma whose fleet median is 0.469 and 0.407).
+### #1 FIXED, with the tone range it was entangled with — the plate goes x0.41 -> x0.915
+Two defects, one fix, because either alone makes the other worse.
 
-**But the stated cause is not the binding one.** "No vertex colour can raise it: body panels are
-already authored 0.995" is about the PAINT slot (0.42-1.00); the plate's own vertex colour is
-**0.7317**, with headroom to 1.0 — worth x0.59 on an achromatic car for free. What actually binds
-is the instanceColor luma itself, which over the whole fleet spans only **0.339 to 0.529**, so even
-a vertex colour of 1.0 caps the plate at x0.66 of a real one.
+**instanceColor multiplied EVERY vertex of an instance**, so a car's plate, headlamps, rims,
+tyres and glass all carried the body's colour and the body's tone. The recorded x0.41 reproduced
+exactly (plate vertex colour 0.7317 x a fleet instanceColor median of 0.4448 = 0.3255 against a
+real plate's ~0.80). The stated cause was not the binding one: "body panels are already authored
+0.995" is about the PAINT slot, and the plate's own vertex colour has headroom to 1.0 — what bound
+it was the instanceColor luma range.
 
-And that range is the real finding, below.
+**And neither fleet could draw a white car or a black one.** `l = 0.34 + r * 0.26` and
+`l = 0.26 + ((h*7)%1) * 0.4` are LINEAR albedos in three's working colour space, so the whole
+fleet lived between a mid grey and a light grey: spans of x1.77 and x2.54, against a census that
+is 29.2% white / 20.0% silver / 35.4% black. **64.6% of the real population had no tone at all.**
 
-### The fleet has no white cars and no black ones — NEW, and it is most of the population
-Both colour draws pick an HSL lightness from a narrow mid band:
+They had to land together. Widening alone takes the plate to 0.0233 on a black car — **x0.029** of
+a real one — and de-tinting alone leaves a fleet of grey cars with correct plates.
 
-    src/traffic.js          l = 0.34 + r * 0.26          ->  0.34 .. 0.60
-    src/streetfurniture.js  l = 0.26 + ((h*7)%1) * 0.4   ->  0.26 .. 0.66
+    the fix                  plate rendered        fleet tone span
+    before                   0.212 .. 0.482        x2.27
+    widened, not de-tinted   0.023 .. 0.636        x27.30      strictly worse at the dark end
+    shipped (both)           0.7317 on every car   x27.30      x0.915 of a real plate
 
-A white car is L~0.85 and a black one L~0.15. **Neither fleet can produce either.** Against
-`reference/sarasota/car-colour-census.json` — white 29.2%, silver 20.0%, black 35.4% — that is
-**64.6% of the real population with no tone in either draw**, all of it painted mid-grey. It is
-why every car in a frame reads as the same tone.
+**The tint is confined to palette slot 0, as a rule and not a list.** `paletteU(i)` is
+`(i + 0.5) / 16`, so `floor( uv.x * 16 )` IS the slot, in the vertex shader, read off the same
+number the material indexes its roughness with. "The paint slot is tinted and nothing else is"
+needs no set to maintain and cannot fall out of step with a slot added later. 59.2% of a traffic
+car's vertices escape it.
 
-It was frozen deliberately and the reason has expired: `streetfurniture.js` says "LIGHTNESS IS
-DELIBERATELY UNCHANGED ... The first cut also widened the lightness range, which repainted the
-probe's own pinned subject and made vGrad, spec and edges incomparable across the round". That is
-a statement about that round's A/B, not about what the range should be — the same "unfinished, not
-wrong" shape as the glazing's gain at 2.
+It also makes the traffic car agree with the PLAYER'S car for the first time — the player's car is
+not instanced, so its vertex colours were always absolute, and the two were authored within 5% of
+each other all along (plate 0xdadfe2 both; lamp 0xf2f4f6 against 0xf7fafe). The multiply was the
+whole difference and it was a factor of two nobody had put side by side.
 
-`tools/paint-census.mjs` measures the gap and ASSERTS it as a known gap, so widening the ranges
-fails the gate and whoever does it has to restate the bound against the census.
+**And it spends the argument both fleets used to justify an achromatic majority**: "there is no
+per-instance escape from that inside one InstancedMesh; a fleet that is mostly achromatic is the
+escape". There is one now and it costs no draw call, so the 84.6% achromatic share stays because
+the census says so.
 
-**The two interact and should be fixed together.** Widening lightness fixes the plate on a white
-car (0.732 x 0.88 = 0.644, x0.80 of a real plate — essentially correct) and makes it strictly
-worse on a black one (0.073, x0.09). A real plate is retroreflective white on every car, so the
-honest fix is both: widen the tone range AND give the plate slot an escape from the instanceColor
-multiply. `ENV_GAIN_SLOTS` already proves per-slot shader gating works on this material. The tail lens is NOT affected in hue (R/(R+G+B) holds at 0.929-0.931) — its defect is
-brightness alone, so it is not blocked by this. Escapes: emissive (the palette's emissive is not
-multiplied, which is why the lens reads red at night, but the parked pool deliberately zeroes
-every texel but the lens); a separate mesh (+1 draw call per pool); or accept it and fix #91
-first, since two thirds of the fleet is achromatic and the plate is nearly right on those.
+**The tone numbers are derived, not picked.** `tools/paint-tone.mjs` measures a white car against
+a black one in ONE frame, ONE parked row, ONE light and ONE panel orientation, in linear light:
+
+    open midday sun   white 0.5303  silver 0.3864  black 0.0313    white/black x16.9
+    deep shade        white 0.1693                 black 0.0895    white/black x1.89
+
+The two rows disagree by x9.0 and the difference is the light, not the cars. The shaded row is the
+FLOOR (both subjects sit where every camera pipeline lifts shadows, and a lift compresses a ratio
+toward 1); the sunlit row is the estimate. White is the anchor at 0.80, a real white car's
+reflectance; black is DERIVED, 0.80 / 16.9 = 0.047. Silver is used for its ORDER only — metallic
+flake lifts a silver car's photographed luminance well above its diffuse albedo, so its x12.3 is
+not a reflectance ratio and nothing is fitted to it.
+
+**Still open, deliberately.** The CHROMATIC lightness did not move — one term at a time — and
+measuring it turned up that the two fleets have always disagreed about it (0.34..0.60 in
+`traffic.js`, 0.26..0.66 in `streetfurniture.js`) with nobody having put the two side by side.
+`paint-tone` prints both so the next round can settle it on purpose. A red car's rendered luma is
+within about x1.5 of plausible, so it is small.
 
 ### #92 FIXED (the level), and the remaining half is named: uGlassEnvExtra 2 -> 5
 `src/carbody.js`'s glazing environment gain is 5 now, DERIVED from two measurements rather than
