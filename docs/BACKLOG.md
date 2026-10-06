@@ -244,6 +244,43 @@ measuring it turned up that the two fleets have always disagreed about it (0.34.
 `paint-tone` prints both so the next round can settle it on purpose. A red car's rendered luma is
 within about x1.5 of plausible, so it is small.
 
+### #94 The chromatic third kept the band the census table replaced, in both fleets
+Found by comparing the two numbers rather than by looking at either. The achromatic two thirds now
+draw from `src/carpaint.js`'s census table and span **x21.75** (0.040..0.870). The chromatic third
+spans **x1.76** in `traffic.js` and **x2.54** in `streetfurniture.js`:
+
+    achromatic, from the census table   0.040 .. 0.870   x21.75
+    chromatic, src/traffic.js           0.340 .. 0.600   x1.76
+    chromatic, src/streetfurniture.js   0.260 .. 0.660   x2.54
+
+**`traffic.js`'s 0.340..0.600 is byte-identical to the `0.34 + r * 0.26` the table replaced**, and
+the identity was verified against `35b6267` — the commit that replaced it. So both `CHROMATIC_L`
+constants are each module's own LEGACY ACHROMATIC band, left standing when the achromatic branch
+moved out from under them. That is also why the two disagree: they were never a chromatic decision.
+
+So the defect CLAUDE.md records as "the fleet has no white cars and no black ones — a span of x1.77
+where a real white over a real black is about x17" is still true of a third of both fleets, in the
+commit that fixed it for the other two thirds. There is no dark red, no navy and no dark green car.
+The repo's recurring shape, in the branch next door to the one being fixed, by me, this session.
+
+**The floor is derivable and the shape is not, which is why this is recorded rather than tuned.**
+The BRDF crossing at `a = 0.040` applies to any car on this material — the paint slot is metalness
+0.60, `F0 = 0.016 + 0.6a`, and below 0.040 a car gets less clearcoat sheen than a sheet of glass —
+so the chromatic floor at 0.26-0.34 is six to eight times above a bound that is already measured.
+What is NOT available is the distribution: the 65-vehicle census resolves FAMILY and says so in its
+own file, not VALUE within a family, and a bright red at the white tone is pink rather than a light
+red, so the achromatic table cannot simply be reused. Lowering the floor alone would change a third
+of both fleets on the strength of a uniform distribution nobody measured.
+
+What would close it: a value class per chromatic car off the same panoramas — the same method and
+the same instrument that produced the family census, which that file's header shows is reliable at
+this coarseness. Then `carpaint.js` gets a chromatic tone table the way it got an achromatic one,
+one definition for both fleets instead of two legacy bands.
+
+`paint-tone` prints the span comparison and the legacy identity on every run. It is deliberately
+NOT a check: the honest bound needs the census above, and a check written now would assert a number
+nobody measured, which is what that tool's own header is about.
+
 ### #92 FIXED (the level), and the remaining half is named: uGlassEnvExtra 2 -> 5
 `src/carbody.js`'s glazing environment gain is 5 now, DERIVED from two measurements rather than
 picked: the census band (0.137-0.333, median 0.164) and the `ge*` sweep of this very constant

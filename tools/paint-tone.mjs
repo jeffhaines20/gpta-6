@@ -575,9 +575,30 @@ for (const tone of PAINT_TONES) {
 console.log(`  achromatic share ${ACHROMATIC_SHARE}  (both call sites)`);
 console.log(`  tone span ${t.lo.toFixed(4)} .. ${t.hi.toFixed(4)} = x${t.span.toFixed(2)}, ` +
   `white median / black median = x${t.ratio.toFixed(2)}`);
+/**
+ * AND THE CHROMATIC BAND BESIDE IT, WITH ITS SPAN, because the comparison is the finding.
+ *
+ * The achromatic two thirds now span x21.75 off the census table. The chromatic third spans x1.76
+ * in one fleet and x2.54 in the other — and `traffic.js`'s 0.340..0.600 is BYTE-IDENTICAL to the
+ * `0.34 + r * 0.26` the census table replaced, verified against commit 35b6267, which is the
+ * commit that replaced it. Both chromatic bands are each module's own LEGACY ACHROMATIC band,
+ * left in place when the achromatic branch moved out from under them, which is also why the two
+ * disagree: they were never a chromatic decision at all.
+ *
+ * Printed rather than checked, and that is deliberate. The honest bound on a chromatic car's
+ * lightness needs a census that resolves VALUE within a hue family, and the 65-vehicle census
+ * resolves FAMILY only — it says so itself. A check here would be a number nobody measured, which
+ * this file's own header is about. So the span goes in the report next to the one that does have a
+ * source, where a reader can see that the two are a factor of twelve apart.
+ */
+const legacyAchromatic = { 'src/traffic.js': [0.34, 0.60], 'src/streetfurniture.js': [0.26, 0.66] };
 for (const c of chromaticRanges()) {
+  const leg = legacyAchromatic[c.file];
+  const same = leg && c.lo === leg[0] && c.hi === leg[1];
   console.log(`  chromatic lightness, ${c.file}: ${c.lo} .. ${c.hi}` +
-    (c.lo === null ? '   NOT FOUND' : ''));
+    (c.lo === null ? '   NOT FOUND'
+      : `  span x${(c.hi / c.lo).toFixed(2)} against the achromatic x${t.span.toFixed(2)}` +
+        (same ? '   <- this module\'s OWN pre-census achromatic band, unchanged' : '')));
 }
 
 /**

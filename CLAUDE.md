@@ -2459,6 +2459,44 @@ vertex colour is 0.7317 with headroom to 1.0. The entry named a real defect and 
 constraint, which is this file's standing rule about a reviewer's observation outliving their
 diagnosis — arriving here from a backlog entry instead of a reviewer.
 
+## A fix that moves one branch leaves the other reading the value it replaced
+
+`src/carpaint.js` exists because two modules claimed the same fix in prose and neither made it.
+The round that gave it an achromatic tone table — mine, this session — then did the same thing one
+level down, in both modules, in the same commit.
+
+    achromatic, from the census table   0.040 .. 0.870   x21.75
+    chromatic, src/traffic.js           0.340 .. 0.600   x1.76
+    chromatic, src/streetfurniture.js   0.260 .. 0.660   x2.54
+
+**`traffic.js`'s chromatic band is byte-identical to the `0.34 + r * 0.26` the table replaced**, and
+`git log -S` puts both `CHROMATIC_L` constants in `35b6267` — the commit that replaced it. They are
+not chromatic decisions at all: each is its module's own legacy ACHROMATIC band, named and left
+standing when the achromatic branch moved out from under it. Which is also why the two disagree,
+and why nobody noticed they disagree: a constant that was correct in its old role reads as a
+decision in its new one.
+
+The section above this one says "the fleet has no white cars and no black ones ... a span of x1.77
+where a real white car over a real black one is about x17". That sentence is still true of a third
+of both fleets. **The fix shipped for 66% of the population and the defect's own number survived in
+the other 34%, under a new name.**
+
+Three things to carry:
+
+- **When a branch is moved to a new source of truth, read what the SIBLING branch is still using.**
+  One `grep` for the constant that was deleted finds this: the value does not disappear, it gets a
+  name. `git log -S` on the old expression and the new constant lands on one commit.
+- **Comparing the two numbers is what found it; looking at either would not.** x1.76 is not visibly
+  wrong on its own — it is a plausible mid-tone band. Beside x21.75 it is a factor of twelve. So
+  `paint-tone` now prints the span of both next to the achromatic span on every run.
+- **It is recorded rather than tuned, because only the floor is derivable.** The BRDF crossing at
+  `a = 0.040` applies to any car on this material, so the chromatic floor is six to eight times
+  above a measured bound. The SHAPE is not available: the census resolves FAMILY and says so, not
+  VALUE within a family, and a bright red at the white tone is pink rather than a light red, so the
+  achromatic table cannot be reused. Lowering the floor alone would repaint a third of both fleets
+  on a uniform distribution nobody measured — this file's own "do not move a figure your instrument
+  cannot resolve", arriving as the obvious fix for a real defect.
+
 ## Pricing a change
 
 **Count triangles by building the geometry and reading the buffer, never by
