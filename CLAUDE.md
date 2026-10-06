@@ -2096,11 +2096,17 @@ throw is there, `floor( uv.x * 16.0 )` is there, the cache key is bumped), **all
 `boot-check`** (which reads the uniform's own getter and never samples a pixel) and all 65 of
 `traffic-selftest`.
 
-It is in the table as `tint-invert` with its `why` saying it is a MEASURED GAP and not a row with
-a gate behind it. Catching it needs a rendered sample of a car's plate against its own paint, and
-the only thing that does that today works on committed PNGs, which a mutated source cannot reach.
-**A row with no gate is worth more in the table than out of it**: it is the difference between a
-gap somebody measured and a gap nobody has looked for.
+It is caught now, by a check that asserts the RULE rather than the string: the instance-tinted
+colour is the mix's first argument and the authored one its second, because the weight is 1 where
+the authored colour must win. Stated that way so it is not a regex fitted to one mutation.
+
+**And the gap underneath it is wider than the row and is still open.** Nothing anywhere samples a
+PIXEL of a car: `boot-check` reads the uniform's own getter and `paint-tone`'s render section
+reads committed PNGs, which a mutated source cannot reach. The rendered version is max-over-median
+across one car's own pixels with the fleet forced near-black — the lamp is 0.95 absolute over a
+body at 0.047 under the correct rule, and the body is the brightest thing on the car under the
+inverted one. **A row kept in the table with its gap written into its own `why` is worth more than
+a row deleted**: it is the difference between a gap somebody measured and a gap nobody looked for.
 
 ## Two defects that each make the other worse have to ship in one commit
 

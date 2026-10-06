@@ -417,6 +417,32 @@ console.log('\n=== THE PAINT-SLOT TINT — what instanceColor is still allowed t
     /color_vertex include not found/.test(cb), 'COLOR_VERTEX_DECL throw present');
   check('the tint is derived from uv.x, which IS the palette slot, rather than from a list',
     /floor\(\s*uv\.x \* 16\.0\s*\)/.test(cb), 'floor( uv.x * 16.0 )');
+  /**
+   * AND THE MIX'S ARGUMENTS ARE THE RIGHT WAY ROUND, which the regex above cannot see.
+   *
+   * A blind reviewer planted `mix(color.xyz, vColor.xyz, …)` for `mix(vColor.xyz, color.xyz, …)`
+   * and it passed every check in this file, all 70 of `boot-check` and all 65 of
+   * `traffic-selftest`. That swap INVERTS the rule: the weight is 1 on slots 1-15, so instanceColor
+   * would reach every slot EXCEPT the paint — every car at its authored grey, every plate, lamp,
+   * rim and tyre carrying the body colour. #1, upside down, rendering perfectly.
+   *
+   * The rule being asserted is structural rather than textual: the INSTANCE-TINTED colour is the
+   * first argument because the weight is 1 where the authored colour must win. Stated that way
+   * rather than as "the string the mutation changes", so it is not a regex fitted to one row.
+   *
+   * IT IS STILL A SOURCE CHECK AND NOT A MEASUREMENT, and the gap the reviewer actually found is
+   * wider than this one mutation: nothing anywhere samples a PIXEL of a car. The rendered version
+   * is max-over-median across one car's own pixels with the fleet forced near-black — the lamp is
+   * 0.95 absolute over a body at 0.047 under the correct rule and the body is the brightest thing
+   * on the car under the inverted one — and it is not written. See `tint-invert` in
+   * `tools/mutation-sweep.mjs`, which is kept in the table as the measured gap.
+   */
+  const mixCall = /vColor\.xyz\s*=\s*mix\(\s*([A-Za-z0-9_.]+)\s*,\s*([A-Za-z0-9_.]+)\s*,/.exec(cb);
+  console.log(`  the paint-slot mix: mix( ${mixCall ? mixCall[1] : '?'}, ${mixCall ? mixCall[2] : '?'}, … )`);
+  check('the instance-tinted colour is the mix\'s FIRST argument and the authored one its second',
+    !!mixCall && mixCall[1] === 'vColor.xyz' && mixCall[2] === 'color.xyz',
+    mixCall ? `mix( ${mixCall[1]}, ${mixCall[2]}, … ) — the weight is 1 where the authored colour must win`
+      : 'the mix call was not found at all');
   check('and the program cache key moved, or three would hand back the old program',
     /carLensFalloff4tint/.test(cb) && !/'carLensFalloff3env'/.test(cb), 'carLensFalloff4tint');
 }

@@ -1431,10 +1431,18 @@ const MUTATIONS = [
      * never samples a pixel) and all of `traffic-selftest` (which is about instanceColor, not
      * about the shader). The regex has a blind spot the rest of the table did not cover.
      *
-     * It is here as a MEASURED GAP rather than as a row with a gate behind it: catching it needs
-     * a rendered sample of a car's plate against its own paint, which `paint-tone`'s RENDER
-     * section does on committed PNGs and therefore cannot do on a mutated source. The honest
-     * version is a boot-check arm that reads pixels, and it is not written yet.
+     * IT IS CAUGHT NOW, BY A STRUCTURAL SOURCE CHECK rather than by a measurement, and the
+     * distinction is the point. `paint-census` asserts that the INSTANCE-TINTED colour is the
+     * mix's first argument and the authored one its second — stated as the rule (the weight is 1
+     * where the authored colour must win) rather than as the string this row changes, so it is
+     * not a regex fitted to one mutation.
+     *
+     * THE GAP THE REVIEWER FOUND IS WIDER THAN THIS ROW AND IS STILL OPEN: nothing anywhere
+     * samples a PIXEL of a car. `boot-check` reads the uniform's own getter; `paint-tone`'s
+     * RENDER section reads committed PNGs and so cannot see a mutated source at all. The rendered
+     * version is max-over-median across one car's own pixels with the fleet forced near-black —
+     * the lamp is 0.95 absolute over a body at 0.047 under the correct rule and the body is the
+     * brightest thing on the car under the inverted one. Not written.
      */
     id: 'tint-invert', file: 'src/carbody.js',
     find: 'vColor.xyz = mix( vColor.xyz, color.xyz, uPaintTintOnly * step( 0.5, floor( uv.x * 16.0 ) ) );',
