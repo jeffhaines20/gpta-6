@@ -808,6 +808,38 @@ at 8.5-9.1 km/h, barely over the 8 km/h free threshold, and one at 50-76.
 The earlier "4.11 /km" entry was marked FIXED for a car on the road. At 1.33-2.17 /km on the
 carriageway it is improved and not fixed, and the restatement is owed.
 
+**RESTATED, and the per-km rate is not a statement about the crowd.** Four quantities isolated over
+3 seeds and 9.99 km, hooking `peds.hit` so the subject is read on the frame of the impact rather
+than from where the body landed:
+
+    0 of 57    struck pedestrians were inside ANY carriageway            the crowd is right
+    max 1.32   of a 1.30 m bound ACROSS the car's axis                   the collider is right
+    0 of 2012  lane points put the car's CENTRE on the pavement          the router is right
+    51 of 57   had the car's BODY over the kerb, 35 its CENTRE           the FOLLOWER
+    36 of 36   on a road over 3.0 m of half width -- p50 0.82 m PAST it
+    15 of 21   on an alley of 2.0 m or less, where 0.95 m of body cannot avoid it anyway
+
+**On a proper street, every single knockdown had the car off the road.** The crowd predicate is the
+module's own `_onCarriageway`, the lateral bound is `BODY_RADIUS + PERSON.bodyRadius` and the
+measured max sits on it, and the route points are 1.50 m inside the kerb at the median — so neither
+the placement, nor the contact test, nor the lane fit is producing these. It is `followPath` leaving
+its own lane, which `reaction-test`'s crowd-and-carriageway section had already concluded in one
+sentence ("every remaining contact has the car straddling or beyond the kerb") and which this
+confirms by a second protocol and splits one level further.
+
+**And #104's own classifier is why it read as a crowd defect.** It called a knockdown "on the
+carriageway" when the CAR was under 4.5 m from a centreline. The half widths in the sample run
+**1.40 to 3.50 m**, so 4.5 m is on the pavement of every road in it: the band it named carriageway
+is mostly pavement, which is exactly what the rows above say was happening. A threshold picked
+rather than read off the geometry, and it inverted the conclusion.
+
+So: **not a crowd defect, and not a new one.** The residual rate measures the harness's autopilot,
+and CLAUDE.md already records that follower driving 32.8% of `drive-through`'s course inside
+buildings. Gated as a new `reaction-test` section — the router clean at 0 of 2,012, with a
+KNOWN-BAD showing 158 of 411 centreline points sit on roads narrower than a car body, so the
+clearance it asserts is not free. The open item is `followPath`'s lane keeping, which belongs with
+#64 rather than here.
+
 ### #105 The run-over charge is correct and almost unreachable (B#10)
 Driving over the body you just knocked down at 14.5 / 22.5 / 32.5 / 47.5 / 58.2 km/h: `charged
 false` 5 of 5, heat stays 1.0000, while the scale graduates 0.0074 -> 0.3191. Coming back 35 s

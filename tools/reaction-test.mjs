@@ -27,7 +27,9 @@ import { Pedestrians, PED_FREE_MS, AVOID_R, PED_CLEAR_DIST_M,
 import { Traffic } from '../src/traffic.js';
 import { throwDistance, slideDecel, THROW, ANCHORS, pedFatalityRisk } from '../src/damage.js';
 import { BlockerIndex } from '../src/blockers.js';
-import { BODY_ENCLOSING } from '../src/vehicle.js';
+import { BODY_ENCLOSING, BODY_RADIUS as BODY_RADIUS_CAR } from '../src/vehicle.js';
+// For the route-against-the-kerb section: the router and the lane offset the harness drives at.
+import { RoadGraph, ROUTE_LANE_M } from '../src/roadpath.js';
 import { HALF_EXTENT } from '../src/damage.js';
 import * as THREE from '../vendor/three.module.min.js';
 import { StreetFurniture } from '../src/streetfurniture.js';
@@ -1824,6 +1826,117 @@ console.log('\n§  the crowd and the carriageway');
       typeof moved === 'number' && moved > 1 && typeof again === 'number',
       `${moved.toFixed(3)} m then ${again}`);
   }
+}
+
+/**
+ * §  THE ROUTER IS NOT WHAT PUTS THE CAR ON THE PAVEMENT — THE FOLLOWER IS.
+ *
+ * The section above already concluded that "every remaining contact has the car straddling or
+ * beyond the kerb", and #104 re-reported the residual rate as a crowd defect. A second protocol
+ * agrees with the first and splits it one level further. Measured over 3 seeds and 9.99 km,
+ * hooking `peds.hit` so the subject is read on the frame of the impact:
+ *
+ *     0 of 57   struck pedestrians were inside ANY carriageway            the crowd is right
+ *     max 1.32  of 1.30 m ACROSS the car's axis (BODY_RADIUS + person r)  the collider is right
+ *     51 of 57  had the car's BODY over the kerb, 35 its CENTRE
+ *     36 of 36  on a road wider than 3.0 m of half width -- p50 0.82 m PAST the kerb
+ *     15 of 21  on an alley of 2.0 m or less, where 0.95 m of body cannot avoid it anyway
+ *
+ * So on a proper street every single knockdown had the car off the road. That is the FOLLOWER,
+ * and this section is the half nothing had separated: the ROUTE ITSELF is well inside the kerb,
+ * so there is no lane fit to blame. It is offline and instant, and it pins the number that tells
+ * the next round which of the two to look at.
+ *
+ * AND #104's OWN CLASSIFIER WAS THE REASON IT READ AS A CROWD DEFECT. It called a knockdown "on
+ * the carriageway" when the CAR was under 4.5 m from a centreline — but the half widths in the
+ * sample run 1.40 to 3.50 m, so 4.5 m is on the pavement of every road in it. The band it named
+ * "carriageway" is mostly pavement, which is exactly what the four rows above say was happening.
+ */
+console.log('\n§  the route, the kerb and the follower');
+{
+  const p = new Pedestrians(scene, district, { count: 0 });
+  const roads = new RoadGraph(district, { blockers: new BlockerIndex(district),
+    carRadius: BODY_RADIUS_CAR });
+  /**
+   * A LANE POINT IS JUDGED BY THE CROWD'S OWN PREDICATE, not by a second copy of the geometry:
+   * `_onCarriageway` is the function that keeps peds off the road, so asking it about the route
+   * uses one definition of "in the road" for both sides of the question. A second copy is this
+   * repo's recurring shape of defect.
+   */
+  const half = (x, z) => {
+    // The deepest carriageway half-width at (x, z), via the same grid, so "how far outside" has
+    // a sign. Walks the grid directly because `_onCarriageway` returns only a boolean.
+    const { g, CELL, key } = p._roadGrid();
+    const list = g.get(key(Math.floor(x / CELL), Math.floor(z / CELL)));
+    if (!list) return null;
+    let best = null;
+    for (const sg of list) {
+      const dx = sg.bx - sg.ax, dz = sg.bz - sg.az;
+      const s2 = dx * dx + dz * dz;
+      if (s2 < 1e-12) continue;
+      const f = Math.max(0, Math.min(1, ((x - sg.ax) * dx + (z - sg.az) * dz) / s2));
+      const l = Math.hypot(x - (sg.ax + dx * f), z - (sg.az + dz * f));
+      if (best === null || l - sg.half < best.out) best = { out: l - sg.half, half: sg.half };
+    }
+    return best;
+  };
+  // The mission pickups and stage markers: real destinations a player drives between, so the
+  // routes are the ones `driveTo` actually produces rather than a lattice nobody visits.
+  const SPOTS = [{ x: 19, z: -6 }, { x: -308.9, z: 40 }, { x: 57, z: -164 },
+    { x: -471, z: 205 }, { x: -242.3, z: 68.6 }];
+  const pts = [];
+  let routes = 0;
+  for (let i = 0; i < SPOTS.length; i++) {
+    for (let j = 0; j < SPOTS.length; j++) {
+      if (i === j) continue;
+      const r = roads.path(SPOTS[i].x, SPOTS[i].z, SPOTS[j].x, SPOTS[j].z,
+        { spacing: 4, offset: ROUTE_LANE_M });
+      if (!r) continue;
+      routes++;
+      for (const q of r.points) { const h = half(q[0], q[1]); if (h) pts.push(h); }
+    }
+  }
+  const qq = (a, k) => a.slice().sort((x, y) => x - y)[Math.floor((a.length - 1) * k)];
+  const outs = pts.map((o) => o.out);
+  const centreOut = pts.filter((o) => o.out > 0);
+  const bodyOut = pts.filter((o) => o.out > -BODY_RADIUS_CAR);
+  console.log(`    ${pts.length} lane points over ${routes} routes at offset ${ROUTE_LANE_M} m: `
+    + `outside the carriageway p50 ${qq(outs, 0.5).toFixed(2)}, p95 ${qq(outs, 0.95).toFixed(2)}, `
+    + `max ${Math.max(...outs).toFixed(2)} m`);
+  console.log(`    centre on the pavement ${centreOut.length}, body over the kerb `
+    + `${bodyOut.length} of ${pts.length}`);
+  /**
+   * BOTH SIDES OF THE ARM FIRST, because "no lane point is on the pavement" passes for the most
+   * flattering possible reason over an empty route set — this file's own standing lesson.
+   */
+  check('the routes a player drives between exist at all', routes >= 10 && pts.length > 500,
+    `${routes} routes, ${pts.length} points`);
+  check('no lane point puts the car\'s CENTRE on the pavement', centreOut.length === 0,
+    `${centreOut.length} of ${pts.length}`);
+  check('and almost none puts its BODY over the kerb', bodyOut.length <= pts.length * 0.01,
+    `${bodyOut.length} of ${pts.length} (${(100 * bodyOut.length / pts.length).toFixed(1)}%), `
+    + `against a body half width of ${BODY_RADIUS_CAR}`);
+  check('the lane sits about its own offset inside the kerb, not at it',
+    qq(outs, 0.5) < -1.0, `p50 ${qq(outs, 0.5).toFixed(2)} m inside`);
+  /**
+   * KNOWN-BAD: the same measurement at offset 0 — the centreline — is NOT clear, because the
+   * narrowest roads here are 2.8 m service alleys where half a car body is most of the lane. That
+   * is what says this check is reading the geometry rather than passing on a technicality.
+   */
+  const mid = [];
+  for (let i = 0; i < SPOTS.length; i++) {
+    const r = roads.path(SPOTS[0].x, SPOTS[0].z, SPOTS[i].x, SPOTS[i].z,
+      { spacing: 4, offset: 0 });
+    if (!r) continue;
+    for (const q of r.points) { const h = half(q[0], q[1]); if (h) mid.push(h); }
+  }
+  const tight = mid.filter((o) => o.half < BODY_RADIUS_CAR * 2);
+  console.log(`    at offset 0, ${tight.length} of ${mid.length} lane points are on a road whose `
+    + `half width is under a whole car body (${(BODY_RADIUS_CAR * 2).toFixed(2)} m)`);
+  check('KNOWN-BAD: some of this network is narrower than a car body is wide, so the clearance '
+    + 'the check asserts is not free', tight.length > 0,
+    `${tight.length} of ${mid.length} points, narrowest half ${
+      mid.length ? Math.min(...mid.map((o) => o.half)).toFixed(2) : 'n/a'} m`);
 }
 
 const failed = checks.filter((c) => !c.ok);

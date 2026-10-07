@@ -484,6 +484,42 @@ have inherited that one too. Both are charged at the table value now, counted in
 `stats.badScales`, and have two mutation rows rather than one: a finite check alone does not cover
 the sign, which is this file's "guard the DIRECTION as well as the magnitude".
 
+## Isolate the whole chain before blaming the end of it, and the threshold that classifies is part of the instrument
+
+#104 reported knockdowns at 1.33-2.17 per km "on the carriageway" and read it as the crowd standing
+in the road. Four quantities, each measured against the code's OWN definition rather than a second
+copy, over 3 seeds and 9.99 km with `peds.hit` hooked so the subject is read on the frame of impact:
+
+    0 of 57    struck pedestrians were inside ANY carriageway   by _onCarriageway, the module's own
+    max 1.32   of a 1.30 m bound ACROSS the car's axis          BODY_RADIUS + PERSON.bodyRadius
+    0 of 2012  lane points put the car's CENTRE on the pavement the router, offline and instant
+    36 of 36   street knockdowns had the car's BODY over the kerb, p50 0.82 m PAST it
+
+**Three of the four candidates are clean and the fourth is the whole of it.** The crowd, the contact
+test and the router each took one measurement to exonerate, and the one that was left — the
+follower leaving its own lane — is what `reaction-test`'s own section had already concluded in a
+sentence. So the round's value was not a new defect; it was splitting "the car is off the road" into
+router and controller, which nothing had separated.
+
+**And the classifier was the reason it read as a crowd defect.** The entry called a knockdown "on
+the carriageway" when the CAR was under 4.5 m from a centreline. The half widths in the sample run
+**1.40 to 3.50 m**, so 4.5 m is on the pavement of every road in it. A threshold picked rather than
+read off the geometry, applied to the wrong body — and it inverted the conclusion. This file already
+says a check comparing against an absolute number needs the sweep a measurement does; the same is
+true of a number that only CLASSIFIES, and there the error is silent because the classifier never
+fails.
+
+Two instrument errors on the way, both of which printed zeros:
+
+- **The first probe joined `lastHit.id` against `positions().i`** — a person id against a slot index
+  — found nothing, and printed 0.00 on every carriageway column. Both sides zero, in the reassuring
+  direction. Hooking `peds.hit` gives the slot AND the frame, and the probe now THROWS if it cannot
+  find the subject.
+- **`nearestOn` returns the nearest centreline, which at a junction is a different road's.** The
+  first reading had peds at 1.40-1.50 m from "a" centreline and looked like a crowd standing in the
+  lane; measured against the carriageway the ped is actually beside, it is 0 of 57. **A distance to
+  the nearest X is not a distance to the X the subject belongs to.**
+
 ## The flat case a reviewer isolates is often the one case where the floor wins
 
 #103 reported that "every pedestrian strike up to 59 km/h is the same one star" and isolated a
