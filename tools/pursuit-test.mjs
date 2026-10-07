@@ -19,7 +19,7 @@
 // the whole simulation offline.
 import fs from 'node:fs';
 import * as THREE from '../vendor/three.module.min.js';
-import { PursuitUnits } from '../src/pursuit.js';
+import { PursuitUnits, arrestSeconds } from '../src/pursuit.js';
 import { HALF_EXTENT } from '../src/damage.js';
 import { buildBlockers } from '../src/blockers.js';
 import { RUN_SPEED, ON_FOOT_RADIUS } from '../src/player.js';
@@ -236,16 +236,22 @@ console.log('\n3. the hold, and the release');
    * THEN THE TARGET LEAVES. A hold that never releases is the same failure as one that never
    * takes, and the number that shows it is the distance a "holding" unit reports from.
    */
-  let worstAfter = 0, heldFrames = 0, frames = 0;
+  let worstAfter = 0, heldFrames = 0, frames = 0, worstOver = -Infinity;
   for (let i = 0; i < 120 * 30; i++) {
     target.x = spot.x + (i / 30) * 20;                 // 72 km/h away, in a straight line
     p.update(1 / 30, target);
     frames++;
+    // The bound a holding unit is allowed to be inside: the officer's reach, OR the closest the
+    // road network gets to the target at all. Read AFTER update() so it is the same cached value
+    // the clamp decided on. See `bestApproach`.
+    const allowed = Math.max(p.reachRadius, p.bestApproach(target));
     for (let k = 0; k < p.count; k++) {
       if (!p.units[k] || !p.units[k].held) continue;
       heldFrames++;
       const q = posOf(p, k);
-      worstAfter = Math.max(worstAfter, Math.hypot(q.x - target.x, q.z - target.z));
+      const d = Math.hypot(q.x - target.x, q.z - target.z);
+      worstAfter = Math.max(worstAfter, d);
+      worstOver = Math.max(worstOver, d - allowed);
     }
   }
   console.log(`    then 120 s of fleeing at 72 km/h: ${heldFrames} held unit-frames of ` +
@@ -253,9 +259,54 @@ console.log('\n3. the hold, and the release');
   check('the hold releases when the target leaves, rather than following it for ever',
     heldFrames < frames * p.count * 0.5,
     `${heldFrames} of ${frames * p.count} unit-frames`);
-  check('and no unit ever reports holding from outside the officer\'s reach',
-    worstAfter <= p.reachRadius + 1e-6,
-    `${worstAfter.toFixed(2)} against reach ${p.reachRadius.toFixed(2)} m`);
+  /**
+   * RESTATED. This read `worstAfter <= reachRadius`, and it was the right invariant for a build
+   * whose only hold condition was that radius. `bestApproach` adds a second one — a unit may stop
+   * at the NETWORK's closest approach however far that is — so a unit holding 160 m from a target
+   * fleeing into open country is now correct, and the bound has to be the pair.
+   *
+   * THE SLACK IS MEASURED, NOT GUESSED, and CLAUDE.md asks for a bound with nothing between the
+   * noise and the signal. A holding unit sits at its edge's closest approach, which is at most
+   * `bestApproach` from the target by construction — but the target is moving 20 m/s and the
+   * clamp is decided before this reads it, so the unit lags by up to one step of target travel.
+   * The measured worst excess is printed beside the bound, and the bound is `speed * dt` of
+   * TARGET motion (0.667 m at 20 m/s and 1/30 s) plus the unit's own step, which is what the lag
+   * can physically be. A looser number would admit a unit that had stopped tracking entirely.
+   */
+  const lag = 20 / 30 + p.speed / 30;
+  console.log(`    worst excess over max(reach, bestApproach): ${worstOver === -Infinity ? 'n/a'
+    : worstOver.toFixed(3)} m, against one frame of target+unit travel ${lag.toFixed(3)} m`);
+  check('a holding unit is inside the reach OR at the closest the network gets',
+    heldFrames > 0 && worstOver <= lag,
+    `worst excess ${worstOver === -Infinity ? 'n/a' : worstOver.toFixed(3)} m over `
+    + `${heldFrames} held unit-frames, bound ${lag.toFixed(3)}`);
+  check('KNOWN-BAD: and that admits distances the old reach-only bound refused, which is the fix',
+    worstAfter > p.reachRadius,
+    `${worstAfter.toFixed(2)} m against the old bound of ${p.reachRadius.toFixed(2)}`);
+
+  /**
+   * `arrestSeconds` IS `reachRadius`'s OWN DERIVATION AS A FUNCTION, and the property that makes
+   * it a derivation rather than a curve somebody drew is that the two terms cross EXACTLY at
+   * `reachRadius`. So every arrest the game already made is unchanged and only the ones the
+   * network floor newly admits are lengthened. Asserted as the crossing rather than as a table of
+   * values, so retuning RUN_SPEED or BUST_HOLD_S moves the reach and the clock together.
+   */
+  console.log(`    arrestSeconds: ${[0, 8, p.reachRadius, 37.8, 97.3, 136.7, 185.9]
+    .map((d) => `${d.toFixed(1)}m->${arrestSeconds(d).toFixed(2)}s`).join('  ')}`);
+  check('the arrest clock is flat out to the officer\'s reach',
+    arrestSeconds(0) === BUST_HOLD_S && arrestSeconds(p.reachRadius) === BUST_HOLD_S,
+    `${arrestSeconds(0)} and ${arrestSeconds(p.reachRadius)} against ${BUST_HOLD_S}`);
+  check('and rises strictly beyond it, so distance starts to matter exactly there',
+    arrestSeconds(p.reachRadius + 1) > BUST_HOLD_S
+      && arrestSeconds(p.reachRadius * 2) > arrestSeconds(p.reachRadius + 1),
+    `${arrestSeconds(p.reachRadius + 1).toFixed(3)} then `
+    + `${arrestSeconds(p.reachRadius * 2).toFixed(3)} s`);
+  check('the two terms cross AT the reach, which is what makes it one derivation and not two',
+    Math.abs(p.reachRadius / RUN_SPEED - BUST_HOLD_S) < 1e-12,
+    `${(p.reachRadius / RUN_SPEED).toFixed(6)} against ${BUST_HOLD_S}`);
+  check('and a non-finite or negative distance falls to the floor, not to zero or NaN',
+    [NaN, undefined, -5, Infinity].every((d) => arrestSeconds(d) >= BUST_HOLD_S),
+    [NaN, undefined, -5, Infinity].map((d) => `${d}->${arrestSeconds(d)}`).join(' '));
   /**
    * `report().held` IS RECONCILED WHILE UNITS ARE ACTUALLY HELD, which the first version of this
    * check was not: it ran after the fleeing phase, where nothing is held, and compared 0 against
@@ -418,9 +469,24 @@ console.log('\n4. displacement per frame');
       }
     }
   }
-  const longestHold = (sp, oldArm) => {
+  /**
+   * THREE ARMS, ONE PER LEVER, because there are now two and a two-arm table cannot say which
+   * one bought what. CLAUDE.md: "isolate one term at a time", and "a round reverted the wrong
+   * lever because it never isolated".
+   *
+   *   'legacy'  both off:   `_reachR` back to `holdRadius` AND no network floor. What shipped
+   *                         before either change.
+   *   'reach'   the reach only: the previous round's widening, with the floor off.
+   *   'shipped' both on.
+   *
+   * THE FLOOR IS TURNED OFF BY STUBBING `bestApproach` TO -Infinity, not to 0: the call site
+   * tests `near.d <= best`, so -Infinity is "no edge is ever the closest the network gets" and 0
+   * would still admit a player standing exactly on a centreline.
+   */
+  const longestHold = (sp, arm) => {
     const p = build({ count: 6 });
-    if (oldArm) p._reachR = p.holdRadius;          // the bound that shipped, as the control
+    if (arm === 'legacy' || arm === 'reach') p.bestApproach = () => -Infinity;
+    if (arm === 'legacy') p._reachR = p.holdRadius;  // the bound that shipped, as the control
     const t = { x: sp.x, z: sp.z };
     let cur = 0, longest = 0;
     for (let f = 0; f < 1800; f++) {
@@ -434,17 +500,16 @@ console.log('\n4. displacement per frame');
   for (const [lo, hi] of BANDS) {
     const inB = spots.filter((r) => r.d >= lo && r.d < hi).slice(0, 8);
     if (inB.length < 3) continue;
-    const nw = inB.map((r) => longestHold(r, false));
-    const od = inB.map((r) => longestHold(r, true));
+    const ok = (arm) => inB.map((r) => longestHold(r, arm))
+      .filter((v) => v >= BUST_HOLD_S).length;
     rows.push({ lo, hi, n: inB.length,
-      newOK: nw.filter((v) => v >= BUST_HOLD_S).length,
-      oldOK: od.filter((v) => v >= BUST_HOLD_S).length });
+      legacyOK: ok('legacy'), reachOK: ok('reach'), newOK: ok('shipped') });
   }
-  console.log('    nearest edge      n   arrestable BEFORE   AFTER');
+  console.log('    nearest edge      n   arrestable LEGACY   +REACH   +NETWORK FLOOR');
   for (const r of rows) {
     console.log(`    ${`${r.lo}-${r.hi === 1e9 ? '999' : r.hi} m`.padEnd(16)} `
-      + `${String(r.n).padStart(2)}        ${`${r.oldOK}/${r.n}`.padStart(7)}         `
-      + `${`${r.newOK}/${r.n}`.padStart(7)}`);
+      + `${String(r.n).padStart(2)}        ${`${r.legacyOK}/${r.n}`.padStart(7)}  `
+      + `${`${r.reachOK}/${r.n}`.padStart(7)}  ${`${r.newOK}/${r.n}`.padStart(14)}`);
   }
   const band = (lo) => rows.find((r) => r.lo === lo);
   const mid = band(8.75), far = band(16), near = band(0), out = band(28);
@@ -455,16 +520,19 @@ console.log('\n4. displacement per frame');
    * arm says nothing: the near band must be arrestable in BOTH arms (the change did not break
    * what worked) and the 8.75-16 m band must go from none to all.
    */
-  check('the near band was arrestable before and still is',
-    !!near && near.oldOK >= near.n - 1 && near.newOK >= near.n - 1,
-    near ? `${near.oldOK}/${near.n} -> ${near.newOK}/${near.n}` : 'no near band');
-  check('KNOWN-BAD: just past the car\'s stop radius, nobody could be arrested at all',
-    !!mid && mid.oldOK === 0, mid ? `${mid.oldOK}/${mid.n} at 8.75-16 m` : 'no band');
-  check('and now they can', !!mid && mid.newOK === mid.n,
-    mid ? `${mid.newOK}/${mid.n} at 8.75-16 m` : 'no band');
-  check('out to the officer\'s reach, where it was also none',
-    !!far && far.oldOK === 0 && far.newOK >= Math.ceil(far.n * 0.6),
-    far ? `${far.oldOK}/${far.n} -> ${far.newOK}/${far.n} at 16-28 m` : 'no band');
+  check('the near band was arrestable in every arm, including the legacy one',
+    !!near && near.legacyOK >= near.n - 1 && near.reachOK >= near.n - 1
+      && near.newOK >= near.n - 1,
+    near ? `${near.legacyOK}/${near.reachOK}/${near.newOK} of ${near.n}` : 'no near band');
+  check('KNOWN-BAD: just past the car\'s stop radius, the legacy build arrested nobody',
+    !!mid && mid.legacyOK === 0, mid ? `${mid.legacyOK}/${mid.n} at 8.75-16 m` : 'no band');
+  check('the widened reach is what fixed that band, and the floor does not undo it',
+    !!mid && mid.reachOK === mid.n && mid.newOK === mid.n,
+    mid ? `legacy ${mid.legacyOK}, +reach ${mid.reachOK}, +floor ${mid.newOK} of ${mid.n}` : 'no band');
+  check('out to the officer\'s reach, where the legacy build also arrested nobody',
+    !!far && far.legacyOK === 0 && far.reachOK >= Math.ceil(far.n * 0.6)
+      && far.newOK >= far.reachOK,
+    far ? `legacy ${far.legacyOK}, +reach ${far.reachOK}, +floor ${far.newOK} of ${far.n}` : 'no band');
   /**
    * AND THE LIMIT IS STATED RATHER THAN LEFT TO BE FOUND. Beyond the reach it is still immunity
    * in BOTH arms — the change closed a band, it did not make the player always arrestable, and
@@ -472,9 +540,26 @@ console.log('\n4. displacement per frame');
    * of the car, not a bigger number here. This row is what stops the next round reading the one
    * above as "the hold is unbounded now".
    */
-  check('and beyond the reach it is immunity in both arms, which is the design limit',
-    !!out && out.oldOK === 0 && out.newOK === 0,
-    out ? `${out.oldOK}/${out.n} -> ${out.newOK}/${out.n} past 28 m` : 'no band');
+  /**
+   * RESTATED: PAST THE REACH IS NO LONGER IMMUNITY, AND THAT IS THIS ROUND'S CHANGE.
+   *
+   * This check read "beyond the reach it is immunity in BOTH arms, which is the design limit",
+   * and it was right about the build it was written for — `reachRadius`'s own comment says so:
+   * "driving a hundred metres into open land is still immunity. That is a separate finding and it
+   * needs police who get out of the car, not a bigger number here." `bestApproach` is that, so
+   * the design limit moved and the check has to say which arm holds it.
+   *
+   * #89 measured the cost of leaving it: five of nine placements of a stationary four-star player
+   * sat at four stars for the full 240 s with a unit 37 to 136 m away — seen, untouchable, and
+   * not allowed to leave. `arrest-band` now reports "no stalemate row" and arrests at 38, 53, 68,
+   * 97, 137 and 186 m in 28 to 46 s.
+   */
+  check('KNOWN-BAD: past the officer\'s reach, both older arms are immunity',
+    !!out && out.legacyOK === 0 && out.reachOK === 0,
+    out ? `legacy ${out.legacyOK}, +reach ${out.reachOK} of ${out.n} past 28 m` : 'no band');
+  check('and the network floor is what ends it, which is the whole of #89\'s open half',
+    !!out && out.newOK > 0,
+    out ? `${out.newOK}/${out.n} past 28 m, against 0 in both older arms` : 'no band');
 
   /**
    * THE LINE-OF-SIGHT CONTROL, and it is the seam assertion for the whole walk test: if

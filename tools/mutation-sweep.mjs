@@ -405,6 +405,79 @@ const MUTATIONS = [
   },
   {
     /**
+     * THE STALEMATE COMES BACK. Drops the network floor from `u.stopped`'s gate, so a unit only
+     * ever clamps inside `reachRadius` — which is the build #89 measured: five of nine placements
+     * of a stationary four-star player sat at four stars for the full 240 s with a unit 37 to
+     * 136 m away, seen, untouchable and not allowed to leave. The single worst state this game can
+     * be in, and it reads as nothing at all from the outside: no error, no stuck panel, every
+     * number nominal.
+     */
+    id: 'arrest-floor', file: 'src/pursuit.js',
+    find: '      if ((near.d <= this.reachRadius || (best > this.reachRadius && near.d <= best))',
+    to: '      if ((near.d <= this.reachRadius) // eslint-disable-line',
+    why: 'standing 38 to 136 m off a road is a stalemate again: seen, un-arrestable, un-escapable',
+  },
+  {
+    /**
+     * THE FLOOR BECOMES A CEILING. `>=` for `<=` makes every edge EXCEPT the closest one qualify,
+     * so a unit clamps on the first far edge it reaches and never routes in — the failure #89
+     * traced and warned against when it ruled out simply widening the radius, arriving through the
+     * comparison rather than through the bound.
+     */
+    id: 'arrest-floor-inverted', file: 'src/pursuit.js',
+    find: '      if ((near.d <= this.reachRadius || (best > this.reachRadius && near.d <= best))',
+    to: '      if ((near.d <= this.reachRadius || (best > this.reachRadius && near.d >= best))',
+    why: 'units stop on the first distant edge instead of routing closer, so the chase gets worse',
+  },
+  {
+    /**
+     * THE WALK IS FREE. `arrestSeconds` goes back to a constant, so an officer parked 500 m from
+     * the only road still arrests in 4.0 s. This is the half that makes the floor fair — without
+     * it, `bestApproach` turns the stalemate into an instant arrest at any distance the fleet can
+     * see, which is worse than the stalemate rather than better.
+     */
+    id: 'arrest-clock', file: 'src/pursuit.js',
+    find: '  return Math.max(BUST_HOLD_S, dist / RUN_SPEED);',
+    to: '  return BUST_HOLD_S;',
+    why: 'an arrest 500 m from the nearest road takes 4.0 s instead of 72.7',
+  },
+  {
+    /**
+     * THE CLAMP LOSES ITS DIRECTION. `min` for `max` lets a host SHORTEN an arrest below the
+     * floor, and a `holdSeconds` of 0 is then an arrest on the first frame of the hold — no
+     * countdown, no warning. A finite check alone cannot see it, which is this file's
+     * `scale-sign` lesson in the other module.
+     */
+    id: 'bust-clamp-down', file: 'src/wanted.js',
+    find: '      this.bustNeeds = Number.isFinite(asked) ? Math.max(BUST_HOLD_S, asked) : BUST_HOLD_S;',
+    to: '      this.bustNeeds = Number.isFinite(asked) ? Math.min(BUST_HOLD_S, asked) : BUST_HOLD_S;',
+    why: 'a host reporting 0 seconds of walk arrests the player on the first frame of the hold',
+  },
+  {
+    /**
+     * THE FIELD IS DROPPED AGAIN, at the whitelist, which is exactly where it was lost the first
+     * time: both hosts set it, the bridge passes the object through, and `_watchBust` reads
+     * `undefined`. Caught only by `stats.bustNoWalk` and the two gates written around it — every
+     * arrest inside `reachRadius` is unaffected, so nothing a behavioural arm drives would differ.
+     */
+    id: 'bust-walk-dropped', file: 'src/wanted.js',
+    find: '    if (Number.isFinite(player.holdSeconds)) p.holdSeconds = player.holdSeconds;',
+    to: '    if (false) p.holdSeconds = player.holdSeconds;',
+    why: 'the host says how long the walk is and the module never hears it, silently',
+  },
+  {
+    /**
+     * THE HUD COUNTS DOWN THE WRONG CLOCK. `bustIn` back to the floor, so a 19.5 s arrest shows
+     * "4 s", reaches zero, and nothing happens for fifteen more seconds — `bust-never`'s defect
+     * arriving through the label instead of the rule. No gameplay change at all.
+     */
+    id: 'bust-hud-floor', file: 'src/wanted.js',
+    find: '      bustIn: this.bustFor > 0 ? Math.max(0, this.bustNeeds - this.bustFor) : null,',
+    to: '      bustIn: this.bustFor > 0 ? Math.max(0, BUST_HOLD_S - this.bustFor) : null,',
+    why: 'a 19.5 s arrest counts down from 4 s, hits zero, and nothing happens',
+  },
+  {
+    /**
      * THE FLOOR LIFTS THE CHARGE INSTEAD OF REPLACING IT, which is #103's candidate lever rather
      * than a defect — and that is why it is here. Shipped, `max(heat + delta, c.min)` throws away
      * the first strike's severity entirely when the charge is under the floor, so a 10 km/h nudge

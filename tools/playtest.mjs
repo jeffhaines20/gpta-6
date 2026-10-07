@@ -47,7 +47,7 @@ import { WantedSystem, VictimWindow, composeWanted, composeLaw, BUST_HOLD_S, bin
 import { Traffic } from '../src/traffic.js';
 import { Pedestrians } from '../src/pedestrians.js';
 import { RoadGraph, followPath, ROUTE_LANE_M } from '../src/roadpath.js';
-import { PursuitUnits } from '../src/pursuit.js';
+import { PursuitUnits, arrestSeconds } from '../src/pursuit.js';
 import { MissionRunner, OUTCOMES, MissionBoard, OFFER_RADIUS_M,
   composeOffer } from '../src/mission.js';
 import { composeBand, objectiveLine, MINIMAP_REACH_M, PULL_MIN } from '../src/hud.js';
@@ -551,6 +551,7 @@ export class Session {
        */
       this._wantedPlayer.x = ap.x; this._wantedPlayer.z = ap.z;
       this._wantedPlayer.held = false;
+      this._wantedPlayer.holdSeconds = undefined;
       // See `_trackVelocity` in src/wanted.js: a step in or out of the car moves the reported
       // position 1.9 m in one frame, and without this that reads as 114 m/s of travel and clears
       // the bust clock. district/main.js carries the same flag.
@@ -569,11 +570,29 @@ export class Session {
        * here. An arrest is made by a person, and `reachRadius` is how far one gets.
        */
       const reachR = this.pursuit.reachRadius ?? this.pursuit.holdRadius ?? 0;
+      let heldD = Infinity;
       if (reachR > 0) {
         for (const u of this._unitPositions()) {
           if (!u.held) continue;
-          if (Math.hypot(u.x - ap.x, u.z - ap.z) <= reachR) { this._wantedPlayer.held = true; break; }
+          /**
+           * THE NEAREST HOLDING UNIT, AND NO RADIUS TEST OF ITS OWN. `u.held` is already the
+           * module's answer to "this officer can get out and walk to you" — `u.stopped` plus a
+           * clear foot path — and `src/pursuit.js`'s `bestApproach` now lets a unit stop at the
+           * network's own closest approach rather than only inside 28 m. A second radius here
+           * would re-impose the bound the module just stopped applying, which is the "the bound
+           * existed in three places" defect `pursuitReach` was written to end.
+           *
+           * NEAREST rather than first, because the clock is the WALK: the officer with the
+           * shortest one is the one who arrives.
+           */
+          const d = Math.hypot(u.x - ap.x, u.z - ap.z);
+          if (d < heldD) heldD = d;
         }
+      }
+      if (Number.isFinite(heldD)) {
+        this._wantedPlayer.held = true;
+        // The module owns the derivation; this hands it the one number it cannot see.
+        this._wantedPlayer.holdSeconds = arrestSeconds(heldD);
       }
       this.wantedBridge.update(DT, this._wantedPlayer);
       if (this._pursuitIds.length) this.pursuit.update(DT, this._pursuitTarget);

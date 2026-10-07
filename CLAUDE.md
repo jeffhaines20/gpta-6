@@ -484,6 +484,57 @@ have inherited that one too. Both are charged at the table value now, counted in
 `stats.badScales`, and have two mutation rows rather than one: a finite check alone does not cover
 the sign, which is this file's "guard the DIRECTION as well as the magnitude".
 
+## A module's player argument can be a WHITELIST, and a field it does not name is dropped in silence
+
+`src/wanted.js` does `player = this._sanitize(player)` at the top of `update`, and `_sanitize`
+copies a fixed list of keys into one reused object. Adding `player.holdSeconds` to both hosts and to
+`bindPursuit`'s pass-through was not enough: the field never reached `_watchBust`, which read
+`undefined` and fell back to `BUST_HOLD_S`. **An arrest 508 m from the nearest road took 4.0 s
+instead of 72.7**, and nothing errored.
+
+**What caught it was the counter added in the same commit for exactly this.** The fallback is the
+flattering one — a shorter arrest, not immunity — so `stats.bustNoWalk` counts the frames the clock
+ran without the host saying how far the officer had to come, and both shipped hosts wire it, so a
+non-zero count is a wire that has come loose. It read 1 and that was the whole diagnosis.
+
+**And then I nearly misdiagnosed it.** A probe logging `player === session._wantedPlayer` inside
+`_watchBust` printed `false`, which sent me grepping for a second caller of `update` that does not
+exist. The object identity was worth being suspicious of and the reason was wrong: `_sanitize` is a
+COPY, not a different source. `Object.keys(player)` would have said so in one line, because the
+whitelist's own key list is the answer.
+
+Two rules: **when a field you just added does not arrive, print the keys of the object that
+arrived**, not its identity. And **a whitelist is a contract, so declare the field there** rather
+than working around it — the sanitiser is also where the non-finite guard belongs, and
+`Math.max(FLOOR, NaN)` is NaN, `bustFor < NaN` is false, so a NaN walk would have fired the arrest
+on the first frame of the hold. That is this file's "non-finite delta-v, and the immortality it
+buys" arriving as its exact opposite.
+
+### And the arm that tests it was a dirty tree for the arms after it, for the second time in one session
+
+The section above this one records a browser arm that drove 42 m through a crowd and broke six
+checks in three later arms. Two hours later, the arm for THIS change set four stars, got the player
+arrested, respawned the car and aborted the running mission — and broke five checks in the run-over
+and garage arms below it. Same shape, same file, same session, after writing the lesson down.
+
+The rule that actually holds, rather than "be careful": **an arm that cannot avoid perturbing the
+page goes where there is nothing left to perturb.** This one is last in the file now, and it still
+restores the page afterwards, because "nothing runs after it" is a fact about today's file order and
+not a property of the arm.
+
+Two more things that version got wrong, both of which printed a number over a build that works:
+
+- **It chose its remote spot by distance from the SPAWN.** 84 m out on sixteen bearings, first
+  clear one wins — and that point was **3.0 m from a road**, so the ordinary 28 m reach arrested it
+  in 4 s and the arm reported "0 units held". The quantity it needed was distance from the ROAD
+  NETWORK, which is the same confusion as measuring a pedestrian against "the nearest centreline"
+  rather than the carriageway they are beside, one section up. `__district.roadDistance` is the
+  router's own projection, so the gate and the game agree about where the roads are.
+- **Appending it to the end of the file put it after the summary**, where its checks would have
+  printed below `BOOT: PASS`. That is `mission-test`'s snapshot defect — a gate printing FAIL lines
+  under its own PASS line — reached by text position rather than by a stale accumulator. The
+  verdict block is not the end of a gate file; the last ARM is.
+
 ## Isolate the whole chain before blaming the end of it, and the threshold that classifies is part of the instrument
 
 #104 reported knockdowns at 1.33-2.17 per km "on the carriageway" and read it as the crowd standing
@@ -1691,6 +1742,46 @@ the old arm became the new control.** `playtest --selftest` §5b read "driving i
 the job" and was correct about the behaviour it was written for. `driveTo` leaves the car rolling at
 37 km/h, so the identical call is now the negative arm, and the positive one is 0.90 s of brake —
 a brake curve, not a dwell, which is the number that says the rule is a level.
+
+### A disjunction is not a widening unless its two halves are disjoint, and the flakiness is what said so
+
+#89's fix lets a pursuit unit clamp at the NETWORK's closest approach to the player rather than only
+inside `reachRadius`, so a player 38 to 136 m off a road can be arrested instead of sitting in a
+stalemate. The claim for it — written into the commit, the module comment and the backlog — was
+"identical to today's behaviour at every distance the game already arrests at, and only longer
+beyond it". The first version wrote that as
+
+    near.d <= this.reachRadius || near.d <= best
+
+and **that sentence was false.** Where the network DOES get inside 28 m, `near.d <= best` admits
+every edge at or below the best approach, so units clamp on edges they used to drive past and the
+hold arrives SOONER than before. Inside the reach the change was not a no-op at all.
+
+**Nothing offline could see it and the browser gate saw it as flakiness.** `boot-check` went from
+3 of 3 passing at HEAD to passing about half the time, always the same six checks in two arms that
+had nothing to do with the pursuit: the garage's wanted-refusal arm parks a four-star car 12 m from
+a road and was being arrested mid-dwell, reading `[law] BUSTED IN — 4 s / drive` where it expects
+`[garage] GARAGE / not while they are looking`.
+
+Three things to carry, and the second is the one that nearly cost the round:
+
+- **Intermittent is a measurement, not noise.** Five runs of my tree gave PASS, FAIL(6), PASS,
+  FAIL(6), PASS; three runs at HEAD gave PASS, PASS, PASS at 347-367 s — **slower** than my failing
+  runs at 272-283 s. So duration was not the cause and contention was not the cause, and the only
+  remaining explanation was my own diff. This file already says to clean the box and run three
+  times; the half that matters here is **run the BASELINE three times too**, because "it fails
+  sometimes" and "it fails sometimes more than it used to" are different facts.
+- **I almost restated the gate instead of fixing the code.** The failing arms genuinely do park a
+  wanted car and assume it will not be arrested, so "my change removed the immunity they relied on,
+  restate them" is a coherent story and it is wrong: those arms sit INSIDE the reach, where the
+  derivation promised nothing would move. A gate that starts failing after a change whose own
+  claim is "nothing moves here" is evidence against the claim, not against the gate.
+- **The guard is the derivation, so it goes in the condition.** `best > this.reachRadius &&
+  near.d <= best` makes the two halves disjoint by construction: inside the reach nothing moved,
+  outside it the floor is the only term that applies. `arrest-band` still reports "no stalemate
+  row" with the same arrest times, and `pursuit-test`'s four-band isolation table is unchanged — so
+  the guard costs nothing where the fix was aimed, which is what says it is a guard and not a
+  retreat.
 
 ### A host rule is a rule no offline gate can reach
 

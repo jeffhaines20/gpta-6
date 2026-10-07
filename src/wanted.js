@@ -375,6 +375,11 @@ export class WantedSystem {
      * Read by `hudState` so the player can watch it run; see `_watchBust`.
      */
     this.bustFor = 0;
+    /**
+     * HOW LONG THE ARREST IN PROGRESS TAKES, latched when the hold starts. Initialised to the
+     * floor so `hudState()` on a fresh system reads the same as it always did. See `_watchBust`.
+     */
+    this.bustNeeds = BUST_HOLD_S;
 
     /**
      * DID THE PLAYER STOP AT THE SCENE AND NOTHING HAPPEN SINCE. Carried on the `busted` event so
@@ -435,7 +440,7 @@ export class WantedSystem {
       // second never happens reads as a held band rather than as a missing counter.
       scenesArmed: 0, scenesStopped: 0, scenesDischarged: 0, scenesFled: 0,
       // Busted: the host held you stopped for BUST_HOLD_S. See `_watchBust`.
-      busts: 0, bustHolds: 0,
+      busts: 0, bustHolds: 0, bustNoWalk: 0,
       // Frames the host declared a teleport. See `_trackVelocity`: a host that never declares one
       // is a host where stepping out of the car is immunity, so 0 here is worth seeing.
       teleports: 0,
@@ -793,7 +798,7 @@ export class WantedSystem {
        * and because `bustFor === 0` and "not held" are the same number and must not read as the
        * same state. See `_watchBust`.
        */
-      bustIn: this.bustFor > 0 ? Math.max(0, BUST_HOLD_S - this.bustFor) : null,
+      bustIn: this.bustFor > 0 ? Math.max(0, this.bustNeeds - this.bustFor) : null,
       /**
        * TRUE WHILE THE PLAYER IS BEING HELD AND HAS ALREADY TRIED THE THROTTLE, which is what
        * turns "drive" into "reverse". See `_watchBust`.
@@ -811,6 +816,26 @@ export class WantedSystem {
     p.held = player.held === true;
     p.teleported = player.teleported === true;
     p.throttle = Number.isFinite(player.throttle) ? player.throttle : 0;
+    /**
+     * `holdSeconds` IS PART OF THE CONTRACT, so it has to be declared here. This method is the
+     * module's player WHITELIST — it copies into one reused object and anything not named is
+     * dropped — and that is how the field was lost on its first wiring: both hosts set it, the
+     * bridge passed the object through unchanged, and `_watchBust` still read `undefined` and
+     * fell back to `BUST_HOLD_S`. The arrest at 508 m took 4.0 s instead of 72.7.
+     *
+     * It was caught by `stats.bustNoWalk`, the counter added in the same commit precisely because
+     * the fallback is the flattering one — and then nearly misdiagnosed: a probe comparing
+     * `player === session._wantedPlayer` inside `_watchBust` reported false and sent me looking
+     * for a second caller that does not exist. The object identity was right to be suspicious of
+     * and wrong about why: `_sanitize` is a COPY, not a different source.
+     *
+     * NON-FINITE HOLDS THE LAST GOOD VALUE, like x and z, rather than passing NaN down to a
+     * clock: `Math.max(BUST_HOLD_S, NaN)` is NaN, `bustFor < NaN` is false, and the arrest would
+     * fire on the first frame of the hold. That is this file's own "non-finite delta-v, and the
+     * immortality it buys" arriving as its opposite.
+     */
+    if (Number.isFinite(player.holdSeconds)) p.holdSeconds = player.holdSeconds;
+    else p.holdSeconds = undefined;
     return p;
   }
 
@@ -1001,6 +1026,32 @@ export class WantedSystem {
     }
     if (this.bustFor === 0) { this.stats.bustHolds++; this._bustThrottle = false; }
     /**
+     * HOW LONG THIS ARREST TAKES, FROM THE HOST, and the floor is `BUST_HOLD_S`.
+     *
+     * `src/pursuit.js`'s `arrestSeconds(d)` is `max(BUST_HOLD_S, d / RUN_SPEED)` — the same
+     * derivation `reachRadius` makes at one point, stated as a function of distance — and the two
+     * terms cross exactly AT `reachRadius`, so every arrest the game already made is unchanged
+     * and only the ones beyond 28 m lengthen. This module imports nothing by design and cannot
+     * see RUN_SPEED, so it takes the answer the way it already takes `player.held`.
+     *
+     * CLAMPED UP, NEVER DOWN. A host passing a smaller number cannot shorten an arrest, which is
+     * this file's "guard the DIRECTION as well as the magnitude": a non-finite or negative
+     * `holdSeconds` falls to the floor rather than making the player un-arrestable, and a host
+     * that passes NOTHING gets exactly the old behaviour. That last one is the flattering default
+     * CLAUDE.md warns about, so it is COUNTED — `stats.bustNoWalk` is the number of frames this
+     * clock ran without the host saying how far the officer had to come, and both shipped hosts
+     * wire it, so a non-zero count is a wire that has come loose.
+     *
+     * LATCHED AT THE START OF THE HOLD rather than read per frame, because the officer who began
+     * walking is the one who arrives: a unit drifting a metre must not restart the arithmetic, and
+     * the HUD's countdown has to be monotonic.
+     */
+    if (this.bustFor === 0) {
+      const asked = player.holdSeconds;
+      if (!Number.isFinite(asked)) this.stats.bustNoWalk++;
+      this.bustNeeds = Number.isFinite(asked) ? Math.max(BUST_HOLD_S, asked) : BUST_HOLD_S;
+    }
+    /**
      * HAS THE PLAYER ALREADY TRIED TO DRIVE OUT OF THIS. If the throttle has been open at any
      * point during the hold and the car is still under the stop threshold, "drive" is advice they
      * are already following — so the verb becomes "reverse", which is the only out left.
@@ -1017,7 +1068,7 @@ export class WantedSystem {
      */
     if ((player.throttle ?? 0) > 0.05) this._bustThrottle = true;
     this.bustFor += dt;
-    if (this.bustFor < BUST_HOLD_S) return false;
+    if (this.bustFor < this.bustNeeds) return false;
     this.bustFor = 0;
     this.stats.busts++;
     // The level goes first, so a listener that reads `stars` sees the cleared value: being busted
@@ -1280,6 +1331,15 @@ export class WantedSystem {
       evade: { timer: +this.evadeTimer.toFixed(2), required: +this.evadeRequired().toFixed(2),
         progress: +this.evadeProgress.toFixed(3) },
       cool: +this.cool.toFixed(2),
+      /**
+       * THE ARREST IN PROGRESS, in seconds, latched when the hold armed. It SURVIVES the bust —
+       * `_watchBust` zeroes `bustFor` and leaves this alone — which is what makes it readable by a
+       * gate that cannot sample every frame: `tools/boot-check.mjs`'s arrest-walk arm reads it
+       * after the fact and compares it with its own `arrestSeconds(roadDistance)`, two numbers
+       * from two sources. `hudState().bustIn` is the live countdown and is null once the clock is
+       * not running, so it cannot answer this.
+       */
+      bustNeeds: +this.bustNeeds.toFixed(3),
       lastKnown: this.lastKnown.valid
         ? { x: +this.lastKnown.x.toFixed(2), z: +this.lastKnown.z.toFixed(2), age: +(this.time - this.lastKnown.t).toFixed(2) }
         : null,

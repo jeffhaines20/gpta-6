@@ -2810,6 +2810,96 @@ let searchSample;
     fatal.t > mid.t * 1.5, `${fatal.t} s against ${mid.t} s`);
 }
 
+/**
+ * §d3  THE ARREST CLOCK IS THE WALK, AND THE HOST HAS TO SAY HOW LONG IT IS.
+ *
+ * `src/pursuit.js`'s `arrestSeconds(d)` = `max(BUST_HOLD_S, d / RUN_SPEED)` is `reachRadius`'s own
+ * derivation stated as a function of distance; this module imports nothing and takes the answer as
+ * `player.holdSeconds`, the way it already takes `player.held`. Gated here because three things
+ * can go wrong and only one of them is visible from the outside:
+ *
+ *   - the field is DROPPED. `_sanitize` is a whitelist that copies into one reused object, and on
+ *     the first wiring `holdSeconds` was not in it: both hosts set it, the bridge passed the
+ *     object through, and the clock still ran at 4.0 s. An arrest 508 m from the nearest road took
+ *     4.0 s instead of 72.7. Caught by `stats.bustNoWalk` and nothing else.
+ *   - a host SHORTENS an arrest. The clamp is one-sided on purpose.
+ *   - a NaN reaches the comparison. `bustFor < NaN` is false, so the arrest fires on the first
+ *     frame of the hold — this file's "non-finite delta-v, and the immortality it buys" inverted.
+ */
+{
+  console.log('\nd3. the arrest clock, and the walk the host reports');
+  const run = (holdSeconds, seconds = 40) => {
+    const w = new WantedSystem();
+    w.reportCrime('officerDown', { at: ORIGIN });
+    const DT3 = 1 / 20;
+    let t = 0, bustAt = null;
+    w.on('busted', () => { if (bustAt === null) bustAt = +t.toFixed(2); });
+    while (t < seconds && bustAt === null) {
+      w.update(DT3, { x: 0, z: 0, held: true, holdSeconds });
+      t += DT3;
+    }
+    return { bustAt, needs: +w.bustNeeds.toFixed(3), noWalk: w.stats.bustNoWalk,
+      busts: w.stats.busts };
+  };
+  const near = run(BUST_HOLD_S);
+  const far = run(19.53);
+  const absent = run(undefined);
+  console.log(`    holdSeconds ${BUST_HOLD_S} -> busted at ${near.bustAt} s (needs ${near.needs})`);
+  console.log(`    holdSeconds 19.53 -> busted at ${far.bustAt} s (needs ${far.needs})`);
+  console.log(`    holdSeconds absent -> busted at ${absent.bustAt} s (needs ${absent.needs}), `
+    + `bustNoWalk ${absent.noWalk}`);
+  check('an arrest at the officer\'s reach still takes exactly the old hold',
+    near.bustAt !== null && Math.abs(near.bustAt - BUST_HOLD_S) <= 0.1,
+    `${near.bustAt} s against ${BUST_HOLD_S}`);
+  check('and a longer walk takes longer, in the seconds the host asked for',
+    far.bustAt !== null && Math.abs(far.bustAt - 19.53) <= 0.1,
+    `${far.bustAt} s against 19.53`);
+  check('the two are far enough apart that no tolerance covers both',
+    far.bustAt - near.bustAt > 10, `${(far.bustAt - near.bustAt).toFixed(2)} s apart`);
+  /**
+   * A HOST THAT SAYS NOTHING GETS THE OLD BEHAVIOUR, which is the flattering default CLAUDE.md
+   * warns about — so it is COUNTED, and the count is the check. Both shipped hosts wire the field,
+   * so a non-zero `bustNoWalk` in play is a wire that has come loose.
+   */
+  check('a host that reports no walk gets the floor, and it is counted rather than silent',
+    absent.bustAt !== null && absent.needs === BUST_HOLD_S && absent.noWalk === 1,
+    `${absent.bustAt} s, needs ${absent.needs}, bustNoWalk ${absent.noWalk}`);
+  check('and a host that DOES report one is not counted',
+    far.noWalk === 0 && near.noWalk === 0, `${far.noWalk} and ${near.noWalk}`);
+  /**
+   * CLAMPED UP, NEVER DOWN, and the shapes are swept rather than one representative: a finite
+   * check alone does not cover the sign, which is this file's standing lesson from `scale-sign`.
+   */
+  const bad = [0, -1, -1e9, NaN, Infinity, -Infinity, '4', null, undefined];
+  const rows = bad.map((v) => ({ v: String(v), r: run(v, 12) }));
+  for (const r of rows) {
+    console.log(`    holdSeconds ${r.v.padEnd(9)} -> needs ${r.r.needs}, busted at ${r.r.bustAt}`);
+  }
+  check('no host value can shorten an arrest below the floor',
+    rows.every((r) => r.r.needs >= BUST_HOLD_S),
+    rows.map((r) => `${r.v}:${r.r.needs}`).join(' '));
+  check('and every one of them still arrests, rather than buying immunity',
+    rows.every((r) => r.r.busts === 1), rows.map((r) => `${r.v}:${r.r.busts}`).join(' '));
+  check('KNOWN-BAD: Infinity would be immunity if it were taken at face value',
+    run(Infinity, 12).needs === BUST_HOLD_S, `${run(Infinity, 12).needs}`);
+  /**
+   * AND THE HUD COUNTS DOWN THE RIGHT CLOCK. `bustIn` read `BUST_HOLD_S - bustFor` and would have
+   * shown "4 s" through a 19.5 s arrest — the countdown reaching zero and nothing happening,
+   * which is `bust-never`'s defect arriving through the label instead of the rule.
+   */
+  const w2 = new WantedSystem();
+  w2.reportCrime('officerDown', { at: ORIGIN });
+  w2.update(0.05, { x: 0, z: 0, held: true, holdSeconds: 19.53 });
+  const first = w2.hudState().bustIn;
+  for (let i = 0; i < 100; i++) w2.update(0.05, { x: 0, z: 0, held: true, holdSeconds: 19.53 });
+  const later = w2.hudState().bustIn;
+  console.log(`    hud bustIn: ${first.toFixed(2)} s at the start, ${later.toFixed(2)} s after 5 s`);
+  check('the HUD counts down the arrest the host asked for, not the floor',
+    first > BUST_HOLD_S && Math.abs(first - (19.53 - 0.05)) < 0.1,
+    `${first.toFixed(3)} against ${(19.53 - 0.05).toFixed(3)}`);
+  check('and it decreases', later < first - 4, `${first.toFixed(2)} -> ${later.toFixed(2)}`);
+}
+
 // ---------------------------------------------------------------- report
 console.log(JSON.stringify(out, null, 1));
 const failed = checks.filter((c) => !c.ok);

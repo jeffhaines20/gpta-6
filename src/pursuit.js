@@ -21,6 +21,29 @@ import { HALF_EXTENT } from './damage.js';
 import { RUN_SPEED, ON_FOOT_RADIUS } from './player.js';
 import { BUST_HOLD_S } from './wanted.js';
 
+/**
+ * HOW LONG AN ARREST TAKES FROM `d` METRES AWAY. `reachRadius` evaluates "an officer who leaves
+ * the car and runs covers RUN_SPEED * BUST_HOLD_S" at ONE point and calls the answer a radius.
+ * Stated as a function of distance instead, the same derivation gives the clock:
+ *
+ *     arrestSeconds(d) = max(BUST_HOLD_S, d / RUN_SPEED)
+ *
+ * THE TWO TERMS CROSS EXACTLY AT `reachRadius`, because `RUN_SPEED * BUST_HOLD_S / RUN_SPEED` is
+ * `BUST_HOLD_S` — so this is IDENTICAL to today's behaviour at every distance the game already
+ * arrests at, and only lengthens the countdown beyond it: 4.0 s out to 28 m, 5.4 s at 37.8 m,
+ * 13.9 s at 97.3 m, 19.5 s at 136.7 m. No new constant, and retuning either of the two moves the
+ * clock and the reach together, which is the property `reachRadius`'s own comment calls
+ * self-correcting.
+ *
+ * IT LIVES HERE because this is the module that owns both constants and already multiplies them.
+ * `src/wanted.js` imports nothing by design and cannot see RUN_SPEED; it takes the answer from
+ * the host as `player.holdSeconds`, exactly as it already takes `player.held`.
+ */
+export function arrestSeconds(d) {
+  const dist = Number.isFinite(d) && d > 0 ? d : 0;
+  return Math.max(BUST_HOLD_S, dist / RUN_SPEED);
+}
+
 // The officer's path is sampled at this spacing. Bounded by the test, not chosen: a circle of
 // radius ON_FOOT_RADIUS can only notice a wall while consecutive samples are under 2r = 0.70 m
 // apart. `pursuit-test` asserts that relation rather than this number.
@@ -200,6 +223,48 @@ export class PursuitUnits {
   }
 
   /**
+   * THE CLOSEST ANY UNIT CAN EVER GET, which is the quantity the arrest stalemate needed and the
+   * one nothing computed. The paragraph above ends "driving a hundred metres into open land is
+   * still immunity ... it needs police who get out of the car, not a bigger number here". This is
+   * that, and it is the half #89 left open after ruling out the obvious version.
+   *
+   * WHY IT IS A NETWORK QUERY AND NOT AN EDGE ONE. `u.stopped` clamps a unit at its CURRENT
+   * edge's closest approach whenever that approach is inside `reachRadius`, and #89 traced what
+   * happens if you simply widen that bound: a unit clamps on the first edge passing within the
+   * wider radius instead of continuing to route closer, so the chase gets WORSE. The right
+   * question is not "is this edge close enough" but "is any edge closer" — and if none is, routing
+   * on cannot help and the unit should stop and walk.
+   *
+   * MEASURED, AND THE EVIDENCE WAS ALREADY IN #89's OWN TABLE. Over nine placements of a
+   * stationary player the closest a unit ever got ran 7.9 / 22.8 / 37.0 / 51.7 / 66.5 / 96.2 /
+   * 135.8 m against a true road distance of 8.0 / 22.9 / 37.8 / 52.6 / 67.5 / 97.3 / 136.7 — the
+   * two agree to between 0.1 and 1.1 m at every row. So the network's own minimum IS what the
+   * pursuit achieves, and it is the floor the arrest has to be derived against.
+   *
+   * NO EPSILON, BY CONSTRUCTION. The comparison at the call site is `near.d <= best`, and both
+   * numbers come out of `_closestOn` on the same target, so for the minimising edge they are
+   * bit-identical. `_closestOn`'s `d` does not depend on `forward` — only its `t` does — so a
+   * unit travelling either way down the best edge compares equal. CLAUDE.md asks for a tolerance
+   * to be measured rather than guessed; this one does not exist to be measured.
+   *
+   * CACHED PER TARGET POSITION, because `update()` asks once per unit and the answer is the same
+   * for all of them. 935 edges of point-polyline distance is nothing, and doing it eight times a
+   * frame for one answer would still be nothing — the cache is for determinism of the comparison
+   * rather than for speed.
+   */
+  bestApproach(target) {
+    const tx = target.x, tz = target.z;
+    if (this._bestAt && this._bestAt.x === tx && this._bestAt.z === tz) return this._bestAt.d;
+    let best = Infinity;
+    for (let e = 0; e < this.d.edges.length; e++) {
+      const d = this._closestOn(e, true, target).d;
+      if (d < best) best = d;
+    }
+    this._bestAt = { x: tx, z: tz, d: best };
+    return best;
+  }
+
+  /**
    * CAN AN OFFICER GET FROM (ax, az) TO (bx, bz) ON FOOT? A straight line, sampled against the
    * host's own blocker predicate — the one `district/main.js` builds from
    * `blockers.resolveCircle`, so the walk is refused by exactly the geometry the car collides
@@ -364,7 +429,31 @@ export class PursuitUnits {
        * 28 m for about 2.1 s against a 4.0 s dwell, so nobody could ever be arrested from a
        * passing unit however wide the predicate got. The officers get out when the car stops.
        */
-      if (near.d <= this.reachRadius && (u.stopped || (wantT > near.t && u.t <= near.t))) {
+      /**
+       * OR THE EDGE IS AS CLOSE AS THE NETWORK GETS, **AND ONLY WHERE THE NETWORK CANNOT REACH**.
+       * `reachRadius` alone left #89's stalemate: a player standing 38 to 136 m off a road was
+       * seen the whole time, held by nobody, and could neither be arrested nor escape, because no
+       * edge any unit drove came within 28 m and so `stopped` was never set. See `bestApproach`
+       * for why this is the network's minimum and not a wider radius, which was traced and is
+       * worse.
+       *
+       * THE `best > reachRadius` GUARD IS NOT BELT AND BRACES — IT IS THE DERIVATION. The whole
+       * claim for this change is "identical to today's behaviour at every distance the game
+       * already arrests at, and only longer beyond it". Without the guard that is false: where the
+       * network DOES get inside 28 m, `near.d <= best` admits every edge at or below the best
+       * approach, so units clamp on edges they used to drive past and the hold arrives SOONER than
+       * it did. Measured by boot-check, which went from 3 of 3 passing at HEAD to passing about
+       * half the time: the garage's wanted-refusal arm parks a four-star car 12 m from a road and
+       * was being arrested mid-dwell, reading `[law] BUSTED IN — 4 s / drive` where it expects
+       * `[garage] GARAGE / not while they are looking`. Six checks in two arms, intermittently,
+       * for a change that was only ever meant to reach past the radius.
+       *
+       * So the two conditions are DISJOINT by construction: inside the reach nothing moved, and
+       * outside it the floor is the only thing that applies.
+       */
+      const best = this.bestApproach(target);
+      if ((near.d <= this.reachRadius || (best > this.reachRadius && near.d <= best))
+        && (u.stopped || (wantT > near.t && u.t <= near.t))) {
         u.t = near.t;
         u.stopped = true;
       } else {
@@ -446,6 +535,9 @@ export class PursuitUnits {
       stopped: this.units.filter((u) => u && u.stopped).length,
       holdR: this.holdRadius,
       reachR: this.reachRadius,
+      // The floor on how close a unit can get to the LAST target `update()` was given, which is
+      // what the arrest clock is derived against. Null before the first update.
+      bestApproach: this._bestAt ? +this._bestAt.d.toFixed(3) : null,
       footPath: !!this.clearAt,
       ...this.stats,
       drawCalls: 2,

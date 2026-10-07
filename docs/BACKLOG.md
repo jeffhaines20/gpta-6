@@ -757,6 +757,49 @@ a flat **8 s for `pedestrianHit` at any speed**. Scaling it by the same `scale` 
 has measured. So: a measurement, not a patch, until somebody decides whether a player should feel
 the difference on their first contact.
 
+### #108 The two hosts disagree about how sticky a long arrest hold is, and no gate was comparing it
+Found while gating #89's fix, and it is the one thing that round could not close. The change is
+correct in both hosts — the clock the page latches is right to 7 ms — and the two differ in whether
+it ever RUNS OUT.
+
+    tools/playtest.mjs, via arrest-band   busts at 37, 53, 68, 97, 137 and 186 m in 28 to 46 s
+    district/main.js, via boot-check      latches 8.205 s at 57.4 m, then advances 0.145 s
+                                          over 103 rendered frames and never fires
+
+The latch is provably right: the page's own `bustNeeds` reads **8.208 s** against the gate's
+independently computed `arrestSeconds(57.408 m)` = **8.201 s**, with `bustNoWalk` not moving, so the
+host computed and passed the walk. `bestApproach` reads **57.464** against `roadDistance`'s
+**57.408** — two walks of the same network. Everything about the wire checks out.
+
+What does not is the HOLD. `_watchBust` resets `bustFor` on any frame where `player.held` is false,
+and `u.held` is `u.stopped && (near.d <= holdRadius || _footPathClear(...))` — so over a 57 m walk
+the straight-line foot test flickers as the clamp point shifts, and the clock restarts every few
+frames. **This is a class CLAUDE.md already records, in this module**: "The condition `u.t <=
+near.t` was a strict ratchet ... `held` was true for exactly TWO frames at a time. Once sticky, six
+variants of one scenario all bust at 16 s."
+
+Ruled out, each by measurement rather than by argument:
+
+- **The car moving.** Drift 0.05 m over the whole window, still 57.4 m from a road.
+- **The spot having no clear walk.** The gate now samples `clearAt` along the line from the car to
+  its nearest road point before committing to a spot, at the module's own predicate, and the same
+  spot is chosen.
+- **`clearAt` missing in one host.** Both pass it — `district/main.js:1156` and
+  `tools/playtest.mjs:271` — so the foot test is live in both and this is not playtest measuring a
+  world without walls.
+- **The sim-loop placement.** `wantedBridge.update` is inside `district/main.js`'s `timeScale`
+  loop, at relative depth 1 from the `for (let s = 0; s < timeScale; s++)`, so the clock should
+  advance `timeScale * dt` a frame and the slow advance is resets, not placement.
+
+**The likely fix is to make the hold sticky once armed**, the way `u.stopped` already is — an
+officer who has got out and started walking does not get back in because a wall briefly intersects
+a straight line. That is a pursuit change with a gate to write, and `mutation-sweep` would need a
+row proving the stickiness cannot become "held for ever", which is the defect the ratchet was
+guarding against in the first place.
+
+`boot-check`'s arm asserts the wire and PRINTS the rate rather than asserting the completion, with
+a comment saying why: a check that cannot pass reliably reads as a defect in whatever ran last.
+
 ### #107 `reckless` is unfiled, and it is a PRICED REFUSAL rather than an oversight — the open question is a speed limit
 B's observation is exact and reproduces: `reckless` (heat 0.40, cool 2, refractory 3.0, **no `min`**)
 has been in `CRIMES` since the table was written, and **120 s at a top speed of 94 km/h with 40 swerve
@@ -1422,7 +1465,84 @@ minimum over the unit's reachable road of distance to the player — which is a 
 approximation of one via the plan's own assigned goal. That is a pursuit design change rather than
 a constant, and it is the open half.
 
-Held for the playtest round in flight, whose blind measurement of the pursuit is the before-arm.
+**CLOSED. Both halves shipped, and the entry had already done the hard part: it named the query and
+ruled out the wrong version of it.**
+
+`PursuitUnits.bestApproach(target)` is the minimum over all 935 edges of the point-polyline
+distance, cached per target position. A unit now clamps at its edge's closest approach when that
+approach is within `reachRadius` **or when it equals the network's minimum** — because then routing
+on cannot help. **No epsilon**: both numbers come out of `_closestOn` on the same target, and its
+`d` does not depend on `forward`, so for the minimising edge they are bit-identical.
+
+**The premise was already proved by the table above and nobody had read it that way.** Over nine
+placements the closest a unit ever got ran 7.9 / 22.8 / 37.0 / 51.7 / 66.5 / 96.2 / 135.8 m against
+a true road distance of 8.0 / 22.9 / 37.8 / 52.6 / 67.5 / 97.3 / 136.7 — **agreeing to between 0.1
+and 1.1 m at every row.** The network's own minimum IS what the pursuit achieves.
+
+`arrestSeconds(d) = max(BUST_HOLD_S, d / RUN_SPEED)` is the clock the entry derived, in
+`src/pursuit.js` because that is the module that owns both constants and already multiplies them.
+`src/wanted.js` takes it as `player.holdSeconds`, the way it already takes `player.held`.
+
+`arrest-band` re-run, same tool, same protocol:
+
+      placed   true road d   stars   units  held   seen%   closest   busts   ended
+          0 m         8.0 m   4->0       6     1     97%     7.9 m       1    31 s  arrested
+         15 m        22.9 m   4->0       6     1     87%    22.8 m       1    30 s  arrested
+         30 m        37.8 m   4->0       6     1     84%    37.6 m       1    37 s  arrested
+         45 m        52.6 m   4->0       6     1     83%    52.5 m       1    46 s  arrested
+         60 m        67.5 m   4->0       6     2     78%    67.3 m       1    45 s  arrested
+         90 m        97.3 m   4->0       6     2     80%    97.1 m       1    46 s  arrested
+        130 m       136.7 m   4->0       6     2     96%   136.6 m       1    28 s  arrested
+        180 m       185.9 m   4->0       6     3     15%   185.8 m       1    33 s  arrested
+        260 m       264.4 m   4->0       0     0      2%       n/a       0   240 s  escaped
+
+**"no stalemate row: every placement was either arrested or escaped."** Five stalemates became
+arrests.
+
+**One row changed that was not a stalemate, and it is a real cost: 180 m went from escaped to
+arrested.** Its `seen%` went 2% -> 15%, because units now park at the best approach instead of
+milling, so the player is in contact more often and the escape clock never completes. So the
+"stand still and wait it out" escape boundary moved from about 186 m to somewhere between 186 and
+264 m. Standing still while the police can see you and have parked as close as the roads allow is
+an arrest now; the way out is to MOVE, which #95's sign fix already makes work.
+
+**`pursuit-test` isolates the two levers, because there are now two and a two-arm table cannot say
+which bought what:**
+
+    nearest edge      n   LEGACY   +REACH   +NETWORK FLOOR
+    0-8.75 m          8      7/8      7/8       7/8
+    8.75-16 m         8      0/8      8/8       8/8
+    16-28 m           8      0/8      6/8       6/8
+    28-999 m          8      0/8      0/8       8/8
+
+Each lever's contribution is explicit and neither undoes the other. Three checks there were
+restated rather than loosened — "beyond the reach it is immunity in BOTH arms, which is the design
+limit" was right about the build it was written for, and `reachRadius`'s own comment had predicted
+this: "driving a hundred metres into open land is still immunity ... it needs police who get out of
+the car, not a bigger number here."
+
+**And the field was silently dropped on its first wiring.** `_sanitize` is a WHITELIST that copies
+into one reused object, and `holdSeconds` was not in it: both hosts set it, `bindPursuit` passed the
+object through unchanged, and `_watchBust` still read `undefined`. An arrest 508 m from the nearest
+road took 4.0 s instead of 72.7. **Caught by `stats.bustNoWalk`, the counter added in the same
+commit because the fallback is the flattering one** — and then nearly misdiagnosed: a probe
+comparing `player === session._wantedPlayer` inside `_watchBust` read false and sent me looking for
+a second caller that does not exist. `_sanitize` is a copy, not a different source.
+
+Six mutation rows, and three of them are invisible to every behavioural arm: `bust-walk-dropped`
+(the whitelist again), `bust-hud-floor` (a 19.5 s arrest counting down from 4) and
+`bust-clamp-down` (a host able to shorten an arrest).
+
+**And the first version of the clamp was a widening INSIDE the reach as well, which the claim for
+the change said it was not.** `near.d <= this.reachRadius || near.d <= best` admits every edge at
+or below the best approach wherever the network gets inside 28 m, so units clamped on edges they
+used to drive past and the hold arrived sooner than before. `boot-check` went from 3 of 3 passing
+at HEAD to passing about half the time — the garage's wanted-refusal arm parks a four-star car
+12 m from a road and was being arrested mid-dwell, reading `[law] BUSTED IN — 4 s / drive` against
+the `[garage] GARAGE / not while they are looking` it expects. Three baseline runs at HEAD passed
+in 347-367 s, SLOWER than the failing runs at 272-283 s, so neither contention nor duration
+explained it. The condition is `best > this.reachRadius && near.d <= best` now, disjoint by
+construction, and `arrest-band` and `pursuit-test`'s isolation table are unchanged by the guard.
 
 ### #87 driveTo wrecks the car in 200 m: 13 civilianCollision in 32 s at 43 km/h
 `detail lost` beyond the subject line.

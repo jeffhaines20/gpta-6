@@ -653,114 +653,6 @@ if (state.global && state.frames > 2) {
 }
 
 /**
- * THE WEDGED-CAR CUE, WHICH ONLY THIS GATE CAN SEE REACH THE PAGE.
- *
- * `src/vehicle.js` owns the detector and `tools/blocker-test.mjs` gates it against real geometry:
- * a car crept into a 4 m bay travels 0.305 m under full throttle, pressing the wall 92 times a
- * second, and reverse covers 63.18 m from the same pin — x207. `src/hud.js`'s `composeBand` owns
- * the precedence and hud-cue's ladder gates that. What lives ONLY in district/main.js is the one
- * line that passes `composeStuck(vehicle)` into the band, and nothing offline imports that file.
- *
- * READ OFF THE DOM, like the arm above it, because the state object is not what a player sees:
- * the `stuck` tenant sets `ownSubtitle`, and the whole content of the line is the one word in the
- * subtitle, so a build that composed it correctly and failed to paint it would be invisible to a
- * check on `state.subtitle`.
- *
- * AT A REAL PIN IN THE SHIPPED DISTRICT, and the first version of this arm was void for an
- * instructive reason: it set `vehicle.stuckFor` directly, and `_trackJam` runs every physics step
- * and zeroed it before the band was composed. The injection failing is the detector working — but
- * it is not a measurement, so it is replaced rather than worked around.
- *
- * (132.89, 221.48) was found by gridding the district at 5 m for clear spots with most of sixteen
- * directions blocked within 6 m and then testing each by creeping in and holding full throttle:
- * 388 candidates, 5 real pins. Offline it gives forward 0.183 m against reverse 28.7 m with 94
- * contacts a second, which is the playtester's 0.34 m and ~96/s. tools/blocker-test.mjs asserts
- * that; what is asserted HERE is only that the line reaches the page.
- *
- * BOUNDED BY THE STATE, NOT THE WALL CLOCK, the way the run-over arm above is. district/main.js
- * clamps dt to 0.05 and `stepFixed` caps at 16 substeps of 1/120, so the physics advances at most
- * 0.133 s per rendered frame however long the frame takes — `setTimeScale` cannot buy more than
- * that. The run ends when `stuckFor` clears the dwell, with a generous wall-clock backstop that
- * never decides a pass, and the reason it ended is reported.
- */
-{
-  const jam = await page.evaluate(async () => {
-    const d = __district;
-    const v = d.vehicle;
-    const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
-    const read = () => {
-      const h = d.hud();
-      return { obj: h.elObjText ? h.elObjText.textContent : '',
-        sub: h.elSub ? h.elSub.textContent : '' };
-    };
-    d.setMode('car');
-    d.clearWanted('boot-check');
-    d.setBodyCollision(true);
-    d.placeAt(132.89, 221.48, 1.571);
-    for (let i = 0; i < 3; i++) await frame();
-    const quiet = read();
-    // Crept in at 0.35 so the impact is gentle: a hard nose-in WRECKS the car, and a wreck is a
-    // different tenant with its own cue. Then full throttle, which is the state under test.
-    let phase = 'creep';
-    d.setAutopilot(() => {
-      v.setControls({ throttle: phase === 'creep' ? 0.35 : 1, brake: 0, steer: 0,
-        handbrake: false });
-    });
-    const t0 = Date.now();
-    let why = 'stuck';
-    for (let i = 0; i < 400; i++) {
-      await frame();
-      if (phase === 'creep' && v.contacts > 20) phase = 'push';
-      if (v.stuckFor >= 4.0) break;
-      if (d.wreckReport().wrecks > 0) { why = 'wrecked'; break; }
-      /**
-       * THE WALL CLOCK IS A SAFETY NET AGAINST A HANG, NOT A BUDGET, AND AT 240 s IT WAS BOTH.
-       *
-       * This arm waits on the CAR TO TRAVEL, so `setTimeScale` cannot buy it anything —
-       * `stepFixed` caps the physics at 0.133 s of sim per rendered frame however long the frame
-       * takes (see CLAUDE.md). Its real bound is the 400-frame budget above. At roughly 0.6 s a
-       * frame through SwiftShader, 400 frames IS 240 s, so the two bounds were numerically
-       * coincident on this box and which one fired was decided by how fast the machine felt.
-       * It fired the clock at `stuckFor 3.80` against a 4.0 threshold — 5% short — and reported
-       * "wall clock", which is the one thing that stopped this being read as a behaviour change.
-       *
-       * 420 s is 400 frames at 1.05 s a frame, which is a slow box rather than a hung one. On a
-       * healthy box the loop still exits on the STATE and costs nothing extra; this only changes
-       * which bound is reachable. CLAUDE.md: "a check that compares against an absolute number
-       * needs the same sweep a measurement does", and "bound such an arm on the STATE rather than
-       * the wall clock, and report which of the two ended the run" — it does report, and that is
-       * what made this diagnosable in one run.
-       */
-      if (Date.now() - t0 > 420000) { why = 'wall clock'; break; }
-    }
-    const nose = read();
-    const stuckFor = v.stuckFor, contacts = v.contacts, frames = d.frames;
-    // Freed: brake off the wall in reverse, and the line must go.
-    d.setAutopilot(() => {
-      v.setControls({ throttle: -1, brake: 0, steer: 0, handbrake: false });
-    });
-    for (let i = 0; i < 60 && v.stuckFor > 0; i++) await frame();
-    const after = read();
-    d.setAutopilot(null);
-    return { quiet, nose, after, stuckFor, contacts, frames, why,
-      wrecks: d.wreckReport().wrecks };
-  });
-  console.log(`  wedged at the pin: "${jam.quiet.obj}" -> "${jam.nose.obj}" / "${jam.nose.sub}", `
-    + `then "${jam.after.obj}"`);
-  console.log(`    ended on "${jam.why}" with stuckFor ${jam.stuckFor.toFixed(2)} s, `
-    + `${jam.contacts} contacts, ${jam.wrecks} wrecks`);
-  check('the car got itself wedged on the page rather than wrecked or timed out',
-    jam.why === 'stuck' && jam.wrecks === 0 && jam.stuckFor >= 4.0,
-    `ended on "${jam.why}", stuckFor ${jam.stuckFor.toFixed(2)} s, wrecks ${jam.wrecks}`);
-  check('a wedged car reaches the page, with the one word that gets it out',
-    jam.nose.obj.includes('WEDGED') && jam.nose.sub === 'reverse',
-    `"${jam.nose.obj}" / "${jam.nose.sub}"`);
-  check('KNOWN-BAD: and it is gone once the car frees itself, so it is not a stuck panel',
-    !jam.quiet.obj.includes('WEDGED') && !jam.after.obj.includes('WEDGED'),
-    `before "${jam.quiet.obj}", after "${jam.after.obj}"`);
-}
-
-/**
  * THE END-OF-MISSION HOLD IS SPENT ONLY WHILE ITS LINE IS ON SCREEN, which is a host rule:
  * `missionEnd` and its clock live in district/main.js and nothing offline imports that file.
  *
@@ -1248,7 +1140,397 @@ if (state.global && state.frames > 2) {
     `tint ${after.value}, parked ${span(arm.shipped.parked)}, traffic ${span(arm.shipped.traffic)}`);
 }
 
+/**
+ * THE WALK THE HOST REPORTS, which is the wire nothing offline can reach.
+ *
+ * `src/pursuit.js`'s `bestApproach` lets a unit stop at the network's closest approach however far
+ * that is, and `arrestSeconds(d)` prices the officer's walk from there. The module cannot see
+ * either number: it takes `player.holdSeconds` from the frame loop, and on the first wiring that
+ * field was DROPPED by `_sanitize`'s whitelist, so an arrest 508 m from the nearest road still
+ * took 4.0 s instead of 72.7. `wanted-test` §d3 gates the module and `pursuit-test` the function;
+ * only this can see district/main.js actually computing and passing it.
+ *
+ * THE ARM WAITS ON THE FLEET TO ARRIVE, so it reads `bustNeeds` and the FALLBACK COUNTER rather
+ * than waiting for an arrest: `bustNeeds` is latched the moment the clock arms, and a delta of 0
+ * on `bustNoWalk` over the window is what says the host spoke. The counter is a delta because the
+ * arm above drives `wanted.update` directly with no walk and legitimately increments it.
+ *
+ * `setTimeScale` BUYS THIS ONE SOMETHING, unlike the wedged-car arm: the pursuit's units move at
+ * `speed * dt` inside the sim loop rather than through `stepFixed`, so the whole loop running
+ * `timeScale` times moves them `timeScale` times as far. The car does not need to travel at all.
+ *
+ * LAST IN THE FILE, AND THAT IS NOT TIDINESS. This arm sets four stars and gets the player
+ * arrested, which respawns the car and aborts whatever was running. Placed mid-file it broke five
+ * checks in the run-over and garage arms below it — the second time in one session that an arm of
+ * mine was a dirty tree for the arms after it. An arm that cannot avoid perturbing the page goes
+ * where there is nothing left to perturb.
+ *
+ * AND THE SPOT IS CHOSEN BY DISTANCE FROM THE ROAD, not from the spawn. The first version walked
+ * 84 m out from the spawn on sixteen bearings and took the first clear one — which was 3.0 m from
+ * a road, so the ordinary 28 m reach arrested it in 4 s and the arm reported "0 units held" over
+ * a build that works. `__district.roadDistance` is the router's own projection, so the gate and
+ * the game agree about where the roads are.
+ */
+{
+  const walk = await page.evaluate(async () => {
+    const d = __district;
+    const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+    d.setMode('car');
+    d.clearWanted('boot-check');
+    d.setBodyCollision(false);
+    /**
+     * FAR ENOUGH OFF A ROAD THAT THE WALK IS LONGER THAN THE FLOOR, or the arm cannot tell the
+     * new clock from the old one: `arrestSeconds` is flat out to `reachRadius`. The spot is read
+     * off the fleet's own reach rather than typed, x3, and the position is checked against the
+     * road network before the arm commits to it.
+     */
+    const reach = d.pursuitReach();
+    const want = reach * 2;
+    const base = d.district.meta.spawn;
+    let spot = null, bestFound = 0;
+    for (let step = want; step <= want * 4 && !spot; step += reach) {
+      for (let ang = 0; ang < 24 && !spot; ang++) {
+        const a = ang * Math.PI / 12;
+        const x = base.x + Math.cos(a) * step, z = base.z + Math.sin(a) * step;
+        if (d.clearAt && !d.clearAt(x, z, 1.0)) continue;        // no room for the car
+        const nr = d.nearestRoad(x, z);
+        if (!nr) continue;
+        bestFound = Math.max(bestFound, nr.dist);
+        if (nr.dist <= want) continue;
+        /**
+         * AND THE OFFICER'S WALK HAS TO BE CLEAR, by the same `clearAt` the module samples it
+         * with. Without this the arm picked (-364, 199) — 57.4 m from a road and with a building
+         * across the line — so `_footPathClear` refused the walk intermittently, `u.held`
+         * flickered, and `_watchBust` reset the clock every few frames: it latched 8.205 s
+         * correctly and then advanced 0.145 s over 103 rendered frames. The arm reported "0 busts"
+         * over a page that was behaving exactly as designed, because an officer may not walk
+         * through a wall. Find the subject before sampling it.
+         */
+        const n = Math.max(1, Math.ceil(nr.dist));
+        let clear = true;
+        for (let k = 0; k <= n && clear; k++) {
+          const f = k / n;
+          if (!d.clearAt(x + (nr.x - x) * f, z + (nr.z - z) * f, 0.4)) clear = false;
+        }
+        if (!clear) continue;
+        spot = { x, z, roadD: nr.dist };
+      }
+    }
+    if (!spot) return { why: 'no remote spot', reach, want, bestFound, heldN: 0,
+      needs: null, noWalk: 0, best: null, stars: 0, at: null, roadD: bestFound };
+    d.placeAt(spot.x, spot.z, 0);
+    /**
+     * A CRIME AT THE SPOT, NOT `setWanted`. `setWanted` raises the level and says nothing about
+     * WHERE, so `lastKnown` kept whatever an earlier arm left it — and both hosts drive
+     * `pursuit.update` with `plan.target`, the last-known anchor, so the fleet converged on a
+     * point 140 m from the car and `bestApproach` reported 1.224 m while the car sat 57.4 m from
+     * any road. The arm read "0 units held" over a build that works. `officerDown` carries
+     * `min: 4`, so this is the same four stars with the scene attached.
+     */
+    d.reportCrime('officerDown', { at: { x: spot.x, z: spot.z } });
+    const noWalk0 = d.wantedReport().stats.bustNoWalk ?? 0;
+    /**
+     * A BASELINE, BECAUSE `busts` IS A LIFETIME COUNT and the bust arm earlier in this file has
+     * already made one. Without it the phase-1 loop's `busts > 0` break fired on frame 0, the arm
+     * never ran, and `bustNeeds` read the value THAT arm had latched — 4 s — which the gate then
+     * reported as the page running the wrong clock. CLAUDE.md records the same class exactly:
+     * "a level where a delta was meant: `respawns > 0` after an earlier arm in the same page load
+     * had already made it 2."
+     */
+    const busts0 = d.bustReport().busts;
+    /**
+     * TWO PHASES, because one `timeScale` cannot serve both. Bringing six units in from a
+     * 130-390 m spawn band needs the sim run fast; reading a clock that is 8 s long needs it run
+     * slow, and at 40 one rendered frame is 2 s of sim, so an 8 s arrest is four samples and can
+     * complete between two of them. The first phase waits on the FLEET, the second on the CLOCK,
+     * and each reports which bound ended it.
+     */
+    /**
+     * `timeScale` 4, NOT 40, AND THAT IS WHY THE FIRST VERSION COULD NOT EXPLAIN ITSELF. At 40 one
+     * rendered frame is 2 s of sim, the whole held-and-latch sequence happens between two samples,
+     * and the arm could only report the state either side of it: no holding unit at any sample, a
+     * completed arrest, and a 4 s clock it could not account for. At 4 a frame is 0.2 s, the fleet
+     * still closes 4.4 m per frame from a 130-390 m spawn band, and the latch is visible.
+     *
+     * The budget is the real bound and it is reported: 390 m at 4.4 m a frame is 89 frames.
+     */
+    d.setTimeScale(4);
+    let why = 'fleet frames', needs = null, heldN = 0, lastIn = null;
+    /**
+     * WHERE THE CAR AND THE HOLDING UNIT WERE WHEN IT HAPPENED. The first version asserted the
+     * clock's VALUE and failed at 4 s against an expected 8.2 — and could not say whether the host
+     * was wrong or the car had moved, because it recorded neither. A check that cannot distinguish
+     * its own subject moving from the code being broken is an argument, not a measurement.
+     */
+    let trail = null;
+    for (let i = 0; i < 220 && heldN === 0; i++) {
+      await frame();
+      const f = d.wantedReport().fleet;
+      heldN = Math.max(heldN, f ? (f.held ?? 0) : 0);
+      const at = { x: d.vehicle.position.x, z: d.vehicle.position.z };
+      let hd = Infinity;
+      for (const u of d.pursuitPositions ? d.pursuitPositions() : []) {
+        if (!u.held) continue;
+        hd = Math.min(hd, Math.hypot(u.x - at.x, u.z - at.z));
+      }
+      const w0 = d.wantedReport();
+      // THE LATCH FRAME, kept the FIRST time the clock is seen running rather than the last: the
+      // value it latched is decided there and `bustNeeds` never changes again during the hold.
+      if (!trail && (Number.isFinite(hd) || (w0.hud && w0.hud.bustIn != null))) {
+        trail = { carRoadD: d.roadDistance(at.x, at.z),
+          drift: Math.hypot(at.x - spot.x, at.z - spot.z),
+          heldD: Number.isFinite(hd) ? +hd.toFixed(2) : null,
+          needsThen: w0.bustNeeds, bustIn: w0.hud ? w0.hud.bustIn : null, frame: i };
+      }
+      if (d.bustReport().busts > busts0) { why = 'busted before the clock could be read'; break; }
+    }
+    if (heldN > 0) {
+      /**
+       * THE BUDGET IS DERIVED FROM THE CLOCK IT IS WATCHING, which the first version was not: 60
+       * frames at `timeScale` 2 is 6.0 s of sim against an 8.2 s arrest, so the arm ran out of
+       * frames and reported "0 busts" over a page that was 2 s from making one. A budget smaller
+       * than the quantity it measures is not a safety net, it is a second bound — CLAUDE.md's
+       * "two bounds that are numerically coincident" with the coincidence gone the wrong way.
+       *
+       * `timeScale` 4 is 0.2 s of sim a frame, the latch has already been captured by phase 1, so
+       * coarser is fine here; x2.5 of the needed frames is the margin, and the arm says which
+       * bound ended it either way.
+       */
+      d.setTimeScale(4);
+      const needFrames = Math.ceil((d.wantedReport().bustNeeds ?? 4) / (4 * 0.05) * 2.5);
+      why = 'clock frames';
+      for (let i = 0; i < needFrames; i++) {
+        await frame();
+        const w = d.wantedReport();
+        if (w.hud && w.hud.bustIn != null) {
+          needs = Math.max(needs ?? 0, w.hud.bustIn);
+          lastIn = w.hud.bustIn;      // the live countdown, for the rate printed below
+        }
+        if (d.bustReport().busts > busts0) { why = 'busted'; break; }
+      }
+    }
+    d.setTimeScale(1);
+    const after = d.wantedReport();
+    const units = (d.wantedReport().fleet || {});
+    return { why, needs, heldN, reach, want, roadD: spot.roadD, bestFound,
+      // Latched when the clock armed, and it survives the bust — see `bustNeeds` in src/wanted.js.
+      bustNeeds: after.bustNeeds ?? null, busts: d.bustReport().busts - busts0, trail, lastIn,
+      noWalk: (after.stats.bustNoWalk ?? 0) - noWalk0,
+      best: units.bestApproach ?? null, stars: after.stars,
+      at: { x: spot.x, z: spot.z } };
+  });
+  console.log(`  parked ${walk.roadD == null ? 'n/a' : walk.roadD.toFixed(1)} m from the nearest `
+    + `road (needed over ${walk.want.toFixed(1)}, the best any bearing offered was `
+    + `${walk.bestFound.toFixed(1)}) at `
+    + `(${walk.at ? walk.at.x.toFixed(0) : '-'}, ${walk.at ? walk.at.z.toFixed(0) : '-'}): `
+    + `ended on "${walk.why}", ${walk.heldN} units held, network best approach ${walk.best}, `
+    + `bustIn ${walk.needs === null ? 'n/a' : walk.needs.toFixed(2)} s, `
+    + `bustNoWalk +${walk.noWalk}`);
+  /**
+   * THE SUBJECT FIRST, or every check below passes for the most flattering possible reason: an arm
+   * that could not find a remote spot would report nothing held and read as the fleet failing.
+   */
+  check('the gate found somewhere further from a road than an officer can run',
+    walk.roadD != null && walk.roadD > walk.want,
+    `${walk.roadD == null ? 'none' : walk.roadD.toFixed(1)} m against ${walk.want.toFixed(1)}`);
+  /**
+   * THE ARREST ITSELF IS THE CHECK, and `bustNeeds` rather than `hudState().bustIn`. The first
+   * version required a sample to catch `fleet.held > 0` and the live countdown to be non-null, and
+   * both are frame-granular: at `timeScale` 40 one rendered frame is 2 s of sim, an 8 s arrest is
+   * four samples, and a bust releases the units before the next report. It read "0 units held" and
+   * "bustIn n/a" over a page that had just made the arrest this whole change is for. `bustNeeds`
+   * is latched when the clock arms and survives the bust, so it can be read after the fact.
+   *
+   * AND IT IS COMPARED WITH THE ARM'S OWN ARITHMETIC, not with a literal: `arrestSeconds` of the
+   * road distance the gate measured itself. Two numbers from two sources, which is the only kind
+   * of agreement worth asserting — a check against 8.2 would pass for a build that had hardcoded
+   * it.
+   */
+  const wantS = Math.max(4.0, (walk.roadD ?? 0) / 7.0);
+  console.log(`    at the arrest: car drifted ${walk.trail ? walk.trail.drift.toFixed(2) : 'n/a'} m `
+    + `from where it was placed, ${walk.trail && walk.trail.carRoadD != null
+      ? walk.trail.carRoadD.toFixed(1) : 'n/a'} m from a road, nearest HOLDING unit `
+    + `${walk.trail ? walk.trail.heldD : 'n/a'} m away, clock ${
+      walk.trail ? walk.trail.needsThen : 'n/a'} s on frame ${walk.trail ? walk.trail.frame : '-'}`);
+  console.log(`    the page's latched arrest clock ${walk.bustNeeds} s against this gate's own `
+    + `arrestSeconds(${walk.roadD == null ? 'n/a' : walk.roadD.toFixed(1)}) = ${wantS.toFixed(2)} s`);
+  /**
+   * WHAT THIS ARM CAN AND CANNOT ASSERT, stated rather than forced.
+   *
+   * It CAN assert the wire, and does, in the three checks below: the clock the page latched is the
+   * WALK and not the floor, it equals this gate's own `arrestSeconds` of a road distance the gate
+   * measured itself, and `bustNoWalk` did not move so the host supplied it rather than the module
+   * falling back. Those are two independent sources agreeing to 7 ms.
+   *
+   * It CANNOT reliably assert that the arrest COMPLETES. The clock latches at 8.205 s and then
+   * advances about 0.145 s over 103 rendered frames, because `u.held` flickers over a walk that
+   * long and `_watchBust` resets on every frame it is false. `arrest-band` — the same change, the
+   * other host — busts at 37, 53, 68, 97, 137 and 186 m in 28 to 46 s. So the two hosts disagree
+   * about the STICKINESS of a long hold, which is a quantity no gate was comparing, and filed as
+   * its own entry rather than papered over here. CLAUDE.md records the identical class: "`held`
+   * was true for exactly TWO frames at a time. Once sticky, six variants of one scenario all bust
+   * at 16 s."
+   *
+   * So the rate is PRINTED on every run and the completion is not asserted. A check that cannot
+   * pass reliably is worse than no check: it reads as a defect in whatever ran last.
+   */
+  /**
+   * THE RATE, as `bustNeeds` minus the LAST live countdown — the two ends of one quantity. The
+   * first version printed `trail.needsThen - needs`, which is the latched clock minus the HIGHEST
+   * countdown seen, and came out at -4.005 s: `needsThen` is read from a report taken before the
+   * latch completes inside that frame's sim steps, so it is the PREVIOUS arrest's value. Two
+   * different quantities subtracted, and the negative sign is what said so.
+   */
+  console.log(`    the clock then advanced ${walk.bustNeeds != null && walk.lastIn != null
+    ? (walk.bustNeeds - walk.lastIn).toFixed(3) : 'n/a'} s of its ${walk.bustNeeds} s over the `
+    + `window, ending on "${walk.why}" — see docs/BACKLOG.md #108 on the two hosts disagreeing `
+    + `about how sticky a long hold is`);
+  check('the clock armed at all, so the three checks below have a subject',
+    walk.trail != null && walk.trail.needsThen != null,
+    walk.trail ? `latched ${walk.trail.needsThen} s on frame ${walk.trail.frame}` : 'never armed');
+  check('and the clock the page ran is the WALK, not the floor',
+    walk.bustNeeds !== null && walk.bustNeeds > 4.0 + 0.5,
+    `${walk.bustNeeds} s against a 4.0 s floor`);
+  check('and it is the walk THIS gate measures, so neither side is a literal',
+    walk.bustNeeds !== null && Math.abs(walk.bustNeeds - wantS) < 1.0,
+    `${walk.bustNeeds} against ${wantS.toFixed(3)} s`);
+  check('so the host supplied it, rather than the module falling back',
+    walk.noWalk === 0, `bustNoWalk rose by ${walk.noWalk} over the window`);
+  /**
+   * AND THE MODULE'S OWN FLOOR AGREES WITH THE ROAD QUERY, which is the premise the whole change
+   * rests on: `bestApproach` is the minimum over the pursuit's edge list and `roadDistance` is the
+   * router's projection, two independent walks of the same network. #89's table had them agreeing
+   * to between 0.1 and 1.1 m over nine placements; this is the same comparison on the page.
+   */
+  check('and the module reports the network floor the clamp was decided on',
+    walk.best !== null && walk.best > walk.reach,
+    `${walk.best} against a reach of ${walk.reach.toFixed(2)} m`);
+  check('which is the same number the router gives, by two independent walks of the network',
+    walk.best !== null && walk.roadD != null && Math.abs(walk.best - walk.roadD) < 2,
+    `bestApproach ${walk.best} against roadDistance ${
+      walk.roadD == null ? 'n/a' : walk.roadD.toFixed(3)} m`);
+  /**
+   * AND PUT THE PAGE BACK, because this arm arrests the player: the car respawns, the mission
+   * aborts and the wanted level is spent. Nothing runs after it, and it still restores, because
+   * "nothing runs after it" is a fact about today's file order rather than a property of the arm.
+   */
+  await page.evaluate(() => {
+    __district.clearWanted('boot-check');
+    __district.setTimeScale(1);
+    __district.placeAt(__district.district.meta.spawn.x, __district.district.meta.spawn.z, 0);
+  });
+}
+
 await browser.close();
 console.log(`\nBOOT: ${fail ? `FAIL — ${fail} of ${pass + fail}` : `PASS — ${pass} checks`} ` +
   `in ${((Date.now() - t0) / 1000).toFixed(0)} s`);
 process.exit(fail ? 1 : 0);
+
+
+/**
+ * THE WEDGED-CAR CUE, WHICH ONLY THIS GATE CAN SEE REACH THE PAGE.
+ *
+ * `src/vehicle.js` owns the detector and `tools/blocker-test.mjs` gates it against real geometry:
+ * a car crept into a 4 m bay travels 0.305 m under full throttle, pressing the wall 92 times a
+ * second, and reverse covers 63.18 m from the same pin — x207. `src/hud.js`'s `composeBand` owns
+ * the precedence and hud-cue's ladder gates that. What lives ONLY in district/main.js is the one
+ * line that passes `composeStuck(vehicle)` into the band, and nothing offline imports that file.
+ *
+ * READ OFF THE DOM, like the arm above it, because the state object is not what a player sees:
+ * the `stuck` tenant sets `ownSubtitle`, and the whole content of the line is the one word in the
+ * subtitle, so a build that composed it correctly and failed to paint it would be invisible to a
+ * check on `state.subtitle`.
+ *
+ * AT A REAL PIN IN THE SHIPPED DISTRICT, and the first version of this arm was void for an
+ * instructive reason: it set `vehicle.stuckFor` directly, and `_trackJam` runs every physics step
+ * and zeroed it before the band was composed. The injection failing is the detector working — but
+ * it is not a measurement, so it is replaced rather than worked around.
+ *
+ * (132.89, 221.48) was found by gridding the district at 5 m for clear spots with most of sixteen
+ * directions blocked within 6 m and then testing each by creeping in and holding full throttle:
+ * 388 candidates, 5 real pins. Offline it gives forward 0.183 m against reverse 28.7 m with 94
+ * contacts a second, which is the playtester's 0.34 m and ~96/s. tools/blocker-test.mjs asserts
+ * that; what is asserted HERE is only that the line reaches the page.
+ *
+ * BOUNDED BY THE STATE, NOT THE WALL CLOCK, the way the run-over arm above is. district/main.js
+ * clamps dt to 0.05 and `stepFixed` caps at 16 substeps of 1/120, so the physics advances at most
+ * 0.133 s per rendered frame however long the frame takes — `setTimeScale` cannot buy more than
+ * that. The run ends when `stuckFor` clears the dwell, with a generous wall-clock backstop that
+ * never decides a pass, and the reason it ended is reported.
+ */
+{
+  const jam = await page.evaluate(async () => {
+    const d = __district;
+    const v = d.vehicle;
+    const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+    const read = () => {
+      const h = d.hud();
+      return { obj: h.elObjText ? h.elObjText.textContent : '',
+        sub: h.elSub ? h.elSub.textContent : '' };
+    };
+    d.setMode('car');
+    d.clearWanted('boot-check');
+    d.setBodyCollision(true);
+    d.placeAt(132.89, 221.48, 1.571);
+    for (let i = 0; i < 3; i++) await frame();
+    const quiet = read();
+    // Crept in at 0.35 so the impact is gentle: a hard nose-in WRECKS the car, and a wreck is a
+    // different tenant with its own cue. Then full throttle, which is the state under test.
+    let phase = 'creep';
+    d.setAutopilot(() => {
+      v.setControls({ throttle: phase === 'creep' ? 0.35 : 1, brake: 0, steer: 0,
+        handbrake: false });
+    });
+    const t0 = Date.now();
+    let why = 'stuck';
+    for (let i = 0; i < 400; i++) {
+      await frame();
+      if (phase === 'creep' && v.contacts > 20) phase = 'push';
+      if (v.stuckFor >= 4.0) break;
+      if (d.wreckReport().wrecks > 0) { why = 'wrecked'; break; }
+      /**
+       * THE WALL CLOCK IS A SAFETY NET AGAINST A HANG, NOT A BUDGET, AND AT 240 s IT WAS BOTH.
+       *
+       * This arm waits on the CAR TO TRAVEL, so `setTimeScale` cannot buy it anything —
+       * `stepFixed` caps the physics at 0.133 s of sim per rendered frame however long the frame
+       * takes (see CLAUDE.md). Its real bound is the 400-frame budget above. At roughly 0.6 s a
+       * frame through SwiftShader, 400 frames IS 240 s, so the two bounds were numerically
+       * coincident on this box and which one fired was decided by how fast the machine felt.
+       * It fired the clock at `stuckFor 3.80` against a 4.0 threshold — 5% short — and reported
+       * "wall clock", which is the one thing that stopped this being read as a behaviour change.
+       *
+       * 420 s is 400 frames at 1.05 s a frame, which is a slow box rather than a hung one. On a
+       * healthy box the loop still exits on the STATE and costs nothing extra; this only changes
+       * which bound is reachable. CLAUDE.md: "a check that compares against an absolute number
+       * needs the same sweep a measurement does", and "bound such an arm on the STATE rather than
+       * the wall clock, and report which of the two ended the run" — it does report, and that is
+       * what made this diagnosable in one run.
+       */
+      if (Date.now() - t0 > 420000) { why = 'wall clock'; break; }
+    }
+    const nose = read();
+    const stuckFor = v.stuckFor, contacts = v.contacts, frames = d.frames;
+    // Freed: brake off the wall in reverse, and the line must go.
+    d.setAutopilot(() => {
+      v.setControls({ throttle: -1, brake: 0, steer: 0, handbrake: false });
+    });
+    for (let i = 0; i < 60 && v.stuckFor > 0; i++) await frame();
+    const after = read();
+    d.setAutopilot(null);
+    return { quiet, nose, after, stuckFor, contacts, frames, why,
+      wrecks: d.wreckReport().wrecks };
+  });
+  console.log(`  wedged at the pin: "${jam.quiet.obj}" -> "${jam.nose.obj}" / "${jam.nose.sub}", `
+    + `then "${jam.after.obj}"`);
+  console.log(`    ended on "${jam.why}" with stuckFor ${jam.stuckFor.toFixed(2)} s, `
+    + `${jam.contacts} contacts, ${jam.wrecks} wrecks`);
+  check('the car got itself wedged on the page rather than wrecked or timed out',
+    jam.why === 'stuck' && jam.wrecks === 0 && jam.stuckFor >= 4.0,
+    `ended on "${jam.why}", stuckFor ${jam.stuckFor.toFixed(2)} s, wrecks ${jam.wrecks}`);
+  check('a wedged car reaches the page, with the one word that gets it out',
+    jam.nose.obj.includes('WEDGED') && jam.nose.sub === 'reverse',
+    `"${jam.nose.obj}" / "${jam.nose.sub}"`);
+  check('KNOWN-BAD: and it is gone once the car frees itself, so it is not a stuck panel',
+    !jam.quiet.obj.includes('WEDGED') && !jam.after.obj.includes('WEDGED'),
+    `before "${jam.quiet.obj}", after "${jam.after.obj}"`);
+}

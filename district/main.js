@@ -14,7 +14,7 @@ import { ChaseCamera } from '../src/camera.js';
 import { StreamingWorld } from '../src/streaming.js';
 import { TrafficStub } from '../src/traffic.js';
 import { Pedestrians } from '../src/pedestrians.js';
-import { PursuitUnits } from '../src/pursuit.js';
+import { PursuitUnits, arrestSeconds } from '../src/pursuit.js';
 import { StreetFurniture } from '../src/streetfurniture.js';
 import { LightPool } from '../src/lightpool.js';
 import { Player } from '../src/player.js';
@@ -1931,13 +1931,31 @@ function animate(now) {
     // What the player is ASKING for, so the bust line can say "reverse" to somebody already
     // holding the throttle open against a wall. See `_watchBust` in src/wanted.js.
     _wantedPlayer.throttle = mode === 'car' ? lastThrottle : 0;
+    _wantedPlayer.holdSeconds = undefined;
     if (pursuit && !pursuitManual && pursuit.mesh.visible) {
-      const r = pursuitReach();
-      if (r > 0) {
-        for (const u of pursuitBridge.getUnitPositions()) {
-          if (!u.held) continue;
-          if (Math.hypot(u.x - wpos.x, u.z - wpos.z) <= r) { _wantedPlayer.held = true; break; }
-        }
+      /**
+       * THE NEAREST HOLDING UNIT, AND NO RADIUS TEST OF ITS OWN. `u.held` is already the module's
+       * answer to "this officer can get out and walk to you" — `u.stopped` plus a clear foot path
+       * — and `src/pursuit.js`'s `bestApproach` now lets a unit stop at the NETWORK's closest
+       * approach rather than only inside `reachRadius`. A second radius here would re-impose the
+       * bound the module just stopped applying, which is the "the bound existed in three places"
+       * defect `pursuitReach` exists to end; that function stays because the hook and `boot-check`
+       * read it, and because it is still the distance at which the clock stops lengthening.
+       *
+       * NEAREST rather than FIRST, because the clock is the WALK: `arrestSeconds(d)` is
+       * `max(BUST_HOLD_S, d / RUN_SPEED)` and the officer with the shortest walk is the one who
+       * arrives. The old loop broke on the first unit inside a radius, where any of them would do.
+       */
+      let heldD = Infinity;
+      for (const u of pursuitBridge.getUnitPositions()) {
+        if (!u.held) continue;
+        const d = Math.hypot(u.x - wpos.x, u.z - wpos.z);
+        if (d < heldD) heldD = d;
+      }
+      if (Number.isFinite(heldD)) {
+        _wantedPlayer.held = true;
+        // The module owns the derivation; this hands it the one number it cannot see.
+        _wantedPlayer.holdSeconds = arrestSeconds(heldD);
       }
     }
     const plan = wantedBridge.update(dt, _wantedPlayer);
@@ -2609,6 +2627,31 @@ window.__district = {
     hostRepairs: garageStats.repairs }),
   // The one expression the frame loop's `held` test uses. See `pursuitReach`.
   pursuitReach,
+  /**
+   * HOW FAR A POINT IS FROM THE NEAREST ROAD, which is the floor on how close any pursuit unit
+   * can get to it — `src/pursuit.js`'s `bestApproach` computes the same quantity over its own
+   * edge list. Exposed for `boot-check`, whose arrest-walk arm has to FIND somewhere genuinely
+   * remote: its first version picked a point 84 m from the spawn that was 3.0 m from a road, got
+   * arrested by the ordinary 28 m reach, and proved nothing about the walk. The router's own
+   * projection, so the gate and the game agree about where the roads are.
+   */
+  roadDistance: (x, z) => {
+    const n = roads.nearestOn(x, z);
+    return n ? n.dist : null;
+  },
+  /** The nearest road POINT and its distance, so a gate can test the officer's walk to it. */
+  nearestRoad: (x, z) => {
+    const n = roads.nearestOn(x, z);
+    return n ? { dist: n.dist, x: n.x, z: n.z } : null;
+  },
+  /**
+   * EVERY PURSUIT UNIT'S POSITION AND WHETHER IT IS HOLDING — the exact list the frame loop's
+   * `held` test iterates, so a gate reading it cannot be looking at a different set from the one
+   * the arrest is decided on. `boot-check`'s arrest-walk arm needs the HOLDING unit's distance to
+   * explain the clock it measures, and without this it could only report that the two disagreed.
+   */
+  pursuitPositions: () => pursuitBridge.getUnitPositions()
+    .map((u) => ({ id: u.id, x: u.x, z: u.z, held: u.held })),
   wantedReport: () => ({
     ...wanted.report(),
     fleet: pursuit ? pursuit.report() : null,
