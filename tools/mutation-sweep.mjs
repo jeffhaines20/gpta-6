@@ -413,8 +413,8 @@ const MUTATIONS = [
      * number nominal.
      */
     id: 'arrest-floor', file: 'src/pursuit.js',
-    find: '      if ((near.d <= this.reachRadius || (best > this.reachRadius && near.d <= best))',
-    to: '      if ((near.d <= this.reachRadius) // eslint-disable-line',
+    find: '            && near.d <= this._localBest(u, target) + CLOSER_EPS_M',
+    to: '            && false // eslint-disable-line',
     why: 'standing 38 to 136 m off a road is a stalemate again: seen, un-arrestable, un-escapable',
   },
   {
@@ -425,9 +425,65 @@ const MUTATIONS = [
      * comparison rather than through the bound.
      */
     id: 'arrest-floor-inverted', file: 'src/pursuit.js',
-    find: '      if ((near.d <= this.reachRadius || (best > this.reachRadius && near.d <= best))',
-    to: '      if ((near.d <= this.reachRadius || (best > this.reachRadius && near.d >= best))',
+    find: '            && near.d <= this._localBest(u, target) + CLOSER_EPS_M',
+    to: '            && near.d >= this._localBest(u, target) + CLOSER_EPS_M',
     why: 'units stop on the first distant edge instead of routing closer, so the chase gets worse',
+  },
+  {
+    /**
+     * #108 ITSELF: THE ADMISSION GOES BACK TO THE NETWORK'S OWN MINIMUM. This is the shipped rule
+     * between #89 and #108, and it is the subtle half of the stalemate — the hold is no longer
+     * impossible, it is impossible at 58% of off-road spots and works at the rest, which reads as
+     * the police being unreliable rather than as broken code. `_chooseNext` descends the distance
+     * from an option's far endpoint and `bestApproach` minimises an edge's closest approach, so
+     * the minimising edge is one no unit drives at 197 of 516 spots.
+     */
+    id: 'arrest-local-global', file: 'src/pursuit.js',
+    find: '            && near.d <= this._localBest(u, target) + CLOSER_EPS_M',
+    to: '            && near.d <= best + CLOSER_EPS_M',
+    why: 'an arrest off the road works at 45 of 107 spots instead of 101, and which ones is topology',
+  },
+  {
+    /**
+     * THE OPTION SET COMES FROM THE WRONG END OF THE EDGE, which breaks `_localBest` AND
+     * `_chooseNext` together because #108 made them share it — the point of the factoring. The
+     * router then steers by the junction it came FROM, so the whole chase inverts.
+     */
+    id: 'arrest-option-end', file: 'src/pursuit.js',
+    find: '    const v = this._endVertex(edge, forward);',
+    to: '    const v = this._endVertex(edge, !forward);',
+    why: 'units route by the junction behind them, and a unit can never be at a local minimum',
+  },
+  {
+    /**
+     * THE CAR STOPS WHERE NOBODY CAN WALK. Drops the walk from the admission, leaving it only in
+     * `u.held`. The arrests still happen — 100 of 107 against 101 — so no count catches this; what
+     * it costs is that 27% of stopped unit-frames become a car that has pulled up with no officer
+     * able to reach the player. A unit stopping is the only cue this game gives that an arrest is
+     * starting, so that build lies to the player a quarter of the time.
+     */
+    id: 'arrest-walk-admission', file: 'src/pursuit.js',
+    find: '            && canWalk()))',
+    to: '            ))',
+    why: '27% of stopped police cars are parked for nothing, and stopping stops meaning anything',
+  },
+  {
+    /**
+     * THE TOLERANCE GOES. `_closestOn` reverses the point list for a backward unit, so the same
+     * distance comes out of a different pair of roundings: measured over 88 targets x 935 edges
+     * the two reads differ in 0.23% of pairs by up to 2.274e-13 m, and on a MINIMISING edge the
+     * backward read exceeded the forward one in 5 of 89 cases. Without the tolerance a few ULPs
+     * decide whether a player can be arrested at those spots.
+     *
+     * KEPT WITH ITS GAP WRITTEN DOWN: 5 of 89 is 5.6% of minimising pairs and a unit has to be
+     * driving that edge BACKWARD at the time, so no end-to-end arm is likely to see it. The
+     * tolerance's own relation to the noise and to the officer's radius IS asserted, in
+     * pursuit-test §10(b), which is the part a future edit is likely to get wrong.
+     */
+    id: 'arrest-eps', file: 'src/pursuit.js',
+    find: '            && near.d <= this._localBest(u, target) + CLOSER_EPS_M',
+    to: '            && near.d <= this._localBest(u, target)',
+    why: 'a few ULPs of float noise decide whether an arrest is possible on 5.6% of minimising edges',
   },
   {
     /**

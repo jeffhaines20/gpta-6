@@ -49,6 +49,17 @@ export function arrestSeconds(d) {
 // apart. `pursuit-test` asserts that relation rather than this number.
 const FOOT_STEP_M = 0.5;
 
+// "No closer than this one" needs a tolerance because the two sides are computed by different
+// walks of the same polyline. `_closestOn` reverses the point list for a backward unit, so every
+// segment vector is negated and `f` is recomputed from the other endpoint: the distance is the
+// same number in exact arithmetic and not the same float. Measured over 88 targets x 935 edges,
+// the forward and backward reads differ in 0.23% of pairs by at most 2.274e-13 m, and on a
+// MINIMISING edge the backward read exceeded the forward minimum in 5 of 89 cases — so a few
+// ULPs decided whether a player could be arrested. 1e-6 m is 4.4 million times the measured
+// noise and 500,000 times below FOOT_STEP_M, the smallest length this module reasons about, so
+// there is no value in between for the bound to be wrong at.
+export const CLOSER_EPS_M = 1e-6;
+
 export class PursuitUnits {
   constructor(scene, district, opts = {}) {
     this.d = district;
@@ -223,17 +234,25 @@ export class PursuitUnits {
   }
 
   /**
-   * THE CLOSEST ANY UNIT CAN EVER GET, which is the quantity the arrest stalemate needed and the
-   * one nothing computed. The paragraph above ends "driving a hundred metres into open land is
+   * THE CLOSEST THE ROAD NETWORK EVER GETS, which is what decides whether the player is in the
+   * stalemate region at all. The paragraph above ends "driving a hundred metres into open land is
    * still immunity ... it needs police who get out of the car, not a bigger number here". This is
-   * that, and it is the half #89 left open after ruling out the obvious version.
+   * the half #89 left open after ruling out the obvious version.
+   *
+   * IT IS THE GUARD AND NOT THE ADMISSION ANY MORE, AND THE TITLE OF THIS COMMENT USED TO SAY
+   * "the closest any UNIT can ever get". That is the sentence #108 found to be false: a unit is
+   * driven by `_chooseNext`, which descends a DIFFERENT function, and at 38% of off-road spots no
+   * unit ever reaches the edge this minimises. So the network minimum answers "can the roads get
+   * to the player at all", which is a global question and the right one for the guard, and
+   * `_localBest` answers "can THIS unit get closer", which is the admission. Two questions, two
+   * quantities; see the stop condition in `update` for the measurement that separated them.
    *
    * WHY IT IS A NETWORK QUERY AND NOT AN EDGE ONE. `u.stopped` clamps a unit at its CURRENT
    * edge's closest approach whenever that approach is inside `reachRadius`, and #89 traced what
    * happens if you simply widen that bound: a unit clamps on the first edge passing within the
    * wider radius instead of continuing to route closer, so the chase gets WORSE. The right
-   * question is not "is this edge close enough" but "is any edge closer" — and if none is, routing
-   * on cannot help and the unit should stop and walk.
+   * question is not "is this edge close enough" but "is anything closer" — and if nothing the
+   * unit can reach is, routing on cannot help and it should stop and walk.
    *
    * MEASURED, AND THE EVIDENCE WAS ALREADY IN #89's OWN TABLE. Over nine placements of a
    * stationary player the closest a unit ever got ran 7.9 / 22.8 / 37.0 / 51.7 / 66.5 / 96.2 /
@@ -241,11 +260,17 @@ export class PursuitUnits {
    * two agree to between 0.1 and 1.1 m at every row. So the network's own minimum IS what the
    * pursuit achieves, and it is the floor the arrest has to be derived against.
    *
-   * NO EPSILON, BY CONSTRUCTION. The comparison at the call site is `near.d <= best`, and both
-   * numbers come out of `_closestOn` on the same target, so for the minimising edge they are
-   * bit-identical. `_closestOn`'s `d` does not depend on `forward` — only its `t` does — so a
-   * unit travelling either way down the best edge compares equal. CLAUDE.md asks for a tolerance
-   * to be measured rather than guessed; this one does not exist to be measured.
+   * "NO EPSILON, BY CONSTRUCTION" WAS WRONG, AND IT IS WORTH LEAVING THE CLAIM HERE TO SAY SO.
+   * It read: both numbers come out of `_closestOn` on the same target, `d` does not depend on
+   * `forward` — only `t` does — so for the minimising edge they are bit-identical. The first two
+   * sentences are true and the conclusion is not: `_closestOn` REVERSES the point list for a
+   * backward unit, so `f` is recomputed from the other endpoint and the identical real number
+   * arrives through a different pair of roundings. Measured over 88 targets x 935 edges the two
+   * reads differ in 0.23% of pairs, and on a MINIMISING edge the backward read came out above the
+   * forward minimum in 5 of 89 cases — a few ULPs deciding whether a player could be arrested.
+   * `CLOSER_EPS_M` is that tolerance, measured rather than guessed as CLAUDE.md asks. "True in
+   * exact arithmetic" is not the same claim as "bit-identical", and only one of them is a
+   * statement about the code.
    *
    * CACHED PER TARGET POSITION, because `update()` asks once per unit and the answer is the same
    * for all of them. 935 edges of point-polyline distance is nothing, and doing it eight times a
@@ -349,14 +374,41 @@ export class PursuitUnits {
     return false;
   }
 
+  /**
+   * THE EDGES A UNIT MAY TAKE AT THE END OF THE ONE IT IS ON. Factored out because `_chooseNext`
+   * and `_localBest` have to agree about the option set exactly — a second copy of this filter is
+   * how two instruments in this repo drift apart, and it has cost a round more than once.
+   */
+  _optionsAt(edge, forward) {
+    const v = this._endVertex(edge, forward);
+    return (this.out.get(v) ?? []).filter((o) => !(o.e === edge && o.forward !== forward));
+  }
+
+  /**
+   * THE CLOSEST THIS UNIT CAN GET, which is a different quantity from the closest the NETWORK
+   * gets, and the difference is the whole of #108. See the stop condition in `update` for the
+   * measurement; the short version is that `_chooseNext` descends the distance from an option's
+   * FAR ENDPOINT to the target while `bestApproach` minimises an edge's CLOSEST APPROACH, so the
+   * edge that achieves the network minimum is one the router never drives at 38% of off-road
+   * spots.
+   *
+   * `Infinity` for a dead end is the right answer and not a degenerate one: a unit with no
+   * options cannot get closer by driving on, which is exactly what this returns.
+   */
+  _localBest(u, target) {
+    let m = Infinity;
+    for (const o of this._optionsAt(u.edge, u.forward)) {
+      const d = this._closestOn(o.e, o.forward, target).d;
+      if (d < m) m = d;
+    }
+    return m;
+  }
+
   // Greedy: at each junction take the outgoing edge whose far end most reduces
   // distance to the target. Cheap, and it produces exactly the churn pattern a
   // real chase does — units converging from several directions at once.
   _chooseNext(unit, target) {
-    const v = this._endVertex(unit.edge, unit.forward);
-    const options = (this.out.get(v) ?? []).filter(
-      (o) => !(o.e === unit.edge && o.forward !== unit.forward)
-    );
+    const options = this._optionsAt(unit.edge, unit.forward);
     if (!options.length) {
       this.stats.deadEnds++;
       return null;
@@ -430,12 +482,12 @@ export class PursuitUnits {
        * passing unit however wide the predicate got. The officers get out when the car stops.
        */
       /**
-       * OR THE EDGE IS AS CLOSE AS THE NETWORK GETS, **AND ONLY WHERE THE NETWORK CANNOT REACH**.
+       * OR THE UNIT IS AS CLOSE AS **IT** CAN GET, **AND ONLY WHERE THE NETWORK CANNOT REACH**.
        * `reachRadius` alone left #89's stalemate: a player standing 38 to 136 m off a road was
        * seen the whole time, held by nobody, and could neither be arrested nor escape, because no
        * edge any unit drove came within 28 m and so `stopped` was never set. See `bestApproach`
-       * for why this is the network's minimum and not a wider radius, which was traced and is
-       * worse.
+       * for why the GUARD is the network's minimum and not a wider radius, which was traced and
+       * is worse — and the block below for why the ADMISSION is not.
        *
        * THE `best > reachRadius` GUARD IS NOT BELT AND BRACES — IT IS THE DERIVATION. The whole
        * claim for this change is "identical to today's behaviour at every distance the game
@@ -451,8 +503,78 @@ export class PursuitUnits {
        * So the two conditions are DISJOINT by construction: inside the reach nothing moved, and
        * outside it the floor is the only thing that applies.
        */
+      /**
+       * #108: AND THE ADMISSION IS A LOCAL MINIMUM, BECAUSE THE ROUTER IS A LOCAL OPTIMISER.
+       * The first version of this read `near.d <= best` — the network's own minimum, exactly —
+       * and that asks a greedy router for a global optimum. `_chooseNext` descends the distance
+       * from an option's FAR ENDPOINT to the target; `bestApproach` minimises an edge's CLOSEST
+       * APPROACH. They are different functions, so the minimising edge is often one no unit will
+       * ever drive. Measured by walking the router itself (no sim) from 24 start states at 516
+       * clear spots 30-140 m off a road:
+       *
+       *     the router reaches a minimising edge          319 of 516   62%
+       *     it does not                                   197 of 516   38%
+       *     and where it does not, the closest edge it CAN reach is
+       *       p50 31.71 m further than the network's own, p90 153.97, max 190.02
+       *
+       * `reachRadius` is 28 m, so no tolerance of the form `best + reach` rescues even half of
+       * that — which is what killed the first candidate fix.
+       *
+       * TWO MORE MECHANISMS, both of which looked like the same symptom. Where the minimum sits
+       * at the edge's far ENDPOINT, the clamp fires on the one frame that is also the reroute
+       * frame below, which clears `stopped`; the reroute comment's claim that the unit "re-holds
+       * on the new edge at t = 0" is true INSIDE the reach, where the admission is a radius that
+       * both edges satisfy, and false outside it, where the new edge is not a minimising edge.
+       * Traced: 730 and 1,460 unit-frames on a minimising edge with the second clause true in 1
+       * and 2 of them. And `_closestOn` is not bit-identical in the two directions — see
+       * `CLOSER_EPS_M`, which is why the comparison carries one.
+       *
+       * SO THE QUANTITY IS "THIS UNIT CANNOT GET CLOSER", which is a property of its own option
+       * set and not of the city. The guard stays global, because "the network cannot reach the
+       * player" genuinely is: two questions, two quantities. Over a fixed grid of 107 clear spots
+       * 35-110 m off a road, 90 s stationary at four stars:
+       *
+       *     admission                        arrested      p50     newly   lost
+       *     global, `near.d <= best`         45 of 107    16.5 s        -      -
+       *     local                           100 of 107    25.0 s       55      0
+       *     local AND the walk is clear     101 of 107    25.5 s       56      0
+       *     the officer can walk the line   101 of 107                        <- the ceiling
+       *
+       * The ceiling is `_footPathClear` from the stop point, measured on its own, and it is the
+       * one term here that is not a defect: a player with a building between them is not being
+       * held by anybody. **NOT ONE SPOT REGRESSED** — every spot that arrested under the global
+       * rule still does — and the local rule reaches a locally minimising edge at 107 of 107 by
+       * construction, because a greedy walk ends somewhere it cannot improve. The stop point it
+       * finds is a MEDIAN 0.00 m further from the player than the network's own minimum, so
+       * where the global test could be satisfied this one lands in the same place.
+       *
+       * WHAT IT COSTS is 6.5 s on the median arrest that already worked (5 faster, 28 slower,
+       * worst +30.5 s), and that is `arrestSeconds` doing its job: a unit that stops where it
+       * cannot improve is sometimes further out than the city's own closest kerb, and the officer
+       * walks the difference. It is not recoverable by requiring the walk — the third row buys
+       * ONE spot of 107 and moves the median by 0.
+       *
+       * THE WALK IS IN THE ADMISSION ANYWAY, AND THE REASON IS A CUE RATHER THAN A NUMBER. With
+       * the local rule alone, 27% of stopped unit-frames are a car that has pulled up and parked
+       * with no officer able to reach the player (stop 63.7% against held 46.8%). A unit that
+       * stops is the only signal this game gives that an arrest is starting, so a build where it
+       * means nothing a quarter of the time is a build that lies to the player. With the walk in
+       * the admission the two coincide — 50.9% and 50.9% — so a car that stops is an arrest, by
+       * construction. `pursuit-test` asserts that coincidence and `mutation-sweep`'s
+       * `arrest-walk-admission` is what gives the assertion teeth.
+       */
+      // ONE WALK TEST A FRAME, read by the stalemate admission and by `u.held` below.
+      // `_footPathClear` samples every FOOT_STEP_M over a line with no length limit, so a second
+      // call is a real cost; and it is lazy, so inside the reach the first disjunct below
+      // short-circuits past it and the cost is exactly what it was before #108.
+      let walk = null;
+      const canWalk = () => (walk ??= (near.d <= this.holdRadius
+        || this._footPathClear(near.x, near.z, target.x, target.z)));
       const best = this.bestApproach(target);
-      if ((near.d <= this.reachRadius || (best > this.reachRadius && near.d <= best))
+      if ((near.d <= this.reachRadius
+          || (best > this.reachRadius
+            && near.d <= this._localBest(u, target) + CLOSER_EPS_M
+            && canWalk()))
         && (u.stopped || (wantT > near.t && u.t <= near.t))) {
         u.t = near.t;
         u.stopped = true;
@@ -468,8 +590,7 @@ export class PursuitUnits {
        * building between them is not being held by anybody, and that is the control
        * `pursuit-test` asserts reads zero.
        */
-      u.held = u.stopped && (near.d <= this.holdRadius
-        || this._footPathClear(near.x, near.z, target.x, target.z));
+      u.held = u.stopped && canWalk();
       let p = this._pointOn(u.edge, u.forward, u.t);
       /**
        * A STOPPED UNIT REROUTES AT THE END OF ITS EDGE LIKE ANY OTHER, and this carried a

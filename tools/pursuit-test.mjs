@@ -19,7 +19,7 @@
 // the whole simulation offline.
 import fs from 'node:fs';
 import * as THREE from '../vendor/three.module.min.js';
-import { PursuitUnits, arrestSeconds } from '../src/pursuit.js';
+import { PursuitUnits, arrestSeconds, CLOSER_EPS_M } from '../src/pursuit.js';
 import { HALF_EXTENT } from '../src/damage.js';
 import { buildBlockers } from '../src/blockers.js';
 import { RUN_SPEED, ON_FOOT_RADIUS } from '../src/player.js';
@@ -76,6 +76,53 @@ const walkTo = (pts, t) => {
     rem -= seg;
   }
   return pts[pts.length - 1];
+};
+
+/**
+ * THE CLOSEST APPROACH OF AN EDGE, AND THE BEST AMONG A UNIT'S OWN NEXT OPTIONS — both computed
+ * HERE, from `district`, because the thing under test IS the module's `_localBest`. Asserting it
+ * with `p._localBest` would be the same quantity on both sides of the comparison, which is the
+ * self-validation CLAUDE.md records under the shunt-fit ladder.
+ *
+ * The adjacency mirrors `_buildAdjacency`'s rule rather than calling it: an edge is enterable at
+ * its FIRST vertex going forward when `o >= 0` and at its LAST going backward when `o <= 0`.
+ */
+const approachTo = (e, forward, at) => {
+  const pts = polyline(e, forward);
+  let best = Infinity, bx = 0, bz = 0, run = 0, bt = 0;
+  for (let k = 0; k < pts.length - 1; k++) {
+    const a = pts[k], b = pts[k + 1];
+    const dx = b.x - a.x, dz = b.z - a.z, s2 = dx * dx + dz * dz;
+    const seg = Math.sqrt(s2);
+    if (s2 > 1e-18) {
+      const t = Math.max(0, Math.min(1, ((at.x - a.x) * dx + (at.z - a.z) * dz) / s2));
+      const px = a.x + dx * t, pz = a.z + dz * t;
+      const d = Math.hypot(at.x - px, at.z - pz);
+      if (d < best) { best = d; bx = px; bz = pz; bt = run + seg * t; }
+    }
+    run += seg;
+  }
+  return { d: best, x: bx, z: bz, t: bt, len: run };
+};
+const OUT = new Map();
+district.edges.forEach((e, i) => {
+  const push = (v, o) => { if (!OUT.has(v)) OUT.set(v, []); OUT.get(v).push(o); };
+  if (e.o >= 0) push(e.v[0], { e: i, forward: true });
+  if (e.o <= 0) push(e.v[e.v.length - 1], { e: i, forward: false });
+});
+const optionsTo = (edge, forward) => {
+  const ev = district.edges[edge].v;
+  const end = forward ? ev[ev.length - 1] : ev[0];
+  return (OUT.get(end) ?? []).filter((o) => !(o.e === edge && o.forward !== forward));
+};
+/** Infinity at a dead end, which is the right answer: there is nowhere else to drive. */
+const localBestTo = (edge, forward, at) => {
+  let m = Infinity;
+  for (const o of optionsTo(edge, forward)) {
+    const { d } = approachTo(district.edges[o.e], o.forward, at);
+    if (d < m) m = d;
+  }
+  return m;
 };
 
 // ------------------------------------------------- 1. the hold radius covers the widest road
@@ -236,7 +283,7 @@ console.log('\n3. the hold, and the release');
    * THEN THE TARGET LEAVES. A hold that never releases is the same failure as one that never
    * takes, and the number that shows it is the distance a "holding" unit reports from.
    */
-  let worstAfter = 0, heldFrames = 0, frames = 0, worstOver = -Infinity;
+  let worstAfter = 0, heldFrames = 0, frames = 0, worstOver = -Infinity, deadEndHeld = 0;
   for (let i = 0; i < 120 * 30; i++) {
     target.x = spot.x + (i / 30) * 20;                 // 72 km/h away, in a straight line
     p.update(1 / 30, target);
@@ -244,14 +291,19 @@ console.log('\n3. the hold, and the release');
     // The bound a holding unit is allowed to be inside: the officer's reach, OR the closest the
     // road network gets to the target at all. Read AFTER update() so it is the same cached value
     // the clamp decided on. See `bestApproach`.
-    const allowed = Math.max(p.reachRadius, p.bestApproach(target));
+    // The bound a holding unit is allowed to be inside is the officer's reach OR the closest
+    // THIS UNIT can get, computed per unit below by this file's own arithmetic rather than the
+    // module's. See the restatement under the loop.
     for (let k = 0; k < p.count; k++) {
       if (!p.units[k] || !p.units[k].held) continue;
       heldFrames++;
       const q = posOf(p, k);
       const d = Math.hypot(q.x - target.x, q.z - target.z);
       worstAfter = Math.max(worstAfter, d);
-      worstOver = Math.max(worstOver, d - allowed);
+      const u = p.units[k];
+      const lb = localBestTo(u.edge, u.forward, target);  // this file's arithmetic, not the module's
+      if (!Number.isFinite(lb)) { deadEndHeld++; continue; }
+      worstOver = Math.max(worstOver, d - Math.max(p.reachRadius, lb));
     }
   }
   console.log(`    then 120 s of fleeing at 72 km/h: ${heldFrames} held unit-frames of ` +
@@ -260,26 +312,39 @@ console.log('\n3. the hold, and the release');
     heldFrames < frames * p.count * 0.5,
     `${heldFrames} of ${frames * p.count} unit-frames`);
   /**
-   * RESTATED. This read `worstAfter <= reachRadius`, and it was the right invariant for a build
-   * whose only hold condition was that radius. `bestApproach` adds a second one — a unit may stop
-   * at the NETWORK's closest approach however far that is — so a unit holding 160 m from a target
-   * fleeing into open country is now correct, and the bound has to be the pair.
+   * RESTATED TWICE, AND BOTH TIMES IN THE COMMIT THAT MOVED IT.
+   *
+   * It first read `worstAfter <= reachRadius`, the right invariant for a build whose only hold
+   * condition was that radius. #89 added a second one and this became
+   * `max(reachRadius, bestApproach(target))` — the NETWORK's closest approach, however far.
+   *
+   * #108 moves it again, and this is the check that caught the move: it failed at a worst excess
+   * of **82.949 m against a 1.400 m bound** the moment the admission became local. That is not a
+   * regression, it is the fix — a unit now stops where IT cannot get closer, which `bestApproach`
+   * has no way to express — so the bound becomes the same quantity per unit, and is computed by
+   * this file's own `localBestTo` rather than by the module whose rule it is judging.
+   *
+   * A DEAD END HAS NO BOUND, because `_localBest` is Infinity there and that is correct: a unit
+   * with nowhere to drive cannot get closer. Those unit-frames are counted and printed rather
+   * than silently admitted, because an excess bound that is vacuous for most of its subjects is
+   * the "check whose two sides are both zero" shape.
    *
    * THE SLACK IS MEASURED, NOT GUESSED, and CLAUDE.md asks for a bound with nothing between the
    * noise and the signal. A holding unit sits at its edge's closest approach, which is at most
-   * `bestApproach` from the target by construction — but the target is moving 20 m/s and the
-   * clamp is decided before this reads it, so the unit lags by up to one step of target travel.
-   * The measured worst excess is printed beside the bound, and the bound is `speed * dt` of
-   * TARGET motion (0.667 m at 20 m/s and 1/30 s) plus the unit's own step, which is what the lag
-   * can physically be. A looser number would admit a unit that had stopped tracking entirely.
+   * its own local best by construction — but the target is moving 20 m/s and the clamp is decided
+   * before this reads it, so the unit lags by up to one step of target travel. The bound is
+   * `speed * dt` of TARGET motion (0.667 m at 20 m/s and 1/30 s) plus the unit's own step, which
+   * is what the lag can physically be. A looser number would admit a unit that had stopped
+   * tracking entirely.
    */
   const lag = 20 / 30 + p.speed / 30;
-  console.log(`    worst excess over max(reach, bestApproach): ${worstOver === -Infinity ? 'n/a'
-    : worstOver.toFixed(3)} m, against one frame of target+unit travel ${lag.toFixed(3)} m`);
-  check('a holding unit is inside the reach OR at the closest the network gets',
-    heldFrames > 0 && worstOver <= lag,
+  console.log(`    worst excess over max(reach, its OWN local best): ${worstOver === -Infinity
+    ? 'n/a' : worstOver.toFixed(3)} m, against one frame of target+unit travel `
+    + `${lag.toFixed(3)} m; ${deadEndHeld} held unit-frames were at a dead end (no bound)`);
+  check('a holding unit is inside the reach OR as close as IT can get',
+    heldFrames > 0 && deadEndHeld < heldFrames * 0.5 && worstOver <= lag,
     `worst excess ${worstOver === -Infinity ? 'n/a' : worstOver.toFixed(3)} m over `
-    + `${heldFrames} held unit-frames, bound ${lag.toFixed(3)}`);
+    + `${heldFrames - deadEndHeld} bounded of ${heldFrames} held unit-frames, bound ${lag.toFixed(3)}`);
   check('KNOWN-BAD: and that admits distances the old reach-only bound refused, which is the fix',
     worstAfter > p.reachRadius,
     `${worstAfter.toFixed(2)} m against the old bound of ${p.reachRadius.toFixed(2)}`);
@@ -635,6 +700,246 @@ console.log('\n4. displacement per frame');
     check('and one stopped behind a building mostly cannot, which is the control',
       B.stoppedF > 1000 && B.gap > B.stoppedF * 0.5,
       `${B.gap} of ${B.stoppedF} = ${(100 * B.gap / B.stoppedF).toFixed(1)}%`);
+  }
+}
+
+// -------------------------------- §10 the admission is LOCAL, because the router is (#108)
+/**
+ * #89 left the stalemate half-closed and this is the half it left. The admission beyond the
+ * reach read `near.d <= bestApproach(target)` — the NETWORK's minimum, exactly — and
+ * `_chooseNext` is a greedy descent on a DIFFERENT function (the distance from an option's far
+ * endpoint to the target), so the minimising edge is often one no unit ever drives.
+ *
+ * Measured three ways before the fix, all recorded in `_localBest`'s own comment: the router
+ * reaches a minimising edge at 319 of 516 clear spots, the closest edge it CAN reach is a median
+ * 31.71 m further (max 190.02), and over a fixed grid of 107 spots 35-110 m off a road an arrest
+ * landed at 45 of 107 against a `_footPathClear` ceiling of 101.
+ *
+ * WHAT THIS SECTION ASSERTS IS THE RULE, NOT THAT NUMBER. Four things: the option set is shared
+ * with the router rather than copied, the tolerance sits between the measured float noise and
+ * the shortest length the module reasons about, the old admission is immunity where the new one
+ * is not, and inside the reach the two are BIT-IDENTICAL — which is the derivation, because the
+ * whole claim for #89 and #108 together is that nothing moves at a distance the game already
+ * arrests at.
+ */
+console.log('\n\u00a710 the local admission, because the router is local too');
+{
+  const p = build();
+
+  // (a) the option set is the router's own, not a second copy of the filter.
+  let optPairs = 0, optMismatch = 0, pickOutside = 0, picks = 0;
+  for (let e = 0; e < district.edges.length; e++) {
+    for (const fw of [true, false]) {
+      const mine = optionsTo(e, fw).map((o) => `${o.e}:${o.forward}`).sort().join(',');
+      const theirs = p._optionsAt(e, fw).map((o) => `${o.e}:${o.forward}`).sort().join(',');
+      optPairs++;
+      if (mine !== theirs) optMismatch++;
+      const set = new Set(mine.split(',').filter(Boolean));
+      if (!set.size) continue;
+      const got = p._chooseNext({ edge: e, forward: fw }, { x: 120, z: -40 });
+      picks++;
+      if (!got || !set.has(`${got.e}:${got.forward}`)) pickOutside++;
+    }
+  }
+  console.log(`    ${optPairs} (edge, direction) pairs: ${optMismatch} disagree with this file's `
+    + `own adjacency; ${picks} router picks, ${pickOutside} outside the option set`);
+  check('_optionsAt is the adjacency the district describes, rebuilt here rather than called',
+    optPairs > 1800 && optMismatch === 0, `${optMismatch} of ${optPairs}`);
+  check('and the router picks from exactly that set, so _localBest cannot drift from _chooseNext',
+    picks > 1500 && pickOutside === 0, `${pickOutside} of ${picks} picks outside`);
+
+  /**
+   * (b) THE TOLERANCE, RE-DERIVED. `_closestOn` reverses the point list for a backward unit, so
+   * the same distance comes out of a different pair of roundings — and on a MINIMISING edge that
+   * decided whether anybody could be arrested. The bound has to have nothing between the noise
+   * and the signal: the noise is this measurement, and the signal is the shortest length the
+   * module reasons about at all, the officer's own radius.
+   */
+  let worstDir = 0, dirPairs = 0, dirDiffer = 0;
+  for (const at of [{ x: 120, z: -40 }, { x: -364, z: 199 }, { x: 19, z: -6 }, { x: 420, z: 310 }]) {
+    for (let e = 0; e < district.edges.length; e++) {
+      const a = p._closestOn(e, true, at).d, b = p._closestOn(e, false, at).d;
+      dirPairs++;
+      if (a !== b) { dirDiffer++; worstDir = Math.max(worstDir, Math.abs(a - b)); }
+    }
+  }
+  console.log(`    _closestOn forward vs backward over ${dirPairs} pairs: ${dirDiffer} differ, `
+    + `worst ${worstDir.toExponential(3)} m; tolerance ${CLOSER_EPS_M.toExponential(0)} m, `
+    + `officer radius ${ON_FOOT_RADIUS} m`);
+  check('the two directions DO disagree, so the tolerance is not decoration',
+    dirDiffer > 0, `${dirDiffer} of ${dirPairs} pairs`);
+  check('and the tolerance is far above that float noise and far below any real length',
+    worstDir * 1e6 < CLOSER_EPS_M && CLOSER_EPS_M * 1e4 < ON_FOOT_RADIUS,
+    `${worstDir.toExponential(2)} << ${CLOSER_EPS_M.toExponential(0)} << ${ON_FOOT_RADIUS}`);
+
+  // Spots chosen by GEOMETRY — clear, and further from every edge than the officer can run — so
+  // neither arm had a hand in picking them.
+  const far = [], near = [];
+  for (let gx = -760; gx <= 760; gx += 61) {
+    for (let gz = -470; gz <= 670; gz += 67) {
+      if (!CLEAR_AT(gx, gz)) continue;
+      let d = Infinity;
+      for (let e = 0; e < district.edges.length; e++) {
+        const q = approachTo(district.edges[e], true, { x: gx, z: gz });
+        if (q.d < d) d = q.d;
+      }
+      if (d > 40 && d < 100 && far.length < 14) far.push({ x: gx, z: gz, d });
+      if (d > 2 && d < p.reachRadius - 2 && near.length < 10) near.push({ x: gx, z: gz, d });
+    }
+  }
+
+  /**
+   * (c) KNOWN-BAD: the old admission against the new one, at the same spots. `_localBest` is
+   * replaced by `bestApproach` in the legacy arm, which IS the shipped rule before #108 —
+   * the guard, the stickiness and the walk are untouched, so this isolates one term.
+   */
+  let idleStopped = 0, stoppedFar = 0;
+  const heldAt = (patch) => {
+    const out = [];
+    for (const s of far) {
+      const q = build();
+      if (patch) patch(q);
+      const t = { x: s.x, z: s.z };
+      let held = 0;
+      for (let i = 0; i < 20 * 30; i++) {
+        q.update(1 / 30, t);
+        for (const u of q.units) {
+          if (!u) continue;
+          if (u.held) held++;
+          if (!patch && u.stopped) { stoppedFar++; if (!u.held) idleStopped++; }
+        }
+      }
+      out.push(held);
+    }
+    return out;
+  };
+  const legacy = heldAt((q) => { q._localBest = (u, t) => q.bestApproach(t); });
+  const shipped = heldAt(null);
+  const nL = legacy.filter((h) => h > 0).length, nS = shipped.filter((h) => h > 0).length;
+  console.log(`    ${far.length} spots 40-100 m off every edge, 20 s each, unit-frames held:`);
+  console.log(`      global admission (pre-#108)  ${nL} spots hold, ${legacy.reduce((a, b) => a + b, 0)} frames`);
+  console.log(`      local  admission (shipped)   ${nS} spots hold, ${shipped.reduce((a, b) => a + b, 0)} frames`);
+  check('the spot set is big enough to say anything', far.length >= 10, `${far.length} spots`);
+  check('KNOWN-BAD: asking a greedy router for the network minimum is immunity at most of them',
+    nL < far.length * 0.6, `${nL} of ${far.length} hold under the old rule`);
+  check('and the local admission holds at most of them, which is the fix',
+    nS > far.length * 0.7 && nS > nL, `${nS} of ${far.length}, against ${nL}`);
+
+  /**
+   * AND A CAR THAT STOPS IS AN ARREST. The walk is in the admission and not only in `u.held`,
+   * so beyond the reach the two states coincide: a unit only pulls up where an officer can
+   * actually reach the player. Without that term the local rule leaves 27% of stopped
+   * unit-frames parked with nobody able to walk — stop 63.7% against held 46.8% over the 107-spot
+   * grid — and a unit stopping is the ONLY signal this game gives that an arrest is beginning,
+   * so a build where it means nothing a quarter of the time lies to the player.
+   *
+   * This is true BY CONSTRUCTION in the shipped build, which is why it is labelled: it can only
+   * fail if the admission drops the walk or the memo feeding both stops agreeing, and
+   * `mutation-sweep`'s `arrest-walk-admission` is the row that proves it has teeth.
+   */
+  console.log(`    beyond the reach: ${stoppedFar} stopped unit-frames, ${idleStopped} of them `
+    + `with no officer able to walk (${(100 * idleStopped / Math.max(1, stoppedFar)).toFixed(1)}%)`);
+  check('beyond the reach a unit stops only where an officer can walk, so stopping IS the arrest',
+    stoppedFar > 1000 && idleStopped === 0, `${idleStopped} of ${stoppedFar} stopped-and-idle`);
+
+  /**
+   * (d) AND INSIDE THE REACH NOTHING MOVED. The guard is `best > reachRadius`, so where the
+   * network does get within the officer's run the second clause is switched off entirely and the
+   * admission is the radius alone. That is the derivation #89 had to restate once already — its
+   * first version admitted every edge at or below the best approach and the garage's
+   * wanted-refusal arm started being arrested mid-dwell — so it is asserted as BIT-IDENTITY
+   * against an arm with the clause disabled, not as a count that happens to match.
+   */
+  const trace = (patch) => {
+    const out = [];
+    for (const s of near) {
+      const q = build();
+      if (patch) patch(q);
+      const t = { x: s.x, z: s.z };
+      for (let i = 0; i < 10 * 30; i++) {
+        q.update(1 / 30, t);
+        out.push(q.units.map((u) => (u ? `${u.edge}:${u.t.toFixed(6)}:${u.stopped ? 1 : 0}${u.held ? 'H' : '-'}` : 'x')).join('|'));
+      }
+    }
+    return out.join('\n');
+  };
+  const withFloor = trace(null);
+  const noFloor = trace((q) => { q.bestApproach = () => -Infinity; });
+  console.log(`    ${near.length} spots inside the reach (2-${(p.reachRadius - 2).toFixed(0)} m), `
+    + `10 s each: trace ${withFloor === noFloor ? 'BIT-IDENTICAL' : 'DIFFERS'} with the clause off`);
+  check('inside the officer\'s reach the stalemate clause changes nothing, to the last bit',
+    near.length >= 8 && withFloor === noFloor,
+    `${near.length} spots, ${withFloor.length} chars of trace`);
+  // Without this the identity above passes for the most flattering reason: no unit ever stopped.
+  check('and those traces are not empty of the state they are comparing',
+    /:1[H-]/.test(withFloor), 'at least one stopped unit-frame in the controlled traces');
+
+  /**
+   * (e) THE ENDPOINT CASE, which is the second of #108's three mechanisms and the one that reads
+   * as flakiness. Where the minimising edge's closest approach is its far ENDPOINT, the clamp
+   * fires on the frame that also triggers the reroute below it, and the reroute clears `stopped`.
+   * The reroute comment's claim that the unit "re-holds on the new edge at t = 0" is true inside
+   * the reach, where the admission is a radius both edges satisfy, and was false outside it.
+   * Traced before the fix: 730 and 1,460 unit-frames on a minimising edge with the approach
+   * clause true in 1 and 2 of them.
+   *
+   * The subject is found by geometry — a target whose own minimising edge meets it at a vertex —
+   * rather than by taking a spot that fails, so the arm cannot be fitted to the fix.
+   */
+  let subject = null, examined = 0;
+  for (let v = 0; v < district.verts.length && !subject; v++) {
+    const o = OUT.get(v);
+    if (!o || o.length < 2) continue;
+    for (const ang of [0, 1, 2, 3, 4, 5, 6, 7]) {
+      const a = ang * Math.PI / 4;
+      const at = { x: district.verts[v].x + Math.cos(a) * 46, z: district.verts[v].z + Math.sin(a) * 46 };
+      if (!CLEAR_AT(at.x, at.z)) continue;
+      examined++;
+      let best = Infinity, bq = null, be = -1;
+      for (let e = 0; e < district.edges.length; e++) {
+        const q = approachTo(district.edges[e], true, at);
+        if (q.d < best) { best = q.d; bq = q; be = e; }
+      }
+      if (best <= p.reachRadius) continue;
+      // the closest point is AT one of that edge's own endpoints
+      const pts = polyline(district.edges[be], true);
+      const e0 = pts[0], e1 = pts[pts.length - 1];
+      const atEnd = Math.min(Math.hypot(bq.x - e0.x, bq.z - e0.z),
+        Math.hypot(bq.x - e1.x, bq.z - e1.z)) < 1e-6;
+      if (!atEnd) continue;
+      subject = { at, d: best, edge: be, v };
+      break;
+    }
+  }
+  if (!subject) {
+    check('a target whose minimising edge meets it at a vertex exists in this district',
+      false, `none of ${examined} candidates`);
+  } else {
+    const q = build();
+    let heldRun = 0, bestRun = 0;
+    for (let i = 0; i < 40 * 30; i++) {
+      q.update(1 / 30, subject.at);
+      if (q.units.some((u) => u && u.held)) { heldRun += 1 / 30; bestRun = Math.max(bestRun, heldRun); }
+      else heldRun = 0;
+    }
+    const qL = build();
+    qL._localBest = (u, t) => qL.bestApproach(t);
+    let heldRunL = 0, bestRunL = 0;
+    for (let i = 0; i < 40 * 30; i++) {
+      qL.update(1 / 30, subject.at);
+      if (qL.units.some((u) => u && u.held)) { heldRunL += 1 / 30; bestRunL = Math.max(bestRunL, heldRunL); }
+      else heldRunL = 0;
+    }
+    console.log(`    closest approach AT a vertex: target (${subject.at.x.toFixed(0)}, `
+      + `${subject.at.z.toFixed(0)}) is ${subject.d.toFixed(1)} m off edge ${subject.edge}, `
+      + `which meets it at vertex ${subject.v}`);
+    console.log(`      longest held run over 40 s: ${bestRun.toFixed(1)} s shipped, `
+      + `${bestRunL.toFixed(1)} s under the global admission`);
+    check('a unit holds a target whose closest road point is a junction, past the reach',
+      bestRun >= arrestSeconds(subject.d), `${bestRun.toFixed(1)} s against the `
+      + `${arrestSeconds(subject.d).toFixed(1)} s the arrest needs from ${subject.d.toFixed(1)} m`);
+    check('KNOWN-BAD: and the global admission could not, because the clamp frame is the reroute frame',
+      bestRunL < bestRun, `${bestRunL.toFixed(1)} s against ${bestRun.toFixed(1)}`);
   }
 }
 
