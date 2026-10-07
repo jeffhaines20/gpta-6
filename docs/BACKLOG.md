@@ -570,7 +570,38 @@ and heat decaying 0.5320 -> 0.0000, and it was about to file "buildings can neve
 The arm was reversing 25 m between hits, ~40 s, and `idleBleed` 0.09/s wins that race. **It is the
 GAP that decides**, not the count.
 
-### #98 The game's own route follower hands a fleeing player to the police (B#5)
+### #98 RE-MEASURED — the crawl floor HOLDS, and the dip is the car undershooting it
+The playtester's observation reproduces and their attribution does not. `roadpath.js`'s
+`cornerSpeed()` floors the corner TARGET at 2.2 m/s and its comment calls the floor "not a fudge";
+B measured the ACHIEVED speed at 101 of 601 frames under 1.0 m/s with a dead section reading
+0,1,1,1,1 km/h. Those are two different quantities and only one of them is floored. Separated, over
+10,800 frames of `followPath` from Five Points to the marina:
+
+    targets under the 2.2 m/s crawl floor    0 of 10,800        the floor holds exactly
+    achieved speed   min 0.01   p05 0.61   p50 19.99   max 21.12 m/s
+    frames under 1.0 m/s                     8.4%
+    worst CONTIGUOUS run under 1.0 m/s       3.38 s             against BUST_HOLD_S 4.0
+
+So `cornerSpeed()` never asks for less than the crawl, and the car arrives slower than it was
+asked to — a controller undershoot braking into a floored corner from 22 m/s, not a floor being
+violated. **A module's own bookkeeping is not a measurement of the module**, and here the
+bookkeeping was right.
+
+Two consequences worth keeping apart:
+
+- **The floor's stated PURPOSE is intact.** It exists so "a contact taken at the floor speed is
+  free by construction", and a contact at 0.01 m/s is more free, not less. The undershoot is
+  conservative for the thing the floor was derived for.
+- **The bust interaction is real and marginal.** 3.38 s of continuous sub-1.0 m/s against a 4.0 s
+  clock on this route; B measured 4 s on theirs, so it is route-dependent and sits either side of
+  the threshold depending on which junction you take. My 8.4% against their 17% is the same
+  phenomenon over a different course, not a disagreement.
+
+Still open as a controller question — should the follower hold the crawl it asks for rather than
+coasting under it — and NOT as the floor defect it was filed as. Note that #95's fix does not
+close it: a car crawling through a junction is not receding from a parked unit either.
+
+### #98 (original record) The game's own route follower hands a fleeing player to the police (B#5)
 `followPath` leaving Five Points spends **101 of 601 frames (17%) under 1.0 m/s**, with a dead
 section at t=11-15 s reading 0,1,1,1,1 km/h — **four continuous seconds against a `BUST_HOLD_S` of
 4.0**. Identical at maxSpeed 20 and 30 m/s, so it is the geometry and not a cap. Fleeing at 4★ with
