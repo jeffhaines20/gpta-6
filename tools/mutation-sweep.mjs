@@ -241,6 +241,21 @@ const MUTATIONS = [
   },
   // ---- src/wanted.js
   {
+    /**
+     * THE CRIME REPORT TAKES THE HEADLINE BACK. Strips the `status` flag the fix added, so
+     * `composeLaw`'s notice outranks a live mission objective again. Measured on a registered pair
+     * off ONE sim — the band composed twice per frame, so the crimes are identical — the law tenant
+     * owns 33% of the headline against 0%, and the mission 67% against 100%. A blind playtester
+     * measured the shipped version at 71-72% over two seeds of the tutorial mission.
+     *
+     * Nothing errors and both lines still appear; only which one is on top changes.
+     */
+    id: 'law-headline', file: 'src/wanted.js',
+    find: "    return { objective: { text: label }, subtitle: note, status: true,",
+    to: "    return { objective: { text: label }, subtitle: note, status: false,",
+    why: 'a crime report outranks the mission objective again, 0% -> 33% of the headline',
+  },
+  {
     id: 'scene-watch', file: 'src/wanted.js',
     find: '    this._watchScene(player);\n',
     to: '',
@@ -272,6 +287,17 @@ const MUTATIONS = [
     why: 'reverse has no speed ceiling',
   },
   // ---- src/hud.js
+  {
+    /**
+     * THE YIELD RULE STOPS YIELDING. `composeBand`'s while-loop never advances, so a status tenant
+     * keeps the headline whatever it is marked. A separate row from `law-headline` because the fix
+     * spans two modules and either half can be reverted alone: this one is the hud.js half.
+     */
+    id: 'band-yield', file: 'src/hud.js',
+    find: "  while (i < present.length - 1 && slots[present[i]].status) i++;",
+    to: "  while (false && i < present.length - 1 && slots[present[i]].status) i++;",
+    why: 'a status tenant no longer yields the headline, so the band rule is inert',
+  },
   {
     /**
      * THE WHOLE ORDER, SO THE `find` IS THE WHOLE LITERAL — and it goes STALE every time a tenant
@@ -688,6 +714,22 @@ const MUTATIONS = [
     why: 'the follower reverses out of its own standing starts',
   },
   // ---- src/blockers.js: the world fence
+  {
+    /**
+     * THE FENCE NAMES THE WRONG CONTROL AGAIN. Inverts the verb, so a nose pointing OUT of the
+     * district is told to drive — which `worldFence` refuses — and a nose pointing home is told to
+     * reverse. A blind playtester measured the consequence of naming no control at all: 0-89
+     * degrees of nose-off covered 0.1 m under 30 s of full throttle, against 210.9 m in reverse.
+     *
+     * `blocker-test` §12 catches it because it compares the word against the REFUSAL rather than
+     * against an angle: for each nose angle it asks the module what it does to a full forward
+     * throttle and asserts the verb names reverse exactly where forward was taken away.
+     */
+    id: 'fence-verb', file: 'src/blockers.js',
+    find: "    subtitle: f.noseOut ? 'reverse' : 'drive',",
+    to: "    subtitle: f.noseOut ? 'drive' : 'reverse',",
+    why: 'the fence tells a car pointing out of the district to drive, which is the refused control',
+  },
   {
     /**
      * PUTS THE SIGN TEST BACK. This is the defect itself: a car at rest outside the fence has an

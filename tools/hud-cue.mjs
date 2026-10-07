@@ -937,10 +937,54 @@ console.log('\nOBJECTIVE BAND — the priority order, as a ladder');
    * The pass-through half below is left as an IDENTITY comparison deliberately — there it is
    * the stronger statement, that the band handed back the very object the tenant gave it.
    */
-  check('the law tenant has three distinct lines and every one wins the band',
-    new Set(lawLines.map((l) => objectiveLine(l.objective))).size === 3
-    && lawLines.every((l) => composeBand({ law: l, mission: all.mission }).objective === l.objective),
+  check('the law tenant has three distinct lines, as a player reads them',
+    new Set(lawLines.map((l) => objectiveLine(l.objective))).size === 3,
     lawLines.map((l) => objectiveLine(l.objective)).join(' / '));
+  /**
+   * RESTATED, AND NOT LOOSENED: two of the three win the band and the third YIELDS, which is a
+   * change this commit made deliberately and which this check is what caught.
+   *
+   * It read "every one wins the band" and that was right when every law line was an instruction.
+   * It is not any more: `composeLaw`'s crime NOTICE is a report that asks for nothing, and it was
+   * taking the headline from a live mission objective for 71-72% of the first mission in the game
+   * (a blind playtester, two seeds, both passing: mission 9.8 s against law 24.3 s, and 9.4
+   * against 24.7). The two SCENE lines are instructions — one carries the job through `cooperated`
+   * and the countdown leaves one control — so they still outrank a mission.
+   *
+   * So the check splits along the distinction the fix is about, rather than being widened to cover
+   * both: an instruction wins, a report yields, and the report's words still reach the player.
+   */
+  const asInstruction = lawLines.filter((l) => !l.status);
+  const asReport = lawLines.filter((l) => l.status);
+  check('and the sweep has both kinds in it, or the split below is about one of them',
+    asInstruction.length > 0 && asReport.length > 0,
+    `${asInstruction.length} instructions, ${asReport.length} reports`);
+  check('every law line that is an INSTRUCTION still wins the band over a live mission',
+    asInstruction.every((l) => composeBand({ law: l, mission: all.mission }).objective === l.objective),
+    asInstruction.map((l) => objectiveLine(l.objective)).join(' / '));
+  const yieldedBand = asReport.map((l) => composeBand({ law: l, mission: all.mission }));
+  check('a law line that is a REPORT yields the headline to the mission objective',
+    yieldedBand.every((b) => b.from === 'mission' && b.yieldedFrom === 'law'),
+    yieldedBand.map((b) => `${b.from} (yielded ${b.yieldedFrom})`).join(' / '));
+  check('and its words still reach the player, in the subtitle',
+    yieldedBand.every((b, k) => b.subtitle === asReport[k].statusLine
+      && b.subtitle.includes(objectiveLine(asReport[k].objective))),
+    yieldedBand.map((b) => `"${b.subtitle}"`).join(' / '));
+  check('KNOWN-BAD: with no mission running, the report still takes the headline — demoted, never dropped',
+    asReport.every((l) => composeBand({ law: l }).from === 'law'),
+    asReport.map((l) => composeBand({ law: l }).from).join(' / '));
+  /**
+   * AND IT YIELDS TO WHATEVER IS NEXT, not specifically to the mission: `stuck` is an instruction
+   * and sits between `law` and `mission` in BAND_ORDER, so a wedged car outranks a crime report.
+   * Keyed off BAND_ORDER rather than naming the tenant, so a tenant inserted between them moves
+   * this check with it.
+   */
+  const between = BAND_ORDER.slice(BAND_ORDER.indexOf('law') + 1, BAND_ORDER.indexOf('mission'));
+  check('the report yields to the next tenant in BAND_ORDER, not to the mission by name',
+    between.length > 0
+      && composeBand({ law: asReport[0], stuck: all.stuck, mission: all.mission }).from === between[0],
+    `${between.join(', ')} sit between law and mission; got ` +
+    `${composeBand({ law: asReport[0], stuck: all.stuck, mission: all.mission }).from}`);
 }
 
 /**

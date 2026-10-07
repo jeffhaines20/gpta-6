@@ -740,10 +740,46 @@ export function composeBand({ busted = null, wreck = null, fence = null, law = n
   // in HOLDS_MISSION_SUBTITLE: the bust has just aborted the mission, so "still on: DELIVER THE
   // PARCEL" would be a lie in the one place a player is looking.
   const slots = { busted, wreck, fence, law, stuck, garage, mission, ended, offer };
-  const from = BAND_ORDER.find((k) => slots[k]) ?? null;
+  /**
+   * A `status` TENANT YIELDS THE HEADLINE TO ANYTHING BELOW IT, and reports itself in the subtitle.
+   *
+   * Stated as a property rather than as a re-ordering, because the law tenant is BOTH things and
+   * only one of them should yield. `composeLaw`'s bust countdown and its `STOP AT THE SCENE` are
+   * instructions with consequences and have to outrank a mission — four seconds is not long enough
+   * to read two lines, and the scene line carries the job. Its crime NOTICE is a report that asks
+   * for nothing, and it was taking the headline from the mission objective for **71-72% of the
+   * first mission in the game** (a blind playtester, two seeds, both passing: mission 9.8 s / law
+   * 24.3 s, and 9.4 / 24.7). On `ambush` it was worse than a share — `STOP AT THE SCENE — 85 m`
+   * over `still on: LOSE THEM`, two opposite instructions with the wrong one on top, for 6.43 /
+   * 8.32 / 14.00 s across 3 of 5 runs.
+   *
+   * Re-ranking `law` below `mission` would have fixed the share and broken the countdown, which is
+   * the one place the game says how to get out of an arrest. So the rule keys off what a line IS,
+   * and `src/wanted.js` marks the one branch that is a report.
+   *
+   * It yields only to a tenant that EXISTS below it, so with nothing else on the band the notice
+   * still gets the headline — the information is never dropped, only demoted. And it yields to
+   * whatever is next in `BAND_ORDER`, not specifically to `mission`: a wedged car outranks a crime
+   * report too, because `stuck` is an instruction and sits between them.
+   */
+  const present = BAND_ORDER.filter((k) => slots[k]);
+  let i = 0;
+  while (i < present.length - 1 && slots[present[i]].status) i++;
+  const from = present[i] ?? null;
   if (!from) return { objective: null, subtitle: null, from: null };
+  const yielded = present.slice(0, i).map((k) => slots[k]);
   const pick = slots[from];
   let subtitle = pick.subtitle ?? null;
+  /**
+   * The yielded report becomes the subtitle, in place of the tenant's own. It is the NEW
+   * information — the headline already says what the player is doing, so `still on:` would repeat
+   * it — and the status tenant supplies the one-line form itself, with the content.
+   */
+  if (yielded.length) {
+    const top = yielded[0];
+    return { objective: pick.objective ?? null,
+      subtitle: top.statusLine ?? objectiveLine(top.objective), from, yieldedFrom: present[0] };
+  }
   /**
    * `ownSubtitle` IS A TENANT SAYING ITS SUBTITLE IS AN INSTRUCTION, and it exists because the
    * rule below ate one. `composeLaw`'s bust countdown reads "BUSTED IN — 4 s" over "drive", which

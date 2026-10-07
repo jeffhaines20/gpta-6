@@ -7,7 +7,7 @@ import * as THREE from '../vendor/three.module.min.js';
 import { Input } from '../src/input.js';
 import { Vehicle, BODY_SAMPLES, BODY_RADIUS, BODY_ENCLOSING,
   composeStuck } from '../src/vehicle.js';
-import { BlockerIndex, districtBounds, worldFence } from '../src/blockers.js';
+import { BlockerIndex, districtBounds, worldFence, composeFence } from '../src/blockers.js';
 import { DamageModel, IMPACT, dynamicContact, Garage, composeGarage } from '../src/damage.js';
 import { RoadGraph, followPath, ROUTE_LANE_M } from '../src/roadpath.js';
 import { ChaseCamera } from '../src/camera.js';
@@ -675,6 +675,12 @@ const _wreckAxis = new THREE.Vector3();
 const _fenceFwd = new THREE.Vector3();
 /** How far outside the district the car is, in metres. 0 everywhere a player ever drives. */
 let outsideWorld = 0;
+/**
+ * The WHOLE fence reading, not just its distance, because `composeFence` derives the band's verb
+ * from `outward` — the nose against the outward normal. Keeping only `out` is what left the band
+ * naming no control at all; see src/blockers.js.
+ */
+let fenceState = null;
 let worldBox = null;
 function wreckWatch(dt) {
   if (!damage.wrecked) { wreckFor = 0; return null; }
@@ -1773,6 +1779,7 @@ function animate(now) {
     // left stale, a player who drove to the edge and got out kept "TURN BACK" on the band for
     // the rest of the session. Found re-reading this round's own diff.
     outsideWorld = 0;
+    fenceState = null;
   } else if (!autopilot) {
     const axis = input.moveAxis();
     let throttle = 0, brake = 0;
@@ -1788,6 +1795,7 @@ function animate(now) {
       vehicle.velocity.x, vehicle.velocity.z,
       { throttle, brake, steer: -axis.x, handbrake: input.down('Space') });
     outsideWorld = fenced.out;
+    fenceState = fenced.held ? fenced : null;
     vehicle.setControls(fenced.controls);
     lastThrottle = fenced.controls.throttle ?? 0;
   }
@@ -2053,9 +2061,8 @@ function animate(now) {
    */
   const wreckState = wreckHoldLine;
   const wreckLine = mode === 'car' ? wreckState : null;
-  const fenceLine = outsideWorld > 0
-    ? { objective: 'TURN BACK', subtitle: `the district ends here — ${outsideWorld.toFixed(0)} m out` }
-    : null;
+  // One composer, shared with tools/playtest.mjs, so the two hosts cannot drift. See composeFence.
+  const fenceLine = composeFence(fenceState);
   board.refresh(focus.x, focus.z);
   /**
    * The nearest job on the board, at any distance, for the HUD to point at while nothing is

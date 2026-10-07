@@ -1339,8 +1339,38 @@ export function composeLaw(s = {}) {
   const n = s.notice;
   if (n && (n.age ?? Infinity) < LAW_NOTICE_S) {
     const stars = Math.max(0, s.stars | 0);
-    return { objective: { text: String(n.label).toUpperCase() },
-      subtitle: stars > 0 ? `wanted — ${stars} star${stars === 1 ? '' : 's'}` : 'nobody saw it' };
+    /**
+     * `status: true` — A REPORT, NOT AN INSTRUCTION, and the only branch of this function that is.
+     *
+     * The two above it are instructions with consequences: the bust countdown leaves four seconds
+     * and one control, and `STOP AT THE SCENE` carries the job (see `cooperated`). This one names
+     * a crime that has already happened and asks for nothing. It still belongs on the band — it is
+     * how a player learns what they are wanted FOR — but it must not take the headline from a live
+     * mission objective, and it was:
+     *
+     *     shakedown from the board, two seeds, full crowd and fleet, both PASSED
+     *       seed 1   mission 9.8 s / law 24.3 s    law owns 71%
+     *       seed 5   mission 9.4 s / law 24.7 s    law owns 72%
+     *
+     * Seven tenths of the first mission in the game, measured by a blind playtester. Both runs
+     * knocked a pedestrian down 4.2 s after the first objective appeared while driving the game's
+     * own route line at 15 m/s, so it is the ordinary case rather than a corner.
+     *
+     * And on the flagship's `ambush` it is not a share, it is a contradiction: that stage has no
+     * waypoint, so stopping to read the band is the natural move, and the line read `STOP AT THE
+     * SCENE — 85 m` over `still on: LOSE THEM` for 6.43 / 8.32 / 14.00 s in 3 of 5 runs. The
+     * subtitle was right and the precedence was backwards.
+     *
+     * `statusLine` is the whole thing as ONE line, because when it yields it has a subtitle to
+     * live in rather than two. Composed here, with the content, rather than in `src/hud.js`.
+     */
+    const label = String(n.label).toUpperCase();
+    const note = stars > 0 ? `wanted — ${stars} star${stars === 1 ? '' : 's'}` : 'nobody saw it';
+    // The one-line form takes a COMMA where the two-line form takes a dash, or it reads
+    // "LEFT THE SCENE — wanted — 2 stars" with two dashes doing different jobs.
+    const flat = stars > 0 ? `wanted, ${stars} star${stars === 1 ? '' : 's'}` : note;
+    return { objective: { text: label }, subtitle: note, status: true,
+      statusLine: `${label} — ${flat}` };
   }
   return null;
 }

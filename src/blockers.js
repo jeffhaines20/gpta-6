@@ -505,6 +505,52 @@ export const FENCE_CRAWL_MS = 2.2;
 /** cos 45 degrees: past this, the velocity is more inward than tangential. See FENCE_CRAWL_MS. */
 const FENCE_HOMING_COS = Math.SQRT1_2;
 
+/**
+ * THE FENCE'S BAND TENANT, and it lives here because the verb is derived from the same quantity
+ * the refusal is.
+ *
+ * It was composed INLINE IN BOTH HOSTS — `{ objective: 'TURN BACK', subtitle: 'the district ends
+ * here — N m out' }`, duplicated in `district/main.js` and `tools/playtest.mjs` — which is the
+ * host-rule shape CLAUDE.md says to MOVE rather than to browser-test. Moving it is also what makes
+ * the verb gateable offline.
+ *
+ * AND THE OLD SUBTITLE NAMED NO CONTROL, SO IT NAMED THE WRONG ONE BY OMISSION. A blind playtester
+ * swept it: 34.0 m out, at rest, 30 s of full throttle, wheel straight —
+ *
+ *     nose-off from the outward normal     0-89 deg -> 0.1 m        91 deg -> 1.1 m
+ *                                           100 deg -> 11.4 m      135 deg -> 135.2 m
+ *     reverse, straight                                            210.9 m, out 34 -> 0
+ *
+ * So nothing forward works until the nose is more than a quarter turn off outward, and **you
+ * cannot get the nose there by driving forward** — `worldFence` refuses outward throttle, so there
+ * is no speed to steer with. The only control that moves the car is reverse, and the band said
+ * "TURN BACK" while `composeStuck` one priority away already knew the word.
+ *
+ * `noseOut` IS the predicate `Math.sign(throttle) * dot > 0` refuses on, published by `worldFence`
+ * for this purpose — so the verb flips where the refusal does, by construction rather than by a
+ * threshold somebody picked. The playtester's 89/91 boundary is that sign change, measured from
+ * outside.
+ *
+ * It reads `noseOut` and NOT the reported `outward`, which is rounded to three decimals: at a nose
+ * exactly tangential the true dot is 6.1e-17 and the rounded one is 0.000, so the first version of
+ * this said "drive" at the one angle where forward is refused. Two roundings of one quantity are
+ * not one quantity.
+ */
+export function composeFence(f) {
+  if (!f || !f.held) return null;
+  return {
+    objective: { text: 'TURN BACK', distance: Math.max(0, f.out ?? 0) },
+    /**
+     * Signed on the nose, like `composeStuck`: a nose still pointing out of the district is told
+     * to reverse, because forward is refused; a nose already pointing home is told to drive,
+     * because it is allowed and it works. `drive` is correct and not merely harmless in that
+     * case — 135 degrees off outward covers 135.2 m at 105 km/h.
+     */
+    subtitle: f.noseOut ? 'reverse' : 'drive',
+    ownSubtitle: true,
+  };
+}
+
 export function worldFence(bounds, x, z, fwdX, fwdZ, vx, vz, controls) {
   const dx = Math.max(bounds.x0 - x, 0, x - bounds.x1);
   const dz = Math.max(bounds.z0 - z, 0, z - bounds.z1);
@@ -572,6 +618,19 @@ export function worldFence(bounds, x, z, fwdX, fwdZ, vx, vz, controls) {
     // `leaving` is any outward motion at all, which is what it always meant; the BRAKE is what
     // stopped being a step. Kept because both hosts and the gate report it.
     leaving: outV > 0, homing, outward: +dot.toFixed(3), outwardMs: +outV.toFixed(4),
+    /**
+     * THE PREDICATE THE REFUSAL USES, published rather than left to be re-derived from `outward`.
+     *
+     * `outward` is rounded to three decimals for reporting, and at a nose exactly tangential the
+     * true dot is 6.1e-17 — positive, so forward IS refused — while the rounded field reads 0.000.
+     * `composeFence` keyed its verb off the rounded value and so said "drive" at the one angle
+     * where driving is taken away. `blocker-test` §12 caught it by comparing the word against the
+     * refusal instead of against an angle, which is the only version of that check that could.
+     *
+     * One expression, read by the refusal above and by the band's verb, so they cannot disagree at
+     * any angle rather than agreeing at the ones somebody sampled.
+     */
+    noseOut: dot > 0,
     // Which term is holding the car, so a gate and a reader can tell them apart.
     leavingK: +leavingK.toFixed(3), crawlK: +crawlK.toFixed(3) };
 }

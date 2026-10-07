@@ -39,7 +39,7 @@ import { Vehicle, BODY_SAMPLES, BODY_RADIUS, BODY_ENCLOSING,
   composeStuck, STUCK_HOLD_S } from '../src/vehicle.js';
 import { Player } from '../src/player.js';
 import { FlatGround } from '../src/ground.js';
-import { BlockerIndex, districtBounds, worldFence } from '../src/blockers.js';
+import { BlockerIndex, districtBounds, worldFence, composeFence } from '../src/blockers.js';
 import { DamageModel, IMPACT, dynamicContact, HALF_EXTENT,
   Garage, composeGarage } from '../src/damage.js';
 import { WantedSystem, VictimWindow, composeWanted, composeLaw, BUST_HOLD_S, bindPursuit,
@@ -130,6 +130,8 @@ export class Session {
     /** The edge of the world: the road network's extent plus a margin. See worldFence. */
     this.worldBox = districtBounds(this.district);
     this.outsideWorld = 0;
+    /** The WHOLE fence reading: `composeFence` derives the band's verb from `outward`. */
+    this._fence = null;
     this.vehicle = new Vehicle();
     this.damage = new DamageModel();
     this.vehicle.blockers = this.blockers;
@@ -517,12 +519,16 @@ export class Session {
         const f = worldFence(this.worldBox, ap.x, ap.z, pf.x, pf.z, pv.x, pv.z,
           { throttle: this._footInput._ay, brake: 0, steer: 0, handbrake: false });
         this.outsideWorld = f.out;
+        this._fence = f.held ? f : null;
         this._footInput._ay = f.controls.throttle;
       }
       const fenced = worldFence(this.worldBox, this.vehicle.position.x, this.vehicle.position.z,
         Math.sin(yaw), Math.cos(yaw), this.vehicle.velocity.x, this.vehicle.velocity.z,
         this._controls);
-      if (this.mode === 'car') this.outsideWorld = fenced.out;
+      if (this.mode === 'car') {
+        this.outsideWorld = fenced.out;
+        this._fence = fenced.held ? fenced : null;
+      }
       // The car is stepped either way: it is still in the world, parked, while you walk about.
       this.vehicle.setControls(this.mode === 'foot'
         ? { throttle: 0, brake: 1, steer: 0, handbrake: true } : fenced.controls);
@@ -1311,10 +1317,8 @@ export class Session {
       ? { objective: 'THE CAR IS WRECKED',
         subtitle: `a replacement in ${Math.max(0, WRECK_HOLD_S - this._wreckFor).toFixed(0)} s` }
       : null;
-    const fence = this.outsideWorld > 0
-      ? { objective: 'TURN BACK',
-        subtitle: `the district ends here — ${this.outsideWorld.toFixed(0)} m out` }
-      : null;
+    // One composer, shared with district/main.js, so the two hosts cannot drift. See composeFence.
+    const fence = composeFence(this._fence);
     const ended = this._endFor > 0 ? this._ended : null;
     const offer = this._offer
       ? { objective: this._offer.title.toUpperCase(),

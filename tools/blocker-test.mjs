@@ -25,7 +25,7 @@
 import fs from 'node:fs';
 import { BlockerIndex, insideRing, ringArea, contactImpulse,
   districtBounds, worldFence, WORLD_MARGIN_M,
-  FENCE_FULL_M, FENCE_BRAKE_MS, FENCE_CRAWL_MS } from '../src/blockers.js';
+  FENCE_FULL_M, FENCE_BRAKE_MS, FENCE_CRAWL_MS, composeFence } from '../src/blockers.js';
 import { Vehicle, composeStuck, STUCK_HOLD_S, STUCK_THROTTLE,
   STUCK_SPEED_MS, STUCK_CONTACT_GRACE_S } from '../src/vehicle.js';
 import { FlatGround } from '../src/ground.js';
@@ -1050,6 +1050,86 @@ console.log('\n§ the wedged-car cue');
   check('KNOWN-BAD: the bust\'s 0.05 would not clear it, which is why this has its own constant',
     atBustThrottle > STUCK_HOLD_S,
     `${atBustThrottle.toFixed(3)} s at throttle 0.05 against a dwell of ${STUCK_HOLD_S}`);
+}
+
+// ---------------------------------------------------------------------------
+/**
+ * THE FENCE'S BAND LINE NAMES THE CONTROL THAT IS NOT REFUSED.
+ *
+ * The old line was composed inline in BOTH hosts and read `TURN BACK` / `the district ends here —
+ * N m out`, naming no control. A blind playtester swept it from 34 m out, at rest, 30 s of full
+ * throttle with the wheel straight: 0-89 degrees of nose-off covered 0.1 m, 91 degrees 1.1 m,
+ * 135 degrees 135.2 m, and reverse covered 210.9 m all the way home. So forward does nothing while
+ * the nose points out, and you cannot turn the nose round by driving forward because the outward
+ * throttle is exactly what `worldFence` refuses.
+ *
+ * The check is not against those metres — it is against the REFUSAL, which is the quantity the
+ * word is about. For each nose angle: ask the module what it does to a full forward throttle, and
+ * assert the verb names reverse exactly where forward was taken away. Both halves come out of one
+ * call, so the word cannot drift from the behaviour.
+ */
+console.log('\n=== 12. the fence names the control that works');
+{
+  const bounds = districtBounds(district);
+  // 34 m out past the +x edge, which is the playtester's own standoff.
+  const px = bounds.x1 + 34, pz = (bounds.z0 + bounds.z1) / 2;
+  const rows = [];
+  for (let deg = 0; deg <= 180; deg += 15) {
+    const a = (deg * Math.PI) / 180;
+    // deg 0 is nose straight out (+x here); deg 180 is nose straight home.
+    const fx = Math.cos(a), fz = Math.sin(a);
+    const f = worldFence(bounds, px, pz, fx, fz, 0, 0, { throttle: 1, brake: 0, steer: 0 });
+    const line = composeFence(f);
+    rows.push({ deg, outward: f.outward, kept: f.controls.throttle, verb: line && line.subtitle,
+      obj: line && line.objective });
+  }
+  console.log('    nose off outward   outward dot   forward throttle kept   the band says');
+  for (const r of rows) {
+    console.log(`    ${String(r.deg).padStart(13)} deg   ${r.outward.toFixed(3).padStart(11)}   ` +
+      `${String(r.kept).padStart(21)}   ${r.verb}`);
+  }
+  // The arm has to have exercised BOTH cases, or "the verb matches the refusal" is a statement
+  // about one of them. The old inline line said neither word, so a one-sided sweep would pass.
+  const refused = rows.filter((r) => r.kept === 0);
+  const allowed = rows.filter((r) => r.kept !== 0);
+  check('the sweep covers both cases, or the agreement below is about one of them',
+    refused.length > 0 && allowed.length > 0,
+    `${refused.length} angles refused forward, ${allowed.length} kept it`);
+  const wrong = rows.filter((r) => (r.kept === 0) !== (r.verb === 'reverse'));
+  check('the band names reverse exactly where the module refuses forward, and drive where it does not',
+    wrong.length === 0,
+    wrong.length ? wrong.map((r) => `${r.deg}deg kept ${r.kept} but said ${r.verb}`).join('; ')
+      : `${rows.length} angles, verb follows the refusal at every one`);
+  /**
+   * WHERE THE WORD FLIPS, found by a fine sweep rather than asserted at a sampled angle. The first
+   * version checked `flip.deg === 90` against a 15-degree table and failed at 105 — correctly: a
+   * nose exactly tangential has a true dot of 6.1e-17, so forward IS refused there and `reverse`
+   * is the right word AT 90. The boundary is the first angle PAST a quarter turn, and the claim
+   * worth making is that it is a quarter turn to within the resolution of the sweep, which is what
+   * the playtester measured from outside as 89 against 91 degrees.
+   */
+  let flipDeg = null;
+  for (let t = 0; t <= 1800 && flipDeg === null; t++) {
+    const a = ((t / 10) * Math.PI) / 180;
+    const f = worldFence(bounds, px, pz, Math.cos(a), Math.sin(a), 0, 0,
+      { throttle: 1, brake: 0, steer: 0 });
+    if (composeFence(f).subtitle === 'drive') flipDeg = t / 10;
+  }
+  console.log(`    swept at 0.1 deg, the verb first reads "drive" at ${flipDeg} deg off outward`);
+  check('and the word flips within a tenth of a degree of a quarter turn, the dot\'s own sign change',
+    flipDeg !== null && Math.abs(flipDeg - 90) <= 0.1,
+    `${flipDeg} deg against 90`);
+  // The distance survived the move into the objective, where the page dirty-checks it per metre.
+  const near = composeFence(worldFence(bounds, bounds.x1 + 7, pz, 1, 0, 0, 0,
+    { throttle: 0, brake: 0, steer: 0 }));
+  check('the depth is in the objective, where the page can dirty-check it per metre',
+    near && near.objective && Math.abs(near.objective.distance - 7) < 0.5,
+    near ? `${near.objective.text} — ${near.objective.distance}` : 'no line');
+  check('KNOWN-BAD: inside the district there is no fence line at all',
+    composeFence(worldFence(bounds, (bounds.x0 + bounds.x1) / 2, pz, 1, 0, 0, 0,
+      { throttle: 0, brake: 0, steer: 0 })) === null);
+  check('and `ownSubtitle` is set, or HOLDS_MISSION_SUBTITLE eats the verb during a mission',
+    near && near.ownSubtitle === true, `ownSubtitle ${near && near.ownSubtitle}`);
 }
 
 // ---------------------------------------------------------------------------
