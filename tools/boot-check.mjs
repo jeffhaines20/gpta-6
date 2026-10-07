@@ -1346,33 +1346,48 @@ if (state.global && state.frames > 2) {
    * of agreement worth asserting — a check against 8.2 would pass for a build that had hardcoded
    * it.
    */
-  const wantS = Math.max(4.0, (walk.roadD ?? 0) / 7.0);
+  /**
+   * RESTATED FOR #108, AND THIS CHECK IS WHAT CAUGHT THE CHANGE. It read
+   * `arrestSeconds(roadD)` — the walk from the NETWORK'S closest point — and that was right only
+   * while a unit could stop there. #108's admission is local, so the unit that holds stops where
+   * IT cannot get closer: measured here at 176.08 m against a road distance of 57.4, clock
+   * 25.154 s against the 8.201 s this line used to want. The gate failed 1 of 81 twice running,
+   * deterministically, which is the gate doing its job — the clock was right and the proxy was
+   * not.
+   *
+   * So the bound is the distance the page itself reports for the NEAREST HOLDING UNIT, which this
+   * arm already records, and the road distance is still PRINTED because the gap between the two
+   * is #108's cost in the live host rather than in a probe.
+   */
+  const heldD = walk.trail && walk.trail.heldD != null ? Number(walk.trail.heldD) : null;
+  const wantS = heldD != null ? Math.max(4.0, heldD / 7.0) : null;
   console.log(`    at the arrest: car drifted ${walk.trail ? walk.trail.drift.toFixed(2) : 'n/a'} m `
     + `from where it was placed, ${walk.trail && walk.trail.carRoadD != null
       ? walk.trail.carRoadD.toFixed(1) : 'n/a'} m from a road, nearest HOLDING unit `
     + `${walk.trail ? walk.trail.heldD : 'n/a'} m away, clock ${
       walk.trail ? walk.trail.needsThen : 'n/a'} s on frame ${walk.trail ? walk.trail.frame : '-'}`);
   console.log(`    the page's latched arrest clock ${walk.bustNeeds} s against this gate's own `
-    + `arrestSeconds(${walk.roadD == null ? 'n/a' : walk.roadD.toFixed(1)}) = ${wantS.toFixed(2)} s`);
+    + `arrestSeconds(held ${heldD == null ? 'n/a' : heldD.toFixed(2)} m) = `
+    + `${wantS == null ? 'n/a' : wantS.toFixed(2)} s; the NETWORK gets within `
+    + `${walk.roadD == null ? 'n/a' : walk.roadD.toFixed(1)} m, so the unit that held stopped `
+    + `${heldD != null && walk.roadD != null ? (heldD - walk.roadD).toFixed(1) : 'n/a'} m further `
+    + `out than the closest kerb — #108's cost, in the shipped host`);
   /**
-   * WHAT THIS ARM CAN AND CANNOT ASSERT, stated rather than forced.
+   * WHAT THIS ARM CAN ASSERT, AND THE PARAGRAPH THAT USED TO BE HERE WAS WRONG.
    *
-   * It CAN assert the wire, and does, in the three checks below: the clock the page latched is the
-   * WALK and not the floor, it equals this gate's own `arrestSeconds` of a road distance the gate
-   * measured itself, and `bustNoWalk` did not move so the host supplied it rather than the module
-   * falling back. Those are two independent sources agreeing to 7 ms.
+   * It said the arm "CANNOT reliably assert that the arrest COMPLETES", because the clock latched
+   * 8.205 s and then advanced 0.145 s over 103 rendered frames while `arrest-band` busted at 37 to
+   * 186 m through the other host — so "the two hosts disagree about the STICKINESS of a long
+   * hold". That was filed as #108 and it is refuted: running THIS arm's own spot through
+   * `tools/playtest.mjs` gives 0 of 480 held steps there too, and `u.held` never flickered (363 of
+   * 363 stopped unit-frames held). The hosts agreed; the SPOT differed, and no unit could stop
+   * because the admission demanded a network minimum the router cannot reach. See
+   * docs/BACKLOG.md #108.
    *
-   * It CANNOT reliably assert that the arrest COMPLETES. The clock latches at 8.205 s and then
-   * advances about 0.145 s over 103 rendered frames, because `u.held` flickers over a walk that
-   * long and `_watchBust` resets on every frame it is false. `arrest-band` — the same change, the
-   * other host — busts at 37, 53, 68, 97, 137 and 186 m in 28 to 46 s. So the two hosts disagree
-   * about the STICKINESS of a long hold, which is a quantity no gate was comparing, and filed as
-   * its own entry rather than papered over here. CLAUDE.md records the identical class: "`held`
-   * was true for exactly TWO frames at a time. Once sticky, six variants of one scenario all bust
-   * at 16 s."
-   *
-   * So the rate is PRINTED on every run and the completion is not asserted. A check that cannot
-   * pass reliably is worse than no check: it reads as a defect in whatever ran last.
+   * So the completion IS asserted now, and the arm measures four things: the clock the page
+   * latched is the WALK and not the floor, it equals this gate's own `arrestSeconds` of the held
+   * distance the page reported, `bustNoWalk` did not move so the host supplied it rather than the
+   * module falling back, and the arrest FIRES. Two independent sources agreeing, and an outcome.
    */
   /**
    * THE RATE, as `bustNeeds` minus the LAST live countdown — the two ends of one quantity. The
@@ -1383,8 +1398,7 @@ if (state.global && state.frames > 2) {
    */
   console.log(`    the clock then advanced ${walk.bustNeeds != null && walk.lastIn != null
     ? (walk.bustNeeds - walk.lastIn).toFixed(3) : 'n/a'} s of its ${walk.bustNeeds} s over the `
-    + `window, ending on "${walk.why}" — see docs/BACKLOG.md #108 on the two hosts disagreeing `
-    + `about how sticky a long hold is`);
+    + `window, ending on "${walk.why}"`);
   check('the clock armed at all, so the three checks below have a subject',
     walk.trail != null && walk.trail.needsThen != null,
     walk.trail ? `latched ${walk.trail.needsThen} s on frame ${walk.trail.frame}` : 'never armed');
@@ -1392,10 +1406,18 @@ if (state.global && state.frames > 2) {
     walk.bustNeeds !== null && walk.bustNeeds > 4.0 + 0.5,
     `${walk.bustNeeds} s against a 4.0 s floor`);
   check('and it is the walk THIS gate measures, so neither side is a literal',
-    walk.bustNeeds !== null && Math.abs(walk.bustNeeds - wantS) < 1.0,
-    `${walk.bustNeeds} against ${wantS.toFixed(3)} s`);
+    walk.bustNeeds !== null && wantS !== null && Math.abs(walk.bustNeeds - wantS) < 1.0,
+    `${walk.bustNeeds} against ${wantS === null ? 'n/a' : wantS.toFixed(3)} s`);
   check('so the host supplied it, rather than the module falling back',
     walk.noWalk === 0, `bustNoWalk rose by ${walk.noWalk} over the window`);
+  /**
+   * AND IT COMPLETES, which #108 is what made assertable. Before it, this spot was a stalemate in
+   * the shipped host: the clock armed, nothing held for long enough, and the arm ran out its
+   * window. The check is the OUTCOME rather than the clock, because the clock being right was
+   * already true of the build that never fired.
+   */
+  check('and the arrest FIRES, which is the whole of #108 in the shipped host',
+    walk.why === 'busted', `ended on "${walk.why}" after ${walk.bustNeeds} s of walk`);
   /**
    * AND THE MODULE'S OWN FLOOR AGREES WITH THE ROAD QUERY, which is the premise the whole change
    * rests on: `bestApproach` is the minimum over the pursuit's edge list and `roadDistance` is the

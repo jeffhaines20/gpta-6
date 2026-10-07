@@ -2811,6 +2811,215 @@ let searchSample;
 }
 
 /**
+ * §f4  WHAT A HARDER BUILDING STRIKE BUYS, AND THE ONE PLACE THE METER RUNS BACKWARDS.
+ *
+ * #97 paired "two gentle taps earn a star" against "one car-destroying impact earns nothing" and
+ * both halves are real. The ladder nobody had measured, on the conversion the GAME uses — the wall
+ * hook in `district/main.js` passes `(kmh / 3.6) * 1.15`, which is `normalDv`'s `|vn| * (1 + e)`
+ * at the shipped restitution, so the charged delta-v is 15% above the arrival speed:
+ *
+ *     km/h     dv   severity   scale     raw   charged  1 hit   hits to 1*  2*  3*
+ *       10   3.19     0.0285   0.237  0.0712    0.0712     0*       21      36  50
+ *       15   4.79     0.0962   0.802  0.2405    0.2405     0*        5       9  13
+ *       20   6.39     0.1910   1.592  0.4775    0.4775     0*        3       5   7
+ *       25   7.99     0.3129   2.607  0.7822    0.6804     0*        2       3   5
+ *       30   9.58     0.4619   3.849  1.1546    0.7835     0*        2       3   4
+ *       44+ 14.06     1.0000   8.333  2.5000    0.9000     0*        2       3   4
+ *
+ * So severity IS fully priced — 21 hits to a star at 10 km/h against 2 at 44 — and the flatness is
+ * confined to the FIRST hit, where every severity reads 0 stars. That is §f3's shape in the mirror:
+ * there the FLOOR replaces the charge at heat 0, here the CAP holds it under one star.
+ *
+ * AND THE ENTRY'S LABEL WAS OFF BY 0.7 KM/H, WHICH MATTERS BECAUSE IT SITS ON THE SWITCH. Two
+ * hits earn a star from 20.66 km/h up, bisected on the module; at exactly 20.00 km/h two hits give
+ * heat 0.9100 and 0 stars and three give 1.3875 and 1. #97's "two hits 3.04 s apart: heat 1.0320 =
+ * 1 star" is a reading at about 20.7, and its number is right.
+ *
+ * THE INVERSION IS REAL AND THIS IS ITS SIZE. Swept over 5-200 km/h and 1-8 hits, in the quantity
+ * a player actually watches:
+ *
+ *     cheapest star    7 x  13 km/h   cost 0.0659 of the car   heat 1.0355   1*
+ *     dearest 0 stars  1 x  44 km/h   cost 1.0000 of the car   heat 0.8730   0*   WRECKED
+ *
+ * 15.2x more of the car can be destroyed for no stars than is needed to earn one, and the dearest
+ * nothing is a WRECK at 44 km/h.
+ *
+ * WHY THE OBVIOUS FIX IS REFUSED, BY ARITHMETIC RATHER THAN BY TASTE. `FLOORLESS_CAP` is
+ * `min(every floor in the table)` = `hitAndRun.min` = 1, and one star is heat >= 1, so the cap
+ * coinciding with a star is a fact about LEAVING THE SCENE. A knee that REACHES the cap instead of
+ * asymptoting would grant the star — and it has to compress `rawMax - k` of input into `cap - k`
+ * of output while starting at slope 1, so its mean slope is 0.11 to 0.25 and it ends at 1.1e-9 to
+ * 2.5e-4 over the top tenth of the range. That is the clip's flatness #90 removed, in a smooth
+ * wrapper. Raising the cap per crime is the only lever that reaches a star while staying ordered,
+ * and the crimes want different caps — propertyDamage 1.127, civilianCollision 1.068 — so one
+ * shared constant cannot do it. See docs/BACKLOG.md #97 for the third lever, which is that
+ * `severityFor` measures damage to the PLAYER'S car and the property is what was damaged.
+ *
+ * GATED BECAUSE THE LADDER IS THE PART THAT MUST NOT REGRESS SILENTLY. Nothing asserted that a
+ * harder building strike is worse, and the inversion is pinned as a KNOWN-BAD so a later round can
+ * see it was measured rather than missed.
+ */
+{
+  console.log('\nf4. one wall strike per report, a fresh level, the refractory stepped out');
+  const WALL_E = 1.15;                       // district/main.js's own wall conversion
+  const C = CRIMES.propertyDamage;
+  const hit = (dm, kmh) => dm.impact({ dv: (kmh / 3.6) * WALL_E, kind: IMPACT.wall,
+    dirX: 0, dirZ: 1, speed: kmh / 3.6 });
+  /**
+   * IN SLICES. `WantedSystem.update` clamps dt to `maxDt` with a comment saying why — "one 900 ms
+   * hitch must not hand the player most of an escape" — so ONE 2.51 s call advances its clock by
+   * 0.25 and the type refractory never expires. The probe that found this ladder did exactly that
+   * first: every second hit came back `reason: 'refractory'`, the heat read a motionless 0.9000
+   * with no decay at all, and the table said 11 hits to one star where the answer is 2.
+   */
+  const settle = (w) => {
+    const slice = Math.min(w.maxDt, 0.1);
+    for (let k = 0; k * slice <= C.refractory + 0.1; k++) {
+      w.update(slice, { x: 0, z: 0, speed: 0, stopped: true });
+    }
+  };
+  const run = (kmh, hits) => {
+    const dm = new DamageModel();
+    const w = new WantedSystem();
+    const need = {};
+    for (let n = 1; n <= hits; n++) {
+      const rec = hit(dm, kmh);
+      if (rec.crime) w.reportCrime(rec.crime, { scale: rec.crimeScale, at: ORIGIN });
+      for (const s of [1, 2, 3]) if (w.stars >= s && need[s] === undefined) need[s] = n;
+      settle(w);
+    }
+    return { stars: w.stars, heat: +w.heat.toFixed(4), cost: +(1 - dm.health).toFixed(4),
+      wrecked: dm.health <= 0, need };
+  };
+
+  const SPEEDS = [10, 15, 20, 25, 30, 44, 60, 138];
+  const rows = SPEEDS.map((kmh) => {
+    const rec = hit(new DamageModel(), kmh);
+    const r = run(kmh, 60);
+    return { kmh, dv: +rec.dv.toFixed(2), scale: +rec.crimeScale.toFixed(3),
+      charged: +floorlessCharge(C.heat * rec.crimeScale).toFixed(4),
+      one: run(kmh, 1), ...r };
+  });
+  for (const r of rows) {
+    console.log(`    ${String(r.kmh).padStart(5)} km/h  dv ${String(r.dv).padStart(5)} scale `
+      + `${String(r.scale).padStart(6)}  charged ${r.charged.toFixed(4)}  `
+      + `1 hit ${r.one.stars}*  1* after ${r.need[1] ?? '>60'} hits, 2* after ${r.need[2] ?? '>60'}`);
+  }
+
+  // The ladder: harder must never need MORE hits. Non-increasing, because adjacent speeds can
+  // round to the same count; the span check is what says it is not flat.
+  const reach1 = rows.filter((r) => r.need[1] !== undefined);
+  const rises = [];
+  for (let i = 1; i < reach1.length; i++) {
+    if (reach1[i].need[1] > reach1[i - 1].need[1]) {
+      rises.push(`${reach1[i - 1].kmh}->${reach1[i].kmh}: ${reach1[i - 1].need[1]}->${reach1[i].need[1]}`);
+    }
+  }
+  check('hits to one star never RISES with the strike speed', rises.length === 0, rises);
+  check('and it spans at least 10x, so the ladder is not flat',
+    reach1[0].need[1] >= reach1[reach1.length - 1].need[1] * 10,
+    `${reach1[0].need[1]} hits at ${reach1[0].kmh} km/h against `
+    + `${reach1[reach1.length - 1].need[1]} at ${reach1[reach1.length - 1].kmh}`);
+  check('and the heat after exactly two hits rises strictly with speed, up to the scale clamp',
+    (() => {
+      const h = [10, 15, 20, 25, 30, 44].map((kmh) => run(kmh, 2).heat);
+      return h.every((v, i) => i === 0 || v > h[i - 1]);
+    })(), [10, 15, 20, 25, 30, 44].map((kmh) => run(kmh, 2).heat.toFixed(4)).join(' '));
+
+  /**
+   * THE 2-VS-3 SWITCH, BISECTED OFF THE MODULE rather than typed, so a retune of `heat`, the cap
+   * or `severityFor` moves it and this check with it. #97's entry names 20 km/h; the switch is at
+   * 20.66, and the gap is why the entry's pairing reads stronger than the module's own ladder.
+   */
+  let lo = 15, hi = 30;
+  for (let i = 0; i < 44; i++) {
+    const mid = (lo + hi) / 2;
+    if (run(mid, 2).stars >= 1) hi = mid; else lo = mid;
+  }
+  console.log(`    two hits earn a star from ${hi.toFixed(2)} km/h up; at 20.00 two give heat `
+    + `${run(20, 2).heat.toFixed(4)} and ${run(20, 2).stars}*, three give `
+    + `${run(20, 3).heat.toFixed(4)} and ${run(20, 3).stars}*`);
+  check('two hits do not earn a star at 20 km/h, which is where #97 read one',
+    run(20, 2).stars === 0 && run(20, 3).stars >= 1,
+    `20 km/h: 2 hits ${run(20, 2).heat.toFixed(4)}, 3 hits ${run(20, 3).heat.toFixed(4)}`);
+  check('and the switch is just above it, so the entry read a real star at a slightly higher speed',
+    hi > 20 && hi < 22, `${hi.toFixed(2)} km/h`);
+
+  /**
+   * KNOWN-BAD: THE METER IS NOT MONOTONE IN DAMAGE DONE. Swept rather than asserted at two points,
+   * because the entry's pair is not the extreme one — the dearest nothing is a WRECK at 44 km/h,
+   * not the 138 km/h impact it names.
+   */
+  let cheap = null, dear = null;
+  for (let kmh = 5; kmh <= 200; kmh += 1) {
+    for (let hits = 1; hits <= 8; hits++) {
+      const r = run(kmh, hits);
+      if (r.stars >= 1 && (!cheap || r.cost < cheap.cost)) cheap = { kmh, hits, ...r };
+      if (r.stars === 0 && (!dear || r.cost > dear.cost)) dear = { kmh, hits, ...r };
+    }
+  }
+  console.log(`    cheapest star   ${cheap.hits} x ${cheap.kmh} km/h  cost ${cheap.cost} of the car`
+    + `  heat ${cheap.heat}  ${cheap.stars}*`);
+  console.log(`    dearest 0 stars ${dear.hits} x ${dear.kmh} km/h  cost ${dear.cost} of the car`
+    + `  heat ${dear.heat}  ${dear.stars}*${dear.wrecked ? '  WRECKED' : ''}`);
+  check('KNOWN-BAD: a WRECK against a building is worth no stars at all',
+    dear.wrecked && dear.cost === 1 && dear.stars === 0,
+    `${dear.hits} x ${dear.kmh} km/h wrecks the car for ${dear.stars} stars`);
+  check('KNOWN-BAD: and far less damage than that earns one, so the meter runs backwards here',
+    cheap.cost * 10 < dear.cost,
+    `${(dear.cost / cheap.cost).toFixed(1)}x — ${cheap.cost} earns a star, ${dear.cost} does not`);
+  // Without this the pair above would pass for the flattering reason that nothing was charged.
+  check('and both arms actually charged something, so neither side is a zero',
+    cheap.heat > 0 && dear.heat > 0, `${cheap.heat} and ${dear.heat}`);
+
+  /**
+   * AND THE CAP THAT DECIDES IT IS A CONSTANT ABOUT A DIFFERENT CRIME. `FLOORLESS_CAP` is the
+   * smallest floor in the table, which is `hitAndRun`'s, and one star is heat >= 1. So "can one
+   * property-damage offence make you wanted" is answered by the floor on leaving the scene. Pinned
+   * so that retuning `hitAndRun.min` cannot silently move it.
+   */
+  const floors = Object.entries(CRIMES).filter(([, c]) => (c.min ?? 0) > 0);
+  const lowest = floors.reduce((a, b) => (b[1].min < a[1].min ? b : a));
+  console.log(`    the cap is min(floors) = ${lowest[0]} ${lowest[1].min}, and one star is heat >= 1`);
+  check('the floorless cap is the lowest floor in the table, and that floor is hitAndRun\'s',
+    Math.abs(2 * FLOORLESS_KNEE - lowest[1].min) < 1e-12 && lowest[0] === 'hitAndRun',
+    `cap ${2 * FLOORLESS_KNEE} from ${lowest[0]}`);
+  check('KNOWN-BAD: so one floorless offence can never reach a star, whatever its severity',
+    rows.every((r) => r.one.stars === 0) && rows.some((r) => r.one.wrecked),
+    `${rows.filter((r) => r.one.wrecked).length} of ${rows.length} speeds wreck the car on one hit, all 0*`);
+
+  /**
+   * AND THE dt CLAMP, WHICH NOTHING ASSERTED AND WHICH COST THIS LADDER ITS FIRST READING.
+   *
+   * `update` opens with `clamp(dt, 0, this.maxDt)` under a comment saying why — "one 900 ms hitch
+   * must not hand the player most of an escape". The probe that produced the table above stepped
+   * the type refractory out in ONE 2.51 s call, so the clock advanced 0.25 s, every second
+   * `reportCrime` came back `reason: 'refractory'`, and the ladder read 11 hits to one star where
+   * the answer is 2 — with the heat sitting at a motionless 0.9000 and no decay at all, which is
+   * as easy to read as "stable".
+   *
+   * So the clamp is asserted two ways, because either alone passes for the wrong reason: one big
+   * step advances the clock by at most `maxDt` (a removed clamp fails this), and the SAME total
+   * time in `maxDt` slices advances it fully (a clamp that threw the step away rather than
+   * limiting it would pass the first check and fail this one).
+   */
+  const clockAfter = (dt, n) => {
+    const w = new WantedSystem();
+    for (let i = 0; i < n; i++) w.update(dt, { x: 0, z: 0 });
+    return w.time;
+  };
+  const oneBig = clockAfter(2.51, 1);
+  const sliced = clockAfter(0.25, 10);
+  console.log(`    update(2.51) advances the clock ${oneBig.toFixed(4)} s (maxDt `
+    + `${new WantedSystem().maxDt}); 10 x update(0.25) advances it ${sliced.toFixed(4)} s`);
+  check('one big step advances the clock by at most maxDt, so a hitch cannot buy an escape',
+    Math.abs(oneBig - new WantedSystem().maxDt) < 1e-12,
+    `${oneBig} against maxDt ${new WantedSystem().maxDt}`);
+  check('and the same time in maxDt slices advances it fully, so the clamp limits rather than drops',
+    Math.abs(sliced - 2.5) < 1e-12, `${sliced} s over 10 slices`);
+}
+
+/**
  * §d3  THE ARREST CLOCK IS THE WALK, AND THE HOST HAS TO SAY HOW LONG IT IS.
  *
  * `src/pursuit.js`'s `arrestSeconds(d)` = `max(BUST_HOLD_S, d / RUN_SPEED)` is `reachRadius`'s own

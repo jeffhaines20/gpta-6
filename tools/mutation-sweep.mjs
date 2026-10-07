@@ -487,6 +487,21 @@ const MUTATIONS = [
   },
   {
     /**
+     * ONE HITCH BUYS AN ESCAPE. `update` clamps dt to `maxDt` under a comment saying exactly why,
+     * and nothing asserted it until #97's ladder was mis-measured by driving the module with one
+     * 2.51 s step: the clock advanced 0.25 s, every second crime came back `reason: 'refractory'`,
+     * and the table read 11 hits to one star where the answer is 2. Unclamped, a 900 ms frame
+     * hitch hands the player 900 ms of escape clock, search decay and heat bleed in one go — and
+     * headless capture here runs well under 1 fps, so every browser gate would be playing a
+     * different game from the one a player does.
+     */
+    id: 'hitch-unclamped', file: 'src/wanted.js',
+    find: '    const step = clamp(dt, 0, this.maxDt);',
+    to: '    const step = dt;',
+    why: 'a frame hitch hands the player that much escape clock, and a slow box is a cheat',
+  },
+  {
+    /**
      * THE WALK IS FREE. `arrestSeconds` goes back to a constant, so an officer parked 500 m from
      * the only road still arrests in 4.0 s. This is the half that makes the floor fair — without
      * it, `bestApproach` turns the stalemate into an instant arrest at any distance the fleet can

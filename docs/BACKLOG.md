@@ -554,7 +554,90 @@ Not fixed here because the cost is a DESIGN choice, not a derivation: there is n
 the only currencies are time and wanted level. Recorded with both tables so the next round picks a
 number against them rather than inventing one.
 
-### #97 The escalation runs backwards at the top end (B#4)
+### #97 MEASURED and gated — the flatness is the FIRST hit, the inversion is real, and the obvious fix is refused by arithmetic
+The entry below pairs "two gentle taps earn a star" against "one car-destroying impact earns
+nothing" and both halves are real. What nobody had measured is the ladder, on the conversion the
+GAME uses: `district/main.js`'s wall hook passes `(kmh / 3.6) * 1.15`, which is `normalDv`'s
+`|vn| * (1 + e)` at the shipped restitution, so the charged delta-v is 15% above the arrival speed.
+
+    km/h     dv   severity   scale     raw   charged  1 hit   hits to 1*  2*  3*
+      10   3.19     0.0285   0.237  0.0712    0.0712     0*       21      36  50
+      15   4.79     0.0962   0.802  0.2405    0.2405     0*        5       9  13
+      20   6.39     0.1910   1.592  0.4775    0.4775     0*        3       5   7
+      25   7.99     0.3129   2.607  0.7822    0.6804     0*        2       3   5
+      30   9.58     0.4619   3.849  1.1546    0.7835     0*        2       3   4
+      44+ 14.06     1.0000   8.333  2.5000    0.9000     0*        2       3   4
+
+**Severity IS fully priced — 21 hits to a star at 10 km/h against 2 at 44 — and the flatness is
+confined to the FIRST hit**, where every severity reads 0 stars. That is #103's shape in the
+mirror: there the FLOOR replaces the charge at heat 0, here the CAP holds it under one star. The
+same correction, for the second time in two entries: **vary the repetition as well as the
+magnitude.**
+
+**And the entry's label is off by 0.7 km/h, which matters because it sits on the switch.** Two hits
+earn a star from **20.66 km/h** up, bisected on the module; at exactly 20.00 two hits give heat
+0.9100 and 0 stars, three give 1.3875 and 1. So "two hits 3.04 s apart: heat 1.0320 = 1 star" is a
+reading at about 20.7 km/h. The number is right and the label is not, which is this file's standing
+note that a reviewer's observation outlives their arithmetic — arriving on a boundary where one
+km/h changes the answer.
+
+**The inversion is real and this is its size.** Swept over 5-200 km/h and 1-8 hits, in the quantity
+a player watches:
+
+    cheapest star    7 x  13 km/h   cost 0.0659 of the car   heat 1.0355   1*
+    dearest 0 stars  1 x  44 km/h   cost 1.0000 of the car   heat 0.8730   0*   WRECKED
+
+**15.2x more of the car can be destroyed for no stars than is needed to earn one, and the dearest
+nothing is a WRECK at 44 km/h** — not the 138 km/h impact the entry names, which is the same 0.9000
+and the same 0 stars. The pair above is stronger than the one reported and it is the one gated.
+
+**WHY THE OBVIOUS FIX IS REFUSED, and it is arithmetic rather than taste.** `FLOORLESS_CAP` is
+`min(every floor in the table)` = `hitAndRun.min` = 1, and one star is heat >= 1 — so **whether one
+property-damage offence can make a player wanted is answered by a constant about leaving the
+scene.** A knee that REACHES the cap instead of asymptoting would grant the star, and it must
+compress `rawMax - k` of input into `cap - k` of output while starting at slope 1:
+
+    crime              rawMax  rawMax-k  cap-k  mean slope   p    slope over the top tenth
+    reckless            3.333     2.833   0.50     0.1765  5.67               3.80e-6
+    propertyDamage      2.500     2.000   0.50     0.2500  4.00               2.50e-4
+    civilianCollision   4.167     3.667   0.50     0.1364  7.33               6.33e-8
+    brandish            5.000     4.500   0.50     0.1111  9.00               1.11e-9
+    evading             1.250     0.750   0.50     0.6667  1.50               2.11e-1
+
+So it buys the star by going flat exactly where #90 removed the flatness — the clip's defect in a
+smooth wrapper. The asymptotic knee separates the top tenth by 5e-3 to 9e-3, also unreadable, but
+ORDERED. **A severity-sensitive charge that reaches one star needs a bigger cap, not a different
+shape**, and the crimes want different caps — propertyDamage 1.127, civilianCollision 1.068 — so
+one shared constant cannot deliver it.
+
+**And my own monotonicity scan said "not monotone" before I understood why.** It stepped the
+reaching knee 20,000 times and reported three of five crimes non-monotone. The curve is strictly
+increasing; it is numerically FLAT near the top, so consecutive samples came out bit-equal. The
+quantisation artefact WAS the result — this file's "a metric whose answer is its own quantisation
+reads as a result", for once pointing at something true.
+
+**THE THIRD LEVER, and it is the one with no number yet.** `severityFor` measures damage to the
+PLAYER'S car, and the offence is against the building. A 44 km/h impact writes off the player's car
+and probably marks the wall; seven 13 km/h taps are seven separate incidents and barely scratch
+either. Read that way the meter is not backwards at all — it counts offences, severity-weighted,
+and a player's own loss is not a crime. Which of those two readings is right is a design decision
+and it is not derivable from anything in the repo, so it is recorded rather than taken.
+
+**Gated as `wanted-test` §f4**, 10 checks: the ladder never rises with speed, it spans 10x, the heat
+after two hits rises strictly with speed, the 20.66 km/h switch is bisected off the module, and the
+inversion pair is pinned as two KNOWN-BADs with a third check that neither arm is a zero. 287 -> 297
+checks.
+
+**Two probe errors on the way, both of which printed a clean table.** The first fed `impact()` the
+ARRIVAL speed as the delta-v rather than `(kmh/3.6) * 1.15`, so every scale below the clamp came out
+low and two 20 km/h taps read 0.69 of heat where the playtester measured 1.0320 — the disagreement
+with their number is what found it. The second stepped the refractory out in ONE `update(2.51)`
+call: `WantedSystem.update` clamps dt to `maxDt` 0.25 with a comment saying why, so the clock
+advanced 0.25 s, every second hit came back `reason: 'refractory'`, and the table read **11 hits to
+one star where the answer is 2** — with the heat sitting at a motionless 0.9000 and no decay, which
+is the reassuring shape a measurement bug takes here.
+
+### #97 (the original record) The escalation runs backwards at the top end (B#4)
 13 controlled single impacts into a building, arrival speed measured: heat 0.1050 at 10 km/h rising
 to **0.9000 from 44 km/h up**, and **stars 0 at every one of the 13** — including a 138 km/h
 head-on that destroys the car. Two hits 3.04 s apart: heat 1.0320 = **1 star**; gaps 3.0-7.4 s all

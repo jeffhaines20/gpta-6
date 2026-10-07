@@ -832,6 +832,73 @@ because asserting `_localBest`'s condition with `_localBest` is the self-validat
 records under the shunt-fit ladder. The dead-end frames, where the bound is correctly infinite,
 are counted and printed rather than silently admitted.
 
+## A module that clamps dt cannot be driven by one big step, and the wrong answer was a motionless number
+
+Measuring #97's ladder needed one wall strike, then the type refractory stepped out, then another.
+The probe did it as `w.update(C.refractory + 0.01, player)` — one 2.51 s call — and got this:
+
+    hits   heat after the hit   heat after the wait   stars
+      1               0.9000                0.9000       0
+      2               0.9000                0.9000       0
+      6               0.9000                0.9000       0
+
+and a table reading **11 hits to one star where the answer is 2.** `WantedSystem.update` opens with
+`clamp(dt, 0, this.maxDt)` and a comment saying why — "one 900 ms hitch must not hand the player
+most of an escape" — so a 2.51 s call advances the module's clock by 0.25 s, the refractory never
+expires, and every second `reportCrime` comes back `applied: false, reason: 'refractory'`. Stepping
+the same 2.6 s in 0.1 s slices gives 0.9000 -> 1.7820 -> 2.6820 and the right ladder.
+
+**The tell was a number that did not move.** Heat identical before and after a 2.51 s wait, with an
+idle bleed that should have taken something off it — three readings of 0.9000 in a column that
+cannot be constant. This file's rule is that the most dangerous shape a measurement bug can take is
+the one whose wrong answer is reassuring; this is the variant where the wrong answer is *inert*, and
+inert is just as easy to read as "stable".
+
+It is the mirror of this file's "a model integrated at the game's dt is measured at the harness's".
+There the harness's big step changed the answer by integrating coarsely. Here the MODULE defends
+itself against a big step, correctly, and the harness's step size silently stops time instead.
+**Check whether the thing you are driving clamps its own dt before choosing a step size, and prefer
+the slice the game uses.**
+
+### And the reaching knee is refused by arithmetic, which the quantisation artefact found first
+
+#97's obvious fix is to let `floorlessCharge` REACH `FLOORLESS_CAP` rather than asymptote to it, so
+that one write-off earns the star the cap denies. The family that is identity below the knee, C1
+there with slope 1, and equal to the cap at the top of the crime's own range is
+`k + (cap-k)(1 - (1-u)^p)` with `p = (rawMax-k)/(cap-k)`. It works and it is not a fix:
+
+    crime              rawMax-k  cap-k  mean slope   p    slope over the top tenth
+    propertyDamage        2.000   0.50     0.2500  4.00               2.50e-4
+    civilianCollision     3.667   0.50     0.1364  7.33               6.33e-8
+    brandish              4.500   0.50     0.1111  9.00               1.11e-9
+
+**A curve that compresses 2.0 to 4.5 of input into 0.5 of output while starting at slope 1 must end
+far flatter than its mean slope.** That is the clip's flatness #90 removed, in a smooth wrapper, and
+no choice of shape escapes it — the input range being several times the available output range is
+the whole of it. The lever that reaches a star while staying ordered is a BIGGER CAP, and the crimes
+want different ones (1.127 and 1.068), so one shared constant cannot deliver it.
+
+**And my monotonicity scan announced this before I understood it.** It stepped the curve 20,000
+times and reported three of five crimes NON-MONOTONE, which is impossible for a strictly increasing
+function — consecutive samples were coming out bit-equal because the curve is numerically flat up
+there. I was about to go looking for a bug in the scan. **When a scan says a provably monotone
+function is not, the resolution it lost is the finding**: ask what quantity went below the
+instrument rather than what is wrong with the instrument.
+
+### A cap that answers a question about one crime is derived from another crime's floor
+
+`FLOORLESS_CAP` is `min(every floor in the table)`, which is `hitAndRun.min` = 1, and one star is
+heat >= 1. So **"can a single property-damage offence make a player wanted" is answered by the floor
+on leaving the scene**, and the two coinciding is a fact about the table rather than a decision
+anybody took. The comment above it says the rule is that a floorless crime "may not out-charge the
+lowest floor" — which permits equality, and equality is exactly the star. The shipped asymptote
+denies it.
+
+Worth keeping as a shape rather than as this instance: **when a constant is derived as an extremum
+over a table, check what it is being asked to decide.** `min(floors)` is the right answer to "what
+must a floorless crime not exceed" and an accident as an answer to "how many stars is a write-off",
+and one expression was doing both.
+
 ## Numbers that are not what they look like
 
 - **The budget gate's triangle count carries ~20k of run-to-run noise** from
