@@ -725,6 +725,113 @@ car with no `body`. Without `body`, `other.t < EXIT_CLEAR_NEEDED - CAR_LENGTH + 
 under `arm-diff`, arriving through a test rig. A generic "the rig builds what the module builds"
 check found a defect nothing specific to this change was looking for.
 
+## You cannot ask a local optimiser for a global optimum, and three mechanisms looked like one symptom
+
+#89 closed the arrest stalemate by letting a unit stop where it "cannot get closer", written as
+`near.d <= bestApproach(target)` — the minimum over all 935 edges, exactly. `_chooseNext` is a
+greedy descent on the distance from an option's **far endpoint** to the target; `bestApproach`
+minimises an edge's **closest approach**. They are different functions, so the minimising edge is
+one no unit will ever drive, and at those spots the condition is unsatisfiable by any unit:
+
+    the router reaches a minimising edge     319 of 516 clear spots 30-140 m off a road
+    it never does                            197 of 516   38%
+    where it does not, the closest edge it CAN reach is
+      p50 31.71 m further than the network's own, p90 153.97, max 190.02
+
+**`reachRadius` is 28 m, so no tolerance of the form `best + reach` rescues even half of that**,
+which is what killed the candidate fix drafted before the measurement. The fix is the QUANTITY:
+"this unit cannot get closer" is a property of its own option set. The guard stays global, because
+"can the roads reach the player at all" genuinely is one. **Two questions, two quantities, and the
+same expression had been answering both.**
+
+    admission                        arrested       p50      newly   lost
+    global, `near.d <= best`         45 of 107    16.5 s         -      -
+    local                           100 of 107    25.0 s        55      0
+    local AND the walk is clear     101 of 107    25.5 s        56      0
+    the officer can walk the line   101 of 107                         <- the ceiling
+
+**Measure the CEILING separately, before the fix, or a coverage number means nothing.**
+`_footPathClear` from the stop point is clear at 101 of those 107 spots and that is not a defect —
+a player with a building between them is not being held by anybody. Without it, "100 of 107" is a
+number with no scale; with it, the fix is within one spot of everything available.
+
+**Three mechanisms, one symptom, and the two small ones would each have survived a fix for the
+big one.** Where the minimum sits at an edge's far ENDPOINT, the clamp fires on the one frame that
+also triggers the reroute, which clears the flag — 730 and 1,460 unit-frames on a minimising edge
+with the approach clause true in 1 and 2 of them. The reroute's own comment said the unit
+"re-holds on the new edge at t = 0", which is TRUE inside the reach, where the admission is a
+radius both edges satisfy, and was false outside it: this file's "a guard can be right about what
+it demands and silent about the case next door", arriving as a comment rather than as a check.
+
+### "True in exact arithmetic" is not "bit-identical", and a few ULPs decided whether an arrest was possible
+
+`bestApproach`'s comment said **NO EPSILON, BY CONSTRUCTION**: both numbers come out of
+`_closestOn` on the same target, and its `d` does not depend on `forward` — only its `t` does.
+The first two sentences are true. The conclusion is not: `_closestOn` REVERSES the point list for
+a backward unit, so every segment vector is negated and the projection fraction is recomputed from
+the other endpoint. The identical real number arrives through a different pair of roundings.
+
+    88 targets x 935 edges = 82,280 pairs
+      forward and backward `d` differ        186 pairs   0.23%,  worst 2.274e-13 m
+      on a MINIMISING edge, backward > best    5 of 89   5.6%
+
+So on 5.6% of minimising pairs a unit driving that edge BACKWARD failed `near.d <= best` by a few
+ULPs and could never stop. The tolerance is measured — 1e-6 m is 4.4 million times the noise and
+500,000 times below the module's shortest length — and the old claim is corrected in place rather
+than deleted, because the next person to write "by construction" about a float comparison should
+find this.
+
+### When one host works and another does not, run the SAME input through both before believing the hosts differ
+
+#108 was filed as "the two hosts disagree about how sticky a long arrest hold is", off a real
+observation: `boot-check` latched the right clock at 57.4 m and advanced it 0.145 s over 103
+frames, while `arrest-band` arrested at 37 to 186 m through `playtest`. Every candidate cause in
+the entry was wrong, and one `Session` disposed of it:
+
+    boot-check's spot, run through tools/playtest.mjs   busts 0, held on 0 of 480 steps
+    arrest-band's 60 m row, same harness                busts 1, held on 17 of 31 steps
+
+**The hosts agree. The SPOT differs**, and 57.8 against 59.2 m of road distance is not the
+variable — local topology is. The entry's recommendation ("make the hold sticky once armed") was
+aimed at the wrong flag: of 363 stopped unit-frames at that spot, `held` equalled the foot-path
+test in 363, with 0 stopped-and-not-held. `u.stopped` was the variable the whole time.
+
+**And the first probe after that confounded two columns and came back inverted.** It measured the
+GAP between the best and second-best edge approach, on a story about near-ties: the two spots that
+never arrested had a mean gap of **0.50 m** against **15.68 m** for the eight that did — the
+opposite of the hypothesis. Their mean road distance also differed, 63.3 m against 49.8, so with
+ten spots neither column could be named: an arrested spot sat at 67.9 m and a failing one at 54.6,
+which is the ranking the distance story needs and does not get. A candidate fix was already
+drafted on the tie premise. The measurement that settled it removed the physics altogether and
+walked `_chooseNext` directly — no sim, no seeds, 516 spots inside two minutes. **When a sim probe
+cannot separate two columns, ask whether the question needs the sim at all.**
+
+### A term whose coverage effect is one spot in 107, kept for a reason that is not coverage
+
+Requiring the officer's walk in the ADMISSION and not only in the hold buys exactly one spot of
+107 and moves the median arrest by 0 — by this file's own standard ("a row nothing can tell apart
+is not evidence of coverage") that is a term to delete. It is kept, and the argument is a cue
+rather than a number: without it **27% of stopped unit-frames are a police car that has pulled up
+with no officer able to reach the player** (stop 63.7% against held 46.8%), and a unit stopping is
+the only signal this game gives that an arrest is beginning. A build where that signal means
+nothing a quarter of the time lies to the player. With the term the two states coincide at 50.9%
+and 50.9%, by construction — so `pursuit-test` asserts the COINCIDENCE, labelled as true by
+construction, and `mutation-sweep`'s `arrest-walk-admission` is what gives the assertion teeth.
+**State which kind of argument a term is kept on**; "it is 1 of 107 and here is why that is not
+the point" is a decision, and leaving the number out would have made it look like coverage.
+
+### And the bound that caught the move is the one the gate had already restated once
+
+`pursuit-test`'s "a holding unit is inside the reach OR at the closest the network gets" failed at
+a worst excess of **82.949 m against a 1.400 m bound** on the first run after the admission went
+local. That is the gate doing its job twice over: the check had been restated once already, from
+`holdRadius` to `reachRadius` to `max(reach, bestApproach)`, each time in the commit that moved
+it. The third restatement is the same bound PER UNIT — and it is computed from `data/district.json`
+by the gate's own `approachTo`/`optionsTo` rather than by the module whose rule it is judging,
+because asserting `_localBest`'s condition with `_localBest` is the self-validation this file
+records under the shunt-fit ladder. The dead-end frames, where the bound is correctly infinite,
+are counted and printed rather than silently admitted.
+
 ## Numbers that are not what they look like
 
 - **The budget gate's triangle count carries ~20k of run-to-run noise** from

@@ -757,7 +757,118 @@ a flat **8 s for `pedestrianHit` at any speed**. Scaling it by the same `scale` 
 has measured. So: a measurement, not a patch, until somebody decides whether a player should feel
 the difference on their first contact.
 
-### #108 The two hosts disagree about how sticky a long arrest hold is, and no gate was comparing it
+### #108 FIXED — the clamp asked a greedy router for a global minimum, and the entry's own diagnosis was wrong
+#89's admission beyond the officer's reach was `near.d <= bestApproach(target)`, the network's own
+minimum, exactly. `PursuitUnits._chooseNext` descends the distance from an option's **far
+endpoint** to the target; `bestApproach` minimises an edge's **closest approach**. Two different
+functions, so the minimising edge is often one no unit will ever drive — and the condition cannot
+be satisfied by any unit at those spots.
+
+Walking the router itself, no sim, from 24 start states at 516 clear spots 30-140 m off a road:
+
+    the router reaches a minimising edge     319 of 516   62%
+    it never does                            197 of 516   38%
+    and where it does not, the closest edge it CAN reach is
+      p50 31.71 m further than the network's own, p90 153.97, max 190.02
+
+`reachRadius` is 28 m, so **no tolerance of the form `best + reach` rescues even half of that** —
+which is what killed the first candidate fix, written before the measurement.
+
+**Two more mechanisms, and all three read as the same symptom.** Where the minimum sits at an
+edge's far ENDPOINT, the clamp fires on the one frame that also triggers the reroute, which clears
+`stopped` — traced at 730 and 1,460 unit-frames on a minimising edge with the approach clause true
+in 1 and 2 of them. The reroute comment's claim that a unit "re-holds on the new edge at t = 0" is
+true INSIDE the reach, where the admission is a radius both edges satisfy, and was false outside
+it. And `_closestOn` is **not bit-identical in the two directions**: it reverses the point list for
+a backward unit, so over 88 targets x 935 edges the two reads differ in 0.23% of pairs by up to
+2.274e-13 m, and on a MINIMISING edge the backward read exceeded the forward minimum in 5 of 89
+cases. A few ULPs decided whether a player could be arrested. `bestApproach`'s own comment claimed
+that identity "by construction"; the claim is corrected in place rather than deleted, because
+"true in exact arithmetic" and "bit-identical" are different sentences and only one is about the
+code.
+
+**The fix is the quantity, not a bound.** `_localBest(u, target)` is the best approach among the
+edges the unit may take next — `_chooseNext`'s own option set, which both now take from
+`_optionsAt` rather than copying the filter. The guard stays global, because "can the roads reach
+the player at all" genuinely is a global question. Two questions, two quantities.
+
+    admission                        arrested       p50      newly   lost
+    global, `near.d <= best`         45 of 107    16.5 s         -      -
+    local                           100 of 107    25.0 s        55      0
+    local AND the walk is clear     101 of 107    25.5 s        56      0
+    the officer can walk the line   101 of 107                         <- the ceiling
+
+107 clear spots 35-110 m off a road, 90 s stationary at four stars. **Not one spot regressed.** The
+ceiling is `_footPathClear` from the stop point, measured on its own, and it is the one term here
+that is not a defect — a player with a building between them is not being held by anybody.
+
+**The walk is in the admission for a CUE, not for that one spot.** Without it, 27% of stopped
+unit-frames are a car that has pulled up with no officer able to reach the player (stop 63.7%
+against held 46.8%). A unit stopping is the only signal this game gives that an arrest is
+beginning, so a build where it means nothing a quarter of the time lies to the player. With it the
+two coincide at 50.9% and 50.9%, by construction.
+
+**What it costs is 6.5 s on the median arrest that already worked** — 5 faster, 29 slower, worst
++30.5 s, measured on the arm that ships — which is `arrestSeconds` pricing a longer walk. `arrest-band` disagrees in SIGN and the
+two reconcile, which is the useful part:
+
+    placed   #89 held  closest  ended      #108 held  closest  ended
+       0 m        1      7.9     31 s          1       7.9      31 s   <- inside the reach,
+      15 m        1     22.8     30 s          1      22.8      30 s      byte-identical
+      30 m        1     37.6     37 s          5      82.6      13 s
+      45 m        1     52.5     46 s          5      97.5      16 s
+      60 m        2     67.3     45 s          5      80.7      12 s
+      90 m        2     97.1     46 s          6     110.4      16 s
+     130 m        2    136.6     28 s          6     136.6      28 s
+     180 m        3    185.8     33 s          6     199.7      35 s
+     260 m        0      n/a    240 s          0       n/a     240 s   escaped, both
+
+The `closest` column got BIGGER and the arrest got FASTER, because units now stop sooner instead of
+driving past: the global rule eventually put ONE unit at 37.6 m after ~31 s of milling, the local
+rule puts FIVE at ~82 m within 2 s, and the clock is `arrestSeconds` of the NEAREST HELD one. So
+the grid's +6.5 s and the band's -25 s are the same mechanism measured where the two terms rank
+differently, and the 0 m and 15 m rows being byte-identical is the guard's promise confirmed by a
+second tool.
+
+**`pursuit-test` 36 -> 48 checks, and the bound that caught the move was restated rather than
+loosened.** "A holding unit is inside the reach OR at the closest the network gets" failed at a
+worst excess of **82.949 m against a 1.400 m bound** the moment the admission went local. It is
+now the same bound per unit, computed from `district` by the gate's own `approachTo`/`optionsTo`
+rather than by the module whose rule it judges, with the dead-end frames (no bound, correctly)
+counted and printed. Inside the reach the per-unit traces are **BIT-IDENTICAL** with the clause
+disabled over 402,485 characters, with a separate check that those traces are not empty of the
+state being compared. Six mutation rows: two repointed (their `find` strings went stale in this
+commit) and four added, including `arrest-eps` with its own gap written into its `why`.
+
+### #108 (the original record) The two hosts disagree about how sticky a long arrest hold is — REFUTED
+Kept because the refutation is the lesson. The entry below was filed off a real observation —
+`boot-check`'s arm latched the right clock at 57.4 m and advanced it 0.145 s over 103 frames — and
+every candidate cause in it is wrong:
+
+    boot-check's spot, run through tools/playtest.mjs   busts 0, held on 0 of 480 steps
+    arrest-band's 60 m row, same harness                busts 1, held on 17 of 31 steps
+
+**The two hosts agree. The SPOT differs**, and 57.8 m against 59.2 m of road distance is not the
+variable — the local topology is. So "the likely fix is to make the hold sticky once armed" was
+aimed at the wrong flag entirely: `u.held` never flickered. Of 363 stopped unit-frames at that
+spot, `held` equalled the foot-path test in 363, with 0 stopped-and-not-held and 0 refused walks.
+`u.stopped` was the variable and it was never set, because the admission demanded a minimum the
+router could not reach.
+
+Two things to carry. **When one host works and another does not, run the SAME spot through both
+before believing the hosts differ** — one `Session` reproduced boot-check's failure in playtest and
+disposed of the whole entry in a minute. And the first probe I wrote after that measured the GAP
+between the best and second-best edge approach, on a story about ties, and the data came back
+inverted: the two spots that never arrested had a 0.50 m mean gap against 15.68 m for the eight
+that did. A candidate fix was already drafted on that premise. **A sweep that confounds two columns
+cannot name either**: the failing pair's mean road distance was 63.3 m against 49.8 for the rest,
+and ten spots cannot separate the two — an arrested spot sat at 67.9 m and a failing one at 54.6.
+The measurement that settled it took the physics out altogether and walked the router.
+
+**The entry as it was filed, kept verbatim below**, because the observation in it is sound and only
+the diagnosis is not — and because a wrong entry that was corrected is more use to the next round
+than a deleted one.
+
 Found while gating #89's fix, and it is the one thing that round could not close. The change is
 correct in both hosts — the clock the page latches is right to 7 ms — and the two differ in whether
 it ever RUNS OUT.
@@ -791,7 +902,8 @@ Ruled out, each by measurement rather than by argument:
   loop, at relative depth 1 from the `for (let s = 0; s < timeScale; s++)`, so the clock should
   advance `timeScale * dt` a frame and the slow advance is resets, not placement.
 
-**The likely fix is to make the hold sticky once armed**, the way `u.stopped` already is — an
+**The likely fix is to make the hold sticky once armed** — WRONG, see the measurement above: the
+hold never flickered and `u.stopped` was never set in the first place — the way `u.stopped` already is — an
 officer who has got out and started walking does not get back in because a wall briefly intersects
 a straight line. That is a pursuit change with a gate to write, and `mutation-sweep` would need a
 row proving the stickiness cannot become "held for ever", which is the defect the ratchet was

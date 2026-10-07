@@ -548,11 +548,32 @@ export class PursuitUnits {
        * finds is a MEDIAN 0.00 m further from the player than the network's own minimum, so
        * where the global test could be satisfied this one lands in the same place.
        *
-       * WHAT IT COSTS is 6.5 s on the median arrest that already worked (5 faster, 28 slower,
-       * worst +30.5 s), and that is `arrestSeconds` doing its job: a unit that stops where it
+       * WHAT IT COSTS is 6.5 s on the median arrest that already worked — 5 faster, 29 slower,
+       * worst +30.5 s on the arm that ships, 28 slower on the middle row — and that is
+       * `arrestSeconds` doing its job: a unit that stops where it
        * cannot improve is sometimes further out than the city's own closest kerb, and the officer
        * walks the difference. It is not recoverable by requiring the walk — the third row buys
        * ONE spot of 107 and moves the median by 0.
+       *
+       * WHAT IT COSTS PER FRAME, because a per-frame cost nobody priced is not a result. 8 units,
+       * timed against a 60 fps frame of 16,700 us:
+       *
+       *     the whole update, player ON a road          8.66 us    0.052% of a frame
+       *     the whole update, player 56.7 m off one   260.70 us    1.561%
+       *     `_localBest`, isolated at 200,000 reps      0.163 us a unit, so 1.3 us a frame
+       *
+       * So the lever this section is about is 0.008% of a frame and the rest of that 252 us is
+       * `_footPathClear`, which samples every FOOT_STEP_M over a line with no length limit — 55.7
+       * us for the longest walk in the settled fleet, a unit parked 237 m out. It is NEW only in
+       * the sense that before #108 no unit stopped out there at all, so `u.held`'s own
+       * short-circuit never reached it; on a road the whole clause is gated off and neither term
+       * is evaluated. 1.56% of a frame while the player sits still in a field is the right side of
+       * the trade.
+       *
+       * AND THE OBVIOUS MODEL OF THAT NUMBER IS WRONG, which is worth a line because it would
+       * read as fine: 7 stopped units x 55.7 us is 390.9 us against a measured whole update of
+       * 260.70. The per-unit walks are not the same length — 55.7 is the longest — so multiplying
+       * one measurement by the count overestimates. The measured update is the number to quote.
        *
        * THE WALK IS IN THE ADMISSION ANYWAY, AND THE REASON IS A CUE RATHER THAN A NUMBER. With
        * the local rule alone, 27% of stopped unit-frames are a car that has pulled up and parked
