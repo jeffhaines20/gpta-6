@@ -671,6 +671,13 @@ because `driveTo` leaves the car rolling. §13 of `mission-test` is the offline 
 AT the boundary rather than either side of it, the `stopMs` fallback against `SCENE_STOP_MS` the way
 `damage-test` checks the garage's, and four shapes of missing `speed` throwing rather than guessing.
 
+All four mutation rows caught, run one at a time on a clean tree:
+
+    pickup-moving         caught by  mission-test playtest
+    pickup-speed-default  caught by  mission-test              behaviour-preserving for both hosts
+    offer-cue             caught by  mission-test playtest
+    pickup-stopms-copy    caught by  mission-test              invisible to every behavioural arm
+
 **The remaining half is the one the entry's second paragraph names, and it is still open.** See
 #106: a mission you have taken cannot be handed back. The stop rule makes TAKING one deliberate, so
 nobody is conscripted any more, and the cost of a job you took and no longer want is unchanged.
