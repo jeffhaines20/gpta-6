@@ -230,8 +230,24 @@ let searchSample;
   check('police do NOT teleport to the player',
     Math.hypot(playerNow.x - lk.x, playerNow.z - lk.z) > 200,
     { playerNow, lk });
+  /**
+   * READ EVERY POSITION THROUGH ONE ACCESSOR, because `check(name, cond, detail)` evaluates all
+   * three arguments before it is entered, so an unguarded read in either the condition or the
+   * detail crashes the gate BEFORE a single FAIL line is printed. `mutation-sweep`'s
+   * `heat-no-stack` found this: with the charge no longer accumulating, no unit is assigned at
+   * this star level, `probe` comes back empty, and `probe[0].goal.x` threw
+   * "Cannot read properties of undefined (reading 'goal')" — so the row reported itself "caught by
+   * wanted-test(threw)" and said nothing at all about what was wrong. CLAUDE.md records the
+   * identical defect in `mission-test` §12, and the fix is the same one: a gate asked about a
+   * shape has to survive the wrong shape and NAME it, because a throw sends a round to debug the
+   * gate and a FAIL line sends it to fix the code.
+   */
+  const at2 = (o) => (o && Number.isFinite(o.x) && Number.isFinite(o.z) ? o : null);
+  const goalOf = (u) => at2(u && u.goal);
+  const fromLk = (u) => { const g = goalOf(u); return g ? Math.hypot(g.x - lk.x, g.z - lk.z) : NaN; };
   check('the plan target is the last known position, not the player',
-    near(w.plan.target.x, lk.x, 1e-9) && near(w.plan.target.z, lk.z, 1e-9), w.plan.target);
+    !!at2(w.plan.target) && near(w.plan.target.x, lk.x, 1e-9)
+      && near(w.plan.target.z, lk.z, 1e-9), at2(w.plan.target) ?? `no target: ${w.plan.target}`);
   check('the search radius grows over time', r20 > r10 + 50, { r10, r20 });
   check('the escape clock started when the fix ran out', near(evade10, 10, DT * 2), { evade10 });
   check('the search radius grows at the tuned rate',
@@ -243,13 +259,17 @@ let searchSample;
   const ring = a.filter((u) => u.role === 'search');
   check('one unit probes the last known position itself', probe.length === 1, a.map((u) => u.role));
   check('the probe drives to the last known position',
-    near(probe[0].goal.x, lk.x, 1e-9) && near(probe[0].goal.z, lk.z, 1e-9), probe[0].goal);
+    !!goalOf(probe[0]) && near(goalOf(probe[0]).x, lk.x, 1e-9)
+      && near(goalOf(probe[0]).z, lk.z, 1e-9),
+    goalOf(probe[0]) ?? `${probe.length} probes of ${a.length} assignments`);
   check('the rest sweep a ring at the search radius',
-    ring.length === a.length - 1 && ring.every((u) =>
-      near(Math.hypot(u.goal.x - lk.x, u.goal.z - lk.z), w.searchRadius, 1e-6)),
-    ring.map((u) => +Math.hypot(u.goal.x - lk.x, u.goal.z - lk.z).toFixed(2)));
+    ring.length > 0 && ring.length === a.length - 1
+      && ring.every((u) => near(fromLk(u), w.searchRadius, 1e-6)),
+    ring.length ? ring.map((u) => +fromLk(u).toFixed(2))
+      : `${ring.length} on the ring of ${a.length} assignments`);
   // Distinct bearings, or a "ring" is four cars driving to the same corner.
-  const bearings = ring.map((u) => Math.atan2(u.goal.z - lk.z, u.goal.x - lk.x));
+  const bearings = ring.map((u) => { const g = goalOf(u);
+    return g ? Math.atan2(g.z - lk.z, g.x - lk.x) : NaN; });
   const spread = bearings.some((b1, i) => bearings.some((b2, j) => j !== i && Math.abs(b1 - b2) > 0.5));
   check('search bearings are spread, not stacked', spread, bearings.map((b) => +b.toFixed(2)));
 
@@ -2643,6 +2663,151 @@ let searchSample;
   out.cost_per_update_us = +us.toFixed(3);
   out.updates_per_ms = Math.round(1000 / us);
   check('an update at five stars costs well under a frame', us < 100, { us });
+}
+
+/**
+ * §f3  WHAT A FASTER PEDESTRIAN STRIKE ACTUALLY BUYS, END TO END.
+ *
+ * #103 reported that "every pedestrian strike up to 59 km/h is the same one star", isolating a
+ * SINGLE victim at 23.7 / 43.5 / 51.7 / 58.8 km/h and reading heat exactly 1.0000 and 1 star at
+ * every one. All of that is correct, and it is the one case where the floor swallows the charge:
+ * `reportCrime` does `max(heat + delta, c.min)`, so at heat 0 the floor REPLACES the charge rather
+ * than lifting it, and `c.heat * scale` is under `min: 1` at every survivable speed.
+ *
+ * FROM THE SECOND STRIKE ON, SPEED IS FULLY PRICED, and nothing asserted it. Measured here:
+ *
+ *     km/h    scale     raw   strikes to 2*   heat after 2 strikes
+ *     10     0.0049  0.0099        >60              1.010
+ *     23.7   0.0169  0.0337         31              1.034
+ *     43.5   0.0962  0.1923          7              1.192
+ *     51.7   0.1911  0.3822          4              1.382
+ *     58.8   0.3335  0.6671          3              1.667
+ *     67.7   0.6167  1.2334          2              2.467
+ *     76.7   1.0009  2.0018          1              4.004   <- pedestrianKilled, min 2
+ *
+ * So the quantity a player reads is monotone over a 31-to-1 range and the flatness is confined to
+ * the first strike. That is the distinction CLAUDE.md records from #90 and #93 — a saturation
+ * followed to the thing a player reads is usually smaller than it looks — and the ladder is the
+ * part worth GATING, because nothing in this file or in damage-test asserted that a faster strike
+ * is worse. `damage-test` asserts `pedCrimeScale` is monotonic in speed; that is the input. This
+ * is the output.
+ *
+ * The first-strike flatness is kept as a KNOWN-BAD with its mechanism stated, so a later round can
+ * see it was measured rather than missed. See docs/BACKLOG.md #103.
+ */
+{
+  const dmg = new DamageModel();
+  const SPEEDS = [10, 23.7, 43.5, 51.7, 58.8, 67.7, 76.7];
+  const rows = SPEEDS.map((kmh) => {
+    const v = kmh / 3.6;
+    const id = v >= dmg.pedKillSpeed ? 'pedestrianKilled' : 'pedestrianHit';
+    const scale = dmg.pedCrimeScale(v);
+    const w = new WantedSystem();
+    const heats = [];
+    let to2 = null;
+    for (let i = 0; i < 60; i++) {
+      w.reportCrime(id, { scale, at: ORIGIN });
+      if (i < 2) heats.push(+w.heat.toFixed(4));
+      if (to2 === null && w.stars >= 2) to2 = i + 1;
+    }
+    return { kmh, id, scale: +scale.toFixed(4), raw: +(CRIMES[id].heat * scale).toFixed(4),
+      min: CRIMES[id].min, first: heats[0], second: heats[1], to2 };
+  });
+  console.log('\nf3. one victim per strike, a fresh level, nothing decaying between them:');
+  for (const r of rows) {
+    console.log(`    ${String(r.kmh).padStart(5)} km/h  ${r.id.padEnd(16)} scale `
+      + `${String(r.scale).padStart(6)} raw ${String(r.raw).padStart(6)} min ${r.min}  `
+      + `heat ${r.first.toFixed(3)} -> ${r.second.toFixed(3)}  2* after `
+      + `${r.to2 === null ? '>60' : r.to2} strike${r.to2 === 1 ? '' : 's'}`);
+  }
+
+  /**
+   * THE LADDER IS MONOTONE, which is the claim "a faster strike is worse" in the units a player
+   * reads. Non-increasing rather than strictly decreasing, because two adjacent speeds can round
+   * to the same strike count — the SPAN check below is what says the ladder is not flat.
+   */
+  const reached = rows.filter((r) => r.to2 !== null);
+  const notMono = [];
+  for (let i = 1; i < reached.length; i++) {
+    if (reached[i].to2 > reached[i - 1].to2) {
+      notMono.push(`${reached[i - 1].kmh}->${reached[i].kmh}: ${reached[i - 1].to2}->${reached[i].to2}`);
+    }
+  }
+  check('strikes to two stars never RISES with speed', notMono.length === 0, notMono);
+  check('and it spans at least 10x, so the ladder is not flat',
+    reached[0].to2 >= reached[reached.length - 1].to2 * 10,
+    `${reached[0].to2} strikes at ${reached[0].kmh} km/h against `
+    + `${reached[reached.length - 1].to2} at ${reached[reached.length - 1].kmh}`);
+  check('a strike at the slowest speed never reaches two stars at all', rows[0].to2 === null,
+    `${rows[0].kmh} km/h: ${rows[0].to2 === null ? '>60 strikes' : rows[0].to2}`);
+  // The SECOND strike is where the charge becomes visible, so that is the row to pin.
+  const seconds = rows.map((r) => r.second);
+  check('the heat after two strikes rises strictly with speed',
+    seconds.every((h, i) => i === 0 || h > seconds[i - 1]),
+    seconds.map((h) => h.toFixed(3)).join(' '));
+
+  /**
+   * KNOWN-BAD: THE FIRST STRIKE IS THE SAME PRICE UP TO THE SPEED WHERE THE CHARGE OVERTAKES THE
+   * FLOOR, and the boundary is DERIVED rather than typed. The first version of this section said
+   * "below the fatality switch", which this gate caught: `pedestrianHit` at 67.7 km/h charges
+   * 1.2334 against a floor of 1, so the charge shows through well before the switch at 76.7. The
+   * crossing is where `c.heat * scale` reaches `min` — scale 0.5, since heat is 2.00 and min is 1
+   * — which is what src/wanted.js's own comment says in as many words, and #103's reported band
+   * stops at 58.8 km/h, just under it.
+   *
+   * Scanned off the module in 0.1 km/h steps, so a retune of `heat`, `min` or `pedCrimeScale`
+   * moves the boundary and the two checks with it.
+   */
+  let crossKmh = null;
+  for (let k = 1; k <= 76.7 && crossKmh === null; k += 0.1) {
+    if (CRIMES.pedestrianHit.heat * dmg.pedCrimeScale(k / 3.6) >= CRIMES.pedestrianHit.min) {
+      crossKmh = +k.toFixed(1);
+    }
+  }
+  console.log(`    the charge overtakes the floor at ${crossKmh} km/h (scale `
+    + `${(CRIMES.pedestrianHit.min / CRIMES.pedestrianHit.heat).toFixed(3)}), and the fatality `
+    + `switch is at ${(dmg.pedKillSpeed * 3.6).toFixed(1)}`);
+  check('the charge does overtake the floor somewhere below the fatality switch',
+    crossKmh !== null && crossKmh < dmg.pedKillSpeed * 3.6,
+    `${crossKmh} against ${(dmg.pedKillSpeed * 3.6).toFixed(1)} km/h`);
+  const flat = rows.filter((r) => r.raw < r.min);
+  const priced = rows.filter((r) => r.raw >= r.min);
+  check('KNOWN-BAD: every first strike under that speed costs exactly the floor, whatever the speed',
+    flat.length >= 4 && flat.every((r) => Math.abs(r.first - r.min) < 1e-9),
+    `${flat.map((r) => `${r.kmh}:${r.first.toFixed(4)}`).join(' ')} against floor `
+    + `${CRIMES.pedestrianHit.min}`);
+  check('and above it the charge shows through on the FIRST strike, which is the positive half',
+    priced.length >= 2 && priced.every((r) => Math.abs(r.first - r.raw) < 1e-9
+      && r.first > r.min),
+    priced.map((r) => `${r.kmh}:${r.first.toFixed(4)} vs min ${r.min}`).join(' '));
+  check('and every flat row is below every priced one, so the boundary is a single crossing',
+    Math.max(...flat.map((r) => r.kmh)) < Math.min(...priced.map((r) => r.kmh)),
+    `flat to ${Math.max(...flat.map((r) => r.kmh))}, priced from `
+    + `${Math.min(...priced.map((r) => r.kmh))} km/h`);
+
+  /**
+   * AND THE TIME TO CLEAR IS THE SAME FLATNESS SEEN FROM THE HUD, which is the quantity #103's
+   * reporter would have felt. One strike, then stand still a long way from anybody and let the
+   * level bleed: identical below the switch, graduated above it.
+   */
+  const clear = (kmh) => {
+    const v = kmh / 3.6;
+    const id = v >= dmg.pedKillSpeed ? 'pedestrianKilled' : 'pedestrianHit';
+    const w = new WantedSystem();
+    w.reportCrime(id, { scale: dmg.pedCrimeScale(v), at: ORIGIN });
+    const stars0 = w.stars;
+    let t = 0;
+    const DT2 = 1 / 20;
+    while (w.stars > 0 && t < 1200) { w.update(DT2, { x: 9e4, z: 9e4, held: false }); t += DT2; }
+    return { stars0, t: +t.toFixed(1) };
+  };
+  const slow = clear(10), mid = clear(58.8), fatal = clear(76.7);
+  console.log(`    one strike then stand still: 10 km/h ${slow.stars0}* in ${slow.t} s, `
+    + `58.8 ${mid.stars0}* in ${mid.t} s, 76.7 ${fatal.stars0}* in ${fatal.t} s`);
+  check('KNOWN-BAD: a 10 km/h nudge and a 58.8 km/h strike are wanted for the same time',
+    Math.abs(slow.t - mid.t) < 0.2, `${slow.t} s against ${mid.t} s`);
+  check('and a kill is wanted for substantially longer, so the clock is not flat everywhere',
+    fatal.t > mid.t * 1.5, `${fatal.t} s against ${mid.t} s`);
 }
 
 // ---------------------------------------------------------------- report

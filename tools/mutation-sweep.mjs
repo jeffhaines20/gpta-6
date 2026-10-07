@@ -405,6 +405,37 @@ const MUTATIONS = [
   },
   {
     /**
+     * THE FLOOR LIFTS THE CHARGE INSTEAD OF REPLACING IT, which is #103's candidate lever rather
+     * than a defect — and that is why it is here. Shipped, `max(heat + delta, c.min)` throws away
+     * the first strike's severity entirely when the charge is under the floor, so a 10 km/h nudge
+     * and a 58.8 km/h strike both cost exactly 1.0000 of heat and 26.1 s of wanted time. This row
+     * is the alternative formula, so the KNOWN-BAD rows in `wanted-test` §f3 that record that
+     * flatness cannot rot: if somebody takes the lever, those checks have to be restated.
+     *
+     * It is not shipped because it over-charges at the top of the table: `pedestrianKilled`'s
+     * `min` is 2 and its charge AT the fatality switch is 2.0018 by construction, so lifting one
+     * by the other makes a single kill four stars where the table says two.
+     */
+    id: 'heat-floor-lift', file: 'src/wanted.js',
+    find: '    this.heat = Math.min(Math.max(this.heat + delta, c.min), this.maxStars + 0.99);',
+    to: '    this.heat = Math.min(Math.max(this.heat, c.min) + delta, this.maxStars + 0.99);',
+    why: 'the first strike graduates and one pedestrian killed becomes four stars instead of two',
+  },
+  {
+    /**
+     * REPEATS STOP STACKING. The charge replaces the running total instead of adding to it, so a
+     * crime with a floor pins the meter at that floor for ever however many times it is committed:
+     * 31 strikes at 23.7 km/h reach two stars shipped, and none ever would. This is the mutation
+     * `wanted-test` §f3's ladder exists for — the flatness #103 reported is confined to the FIRST
+     * strike, and this makes it the whole game.
+     */
+    id: 'heat-no-stack', file: 'src/wanted.js',
+    find: '    this.heat = Math.min(Math.max(this.heat + delta, c.min), this.maxStars + 0.99);',
+    to: '    this.heat = Math.min(Math.max(delta, c.min), this.maxStars + 0.99);',
+    why: 'a hundred pedestrian strikes at 23.7 km/h are worth exactly one star, for ever',
+  },
+  {
+    /**
      * A PICKUP FIRES AT ANY SPEED AGAIN, which is the shipped defect #100 is about: the measured
      * drive to the FLAGSHIP's pickup started the OTHER mission 13.8 s after the spawn, at
      * 24 km/h, with the player having pressed nothing. One line, leaving `stopMs`, the counter,
