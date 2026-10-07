@@ -389,6 +389,150 @@ if (state.global && state.frames > 2) {
 
 
 /**
+ * A PICKUP FIRES ONLY WHEN THE PLAYER HAS STOPPED, AND THE HOST HAS TO SUPPLY THE SPEED.
+ *
+ * `MissionBoard.pickupAt` is gated offline in `mission-test` §13 and end to end in
+ * `playtest --selftest` §5b. What neither can see is `district/main.js`'s one wire: the planar
+ * speed of whatever the player is moving as, read off the car when driving and off the person on
+ * foot. A host that passes nothing gets a TypeError rather than a conscription — which this
+ * page's own `pageerror` check would catch, but only on a frame where the player is inside a
+ * pickup, and the spawn is 30.0 m outside the nearest one. So the frame has to be made.
+ *
+ * THE VELOCITY IS SET DIRECTLY RATHER THAN DRIVEN, and that is a statement about what this arm
+ * is for. It asks whether the HOST passes a speed at all and whether the refusal reaches the band;
+ * HOW BIG the margin is belongs offline, where `mission-test` §13 tests the threshold itself and
+ * `playtest --selftest` §5b refuses a real 37 km/h arrival. Driving 353 m to the pickup here would
+ * be wall minutes at 0.133 s of sim per rendered frame. `vehicle.speed` is a getter over
+ * `velocity`, so one assignment is the whole setup, and the physics step that runs before the offer
+ * pass carries it into `pickupAt`.
+ *
+ * SO THE SPEED IS THE SMALLEST ONE THAT PROVES THE WIRE: x2 the board's own threshold, which is
+ * also UNDER src/damage.js's 2.2 m/s free-contact threshold. The first version used x8 and was a
+ * lesson rather than a measurement — 8 m/s for 40 frames is 42 m of travel, the car left the ring
+ * before it stopped, and on the way it struck a pedestrian. That charged a crime, which put a
+ * `status` notice over the band, AND spent `chargeVictim`'s 20 s window on an id the run-over arm
+ * needs: boot-check went from 3 failures to 9, six of them in three later arms this one had
+ * disturbed. CLAUDE.md records the same thing from the other direction — an arm finding "56
+ * run-overs and every one a REPEAT" because an earlier arm had parked on a populated street.
+ * **An arm that perturbs the page is a dirty tree for every arm after it.** At x2 the car covers
+ * 0.45 m in total and touches nothing.
+ *
+ * AND THE BRAKE GOES THROUGH `setAutopilot`, not `setControls`. The page reads its own input every
+ * frame and overwrites whatever an outside caller wrote, so 40 frames of `v.setControls({brake:1})`
+ * took 8.01 m/s to 6.88 — which reads as a car that will not stop and is a harness that is not
+ * driving it. The wedged arm two sections down already used the hook, with a comment, and this is
+ * the file's own recurring shape: patching one arm and not its sibling.
+ *
+ * MOVING FIRST, because at rest in a pickup the mission fires on the very next frame and there
+ * would be nothing left to refuse.
+ *
+ * TWO INSTRUMENT ERRORS, both from this arm's own first run, and both accused a build that works:
+ *
+ *   - `missionReport().mission` IS NOT "a mission is running". `MissionRunner` keeps the mission
+ *     reference after it ends and moves the OUTCOME, so the arm read "marlin-street" as its
+ *     before-state and its after-state and reported the drive-by as having started a mission. The
+ *     signal is `missionBoard().starts`, which the host increments ONLY when a pickup fires — the
+ *     quantity under test — and the stop arm checks the outcome as well, since a start the runner
+ *     does not accept would leave it anything but `running`.
+ *   - THE ARM RAN AFTER ANOTHER ARM HAD ENDED A MISSION, and `ended` sits above `offer` in
+ *     BAND_ORDER, so the offer line could not show whatever it said. The band read "MISSION
+ *     ABORTED / Marlin Street — you were arrested" — a correct band for a page carrying a 6 s
+ *     end-of-mission hold, and nothing at all about the pickup. Hence the position: BEFORE the
+ *     bust arm, which is the first thing in this file to start a mission. The arm leaves
+ *     `marlin-street` RUNNING rather than aborting it, because district/main.js clears
+ *     `missionEnd` when a pickup fires and an abort here would hand the next arm the hold this
+ *     one just tripped over.
+ */
+{
+  const pick = await page.evaluate(async () => {
+    const d = __district;
+    const v = d.vehicle;
+    const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+    const read = () => {
+      const h = d.hud();
+      return { obj: h.elObjText ? h.elObjText.textContent : '',
+        sub: h.elSub ? h.elSub.textContent : '' };
+    };
+    d.setMode('car');
+    d.clearWanted('boot-check');
+    d.setBodyCollision(false);
+    const board = d.missionBoard();
+    const starts0 = board.starts;
+    const refused0 = board.refusedMoving;
+    const at = board.markers.find((m) => m.id === 'marlin-street');
+    d.placeAt(at.x, at.z, 0);
+    const from = { x: v.position.x, z: v.position.z };
+    // The brake, through the hook the page does not overwrite. Held for the whole arm: the first
+    // frame still reads the velocity set below, because the physics has not yet shed it.
+    d.setAutopilot(() => v.setControls({ throttle: 0, brake: 1, steer: 0, handbrake: false }));
+    v.velocity.set(0, 0, -board.stopMs * 2);
+    await frame();
+    const moving = { ...read(), ...d.bandReport(), speed: v.speed,
+      started: d.missionBoard().starts - starts0,
+      offerLine: d.missionBoard().offerLine,
+      refused: d.missionBoard().refusedMoving - refused0 };
+    let frames = 0;
+    for (let i = 0; i < 40 && d.missionBoard().starts === starts0; i++) {
+      await frame();
+      frames++;
+    }
+    const stopped = { ...read(), ...d.bandReport(), speed: v.speed,
+      started: d.missionBoard().starts - starts0, running: d.missionReport().mission ?? null,
+      outcome: d.missionReport().outcome, frames };
+    d.setAutopilot(null);
+    const travelled = Math.hypot(v.position.x - from.x, v.position.z - from.z);
+    return { moving, stopped, stopMs: board.stopMs, at, travelled,
+      // What this arm must NOT have done to the page, for the three arms below that need a
+      // pristine crowd and an unspent victim window.
+      stars: d.wantedReport().stars };
+  });
+  console.log(`  pickup at (${pick.at.x}, ${pick.at.z}), threshold ${pick.stopMs} m/s:`);
+  console.log(`    at ${pick.moving.speed.toFixed(2)} m/s: screen "${pick.moving.obj}" / `
+    + `"${pick.moving.sub}" (band "${pick.moving.from}"), offer tenant "`
+    + `${pick.moving.offerLine ? pick.moving.offerLine.subtitle : '(none)'}", `
+    + `started ${pick.moving.started}`);
+  console.log(`    braked to ${pick.stopped.speed.toFixed(3)} m/s over ${pick.stopped.frames} `
+    + `frames: "${pick.stopped.obj}" / "${pick.stopped.sub}", `
+    + `${pick.stopped.started} start -> ${pick.stopped.running} (${pick.stopped.outcome})`);
+  check('KNOWN-BAD: the car really was moving through the pickup, or this arm proves nothing',
+    pick.moving.speed >= pick.stopMs, `${pick.moving.speed.toFixed(2)} m/s against ${pick.stopMs}`);
+  check('driving through a pickup does not start the mission', pick.moving.started === 0,
+    `${pick.moving.started} starts, ${pick.moving.refused} refused frames`);
+  /**
+   * TWO CHECKS AND NOT ONE, because the screen's subtitle and the offer's subtitle are different
+   * quantities whenever a `status` tenant yields the objective down to the offer — src/hud.js's
+   * own rule, and correct. The first version asserted the SCREEN and failed over a build that
+   * works: `placeAt` re-seeds the crowd around the camera and (19, -6) is authored as a pickup
+   * with "the crowd already around it", so the teleport is a contact and the band read
+   * "MARLIN STREET / PEDESTRIAN STRUCK — nobody saw it" — the offer owning the objective with a
+   * notice holding the subtitle, which is exactly what that rule is for. So: the tenant wins the
+   * band, AND its own line carries the instruction.
+   */
+  check('the offer tenant wins the objective band while the pickup is refusing',
+    pick.moving.from === 'offer',
+    `band "${pick.moving.from}": "${pick.moving.obj}" / "${pick.moving.sub}"`);
+  check('and the host composes the instruction, not just the module',
+    !!pick.moving.offerLine && pick.moving.offerLine.subtitle === 'stop to start'
+      && pick.moving.offerLine.ownSubtitle === true,
+    `offer tenant ${JSON.stringify(pick.moving.offerLine)}`);
+  check('stopping in it does start the mission', pick.stopped.started === 1
+    && pick.stopped.running === 'marlin-street' && pick.stopped.outcome === 'running',
+    `${pick.stopped.started} starts -> ${pick.stopped.running} (${pick.stopped.outcome}) `
+    + `after ${pick.stopped.frames} frames`);
+  check('and it was the brake that did it, not the frame budget', pick.stopped.frames < 40
+    && pick.stopped.speed < pick.stopMs,
+    `${pick.stopped.frames} frames to ${pick.stopped.speed.toFixed(3)} m/s`);
+  /**
+   * AND THE ARM LEAVES THE PAGE ALONE, which is a check rather than a hope: the x8 first version
+   * drove 42 m through the crowd and broke six checks in three later arms. Under 2 m of travel and
+   * no wanted level is the state those arms are entitled to.
+   */
+  check('the arm stayed inside the ring and charged nothing, so no later arm inherits it',
+    pick.travelled < 2 && pick.stars === 0,
+    `${pick.travelled.toFixed(2)} m travelled, ${pick.stars}*`);
+}
+
+/**
  * BEING BUSTED, WHICH ONLY THIS GATE CAN SEE END TO END. src/wanted.js owns the clock and
  * wanted-test §25 owns that; tools/playtest carries its own copy of the host wiring and §8 owns
  * that. What lives ONLY in district/main.js is this: the `busted` listener that takes the mission,

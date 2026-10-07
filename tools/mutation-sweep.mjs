@@ -405,6 +405,57 @@ const MUTATIONS = [
   },
   {
     /**
+     * A PICKUP FIRES AT ANY SPEED AGAIN, which is the shipped defect #100 is about: the measured
+     * drive to the FLAGSHIP's pickup started the OTHER mission 13.8 s after the spawn, at
+     * 24 km/h, with the player having pressed nothing. One line, leaving `stopMs`, the counter,
+     * the cue and both hosts' wires in place, so what it reverts is exactly the rule.
+     */
+    id: 'pickup-moving', file: 'src/mission.js',
+    find: '    if (speed >= this.stopMs) { this.refusedMoving++; return null; }',
+    to: '    if (false) { this.refusedMoving++; return null; }',
+    why: 'driving through a marker takes the job, 13.8 s after the spawn at 24 km/h',
+  },
+  {
+    /**
+     * THE PERMISSIVE DEFAULT, and it is the interesting half. `speed = 0` makes every caller that
+     * forgets the argument silently keep the drive-through behaviour — a guard whose default is
+     * the permissive case, which CLAUDE.md records twice as reading like a guard without being
+     * one. BEHAVIOUR-PRESERVING for both shipped hosts, because both pass the speed: only the
+     * throw checks can see it, and they are the reason it is caught.
+     */
+    id: 'pickup-speed-default', file: 'src/mission.js',
+    find: '  pickupAt(x, z, speed) {',
+    to: '  pickupAt(x, z, speed = 0) {',
+    why: 'a host that forgets the speed conscripts silently instead of throwing',
+  },
+  {
+    /**
+     * THE REFUSAL LOSES ITS CUE. `composeOffer` always takes the notice branch, so a player sitting
+     * in a pickup reads "Easy money. ... — 0 m" and is told nothing about why nothing is happening.
+     * The distance is 0 there, so the line reads as an ARRIVAL: the worst shape a missing
+     * instruction can take. A level a player cannot see is only allowed to refuse them if
+     * something says so, which is `composeGarage`'s "stop here" and the reason this branch exists.
+     */
+    id: 'offer-cue', file: 'src/mission.js',
+    find: '  if (at.inPickup && !at.stopped) {',
+    to: '  if (false) {',
+    why: 'the pickup refuses the player and says "— 0 m", which reads as having arrived',
+  },
+  {
+    /**
+     * THE THRESHOLD'S FALLBACK DRIFTS OFF THE CONSTANT IT COPIES. src/mission.js must not import
+     * src/wanted.js, so `stopMs`'s default is a second copy of `SCENE_STOP_MS` — and a copy that
+     * nothing re-derives is a magic number waiting for the real one to move under it. Both shipped
+     * hosts pass the real one, so this is invisible to every behavioural arm; `mission-test` §13
+     * carries the equality check for exactly that reason, as `damage-test` does for the garage's.
+     */
+    id: 'pickup-stopms-copy', file: 'src/mission.js',
+    find: '    this.stopMs = opts.stopMs ?? 1.0;',
+    to: '    this.stopMs = opts.stopMs ?? 2.5;',
+    why: 'the board\'s fallback stops agreeing with src/wanted.js, silently for both hosts',
+  },
+  {
+    /**
      * THE COUNTDOWN PRINTS SECONDS AS METRES. Drops the unit, and `objectiveLine` defaults to
      * metres by design — its own comment says a tenant that means seconds must not be able to
      * print them as metres. CLAUDE.md records the bust countdown shipping exactly this: "3 m" for

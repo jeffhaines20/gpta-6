@@ -1509,6 +1509,99 @@ end) and `mutation-sweep` reverted it and came back MISSED. It was redundant onc
 was sticky — bit-identical, same bust times, same hold durations — so the guard was deleted
 and the row with it. **A row nothing can tell apart is not evidence of coverage.**
 
+### A guard can be right about what it demands and silent about the case next door
+
+`mission-test` has asserted, for as long as pickups have existed, that **the spawn is outside every
+pickup radius** — "a mission you are standing in is not a mission you chose". It passed. It is also
+only about FRAME ONE, and the defect is on the way out:
+
+    spawn to shakedown's pickup                        30.0 m   outside its r12, inside its r48 notice
+    driving to the FLAGSHIP's pickup passes            2.0 m    from shakedown's r12 pickup
+    so shakedown starts at                             t 13.8 s  24 km/h, 11.56 m from the ring
+    and the player arrives at the flagship on          shakedown's FINAL stage, pointing 539 m back
+
+The route-crossing number took one `roads.path` call and 0.1 s to compute, and nothing had ever
+computed it. This is the same shape as `facades.js` refusing awnings over a LOTTED bay — right
+about what it demanded, and so much of the problem that nobody looked at the unlotted half — and as
+`geom-audit` asking for ONE street direction where the build unions two. **When a check is about a
+moment, ask what the same quantity does over the rest of the player's path**, and make the geometry
+a printed number rather than an unexamined fact: `mission-test` now routes the spawn to each pickup
+and prints how close it passes to every other.
+
+**The fix was derived rather than picked, and the derivation was already in the repo twice.**
+`src/damage.js`'s garage refuses a moving car "so the garage is somewhere a player stops rather
+than something they drive through on the way past", and `district/main.js` builds it with
+`radius: OFFER_RADIUS_M` and `stopMs: SCENE_STOP_MS` — src/mission.js's radius and src/wanted.js's
+stopped threshold, already crossing between the three modules. A mission pickup is the same shape
+as a garage zone, so it takes the same threshold from the same source and there is no new constant.
+
+Three things worth separating:
+
+- **A LEVEL, not a dwell, and the garage argues the opposite for itself.** The garage holds you for
+  `holdS` because the repair takes time; taking a job does not, so the stop IS the whole deliberate
+  act. That also keeps `offerAt` a pure function of position, which is what lets the HUD still NAME
+  an offer the player is driving through — the moment it most needs something to say.
+- **A level a player cannot see is only fair with a cue**, and `composeGarage`'s "stop here" was the
+  precedent to copy, down to the `ownSubtitle`. The mutation that matters is not the gate being
+  removed but the cue falling back to the notice branch: that prints "Easy money. … — 0 m" at the
+  pickup, where the distance IS 0, so the refusal reads as an ARRIVAL. A missing instruction that
+  looks like a confirmation is the worst shape it can take.
+- **The required argument has no permissive default.** `pickupAt(x, z, speed)` throws on a missing
+  or non-finite speed rather than defaulting to 0, because a 0 default would make any host that
+  forgets it silently keep the drive-through behaviour — the "a guard whose default is the
+  permissive case" trap this file already records twice. It is BEHAVIOUR-PRESERVING for both shipped
+  hosts, so only the throw checks can see it, which is why `pickup-speed-default` is a row.
+
+**And the browser arm for the host wire printed a number and measured the wrong one, twice.** Both
+errors accused a build that works, which is the dangerous direction — a probe that says FAIL sends a
+round to change working code:
+
+- **`missionReport().mission` IS NOT "a mission is running".** `MissionRunner` keeps the mission
+  reference after it ends and moves the OUTCOME, so the arm read `marlin-street` as its before-state
+  AND its after-state and reported the refused drive-by as having started a mission. The quantity
+  under test is `missionBoard().starts`, which the host increments only when a pickup fires. This is
+  "quote the signal the code reads" arriving as a field that outlives the thing it names.
+- **The arm ran after another arm had ended a mission**, and `ended` sits above `offer` in
+  BAND_ORDER, so the offer line could not show whatever it said. The band read "MISSION ABORTED /
+  Marlin Street — you were arrested" — a correct band for a page carrying a 6 s end-of-mission hold,
+  and nothing at all about the pickup. **A band assertion is a statement about PRECEDENCE as well as
+  about text**, so an arm that reads the band has to own the top of it: this one moved above the
+  first thing in the file that starts a mission, and leaves its own mission RUNNING rather than
+  aborting, because `district/main.js` clears the hold when a pickup fires and an abort would have
+  handed the next arm the hold this one tripped over.
+
+The tell for both was in the same line of output: the arm's own before-state and after-state were
+byte-identical strings naming an arrest nothing in the arm had caused.
+
+**And fixing those two produced a third, which is the one worth the most: an arm that perturbs the
+page is a dirty tree for every arm after it.** The corrected arm teleported the car into the pickup
+at x8 the stop threshold and braked. Two things went wrong at once and the second was invisible:
+
+- **`setControls` from outside the page is overwritten every frame.** The page reads its own input
+  after the caller writes, so 40 frames of `brake: 1` took 8.01 m/s to 6.88 — which reads as a car
+  that will not stop and is a harness that is not driving it. `setAutopilot` is the hook, and the
+  wedged-car arm two sections down was already using it, with a comment. Patching one arm and not
+  its sibling, again.
+- **So the car travelled 42 m, left the ring, and struck a pedestrian** — which charged a crime,
+  put a `status` notice over the band, and spent `chargeVictim`'s 20 s window on an id the run-over
+  arm needs. boot-check went from 3 failures to 9, **six of them in three later arms this one had
+  disturbed**, and every one of those six read as a defect in the feature that arm tests. The same
+  shape is already in this file from the other side: a run-over arm finding "56 run-overs and every
+  one a REPEAT" because an earlier arm had parked on a populated street.
+
+Two rules out of it. **Give a browser arm the smallest input that proves what it is for**: this one
+needs to know whether the host passes a speed at all, so x2 the threshold does it, and x2 is also
+under src/damage.js's 2.2 m/s free-contact threshold — 0.45 m of travel, nothing touched. HOW BIG
+the margin is belongs offline, where it costs nothing. And **assert the arm left the page alone**,
+rather than hoping: travel under 2 m and 0 stars is a check now, because the failure it catches
+does not appear in this arm's own output.
+
+**And the three checks it falsified were restated in the same commit, which cost nothing because
+the old arm became the new control.** `playtest --selftest` §5b read "driving into the marker starts
+the job" and was correct about the behaviour it was written for. `driveTo` leaves the car rolling at
+37 km/h, so the identical call is now the negative arm, and the positive one is 0.90 s of brake —
+a brake curve, not a dwell, which is the number that says the rule is a level.
+
 ### A host rule is a rule no offline gate can reach
 
 `district/main.js` is imported by nothing offline, so every rule that lives there is a rule

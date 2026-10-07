@@ -693,17 +693,46 @@ export class MissionRunner {
  * — and called it the finding that dwarfed its other eleven. 347 gate checks were green over a
  * first mission nobody could reach.
  *
- * DRIVE INTO THE MARKER AND IT STARTS. That is the genre's own convention and it needs no new
- * input plumbing, which matters: a prompt-and-confirm would have wanted a key, a key wants
- * src/input.js, and the thing being fixed is that the mission layer has no connection to the
- * world at all. The marker is a position with a radius; entering it while nothing is running
- * starts that mission.
+ * STOP IN THE MARKER AND IT STARTS. The first version was DRIVE INTO THE MARKER AND IT STARTS
+ * — the genre's own convention, needing no new input plumbing, which mattered because the thing
+ * being fixed was that the mission layer had no connection to the world at all. A key wants
+ * src/input.js and the marker is a position with a radius, so entering it was enough.
+ *
+ * IT CONSCRIPTS. The spawn is 30.0 m from `shakedown`'s pickup, which is 2.5x the start radius,
+ * and the only way east is through that disc. A playtester asked the harness to drive to the
+ * FLAGSHIP's pickup and measured the other mission starting 13.75 s into the trip; reproduced on
+ * the seeded harness it fires at t 13.8 s, 11.56 m from a 12 m ring, AT 24 km/h. The player had
+ * taken no action at all, and there is no way out of a running mission but to finish it, wreck
+ * the car or be arrested — so the cost of choosing the flagship first was about 1,450 m of
+ * driving to reach a marker 455 m away.
+ *
+ * The comment this replaces said a 12 m disc is "hard to miss and impossible to sit in
+ * accidentally". Both halves are true and they are about SITTING. Nothing in it was about
+ * CROSSING, which is the failure: a car on the centreline of the street the disc straddles
+ * covers 24.0 m of ring, 1.6 s at town speed, and the start fires on the first frame inside.
+ *
+ * So the start needs a DELIBERATE ARRIVAL, and this codebase already has that rule written down
+ * once. `src/damage.js`'s garage refuses a moving car "so the garage is somewhere a player stops
+ * rather than something they drive through on the way past", and `district/main.js` builds it
+ * with `radius: OFFER_RADIUS_M` and `stopMs: SCENE_STOP_MS` — this module's radius and
+ * src/wanted.js's stopped threshold. A mission pickup is the same shape as a garage zone: a 12 m
+ * disc you are meant to arrive at. It gets the same threshold from the same source.
+ *
+ * `stopMs` IS A LEVEL AND NOT A DWELL, which is where this parts company with the garage. The
+ * garage holds you for `holdS` because the repair takes time; taking a job does not, so there is
+ * nothing to wait for and the stop IS the whole deliberate act. That also keeps `offerAt` a pure
+ * function of position: no per-frame state on the board, so the latch below is untouched.
+ *
+ * ON FOOT TOO, and that is a change rather than an accident: WALK_SPEED is 3.2 m/s, so a player
+ * who walks into a marker must stop. The cue is what makes it fair — `composeOffer` says
+ * "stop to start" inside the ring, in the same words and the same shape as `composeGarage`'s
+ * "stop here", which is the only reason a level a player cannot see is allowed to refuse them.
  *
  * THERE IS A NOTICE RADIUS AS WELL AS A START RADIUS, because a marker you can only discover by
  * driving through it is barely better than a console call. Inside `noticeFactor` times the start
  * radius the board reports the offer so the HUD can name it and count down the distance; inside
- * the start radius it fires. 12 m and 48 m: a 12 m disc across a 6.6 m street is hard to miss
- * and impossible to sit in accidentally, and 48 m is about two seconds at town speed.
+ * the start radius it fires once the player is stopped. 12 m and 48 m: a 12 m disc across a
+ * 6.6 m street is hard to miss, and 48 m is about two seconds at town speed.
  *
  * A PASSED MISSION STOPS BEING OFFERED; A FAILED ONE DOES NOT. Wrecking the car on the way to
  * the marina should cost the run, not the mission — a game that deletes its own content on the
@@ -720,6 +749,15 @@ export class MissionBoard {
     this.unreachable = all.filter((m) => m && !m.start).map((m) => m.id);
     this.radius = opts.radius ?? OFFER_RADIUS_M;
     this.noticeFactor = opts.noticeFactor ?? OFFER_NOTICE_FACTOR;
+    /**
+     * THE SPEED BELOW WHICH A PICKUP MAY FIRE, in m/s, and the default is a FALLBACK rather than
+     * the number: the HOST passes src/wanted.js's `SCENE_STOP_MS`, exactly as it already does
+     * when it builds `src/damage.js`'s garage. This module must not import src/wanted.js — a
+     * default copied from another module is the second copy of a constant, which CLAUDE.md
+     * records as the recurring defect here — so `tools/mission-test.mjs` asserts this fallback
+     * equals the real constant, the way `damage-test` already does for the garage's.
+     */
+    this.stopMs = opts.stopMs ?? 1.0;
     this.outcomes = new Map();
     /**
      * MARKERS THAT MAY NOT FIRE AGAIN UNTIL THE PLAYER LEAVES THEM.
@@ -737,6 +775,12 @@ export class MissionBoard {
      */
     this.latched = new Set();
     this.starts = 0;
+    /**
+     * COUNTED, so a refusal can never be silent. `refusedMoving` is per FRAME inside a pickup
+     * above `stopMs` — a frame counter, not an event counter, which CLAUDE.md asks to be named
+     * for what it counts after `stats.runOvers` read 3,684 against 0 charged run-overs.
+     */
+    this.refusedMoving = 0;
   }
 
   /** Latch a marker so it cannot fire again until the player has left it. */
@@ -779,6 +823,33 @@ export class MissionBoard {
     return best;
   }
 
+  /**
+   * THE OFFER THAT MAY ACTUALLY FIRE: inside the pickup, not latched, and the player stopped.
+   * This is the one a host starts a mission from; `offerAt` stays a pure function of position so
+   * the HUD can still NAME an offer the player is standing in but moving through.
+   *
+   * `speed` IS REQUIRED AND THERE IS NO PERMISSIVE DEFAULT. A `speed = 0` fallback would make
+   * every caller that forgets it silently keep the drive-through behaviour this method exists to
+   * remove — a guard whose default is the permissive case, which CLAUDE.md records twice as
+   * reading like a guard without being one. `MissionRunner` already throws on a snapshot missing
+   * a declared need, and this is the same discipline in the same module: a host that cannot say
+   * how fast the player is going gets an exception rather than a conscription.
+   *
+   * @param {number} x
+   * @param {number} z
+   * @param {number} speed  the player's planar speed in m/s — the CAR's own when driving and the
+   *   person's when on foot, which is the quantity `_snapshot()` already computes in both hosts.
+   */
+  pickupAt(x, z, speed) {
+    const hot = this.offerAt(x, z, 'start');
+    if (!hot) return null;
+    if (!Number.isFinite(speed)) {
+      throw new TypeError('MissionBoard.pickupAt needs the player speed in m/s');
+    }
+    if (speed >= this.stopMs) { this.refusedMoving++; return null; }
+    return hot;
+  }
+
   /** Every available offer as a HUD blip. The same shape MissionRunner.hud()'s markers use. */
   markers() {
     return this.available().map((m) => ({ x: m.start.x, z: m.start.z, kind: 'offer', id: m.id }));
@@ -797,6 +868,46 @@ export class MissionBoard {
       starts: this.starts,
       radius: this.radius,
       noticeRadius: this.radius * this.noticeFactor,
+      stopMs: this.stopMs,
+      refusedMoving: this.refusedMoving,
     };
   }
+}
+
+/**
+ * THE OFFER'S BAND LINE, in this module rather than in either host, because an offer line
+ * assembled in `district/main.js` is a line `tools/playtest.mjs` cannot reproduce — the defect
+ * CLAUDE.md records as "a host rule is a rule no offline gate can reach", measured once at four
+ * of `composeBand`'s five tenants being missing from the node harness's own view of the screen.
+ * Both hosts built this line inline and byte-differently before it moved here.
+ *
+ * TWO BRANCHES, and the second is the whole point of `pickupAt`:
+ *
+ *   - inside the PICKUP and moving -> "SHAKEDOWN / stop to start". A level a player cannot see
+ *     is only allowed to refuse them if something says so, and `composeGarage`'s "stop here" is
+ *     the precedent this copies, down to the `ownSubtitle`.
+ *   - inside the NOTICE radius -> "SHAKEDOWN / <brief> — 312 m", which is what it always said.
+ *
+ * `ownSubtitle` ON BOTH, for `composeGarage`'s reason: src/hud.js's HOLDS_MISSION_SUBTITLE would
+ * otherwise replace an instruction with a mission objective. Nothing is running while an offer
+ * shows, so there is no objective to be replaced BY today — this is the conditional half, and it
+ * costs nothing to be right about now rather than after somebody stacks a tenant on it.
+ *
+ * @param {object|null} offer  an `offerAt(x, z, 'notice')` result, or null
+ * @param {{stopped:boolean, inPickup:boolean}} at
+ */
+export function composeOffer(offer, at = {}) {
+  if (!offer || !offer.mission) return null;
+  const title = String(offer.mission.title ?? offer.mission.id ?? '').toUpperCase();
+  if (at.inPickup && !at.stopped) {
+    return { objective: { text: title }, subtitle: 'stop to start', ownSubtitle: true };
+  }
+  // A PLAIN STRING on this branch and a `{ text }` on the other, deliberately: `objectiveLine`
+  // flattens both and this is the shape the notice line has always shipped as. A change that
+  // adds a branch should not also retitle the branch that was already there.
+  return {
+    objective: title,
+    subtitle: `${offer.mission.brief} — ${Number(offer.distance ?? 0).toFixed(0)} m`,
+    ownSubtitle: true,
+  };
 }

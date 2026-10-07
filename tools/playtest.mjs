@@ -48,7 +48,8 @@ import { Traffic } from '../src/traffic.js';
 import { Pedestrians } from '../src/pedestrians.js';
 import { RoadGraph, followPath, ROUTE_LANE_M } from '../src/roadpath.js';
 import { PursuitUnits } from '../src/pursuit.js';
-import { MissionRunner, OUTCOMES, MissionBoard, OFFER_RADIUS_M } from '../src/mission.js';
+import { MissionRunner, OUTCOMES, MissionBoard, OFFER_RADIUS_M,
+  composeOffer } from '../src/mission.js';
 import { composeBand, objectiveLine, MINIMAP_REACH_M, PULL_MIN } from '../src/hud.js';
 import { MISSIONS } from '../src/missions.js';
 
@@ -295,7 +296,8 @@ export class Session {
      * mission, but the honest way in is to drive into a marker, and that is what the real page
      * now does too.
      */
-    this.board = new MissionBoard(MISSIONS);
+    // `stopMs` from src/wanted.js, as district/main.js does. See MissionBoard's header.
+    this.board = new MissionBoard(MISSIONS, { stopMs: SCENE_STOP_MS });
     /**
      * THE INTENTS, because without them the flagship's only pursuit beat is two seconds long.
      *
@@ -348,6 +350,7 @@ export class Session {
     this._controls = { throttle: 0, brake: 0, steer: 0, handbrake: false };
     this._route = null;
     this._offer = null;
+    this._offerLine = null;
     this._ended = null;
     this._endFor = 0;
     this._wreckFor = 0;
@@ -694,7 +697,10 @@ export class Session {
   _offers() {
     const ap = this._pos();
     this.board.refresh(ap.x, ap.z);
-    const hot = this.board.offerAt(ap.x, ap.z);
+    // The same quantity `_snapshot()` reports as `speed`, and district/main.js's `focusSpeed`.
+    const speed = this.mode === 'foot'
+      ? Math.hypot(this.player.velocity.x, this.player.velocity.z) : this.vehicle.speed;
+    const hot = this.board.pickupAt(ap.x, ap.z, speed);
     if (hot) {
       this.board.starts++;
       this._outcome = OUTCOMES.RUNNING;
@@ -702,13 +708,19 @@ export class Session {
       this.say(`MISSION ${hot.mission.id}: ${hot.mission.title} — ` +
         `${this.mission.hud()?.objective ?? ''}`);
       this._offer = null;
+      this._offerLine = null;
       return;
     }
     const seen = this.board.offerAt(ap.x, ap.z, 'notice');
+    const inPickup = !!seen && seen.distance <= this.board.radiusOf(seen.mission);
     this._offer = seen
       ? { id: seen.mission.id, title: seen.mission.title, brief: seen.mission.brief,
-        range: seen.distance, x: seen.mission.start.x, z: seen.mission.start.z }
+        range: seen.distance, x: seen.mission.start.x, z: seen.mission.start.z,
+        // What the player is being told, so a playtester can see the refusal rather than
+        // reporting the pickup as broken. See composeOffer.
+        inPickup, stopRequired: inPickup && speed >= this.board.stopMs }
       : null;
+    this._offerLine = composeOffer(seen, { inPickup, stopped: speed < this.board.stopMs });
   }
 
   _snapshot() {
@@ -1320,10 +1332,10 @@ export class Session {
     // One composer, shared with district/main.js, so the two hosts cannot drift. See composeFence.
     const fence = composeFence(this._fence);
     const ended = this._endFor > 0 ? this._ended : null;
-    const offer = this._offer
-      ? { objective: this._offer.title.toUpperCase(),
-        subtitle: `${this._offer.brief} — ${this._offer.range.toFixed(0)} m` }
-      : null;
+    // Composed by src/mission.js, shared with district/main.js, so the two hosts cannot drift.
+    // Built inline in both of them until the pickup grew a stop rule and the line grew a second
+    // branch — which is when "the same line, written twice" stopped being free. See composeOffer.
+    const offer = this._offerLine;
     /**
      * THE LAW TENANT, composed by src/wanted.js from the same snapshot the page composes it from.
      * Its absence is why a playtester could drive off from a pedestrian at 40 km/h, have
@@ -2088,9 +2100,16 @@ if (!IS_MAIN) {
    * §5b  THE WAY A PLAYER ACTUALLY STARTS ONE. Until this round the only door into either
    * authored mission was `window.__district.startMission(id)` from the browser console, and a
    * playtester led its report with it. This arm never calls startMission: it drives to the
-   * marker and the marker starts the job.
+   * marker and STOPS, and the marker starts the job.
+   *
+   * RESTATED, NOT LOOSENED. Three checks here read "driving into the marker starts the job" and
+   * were correct about the behaviour they were written for. `MissionBoard.pickupAt` now refuses a
+   * moving player, for the reason that module's header measures — a drive-by at 24 km/h was
+   * conscripting a player 13.8 s after the spawn — so ARRIVING is now two checks instead of one
+   * and the drive-through is the control. `driveTo` leaves the car rolling, which is what makes
+   * the pair free: the same call that used to fire the mission is now the negative arm.
    */
-  console.log('\n§5b a mission found by driving into it');
+  console.log('\n§5b a mission found by driving into it and stopping');
   const found = new Session({ traffic: 0, peds: 0 });
   check('nothing is running at the spawn', found.mission.mission === null
     && found.board.available().length >= 2, `${found.board.available().length} on offer`);
@@ -2100,9 +2119,30 @@ if (!IS_MAIN) {
   const job = found.board.available().find((m) => m.id === 'shakedown');
   const toMarker = driveTo(found, job.start.x, job.start.z, { maxSpeed: 12, timeout: 120 });
   check('the pickup is reachable from the spawn', toMarker.arrived, JSON.stringify(toMarker));
-  check('driving into the marker starts the job',
+  const rolling = found.look().speedKmh;
+  check('arriving still rolling does NOT start the job', found.mission.mission === null,
+    `${rolling} km/h, ${found.board.refusedMoving} refused frames`);
+  check('and the band says why, rather than nothing', (() => {
+    const b = found._band();
+    return b.from === 'offer' && b.subtitle === 'stop to start';
+  })(), `${JSON.stringify(found._band().objective)} / ${found._band().subtitle}`);
+  check('KNOWN-BAD: it was in the pickup the whole time, so only the speed stopped it',
+    found.look().offer && found.look().offer.inPickup
+      && found.look().offer.stopRequired, JSON.stringify(found.look().offer));
+  // Now stop. `drive({brake:1})` to rest, which is the player's own control and not a teleport.
+  let braked = 0;
+  for (let i = 0; i < 600 && found.mission.mission === null; i++) {
+    found.drive({ throttle: 0, brake: 1 });
+    found.step(0.05);
+    braked += 0.05;
+  }
+  console.log(`    braked to a stop in ${braked.toFixed(2)} s at `
+    + `${found.look().speedKmh} km/h, against a ${found.board.stopMs} m/s threshold`);
+  check('stopping in the marker starts the job',
     found.mission.mission && found.mission.mission.id === 'shakedown',
     found.mission.mission ? found.mission.mission.id : 'nothing started');
+  check('and it took about as long as a brake to rest, not a dwell', braked < 2.5,
+    `${braked.toFixed(2)} s`);
   check('the transcript says which job it was',
     found.log.some((l) => l.line.startsWith('MISSION shakedown')),
     found.log.map((l) => l.line).find((l) => l.startsWith('MISSION')) ?? '(nothing)');
@@ -2114,8 +2154,31 @@ if (!IS_MAIN) {
   done.board.record('shakedown', OUTCOMES.PASSED);
   done.board.record('marlin-street', OUTCOMES.PASSED);
   driveTo(done, job.start.x, job.start.z, { maxSpeed: 12, timeout: 120 });
+  for (let i = 0; i < 200; i++) { done.drive({ brake: 1 }); done.step(0.05); }
   check('a job already passed does not start again', done.mission.mission === null,
     done.mission.mission ? done.mission.mission.id : 'nothing, correctly');
+  check('and it was stopped, so the stop rule is not what refused it',
+    done.look().speedKmh < done.board.stopMs * 3.6, `${done.look().speedKmh} km/h`);
+  /**
+   * THE CONSCRIPTION, measured end to end: driving to the FLAGSHIP's pickup used to start the
+   * OTHER mission on the way, 13.8 s in at 24 km/h and 11.56 m from a 12 m ring. The spawn is
+   * 30.0 m from that ring, so the route out of town cannot avoid it.
+   */
+  const through = new Session({ traffic: 0, peds: 0 });
+  const flagship = through.board.available().find((m) => m.id === 'marlin-street');
+  // `timeout` is driveTo's own name for the second budget; `limitS` is not an option and was
+  // silently ignored on the first draft of this arm, leaving the default 180 to be right by
+  // accident. An ignored option is a number that is not there.
+  const trip = driveTo(through, flagship.start.x, flagship.start.z, { timeout: 180 });
+  const ring = Math.hypot(through.debug().at.x - job.start.x, through.debug().at.z - job.start.z);
+  console.log(`    drove ${trip.metres} m to the flagship pickup in ${trip.seconds} s, passing `
+    + `${job.id}'s ring (${through.board.refusedMoving} refused frames inside it)`);
+  check('driving PAST a pickup on the way somewhere else conscripts nobody',
+    through.board.starts === 0 && through.mission.mission === null,
+    `${through.board.starts} starts, ${through.mission.mission?.id ?? 'none'}`);
+  check('KNOWN-BAD: and it really did cross the ring, so the drive-by was refused not avoided',
+    through.board.refusedMoving > 0,
+    `${through.board.refusedMoving} frames inside, now ${ring.toFixed(1)} m away`);
   // And a player is told a marker is there before they are standing in it.
   const nearby = new Session({ traffic: 0, peds: 0 });
   const r0 = nearby.board.radiusOf(job);

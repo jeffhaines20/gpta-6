@@ -623,7 +623,7 @@ line read `STOP AT THE SCENE — 85 m` over `still on: LOSE THEM` for 6.43 / 8.3
 The `still on:` subtitle is doing the right thing. What inverts is the precedence, on the one stage
 whose point is not to stop.
 
-### #100 A player heading for the flagship is conscripted into the tutorial (A#1)
+### #100 A player heading for the flagship is conscripted into the tutorial (A#1) — FIXED (the conscription half)
 Reproduced geometrically at HEAD and it is worse than reported. **Both** mission offer centres sit
 essentially ON a road centreline:
 
@@ -640,6 +640,40 @@ because offers are only evaluated when nothing is running.
 **And there is no way out:** 300 s parked mid-mission leaves `outcome running`, and no `look()`
 field matches /abort|decline|cancel|abandon/. Only complete, wreck, or arrest. Cost of choosing the
 flagship first: ~1,450 m of driving to reach a marker 455 m away.
+
+**FIXED. Reproduced to the decimal first** — t 13.8 s, 11.56 m from a 12 m ring, **at 24 km/h**,
+with the spawn 30.0 m from that ring — and the geometry is now a recorded number rather than an
+unexamined fact: `mission-test` routes the spawn to each pickup and prints how close it passes to
+every other, which reads **2.0 m from `shakedown`'s r12 pickup** on the way to the flagship and
+331.1 m the other way. One crossing, in one direction, and it is unavoidable.
+
+`MissionBoard.pickupAt(x, z, speed)` refuses above `stopMs`, which the HOST supplies as
+`SCENE_STOP_MS` — **the same threshold, from the same module, that it already feeds the garage**,
+whose own comment says a moving car is refused "so the garage is somewhere a player stops rather
+than something they drive through on the way past". A mission pickup is the same shape as a garage
+zone; it gets the same rule. A LEVEL and not a dwell, because taking a job takes no time, so the
+stop is the whole deliberate act and `offerAt` stays a pure function of position.
+
+    the 454 m trip to the flagship   before   shakedown starts at t 13.8 s, 24 km/h
+                                     after    0 starts, 342 refused frames inside the ring
+    arriving still rolling           37 km/h  -> "SHAKEDOWN / stop to start", nothing starts
+    then braking to rest             0.90 s   -> starts, which is a brake curve and not a dwell
+
+**The cue is what makes a level a player cannot see fair**, and `composeGarage`'s "stop here" is the
+precedent it copies, down to the `ownSubtitle`. `composeOffer` is in src/mission.js rather than in
+either host for the reason CLAUDE.md records twice: both hosts had built that line inline and it
+was about to grow a second branch in two places.
+
+**Three checks were restated, not loosened.** `playtest --selftest` §5b read "driving into the
+marker starts the job" and was correct about the behaviour it was written for; arriving is now two
+checks (rolling refuses, braking accepts) with the drive-through as the control, which is free
+because `driveTo` leaves the car rolling. §13 of `mission-test` is the offline half: the threshold
+AT the boundary rather than either side of it, the `stopMs` fallback against `SCENE_STOP_MS` the way
+`damage-test` checks the garage's, and four shapes of missing `speed` throwing rather than guessing.
+
+**The remaining half is the one the entry's second paragraph names, and it is still open.** See
+#106: a mission you have taken cannot be handed back. The stop rule makes TAKING one deliberate, so
+nobody is conscripted any more, and the cost of a job you took and no longer want is unchanged.
 
 ### #101 `ambush`'s 240 s clock has no representation, and expires into a stage nothing reached (A#4)
 `secondsLeft` is 237.933 at entry. Over 237.9 s of running it down the band showed two line
@@ -694,6 +728,42 @@ later: **vacuous 6 of 6, the body has got up.** The one route that works is kill
 36 s, drive over the corpse -> `charged true`, 1 star. A body stands up in ~4.4 s and the per-victim
 window is 20 s, so **a survivor can never be charged twice** and the only chargeable body is a
 fatality needing ~68 km/h.
+
+### #106 A mission you have taken cannot be handed back (#100's second half)
+Split out of #100 because the half that shipped a fix and the half that did not are different
+decisions. The conscription is gone — a pickup now needs the player stopped, measured at 0 starts
+over the 454 m trip that used to take the job 13.8 s in — so what is left is a player who stopped
+on a marker, took a job, and changed their mind.
+
+A measured it at HEAD and nothing about it has moved: 300 s parked mid-mission leaves `outcome
+running`, and **no `look()` field matches /abort|decline|cancel|abandon/**. The three exits are
+complete, wreck and arrest, and `district/main.js`'s `abortMission` hook is reachable only from a
+browser console — the same shape as `startMission` before #100's round, which a playtester called
+the finding that dwarfed its other eleven.
+
+So the cheapest way to decline a job is to **destroy your own car**, which #96 measures at a 13.4 s
+median. That is the optimal-play inversion this project has already removed once, arriving through a
+new door.
+
+**Two candidate levers, neither taken, and the reason is that neither is derived yet:**
+
+- **A key.** `src/input.js` exists and `abortMission` is already written, so this is a wire rather
+  than a feature. What it needs is a decision about which key and a cue, and the HUD has no
+  precedent for a held-to-confirm input.
+- **Re-enter the pickup to hand it back**, under the same stop rule, which needs no new input and no
+  new geometry. Checked for collisions, off the mission definitions: the closest any stage trigger
+  comes to its OWN pickup is `shakedown/b` at **72.5 m with a 24 m radius** — clear of a 12 m
+  pickup ring by 36.5 m — and the next closest is 162.5 m, so no stage could satisfy itself on an
+  abort zone. `shakedown`'s leg from `b` to `c` passes 58.6 m from its pickup in a straight line,
+  and the latch the board already has would stop a handed-back job restarting on the next frame. It
+  reads well as fiction too. What stops it being obvious is that it gives `marlin-street` an abort
+  zone 500 m from its own delivery point and `shakedown` one at the start of a 400 m walk, so
+  "where you took it" is not somewhere a player who wants out is standing.
+
+Worth one playtest question before either: **is being unable to decline actually felt as a trap
+once nobody is conscripted into it?** The finding was reported as a consequence of the
+conscription, not on its own, and this file already records a round that measured a saturation's
+cost before fixing it and found the player could not tell.
 
 ### REFUTED — braking for traffic is not worse than ignoring it (B#11)
 Round 8 measured "flat out at 40 km/h ignoring traffic: 0 rams, 519 m; lifting off for any car

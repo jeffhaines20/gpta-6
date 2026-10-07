@@ -19,10 +19,12 @@
 import { DamageModel } from '../src/damage.js';
 import { objectiveLine } from '../src/hud.js';
 import { MissionRunner, defineMission, OUTCOMES, TRIGGERS, snapshotFields,
-  MissionBoard, OFFER_RADIUS_M } from '../src/mission.js';
+  MissionBoard, OFFER_RADIUS_M, composeOffer } from '../src/mission.js';
 // For the flee stage's cue: the word the wanted strip prints is read off the module that
 // prints it, not spelled a second time here. See section (c).
-import { composeWanted, STATES } from '../src/wanted.js';
+// SCENE_STOP_MS for §13: the board's `stopMs` fallback must equal the constant the HOST feeds
+// it, which is the check `damage-test` already carries for the garage's copy of the same number.
+import { composeWanted, STATES, SCENE_STOP_MS } from '../src/wanted.js';
 import fs from 'node:fs';
 
 const DT = 1 / 30;
@@ -1032,6 +1034,37 @@ console.log('\n=== 10. the mission board — what a player can walk into');
       p ? `${p.length.toFixed(0)} m of road` : 'no route');
   }
 
+  /**
+   * AND "OUTSIDE AT LOAD" SAYS NOTHING ABOUT THE DRIVE OUT, which is the half the two checks
+   * above covered and read as covering all of. The spawn is 30.0 m from `shakedown`'s pickup —
+   * outside its 12 m ring and inside its 48 m notice — and the route east goes straight through
+   * it, so a player heading for the flagship used to arrive having been given a different job.
+   *
+   * The crossing is GEOMETRY and is not a defect: a pickup belongs on a street a player drives
+   * down, and `mission-test` already requires every one of them to be on a routable road. What
+   * it means is that `MissionBoard.stopMs` is LOAD-BEARING rather than defensive, which is what
+   * this records. The behavioural halves are §13 and `playtest --selftest` §5b.
+   */
+  let crossings = 0;
+  for (const target of board.list) {
+    const route = roads.path(SPAWN.x, SPAWN.z, target.start.x, target.start.z,
+      { spacing: 4, offset: 0 });
+    if (!route) continue;
+    for (const other of board.list) {
+      if (other === target) continue;
+      const r = board.radiusOf(other);
+      let best = Infinity;
+      for (const pt of route.points) {
+        best = Math.min(best, Math.hypot(pt[0] - other.start.x, pt[1] - other.start.z));
+      }
+      if (best <= r) crossings++;
+      console.log(`    driving to ${target.id.padEnd(16)} passes ${best.toFixed(1)} m from `
+        + `${other.id}'s r${r} pickup${best <= r ? '  <- INSIDE' : ''}`);
+    }
+  }
+  check('KNOWN-BAD: a route to one pickup really does cross another, so the stop rule is what '
+    + 'stops a drive-by taking the job', crossings > 0, `${crossings} ring crossings`);
+
   // Nothing is on offer at the spawn, which is the whole-board form of the check above.
   check('no mission fires on the first frame', board.offerAt(SPAWN.x, SPAWN.z) === null,
     JSON.stringify(board.offerAt(SPAWN.x, SPAWN.z)));
@@ -1643,6 +1676,127 @@ console.log('\n=== 12. a stage with a clock and no destination shows the clock')
     check(`${row.id}: a stage with neither keeps its plain string form`,
       typeof o === 'string' || unitOf(o) !== 's', shape(o));
   }
+}
+
+/**
+ * §13  A PICKUP FIRES ONLY WHEN THE PLAYER HAS STOPPED.
+ *
+ * The defect, measured on tools/playtest.mjs's seeded harness: asking it to drive to the
+ * FLAGSHIP's pickup started the OTHER mission 13.8 s after the spawn, 11.56 m from a 12 m ring,
+ * AT 24 km/h, with the player having pressed nothing. The spawn is 30.0 m from that ring and the
+ * only way east is through it, so the cost of choosing the flagship first was about 1,450 m of
+ * driving to reach a marker 455 m away — and a running mission has no exit but finishing it,
+ * wrecking the car or being arrested.
+ *
+ * Everything here is OFFLINE and about the module. The end-to-end pair — the drive-by refused,
+ * the brake-to-rest accepted, and the 454 m trip to the flagship starting nothing — is
+ * `playtest --selftest` §5b, because only that harness has a car.
+ */
+{
+  console.log('\n§13 a pickup fires only when the player has stopped');
+  const JOB = { id: 'j', title: 'Job', brief: 'A job.', start: { x: 0, z: 0 } };
+  const bare = new MissionBoard([JOB]);
+  /**
+   * THE FALLBACK IS NOT THE NUMBER. src/mission.js must not import src/wanted.js, so its default
+   * is a copy — and a copy that nothing re-derives is a magic number waiting for the real one to
+   * move under it. This is the same check `damage-test` carries over `Garage`'s own fallback, and
+   * both hosts pass `SCENE_STOP_MS` explicitly.
+   */
+  console.log(`    fallbacks: radius ${bare.radius} stopMs ${bare.stopMs}`);
+  check("the board's stopMs fallback is src/wanted.js's own stopped threshold",
+    bare.stopMs === SCENE_STOP_MS, `${bare.stopMs} === ${SCENE_STOP_MS}`);
+  check('and a host can override it', new MissionBoard([JOB], { stopMs: 4 }).stopMs === 4);
+
+  const board = new MissionBoard([JOB], { stopMs: SCENE_STOP_MS });
+  /**
+   * AT the threshold, not either side of it. CLAUDE.md records a one-sided bound passing for a
+   * cap that clamps too low: `>= stopMs` refuses and `< stopMs` fires, so the two checks that
+   * pin the rule are the two at exactly `stopMs` and one ulp below it.
+   */
+  const eps = board.stopMs * Number.EPSILON * 4;
+  check('stopped in the pickup fires', board.pickupAt(0, 0, 0)?.mission === JOB);
+  check('and so does just under the threshold',
+    board.pickupAt(0, 0, board.stopMs - eps)?.mission === JOB, `${board.stopMs - eps} m/s`);
+  check('AT the threshold is refused', board.pickupAt(0, 0, board.stopMs) === null,
+    `${board.stopMs} m/s`);
+  check('and town speed is refused', board.pickupAt(0, 0, 6.67) === null, '24 km/h');
+  check('every refusal is counted, so none of them is silent', board.refusedMoving === 2,
+    `${board.refusedMoving} frames`);
+
+  /**
+   * THE SPEED IS REQUIRED. A permissive `speed = 0` default would make a host that forgets the
+   * argument silently keep the drive-through behaviour this method exists to remove, which is
+   * CLAUDE.md's "a guard whose default is the permissive case". `MissionRunner` already throws on
+   * a snapshot missing a declared need; this is the same discipline in the same module.
+   */
+  for (const [what, v] of [['nothing', undefined], ['null', null], ['NaN', NaN],
+    ['a string', '0']]) {
+    let threw = false;
+    try { board.pickupAt(0, 0, v); } catch { threw = true; }
+    check(`pickupAt refuses to guess: ${what} throws rather than starting a mission`, threw);
+  }
+  // And it throws only where there IS an offer: outside the ring there is nothing to guard.
+  let farThrew = false;
+  try { farThrew = board.pickupAt(500, 500) !== null; } catch { farThrew = 'threw'; }
+  check('outside the pickup it is geometry and needs no speed', farThrew === false,
+    `${farThrew}`);
+
+  /**
+   * `offerAt` STAYS PURE GEOMETRY, which is what lets the HUD name an offer the player is
+   * driving through. If the speed gate had gone inside it, the band would have had nothing to
+   * say at the moment it most needs to say something.
+   */
+  check('offerAt still reports a pickup the player is moving through',
+    board.offerAt(0, 0, 'start')?.mission === JOB);
+  check('and the notice radius still contains the pickup',
+    board.offerAt(0, 0, 'notice')?.mission === JOB,
+    `${board.radius} inside ${board.radius * board.noticeFactor}`);
+  // A latched marker is still invisible to the pickup, stopped or not: two independent refusals.
+  board.arm('j');
+  check('a latched pickup does not fire even at a standstill',
+    board.pickupAt(0, 0, 0) === null);
+  board.refresh(500, 500);
+  check('and it comes back once the player has left', board.pickupAt(0, 0, 0)?.mission === JOB);
+
+  /**
+   * THE CUE. A level a player cannot see is only allowed to refuse them if something says so,
+   * and `composeGarage`'s "stop here" is the precedent. Both branches carry `ownSubtitle` for
+   * that composer's reason: src/hud.js's HOLDS_MISSION_SUBTITLE replaces a subtitle that does
+   * not claim itself.
+   */
+  const inRing = board.offerAt(0, 0, 'notice');
+  const moving = composeOffer(inRing, { inPickup: true, stopped: false });
+  const far = composeOffer(board.offerAt(30, 0, 'notice'), { inPickup: false, stopped: false });
+  console.log(`    in the ring, moving: "${objectiveLine(moving.objective)} / ${moving.subtitle}"`);
+  console.log(`    from 30 m out:       "${objectiveLine(far.objective)} / ${far.subtitle}"`);
+  check('inside the pickup and moving, the band says how to start it',
+    moving.subtitle === 'stop to start', `"${moving.subtitle}"`);
+  check('and names the job, so it is not an unexplained instruction',
+    objectiveLine(moving.objective) === 'JOB', `"${objectiveLine(moving.objective)}"`);
+  check('from the notice radius it names the job and the distance',
+    objectiveLine(far.objective) === 'JOB' && far.subtitle === 'A job. — 30 m',
+    `"${far.subtitle}"`);
+  check('both branches claim their own subtitle', moving.ownSubtitle === true
+    && far.ownSubtitle === true);
+  check('stopped inside the pickup needs no cue at all, because it fires',
+    composeOffer(inRing, { inPickup: true, stopped: true }).subtitle !== 'stop to start',
+    `"${composeOffer(inRing, { inPickup: true, stopped: true }).subtitle}"`);
+  check('and no offer is no line', composeOffer(null, { inPickup: true, stopped: false }) === null
+    && composeOffer(undefined) === null);
+  /**
+   * KNOWN-BAD, and it is the mutation that matters: a composer that always took the notice
+   * branch would print "A job. — 0 m" at the moment the player needs to be told to stop. The
+   * distance is 0 there, so the line reads as an arrival and says nothing about the refusal.
+   */
+  check('KNOWN-BAD: the notice branch at the pickup would read as an arrival, not an instruction',
+    far.subtitle.includes(' m') && !moving.subtitle.includes(' m'),
+    `"${composeOffer(inRing, { inPickup: false, stopped: false }).subtitle}" is what it would say`);
+
+  // The board's own report carries both, so a harness can see the rule without reaching in.
+  const rep = board.report();
+  check('report() publishes the threshold and the refusals',
+    rep.stopMs === SCENE_STOP_MS && rep.refusedMoving === board.refusedMoving,
+    `stopMs ${rep.stopMs}, refusedMoving ${rep.refusedMoving}`);
 }
 
 console.log('\n=== CHECKS');

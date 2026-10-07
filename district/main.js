@@ -37,7 +37,8 @@ import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubS
   setLensProfile, lensProfile,
   setGlassFinish, glassFinish, setPaintTintOnly, paintTintOnly } from '../src/carbody.js';
 import { HUD, composeBand, MINIMAP_ZOOM_M } from '../src/hud.js';
-import { MissionRunner, OUTCOMES, MissionBoard, OFFER_RADIUS_M } from '../src/mission.js';
+import { MissionRunner, OUTCOMES, MissionBoard, OFFER_RADIUS_M,
+  composeOffer } from '../src/mission.js';
 import { MISSIONS } from '../src/missions.js';
 import { WantedSystem, bindPursuit, CRIMES, VictimWindow, BUST_HOLD_S, SCENE_STOP_MS,
   composeWanted, composeLaw } from '../src/wanted.js';
@@ -439,11 +440,25 @@ const mission = new MissionRunner();
  * Drive into the marker and it starts. See src/mission.js's MissionBoard for why that shape and
  * not a prompt with a key.
  */
-const board = new MissionBoard(MISSIONS);
+/**
+ * `stopMs` FROM src/wanted.js, exactly as the garage below gets it: one threshold for "the player
+ * has stopped", owned by the module that derived it, fed to the two features that need it. See
+ * MissionBoard's header for why a pickup needs it at all.
+ */
+const board = new MissionBoard(MISSIONS, { stopMs: SCENE_STOP_MS });
 /** The last thing the mission layer had to say, held on screen for a few seconds after it ends. */
 let missionEnd = null, missionEndFor = 0;
 // Which tenant won the objective band last frame, for `bandReport`. See the end-of-mission hold.
 let lastBandFrom = null;
+/**
+ * THE OFFER TENANT'S OWN LINE, for `tools/boot-check.mjs`. The band's SUBTITLE is not the offer's
+ * subtitle whenever a `status` tenant yields the objective to it — which is src/hud.js's rule and
+ * is correct — so an arm reading the screen cannot tell "the pickup said stop to start" from "a
+ * pedestrian notice is holding the subtitle". Published beside `lastBandFrom` for the same reason
+ * that one is: the tenant's own output, so the gate asserts the composer rather than the screen's
+ * precedence, and both are checked instead of one standing in for the other.
+ */
+let lastOfferLine = null;
 const MISSION_END_S = 6;
 
 /**
@@ -2078,7 +2093,15 @@ function animate(now) {
   }
   let offerLine = null;
   if (!missionHud && !wreckLine) {
-    const hot = board.offerAt(focus.x, focus.z);
+    /**
+     * THE SPEED THE PICKUP IS GATED ON is the planar speed of whatever the player is moving as:
+     * the car's own when driving, the person's when on foot. `_snapshot()` in tools/playtest.mjs
+     * computes the same quantity the same way, and `missionSnapshot()` here already does — this
+     * reads it off the same two sources rather than a third.
+     */
+    const focusSpeed = mode === 'foot'
+      ? Math.hypot(player.velocity.x, player.velocity.z) : vehicle.speed;
+    const hot = board.pickupAt(focus.x, focus.z, focusSpeed);
     if (hot) {
       board.starts++;
       missionUnhonoured.clear();
@@ -2086,11 +2109,14 @@ function animate(now) {
       mission.start(hot.mission);
       missionEnd = null; missionEndFor = 0;
     } else {
+      // The NOTICE radius contains the pickup, so one query covers both of composeOffer's
+      // branches; `inPickup` is what splits them, and it is the geometry alone.
       const seen = board.offerAt(focus.x, focus.z, 'notice');
-      if (seen) {
-        offerLine = { objective: seen.mission.title.toUpperCase(),
-          subtitle: `${seen.mission.brief} — ${seen.distance.toFixed(0)} m` };
-      }
+      offerLine = composeOffer(seen, {
+        inPickup: !!seen && seen.distance <= board.radiusOf(seen.mission),
+        stopped: focusSpeed < board.stopMs,
+      });
+      lastOfferLine = offerLine;
     }
   }
   /**
@@ -2404,6 +2430,9 @@ window.__district = {
   missionBoard: () => ({ ...board.report(),
     offerHere: board.offerAt(focusX, focusZ),
     noticeHere: board.offerAt(focusX, focusZ, 'notice'),
+    // The offer tenant's own composed line, which the band's subtitle is not whenever a status
+    // tenant has yielded to it. See `lastOfferLine`.
+    offerLine: lastOfferLine,
     markers: board.markers() }),
   /**
    * The audit. `constantFields` is the part worth reading: a numeric field that never
