@@ -242,6 +242,32 @@ const MUTATIONS = [
   // ---- src/wanted.js
   {
     /**
+     * WALKING PACE IS AN ESCAPE AGAIN. Reverts the reset to the speed test alone, which cannot
+     * separate circling from pulling away — a blind playtester beat the whole pursuit on a 25 m
+     * circle at 4.8 km/h, 2.7 m off a road, 0 of 3 arrested over the full 150 s where a parked car
+     * at the same spot is taken in 9.6 s. `wanted-test` (d2) catches it: circling at 2.8, 4.8 and
+     * 20 km/h all arrest now, and driving away at both 4.8 and 40 km/h still does not.
+     */
+    id: 'bust-sign', file: 'src/wanted.js',
+    find: "    if (this.stars <= 0 || !player.held || (moving && (away ?? true))) {",
+    to: "    if (this.stars <= 0 || !player.held || moving) {",
+    why: 'circling at walking pace beats the pursuit again, without leaving the block',
+  },
+  {
+    /**
+     * THE FALLBACK INVERTED, which is the half that would otherwise be a free pass in the other
+     * direction. `_recedingFrom` returns null when no unit has reported a position; defaulting
+     * that to "not receding" arrests a player driving flat out on any host that does not feed unit
+     * positions — and `district/main.js` feeds them while `tools/playtest.mjs` only does once a
+     * pursuit exists. Nothing errors; a fleeing player simply gets taken at 40 km/h.
+     */
+    id: 'bust-sign-default', file: 'src/wanted.js',
+    find: "    if (this.stars <= 0 || !player.held || (moving && (away ?? true))) {",
+    to: "    if (this.stars <= 0 || !player.held || (moving && (away ?? false))) {",
+    why: 'a host that reports no unit positions arrests a player driving flat out',
+  },
+  {
+    /**
      * THE CRIME REPORT TAKES THE HEADLINE BACK. Strips the `status` flag the fix added, so
      * `composeLaw`'s notice outranks a live mission objective again. Measured on a registered pair
      * off ONE sim — the band composed twice per frame, so the crimes are identical — the law tenant

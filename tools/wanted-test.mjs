@@ -2159,7 +2159,126 @@ let searchSample;
       `armed ${w.stats.bustHolds}, peaks ${peaks.join(' ')}`);
   }
 
+  /**
+   * (d2) MOVING DOES NOT RESET THE CLOCK UNLESS YOU ARE MOVING AWAY.
+   *
+   * A blind playtester beat the whole pursuit at walking pace without leaving the block: four
+   * stars, 2.7 m off a road — the spot that arrests a parked car in 9.6 s — on a 25 m circle so
+   * the position was held within 50 m.
+   *
+   *     mean  2.8 km/h                               ARRESTED 3 of 3  (9.6 / 9.5 / 6.8 s)
+   *     mean  4.8, 5.8, 6.7, 8.6, 12.4, 19.9 km/h    0 of 3, free the full 150 s
+   *
+   * The reset was a speed test alone, and a speed test cannot separate circling from pulling away.
+   * See `_watchBust` for the derivation that was tried first and refuted by this file's own floor.
+   *
+   * Every arm below reports a UNIT POSITION, because the sign is measured against it — and the
+   * last one withholds it, which is the fallback and the half that would otherwise be a free pass.
+   */
+  {
+    const unitAt = (w, x, z) => {
+      for (const u of w.units) w.reportUnit(u.id, x, z);
+      return w.units.filter((u) => u.pos).length;
+    };
+    /** Drive a path around a unit parked at the origin, for three times the clock. */
+    const drive = (name, path, reportUnit = true) => {
+      const w = wanted1();
+      let n = 0;
+      w.on('busted', () => n++);
+      // The MAX over the run, not the last value: a bust releases every unit, so an arm that
+      // succeeded ends with none and the last reading is 0 — which read as "the sign was never
+      // measured" on exactly the arms where it was.
+      let reported = 0;
+      hold(w, BUST_HOLD_S * 3, { held: true, each: (ww, i, p) => {
+        const q = path(i * DT);
+        p.x = q.x; p.z = q.z;
+        if (reportUnit) reported = Math.max(reported, unitAt(ww, 0, 0));
+      } });
+      return { name, busts: n, armed: w.stats.bustHolds, reported };
+    };
+    const kmh = (ms) => ms * 3.6;
+    /**
+     * A 25 m RADIUS, as the playtester drove it. The first version read "a 25 m circle" as a
+     * CIRCUMFERENCE and used R = 3.98 m, and the 20 km/h arm then came back free — because a tight
+     * fast circle turns at 1.38 rad/s and the SMOOTHED velocity lags far enough behind the tangent
+     * to show a real outward component. That is an artefact of the radius, not of the rule, and it
+     * is worth knowing the rule has that limit: a circle tight enough to out-turn the velocity
+     * smoothing does read as receding.
+     */
+    const R = 25;
+    const circle = (ms) => (t) => {
+      const a = (ms * t) / R;
+      return { x: R * Math.cos(a), z: R * Math.sin(a) };
+    };
+    // Straight out from the unit, which is the genuine escape.
+    const away = (ms) => (t) => ({ x: ms * t, z: 0 });
+    // Straight at it from 60 m out, which is not an escape at all.
+    const toward = (ms) => (t) => ({ x: Math.max(1, 60 - ms * t), z: 0 });
+
+    const rows = [
+      drive('stationary', () => ({ x: 2, z: 0 })),
+      drive(`circling at ${kmh(0.78).toFixed(1)} km/h`, circle(0.78)),
+      drive(`circling at ${kmh(1.33).toFixed(1)} km/h`, circle(1.33)),
+      drive(`circling at ${kmh(5.5).toFixed(0)} km/h`, circle(5.5)),
+      drive(`driving AT it at ${kmh(5.5).toFixed(0)} km/h`, toward(5.5)),
+      drive(`driving AWAY at ${kmh(1.33).toFixed(1)} km/h`, away(1.33)),
+      drive(`driving AWAY at ${kmh(11).toFixed(0)} km/h`, away(11)),
+    ];
+    console.log('    a unit parked at the origin, three times the clock:');
+    for (const r of rows) {
+      console.log(`      ${r.name.padEnd(30)} ${r.busts} bust(s), armed ${r.armed}x` +
+        `, ${r.reported} unit position(s) reported`);
+    }
+    // The arms have to have exercised BOTH outcomes, or every claim below is about one of them.
+    check('the sweep has arrested and un-arrested arms, or the split below is vacuous',
+      rows.some((r) => r.busts > 0) && rows.some((r) => r.busts === 0),
+      `${rows.filter((r) => r.busts > 0).length} arrested, ${rows.filter((r) => r.busts === 0).length} free`);
+    check('every arm actually reported where the unit was, or the sign was never measured',
+      rows.every((r) => r.reported > 0), rows.map((r) => r.reported).join(' '));
+    check('a stationary held player is still arrested, which is the case that already worked',
+      rows[0].busts > 0, `${rows[0].busts}`);
+    check('CIRCLING at walking pace is arrested, where it was free for the full 150 s',
+      rows[1].busts > 0 && rows[2].busts > 0,
+      `${kmh(0.78).toFixed(1)} km/h: ${rows[1].busts}, ${kmh(1.33).toFixed(1)} km/h: ${rows[2].busts}`);
+    check('and circling at a real speed too, because the circle recedes from nobody',
+      rows[3].busts > 0, `${kmh(5.5).toFixed(0)} km/h: ${rows[3].busts}`);
+    check('driving straight AT the officer holding you is not an escape either',
+      rows[4].busts > 0, `${rows[4].busts} busts`);
+    /**
+     * AND THE OUT IS STILL THE THROTTLE, which is this module's standing promise and the half a
+     * one-sided fix would break. Receding above the threshold resets the clock exactly as it
+     * always did — the quantity gained a sign, it did not gain a magnitude.
+     */
+    check('KNOWN-BAD: driving AWAY still resets the clock, so the out is still the throttle',
+      rows[5].busts === 0 && rows[6].busts === 0,
+      `away at ${kmh(1.33).toFixed(1)} km/h: ${rows[5].busts}, at ${kmh(11).toFixed(0)} km/h: ${rows[6].busts}`);
+    /**
+     * THE FALLBACK, and it is the arm that stops this being a free pass. `_recedingFrom` returns
+     * null when no unit has reported a position, and the reset then falls back to the speed test
+     * alone — which is what it always was. A predicate that answered "not receding" for a host
+     * with no data would arrest a player driving flat out.
+     */
+     const noPos = drive(`driving AWAY at ${kmh(11).toFixed(0)} km/h, no unit position`,
+       away(11), false);
+    console.log(`      ${noPos.name.padEnd(30)} ${noPos.busts} bust(s), ` +
+      `${noPos.reported} unit position(s) reported`);
+    check('with no unit position reported it falls back to the speed test, as before',
+      noPos.reported === 0 && noPos.busts === 0,
+      `${noPos.busts} busts with ${noPos.reported} positions`);
+    /**
+     * AND NO NEW CONSTANT. The sign is tested against `SCENE_STOP_MS`, the same threshold the
+     * speed test uses, so every figure `BUST_HOLD_S`'s own derivation rests on is untouched — a
+     * deliberate two-second pause is still spent under 1.0 m/s and still buys 2.28 s of a 4.0 s
+     * clock. Trying `RUN_SPEED` instead took that to 4.25 s against 4.0; see `_watchBust`.
+     */
+    check('the receding test reuses SCENE_STOP_MS rather than introducing a threshold',
+      /out >= SCENE_STOP_MS/.test(
+        (await import('node:fs')).readFileSync('src/wanted.js', 'utf8')),
+      'the radial component is compared against SCENE_STOP_MS in the shipped source');
+  }
+
   // (e) what the player is shown while it runs, through the real composer.
+
   {
     const w = wanted1();
     const lines = [];

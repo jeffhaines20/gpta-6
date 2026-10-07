@@ -925,9 +925,76 @@ export class WantedSystem {
    * `held` in `wantedReport().notHonoured` when the pursuit layer under it exposes no `holdRadius`.
    * A rule that never arms reads as `bustHolds: 0` instead of as silence.
    */
+  /**
+   * IS THE PLAYER MOVING AWAY FROM WHOEVER IS HOLDING THEM, as opposed to merely moving.
+   *
+   * Returns null when no unit has reported a position, so a host that does not feed them behaves
+   * exactly as before — the fallback is asserted in `wanted-test`, because a predicate that
+   * silently answers "yes" for a host with no data would turn the fix into a free pass.
+   *
+   * The radial component is tested against `SCENE_STOP_MS`, the same threshold the speed test
+   * uses, so this introduces NO new constant: the question changes from "are you moving" to "are
+   * you moving away", and the number stays where it was derived.
+   */
+  _recedingFrom(player) {
+    let best = Infinity, bx = 0, bz = 0;
+    for (const u of this.units) {
+      if (!u.pos) continue;
+      const dx = player.x - u.pos.x, dz = player.z - u.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d < best) { best = d; bx = dx; bz = dz; }
+    }
+    if (!Number.isFinite(best) || best <= 0) return null;
+    // The component of the SMOOTHED velocity along the unit-to-player direction. Positive is away.
+    const out = (this.playerVel.x * bx + this.playerVel.z * bz) / best;
+    return out >= SCENE_STOP_MS;
+  }
+
   _watchBust(dt, player) {
-    if (this.stars <= 0 || !player.held ||
-        Math.hypot(this.playerVel.x, this.playerVel.z) >= SCENE_STOP_MS) {
+    /**
+     * MOVING DOES NOT RESET THE CLOCK UNLESS YOU ARE MOVING AWAY.
+     *
+     * The reset was a speed test alone, and a speed test cannot tell the two cases apart that
+     * matter here. A blind playtester found the gap by driving a circle: four stars, **2.7 m off a
+     * road** — the spot that arrests a parked car in 9.6 s — on a 25 m circle so the position was
+     * held within 50 m:
+     *
+     *     mean  2.8 km/h                               ARRESTED 3 of 3  (9.6 / 9.5 / 6.8 s)
+     *     mean  4.8, 5.8, 6.7, 8.6, 12.4, 19.9 km/h    0 of 3, free the full 150 s
+     *
+     * Walking pace, without leaving the block, beat the whole pursuit — and none of those arms
+     * escaped either, so it was a second stalemate rather than an out.
+     *
+     * I TRIED THE OBVIOUS DERIVATION FIRST AND THE MODULE'S OWN FLOOR REFUTED IT. An arrest is
+     * made by a person, and `src/pursuit.js` builds `reachRadius = RUN_SPEED * BUST_HOLD_S` from
+     * that, so testing the speed against `RUN_SPEED` (7.0 m/s) looked self-consistent — and it
+     * closed the exploit cleanly, 6.5 m/s arrested and 7.5 m/s free. But the floor this clock is
+     * derived against moves with the threshold, measured by feeding `src/vehicle.js`'s own
+     * positions through this module:
+     *
+     *     contiguous seconds under the threshold    under 1.0 m/s    under 7.0 m/s
+     *       brake to rest, then full throttle        0.18 - 0.25      2.17 - 2.24
+     *       with a deliberate 2 s pause                     2.28             4.25
+     *
+     * `BUST_HOLD_S` is 4.0 s, so a deliberate two-second pause goes from x1.75 of margin to
+     * **x0.94** — the clock stops outlasting it, which is a rule that section states in as many
+     * words. Fixing that by growing the clock moves `WRECK_HOLD_S` and the garage dwell with it,
+     * because they are deliberately one beat.
+     *
+     * SO THE SPEED WAS THE WRONG QUANTITY, not the wrong number. What separates circling from
+     * pulling away is the SIGN, and the sign costs nothing: the reset now needs the player to be
+     * moving AND receding, both against the threshold already derived. Every figure above is
+     * untouched — a two-second pause is still spent under 1.0 m/s, so it still buys 2.28 s of a
+     * 4.0 s clock — and the circle, which recedes from nobody, no longer resets anything.
+     *
+     * It is also right in a case neither version covered: driving at speed TOWARDS the officer
+     * holding you is not an escape, and used to reset the clock every frame.
+     */
+    const moving = Math.hypot(this.playerVel.x, this.playerVel.z) >= SCENE_STOP_MS;
+    const away = this._recedingFrom(player);
+    // `away === null` is "no unit has told us where it is", and then this falls back to the speed
+    // test alone, which is what it always was.
+    if (this.stars <= 0 || !player.held || (moving && (away ?? true))) {
       this.bustFor = 0;
       this._bustThrottle = false;
       return false;
