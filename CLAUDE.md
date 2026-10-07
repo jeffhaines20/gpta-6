@@ -1248,6 +1248,14 @@ It cost nothing this time only because the check ran before the commit. The same
 earlier in the session reported DONE after the last row of a five-row loop, which looked correct
 and was luck.
 
+**And the rule got its first real use when the CONTAINER restarted mid-row.** The tree came back
+carrying ` M src/mission.js` and a lock file timestamped a minute earlier — the ambiguous state
+exactly. `pgrep -af mutation-sweep` returned only the two shells running the pgrep itself (the
+self-match trap, harmless here), so there was no owner, so it was a crash and not a sweep, so
+restore was right. The diff was then read before restoring and was precisely the `stage-clock-unit`
+mutation. **Check the owner, then read the diff, then restore** — in that order, and the lock tells
+you nothing because it survives a kill.
+
 - Headless capture runs through SwiftShader well under 1 fps. Budget minutes per
   frame, and never report frame rate as a performance result.
 - `blind-compare` refuses to build a pair set carrying under 8% facade-band
@@ -1779,6 +1787,32 @@ The row that found this is `garage-on-marker`, and it was written in the same ro
 caught — which is the condition under which this file's four other unfailable checks were written
 too. A row that comes back MISSED against a check you believe you wrote is worth half an hour
 before it is worth a second check.
+
+### A check's DETAIL string is evaluated eagerly, so an unguarded read there crashes the gate
+
+`mission-test` §12 asks whether a stage's objective carries a countdown. The objective is a STRING
+for a stage with no number and an OBJECT for a stage with one, and the whole point of the section
+is a stage moving between those shapes — so the one thing it had to survive is the wrong shape.
+
+It did not. `mutation-sweep`'s `stage-clock` row reverts the shape to a string, and the gate threw
+`Cannot read properties of undefined (reading 'toFixed')` after printing **0 FAIL lines**. The read
+was `nearly.objective.distance.toFixed(3)` inside a `check(...)` call's DETAIL argument — which
+JavaScript evaluates before `check` is ever entered, so the crash beat every assertion in the
+section. The row came back **"caught by mission-test(threw)"** and the gate said nothing at all
+about why.
+
+That is this file's own `ped-audit` lesson arriving through a new door, and the door is worth
+naming: **a detail string is not inside the check.** `check(name, cond, detail)` evaluates all
+three arguments first. A condition can be written defensively and still be preceded by a detail
+that dies.
+
+Reading every number through one accessor fixed it — `num(o)` returns the figure or null, `unitOf`
+and `shape` do the same for the other two reads — and the two rows are now caught by CHECKS: six
+FAIL lines for the dropped branch and three for the dropped unit, zero throws, with the detail
+reading `"LOSE THEM — 240 m"`, which is the defect in the player's own words.
+
+**A gate asked about a shape has to survive the wrong shape and NAME it.** The difference is not
+academic: a throw sends a round to debug the gate, and a FAIL line sends it to fix the code.
 
 **A tool that throws is not a tool that passes, and nobody notices which.**
 `ped-audit` handled a build with no contact-blob mesh in its per-mesh loop —

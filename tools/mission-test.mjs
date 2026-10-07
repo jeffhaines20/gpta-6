@@ -1545,6 +1545,23 @@ console.log('\n=== 12. a stage with a clock and no destination shows the clock')
   check('and at least one has BOTH, or the precedence check below is vacuous',
     timedWithDest.length > 0, `${timedWithDest.length} of ${shaped.length}`);
 
+  /**
+   * EVERY READ OF A NUMBER GOES THROUGH THESE, because the objective is a STRING for a stage with
+   * no number and an object for a stage with one — and the whole point of this section is a stage
+   * changing between those shapes.
+   *
+   * The first version read `.distance.toFixed(3)` straight, inside a check's DETAIL string, which
+   * JavaScript evaluates eagerly. `mutation-sweep`'s `stage-clock` row reverts the shape to a
+   * string, and the gate CRASHED with `Cannot read properties of undefined` after printing **0
+   * FAIL lines** — so the row came back "caught by mission-test(threw)" and the gate said nothing
+   * about why. That is the `ped-audit` shape CLAUDE.md records: a tool that throws is not a tool
+   * that passes, and nobody notices which. A gate asked about a shape has to survive the wrong
+   * shape and NAME it.
+   */
+  const num = (o) => (o && typeof o === 'object' && Number.isFinite(o.distance) ? o.distance : null);
+  const unitOf = (o) => (o && typeof o === 'object' ? o.unit ?? null : null);
+  const shape = (o) => (typeof o === 'string' ? `string "${o}"` : JSON.stringify(o));
+
   const at = (mid, id, stageTime) => {
     const m = MISSIONS[mid];
     const r = new MissionRunner();
@@ -1563,23 +1580,26 @@ console.log('\n=== 12. a stage with a clock and no destination shows the clock')
     const o0 = h0.objective;
     console.log(`    ${row.mid}/${row.id} at t=0:   "${objectiveLine(o0)}"`);
     check(`${row.id}: the objective carries a NUMBER, which it did not`,
-      o0 && typeof o0 === 'object' && Number.isFinite(o0.distance),
-      JSON.stringify(o0));
+      num(o0) != null, shape(o0));
     check(`${row.id}: and it is labelled SECONDS, or it prints the clock as metres`,
-      o0 && o0.unit === 's', `unit ${o0 && o0.unit}`);
+      unitOf(o0) === 's', `unit ${unitOf(o0)} on ${shape(o0)}`);
     check(`${row.id}: and the rendered line says so, through objectiveLine's own default`,
-      /\b\d+ s$/.test(objectiveLine(o0)), objectiveLine(o0));
+      /\b\d+ s$/.test(objectiveLine(o0) ?? ''), objectiveLine(o0));
     /**
      * A RATE, NOT A LEVEL. "There is a number" is true of a frozen number too, and a countdown
      * that does not count is the defect this is about wearing a digit. Two reads at stage times a
      * minute apart, and the claim is that the difference IS the elapsed time.
      */
     const h60 = at(row.mid, row.id, 60);
-    const drop = o0.distance - h60.objective.distance;
+    const a = num(o0), b = num(h60.objective);
+    const drop = a != null && b != null ? a - b : null;
     console.log(`    ${row.mid}/${row.id} at t=60: "${objectiveLine(h60.objective)}"  ` +
-      `— fell ${drop.toFixed(2)} s over 60 s of stage time`);
+      `— fell ${drop == null ? 'nothing, there is no number' : `${drop.toFixed(2)} s`} ` +
+      `over 60 s of stage time`);
     check(`${row.id}: it COUNTS DOWN, and by the stage time rather than by some other clock`,
-      Math.abs(drop - 60) < 0.1, `${drop.toFixed(3)} s against 60`);
+      drop != null && Math.abs(drop - 60) < 0.1,
+      drop == null ? `no number at one or both reads: ${shape(o0)} / ${shape(h60.objective)}`
+        : `${drop.toFixed(3)} s against 60`);
     /**
      * AND A NEGATIVE COUNTDOWN IS UNREACHABLE, which is a stronger statement than "it floors at
      * 0" and is the one that is true. The first version of this read the clock at `limit + 30` and
@@ -1588,10 +1608,10 @@ console.log('\n=== 12. a stage with a clock and no destination shows the clock')
      * why the floor can never be exercised from outside; `Math.max(0, ...)` in `hud()` is belt and
      * braces rather than the mechanism.
      */
-    const nearly = at(row.mid, row.id, row.clock - 0.5);
+    const nearly = num(at(row.mid, row.id, row.clock - 0.5).objective);
     check(`${row.id}: the clock reads down to nearly zero without going under`,
-      nearly.objective.distance >= 0 && nearly.objective.distance < 1,
-      `${nearly.objective.distance.toFixed(3)} s at t=${row.clock - 0.5}`);
+      nearly != null && nearly >= 0 && nearly < 1,
+      nearly == null ? 'no number to read' : `${nearly.toFixed(3)} s at t=${row.clock - 0.5}`);
     const past = (() => {
       const m = MISSIONS[row.mid];
       const r = new MissionRunner();
@@ -1615,13 +1635,13 @@ console.log('\n=== 12. a stage with a clock and no destination shows the clock')
   for (const row of timedWithDest) {
     const o = at(row.mid, row.id, 10).objective;
     check(`KNOWN-BAD ${row.id}: a stage with a clock AND a destination still shows metres`,
-      o && o.unit !== 's', `"${objectiveLine(o)}"`);
+      num(o) != null && unitOf(o) !== 's', `"${objectiveLine(o)}" (unit ${unitOf(o)})`);
   }
   /** And a stage with neither keeps the plain string form it has always had. */
   for (const row of plain.slice(0, 1)) {
     const o = at(row.mid, row.id, 1).objective;
     check(`${row.id}: a stage with neither keeps its plain string form`,
-      typeof o === 'string' || (o && o.unit !== 's'), typeof o === 'string' ? o : JSON.stringify(o));
+      typeof o === 'string' || unitOf(o) !== 's', shape(o));
   }
 }
 
