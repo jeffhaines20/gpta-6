@@ -1544,6 +1544,11 @@ in 347-367 s, SLOWER than the failing runs at 272-283 s, so neither contention n
 explained it. The condition is `best > this.reachRadius && near.d <= best` now, disjoint by
 construction, and `arrest-band` and `pursuit-test`'s isolation table are unchanged by the guard.
 
+Three runs with the guard: **PASS 81 checks at 235 / 232 / 237 s, 0 failures**, against the flaky
+tree's PASS / FAIL(6) / PASS / FAIL(6) / PASS at 272-283 s. The spread is 5 s and the cadence is
+back, which is the second thing the guard restored — the failing runs were slower *because* the
+early arrest was doing extra work in two arms.
+
 ### #87 driveTo wrecks the car in 200 m: 13 civilianCollision in 32 s at 43 km/h
 `detail lost` beyond the subject line.
 
