@@ -366,8 +366,14 @@ const MUTATIONS = [
   // ---- src/blockers.js
   {
     id: 'fence-dir', file: 'src/blockers.js',
-    find: 'Math.sign(throttle) * dot > 0',
-    to: 'true',
+    /**
+     * ANCHORED TO THE STATEMENT, NOT THE EXPRESSION. `Math.sign(throttle) * dot > 0` alone went
+     * AMBIGUOUS — 2 matches — when `composeFence`'s header started quoting the predicate in prose
+     * to explain where the band's verb comes from. A `find` that a COMMENT can satisfy is one
+     * explanatory sentence away from mutating nothing, or from mutating the comment.
+     */
+    find: 'if (throttle !== 0 && Math.sign(throttle) * dot > 0) throttle = 0;',
+    to: 'if (throttle !== 0 && true) throttle = 0;',
     why: 'the world fence refuses power in both directions and strands the car outside',
   },
   // ---- src/roadpath.js
@@ -611,8 +617,8 @@ const MUTATIONS = [
      * crime that has just made the player wanted says "nobody saw it".
      */
     id: 'notice-quiet', file: 'src/wanted.js',
-    find: "      subtitle: stars > 0 ? `wanted — ${stars} star${stars === 1 ? '' : 's'}` : 'nobody saw it' };",
-    to: "      subtitle: 'nobody saw it' };",
+    find: "    const note = stars > 0 ? `wanted — ${stars} star${stars === 1 ? '' : 's'}` : 'nobody saw it';",
+    to: "    const note = 'nobody saw it';",
     why: 'a crime that raised the wanted level reports that nobody saw it',
   },
   {
@@ -1031,7 +1037,7 @@ const MUTATIONS = [
      * a straight busts you at 70 km/h. It is the term whose absence a stationary test cannot see.
      */
     id: 'bust-any-speed', file: 'src/wanted.js',
-    find: '    if (this.stars <= 0 || !player.held ||\n        Math.hypot(this.playerVel.x, this.playerVel.z) >= SCENE_STOP_MS) {',
+    find: '    if (this.stars <= 0 || !player.held || (moving && (away ?? true))) {',
     to: '    if (this.stars <= 0 || !player.held) {',
     why: 'a unit alongside you at speed is an arrest',
   },
