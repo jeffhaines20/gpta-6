@@ -587,10 +587,35 @@ export class MissionRunner {
     const s = this.stage;
     if (!s || this.outcome !== OUTCOMES.RUNNING) return null;
     const dist = this.objectiveDistance();
-    // A STRING WHEN THERE IS NO NUMBER, an object when there is. `objectiveLine` and src/hud.js's
-    // DOM path both take either, and keeping the string form means every stage that names no
-    // destination renders exactly as it did.
-    const out = { objective: dist == null ? s.objective : { text: s.objective, distance: dist },
+    const left = s.timeLimit != null ? Math.max(0, s.timeLimit - this.stageTime) : null;
+    /**
+     * A STRING WHEN THERE IS NO NUMBER, an object when there is. `objectiveLine` and src/hud.js's
+     * DOM path both take either, and keeping the string form means a stage that names no
+     * destination AND has no deadline renders exactly as it did.
+     *
+     * AND A STAGE WITH A CLOCK AND NO DESTINATION SHOWS THE CLOCK, which is the gap. Exactly one
+     * stage in the game is that shape — `marlin-street`'s `ambush`, 240 s, no marker and no reach
+     * trigger, because the thing it asks for is an evasion rather than an arrival. A blind
+     * playtester ran it down: `secondsLeft` is 237.933 at entry, and over 237.9 s of running it out
+     * the band showed two line families, `LOSE THEM` and `PROPERTY DAMAGE`, with **no countdown and
+     * no number**. The only moving field in `look()` was `wantedNote`, which is about the police
+     * rather than the clock. It then expired into `dropHot`, whose subtitle says "No more time" —
+     * so the objective changed under the player on a deadline never shown.
+     *
+     * DISTANCE WINS WHERE A STAGE HAS BOTH, which `dropHot` does (300 s and a marker): how far you
+     * have to go is the actionable number and the clock is pressure. So this fills a gap rather
+     * than competing, and only `ambush` changes.
+     *
+     * `unit: 's'` IS NOT OPTIONAL. `objectiveLine` defaults to metres — its own comment says it
+     * does so "because every objective in the game until the bust countdown was a distance, and a
+     * tenant that means seconds must not be able to print them as metres" — and CLAUDE.md records
+     * the bust countdown shipping a dropped unit that read "3 m" for a 3 s countdown. The same
+     * convention as `composeLaw`'s countdown, deliberately, so there is one shape and not two.
+     */
+    const out = {
+      objective: dist != null ? { text: s.objective, distance: dist }
+        : left != null ? { text: s.objective, distance: left, unit: 's' }
+          : s.objective,
       subtitle: s.subtitle ?? null };
     /**
      * A WAYPOINT IS A PROMISE THAT ARRIVING DOES SOMETHING, and `defineMission` is what keeps

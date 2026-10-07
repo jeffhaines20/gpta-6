@@ -361,6 +361,30 @@ const MUTATIONS = [
   // ---- src/mission.js
   {
     /**
+     * THE STAGE CLOCK GOES BACK TO SHOWING NOTHING. Drops the countdown branch, so a stage with a
+     * deadline and no destination renders the bare authored string again — which is what a blind
+     * playtester measured over 237.9 s of `ambush`: two line families, no number, and then an
+     * expiry into `dropHot` saying "No more time" about a deadline never shown.
+     */
+    id: 'stage-clock', file: 'src/mission.js',
+    find: "        : left != null ? { text: s.objective, distance: left, unit: 's' }",
+    to: "        : left != null ? s.objective",
+    why: 'a timed stage with no destination shows no countdown, which is the shipped defect',
+  },
+  {
+    /**
+     * THE COUNTDOWN PRINTS SECONDS AS METRES. Drops the unit, and `objectiveLine` defaults to
+     * metres by design — its own comment says a tenant that means seconds must not be able to
+     * print them as metres. CLAUDE.md records the bust countdown shipping exactly this: "3 m" for
+     * a 3 s countdown. Nothing errors and the number is still right; only its label is a lie.
+     */
+    id: 'stage-clock-unit', file: 'src/mission.js',
+    find: "        : left != null ? { text: s.objective, distance: left, unit: 's' }",
+    to: "        : left != null ? { text: s.objective, distance: left }",
+    why: 'the stage countdown reads "240 m" for 240 seconds, which has shipped once before',
+  },
+  {
+    /**
      * BEING ARRESTED IS GETTING AWAY AGAIN. Reverts `evaded` to the two conditions it had, which
      * `wanted.clear('busted')` both satisfies — so the flagship's chase stage is beaten by
      * committing a crime and letting the police take you, 13.6 s against 55-190 s, with a free

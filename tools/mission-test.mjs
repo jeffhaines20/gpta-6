@@ -1212,9 +1212,23 @@ console.log('\n=== 10. the objective distance');
     check('and no waypoint either, which is the half the old guard did not cover',
       !st.marker && !amb.hud.waypoint,
       `marker ${JSON.stringify(st.marker ?? null)}, waypoint ${JSON.stringify(amb.hud.waypoint ?? null)}`);
-    check('and its band is still the bare authored string',
-      typeof amb.hud.objective === 'string' && amb.hud.objective === st.objective,
-      `${amb.hud.objective}`);
+    /**
+     * RESTATED, NOT LOOSENED. This read "its band is still the bare authored string", which was
+     * right while a flee stage had no number of any kind to show — and that was the defect: a
+     * blind playtester ran this stage's 240 s out and measured no countdown and no number over
+     * 237.9 s, then watched it expire into `dropHot` saying "No more time" about a deadline never
+     * shown. §12 is that fix.
+     *
+     * What this check was really protecting is still protected and is the part that matters: the
+     * number is NOT A DISTANCE. A flee stage is not positional, so a metre reading would point the
+     * player at a place where nothing happens — which CLAUDE.md records this stage shipping once
+     * already, a 322 m pin at the drop. So the assertion is on the UNIT and on the authored text
+     * surviving, rather than on the absence of a number.
+     */
+    check('its band carries the stage\'s own words, and a number that is NOT a distance',
+      amb.hud.objective && amb.hud.objective.text === st.objective
+      && amb.hud.objective.unit === 's',
+      `${objectiveLine(amb.hud.objective)} (unit ${amb.hud.objective && amb.hud.objective.unit})`);
     /**
      * AND IT STILL SAYS WHAT TO DO, because taking the pin away without this is the 63%-blank-HUD
      * defect coming back. The subtitle is now the whole instruction, so it is asserted here, and
@@ -1495,6 +1509,120 @@ console.log('\n=== 11. being arrested is not getting away');
   const kinds = JSON.stringify(amb.triggers);
   check('and the flagship\'s chase stage really is the stage that reads it',
     kinds.includes('"evaded"'), `ambush triggers mention evaded: ${kinds.includes('"evaded"')}`);
+}
+
+/**
+ * §12 A STAGE WITH A CLOCK AND NO DESTINATION SHOWS THE CLOCK.
+ *
+ * A blind playtester ran `ambush` to its timeout: `secondsLeft` is 237.933 at entry, and over
+ * 237.9 s the band showed `LOSE THEM` and `PROPERTY DAMAGE` and **no number at all**. It then
+ * expired into `dropHot`, whose subtitle reads "No more time. Get it to the marina." — an objective
+ * changing under the player on a deadline never shown. The only moving `look()` field was
+ * `wantedNote`, which is about the police rather than the clock.
+ *
+ * The shape is read off the SHIPPED missions rather than named, so a stage authored into it later
+ * is covered and a stage authored out of it makes this section say so.
+ */
+console.log('\n=== 12. a stage with a clock and no destination shows the clock');
+{
+  const { MISSIONS } = await import('../src/missions.js');
+  const { objectiveLine } = await import('../src/hud.js');
+  const shaped = [];
+  for (const [mid, m] of Object.entries(MISSIONS)) {
+    for (const st of m.stages) {
+      const hasDest = (st.triggers ?? []).some((t) => t.kind === 'reach' || t.kind === 'inVehicle');
+      shaped.push({ mid, id: st.id, clock: st.timeLimit ?? null, hasDest });
+    }
+  }
+  const timedNoDest = shaped.filter((r) => r.clock != null && !r.hasDest);
+  const timedWithDest = shaped.filter((r) => r.clock != null && r.hasDest);
+  const plain = shaped.filter((r) => r.clock == null && !r.hasDest);
+  console.log(`    ${shaped.length} authored stages: ${timedNoDest.length} with a clock and no ` +
+    `destination (${timedNoDest.map((r) => `${r.mid}/${r.id} ${r.clock}s`).join(', ') || 'none'}), ` +
+    `${timedWithDest.length} with both, ${plain.length} with neither`);
+  check('at least one shipped stage has a clock and no destination, or this section tests nothing',
+    timedNoDest.length > 0, `${timedNoDest.length} of ${shaped.length}`);
+  check('and at least one has BOTH, or the precedence check below is vacuous',
+    timedWithDest.length > 0, `${timedWithDest.length} of ${shaped.length}`);
+
+  const at = (mid, id, stageTime) => {
+    const m = MISSIONS[mid];
+    const r = new MissionRunner();
+    r.start(m);
+    r.stageIndex = m.stages.findIndex((st) => st.id === id);
+    r.stageTime = stageTime;
+    // Far from everything, so `objectiveDistance` cannot be what supplies a number.
+    r.update(DT, snap({ px: 0, pz: 0, inVehicle: true, speed: 10, wantedStars: 2,
+      wantedState: 'active' }));
+    r.stageTime = stageTime;
+    return r.hud();
+  };
+
+  for (const row of timedNoDest) {
+    const h0 = at(row.mid, row.id, 0);
+    const o0 = h0.objective;
+    console.log(`    ${row.mid}/${row.id} at t=0:   "${objectiveLine(o0)}"`);
+    check(`${row.id}: the objective carries a NUMBER, which it did not`,
+      o0 && typeof o0 === 'object' && Number.isFinite(o0.distance),
+      JSON.stringify(o0));
+    check(`${row.id}: and it is labelled SECONDS, or it prints the clock as metres`,
+      o0 && o0.unit === 's', `unit ${o0 && o0.unit}`);
+    check(`${row.id}: and the rendered line says so, through objectiveLine's own default`,
+      /\b\d+ s$/.test(objectiveLine(o0)), objectiveLine(o0));
+    /**
+     * A RATE, NOT A LEVEL. "There is a number" is true of a frozen number too, and a countdown
+     * that does not count is the defect this is about wearing a digit. Two reads at stage times a
+     * minute apart, and the claim is that the difference IS the elapsed time.
+     */
+    const h60 = at(row.mid, row.id, 60);
+    const drop = o0.distance - h60.objective.distance;
+    console.log(`    ${row.mid}/${row.id} at t=60: "${objectiveLine(h60.objective)}"  ` +
+      `— fell ${drop.toFixed(2)} s over 60 s of stage time`);
+    check(`${row.id}: it COUNTS DOWN, and by the stage time rather than by some other clock`,
+      Math.abs(drop - 60) < 0.1, `${drop.toFixed(3)} s against 60`);
+    /**
+     * AND A NEGATIVE COUNTDOWN IS UNREACHABLE, which is a stronger statement than "it floors at
+     * 0" and is the one that is true. The first version of this read the clock at `limit + 30` and
+     * got 485.67 — because `update` had already resolved the timeout and moved the stage, so it
+     * was reading `dropHot`'s DISTANCE. Past its own deadline this stage does not exist, which is
+     * why the floor can never be exercised from outside; `Math.max(0, ...)` in `hud()` is belt and
+     * braces rather than the mechanism.
+     */
+    const nearly = at(row.mid, row.id, row.clock - 0.5);
+    check(`${row.id}: the clock reads down to nearly zero without going under`,
+      nearly.objective.distance >= 0 && nearly.objective.distance < 1,
+      `${nearly.objective.distance.toFixed(3)} s at t=${row.clock - 0.5}`);
+    const past = (() => {
+      const m = MISSIONS[row.mid];
+      const r = new MissionRunner();
+      r.start(m);
+      r.stageIndex = m.stages.findIndex((st) => st.id === row.id);
+      r.stageTime = row.clock + 30;
+      r.update(DT, snap({ px: 0, pz: 0, inVehicle: true, speed: 10, wantedStars: 2,
+        wantedState: 'active' }));
+      return r.report().stage;
+    })();
+    check(`${row.id}: and past the deadline the TIMEOUT has moved the stage, so there is no negative clock to show`,
+      past !== row.id, `stage is "${past}" at t=${row.clock + 30}`);
+  }
+
+  /**
+   * KNOWN-BAD: a stage with BOTH shows the DISTANCE. How far you have to go is the actionable
+   * number and the clock is pressure, so the countdown fills a gap rather than competing — and
+   * without this the change would silently retitle `dropHot`, which a playtester reached once in
+   * three seeds and which is the flagship's recovery path.
+   */
+  for (const row of timedWithDest) {
+    const o = at(row.mid, row.id, 10).objective;
+    check(`KNOWN-BAD ${row.id}: a stage with a clock AND a destination still shows metres`,
+      o && o.unit !== 's', `"${objectiveLine(o)}"`);
+  }
+  /** And a stage with neither keeps the plain string form it has always had. */
+  for (const row of plain.slice(0, 1)) {
+    const o = at(row.mid, row.id, 1).objective;
+    check(`${row.id}: a stage with neither keeps its plain string form`,
+      typeof o === 'string' || (o && o.unit !== 's'), typeof o === 'string' ? o : JSON.stringify(o));
+  }
 }
 
 console.log('\n=== CHECKS');
