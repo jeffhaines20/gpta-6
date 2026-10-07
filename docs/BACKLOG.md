@@ -702,7 +702,7 @@ driving forward. The only exit is reverse, and the band reads `TURN BACK` / `the
 `reverse`. **B reversed itself here too** — its first sweep used full lock at every angle, read
 under 0.4 m everywhere, and had written "the fence cannot be driven out of at any forward angle".
 
-### #103 Every pedestrian strike up to 59 km/h is the same one star (B#7)
+### #103 Every pedestrian strike up to 59 km/h is the same one star (B#7) — NARROWED to the FIRST strike, and gated
 Single victim isolated: 23.7 / 43.5 / 51.7 / 58.8 km/h all file `pedestrianHit` at heat **exactly
 1.0000, 1 star**, while `pedCrimeScale` rises **0.0169 -> 0.3328, x19.7**. 67.7 km/h -> fatal, 2★.
 97.9 km/h -> 3★. The `min: 1` floor hides the whole graduated range until the scale passes 0.5
@@ -714,8 +714,88 @@ that is **the best-communicated mechanic either reviewer found**: `STOP AT THE S
 `leaving is a second offence`, then `STOPPED AT THE SCENE` / `an arrest will not cost the job`;
 stop 60 s -> 0 stars, no arrest, 2 of 2.
 
-B also notes `reckless` (heat 0.40) is **never filed by anything**: 120 s, top 94 km/h, 40 swerve
-and handbrake events -> 0 impacts, 0 crimes, heat 0.0000.
+**Every number above reproduces, and the entry isolated the one case where the floor wins.** The
+ladder nobody had looked at:
+
+    km/h    scale     raw   strikes to 2*   heat after 2 strikes
+    10     0.0049  0.0099        >60              1.010
+    23.7   0.0169  0.0337         31              1.034
+    43.5   0.0962  0.1923          7              1.192
+    51.7   0.1911  0.3822          4              1.382
+    58.8   0.3335  0.6671          3              1.667
+    67.7   0.6167  1.2334          2              2.467
+    76.7   1.0009  2.0018          1              4.004   pedestrianKilled, min 2
+
+**So the flatness is the FIRST strike only, and from the second on speed is fully priced over a
+31-to-1 range.** Same for the clock: one strike then stand still clears in **26.1 s at 10 km/h and
+26.1 s at 58.8**, and 49.9 s for a kill. The mechanism is `max(heat + delta, c.min)` — at heat 0
+the floor REPLACES the charge rather than lifting it — and the boundary is where `c.heat * scale`
+overtakes `min`, **derived by scanning the module at 64.5 km/h, scale 0.500**. The entry's band
+stops at 58.8, just under it, and `src/wanted.js`'s own comment already said "every scale under 0.5
+comes back out as one star".
+
+**Gated as `wanted-test` §f3**, because nothing in the repo asserted that a faster strike is worse:
+`damage-test` asserts `pedCrimeScale` is monotonic in speed, which is the INPUT. Ten checks — the
+ladder never rising with speed, a 10x span, the second strike's heat strictly rising, and the
+first-strike flatness as KNOWN-BADs with the derived boundary on either side. Two mutation rows on
+the one line that does it: `heat-no-stack` (caught, `wanted-test`) and `heat-floor-lift` (caught,
+`wanted-test damage-test`).
+
+**The obvious lever was measured and NOT taken.** `max(heat, c.min) + delta` — the floor lifting the
+charge instead of replacing it — does make the first strike graduate: 1.034 / 1.192 / 1.382 / 1.667
+where today all four are 1.0000. It over-charges at the top, and by construction:
+`pedestrianKilled`'s `min` is 2 and its charge AT the fatality switch is 2.0018 *because the table
+was built so the two meet there*, so lifting one by the other makes **one kill four stars where the
+table says two**. It is kept as a mutation row with that reasoning in its own `why`.
+
+**What is still open is narrower: should the first strike graduate at all, and in which quantity?**
+Stars cannot, without crossing "two stars is the police having found you: two offences, or one
+kill". Heat cannot, for the reason above. The one term that can is **`cool`** — `evadeRequired()` is
+`tune().cooldown + this.cool`, which the HUD shows as "EVADING 34s", and `this.cool += c.cool` adds
+a flat **8 s for `pedestrianHit` at any speed**. Scaling it by the same `scale` the charge uses adds
+0.04 s at 10 km/h, which is nothing for a real offence, and any floor under that is a number nobody
+has measured. So: a measurement, not a patch, until somebody decides whether a player should feel
+the difference on their first contact.
+
+### #107 `reckless` is unfiled, and it is a PRICED REFUSAL rather than an oversight — the open question is a speed limit
+B's observation is exact and reproduces: `reckless` (heat 0.40, cool 2, refractory 3.0, **no `min`**)
+has been in `CRIMES` since the table was written, and **120 s at a top speed of 94 km/h with 40 swerve
+and handbrake events files 0 crimes**. `grep` over `district/`, `src/` and `tools/` finds no
+`reportCrime('reckless')` at all; `wanted-test` exercises the row directly and is its only caller.
+
+**And their diagnosis is already answered in the repo, which I nearly filed over.** `damage-test`
+counts the orphans, prints them, and PINS the count:
+
+> HOW MANY CRIMES NOTHING NAMES. It was ten of sixteen; `hitAndRun` has since been wired, because it
+> was the only one of the ten whose every input already existed. **The remaining nine are a priced
+> refusal, not an oversight**: the systems that would file them do not exist. Weapons, theft, police
+> on foot, restricted zones, the pursuit layer's own `evading`, and **reckless driving, which has no
+> speed limit to break**. The count is pinned so adding a crime without a reporter is visible in the
+> diff.
+
+So this is not CLAUDE.md's "a system that is never switched on is not a feature" — it is the opposite
+shape, a refusal that was measured, written down and gated. The first draft of this entry said
+otherwise and was wrong; the check that corrected it is the one in `damage-test` doing its job.
+
+**The real open question is therefore not "wire `reckless`" but "should this district have a speed
+limit".** That is a design decision, and the reason it is worth putting is that `reckless` is
+floorless: it accumulates through the soft knee and never on its own makes you wanted, which is
+exactly "not enough to make you wanted" and exactly the graduation #103 asks for and cannot get from
+stars or heat.
+
+Candidates for a DERIVED limit, none measured:
+
+- **The traffic fleet's own distribution.** A playtester measured the fleet at a median 36 km/h, 90th
+  52, max 64; 94 km/h is 1.5x its maximum. That is a measurable "normal" rather than a picked number,
+  and `src/traffic.js` owns it.
+- **Off the carriageway.** `ROUTE_LANE_M` and the road index already answer "is the car on the road",
+  and #104's knockdown classifier uses exactly that distance. Driving on the pavement needs no new
+  quantity at all and is not a speed limit.
+- **Near-misses.** `peds` already reports contacts; passing within a body width at speed is the same
+  data one step earlier.
+
+Not started: it is a new mechanic rather than a fix, and `damage-test`'s pin means adding it is a
+visible, deliberate act rather than something a round can drift into.
 
 ### #104 Knockdowns on the carriageway are 1.33-2.17 per km — not fixed (B#6)
 Four drives of 6.0 km, each knockdown classified by the car's distance from a centreline at the

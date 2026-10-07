@@ -484,6 +484,60 @@ have inherited that one too. Both are charged at the table value now, counted in
 `stats.badScales`, and have two mutation rows rather than one: a finite check alone does not cover
 the sign, which is this file's "guard the DIRECTION as well as the magnitude".
 
+## The flat case a reviewer isolates is often the one case where the floor wins
+
+#103 reported that "every pedestrian strike up to 59 km/h is the same one star" and isolated a
+SINGLE victim at 23.7 / 43.5 / 51.7 / 58.8 km/h, reading heat exactly 1.0000 and 1 star at every one.
+Every number is right. The ladder nobody had looked at:
+
+    km/h    scale     raw   strikes to 2*   heat after 2 strikes
+    10     0.0049  0.0099        >60              1.010
+    23.7   0.0169  0.0337         31              1.034
+    43.5   0.0962  0.1923          7              1.192
+    58.8   0.3335  0.6671          3              1.667
+    76.7   1.0009  2.0018          1              4.004   pedestrianKilled, min 2
+
+**The flatness is the FIRST strike only.** `reportCrime` does `max(heat + delta, c.min)`, so at heat
+0 the floor REPLACES the charge; from heat 1 it is a floor and the severity accumulates on top. A
+sweep that varies the SPEED and holds the strike count at one is a sweep that only ever samples the
+replaced case — this file's "isolate one term at a time" with the wrong term held fixed.
+
+Three things to carry, and the third is the one that cost a correction:
+
+- **Vary the repetition as well as the magnitude.** The quantity a player reads is "how many of
+  these before the police escalate", and it moves 31 to 1 over this range while the thing the
+  reporter measured does not move at all.
+- **The input's monotonicity is not the output's.** `damage-test` already asserted `pedCrimeScale` is
+  monotonic in speed. Nothing asserted that a faster strike is WORSE, which is a different sentence
+  and the one a player would file a bug about. `wanted-test` §f3 is that gate now.
+- **Derive the boundary, do not name it.** My first version of the KNOWN-BADs said "below the
+  fatality switch the charge is always under the floor", and the gate caught it on its first run:
+  67.7 km/h is below the switch at 76.7 and charges 1.2334 against a floor of 1. The boundary is
+  where `c.heat * scale` overtakes `min` — scale 0.500, scanned off the module at **64.5 km/h** —
+  and the reporter's band stops at 58.8, just under it. src/wanted.js's own comment had already said
+  "every scale under 0.5 comes back out as one star".
+
+**And the obvious lever was measured and refused by construction.** `max(heat, c.min) + delta` does
+make the first strike graduate — 1.034 / 1.192 / 1.382 / 1.667 where today all four are 1.0000 — and
+it over-charges at the top *because the table was built to make the two meet there*:
+`pedestrianKilled`'s `min` is 2 and its charge AT the fatality switch is 2.0018 by design, so lifting
+one by the other makes one kill four stars where the table says two. It is kept as a mutation row
+with that reasoning in its own `why`, which is what stops the next round re-deriving it.
+
+### A gate that already priced a refusal is the thing to grep for before filing it again
+
+The same finding's second half — `reckless` is in the crime table and nothing files it — I nearly
+filed as this file's "A system that is never switched on is not a feature". It is the opposite.
+`damage-test` counts the orphans, prints all nine, pins the count, and says in as many words: "The
+remaining nine are a **priced refusal**, not an oversight: the systems that would file them do not
+exist... and reckless driving, **which has no speed limit to break**. The count is pinned so adding a
+crime without a reporter is visible in the diff."
+
+So the reviewer's observation was exact, their diagnosis was answered three months ago, and the
+correction cost one `grep` for the crime's name across `tools/` — which is also where the pin lives.
+**Before filing a dead feature, grep the gates for its name, not just the source.** A refusal that
+has a number and a check is a decision; one that has neither is the defect.
+
 ## A saturation that costs nothing is not a defect, and the one place it costs is the one nobody looked at
 
 #93 was filed off a correct reading: `crimeScale` is `severity / majorSeverity` and `severityFor`
