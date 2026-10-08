@@ -836,6 +836,14 @@ if (state.global && state.frames > 2) {
      * The rule: when a module renumbers its slots, take the geometry from what YOU placed.
      */
     const bodyAt = { x: spot.x, z: spot.z };
+    // RAW, because `sideMiss` came out equal to `spot.dist` on three runs and that cannot happen
+    // if the car was placed 14 m from `bodyAt` along its own heading. Printed, not asserted.
+    const frame0 = { car: { x: +v.position.x.toFixed(2), z: +v.position.z.toFixed(2) },
+      yaw: +yaw.toFixed(4), fx: +fx.toFixed(4), fz: +fz.toFixed(4),
+      body: { x: +bodyAt.x.toFixed(2), z: +bodyAt.z.toFixed(2) },
+      approach: +approach.toFixed(4), ax: +ax.toFixed(4), az: +az.toFixed(4),
+      placed: { x: +(spot.x + ax * 14).toFixed(2), z: +(spot.z + az * 14).toFixed(2) },
+      d0: +Math.hypot(bodyAt.x - v.position.x, bodyAt.z - v.position.z).toFixed(2) };
     const seen = [];
     let overs = 0, repeats = 0, closest = Infinity, top = 0;
     let sideMiss = Infinity, nearestAlong = Infinity;
@@ -905,6 +913,9 @@ if (state.global && state.frames > 2) {
     return { seen, overs, repeats, bodyDown, stars: d.wanted.stars,
       why, travelled: +travelled.toFixed(1), frames, wallS: +((Date.now() - t1) / 1000).toFixed(1),
       along: RUN_M, side: +spot.dist.toFixed(1), approach: +(approach * 180 / Math.PI).toFixed(0),
+      frame0, carEnd: { x: +v.position.x.toFixed(2), z: +v.position.z.toFixed(2) },
+      bodyEnd: (() => { const p = peds.positions().find((x) => x.i === spot.i);
+        return p ? { x: +p.x.toFixed(2), z: +p.z.toFixed(2) } : null; })(),
       closest: +closest.toFixed(2), topKmh: +top.toFixed(1),
       sideMiss: Number.isFinite(sideMiss) ? +sideMiss.toFixed(3) : null,
       nearestAlong: Number.isFinite(nearestAlong) ? +nearestAlong.toFixed(3) : null,
@@ -924,6 +935,13 @@ if (state.global && state.frames > 2) {
       `charge ${JSON.stringify(last)}, stars ${ro.stars}`);
     console.log(`    the drive ended on "${ro.why}" after ${ro.travelled} m of a ${ro.along} m run, ` +
       `${ro.frames} frames, ${ro.wallS} s of wall clock`);
+    console.log(`    RAW: body (${ro.frame0.body.x}, ${ro.frame0.body.z}); car placed at `
+      + `(${ro.frame0.placed.x}, ${ro.frame0.placed.z}) and READ BACK at `
+      + `(${ro.frame0.car.x}, ${ro.frame0.car.z}), ${ro.frame0.d0} m from the body; `
+      + `approach ${ro.frame0.approach} -> (${ro.frame0.ax}, ${ro.frame0.az}), `
+      + `yaw ${ro.frame0.yaw} -> forward (${ro.frame0.fx}, ${ro.frame0.fz})`);
+    console.log(`    RAW: car ended at (${ro.carEnd.x}, ${ro.carEnd.z}), the slot now reads `
+      + `${ro.bodyEnd ? `(${ro.bodyEnd.x}, ${ro.bodyEnd.z})` : 'nothing'}`);
     console.log(`    against the body's own position: got to ${ro.nearestAlong == null ? 'n/a'
       : `${ro.nearestAlong} m`} along the run (negative is past it), ${ro.sideMiss == null ? 'n/a'
       : `${ro.sideMiss} m`} to the side of a 1.30 m window (nose reach 2.50 m); the slot-indexed ` +
