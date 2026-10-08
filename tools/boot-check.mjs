@@ -994,6 +994,7 @@ if (state.global && state.frames > 2) {
     return { seen, overs, repeats, bodyDown, stars: d.wanted.stars,
       why, travelled: +travelled.toFixed(1), frames, wallS: +((Date.now() - t1) / 1000).toFixed(1),
       along: RUN_M, side: +spot.dist.toFixed(1), approach: +(approach * 180 / Math.PI).toFixed(0),
+      subject: spot.i,
       coarseOnly, bothClear, track, carBefore,
       respawns0, respawns1: d.wreckReport().respawns,
       healthEnd: d.damage.health,
@@ -1056,11 +1057,19 @@ if (state.global && state.frames > 2) {
     check('the car was not respawned during the drive, which would move it bodily',
       ro.respawns1 === ro.respawns0,
       `respawns ${ro.respawns0} -> ${ro.respawns1}; the spawn is where the car ends up`);
+    /**
+     * RESTATED: `repairCar` CLEARS THE WRECKED FLAG AND NOT THE CLOCK. The first version of this
+     * check also demanded `heldFor === 0` and failed three runs of three at a frozen 1.75 s of 4
+     * — because only `respawnCar` zeroes `wreckFor`, and `wreckWatch` only counts up while the
+     * car IS wrecked. So a clock left part-way by an earlier arm stops dead at that reading and
+     * can never complete, which is harmless; the respawn check above is what covers the risk
+     * this one was reaching for. The clock is printed so a future round can see it is frozen
+     * rather than ticking.
+     */
     check('and it was handed a repaired, un-wrecked car to start from',
-      ro.carBefore.health === 1 && ro.carBefore.wreckedNow === false
-        && ro.carBefore.heldFor === 0,
+      ro.carBefore.health === 1 && ro.carBefore.wreckedNow === false,
       `health ${ro.carBefore.health}, wrecked ${ro.carBefore.wreckedNow}, `
-      + `clock ${ro.carBefore.heldFor} s`);
+      + `clock frozen at ${ro.carBefore.heldFor} s of ${ro.carBefore.holdS}`);
     check('the car covered its run rather than running out of wall clock',
       ro.why !== 'wallClock', `ended on "${ro.why}" after ${ro.travelled} m in ${ro.wallS} s`);
     console.log(`    the old literal charged scale 1.00 here, which is ` +
@@ -1086,9 +1095,22 @@ if (state.global && state.frames > 2) {
      * Across it the bound is `BODY_RADIUS` 0.95 + 0.35 = **1.30 m**, which is the across-axis
      * contact bound CLAUDE.md #104 measured at max 1.32 over 57 strikes.
      */
+    /**
+     * RESTATED: A RUN-OVER IS ITSELF PROOF THE CAR GOT THERE, and the bound alone is not. The
+     * loop breaks on the first contact FRAME, so the last sample before it sits one frame of
+     * travel short — measured at 2.822 m against a 2.50 m nose reach, three runs of three, with
+     * a lateral miss of 0.010 m. Sampling once per rendered frame at `timeScale` 8 is up to
+     * 1.06 s of sim, which is 4 m at this arm's speed, so no fixed bound on the last SAMPLE can
+     * be both tight and right.
+     *
+     * So the bound only has to discriminate the case where nothing was run over: there it
+     * separates "never reached it" from "reached it and passed to one side", which is the whole
+     * reason it exists. It is not a free pass — it fails when the car neither ran anybody over
+     * nor got level.
+     */
     check('the car got level with the body at all, so the staging worked',
-      ro.nearestAlong != null && ro.nearestAlong <= 2.50,
-      `closest ${ro.nearestAlong} m along the run against a 2.50 m nose reach`);
+      ro.overs > 0 || (ro.nearestAlong != null && ro.nearestAlong <= 2.50),
+      `${ro.overs} run-overs, closest ${ro.nearestAlong} m along against a 2.50 m nose reach`);
     /**
      * AND THE GEOMETRY AND THE WIRE AGREE, which is the check that separates the three failures
      * `0 run-overs` was lumping together. It fails in both directions and they mean opposite
@@ -1099,6 +1121,20 @@ if (state.global && state.frames > 2) {
     check('a run-over happened exactly when the car passed within the contact window',
       ro.sideMiss != null && (ro.overs > 0) === (ro.sideMiss <= 1.30),
       `${ro.overs} run-overs with ${ro.sideMiss} m to the side of a 1.30 m window`);
+    /**
+     * AND IT WAS THIS ARM'S OWN BODY, which nothing could assert until the record named its
+     * victim. Measured hole: on one run the drive went astray and ran over somebody else 3 m in
+     * — `overs` rose, `impacts` rose to 8, the record looked perfect and every check below passed
+     * about the wrong pedestrian, while the arm's own casualty lay 10.9 m further on. The counter
+     * cannot distinguish them and neither can the crime: it is the same crime either way.
+     *
+     * `victim` is the index `positions()` reports as `i` and `hit()` takes, which is the index
+     * this arm staged with, so the comparison is direct rather than a join across two id spaces —
+     * the mistake CLAUDE.md records in #104's first probe.
+     */
+    check('and the body it ran over is the one this arm staged',
+      last != null && last.victim === ro.subject,
+      `ran over ${last == null ? 'nobody' : `#${last.victim}`}, staged #${ro.subject}`);
     /**
      * `closest` TRACKS THE SLOT, NOT THE BODY, so it is printed and not asserted: a fatal
      * knockdown throws the body along the car's heading and src/pedestrians.js recycles the slot

@@ -1077,6 +1077,27 @@ check, a fixed-point geometry in the car's own frame — on a premise nobody had
 that the car drives along its heading. Position and yaw per frame would have shown the teleport on
 the first run, and it is cheaper than any of the three.
 
+### And a counter cannot tell you WHOSE body it counted
+
+With the respawn gone the drive works, and one run of three still ran over the wrong pedestrian:
+`overs` rose, `impacts` went 0 -> 8, the record read a perfect
+`{kmh: 14.5, crime: "pedestrianHit", scale: 0.0074}` — and the arm's own casualty was lying
+**10.9 m further on**, with the car's lateral miss against it reading 0.009 m. The car had gone
+astray, hit somebody else 3 m in, and every check below passed about a body the arm never staged.
+
+**Neither the counter nor the crime can distinguish them, because it is the same crime either
+way.** `pedRunOvers` is a count and `lastRunOver` described the offence without naming its subject,
+so "the wire works" and "the wire works on the body I placed" were the same reading.
+
+`dynStats.lastRunOver` carries `victim` now — the index `Pedestrians.positions()` reports as `i`
+and `Pedestrians.hit()` takes, so a caller that staged a subject compares directly rather than
+joining across two id spaces, which is the mistake #104's first probe made in the other direction.
+The arm asserts the victim is its own.
+
+**The general rule: when an arm stages a subject, the record it reads has to name one.** A count
+plus a classification is not an identification, and the gap only shows up on the runs where the arm
+goes wrong — which are exactly the runs whose output you are trying to trust.
+
 **So a browser arm that DRIVES has to own the car's wreck state.** The arm calls `repairCar()`
 before staging anything and asserts it was handed a repaired, un-wrecked car with no wreck clock
 running; and it records `respawns` across the drive and fails on a change FIRST, above every other

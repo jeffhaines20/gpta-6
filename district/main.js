@@ -1475,8 +1475,16 @@ function dynamicImpacts() {
        * says the offence is does not depend on whether this particular one is billable.
        */
       const rv = damage.runOverCrime(over, r.fatal);
+      /**
+       * AND IT NAMES ITS VICTIM, because without that a gate cannot tell whether the body the
+       * car drove over is the one it staged. `boot-check`'s run-over arm places a casualty 14 m
+       * ahead and drives at it; when the drive went astray it ran over somebody ELSE 3 m in, the
+       * counter rose, the record looked perfect and every check passed about the wrong
+       * pedestrian. `r.id` is the index `Pedestrians.positions()` reports as `i` and
+       * `Pedestrians.hit()` takes, so a caller that staged a subject can compare directly.
+       */
       dynStats.lastRunOver = { kmh: +(over * 3.6).toFixed(1), crime: rv.crime,
-        scale: +rv.scale.toFixed(4), charged: false };
+        scale: +rv.scale.toFixed(4), charged: false, victim: r.id };
       if (chargeVictim(r.id)) {
         dynStats.lastRunOver.charged = true;
         const res = wanted.reportCrime(rv.crime, { at: { x: vehicle.position.x, z: vehicle.position.z },
