@@ -815,8 +815,24 @@ if (state.global && state.frames > 2) {
     peds.hit(spot.i, { speed: 0.5, dirX: fz, dirZ: -fx, kill: true, force: true });
     await new Promise((r) => requestAnimationFrame(() => r()));
     const bodyDown = peds.isDown(spot.i);
+    /**
+     * WHERE THE BODY ACTUALLY IS, taken once, after the kill and its slide have landed. Every
+     * distance below is measured against THIS POINT and not against `positions()[spot.i]`,
+     * because the comment on `closest` twenty lines down says why: a slot is recycled once its
+     * casualty clears, after which that index is somebody else standing somewhere else.
+     *
+     * The first version of the miss diagnostic indexed by slot anyway and its own first run said
+     * so — `closest 14.38 m` on a body placed 14 m ahead, which is the car never having
+     * approached at all, while the lateral miss read a comfortable 0.483 m. Two numbers that
+     * cannot both be about one subject.
+     */
+    const bodyAt = (() => {
+      const p = peds.positions().find((x) => x.i === spot.i);
+      return p ? { x: p.x, z: p.z } : null;
+    })();
     const seen = [];
-    let overs = 0, repeats = 0, closest = Infinity, top = 0, sideMiss = Infinity;
+    let overs = 0, repeats = 0, closest = Infinity, top = 0;
+    let sideMiss = Infinity, nearestAlong = Infinity, stillDown = bodyDown;
     const dyn0 = d.damageReport().dynamic;
     d.setAutopilot(() => {
       /**
@@ -851,16 +867,25 @@ if (state.global && state.frames > 2) {
       frames++;
       travelled = Math.hypot(v.position.x - start.x, v.position.z - start.z);
       const p = peds.positions().find((x) => x.i === spot.i);
-      if (p) {
-        closest = Math.min(closest, Math.hypot(p.x - v.position.x, p.z - v.position.z));
+      if (p) closest = Math.min(closest, Math.hypot(p.x - v.position.x, p.z - v.position.z));
+      stillDown = stillDown && peds.isDown(spot.i);
+      if (bodyAt) {
         /**
-         * THE PERPENDICULAR MISS, against the axis the car was PLACED on. `0 run-overs` cannot
-         * tell "the car passed 1.8 m to the side" from "the car drove over it and the wire is
-         * broken", and those two send a round to opposite places. `(fz, -fx)` is the right-hand
-         * normal of the placement heading, so this needs no steering-sign convention.
+         * AGAINST THE FIXED POINT, in the car's own frame. `along` is how far up the placement
+         * heading the car has got — it starts at −14 and should pass 0 — and `sideMiss` is the
+         * perpendicular offset at the car's closest approach ALONG the axis, which is the only
+         * frame in which "did it miss sideways" means anything. `(fz, -fx)` is the right-hand
+         * normal of the placement heading, so neither needs a steering-sign convention.
+         *
+         * `0 run-overs` cannot tell "the car passed 1.8 m to the side" from "the car never got
+         * there" from "it drove over it and the wire is broken", and those three want three
+         * different fixes. Reaching the body at all is `nearestAlong`; missing sideways is
+         * `sideMiss`; the wire is everything below.
          */
-        sideMiss = Math.min(sideMiss,
-          Math.abs((p.x - v.position.x) * fz - (p.z - v.position.z) * fx));
+        const dx = bodyAt.x - v.position.x, dz = bodyAt.z - v.position.z;
+        const along = dx * fx + dz * fz;          // + is still ahead of the car
+        const side = Math.abs(dx * fz - dz * fx);
+        if (Math.abs(along) < Math.abs(nearestAlong)) { nearestAlong = along; sideMiss = side; }
       }
       top = Math.max(top, v.speed * 3.6);
       const dyn = d.damageReport().dynamic;
@@ -877,6 +902,8 @@ if (state.global && state.frames > 2) {
       along: RUN_M, side: +spot.dist.toFixed(1), approach: +(approach * 180 / Math.PI).toFixed(0),
       closest: +closest.toFixed(2), topKmh: +top.toFixed(1),
       sideMiss: Number.isFinite(sideMiss) ? +sideMiss.toFixed(3) : null,
+      nearestAlong: Number.isFinite(nearestAlong) ? +nearestAlong.toFixed(3) : null,
+      stillDown, bodyAt,
       repeats0: dyn0.pedRepeats, overs0: dyn0.pedRunOvers,
       knock: d.damageReport().dynamic.pedKnockdowns, crimes: d.damageReport().crimesReported };
   });
@@ -891,9 +918,11 @@ if (state.global && state.frames > 2) {
     console.log(`    overs ${ro.overs0} -> ${ro.overs}, repeats ${ro.repeats0} -> ${ro.repeats}, ` +
       `charge ${JSON.stringify(last)}, stars ${ro.stars}`);
     console.log(`    the drive ended on "${ro.why}" after ${ro.travelled} m of a ${ro.along} m run, ` +
-      `${ro.frames} frames, ${ro.wallS} s of wall clock; closest ${ro.closest} m, ` +
-      `perpendicular miss ${ro.sideMiss == null ? 'n/a' : `${ro.sideMiss} m`} against a 1.30 m ` +
-      `contact window`);
+      `${ro.frames} frames, ${ro.wallS} s of wall clock`);
+    console.log(`    against the body's own position: got to ${ro.nearestAlong == null ? 'n/a'
+      : `${ro.nearestAlong} m`} along the run (negative is past it), ${ro.sideMiss == null ? 'n/a'
+      : `${ro.sideMiss} m`} to the side of a 1.30 m contact window; the slot-indexed "closest" ` +
+      `reads ${ro.closest} m and tracks whoever holds the slot, so it is printed and not asserted`);
     /**
      * WHY THE DRIVE ENDED, asserted separately from whether it ran anybody over. A box slow
      * enough to hit the backstop reports "the car never got there", which is a statement about
@@ -907,20 +936,27 @@ if (state.global && state.frames > 2) {
     check('the body was still on the ground when the car got there', ro.bodyDown === true,
       `${ro.bodyDown}`);
     /**
-     * THE CAR WENT OVER THE AXIS THE BODY IS ON, which is the half `0 run-overs` could not say.
-     * This arm was flaky 1 run in 3 and the failure read as a broken wire: 0 run-overs, charge
-     * null, and five more checks falling over in this arm and the garage arm below. The cause was
-     * the arm's own knockdown sliding the body 0.695 m across a 1.30 m window — see the `hit`
-     * call — and nothing printed the one number that would have said so.
+     * THREE FAILURES `0 run-overs` CANNOT TELL APART, and this arm was flaky 1 run in 3 with the
+     * failure reading as a broken wire: 0 run-overs, charge null, and five more checks falling
+     * over in this arm and the garage arm below. They want three different fixes, so they get
+     * three checks, all against the body's OWN position rather than its slot:
      *
-     * Bounded by the window itself rather than by a figure somebody picked: `BODY_RADIUS` 0.95
-     * plus the person's 0.35, which is the across-axis contact bound CLAUDE.md #104 measured at
-     * max 1.32 over 57 strikes. A miss outside it is a geometry failure in the arm; a miss inside
-     * it with no run-over is a failure in the WIRE, and the two want opposite fixes.
+     *   - the car never reached it            `nearestAlong` still positive
+     *   - it reached it and passed to the side `sideMiss` outside the contact window
+     *   - it went over it and nothing charged  the wire, which is every check below
+     *
+     * The window is `BODY_RADIUS` 0.95 plus the person's 0.35, the across-axis bound CLAUDE.md
+     * #104 measured at max 1.32 over 57 strikes — read off the geometry rather than picked.
      */
-    check('and the car passed within the contact window of the body, or the arm missed it',
+    check('the car reached the body rather than stopping short of it',
+      ro.nearestAlong != null && ro.nearestAlong <= 0,
+      `got to ${ro.nearestAlong} m along the run; + is still short of it`);
+    check('and it passed within the contact window, rather than to one side',
       ro.sideMiss != null && ro.sideMiss <= 1.30,
-      `perpendicular miss ${ro.sideMiss} m against 1.30 m`);
+      `${ro.sideMiss} m to the side against a 1.30 m window`);
+    // The slot has to still BE the casualty, or every distance above is about somebody else.
+    check('and the slot still held the casualty throughout, so those two are about this body',
+      ro.stillDown === true, `isDown stayed ${ro.stillDown}`);
     /**
      * `closest` TRACKS THE SLOT, NOT THE BODY, so it is printed and not asserted: a fatal
      * knockdown throws the body along the car's heading and src/pedestrians.js recycles the slot

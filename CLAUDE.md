@@ -913,8 +913,9 @@ run read exactly like a broken feature:
     FAIL and its scale comes from the speed, not a literal 1              none
     ... and three more, two of them in the GARAGE arm below it
 
-**The arm's own knockdown was the cause.** `peds.hit(..., { speed: 3, kill: true })` is fatal by
-declaration, so the speed only decides how far the casualty slides — `throwDistance` is
+**The arm's own knockdown spends half of its margin**, which is a real defect and — see the
+correction below — is NOT established as the cause. `peds.hit(..., { speed: 3, kill: true })` is
+fatal by declaration, so the speed only decides how far the casualty slides — `throwDistance` is
 `v^2 / (2 mu g)` — and the arm slid it ACROSS its own axis, deliberately, so a slide could not
 carry the body out of the run-up. 3 m/s is **0.695 m across a 1.30 m contact window**
 (`BODY_RADIUS` 0.95 plus the person's 0.35, which is the across-axis bound CLAUDE.md #104 measured
@@ -940,6 +941,38 @@ is a dirty tree for every arm after it"): **price an arm's own staging against t
 arm depends on.** The staging here was written to solve a real problem — an earlier version slid
 the body 55 m BEYOND the run-up at 30 m/s, three runs, three zeros — and the fix for that spent
 half the budget of the next thing.
+
+### And the new diagnostic refuted the fix it was added to confirm, on its first run
+
+The paragraph above originally read "the arm's own knockdown was the cause". The miss diagnostic's
+own first run says otherwise:
+
+    the drive ended on "travelCap" after 35.2 m of a 14 m run
+    closest 14.38 m, perpendicular miss 0.483 m against a 1.30 m contact window
+
+**0.483 m is comfortably inside the window and `closest` never fell below 14.38 m on a body placed
+14 m ahead** — which is the car not having approached at all. No slide explains that, so the slide
+was half the margin and not the cause, and the smaller slide is a correct change that may fix
+nothing. Say which of the two a measurement establishes.
+
+**And the diagnostic was wrong in the way the file already warns about.** Both `closest` and the
+first version of the lateral miss index `positions()` by SLOT, and the comment twenty lines below
+them says why that is not the body: a slot is recycled once its casualty clears, after which the
+index is somebody else standing somewhere else. So two numbers that cannot both be about one
+subject — 14.38 m away and 0.483 m to the side — is exactly the signature of a slot-indexed probe,
+and this file records the identical error in #104's first probe, which joined a person id against
+a slot index and printed 0.00 on every column.
+
+Measured against a POINT instead — the body's position taken once, after the kill and its slide
+have landed — the three failures `0 run-overs` was lumping together come apart, and they want three
+different fixes:
+
+    the car never reached it             `nearestAlong` still positive
+    it reached it and passed to one side  `sideMiss` outside the 1.30 m window
+    it went over it and nothing charged   the wire, which is every check below
+
+plus one that says the slot still held the casualty throughout, because without it the other two
+are about whoever moved in.
 
 ### And a check that could only ever pass on another arm's crime
 
