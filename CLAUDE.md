@@ -1098,6 +1098,21 @@ The arm asserts the victim is its own.
 plus a classification is not an identification, and the gap only shows up on the runs where the arm
 goes wrong — which are exactly the runs whose output you are trying to trust.
 
+**And naming it was wrong first, because there are TWO id spaces and the record carried both.**
+The first version compared against `r.id` and read **"ran over #326, staged #14"**, three runs of
+three, while the geometry in the line above it put the car **0.01 m** off its own body's axis. Both
+cannot be true — and the arithmetic settles it with no second run: **the crowd is 90 pedestrians,
+so #326 is not an index into it.** `ped.id` is `++_nextId` at spawn and climbs past the crowd size
+as slots recycle; `r.index` is the slot, which is what `positions()` reports as `i` and what
+`hit()` takes. The contact record had carried both all along and I took the wrong one, under a
+comment asserting it was the other.
+
+**An index larger than the population it indexes is not an index into that population**, and that
+is the cheapest possible disproof of an id-space assumption — cheaper than any run. This file
+already records the same two spaces being joined the other way round in #104's first probe, which
+printed 0.00 on every column; the record now names them `victim` (the slot) and `victimId` (the
+person) so the next reader cannot pick blind.
+
 **So a browser arm that DRIVES has to own the car's wreck state.** The arm calls `repairCar()`
 before staging anything and asserts it was handed a repaired, un-wrecked car with no wreck clock
 running; and it records `respawns` across the drive and fails on a change FIRST, above every other

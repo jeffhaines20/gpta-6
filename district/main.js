@@ -1476,15 +1476,24 @@ function dynamicImpacts() {
        */
       const rv = damage.runOverCrime(over, r.fatal);
       /**
-       * AND IT NAMES ITS VICTIM, because without that a gate cannot tell whether the body the
-       * car drove over is the one it staged. `boot-check`'s run-over arm places a casualty 14 m
-       * ahead and drives at it; when the drive went astray it ran over somebody ELSE 3 m in, the
-       * counter rose, the record looked perfect and every check passed about the wrong
-       * pedestrian. `r.id` is the index `Pedestrians.positions()` reports as `i` and
-       * `Pedestrians.hit()` takes, so a caller that staged a subject can compare directly.
+       * AND IT NAMES ITS VICTIM IN BOTH ID SPACES, because they are different and confusing them
+       * is this project's recurring defect. Without a victim at all a gate cannot tell whether
+       * the body the car drove over is the one it staged: `boot-check`'s run-over arm places a
+       * casualty 14 m ahead and drives at it, and when the drive went astray it ran over somebody
+       * ELSE 3 m in, the counter rose, the record looked perfect and every check passed about the
+       * wrong pedestrian.
+       *
+       * `r.index` IS THE SLOT and `r.id` IS THE PERSON. The slot is what `positions()` reports as
+       * `i` and what `hit()` takes, so it is what a caller that staged a subject compares with.
+       * `id` is `++_nextId` at spawn, so it climbs past the crowd size as slots recycle — the
+       * first version of this record carried `id` under the name `victim` and a comment claiming
+       * it was the slot, and `boot-check` read **"ran over #326, staged #14"** on a 90-pedestrian
+       * crowd while its own geometry put the car 0.01 m off its body's axis. An index larger than
+       * the population it indexes is the tell, and CLAUDE.md records the same two spaces being
+       * joined the other way round in #104's first probe.
        */
       dynStats.lastRunOver = { kmh: +(over * 3.6).toFixed(1), crime: rv.crime,
-        scale: +rv.scale.toFixed(4), charged: false, victim: r.id };
+        scale: +rv.scale.toFixed(4), charged: false, victim: r.index, victimId: r.id };
       if (chargeVictim(r.id)) {
         dynStats.lastRunOver.charged = true;
         const res = wanted.reportCrime(rv.crime, { at: { x: vehicle.position.x, z: vehicle.position.z },

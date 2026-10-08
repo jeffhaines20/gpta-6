@@ -1128,9 +1128,14 @@ if (state.global && state.frames > 2) {
      * about the wrong pedestrian, while the arm's own casualty lay 10.9 m further on. The counter
      * cannot distinguish them and neither can the crime: it is the same crime either way.
      *
-     * `victim` is the index `positions()` reports as `i` and `hit()` takes, which is the index
-     * this arm staged with, so the comparison is direct rather than a join across two id spaces —
-     * the mistake CLAUDE.md records in #104's first probe.
+     * AND THE RECORD HAS TWO ID SPACES, which this check found by failing. The first version
+     * compared against `r.id`, the person — `++_nextId` at spawn, so it climbs past the crowd
+     * size as slots recycle — and read "ran over #326, staged #14" on a 90-pedestrian crowd,
+     * deterministically, while the geometry two lines up put the car 0.01 m off its own body's
+     * axis. **An index larger than the population it indexes is not an index into it**, and that
+     * is what settled it without another run. `victim` is `r.index`, the SLOT, which is what
+     * `positions()` reports as `i` and what `hit()` takes, so the comparison is direct rather
+     * than a join across two spaces — the mistake CLAUDE.md records in #104's first probe.
      */
     check('and the body it ran over is the one this arm staged',
       last != null && last.victim === ro.subject,
