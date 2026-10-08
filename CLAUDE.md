@@ -1710,6 +1710,35 @@ restore was right. The diff was then read before restoring and was precisely the
 mutation. **Check the owner, then read the diff, then restore** — in that order, and the lock tells
 you nothing because it survives a kill.
 
+### Stopping a task does not stop its child, and `pgrep` matches a zombie for ever
+
+A triple was launched as `until ! pgrep -f "[b]oot-check.mjs"; do sleep 15; done; <three runs>`,
+after an earlier triple had been stopped mid-run to free the box. It spent **roughly 55 of its 60
+minutes in the wait**, got 26 bytes into run 1 (`BOOT CHECK / dom in 0.4 s`) and was killed at its
+background limit — and the kill notice reads "the work took too long", which is the one thing that
+did not happen.
+
+What is OBSERVED: no live `boot-check` process by the time I looked, and a
+`1497 [http-server] <defunct>` still in the process table. What that implies: **stopping the task
+killed the shell and left its `node` child**, and a child whose parent is gone and is not reaped
+stays in the table as a zombie — **with its argv intact, so `pgrep -f` keeps matching it.** A wait
+written as "no process matches this name" then cannot exit, however finished the work is.
+
+This file already records the self-match trap, where the waiting shell finds its own command line.
+This is the sibling and the bracket trick does not help with it: the pattern is right, the match is
+real, and the process is dead.
+
+Three rules, and the third is the cheap one:
+
+- **A wait loop and the work it guards must not share one background budget.** The task's time
+  limit then covers both, and a wait that blocks is indistinguishable from work that is slow. Clear
+  the box, CHECK it, and launch the work as its own task.
+- **After stopping a task, kill what it started, by name, and then look at the table.** `pkill -f`
+  on the tool and on its server, then `pgrep -af` to read what is left — which is how the defunct
+  entry above was found at all.
+- **Prefer a positive condition to a negative one.** "Wait until the output file says PASS or FAIL"
+  cannot be satisfied by a corpse; "wait until nothing matches" can be blocked by one for ever.
+
 - Headless capture runs through SwiftShader well under 1 fps. Budget minutes per
   frame, and never report frame rate as a performance result.
 - `blind-compare` refuses to build a pair set carrying under 8% facade-band
