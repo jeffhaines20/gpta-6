@@ -816,23 +816,29 @@ if (state.global && state.frames > 2) {
     await new Promise((r) => requestAnimationFrame(() => r()));
     const bodyDown = peds.isDown(spot.i);
     /**
-     * WHERE THE BODY ACTUALLY IS, taken once, after the kill and its slide have landed. Every
-     * distance below is measured against THIS POINT and not against `positions()[spot.i]`,
-     * because the comment on `closest` twenty lines down says why: a slot is recycled once its
-     * casualty clears, after which that index is somebody else standing somewhere else.
+     * WHERE THE BODY IS: `spot` ITSELF, AND IT TOOK TWO WRONG VERSIONS TO GET HERE.
      *
-     * The first version of the miss diagnostic indexed by slot anyway and its own first run said
-     * so — `closest 14.38 m` on a body placed 14 m ahead, which is the car never having
-     * approached at all, while the lateral miss read a comfortable 0.483 m. Two numbers that
-     * cannot both be about one subject.
+     * The arm placed the car 14 m back along `approach` FROM `spot`, so `spot` is the body's
+     * position by construction, and the kill above slides it 0.0193 m — two centimetres, which is
+     * 1.5% of the 1.30 m contact window. No lookup is needed and no lookup is correct.
+     *
+     * Version 1 read `positions()` by slot and its own first run refuted it: `closest 14.38 m` on
+     * a body placed 14 m ahead, which is the car never having approached, beside a comfortable
+     * 0.483 m lateral miss. Two numbers that cannot both be about one subject.
+     *
+     * Version 2 took the same slot lookup ONCE after the kill and called it a fixed point. That
+     * run reported **8 run-overs** and a body **11.05 m to the side** — a body 11 m away cannot be
+     * run over eight times, so the point was already somebody else. `positions()[].i` is a SLOT
+     * index, `src/pedestrians.js` packs the far tier with swap-remove, and the comment on
+     * `closest` below has said the index is not the body the whole time. CLAUDE.md records the
+     * same error in #104's first probe, which joined a person id against a slot index.
+     *
+     * The rule: when a module renumbers its slots, take the geometry from what YOU placed.
      */
-    const bodyAt = (() => {
-      const p = peds.positions().find((x) => x.i === spot.i);
-      return p ? { x: p.x, z: p.z } : null;
-    })();
+    const bodyAt = { x: spot.x, z: spot.z };
     const seen = [];
     let overs = 0, repeats = 0, closest = Infinity, top = 0;
-    let sideMiss = Infinity, nearestAlong = Infinity, stillDown = bodyDown;
+    let sideMiss = Infinity, nearestAlong = Infinity;
     const dyn0 = d.damageReport().dynamic;
     d.setAutopilot(() => {
       /**
@@ -868,7 +874,6 @@ if (state.global && state.frames > 2) {
       travelled = Math.hypot(v.position.x - start.x, v.position.z - start.z);
       const p = peds.positions().find((x) => x.i === spot.i);
       if (p) closest = Math.min(closest, Math.hypot(p.x - v.position.x, p.z - v.position.z));
-      stillDown = stillDown && peds.isDown(spot.i);
       if (bodyAt) {
         /**
          * AGAINST THE FIXED POINT, in the car's own frame. `along` is how far up the placement
@@ -903,7 +908,7 @@ if (state.global && state.frames > 2) {
       closest: +closest.toFixed(2), topKmh: +top.toFixed(1),
       sideMiss: Number.isFinite(sideMiss) ? +sideMiss.toFixed(3) : null,
       nearestAlong: Number.isFinite(nearestAlong) ? +nearestAlong.toFixed(3) : null,
-      stillDown, bodyAt,
+      bodyAt,
       repeats0: dyn0.pedRepeats, overs0: dyn0.pedRunOvers,
       knock: d.damageReport().dynamic.pedKnockdowns, crimes: d.damageReport().crimesReported };
   });
@@ -921,8 +926,8 @@ if (state.global && state.frames > 2) {
       `${ro.frames} frames, ${ro.wallS} s of wall clock`);
     console.log(`    against the body's own position: got to ${ro.nearestAlong == null ? 'n/a'
       : `${ro.nearestAlong} m`} along the run (negative is past it), ${ro.sideMiss == null ? 'n/a'
-      : `${ro.sideMiss} m`} to the side of a 1.30 m contact window; the slot-indexed "closest" ` +
-      `reads ${ro.closest} m and tracks whoever holds the slot, so it is printed and not asserted`);
+      : `${ro.sideMiss} m`} to the side of a 1.30 m window (nose reach 2.50 m); the slot-indexed ` +
+      `"closest" reads ${ro.closest} m and tracks whoever holds the slot, so it is printed only`);
     /**
      * WHY THE DRIVE ENDED, asserted separately from whether it ran anybody over. A box slow
      * enough to hit the backstop reports "the car never got there", which is a statement about
@@ -948,15 +953,25 @@ if (state.global && state.frames > 2) {
      * The window is `BODY_RADIUS` 0.95 plus the person's 0.35, the across-axis bound CLAUDE.md
      * #104 measured at max 1.32 over 57 strikes — read off the geometry rather than picked.
      */
-    check('the car reached the body rather than stopping short of it',
-      ro.nearestAlong != null && ro.nearestAlong <= 0,
-      `got to ${ro.nearestAlong} m along the run; + is still short of it`);
-    check('and it passed within the contact window, rather than to one side',
-      ro.sideMiss != null && ro.sideMiss <= 1.30,
-      `${ro.sideMiss} m to the side against a 1.30 m window`);
-    // The slot has to still BE the casualty, or every distance above is about somebody else.
-    check('and the slot still held the casualty throughout, so those two are about this body',
-      ro.stillDown === true, `isDown stayed ${ro.stillDown}`);
+    /**
+     * BOTH BOUNDS ARE READ OFF THE GEOMETRY. Along the axis the car's nose is `HALF_EXTENT.z`
+     * = 2.15 m ahead of its centre, so contact begins at 2.15 + the person's 0.35 = **2.50 m**.
+     * Across it the bound is `BODY_RADIUS` 0.95 + 0.35 = **1.30 m**, which is the across-axis
+     * contact bound CLAUDE.md #104 measured at max 1.32 over 57 strikes.
+     */
+    check('the car got level with the body at all, so the staging worked',
+      ro.nearestAlong != null && ro.nearestAlong <= 2.50,
+      `closest ${ro.nearestAlong} m along the run against a 2.50 m nose reach`);
+    /**
+     * AND THE GEOMETRY AND THE WIRE AGREE, which is the check that separates the three failures
+     * `0 run-overs` was lumping together. It fails in both directions and they mean opposite
+     * things: geometry says contact and the counter says none is a broken WIRE; the counter says
+     * contact and the geometry says it passed 11 m away is a broken INSTRUMENT, which is exactly
+     * what the first two versions of this probe reported.
+     */
+    check('a run-over happened exactly when the car passed within the contact window',
+      ro.sideMiss != null && (ro.overs > 0) === (ro.sideMiss <= 1.30),
+      `${ro.overs} run-overs with ${ro.sideMiss} m to the side of a 1.30 m window`);
     /**
      * `closest` TRACKS THE SLOT, NOT THE BODY, so it is printed and not asserted: a fatal
      * knockdown throws the body along the car's heading and src/pedestrians.js recycles the slot

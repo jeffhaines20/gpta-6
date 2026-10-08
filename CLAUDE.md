@@ -963,16 +963,45 @@ subject — 14.38 m away and 0.483 m to the side — is exactly the signature of
 and this file records the identical error in #104's first probe, which joined a person id against
 a slot index and printed 0.00 on every column.
 
-Measured against a POINT instead — the body's position taken once, after the kill and its slide
-have landed — the three failures `0 run-overs` was lumping together come apart, and they want three
-different fixes:
+### Version 2 took the SAME slot lookup once and called it a fixed point
 
-    the car never reached it             `nearestAlong` still positive
+"Measured against a point instead — the body's position taken once, after the kill" is what this
+section said next, and it is the same defect with a timestamp on it. That run reported
+
+    overs 0 -> 8, ended on "ranOver" after 14.4 m      every wire check passing
+    against the body's own position: 1.203 m along, 11.05 m to the side
+
+and **a body 11 m to the side cannot be run over eight times.** Taking a slot lookup once does not
+make it a point; it makes it a point about whoever held the slot at that instant.
+
+**The answer needed no lookup at all.** The arm places the car 14 m back along `approach` FROM
+`spot`, so `spot` IS the body's position by construction, and the kill slides it 0.0193 m — two
+centimetres, 1.5% of the contact window. Three versions to arrive at the coordinate the arm had
+typed in itself.
+
+So the rule, which is the one general thing here: **when a module renumbers its slots, take the
+geometry from what YOU placed, not from what the module reports at an index.** `positions()[].i` is
+a slot, `src/pedestrians.js` packs its far tier with swap-remove, and the comment on `closest`
+twenty lines below both probes had said the index is not the body the whole time.
+
+With the point right, the three failures `0 run-overs` was lumping together come apart, and they
+want three different fixes:
+
+    the car never reached it             `nearestAlong` above the 2.50 m nose reach
     it reached it and passed to one side  `sideMiss` outside the 1.30 m window
     it went over it and nothing charged   the wire, which is every check below
 
-plus one that says the slot still held the casualty throughout, because without it the other two
-are about whoever moved in.
+Both bounds are read off the geometry rather than picked: along the axis the nose is
+`HALF_EXTENT.z` 2.15 m ahead of the centre, so contact begins at 2.15 + the person's 0.35; across
+it the bound is `BODY_RADIUS` 0.95 + 0.35 = 1.30, which is what #104 measured at max 1.32 over 57
+strikes.
+
+**And the second check is an agreement rather than a bound, which is what makes it catch an
+instrument as well as a build.** "A run-over happened exactly when the car passed within the
+contact window" fails in both directions and they mean opposite things: geometry says contact and
+the counter says none is a broken WIRE; the counter says contact and the geometry says it passed
+11 m away is a broken INSTRUMENT. Both of this probe's wrong versions would have been caught by it
+on their first run, and the bound-shaped checks they shipped with were not.
 
 ### And a check that could only ever pass on another arm's crime
 
