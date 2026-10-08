@@ -753,11 +753,36 @@ if (state.global && state.frames > 2) {
      * tens of metres at most — and the arm asserts the body is still down when it gets there rather
      * than assuming it.
      */
-    const BODY_SIDE = 1.0;                             // the run-up clearance circle
+    /**
+     * THE RUN-UP CLEARANCE, AND ITS STEP WAS AT THE LIMIT OF WHAT IT CAN NOTICE.
+     *
+     * This sampled a 1.0 m circle every 2 m, and CLAUDE.md's own rule for a swept test against
+     * geometry is that it can only notice an obstruction while the step is under TWICE the test
+     * radius — 2.0 m here. So the step was exactly ON the bound and missed whatever fell between
+     * samples. Measured consequence: the car was placed 14 m from the body pointing straight at
+     * it (read back exact, at rest, health 1.000) and ended 14.4 m later at **127 degrees to its
+     * own heading**, 11 m off the axis, with `steer: 0` throughout — a resolver sliding it along
+     * a wall the run-up check had stepped over. The arm reported 0 run-overs and that read as a
+     * broken wire, 1 run in 3.
+     *
+     * 0.5 m is 3.8x inside the bound, and the radius is the car's own `BODY_RADIUS` rather than a
+     * rounder number. The worst clearance is reported so a future miss says whether the path was
+     * clear when it was chosen.
+     */
+    const BODY_SIDE = 0.95;                            // src/vehicle.js's BODY_RADIUS
+    const RUN_STEP = 0.5;                              // under 2 * BODY_SIDE, by 3.8x
     const clearRun = (bx, bz, h) => {
       const sx = Math.sin(h), sz = Math.cos(h);
-      for (let m = 2; m <= 14; m += 2) {
+      for (let m = RUN_STEP; m <= 14; m += RUN_STEP) {
         if (d.blockers.resolveCircle(bx + sx * m, bz + sz * m, BODY_SIDE)) return false;
+      }
+      return true;
+    };
+    // What the OLD coarse test would have said, so the diff is visible rather than asserted blind.
+    const clearRunCoarse = (bx, bz, h) => {
+      const sx = Math.sin(h), sz = Math.cos(h);
+      for (let m = 2; m <= 14; m += 2) {
+        if (d.blockers.resolveCircle(bx + sx * m, bz + sz * m, 1.0)) return false;
       }
       return true;
     };
@@ -777,6 +802,17 @@ if (state.global && state.frames > 2) {
       d.setTimeScale(1);
       return { skipped: 'no pedestrian within 60 m with a clear 14 m run-up',
         crowd: peds.positions().length };
+    }
+    // How many candidate run-ups the coarse step called clear and the fine one refuses: the
+    // population the old selection was drawing from.
+    let coarseOnly = 0, bothClear = 0;
+    for (const c of near.slice(0, 24)) {
+      for (let k = 0; k < 24; k++) {
+        const h = (k / 24) * Math.PI * 2;
+        const fine = clearRun(c.x, c.z, h), coarse = clearRunCoarse(c.x, c.z, h);
+        if (coarse && !fine) coarseOnly++;
+        if (coarse && fine) bothClear++;
+      }
     }
     // Back along the clear heading, pointing AT them, so the body is on the car's own axis.
     const ax = Math.sin(approach), az = Math.cos(approach);
@@ -913,6 +949,7 @@ if (state.global && state.frames > 2) {
     return { seen, overs, repeats, bodyDown, stars: d.wanted.stars,
       why, travelled: +travelled.toFixed(1), frames, wallS: +((Date.now() - t1) / 1000).toFixed(1),
       along: RUN_M, side: +spot.dist.toFixed(1), approach: +(approach * 180 / Math.PI).toFixed(0),
+      coarseOnly, bothClear,
       frame0, carEnd: { x: +v.position.x.toFixed(2), z: +v.position.z.toFixed(2) },
       bodyEnd: (() => { const p = peds.positions().find((x) => x.i === spot.i);
         return p ? { x: +p.x.toFixed(2), z: +p.z.toFixed(2) } : null; })(),
@@ -935,6 +972,9 @@ if (state.global && state.frames > 2) {
       `charge ${JSON.stringify(last)}, stars ${ro.stars}`);
     console.log(`    the drive ended on "${ro.why}" after ${ro.travelled} m of a ${ro.along} m run, ` +
       `${ro.frames} frames, ${ro.wallS} s of wall clock`);
+    console.log(`    run-up clearance: of ${ro.coarseOnly + ro.bothClear} candidate headings the `
+      + `old 2 m step called clear, the 0.5 m step refuses ${ro.coarseOnly} — the population the `
+      + `selection used to draw from`);
     console.log(`    RAW: body (${ro.frame0.body.x}, ${ro.frame0.body.z}); car placed at `
       + `(${ro.frame0.placed.x}, ${ro.frame0.placed.z}) and READ BACK at `
       + `(${ro.frame0.car.x}, ${ro.frame0.car.z}), ${ro.frame0.d0} m from the body; `
