@@ -899,6 +899,83 @@ over a table, check what it is being asked to decide.** `min(floors)` is the rig
 must a floorless crime not exceed" and an accident as an answer to "how many stars is a write-off",
 and one expression was doing both.
 
+## An arm's own setup can spend the margin the arm needs, and the symptom names the wire
+
+`boot-check`'s run-over arm stages a body 14 m straight ahead, kills it where it stands so it
+cannot walk off, and drives at it blind on `steer: 0`. It was flaky **1 run in 3**, and the failing
+run read exactly like a broken feature:
+
+    run 2   body 14.3 m from the car before the move   36.1 m driven, "travelCap", 0 run-overs
+    run 3   body 11.5 m                                14.4 m driven, "ranOver",  8 run-overs
+
+    FAIL the arm actually drove over a body, so both sides are not zero   0 -> 0 run-overs
+    FAIL a run-over reaches the crime path at all                         []
+    FAIL and its scale comes from the speed, not a literal 1              none
+    ... and three more, two of them in the GARAGE arm below it
+
+**The arm's own knockdown was the cause.** `peds.hit(..., { speed: 3, kill: true })` is fatal by
+declaration, so the speed only decides how far the casualty slides — `throwDistance` is
+`v^2 / (2 mu g)` — and the arm slid it ACROSS its own axis, deliberately, so a slide could not
+carry the body out of the run-up. 3 m/s is **0.695 m across a 1.30 m contact window**
+(`BODY_RADIUS` 0.95 plus the person's 0.35, which is the across-axis bound CLAUDE.md #104 measured
+at max 1.32 over 57 strikes):
+
+    kill at 3.0 m/s   slides 0.6950 m   0.605 m of lateral margin left   47% of the window
+    kill at 1.0 m/s   slides 0.0772 m   1.223 m                          94%
+    kill at 0.5 m/s   slides 0.0193 m   1.281 m                          99%
+
+**53% of the arm's lateral budget was spent before the car had moved**, leaving 0.605 m for every
+other source of drift over a blind 14 m run. It is now 0.5 m/s, which keeps 99% of the window and
+is still a real slide rather than a zero, so the direction arithmetic stays meaningful.
+
+**And the missing number is the one that separates the two diagnoses.** `0 run-overs` cannot tell
+"the car passed 1.8 m to the side" from "the car drove over it and the wire is broken", and those
+send a round to opposite places. The arm now measures the PERPENDICULAR miss against the axis it
+placed the car on — `(fz, -fx)` is the right-hand normal of the placement heading, so it needs no
+steering-sign convention — prints it beside the contact window, and asserts it. A miss outside the
+window is a geometry failure in the arm; a miss inside it with no run-over is the wire.
+
+The general shape, and this file already has it from the other side ("an arm that perturbs the page
+is a dirty tree for every arm after it"): **price an arm's own staging against the tolerance the
+arm depends on.** The staging here was written to solve a real problem — an earlier version slid
+the body 55 m BEYOND the run-up at 30 m/s, three runs, three zeros — and the fix for that spent
+half the budget of the next thing.
+
+### And a check that could only ever pass on another arm's crime
+
+The five further failures were one check and a cascade. `boot-check`'s garage arm clears the wanted
+level, breaks the car with one `dv: 7.5` wall impact, and asserted `stars > 0` — "breaking the car
+charges a crime", the host's impact-to-crime wire. **#97's ladder, measured in a different file in
+the same round, says that is unreachable.** `dv 7.5` into a wall files `propertyDamage`, which the
+table gives no floor, and `FLOORLESS_CAP`'s soft knee holds one such offence strictly under one
+heat:
+
+    severity 0.2729   scale 2.2743   raw 0.6823   charged 0.6336   ->   0 stars
+
+Two hits would be 1.2402 and one star. One cannot be anything but zero. So from that
+`clearWanted` the star count after the impact is **always** 0, and the check had been passing on
+heat left behind by an earlier arm: the run-over arm charges `pedestrianHit`, which arms a scene,
+and the garage arm's own teleport then LEAVES that scene — filing `hitAndRun`, whose floor is 1. On
+a run where the run-over arm hit nobody, there was no scene to leave, the star count read 0, and a
+check about a wall impact failed because of a pedestrian two arms earlier.
+
+The arm's own comment said it must not "silently be measuring the refusal again". It was silently
+measuring a different arm's pedestrian.
+
+Three things to carry:
+
+- **Assert the quantity the wire produces, not a quantity downstream of a threshold.** Heat is what
+  an impact charges; stars is heat past a cap that a single floorless crime cannot reach. The check
+  reads `heat > 0` now and splits into two, because "the impact charged something" and "the clear
+  worked" are two statements and one bound was covering both.
+- **A measurement round pays for itself in other files.** Nothing was wrong with the garage arm's
+  code; what changed is that #97's ladder told me what one property-damage offence can charge, and
+  that falsified a check in a gate I was not looking at. **When you measure a ceiling, grep the
+  gates for assertions that sit above it.**
+- **Intermittent in one arm, failing in another: look for the state one passes to the next.** Of
+  the six failures, four were one arm's missed drive and two were a later arm reading the heat that
+  drive would have left. Neither arm was wrong about its own subject.
+
 ## Numbers that are not what they look like
 
 - **The budget gate's triangle count carries ~20k of run-to-run noise** from

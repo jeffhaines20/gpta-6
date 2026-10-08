@@ -793,14 +793,30 @@ if (state.global && state.frames > 2) {
      * aims it, the casualty lands 55 m BEYOND the 14 m run-up: three runs, three times zero
      * run-overs, deterministically, with the body reported down the whole time.
      *
-     * `kill: true` at 3 m/s is fatal by declaration and slides 0.70 m, so the body stays on the
-     * car's axis where the arm put it. Across the car, not along it, for the same reason.
+     * `kill: true` is fatal by DECLARATION, so the speed only sets how far the body slides, and
+     * the direction is ACROSS the car rather than along it so a slide cannot carry the body out of
+     * the 14 m run-up.
+     *
+     * AND 3 m/s WAS TOO FAST, WHICH MADE THIS ARM FLAKY 1 RUN IN 3. `throwDistance` slides the
+     * body `v^2 / (2 mu g)`, so 3 m/s is **0.695 m across the axis** against a measured
+     * across-axis contact window of 1.30 m (`BODY_RADIUS` 0.95 + the person's 0.35, CLAUDE.md
+     * #104) — the arm spent **53% of its own lateral margin before the car had moved**, leaving
+     * 0.605 m for every other source of drift over a blind `steer: 0` run. Measured failure: the
+     * car drove 36.1 m of a 14 m run, ended on `travelCap` with 0 run-overs and a body still
+     * reported down, which then broke five more checks in this arm and the garage arm below it.
+     *
+     *     kill at 3.0 m/s   slides 0.6950 m   0.605 m of margin left   47% of the window
+     *     kill at 1.0 m/s   slides 0.0772 m   1.223 m                  94%
+     *     kill at 0.5 m/s   slides 0.0193 m   1.281 m                  99%
+     *
+     * 0.5 m/s keeps 99% of the window and is still a real slide rather than a zero, so the
+     * direction arithmetic stays meaningful. The miss is PRINTED either way — see the loop.
      */
-    peds.hit(spot.i, { speed: 3, dirX: fz, dirZ: -fx, kill: true, force: true });
+    peds.hit(spot.i, { speed: 0.5, dirX: fz, dirZ: -fx, kill: true, force: true });
     await new Promise((r) => requestAnimationFrame(() => r()));
     const bodyDown = peds.isDown(spot.i);
     const seen = [];
-    let overs = 0, repeats = 0, closest = Infinity, top = 0;
+    let overs = 0, repeats = 0, closest = Infinity, top = 0, sideMiss = Infinity;
     const dyn0 = d.damageReport().dynamic;
     d.setAutopilot(() => {
       /**
@@ -835,7 +851,17 @@ if (state.global && state.frames > 2) {
       frames++;
       travelled = Math.hypot(v.position.x - start.x, v.position.z - start.z);
       const p = peds.positions().find((x) => x.i === spot.i);
-      if (p) closest = Math.min(closest, Math.hypot(p.x - v.position.x, p.z - v.position.z));
+      if (p) {
+        closest = Math.min(closest, Math.hypot(p.x - v.position.x, p.z - v.position.z));
+        /**
+         * THE PERPENDICULAR MISS, against the axis the car was PLACED on. `0 run-overs` cannot
+         * tell "the car passed 1.8 m to the side" from "the car drove over it and the wire is
+         * broken", and those two send a round to opposite places. `(fz, -fx)` is the right-hand
+         * normal of the placement heading, so this needs no steering-sign convention.
+         */
+        sideMiss = Math.min(sideMiss,
+          Math.abs((p.x - v.position.x) * fz - (p.z - v.position.z) * fx));
+      }
       top = Math.max(top, v.speed * 3.6);
       const dyn = d.damageReport().dynamic;
       overs = dyn.pedRunOvers; repeats = dyn.pedRepeats;
@@ -850,6 +876,7 @@ if (state.global && state.frames > 2) {
       why, travelled: +travelled.toFixed(1), frames, wallS: +((Date.now() - t1) / 1000).toFixed(1),
       along: RUN_M, side: +spot.dist.toFixed(1), approach: +(approach * 180 / Math.PI).toFixed(0),
       closest: +closest.toFixed(2), topKmh: +top.toFixed(1),
+      sideMiss: Number.isFinite(sideMiss) ? +sideMiss.toFixed(3) : null,
       repeats0: dyn0.pedRepeats, overs0: dyn0.pedRunOvers,
       knock: d.damageReport().dynamic.pedKnockdowns, crimes: d.damageReport().crimesReported };
   });
@@ -864,7 +891,9 @@ if (state.global && state.frames > 2) {
     console.log(`    overs ${ro.overs0} -> ${ro.overs}, repeats ${ro.repeats0} -> ${ro.repeats}, ` +
       `charge ${JSON.stringify(last)}, stars ${ro.stars}`);
     console.log(`    the drive ended on "${ro.why}" after ${ro.travelled} m of a ${ro.along} m run, ` +
-      `${ro.frames} frames, ${ro.wallS} s of wall clock`);
+      `${ro.frames} frames, ${ro.wallS} s of wall clock; closest ${ro.closest} m, ` +
+      `perpendicular miss ${ro.sideMiss == null ? 'n/a' : `${ro.sideMiss} m`} against a 1.30 m ` +
+      `contact window`);
     /**
      * WHY THE DRIVE ENDED, asserted separately from whether it ran anybody over. A box slow
      * enough to hit the backstop reports "the car never got there", which is a statement about
@@ -877,6 +906,21 @@ if (state.global && state.frames > 2) {
       `${last ? (1 / last.scale).toFixed(0) : '?'}x what the speed says`);
     check('the body was still on the ground when the car got there', ro.bodyDown === true,
       `${ro.bodyDown}`);
+    /**
+     * THE CAR WENT OVER THE AXIS THE BODY IS ON, which is the half `0 run-overs` could not say.
+     * This arm was flaky 1 run in 3 and the failure read as a broken wire: 0 run-overs, charge
+     * null, and five more checks falling over in this arm and the garage arm below. The cause was
+     * the arm's own knockdown sliding the body 0.695 m across a 1.30 m window — see the `hit`
+     * call — and nothing printed the one number that would have said so.
+     *
+     * Bounded by the window itself rather than by a figure somebody picked: `BODY_RADIUS` 0.95
+     * plus the person's 0.35, which is the across-axis contact bound CLAUDE.md #104 measured at
+     * max 1.32 over 57 strikes. A miss outside it is a geometry failure in the arm; a miss inside
+     * it with no run-over is a failure in the WIRE, and the two want opposite fixes.
+     */
+    check('and the car passed within the contact window of the body, or the arm missed it',
+      ro.sideMiss != null && ro.sideMiss <= 1.30,
+      `perpendicular miss ${ro.sideMiss} m against 1.30 m`);
     /**
      * `closest` TRACKS THE SLOT, NOT THE BODY, so it is printed and not asserted: a fatal
      * knockdown throws the body along the car's heading and src/pedestrians.js recycles the slot
@@ -966,7 +1010,28 @@ if (state.global && state.frames > 2) {
     d.damage.impact({ dv: 7.5, kind: 'wall', dirX: 0, dirZ: 1, speed: 7.5 });
     const broken = d.damage.health;
     for (let i = 0; i < 2; i++) await frame();
-    const chargedFor = d.wantedReport().stars;
+    /**
+     * HEAT, NOT STARS, AND THE STAR VERSION COULD NOT PASS ON THIS ARM'S OWN ACTION.
+     *
+     * This read `.stars` and asserted it was above zero — "breaking the car charges a crime" —
+     * and #97's ladder is what shows that is unreachable here: `dv 7.5` into a wall files
+     * `propertyDamage`, which the table gives NO FLOOR, and `FLOORLESS_CAP`'s soft knee holds one
+     * such offence strictly under one heat. Measured off the modules: severity 0.2729, scale
+     * 2.2743, raw 0.6823, **charged 0.6336 — 0 stars.** Two hits would be 1.2402 and one star.
+     *
+     * So from the `clearWanted` three lines up, the star count after this impact is ALWAYS 0, and
+     * the check passed on heat left behind by an earlier arm. Traced: the run-over arm above
+     * charges `pedestrianHit`, which arms a scene, and this arm's own teleport then leaves it —
+     * filing `hitAndRun`, whose floor IS 1. So on a run where the run-over arm hit nobody the
+     * star count read 0 and this check failed, 1 run in 3, naming a wire that was never broken.
+     * The arm's own comment already said it must not "silently be measuring the refusal again";
+     * it was silently measuring a different arm's pedestrian.
+     *
+     * Heat is the quantity the wire produces, so heat is what this asserts. 0.6336 against 0 is
+     * the whole claim, it comes from this arm's own impact, and it cannot be satisfied by
+     * inheritance because the clear is immediately above.
+     */
+    const chargedFor = d.wantedReport().heat;
     d.clearWanted('boot-check');
     await frame();
     const starsBefore = d.wantedReport().stars;
@@ -1027,10 +1092,12 @@ if (state.global && state.frames > 2) {
     `${g.after.entries} entries over ${g.drive.length} frames of throttle`);
   check('and it was broken when it got there, or there is nothing to repair',
     g.broken < 1 && g.broken > 0.2, `health ${g.broken.toFixed(3)}`);
-  console.log(`    breaking it charged ${g.chargedFor}*, cleared to ${g.starsBefore}* before the drive`);
+  console.log(`    breaking it charged ${g.chargedFor} of heat (0 stars by design — see the arm), `
+    + `cleared to ${g.starsBefore}* before the drive`);
+  check('breaking the car charges a crime at all, which is the host wire',
+    g.chargedFor > 0, `${g.chargedFor} of heat from a cleared meter`);
   check('and it is not wanted, or this arm measures the wanted refusal instead of the repair',
-    g.chargedFor > 0 && g.starsBefore === 0,
-    `${g.chargedFor}* charged by the impact, ${g.starsBefore}* at the wheel`);
+    g.starsBefore === 0, `${g.starsBefore}* at the wheel`);
   check('the page repairs the car, which is the wire no offline gate can see',
     g.after.hostRepairs === 1 && g.after.health === 1,
     `${g.broken.toFixed(3)} -> ${g.after.health.toFixed(3)}, ${g.after.hostRepairs} host repairs`);

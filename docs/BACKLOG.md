@@ -623,6 +623,16 @@ either. Read that way the meter is not backwards at all — it counts offences, 
 and a player's own loss is not a crime. Which of those two readings is right is a design decision
 and it is not derivable from anything in the repo, so it is recorded rather than taken.
 
+**And the ladder falsified a check in a different gate, which is most of what it was worth.**
+`boot-check`'s garage arm clears the wanted level, breaks the car with one `dv: 7.5` wall impact
+and asserted `stars > 0` — the host's impact-to-crime wire. That is unreachable: `dv 7.5` files
+`propertyDamage`, charged **0.6336**, which is 0 stars by the arithmetic above. The check had been
+passing on heat left by an earlier arm — the run-over arm charges `pedestrianHit`, which arms a
+scene, and the garage arm's own teleport leaves it, filing `hitAndRun` whose floor is 1 — so on a
+run where the run-over arm hit nobody it failed, naming a wire that was never broken. It asserts
+HEAT now, split into two checks. **When you measure a ceiling, grep the gates for assertions that
+sit above it.**
+
 **Gated as `wanted-test` §f4**, 10 checks: the ladder never rises with speed, it spans 10x, the heat
 after two hits rises strictly with speed, the 20.66 km/h switch is bisected off the module, and the
 inversion pair is pinned as two KNOWN-BADs with a third check that neither arm is a zero. 287 -> 297
