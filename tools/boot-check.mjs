@@ -769,6 +769,28 @@ if (state.global && state.frames > 2) {
      * rounder number. The worst clearance is reported so a future miss says whether the path was
      * clear when it was chosen.
      */
+    /**
+     * THE ARM HAS TO OWN THE CAR'S WRECK STATE, and not owning it is what made this arm flaky
+     * 1 run in 3 with a symptom that read as a broken wire.
+     *
+     * Traced from the path, after four other theories had been refuted by measurement: the car
+     * was placed 14 m from the body pointing straight at it, sat still for three frames, and
+     * then JUMPED 17.6 m to (-327.8, 63.3) with its yaw snapped from pi to 0 and the damage
+     * model's impact count going 1 -> 0. (-327.84, 63.3) is `district.meta.spawn`, "Bayfront @
+     * Main St". It was a RESPAWN — `respawnCar` zeroes the wreck clock, repairs, teleports to the
+     * nearest road and leaves yaw at 0 — firing three frames into this arm's own drive, after
+     * which the car drove perfectly straight along its NEW heading, 14.5 km/h, nowhere near the
+     * body. No steering or clearance fix survives that.
+     *
+     * A counter going DOWN was the tell. `impacts 1 -> 0` is not a measurement, it is the model
+     * being replaced underneath one.
+     *
+     * So: repair first, and assert the car is neither wrecked nor holding a wreck clock before
+     * the body is staged. `repairCar` is the host's own hook and clears the pending impact too.
+     */
+    d.repairCar();
+    const carBefore = { health: d.damage.health, ...d.wreckReport() };
+
     const BODY_SIDE = 0.95;                            // src/vehicle.js's BODY_RADIUS
     const RUN_STEP = 0.5;                              // under 2 * BODY_SIDE, by 3.8x
     const clearRun = (bx, bz, h) => {
@@ -885,6 +907,7 @@ if (state.global && state.frames > 2) {
     let sideMiss = Infinity, nearestAlong = Infinity;
     const track = [];
     const impacts0 = d.damageReport().stats ? d.damageReport().stats.impacts : null;
+    const respawns0 = d.wreckReport().respawns;
     const dyn0 = d.damageReport().dynamic;
     d.setAutopilot(() => {
       /**
@@ -971,7 +994,9 @@ if (state.global && state.frames > 2) {
     return { seen, overs, repeats, bodyDown, stars: d.wanted.stars,
       why, travelled: +travelled.toFixed(1), frames, wallS: +((Date.now() - t1) / 1000).toFixed(1),
       along: RUN_M, side: +spot.dist.toFixed(1), approach: +(approach * 180 / Math.PI).toFixed(0),
-      coarseOnly, bothClear, track,
+      coarseOnly, bothClear, track, carBefore,
+      respawns0, respawns1: d.wreckReport().respawns,
+      healthEnd: d.damage.health,
       impacts0, impacts1: d.damageReport().stats ? d.damageReport().stats.impacts : null,
       frame0, carEnd: { x: +v.position.x.toFixed(2), z: +v.position.z.toFixed(2) },
       bodyEnd: (() => { const p = peds.positions().find((x) => x.i === spot.i);
@@ -996,7 +1021,11 @@ if (state.global && state.frames > 2) {
     console.log(`    the drive ended on "${ro.why}" after ${ro.travelled} m of a ${ro.along} m run, ` +
       `${ro.frames} frames, ${ro.wallS} s of wall clock`);
     console.log(`    TRACK (x, z, km/h, yaw): ${ro.track.map((p) => `(${p.x},${p.z},${p.v},${p.yaw})`).join(' ')}`);
-    console.log(`    damage impacts during the drive: ${ro.impacts0} -> ${ro.impacts1}`);
+    console.log(`    the car at staging: health ${ro.carBefore.health.toFixed(3)}, wrecked `
+      + `${ro.carBefore.wreckedNow}, wreck clock ${ro.carBefore.heldFor} s of ${ro.carBefore.holdS}`);
+    console.log(`    across the drive: respawns ${ro.respawns0} -> ${ro.respawns1}, health `
+      + `${ro.healthEnd.toFixed(3)}, damage impacts ${ro.impacts0} -> ${ro.impacts1} `
+      + `(a count going DOWN is the model being reset, not a measurement)`);
     console.log(`    run-up clearance: of ${ro.coarseOnly + ro.bothClear} candidate headings the `
       + `old 2 m step called clear, the 0.5 m step refuses ${ro.coarseOnly} — the population the `
       + `selection used to draw from`);
@@ -1017,6 +1046,21 @@ if (state.global && state.frames > 2) {
      * the box; the run-over checks below report on the WIRE. Conflating them is how this arm
      * told a reviewer the wire was broken when the box was just slow.
      */
+    /**
+     * NO RESPAWN DURING THE DRIVE, and this check goes first because when it fires it explains
+     * every other failure below it. `respawnCar` teleports the car to `district.meta.spawn` with
+     * yaw 0 and repairs it, so a wreck clock left running by an earlier arm lands the car 17.6 m
+     * away pointing somewhere else, three frames in — and the arm then reports "0 run-overs",
+     * which reads as the wire being broken rather than as the car having been moved.
+     */
+    check('the car was not respawned during the drive, which would move it bodily',
+      ro.respawns1 === ro.respawns0,
+      `respawns ${ro.respawns0} -> ${ro.respawns1}; the spawn is where the car ends up`);
+    check('and it was handed a repaired, un-wrecked car to start from',
+      ro.carBefore.health === 1 && ro.carBefore.wreckedNow === false
+        && ro.carBefore.heldFor === 0,
+      `health ${ro.carBefore.health}, wrecked ${ro.carBefore.wreckedNow}, `
+      + `clock ${ro.carBefore.heldFor} s`);
     check('the car covered its run rather than running out of wall clock',
       ro.why !== 'wallClock', `ended on "${ro.why}" after ${ro.travelled} m in ${ro.wallS} s`);
     console.log(`    the old literal charged scale 1.00 here, which is ` +

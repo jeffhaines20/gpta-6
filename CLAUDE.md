@@ -1038,6 +1038,52 @@ Three things to carry:
   the six failures, four were one arm's missed drive and two were a later arm reading the heat that
   drive would have left. Neither arm was wrong about its own subject.
 
+### It was a RESPAWN, and five theories died before anybody logged the path
+
+The cause of the flakiness is none of the above. The track — x, z, speed and yaw per frame, which
+cost four lines and should have been the FIRST thing added:
+
+    frame 1-3   (-341.8, 73.9)   0 km/h    yaw 3.14     placed, at rest, pointing at the body
+    frame 4     (-327.8, 63.3)   3.9       yaw 0        jumped 17.6 m and turned 180 degrees
+    then        x pinned at -327.8, z climbing to 107.3, 14.5 km/h, yaw 0 throughout
+    damage impacts across the drive   1 -> 0
+
+`district.meta.spawn` is **(-327.84, 63.3), "Bayfront @ Main St"**. So the car was RESPAWNED three
+frames into the arm's own drive: `respawnCar` zeroes the wreck clock, repairs, teleports to the
+nearest road and leaves yaw at 0, after which the car drove perfectly straight along its NEW
+heading — 14.5 km/h, in a straight line, nowhere near its body. Every number the arm then reported
+was correct about a car that had been moved out from under it.
+
+**A COUNTER GOING DOWN IS THE MODEL BEING REPLACED, NOT A MEASUREMENT.** `impacts 1 -> 0` is the
+one reading in all of this that could not be anything else, and it was sitting in the same line as
+the track. A monotone counter that decreases means the subject was swapped; nothing else does that.
+
+**And the five theories that died first were each individually defensible**, which is the part
+worth keeping:
+
+    the knockdown's own slide, 0.695 m of a 1.30 m window   REAL waste, not the cause
+    residual velocity at placement                          placeAt zeroes both, read-back exact
+    a steering pull from asymmetric damage                   health 1.000 entering the arm
+    the body having moved                                    slot reads 0.4 m from placement
+    an obstruction the clearance check stepped over          0 of 576 headings refused at 0.5 m
+
+Two of those produced real fixes that are still worth having — a swept clearance test whose step
+sat exactly ON the "under twice the test radius" bound, and a knockdown spending half the arm's
+lateral margin — and neither moved the failure. The other three took one reading each to kill.
+
+**Log the trajectory before refining the model of the trajectory.** I built three increasingly
+careful derived bounds — slide arithmetic against the contact window, a sub-stepped clearance
+check, a fixed-point geometry in the car's own frame — on a premise nobody had tested, which was
+that the car drives along its heading. Position and yaw per frame would have shown the teleport on
+the first run, and it is cheaper than any of the three.
+
+**So a browser arm that DRIVES has to own the car's wreck state.** The arm calls `repairCar()`
+before staging anything and asserts it was handed a repaired, un-wrecked car with no wreck clock
+running; and it records `respawns` across the drive and fails on a change FIRST, above every other
+check, because when that fires it explains all of them. A wreck clock left ticking by an earlier
+arm is otherwise a 17.6 m teleport that reports itself as "0 run-overs" — the feature looking
+broken because the harness moved the subject.
+
 ## Numbers that are not what they look like
 
 - **The budget gate's triangle count carries ~20k of run-to-run noise** from
