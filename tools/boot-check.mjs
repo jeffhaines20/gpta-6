@@ -883,6 +883,8 @@ if (state.global && state.frames > 2) {
     const seen = [];
     let overs = 0, repeats = 0, closest = Infinity, top = 0;
     let sideMiss = Infinity, nearestAlong = Infinity;
+    const track = [];
+    const impacts0 = d.damageReport().stats ? d.damageReport().stats.impacts : null;
     const dyn0 = d.damageReport().dynamic;
     d.setAutopilot(() => {
       /**
@@ -937,6 +939,26 @@ if (state.global && state.frames > 2) {
         if (Math.abs(along) < Math.abs(nearestAlong)) { nearestAlong = along; sideMiss = side; }
       }
       top = Math.max(top, v.speed * 3.6);
+      /**
+       * THE PATH ITSELF, because four theories about why the car leaves its heading have now been
+       * refuted by measurement rather than by argument: residual velocity (`placeAt` zeroes both
+       * velocities and the read-back is exact), a steering pull from asymmetric damage (health
+       * 1.000 entering the arm, the wreck arm's respawn repairs it), the body having moved (the
+       * slot reads 0.4 m from where the arm placed it, at the end) and an obstruction the
+       * clearance check stepped over (**0 of 576** candidate headings refused when the step went
+       * from 2 m to 0.5 m). What is left needs the track rather than a fifth theory.
+       *
+       * Three signatures it separates: a smooth yaw change is something STEERING the car, a
+       * position jump at constant yaw is a resolver push or a teleport, and a rising impact count
+       * is a collision.
+       */
+      if (track.length < 40) {
+        const q2 = v.quaternion;
+        track.push({ x: +v.position.x.toFixed(1), z: +v.position.z.toFixed(1),
+          v: +(v.speed * 3.6).toFixed(1),
+          yaw: +Math.atan2(2 * (q2.w * q2.y + q2.x * q2.z),
+            1 - 2 * (q2.y ** 2 + q2.z ** 2)).toFixed(2) });
+      }
       const dyn = d.damageReport().dynamic;
       overs = dyn.pedRunOvers; repeats = dyn.pedRepeats;
       if (dyn.lastRunOver) { seen.push(dyn.lastRunOver); why = 'ranOver'; break; }
@@ -949,7 +971,8 @@ if (state.global && state.frames > 2) {
     return { seen, overs, repeats, bodyDown, stars: d.wanted.stars,
       why, travelled: +travelled.toFixed(1), frames, wallS: +((Date.now() - t1) / 1000).toFixed(1),
       along: RUN_M, side: +spot.dist.toFixed(1), approach: +(approach * 180 / Math.PI).toFixed(0),
-      coarseOnly, bothClear,
+      coarseOnly, bothClear, track,
+      impacts0, impacts1: d.damageReport().stats ? d.damageReport().stats.impacts : null,
       frame0, carEnd: { x: +v.position.x.toFixed(2), z: +v.position.z.toFixed(2) },
       bodyEnd: (() => { const p = peds.positions().find((x) => x.i === spot.i);
         return p ? { x: +p.x.toFixed(2), z: +p.z.toFixed(2) } : null; })(),
@@ -972,6 +995,8 @@ if (state.global && state.frames > 2) {
       `charge ${JSON.stringify(last)}, stars ${ro.stars}`);
     console.log(`    the drive ended on "${ro.why}" after ${ro.travelled} m of a ${ro.along} m run, ` +
       `${ro.frames} frames, ${ro.wallS} s of wall clock`);
+    console.log(`    TRACK (x, z, km/h, yaw): ${ro.track.map((p) => `(${p.x},${p.z},${p.v},${p.yaw})`).join(' ')}`);
+    console.log(`    damage impacts during the drive: ${ro.impacts0} -> ${ro.impacts1}`);
     console.log(`    run-up clearance: of ${ro.coarseOnly + ro.bothClear} candidate headings the `
       + `old 2 m step called clear, the 0.5 m step refuses ${ro.coarseOnly} — the population the `
       + `selection used to draw from`);

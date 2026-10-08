@@ -3136,6 +3136,28 @@ So the rule applies to the whole family and the consequence differs: `pgrep` spi
 the thing asking. Use a pattern that cannot match itself — `pkill -f "[D]4-flatout"` — or a pid you
 captured.
 
+### And the bracket trick protects the PATTERN, not the rest of the command line
+
+That is not enough, and I hit it in the same session as writing the section above. The command was
+
+    pkill -f "[b]oot-check.mjs" ; python3 - <<'EOF'
+    f = 'tools/boot-check.mjs'
+    ...
+
+The pattern is bracketed and cannot match itself. The HEREDOC two lines down contains the literal
+`tools/boot-check.mjs`, that text is part of the same shell's command line, and `pkill -f` matches
+the whole line — so it killed its own shell mid-heredoc. Exit 144, the python file was never
+written, the edit never landed, and `git status` read clean, which is the most convincing possible
+picture of a command that did nothing.
+
+**The tell was that the tree was clean AND the target file still parsed.** A command that had run
+and failed would have left something; one that had never run leaves exactly that.
+
+So: **a `pkill -f` and any mention of its target in the same command are the same bug, however the
+pattern is written.** Put the kill in a call of its own, or use a captured pid. (Splitting the
+string in the script — `'tools/' + 'boot' + '-check.mjs'` — works and is worse, because the next
+person to read it cannot see why.)
+
 ## When a reviewer is wrong
 
 Blind reviewers here measure before judging and are usually right, but not
