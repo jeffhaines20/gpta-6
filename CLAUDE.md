@@ -1113,6 +1113,18 @@ already records the same two spaces being joined the other way round in #104's f
 printed 0.00 on every column; the record now names them `victim` (the slot) and `victimId` (the
 person) so the next reader cannot pick blind.
 
+**CLOSED, and deterministic rather than merely green.** Three runs on a clean box:
+
+    run 1   rc 0   BOOT: PASS — 88 checks in 323 s
+    run 2   rc 0   BOOT: PASS — 88 checks in 327 s
+    run 3   rc 0   BOOT: PASS — 88 checks in 326 s
+    all three: ran over #14 staged #14, 2.822 m along, 0.010 m to the side
+
+81 -> 88 checks over the round. The arm went from passing 2 runs in 3 for reasons that had nothing
+to do with what it measures, to passing 3 of 3 with every diagnostic byte-identical — and the
+checks that now hold it are a respawn count, an identity and an agreement, none of which existed
+when it was flaky.
+
 **So a browser arm that DRIVES has to own the car's wreck state.** The arm calls `repairCar()`
 before staging anything and asserts it was handed a repaired, un-wrecked car with no wreck clock
 running; and it records `respawns` across the drive and fails on a change FIRST, above every other
