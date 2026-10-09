@@ -267,7 +267,7 @@ if (anyPed) {
   console.log(`    crimes reported: ${after.crimesReported}, ignored: ${after.crimesIgnored}`);
   check('the moving-body pass ran at all', after.dynamic.frames > 0, JSON.stringify(after.dynamic));
   check('it tested bodies near the car', after.dynamic.tested > 0, `${after.dynamic.tested}`);
-  if (after.dynamic.pedHits > 0) {
+  if (after.dynamic.pedHitFrames > 0) {
     check('a pedestrian strike costs the car under 1%', after.health > 0.99, `${after.health}`);
     check('a pedestrian strike is a crime', wPed.heat > out.wanted.heat,
       `${out.wanted.heat} -> ${wPed.heat}`);

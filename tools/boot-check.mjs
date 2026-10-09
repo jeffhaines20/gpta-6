@@ -1765,6 +1765,14 @@ if (state.global && state.frames > 2) {
     const d = __district;
     const v = d.vehicle;
     const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+    /**
+     * PLANAR, like the rule. `vehicle.speed` is `velocity.length()` and includes the vertical,
+     * which right after a `placeAt` is up to 1.82 m/s of suspension settling — this arm read
+     * 1.57 m/s against a planar 0 and failed its own "genuinely stopped" check. The host's
+     * `focusSpeedNow` is planar in both branches now; this reads the same quantity so the arm
+     * and the rule cannot disagree about what "stopped" means.
+     */
+    const planar = () => Math.hypot(v.velocity.x, v.velocity.z);
     const press = (code) => {
       window.dispatchEvent(new KeyboardEvent('keydown', { code, bubbles: true }));
       window.dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true }));
@@ -1791,9 +1799,18 @@ if (state.global && state.frames > 2) {
 
     // --- (a) stopped: the cue offers the key, and the key ends the job.
     d.startMission('shakedown');
-    await frame();
+    /**
+     * SETTLE BEFORE READING. `placeAt` drops the car with its suspension unloaded, so for about
+     * 0.1 s it is genuinely moving — planar 0 and 3D 1.82 — and the stop rule is RIGHT to refuse
+     * then. Bounded on the STATE with a frame cap, and which of the two ended it is reported, for
+     * the reason the wedged arm's own header gives: two bounds that are numerically coincident
+     * are one coin toss.
+     */
+    let settle = 0;
+    for (; settle < 40 && planar() >= d.missionBoard().stopMs; settle++) await frame();
+    const settleWhy = planar() < d.missionBoard().stopMs ? 'stopped' : 'frame cap';
     const runningBefore = d.missionReport().outcome;
-    const stopped = { ...cue(), ...d.abortReport(), speed: v.speed };
+    const stopped = { cue: cue(), rep: d.abortReport(), speed: planar() };
     press(d.abortReport().key);
     await frame();
     const afterPress = { outcome: d.missionReport().outcome, ...d.abortReport(),
@@ -1807,7 +1824,7 @@ if (state.global && state.frames > 2) {
     d.startMission('shakedown');
     v.velocity.set(0, 0, -d.missionBoard().stopMs * 2);
     await frame();
-    const moving = { ...cue(), ...d.abortReport(), speed: v.speed };
+    const moving = { cue: cue(), rep: d.abortReport(), speed: planar() };
     press(d.abortReport().key);
     await frame();
     const afterMoving = { outcome: d.missionReport().outcome, ...d.abortReport() };
@@ -1822,17 +1839,20 @@ if (state.global && state.frames > 2) {
     v.velocity.set(0, 0, 0);
     d.setAutopilot(null);
     await frame();
-    return { carBefore, respawns0, declined0, refused0, runningBefore,
+    return { carBefore, respawns0, declined0, refused0, runningBefore, settle, settleWhy,
       stopped, afterPress, cueGone, moving, afterMoving, afterOther,
-      respawns1: d.wreckReport().respawns, health: d.damage.health };
+      respawns1: d.wreckReport().respawns, health: d.damage.health,
+      stars: d.wantedReport().stars, heat: d.wantedReport().heat };
   });
-  console.log(`  stopped at ${hand.stopped.speed.toFixed(2)} m/s: prompt "${hand.stopped.key}" `
-    + `"${hand.stopped.text}" (on ${hand.stopped.on}), ready ${hand.stopped.offer?.ready}`);
+  console.log(`  settled in ${hand.settle} frames (ended on "${hand.settleWhy}"), `
+    + `${hand.stars}* heat ${hand.heat.toFixed(3)}`);
+  console.log(`  stopped at ${hand.stopped.speed.toFixed(2)} m/s: prompt "${hand.stopped.cue.key}" `
+    + `"${hand.stopped.cue.text}" (on ${hand.stopped.cue.on}), ready ${hand.stopped.rep.offer?.ready}`);
   console.log(`    pressed it: outcome ${hand.runningBefore} -> ${hand.afterPress.outcome}, `
     + `declined ${hand.declined0} -> ${hand.afterPress.declined}`);
   console.log(`    band now "${hand.afterPress.band}" / "${hand.afterPress.sub}"`);
-  console.log(`  moving at ${hand.moving.speed.toFixed(2)} m/s: prompt "${hand.moving.text}", `
-    + `ready ${hand.moving.offer?.ready}; pressed it: outcome ${hand.afterMoving.outcome}, `
+  console.log(`  moving at ${hand.moving.speed.toFixed(2)} m/s: prompt "${hand.moving.cue.text}", `
+    + `ready ${hand.moving.rep.offer?.ready}; pressed it: outcome ${hand.afterMoving.outcome}, `
     + `refusedMoving ${hand.refused0} -> ${hand.afterMoving.declineRefusedMoving}`);
   // THE RESPAWN CHECK IS FIRST, because when it fires it explains every other failure in the
   // arm. See the run-over arm for the three frames that cost a round.
@@ -1841,15 +1861,23 @@ if (state.global && state.frames > 2) {
     `health ${hand.carBefore.health.toFixed(3)}, wrecked ${hand.carBefore.wrecked}, `
     + `respawns ${hand.respawns0} -> ${hand.respawns1}`);
   check('a mission was actually running before the press, so both sides are not the same state',
-    hand.runningBefore === 'running' && hand.stopped.offer != null,
+    hand.runningBefore === 'running' && hand.stopped.rep.offer != null,
     `outcome ${hand.runningBefore}`);
+  // AND THE ARM IS NOT WANTED, because the stop it needs is the one that gets a wanted player
+  // arrested — which is this feature's own stated consequence and would read here as the key
+  // not working. `clearWanted` is called above; this says it took.
+  check('and the arm is not wanted, so the stop it needs cannot be an arrest instead',
+    hand.stars === 0, `${hand.stars}* heat ${hand.heat.toFixed(3)}`);
   check('the car was genuinely stopped for arm (a) and genuinely moving for arm (b)',
-    hand.stopped.speed < hand.stopped.offer.stopMs && hand.moving.speed >= hand.moving.offer.stopMs,
+    hand.settleWhy === 'stopped'
+      && hand.stopped.speed < hand.stopped.rep.offer.stopMs
+      && hand.moving.speed >= hand.moving.rep.offer.stopMs,
     `${hand.stopped.speed.toFixed(2)} and ${hand.moving.speed.toFixed(2)} m/s `
-    + `against ${hand.stopped.offer.stopMs}`);
+    + `against ${hand.stopped.rep.offer.stopMs}, settle ended on "${hand.settleWhy}"`);
   check('the cue reaches the SCREEN, with the key in its own box',
-    hand.stopped.on === true && hand.stopped.key === 'Q' && /GIVE UP/.test(hand.stopped.text),
-    `"${hand.stopped.key}" "${hand.stopped.text}", panel on ${hand.stopped.on}`);
+    hand.stopped.cue.on === true && hand.stopped.cue.key === 'Q'
+      && /GIVE UP/.test(hand.stopped.cue.text),
+    `"${hand.stopped.cue.key}" "${hand.stopped.cue.text}", panel on ${hand.stopped.cue.on}`);
   check('a real keydown hands the job back', hand.afterPress.outcome === 'aborted',
     `outcome ${hand.runningBefore} -> ${hand.afterPress.outcome}`);
   check('and the host counted it, so the press reached the wire rather than the band moving',
@@ -1865,8 +1893,8 @@ if (state.global && state.frames > 2) {
     hand.cueGone.on === false || !/GIVE UP/.test(hand.cueGone.text ?? ''),
     `panel on ${hand.cueGone.on}, "${hand.cueGone.text}"`);
   check('the cue names the requirement while the car is moving',
-    hand.moving.offer.ready === false && /STOP/.test(hand.moving.text),
-    `"${hand.moving.text}", ready ${hand.moving.offer.ready}`);
+    hand.moving.rep.offer.ready === false && /STOP/.test(hand.moving.cue.text),
+    `"${hand.moving.cue.text}", ready ${hand.moving.rep.offer.ready}`);
   check('and the same press is refused there', hand.afterMoving.outcome === 'running',
     `outcome ${hand.afterMoving.outcome}`);
   check('and the host counted the refusal, so the stop rule was applied rather than the press lost',

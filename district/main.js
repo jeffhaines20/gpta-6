@@ -833,8 +833,29 @@ const missionUnhonoured = new Set();
  * field that function warns about.
  */
 function focusSpeedNow() {
+  /**
+   * PLANAR IN BOTH BRANCHES, and it was `vehicle.speed` in the car one — which is
+   * `velocity.length()`, THREE-dimensional. So the two branches of one helper measured
+   * different quantities, and the car branch was not the quantity either rule documents:
+   * `MissionBoard.pickupAt` and `abortOffer` both say "the player's planar speed in m/s".
+   *
+   * MEASURED, because "it includes the vertical" is not a magnitude. Worst 3D-minus-planar over
+   * 3 s of braking, and how many frames a planar-stopped car would have been REFUSED on:
+   *
+   *     placed at y=0.55, at rest (a teleport)   1.8199 m/s    12 of 360 frames   3.3%
+   *     placed at y=0.55 with 2 m/s of planar    0.7395         3 of 348          0.9%
+   *     settled, braking from 40 km/h            0.0002         0 of 244          0.0%
+   *     settled, at rest (an ordinary park)      0.0000         0 of 360          0.0%
+   *
+   * So it never reached a player — 0 of 604 frames of ordinary driving and parking differ — and
+   * it reached every browser arm that teleports, which is all of them. #106's own arm placed a
+   * car and read 1.57 m/s against a planar 0, failed its "genuinely stopped" check, and read as
+   * the abort rule being broken. "This is real and it does not matter to the player" is the
+   * result; it costs instrument time rather than gameplay, and the fix is free either way.
+   */
   return mode === 'foot'
-    ? Math.hypot(player.velocity.x, player.velocity.z) : vehicle.speed;
+    ? Math.hypot(player.velocity.x, player.velocity.z)
+    : Math.hypot(vehicle.velocity.x, vehicle.velocity.z);
 }
 
 function missionSnapshot() {
@@ -1324,7 +1345,7 @@ let audioImpactsWanted = 0, audioImpactsPlayed = 0, audioImpactsSilent = 0;
  * rammed traffic car is displaced off its lane, yawed out of line and stopped for a few
  * seconds (`traffic.hit`). A rammed POLICE car still does not react: src/pursuit.js holds
  * its units as an edge parameter and an instance matrix with no per-unit state to shunt,
- * so `dynStats.policeHits` counts them and nothing moves. Counted rather than hidden.
+ * so `dynStats.policeHitFrames` counts them and nothing moves. Counted rather than hidden.
  *
  * MASSES. 1,400 kg for a car, the same as the player's, which makes a head-on between
  * equals the barrier test. 80 kg for a person. Radii are the collision radius of the
@@ -1333,7 +1354,7 @@ let audioImpactsWanted = 0, audioImpactsPlayed = 0, audioImpactsSilent = 0;
  */
 const OTHER_CAR = { bodyRadius: 0.95, bodyMass: 1400 };
 const PERSON = { bodyRadius: 0.35, bodyMass: 80 };
-const dynStats = { tested: 0, contacts: 0, frames: 0, pedHits: 0, carHits: 0, policeHits: 0,
+const dynStats = { tested: 0, contacts: 0, frames: 0, pedHitFrames: 0, carHitFrames: 0, policeHitFrames: 0,
   pedKnockdowns: 0, pedFatal: 0, carShunts: 0, pedRepeats: 0, pedRunOvers: 0,
   /**
    * WHAT THE LAST RUN-OVER CHARGED, because the wire below is the one rule in this round that no
@@ -1548,9 +1569,20 @@ function dynamicImpacts() {
   }
   if (!worst) return;
   dynStats.contacts++;
-  if (worstKind === IMPACT.pedestrian) dynStats.pedHits++;
-  else if (worstKind === IMPACT.police) dynStats.policeHits++;
-  else dynStats.carHits++;
+  /**
+   * PER CONTACT FRAME, NOT PER EVENT, and the names used to say otherwise.
+   *
+   * These read `pedHits`, `policeHits` and `carHits`, which is what an event counter is called —
+   * and one 15 m/s ram of a police car produced **51 of them** in the offline harness, because a
+   * contact lasts as long as the two bodies overlap. CLAUDE.md records the identical defect in
+   * `stats.runOvers`, which read 3,684 over a 10 km drive against 0 charged run-overs, and its
+   * rule is to name such a field for what it counts. The CRIMES are event-like — `reportCrime`
+   * has a per-crime refractory — so the two numbers are allowed to differ by two orders of
+   * magnitude, and nothing but the name said which was which.
+   */
+  if (worstKind === IMPACT.pedestrian) dynStats.pedHitFrames++;
+  else if (worstKind === IMPACT.police) dynStats.policeHitFrames++;
+  else dynStats.carHitFrames++;
 
   /**
    * THE OTHER PARTY REACTS. This is what the damage round left out and said so: the player's car
@@ -2188,6 +2220,18 @@ function animate(now) {
     }
   }
   let offerLine = null;
+  /**
+   * ONE READ A FRAME for the three things that need it — the pickup, the offer cue's `stopped`
+   * and (above) the abort. HOISTING THE DECLARATION AND MISSING A USE is what broke the page:
+   * the local used to be declared inside the block below and read in two places, and moving it
+   * into `focusSpeedNow()` left `stopped: focusSpeed < board.stopMs` pointing at nothing.
+   * `ReferenceError: focusSpeed is not defined`, three times, and no offline gate could see it —
+   * `check-syntax` parses the file and a free variable parses fine. Commit fab3e2d is the same
+   * story and `boot-check` is the gate that exists because of it; it caught this on line 4 of its
+   * first run. **When you hoist a local into a function, grep the identifier, not the
+   * declaration.**
+   */
+  const focusSpeed = focusSpeedNow();
   if (!missionHud && !wreckLine) {
     /**
      * THE SPEED THE PICKUP IS GATED ON is the planar speed of whatever the player is moving as:
@@ -2195,7 +2239,7 @@ function animate(now) {
      * computes the same quantity the same way, and `missionSnapshot()` here already does — this
      * reads it off the same two sources rather than a third.
      */
-    const hot = board.pickupAt(focus.x, focus.z, focusSpeedNow());
+    const hot = board.pickupAt(focus.x, focus.z, focusSpeed);
     if (hot) {
       board.starts++;
       missionUnhonoured.clear();
@@ -2599,7 +2643,7 @@ window.__district = {
     index: blockers.report(),
     /**
      * Moving-body contacts, and what each one did. `pedKnockdowns`/`pedFatal` and `carShunts`
-     * are reactions that actually happened; `policeHits` is the one kind that still has no
+     * are reactions that actually happened; `policeHitFrames` is the one kind that still has no
      * reaction, because src/pursuit.js has no per-unit state to shunt.
      */
     dynamic: { ...dynStats },

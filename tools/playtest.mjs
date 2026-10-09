@@ -117,10 +117,13 @@ const SIGHT_M = 70, SIGHT_HALF_ANGLE = 0.65;       // ~75 degrees across
 /**
  * One play session. Everything district/main.js assembles that does not need a GL context.
  *
- * The pursuit layer is NOT here: src/pursuit.js draws its units through an InstancedMesh and
- * main.js's shim is written against the renderer's lifecycle. A session can still get stars
- * and can still be told it is being chased — it just has nobody to be chased BY, which is
- * stated in every report rather than left to be discovered.
+ * THE PURSUIT LAYER IS HERE, and this paragraph used to say it was not. It read "src/pursuit.js
+ * draws its units through an InstancedMesh and main.js's shim is written against the renderer's
+ * lifecycle... a session has nobody to be chased BY" — true when it was written, and false since
+ * the constructor below started building one. Both playtesters of an earlier round reported in
+ * detail on evading police against a game that had none, which is what got it built; the comment
+ * is the stale half of that fix. A count or a capability written in prose has no way of noticing
+ * it has gone out of date, which is why this file's precedences and tenant lists are LISTS.
  */
 export class Session {
   constructor(opts = {}) {
@@ -345,7 +348,23 @@ export class Session {
     this.stats = { busts: 0, released: 0, cooperated: 0, crashes: 0, crimes: 0, knockdowns: 0, fatal: 0, shunts: 0,
       impacts: 0, voices: 0, tested: 0, contacts: 0, pedRepeats: 0, runOvers: 0,
       wrecks: 0, respawns: 0, loopsBroken: 0, worstDv: 0, distance: 0, topSpeed: 0,
-      repairs: 0 };
+      repairs: 0,
+      /**
+       * RAMMED POLICE CARS. The harness's contact pass iterated the traffic fleet and the crowd
+       * and NOT the pursuit units, so `policeProperty` could not be filed here at all — a
+       * round-10 playtester steered at the nearest `enemy` blip for 120 s x 3 seeds and got
+       * closest approaches of 16.26 / 22.27 / 21.30 m with 0 police-kind records against
+       * 10,401-10,991 wall records. The host HAS that pass (district/main.js, IMPACT.police), so
+       * this was an instrument gap.
+       *
+       * PER CONTACT FRAME, AND THE NAME SAYS SO. The first version of this was called
+       * `policeHits` after the host's own field, and one 15 m/s ram produced 51 of them across
+       * three seeds (51 / 57 / 10) against ONE charged crime — `policeProperty`'s refractory is
+       * 1.5 s. That is `stats.runOvers`' 3,684-against-0 defect, inherited by copying a name.
+       * Both the host's three counters and this one are renamed in the same commit, because
+       * patching one and leaving its sibling is the recurring shape of defect here.
+       */
+      policeHitFrames: 0 };
     this._lastPos = { x: 0, z: 0 };
     this._controls = { throttle: 0, brake: 0, steer: 0, handbrake: false };
     this._route = null;
@@ -959,6 +978,37 @@ export class Session {
       if (!worst || hit.dv > worst.dv) { worst = hit; worstKind = IMPACT.vehicle; }
       if (!worstCar || hit.dv > worstCar.dv) { worstCar = hit; worstCar.carId = c.id; }
     }
+    /**
+     * --- PURSUIT UNITS. Ramming a police car is a different crime and a worse one, and for as
+     * long as this harness has had a pursuit layer it could not be charged here.
+     *
+     * CLAUDE.md recorded this as "the four highest-heat crimes have never been played" and that
+     * is three parts wrong, which one `grep` settles — the correction is worth more than the
+     * fix. `policeProperty` is the only one of the four with a PRODUCER the host has and this
+     * did not: `IMPACT.roadblock` is emitted by nothing in `src/` or `district/` at all (only
+     * `damage-test` constructs it), and `officerAssault`/`officerDown` are two of the nine
+     * orphans `damage-test` pins as a priced refusal, because police on foot do not exist. So
+     * one instrument gap, not four, and three priced refusals that already had a number and a
+     * check — this file's own "before filing a dead feature, grep the gates for its name".
+     *
+     * THROUGH `_unitPositions()`, which this class already has, rather than a second walk of the
+     * instance matrix. The host reads the matrix inline because that is the only place
+     * `PursuitUnits` keeps a world position; so does this, once, in one method, and two copies
+     * of one quantity is the recurring shape of defect here.
+     *
+     * IT UPDATES `worst` AND NOT `worstCar`, matching the host exactly: `worstCar` drives
+     * `traffic.hit`'s shunt, and `src/pursuit.js` has no per-unit state to shunt — its cars are
+     * an edge parameter and an instance matrix — so a rammed police car does not move. Counted
+     * rather than hidden, which is the host's own comment on the same line.
+     */
+    for (const u of this._unitPositions()) {
+      const dx = u.x - base.carX, dz = u.z - base.carZ;
+      if (dx * dx + dz * dz > (BODY_ENCLOSING + OTHER_CAR.bodyRadius) ** 2) continue;
+      this.stats.tested++;
+      const hit = dynamicContact({ ...base, ...OTHER_CAR, bodyX: u.x, bodyZ: u.z });
+      if (!hit) continue;
+      if (!worst || hit.dv > worst.dv) { worst = hit; worstKind = IMPACT.police; }
+    }
     let proneUnder = null;
     for (const p of this.peds.positions()) {
       // A body on the ground never enters `dynamicContact` — it must not shove 1,400 kg of car
@@ -1056,6 +1106,10 @@ export class Session {
         _imp.set(worst.nx * j, 0, worst.nz * j),
         _off.set(worst.dirX * right.x + worst.dirZ * fwd.x, 0,
           worst.dirX * right.z + worst.dirZ * fwd.z));
+    }
+    if (worstKind === IMPACT.police) {
+      this.stats.policeHitFrames++;
+      this.say(`POLICE  rammed a police car, ${worst.dv.toFixed(1)} m/s of charged delta-v`);
     }
     const rec = this.damage.impact({ dv: worst.dv, kind: worstKind,
       dirX: worst.dirX, dirZ: worst.dirZ, speed: travel });
