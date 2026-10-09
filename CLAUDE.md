@@ -3596,3 +3596,156 @@ which is strictly harder to notice: the only evidence is a check COUNT that did 
 count is exactly what nobody reads. `grep -n 'process.exit' <gate>` before appending answers it in
 one command, and the general rule stands restated — **the last ARM is the end of a gate file, not
 the verdict.**
+
+## A browser arm can read a field before its writer runs, and the tell is a right answer in a wrong wrapper
+
+#106's arm read `abortReport().offer` as `null` and the prompt panel's `pv-on` as `false` while
+the prompt's TEXT was already correct. Both of those are written by the HUD block, once per
+rendered frame, and the arm read them after `startMission` without awaiting a frame — so it got
+the state from a frame on which `abortOffer` had correctly returned null. The settle loop that
+should have supplied one ran **0 iterations**, because the car was already stopped, and its own
+line said so: "settled in 0 frames".
+
+**The tell is the SHAPE of the wrongness.** A text that is right with a wrapper that is empty is
+not a broken composer; it is two reads of different frames. One unconditional `await frame()`
+after any state change, before reading anything the HUD writes.
+
+And the same arm had three more of this file's own recorded defects, which is worth listing
+because they arrived in one 150-line arm:
+
+- **An object spread clobbered the measurement.** `{ ...cue(), ...d.abortReport() }` — both carry
+  a `key`, and `abortReport()`'s is the KeyboardEvent code. The arm printed `"KeyQ"` and failed
+  its own "the key is in its own box" check while the screen said `"Q"`. Namespace the two sources
+  rather than merging them; a field of one silently shadowing a field of the other is not visible
+  in the output.
+- **An unguarded read in a CONDITION, not a detail string.** `hand.stopped.rep.offer.stopMs`
+  threw and killed the gate after two of its twelve checks had printed. This file already records
+  "a check's DETAIL string is evaluated eagerly"; the condition is the same hazard and the same
+  fix — read every number through an accessor.
+- **A clause that could not fail, in the FIRST check of the arm.** `!hand.carBefore.wrecked`,
+  where `wreckReport()` publishes `wreckedNow`. `!undefined` is true for every build, and the
+  printed detail said `wrecked undefined` in as many words. It was the check that exists to
+  explain all the others when it fires.
+
+### A band assertion needs the top of the band, or it needs the tenant
+
+The same arm asserted the SCREEN after a successful abort and read **"BUSTED / released in 4 s"**
+with 0 stars and heat 0.000. Both readings are correct: the abort worked (`outcome running ->
+aborted`, `declined 0 -> 1`) and the page was carrying an earlier arm's four-second bust hold,
+and `busted` is the TOP of `BAND_ORDER`.
+
+This file already says "an arm that reads the band has to own the top of it". The half it was
+missing is what to do when the arm CANNOT own the top — and this one cannot, because it is last
+in a file whose earlier arms leave holds by design. **Publish the tenant's own output and assert
+that.** `bandReport().endedLine` is the `ended` tenant exactly as `lastOfferLine` is the `offer`
+tenant, and for the same stated reason. With it the check reads
+
+    tenant {"objective":"MISSION ABORTED","subtitle":"Shakedown — you handed it back — …"}
+    the screen said "BUSTED" / "released in 4 s" from "busted"
+
+and both facts are in one line, which is strictly more than the screen could say.
+
+## A field only ever ASSIGNED inside a branch holds the last value that branch produced
+
+`lastOfferLine` is published for gates and was assigned only inside `if (!missionHud &&
+!wreckLine)`. So while a mission ran it held whatever the last offer-less frame had composed: with
+`shakedown` running and the car **0.34 m** from `marlin-street`'s pickup it read
+`SHAKEDOWN / stop to start` — a job **332 m** away. Not player-visible, because the band is
+`mission` then; entirely visible to any probe quoting it, which is the only reason the field
+exists.
+
+`null` is the honest value, because the pass did not run. **A stale reading is worse than a
+missing one for the same reason `MissionRunner`'s surviving `mission` reference is**: a field that
+outlives the thing it names reads as current, and this file already records a browser arm that
+read that reference as "a mission is running" and reported a refused drive-by as having started
+one. Second instance, same shape, different field. **When you publish a field for a gate, decide
+what it says on the frames its writer does not run.**
+
+## Patching one host and reading the other is how a divergence is found at all
+
+Round 11's playtester read `district/main.js` and `tools/playtest.mjs` side by side and found
+three places where a number from the harness is about a game the page is not running. Each is
+this file's "a gate that reproduces the host rather than reading it cannot see the host being
+wrong", and the first one retires earlier findings:
+
+- **`look().blips` listed every job while a mission ran** and the page draws none —
+  `updateOfferMarkers(!!missionHud)` empties `offerMarkers`. Measured mid-job: harness
+  `["shakedown@43","garage@199","enemy@238","marlin-street@291"]` against page
+  `ringsVisible 0 of 2`. So **any legibility claim made from `look().blips` during a mission is
+  about a map that is not drawn**, and the blip the harness offered most loudly — the other job —
+  is the one a player cannot see. The garage and the car survive, because the page posts those
+  unconditionally.
+- **The two offer gates differed on one case.** The page builds `wreckLine = mode === 'car' ?
+  wreckState : null`; the harness gated on `!this.damage.wrecked` with no mode term. So ON FOOT
+  during the four-second wreck hold the page runs the offer pass and node did not, and a pickup
+  could fire on the page and not in the harness.
+
+**And a filter added to match a host needs the check in both directions.** "No offer blips while
+a mission runs" is satisfied by a filter that drops everything, so the gate asserts three things:
+the offer blips GO, the garage SURVIVES, and they COME BACK when nothing is running.
+
+## `_footPathClear` with no `clearAt` is 28 m straight through walls, and it reads as clear
+
+Checking round 11's stalemate spot, my first probe built `PursuitUnits` directly and read the
+officer's walk as clear on **1340 of 1340 spots**. The method opens `if (!this.clearAt) return
+true`, and both shipped hosts assign it — `district/main.js`'s `wirePursuit` and
+`tools/playtest.mjs`'s constructor, identically. This is this file's own `traffic-selftest` trap
+("a gate that constructs the subject itself has to construct it the way the game does"), and the
+cheap proof is the same one: with the predicate, **366 of 1309 in-reach spots (28.0%)** have a
+blocked walk, which reproduces the 27% this file already records from the other direction.
+
+**And the point the walk is tested FROM is not the network's best.** The hold tests the walk from
+the UNIT's own stop point. At round 11's spot the network's best approach is 0.04 m with a clear
+walk, and the unit's stop point is 24.8 m with a blocked one — so a probe that measures the
+network's best answers a different question and exonerates the build. Both my probe and round 11's
+guess made that substitution, in opposite directions.
+
+    the NETWORK's best approach to (329.8, -92.2)   0.04 m, walk CLEAR, arrestSeconds 4.0
+    seeds 0 and 11: the unit stops on edge 354     24.77 - 24.80 m, walk BLOCKED, held 0%
+    seed 2:         a unit reaches edge 761        22.95 m, walk CLEAR, held true, BUST at 16 s
+
+That is #108's recorded residual — "the router reaches a minimising edge 319 of 516; it never
+does 197 of 516, 38%" — arriving **0.04 m from a road**, where nobody looked because #108's whole
+frame was "a player far off a road cannot be arrested". **A residual measured in one regime is
+not bounded in another.**
+
+## `vehicle.speed` is three-dimensional, and two rules that say "planar" were reading it
+
+`src/vehicle.js` has `get speed() { return this.velocity.length(); }`. `district/main.js`'s
+`focusSpeedNow` returned that for the car and `Math.hypot(velocity.x, velocity.z)` for the player
+on foot — two branches of one helper measuring different quantities — and `MissionBoard.pickupAt`
+and `abortOffer` both document "the player's planar speed in m/s".
+
+Measured rather than asserted, because "it includes the vertical" is not a magnitude. Worst
+3D-minus-planar over 3 s of braking, and how many frames a planar-stopped car would be REFUSED on:
+
+    placed at y=0.55, at rest (a teleport)   1.8199 m/s    12 of 360 frames   3.3%
+    placed at y=0.55 with 2 m/s of planar    0.7395         3 of 348          0.9%
+    settled, braking from 40 km/h            0.0002         0 of 244          0.0%
+    settled, at rest (an ordinary park)      0.0000         0 of 360          0.0%
+
+**So it never reached a player — 0 of 604 frames of ordinary driving and parking differ — and it
+reached every browser arm that teleports, which is all of them.** "This is real and it does not
+matter to the player" is the result; it costs instrument time rather than gameplay.
+
+**And the instrument that found it then failed on it from the other side.** `boot-check`'s pickup
+arm reported "braked to 1.261 m/s" and failed its own "the brake did it, not the frame budget"
+check on a frame where the pickup had CORRECTLY fired — the planar speed was under 1.0 and 0.26 of
+it was the suspension. The rule was right and the arm was quoting a different quantity. **An arm
+has to read the signal the code reads**, which this file already says about a derivation and is
+just as true of a check.
+
+## When you hoist a local into a function, grep the identifier, not the declaration
+
+Moving `focusSpeed` out of a block and into `focusSpeedNow()` left one of its two readers behind:
+`stopped: focusSpeed < board.stopMs`, forty lines below the declaration that no longer existed.
+`ReferenceError: focusSpeed is not defined`, three times, and **`check-syntax` cannot see it** —
+a free variable parses perfectly. No offline gate loads `district/main.js`, so all nineteen stayed
+green, and twelve of `boot-check`'s eighteen failures that run were cascade from the page throwing
+in one branch.
+
+That is commit `fab3e2d`'s story — the temporal dead zone that stopped the district rendering for
+three commits — arriving through a different door, and `boot-check` is the gate that exists
+because of it. It caught this **on line 4 of its first run**. The cheap habit is a grep for the
+identifier before and after any hoist; the cheap verification is a free-variable check, which took
+one line of node and would have found it without the browser.

@@ -1876,9 +1876,22 @@ if (state.global && state.frames > 2) {
     + `refusedMoving ${hand.refused0} -> ${hand.afterMoving.declineRefusedMoving}`);
   // THE RESPAWN CHECK IS FIRST, because when it fires it explains every other failure in the
   // arm. See the run-over arm for the three frames that cost a round.
+  /**
+   * `wreckedNow`, NOT `wrecked`. The first version read `hand.carBefore.wrecked` — a field
+   * `wreckReport()` does not have — so that clause was `!undefined`, true for every build, and
+   * the printed detail said `wrecked undefined` in as many words. A check whose answer is
+   * guaranteed is this project's standing defect in its own gates, and here it was the FIRST
+   * check in the arm, the one that exists to explain all the others when it fires.
+   *
+   * `heldFor` is printed and NOT asserted: only `respawnCar` zeroes the wreck clock, so an
+   * un-wrecked car can carry a frozen reading from an earlier arm that will never fire. The
+   * respawn COUNT across the arm is the quantity that matters, and it is asserted.
+   */
   check('the abort arm was handed a repaired car with no wreck clock running',
-    hand.carBefore.health >= 1 && !hand.carBefore.wrecked && hand.respawns1 === hand.respawns0,
-    `health ${hand.carBefore.health.toFixed(3)}, wrecked ${hand.carBefore.wrecked}, `
+    hand.carBefore.health >= 1 && hand.carBefore.wreckedNow === false
+      && hand.respawns1 === hand.respawns0,
+    `health ${hand.carBefore.health.toFixed(3)}, wreckedNow ${hand.carBefore.wreckedNow}, `
+    + `heldFor ${hand.carBefore.heldFor} (printed, not asserted), `
     + `respawns ${hand.respawns0} -> ${hand.respawns1}`);
   check('a mission was actually running before the press, so both sides are not the same state',
     hand.runningBefore === 'running', `outcome ${hand.runningBefore}`);
