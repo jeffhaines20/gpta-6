@@ -519,7 +519,34 @@ it ever reached was **4.7 s of the 34 s needed**, and the only cue is the star n
 `SEEN -> EVADING 34s -> EVADING 33s -> SEEN`, 21 distinct states in 180 s. So it is not merely
 un-winnable, it is un-winnable with a countdown that visibly restarts and no objective text.
 
-### #95 4.8 km/h of forward motion makes you permanently un-arrestable (B#2)
+### #95 FIXED — the reset needs the player moving AND RECEDING, and the entry was stale
+Shipped in `src/wanted.js`'s `_watchBust`, which carries the whole derivation. **This entry read
+OPEN for the rest of the session and I started re-deriving it before grepping the module** — see
+the audit note at the end of this file.
+
+Re-measured against the current build, the playtester's own protocol: a 25 m circle steered from
+the car's own `R_min(v)` so the SPEED is the variable and the position is held, 3 seeds, 150 s cap,
+four stars re-armed whenever the level bled out:
+
+    target km/h   mean   drift m   arrested/3   first bust s
+        2.8        3.1      11        3/3       12.7 11.5 11.1
+        4.8        5.2      72        3/3       105.2 15.0 15.0
+        5.8        6.1      61        3/3        59.6 17.6 17.3
+        8.6        8.8      53        3/3        44.9 13.0 12.2
+       12.4       12.6      65        3/3        81.9 15.8 16.0
+       19.9       20.1      76        3/3        53.2 47.5 53.2
+
+**3 of 3 at every speed, where the entry measured 0 of 3 from 4.8 km/h up.** The drift column is
+what says the circle held rather than the car escaping. Gated: `wanted-test`'s circling section
+runs three speeds, and `mutation-sweep`'s `bust-sign` and `bust-sign-default` give it teeth.
+
+And the module records that the OBVIOUS derivation was tried and refused: testing the speed against
+`RUN_SPEED` (7 m/s) closes the exploit cleanly and takes a deliberate 2 s pause from x1.75 of the
+clock's margin to **x0.94**, so the clock stops outlasting it. The sign was the right quantity and
+the speed was never the wrong number.
+
+#### THE ORIGINAL RECORD
+### #95 (as filed) 4.8 km/h of forward motion makes you permanently un-arrestable (B#2)
 Worse than the band, because it needs no distance at all. At 4★ **2.7 m off a road** — the spot
 that arrests a parked car in 9.6 s — driving a 25 m circle so position is held within 50 m:
 
@@ -741,7 +768,17 @@ section at t=11-15 s reading 0,1,1,1,1 km/h — **four continuous seconds agains
 it: **arrested 2 of 3** (14.4 s / 21 m and 82.4 s / 771 m), escaped 1 of 3 — against parking out of
 sight, which escaped **5 of 5** at 90.1 s. Driving away from the police is worse than parking.
 
-### #99 The `law` tenant owns the headline during a mission, and on `ambush` it says the opposite (A#3)
+### #99 FIXED — a `status` tenant yields the headline, and the entry was stale
+Shipped in `src/wanted.js` (`status: true` on the crime-notice branch) and `src/hud.js`
+(`composeBand` walks `BAND_ORDER` and lets a status tenant yield to anything below it). CLAUDE.md
+carries the derivation at length, including why re-ranking `law` below `mission` would have fixed
+the share and broken the bust countdown — "the one place the game says how to get out of an
+arrest". The rule keys off what a line IS rather than where it sits, and `hud-cue`'s band ladder
+reads the tenant list off `composeBand`'s own signature so a tenant added without a check is
+reported as unexercised.
+
+#### THE ORIGINAL RECORD
+### #99 (as filed) The `law` tenant owns the headline during a mission, and on `ambush` it says the opposite (A#3)
 Headline ownership while a stage was live, over two `shakedown` runs from the board with full crowd
 and fleet (both PASSED, stage totals byte-identical): seed 1 mission 9.8 s / law 24.3 s, seed 5
 9.4 / 24.7 — **law owns 71-72% of the first mission in the game.** Both runs knocked a pedestrian
@@ -756,7 +793,11 @@ line read `STOP AT THE SCENE — 85 m` over `still on: LOSE THEM` for 6.43 / 8.3
 The `still on:` subtitle is doing the right thing. What inverts is the precedence, on the one stage
 whose point is not to stop.
 
-### #100 A player heading for the flagship is conscripted into the tutorial (A#1) — FIXED (the conscription half)
+### #100 FIXED, BOTH HALVES — conscription (this entry) and handing a job back (#106)
+The conscription half shipped in this entry's own round. The second half — "a mission you have
+taken cannot be handed back" — was split out as #106 and is now fixed too: `Q` while stopped, with
+the lever chosen by `tools/abort-cost.mjs` pricing every alternative in seconds rather than by
+argument. So #100 is closed end to end.
 Reproduced geometrically at HEAD and it is worse than reported. **Both** mission offer centres sit
 essentially ON a road centreline:
 
@@ -814,7 +855,21 @@ All four mutation rows caught, run one at a time on a clean tree:
 **The remaining half is FIXED too.** See #106 below: Q while stopped hands the job back, and the
 lever was chosen by pricing every alternative in seconds rather than by argument.
 
-### #101 `ambush`'s 240 s clock has no representation, and expires into a stage nothing reached (A#4)
+### #101 FIXED — a stage with a clock and no destination shows the clock, and the entry was stale
+Shipped in `src/mission.js`'s `hud()`: an objective takes `{ text, distance, unit: 's' }` when the
+stage has a `timeLimit` and no reachable destination. **Exactly one stage in the game is that
+shape** — `marlin-street`'s `ambush`, 240 s, no marker and no reach trigger, because what it asks
+for is an evasion rather than an arrival — so only `ambush` changes. Distance still WINS where a
+stage has both (`dropHot` has 300 s and a marker), since how far you have to go is the actionable
+number and the clock is pressure.
+
+`unit: 's'` is not optional and CLAUDE.md records why: `objectiveLine` defaults to metres, and the
+bust countdown once shipped with a dropped unit that read "3 m" for a 3 s countdown. Gated in
+`mission-test` §12, whose two `mutation-sweep` rows (`stage-clock`, `stage-clock-unit`) are caught
+by CHECKS rather than by a throw.
+
+#### THE ORIGINAL RECORD
+### #101 (as filed) `ambush`'s 240 s clock has no representation, and expires into a stage nothing reached (A#4)
 `secondsLeft` is 237.933 at entry. Over 237.9 s of running it down the band showed two line
 families — `mission: LOSE THEM` and `law: PROPERTY DAMAGE` — and **no countdown and no number**.
 The only moving `look()` field is `wantedNote`, which is about the police, not the clock. It does
@@ -822,7 +877,18 @@ expire and `dropHot` works (1 of 3 seeds reached it, at 237.9 s, band `DELIVER T
 STILL BEHIND YOU — 241 m` / `No more time. Get it to the marina.`) — so the objective changes under
 the player saying "No more time" on a deadline never shown.
 
-### #102 The fence band names the one control that does not work (B#9)
+### #102 FIXED — the fence line is signed on the nose, and the entry was stale
+Shipped in `src/blockers.js`: `subtitle: f.noseOut ? 'reverse' : 'drive'`, composed in ONE place
+where it had been inline in both hosts. A nose still pointing out of the district is told to
+reverse, because forward is refused; a nose already pointing home is told to drive. That is the
+control the entry measured at **210.9 m home** against 0.1 m for the one the band used to name.
+
+The refusal itself was fixed in the same family of rounds and CLAUDE.md records both wrong versions
+— a barrier that refused all power stranded the car 786 m out, and a brake ramped on DEPTH rather
+than on the velocity's SIGN moved it 0.1 m in thirty seconds of full throttle pointing at town.
+
+#### THE ORIGINAL RECORD
+### #102 (as filed) The fence band names the one control that does not work (B#9)
 34.0 m out, at rest, 30 s of full throttle, **wheel straight**: nose-off 0-89 deg -> 0.1 m;
 91 deg -> 1.1 m; 100 deg -> 11.4 m; 135 deg -> 135.2 m at 105 km/h; 180 deg -> 162.7 m. **Full lock:
 every angle including 180 deg -> under 7.7 m.** Reverse straight -> **210.9 m home**.
@@ -1127,7 +1193,39 @@ KNOWN-BAD showing 158 of 411 centreline points sit on roads narrower than a car 
 clearance it asserts is not free. The open item is `followPath`'s lane keeping, which belongs with
 #64 rather than here.
 
-### #105 The run-over charge is correct and almost unreachable (B#10)
+### #105 A PRICED REFUSAL — the run-over charge is correct, rare BY A DESIGN RULE, and a fix needs four undevived constants
+Everything the entry measures reproduces and the conclusion changes. The feature is wired, gated
+offline, and proven on the live page by `boot-check`'s run-over arm (which charges
+`{kmh: 14.4, crime: "pedestrianHit", scale: 0.0073}` against its own staged victim, deterministic
+over three runs). What makes it rare is `VictimWindow`, and that is a rule somebody chose:
+
+    VictimWindow keys on the VICTIM ID ALONE, for 20 s — "one victim, one offence"
+
+So a strike charges, and driving over the same body inside 20 s is a REPEAT and refused. A survivor
+stands up in ~4.4 s, which is well inside the window, so the only chargeable body is one that does
+not get up — a fatality, needing ~68 km/h — or somebody else's casualty.
+
+**The cost of the refusal, which is what decides it:** round 11 measured `stats.runOverFrames`
+(then `runOvers`) at **3,684 over a 10 km drive against 0 charged**. So in ordinary driving the
+charge never fires. By this file's "a system that is never switched on is not a feature" that reads
+as a defect — and it is not, because the window is preventing a DOUBLE COUNT of one collision: a
+car that knocks somebody down at 40 km/h rolls over them in the same event, 4.4 s is the same
+incident, and charging twice prices one impact as two crimes.
+
+**And the obvious fix is refused by arithmetic, not by taste.** Keying the window on
+(victim, crime) instead of victim would not help: `DamageModel.runOverCrime` returns
+`pedestrianHit` or `pedestrianKilled` — the SAME crime ids a strike files — so the pair is
+identical and the window still bites. Making a run-over chargeable therefore needs a NEW ROW in
+the crime table, which is four numbers (`heat`, `min`, `cool`, `refractory`) nobody has measured,
+on a case that is already reachable and already gated. That is the "do not move a figure your
+instrument cannot resolve" refusal, arriving as a new table row.
+
+Recorded with the numbers so the next round does not re-derive it. If it is ever taken, the thing
+to measure first is how often a player runs over a body they did NOT knock down, because that is
+the only case the window was never arguing about.
+
+#### THE ORIGINAL RECORD
+### #105 (as filed) The run-over charge is correct and almost unreachable (B#10)
 Driving over the body you just knocked down at 14.5 / 22.5 / 32.5 / 47.5 / 58.2 km/h: `charged
 false` 5 of 5, heat stays 1.0000, while the scale graduates 0.0074 -> 0.3191. Coming back 35 s
 later: **vacuous 6 of 6, the body has got up.** The one route that works is kill at 75 km/h, wait
@@ -1255,6 +1353,38 @@ not consider (the HUD's existing keyed prompt panel) was sitting in `src/hud.js`
 > once nobody is conscripted into it?** The finding was reported as a consequence of the
 > conscription, not on its own, and this file already records a round that measured a saturation's
 > cost before fixing it and found the player could not tell.
+
+## AUDIT — five entries read OPEN and four of them were FIXED
+
+Asked to keep going on the open issues, I picked **#95** ("4.8 km/h of forward motion makes you
+permanently un-arrestable"), read the entry, and started deriving a fix. One `grep` for
+`_recedingFrom` stopped it: the fix has been in `src/wanted.js` for some time, with the whole
+derivation in its comment, three speeds in `wanted-test` and two `mutation-sweep` rows. **The
+entry's heading did not say so, and the heading is all a round reads before committing to a
+direction.**
+
+So the remaining headings were audited against the source. Four of five were already shipped:
+
+    #95   the bust reset needs moving AND RECEDING          `_recedingFrom`, gated, mutation-covered
+    #99   a `status` tenant yields the headline             `status: true`, hud-cue's band ladder
+    #101  a stage with a clock and no destination shows it  `unit: 's'`, mission-test §12, 2 rows
+    #102  the fence line is signed on the nose              `noseOut ? 'reverse' : 'drive'`
+    #105  the run-over charge is rare                       STILL OPEN, and now a priced refusal
+
+Each is restated with the evidence and the original record kept verbatim underneath. #95's is
+re-measured rather than asserted, because a symbol being present is not a fix working: the
+playtester's own circle protocol now arrests **3 of 3 at every speed from 2.8 to 19.9 km/h** where
+they measured 0 of 3 from 4.8 up.
+
+**The shape is the one this session already found twice** — a stale `mutation-sweep` row covering
+nothing, and a `lastOfferLine` holding the last value its branch produced. A record that reads as
+open is the same defect as a check that cannot fail: both present as coverage of work that is not
+being done, and both are silent until somebody asks. The difference is who pays — a stale row
+costs a defect nobody tests, and a stale entry costs a round re-deriving a fix.
+
+**So a backlog heading carries its status, and the cheap check before starting anything is a grep
+for the fix's own symbol.** That took one command and would have saved the first twenty minutes of
+this pass.
 
 ## PLAYTEST ROUND 11 — changing your mind about a job
 

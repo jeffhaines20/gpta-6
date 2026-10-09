@@ -811,7 +811,7 @@ export class MissionBoard {
     /**
      * COUNTED, so a refusal can never be silent. `refusedMoving` is per FRAME inside a pickup
      * above `stopMs` — a frame counter, not an event counter, which CLAUDE.md asks to be named
-     * for what it counts after `stats.runOvers` read 3,684 against 0 charged run-overs.
+     * for what it counts after `stats.runOverFrames` read 3,684 against 0 charged run-overs.
      */
     this.refusedMoving = 0;
   }

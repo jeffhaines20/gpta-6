@@ -346,7 +346,7 @@ export class Session {
     this._wantedPlayer = { x: 0, z: 0, held: false, teleported: false };
     this._teleported = false;
     this.stats = { busts: 0, released: 0, cooperated: 0, crashes: 0, crimes: 0, knockdowns: 0, fatal: 0, shunts: 0,
-      impacts: 0, voices: 0, tested: 0, contacts: 0, pedRepeats: 0, runOvers: 0,
+      impacts: 0, voices: 0, tested: 0, contacts: 0, pedRepeats: 0, runOverFrames: 0,
       wrecks: 0, respawns: 0, loopsBroken: 0, worstDv: 0, distance: 0, topSpeed: 0,
       repairs: 0,
       /**
@@ -360,7 +360,8 @@ export class Session {
        * PER CONTACT FRAME, AND THE NAME SAYS SO. The first version of this was called
        * `policeHits` after the host's own field, and one 15 m/s ram produced 51 of them across
        * three seeds (51 / 57 / 10) against ONE charged crime — `policeProperty`'s refractory is
-       * 1.5 s. That is `stats.runOvers`' 3,684-against-0 defect, inherited by copying a name.
+       * 1.5 s. That is `stats.runOverFrames`' 3,684-against-0 defect, inherited by copying a name
+       * — and that field was still called `runOvers` when this was written.
        * Both the host's three counters and this one are renamed in the same commit, because
        * patching one and leaving its sibling is the recurring shape of defect here.
        */
@@ -1051,7 +1052,7 @@ export class Session {
       const over = Math.hypot(v.velocity.x, v.velocity.z);
       const r = this.peds.runOver(proneUnder.i, { speed: over });
       if (r) {
-        this.stats.runOvers++;
+        this.stats.runOverFrames++;
         /**
          * THE CHARGE COMES FROM THE MODEL, NOT FROM A LITERAL 1, and this harness was the second
          * place that got wrong. district/main.js's run-over site passed `scale: 1` and was fixed
@@ -1885,8 +1886,8 @@ if (!IS_MAIN) {
     s5.peds.hit(1, { speed: 12, dirX: 0, dirZ: 1 });
     check('and a body rolled over under the floor is free',
       s5.peds.runOver(1, { speed: 1.5 }) === null, 'null at 1.5 m/s');
-    check('the counters say it happened', s4.peds.stats.runOvers === 1,
-      `runOvers ${s4.peds.stats.runOvers}`);
+    check('the counters say it happened', s4.peds.stats.runOverFrames === 1,
+      `runOverFrames ${s4.peds.stats.runOverFrames}`);
 
     /**
      * AND THE CONTACT PASS REACHES IT, which is the half that is easy to leave out — every arm
@@ -1909,14 +1910,14 @@ if (!IS_MAIN) {
     mark.z = s6.vehicle.position.z + 14;
     mark.down.vx = 0; mark.down.vz = 0;              // stop the slide so it stays put
     const crimes0 = s6.stats.crimes;
-    for (let k = 0; k < 400 && s6.stats.runOvers === 0; k++) {
+    for (let k = 0; k < 400 && s6.stats.runOverFrames === 0; k++) {
       s6.drive({ throttle: 1 });
       s6.step(1 / 60);
     }
-    console.log(`    driven over through the real step loop: runOvers ${s6.stats.runOvers}, ` +
+    console.log(`    driven over through the real step loop: runOverFrames ${s6.stats.runOverFrames}, ` +
       `crimes +${s6.stats.crimes - crimes0}, ${s6.wanted.stars} stars`);
-    check('the contact pass reaches a body on the ground', s6.stats.runOvers > 0,
-      `${s6.stats.runOvers} run-overs`);
+    check('the contact pass reaches a body on the ground', s6.stats.runOverFrames > 0,
+      `${s6.stats.runOverFrames} contact frames`);
     check('and it files a crime the player can see', s6.stats.crimes > crimes0 && s6.wanted.stars > 0,
       `+${s6.stats.crimes - crimes0} crimes, ${s6.wanted.stars} stars`);
 
@@ -1972,13 +1973,13 @@ if (!IS_MAIN) {
     slow.z = s7.vehicle.position.z + 4.5;
     slow.down.vx = 0; slow.down.vz = 0;
     // A gentle throttle over a short run, so the car arrives at a crawl rather than at 100 km/h.
-    for (let k = 0; k < 900 && s7.stats.runOvers === 0; k++) {
+    for (let k = 0; k < 900 && s7.stats.runOverFrames === 0; k++) {
       s7.drive({ throttle: 0.12 });
       s7.step(1 / 60);
     }
     const rec7 = s7.lastRunOver;
     check('the slow arm actually ran somebody over, so both sides are not zero',
-      s7.stats.runOvers > 0 && !!rec7, `${s7.stats.runOvers} run-overs`);
+      s7.stats.runOverFrames > 0 && !!rec7, `${s7.stats.runOverFrames} contact frames`);
     if (rec7) {
       const w7 = new WantedSystem();
       w7.reportCrime(rec7.crime, { at: { x: 0, z: 0 }, scale: rec7.scale });

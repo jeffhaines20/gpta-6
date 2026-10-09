@@ -993,7 +993,7 @@ if (state.global && state.frames > 2) {
             1 - 2 * (q2.y ** 2 + q2.z ** 2)).toFixed(2) });
       }
       const dyn = d.damageReport().dynamic;
-      overs = dyn.pedRunOvers; repeats = dyn.pedRepeats;
+      overs = dyn.pedRunOverFrames; repeats = dyn.pedRepeats;
       if (dyn.lastRunOver) { seen.push(dyn.lastRunOver); why = 'ranOver'; break; }
       if (travelled > TRAVEL_CAP_M) { why = 'travelCap'; break; }
       if (Date.now() - t1 > 180000) { why = 'wallClock'; break; }
@@ -1016,7 +1016,7 @@ if (state.global && state.frames > 2) {
       sideMiss: Number.isFinite(sideMiss) ? +sideMiss.toFixed(3) : null,
       nearestAlong: Number.isFinite(nearestAlong) ? +nearestAlong.toFixed(3) : null,
       bodyAt,
-      repeats0: dyn0.pedRepeats, overs0: dyn0.pedRunOvers,
+      repeats0: dyn0.pedRepeats, overs0: dyn0.pedRunOverFrames,
       knock: d.damageReport().dynamic.pedKnockdowns, crimes: d.damageReport().crimesReported };
   });
   if (ro.skipped) {
@@ -1154,7 +1154,7 @@ if (state.global && state.frames > 2) {
      * `closest` TRACKS THE SLOT, NOT THE BODY, so it is printed and not asserted: a fatal
      * knockdown throws the body along the car's heading and src/pedestrians.js recycles the slot
      * once the casualty clears, after which that index is somebody else standing elsewhere. The
-     * thing that says the car drove over a body is `pedRunOvers`, which only rises inside
+     * thing that says the car drove over a body is `pedRunOverFrames`, which only rises inside
      * `peds.runOver`.
      */
     check('the arm actually drove over a body, so both sides are not zero',

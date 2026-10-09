@@ -3779,3 +3779,61 @@ mutates.** It takes seconds, needs no browser, and is the only instrument that c
 matching. And repoint a stale row by its INTENT rather than its text — `hold-ratchet` means "drop
 the `u.stopped ||` so the hold stops being sticky", which is a sentence that survives the
 admission being rewritten, where the line it used to quote did not.
+
+## A backlog heading that does not carry its status costs a round, and four of five were already fixed
+
+Asked to keep going on the open issues, I picked the most alarming open heading — **#95, "4.8 km/h
+of forward motion makes you permanently un-arrestable"** — read the entry, and started deriving a
+fix. One `grep` for `_recedingFrom` stopped it: the fix had been in `src/wanted.js` for some time,
+with the whole derivation in its comment, three speeds in `wanted-test`'s circling section and two
+`mutation-sweep` rows (`bust-sign`, `bust-sign-default`). The ENTRY was stale, and a heading is all
+a round reads before committing to a direction.
+
+Auditing the rest of the open-looking headings against the source, **four of five were already
+shipped**:
+
+    #95   the bust reset needs moving AND RECEDING          gated, mutation-covered
+    #99   a `status` tenant yields the headline             `status: true`, hud-cue's band ladder
+    #101  a stage with a clock and no destination shows it  `unit: 's'`, mission-test §12, 2 rows
+    #102  the fence line is signed on the nose              `noseOut ? 'reverse' : 'drive'`
+    #105  the run-over charge is rare                       genuinely open, now a priced refusal
+
+**This is the same shape as a stale `mutation-sweep` row and as `lastOfferLine` holding the last
+value its branch produced**, both found earlier in the same session. A record that reads as open is
+the same defect as a check that cannot fail: each presents as coverage of work that is not being
+done, and each is silent until somebody asks. What differs is who pays — a stale row costs a defect
+nobody tests, a stale entry costs a round re-deriving a fix that exists.
+
+Two rules:
+
+- **A heading carries its status**, so FIXED / MEASURED / REFUSED / A PRICED REFUSAL goes in the
+  heading and not only in the body, and the original record is kept verbatim underneath rather than
+  overwritten.
+- **Grep for the fix's own symbol before starting.** One command, and it would have saved the first
+  twenty minutes of this pass. A symbol being present is not a fix WORKING, so #95's entry is
+  re-measured rather than asserted — the playtester's own circle protocol now arrests **3 of 3 at
+  every speed from 2.8 to 19.9 km/h** where they measured 0 of 3 from 4.8 km/h up, with the drift
+  column printed beside it to say the circle held rather than the car escaping.
+
+### And the field the naming rule was written about still had the wrong name
+
+This file's "a frame counter is not an event counter" section is about `stats.runOvers` reading
+**3,684 over a 10 km drive against 0 charged run-overs**, and its rule is to "name such a field for
+what it counts". Earlier in this same session I renamed three SIBLING counters — `pedHits`,
+`carHits` and `policeHits` became `*HitFrames` — and left the original, in all three places it
+lives:
+
+    src/pedestrians.js    stats.runOvers       -> stats.runOverFrames
+    district/main.js      dynStats.pedRunOvers -> dynStats.pedRunOverFrames
+    tools/playtest.mjs    stats.runOvers       -> stats.runOverFrames
+
+`runOver()` has no refractory of its own — it refuses below `PED_FREE_MS` and otherwise increments
+on every call — so a host calling it once a frame while a casualty is under the wheels counts
+frames, and all three hosts do. **Patching the siblings and leaving the original, on the very
+lesson that records it.** `grep` for the field, not for the lesson: the complete reader list was
+one `Grep` call (two gates, one selftest, four prose references) and renaming without it is how
+`focusSpeed` broke the page earlier in this session.
+
+Two of the selftest's own DETAIL strings also printed `${stats.runOverFrames} run-overs`, which is
+the same defect in the output rather than in the field — a correct number under a wrong noun. They
+read "contact frames" now.

@@ -1192,7 +1192,7 @@ const garageStats = { repairs: 0 };
  *
  * `declineRefusedMoving` is per PRESS, not per frame — `input.hit` is edge-triggered — so it is
  * an event counter and is named for what it counts, which CLAUDE.md asks for after
- * `stats.runOvers` read 3,684 against 0 charged run-overs. A non-zero `declined` with a zero
+ * `stats.runOverFrames` read 3,684 against 0 charged run-overs (it was `runOvers` then). A non-zero `declined` with a zero
  * `declineRefusedMoving` over a session where the player tried it while driving would mean the
  * stop rule is not being applied.
  */
@@ -1355,7 +1355,7 @@ let audioImpactsWanted = 0, audioImpactsPlayed = 0, audioImpactsSilent = 0;
 const OTHER_CAR = { bodyRadius: 0.95, bodyMass: 1400 };
 const PERSON = { bodyRadius: 0.35, bodyMass: 80 };
 const dynStats = { tested: 0, contacts: 0, frames: 0, pedHitFrames: 0, carHitFrames: 0, policeHitFrames: 0,
-  pedKnockdowns: 0, pedFatal: 0, carShunts: 0, pedRepeats: 0, pedRunOvers: 0,
+  pedKnockdowns: 0, pedFatal: 0, carShunts: 0, pedRepeats: 0, pedRunOverFrames: 0,
   /**
    * WHAT THE LAST RUN-OVER CHARGED, because the wire below is the one rule in this round that no
    * gate could reach. `DamageModel.runOverCrime` is gated by damage-test; that this file asks it
@@ -1522,7 +1522,8 @@ function dynamicImpacts() {
     const over = Math.hypot(vehicle.velocity.x, vehicle.velocity.z);
     const r = peds.runOver(proneUnder.i, { speed: over });
     if (r) {
-      dynStats.pedRunOvers++;
+      // PER FRAME, like src/pedestrians.js's own counter — see the note there.
+      dynStats.pedRunOverFrames++;
       /**
        * A run-over has no delta-v of its own — the body does not resist — and this site read
        * `r.fatal ? 'pedestrianKilled' : 'pedestrianHit'` with a literal `scale: 1`, under a
@@ -1575,7 +1576,7 @@ function dynamicImpacts() {
    * These read `pedHits`, `policeHits` and `carHits`, which is what an event counter is called —
    * and one 15 m/s ram of a police car produced **51 of them** in the offline harness, because a
    * contact lasts as long as the two bodies overlap. CLAUDE.md records the identical defect in
-   * `stats.runOvers`, which read 3,684 over a 10 km drive against 0 charged run-overs, and its
+   * `stats.runOverFrames`, which read 3,684 over a 10 km drive against 0 charged run-overs, and its
    * rule is to name such a field for what it counts. The CRIMES are event-like — `reportCrime`
    * has a per-crime refractory — so the two numbers are allowed to differ by two orders of
    * magnitude, and nothing but the name said which was which.

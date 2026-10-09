@@ -716,7 +716,21 @@ export class Pedestrians {
       // was never constructed reads as zeros rather than as silence.
       roadGridCells: 0, roadGridSegments: 0,
       knockdowns: 0, knockdownsFatal: 0, recoveries: 0, worstKnockdownSpeed: 0,
-      runOvers: 0, worstRunOverSpeed: 0,
+    /**
+     * PER PHYSICS FRAME IN WHICH A BODY IS UNDER THE CAR, and the name used to say otherwise.
+     *
+     * `runOver()` has no refractory of its own — it refuses below `PED_FREE_MS` and otherwise
+     * increments on every call — so a host that calls it once a frame while a casualty is under
+     * the wheels counts frames. It read `runOvers`, and over a 10 km drive a playtester measured
+     * **3,684 of them against 0 charged run-overs**: three orders of magnitude, flattering for a
+     * severity claim and damning for a frequency one.
+     *
+     * CLAUDE.md's rule to "name such a field for what it counts" was written ABOUT this field and
+     * the field kept the name. Three sibling counters were renamed first (`pedHitFrames`,
+     * `carHitFrames`, `policeHitFrames`) and this one — the original instance — was left, which
+     * is this repo's recurring shape of defect arriving on the very lesson that records it.
+     */
+      runOverFrames: 0, worstRunOverSpeed: 0,
     };
     this._minHist = new Array(6).fill(0);   // closest pair per frame, 0.25 m buckets
   }
@@ -2027,7 +2041,7 @@ export class Pedestrians {
     if (!force && v < PED_FREE_MS) return null;
     const fatal = v >= ANCHORS.pedKillSpeed;
     if (fatal && !ped.down.fatal) { ped.down.fatal = true; this.stats.knockdownsFatal++; }
-    this.stats.runOvers++;
+    this.stats.runOverFrames++;
     if (v > this.stats.worstRunOverSpeed) this.stats.worstRunOverSpeed = +v.toFixed(2);
     return { index, id: ped.id, speed: v, fatal, alreadyDown: true };
   }
