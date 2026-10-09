@@ -3749,3 +3749,33 @@ three commits — arriving through a different door, and `boot-check` is the gat
 because of it. It caught this **on line 4 of its first run**. The cheap habit is a grep for the
 identifier before and after any hoist; the cheap verification is a free-variable check, which took
 one line of node and would have found it without the browser.
+
+## Four mutation rows went stale in one session, and `--selftest` is the only thing that says so
+
+Running the full offline list at the end of this session found `mutation-sweep --selftest`
+failing on **four of 158 rows finding no target**:
+
+    bust-never    src/wanted.js    'if (this.bustFor < BUST_HOLD_S) return false;'
+    hold-never    src/pursuit.js   the old single-clause admission
+    hold-ratchet  src/pursuit.js   the same line
+    hold-forever  src/pursuit.js   the same line
+
+All four went stale **in this session's own earlier rounds**. #97's `holdSeconds` work replaced
+`BUST_HOLD_S` with `this.bustNeeds` as the clock's bound; #108's fix replaced
+
+    if (near.d <= this.reachRadius && (u.stopped || (wantT > near.t && u.t <= near.t))) {
+
+with a three-clause admission carrying `_localBest` and the officer's walk. Neither commit was
+wrong. Neither ran this selftest afterwards, and **a stale row is a defect nobody is testing
+while the table still counts it** — the whole table reads as 158 rows of coverage.
+
+It is the sibling of this file's own "a check that could only ever pass" family and it is worse in
+one way: an unfailable CHECK at least runs, so a reader sees it in the listing. A stale ROW
+produces no output at all until something asks, and the only thing that asks is a selftest nobody
+is obliged to run.
+
+**So: run `mutation-sweep --selftest` in the same commit as any change to a file the table
+mutates.** It takes seconds, needs no browser, and is the only instrument that can see a row stop
+matching. And repoint a stale row by its INTENT rather than its text — `hold-ratchet` means "drop
+the `u.stopped ||` so the hold stops being sticky", which is a sentence that survives the
+admission being rewritten, where the line it used to quote did not.
