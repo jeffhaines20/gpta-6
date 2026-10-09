@@ -3796,7 +3796,18 @@ shipped**:
     #99   a `status` tenant yields the headline             `status: true`, hud-cue's band ladder
     #101  a stage with a clock and no destination shows it  `unit: 's'`, mission-test §12, 2 rows
     #102  the fence line is signed on the nose              `noseOut ? 'reverse' : 'drive'`
-    #105  the run-over charge is rare                       genuinely open, now a priced refusal
+    #105  the run-over charge is rare                       a priced refusal, re-argued
+    #94   the chromatic third kept the pre-census band      a priced refusal, only the floor derivable
+    #100  conscription + handing a job back                 fixed both halves, the second as #106
+    #110  ambush's timeout is out of reach by parking        working as designed
+    #111  seeking an arrest does not work                    working as designed
+
+**And TWO of them changed meaning rather than status, because another entry's fix had landed
+underneath them.** #110 reads as a trap only while `ambush`'s 240 s deadline is invisible — and
+#101's fix put it on screen, which that entry was filed without checking ("LOSE THEM — 240 s",
+walked through the real runner down to 60 s). #100's second half reads as open only until #106
+shipped. **An entry can be stale about a NEIGHBOUR rather than about itself**, which is the whole
+argument for auditing the list in one pass instead of the one heading you happened to pick up.
 
 **This is the same shape as a stale `mutation-sweep` row and as `lastOfferLine` holding the last
 value its branch produced**, both found earlier in the same session. A record that reads as open is

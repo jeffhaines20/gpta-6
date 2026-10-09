@@ -244,7 +244,26 @@ measuring it turned up that the two fleets have always disagreed about it (0.34.
 `paint-tone` prints both so the next round can settle it on purpose. A red car's rendered luma is
 within about x1.5 of plausible, so it is small.
 
-### #94 The chromatic third kept the band the census table replaced, in both fleets
+### #94 A PRICED REFUSAL — the chromatic third kept the pre-census band, and only its FLOOR is derivable
+The defect is real and recorded: the achromatic branch moved to `src/carpaint.js`'s census table
+(0.040 .. 0.870, x21.75) and each module's chromatic branch kept its own legacy achromatic band
+under a new name — `traffic.js` 0.340 .. 0.600 (x1.76, byte-identical to the expression the table
+replaced) and `streetfurniture.js` 0.260 .. 0.660 (x2.54). So the fix shipped for 66% of both
+fleets and the defect's own number survived in the other 34%.
+
+**It is not tuned because only the FLOOR is available.** Three's BRDF puts `F0` at the plain
+dielectric 0.04 when the albedo is 0.040, so a chromatic floor is derivable and the shipped one
+is six to eight times above it. The SHAPE is not: the census resolves FAMILY and says so in its own
+file, not VALUE within a family, and a bright red at the white tone is pink rather than a light
+red — so the achromatic table cannot be reused. Lowering the floor alone would repaint a third of
+both fleets on a uniform distribution nobody measured, which is this project's own "do not move a
+figure your instrument cannot resolve" arriving as the obvious fix for a real defect.
+
+`paint-tone` prints all three spans side by side on every run, which is what found it — x1.76 is
+not visibly wrong alone and is a factor of twelve beside x21.75.
+
+#### THE ORIGINAL RECORD
+### #94 (as filed) The chromatic third kept the band the census table replaced, in both fleets
 Found by comparing the two numbers rather than by looking at either. The achromatic two thirds now
 draw from `src/carpaint.js`'s census table and span **x21.75** (0.040..0.870). The chromatic third
 spans **x1.76** in `traffic.js` and **x2.54** in `streetfurniture.js`:
@@ -1369,7 +1388,22 @@ So the remaining headings were audited against the source. Four of five were alr
     #99   a `status` tenant yields the headline             `status: true`, hud-cue's band ladder
     #101  a stage with a clock and no destination shows it  `unit: 's'`, mission-test §12, 2 rows
     #102  the fence line is signed on the nose              `noseOut ? 'reverse' : 'drive'`
-    #105  the run-over charge is rare                       STILL OPEN, and now a priced refusal
+    #105  the run-over charge is rare                       a PRICED REFUSAL, re-argued
+
+Then the same pass over the rest, because a partial audit leaves the next round the same trap:
+
+    #94   the chromatic third kept the pre-census band      a PRICED REFUSAL — only the floor is derivable
+    #100  conscription + handing a job back                 FIXED BOTH HALVES, the second as #106
+    #110  ambush's timeout is out of reach by parking       WORKING AS DESIGNED — and #101 put the
+                                                            clock on screen, which this entry had
+                                                            not checked: "LOSE THEM — 240 s"
+    #111  seeking an arrest does not work                   WORKING AS DESIGNED, and the band says so
+
+**Two of those changed meaning rather than status, and both because another entry's fix had
+landed underneath them.** #110 reads as a trap only while the 240 s deadline is invisible, and
+#101 made it visible; #100's second half reads as open only until #106 shipped. **An entry is not
+just stale about ITSELF — it can be stale about a neighbour**, which is the argument for auditing
+all of them in one pass rather than the one you happen to pick up.
 
 Each is restated with the evidence and the original record kept verbatim underneath. #95's is
 re-measured rather than asserted, because a symbol being present is not a fix working: the
@@ -1484,7 +1518,27 @@ walls. That is CLAUDE.md's `traffic-selftest` trap exactly, and the cheap proof 
 changed the reading: with the predicate both hosts wire, 366 of 1309 in-reach spots (**28.0%**)
 have a blocked walk, which reproduces this file's own recorded 27%.
 
-### #110 `ambush`'s authored timeout ending is 17x out of reach by standing still
+### #110 WORKING AS DESIGNED, and #101's fix is what makes it fair — the clock is on screen
+Round 11's measurement reproduces: entering `ambush` hands the player 2 stars via
+`onEnter: { setWanted: 2 }` with no scene, so braking cannot cooperate, and parking is an arrest
+after 14.0 s against the stage's `timeLimit` of 240. Three seeds, byte-identical.
+
+**What makes it a design rather than a trap is that the deadline is VISIBLE**, which #101's fix
+delivered and which this entry was filed without checking. Walked through the real runner:
+
+    entering ambush   objective {"text":"LOSE THEM","distance":240,"unit":"s"}  -> "LOSE THEM — 240 s"
+    t+ 60 s                                                                       "LOSE THEM — 180 s"
+    t+180 s                                                                       "LOSE THEM — 120 s"
+    t+239 s                                                                       "LOSE THEM —  60 s"
+
+So a player on `ambush` is told they have 240 seconds and told to lose the police. Stopping during
+a timed chase, with the clock counting down on screen, is the player declining the stage — and the
+authored `dropHot` branch IS reachable by playing it (round 10 reached it at 237.9 s on 1 of 3
+seeds). Nothing is 17x out of reach; one route to it is, and that route is "stand still while being
+chased".
+
+#### THE ORIGINAL RECORD
+### #110 (as filed) `ambush`'s authored timeout ending is 17x out of reach by standing still
 Round 11, three seeds, byte-identical: entering `ambush` hands the player 2 stars via
 `onEnter: { setWanted: 2 }` with no scene, so braking cannot cooperate — and parking is an
 **arrest after 14.0 s** against the stage's `timeLimit` of 240. So the authored
@@ -1493,7 +1547,21 @@ is playing the mission rather than quitting it. Related to #101 (the 240 s clock
 representation) and to this file's own "a system that is never switched on is not a feature",
 arriving as a stage nothing reaches by the one route a player would try.
 
-### #111 Seeking an arrest does not work, because stopping is "cooperating"
+### #111 WORKING AS DESIGNED — stopping at your own scene is cooperation, and the band says so
+Round 11's numbers are right and the behaviour is the rule. `SCENE_LEAVE_M` is 85 m and both
+`pedestrianHit` and `civilianCollision` carry `scene: true`, so stopping inside 85 m of your own
+scene latches `cooperated` and the bust then spares the job. Four park spots at 71 / 189 / 284 /
+386 m from the body gave busts 1 / 0 / 1 / 0 with the job surviving every one.
+
+**And the game says it in as many words**, which is what makes it a rule rather than a surprise:
+`BUSTED  a unit held you for 4 s — released in 4 s (you stopped at the scene, so the job stands)`.
+`composeLaw` is also the one place the game tells a player an arrest will not cost them the job.
+
+Filed and kept because it removes the arrest from the list of ways out of a mission, which is what
+#106 was choosing between — not because anything is broken.
+
+#### THE ORIGINAL RECORD
+### #111 (as filed) Seeking an arrest does not work, because stopping is "cooperating"
 Round 11, measured. `SCENE_LEAVE_M` is 85 m and both `pedestrianHit` and `civilianCollision`
 carry `scene: true`, so stopping inside 85 m of your own scene latches `cooperated` and the bust
 then spares the job — the band says so verbatim: `BUSTED  a unit held you for 4 s — released in
