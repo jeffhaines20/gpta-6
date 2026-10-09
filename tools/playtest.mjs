@@ -665,7 +665,20 @@ export class Session {
        * two-line repro; it is a harness defect rather than a game one, but it made this file
        * unusable for testing that path.
        */
-      if (!this.mission.hud() && !this.damage.wrecked) this._offers();
+      /**
+       * AND THE WRECK TERM IS GATED ON BEING IN THE CAR, because the page's is. #112, found by
+       * round 11 reading both sources rather than playing either: district/main.js builds
+       * `wreckLine = mode === 'car' ? wreckState : null` and gates on that, so ON FOOT during the
+       * four-second hold the page RUNS the offer pass and this did not. A pickup could therefore
+       * fire on the page and not in node — the one case where the two hosts disagree about
+       * whether a job can be taken at all.
+       *
+       * The wreck gate itself stays, with its original reason: a wrecked car sitting in a marker
+       * started a mission, and `_wreckWatch` only aborts on the FIRST wreck frame, so that
+       * mission ran through the whole hold and the teleport. Being on foot is a different case —
+       * the player is not in the thing that is wrecked.
+       */
+      if (!this.mission.hud() && !(this.mode === 'car' && this.damage.wrecked)) this._offers();
       if (this.mission.mission) {
         /**
          * `hud()` RETURNS NULL THE INSTANT THE OUTCOME STOPS BEING RUNNING (mission.js:445),
@@ -1329,7 +1342,26 @@ export class Session {
        * at the map edge the whole time. `edge` marks the clamped ones, because a player can see
        * that a blip is pinned to the frame and knows the range is at least the reach.
        */
-      blips: this.board.markers()
+      /**
+       * AND NO JOB BLIPS WHILE A MISSION RUNS, BECAUSE THE PAGE DRAWS NONE. Round 11 read both
+       * sources and measured it: this listed `board.markers()` unconditionally while
+       * district/main.js calls `updateOfferMarkers(!!missionHud)` and empties `offerMarkers`.
+       * Mid-job the harness reported
+       *
+       *     ["shakedown@43","garage@199","enemy@238","marlin-street@291"]
+       *
+       * against the page's `ringsVisible 0 of 2`. So every legibility claim made from
+       * `look().blips` WHILE A MISSION RAN was about a map the page is not drawing, and the
+       * marker the harness offered most loudly — the other job — is the one a player cannot see.
+       *
+       * The GARAGE and the CAR stay, because the page posts those unconditionally
+       * (`pushHudMarker(GARAGE_AT…, 'shop')` and `MARKER_STYLE.vehicle`); it is only the OFFER
+       * rings that a running mission takes down. `available()` means "not yet passed", which is
+       * the right question for the board and the wrong one for what to draw — the page's own
+       * comment, and this is the harness finally asking the same question.
+       */
+      blips: (this.mission.outcome === OUTCOMES.RUNNING && this.mission.mission
+        ? [] : this.board.markers())
         .map((k) => ({ id: k.id, ...bearingTo(k.x, k.z) }))
         .concat(onFoot
           ? [{ id: 'car', ...bearingTo(this.vehicle.position.x, this.vehicle.position.z) }]
@@ -2976,6 +3008,31 @@ if (!IS_MAIN) {
      * 191 s over eight legs for something the page was drawing at the map edge the whole time.
      * The garage is 242 m from the spawn, so this is that case by default.
      */
+    /**
+     * AND NO OFFER BLIP WHILE A MISSION RUNS, which is #112: the page calls
+     * `updateOfferMarkers(!!missionHud)` and draws none, and this listed them all. Round 11
+     * measured the harness offering `marlin-street@291` against the page's `ringsVisible 0 of 2`.
+     *
+     * BOTH DIRECTIONS, because a filter that drops everything would pass a one-sided check: the
+     * garage and the car must SURVIVE, since the page posts those unconditionally, and it is only
+     * the offer rings a running mission takes down.
+     */
+    {
+      const idle = far.look().blips.map((b) => b.id);
+      far.startMission('shakedown');
+      const busy = far.look().blips.map((b) => b.id);
+      check('a running mission takes the OFFER blips off the map, as the page does',
+        idle.includes('shakedown') && !busy.includes('shakedown')
+          && !busy.includes('marlin-street'),
+        `idle [${idle.join(',')}] -> running [${busy.join(',')}]`);
+      check('and the garage and the car survive it, because the page posts those either way',
+        busy.includes('garage') && idle.includes('garage'),
+        `running [${busy.join(',')}]`);
+      far.mission.abort('selftest');
+      const after = far.look().blips.map((b) => b.id);
+      check('and they come back when nothing is running, so it is not a one-way filter',
+        after.includes('shakedown'), `[${after.join(',')}]`);
+    }
     check('and out of the map\u2019s reach it is clamped to the frame, not thrown away',
       shop.length === 1 && trueRange > MINIMAP_REACH_M && shop[0].edge === true,
       `${trueRange.toFixed(0)} m against a ${MINIMAP_REACH_M} m reach, edge ${shop.length ? shop[0].edge : '?'}`);

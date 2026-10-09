@@ -2258,6 +2258,21 @@ function animate(now) {
     }
   }
   /**
+   * AND `lastOfferLine` IS CLEARED WHEN THE OFFER PASS DID NOT RUN, which is #112.
+   *
+   * It was only ever ASSIGNED inside the branch above, so while a mission ran it held whatever
+   * the last offer-less frame had composed. Round 11 measured the consequence: with `shakedown`
+   * running and the car **0.34 m** from `marlin-street`'s pickup, `missionBoard().offerLine`
+   * still read `SHAKEDOWN / stop to start` — a job 332 m away and not the one the player was
+   * standing in. Not player-visible, because the band is `mission` then; entirely visible to any
+   * probe quoting it, which is what this field exists for.
+   *
+   * `null` is the honest value: the pass did not run, so there is no composed offer. A STALE
+   * one is worse than none for the same reason `MissionRunner`'s surviving `mission` reference
+   * is — a field that outlives the thing it names reads as current.
+   */
+  if (missionHud || wreckLine) lastOfferLine = null;
+  /**
    * THE MISSION-END LINE'S CLOCK RUNS WHILE IT IS ON SCREEN, NOT WHILE IT IS HIDDEN.
    *
    * It ticked down from the moment the mission ended, and `src/hud.js`'s BAND_ORDER puts `wreck`
@@ -2770,7 +2785,18 @@ window.__district = {
    * frame is 120 frames on a page that draws under one a second. Reading the clock is the same
    * assertion for a tenth of the wall time.
    */
-  bandReport: () => ({ from: lastBandFrom, endFor: +missionEndFor.toFixed(3) }),
+  /**
+   * `endedLine` IS THE `ended` TENANT'S OWN OUTPUT, published for the reason `offerLine` is: a
+   * gate asserting what the end of a mission SAYS cannot read the screen, because `busted` and
+   * `wreck` both outrank `ended` in BAND_ORDER and an earlier arm's four-second hold takes the
+   * band off it. #106's arm read "BUSTED / released in 4 s" after a successful abort with 0 stars
+   * and heat 0.000 — a correct screen for a page carrying somebody else's hold, and nothing at
+   * all about the thing the arm had just done. CLAUDE.md: a band assertion is a statement about
+   * PRECEDENCE as well as about text, so an arm that cannot own the top of the band has to read
+   * the tenant.
+   */
+  bandReport: () => ({ from: lastBandFrom, endFor: +missionEndFor.toFixed(3),
+    endedLine: missionEnd }),
   /**
    * THE GARAGE, for `tools/boot-check.mjs`: the module is gated offline in damage-test and this
    * is the one wire — the zone being fed the car, `repaired` being acted on, and the line

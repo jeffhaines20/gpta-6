@@ -1216,6 +1216,154 @@ not consider (the HUD's existing keyed prompt panel) was sitting in `src/hud.js`
 > conscription, not on its own, and this file already records a round that measured a saturation's
 > cost before fixing it and found the player could not tell.
 
+## PLAYTEST ROUND 11 — changing your mind about a job
+
+One Opus playtester, blind, on an isolated copy of the tree at `c4cdac8`, briefed with the
+scenario ("take a job, get into it, then decide you would rather be doing something else") and
+NOT with anything this session had found. The brief did not mention aborting, a key, a zone or
+the word decline. Their harness reproduced a 14-build prefix to `t = 38.13 s` byte-identical and
+they ran one page arm on their own port with their own document root — the Captures trap, avoided
+without being told about it.
+
+**#106 was confirmed independently and blind, and the fix landed while they measured.** Their
+tree predates `c0384de`, so "there is no cancel input" is correct for what they had and is now
+false. Worth keeping because the confirmation is what a blind round is for:
+
+    every key code the game reads, grepped    KeyW KeyA KeyS KeyD Space ShiftLeft ShiftRight KeyF
+    gameplay callers of mission.abort          2 — the wreck and the bust
+    player-facing strings matching
+      /abandon|cancel|quit|give up/            0 of 31
+    stationary mid-mission                     shakedown 300 s, marlin-street 560 s, still RUNNING
+    on foot, 777.9 m from the car, 240 s       still RUNNING
+
+**And their exit prices are TIGHTER than the ones #106 was decided on, in the direction that
+strengthens the decision.** `tools/abort-cost.mjs` used #96's 13.4 s median for the wreck; round
+11 measured the wreck from a committed mid-job state at **8.2 s** — nearest building 23 m, one
+impact at 15.9 m/s, health 1.000 -> 0.000, `propertyDamage`, 0 stars, 4 s hold, replacement at
+health 1.000 — against **41.6 s** to finish the job. Over 20 on-road sample points they wrecked
+at 16 of 20 within 90 s, p50 **6.0 s**. At 8.2 s rather than 13.4 s, EVERY geometry lever in
+abort-cost's table loses: the cheapest row was 4.2 s but the next three are 6.7, 7.9 and 8.0. So
+the key is the right lever by a wider margin than the commit claimed, and the table's own figures
+are understated against the shipped wreck.
+
+Their end-to-end session: decision -> new job running was **69.8 s via the wreck** against
+**122.5 s** by finishing first. And nothing persists — `MissionBoard.available()` filters on
+`outcome !== PASSED`, so an aborted job is indistinguishable from one never attempted.
+
+### #109 Two police cars stop 24 m away and nothing ever happens, 0.04 m from a road
+Round 11's finding 4, which they correctly flagged as the one they most wanted checked. At
+**(329.8, -92.2)**, stuck at every seed they tried: a unit `stopped` on 90-97% of frames and
+`held` on **0%**, closest approach **24.1 m** — INSIDE `reachRadius` 28. What the player reads
+over 120 s parked: two `enemy` blips at 24 m, **objective band `null` on 406 of 480 samples
+(85%)**, the note cycling SEEN -> REPORTED -> EVADING with `evade` 0.00, 0 busts, 2 stars at the
+end.
+
+**Their guess was `_footPathClear`, labelled as a guess, and it is right — but not as stated, and
+the difference is the whole mechanism.** Measured here:
+
+    the NETWORK's best approach to that point      0.04 m, walk CLEAR, arrestSeconds 4.0
+    seeds 0 and 11: the unit stops on edge 354    24.77 - 24.80 m, walk BLOCKED, held 0%
+    seed 2:         a unit reaches edge 761       22.95 m, walk CLEAR, held true, BUST at 16 s
+
+So the walk from the network's own best point is clear; the walk from the point the unit's
+greedy router actually hands it is not. **The seed decides which edge a unit drives, and that
+decides whether an arrest is possible at all.**
+
+**This is #108's residual, arriving INSIDE the reach rather than outside it.** #108 made the
+admission local — a unit stops where IT cannot get closer — and said in as many words that it did
+not make the ROUTER better: "the router reaches a minimising edge 319 of 516 clear spots 30-140 m
+off a road; it never does 197 of 516, 38%". Round 11's spot is **0.04 m from a road** and shows
+the same failure, which no one had looked for there, because #108's whole frame was "a player far
+off a road cannot be arrested".
+
+Per #89's own ceiling argument a blocked walk is NOT a defect — "a player with a building between
+them is not being held by anybody". What makes this one a defect is that a clear-walk position
+exists 0.04 m away and no unit ever drives to it.
+
+**The lever is `_chooseNext`, and it is not a small change.** It is a greedy descent on an
+option's FAR ENDPOINT distance; the quantity that would fix this is the option's closest APPROACH,
+which is what `bestApproach` and `_localBest` already compute. #89 records that those are
+different functions and that the minimising edge is "one no unit will ever drive". Changing the
+router perturbs the seeded stream — CLAUDE.md records that taking `traffic.js`'s building check
+from 0 of 215,960 car-frames to 342 — so it moves every number in `pursuit-test`, `arrest-band`
+and `boot-check`'s arrest arms. **Not taken at the end of a long session; recorded with the
+mechanism named and the measurement committed so the next round starts from here rather than from
+the symptom.**
+
+One instrument note worth more than the finding: my FIRST probe of this read `_footPathClear`
+clear on **1340 of 1340** spots, because it built `PursuitUnits` with no `clearAt` — and
+`_footPathClear` opens `if (!this.clearAt) return true`, so the reach is 28 m straight through
+walls. That is CLAUDE.md's `traffic-selftest` trap exactly, and the cheap proof is that the fix
+changed the reading: with the predicate both hosts wire, 366 of 1309 in-reach spots (**28.0%**)
+have a blocked walk, which reproduces this file's own recorded 27%.
+
+### #110 `ambush`'s authored timeout ending is 17x out of reach by standing still
+Round 11, three seeds, byte-identical: entering `ambush` hands the player 2 stars via
+`onEnter: { setWanted: 2 }` with no scene, so braking cannot cooperate — and parking is an
+**arrest after 14.0 s** against the stage's `timeLimit` of 240. So the authored
+"out of time -> `dropHot`" branch cannot be reached by stopping; it needs 240 s of driving, which
+is playing the mission rather than quitting it. Related to #101 (the 240 s clock has no
+representation) and to this file's own "a system that is never switched on is not a feature",
+arriving as a stage nothing reaches by the one route a player would try.
+
+### #111 Seeking an arrest does not work, because stopping is "cooperating"
+Round 11, measured. `SCENE_LEAVE_M` is 85 m and both `pedestrianHit` and `civilianCollision`
+carry `scene: true`, so stopping inside 85 m of your own scene latches `cooperated` and the bust
+then spares the job — the band says so verbatim: `BUSTED  a unit held you for 4 s — released in
+4 s (you stopped at the scene, so the job stands)`. Four park spots at 71 / 189 / 284 / 386 m from
+the body gave busts 1 / 0 / 1 / 0 with the job surviving every one. This is the rule working as
+designed; it is filed because it removes the arrest from the list of ways out, which is what #106
+was choosing between.
+
+And they reversed themselves on it, with both readings recorded: from the one spot their prefix
+stops at, 2 stars parked for 300 s never arrested, and they wrote "you cannot get arrested on
+purpose at 2 stars by parking". Their own 20-point x 3-seed sweep refutes it — **arrested at 17,
+19 and 19 of 20**, 8.8 to 51.5 s — and the spot they had was the exception. The isolation is the
+valuable part: traffic, crowd, the running mission, the yaw and teleport-vs-drive are all null;
+the **pursuit seed is decisive**, and the failure is bimodal (closest approach frozen at exactly
+36.4 m, not a spread), which is #109 again.
+
+### #112 Three host divergences the harness hides, found by round 11 reading both sources
+Each is a case where a number taken from `tools/playtest.mjs` is about a game the page is not
+running. CLAUDE.md already records the general form — "a gate that reproduces the host rather
+than reading it cannot see the host being wrong".
+
+- **`look().blips` overstates the page during a mission.** The harness lists `board.markers()`
+  unconditionally; the page calls `updateOfferMarkers(!!missionHud)` and draws none. Measured
+  mid-job: harness `["shakedown@43","garage@199","enemy@238","marlin-street@291"]` against page
+  `ringsVisible 0 of 2`. **Any legibility claim made from `look().blips` while a mission runs is
+  about a map the page is not drawing** — which is a caveat on several earlier rounds' findings.
+- **`missionBoard().offerLine` is stale during a mission.** `lastOfferLine` is assigned only
+  inside the `!missionHud && !wreckLine` branch, so with a mission running and the car **0.34 m**
+  from `marlin-street`'s pickup it still read `SHAKEDOWN / stop to start` — a job 332 m away. Not
+  player-visible (the band is `mission`), and a probe quoting it misreports which job the player
+  is standing in.
+- **The two offer gates differ on one case.** Page: `!missionHud && !wreckLine` with
+  `wreckLine = mode === 'car' ? wreckState : null`. Harness: `!this.mission.hud() &&
+  !this.damage.wrecked`. **On foot during the 4 s wreck hold the page runs the offer pass and the
+  harness does not**, so a pickup can fire on the page and cannot in node. Source-read, not played.
+
+### Round 11's own corrections, kept because they are the round's method working
+- They read "a mission is running" off `mission.mission` being non-null and reported an arm as
+  having started `marlin-street`. It had started it AND been arrested out of it 4.7 s later —
+  `MissionRunner` keeps the reference after the outcome changes. This file records the identical
+  error from `boot-check`'s own pickup arm; they found it themselves and re-ran everything.
+- `followPath`'s `maxSpeed` is m/s, so their `maxSpeed: 12` was 43 km/h through Main @ Pineapple
+  and picked up a star in 4 of 12 prefix builds. They flagged those strikes as their parameter
+  rather than the game's difficulty.
+- `_crime('pedestrianHit', 1)` is heat 2.00 and therefore 2 stars, where a real 29-40 km/h strike
+  charges one. Their "1 star" and "2 star" sweep rows were the same arm, and they noticed only
+  because the traces came back byte-identical.
+
+### What round 11 could not resolve
+Which column of `RESPONSE` makes 3 stars arrest where 2 does not at the same spot (the level moves
+`units`, `speedMul`, `spotRadius` and `giveUpRadius` together and a scenario cannot vary them
+independently); whether repeat wreck-cancels are penalised (their arm failed its own assertion —
+wrecks stayed at 1 across attempts 2-4 — so it measured nothing, and the page's `LOOP_R`/`LOOP_S`
+loop-breaker went unexercised); and the real 2-star clear-by-driving time, where their probe only
+tests `stars === 0` at route-leg boundaries so 95.2 s is an upper bound at one-leg resolution, and
+one seed's "45.8 s clear" was an ARREST clearing the meter rather than an escape.
+
 ### REFUTED — braking for traffic is not worse than ignoring it (B#11)
 Round 8 measured "flat out at 40 km/h ignoring traffic: 0 rams, 519 m; lifting off for any car
 within 25 m: 6 rams, 357 m". B ran it as a registered pair, 5 seeds, same route: ignore -> 1010 m,

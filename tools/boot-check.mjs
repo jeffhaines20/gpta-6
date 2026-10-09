@@ -453,6 +453,16 @@ if (state.global && state.frames > 2) {
       return { obj: h.elObjText ? h.elObjText.textContent : '',
         sub: h.elSub ? h.elSub.textContent : '' };
     };
+    /**
+     * PLANAR, BECAUSE THAT IS THE SIGNAL THE RULE READS, and this arm used to read `v.speed` —
+     * `velocity.length()`, which includes the vertical. It caught the host's own confusion about
+     * that on the run it was fixed: the arm reported "braked to 1.261 m/s" and FAILED its own
+     * "the brake did it" check on a frame where the pickup had CORRECTLY fired, because the
+     * planar speed was under 1.0 and 0.26 m/s of it was the suspension. The rule was right and
+     * the arm was quoting a different quantity. See `focusSpeedNow` in district/main.js for the
+     * measurement that bounds it (0.0000 m/s apart in ordinary driving, 1.82 after a teleport).
+     */
+    const planar = () => Math.hypot(v.velocity.x, v.velocity.z);
     d.setMode('car');
     d.clearWanted('boot-check');
     d.setBodyCollision(false);
@@ -467,7 +477,7 @@ if (state.global && state.frames > 2) {
     d.setAutopilot(() => v.setControls({ throttle: 0, brake: 1, steer: 0, handbrake: false }));
     v.velocity.set(0, 0, -board.stopMs * 2);
     await frame();
-    const moving = { ...read(), ...d.bandReport(), speed: v.speed,
+    const moving = { ...read(), ...d.bandReport(), speed: planar(),
       started: d.missionBoard().starts - starts0,
       offerLine: d.missionBoard().offerLine,
       refused: d.missionBoard().refusedMoving - refused0 };
@@ -476,7 +486,7 @@ if (state.global && state.frames > 2) {
       await frame();
       frames++;
     }
-    const stopped = { ...read(), ...d.bandReport(), speed: v.speed,
+    const stopped = { ...read(), ...d.bandReport(), speed: planar(),
       started: d.missionBoard().starts - starts0, running: d.missionReport().mission ?? null,
       outcome: d.missionReport().outcome, frames };
     d.setAutopilot(null);
@@ -1806,6 +1816,13 @@ if (state.global && state.frames > 2) {
      * the reason the wedged arm's own header gives: two bounds that are numerically coincident
      * are one coin toss.
      */
+    // ONE FRAME FIRST, UNCONDITIONALLY. `abortReport().offer` and the prompt panel's DOM are
+    // both written by the HUD block, once per rendered frame — so reading them before any frame
+    // has run with a mission LIVE returns the state from a frame where `abortOffer` correctly
+    // returned null. The first version read `offer: null` and `pv-on: false` with the text
+    // already correct, which is the signature of a read that beat its own writer, and "settled
+    // in 0 frames" is the line that said the settle loop had not supplied one.
+    await frame();
     let settle = 0;
     for (; settle < 40 && planar() >= d.missionBoard().stopMs; settle++) await frame();
     const settleWhy = planar() < d.missionBoard().stopMs ? 'stopped' : 'frame cap';
@@ -1815,7 +1832,10 @@ if (state.global && state.frames > 2) {
     await frame();
     const afterPress = { outcome: d.missionReport().outcome, ...d.abortReport(),
       band: (() => { const h = d.hud(); return h.elObjText ? h.elObjText.textContent : ''; })(),
-      sub: (() => { const h = d.hud(); return h.elSub ? h.elSub.textContent : ''; })() };
+      sub: (() => { const h = d.hud(); return h.elSub ? h.elSub.textContent : ''; })(),
+      // The `ended` tenant's OWN line. The screen is not it: `busted` and `wreck` outrank
+      // `ended`, and this arm is last in a file whose earlier arms leave four-second holds.
+      ended: d.bandReport().endedLine, bandFrom: d.bandReport().from };
     const cueGone = cue();
 
     // --- (b) moving: the same press is refused, and the counter says which branch took it.
@@ -1861,19 +1881,27 @@ if (state.global && state.frames > 2) {
     `health ${hand.carBefore.health.toFixed(3)}, wrecked ${hand.carBefore.wrecked}, `
     + `respawns ${hand.respawns0} -> ${hand.respawns1}`);
   check('a mission was actually running before the press, so both sides are not the same state',
-    hand.runningBefore === 'running' && hand.stopped.rep.offer != null,
-    `outcome ${hand.runningBefore}`);
+    hand.runningBefore === 'running', `outcome ${hand.runningBefore}`);
   // AND THE ARM IS NOT WANTED, because the stop it needs is the one that gets a wanted player
   // arrested — which is this feature's own stated consequence and would read here as the key
   // not working. `clearWanted` is called above; this says it took.
   check('and the arm is not wanted, so the stop it needs cannot be an arrest instead',
     hand.stars === 0, `${hand.stars}* heat ${hand.heat.toFixed(3)}`);
+  // THROUGH AN ACCESSOR, because `rep.offer` is null whenever no mission was live on the frame
+  // the report was written, and `hand.stopped.rep.offer.stopMs` THREW — killing the gate after
+  // two of its twelve checks had printed. CLAUDE.md records this as a detail string evaluated
+  // eagerly; it is the same defect in a condition, for the second time in this round.
+  const offerOf = (r) => (r && r.rep && r.rep.offer) || null;
+  const stopMsOf = (r) => (offerOf(r) ? offerOf(r).stopMs : null);
+  check('the composer\'s own offer reached the report, so these checks have a subject',
+    !!offerOf(hand.stopped) && !!offerOf(hand.moving),
+    `stopped ${JSON.stringify(offerOf(hand.stopped))}`);
   check('the car was genuinely stopped for arm (a) and genuinely moving for arm (b)',
-    hand.settleWhy === 'stopped'
-      && hand.stopped.speed < hand.stopped.rep.offer.stopMs
-      && hand.moving.speed >= hand.moving.rep.offer.stopMs,
+    hand.settleWhy === 'stopped' && stopMsOf(hand.stopped) != null
+      && hand.stopped.speed < stopMsOf(hand.stopped)
+      && hand.moving.speed >= stopMsOf(hand.moving),
     `${hand.stopped.speed.toFixed(2)} and ${hand.moving.speed.toFixed(2)} m/s `
-    + `against ${hand.stopped.rep.offer.stopMs}, settle ended on "${hand.settleWhy}"`);
+    + `against ${stopMsOf(hand.stopped)}, settle ended on "${hand.settleWhy}"`);
   check('the cue reaches the SCREEN, with the key in its own box',
     hand.stopped.cue.on === true && hand.stopped.cue.key === 'Q'
       && /GIVE UP/.test(hand.stopped.cue.text),
@@ -1886,15 +1914,24 @@ if (state.global && state.frames > 2) {
   // THE BAND SAYS WHY, which is the half REASON_TEXT exists for: an unmapped reason reads
   // byte-identically to a wreck. mission-test asserts the map carries the key; this asserts the
   // words reach the screen.
-  check('and the band says the player handed it back, not that the car is wrecked',
-    /ABORTED/.test(hand.afterPress.band) && /handed it back/.test(hand.afterPress.sub),
-    `"${hand.afterPress.band}" / "${hand.afterPress.sub}"`);
+  /**
+   * READ OFF THE `ended` TENANT, NOT THE SCREEN. The first version asserted the DOM and read
+   * "BUSTED / released in 4 s" after a successful abort with 0 stars and heat 0.000 — a correct
+   * screen for a page carrying an earlier arm's bust hold, saying nothing about this arm's
+   * subject. `busted` is the TOP of BAND_ORDER and this arm is last in a file full of arms that
+   * leave holds, so it cannot own the top; the tenant is the quantity it actually means.
+   */
+  check('and the mission-end line says the player handed it back, not that the car is wrecked',
+    hand.afterPress.ended && /ABORTED/.test(String(hand.afterPress.ended.objective))
+      && /handed it back/.test(String(hand.afterPress.ended.subtitle)),
+    `tenant ${JSON.stringify(hand.afterPress.ended)}; the screen said `
+    + `"${hand.afterPress.band}" / "${hand.afterPress.sub}" from "${hand.afterPress.bandFrom}"`);
   check('KNOWN-BAD: and the cue is gone once no mission is running, so it is not a stuck panel',
     hand.cueGone.on === false || !/GIVE UP/.test(hand.cueGone.text ?? ''),
     `panel on ${hand.cueGone.on}, "${hand.cueGone.text}"`);
   check('the cue names the requirement while the car is moving',
-    hand.moving.rep.offer.ready === false && /STOP/.test(hand.moving.cue.text),
-    `"${hand.moving.cue.text}", ready ${hand.moving.rep.offer.ready}`);
+    offerOf(hand.moving)?.ready === false && /STOP/.test(hand.moving.cue.text),
+    `"${hand.moving.cue.text}", ready ${offerOf(hand.moving)?.ready}`);
   check('and the same press is refused there', hand.afterMoving.outcome === 'running',
     `outcome ${hand.afterMoving.outcome}`);
   check('and the host counted the refusal, so the stop rule was applied rather than the press lost',
