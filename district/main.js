@@ -38,7 +38,7 @@ import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubS
   setGlassFinish, glassFinish, setPaintTintOnly, paintTintOnly } from '../src/carbody.js';
 import { HUD, composeBand, MINIMAP_ZOOM_M } from '../src/hud.js';
 import { MissionRunner, OUTCOMES, MissionBoard, OFFER_RADIUS_M,
-  composeOffer } from '../src/mission.js';
+  composeOffer, abortOffer, ABORT_KEY, ABORT_REASON } from '../src/mission.js';
 import { MISSIONS } from '../src/missions.js';
 import { WantedSystem, bindPursuit, CRIMES, VictimWindow, BUST_HOLD_S, SCENE_STOP_MS,
   composeWanted, composeLaw } from '../src/wanted.js';
@@ -459,6 +459,13 @@ let lastBandFrom = null;
  * precedence, and both are checked instead of one standing in for the other.
  */
 let lastOfferLine = null;
+/**
+ * #106's last composed abort offer, for tools/boot-check.mjs. Published for the reason
+ * `lastOfferLine` is: a gate asserting the CUE has to read the composer's own output rather
+ * than inferring it from the key being bound, and "the prompt panel shows something" cannot
+ * distinguish this cue from the enter-vehicle line that shares the slot.
+ */
+let lastAbortOffer = null;
 const MISSION_END_S = 6;
 
 /**
@@ -563,6 +570,11 @@ mission.on('finished', (e) => {
      */
     wrecked: 'the car is wrecked',
     busted: 'you were arrested',
+    // #106. The reason key is src/mission.js's ABORT_REASON, and tools/mission-test.mjs asserts
+    // this map carries it: an unmapped reason falls through to `null` and the band says only
+    // "MISSION ABORTED", which is what a wreck looked like before both aborts started passing a
+    // key. A silent fallback here is a player who cannot tell their own decision from a crash.
+    declined: 'you handed it back',
   };
   const said = REASON_TEXT[e.reason] ?? null;
   missionEnd = e.outcome === OUTCOMES.PASSED
@@ -804,6 +816,27 @@ const missionUnhonoured = new Set();
  * ... they will start firing the day a damage model feeds this field". This is that day.
  * report().constantFields is the instrument that would say if it stopped varying again.
  */
+/**
+ * THE PLANAR SPEED OF WHATEVER THE PLAYER IS MOVING AS: the car's own when driving, the
+ * person's when on foot.
+ *
+ * Hoisted into a function because a SECOND caller needed it. It was computed inline inside the
+ * offer block, which runs only when NO mission is running, and `abortOffer` needs the same
+ * quantity in exactly the opposite branch. Two copies of one quantity is the recurring shape of
+ * defect in this repo, and here the copies would have sat in mutually exclusive branches where
+ * no test could ever compare them.
+ *
+ * AND IT IS NOT `missionSnapshot().speed`, which is `mode === 'car' ? vehicle.speed : 0` — a
+ * deliberate constant on foot, for the reason that function's own header gives. Gating the abort
+ * on it would have made the prompt read READY for every frame a player spends on foot, sprinting
+ * included: src/mission.js's own "a field supplied as a constant" trap, arriving through the
+ * field that function warns about.
+ */
+function focusSpeedNow() {
+  return mode === 'foot'
+    ? Math.hypot(player.velocity.x, player.velocity.z) : vehicle.speed;
+}
+
 function missionSnapshot() {
   return {
     px: focusX, pz: focusZ,
@@ -1132,6 +1165,17 @@ const GARAGE_AT = { x: -67.9, z: 60.3 };
 const garage = new Garage({ x: GARAGE_AT.x, z: GARAGE_AT.z,
   radius: OFFER_RADIUS_M, holdS: BUST_HOLD_S, stopMs: SCENE_STOP_MS });
 const garageStats = { repairs: 0 };
+/**
+ * #106's counters, beside `garageStats` because they are the same kind of thing: the host's own
+ * tally of a rule whose logic lives in src/.
+ *
+ * `declineRefusedMoving` is per PRESS, not per frame — `input.hit` is edge-triggered — so it is
+ * an event counter and is named for what it counts, which CLAUDE.md asks for after
+ * `stats.runOvers` read 3,684 against 0 charged run-overs. A non-zero `declined` with a zero
+ * `declineRefusedMoving` over a session where the player tried it while driving would mean the
+ * stop rule is not being applied.
+ */
+const missionStats = { declined: 0, declineRefusedMoving: 0, declineBadSpeed: 0 };
 
 /**
  * EVERY PURSUIT FLEET GETS THE BLOCKER PREDICATE, FROM ONE PLACE.
@@ -1803,6 +1847,23 @@ function animate(now) {
   chase.handleMouse(input);
   enterCooldown = Math.max(0, enterCooldown - dt);
   if (input.hit('KeyF')) toggleVehicle();
+  /**
+   * HANDING THE JOB BACK. #106 — see src/mission.js's `abortOffer` for why this is a key and not
+   * a zone, which is a measurement (`tools/abort-cost.mjs`) rather than a preference.
+   *
+   * THE RULE IS NOT HERE. `abortOffer` owns "may it be handed back right now" and the HUD cue
+   * reads the same call, so the prompt cannot advertise a key that does nothing — a host rule is
+   * a rule no offline gate can reach, and this file already carries two features whose rules were
+   * moved into src/ for exactly that reason.
+   *
+   * `input.hit` is edge-triggered and cleared in `endFrame()` below, so one press is one abort
+   * however long the key is held.
+   */
+  if (input.hit(ABORT_KEY)) {
+    const can = abortOffer(mission, { speed: focusSpeedNow() }, { stopMs: SCENE_STOP_MS });
+    if (can && can.ready) { mission.abort(ABORT_REASON); missionStats.declined++; }
+    else if (can) missionStats.declineRefusedMoving++;
+  }
 
   if (!autopilot && mode === 'foot') {
     // On foot the vehicle idles on its springs rather than sinking.
@@ -2134,9 +2195,7 @@ function animate(now) {
      * computes the same quantity the same way, and `missionSnapshot()` here already does — this
      * reads it off the same two sources rather than a third.
      */
-    const focusSpeed = mode === 'foot'
-      ? Math.hypot(player.velocity.x, player.velocity.z) : vehicle.speed;
-    const hot = board.pickupAt(focus.x, focus.z, focusSpeed);
+    const hot = board.pickupAt(focus.x, focus.z, focusSpeedNow());
     if (hot) {
       board.starts++;
       missionUnhonoured.clear();
@@ -2209,6 +2268,22 @@ function animate(now) {
    * step; composing the words is a per-rendered-frame job like every other tenant's, so only the
    * composer is here and it reads the state the loop stored.
    */
+  /**
+   * ONE `abortOffer` CALL A FRAME, read by the cue above and by `missionReport` below. A second
+   * call would be a second answer the moment anything about it became stateful, and this file's
+   * standing defect is two copies of one rule.
+   */
+  const abortNow = abortOffer(mission, { speed: focusSpeedNow() }, { stopMs: SCENE_STOP_MS });
+  lastAbortOffer = abortNow;
+  /**
+   * AND THE FLATTERING FALLBACK IS COUNTED. `abortOffer` refuses rather than throwing on a
+   * non-finite speed, because a per-frame throw in the HUD path would end the session on one bad
+   * physics frame — see its header for the claim I made about that being free and the
+   * measurement that refuted it. The refusal is the flattering direction (the player keeps a job
+   * they asked to drop), so a counter is what makes it visible: `stats.bustNoWalk`'s shape, where
+   * a non-zero reading WAS the whole diagnosis.
+   */
+  if (abortNow && abortNow.badSpeed) missionStats.declineBadSpeed++;
   const garageLine = mode === 'car' && garageState
     ? composeGarage(garageState, { health: damage.health, wantedStars: wanted.stars,
       speed: vehicle.speed })
@@ -2243,7 +2318,20 @@ function animate(now) {
       vehicle: mode === 'car' ? vehicle : null,
       px: focus.x, pz: focus.z, heading,
       district: district.meta.city,
-      prompt: near ? 'PRESS F TO ENTER VEHICLE' : null,
+      /**
+       * TWO TENANTS IN ONE SLOT NOW, and the precedence is a decision. #106's abort cue is the
+       * second thing ever to use this panel.
+       *
+       * THE ENTER-VEHICLE PROMPT WINS, because on `shakedown`'s first stage getting into the car
+       * IS the objective — "GET IN THE CAR", which a blind playtester measured holding 720 of 720
+       * frames — so a cue offering to hand the job back instead would be arguing with the mission
+       * it belongs to. `near` is `mode === 'foot' && ...`, so in the car the two are disjoint by
+       * construction and this ternary only decides the on-foot case.
+       *
+       * The abort cue reads off the same `abortOffer` call the key press is gated on, so the
+       * prompt cannot advertise a key that does nothing.
+       */
+      prompt: near ? 'PRESS F TO ENTER VEHICLE' : (abortNow?.prompt ?? null),
       // src/hud.js already draws the five stars, already animates the escalation
       // flash and already exposes setWanted(); the meter was simply never fed.
       // It flashes while the level is DRAINING - contact lost, a star about to
@@ -2469,6 +2557,12 @@ window.__district = {
     // tenant has yielded to it. See `lastOfferLine`.
     offerLine: lastOfferLine,
     markers: board.markers() }),
+  /**
+   * #106. `offer` is the composer's own output and `stats` is what the host did with it, which
+   * are two statements: a cue that reads READY while no press ever lands is a broken wire, and
+   * a `declined` that climbs with no cue ever shown is the other half.
+   */
+  abortReport: () => ({ key: ABORT_KEY, offer: lastAbortOffer, ...missionStats }),
   /**
    * The audit. `constantFields` is the part worth reading: a numeric field that never
    * moved is a trigger that could not fire. It listed `health` for the whole of the

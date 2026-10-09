@@ -360,6 +360,8 @@ export class MissionRunner {
     // three rounds after the offline gate passed 51 checks without ever calling
     // report() on a fresh runner.
     this._range = new Map();
+    // Same reason, same lesson: `report()` reads this and a fresh runner is an ordinary state.
+    this._nonFinite = new Map();
   }
 
   on(event, fn) {
@@ -398,6 +400,8 @@ export class MissionRunner {
     // recurring complaint is levers that reach nothing; this is the same defect seen
     // from the mission's side, and report().fieldRange puts it in the audit.
     this._range = new Map();
+    /** Per-field count of frames a declared field arrived non-finite. See `update`. */
+    this._nonFinite = new Map();
     this._fireEnter(mission.stages[0]);
     return this.report();
   }
@@ -440,9 +444,31 @@ export class MissionRunner {
           + ' NaN fails every comparison silently and every distance trigger would never fire.');
       }
     }
+    /**
+     * AND THE NON-FINITE CHECK ABOVE IS FIRST-FRAME-ONLY, which the throw's own message says is
+     * not enough: "NaN fails every comparison silently and every distance trigger would never
+     * fire" is true of a NaN on frame 2 as much as on frame 1, and `_checkedSnapshot` means only
+     * frame 1 is looked at. Measured while writing #106's gate — `update(0.1, {...snap, speed:
+     * 5})` then the same snapshot with a NaN speed does not throw.
+     *
+     * COUNTED, NOT THROWN, and the two halves are different kinds of thing. A field MISSING from
+     * the snapshot is a wiring error: it cannot come and go, so checking it once is right and
+     * throwing is right. A field going non-finite is a PHYSICS value, so a throw on frame 2,000
+     * of a run is a page-killing throw in response to one bad frame — and it would be this
+     * module's own clamp-dt argument upside down, since the clamp exists precisely so one bad
+     * frame cannot be permanent damage.
+     *
+     * So this is a pure instrument and changes no behaviour: `report().nonFinite` names the
+     * fields and counts the frames, and a non-zero count is the diagnosis for a mission that
+     * dead-ended with every trigger reading false. Zero in a healthy run.
+     */
     for (const f of this.mission.needs ?? []) {
       const v = snap[f];
       if (typeof v !== 'number') continue;
+      if (!Number.isFinite(v)) {
+        this._nonFinite.set(f, (this._nonFinite.get(f) ?? 0) + 1);
+        continue;   // and it does not pollute the range, which would read min -Infinity for ever
+      }
       const r = this._range.get(f);
       if (!r) this._range.set(f, { min: v, max: v });
       else { if (v < r.min) r.min = v; if (v > r.max) r.max = v; }
@@ -677,6 +703,13 @@ export class MissionRunner {
       // equals its max never varied, so any trigger that needed it to cross a
       // threshold could not have fired. `constantFields` names them outright.
       fieldRange: Object.fromEntries([...this._range].map(([k, r]) => [k, [+r.min.toFixed(4), +r.max.toFixed(4)]])),
+      /**
+       * FRAMES ON WHICH A DECLARED FIELD ARRIVED NON-FINITE, per field. The first-frame throw
+       * covers frame 1 only; see `update`. A non-zero entry here is the diagnosis for a mission
+       * whose triggers all read false, and it is deliberately separate from `fieldRange` because
+       * a NaN excluded from the range would otherwise be invisible in both.
+       */
+      nonFinite: Object.fromEntries(this._nonFinite),
       constantFields: [...this._range].filter(([, r]) => r.min === r.max).map(([k]) => k).sort(),
     };
   }
@@ -909,5 +942,159 @@ export function composeOffer(offer, at = {}) {
     objective: title,
     subtitle: `${offer.mission.brief} — ${Number(offer.distance ?? 0).toFixed(0)} m`,
     ownSubtitle: true,
+  };
+}
+
+/**
+ * HANDING A JOB BACK: the key, the rule and the cue.
+ *
+ * #106. The three shipped exits from a mission were complete, wreck and arrest, and
+ * `MissionRunner.abort` was reachable only from `window.__district` — the same shape
+ * `startMission` had before #100, which a playtester called the finding that dwarfed its other
+ * eleven. So the cheapest way to decline a job was to destroy your own car, which #96 measures
+ * at a 13.4 s median: the optimal-play inversion this project has already removed once.
+ *
+ * ## WHY A KEY AND NOT A ZONE, which is a measurement and not a preference
+ *
+ * The backlog offered two levers and argued for the GEOMETRY one: re-enter the pickup to hand
+ * the job back, under the same stop rule, needing no new input. I added a third on the same kind
+ * of argument — the GARAGE, because `tools/mission-test.mjs` already gates it 24 m clear of
+ * every mission zone and `composeGarage`'s "stop here" is a cue precedent. `tools/abort-cost.mjs`
+ * priced all of them in one unit, by driving the shipped follower to each zone and stopping
+ * under `stopMs`, which is the rule a pickup already fires under:
+ *
+ *     position in the job   back to own pickup   to the garage   wreck the car
+ *     marlin-street  10%          8.0 s             13.3 s           13.4 s
+ *                    25%         18.8               24.0             13.4
+ *                    50%         16.6               22.3             13.4
+ *                    75%         31.6               26.4             13.4
+ *                   100%         43.1               37.9             13.4
+ *     shakedown      10%          6.7               18.6             13.4
+ *                    25%          7.9               17.3             13.4
+ *                    50%          4.2               26.9             13.4
+ *                    75%         10.3               32.7             13.4
+ *                   100%         16.7               37.9             13.4
+ *
+ * A geometry lever beats wrecking the car on 5 of 10 sampled positions and LOSES by up to
+ * 24.5 s. Wrecking it is reachable from anywhere, so a lever that loses to it does not remove
+ * the inversion it exists to remove — a player who wants out still drives into a wall. My own
+ * candidate was the worst of the three: the garage wins 1 of 10, by 0.1 s, which is noise.
+ *
+ * A key is 0 s from every position in that table. That is the price that decides it.
+ *
+ * ## THE DELIBERATE ACT IS THE ONE A PICKUP ALREADY ASKS FOR
+ *
+ * `pickupAt` requires the player stopped, and its header argues the stop IS the whole deliberate
+ * act for taking a job — a LEVEL, not a dwell, because taking a job takes no time. Handing one
+ * back is the same shape, so it takes the same threshold from the same place: the host's
+ * `stopMs`, which is `src/wanted.js`'s `SCENE_STOP_MS`. No new constant, and no held-to-confirm
+ * mechanism the HUD has no precedent for.
+ *
+ * It is a SAFETY property rather than ceremony, and it has a price. `KeyQ` sits one finger from
+ * the throttle, and the repo has no undo for an ended mission; requiring the stop makes an
+ * accidental abort at speed impossible. `abort-cost`'s selftest measures what the stop costs
+ * from the follower's own cruise: `(22 - 1) / 11.0` = 1.91 s derived against 1.85 s measured.
+ * So the lever is 1.9 s at worst against the wreck's 13.4, and 0 s from a car already stopped.
+ *
+ * One consequence, stated rather than discovered later: a player being chased cannot satisfy it
+ * without stopping, and stopping at a wanted level is how you get arrested. That is coherent —
+ * you may not quit a job to escape the police — and the arrest ends the mission anyway, so the
+ * exit exists in that case too. It is not a hole.
+ *
+ * ## THE CUE IS THE HUD'S OWN KEYED PROMPT, which already existed and was fed one string
+ *
+ * `src/hud.js` draws a `prompt` panel with an optional `key`, documented as
+ * `{key:'F', text:'ENTER VEHICLE'}` and used by the host for exactly one line. It is a SEPARATE
+ * band from the objective and the subtitle, so this cue competes with neither the mission's
+ * objective nor the stage's authored flavour line — which is what a band tenant would have done,
+ * and "a live scene takes the objective band and nothing below it can ever show" is a defect
+ * class this project has already removed once.
+ *
+ * ONE FUNCTION ANSWERS BOTH QUESTIONS, because two copies of one rule is how they disagree —
+ * the recurring shape of defect in this repo. `ready` is the predicate the wire acts on and
+ * `prompt` is the cue the player reads, and they come out of the same comparison.
+ */
+/**
+ * The host binds this; the cue names it. Both from one place, so a retune cannot leave the
+ * prompt advertising a key that does nothing — which is the "a new field that no gate feeds"
+ * shape, arriving as a label.
+ */
+export const ABORT_KEY = 'KeyQ';
+/** What the prompt panel prints in its key box. `KeyQ` is a KeyboardEvent.code, not a legend. */
+export const ABORT_KEY_LABEL = 'Q';
+/** The reason `abort()` is called with, so the end-of-mission band can say why it ended. */
+export const ABORT_REASON = 'declined';
+
+/**
+ * CAN THIS JOB BE HANDED BACK RIGHT NOW, and what should the prompt say.
+ *
+ * Null when there is no running mission — there is nothing to decline, and a prompt offering to
+ * decline nothing is worse than no prompt. Otherwise `{ ready, speed, stopMs, prompt }`, where
+ * `ready` is what the key press is gated on and `prompt` is the cue.
+ *
+ * THE MOVING BRANCH NAMES THE REQUIREMENT, following `composeGarage`'s "stop here" exactly: a
+ * level a player cannot see is only fair with a cue, and a cue that appears only once the
+ * condition is already met teaches nobody the condition. So a player driving a mission sees
+ * "Q — STOP TO GIVE IT UP" and a stopped one sees "Q — GIVE UP THE JOB".
+ *
+ * @param {object|null} runner  a MissionRunner, or null
+ * @param {{speed:number}} player  the planar speed in m/s, the same quantity `pickupAt` takes
+ * @param {{stopMs:number}} opts  the host's stop threshold; see pickupAt for why it is passed
+ */
+export function abortOffer(runner, player = {}, opts = {}) {
+  if (!runner || !runner.mission || runner.outcome !== OUTCOMES.RUNNING) return null;
+  /**
+   * A MISSING ARGUMENT THROWS AND A NON-FINITE SPEED DOES NOT, and the split is a derivation
+   * rather than a compromise. `pickupAt` in this module throws on both, and copying that was
+   * wrong here for a reason `tools/mission-test.mjs` caught on its first run.
+   *
+   * `pickupAt` is called from ONE branch of the host's frame; this is called every frame of
+   * every running mission, for the cue. So a throw here is a page-killing throw in a
+   * PRESENTATION path, and the thing that would reach it — a NaN out of the physics — is
+   * recorded in CLAUDE.md as something that actually happens (`Math.hypot(NaN, NaN) || 1`
+   * sailing past a guard; a non-finite delta-v).
+   *
+   * I FIRST JUSTIFIED THE THROW BY SAYING IT WAS FREE, and it is not: "MissionRunner.update
+   * already throws on a non-finite snapshot `speed`, so a NaN that kills the page here would
+   * already have killed it there". That check is behind `if (!this._checkedSnapshot)` — it runs
+   * on the FIRST frame only. A NaN arriving on frame 2 does not throw, measured. So the throw
+   * would have added a new way for one bad physics frame to end the session, and §14 of
+   * mission-test asserts the true statement instead of the one I assumed.
+   *
+   * THE SPLIT IS BY WHAT CAN BE TRANSIENT:
+   *
+   *   - `typeof speed !== 'number'` is a WIRING error. It cannot come and go, it is caught on
+   *     the first frame, and it is exactly `pickupAt`'s case. Throw.
+   *   - a number that is not finite is a PHYSICS value. Refuse the abort — `NaN < stopMs` is
+   *     false, so the player keeps a job they asked to drop, which is the flattering direction
+   *     and therefore the one nobody would notice — and SAY SO in the return, so the host can
+   *     count it. That is `stats.badScales` and `stats.bustNoWalk`'s shape: the flattering
+   *     fallback is taken and a counter makes it visible. A non-zero count is a wire or a
+   *     physics bug, and it reads 0 in a healthy session.
+   *   - `stopMs` throws whatever it is, because there is nothing transient about it and the
+   *     obvious default is INVISIBLE: 1.0 is exactly the `SCENE_STOP_MS` both shipped hosts
+   *     pass, so a host that forgot to wire it would behave identically and no gate anywhere
+   *     could tell. "A guard whose default is the permissive case", with the permissive case
+   *     being the CORRECT one — the shape that survives longest.
+   */
+  if (typeof player.speed !== 'number') {
+    throw new TypeError('abortOffer needs the player speed in m/s as a number; without it a'
+      + ' comparison against the stop threshold is false and the abort is silently refused');
+  }
+  if (!Number.isFinite(opts.stopMs)) {
+    throw new TypeError('abortOffer needs opts.stopMs, the host\'s stopped threshold in m/s —'
+      + ' the same one MissionBoard takes. A default of 1.0 would equal SCENE_STOP_MS and hide'
+      + ' an unwired host.');
+  }
+  const { stopMs } = opts;
+  const speed = player.speed;
+  const badSpeed = !Number.isFinite(speed);
+  const ready = !badSpeed && speed < stopMs;
+  return {
+    ready,
+    speed,
+    stopMs,
+    badSpeed,
+    prompt: { key: ABORT_KEY_LABEL, text: ready ? 'GIVE UP THE JOB' : 'STOP TO GIVE IT UP' },
   };
 }

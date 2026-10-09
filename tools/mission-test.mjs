@@ -19,7 +19,8 @@
 import { DamageModel } from '../src/damage.js';
 import { objectiveLine } from '../src/hud.js';
 import { MissionRunner, defineMission, OUTCOMES, TRIGGERS, snapshotFields,
-  MissionBoard, OFFER_RADIUS_M, composeOffer } from '../src/mission.js';
+  MissionBoard, OFFER_RADIUS_M, composeOffer,
+  abortOffer, ABORT_KEY, ABORT_KEY_LABEL, ABORT_REASON } from '../src/mission.js';
 // For the flee stage's cue: the word the wanted strip prints is read off the module that
 // prints it, not spelled a second time here. See section (c).
 // SCENE_STOP_MS for §13: the board's `stopMs` fallback must equal the constant the HOST feeds
@@ -1797,6 +1798,214 @@ console.log('\n=== 12. a stage with a clock and no destination shows the clock')
   check('report() publishes the threshold and the refusals',
     rep.stopMs === SCENE_STOP_MS && rep.refusedMoving === board.refusedMoving,
     `stopMs ${rep.stopMs}, refusedMoving ${rep.refusedMoving}`);
+}
+
+/**
+ * (14) HANDING A JOB BACK — #106.
+ *
+ * The lever was chosen by `tools/abort-cost.mjs`, which priced every alternative in seconds and
+ * refused both geometry candidates: a drive to a zone beats wrecking your own car on 5 of 10
+ * sampled positions and loses by up to 24.5 s, so it does not remove the inversion it exists to
+ * remove. This section is about the rule and the cue, not the choice.
+ */
+console.log('\n=== (14) handing a job back');
+{
+  const M = defineMission({
+    id: 'decline-rig', title: 'Decline Rig', brief: 'A job.',
+    start: { x: 0, z: 0, radius: 12 },
+    stages: [{ id: 'a', objective: 'GO', subtitle: 'anywhere',
+      triggers: [{ kind: 'reach', x: 300, z: 0, radius: 20, outcome: 'passed' }] }],
+  });
+  const STOP = { stopMs: SCENE_STOP_MS };
+
+  // THERE IS NOTHING TO DECLINE WHEN NOTHING IS RUNNING, and a prompt offering to decline
+  // nothing is worse than no prompt. Four ways of not running, because `outcome` outliving the
+  // mission reference is a trap this project has already paid for: boot-check read
+  // `missionReport().mission` as "a mission is running" and `MissionRunner` keeps that
+  // reference after the mission ends.
+  const fresh = new MissionRunner();
+  check('abortOffer is null before any mission has started', abortOffer(fresh, { speed: 0 }, STOP) === null);
+  check('and null for no runner at all', abortOffer(null, { speed: 0 }, STOP) === null);
+  const done = new MissionRunner();
+  done.start(M);
+  done.abort('whatever');
+  check('and null once the mission has ended, though the reference survives',
+    abortOffer(done, { speed: 0 }, STOP) === null && !!done.mission,
+    `outcome ${done.outcome}, mission ${done.mission?.id}`);
+
+  const run = new MissionRunner();
+  run.start(M);
+  const stopped = abortOffer(run, { speed: SCENE_STOP_MS - 0.01 }, STOP);
+  const moving = abortOffer(run, { speed: SCENE_STOP_MS + 0.01 }, STOP);
+  check('a running mission can be handed back while stopped', stopped.ready === true,
+    `${stopped.speed} m/s under ${stopped.stopMs}`);
+  check('and not while moving', moving.ready === false, `${moving.speed} m/s`);
+  // THE THRESHOLD IS THE PICKUP'S, from the module that derived it. A second copy of this
+  // number is the recurring defect here, and §13 already makes the same check for the board.
+  check('and the threshold is the one a pickup fires under',
+    stopped.stopMs === SCENE_STOP_MS && new MissionBoard([M], STOP).stopMs === stopped.stopMs,
+    `${stopped.stopMs} m/s`);
+  // AT the threshold is refused, not admitted: `speed < stopMs`, the same comparison
+  // `pickupAt` makes. A one-sided bound where the quantity can land exactly on the limit is
+  // this project's own recorded trap, so the boundary gets its own check.
+  check('exactly AT the threshold is not stopped', abortOffer(run, { speed: SCENE_STOP_MS }, STOP).ready === false,
+    `${SCENE_STOP_MS} m/s is moving, as it is for a pickup`);
+
+  /**
+   * THE CUE NAMES THE REQUIREMENT WHILE IT IS UNMET, which is `composeGarage`'s "stop here"
+   * precedent: a cue that appears only once the condition is met teaches nobody the condition.
+   *
+   * KNOWN-BAD and it is the mutation that matters — the same shape as §13's. A cue that printed
+   * the ready text unconditionally would say "Q — GIVE UP THE JOB" to a player doing 80 km/h,
+   * where the key does nothing. A prompt that advertises a key that does not work is worse than
+   * no prompt, for the reason §13 gives about a refusal reading as an arrival.
+   */
+  check('the cue names the KEY in both states', stopped.prompt.key === ABORT_KEY_LABEL
+    && moving.prompt.key === ABORT_KEY_LABEL, `"${stopped.prompt.key}"`);
+  check('and the two states say DIFFERENT things', stopped.prompt.text !== moving.prompt.text,
+    `stopped "${stopped.prompt.text}" / moving "${moving.prompt.text}"`);
+  check('KNOWN-BAD: the moving branch must not read as an instruction that works',
+    /\bSTOP\b/.test(moving.prompt.text) && !/\bSTOP\b/.test(stopped.prompt.text),
+    `"${moving.prompt.text}" against "${stopped.prompt.text}"`);
+
+  /**
+   * BOTH ARGUMENTS THROW, and the `stopMs` one is the half that matters. 1.0 is exactly the
+   * `SCENE_STOP_MS` both hosts pass, so a default would make an unwired host behave identically
+   * and no gate could tell — "a guard whose default is the permissive case" with the permissive
+   * case being the correct one, which is the shape that survives longest.
+   */
+  const threw = (fn) => { try { fn(); return false; } catch (e) { return e instanceof TypeError; } };
+  check('a missing speed throws rather than silently refusing',
+    threw(() => abortOffer(run, {}, STOP)));
+  check('a missing stopMs throws rather than defaulting to the value that would hide it',
+    threw(() => abortOffer(run, { speed: 0 })));
+  check('and a NaN stopMs throws', threw(() => abortOffer(run, { speed: 0 }, { stopMs: NaN })));
+  /**
+   * A NON-FINITE SPEED DOES NOT THROW, AND THAT IS THE CORRECTION THIS SECTION BOUGHT.
+   *
+   * The first version of these checks asserted `abortOffer` throws on a NaN speed, copying
+   * `pickupAt`, and justified it with "MissionRunner.update already throws on the same field,
+   * so a NaN that kills the page here would already have killed it there". THAT CLAIM IS FALSE
+   * and this check is the measurement: the runner's non-finite guard sits behind
+   * `if (!this._checkedSnapshot)` and runs on the FIRST frame only.
+   *
+   * So a per-frame throw would have added a new way for one bad physics frame to end the
+   * session, in a PRESENTATION path, for a value CLAUDE.md records as actually occurring. The
+   * flattering fallback plus a counter is the shape this project uses for exactly that —
+   * `stats.badScales`, `stats.bustNoWalk` — and `badSpeed` is that flag.
+   */
+  const nanSpeed = abortOffer(run, { speed: NaN }, STOP);
+  check('a NaN speed refuses the abort rather than throwing the page away',
+    nanSpeed !== null && nanSpeed.ready === false && nanSpeed.badSpeed === true,
+    `ready ${nanSpeed?.ready}, badSpeed ${nanSpeed?.badSpeed}`);
+  check('and a finite speed does not raise the flag', stopped.badSpeed === false
+    && moving.badSpeed === false);
+  /**
+   * ON `px`, NOT ON `speed`, and the first version of this got it wrong in a way worth keeping:
+   * the counter walks `mission.needs`, and the rig's only trigger is a `reach`, which needs
+   * `px`/`pz`. A NaN `speed` on this mission is read by no predicate and correctly counts
+   * nothing — so the field to break is one a trigger actually reads, which is also the only
+   * field class whose NaN makes a trigger silently false. The check crashed on
+   * `fieldRange.speed[0]` of an absent entry, which is this project's own "a check's DETAIL
+   * string is evaluated eagerly" arriving in a condition instead; every number below is read
+   * through an accessor for that reason.
+   */
+  const laterNaN = new MissionRunner();
+  laterNaN.start(M);
+  laterNaN.update(0.1, snap({ px: 5 }));
+  check('KNOWN-BAD: MissionRunner.update does NOT throw on a field going non-finite later',
+    !threw(() => laterNaN.update(0.1, snap({ px: NaN }))),
+    'so the throw abortOffer nearly copied would have been a NEW failure mode, not a free one');
+  /**
+   * AND THAT GAP IS NOW AN INSTRUMENT. The throw's own message says a NaN means "every distance
+   * trigger would never fire", which is as true on frame 2 as on frame 1 — so the frames are
+   * counted per field. A pure counter: no behaviour changes, and a throw on frame 2,000 would
+   * have been this module's own clamp-dt argument upside down.
+   */
+  const nf = laterNaN.report().nonFinite ?? {};
+  const rangeOf = (r, f) => (r.fieldRange ?? {})[f] ?? null;
+  check('the runner counts the frames a declared field arrived non-finite',
+    nf.px === 1, `nonFinite ${JSON.stringify(nf)}`);
+  check('and only for fields a trigger declares, which is the only class whose NaN hides',
+    !('carRange' in nf) && laterNaN.mission.needs.includes('px'),
+    `needs ${laterNaN.mission.needs.join(',')}`);
+  check('and a healthy run reports none', Object.keys(run.report().nonFinite).length === 0,
+    JSON.stringify(run.report().nonFinite));
+  check('and a fresh runner reports an empty map rather than throwing',
+    JSON.stringify(new MissionRunner().report().nonFinite) === '{}');
+  // AND THE NaN DOES NOT POLLUTE THE RANGE, which would read min -Infinity for ever and make
+  // `fieldRange` — the instrument for an inert trigger — useless on exactly the run that needs
+  // it. Measured against the finite frame that preceded it.
+  const pxRange = rangeOf(laterNaN.report(), 'px');
+  check('and a non-finite value is excluded from fieldRange rather than widening it',
+    !!pxRange && pxRange[0] === 5 && pxRange[1] === 5,
+    `px range ${JSON.stringify(pxRange)} after one frame at 5 and one at NaN`);
+
+  /**
+   * THE ABORT ITSELF, and the latch. A mission handed back while the player is standing in its
+   * own pickup must not restart on the next frame — `MissionBoard.latched` exists for exactly
+   * that, found by a live arm, and it is armed from the `finished` event. `abort()` emits that
+   * event, so this holds by construction rather than by a second rule; the check is that the
+   * construction is still what it says.
+   */
+  const live = new MissionRunner();
+  const board2 = new MissionBoard([M], STOP);
+  let finished = null;
+  live.on('finished', (e) => { finished = e; board2.record(M.id, e.outcome); board2.arm(M.id); });
+  live.start(M);
+  live.abort(ABORT_REASON);
+  check('abort() ends the mission as ABORTED, not FAILED', live.outcome === OUTCOMES.ABORTED,
+    `outcome ${live.outcome}`);
+  check('and the event carries the reason, so the band can say why it ended',
+    finished && finished.reason === ABORT_REASON, `reason "${finished?.reason}"`);
+  check('a handed-back job is latched, so standing on its marker does not restart it',
+    board2.pickupAt(0, 0, 0) === null && board2.latched.has(M.id));
+  check('and it comes back once the player leaves the ring',
+    (board2.refresh(500, 500), board2.pickupAt(0, 0, 0)?.mission?.id === M.id),
+    `latched ${[...board2.latched].length} after leaving`);
+  // A handed-back job is NOT passed, so the board still offers it. "Declined" must not delete
+  // content — a game that removes a mission on the player changing their mind has one fewer.
+  check('and the board still lists it as available', board2.available().some((m) => m.id === M.id),
+    `available ${board2.available().map((m) => m.id).join(',')}`);
+
+  /**
+   * THE HOST WIRE, read off district/main.js's source rather than reproduced here. Three things
+   * a gate that reproduces the host cannot see — CLAUDE.md records a host rule being wrong in
+   * exactly the quantity no gate was comparing, because the harness had it right.
+   */
+  const host = fs.readFileSync(new URL('../district/main.js', import.meta.url), 'utf8');
+  check('the host imports the rule rather than rewriting it',
+    /import \{[^}]*\babortOffer\b[^}]*\} from '\.\.\/src\/mission\.js'/s.test(host));
+  check('and binds the key from the module, not a literal',
+    host.includes('input.hit(ABORT_KEY)') && !/input\.hit\('KeyQ'\)/.test(host));
+  check('and passes the host\'s own stop threshold',
+    /abortOffer\(mission, \{ speed: focusSpeedNow\(\) \}, \{ stopMs: SCENE_STOP_MS \}\)/.test(host));
+  /**
+   * AND THE END-OF-MISSION BAND KNOWS THE REASON. An unmapped reason falls through to null and
+   * the band says only "MISSION ABORTED" — indistinguishable from a wreck, which is what both
+   * aborts looked like before they started passing a key. This is the "a new field that no gate
+   * feeds" check, arriving as a label.
+   */
+  const reasons = host.match(/const REASON_TEXT = \{[\s\S]*?\n  \};/);
+  check('the host\'s REASON_TEXT carries the abort reason',
+    !!reasons && new RegExp(`\\b${ABORT_REASON}:`).test(reasons[0]),
+    reasons ? `keys ${[...reasons[0].matchAll(/^\s{4}(\w+):/gm)].map((m) => m[1]).join(',')}` : 'REASON_TEXT not found');
+  /**
+   * AND THE KEY COLLIDES WITH NOTHING. Derived by reading every key the host and src/input.js
+   * bind, rather than by asserting a list typed here — a list would go stale the first time
+   * somebody adds a binding, which is how this project's prose counts have gone wrong before.
+   */
+  const inputSrc = fs.readFileSync(new URL('../src/input.js', import.meta.url), 'utf8');
+  const bound = new Set();
+  for (const m of host.matchAll(/input\.(?:hit|down)\('(\w+)'\)/g)) bound.add(m[1]);
+  for (const m of inputSrc.matchAll(/(?:down|hit)\('(\w+)'\)|'(Key\w+|Space|Tab|Shift\w*)'/g)) {
+    if (m[1]) bound.add(m[1]);
+    if (m[2]) bound.add(m[2]);
+  }
+  check('the abort key is bound by nothing else', !bound.has(ABORT_KEY),
+    `${ABORT_KEY} against ${[...bound].sort().join(' ')}`);
+  check('and the label is the legend, not the code', ABORT_KEY_LABEL === ABORT_KEY.replace(/^Key/, ''),
+    `${ABORT_KEY} -> "${ABORT_KEY_LABEL}"`);
 }
 
 console.log('\n=== CHECKS');

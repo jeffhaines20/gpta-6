@@ -2001,6 +2001,113 @@ const MUTATIONS = [
     to: 'const GARAGE_AT = { x: 19, z: -6 };',
     why: "the garage sits on marlin-street's pickup point, so its cue is never readable",
   },
+  // ---------------------------------------------------------------- #106, handing a job back
+  {
+    /**
+     * THE STOP RULE GOES, so the job can be dropped at 140 km/h. The abort key sits one finger
+     * from the throttle and nothing in this game undoes an ended mission, so the stop is a safety
+     * property rather than ceremony — and `abort-cost` prices it at 1.91 s from the follower's
+     * own cruise against the wreck exit's 13.4 s, which is what makes it affordable.
+     *
+     * BEHAVIOUR-PRESERVING FOR THE CUE, which is why it needs its own row: the prompt still
+     * appears and still says the right thing, because `prompt` is derived from `ready` and
+     * `ready` is simply true more often. Only an assertion about the THRESHOLD can see it.
+     */
+    id: 'abort-no-stop', file: 'src/mission.js',
+    find: '  const ready = !badSpeed && speed < stopMs;',
+    to: '  const ready = !badSpeed;',
+    why: 'a job can be handed back at any speed, so one stray keypress at 140 km/h ends it',
+  },
+  {
+    /**
+     * THE CUE STOPS NAMING THE REQUIREMENT. Both branches read "GIVE UP THE JOB", so a player
+     * doing 80 km/h is told to press a key that does nothing — and never learns why, because the
+     * one thing that would have told them is the branch this removes.
+     *
+     * This is `composeGarage`'s "stop here" precedent being deleted, and it is the same shape as
+     * the pickup's own worst case recorded in CLAUDE.md: a refusal that reads as a confirmation.
+     * The prompt is still THERE, so nothing counting prompts can see it.
+     */
+    id: 'abort-cue-flat', file: 'src/mission.js',
+    find: "text: ready ? 'GIVE UP THE JOB' : 'STOP TO GIVE IT UP'",
+    to: "text: 'GIVE UP THE JOB'",
+    why: 'the cue promises a key that does nothing while the car is moving, and never says why',
+  },
+  {
+    /**
+     * THE NON-FINITE REFUSAL BECOMES A NON-FINITE ADMISSION. `NaN < stopMs` is false, so the
+     * shipped build refuses; dropping the flag from the conjunction makes `ready` depend on the
+     * comparison alone and a NaN then... still refuses. So this row mutates the other side: the
+     * flag is inverted, and one bad physics frame hands the job back on its own.
+     *
+     * The counter is the half that matters. `badSpeed` is reported rather than thrown for the
+     * reason `abortOffer`'s header gives at length, and the host tallies it — so this row is
+     * really a test that the flag is load-bearing rather than decorative.
+     */
+    id: 'abort-badspeed-inverted', file: 'src/mission.js',
+    find: '  const ready = !badSpeed && speed < stopMs;',
+    to: '  const ready = badSpeed || speed < stopMs;',
+    why: 'one NaN frame hands the job back by itself, and the counter that would say so reads it as healthy',
+  },
+  {
+    /**
+     * THE RUNNER'S PER-FRAME NON-FINITE COUNTER GOES BACK TO BEING NOTHING.
+     *
+     * It is a pure instrument — no behaviour changes — so NOTHING end-to-end can see this, which
+     * is exactly why it needs a row. The gap it closes was found by #106's own gate: the throw
+     * above it sits behind `_checkedSnapshot` and runs on frame 1 only, so a field going
+     * non-finite later makes every distance trigger silently false for the rest of the run and
+     * the mission dead-ends with nothing in the console. The counter is the diagnosis.
+     */
+    id: 'mission-nonfinite-count', file: 'src/mission.js',
+    find: "        this._nonFinite.set(f, (this._nonFinite.get(f) ?? 0) + 1);",
+    to: "        /* counted nowhere */",
+    why: 'a field going NaN mid-run leaves no trace, and every trigger reads false for ever',
+  },
+  {
+    /**
+     * THE HOST'S WIRE, so only a gate that LOADS THE PAGE can see it. The key is read and the
+     * rule is consulted and the abort is simply never called: the cue still says "Q — GIVE UP
+     * THE JOB", pressing Q does nothing, and every offline check over `abortOffer` passes
+     * because the module is untouched. This is the shape #100's `startMission` had — a working
+     * feature with no door — arriving on the way out instead of the way in.
+     */
+    id: 'abort-wire-dead', file: 'district/main.js',
+    find: '    if (can && can.ready) { mission.abort(ABORT_REASON); missionStats.declined++; }',
+    to: '    if (can && can.ready) { missionStats.declined++; }',
+    why: 'the cue offers the key, the key is read, and the job is never handed back',
+    browser: true,
+  },
+  {
+    /**
+     * THE HOST GATES THE CUE ON THE SNAPSHOT'S SPEED INSTEAD OF THE PLAYER'S.
+     *
+     * `missionSnapshot().speed` is `mode === 'car' ? vehicle.speed : 0` — a deliberate constant
+     * on foot, for the reason that function's header gives. So this reads READY for every frame
+     * a player spends on foot, sprinting included, and the abort fires mid-stride. In the CAR it
+     * is byte-identical, which is what hides it: the only arm that can tell is one on foot.
+     */
+    id: 'abort-snapshot-speed', file: 'district/main.js',
+    find: '    const can = abortOffer(mission, { speed: focusSpeedNow() }, { stopMs: SCENE_STOP_MS });',
+    to: '    const can = abortOffer(mission, { speed: missionSnapshot().speed }, { stopMs: SCENE_STOP_MS });',
+    why: 'on foot the stop rule is satisfied at a sprint, because that field is a constant there',
+    browser: true,
+  },
+  {
+    /**
+     * THE END-OF-MISSION BAND FORGETS WHY IT ENDED. An unmapped reason falls through to `null`
+     * and the band reads "MISSION ABORTED / Marlin Street — the marker is back on the map",
+     * which is byte-identical to a wreck before both aborts started passing a key. A player
+     * cannot tell their own decision from a crash.
+     *
+     * Offline-visible, because mission-test reads the host's REASON_TEXT off the source — the
+     * "a new field that no gate feeds" check, arriving as a label.
+     */
+    id: 'abort-reason-unmapped', file: 'district/main.js',
+    find: "    declined: 'you handed it back',",
+    to: "    declinedX: 'you handed it back',",
+    why: 'handing a job back reads on screen exactly like wrecking the car',
+  },
 ];
 
 // --------------------------------------------------------------------------- mechanics
