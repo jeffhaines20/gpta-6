@@ -1729,6 +1729,165 @@ if (state.global && state.frames > 2) {
   });
 }
 
+
+// -------------------------------------------------------- handing a job back (#106)
+/**
+ * THE HOST WIRE FOR #106, which is the only part of it no offline gate can reach.
+ * `tools/mission-test.mjs` §14 owns the rule and the cue's two branches, in 32 checks against
+ * `abortOffer` directly; what is left here is three things that only exist on the page:
+ *
+ *   1. A REAL KEY PRESS reaches the abort. `input.hit` reads a `keydown` on the window, so the
+ *      arm dispatches a genuine KeyboardEvent rather than poking a flag — that is the whole
+ *      path, from the browser's event to the mission ending.
+ *   2. The cue reaches the SCREEN, not just the composer. `hud-cue`'s standing lesson is that
+ *      every other gate over src/hud.js tests pure functions, so a panel could stop drawing
+ *      entirely and the list would stay green. This reads the prompt panel's own DOM.
+ *   3. The refusal while moving is the HOST's branch, and `declineRefusedMoving` is the counter
+ *      that says the stop rule was applied rather than the press being lost.
+ *
+ * LAST IN THE FILE, because it starts and ends missions and writes the car's velocity, and
+ * CLAUDE.md's rule is that an arm which cannot avoid perturbing the page goes where there is
+ * nothing left to perturb. It still restores the page afterwards: "nothing runs after it" is a
+ * fact about today's file order and not a property of the arm.
+ *
+ * IT OWNS THE CAR'S WRECK STATE, for the reason the run-over arm above learnt the hard way: a
+ * wreck clock left ticking by an earlier arm is a 17.6 m teleport to `district.meta.spawn` that
+ * reports itself as the feature being broken. The wedged arm immediately above this one parks
+ * the car against a wall in reverse, so this is not hypothetical.
+ *
+ * AND IT DOES NOT DRIVE. The moving case needs only `speed >= stopMs`, so the arm writes
+ * `stopMs * 2` straight into the velocity and holds the brake through `setAutopilot` — the
+ * pickup arm's own trick, and 2 m/s is under src/damage.js's 2.2 m/s free-contact threshold, so
+ * nothing is charged and nothing is touched. How big the margin is belongs offline.
+ */
+{
+  const hand = await page.evaluate(async () => {
+    const d = __district;
+    const v = d.vehicle;
+    const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+    const press = (code) => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code, bubbles: true }));
+      window.dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true }));
+    };
+    // The prompt panel's own DOM, which is a different band from the objective and the subtitle.
+    const cue = () => {
+      const h = d.hud();
+      return { text: h.elPromptText ? h.elPromptText.textContent : null,
+        key: h.elKey ? h.elKey.textContent : null,
+        on: h.elPrompt ? h.elPrompt.classList.contains('pv-on') : null };
+    };
+    d.setMode('car');
+    d.clearWanted('boot-check');
+    d.setBodyCollision(false);
+    d.repairCar();
+    const carBefore = { health: d.damage.health, ...d.wreckReport() };
+    const at = d.missionBoard().markers.find((m) => m.id === 'shakedown')
+      ?? d.missionBoard().markers[0];
+    d.placeAt(at.x, at.z, 0);
+    d.setAutopilot(() => v.setControls({ throttle: 0, brake: 1, steer: 0, handbrake: false }));
+    const respawns0 = d.wreckReport().respawns;
+    const declined0 = d.abortReport().declined;
+    const refused0 = d.abortReport().declineRefusedMoving;
+
+    // --- (a) stopped: the cue offers the key, and the key ends the job.
+    d.startMission('shakedown');
+    await frame();
+    const runningBefore = d.missionReport().outcome;
+    const stopped = { ...cue(), ...d.abortReport(), speed: v.speed };
+    press(d.abortReport().key);
+    await frame();
+    const afterPress = { outcome: d.missionReport().outcome, ...d.abortReport(),
+      band: (() => { const h = d.hud(); return h.elObjText ? h.elObjText.textContent : ''; })(),
+      sub: (() => { const h = d.hud(); return h.elSub ? h.elSub.textContent : ''; })() };
+    const cueGone = cue();
+
+    // --- (b) moving: the same press is refused, and the counter says which branch took it.
+    // The board latches a handed-back job, so the mission is restarted directly rather than by
+    // re-entering the ring — this arm is about the abort, not about the pickup.
+    d.startMission('shakedown');
+    v.velocity.set(0, 0, -d.missionBoard().stopMs * 2);
+    await frame();
+    const moving = { ...cue(), ...d.abortReport(), speed: v.speed };
+    press(d.abortReport().key);
+    await frame();
+    const afterMoving = { outcome: d.missionReport().outcome, ...d.abortReport() };
+
+    // --- (c) and a key that is NOT the abort key does nothing, so the wire is not "any keydown".
+    press('KeyZ');
+    await frame();
+    const afterOther = { outcome: d.missionReport().outcome, ...d.abortReport() };
+
+    // Restore: the job handed back, the car still, the hook released.
+    d.abortMission('boot-check');
+    v.velocity.set(0, 0, 0);
+    d.setAutopilot(null);
+    await frame();
+    return { carBefore, respawns0, declined0, refused0, runningBefore,
+      stopped, afterPress, cueGone, moving, afterMoving, afterOther,
+      respawns1: d.wreckReport().respawns, health: d.damage.health };
+  });
+  console.log(`  stopped at ${hand.stopped.speed.toFixed(2)} m/s: prompt "${hand.stopped.key}" `
+    + `"${hand.stopped.text}" (on ${hand.stopped.on}), ready ${hand.stopped.offer?.ready}`);
+  console.log(`    pressed it: outcome ${hand.runningBefore} -> ${hand.afterPress.outcome}, `
+    + `declined ${hand.declined0} -> ${hand.afterPress.declined}`);
+  console.log(`    band now "${hand.afterPress.band}" / "${hand.afterPress.sub}"`);
+  console.log(`  moving at ${hand.moving.speed.toFixed(2)} m/s: prompt "${hand.moving.text}", `
+    + `ready ${hand.moving.offer?.ready}; pressed it: outcome ${hand.afterMoving.outcome}, `
+    + `refusedMoving ${hand.refused0} -> ${hand.afterMoving.declineRefusedMoving}`);
+  // THE RESPAWN CHECK IS FIRST, because when it fires it explains every other failure in the
+  // arm. See the run-over arm for the three frames that cost a round.
+  check('the abort arm was handed a repaired car with no wreck clock running',
+    hand.carBefore.health >= 1 && !hand.carBefore.wrecked && hand.respawns1 === hand.respawns0,
+    `health ${hand.carBefore.health.toFixed(3)}, wrecked ${hand.carBefore.wrecked}, `
+    + `respawns ${hand.respawns0} -> ${hand.respawns1}`);
+  check('a mission was actually running before the press, so both sides are not the same state',
+    hand.runningBefore === 'running' && hand.stopped.offer != null,
+    `outcome ${hand.runningBefore}`);
+  check('the car was genuinely stopped for arm (a) and genuinely moving for arm (b)',
+    hand.stopped.speed < hand.stopped.offer.stopMs && hand.moving.speed >= hand.moving.offer.stopMs,
+    `${hand.stopped.speed.toFixed(2)} and ${hand.moving.speed.toFixed(2)} m/s `
+    + `against ${hand.stopped.offer.stopMs}`);
+  check('the cue reaches the SCREEN, with the key in its own box',
+    hand.stopped.on === true && hand.stopped.key === 'Q' && /GIVE UP/.test(hand.stopped.text),
+    `"${hand.stopped.key}" "${hand.stopped.text}", panel on ${hand.stopped.on}`);
+  check('a real keydown hands the job back', hand.afterPress.outcome === 'aborted',
+    `outcome ${hand.runningBefore} -> ${hand.afterPress.outcome}`);
+  check('and the host counted it, so the press reached the wire rather than the band moving',
+    hand.afterPress.declined === hand.declined0 + 1,
+    `declined ${hand.declined0} -> ${hand.afterPress.declined}`);
+  // THE BAND SAYS WHY, which is the half REASON_TEXT exists for: an unmapped reason reads
+  // byte-identically to a wreck. mission-test asserts the map carries the key; this asserts the
+  // words reach the screen.
+  check('and the band says the player handed it back, not that the car is wrecked',
+    /ABORTED/.test(hand.afterPress.band) && /handed it back/.test(hand.afterPress.sub),
+    `"${hand.afterPress.band}" / "${hand.afterPress.sub}"`);
+  check('KNOWN-BAD: and the cue is gone once no mission is running, so it is not a stuck panel',
+    hand.cueGone.on === false || !/GIVE UP/.test(hand.cueGone.text ?? ''),
+    `panel on ${hand.cueGone.on}, "${hand.cueGone.text}"`);
+  check('the cue names the requirement while the car is moving',
+    hand.moving.offer.ready === false && /STOP/.test(hand.moving.text),
+    `"${hand.moving.text}", ready ${hand.moving.offer.ready}`);
+  check('and the same press is refused there', hand.afterMoving.outcome === 'running',
+    `outcome ${hand.afterMoving.outcome}`);
+  check('and the host counted the refusal, so the stop rule was applied rather than the press lost',
+    hand.afterMoving.declineRefusedMoving === hand.refused0 + 1
+      && hand.afterMoving.declined === hand.declined0 + 1,
+    `refusedMoving ${hand.refused0} -> ${hand.afterMoving.declineRefusedMoving}, `
+    + `declined still ${hand.afterMoving.declined}`);
+  check('KNOWN-BAD: a different key does nothing at all, so the wire is not "any keydown"',
+    hand.afterOther.outcome === 'running'
+      && hand.afterOther.declined === hand.afterMoving.declined
+      && hand.afterOther.declineRefusedMoving === hand.afterMoving.declineRefusedMoving,
+    `outcome ${hand.afterOther.outcome}, declined ${hand.afterOther.declined}, `
+    + `refused ${hand.afterOther.declineRefusedMoving}`);
+  // AND THE ARM LEFT THE PAGE ALONE, rather than hoping. A non-finite speed would have been
+  // counted, and a count above zero is a wire that has come loose or a NaN in the physics.
+  check('the arm charged nothing and the speed stayed finite throughout',
+    hand.health >= 1 && hand.afterOther.declineBadSpeed === 0,
+    `health ${hand.health.toFixed(3)}, badSpeed ${hand.afterOther.declineBadSpeed}`);
+}
+
+
 await browser.close();
 console.log(`\nBOOT: ${fail ? `FAIL — ${fail} of ${pass + fail}` : `PASS — ${pass} checks`} ` +
   `in ${((Date.now() - t0) / 1000).toFixed(0)} s`);
