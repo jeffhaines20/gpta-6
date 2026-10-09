@@ -3485,3 +3485,114 @@ result, and it stops the next person spending a day on it.
 Write what you measured, including what did not work and what you got wrong on
 the way. Several of the most useful comments in this codebase are records of a
 wrong turn — they are what stops the next person taking it.
+
+## An argument against a lever is not a price, and both of #106's candidates lost to the defect
+
+#106 offered two ways to let a player hand a mission back and argued for one of them in prose:
+"where you took it is not somewhere a player who wants out is standing". I added a third on the
+same kind of argument — the GARAGE, because `mission-test` already gates it 24 m clear of every
+mission zone and `composeGarage`'s "stop here" is the cue precedent the entry said the HUD lacked.
+`tools/abort-cost.mjs` priced all of them in one unit, by DRIVING the shipped follower on the
+shipped vehicle to each zone and stopping under `SCENE_STOP_MS`, which is the rule a pickup
+already fires under — so the price includes the braking the player actually has to do:
+
+    position in the job   back to own pickup   to the garage   wreck the car
+    marlin-street  10%          8.0 s              13.3 s          13.4 s
+                   50%         16.6                22.3            13.4
+                  100%         43.1                37.9            13.4
+    shakedown      10%          6.7                18.6            13.4
+                   50%          4.2                26.9            13.4
+                  100%         16.7                37.9            13.4
+
+**A geometry lever is cheaper than wrecking your own car on 5 of 10 sampled positions and loses by
+up to 24.5 s.** The wreck costs 13.4 s and is reachable from anywhere, so a lever that loses to it
+does not remove the inversion it exists to remove. My own candidate was the worst of the three —
+the garage wins 1 of 10, by 0.1 s, which is noise. A key is 0 s everywhere, and that is what chose
+it.
+
+**And the mechanism the entry said did not exist was already in the file.** It wrote "the HUD has
+no precedent for a held-to-confirm input", which is true and was the wrong thing to look for:
+`src/hud.js` has drawn a keyed `prompt` panel since it was written, documented as
+`{key:'F', text:'ENTER VEHICLE'}`, fed exactly one string by the host. It is a SEPARATE band from
+the objective and the subtitle, so the cue competes with neither the mission's objective nor the
+stage's authored line — which a band tenant would have done, and "a live scene takes the objective
+band" is a defect class this project has already removed. **Before deciding a feature needs a new
+mechanism, grep the module for the one you are about to build.**
+
+Two method notes, because the instrument was wrong twice before it was right:
+
+- **"A real drive cannot beat a best-case one" is not a floor until you check it.** The first
+  version integrated `pathSpeedLimit` in closed form and claimed exactly that. Against the shipped
+  follower over the same eight routes it reads ABOVE a real drive on four of them and by up to 35%
+  (x0.74, x0.86, x0.94, x0.95 against x1.02, x1.07, x1.12, x1.28). It is not a floor in either
+  direction, it is a DIFFERENT QUANTITY — it accelerates from rest at `RESPONSE.accel` and caps at
+  110 km/h where `followPath` caps at 22 m/s. The fix was to stop having two instruments: the
+  follower and the vehicle are the game's own, so drive.
+- **And its verdict could not fail.** It seeded the worst ratio at `Infinity` and printed "FLOOR
+  HOLDS" when NOTHING ARRIVED — eight routes, eight timeouts at the cap, a reassuring answer on
+  zero data. That is this file's "a check whose two sides are both zero is not a check" and
+  `car-pixel`'s vanishing worst-slot check in one, and the fix is the same: count the arrivals and
+  refuse a verdict without them.
+- **A selftest's NAME can catch its own bound.** The braking check read "within the measured
+  0.2 - 0.7 s band" while its bound said 2.0 and its measurement said 1.85 — the bound had been
+  widened and the name left behind. The 0.2 s it named is `src/wanted.js`'s figure for how long a
+  driver spends UNDER 1.0 m/s, which is not how long it takes to GET under it: this file's "quote
+  the signal the code reads", arriving inside a check about braking. Derived off the car's own
+  curve it is `(22 - 1) / 11.0` = 1.91 s against 1.85 measured.
+
+### A guard justified as free, where the thing it leaned on runs once
+
+Writing #106's rule I copied `pickupAt`'s discipline and made a non-finite speed THROW, with a
+justification written into the comment: "`MissionRunner.update` already throws on a non-finite
+snapshot `speed`, so a NaN that kills the page here would already have killed it there."
+
+**The claim is false and the gate caught it on its first run.** That check sits behind
+`if (!this._checkedSnapshot)` and runs on the FIRST FRAME ONLY. Measured: one `update` with
+`speed: 5`, then the same snapshot with `speed: NaN`, does not throw. So the throw would have
+added a new way for one bad physics frame to end the session — in a PRESENTATION path called every
+frame of every running mission, for a value this file records as actually occurring
+(`Math.hypot(NaN, NaN) || 1` sailing past a guard).
+
+The split that holds is **by what can be TRANSIENT**, and it is worth keeping as a shape:
+
+- a non-NUMBER argument is a WIRING error. It cannot come and go, it is caught on the first frame,
+  and it is `pickupAt`'s case exactly. Throw.
+- a number that is not finite is a PHYSICS value. Take the flattering fallback — here the abort is
+  refused, so the player keeps a job they asked to drop — and SAY SO in the return so the host can
+  count it. `stats.badScales` and `stats.bustNoWalk` are that shape, and `bustNoWalk` read 1 and
+  was the whole diagnosis.
+- a threshold like `stopMs` throws whatever it is, because nothing about it is transient and the
+  obvious default is INVISIBLE: 1.0 is exactly the `SCENE_STOP_MS` both hosts pass, so an unwired
+  host would behave identically and no gate anywhere could tell. "A guard whose default is the
+  permissive case" with the permissive case being the CORRECT one, which is the shape that
+  survives longest.
+
+**And the gap the false claim exposed is now an instrument.** The throw's own message says a NaN
+means "every distance trigger would never fire", which is as true on frame 2,000 as on frame 1 —
+so `update` counts, per field, the frames a declared field arrived non-finite, and
+`report().nonFinite` publishes it. A pure counter: no behaviour changes, because a throw on frame
+2,000 would be this module's own clamp-dt argument upside down. A non-zero entry is the diagnosis
+for a mission that dead-ended with every trigger reading false. The NaN is excluded from
+`fieldRange` too, which would otherwise read min `-Infinity` for ever on exactly the run that
+needs it.
+
+**The counter only covers fields a TRIGGER declares, and the first version of its check broke the
+wrong one.** It set `speed: NaN` on a rig whose only trigger is a `reach`, which needs `px`/`pz` —
+so the counter correctly saw nothing, and the check crashed reading `fieldRange.speed[0]` of an
+absent entry. That is this file's "a check's DETAIL string is evaluated eagerly" arriving in a
+CONDITION instead, and the lesson is the same: read every number through an accessor. It is also
+the right design, stated: a NaN in a field no predicate reads hides nothing.
+
+### The verdict block is not the end of a gate file, and this time it ate 158 lines
+
+This file already records the text-position version of `mission-test`'s snapshot defect — an arm
+appended after the summary, "where its checks would have printed below `BOOT: PASS`". Appending
+#106's arm to `tools/boot-check.mjs` was worse: `boot-check` ends with
+`process.exit(fail ? 1 : 0)`, so **158 lines and twelve checks became unreachable code** and the
+gate would have reported PASS at its previous count with nothing missing from its output.
+
+`mission-test`'s version printed FAIL lines under its own PASS. This one prints nothing at all,
+which is strictly harder to notice: the only evidence is a check COUNT that did not go up, and a
+count is exactly what nobody reads. `grep -n 'process.exit' <gate>` before appending answers it in
+one command, and the general rule stands restated — **the last ARM is the end of a gate file, not
+the verdict.**

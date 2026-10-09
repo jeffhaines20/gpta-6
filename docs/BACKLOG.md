@@ -771,9 +771,8 @@ All four mutation rows caught, run one at a time on a clean tree:
     offer-cue             caught by  mission-test playtest
     pickup-stopms-copy    caught by  mission-test              invisible to every behavioural arm
 
-**The remaining half is the one the entry's second paragraph names, and it is still open.** See
-#106: a mission you have taken cannot be handed back. The stop rule makes TAKING one deliberate, so
-nobody is conscripted any more, and the cost of a job you took and no longer want is unchanged.
+**The remaining half is FIXED too.** See #106 below: Q while stopped hands the job back, and the
+lever was chosen by pricing every alternative in seconds rather than by argument.
 
 ### #101 `ambush`'s 240 s clock has no representation, and expires into a stage nothing reached (A#4)
 `secondsLeft` is 237.933 at entry. Over 237.9 s of running it down the band showed two line
@@ -1096,41 +1095,126 @@ later: **vacuous 6 of 6, the body has got up.** The one route that works is kill
 window is 20 s, so **a survivor can never be charged twice** and the only chargeable body is a
 fatality needing ~68 km/h.
 
-### #106 A mission you have taken cannot be handed back (#100's second half)
-Split out of #100 because the half that shipped a fix and the half that did not are different
-decisions. The conscription is gone — a pickup now needs the player stopped, measured at 0 starts
-over the 454 m trip that used to take the job 13.8 s in — so what is left is a player who stopped
-on a marker, took a job, and changed their mind.
+### #106 FIXED — Q while stopped hands the job back, and the lever was chosen by a price
+Shipped in `c0384de`, with the probe that decided it in `4bd428c` and the host arm in `97fcabe`.
 
-A measured it at HEAD and nothing about it has moved: 300 s parked mid-mission leaves `outcome
-running`, and **no `look()` field matches /abort|decline|cancel|abandon/**. The three exits are
-complete, wreck and arrest, and `district/main.js`'s `abortMission` hook is reachable only from a
-browser console — the same shape as `startMission` before #100's round, which a playtester called
-the finding that dwarfed its other eleven.
+**The entry's two candidate levers were ARGUMENTS, and both lose to the defect they were meant to
+fix.** `tools/abort-cost.mjs` prices every way out in one unit, by driving the shipped follower on
+the shipped vehicle to each zone and stopping under `SCENE_STOP_MS` — which is the rule a pickup
+already fires under, so the price includes the braking the player actually has to do:
 
-So the cheapest way to decline a job is to **destroy your own car**, which #96 measures at a 13.4 s
-median. That is the optimal-play inversion this project has already removed once, arriving through a
-new door.
+    position in the job   back to own pickup   to the garage   wreck the car
+    marlin-street  10%          8.0 s              13.3 s          13.4 s
+                   25%         18.8                24.0            13.4
+                   50%         16.6                22.3            13.4
+                   75%         31.6                26.4            13.4
+                  100%         43.1                37.9            13.4
+    shakedown      10%          6.7                18.6            13.4
+                   25%          7.9                17.3            13.4
+                   50%          4.2                26.9            13.4
+                   75%         10.3                32.7            13.4
+                  100%         16.7                37.9            13.4
 
-**Two candidate levers, neither taken, and the reason is that neither is derived yet:**
+A geometry lever is cheaper than wrecking your own car on **5 of 10 sampled positions** and loses
+by up to **24.5 s**. The wreck is reachable from anywhere, so a lever that loses to it does not
+remove the inversion it exists to remove — a player who wants out still drives into a wall. **And
+the third candidate was mine, added on the same kind of argument as the entry's** (the garage,
+because `mission-test` already gates it 24 m clear of every mission zone and `composeGarage`'s
+"stop here" is a cue precedent): it is the worst of the three at **1 of 10, by 0.1 s**.
 
-- **A key.** `src/input.js` exists and `abortMission` is already written, so this is a wire rather
-  than a feature. What it needs is a decision about which key and a cue, and the HUD has no
-  precedent for a held-to-confirm input.
-- **Re-enter the pickup to hand it back**, under the same stop rule, which needs no new input and no
-  new geometry. Checked for collisions, off the mission definitions: the closest any stage trigger
-  comes to its OWN pickup is `shakedown/b` at **72.5 m with a 24 m radius** — clear of a 12 m
-  pickup ring by 36.5 m — and the next closest is 162.5 m, so no stage could satisfy itself on an
-  abort zone. `shakedown`'s leg from `b` to `c` passes 58.6 m from its pickup in a straight line,
-  and the latch the board already has would stop a handed-back job restarting on the next frame. It
-  reads well as fiction too. What stops it being obvious is that it gives `marlin-street` an abort
-  zone 500 m from its own delivery point and `shakedown` one at the start of a 400 m walk, so
-  "where you took it" is not somewhere a player who wants out is standing.
+So the key, at 0 s from every position in that table. `src/mission.js`'s `abortOffer` owns both
+"may it be handed back right now" and the cue, from one comparison, so the prompt cannot advertise
+a key that does nothing.
 
-Worth one playtest question before either: **is being unable to decline actually felt as a trap
-once nobody is conscripted into it?** The finding was reported as a consequence of the
-conscription, not on its own, and this file already records a round that measured a saturation's
-cost before fixing it and found the player could not tell.
+**The deliberate act is the pickup's own and needed no new constant:** the car stopped, under
+`src/wanted.js`'s `SCENE_STOP_MS`, passed by the host exactly as `MissionBoard` and the garage
+already take it. It is a safety property with a measured price — `KeyQ` is one finger from the
+throttle and nothing undoes an ended mission — and `abort-cost`'s selftest puts the stop at
+`(22 - 1) / 11.0` = 1.91 s derived against 1.85 s measured, against the wreck's 13.4 and 0 s from
+a car already stopped.
+
+**The cue needed no new HUD mechanism either.** `src/hud.js` has drawn a keyed `prompt` panel
+since it was written and was fed exactly one string (`PRESS F TO ENTER VEHICLE`). It is a separate
+band from the objective and the subtitle, so the cue competes with neither the mission's objective
+nor the stage's authored line — which a band tenant would have done, and "a live scene takes the
+objective band" is a defect class already removed here. The entry's "the HUD has no precedent for
+a held-to-confirm input" was true and the wrong thing to look for.
+
+**Two things the entry said that the round did not need, and one it asked for that still stands.**
+The geometry argument ("where you took it is not somewhere a player who wants out is standing")
+turned out to be true for a sharper reason than taste, and the held-to-confirm problem dissolved.
+The playtest question — **is being unable to decline actually felt as a trap?** — is still the
+right question and is NOT answered by this; it is round 11's, running against an isolated tree at
+`c4cdac8`. The fix stands on the inversion being arithmetic rather than on the trap being felt.
+
+**One consequence stated rather than discovered later:** a player being chased cannot satisfy the
+stop rule without being arrested. That is coherent — you may not quit a job to escape the police —
+and the arrest ends the mission anyway, so the exit exists in that case too.
+
+Gates: `mission-test` 162 -> 194 (§14), `boot-check` +12 (a real `KeyboardEvent`, the prompt
+panel's own DOM, and the host's two counters), `mutation-sweep` +7 rows, two marked `browser`.
+
+#### And it found a second defect in the module, three lines from the rule
+**My own justification for a guard was false and §14 caught it on its first run.** I copied
+`pickupAt` and made a non-finite speed throw, reasoning it was free: "`MissionRunner.update`
+already throws on a non-finite snapshot `speed`, so a NaN that kills the page here would already
+have killed it there." That check sits behind `if (!this._checkedSnapshot)` and runs on the
+**first frame only** — measured, one frame at 5 then the same snapshot with a NaN does not throw.
+So the throw would have added a new way for one bad physics frame to end the session, in a
+presentation path called every frame, for a value CLAUDE.md records as actually occurring.
+
+The split that holds is **by what can be transient**: a non-NUMBER speed is a wiring error, caught
+on frame 1, so it throws; a number that is not finite is a physics value, so the abort is refused
+(the flattering direction) and `badSpeed` says so, with the host counting it — `stats.badScales`
+and `stats.bustNoWalk`'s shape. `stopMs` throws whatever it is, because 1.0 is exactly the
+`SCENE_STOP_MS` both hosts pass and a default would make an unwired host behave identically.
+
+**And the gap it exposed is now an instrument.** The throw's own message says a NaN means "every
+distance trigger would never fire", which is as true on frame 2,000 as on frame 1. `update` now
+counts, per field, the frames a declared field arrived non-finite, and `report().nonFinite`
+publishes it — a pure counter, no behaviour change, because a throw on frame 2,000 would be this
+module's own clamp-dt argument upside down. A non-zero entry is the diagnosis for a mission that
+dead-ended with every trigger false. The NaN is also excluded from `fieldRange`, which would
+otherwise read min `-Infinity` for ever on exactly the run that needs it.
+
+#### THE ORIGINAL ENTRY, kept verbatim, with its recommendation marked
+Its diagnosis was exact. Its two levers were both refused by measurement, and the lever it did
+not consider (the HUD's existing keyed prompt panel) was sitting in `src/hud.js` the whole time.
+
+> Split out of #100 because the half that shipped a fix and the half that did not are different
+> decisions. The conscription is gone — a pickup now needs the player stopped, measured at 0 starts
+> over the 454 m trip that used to take the job 13.8 s in — so what is left is a player who stopped
+> on a marker, took a job, and changed their mind.
+>
+> A measured it at HEAD and nothing about it has moved: 300 s parked mid-mission leaves `outcome
+> running`, and **no `look()` field matches /abort|decline|cancel|abandon/**. The three exits are
+> complete, wreck and arrest, and `district/main.js`'s `abortMission` hook is reachable only from a
+> browser console — the same shape as `startMission` before #100's round, which a playtester called
+> the finding that dwarfed its other eleven.
+>
+> So the cheapest way to decline a job is to **destroy your own car**, which #96 measures at a 13.4 s
+> median. That is the optimal-play inversion this project has already removed once, arriving through a
+> new door.
+>
+> **Two candidate levers, neither taken, and the reason is that neither is derived yet:**
+>
+> - **A key.** `src/input.js` exists and `abortMission` is already written, so this is a wire rather
+>   than a feature. What it needs is a decision about which key and a cue, and the HUD has no
+>   precedent for a held-to-confirm input.
+> - **Re-enter the pickup to hand it back**, under the same stop rule, which needs no new input and no
+>   new geometry. Checked for collisions, off the mission definitions: the closest any stage trigger
+>   comes to its OWN pickup is `shakedown/b` at **72.5 m with a 24 m radius** — clear of a 12 m
+>   pickup ring by 36.5 m — and the next closest is 162.5 m, so no stage could satisfy itself on an
+>   abort zone. `shakedown`'s leg from `b` to `c` passes 58.6 m from its pickup in a straight line,
+>   and the latch the board already has would stop a handed-back job restarting on the next frame. It
+>   reads well as fiction too. What stops it being obvious is that it gives `marlin-street` an abort
+>   zone 500 m from its own delivery point and `shakedown` one at the start of a 400 m walk, so
+>   "where you took it" is not somewhere a player who wants out is standing.
+>
+> Worth one playtest question before either: **is being unable to decline actually felt as a trap
+> once nobody is conscripted into it?** The finding was reported as a consequence of the
+> conscription, not on its own, and this file already records a round that measured a saturation's
+> cost before fixing it and found the player could not tell.
 
 ### REFUTED — braking for traffic is not worse than ignoring it (B#11)
 Round 8 measured "flat out at 40 km/h ignoring traffic: 0 rams, 519 m; lifting off for any car
