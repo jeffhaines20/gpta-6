@@ -554,6 +554,46 @@ Not fixed here because the cost is a DESIGN choice, not a derivation: there is n
 the only currencies are time and wanted level. Recorded with both tables so the next round picks a
 number against them rather than inventing one.
 
+**SHARPENED BY ROUND 11, in the damning direction: the wreck is 8.2 s, not 13.4.** Measured from a
+committed mid-job state — nearest building 23 m, one impact at 15.9 m/s, health 1.000 -> 0.000,
+`propertyDamage`, **0 stars**, 4 s hold, replacement on a road 20 m away at health 1.000 — and
+over 20 on-road sample points they wrecked at 16 of 20 within 90 s, **p50 6.0 s**. So the ratio is
+not 3.7x, it is **6x against the garage's median 49 s**, and the four failures were their own
+controller grinding along a wall below the free threshold rather than the game refusing.
+
+Their isolated threshold table, one wall hit at `dirZ 1`, is the derivation a lever would need:
+
+    dv m/s   km/h   health after ONE impact   wrecked
+     2.2       8     1.0000                   false   (applied=false, free)
+     8        29     0.6859                   false
+    12        43     0.2612                   false
+    14        50     0.0000                   TRUE
+    22        79     0.0000                   TRUE
+
+**And #97's measurement says why the wreck is free in heat terms BY DESIGN**, which is the half
+this entry was missing: `propertyDamage` is floorless, `FLOORLESS_CAP` is 1, and the soft knee
+asymptotes under it — a 110 km/h write-off charges 0.9000 and reads 0 stars, and two hits are a
+star. So "costs one `propertyDamage` and 0 stars" is not an oversight to be patched at the crime
+table; it is the shape #90 deliberately shipped, and a lever that files more heat for a wreck
+re-opens #97's ladder.
+
+**Three candidate levers, none derived, recorded so the next round does not re-derive them:**
+
+- **The respawn POINT.** Today it is the nearest road, 20-25 m away. The garage is where cars get
+  fixed, so respawning THERE is a derivation rather than a tuned number, and it prices the wreck
+  at the drive back from the garage — which `#96`'s own table already measures at a median 576 m.
+  It is also a large gameplay change and would make a wreck far out of town brutal.
+- **The hold.** `WRECK_HOLD_S` is 4.0 and is `BUST_HOLD_S` — "one beat for the game has taken
+  over", shared on purpose, with its own derivation against a measured 0.68 s stop-and-go floor.
+  Lengthening it alone is a tuned constant AND would move the arrest, which is the wrong coupling.
+- **The replacement's HEALTH.** Free today. There is no derivation available for a number between
+  0 and 1, and anything under 1 risks the dead end this project has already removed twice (a
+  wrecked car with no engine power and no way home).
+
+**#106's fix removes the ABORT half of this and not the REPAIR half.** Handing a job back is 0 s
+now, so destroying the car is no longer the cheapest way to decline — but it is still the cheapest
+way to REPAIR, by 6x, and that is what is left of #96.
+
 ### #97 MEASURED and gated — the flatness is the FIRST hit, the inversion is real, and the obvious fix is refused by arithmetic
 The entry below pairs "two gentle taps earn a star" against "one car-destroying impact earns
 nothing" and both halves are real. What nobody had measured is the ladder, on the conversion the
