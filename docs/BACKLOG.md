@@ -1398,6 +1398,16 @@ Then the same pass over the rest, because a partial audit leaves the next round 
                                                             clock on screen, which this entry had
                                                             not checked: "LOSE THEM — 240 s"
     #111  seeking an arrest does not work                   WORKING AS DESIGNED, and the band says so
+    #85   a pinned car rocks and the HUD says nothing        FIXED — composeStuck, gated 3 ways
+    #87   driveTo wrecks the car in 200 m                    PARTLY FIXED, with a new finding
+
+The four older entries left — #75, #64, #42, #48 — are parked by their own headings (a triangle
+warn, a gate re-baseline, an unresolved gate verdict, and one explicitly "needs a reviewer not a
+decision from me"), so they are genuinely open and correctly labelled.
+
+**#87's audit produced a new measurement rather than just a status**, which is the argument for
+re-measuring an old entry rather than grepping it: the wreck it was filed about is gone, and the
+contact rate turns out to be NON-MONOTONIC in speed — 19 shunts at 22 km/h against 0 at 36.
 
 **Two of those changed meaning rather than status, and both because another entry's fix had
 landed underneath them.** #110 reads as a trap only while the 240 s deadline is invisible, and
@@ -2264,10 +2274,52 @@ tree's PASS / FAIL(6) / PASS / FAIL(6) / PASS at 272-283 s. The spread is 5 s an
 back, which is the second thing the guard restored — the failing runs were slower *because* the
 early arrest was doing extra work in two arms.
 
-### #87 driveTo wrecks the car in 200 m: 13 civilianCollision in 32 s at 43 km/h
+### #87 PARTLY FIXED, and the contact rate is NON-MONOTONIC in speed — 36 km/h is clean
+The wreck at the entry's own speed is gone. `driveTo` to `marlin-street`'s pickup, 3 seeds each,
+40 peds and 12 traffic, 350 m completed every time:
+
+    maxSpeed   km/h   health   wrecks   shunts   knockdowns   crimes
+        6 m/s    22    0.951      0       19          2         11
+       10        36    0.989      0        0          2          5
+       14        50    0.714      0       30          1          5
+       20        72    0.000      3       27          1          4
+
+**0 wrecks at 50 km/h where the entry measured a wreck at 43**, so the follower work closed that.
+What is left is two things worth separating:
+
+- **72 km/h still wrecks, 3 of 3.** The harness's autopilot is `followPath`, which has no
+  car-following term at all — that lives in `src/traffic.js` and is for the FLEET. So `driveTo`
+  does not avoid traffic, by construction, and a round that reads "driveTo wrecked the car" as a
+  game defect is reading an instrument property. Round 11 flagged the same thing about its own
+  `maxSpeed: 12` and labelled the strikes as its parameter rather than the game's difficulty.
+- **The contact rate is NOT monotonic in speed, and that is the new finding.** 22 km/h gives
+  **19 shunts** where 36 km/h gives **0** — slower is worse. The likely reason, labelled as a
+  guess: the fleet's own median flow is about 36 km/h, so a car crawling at 22 is overtaken from
+  behind and a car at 50 overtakes into them, while 36 matches the flow and meets nobody.
+
+**So the parameter for any future round is `maxSpeed: 10` (36 km/h), which is clean in both the
+damage and the shunt columns**, and that is a more useful thing to take from this entry than the
+wreck it was filed about. The guess about WHY wants one isolation nobody has run: hold the fleet's
+speed multiplier and sweep the player's, which separates "matches the flow" from "is simply slow".
+
+#### THE ORIGINAL RECORD
+### #87 (as filed) driveTo wrecks the car in 200 m: 13 civilianCollision in 32 s at 43 km/h
 `detail lost` beyond the subject line.
 
-### #85 A pinned car rocks 20 degrees back and forth for ever, and the HUD says nothing
+### #85 FIXED — the wedged cue exists, is gated, and names the control that works
+`composeStuck` is in `src/vehicle.js` (`THE CAR IS WEDGED`, with the out SIGNED on the jam's
+direction: a nose-in jam is told to reverse, a tail-in jam to drive). Gated in `hud-cue` and by
+`boot-check`'s wedged arm, which asserts three things — the car genuinely got wedged rather than
+wrecked or timed out, the line reaches the page with its one word, and the line is GONE once the
+car frees itself, so it is not a stuck panel.
+
+Round 10 measured the shipped behaviour from outside: the cue fires **8 of 8 on genuinely pinned
+arms with 0 of 13 false positives** on arms that slid along a wall, and reverse recovers
+**131.69 m against 0.52 m forward**. So both halves of the entry are answered — the HUD says
+something, and the thing it says is the control that moves the car.
+
+#### THE ORIGINAL RECORD
+### #85 (as filed) A pinned car rocks 20 degrees back and forth for ever, and the HUD says nothing
 `detail lost` beyond the subject line.
 
 ---
