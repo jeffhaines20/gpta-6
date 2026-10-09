@@ -1497,12 +1497,35 @@ quantity `_localBest` already computes:
     mean steps to settle  12.4 -> 11.9, so the router is marginally CHEAPER
 
 **A net +32 spots and +2.0 points, and 14 spots that arrest today would stop arresting.** #108's
-own bar was "NOT ONE SPOT REGRESSED", so this does not clear it, and the reason for the
-regressions says what a better lever would have to do: a descent on closest approach is myopic
-about the FUTURE — it will take an edge that passes near the target and leads nowhere — where a
-descent on the endpoint is myopic about the PRESENT. A blend needs a weight, and a tuned constant
-with no derivation is what this project refuses. **So the lever works, its size is known, and the
-obstacle is named. Not shipped at the end of a long session on a blend nobody has derived.**
+own bar was "NOT ONE SPOT REGRESSED", so this does not clear it. The reason: a descent on closest
+approach is myopic about the FUTURE — it will take an edge that passes near the target and leads
+nowhere — where a descent on the endpoint is myopic about the PRESENT.
+
+**A THIRD RULE IS BETTER THAN BOTH AND NEEDS NO CONSTANT.** A blend would need a weight, which
+this project refuses; a LEXICOGRAPHIC order does not — "prefer an option that gets CLOSER to the
+player than where I already am; when none does, head TOWARD them". Among improving options it
+descends the approach; with nothing improving it falls back to the shipped rule, which keeps
+making geometric progress and cannot stall:
+
+    rule                                     covered        newly   LOST   mean steps
+    shipped, far ENDPOINT              1463 of 1636  89.4%      -      -        12.4
+    candidate, closest APPROACH        1495 of 1636  91.4%     46     14        11.9
+    candidate, LEXICOGRAPHIC           1497 of 1636  91.5%     41      7        12.1
+
+Best coverage of the three, **half the regressions**, same router cost.
+
+**And it is still not zero, which LOCATES the cause.** The lexicographic order cannot be accused
+of choosing the wrong objective — it only ever prefers an option that genuinely improves the
+approach. So the 7 remaining losses are the price of **GREEDINESS, not of the objective**: a local
+improvement can still lead into a worse local minimum, and no ordering fixes that when the router
+commits to one edge at a time with no lookahead. What would reach zero is a different KIND of
+router — a search over the option tree, or Dijkstra on "best approach reachable from here" — which
+is a different module and a different cost. **That is more useful than either candidate's
+percentage.**
+
+So: the lever works, the best shape of it is known, its price is 7 regressions for 41 gains, and
+the residual is named. Taking it means re-baselining `pursuit-test`, `arrest-band` and
+`boot-check`'s arrest arms, because it perturbs the seeded pursuit stream.
 
 **AND THE CONFIGURATION CHANGED THE CONCLUSION, which is why the probe is committed.** The first
 version started each walk from 8 edges spread round the network and read **80.6% against 81.0%

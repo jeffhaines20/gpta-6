@@ -28,13 +28,42 @@
  *
  * A net +32 spots and +2.0 points, and **14 spots that arrest today would stop arresting**.
  * #108's own bar was "NOT ONE SPOT REGRESSED", so this does not clear it. The reason for the
- * regressions is worth stating because it says what a better lever would have to do: a descent
- * on closest approach is myopic about the FUTURE (it will take an edge that passes near the
- * target and leads nowhere) where a descent on the endpoint is myopic about the PRESENT. A blend
- * would need a weight, and a tuned constant with no derivation is what this project refuses.
+ * regressions is worth stating: a descent on closest approach is myopic about the FUTURE (it will
+ * take an edge that passes near the target and leads nowhere) where a descent on the endpoint is
+ * myopic about the PRESENT.
  *
- * RECORDED RATHER THAN SHIPPED, so the next round starts from a measured lever and a named
- * obstacle instead of from the symptom.
+ * ## AND THE THIRD RULE IS BETTER THAN BOTH, WITH NO CONSTANT TO TUNE
+ *
+ * A blend would need a weight, which this project refuses. A LEXICOGRAPHIC order does not:
+ * "prefer an option that gets CLOSER to the player than where I already am; when none does, head
+ * TOWARD them." Among improving options it descends the approach — the quantity that decides
+ * whether an arrest is possible — and with nothing improving it falls back to the shipped
+ * endpoint rule, which keeps making geometric progress and cannot stall.
+ *
+ *     rule                                        covered        newly   LOST   mean steps
+ *     shipped, far ENDPOINT                 1463 of 1636  89.4%      -      -        12.4
+ *     candidate, closest APPROACH           1495 of 1636  91.4%     46     14        11.9
+ *     candidate, LEXICOGRAPHIC              1497 of 1636  91.5%     41      7        12.1
+ *
+ * Best coverage of the three, **half the regressions**, and the router costs the same.
+ *
+ * ## BUT IT IS STILL NOT ZERO, AND THAT LOCATES THE CAUSE
+ *
+ * 7 spots still regress, and the lexicographic order cannot be blamed for choosing the wrong
+ * objective — it only ever prefers an option that genuinely improves the approach. **The
+ * remaining losses are the price of GREEDINESS, not of the objective**: a local improvement can
+ * still lead into a worse local minimum, and no ordering of objectives fixes that because the
+ * router commits to one edge at a time with no lookahead.
+ *
+ * So what would reach zero is a different KIND of router — a search over the option tree, or
+ * Dijkstra on "best approach reachable from here" — which is a different module and a different
+ * cost. That is a more useful thing to know than either candidate's percentage.
+ *
+ * RECORDED RATHER THAN SHIPPED. The measurement is the deliverable: +34 net spots for 7
+ * regressions is a real improvement with a known price, and taking it means re-baselining
+ * `pursuit-test`, `arrest-band` and `boot-check`'s arrest arms, because it perturbs the seeded
+ * pursuit stream. CLAUDE.md is right that a perturbation is a reason to measure rather than to
+ * defer — so it is measured, and the decision now has a price instead of an argument.
  *
  * ## THE CONFIGURATION CHANGED THE CONCLUSION, which is the reason this file exists
  *
@@ -80,10 +109,15 @@ function walk(edge, forward, target, score) {
     seen.add(key);
     const opts = p._optionsAt(e, f);
     if (!opts.length) break;
-    let pick = null, pickS = Infinity;
-    for (const o of opts) {
-      const sc = score(o, target);
-      if (sc < pickS) { pickS = sc; pick = o; }
+    let pick = null;
+    if (score === 'lex') {
+      pick = pickLex(opts, target, c.d);
+    } else {
+      let pickS = Infinity;
+      for (const o of opts) {
+        const sc = score(o, target);
+        if (sc < pickS) { pickS = sc; pick = o; }
+      }
     }
     if (!pick) break;
     e = pick.e; f = pick.forward;
@@ -96,6 +130,27 @@ const byEndpoint = (o, t) => {
   return Math.hypot(v.x - t.x, v.z - t.z);
 };
 const byApproach = (o, t) => p._closestOn(o.e, o.forward, t).d;
+
+/**
+ * THE LEXICOGRAPHIC RULE, which is the candidate with no weight to tune.
+ *
+ * "Prefer an option that gets CLOSER to the player than where I already am; when none does, head
+ * TOWARD them." Among improving options it descends the approach (the quantity that decides
+ * whether an arrest is possible); with nothing improving it falls back to the shipped endpoint
+ * rule (which keeps making geometric progress and cannot stall). Two objectives in priority
+ * order, no constant between them — where the pure approach rule gets stuck because every option
+ * leads nowhere, this behaves exactly as the shipped build does.
+ */
+function pickLex(opts, t, hereD) {
+  let best = null, bestA = Infinity, fall = null, fallE = Infinity;
+  for (const o of opts) {
+    const a = byApproach(o, t);
+    if (a < hereD && a < bestA) { bestA = a; best = o; }
+    const e = byEndpoint(o, t);
+    if (e < fallE) { fallE = e; fall = o; }
+  }
+  return best ?? fall;
+}
 
 // Spots: off every 5th edge at a spread of offsets, which is round 11's and #108's band together.
 const spots = [];
@@ -140,8 +195,9 @@ function spawnStarts(target) {
   return out;
 }
 
-const tally = { endpoint: 0, approach: 0, both: 0, neither: 0, newly: 0, lost: 0,
-  cyclesE: 0, cyclesA: 0, stepsE: 0, stepsA: 0, n: 0, noSpawn: 0, startsSeen: 0 };
+const tally = { endpoint: 0, approach: 0, lex: 0, both: 0, neither: 0, newly: 0, lost: 0,
+  lexNewly: 0, lexLost: 0,
+  cyclesE: 0, cyclesA: 0, cyclesL: 0, stepsE: 0, stepsA: 0, stepsL: 0, n: 0, noSpawn: 0, startsSeen: 0 };
 const arrestable = (r, t) => r.bestD <= p.reachRadius && !!r.bestPt
   && p._footPathClear(r.bestPt.x, r.bestPt.z, t.x, t.z);
 
@@ -149,19 +205,25 @@ for (const t of spots) {
   tally.n++;
   // A spot is covered if ANY of the fleet's start edges can get there, which is the question
   // the game asks: eight units, not one.
-  let okE = false, okA = false;
+  let okE = false, okA = false, okL = false;
   const starts = spawnStarts(t);
   if (!starts.length) { tally.noSpawn++; continue; }
   tally.startsSeen += starts.length;
   for (const s of starts) {
     const rE = walk(s.e, s.f, t, byEndpoint);
     const rA = walk(s.e, s.f, t, byApproach);
-    tally.stepsE += rE.steps; tally.stepsA += rA.steps;
+    const rL = walk(s.e, s.f, t, 'lex');
+    tally.stepsE += rE.steps; tally.stepsA += rA.steps; tally.stepsL += rL.steps;
     if (rE.cycled) tally.cyclesE++;
     if (rA.cycled) tally.cyclesA++;
+    if (rL.cycled) tally.cyclesL++;
     if (arrestable(rE, t)) okE = true;
     if (arrestable(rA, t)) okA = true;
+    if (arrestable(rL, t)) okL = true;
   }
+  if (okL) tally.lex++;
+  if (!okE && okL) tally.lexNewly++;
+  if (okE && !okL) tally.lexLost++;
   if (okE) tally.endpoint++;
   if (okA) tally.approach++;
   if (okE && okA) tally.both++;
@@ -174,12 +236,15 @@ const pc = (n) => `${(100 * n / tally.n).toFixed(1)}%`;
 console.log('=== can ANY of 8 start edges reach a stop point that arrests this spot? ===\n');
 console.log(`  shipped: score by FAR ENDPOINT    ${tally.endpoint} of ${tally.n}  ${pc(tally.endpoint)}`);
 console.log(`  candidate: score by CLOSEST APPROACH ${tally.approach} of ${tally.n}  ${pc(tally.approach)}`);
-console.log(`\n  newly covered ${tally.newly}  (${pc(tally.newly)})     LOST ${tally.lost}  (${pc(tally.lost)})`);
+console.log(`  candidate: LEXICOGRAPHIC (approach if it improves, else endpoint) ${tally.lex} of ${tally.n}  ${pc(tally.lex)}`);
+console.log(`\n  approach:      newly ${tally.newly} (${pc(tally.newly)})     LOST ${tally.lost} (${pc(tally.lost)})`);
+console.log(`  lexicographic: newly ${tally.lexNewly} (${pc(tally.lexNewly)})     LOST ${tally.lexLost} (${pc(tally.lexLost)})`);
 console.log(`  covered by both ${tally.both}   by neither ${tally.neither}  (${pc(tally.neither)})`);
 console.log(`\n  ${tally.startsSeen} spawned starts over ${tally.n} spots`
   + ` (${tally.noSpawn} spots where _spawn found nowhere in its 70-260 m band)`);
 console.log(`  router cost: mean steps to settle  endpoint ${(tally.stepsE / Math.max(1, tally.startsSeen)).toFixed(1)}`
-  + `   approach ${(tally.stepsA / Math.max(1, tally.startsSeen)).toFixed(1)}`);
+  + `   approach ${(tally.stepsA / Math.max(1, tally.startsSeen)).toFixed(1)}`
+  + `   lex ${(tally.stepsL / Math.max(1, tally.startsSeen)).toFixed(1)}`);
 console.log(`  walks that CYCLED (revisited an edge): endpoint ${tally.cyclesE}`
   + `   approach ${tally.cyclesA}   of ${tally.startsSeen}`);
 console.log('\n  (a cycle is not a defect: the module\'s own comment says a unit "drives on and');
