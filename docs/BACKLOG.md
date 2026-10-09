@@ -1280,15 +1280,32 @@ Per #89's own ceiling argument a blocked walk is NOT a defect — "a player with
 them is not being held by anybody". What makes this one a defect is that a clear-walk position
 exists 0.04 m away and no unit ever drives to it.
 
-**The lever is `_chooseNext`, and it is not a small change.** It is a greedy descent on an
-option's FAR ENDPOINT distance; the quantity that would fix this is the option's closest APPROACH,
-which is what `bestApproach` and `_localBest` already compute. #89 records that those are
-different functions and that the minimising edge is "one no unit will ever drive". Changing the
-router perturbs the seeded stream — CLAUDE.md records that taking `traffic.js`'s building check
-from 0 of 215,960 car-frames to 342 — so it moves every number in `pursuit-test`, `arrest-band`
-and `boot-check`'s arrest arms. **Not taken at the end of a long session; recorded with the
-mechanism named and the measurement committed so the next round starts from here rather than from
-the symptom.**
+#### And the obvious lever is MEASURED, not deferred — `tools/router-lever.mjs`
+CLAUDE.md: "'it perturbs a seeded stream' is a reason to measure, not a reason to defer." So it
+was measured, offline, by walking the router directly with no physics and no seeds — #108's own
+protocol. Score options by their closest APPROACH instead of their far ENDPOINT, which is the
+quantity `_localBest` already computes:
+
+    can ANY of a spawned fleet of 8 reach a stop point that arrests this spot?
+    shipped, score by FAR ENDPOINT        1463 of 1636   89.4%
+    candidate, score by CLOSEST APPROACH  1495 of 1636   91.4%
+    newly covered 46 (2.8%)    LOST 14 (0.9%)    neither 127 (7.8%)
+    mean steps to settle  12.4 -> 11.9, so the router is marginally CHEAPER
+
+**A net +32 spots and +2.0 points, and 14 spots that arrest today would stop arresting.** #108's
+own bar was "NOT ONE SPOT REGRESSED", so this does not clear it, and the reason for the
+regressions says what a better lever would have to do: a descent on closest approach is myopic
+about the FUTURE — it will take an edge that passes near the target and leads nowhere — where a
+descent on the endpoint is myopic about the PRESENT. A blend needs a weight, and a tuned constant
+with no derivation is what this project refuses. **So the lever works, its size is known, and the
+obstacle is named. Not shipped at the end of a long session on a blend nobody has derived.**
+
+**AND THE CONFIGURATION CHANGED THE CONCLUSION, which is why the probe is committed.** The first
+version started each walk from 8 edges spread round the network and read **80.6% against 81.0%
+with 47 spots LOST** — a reshuffle, and I nearly wrote the lever off on it. `_spawn` rejects any
+point outside **70 to 260 m** of the target, so a real unit starts in a band AROUND the player
+and walks a short way where a spread start set walks across the district. Using the module's own
+`_spawn` moved the reading from "refuse the lever" to "the lever works and costs 14 spots".
 
 One instrument note worth more than the finding: my FIRST probe of this read `_footPathClear`
 clear on **1340 of 1340** spots, because it built `PursuitUnits` with no `clearAt` — and
