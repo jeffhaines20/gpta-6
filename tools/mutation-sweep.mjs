@@ -1242,7 +1242,7 @@ const MUTATIONS = [
      * rather than as a broken rule, and is exactly how the pursuit shipped for months.
      */
     id: 'bust-never', file: 'src/wanted.js',
-    find: '    if (this.bustFor < BUST_HOLD_S) return false;',
+    find: '    if (this.bustFor < this.bustNeeds) return false;',
     to: '    if (true) return false;',
     why: 'the countdown runs to zero and nothing happens, for ever',
   },
@@ -1276,7 +1276,7 @@ const MUTATIONS = [
      * looks different; the bust simply becomes unreachable.
      */
     id: 'hold-never', file: 'src/pursuit.js',
-    find: '      if (near.d <= this.reachRadius && (u.stopped || (wantT > near.t && u.t <= near.t))) {',
+    find: '      if ((near.d <= this.reachRadius\n          || (best > this.reachRadius\n            && near.d <= this._localBest(u, target) + CLOSER_EPS_M\n            && canWalk()))\n        && (u.stopped || (wantT > near.t && u.t <= near.t))) {',
     to: '      if (false) {',
     why: 'the police drive through you at 79 km/h and can never catch anybody',
   },
@@ -1293,8 +1293,8 @@ const MUTATIONS = [
      * one scenario 0.2 m apart disagreed about whether the player was ever caught.
      */
     id: 'hold-ratchet', file: 'src/pursuit.js',
-    find: '      if (near.d <= this.reachRadius && (u.stopped || (wantT > near.t && u.t <= near.t))) {',
-    to: '      if (near.d <= this.reachRadius && wantT > near.t && u.t <= near.t) {',
+    find: '      if ((near.d <= this.reachRadius\n          || (best > this.reachRadius\n            && near.d <= this._localBest(u, target) + CLOSER_EPS_M\n            && canWalk()))\n        && (u.stopped || (wantT > near.t && u.t <= near.t))) {',
+    to: '      if ((near.d <= this.reachRadius\n          || (best > this.reachRadius\n            && near.d <= this._localBest(u, target) + CLOSER_EPS_M\n            && canWalk()))\n        && (wantT > near.t && u.t <= near.t)) {',
     why: 'a hold lasts two frames, so being caught becomes a coin flip',
   },
   {
@@ -1631,7 +1631,7 @@ const MUTATIONS = [
      * fleet driving 3,056 m instead of 9,170 and a single-frame position jump of 19.59 m.
      */
     id: 'hold-forever', file: 'src/pursuit.js',
-    find: '      if (near.d <= this.reachRadius && (u.stopped || (wantT > near.t && u.t <= near.t))) {',
+    find: '      if ((near.d <= this.reachRadius\n          || (best > this.reachRadius\n            && near.d <= this._localBest(u, target) + CLOSER_EPS_M\n            && canWalk()))\n        && (u.stopped || (wantT > near.t && u.t <= near.t))) {',
     to: '      if (u.stopped || (near.d <= this.reachRadius && wantT > near.t && u.t <= near.t)) {',
     why: 'a unit that once held follows the player for ever, 331 m away, in 19.59 m jumps',
   },
