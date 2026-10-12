@@ -260,6 +260,32 @@ const MUTATIONS = [
   },
   {
     /**
+     * THE DEAD END THIS PROJECT REMOVED TWICE, put back. `enginePower`'s `* 0.75` is the reason a
+     * living car keeps 0.25 of power at its worst damage; its own comment says "never to zero
+     * while the car lives, because a car that cannot move at all is a mission failure the player
+     * cannot see coming and cannot do anything about". Making it `* 1.0` gives an UN-WRECKED car at
+     * health 0.130 an engine power of exactly 0 — 60 s of full throttle reaches 0.005 m/s.
+     *
+     * MEASURED BEFORE THE CHECK WAS WRITTEN, and the measurement is why the check exists: NINE of
+     * the ten offline gates passed this. The tenth, `roadpath-test`, failed ONE check of 106 —
+     * "the timeout is longer than the worst honest time to travel one body length", reading 9.5 s
+     * against **Infinity** — which is a bound on a stuck-detector timeout in a gate about path
+     * following, not an assertion about the engine. And it OVER-TRIGGERS: it also fails floors of
+     * 0.10 and 0.05, which reach 24.4 and 13.0 km/h and are a handicap rather than a dead end, so
+     * it cannot tell "the defect is back" from "somebody retuned the handicap" — two readings that
+     * want opposite responses.
+     *
+     * crash-test §9 is the assertion, and it discriminates: 3 of 79 fail at floor 0.00 and it
+     * PASSES at 0.05. Its bound is `freeDv` 2.2 m/s, the FMVSS 581 threshold the damage model
+     * takes its own free-contact class from and src/roadpath.js derives its crawl floor from.
+     */
+    id: 'engine-floor', file: 'src/damage.js',
+    find: "    return 1 - clamp((this.regions.front - 0.35) / 0.5, 0, 1) * 0.75;",
+    to: "    return 1 - clamp((this.regions.front - 0.35) / 0.5, 0, 1) * 1.0;",
+    why: 'a living car at 0.13 health has no engine power and no way home — twice-shipped dead end',
+  },
+  {
+    /**
      * THE IDLE BLEED UNGATED. `idleBleed` is 0.09 heat/s and the gate holds it off until
      * `idleGrace` (2.5 s) has passed with no new crime, so at a 3 s crime cadence it is live 16.7%
      * of the time and sheds 0.0150/s. Ungated it sheds 0.0900 — SIX TIMES more — and that single

@@ -389,6 +389,96 @@ console.log('    (the early-out is one grid lookup, which is why "open road" is 
 console.log('     measurably dearer than off at all.)');
 
 // ---------------------------------------------------------------------------
+// §9  THE DEAD END, which this file already asserts both ENDPOINTS of and never the FLOOR.
+//
+// `enginePower` is `1 - clamp((front - 0.35) / 0.5, 0, 1) * 0.75` and its own comment says why
+// that 0.75 is not a 1.0: "never to zero while the car lives, because a car that cannot move at
+// all is a mission failure the player cannot see coming and cannot do anything about."
+// CLAUDE.md records that failure having SHIPPED TWICE — a wrecked car with no power and no repair
+// but a console call, and then the first world fence refusing throttle outside the district.
+//
+// §1 checks a healthy car reads 1 and §2 that a wrecked one reads 0. Nothing checked the middle,
+// and measured, the gap is real: changing that `0.75` to `1.0` gives a LIVING, UN-WRECKED car at
+// health 0.130 an engine power of exactly 0, and nine of the ten offline gates pass.
+//
+// THE ONE THAT CATCHES IT DOES SO INCIDENTALLY, which is why this section exists rather than a
+// note. `roadpath-test` fails one check of 106 — "the timeout is longer than the worst honest time
+// to travel one body length", reading **9.5 s against Infinity s** — because a car that cannot
+// move takes forever to cover its own length. That is a bound on a stuck-detector timeout in a
+// gate about path following, not an assertion about the engine, and it cannot tell the two cases
+// apart that want opposite responses. Swept over the factor:
+//
+//     factor  floor   60 s of full throttle reaches   roadpath-test   is it a dead end
+//     0.75    0.2500   14.699 m/s  52.9 km/h          rc 0            no, SHIPPED
+//     0.80    0.2000   12.270      44.2               rc 0            no
+//     0.90    0.1000    6.788      24.4               rc 1            no, just slow
+//     0.95    0.0500    3.610      13.0               rc 1            no, just slow
+//     1.00    0.0000    0.005       0.0               rc 1            YES
+//
+// So the incidental catch OVER-TRIGGERS: it fails two floors that are a handicap rather than a
+// dead end, and it is the only thing standing between this project and the defect it removed
+// twice. The check below is the line itself — can a living car still reach the crawl speed — and
+// the bound is DERIVED rather than picked: `freeDv` is 2.2 m/s, the FMVSS 581 bumper standard
+// this module takes its own free-contact threshold from, and src/roadpath.js derives its crawl
+// floor from the same constant ("a contact taken at the floor speed is free by construction").
+{
+  const d0 = new DamageModel();
+  const FREE = d0.freeDv;
+  const hurt = (health) => {
+    const d = new DamageModel();
+    d._total = 1 - health;
+    // ALL ON THE FRONT, which is the worst case for enginePower and leaves steerPull at 0 — so a
+    // car that cannot move here cannot move for want of power rather than for want of steering.
+    d.regions = { front: 1 - health, rear: 0, left: 0, right: 0 };
+    return d;
+  };
+
+  // (a) The comment's literal claim, swept rather than sampled: a living car never loses it all.
+  //     A sample at one health would miss a floor that only bites at the extreme.
+  let worst = { power: Infinity, front: null };
+  for (let front = 0; front <= 1.0001; front += 0.01) {
+    const d = hurt(Math.max(0.001, 1 - front));
+    if (d.wrecked) continue;
+    if (d.enginePower < worst.power) worst = { power: d.enginePower, front };
+  }
+  console.log('\n§9  the dead end: can a car the player still owns get home');
+  console.log(`    worst engine power over the whole living damage range: ${worst.power.toFixed(4)}`
+    + ` at front ${worst.front.toFixed(2)}`);
+  check('a living car never loses all its engine power', worst.power > 0,
+    `worst ${worst.power.toFixed(4)} at front ${worst.front.toFixed(2)}`);
+
+  // (b) And the only zero is the wreck, which is the POSITIVE half: a check looking only for a
+  //     non-zero floor passes for a build where enginePower ignores damage entirely.
+  const w = hurt(0.001); w.wrecked = true;
+  check('and a wrecked one has none, so the zero is the wreck and nothing else',
+    w.enginePower === 0 && hurt(0.001).enginePower > 0,
+    `wrecked ${w.enginePower}, living ${hurt(0.001).enginePower.toFixed(4)}`);
+
+  // (c) THE LINE ITSELF, driven. "Strictly positive" is not "can get home": a floor of 0.0001
+  //     passes (a) and strands the player just as completely. The bound is the module's own
+  //     free-contact speed, which is also roadpath.js's crawl floor.
+  const d = hurt(0.001);
+  const v = new Vehicle();
+  v.damage = d;
+  v.position.set(0, 0.55, 0);
+  const flat = new FlatGround(0);
+  let bestV = 0;
+  for (let k = 0; k < 60 * HZ; k++) {
+    v.setControls({ throttle: 1, brake: 0, steer: 0, handbrake: false });
+    v.stepFixed(DT, flat, HZ);
+    const sp = Math.hypot(v.velocity.x, v.velocity.z);
+    if (sp > bestV) bestV = sp;
+  }
+  console.log(`    at that worst power, 60 s of full throttle on flat ground reaches`
+    + ` ${bestV.toFixed(3)} m/s (${(bestV * 3.6).toFixed(1)} km/h)`);
+  console.log(`    against freeDv ${FREE} m/s, the FMVSS 581 threshold roadpath's crawl floor also uses`);
+  check('and the worst-damaged living car can still reach the crawl speed, so there is a way home',
+    bestV >= FREE, `${bestV.toFixed(3)} m/s against ${FREE}, x${(bestV / FREE).toFixed(1)}`);
+  console.log(`    KNOWN-BAD: with the 0.75 made 1.0 this reads 0.005 m/s and nine of ten offline`);
+  console.log(`    gates still pass; the tenth fails a timeout bound reading Infinity.`);
+}
+
+// ---------------------------------------------------------------------------
 console.log('\n' + '='.repeat(78));
 const failed = checks.filter((c) => !c.ok);
 for (const c of failed) console.log(`FAIL  ${c.name}${c.detail ? `  [${c.detail}]` : ''}`);
