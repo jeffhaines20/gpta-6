@@ -19,6 +19,16 @@
 //      scale 1 are one star in 6.1 s and sixty seconds of them are five stars. §3c is that
 //      known-bad, and it is why a limit is a punishment rather than the graduation #103 asked for.
 //
+//      AND THE GATE FOR THAT ALREADY EXISTED, which is the cheaper half of this round. `wanted-test`
+//      §2 is titled "minor crimes accumulate" and has asserted, by name, since it was written:
+//          check('two reckless events are still zero stars', trace[1].stars === 0)
+//          check('three reckless events make one star',      trace[2].stars === 1)
+//      So the entry argued from a premise a committed check REFUTES BY NAME, and one grep for the
+//      crime's name in tools/ would have found it. CLAUDE.md already says to grep the gates before
+//      filing a dead feature; the same command settles a premise before arguing from it. What this
+//      tool adds that nothing had is the BREAK-EVEN SCALE, the declared limit's per-class table,
+//      and the price.
+//
 // TWO WRONG VERSIONS, kept because each printed a reassuring number:
 //
 //   §1 first printed a "net of bleed" column as `gross - idleBleed`, reading -0.0567 heat/s at

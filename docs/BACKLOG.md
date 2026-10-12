@@ -1158,6 +1158,21 @@ TOTAL at all:
     continuous charging                 ONE STAR at 6.1 s, heat 1.0920
     60 s of it                          heat 5.9900, five stars
 
+**AND THE GATE FOR THAT ALREADY EXISTED, which is the cheaper half of this round and a correction
+to the first version of this entry.** `wanted-test` §2 is titled "minor crimes accumulate" and has
+asserted, BY NAME, since it was written:
+
+    check('two reckless events are still zero stars', trace[1].stars === 0)
+    check('three reckless events make one star',      trace[2].stars === 1)
+
+So the entry argued from a premise a committed check refutes by name, and one `grep` for the crime's
+name in `tools/` would have found it — the same command this file already prescribes under "a gate
+that already priced a refusal is the thing to grep for before filing it again", which is how the
+`damage-test` pin was found in the first place. **A grep that settles a refusal settles a premise
+too.** I wrote the falsification up as a new measurement before running the sweep row that told me
+otherwise; what this round actually adds is the break-even scale, the declared limit's per-class
+table, and the price.
+
 **The price, two protocols on one denominator.** The shipped follower on the shipped vehicle, 8
 cross-district routes, 12,298 m, each sample scored against the limit of the road it is ON:
 
@@ -1203,10 +1218,18 @@ affordance rather than an entry in the crime table.
 estimate of it. The refusal only gets stronger if a human is faster.
 
 `tools/speed-limit.mjs --selftest` is 10 checks in 1.3 s and is on the offline gate list and
-`mutation-sweep`'s. Two rows give it teeth: `bleed-ungated` (the gate removed, which moves the
-break-even 6x and is behaviour-preserving for every other gate) and `speed-limit-flat` (every road
-a primary, invisible to `traffic-selftest` because its x1.15 ceiling is relative to whatever the
-limit returns).
+`mutation-sweep`'s. Two rows, and **running them is what corrected the paragraph above**:
+
+    bleed-ungated      caught by wanted-test AND speed-limit --selftest
+    speed-limit-flat   caught by speed-limit --selftest ALONE
+
+`bleed-ungated` removes the `idleGrace` gate, which moves the break-even 6x — and `wanted-test`
+catches it with six failures, one of them named "heat holds during the grace window", a check on
+that exact gate. So the new gate is a second reading of an already-gated quantity there, not the
+only one, and the row's own comment said the opposite until the sweep ran. `speed-limit-flat` makes
+every road a primary and is the row that earns the gate: invisible to `traffic-selftest`, because
+the fleet still drives, still holds its lane, and its cars still never exceed their own x1.15
+jitter ceiling — that ceiling being relative to whatever the limit returns.
 
 **Two wrong instruments on the way, both of which printed a reassuring number, recorded in the
 tool's own header:** a "net of bleed" column computed as `gross - idleBleed` that read -0.0567

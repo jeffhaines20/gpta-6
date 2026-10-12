@@ -1226,6 +1226,34 @@ sum. This file already has two sections on stacked saturations and one on measur
 saturation COSTS before fixing it; this is the third shape — **a per-event cap read as a lifetime
 cap.** Ask what the cap is applied TO, and then charge the thing repeatedly and look at the meter.
 
+**And the gate for it already existed, which I found by running a mutation row rather than by
+looking.** `wanted-test` §2 is titled "minor crimes accumulate" and has asserted, BY NAME, since it
+was written:
+
+    check('two reckless events are still zero stars', trace[1].stars === 0)
+    check('three reckless events make one star',      trace[2].stars === 1)
+
+So the entry argued from a premise a committed check refutes by name, and I wrote the falsification
+up as a new measurement before the sweep told me otherwise. This file already prescribes the exact
+command under "a gate that already priced a refusal is the thing to grep for before filing it
+again" — one `grep` for the crime's name in `tools/`, which is also how `damage-test`'s pin was
+found. **A grep that settles a refusal settles a premise too**, and a premise is the cheaper thing
+to check because an argument built on it is already lost.
+
+**The mutation rows are what sorted the two gates out, and only by being RUN.** `bleed-ungated`'s
+own comment claimed the row was "behaviour-preserving for every other gate's case, so only an
+instrument that charges repeatedly can see it". The sweep says otherwise:
+
+    bleed-ungated      caught by wanted-test AND speed-limit --selftest     six FAILs, one named
+                                                                            "heat holds during the
+                                                                            grace window"
+    speed-limit-flat   caught by speed-limit --selftest ALONE
+
+So the new gate earns its place on the second row and is a second reading on the first. **A row's
+`why` is a claim about coverage, and the only thing that checks it is the sweep** — which is this
+file's standing rule about checks written in the same round as the code they guard, arriving as a
+claim about which gate catches what.
+
 ## Numbers that are not what they look like
 
 - **The budget gate's triangle count carries ~20k of run-to-run noise** from

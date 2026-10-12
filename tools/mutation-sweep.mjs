@@ -263,13 +263,19 @@ const MUTATIONS = [
      * THE IDLE BLEED UNGATED. `idleBleed` is 0.09 heat/s and the gate holds it off until
      * `idleGrace` (2.5 s) has passed with no new crime, so at a 3 s crime cadence it is live 16.7%
      * of the time and sheds 0.0150/s. Ungated it sheds 0.0900 — SIX TIMES more — and that single
-     * factor decides whether repeated low-grade offences can ever make a player wanted. It is
-     * BEHAVIOUR-PRESERVING for a player committing one crime and walking away, which is every
-     * other gate's case, so only an instrument that charges REPEATEDLY at a known cadence can see
-     * it. #107's whole refusal is argued on the break-even scale this moves.
+     * factor decides whether repeated low-grade offences can ever make a player wanted. #107's
+     * whole refusal is argued on the break-even scale this moves.
      *
-     * And the direction is the flattering one: a faster bleed is a more forgiving game, so nothing
+     * The direction is the flattering one: a faster bleed is a more forgiving game, so nothing
      * breaks, nothing errors, and the meter simply stops being able to accumulate.
+     *
+     * CORRECTED, BY RUNNING THE ROW. This comment first said the row was "behaviour-preserving for
+     * a player committing one crime and walking away, which is every other gate's case, so only an
+     * instrument that charges REPEATEDLY at a known cadence can see it". The sweep says
+     * `wanted-test speed-limit --selftest` — `wanted-test` catches it with SIX failures, among them
+     * one named "heat holds during the grace window", which is a check on this exact gate. So the
+     * quantity was already gated and the new gate is a second reading of it, not the only one.
+     * `speed-limit-flat` below is the row that earns the new gate: caught by it alone.
      */
     id: 'bleed-ungated', file: 'src/wanted.js',
     find: "      if (this.heat > 0 && this.time - this._lastCrimeAt > this.idleGrace) {",
