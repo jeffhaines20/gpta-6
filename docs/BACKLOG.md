@@ -579,6 +579,89 @@ the car at 1.5-2.5 km/h, under the threshold; only steering from the car's own `
 speed. The mechanism is `_watchBust` reading smoothed `playerVel` against `SCENE_STOP_MS` = 1.0 m/s
 = 3.6 km/h, with the smoothing putting the real boundary near 4 km/h.
 
+### #96 MEASURED — the direction is forced, the NUMBER is not available, and the binding derivation is unmeasured
+**`tools/wreck-cost.mjs`, plus a blind review of the proposal on a frozen copy.** The entry below
+records three candidate levers and says of the third that "there is no derivation available for a
+number between 0 and 1, and anything under 1 risks the dead end this project has already removed
+twice". Both clauses needed testing against the modules. The modules answer the second and refuse
+the first in a way neither the entry nor the review expected.
+
+**THE RESPAWN POINT IS REFUSED BY ARITHMETIC, and the entry's objection had the sign backwards.**
+It worried that respawning at the garage "would make a wreck far out of town brutal". Route (c) is
+route (a) with the drive to the garage REMOVED: a player who wants a repair wrecks the car and is
+delivered to the garage repaired, skipping the one cost the garage exists to impose. Measured over
+11 routes, the wreck is the cheaper repair on 11 of 11 — it does not reduce the inversion, it
+MAXIMISES it, and hands over a p50 57.3 s drive for nothing.
+
+    wreck pt    to garage   (a) garage healthy   (b) wreck today   (c) respawn AT the garage
+    p50            655 m          57.3 s              8.2 s            50.3 s of driving back
+
+**THE DEAD END IS A PROPERTY OF `wrecked`, NOT OF `health` — so a derivation exists.**
+`enginePower` returns 0 only `if (this.wrecked)`; otherwise it bottoms at 0.25, and its own comment
+says why: "never to zero while the car lives, because a car that cannot move at all is a mission
+failure the player cannot see coming and cannot do anything about". A respawn clears `wrecked` by
+definition. And `fireHealth` 0.12 is a hard FLOOR: at or below it the fire latch re-wrecks the car
+in `fireHealth/fireRate` = 3.0 s, an infinite loop.
+
+**THREE REVIEW FINDINGS, ALL REPRODUCED HERE INDEPENDENTLY, and the first retires my own headline:**
+
+- **`enginePower` is a function of `regions.front`, not of health.** At health 0.130: all-front
+  gives 0.2500, all-rear 1.0000, all-left 1.0000 (with steerPull −0.2500), spread 1.0000. So three
+  of four geometries at that health hand back a car at FULL power, and `wreck-cost`'s x1.70 drive
+  penalty is the ONE corner that does not — a ceiling, not an estimate. (The review's median-wreck
+  distribution, 0.5356 of power and x1.20, is theirs: my own attempt produced **1 wreck from 1,576
+  full-throttle runs** and is not a sample.)
+- **0.13 re-wrecks.** The band between "free by construction" (`freeDv` 2.2 m/s, FMVSS 581, which
+  `src/roadpath.js` also derives its crawl floor from) and "the fire latches" is **0.394 m/s —
+  1.4 km/h**, confirmed to 0.001 m/s. At 0.20 that band is 8.1 km/h, 5.7x wider.
+- **The shipped follower stalls at exactly the power floor.** Vertex 1961 → garage, 1049 m,
+  bisected: arrives at 0.30 (143.1 s), 0.35, 0.40, 0.50, 0.70 and 1.00 — and is **STUCK at index 5**
+  at 0.25. `src/vehicle.js` states the dependency itself: `reverseMax` "has to stay well above
+  src/roadpath.js's reverse manoeuvre, which backs out of an unreachable aim point at 0.35 of
+  throttle", and a respawn at the floor quarters the other factor in that product.
+
+**SO THE NUMBER IS NOT 0.13, AND IT IS NOT ESTABLISHED AT 0.20 EITHER.** Two derivations were
+offered and only one holds:
+
+    the POWER margin   enginePower 0.30 needs front <= 0.8167, so health >= 0.1833     HOLDS
+    the CONTACT margin fireHealth + severityFor(worst contact on a garage drive)       UNMEASURED
+
+      the review  56 routes, 115 contacts   max 4.137 m/s  ->  health >= 0.1852
+      mine        40 routes,   5 contacts   max 8.489 m/s  ->  health >= 0.4768
+
+**2.6x apart on the input and on the answer, and the contact margin is the BINDING one.** With five
+samples p95, p99 and max are one reading, so mine cannot bound a tail; and neither is a human
+driver — both are the shipped follower's own line, which traffic, police, props and a player all
+exceed. 0.20 clears a worst contact of 4.463 m/s and **nothing establishes that 4.463 is the
+worst.** That is the reason not to ship, and it is not a reason either the entry or the review had.
+
+**And my first version of that measurement read 0.096 m/s over 148 contacts**, in the flattering
+direction: it never set `vehicle.blockers`, so `_collideBody` never ran, the car drove THROUGH
+every wall, and what it logged was frame-to-frame velocity change from friction — "148 of 148 free
+by construction" over a car that was never in contact with anything.
+
+**THE BLAST RADIUS IS ENUMERATED and it is large**, which is the other reason to stop. The review
+found, with file:line: `district/main.js:784`'s `bustWatch` calls `respawnCar()`, so the ARREST and
+the WRECK share one function and a change there silently gives an arrest a car-damage penalty it
+was never designed to have; `wreckFor = 0` runs at `:649` BEFORE `damage.repair()` at `:651`, so a
+partial repair that does not clear `wrecked` is an infinite 4 s respawn loop; three
+`healthBelow: MISSION_FAIL_HEALTH` triggers fire at 0.12, so a car handed back at 0.13 fails the
+flagship's last three stages on any contact over 1.4 km/h; and `mission-test:694-721`'s check
+**stays green while its stated REASON becomes false** ("the car wrecks, and respawnCar() repairs
+it"), which is this file's "a check that states a false reason reads as coverage for it".
+
+**AND THE STRUCTURAL HOLE NOTHING MODELS: the garage refuses a wanted car.** Once the wreck stops
+being a repair, a four-star player with a damaged car has no repair in the game — the wreck was
+that escape hatch. That is a design decision rather than a number, and it is the first thing to
+settle, not the last.
+
+**One record inconsistency fixed while here:** #96 prices the wreck exit at **8.2 s** and
+`tools/abort-cost.mjs:71` at **13.4 s** ("5 seeds, median"). Same exit, 1.63x apart, and the
+proposal quoted the smaller one — which flatters the inversion it is arguing against. `wreck-cost`
+labels its 8.2 s as round 11's figure and says it needs a browser and is not re-measured there.
+
+#### The original record, kept verbatim
+
 ### #96 An arrest and a wreck are both a free full repair, and the garage is dominated (A#6, B#3)
 Both reviewers, from opposite directions. B: car at health 0.511, 1★, stand still -> **health 1.000
 in 17.1-22.1 s, 3 of 5 seeds**; three laps of crime -> stand still -> arrest gave 21.5 / 19.2 /

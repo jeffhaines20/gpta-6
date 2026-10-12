@@ -1132,6 +1132,53 @@ check, because when that fires it explains all of them. A wreck clock left ticki
 arm is otherwise a 17.6 m teleport that reports itself as "0 run-overs" — the feature looking
 broken because the harness moved the subject.
 
+## A probe that drives THROUGH the walls reports a free drive
+
+#96's remaining lever needs "the worst contact a drive to the garage incurs", because the respawn
+health is `fireHealth + severityFor(that)`. My first measurement drove the shipped follower over 40
+routes and reported
+
+    148 contacts, p50 0.036, max 0.096 m/s   ->  148 of 148 FREE by construction
+
+which says the drive costs nothing and is the flattering answer. **It never set
+`vehicle.blockers`.** `src/vehicle.js` opens with "BODY COLLISION IS OPT-IN, AND THAT IS NOT
+LAZINESS", `_collideBody()` runs only `if (this.blockers)`, and both shipped hosts assign it — so
+the car drove straight through every wall and what I logged was frame-to-frame velocity change from
+friction and steering on a car that was never in contact with anything. Wired, over the same 40
+routes:
+
+    5 contacts, p50 0.954, max 8.489 m/s     ->  4 of 5 free, and the fifth is severity 0.3568
+
+**This is the `traffic-selftest` trap and the `_footPathClear` trap for the third time in one
+session** — a gate that constructs the subject itself has to construct it the way the game does,
+and all three had the same shape: an opt-in predicate left unassigned reads as the permissive
+answer. The cheap habit that catches all three is to **assert the thing happened before measuring
+how much of it happened**: "148 contacts, every one free" should have been read as 148 contacts a
+colliding car could not have had.
+
+And I recomputed the quantity instead of reading it. `_collideBody` writes `lastContact.dv`, which
+is the exact figure `district/main.js` hands `damage.impact`. **Read the module's own number** —
+my hand-rolled velocity delta would have been wrong even with the wire in, because it includes
+every other force on the step.
+
+### And two measurements of one load-bearing input, 2.6x apart, with neither a bound
+
+With the wire in, mine reads max 8.489 m/s over 5 contacts and a blind review's reads 4.137 over
+115. The answers they give for the respawn health are 0.4768 and 0.1852 — and the proposal on the
+table was 0.20, which clears 4.463 m/s and nothing else.
+
+**Five samples cannot bound a tail: p95, p99 and max are one reading.** So the honest statement is
+not "the review is wrong", it is **"the binding derivation is unmeasured"** — and that is a
+stronger reason not to ship than either number would have been. Both are also the shipped
+follower's own driving line, which traffic, police, props and a human all exceed, so both are
+floors on a floor.
+
+The shape worth keeping: **when a derivation has two inputs, check which one BINDS before
+measuring either carefully.** The power margin here is arithmetic off a function plus one
+bisection and it holds at 0.1833; the contact margin needs a tail measurement nobody has, and it is
+the one that decides. A round that had priced the easy input first would have shipped 0.20 on the
+strength of the derivation that was not doing the work.
+
 ## A binary coverage metric over ONE random draw cannot tell CANNOT from DID NOT
 
 `router-lever` asks "can any of a spawned fleet of 8 reach a stop point that arrests this spot",

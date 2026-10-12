@@ -63,9 +63,26 @@ function check(name, ok, detail) {
 }
 
 /**
- * A car damaged to `health` with the damage on the FRONT, which is a frontal write-off and is also
- * the worst case for `enginePower` and the best case for `steerPull` — the pairing worth quoting,
- * because it is the slowest car that still has no steering handicap to confound the drive.
+ * A car damaged to `health` with the damage on the FRONT, which is the WORST CASE for `enginePower`
+ * and the best for `steerPull` — the slowest car that still has no steering handicap to confound
+ * the drive.
+ *
+ * CORRECTED, AND IT MOVES EVERY RATIO BELOW. This file originally printed the all-front drive
+ * penalty as its headline, which reads as typical and is not: `enginePower` is a function of
+ * `regions.front`, NOT of health, so 0.25 is a FLOOR rather than a value. Measured off the module:
+ *
+ *     health 0.130, all FRONT   enginePower 0.2500   steerPull  0.0000
+ *     health 0.130, all REAR    enginePower 1.0000   steerPull  0.0000
+ *     health 0.130, all LEFT    enginePower 1.0000   steerPull -0.2500
+ *     health 0.130, spread      enginePower 1.0000   steerPull  0.0000
+ *
+ * So three of four damage geometries at the SAME health hand back a car at FULL power, and the
+ * x1.70 drive penalty this tool reports is the one geometry that does not. A blind review of #96
+ * put the median real wreck at 0.5356 of power and x1.20 on the drive; MY OWN attempt to reproduce
+ * that distribution produced 1 wreck from 1,576 full-throttle runs, so the distribution is THEIRS
+ * and is not reproduced here — what is reproduced, directly off the function, is that the
+ * all-front case is one corner of it and not the middle. Read §4's ratio as a CEILING on the
+ * penalty, not an estimate of it.
  */
 export function hurt(health) {
   const d = new DamageModel();
@@ -201,9 +218,37 @@ if (!SELFTEST) {
   console.log('  22 m/s cap overshoots a tight corner, stops advancing its index, and loops. It is');
   console.log('  in the `max` column, which is why §3 quotes p75.');
 
-  console.log('\n  THIS TOOL MEASURES AND DOES NOT SHIP. Whether to charge for a wreck at all is a');
-  console.log('  design call; what has changed is that the lever the entry deferred for want of a');
-  console.log('  derivation has one.');
+  console.log('\n=== (6) WHAT HEALTH THE RESPAWN WOULD HAND BACK, and why it is NOT settled ===\n');
+  // Two independent derivations were offered for the number. One holds and one does not, and the
+  // one that does not is the BINDING constraint — so the lever is not ready, for a reason neither
+  // #96 nor the review that proposed 0.20 had.
+  console.log('  THE POWER MARGIN holds, and it is arithmetic plus one bisection:');
+  console.log('    the shipped follower stalls at enginePower 0.25 and arrives at 0.30 — bisected');
+  console.log('    on vertex 1961 -> garage, 1049 m: 0.30 arrives 143.1 s, 0.25 STUCK at index 5.');
+  console.log('    enginePower 0.30 needs front <= 0.8167, so health >= 0.1833.');
+  console.log('    (src/vehicle.js states the dependency itself: `reverseMax` "has to stay well');
+  console.log('    above src/roadpath.js\'s reverse manoeuvre, which backs out of an unreachable');
+  console.log('    aim point at 0.35 of throttle". A respawn at the power floor quarters the other');
+  console.log('    factor in that same product.)');
+  console.log('\n  THE CONTACT MARGIN DOES NOT hold, and it is the BINDING one. The rule is');
+  console.log('  `fireHealth + severityFor(worst contact a drive to the garage incurs)`, because');
+  console.log('  below fireHealth the fire latch re-wrecks the car in 3.0 s. Two measurements:');
+  console.log('    a blind review, 56 routes, 115 contacts   max 4.137 m/s -> health >= 0.1852');
+  console.log('    mine, 40 routes, 5 contacts               max 8.489 m/s -> health >= 0.4768');
+  console.log('  2.6x apart on the input and on the answer. MINE CANNOT BOUND A TAIL — with five');
+  console.log('  samples p95, p99 and max are one reading — and NEITHER is a human driver: both are');
+  console.log('  the shipped follower\'s own line, which traffic, police, props and a player all');
+  console.log('  exceed. 0.20 clears a worst contact of 4.463 m/s and nothing establishes that');
+  console.log('  4.463 is the worst.');
+  console.log('\n  AND MY FIRST VERSION OF THAT MEASUREMENT READ 0.096 m/s OVER 148 CONTACTS, in the');
+  console.log('  flattering direction: it never set `vehicle.blockers`, so `_collideBody` did not');
+  console.log('  run, the car drove THROUGH every wall, and what it logged was frame-to-frame');
+  console.log('  velocity change from friction — "148 of 148 free by construction" over a car that');
+  console.log('  was never in contact with anything. The fix is to read the module\'s own');
+  console.log('  `lastContact.dv`, which is the figure district/main.js hands `damage.impact`.');
+
+  console.log('\n  THIS TOOL MEASURES AND DOES NOT SHIP. The direction is the only lever available —');
+  console.log('  §3 refuses the respawn point by arithmetic — and the NUMBER is not available yet.');
 }
 
 // ------------------------------------------------------------------------------------- selftest
