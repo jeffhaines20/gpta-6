@@ -965,6 +965,87 @@ console.log('\n\u00a710 the local admission, because the router is local too');
   }
 }
 
+// ------------------------------------------- 10. the router's option rule, asserted directly
+/**
+ * THE LEXICOGRAPHIC RULE ITSELF, because nothing else in this repo can see it.
+ *
+ * `_chooseNext` prefers an option that gets CLOSER to the target than where the unit already is,
+ * and falls back to the old rule — the distance from an option's FAR ENDPOINT — when none does.
+ * Its EFFECT is 25-30 fewer unarrestable spots across the district (tools/router-lever.mjs
+ * --draws N), and that is a statistic over 1,636 spots, not something a gate can assert. Reverting
+ * the rule passed §1-§9 of this file, `arrest-band` with IDENTICAL coverage, `playtest --selftest`
+ * and `boot-check` — so it shipped with no gate at all until this section, which is the gap this
+ * project's own rule covers: write the gate when you write the module.
+ *
+ * SEARCHED, NOT HARDCODED. The two rules disagree only where the improving option is not also the
+ * one with the nearest far endpoint, so the section hunts the real network for such a case and
+ * asserts the module takes the improving one. Hardcoding "edge 13, vertex 1096" would pin the
+ * check to one baked district; searching survives a re-bake, and asserting the search FOUND
+ * something is what stops it passing vacuously.
+ */
+console.log('\n10. the option rule');
+{
+  const p = build();
+  let dis = null, flat = null;
+  for (let e = 0; e < district.edges.length && (!dis || !flat); e++) {
+    for (const fw of [true, false]) {
+      const opts = p._optionsAt(e, fw);
+      if (opts.length < 2) continue;
+      for (let t = 0; t < district.verts.length; t += 137) {
+        const target = district.verts[t];
+        const here = p._closestOn(e, fw, target).d;
+        let bestEnd = null, bestEndS = Infinity, bestApp = null, bestAppD = Infinity;
+        for (const o of opts) {
+          const v = district.verts[p._endVertex(o.e, o.forward)];
+          const sc = Math.hypot(v.x - target.x, v.z - target.z);
+          if (sc < bestEndS) { bestEndS = sc; bestEnd = o; }
+          const d = p._closestOn(o.e, o.forward, target).d;
+          if (d < here && d < bestAppD) { bestAppD = d; bestApp = o; }
+        }
+        if (!bestEnd) continue;
+        const differ = bestApp && (bestApp.e !== bestEnd.e || bestApp.forward !== bestEnd.forward);
+        if (!dis && differ) {
+          dis = { e, fw, target, here, bestApp, bestAppD, bestEnd,
+            endD: p._closestOn(bestEnd.e, bestEnd.forward, target).d };
+        }
+        // And a junction where NOTHING improves, which is the fallback's own case.
+        if (!flat && !bestApp) flat = { e, fw, target, here, bestEnd };
+        if (dis && flat) break;
+      }
+    }
+  }
+  check('the network contains a junction where the two rules disagree, or this section is vacuous',
+    !!dis, dis ? `edge ${dis.e} fw ${dis.fw}: approach ${dis.bestAppD.toFixed(2)} m against the`
+      + ` endpoint pick's ${dis.endD.toFixed(2)} m, from ${dis.here.toFixed(2)} m` : 'none found');
+  if (dis) {
+    const picks0 = p.stats.approachPicks;
+    const got = p._chooseNext({ edge: dis.e, forward: dis.fw }, dis.target);
+    check('and the router takes the option that gets CLOSER, not the nearer far endpoint',
+      !!got && got.e === dis.bestApp.e && got.forward === dis.bestApp.forward,
+      `picked edge ${got && got.e}, improving is ${dis.bestApp.e}, endpoint rule wants ${dis.bestEnd.e}`);
+    check('and the pick strictly improves the approach, which is the whole objective',
+      !!got && p._closestOn(got.e, got.forward, dis.target).d < dis.here,
+      `${got ? p._closestOn(got.e, got.forward, dis.target).d.toFixed(2) : 'n/a'} m from ${dis.here.toFixed(2)} m`);
+    check('and it counted as an approach pick rather than a fallback',
+      p.stats.approachPicks === picks0 + 1, `${picks0} -> ${p.stats.approachPicks}`);
+  }
+  // THE FALLBACK IS THE POSITIVE HALF. A rule that ALWAYS prefers the approach has no fallback
+  // being tested, and one that never fires is not a rule — so both branches are asserted.
+  check('a junction where nothing improves exists too, so the fallback is reachable', !!flat,
+    flat ? `edge ${flat.e} fw ${flat.fw}, from ${flat.here.toFixed(2)} m` : 'none found');
+  if (flat) {
+    const picks0 = p.stats.approachPicks;
+    const got = p._chooseNext({ edge: flat.e, forward: flat.fw }, flat.target);
+    check('and there the router falls back to the far-endpoint rule exactly',
+      !!got && got.e === flat.bestEnd.e && got.forward === flat.bestEnd.forward,
+      `picked edge ${got && got.e}, endpoint rule wants ${flat.bestEnd.e}`);
+    check('and that one did NOT count as an approach pick',
+      p.stats.approachPicks === picks0, `${picks0} -> ${p.stats.approachPicks}`);
+  }
+  console.log('    KNOWN-BAD: the endpoint-only rule passed every other section of this file,');
+  console.log('    arrest-band with identical coverage, playtest --selftest and boot-check.');
+}
+
 // ---------------------------------------------------------------------------- report
 const failed = checks.filter((c) => !c.ok);
 console.log('');

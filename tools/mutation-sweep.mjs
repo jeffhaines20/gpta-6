@@ -1369,6 +1369,30 @@ const MUTATIONS = [
   },
   {
     /**
+     * THE ROUTER'S OPTION RULE REVERTED to the far-endpoint descent it replaced — which is what
+     * `src/pursuit.js` shipped until #109, and which costs 25-30 unarrestable spots across the
+     * district (`tools/router-lever.mjs --draws N`: 122 never-arrestable spots against 99, and the
+     * 2 the lever creates are named in docs/BACKLOG.md).
+     *
+     * IT SHIPPED WITH NO GATE, which this row exists to say out loud. Measured: the endpoint-only
+     * rule passes §1-§9 of `pursuit-test`, `arrest-band` with IDENTICAL coverage (same 8 arrest
+     * distances, same escape at 264 m, still "no stalemate row"), `playtest --selftest`,
+     * `wanted-test` and `boot-check` at its full 103 checks. The effect is a statistic over 1,636
+     * spots and no gate can assert a statistic, so `pursuit-test` §10 asserts the RULE instead —
+     * it hunts the real network for a junction where the two rules disagree and checks the module
+     * takes the improving option, plus the fallback's own case where nothing improves.
+     *
+     * Both halves are needed: a rule that ALWAYS prefers the approach has no fallback being
+     * tested, and one that never fires is not a rule. §10 reads `stats.approachPicks` 0 -> 1 on
+     * the first and 1 -> 1 on the second.
+     */
+    id: 'router-endpoint', file: 'src/pursuit.js',
+    find: '    const hereD = this._closestOn(unit.edge, unit.forward, target).d;',
+    to: '    const hereD = -Infinity;',
+    why: '25-30 spots across the district go back to being unarrestable, and §10 is the only gate',
+  },
+  {
+    /**
      * STATION-KEEPING UNBOUNDED, which is the defect this row was written FROM rather than for:
      * `u.t = near.t` is what the module shipped, and it teleports. `near.t` is a moving target's
      * projection onto the edge, and a projection slides along a curve faster than the target
