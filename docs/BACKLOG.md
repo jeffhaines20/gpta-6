@@ -1649,6 +1649,56 @@ So: the lever works, the best shape of it is known, its price is 7 regressions f
 the residual is named. Taking it means re-baselining `pursuit-test`, `arrest-band` and
 `boot-check`'s arrest arms, because it perturbs the seeded pursuit stream.
 
+#### RE-MEASURED: the price is 2, not 7, and #108's bar was never the bar it looked like
+
+**Every number above is ONE SPAWN DRAW PER SPOT.** `router-lever` built a single `PursuitUnits` at
+seed 0 and took one 8-start draw per spot — so a binary coverage metric conflated **CANNOT be
+arrested** with **WAS NOT, on that draw**. And #109's own recorded mechanism is seed dependence:
+"seeds 0 and 11: held 0%; seed 2: a unit reaches edge 761, BUST at 16 s", for a single spot. A
+parked player gets many draws as the fleet respawns.
+
+`router-lever --draws N` is the paired re-draw. Of the 7 single-draw "losses", re-drawn 10 times
+each at seeds 100-109:
+
+    spot                 endpoint    lex     a real stalemate?
+    (  93.4,   357.4)      10/10    0/10     YES
+    ( 723.0,   236.2)      10/10   10/10     no — it was one unlucky draw
+    ( 155.4,  -363.3)      10/10    0/10     YES
+    ( 126.4,    78.9)      10/10    7/10     no
+    ( 713.1,    40.7)      10/10    3/10     no
+    ( 499.6,    28.1)      10/10    7/10     no
+    (-556.5,  -486.7)      10/10    9/10     no
+
+**Five of the seven arrest under other draws.** And over every spot:
+
+    draws   expected coverage      stalemates: never arrest under ANY draw
+            endpoint      lex      endpoint   lex    REMOVED   CREATED
+      3       88.7%     91.1%         135     107       30        2
+      6       88.7%     91.2%         122      99       25        2
+
+**The CREATED count is 2 at both draw counts, and they are the SAME two spots the per-spot
+re-draw named, on different seeds** — three measurements, two protocols, one answer. The
+absolutes fall as draws rise, which is exactly right: a bigger sample has fewer spots that merely
+never came up. **The DIFFERENCE is the trustworthy half, because this is a PAIRED design** — both
+rules walk the same starts from the same draw — so the comparison survives a sample size the
+absolutes do not.
+
+So the trade is **25-30 stalemates removed for 2 created**, expected coverage **+2.5 points**, and
+per-spot arrest probability better on 89 spots and worse on 21, **4.24:1**. The router stays
+marginally cheaper.
+
+**And #108's bar was measured the same way, so it was never the bar it appeared to be.** "NOT ONE
+SPOT REGRESSED" was a statement about one draw per spot; the quantity that means what it says is
+"how many spots can never be arrested at all", and the lever moves that from 122 to 99. The bar
+is worth restating rather than re-applying, because a change that removes 25 stalemates and
+creates 2 is a different kind of proposition from one that regresses 7 with no compensating
+measurement.
+
+**Still not shipped, and the remaining cost is unchanged:** taking it re-baselines `pursuit-test`,
+`arrest-band` and `boot-check`'s arrest arms, because it perturbs the seeded pursuit stream. The
+2 created stalemates are named above so that a build taking the lever can assert them rather than
+discover them.
+
 **AND THE CONFIGURATION CHANGED THE CONCLUSION, which is why the probe is committed.** The first
 version started each walk from 8 edges spread round the network and read **80.6% against 81.0%
 with 47 spots LOST** — a reshuffle, and I nearly wrote the lever off on it. `_spawn` rejects any

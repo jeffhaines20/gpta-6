@@ -1132,6 +1132,56 @@ check, because when that fires it explains all of them. A wreck clock left ticki
 arm is otherwise a 17.6 m teleport that reports itself as "0 run-overs" — the feature looking
 broken because the harness moved the subject.
 
+## A binary coverage metric over ONE random draw cannot tell CANNOT from DID NOT
+
+`router-lever` asks "can any of a spawned fleet of 8 reach a stop point that arrests this spot",
+over 1,636 spots, and reported the lexicographic router lever as **41 newly covered, 7 LOST**. That
+7 was weighed against #108's bar, "NOT ONE SPOT REGRESSED", and the lever was recorded as not
+clearing it.
+
+**The tool built ONE `PursuitUnits` at seed 0 and took ONE 8-start draw per spot.** So each spot's
+answer is a single Bernoulli trial, and a "loss" is "the shipped rule happened to arrest and the
+candidate happened not to" — which is not the same sentence as "this spot can no longer be
+arrested". Re-drawn 10 times each at different seeds:
+
+    of the 7 single-draw losses, the candidate arrests   10/10 on one, 9/10, 7/10, 7/10, 3/10
+                                 and NEVER on            2
+
+**Five of the seven were sampling.** And the aggregate, over every spot, with both rules walking
+the SAME starts:
+
+    draws   expected coverage      stalemates: never arrest under ANY draw
+            endpoint      lex      endpoint   lex    REMOVED   CREATED
+      3       88.7%     91.1%         135     107       30        2
+      6       88.7%     91.2%         122      99       25        2
+
+So the price is 2 and not 7, the gains measured the same way are 25-30, and per-spot arrest
+probability is better on 89 spots against worse on 21.
+
+**And the mechanism was already written down as the mechanism.** #109's own entry records "seeds 0
+and 11: held 0%; seed 2: a unit reaches edge 761, BUST at 16 s" — seed dependence, for a single
+spot, as the finding. A metric built on one seed was then used to judge a change to the thing the
+seed decides.
+
+Four things to carry:
+
+- **A PAIRED design is what makes a small sample usable, and say which half it licenses.** Both
+  rules walk the same starts from the same draw, so the DIFFERENCE (25 removed, 2 created) is far
+  more robust than either ABSOLUTE (122, 99) — and the absolutes visibly move with the draw count
+  while the created count does not. Quote the difference; label the absolutes as draw-limited.
+- **A bar inherited from another round was measured by that round's instrument.** #108's "not one
+  spot regressed" was a single-draw statement too, so re-applying it to this lever compares two
+  numbers neither of which means what it says. Restate the bar in a quantity that survives — here
+  "how many spots can never be arrested" — rather than re-applying the old one harder.
+- **Name the survivors so the next protocol can check them.** The two real stalemates are (93.4,
+  357.4) and (155.4, -363.3), and they came out of the per-spot re-draw and the aggregate
+  independently, on different seeds. Three measurements agreeing on two coordinates is worth more
+  than any of the percentages.
+- **The flattering direction here was PESSIMISM, which is the rarer case and still a defect.** The
+  single-draw metric made a good change look like a bad one and a round recorded it as refused.
+  This file has many instances of an instrument that reassures; one that needlessly condemns costs
+  the same round.
+
 ## A pinned refusal's COUNT can stay right while its REASON rots
 
 `damage-test` pins nine crimes that nothing files, prints them, and says why each is a priced

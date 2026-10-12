@@ -249,3 +249,115 @@ console.log(`  walks that CYCLED (revisited an edge): endpoint ${tally.cyclesE}`
   + `   approach ${tally.cyclesA}   of ${tally.startsSeen}`);
 console.log('\n  (a cycle is not a defect: the module\'s own comment says a unit "drives on and');
 console.log('  comes round again", which is what a greedy router does at every junction.)');
+
+console.log('\n  EVERY NUMBER ABOVE IS ONE SPAWN DRAW PER SPOT, from this file\'s single seed-0');
+console.log('  `PursuitUnits`. It cannot tell a spot that CANNOT be arrested from one that merely');
+console.log('  WAS NOT on that draw, and #109\'s own mechanism is seed dependence. Run with');
+console.log('  --draws N for the paired re-draw, which is the number a decision should use.');
+
+// ---------------------------------------------------------------------------------------------
+// THE RE-DRAW, and it changes the conclusion.
+//
+// Everything above takes ONE 8-start draw per spot. #109's entry reports that as "41 newly, 7
+// LOST" and weighs it against #108's bar, "NOT ONE SPOT REGRESSED". But #109's own recorded
+// mechanism IS seed dependence — "seeds 0 and 11: held 0%; seed 2: a unit reaches edge 761, BUST
+// at 16 s", for a single spot — and a parked player gets many draws as the fleet respawns. So a
+// binary single-draw metric conflates CANNOT with DID NOT THIS TIME, and #108's bar, measured the
+// same way, was never the bar it looked like either.
+//
+// Measured. Of the 7 single-draw "losses", re-drawn 10 times each at seeds 100-109:
+//
+//     spot                   endpoint   lex     a real stalemate?
+//     ( 93.4,  357.4)         10/10    0/10     YES
+//     (723.0,  236.2)         10/10   10/10     no — it was one unlucky draw
+//     (155.4, -363.3)         10/10    0/10     YES
+//     (126.4,   78.9)         10/10    7/10     no
+//     (713.1,   40.7)         10/10    3/10     no
+//     (499.6,   28.1)         10/10    7/10     no
+//     (-556.5,-486.7)         10/10    9/10     no
+//
+// FIVE OF THE SEVEN ARREST UNDER OTHER DRAWS. And the aggregate below, over every spot:
+//
+//     draws   expected coverage        stalemates (never arrest under ANY draw)
+//             endpoint      lex        endpoint   lex    REMOVED   CREATED
+//       3       88.7%      91.1%          135     107       30        2
+//       6       88.7%      91.2%          122      99       25        2
+//
+// The CREATED count is 2 at both, and the two spots are the SAME two the per-spot re-draw named,
+// on different seeds — three measurements, two protocols, one answer. The absolutes fall as draws
+// rise, which is exactly right: more draws means fewer spots that merely never came up. THE
+// DIFFERENCE IS WHAT IS TRUSTWORTHY, because this is a PAIRED design — both rules walk the same
+// starts from the same draw — so the comparison survives a sample size the absolutes do not.
+//
+// So #109's "7 LOST" is five parts sampling and two parts real, and the trade is 25-30 stalemates
+// removed for 2 created, with per-spot arrest probability better on 89 spots and worse on 21,
+// 4.24:1.
+const DRAWS = (() => {
+  const i = process.argv.indexOf('--draws');
+  return i >= 0 ? Number(process.argv[i + 1]) : 0;
+})();
+if (DRAWS > 0) {
+  console.log(`\n${'='.repeat(78)}`);
+  console.log(`THE RE-DRAW — ${DRAWS} independent 8-start draws per spot, both rules on the SAME starts\n`);
+  // A fresh PursuitUnits per draw, so each draw is an independent sample of `_spawn`'s band
+  // rather than a further step of one stream.
+  const ps = [];
+  for (let k = 0; k < DRAWS; k++) {
+    const q = new PursuitUnits({ add() {} }, district, { count: 8, seed: 1000 + k * 7 });
+    q.clearAt = (x, z, r = 0.95) => !blockers.resolveCircle(x, z, r);
+    ps.push(q);
+  }
+  const cnt = spots.map(() => ({ e: 0, l: 0, n: 0 }));
+  for (let si = 0; si < spots.length; si++) {
+    const t = spots[si];
+    for (const q of ps) {
+      const starts = [];
+      for (let i = 0; i < FLEET; i++) {
+        const before = q.units[i];
+        q.units[i] = null;
+        if (q._spawn(i, t) && q.units[i]) starts.push({ e: q.units[i].edge, f: q.units[i].forward });
+        q.units[i] = before;
+      }
+      if (!starts.length) continue;
+      cnt[si].n++;
+      let okE = false, okL = false;
+      for (const st of starts) {
+        // `walk` closes over the module-level `p`; its geometry is the same for any seed, since
+        // only `_spawn` draws. Walking with `p` and spawning with `q` is deliberate.
+        if (!okE && arrestable(walk(st.e, st.f, t, byEndpoint), t)) okE = true;
+        if (!okL && arrestable(walk(st.e, st.f, t, 'lex'), t)) okL = true;
+      }
+      if (okE) cnt[si].e++;
+      if (okL) cnt[si].l++;
+    }
+  }
+  const live = cnt.filter((c) => c.n > 0);
+  const tot = (f) => live.reduce((a, c) => a + f(c), 0);
+  const trials = tot((c) => c.n);
+  console.log(`  ${live.length} spots with a spawn, ${trials} (spot, draw) trials\n`);
+  console.log(`  EXPECTED coverage   endpoint ${(100 * tot((c) => c.e) / trials).toFixed(1)}%`
+    + `   lex ${(100 * tot((c) => c.l) / trials).toFixed(1)}%`);
+  const neverE = live.filter((c) => c.e === 0).length;
+  const neverL = live.filter((c) => c.l === 0).length;
+  const created = live.filter((c) => c.e > 0 && c.l === 0).length;
+  const removed = live.filter((c) => c.e === 0 && c.l > 0).length;
+  console.log(`\n  STALEMATES, never arrestable under ANY draw, which is the only honest version`);
+  console.log(`  of the question the single-draw table above was asked:`);
+  console.log(`    endpoint ${neverE} of ${live.length}   lex ${neverL} of ${live.length}`);
+  console.log(`    the lever REMOVES ${removed} and CREATES ${created}   net ${removed - created >= 0 ? '+' : ''}${removed - created}`);
+  const better = live.filter((c) => c.l > c.e).length;
+  const worse = live.filter((c) => c.l < c.e).length;
+  console.log(`\n  PER-SPOT arrest probability: better on ${better}, worse on ${worse},`
+    + ` unchanged on ${live.length - better - worse}   ${(better / Math.max(1, worse)).toFixed(2)}:1`);
+  console.log('\n  the spots the lever makes unarrestable, named so another protocol can check them:');
+  for (let si = 0; si < spots.length; si++) {
+    const c = cnt[si];
+    if (c.n > 0 && c.e > 0 && c.l === 0) {
+      console.log(`    (${spots[si].x.toFixed(1)}, ${spots[si].z.toFixed(1)})   endpoint ${c.e}/${c.n}   lex 0/${c.n}`);
+    }
+  }
+  console.log('\n  The absolutes fall as DRAWS rises (135 -> 122 shipped at 3 -> 6) because a bigger');
+  console.log('  sample has fewer spots that merely never came up. The DIFFERENCE is the');
+  console.log('  trustworthy half: both rules walk the SAME starts, so it is a paired design and');
+  console.log('  the comparison survives a sample size the absolutes do not.');
+}
