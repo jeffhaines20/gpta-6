@@ -1659,6 +1659,59 @@ Their end-to-end session: decision -> new job running was **69.8 s via the wreck
 **122.5 s** by finishing first. And nothing persists — `MissionBoard.available()` filters on
 `outcome !== PASSED`, so an aborted job is indistinguishable from one never attempted.
 
+### #109 SHIPPED — the lexicographic option rule is in, priced at 2 stalemates and +1.5 s
+**`src/pursuit.js`'s `_chooseNext` is lexicographic as of `e32dd1d`.** "Prefer an option that gets
+CLOSER to the player than where I already am; when none does, head TOWARD them" — two objectives in
+priority order with no weight between them. What unblocked it was not a new lever but a corrected
+measurement, below: the recorded price of "7 spots that arrest today would stop arresting" was one
+spawn draw per spot, and five of the seven arrest under other draws.
+
+    draws   expected coverage      never arrest under ANY draw
+            endpoint      lex      endpoint  lex   REMOVED  CREATED
+      3       88.7%     91.1%        135     107      30       2
+      6       88.7%     91.2%        122      99      25       2
+
+**The 2 it creates are (93.4, 357.4) and (155.4, −363.3)** — the same two a separate per-spot
+re-draw named on different seeds, so they are a known residual rather than a future discovery.
+
+**And the time it costs is +1.5 s at close range, not the +4 s one seed said.** `arrest-band`
+hardcodes `seed: 3` and reads 31 → 35 s on its two closest rows. Paired over six seeds at the same
+deterministic spot (the longest non-service edge's midpoint, so only the pursuit's spawn draws
+vary):
+
+    off-road   shipped mean   lever mean   cost
+       0 m        26.2 s        27.7 s     +1.5
+      15 m        25.2 s        26.7 s     +1.5
+      30 m        22.3 s        22.5 s     +0.2
+      60 m        28.2 s        28.2 s      0.0   byte-identical, all six seeds
+
+**24 of 24 arrest under BOTH rules.** Seed 3 is the worst of the six, which is the figure a
+single-draw instrument reports — the same lesson as the coverage metric, arriving as the COST
+rather than the benefit. The probe reproduces `arrest-band`'s own 35.0 s at `arrest-band`'s own
+seed, which is what says it measures the same thing.
+
+**THE RULE SHIPPED WITH NO GATE AND THAT IS NOW FIXED (`43a5342`).** Measured rather than assumed:
+the endpoint-only rule it replaced passes §1–§9 of `pursuit-test`, `arrest-band` with **identical
+coverage** (same 8 arrest distances, same escape at 264 m, still "no stalemate row"),
+`playtest --selftest`, `wanted-test` and `boot-check` at its full 103 checks. The effect is a
+statistic over 1,636 spots and no gate asserts a statistic, so `pursuit-test` §10 asserts the RULE:
+it hunts the real network for a junction where the two rules disagree (edge 13 fw true — approach
+18.38 m against the endpoint pick's 35.60 m, from 35.60 m), checks the module takes the improving
+option, and checks the fallback's own case where nothing improves (edge 0 fw true → edge 692, with
+`stats.approachPicks` holding). `router-endpoint` is the mutation row.
+
+**And the first attempt to ship it failed for a reason that was not the lever.** `pursuit-test` §4
+failed at 4.12 m, I assumed a re-baseline, and it was a pre-existing unbounded station-keeping
+teleport that HEAD reproduced **larger** (5.65 m, seed 3, edge 100) — fixed in `d45da65`, after
+which the lever passes 48/48 three times. CLAUDE.md's "a regression that appears in a module you
+did not touch is evidence about coverage, not about your change", and the newly-visited case was
+never right.
+
+**The residual is greediness, not the objective**, which is why 2 is not 0 — see the original entry
+below. Reaching zero wants a different KIND of router.
+
+#### The original record, kept verbatim
+
 ### #109 Two police cars stop 24 m away and nothing ever happens, 0.04 m from a road
 Round 11's finding 4, which they correctly flagged as the one they most wanted checked. At
 **(329.8, -92.2)**, stuck at every seed they tried: a unit `stopped` on 90-97% of frames and
