@@ -597,7 +597,38 @@ export class PursuitUnits {
             && near.d <= this._localBest(u, target) + CLOSER_EPS_M
             && canWalk()))
         && (u.stopped || (wantT > near.t && u.t <= near.t))) {
-        u.t = near.t;
+        /**
+         * STATION-KEEPING IS STILL DRIVING, SO IT IS BOUNDED BY WHAT THE CAR CAN DRIVE.
+         *
+         * `u.t = near.t` was unbounded, and `near.t` is the projection of a MOVING target onto
+         * this edge — a projection that slides along a curve far faster than the target itself
+         * moves, wherever the curve runs near-parallel to the motion. Measured on this module at
+         * HEAD, target circling at 0.45 m a frame: a held unit on edge 100 (seed 3) walked `t`
+         * BACKWARDS 5.7054 m in one 1/30 s frame against a `speed * dt` of 0.733 m — a DRAWN
+         * displacement of 5.6518 m, the two differing because `t` is arc length along a polyline
+         * and the displacement is the chord. On edge 21 (374.6 m long, 23 verts) it was 3.93 m.
+         * 5.65 m at 30 Hz is 170 m/s — a stopped police car sliding visibly backwards, which is
+         * the one thing a stopped car must not do, since stopping is this game's only signal that
+         * an arrest is starting.
+         *
+         * The bound is the car's own speed and needs no constant: a car cannot move faster than
+         * it drives, forwards or backwards. It is also EXACTLY what `pursuit-test` §4 asserts, so
+         * the code's guarantee and the gate's assertion are now one sentence rather than two.
+         *
+         * IT DOES NOT CHANGE WHAT THE COMMENT ABOVE PROMISES. For a creeping player `near.t`
+         * moves a fraction of a step and the clamp never bites, so the unit still "keeps station
+         * along the kerb". On entry the branch requires `wantT > near.t && u.t <= near.t`, which
+         * puts `near.t` inside one step of `u.t` by construction, so the forward clamp is a no-op
+         * there too. Only the runaway case moves.
+         *
+         * AND IT WAS A PRE-EXISTING DEFECT THAT A SINGLE-SEED GATE MISSED. §4 ran one seed and
+         * passed; of five seeds, two reproduce the jump. It surfaced while measuring an unrelated
+         * router change, which perturbed the stream enough to put a unit on a long edge at seed 17
+         * — CLAUDE.md's "a regression that appears in a module you did not touch is evidence
+         * about coverage, not about your change", and the newly-visited case was never right.
+         */
+        const step = this.speed * dt;
+        u.t = Math.max(u.t - step, Math.min(near.t, u.t + step));
         u.stopped = true;
       } else {
         u.t = wantT;

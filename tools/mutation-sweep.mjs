@@ -1369,6 +1369,32 @@ const MUTATIONS = [
   },
   {
     /**
+     * STATION-KEEPING UNBOUNDED, which is the defect this row was written FROM rather than for:
+     * `u.t = near.t` is what the module shipped, and it teleports. `near.t` is a moving target's
+     * projection onto the edge, and a projection slides along a curve faster than the target
+     * moves wherever the curve runs near-parallel to the motion. At seed 3, target circling at
+     * 0.45 m a frame, a held unit on edge 100 walked `t` backwards 5.7054 m in one 1/30 s frame
+     * — a drawn displacement of 5.6518 m against a `speed * dt` of 0.733, and 14.87 m counting
+     * reroute frames. 170 m/s, backwards, on a car that has stopped.
+     *
+     * AND `pursuit-test` §4 WAS GREEN OVER IT for as long as both existed, because it ran one
+     * seed: 17 reproduces nothing and 3 reproduces 5.65 m. The section sweeps five seeds now, and
+     * that is the only reason this row is catchable at all — which makes it the second instance
+     * in one session of a single random draw passing a check over a live defect, after #109's
+     * coverage metric.
+     *
+     * The bound is the car's own speed in either direction and needs no constant, and it is
+     * BEHAVIOUR-PRESERVING in the arrest: `arrest-band` is byte-identical to its three-run
+     * baseline across the change, and `pursuit-test` holds 48 of 48. So nothing but the teleport
+     * moved, which is what says the bound is a bound and not a retune.
+     */
+    id: 'hold-unbounded', file: 'src/pursuit.js',
+    find: '        const step = this.speed * dt;\n        u.t = Math.max(u.t - step, Math.min(near.t, u.t + step));',
+    to: '        u.t = near.t;',
+    why: 'a stopped police car slides 5.65 m backwards in one frame, at 170 m/s',
+  },
+  {
+    /**
      * THE PAVEMENTS GO BACK INTO THE ROADS. A walk is offset from its own edge and checked
      * against BUILDINGS; nothing checked it against other streets, so 2,302 of 6,521 baked
      * points — 35.30% — lay inside some carriageway, 2,296 of them a NEIGHBOURING street's. The

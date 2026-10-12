@@ -399,11 +399,29 @@ console.log('\n3. the hold, and the release');
  */
 console.log('\n4. displacement per frame');
 {
-  const p = build({ seed: 17 });
+  /**
+   * SWEPT OVER SEEDS, BECAUSE ONE SEED PASSED THIS BY LUCK FOR AS LONG AS IT EXISTED.
+   *
+   * This section ran `seed: 17` alone. At HEAD, `seed: 3` reproduces a **5.651800 m** backwards
+   * step on one edge against a 0.733 m bound (and 14.87 m counting reroute frames), while 17
+   * reproduces nothing — so the check was green over
+   * a module that violated it, and two of five seeds tried show the violation. The defect was
+   * `u.t = near.t` in the station-keeping branch, unbounded: `near.t` is a moving target's
+   * projection onto the edge and slides faster than the target does. It surfaced only when an
+   * unrelated router change perturbed the stream enough to put a unit on a long edge at seed 17.
+   *
+   * Which seed a unit spawns on decides which edges it drives, and the whole point of this check
+   * is a property of edges. A one-seed sample of that is this file's own #109 lesson — a binary
+   * metric over one random draw — arriving inside a gate.
+   */
+  const SEEDS = [17, 3, 8, 21, 42];
+  let worst = 0, worstSame = 0, reroutes = 0, sameEdge = 0;
+  let worstSeed = null, worstEdge = null;
+  for (const seed of SEEDS) {
+  const p = build({ seed });
   const target = { x: -327.8, z: 63.3 };
   const DT = 1 / 30;
   const prev = new Array(p.count).fill(null);
-  let worst = 0, worstSame = 0, reroutes = 0, sameEdge = 0;
   for (let i = 0; i < 240 * 30; i++) {
     target.x = -327.8 + Math.sin(i / 400) * 180;
     target.z = 63.3 + Math.cos(i / 400) * 180;
@@ -416,13 +434,14 @@ console.log('\n4. displacement per frame');
       if (was && was.edge === u.edge && was.forward === u.forward) {
         const d = Math.hypot(q.x - was.x, q.z - was.z);
         sameEdge++;
-        if (d > worstSame) worstSame = d;
+        if (d > worstSame) { worstSame = d; worstSeed = seed; worstEdge = u.edge; }
       } else if (was) reroutes++;
       if (was) worst = Math.max(worst, Math.hypot(q.x - was.x, q.z - was.z));
       prev[k] = { x: q.x, z: q.z, edge: u.edge, forward: u.forward };
     }
   }
-  const bound = p.speed * DT;
+  }
+  const bound = build({ seed: SEEDS[0] }).speed * (1 / 30);
   /**
    * THE TOLERANCE IS FLOAT ACCUMULATION, AND IT IS MEASURED. `_pointOn` walks a polyline summing
    * segment lengths, so a step on one edge comes out up to 28.8 microns over `speed * dt` — the
@@ -432,10 +451,13 @@ console.log('\n4. displacement per frame');
    */
   const TOL = 0.001;
   const excess = worstSame - bound;
-  console.log(`    ${sameEdge} same-edge frames and ${reroutes} edge changes; worst step on one ` +
-    `edge ${worstSame.toFixed(6)} m against speed*dt = ${bound.toFixed(6)} m, excess ` +
+  console.log(`    ${SEEDS.length} seeds: ${sameEdge} same-edge frames and ${reroutes} edge changes; ` +
+    `worst step on one edge ${worstSame.toFixed(6)} m (seed ${worstSeed}, edge ${worstEdge}) ` +
+    `against speed*dt = ${bound.toFixed(6)} m, excess ` +
     `${(excess * 1e6).toFixed(1)} microns against a ${(TOL * 1000).toFixed(0)} mm tolerance ` +
     `(worst of any frame, reroutes included, ${worst.toFixed(2)} m)`);
+  console.log('    KNOWN-BAD: unbounded station-keeping reads 5.651800 m here (seed 3, edge 100)');
+  console.log('    and 0 at seed 17, which is why one seed passed this over a live defect.');
   check('both cases occur, or the exclusion makes this vacuous',
     sameEdge > 10000 && reroutes > 100, `${sameEdge} same-edge, ${reroutes} reroutes`);
   check('a unit on one edge never moves further in a frame than it drives',
