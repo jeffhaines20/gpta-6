@@ -99,7 +99,10 @@ export class PursuitUnits {
     this._m = new THREE.Matrix4();
     this._hidden = new THREE.Matrix4().makeScale(0, 0, 0);
     this._t = 0;
-    this.stats = { spawns: 0, despawns: 0, lost: 0, reroutes: 0, deadEnds: 0, frames: 0 };
+    this.stats = { spawns: 0, despawns: 0, lost: 0, reroutes: 0, deadEnds: 0, frames: 0,
+      // How often `_chooseNext`'s first objective fires rather than its fallback. A rule that
+      // never fires is not a rule, and a rule that ALWAYS fires has no fallback being tested.
+      approachPicks: 0 };
   }
 
   _buildAdjacency() {
@@ -413,15 +416,89 @@ export class PursuitUnits {
       this.stats.deadEnds++;
       return null;
     }
-    let best = null, bestScore = Infinity;
+    /**
+     * LEXICOGRAPHIC, TWO OBJECTIVES IN PRIORITY ORDER AND NO WEIGHT BETWEEN THEM.
+     *
+     * "Prefer an option that gets CLOSER to the player than where I already am; when none does,
+     * head TOWARD them." The first objective is the CLOSEST APPROACH, which is the quantity that
+     * actually decides whether an arrest is possible — `_localBest` already computes it and the
+     * admission in `update` already compares against it. The fallback is the rule this replaced,
+     * the distance from an option's FAR ENDPOINT, which keeps making geometric progress and
+     * cannot stall.
+     *
+     * WHY NOT JUST THE APPROACH. A pure descent on closest approach is myopic about the FUTURE —
+     * it takes an edge that passes near the target and leads nowhere — where a pure descent on the
+     * endpoint is myopic about the PRESENT. A blend would need a weight, which this project
+     * refuses; an ORDER does not. Among improving options it descends the approach; with nothing
+     * improving it behaves exactly as the shipped build did.
+     *
+     * MEASURED BEFORE IT SHIPPED, by walking this function directly with no physics and no seeds
+     * — `tools/router-lever.mjs`, which is #108's own protocol. Three rules over 1,636 clear spots
+     * 2-90 m off a road, asking "can any of a spawned fleet of 8 reach a stop point that arrests
+     * this spot":
+     *
+     *     rule                        covered        newly   LOST   mean steps
+     *     far ENDPOINT, replaced   1463 of 1636  89.4%     -      -      12.4
+     *     closest APPROACH         1495 of 1636  91.4%    46     14      11.9
+     *     LEXICOGRAPHIC, shipped   1497 of 1636  91.5%    41      7      12.1
+     *
+     * AND THOSE "LOST" FIGURES ARE ONE SPAWN DRAW PER SPOT, which is the correction that made this
+     * shippable. A binary coverage metric over a single random draw cannot tell CANNOT be arrested
+     * from WAS NOT, on that draw — and seed dependence IS this defect's mechanism (#109 records one
+     * spot holding 0% at seeds 0 and 11 and busting at 16 s at seed 2). Re-drawn, with both rules
+     * walking the SAME starts:
+     *
+     *     draws   expected coverage      stalemates: never arrest under ANY draw
+     *             endpoint      lex      endpoint   lex    REMOVED   CREATED
+     *       3       88.7%     91.1%         135     107       30        2
+     *       6       88.7%     91.2%         122      99       25        2
+     *
+     * Five of the seven single-draw "losses" arrest under other draws. The CREATED count is 2 at
+     * both draw counts and the two spots are the same ones a separate per-spot re-draw named on
+     * different seeds. The DIFFERENCE is the trustworthy half — this is a paired design — so the
+     * price is 2 stalemates for 25, and per-spot arrest probability is better on 89 spots against
+     * worse on 21.
+     *
+     * AND THE TIME IT COSTS IS +1.5 s AT CLOSE RANGE, NOT THE +4 s ONE SEED SAID. `arrest-band`
+     * hardcodes `seed: 3` and read 31 -> 35 s on its two closest rows. Paired over SIX seeds at
+     * the same spot — the longest non-service edge's midpoint, which is deterministic, so only the
+     * pursuit's spawn draws vary:
+     *
+     *     off-road   shipped mean   lever mean   cost
+     *        0 m        26.2 s        27.7 s     +1.5
+     *       15 m        25.2 s        26.7 s     +1.5
+     *       30 m        22.3 s        22.5 s     +0.2
+     *       60 m        28.2 s        28.2 s      0.0   byte-identical, all six seeds
+     *
+     * 24 of 24 arrest under BOTH rules, so nothing in that set stops arresting. Seed 3 is the
+     * worst of the six at +4 s, which is the figure a single-draw instrument reports — the same
+     * lesson as the coverage metric above, arriving as the COST rather than the benefit.
+     *
+     * (This probe measures the cost at one well-behaved spot; the sweep above measures the benefit
+     * across 1,636. At 60 m on THIS edge the lever changes nothing, so the stalemates it removes
+     * are elsewhere. Two questions, two instruments.)
+     *
+     * THE RESIDUAL IS GREEDINESS, NOT THE OBJECTIVE, and that is why 2 is not 0. This order only
+     * ever prefers an option that genuinely improves the approach, so it cannot be accused of
+     * chasing the wrong quantity; a local improvement can still lead into a worse local minimum,
+     * and no ordering fixes that while the router commits to one edge at a time with no lookahead.
+     * Reaching zero wants a different KIND of router — a search over the option tree, or Dijkstra
+     * on "best approach reachable from here". The two spots it costs are named in docs/BACKLOG.md
+     * so that is a known residual rather than a discovery.
+     */
+    const hereD = this._closestOn(unit.edge, unit.forward, target).d;
+    let improve = null, improveD = Infinity;
+    let fall = null, fallScore = Infinity;
     for (const o of options) {
-      const end = this._endVertex(o.e, o.forward);
-      const p = this.d.verts[end];
+      const a = this._closestOn(o.e, o.forward, target).d;
+      if (a < hereD && a < improveD) { improveD = a; improve = o; }
+      const p = this.d.verts[this._endVertex(o.e, o.forward)];
       const score = Math.hypot(p.x - target.x, p.z - target.z);
-      if (score < bestScore) { bestScore = score; best = o; }
+      if (score < fallScore) { fallScore = score; fall = o; }
     }
     this.stats.reroutes++;
-    return best;
+    if (improve) this.stats.approachPicks++;
+    return improve ?? fall;
   }
 
   update(dt, target) {
