@@ -1132,6 +1132,100 @@ check, because when that fires it explains all of them. A wreck clock left ticki
 arm is otherwise a 17.6 m teleport that reports itself as "0 run-overs" — the feature looking
 broken because the harness moved the subject.
 
+## A pinned refusal's COUNT can stay right while its REASON rots
+
+`damage-test` pins nine crimes that nothing files, prints them, and says why each is a priced
+refusal rather than an oversight. CLAUDE.md already holds that pin up as the thing to grep for
+before filing a dead feature, and it is still the right call. **One of its nine reasons was false
+for as long as it was written**: "reckless driving, which has no speed limit to break".
+`src/traffic.js:653` `_speedLimit(edgeIdx)` is a DECLARED limit per road class off the baked
+graph's own `r` field — 15.5 / 12.5 / 9.0 / 6.5 m/s — shipped since the fleet was.
+
+So the check could not fail and did not need to: it counts orphans, and reckless is an orphan
+either way. **The COUNT was the gated quantity and the REASON was prose beside it**, and the reason
+is what the next round reads. #107's entry was written off that sentence and spent its framing on
+"a limit would have to be derived" when the derivation was one `grep` away — which is this file's
+own "before deciding a feature needs a new mechanism, grep the module for the one you are about to
+build", arriving through a GATE's comment instead of a module's.
+
+The refusal still stands and its reason moved, which is the useful shape: not "there is no limit"
+but "`reckless` above the break-even is a punishment and below it is a cue with no consequence".
+
+### A rate that is conditional is not a rate, and the duty cycle is the quantity
+
+`idleBleed` is 0.09 heat/s and `src/wanted.js` runs it only when
+`this.time - this._lastCrimeAt > this.idleGrace` (2.5 s). At `reckless`'s 3 s refractory a charge
+resets that clock every cycle, so the bleed is live for 0.5 s of each 3 s and sheds **0.0150/s, not
+0.0900 — six times less**.
+
+My first pricing printed a "net of bleed" column as `gross - idleBleed`:
+
+    scale 0.25   gross 0.0333/s   "net" -0.0567/s   and, measured off the module, 1 star at 60.4 s
+
+**A negative net cannot reach a star at all.** Two columns in one table that could not both be
+true, one computed and one measured — and the computed one was a model of an UNGATED bleed that
+does not exist. The tell was not a wrong-looking number; both columns looked fine alone.
+
+Two rules. **When a tool prints a derived column beside a measured one, make them disagree loudly
+or do not print the derived one** — the whole value of having both is that a contradiction is
+visible. And **before dividing by a rate, check what gates it**: `grep` for the field's name and
+read the `if` around the line that applies it, which took one command and settles it.
+
+`speed-limit --selftest` asserts the measured bleed is the GATED rate and prints the ungated figure
+beside it. There is nothing between 0.0150 and 0.0900 for the bound to be wrong at, which is the
+only kind of bound this file considers worth writing down.
+
+### A by-construction ceiling is what validates a RATIO's denominator
+
+The price needed "what fraction of driving is over the limit", which is a ratio whose denominator
+is a per-edge lookup — and a lookup keyed on the wrong edge produces a plausible table and no error
+at all. The check is the fleet: `src/traffic.js` sets `car.limit = _speedLimit(e) * (0.85 + r*0.3)`,
+so **a correct reading cannot exceed x1.15**, and it reads
+
+    fleet against its own road's declared limit   p50 x0.90   p90 x1.05   max x1.1393
+
+A mis-keyed lookup scatters past x1.15 immediately. That one number is the whole proof the
+denominator is right, and it is the sibling of this file's deliberate byte-identical control in a
+blind pair: **build a quantity into the measurement whose value is fixed by construction, and read
+it first.**
+
+And it doubles as the second protocol. The fleet drives at x0.90 of the declared limit and the
+shipped follower at x1.70, over it on 79.5% of samples against the fleet's 21.8% — so the limit is
+this district's normal and the PLAYER is the anomaly. Measuring only the player would have left
+"the limit is too low" as a live reading; measuring both closes it.
+
+### A tolerance can degenerate into the instrument's own cap
+
+Asked what multiplier on the declared limit would charge only the worst few percent of driving:
+
+    worst 50%   x1.70        worst 5%   x3.23
+    worst 10%   x2.59        worst 1%   x3.26      against a measured MAXIMUM of x3.26
+
+Past about x2.6 the answer is `followPath`'s own 22 m/s cap divided by a service alley's 6.5 —
+a property of the harness, not of the roads. **A percentile that converges on the instrument's
+ceiling has stopped measuring the subject**, and the giveaway is the 5% and 1% rows landing on the
+max. Print the maximum next to the percentiles and the degeneracy is visible; print the percentiles
+alone and x3.26 reads as a usable tolerance.
+
+The same frame says what the number IS good for: the follower caps at 79.2 km/h and the car will do
+140, so 79.5% over the limit is a **FLOOR** on what a human would earn, not an estimate of it. A
+one-sided bound is worth having when you say which side it is on.
+
+### And FLOORLESS_CAP bounds the DELTA, not the TOTAL
+
+#107 argued for a limit on the grounds that `reckless` "is floorless: it accumulates through the
+soft knee and never on its own makes you wanted". The first clause is right. The second is false,
+and it is the reason a limit is dangerous rather than the reason it is safe:
+
+    one charge at scale 1       0.4000 of heat, 0 stars      correct
+    continuous charging         ONE STAR at 6.1 s
+    60 s of it                  heat 5.9900, five stars
+
+The knee caps each `delta` at 1; `reportCrime` does `max(heat + delta, c.min)` and nothing caps the
+sum. This file already has two sections on stacked saturations and one on measuring what a
+saturation COSTS before fixing it; this is the third shape — **a per-event cap read as a lifetime
+cap.** Ask what the cap is applied TO, and then charge the thing repeatedly and look at the meter.
+
 ## Numbers that are not what they look like
 
 - **The budget gate's triangle count carries ~20k of run-to-run noise** from
@@ -2400,7 +2494,7 @@ linear in the mission's size, caught at x7.89 while passing the absolute bound a
 `reaction-test`, `sim-determinism`, `traffic-selftest`, `hud-cue`, `pursuit-test`,
 `car-shapes`, `crowd-bill --selftest`, `tri-buckets --selftest`, `gate-align --selftest`,
 `mutation-sweep --selftest`, `playtest --selftest`, `car-shapes --selftest`,
-`arrest-band --selftest`, `paint-census`,
+`arrest-band --selftest`, `paint-census`, `speed-limit --selftest`,
 `glass-census` (needs a browser to decode the reference JPEGs; about 20 s),
 `paint-tone` (the same, about 2.4 s), `car-pixel` (the same, about 1.4 s).
 The offline ones together take under a minute.

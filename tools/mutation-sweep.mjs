@@ -118,6 +118,11 @@ const OFFLINE = [
   // own getter, paint-tone committed PNGs a mutated source cannot reach. `tint-invert` passed all
   // three of those, all 70 of boot-check and all 65 of traffic-selftest.
   'car-pixel',
+  // 1.33 s, and it is the only gate that reads `src/traffic.js`'s DECLARED speed limit or the
+  // GATE on `src/wanted.js`'s idle bleed. #107's pricing turns on both: a `_speedLimit` that fell
+  // through to one value, or a bleed that ran continuously instead of after `idleGrace`, each
+  // leave every other gate green while moving the quantity the refusal is argued on by 7x.
+  'speed-limit --selftest',
 ];
 
 /**
@@ -252,6 +257,39 @@ const MUTATIONS = [
     find: "    if (this.stars <= 0 || !player.held || (moving && (away ?? true))) {",
     to: "    if (this.stars <= 0 || !player.held || moving) {",
     why: 'circling at walking pace beats the pursuit again, without leaving the block',
+  },
+  {
+    /**
+     * THE IDLE BLEED UNGATED. `idleBleed` is 0.09 heat/s and the gate holds it off until
+     * `idleGrace` (2.5 s) has passed with no new crime, so at a 3 s crime cadence it is live 16.7%
+     * of the time and sheds 0.0150/s. Ungated it sheds 0.0900 — SIX TIMES more — and that single
+     * factor decides whether repeated low-grade offences can ever make a player wanted. It is
+     * BEHAVIOUR-PRESERVING for a player committing one crime and walking away, which is every
+     * other gate's case, so only an instrument that charges REPEATEDLY at a known cadence can see
+     * it. #107's whole refusal is argued on the break-even scale this moves.
+     *
+     * And the direction is the flattering one: a faster bleed is a more forgiving game, so nothing
+     * breaks, nothing errors, and the meter simply stops being able to accumulate.
+     */
+    id: 'bleed-ungated', file: 'src/wanted.js',
+    find: "      if (this.heat > 0 && this.time - this._lastCrimeAt > this.idleGrace) {",
+    to: "      if (this.heat > 0) {",
+    why: 'repeated low-grade offences can no longer accumulate; the break-even scale moves 6x',
+  },
+  {
+    /**
+     * THE DECLARED SPEED LIMIT FLATTENED. `_speedLimit` reads the baked graph's own `r` field and
+     * returns 15.5 / 12.5 / 9.0 / 6.5 m/s for primary / secondary / residential / service. Making
+     * every road a primary is the defect a round would introduce by "simplifying" it, and it is
+     * invisible to `traffic-selftest`: the fleet still drives, still holds its lane, still clears
+     * junctions, and its cars still never exceed their own x1.15 jitter ceiling — because that
+     * ceiling is relative to whatever the limit returns. Only a gate that asserts the limit has a
+     * SPREAD can see it, and #107's price is computed per road class.
+     */
+    id: 'speed-limit-flat', file: 'src/traffic.js',
+    find: "    if (r <= 2) return 15.5;      // primary",
+    to: "    if (r <= 8) return 15.5;      // primary",
+    why: 'every alley carries arterial traffic speed, and the district declares one limit',
   },
   {
     /**

@@ -1129,6 +1129,95 @@ guarding against in the first place.
 `boot-check`'s arm asserts the wire and PRINTS the rate rather than asserting the completion, with
 a comment saying why: a check that cannot pass reliably reads as a defect in whatever ran last.
 
+### #107 PRICED AND REFUSED — the limit already exists, and filing `reckless` against it is a star every 18 s
+**CLOSED BY MEASUREMENT, `tools/speed-limit.mjs`.** The entry below asked "should this district have
+a speed limit", called the three candidate derivations unmeasured, and argued for one on the grounds
+that `reckless` "never on its own makes you wanted". **Both of those are wrong, and the second one
+is the answer.**
+
+**The limit already exists.** `src/traffic.js:653` `_speedLimit(edgeIdx)` is a DECLARED limit per
+road class, keyed off the baked graph's own `r` field, shipped since the fleet was:
+
+    limit      km/h    edges   metres   share of network   classes
+    15.5 m/s   55.8       79     6,061        13.7%        primary
+    12.5 m/s   45.0      270     9,596        21.8%        tertiary, secondary
+     9.0 m/s   32.4      233    11,566        26.2%        residential
+     6.5 m/s   23.4      353    16,887        38.3%        service
+
+So the entry's candidate 1 — "the traffic fleet's own distribution ... src/traffic.js owns it" —
+understates it: the module does not merely have a distribution to be measured, it has a number the
+district declares. Nothing has to be invented. **And `damage-test`'s pin said in as many words
+"reckless driving, which has no speed limit to break", which was false for as long as it was
+written** — corrected in place, with the reason the refusal still stands.
+
+**The entry's premise is also false, and that is the whole of the refusal.** `FLOORLESS_CAP`'s soft
+knee bounds each DELTA at 1; `reportCrime` does `max(heat + delta, c.min)`, which does not bound the
+TOTAL at all:
+
+    one reckless charge at scale 1      0.4000 of heat, 0 stars        the entry is right
+    continuous charging                 ONE STAR at 6.1 s, heat 1.0920
+    60 s of it                          heat 5.9900, five stars
+
+**The price, two protocols on one denominator.** The shipped follower on the shipped vehicle, 8
+cross-district routes, 12,298 m, each sample scored against the limit of the road it is ON:
+
+    planar speed                         p50 74.1   p90 76.3   max 76.3 km/h
+    OVER its road's declared limit       79.5% of 7,506 samples
+    excess when over                     p50 31.3   p90 43.9   max 52.9 km/h
+    as a ratio of the limit              p50 x1.70  p90 x2.59  max x3.26
+
+and the fleet, by a second protocol, over 5,969 car-samples:
+
+    fleet speed                          p50 30.4   p90 45.8   max 62.2 km/h
+    against its own road's limit         p50 x0.90  p90 x1.05  max x1.15   <- its jitter ceiling
+    over the limit                       21.8% of car-samples
+
+**The max of x1.15 is the by-construction check that validates the denominator**: `car.limit` is
+`_speedLimit(e) * (0.85 + r * 0.3)`, so a correct reading cannot exceed x1.15 and does not. A
+mis-keyed limit lookup is the one way this measurement could be wrong without looking wrong, and
+that number rules it out. **So the declared limit IS this district's normal, the fleet obeys it, and
+the player is the anomaly.** (The playtester's quoted p50 36 / p90 52 / max 64 reproduces at
+30.4 / 45.8 / 62.2 — reproduce before quoting.)
+
+**The decisive number is the BREAK-EVEN SCALE, 0.141.** `idleBleed` is 0.09 heat/s GATED on
+`idleGrace` (2.5 s), so at `reckless`'s 3 s refractory it is live 16.7% of the time and sheds
+0.0150/s. Bisected off the module, a charge under scale 0.141 can never reach one star however long
+you speed. Both natural scale rules land 5-6x above it:
+
+    excess / limit     median scale 0.696   p90 1.590   15.9 charges/min   ~1 star in 18 s
+    excess / 10 m/s    median scale 0.868   p90 1.220   15.9 charges/min   ~1 star in 18 s
+
+**And the tolerance degenerates.** The multiplier on the declared limit that would charge only the
+worst 5% is x3.23 and the worst 1% is x3.26, against a measured MAXIMUM of x3.26 — past about x2.6
+the tolerance is reading the autopilot's own 79.2 km/h cap rather than any property of the roads.
+There is no multiplier that charges the worst few percent without charging almost nothing.
+
+**So: a priced refusal, and its reason has moved.** It is not "there is no limit to break" — there
+is one, derivable, per road class. It is that **`reckless` above the break-even is a punishment and
+below it is a cue with no consequence**, and the thing this district is missing is the cue, not the
+crime. Filing it needs a scale that stays under 0.141 by construction, which makes it a HUD
+affordance rather than an entry in the crime table.
+
+**One limitation stated rather than buried.** The follower is not a player: `followPath` caps at
+22 m/s = 79.2 km/h and the car will do 140, so 79.5% is a FLOOR on what a human would earn, not an
+estimate of it. The refusal only gets stronger if a human is faster.
+
+`tools/speed-limit.mjs --selftest` is 10 checks in 1.3 s and is on the offline gate list and
+`mutation-sweep`'s. Two rows give it teeth: `bleed-ungated` (the gate removed, which moves the
+break-even 6x and is behaviour-preserving for every other gate) and `speed-limit-flat` (every road
+a primary, invisible to `traffic-selftest` because its x1.15 ceiling is relative to whatever the
+limit returns).
+
+**Two wrong instruments on the way, both of which printed a reassuring number, recorded in the
+tool's own header:** a "net of bleed" column computed as `gross - idleBleed` that read -0.0567
+heat/s beside a module-measured "1 star at 60.4 s" — a negative net cannot reach a star, and the
+arithmetic column was the wrong model of a gated bleed; and percentiles of `cornerSpeed(local
+radius)` over all 1,452 interior course points reading p50 110 km/h, p90 1,474, max 10,458, which
+are the straights. A third read 0 car-samples and a NaN percentile because it put the player at
+(1e6, 1e6) and `_spawn` rejects a start outside 70-260 m of the target.
+
+#### The original record, kept verbatim
+
 ### #107 `reckless` is unfiled, and it is a PRICED REFUSAL rather than an oversight — the open question is a speed limit
 B's observation is exact and reproduces: `reckless` (heat 0.40, cool 2, refractory 3.0, **no `min`**)
 has been in `CRIMES` since the table was written, and **120 s at a top speed of 94 km/h with 40 swerve

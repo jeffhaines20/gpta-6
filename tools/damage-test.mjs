@@ -824,8 +824,18 @@ console.log('CRIME SCALE — how big an offence was, not just which offence');
    * The remaining nine are a priced refusal, not an oversight: the systems that would file them do
    * not exist. Weapons (brandish, discharge), theft (vehicleTheft), police on foot (assault,
    * officerAssault, officerDown), restricted zones (restrictedArea), the pursuit layer's own
-   * `evading`, and reckless driving, which has no speed limit to break. The count is pinned so
-   * adding a crime without a reporter is visible in the diff.
+   * `evading`, and reckless driving. The count is pinned so adding a crime without a reporter is
+   * visible in the diff.
+   *
+   * CORRECTED: this comment used to say reckless driving "has no speed limit to break", and that
+   * was false for as long as it was written. `src/traffic.js`'s `_speedLimit(edgeIdx)` is a
+   * DECLARED limit per road class off the baked graph's own `r` field — 15.5 / 12.5 / 9.0 / 6.5 m/s
+   * — shipped since the fleet was, and the fleet obeys it to its own x1.15 jitter ceiling. So the
+   * limit exists and `reckless` has something to break; what is missing is a SCALE. `speed-limit`
+   * prices it: the shipped follower is over its road's declared limit on 79.5% of samples by a
+   * median of x1.70, which at either natural scale rule is 5-6x the break-even scale of 0.141 and
+   * puts a star on an ordinary drive inside twenty seconds. The refusal stands and its REASON
+   * moved. See #107.
    */
   const named = ['propertyDamage', 'civilianCollision', 'pedestrianHit', 'pedestrianKilled',
     'policeProperty', 'roadblockRun', 'hitAndRun'];
