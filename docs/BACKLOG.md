@@ -2109,6 +2109,36 @@ robustness either. **The conclusion may well be right** — 2 rams either way is
 to begin with, and #87's own 16-fleet sweep puts the base rate at about 0.3 cars per 350 m — but
 it is one fleet's answer, and re-running it is now a one-line change.
 
+#### RE-RUN ACROSS 16 REAL FLEETS: THE REFUTATION HOLDS, AND MORE STRONGLY THAN IT DID
+`shunt-rate --b11`, same pair, 43 km/h, the seed now reaching the fleet so these are 16 fleets
+rather than 16 replicates:
+
+    arm        cars  frames   drives with a contact   health mean   lift fired
+    ignore        1       6               1 of 16          0.9595   n/a
+    lift 25 m     1       6               1 of 16          0.9784   22.5% of steps
+
+    paired per fleet: worse on 1, better on 1, LEVEL ON 14 of 16
+    deltas:           0 0 -1 0 0 1 0 0 0 0 0 0 0 0 0 0
+
+**And it answers the review's own caveat rather than inheriting it.** Their lift rule fired on 3%
+of frames, which is why they called it weak evidence about braking. This one tests every direction
+rather than only ahead and fires on **22.5% of steps — 7x more active — and is still null.** A
+rule that intervenes on nearly a quarter of the drive and changes nothing is a much stronger
+statement than one that barely engages.
+
+Two honest limits. **The base rate is the binding one:** 1 contact per 16 drives means this pair
+could not detect a doubling, so the result is a bound rather than a demonstration of equality —
+and that bound is what matters, because round 8's claim was a 6-against-0 difference. And the lift
+arm drives slower, so it completes fewer routes and has less exposure; the first printing of this
+table labelled a column "m driven" that was really `driveTo`'s ROUTE length returned only on
+arrival, which reads 0 on a timeout. `drive()` returns the odometer now and the arm prints the
+arrival count beside it.
+
+Reconciling the units: B#11's "2 rams" is the FRAME counter, so at the ~6 frames per car measured
+here it is well under one car — which is why two arms of a real comparison both read 2. Their
+1.98 rams/km in frames is the same order as the 0.16 cars/km here once converted. **The two rounds
+never disagreed; one of them was counting frames.**
+
 ### The four highest-heat crimes have never been played (B, "what I could not resolve")
 `tools/playtest.mjs`'s contact pass iterates the traffic fleet and the crowd and **not the pursuit
 units**, so `policeProperty`, `roadblockRun`, `officerAssault` and `officerDown` — the four

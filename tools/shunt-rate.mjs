@@ -153,8 +153,27 @@ const q = (a, p) => {
  * perturbation CLAUDE.md records at length; it is why this reports seeds separately.
  */
 export function drive({ maxSpeed = 10, seed = 0, fleetScale = 1, traffic = 12, peds = 40,
-  timeout = 300 } = {}) {
+  timeout = 300, liftOff = 0 } = {}) {
   const s = new Session({ seed, traffic, peds });
+  /**
+   * `liftOff` REPRODUCES ROUND 8/B#11's ARM: cut the throttle for any fleet car within this many
+   * metres. Round 8 measured "flat out ignoring traffic: 0 rams, 519 m; lifting off for any car
+   * within 25 m: 6 rams, 357 m" and a later blind review refuted it as identical. See `--b11`.
+   *
+   * It hooks `session.drive` rather than re-implementing the follower, so the two arms differ in
+   * exactly one term and the route, the speed cap and the stuck detector are the shipped ones.
+   */
+  let lifted = 0, steps = 0;
+  if (liftOff > 0) {
+    const origDrive = s.drive.bind(s);
+    s.drive = (c) => {
+      steps++;
+      const near = (s.traffic._lastPositions ?? []).some((p) => p
+        && Math.hypot(p.x - s.vehicle.position.x, p.z - s.vehicle.position.z) < liftOff);
+      if (near) { lifted++; return origDrive({ ...c, throttle: 0 }); }
+      return origDrive(c);
+    };
+  }
   if (fleetScale !== 1) {
     const orig = s.traffic._speedLimit.bind(s.traffic);
     s.traffic._speedLimit = (i) => orig(i) * fleetScale;
@@ -183,7 +202,14 @@ export function drive({ maxSpeed = 10, seed = 0, fleetScale = 1, traffic = 12, p
     frames: s.stats.shuntFrames, cars: s.stats.shuntCars,
     fleetFrames: rep.shuntFrames, fleetCars: rep.shuntCars,
     health: s.damage.health, wrecked: s.damage.wrecked, crashes: s.stats.crashes,
-    knockdowns: s.stats.knockdowns, fleetKmh: rep.meanSpeedKmh };
+    knockdowns: s.stats.knockdowns, fleetKmh: rep.meanSpeedKmh,
+    liftedPct: steps ? +(100 * lifted / steps).toFixed(1) : 0, steps,
+    /**
+     * `metres` above is `driveTo`'s ROUTE length and is only returned on arrival, so it reads 0
+     * on a timeout — useful as an arrival proxy and NOT distance driven, which is what its first
+     * printing in the B#11 table called it. `stats.distance` is the odometer.
+     */
+    driven: +s.stats.distance.toFixed(0) };
 }
 
 /**
@@ -425,6 +451,49 @@ if (DECIDE && IS_MAIN) {
       + ` ${String(cars).padStart(4)} ${String(rows.reduce((a, r) => a + r.frames, 0)).padStart(7)} |`
       + ` ${any}/${seeds}`);
   }
+  process.exit(0);
+}
+
+// ----------------------------------------------------------------------- b11
+if (process.argv.includes('--b11') && IS_MAIN) {
+  /**
+   * RE-RUNNING A RECORDED REFUTATION ACROSS FLEETS. Round 8 found that lifting off for traffic
+   * was WORSE than ignoring it (0 rams / 519 m against 6 rams / 357 m); a blind review refuted
+   * that as "identical in all five seeds, 1.98 rams/km either way". **That phrase is the seed
+   * defect's signature** — `Session` did not pass its seed to `Traffic`, so five seeds held one
+   * fleet. The review's own caveat already said the lift rule fired on 3% of frames. This runs
+   * the same pair over real fleets, and reports the firing rate so a null result can be read as
+   * "no effect" rather than "the rule did nothing".
+   */
+  const seeds = Number(process.env.SR_SEEDS ?? 16);
+  const SD = Array.from({ length: seeds }, (_, i) => i);
+  console.log(`B#11 ACROSS FLEETS — lift off for traffic within 25 m, or ignore it. ${seeds} fleets.\n`);
+  console.log('  arm      | cars  frames | drives w/ a contact | health mean | m DRIVEN | arrived | lift fired');
+  const out = {};
+  for (const lift of [0, 25]) {
+    const rows = SD.map((seed) => drive({ maxSpeed: 12, seed, liftOff: lift, timeout: 300 }));
+    const cars = rows.reduce((a, r) => a + r.cars, 0);
+    out[lift] = { rows, cars };
+    console.log(`  ${lift ? 'lift 25m' : 'ignore  '} | ${String(cars).padStart(4)} `
+      + `${String(rows.reduce((a, r) => a + r.frames, 0)).padStart(7)} | `
+      + `${String(rows.filter((r) => r.cars > 0).length).padStart(19)} | `
+      + `${(rows.reduce((a, r) => a + r.health, 0) / rows.length).toFixed(4).padStart(11)} | `
+      + `${(rows.reduce((a, r) => a + r.driven, 0) / rows.length).toFixed(0).padStart(8)} | `
+      + `${String(rows.filter((r) => r.arrived).length).padStart(2)}/${rows.length}   | `
+      + `${lift ? (rows.reduce((a, r) => a + r.liftedPct, 0) / rows.length).toFixed(1) + '% of steps' : 'n/a'}`);
+  }
+  // PAIRED, because both arms walk the same fleet at each seed — the DIFFERENCE is what this
+  // licenses, not either absolute. CLAUDE.md's router-lever section is that rule.
+  for (const lift of [0, 25]) {
+    const km = out[lift].rows.reduce((a, r) => a + r.driven, 0) / 1000;
+    console.log(`  ${lift ? 'lift 25m' : 'ignore  '} -> ${(out[lift].cars / km).toFixed(3)} `
+      + `CARS/km over ${km.toFixed(2)} km driven`);
+  }
+  const diffs = SD.map((i) => out[25].rows[i].cars - out[0].rows[i].cars);
+  const worse = diffs.filter((d) => d > 0).length, better = diffs.filter((d) => d < 0).length;
+  console.log(`\n  paired per fleet: lifting off is worse on ${worse}, better on ${better}, `
+    + `level on ${diffs.length - worse - better} of ${diffs.length}`);
+  console.log(`  per-fleet deltas: ${diffs.join(' ')}`);
   process.exit(0);
 }
 
