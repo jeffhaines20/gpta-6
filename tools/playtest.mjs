@@ -220,7 +220,26 @@ export class Session {
     this._pursuitOut = [];
     this._pursuitMat = new THREE.Matrix4();
     this._pursuitVec = new THREE.Vector3();
-    this.traffic = new Traffic(scene, this.district, { count: opts.traffic ?? 30 });
+    /**
+     * AND THE SEED REACHES THE FLEET, which it did not. `PursuitUnits` above and `Pedestrians`
+     * below both take `opts.seed ?? 0`; this line took `count` alone, so `Traffic` fell through
+     * to its own fixed default and **every Session in a seed sweep held the SAME fleet**. Only
+     * the crowd and the police varied.
+     *
+     * Found by a cross-seed reading that was too good: the first shunt of each drive hit a car
+     * doing 8.091 m/s in six of six seeds, and 0.477 at a slower player cap, identical to three
+     * decimals. Different fleets cannot agree like that; one fleet replicated six times can.
+     *
+     * It silently weakened a conclusion I had just drawn from "16 seeds" — see tools/shunt-rate
+     * --decide, which is 16 replicates of one fleet rather than 16 draws. Every playtest round
+     * that varied `seed` and reported on traffic reported one fleet, including the median/90th/max
+     * flow figures CLAUDE.md quotes.
+     *
+     * The blast radius is one file: every other caller in tools/ that passes an explicit seed
+     * also passes `traffic: 0`, so it has no fleet to perturb.
+     */
+    this.traffic = new Traffic(scene, this.district, { count: opts.traffic ?? 30,
+      seed: opts.seed ?? 0 });
     /**
      * The bridge. `count` is what the plan asks for, and the slots above it are nulled so the
      * fleet never drives cars the wanted system has not requested — the same masking main.js does

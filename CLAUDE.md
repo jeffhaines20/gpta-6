@@ -666,6 +666,24 @@ but **the sentence "it would break the one place it was not looking" rests on a 
 exercised**, and that is worth knowing before anybody leans on it again. Saying which of your own
 claims sits on untested ground is cheaper than having somebody else find out.
 
+**AND THAT GAP IS CLOSED, which this section did not know because the fix was recorded in the
+source and not here.** `tools/playtest.mjs`'s contact pass iterates `_unitPositions()` now and
+files `IMPACT.police`, so `policeProperty` IS reachable in the harness — and the paragraph above
+was three parts wrong about the other three, as that module's own comment says: `IMPACT.roadblock`
+is emitted by nothing in `src/` or `district/` at all, and `officerAssault`/`officerDown` are two
+of the nine orphans `damage-test` pins as a priced refusal because police on foot do not exist. So
+it was ONE instrument gap and three priced refusals, not four untested branches.
+
+The branch is also exercised rather than merely present: one 15 m/s ram produces 51 / 57 / 10
+contact frames across three seeds against **ONE** charged crime, because `policeProperty`'s
+refractory is 1.5 s — which is where `policeHitFrames` got its name.
+
+**The shape to carry is this file's own "a pinned refusal's COUNT can stay right while its REASON
+rots", one level up: a CLAUDE.md section can go stale about a gap it opened.** The module comment
+was corrected when the pass landed; this section was not, so the caveat kept reading as live for
+every round that got here. When you close a gap a CLAUDE.md section names, grep this file for the
+claim, not only the code.
+
 Three things to carry:
 
 - **Measure what a saturation COSTS before fixing it.** "The scale is flat above 44.5 km/h" and
@@ -4203,20 +4221,38 @@ CARS against none, so the entry's magnitude is out by a factor of 23. **This one
 ALARMING direction**, which is the rarer case this file records once before: an instrument that
 needlessly condemns costs the same round as one that reassures.
 
-**AND THE SHAPE WAS RIGHT, WHICH I THEN GOT WRONG OFF THE SAME TABLE.** Over 5 seeds the event
-column reads 3,1,0,0,2,2,1,2 and I wrote that the non-monotonicity was therefore "a low-rate count
-multiplied by a frame counter" — a zero inside the spread of a count whose mean is under 2. At 16
-seeds per speed it is **16 of 16 drives with a contact at 22 km/h against 0 of 16 at 36**, with
-1 of 16 at 29 and 15-16 of 16 at 40-50. That is not Poisson noise; it is very nearly
-deterministic, and about one contact per drive either side of a genuinely empty band.
+**AND THE SHAPE IS NOT REAL EITHER, WHICH TOOK THREE READINGS OF ONE TABLE.** Over 5 seeds the
+event column reads 3,1,0,0,2,2,1,2 and I called the non-monotonicity "a low-rate count multiplied
+by a frame counter". At 16 seeds it read **16 of 16 drives with a contact at 22 km/h against 0 of
+16 at 36**, so I corrected myself in a commit and wrote it up as real and nearly deterministic.
+Then:
 
-So the two halves of a finding can fail in opposite directions at once: **the count was 23x too
-big and the shape was correct**, and fixing the first tempted me into denying the second. This
-file's `router-lever` section is "a binary coverage metric over ONE random draw cannot tell CANNOT
-from DID NOT" — I quoted that rule AT this entry and then used five draws to dismiss a real
-effect. The rule's own stated flattering direction is pessimism; the direction here is
-**dismissal**, and it is cheaper to fall into because it closes an entry instead of opening one.
-A sparse count needs the seeds before EITHER verdict, not just before the alarming one.
+    1. five seeds,   events 3,1,0,0,2,2,1,2       "not a signal"          right, badly argued
+    2. sixteen seeds, 16/16 against 0/16          "real, deterministic"   WRONG
+    3. the seed wired to the fleet, 16 FLEETS     6,5,5,6,1,4             flat
+
+**`Session` never passed its seed to `Traffic`.** `PursuitUnits` got `opts.seed ?? 0` and
+`Pedestrians` got it; the fleet line took `count` alone, so `Traffic` fell through to its own
+fixed default and every Session in a seed sweep held the SAME fleet. The "16 seeds" were sixteen
+replicates of one world.
+
+**And step 2 looked decisive BECAUSE of the defect.** 16/16 against 0/16 is not a stochastic
+reading — it is one layout repeated — so the near-determinism that made it convincing is exactly
+what should have condemned it. The rule, which this file has not had before:
+
+**A CROSS-SEED COLUMN THAT IS TOO CONSISTENT IS EVIDENCE THE SEED IS NOT REACHING WHAT YOU
+VARIED.** The tell fired twice in this one round and I read it as signal both times: the first
+contact of each drive hit a car doing **8.091 m/s in six of six seeds, identical to three
+decimal places**, which no set of different fleets can produce. The second time I noticed, and
+the thing I noticed was the repeated digits rather than the conclusion they supported.
+
+So this file's `router-lever` rule — "a binary metric over ONE random draw cannot tell CANNOT from
+DID NOT" — needs a clause. Counting the draws is not enough; **check that the draws differ.** A
+sweep whose parameter does not reach the subsystem produces n=1 wearing n=16's clothes, and it is
+the one sampling error that gets MORE convincing as you add samples.
+
+The blast radius is the other half of the finding: every playtest round that varied `seed` and
+reported on traffic reported one fleet, this file's own quoted flow figures among them.
 
 Two things that would each have found it on its own, and neither was done:
 

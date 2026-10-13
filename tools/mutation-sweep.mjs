@@ -2282,6 +2282,28 @@ const MUTATIONS = [
     to: "    this.stats.shuntCars++;",
     why: 'the distinct-car count reverts to a frame count, so a contact rate reads 23x high',
   },
+  {
+    /**
+     * THE SEED STOPS REACHING THE FLEET, which is how it shipped. `Session` gives `PursuitUnits`
+     * and `Pedestrians` `opts.seed ?? 0` and gave `Traffic` only `count`, so `Traffic` fell
+     * through to its own fixed default and EVERY SESSION IN A SEED SWEEP HELD THE SAME FLEET.
+     * Only the crowd and the police varied.
+     *
+     * It is behaviour-preserving for every gate that passes no seed, and every other caller in
+     * tools/ that passes one also passes `traffic: 0` — so nothing has a fleet to perturb and
+     * nothing failed. What it destroys is the meaning of a seed sweep over traffic: #87's
+     * `--decide` read 16/16 drives with a contact at 22 km/h against 0/16 at 36 and I wrote that
+     * up as a real effect. With the fleet varying it is 5/16 against 5/16 and the effect is gone.
+     *
+     * The tell was UNANIMITY, twice over: the first contact of each drive hit a car doing 8.091
+     * m/s in six of six seeds, identical to three decimals. A cross-seed column that is too
+     * consistent is evidence the seed is not reaching what you varied.
+     */
+    id: 'session-fleet-seed', file: 'tools/playtest.mjs',
+    find: "    this.traffic = new Traffic(scene, this.district, { count: opts.traffic ?? 30,\n      seed: opts.seed ?? 0 });",
+    to: "    this.traffic = new Traffic(scene, this.district, { count: opts.traffic ?? 30 });",
+    why: 'a seed sweep over traffic becomes one fleet replicated, and every gate stays green',
+  },
 ];
 
 // --------------------------------------------------------------------------- mechanics

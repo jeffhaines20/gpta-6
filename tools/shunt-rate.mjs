@@ -22,24 +22,34 @@
  * over 11 distinct cars, 23.5 frames each, worst 50 frames on ONE car. "19 against 0" is one
  * to three CARS against none, so the entry's magnitude is out by a factor of 23.
  *
- * AND THE SHAPE IS REAL, WHICH I DENIED FIRST OFF THIS SAME TABLE. Five seeds give the event
- * column 3,1,0,0,2,2,1,2, and I wrote that a row of 0 sat inside the spread of a count whose
- * mean is under 2 — so the non-monotonicity was "a low-rate count multiplied by a frame
- * counter". `--decide` at 16 seeds per speed says otherwise, and decisively:
+ * AND THE SHAPE IS NOT REAL EITHER, WHICH TOOK THREE READINGS OF ONE TABLE:
  *
- *     km/h   cars per seed                      cars   drives with a contact
- *       22   1 1 1 2 1 1 1 1 1 1 1 1 1 1 1 1      17          16/16
- *       29   0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0       1           1/16
- *       36   0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0       0           0/16
- *       40   2 1 2 0 2 2 2 2 2 2 1 1 2 2 2 2      27          15/16
- *       43   1 1 1 2 1 1 1 1 1 1 2 2 1 1 1 1      19          16/16
- *       50   1 1 1 1 1 1 1 1 1 1 1 2 1 1 1 1      17          16/16
+ *     1. five seeds,    events 3,1,0,0,2,2,1,2      "not a signal"         right, badly argued
+ *     2. sixteen seeds, 16/16 against 0/16          "real, deterministic"  WRONG
+ *     3. the seed wired to the fleet, 16 FLEETS     6,5,5,6,1,4            flat
  *
- * 16 of 16 against 0 of 16 is not noise. **The count was 23x too big and the shape was right**,
- * and correcting the first tempted me into denying the second — with this file's own
- * `router-lever` rule ("a binary metric over ONE draw cannot tell CANNOT from DID NOT") quoted
- * at the entry while I used five draws to close it. A sparse count needs the seeds before
- * EITHER verdict; dismissal is the cheaper error because it closes an entry.
+ *     km/h   cars per seed, 16 DIFFERENT fleets        cars   drives with a contact
+ *       22   1 0 0 0 1 1 0 0 0 0 1 0 0 0 0 2             6          5/16
+ *       29   0 0 0 1 1 0 0 0 1 0 0 0 0 0 0 2             5          4/16
+ *       36   0 0 1 0 1 0 1 0 1 0 0 0 0 0 0 1             5          5/16
+ *       40   0 0 1 1 1 0 1 0 0 1 1 0 0 0 0 0             6          6/16
+ *       43   0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0             1          1/16
+ *       50   0 1 0 0 0 0 0 0 1 1 1 0 0 0 0 0             4          4/16
+ *
+ * `Session` never passed its seed to `Traffic` — see the note on that line in tools/playtest.mjs
+ * — so steps 1 and 2 were replicates of ONE fleet. 6,5,5,6,1,4 is flat, the 36 km/h zero was one
+ * layout, and the 43 km/h cell the entry called hot is the quietest in the table.
+ *
+ * **Step 2 looked decisive because of the defect.** 16/16 against 0/16 is not a stochastic
+ * reading; it is one world repeated, so the near-determinism that convinced me is what should
+ * have condemned it. **A cross-seed column that is too consistent is evidence the seed is not
+ * reaching what you varied** — and that tell fired twice here before I read it, the other time as
+ * a first-contact victim speed of 8.091 m/s in six of six seeds, identical to three decimals.
+ *
+ * So this file's `router-lever` rule needs a clause: counting the draws is not enough, CHECK THAT
+ * THE DRAWS DIFFER. A sweep whose parameter does not reach the subsystem gives n=1 wearing n=16's
+ * clothes, and it is the one sampling error that gets more convincing as you add samples. The
+ * selftest's second check is that assertion, on the fleet's spawn EDGE SET.
  *
  * `hit()` has no per-car refractory. Both hosts call it once a frame for the worst contact,
  * and it applies a shunt whenever the delta-v clears SHUNT_MIN_DV, so a player leaning on one
@@ -47,7 +57,8 @@
  * `shuntFrames` and `shuntCars` now, in src/traffic.js and in tools/playtest.mjs; this file is
  * the measurement that named them.
  *
- * THE MECHANISM, ASSERTED RATHER THAN GUESSED. At the frame of contact, over all 258:
+ * THE MECHANISM, ASSERTED RATHER THAN GUESSED — and SINGLE-FLEET, like everything above step 3.
+ * At the frame of contact, over all 258:
  *
  *     the car is AHEAD of the player        258 of 258
  *     the car's own speed, p50               0.00 m/s      it is STOPPED
@@ -96,13 +107,16 @@
  * road the fleet covers, so what the table is sensitive to is the ENCOUNTER RATE, not the
  * speed difference.
  *
- * THE RESIDUAL, NARROWER THAN THE ENTRY'S AND STILL OPEN: why the 22 km/h arm is hot at all. Arm
- * C kills the flow explanation, arm B kills the walls, the victim is ahead and stopped in 258 of
- * 258, and `followBrakePctOfCarFrames` reads 0.86 at 22 km/h against 0.38 at 36 — more than
- * double, which is the fleet braking for the player as a leader. The candidate is that the
- * player's own slowness makes the fleet stop in front of it and a blind follower then arrives.
- * That is a guess and is labelled one. `--decide` is the arm that settles whether a zero is a
- * zero; `SR_SEEDS` sets its seed count and 16 is what the table above was measured at.
+ * NO RESIDUAL IN THE ENTRY: with the event rate flat across fleets there is no non-monotonicity
+ * to explain, so the mechanism question the entry opened dissolves rather than being answered.
+ * What the arms still establish, in descending order of how fleet-independent they are: arm B
+ * needs no fleet at all and is solid; the grind is structural (`car.stopS` holds a rammed car
+ * 1.2-5 s and `followPath` cannot see it, both in the source); arm C is one fleet per scale and
+ * is now moot.
+ *
+ * `--decide` is the arm that settles whether a zero is a zero. `SR_SEEDS` sets its seed count,
+ * 16 is what the table above was measured at, and it means sixteen fleets only because of the
+ * one-line fix in tools/playtest.mjs that the second selftest check now guards.
  */
 import { Session, driveTo } from './playtest.mjs';
 import { MISSIONS } from '../src/missions.js';
@@ -272,7 +286,43 @@ if (SELFTEST && IS_MAIN) {
   }
 
   /**
-   * 2. BY CONSTRUCTION: the fleet's own speed tracks `fleetScale`. Arm C's whole conclusion is
+   * 2. BY CONSTRUCTION: THE SEED REACHES THE FLEET. This check exists because it did not, and
+   * the whole of this file's second conclusion was drawn against one fleet replicated 16 times.
+   * `Session` passed `seed` to `PursuitUnits` and `Pedestrians` and gave `Traffic` only `count`,
+   * so `Traffic` fell through to its own fixed default for every seed. `--decide` then read
+   * 16/16 drives with a contact at 22 km/h against 0/16 at 36 and I wrote that up as a real,
+   * nearly deterministic effect. With the fleet actually varying it is 5/16 against 5/16.
+   *
+   * Compared on the EDGE SET the cars are spawned onto rather than on a derived statistic,
+   * because two different fleets can share a mean speed and nothing else.
+   */
+  {
+    /**
+     * AND THE FLEET HAS TO BE STEPPED BEFORE IT EXISTS. `cars` is filled by `_spawn` from inside
+     * `update()`, so a freshly built Session holds ONE car against a requested twelve — the first
+     * version of this check read the unspawned array, found two identical one-element lists and
+     * reported the defect it was written to catch over a fleet that was not there. Its own detail
+     * string said "1 cars each", which is how it was caught. Third instrument error of this family
+     * in one round: a module's state read before the module has produced it.
+     */
+    const fleetOf = (seed) => {
+      const sx = new Session({ seed, traffic: 12, peds: 0 });
+      for (let k = 0; k < 20; k++) sx.traffic.update(1 / 15, sx.vehicle.position);
+      const cars = sx.traffic.cars.filter(Boolean);
+      if (cars.length < 8) throw new Error(`fleet of ${cars.length} against 12 requested — `
+        + `the spawn pass has not run, so this check has no subject`);
+      return cars.map((c) => `${c.edge}:${c.forward ? 1 : 0}`).join(',');
+    };
+    const a0 = fleetOf(0), a1 = fleetOf(1), a0again = fleetOf(0);
+    check('two different seeds build two different fleets', a0 !== a1 && a0.length > 0,
+      `seed 0 and seed 1 spawn on ${a0 === a1 ? 'the SAME' : 'different'} edges `
+      + `(${a0.split(',').length} and ${a1.split(',').length} cars)`);
+    check('and the same seed builds the same fleet, so the difference is the seed',
+      a0 === a0again, a0 === a0again ? 'identical' : 'NOT reproducible');
+  }
+
+  /**
+   * 3. BY CONSTRUCTION: the fleet's own speed tracks `fleetScale`. Arm C's whole conclusion is
    * a comparison between scales, so a mis-wired override — the method replaced on a prototype
    * the instance does not use, or an override `_spawn` has already run past — makes every row
    * of it a reading of the same fleet. The ratio is read first for that reason: it is
@@ -296,7 +346,7 @@ if (SELFTEST && IS_MAIN) {
   }
 
   /**
-   * 3. THE DRIVE HAPPENED, and arm B's control is zero in BOTH counters. "Every column is
+   * 4. THE DRIVE HAPPENED, and arm B's control is zero in BOTH counters. "Every column is
    * zero" has two causes and only one of them is a result: CLAUDE.md's "a check whose two
    * sides are both zero is not a check".
    */
@@ -323,7 +373,7 @@ if (SELFTEST && IS_MAIN) {
   }
 
   /**
-   * 4. A SHUNT ACTUALLY HAPPENS, and the frame counter really does multiply. Without the
+   * 5. A SHUNT ACTUALLY HAPPENS, and the frame counter really does multiply. Without the
    * second clause the rename is cosmetic; with it, the factor is the finding. 12 m/s is picked
    * because it is above the cliff arm A finds between 10.5 and 11 m/s.
    */
@@ -337,7 +387,7 @@ if (SELFTEST && IS_MAIN) {
       `${(a.frames / Math.max(1, a.cars)).toFixed(2)} frames per car; the sweep's own worst `
       + `single car was 50`);
     /**
-     * 5. THE MECHANISM. Both of these were measured wrong first — see the header — so they are
+     * 6. THE MECHANISM. Both of these were measured wrong first — see the header — so they are
      * asserted off `_lastPositions` and the hosts' own forward convention, and a missing
      * subject throws inside `drive` rather than reaching a comparison as NaN.
      */

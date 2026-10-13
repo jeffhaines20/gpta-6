@@ -1666,6 +1666,23 @@ not consider (the HUD's existing keyed prompt panel) was sitting in `src/hud.js`
 
 ## AUDIT — five entries read OPEN and four of them were FIXED
 
+### THE AUDIT'S OWN INSTRUMENT, because grepping the headings over-reports by 3x
+The convention this audit introduced keeps the ORIGINAL entry verbatim under a `#### ` marker
+below the live one. So `grep '^### #'` counts every preserved record as an open item: run on this
+file it returned **17** candidates where the answer is **4**, and two of the seventeen were the
+`#109` and `#87` records sitting under markers one line above them. I then spent reads
+re-auditing #109 and #112 against the source before noticing.
+
+`tools/backlog-audit.mjs` is the version that respects the convention: it tracks whether the
+nearest preceding `#### ` marker says "original record" / "kept verbatim", skips the headings
+under one, and reports the live headings that carry no resolved status. **40 preserved records,
+16 live headings, 4 without a status.**
+
+**A grep is a measurement and this one had a denominator problem** — this file's own "count the
+lines against the population before drawing a conclusion from them", arriving against its own
+headings. Run the tool rather than the grep.
+
+
 Asked to keep going on the open issues, I picked **#95** ("4.8 km/h of forward motion makes you
 permanently un-arrestable"), read the entry, and started deriving a fix. One `grep` for
 `_recedingFrom` stopped it: the fix has been in `src/wanted.js` for some time, with the whole
@@ -2005,6 +2022,30 @@ valuable part: traffic, crowd, the running mission, the yaw and teleport-vs-driv
 the **pursuit seed is decisive**, and the failure is bimodal (closest approach frozen at exactly
 36.4 m, not a spread), which is #109 again.
 
+### #112 FIXED (all three divergences) — and its "four highest-heat crimes" sub-entry too
+Audited against the source rather than re-derived, which is this list's own standing lesson:
+
+    look().blips overstates the page during a mission   playtest.mjs gates _offers on mission.hud(),
+                                                        with a playtest --selftest check that asserts
+                                                        BOTH directions (the offer blips go, the
+                                                        garage survives, they come back)
+    missionBoard().offerLine is stale during a mission   district/main.js:2275
+                                                        `if (missionHud || wreckLine) lastOfferLine
+                                                        = null;`, commented "which is #112"
+    the two offer gates differ on the wreck case        playtest.mjs:708 carries the mode term,
+                                                        `!(this.mode === 'car' && this.damage.wrecked)`
+    the four highest-heat crimes have never been played ONE of the four was an instrument gap and is
+                                                        closed: the contact pass iterates
+                                                        `_unitPositions()` and files IMPACT.police.
+                                                        The other three are priced refusals
+                                                        `damage-test` already pins.
+
+**What is still open is only round 11's own "could not resolve" list below** — which column of
+`RESPONSE` makes 3 stars arrest where 2 does not, whether repeat wreck-cancels are penalised, and
+the real 2-star clear-by-driving time. Those are questions, not defects, and each needs a scenario
+that can vary one term.
+
+#### THE ORIGINAL RECORD
 ### #112 Three host divergences the harness hides, found by round 11 reading both sources
 Each is a case where a number taken from `tools/playtest.mjs` is about a game the page is not
 running. CLAUDE.md already records the general form — "a gate that reproduces the host rather
@@ -2668,7 +2709,7 @@ tree's PASS / FAIL(6) / PASS / FAIL(6) / PASS at 272-283 s. The spread is 5 s an
 back, which is the second thing the guard restored — the failing runs were slower *because* the
 early arrest was doing extra work in two arms.
 
-### #87 CLOSED BY MEASUREMENT — the "contact rate" was a frame counter, and the mechanism is the opposite of the guess
+### #87 CLOSED — the "contact rate" was a frame counter AND the seed never reached the fleet
 The entry's own next step was "hold the fleet's speed multiplier and sweep the player's, which
 separates 'matches the flow' from 'is simply slow'". Run, in `tools/shunt-rate.mjs`, together
 with the two arms it needed. **The headline number was not a rate and the guessed mechanism is
@@ -2692,25 +2733,35 @@ so a player leaning on one car counts once a frame. Reproduced over 5 seeds at e
 22 km/h against 0 at 36" is one to three CARS against none, and the entry's magnitude is out by
 a factor of 23. Renamed to `shuntFrames` with `shuntCars` beside it, in both hosts.
 
-**AND I THEN GOT THE SECOND HALF WRONG, OFF THE SAME TABLE.** Over 5 seeds the event column
-reads 3,1,0,0,2,2,1,2 and I concluded the non-monotonicity was "a low-rate count multiplied by
-a frame counter" — a row of 0 inside the spread of a count whose mean is under 2. At 16 seeds
-per speed, events only:
+**AND THE SECOND DEFECT IS WHY THE FIRST ONE WAS HARD TO SETTLE: `Session` NEVER PASSED ITS
+SEED TO `Traffic`.** `PursuitUnits` gets `opts.seed ?? 0` and `Pedestrians` gets it; the fleet
+line took `count` alone, so `Traffic` fell through to its own fixed default and **every Session
+in a seed sweep held the SAME fleet.** Only the crowd and the police varied. It took three
+readings of the same table to find, and the sequence is the entry's real content:
 
-    km/h   cars per seed                      cars   seeds with any
-      22   1 1 1 2 1 1 1 1 1 1 1 1 1 1 1 1      17        16/16
-      29   0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0       1         1/16
-      36   0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0       0         0/16
-      40   2 1 2 0 2 2 2 2 2 2 1 1 2 2 2 2      27        15/16
-      43   1 1 1 2 1 1 1 1 1 1 2 2 1 1 1 1      19        16/16
-      50   1 1 1 1 1 1 1 1 1 1 1 2 1 1 1 1      17        16/16
+    1. five same-fleet seeds, events 3,1,0,0,2,2,1,2     "not a signal"      (right, badly argued)
+    2. sixteen same-fleet seeds, 16/16 against 0/16       "real, deterministic"   (wrong)
+    3. the seed wired through, sixteen FLEETS             flat                (the answer)
 
-**16 of 16 against 0 of 16 is not Poisson noise. The non-monotonicity is real and very nearly
-deterministic** — about one contact per drive at 22 km/h, none at 29-36, one to 1.7 above 40 —
-and it is simply 23x smaller than the frame column said. CLAUDE.md's own `router-lever` section
-is "a binary coverage metric over ONE random draw cannot tell CANNOT from DID NOT", and I used
-five draws to call a real effect noise while quoting that rule at this entry. The count was
-wrong by 23x AND the shape was right; only one of those is the entry's error.
+    km/h   cars per seed, 16 DIFFERENT fleets              cars   seeds with any
+      22   1 0 0 0 1 1 0 0 0 0 1 0 0 0 0 2                   6        5/16
+      29   0 0 0 1 1 0 0 0 1 0 0 0 0 0 0 2                   5        4/16
+      36   0 0 1 0 1 0 1 0 1 0 0 0 0 0 0 1                   5        5/16
+      40   0 0 1 1 1 0 1 0 0 1 1 0 0 0 0 0                   6        6/16
+      43   0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0                   1        1/16
+      50   0 1 0 0 0 0 0 0 1 1 1 0 0 0 0 0                   4        4/16
+
+**6, 5, 5, 6, 1, 4 — flat.** The 36 km/h "zero" that this entry was built on is one fleet's
+layout, and the 43 km/h cell the entry called hot is now the QUIETEST in the table. So the
+non-monotonicity is not a property of the player's speed at all.
+
+**I was right at step 1 and wrong at step 2, and step 2 looked decisive precisely because of the
+defect.** 16/16 against 0/16 is not a stochastic reading — it is one world replicated sixteen
+times, and the near-determinism that made it convincing is what should have made it suspect.
+**A cross-seed column that is TOO consistent is evidence the seed is not reaching what you
+varied.** The same tell fired twice in this round and I read it as signal both times: the first
+contact of each drive hit a car doing **8.091 m/s in six of six seeds, identical to three
+decimals**, which no set of different fleets can produce.
 
 **The mechanism, asserted rather than guessed.** At the frame of contact, all 258: the car is
 **AHEAD** of the player 258 of 258, its own speed is **0.00 m/s p50** — it is stopped — and the
@@ -2724,7 +2775,11 @@ The entry says this by construction ("followPath has no car-following term") and
 measured it. Settled cross-track p50 **0.086 m**, against `lane-keep`'s 0.087 m on a different
 course: two tools, two courses, one follower.
 
-**ARM C, the entry's own isolation, and it refutes the entry's guess.** Shunt frames, 3 seeds:
+**ARM C, the entry's own isolation. SINGLE-FLEET, and moot now that the effect is flat.** It was
+run before the seed defect was found, so each scale is one fleet rather than three draws. Kept
+because it is what the entry asked for and because its reading is clean on its own terms — and
+labelled, because with the non-monotonicity gone there is no longer an effect for it to explain.
+Shunt frames, 3 seeds against one fleet per scale:
 
     player km/h    22   29   36   43   50   61     fleet mean km/h
     fleet x0.6      0    0    0    0    0    0       24
@@ -2738,31 +2793,30 @@ the 43 and 50 km/h cells are clean while 22 is not. What x0.6 changes is how muc
 fleet covers, so what the table is sensitive to is the ENCOUNTER RATE rather than the speed
 difference.
 
-**And the entry's operational advice SURVIVES, with a sharper edge than it claimed.** A finer
-grid puts the transition between **10.5 and 11.0 m/s** — 0 frames to 61 across a 0.5 m/s step,
-4 of 5 seeds:
+**And the entry's operational advice DOES NOT survive.** "The parameter for any future round is
+`maxSpeed: 10` (36 km/h), which is clean in both columns" is a statement about one fleet; at 16
+fleets that cell reads 5 of 16, the same as 22 km/h. The fine grid that looked like a cliff
+between 10.5 and 11.0 m/s — 0 frames to 61 — is the same single-fleet artefact.
 
-    m/s     8.0  8.5  9.0  9.5  10.0  10.5  11.0  11.5  12.0
-    frames    7    0    7    0     0     0    61    54    56
+What survives is the part that was never a count: **severity is monotonic in speed** — worst
+charged dv 3.72 / 4.78 / 6.19 / 6.76 / 7.02 / 9.19 at 22 / 29 / 40 / 43 / 50 / 61 km/h. Speed
+decides how bad a contact is. Nothing measured here decides how often you have one, except that
+it is about 0.3 cars per 350 m drive and does not move with the player's cap.
 
-So the clean band is 8.5-10.5 m/s (31-38 km/h) and `maxSpeed: 10` sits in the middle of it
-rather than on a knife-edge, which is better than the entry could claim from one point. The
-severity is separately monotonic in speed where the COUNT is not — worst charged dv 3.72 / 4.78
-/ 6.19 / 6.76 / 7.02 / 9.19 — so speed decides how bad a contact is, and the band decides
-whether you have one.
+**NOTHING IS LEFT OPEN IN THE ENTRY, and what the seed defect leaves open is bigger than it
+was.** Every playtest round that varied `seed` and reported on traffic reported one fleet —
+including the flow figures CLAUDE.md quotes ("a median 36 km/h, 90th 52, max 64") and round 8's
+and round 11's ram counts. Those are single-fleet readings, not seed sweeps. They are not
+necessarily wrong; they have one draw behind them where they read as having several.
 
-**STILL OPEN, and narrower than the entry's version: WHY the 22 km/h arm is hot.** Arm C kills
-the flow explanation, the victim is ahead and stopped in 258 of 258, and `followBrakePctOfCarFrames`
-reads 0.86 at 22 km/h against 0.38 at 36 — more than double — which is the fleet braking for the
-player as a leader. The candidate is that the player's own slowness makes the fleet stop in front
-of it and a blind follower then arrives. That is a guess and it is labelled as one; what is
-measured is that it is NOT the relative speed and NOT the walls.
-
-Nothing was shipped against the game. The counter rename is the fix, the three arms plus the
-16-seed decision run are the measurement, and `mutation-sweep`'s `shunt-cars-frames` is what
-stops the frame count coming back: every other reader of the two counters uses them as a
-boolean, so `playtest --selftest`, `reaction-test` and `damage-live` are all green with the two
-identical.
+Nothing was shipped against the game: both fixes are to the harness. `mutation-sweep`'s
+`shunt-cars-frames` stops the frame count coming back and `session-fleet-seed` stops the fleet
+un-seeding itself, and the second is the one with no other gate behind it — it is
+behaviour-preserving for every caller that passes no seed, and every other caller in `tools/`
+that passes one also passes `traffic: 0`, so nothing had a fleet to perturb and nothing failed.
+`shunt-rate --selftest` asserts that two seeds build two different fleets, by their spawn EDGE
+SET rather than by a derived statistic, because two fleets can share a mean speed and nothing
+else.
 
 #### THE ROUND THAT MEASURED IT AS "PARTLY FIXED, NON-MONOTONIC"
 ### #87 PARTLY FIXED, and the contact rate is NON-MONOTONIC in speed — 36 km/h is clean
