@@ -1132,6 +1132,67 @@ check, because when that fires it explains all of them. A wreck clock left ticki
 arm is otherwise a 17.6 m teleport that reports itself as "0 run-overs" — the feature looking
 broken because the harness moved the subject.
 
+## The geometry LEADING INTO a point is what caused the error there, not the geometry AT it
+
+#104 ruled out the crowd, the contact test and the router and left "it is `followPath` leaving its
+own lane". Measuring the cross-track error finally, banded by the course's own radius:
+
+    straight (R > 200 m)   by the MATCHED point     p50 0.222   p90 1.893   max 4.349 m
+                           by the preceding 40 m    p50 0.054   p90 0.815
+
+**The follower tracks a straight to five centimetres and the first banding hides it**, because a
+car still wide from a junction is sampled where the matched point has already become a straight.
+Cross-track error at a point is caused by the geometry it has just driven through, so the band has
+to be the worst radius BEHIND the match — about two seconds of course at the speed a straight is
+held at.
+
+**That is #104's own defect, recurring inside the probe written for it.** That entry's classifier
+called a knockdown "on the carriageway" when the car was under 4.5 m from a centreline, on roads
+whose half widths run 1.40 to 3.50 m — a threshold applied to the wrong body, which inverted its
+conclusion. Mine applied the right threshold to the wrong *point*. The shape is the same and the
+rule is sharper than "isolate one term": **when a quantity is caused by a history, classify it by
+the history and not by the instant.**
+
+With the banding right, the finding relocates:
+
+    the course was TIGHTER than the car can turn   p50 1.266   body past the lane 26.0%
+    the course was within the car's envelope       p50 0.089   body past the lane  6.4%
+
+**411 of the 500 samples that put the body past its lane — 82% — are at corners the car physically
+cannot follow**, `R_min(v) = 8.446 + 0.2826 v` against a worst course point of 3.7 m. So lane
+keeping was never the defect; the router emitting corners under the car's turning circle is.
+
+### And two fractions of the same thing, 12x apart, measuring different populations
+
+**4.4% of course POINTS** turn tighter than the car's standstill minimum. **53.3% of driven
+SAMPLES** sit within 40 m downstream of such a corner at their then-speed. Both are right and they
+will be quoted interchangeably unless the difference is written down: one tight point taints the
+ten behind it, and `R_min(v)` GROWS with speed — 8.45 m at rest, 12.37 at 50 km/h — so a corner
+that is achievable from a standstill is not achievable at 50. The first is a property of the
+course; the second is why the error is spread far wider than the tight points are.
+
+### A lever that is saturated is a refusal, and this one costs nothing to establish
+
+`tour()` takes `smoothPasses` and ships 2. The obvious fix for unfollowable corners is more of it:
+
+    passes      0     1     2     3     5     8    12
+    under    4.3%  4.4%  4.9%  4.7%  4.4%  4.4%  4.4%    of course points under R_min(0)
+    p10 R     5.9   7.0   7.4   7.2   7.1   7.6   7.1  m
+    blocked     0     0     0     0     0     0     0    points where the CAR BODY does not fit
+
+**Saturated, and the shipped value is the worst of the seven.** `smooth()` pins its endpoints and
+REDISTRIBUTES a turn rather than widening it, so it cannot manufacture a radius the graph does not
+have: it lifts the p10 corner from 5.9 to 7.4 m and 7.4 is still under 8.45. And it costs nothing
+in clearance — 0 body-blocked points at every pass count — so this is not a trade where more of one
+thing buys less of another. It simply does not work, which is a cheaper thing to know than it looks:
+seven course builds and no drive at all.
+
+**One percentile trap in that table.** The first version computed `q(radii, 0.1)` over an array
+containing `Infinity` for every straight point, which sorts to the end and pushed the p10 to
+**44.3 m** — a course whose tenth-percentile corner looks generous. Filtered to finite radii it is
+5.9 m, below the car's own minimum. **A percentile over a population padded with `Infinity` is a
+percentile of the padding**, and the direction is flattering.
+
 ## A probe that drives THROUGH the walls reports a free drive
 
 #96's remaining lever needs "the worst contact a drive to the garage incurs", because the respawn
@@ -2619,7 +2680,7 @@ linear in the mission's size, caught at x7.89 while passing the absolute bound a
 `reaction-test`, `sim-determinism`, `traffic-selftest`, `hud-cue`, `pursuit-test`,
 `car-shapes`, `crowd-bill --selftest`, `tri-buckets --selftest`, `gate-align --selftest`,
 `mutation-sweep --selftest`, `playtest --selftest`, `car-shapes --selftest`,
-`arrest-band --selftest`, `paint-census`, `speed-limit --selftest`,
+`arrest-band --selftest`, `paint-census`, `speed-limit --selftest`, `lane-keep --selftest`,
 `glass-census` (needs a browser to decode the reference JPEGs; about 20 s),
 `paint-tone` (the same, about 2.4 s), `car-pixel` (the same, about 1.4 s).
 The offline ones together take under a minute.

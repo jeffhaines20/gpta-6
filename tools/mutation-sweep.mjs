@@ -123,6 +123,13 @@ const OFFLINE = [
   // through to one value, or a bleed that ran continuously instead of after `idleGrace`, each
   // leave every other gate green while moving the quantity the refusal is argued on by 7x.
   'speed-limit --selftest',
+  // 4.1 s, and it is the only gate that measures the follower's CROSS-TRACK ERROR against the
+  // lane it is tracking. #104 concluded "it is `followPath` leaving its own lane"; this says the
+  // follower holds its lane to 9 cm on course it can actually follow, and 82% of the samples
+  // that put the body past the lane are at corners tighter than the car's own turning circle.
+  // Its checks are two-sided on that split, so a build that lost the path would fail the
+  // achievable half while a build that smoothed the corners away would fail the forced half.
+  'lane-keep --selftest',
 ];
 
 /**

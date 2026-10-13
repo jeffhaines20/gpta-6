@@ -1364,6 +1364,77 @@ Candidates for a DERIVED limit, none measured:
 Not started: it is a new mechanic rather than a fix, and `damage-test`'s pin means adding it is a
 visible, deliberate act rather than something a round can drift into.
 
+### #104 MEASURED — lane keeping is not the defect; 82% of it is corners the car cannot turn
+**`tools/lane-keep.mjs`.** The entry below ruled out the crowd, the contact test and the router,
+and concluded "it is `followPath` leaving its own lane", leaving lane keeping as the open item.
+**Nothing had measured the cross-track error.** Measured, against the lane the follower is actually
+tracking, over the shipped 3,264 m tour with body collision on:
+
+    the car's CENTRE from its own lane   p50 0.578  p90 2.715  p99 4.004  max 4.411 m
+
+and split by whether the course asked for a corner the car can take — `R_min(v) = 8.446 + 0.2826 v`,
+which `roadpath-test` re-measures against `src/vehicle.js`:
+
+    the course was TIGHTER than the car can turn   1582 samples  p50 1.266  p90 3.052   body past the lane 26.0%
+    the course was within the car's envelope       1387 samples  p50 0.089  p90 1.298   body past the lane  6.4%
+
+**411 of the 500 samples that put the body past the lane — 82% — are at corners the car physically
+cannot follow. On course it can follow, the follower holds its lane to 9 cm at the median.** So the
+lever is the course's corner geometry, not the controller, and CLAUDE.md already records why those
+corners exist ("a graph junction is a point and a right-angle turn across it reads as 2 m") and
+already derives the crawl floor as the response to them. The worst single sample is at a course
+point of **R 3.7 m** at 23.5 km/h — less than half the car's standstill minimum.
+
+**AND MORE SMOOTHING IS REFUSED, WITH A NUMBER.** `tour()` takes `smoothPasses` and ships 2:
+
+    passes      0     1     2     3     5     8    12
+    under    4.3%  4.4%  4.9%  4.7%  4.4%  4.4%  4.4%     of course points under R_min(0)
+    p10 R     5.9   7.0   7.4   7.2   7.1   7.6   7.1  m
+    blocked     0     0     0     0     0     0     0     points where the CAR BODY does not fit
+
+Saturated, and **the shipped value is the worst of the seven.** Smoothing pins its endpoints and
+redistributes a turn rather than widening it, so it cannot manufacture a radius the graph does not
+have — it lifts the p10 corner from 5.9 to 7.4 m while pushing a few more points just under the
+threshold, and 7.4 m is still under the car's 8.45 m minimum. It costs nothing in clearance (0
+body-blocked points at every pass count), so the refusal is not a trade: it simply does not work.
+
+**TWO INSTRUMENT ERRORS ON THE WAY, and the second is #104's own defect recurring inside the probe
+written for it:**
+
+- **A windowed nearest-point search snaps.** The first version searched ±60 points at 4 m spacing —
+  ±240 m of course — and CLAUDE.md's "nine ways" #6 records a 180 m jump from exactly that wherever
+  a route passes near itself. A snap UNDER-reports, which is the flattering direction. §0 now runs
+  a ±8 window beside the wide one: they agree to 1 cm on **98.3%** of samples and the tight one
+  reads marginally larger, so no snap is in play and the error stands.
+- **Banding by the MATCHED point credits a straight with the exit of the corner before it.**
+  Cross-track error at a point is caused by the geometry leading INTO it, so a car still wide from
+  a junction is sampled where the matched point has become a straight:
+
+        straight (R > 200 m)   by the matched point    p50 0.222   p90 1.893   max 4.349
+                               by the preceding 40 m   p50 0.054   p90 0.815
+
+  **That is #104's own classifier defect** — a threshold applied to the wrong body, which the entry
+  below records as having inverted its own conclusion — and it is what made the straights look as
+  though they had a tracking problem. The gate asserts the disagreement so the honest banding
+  cannot be quietly dropped.
+
+**And the two fractions are DIFFERENT QUANTITIES**, worth separating because they will otherwise be
+quoted interchangeably: **4.4% of course POINTS** turn tighter than the car's standstill minimum,
+while **53.3% of driven SAMPLES** sit within 40 m downstream of a corner tighter than the car's
+envelope at its then-speed. The second is larger because one tight point taints the ten behind it
+and because `R_min(v)` grows with speed — 8.45 m at rest, 12.37 at 50 km/h. The first is a property
+of the course; the second is why the error is spread far wider than the tight points are.
+
+**What is left, and where it belongs.** The residual on achievable course is 6.4% of samples with
+the body edge past the lane at a p50 of 0.089 m, which is a real but small lane-keeping component.
+The large half is the router emitting corners under the car's turning circle, and fixing that means
+rounding junction turns to `R_min` — a change to `tour()` that moves what `route-drive` and
+`drive-through` measure, so it needs a fresh baseline and belongs with **#64** exactly as the entry
+below already said. `lane-keep --selftest` is 9 checks in 4.1 s, on the offline gate list and
+`mutation-sweep`'s, with the smoothing refusal gated so the next round does not re-derive it.
+
+#### The original record, kept verbatim
+
 ### #104 Knockdowns on the carriageway are 1.33-2.17 per km — not fixed (B#6)
 Four drives of 6.0 km, each knockdown classified by the car's distance from a centreline at the
 moment it happened: totals 2.17 / 2.67 / 3.67 / 2.00 per km, of which **on the carriageway (under
