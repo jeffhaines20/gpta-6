@@ -2179,28 +2179,38 @@ Three rules, and the third is the cheap one:
 - **Prefer a positive condition to a negative one.** "Wait until the output file says PASS or FAIL"
   cannot be satisfied by a corpse; "wait until nothing matches" can be blocked by one for ever.
 
-### And a captured pid is not safe either, because pids WRAP on this box
+### A captured pid was fine; MY SENSE OF ELAPSED TIME WAS THE BROKEN INSTRUMENT
 
-The rule above is "wait on a PID you captured". A sweep launched as `timeout 3000 node
-tools/mutation-sweep.mjs` was watched with `until ! kill -0 31366; do sleep 60; done`, and twenty
-minutes in `ps -o etimes= -p 31366` read **98 s**. The sweep was alive the whole time; 31366 was
-alive too. What the numbers say is that the pid space had wrapped — the gate the sweep was running
-at that moment held pid **957**, well below the sweep's own 31368 — so `kill -0` on a captured pid
-answers "is SOMETHING here", and after a wrap that something can be a stranger.
+**This section said the opposite and was wrong, and the correction is the more useful finding.**
+It read: "a captured pid is not safe either, because pids WRAP on this box" — written after
+watching a sweep with `until ! kill -0 31366` and reading `ps -o etimes= -p 31366` as **98 s**
+when I believed twenty minutes had passed. I reconciled that by inventing a pid wrap.
 
-The failure is the dangerous direction: a recycled pid keeps the loop spinning after the work ends,
-and a recycled-and-then-exited pid ends the loop while the work runs. The second is the one that
-hands you a tree mid-mutation.
+`date` settles it. A later run started at 18:37:40 and read 18:40:05 after a sequence of waits
+that, added up, came to about twenty-five minutes — **two and a half minutes of real time.** The
+waits were backgrounded, so they OVERLAP: each one that exceeds the foreground limit is moved to
+the background and the next command starts immediately. Wall time is the MAX of a set of
+overlapping waits, not the sum.
 
-So the positive condition above is the rule, and when the output is buffered behind a pipe and
-cannot supply one, **match the process by a NAME that cannot be recycled** — `pgrep -f
-"[m]utation-sweep.mjs"`, with the bracket so it cannot match the waiting shell. That is the one
-form that is wrong in neither direction here.
+So `etimes` was right at 98 s, `kill -0` was never watching a stranger, and the sweep was simply
+two minutes old. **The field disagreed with my arithmetic and the field was correct.**
 
-And the smaller lesson: **I believed one `ps` field I had not checked.** `etimes` disagreeing with
-the wall clock by 20 minutes is a reading to go and verify, not a reading to act on — `pgrep -af`
-answered it in one command and said the sweep was running normally.
+Two rules, and the second is the one that cost the wrong section:
 
+- **Read the clock, do not infer duration from how many waits you issued.** `date` at both ends,
+  or `ps -o lstart` on the process. A count of sleeps is not a duration when the sleeps overlap.
+- **When a timing field contradicts your sense of elapsed time, suspect the sense.** I had one
+  number from the system and one from my own bookkeeping, and I kept the bookkeeping and wrote a
+  mechanism to explain the number away. This file's own rule is that the dangerous measurement is
+  the one whose wrong answer is reassuring; the variant here is a wrong answer I found
+  INTERESTING, and an interesting explanation is harder to drop than a comfortable one.
+
+What survives of the original observation: pids on this box genuinely do wrap, because a gate
+running inside that sweep held pid **957** alongside the sweep's own **31368**. That makes a
+captured pid theoretically reusable over a long enough wait — but it is not what happened here,
+and the rule that actually holds is the one already above this section: **prefer a positive
+condition, and when the output is buffered behind a pipe, match a NAME that cannot be recycled**
+(`pgrep -f "[m]utation-sweep.mjs"`).
 
 - Headless capture runs through SwiftShader well under 1 fps. Budget minutes per
   frame, and never report frame rate as a performance result.
