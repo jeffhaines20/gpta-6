@@ -141,12 +141,19 @@ const OFFLINE = [
   //     achievable p90 1.187 shipped 1.169 under corner-now   unmoved, 88 of ~1361 over the lane
   // and it does catch it: FAIL at 7.065, PASS at 3.052.
   'lane-keep --selftest',
-  // The only gate that separates `src/traffic.js`'s shunt FRAME count from its distinct-CAR
-  // count. Every other reader of those two uses them as a boolean (`> 0`, `=== 0`), so a build
-  // where `shuntCars` increments per frame is green in playtest --selftest, reaction-test and
-  // damage-live alike — and a round then reads a contact rate 23x high, which is what #87 did.
+  // 10.0 s, which is what makes it affordable here: 27 minutes over this table's 164 rows,
+  // against playtest --selftest's 11.0 s and traffic-selftest's 23.4 s already on the list. I
+  // added it expecting three minutes and a five-fold sweep regression, and priced it afterwards
+  // rather than before — the wrong order, and the number is cheap either way.
+  //
+  // It is the only gate that separates `src/traffic.js`'s shunt FRAME count from its
+  // distinct-CAR count. Every other reader of those two uses them as a boolean (`> 0`, `=== 0`),
+  // so a build where `shuntCars` increments per frame is green in playtest --selftest,
+  // reaction-test and damage-live alike — and a round then reads a contact rate 23x high, which
+  // is what #87 did. Swept, `shunt-cars-frames` comes back caught by this gate ALONE.
+  //
   // It also owns the no-fleet control arm, so it is the one place that says the follower alone
-  // touches nothing at any speed up to 72 km/h.
+  // touches nothing at any speed up to 72 km/h — the bound that makes #87 entirely about traffic.
   'shunt-rate --selftest',
 ];
 

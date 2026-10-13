@@ -2728,10 +2728,16 @@ linear in the mission's size, caught at x7.89 while passing the absolute bound a
 `reaction-test`, `sim-determinism`, `traffic-selftest`, `hud-cue`, `pursuit-test`,
 `car-shapes`, `crowd-bill --selftest`, `tri-buckets --selftest`, `gate-align --selftest`,
 `mutation-sweep --selftest`, `playtest --selftest`, `car-shapes --selftest`,
-`arrest-band --selftest`, `paint-census`, `speed-limit --selftest`, `lane-keep --selftest`,
+`arrest-band --selftest`, `paint-census`, `speed-limit --selftest`,
+`lane-keep --selftest`, `shunt-rate --selftest`,
 `glass-census` (needs a browser to decode the reference JPEGs; about 20 s),
 `paint-tone` (the same, about 2.4 s), `car-pixel` (the same, about 1.4 s).
-The offline ones together take under a minute.
+The offline ones together take **121 s**, measured end to end rather than guessed — this line
+said "under a minute" for several rounds and three gates now account for 60% of it:
+`pursuit-test` 24.1 s, `traffic-selftest` 23.6, `reaction-test` 23.3, then `playtest --selftest`
+12.3, `shunt-rate --selftest` 11.2, `check-syntax` 7.2 and twenty-odd others under 4 s each.
+`mutation-sweep --selftest` is the one entry that exits 2 on a dirty tree by design, so a run of
+the list from an uncommitted tree reports it as the only failure and that is the guard working.
 
 `paint-tone` is cheap enough to be on `mutation-sweep`'s offline list despite launching a
 browser — 2.4 s a run, which over ~124 rows is about five minutes of sweep, against the
@@ -4176,3 +4182,125 @@ one `Grep` call (two gates, one selftest, four prose references) and renaming wi
 Two of the selftest's own DETAIL strings also printed `${stats.runOverFrames} run-overs`, which is
 the same defect in the output rather than in the field — a correct number under a wrong noun. They
 read "contact frames" now.
+
+### And the THIRD instance was `shunts`, in the module the rule was written about
+
+The section above renamed `stats.runOvers` -> `runOverFrames` and records that I had renamed three
+SIBLING counters — `pedHits`, `carHits`, `policeHits` — and left the original. `src/traffic.js`'s
+`stats.shunts` and `stats.shuntsPolice` were a fourth and fifth, in the module whose own
+`shuntStoppedFrames` and `shuntFitFrames` on the NEXT LINE were already named correctly.
+
+`hit()` has no per-car refractory: both hosts call it once a frame for the worst contact and it
+applies a shunt whenever the delta-v clears `SHUNT_MIN_DV`, so a player leaning on one car counts
+once a frame. Over a 350 m drive, 5 seeds at each of 8 speeds:
+
+    shunt FRAMES   258      quoted in #87 as a contact rate
+    distinct CARS   11
+    frames per car  23.5    worst single car 50, at a player cap of 50 km/h
+
+**#87's whole finding was that number.** "19 shunts at 22 km/h against 0 at 36" is one to three
+CARS against none, so the entry's magnitude is out by a factor of 23. **This one went in the
+ALARMING direction**, which is the rarer case this file records once before: an instrument that
+needlessly condemns costs the same round as one that reassures.
+
+**AND THE SHAPE WAS RIGHT, WHICH I THEN GOT WRONG OFF THE SAME TABLE.** Over 5 seeds the event
+column reads 3,1,0,0,2,2,1,2 and I wrote that the non-monotonicity was therefore "a low-rate count
+multiplied by a frame counter" — a zero inside the spread of a count whose mean is under 2. At 16
+seeds per speed it is **16 of 16 drives with a contact at 22 km/h against 0 of 16 at 36**, with
+1 of 16 at 29 and 15-16 of 16 at 40-50. That is not Poisson noise; it is very nearly
+deterministic, and about one contact per drive either side of a genuinely empty band.
+
+So the two halves of a finding can fail in opposite directions at once: **the count was 23x too
+big and the shape was correct**, and fixing the first tempted me into denying the second. This
+file's `router-lever` section is "a binary coverage metric over ONE random draw cannot tell CANNOT
+from DID NOT" — I quoted that rule AT this entry and then used five draws to dismiss a real
+effect. The rule's own stated flattering direction is pessimism; the direction here is
+**dismissal**, and it is cheaper to fall into because it closes an entry instead of opening one.
+A sparse count needs the seeds before EITHER verdict, not just before the alarming one.
+
+Two things that would each have found it on its own, and neither was done:
+
+- **`grep` for the field, not for the lesson.** The rename pass earlier in the same session
+  searched for the counters it already knew about. `grep -rn '\.shunts\b'` returns twelve lines
+  across five files and takes one command.
+- **Ask what the counter's READERS do with it.** All twelve existing readers use these two as a
+  boolean (`> 0`, `=== 0`), which is why nothing was failing and why nothing could. A counter whose
+  every reader thresholds it at zero has never had its magnitude checked by anything — so the first
+  round to quote the magnitude is the round that finds out, and that round was #87.
+
+### A tool's SELFTEST needs the same import guard as its REPORT, and gating one is gating neither
+
+This file already records `lane-keep` printing forty lines of its own report on IMPORT, and the fix
+was `if (!SELFTEST && IS_MAIN)`. That is half of it. The selftest block one screen below stayed
+`if (SELFTEST)`, and it ends in `process.exit` — so `node tools/shunt-rate.mjs --selftest`, which
+imports `crossTrack` from `lane-keep`, printed
+
+    LANE KEEP SELFTEST: PASS — 10 checks, 0 failed
+
+and exited 0 before its own first check ran. **The flag is on `process.argv`, which every module in
+the process shares**, so `--selftest` is not a property of the tool you invoked.
+
+The failure's shape is the giveaway and is worth keeping: a gate reporting PASS **under another
+gate's name**. It cost nothing because the name was wrong in the output; a tool whose selftest
+banner happened to be generic would have passed silently for the importing tool.
+
+Four of the five tools with a selftest block had it. Fixed in all of them, both halves, which is
+this file's standing lesson about siblings arriving as two branches of one condition in one file —
+the same shape as `mutation-sweep`'s dirty-tree guard being above one of two entry points.
+
+### Two wrong columns in one table, and the unanimous one was the one to distrust
+
+The probe for #87's mechanism read, over 197 contacts, `0 behind / 197 ahead` and `0 carFaster /
+197 plFaster`. Both columns were suspect for one reason and only one was wrong:
+
+- **A traffic car has no `x` and no `z`.** Its position is `_pointOn(edge, forward, t)` plus the
+  lane offset, published once a frame into `_lastPositions`, which is the array the contact pass
+  itself reads. `car.x` is `undefined`, `undefined - 3.2` is NaN, and `NaN < 0` is **false** — so
+  every contact fell into the same bucket. **The column was unanimous because it was NaN**, and it
+  read the OPPOSITE of the truth: fixed, it is 258 of 258 AHEAD.
+- **The heading frame's sign was inverted as well.** Forward here is `(sin yaw, cos yaw)` — which is
+  what BOTH hosts pass as `playerFwd`, so there was never anything to derive. Derived anyway and
+  checked by construction against the car's own velocity it read **exactly -1.0000 over 195
+  frames**, which is how a sign error announces itself when you check it at all.
+
+**I printed the car's own key list in the same run and did not read it.** `id,edge,forward,t,len,
+body,v,limit,lane,…` — no x, no z, in my own output, above the table I then believed.
+
+Two rules out of it, and the second is the one this file has not had before:
+
+- **Take a world position from where the module PUBLISHES it, and throw if it is not there.** The
+  probe does `_lastPositions.find(id)` and throws on a missing or non-finite entry, because a
+  position read through a field that does not exist cannot fail any comparison.
+- **A column that is unanimous over hundreds of samples is evidence about the INSTRUMENT.** This
+  file's standing rule is that the dangerous shape is the one whose wrong answer is reassuring;
+  the variant here is a wrong answer that is also perfectly consistent, and consistency is what
+  made it convincing. 258 of 258 is the reading a silent NaN gives and also the reading the truth
+  gives — which is exactly why it has to be earned twice.
+
+### Name the cell the hypothesis says is extreme, then read that cell
+
+#87's guessed mechanism was "the fleet's own median flow is about 36 km/h, so a car crawling at 22
+is overtaken from behind, and a car at 50 overtakes into them". The isolation it asked for was to
+hold the fleet and sweep the player. Done, shunt frames, 3 seeds:
+
+    player km/h    22   29   36   43   50   61     fleet mean km/h
+    fleet x0.6      0    0    0    0    0    0       24
+    fleet x1.0     19    0    0   30   30   27       37
+    fleet x1.5     17    0    0    0    0   30       50
+
+"The clean band moves with the fleet" is the weak reading of that table and it is arguable — the
+x1.5 row does move. **The strong reading is one cell: 61 km/h against a 24 km/h fleet is the
+largest relative speed anywhere in the table, the cell the hypothesis says must be worst, and it is
+zero.** A single cell chosen in advance kills the hypothesis where a trend over nine cells invites
+a story about why the trend is noisy.
+
+What x0.6 actually changes is how much road the fleet covers per second, so the table is sensitive
+to the ENCOUNTER RATE and not to the speed difference — which also explains the thing the entry
+built its guess on, because a 36 km/h cell with two cars in it and a 43 km/h cell with two cars in
+it differ by nothing a count of two can resolve.
+
+**And the arm nobody had run was the cheapest one.** With no fleet at all the follower takes 0 wall
+contacts and health 1.000 at every speed from 22 to 72 km/h, arriving 5 of 5 — where WITH the fleet
+72 km/h wrecks the car 5 of 5. The entry asserts that by construction ("`followPath` has no
+car-following term") and three rounds quoted its damage columns without it. **An arm that removes
+the subsystem under suspicion costs one flag and bounds everything else in the table.**

@@ -19,10 +19,27 @@
  *       61       49               2        24.50      9.191    0.395
  *
  * THE COLUMN THE ENTRY QUOTED IS THE FIRST ONE AND THE EVENTS ARE IN THE SECOND. 258 frames
- * over 11 distinct cars, 23.5 frames each, worst 50 frames on ONE car. "19 against 0" is
- * three cars against none, and across the whole sweep no speed produces more than 3 — so a
- * row of 0 sits inside the spread of a count whose mean is under 2. The non-monotonicity is
- * not a signal; it is a low-rate count multiplied by a frame counter.
+ * over 11 distinct cars, 23.5 frames each, worst 50 frames on ONE car. "19 against 0" is one
+ * to three CARS against none, so the entry's magnitude is out by a factor of 23.
+ *
+ * AND THE SHAPE IS REAL, WHICH I DENIED FIRST OFF THIS SAME TABLE. Five seeds give the event
+ * column 3,1,0,0,2,2,1,2, and I wrote that a row of 0 sat inside the spread of a count whose
+ * mean is under 2 — so the non-monotonicity was "a low-rate count multiplied by a frame
+ * counter". `--decide` at 16 seeds per speed says otherwise, and decisively:
+ *
+ *     km/h   cars per seed                      cars   drives with a contact
+ *       22   1 1 1 2 1 1 1 1 1 1 1 1 1 1 1 1      17          16/16
+ *       29   0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0       1           1/16
+ *       36   0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0       0           0/16
+ *       40   2 1 2 0 2 2 2 2 2 2 1 1 2 2 2 2      27          15/16
+ *       43   1 1 1 2 1 1 1 1 1 1 2 2 1 1 1 1      19          16/16
+ *       50   1 1 1 1 1 1 1 1 1 1 1 2 1 1 1 1      17          16/16
+ *
+ * 16 of 16 against 0 of 16 is not noise. **The count was 23x too big and the shape was right**,
+ * and correcting the first tempted me into denying the second — with this file's own
+ * `router-lever` rule ("a binary metric over ONE draw cannot tell CANNOT from DID NOT") quoted
+ * at the entry while I used five draws to close it. A sparse count needs the seeds before
+ * EITHER verdict; dismissal is the cheaper error because it closes an entry.
  *
  * `hit()` has no per-car refractory. Both hosts call it once a frame for the worst contact,
  * and it applies a shunt whenever the delta-v clears SHUNT_MIN_DV, so a player leaning on one
@@ -79,10 +96,13 @@
  * road the fleet covers, so what the table is sensitive to is the ENCOUNTER RATE, not the
  * speed difference.
  *
- * The honest residual, stated as a bound rather than a mechanism: these are rare events on a
- * 350 m drive — under 3 distinct cars at any speed over 5 seeds — and a sweep of a low-rate
- * count needs far more seeds than a sweep of a continuous quantity. `--decide` runs the event
- * count alone at more seeds, which is the only arm that can say whether a zero is a zero.
+ * THE RESIDUAL, NARROWER THAN THE ENTRY'S AND STILL OPEN: why the 22 km/h arm is hot at all. Arm
+ * C kills the flow explanation, arm B kills the walls, the victim is ahead and stopped in 258 of
+ * 258, and `followBrakePctOfCarFrames` reads 0.86 at 22 km/h against 0.38 at 36 — more than
+ * double, which is the fleet braking for the player as a leader. The candidate is that the
+ * player's own slowness makes the fleet stop in front of it and a blind follower then arrives.
+ * That is a guess and is labelled one. `--decide` is the arm that settles whether a zero is a
+ * zero; `SR_SEEDS` sets its seed count and 16 is what the table above was measured at.
  */
 import { Session, driveTo } from './playtest.mjs';
 import { MISSIONS } from '../src/missions.js';

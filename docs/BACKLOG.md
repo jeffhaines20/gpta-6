@@ -1690,7 +1690,7 @@ Then the same pass over the rest, because a partial audit leaves the next round 
                                                             not checked: "LOSE THEM — 240 s"
     #111  seeking an arrest does not work                   WORKING AS DESIGNED, and the band says so
     #85   a pinned car rocks and the HUD says nothing        FIXED — composeStuck, gated 3 ways
-    #87   driveTo wrecks the car in 200 m                    PARTLY FIXED, with a new finding
+    #87   driveTo wrecks the car in 200 m                    CLOSED BY MEASUREMENT
 
 The four older entries left — #75, #64, #42, #48 — are parked by their own headings (a triangle
 warn, a gate re-baseline, an unresolved gate verdict, and one explicitly "needs a reviewer not a
@@ -2668,6 +2668,103 @@ tree's PASS / FAIL(6) / PASS / FAIL(6) / PASS at 272-283 s. The spread is 5 s an
 back, which is the second thing the guard restored — the failing runs were slower *because* the
 early arrest was doing extra work in two arms.
 
+### #87 CLOSED BY MEASUREMENT — the "contact rate" was a frame counter, and the mechanism is the opposite of the guess
+The entry's own next step was "hold the fleet's speed multiplier and sweep the player's, which
+separates 'matches the flow' from 'is simply slow'". Run, in `tools/shunt-rate.mjs`, together
+with the two arms it needed. **The headline number was not a rate and the guessed mechanism is
+backwards**, and neither of those needed the isolation to see.
+
+`stats.shunts` counted FRAMES. `hit()` has no per-car refractory, both hosts call it once a
+frame for the worst contact, and it applies a shunt whenever the delta-v clears `SHUNT_MIN_DV` —
+so a player leaning on one car counts once a frame. Reproduced over 5 seeds at each of 8 speeds:
+
+    km/h   FRAMES   distinct CARS   frames/car   worst dv   health
+      22       35               3        11.67      3.721    0.945
+      29        7               1         7.00      4.783    0.972
+      36        0               0            -      0.000    0.993
+      38        0               0            -      0.000    0.994
+      40       61               2        30.50      6.190    0.641
+      43       56               2        28.00      6.756    0.713
+      50       50               1        50.00      7.021    0.763
+      61       49               2        24.50      9.191    0.395
+
+**258 frames over 11 distinct cars, 23.5 each, worst 50 frames on ONE car.** So "19 shunts at
+22 km/h against 0 at 36" is one to three CARS against none, and the entry's magnitude is out by
+a factor of 23. Renamed to `shuntFrames` with `shuntCars` beside it, in both hosts.
+
+**AND I THEN GOT THE SECOND HALF WRONG, OFF THE SAME TABLE.** Over 5 seeds the event column
+reads 3,1,0,0,2,2,1,2 and I concluded the non-monotonicity was "a low-rate count multiplied by
+a frame counter" — a row of 0 inside the spread of a count whose mean is under 2. At 16 seeds
+per speed, events only:
+
+    km/h   cars per seed                      cars   seeds with any
+      22   1 1 1 2 1 1 1 1 1 1 1 1 1 1 1 1      17        16/16
+      29   0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0       1         1/16
+      36   0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0       0         0/16
+      40   2 1 2 0 2 2 2 2 2 2 1 1 2 2 2 2      27        15/16
+      43   1 1 1 2 1 1 1 1 1 1 2 2 1 1 1 1      19        16/16
+      50   1 1 1 1 1 1 1 1 1 1 1 2 1 1 1 1      17        16/16
+
+**16 of 16 against 0 of 16 is not Poisson noise. The non-monotonicity is real and very nearly
+deterministic** — about one contact per drive at 22 km/h, none at 29-36, one to 1.7 above 40 —
+and it is simply 23x smaller than the frame column said. CLAUDE.md's own `router-lever` section
+is "a binary coverage metric over ONE random draw cannot tell CANNOT from DID NOT", and I used
+five draws to call a real effect noise while quoting that rule at this entry. The count was
+wrong by 23x AND the shape was right; only one of those is the entry's error.
+
+**The mechanism, asserted rather than guessed.** At the frame of contact, all 258: the car is
+**AHEAD** of the player 258 of 258, its own speed is **0.00 m/s p50** — it is stopped — and the
+player's is 3.92-5.98. The player rams a car, `car.stopS` holds that car still for 1.2-5 s
+where it was hit, and a follower with no car-following term grinds on it. The entry's "a car
+crawling at 22 is overtaken from behind" is the opposite of what happens, at every speed.
+
+**ARM B, no fleet at all: walls are not a term.** 0 wall contacts and health 1.000 at every
+speed from 22 to 72 km/h, arriving 5 of 5 — where WITH the fleet 72 km/h wrecks the car 5 of 5.
+The entry says this by construction ("followPath has no car-following term") and nothing had
+measured it. Settled cross-track p50 **0.086 m**, against `lane-keep`'s 0.087 m on a different
+course: two tools, two courses, one follower.
+
+**ARM C, the entry's own isolation, and it refutes the entry's guess.** Shunt frames, 3 seeds:
+
+    player km/h    22   29   36   43   50   61     fleet mean km/h
+    fleet x0.6      0    0    0    0    0    0       24
+    fleet x1.0     19    0    0   30   30   27       37
+    fleet x1.5     17    0    0    0    0   30       50
+
+"Matches the flow" predicts the clean band MOVES with the fleet, and it does not. **The x0.6 row
+is zero at every player speed** — including 61 km/h against a 24 km/h fleet, which is the
+largest relative speed in the table and the cell the hypothesis says should be worst. At x1.5
+the 43 and 50 km/h cells are clean while 22 is not. What x0.6 changes is how much road the
+fleet covers, so what the table is sensitive to is the ENCOUNTER RATE rather than the speed
+difference.
+
+**And the entry's operational advice SURVIVES, with a sharper edge than it claimed.** A finer
+grid puts the transition between **10.5 and 11.0 m/s** — 0 frames to 61 across a 0.5 m/s step,
+4 of 5 seeds:
+
+    m/s     8.0  8.5  9.0  9.5  10.0  10.5  11.0  11.5  12.0
+    frames    7    0    7    0     0     0    61    54    56
+
+So the clean band is 8.5-10.5 m/s (31-38 km/h) and `maxSpeed: 10` sits in the middle of it
+rather than on a knife-edge, which is better than the entry could claim from one point. The
+severity is separately monotonic in speed where the COUNT is not — worst charged dv 3.72 / 4.78
+/ 6.19 / 6.76 / 7.02 / 9.19 — so speed decides how bad a contact is, and the band decides
+whether you have one.
+
+**STILL OPEN, and narrower than the entry's version: WHY the 22 km/h arm is hot.** Arm C kills
+the flow explanation, the victim is ahead and stopped in 258 of 258, and `followBrakePctOfCarFrames`
+reads 0.86 at 22 km/h against 0.38 at 36 — more than double — which is the fleet braking for the
+player as a leader. The candidate is that the player's own slowness makes the fleet stop in front
+of it and a blind follower then arrives. That is a guess and it is labelled as one; what is
+measured is that it is NOT the relative speed and NOT the walls.
+
+Nothing was shipped against the game. The counter rename is the fix, the three arms plus the
+16-seed decision run are the measurement, and `mutation-sweep`'s `shunt-cars-frames` is what
+stops the frame count coming back: every other reader of the two counters uses them as a
+boolean, so `playtest --selftest`, `reaction-test` and `damage-live` are all green with the two
+identical.
+
+#### THE ROUND THAT MEASURED IT AS "PARTLY FIXED, NON-MONOTONIC"
 ### #87 PARTLY FIXED, and the contact rate is NON-MONOTONIC in speed — 36 km/h is clean
 The wreck at the entry's own speed is gone. `driveTo` to `marlin-street`'s pickup, 3 seeds each,
 40 peds and 12 traffic, 350 m completed every time:
