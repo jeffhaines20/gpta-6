@@ -2095,6 +2095,20 @@ within 25 m: 6 rams, 357 m". B ran it as a registered pair, 5 seeds, same route:
 this is weak evidence about braking and strong evidence that a car rarely gets within 25 m of the
 windscreen.
 
+#### AND ITS STRONGEST PHRASE IS THE SEED DEFECT'S SIGNATURE
+"**Identical in all five seeds**" is what `Session` not passing its seed to `Traffic` produces.
+The fleet fell through to `Traffic`'s own fixed default for every seed, so five seeds held one
+fleet and varied only the crowd and the police — and an arm driving a fixed route past traffic
+has little else for the crowd to change. Stated as a conditional because the reviewer's code is
+not in the tree: **if they used the shipped harness's `Session`, their five seeds were five
+replicates.**
+
+So the refutation's two supports are both weaker than they read. Its own caveat already said the
+lift rule fired on 3% of frames; this says the agreement across seeds is not evidence of
+robustness either. **The conclusion may well be right** — 2 rams either way is a small effect
+to begin with, and #87's own 16-fleet sweep puts the base rate at about 0.3 cars per 350 m — but
+it is one fleet's answer, and re-running it is now a one-line change.
+
 ### The four highest-heat crimes have never been played (B, "what I could not resolve")
 `tools/playtest.mjs`'s contact pass iterates the traffic fleet and the crowd and **not the pursuit
 units**, so `policeProperty`, `roadblockRun`, `officerAssault` and `officerDown` — the four

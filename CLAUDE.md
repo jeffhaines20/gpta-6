@@ -2179,6 +2179,29 @@ Three rules, and the third is the cheap one:
 - **Prefer a positive condition to a negative one.** "Wait until the output file says PASS or FAIL"
   cannot be satisfied by a corpse; "wait until nothing matches" can be blocked by one for ever.
 
+### And a captured pid is not safe either, because pids WRAP on this box
+
+The rule above is "wait on a PID you captured". A sweep launched as `timeout 3000 node
+tools/mutation-sweep.mjs` was watched with `until ! kill -0 31366; do sleep 60; done`, and twenty
+minutes in `ps -o etimes= -p 31366` read **98 s**. The sweep was alive the whole time; 31366 was
+alive too. What the numbers say is that the pid space had wrapped — the gate the sweep was running
+at that moment held pid **957**, well below the sweep's own 31368 — so `kill -0` on a captured pid
+answers "is SOMETHING here", and after a wrap that something can be a stranger.
+
+The failure is the dangerous direction: a recycled pid keeps the loop spinning after the work ends,
+and a recycled-and-then-exited pid ends the loop while the work runs. The second is the one that
+hands you a tree mid-mutation.
+
+So the positive condition above is the rule, and when the output is buffered behind a pipe and
+cannot supply one, **match the process by a NAME that cannot be recycled** — `pgrep -f
+"[m]utation-sweep.mjs"`, with the bracket so it cannot match the waiting shell. That is the one
+form that is wrong in neither direction here.
+
+And the smaller lesson: **I believed one `ps` field I had not checked.** `etimes` disagreeing with
+the wall clock by 20 minutes is a reading to go and verify, not a reading to act on — `pgrep -af`
+answered it in one command and said the sweep was running normally.
+
+
 - Headless capture runs through SwiftShader well under 1 fps. Budget minutes per
   frame, and never report frame rate as a performance result.
 - `blind-compare` refuses to build a pair set carrying under 8% facade-band
