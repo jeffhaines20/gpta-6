@@ -2113,12 +2113,26 @@ it is one fleet's answer, and re-running it is now a one-line change.
 `shunt-rate --b11`, same pair, 43 km/h, the seed now reaching the fleet so these are 16 fleets
 rather than 16 replicates:
 
-    arm        cars  frames   drives with a contact   health mean   lift fired
-    ignore        1       6               1 of 16          0.9595   n/a
-    lift 25 m     1       6               1 of 16          0.9784   22.5% of steps
+    arm        cars  frames   contact   health   m driven  arrived   lift fired
+    ignore        1       6   1 of 16   0.9595        457    16/16   n/a
+    lift 25 m     1       6   1 of 16   0.9784        388    13/16   22.5% of steps
 
     paired per fleet: worse on 1, better on 1, LEVEL ON 14 of 16
     deltas:           0 0 -1 0 0 1 0 0 0 0 0 0 0 0 0 0
+
+**And the one column that LOOKS like it supports round 8 is a rate built on a single event.** Per
+kilometre the arm reads **0.137 cars/km ignoring against 0.161 lifting off** — lifting off worse,
+which is round 8's direction. It is the SAME ONE CAR divided by two different distances: 1/7.31 km
+against 1/6.21 km. A ratio whose numerator is 1 is not a rate, and this is the shape this list
+already records as "a check whose two sides are both zero", with the zeros replaced by ones.
+Printed because leaving it out would hide the exposure difference, and annotated because printing
+it bare would read as evidence.
+
+**What IS a real cost of the lift rule: it stops the drive finishing.** 13 of 16 arrived against
+16 of 16, and 6.21 km driven against 7.31. So the honest summary is that lifting off buys no
+reduction in contacts, costs 0.019 of health in the good direction, and fails to complete the
+route three times in sixteen — which is a reason not to use it in a harness, and not the reason
+round 8 gave.
 
 **And it answers the review's own caveat rather than inheriting it.** Their lift rule fired on 3%
 of frames, which is why they called it weak evidence about braking. This one tests every direction
