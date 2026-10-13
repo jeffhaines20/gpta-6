@@ -2253,6 +2253,28 @@ const MUTATIONS = [
     to: "    declinedX: 'you handed it back',",
     why: 'handing a job back reads on screen exactly like wrecking the car',
   },
+  {
+    /**
+     * THE EVENT COUNTER BECOMES A FRAME COUNTER AGAIN, which is the defect #87's headline number
+     * was made of. `hit()` has no per-car refractory and both hosts call it once a frame for the
+     * worst contact, so `shuntFrames` counts frames and `shuntCars` counts cars. Measured over a
+     * 350 m drive, 5 seeds at each of 8 speeds: 258 frames over 11 distinct cars, 23.5 each,
+     * worst 50 frames on ONE car. The entry read the frame column as a contact rate, and its
+     * "19 at 22 km/h against 0 at 36" is three cars against none.
+     *
+     * The direction is ALARMING rather than flattering, which is the rarer case and still a
+     * defect: it made a rate look 23x what it is and sent a round after a mechanism for it.
+     *
+     * Nothing else can see this. Every other reader uses the counters as a boolean (`> 0`,
+     * `=== 0`), so `playtest --selftest`, `reaction-test` and `damage-live` are all green with
+     * the two counters identical — which is how the shape survived the session that renamed
+     * `runOvers`, `pedHits`, `carHits` and `policeHits` for exactly this reason and left these.
+     */
+    id: 'shunt-cars-frames', file: 'src/traffic.js',
+    find: "    if (!this._shuntedIds.has(id)) { this._shuntedIds.add(id); this.stats.shuntCars++; }",
+    to: "    this.stats.shuntCars++;",
+    why: 'the distinct-car count reverts to a frame count, so a contact rate reads 23x high',
+  },
 ];
 
 // --------------------------------------------------------------------------- mechanics
