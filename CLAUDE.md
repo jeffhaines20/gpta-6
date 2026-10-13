@@ -2227,6 +2227,41 @@ Three rules, and the third is the cheap one:
 - **Prefer a positive condition to a negative one.** "Wait until the output file says PASS or FAIL"
   cannot be satisfied by a corpse; "wait until nothing matches" can be blocked by one for ever.
 
+### Four overlapping waiters on one process, and they held each other open
+
+Not a new mechanism — the self-match trap above, hit four times in one session because of a habit
+worth naming separately. Waiting for one `boot-check` run I armed four waiters on it, each written
+as
+
+    until ! pgrep -f "node tools/boot-check" >/dev/null 2>&1; do sleep N; done
+
+**unbracketed.** boot-check exited and reported `BOOT: PASS — 103 checks in 365 s`; three waiter
+shells were still alive afterwards. Each shell's own `eval '...'` string contains the literal
+`node tools/boot-check`, so every waiter matched its two siblings as well as itself, and one
+exiting freed nothing. One was killed at its background limit with a notice reading "the work took
+too long", which is the one thing that had not happened — the same misleading notice this file
+already records.
+
+The bracket trick would have covered this: a bracketed waiter's argv holds `[n]ode …`, which the
+pattern `[n]ode …` (matching `node …`) does not contain, so bracketed siblings do not see each
+other either. I simply did not use it. (A quick attempt to demonstrate that experimentally was
+inconclusive and is not quoted: `pgrep`'s own argv always carries its pattern, so the command
+substitution matches itself in both arms. The mechanism is readable off the strings.)
+
+Three operational points, and the first is the one that caused the rest:
+
+- **Arm ONE waiter per subject.** Four were armed because each poll looked cheap and none of them
+  appeared to return; they overlap rather than queue, so the wall clock advances by the longest and
+  not the sum — which is the elapsed-time error in the section above, from the other end. Every
+  extra waiter is another notification, another background budget, and another argv carrying the
+  name.
+- **Kill by captured pid, in a command that does not mention the target.** `kill 6498 6651 6696`
+  works; a `pkill -f` naming the tool is this file's own heredoc trap.
+- **And the verification has the trap too.** Checking the box afterwards with
+  `pgrep -c -f 'tools/boot'` read **2** with nothing left alive, because the counting command
+  matched itself. Self-excluding patterns in the CHECK as well as in the wait: `pgrep -af
+  '[t]ools/boot'` read 0.
+
 ### A captured pid was fine; MY SENSE OF ELAPSED TIME WAS THE BROKEN INSTRUMENT
 
 **This section said the opposite and was wrong, and the correction is the more useful finding.**
