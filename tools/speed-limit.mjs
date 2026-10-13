@@ -57,6 +57,14 @@ import { FlatGround } from '../src/ground.js';
 import { Traffic } from '../src/traffic.js';
 
 const SELFTEST = process.argv.includes('--selftest');
+/**
+ * RUN NOTHING ON IMPORT. Both blocks at the foot of this file are gated on being the main
+ * module, not just on the flag: a tool that imports this one while itself running with
+ * `--selftest` would otherwise run THIS selftest and `process.exit` out of the importer's own
+ * run. tools/shunt-rate.mjs hit that against tools/lane-keep.mjs and printed the wrong tool's
+ * verdict. tools/lane-keep.mjs's header records the report half of the same trap.
+ */
+const IS_MAIN = process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop());
 const HERE = new URL('.', import.meta.url).pathname;
 const C = CRIMES.reckless;
 const W0 = new WantedSystem();
@@ -211,7 +219,7 @@ export function fleetSamples(windowS = 120, settleS = 20, count = 30) {
 }
 
 // ------------------------------------------------------------------------------------- the report
-if (!SELFTEST) {
+if (!SELFTEST && IS_MAIN) {
   console.log('SPEED LIMIT — pricing #107\n');
   console.log(`reckless: heat ${C.heat}, refractory ${C.refractory} s, cool ${C.cool}, `
     + `min ${C.min === 0 ? 'NONE (floorless)' : C.min}`);
@@ -332,7 +340,7 @@ if (!SELFTEST) {
 }
 
 // ------------------------------------------------------------------------------------- selftest
-if (SELFTEST) {
+if (SELFTEST && IS_MAIN) {
   console.log('SPEED LIMIT SELFTEST\n');
 
   // 1. The entry's premise, both directions. A build that capped the TOTAL at FLOORLESS_CAP rather

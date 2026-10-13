@@ -58,6 +58,14 @@ import { OFFER_RADIUS_M } from '../src/mission.js';
 import { SCENE_STOP_MS } from '../src/wanted.js';
 
 const SELFTEST = process.argv.includes('--selftest');
+/**
+ * RUN NOTHING ON IMPORT. Both blocks at the foot of this file are gated on being the main
+ * module, not just on the flag: a tool that imports this one while itself running with
+ * `--selftest` would otherwise run THIS selftest and `process.exit` out of the importer's own
+ * run. tools/shunt-rate.mjs hit that against tools/lane-keep.mjs and printed the wrong tool's
+ * verdict. tools/lane-keep.mjs's header records the report half of the same trap.
+ */
+const IS_MAIN = process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop());
 const HERE = new URL('.', import.meta.url).pathname;
 const district = JSON.parse(readFileSync(`${HERE}../data/district.json`, 'utf8'));
 const roads = new RoadGraph(district);
@@ -141,7 +149,7 @@ const arcsOf = (path) => {
 const checks = [];
 const check = (name, ok, detail = '') => { checks.push({ name, ok }); console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? `  ${detail}` : ''}`); return ok; };
 
-if (SELFTEST) {
+if (SELFTEST && IS_MAIN) {
   console.log('ABORT-COST SELFTEST\n');
   // 1. THE INSTRUMENT MOVES WITH THE QUANTITY IT MEASURES. A straight 200 m must cost more
   //    than a straight 50 m, and both must arrive — CLAUDE.md's "a probe that measures the

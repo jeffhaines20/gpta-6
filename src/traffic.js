@@ -552,6 +552,8 @@ export class Traffic {
     this._m = new THREE.Matrix4();
     this._hidden = new THREE.Matrix4().makeScale(0, 0, 0);
     this._nextId = 0;
+    /** Which cars have ever been shunted, so `stats.shuntCars` counts cars and not frames. */
+    this._shuntedIds = new Set();
     // edgeKey -> cars on it, so leader lookup is a sorted scan of a short list
     // rather than an O(n^2) sweep over the whole fleet.
     this._byEdge = new Map();
@@ -606,7 +608,26 @@ export class Traffic {
       gridlockRecoveries: 0,
       gridlockByReason: { conflict: 0, queue: 0, box: 0, none: 0 },
       maxActiveInAJunction: 0,
-      shunts: 0, shuntsPolice: 0, shuntRecoveries: 0, worstShuntDv: 0,
+      /**
+       * FRAMES, NOT EVENTS, AND THE NAMES SAY SO. `hit()` has no per-car refractory: it is
+       * called once a frame for the worst contact and applies a shunt whenever the delta-v
+       * clears SHUNT_MIN_DV, so a player grinding on one car counts once a frame. Measured
+       * over a 350 m drive to marlin-street's pickup, 5 seeds at each of 8 speeds:
+       *
+       *     shunt FRAMES   258        what this counter used to be called `shunts`
+       *     distinct CARS   11
+       *     frames per car  23.5      worst single car 50, at a player cap of 50 km/h
+       *
+       * So the old name was out by a factor of 23 and in the alarming direction. CLAUDE.md's
+       * `runOverFrames` section is this exact defect, and `pedHitFrames`/`carHitFrames`/
+       * `policeHitFrames` were renamed for it in the same session that left these two.
+       * `shuntStoppedFrames` and `shuntFitFrames` on the next line were already right.
+       *
+       * `shuntCars` is the EVENT count: distinct `car.id`, which is `++_nextId` at spawn and
+       * is never recycled, so a respawn into the same slot is correctly a different car.
+       */
+      shuntFrames: 0, shuntPoliceFrames: 0, shuntCars: 0,
+      shuntRecoveries: 0, worstShuntDv: 0,
       shuntStoppedFrames: 0, shuntFitFrames: 0, shuntExemptExpired: 0,
     };
     // Exposed so a harness can turn the anti-gridlock rule OFF as a control. A
@@ -1277,8 +1298,9 @@ export class Traffic {
         oz - (prev ? prev.atZ : 0))),
     };
     car.stopS = Math.max(car.stopS ?? 0, Math.min(SHUNT_STOP_MAX, 1.2 + v * SHUNT_STOP_PER_DV));
-    this.stats.shunts++;
-    if (kind === 'police') this.stats.shuntsPolice++;
+    this.stats.shuntFrames++;
+    if (kind === 'police') this.stats.shuntPoliceFrames++;
+    if (!this._shuntedIds.has(id)) { this._shuntedIds.add(id); this.stats.shuntCars++; }
     if (v > this.stats.worstShuntDv) this.stats.worstShuntDv = +v.toFixed(2);
     return { id, dv: v, push, stopS: car.stopS };
   }

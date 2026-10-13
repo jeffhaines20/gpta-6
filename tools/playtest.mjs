@@ -345,7 +345,12 @@ export class Session {
     /** The player position handed to the wanted system, with the host's `held` verdict on it. */
     this._wantedPlayer = { x: 0, z: 0, held: false, teleported: false };
     this._teleported = false;
-    this.stats = { busts: 0, released: 0, cooperated: 0, crashes: 0, crimes: 0, knockdowns: 0, fatal: 0, shunts: 0,
+    this.stats = { busts: 0, released: 0, cooperated: 0, crashes: 0, crimes: 0, knockdowns: 0, fatal: 0,
+      // FRAMES AND CARS, the same split src/traffic.js's own stats carry and for the same
+      // reason: this site calls `traffic.hit` once a frame for the worst contact, and the
+      // module applies a shunt every time the delta-v clears SHUNT_MIN_DV. See the note on
+      // `shuntFrames` there -- 258 frames over 11 distinct cars when this was measured.
+      shuntFrames: 0, shuntCars: 0,
       impacts: 0, voices: 0, tested: 0, contacts: 0, pedRepeats: 0, runOverFrames: 0,
       wrecks: 0, respawns: 0, loopsBroken: 0, worstDv: 0, distance: 0, topSpeed: 0,
       repairs: 0,
@@ -366,6 +371,8 @@ export class Session {
        * patching one and leaving its sibling is the recurring shape of defect here.
        */
       policeHitFrames: 0 };
+    /** Feeds `stats.shuntCars`; `car.id` is never recycled, so a Set of them counts cars. */
+    this._shuntedCarIds = new Set();
     this._lastPos = { x: 0, z: 0 };
     this._controls = { throttle: 0, brake: 0, steer: 0, handbrake: false };
     this._route = null;
@@ -1104,7 +1111,10 @@ export class Session {
       const r = this.traffic.hit(worstCar.carId,
         { dv: worstCar.dv, dirX: tx, dirZ: tz, kind: 'vehicle' });
       if (r) {
-        this.stats.shunts++;
+        this.stats.shuntFrames++;
+        if (!this._shuntedCarIds.has(worstCar.carId)) {
+          this._shuntedCarIds.add(worstCar.carId); this.stats.shuntCars++;
+        }
         this.say(`RAM     a traffic car, ${r.dv.toFixed(1)} m/s — knocked ${r.push.toFixed(1)} m`);
       }
     }
@@ -1704,7 +1714,7 @@ if (!IS_MAIN) {
    * is: this is the harness diagnosing itself, not a player driving.
    */
   const chase = (session, pick, seconds = 30,
-    stop = (ss) => ss.stats.knockdowns + ss.stats.shunts > 0) => {
+    stop = (ss) => ss.stats.knockdowns + ss.stats.shuntCars > 0) => {
     for (let k = 0; k < seconds * 10; k++) {
       const target = pick(session);
       if (!target) { session.drive({ throttle: 0, brake: 1 }).step(0.1); continue; }
@@ -2039,14 +2049,15 @@ if (!IS_MAIN) {
     ram.placeAt(onc.x + Math.sin(onc.heading) * 16, onc.z + Math.cos(onc.heading) * 16,
       onc.heading + Math.PI);
     let prev = ram.vehicle.speed;
-    for (let k = 0; k < 1500 && !ram.stats.shunts && !ram.damage.wrecked; k++) {
+    for (let k = 0; k < 1500 && !ram.stats.shuntCars && !ram.damage.wrecked; k++) {
       ram.drive({ throttle: 0.4 }).step(DT);
       worstDrop = Math.max(worstDrop, prev - ram.vehicle.speed);
       prev = ram.vehicle.speed;
     }
   }
-  check('ramming a traffic car shunts it', ram.stats.shunts > 0,
-    `${ram.stats.shunts} shunts, worst dv ${ram.stats.worstDv} m/s`);
+  check('ramming a traffic car shunts it', ram.stats.shuntCars > 0,
+    `${ram.stats.shuntCars} car(s) over ${ram.stats.shuntFrames} contact frames, `
+    + `worst dv ${ram.stats.worstDv} m/s`);
   check('the transcript carries the RAM', ram.log.some((l) => l.line.startsWith('RAM')),
     ram.log.filter((l) => l.line.startsWith('RAM')).map((l) => l.line)[0] ?? '(nothing)');
   // The impulse reaches the body: 0.5 * 1400 * dv newton-seconds on 1400 kg is dv/2 of velocity
@@ -2069,8 +2080,9 @@ if (!IS_MAIN) {
       onc.heading + Math.PI);
     for (let k = 0; k < 150; k++) noFleet.drive({ throttle: 0.4 }).step(0.1);
   }
-  check('the same road with no fleet shunts nothing', noFleet.stats.shunts === 0,
-    `${noFleet.stats.shunts} shunts, health ${noFleet.damage.health.toFixed(2)}`);
+  check('the same road with no fleet shunts nothing', noFleet.stats.shuntCars === 0,
+    `${noFleet.stats.shuntCars} cars / ${noFleet.stats.shuntFrames} frames, `
+    + `health ${noFleet.damage.health.toFixed(2)}`);
 
   console.log('\n§5  a mission, to its end');
   const mis = new Session({ traffic: 0, peds: 0 });

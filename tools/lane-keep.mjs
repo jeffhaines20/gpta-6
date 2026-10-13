@@ -267,7 +267,15 @@ if (!SELFTEST && IS_MAIN) {
 }
 
 // ------------------------------------------------------------------------------------- selftest
-if (SELFTEST) {
+/**
+ * AND SO MUST THE SELFTEST BE. Gating only the REPORT on IS_MAIN fixes half of it: a tool that
+ * imports this one while itself running with `--selftest` runs THIS selftest instead, and the
+ * block ends in `process.exit`, so the importing tool's own checks never print. That is exactly
+ * what tools/shunt-rate.mjs saw on its first run -- it imports tools/lane-keep.mjs, and
+ * `node tools/shunt-rate.mjs --selftest` printed `LANE KEEP SELFTEST: PASS` and stopped. Both
+ * blocks need both conditions.
+ */
+if (SELFTEST && IS_MAIN) {
   console.log('LANE KEEP SELFTEST\n');
 
   // 1. R_min comes off the module and GROWS with speed, which is what makes §3's test per-sample

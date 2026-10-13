@@ -141,6 +141,13 @@ const OFFLINE = [
   //     achievable p90 1.187 shipped 1.169 under corner-now   unmoved, 88 of ~1361 over the lane
   // and it does catch it: FAIL at 7.065, PASS at 3.052.
   'lane-keep --selftest',
+  // The only gate that separates `src/traffic.js`'s shunt FRAME count from its distinct-CAR
+  // count. Every other reader of those two uses them as a boolean (`> 0`, `=== 0`), so a build
+  // where `shuntCars` increments per frame is green in playtest --selftest, reaction-test and
+  // damage-live alike — and a round then reads a contact rate 23x high, which is what #87 did.
+  // It also owns the no-fleet control arm, so it is the one place that says the follower alone
+  // touches nothing at any speed up to 72 km/h.
+  'shunt-rate --selftest',
 ];
 
 /**

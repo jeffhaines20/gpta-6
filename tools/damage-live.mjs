@@ -592,7 +592,7 @@ if (carsBefore.length) {
     }
     const rep8 = await page.evaluate(() => __district.damageReport());
     console.log(`    fleet: ${JSON.stringify(rep8.fleet)}`);
-    check('the fleet counted the shunt', rep8.fleet.shunts > 0, JSON.stringify(rep8.fleet));
+    check('the fleet counted the shunt', rep8.fleet.shuntCars > 0, JSON.stringify(rep8.fleet));
     check('and the report carries the worst delta-v', rep8.fleet.worstDv >= 8,
       `${rep8.fleet.worstDv}`);
   }

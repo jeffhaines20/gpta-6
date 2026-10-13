@@ -1244,7 +1244,8 @@ console.log('\n§7b Non-finite and degenerate inputs are refused');
     const d = carDrawn(t, car.id);
     return d && Number.isFinite(d.x) && Number.isFinite(d.z) && Number.isFinite(d.yaw);
   })());
-  check('the counters recorded no phantom shunts', t.stats.shunts === 0, `${t.stats.shunts}`);
+  check('the counters recorded no phantom shunts', t.stats.shuntFrames === 0,
+    `${t.stats.shuntFrames} frames / ${t.stats.shuntCars} cars`);
   check('and a real hit still works after all that', t.hit(car.id, { dv: 8, dirX: 1, dirZ: 0 }) !== null);
 }
 {
@@ -1288,7 +1289,7 @@ function fleetRun() {
   const t = fleet(12, 150);
   for (const c of t.cars.filter(Boolean).slice(0, 4)) t.hit(c.id, { dv: 6, dirX: 0, dirZ: 1 });
   for (let k = 0; k < 60 * 6; k++) t.update(DT, FOCUS);
-  return JSON.stringify([t.stats.shunts, t.stats.shuntRecoveries,
+  return JSON.stringify([t.stats.shuntFrames, t.stats.shuntRecoveries,
     t._lastPositions.map((p) => `${p.x.toFixed(4)},${p.z.toFixed(4)},${p.shunted}`)]);
 }
 check('a fleet of 12 with four shunts is bit-identical across runs', fleetRun() === fleetRun());
