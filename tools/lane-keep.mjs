@@ -61,6 +61,13 @@ import { BlockerIndex } from '../src/blockers.js';
 
 const SELFTEST = process.argv.includes('--selftest');
 const HERE = new URL('.', import.meta.url).pathname;
+/**
+ * RUN THE REPORT ONLY AS THE MAIN MODULE. The first version gated it on `!SELFTEST` alone, so
+ * `import { drive } from './lane-keep.mjs'` printed the whole forty-line report before the
+ * importer's first statement — three of my own probes did that while measuring this. A tool whose
+ * exports cannot be imported quietly is a tool nothing else can build on.
+ */
+const IS_MAIN = process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop());
 const district = JSON.parse(readFileSync(`${HERE}../data/district.json`, 'utf8'));
 const blockers = new BlockerIndex(district);
 const ground = new FlatGround(0);
@@ -177,7 +184,7 @@ export function drive({ smoothPasses = 2, capS = 720, everyN = 10 } = {}) {
 }
 
 // ------------------------------------------------------------------------------------- the report
-if (!SELFTEST) {
+if (!SELFTEST && IS_MAIN) {
   console.log('LANE KEEP — #104\'s open item\n');
   const { rows, steps, reversing, done, tour } = drive();
   const n = rows.length;
@@ -305,7 +312,32 @@ if (SELFTEST) {
     forced.length > 100 && q(forced, 0.5) > q(able, 0.5) * 3,
     `p50 ${q(forced, 0.5).toFixed(3)} against ${q(able, 0.5).toFixed(3)} m`);
 
-  // 7. THE SMOOTHING REFUSAL, gated so a future round does not re-derive it. Measured 4.3% at 0
+  // 7. THE FORCED BAND'S OWN MAGNITUDE, which is the check that catches `corner-now` — and the
+  //    reason the six above do not. Every one of them asserts a RELATIONSHIP (the forced band is
+  //    worse than the achievable one, the matched-point banding reads worse than the honest one),
+  //    and removing the corner-speed ceiling makes all three hold HARDER. Measured both ways:
+  //
+  //                                    shipped   corner-now
+  //        forced band p90              3.052      7.065     x2.3
+  //        forced band max              4.411      8.802     x2.0
+  //        forced, body past the lane   25.9%      42.1%
+  //        ACHIEVABLE band p90          1.187      1.169     unmoved
+  //        achievable, body past lane   6.5%       6.5%      88 of ~1361 BOTH times
+  //
+  //    The achievable half being byte-for-byte unmoved is what says the ceiling is about corners
+  //    the car cannot geometrically make, which is the crawl-floor argument from the other side.
+  //
+  //    The bound is 5.0 m and it is PICKED, in the middle of a measured 2.3x gap with nothing in
+  //    between: the drive is deterministic (no RNG, fixed course and start) and reproduces
+  //    p90 3.051808 / max 4.410706 to six decimals across runs, so the shipped side carries no
+  //    spread at all. That is the only kind of absolute bound this project considers writable,
+  //    and both figures are printed beside it so a retune has to come here and restate them.
+  const fP90 = q(forced, 0.9);
+  check('the forced band stays under the ceiling the corner-speed term holds it to',
+    fP90 < 5.0, `p90 ${fP90.toFixed(3)} m against 5.0; shipped reads 3.052 and `
+    + `corner-now reads 7.065, so the bound sits in a 2.3x gap`);
+
+  // 8. THE SMOOTHING REFUSAL, gated so a future round does not re-derive it. Measured 4.3% at 0
   //    passes and 4.4% at 12, with the shipped 2 the worst at 4.9%.
   const s0 = courseShape(0), s2 = courseShape(2), s12 = courseShape(12);
   check('more smoothing does not reduce the sub-R_min corners',
@@ -316,7 +348,7 @@ if (SELFTEST) {
     s0.bodyBlocked === 0 && s12.bodyBlocked === 0,
     `${s0.bodyBlocked} and ${s12.bodyBlocked} body-blocked points`);
 
-  // 8. An empty population throws rather than reporting a percentile of nothing.
+  // 9. An empty population throws rather than reporting a percentile of nothing.
   let threw = false;
   try { q([], 0.5); } catch { threw = true; }
   check('a percentile of an empty population throws', threw);

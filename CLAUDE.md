@@ -1162,6 +1162,54 @@ With the banding right, the finding relocates:
 cannot follow**, `R_min(v) = 8.446 + 0.2826 v` against a worst course point of 3.7 m. So lane
 keeping was never the defect; the router emitting corners under the car's turning circle is.
 
+### Three checks that a mutation makes hold HARDER, which is the unfailable shape in its worst dress
+
+`lane-keep` shipped with six checks and I wrote into its sweep-list comment that they were
+"two-sided on that split". Swept, `mutation-sweep`'s `corner-now` — which removes the corner-speed
+ceiling so the car floors the throttle at full lock — came back `roadpath-test route-drive
+playtest` and **not `lane-keep`**.
+
+Every check it had asserted a RELATIONSHIP: the forced band is worse than the achievable one, the
+matched-point banding reads worse than the honest one, the forced p50 is at least three times the
+achievable p50. **Removing the ceiling makes all three hold harder**, because it degrades the
+forced band and leaves the achievable one alone:
+
+    forced band p90              3.052 shipped    7.065 under corner-now   x2.3
+    forced band max              4.411            8.802                    x2.0
+    forced, body past the lane   25.9%            42.1%
+    ACHIEVABLE band p90          1.187            1.169                    unmoved
+    achievable, body past lane   6.5%             6.5%     88 of ~1361 BOTH times
+
+This file already has a family of checks that could not fail. They were all unfailable because
+they closed over a constant or asserted something the function guaranteed. **This one is worse
+dressed**: each check is a real comparison between two measured populations, each would fail for a
+build that lost the path entirely, and the specific defect they were written beside pushes all
+three the comfortable way. A relationship is not two-sided just because it has two sides in it.
+
+**The rule: for every check, ask which way the mutation you have in mind moves it** — and if the
+answer is "further from the bound", the check is not the one. The seventh check is an absolute
+bound on the forced band's p90, which is the quantity the ceiling actually controls.
+
+**And the achievable half being byte-for-byte unmoved is the finding, not a null result.** 88 of
+~1,361 samples over the lane in both builds says the corner-speed ceiling does nothing where the
+course is followable and everything where it is not — which is the crawl-floor argument arriving
+from the other side, and it is why bounding the forced band is the right check rather than
+bounding the whole drive.
+
+**An absolute bound was writable here only because the drive carries no RNG.** Fixed course, fixed
+start, no traffic and no crowd, so it reproduces p90 3.051808 and max 4.410706 to six decimals
+across runs. The shipped side has no spread, the gap to the mutation is 2.3x, and 5.0 sits in the
+middle of it with nothing in between — which is the only kind of absolute bound this file considers
+worth writing down. Both figures are printed beside it so a retune has to come here and restate them.
+
+### And a tool that runs its report on IMPORT cannot be built on
+
+`lane-keep` gated its report on `!SELFTEST`, so `import { drive } from './lane-keep.mjs'` printed
+forty lines of table before the importer's first statement. Three of my own probes did exactly that
+while measuring #104 — the output was so familiar by then that I read past it twice. Gate a tool's
+report on being the MAIN MODULE, not on the absence of a flag; its exports are the half another
+probe needs, and a tool whose exports cannot be imported quietly is a tool nothing else can reuse.
+
 ### And two fractions of the same thing, 12x apart, measuring different populations
 
 **4.4% of course POINTS** turn tighter than the car's standstill minimum. **53.3% of driven

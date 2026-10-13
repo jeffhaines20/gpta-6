@@ -125,10 +125,21 @@ const OFFLINE = [
   'speed-limit --selftest',
   // 4.1 s, and it is the only gate that measures the follower's CROSS-TRACK ERROR against the
   // lane it is tracking. #104 concluded "it is `followPath` leaving its own lane"; this says the
-  // follower holds its lane to 9 cm on course it can actually follow, and 82% of the samples
+  // follower holds its lane to 9 cm on course it can actually follow, and 83% of the samples
   // that put the body past the lane are at corners tighter than the car's own turning circle.
-  // Its checks are two-sided on that split, so a build that lost the path would fail the
-  // achievable half while a build that smoothed the corners away would fail the forced half.
+  //
+  // CORRECTED BY RUNNING A ROW. This comment first claimed its checks were "two-sided on that
+  // split", which was a coverage claim I had not verified. Swept, `corner-now` came back
+  // `roadpath-test route-drive playtest` and NOT lane-keep — because the six checks it had were
+  // all RELATIONSHIPS (the forced band is worse than the achievable one; the matched-point
+  // banding reads worse than the honest one), and removing the corner-speed ceiling makes every
+  // one of them hold HARDER. A one-sided bound where the mutation pushes the quantity the
+  // comfortable way is this file's recurring unfailable-check shape, arriving three at a time.
+  //
+  // It has a seventh check now, on the forced band's own magnitude, measured both ways:
+  //     forced p90   3.052 shipped   7.065 under corner-now   x2.3
+  //     achievable p90 1.187 shipped 1.169 under corner-now   unmoved, 88 of ~1361 over the lane
+  // and it does catch it: FAIL at 7.065, PASS at 3.052.
   'lane-keep --selftest',
 ];
 

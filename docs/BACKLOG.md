@@ -1430,8 +1430,33 @@ the body edge past the lane at a p50 of 0.089 m, which is a real but small lane-
 The large half is the router emitting corners under the car's turning circle, and fixing that means
 rounding junction turns to `R_min` — a change to `tour()` that moves what `route-drive` and
 `drive-through` measure, so it needs a fresh baseline and belongs with **#64** exactly as the entry
-below already said. `lane-keep --selftest` is 9 checks in 4.1 s, on the offline gate list and
-`mutation-sweep`'s, with the smoothing refusal gated so the next round does not re-derive it.
+below already said. `lane-keep --selftest` is 10 checks in 4.1 s, on the offline gate list and `mutation-sweep`'s,
+with the smoothing refusal gated so the next round does not re-derive it.
+
+**And the gate did not catch the mutation it was written next to, until it was run.** The first
+version's checks were all RELATIONSHIPS — the forced band is worse than the achievable one, the
+matched-point banding reads worse than the honest one — and `mutation-sweep`'s `corner-now`
+(removing the corner-speed ceiling, so the car floors the throttle at full lock) makes every one of
+them hold HARDER. Swept, it came back `roadpath-test route-drive playtest` and not `lane-keep`.
+Measured both ways:
+
+    forced band p90              3.052 shipped    7.065 under corner-now   x2.3
+    forced band max              4.411            8.802                    x2.0
+    forced, body past the lane   25.9%            42.1%
+    ACHIEVABLE band p90          1.187            1.169                    unmoved
+    achievable, body past lane   6.5%             6.5%     88 of ~1361 BOTH times
+
+**The achievable half being byte-for-byte unmoved is the crawl-floor argument from the other
+side**: the corner-speed ceiling is what holds the car near its lane at corners it cannot
+geometrically make, and it does nothing where the course is followable. The seventh check bounds
+the forced band's p90 at 5.0 — picked, in the middle of a measured 2.3x gap with nothing in
+between, on a drive that reproduces p90 3.051808 to six decimals across runs because it carries no
+RNG at all. It FAILs at 7.065 and PASSes at 3.052.
+
+**And the tool ran its whole report on IMPORT**, so `import { drive }` printed forty lines before
+the importer's first statement — three of my own probes did that while measuring this. Gated on
+being the main module; a tool whose exports cannot be imported quietly is a tool nothing else can
+build on.
 
 #### The original record, kept verbatim
 
