@@ -2929,14 +2929,65 @@ something, and the thing it says is the control that moves the car.
 
 ## Budget and rendering
 
-### #75 The triangle warn is derivation (b), a headroom ratchet, and its own comment predicted this
-`detail lost` beyond the subject line. The tree reads over its 830,000 warn; see CLAUDE.md on
-why the magnitude is not a stable number across sessions.
+### #75 MEASURED — derivation (b) cannot fire if it is recomputed, so it fires only by being frozen
+`detail lost` beyond the subject line, so the entry is reconstructed from `tools/budget.mjs`'s own
+header and the committed artifact. Nothing was run for this: both numbers are in `docs/drive-traffic.json`.
 
-### #64 Re-baseline the budget gate on the road course
+    metric       p95        warn        fail       headroom vs warn   vs fail
+    drawCalls    241         275         440            +12.4%         45.2%   PASS
+    triangles    852,605     830,000   1,850,000         -2.7%         53.9%   WARN
+
+**The two metrics have diverged, and the comfortable one is the one the gate's own header calls
+the wall.** That header opens "Phase 1's Risk 1 was that submission cost, not triangle count, is
+the wall". Against the 2026-09-01 re-derivation (draw p95 228, triangles p95 726,597):
+
+    draw calls  228 -> 241       +5.7%
+    triangles   726,597 -> 852,605  +17.3%     3.0x faster
+
+Which is what efficient content growth looks like here: `shadow-bill` says a triangle added to the
+crowd, either car pool, the signage or the facade trim costs TWO in the gate's number and ZERO
+draw calls, so detail added inside existing instanced meshes multiplies triangles and does not
+touch submission cost at all.
+
+**And the arithmetic that settles what kind of threshold (b) is.** `budget.mjs` now computes both
+derivations rather than quoting them (`derivations(p95, max)`), on today's artifact:
+
+    (a) capability bound, 1.6x / 2.5x the measured MAX     warn 1,383,533   fail 2,161,770
+    (b) headroom ratchet, p95 / 0.878                      warn   971,076
+    shipped (the tighter of the two, frozen 2026-09-01)    warn   830,000   fail 1,850,000
+
+**(b) recomputed today is 971,076, above the p95 it is derived from — because (b) IS p95 / 0.878,
+so recomputing it always places the warn 14% above whatever the content currently is.** It can
+never fire when recomputed; it fires only because it was frozen at an older p95. So (b) is not a
+bound on anything, it is a growth detector with a date on it, and the entry's title is exactly
+right. The header's own last paragraph predicted this in as many words — "under (b) the triangle
+warn had only 13% headroom left on the OLD metric, so that threshold was close to firing on
+ordinary content growth before any of this" — and deferred the decision.
+
+**NO THRESHOLD IS MOVED, and that is deliberate.** Choosing between a capability bound and a
+growth detector is the decision the header deferred, CLAUDE.md's rule is that a gate is never
+loosened silently, and it is a judgment about what the project wants the gate to protect rather
+than a measurement. What this round removes is the need to recompute the inputs to make it.
+
+**What IS fixed is the gate lying about it.** `headroomPct` was computed against `r.fail` alone,
+so the triangle row printed **53.9% headroom beside the word WARN** — and CLAUDE.md has recorded
+that for several rounds ("the gate's own headroom % column is measured against the FAIL line, not
+the WARN line, so it reads comfortable while the warn line is close") while the code still only
+had the fail figure. It prints the warn figure first and signed now, so an over-warn row reads
+`-2.7% of warn`. This file's own history contains a round that explained a WARN away; a gate
+printing 53.9% next to it was helping.
+
+### #64 Re-baseline the budget gate on the road course — STILL BLOCKED, and on a decision not a measurement
 `src/roadpath.js` is the real fix for the autopilot driving through a third of the city, and it
 is not the gate's course yet, because changing what a gate measures needs a fresh baseline and
 the triangle warn is unresolved.
+
+**#75 narrows the blocker rather than clearing it.** The triangle warn is now known to be a frozen
+ratchet whose recomputed value (971,076) sits above the p95 it derives from, and the draw-call
+metric that matches the gate's stated purpose is at +12.4% of its warn. So what #64 waits on is
+the deferred choice between derivations (a) and (b), which is one decision and not more
+measurement. Taking the road course would reset the baseline for both metrics at once, so it is
+the natural moment to settle the threshold too rather than carrying a frozen one onto a new course.
 
 ### #42 Chunk stall: attributed and structurally improved, but the gate verdict is unresolved
 `detail lost` beyond the subject line. `chunk stall ms` is unusable while anything else runs on

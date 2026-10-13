@@ -1530,8 +1530,56 @@ claim about which gate catches what.
 - **`chunk stall ms` is unusable while anything else runs on the box.** The same
   code has measured 7.1, 24.1, 7.9, 68.5 and 11.6 ms depending only on how many
   headless browsers were alive. It is a max, not a percentile.
-- The gate's own "headroom %" column is measured against the FAIL line, not the
-  WARN line, so it reads comfortable while the warn line is close.
+- **The gate's own "headroom %" column was measured against the FAIL line, not the WARN line, so
+  it read comfortable while the warn line was close — and that sat in this file, recorded, for
+  several rounds while the code still only had the fail figure.** On the committed artifact the
+  triangle row printed `headroom 53.9%` beside the word **WARN**:
+
+      value 852,605   warn 830,000   fail 1,850,000
+      vs fail   53.9%      the only number it printed
+      vs warn   -2.7%      the row's actual status
+
+  FIXED: `printGate` leads with the warn figure, signed, and `headroom[]` carries
+  `warnHeadroomPct` beside the old field. **A recorded defect is not a fixed one**, and this
+  file's history contains a round that explained a WARN away — a gate printing 53.9% next to it
+  was helping. Grep the code for what a "Numbers that are not what they look like" bullet
+  describes before assuming the bullet is all that is left of it.
+
+### A threshold derived as a RATIO of today's content cannot fire if you recompute it
+
+`tools/budget.mjs` takes the tighter of two derivations for every threshold, and for triangles
+that is (b), "preserving the headroom the project has actually been operating under" — warn =
+p95 / 0.878. Computed on today's artifact:
+
+    (a) capability bound, 1.6x / 2.5x the measured MAX     warn 1,383,533   fail 2,161,770
+    (b) headroom ratchet, p95 / 0.878                      warn   971,076
+    shipped, frozen at the 2026-09-01 p95                  warn   830,000   fail 1,850,000
+
+**(b) recomputed is always 14% ABOVE the p95 it is derived from, so it can never fire — it fires
+only by having been frozen.** That makes it a growth detector with a date on it rather than a
+bound on anything, which is #75's title, and it is settled by arithmetic rather than by a run.
+
+The two derivations also answer different questions, and the gate's own header says which it
+cares about: "submission cost, not triangle count, is the wall". Against the same re-derivation,
+**draw calls grew 5.7% and triangles 17.3% — 3.0x faster** — which is what efficient content
+growth looks like here, because `shadow-bill` says a triangle added to the crowd, either car
+pool, the signage or the facade trim costs TWO in the gate's number and ZERO draw calls. Detail
+added inside existing instanced meshes multiplies the secondary metric and does not touch the one
+the gate exists for.
+
+Two rules:
+
+- **When a threshold is a ratio of a measurement, recompute it and see whether it can fire.** A
+  derivation that reproduces its own input is not a threshold, it is a restatement of the status
+  quo — and freezing it silently converts it into a growth alarm.
+- **Say which metric a gate's header claims to protect, then read THAT metric first.** Both
+  numbers were in the committed artifact all along and no round had put them side by side.
+
+`derivations(p95, max)` computes both, so the deferred choice is a reading rather than a
+recomputation. **No threshold is moved** — choosing between a capability bound and a growth
+detector is the decision `budget.mjs`'s own last paragraph deferred, and this file's rule is that
+a gate is never loosened silently.
+
 - **`ao-sweep`'s subject is whichever pavement slot qualifies first, and it is not
   the same slot twice.** Two runs of one unchanged configuration — same camera,
   same tod, same `--peds 96` — picked a 24.4 px body 9 m out and a 7.9 px body

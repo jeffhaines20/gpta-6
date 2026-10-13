@@ -155,6 +155,12 @@ const OFFLINE = [
   // It also owns the no-fleet control arm, so it is the one place that says the follower alone
   // touches nothing at any speed up to 72 km/h — the bound that makes #87 entirely about traffic.
   'shunt-rate --selftest',
+  // Milliseconds, and until this round `tools/budget.mjs` had NO selftest at all — it owns every
+  // threshold this project argues with, is imported only by two seven-minute browser gates, and
+  // so its WARN/FAIL boundary and its headroom column were never exercised offline. It also
+  // pins `derivations` against the figures budget.mjs's own header derived by hand, so the two
+  // cannot drift apart.
+  'budget --selftest',
 ];
 
 /**

@@ -85,21 +85,174 @@ export function gate(results, opts = {}) {
   const worst = deciding.some((r) => r.status === 'FAIL') ? 'FAIL'
     : deciding.some((r) => r.status === 'WARN') ? 'WARN' : 'PASS';
   return { status: worst, rows, advisory,
+    /**
+     * HEADROOM AGAINST THE WARN AS WELL AS THE FAIL, because against the fail alone it reads
+     * comfortable on a row that is already over. CLAUDE.md has recorded that for several rounds
+     * — "the gate's own headroom % column is measured against the FAIL line, not the WARN line,
+     * so it reads comfortable while the warn line is close" — and the code still only had the
+     * fail figure. On the committed artifact the triangle row reads:
+     *
+     *     value 852,605   warn 830,000   fail 1,850,000
+     *     headroom vs fail   53.9%        the only number this printed
+     *     headroom vs warn   -2.7%        the row's actual status, which is WARN
+     *
+     * A gate that prints 53.9% beside the word WARN is inviting the reader to explain the WARN
+     * away, and this file's own history is a round that did exactly that.
+     *
+     * `headroomPct` keeps its name and its meaning so nothing reading the JSON breaks; the warn
+     * figure is added beside it and is the one `printGate` leads with.
+     */
     headroom: rows.map((r) => ({
-      name: r.name, value: r.value, failAt: r.fail, advisory: r.advisory,
+      name: r.name, value: r.value, warnAt: r.warn, failAt: r.fail, advisory: r.advisory,
       headroomPct: +(((r.fail - r.value) / r.fail) * 100).toFixed(1),
+      warnHeadroomPct: +(((r.warn - r.value) / r.warn) * 100).toFixed(1),
     })) };
+}
+
+/**
+ * THE TWO DERIVATIONS, COMPUTED RATHER THAN QUOTED. This file's header records them as prose and
+ * nothing recomputes them, so #75 — "the triangle warn is derivation (b), a headroom ratchet,
+ * and its own comment predicted this" — has been argued from a 2026-09-01 sentence ever since.
+ *
+ *   (a) the file's own documented rule: warn 1.6x and fail 2.5x the measured WORST (the max, not
+ *       the p95 — 760,689 x 1.6 = 1,217,102 is where the header's figure comes from). This is a
+ *       CAPABILITY bound: it asks whether submission cost is near the wall.
+ *   (b) preserving the headroom the project was operating under: warn = p95 / 0.878. This is a
+ *       RATCHET: it pins the threshold to a ratio of whatever the content was on the day, so it
+ *       fires on ordinary growth and says nothing about capability.
+ *
+ * The shipped thresholds take the tighter of the two, which is (b) for triangles. The header's
+ * last paragraph deferred the question of whether that is the right choice and said so plainly;
+ * this function is so the next round reads the answer instead of recomputing the inputs.
+ *
+ * NO THRESHOLD MOVES HERE. A gate is never loosened silently, and choosing between (a) and (b)
+ * is the deferred decision rather than a measurement.
+ */
+export function derivations(p95, max, operatingRatio = 0.878) {
+  return {
+    a: { warn: Math.round(max * 1.6), fail: Math.round(max * 2.5), kind: 'capability bound' },
+    b: { warn: Math.round(p95 / operatingRatio), fail: null, kind: 'headroom ratchet' },
+  };
 }
 
 export function printGate(g) {
   console.log(`\nBUDGET GATE: ${g.status}`);
   for (const r of g.rows) {
     const tag = r.advisory ? `${r.status} (advisory, not gating)` : r.status;
+    const wh = ((r.warn - r.value) / r.warn) * 100;
     console.log(`  ${tag.padEnd(28)} ${r.name.padEnd(16)} ${String(r.value).padStart(9)}  ` +
-      `warn ${r.warn}  fail ${r.fail}  headroom ${(((r.fail - r.value) / r.fail) * 100).toFixed(1)}%`);
+      `warn ${r.warn}  fail ${r.fail}  ` +
+      // THE WARN FIGURE FIRST, and signed, so an over-warn row cannot read as comfortable.
+      `headroom ${wh >= 0 ? '+' : ''}${wh.toFixed(1)}% of warn, ` +
+      `${(((r.fail - r.value) / r.fail) * 100).toFixed(1)}% of fail`);
   }
   if (g.advisory?.length) {
     console.log(`  note: ${g.advisory.join(', ')} reported but not gating in this environment` +
       ` (${ADVISORY_ENV}). Gated in full on a dedicated machine at N>=5.`);
   }
+}
+
+// ---------------------------------------------------------------- self-test
+/**
+ * THIS FILE HAD NO SELFTEST, and it owns every threshold the project argues with. It is imported
+ * by two browser gates (`drive-through`, `chase-harness`) and by nothing offline, so its
+ * arithmetic — the WARN/FAIL boundary, the headroom column, and now `derivations` — was only
+ * ever exercised through a seven-minute run.
+ *
+ * Run as `node tools/budget.mjs --selftest`. No browser, no district, milliseconds.
+ */
+if (process.argv.includes('--selftest')
+  && process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop())) {
+  console.log('BUDGET SELFTEST\n');
+  let pass = 0, fail = 0;
+  const check = (name, ok, detail = '') => {
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? ' — ' + detail : ''}`);
+    ok ? pass++ : fail++;
+  };
+  const spec = { warn: 100, fail: 200 };
+
+  // The boundary, both sides, because `>=` and `>` are one character apart and decide a gate.
+  check('a value AT the warn is a WARN, not a PASS', assess('t', 100, spec).status === 'WARN',
+    `100 -> ${assess('t', 100, spec).status}`);
+  check('and one unit below it passes', assess('t', 99, spec).status === 'PASS',
+    `99 -> ${assess('t', 99, spec).status}`);
+  check('a value AT the fail is a FAIL', assess('t', 200, spec).status === 'FAIL',
+    `200 -> ${assess('t', 200, spec).status}`);
+
+  /**
+   * THE HEADROOM COLUMN, AND THE KNOWN-BAD IS THE VERSION THAT SHIPPED. Against the fail line
+   * alone an over-warn row reads comfortable: this is the committed artifact's own triangle row,
+   * where the old column printed 53.9% beside the word WARN. CLAUDE.md recorded that for several
+   * rounds while the code still had only the fail figure.
+   */
+  {
+    const tri = { warn: 830000, fail: 1850000 };
+    const g = gate([{ name: 'triangles', value: 852605, spec: tri }], { advisory: [] });
+    const h = g.headroom[0];
+    check('an over-warn row reports NEGATIVE headroom against its warn',
+      h.warnHeadroomPct < 0, `${h.warnHeadroomPct}% of warn on a ${g.rows[0].status} row`);
+    check('KNOWN-BAD: and against the FAIL line the same row reads comfortable',
+      h.headroomPct > 50,
+      `${h.headroomPct}% of fail — the only figure the old column printed, beside "WARN"`);
+    check('so the two figures disagree in SIGN, which is what makes the warn one necessary',
+      Math.sign(h.warnHeadroomPct) !== Math.sign(h.headroomPct),
+      `${h.warnHeadroomPct} against ${h.headroomPct}`);
+    check('and the warn figure is the one the printed line leads with',
+      /headroom -2\.7% of warn/.test(capture(() => printGate(g))),
+      capture(() => printGate(g)).split('\n').filter((L) => L.includes('triangles'))[0]?.trim() ?? '');
+  }
+
+  /**
+   * THE RATCHET, ASSERTED RATHER THAN ARGUED. Derivation (b) is `p95 / operatingRatio` with the
+   * ratio under 1, so recomputing it ALWAYS lands above the p95 it came from — it cannot fire on
+   * the content it was derived from, at any scale. That one line is #75's whole finding, and a
+   * ratio of 1.0 or more would silently turn (b) into something that can fire, so the guard is
+   * on the property and not on the number.
+   */
+  for (const p95 of [100000, 726597, 852605, 5000000]) {
+    const d = derivations(p95, Math.round(p95 * 1.014));
+    check(`(b) recomputed at p95 ${p95} cannot fire: warn ${d.b.warn} > p95`,
+      d.b.warn > p95, `ratio ${(d.b.warn / p95).toFixed(3)}`);
+  }
+  /**
+   * BY CONSTRUCTION: `derivations` REPRODUCES THE SHIPPED THRESHOLD FROM THE INPUTS THE HEADER
+   * QUOTES. The header records the 2026-09-01 re-derivation as triangles p95 726,597 / max
+   * 760,689 and the result as warn 830,000 (rounded) / fail 1,850,000. Feeding those back:
+   *
+   *     (b) warn  726,597 / 0.878 = 827,559   against the header's rounded 830,000
+   *     (a) warn  760,689 x 1.6   = 1,217,102 against the header's 1,217,000
+   *     (a) fail  760,689 x 2.5   = 1,901,723 against the header's 1,902,000
+   *
+   * So this function is the same arithmetic the header did by hand, and every statement built on
+   * it is about the shipped thresholds rather than about a model of them. Without this check
+   * `derivations` could be any plausible pair of formulas.
+   */
+  {
+    const d = derivations(726597, 760689);
+    check('derivations reproduces the header\'s own 2026-09-01 figures from its own inputs',
+      Math.abs(d.b.warn - 830000) < 2500 && Math.abs(d.a.warn - 1217000) < 500
+      && Math.abs(d.a.fail - 1902000) < 500,
+      `(b) warn ${d.b.warn} vs 830,000; (a) warn ${d.a.warn} vs 1,217,000; `
+      + `(a) fail ${d.a.fail} vs 1,902,000`);
+  }
+  {
+    const d = derivations(852605, 864708);
+    check('and (a) is the looser of the two on this content, so the shipped choice is (b)',
+      d.a.warn > d.b.warn, `(a) ${d.a.warn} against (b) ${d.b.warn}`);
+    check('both derivations sit ABOVE the shipped frozen warn, which is why it fires',
+      d.a.warn > BUDGET.triangles.warn && d.b.warn > BUDGET.triangles.warn,
+      `shipped ${BUDGET.triangles.warn}, (a) ${d.a.warn}, (b) ${d.b.warn}`);
+  }
+
+  console.log(`\nBUDGET SELFTEST: ${fail ? 'FAIL' : 'PASS'} — ${pass + fail} checks, ${fail} failed`);
+  process.exit(fail ? 1 : 0);
+}
+
+/** Capture stdout from a printer so a check can assert the LINE and not just the datum. */
+function capture(fn) {
+  const out = [];
+  const orig = console.log;
+  console.log = (...a) => out.push(a.join(' '));
+  try { fn(); } finally { console.log = orig; }
+  return out.join('\n');
 }
