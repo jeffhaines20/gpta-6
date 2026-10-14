@@ -122,6 +122,11 @@ export function chase({ spot, seed, policy = 'far', world = 'bare', stars = 2, s
   // their positions, and before the pursuit's first update there are none, which would make its
   // first leg the same random draw as `far`'s and the two policies one drive. Counted in the time.
   s.drive({ throttle: 0, brake: 1 }).step(0.5);
+  // Where the first unit is NOW, for the seed check. Read at the END it was always null — a clear
+  // releases every unit — so four seeds read as one draw: a check that cannot tell a broken seed
+  // from a finished chase, which printed "NOT ALL DIFFERENT DRAWS" over seeds that were.
+  const u0 = s._unitPositions();
+  const firstUnit = u0.length ? { x: u0[0].x, z: u0[0].z } : null;
 
   /**
    * AHEAD OF THE CAR, OR THE FIRST LEG IS A U-TURN. The first version drew from the whole ring, so
@@ -200,7 +205,7 @@ export function chase({ spot, seed, policy = 'far', world = 'bare', stars = 2, s
     crimeTypes: ev.crimeTypes, bustSpeed: ev.bustSpeed, firstDest: ev.firstDest,
     legs, wedges, wrecks: s.stats.wrecks, busts: s.stats.busts, reacquires: s.wanted.stats.reacquires,
     metres: s.stats.distance, clearedByPoll, eventCleared: ev.clearAt !== null,
-    firstUnit: (() => { const u = s._unitPositions(); return u.length ? { x: u[0].x, z: u[0].z } : null; })(),
+    firstUnit,
   };
 }
 
@@ -337,6 +342,16 @@ if (IS_MAIN && SELFTEST) {
   check('`far` and `away` aim at different places from the same start',
     !!a.firstDest && !!b.firstDest && (a.firstDest.x !== b.firstDest.x || a.firstDest.z !== b.firstDest.z),
     `${fd(a)} against ${fd(b)}`);
+
+  // 5. The seeds reach the pursuit, read where a unit EXISTS. The report's first version read the
+  //    unit at the end of each chase, after the clear had released every unit, and printed "NOT
+  //    ALL DIFFERENT DRAWS" over four seeds that were — CLAUDE.md's too-consistent column,
+  //    produced by the instrument rather than by the seed.
+  const firsts = [1, 2, 3, 4].map((seed) => chase({ spot: spots[0], seed, policy: 'far',
+    world: 'bare', seconds: 5, points }).firstUnit);
+  const distinct = new Set(firsts.map((f) => f && `${f.x},${f.z}`)).size;
+  check('four seeds put the first unit in four different places', firsts.every(Boolean) && distinct === 4,
+    firsts.map((f) => f ? `(${f.x.toFixed(0)}, ${f.z.toFixed(0)})` : 'none').join(' '));
 
   console.log(`\nCLEAR-TIME SELFTEST: ${fail ? 'FAIL' : 'PASS'} — ${pass + fail} checks` +
     `${fail ? `, ${fail} failed` : ''}`);

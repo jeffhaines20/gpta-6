@@ -2863,7 +2863,8 @@ linear in the mission's size, caught at x7.89 while passing the absolute bound a
 `car-shapes`, `crowd-bill --selftest`, `tri-buckets --selftest`, `gate-align --selftest`,
 `mutation-sweep --selftest`, `playtest --selftest`, `car-shapes --selftest`,
 `arrest-band --selftest`, `paint-census`, `speed-limit --selftest`,
-`lane-keep --selftest`, `shunt-rate --selftest`,
+`lane-keep --selftest`, `shunt-rate --selftest`, `budget --selftest`, `response-iso --selftest`,
+`clear-time --selftest`, `wreck-cancel --selftest` (3.3, 5.7 and 1.3 s),
 `glass-census` (needs a browser to decode the reference JPEGs; about 20 s),
 `paint-tone` (the same, about 2.4 s), `car-pixel` (the same, about 1.4 s).
 The offline ones together take **121 s**, measured end to end rather than guessed — this line
@@ -4456,3 +4457,48 @@ contacts and health 1.000 at every speed from 22 to 72 km/h, arriving 5 of 5 —
 72 km/h wrecks the car 5 of 5. The entry asserts that by construction ("`followPath` has no
 car-following term") and three rounds quoted its damage columns without it. **An arm that removes
 the subsystem under suspicion costs one flag and bounds everything else in the table.**
+
+## A question about a number hid a defect, and the record already held its symptom
+
+Round 11 left three questions, and the third — "the real 2-star clear-by-driving time" — carried a
+sentence nobody followed: "one seed's '45.8 s clear' was an ARREST clearing the meter rather than an
+escape". That was read, correctly, as an instrument error, and it was also a DRIVING player being
+arrested. `tools/clear-time.mjs`, written to answer the question, was busted at **76 km/h** on its
+first real drive: `src/pursuit.js`'s stop clamp keeps a stopped unit at the player's projection at up
+to the unit's own driving speed, so it PACES a driving player, and `_recedingFrom` reads zero against
+a unit on a parallel line at any speed. Two correct rules meeting; 25 of 137 arrests in the probe's
+160 chases were made above an officer's running pace. #113 in the backlog.
+
+Four things to carry:
+
+- **When a record says an instrument counted the wrong event, ask why the event happened.** The
+  arrest-counted-as-escape was the instrument's error AND the game's; the number that would have
+  said so — the car's speed at the arrest — was not recorded. `clear-time` records it now.
+- **A mutation row's `why` is a claim about the SHIPPED code too.** `bust-any-speed` read "a unit
+  that pulls alongside on a straight busts you at 70 km/h" — true at HEAD since #95 — and was
+  "caught" all along by a radial drive-away arm, a different geometry. A row caught for a reason that
+  is not the one in its sentence reads as coverage of that sentence.
+- **A fixture that holds the subject still cannot see it move.** Every `wanted-test` §d2 arm parked
+  the officer at the origin; `drive()` takes a unit path now. Ask what the fixture holds fixed that
+  the game does not.
+- **The fix disarmed a neighbouring check, the opposite of a regression.** At 40 km/h the new pace
+  term resets the clock whatever the no-position fallback says, so `bust-sign-default`'s 40 km/h arm
+  would have passed the mutation it exists for. It needed a 20 km/h arm. This file's "three checks
+  that a mutation makes hold HARDER", arriving through a FIX rather than a mutation.
+
+### And three of this round's own instrument errors, all caught by a check written to catch them
+
+- `response-iso`'s whole-row control failed on two runs identical to the physics step: the hash
+  encoded the level as a delta, and after a clear 0 − 3 is not 0 − 2. The control was right.
+- `clear-time` printed "NOT ALL DIFFERENT DRAWS" over four seeds that were: it sampled the unit's
+  position after the level cleared, when every unit is released, so all four read null. A seed check
+  has to sample where the thing the seed reaches EXISTS.
+- `S=dir && (a > $S/a.log) & (b > $S/b.log) &` sets `S` only inside the first background job, so
+  the other two wrote to `/b.log` at the filesystem root. Assign before the first `&`, on its own.
+
+And a sibling drift, twice in one round: `chunk-steps` and `chase-harness` COPY the budget gate's
+autopilot and never learned the gate's 2026-09-25 body-collision switch, so both measured a car
+wrecked ~10 s in and teleported round the route; and `drive-through` and `chase-harness` kept the
+favicon filter `boot-check` had already found useless — a failed load reaches the console with no
+URL, so a filter on its TEXT never matches. Copied code does not receive its original's fixes.
+

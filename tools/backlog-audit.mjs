@@ -24,7 +24,7 @@ const IS_MAIN = process.argv[1] && import.meta.url.endsWith(process.argv[1].spli
 /** A `#### ` line that announces a preserved copy of an older entry. */
 const PRESERVED = /^#### .*(original record|kept verbatim|the round that measured)/i;
 /** A status word in a live heading. `(original record)` is self-labelling and counts too. */
-const RESOLVED = /FIXED|CLOSED|MEASURED|REFUSED|PRICED|SHIPPED|NARROWED|working as designed|\(original record\)|\(as filed\)|\(the investigation that got there\)/i;
+const RESOLVED = /FIXED|CLOSED|MEASURED|REFUSED|PRICED|SHIPPED|NARROWED|working as designed|\((the )?original record\)|\(as filed\)|\(the investigation that got there\)/i;
 
 export function audit(text) {
   const live = [];
@@ -35,7 +35,14 @@ export function audit(text) {
     if (L.startsWith('## ')) { preserved = false; return; }
     const m = /^### (#\d+)\b(.*)/.exec(L);
     if (!m) return;
-    if (preserved) { skipped++; return; }
+    /**
+     * A MARKER PRESERVES ONE RECORD, NOT THE REST OF THE SECTION. The first version left
+     * `preserved` on until the next `####` or `##` line, so every live entry written after a
+     * record in the same section was skipped too — 22 of them, #48 and #113 among them, and #54
+     * and #36, which carry no status at all and were therefore open and invisible. The file's
+     * convention is one `### #N` record under each marker, so the marker is consumed by it.
+     */
+    if (preserved) { skipped++; preserved = false; return; }
     live.push({ line: i + 1, id: m[1], rest: m[2].trim(), open: !RESOLVED.test(m[2]) });
   });
   return { live, skipped, open: live.filter((h) => h.open) };
@@ -62,13 +69,23 @@ if (SELFTEST && IS_MAIN) {
     'body',
     '#### Some other subheading',                // not a preserved marker
     '### #3 SHIPPED — landed',
+    '#### THE ORIGINAL RECORD',
+    '### #4 the record of #3',                   // preserved: must NOT count
+    'body',
+    // AND THE ENTRY AFTER A RECORD IN THE SAME SECTION IS LIVE. The first version of the scope
+    // skipped it, and that is the shape the real file has everywhere: a restated entry, its
+    // record, then the next entry.
+    '### #5 open and written after a record',    // live AND open
   ].join('\n');
   const a = audit(fixture);
-  check('a record under a preserved marker is not counted', a.skipped === 1, `${a.skipped} skipped`);
-  check('and the live headings are the other three', a.live.length === 3,
+  check('a record under a preserved marker is not counted', a.skipped === 2, `${a.skipped} skipped`);
+  check('and the live headings are the other four', a.live.length === 4,
     a.live.map((h) => h.id).join(','));
-  check('exactly one of them reads open', a.open.length === 1 && a.open[0].id === '#2',
-    a.open.map((h) => h.id).join(',') || 'none');
+  check('exactly two of them read open', a.open.length === 2 && a.open[0].id === '#2'
+    && a.open[1].id === '#5', a.open.map((h) => h.id).join(',') || 'none');
+  check('KNOWN-BAD: the entry written after a record in the same section is LIVE — the first ' +
+    'scope skipped it, and so skipped #48', a.live.some((h) => h.id === '#5'),
+    a.live.map((h) => h.id).join(','));
   /**
    * THE KNOWN-BAD: the naive grep. It counts every `### #` line, so on this fixture it reports 4
    * headings and 2 without a status — which is the over-report this tool exists to fix, in
@@ -76,8 +93,8 @@ if (SELFTEST && IS_MAIN) {
    */
   const naive = fixture.split('\n').filter((L) => /^### #\d/.test(L));
   const naiveOpen = naive.filter((L) => !RESOLVED.test(L));
-  check('the fixture does contain the trap: a naive grep reads 4 headings and 2 open',
-    naive.length === 4 && naiveOpen.length === 2,
+  check('the fixture does contain the trap: a naive grep reads 6 headings and 4 open',
+    naive.length === 6 && naiveOpen.length === 4,
     `${naive.length} headings / ${naiveOpen.length} open, against this tool's `
     + `${a.live.length} / ${a.open.length}`);
   /** A `## ` ends a preserved block, so a heading after one is live again. */

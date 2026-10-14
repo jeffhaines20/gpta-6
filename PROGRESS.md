@@ -2591,6 +2591,7 @@ reverting it returns 0.00. A gate that cannot fail is not a gate.
 
 | Date | Gate | Result | Evidence |
 |---|---|---|---|
+| 2026-10-14 | **drive-through + 30 traffic, the N>=5 stall protocol on a CLEAN box** (fresh 4-core container, nothing else alive) | **WARN** on the protocol's statistics — stall **8.6, 17.2, 10.6, 9.1, 8.0 ms**: median **9.1**, p80 **10.6** against warn 8 / fail 16, one run of five over fail. Runs 1 and 2 did byte-identical streaming work and read 8.6 and 17.2. tris p95 868,772-876,420 (WARN, as recorded since 2026-09-01), draw p95 257-263 (PASS). See BACKLOG #42 for what the spread is and is not | `docs/stall/head-9fad52a/` |
 | 2026-09-04 | **drive-through + 30 traffic**, with live oaks on the corridor | **PASS/PASS/WARN** — draw p95 **225**, tris p95 **773,816** (+14,247, 6.8% under warn), stall **8.3 ms**, heap **-3 MB** | `docs/drive-traffic.json` |
 | 2026-09-04 | **drive-through + 30 traffic**, foliage alpha stencil + restored oak density | **PASS/PASS/WARN** — draw p95 **225** (unchanged), tris p95 **785,699** (+11,883, 5.3% under warn), stall **9.7 ms**, heap **-22 MB**. Stall was already 8.3 ms pre-round and its own noise band is 5.3–24.2 ms on identical builds; not attributable here. | `docs/drive-traffic.json` |
 | 2026-09-04 | **drive-through + 30 traffic**, square leaf stamps (cards fix) | **PASS/PASS/WARN** — draw p95 **225** (unchanged), tris p95 **784,737** (−962 vs the stencil round, 5.5% under warn), stall **8.3 ms** (back to its pre-stencil value), heap **−8 MB** | `docs/drive-traffic.json` |

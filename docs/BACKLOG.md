@@ -2022,6 +2022,42 @@ valuable part: traffic, crowd, the running mission, the yaw and teleport-vs-driv
 the **pursuit seed is decisive**, and the failure is bimodal (closest approach frozen at exactly
 36.4 m, not a spread), which is #109 again.
 
+### #113 FIXED — a police car keeping pace alongside could arrest you at 76 km/h
+Found by `tools/clear-time.mjs` on its first real drive, measuring round 11's third question: a
+2-star chase, the follower accelerating away from 14 to 21 m/s, BUSTED at 7.8 s. Frame by frame:
+
+    unit 7.3 m away closing to 2.5 m, `held` on every frame, bustFor 0.04 -> 3.97 s, busted at 76 km/h
+
+**Two correct rules meeting.** `src/pursuit.js`'s stop clamp keeps a STOPPED unit at the player's
+projection on its edge, bounded only by the unit's own driving speed (22 m/s at two stars), so a
+stopped unit paces a player driving along its road — inside `holdRadius` it is `held` with no walk
+test. And `_recedingFrom` reads the player's velocity along the unit-to-player line, about zero for a
+unit pacing on a parallel line, at any speed. So the bust clock ran while the player drove away.
+
+**The quantity is the player's GROUND speed.** Relative to a pacing unit the player is stationary —
+exactly what the clock exists to arrest — and what makes the arrest impossible is that an officer on
+foot would have to run at the car's speed. `ARREST_PACE_MS` is that pace, `RUN_SPEED` (7.0 m/s),
+restated in a module that cannot import three.js and pinned equal by `wanted-test`; at or above it
+the clock resets, below it nothing changed.
+
+    arrests above the officer's 25.2 km/h pace, clear-time's 160 chases   before 25 of 137   after 0 of 136
+    the fastest arrest                                                    before 56 km/h     after 24 km/h
+    escapes                                                               before 23          after 24
+
+The escapes barely move — those chases now end in a slow arrest about 10 s later — which is the
+point: the fix does not make the police worse, it makes the arrest physical. The PRICE, stated: a
+player circling above 25.2 km/h near a unit is no longer arrested by this clock (`wanted-test` §d2
+pins it at 0); that is the rule's own physics, and it is not an out, since a player in sight of a
+unit cannot shed a star. `response-iso`'s outcome table — 160 stationary runs — is identical before
+and after, to the second, as it has to be: a parked player never reaches the pace.
+
+**A mutation row had described this defect as a mutation.** `bust-any-speed`'s comment read "a unit
+that pulls alongside on a straight busts you at 70 km/h" — true of the shipped build since #95 made
+the reset `moving && away`. It was caught all along, by `wanted-test`'s radial DRIVING AWAY arm, a
+different geometry, so the sentence read as covered. Every §d2 arm parked the unit at the origin;
+`drive()` takes a unit path now, and the paced arm is the catch the row was always described as.
+`bust-outrun` is the new row; all four `bust-*` rows are caught, three by `wanted-test` alone.
+
 ### #112 FIXED (all three divergences) — and its "four highest-heat crimes" sub-entry too
 Audited against the source rather than re-derived, which is this list's own standing lesson:
 
@@ -2040,10 +2076,8 @@ Audited against the source rather than re-derived, which is this list's own stan
                                                         The other three are priced refusals
                                                         `damage-test` already pins.
 
-**What is still open is only round 11's own "could not resolve" list below** — which column of
-`RESPONSE` makes 3 stars arrest where 2 does not, whether repeat wreck-cancels are penalised, and
-the real 2-star clear-by-driving time. Those are questions, not defects, and each needs a scenario
-that can vary one term.
+**Round 11's own "could not resolve" list below is ANSWERED**, each by a committed probe that varies
+one term — and the third question turned out to be hiding a defect, #113, which is the useful half.
 
 #### THE ORIGINAL RECORD
 ### #112 Three host divergences the harness hides, found by round 11 reading both sources
@@ -2078,6 +2112,71 @@ than reading it cannot see the host being wrong".
   charges one. Their "1 star" and "2 star" sweep rows were the same arm, and they noticed only
   because the traces came back byte-identical.
 
+### ANSWERED — what round 11 could not resolve, one term at a time
+
+**Which column of `RESPONSE` makes 3 stars arrest where 2 does not: `units` and `cooldown`, two
+mechanisms, and nine of the eleven columns do nothing at all.** `tools/response-iso.mjs` replaces a
+session's table (`wanted.js` reads `this.response`) and swaps one column of one row, both ways, on
+the cases where the levels disagree. Stationary and braked, 20 spots x 4 seeds, 240 s:
+
+    2 stars   arrested 77, escaped 2, stalemate 1 of 80
+    3 stars   arrested 79, escaped 0, stalemate 1 of 80     3* arrests where 2* does not: 3; the reverse: 1
+
+    spot 15 seed 4   2* stalemate, 3* A11    lift `units` -> A12; drop `units` -> stalemate   units alone
+    spot 6  seed 4   2* E44,       3* A119   lift `cooldown` -> A58; no single drop flips it   cooldown alone
+    spot 6  seed 3   2* E31,       3* A61    no single lift; drop `units` -> E66, `cooldown` -> E85   both
+
+So "3 stars arrests where 2 does not" is two different things: a second pair of units is a second
+chance to reach an arresting stop point (the stalemate case — #109's bimodal router, again), and a
+26 s cooldown keeps the level up long enough for an arrest that an 18 s one lets the player ESCAPE
+first. `speedMul` changes every trace and no outcome. The other eight — the spawn band, the give-up
+radius, intercept, aggression, search growth, the spot radius and the siren — leave the trace
+BYTE-IDENTICAL in every case, which is district/main.js's comment that the shim does not honour the
+spawn band or the intercept roles, measured. The controls hold: 2 stars carrying row 3 entire
+reproduces 3 stars byte for byte in 3 of 3, and an identity table changes nothing.
+
+**Whether repeat wreck-cancels are penalised: yes, by two mechanisms, neither of them designed as a
+penalty.** `tools/wreck-cancel.mjs` takes a job, wrecks out of it, drives back and retakes it, four
+times, and asserts every attempt is exactly one wreck (round 11's arm failed that and measured
+nothing). Bare world:
+
+    marlin-street   cycle 14.3 s, 64.5 s, 11.7 s, 27.9 s     heat 0.89, 0.90, 0.90, 1.24 -> ONE STAR
+                    attempt 2: loop-breaker fired, respawned at the district spawn 354 m from the pickup
+    shakedown       cycle 20.3 s, 27.0 s, 45.9 s, 43.1 s     heat 0.90 each, 0 stars; breaker fired on
+                    attempt 2 too, but this pickup is 30 m from the spawn, so it cost nothing
+
+Each wreck files `propertyDamage`, which the soft knee holds under one star; two inside the idle
+bleed's reach are a star, and attempt 4 on `marlin-street` came 11.7 s after the last. And the
+loop-breaker — written for a car that wrecks ITSELF on respawn — reads a player wrecking on purpose
+near one pickup as the same sequence and sends the replacement to the spawn. Both are working as
+specified. Neither matters much since #106: `Q` hands a job back in 0 s. **The three seeds were
+byte-identical, and that is not the seed defect**: in a bare world the seed reaches only the
+pursuit, which does not exist until a star is up — so it is one deterministic measurement, reported
+as one.
+
+**The real 2-star clear-by-driving time, read off the module's own `clear` event at physics-step
+resolution with the reason attached** (`tools/clear-time.mjs`; the shipped follower at 22 m/s, 10
+spots x 4 seeds, 300 s, two destination policies, a bare world and the shipped one):
+
+    bare     far    escaped 11/40   p10 37.5   p50 55.2   p90 100.9   max 194.0 s
+    bare     away   escaped  8/40   p10 30.0   p50 50.0   p90  72.6   max 122.0 s
+    shipped  far    escaped  2/40   p50 43.7 s
+    shipped  away   escaped  3/40   p50 30.0 s
+    the floor: 18 + 12 = 30 s out of contact, and no escape beat it
+
+So the escape that happens is about 50-55 s in the bare world, and round 11's 95.2 s upper bound was
+the end of whichever leg it cleared in. **But most drives do not escape at all: 29-38 of 40 end in an
+arrest**, now at a median 3 km/h — the follower crawls through tight corners at the 2.2 m/s floor
+and a unit alongside takes it there, which is within the rules. The follower is a floor on a human's
+driving, not on their judgement; a human does better and the column says how much better is needed.
+
+**And before f0ac12f, 25 of 137 of those arrests were made with the car above an officer's running
+pace, at up to 56 km/h — see #113.** Round 11's "one seed's 45.8 s clear was an ARREST" was a drive
+that got arrested, and it was read, correctly, as an instrument error; nobody asked why a DRIVING
+player had been arrested, and the speed at the arrest — the number that would have said — was not
+recorded.
+
+#### THE ORIGINAL RECORD
 ### What round 11 could not resolve
 Which column of `RESPONSE` makes 3 stars arrest where 2 does not at the same spot (the level moves
 `units`, `speedMul`, `spotRadius` and `giveUpRadius` together and a scenario cannot vary them
@@ -2989,6 +3088,44 @@ the deferred choice between derivations (a) and (b), which is one decision and n
 measurement. Taking the road course would reset the baseline for both metrics at once, so it is
 the natural moment to settle the threshold too rather than carrying a frozen one onto a new course.
 
+### #42 MEASURED — the stall gate WARNs at N=5 on a clean box, and the spread is not the build's work
+PROGRESS.md's 2026-08-30 protocol — N>=5 sequential runs, median and p80 — run for the first time on
+a box with nothing else alive: a fresh 4-core container, load average 4.15 median over 45 samples,
+which is the run's own browser. `docs/stall/head-9fad52a/`:
+
+    runs        8.6  17.2  10.6  9.1  8.0 ms      median 9.1   p80 10.6   against warn 8 / fail 16
+    verdict     WARN on both statistics, one run in five over fail
+
+**The verdict is WARN, and what it measures is mostly the box.** Two readings say so, neither of
+them an argument:
+
+- **Runs 1 and 2 did byte-identical streaming work** — 158 loads, 168 unloads, 263 LOD swaps — and
+  read 8.6 and 17.2 ms. Same work, x2.0. (The five runs do not all do the same work: the gate stops
+  at a 300 s wall-clock cap, so how far it drives depends on how fast the box renders, and runs 3
+  and 5 covered 3,185 and 3,527 m against ~4,000.)
+- **The worst live step costs twice the whole chunk's offline price.** `tools/append-cost.mjs`
+  (min of 5 passes, deterministic) prices chunk 0,-2's repeat build — all nine buildings — at
+  3.92 ms; the chunk-steps ledger on the same box saw ONE `append:near` step on that chunk take
+  7.7 ms. The worst single building in the district appends in 1.40 ms, and a slice can only
+  overrun its 3 ms budget by one building, so a step past ~4.4 ms is carrying time beyond the
+  facade kit's WARM cost.
+
+What the second reading cannot say is WHOSE time that is, and there are three candidates:
+SwiftShader's raster threads competing for four cores (load 4.15 says they are), a V8 garbage-
+collection pause (which a GPU machine would pay too), or the same code running colder in the page
+than in node's best of five. The measurement that separates the first from the other two is a
+fixed, non-allocating workload timed on the main thread during the same drive — its excess is
+preemption alone. Not run; it is the next step, and until then the honest statement is "WARN, and
+the worst slice carries about twice the build's warm cost".
+
+The chunk-steps run itself (`chunk-steps-traffic.json`): worst slice 8.4 ms = dispose 4.7 + steps
+3.2 + scan 0.5, ledger 0.00 ms from the gate's own number. **And that tool had been attributing a
+different drive since 2026-09-25**: it copies the gate's autopilot and never turned body collision
+off when the gate did, so it measured a car wrecked ~10 s in and teleported round the route.
+`chase-harness` had the same drift. Both fixed in 33e2e1c, and both now print the state before and
+after the switch.
+
+#### THE ORIGINAL RECORD
 ### #42 Chunk stall: attributed and structurally improved, but the gate verdict is unresolved
 `detail lost` beyond the subject line. `chunk stall ms` is unusable while anything else runs on
 the box — see CLAUDE.md.
