@@ -1386,9 +1386,19 @@ const MUTATIONS = [
     /**
      * THE SPEED TERM GOES, so the clock runs while you are driving. A unit that pulls alongside on
      * a straight busts you at 70 km/h. It is the term whose absence a stationary test cannot see.
+     *
+     * AND THAT SENTENCE DESCRIBED THE SHIPPED BUILD, not just this mutation. Once #95 made the reset
+     * `moving && away`, a unit pacing on a parallel line read as "not receding" at any speed, so
+     * "a unit alongside you at speed is an arrest" was true at HEAD — tools/clear-time.mjs was
+     * busted at 76 km/h on its first drive. This row was caught all the while, by wanted-test's
+     * DRIVING AWAY arm, which recedes radially from a parked unit: a different geometry, caught
+     * for a reason that was not the one in the `why`. A row's sentence is a claim about the
+     * shipped code as well as about the mutation, and nothing checked the first half. Repointed
+     * at the line ARREST_PACE_MS rewrote, removing both terms as before; the paced arm is the
+     * catch it was always described as.
      */
     id: 'bust-any-speed', file: 'src/wanted.js',
-    find: '    if (this.stars <= 0 || !player.held || (moving && (away ?? true))) {',
+    find: '    if (this.stars <= 0 || !player.held || outrun || (moving && (away ?? true))) {',
     to: '    if (this.stars <= 0 || !player.held) {',
     why: 'a unit alongside you at speed is an arrest',
   },
