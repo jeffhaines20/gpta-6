@@ -1,0 +1,230 @@
+body collision: OFF for this run (was on)
+  the straight-line course is 32.8% inside buildings; see the comment above.
+  DRIVE_COURSE=roads drives the road graph with collision on instead.
+{
+  "mode": "with 30 stub vehicles",
+  "laps_completed": 1,
+  "route_length_m": 2654,
+  "frames_sampled": 117,
+  "route_duration_s": 126.5,
+  "distance_driven_m": 4107,
+  "draw_calls": {
+    "min": 120,
+    "p50": 191,
+    "p95": 258,
+    "max": 267
+  },
+  "triangles": {
+    "min": 581684,
+    "p50": 713656,
+    "p95": 871815,
+    "max": 889671
+  },
+  "chunks_loaded": {
+    "min": 53,
+    "p50": 69,
+    "p95": 89,
+    "max": 89
+  },
+  "lod_near": {
+    "min": 14,
+    "p50": 16,
+    "p95": 17,
+    "max": 19
+  },
+  "lod_far": {
+    "min": 37,
+    "p50": 54,
+    "p95": 73,
+    "max": 73
+  },
+  "chunk_loads_total": 165,
+  "chunk_unloads_total": 168,
+  "chunk_loads_per_s": 1.3,
+  "chunk_unloads_per_s": 1.33,
+  "lod_swaps_total": 271,
+  "worst_chunk_build_ms": 9.1,
+  "worst_chunk_total_ms": 21,
+  "heap_mb_before": 104,
+  "heap_mb_after": 78,
+  "heap_growth_mb": -26,
+  "speed_kmh": {
+    "min": 12.5,
+    "p50": 120.4,
+    "p95": 141.5,
+    "max": 144.3
+  },
+  "traffic": {
+    "fleet": 30,
+    "glow": {
+      "slots": 6,
+      "used": 6,
+      "edgeM": 103.9,
+      "trianglesEach": 64,
+      "visible": true
+    },
+    "alive": 29,
+    "spawns": 228,
+    "despawns": 196,
+    "deadEnds": 66,
+    "uTurns": 13,
+    "orphaned": 94,
+    "maxSimultaneousOrphans": 30,
+    "worstOrphanS": 1.27,
+    "overlapFrames": 24,
+    "frames": 2624,
+    "glowSlotsUsed": 6,
+    "glowEdgeM": 103.9,
+    "junctionWaitCarFrames": 3261,
+    "followBrakeCarFrames": 3750,
+    "stoppedCarFrames": 1332,
+    "playerLeaderFrames": 47,
+    "laneFitEdges": 5,
+    "playerPinnedFrames": 0,
+    "playerPinnedCars": 0,
+    "undrivableLanes": 2,
+    "undrivableMetres": 75.93614275246685,
+    "entryBlockedCarFrames": 0,
+    "carFrames": 78720,
+    "overlapNearJunction": 24,
+    "overlapSameEdge": 0,
+    "overlapCrossEdge": 0,
+    "overlapPairFrames": 24,
+    "overlapCarFrames": 48,
+    "overlapPairsNearJunction": 24,
+    "overlapPairsMidBlock": 0,
+    "waitEpisodes": 89,
+    "waitSumS": 161.0052999999999,
+    "waitMaxS": 6.399999999999985,
+    "conflictDenials": 2807,
+    "queueDenials": 219,
+    "boxDenials": 235,
+    "replans": 12,
+    "gridlockRecoveries": 0,
+    "gridlockByReason": {
+      "conflict": 0,
+      "queue": 0,
+      "box": 0,
+      "none": 0
+    },
+    "maxActiveInAJunction": 2,
+    "shuntFrames": 1,
+    "shuntPoliceFrames": 0,
+    "shuntCars": 1,
+    "shuntRecoveries": 1,
+    "worstShuntDv": 2.54,
+    "shuntStoppedFrames": 37,
+    "shuntFitFrames": 0,
+    "shuntExemptExpired": 0,
+    "closestApproachM": 0.06,
+    "overlapPctOfFrames": 0.9,
+    "junctionWaitPctOfCarFrames": 4.1,
+    "followBrakePctOfCarFrames": 4.8,
+    "stoppedPctOfCarFrames": 1.7,
+    "meanSpeedKmh": 38.6,
+    "junctionsHeld": 12,
+    "activeMovements": 12,
+    "queuedCars": 1,
+    "busiestJunction": 2,
+    "overlapCarPctOfCarFrames": 0.06,
+    "overlapPairsPerFrame": 0.009,
+    "closestPairHistogram": [
+      5,
+      12,
+      29,
+      65,
+      444,
+      279,
+      298,
+      254,
+      291,
+      947
+    ],
+    "drawCalls": 1
+  },
+  "errors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "budget_gate": {
+    "status": "WARN",
+    "rows": [
+      {
+        "name": "draw calls",
+        "value": 258,
+        "warn": 275,
+        "fail": 440,
+        "status": "PASS",
+        "advisory": false
+      },
+      {
+        "name": "triangles",
+        "value": 871815,
+        "warn": 830000,
+        "fail": 1850000,
+        "status": "WARN",
+        "advisory": false
+      },
+      {
+        "name": "chunk stall ms",
+        "value": 9.1,
+        "warn": 8,
+        "fail": 16,
+        "status": "WARN",
+        "advisory": false
+      },
+      {
+        "name": "heap growth MB",
+        "value": -26,
+        "warn": 40,
+        "fail": 120,
+        "status": "PASS",
+        "advisory": false
+      }
+    ],
+    "advisory": [],
+    "headroom": [
+      {
+        "name": "draw calls",
+        "value": 258,
+        "warnAt": 275,
+        "failAt": 440,
+        "advisory": false,
+        "headroomPct": 41.4,
+        "warnHeadroomPct": 6.2
+      },
+      {
+        "name": "triangles",
+        "value": 871815,
+        "warnAt": 830000,
+        "failAt": 1850000,
+        "advisory": false,
+        "headroomPct": 52.9,
+        "warnHeadroomPct": -5
+      },
+      {
+        "name": "chunk stall ms",
+        "value": 9.1,
+        "warnAt": 8,
+        "failAt": 16,
+        "advisory": false,
+        "headroomPct": 43.1,
+        "warnHeadroomPct": -13.7
+      },
+      {
+        "name": "heap growth MB",
+        "value": -26,
+        "warnAt": 40,
+        "failAt": 120,
+        "advisory": false,
+        "headroomPct": 121.7,
+        "warnHeadroomPct": 165
+      }
+    ]
+  }
+}
+
+BUDGET GATE: WARN
+  PASS                         draw calls             258  warn 275  fail 440  headroom +6.2% of warn, 41.4% of fail
+  WARN                         triangles           871815  warn 830000  fail 1850000  headroom -5.0% of warn, 52.9% of fail
+  WARN                         chunk stall ms         9.1  warn 8  fail 16  headroom -13.7% of warn, 43.1% of fail
+  PASS                         heap growth MB         -26  warn 40  fail 120  headroom +165.0% of warn, 121.7% of fail

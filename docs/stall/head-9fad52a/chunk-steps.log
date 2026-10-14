@@ -1,0 +1,106 @@
+body collision: OFF for this run, as the gate runs it (was on)
+{
+  "slices_recorded": 186,
+  "slices_total": 2530,
+  "idle_slices": 2344,
+  "dropped_rows": 0,
+  "steps_recorded": 2305,
+  "slice_ms": {
+    "p50": 3.2,
+    "p95": 6.7,
+    "max": 8.4
+  },
+  "total_ms": {
+    "slice": 632.9,
+    "scan": 9.6,
+    "dispose": 47.6,
+    "step": 561.1,
+    "unattributed": 14.6
+  },
+  "share_pct": {
+    "scan": 1.5,
+    "dispose": 7.5,
+    "step": 88.7,
+    "unattributed": 2.3
+  },
+  "worst_step": {
+    "kind": "append:near",
+    "ms": 7.7,
+    "chunk": "0,-2"
+  },
+  "gate_worst_slice_ms": 8.4,
+  "gate_worst_build_ms": 19.3,
+  "gate_worst_dispose_ms": 4.5,
+  "gate_worst_scan_ms": 5,
+  "ledger_vs_gate_ms": 0,
+  "laps": 1,
+  "query": "",
+  "traffic": true,
+  "errors": []
+}
+
+--- per kind (sorted by max) ---
+  append:near            n=  202  sum=   348.6  p50=    1.5  p95=    4.4  max=    7.7  @0,-2
+  facade:midOffice       n=   71  sum=    24.1  p50=    0.3  p95=    0.9  max=    4.6  @1,-3
+  trim                   n=  118  sum=    58.4  p50=    0.4  p95=    1.5  max=    2.7  @-1,-2
+  road                   n=  118  sum=      24  p50=    0.2  p95=    0.4  max=    2.7  @3,-3
+  append:far             n=  285  sum=    17.1  p50=      0  p95=    0.2  max=    1.8  @0,-4
+  kerb                   n=  118  sum=      15  p50=    0.1  p95=    0.3  max=    1.5  @2,-3
+  facade:bayTower        n=   30  sum=    10.2  p50=    0.3  p95=    0.9  max=    1.1  @-4,-2
+  facade:deco            n=   43  sum=     5.9  p50=    0.1  p95=    0.3  max=    0.7  @-1,0
+  far-road               n=  269  sum=    26.5  p50=    0.1  p95=    0.3  max=    0.7  @2,0
+  facade:stuccoHouse     n=   13  sum=     2.2  p50=    0.1  p95=    0.6  max=    0.6  @2,-2
+  zone:parkingLot        n=  227  sum=     5.3  p50=      0  p95=    0.1  max=    0.5  @3,-4
+  facade:parking         n=   13  sum=     2.5  p50=    0.2  p95=    0.4  max=    0.4  @-1,-1
+  facade:retailStrip     n=   66  sum=     6.8  p50=    0.1  p95=    0.3  max=    0.4  @4,0
+  zone-tri               n=  413  sum=     6.1  p50=      0  p95=    0.1  max=    0.3  @1,2
+  facade:warehouse       n=    3  sum=     0.4  p50=    0.1  p95=    0.3  max=    0.3  @3,0
+  far                    n=  269  sum=       7  p50=      0  p95=    0.1  max=    0.2  @2,-1
+  zone:grass             n=   40  sum=     0.9  p50=      0  p95=    0.1  max=    0.1  @0,-1
+  zone:concrete          n=    4  sum=     0.1  p50=      0  p95=    0.1  max=    0.1  @-4,1
+  zone:dirt              n=    3  sum=       0  p50=      0  p95=      0  max=      0  @null
+
+--- worst slices ---
+  8.4 ms  scan 0.5  dispose 4.7  steps 3.2 (2)  unattributed 0
+      append:near            3.1 ms  @3,-2 lod0
+      zone-tri               0.1 ms  @3,-2 lod0
+  7.7 ms  scan 0  dispose 0  steps 7.7 (2)  unattributed 0
+      append:near            7.7 ms  @0,-2 lod0
+      zone-tri               0 ms  @0,-2 lod0
+  7.5 ms  scan 0  dispose 0  steps 7.5 (9)  unattributed 0
+      append:near            5.9 ms  @0,-2 lod0
+      facade:bayTower        0.9 ms  @-2,-2 lod0
+      road                   0.3 ms  @-2,-2 lod0
+      trim                   0.2 ms  @-2,-2 lod0
+      kerb                   0.1 ms  @-2,-2 lod0
+      zone:parkingLot        0.1 ms  @-2,-2 lod0
+  7.4 ms  scan 0  dispose 3  steps 4.2 (12)  unattributed 0.2
+      append:near            3.3 ms  @2,0 lod0
+      facade:midOffice       0.2 ms  @2,-1 lod0
+      trim                   0.2 ms  @2,-1 lod0
+      road                   0.2 ms  @2,-1 lod0
+      facade:retailStrip     0.1 ms  @2,-1 lod0
+      far-road               0.1 ms  @-2,-2 lod1
+  7.2 ms  scan 4.1  dispose 0.2  steps 2.8 (2)  unattributed 0.1
+      append:near            2.8 ms  @3,-2 lod0
+      zone-tri               0 ms  @3,-2 lod0
+  7.1 ms  scan 0  dispose 0.2  steps 6.9 (9)  unattributed 0
+      append:near            6.6 ms  @-2,-2 lod0
+      far-road               0.2 ms  @2,-4 lod1
+      kerb                   0.1 ms  @-2,-3 lod0
+      zone:parkingLot        0 ms  @-2,-3 lod0
+      append:far             0 ms  @2,-4 lod1
+      zone-tri               0 ms  @2,-4 lod1
+  6.9 ms  scan 0.2  dispose 0  steps 6.6 (3)  unattributed 0.1
+      facade:midOffice       4.6 ms  @1,-3 lod0
+      append:near            2 ms  @1,-3 lod0
+      zone-tri               0 ms  @1,-3 lod0
+  6.8 ms  scan 0  dispose 0.1  steps 6.6 (7)  unattributed 0.1
+      append:near            5.3 ms  @-1,-2 lod0
+      kerb                   0.6 ms  @-1,1 lod0
+      road                   0.3 ms  @-1,1 lod0
+      facade:deco            0.2 ms  @-1,1 lod0
+      trim                   0.2 ms  @-1,1 lod0
+      append:near            0 ms  @-1,1 lod0
+
+written docs/stall/head-9fad52a/chunk-steps-traffic.json
