@@ -36,6 +36,14 @@ closed and item 7's tone half is closed:
 3. **Tail lights are dark painted rectangles**, 1.11x the darkest paint on the same car.
 4. **Octagonal wheels** at 56 px diameter, and inconsistent between cars — one has a rim ring,
    another is a featureless black lump with no arch cut.
+   *PRICED, not spent (2026-10-14).* The traffic wheel is `seg = 8` by design, 8*seg = 64
+   triangles a wheel, chosen when the frame had 359 triangles of headroom and the hero framing saw
+   wheels 38 px tall and end-on. #114's blind reviewer saw them again, side-on at fivepoints
+   (1060-1105, 600-640). seg 12 is +32 a wheel, +128 a car, and both car pools bill at x2.00
+   (CLAUDE.md, shadow-bill): **+15,360 in the budget gate's units** across 30 traffic and 30
+   parked cars, seg 10 half that. The gate is over its warn and #64 — whether the warn is a
+   capability bound or a frozen growth detector — decides whether that is affordable, so this
+   waits on #64 rather than spending into it.
 5. **No hard sun shadow from any car, at either hour.** Only an ambient blob.
 6. **One tint for the whole street**: glass (B-R)/L of 0.527 / 0.629 / 0.404 across three cars.
 7. **The fleet is too uniform**: six wheel centres within 1.1 px of one ride height, all
