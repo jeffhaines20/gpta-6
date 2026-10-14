@@ -94,7 +94,8 @@ with the car, the camera and the sun moved by one rigid transform matches its un
 level on all 3,283 glass pixels, with the cabin-off half as the control. That last one is the only
 check that can tell a cabin computed in the car's frame from one computed in world space, because
 every car this page draws at the origin looks right either way and no car in the district is there.
-Six mutation rows on the sweep's offline list.
+Six mutation rows on the sweep's offline list, swept: **six of six caught**, and `cabin-eye-world` —
+the eye left in world space — by `car-cabin` alone, which is that rigid-transform row earning its place.
 
 ### #56 FIXED — per-shell body length, and the 0.289 m price was the wrong one for half the sites
 Offline half landed (2aca6c5): three shells, length range 0.196 m, 1,050 triangles each.

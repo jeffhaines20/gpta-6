@@ -493,6 +493,9 @@ export const ARM_STATE = {
   cabT1: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [1, 1, 0.15] },
   cabT2: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [1, 1, 0.3] },
   cabT3: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [1, 1, 0.6] },
+  // The shipped cabin, named explicitly so a blind pair against cab0 cannot silently become cab0
+  // against whatever an earlier arm left behind.
+  cab1: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [1, 1, 0.15] },
 };
 
 /**
