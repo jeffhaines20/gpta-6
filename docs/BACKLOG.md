@@ -3230,7 +3230,7 @@ for a 1.6% lighter seam).
 ### #48 aoKernel 3: parked deliberately, needs a reviewer not a decision from me
 `detail lost` beyond the subject line.
 
-### #114 FIXED — emitted light is exempt from the screen-space AO, by a share the lit materials tag themselves
+### #114 FIXED, and a blind reviewer preferred it 3 of 4, decisively at night — emitted light is exempt from the screen-space AO, by a share the lit materials tag themselves
 Found by #48's blind reviewer in BOTH arms, so independent of the kernel: in fivepoints-night a lit
 shop window beside the MARROW & VINE pillar rises from 0.004 to 0.11 (linear luma) over the 24 px
 next to it, and corridor-night "shows dark streaks flanking every pillar". 0.004 / 0.11 = 0.036,
@@ -3319,6 +3319,34 @@ rows (`emit-exempt-off`, `emit-tag-unsigned`, `emit-tag-binary`, `emit-tag-all`,
 every other gate, because no other gate compiles a shader. Swept: **six of six caught, every one by
 `ao-emit` alone** — which is the claim in that sentence measured rather than asserted.
 
+**The blind review.** Both framings at dusk and night, one page load per framing, `aoEmit0` against
+`aoEmit1` scrambled per pair (A was the fix in 2 of 4), one blind Opus reviewer confined to the PNGs.
+The set had to be forced past `blind-compare`'s 8% signal floor and say why: the change is LOCAL
+(lit glazing beside occluders, 1.6-6.7% of samples per pair), and noon was left out because its
+own crowd-and-foliage motion between arms (6.4%) is as large as night's signal. Decoded:
+
+    pair               reviewer's "darker arm"     preferred          confidence
+    corridor-dusk      the old composite           the fix            2
+    corridor-night     the old composite           the fix            4
+    fivepoints-dusk    the old composite           the old composite  1, "close to a tie"
+    fivepoints-night   the old composite           the fix            5
+
+**They recovered the assignment 4 of 4 from the pixels**, and their night reasons are the defect in
+a viewer's words: the old arm "darkens glowing windows, lit shop glass, signal lamps and a lit sign.
+A photograph can't do that" — the lit menu board's edge at 0.23-0.26 (a 102-level drop), dark smears
+on the glowing glass beside every column, a halo on lit glass around a pedestrian's head, the
+pedestrian signal heads dimmed 24-30% and the LEMON street sign 25%. Static pixels darker by more than
+10 levels in the old arm: 0.08% / 0.28% at dusk, 0.81% / 2.97% at night, which is where the
+preference is. The one pair that went the other way did so at confidence 1, on the old arm darkening
+the top edge of lit upper-floor panes "as the window reveal shading a recessed pane seen from below"
+— and the same reviewer called its band beside the shop column "too strong: 0.19 at the junction".
+
+**What they found wrong in BOTH arms**, which outlives the question: a regular pattern of pale blue
+ellipses on the road at dusk (#116 below); polygonal wheels and an oversized dark ring around a white
+car's wheel arch (cars live line, item 4); dark pools at pedestrians' feet that move with them; a
+figure washed out by glow where it overlaps a sunlit car roof; and by eye only, cut-out leaf cards,
+flat lightbox shopfronts at night and uniform-width road cracks.
+
 **What it does not fix, measured, and it is a different term — filed as #115.** In the corridor's
 deli colonnade the glass beside each pillar comes back, and the strip of the PILLAR'S OWN FACE beside
 it stays nearly as dark as it was: 0.612, 0.321 and 0.173 of its AO-off value at 12, 8 and 4 px from
@@ -3354,3 +3382,13 @@ time-of-day weight on the direct share (`aoDirectExempt` 0 at noon, 1 at night �
 then have to carry emitted + direct and lose the ability to tell them apart, so the weight would
 apply to emitted light at noon too, which #114 says is wrong); or the honest one, point lights
 that cast their own shadows, which is a cost question this project has not priced.
+
+### #116 OPEN — rows of pale blue ellipses on the asphalt at dusk, from #114's blind reviewer
+Found in BOTH arms of #114's review, so independent of the AO: at dusk, "rows of pale blue elliptical
+spots on the asphalt", 64 of them covering 7.63% of corridor's road box (560-1040, 600-760) and 52
+covering 5.70% of fivepoints' (0-600, 650-800); absent at night. Looked at, at 2x: they are regular —
+rows of sky-coloured ellipses on a grid across both lanes, which no wet road does. The cheap reading is
+low-roughness patches in a TILED road texture catching the brightest sky of the day (src/materials.js
+says the asphalt map repeats every 3 m and has its own de-tiling pass), which would also say why night
+hides them. Not diagnosed: the first measurement is the road's roughness along a lane against the
+spot positions, and whether noon and golden show them too.

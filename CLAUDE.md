@@ -3543,6 +3543,15 @@ sim between the arms, the byte-identical `triangles`/`chunks`/`lodNear`/`lodFar`
 the audits, and that the HUD is hidden on purpose — so the critic spent none of its round on a
 pedestrian that had walked.
 
+**A blind reviewer's context includes this file whether the brief says so or not.** The harness loads
+CLAUDE.md into every subagent, so a brief that fences off `docs/` and `src/` does not fence off what is
+written here. #114's reviewer said so in its report — "nothing in it describes this term" — and that
+was true only because the candidate was described in the backlog and the source and not here. **Keep a
+candidate's description out of CLAUDE.md until its blind review is back.** The same reviewer ran
+`git status` to prove it had written nothing, which printed the untracked key's FILENAME; harmless
+because `blind-compare` names a key for its arms rather than its letters, which is the reason to keep
+it that way.
+
 ## Two bounds that are numerically coincident are one coin toss
 
 `boot-check`'s wedged-car arm runs at most 400 frames, breaks when `stuckFor` reaches 4.0 s, and
