@@ -3429,6 +3429,12 @@ in this district is direct (lamps) or emitted (windows), so the AO darkens the v
 exists, and over the corridor-night frame 58,283 pixels brighter than 0.15 with AO off are darkened
 by more than a tenth and only 7.7% of them are emissive enough for #114 to recover.
 
+**A second instance, from #114's blind reviewer, on a car.** "An oversized soft dark ring on the body
+around [a white car's] wheel arch", fivepoints-dusk (1050-1115, 590-640), in both arms. At 3x it is
+a halo on the low-sun-lit flank all round the recessed wheel — the AO's depth step at the arch lip
+darkening a panel the dusk sun is lighting directly. So this term is not only a night-and-lamps
+question: at dusk it is the sun.
+
 **Why it is not simply #114 again with the direct term added to the share.** The same tag would
 then exempt every SUNLIT surface at noon — `reflectedLight.directDiffuse + directSpecular` is in
 scope at the same chunk and the arithmetic is one line — and the AO in sunlight is doing work the
