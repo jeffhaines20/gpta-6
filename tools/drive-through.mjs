@@ -10,6 +10,7 @@ import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
 import fs from 'node:fs';
 import { BUDGET, gate, printGate } from './budget.mjs';
+import { summarize as summarizeJitter } from './jitter-stats.mjs';
 
 const WITH_TRAFFIC = process.argv.includes('--traffic');
 const CIRCUITS = 3;
@@ -247,6 +248,45 @@ await page.waitForTimeout(6000);
 const heapBefore = await page.evaluate(() =>
   performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null);
 
+/**
+ * DRIVE_JITTER=1: A FIXED PIECE OF MAIN-THREAD WORK, TIMED DURING THIS VERY DRIVE. Off by default,
+ * so the gate's own workload is unchanged unless asked. BACKLOG #42 found the worst slice carrying
+ * about twice the build's warm cost and could not say whose time the excess is — the scheduler's,
+ * the collector's, or colder code. A loop that is fixed, warm and allocates nothing can only be
+ * stretched by the scheduler, so its excess over its own minimum is preemption, in the same page on
+ * the same drive as the stall it is compared with. See tools/jitter-stats.mjs. It adds ~1 ms of
+ * main-thread work every 25 ms, which is why it is a flag and not the default.
+ */
+const JITTER = process.env.DRIVE_JITTER === '1';
+if (JITTER) {
+  const cal = await page.evaluate(() => {
+    const spin = (n) => {
+      let x = 1;
+      for (let i = 0; i < n; i++) x = (Math.imul(x, 1664525) + 1013904223) | 0;
+      return x;
+    };
+    let n = 20000, dt = 0;
+    for (let k = 0; k < 24; k++) {
+      let best = Infinity;
+      for (let r = 0; r < 5; r++) { const t0 = performance.now(); spin(n); best = Math.min(best, performance.now() - t0); }
+      dt = best;
+      if (dt >= 1.0) break;
+      n = Math.ceil(n * Math.max(1.2, Math.min(4, 1.05 / Math.max(dt, 0.05))));
+    }
+    const ms = [];
+    let sink = 0;
+    const id = setInterval(() => {
+      const t0 = performance.now();
+      sink ^= spin(n);
+      ms.push(performance.now() - t0);
+    }, 25);
+    // `sink` goes back out so the loop cannot be eliminated as dead code.
+    window.__jitterStop = () => { clearInterval(id); return { n, calMs: dt, ms, sink }; };
+    return { n, calMs: dt };
+  });
+  console.log(`jitter probe ON: ${cal.n} iterations, ${cal.calMs.toFixed(2)} ms best of 5 when calibrated, ` +
+    'sampled every 25 ms through the recorded window');
+}
 await page.evaluate(() => __district.startRecording());
 
 // Run until three circuits complete, or the wall-clock cap is hit.
@@ -258,6 +298,7 @@ while (laps < CIRCUITS && Date.now() - t0 < CAP_MS) {
   laps = await page.evaluate(() => window.__lapCount ?? 0);
 }
 const samples = await page.evaluate(() => __district.stopRecording());
+const jitterRaw = JITTER ? await page.evaluate(() => window.__jitterStop()) : null;
 const heapAfter = await page.evaluate(() => {
   if (globalThis.gc) globalThis.gc();
   return performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
@@ -333,6 +374,9 @@ const result = {
   heap_mb_before: heapBefore, heap_mb_after: heapAfter,
   heap_growth_mb: heapBefore !== null ? heapAfter - heapBefore : null,
   speed_kmh: stat('kmh'),
+  // Present only under DRIVE_JITTER=1; see the probe above.
+  jitter: jitterRaw ? { iterations: jitterRaw.n, calibrated_ms: +jitterRaw.calMs.toFixed(3),
+    ...summarizeJitter(jitterRaw.ms) } : undefined,
   traffic: trafficReport,
   errors,
 };
@@ -349,5 +393,12 @@ const file = `docs/drive${WITH_TRAFFIC ? '-traffic' : ''}.json`;
 fs.writeFileSync(file, JSON.stringify({ result, samples }, null, 1));
 console.log(JSON.stringify(result, null, 2));
 printGate(g);
+if (result.jitter) {
+  const j = result.jitter;
+  console.log(`jitter: a fixed ${j.base.toFixed(1)} ms workload sampled ${j.n} times — p50 ` +
+    `${j.p50.toFixed(1)}, p99 ${j.p99.toFixed(1)}, max ${j.max.toFixed(1)} ms; the worst stretch is ` +
+    `${j.excess.max.toFixed(1)} ms of preemption, beside a worst slice of ${result.worst_chunk_build_ms} ms; ` +
+    `${j.over.x2} samples past x2, ${j.over.x5} past x5`);
+}
 await browser.close();
 process.exit(g.status === 'FAIL' ? 1 : 0);
