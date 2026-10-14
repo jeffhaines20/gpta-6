@@ -3316,7 +3316,8 @@ channel of every pixel of `after` lies in [before, off] to within one code value
 outside. Selftest on a real report with 13 known-bads. On mutation-sweep's offline list with six
 rows (`emit-exempt-off`, `emit-tag-unsigned`, `emit-tag-binary`, `emit-tag-all`,
 `emit-tag-transparent`, `emit-uniform-unwired`), each of which renders a plausible frame and passes
-every other gate, because no other gate compiles a shader.
+every other gate, because no other gate compiles a shader. Swept: **six of six caught, every one by
+`ao-emit` alone** — which is the claim in that sentence measured rather than asserted.
 
 **What it does not fix, measured, and it is a different term — filed as #115.** In the corridor's
 deli colonnade the glass beside each pillar comes back, and the strip of the PILLAR'S OWN FACE beside
