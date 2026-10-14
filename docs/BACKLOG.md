@@ -496,9 +496,44 @@ Still open from the same area: nothing here touches **#92** (the glazing) or **#
 capping the light details), and the achromatic/chromatic split remains at its authored 0.66
 because the instrument that would move it cannot resolve the quantity.
 
+### #54 OPEN, detail recovered — car glass at night reflects a city with no lights in it, and its number was retired
+The subject's figure — glass/paint **0.0225** in linear light at night — is one of the ratios
+CLAUDE.md's "Two defects that each make the other worse" section RETIRES: the tone table moved 17 of
+30 cars' paint by more than 2x, and every glass-over-paint ratio has the car's paint as its
+denominator ("a glazing figure needs the car's TONE quoted beside it"). So the number is not
+comparable with anything captured since, and re-measuring it needs a night capture whose subject tone
+is KNOWN, which `__district.setCarTone` makes possible.
+
+What is known about the cause: #92 raised the glazing's environment gain to 5 and that fixed the
+DAYTIME floor; at night the environment the pane reflects is a dark sky, because "the lit
+shopfronts reaching the environment" are something "a sky-only PMREM cannot carry" (src/carbody.js,
+quoted in CLAUDE.md). So the lever is what the glass REFLECTS at night, not the glass — the same
+family as #36, from the other end of the day. Still open; the 2026-10-14 #48 captures include night
+frames of the shipped build that a re-measurement can start from.
+
+#### THE ORIGINAL RECORD
 ### #54 Traffic-car greenhouse is a hole at night: glass/paint 0.0225 in linear light
 `detail lost` beyond the subject line. Related to #92 and #36.
 
+### #36 OPEN, detail recovered — building glass at noon is 1.30 B/R against a photographed 0.804, and the coating lever is exhausted
+Recovered from PROGRESS.md's "Glass: bronze" round, which the backlog lost. On one detector over
+**317 reference photographs** real glazing reads B/R **0.804** (stable 0.796-0.899 across all four
+corridor legs). After that round's fix — the sun added to the wall opposite, the coatings re-authored
+at constant luminance as a distribution — golden lands on the reference (0.819) and **noon still sits
+at 1.298**.
+
+Why it was not chased, in the round's own words: the coating lever is EXHAUSTED — the measured
+response is `pane_BR ∝ coating_BR^0.68`, so closing noon by colour alone needs a district-wide coating
+at B/R ~0.49, "uniform reflective bronze, hitting the number by flattening exactly the variety the
+round was told to preserve". The real cause is that the glazing is a **stronger, cleaner mirror than
+Sarasota's stock** (F0 0.22-0.30 at roughness 0.07-0.13, with no interior term on the facade atlas),
+so it returns the sky's saturated blue where a real window shows a dark room. That is a
+mirror-strength or interior fix, and it would re-open the earlier "every window is a flat dark fill"
+finding — so the lever has to give a window something to show, not just make it darker. The cars'
+live line item 1, "no interior behind any glass", is the same root on the other glazing.
+(PROGRESS.md gives noon as 1.298 in its table and 1.299 in its text; 1.30 here.)
+
+#### THE ORIGINAL RECORD
 ### #36 Glass reads blue at noon again, because it now correctly reflects our very blue sky
 `detail lost` beyond the subject line.
 
