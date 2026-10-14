@@ -462,6 +462,12 @@ export const ARM_STATE = {
   aok0: { albedo: null, skyProxy: false, nightGlowLux: 0, aoKernel: [0, 12] },
   aok3: { albedo: null, skyProxy: false, nightGlowLux: 0, aoKernel: [3, 32] },
   aok3i65: { albedo: null, skyProxy: false, nightGlowLux: 0, aoKernel: [3, 32], ao: [0.6, 6.5, 1.0] },
+
+  // #114: AO OFF, the control for "lit shop windows go dark beside every pillar at night". Strength
+  // 0 makes the composite's `mix(1, ao, aoStrength)` exactly 1, and the floor then maps 1 to 1, so
+  // this arm is the scene with no screen-space occlusion at all and nothing else moved. If the dark
+  // bands beside the pillars survive it, they are in the facade's emissive texture and not the AO.
+  aoOff: { albedo: null, skyProxy: false, nightGlowLux: 0, ao: [0.6, 8.5, 0.0] },
 };
 
 /**

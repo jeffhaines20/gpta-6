@@ -1,0 +1,40 @@
+{
+ "generated": "2026-10-14T19:09:57.192Z",
+ "left": "ao48-aok0",
+ "right": "ao48-aok3",
+ "salt": "3bbe44174d99",
+ "unpairedLeft": [],
+ "unpairedRight": [],
+ "pairs": [
+  {
+   "id": "corridor-dusk",
+   "A": "ao48-aok0",
+   "B": "ao48-aok3"
+  },
+  {
+   "id": "corridor-night",
+   "A": "ao48-aok3",
+   "B": "ao48-aok0"
+  },
+  {
+   "id": "corridor-noon",
+   "A": "ao48-aok0",
+   "B": "ao48-aok3"
+  },
+  {
+   "id": "fivepoints-dusk",
+   "A": "ao48-aok0",
+   "B": "ao48-aok3"
+  },
+  {
+   "id": "fivepoints-night",
+   "A": "ao48-aok3",
+   "B": "ao48-aok0"
+  },
+  {
+   "id": "fivepoints-noon",
+   "A": "ao48-aok3",
+   "B": "ao48-aok0"
+  }
+ ]
+}

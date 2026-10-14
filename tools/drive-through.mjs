@@ -188,6 +188,7 @@ await page.evaluate(({ circuits, roadCourse }) => {
       Math.atan2(pts[3][0] - pts[0][0], pts[3][1] - pts[0][1]));
     window.__routeState = () => ({ wp: state.i, lap });
     __district.setAutopilot((dt) => {
+      if (window.__jitterTick) window.__jitterTick();
       const q = v.quaternion;
       const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
       /**
@@ -216,6 +217,7 @@ await page.evaluate(({ circuits, roadCourse }) => {
   let wp = 2, lap = 0, stuckFor = 0;
   window.__routeState = () => ({ wp, lap });
   __district.setAutopilot((dt) => {
+    if (window.__jitterTick) window.__jitterTick();
     const target = route[wp];
     const dx = target.x - v.position.x, dz = target.z - v.position.z;
     const dist = Math.hypot(dx, dz);
@@ -273,19 +275,31 @@ if (JITTER) {
       if (dt >= 1.0) break;
       n = Math.ceil(n * Math.max(1.2, Math.min(4, 1.05 / Math.max(dt, 0.05))));
     }
+    /**
+     * SAMPLED INSIDE THE SIM LOOP, NOT ON A TIMER. The first version used setInterval and read a
+     * median of 18.5 ms for a 0.9 ms loop — 11,050 of 11,560 samples past x5 — while the streaming
+     * slices it was meant to explain topped out at 7-17 ms. Both were true: a timer fires BETWEEN
+     * frames, while SwiftShader's raster threads are busy with the frame just submitted, and the
+     * slices run INSIDE the frame's sim loop, which is a different phase with different
+     * contention. A probe that samples another phase measures another quantity. The autopilot is
+     * called once per sim step, in the same loop as `world.update()`, so a sample taken there is
+     * taken where the slices are; one in every 22 calls is one per rendered frame at the gate's
+     * timeScale, ~1 ms of added work a frame.
+     */
     const ms = [];
-    let sink = 0;
-    const id = setInterval(() => {
+    let sink = 0, calls = 0;
+    window.__jitterTick = () => {
+      if ((calls++ % 22) !== 0) return;
       const t0 = performance.now();
       sink ^= spin(n);
       ms.push(performance.now() - t0);
-    }, 25);
+    };
     // `sink` goes back out so the loop cannot be eliminated as dead code.
-    window.__jitterStop = () => { clearInterval(id); return { n, calMs: dt, ms, sink }; };
+    window.__jitterStop = () => { window.__jitterTick = null; return { n, calMs: dt, ms, sink }; };
     return { n, calMs: dt };
   });
   console.log(`jitter probe ON: ${cal.n} iterations, ${cal.calMs.toFixed(2)} ms best of 5 when calibrated, ` +
-    'sampled every 25 ms through the recorded window');
+    'sampled once per rendered frame inside the sim loop, where the streaming slices run');
 }
 await page.evaluate(() => __district.startRecording());
 

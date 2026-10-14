@@ -1438,6 +1438,14 @@ export class PostStack {
       // which is the same exchange rate the obscurance term offered by a
       // completely different route.
       //
+      // AND THE AT-8.5 TRADE WENT TO A BLIND REVIEWER, AND LOST (BACKLOG #48). One page load, both
+      // hero framings at noon, dusk and night, the arms identical but for the kernel, scrambled per
+      // pair. The reviewer recovered which arm carried the extra wide occlusion in 6 of 6 pairs and
+      // preferred the SHIPPED kernel in 6 of 6, at 2-3 of 5 confidence: kernel 3 puts "a one-sided
+      // dark skirt on the wall face" (pillar feet 51-59% darker, the pavement in front within 1%) —
+      // the seam above, seen — and buys "cars look heavier" — the contact gain above, seen. Two
+      // instruments, one answer: aoKernel stays 0.
+      //
       //   aoSamples     taps in the hemisphere. ONLY MEANINGFUL WITH aoKernel
       //                 1 or 2: the legacy kernel is twelve typed vectors and
       //                 cannot be asked for a thirteenth, so the count is forced

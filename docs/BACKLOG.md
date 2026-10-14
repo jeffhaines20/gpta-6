@@ -3123,7 +3123,7 @@ the deferred choice between derivations (a) and (b), which is one decision and n
 measurement. Taking the road course would reset the baseline for both metrics at once, so it is
 the natural moment to settle the threshold too rather than carrying a frozen one onto a new course.
 
-### #42 MEASURED — the stall gate WARNs at N=5 on a clean box, and the spread is not the build's work
+### #42 MEASURED — the stall gate WARNs at N=5 on a clean box, and the spread is the scheduler's, measured
 PROGRESS.md's 2026-08-30 protocol — N>=5 sequential runs, median and p80 — run for the first time on
 a box with nothing else alive: a fresh 4-core container, load average 4.15 median over 45 samples,
 which is the run's own browser. `docs/stall/head-9fad52a/`:
@@ -3150,8 +3150,30 @@ SwiftShader's raster threads competing for four cores (load 4.15 says they are),
 collection pause (which a GPU machine would pay too), or the same code running colder in the page
 than in node's best of five. The measurement that separates the first from the other two is a
 fixed, non-allocating workload timed on the main thread during the same drive — its excess is
-preemption alone. Not run; it is the next step, and until then the honest statement is "WARN, and
-the worst slice carries about twice the build's warm cost".
+preemption alone.
+
+**Run (`DRIVE_JITTER=1`), and the scheduler alone is the size of the spread.** A loop calibrated to
+1.0 ms, sampled once per rendered frame INSIDE the sim loop, where `world.update()` and so the slices
+run:
+
+    114 frames   p50 1.1   p99 5.7   max 12.3 ms    worst stretch 11.3 ms    3 samples past x5
+    the same drive's worst slice: 8.2 ms
+
+11.3 ms of pure preemption, in the slices' own phase, against a stall spread of 8.6 to 17.2 ms on
+identical work — and 114 samples is a LOWER bound on what the thousands of slices in a run can meet.
+So the run-to-run spread that carries this gate across its warn and fail lines is the box's,
+measured; GC and colder code are not needed to explain it, though nothing here rules them out for
+the residue. **The gate's stall verdict cannot be certified on a SwiftShader box at all**: the build's
+own cost — 3.92 ms for the worst whole chunk, 1.40 ms for the worst building, warm and deterministic
+— sits inside the budget with room, and the browser number adds a scheduler term that is as large
+as the threshold. That is a statement about the instrument on this hardware, and no threshold moves.
+
+**And the first version of the probe measured a different phase and read 17x worse.** On a 25 ms
+timer it sampled BETWEEN frames, while SwiftShader's raster threads work on the frame just submitted:
+median 18.5 ms for the same 0.9 ms loop, 11,050 of 11,560 samples past x5. True, and about another
+quantity — the timer never fires where the slices run. Both artifacts are kept
+(`jitter-interval.json`, `jitter-simloop.json`), because the gap between them is the finding that a
+probe's PHASE is part of what it measures.
 
 The chunk-steps run itself (`chunk-steps-traffic.json`): worst slice 8.4 ms = dispose 4.7 + steps
 3.2 + scan 0.5, ledger 0.00 ms from the gate's own number. **And that tool had been attributing a
@@ -3165,5 +3187,45 @@ after the switch.
 `detail lost` beyond the subject line. `chunk stall ms` is unusable while anything else runs on
 the box — see CLAUDE.md.
 
+### #48 REFUSED by blind review — kernel 3 was preferred in 0 of 6 pairs, and the reviewer recovered the assignment in 6 of 6
+src/post.js's own record had already priced the trade and could not settle it, which is why it was
+parked for a reviewer: at the shipped intensity 8.5, kernel 3 (a 32-tap spiral with a
+uniform-solid-angle elevation) grounds feet and props harder — foot 0.797 -> 0.850, prop@18.8
+0.232 -> 0.281 — and darkens the corridor seam, 0.9147 -> 0.9509. Whether a viewer sees the
+grounding or the seam is a judgement, and numbers alone could not make it.
+
+**The pair:** `aok0` (the shipped legacy twelve) against `aok3`, ONE page load, both hero framings
+at noon, dusk and night, the arms proved distinct on the kernel alone (radius 0.6, intensity 8.5,
+strength 1, floor 0.04 identical). Corridor noon's facade band carries 19.4% of samples >4/255
+apart, above blind-compare's 8% floor. Scrambled per pair, A was the shipped arm in 3 of 6. One
+blind Opus reviewer, confined to the PNGs and the generic image tools.
+
+**The verdict, decoded:**
+
+    reviewer's "D" (the arm with an extra layer of soft, wide occlusion)   kernel 3 in 6 of 6
+    reviewer's preference                                                  the SHIPPED kernel, 6 of 6
+    confidence                                                             2-3 of 5; whole-frame D/L 0.979-0.993
+
+**And its reasons are the record's two numbers in a viewer's words.** Against kernel 3: "a one-sided
+dark skirt on the wall face" — pillar faces 27-36% darker and their feet 51-59%, with the pavement in
+front within 1% — plus darker plates and windscreen bottoms, "surfaces a photograph would show
+evenly lit". That is the seam. For it: "cars look heavier", a soft skirt on the road beside them,
+stronger kerb faces. That is the contact gain. Recesses a draw; no grain or halo specific to either
+arm. So two independent instruments — the record's measurements and a blind eye — agree on the trade,
+and the eye says the seam costs more than the grounding buys. **The shipped kernel stays**;
+`aoKernel: 3` remains a sweepable option in post.js and an arm in tools/ground-albedo.mjs. The 6.5
+pairing was not sent: the record had already refused it at thirteen to one (reveal contrast -21%
+for a 1.6% lighter seam).
+
+**What the reviewer found wrong in BOTH arms**, which outlives the question it was asked:
+  - lit shop windows at night go dark beside every pillar — 0.004 against 0.11 over 24 px — which is
+    #114, filed below, because it looks like AO multiplying EMITTED light;
+  - a wall-mounted menu board darkens the pillar around it to 25-35% of its open value;
+  - soot-like smudges under cornices, and dark rings in the cars' wheel wells;
+  - and a capture note: tree-shadow flecks change between the two arms (corridor noon's road box is
+    81.8% byte-identical where the sky is 99.8-100%), so the foliage's shadow is a clock
+    tools/hero-shots.mjs does not pin.
+
+#### THE ORIGINAL RECORD
 ### #48 aoKernel 3: parked deliberately, needs a reviewer not a decision from me
 `detail lost` beyond the subject line.
