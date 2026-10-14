@@ -292,9 +292,23 @@ const MUTATIONS = [
      * 20 km/h all arrest now, and driving away at both 4.8 and 40 km/h still does not.
      */
     id: 'bust-sign', file: 'src/wanted.js',
-    find: "    if (this.stars <= 0 || !player.held || (moving && (away ?? true))) {",
-    to: "    if (this.stars <= 0 || !player.held || moving) {",
+    find: "    if (this.stars <= 0 || !player.held || outrun || (moving && (away ?? true))) {",
+    to: "    if (this.stars <= 0 || !player.held || outrun || moving) {",
     why: 'circling at walking pace beats the pursuit again, without leaving the block',
+  },
+  {
+    /**
+     * ARRESTED AT 76 km/h, put back. Removes the running-pace term from the reset, which is the
+     * shipped rule before this round: a unit that has stopped keeps station at the player's
+     * projection at up to its own driving speed, stays `held` inside `holdRadius`, and the radial
+     * receding test reads zero against a unit pacing alongside — so the clock completes while the
+     * player drives. `tools/clear-time.mjs` measured it on its first real drive. `wanted-test`
+     * §d2's paced arm is the catch: paced at 76 km/h must not arrest, paced at 20 km/h must.
+     */
+    id: 'bust-outrun', file: 'src/wanted.js',
+    find: "    if (this.stars <= 0 || !player.held || outrun || (moving && (away ?? true))) {",
+    to: "    if (this.stars <= 0 || !player.held || (moving && (away ?? true))) {",
+    why: 'a unit pacing a player at 76 km/h arrests them',
   },
   {
     /**
@@ -370,9 +384,12 @@ const MUTATIONS = [
      * pursuit exists. Nothing errors; a fleeing player simply gets taken at 40 km/h.
      */
     id: 'bust-sign-default', file: 'src/wanted.js',
-    find: "    if (this.stars <= 0 || !player.held || (moving && (away ?? true))) {",
-    to: "    if (this.stars <= 0 || !player.held || (moving && (away ?? false))) {",
-    why: 'a host that reports no unit positions arrests a player driving flat out',
+    find: "    if (this.stars <= 0 || !player.held || outrun || (moving && (away ?? true))) {",
+    to: "    if (this.stars <= 0 || !player.held || outrun || (moving && (away ?? false))) {",
+    // RESTATED with the running-pace term: "driving flat out" is now reset by `outrun` whatever
+    // the fallback says, so the fallback only decides speeds under ARREST_PACE_MS, and
+    // `wanted-test` §d2 drives its no-position arm at 20 km/h for that reason.
+    why: 'a host that reports no unit positions arrests a player pulling away under 25 km/h',
   },
   {
     /**

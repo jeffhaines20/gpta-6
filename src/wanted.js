@@ -206,6 +206,42 @@ export const SCENE_STOP_MS = 1.0;
  */
 export const BUST_HOLD_S = 4.0;
 
+/**
+ * AN OFFICER ON FOOT CANNOT ARREST A CAR THAT IS MOVING FASTER THAN THEY CAN RUN, and this is how
+ * fast that is.
+ *
+ * An arrest in this game is an officer leaving the car and reaching the player — `src/pursuit.js`
+ * derives `reachRadius` from exactly that, `RUN_SPEED * BUST_HOLD_S`, and `arrestSeconds(d)` is
+ * the walk. So the clock below is only meaningful while the player is slow enough to be reached,
+ * and nothing enforced it: a unit that has STOPPED keeps station at the player's projection on its
+ * edge, clamped only at its own driving speed (`step = this.speed * dt` in pursuit.js — 22 m/s at
+ * two stars), so it PACES a player driving along the road. Inside `holdRadius` it is `held` with
+ * no walk test at all, and the receding test reads the velocity component along the unit-to-player
+ * line — which for a unit pacing on a parallel line is about zero at any speed. So the clock ran,
+ * and `tools/clear-time.mjs`'s first real drive was ARRESTED AT 76 km/h: the unit 7.3 m away and
+ * closing to 2.5 while the car accelerated from 14 to 21 m/s, held the whole way, `bustFor` 0.04
+ * to 3.97 s, busted. The module's own promise — "a player who can drive away is never busted, and
+ * the out is always the throttle" — was false for every chase in which a unit got alongside.
+ *
+ * THE QUANTITY IS THE PLAYER'S GROUND SPEED, not the speed relative to the unit. Relative to a
+ * pacing unit the player is stationary, which is the case this clock exists to arrest; what makes
+ * the arrest impossible is that the officer would have to RUN at the car's speed. So: at or above
+ * the officer's running pace the clock resets, whatever the direction. Below it the rule is
+ * unchanged — moving AND receding resets, anything else runs the clock — so every figure
+ * `BUST_HOLD_S` rests on is untouched (a braking stop is still timed under SCENE_STOP_MS), and
+ * the circling arms #95 closed at 2.8 to 19.9 km/h are all under 25.2 km/h and still arrest.
+ *
+ * THE PRICE, stated rather than discovered: a player circling ABOVE 25.2 km/h close to a unit is
+ * no longer arrested by this clock. That is the physics the rule is built on, not a gap in it — no
+ * officer on foot catches a car doing 30 km/h — and it is not an out either, since a player in
+ * sight of a unit cannot shed a star. `wanted-test` §d2 prints it as a row.
+ *
+ * RESTATED, NOT IMPORTED: this is `src/player.js`'s `RUN_SPEED`, and that module imports three.js,
+ * which this one must not (see the header). `wanted-test` pins the two equal, so a retune of the
+ * player's run cannot leave the arrest rule behind.
+ */
+export const ARREST_PACE_MS = 7.0;
+
 export const RESPONSE = Object.freeze([
   Object.freeze({ units: 0, spawnMin: 0,   spawnMax: 0,   giveUpRadius: 0,   speedMul: 0,    intercept: false, aggression: 0.00, cooldown: 0,  searchGrow: 0,  spotRadius: 0,   siren: 0.00 }),
   Object.freeze({ units: 1, spawnMin: 80,  spawnMax: 190, giveUpRadius: 380, speedMul: 0.94, intercept: false, aggression: 0.15, cooldown: 12, searchGrow: 7,  spotRadius: 85,  siren: 0.35 }),
@@ -441,6 +477,11 @@ export class WantedSystem {
       scenesArmed: 0, scenesStopped: 0, scenesDischarged: 0, scenesFled: 0,
       // Busted: the host held you stopped for BUST_HOLD_S. See `_watchBust`.
       busts: 0, bustHolds: 0, bustNoWalk: 0,
+      // Frames a unit claimed to hold the player while the player was moving faster than an
+      // officer can run, so the clock was reset rather than run. A FRAME counter, named for it.
+      // Non-zero is the pacing case ARREST_PACE_MS exists for, and it is how a chase that would
+      // have ended in an arrest at speed shows up in a report.
+      bustOutrunFrames: 0,
       // Frames the host declared a teleport. See `_trackVelocity`: a host that never declares one
       // is a host where stepping out of the car is immunity, so 0 here is worth seeing.
       teleports: 0,
@@ -1015,11 +1056,16 @@ export class WantedSystem {
      * It is also right in a case neither version covered: driving at speed TOWARDS the officer
      * holding you is not an escape, and used to reset the clock every frame.
      */
-    const moving = Math.hypot(this.playerVel.x, this.playerVel.z) >= SCENE_STOP_MS;
+    const speed = Math.hypot(this.playerVel.x, this.playerVel.z);
+    const moving = speed >= SCENE_STOP_MS;
     const away = this._recedingFrom(player);
+    // Faster than an officer can run: nobody is reaching this car, whoever is alongside it. See
+    // ARREST_PACE_MS for the 76 km/h arrest this term ends.
+    const outrun = speed >= ARREST_PACE_MS;
+    if (outrun && this.stars > 0 && player.held) this.stats.bustOutrunFrames++;
     // `away === null` is "no unit has told us where it is", and then this falls back to the speed
     // test alone, which is what it always was.
-    if (this.stars <= 0 || !player.held || (moving && (away ?? true))) {
+    if (this.stars <= 0 || !player.held || outrun || (moving && (away ?? true))) {
       this.bustFor = 0;
       this._bustThrottle = false;
       return false;

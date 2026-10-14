@@ -41,6 +41,10 @@
 // minimap does better on `away` and a human who panics does worse on everything; this measures
 // the rule, not the player.
 import { RESPONSE } from '../src/wanted.js';
+// RUN_SPEED from the player, not ARREST_PACE_MS from wanted.js: the "before" arm of the speed-
+// arrest fix runs this same file against a tree that has no ARREST_PACE_MS, and a named import
+// that does not exist is a SyntaxError rather than an undefined.
+import { RUN_SPEED } from '../src/player.js';
 import { followPath, ROUTE_LANE_M } from '../src/roadpath.js';
 import { Session } from './playtest.mjs';
 import { roadPoints, spotsOf } from './response-iso.mjs';
@@ -244,6 +248,15 @@ if (IS_MAIN && !SELFTEST) {
         `max ${fmt(q(esc, 1))} s`);
       console.log(`                  arrested ${String(arr.length).padStart(2)}  at p50 ${fmt(q(arr, 0.5))} s` +
         `   unresolved at ${SECONDS} s: ${unr}   first star shed p50 ${fmt(q(dec1, 0.5))} s`);
+      // ARRESTS NO OFFICER COULD MAKE: the car moving faster than a person runs at the moment the
+      // clock fired. Every one of these is the station-keeping defect ARREST_PACE_MS ends.
+      const bs = rows.filter((r) => r.outcome === 'arrested' && r.bustSpeed !== null)
+        .map((r) => r.bustSpeed);
+      const fast = bs.filter((v) => v >= RUN_SPEED).length;
+      console.log(`                  arrested at speed: ${fast} of ${bs.length} above the officer's ` +
+        `${(RUN_SPEED * 3.6).toFixed(1)} km/h running pace; car speed at the arrest p50 ` +
+        `${bs.length ? (q(bs, 0.5) * 3.6).toFixed(0) : '-'} km/h, max ` +
+        `${bs.length ? (q(bs, 1) * 3.6).toFixed(0) : '-'} km/h`);
       const sum = (k) => rows.reduce((a, r) => a + r[k], 0);
       console.log(`                  per run: crimes ${(sum('crimes') / rows.length).toFixed(2)}, ` +
         `escalations ${(sum('escalations') / rows.length).toFixed(2)}, wrecks ` +

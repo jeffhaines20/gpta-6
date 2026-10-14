@@ -222,16 +222,19 @@ if (IS_MAIN && !SELFTEST) {
       `to the other level's; "same" counts traces byte-identical to the unswapped run.`);
     console.log(`\n  column          lift: arrests now   same trace    drop: stops arresting   same trace`);
     const rows = [];
+    // Per CASE as well as per column: an aggregate of "1 of 3" cannot say whether one column
+    // decides one kind of case and another column the other kind, which is the question.
+    const perCase = disc.map(() => ({ lift: [], drop: [] }));
     for (const col of DIFFERING) {
       let liftFlip = 0, liftSame = 0, dropFlip = 0, dropSame = 0;
-      for (const c of disc) {
+      for (const [ci, c] of disc.entries()) {
         const lift = run({ spot: c.spot, seed: c.seed, stars: 2, seconds: SECONDS,
           table: tableWith([{ row: 2, col, value: RESPONSE[3][col] }]) });
         const drop = run({ spot: c.spot, seed: c.seed, stars: 3, seconds: SECONDS,
           table: tableWith([{ row: 3, col, value: RESPONSE[2][col] }]) });
-        if (lift.outcome === 'arrested') liftFlip++;
+        if (lift.outcome === 'arrested') { liftFlip++; perCase[ci].lift.push(`${col} ${tag(lift)}`); }
         if (lift.hash === c.r2.hash) liftSame++;
-        if (drop.outcome !== 'arrested') dropFlip++;
+        if (drop.outcome !== 'arrested') { dropFlip++; perCase[ci].drop.push(`${col} ${tag(drop)}`); }
         if (drop.hash === c.r3.hash) dropSame++;
       }
       rows.push({ col, liftFlip, liftSame, dropFlip, dropSame });
@@ -240,6 +243,12 @@ if (IS_MAIN && !SELFTEST) {
         `         ${String(dropSame).padStart(6)}`);
     }
 
+    console.log('\n  per case: 2* and 3* shipped, then what flipped it');
+    for (const [ci, c] of disc.entries()) {
+      console.log(`    spot ${String(c.i).padStart(2)} (${c.spot.x.toFixed(0)}, ${c.spot.z.toFixed(0)}) seed ` +
+        `${c.seed}: 2* ${tag(c.r2)} (${c.r2.decays} decays), 3* ${tag(c.r3)} — lift: ` +
+        `${perCase[ci].lift.join(', ') || 'nothing'}; drop: ${perCase[ci].drop.join(', ') || 'nothing'}`);
+    }
     // The whole-row controls: if these do not reproduce the other level, the table is not the
     // whole difference between the levels and no single column can be the answer.
     let up = 0, upHash = 0, down = 0, downHash = 0, decayed = 0;

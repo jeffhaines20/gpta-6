@@ -16,7 +16,8 @@ import fs from 'node:fs';
 import { WantedSystem, CRIMES, RESPONSE, STATES, bindPursuit,
   SCENE_LEAVE_M, SCENE_STOP_MS, VictimWindow,
   composeWanted, composeLaw, LAW_NOTICE_S, BUST_HOLD_S,
-  floorlessCharge, FLOORLESS_KNEE } from '../src/wanted.js';
+  floorlessCharge, FLOORLESS_KNEE, ARREST_PACE_MS } from '../src/wanted.js';
+import { RUN_SPEED } from '../src/player.js';
 import { objectiveLine, composeBand } from '../src/hud.js';
 import { DamageModel, IMPACT } from '../src/damage.js';
 
@@ -2200,8 +2201,13 @@ let searchSample;
       for (const u of w.units) w.reportUnit(u.id, x, z);
       return w.units.filter((u) => u.pos).length;
     };
-    /** Drive a path around a unit parked at the origin, for three times the clock. */
-    const drive = (name, path, reportUnit = true) => {
+    /**
+     * Drive a path around a unit, for three times the clock. The unit is PARKED AT THE ORIGIN
+     * unless `unitPath` moves it — and that default is how the pacing case went unpinned: every
+     * arm here held the officer still, so none could see a unit that keeps station alongside a
+     * player who is driving, which is what `src/pursuit.js`'s stop clamp does.
+     */
+    const drive = (name, path, reportUnit = true, unitPath = null) => {
       const w = wanted1();
       let n = 0;
       w.on('busted', () => n++);
@@ -2212,7 +2218,10 @@ let searchSample;
       hold(w, BUST_HOLD_S * 3, { held: true, each: (ww, i, p) => {
         const q = path(i * DT);
         p.x = q.x; p.z = q.z;
-        if (reportUnit) reported = Math.max(reported, unitAt(ww, 0, 0));
+        if (reportUnit) {
+          const u = unitPath ? unitPath(q) : { x: 0, z: 0 };
+          reported = Math.max(reported, unitAt(ww, u.x, u.z));
+        }
       } });
       return { name, busts: n, armed: w.stats.bustHolds, reported };
     };
@@ -2243,6 +2252,11 @@ let searchSample;
       drive(`driving AT it at ${kmh(5.5).toFixed(0)} km/h`, toward(5.5)),
       drive(`driving AWAY at ${kmh(1.33).toFixed(1)} km/h`, away(1.33)),
       drive(`driving AWAY at ${kmh(11).toFixed(0)} km/h`, away(11)),
+      // A unit 6 m to the side, keeping pace: the stop clamp's station-keeping, exactly. The
+      // radial component of the player's velocity is zero against it at any speed.
+      drive(`paced at ${kmh(21).toFixed(0)} km/h`, away(21), true, (q) => ({ x: q.x, z: 6 })),
+      drive(`paced at ${kmh(5.5).toFixed(0)} km/h`, away(5.5), true, (q) => ({ x: q.x, z: 6 })),
+      drive(`circling at ${kmh(8.33).toFixed(0)} km/h`, circle(8.33)),
     ];
     console.log('    a unit parked at the origin, three times the clock:');
     for (const r of rows) {
@@ -2273,6 +2287,28 @@ let searchSample;
       rows[5].busts === 0 && rows[6].busts === 0,
       `away at ${kmh(1.33).toFixed(1)} km/h: ${rows[5].busts}, at ${kmh(11).toFixed(0)} km/h: ${rows[6].busts}`);
     /**
+     * AND THE OUT IS THE THROTTLE EVEN WITH A UNIT ALONGSIDE, which was false until this round.
+     * `tools/clear-time.mjs` drove a 2-star chase and was ARRESTED AT 76 km/h by a unit keeping
+     * station 7.3 m away; see ARREST_PACE_MS. Paced at 76 km/h nobody can be arrested — no officer
+     * runs at that speed — and paced at 20 km/h an officer can, so both are asserted: a rule that
+     * freed every paced player would be the old speed test back again.
+     */
+    check('paced by a unit at 76 km/h is NOT an arrest: no officer on foot runs that fast',
+      rows[7].busts === 0, `${rows[7].busts} busts, armed ${rows[7].armed}x`);
+    check('KNOWN-BAD: paced at 20 km/h still is, because an officer can run that down',
+      rows[8].busts > 0, `${rows[8].busts} busts`);
+    /**
+     * THE PRICE, printed and pinned rather than discovered later: circling above the officer's
+     * pace is no longer arrested by this clock. #95's arms are all under it (2.8 to 19.9 km/h) and
+     * every one above still arrests. Pinned at 0 so that a change in either direction is a
+     * decision someone has to restate here.
+     */
+    check('the stated price: circling at 30 km/h, above the running pace, is not arrested by the clock',
+      rows[9].busts === 0, `${rows[9].busts} busts at ${kmh(8.33).toFixed(0)} km/h`);
+    check('the running pace is src/player.js\'s RUN_SPEED, restated in a module that cannot import it',
+      ARREST_PACE_MS === RUN_SPEED, `${ARREST_PACE_MS} against ${RUN_SPEED}`);
+
+    /**
      * THE FALLBACK, and it is the arm that stops this being a free pass. `_recedingFrom` returns
      * null when no unit has reported a position, and the reset then falls back to the speed test
      * alone — which is what it always was. A predicate that answered "not receding" for a host
@@ -2285,6 +2321,20 @@ let searchSample;
     check('with no unit position reported it falls back to the speed test, as before',
       noPos.reported === 0 && noPos.busts === 0,
       `${noPos.busts} busts with ${noPos.reported} positions`);
+    /**
+     * AND UNDER THE RUNNING PACE, because above it the arm above no longer tests the fallback.
+     * At 40 km/h `ARREST_PACE_MS` resets the clock whatever `_recedingFrom` returns, so a fallback
+     * inverted to "not receding" passes that arm for a reason that has nothing to do with it —
+     * the check would hold HARDER under the mutation it exists for. 20 km/h is under the pace, so
+     * only the fallback stands between this arm and an arrest.
+     */
+    const noPosSlow = drive(`driving AWAY at ${kmh(5.5).toFixed(0)} km/h, no unit position`,
+      away(5.5), false);
+    console.log(`      ${noPosSlow.name.padEnd(30)} ${noPosSlow.busts} bust(s), ` +
+      `${noPosSlow.reported} unit position(s) reported`);
+    check('and under the running pace too, where only the fallback can save the arm',
+      noPosSlow.reported === 0 && noPosSlow.busts === 0,
+      `${noPosSlow.busts} busts with ${noPosSlow.reported} positions at ${kmh(5.5).toFixed(0)} km/h`);
     /**
      * AND NO NEW CONSTANT. The sign is tested against `SCENE_STOP_MS`, the same threshold the
      * speed test uses, so every figure `BUST_HOLD_S`'s own derivation rests on is untouched — a
