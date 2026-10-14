@@ -27,17 +27,21 @@
     6 front34 with the PLAYER'S OWN CAR (buildPlayerCar), off | on. Its panes are a separate mesh
       on a separate material, and the cabin's own blind review found them the one black void in
       the frame because the cabin had gone into the fleet's material and not this one.
+    7 front34 with a traffic COUPE, off | on — the shell whose greenhouse the player's car shares, so
+      the two cabins can be compared pixel for pixel: the player's cabin is read through
+      PLAYER_CABIN_Y into the fleet's frame, and a wrong lift would put its seats somewhere else
+      while still changing "most of the glazing".
 
   `?tod=noon|dusk`, `?level=`, `?through=`, `?tone=`, `?shape=` and `?debug=1` (frames published).
 -->
 <style>html,body{margin:0;background:#000}canvas{display:block}</style>
 <script type="module">
 import * as THREE from '../vendor/three.module.min.js';
-import { buildTrafficCarGeometry, carSurfaceMaterial, SHAPES, SURFACE, paletteU, setCabinGain,
-  cabinGain, buildPlayerCar, PLAYER_CABIN_Y } from '../src/carbody.js';
+import { buildTrafficCarGeometry, carSurfaceMaterial, trafficCarMaterial, SHAPES, SURFACE, paletteU,
+  setCabinGain, cabinGain, buildPlayerCar, CAR } from '../src/carbody.js';
 import { Vehicle } from '../src/vehicle.js';
 
-const TW = 480, TH = 300, ROWS = 7;
+const TW = 480, TH = 300, ROWS = 8;
 const q = new URLSearchParams(location.search);
 const TOD = q.get('tod') ?? 'noon';
 const SHAPE = q.get('shape') ?? 'saloon';
@@ -89,7 +93,7 @@ try {
     sun.position.set(-4, 9, 5).applyMatrix4(T); sun.target.position.set(0, 0, 0).applyMatrix4(T);
     sun.target.updateMatrixWorld();
     lamp.position.set(3.0, 5.5, 2.0).applyMatrix4(T);
-    for (const m of [car, playerLike]) { m.setMatrixAt(0, T); m.instanceMatrix.needsUpdate = true; }
+    for (const m of [car, playerLike, coupe]) { m.setMatrixAt(0, T); m.instanceMatrix.needsUpdate = true; }
     maskMesh.matrix.copy(T); maskMesh.matrixAutoUpdate = false; maskMesh.matrixWorldNeedsUpdate = true;
   };
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60),
@@ -101,8 +105,8 @@ try {
   // A LIGHT car, because the photographed glass band is a light-car band: glass over paint goes as
   // 1/tone (CLAUDE.md), so a dark car reads higher for reasons that have nothing to do with glass.
   const TONE = Number(q.get('tone') ?? 0.75);
-  const mkCar = (mat) => {
-    const m = new THREE.InstancedMesh(geo, mat, 1);
+  const mkCar = (mat, g = geo) => {
+    const m = new THREE.InstancedMesh(g, mat, 1);
     m.setMatrixAt(0, new THREE.Matrix4());
     m.setColorAt(0, new THREE.Color(TONE, TONE, TONE));
     m.instanceMatrix.needsUpdate = true;
@@ -112,15 +116,21 @@ try {
   const car = mkCar(carSurfaceMaterial());
   // The player's body material, which carries mirror glass on slot 10 and must get no cabin.
   const playerLike = mkCar(carSurfaceMaterial({ cabin: false }));
-  // The player's car as the game builds it, its frame lifted so its glazing sits where the fleet's
-  // does (PLAYER_CABIN_Y), which puts both cars' panes in the same part of the same camera.
+  // The coupe, whose greenhouse the player's car shares (row 7), on the material the fleet really
+  // uses — trafficCarMaterial, envMapIntensity 1.2, the figure the player's glass copies.
+  const coupeGeo = buildTrafficCarGeometry({ groundY: 0, shape: SHAPES.coupe });
+  const coupe = mkCar(trafficCarMaterial(), coupeGeo);
+  // The player's car as the game builds it, standing on the same ground as the fleet: its frame has
+  // the contact patch at CAR.ground, so it is lifted by -CAR.ground. Read off the GEOMETRY and not off
+  // PLAYER_CABIN_Y, which is the constant under test in row 7 — placing the subject by it would let a
+  // wrong lift move the car and its cabin together and agree with itself.
   const playerCar = buildPlayerCar();
-  playerCar.group.position.set(0, PLAYER_CABIN_Y, 0);
+  playerCar.group.position.set(0, -CAR.ground, 0);
   // On its wheels: the game places them from the vehicle's suspension every frame, and a page that
   // never does leaves all four at the car's origin, inside the body. At rest a tyre's centre is one
   // wheel radius over CAR.ground, which is how src/vehicle.js's ~0.257 m resting length comes out.
   const resting = new Vehicle();
-  for (const w of resting.wheels) w.suspLen = -0.10 + PLAYER_CABIN_Y - resting.wheelRadius;
+  for (const w of resting.wheels) w.suspLen = -0.10 - CAR.ground - resting.wheelRadius;
   playerCar.updateWheels(resting);
   playerCar.group.updateMatrixWorld(true);
   scene.add(playerCar.group);
@@ -134,6 +144,9 @@ try {
     fragmentShader: 'uniform float uGlassU; uniform float uPaintU; varying float vU; void main() { gl_FragColor = vec4( abs( vU - uGlassU ) < 0.01 ? 1.0 : 0.0, abs( vU - uPaintU ) < 0.01 ? 1.0 : 0.0, 0.0, 1.0 ); }',
   }));
   maskScene.add(maskMesh);
+  const cMask = new THREE.Scene();
+  cMask.background = new THREE.Color(0, 0, 0);
+  cMask.add(new THREE.Mesh(coupeGeo, maskMesh.material));
   // The player car's mask: its body in black, so a pane behind the body is not counted, and its
   // glass mesh in the glazing colour. Its own scene, drawn only for its own row.
   const pMask = new THREE.Scene();
@@ -169,6 +182,7 @@ try {
   plan.push([4, 0, 'front34', 'player', 0, LEVEL, THROUGH], [4, 1, 'front34', 'player', 1, LEVEL, THROUGH]);
   plan.push([5, 0, 'front34moved', 'car', 0, LEVEL, THROUGH], [5, 1, 'front34moved', 'car', 1, LEVEL, THROUGH]);
   plan.push([6, 0, 'front34', 'playerCar', 0, LEVEL, THROUGH], [6, 1, 'front34', 'playerCar', 1, LEVEL, THROUGH]);
+  plan.push([7, 0, 'front34', 'coupe', 0, LEVEL, THROUGH], [7, 1, 'front34', 'coupe', 1, LEVEL, THROUGH]);
 
   const W = TW * 2, H = TH * ROWS;
   const gl = renderer.getContext();
@@ -196,6 +210,7 @@ try {
     car.visible = which === 'car';
     playerLike.visible = which === 'player';
     playerCar.group.visible = which === 'playerCar';
+    coupe.visible = which === 'coupe';
     readback.push(setCabinGain(g, { level: lv, through: th }));
     tile(row, col);
     renderer.render(scene, cams[v]);
@@ -208,7 +223,7 @@ try {
   renderer.clear();
   for (const [row, col, v, which] of plan) {
     place(v.endsWith('moved')); tile(row, col);
-    renderer.render(which === 'playerCar' ? pMask : maskScene, cams[v]);
+    renderer.render(which === 'playerCar' ? pMask : which === 'coupe' ? cMask : maskScene, cams[v]);
   }
   const mask = read();
 
@@ -249,7 +264,7 @@ try {
       right: { p50: pct(s1, 0.5), p95: pct(s1, 0.95), modulation: pct(s1, 0.95) / pct(s1, 0.5) },
       paintP50: pct(sp, 0.5), g0, g1 };
   };
-  const rows = [0, 1, 2, 3, 4, 5, 6].map(pair);
+  const rows = [0, 1, 2, 3, 4, 5, 6, 7].map(pair);
   // THE RIGID-TRANSFORM INVARIANCE, row 5 against row 0, the same column: the same picture moved.
   const across = (rowA, rowB, col) => {
     let n = 0, moved = 0, max = 0;
@@ -265,6 +280,32 @@ try {
     return { glassPx: n, movedOver2: moved, max };
   };
   const invariance = { off: across(0, 5, 0), on: across(0, 5, 1) };
+  // THE PLAYER'S CABIN AGAINST THE COUPE'S, rows 6 and 7: on pixels that are glass in both, the
+  // change the cabin makes (on minus off, linear luma) on each car. The panes coincide to a pixel
+  // here (the player's greenhouse is the coupe's to 4 mm), so the same seats in the same place give
+  // the same pattern; a cabin read in the wrong frame keeps changing the glass and loses the pattern.
+  const versus = (() => {
+    const dp = [], dc = [], op = [], oc = [];
+    for (let y = 1; y < TH - 1; y++) for (let x = 1; x < TW - 1; x++) {
+      const a = (6 * TH + y) * W + x, b = (7 * TH + y) * W + x;
+      if (stable(a) !== 'g' || stable(b) !== 'g') continue;
+      dp.push(L(a + TW) - L(a)); dc.push(L(b + TW) - L(b));
+      op.push(L(a)); oc.push(L(b));
+    }
+    // And the GLASS itself, cabin off, on the same pixels: the player's pane against the fleet's.
+    const med = (v) => pct([...v].sort((u, w) => u - w), 0.5);
+    const offRatio = med(oc) > 0 ? med(op) / med(oc) : null;
+    const n = dp.length;
+    if (n < 2) return { sharedPx: n, corr: null, amp: null, offRatio: null };
+    const mean = (v) => v.reduce((s, x) => s + x, 0) / v.length;
+    const mp = mean(dp), mc = mean(dc);
+    let sxy = 0, sxx = 0, syy = 0;
+    for (let i = 0; i < n; i++) { const u = dp[i] - mp, w = dc[i] - mc; sxy += u * w; sxx += u * u; syy += w * w; }
+    const corr = sxx > 0 && syy > 0 ? sxy / Math.sqrt(sxx * syy) : null;
+    const amp = mean(dc.map(Math.abs)) > 0 ? mean(dp.map(Math.abs)) / mean(dc.map(Math.abs)) : null;
+    return { sharedPx: n, corr, amp, meanAbsPlayer: mean(dp.map(Math.abs)), meanAbsCoupe: mean(dc.map(Math.abs)),
+      offRatio, offP50Player: med(op), offP50Coupe: med(oc) };
+  })();
   // And the interior, read across rows 0 and 3: cabin off against the interior alone.
   let interiorChanged = 0;
   for (let k = 0; k < Math.min(rows[0].g0.length, rows[3].g0.length); k++) {
@@ -285,7 +326,8 @@ try {
     split: { glassPx: r3.glassPx, throughPx, interiorChanged },
     invariance,
     player: strip(rows[4]),
-    playerCar: strip(rows[6]),
+    playerCar: { ...strip(rows[6]), versusCoupe: versus },
+    coupe: strip(rows[7]),
     gainAfter: cabinGain().value,
   };
   if (q.get('debug') === '1') {

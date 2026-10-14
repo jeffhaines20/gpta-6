@@ -2435,10 +2435,46 @@ const MUTATIONS = [
     why: 'the cabin is built and never switched on, which every other gate reads as the old car',
   },
   {
+    /**
+     * Two lines, because the player's glass binds the same uniform with the same line: the first
+     * version of this row matched twice once that material got the cabin, and the selftest's
+     * "finds its target exactly once" is what said so.
+     */
     id: 'cabin-through-unwired', file: 'src/carbody.js',
-    find: '    shader.uniforms.uCabinThrough = CABIN_U.uCabinThrough;',
-    to: '',
+    find: '    shader.uniforms.uCabinThrough = CABIN_U.uCabinThrough;\n    shader.uniforms.uPaintTintOnly',
+    to: '    shader.uniforms.uPaintTintOnly',
     why: 'the transmission never reaches the shader, which reads its uniform as 0: no far window',
+  },
+  // ---- the PLAYER'S glass, a separate mesh on carGlassMaterial. The cabin's blind review found it
+  // the one black void in the frame: the fix went into the fleet's material and not its sibling.
+  {
+    id: 'cabin-player-glass-off', file: 'src/carbody.js',
+    find: '\tif ( uCabinGain > 0.0 ) {',
+    to: '\tif ( false ) {',
+    why: "the player's own car is the one car in the frame with nothing behind its glass",
+  },
+  {
+    /**
+     * THE WRONG FRAME, which every coverage check passes: measured, 77.7% of the player's glazing
+     * still changes with the cabin on, the seats 0.717 m from where they belong. Only comparing
+     * the player's cabin with the coupe's on the pane they share sees it.
+     */
+    id: 'cabin-player-frame', file: 'src/carbody.js',
+    find: 'export const PLAYER_CABIN_Y = -CAR.ground;',
+    to: 'export const PLAYER_CABIN_Y = 0;',
+    why: "the player's cabin is ray-cast 0.717 m low in the fleet's frame, and still changes the glass",
+  },
+  {
+    id: 'cabin-player-through-unwired', file: 'src/carbody.js',
+    find: '    shader.uniforms.uCabinThrough = CABIN_U.uCabinThrough;\n    const off =',
+    to: '    const off =',
+    why: "the player's car is the one car nobody can see through",
+  },
+  {
+    id: 'player-glass-metal', file: 'src/carbody.js',
+    find: '    roughness: PALETTE[SURFACE.glassy][0], metalness: PALETTE[SURFACE.glassy][1],',
+    to: '    roughness: 0.045, metalness: 0.88,',
+    why: "the player's glass goes back to the 1% reflector slot 10 records fixing for the fleet",
   },
 ];
 

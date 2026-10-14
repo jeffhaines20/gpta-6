@@ -39,13 +39,14 @@ for (const a of argv) {
 }
 
 /** Fixed, so a check cannot vanish when a population is empty. */
-export const CHECK_COUNT = 15;
+export const CHECK_COUNT = 18;
 
 /** The order the page renders in: [gain, level, through] per tile, rows top to bottom. */
 export function plannedReadback(level, through) {
   const out = [];
   for (let r = 0; r < 3; r++) out.push([0, level, through], [1, level, through]);
   out.push([1, level, 0], [1, 0, through]);
+  out.push([0, level, through], [1, level, through]);
   out.push([0, level, through], [1, level, through]);
   out.push([0, level, through], [1, level, through]);
   out.push([0, level, through], [1, level, through]);
@@ -124,6 +125,32 @@ export function verdict(r) {
   add('and nothing else on it moves by more than 8 levels',
     num(PC.otherPx) > 0 && (num(PC.otherMax) ?? 99) <= 8,
     `${PC.otherChanged2} px over 2 levels, max ${PC.otherMax}`);
+  const VS = PC.versusCoupe ?? {};
+  const corr = num(VS.corr), amp = num(VS.amp), offRatio = num(VS.offRatio);
+  /**
+   * AND IT IS THE COUPE'S CABIN, NOT JUST A CHANGE. The player's greenhouse is the coupe's to 4 mm and
+   * its cabin is read through PLAYER_CABIN_Y into the fleet's frame, so on the pixels that are glass
+   * in both cars the change the cabin makes must be the same picture. "Most of the glazing changes"
+   * cannot see a wrong lift — measured with PLAYER_CABIN_Y at 0, 2,319 of 2,983 player glass pixels
+   * still change, 77.7%, and the seats are 0.717 m from where they belong. The correlation reads
+   * 0.980 shipped against 0.273 with that lift (0.920 at dusk; the gate runs at noon).
+   */
+  add('the player\'s cabin is the coupe\'s: on the pane they share, the change it makes is the same picture',
+    num(VS.sharedPx) >= 1000 && corr !== null && corr >= 0.9,
+    `correlation ${corr?.toFixed(4)} over ${VS.sharedPx} shared glass px`);
+  /** Shipped 0.975; with the lift at 0 the seats sit in the dark under the sill and it reads 0.313. */
+  add('and as strong: the mean change on the player\'s pane is the coupe\'s, within a third',
+    amp !== null && amp >= 0.75 && amp <= 1 / 0.75,
+    `|change| ${VS.meanAbsPlayer?.toFixed(5)} against ${VS.meanAbsCoupe?.toFixed(5)}, x${amp?.toFixed(3)}`);
+  /**
+   * THE GLASS ITSELF, CABIN OFF. The player's glass shipped as a metal (metalness 0.88, the "1%
+   * reflector" slot 10 records) for as long as the fleet's had been the dielectric it is; on the
+   * same pixels the player's pane now reads 0.894 of the coupe's, and that old material reads 0.475.
+   * Not 1.0: the two panes are two builders' meshes, and the bound is a third either way.
+   */
+  add('the player\'s glass is the fleet\'s glass: cabin off, its median is the coupe\'s within a third',
+    offRatio !== null && offRatio >= 0.75 && offRatio <= 1 / 0.75,
+    `${VS.offP50Player?.toFixed(5)} against ${VS.offP50Coupe?.toFixed(5)}, x${offRatio?.toFixed(3)}`);
 
   const side = V.side ?? {};
   const mL = num(side.left?.modulation), mR = num(side.right?.modulation);
@@ -161,7 +188,9 @@ if (argv.includes('--selftest')) {
     split: { glassPx: 3283, throughPx: 2196, interiorChanged: 2995 },
     invariance: { off: { glassPx: 3283, movedOver2: 0, max: 1 }, on: { glassPx: 3283, movedOver2: 0, max: 1 } },
     player: { glassPx: 3283, glassChanged: 0, otherPx: 135236, otherChanged: 0 },
-    playerCar: { glassPx: 2986, glassChanged: 2830, otherPx: 138433, otherChanged: 2, otherChanged2: 2, otherMax: 3 },
+    playerCar: { glassPx: 2983, glassChanged: 2855, otherPx: 138441, otherChanged: 1, otherChanged2: 1, otherMax: 3,
+      versusCoupe: { sharedPx: 2627, corr: 0.9803, amp: 0.9745, meanAbsPlayer: 0.00756, meanAbsCoupe: 0.00776,
+        offRatio: 0.8937, offP50Player: 0.03328, offP50Coupe: 0.03724 } },
     gainAfter: 1,
   };
   const bad = (fn) => { const c = structuredClone(good); fn(c); return c; };
@@ -190,6 +219,14 @@ if (argv.includes('--selftest')) {
     // The sibling left out: the player's glass on its own material, never given the cabin.
     ['the player\'s own glass left out of the cabin', (c) => { c.playerCar.glassChanged = 0; }, 'OWN car'],
     ['a cabin leaking onto the player\'s body', (c) => { c.playerCar.otherChanged2 = 5000; c.playerCar.otherMax = 90; }, 'nothing else on it'],
+    // Measured, not invented: PLAYER_CABIN_Y at 0 read these, and still changed 77.7% of the glazing.
+    ['the player\'s cabin read in the wrong frame', (c) => {
+      c.playerCar.glassChanged = 2319; Object.assign(c.playerCar.versusCoupe, { corr: 0.2730, amp: 0.3131 });
+    }, 'same picture'],
+    ['the player\'s cabin as a faint ghost of the coupe\'s', (c) => { c.playerCar.versusCoupe.amp = 0.3131; }, 'as strong'],
+    // And the old metal glass, measured: 0.475 of the fleet's pane with the cabin off.
+    ['the player\'s glass back to the old metal', (c) => { c.playerCar.versusCoupe.offRatio = 0.4745; }, 'fleet\'s glass'],
+    ['no pane shared with the coupe at all', (c) => { Object.assign(c.playerCar.versusCoupe, { sharedPx: 0, corr: null }); }, 'same picture'],
   ]) {
     const r = bad(fn);
     say(fails(r, needle), `KNOWN-BAD: ${what} fails`, failing(r).join(' | '));
@@ -210,7 +247,7 @@ const ROOT = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 const PORT = Number(process.env.CAR_CABIN_PORT ?? treePort(ROOT));
 await ensureServer(PORT, 20000, { root: ROOT });
 const browser = await chromium.launch(launchOptions());
-const page = await browser.newPage({ viewport: { width: 1000, height: 2140 } });
+const page = await browser.newPage({ viewport: { width: 1000, height: 2440 } });
 const logs = [];
 page.on('console', (m) => { if (!/Failed to load resource/.test(m.text())) logs.push(`${m.type()}: ${m.text()}`); });
 page.on('pageerror', (e) => logs.push(`pageerror: ${e.message}`));

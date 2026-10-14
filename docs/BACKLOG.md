@@ -30,8 +30,9 @@ closed and item 7's tone half is closed:
 1. **No interior behind any glass.** Panes have the same internal structure as the door skin
    (1.89/1.40 against the door's 1.77/1.40); the building glazing in the same frame reads
    4.76/8.38, six to eight times more. No seats, no headrests, no A-pillar, no falloff.
-   *SHIPPED, pending its blind review — see "Cars item 1" below: a ray-cast cabin puts the near
-   windscreen's modulation inside the photographed band at noon AND night.*
+   *SHIPPED, and preferred blind in six pairs of six — see "Cars item 1" below: a ray-cast cabin
+   puts the near windscreen's modulation inside the photographed band at noon AND night. The
+   reviewer's "crude" list went into a v2 of the seats, which is out to its own blind review.*
 2. **No number plates** — *partly done*, see below. Still capped by instanceColor.
 3. **Tail lights are dark painted rectangles**, 1.11x the darkest paint on the same car.
 4. **Octagonal wheels** at 56 px diameter, and inconsistent between cars — one has a rim ring,
@@ -104,6 +105,46 @@ check that can tell a cabin computed in the car's frame from one computed in wor
 every car this page draws at the origin looks right either way and no car in the district is there.
 Six mutation rows on the sweep's offline list, swept: **six of six caught**, and `cabin-eye-world` —
 the eye left in world space — by `car-cabin` alone, which is that rigid-transform row earning its place.
+
+**The blind review: six pairs of six, and the two things it found wrong are fixed.** One reviewer,
+corridor and fivepoints at noon, dusk and night, the arms scrambled per pair (`docs/shots/
+blind-key-cabr-cab0-cabr-cab1.json`). It preferred the cabin in all six — confidence 4 at corridor
+noon and dusk, 2 elsewhere, where the cars are under 180 px wide — and recovered the assignment from
+the data: the interior arm's signature is the same in every pair. Its numbers on the near-left
+windscreen [250,625,350,680]: p95/p50 **2.00 against 1.20 at noon with the median unchanged**
+(0.0850 against 0.0846), 1.73 against 1.35 at dusk, 2.07 against 1.19 at night; the same car's hood
+byte-identical. Over 31 car-pane boxes the cabin arm is brighter in all 31, by 2-94%, and "between
+18% and 81% of each pane is untouched, and the heat maps show those untouched areas are the headrest
+and seat silhouettes". Its "still crude" list:
+
+- *"flat, unshaded, hard-edged cut-outs: perfect discs for headrests"* and *"three equal-size
+  headrests sit in one row across the near-left windscreen"*. v2 (`e6fc3f3`): each seat row is
+  COVERAGE with an 18 mm soft outline, lit from above, and the rear headrests are smaller, lower
+  and further inboard than the front ones; rows blend far to near so a soft edge shows what is
+  behind it. Out to a v1-against-v2 blind pair.
+- **"The stopped junction car's side windows are black voids" [500,559,522,566], sRGB (12,16,23),
+  1/18 of a parked car's side glass in the same noon frame — in BOTH arms.** That car is the
+  player's. Its panes are a separate mesh on `carGlassMaterial`, which still shipped as roughness
+  0.045, METALNESS 0.88 — the "1% reflector" slot 10's comment records fixing for the fleet in
+  round 9 — and the cabin went into the fleet's material and not this one. Fixed in `e6fc3f3`: the
+  fleet's glass and the same cabin, read through `PLAYER_CABIN_Y = -CAR.ground` into the fleet's
+  frame. The recurring shape, twice in one material: a fix applied to one member of a family and
+  not its sibling.
+
+**And the gate now compares the player's cabin with the coupe's**, whose greenhouse it shares to
+4 mm, on the pixels that are glass in both: the change the cabin makes correlates at 0.980 (0.920 at
+dusk), at x0.975 the strength, and with the cabin off the player's pane reads x0.894 of the coupe's.
+"Most of the glazing changes" could not see a wrong lift — with `PLAYER_CABIN_Y` at 0, 77.7% of the
+player's glazing still changes with its seats 0.717 m out of place — and the correlation reads 0.273.
+Five more rows, five caught, all by `car-cabin`: the player's cabin off, its frame, its transmission
+unwired (correlation −0.476), its glass back to the metal (x0.475), and the fleet's transmission row
+repointed, because the player's material binds the uniform with the same line and the selftest's
+"finds its target exactly once" said so.
+
+**Both-arms findings from the same review, filed rather than taken here**: a parked car's
+headlamps are flat white fields, 2.6x its sunlit hood at noon with no lens or reflector structure;
+the number plates are blank fields; and noon canopy shade carries soft ~0.5 m squares that change
+between two captures half a second apart, which is #117.
 
 ### #56 FIXED — per-shell body length, and the 0.289 m price was the wrong one for half the sites
 Offline half landed (2aca6c5): three shells, length range 0.196 m, 1,050 triangles each.
@@ -3489,3 +3530,19 @@ low-roughness patches in a TILED road texture catching the brightest sky of the 
 says the asphalt map repeats every 3 m and has its own de-tiling pass), which would also say why night
 hides them. Not diagnosed: the first measurement is the road's roughness along a lane against the
 spot positions, and whether noon and golden show them too.
+
+### #117 OPEN — soft ~0.5 m squares in the noon canopy shade change between two captures half a second apart
+From the cabin's blind reviewer, in BOTH arms and so independent of the cabin: at corridor noon, "22
+isolated, soft-edged squares of about 0.5 m on the road and pavements. Each is 25-75 px wide and
+changes by a factor of 0.75 to 1.56; 17 are brighter in B and 5 darker", and on top of that "23-29% of
+the dappled sunlit ground shows a ±1-2 level speckle that averages to zero". Six more in the palm's
+shadow at fivepoints. None at dusk (the road byte-identical over 242,775 px) or at night. "If this
+flicker also happens between consecutive frames, it would show as shimmering squares in the canopy
+shade; worth checking in motion." Its difference map shows the squares as parallelograms on one
+lattice, which is what a shadow-map texel looks like projected onto the ground.
+
+Candidate mechanism, from reading the code and NOT yet measured: `TimeOfDay.follow(pos)` moves the
+sun's ortho shadow box with the player's car every frame with no snap to the map's own texel grid
+(0.117 m), so any sub-texel motion of the focus re-rasterises every caster at a new phase — and it
+sets the sun's height as an ABSOLUTE `sin(el) * 400` while the target takes the car's own y, so the
+light's direction itself tilts with the car's height on its suspension.
