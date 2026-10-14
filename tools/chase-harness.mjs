@@ -24,7 +24,16 @@ const browser = await chromium.launch(launchOptions(['--js-flags=--expose-gc']))
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message));
-page.on('console', (m) => { if (m.type() === 'error' && !/favicon/.test(m.text())) errors.push(m.text()); });
+// See tools/drive-through.mjs: the console line for a failed load carries no URL, so a favicon
+// filter on its TEXT never matched. The response hook has the URL.
+page.on('console', (m) => {
+  if (m.type() !== 'error' || /failed to load resource/i.test(m.text())) return;
+  errors.push(m.text());
+});
+page.on('response', (r) => {
+  if (r.status() < 400 || /favicon/i.test(r.url())) return;
+  errors.push(`HTTP ${r.status()} ${r.url().replace(/^https?:\/\/[^/]+/, '')}`);
+});
 
 await page.goto('http://127.0.0.1:8123/district/', { waitUntil: 'networkidle' });
 await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });

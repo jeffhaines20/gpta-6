@@ -160,9 +160,13 @@ export function run({ spot, seed, stars, table = null, seconds = 240 }) {
     }
     // The level as a DELTA from where it started, not the level itself: the whole-row control
     // compares a 2-star run against a 3-star one, and an absolute level would make those two
-    // hashes differ by construction and the control unable to pass.
+    // hashes differ by construction and the control unable to pass. AND A CLEARED LEVEL IS ITS
+    // OWN TOKEN, because the delta is not invariant across a clear: the first version of this line
+    // failed the whole-row control on two runs identical to the physics step, both busted at 13 s,
+    // because 0 - 3 is not 0 - 2. The control was right to fail; the encoding was the defect.
+    const lvl = s.wanted.stars === 0 ? 'clear' : s.wanted.stars - stars;
     h.update(`${k}|${u.map((p) => `${p.x},${p.z},${p.held ? 1 : 0}`).join(';')}|` +
-      `${s.wanted.stars - stars}|${s.stats.busts}\n`);
+      `${lvl}|${s.stats.busts}\n`);
   }
   const r = { busts: s.stats.busts, stars: s.wanted.stars };
   return { outcome: classify(r), t: s.t - t0, ...r, decays: ev.decays, decayAt: ev.decayAt,

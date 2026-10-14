@@ -73,11 +73,38 @@ function mulberry32(a) {
 export function chase({ spot, seed, policy = 'far', world = 'bare', stars = 2, seconds = 300,
   maxSpeed = 22, points }) {
   const s = new Session(world === 'bare' ? { seed, peds: 0, traffic: 0 } : { seed });
-  s.placeAt(spot.x, spot.z, spot.yaw);
+  // FACING THE WAY THERE IS CITY. A spot's yaw is just its edge's first-to-second vertex, so at the
+  // district's edge it can point out of town, where nothing lies ahead and the first leg has to be
+  // a U-turn under the police's noses. Of the road's two directions, the one with more of the
+  // destination ring ahead of it — the respawn's own `clearerHeading` idea, applied to the route.
+  const aheadCount = (yaw) => {
+    const fx = Math.sin(yaw), fz = Math.cos(yaw);
+    let n = 0;
+    for (const c of points) {
+      const dx = c.x - spot.x, dz = c.z - spot.z, d = Math.hypot(dx, dz);
+      if (d >= 350 && d <= 700 && (dx * fx + dz * fz) / d > Math.cos(Math.PI / 3)) n++;
+    }
+    return n;
+  };
+  const yaw0 = aheadCount(spot.yaw) >= aheadCount(spot.yaw + Math.PI) ? spot.yaw : spot.yaw + Math.PI;
+  s.placeAt(spot.x, spot.z, yaw0);
   s.wanted.setStars(stars, 'clear-time');
-  const ev = { clearAt: null, reason: null, decays: [], escalations: 0, pollAt: null };
+  const ev = { clearAt: null, reason: null, decays: [], escalations: 0, pollAt: null,
+    crimeTypes: {}, bustSpeed: null, firstDest: null };
   s.wanted.on('clear', (e) => {
     if (ev.clearAt === null) { ev.clearAt = s.t; ev.reason = e.reason; }
+  });
+  // WHICH crimes, not how many: a bare world still has walls and police cars in it, and ramming a
+  // unit files `policeProperty`, which raises the level. The first selftest asserted "no crimes"
+  // there and was wrong about the world, not about the drive.
+  s.wanted.on('crime', (p) => {
+    if (p.applied) ev.crimeTypes[p.id] = (ev.crimeTypes[p.id] ?? 0) + 1;
+  });
+  // HOW FAST THE PLAYER WAS GOING WHEN ARRESTED. An arrest is an officer on foot reaching the
+  // car, so one made above the officer's running pace is not an arrest anybody could make — see
+  // the station-keeping defect this probe found on its first real drive.
+  s.wanted.on('busted', () => {
+    if (ev.bustSpeed === null) ev.bustSpeed = Math.hypot(s.vehicle.velocity.x, s.vehicle.velocity.z);
   });
   s.wanted.on('stars', (e) => {
     if (e.reason === 'decay') ev.decays.push(s.t);
@@ -92,12 +119,26 @@ export function chase({ spot, seed, policy = 'far', world = 'bare', stars = 2, s
   // first leg the same random draw as `far`'s and the two policies one drive. Counted in the time.
   s.drive({ throttle: 0, brake: 1 }).step(0.5);
 
+  /**
+   * AHEAD OF THE CAR, OR THE FIRST LEG IS A U-TURN. The first version drew from the whole ring, so
+   * a car placed facing one way was routed the other: the follower reversed at full lock, then
+   * crawled round at 2.5 m/s for ten seconds, and the police arrested it mid-turn — the selftest
+   * caught it as "46 m driven in 17.6 s" and as two policies driving the identical 99.5 m. A
+   * player told to lose the police drives ON. So the draw is from the points within 60 degrees of
+   * the nose, and only falls back to the whole ring when there are none.
+   */
   const pick = () => {
     const p = s.vehicle.position;
-    const ring = points.filter((c) => {
+    const ringAll = points.filter((c) => {
       const d = Math.hypot(c.x - p.x, c.z - p.z);
       return d >= 350 && d <= 700;
     });
+    const yaw = s._yaw(), fx = Math.sin(yaw), fz = Math.cos(yaw);
+    const ahead = ringAll.filter((c) => {
+      const dx = c.x - p.x, dz = c.z - p.z, d = Math.hypot(dx, dz) || 1;
+      return (dx * fx + dz * fz) / d > Math.cos(Math.PI / 3);
+    });
+    const ring = ahead.length ? ahead : ringAll;
     if (!ring.length) return null;
     if (policy === 'away') {
       const units = s._unitPositions();
@@ -134,6 +175,7 @@ export function chase({ spot, seed, policy = 'far', world = 'bare', stars = 2, s
         continue;
       }
       path = pp; state = { i: 0 }; legs++;
+      if (!ev.firstDest) ev.firstDest = { x: dst.x, z: dst.z };
     }
     const v = s.vehicle;
     const f = followPath(path.points, { x: v.position.x, z: v.position.z, yaw: s._yaw(),
@@ -151,6 +193,7 @@ export function chase({ spot, seed, policy = 'far', world = 'bare', stars = 2, s
     t: ev.clearAt === null ? null : ev.clearAt - t0,
     firstDecay: ev.decays.length ? ev.decays[0] - t0 : null,
     decays: ev.decays.length, escalations: ev.escalations, crimes: s.stats.crimes - crimes0,
+    crimeTypes: ev.crimeTypes, bustSpeed: ev.bustSpeed, firstDest: ev.firstDest,
     legs, wedges, wrecks: s.stats.wrecks, busts: s.stats.busts, reacquires: s.wanted.stats.reacquires,
     metres: s.stats.distance, clearedByPoll, eventCleared: ev.clearAt !== null,
     firstUnit: (() => { const u = s._unitPositions(); return u.length ? { x: u[0].x, z: u[0].z } : null; })(),
@@ -261,20 +304,26 @@ if (IS_MAIN && SELFTEST) {
   const r = chase({ spot: spots[1], seed: 2, policy: 'far', world: 'bare', seconds: 90, points });
   check('the follower actually drives', r.metres > 300 && r.legs >= 1,
     `${r.metres.toFixed(0)} m over ${r.legs} legs`);
-  check('the bare world files no crime, so nothing can raise the level mid-run',
-    r.crimes === 0 && r.escalations === 0, `crimes ${r.crimes}, escalations ${r.escalations}`);
+  const kinds = Object.keys(r.crimeTypes);
+  check('the bare world files only crimes against walls and the police — no person, no civilian car',
+    kinds.every((k) => k === 'propertyDamage' || k === 'policeProperty'),
+    JSON.stringify(r.crimeTypes));
   check('an escape, if it happened, respects the floor',
     r.outcome !== 'escaped' || r.t >= escapeFloor(2), `${r.outcome} at ${r.t}`);
   check('the event and a poll agree about whether the level cleared',
     r.outcome === 'arrested' || r.clearedByPoll === r.eventCleared,
     `event ${r.eventCleared}, poll ${r.clearedByPoll}`);
 
-  // 4. The policies are different drives, so the second column is not the first printed twice.
+  // 4. The policies choose different destinations from the same start, so the second column is
+  //    not the first printed twice. Compared on the DESTINATION, not on distance driven: two runs
+  //    arrested at the same second drive the same metres whatever they were aiming at, which is
+  //    what the first version of this check measured.
   const a = chase({ spot: spots[2], seed: 3, policy: 'far', world: 'bare', seconds: 30, points });
   const b = chase({ spot: spots[2], seed: 3, policy: 'away', world: 'bare', seconds: 30, points });
-  check('`far` and `away` drive different courses from the same start',
-    Math.abs(a.metres - b.metres) > 1e-6 || a.legs !== b.legs || JSON.stringify(a.firstUnit) !==
-    JSON.stringify(b.firstUnit), `${a.metres.toFixed(1)} m against ${b.metres.toFixed(1)} m`);
+  const fd = (x) => x.firstDest ? `(${x.firstDest.x.toFixed(0)}, ${x.firstDest.z.toFixed(0)})` : 'none';
+  check('`far` and `away` aim at different places from the same start',
+    !!a.firstDest && !!b.firstDest && (a.firstDest.x !== b.firstDest.x || a.firstDest.z !== b.firstDest.z),
+    `${fd(a)} against ${fd(b)}`);
 
   console.log(`\nCLEAR-TIME SELFTEST: ${fail ? 'FAIL' : 'PASS'} — ${pass + fail} checks` +
     `${fail ? `, ${fail} failed` : ''}`);

@@ -27,7 +27,23 @@ const browser = await chromium.launch(launchOptions(['--js-flags=--expose-gc']))
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message));
-page.on('console', (m) => { if (m.type() === 'error' && !/favicon/.test(m.text())) errors.push(m.text()); });
+/**
+ * A 404 REACHES THE CONSOLE WITHOUT ITS URL, so `!/favicon/.test(m.text())` never matched what it
+ * was written to drop: the console line reads "Failed to load resource: the server responded with
+ * a status of 404 (Not Found)" and nothing else. Every run of this gate therefore carried ONE
+ * error it could not name — five of five in the 2026-10-14 stall set. tools/boot-check.mjs found
+ * and fixed the same thing on its own first run; this is that fix, in the sibling that kept the
+ * old filter. The console line for a failed load is dropped and the RESPONSE hook, which has the
+ * URL, records anything at 400 or above except the favicon.
+ */
+page.on('console', (m) => {
+  if (m.type() !== 'error' || /failed to load resource/i.test(m.text())) return;
+  errors.push(m.text());
+});
+page.on('response', (r) => {
+  if (r.status() < 400 || /favicon/i.test(r.url())) return;
+  errors.push(`HTTP ${r.status()} ${r.url().replace(/^https?:\/\/[^/]+/, '')}`);
+});
 
 // DRIVE_QUERY passes a query string to the page, so a gate arm whose difference
 // is a build-time option is one build on one port rather than two commits. The
