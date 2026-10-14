@@ -349,6 +349,33 @@ varying vec3 vCabinEye;
 // What a ray from the eye through this point of the glazing hits inside the cabin, as an
 // effective albedo. Car frame: +z forward, y up, x across. No derivatives in here, so it is safe
 // in the non-uniform branch it is called from.
+float cabinFalloff( float t ) { return uCabinLevel * mix( ${f(CABIN.falloffFloor)}, 1.0, exp( -t / ${f(CABIN.falloffM)} ) ); }
+// One seat row's plane, as COVERAGE rather than a yes/no, so its outline is soft: a back whose top
+// falls away to rounded shoulders, and a headrest that is an ellipse on its post, lit from above.
+// Returns the coverage in .x and the shaded albedo in .y.
+vec2 cabinSeatRow( vec3 s, int k ) {
+	float ax = abs( s.x );
+	float cx = k == 0 ? 0.41 : 0.40;                  // a front seat's centre line, or a rear place's
+	float hw = k == 0 ? 0.31 : 0.38;
+	float u = ( ax - cx ) / hw;
+	float top = ( k == 0 ? 1.12 : 1.05 ) - 0.07 * u * u;
+	float edge = 0.018;                               // metres of soft outline, about a pixel at 8 m
+	float back = ( 1.0 - smoothstep( 1.0 - edge / hw, 1.0, abs( u ) ) )
+		* ( 1.0 - smoothstep( top - edge, top + edge, s.y ) )
+		* ( k == 0 ? smoothstep( 0.08, 0.12, ax ) : 1.0 );      // the gap between the front seats
+	// The rear headrests are SMALLER, LOWER and further INBOARD than the front ones, as they are:
+	// the first version put both rows' at the same size on the same line, and a blind reviewer saw
+	// "three equal-size headrests in one row across the windscreen".
+	vec2 hc = k == 0 ? vec2( 0.41, 1.21 ) : vec2( 0.34, 1.11 );
+	vec2 hr = k == 0 ? vec2( 0.13, 0.095 ) : vec2( 0.10, 0.065 );
+	vec2 e = vec2( ( ax - hc.x ) / hr.x, ( s.y - hc.y ) / hr.y );
+	float rest = 1.0 - smoothstep( 0.78, 1.0, dot( e, e ) );
+	// Lit from above, through the glass: the top of a headrest or a seat back is its brightest part.
+	float restAlb = ${f(A.headrest)} * ( 0.65 + 0.7 * clamp( 0.5 + 0.5 * e.y, 0.0, 1.0 ) );
+	float backAlb = ${f(A.seat)} * ( 0.75 + 0.5 * smoothstep( top - 0.35, top, s.y ) );
+	float cov = max( back, rest );
+	return vec2( cov, back >= rest ? backAlb : restAlb );
+}
 float cabinAlbedo( vec3 p, vec3 eye, out float throughW ) {
 	const vec3 lo = ${v3(CABIN.lo)};
 	const vec3 hi = ${v3(CABIN.hi)};
@@ -358,42 +385,39 @@ float cabinAlbedo( vec3 p, vec3 eye, out float throughW ) {
 	vec3 tFar = max( ( lo - q ) / dd, ( hi - q ) / dd );
 	float t = min( min( tFar.x, tFar.y ), tFar.z );
 	vec3 h = q + d * t;
+	// THE FAR SURFACE FIRST, then every occluder in front of it blended over it by its coverage,
+	// far to near, so a soft edge shows what is behind it — including the far window, whose share
+	// of the pixel (thr) each occluder takes away.
 	float alb;
-	bool through = false;
+	float thr = 0.0;
 	if ( t == tFar.y ) {
-		alb = d.y > 0.0 ? ${f(A.headliner)} : ${f(A.floor)};
+		alb = ( d.y > 0.0 ? ${f(A.headliner)} : ${f(A.floor)} ) * cabinFalloff( t );
 	} else if ( h.y > ${f(CABIN.belt)} ) {
-		alb = 0.0; through = true;                        // the far side window, or screen
+		alb = 0.0; thr = 1.0;                             // the far side window, or screen
 	} else {
-		alb = t == tFar.x ? ${f(A.door)} : ${f(A.wall)};  // door card, or firewall / parcel shelf
+		alb = ( t == tFar.x ? ${f(A.door)} : ${f(A.wall)} ) * cabinFalloff( t );  // door card, firewall, parcel shelf
 	}
-	// The dash top, ahead of the front seats and below the screen's base.
+	// The dash top, ahead of the front seats and below the screen's base: always in front of what
+	// the box exit found, so it simply wins where it is hit.
 	if ( d.y < 0.0 ) {
 		float td = ( 0.98 - q.y ) / dd.y;
 		vec3 s = q + d * td;
-		if ( td > 0.0 && td < t && s.z > 0.22 ) { t = td; alb = ${f(A.dash)}; through = false; }
+		if ( td > 0.0 && td < t && s.z > 0.22 ) { t = td; alb = ${f(A.dash)} * cabinFalloff( td ); thr = 0.0; }
 	}
-	// Seat backs and headrests: a plane across the cabin at each row, cut to the seats' outline.
-	for ( int k = 0; k < 2; k++ ) {
-		float zs = k == 0 ? ${f(CABIN.frontSeatZ)} : ${f(CABIN.rearSeatZ)};
-		float ts = ( zs - q.z ) / dd.z;
+	// The two seat rows, the FARTHER first.
+	float tsF = ( ${f(CABIN.frontSeatZ)} - q.z ) / dd.z;
+	float tsR = ( ${f(CABIN.rearSeatZ)} - q.z ) / dd.z;
+	for ( int i = 0; i < 2; i++ ) {
+		bool rearFirst = tsR > tsF;
+		int k = ( i == 0 ) == rearFirst ? 1 : 0;
+		float ts = k == 0 ? tsF : tsR;
 		if ( ts <= 0.0 || ts >= t ) continue;
-		vec3 s = q + d * ts;
-		float ax = abs( s.x );
-		// ROUNDED, because a seat is: each back's top falls away toward its shoulders as a parabola
-		// about the seat's centre line, and each headrest is an ellipse on its post. Hard rectangles
-		// read as blocks at the 8 m a parked car is usually seen from.
-		float cx = k == 0 ? 0.41 : 0.40;            // a front seat's centre, or a rear place's
-		float u = ( ax - cx ) / ( k == 0 ? 0.31 : 0.38 );
-		float top = ( k == 0 ? 1.12 : 1.06 ) - 0.07 * u * u;
-		bool back = abs( u ) < 1.0 && s.y < top && ( k == 1 || ax > 0.10 );
-		vec2 e = vec2( ( ax - cx ) / 0.13, ( s.y - ( k == 0 ? 1.21 : 1.13 ) ) / ( k == 0 ? 0.095 : 0.075 ) );
-		bool rest = !back && dot( e, e ) < 1.0;
-		if ( back ) { t = ts; alb = ${f(A.seat)}; through = false; }
-		else if ( rest ) { t = ts; alb = ${f(A.headrest)}; through = false; }
+		vec2 row = cabinSeatRow( q + d * ts, k );
+		alb = mix( alb, row.y * cabinFalloff( ts ), row.x );
+		thr *= 1.0 - row.x;
 	}
-	throughW = through ? 1.0 : 0.0;
-	return through ? 0.0 : uCabinLevel * alb * mix( ${f(CABIN.falloffFloor)}, 1.0, exp( -t / ${f(CABIN.falloffM)} ) );
+	throughW = thr;
+	return alb;
 }
 `;
 }
@@ -1191,13 +1215,78 @@ export function lampEmissive(on, exposure = 1 / 660, display = 2.6) {
   return on ? Math.min(6000, display / Math.max(exposure, 1e-6)) : 0;
 }
 
-/** Dark, strongly reflective glazing. Opaque on purpose: no sorting, no cost. */
+/**
+ * THE PLAYER'S GLASS IS THE SIBLING THE FLEET'S FIXES NEVER REACHED, TWICE.
+ *
+ * It shipped as roughness 0.045, METALNESS 0.88, colour 0x0a0e14 — exactly the "1% reflector, which
+ * cannot look like anything but a hole" slot 10's own comment above describes and fixed for the
+ * traffic glazing in round 9 by making it the dielectric it is. And when the cabin went into the
+ * fleet's material, this one stayed out, so in the cabin's own blind review the player's car — the
+ * car a third-person player looks at most — was the one "black void" in the frame: its side windows
+ * sRGB (12, 16, 23), 1/18 of a parked car's side glass in the same noon frame. It is the recurring
+ * shape here: a fix applied to one member of a family and not its sibling.
+ *
+ * So it is the fleet's glass now: slot 10's finish (roughness 0.06, metalness 0), slot 10's albedo
+ * (0x0d1015, linear 0.0040 / 0.0052 / 0.0075), the traffic material's envMapIntensity with the same
+ * `uGlassEnvExtra` on its radiance, and the same cabin — the player's car is the coupe's greenhouse
+ * (glazing x +/-0.887, z -1.708..0.647 against the coupe's +/-0.891, -1.707..0.647), read through
+ * PLAYER_CABIN_Y into the fleet's frame. Every texel of this material is glass, so the cabin's slot
+ * mask is 1. Still opaque, on purpose: no sorting, no cost — the cabin is a picture on the pane.
+ */
 export function carGlassMaterial(opts = {}) {
-  return new THREE.MeshStandardMaterial({
-    color: opts.color ?? 0x0a0e14,
-    roughness: 0.045, metalness: 0.88,
-    envMapIntensity: opts.envMapIntensity ?? 2.6,
+  const m = new THREE.MeshStandardMaterial({
+    color: opts.color ?? 0x0d1015,
+    roughness: PALETTE[SURFACE.glassy][0], metalness: PALETTE[SURFACE.glassy][1],
+    envMapIntensity: opts.envMapIntensity ?? 1.2,
   });
+  return patchPlayerGlass(m);
+}
+
+function patchPlayerGlass(m) {
+  m.onBeforeCompile = (shader) => {
+    if (!shader.fragmentShader.includes(IBL_DECL) || !shader.fragmentShader.includes(COLOR_FRAGMENT_DECL) ||
+      !shader.vertexShader.includes(PROJECT_VERTEX_DECL)) {
+      throw new Error('carGlassMaterial: a cabin / environment seam was not found; the player glass would silently be the old hole');
+    }
+    shader.uniforms.uGlassEnvExtra = GLASS_ENV.uGlassEnvExtra;
+    shader.uniforms.uCabinGain = CABIN_U.uCabinGain;
+    shader.uniforms.uCabinLevel = CABIN_U.uCabinLevel;
+    shader.uniforms.uCabinThrough = CABIN_U.uCabinThrough;
+    const off = `vec3( 0.0, ${PLAYER_CABIN_Y.toFixed(4)}, 0.0 )`;
+    shader.vertexShader = shader.vertexShader
+      .replace(PROJECT_VERTEX_DECL, `${PROJECT_VERTEX_DECL}
+	vCabinPos = transformed;
+	vCabinEye = ( inverse( modelMatrix ) * vec4( cameraPosition, 1.0 ) ).xyz;`)
+      .replace('void main() {', `varying vec3 vCabinPos;
+varying vec3 vCabinEye;
+void main() {`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('void main() {', `uniform float uGlassEnvExtra;
+${cabinGLSL()}
+void main() {`)
+      .replace(COLOR_FRAGMENT_DECL, `${COLOR_FRAGMENT_DECL}
+	float cabinThroughW = 0.0;
+	vec3 cabinTint = mix( vec3( 1.0 ), diffuseColor.rgb / max( dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) ), 1e-6 ), 0.5 );
+	if ( uCabinGain > 0.0 ) {
+		float cabinThrough;
+		float cabinAlb = cabinAlbedo( vCabinPos + ${off}, vCabinEye + ${off}, cabinThrough );
+		cabinThroughW = cabinThrough * uCabinGain;
+		diffuseColor.rgb = mix( diffuseColor.rgb, cabinTint * cabinAlb, uCabinGain );
+	}`)
+      .replace(IBL_DECL, `${IBL_DECL}
+#if defined( RE_IndirectSpecular )
+	radiance *= 1.0 + uGlassEnvExtra;
+#endif
+#if defined( RE_IndirectSpecular ) && defined( ENVMAP_TYPE_CUBE_UV )
+	if ( cabinThroughW > 0.0 ) {
+		vec3 cabinRay = inverseTransformDirection( normalize( - vViewPosition ), viewMatrix );
+		reflectedLight.indirectDiffuse += cabinThroughW * uCabinThrough * cabinTint
+			* textureCubeUV( envMap, envMapRotation * cabinRay, 0.5 ).rgb * envMapIntensity;
+	}
+#endif`);
+  };
+  m.customProgramCacheKey = () => 'carGlassCabin1';
+  return m;
 }
 
 // ---------------------------------------------------------------- geometry helpers
@@ -1272,6 +1361,16 @@ export const CAR = {
   // rather than a second table. See SHAPES.
   backlightZ: -1.080,
 };
+
+/**
+ * THE PLAYER'S CAR IS AUTHORED IN CAR'S OWN FRAME and every fleet shell is translated by
+ * `groundY - P.ground` to stand on its instance origin, with no shape overriding `ground`. So the
+ * fleet's frame — the one CABIN is written in — is CAR's raised by exactly -CAR.ground, and the
+ * player's glass reads its cabin through that lift. Derived rather than measured: the two glazings'
+ * lower edges (1.064 in the fleet's frame, 0.348 in CAR's) agree with it to a millimetre, and a
+ * measured 0.716 typed in here would not have moved with the car.
+ */
+export const PLAYER_CABIN_Y = -CAR.ground;
 
 /**
  * BODY SHELLS, and why they are a warp of one table rather than three tables.
@@ -2302,9 +2401,9 @@ export function buildPlayerCar(opts = {}) {
     boxAt(b, s * (flank + 0.190), mirrorY + 0.034, mirrorZ - 0.020, 0.006, 0.044, 0.082,
       dark, SURFACE.glassy, s * 0.16);
   }
-  // --- twin exhausts under the rear valance. No interior is modelled: the
-  // glazing is opaque by design (see carGlassMaterial), so anything behind it
-  // would be triangles nobody can ever see.
+  // --- twin exhausts under the rear valance. No interior is MODELLED: the
+  // glazing is opaque by design and the cabin is a picture drawn on it (see
+  // carGlassMaterial), so anything behind it would be triangles nobody can see.
   for (const s of [-1, 1]) {
     boxAt(b, s * 0.34, -0.470, -2.135, 0.052, 0.036, 0.075, chrome, SURFACE.chrome);
   }

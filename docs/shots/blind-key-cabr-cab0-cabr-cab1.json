@@ -1,0 +1,40 @@
+{
+ "generated": "2026-10-14T22:51:48.473Z",
+ "left": "cabr-cab0",
+ "right": "cabr-cab1",
+ "salt": "4d0316b1cd99",
+ "unpairedLeft": [],
+ "unpairedRight": [],
+ "pairs": [
+  {
+   "id": "corridor-dusk",
+   "A": "cabr-cab1",
+   "B": "cabr-cab0"
+  },
+  {
+   "id": "corridor-night",
+   "A": "cabr-cab0",
+   "B": "cabr-cab1"
+  },
+  {
+   "id": "corridor-noon",
+   "A": "cabr-cab0",
+   "B": "cabr-cab1"
+  },
+  {
+   "id": "fivepoints-dusk",
+   "A": "cabr-cab0",
+   "B": "cabr-cab1"
+  },
+  {
+   "id": "fivepoints-night",
+   "A": "cabr-cab1",
+   "B": "cabr-cab0"
+  },
+  {
+   "id": "fivepoints-noon",
+   "A": "cabr-cab1",
+   "B": "cabr-cab0"
+  }
+ ]
+}

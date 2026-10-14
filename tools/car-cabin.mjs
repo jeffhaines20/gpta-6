@@ -22,6 +22,8 @@
 //   in the car's frame   the car, the camera and the sun moved by one rigid transform render the same
 //                        glass, cabin on — and the cabin-off control says the move alone is invisible
 //   not on the player    the player's body material (mirror glass on slot 10) never gets a cabin
+//   but in the player    the player's own car — its panes a separate mesh on a separate material —
+//                        does get one: the cabin's blind review found it the one black void left
 //   structure            on the side pane, whose reflection is flat, the cabin raises modulation
 import { chromium } from 'playwright';
 import { launchOptions } from './browser.mjs';
@@ -37,13 +39,14 @@ for (const a of argv) {
 }
 
 /** Fixed, so a check cannot vanish when a population is empty. */
-export const CHECK_COUNT = 13;
+export const CHECK_COUNT = 15;
 
 /** The order the page renders in: [gain, level, through] per tile, rows top to bottom. */
 export function plannedReadback(level, through) {
   const out = [];
   for (let r = 0; r < 3; r++) out.push([0, level, through], [1, level, through]);
   out.push([1, level, 0], [1, 0, through]);
+  out.push([0, level, through], [1, level, through]);
   out.push([0, level, through], [1, level, through]);
   out.push([0, level, through], [1, level, through]);
   return out;
@@ -102,6 +105,26 @@ export function verdict(r) {
   add('and the player check is not vacuous: the same pixels DO change on the traffic material',
     (num(V.front34?.glassChanged) ?? 0) > 0, `front34 traffic material: ${V.front34?.glassChanged} glass px changed`);
 
+  const PC = r.playerCar ?? {};
+  const pcReach = (num(PC.glassChanged) ?? 0) / Math.max(1, num(PC.glassPx) ?? 0);
+  /**
+   * THE PLAYER'S OWN CAR, whose panes are a separate mesh on `carGlassMaterial`. The cabin went into
+   * the fleet's material first and not this one, and the cabin's blind review found the player's
+   * car the one "black void" in the frame (side glass sRGB 12,16,23). The recurring shape: a fix
+   * applied to one member of a family and not its sibling.
+   */
+  add('the player\'s OWN car gets the cabin too: most of its glazing changes',
+    num(PC.glassPx) >= 800 && pcReach >= 0.5,
+    `${PC.glassChanged} of ${PC.glassPx} glass px (${(100 * pcReach).toFixed(1)}%)`);
+  /**
+   * 8 LEVELS, NOT 2, for this row only, and measured: the player's glass is a separate mesh over its
+   * body, and two antialiased pixels 2.2 px from a pane move 3 levels where the fleet's single mesh
+   * moves at most 1. A cabin leaking onto the body would move thousands of pixels by far more.
+   */
+  add('and nothing else on it moves by more than 8 levels',
+    num(PC.otherPx) > 0 && (num(PC.otherMax) ?? 99) <= 8,
+    `${PC.otherChanged2} px over 2 levels, max ${PC.otherMax}`);
+
   const side = V.side ?? {};
   const mL = num(side.left?.modulation), mR = num(side.right?.modulation);
   /**
@@ -138,6 +161,7 @@ if (argv.includes('--selftest')) {
     split: { glassPx: 3283, throughPx: 2196, interiorChanged: 2995 },
     invariance: { off: { glassPx: 3283, movedOver2: 0, max: 1 }, on: { glassPx: 3283, movedOver2: 0, max: 1 } },
     player: { glassPx: 3283, glassChanged: 0, otherPx: 135236, otherChanged: 0 },
+    playerCar: { glassPx: 2986, glassChanged: 2830, otherPx: 138433, otherChanged: 2, otherChanged2: 2, otherMax: 3 },
     gainAfter: 1,
   };
   const bad = (fn) => { const c = structuredClone(good); fn(c); return c; };
@@ -163,6 +187,9 @@ if (argv.includes('--selftest')) {
     ['a cabin that adds no structure', (c) => { c.views.side.right = mod(1.06); }, 'adds structure'],
     ['the page leaving the gain changed', (c) => { c.gainAfter = 0; }, 'back to the shipped state'],
     ['a view with no glass in it', (c) => { c.views.rear34.glassPx = 40; c.views.rear34.glassChanged = 40; }, 'in frame'],
+    // The sibling left out: the player's glass on its own material, never given the cabin.
+    ['the player\'s own glass left out of the cabin', (c) => { c.playerCar.glassChanged = 0; }, 'OWN car'],
+    ['a cabin leaking onto the player\'s body', (c) => { c.playerCar.otherChanged2 = 5000; c.playerCar.otherMax = 90; }, 'nothing else on it'],
   ]) {
     const r = bad(fn);
     say(fails(r, needle), `KNOWN-BAD: ${what} fails`, failing(r).join(' | '));
@@ -183,7 +210,7 @@ const ROOT = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 const PORT = Number(process.env.CAR_CABIN_PORT ?? treePort(ROOT));
 await ensureServer(PORT, 20000, { root: ROOT });
 const browser = await chromium.launch(launchOptions());
-const page = await browser.newPage({ viewport: { width: 1000, height: 1840 } });
+const page = await browser.newPage({ viewport: { width: 1000, height: 2140 } });
 const logs = [];
 page.on('console', (m) => { if (!/Failed to load resource/.test(m.text())) logs.push(`${m.type()}: ${m.text()}`); });
 page.on('pageerror', (e) => logs.push(`pageerror: ${e.message}`));
