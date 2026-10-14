@@ -1,0 +1,1462 @@
+{
+ "results": [
+  {
+   "shot": "corridor",
+   "tod": "night",
+   "arm": "aok0",
+   "uniforms": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "skyIlluminance": 0.2,
+    "msWhitenAnti": 0.25,
+    "bounceLux": 0.03,
+    "ao": [
+     0.6,
+     8.5,
+     1,
+     0.04
+    ],
+    "aoKernel": [
+     0,
+     12
+    ],
+    "carLens": [
+     0,
+     0.16,
+     null
+    ],
+    "carProfile": [
+     0.16,
+     1.55,
+     2
+    ],
+    "carGlass": [
+     0.058823529411764705,
+     0
+    ],
+    "carFront": [
+     0,
+     0
+    ],
+    "carTyre": [
+     1,
+     {
+      "shells": 3,
+      "verticesTouched": 300,
+      "perShell": [
+       100,
+       100,
+       100
+      ]
+     },
+     {
+      "shells": 3,
+      "verticesTouched": 300,
+      "perShell": [
+       100,
+       100,
+       100
+      ]
+     }
+    ],
+    "carFinish": [
+     0.07058823529411765,
+     0.03137254901960784
+    ],
+    "carHub": [
+     1,
+     {
+      "shells": 3,
+      "verticesTouched": 12,
+      "perShell": [
+       4,
+       4,
+       4
+      ]
+     }
+    ],
+    "carAlbedo": [
+     1,
+     {
+      "shells": 3,
+      "verticesTouched": 36,
+      "perShell": [
+       12,
+       12,
+       12
+      ]
+     }
+    ],
+    "carGlassEnv": [
+     5,
+     6
+    ],
+    "carGlassAlbedo": [
+     1,
+     78,
+     78
+    ],
+    "carPaintTint": [
+     1,
+     0
+    ],
+    "carTone": [
+     18.132,
+     21.017
+    ],
+    "carShells": 3,
+    "skyLuxUpper": 0.2
+   },
+   "file": "docs/shots/ao114-aok0-corridor-night.png",
+   "audit": {
+    "timeOfDay": "night",
+    "exposure": 0.1859427296392711,
+    "exposureAsStop": "1/5",
+    "toneMapping": "ACESFilmic (post composite)",
+    "postProcessing": {
+     "bloomThreshold": 0.118,
+     "bloomStrength": 0.85,
+     "fogDensity": 0.0009,
+     "fogHeightFalloff": 0.02,
+     "wetness": 0,
+     "aoEnabled": true,
+     "aoStrength": 1,
+     "aoRadiusM": 0.6,
+     "passes": 8
+    },
+    "shadowMapEnabled": true,
+    "shadowMap": {
+     "mapSize": 2048,
+     "extentM": 240,
+     "metresPerTexel": 0.1172,
+     "casterMeshes": 108,
+     "receiverMeshes": 293
+    },
+    "lightCount": 13,
+    "lightsByType": {
+     "DirectionalLight": 1,
+     "HemisphereLight": 2,
+     "PointLight": 10
+    },
+    "sunLux": 0.6,
+    "skyLux": 0,
+    "sunLuxDelivered": 0.277,
+    "skyLuxDelivered": 0,
+    "skyDelivery": {
+     "hemisphereLux": 0,
+     "environmentLux": 0.197,
+     "totalLux": 0.197,
+     "paths": 1
+    },
+    "bounceDelivery": {
+     "lux": 0.03,
+     "colour": [
+      0.8977,
+      0.9598,
+      1.699
+     ],
+     "blueOverRed": 1.893,
+     "wallLux": 0.1916,
+     "fromSunLux": 0.0549,
+     "fromSkyLux": 0.0985,
+     "fromGroundLux": 0.0382,
+     "viewFactor": 0.4908,
+     "sunlitWallFraction": 1,
+     "shareOfSky": 0.1522,
+     "lightIntensity": 0.03,
+     "lightDeliveredLux": 0.03
+    },
+    "litPointLights": 10,
+    "lightPool": {
+     "emitters": 543,
+     "poolSize": 10,
+     "active": 10,
+     "viewAware": true,
+     "illuminating": 5,
+     "swapMargin": 8
+    },
+    "environmentIntensity": 1,
+    "hasEnvironment": true,
+    "sky": {
+     "preset": "night",
+     "generationMs": 2392,
+     "generationMsByPhase": {
+      "setup": 14.1,
+      "cloudNoiseBake": 9.7,
+      "lutAndCompile": 2211.4,
+      "probeReadback": 137.1,
+      "environment": 29.2,
+      "total": 2392
+     },
+     "lut": "256x128 RGBA16F",
+     "envMap": "PMREM 336x256",
+     "refreshes": 8,
+     "lastRefreshMs": 12888.6,
+     "worstRefreshMs": 12888.6,
+     "envMs": 0.4,
+     "readbackMs": 12887.6,
+     "drawCalls": 1,
+     "triangles": 1,
+     "turbidity": 2.6,
+     "overcast": 0,
+     "cloud": {
+      "coverage": 0.52,
+      "baseM": 2200,
+      "litFaceNits": 0,
+      "underlitNits": 0.241,
+      "noiseBakeMs": 9.7,
+      "inLut": false
+     },
+     "msAniso": 0.6,
+     "msWhiten": {
+      "authored": 0.85,
+      "applied": 0,
+      "betaR": [
+       5.8,
+       13.5,
+       33.1
+      ],
+      "blueOverRed": 5.707,
+      "normalised": true,
+      "anti": 0.25
+     },
+     "groundBounce": {
+      "albedo": [
+       0.2159,
+       0.1878,
+       0.1329
+      ],
+      "albedoLuminance": 0.1898,
+      "albedoBlueOverRed": 0.616,
+      "groundLux": 0.197,
+      "fromSunLux": 0,
+      "fromSkyLux": 0.197,
+      "radianceNits": 0.012
+     },
+     "nightZenithNits": 0.045,
+     "nightHorizonNits": 0.21,
+     "msTransportRad": 0.1,
+     "zenithNits": 0.045,
+     "horizonNits": 0.176,
+     "zenithChroma": -0.713,
+     "horizonChroma": -0.002,
+     "ambientChroma": -0.497,
+     "skyLux": 0.197,
+     "sunLux": 0,
+     "fogColorNits": [
+      0.21,
+      0.16,
+      0.22
+     ],
+     "fogInscatterNits": [
+      0.21,
+      0.16,
+      0.22
+     ],
+     "hueRotation": 0.711,
+     "midSkyExposed": 0.017,
+     "fogClamp": 1,
+     "inscatterClamp": 1,
+     "fogDensity": 0.0013,
+     "fogHeightFalloff": 0.011,
+     "artisticMultiplier": 20.3,
+     "implausible": []
+    },
+    "weather": {
+     "state": "clear",
+     "target": "clear",
+     "transition": 1,
+     "queued": 0,
+     "rainIntensity": 0,
+     "wetness": 0,
+     "overcast": 0,
+     "fogBoost": 0,
+     "turbidity": 2.6,
+     "liveDrops": 0,
+     "liveSplashes": 0,
+     "maxDrops": 12000,
+     "drawCalls": 0,
+     "boundMaterials": 14,
+     "generationMs": 4.6
+    },
+    "samplePointLightCandela": 900,
+    "shadowCasters": 108,
+    "shadowReceivers": 293,
+    "implausible": [],
+    "frames": 83,
+    "drawCalls": 183,
+    "sceneCalls": 175,
+    "postPasses": 8,
+    "triangles": 770145,
+    "chunks": 83,
+    "lodNear": 16,
+    "lodFar": 67,
+    "plainMeshes": 346,
+    "instancedMeshes": 17,
+    "distinctMaterialsInScene": 40,
+    "materialLibrary": {
+     "materials": 17,
+     "textures": 19,
+     "textureLayers": 33,
+     "textureMemoryMB": 22.75,
+     "generationMs": 457.2,
+     "surfaceLayers": 8,
+     "timingsMs": {
+      "markings": 0,
+      "surfaces": 305.9,
+      "ground": 137.2,
+      "water": 5,
+      "trim": 8.9
+     },
+     "keys": [
+      "road",
+      "sidewalk",
+      "parkingLot",
+      "grass",
+      "dirt",
+      "sand",
+      "land",
+      "kerb",
+      "kerbPainted",
+      "concrete",
+      "water",
+      "glassStorefront",
+      "glassTinted",
+      "metalPainted",
+      "metalGalvanised",
+      "metalAnodised",
+      "buildingMerged"
+     ]
+    },
+    "population": {
+     "pedsAlive": 96,
+     "pedsInFrustum": 5,
+     "trafficFleet": 30,
+     "trafficAlive": 30,
+     "trafficInFrustum": 0,
+     "fleetGlow": {
+      "slots": 6,
+      "used": 1,
+      "edgeM": 74.4,
+      "trianglesEach": 64,
+      "visible": true
+     },
+     "parkedFilled": 30,
+     "parkedPool": 30,
+     "parkedPerShell": [
+      8,
+      8,
+      14
+     ],
+     "parkedShells": 3,
+     "parkedTrianglesDrawn": 31500,
+     "trees": 307,
+     "treeSpecies": {
+      "sabal": 160,
+      "queen": 135,
+      "oak": 12
+     },
+     "propCount": 7907,
+     "frustumWorks": true
+    }
+   }
+  },
+  {
+   "shot": "corridor",
+   "tod": "night",
+   "arm": "aoOff",
+   "uniforms": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "skyIlluminance": 0.2,
+    "msWhitenAnti": 0.25,
+    "bounceLux": 0.03,
+    "ao": [
+     0.6,
+     8.5,
+     0,
+     0.04
+    ],
+    "aoKernel": [
+     0,
+     12
+    ],
+    "carLens": [
+     0,
+     0.16,
+     null
+    ],
+    "carProfile": [
+     0.16,
+     1.55,
+     2
+    ],
+    "carGlass": [
+     0.058823529411764705,
+     0
+    ],
+    "carFront": [
+     0,
+     0
+    ],
+    "carTyre": [
+     1,
+     {
+      "shells": 3,
+      "verticesTouched": 300,
+      "perShell": [
+       100,
+       100,
+       100
+      ]
+     },
+     {
+      "shells": 3,
+      "verticesTouched": 300,
+      "perShell": [
+       100,
+       100,
+       100
+      ]
+     }
+    ],
+    "carFinish": [
+     0.07058823529411765,
+     0.03137254901960784
+    ],
+    "carHub": [
+     1,
+     {
+      "shells": 3,
+      "verticesTouched": 12,
+      "perShell": [
+       4,
+       4,
+       4
+      ]
+     }
+    ],
+    "carAlbedo": [
+     1,
+     {
+      "shells": 3,
+      "verticesTouched": 36,
+      "perShell": [
+       12,
+       12,
+       12
+      ]
+     }
+    ],
+    "carGlassEnv": [
+     5,
+     6
+    ],
+    "carGlassAlbedo": [
+     1,
+     78,
+     78
+    ],
+    "carPaintTint": [
+     1,
+     0
+    ],
+    "carTone": [
+     18.132,
+     21.017
+    ],
+    "carShells": 3,
+    "skyLuxUpper": 0.2
+   },
+   "file": "docs/shots/ao114-aoOff-corridor-night.png",
+   "audit": {
+    "timeOfDay": "night",
+    "exposure": 0.1859427296392711,
+    "exposureAsStop": "1/5",
+    "toneMapping": "ACESFilmic (post composite)",
+    "postProcessing": {
+     "bloomThreshold": 0.118,
+     "bloomStrength": 0.85,
+     "fogDensity": 0.0009,
+     "fogHeightFalloff": 0.02,
+     "wetness": 0,
+     "aoEnabled": true,
+     "aoStrength": 0,
+     "aoRadiusM": 0.6,
+     "passes": 8
+    },
+    "shadowMapEnabled": true,
+    "shadowMap": {
+     "mapSize": 2048,
+     "extentM": 240,
+     "metresPerTexel": 0.1172,
+     "casterMeshes": 108,
+     "receiverMeshes": 293
+    },
+    "lightCount": 13,
+    "lightsByType": {
+     "DirectionalLight": 1,
+     "HemisphereLight": 2,
+     "PointLight": 10
+    },
+    "sunLux": 0.6,
+    "skyLux": 0,
+    "sunLuxDelivered": 0.277,
+    "skyLuxDelivered": 0,
+    "skyDelivery": {
+     "hemisphereLux": 0,
+     "environmentLux": 0.197,
+     "totalLux": 0.197,
+     "paths": 1
+    },
+    "bounceDelivery": {
+     "lux": 0.03,
+     "colour": [
+      0.8977,
+      0.9598,
+      1.699
+     ],
+     "blueOverRed": 1.893,
+     "wallLux": 0.1916,
+     "fromSunLux": 0.0549,
+     "fromSkyLux": 0.0985,
+     "fromGroundLux": 0.0382,
+     "viewFactor": 0.4908,
+     "sunlitWallFraction": 1,
+     "shareOfSky": 0.1522,
+     "lightIntensity": 0.03,
+     "lightDeliveredLux": 0.03
+    },
+    "litPointLights": 10,
+    "lightPool": {
+     "emitters": 543,
+     "poolSize": 10,
+     "active": 10,
+     "viewAware": true,
+     "illuminating": 5,
+     "swapMargin": 8
+    },
+    "environmentIntensity": 1,
+    "hasEnvironment": true,
+    "sky": {
+     "preset": "night",
+     "generationMs": 2392,
+     "generationMsByPhase": {
+      "setup": 14.1,
+      "cloudNoiseBake": 9.7,
+      "lutAndCompile": 2211.4,
+      "probeReadback": 137.1,
+      "environment": 29.2,
+      "total": 2392
+     },
+     "lut": "256x128 RGBA16F",
+     "envMap": "PMREM 336x256",
+     "refreshes": 9,
+     "lastRefreshMs": 13401.4,
+     "worstRefreshMs": 13401.4,
+     "envMs": 0.8,
+     "readbackMs": 13398,
+     "drawCalls": 1,
+     "triangles": 1,
+     "turbidity": 2.6,
+     "overcast": 0,
+     "cloud": {
+      "coverage": 0.52,
+      "baseM": 2200,
+      "litFaceNits": 0,
+      "underlitNits": 0.241,
+      "noiseBakeMs": 9.7,
+      "inLut": false
+     },
+     "msAniso": 0.6,
+     "msWhiten": {
+      "authored": 0.85,
+      "applied": 0,
+      "betaR": [
+       5.8,
+       13.5,
+       33.1
+      ],
+      "blueOverRed": 5.707,
+      "normalised": true,
+      "anti": 0.25
+     },
+     "groundBounce": {
+      "albedo": [
+       0.2159,
+       0.1878,
+       0.1329
+      ],
+      "albedoLuminance": 0.1898,
+      "albedoBlueOverRed": 0.616,
+      "groundLux": 0.197,
+      "fromSunLux": 0,
+      "fromSkyLux": 0.197,
+      "radianceNits": 0.012
+     },
+     "nightZenithNits": 0.045,
+     "nightHorizonNits": 0.21,
+     "msTransportRad": 0.1,
+     "zenithNits": 0.045,
+     "horizonNits": 0.176,
+     "zenithChroma": -0.713,
+     "horizonChroma": -0.002,
+     "ambientChroma": -0.497,
+     "skyLux": 0.197,
+     "sunLux": 0,
+     "fogColorNits": [
+      0.21,
+      0.16,
+      0.22
+     ],
+     "fogInscatterNits": [
+      0.21,
+      0.16,
+      0.22
+     ],
+     "hueRotation": 0.711,
+     "midSkyExposed": 0.017,
+     "fogClamp": 1,
+     "inscatterClamp": 1,
+     "fogDensity": 0.0013,
+     "fogHeightFalloff": 0.011,
+     "artisticMultiplier": 20.3,
+     "implausible": []
+    },
+    "weather": {
+     "state": "clear",
+     "target": "clear",
+     "transition": 1,
+     "queued": 0,
+     "rainIntensity": 0,
+     "wetness": 0,
+     "overcast": 0,
+     "fogBoost": 0,
+     "turbidity": 2.6,
+     "liveDrops": 0,
+     "liveSplashes": 0,
+     "maxDrops": 12000,
+     "drawCalls": 0,
+     "boundMaterials": 14,
+     "generationMs": 4.6
+    },
+    "samplePointLightCandela": 900,
+    "shadowCasters": 108,
+    "shadowReceivers": 293,
+    "implausible": [],
+    "frames": 93,
+    "drawCalls": 183,
+    "sceneCalls": 175,
+    "postPasses": 8,
+    "triangles": 770145,
+    "chunks": 83,
+    "lodNear": 16,
+    "lodFar": 67,
+    "plainMeshes": 346,
+    "instancedMeshes": 17,
+    "distinctMaterialsInScene": 40,
+    "materialLibrary": {
+     "materials": 17,
+     "textures": 19,
+     "textureLayers": 33,
+     "textureMemoryMB": 22.75,
+     "generationMs": 457.2,
+     "surfaceLayers": 8,
+     "timingsMs": {
+      "markings": 0,
+      "surfaces": 305.9,
+      "ground": 137.2,
+      "water": 5,
+      "trim": 8.9
+     },
+     "keys": [
+      "road",
+      "sidewalk",
+      "parkingLot",
+      "grass",
+      "dirt",
+      "sand",
+      "land",
+      "kerb",
+      "kerbPainted",
+      "concrete",
+      "water",
+      "glassStorefront",
+      "glassTinted",
+      "metalPainted",
+      "metalGalvanised",
+      "metalAnodised",
+      "buildingMerged"
+     ]
+    },
+    "population": {
+     "pedsAlive": 96,
+     "pedsInFrustum": 5,
+     "trafficFleet": 30,
+     "trafficAlive": 30,
+     "trafficInFrustum": 0,
+     "fleetGlow": {
+      "slots": 6,
+      "used": 1,
+      "edgeM": 68.5,
+      "trianglesEach": 64,
+      "visible": true
+     },
+     "parkedFilled": 30,
+     "parkedPool": 30,
+     "parkedPerShell": [
+      8,
+      8,
+      14
+     ],
+     "parkedShells": 3,
+     "parkedTrianglesDrawn": 31500,
+     "trees": 307,
+     "treeSpecies": {
+      "sabal": 160,
+      "queen": 135,
+      "oak": 12
+     },
+     "propCount": 7907,
+     "frustumWorks": true
+    }
+   }
+  },
+  {
+   "shot": "fivepoints",
+   "tod": "night",
+   "arm": "aok0",
+   "uniforms": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "skyIlluminance": 0.2,
+    "msWhitenAnti": 0.25,
+    "bounceLux": 0.03,
+    "ao": [
+     0.6,
+     8.5,
+     1,
+     0.04
+    ],
+    "aoKernel": [
+     0,
+     12
+    ],
+    "carLens": [
+     0,
+     0.16,
+     null
+    ],
+    "carProfile": [
+     0.16,
+     1.55,
+     2
+    ],
+    "carGlass": [
+     0.058823529411764705,
+     0
+    ],
+    "carFront": [
+     0,
+     0
+    ],
+    "carTyre": [
+     1,
+     {
+      "shells": 3,
+      "verticesTouched": 300,
+      "perShell": [
+       100,
+       100,
+       100
+      ]
+     },
+     {
+      "shells": 3,
+      "verticesTouched": 300,
+      "perShell": [
+       100,
+       100,
+       100
+      ]
+     }
+    ],
+    "carFinish": [
+     0.07058823529411765,
+     0.03137254901960784
+    ],
+    "carHub": [
+     1,
+     {
+      "shells": 3,
+      "verticesTouched": 12,
+      "perShell": [
+       4,
+       4,
+       4
+      ]
+     }
+    ],
+    "carAlbedo": [
+     1,
+     {
+      "shells": 3,
+      "verticesTouched": 36,
+      "perShell": [
+       12,
+       12,
+       12
+      ]
+     }
+    ],
+    "carGlassEnv": [
+     5,
+     6
+    ],
+    "carGlassAlbedo": [
+     1,
+     78,
+     78
+    ],
+    "carPaintTint": [
+     1,
+     0
+    ],
+    "carTone": [
+     18.132,
+     20.932
+    ],
+    "carShells": 3,
+    "skyLuxUpper": 0.2
+   },
+   "file": "docs/shots/ao114-aok0-fivepoints-night.png",
+   "audit": {
+    "timeOfDay": "night",
+    "exposure": 0.1859427296392711,
+    "exposureAsStop": "1/5",
+    "toneMapping": "ACESFilmic (post composite)",
+    "postProcessing": {
+     "bloomThreshold": 0.118,
+     "bloomStrength": 0.85,
+     "fogDensity": 0.0009,
+     "fogHeightFalloff": 0.02,
+     "wetness": 0,
+     "aoEnabled": true,
+     "aoStrength": 1,
+     "aoRadiusM": 0.6,
+     "passes": 8
+    },
+    "shadowMapEnabled": true,
+    "shadowMap": {
+     "mapSize": 2048,
+     "extentM": 240,
+     "metresPerTexel": 0.1172,
+     "casterMeshes": 109,
+     "receiverMeshes": 293
+    },
+    "lightCount": 13,
+    "lightsByType": {
+     "DirectionalLight": 1,
+     "HemisphereLight": 2,
+     "PointLight": 10
+    },
+    "sunLux": 0.6,
+    "skyLux": 0,
+    "sunLuxDelivered": 0.277,
+    "skyLuxDelivered": 0,
+    "skyDelivery": {
+     "hemisphereLux": 0,
+     "environmentLux": 0.197,
+     "totalLux": 0.197,
+     "paths": 1
+    },
+    "bounceDelivery": {
+     "lux": 0.03,
+     "colour": [
+      0.8977,
+      0.9598,
+      1.699
+     ],
+     "blueOverRed": 1.893,
+     "wallLux": 0.1916,
+     "fromSunLux": 0.0549,
+     "fromSkyLux": 0.0985,
+     "fromGroundLux": 0.0382,
+     "viewFactor": 0.4908,
+     "sunlitWallFraction": 1,
+     "shareOfSky": 0.1522,
+     "lightIntensity": 0.03,
+     "lightDeliveredLux": 0.03
+    },
+    "litPointLights": 10,
+    "lightPool": {
+     "emitters": 543,
+     "poolSize": 10,
+     "active": 10,
+     "viewAware": true,
+     "illuminating": 10,
+     "swapMargin": 8
+    },
+    "environmentIntensity": 1,
+    "hasEnvironment": true,
+    "sky": {
+     "preset": "night",
+     "generationMs": 2392,
+     "generationMsByPhase": {
+      "setup": 14.1,
+      "cloudNoiseBake": 9.7,
+      "lutAndCompile": 2211.4,
+      "probeReadback": 137.1,
+      "environment": 29.2,
+      "total": 2392
+     },
+     "lut": "256x128 RGBA16F",
+     "envMap": "PMREM 336x256",
+     "refreshes": 11,
+     "lastRefreshMs": 11426.2,
+     "worstRefreshMs": 13401.4,
+     "envMs": 1.1,
+     "readbackMs": 11424.7,
+     "drawCalls": 1,
+     "triangles": 1,
+     "turbidity": 2.6,
+     "overcast": 0,
+     "cloud": {
+      "coverage": 0.52,
+      "baseM": 2200,
+      "litFaceNits": 0,
+      "underlitNits": 0.241,
+      "noiseBakeMs": 9.7,
+      "inLut": false
+     },
+     "msAniso": 0.6,
+     "msWhiten": {
+      "authored": 0.85,
+      "applied": 0,
+      "betaR": [
+       5.8,
+       13.5,
+       33.1
+      ],
+      "blueOverRed": 5.707,
+      "normalised": true,
+      "anti": 0.25
+     },
+     "groundBounce": {
+      "albedo": [
+       0.2159,
+       0.1878,
+       0.1329
+      ],
+      "albedoLuminance": 0.1898,
+      "albedoBlueOverRed": 0.616,
+      "groundLux": 0.197,
+      "fromSunLux": 0,
+      "fromSkyLux": 0.197,
+      "radianceNits": 0.012
+     },
+     "nightZenithNits": 0.045,
+     "nightHorizonNits": 0.21,
+     "msTransportRad": 0.1,
+     "zenithNits": 0.045,
+     "horizonNits": 0.176,
+     "zenithChroma": -0.713,
+     "horizonChroma": -0.002,
+     "ambientChroma": -0.497,
+     "skyLux": 0.197,
+     "sunLux": 0,
+     "fogColorNits": [
+      0.21,
+      0.16,
+      0.22
+     ],
+     "fogInscatterNits": [
+      0.21,
+      0.16,
+      0.22
+     ],
+     "hueRotation": 0.711,
+     "midSkyExposed": 0.017,
+     "fogClamp": 1,
+     "inscatterClamp": 1,
+     "fogDensity": 0.0013,
+     "fogHeightFalloff": 0.011,
+     "artisticMultiplier": 20.3,
+     "implausible": []
+    },
+    "weather": {
+     "state": "clear",
+     "target": "clear",
+     "transition": 1,
+     "queued": 0,
+     "rainIntensity": 0,
+     "wetness": 0,
+     "overcast": 0,
+     "fogBoost": 0,
+     "turbidity": 2.6,
+     "liveDrops": 0,
+     "liveSplashes": 0,
+     "maxDrops": 12000,
+     "drawCalls": 0,
+     "boundMaterials": 14,
+     "generationMs": 4.6
+    },
+    "samplePointLightCandela": 900,
+    "shadowCasters": 109,
+    "shadowReceivers": 293,
+    "implausible": [],
+    "frames": 165,
+    "drawCalls": 205,
+    "sceneCalls": 197,
+    "postPasses": 8,
+    "triangles": 805422,
+    "chunks": 83,
+    "lodNear": 16,
+    "lodFar": 67,
+    "plainMeshes": 346,
+    "instancedMeshes": 17,
+    "distinctMaterialsInScene": 40,
+    "materialLibrary": {
+     "materials": 17,
+     "textures": 19,
+     "textureLayers": 33,
+     "textureMemoryMB": 22.75,
+     "generationMs": 457.2,
+     "surfaceLayers": 8,
+     "timingsMs": {
+      "markings": 0,
+      "surfaces": 305.9,
+      "ground": 137.2,
+      "water": 5,
+      "trim": 8.9
+     },
+     "keys": [
+      "road",
+      "sidewalk",
+      "parkingLot",
+      "grass",
+      "dirt",
+      "sand",
+      "land",
+      "kerb",
+      "kerbPainted",
+      "concrete",
+      "water",
+      "glassStorefront",
+      "glassTinted",
+      "metalPainted",
+      "metalGalvanised",
+      "metalAnodised",
+      "buildingMerged"
+     ]
+    },
+    "population": {
+     "pedsAlive": 96,
+     "pedsInFrustum": 21,
+     "trafficFleet": 30,
+     "trafficAlive": 30,
+     "trafficInFrustum": 0,
+     "fleetGlow": {
+      "slots": 6,
+      "used": 1,
+      "edgeM": 29.1,
+      "trianglesEach": 64,
+      "visible": true
+     },
+     "parkedFilled": 30,
+     "parkedPool": 30,
+     "parkedPerShell": [
+      9,
+      5,
+      16
+     ],
+     "parkedShells": 3,
+     "parkedTrianglesDrawn": 31500,
+     "trees": 307,
+     "treeSpecies": {
+      "sabal": 160,
+      "queen": 135,
+      "oak": 12
+     },
+     "propCount": 7907,
+     "frustumWorks": true
+    }
+   }
+  },
+  {
+   "shot": "fivepoints",
+   "tod": "night",
+   "arm": "aoOff",
+   "uniforms": {
+    "albedo": [
+     0.2159,
+     0.1878,
+     0.1329
+    ],
+    "skyIlluminance": 0.2,
+    "msWhitenAnti": 0.25,
+    "bounceLux": 0.03,
+    "ao": [
+     0.6,
+     8.5,
+     0,
+     0.04
+    ],
+    "aoKernel": [
+     0,
+     12
+    ],
+    "carLens": [
+     0,
+     0.16,
+     null
+    ],
+    "carProfile": [
+     0.16,
+     1.55,
+     2
+    ],
+    "carGlass": [
+     0.058823529411764705,
+     0
+    ],
+    "carFront": [
+     0,
+     0
+    ],
+    "carTyre": [
+     1,
+     {
+      "shells": 3,
+      "verticesTouched": 300,
+      "perShell": [
+       100,
+       100,
+       100
+      ]
+     },
+     {
+      "shells": 3,
+      "verticesTouched": 300,
+      "perShell": [
+       100,
+       100,
+       100
+      ]
+     }
+    ],
+    "carFinish": [
+     0.07058823529411765,
+     0.03137254901960784
+    ],
+    "carHub": [
+     1,
+     {
+      "shells": 3,
+      "verticesTouched": 12,
+      "perShell": [
+       4,
+       4,
+       4
+      ]
+     }
+    ],
+    "carAlbedo": [
+     1,
+     {
+      "shells": 3,
+      "verticesTouched": 36,
+      "perShell": [
+       12,
+       12,
+       12
+      ]
+     }
+    ],
+    "carGlassEnv": [
+     5,
+     6
+    ],
+    "carGlassAlbedo": [
+     1,
+     78,
+     78
+    ],
+    "carPaintTint": [
+     1,
+     0
+    ],
+    "carTone": [
+     18.132,
+     20.932
+    ],
+    "carShells": 3,
+    "skyLuxUpper": 0.2
+   },
+   "file": "docs/shots/ao114-aoOff-fivepoints-night.png",
+   "audit": {
+    "timeOfDay": "night",
+    "exposure": 0.1859427296392711,
+    "exposureAsStop": "1/5",
+    "toneMapping": "ACESFilmic (post composite)",
+    "postProcessing": {
+     "bloomThreshold": 0.118,
+     "bloomStrength": 0.85,
+     "fogDensity": 0.0009,
+     "fogHeightFalloff": 0.02,
+     "wetness": 0,
+     "aoEnabled": true,
+     "aoStrength": 0,
+     "aoRadiusM": 0.6,
+     "passes": 8
+    },
+    "shadowMapEnabled": true,
+    "shadowMap": {
+     "mapSize": 2048,
+     "extentM": 240,
+     "metresPerTexel": 0.1172,
+     "casterMeshes": 109,
+     "receiverMeshes": 293
+    },
+    "lightCount": 13,
+    "lightsByType": {
+     "DirectionalLight": 1,
+     "HemisphereLight": 2,
+     "PointLight": 10
+    },
+    "sunLux": 0.6,
+    "skyLux": 0,
+    "sunLuxDelivered": 0.277,
+    "skyLuxDelivered": 0,
+    "skyDelivery": {
+     "hemisphereLux": 0,
+     "environmentLux": 0.197,
+     "totalLux": 0.197,
+     "paths": 1
+    },
+    "bounceDelivery": {
+     "lux": 0.03,
+     "colour": [
+      0.8977,
+      0.9598,
+      1.699
+     ],
+     "blueOverRed": 1.893,
+     "wallLux": 0.1916,
+     "fromSunLux": 0.0549,
+     "fromSkyLux": 0.0985,
+     "fromGroundLux": 0.0382,
+     "viewFactor": 0.4908,
+     "sunlitWallFraction": 1,
+     "shareOfSky": 0.1522,
+     "lightIntensity": 0.03,
+     "lightDeliveredLux": 0.03
+    },
+    "litPointLights": 10,
+    "lightPool": {
+     "emitters": 543,
+     "poolSize": 10,
+     "active": 10,
+     "viewAware": true,
+     "illuminating": 10,
+     "swapMargin": 8
+    },
+    "environmentIntensity": 1,
+    "hasEnvironment": true,
+    "sky": {
+     "preset": "night",
+     "generationMs": 2392,
+     "generationMsByPhase": {
+      "setup": 14.1,
+      "cloudNoiseBake": 9.7,
+      "lutAndCompile": 2211.4,
+      "probeReadback": 137.1,
+      "environment": 29.2,
+      "total": 2392
+     },
+     "lut": "256x128 RGBA16F",
+     "envMap": "PMREM 336x256",
+     "refreshes": 12,
+     "lastRefreshMs": 12355.7,
+     "worstRefreshMs": 13401.4,
+     "envMs": 0.9,
+     "readbackMs": 12354.4,
+     "drawCalls": 1,
+     "triangles": 1,
+     "turbidity": 2.6,
+     "overcast": 0,
+     "cloud": {
+      "coverage": 0.52,
+      "baseM": 2200,
+      "litFaceNits": 0,
+      "underlitNits": 0.241,
+      "noiseBakeMs": 9.7,
+      "inLut": false
+     },
+     "msAniso": 0.6,
+     "msWhiten": {
+      "authored": 0.85,
+      "applied": 0,
+      "betaR": [
+       5.8,
+       13.5,
+       33.1
+      ],
+      "blueOverRed": 5.707,
+      "normalised": true,
+      "anti": 0.25
+     },
+     "groundBounce": {
+      "albedo": [
+       0.2159,
+       0.1878,
+       0.1329
+      ],
+      "albedoLuminance": 0.1898,
+      "albedoBlueOverRed": 0.616,
+      "groundLux": 0.197,
+      "fromSunLux": 0,
+      "fromSkyLux": 0.197,
+      "radianceNits": 0.012
+     },
+     "nightZenithNits": 0.045,
+     "nightHorizonNits": 0.21,
+     "msTransportRad": 0.1,
+     "zenithNits": 0.045,
+     "horizonNits": 0.176,
+     "zenithChroma": -0.713,
+     "horizonChroma": -0.002,
+     "ambientChroma": -0.497,
+     "skyLux": 0.197,
+     "sunLux": 0,
+     "fogColorNits": [
+      0.21,
+      0.16,
+      0.22
+     ],
+     "fogInscatterNits": [
+      0.21,
+      0.16,
+      0.22
+     ],
+     "hueRotation": 0.711,
+     "midSkyExposed": 0.017,
+     "fogClamp": 1,
+     "inscatterClamp": 1,
+     "fogDensity": 0.0013,
+     "fogHeightFalloff": 0.011,
+     "artisticMultiplier": 20.3,
+     "implausible": []
+    },
+    "weather": {
+     "state": "clear",
+     "target": "clear",
+     "transition": 1,
+     "queued": 0,
+     "rainIntensity": 0,
+     "wetness": 0,
+     "overcast": 0,
+     "fogBoost": 0,
+     "turbidity": 2.6,
+     "liveDrops": 0,
+     "liveSplashes": 0,
+     "maxDrops": 12000,
+     "drawCalls": 0,
+     "boundMaterials": 14,
+     "generationMs": 4.6
+    },
+    "samplePointLightCandela": 900,
+    "shadowCasters": 109,
+    "shadowReceivers": 293,
+    "implausible": [],
+    "frames": 176,
+    "drawCalls": 205,
+    "sceneCalls": 197,
+    "postPasses": 8,
+    "triangles": 808702,
+    "chunks": 83,
+    "lodNear": 16,
+    "lodFar": 67,
+    "plainMeshes": 346,
+    "instancedMeshes": 17,
+    "distinctMaterialsInScene": 40,
+    "materialLibrary": {
+     "materials": 17,
+     "textures": 19,
+     "textureLayers": 33,
+     "textureMemoryMB": 22.75,
+     "generationMs": 457.2,
+     "surfaceLayers": 8,
+     "timingsMs": {
+      "markings": 0,
+      "surfaces": 305.9,
+      "ground": 137.2,
+      "water": 5,
+      "trim": 8.9
+     },
+     "keys": [
+      "road",
+      "sidewalk",
+      "parkingLot",
+      "grass",
+      "dirt",
+      "sand",
+      "land",
+      "kerb",
+      "kerbPainted",
+      "concrete",
+      "water",
+      "glassStorefront",
+      "glassTinted",
+      "metalPainted",
+      "metalGalvanised",
+      "metalAnodised",
+      "buildingMerged"
+     ]
+    },
+    "population": {
+     "pedsAlive": 96,
+     "pedsInFrustum": 21,
+     "trafficFleet": 30,
+     "trafficAlive": 30,
+     "trafficInFrustum": 1,
+     "fleetGlow": {
+      "slots": 6,
+      "used": 1,
+      "edgeM": 25.4,
+      "trianglesEach": 64,
+      "visible": true
+     },
+     "parkedFilled": 30,
+     "parkedPool": 30,
+     "parkedPerShell": [
+      9,
+      5,
+      16
+     ],
+     "parkedShells": 3,
+     "parkedTrianglesDrawn": 31500,
+     "trees": 307,
+     "treeSpecies": {
+      "sabal": 160,
+      "queen": 135,
+      "oak": 12
+     },
+     "propCount": 7907,
+     "frustumWorks": true
+    }
+   }
+  }
+ ],
+ "errors": [],
+ "shotErrors": []
+}

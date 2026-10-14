@@ -12,6 +12,97 @@
 
 import * as THREE from '../vendor/three.module.min.js';
 
+// --------------------------------------------------------- THE EMISSION TAG (BACKLOG #114)
+//
+// The composite multiplies the scene by the screen-space AO, and the scene a pixel carries is
+// everything that left the surface: reflected light AND emitted light. Occlusion is a statement
+// about the first — how much of the ambient a surface can see — and says nothing about the
+// second. A lit shop window does not get darker because a pillar stands beside it. But the
+// composite cannot tell them apart, so at night the AO's dark halo beside every pillar went
+// straight through the glazing: a #48 blind reviewer measured a window rising from 0.004 to
+// 0.11 over the 24 px beside a pillar in fivepoints-night, 0.036 of itself, which is the AO
+// floor of 0.04 reached through the tonemapper's toe.
+//
+// The composite's comment already said emissives are light sources and must not be occluded,
+// and spared the BLOOM for that reason. That was right about the glow added on top and silent
+// about the window's own pixels, which are in the scene sample and were multiplied like a wall.
+//
+// So every lit material says how much of what it wrote was emitted. One patch to three's
+// `opaque_fragment` chunk — the last line every lit material runs before the colour leaves it,
+// where `outgoingLight` and `totalEmissiveRadiance` are both in scope — writes the emitted share
+// of the pixel's luminance into the scene target's alpha, which nothing else reads: the scene
+// target is HalfFloat RGBA, the bloom and the AO read rgb and depth, and the canvas context is
+// created without alpha. The composite then uses `mix(ao, 1, share)`, which is exactly the
+// right factor for a pixel `share` emitted and `1 - share` reflected.
+//
+// THE ENCODING IS NEGATIVE, AND THAT IS WHAT MAKES IT SAFE. A pixel is tagged `-(1 + share)`,
+// so a tag lives in [-2, -1] and everything an untagged pass can leave behind does not: the
+// clear is alpha 1, an unlit or unpatched material writes 1, a background writes 0 or 1. And
+// every blended draw over a tagged pixel can only REDUCE the share it decodes to — this build's
+// non-premultiplied normal blending leaves `s + a(1 - s)` in the alpha and its additive leaves
+// `a + s` (vendor/three.module.min.js, `blendFuncSeparate(SRC_ALPHA, ONE, ONE, ONE)`), for an
+// overlay alpha s in [0, 1], and both move a negative tag toward zero, i.e. toward "nothing
+// emitted", i.e. toward the old behaviour. A positive encoding would have done the opposite: the shopfront soffit glow is
+// additive at alpha 1, and over a wall tagged 2 + 0 it would have decoded as fully emitted and
+// lifted the wall's occlusion entirely. Wrongness here can only cost exemption, never invent it.
+//
+// Only the four lit materials carry `totalEmissiveRadiance` (three's physical, phong, lambert
+// and toon fragment shaders, which is what their defines select); only OPAQUE ones are tagged,
+// because a transparent material's alpha is its coverage — tagged, a half-coverage white pane
+// blends as src*(-1) + dst*2 and went from luma 0.839 to 0.000 (tools/ao-emit.mjs). NaN and
+// negative shares read as 0. `aoEmitExempt` in the composite turns the exemption off without a
+// recompile, so a before and an after come off one page load, and `debugEmitShare` draws the
+// decoded share as grey so a surface's tag can be READ rather than inferred.
+//
+// MEASURED, three arms off one page load: beside the reviewer's pillar the lit window read 0.199
+// of its AO-off value at the edge before and 0.908 after, the remainder being the glass's
+// reflected share, which is still occluded and should be. Noon does not move: the facade and trim
+// emissives are 0 by day, and the share is 0 on 1,439,953 of corridor-noon's 1,440,000 pixels.
+// What this does NOT touch is direct lamp light on non-emissive surfaces — a pillar face beside
+// that window stays at 0.17-0.20 of its AO-off value — which is BACKLOG #115, a different term.
+const OPAQUE_SEAM = 'gl_FragColor = vec4( outgoingLight, diffuseColor.a );';
+const EMIT_TAG_MARK = '/* #114 emitted share */';
+const EMIT_TAG = `
+${EMIT_TAG_MARK}
+#if defined( OPAQUE ) && ( defined( STANDARD ) || defined( PHONG ) || defined( LAMBERT ) || defined( TOON ) )
+{
+	const vec3 EMIT_LUMA = vec3( 0.2126, 0.7152, 0.0722 );
+	float emitShare = dot( totalEmissiveRadiance, EMIT_LUMA ) / max( dot( outgoingLight, EMIT_LUMA ), 1e-6 );
+	emitShare = emitShare >= 0.0 ? min( emitShare, 1.0 ) : 0.0;
+	gl_FragColor.a = -1.0 - emitShare;
+}
+#endif`;
+
+/**
+ * Patch three's `opaque_fragment` chunk once. Exported so a gate can run it against a copy of
+ * the chunk table and assert the seam, the idempotence and the encoding without a GL context.
+ * Throws if the seam is missing — an injection that matches nothing renders perfectly and
+ * measures as "the fix does nothing" (CLAUDE.md, `onBeforeCompile` hands you UNRESOLVED
+ * includes; this is the same rule for a chunk).
+ * @returns {boolean} true if it patched, false if the table was already patched
+ */
+export function tagEmissionInAlpha(chunks = THREE.ShaderChunk) {
+  const src = chunks.opaque_fragment;
+  if (typeof src !== 'string') throw new Error('tagEmissionInAlpha: no opaque_fragment chunk in this three build');
+  if (src.includes(EMIT_TAG_MARK)) return false;
+  if (!src.includes(OPAQUE_SEAM)) {
+    throw new Error('tagEmissionInAlpha: opaque_fragment no longer ends in the expected gl_FragColor line; ' +
+      'the AO emission exemption would silently do nothing');
+  }
+  chunks.opaque_fragment = src.replace(OPAQUE_SEAM, OPAQUE_SEAM + EMIT_TAG);
+  return true;
+}
+// At import, before any program can compile: three resolves `#include` against this table at
+// compile time, so a material compiled before the patch would keep the untagged chunk for the
+// life of its cached program.
+tagEmissionInAlpha();
+
+/** The composite's decode of the tag above, in JS, so a gate can assert the two agree. */
+export function emitShareFromAlpha(a) {
+  const tag = -a - 1;
+  return tag >= 0 && tag <= 1 ? tag : 0;
+}
+
 const FULLSCREEN_VERT = `
 varying vec2 vUv;
 void main() {
@@ -434,6 +525,8 @@ uniform sampler2D tDepth;
 uniform sampler2D tAO;
 uniform float aoStrength;
 uniform float aoFloor;
+uniform float aoEmitExempt;     // 1: emitted light is not occluded (#114). 0: the old composite.
+uniform float debugEmitShare;   // 1: draw the decoded emitted share as grey, and nothing else.
 uniform float bloomStrength;
 uniform float exposure;
 uniform vec3  fogColor;
@@ -630,7 +723,8 @@ vec3 sanitize(vec3 c) {
 
 
 void main() {
-  vec3 scene = sanitize(texture2D(tScene, vUv).rgb);
+  vec4 sceneTex = texture2D(tScene, vUv);
+  vec3 scene = sanitize(sceneTex.rgb);
   vec3 bloom = sanitize(texture2D(tBloom, vUv).rgb);
   float depth = texture2D(tDepth, vUv).r;
 
@@ -640,6 +734,14 @@ void main() {
   float ao = mix(1.0, texture2D(tAO, vUv).r, aoStrength);
   // The floor. At aoFloor 0 this is the identity and the composite is unchanged.
   ao = aoFloor + (1.0 - aoFloor) * ao;
+  // AND NOT THE EMITTED PART OF THE SCENE EITHER, which the paragraph above argued for and
+  // never did: the window's own pixels are in 'scene', not in 'bloom'. The lit materials tag
+  // their emitted share in the scene target's alpha as -(1 + share) — see EMIT_TAG at the top
+  // of this file for why negative — and anything outside [-2, -1] is "untagged", share 0,
+  // which is this composite exactly as it was. NaN fails both comparisons and lands there too.
+  float emitTag = -sceneTex.a - 1.0;
+  float emitShare = (emitTag >= 0.0 && emitTag <= 1.0) ? emitTag : 0.0;
+  ao = mix(ao, 1.0, emitShare * aoEmitExempt);
   vec3 color = scene * ao + bloom * bloomStrength;
 
   // --- Height fog with aerial perspective.
@@ -729,6 +831,10 @@ void main() {
   color += (d - 0.5) / 255.0;
 
   gl_FragColor = vec4(color, 1.0);
+  // THE TAG, MADE VISIBLE: a pixel's decoded emitted share as a grey level, 0 black to 1 white,
+  // linear in the byte. For asking what a surface tags as rather than inferring it from whether
+  // the AO moved — which is how #114's district frames were first read.
+  if (debugEmitShare > 0.5) gl_FragColor = vec4(vec3(emitShare), 1.0);
 }`;
 
 // --------------------------------------------------------------------- FXAA
@@ -1004,6 +1110,11 @@ export class PostStack {
       // is the PHYSICAL wrongness underneath that complaint: pixels with no light
       // in them at all, on an outdoor surface bounced into by the road it sits on.
       aoFloor: 0.04,
+      // EMITTED LIGHT IS NOT OCCLUDED (BACKLOG #114). 1 exempts each pixel's emitted share from
+      // the AO above, by the tag the lit materials write into the scene target's alpha (see
+      // EMIT_TAG at the top of this file); 0 is the composite before the fix, bit for bit, and
+      // switches without a recompile so a before and an after come off one page load.
+      aoEmitExempt: 1,
       // THE BUFFER THE KERNEL ABOVE IS DRAWN INTO. This is a separate question
       // from the kernel, and it was not re-asked when the radius moved.
       //
@@ -1545,6 +1656,7 @@ export class PostStack {
         tScene: { value: null }, tBloom: { value: null }, tDepth: { value: null },
         tAO: { value: null }, aoStrength: { value: this.params.aoStrength },
         aoFloor: { value: this.params.aoFloor },
+        aoEmitExempt: { value: this.params.aoEmitExempt },
         bloomStrength: { value: this.params.bloomStrength },
         exposure: { value: this.params.exposure },
         fogColor: { value: new THREE.Vector3() },
@@ -1561,6 +1673,7 @@ export class PostStack {
         highlightKnee: { value: this.params.highlightKnee },
         highlightCeil: { value: this.params.highlightCeil },
         debugSanitize: { value: 0 },
+        debugEmitShare: { value: 0 },
       },
       depthTest: false, depthWrite: false,
     });
@@ -1828,6 +1941,7 @@ export class PostStack {
     u.tAO.value = p.aoEnabled ? this.aoBlurRT.texture : this.whiteTex;
     u.aoStrength.value = p.aoEnabled ? p.aoStrength : 0;
     u.aoFloor.value = p.aoEnabled ? (p.aoFloor ?? 0) : 0;
+    u.aoEmitExempt.value = p.aoEmitExempt ?? 1;
     u.bloomStrength.value = p.bloomStrength;
     u.exposure.value = p.exposure;
     u.fogColor.value.set(p.fogColor.r, p.fogColor.g, p.fogColor.b);
@@ -1841,6 +1955,7 @@ export class PostStack {
     // Driven from params like everything else here, so a harness sets it through
     // postParams() and no future refactor of this block can silently strand it.
     u.debugSanitize.value = p.debugSanitize ? 1 : 0;
+    u.debugEmitShare.value = p.debugEmitShare ? 1 : 0;
     u.cameraY.value = this.camera.position.y;
     u.cameraNear.value = this.camera.near;
     u.cameraFar.value = this.camera.far;

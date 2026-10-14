@@ -3229,3 +3229,127 @@ for a 1.6% lighter seam).
 #### THE ORIGINAL RECORD
 ### #48 aoKernel 3: parked deliberately, needs a reviewer not a decision from me
 `detail lost` beyond the subject line.
+
+### #114 FIXED — emitted light is exempt from the screen-space AO, by a share the lit materials tag themselves
+Found by #48's blind reviewer in BOTH arms, so independent of the kernel: in fivepoints-night a lit
+shop window beside the MARROW & VINE pillar rises from 0.004 to 0.11 (linear luma) over the 24 px
+next to it, and corridor-night "shows dark streaks flanking every pillar". 0.004 / 0.11 = 0.036,
+the AO floor of 0.04 reached through the tonemapper's toe.
+
+**The control first, because "it looks like AO" is a diagnosis.** One page load, the same frame
+with the composite's AO strength at 0: the window beside that pillar reads **0.199 of its AO-off
+value at the pillar's edge and recovers over 20 px** — the band is the AO, not the facade's
+emissive texture.
+
+**The defect is half of an argument the composite already made.** It did `color = scene * ao +
+bloom` under a comment saying AO spares the bloom because "bloom comes from emissives — lit
+windows, lamps, signage — and those are light sources, not surfaces receiving ambient". Right, and
+it covered the blurred glow added on top; the window's own pixels are in `scene` and were
+multiplied like a wall. A guard right about what it protects and silent about the case next door.
+
+**The fix.** Only reflected light is occluded, so a pixel whose light is a share `e` emitted wants
+`mix(ao, 1, e)`, and nothing downstream of the material can recover `e`. So every lit material
+says: one patch to three's `opaque_fragment` chunk — the last line every lit material runs, where
+`outgoingLight` and `totalEmissiveRadiance` are both in scope — writes the emitted share of the
+pixel's luminance into the scene target's alpha, which nothing else reads (HalfFloat RGBA; bloom
+and AO read rgb and depth; the canvas has no alpha). The composite decodes it behind a runtime
+uniform, `aoEmitExempt`, whose 0 is the old composite bit for bit, so a before and an after come
+off one page load.
+
+**The encoding is NEGATIVE, `-(1 + e)`, and that is the safety argument.** A tag lives in [-2, -1]
+and nothing an untagged pass leaves does (clear 1, unlit and unpatched materials 1, background 0 or
+1). And every blended draw over a tagged pixel can only REDUCE what it decodes to: this build's
+normal blending leaves `s + a(1 - s)` in alpha and its additive `a + s`
+(`blendFuncSeparate(SRC_ALPHA, ONE, ONE, ONE)`, read off the vendored bundle — I had written `s^2`
+from memory and corrected it), and both move a negative tag toward "nothing emitted". A positive
+encoding inverts that: the shopfront soffit glow is additive at alpha 1, and over a wall tagged
+`2 + 0` it decodes as all emitted and lifts the wall's occlusion entirely. Wrongness here can only
+cost exemption, never invent it. Only OPAQUE lit materials are tagged: a transparent one's alpha is
+its coverage, and tagged it blends as `src*(-1) + dst*2` — measured, a half-coverage white pane went
+from luma 0.839 to 0.000. The district's road markings are such a material.
+
+**Measured, three arms off ONE page load** (`aoOff`, `aoEmit0` = before, `aoEmit1` = after,
+tools/ground-albedo.mjs), proved distinct on the one field they differ in:
+
+    the reviewer's pillar, fivepoints-night, the lit window from the pillar's edge, / AO-off
+      x       1300   1304   1308   1312   1316   1320
+      before  0.199  0.320  0.672  0.786  0.863  0.999
+      after   0.908  0.923  0.962  0.974  0.985  1.000
+    the remaining 3-9% is the glass's REFLECTED share, correctly still occluded
+
+    every pixel the old composite darkened by more than a tenth, by its AO-off luma
+                          fivepoints-night         corridor-night           noon, both framings
+      luma >= 0.15        p50 0.865 recovered      p50 0.000, 7.7% > 0.5     p90 0.000 in every band
+      0.05 - 0.15         p90 0.805                p90 0.206                 (recovered > 0.5 on
+      0.01 - 0.05         p90 0.612                p90 0.021                  0.1-5.7%: the crowd and
+                                                                              trees moving between arms)
+
+**And what each surface TAGS as, read rather than inferred**: `postParams().debugEmitShare` draws
+the decoded share as grey, and `aoEmitShow` captures it beside the three arms.
+
+    frame                share > 0.05   > 0.5    where the share is 0, after == before on
+    corridor-night          5.47%       1.27%    99.23% of pixels
+    fivepoints-night       13.93%       7.19%    94.53%
+    corridor-noon           0.00%       0.00%    92.64%   share 0 on 1,439,953 of 1,440,000 px
+    fivepoints-noon         0.01%       0.01%    93.66%   the signal lenses, and nothing else
+    (the pixels that differ where the share is 0 are the crowd, the traffic and the foliage moving
+     between the arms; the share map is a separate page load, so it is a mask and not a pairing)
+
+Lit glazing, signs and lamp heads tag; awnings and sign boards read 0. The deli's
+glass in the corridor reads about HALF emitted, brighter toward its head — the rest of its light is
+the street lamps and the canyon reflected in it — which is why it recovers 0.55-0.94 of the way
+rather than all of it. That is the fix being right, not partial: reflected light is what AO is for.
+
+**Noon does not move**, and that is by construction rather than by luck: the facade and trim
+emissive intensities are 0 at noon and golden, so the share is 0 on every building surface and the
+exemption has nothing to act on. The emitters that are lit at noon — signal heads, car lamps — are
+emitters, and exempting them is the fix.
+
+**The gate is a page, because nothing offline compiles a shader.** `tools/ao-emit.mjs`, 2.4 s: a
+wall of three panels — all emitting, half emitting, none — each with a pillar against it, an
+additive overlay across the foot of two of them and a transparent lit pane on the third, rendered
+through the real PostStack in the same three arms. 16 checks, including the defect itself measured
+LIVE every run (the before arm darkens the window to 0.463 of AO-off at p50), the fix (0.986 of the
+way back), the wall and pillars byte-identical to before, the half panel exempted IN PART (0.564),
+the overlay over the wall not lifting it, the pane still blending, and a frame-wide invariant — every
+channel of every pixel of `after` lies in [before, off] to within one code value: 0 of 294,912
+outside. Selftest on a real report with 13 known-bads. On mutation-sweep's offline list with six
+rows (`emit-exempt-off`, `emit-tag-unsigned`, `emit-tag-binary`, `emit-tag-all`,
+`emit-tag-transparent`, `emit-uniform-unwired`), each of which renders a plausible frame and passes
+every other gate, because no other gate compiles a shader.
+
+**What it does not fix, measured, and it is a different term — filed as #115.** In the corridor's
+deli colonnade the glass beside each pillar comes back, and the strip of the PILLAR'S OWN FACE beside
+it stays nearly as dark as it was: 0.612, 0.321 and 0.173 of its AO-off value at 12, 8 and 4 px from
+the edge before, 0.640, 0.364 and 0.205 after. Those columns tag 3-10% emitted — the trim atlas's
+shopfront emission washes the reveals, which is interior light on the jamb and correctly exempt — so
+the pillar lifts by its share and no more. The other 90-97% of its light is the street lamps, and
+the composite multiplying DIRECT light by ambient occlusion is a different and much larger question
+than this one.
+
+(I first wrote that the pillar tags exactly 0 and is byte-identical, off a downscaled view of the
+share map in which it looked black. Read per pixel it is bytes 8-26 of 255 and after == before on 0
+of 70 rows at those columns. A dark grey at a fifth of full size is not a zero.)
+
+### #115 OPEN — the composite's AO multiplies DIRECT light as well as ambient, and at night almost all light is direct
+What #114 left, measured on its own capture. Ambient occlusion is a statement about how much of the
+AMBIENT a surface can see, and the composite applies it to everything that left the surface. #114
+took the emitted part out. The direct part is still in: a pillar face lit by a street lamp in the
+corridor's deli colonnade reads 0.173 of its AO-off value 4 px from its edge (linear luma) before
+#114 and 0.205 after — the lift is its 3-10% of reveal glow — where the glass beside it now reads
+0.55-0.94. At night nearly all of the light
+in this district is direct (lamps) or emitted (windows), so the AO darkens the very light that
+exists, and over the corridor-night frame 58,283 pixels brighter than 0.15 with AO off are darkened
+by more than a tenth and only 7.7% of them are emissive enough for #114 to recover.
+
+**Why it is not simply #114 again with the direct term added to the share.** The same tag would
+then exempt every SUNLIT surface at noon — `reflectedLight.directDiffuse + directSpecular` is in
+scope at the same chunk and the arithmetic is one line — and the AO in sunlight is doing work the
+sun's shadow map is too coarse to: #48's reviewer weighed exactly that grounding ("cars look
+heavier", "stronger kerb faces") against the seam and said what they preferred. So the direct share
+is a LOOK decision at noon and a physics decision at night, and one alpha channel can carry only one
+share. Levers, unpriced: a second tag channel (an MRT, which this stack does not have); a
+time-of-day weight on the direct share (`aoDirectExempt` 0 at noon, 1 at night — but the tag would
+then have to carry emitted + direct and lose the ability to tell them apart, so the weight would
+apply to emitted light at noon too, which #114 says is wrong); or the honest one, point lights
+that cast their own shadows, which is a cost question this project has not priced.

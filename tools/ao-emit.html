@@ -1,0 +1,238 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ao-emit</title>
+<!--
+  BACKLOG #114: THE SCREEN-SPACE AO MULTIPLIED EMITTED LIGHT.
+
+  src/post.js's composite did `color = scene * ao + bloom`, and `scene` is everything that left a
+  surface, emitted light included, so at night a lit shop window went dark beside every pillar —
+  to 0.036 of itself, the AO floor reached through the tonemapper's toe. The fix tags each lit
+  opaque pixel's EMITTED SHARE in the scene target's alpha and exempts that share.
+
+  Nothing else can see it. The district's captures are minutes a frame and carry a crowd that moves
+  between arms; the offline gates never compile a shader. So this page is the smallest scene that
+  has the defect in it, rendered through the REAL PostStack: a wall of three panels, each with a
+  pillar standing against it so the AO has a crease to darken —
+
+      WINDOW   no albedo, all emission       the subject: AO must not touch it
+      HALF     lit wall plus some emission   the share must be partial, not 0 or 1
+      WALL     lit, no emission              the control: AO must still darken it
+
+  — plus an ADDITIVE OVERLAY across the foot of the window and the wall, which is the shape of the
+  district's soffit glow. That one is the encoding's safety property: a blended draw over a tagged
+  pixel may only REDUCE the exemption, so the wall under it must stay exactly as occluded as before.
+
+  Three arms off ONE page, ONE camera, ONE scene, differing in two uniforms:
+      off     aoStrength 0                    the scene with no occlusion at all
+      before  AO on, aoEmitExempt 0           the composite before the fix, bit for bit
+      after   AO on, aoEmitExempt 1           shipped
+
+  and a mask pass with flat ID colours, so every statistic is per surface and the masks are the
+  geometry rather than boxes.
+-->
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+<script type="module">
+import * as THREE from '../vendor/three.module.min.js';
+import { PostStack } from '../src/post.js';
+
+const W = 384, H = 256;
+try {
+  const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(W, H);
+  document.body.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(40, W / H, 0.5, 200);
+  camera.position.set(0, 2.2, 9.0);
+  camera.lookAt(0, 2.2, 0);
+  camera.updateMatrixWorld(true);
+
+  // THE SURFACES. sRGB 0x9a9a9a is a linear albedo of 0.32, a plain painted wall.
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x9a9a9a, roughness: 0.9, metalness: 0 });
+  // No albedo at all, so every photon this panel sends is emitted: share 1 by construction.
+  const windowMat = new THREE.MeshStandardMaterial({ color: 0x000000, roughness: 0.9, metalness: 0,
+    emissive: 0xffffff, emissiveIntensity: 0.30 });
+  // The wall's albedo AND an emission of about the same size as what it reflects.
+  const halfMat = new THREE.MeshStandardMaterial({ color: 0x9a9a9a, roughness: 0.9, metalness: 0,
+    emissive: 0xffffff, emissiveIntensity: 0.15 });
+  const pillarMat = new THREE.MeshStandardMaterial({ color: 0x9a9a9a, roughness: 0.9, metalness: 0 });
+  // The soffit glow's shape: MeshBasic, additive, transparent, alpha 1. src/signage.js additiveGlow.
+  const overlayMat = new THREE.MeshBasicMaterial({ color: 0x262626, blending: THREE.AdditiveBlending,
+    transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3,
+    polygonOffsetUnits: -6 });
+
+  // A TRANSPARENT LIT material, which is what src/materials.js's road markings are. The tag is
+  // written only under OPAQUE because a transparent material's alpha is its COVERAGE: tagged, its
+  // source alpha would be about -1, and normal blending would compute src*(-1) + dst*2 — a pane
+  // that darkens what is behind it. White at half coverage over the grey wall must read BRIGHTER
+  // than the wall alone, and that is the check that the guard is there.
+  const paneMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0,
+    transparent: true, opacity: 0.5, depthWrite: false });
+
+  const PANEL_W = 3.0, PANEL_H = 4.4;
+  const panels = [
+    { name: 'window', x: -PANEL_W, mat: windowMat },
+    { name: 'half', x: 0, mat: halfMat },
+    { name: 'wall', x: PANEL_W, mat: wallMat },
+  ];
+  const ids = [];   // [mesh, idColour]
+  const ID = {
+    window: [1, 0, 0], half: [0, 1, 0], wall: [0, 0, 1], pillar: [1, 1, 0],
+    overlayWall: [0, 1, 1], overlayWindow: [1, 0, 1], pane: [1, 1, 1],
+  };
+  for (const p of panels) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(PANEL_W, PANEL_H), p.mat);
+    m.position.set(p.x, PANEL_H / 2, 0);
+    scene.add(m); ids.push([m, ID[p.name]]);
+    // A pillar standing against the panel, a little off its centre so it leaves a broad flank of
+    // panel beside it on the camera's side, where the AO's crease is.
+    const pil = new THREE.Mesh(new THREE.BoxGeometry(0.5, PANEL_H, 0.5), pillarMat);
+    pil.position.set(p.x + 0.4, PANEL_H / 2, 0.25);
+    scene.add(pil); ids.push([pil, ID.pillar]);
+  }
+  for (const [name, x] of [['overlayWindow', -PANEL_W], ['overlayWall', PANEL_W]]) {
+    const o = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.0), overlayMat);
+    o.position.set(x - 0.2, 0.9, 0.01);
+    o.renderOrder = 10;
+    scene.add(o); ids.push([o, ID[name]]);
+  }
+  {
+    // High on the wall panel and clear of its pillar, so the AO has nothing to do there and the
+    // pane is compared with bare wall.
+    const pn = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 1.0), paneMat);
+    pn.position.set(PANEL_W - 0.8, 3.1, 0.02);
+    pn.renderOrder = 11;
+    scene.add(pn); ids.push([pn, ID.pane]);
+  }
+  const sun = new THREE.DirectionalLight(0xffffff, 2.4);
+  sun.position.set(-3, 5, 8);
+  scene.add(sun);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+
+  const post = new PostStack(renderer, scene, camera);
+  post.setSize(W, H);
+  const q = post.params;
+  // ONE TERM. Bloom and fog are identical across the arms, but bloom spreads the window's light
+  // into its neighbours and can push a pixel to the ceiling, where every ratio reads 1 for the
+  // wrong reason. Exposure puts the wall mid-range, so neither the toe nor the shoulder decides.
+  q.bloomStrength = 0;
+  q.fogDensity = 0;
+  q.exposure = Number(new URLSearchParams(location.search).get('exposure') ?? 2.2);
+
+  const gl = renderer.getContext();
+  const grab = () => {
+    const px = new Uint8Array(W * H * 4);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    // readPixels is bottom-up; flip so row 0 is the top, like every PNG this project reads.
+    const out = new Uint8Array(W * H * 3);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const s = ((H - 1 - y) * W + x) * 4, d = (y * W + x) * 3;
+      out[d] = px[s]; out[d + 1] = px[s + 1]; out[d + 2] = px[s + 2];
+    }
+    return out;
+  };
+  const arm = (strength, exempt) => {
+    q.aoEnabled = true;
+    q.aoStrength = strength;
+    q.aoEmitExempt = exempt;
+    post.render();
+    // Read back what the composite was GIVEN, not what was asked for: an arm whose uniform never
+    // moved is two identical frames and a confident "no change".
+    const u = post.compositeMat.uniforms;
+    return { strength, exempt, uStrength: u.aoStrength.value, uExempt: u.aoEmitExempt.value, rgb: grab() };
+  };
+  const arms = { off: arm(0, 1), before: arm(1, 0), after: arm(1, 1) };
+
+  // THE MASK PASS. Flat colours whose channels are 0 or 1 survive the sRGB encode unchanged, and
+  // drawing straight to the canvas means no MSAA resolve smears an edge into a neighbour's ID.
+  const saved = ids.map(([m]) => m.material);
+  for (const [m, c] of ids) {
+    m.material = new THREE.MeshBasicMaterial({ color: new THREE.Color(c[0], c[1], c[2]),
+      polygonOffset: m.material.polygonOffset, polygonOffsetFactor: -3, polygonOffsetUnits: -6 });
+  }
+  post.enabled = false;
+  post.render();
+  const maskRgb = grab();
+  ids.forEach(([m], i) => { m.material = saved[i]; });
+  post.enabled = true;
+
+  // Pixel -> surface name, and an ERODED version: a pixel counts only if its four neighbours carry
+  // the same ID, because the scene pass is multisampled and the mask is not, so a silhouette pixel
+  // is a blend of two surfaces in the arms and one in the mask.
+  const names = Object.keys(ID);
+  const idAt = (i) => {
+    const r = maskRgb[i * 3] > 127 ? 1 : 0, g = maskRgb[i * 3 + 1] > 127 ? 1 : 0, b = maskRgb[i * 3 + 2] > 127 ? 1 : 0;
+    const n = names.find((k) => ID[k][0] === r && ID[k][1] === g && ID[k][2] === b);
+    return n ?? null;
+  };
+  const raw = new Array(W * H);
+  for (let i = 0; i < W * H; i++) raw[i] = idAt(i);
+  const mask = new Array(W * H).fill(null);
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+    const i = y * W + x, k = raw[i];
+    if (k && raw[i - 1] === k && raw[i + 1] === k && raw[i - W] === k && raw[i + W] === k) mask[i] = k;
+  }
+
+  const lin = new Float64Array(256);
+  for (let i = 0; i < 256; i++) { const c = i / 255; lin[i] = c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }
+  const luma = (rgb, i) => 0.2126 * lin[rgb[i * 3]] + 0.7152 * lin[rgb[i * 3 + 1]] + 0.0722 * lin[rgb[i * 3 + 2]];
+
+  // Per pixel, per surface: the three arms' linear luma and the bytes for the invariant.
+  const surfaces = {};
+  let violations = 0, compared = 0, worstViolation = 0;
+  for (let i = 0; i < W * H; i++) {
+    // THE FRAME-WIDE INVARIANT, over every pixel and not just the masked ones: the exemption can
+    // only ever move a pixel from its occluded value toward its unoccluded one, so `after` lies
+    // between `before` and `off`, channel by channel, to within one code value of dither.
+    for (let c = 0; c < 3; c++) {
+      const a = arms.off.rgb[i * 3 + c], b = arms.before.rgb[i * 3 + c], v = arms.after.rgb[i * 3 + c];
+      const lo = Math.min(a, b) - 1, hi = Math.max(a, b) + 1;
+      compared++;
+      if (v < lo || v > hi) { violations++; worstViolation = Math.max(worstViolation, v < lo ? lo - v : v - hi); }
+    }
+    const k = mask[i];
+    if (!k) continue;
+    (surfaces[k] ??= []).push([luma(arms.off.rgb, i), luma(arms.before.rgb, i), luma(arms.after.rgb, i),
+      arms.off.rgb[i * 3] === 255 || arms.off.rgb[i * 3 + 1] === 255 || arms.off.rgb[i * 3 + 2] === 255]);
+  }
+  const pct = (a, p) => a.length ? a[Math.min(a.length - 1, Math.floor(p * (a.length - 1) + 0.5))] : null;
+  const summary = {};
+  for (const [k, list] of Object.entries(surfaces)) {
+    // WHERE THE AO ACTS: the pixels the OLD composite darkened by more than a tenth. Selected on
+    // `before` and judged on `after`, which is an independent render, so this is not circular.
+    const acted = list.filter(([off, before]) => off > 1e-4 && before / off < 0.9);
+    const ratios = (f) => acted.map(f).filter(Number.isFinite).sort((x, y) => x - y);
+    const beforeOff = ratios(([off, before]) => before / off);
+    const afterOff = ratios(([off, , after]) => after / off);
+    const afterBefore = ratios(([, before, after]) => after / before);
+    // How far along from `before` to `off` the fix moved the pixel: 0 is no exemption, 1 is all.
+    const recovered = ratios(([off, before, after]) => (off - before) > 1e-5 ? (after - before) / (off - before) : NaN);
+    const stat = (a) => a.length ? { p10: pct(a, 0.1), p50: pct(a, 0.5), p90: pct(a, 0.9) } : null;
+    summary[k] = {
+      px: list.length, acted: acted.length,
+      offLuma: pct(list.map((r) => r[0]).sort((x, y) => x - y), 0.5),
+      clipped: list.filter((r) => r[3]).length,
+      beforeOff: stat(beforeOff), afterOff: stat(afterOff), afterBefore: stat(afterBefore),
+      recovered: stat(recovered),
+    };
+  }
+  window.__aoEmit = {
+    size: { w: W, h: H },
+    exposure: q.exposure,
+    chunkPatched: THREE.ShaderChunk.opaque_fragment.includes('#114 emitted share'),
+    arms: Object.fromEntries(Object.entries(arms).map(([k, a]) =>
+      [k, { strength: a.strength, exempt: a.exempt, uStrength: a.uStrength, uExempt: a.uExempt }])),
+    invariant: { compared, violations, worst: worstViolation },
+    surfaces: summary,
+    triangles: post.stats.sceneTriangles,
+  };
+  // The frames themselves, on request, so a run can be LOOKED at as well as read.
+  if (new URLSearchParams(location.search).get('debug') === '1') {
+    const b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode(...u8.subarray(i, i + 8192)); return btoa(s); };
+    window.__aoEmitFrames = { off: b64(arms.off.rgb), before: b64(arms.before.rgb), after: b64(arms.after.rgb), mask: b64(maskRgb) };
+  }
+} catch (e) {
+  window.__aoEmit = { error: String(e && e.stack || e) };
+}
+</script>

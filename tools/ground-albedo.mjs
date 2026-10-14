@@ -468,6 +468,18 @@ export const ARM_STATE = {
   // this arm is the scene with no screen-space occlusion at all and nothing else moved. If the dark
   // bands beside the pillars survive it, they are in the facade's emissive texture and not the AO.
   aoOff: { albedo: null, skyProxy: false, nightGlowLux: 0, ao: [0.6, 8.5, 0.0] },
+  // #114's FIX, as a pair off one page load: `aoEmitExempt` is a composite uniform, so the two
+  // arms differ in that one number and no program is rebuilt between them. aoEmit0 is the
+  // composite before the fix exactly (the tag is still written; nothing reads it), aoEmit1 the
+  // shipped one. Together with aoOff above, the three say how much of the AO-off window the
+  // exemption recovers — which is the whole claim, since an exemption that recovered nothing
+  // and one that also lifted the walls would both read as "changed" against the before arm.
+  aoEmit0: { albedo: null, skyProxy: false, nightGlowLux: 0, aoEmit: 0 },
+  aoEmit1: { albedo: null, skyProxy: false, nightGlowLux: 0, aoEmit: 1 },
+  // Not a look: the composite draws each pixel's decoded emitted share as grey (`debugEmitShare`),
+  // so a frame says what every surface TAGS as. Captured beside the three above, it is what tells
+  // "the exemption is not working" apart from "this surface's light is not emitted".
+  aoEmitShow: { albedo: null, skyProxy: false, nightGlowLux: 0, aoEmit: 1, aoEmitDebug: 1 },
 };
 
 /**
@@ -551,6 +563,11 @@ export async function setArm(page, name) {
       if (!window.__armSavedAOK) window.__armSavedAOK = [q.aoKernel ?? 0, q.aoSamples ?? 12];
       const k = s.aoKernel ?? window.__armSavedAOK;
       q.aoKernel = k[0]; q.aoSamples = k[1];
+      // #114's emission exemption, saved and restored the same way.
+      if (window.__armSavedAOE === undefined) window.__armSavedAOE = q.aoEmitExempt ?? 1;
+      q.aoEmitExempt = s.aoEmit ?? window.__armSavedAOE;
+      // Off unless the arm names it: a debug view left on by one arm would be every later arm.
+      q.debugEmitShare = s.aoEmitDebug ? 1 : 0;
     }
     // THE CAR LENS ARM. Pushed through the app's own entry point rather than at
     // the material, so an arm cannot drift from what ?lens= does; setCarLens
@@ -695,6 +712,8 @@ export async function setArm(page, name) {
       ao: q ? [q.aoRadius, q.aoIntensity, q.aoStrength, q.aoFloor ?? 0] : null,
       // IN THE KEY: aok0 and aok3 differ in NOTHING ELSE. Eighth time.
       aoKernel: q ? [q.aoKernel, q.aoSamples] : null,
+      // IN THE KEY for the same reason: aoEmit0 and aoEmit1 differ in nothing else. Ninth time.
+      aoEmit: q ? [q.aoEmitExempt ?? null, q.debugEmitShare ?? 0] : null,
       // Read back off what the app actually reached, not off what was asked for.
       carLens: carLens ? [carLens.retroScale, carLens.lens && carLens.lens.edge,
         carLens.parkedEmissive ?? null] : null,
@@ -775,7 +794,7 @@ export async function proveArmsDiffer(page, arms) {
   // carFront and carTyre joined the key in round 5 for the same reason, for the
   // third time: those arms move one texel and one vertex-colour set and nothing
   // a uniform readback would otherwise show.
-  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carGlass, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo, s.carGlassAlbedo, s.carGlassEnv, s.carShells, s.carPaintTint, s.carTone, s.aoKernel]))).size;
+  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carGlass, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo, s.carGlassAlbedo, s.carGlassEnv, s.carShells, s.carPaintTint, s.carTone, s.aoKernel, s.aoEmit]))).size;
   return { seen, ok: distinct === arms.length };
 }
 

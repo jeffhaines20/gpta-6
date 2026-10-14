@@ -161,6 +161,11 @@ const OFFLINE = [
   // pins `derivations` against the figures budget.mjs's own header derived by hand, so the two
   // cannot drift apart.
   'budget --selftest',
+  // 2.4 s, a purpose-built page through the REAL PostStack, and the only gate that compiles a lit
+  // material's shader and reads what the composite does with it. #114's exemption is a chunk patch
+  // in three's lit materials plus one line in a composite shader, and nothing offline compiles
+  // either: every row below is invisible to the other entries on this list by construction.
+  'ao-emit',
 ];
 
 /**
@@ -2336,6 +2341,57 @@ const MUTATIONS = [
     find: "    this.traffic = new Traffic(scene, this.district, { count: opts.traffic ?? 30,\n      seed: opts.seed ?? 0 });",
     to: "    this.traffic = new Traffic(scene, this.district, { count: opts.traffic ?? 30 });",
     why: 'a seed sweep over traffic becomes one fleet replicated, and every gate stays green',
+  },
+  // ---- src/post.js: #114, emitted light exempt from the screen-space AO. Every one of these
+  // renders a plausible frame and passes every other gate on the list, because no other gate
+  // compiles a shader.
+  {
+    id: 'emit-exempt-off', file: 'src/post.js',
+    find: '  ao = mix(ao, 1.0, emitShare * aoEmitExempt);',
+    to: '  ao = mix(ao, 1.0, 0.0 * emitShare * aoEmitExempt);',
+    why: 'the composite before the fix: lit windows go dark beside every pillar again',
+  },
+  {
+    /**
+     * THE TAG READ WITHOUT ITS SIGN. Every tagged pixel still decodes correctly — |-(1+e) + 1| is
+     * e — so the window, the half panel and the controls all pass. What breaks is the encoding's
+     * whole argument: an additive overlay over a wall (alpha -1, plus 1) now decodes as ALL
+     * EMITTED, and the awning glow lifts the occlusion off whatever it falls on. A gate without an
+     * overlay in its scene cannot see this row.
+     */
+    id: 'emit-tag-unsigned', file: 'src/post.js',
+    find: '  float emitTag = -sceneTex.a - 1.0;',
+    to: '  float emitTag = abs(sceneTex.a + 1.0);',
+    why: 'a blended overlay invents exemption instead of only ever removing it',
+  },
+  {
+    id: 'emit-tag-binary', file: 'src/post.js',
+    find: '\temitShare = emitShare >= 0.0 ? min( emitShare, 1.0 ) : 0.0;',
+    to: '\temitShare = emitShare > 0.0 ? 1.0 : 0.0;',
+    why: 'a surface with any emission at all is exempted entirely, so a lit wall loses its AO',
+  },
+  {
+    id: 'emit-tag-all', file: 'src/post.js',
+    find: '\tgl_FragColor.a = -1.0 - emitShare;',
+    to: '\tgl_FragColor.a = -2.0;',
+    why: 'every lit opaque pixel tags as emitted, so the AO is gone from the whole city',
+  },
+  {
+    /**
+     * THE OPAQUE GUARD. A transparent lit material's alpha is its coverage; tagged, its source
+     * alpha is about -1 and normal blending computes src*(-1) + dst*2. Measured on the gate's
+     * pane: luma 0.839 -> 0.000. The district's road markings are exactly such a material.
+     */
+    id: 'emit-tag-transparent', file: 'src/post.js',
+    find: '#if defined( OPAQUE ) && ( defined( STANDARD ) || defined( PHONG ) || defined( LAMBERT ) || defined( TOON ) )',
+    to: '#if ( defined( STANDARD ) || defined( PHONG ) || defined( LAMBERT ) || defined( TOON ) )',
+    why: 'transparent lit materials are tagged and blend as negative coverage: road markings go black',
+  },
+  {
+    id: 'emit-uniform-unwired', file: 'src/post.js',
+    find: '    u.aoEmitExempt.value = p.aoEmitExempt ?? 1;',
+    to: '    u.aoEmitExempt.value = 1;',
+    why: 'the switch is dead, so no capture can show a before and an after off one page load',
   },
 ];
 
