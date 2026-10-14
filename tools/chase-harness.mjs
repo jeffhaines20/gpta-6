@@ -28,6 +28,25 @@ page.on('console', (m) => { if (m.type() === 'error' && !/favicon/.test(m.text()
 
 await page.goto('http://127.0.0.1:8123/district/', { waitUntil: 'networkidle' });
 await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
+/**
+ * BODY COLLISION OFF, for the reason tools/drive-through.mjs records at length: this autopilot
+ * steers in straight lines between route waypoints, 32.8% of that course is inside buildings, and
+ * with walls solid the car is wrecked about 10 s in and teleported round the rest of the route by
+ * the stuck-nudge below. This harness predates body collision and was never told, so since
+ * 2026-09-25 it has measured that wrecked traversal rather than the one its ledger rows describe.
+ */
+// Read before and after: setBodyCollision returns the NEW state, so a single read labelled "was"
+// would print "false" for a switch that had just turned it off.
+const collision = await page.evaluate(() => {
+  if (!__district.setBodyCollision) return null;
+  const was = __district.bodyCollision(), now = __district.setBodyCollision(false);
+  return { was, now };
+});
+if (!collision || collision.now !== false) {
+  throw new Error(`body collision could not be turned off (${JSON.stringify(collision)}): the drive ` +
+    `would wreck ~10 s in and every number below would be about a teleported car`);
+}
+console.log(`body collision: OFF for this run, as the budget gate runs it (was ${collision.was ? 'on' : 'off'})`);
 
 await page.evaluate(({ traffic, pursuit, tod }) => {
   __district.setTimeOfDay(tod);

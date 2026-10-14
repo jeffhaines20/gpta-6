@@ -52,7 +52,17 @@ const Session = await (async () => {
   try { return (await import('./playtest.mjs')).Session; } finally { process.argv = saved; }
 })();
 const KNOWN = new Set(['--selftest', '--stars', '--seconds']);
-for (const a of argv) {
+/**
+ * EVERYTHING BELOW THAT LOOKS AT ARGV RUNS ONLY AS THE MAIN MODULE, because `tools/response-iso.mjs`
+ * imports `classify` from here and argv is shared by every module in the process. Without this a
+ * `node tools/response-iso.mjs --selftest` ran THIS file's selftest and exited 0 under the wrong
+ * name, and any flag of the importer's own failed the unknown-flag check below and exited 2 — the
+ * import-time hijack this file's header already records from the other side, arriving through the
+ * one exporting tool that had not been guarded. CLAUDE.md: "a tool's SELFTEST needs the same import
+ * guard as its REPORT".
+ */
+const IS_MAIN = process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop());
+for (const a of IS_MAIN ? argv : []) {
   if (a.startsWith('--') && !KNOWN.has(a)) {
     console.error(`unknown flag: ${a}\n\nusage: node tools/arrest-band.mjs ` +
       `[--selftest] [--stars N] [--seconds N]`);
@@ -211,7 +221,7 @@ function sweep({ stars = 4, seconds = 240 } = {}) {
 }
 
 // ----------------------------------------------------------------------- selftest
-if (argv.includes('--selftest')) {
+if (argv.includes('--selftest') && IS_MAIN) {
   let pass = 0, fail = 0;
   const say = (ok, what, detail = '') => {
     console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${what}${detail ? `  ${detail}` : ''}`);
@@ -272,4 +282,4 @@ if (argv.includes('--selftest')) {
   process.exit(fail ? 1 : 0);
 }
 
-sweep({ stars: flagVal('--stars', 4), seconds: flagVal('--seconds', 240) });
+if (IS_MAIN) sweep({ stars: flagVal('--stars', 4), seconds: flagVal('--seconds', 240) });

@@ -254,6 +254,31 @@ page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message));
 await page.goto(`http://127.0.0.1:${PORT}/district/${QUERY ? '?' + QUERY : ''}`, { waitUntil: 'networkidle' });
 await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 60000 });
 if (WITH_TRAFFIC) await page.evaluate(() => __district.setTraffic(true));
+/**
+ * BODY COLLISION OFF, AS tools/drive-through.mjs TURNS IT OFF, OR THIS IS NOT THE GATE'S DRIVE.
+ *
+ * The autopilot below is a copy of the gate's, made on 2026-09-08. On 2026-09-25 the gate learned
+ * that this course is 32.8% inside buildings and that with walls solid the car is wrecked 10.6 s
+ * in and teleported round the rest of the route by the stuck-nudge — so it switched body collision
+ * off and said so in its output. The copy here did not, so for every run since, this tool has
+ * attributed the worst slice of a DIFFERENT traversal: a wrecked car nudged round the route every
+ * 2.65 s, which loads chunks in a different order at different times. The attribution was of a
+ * drive the gate does not make. CLAUDE.md: "patching one tool and leaving its siblings is the
+ * recurring shape of defect in this repo" — and the header above says the autopilot is copied
+ * "so the workload this attributes is the workload the gate measures".
+ */
+// Read before and after: setBodyCollision returns the NEW state, so a single read labelled "was"
+// would print "false" for a switch that had just turned it off.
+const collision = await page.evaluate(() => {
+  if (!__district.setBodyCollision) return null;
+  const was = __district.bodyCollision(), now = __district.setBodyCollision(false);
+  return { was, now };
+});
+if (!collision || collision.now !== false) {
+  throw new Error(`body collision could not be turned off (${JSON.stringify(collision)}): the drive ` +
+    `would wreck ~10 s in and every number below would be about a teleported car`);
+}
+console.log(`body collision: OFF for this run, as the gate runs it (was ${collision.was ? 'on' : 'off'})`);
 
 // The same autopilot as drive-through.mjs, so the workload this attributes is
 // the workload the gate measures. Copied rather than imported because it is

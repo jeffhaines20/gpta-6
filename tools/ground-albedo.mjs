@@ -449,6 +449,19 @@ export const ARM_STATE = {
   // being attributed by argument. It writes postParams only - src/post.js is
   // another agent's file this round and is not touched.
   ao22: { albedo: null, skyProxy: false, nightGlowLux: 0, ao: [2.2, 3.8, 1.0] },
+
+  // #48: THE AO KERNEL, which src/post.js's own record parks as a judgement rather than a number.
+  // aoKernel 3 (32-tap spiral, uniform-solid-angle elevation) against the shipped legacy twelve:
+  // at the shipped intensity 8.5 it grounds feet and props harder (foot 0.797 -> 0.850, prop@18.8
+  // 0.232 -> 0.281) and darkens the corridor seam (0.9147 -> 0.9509); at 6.5 it lightens the seam
+  // 1.6% and gives up 21% of reveal contrast. Which of those a viewer sees is the open question,
+  // so the three arms are the shipped state and the two candidates. `aoKernel` is [kernel,
+  // samples]; the radius, strength and floor stay the build's own. The post pass rebuilds its
+  // program from exactly these two fields on its next frame (`_syncAoProgram`), and hero-shots
+  // waits four rendered frames after every arm, so the readback below names what is drawn.
+  aok0: { albedo: null, skyProxy: false, nightGlowLux: 0, aoKernel: [0, 12] },
+  aok3: { albedo: null, skyProxy: false, nightGlowLux: 0, aoKernel: [3, 32] },
+  aok3i65: { albedo: null, skyProxy: false, nightGlowLux: 0, aoKernel: [3, 32], ao: [0.6, 6.5, 1.0] },
 };
 
 /**
@@ -526,6 +539,12 @@ export async function setArm(page, name) {
       // not ask would silently reset a shipped floor the moment any other arm
       // ran, which is the confound this file has been bitten by three times.
       q.aoFloor = ao.length > 3 ? ao[3] : (window.__armSavedAO[3] ?? 0);
+      // THE KERNEL, saved and restored the same way: an arm that does not name it gets the
+      // build's own, not the previous arm's — the running-total confound tools/ao-sweep.mjs
+      // records for exactly this field.
+      if (!window.__armSavedAOK) window.__armSavedAOK = [q.aoKernel ?? 0, q.aoSamples ?? 12];
+      const k = s.aoKernel ?? window.__armSavedAOK;
+      q.aoKernel = k[0]; q.aoSamples = k[1];
     }
     // THE CAR LENS ARM. Pushed through the app's own entry point rather than at
     // the material, so an arm cannot drift from what ?lens= does; setCarLens
@@ -668,6 +687,8 @@ export async function setArm(page, name) {
       msWhitenAnti: u.uMsWhitenAnti ? +u.uMsWhitenAnti.value.toFixed(3) : null,
       bounceLux: dn ? +dn.bounce.intensity.toFixed(2) : null,
       ao: q ? [q.aoRadius, q.aoIntensity, q.aoStrength, q.aoFloor ?? 0] : null,
+      // IN THE KEY: aok0 and aok3 differ in NOTHING ELSE. Eighth time.
+      aoKernel: q ? [q.aoKernel, q.aoSamples] : null,
       // Read back off what the app actually reached, not off what was asked for.
       carLens: carLens ? [carLens.retroScale, carLens.lens && carLens.lens.edge,
         carLens.parkedEmissive ?? null] : null,
@@ -748,7 +769,7 @@ export async function proveArmsDiffer(page, arms) {
   // carFront and carTyre joined the key in round 5 for the same reason, for the
   // third time: those arms move one texel and one vertex-colour set and nothing
   // a uniform readback would otherwise show.
-  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carGlass, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo, s.carGlassAlbedo, s.carGlassEnv, s.carShells, s.carPaintTint, s.carTone]))).size;
+  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carGlass, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo, s.carGlassAlbedo, s.carGlassEnv, s.carShells, s.carPaintTint, s.carTone, s.aoKernel]))).size;
   return { seen, ok: distinct === arms.length };
 }
 
