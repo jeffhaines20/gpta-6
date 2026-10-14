@@ -264,6 +264,140 @@ function writePackTexel(data, i, rough, metal) {
  * At night this moves the windscreen 0.0078 to 0.0156 of the paint. Still a hole, for the same
  * reason: there is nothing lit in the environment to reflect.
  */
+/**
+ * A CABIN BEHIND THE GLASS — the cars' live line, item 1, ranked first by the reviewers who ranked
+ * body-shell variety: "no interior behind any glass. Panes have the same internal structure as the
+ * door skin (1.89/1.40 against the door's 1.77/1.40); the building glazing in the same frame reads
+ * 4.76/8.38. No seats, no headrests, no A-pillar, no falloff." And the number that says what is
+ * missing was already measured: a real windscreen's MODULATION (p95/p50 inside the pane) is 1.56 -
+ * 2.25 off the reference photographs, the shipped one 1.20 - 1.28, and `uGlassEnvExtra` above
+ * cannot move it because a gain multiplies the whole pane. Structure has to come from somewhere,
+ * and in a real windscreen most of it is the cabin.
+ *
+ * So the glazing's diffuse albedo — authored as (0.0040, 0.0052, 0.0075), "an unlit interior" —
+ * becomes the albedo of what a ray from the eye through the pane would hit inside a box in the
+ * car's own frame: headliner, seat backs and headrests, door cards, dash top, floor, or the far
+ * window and the street beyond it. No geometry, no draw call, no texture: one ray-box exit and four
+ * plane tests per glazing fragment, in the program every car already uses.
+ *
+ * THE VALUES ARE EFFECTIVE ALBEDOS, not material albedos. The pane is lit by the scene's own
+ * lights at the pane's own normal — the wrong normal for a seat, the right magnitude for anything
+ * seen through glass at traffic distance — so each number already folds in that a cabin receives a
+ * fraction of the light outside it: a light-grey headliner (0.5) under ~0.3 of the outside
+ * irradiance is 0.15, dark seat cloth 0.03 under the same is 0.01. The ratio between them is the
+ * structure; the level is the floor the glazing already had. The far window is the brightest thing
+ * in a cabin, because it is the street.
+ *
+ * `uCabinGain` 0 is the build before it, bit for bit: the mix's weight is 0, so `diffuseColor` is
+ * the authored glass albedo exactly.
+ */
+export const CABIN = {
+  // One box for all three shells, read off the glazing's own vertices (x +/-0.891..0.955, y
+  // 1.064..1.509, z -1.711..0.648) and set inside them: the pane is the cabin's skin.
+  lo: [-0.84, 0.42, -1.62], hi: [0.84, 1.40, 0.60],
+  belt: 1.07,           // the side glass's lower edge: above it a far wall is a far WINDOW
+  frontSeatZ: -0.48,    // just ahead of the B-pillar gap at z -0.645..-0.760
+  rearSeatZ: -1.28,
+  albedo: {
+    headliner: 0.15, seat: 0.010, headrest: 0.016, door: 0.020, dash: 0.012, floor: 0.006,
+    wall: 0.014,
+  },
+  // The far window: a TRANSMISSION on the environment's radiance along the view ray, not an albedo.
+  // Two panes of tinted glass and the street beyond them, so well under 1 — and MEASURED rather
+  // than reasoned, on car-pane's own near-windscreen box (8.6 m, the reviewers' box), one page load:
+  //
+  //                     noon med/paint  modulation    night med/paint  modulation
+  //   cabin off              0.263        1.257            0.044         1.374
+  //   through 0.15           0.270        2.026            0.080         1.826
+  //   through 0.30           0.270        2.952            0.061         3.652
+  //   through 0.60           0.270        4.573            0.061         8.296
+  //   real windscreens       0.137-0.333  1.56-2.25        (glass-census, photographs, noon)
+  //
+  // 0.15 is the one value inside the photographed band at BOTH hours. The rear screen at 14.7 m
+  // goes 1.10 -> 1.32 at noon (still under the band) and 1.17 -> 1.71 at night with it.
+  through: 0.15,
+  // Light reaches a cabin through its windows, so the deeper a ray goes the less there is.
+  falloffM: 0.9, falloffFloor: 0.45,
+};
+// Three uniforms, so a sweep is one page load: the mix weight, a scale on every interior surface,
+// and the far window's value on its own — it is the one surface whose brightness is the STREET's
+// rather than the cabin's, and the one that sets a windscreen's median.
+// SHIPPING AT 1. `setCabinGain(0)` is the build before the cabin, bit for bit.
+const CABIN_U = { uCabinGain: { value: 1 }, uCabinLevel: { value: 1 }, uCabinThrough: { value: CABIN.through } };
+export function setCabinGain(k, opts = {}) {
+  CABIN_U.uCabinGain.value = Math.min(1, Math.max(0, k));
+  if (opts.level !== undefined) CABIN_U.uCabinLevel.value = Math.max(0, opts.level);
+  if (opts.through !== undefined) CABIN_U.uCabinThrough.value = Math.max(0, opts.through);
+  return cabinGain();
+}
+export function cabinGain() {
+  return { value: CABIN_U.uCabinGain.value, level: CABIN_U.uCabinLevel.value,
+    through: CABIN_U.uCabinThrough.value, box: [CABIN.lo, CABIN.hi] };
+}
+
+/** The GLSL for CABIN, generated from the table so the shader and the table cannot drift apart. */
+function cabinGLSL() {
+  const f = (v) => Number(v).toFixed(4);
+  const v3 = (a) => `vec3( ${a.map(f).join(', ')} )`;
+  const A = CABIN.albedo;
+  return `
+uniform float uCabinGain;
+uniform float uCabinLevel;
+uniform float uCabinThrough;
+varying vec3 vCabinPos;
+varying vec3 vCabinEye;
+// What a ray from the eye through this point of the glazing hits inside the cabin, as an
+// effective albedo. Car frame: +z forward, y up, x across. No derivatives in here, so it is safe
+// in the non-uniform branch it is called from.
+float cabinAlbedo( vec3 p, vec3 eye, out float throughW ) {
+	const vec3 lo = ${v3(CABIN.lo)};
+	const vec3 hi = ${v3(CABIN.hi)};
+	vec3 d = normalize( p - eye );
+	vec3 dd = vec3( abs( d.x ) < 1e-4 ? 1e-4 : d.x, abs( d.y ) < 1e-4 ? 1e-4 : d.y, abs( d.z ) < 1e-4 ? 1e-4 : d.z );
+	vec3 q = clamp( p, lo, hi );
+	vec3 tFar = max( ( lo - q ) / dd, ( hi - q ) / dd );
+	float t = min( min( tFar.x, tFar.y ), tFar.z );
+	vec3 h = q + d * t;
+	float alb;
+	bool through = false;
+	if ( t == tFar.y ) {
+		alb = d.y > 0.0 ? ${f(A.headliner)} : ${f(A.floor)};
+	} else if ( h.y > ${f(CABIN.belt)} ) {
+		alb = 0.0; through = true;                        // the far side window, or screen
+	} else {
+		alb = t == tFar.x ? ${f(A.door)} : ${f(A.wall)};  // door card, or firewall / parcel shelf
+	}
+	// The dash top, ahead of the front seats and below the screen's base.
+	if ( d.y < 0.0 ) {
+		float td = ( 0.98 - q.y ) / dd.y;
+		vec3 s = q + d * td;
+		if ( td > 0.0 && td < t && s.z > 0.22 ) { t = td; alb = ${f(A.dash)}; through = false; }
+	}
+	// Seat backs and headrests: a plane across the cabin at each row, cut to the seats' outline.
+	for ( int k = 0; k < 2; k++ ) {
+		float zs = k == 0 ? ${f(CABIN.frontSeatZ)} : ${f(CABIN.rearSeatZ)};
+		float ts = ( zs - q.z ) / dd.z;
+		if ( ts <= 0.0 || ts >= t ) continue;
+		vec3 s = q + d * ts;
+		float ax = abs( s.x );
+		// ROUNDED, because a seat is: each back's top falls away toward its shoulders as a parabola
+		// about the seat's centre line, and each headrest is an ellipse on its post. Hard rectangles
+		// read as blocks at the 8 m a parked car is usually seen from.
+		float cx = k == 0 ? 0.41 : 0.40;            // a front seat's centre, or a rear place's
+		float u = ( ax - cx ) / ( k == 0 ? 0.31 : 0.38 );
+		float top = ( k == 0 ? 1.12 : 1.06 ) - 0.07 * u * u;
+		bool back = abs( u ) < 1.0 && s.y < top && ( k == 1 || ax > 0.10 );
+		vec2 e = vec2( ( ax - cx ) / 0.13, ( s.y - ( k == 0 ? 1.21 : 1.13 ) ) / ( k == 0 ? 0.095 : 0.075 ) );
+		bool rest = !back && dot( e, e ) < 1.0;
+		if ( back ) { t = ts; alb = ${f(A.seat)}; through = false; }
+		else if ( rest ) { t = ts; alb = ${f(A.headrest)}; through = false; }
+	}
+	throughW = through ? 1.0 : 0.0;
+	return through ? 0.0 : uCabinLevel * alb * mix( ${f(CABIN.falloffFloor)}, 1.0, exp( -t / ${f(CABIN.falloffM)} ) );
+}
+`;
+}
+
 const GLASS_ENV = { uGlassEnvExtra: { value: 5 } };
 export function setGlassEnv(k) {
   GLASS_ENV.uGlassEnvExtra.value = Math.max(0, k);
@@ -629,6 +763,11 @@ const IBL_DECL = '#include <lights_fragment_maps>';
 // why the paint-slot tint lives in the vertex shader: the alternative is replacing three's own
 // `color_fragment` chunk, which would silently drop whatever else that chunk ever does.
 const COLOR_VERTEX_DECL = '#include <color_vertex>';
+// The cabin's two seams. `project_vertex` is top-level in meshphysical_vert and `transformed` is in
+// scope after it; `color_fragment` is top-level in meshphysical_frag and is where `diffuseColor`
+// has just taken the vertex colour, which is the glazing albedo the cabin replaces.
+const PROJECT_VERTEX_DECL = '#include <project_vertex>';
+const COLOR_FRAGMENT_DECL = '#include <color_fragment>';
 function patchLensFalloff(m) {
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uLensEdge = LENS_PROFILE.uLensEdge;
@@ -644,6 +783,12 @@ function patchLensFalloff(m) {
     if (!shader.vertexShader.includes(COLOR_VERTEX_DECL)) {
       throw new Error('carSurfaceMaterial: color_vertex include not found; the paint-slot tint would silently no-op');
     }
+    if (!shader.vertexShader.includes(PROJECT_VERTEX_DECL) || !shader.fragmentShader.includes(COLOR_FRAGMENT_DECL)) {
+      throw new Error('carSurfaceMaterial: project_vertex / color_fragment include not found; the cabin would silently no-op');
+    }
+    shader.uniforms.uCabinGain = CABIN_U.uCabinGain;
+    shader.uniforms.uCabinLevel = CABIN_U.uCabinLevel;
+    shader.uniforms.uCabinThrough = CABIN_U.uCabinThrough;
     shader.uniforms.uPaintTintOnly = PAINT_TINT.uPaintTintOnly;
     // THE PAINT-SLOT TINT. `paletteU(i)` is `(i + 0.5) / 16`, so `floor( uv.x * 16 )` is the slot
     // this vertex points the palette at - exact in float32 for every slot, since (i + 0.5) / 16
@@ -657,7 +802,22 @@ function patchLensFalloff(m) {
 #if defined( USE_COLOR ) && defined( USE_INSTANCING_COLOR )
 	vColor.xyz = mix( vColor.xyz, color.xyz, uPaintTintOnly * step( 0.5, floor( uv.x * 16.0 ) ) );
 #endif`)
+      // THE CABIN'S RAY, in the car's own frame: this vertex as built, and the camera carried back
+      // through the instance's and the mesh's transforms. Per vertex, so the fragment interpolates
+      // two points rather than inverting a matrix per pixel.
+      .replace(PROJECT_VERTEX_DECL, `${PROJECT_VERTEX_DECL}
+	{
+	#ifdef USE_INSTANCING
+		mat4 cabinToWorld = modelMatrix * instanceMatrix;
+	#else
+		mat4 cabinToWorld = modelMatrix;
+	#endif
+		vCabinPos = transformed;
+		vCabinEye = ( inverse( cabinToWorld ) * vec4( cameraPosition, 1.0 ) ).xyz;
+	}`)
       .replace('void main() {', `uniform float uPaintTintOnly;
+varying vec3 vCabinPos;
+varying vec3 vCabinEye;
 void main() {`);
     shader.fragmentShader = shader.fragmentShader
       // THE PER-SLOT ENVIRONMENT GAIN. The alpha of the pack texture, sampled at
@@ -667,12 +827,46 @@ void main() {`);
       .replace(IBL_DECL, `${IBL_DECL}
 #if defined( RE_IndirectSpecular )
 	radiance *= ( 1.0 + ( 1.0 - texture2D( roughnessMap, vRoughnessMapUv ).a ) * uGlassEnvExtra );
+#endif
+#if defined( RE_IndirectSpecular ) && defined( ENVMAP_TYPE_CUBE_UV )
+	// THE FAR WINDOW IS THE STREET, NOT A CABIN SURFACE, so it is not an albedo lit by the light on
+	// this pane: it is what the environment sends along the view ray, carried on through the car
+	// and attenuated by two panes of tinted glass. An albedo version over-drove a sun-facing
+	// windscreen at noon and lamp-lit ones at night (modulation 6.6), because the light falling
+	// on the near pane has nothing to do with how bright the street behind the car is.
+	if ( cabinThroughW > 0.0 ) {
+		vec3 cabinRay = inverseTransformDirection( normalize( - vViewPosition ), viewMatrix );
+		reflectedLight.indirectDiffuse += cabinThroughW * uCabinThrough * cabinTint
+			* textureCubeUV( envMap, envMapRotation * cabinRay, 0.5 ).rgb * envMapIntensity;
+	}
 #endif`)
       .replace('void main() {', `uniform float uLensEdge;
 uniform float uLensPow;
 uniform float uLensGain;
 uniform float uGlassEnvExtra;
+${cabinGLSL()}
 void main() {`)
+      // The glazing slot only — the pack texture's alpha is 255 everywhere else, the same test the
+      // environment gain above uses — and the cabin carries the glass's own tint, normalised to
+      // its luminance and taken half way, because what is seen through tinted glass is filtered by
+      // it and a full-strength normalisation of this blue-grey would be a blue cabin.
+      .replace(COLOR_FRAGMENT_DECL, `${COLOR_FRAGMENT_DECL}
+	float cabinThroughW = 0.0;
+	vec3 cabinTint = vec3( 1.0 );
+	{
+		float cabinGlass = 1.0 - texture2D( roughnessMap, vRoughnessMapUv ).a;
+	#ifdef CAR_NO_CABIN
+		cabinGlass = 0.0;
+	#endif
+		if ( uCabinGain > 0.0 && cabinGlass > 0.5 ) {
+			cabinTint = diffuseColor.rgb / max( dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) ), 1e-6 );
+			cabinTint = mix( vec3( 1.0 ), cabinTint, 0.5 );
+			float cabinThrough;
+			float cabinAlb = cabinAlbedo( vCabinPos, vCabinEye, cabinThrough );
+			cabinThroughW = cabinThrough * uCabinGain;
+			diffuseColor.rgb = mix( diffuseColor.rgb, cabinTint * cabinAlb, uCabinGain );
+		}
+	}`)
       .replace(EMISSIVE_DECL, `float lensRho = clamp( vEmissiveMapUv.y, 0.0, 1.0 );
 	float lensDome = pow( max( 0.0, 1.0 - lensRho * lensRho ), uLensPow );
 	${EMISSIVE_DECL.replace('emissive;', 'emissive * uLensGain * mix( uLensEdge, 1.0, lensDome );')}`);
@@ -687,7 +881,8 @@ void main() {`)
   // BUMPED AGAIN FOR THE PAINT-SLOT TINT: a new uniform and a new VERTEX injection. The two
   // assertions above run inside onBeforeCompile, so they cannot see a compile that three skips
   // because it already has a program under the old key.
-  m.customProgramCacheKey = () => 'carLensFalloff4tint';
+  // BUMPED FOR THE CABIN: a new uniform, two varyings and an injection on each side.
+  m.customProgramCacheKey = () => 'carLensFalloff5cabin';
   return m;
 }
 
@@ -709,6 +904,11 @@ export function carSurfaceMaterial(opts = {}) {
     emissiveIntensity: 1,
     envMapIntensity: opts.envMapIntensity ?? 1.5,
   });
+  // THE PLAYER'S CAR HAS NO CABIN HERE. Its panes are on their own `carGlassMaterial`, so the only
+  // glazing-slot texels on this material are its mirror glass, and a cabin ray-cast from a door
+  // mirror would paint seats on it. A define rather than a uniform, so the two programs are cached
+  // apart by three's own key.
+  if (opts.cabin === false) m.defines = { ...(m.defines ?? {}), CAR_NO_CABIN: '' };
   return patchLensFalloff(m);
 }
 
@@ -2112,7 +2312,7 @@ export function buildPlayerCar(opts = {}) {
   const bodyGeo = b.geometry();
   const glassGeo = gb.geometry();
 
-  const bodyMat = carSurfaceMaterial({ envMapIntensity: opts.envMapIntensity ?? 1.8 });
+  const bodyMat = carSurfaceMaterial({ envMapIntensity: opts.envMapIntensity ?? 1.8, cabin: false });
   const glassMat = carGlassMaterial();
 
   const group = new THREE.Group();

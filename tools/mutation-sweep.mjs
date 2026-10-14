@@ -166,6 +166,10 @@ const OFFLINE = [
   // in three's lit materials plus one line in a composite shader, and nothing offline compiles
   // either: every row below is invisible to the other entries on this list by construction.
   'ao-emit',
+  // 2.8 s, the same kind of page as car-pixel: one traffic car through the REAL instanced material
+  // from three sides at street height. The cabin is a ray cast inside that material's fragment
+  // shader, so nothing else on this list can see any of the rows below it.
+  'car-cabin',
 ];
 
 /**
@@ -2392,6 +2396,49 @@ const MUTATIONS = [
     find: '    u.aoEmitExempt.value = p.aoEmitExempt ?? 1;',
     to: '    u.aoEmitExempt.value = 1;',
     why: 'the switch is dead, so no capture can show a before and an after off one page load',
+  },
+  // ---- src/carbody.js: the cabin behind the car glass. Each renders a plausible car.
+  {
+    id: 'cabin-mask-inverted', file: 'src/carbody.js',
+    find: '\t\tif ( uCabinGain > 0.0 && cabinGlass > 0.5 ) {',
+    to: '\t\tif ( uCabinGain > 0.0 && cabinGlass < 0.5 ) {',
+    why: 'the cabin lands on the paint, the lamps and the tyres and never on the glass',
+  },
+  {
+    /**
+     * THE EYE LEFT IN WORLD SPACE. Every car the page renders at the origin with an identity
+     * instance matrix looks exactly right under this mutation — the car frame IS the world frame
+     * there. The fleet and the parked pool are never at the origin, so every real car would ray-cast
+     * from a camera kilometres away in its own frame. Only the rigid-transform row can see it.
+     */
+    id: 'cabin-eye-world', file: 'src/carbody.js',
+    find: '\t\tvCabinEye = ( inverse( cabinToWorld ) * vec4( cameraPosition, 1.0 ) ).xyz;',
+    to: '\t\tvCabinEye = cameraPosition;',
+    why: 'every real car ray-casts its cabin from the wrong eye; only a car away from the origin shows it',
+  },
+  {
+    id: 'cabin-through-off', file: 'src/carbody.js',
+    find: '\t\t\tcabinThroughW = cabinThrough * uCabinGain;',
+    to: '\t\t\tcabinThroughW = 0.0;',
+    why: 'the far window goes black, so no car can be seen through',
+  },
+  {
+    id: 'cabin-player', file: 'src/carbody.js',
+    find: "  if (opts.cabin === false) m.defines = { ...(m.defines ?? {}), CAR_NO_CABIN: '' };",
+    to: '',
+    why: "the player's door mirrors grow seats",
+  },
+  {
+    id: 'cabin-shipped-off', file: 'src/carbody.js',
+    find: 'const CABIN_U = { uCabinGain: { value: 1 },',
+    to: 'const CABIN_U = { uCabinGain: { value: 0 },',
+    why: 'the cabin is built and never switched on, which every other gate reads as the old car',
+  },
+  {
+    id: 'cabin-through-unwired', file: 'src/carbody.js',
+    find: '    shader.uniforms.uCabinThrough = CABIN_U.uCabinThrough;',
+    to: '',
+    why: 'the transmission never reaches the shader, which reads its uniform as 0: no far window',
   },
 ];
 

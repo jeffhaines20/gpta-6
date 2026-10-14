@@ -1,0 +1,267 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>car-cabin</title>
+<!--
+  A CABIN BEHIND THE CAR GLASS — the gate page for `src/carbody.js`'s CABIN, and its preview.
+
+  One traffic car, the REAL patched material, on an InstancedMesh (the path the fleet and the parked
+  pool take), lit by a sun and a sky environment and seen from street height at three angles: front
+  three-quarter, side, rear three-quarter. Each view is drawn with the cabin off and on, and a mask
+  pass marks the glazing (slot 10) and the paint (slot 0), so every statistic is per surface and the
+  masks are the geometry rather than boxes.
+
+  WHAT IT CANNOT SAY is the LEVEL. This page's sky is not the district's: its own glass already
+  carries a modulation of 1.5-2.1 that the district's (1.20-1.28) does not, so the shipped transmission
+  was chosen on car-pane's district boxes and is recorded in CABIN's comment. What this page asserts is
+  what holds at any level: the cabin reaches the glazing and nothing else, the far window is there,
+  the player's car is excluded, and the uniforms are what the material reads.
+
+  Rows, two arms each (cabin off | on), at 480x300:
+    0 front34   1 side   2 rear34
+    3 front34 with the interior only (through 0) | the far window only (level 0)
+    4 front34 with the player's body material (cabin: false), off | on
+    5 front34 again, with the car, the camera and the sun all moved by ONE rigid transform, off | on.
+      Nothing in the picture may change, so a cabin computed in WORLD space instead of the car's own
+      frame shows up here and nowhere else — the parked pool and the fleet are never at the origin.
+      The cabin-off half is the control that says the transform alone moves nothing.
+
+  `?tod=noon|dusk`, `?level=`, `?through=`, `?tone=`, `?shape=` and `?debug=1` (frames published).
+-->
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+<script type="module">
+import * as THREE from '../vendor/three.module.min.js';
+import { buildTrafficCarGeometry, carSurfaceMaterial, SHAPES, SURFACE, paletteU, setCabinGain,
+  cabinGain } from '../src/carbody.js';
+
+const TW = 480, TH = 300, ROWS = 6;
+const q = new URLSearchParams(location.search);
+const TOD = q.get('tod') ?? 'noon';
+const SHAPE = q.get('shape') ?? 'saloon';
+try {
+  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(TW * 2, TH * ROWS);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.autoClear = false;
+  document.body.appendChild(renderer.domElement);
+
+  const day = TOD === 'noon';
+  // The sky's radiance against the sun's, which decides glass against paint. Calibrated so the
+  // windscreen with the cabin OFF sits inside the photographed band (0.137-0.333 of a light car's
+  // paint) rather than reflecting a sky brighter than the car, which the first version did.
+  const SKY = Number(q.get('sky') ?? (day ? 0.15 : 0.06));
+  const skyScene = new THREE.Scene();
+  const skyGeo = new THREE.SphereGeometry(50, 32, 16);
+  const cols = [];
+  const pos = skyGeo.getAttribute('position');
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i) / 50;
+    const c = y >= 0
+      ? new THREE.Color().lerpColors(new THREE.Color(SKY * 1.0, SKY * 1.0, SKY * 1.06),
+        new THREE.Color(SKY * 0.22, SKY * 0.34, SKY * 0.69), Math.pow(y, 0.6))
+      : new THREE.Color(SKY * 0.19, SKY * 0.19, SKY * 0.18);
+    cols.push(c.r, c.g, c.b);
+  }
+  skyGeo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  skyScene.add(new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+  const env = new THREE.PMREMGenerator(renderer).fromScene(skyScene, 0.02).texture;
+
+  const scene = new THREE.Scene();
+  scene.environment = env;
+  scene.background = new THREE.Color(day ? 0x8fa6c4 : 0x1a1622);
+  const sun = new THREE.DirectionalLight(0xffffff, day ? 3.0 : 0.0);
+  sun.position.set(-4, 9, 5);
+  scene.add(sun);
+  scene.add(sun.target);
+  const lamp = new THREE.PointLight(0xffd6a0, day ? 0 : 60, 30, 2);
+  lamp.position.set(3.0, 5.5, 2.0);
+  scene.add(lamp);
+  // THE RIGID TRANSFORM for row 5: a turn about y and a move along the ground. The sky is a gradient
+  // in y only and the ground is uniform, so the only things that see it are what it is applied to.
+  const RIGID = new THREE.Matrix4().makeRotationY(0.9).setPosition(12, 0, -7);
+  const place = (moved) => {
+    const T = moved ? RIGID : new THREE.Matrix4();
+    sun.position.set(-4, 9, 5).applyMatrix4(T); sun.target.position.set(0, 0, 0).applyMatrix4(T);
+    sun.target.updateMatrixWorld();
+    lamp.position.set(3.0, 5.5, 2.0).applyMatrix4(T);
+    for (const m of [car, playerLike]) { m.setMatrixAt(0, T); m.instanceMatrix.needsUpdate = true; }
+    maskMesh.matrix.copy(T); maskMesh.matrixAutoUpdate = false; maskMesh.matrixWorldNeedsUpdate = true;
+  };
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60),
+    new THREE.MeshStandardMaterial({ color: 0x5a5a58, roughness: 0.95 }));
+  ground.rotation.x = -Math.PI / 2;
+  scene.add(ground);
+
+  const geo = buildTrafficCarGeometry({ groundY: 0, shape: SHAPES[SHAPE] });
+  // A LIGHT car, because the photographed glass band is a light-car band: glass over paint goes as
+  // 1/tone (CLAUDE.md), so a dark car reads higher for reasons that have nothing to do with glass.
+  const TONE = Number(q.get('tone') ?? 0.75);
+  const mkCar = (mat) => {
+    const m = new THREE.InstancedMesh(geo, mat, 1);
+    m.setMatrixAt(0, new THREE.Matrix4());
+    m.setColorAt(0, new THREE.Color(TONE, TONE, TONE));
+    m.instanceMatrix.needsUpdate = true;
+    scene.add(m);
+    return m;
+  };
+  const car = mkCar(carSurfaceMaterial());
+  // The player's body material, which carries mirror glass on slot 10 and must get no cabin.
+  const playerLike = mkCar(carSurfaceMaterial({ cabin: false }));
+
+  const glassU = paletteU(SURFACE.glassy), paintU = paletteU(SURFACE.paint);
+  const maskScene = new THREE.Scene();
+  maskScene.background = new THREE.Color(0, 0, 0);
+  const maskMesh = new THREE.Mesh(geo, new THREE.ShaderMaterial({
+    uniforms: { uGlassU: { value: glassU }, uPaintU: { value: paintU } },
+    vertexShader: 'varying float vU; void main() { vU = uv.x; gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }',
+    fragmentShader: 'uniform float uGlassU; uniform float uPaintU; varying float vU; void main() { gl_FragColor = vec4( abs( vU - uGlassU ) < 0.01 ? 1.0 : 0.0, abs( vU - uPaintU ) < 0.01 ? 1.0 : 0.0, 0.0, 1.0 ); }',
+  }));
+  maskScene.add(maskMesh);
+
+  const cams = Object.fromEntries([
+    ['front34', [4.4, 1.6, 5.6], false], ['side', [7.0, 1.6, -0.4], false], ['rear34', [-4.2, 1.6, -6.0], false],
+    ['front34moved', [4.4, 1.6, 5.6], true],
+  ].map(([name, p, moved]) => {
+    const c = new THREE.PerspectiveCamera(32, TW / TH, 0.1, 200);
+    const T = moved ? RIGID : new THREE.Matrix4();
+    c.position.set(...p).applyMatrix4(T);
+    c.up.set(0, 1, 0);
+    c.lookAt(new THREE.Vector3(0, 0.95, -0.4).applyMatrix4(T));
+    c.updateMatrixWorld(true);
+    return [name, c];
+  }));
+
+  const shipped = cabinGain();
+  const LEVEL = q.get('level') ? Number(q.get('level')) : shipped.level;
+  const THROUGH = q.get('through') ? Number(q.get('through')) : shipped.through;
+  // [row, col, camera, which car, gain, level, through]
+  const plan = [];
+  ['front34', 'side', 'rear34'].forEach((v, row) => {
+    plan.push([row, 0, v, 'car', 0, LEVEL, THROUGH], [row, 1, v, 'car', 1, LEVEL, THROUGH]);
+  });
+  plan.push([3, 0, 'front34', 'car', 1, LEVEL, 0], [3, 1, 'front34', 'car', 1, 0, THROUGH]);
+  plan.push([4, 0, 'front34', 'player', 0, LEVEL, THROUGH], [4, 1, 'front34', 'player', 1, LEVEL, THROUGH]);
+  plan.push([5, 0, 'front34moved', 'car', 0, LEVEL, THROUGH], [5, 1, 'front34moved', 'car', 1, LEVEL, THROUGH]);
+
+  const W = TW * 2, H = TH * ROWS;
+  const gl = renderer.getContext();
+  const read = () => {
+    const px = new Uint8Array(W * H * 4);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const out = new Uint8Array(W * H * 3);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const s = ((H - 1 - y) * W + x) * 4, d = (y * W + x) * 3;
+      out[d] = px[s]; out[d + 1] = px[s + 1]; out[d + 2] = px[s + 2];
+    }
+    return out;
+  };
+  const tile = (row, col) => {
+    const x = col * TW, y = (ROWS - 1 - row) * TH;
+    renderer.setViewport(x, y, TW, TH);
+    renderer.setScissor(x, y, TW, TH);
+    renderer.setScissorTest(true);
+  };
+  renderer.setClearColor(0x000000, 1);
+  renderer.clear();
+  const readback = [];
+  for (const [row, col, v, which, g, lv, th] of plan) {
+    place(v.endsWith('moved'));
+    car.visible = which === 'car';
+    playerLike.visible = which === 'player';
+    readback.push(setCabinGain(g, { level: lv, through: th }));
+    tile(row, col);
+    renderer.render(scene, cams[v]);
+  }
+  setCabinGain(shipped.value, { level: shipped.level, through: shipped.through });
+  const rgb = read();
+  renderer.toneMapping = THREE.NoToneMapping;
+  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+  renderer.setScissorTest(false);
+  renderer.clear();
+  for (const [row, col, v] of plan) { place(v.endsWith('moved')); tile(row, col); renderer.render(maskScene, cams[v]); }
+  const mask = read();
+
+  const lin = new Float64Array(256);
+  for (let i = 0; i < 256; i++) { const c = i / 255; lin[i] = c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }
+  const L = (i) => 0.2126 * lin[rgb[i * 3]] + 0.7152 * lin[rgb[i * 3 + 1]] + 0.0722 * lin[rgb[i * 3 + 2]];
+  const pct = (a, p) => (a.length ? a[Math.min(a.length - 1, Math.floor(p * (a.length - 1) + 0.5))] : NaN);
+  // Pixel classes inside a tile, ERODED: a pixel counts only if its 3x3 neighbourhood agrees, because
+  // the scene pass is antialiased and the mask is not.
+  const cls = (i) => (mask[i * 3] > 250 ? 'g' : mask[i * 3 + 1] > 250 ? 'p' : 'o');
+  const stable = (i) => {
+    const c = cls(i);
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (cls(i + dy * W + dx) !== c) return null;
+    return c;
+  };
+  // Compare tile (row, 0) with tile (row, 1), pixel for pixel.
+  const pair = (row) => {
+    const g0 = [], g1 = [], p0 = [];
+    let glassChanged = 0, otherChanged = 0, otherChanged2 = 0, otherMax = 0, otherPx = 0, glassPx = 0;
+    for (let y = row * TH + 1; y < (row + 1) * TH - 1; y++) for (let x = 1; x < TW - 1; x++) {
+      const a = y * W + x, b = a + TW;
+      const c = stable(a);
+      if (!c) continue;
+      let d = 0;
+      for (let k = 0; k < 3; k++) d = Math.max(d, Math.abs(rgb[a * 3 + k] - rgb[b * 3 + k]));
+      if (c === 'g') { glassPx++; g0.push(L(a)); g1.push(L(b)); if (d > 0) glassChanged++; }
+      else {
+        // A 1-level change on a non-glass pixel is an edge-on glass SLIVER the antialiased scene
+        // caught and the single-sample mask missed (measured: 13 px on the side view's roofline, all
+        // more than 6 px from a glass pixel, all 1 level). A leak of the cabin moves pixels by more.
+        otherPx++; if (d > 0) otherChanged++; if (d > 2) otherChanged2++; otherMax = Math.max(otherMax, d);
+        if (c === 'p') p0.push(L(a));
+      }
+    }
+    const s0 = [...g0].sort((u, v) => u - v), s1 = [...g1].sort((u, v) => u - v), sp = [...p0].sort((u, v) => u - v);
+    return { glassPx, glassChanged, otherPx, otherChanged, otherChanged2, otherMax,
+      left: { p50: pct(s0, 0.5), p95: pct(s0, 0.95), modulation: pct(s0, 0.95) / pct(s0, 0.5) },
+      right: { p50: pct(s1, 0.5), p95: pct(s1, 0.95), modulation: pct(s1, 0.95) / pct(s1, 0.5) },
+      paintP50: pct(sp, 0.5), g0, g1 };
+  };
+  const rows = [0, 1, 2, 3, 4, 5].map(pair);
+  // THE RIGID-TRANSFORM INVARIANCE, row 5 against row 0, the same column: the same picture moved.
+  const across = (rowA, rowB, col) => {
+    let n = 0, moved = 0, max = 0;
+    for (let y = 1; y < TH - 1; y++) for (let x = 1; x < TW - 1; x++) {
+      const a = (rowA * TH + y) * W + col * TW + x, b = (rowB * TH + y) * W + col * TW + x;
+      if (stable(a) !== 'g' || stable(b) !== 'g') continue;
+      n++;
+      let d = 0;
+      for (let k = 0; k < 3; k++) d = Math.max(d, Math.abs(rgb[a * 3 + k] - rgb[b * 3 + k]));
+      if (d > 2) moved++;
+      max = Math.max(max, d);
+    }
+    return { glassPx: n, movedOver2: moved, max };
+  };
+  const invariance = { off: across(0, 5, 0), on: across(0, 5, 1) };
+  // And the interior, read across rows 0 and 3: cabin off against the interior alone.
+  let interiorChanged = 0;
+  for (let k = 0; k < Math.min(rows[0].g0.length, rows[3].g0.length); k++) {
+    if (Math.abs(rows[3].g0[k] - rows[0].g0[k]) > 1e-4) interiorChanged++;
+  }
+  // The far window, read from row 3: the same pixels with the interior alone and the window alone.
+  // A glass pixel where the window alone is brighter is a pixel that sees THROUGH the car.
+  const r3 = rows[3];
+  let throughPx = 0;
+  for (let k = 0; k < r3.g0.length; k++) if (r3.g1[k] > r3.g0[k] + 2e-3) throughPx++;
+  const strip = ({ g0, g1, ...rest }) => rest;
+  window.__carCabin = {
+    tod: TOD, shape: SHAPE, tone: TONE, size: { w: W, h: H, tw: TW, th: TH },
+    shipped: { value: shipped.value, level: shipped.level, through: shipped.through },
+    level: LEVEL, through: THROUGH,
+    readback: readback.map((r) => [r.value, r.level, r.through]),
+    views: { front34: strip(rows[0]), side: strip(rows[1]), rear34: strip(rows[2]) },
+    split: { glassPx: r3.glassPx, throughPx, interiorChanged },
+    invariance,
+    player: strip(rows[4]),
+    gainAfter: cabinGain().value,
+  };
+  if (q.get('debug') === '1') {
+    const b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode(...u8.subarray(i, i + 8192)); return btoa(s); };
+    window.__carCabinFrames = { rgb: b64(rgb), mask: b64(mask) };
+  }
+} catch (e) {
+  window.__carCabin = { error: String(e && e.stack || e) };
+}
+</script>

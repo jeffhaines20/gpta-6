@@ -32,6 +32,7 @@ import {
 import { buildingStyle } from '../src/facades.js';
 import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubScale,
   setTrafficLampAlbedo, setGlassAlbedo, setGlassEnv, glassEnv, setCarLensArm, setShellNames, shellNames,
+  setCabinGain, cabinGain,
   carLensArm, setFrontLensScale, frontLensScale, frontLensLuma,
   setLensFinish, lensFinish,
   setLensProfile, lensProfile,
@@ -2954,6 +2955,10 @@ window.__district = {
   cloudDrift: () => (sky ? sky.cloudDriftState() : null),
   setCarGlassEnv: (k) => setGlassEnv(k),
   carGlassEnv: () => glassEnv(),
+  // THE CABIN BEHIND THE CAR GLASS (src/carbody.js CABIN): three uniforms on every car material, so
+  // an A/B or a level sweep is one page load. `setCarCabin(0)` is the build before it, bit for bit.
+  setCarCabin: (k, opts) => setCabinGain(k, opts),
+  carCabin: () => cabinGain(),
   /**
    * THE TWO HALVES OF #1, AS SWEEPABLE ARMS off one page load.
    *

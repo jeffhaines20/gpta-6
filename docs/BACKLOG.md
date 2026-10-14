@@ -30,6 +30,8 @@ closed and item 7's tone half is closed:
 1. **No interior behind any glass.** Panes have the same internal structure as the door skin
    (1.89/1.40 against the door's 1.77/1.40); the building glazing in the same frame reads
    4.76/8.38, six to eight times more. No seats, no headrests, no A-pillar, no falloff.
+   *SHIPPED, pending its blind review — see "Cars item 1" below: a ray-cast cabin puts the near
+   windscreen's modulation inside the photographed band at noon AND night.*
 2. **No number plates** — *partly done*, see below. Still capped by instanceColor.
 3. **Tail lights are dark painted rectangles**, 1.11x the darkest paint on the same car.
 4. **Octagonal wheels** at 56 px diameter, and inconsistent between cars — one has a rim ring,
@@ -38,6 +40,61 @@ closed and item 7's tone half is closed:
 6. **One tint for the whole street**: glass (B-R)/L of 0.527 / 0.629 / 0.404 across three cars.
 7. **The fleet is too uniform**: six wheel centres within 1.1 px of one ride height, all
    parallel to the kerb, all wheels dead ahead.
+
+### Cars item 1 SHIPPED — a cabin behind the glass, and the far window is the street, not a surface
+The reviewers ranked it first: "no interior behind any glass ... no seats, no headrests, no falloff".
+And the number that says what is missing was already in the repo: a real windscreen's MODULATION
+(p95/p50 inside the pane) is 1.56-2.25 off the reference photographs, the shipped one 1.20-1.28, and
+#92's environment gain could not move it because a gain multiplies the whole pane.
+
+**The cabin is a ray cast in the car material, not geometry.** Each glazing fragment carries a ray
+from the eye, in the car's own frame (the camera carried back through the instance and mesh
+transforms, per vertex), into a box set inside the glazing's own vertices; it exits through the
+headliner, a door card, the dash top, the floor, or past the seat-back planes — rounded shoulders and
+elliptical headrests, because hard rectangles read as blocks at 8 m — and the glazing's diffuse
+albedo becomes what it hit, tinted by the glass. If it exits through the far window above the
+beltline it sees the street: the environment's radiance along the view ray, times a transmission.
+No triangle, no draw call, no texture; `uCabinGain` 0 is the old car bit for bit.
+
+**The first version made the far window an ALBEDO, and the district said no.** Lit by the light
+falling on the near pane, a sun-facing windscreen at noon and a lamp-facing one at night drove the far
+window from the wrong light — night modulation 6.6 at the value that read best at noon — because the
+light on the near pane has nothing to do with how bright the street behind the car is. As radiance
+along the ray it is the street's, at every hour. Swept on car-pane's own near-windscreen box (8.6 m,
+the reviewers' box), one page load, the negative-control body-panel box unmoved throughout:
+
+                         noon med/paint  modulation    night med/paint  modulation
+    cabin off                 0.263        1.257            0.044         1.374
+    transmission 0.15         0.270        2.026            0.080         1.826     <- shipped
+    transmission 0.30         0.270        2.952            0.061         3.652
+    transmission 0.60         0.270        4.573            0.061         8.296
+    real windscreens          0.137-0.333  1.56-2.25        (glass-census, photographs, noon)
+
+0.15 is the one value inside the band at BOTH hours, and the median does not move at noon — the
+structure is added without lifting the level the census already matched. At night the near
+windscreen goes from 0.044 to 0.080 of its paint, which is #54's hole, smaller. The rear screen at
+14.7 m goes 1.10 -> 1.32 at noon (still under the band) and 1.17 -> 1.71 at night.
+
+**A preview page could not set the level, and saying so is part of the method.** `tools/car-cabin.html`
+renders one car from three sides at street height against a PMREM gradient sky; with a light car
+(glass/paint goes as 1/tone, and the census band is a light-car band) and the sky calibrated so the
+cabin-off windscreen sat inside the photographed band, its glass still carried a modulation of
+1.5-2.1 from the reflection alone, where the district's carries 1.20-1.28. So the preview is for
+SHAPE — where the headrests land, whether the far window is there — and the level came from the
+district. The first preview also had a sky brighter than the car (glass 0.6, a mirror) and a dark
+car, and read the cabin as making the windscreen 4.5x brighter; a probe mode lighting one cabin
+surface at a time is what showed the far window was most of the pane.
+
+**The gate is that page**: `tools/car-cabin.mjs`, 2.8 s, 13 checks — the cabin reaches 90-98% of the
+glazing in every view and moves no other pixel by more than 2 levels (13 one-level slivers on the side
+view's roofline, edge-on glass the antialiased scene catches and the single-sample mask misses); the
+interior alone and the far window alone each change the windscreen (2,196 of 3,283 pixels see through
+the car); the PLAYER's body material, whose slot-10 texels are mirror glass, gets no cabin; and a row
+with the car, the camera and the sun moved by one rigid transform matches its untransformed twin to 1
+level on all 3,283 glass pixels, with the cabin-off half as the control. That last one is the only
+check that can tell a cabin computed in the car's frame from one computed in world space, because
+every car this page draws at the origin looks right either way and no car in the district is there.
+Six mutation rows on the sweep's offline list.
 
 ### #56 FIXED — per-shell body length, and the 0.289 m price was the wrong one for half the sites
 Offline half landed (2aca6c5): three shells, length range 0.196 m, 1,050 triangles each.

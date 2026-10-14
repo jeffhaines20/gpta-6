@@ -480,6 +480,19 @@ export const ARM_STATE = {
   // so a frame says what every surface TAGS as. Captured beside the three above, it is what tells
   // "the exemption is not working" apart from "this surface's light is not emitted".
   aoEmitShow: { albedo: null, skyProxy: false, nightGlowLux: 0, aoEmit: 1, aoEmitDebug: 1 },
+
+  // THE CABIN BEHIND THE CAR GLASS (src/carbody.js CABIN), the cars' live line item 1. `carCabin` is
+  // [gain, level, through]: the mix weight, a scale on every interior surface, and the far window's
+  // value. cab0 is the build before it, bit for bit; the others sweep the two levels, because the
+  // preview page's sky cannot set them — its own glass already carries a modulation of 1.5-2.1 that
+  // the district's (1.20-1.28) does not, so only the district can say what the cabin adds.
+  // `through` is a TRANSMISSION on the sky environment along the view ray since the far window
+  // stopped being an albedo (it over-drove sun- and lamp-facing panes); the first sweep's
+  // albedo-valued arms are recorded in docs/BACKLOG.md and not kept here.
+  cab0: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [0, 1, 0.3] },
+  cabT1: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [1, 1, 0.15] },
+  cabT2: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [1, 1, 0.3] },
+  cabT3: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [1, 1, 0.6] },
 };
 
 /**
@@ -686,6 +699,17 @@ export async function setArm(page, name) {
       }
       carPaintTint = D.setCarPaintTint(s.carPaintTint ?? window.__armSavedPaintTint);
     }
+    // The cabin, saved and restored like the paint tint, so an arm that does not name it gets the
+    // build's own [gain, level, through] rather than the previous arm's.
+    let carCabin = null;
+    if (D && D.setCarCabin) {
+      if (window.__armSavedCabin === undefined) {
+        const c = D.carCabin();
+        window.__armSavedCabin = [c.value, c.level, c.through];
+      }
+      const c = s.carCabin ?? window.__armSavedCabin;
+      carCabin = D.setCarCabin(c[0], { level: c[1], through: c[2] });
+    }
     let carTone = null;
     if (D && D.setCarTone) {
       // The build's own state is "not legacy", and there is nothing to read back off the app for
@@ -767,6 +791,8 @@ export async function setArm(page, name) {
       // Read back off what the app reached — the tone's own measured luma span, which is the
       // number that says the recolour actually landed rather than the boolean that asked for it.
       carPaintTint: carPaintTint ? [carPaintTint.value, carPaintTint.tintedSlot] : null,
+      // IN THE KEY: the cabin arms differ in nothing else. Tenth time.
+      carCabin: carCabin ? [carCabin.value, carCabin.level, carCabin.through] : null,
       carTone: carTone ? [carTone.traffic ? +carTone.traffic.span.toFixed(3) : null,
         carTone.parked ? +carTone.parked.span.toFixed(3) : null] : null,
       carShells: (window.__district && window.__district.carShells)
@@ -794,7 +820,7 @@ export async function proveArmsDiffer(page, arms) {
   // carFront and carTyre joined the key in round 5 for the same reason, for the
   // third time: those arms move one texel and one vertex-colour set and nothing
   // a uniform readback would otherwise show.
-  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carGlass, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo, s.carGlassAlbedo, s.carGlassEnv, s.carShells, s.carPaintTint, s.carTone, s.aoKernel, s.aoEmit]))).size;
+  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carGlass, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo, s.carGlassAlbedo, s.carGlassEnv, s.carShells, s.carPaintTint, s.carTone, s.aoKernel, s.aoEmit, s.carCabin]))).size;
   return { seen, ok: distinct === arms.length };
 }
 
