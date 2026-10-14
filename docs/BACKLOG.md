@@ -3441,6 +3441,31 @@ then have to carry emitted + direct and lose the ability to tell them apart, so 
 apply to emitted light at noon too, which #114 says is wrong); or the honest one, point lights
 that cast their own shadows, which is a cost question this project has not priced.
 
+### #116 FIXED — the asphalt's roughness map carried seven glossy spots per 3 m tile, on a lattice nothing de-tiled
+`src/materials.js`'s asphalt `paintRough` painted seven smooth radial "oil" spots per tile (roughness
+~0.27 against 0.89 dry, 0.16-0.63 m across), and the map repeats every 3 m with nothing to break it:
+the road shader's de-tiling (`pvMacro`) multiplies the ALBEDO only. So every carriageway carried a
+3 m lattice of mirrors, each catching the brightest sky of the hour. Oil gloss already existed where
+oil is — `pvOil`, in world space, dripped down each lane's centre — so the tiled spots go, and the
+painter's stream is its own (`mulberry32(seed)` per painter), so nothing else on the road moves.
+
+`tools/road-gloss.mjs` counts it: pixels brighter than 1.2x their 31x31 neighbourhood median AND
+bluer than red (paint is never bluer than red; a sky reflection is — without that term the first
+version read the same 18% at noon from lane paint and crack edges). Selftest with a spot lattice,
+paint and warm highlights. Same camera, two page loads (the road box is static):
+
+                              before                after
+    corridor road, dusk       18.29%, 106 blobs     9.34%, 55 blobs
+    corridor road, noon       19.51%, 113 blobs    15.70%, 103 blobs
+    fivepoints road, dusk     11.39%,  81 blobs     3.59%, 47 blobs
+    fivepoints road, noon      1.68%,  46 blobs     0.36%,  7 blobs
+
+What remains is the world-space tyre-track polish, which runs ALONG each lane as a sheen rather than
+in rows across it — at 1:1 the dusk road reads as worn asphalt with two polished tracks a lane, and
+the rows of ellipses are gone. No gate checks the roughness map itself: the change is in a canvas
+painter, and the instrument is the frame.
+
+#### THE ORIGINAL RECORD
 ### #116 OPEN — rows of pale blue ellipses on the asphalt at dusk, from #114's blind reviewer
 Found in BOTH arms of #114's review, so independent of the AO: at dusk, "rows of pale blue elliptical
 spots on the asphalt", 64 of them covering 7.63% of corridor's road box (560-1040, 600-760) and 52

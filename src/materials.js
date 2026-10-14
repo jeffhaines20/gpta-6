@@ -384,15 +384,15 @@ const asphaltSurface = {
   paintRough(g, S, rand) {
     g.fillStyle = '#e2e2e2'; g.fillRect(0, 0, S, S);       // 0.89 dry asphalt
     drawField(g, S, 32, fbm(32, 4, 3, rand), greyField(0.62, 0.98), 0.55);
-    for (let i = 0; i < 7; i++) {                           // oil is much smoother
-      const x = rand() * S, y = rand() * S, r = 14 + rand() * 40;
-      wrapped(g, S, x, y, r, (c) => {
-        const grd = c.createRadialGradient(0, 0, 0, 0, 0, r);
-        grd.addColorStop(0, 'rgba(70,70,70,0.75)');
-        grd.addColorStop(1, 'rgba(70,70,70,0)');
-        c.fillStyle = grd; c.beginPath(); c.arc(0, 0, r, 0, TAU); c.fill();
-      });
-    }
+    // NO OIL SPOTS IN THE TILE (BACKLOG #116). Seven smooth radial spots were painted here, at
+    // roughness ~0.27 against 0.89 dry, 0.16-0.63 m across — and this map repeats every 3 m with
+    // nothing to break it: the road shader's de-tiling (`pvMacro`) multiplies the ALBEDO only. So
+    // the gloss sat on a 3 m lattice across every carriageway in the district, and a blind reviewer
+    // found it as "rows of pale blue elliptical spots on the asphalt" — the brightest sky of the day
+    // in each one — 7.63% of corridor's road box at dusk. Oil gloss already exists where oil is, in
+    // world space and on no lattice: `pvOil`, dripped down each lane's centre by the road shader.
+    // This painter's stream is its own (`mulberry32(seed)` per painter), so the albedo and the
+    // height map, which share the seed and not the stream, do not move.
   },
 };
 
