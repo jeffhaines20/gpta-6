@@ -508,6 +508,12 @@ export const ARM_STATE = {
   // photographed lamps.
   lamp0: { albedo: null, skyProxy: false, nightGlowLux: 0, carLamp: 0 },
   lamp1: { albedo: null, skyProxy: false, nightGlowLux: 0, carLamp: 1 },
+
+  // CABIN v3 (src/carbody.js uCabinDetail): the cabin on at the shipped level and transmission, its
+  // detail 0 (v2: ellipse headrests on their seat backs) against 1 (cushions on posts, the steering
+  // wheel and the mirror), so the pair isolates the detail.
+  cdet0: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [1, 1, 0.15, 0] },
+  cdet1: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [1, 1, 0.15, 1] },
 };
 
 /**
@@ -720,10 +726,10 @@ export async function setArm(page, name) {
     if (D && D.setCarCabin) {
       if (window.__armSavedCabin === undefined) {
         const c = D.carCabin();
-        window.__armSavedCabin = [c.value, c.level, c.through];
+        window.__armSavedCabin = [c.value, c.level, c.through, c.detail];
       }
       const c = s.carCabin ?? window.__armSavedCabin;
-      carCabin = D.setCarCabin(c[0], { level: c[1], through: c[2] });
+      carCabin = D.setCarCabin(c[0], { level: c[1], through: c[2], detail: c[3] ?? window.__armSavedCabin[3] });
     }
     // The plate's face, saved and restored the same way.
     let carPlate = null;
@@ -818,7 +824,7 @@ export async function setArm(page, name) {
       // number that says the recolour actually landed rather than the boolean that asked for it.
       carPaintTint: carPaintTint ? [carPaintTint.value, carPaintTint.tintedSlot] : null,
       // IN THE KEY: the cabin arms differ in nothing else. Tenth time.
-      carCabin: carCabin ? [carCabin.value, carCabin.level, carCabin.through] : null,
+      carCabin: carCabin ? [carCabin.value, carCabin.level, carCabin.through, carCabin.detail] : null,
       // IN THE KEY: the plate arms differ in nothing else. Eleventh time.
       carPlate: carPlate ? carPlate.value : null,
       // IN THE KEY: the lamp arms differ in nothing else. Twelfth time.

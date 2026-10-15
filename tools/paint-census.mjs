@@ -443,13 +443,13 @@ console.log('\n=== THE PAINT-SLOT TINT — what instanceColor is still allowed t
     !!mixCall && mixCall[1] === 'vColor.xyz' && mixCall[2] === 'color.xyz',
     mixCall ? `mix( ${mixCall[1]}, ${mixCall[2]}, … ) — the weight is 1 where the authored colour must win`
       : 'the mix call was not found at all');
-  // RESTATED for the cabin, the plate's face and the lamps' faces, each of which bumped the key: the
+  // RESTATED for the cabin, the plate's face, the lamps' faces and the cabin's v3 detail, each of which bumped the key: the
   // property is that the key is the CURRENT one and none of the keys before it, so a stale program
   // cannot be handed back.
   check('and the program cache key moved, or three would hand back the old program',
-    /'carLensFalloff7lamp'/.test(cb) && !/'carLensFalloff6plate'/.test(cb) && !/'carLensFalloff5cabin'/.test(cb)
+    /'carLensFalloff8cabin3'/.test(cb) && !/'carLensFalloff7lamp'/.test(cb) && !/'carLensFalloff6plate'/.test(cb) && !/'carLensFalloff5cabin'/.test(cb)
       && !/'carLensFalloff4tint'/.test(cb) && !/'carLensFalloff3env'/.test(cb),
-    'carLensFalloff7lamp');
+    'carLensFalloff8cabin3');
 }
 
 console.log('\n' + '='.repeat(78));

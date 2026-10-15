@@ -323,16 +323,17 @@ export const CABIN = {
 // and the far window's value on its own — it is the one surface whose brightness is the STREET's
 // rather than the cabin's, and the one that sets a windscreen's median.
 // SHIPPING AT 1. `setCabinGain(0)` is the build before the cabin, bit for bit.
-const CABIN_U = { uCabinGain: { value: 1 }, uCabinLevel: { value: 1 }, uCabinThrough: { value: CABIN.through } };
+const CABIN_U = { uCabinDetail: { value: 1 }, uCabinGain: { value: 1 }, uCabinLevel: { value: 1 }, uCabinThrough: { value: CABIN.through } };
 export function setCabinGain(k, opts = {}) {
   CABIN_U.uCabinGain.value = Math.min(1, Math.max(0, k));
   if (opts.level !== undefined) CABIN_U.uCabinLevel.value = Math.max(0, opts.level);
   if (opts.through !== undefined) CABIN_U.uCabinThrough.value = Math.max(0, opts.through);
+  if (opts.detail !== undefined) CABIN_U.uCabinDetail.value = Math.min(1, Math.max(0, opts.detail));
   return cabinGain();
 }
 export function cabinGain() {
   return { value: CABIN_U.uCabinGain.value, level: CABIN_U.uCabinLevel.value,
-    through: CABIN_U.uCabinThrough.value, box: [CABIN.lo, CABIN.hi] };
+    through: CABIN_U.uCabinThrough.value, detail: CABIN_U.uCabinDetail.value, box: [CABIN.lo, CABIN.hi] };
 }
 
 /** The GLSL for CABIN, generated from the table so the shader and the table cannot drift apart. */
@@ -344,11 +345,13 @@ function cabinGLSL() {
 uniform float uCabinGain;
 uniform float uCabinLevel;
 uniform float uCabinThrough;
+uniform float uCabinDetail;
 varying vec3 vCabinPos;
 varying vec3 vCabinEye;
 // What a ray from the eye through this point of the glazing hits inside the cabin, as an
-// effective albedo. Car frame: +z forward, y up, x across. No derivatives in here, so it is safe
-// in the non-uniform branch it is called from.
+// effective albedo. Car frame: +z forward, y up, x across, so the driver's side (the left, in
+// Florida) is +x. No derivatives in here, so it is safe in the non-uniform branch it is called from:
+// the one size it needs, a screen pixel in metres at the glass, is taken outside and passed in.
 float cabinFalloff( float t ) { return uCabinLevel * mix( ${f(CABIN.falloffFloor)}, 1.0, exp( -t / ${f(CABIN.falloffM)} ) ); }
 // One seat row's plane, as COVERAGE rather than a yes/no, so its outline is soft: a back whose top
 // falls away to rounded shoulders, and a headrest that is an ellipse on its post, lit from above.
@@ -368,15 +371,29 @@ vec2 cabinSeatRow( vec3 s, int k ) {
 	// "three equal-size headrests in one row across the windscreen".
 	vec2 hc = k == 0 ? vec2( 0.41, 1.21 ) : vec2( 0.34, 1.11 );
 	vec2 hr = k == 0 ? vec2( 0.13, 0.095 ) : vec2( 0.10, 0.065 );
+	// AND THEY WERE BALD HEADS, which a second blind reviewer said in as many words: "perfect circles
+	// on a flat slab ... parked cars look occupied by bald heads", the outline widening "3, 13, 17, 20,
+	// 23, 24, 26, 28 px: a circular arc. A real headrest is a wide, flat-topped cushion on posts". So at
+	// uCabinDetail 1 each is a squircle — flat on top, square-shouldered — shallower, and raised off
+	// its seat back on its posts: a 4 cm gap at the front, 3.3 cm at the rear, which is the cue a head
+	// does not have. Mixed by the detail so 0 is the ellipse exactly.
+	hc = mix( hc, k == 0 ? vec2( 0.41, 1.235 ) : vec2( 0.34, 1.135 ), uCabinDetail );
+	hr = mix( hr, k == 0 ? vec2( 0.135, 0.075 ) : vec2( 0.105, 0.052 ), uCabinDetail );
 	vec2 e = vec2( ( ax - hc.x ) / hr.x, ( s.y - hc.y ) / hr.y );
-	float rest = 1.0 - smoothstep( 0.78, 1.0, dot( e, e ) );
+	float r2 = dot( e, e );
+	if ( uCabinDetail > 0.0 ) {
+		float n = mix( 2.0, 5.0, uCabinDetail );
+		vec2 a = abs( e );
+		r2 = pow( pow( a.x, n ) + pow( a.y, n ), 2.0 / n );
+	}
+	float rest = 1.0 - smoothstep( 0.78, 1.0, r2 );
 	// Lit from above, through the glass: the top of a headrest or a seat back is its brightest part.
 	float restAlb = ${f(A.headrest)} * ( 0.65 + 0.7 * clamp( 0.5 + 0.5 * e.y, 0.0, 1.0 ) );
 	float backAlb = ${f(A.seat)} * ( 0.75 + 0.5 * smoothstep( top - 0.35, top, s.y ) );
 	float cov = max( back, rest );
 	return vec2( cov, back >= rest ? backAlb : restAlb );
 }
-float cabinAlbedo( vec3 p, vec3 eye, out float throughW ) {
+float cabinAlbedo( vec3 p, vec3 eye, float pxGlass, out float throughW ) {
 	const vec3 lo = ${v3(CABIN.lo)};
 	const vec3 hi = ${v3(CABIN.hi)};
 	vec3 d = normalize( p - eye );
@@ -404,17 +421,54 @@ float cabinAlbedo( vec3 p, vec3 eye, out float throughW ) {
 		vec3 s = q + d * td;
 		if ( td > 0.0 && td < t && s.z > 0.22 ) { t = td; alb = ${f(A.dash)} * cabinFalloff( td ); thr = 0.0; }
 	}
-	// The two seat rows, the FARTHER first.
-	float tsF = ( ${f(CABIN.frontSeatZ)} - q.z ) / dd.z;
-	float tsR = ( ${f(CABIN.rearSeatZ)} - q.z ) / dd.z;
-	for ( int i = 0; i < 2; i++ ) {
-		bool rearFirst = tsR > tsF;
-		int k = ( i == 0 ) == rearFirst ? 1 : 0;
-		float ts = k == 0 ? tsF : tsR;
+	// THE OCCLUDERS BETWEEN THE EYE AND THAT SURFACE — the two seat rows, and at uCabinDetail the
+	// steering wheel's rim and the rear-view mirror — blended FAR TO NEAR by their own distance along
+	// the ray. At detail 0 the last two are never entered and the rows go in v2's order with v2's
+	// arithmetic, so the switch's 0 is v2 exactly.
+	float oT[4]; float oC[4]; float oA[4];
+	for ( int k = 0; k < 4; k++ ) { oT[k] = -1.0; oC[k] = 0.0; oA[k] = 0.0; }
+	for ( int k = 0; k < 2; k++ ) {
+		float ts = ( ( k == 0 ? ${f(CABIN.frontSeatZ)} : ${f(CABIN.rearSeatZ)} ) - q.z ) / dd.z;
 		if ( ts <= 0.0 || ts >= t ) continue;
 		vec2 row = cabinSeatRow( q + d * ts, k );
-		alb = mix( alb, row.y * cabinFalloff( ts ), row.x );
-		thr *= 1.0 - row.x;
+		oT[k] = ts; oC[k] = row.x; oA[k] = row.y * cabinFalloff( ts );
+	}
+	if ( uCabinDetail > 0.0 ) {
+		float dEye = max( length( p - eye ), 0.5 );
+		// The steering wheel, at the driver's seat (+x), on a column pointing up and back at the
+		// driver: a 3 cm rim of 17.5 cm radius round a hub. The dash plane above already clips t
+		// where it is hit, so the lower half of the rim is behind the dash as it is in a car.
+		const vec3 WC = vec3( 0.37, 0.97, 0.12 );
+		const vec3 WN = vec3( 0.0, 0.4061, -0.9138 );
+		float dn = dot( d, WN );
+		if ( abs( dn ) > 1e-4 ) {
+			float tw = dot( WC - q, WN ) / dn;
+			if ( tw > 0.0 && tw < t ) {
+				float r = length( q + d * tw - WC );
+				float px = pxGlass * ( dEye + tw ) / dEye;
+				float rim = 1.0 - smoothstep( 0.015 - px, 0.015 + px, abs( r - 0.175 ) );
+				float hub = 1.0 - smoothstep( 0.05 - px, 0.05 + px, r );
+				oT[2] = tw; oC[2] = max( rim, hub ) * uCabinDetail; oA[2] = 0.018 * cabinFalloff( tw );
+			}
+		}
+		// The mirror, hung from the roof just behind the screen's top: its dark back, 25 x 7 cm.
+		float tm = ( 0.15 - q.z ) / dd.z;
+		if ( tm > 0.0 && tm < t ) {
+			vec3 s = q + d * tm;
+			float px = pxGlass * ( dEye + tm ) / dEye;
+			vec2 m = vec2( abs( s.x ) / 0.125, abs( s.y - 1.255 ) / 0.035 );
+			float sq = pow( pow( m.x, 4.0 ) + pow( m.y, 4.0 ), 0.25 );
+			oT[3] = tm; oC[3] = ( 1.0 - smoothstep( 1.0 - px / 0.035, 1.0 + px / 0.035, sq ) ) * uCabinDetail;
+			oA[3] = 0.025 * cabinFalloff( tm );
+		}
+	}
+	for ( int n = 0; n < 4; n++ ) {
+		int j = -1; float best = 0.0;
+		for ( int i = 0; i < 4; i++ ) if ( oT[i] > best ) { best = oT[i]; j = i; }
+		if ( j < 0 ) break;
+		alb = mix( alb, oA[j], oC[j] );
+		thr *= 1.0 - oC[j];
+		oT[j] = -1.0;
 	}
 	throughW = thr;
 	return alb;
@@ -1052,6 +1106,7 @@ function patchLensFalloff(m) {
     shader.uniforms.uCabinGain = CABIN_U.uCabinGain;
     shader.uniforms.uCabinLevel = CABIN_U.uCabinLevel;
     shader.uniforms.uCabinThrough = CABIN_U.uCabinThrough;
+    shader.uniforms.uCabinDetail = CABIN_U.uCabinDetail;
     shader.uniforms.uPaintTintOnly = PAINT_TINT.uPaintTintOnly;
     shader.uniforms.uPlateText = PLATE_U.uPlateText;
     shader.uniforms.uLampDetail = LAMP_U.uLampDetail;
@@ -1129,6 +1184,8 @@ void main() {`)
 	vec3 cabinTint = vec3( 1.0 );
 	{
 		float cabinGlass = 1.0 - texture2D( roughnessMap, vRoughnessMapUv ).a;
+		// A screen pixel in metres at this point of the glass, taken BEFORE the branch below.
+		float cabinPx = max( length( dFdx( vCabinPos ) ), length( dFdy( vCabinPos ) ) );
 	#ifdef CAR_NO_CABIN
 		cabinGlass = 0.0;
 	#endif
@@ -1136,7 +1193,7 @@ void main() {`)
 			cabinTint = diffuseColor.rgb / max( dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) ), 1e-6 );
 			cabinTint = mix( vec3( 1.0 ), cabinTint, 0.5 );
 			float cabinThrough;
-			float cabinAlb = cabinAlbedo( vCabinPos, vCabinEye, cabinThrough );
+			float cabinAlb = cabinAlbedo( vCabinPos, vCabinEye, cabinPx, cabinThrough );
 			cabinThroughW = cabinThrough * uCabinGain;
 			diffuseColor.rgb = mix( diffuseColor.rgb, cabinTint * cabinAlb, uCabinGain );
 		}
@@ -1188,7 +1245,7 @@ void main() {`)
   // BUMPED FOR THE CABIN: a new uniform, two varyings and an injection on each side.
   // BUMPED FOR THE PLATE'S FACE: a uniform, a varying, and a block on each side.
   // BUMPED FOR THE LAMPS' FACES: a uniform, a define and a fragment block.
-  m.customProgramCacheKey = () => 'carLensFalloff7lamp';
+  m.customProgramCacheKey = () => 'carLensFalloff8cabin3';
   return m;
 }
 
@@ -1537,6 +1594,7 @@ function patchPlayerGlass(m) {
     shader.uniforms.uCabinGain = CABIN_U.uCabinGain;
     shader.uniforms.uCabinLevel = CABIN_U.uCabinLevel;
     shader.uniforms.uCabinThrough = CABIN_U.uCabinThrough;
+    shader.uniforms.uCabinDetail = CABIN_U.uCabinDetail;
     const off = `vec3( 0.0, ${PLAYER_CABIN_Y.toFixed(4)}, 0.0 )`;
     shader.vertexShader = shader.vertexShader
       .replace(PROJECT_VERTEX_DECL, `${PROJECT_VERTEX_DECL}
@@ -1552,9 +1610,10 @@ void main() {`)
       .replace(COLOR_FRAGMENT_DECL, `${COLOR_FRAGMENT_DECL}
 	float cabinThroughW = 0.0;
 	vec3 cabinTint = mix( vec3( 1.0 ), diffuseColor.rgb / max( dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) ), 1e-6 ), 0.5 );
+	float cabinPx = max( length( dFdx( vCabinPos ) ), length( dFdy( vCabinPos ) ) );
 	if ( uCabinGain > 0.0 ) {
 		float cabinThrough;
-		float cabinAlb = cabinAlbedo( vCabinPos + ${off}, vCabinEye + ${off}, cabinThrough );
+		float cabinAlb = cabinAlbedo( vCabinPos + ${off}, vCabinEye + ${off}, cabinPx, cabinThrough );
 		cabinThroughW = cabinThrough * uCabinGain;
 		diffuseColor.rgb = mix( diffuseColor.rgb, cabinTint * cabinAlb, uCabinGain );
 	}`)
@@ -1570,7 +1629,7 @@ void main() {`)
 	}
 #endif`);
   };
-  m.customProgramCacheKey = () => 'carGlassCabin1';
+  m.customProgramCacheKey = () => 'carGlassCabin2';
   return m;
 }
 

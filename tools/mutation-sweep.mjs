@@ -2437,8 +2437,8 @@ const MUTATIONS = [
   },
   {
     id: 'cabin-shipped-off', file: 'src/carbody.js',
-    find: 'const CABIN_U = { uCabinGain: { value: 1 },',
-    to: 'const CABIN_U = { uCabinGain: { value: 0 },',
+    find: ' uCabinGain: { value: 1 },',
+    to: ' uCabinGain: { value: 0 },',
     why: 'the cabin is built and never switched on, which every other gate reads as the old car',
   },
   {
@@ -2448,8 +2448,8 @@ const MUTATIONS = [
      * "finds its target exactly once" is what said so.
      */
     id: 'cabin-through-unwired', file: 'src/carbody.js',
-    find: '    shader.uniforms.uCabinThrough = CABIN_U.uCabinThrough;\n    shader.uniforms.uPaintTintOnly',
-    to: '    shader.uniforms.uPaintTintOnly',
+    find: '    shader.uniforms.uCabinThrough = CABIN_U.uCabinThrough;\n    shader.uniforms.uCabinDetail = CABIN_U.uCabinDetail;\n    shader.uniforms.uPaintTintOnly',
+    to: '    shader.uniforms.uCabinDetail = CABIN_U.uCabinDetail;\n    shader.uniforms.uPaintTintOnly',
     why: 'the transmission never reaches the shader, which reads its uniform as 0: no far window',
   },
   // ---- the PLAYER'S glass, a separate mesh on carGlassMaterial. The cabin's blind review found it
@@ -2473,8 +2473,8 @@ const MUTATIONS = [
   },
   {
     id: 'cabin-player-through-unwired', file: 'src/carbody.js',
-    find: '    shader.uniforms.uCabinThrough = CABIN_U.uCabinThrough;\n    const off =',
-    to: '    const off =',
+    find: '    shader.uniforms.uCabinThrough = CABIN_U.uCabinThrough;\n    shader.uniforms.uCabinDetail = CABIN_U.uCabinDetail;\n    const off =',
+    to: '    shader.uniforms.uCabinDetail = CABIN_U.uCabinDetail;\n    const off =',
     why: "the player's car is the one car nobody can see through",
   },
   // ---- src/daynight.js: the sun's shadow box (#117). Each renders a perfectly good still frame; the
@@ -2536,6 +2536,19 @@ const MUTATIONS = [
     why: 'the face loses its vertical: every row of the plate reads the same line of the font',
   },
   // ---- src/carbody.js: the lamps' faces (LAMP_U). Each renders a car with lamps on it.
+  // ---- the cabin's v3 detail (uCabinDetail).
+  {
+    id: 'cabin-detail-off', file: 'src/carbody.js',
+    find: 'const CABIN_U = { uCabinDetail: { value: 1 },',
+    to: 'const CABIN_U = { uCabinDetail: { value: 0 },',
+    why: 'v3 is built and shipped off: every parked car is occupied by bald heads again',
+  },
+  {
+    id: 'cabin-detail-unwired', file: 'src/carbody.js',
+    find: '    shader.uniforms.uCabinDetail = CABIN_U.uCabinDetail;\n    shader.uniforms.uPaintTintOnly',
+    to: '    shader.uniforms.uPaintTintOnly',
+    why: 'the fleet\'s material never hears the switch and reads it as 0: v2 for ever, while the player\'s glass has v3',
+  },
   {
     id: 'lamp-face-off', file: 'src/carbody.js',
     find: 'const LAMP_U = { uLampDetail: { value: 1 } };',

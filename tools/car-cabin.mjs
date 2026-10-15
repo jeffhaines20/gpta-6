@@ -39,17 +39,15 @@ for (const a of argv) {
 }
 
 /** Fixed, so a check cannot vanish when a population is empty. */
-export const CHECK_COUNT = 18;
+export const CHECK_COUNT = 20;
 
 /** The order the page renders in: [gain, level, through] per tile, rows top to bottom. */
-export function plannedReadback(level, through) {
+export function plannedReadback(level, through, detail = 1) {
   const out = [];
-  for (let r = 0; r < 3; r++) out.push([0, level, through], [1, level, through]);
-  out.push([1, level, 0], [1, 0, through]);
-  out.push([0, level, through], [1, level, through]);
-  out.push([0, level, through], [1, level, through]);
-  out.push([0, level, through], [1, level, through]);
-  out.push([0, level, through], [1, level, through]);
+  for (let r = 0; r < 3; r++) out.push([0, level, through, detail], [1, level, through, detail]);
+  out.push([1, level, 0, detail], [1, 0, through, detail]);
+  for (let r = 0; r < 4; r++) out.push([0, level, through, detail], [1, level, through, detail]);
+  out.push([1, level, through, 0], [1, level, through, 1]);
   return out;
 }
 
@@ -65,9 +63,10 @@ export function verdict(r) {
   const V = r.views ?? {};
   const names = ['front34', 'side', 'rear34'];
 
-  add('the build ships the cabin ON', num(r.shipped?.value) === 1,
-    `shipped gain ${r.shipped?.value}, level ${r.shipped?.level}, transmission ${r.shipped?.through}`);
-  const want = plannedReadback(r.level, r.through);
+  // And at v3's detail: the detail row sets 0 and 1 itself, so without this a build shipping 0 passes.
+  add('the build ships the cabin ON, at its detail', num(r.shipped?.value) === 1 && num(r.shipped?.detail) === 1,
+    `shipped gain ${r.shipped?.value}, level ${r.shipped?.level}, transmission ${r.shipped?.through}, detail ${r.shipped?.detail}`);
+  const want = plannedReadback(r.level, r.through, num(r.shipped?.detail) ?? 1);
   const got = r.readback ?? [];
   add('every render\'s uniforms are what it asked for, read back off the material\'s own uniform objects',
     got.length === want.length && want.every((w, i) => w.every((x, k) => got[i] && got[i][k] === x)),
@@ -163,6 +162,19 @@ export function verdict(r) {
    */
   add('on the side pane, whose reflection is flat, the cabin adds structure: modulation rises by a third',
     mL !== null && mR !== null && mR >= 1.33 * mL, `side modulation ${mL?.toFixed(3)} -> ${mR?.toFixed(3)}`);
+  const D = r.detail ?? {};
+  const dReach = (num(D.glassChanged) ?? 0) / Math.max(1, num(D.glassPx) ?? 0);
+  /**
+   * v3's DETAIL, against v2 on the same windscreen. A second blind reviewer called v2's headrests "bald
+   * heads": at uCabinDetail 1 they are cushions raised on posts, and the steering wheel and the mirror
+   * are there. Part of the windscreen changes, not most of it — those are small things in a big pane —
+   * and none of the car outside the glass.
+   */
+  add('the detail reaches the windscreen: cushions, wheel and mirror change part of it, not all of it',
+    num(D.glassPx) >= 800 && dReach >= 0.02 && dReach <= 0.6,
+    `${D.glassChanged} of ${D.glassPx} glass px (${(100 * dReach).toFixed(1)}%)`);
+  add('and nothing outside the glazing', num(D.otherPx) > 0 && D.otherChanged2 === 0,
+    `${D.otherChanged2} px over 2 levels, max ${D.otherMax}`);
   add('and the cabin is back to the shipped state after the page is done with it',
     num(r.gainAfter) === num(r.shipped?.value), `gain after ${r.gainAfter}`);
   return checks;
@@ -181,8 +193,8 @@ if (argv.includes('--selftest')) {
   const view = (g, gc, oc, l, rr) => ({ glassPx: g, glassChanged: gc, otherPx: 135000, otherChanged: oc,
     otherChanged2: 0, otherMax: oc ? 1 : 0, left: mod(l), right: mod(rr), paintP50: 0.13 });
   const good = {
-    shipped: { value: 1, level: 1, through: 0.15 }, level: 1, through: 0.15,
-    readback: plannedReadback(1, 0.15),
+    shipped: { value: 1, level: 1, through: 0.15, detail: 1 }, level: 1, through: 0.15,
+    readback: plannedReadback(1, 0.15, 1),
     views: { front34: view(3283, 3128, 0, 1.513, 1.553), side: view(1447, 1299, 13, 1.056, 1.792),
       rear34: view(3817, 3739, 0, 2.052, 1.936) },
     split: { glassPx: 3283, throughPx: 2196, interiorChanged: 2995 },
@@ -191,6 +203,7 @@ if (argv.includes('--selftest')) {
     playerCar: { glassPx: 2983, glassChanged: 2855, otherPx: 138441, otherChanged: 1, otherChanged2: 1, otherMax: 3,
       versusCoupe: { sharedPx: 2627, corr: 0.9803, amp: 0.9745, meanAbsPlayer: 0.00756, meanAbsCoupe: 0.00776,
         offRatio: 0.8937, offP50Player: 0.03328, offP50Coupe: 0.03724 } },
+    detail: { glassPx: 3283, glassChanged: 420, otherPx: 135236, otherChanged: 0, otherChanged2: 0, otherMax: 0 },
     gainAfter: 1,
   };
   const bad = (fn) => { const c = structuredClone(good); fn(c); return c; };
@@ -227,6 +240,11 @@ if (argv.includes('--selftest')) {
     // And the old metal glass, measured: 0.475 of the fleet's pane with the cabin off.
     ['the player\'s glass back to the old metal', (c) => { c.playerCar.versusCoupe.offRatio = 0.4745; }, 'fleet\'s glass'],
     ['no pane shared with the coupe at all', (c) => { Object.assign(c.playerCar.versusCoupe, { sharedPx: 0, corr: null }); }, 'same picture'],
+    // v3's detail: a switch that changes nothing, and one that paints the whole pane.
+    ['a detail switch that reaches nothing', (c) => { c.detail.glassChanged = 0; }, 'detail reaches the windscreen'],
+    ['the detail built and shipped off', (c) => { c.shipped.detail = 0; c.readback = plannedReadback(1, 0.15, 0); }, 'at its detail'],
+    ['a detail that repaints the whole pane', (c) => { c.detail.glassChanged = 3200; }, 'detail reaches the windscreen'],
+    ['a detail that leaks off the glass', (c) => { c.detail.otherChanged2 = 300; }, 'and nothing outside the glazing'],
   ]) {
     const r = bad(fn);
     say(fails(r, needle), `KNOWN-BAD: ${what} fails`, failing(r).join(' | '));
@@ -247,7 +265,7 @@ const ROOT = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 const PORT = Number(process.env.CAR_CABIN_PORT ?? treePort(ROOT));
 await ensureServer(PORT, 20000, { root: ROOT });
 const browser = await chromium.launch(launchOptions());
-const page = await browser.newPage({ viewport: { width: 1000, height: 2440 } });
+const page = await browser.newPage({ viewport: { width: 1000, height: 2740 } });
 const logs = [];
 page.on('console', (m) => { if (!/Failed to load resource/.test(m.text())) logs.push(`${m.type()}: ${m.text()}`); });
 page.on('pageerror', (e) => logs.push(`pageerror: ${e.message}`));

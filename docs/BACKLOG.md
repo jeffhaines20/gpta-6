@@ -200,6 +200,18 @@ posts"; "no wheel, dashboard or pillar inside"; the windscreen reflection "reads
 x255-390 at noon, with no sky or canopy in it", and at night "near-black, with no streetlight
 reflections" — the sky-only environment, which is #36 and #54.
 
+**v3 (`uCabinDetail` 1), against those findings, pending its own blind pair.** The headrests are
+squircles — flat on top, square-shouldered, shallower — raised off their seat backs on posts (a 4 cm
+gap at the front, 3.3 cm at the rear, the cue a head does not have); a steering wheel's rim and hub at
+the driver's seat (+x: the car frame is +z forward and y up, so +x is the left, Florida's driver's
+side), on a column pointing up and back so the dash plane already hides its lower half; and the
+mirror's dark back, 25 x 7 cm, hung behind the screen's top. The four occluders are blended far to
+near in one ordered pass, and at detail 0 the new two are never entered and the rows go in v2's order
+with v2's arithmetic, so 0 is v2 exactly. Their edges are antialiased over a pixel at the hit's own
+distance: one derivative at the glass, outside the branch, grown by (eye-to-glass + depth) / eye-to-
+glass. On `car-cabin`'s new detail row (front three-quarter from the driver's side), v3 changes 379 of
+3,283 windscreen pixels (11.5%) and nothing off the glass.
+
 **And the gate now compares the player's cabin with the coupe's**, whose greenhouse it shares to
 4 mm, on the pixels that are glass in both: the change the cabin makes correlates at 0.980 (0.920 at
 dusk), at x0.975 the strength, and with the cabin off the player's pane reads x0.894 of the coupe's.
