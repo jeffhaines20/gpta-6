@@ -883,7 +883,30 @@ export async function proveArmsDiffer(page, arms) {
   // carFront and carTyre joined the key in round 5 for the same reason, for the
   // third time: those arms move one texel and one vertex-colour set and nothing
   // a uniform readback would otherwise show.
-  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carGlass, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo, s.carGlassAlbedo, s.carGlassEnv, s.carShells, s.carPaintTint, s.carTone, s.aoKernel, s.aoEmit, s.carCabin, s.carPlate, s.carLamp, s.bloomLit, s.carHalo]))).size;
+  // TWO FIELDS IN THIS KEY ARE MEASUREMENTS THAT DRIFT, and hashed as digits they made two IDENTICAL
+  // arms read as distinct - so this guard would have waved through a pair that is one build twice,
+  // the failure it exists to catch, from fields added to it as safeguards. Measured on a live page,
+  // `bloom1` applied twice straight after load, which is exactly when hero-shots calls this:
+  //     bounceLux   152.7 | 154.6            the district bounce still converging as chunks stream in
+  //     carTone     [18.132, 19.126] | [18.132, 20.917]   the recolour's luma span over whichever
+  //                                                       cars the parked pool holds at that instant
+  // and the same two arms a few seconds later differed in carTone alone. So those two are compared
+  // with a stated tolerance and everything else exactly: bounceLux within 5% (a bounce arm moves it
+  // by its whole size), carTone by CLASS (the legacy band reads x1.8-2.5, the census table about x21,
+  // and a cut at 5 classifies both with room). Pairwise rather than hashed, because a tolerance is not
+  // a hash.
+  const EXACT = ['albedo', 'skyIlluminance', 'msWhitenAnti', 'ao', 'carLens', 'carProfile', 'carGlass',
+    'carFront', 'carTyre', 'carFinish', 'carHub', 'carAlbedo', 'carGlassAlbedo', 'carGlassEnv', 'carShells',
+    'carPaintTint', 'aoKernel', 'aoEmit', 'carCabin', 'carPlate', 'carLamp', 'bloomLit', 'carHalo'];
+  const toneClass = (t) => (Array.isArray(t) ? t.map((v) => (v === null ? null : v > 5 ? 'census' : 'legacy')) : t);
+  const near = (a, b) => (Number.isFinite(a) && Number.isFinite(b)
+    ? Math.abs(a - b) <= 0.05 * Math.max(Math.abs(a), Math.abs(b), 1e-9) : a === b);
+  const same = (a, b) => EXACT.every((k) => JSON.stringify(a[k]) === JSON.stringify(b[k])) &&
+    near(a.bounceLux, b.bounceLux) && JSON.stringify(toneClass(a.carTone)) === JSON.stringify(toneClass(b.carTone));
+  let distinct = arms.length;
+  for (let i = 0; i < seen.length && distinct === arms.length; i++) {
+    for (let j = i + 1; j < seen.length; j++) if (same(seen[i], seen[j])) { distinct = -1; break; }
+  }
   return { seen, ok: distinct === arms.length };
 }
 

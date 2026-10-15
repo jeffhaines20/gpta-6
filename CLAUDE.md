@@ -2300,6 +2300,34 @@ condition, and when the output is buffered behind a pipe, match a NAME that cann
 - `blind-compare` refuses to build a pair set carrying under 8% facade-band
   signal, because two arms of the same build is a failure that looks like data.
 
+## The arms guard hashed two measurements that drift, so it passed a pair that was one build twice
+
+`proveArmsDiffer` (tools/ground-albedo.mjs) applies every arm once and refuses a capture whose arms
+resolve to the same state, because "an injection that reaches nothing produces a beautifully
+consistent set of frames". Its key had grown, one field per round, each "read back off what the app
+reached" — and two of those read-backs are MEASUREMENTS that move between two calls. Applying the SAME
+arm twice on a live page, straight after load, which is when hero-shots calls the guard:
+
+    bounceLux   152.7 | 154.6                          the bounce still converging as chunks stream
+    carTone     [18.132, 19.126] | [18.132, 20.917]    a luma span over whichever parked cars are resident
+
+Hashed as digits, that was enough: `bloom1` against `bloom1` read **ok true**. A few seconds later the
+same pair differed in carTone alone, which is why nothing had ever caught it — the drift is largest at
+exactly the moment the guard runs, and a capture of two identical arms would have gone to a blind
+reviewer as a "pair". Found by reading two arm dumps side by side and seeing a tone figure move
+between arms that never touch tone.
+
+The fix compares PAIRWISE with a stated tolerance for the two drifting fields (bounceLux within 5%,
+carTone by class, legacy x1.8-2.5 against census x~21) and everything else exactly, and was checked
+the only way that means anything: the same arm twice reads ok false on both repetitions, and
+`bloom0`/`bloom1` and `bloom1`/`halo0` still read ok true, each on the one field that differs.
+
+**A guard's key must hold quantities that are FIXED by the state it is comparing.** A read-back is
+the right instinct — it is what says the arm landed — but a read-back that also measures the world
+changes with the world, and a hash cannot tell that from a different arm. This is the "check that
+could only ever pass" family again, arriving through a safeguard: every field added to make the guard
+stricter made it laxer if it drifted.
+
 ## Do not edit the tree a reviewer is measuring
 
 A blind playtester reported, mid-round: *"Same arm gave 6 crimes/1 star earlier and 9 crimes/2
