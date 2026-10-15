@@ -1,0 +1,654 @@
+{
+ "what": "Unlit car lamps by day, each against the SAME car's own paint beside it facing the same way (the bumper or fascia below a headlamp, the panel beside a tail lamp), in the same frame and light.",
+ "method": "Boxes are x,y,w,h in the original 2048x1024 panorama pixels (reference/sarasota/mapillary). Every number is node tools/paint-tone.mjs --sample on those boxes: p10/p50/p90 of LINEAR luma, and the clipped share. placement1px is the lamp/paint range over every +/-1 px shift of both boxes. fracAbove2xOwnP50 is the share of the lamp box over twice its own median. Every box was checked on its annotated crop. Two rows (H-expedition-2059, T-accord-3774) were re-run independently and reproduce to four places.",
+ "caveats": "A ratio of photographed brightness is not a ratio of albedo: both surfaces are glossy. Mostly white cars; no black car measurable (paint at the JPEG dark floor). Lamps with daytime running lights visibly on were skipped. Distances are rough.",
+ "measuredBy": "a census subagent, 2026-10-15, for src/carbody.js LAMP_U; summary bands in docs/BACKLOG.md",
+ "rows": [
+  {
+   "id": "H-expedition-2059",
+   "kind": "headlamp",
+   "file": "mly-2059393594567306.jpg",
+   "family": "white",
+   "light": "sun",
+   "lamp": [
+    1604,
+    715,
+    32,
+    18
+   ],
+   "paint": [
+    1620,
+    742,
+    14,
+    5
+   ],
+   "lampP": [
+    0.0102,
+    0.0548,
+    0.129
+   ],
+   "lampClipPct": 0,
+   "paintP": [
+    0.2566,
+    0.3831,
+    0.4753
+   ],
+   "paintClipPct": 0,
+   "lampOverPaint": 0.143,
+   "p90overP50": 2.354,
+   "p10overP50": 0.186,
+   "placement1px": [
+    0.1192,
+    0.1674
+   ],
+   "fracAbove2xOwnP50": 0.288
+  },
+  {
+   "id": "H-highlander-1867",
+   "kind": "headlamp",
+   "file": "mly-1867535034058720.jpg",
+   "family": "dark grey",
+   "light": "sun",
+   "lamp": [
+    1384,
+    698,
+    44,
+    12
+   ],
+   "paint": [
+    1384,
+    713,
+    42,
+    7
+   ],
+   "lampP": [
+    0.0228,
+    0.0648,
+    0.1833
+   ],
+   "lampClipPct": 0.2,
+   "paintP": [
+    0.0326,
+    0.0664,
+    0.1167
+   ],
+   "paintClipPct": 0,
+   "lampOverPaint": 0.9759,
+   "p90overP50": 2.829,
+   "p10overP50": 0.352,
+   "placement1px": [
+    0.879,
+    1.2529
+   ],
+   "fracAbove2xOwnP50": 0.188
+  },
+  {
+   "id": "H-wrangler-9496",
+   "kind": "headlamp",
+   "file": "mly-9496096920505025.jpg",
+   "family": "red",
+   "light": "sun",
+   "lamp": [
+    1636,
+    726,
+    14,
+    9
+   ],
+   "paint": [
+    1628,
+    745,
+    20,
+    6
+   ],
+   "lampP": [
+    0.0404,
+    0.1004,
+    0.5011
+   ],
+   "lampClipPct": 0,
+   "paintP": [
+    0.1527,
+    0.1646,
+    0.183
+   ],
+   "paintClipPct": 0,
+   "lampOverPaint": 0.61,
+   "p90overP50": 4.991,
+   "p10overP50": 0.402,
+   "placement1px": [
+    0.5036,
+    0.6975
+   ],
+   "fracAbove2xOwnP50": 0.302
+  },
+  {
+   "id": "H-q5-9496",
+   "kind": "headlamp",
+   "file": "mly-9496096920505025.jpg",
+   "family": "white",
+   "light": "sun",
+   "lamp": [
+    1308,
+    682,
+    22,
+    5
+   ],
+   "paint": [
+    1296,
+    689,
+    22,
+    5
+   ],
+   "lampP": [
+    0.0476,
+    0.0765,
+    0.1946
+   ],
+   "lampClipPct": 0,
+   "paintP": [
+    0.2919,
+    0.4563,
+    0.5426
+   ],
+   "paintClipPct": 0,
+   "lampOverPaint": 0.1677,
+   "p90overP50": 2.544,
+   "p10overP50": 0.622,
+   "placement1px": [
+    0.1609,
+    0.2003
+   ],
+   "fracAbove2xOwnP50": 0.173
+  },
+  {
+   "id": "H-x5-4164",
+   "kind": "headlamp",
+   "file": "mly-4164138753910161.jpg",
+   "family": "white",
+   "light": "dappled tree shade",
+   "lamp": [
+    1776,
+    672,
+    26,
+    5
+   ],
+   "paint": [
+    1772,
+    679,
+    28,
+    6
+   ],
+   "lampP": [
+    0.0064,
+    0.0492,
+    0.1062
+   ],
+   "lampClipPct": 0,
+   "paintP": [
+    0.1827,
+    0.2331,
+    0.3233
+   ],
+   "paintClipPct": 0,
+   "lampOverPaint": 0.2111,
+   "p90overP50": 2.159,
+   "p10overP50": 0.13,
+   "placement1px": [
+    0.0814,
+    0.2626
+   ],
+   "fracAbove2xOwnP50": 0.146
+  },
+  {
+   "id": "H-lexus-es-625",
+   "kind": "headlamp",
+   "file": "mly-625020687029490.jpg",
+   "family": "white",
+   "light": "car in open sun, front face self-shaded",
+   "lamp": [
+    1814,
+    642,
+    24,
+    5
+   ],
+   "paint": [
+    1820,
+    651,
+    24,
+    5
+   ],
+   "lampP": [
+    0.0558,
+    0.1065,
+    0.1838
+   ],
+   "lampClipPct": 0,
+   "paintP": [
+    0.242,
+    0.2716,
+    0.2964
+   ],
+   "paintClipPct": 0,
+   "lampOverPaint": 0.3921,
+   "p90overP50": 1.726,
+   "p10overP50": 0.524,
+   "placement1px": [
+    0.3685,
+    0.4118
+   ],
+   "fracAbove2xOwnP50": 0.1
+  },
+  {
+   "id": "H-gle-silver-6458",
+   "kind": "headlamp",
+   "file": "mly-645855151520621.jpg",
+   "family": "silver",
+   "light": "deep shade",
+   "lamp": [
+    1703,
+    727,
+    16,
+    9
+   ],
+   "paint": [
+    1700,
+    747,
+    24,
+    8
+   ],
+   "lampP": [
+    0.0036,
+    0.0184,
+    0.0653
+   ],
+   "lampClipPct": 0,
+   "paintP": [
+    0.034,
+    0.0425,
+    0.0546
+   ],
+   "paintClipPct": 0,
+   "lampOverPaint": 0.4329,
+   "p90overP50": 3.549,
+   "p10overP50": 0.196,
+   "placement1px": [
+    0.4037,
+    0.5301
+   ],
+   "fracAbove2xOwnP50": 0.222
+  },
+  {
+   "id": "H-rogue-2086",
+   "kind": "headlamp",
+   "file": "mly-2086608901819652.jpg",
+   "family": "white",
+   "light": "car in open sun, front face self-shaded",
+   "lamp": [
+    1484,
+    711,
+    14,
+    9
+   ],
+   "paint": [
+    1492,
+    734,
+    24,
+    6
+   ],
+   "lampP": [
+    0.0522,
+    0.1116,
+    0.3466
+   ],
+   "lampClipPct": 0.8,
+   "paintP": [
+    0.1915,
+    0.2125,
+    0.2256
+   ],
+   "paintClipPct": 0,
+   "lampOverPaint": 0.5252,
+   "p90overP50": 3.106,
+   "p10overP50": 0.468,
+   "placement1px": [
+    0.4892,
+    0.5679
+   ],
+   "fracAbove2xOwnP50": 0.183
+  },
+  {
+   "id": "T-rogue-1290",
+   "kind": "tail",
+   "file": "mly-1290653175365962.jpg",
+   "family": "white",
+   "light": "car in open sun",
+   "lamp": [
+    1360,
+    664,
+    20,
+    6
+   ],
+   "paint": [
+    1358,
+    684,
+    22,
+    6
+   ],
+   "lampP": [
+    0.003,
+    0.0189,
+    0.0781
+   ],
+   "lampClipPct": 0,
+   "paintP": [
+    0.2172,
+    0.2313,
+    0.2448
+   ],
+   "paintClipPct": 0,
+   "lampOverPaint": 0.0817,
+   "p90overP50": 4.132,
+   "p10overP50": 0.159,
+   "placement1px": [
+    0.0764,
+    0.0845
+   ],
+   "fracAbove2xOwnP50": 0.183
+  },
+  {
+   "id": "T-accord-3774",
+   "kind": "tail",
+   "file": "mly-377461950312316.jpg",
+   "family": "white",
+   "light": "sun",
+   "lamp": [
+    70,
+    714,
+    22,
+    20
+   ],
+   "paint": [
+    125,
+    712,
+    24,
+    22
+   ],
+   "lampP": [
+    0.0625,
+    0.0739,
+    0.1125
+   ],
+   "lampClipPct": 0,
+   "paintP": [
+    0.6355,
+    0.6492,
+    0.6702
+   ],
+   "paintClipPct": 0,
+   "lampOverPaint": 0.1138,
+   "p90overP50": 1.522,
+   "p10overP50": 0.846,
+   "placement1px": [
+    0.1106,
+    0.1223
+   ],
+   "fracAbove2xOwnP50": 0
+  },
+  {
+   "id": "T-explorer-grey-1615",
+   "kind": "tail",
+   "file": "mly-1615136105813428.jpg",
+   "family": "dark grey",
+   "light": "sun",
+   "lamp": [
+    1552,
+    665,
+    10,
+    12
+   ],
+   "paint": [
+    1535,
+    668,
+    10,
+    16
+   ],
+   "lampP": [
+    0.0447,
+    0.0609,
+    0.0939
+   ],
+   "lampClipPct": 0,
+   "paintP": [
+    0.0496,
+    0.0605,
+    0.0658
+   ],
+   "paintClipPct": 0,
+   "lampOverPaint": 1.0066,
+   "p90overP50": 1.542,
+   "p10overP50": 0.734,
+   "placement1px": [
+    0.9478,
+    1.0948
+   ],
+   "fracAbove2xOwnP50": 0
+  },
+  {
+   "id": "T-cayenne-1325",
+   "kind": "tail",
+   "file": "mly-1325163731926892.jpg",
+   "family": "black",
+   "light": "ground in sun",
+   "lamp": [
+    1636,
+    683,
+    24,
+    9
+   ],
+   "paint": [
+    1681,
+    683,
+    8,
+    12
+   ],
+   "lampP": [
+    0.0159,
+    0.0443,
+    0.1368
+   ],
+   "lampClipPct": 0,
+   "paintP": [
+    0.0668,
+    0.0782,
+    0.0844
+   ],
+   "paintClipPct": 0,
+   "lampOverPaint": 0.5665,
+   "p90overP50": 3.088,
+   "p10overP50": 0.359,
+   "placement1px": [
+    0.4582,
+    0.649
+   ],
+   "fracAbove2xOwnP50": 0.255
+  },
+  {
+   "id": "T-cadillac-2488",
+   "kind": "tail",
+   "file": "mly-2488685254822460.jpg",
+   "family": "black",
+   "light": "ground in sun",
+   "lamp": [
+    1755,
+    638,
+    6,
+    10
+   ],
+   "paint": [
+    1765,
+    638,
+    10,
+    12
+   ],
+   "lampP": [
+    0.0808,
+    0.1016,
+    0.1321
+   ],
+   "lampClipPct": 0,
+   "paintP": [
+    0.0756,
+    0.0821,
+    0.0879
+   ],
+   "paintClipPct": 0,
+   "lampOverPaint": 1.2375,
+   "p90overP50": 1.3,
+   "p10overP50": 0.795,
+   "placement1px": [
+    1.1518,
+    1.2721
+   ],
+   "fracAbove2xOwnP50": 0
+  }
+ ],
+ "refused": [
+  {
+   "id": "REFUSED-H-q3-1710",
+   "file": "mly-1710520949867219.jpg",
+   "family": "white",
+   "lamp": [
+    1723,
+    656,
+    20,
+    6
+   ],
+   "paint": [
+    1738,
+    668,
+    12,
+    6
+   ],
+   "status": "refused",
+   "bound": "lamp p50 0.173 against a forward bumper >= 0.95: ratio <= ~0.18"
+  },
+  {
+   "id": "REFUSED-H-yukon-1013",
+   "file": "mly-1013779937489763.jpg",
+   "family": "black",
+   "lamp": [
+    1910,
+    607,
+    22,
+    13
+   ],
+   "paint": [
+    1910,
+    624,
+    24,
+    6
+   ],
+   "status": "refused",
+   "bound": "direction only: the lamp (p50 0.036) is a LIGHT element on this black body"
+  },
+  {
+   "id": "REFUSED-H-bmw4-2059",
+   "file": "mly-2059393594567306.jpg",
+   "family": "black",
+   "lamp": [
+    1814,
+    656,
+    26,
+    7
+   ],
+   "paint": [
+    1812,
+    672,
+    30,
+    6
+   ],
+   "status": "refused",
+   "bound": "direction only: lamp p50 0.054 is far above the black paint"
+  },
+  {
+   "id": "REFUSED-H-ranger-8915",
+   "file": "mly-8915146388585460.jpg",
+   "family": "grey",
+   "lamp": null,
+   "paint": null,
+   "status": "refused",
+   "bound": null
+  },
+  {
+   "id": "SKIPPED-H-santafe-547",
+   "file": "mly-547187678421898.jpg",
+   "family": "silver",
+   "lamp": [
+    1702,
+    676,
+    12,
+    8
+   ],
+   "paint": null,
+   "status": "skipped (DRL)",
+   "bound": null
+  },
+  {
+   "id": "BOUND-T-mercC-6357",
+   "file": "mly-635743196105627.jpg",
+   "family": "black",
+   "lamp": [
+    1281,
+    640,
+    21,
+    20
+   ],
+   "paint": [
+    1303,
+    644,
+    9,
+    14
+   ],
+   "status": "bound only",
+   "bound": "lamp/paint >= ~6 on a black car in shade (not used in bands). Lamp itself: red with a horizontal chrome bar at 0.4-0.7."
+  },
+  {
+   "id": "REFUSED-T-a4-1110",
+   "file": "mly-1110353507514779.jpg",
+   "family": "white",
+   "lamp": [
+    1512,
+    710,
+    22,
+    8
+   ],
+   "paint": [
+    1525,
+    725,
+    20,
+    5
+   ],
+   "status": "refused",
+   "bound": "lamp p50 0.109 against paint >= 0.99: ratio <= 0.111"
+  },
+  {
+   "id": "REFUSED-T-camry-1327",
+   "file": "mly-1327947638431143.jpg",
+   "family": "white",
+   "lamp": [
+    1493,
+    678,
+    10,
+    6
+   ],
+   "paint": [
+    1500,
+    695,
+    20,
+    6
+   ],
+   "status": "refused",
+   "bound": "lamp p50 0.125 against paint >= 0.99: ratio <= 0.127"
+  }
+ ]
+}

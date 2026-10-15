@@ -16,6 +16,14 @@
       into its average ink there, so no pixel may reach the full darkness of a stroke
     2 the same position, instance 1: a different car must carry different characters
     3 the player's car from 6 m behind
+  and the LAMPS' faces (src/carbody.js LAMP_U), face off | on, on a WHITE car, because the
+  photographed bands are against a white car's own paint:
+    4 the front from 6 m, noon: the headlamps
+    5 the rear from 6 m, noon: the tail lamps
+    6 the front at night, lamps lit: the face must not put the headlamps out
+    7 the rear at night, lamps lit: and the reverse insert must stay dark while the red glows
+    8 the PLAYER'S car from the front, noon: its lamps read the face through CAR_FRAME_Y, its frame's
+      offset from the fleet's, and a lost offset would put every bowl and strip 0.717 m off the lamp
 
   `?tod=noon|dusk`, `?debug=1` (frames published).
 -->
@@ -23,10 +31,10 @@
 <script type="module">
 import * as THREE from '../vendor/three.module.min.js';
 import { buildTrafficCarGeometry, trafficCarMaterial, SHAPES, SURFACE, paletteU, setPlateText, plateText,
-  buildPlayerCar, CAR } from '../src/carbody.js';
+  setLampDetail, lampDetail, buildPlayerCar, CAR } from '../src/carbody.js';
 import { Vehicle } from '../src/vehicle.js';
 
-const TW = 480, TH = 300, ROWS = 4;
+const TW = 480, TH = 300, ROWS = 9;
 const q = new URLSearchParams(location.search);
 const TOD = q.get('tod') ?? 'noon';
 try {
@@ -92,10 +100,16 @@ try {
   playerCar.group.updateMatrixWorld(true);
   scene.add(playerCar.group);
 
-  // THE MASK: the plate slot in red, read off the palette u exactly as the material reads it.
+  // THE MASK, read off the palette u exactly as the material reads it: red is the plate (1) or the
+  // paint (a third), green a headlamp, blue a tail lamp. The mask pass is ANTIALIASED like the scene, so
+  // an edge pixel is a blend; the lamp channels are kept pure so any coverage of a lamp at all shows as
+  // green or blue above zero, and the leak test excludes everything a lamp touches (the first encoding
+  // put the paint on all three channels, and a blended lamp edge read as neither class: 28 pixels on
+  // the player's car leaked through it).
   const plateU = paletteU(SURFACE.plate);
   const maskMat = new THREE.ShaderMaterial({
-    uniforms: { uPlateU: { value: plateU } },
+    uniforms: { uPlateU: { value: plateU }, uHeadU: { value: paletteU(SURFACE.headlight) },
+      uTailU: { value: paletteU(SURFACE.taillight) }, uPaintU: { value: paletteU(SURFACE.paint) } },
     vertexShader: `varying float vU;
       void main() {
         vU = uv.x;
@@ -105,7 +119,12 @@ try {
           gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
         #endif
       }`,
-    fragmentShader: 'uniform float uPlateU; varying float vU; void main() { gl_FragColor = vec4( abs( vU - uPlateU ) < 0.01 ? 1.0 : 0.0, 0.0, 0.0, 1.0 ); }',
+    fragmentShader: `uniform float uPlateU; uniform float uHeadU; uniform float uTailU; uniform float uPaintU; varying float vU;
+      void main() {
+        float paint = abs( vU - uPaintU ) < 0.01 ? 0.333 : 0.0;
+        gl_FragColor = vec4( max( abs( vU - uPlateU ) < 0.01 ? 1.0 : 0.0, paint ), abs( vU - uHeadU ) < 0.01 ? 1.0 : 0.0,
+          abs( vU - uTailU ) < 0.01 ? 1.0 : 0.0, 1.0 );
+      }`,
   });
   const maskScene = new THREE.Scene();
   maskScene.background = new THREE.Color(0, 0, 0);
@@ -126,16 +145,45 @@ try {
     c.updateMatrixWorld(true);
     return c;
   };
-  const cams = { near: cam(6, 0.9), far: cam(16, 2.0) };
+  const front = (back, side) => {
+    const c = new THREE.PerspectiveCamera(32, TW / TH, 0.1, 300);
+    c.position.set(side, 1.35, 2.2 + back);
+    c.lookAt(0, 0.80, 2.2);
+    c.updateMatrixWorld(true);
+    return c;
+  };
+  const cams = { near: cam(6, 0.9), far: cam(16, 2.0), front: front(6, 1.2), rear: cam(6, 1.2) };
+  const WHITE = new THREE.Color(0.80, 0.80, 0.80), GREY = new THREE.Color(0.5, 0.5, 0.5);
 
   const shipped = plateText();
-  // [row, col, camera, which car, face]
+  const shippedLamp = lampDetail();
+  // [row, col, camera, which car, face, what the face is: 'plate' | 'lamp', night]
   const plan = [
-    [0, 0, 'near', 0, 0], [0, 1, 'near', 0, 1],
-    [1, 0, 'far', 0, 0], [1, 1, 'far', 0, 1],
-    [2, 0, 'near', 1, 0], [2, 1, 'near', 1, 1],
-    [3, 0, 'near', 'player', 0], [3, 1, 'near', 'player', 1],
+    [0, 0, 'near', 0, 0, 'plate'], [0, 1, 'near', 0, 1, 'plate'],
+    [1, 0, 'far', 0, 0, 'plate'], [1, 1, 'far', 0, 1, 'plate'],
+    [2, 0, 'near', 1, 0, 'plate'], [2, 1, 'near', 1, 1, 'plate'],
+    [3, 0, 'near', 'player', 0, 'plate'], [3, 1, 'near', 'player', 1, 'plate'],
+    [4, 0, 'front', 0, 0, 'lamp'], [4, 1, 'front', 0, 1, 'lamp'],
+    [5, 0, 'rear', 0, 0, 'lamp'], [5, 1, 'rear', 0, 1, 'lamp'],
+    [6, 0, 'front', 0, 0, 'lamp', true], [6, 1, 'front', 0, 1, 'lamp', true],
+    [7, 0, 'rear', 0, 0, 'lamp', true], [7, 1, 'rear', 0, 1, 'lamp', true],
+    [8, 0, 'front', 'player', 0, 'lamp'], [8, 1, 'front', 'player', 1, 'lamp'],
   ];
+  // NIGHT, for rows 6 and 7: the sun off, the sky down, the lamps lit as the fleet lights them
+  // (lampEmissive's display level over an exposure of 1, which is this page's).
+  const nightEnv = (() => {
+    const g = skyGeo.clone(), c = g.getAttribute('color');
+    for (let i = 0; i < c.count; i++) c.setXYZ(i, c.getX(i) * 0.05, c.getY(i) * 0.05, c.getZ(i) * 0.07);
+    const sc = new THREE.Scene();
+    sc.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+    return new THREE.PMREMGenerator(renderer).fromScene(sc, 0.02).texture;
+  })();
+  const setNight = (on) => {
+    sun.intensity = on ? 0 : (day ? 3.0 : 0.0);
+    scene.environment = on ? nightEnv : env;
+    scene.background = new THREE.Color(on ? 0x05060a : (day ? 0x8fa6c4 : 0x1a1622));
+    fleet.material.emissive.setScalar(on ? 2.6 : 0);
+  };
   const W = TW * 2, H = TH * ROWS;
   const gl = renderer.getContext();
   const read = () => {
@@ -154,33 +202,44 @@ try {
     renderer.setScissor(x, y, TW, TH);
     renderer.setScissorTest(true);
   };
-  const place = (which) => {
+  const place = (which, white) => {
     if (which === 'player') { show(-1); playerCar.group.visible = true; maskPlayer.visible = true; }
     else { show(which); playerCar.group.visible = false; maskPlayer.visible = false; }
     maskFleet.instanceMatrix.needsUpdate = true;
+    for (let i = 0; i < 2; i++) fleet.setColorAt(i, white ? WHITE : GREY);
+    fleet.instanceColor.needsUpdate = true;
   };
   renderer.setClearColor(0x000000, 1);
   renderer.clear();
   const readback = [];
-  for (const [row, col, v, which, k] of plan) {
-    place(which);
-    readback.push(setPlateText(k).value);
+  for (const [row, col, v, which, k, what, night] of plan) {
+    place(which, what === 'lamp');
+    setNight(!!night);
+    // Each row switches ONE face; the other stays at the build's, so a row isolates its term.
+    if (what === 'plate') { readback.push(['plate', setPlateText(k).value]); setLampDetail(shippedLamp.value); }
+    else { readback.push(['lamp', setLampDetail(k).value]); setPlateText(shipped.value); }
     tile(row, col);
     renderer.render(scene, cams[v]);
   }
+  setNight(false);
   setPlateText(shipped.value);
+  setLampDetail(shippedLamp.value);
   const rgb = read();
   renderer.toneMapping = THREE.NoToneMapping;
   renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
   renderer.setScissorTest(false);
   renderer.clear();
-  for (const [row, col, v, which] of plan) { place(which); tile(row, col); renderer.render(maskScene, cams[v]); }
+  for (const [row, col, v, which, , what] of plan) { place(which, what === 'lamp'); tile(row, col); renderer.render(maskScene, cams[v]); }
   const mask = read();
 
   const lin = new Float64Array(256);
   for (let i = 0; i < 256; i++) { const c = i / 255; lin[i] = c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }
   const L = (i) => 0.2126 * lin[rgb[i * 3]] + 0.7152 * lin[rgb[i * 3 + 1]] + 0.0722 * lin[rgb[i * 3 + 2]];
   const isPlate = (i) => mask[i * 3] > 250;
+  const isHead = (i) => mask[i * 3 + 1] > 250;
+  const isTail = (i) => mask[i * 3 + 2] > 250;
+  const isPaint = (i) => mask[i * 3] > 60 && mask[i * 3] < 120 && mask[i * 3 + 1] < 4 && mask[i * 3 + 2] < 4;
+  const lampTouched = (i) => mask[i * 3 + 1] > 8 || mask[i * 3 + 2] > 8;
   // A plate pixel counts only if its 3x3 neighbourhood is plate: the scene is antialiased, the mask not.
   const interior = (i) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!isPlate(i + dy * W + dx)) return false; return true; };
   const pair = (row) => {
@@ -213,6 +272,52 @@ try {
       meanOff: mean(off), meanOn: mean(on), otherPx, otherChanged2, otherMax, on, idx };
   };
   const rows = [0, 1, 2, 3].map(pair);
+  // THE LAMP ROWS: the lamp's own pixels (interior, as for the plate) against the forward- or
+  // rear-facing PAINT beside and below it — the census's comparison, which takes the bumper beside
+  // the lamp facing the same way, not the bonnet, which faces the sky.
+  const lampRow = (row, isLamp) => {
+    const sides = [0, 1].map((col) => {
+      const lamp = [], idx = [];
+      let y0 = Infinity, y1 = -Infinity;
+      for (let y = row * TH + 1; y < (row + 1) * TH - 1; y++) for (let x = 1; x < TW - 1; x++) {
+        const a = y * W + col * TW + x;
+        let all = true;
+        for (let dy = -1; dy <= 1 && all; dy++) for (let dx = -1; dx <= 1; dx++) if (!isLamp(a + dy * W + dx)) { all = false; break; }
+        if (!all) continue;
+        lamp.push(L(a)); idx.push(a); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+      }
+      const paint = [];
+      const h = Math.max(1, y1 - y0);
+      for (let y = Math.max(row * TH + 1, y0); y < Math.min((row + 1) * TH - 1, y1 + 1.5 * h); y++) for (let x = 1; x < TW - 1; x++) {
+        const a = y * W + col * TW + x;
+        if (isPaint(a)) paint.push(L(a));
+      }
+      const srt = (v) => [...v].sort((p, q) => p - q);
+      const pc = (v, f) => (v.length ? v[Math.min(v.length - 1, Math.floor(f * (v.length - 1) + 0.5))] : NaN);
+      const ls = srt(lamp), ps = srt(paint);
+      const p50 = pc(ls, 0.5);
+      let over2 = 0, under03 = 0;
+      for (const v of lamp) { if (v > 2 * p50) over2++; if (v < 0.3 * p50) under03++; }
+      return { lampPx: lamp.length, paintPx: paint.length, p10: pc(ls, 0.1), p50, p90: pc(ls, 0.9),
+        paintP50: pc(ps, 0.5), overPaint: p50 / pc(ps, 0.5), p90p50: pc(ls, 0.9) / p50,
+        over2x: over2 / Math.max(1, lamp.length), under03x: under03 / Math.max(1, lamp.length), idx, lamp };
+    });
+    // Off the lamps: nothing else may move between the two arms.
+    let otherChanged2 = 0, otherPx = 0, otherMax = 0;
+    for (let y = row * TH + 3; y < (row + 1) * TH - 3; y++) for (let x = 3; x < TW - 3; x++) {
+      const a = y * W + x, b = a + TW;
+      let near = false;
+      for (let dy = -2; dy <= 2 && !near; dy++) for (let dx = -2; dx <= 2; dx++) if (lampTouched(a + dy * W + dx)) { near = true; break; }
+      if (near) continue;
+      let d = 0;
+      for (let k = 0; k < 3; k++) d = Math.max(d, Math.abs(rgb[a * 3 + k] - rgb[b * 3 + k]));
+      otherPx++; if (d > 2) otherChanged2++; otherMax = Math.max(otherMax, d);
+    }
+    const strip2 = ({ idx, lamp, ...rest }) => rest;
+    return { off: strip2(sides[0]), on: strip2(sides[1]), otherPx, otherChanged2, otherMax };
+  };
+  const lamps = { head: lampRow(4, isHead), tail: lampRow(5, isTail), headNight: lampRow(6, isHead), tailNight: lampRow(7, isTail),
+    playerHead: lampRow(8, isHead) };
   // TWO CARS, TWO PLATES: rows 0 and 2 put the same shell at the same place; only the instance differs.
   const versus = (() => {
     const at0 = new Map(rows[0].idx.map((a, k) => [a - 0 * TH * W, rows[0].on[k]]));
@@ -231,6 +336,7 @@ try {
     shipped: shipped.value, readback, plate: shipped.plate,
     near: strip(rows[0]), far: strip(rows[1]), other: strip(rows[2]), player: strip(rows[3]),
     twoCars: versus, after: plateText().value,
+    lamps, lampShipped: shippedLamp.value, lampAfter: lampDetail().value,
   };
   if (q.get('debug') === '1') {
     const b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode(...u8.subarray(i, i + 8192)); return btoa(s); };

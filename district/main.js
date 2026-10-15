@@ -32,7 +32,7 @@ import {
 import { buildingStyle } from '../src/facades.js';
 import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubScale,
   setTrafficLampAlbedo, setGlassAlbedo, setGlassEnv, glassEnv, setCarLensArm, setShellNames, shellNames,
-  setCabinGain, cabinGain, setPlateText, plateText,
+  setCabinGain, cabinGain, setPlateText, plateText, setLampDetail, lampDetail,
   carLensArm, setFrontLensScale, frontLensScale, frontLensLuma,
   setLensFinish, lensFinish,
   setLensProfile, lensProfile,
@@ -2963,6 +2963,9 @@ window.__district = {
   // plate the face replaced, on the plate's new 12 x 6 in geometry — the shape is not switchable.
   setCarPlate: (k) => setPlateText(k),
   carPlate: () => plateText(),
+  // THE LAMPS' FACES BY DAY (src/carbody.js LAMP_U): one uniform on every car material, 0 the flat lamp.
+  setCarLamps: (k) => setLampDetail(k),
+  carLamps: () => lampDetail(),
   /**
    * THE TWO HALVES OF #1, AS SWEEPABLE ARMS off one page load.
    *

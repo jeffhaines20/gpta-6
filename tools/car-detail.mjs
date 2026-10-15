@@ -1,4 +1,5 @@
-// THE GATE FOR THE NUMBER PLATE'S FACE (src/carbody.js PLATE). See tools/car-detail.html.
+// THE GATE FOR THE NUMBER PLATE'S FACE (src/carbody.js PLATE) AND THE LAMPS' FACES (LAMP_U).
+// See tools/car-detail.html.
 //
 //   node tools/car-detail.mjs              build the plates, render them, check both
 //   node tools/car-detail.mjs --selftest   prove the verdict on known-bad reports, no browser
@@ -19,6 +20,15 @@
 //                            darkness of a stroke — the signature of a sampled-not-filtered font
 //     per car                a second instance carries different characters
 //     on the player too      the player's car has the face (its plate is on its own build)
+//
+//   THE LAMPS, on a white car, against a census of photographed lamps (BACKLOG, "the lamps by day"):
+//     by day                 the flat lamp is a white field (the before-arm, measured as the defect)
+//                            and the face sits inside the photographed band against its own paint
+//     with structure         p90/p50 and the share over twice the median, both inside the census's
+//     a tail with an insert  a dark red lens a tenth of the paint, its reverse insert the bright part
+//     and nowhere else       nothing off the lamps moves
+//     at night               the lit headlamp is not put out, and the reverse insert stays dark
+//                            while the red round it glows
 import { chromium } from 'playwright';
 import { launchOptions } from './browser.mjs';
 import { ensureServer, treePort } from './serve.mjs';
@@ -41,9 +51,10 @@ for (const a of argv) {
 }
 
 /** Fixed, so a check cannot vanish when a population is empty. */
-export const CHECK_COUNT = 12;
-/** The render order: [face] per tile, rows top to bottom (see car-detail.html's plan). */
-export const PLANNED = [0, 1, 0, 1, 0, 1, 0, 1];
+export const CHECK_COUNT = 21;
+/** The render order: [which face, its value] per tile, rows top to bottom (see car-detail.html). */
+export const PLANNED = [...Array(4)].flatMap(() => [['plate', 0], ['plate', 1]])
+  .concat([...Array(5)].flatMap(() => [['lamp', 0], ['lamp', 1]]));
 
 /** The plate off each built buffer: its extent, its uv.y, and anything standing behind it. */
 export function plateGeometry() {
@@ -89,7 +100,8 @@ export function verdict(r) {
   add('the build ships the face ON', num(r.shipped) === 1, `shipped ${r.shipped}`);
   const rb = r.readback ?? [];
   add('every render\'s switch is what it asked for, read back off the material\'s own uniform',
-    rb.length === PLANNED.length && PLANNED.every((k, i) => rb[i] === k), `${rb.length} of ${PLANNED.length} tiles`);
+    rb.length === PLANNED.length && PLANNED.every((k, i) => Array.isArray(rb[i]) && rb[i][0] === k[0] && rb[i][1] === k[1]),
+    `${rb.length} of ${PLANNED.length} tiles`);
 
   const N = r.near ?? {}, F = r.far ?? {}, O = r.other ?? {}, P = r.player ?? {};
   const changed = (x) => (num(x.plateChanged) ?? 0) / Math.max(1, num(x.platePx) ?? 0);
@@ -122,6 +134,58 @@ export function verdict(r) {
     `${P.plateChanged} of ${P.platePx} px changed`);
   add('and the switch is back to the shipped state after the page is done with it', num(r.after) === num(r.shipped),
     `after ${r.after}`);
+
+  // ---- THE LAMPS
+  const LM = r.lamps ?? {};
+  const H = LM.head ?? {}, TL = LM.tail ?? {}, HN = LM.headNight ?? {}, TN = LM.tailNight ?? {};
+  const ho = H.on ?? {}, hf = H.off ?? {}, to = TL.on ?? {}, tf = TL.off ?? {};
+  add('the build ships the lamps\' face ON', num(r.lampShipped) === 1, `shipped ${r.lampShipped}`);
+  /**
+   * THE BAND IS THE CENSUS'S, against the white car's own forward-facing paint beside and below the
+   * lamp: headlamps on white cars 0.14-0.53 (0.14-0.17 in sun, 0.21-0.53 in shade), so 0.10-0.60 with
+   * this page's light allowed for. The flat lamp is asserted to BE the defect in the same light — a
+   * white field, over the paint — so the check cannot pass on a page where both read the same.
+   */
+  add('by day the flat headlamp is a white field, and the face sits in the photographed band',
+    num(hf.overPaint) >= 1.0 && num(ho.overPaint) >= 0.10 && num(ho.overPaint) <= 0.60 && num(ho.lampPx) >= 200,
+    `flat ${num(hf.overPaint)?.toFixed(3)} of the paint, face ${num(ho.overPaint)?.toFixed(3)} (census, white cars: 0.14-0.53)`);
+  add('with the structure of a real one: p90/p50 and the share over twice the median inside the census',
+    num(ho.p90p50) >= 1.7 && num(ho.p90p50) <= 6.0 && num(ho.over2x) >= 0.08 && num(ho.over2x) <= 0.35,
+    `p90/p50 ${num(ho.p90p50)?.toFixed(2)} (census 1.7-5.0), over 2x ${(100 * (num(ho.over2x) ?? 0)).toFixed(1)}% (census 10-30%)`);
+  /**
+   * 0.05-0.14: the census measured white-car tails at 0.082 and 0.114, with bounds of 0.111 and
+   * 0.127 where the paint clipped. The first draft allowed 0.20 and the selftest's known-bad said
+   * why that was wrong: the flat tail this replaces reads 0.174 here, and a band that admits the
+   * before-arm cannot tell the two apart.
+   */
+  add('a tail lamp is a dark red lens a tenth of the paint, its reverse insert the bright part',
+    num(to.overPaint) >= 0.05 && num(to.overPaint) <= 0.14 && num(to.over2x) >= 0.05 && num(to.over2x) <= 0.35
+      && num(tf.over2x) === 0,
+    `face ${num(to.overPaint)?.toFixed(3)} of the paint (census, white cars: 0.08-0.11), insert ${(100 * (num(to.over2x) ?? 0)).toFixed(1)}% of the lens`);
+  const lampLeaks = [H, TL, HN, TN].map((x) => num(x.otherChanged2));
+  add('and nothing off the lamps moves, by day or night',
+    lampLeaks.every((v) => v === 0) && [H, TL, HN, TN].every((x) => num(x.otherPx) > 0),
+    `${lampLeaks.join(' / ')} px over 2 levels`);
+  add('at night the lit headlamp is not put out', num(HN.on?.p50) >= 0.8 * (num(HN.off?.p50) ?? Infinity) && num(HN.off?.p50) > 0.3,
+    `lit p50 ${num(HN.off?.p50)?.toFixed(3)} flat -> ${num(HN.on?.p50)?.toFixed(3)} face`);
+  add('and the reverse insert stays dark while the red round it glows',
+    num(TN.on?.under03x) >= 0.05 && num(TN.on?.under03x) <= 0.40 && num(TN.off?.under03x) < 0.02
+      && num(TN.on?.p50) >= 0.8 * (num(TN.off?.p50) ?? Infinity),
+    `dark share ${(100 * (num(TN.on?.under03x) ?? 0)).toFixed(1)}% (flat ${(100 * (num(TN.off?.under03x) ?? 0)).toFixed(1)}%), lit p50 ${num(TN.off?.p50)?.toFixed(3)} -> ${num(TN.on?.p50)?.toFixed(3)}`);
+  const PH = LM.playerHead ?? {};
+  /**
+   * STRUCTURE ONLY, NOT THE BAND: this row is here for the FRAME (a lost CAR_FRAME_Y leaves the player's
+   * lamps a uniform housing with no bowl or strip on them), and the player's car is dark red, where
+   * the white-car band does not apply — its lamp reads 7.1x a self-shaded red fascia here, and the
+   * census's one red car read 0.61 in sun. Its leak bound is 4 pixels, not 0, and measured: the
+   * player's head band meets its amber indicator and its fascia at a shallow angle, and one MSAA sliver
+   * no mask channel covers moves 15 levels; a real leak moves hundreds.
+   */
+  add('the player\'s headlamps carry the face too, in their own frame: structure where the flat lamp has none',
+    num(PH.on?.lampPx) >= 200 && num(PH.on?.p90p50) >= 1.7 && num(PH.on?.over2x) >= 0.08 && num(PH.otherChanged2) <= 4,
+    `p90/p50 ${num(PH.off?.p90p50)?.toFixed(2)} flat -> ${num(PH.on?.p90p50)?.toFixed(2)} face, over 2x ${(100 * (num(PH.on?.over2x) ?? 0)).toFixed(1)}%; ${PH.otherChanged2} px off the lamps moved`);
+  add('and the lamps\' switch is back to the shipped state after the page', num(r.lampAfter) === num(r.lampShipped),
+    `after ${r.lampAfter}`);
   return checks;
 }
 
@@ -139,10 +203,25 @@ if (argv.includes('--selftest')) {
   /** A REAL REPORT, from a passing run of the page at noon. */
   const good = {
     geometry: ['coupe', 'saloon', 'wagon', 'player'].map(g),
-    shipped: 1, readback: [...PLANNED], after: 1,
+    shipped: 1, readback: PLANNED.map((k) => [...k]), after: 1,
     near: row(230, 158, 0.174, 0.4581, 0.066), far: row(21, 20, 0, 0.4690, 0.522),
     other: row(230, 145, 0.152, 0.4708, 0.044), player: row(230, 158, 0.174, 0.4581, 0.066),
     twoCars: { shared: 230, differ: 62, frac: 0.2696 },
+    lampShipped: 1, lampAfter: 1,
+    lamps: {
+      head: { off: { lampPx: 683, overPaint: 1.510, p90p50: 3.13, over2x: 0.300, under03x: 0, p50: 0.0580 },
+        on: { lampPx: 683, overPaint: 0.150, p90p50: 4.04, over2x: 0.286, under03x: 0.034, p50: 0.0058 },
+        otherPx: 138026, otherChanged2: 0, otherMax: 0 },
+      tail: { off: { lampPx: 626, overPaint: 0.174, p90p50: 1.09, over2x: 0, under03x: 0, p50: 0.0416 },
+        on: { lampPx: 626, overPaint: 0.096, p90p50: 2.04, over2x: 0.101, under03x: 0, p50: 0.0229 },
+        otherPx: 138088, otherChanged2: 0, otherMax: 0 },
+      headNight: { off: { lampPx: 683, p50: 0.9485, under03x: 0 }, on: { lampPx: 683, p50: 0.9485, under03x: 0 },
+        otherPx: 138026, otherChanged2: 0, otherMax: 0 },
+      tailNight: { off: { lampPx: 626, p50: 0.2483, under03x: 0 }, on: { lampPx: 626, p50: 0.2420, under03x: 0.168 },
+        otherPx: 138088, otherChanged2: 0, otherMax: 0 },
+      playerHead: { off: { lampPx: 640, p90p50: 1.98, over2x: 0.1, overPaint: 9.0 }, on: { lampPx: 640, p90p50: 2.59, over2x: 0.298, overPaint: 7.11 },
+        otherPx: 138000, otherChanged2: 0, otherMax: 0 },
+    },
   };
   const bad = (fn) => { const c = structuredClone(good); fn(c); return c; };
   const failing = (r) => verdict(r).filter((c) => !c.ok).map((c) => c.name);
@@ -158,7 +237,21 @@ if (argv.includes('--selftest')) {
     ['a plate buried in its bumper', (c) => { c.geometry[1].behind = 6; }, 'flat, centred'],
     ['a shell with no plate', (c) => { c.geometry[2].verts = 0; }, 'carries a plate'],
     ['the face shipped off', (c) => { c.shipped = 0; c.after = 0; }, 'ships the face ON'],
-    ['a switch that never reaches the material', (c) => { c.readback[1] = 0; }, 'switch is what it asked for'],
+    ['a switch that never reaches the material', (c) => { c.readback[1] = ['plate', 0]; }, 'switch is what it asked for'],
+    ['a lamp switch that never reaches the material', (c) => { c.readback[9] = ['lamp', 0]; }, 'switch is what it asked for'],
+    // The lamps. The flat lamp as shipped before, measured: 1.51 of the paint.
+    ['the lamps\' face shipped off', (c) => { c.lampShipped = 0; c.lampAfter = 0; }, 'lamps\' face ON'],
+    ['a face still a white field', (c) => { c.lamps.head.on.overPaint = 1.51; }, 'white field'],
+    ['a page where the flat lamp is not the defect', (c) => { c.lamps.head.off.overPaint = 0.4; }, 'white field'],
+    ['a dark lamp with nothing in it', (c) => { Object.assign(c.lamps.head.on, { p90p50: 1.1, over2x: 0.01 }); }, 'structure of a real one'],
+    ['a tail with no insert', (c) => { c.lamps.tail.on.over2x = 0; }, 'reverse insert the bright part'],
+    ['a tail as bright as before', (c) => { c.lamps.tail.on.overPaint = 0.174; }, 'a tenth of the paint'],
+    ['a face drawn over the whole car', (c) => { c.lamps.head.otherChanged2 = 4000; }, 'nothing off the lamps'],
+    ['a face that puts the lit lamps out', (c) => { c.lamps.headNight.on.p50 = 0.2; }, 'not put out'],
+    ['a reverse insert that glows red', (c) => { c.lamps.tailNight.on.under03x = 0; }, 'stays dark'],
+    ['the page leaving the lamps changed', (c) => { c.lampAfter = 0; }, 'lamps\' switch is back'],
+    ['the player\'s lamps read in the wrong frame: a housing with nothing on it', (c) => {
+      Object.assign(c.lamps.playerHead.on, { p90p50: 1.15, over2x: 0.0 }); }, 'player\'s headlamps'],
     ['a blank plate', (c) => { c.near.plateChanged = 0; c.near.inkFrac = 0; }, 'the face is there'],
     ['a face painted over the whole car', (c) => { c.near.otherChanged2 = 9000; c.near.otherMax = 140; }, 'nowhere else'],
     // Measured: the first cut's edge, two font pixels wide at distance.
@@ -186,7 +279,7 @@ const ROOT = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 const PORT = Number(process.env.CAR_DETAIL_PORT ?? treePort(ROOT));
 await ensureServer(PORT, 20000, { root: ROOT });
 const browser = await chromium.launch(launchOptions());
-const page = await browser.newPage({ viewport: { width: 1000, height: 1240 } });
+const page = await browser.newPage({ viewport: { width: 1000, height: 2740 } });
 const logs = [];
 page.on('console', (m) => { if (!/Failed to load resource/.test(m.text())) logs.push(`${m.type()}: ${m.text()}`); });
 page.on('pageerror', (e) => logs.push(`pageerror: ${e.message}`));

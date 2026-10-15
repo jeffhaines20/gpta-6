@@ -502,6 +502,12 @@ export const ARM_STATE = {
   // because geometry is not switchable on one page load; the pair isolates the face.
   plate0: { albedo: null, skyProxy: false, nightGlowLux: 0, carPlate: 0 },
   plate1: { albedo: null, skyProxy: false, nightGlowLux: 0, carPlate: 1 },
+
+  // THE LAMPS' FACES (src/carbody.js LAMP_U): `carLamp` 0 is the flat lamp, 1 the shipped face — a dark
+  // housing with chrome bowls and strip, a dark red tail with a reverse insert, set from a census of
+  // photographed lamps.
+  lamp0: { albedo: null, skyProxy: false, nightGlowLux: 0, carLamp: 0 },
+  lamp1: { albedo: null, skyProxy: false, nightGlowLux: 0, carLamp: 1 },
 };
 
 /**
@@ -725,6 +731,11 @@ export async function setArm(page, name) {
       if (window.__armSavedPlate === undefined) window.__armSavedPlate = D.carPlate().value;
       carPlate = D.setCarPlate(s.carPlate ?? window.__armSavedPlate);
     }
+    let carLamp = null;
+    if (D && D.setCarLamps) {
+      if (window.__armSavedLamp === undefined) window.__armSavedLamp = D.carLamps().value;
+      carLamp = D.setCarLamps(s.carLamp ?? window.__armSavedLamp);
+    }
     let carTone = null;
     if (D && D.setCarTone) {
       // The build's own state is "not legacy", and there is nothing to read back off the app for
@@ -810,6 +821,8 @@ export async function setArm(page, name) {
       carCabin: carCabin ? [carCabin.value, carCabin.level, carCabin.through] : null,
       // IN THE KEY: the plate arms differ in nothing else. Eleventh time.
       carPlate: carPlate ? carPlate.value : null,
+      // IN THE KEY: the lamp arms differ in nothing else. Twelfth time.
+      carLamp: carLamp ? carLamp.value : null,
       carTone: carTone ? [carTone.traffic ? +carTone.traffic.span.toFixed(3) : null,
         carTone.parked ? +carTone.parked.span.toFixed(3) : null] : null,
       carShells: (window.__district && window.__district.carShells)
@@ -837,7 +850,7 @@ export async function proveArmsDiffer(page, arms) {
   // carFront and carTyre joined the key in round 5 for the same reason, for the
   // third time: those arms move one texel and one vertex-colour set and nothing
   // a uniform readback would otherwise show.
-  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carGlass, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo, s.carGlassAlbedo, s.carGlassEnv, s.carShells, s.carPaintTint, s.carTone, s.aoKernel, s.aoEmit, s.carCabin, s.carPlate]))).size;
+  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carGlass, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo, s.carGlassAlbedo, s.carGlassEnv, s.carShells, s.carPaintTint, s.carTone, s.aoKernel, s.aoEmit, s.carCabin, s.carPlate, s.carLamp]))).size;
   return { seen, ok: distinct === arms.length };
 }
 

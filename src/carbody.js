@@ -570,6 +570,90 @@ vec3 plateFaceAA( vec2 q, vec2 qx, vec2 qy, float seed, vec3 base ) {
 `;
 }
 
+/**
+ * THE LAMPS BY DAY: a dark housing behind a clear cover, with bright parts in it — not a white panel.
+ *
+ * The cabin's blind reviewer found a parked car's headlamps to be "flat white fields", 0.80 in
+ * linear light at noon, 2.6x the same car's sunlit bonnet, "with no lens or reflector structure". The
+ * colour that did it, 0xf7fafe (0.953), was chosen while instanceColor multiplied every slot, to put
+ * the aperture at "essentially the body's own reflectance" (see lampC). The paint-slot tint then
+ * confined instanceColor to the paint, and every headlamp in the city became an absolute 0.95 white
+ * panel on every car: the interaction #1's own entry warns about, arriving from the other side.
+ *
+ * A census of real lamps in the reference photographs (13 measured, 7 refused or bounded; boxes and
+ * crops in the BACKLOG) set the target, against the same car's own forward-facing paint:
+ *
+ *   headlamp, white car in sun            0.14 - 0.17         median of white cars, any light 0.21
+ *   headlamp, white car in shade          0.21 - 0.53         silver 0.43, red 0.61, dark grey 0.98
+ *   structure inside the lens             p90/p50 1.7 - 5.0, median 2.7; 10-30% of it over 2x its median
+ *   tail lamp, white car                  0.08 - 0.11         a deep red, nearly uniform (p90/p50 1.3-1.5)
+ *
+ * and described what they are at 10-60 px: "a dark, glossy, neutral-to-cool housing seen through a
+ * clear cover ... bright elements: 10-30% of the lens area at 2-5x the base ... one to three chrome
+ * reflector bowls or projector rings ... a light-guide or chrome strip", and for tails "a deep
+ * saturated red lens ... a clear reverse insert with chrome is the brightest part".
+ *
+ * So the lamp slots draw that, procedurally, in the car's own frame from the extents measured off
+ * every build (head |x| 0.30-0.82, y 0.783-0.920; tail |x| 0.28-0.83, y 0.643-0.772): a cool dark
+ * housing, two reflector bowls with dark projector cores and a light-guide strip above them, and on
+ * the tail a dark red lens with soft LED banding and a clear reverse insert at its inboard end. Edges
+ * are antialiased over one screen pixel measured in metres. The insert is masked out of the tail's
+ * EMISSION, because a reverse lamp is not lit while the car is driving forward.
+ *
+ * `uLampDetail` 0 is the flat lamp, bit for bit; the player's car reads the same pattern through
+ * CAR_FRAME_Y, its frame's offset from the fleet's.
+ */
+const LAMP_U = { uLampDetail: { value: 1 } };
+export function setLampDetail(k) {
+  LAMP_U.uLampDetail.value = Math.min(1, Math.max(0, k));
+  return lampDetail();
+}
+export function lampDetail() { return { value: LAMP_U.uLampDetail.value }; }
+
+function lampGLSL() {
+  return `
+uniform float uLampDetail;
+#ifndef CAR_FRAME_Y
+#define CAR_FRAME_Y 0.0
+#endif
+// One edge, antialiased over w (a screen pixel in the same units as d and e).
+float lampEdge( float e, float d, float w ) { return smoothstep( e - w, e + w, d ); }
+// The lamp's face at p (the fleet's frame, metres) on slot 4 (head) or 5 (tail): albedo in rgb, and
+// in a the share of the slot's emission this point keeps. The out chrome is how much of this point is a
+// polished METAL reflector: its brightness is the surroundings it reflects, not the light falling
+// on it, which is the census's own reading of why real lamps stay bright in shade.
+vec4 lampFace( vec3 p, float slot, float px, out float chrome ) {
+	float ax = abs( p.x );
+	const vec3 CHROME = vec3( 0.62, 0.63, 0.65 );                      // a polished reflector's F0
+	if ( slot < 4.5 ) {
+		vec3 col = vec3( 0.088, 0.093, 0.105 );                         // the housing, through the cover
+		// The light guide above the bowls, y 0.879 - 0.895.
+		float strip = lampEdge( 0.879, p.y, px ) * ( 1.0 - lampEdge( 0.895, p.y, px ) )
+			* lampEdge( 0.36, ax, px ) * ( 1.0 - lampEdge( 0.72, ax, px ) );
+		chrome = strip;
+		// Two reflector bowls, radius 3.8 cm: a chrome ring round a dark projector core.
+		for ( int i = 0; i < 2; i++ ) {
+			float r = length( vec2( ax - ( i == 0 ? 0.44 : 0.63 ), p.y - 0.832 ) );
+			float ring = lampEdge( 0.027, r, px ) * ( 1.0 - lampEdge( 0.038, r, px ) );
+			chrome = max( chrome, ring );
+			float core = 1.0 - lampEdge( 0.017, r, px );
+			col = mix( col, vec3( 0.020 ), core );
+		}
+		col = mix( col, CHROME, chrome );
+		return vec4( col, 1.0 );
+	}
+	float v = clamp( ( p.y - 0.643 ) / 0.129, 0.0, 1.0 );
+	vec3 col = vec3( 0.200, 0.0075, 0.005 ) * ( 0.88 + 0.12 * sin( v * 18.85 ) );   // three soft LED bars
+	// The clear reverse insert, a lens over a chrome reflector: the inboard 9 cm of each lamp, its
+	// middle 60%.
+	float insert = ( 1.0 - lampEdge( 0.39, ax, px ) ) * lampEdge( 0.669, p.y, px ) * ( 1.0 - lampEdge( 0.746, p.y, px ) );
+	chrome = insert;
+	col = mix( col, CHROME, insert );
+	return vec4( col, 1.0 - insert );
+}
+`;
+}
+
 const GLASS_ENV = { uGlassEnvExtra: { value: 5 } };
 export function setGlassEnv(k) {
   GLASS_ENV.uGlassEnvExtra.value = Math.max(0, k);
@@ -940,6 +1024,10 @@ const COLOR_VERTEX_DECL = '#include <color_vertex>';
 // has just taken the vertex colour, which is the glazing albedo the cabin replaces.
 const PROJECT_VERTEX_DECL = '#include <project_vertex>';
 const COLOR_FRAGMENT_DECL = '#include <color_fragment>';
+// Where the finish is final: metalnessmap_fragment is top-level in meshphysical_frag and the last word
+// on metalnessFactor (roughnessmap_fragment, just above it, on roughnessFactor). The lamps' chrome
+// overrides both here, after the palette has spoken.
+const METALNESS_DECL = '#include <metalnessmap_fragment>';
 function patchLensFalloff(m) {
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uLensEdge = LENS_PROFILE.uLensEdge;
@@ -958,11 +1046,15 @@ function patchLensFalloff(m) {
     if (!shader.vertexShader.includes(PROJECT_VERTEX_DECL) || !shader.fragmentShader.includes(COLOR_FRAGMENT_DECL)) {
       throw new Error('carSurfaceMaterial: project_vertex / color_fragment include not found; the cabin would silently no-op');
     }
+    if (!shader.fragmentShader.includes(METALNESS_DECL)) {
+      throw new Error('carSurfaceMaterial: metalnessmap_fragment include not found; the lamps\' chrome would silently be paint');
+    }
     shader.uniforms.uCabinGain = CABIN_U.uCabinGain;
     shader.uniforms.uCabinLevel = CABIN_U.uCabinLevel;
     shader.uniforms.uCabinThrough = CABIN_U.uCabinThrough;
     shader.uniforms.uPaintTintOnly = PAINT_TINT.uPaintTintOnly;
     shader.uniforms.uPlateText = PLATE_U.uPlateText;
+    shader.uniforms.uLampDetail = LAMP_U.uLampDetail;
     // THE PAINT-SLOT TINT. `paletteU(i)` is `(i + 0.5) / 16`, so `floor( uv.x * 16 )` is the slot
     // this vertex points the palette at - exact in float32 for every slot, since (i + 0.5) / 16
     // is a dyadic rational. step(0.5, slot) is 0 on slot 0 and 1 everywhere else, so the mix
@@ -1026,6 +1118,7 @@ uniform float uLensGain;
 uniform float uGlassEnvExtra;
 ${cabinGLSL()}
 ${plateGLSL()}
+${lampGLSL()}
 void main() {`)
       // The glazing slot only — the pack texture's alpha is 255 everywhere else, the same test the
       // environment gain above uses — and the cabin carries the glass's own tint, normalised to
@@ -1057,7 +1150,27 @@ void main() {`)
 		if ( uPlateText > 0.0 && abs( floor( vRoughnessMapUv.x * 16.0 ) - ${SURFACE.plate.toFixed(1)} ) < 0.5 ) {
 			diffuseColor.rgb = mix( diffuseColor.rgb, plateFaceAA( plateQ, plateQx, plateQy, vCarSeed, diffuseColor.rgb ), uPlateText );
 		}
+	}
+	// THE LAMPS' FACES, on slots 4 and 5, in the fleet's frame (CAR_FRAME_Y lifts the player's car into
+	// it). The pixel's size in metres is taken before the branch, for the same reason as the plate's.
+	float lampChrome = 0.0;
+	{
+		vec3 lampP = vCabinPos + vec3( 0.0, CAR_FRAME_Y, 0.0 );
+		float lampPx = max( length( dFdx( lampP ) ), length( dFdy( lampP ) ) );
+		float lampSlot = floor( vRoughnessMapUv.x * 16.0 );
+		if ( uLampDetail > 0.0 && lampSlot > 3.5 && lampSlot < 5.5 ) {
+			vec4 lampD = lampFace( lampP, lampSlot, lampPx, lampChrome );
+			lampChrome *= uLampDetail;
+			diffuseColor.rgb = mix( diffuseColor.rgb, lampD.rgb, uLampDetail );
+			// totalEmissiveRadiance is declared above color_fragment, and the emissive map multiplies
+			// it below: a product, so masking it here is the same as masking it there.
+			totalEmissiveRadiance *= mix( 1.0, lampD.a, uLampDetail );
+		}
 	}`)
+      // The lamps' chrome: a polished metal where the face says so (see lampFace).
+      .replace(METALNESS_DECL, `${METALNESS_DECL}
+	metalnessFactor = mix( metalnessFactor, 1.0, lampChrome );
+	roughnessFactor = mix( roughnessFactor, 0.16, lampChrome );`)
       .replace(EMISSIVE_DECL, `float lensRho = clamp( vEmissiveMapUv.y, 0.0, 1.0 );
 	float lensDome = pow( max( 0.0, 1.0 - lensRho * lensRho ), uLensPow );
 	${EMISSIVE_DECL.replace('emissive;', 'emissive * uLensGain * mix( uLensEdge, 1.0, lensDome );')}`);
@@ -1074,7 +1187,8 @@ void main() {`)
   // because it already has a program under the old key.
   // BUMPED FOR THE CABIN: a new uniform, two varyings and an injection on each side.
   // BUMPED FOR THE PLATE'S FACE: a uniform, a varying, and a block on each side.
-  m.customProgramCacheKey = () => 'carLensFalloff6plate';
+  // BUMPED FOR THE LAMPS' FACES: a uniform, a define and a fragment block.
+  m.customProgramCacheKey = () => 'carLensFalloff7lamp';
   return m;
 }
 
@@ -1101,6 +1215,9 @@ export function carSurfaceMaterial(opts = {}) {
   // mirror would paint seats on it. A define rather than a uniform, so the two programs are cached
   // apart by three's own key.
   if (opts.cabin === false) m.defines = { ...(m.defines ?? {}), CAR_NO_CABIN: '' };
+  // The offset of this material's car frame from the fleet's, for anything drawn by position in it
+  // (the lamps' faces): 0 for every fleet shell, PLAYER_CABIN_Y for the player's body.
+  if (opts.frameY) m.defines = { ...(m.defines ?? {}), CAR_FRAME_Y: Number(opts.frameY).toFixed(4) };
   return patchLensFalloff(m);
 }
 
@@ -2584,7 +2701,8 @@ export function buildPlayerCar(opts = {}) {
   const bodyGeo = b.geometry();
   const glassGeo = gb.geometry();
 
-  const bodyMat = carSurfaceMaterial({ envMapIntensity: opts.envMapIntensity ?? 1.8, cabin: false });
+  const bodyMat = carSurfaceMaterial({ envMapIntensity: opts.envMapIntensity ?? 1.8, cabin: false,
+    frameY: PLAYER_CABIN_Y });
   const glassMat = carGlassMaterial();
 
   const group = new THREE.Group();
@@ -2922,6 +3040,14 @@ export function buildTrafficCarGeometry(opts = {}) {
   // channel clipped that round-trips to 216, 218, 222 - the original bytes, to
   // 0 DN. At 0xffffff it would have come back 3 DN out on blue, and an A/B whose
   // before-arm is not the build is the failure this project keeps finding.
+  //
+  // THE ARGUMENT ABOVE EXPIRED WITH THE PAINT-SLOT TINT, and nothing said so. It
+  // rests on instanceColor multiplying this colour, which kept the aperture at the
+  // body's own reflectance; confined to slot 0, it leaves this an absolute 0.953
+  // on every car, and a blind reviewer measured the result as "flat white fields"
+  // 2.6x a sunlit bonnet. The colour stays because uLampDetail 0 is the before-arm
+  // and has to be it exactly; the face carSurfaceMaterial draws over it at 1 is
+  // set from photographed lamps (see LAMP_U).
   const lampC = col(0xf7fafe);
   const tailC = col(0x8e1c16);
   // The aperture, and the slat across it. NOT one flat near-black rectangle:

@@ -43,6 +43,38 @@ closed and item 7's tone half is closed:
    one 6 m away (0.779 of the blank against 0.761) and no pixel there reaches a stroke's darkness
    (0.52 against 0.066 near); one sharp sample a pixel reads 0.346 and 0.050. `tools/car-detail`.
 3. **Tail lights are dark painted rectangles**, 1.11x the darkest paint on the same car.
+   *SHIPPED 2026-10-15 with the headlamps, pending its blind review* — and the headlamps were the
+   worse half. The cabin's blind reviewer measured a parked car's unlit headlamps as "flat white
+   fields", 0.80 linear, 2.6x its sunlit bonnet: the colour, 0xf7fafe (0.953), was chosen while
+   instanceColor multiplied every slot, to sit at "the body's own reflectance", and the paint-slot
+   tint (#1) turned it into an absolute white panel on every car. #1's own entry warns about exactly
+   that interaction; it arrived from the other side and nothing said so.
+
+   A census of photographed lamps set the target (`reference/sarasota/lamp-census.json`, 13 rows and
+   8 refusals, two rows re-run here to four places): unlit headlamps on white cars read 0.14-0.17 of
+   the forward-facing paint beside them in sun and 0.21-0.53 in shade (silver 0.43, red 0.61, dark
+   grey 0.98, no black car measurable), with internal structure p90/p50 1.7-5.0 (median 2.7) and
+   10-30% of the lens over twice its median; tails on white cars 0.08-0.11, nearly uniform, a clear
+   reverse insert the brightest part. And the census's reading of WHY a lamp stays bright in shade —
+   its brightness is what it reflects, not the light on it — turned out to be the thing the first
+   build of the face got wrong.
+
+   The face is procedural on slots 4 and 5 in the fleet's frame (CAR_FRAME_Y lifts the player's car
+   into it): a dark cool housing, two reflector bowls with dark projector cores and a light-guide strip,
+   and on the tail a dark red lens with soft LED bars and a clear reverse insert whose EMISSION is
+   masked, because a reverse lamp is not lit while a car drives forward. The first build drew the
+   bright parts as diffuse albedo and the self-shaded front went black — the white paint beside it gets
+   its brightness from a specular F0 of 0.5, and a diffuse reflector in shade gets nothing — so they
+   are polished metal now, metalness 1 and roughness 0.16 set after three's own finish chunks.
+   `tools/car-detail`, white car, this page's light:
+
+                          flat lamp     face       census, white cars
+       headlamp / paint     1.510       0.150      0.14-0.53
+       p90/p50              3.13        4.04       1.7-5.0
+       over twice median    30.0%       28.6%      10-30%
+       tail / paint         0.174       0.096      0.08-0.11
+       lit at night        0.949        0.949      the face does not put the lamp out
+       reverse insert dark   0.0%       16.8%      of the lit tail under 0.3x its median
 4. **Octagonal wheels** at 56 px diameter, and inconsistent between cars — one has a rim ring,
    another is a featureless black lump with no arch cut.
    *PRICED, not spent (2026-10-14).* The traffic wheel is `seg = 8` by design, 8*seg = 64

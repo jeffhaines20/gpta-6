@@ -2535,6 +2535,31 @@ const MUTATIONS = [
     to: '    const tl = corner(-hw, yMid + hh, 0.5), tr = corner(hw, yMid + hh, 0.5);',
     why: 'the face loses its vertical: every row of the plate reads the same line of the font',
   },
+  // ---- src/carbody.js: the lamps' faces (LAMP_U). Each renders a car with lamps on it.
+  {
+    id: 'lamp-face-off', file: 'src/carbody.js',
+    find: 'const LAMP_U = { uLampDetail: { value: 1 } };',
+    to: 'const LAMP_U = { uLampDetail: { value: 0 } };',
+    why: 'every headlamp in the city is the white field the reviewer measured at 2.6x a sunlit bonnet',
+  },
+  {
+    id: 'lamp-chrome-lost', file: 'src/carbody.js',
+    find: '\tmetalnessFactor = mix( metalnessFactor, 1.0, lampChrome );',
+    to: '\tmetalnessFactor = metalnessFactor;',
+    why: 'the reflectors become grey paint: a lamp whose bright parts go dark with everything else in shade',
+  },
+  {
+    id: 'lamp-insert-emits', file: 'src/carbody.js',
+    find: '\t\t\ttotalEmissiveRadiance *= mix( 1.0, lampD.a, uLampDetail );',
+    to: '',
+    why: 'the reverse lamp glows red with the tail at night, which a car driving forward never shows',
+  },
+  {
+    id: 'lamp-player-frame', file: 'src/carbody.js',
+    find: '  const bodyMat = carSurfaceMaterial({ envMapIntensity: opts.envMapIntensity ?? 1.8, cabin: false,\n    frameY: PLAYER_CABIN_Y });',
+    to: '  const bodyMat = carSurfaceMaterial({ envMapIntensity: opts.envMapIntensity ?? 1.8, cabin: false });',
+    why: 'the player\'s lamps read the face 0.717 m below themselves: a uniform housing with nothing on it',
+  },
   {
     id: 'player-glass-metal', file: 'src/carbody.js',
     find: '    roughness: PALETTE[SURFACE.glassy][0], metalness: PALETTE[SURFACE.glassy][1],',
