@@ -50,7 +50,7 @@ closed and item 7's tone half is closed:
    on a 22 px plate against 34-73% on the far ones, "what a filtered texture does as it shrinks".
    Untested by the frames, and said so: shimmer in motion, whether registrations differ, orientation.
 3. **Tail lights are dark painted rectangles**, 1.11x the darkest paint on the same car.
-   *SHIPPED 2026-10-15 with the headlamps, pending its blind review* — and the headlamps were the
+   *SHIPPED 2026-10-15 with the headlamps, preferred blind in six pairs of six* — and the headlamps were the
    worse half. The cabin's blind reviewer measured a parked car's unlit headlamps as "flat white
    fields", 0.80 linear, 2.6x its sunlit bonnet: the colour, 0xf7fafe (0.953), was chosen while
    instanceColor multiplied every slot, to sit at "the body's own reflectance", and the paint-slot
@@ -82,6 +82,34 @@ closed and item 7's tone half is closed:
        tail / paint         0.174       0.096      0.08-0.11
        lit at night        0.949        0.949      the face does not put the lamp out
        reverse insert dark   0.0%       16.8%      of the lit tail under 0.3x its median
+
+   *Blind review: the face in six pairs of six* (`docs/shots/blind-key-lamp-lamp0-lamp-lamp1.json`),
+   confidence 4, 4, 5 on the corridor and 3, 3, 3 on fivepoints, where the lamps are 10-15 px. The
+   reviewer named the term from a difference map — 5,100 px, 0.35% of corridor-noon — and the deciding
+   measurement was one this round had not taken: **lamp over the same car's paint ACROSS THE HOURS.**
+   The flat lamp climbs as the scene darkens, 2.56 / 3.74 / 17.71 on the nearest corridor car and
+   5.0-8.7 / 10.9-16.6 / 12-33 on the fivepoints row, "so the lamp carries its own light"; the face
+   holds at 0.44 / 0.29 / 1.17 and 1.35-2.16 / 1.96-2.59 / 1.94-2.12 while the scene's light falls
+   about 7.6x, "which is how a lens lit by the scene behaves". So the flat build gave every
+   front-facing parked car headlamps that read as switched on at dusk and night and lit nothing on
+   the road — and the "glow" that made its bumper 3.5x brighter is the night bright pass taking a
+   lamp-lit white face as a light source, which is #118's mechanism on a second subject. The lit
+   lamps of the moving car are unchanged between arms (0.483 / 0.496 at dusk, 0.548 / 0.539 at night)
+   and the road in front of the parked cars matches to four digits at every hour.
+
+   **Its weaknesses, recorded rather than fixed:** the lens is a matte panel with no sheen beside paint
+   carrying a sun glint (a clear polycarbonate cover is the missing term); the two dark bowls read
+   "slightly like cartoon eyes" at 1x on the nearest car; on distant cars the bowls are drawn at a
+   1-2 px pitch, a 12-level step inside the lamp against 0.4 on the paint beside it — "fine in a still
+   but could shimmer in motion", and a still cannot test it. The reverse insert reflects the sky, so at
+   dusk it is orange at 18-22x the paint and "at a glance could pass for a lit amber lamp".
+
+   **Wrong in BOTH arms, filed below as #119 and #120:** upright glow BARS in front of the moving
+   cars' lit lamps at dusk and night (a 165-180 luma plateau 20 px tall and 5 px wide before the red
+   car's nose, a 10 x 21 px red bar with a hard top edge behind its tail), and amber blocks on parked
+   cars' front corners at dusk and night only, 8.1-8.6x their surroundings, that read as lit
+   parking lamps. Also a spot at the nearest corridor car's outer-lower headlamp corner at night
+   only, 18.5-19.7x the paint, "the only lit thing on an otherwise unlit car", unexplained.
 4. **Octagonal wheels** at 56 px diameter, and inconsistent between cars — one has a rim ring,
    another is a featureless black lump with no arch cut.
    *PRICED, not spent (2026-10-14).* The traffic wheel is `seg = 8` by design, 8*seg = 64
@@ -3699,3 +3727,31 @@ radiance that is EMITTED into the scene target's alpha, and weighting the bright
 blooms what emits and not what is lit. Measure first: the radiance of lit windows, lamp heads and car
 lamps against lamp-lit plates, pavement and paint at the night hero cameras.
 
+
+### #119 OPEN — a moving car's lit lamps stand upright BARS in front of it at dusk and night
+From the lamp face's blind reviewer, in BOTH arms, so independent of the face: at fivepoints dusk and
+night "two vertical bars stand in front of the red car's nose at x643-660 y560-590; at x652 there is a
+165-180 luma plateau about 20 px tall and 5 px wide. A red bar about 10 x 21 px with a hard top edge
+sits behind its tail (x454-463 y568-591). A photographed headlamp glares as a round or horizontal bloom
+on the lamp itself."
+
+The likely mechanism is in `buildCarGlowGeometry`'s `halo()`: a disc at each lens, centre bright and
+rim black, built in the plane of the lens — a WORLD-SPACE vertical disc facing along the car's axis.
+Seen nose-on it is a round glow; seen from the fivepoints camera's three-quarter angle it foreshortens
+toward its own edge, which is an upright bar, and its "hard top edge" is the disc's rim clipped where
+the octagon's black vertices sit. Glare is a property of the CAMERA, not of the space in front of the
+lamp, so it is round in the image whatever the car's heading — and the post stack already makes one
+from the lens itself. Not diagnosed: the first measurement is the halo's own contribution against the
+bloom's at those boxes (the halo is a MeshBasicMaterial, so it carries no #114 tag and `bloom-source`
+counts it as untagged), and then whether a camera-facing halo or none at all is the fix.
+
+### #120 OPEN — amber blocks on parked cars' front corners at dusk and night, "lit parking lamps"
+Same reviewer, both arms: at fivepoints "x720-724 y547-553 are 8.1x their surroundings at dusk and 8.6x
+at night; x734-738 y541-545, 3.6x and 3.4x. They read as lit parking or indicator lamps", absent at noon.
+
+Two readings and they want opposite fixes. The traffic pool's emissive palette lights the indicator
+texel (`PALETTE[6]`, 255/122/14), and a US car with its headlamps on DOES show lit amber side markers
+at its front corners — so on a moving car this is correct and the defect would be only its size. The
+parked pool's retroreflector palette lights the tail texel and the headlamp texel and NOT the indicator
+(`writeRetroTexels`), so on a parked car nothing should be amber and lit. Not diagnosed: the first
+measurement is which pool the car at (720, 547) in the fivepoints frame belongs to.
