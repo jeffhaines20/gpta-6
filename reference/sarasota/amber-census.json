@@ -1,0 +1,2127 @@
+{
+ "what": "A census of the AMBER element at the front corners of real parked and moving cars in downtown Sarasota (side-marker, turn-signal or parking-lamp lens, lamps OFF, daylight), read only from the Mapillary panoramas in reference/sarasota/mapillary/. Per car, three questions: (1) is any amber visible at a front corner; (2) where it is, its linear-luma brightness over the car's own paint beside it on the same panel orientation (lens p50 / paint p50), and its internal spread (p90/p50); (3) its apparent size against the headlamp beside it, in pixels, on the same car in the same frame. The paint family and the light on the measured panel are recorded for every row, because the ratio depends on both.",
+ "method": [
+  "SURVEY. Contact sheets of the horizon band (y 440-760, half scale) of all 202 panoramas and of the 27 flat frames. About 160 candidate sightings were zoomed at x2-x14 (about 330 zoom views); many were the same parked car in neighbouring frames. Zooms used tools/paint-tone.mjs --grid and scratch helpers that draw the same original-pixel grid; the helpers are placement aids, not measurements. Most zoomed vehicles were rear views, too distant, occluded, blurred, or repeats of one parked car.",
+  "DEDUPLICATION. Panoramas 5-15 m apart repeat the same parked cars. Each vehicle was tracked across frames by the capture position in mapillary/index.json and by appearance, and counted once (see \"duplicates\"). The best frame was used.",
+  "Q1, PRESENCE. A corner counts as amber when a connected cluster of pixels sits on the lamp or marker itself, with HSV hue 0-50 deg, saturation >= 0.25 and value > 0.12, and the zoom shows it is a lens rather than paint, ground, background or a reflection. The hue window includes red-orange because these JPEGs render amber lenses at a mean hue of 8-28 deg. \"No amber\" required a headlamp at least ~25 px wide with the corner resolved. Over the headlamp-plus-corner box, the largest amber cluster had to be <= 9 px, or any larger cluster had to be shown on a zoom to lie on background, a wheel-arch edge or foliage. The 4 measured positives give 43-71 px on the same test. Head-on views answer for the front face only and are marked as such.",
+  "MEASUREMENT. node tools/paint-tone.mjs --sample <frame> --boxes <lens>;<paint>, unchanged (sha256 89edc2df54156d06...). It was run from a scratch working directory with a symlink to reference/, so the tool's annotated crop went to scratch and docs/shots/ was not touched. The tool decodes the JPEG in Chromium (playwright 1.56.1), applies the exact sRGB EOTF per channel and takes Rec.709 linear luma per pixel. It reports p10/p50/p90 per box and the share of pixels with any channel at 255. lensOverPaint = lens p50 / paint p50, both in the same frame, so exposure cancels.",
+  "BOXES. The lens box sits inside the amber element: seeded on its saturated core and sized to its sat >= 0.25 extent where that is >= 4 px tall, never on the chrome or housing around it. The paint box sits on the nearest unbroken painted panel facing the same way: fender or bumper side for a side marker, the fascia directly below for a front-corner amber. It is clear of shut lines, badges, the wheel arch and specular streaks. Every box was checked on the annotated crop the tool writes, at about x10. One first paint box on the black Explorer had landed on the road behind the car; the crop showed it and the row was refused.",
+  "PLACEMENT SENSITIVITY. Both boxes were shifted by every (dx, dy) in {-1, 0, 1}^2, giving 9 lens x 9 paint = 81 ratios, all through the tool. The range is min-max, and spread = (max - min) / lensOverPaint. Spread <= 25% is \"tight\". 25-50% is \"wide\", kept and flagged. Over 50%, or lens p90/p50 > 2 (the box mixes the lens with something else), the row was refused.",
+  "REFERENCE SENSITIVITY. A second paint box on the same panel orientation, further from the lens, was read through the same tool. It is reported as altPaintBox / altLensOverPaint. A first alternate on the Compass sat where the fascia turns away into shade; it read 2.47 against 1.40 and was replaced, because it is a different orientation.",
+  "SIZES. Amber w x h is the bounding box of the 4-connected cluster of amber pixels (hue 0-50, sat >= 0.25; >= 0.40 where noted) seeded on the lens box, cross-checked by eye on the zoom. Headlamp w x h is the bounding box of the headlamp assembly as it appears in the same frame, including an integrated amber section, read off a gridded zoom to +-2 px. Both are apparent, projected sizes from one viewpoint.",
+  "LIGHT. From the cast-shadow direction on wider context views. \"light\" is the light on the MEASURED PANEL: sun, shade or dapple. \"scene\" says what the rest of the frame is doing. Three white or dark cars are in a sunny scene but photographed on their own shadow side, so they are classed shade."
+ ],
+ "caveats": [
+  "This is photographed luminance, not albedo. The lens is a glossy curved plastic over a reflector, and its reading depends on what it mirrors (sky, ground, the next car) as much as on its colour. Paint carries clearcoat sheen and, on dark metallics, mirrors the sky: the Tacoma's grey fender reads bluish, mean sRGB 40,50,69.",
+  "The rows order by paint tone, so white cars read below 1 and dark cars above. That is the signature of a ratio whose denominator varies far more than its numerator. The family field is not optional context; it is half of the number.",
+  "Lit lamps: a daylight-lit amber would read near-clipped and saturated. Only one kept lens clips at all: the Compass, 2.8% of its box, a specular highlight visible on the crop. All three moving cars (Accord, CX-30, Rogue) read below their paint, which is consistent with unlit lenses. A dim lit element cannot be excluded.",
+  "Box size: the lens boxes hold 12-50 px. A box under about 4x4 px is dominated by JPEG 4:2:0 chroma subsampling, which smears a 4 px element's colour over about 8 px; such elements were refused (CR-V 7x4, Tesla strip 3-4 px tall).",
+  "JPEG floor: at L < ~0.03-0.05 (deep shade, black paint) a 1-code change is several percent of the reading, and black paint mirrors the ground. Both black cars with visible amber were refused for this.",
+  "Clipping: white paint in direct sun clips, and a ratio against it is only an upper bound (the Sequoia was refused).",
+  "The presence test cannot work on red or orange paint, whose own hue falls in the amber band (red Wrangler, GR86).",
+  "Wide rows (25-47% placement spread) come from elements only 4-5 px thick, or diagonal ones (Mazda5 right side, Tacoma, Tundra, Rogue, Compass). Their first decimal place is the claim; the second is not.",
+  "The second paint box moves a ratio by 1-18% (median 15%). That is the size of \"which part of the panel counts as beside it\", separate from the +-1 px placement range.",
+  "Families are by eye. The Mazda5 is a warm silver (mean sRGB 151,134,117 in sun) and could be called champagne. Model names are identifications by eye, given only to help find the car.",
+  "Sizes are apparent. Side-view rows see the headlamp side-on, with its front foreshortened, so the amber/headlamp ratios mix viewpoints and come with no distances.",
+  "Sample: 9 measured cars from one ~1.5 km downtown corridor (Bayfront to Five Points) on one day (2024-10-13, one 360-camera rig), mostly 2015+ vehicles. No black or red car and no pre-2010 car survived measurement."
+ ],
+ "measuredBy": "a census subagent, 2026-10-15",
+ "instrument": {
+  "tool": "tools/paint-tone.mjs --sample (and --grid for placement)",
+  "toolSha256Prefix": "89edc2df54156d06",
+  "statistic": "Rec.709 luma of sRGB-EOTF-linearised pixels; p10/p50/p90 by nearest rank; clipPct = share of pixels with any channel at 255",
+  "boxFormat": "[x, y, w, h] in the original image's pixels"
+ },
+ "summary": {
+  "imagesSurveyed": "229: 202 equirectangular 2048x1024 panoramas (2024-10-13) and 27 flat frames (2014-2021)",
+  "carsWithAnAnswerToQ1": 32,
+  "amberVisible": 16,
+  "amberVisibleBreakdown": "9 measured (10 rows: the Mazda5 on both sides) + 7 visible but refused",
+  "noAmberVisible": 16,
+  "noAmberBreakdown": "13 with the corner's side face in view + 3 head-on, which can only answer for the front face",
+  "presenceUncertain": 4,
+  "unresolved": 23,
+  "shareWithAmber": "16 of 32 (50%); 16 of 29 (55%) counting only the views that show the corner's side face; 16-20 of 36 if the 4 uncertain go either way",
+  "lensOverPaintByFamilyAndLight": {
+   "blue / sun": {
+    "n": 1,
+    "min": 2.748,
+    "median": 2.748,
+    "max": 2.748,
+    "values": [
+     2.748
+    ]
+   },
+   "grey / shade": {
+    "n": 1,
+    "min": 1.775,
+    "median": 1.775,
+    "max": 1.775,
+    "values": [
+     1.775
+    ]
+   },
+   "silver / shade": {
+    "n": 1,
+    "min": 1.048,
+    "median": 1.048,
+    "max": 1.048,
+    "values": [
+     1.048
+    ]
+   },
+   "silver / sun": {
+    "n": 3,
+    "min": 1.283,
+    "median": 1.404,
+    "max": 1.409,
+    "values": [
+     1.283,
+     1.404,
+     1.409
+    ]
+   },
+   "white / shade": {
+    "n": 3,
+    "min": 0.431,
+    "median": 0.746,
+    "max": 0.944,
+    "values": [
+     0.431,
+     0.746,
+     0.944
+    ]
+   },
+   "white / sun": {
+    "n": 1,
+    "min": 0.599,
+    "median": 0.599,
+    "max": 0.599,
+    "values": [
+     0.599
+    ]
+   }
+  },
+  "lensOverPaintByFamily": {
+   "blue": {
+    "n": 1,
+    "min": 2.748,
+    "median": 2.748,
+    "max": 2.748,
+    "values": [
+     2.748
+    ]
+   },
+   "grey": {
+    "n": 1,
+    "min": 1.775,
+    "median": 1.775,
+    "max": 1.775,
+    "values": [
+     1.775
+    ]
+   },
+   "silver": {
+    "n": 4,
+    "min": 1.048,
+    "median": 1.344,
+    "max": 1.409,
+    "values": [
+     1.048,
+     1.283,
+     1.404,
+     1.409
+    ]
+   },
+   "white": {
+    "n": 4,
+    "min": 0.431,
+    "median": 0.673,
+    "max": 0.944,
+    "values": [
+     0.431,
+     0.599,
+     0.746,
+     0.944
+    ]
+   }
+  },
+  "placementTight_le25pct": [
+   {
+    "id": "accord-white-L",
+    "lensOverPaint": 0.7463,
+    "spreadPct": 20.4
+   },
+   {
+    "id": "cx30-white-L",
+    "lensOverPaint": 0.431,
+    "spreadPct": 6.6
+   },
+   {
+    "id": "camry-silver-R",
+    "lensOverPaint": 1.2833,
+    "spreadPct": 19.9
+   },
+   {
+    "id": "expedition-white-L",
+    "lensOverPaint": 0.9435,
+    "spreadPct": 9.5
+   }
+  ],
+  "placementWide_25to47pct": [
+   {
+    "id": "compass-silver-L",
+    "lensOverPaint": 1.4037,
+    "spreadPct": 34.2
+   },
+   {
+    "id": "mazda5-silver-L",
+    "lensOverPaint": 1.4095,
+    "spreadPct": 25.1
+   },
+   {
+    "id": "mazda5-silver-R",
+    "lensOverPaint": 1.0483,
+    "spreadPct": 40.9
+   },
+   {
+    "id": "tacoma-grey-L",
+    "lensOverPaint": 1.7748,
+    "spreadPct": 37.3
+   },
+   {
+    "id": "tundra-blue-L",
+    "lensOverPaint": 2.7485,
+    "spreadPct": 46.7
+   },
+   {
+    "id": "rogue-white-R",
+    "lensOverPaint": 0.5991,
+    "spreadPct": 39.9
+   }
+  ],
+  "secondPaintBoxMovesTheRatio": {
+   "n": 10,
+   "min": 1.233,
+   "median": 14.628,
+   "max": 18.059,
+   "values": [
+    1.233,
+    1.961,
+    3.978,
+    6.473,
+    14.372,
+    14.885,
+    16.085,
+    16.434,
+    17.777,
+    18.059
+   ],
+   "unit": "percent"
+  },
+  "lensP90overP50": {
+   "n": 10,
+   "min": 1.111,
+   "median": 1.331,
+   "max": 1.603,
+   "values": [
+    1.111,
+    1.18,
+    1.197,
+    1.279,
+    1.283,
+    1.379,
+    1.42,
+    1.464,
+    1.477,
+    1.603
+   ]
+  },
+  "amberHueDeg": {
+   "n": 10,
+   "min": 8,
+   "median": 21.5,
+   "max": 28,
+   "values": [
+    8,
+    12,
+    18,
+    19,
+    21,
+    22,
+    26,
+    27,
+    28,
+    28
+   ]
+  },
+  "amberOverHeadlamp": {
+   "width": {
+    "n": 10,
+    "min": 0.17,
+    "median": 0.405,
+    "max": 0.6,
+    "values": [
+     0.17,
+     0.25,
+     0.31,
+     0.31,
+     0.4,
+     0.41,
+     0.42,
+     0.46,
+     0.52,
+     0.6
+    ]
+   },
+   "height": {
+    "n": 10,
+    "min": 0.16,
+    "median": 0.5,
+    "max": 0.88,
+    "values": [
+     0.16,
+     0.24,
+     0.29,
+     0.31,
+     0.5,
+     0.5,
+     0.53,
+     0.61,
+     0.83,
+     0.88
+    ]
+   },
+   "amberPixelsOverHeadlampBboxArea": {
+    "n": 9,
+    "min": 0.049,
+    "median": 0.082,
+    "max": 0.165,
+    "values": [
+     0.049,
+     0.06,
+     0.061,
+     0.062,
+     0.082,
+     0.095,
+     0.128,
+     0.137,
+     0.165
+    ]
+   },
+   "note": "apparent sizes in the same frame. The amber bbox is about 0.4 of the headlamp's apparent width and 0.5 of its height. Its pixel count is only about a tenth of the headlamp bbox area, because it is a strip, chevron or corner wedge rather than a block."
+  },
+  "readThisFirst": [
+   "lensOverPaint orders by paint tone: white 0.43-0.94 < silver 1.05-1.41 < dark grey 1.78 < dark blue 2.75. That is what a lens whose brightness depends far less on the body colour than the paint does would produce. A single number across families is therefore not a property of the lens. Compare within a family, or multiply by the family's own paint reflectance. The independence is an inference from the ordering: absolute lens values cannot be compared across frames, because each frame has its own exposure.",
+   "Light moves it as much as family does within a family. The same Mazda5 reads 1.41 on its sunlit side and 1.05 on its shaded side.",
+   "No black or red car survived. On black paint the reference is at the JPEG floor and reflects the ground. On red or orange paint the paint itself falls inside the amber hue band.",
+   "A head-on view misses the side marker. The Expedition shows no amber on its front face but has an amber side marker; the 3 head-on \"no\" cars are front-face answers only."
+  ]
+ },
+ "rows": [
+  {
+   "id": "accord-white-L",
+   "file": "mly-1008541251245671.jpg",
+   "car": "white Honda Accord (2018-22 fastback sedan, by eye), driving",
+   "family": "white",
+   "light": "shade",
+   "scene": "sunny; the car casts its shadow toward the camera, so the visible side is its own shadow side",
+   "panelLight": "side in the car's own shadow: paint L 0.25 against a clipped bonnet",
+   "view": "car's left side, front at image left; the headlamp is seen side-on",
+   "element": "amber side-marker section at the rear end of the headlamp housing (side-facing)",
+   "paintWhere": "fender side directly behind and below the lamp (side-facing)",
+   "lensBox": [
+    383,
+    662,
+    5,
+    5
+   ],
+   "paintBox": [
+    392,
+    667,
+    16,
+    5
+   ],
+   "lens": {
+    "p10": 0.1297,
+    "p50": 0.1839,
+    "p90": 0.2352,
+    "n": 25,
+    "meanSRGB": [
+     148,
+     111,
+     102
+    ]
+   },
+   "paint": {
+    "p10": 0.233,
+    "p50": 0.2464,
+    "p90": 0.2685,
+    "n": 80,
+    "meanSRGB": [
+     140,
+     135,
+     140
+    ]
+   },
+   "clipPct": {
+    "lens": 0,
+    "paint": 0,
+    "worstOverAllShifts": 0
+   },
+   "lensOverPaint": 0.7463,
+   "p90overP50": 1.279,
+   "placementRange": [
+    0.7113,
+    0.8638
+   ],
+   "placementSpreadPct": 20.4,
+   "placement": "tight",
+   "altPaintBox": [
+    400,
+    675,
+    20,
+    5
+   ],
+   "altPaintP50": 0.2434,
+   "altLensOverPaint": 0.7555,
+   "amberPx": "5 x 5",
+   "amberAt": "x383-387 y662-666",
+   "amberPixelCount": 20,
+   "amberMeanHueDeg": 12,
+   "amberMeanSat": 0.33,
+   "amberNote": "sat>=0.20 gives 8x7 (x381-388 y661-667); by eye ~10x7",
+   "headlampPx": "20 x 16",
+   "headlampAt": "x372-391 y656-671",
+   "headlampNote": "side-visible part of the headlamp; the front face is edge-on",
+   "amberOverHeadlamp": {
+    "width": 0.25,
+    "height": 0.31,
+    "bboxArea": 0.078,
+    "amberPixelsOverHeadlampBbox": 0.062
+   },
+   "boxesTried": "4x3 core [384,663,4,3] 0.7135 (0.676-0.840); 6x4 [382,663,6,4] 0.7439 (0.711-0.807); 5x5 kept = the whole sat>=0.25 blob"
+  },
+  {
+   "id": "cx30-white-L",
+   "file": "mly-1744385633154075.jpg",
+   "car": "white Mazda CX-30 (2020+, by eye), driving",
+   "family": "white",
+   "light": "shade",
+   "scene": "sunny; shadow falls toward the camera, the visible side is the car's own shadow side",
+   "panelLight": "side in the car's own shadow: paint L 0.28 against a clipped bonnet",
+   "view": "car's left side, front at image left; headlamp seen side-on",
+   "element": "amber chevron in the side face of the headlamp",
+   "paintWhere": "bumper/fender side directly below the lamp (side-facing)",
+   "lensBox": [
+    348,
+    715,
+    9,
+    5
+   ],
+   "paintBox": [
+    340,
+    722,
+    20,
+    5
+   ],
+   "lens": {
+    "p10": 0.0811,
+    "p50": 0.1214,
+    "p90": 0.1777,
+    "n": 45,
+    "meanSRGB": [
+     129,
+     90,
+     83
+    ]
+   },
+   "paint": {
+    "p10": 0.262,
+    "p50": 0.2817,
+    "p90": 0.2958,
+    "n": 100,
+    "meanSRGB": [
+     157,
+     140,
+     139
+    ]
+   },
+   "clipPct": {
+    "lens": 0,
+    "paint": 0,
+    "worstOverAllShifts": 0
+   },
+   "lensOverPaint": 0.431,
+   "p90overP50": 1.464,
+   "placementRange": [
+    0.4215,
+    0.45
+   ],
+   "placementSpreadPct": 6.6,
+   "placement": "tight",
+   "altPaintBox": [
+    362,
+    722,
+    12,
+    5
+   ],
+   "altPaintP50": 0.3012,
+   "altLensOverPaint": 0.4031,
+   "amberPx": "15 x 7",
+   "amberAt": "x346-360 y714-720",
+   "amberPixelCount": 67,
+   "amberMeanHueDeg": 8,
+   "amberMeanSat": 0.33,
+   "amberNote": "",
+   "headlampPx": "29 x 14",
+   "headlampAt": "x336-364 y708-721",
+   "headlampNote": "side-visible wedge of the headlamp",
+   "amberOverHeadlamp": {
+    "width": 0.52,
+    "height": 0.5,
+    "bboxArea": 0.259,
+    "amberPixelsOverHeadlampBbox": 0.165
+   },
+   "boxesTried": "6x3 core [349,716,6,3] 0.453 (0.435-0.520); 9x5 kept"
+  },
+  {
+   "id": "compass-silver-L",
+   "file": "mly-3776206752669432.jpg",
+   "car": "silver Jeep Compass (2017+), parked",
+   "family": "silver",
+   "light": "sun",
+   "scene": "sunny kerbside",
+   "panelLight": "front fascia directly lit (paint L 0.27)",
+   "view": "front 3/4: front face and the car's left side",
+   "element": "amber turn-signal section at the outboard end of the headlamp, at the corner (front/corner-facing)",
+   "paintWhere": "painted fascia directly below the amber section (same facing)",
+   "lensBox": [
+    649,
+    635,
+    6,
+    6
+   ],
+   "paintBox": [
+    642,
+    647,
+    10,
+    5
+   ],
+   "lens": {
+    "p10": 0.1191,
+    "p50": 0.3759,
+    "p90": 0.6024,
+    "n": 36,
+    "meanSRGB": [
+     191,
+     144,
+     99
+    ]
+   },
+   "paint": {
+    "p10": 0.2476,
+    "p50": 0.2678,
+    "p90": 0.293,
+    "n": 50,
+    "meanSRGB": [
+     154,
+     138,
+     130
+    ]
+   },
+   "clipPct": {
+    "lens": 2.8,
+    "paint": 0,
+    "worstOverAllShifts": 2.8
+   },
+   "lensOverPaint": 1.4037,
+   "p90overP50": 1.603,
+   "placementRange": [
+    0.9771,
+    1.457
+   ],
+   "placementSpreadPct": 34.2,
+   "placement": "wide",
+   "altPaintBox": [
+    628,
+    647,
+    10,
+    4
+   ],
+   "altPaintP50": 0.3268,
+   "altLensOverPaint": 1.1502,
+   "amberPx": "13 x 11",
+   "amberAt": "x644-656 y633-643",
+   "amberPixelCount": 72,
+   "amberMeanHueDeg": 26,
+   "amberMeanSat": 0.44,
+   "amberNote": "brightest lens in the census; 2.8% of its box clips on a specular highlight visible in the crop",
+   "headlampPx": "42 x 18",
+   "headlampAt": "x618-660 y630-648",
+   "headlampNote": "whole headlamp incl. the amber section",
+   "amberOverHeadlamp": {
+    "width": 0.31,
+    "height": 0.61,
+    "bboxArea": 0.189,
+    "amberPixelsOverHeadlampBbox": 0.095
+   },
+   "boxesTried": "6x6 only; a second alternate paint box at the corner where the fascia turns into shade [652,653,8,5] read 0.152 (ratio 2.47) and was rejected as a different orientation",
+   "note": "the same car is in mly-1349590039583660.jpg (5 m away); its side marker there is refused (see refused)"
+  },
+  {
+   "id": "mazda5-silver-L",
+   "file": "mly-1842643246493502.jpg",
+   "car": "silver Mazda5 (2012-15, by eye), parked; same car as mazda5-silver-R",
+   "family": "silver",
+   "light": "sun",
+   "scene": "sunny kerbside; probable: no cast shadow on this side, and the opposite side of the same car is in shade in mly-680460417861888.jpg",
+   "panelLight": "side lit, diffuse-looking (paint L 0.24); a warm silver, mean sRGB 151,134,117",
+   "view": "car's left side, front at image left",
+   "element": "amber side marker at the lower rear corner of the headlamp (side-facing)",
+   "paintWhere": "bumper side directly below the marker (side-facing)",
+   "lensBox": [
+    1275,
+    681,
+    10,
+    5
+   ],
+   "paintBox": [
+    1272,
+    692,
+    18,
+    5
+   ],
+   "lens": {
+    "p10": 0.185,
+    "p50": 0.3428,
+    "p90": 0.5064,
+    "n": 50,
+    "meanSRGB": [
+     188,
+     148,
+     123
+    ]
+   },
+   "paint": {
+    "p10": 0.2189,
+    "p50": 0.2432,
+    "p90": 0.284,
+    "n": 90,
+    "meanSRGB": [
+     151,
+     134,
+     117
+    ]
+   },
+   "clipPct": {
+    "lens": 0,
+    "paint": 0,
+    "worstOverAllShifts": 0
+   },
+   "lensOverPaint": 1.4095,
+   "p90overP50": 1.477,
+   "placementRange": [
+    1.2738,
+    1.6277
+   ],
+   "placementSpreadPct": 25.1,
+   "placement": "wide",
+   "altPaintBox": [
+    1293,
+    689,
+    14,
+    5
+   ],
+   "altPaintP50": 0.2117,
+   "altLensOverPaint": 1.6193,
+   "amberPx": "15 x 8",
+   "amberAt": "x1273-1287 y680-687",
+   "amberPixelCount": null,
+   "amberMeanHueDeg": 28,
+   "amberMeanSat": 0.3,
+   "amberNote": "by eye on the zoom; the sat>=0.25 blob is 25x12 (138 px) because a pink highlight halo joins it",
+   "headlampPx": "25 x 16",
+   "headlampAt": "x1281-1306 y670-686",
+   "headlampNote": "outline blurred, +-4 px",
+   "amberOverHeadlamp": {
+    "width": 0.6,
+    "height": 0.5,
+    "bboxArea": 0.3
+   },
+   "boxesTried": "10x5 only"
+  },
+  {
+   "id": "mazda5-silver-R",
+   "file": "mly-680460417861888.jpg",
+   "car": "silver Mazda5 (2012-15, by eye), parked; same car as mazda5-silver-L",
+   "family": "silver",
+   "light": "shade",
+   "scene": "same parked car as mazda5-silver-L, photographed from the other side",
+   "panelLight": "the car's right side, away from the sun; paint L 0.089",
+   "view": "front 3/4: front face and the car's right side",
+   "element": "amber side-marker stripe at the rear end of the headlamp, a diagonal band 4-5 px thick (side-facing)",
+   "paintWhere": "fender side behind the lamp (side-facing)",
+   "lensBox": [
+    706,
+    692,
+    6,
+    4
+   ],
+   "paintBox": [
+    722,
+    685,
+    14,
+    6
+   ],
+   "lens": {
+    "p10": 0.057,
+    "p50": 0.0933,
+    "p90": 0.1325,
+    "n": 24,
+    "meanSRGB": [
+     115,
+     78,
+     54
+    ]
+   },
+   "paint": {
+    "p10": 0.0798,
+    "p50": 0.089,
+    "p90": 0.1236,
+    "n": 84,
+    "meanSRGB": [
+     91,
+     85,
+     84
+    ]
+   },
+   "clipPct": {
+    "lens": 0,
+    "paint": 0,
+    "worstOverAllShifts": 0
+   },
+   "lensOverPaint": 1.0483,
+   "p90overP50": 1.42,
+   "placementRange": [
+    0.9236,
+    1.3523
+   ],
+   "placementSpreadPct": 40.9,
+   "placement": "wide",
+   "altPaintBox": [
+    700,
+    701,
+    14,
+    4
+   ],
+   "altPaintP50": 0.0856,
+   "altLensOverPaint": 1.09,
+   "amberPx": "20 x 14",
+   "amberAt": "x700-719 y687-700 (diagonal)",
+   "amberPixelCount": 102,
+   "amberMeanHueDeg": 22,
+   "amberMeanSat": 0.44,
+   "amberNote": "a diagonal stripe, so the bbox overstates it",
+   "headlampPx": "50 x 16",
+   "headlampAt": "x672-722 y685-701",
+   "headlampNote": "whole headlamp incl. the stripe",
+   "amberOverHeadlamp": {
+    "width": 0.4,
+    "height": 0.88,
+    "bboxArea": 0.35,
+    "amberPixelsOverHeadlampBbox": 0.128
+   },
+   "boxesTried": "6x4 kept 1.048 (0.924-1.352, 41%); 6x3 [708,690,6,3] 1.166 (0.924-1.951, 88%); 8x6 [706,690,8,6] 1.115 (0.961-1.538, 52%). All three centre on 1.05-1.17; the kept one has the smallest spread, which is a selection, said here"
+  },
+  {
+   "id": "tacoma-grey-L",
+   "file": "mly-1027027219391547.jpg",
+   "car": "dark grey Toyota Tacoma (2016+), parked",
+   "family": "grey",
+   "light": "shade",
+   "scene": "sunny; the truck casts its shadow toward the camera, so the visible side is its own shadow side",
+   "panelLight": "fender side in the truck's own shadow, reflecting sky (paint mean sRGB 40,50,69, bluish), paint L 0.033",
+   "view": "the truck's left side, front at image right; front wheel arch directly below the boxes",
+   "element": "amber side-marker strip along the rear-bottom of the headlamp wrap (side-facing)",
+   "paintWhere": "fender side above the front wheel arch (side-facing)",
+   "lensBox": [
+    547,
+    692,
+    11,
+    3
+   ],
+   "paintBox": [
+    533,
+    678,
+    18,
+    8
+   ],
+   "lens": {
+    "p10": 0.049,
+    "p50": 0.0591,
+    "p90": 0.0815,
+    "n": 33,
+    "meanSRGB": [
+     92,
+     64,
+     49
+    ]
+   },
+   "paint": {
+    "p10": 0.0211,
+    "p50": 0.0333,
+    "p90": 0.0384,
+    "n": 144,
+    "meanSRGB": [
+     40,
+     50,
+     69
+    ]
+   },
+   "clipPct": {
+    "lens": 0,
+    "paint": 0,
+    "worstOverAllShifts": 0
+   },
+   "lensOverPaint": 1.7748,
+   "p90overP50": 1.379,
+   "placementRange": [
+    1.6896,
+    2.352
+   ],
+   "placementSpreadPct": 37.3,
+   "placement": "wide",
+   "altPaintBox": [
+    495,
+    684,
+    20,
+    5
+   ],
+   "altPaintP50": 0.0405,
+   "altLensOverPaint": 1.4593,
+   "amberPx": "17 x 5",
+   "amberAt": "x544-560 y692-696",
+   "amberPixelCount": 69,
+   "amberMeanHueDeg": 19,
+   "amberMeanSat": 0.42,
+   "amberNote": "",
+   "headlampPx": "37 x 31",
+   "headlampAt": "x545-581 y670-700",
+   "headlampNote": "whole headlamp assembly incl. the strip, seen obliquely",
+   "amberOverHeadlamp": {
+    "width": 0.46,
+    "height": 0.16,
+    "bboxArea": 0.074,
+    "amberPixelsOverHeadlampBbox": 0.06
+   },
+   "boxesTried": "11x3 only; the strip is 4-5 px tall"
+  },
+  {
+   "id": "tundra-blue-L",
+   "file": "mly-2108326152981486.jpg",
+   "car": "blue Toyota Tundra (2014-21), parked",
+   "family": "blue",
+   "light": "sun",
+   "scene": "sunny street",
+   "panelLight": "side sunlit (dark blue paint, L 0.066; the bonnet reflects bright sky)",
+   "view": "seen from above the truck's front-left corner; the headlamp front is foreshortened",
+   "element": "saturated amber marker inside the corner lamp unit (side/top-facing)",
+   "paintWhere": "fender side immediately behind the lamp (side-facing)",
+   "lensBox": [
+    416,
+    705,
+    6,
+    5
+   ],
+   "paintBox": [
+    428,
+    700,
+    16,
+    5
+   ],
+   "lens": {
+    "p10": 0.15,
+    "p50": 0.1825,
+    "p90": 0.2341,
+    "n": 30,
+    "meanSRGB": [
+     153,
+     109,
+     85
+    ]
+   },
+   "paint": {
+    "p10": 0.0484,
+    "p50": 0.0664,
+    "p90": 0.0873,
+    "n": 80,
+    "meanSRGB": [
+     36,
+     75,
+     103
+    ]
+   },
+   "clipPct": {
+    "lens": 0,
+    "paint": 0,
+    "worstOverAllShifts": 0
+   },
+   "lensOverPaint": 2.7485,
+   "p90overP50": 1.283,
+   "placementRange": [
+    2.2619,
+    3.5459
+   ],
+   "placementSpreadPct": 46.7,
+   "placement": "wide",
+   "altPaintBox": [
+    430,
+    712,
+    14,
+    5
+   ],
+   "altPaintP50": 0.0572,
+   "altLensOverPaint": 3.1906,
+   "amberPx": "8 x 7",
+   "amberAt": "x416-423 y705-711",
+   "amberPixelCount": 37,
+   "amberMeanHueDeg": 21,
+   "amberMeanSat": 0.47,
+   "amberNote": "this is the sat>=0.40 core; at sat>=0.25 the whole visible lamp side reads amber-tinted (23x25, 198 px, hue 25, sat 0.34): a peach clear lens over the marker",
+   "headlampPx": "26 x 29",
+   "headlampAt": "x403-428 y690-718",
+   "headlampNote": "corner lamp unit as seen from above",
+   "amberOverHeadlamp": {
+    "width": 0.31,
+    "height": 0.24,
+    "bboxArea": 0.074,
+    "amberPixelsOverHeadlampBbox": 0.049
+   },
+   "boxesTried": "6x5 only"
+  },
+  {
+   "id": "camry-silver-R",
+   "file": "mly-653696877558951.jpg",
+   "car": "silver Toyota Camry (2010-11, XV40 facelift), parked",
+   "family": "silver",
+   "light": "sun",
+   "scene": "sunny kerbside lot",
+   "panelLight": "fender side directly lit; paint L 0.43",
+   "view": "front 3/4: front face and the car's right side",
+   "element": "amber section at the outer end of the headlamp where it wraps onto the side",
+   "paintWhere": "fender side directly behind the lamp (side-facing)",
+   "lensBox": [
+    744,
+    633,
+    6,
+    5
+   ],
+   "paintBox": [
+    752,
+    632,
+    10,
+    6
+   ],
+   "lens": {
+    "p10": 0.4141,
+    "p50": 0.5509,
+    "p90": 0.6118,
+    "n": 30,
+    "meanSRGB": [
+     221,
+     184,
+     152
+    ]
+   },
+   "paint": {
+    "p10": 0.3116,
+    "p50": 0.4293,
+    "p90": 0.5081,
+    "n": 60,
+    "meanSRGB": [
+     185,
+     168,
+     165
+    ]
+   },
+   "clipPct": {
+    "lens": 0,
+    "paint": 0,
+    "worstOverAllShifts": 0
+   },
+   "lensOverPaint": 1.2833,
+   "p90overP50": 1.111,
+   "placementRange": [
+    1.119,
+    1.3748
+   ],
+   "placementSpreadPct": 19.9,
+   "placement": "tight",
+   "altPaintBox": [
+    738,
+    643,
+    10,
+    4
+   ],
+   "altPaintP50": 0.3687,
+   "altLensOverPaint": 1.4942,
+   "amberPx": "8 x 8",
+   "amberAt": "x743-750 y632-639",
+   "amberPixelCount": 43,
+   "amberMeanHueDeg": 28,
+   "amberMeanSat": 0.31,
+   "amberNote": "pale peach; by eye ~10x9",
+   "headlampPx": "47 x 15",
+   "headlampAt": "x706-752 y631-645",
+   "headlampNote": "whole headlamp incl. the amber end",
+   "amberOverHeadlamp": {
+    "width": 0.17,
+    "height": 0.53,
+    "bboxArea": 0.091,
+    "amberPixelsOverHeadlampBbox": 0.061
+   },
+   "boxesTried": "6x5 only",
+   "note": "the same car appears in mly-625020687029490.jpg (left side); that frame clips both lamp and fender, refused"
+  },
+  {
+   "id": "expedition-white-L",
+   "file": "mly-8915146388585460.jpg",
+   "car": "white Ford Expedition (2018+), parked in a lot",
+   "family": "white",
+   "light": "shade",
+   "scene": "parking lot under trees: sun on the bonnet (clipped), side panel in shade",
+   "panelLight": "side panel in shade; paint L 0.15",
+   "view": "the vehicle's left side, front at image left",
+   "element": "amber side marker at the rear-lower end of the headlamp (side-facing)",
+   "paintWhere": "fender side behind the lamp (side-facing)",
+   "lensBox": [
+    1189,
+    619,
+    6,
+    4
+   ],
+   "paintBox": [
+    1199,
+    617,
+    14,
+    8
+   ],
+   "lens": {
+    "p10": 0.1137,
+    "p50": 0.1419,
+    "p90": 0.1674,
+    "n": 24,
+    "meanSRGB": [
+     125,
+     98,
+     74
+    ]
+   },
+   "paint": {
+    "p10": 0.1252,
+    "p50": 0.1504,
+    "p90": 0.1719,
+    "n": 112,
+    "meanSRGB": [
+     107,
+     107,
+     109
+    ]
+   },
+   "clipPct": {
+    "lens": 0,
+    "paint": 0,
+    "worstOverAllShifts": 0
+   },
+   "lensOverPaint": 0.9435,
+   "p90overP50": 1.18,
+   "placementRange": [
+    0.871,
+    0.9608
+   ],
+   "placementSpreadPct": 9.5,
+   "placement": "tight",
+   "altPaintBox": [
+    1212,
+    612,
+    12,
+    8
+   ],
+   "altPaintP50": 0.1475,
+   "altLensOverPaint": 0.962,
+   "amberPx": "11 x 6",
+   "amberAt": "x1186-1196 y618-623",
+   "amberPixelCount": 45,
+   "amberMeanHueDeg": 27,
+   "amberMeanSat": 0.38,
+   "amberNote": "",
+   "headlampPx": "26 x 21",
+   "headlampAt": "x1176-1201 y607-627",
+   "headlampNote": "side-visible part of the headlamp",
+   "amberOverHeadlamp": {
+    "width": 0.42,
+    "height": 0.29,
+    "bboxArea": 0.121,
+    "amberPixelsOverHeadlampBbox": 0.082
+   },
+   "boxesTried": "6x4 only",
+   "note": "the same vehicle head-on in mly-1867535034058720.jpg shows no amber on its front face: a head-on view misses this marker"
+  },
+  {
+   "id": "rogue-white-R",
+   "file": "mly-992907719634910.jpg",
+   "car": "white Nissan Rogue (2021+), driving",
+   "family": "white",
+   "light": "sun",
+   "scene": "sunny street",
+   "panelLight": "front-corner bumper directly lit; paint L 0.45, bonnet clipped",
+   "view": "front 3/4: front face and the car's right side",
+   "element": "amber/red-brown tip at the outer end of the upper (signal) strip of a split headlamp, at the corner",
+   "paintWhere": "bumper corner directly below the tip (corner-facing)",
+   "lensBox": [
+    708,
+    662,
+    5,
+    4
+   ],
+   "paintBox": [
+    700,
+    674,
+    20,
+    6
+   ],
+   "lens": {
+    "p10": 0.0831,
+    "p50": 0.2681,
+    "p90": 0.321,
+    "n": 20,
+    "meanSRGB": [
+     158,
+     117,
+     98
+    ]
+   },
+   "paint": {
+    "p10": 0.4065,
+    "p50": 0.4475,
+    "p90": 0.4938,
+    "n": 120,
+    "meanSRGB": [
+     198,
+     174,
+     156
+    ]
+   },
+   "clipPct": {
+    "lens": 0,
+    "paint": 0,
+    "worstOverAllShifts": 0
+   },
+   "lensOverPaint": 0.5991,
+   "p90overP50": 1.197,
+   "placementRange": [
+    0.3778,
+    0.6171
+   ],
+   "placementSpreadPct": 39.9,
+   "placement": "wide",
+   "altPaintBox": [
+    721,
+    664,
+    8,
+    5
+   ],
+   "altPaintP50": 0.5226,
+   "altLensOverPaint": 0.513,
+   "amberPx": "21 x 15",
+   "amberAt": "x701-721 y656-670 (diagonal)",
+   "amberPixelCount": 126,
+   "amberMeanHueDeg": 18,
+   "amberMeanSat": 0.39,
+   "amberNote": "a diagonal band with dark gaps; by eye ~16x10",
+   "headlampPx": "51 x 18",
+   "headlampAt": "x650-700 y680-697",
+   "headlampNote": "the lower main headlamp; the upper strip that carries the amber tip is 79x14 diagonal (x640-718 y660-673)",
+   "amberOverHeadlamp": {
+    "width": 0.41,
+    "height": 0.83,
+    "bboxArea": 0.343,
+    "amberPixelsOverHeadlampBbox": 0.137
+   },
+   "boxesTried": "5x4 only; lens p10 0.083 shows the box touches a dark gap"
+  }
+ ],
+ "noAmber": [
+  {
+   "car": "white Mercedes-Benz CLE cabriolet",
+   "file": "mly-1349590039583660.jpg",
+   "box": [
+    732,
+    612,
+    46,
+    26
+   ],
+   "family": "white",
+   "light": "sun",
+   "view": "front 3/4 (front face + one side)",
+   "headlamp": "30 x 10",
+   "amberPx": 5,
+   "largestCluster": 4
+  },
+  {
+   "car": "white Honda Pilot (2016-22)",
+   "file": "mly-1349590039583660.jpg",
+   "box": [
+    1848,
+    604,
+    48,
+    28
+   ],
+   "family": "white",
+   "light": "sun",
+   "view": "near head-on: FRONT FACE ONLY",
+   "headlamp": "35 x 13",
+   "amberPx": 6,
+   "largestCluster": 4
+  },
+  {
+   "car": "grey VW Atlas Cross Sport",
+   "file": "mly-1357397922124401.jpg",
+   "box": [
+    834,
+    606,
+    48,
+    28
+   ],
+   "family": "grey",
+   "light": "sun",
+   "view": "front 3/4",
+   "headlamp": "33 x 11",
+   "amberPx": 28,
+   "largestCluster": 21,
+   "note": "the 21-px cluster is the wheel-arch edge reflecting the ground, checked on a x10 view"
+  },
+  {
+   "car": "silver Lincoln Corsair",
+   "file": "mly-1557013211640824.jpg",
+   "box": [
+    700,
+    642,
+    70,
+    34
+   ],
+   "family": "silver",
+   "light": "sun",
+   "view": "front 3/4",
+   "headlamp": "52 x 17",
+   "amberPx": 39,
+   "largestCluster": 18,
+   "note": "the 18-px cluster is the wheel-arch edge, checked on a x7 view"
+  },
+  {
+   "car": "white Audi Q3 (2019+); one car seen in three frames",
+   "file": "mly-9496096920505025.jpg",
+   "box": [
+    1278,
+    660,
+    46,
+    34
+   ],
+   "family": "white",
+   "light": "sun",
+   "view": "front-left corner; the same car head-on in mly-1710520949867219.jpg boxes [1712,640,50,28] and [1822,640,46,28] (tree shade) also clean",
+   "headlamp": "30 x 18",
+   "amberPx": 6,
+   "largestCluster": 6,
+   "note": "head-on boxes: 5 px / 4 px largest, and 75 px / 20 px largest where the box meets the dark background"
+  },
+  {
+   "car": "white BMW X5 (G05); one car seen in four frames",
+   "file": "mly-4164138753910161.jpg",
+   "box": [
+    1755,
+    650,
+    78,
+    32
+   ],
+   "family": "white",
+   "light": "dapple",
+   "view": "front 3/4",
+   "headlamp": "57 x 14",
+   "amberPx": 5,
+   "largestCluster": 1
+  },
+  {
+   "car": "white Chevrolet Suburban (2021+)",
+   "file": "mly-562274623010141.jpg",
+   "box": [
+    566,
+    624,
+    66,
+    30
+   ],
+   "family": "white",
+   "light": "sun",
+   "view": "front 3/4",
+   "headlamp": "48 x 12",
+   "amberPx": 150,
+   "largestCluster": 123,
+   "note": "the cluster is a bush behind the car at x566-579, outside the lamp; the lamp itself is clean"
+  },
+  {
+   "car": "white Toyota Prius (2016-22)",
+   "file": "mly-562274623010141.jpg",
+   "box": [
+    1600,
+    680,
+    66,
+    30
+   ],
+   "family": "white",
+   "light": "sun",
+   "view": "front 3/4",
+   "headlamp": "52 x 18",
+   "amberPx": 1,
+   "largestCluster": 1,
+   "note": "a saturated patch in the lamp at x1643-1658 y696-705 is hue 340-358 (magenta-red) at L < 0.03: a dark reflection, not amber"
+  },
+  {
+   "car": "grey VW Atlas (2021+ facelift)",
+   "file": "mly-625020687029490.jpg",
+   "box": [
+    780,
+    590,
+    40,
+    22
+   ],
+   "family": "grey",
+   "light": "sun",
+   "view": "front 3/4",
+   "headlamp": "30 x 10",
+   "amberPx": 9,
+   "largestCluster": 4,
+   "note": "the 2018-20 Atlas in mly-1328081225548925.jpg DOES show an amber marker (refused); a different car, 400 m away"
+  },
+  {
+   "car": "white Lexus RX (2013-15)",
+   "file": "mly-682234297680292.jpg",
+   "box": [
+    720,
+    612,
+    58,
+    30
+   ],
+   "family": "white",
+   "light": "sun",
+   "view": "front 3/4",
+   "headlamp": "40 x 14",
+   "amberPx": 8,
+   "largestCluster": 6
+  },
+  {
+   "car": "grey Ford Ranger (2019+)",
+   "file": "mly-8915146388585460.jpg",
+   "box": [
+    1688,
+    636,
+    160,
+    28
+   ],
+   "family": "grey",
+   "light": "shade",
+   "view": "head-on: FRONT FACE ONLY (also front 3/4 in mly-645855151520621.jpg, unresolved in shade)",
+   "headlamp": "45 x 16",
+   "amberPx": 340,
+   "largestCluster": 297,
+   "note": "the cluster is leaves behind the truck at x1688-1704; both lamps are clean"
+  },
+  {
+   "car": "silver BMW i4",
+   "file": "mly-978062991196730.jpg",
+   "box": [
+    735,
+    688,
+    65,
+    28
+   ],
+   "family": "silver",
+   "light": "sun",
+   "view": "front 3/4",
+   "headlamp": "45 x 15",
+   "amberPx": 0,
+   "largestCluster": 0
+  },
+  {
+   "car": "silver Ford Edge (2019+)",
+   "file": "mly-613304165073435.jpg",
+   "box": [
+    832,
+    588,
+    48,
+    26
+   ],
+   "family": "silver",
+   "light": "sun",
+   "view": "front 3/4",
+   "headlamp": "28 x 9",
+   "amberPx": 4,
+   "largestCluster": 3,
+   "note": "the smallest headlamp accepted as a \"no\""
+  },
+  {
+   "car": "champagne Mercedes-Benz CLA/A-class",
+   "file": "mly-1867535034058720.jpg",
+   "box": [
+    1165,
+    632,
+    46,
+    28
+   ],
+   "family": "other",
+   "light": "sun",
+   "view": "front 3/4",
+   "headlamp": "33 x 17",
+   "amberPx": 44,
+   "largestCluster": 9,
+   "note": "the 9-px cluster sits on the box edge, in the background"
+  },
+  {
+   "car": "white Chevrolet Traverse (2018+)",
+   "file": "mly-1189299488852734.jpg",
+   "box": [
+    796,
+    604,
+    40,
+    30
+   ],
+   "family": "white",
+   "light": "sun",
+   "view": "front 3/4",
+   "headlamp": "30 x 15",
+   "amberPx": 0,
+   "largestCluster": 0,
+   "note": "the element at the lamp's outer end is a desaturated mauve: the tool reads [824,613,6,6] at mean sRGB 130,108,109"
+  },
+  {
+   "car": "dark grey BMW X7",
+   "file": "mly-1214548320345282.jpg",
+   "box": [
+    130,
+    612,
+    110,
+    30
+   ],
+   "family": "grey",
+   "light": "dapple",
+   "view": "head-on: FRONT FACE ONLY",
+   "headlamp": "~25 x 14",
+   "amberPx": 0,
+   "largestCluster": 0
+  }
+ ],
+ "refused": [
+  {
+   "kind": "amber visible, not measurable",
+   "car": "grey VW Atlas (2018-20)",
+   "family": "grey",
+   "light": "dapple",
+   "file": "mly-1328081225548925.jpg",
+   "lensBox": [
+    249,
+    662,
+    7,
+    7
+   ],
+   "paintBox": [
+    238,
+    663,
+    8,
+    6
+   ],
+   "reason": "side marker at the rear of the headlamp, 7x7 px, hue 13, sat 0.24 (brownish). The lens is graded and carries a specular highlight: the 4x4 core reads 0.817 with a placement range 0.656-1.234 (71%); the whole 7x7 reads 0.909, range 0.741-1.185 (49%) with lens p90/p50 2.69."
+  },
+  {
+   "kind": "amber visible, not measurable",
+   "car": "white Toyota Sequoia (2008-21); one car seen in three frames",
+   "family": "white",
+   "light": "sun",
+   "file": "mly-1290653175365962.jpg",
+   "lensBox": [
+    590,
+    648,
+    6,
+    5
+   ],
+   "paintBox": [
+    598,
+    646,
+    8,
+    5
+   ],
+   "reason": "amber 9x7 px (hue 23, sat 0.38) inside the outboard end of the headlamp. Every white paint box beside it clips: 65% of pixels at 255, p50 0.970. The ratio (0.15-0.22) is only an upper bound, and placement moves it 32-129%."
+  },
+  {
+   "kind": "amber visible, not measurable",
+   "car": "black Ford Explorer (2016-19)",
+   "family": "black",
+   "light": "sun",
+   "file": "mly-1852251935576480.jpg",
+   "lensBox": [
+    1508,
+    613,
+    6,
+    4
+   ],
+   "paintBox": null,
+   "reason": "amber blob 10x12 px (hue 16) at the headlamp outer corner. The adjacent black paint sits at L 0.02-0.05, near the JPEG floor, and the headlamp/fender/wheel-arch geometry is unresolved. The first paint box landed on the road behind the car (the crop showed it). Plausible paint boxes give 3 to 9."
+  },
+  {
+   "kind": "amber visible, not measurable",
+   "car": "black GMC Yukon Denali (2021+)",
+   "family": "black",
+   "light": "dapple",
+   "file": "mly-1013779937489763.jpg",
+   "lensBox": [
+    1936,
+    614,
+    6,
+    10
+   ],
+   "paintBox": null,
+   "reason": "a dark orange strip about 5x10 px on the fender side behind the headlamp, visible on the zoom. The black paint reads L 0.00-0.05 and reflects the warm ground, so amber-hue pixels cover the paint as well: the lens cannot be separated from the reference."
+  },
+  {
+   "kind": "amber visible, not measurable",
+   "car": "red Jeep Wrangler JL Sahara; one car seen in five frames",
+   "family": "red",
+   "light": "sun",
+   "file": "mly-1393021305481933.jpg",
+   "lensBox": [
+    1185,
+    643,
+    4,
+    3
+   ],
+   "paintBox": null,
+   "reason": "a saturated amber block of about 5x5 px at the front of the flare. It abuts clipped chrome, and the red flare paint runs L 0.03-0.40 with a clipped highlight within 8 px. The red paint itself also falls inside the amber hue band (checked again in mly-1710520949867219.jpg), so the presence test cannot isolate the lens."
+  },
+  {
+   "kind": "amber visible, not measurable",
+   "car": "white Tesla Model 3/Y",
+   "family": "white",
+   "light": "sun",
+   "file": "mly-653696877558951.jpg",
+   "lensBox": [
+    1402,
+    696,
+    6,
+    3
+   ],
+   "paintBox": [
+    1404,
+    702,
+    16,
+    4
+   ],
+   "reason": "an amber strip 15x5 px (hue 20) along the lower outer edge inside the headlamp, 3-4 px tall between bright chrome. A 6x3 box reads 0.44 with placement 0.38-0.68 (69%)."
+  },
+  {
+   "kind": "amber visible, not measurable",
+   "car": "white Honda CR-V (2017-22)",
+   "family": "white",
+   "light": "dapple",
+   "file": "mly-1012010954192801.jpg",
+   "lensBox": [
+    484,
+    692,
+    7,
+    4
+   ],
+   "paintBox": null,
+   "reason": "a tan-amber strip of 7x4 px (13 px at sat >= 0.25, hue 27) at the outer lower end of the headlamp, under the 4x4 floor, in tree dapple."
+  },
+  {
+   "kind": "duplicate view refused (the car has a kept row)",
+   "car": "silver Jeep Compass: side marker",
+   "family": "silver",
+   "light": "sun",
+   "file": "mly-1349590039583660.jpg",
+   "lensBox": [
+    313,
+    624,
+    4,
+    4
+   ],
+   "paintBox": null,
+   "reason": "within 5 px of the marker the side paint runs L 0.14 to clipped, and the tan paver background abuts the lens at the same hue. The kept row for this car is its front-corner amber in mly-3776206752669432.jpg."
+  },
+  {
+   "kind": "duplicate view refused (the car has a kept row)",
+   "car": "silver Toyota Camry XV40: left headlamp",
+   "family": "silver",
+   "light": "sun",
+   "file": "mly-625020687029490.jpg",
+   "lensBox": [
+    352,
+    655,
+    9,
+    6
+   ],
+   "paintBox": null,
+   "reason": "the lamp and the fender both clip (rows y644-663 at 255)."
+  },
+  {
+   "kind": "presence uncertain",
+   "car": "white Jeep Wrangler JL; one car seen in two frames",
+   "family": "white",
+   "light": "sun",
+   "file": "mly-689522480161696.jpg",
+   "lensBox": [
+    827,
+    624,
+    5,
+    4
+   ],
+   "paintBox": null,
+   "reason": "a 5x5 block of saturated amber hue (sat 0.52) at the inner front end of the flare, but at L 0.01-0.08, the JPEG dark floor, beside the black wheel arch. Probably the flare marker. The side view in mly-1357397922124401.jpg shows no amber on the flare side."
+  },
+  {
+   "kind": "presence uncertain",
+   "car": "black Jeep Cherokee (KL)",
+   "family": "black",
+   "light": "sun",
+   "file": "mly-1237575014591218.jpg",
+   "lensBox": [
+    837,
+    629,
+    12,
+    9
+   ],
+   "paintBox": null,
+   "reason": "a dull brown patch at the headlamp outer end (64 px at sat >= 0.25, only 10 px at >= 0.40). On a black car, a reflection of the warm ground reads the same way."
+  },
+  {
+   "kind": "presence uncertain",
+   "car": "white Lexus ES",
+   "family": "white",
+   "light": "shade",
+   "file": "mly-625020687029490.jpg",
+   "lensBox": [
+    1840,
+    641,
+    5,
+    4
+   ],
+   "paintBox": null,
+   "reason": "a faint warm tip of 8 px (sat 0.25-0.40) at the headlamp outer end."
+  },
+  {
+   "kind": "presence uncertain",
+   "car": "blue VW Taos",
+   "family": "blue",
+   "light": "sun",
+   "file": "mly-653323437326580.jpg",
+   "lensBox": [
+    1667,
+    605,
+    6,
+    6
+   ],
+   "paintBox": null,
+   "reason": "3 amber-hue px in a blurred, 13 px headlamp."
+  },
+  {
+   "kind": "unresolved",
+   "car": "taupe Mitsubishi Outlander",
+   "family": "other",
+   "light": "sun",
+   "file": "mly-1170298047976747.jpg",
+   "lensBox": [
+    450,
+    690,
+    90,
+    40
+   ],
+   "paintBox": null,
+   "reason": "motion blur"
+  },
+  {
+   "kind": "unresolved",
+   "car": "dark grey Cadillac SRX",
+   "family": "grey",
+   "light": "sun",
+   "file": "mly-1329766208309712.jpg",
+   "lensBox": [
+    1690,
+    585,
+    70,
+    55
+   ],
+   "paintBox": null,
+   "reason": "motion blur"
+  },
+  {
+   "kind": "unresolved",
+   "car": "grey Jeep Gladiator",
+   "family": "grey",
+   "light": "sun",
+   "file": "mly-1337528334121143.jpg",
+   "lensBox": [
+    1680,
+    560,
+    120,
+    70
+   ],
+   "paintBox": null,
+   "reason": "front corner occluded by a pole, and blurred"
+  },
+  {
+   "kind": "unresolved",
+   "car": "dark green-grey Honda Odyssey (1999-2004)",
+   "family": "grey",
+   "light": "sun",
+   "file": "mly-1400046118107711.jpg",
+   "lensBox": [
+    1440,
+    600,
+    105,
+    30
+   ],
+   "paintBox": null,
+   "reason": "both headlamp lenses are uniformly yellowed by oxidation, so an amber section cannot be told from the yellowing"
+  },
+  {
+   "kind": "unresolved",
+   "car": "white Ford F-150 (2015-17)",
+   "family": "white",
+   "light": "sun",
+   "file": "mly-1413231143195900.jpg",
+   "lensBox": [
+    822,
+    612,
+    36,
+    33
+   ],
+   "paintBox": null,
+   "reason": "a 22 px headlamp, moving; only 2-4 weak amber-hue px"
+  },
+  {
+   "kind": "unresolved",
+   "car": "silver Nissan Murano",
+   "family": "silver",
+   "light": "sun",
+   "file": "mly-697328939398169.jpg",
+   "lensBox": [
+    295,
+    670,
+    50,
+    30
+   ],
+   "paintBox": null,
+   "reason": "about 4 reddish px at the corner: too small, and red against amber is ambiguous"
+  },
+  {
+   "kind": "unresolved",
+   "car": "orange Toyota GR86",
+   "family": "other",
+   "light": "sun",
+   "file": "mly-955828989955539.jpg",
+   "lensBox": [
+    495,
+    700,
+    65,
+    30
+   ],
+   "paintBox": null,
+   "reason": "orange paint falls inside the amber hue band and the lamp interior is dark: the lens cannot be separated from the body"
+  },
+  {
+   "kind": "unresolved",
+   "car": "dark blue Honda Civic",
+   "family": "blue",
+   "light": "sun",
+   "file": "mly-1659595074926244.jpg",
+   "lensBox": [
+    640,
+    600,
+    140,
+    100
+   ],
+   "paintBox": null,
+   "reason": "motion blur"
+  },
+  {
+   "kind": "unresolved",
+   "car": "dark blue Lincoln Navigator/Ford Expedition",
+   "family": "blue",
+   "light": "dapple",
+   "file": "mly-1662361914398060.jpg",
+   "lensBox": [
+    1450,
+    630,
+    110,
+    90
+   ],
+   "paintBox": null,
+   "reason": "reflections and blur; the lamp is not resolvable"
+  },
+  {
+   "kind": "unresolved",
+   "car": "white Toyota Camry",
+   "family": "white",
+   "light": "sun",
+   "file": "mly-1615136105813428.jpg",
+   "lensBox": [
+    1595,
+    585,
+    80,
+    55
+   ],
+   "paintBox": null,
+   "reason": "front corner occluded by the car in front"
+  },
+  {
+   "kind": "unresolved",
+   "car": "silver Toyota Corolla",
+   "family": "silver",
+   "light": "sun",
+   "file": "mly-1683378898954181.jpg",
+   "lensBox": [
+    1635,
+    588,
+    55,
+    37
+   ],
+   "paintBox": null,
+   "reason": "front corner occluded by the car in front"
+  },
+  {
+   "kind": "unresolved",
+   "car": "white Nissan Rogue (2017-20)",
+   "family": "white",
+   "light": "sun",
+   "file": "mly-2086608901819652.jpg",
+   "lensBox": [
+    1430,
+    640,
+    110,
+    80
+   ],
+   "paintBox": null,
+   "reason": "too close and blurred"
+  },
+  {
+   "kind": "unresolved",
+   "car": "dark blue Jaguar F-Pace",
+   "family": "blue",
+   "light": "sun",
+   "file": "mly-2969399386692113.jpg",
+   "lensBox": [
+    688,
+    608,
+    54,
+    34
+   ],
+   "paintBox": null,
+   "reason": "dark-tinted headlamp, about 25 px"
+  },
+  {
+   "kind": "unresolved",
+   "car": "white Range Rover (L460)",
+   "family": "white",
+   "light": "sun",
+   "file": "mly-562274623010141.jpg",
+   "lensBox": [
+    1852,
+    575,
+    96,
+    27
+   ],
+   "paintBox": null,
+   "reason": "head-on, headlamps about 20 px and dark"
+  },
+  {
+   "kind": "unresolved",
+   "car": "grey Subaru Outback",
+   "family": "grey",
+   "light": "sun",
+   "file": "mly-1372639374157684.jpg",
+   "lensBox": [
+    790,
+    585,
+    90,
+    30
+   ],
+   "paintBox": null,
+   "reason": "approaching head-on, about 25 px; front face only, nothing amber, too small to call"
+  },
+  {
+   "kind": "unresolved",
+   "car": "grey Hyundai Santa Fe",
+   "family": "grey",
+   "light": "sun",
+   "file": "mly-1290653175365962.jpg",
+   "lensBox": [
+    1870,
+    580,
+    110,
+    40
+   ],
+   "paintBox": null,
+   "reason": "head-on at about 20 m, headlamps about 10 px"
+  },
+  {
+   "kind": "unresolved",
+   "car": "white Honda CR-V",
+   "family": "white",
+   "light": "sun",
+   "file": "mly-1367703307982540.jpg",
+   "lensBox": [
+    885,
+    560,
+    75,
+    30
+   ],
+   "paintBox": null,
+   "reason": "head-on, headlamps about 13 px"
+  },
+  {
+   "kind": "unresolved",
+   "car": "blue Porsche Macan",
+   "family": "blue",
+   "light": "sun",
+   "file": "mly-1496155927825849.jpg",
+   "lensBox": [
+    745,
+    570,
+    45,
+    28
+   ],
+   "paintBox": null,
+   "reason": "headlamp about 18 px"
+  },
+  {
+   "kind": "unresolved",
+   "car": "white Ram 1500 Classic",
+   "family": "white",
+   "light": "sun",
+   "file": "mly-2049894725492578.jpg",
+   "lensBox": [
+    875,
+    560,
+    90,
+    32
+   ],
+   "paintBox": null,
+   "reason": "headlamps about 10 px"
+  },
+  {
+   "kind": "unresolved",
+   "car": "grey GMC Sierra (2019+)",
+   "family": "grey",
+   "light": "sun",
+   "file": "mly-696517061795370.jpg",
+   "lensBox": [
+    470,
+    260,
+    130,
+    60
+   ],
+   "paintBox": null,
+   "reason": "oncoming in two flat 2021 frames (also mly-206502205151167.jpg), headlamps 15-20 px"
+  },
+  {
+   "kind": "unresolved",
+   "car": "black Mercedes-Benz ML/GLE",
+   "family": "black",
+   "light": "sun",
+   "file": "mly-669960205576397.jpg",
+   "lensBox": [
+    1735,
+    590,
+    50,
+    35
+   ],
+   "paintBox": null,
+   "reason": "dark and low resolution"
+  },
+  {
+   "kind": "unresolved",
+   "car": "dark blue Porsche Macan",
+   "family": "blue",
+   "light": "sun",
+   "file": "mly-3776206752669432.jpg",
+   "lensBox": [
+    1845,
+    600,
+    105,
+    40
+   ],
+   "paintBox": null,
+   "reason": "head-on, dark, unresolvable"
+  },
+  {
+   "kind": "unresolved",
+   "car": "grey BMW X7",
+   "family": "grey",
+   "light": "sun",
+   "file": "mly-672538891819311.jpg",
+   "lensBox": [
+    900,
+    530,
+    90,
+    60
+   ],
+   "paintBox": null,
+   "reason": "head-on at about 30 m"
+  }
+ ],
+ "duplicates": [
+  {
+   "car": "grey Toyota Tacoma",
+   "frames": [
+    "mly-1027027219391547.jpg",
+    "mly-1352682759105330.jpg",
+    "mly-1885420942236337.jpg",
+    "mly-1904465026757893.jpg",
+    "mly-523356163931260.jpg",
+    "mly-593847947151243.jpg",
+    "mly-648154264636943.jpg"
+   ],
+   "kept": "mly-1027027219391547.jpg (closest). In mly-1352682759105330.jpg it is too small to show the strip, so that frame alone would have read as no amber"
+  },
+  {
+   "car": "red Jeep Wrangler JL",
+   "frames": [
+    "mly-1393021305481933.jpg",
+    "mly-2356079504773974.jpg",
+    "mly-1710520949867219.jpg",
+    "mly-9496096920505025.jpg",
+    "mly-689250380280387.jpg"
+   ],
+   "kept": "refused"
+  },
+  {
+   "car": "white BMW X5",
+   "frames": [
+    "mly-4164138753910161.jpg",
+    "mly-1013779937489763.jpg",
+    "mly-985260603777247.jpg",
+    "mly-656078033687137.jpg"
+   ],
+   "kept": "noAmber from mly-4164138753910161.jpg"
+  },
+  {
+   "car": "white Toyota Sequoia",
+   "frames": [
+    "mly-1290653175365962.jpg",
+    "mly-1349590039583660.jpg",
+    "mly-547187678421898.jpg",
+    "mly-682234297680292.jpg (rear)",
+    "mly-2086608901819652.jpg (rear)"
+   ],
+   "kept": "refused"
+  },
+  {
+   "car": "silver Mazda5",
+   "frames": [
+    "mly-1842643246493502.jpg",
+    "mly-680460417861888.jpg",
+    "mly-2726732917519018.jpg"
+   ],
+   "kept": "two rows, one per side"
+  },
+  {
+   "car": "silver Jeep Compass",
+   "frames": [
+    "mly-3776206752669432.jpg",
+    "mly-1349590039583660.jpg",
+    "mly-547187678421898.jpg (rear)"
+   ],
+   "kept": "front-corner row from mly-3776206752669432.jpg"
+  },
+  {
+   "car": "white Honda Pilot",
+   "frames": [
+    "mly-1349590039583660.jpg",
+    "mly-3776206752669432.jpg"
+   ],
+   "kept": "noAmber"
+  },
+  {
+   "car": "silver Toyota Camry XV40",
+   "frames": [
+    "mly-653696877558951.jpg",
+    "mly-625020687029490.jpg"
+   ],
+   "kept": "row from mly-653696877558951.jpg"
+  },
+  {
+   "car": "white Chevrolet Suburban",
+   "frames": [
+    "mly-562274623010141.jpg",
+    "mly-653696877558951.jpg"
+   ],
+   "kept": "noAmber"
+  },
+  {
+   "car": "white Toyota Prius",
+   "frames": [
+    "mly-562274623010141.jpg",
+    "mly-653696877558951.jpg"
+   ],
+   "kept": "noAmber"
+  },
+  {
+   "car": "white Ford Expedition",
+   "frames": [
+    "mly-8915146388585460.jpg",
+    "mly-1867535034058720.jpg (head-on, no amber on the front face)"
+   ],
+   "kept": "row from the side view"
+  },
+  {
+   "car": "white Audi Q3",
+   "frames": [
+    "mly-1710520949867219.jpg",
+    "mly-9496096920505025.jpg",
+    "mly-645855151520621.jpg"
+   ],
+   "kept": "noAmber"
+  },
+  {
+   "car": "grey Ford Ranger",
+   "frames": [
+    "mly-8915146388585460.jpg",
+    "mly-645855151520621.jpg"
+   ],
+   "kept": "noAmber (front face)"
+  },
+  {
+   "car": "grey VW Atlas (2021+)",
+   "frames": [
+    "mly-625020687029490.jpg",
+    "mly-685091627302455.jpg (side)"
+   ],
+   "kept": "noAmber"
+  },
+  {
+   "car": "white Jeep Wrangler JL",
+   "frames": [
+    "mly-689522480161696.jpg",
+    "mly-1357397922124401.jpg"
+   ],
+   "kept": "presence uncertain"
+  },
+  {
+   "car": "bronze Lincoln Aviator",
+   "frames": [
+    "mly-1683378898954181.jpg",
+    "mly-686662477078433.jpg",
+    "mly-538231612303303.jpg"
+   ],
+   "kept": "never seen from the front"
+  }
+ ]
+}

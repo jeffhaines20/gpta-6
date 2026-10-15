@@ -3728,7 +3728,40 @@ sun's ortho shadow box with the player's car every frame with no snap to the map
 sets the sun's height as an ABSOLUTE `sin(el) * 400` while the target takes the car's own y, so the
 light's direction itself tilts with the car's height on its suspension.
 
-### #118 FIXED, blind review pending — at dusk and night the bright pass took LIT surfaces as light sources; lit light has its own bar now
+### #118 FIXED, and a blind reviewer preferred it in 4 of 4 dusk and night pairs — at dusk and night the bright pass took LIT surfaces as light sources; lit light has its own bar now
+**The blind review (2026-10-15, r12b, `docs/shots/blind-key-r12b-bloom0-r12b-bloom1.json`).** Six pairs,
+the arms scrambled per pair. The reviewer found the term itself, said which letter carried it in each
+pair from the frames alone, and was right four times of four:
+
+    pair              preferred           confidence   strongest reason
+    corridor noon     neither             1            99.42% of pixels byte-identical, the rest walking peds
+    fivepoints noon   neither             1            94.65% identical, all of it moving figures and cars
+    corridor dusk     the fix             2            the old arm glows on sun-lit columns, x1.023, 15-20 px fringes
+    fivepoints dusk   the fix             2            the old arm haloes a windscreen glare x1.14 and a roof rail
+    corridor night    the fix             4            the old arm lifts every lit surface: frame mean +18%,
+                                                       cornice x1.53, canopy x1.71, a 24 px halo off the cornice
+    fivepoints night  the fix             3            the old arm throws an 18 px glow off a lit parapet
+
+Noon identical is the design: noon and golden name no lit bar and run the old pass bit for bit.
+
+**Two things it noticed that the fix does, and neither was something it set out to do:**
+
+- **At dusk the fix LIFTS sky-bordered foliage**, 14-20% on leaves beside the sun patch (corridor dusk
+  x=450 y=330-346), and leaves bark, the signal mast arm against the same sky and the open sky itself
+  unchanged. The footprint fits the split path's per-texel threshold rather than anything about lit
+  light: an UNTAGGED texel is still tested against the hour's threshold, but now one texel at a time
+  rather than on the 2x2 mean the one-tap pass thresholded, and where sky shows through a leaf card at
+  the texel scale the mean sits under the knee while the sky texels sit over it. Uniform sky is
+  identical by construction and a solid edge has one mixed row, which is the 1-2% the reviewer read on
+  the mast arm. NOT MEASURED — the test is `emulateHalfRes` split against one-tap on a dusk readback,
+  untagged texels only — so the sentence above saying untagged light "keeps the hour's threshold whole,
+  as before" is true of the threshold and not of the sampling. The reviewer read the lift as "like
+  shooting into a low sun" and preferred this arm anyway.
+- **At night the small street lamps lose their glare.** The old arm gave the pole lamp at fivepoints
+  (795, 406) a halo x1.96 at r=6-10 px and the twin globes at (686, 431) x1.5-1.95 at r=12-16, and the
+  fix draws them as "bare dots". That was the lamp-LIT housing blooming, which is exactly what this
+  entry removed — but it was standing in for a glare the emitter does not make on its own. Filed as #123.
+
 **The entry's candidate was right in kind and needed two corrections to be right in detail.** Every lit
 material already tags the EMITTED share of its radiance into the scene target's alpha (#114), so the
 bright pass now splits each texel: the emitted part is tested against the hour's threshold, the lit
@@ -3968,3 +4001,48 @@ is the crowd's ped-frames inside a parked car's footprint (plus a body radius) o
 the same count for the furniture props the crowd does feel — and the lever, if it is common, is the
 body collider's own idea: a car as three circles along its axis, handed to `setProps` beside the
 furniture, so a walker veers round it as it veers round a planter.
+
+### #122 OPEN — two thirds of the crowd ends up stuck at a kerb for good: a walker that picks a pavement across the road can never cross and never gives up
+Found measuring #121, and it predates it. At the hero focus, 96 peds, 120 s, wrapping `_pushOffRoad`:
+
+    build           peds ever held at a kerb   still held at the end   spell p50   line to next waypoint crosses a road
+    before #121             67                        63                55 s                553 of 553
+    after #121              67                        67                92 s                569 of 569
+
+and about 31% of all ped-frames are a push, 99.9% of them at walk node 0 and under 1 cm deep, p50
+3.9 mm: a ped standing at the kerb walking into it.
+
+Two rules, each right on its own, compose into an absorbing state. `_chooseNext` admits a next
+pavement whose first point is within 16 m — "anything this far away is on the far pavement across
+the road" — and a narrow street's far pavement is nearer than that (6.6 + 2 x 3.6 = 13.8 m), so the
+ped steers straight at it; `_pushOffRoad` clamps it at the carriageway edge every frame; and the push
+CLEARS the stuck clock, on the stated argument that "a ped walking the kerb line with the crowd leaning
+on it is making progress along the pavement — it is simply being held off the road". A ped walking
+INTO the kerb is not making progress, so the stuck handler that would turn it round never fires.
+
+`_chooseNext`'s own fallback already names the intended rule — "every continuation is across the road:
+about-face" — and the 16 m distance was standing in for it. The candidate fix is the quantity itself:
+refuse a continuation whose path from here (through the corner detour when `_cornerBetween` gives one)
+crosses a carriageway, and let the existing about-face catch a ped with nowhere left. Not measured yet:
+where the crowd goes once nobody crosses, and what `reaction-test`'s road-push bounds read, since their
+"46,957 road pushes in 60 s" is mostly these peds.
+
+### #123 OPEN — a street lamp at night is a dot or a disc, never a glare: the lit-surface bloom #118 removed was standing in for the lamp's own
+From #118's blind reviewer. With lit light off the bright pass, the small lamps at fivepoints night
+read as "bare dots" — the pole lamp at (795, 406) had a halo x1.96 at r=6-10 px in the old arm, the
+twin globes at (686, 431) x1.5-1.95 at r=12-16 — and in BOTH arms the far lamp at corridor night
+(990, 455) is "a flat disc about 45 px across: it holds >= 0.81 linear out to r=10, half-maximum at
+r~16, nothing beyond r~26 — a fuzzy ball with no glare tail". A photographed street lamp at night
+glares from a bright CORE with a long falloff. Not diagnosed; the first measurement is each lamp
+emitter's own exposed radiance and on-screen size against the bright pass's night threshold, and what
+draws the 45 px disc (a halo sprite would carry no #114 tag and count as untagged).
+
+### #124 OPEN — four things #118's reviewer found wrong in BOTH arms, none measured
+- Night-sky specks carry 1-px straight bracket-like strokes: fivepoints night (241-248, 56-66) and
+  (271-283, 66-74).
+- The green signal lens is a flat square emitter (about 464-476, 400-414).
+- Foliage is hard alpha-cutout cards in a camouflage pattern (corridor canopy, 650-1300 x 0-300) and
+  tree limbs are flat tan ribbons, e.g. (0,500)-(450,250). `leaf-mask` is the gate nearest to this.
+- At corridor noon the cornice's cast-shadow edge on the brick re-rasterises between two captures with
+  no light change: 56 px along (12,340)-(439,430), 1-6 codes, so in motion it would shimmer. The
+  sun's shadow box is #117's; the first question is what moved between the two captures.
