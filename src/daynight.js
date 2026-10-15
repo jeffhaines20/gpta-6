@@ -848,6 +848,33 @@ const URBAN_ALBEDO = [0.364, 0.315, 0.283];
 // luminance 0.190, sits in the middle of that span.
 const GROUND_ALBEDO = [0.216, 0.188, 0.133];
 
+/**
+ * THE SUN'S SHADOW BOX FOLLOWS THE VIEWER IN WHOLE TEXELS, OR EVERY SHADOW IN THE CITY SHIMMERS.
+ *
+ * `follow()` used to centre the ortho shadow camera on the focus exactly, so every centimetre the
+ * player's car moved re-rasterised every caster at a new sub-texel phase. A blind reviewer saw it in
+ * two STILLS half a second apart — "22 isolated, soft-edged squares of about 0.5 m on the road ...
+ * changes by a factor of 0.75 to 1.56" (BACKLOG #117) — because hero-shots leaves the car coasting
+ * behind the camera. Measured at corridor noon with traffic, crowd and clouds frozen and the car out
+ * of frame: stepping it 2.3 cm a frame (1.4 m/s) changed 12.6-13.1% of the ground pixels by more
+ * than 2 levels, every frame, against 0.06-0.10% with the car still. Driving, that is the whole
+ * canopy shade crawling.
+ *
+ * The fix is the standard one: move the box only in multiples of its own texel along its two
+ * lateral axes, so a fixed point of the world always lands at the same sub-texel phase and a move
+ * re-rasterises every caster at an integer offset, which is the same picture. The axes are the ones
+ * three builds the shadow camera with — Matrix4.lookAt with up (0, 1, 0): x = up × d, y = d × x,
+ * d toward the sun — so the snap is in the frame the rasteriser actually uses.
+ *
+ * AND THE SUN'S DIRECTION NOW COMES FROM THE PRESET ALONE. It took the sun's height as an ABSOLUTE
+ * sin(el) * 400 while the target took the car's own y, so the light TILTED with the car's height: at
+ * dusk a car at y 0.95 m lit the city at 3.015 degrees for a preset of 3.151, and mounting a 20 cm
+ * kerb moved it another 0.03 degrees — 1.7 texels of every shadow in the frame, from a bump.
+ */
+const _sunAxisX = new THREE.Vector3();
+const _sunAxisY = new THREE.Vector3();
+const _sunDirScratch = new THREE.Vector3();
+
 export class TimeOfDay {
   constructor(scene, renderer) {
     this.scene = scene;
@@ -1395,7 +1422,10 @@ export class TimeOfDay {
     q.bloomThreshold = pp.bloomThreshold;
     q.bloomStrength = pp.bloomStrength;
     q.wetness = this.weather.wetness;
-    q.sunDirection.copy(this.sun.position).normalize();
+    // From the preset, not from the light's position: after follow() that position is the viewer's
+    // plus 400 m toward the sun, and normalising it pointed from the WORLD ORIGIN, which a harness
+    // calling setWeatherRaw would have seen for the rest of the frame.
+    this.sunDirection(q.sunDirection);
   }
 
   apply(name) {
@@ -1493,19 +1523,41 @@ export class TimeOfDay {
     return p;
   }
 
+  /** The unit vector toward the sun, from the preset and nothing else. */
+  sunDirection(out = new THREE.Vector3()) {
+    const p = this.preset;
+    return out.set(Math.cos(p.azimuth) * Math.cos(p.elevation), Math.sin(p.elevation),
+      Math.sin(p.azimuth) * Math.cos(p.elevation));
+  }
+
+  /**
+   * Where the shadow box centres for a viewer at `pos`: `pos` moved by under half a texel along each
+   * of the box's two lateral axes, onto the box's own texel grid. See the note above the class.
+   */
+  shadowCentre(pos, out = new THREE.Vector3()) {
+    const d = this.sunDirection(_sunDirScratch);
+    const c = Math.hypot(d.x, d.z);
+    // x = up × d, normalised; y = d × x. Straight overhead the cross product vanishes and three
+    // falls back to its own axis, which no preset here reaches (noon is 75.6 degrees).
+    if (c > 1e-6) _sunAxisX.set(d.z / c, 0, -d.x / c); else _sunAxisX.set(1, 0, 0);
+    _sunAxisY.crossVectors(d, _sunAxisX);
+    const cam = this.sun.shadow.camera;
+    const texel = (cam.right - cam.left) / this.sun.shadow.mapSize.x;
+    const a = pos.x * _sunAxisX.x + pos.y * _sunAxisX.y + pos.z * _sunAxisX.z;
+    const b = pos.x * _sunAxisY.x + pos.y * _sunAxisY.y + pos.z * _sunAxisY.z;
+    const da = Math.round(a / texel) * texel - a, db = Math.round(b / texel) * texel - b;
+    return out.set(pos.x, pos.y, pos.z).addScaledVector(_sunAxisX, da).addScaledVector(_sunAxisY, db);
+  }
+
   follow(pos) {
     // Remember where the viewer is. apply() needs it to rescale the light pool
     // without re-pinning every lamp to the world origin - see the note there.
     this._followPos = { x: pos.x, y: pos.y, z: pos.z };
-    const p = this.preset, d = 400;
-    this.sun.position.set(
-      pos.x + Math.cos(p.azimuth) * Math.cos(p.elevation) * d,
-      Math.sin(p.elevation) * d,
-      pos.z + Math.sin(p.azimuth) * Math.cos(p.elevation) * d
-    );
-    this.sun.target.position.copy(pos);
+    const d = 400;
+    const centre = this.shadowCentre(pos, this.sun.target.position);
+    this.sun.position.copy(centre).addScaledVector(this.sunDirection(_sunDirScratch), d);
     this.sun.target.updateMatrixWorld();
-    if (this.post) this.post.params.sunDirection.copy(this.sun.position).sub(pos).normalize();
+    if (this.post) this.sunDirection(this.post.params.sunDirection);
     // The bounce is a fraction of the light the sky is putting on the district,
     // and weather moves that continuously: weather.js pushes turbidity and
     // overcast into the dome and the dome re-derives skyLux from its own probe,

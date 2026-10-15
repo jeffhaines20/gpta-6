@@ -3531,7 +3531,49 @@ says the asphalt map repeats every 3 m and has its own de-tiling pass), which wo
 hides them. Not diagnosed: the first measurement is the road's roughness along a lane against the
 spot positions, and whether noon and golden show them too.
 
-### #117 OPEN — soft ~0.5 m squares in the noon canopy shade change between two captures half a second apart
+### #117 FIXED — the sun's shadow box followed the car to the micron, so every shadow edge crawled when it moved
+**It was the mechanism the original entry below guessed, and it is bigger in motion than the stills
+suggested.** `TimeOfDay.follow()` centred the ortho shadow box exactly on the player's car, so a
+centimetre of travel re-rasterised every caster at a new sub-texel phase. Offline, through three's own
+`LightShadow.updateMatrices`, a fixed road point's position in the 2048-texel map moved by 0.05-0.07 of
+a texel per centimetre of car travel at noon, 0.035 at dusk. And the light's direction tilted with the
+car's HEIGHT: `follow()` set the sun's y as an absolute `sin(el) * 400` while the target took the car's
+y, so at dusk a car at y 0.95 lit the city at 3.015 degrees for a preset of 3.151, and a 20 cm kerb
+moved every shadow in the frame by 1.7 texels.
+
+Measured in the page — corridor's hero camera, traffic, crowd and clouds frozen, the car out of frame
+behind the camera, stepping it 2.3 cm a frame (1.4 m/s):
+
+                         ground px over 2 levels, per frame     over 8     max
+    HEAD, noon             12.58%  12.88%  13.10%                34,543+     72
+    HEAD, car still         0.10%   0.06%   0.06%       (control)   275       31
+    fixed, noon             0.019%  0.056%  0.047%                   15-30     50
+    HEAD, golden / dusk     0.03-0.07% / 0.025-0.048%    the road is in building shade at
+                                                         this camera: nothing sunlit to crawl
+
+So driving at noon, an eighth of the ground in frame changed every frame; fixed, it is at the level of
+a still car. **The box now moves only in whole texels of its own grid**, along the two lateral axes
+three builds the shadow camera with (`Matrix4.lookAt`, up (0, 1, 0)): a fixed point always lands at
+the same sub-texel phase, and a move is an integer shift of the map, which rasterises to the same
+picture. **The light's direction comes from the preset alone**, which is also what the bounce, the
+canyon-wall term and the audit had always assumed — the light was the one thing that did not. And
+`_applyPost` took the post stack's sun direction by normalising the light's POSITION, which after a
+follow is the viewer plus 400 m toward the sun; it reads the preset too now.
+
+The difference map of a HEAD step is a mosaic of parallelogram texels across the dappled shade, which
+is exactly the reviewer's "isolated, soft-edged squares" — hero-shots leaves the car coasting behind
+the camera, so its two captures half a second apart straddled a few millimetres of travel.
+
+`tools/shadow-stable.mjs` is the gate, offline in 0.05 s: the real `TimeOfDay` through the real
+`updateMatrices` over a 156-position walk per preset (sub-texel nudges, a suspension bob, a kerb,
+driving, a ramp). A fixed point's phase holds to 4e-12 of a texel, every move is whole texels, the
+light and the post's sun are the preset's to 0 degrees, the box stays within half a texel of the
+viewer on each axis. Its selftest runs the old `follow()` verbatim and fails it on phase AND direction,
+plus a snap in world axes, a frozen box and the old `_applyPost`. Four mutation rows.
+
+**Original record:**
+
+#117 OPEN — soft ~0.5 m squares in the noon canopy shade change between two captures half a second apart
 From the cabin's blind reviewer, in BOTH arms and so independent of the cabin: at corridor noon, "22
 isolated, soft-edged squares of about 0.5 m on the road and pavements. Each is 25-75 px wide and
 changes by a factor of 0.75 to 1.56; 17 are brighter in B and 5 darker", and on top of that "23-29% of

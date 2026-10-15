@@ -170,6 +170,10 @@ const OFFLINE = [
   // from three sides at street height. The cabin is a ray cast inside that material's fragment
   // shader, so nothing else on this list can see any of the rows below it.
   'car-cabin',
+  // A twentieth of a second: the real TimeOfDay through three's own LightShadow.updateMatrices, no
+  // GL. #117's shimmer was a shadow box that followed the car to the micron, and nothing on this
+  // list built a shadow camera at all.
+  'shadow-stable',
 ];
 
 /**
@@ -2469,6 +2473,33 @@ const MUTATIONS = [
     find: '    shader.uniforms.uCabinThrough = CABIN_U.uCabinThrough;\n    const off =',
     to: '    const off =',
     why: "the player's car is the one car nobody can see through",
+  },
+  // ---- src/daynight.js: the sun's shadow box (#117). Each renders a perfectly good still frame; the
+  // defect is what happens to the shadows between two frames, which no single capture can show.
+  {
+    id: 'shadow-unsnapped', file: 'src/daynight.js',
+    find: '    const da = Math.round(a / texel) * texel - a, db = Math.round(b / texel) * texel - b;',
+    to: '    const da = 0, db = 0;',
+    why: 'every caster re-rasterises at a new sub-texel phase each frame the car moves: the canopy shade crawls',
+  },
+  {
+    id: 'shadow-world-axes', file: 'src/daynight.js',
+    find: '    if (c > 1e-6) _sunAxisX.set(d.z / c, 0, -d.x / c); else _sunAxisX.set(1, 0, 0);',
+    to: '    _sunAxisX.set(1, 0, 0);',
+    why: 'a snap that looks right and is in the wrong frame: the rasteriser\'s axes are the light\'s, not the world\'s',
+  },
+  {
+    id: 'sun-tilt', file: 'src/daynight.js',
+    find: '    this.sun.position.copy(centre).addScaledVector(this.sunDirection(_sunDirScratch), d);',
+    to: '    this.sun.position.copy(centre).addScaledVector(this.sunDirection(_sunDirScratch), d);\n' +
+      '    this.sun.position.y = Math.sin(this.preset.elevation) * d;',
+    why: 'the light tilts with the car\'s height again: a kerb moves every dusk shadow by 1.7 texels',
+  },
+  {
+    id: 'post-sundir-origin', file: 'src/daynight.js',
+    find: '    this.sunDirection(q.sunDirection);',
+    to: '    q.sunDirection.copy(this.sun.position).normalize();',
+    why: 'the post stack\'s sun points from the world origin after any weather change',
   },
   {
     id: 'player-glass-metal', file: 'src/carbody.js',
