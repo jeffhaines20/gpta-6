@@ -44,7 +44,7 @@ import { buildTrafficCarGeometry, carSurfaceMaterial, trafficCarMaterial, SHAPES
   setCabinGain, cabinGain, buildPlayerCar, CAR } from '../src/carbody.js';
 import { Vehicle } from '../src/vehicle.js';
 
-const TW = 480, TH = 300, ROWS = 9;
+const TW = 480, TH = 300, ROWS = 13;
 const q = new URLSearchParams(location.search);
 const TOD = q.get('tod') ?? 'noon';
 const SHAPE = q.get('shape') ?? 'saloon';
@@ -122,7 +122,9 @@ try {
   // The coupe, whose greenhouse the player's car shares (row 7), on the material the fleet really
   // uses — trafficCarMaterial, envMapIntensity 1.2, the figure the player's glass copies.
   const coupeGeo = buildTrafficCarGeometry({ groundY: 0, shape: SHAPES.coupe });
-  const coupe = mkCar(trafficCarMaterial(), coupeGeo);
+  // On the fleet's own material, driver and all (src/traffic.js asks for CABIN_DRIVER); rows 11 and 12
+  // switch the driver, every other row renders at the shipped value.
+  const coupe = mkCar(trafficCarMaterial({ driver: true }), coupeGeo);
   // The player's car as the game builds it, standing on the same ground as the fleet: its frame has
   // the contact patch at CAR.ground, so it is lifted by -CAR.ground. Read off the GEOMETRY and not off
   // PLAYER_CABIN_Y, which is the constant under test in row 7 — placing the subject by it would let a
@@ -163,6 +165,11 @@ try {
   const cams = Object.fromEntries([
     ['front34', [4.4, 1.6, 5.6], false], ['side', [7.0, 1.6, -0.4], false], ['rear34', [-4.2, 1.6, -6.0], false],
     ['front34moved', [4.4, 1.6, 5.6], true],
+    // v3.1's two: nearly head-on, where the windscreen frames the driver (from front34 the ray to the
+    // driver's head enters through the side glass, and the row read 13 changed pixels), and straight
+    // behind, where the mirror sits between the two front headrests (from rear34 it is behind the
+    // driver's, and the row read 0).
+    ['front0', [0.9, 1.45, 6.5], false], ['rear0', [0.0, 1.45, -6.5], false],
   ].map(([name, p, moved]) => {
     const c = new THREE.PerspectiveCamera(32, TW / TH, 0.1, 200);
     const T = moved ? RIGID : new THREE.Matrix4();
@@ -188,6 +195,14 @@ try {
   plan.push([7, 0, 'front34', 'coupe', 0, LEVEL, THROUGH], [7, 1, 'front34', 'coupe', 1, LEVEL, THROUGH]);
   // [..., detail]: every row but this one renders at the shipped detail.
   plan.push([8, 0, 'front34', 'car', 1, LEVEL, THROUGH, 0], [8, 1, 'front34', 'car', 1, LEVEL, THROUGH, 1]);
+  // [..., detail, fix, driver]: v3.1, on the coupe as the fleet builds it. The fix seen from AHEAD,
+  // where the wheel and the mirror's back must get darker, and from BEHIND, where the mirror's face
+  // must get lighter; the driver from ahead and from the side. Every other row renders at the
+  // shipped fix and driver.
+  plan.push([9, 0, 'front34', 'coupe', 1, LEVEL, THROUGH, 1, 0, 0], [9, 1, 'front34', 'coupe', 1, LEVEL, THROUGH, 1, 1, 0]);
+  plan.push([10, 0, 'rear0', 'coupe', 1, LEVEL, THROUGH, 1, 0, 0], [10, 1, 'rear0', 'coupe', 1, LEVEL, THROUGH, 1, 1, 0]);
+  plan.push([11, 0, 'front0', 'coupe', 1, LEVEL, THROUGH, 1, 1, 0], [11, 1, 'front0', 'coupe', 1, LEVEL, THROUGH, 1, 1, 1]);
+  plan.push([12, 0, 'side', 'coupe', 1, LEVEL, THROUGH, 1, 1, 0], [12, 1, 'side', 'coupe', 1, LEVEL, THROUGH, 1, 1, 1]);
 
   const W = TW * 2, H = TH * ROWS;
   const gl = renderer.getContext();
@@ -210,17 +225,18 @@ try {
   renderer.setClearColor(0x000000, 1);
   renderer.clear();
   const readback = [];
-  for (const [row, col, v, which, g, lv, th, det = shipped.detail] of plan) {
+  for (const [row, col, v, which, g, lv, th, det = shipped.detail, fx = shipped.fix, dr = shipped.driver] of plan) {
     place(v.endsWith('moved'));
     car.visible = which === 'car';
     playerLike.visible = which === 'player';
     playerCar.group.visible = which === 'playerCar';
     coupe.visible = which === 'coupe';
-    readback.push(setCabinGain(g, { level: lv, through: th, detail: det }));
+    readback.push(setCabinGain(g, { level: lv, through: th, detail: det, fix: fx, driver: dr }));
     tile(row, col);
     renderer.render(scene, cams[v]);
   }
-  setCabinGain(shipped.value, { level: shipped.level, through: shipped.through, detail: shipped.detail });
+  setCabinGain(shipped.value, { level: shipped.level, through: shipped.through, detail: shipped.detail,
+    fix: shipped.fix, driver: shipped.driver });
   const rgb = read();
   renderer.toneMapping = THREE.NoToneMapping;
   renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
@@ -248,13 +264,18 @@ try {
   const pair = (row) => {
     const g0 = [], g1 = [], p0 = [];
     let glassChanged = 0, otherChanged = 0, otherChanged2 = 0, otherMax = 0, otherPx = 0, glassPx = 0;
+    let moved2 = 0, signed = 0;
     for (let y = row * TH + 1; y < (row + 1) * TH - 1; y++) for (let x = 1; x < TW - 1; x++) {
       const a = y * W + x, b = a + TW;
       const c = stable(a);
       if (!c) continue;
       let d = 0;
       for (let k = 0; k < 3; k++) d = Math.max(d, Math.abs(rgb[a * 3 + k] - rgb[b * 3 + k]));
-      if (c === 'g') { glassPx++; g0.push(L(a)); g1.push(L(b)); if (d > 0) glassChanged++; }
+      if (c === 'g') {
+        glassPx++; g0.push(L(a)); g1.push(L(b)); if (d > 0) glassChanged++;
+        // The SIGNED change on the pixels it visibly moves, so a row can say which way it went.
+        if (d > 2) { moved2++; signed += L(b) - L(a); }
+      }
       else {
         // A 1-level change on a non-glass pixel is an edge-on glass SLIVER the antialiased scene
         // caught and the single-sample mask missed (measured: 13 px on the side view's roofline, all
@@ -265,11 +286,12 @@ try {
     }
     const s0 = [...g0].sort((u, v) => u - v), s1 = [...g1].sort((u, v) => u - v), sp = [...p0].sort((u, v) => u - v);
     return { glassPx, glassChanged, otherPx, otherChanged, otherChanged2, otherMax,
+      moved2, signedMean: moved2 ? signed / moved2 : 0,
       left: { p50: pct(s0, 0.5), p95: pct(s0, 0.95), modulation: pct(s0, 0.95) / pct(s0, 0.5) },
       right: { p50: pct(s1, 0.5), p95: pct(s1, 0.95), modulation: pct(s1, 0.95) / pct(s1, 0.5) },
       paintP50: pct(sp, 0.5), g0, g1 };
   };
-  const rows = [0, 1, 2, 3, 4, 5, 6, 7, 8].map(pair);
+  const rows = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(pair);
   // THE RIGID-TRANSFORM INVARIANCE, row 5 against row 0, the same column: the same picture moved.
   const across = (rowA, rowB, col) => {
     let n = 0, moved = 0, max = 0;
@@ -324,9 +346,11 @@ try {
   const strip = ({ g0, g1, ...rest }) => rest;
   window.__carCabin = {
     tod: TOD, shape: SHAPE, tone: TONE, size: { w: W, h: H, tw: TW, th: TH },
-    shipped: { value: shipped.value, level: shipped.level, through: shipped.through, detail: shipped.detail },
+    shipped: { value: shipped.value, level: shipped.level, through: shipped.through, detail: shipped.detail,
+      fix: shipped.fix, driver: shipped.driver },
     level: LEVEL, through: THROUGH,
-    readback: readback.map((r) => [r.value, r.level, r.through, r.detail]),
+    readback: readback.map((r) => [r.value, r.level, r.through, r.detail, r.fix, r.driver]),
+    fixFront: strip(rows[9]), fixRear: strip(rows[10]), driverFront: strip(rows[11]), driverSide: strip(rows[12]),
     detail: strip(rows[8]),
     views: { front34: strip(rows[0]), side: strip(rows[1]), rear34: strip(rows[2]) },
     split: { glassPx: r3.glassPx, throughPx, interiorChanged },

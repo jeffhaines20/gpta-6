@@ -398,7 +398,9 @@ export class Traffic {
     // ONE material for every shell: the emissive level, the lens palette and the
     // pack texture all write one material, and a material per shell would make
     // each of those silently reach a third of the fleet.
-    this.material = trafficCarMaterial();
+    // The moving fleet has a driver at the wheel (src/carbody.js CABIN_DRIVER); the parked pool, which
+    // builds its own material, does not.
+    this.material = trafficCarMaterial({ driver: true });
     this.geometries = shellNames().map((n) =>
       buildTrafficCarGeometry({ groundY: 0, shape: SHAPES[n] }));
     /**

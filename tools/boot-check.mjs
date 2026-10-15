@@ -197,6 +197,10 @@ if (state.global && state.frames > 2) {
       for (const m of meshes) {
         rows.push({ pool, name: m.name || '', bucket: bucketOf(m),
           inst: m.count ?? 0, drawn: trisOf(m.geometry, m.count ?? 0),
+          // Cabin v3.1: whether this mesh's material asks for a driver (src/carbody.js CABIN_DRIVER).
+          driver: !!(m.material && m.material.defines && 'CABIN_DRIVER' in m.material.defines),
+          cabinOff: !!(m.material && m.material.defines && 'CAR_NO_CABIN' in m.material.defines),
+          standard: !!(m.material && m.material.isMeshStandardMaterial),
           inScene: (() => { let n = m; while (n.parent) n = n.parent; return !!n.isScene; })() });
       }
     }
@@ -222,6 +226,16 @@ if (state.global && state.frames > 2) {
     stray.length === 0,
     stray.length ? stray.map((r) => `${r.pool}/${r.name || '<unnamed>'} -> ${r.bucket}`).join('; ')
       : `${cars.rows.length} meshes, ${drawn} triangles, all in "vehicles"`);
+  // A DRIVER IN THE MOVING FLEET AND NOBODY IN THE PARKED ONE (cabin v3.1). The two pools build their
+  // materials in two modules from one function, and the only difference between them is an option, so
+  // this is the one place it can be read: off the meshes the pools actually draw. Only the shells with
+  // a cabin are judged, by MATERIAL rather than by name - the lamp spill is a basic material with no
+  // seats in it (named trafficLampSpill, which a name filter for "glow" let straight through).
+  const shells = cars.rows.filter((r) => r.standard && !r.cabinOff && r.drawn > 0);
+  const tr = shells.filter((r) => r.pool === 'traffic'), pk = shells.filter((r) => r.pool === 'parked');
+  check('the moving fleet has a driver at the wheel and the parked cars are empty',
+    tr.length > 0 && pk.length > 0 && tr.every((r) => r.driver) && pk.every((r) => !r.driver),
+    `traffic ${tr.filter((r) => r.driver).length}/${tr.length} with a driver, parked ${pk.filter((r) => r.driver).length}/${pk.length}`);
 }
 
 

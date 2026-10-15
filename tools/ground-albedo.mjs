@@ -514,6 +514,12 @@ export const ARM_STATE = {
   // wheel and the mirror), so the pair isolates the detail.
   cdet0: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [1, 1, 0.15, 0] },
   cdet1: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [1, 1, 0.15, 1] },
+  // CABIN v3.1 (uCabinFix, uCabinDriver), from v3's own blind review, as two pairs off one load:
+  // cfix0 against cfix1 is the wheel and mirror on the dash's albedo and the mirror's face from
+  // behind; cfix1 against cdrv1 is a driver in the moving fleet and the player's car.
+  cfix0: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [1, 1, 0.15, 1, 0, 0] },
+  cfix1: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [1, 1, 0.15, 1, 1, 0] },
+  cdrv1: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [1, 1, 0.15, 1, 1, 1] },
 
   // #118, LIT LIGHT'S OWN BLOOM BAR (src/post.js brightSplit): `bloomLit` 0 is the single-threshold
   // bright pass, 1 the bar the HOUR's preset names - noon's threshold at dusk and night, none at noon
@@ -742,10 +748,12 @@ export async function setArm(page, name) {
     if (D && D.setCarCabin) {
       if (window.__armSavedCabin === undefined) {
         const c = D.carCabin();
-        window.__armSavedCabin = [c.value, c.level, c.through, c.detail];
+        window.__armSavedCabin = [c.value, c.level, c.through, c.detail, c.fix ?? 0, c.driver ?? 0];
       }
       const c = s.carCabin ?? window.__armSavedCabin;
-      carCabin = D.setCarCabin(c[0], { level: c[1], through: c[2], detail: c[3] ?? window.__armSavedCabin[3] });
+      // v3.1's two switches ride at [4] and [5]; an arm that names fewer gets the build's own.
+      carCabin = D.setCarCabin(c[0], { level: c[1], through: c[2], detail: c[3] ?? window.__armSavedCabin[3],
+        fix: c[4] ?? window.__armSavedCabin[4], driver: c[5] ?? window.__armSavedCabin[5] });
     }
     // The plate's face, saved and restored the same way.
     let carPlate = null;
@@ -845,7 +853,7 @@ export async function setArm(page, name) {
       // number that says the recolour actually landed rather than the boolean that asked for it.
       carPaintTint: carPaintTint ? [carPaintTint.value, carPaintTint.tintedSlot] : null,
       // IN THE KEY: the cabin arms differ in nothing else. Tenth time.
-      carCabin: carCabin ? [carCabin.value, carCabin.level, carCabin.through, carCabin.detail] : null,
+      carCabin: carCabin ? [carCabin.value, carCabin.level, carCabin.through, carCabin.detail, carCabin.fix, carCabin.driver] : null,
       // IN THE KEY: the plate arms differ in nothing else. Eleventh time.
       carPlate: carPlate ? carPlate.value : null,
       // IN THE KEY: the lamp arms differ in nothing else. Twelfth time.

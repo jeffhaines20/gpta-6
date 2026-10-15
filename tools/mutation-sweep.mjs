@@ -2605,6 +2605,52 @@ const MUTATIONS = [
     to: '    shader.uniforms.uPaintTintOnly',
     why: 'the fleet\'s material never hears the switch and reads it as 0: v2 for ever, while the player\'s glass has v3',
   },
+  // ---- cabin v3.1 (uCabinFix, uCabinDriver): the two defects v3's blind reviewer measured, and the
+  // driver. Each renders a car nobody would call broken; the directions are what tell them apart.
+  {
+    id: 'cabin-fix-wheel', file: 'src/carbody.js',
+    find: '				oA[2] = mix( 0.018, ${f(A.dash)}, uCabinFix ) * cabinFalloff( tw );',
+    to: '				oA[2] = 0.018 * cabinFalloff( tw );',
+    why: 'the wheel stays a pale ring in front of a darker cabin, 1.35x the area inside it',
+  },
+  {
+    id: 'cabin-mirror-face-lost', file: 'src/carbody.js',
+    find: '			oR[3] = d.z > 0.0 ? face * uCabinFix : 0.0;',
+    to: '			oR[3] = 0.0;',
+    why: 'the mirror is its dark housing from behind again: a dark band where its glass shows the street',
+  },
+  {
+    id: 'cabin-mirror-face-front', file: 'src/carbody.js',
+    find: '			oR[3] = d.z > 0.0 ? face * uCabinFix : 0.0;',
+    to: '			oR[3] = d.z < 0.0 ? face * uCabinFix : 0.0;',
+    why: 'the mirror\'s face on the wrong side: glass from ahead, housing from behind - v3\'s reversal, rebuilt',
+  },
+  {
+    id: 'cabin-mirror-blend', file: 'src/carbody.js',
+    find: '		thr = thr * ( 1.0 - oC[j] ) + oC[j] * oR[j];',
+    to: '		thr = thr * ( 1.0 - oC[j] );',
+    why: 'a reflective share that shows nothing: the mirror\'s face goes black instead of showing the street',
+  },
+  {
+    id: 'cabin-driver-unwired', file: 'src/carbody.js',
+    find: '    }\n    shader.uniforms.uCabinFix = CABIN_U.uCabinFix;\n    shader.uniforms.uCabinDriver = CABIN_U.uCabinDriver;',
+    to: '    }\n    shader.uniforms.uCabinFix = CABIN_U.uCabinFix;',
+    why: 'the fleet\'s material never hears the driver switch: an empty fleet whatever the switch says',
+  },
+  {
+    id: 'cabin-driver-not-asked', file: 'src/traffic.js',
+    find: '    this.material = trafficCarMaterial({ driver: true });',
+    to: '    this.material = trafficCarMaterial();',
+    why: 'the moving fleet drives itself again; only a gate that walks the live pools can see which asked',
+    browser: true,
+  },
+  {
+    id: 'cabin-driver-parked', file: 'src/streetfurniture.js',
+    find: '    const material = trafficCarMaterial({ emissiveMap: retroEmissiveMap() });',
+    to: '    const material = trafficCarMaterial({ emissiveMap: retroEmissiveMap(), driver: true });',
+    why: 'every parked car has somebody sitting in it, for ever',
+    browser: true,
+  },
   {
     id: 'lamp-face-off', file: 'src/carbody.js',
     find: 'const LAMP_U = { uLampDetail: { value: 1 } };',

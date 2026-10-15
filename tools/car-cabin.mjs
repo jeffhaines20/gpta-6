@@ -39,15 +39,21 @@ for (const a of argv) {
 }
 
 /** Fixed, so a check cannot vanish when a population is empty. */
-export const CHECK_COUNT = 20;
+export const CHECK_COUNT = 25;
 
 /** The order the page renders in: [gain, level, through] per tile, rows top to bottom. */
-export function plannedReadback(level, through, detail = 1) {
+export function plannedReadback(level, through, detail = 1, fix = 0, driver = 0) {
   const out = [];
-  for (let r = 0; r < 3; r++) out.push([0, level, through, detail], [1, level, through, detail]);
-  out.push([1, level, 0, detail], [1, 0, through, detail]);
-  for (let r = 0; r < 4; r++) out.push([0, level, through, detail], [1, level, through, detail]);
-  out.push([1, level, through, 0], [1, level, through, 1]);
+  const t = (g, lv, th, det, fx = fix, dr = driver) => [g, lv, th, det, fx, dr];
+  for (let r = 0; r < 3; r++) out.push(t(0, level, through, detail), t(1, level, through, detail));
+  out.push(t(1, level, 0, detail), t(1, 0, through, detail));
+  for (let r = 0; r < 4; r++) out.push(t(0, level, through, detail), t(1, level, through, detail));
+  out.push(t(1, level, through, 0), t(1, level, through, 1));
+  // v3.1's rows: the fix from ahead and from behind, then the driver from ahead and from the side.
+  out.push(t(1, level, through, 1, 0, 0), t(1, level, through, 1, 1, 0));
+  out.push(t(1, level, through, 1, 0, 0), t(1, level, through, 1, 1, 0));
+  out.push(t(1, level, through, 1, 1, 0), t(1, level, through, 1, 1, 1));
+  out.push(t(1, level, through, 1, 1, 0), t(1, level, through, 1, 1, 1));
   return out;
 }
 
@@ -66,7 +72,7 @@ export function verdict(r) {
   // And at v3's detail: the detail row sets 0 and 1 itself, so without this a build shipping 0 passes.
   add('the build ships the cabin ON, at its detail', num(r.shipped?.value) === 1 && num(r.shipped?.detail) === 1,
     `shipped gain ${r.shipped?.value}, level ${r.shipped?.level}, transmission ${r.shipped?.through}, detail ${r.shipped?.detail}`);
-  const want = plannedReadback(r.level, r.through, num(r.shipped?.detail) ?? 1);
+  const want = plannedReadback(r.level, r.through, num(r.shipped?.detail) ?? 1, num(r.shipped?.fix) ?? 0, num(r.shipped?.driver) ?? 0);
   const got = r.readback ?? [];
   add('every render\'s uniforms are what it asked for, read back off the material\'s own uniform objects',
     got.length === want.length && want.every((w, i) => w.every((x, k) => got[i] && got[i][k] === x)),
@@ -175,6 +181,29 @@ export function verdict(r) {
     `${D.glassChanged} of ${D.glassPx} glass px (${(100 * dReach).toFixed(1)}%)`);
   add('and nothing outside the glazing', num(D.otherPx) > 0 && D.otherChanged2 === 0,
     `${D.otherChanged2} px over 2 levels, max ${D.otherMax}`);
+  /**
+   * v3.1, from v3's own blind review, on the coupe as the fleet builds it. Each is a DIRECTION, because
+   * the defects were directions: the wheel and the mirror's back read LIGHTER than the cabin behind
+   * them (ring 1.35x the area inside it, bar 1.42x the area below), and the mirror read dark from
+   * behind where its glass face shows the street. A switch that moves pixels the wrong way is the
+   * defect, so "it changed something" is not the check. Bounds are about a third of what the page
+   * measures (158, 42, 307, 124 px moved by more than 2 levels at noon).
+   */
+  const F = r.fixFront ?? {}, Rr = r.fixRear ?? {}, Df = r.driverFront ?? {}, Ds = r.driverSide ?? {};
+  add('v3.1 from ahead: the wheel and the mirror\'s back, on the dash\'s albedo, get DARKER',
+    num(F.moved2) >= 50 && num(F.signedMean) !== null && F.signedMean < 0,
+    `${F.moved2} px moved, signed mean ${num(F.signedMean)?.toFixed(5)}`);
+  add('v3.1 from behind: the mirror shows its glass face, and gets LIGHTER',
+    num(Rr.moved2) >= 15 && num(Rr.signedMean) !== null && Rr.signedMean > 0,
+    `${Rr.moved2} px moved, signed mean ${num(Rr.signedMean)?.toFixed(5)}`);
+  add('the driver, head-on: part of the windscreen, not most of it',
+    num(Df.moved2) >= 100 && num(Df.glassPx) > 0 && Df.moved2 <= 0.25 * Df.glassPx,
+    `${Df.moved2} of ${Df.glassPx} glass px`);
+  add('the driver, from the side, through the door glass', num(Ds.moved2) >= 40, `${Ds.moved2} of ${Ds.glassPx} glass px`);
+  const v31 = [F, Rr, Df, Ds];
+  add('and none of v3.1\'s rows moves anything outside the glazing',
+    v31.every((x) => num(x.otherPx) > 0 && x.otherChanged2 === 0),
+    v31.map((x) => `${x.otherChanged2 ?? 'absent'}`).join(' / ') + ' px over 2 levels');
   add('and the cabin is back to the shipped state after the page is done with it',
     num(r.gainAfter) === num(r.shipped?.value), `gain after ${r.gainAfter}`);
   return checks;
@@ -204,6 +233,11 @@ if (argv.includes('--selftest')) {
       versusCoupe: { sharedPx: 2627, corr: 0.9803, amp: 0.9745, meanAbsPlayer: 0.00756, meanAbsCoupe: 0.00776,
         offRatio: 0.8937, offP50Player: 0.03328, offP50Coupe: 0.03724 } },
     detail: { glassPx: 3283, glassChanged: 420, otherPx: 135236, otherChanged: 0, otherChanged2: 0, otherMax: 0 },
+    // v3.1's rows, from a passing run at noon.
+    fixFront: { glassPx: 2786, glassChanged: 317, moved2: 158, signedMean: -0.00667, otherPx: 135000, otherChanged: 0, otherChanged2: 0, otherMax: 0 },
+    fixRear: { glassPx: 4953, glassChanged: 264, moved2: 42, signedMean: 0.00352, otherPx: 135000, otherChanged: 0, otherChanged2: 0, otherMax: 0 },
+    driverFront: { glassPx: 3442, glassChanged: 393, moved2: 307, signedMean: 0.01688, otherPx: 135000, otherChanged: 0, otherChanged2: 0, otherMax: 0 },
+    driverSide: { glassPx: 1470, glassChanged: 195, moved2: 124, signedMean: -0.00368, otherPx: 135000, otherChanged: 0, otherChanged2: 0, otherMax: 0 },
     gainAfter: 1,
   };
   const bad = (fn) => { const c = structuredClone(good); fn(c); return c; };
@@ -245,6 +279,14 @@ if (argv.includes('--selftest')) {
     ['the detail built and shipped off', (c) => { c.shipped.detail = 0; c.readback = plannedReadback(1, 0.15, 0); }, 'at its detail'],
     ['a detail that repaints the whole pane', (c) => { c.detail.glassChanged = 3200; }, 'detail reaches the windscreen'],
     ['a detail that leaks off the glass', (c) => { c.detail.otherChanged2 = 300; }, 'and nothing outside the glazing'],
+    // v3.1: v3's two measured defects as reports, and the switches reaching nothing.
+    ['the wheel and mirror still lighter than the cabin (v3)', (c) => { c.fixFront.signedMean = 0.004; }, 'get DARKER'],
+    ['the mirror still a dark band from behind (v3)', (c) => { c.fixRear.signedMean = -0.003; }, 'gets LIGHTER'],
+    ['a fix that reaches nothing', (c) => { c.fixFront.moved2 = 0; c.fixFront.signedMean = 0; }, 'get DARKER'],
+    ['a mirror face nobody can see', (c) => { c.fixRear.moved2 = 0; c.fixRear.signedMean = 0; }, 'gets LIGHTER'],
+    ['no driver at the wheel', (c) => { c.driverFront.moved2 = 0; c.driverSide.moved2 = 0; }, 'head-on'],
+    ['a driver that fills the windscreen', (c) => { c.driverFront.moved2 = 3000; }, 'head-on'],
+    ['a driver drawn off the glass', (c) => { c.driverSide.otherChanged2 = 120; }, 'v3.1\'s rows moves anything outside'],
   ]) {
     const r = bad(fn);
     say(fails(r, needle), `KNOWN-BAD: ${what} fails`, failing(r).join(' | '));
