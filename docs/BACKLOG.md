@@ -147,6 +147,27 @@ and seat silhouettes". Its "still crude" list:
   frame. The recurring shape, twice in one material: a fix applied to one member of a family and
   not its sibling.
 
+**v2's seats against v1's, blind: v2 in six of six, at a margin a viewer barely sees.** The pair
+was captured from a worktree carrying a temporary seat-version uniform that never entered history
+(`docs/shots/blind-key-seat-seatV1-seat-seatV2.json`), AFTER #117's shadow fix, because the first
+capture's ground shimmered 0.75-12% between arms from the player's car coasting behind the camera.
+The reviewer recovered the assignment within each framing from the data — and assumed one build
+carried the same letters in both framings, which the per-pair scramble does not do; mapped back
+through the key, all six of their calls are v2. Corridor noon and dusk, the near car's windscreen,
+at confidence 2: in v2 the middle shape is "smaller (19 px) and lower (top y631) than its
+neighbours, so it reads as a rear headrest between the front two", where v1 "reads as three equal
+heads in a row". The other four were forced at confidence 1. One cue went the other way: from
+BEHIND, v2's nearer rear headrests are 14 px against the farther front ones' 16, which the reviewer
+read as against perspective — true of the image and true of many real cars, whose rear headrests
+are smaller.
+
+**What both arms still get wrong, and it is the next round:** "The cabin silhouettes are perfect
+circles on a flat slab ... parked cars look occupied by bald heads", the left one widening row by row
+"3, 13, 17, 20, 23, 24, 26, 28 px: a circular arc. A real headrest is a wide, flat-topped cushion on
+posts"; "no wheel, dashboard or pillar inside"; the windscreen reflection "reads 110-114 across
+x255-390 at noon, with no sky or canopy in it", and at night "near-black, with no streetlight
+reflections" — the sky-only environment, which is #36 and #54.
+
 **And the gate now compares the player's cabin with the coupe's**, whose greenhouse it shares to
 4 mm, on the pixels that are glass in both: the change the cabin makes correlates at 0.980 (0.920 at
 dusk), at x0.975 the strength, and with the cabin off the player's pane reads x0.894 of the coupe's.

@@ -1,0 +1,40 @@
+{
+ "generated": "2026-10-15T01:34:27.858Z",
+ "left": "seat-seatV1",
+ "right": "seat-seatV2",
+ "salt": "95e809ec8d5b",
+ "unpairedLeft": [],
+ "unpairedRight": [],
+ "pairs": [
+  {
+   "id": "corridor-dusk",
+   "A": "seat-seatV1",
+   "B": "seat-seatV2"
+  },
+  {
+   "id": "corridor-night",
+   "A": "seat-seatV1",
+   "B": "seat-seatV2"
+  },
+  {
+   "id": "corridor-noon",
+   "A": "seat-seatV2",
+   "B": "seat-seatV1"
+  },
+  {
+   "id": "fivepoints-dusk",
+   "A": "seat-seatV2",
+   "B": "seat-seatV1"
+  },
+  {
+   "id": "fivepoints-night",
+   "A": "seat-seatV2",
+   "B": "seat-seatV1"
+  },
+  {
+   "id": "fivepoints-noon",
+   "A": "seat-seatV1",
+   "B": "seat-seatV2"
+  }
+ ]
+}
