@@ -292,6 +292,35 @@ try {
       paintP50: pct(sp, 0.5), g0, g1 };
   };
   const rows = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(pair);
+  // v3.1's fix rows SPLIT BY GEOMETRY. A row-wide "the changed pixels got darker" passed with the
+  // wheel's half reverted, because the mirror alone moves 126 of the row's 158 pixels: so each part is
+  // judged in its own screen box, projected from where the cabin puts it (the coupe stands at the
+  // origin, and the cabin's frame is the geometry's own, ground at y 0 on this page).
+  const region = (row, camName, centre, half) => {
+    const cam = cams[camName], v = new THREE.Vector3();
+    let x0 = TW, y0 = TH, x1 = -1, y1 = -1;
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+      v.set(centre[0] + sx * half[0], centre[1] + sy * half[1], centre[2] + sz * half[2]).project(cam);
+      const px = (v.x * 0.5 + 0.5) * TW, py = (1 - (v.y * 0.5 + 0.5)) * TH;
+      x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py);
+    }
+    let moved = 0, signed = 0;
+    for (let y = Math.max(1, Math.floor(y0)); y <= Math.min(TH - 2, Math.ceil(y1)); y++) {
+      for (let x = Math.max(1, Math.floor(x0)); x <= Math.min(TW - 2, Math.ceil(x1)); x++) {
+        const a = (row * TH + y) * W + x, b = a + TW;
+        if (stable(a) !== 'g') continue;
+        let d = 0;
+        for (let k = 0; k < 3; k++) d = Math.max(d, Math.abs(rgb[a * 3 + k] - rgb[b * 3 + k]));
+        if (d > 2) { moved++; signed += L(b) - L(a); }
+      }
+    }
+    return { box: [x0, y0, x1, y1].map(Math.round), moved, signedMean: moved ? signed / moved : 0 };
+  };
+  const WHEEL = [[0.37, 0.97, 0.12], [0.20, 0.20, 0.10]], MIRROR = [[0.0, 1.255, 0.15], [0.14, 0.05, 0.03]];
+  const fixParts = {
+    frontWheel: region(9, 'front34', ...WHEEL), frontMirror: region(9, 'front34', ...MIRROR),
+    rearMirror: region(10, 'rear0', ...MIRROR),
+  };
   // THE RIGID-TRANSFORM INVARIANCE, row 5 against row 0, the same column: the same picture moved.
   const across = (rowA, rowB, col) => {
     let n = 0, moved = 0, max = 0;
@@ -351,6 +380,7 @@ try {
     level: LEVEL, through: THROUGH,
     readback: readback.map((r) => [r.value, r.level, r.through, r.detail, r.fix, r.driver]),
     fixFront: strip(rows[9]), fixRear: strip(rows[10]), driverFront: strip(rows[11]), driverSide: strip(rows[12]),
+    fixParts,
     detail: strip(rows[8]),
     views: { front34: strip(rows[0]), side: strip(rows[1]), rear34: strip(rows[2]) },
     split: { glassPx: r3.glassPx, throughPx, interiorChanged },

@@ -39,7 +39,7 @@ for (const a of argv) {
 }
 
 /** Fixed, so a check cannot vanish when a population is empty. */
-export const CHECK_COUNT = 25;
+export const CHECK_COUNT = 26;
 
 /** The order the page renders in: [gain, level, through] per tile, rows top to bottom. */
 export function plannedReadback(level, through, detail = 1, fix = 0, driver = 0) {
@@ -190,12 +190,18 @@ export function verdict(r) {
    * measures (158, 42, 307, 124 px moved by more than 2 levels at noon).
    */
   const F = r.fixFront ?? {}, Rr = r.fixRear ?? {}, Df = r.driverFront ?? {}, Ds = r.driverSide ?? {};
-  add('v3.1 from ahead: the wheel and the mirror\'s back, on the dash\'s albedo, get DARKER',
-    num(F.moved2) >= 50 && num(F.signedMean) !== null && F.signedMean < 0,
-    `${F.moved2} px moved, signed mean ${num(F.signedMean)?.toFixed(5)}`);
+  // EACH PART IN ITS OWN SCREEN BOX, projected from where the cabin puts it. Judged row-wide, the
+  // `cabin-fix-wheel` row came back MISSED: revert the wheel alone and the mirror still moves 126 of
+  // the row's 158 pixels darker. Split, the wheel's 32 and the mirror's 126 sum to the row exactly.
+  const FP = r.fixParts ?? {};
+  const part = (k) => FP[k] ?? {};
+  const said = (k) => `${part(k).moved ?? 'absent'} px moved in its box, signed mean ${num(part(k).signedMean)?.toFixed(5)}`;
+  add('v3.1 from ahead: the WHEEL, on the dash\'s albedo, gets darker',
+    num(part('frontWheel').moved) >= 10 && part('frontWheel').signedMean < 0, said('frontWheel'));
+  add('v3.1 from ahead: the MIRROR\'s back, on the dash\'s albedo, gets darker',
+    num(part('frontMirror').moved) >= 40 && part('frontMirror').signedMean < 0, said('frontMirror'));
   add('v3.1 from behind: the mirror shows its glass face, and gets LIGHTER',
-    num(Rr.moved2) >= 15 && num(Rr.signedMean) !== null && Rr.signedMean > 0,
-    `${Rr.moved2} px moved, signed mean ${num(Rr.signedMean)?.toFixed(5)}`);
+    num(part('rearMirror').moved) >= 15 && part('rearMirror').signedMean > 0, said('rearMirror'));
   add('the driver, head-on: part of the windscreen, not most of it',
     num(Df.moved2) >= 100 && num(Df.glassPx) > 0 && Df.moved2 <= 0.25 * Df.glassPx,
     `${Df.moved2} of ${Df.glassPx} glass px`);
@@ -238,6 +244,8 @@ if (argv.includes('--selftest')) {
     fixRear: { glassPx: 4953, glassChanged: 264, moved2: 42, signedMean: 0.00352, otherPx: 135000, otherChanged: 0, otherChanged2: 0, otherMax: 0 },
     driverFront: { glassPx: 3442, glassChanged: 393, moved2: 307, signedMean: 0.01688, otherPx: 135000, otherChanged: 0, otherChanged2: 0, otherMax: 0 },
     driverSide: { glassPx: 1470, glassChanged: 195, moved2: 124, signedMean: -0.00368, otherPx: 135000, otherChanged: 0, otherChanged2: 0, otherMax: 0 },
+    fixParts: { frontWheel: { moved: 32, signedMean: -0.00325 }, frontMirror: { moved: 126, signedMean: -0.00754 },
+      rearMirror: { moved: 42, signedMean: 0.00352 } },
     gainAfter: 1,
   };
   const bad = (fn) => { const c = structuredClone(good); fn(c); return c; };
@@ -280,10 +288,12 @@ if (argv.includes('--selftest')) {
     ['a detail that repaints the whole pane', (c) => { c.detail.glassChanged = 3200; }, 'detail reaches the windscreen'],
     ['a detail that leaks off the glass', (c) => { c.detail.otherChanged2 = 300; }, 'and nothing outside the glazing'],
     // v3.1: v3's two measured defects as reports, and the switches reaching nothing.
-    ['the wheel and mirror still lighter than the cabin (v3)', (c) => { c.fixFront.signedMean = 0.004; }, 'get DARKER'],
-    ['the mirror still a dark band from behind (v3)', (c) => { c.fixRear.signedMean = -0.003; }, 'gets LIGHTER'],
-    ['a fix that reaches nothing', (c) => { c.fixFront.moved2 = 0; c.fixFront.signedMean = 0; }, 'get DARKER'],
-    ['a mirror face nobody can see', (c) => { c.fixRear.moved2 = 0; c.fixRear.signedMean = 0; }, 'gets LIGHTER'],
+    // Measured, not invented: the `cabin-fix-wheel` mutation read the wheel's box at 0 and the mirror's at 126.
+    ['the wheel left on its v3 albedo', (c) => { c.fixParts.frontWheel = { moved: 0, signedMean: 0 }; }, 'the WHEEL'],
+    ['the wheel and mirror still lighter than the cabin (v3)', (c) => { c.fixParts.frontWheel.signedMean = 0.003;
+      c.fixParts.frontMirror.signedMean = 0.004; }, 'MIRROR\'s back'],
+    ['the mirror still a dark band from behind (v3)', (c) => { c.fixParts.rearMirror.signedMean = -0.003; }, 'gets LIGHTER'],
+    ['a mirror face nobody can see', (c) => { c.fixParts.rearMirror = { moved: 0, signedMean: 0 }; }, 'gets LIGHTER'],
     ['no driver at the wheel', (c) => { c.driverFront.moved2 = 0; c.driverSide.moved2 = 0; }, 'head-on'],
     ['a driver that fills the windscreen', (c) => { c.driverFront.moved2 = 3000; }, 'head-on'],
     ['a driver drawn off the glass', (c) => { c.driverSide.otherChanged2 = 120; }, 'v3.1\'s rows moves anything outside'],
