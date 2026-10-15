@@ -668,6 +668,28 @@ export const PRESETS = {
   },
 };
 
+// #118: LIT LIGHT'S OWN BLOOM BAR, at the two hours whose threshold was set for the emitters.
+//
+// Noon's and golden's thresholds were each derived from the brightest plausible LIT surface at that
+// hour, cleared by a margin - "nothing that is merely lit" blooms there, by construction. Dusk's and
+// night's were not: they are display-unit values carried across two re-stops ("Same radiance, new
+// units"), and night's own comment says what they were for - "at night everything that blooms is an
+// emitter". A lamp-lit number plate then cleared it like a lamp: the plate a blind reviewer measured "at
+// only about sRGB 87" is 0.082 exposed, inside a knee that starts at byte 57. On tools/bloom-lit.html a
+// lit panel at three times night's threshold handed the blur 1.015 of what an emitter of the same
+// radiance did; under this bar it hands on 0.008, the MSAA rim. And in the district it was most of the
+// night's bloom: at the corridor camera 89.9% of what the bright pass took was LIT light - the
+// lamp-lit cream facade, the canopy over the lamps, the road markings and the parked cars - against
+// 3.5% emitted and 6.6% untagged (tools/bloom-source.mjs). Under this bar the pass takes 82% less.
+//
+// So at dusk and night LIT light is tested against noon's bar: a lit surface blooms only where it
+// sits brighter on screen than the brightest lit surface of the brightest hour, by noon's margin -
+// the photographic rule, "a camera does not glare around a mid-grey diffuse surface". Emitted light
+// keeps the hour's threshold, and so does anything untagged (src/post.js brightSplit). Noon and
+// golden name no lit bar and keep the single-threshold pass bit for bit: their thresholds already
+// ARE lit-surface bars.
+for (const k of ['dusk', 'night']) PRESETS[k].post.bloomThresholdLit = PRESETS.noon.post.bloomThreshold;
+
 // Plausibility envelope, asserted by the sweep. These are the ranges a real
 // photometric reference would put each quantity in.
 //
@@ -1420,6 +1442,8 @@ export class TimeOfDay {
     q.fogDensity = pp.density * (1 + this.weather.fogBoost * 3);
     q.fogHeightFalloff = pp.heightFalloff;
     q.bloomThreshold = pp.bloomThreshold;
+    // #118: LIT light's own bar. A preset that does not name one keeps the single-threshold pass.
+    q.bloomThresholdLit = pp.bloomThresholdLit ?? 0;
     q.bloomStrength = pp.bloomStrength;
     q.wetness = this.weather.wetness;
     // From the preset, not from the light's position: after follow() that position is the viewer's
@@ -1773,6 +1797,7 @@ export class TimeOfDay {
         : String(this.renderer.toneMapping),
       postProcessing: this.post ? {
         bloomThreshold: this.post.params.bloomThreshold,
+        bloomThresholdLit: this.post.params.bloomThresholdLit ?? 0,
         bloomStrength: this.post.params.bloomStrength,
         fogDensity: +this.post.params.fogDensity.toFixed(5),
         fogHeightFalloff: this.post.params.fogHeightFalloff,

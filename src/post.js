@@ -124,8 +124,62 @@ uniform sampler2D tDiffuse;
 uniform float threshold;
 uniform float softKnee;
 uniform float exposure;
+uniform float thresholdLit;   // #118: > 0 tests LIT light against its own bar; <= 0 is the pass below, bit for bit
+uniform vec2 srcSize;         // the scene target in texels, for the per-texel path
 varying vec2 vUv;
+
+const vec3 BRIGHT_LUMA = vec3(0.2126, 0.7152, 0.0722);
+float brightContrib(float lum, float t) {
+  float knee = t * softKnee + 1e-5;
+  float soft = clamp(lum - t + knee, 0.0, 2.0 * knee);
+  soft = soft * soft / (4.0 * knee);
+  return max(soft, lum - t) / max(lum, 1e-5);
+}
+vec3 brightClean(vec3 c) {
+  bvec3 ok = lessThanEqual(c, vec3(60000.0));
+  return vec3(ok.x ? max(c.x, 0.0) : 60000.0,
+              ok.y ? max(c.y, 0.0) : 60000.0,
+              ok.z ? max(c.z, 0.0) : 60000.0);
+}
+// ONE SCENE TEXEL, its emitted and lit parts tested against their own bars (#118). The tag is
+// #114's -(1 + share) in the alpha; anything outside [-2, -1] is untagged and keeps the emitter
+// bar, which is the pass as it was.
+//
+// WITH A TOLERANCE OF 0.01, CLAMPED, where the composite decodes exactly - and the reason is that
+// a LIT texel's tag is exactly -1, i.e. share 0, the very edge of the valid range. The fetches
+// below are at texel centres through a LINEAR filter, and a fetch that picks up even 1e-7 of a
+// neighbouring +1 (the clear, the sky, a basic material) reads -0.9999998 and decodes as
+// UNTAGGED: the lit texel is then tested against the emitter's bar, and blooms. Measured on
+// tools/bloom-lit.html before this tolerance: the GPU's bright target 1.3% over the formula on the
+// glint panel and exact on its twin a few hundred pixels to the left, which is what a rounding of
+// the fetch position looks like. The composite does not care, because there untagged and share 0
+// are the same number; here they are two different bars. 0.01 is a 0.5% neighbour weight, so a
+// half-covered MSAA edge (alpha 0, a mean of -1 and +1) is still untagged, as it should be.
+vec3 brightSplit(vec4 s) {
+  vec3 c = brightClean(s.rgb);
+  float share = -s.a - 1.0;
+  if (!(share >= -0.01 && share <= 1.01)) return c * brightContrib(dot(c, BRIGHT_LUMA) * exposure, threshold);
+  share = clamp(share, 0.0, 1.0);
+  vec3 ce = c * share, cl = c - ce;
+  return ce * brightContrib(dot(ce, BRIGHT_LUMA) * exposure, threshold)
+       + cl * brightContrib(dot(cl, BRIGHT_LUMA) * exposure, thresholdLit);
+}
 void main() {
+  if (thresholdLit > 0.0) {
+    // The tag cannot be filtered: the mean of an emitter's -2 and a sky's +1 is -0.5, which decodes
+    // as nothing. So the four texels the linear filter would have blended are fetched at their
+    // centres, each is split and tested on its own, and the RESULTS are blended with the filter's
+    // own weights. Every operand is already clean, so mix() cannot meet an Inf here.
+    vec2 p = vUv * srcSize - 0.5;
+    vec2 i0 = floor(p), f = p - i0;
+    vec2 inv = 1.0 / srcSize;
+    vec3 a = brightSplit(texture2D(tDiffuse, (i0 + vec2(0.5, 0.5)) * inv));
+    vec3 b = brightSplit(texture2D(tDiffuse, (i0 + vec2(1.5, 0.5)) * inv));
+    vec3 c = brightSplit(texture2D(tDiffuse, (i0 + vec2(0.5, 1.5)) * inv));
+    vec3 d = brightSplit(texture2D(tDiffuse, (i0 + vec2(1.5, 1.5)) * inv));
+    gl_FragColor = vec4(mix(mix(a, b, f.x), mix(c, d, f.x), f.y), 1.0);
+    return;
+  }
   // Same guard as the composite's sanitize(), inlined because this shader does not
   // share SKY_COMMON-style includes with it. Without it, contrib below is
   // Inf/Inf = NaN and the separable blur then spreads that NaN over a 9-tap
@@ -980,6 +1034,9 @@ export class PostStack {
     this.params = {
       bloomThreshold: 1.0,
       bloomSoftKnee: 0.6,
+      // #118. The bar LIT light must clear before it blooms, in the same exposed units as
+      // bloomThreshold; 0 is the single-threshold pass, bit for bit. Set per hour by daynight.js.
+      bloomThresholdLit: 0,
       bloomStrength: 0.55,
       exposure: 1 / 330,
       fogColor: new THREE.Color(0x8fa4c4),
@@ -1626,6 +1683,8 @@ export class PostStack {
         threshold: { value: this.params.bloomThreshold },
         exposure: { value: this.params.exposure },
         softKnee: { value: this.params.bloomSoftKnee },
+        thresholdLit: { value: this.params.bloomThresholdLit },
+        srcSize: { value: new THREE.Vector2(1, 1) },
       },
       depthTest: false, depthWrite: false,
     });
@@ -1881,6 +1940,8 @@ export class PostStack {
     this.brightMat.uniforms.threshold.value = this.params.bloomThreshold;
     this.brightMat.uniforms.exposure.value = this.params.exposure;
     this.brightMat.uniforms.softKnee.value = this.params.bloomSoftKnee;
+    this.brightMat.uniforms.thresholdLit.value = this.params.bloomThresholdLit ?? 0;
+    this.brightMat.uniforms.srcSize.value.set(this.hdr.width, this.hdr.height);
     this._blit(this.brightMat, this.brightRT);
 
     // Two separable blur iterations. More than this on a half-res target buys

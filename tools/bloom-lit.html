@@ -1,0 +1,197 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>bloom-lit</title>
+<!--
+  BACKLOG #118: AT NIGHT THE BRIGHT PASS TOOK LIT SURFACES AS LIGHT SOURCES.
+
+  The night threshold was set for the emitters ("at night everything that blooms is an emitter",
+  src/daynight.js), so a lamp-lit number plate cleared it like a lamp and glowed 12-14 px onto the
+  bodywork, and a lamp-lit white headlamp face made a parked car look switched on. The fix tests the
+  two halves of each texel's light separately, using the share #114 already tags into the scene
+  target's alpha: EMITTED light against the hour's threshold, LIT light against its own bar.
+
+  Nothing else can see it: the offline gates never compile a shader, and the district is minutes a
+  frame with a crowd that moves between arms. So this page is the smallest scene that has the defect
+  in it, rendered through the REAL PostStack at the shipped NIGHT bars, five panels in a row:
+
+      EMIT      no albedo, all emission                  must bloom, as before
+      LIT       diffuse, lit to the EMITTER's radiance   the subject: must not bloom
+      UNTAGGED  MeshBasicMaterial at the same radiance   no tag, so the emitter's bar, as before
+      HALF      half lit, half emitted                   the split must be a share, not a flag
+      GLINT     diffuse, lit to three times the LIT bar  lit light past its bar still blooms
+
+  EMIT, LIT, UNTAGGED and HALF sit at three times the night threshold, so in the old pass they bloom
+  alike. Every material is dielectric with its specular off (MeshPhysicalMaterial specularIntensity
+  0), so a panel's radiance is exactly its albedo times the light over pi, or its emission, and the
+  page reads each one back off the HDR target rather than trusting the arithmetic.
+
+  Two arms off ONE page, ONE camera, ONE scene, differing in one uniform:
+      off       bloomThresholdLit 0              the single-threshold pass, bit for bit
+      shipped   PRESETS.night's lit bar          what ships
+
+  The statistic is what each panel hands the blur: the bright target's exposed luminance summed over
+  the panel's own box. The blur spreads it and bloomStrength scales it, and neither depends on where
+  it came from, so a halo is proportional to this sum.
+-->
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+<script type="module">
+import * as THREE from '../vendor/three.module.min.js';
+import { PostStack } from '../src/post.js';
+import { PRESETS } from '../src/daynight.js';
+import { halfToFloat, tagOf, emulateHalfRes } from './bloom-math.mjs';
+
+const W = 480, H = 160;
+try {
+  const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(W, H);
+  document.body.appendChild(renderer.domElement);
+
+  const night = PRESETS.night.post;
+  const T = night.bloomThreshold;
+  const TL = night.bloomThresholdLit ?? 0;
+  if (!(TL > T)) throw new Error(`PRESETS.night names no lit bar above its threshold (${TL} against ${T})`);
+  const R = 3 * T;          // EMIT, LIT, UNTAGGED and HALF: three times the threshold
+  const RG = 3 * TL;        // GLINT: three times the lit bar
+  // One light for every lit panel, sized so a WHITE panel reaches RG; the LIT panel's albedo is then
+  // whatever puts it at R. Normal incidence, so irradiance is the light's intensity.
+  const E = RG * Math.PI;
+  const aLit = R * Math.PI / E;
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(30, W / H, 0.5, 100);
+  camera.position.set(0, 0, 10);
+  camera.lookAt(0, 0, 0);
+  camera.updateMatrixWorld(true);
+
+  const lin = (v) => new THREE.Color().setRGB(v, v, v, THREE.LinearSRGBColorSpace);
+  const phys = (albedo, emit) => new THREE.MeshPhysicalMaterial({
+    color: lin(albedo), roughness: 1, metalness: 0, specularIntensity: 0,
+    emissive: lin(emit > 0 ? 1 : 0), emissiveIntensity: emit,
+  });
+  const SIZE = 1.2;
+  const panels = [
+    { name: 'emit', x: -6, mat: phys(0, R), want: R },
+    { name: 'lit', x: -3, mat: phys(aLit, 0), want: R },
+    { name: 'untagged', x: 0, mat: new THREE.MeshBasicMaterial({ color: lin(R) }), want: R },
+    { name: 'half', x: 3, mat: phys(aLit / 2, R / 2), want: R },
+    { name: 'glint', x: 6, mat: phys(1, 0), want: RG },
+  ];
+  for (const p of panels) {
+    p.mesh = new THREE.Mesh(new THREE.PlaneGeometry(SIZE, SIZE), p.mat);
+    p.mesh.position.set(p.x, 0, 0);
+    scene.add(p.mesh);
+  }
+  const sun = new THREE.DirectionalLight(0xffffff, E);
+  sun.position.set(0, 0, 10);
+  sun.target.position.set(0, 0, 0);
+  scene.add(sun, sun.target);
+
+  const post = new PostStack(renderer, scene, camera);
+  post.setSize(W, H);
+  const q = post.params;
+  q.exposure = 1;              // exposed units ARE nits here
+  q.bloomThreshold = T;
+  q.bloomStrength = night.bloomStrength;
+  q.aoEnabled = false;
+  q.fogDensity = 0;
+
+  const R16 = (rt) => {
+    const w = rt.width, h = rt.height, raw = new Uint16Array(w * h * 4);
+    renderer.readRenderTargetPixels(rt, 0, 0, w, h, raw);
+    const f = new Float32Array(w * h * 4);
+    for (let i = 0; i < f.length; i++) f[i] = halfToFloat(raw[i]);
+    return { w, h, f };
+  };
+
+  // Each panel's box in full-resolution pixels, bottom-up rows as a readback is, grown by a margin
+  // that covers the bilinear footprint and the MSAA edge, so the box holds all of its light.
+  const v = new THREE.Vector3();
+  for (const p of panels) {
+    let x0 = W, y0 = H, x1 = -1, y1 = -1;
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      v.set(p.x + sx * SIZE / 2, sy * SIZE / 2, 0).project(camera);
+      const px = (v.x * 0.5 + 0.5) * W, py = (v.y * 0.5 + 0.5) * H;
+      x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py);
+    }
+    p.inner = [Math.ceil(x0), Math.ceil(y0), Math.floor(x1) - 1, Math.floor(y1) - 1];
+    const M = 4;
+    p.box = [Math.floor(x0) - M, Math.floor(y0) - M, Math.ceil(x1) + M, Math.ceil(y1) + M];
+  }
+
+  const arm = (thresholdLit) => {
+    q.bloomThresholdLit = thresholdLit;
+    post.render();
+    const u = post.brightMat.uniforms;
+    const bright = R16(post.brightRT);
+    const hdr = R16(post.hdr);
+    // What each panel hands the blur: exposed luminance (exposure 1) over its box, in half-res texels.
+    const per = {};
+    for (const p of panels) {
+      const [x0, y0, x1, y1] = p.box.map((c) => Math.floor(c / 2));
+      let s = 0;
+      for (let y = Math.max(0, y0); y <= Math.min(bright.h - 1, y1); y++) {
+        for (let x = Math.max(0, x0); x <= Math.min(bright.w - 1, x1); x++) {
+          const k = (y * bright.w + x) * 4;
+          s += 0.2126 * bright.f[k] + 0.7152 * bright.f[k + 1] + 0.0722 * bright.f[k + 2];
+        }
+      }
+      per[p.name] = s;
+    }
+    let gpu = 0;
+    for (let i = 0; i < bright.w * bright.h; i++) {
+      const k = i * 4;
+      gpu += 0.2126 * bright.f[k] + 0.7152 * bright.f[k + 1] + 0.0722 * bright.f[k + 2];
+    }
+    const P = { exposure: 1, threshold: T, softKnee: q.bloomSoftKnee, thresholdLit };
+    const emu = emulateHalfRes(hdr.f, hdr.w, hdr.h, P);
+    // The same emulation PER PANEL, so a disagreement with the GPU can be put somewhere.
+    const emuPer = {};
+    for (const p of panels) {
+      const [x0, y0, x1, y1] = p.box.map((c) => Math.floor(c / 2));
+      const sx0 = Math.max(0, x0), sy0 = Math.max(0, y0);
+      const sx1 = Math.min(bright.w - 1, x1), sy1 = Math.min(bright.h - 1, y1);
+      const bw = sx1 - sx0 + 1, bh = sy1 - sy0 + 1;
+      const sub = new Float32Array(bw * 2 * bh * 2 * 4);
+      for (let y = 0; y < bh * 2; y++) for (let x = 0; x < bw * 2; x++) {
+        const k = ((sy0 * 2 + y) * hdr.w + (sx0 * 2 + x)) * 4, o = (y * bw * 2 + x) * 4;
+        sub[o] = hdr.f[k]; sub[o + 1] = hdr.f[k + 1]; sub[o + 2] = hdr.f[k + 2]; sub[o + 3] = hdr.f[k + 3];
+      }
+      emuPer[p.name] = emulateHalfRes(sub, bw * 2, bh * 2, P).sum;
+    }
+    return { thresholdLit, uThreshold: u.threshold.value, uThresholdLit: u.thresholdLit.value,
+      uSrc: [u.srcSize.value.x, u.srcSize.value.y], per, emuPer, gpu, emulated: emu.sum, splitPath: emu.on, hdr };
+  };
+  const arms = { off: arm(0), shipped: arm(TL) };
+
+  // The scene as built: each panel's radiance and tag at its centre, over its inner box.
+  const hdr = arms.shipped.hdr;
+  const surfaces = {};
+  for (const p of panels) {
+    const [x0, y0, x1, y1] = p.inner;
+    let n = 0, lum = 0, share = 0, untagged = 0;
+    for (let y = y0 + 2; y <= y1 - 2; y++) for (let x = x0 + 2; x <= x1 - 2; x++) {
+      const k = (y * hdr.w + x) * 4;
+      lum += 0.2126 * hdr.f[k] + 0.7152 * hdr.f[k + 1] + 0.0722 * hdr.f[k + 2];
+      const s = tagOf(hdr.f[k + 3]);
+      if (s < 0) untagged++; else share += s;
+      n++;
+    }
+    surfaces[p.name] = { px: n, radiance: lum / n, want: p.want,
+      share: n - untagged > 0 ? share / (n - untagged) : null, untagged: untagged / n,
+      off: arms.off.per[p.name], shipped: arms.shipped.per[p.name] };
+  }
+  const strip = (a) => { const { hdr: _h, ...rest } = a; return rest; };
+  window.__bloomLit = {
+    size: { w: W, h: H },
+    bars: { threshold: T, thresholdLit: TL, noonThreshold: PRESETS.noon.post.bloomThreshold,
+      presetLit: Object.fromEntries(Object.entries(PRESETS).map(([k, pr]) => [k, pr.post.bloomThresholdLit ?? null])),
+      presetThreshold: Object.fromEntries(Object.entries(PRESETS).map(([k, pr]) => [k, pr.post.bloomThreshold])) },
+    chunkPatched: THREE.ShaderChunk.opaque_fragment.includes('#114 emitted share'),
+    arms: { off: strip(arms.off), shipped: strip(arms.shipped) },
+    surfaces,
+  };
+} catch (e) {
+  window.__bloomLit = { error: String(e && e.stack || e) };
+}
+</script>

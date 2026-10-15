@@ -2871,7 +2871,9 @@ linear in the mission's size, caught at x7.89 while passing the absolute bound a
 only gate that compiles a lit material's shader and reads what the composite does with it),
 `car-cabin` and `car-cabin --selftest` (a purpose-built car page, 2.8 s), `road-gloss --selftest`,
 `shadow-stable` and `shadow-stable --selftest` (the sun's shadow box, offline, 0.05 s),
-`car-detail` and `car-detail --selftest` (a purpose-built car page from behind, about 3 s).
+`car-detail` and `car-detail --selftest` (a purpose-built car page from behind, about 3 s),
+`bloom-lit` and `bloom-lit --selftest` (five panels through the real PostStack's bright pass, 2.0 s),
+`bloom-source --selftest` (the bright pass's arithmetic, offline).
 The offline ones together take **127 s**, measured end to end rather than guessed — this line
 said "under a minute" for several rounds and three gates now account for 60% of it:
 `pursuit-test` 24.1 s, `traffic-selftest` 23.6, `reaction-test` 23.3, then `playtest --selftest`

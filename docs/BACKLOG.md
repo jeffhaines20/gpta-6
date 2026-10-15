@@ -3705,6 +3705,79 @@ sun's ortho shadow box with the player's car every frame with no snap to the map
 sets the sun's height as an ABSOLUTE `sin(el) * 400` while the target takes the car's own y, so the
 light's direction itself tilts with the car's height on its suspension.
 
+### #118 FIXED, blind review pending — at dusk and night the bright pass took LIT surfaces as light sources; lit light has its own bar now
+**The entry's candidate was right in kind and needed two corrections to be right in detail.** Every lit
+material already tags the EMITTED share of its radiance into the scene target's alpha (#114), so the
+bright pass now splits each texel: the emitted part is tested against the hour's threshold, the lit
+part against its own bar, and anything untagged — the sky, every MeshBasicMaterial glow and halo —
+keeps the hour's threshold whole, as before (`src/post.js` brightSplit).
+
+**The bar is noon's threshold, at dusk and night only** (`src/daynight.js`, assigned from
+`PRESETS.noon` rather than typed). Noon's and golden's thresholds were each derived from the brightest
+plausible LIT surface at that hour — "nothing that is merely lit" blooms there by construction — and
+dusk's and night's were display-unit values carried across two re-stops for the emitters. So at dusk
+and night a lit surface blooms only where it sits brighter on screen than noon's brightest lit surface
+does, by noon's margin: the photographic rule the reviewer stated, "a photograph does not glare around
+a mid-grey diffuse surface". Through the composite's own rolloff, ACES and encode, the knee puts the lit
+onset at 0.532 exposed, display byte 209 (full at 1.331, byte 237), where the old night onset was 0.047,
+**byte 57** — and the reviewer's plate "at only about sRGB 87" is 0.082 exposed, byte 87 by the same
+chain: inside the old knee, which runs from byte 57 to 111. Noon and golden name no bar and run the old
+pass bit for bit. The OTHER candidate — weight the pass by the share, so lit light never blooms — was refused on one
+panel: a lit glint three times past the bar is a real glare source (a lamp's specular highlight on a car
+roof) and it would go dark.
+
+`tools/bloom-lit.html`, five panels at known radiances through the real PostStack at the night bars,
+both arms off one page load:
+
+    panel       radiance   share   handed to the blur: off    shipped   shipped/off
+    emit          0.354     1.00                 73.74        74.34      1.0081
+    lit           0.354     0.00                 74.86         0.59      0.0079    the plate's case
+    untagged      0.354     none                 76.45        76.45      1.0000
+    half          0.354     0.50                 74.97        19.82      0.2643
+    glint         3.992     0.00               1244.37       864.44      0.6947
+
+The lit panel handed the blur **1.015 of what an emitter of its radiance did** in the old pass, which is
+the defect, measured every run; it hands on **0.008** now, all of it the MSAA rim where a lit texel's tag
+is averaged with the clear's and decodes as untagged.
+
+**Two corrections the gate forced, both in the first hour:**
+
+- **The tag cannot go through the bright pass's linear filter.** The pass samples the scene at half
+  resolution, and the mean of an emitter's -2 and the sky's +1 is -0.5, which decodes as nothing. So
+  the split path fetches the four texels the filter would have blended, at their centres, splits each
+  and blends the RESULTS with the filter's own weights. Off, the old one-tap pass runs untouched.
+- **A lit texel's tag sits exactly on the edge of the valid range**: -1 is share 0. A centre fetch that
+  picks up 1e-7 of a neighbouring +1 reads -0.9999998, decodes as untagged, and the texel is tested
+  against the emitter's bar. The gate's instrument check found it — the GPU's bright target 1.3% over
+  the documented formula on the glint panel and exact on its twin to the left, which is a rounding of
+  the fetch position and nothing in the formula — so the bright pass decodes with a 0.01 tolerance,
+  clamped. The composite does not need one: there untagged and share 0 are the same number.
+
+**In the district it was most of the night's bloom.** `tools/bloom-source.mjs` reads the scene target
+and its tag at the hero cameras, re-runs the bright pass in JS and splits what it takes by where the
+light came from, checking itself against the GPU's own bright target every frame (ratio 1.0000 at
+corridor/night). At corridor/night the OLD pass took:
+
+    emitted     3.5%     the windows, the lamp lenses, the car lamps
+    LIT        89.9%     the lamp-lit cream facade (one region of 43,872 px), the canopy over the
+                         lamps, the road markings, the parked cars' bodywork
+    untagged    6.6%     the awning soffits' additive glow, the shopfront spill on the pavement
+
+So the night frame's glow was a halo round everything a street lamp touched, which is the reviewer's
+plate at every scale. Priced on the same readback, the lit share left at each candidate bar:
+
+    lit bar, x the night threshold     x1     x2     x4     x8    x16    x32    never
+    lit energy left, of the old total  88.6%  39.0%  16.5%  10.2%  7.8%   6.3%   0
+
+Noon's threshold is x11.3 at night, between x8 and x16, and the pass takes 82% less in all. What is
+lit and still blooms is the glare a camera would give: the brightest lit source left is a 147 px patch
+of mullioned facade at (987-995, 446-465), 6.2 exposed, right beside where a lamp's point light stands —
+and in the FRAME it reads as the brightest lamp on the street. It is lit, not emitted (the map is pure
+green there), so "weight the pass by the share" would have put out the thing a viewer takes for the
+lamp. I first wrote it down as the lamp's globe, lit by its own light; the globes are `headMat`,
+emissive 2.4 at night, and a crop of the map put it on the wall instead.
+
+#### THE ORIGINAL RECORD
 ### #118 OPEN — at dusk and night a lamp-lit plate BLOOMS: the night bright-pass catches diffuse surfaces
 From the plate's blind reviewer, in both arms: "Unclipped plates bloom at dusk and night. The halo is
 the same on all four sides (about 19% left and right, 13% above, 39% below at 4-8 px) and is zero at

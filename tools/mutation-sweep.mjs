@@ -177,6 +177,10 @@ const OFFLINE = [
   // About 3 s, the same kind of page as car-cabin, from behind: the plate's face is a fragment-shader
   // pattern on one slot, and its geometry is read off the builders before the browser starts.
   'car-detail',
+  // #118's page, the same kind as ao-emit: five panels at known radiances through the real PostStack,
+  // the bright pass's two arms off one load. Nothing else compiles BRIGHT_FRAG, so every bloom row
+  // above is invisible to the rest of this list.
+  'bloom-lit',
 ];
 
 /**
@@ -2503,6 +2507,58 @@ const MUTATIONS = [
     find: '    this.sunDirection(q.sunDirection);',
     to: '    q.sunDirection.copy(this.sun.position).normalize();',
     why: 'the post stack\'s sun points from the world origin after any weather change',
+  },
+  // ---- src/post.js and src/daynight.js: lit light's own bloom bar (#118). Every one of these renders
+  // a frame nobody would call broken - a glow round a lamp-lit plate is "atmosphere" - and the only
+  // thing that tells them apart is tools/bloom-lit.html's five panels.
+  {
+    id: 'bloom-lit-bar-emitter', file: 'src/post.js',
+    find: '       + cl * brightContrib(dot(cl, BRIGHT_LUMA) * exposure, thresholdLit);',
+    to: '       + cl * brightContrib(dot(cl, BRIGHT_LUMA) * exposure, threshold);',
+    why: 'lit light tested at the emitter\'s bar again: the split runs, and every lamp-lit plate still glows',
+  },
+  {
+    id: 'bloom-share-inverted', file: 'src/post.js',
+    find: '  float share = -s.a - 1.0;',
+    to: '  float share = s.a + 2.0;',
+    why: 'the share read upside down: emitters lose their bloom and lit surfaces keep it',
+  },
+  {
+    id: 'bloom-untagged-lit', file: 'src/post.js',
+    find: '  if (!(share >= -0.01 && share <= 1.01)) return c * brightContrib(dot(c, BRIGHT_LUMA) * exposure, threshold);',
+    to: '  if (!(share >= -0.01 && share <= 1.01)) return c * brightContrib(dot(c, BRIGHT_LUMA) * exposure, thresholdLit);',
+    why: 'untagged light - the sky, every basic-material glow and halo - tested as lit: the signage stops glowing',
+  },
+  {
+    id: 'bloom-lit-unwired', file: 'src/post.js',
+    find: '    this.brightMat.uniforms.thresholdLit.value = this.params.bloomThresholdLit ?? 0;',
+    to: '    this.brightMat.uniforms.thresholdLit.value = 0;',
+    why: 'the preset names a bar and the bright pass never hears of it',
+  },
+  {
+    id: 'bloom-tag-exact', file: 'src/post.js',
+    find: '  if (!(share >= -0.01 && share <= 1.01)) return c * brightContrib(dot(c, BRIGHT_LUMA) * exposure, threshold);',
+    to: '  if (!(share >= 0.0 && share <= 1.0)) return c * brightContrib(dot(c, BRIGHT_LUMA) * exposure, threshold);',
+    why: 'a lit texel sits exactly on share 0, and a fetch that picks up 1e-7 of a neighbour flips it to untagged',
+  },
+  {
+    id: 'bloom-filtered-tag', file: 'src/post.js',
+    find: '    vec3 a = brightSplit(texture2D(tDiffuse, (i0 + vec2(0.5, 0.5)) * inv));',
+    to: '    gl_FragColor = vec4(brightSplit(texture2D(tDiffuse, vUv)), 1.0);\n    return;\n' +
+      '    vec3 a = brightSplit(texture2D(tDiffuse, (i0 + vec2(0.5, 0.5)) * inv));',
+    why: 'one filtered fetch: the tag of an edge texel is a MEAN of -1 and +1, which decodes as nothing',
+  },
+  {
+    id: 'bloom-lit-golden', file: 'src/daynight.js',
+    find: "for (const k of ['dusk', 'night']) PRESETS[k].post.bloomThresholdLit = PRESETS.noon.post.bloomThreshold;",
+    to: "for (const k of ['golden', 'dusk', 'night']) PRESETS[k].post.bloomThresholdLit = PRESETS.noon.post.bloomThreshold;",
+    why: 'golden\'s threshold is already a lit-surface bar; a second one moves its glints for no reason',
+  },
+  {
+    id: 'bloom-lit-literal', file: 'src/daynight.js',
+    find: "for (const k of ['dusk', 'night']) PRESETS[k].post.bloomThresholdLit = PRESETS.noon.post.bloomThreshold;",
+    to: "for (const k of ['dusk', 'night']) PRESETS[k].post.bloomThresholdLit = 1.4;",
+    why: 'a typed number where noon\'s derivation stands, and it drifts the first time noon\'s stop moves',
   },
   // ---- src/carbody.js: the number plate (PLATE). Each renders a plausible car; most render a plate.
   {

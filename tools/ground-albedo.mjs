@@ -514,6 +514,12 @@ export const ARM_STATE = {
   // wheel and the mirror), so the pair isolates the detail.
   cdet0: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [1, 1, 0.15, 0] },
   cdet1: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [1, 1, 0.15, 1] },
+
+  // #118, LIT LIGHT'S OWN BLOOM BAR (src/post.js brightSplit): `bloomLit` 0 is the single-threshold
+  // bright pass, 1 the bar the HOUR's preset names - noon's threshold at dusk and night, none at noon
+  // and golden, so a noon pair is the same build twice and is the pair's own control.
+  bloom0: { albedo: null, skyProxy: false, nightGlowLux: 0, bloomLit: 0 },
+  bloom1: { albedo: null, skyProxy: false, nightGlowLux: 0, bloomLit: 1 },
 };
 
 /**
@@ -602,6 +608,11 @@ export async function setArm(page, name) {
       q.aoEmitExempt = s.aoEmit ?? window.__armSavedAOE;
       // Off unless the arm names it: a debug view left on by one arm would be every later arm.
       q.debugEmitShare = s.aoEmitDebug ? 1 : 0;
+      // #118's lit bar, from the PRESET of the hour being shot rather than saved once: it differs by
+      // hour (none at noon, noon's threshold at dusk and night), and hero-shots sets the hour before
+      // it applies an arm. An arm that does not name it gets the preset's, i.e. the build's own.
+      const presetLit = (dn && dn.preset && dn.preset.post && dn.preset.post.bloomThresholdLit) || 0;
+      q.bloomThresholdLit = s.bloomLit === 0 ? 0 : presetLit;
     }
     // THE CAR LENS ARM. Pushed through the app's own entry point rather than at
     // the material, so an arm cannot drift from what ?lens= does; setCarLens
@@ -829,6 +840,10 @@ export async function setArm(page, name) {
       carPlate: carPlate ? carPlate.value : null,
       // IN THE KEY: the lamp arms differ in nothing else. Twelfth time.
       carLamp: carLamp ? carLamp.value : null,
+      // IN THE KEY: the bloom arms differ in nothing else. Thirteenth time. Read back off the
+      // post stack's own params, which is what its render() pushes into the bright pass.
+      bloomLit: (window.__district && window.__district.postParams)
+        ? (window.__district.postParams().bloomThresholdLit ?? 0) : null,
       carTone: carTone ? [carTone.traffic ? +carTone.traffic.span.toFixed(3) : null,
         carTone.parked ? +carTone.parked.span.toFixed(3) : null] : null,
       carShells: (window.__district && window.__district.carShells)
@@ -856,7 +871,7 @@ export async function proveArmsDiffer(page, arms) {
   // carFront and carTyre joined the key in round 5 for the same reason, for the
   // third time: those arms move one texel and one vertex-colour set and nothing
   // a uniform readback would otherwise show.
-  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carGlass, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo, s.carGlassAlbedo, s.carGlassEnv, s.carShells, s.carPaintTint, s.carTone, s.aoKernel, s.aoEmit, s.carCabin, s.carPlate, s.carLamp]))).size;
+  const distinct = new Set(seen.map((s) => JSON.stringify([s.albedo, s.skyIlluminance, s.msWhitenAnti, s.bounceLux, s.ao, s.carLens, s.carProfile, s.carGlass, s.carFront, s.carTyre, s.carFinish, s.carHub, s.carAlbedo, s.carGlassAlbedo, s.carGlassEnv, s.carShells, s.carPaintTint, s.carTone, s.aoKernel, s.aoEmit, s.carCabin, s.carPlate, s.carLamp, s.bloomLit]))).size;
   return { seen, ok: distinct === arms.length };
 }
 
