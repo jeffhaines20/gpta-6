@@ -174,6 +174,9 @@ const OFFLINE = [
   // GL. #117's shimmer was a shadow box that followed the car to the micron, and nothing on this
   // list built a shadow camera at all.
   'shadow-stable',
+  // About 3 s, the same kind of page as car-cabin, from behind: the plate's face is a fragment-shader
+  // pattern on one slot, and its geometry is read off the builders before the browser starts.
+  'car-detail',
 ];
 
 /**
@@ -2500,6 +2503,37 @@ const MUTATIONS = [
     find: '    this.sunDirection(q.sunDirection);',
     to: '    q.sunDirection.copy(this.sun.position).normalize();',
     why: 'the post stack\'s sun points from the world origin after any weather change',
+  },
+  // ---- src/carbody.js: the number plate (PLATE). Each renders a plausible car; most render a plate.
+  {
+    id: 'plate-face-off', file: 'src/carbody.js',
+    find: 'const PLATE_U = { uPlateText: { value: 1 } };',
+    to: 'const PLATE_U = { uPlateText: { value: 0 } };',
+    why: 'the face is built and never switched on: every plate is the blank field the reviewer filed',
+  },
+  {
+    id: 'plate-sampled', file: 'src/carbody.js',
+    find: 'plateFaceAA( plateQ, plateQx, plateQy, vCarSeed, diffuseColor.rgb )',
+    to: 'plateFace( plateQ, vec2( 0.0 ), vCarSeed, diffuseColor.rgb )',
+    why: 'one sharp sample a pixel: the font aliases, and a plate 16 m away reads 0.346 of the blank, not 0.78',
+  },
+  {
+    id: 'plate-seed-const', file: 'src/carbody.js',
+    find: '\t\tvCarSeed = float( gl_InstanceID );',
+    to: '\t\tvCarSeed = 0.0;',
+    why: 'every car in the city has the same registration',
+  },
+  {
+    id: 'plate-euro', file: 'src/carbody.js',
+    find: '    const yMid = (a.y + c.y) / 2, hw = PLATE.w / 2, hh = PLATE.h / 2;\n    const corner = (x, y, v) => b.vert(x, y, zBack, plateC,',
+    to: '    const yMid = (a.y + c.y) / 2, hw = 0.231, hh = 0.065;\n    const corner = (x, y, v) => b.vert(x, y, zBack, plateC,',
+    why: 'the fleet is back on a 0.46 x 0.13 m European plate, which renders a face perfectly well',
+  },
+  {
+    id: 'plate-v-lost', file: 'src/carbody.js',
+    find: '    const tl = corner(-hw, yMid + hh, 1), tr = corner(hw, yMid + hh, 1);',
+    to: '    const tl = corner(-hw, yMid + hh, 0.5), tr = corner(hw, yMid + hh, 0.5);',
+    why: 'the face loses its vertical: every row of the plate reads the same line of the font',
   },
   {
     id: 'player-glass-metal', file: 'src/carbody.js',

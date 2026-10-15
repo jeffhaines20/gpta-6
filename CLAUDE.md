@@ -2870,7 +2870,8 @@ linear in the mission's size, caught at x7.89 while passing the absolute bound a
 `ao-emit` and `ao-emit --selftest` (a purpose-built page through the real PostStack, 2.4 s; the
 only gate that compiles a lit material's shader and reads what the composite does with it),
 `car-cabin` and `car-cabin --selftest` (a purpose-built car page, 2.8 s), `road-gloss --selftest`,
-`shadow-stable` and `shadow-stable --selftest` (the sun's shadow box, offline, 0.05 s).
+`shadow-stable` and `shadow-stable --selftest` (the sun's shadow box, offline, 0.05 s),
+`car-detail` and `car-detail --selftest` (a purpose-built car page from behind, about 3 s).
 The offline ones together take **127 s**, measured end to end rather than guessed — this line
 said "under a minute" for several rounds and three gates now account for 60% of it:
 `pursuit-test` 24.1 s, `traffic-selftest` 23.6, `reaction-test` 23.3, then `playtest --selftest`

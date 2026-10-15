@@ -422,6 +422,154 @@ float cabinAlbedo( vec3 p, vec3 eye, out float throughW ) {
 `;
 }
 
+/**
+ * THE NUMBER PLATE: a Florida plate, 12 x 6 inches, with characters on it.
+ *
+ * The cars' live list carried "No number plates" for rounds, and the cabin's blind reviewer put it
+ * on the list of things wrong in BOTH arms: "The number plates are blank: a uniform field with no
+ * characters" [1160,665,1194,672]. And the plate was the wrong SHAPE as well as blank: measured off
+ * the built buffers it was 0.46-0.49 m wide by 0.13 m tall, an aspect of 3.7 — a European plate. A
+ * US plate is 12 x 6 in, 0.3048 x 0.1524 m, aspect 2, and that is what the quad is now, built at
+ * those dimensions about the band's own centre rather than stretched to it. Florida plates are
+ * rear-only and so is this one.
+ *
+ * The face is procedural, on the plate slot, in the fragment shader: no texture, no triangle. The
+ * layout is a Florida plate's at the size a street camera sees one — a small line of text across
+ * the top (FLORIDA), six characters in two groups of three either side of an orange emblem, and a
+ * county line beneath (SARASOTA) — in a 3 x 5 pixel font, because at 8 m a character is about 8 x 12
+ * screen pixels and at 25 m about 3 x 4, so a finer font would only be aliasing. The characters
+ * differ per car (the instance index), letters first and digits second.
+ *
+ * FILTERED, not sharp: the font is sampled bilinearly and thresholded over an edge one screen pixel
+ * wide, and each plate pixel averages FOUR such samples on a rotated grid across its own footprint
+ * (the plate coordinates' screen derivatives), so at distance a stroke fades into its average ink
+ * rather than flickering between ink and plate as a car drives. The first cut took ONE sample with an
+ * edge allowed to widen to two font pixels, and a centred smoothstep that wide inks bare plate at s = 0
+ * (15.6%): the gate's far row read the plate at 0.551 of the blank against 0.761 near. The four
+ * samples are the fix that moved that number, to 0.779; the edge is also clamped to one font pixel
+ * so its endpoints are unbiased, but with four samples that clamp only matters past ~20 m, where the
+ * plate is under 8 px wide, and the gate cannot resolve it there — so it is a bound, not a row.
+ *
+ * The plate's own coordinates: u across in READING order (a rear plate is read from behind, where the
+ * viewer's left is +x, so u runs 0.5 - x / w), v up the plate, carried per vertex in uv.y, which is
+ * free on every slot that is not a lens (see Builder.vert).
+ */
+export const PLATE = { w: 0.3048, h: 0.1524 };
+const PLATE_U = { uPlateText: { value: 1 } };
+/** 1 is the plate with its face; 0 the blank plate it replaces, exactly. */
+export function setPlateText(k) {
+  PLATE_U.uPlateText.value = Math.min(1, Math.max(0, k));
+  return plateText();
+}
+export function plateText() { return { value: PLATE_U.uPlateText.value, plate: { ...PLATE } }; }
+
+// A 3 x 5 font, row-major from the top-left, bit (row * 3 + col) set where there is ink.
+const PLATE_FONT_ROWS = {
+  0: '111101101101111', 1: '010110010010111', 2: '111001111100111', 3: '111001111001111',
+  4: '101101111001001', 5: '111100111001111', 6: '111100111101111', 7: '111001001001001',
+  8: '111101111101111', 9: '111101111001111',
+  A: '010101111101101', B: '110101110101110', C: '011100100100011', D: '110101101101110',
+  E: '111100110100111', F: '111100110100100', H: '101101111101101', J: '001001001101010',
+  K: '101101110101101', L: '100100100100111', M: '101111111101101', N: '110101101101101',
+  P: '110101110100100', R: '110101110101101', T: '111010010010010', U: '101101101101111',
+  V: '101101101101010', X: '101101010101101', Y: '101101010010010', Z: '111001010100111',
+  I: '111010010010111', O: '111101101101111', S: '111100111001111',
+};
+const PLATE_GLYPHS = '0123456789ABCDEFHJKLMNPRTUVXYZIOS';
+export const PLATE_FONT = [...PLATE_GLYPHS].map((ch) => {
+  const bits = PLATE_FONT_ROWS[ch];
+  let v = 0;
+  for (let i = 0; i < 15; i++) if (bits[i] === '1') v |= 1 << i;
+  return v;
+});
+/** Glyph indices for a fixed line of text. */
+const plateWord = (w) => [...w].map((ch) => PLATE_GLYPHS.indexOf(ch));
+
+function plateGLSL() {
+  const f = (v) => Number(v).toFixed(4);
+  const top = plateWord('FLORIDA'), bot = plateWord('SARASOTA');
+  return `
+uniform float uPlateText;
+varying float vCarSeed;
+const int PLATE_FONT[${PLATE_FONT.length}] = int[${PLATE_FONT.length}]( ${PLATE_FONT.join(', ')} );
+const int PLATE_TOP[${top.length}] = int[${top.length}]( ${top.join(', ')} );
+const int PLATE_BOT[${bot.length}] = int[${bot.length}]( ${bot.join(', ')} );
+float plateBit( int g, ivec2 p ) {
+	if ( p.x < 0 || p.x > 2 || p.y < 0 || p.y > 4 ) return 0.0;
+	return float( ( PLATE_FONT[ g ] >> ( p.y * 3 + p.x ) ) & 1 );
+}
+// One glyph's ink at q (font pixels, x 0..3 across, y 0..5 DOWN), its edge one screen pixel wide:
+// fw is the size of a screen pixel in font pixels. Bilinear in the bitmap, thresholded at a half.
+float plateGlyph( int g, vec2 q, vec2 fw ) {
+	vec2 c = q - 0.5;
+	vec2 i0 = floor( c );
+	vec2 t = c - i0;
+	ivec2 k = ivec2( i0 );
+	float s = mix( mix( plateBit( g, k ), plateBit( g, k + ivec2( 1, 0 ) ), t.x ),
+		mix( plateBit( g, k + ivec2( 0, 1 ) ), plateBit( g, k + ivec2( 1, 1 ) ), t.x ), t.y );
+	float w = clamp( max( fw.x, fw.y ), 0.05, 1.0 );
+	return smoothstep( 0.5 - 0.5 * w, 0.5 + 0.5 * w, s );
+}
+float plateHash( float a, float b ) { return fract( sin( a * 12.9898 + b * 78.233 + 0.5 ) * 43758.5453 ); }
+// A row of glyph cells across [u0, u1] x [v0, v1]: n cells, each glyph in the inner 80% of its cell.
+float plateLine( vec2 q, vec2 fw, float u0, float u1, float v0, float v1, int n, int which ) {
+	if ( q.x <= u0 || q.x >= u1 || q.y <= v0 || q.y >= v1 ) return 0.0;
+	float cw = ( u1 - u0 ) / float( n );
+	float cu = ( q.x - u0 ) / cw;
+	int cell = int( floor( cu ) );
+	float gx = ( fract( cu ) - 0.1 ) / 0.8;
+	if ( gx <= 0.0 || gx >= 1.0 ) return 0.0;
+	vec2 fq = vec2( gx * 3.0, ( v1 - q.y ) / ( v1 - v0 ) * 5.0 );
+	vec2 ffw = vec2( fw.x / ( cw * 0.8 ) * 3.0, fw.y / ( v1 - v0 ) * 5.0 );
+	int g = which == 0 ? PLATE_TOP[ cell ] : PLATE_BOT[ cell ];
+	return plateGlyph( g, fq, ffw );
+}
+// The face: base is the plate's own white. q is (u across in reading order, v up), fw = fwidth(q).
+vec3 plateFace( vec2 q, vec2 fw, float seed, vec3 base ) {
+	const vec3 inkMain = vec3( 0.012, 0.058, 0.024 );   // Florida's dark green, linear
+	const vec3 inkTop = vec3( 0.020, 0.150, 0.045 );    // the lighter green of the top line
+	const vec3 orange = vec3( 0.860, 0.240, 0.018 );
+	vec3 col = base;
+	// THE MAIN CHARACTERS: seven cells across, the middle one the emblem.
+	const float mu0 = 0.07, mu1 = 0.93, mv0 = 0.24, mv1 = 0.72;
+	if ( q.x > mu0 && q.x < mu1 && q.y > mv0 && q.y < mv1 ) {
+		float cw = ( mu1 - mu0 ) / 7.0;
+		float cu = ( q.x - mu0 ) / cw;
+		float cell = floor( cu );
+		if ( abs( cell - 3.0 ) < 0.5 ) {
+			// The emblem: an orange disc, its size in METRES so it stays round on a 2:1 plate.
+			vec2 dm = vec2( ( fract( cu ) - 0.5 ) * cw * ${f(PLATE.w)}, ( q.y - 0.5 * ( mv0 + mv1 ) ) * ${f(PLATE.h)} );
+			float r = 0.42 * cw * ${f(PLATE.w)};
+			float px = max( fw.x * ${f(PLATE.w)}, fw.y * ${f(PLATE.h)} );
+			col = mix( col, orange, 1.0 - smoothstep( r - px, r + px, length( dm ) ) );
+		} else {
+			float h = plateHash( seed, cell );
+			int g = cell < 3.0 ? 10 + int( floor( h * 20.0 ) ) : int( floor( h * 10.0 ) );
+			float gx = ( fract( cu ) - 0.1 ) / 0.8;
+			if ( gx > 0.0 && gx < 1.0 ) {
+				vec2 fq = vec2( gx * 3.0, ( mv1 - q.y ) / ( mv1 - mv0 ) * 5.0 );
+				vec2 ffw = vec2( fw.x / ( cw * 0.8 ) * 3.0, fw.y / ( mv1 - mv0 ) * 5.0 );
+				col = mix( col, inkMain, plateGlyph( g, fq, ffw ) );
+			}
+		}
+	}
+	col = mix( col, inkTop, plateLine( q, fw, 0.30, 0.70, 0.79, 0.91, 7, 0 ) );
+	col = mix( col, inkMain, 0.85 * plateLine( q, fw, 0.32, 0.68, 0.07, 0.16, 8, 1 ) );
+	return col;
+}
+// The pixel's footprint, sampled four times on a rotated grid: qx and qy are the plate coordinates'
+// screen derivatives, so each sample sits a fraction of THIS pixel away, and each takes an edge half
+// as wide as the pixel's own because four of them share it.
+vec3 plateFaceAA( vec2 q, vec2 qx, vec2 qy, float seed, vec3 base ) {
+	vec2 fw = 0.5 * ( abs( qx ) + abs( qy ) );
+	return 0.25 * ( plateFace( q + 0.125 * qx + 0.375 * qy, fw, seed, base )
+		+ plateFace( q - 0.375 * qx + 0.125 * qy, fw, seed, base )
+		+ plateFace( q + 0.375 * qx - 0.125 * qy, fw, seed, base )
+		+ plateFace( q - 0.125 * qx - 0.375 * qy, fw, seed, base ) );
+}
+`;
+}
+
 const GLASS_ENV = { uGlassEnvExtra: { value: 5 } };
 export function setGlassEnv(k) {
   GLASS_ENV.uGlassEnvExtra.value = Math.max(0, k);
@@ -814,6 +962,7 @@ function patchLensFalloff(m) {
     shader.uniforms.uCabinLevel = CABIN_U.uCabinLevel;
     shader.uniforms.uCabinThrough = CABIN_U.uCabinThrough;
     shader.uniforms.uPaintTintOnly = PAINT_TINT.uPaintTintOnly;
+    shader.uniforms.uPlateText = PLATE_U.uPlateText;
     // THE PAINT-SLOT TINT. `paletteU(i)` is `(i + 0.5) / 16`, so `floor( uv.x * 16 )` is the slot
     // this vertex points the palette at - exact in float32 for every slot, since (i + 0.5) / 16
     // is a dyadic rational. step(0.5, slot) is 0 on slot 0 and 1 everywhere else, so the mix
@@ -838,10 +987,17 @@ function patchLensFalloff(m) {
 	#endif
 		vCabinPos = transformed;
 		vCabinEye = ( inverse( cabinToWorld ) * vec4( cameraPosition, 1.0 ) ).xyz;
-	}`)
+	}
+	// The plate's characters differ per car: the instance is the car.
+	#ifdef USE_INSTANCING
+		vCarSeed = float( gl_InstanceID );
+	#else
+		vCarSeed = 0.0;
+	#endif`)
       .replace('void main() {', `uniform float uPaintTintOnly;
 varying vec3 vCabinPos;
 varying vec3 vCabinEye;
+varying float vCarSeed;
 void main() {`);
     shader.fragmentShader = shader.fragmentShader
       // THE PER-SLOT ENVIRONMENT GAIN. The alpha of the pack texture, sampled at
@@ -869,6 +1025,7 @@ uniform float uLensPow;
 uniform float uLensGain;
 uniform float uGlassEnvExtra;
 ${cabinGLSL()}
+${plateGLSL()}
 void main() {`)
       // The glazing slot only — the pack texture's alpha is 255 everywhere else, the same test the
       // environment gain above uses — and the cabin carries the glass's own tint, normalised to
@@ -890,6 +1047,16 @@ void main() {`)
 			cabinThroughW = cabinThrough * uCabinGain;
 			diffuseColor.rgb = mix( diffuseColor.rgb, cabinTint * cabinAlb, uCabinGain );
 		}
+	}
+	// THE PLATE'S FACE, on the plate slot. The derivatives are taken BEFORE the branch, on every
+	// fragment, because a derivative inside a branch that neighbouring pixels do not take is
+	// undefined; the slot test is the palette u, the same number the material reads finish with.
+	{
+		vec2 plateQ = vec2( 0.5 - vCabinPos.x / ${PLATE.w.toFixed(4)}, vRoughnessMapUv.y );
+		vec2 plateQx = dFdx( plateQ ), plateQy = dFdy( plateQ );
+		if ( uPlateText > 0.0 && abs( floor( vRoughnessMapUv.x * 16.0 ) - ${SURFACE.plate.toFixed(1)} ) < 0.5 ) {
+			diffuseColor.rgb = mix( diffuseColor.rgb, plateFaceAA( plateQ, plateQx, plateQy, vCarSeed, diffuseColor.rgb ), uPlateText );
+		}
 	}`)
       .replace(EMISSIVE_DECL, `float lensRho = clamp( vEmissiveMapUv.y, 0.0, 1.0 );
 	float lensDome = pow( max( 0.0, 1.0 - lensRho * lensRho ), uLensPow );
@@ -906,7 +1073,8 @@ void main() {`)
   // assertions above run inside onBeforeCompile, so they cannot see a compile that three skips
   // because it already has a program under the old key.
   // BUMPED FOR THE CABIN: a new uniform, two varyings and an injection on each side.
-  m.customProgramCacheKey = () => 'carLensFalloff5cabin';
+  // BUMPED FOR THE PLATE'S FACE: a uniform, a varying, and a block on each side.
+  m.customProgramCacheKey = () => 'carLensFalloff6plate';
   return m;
 }
 
@@ -2316,10 +2484,15 @@ export function buildPlayerCar(opts = {}) {
     overlayBand(b, pts, nrm, iTailHi, iTailLo, -0.34, 0.34, 0.010,
       SURFACE.trim, trim, 3);
   }
-  // --- number plate.
+  // --- number plate: a flat US plate, 12 x 6 in, the fleet's construction (see
+  // the traffic car's, and PLATE). It followed the bumper's curve as a band of
+  // u +/-0.28, 0.50 m wide - a European plate - with nowhere to put a face.
   if (iPlateHi >= 0 && iPlateLo > iPlateHi) {
-    overlayBand(b, pts, nrm, iPlateHi, iPlateLo, -0.28, 0.28, 0.014,
-      SURFACE.plate, plate, 2);
+    const a = pts[iPlateHi], c = pts[iPlateLo];
+    const zBack = Math.min(a.z, c.z) - 0.014;
+    const yMid = (a.y + c.y) / 2, hw = PLATE.w / 2, hh = PLATE.h / 2;
+    const corner = (x, y, v) => b.vert(x, y, zBack, plate, SURFACE.plate, v);
+    b.quad(corner(-hw, yMid + hh, 1), corner(hw, yMid + hh, 1), corner(hw, yMid - hh, 0), corner(-hw, yMid - hh, 0));
   }
 
   // --- glazing sits on its own material; build it into a second Builder.
@@ -2903,21 +3076,23 @@ export function buildTrafficCarGeometry(opts = {}) {
    * thing still holding the plate at 0.68 of the lit paint, where a real plate
    * is BRIGHTER than coloured paint, is the instanceColor ceiling below.
    *
-   * What this does NOT fix: `instanceColor` multiplies every vertex, so the
-   * plate is capped at the car's own paint and carries its hue — 0.736 of the
-   * body on a white car and 0.736 of the body on a purple one. Measured across
-   * the fleet's hue distribution the plate reaches x0.41 of a real plate's ~0.80
-   * reflectance, and no vertex colour can raise it: body panels are already
-   * authored 0.995. That is a property of one InstancedMesh per pool, not of
-   * this quad, and it wants its own round.
+   * What this did NOT fix, and the paint-slot tint since has: `instanceColor`
+   * multiplied every vertex, so the plate was capped at the car's own paint and
+   * carried its hue — x0.41 of a real plate across the fleet. It is confined to
+   * slot 0 now, and the plate is its own white on every car.
+   *
+   * AND IT WAS A EUROPEAN PLATE: u +/-0.26 of the body's width made it 0.46-0.49
+   * m wide by the tags' 0.13 m, an aspect of 3.7. A US plate is 12 x 6 in, and
+   * this one is built at exactly that about the band's own centre (see PLATE).
+   * Its vertical coordinate rides in uv.y for the face carSurfaceMaterial draws.
    */
   if (iPlateHi >= 0 && iPlateLo > iPlateHi) {
     const a = pts[iPlateHi], c = pts[iPlateLo];
     const zBack = Math.min(a.z, c.z) - 0.014;          // rearmost, then proud of the skin
-    const u0 = -0.26, u1 = 0.26;
-    const corner = (p, u) => b.vert(u * p.w, p.y, zBack, plateC, SURFACE.plate);
-    const tl = corner(a, u0), tr = corner(a, u1);
-    const br = corner(c, u1), bl = corner(c, u0);
+    const yMid = (a.y + c.y) / 2, hw = PLATE.w / 2, hh = PLATE.h / 2;
+    const corner = (x, y, v) => b.vert(x, y, zBack, plateC, SURFACE.plate, v);
+    const tl = corner(-hw, yMid + hh, 1), tr = corner(hw, yMid + hh, 1);
+    const br = corner(hw, yMid - hh, 0), bl = corner(-hw, yMid - hh, 0);
     b.quad(tl, tr, br, bl);
   }
   // --- NO boot shut. Round 1 built one as two dark strips running fore-and-aft

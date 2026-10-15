@@ -34,6 +34,14 @@ closed and item 7's tone half is closed:
    puts the near windscreen's modulation inside the photographed band at noon AND night. The
    reviewer's "crude" list went into a v2 of the seats, which is out to its own blind review.*
 2. **No number plates** — *partly done*, see below. Still capped by instanceColor.
+   *The cap went with the paint-slot tint (#1). The rest SHIPPED 2026-10-15, pending its blind
+   review:* the plate was the wrong shape as well as blank — 0.46-0.49 m by 0.13 m off the built
+   buffers, aspect 3.7, a European plate — and it is a US plate now, 12 x 6 in, flat, rear only as
+   Florida's are, on every fleet shell and the player's car. Its face is procedural on the plate slot
+   (a top line, six characters either side of an orange emblem, a county line; a 3 x 5 font, per car
+   by instance), four filtered samples a pixel, so a plate 16 m away integrates to the same face as
+   one 6 m away (0.779 of the blank against 0.761) and no pixel there reaches a stroke's darkness
+   (0.52 against 0.066 near); one sharp sample a pixel reads 0.346 and 0.050. `tools/car-detail`.
 3. **Tail lights are dark painted rectangles**, 1.11x the darkest paint on the same car.
 4. **Octagonal wheels** at 56 px diameter, and inconsistent between cars — one has a rim ring,
    another is a featureless black lump with no arch cut.

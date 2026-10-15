@@ -1,0 +1,242 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>car-detail</title>
+<!--
+  THE SMALL PARTS OF A CAR A STREET CAMERA STILL RESOLVES — the gate page for the number plate's face
+  (src/carbody.js PLATE) and its preview.
+
+  A traffic car on the REAL instanced material (trafficCarMaterial, the fleet's), and the player's car,
+  seen from behind at street height under a sun and a sky environment. Each row is drawn with the
+  plate's face off and on, and a mask pass marks the plate slot, so every statistic is about the
+  plate's own pixels and the rest of the car is the control.
+
+  Rows, two arms each (face off | on), at 480x300:
+    0 a coupe from 6 m behind, instance 0
+    1 the same car from 16 m, where a font pixel is a third of a screen pixel: the face has to fade
+      into its average ink there, so no pixel may reach the full darkness of a stroke
+    2 the same position, instance 1: a different car must carry different characters
+    3 the player's car from 6 m behind
+
+  `?tod=noon|dusk`, `?debug=1` (frames published).
+-->
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+<script type="module">
+import * as THREE from '../vendor/three.module.min.js';
+import { buildTrafficCarGeometry, trafficCarMaterial, SHAPES, SURFACE, paletteU, setPlateText, plateText,
+  buildPlayerCar, CAR } from '../src/carbody.js';
+import { Vehicle } from '../src/vehicle.js';
+
+const TW = 480, TH = 300, ROWS = 4;
+const q = new URLSearchParams(location.search);
+const TOD = q.get('tod') ?? 'noon';
+try {
+  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(TW * 2, TH * ROWS);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.autoClear = false;
+  document.body.appendChild(renderer.domElement);
+
+  const day = TOD === 'noon';
+  // The same gradient sky as tools/car-cabin.html, for the same reason: a PMREM the material reads.
+  const SKY = day ? 0.15 : 0.06;
+  const skyScene = new THREE.Scene();
+  const skyGeo = new THREE.SphereGeometry(50, 32, 16);
+  const cols = [];
+  const pos = skyGeo.getAttribute('position');
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i) / 50;
+    const c = y >= 0
+      ? new THREE.Color().lerpColors(new THREE.Color(SKY, SKY, SKY * 1.06),
+        new THREE.Color(SKY * 0.22, SKY * 0.34, SKY * 0.69), Math.pow(y, 0.6))
+      : new THREE.Color(SKY * 0.19, SKY * 0.19, SKY * 0.18);
+    cols.push(c.r, c.g, c.b);
+  }
+  skyGeo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  skyScene.add(new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+  const env = new THREE.PMREMGenerator(renderer).fromScene(skyScene, 0.02).texture;
+
+  const scene = new THREE.Scene();
+  scene.environment = env;
+  scene.background = new THREE.Color(day ? 0x8fa6c4 : 0x1a1622);
+  // A sun BEHIND the camera and above it, so the plate faces into the light it is meant to read in.
+  const sun = new THREE.DirectionalLight(0xffffff, day ? 3.0 : 0.0);
+  sun.position.set(-3, 8, -9);
+  scene.add(sun, sun.target);
+  const lamp = new THREE.PointLight(0xffd6a0, day ? 0 : 60, 30, 2);
+  lamp.position.set(-1.5, 4.0, -5.0);
+  scene.add(lamp);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(120, 120),
+    new THREE.MeshStandardMaterial({ color: 0x5a5a58, roughness: 0.95 }));
+  ground.rotation.x = -Math.PI / 2;
+  scene.add(ground);
+
+  const geo = buildTrafficCarGeometry({ groundY: 0, shape: SHAPES.coupe });
+  const fleet = new THREE.InstancedMesh(geo, trafficCarMaterial(), 2);
+  const HIDE = new THREE.Matrix4().makeScale(0, 0, 0);
+  const AT = new THREE.Matrix4();
+  for (let i = 0; i < 2; i++) fleet.setColorAt(i, new THREE.Color(0.5, 0.5, 0.5));
+  const show = (k) => {
+    fleet.setMatrixAt(0, k === 0 ? AT : HIDE);
+    fleet.setMatrixAt(1, k === 1 ? AT : HIDE);
+    fleet.instanceMatrix.needsUpdate = true;
+  };
+  scene.add(fleet);
+
+  const playerCar = buildPlayerCar();
+  playerCar.group.position.set(0, -CAR.ground, 0);
+  const resting = new Vehicle();
+  for (const w of resting.wheels) w.suspLen = -0.10 - CAR.ground - resting.wheelRadius;
+  playerCar.updateWheels(resting);
+  playerCar.group.updateMatrixWorld(true);
+  scene.add(playerCar.group);
+
+  // THE MASK: the plate slot in red, read off the palette u exactly as the material reads it.
+  const plateU = paletteU(SURFACE.plate);
+  const maskMat = new THREE.ShaderMaterial({
+    uniforms: { uPlateU: { value: plateU } },
+    vertexShader: `varying float vU;
+      void main() {
+        vU = uv.x;
+        #ifdef USE_INSTANCING
+          gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4( position, 1.0 );
+        #else
+          gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+        #endif
+      }`,
+    fragmentShader: 'uniform float uPlateU; varying float vU; void main() { gl_FragColor = vec4( abs( vU - uPlateU ) < 0.01 ? 1.0 : 0.0, 0.0, 0.0, 1.0 ); }',
+  });
+  const maskScene = new THREE.Scene();
+  maskScene.background = new THREE.Color(0, 0, 0);
+  const maskFleet = new THREE.InstancedMesh(geo, maskMat, 2);
+  maskFleet.instanceMatrix = fleet.instanceMatrix;
+  maskScene.add(maskFleet);
+  const maskPlayer = new THREE.Group();
+  maskPlayer.position.copy(playerCar.group.position);
+  maskPlayer.add(new THREE.Mesh(playerCar.bodyMesh.geometry, maskMat));
+  maskPlayer.add(new THREE.Mesh(playerCar.glassMesh.geometry, new THREE.MeshBasicMaterial({ color: 0x000000 })));
+  maskScene.add(maskPlayer);
+
+  // Cameras behind the car (the car faces +z, its plate is at z -2.2), at street height.
+  const cam = (back, side) => {
+    const c = new THREE.PerspectiveCamera(32, TW / TH, 0.1, 300);
+    c.position.set(side, 1.45, -2.2 - back);
+    c.lookAt(0, 0.55, -2.2);
+    c.updateMatrixWorld(true);
+    return c;
+  };
+  const cams = { near: cam(6, 0.9), far: cam(16, 2.0) };
+
+  const shipped = plateText();
+  // [row, col, camera, which car, face]
+  const plan = [
+    [0, 0, 'near', 0, 0], [0, 1, 'near', 0, 1],
+    [1, 0, 'far', 0, 0], [1, 1, 'far', 0, 1],
+    [2, 0, 'near', 1, 0], [2, 1, 'near', 1, 1],
+    [3, 0, 'near', 'player', 0], [3, 1, 'near', 'player', 1],
+  ];
+  const W = TW * 2, H = TH * ROWS;
+  const gl = renderer.getContext();
+  const read = () => {
+    const px = new Uint8Array(W * H * 4);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const out = new Uint8Array(W * H * 3);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const s = ((H - 1 - y) * W + x) * 4, d = (y * W + x) * 3;
+      out[d] = px[s]; out[d + 1] = px[s + 1]; out[d + 2] = px[s + 2];
+    }
+    return out;
+  };
+  const tile = (row, col) => {
+    const x = col * TW, y = (ROWS - 1 - row) * TH;
+    renderer.setViewport(x, y, TW, TH);
+    renderer.setScissor(x, y, TW, TH);
+    renderer.setScissorTest(true);
+  };
+  const place = (which) => {
+    if (which === 'player') { show(-1); playerCar.group.visible = true; maskPlayer.visible = true; }
+    else { show(which); playerCar.group.visible = false; maskPlayer.visible = false; }
+    maskFleet.instanceMatrix.needsUpdate = true;
+  };
+  renderer.setClearColor(0x000000, 1);
+  renderer.clear();
+  const readback = [];
+  for (const [row, col, v, which, k] of plan) {
+    place(which);
+    readback.push(setPlateText(k).value);
+    tile(row, col);
+    renderer.render(scene, cams[v]);
+  }
+  setPlateText(shipped.value);
+  const rgb = read();
+  renderer.toneMapping = THREE.NoToneMapping;
+  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+  renderer.setScissorTest(false);
+  renderer.clear();
+  for (const [row, col, v, which] of plan) { place(which); tile(row, col); renderer.render(maskScene, cams[v]); }
+  const mask = read();
+
+  const lin = new Float64Array(256);
+  for (let i = 0; i < 256; i++) { const c = i / 255; lin[i] = c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }
+  const L = (i) => 0.2126 * lin[rgb[i * 3]] + 0.7152 * lin[rgb[i * 3 + 1]] + 0.0722 * lin[rgb[i * 3 + 2]];
+  const isPlate = (i) => mask[i * 3] > 250;
+  // A plate pixel counts only if its 3x3 neighbourhood is plate: the scene is antialiased, the mask not.
+  const interior = (i) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!isPlate(i + dy * W + dx)) return false; return true; };
+  const pair = (row) => {
+    const off = [], on = [], idx = [];
+    let otherPx = 0, otherChanged2 = 0, otherMax = 0, platePx = 0, plateChanged = 0;
+    for (let y = row * TH + 1; y < (row + 1) * TH - 1; y++) for (let x = 1; x < TW - 1; x++) {
+      const a = y * W + x, b = a + TW;
+      let d = 0;
+      for (let k = 0; k < 3; k++) d = Math.max(d, Math.abs(rgb[a * 3 + k] - rgb[b * 3 + k]));
+      if (isPlate(a)) {
+        if (!interior(a)) continue;
+        platePx++; if (d > 2) plateChanged++;
+        off.push(L(a)); on.push(L(b)); idx.push(a);
+      } else {
+        // A pixel within 2 of the plate's edge is the antialiased rim, which the face may move.
+        let near = false;
+        for (let dy = -2; dy <= 2 && !near; dy++) for (let dx = -2; dx <= 2; dx++) if (isPlate(a + dy * W + dx)) { near = true; break; }
+        if (near) continue;
+        otherPx++; if (d > 2) otherChanged2++; otherMax = Math.max(otherMax, d);
+      }
+    }
+    const med = (v) => { const s = [...v].sort((p, r) => p - r); return s.length ? s[s.length >> 1] : NaN; };
+    const mean = (v) => v.reduce((s, x) => s + x, 0) / Math.max(1, v.length);
+    const offMed = med(off);
+    // INK: a pixel the face made darker than half the blank plate's own median.
+    let ink = 0, minOn = Infinity;
+    for (let i = 0; i < on.length; i++) { if (on[i] < 0.5 * offMed) ink++; minOn = Math.min(minOn, on[i]); }
+    return { platePx, plateChanged, ink, inkFrac: ink / Math.max(1, on.length), offMed, onMed: med(on),
+      minOnRatio: on.length ? minOn / offMed : null,
+      meanOff: mean(off), meanOn: mean(on), otherPx, otherChanged2, otherMax, on, idx };
+  };
+  const rows = [0, 1, 2, 3].map(pair);
+  // TWO CARS, TWO PLATES: rows 0 and 2 put the same shell at the same place; only the instance differs.
+  const versus = (() => {
+    const at0 = new Map(rows[0].idx.map((a, k) => [a - 0 * TH * W, rows[0].on[k]]));
+    let n = 0, differ = 0;
+    for (let k = 0; k < rows[2].idx.length; k++) {
+      const a = rows[2].idx[k] - 2 * TH * W;
+      if (!at0.has(a)) continue;
+      n++;
+      if (Math.abs(at0.get(a) - rows[2].on[k]) > 0.02) differ++;
+    }
+    return { shared: n, differ, frac: differ / Math.max(1, n) };
+  })();
+  const strip = ({ on, idx, ...rest }) => rest;
+  window.__carDetail = {
+    tod: TOD, size: { w: W, h: H, tw: TW, th: TH },
+    shipped: shipped.value, readback, plate: shipped.plate,
+    near: strip(rows[0]), far: strip(rows[1]), other: strip(rows[2]), player: strip(rows[3]),
+    twoCars: versus, after: plateText().value,
+  };
+  if (q.get('debug') === '1') {
+    const b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode(...u8.subarray(i, i + 8192)); return btoa(s); };
+    window.__carDetailFrames = { rgb: b64(rgb), mask: b64(mask) };
+  }
+} catch (e) {
+  window.__carDetail = { error: String(e && e.stack || e) };
+}
+</script>
