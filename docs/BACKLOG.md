@@ -235,7 +235,7 @@ posts"; "no wheel, dashboard or pillar inside"; the windscreen reflection "reads
 x255-390 at noon, with no sky or canopy in it", and at night "near-black, with no streetlight
 reflections" — the sky-only environment, which is #36 and #54.
 
-**v3 (`uCabinDetail` 1), against those findings, pending its own blind pair.** The headrests are
+**v3 (`uCabinDetail` 1), against those findings, preferred blind on the one car that resolves it.** The headrests are
 squircles — flat on top, square-shouldered, shallower — raised off their seat backs on posts (a 4 cm
 gap at the front, 3.3 cm at the rear, the cue a head does not have); a steering wheel's rim and hub at
 the driver's seat (+x: the car frame is +z forward and y up, so +x is the left, Florida's driver's
@@ -246,6 +246,29 @@ with v2's arithmetic, so 0 is v2 exactly. Their edges are antialiased over a pix
 distance: one derivative at the glass, outside the branch, grown by (eye-to-glass + depth) / eye-to-
 glass. On `car-cabin`'s new detail row (front three-quarter from the driver's side), v3 changes 379 of
 3,283 windscreen pixels (11.5%) and nothing off the glass.
+
+*Blind review, v2 against v3* (`docs/shots/blind-key-cdet-cdet0-cdet-cdet1.json`): the reviewer named
+the variant correctly in all six pairs — "W" (a wheel ring with a hub on the driver's side, flat-topped
+headrests, a bar centred under the screen's top "whose position and size fit an interior mirror")
+against "N" ("dark hemispherical domes") — and preferred v3 in all three corridor pairs, confidence 3, 2
+and 2: "A reads as an empty cabin ... B shows three dark round domes that read as heads". Fivepoints
+went to confidence 1 three times, which is the honest answer at 16-99 px a car: "not separable at 1:1".
+**So the win is real and small, and it rests on essentially one car** — the corridor's near-left
+parked car, whose windscreen changed by over 4 levels on 837 pixels at noon and 661 at night.
+
+**Its caveats are the next round, and the first is measured:** the wheel and the mirror read LIGHTER
+than the cabin behind them, where real ones are dark — the ring 1.35x the area inside it at noon and
+2.08x at night, the bar 1.42x and 2.42x — so they read as pale objects in front of a dark interior.
+The mirror's tones are the reverse of a real one's, light from the front and dark from behind (from
+the front a camera sees the housing; from behind, the glass). And from behind, v3 makes a car STOPPED
+IN TRAFFIC read as empty where v2's dome "happens to read as a driver": the moving fleet has nobody
+driving it, which no round has asked about.
+
+**Both arms, from the same review:** a pedestrian behind the near-left car is drawn over its windscreen
+"with none of the glass's reflection" and "a dark halo onto the glass" — 12-38 where the glass reads
+about 110-154 — which is what an occlusion pass does at the depth step between a transparent pane and
+what is behind it; a "brown smudge" round a white car's wheel arches (1060-1125, 585-625); the side
+glass a flat pale panel at 2.91x the door below it; and the octagonal tyres, cars item 4.
 
 **And the gate now compares the player's cabin with the coupe's**, whose greenhouse it shares to
 4 mm, on the pixels that are glass in both: the change the cabin makes correlates at 0.980 (0.920 at
