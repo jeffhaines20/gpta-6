@@ -32,7 +32,7 @@ import {
 import { buildingStyle } from '../src/facades.js';
 import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubScale,
   setTrafficLampAlbedo, setGlassAlbedo, setGlassEnv, glassEnv, setCarLensArm, setShellNames, shellNames,
-  setCabinGain, cabinGain,
+  setCabinGain, cabinGain, setPlateText, plateText,
   carLensArm, setFrontLensScale, frontLensScale, frontLensLuma,
   setLensFinish, lensFinish,
   setLensProfile, lensProfile,
@@ -2959,6 +2959,10 @@ window.__district = {
   // an A/B or a level sweep is one page load. `setCarCabin(0)` is the build before it, bit for bit.
   setCarCabin: (k, opts) => setCabinGain(k, opts),
   carCabin: () => cabinGain(),
+  // THE NUMBER PLATE'S FACE (src/carbody.js PLATE): one uniform on every car material. 0 is the blank
+  // plate the face replaced, on the plate's new 12 x 6 in geometry — the shape is not switchable.
+  setCarPlate: (k) => setPlateText(k),
+  carPlate: () => plateText(),
   /**
    * THE TWO HALVES OF #1, AS SWEEPABLE ARMS off one page load.
    *
