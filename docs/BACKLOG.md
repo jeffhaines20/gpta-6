@@ -3879,3 +3879,21 @@ at its front corners — so on a moving car this is correct and the defect would
 parked pool's retroreflector palette lights the tail texel and the headlamp texel and NOT the indicator
 (`writeRetroTexels`), so on a parked car nothing should be amber and lit. Not diagnosed: the first
 measurement is which pool the car at (720, 547) in the fivepoints frame belongs to.
+
+### #121 OPEN — a pedestrian walks THROUGH a parked car: the crowd cannot feel parked cars at all
+From cabin v3's blind reviewer, in both arms, filed as "a pedestrian head drawn over the windscreen"
+at corridor dusk (205-265, 600-640): "the body is hidden behind the car, yet the head reads 12-38
+where the glass reads about 110-154 ... and casts a dark halo onto the glass". A 4x crop of
+`docs/shots/cdet-cdet1-corridor-dusk.png` settles what it is: a dark head standing up THROUGH the
+near-left parked car's windscreen and roof line, its body inside the car. The "dark halo" is the
+screen-space AO doing what it should at the depth step where a head pokes out of a pane.
+
+The mechanism reads straight off the code. `src/pedestrians.js` feels street furniture through
+`setProps`, and `district/main.js` hands it `furniture.placed` — the furniture pass's own placement
+list, which holds benches, bins, planters and masts and never the parked pool, whose slots live in
+`this.parkSlots` and are drawn by a separate InstancedMesh. So a walker whose path crosses a parking
+lane passes straight through whatever is parked there. Not measured: how often. The first measurement
+is the crowd's ped-frames inside a parked car's footprint (plus a body radius) over a replay, against
+the same count for the furniture props the crowd does feel — and the lever, if it is common, is the
+body collider's own idea: a car as three circles along its axis, handed to `setProps` beside the
+furniture, so a walker veers round it as it veers round a planter.
