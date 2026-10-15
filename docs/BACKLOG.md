@@ -57,6 +57,14 @@ closed and item 7's tone half is closed:
 6. **One tint for the whole street**: glass (B-R)/L of 0.527 / 0.629 / 0.404 across three cars.
 7. **The fleet is too uniform**: six wheel centres within 1.1 px of one ride height, all
    parallel to the kerb, all wheels dead ahead.
+   *Half stale, half priced (2026-10-15).* "All parallel to the kerb" predates the slot yaw: every
+   parked slot already turns by `((h >>> 7) % 100 / 100 - 0.5) * 0.06`, +/-1.7 degrees off its kerb,
+   from the slot's own hash. Ride height and steered wheels cannot vary per car: the four wheels are
+   IN the instanced shell geometry, so lifting a car floats its tyres and no instance can turn its
+   own front wheels — both want wheels as their own instanced mesh, which is a draw-call price
+   against a frame at 169-186 of a 200 warn. A lateral spread of +/-12 cm off the kerb is free in
+   triangles and was not taken: it re-seeds every parked position that boot-check's arms stage
+   around, for a variation two pixels wide at the corridor camera's 8 m.
 
 ### Cars item 1 SHIPPED — a cabin behind the glass, and the far window is the street, not a surface
 The reviewers ranked it first: "no interior behind any glass ... no seats, no headrests, no falloff".
