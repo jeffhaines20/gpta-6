@@ -3792,7 +3792,21 @@ plate at every scale. Priced on the same readback, the lit share left at each ca
     lit bar, x the night threshold     x1     x2     x4     x8    x16    x32    never
     lit energy left, of the old total  88.6%  39.0%  16.5%  10.2%  7.8%   6.3%   0
 
-Noon's threshold is x11.3 at night, between x8 and x16, and the pass takes 82% less in all. What is
+Noon's threshold is x11.3 at night, between x8 and x16, and the pass takes 82% less in all. All six
+frames, the old pass's input by source and what the shipped pass takes of it:
+
+    frame              emitted    lit    untagged    shipped / old
+    corridor night       3.5%   89.9%     6.6%          0.179
+    fivepoints night    54.3%   38.6%     7.1%          0.577
+    corridor dusk        0.1%    3.7%    96.2%          0.963    the untagged is the dusk SKY
+    fivepoints dusk      0.7%    5.7%    93.6%          0.945
+    corridor noon        0.0%   99.4%     0.6%          1        the pass is unchanged at noon,
+    fivepoints noon      0.0%   99.6%     0.4%          1        and the glints are the design
+
+"Shipped / old" is read two independent ways that agree to three places — the full-resolution priced
+table interpolated at the shipped bar, and the GPU's own half-resolution bright target against the
+old total — and the GPU matches the documented formula to 1.0000 on every frame (1.0001 at noon, the
+old one-tap path). So the change is a NIGHT change: dusk's bloom is the sky's, and it moves 4-5%. What is
 lit and still blooms is the glare a camera would give: the brightest lit source left is a 147 px patch
 of mullioned facade at (987-995, 446-465), 6.2 exposed, right beside where a lamp's point light stands —
 and in the FRAME it reads as the brightest lamp on the street. It is lit, not emitted (the map is pure
