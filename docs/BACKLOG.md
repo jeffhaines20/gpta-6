@@ -3841,11 +3841,25 @@ from the lens itself. Not diagnosed: the first measurement is the halo's own con
 bloom's at those boxes (the halo is a MeshBasicMaterial, so it carries no #114 tag and `bloom-source`
 counts it as untagged), and then whether a camera-facing halo or none at all is the fix.
 
+*Switch and arm in place (2026-10-15):* `setCarHalo(0)` removes the discs and keeps the ground pools
+(`src/carbody.js` HALO_U, told apart by the vertex normal: every halo vertex sits on a disc normal to
+the car's z axis, every pool vertex on a horizontal plane), and `halo0` pairs with `bloom1`, which is
+everything shipped. Smoke-tested in the district: the switch reads back 0 and 1, six glow programs
+compiled under the new cache key, no shader error. The pair is in the 2026-10-15 r12 capture.
+
 ### #120 OPEN — amber blocks on parked cars' front corners at dusk and night, "lit parking lamps"
 Same reviewer, both arms: at fivepoints "x720-724 y547-553 are 8.1x their surroundings at dusk and 8.6x
 at night; x734-738 y541-545, 3.6x and 3.4x. They read as lit parking or indicator lamps", absent at noon.
 
-Two readings and they want opposite fixes. The traffic pool's emissive palette lights the indicator
+**Measured: it is a PARKED car**, a wagon (parked slot 8, at (68.7, -159.2), 34.8 m from the
+fivepoints camera) whose screen box [731-800, 530-580] holds the reviewer's (736, 543) at its front
+corner. So the first reading below is out, and the amber is not emitted: the parked palette lights
+the tail and headlamp texels only. It is the indicator's ALBEDO — `buildTrafficCarGeometry` paints it
+`0xd8801e`, linear luma 0.30, about 16x a black car's diffuse paint — lamp-lit at dusk and night, and
+in the reviewer's frames also bloomed by the night bright pass #118 has since changed. That is the
+headlamp face's defect on the one lens slot the lamp census never measured.
+
+Two readings were on the table before that measurement, and they wanted opposite fixes. The traffic pool's emissive palette lights the indicator
 texel (`PALETTE[6]`, 255/122/14), and a US car with its headlamps on DOES show lit amber side markers
 at its front corners — so on a moving car this is correct and the defect would be only its size. The
 parked pool's retroreflector palette lights the tail texel and the headlamp texel and NOT the indicator

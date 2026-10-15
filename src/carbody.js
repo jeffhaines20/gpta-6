@@ -2587,8 +2587,33 @@ export function buildCarGlowGeometry(opts = {}) {
  * polygonOffset because the ground pools lie 3 cm over a road that is itself
  * carrying markings at 8 mm, and depth precision at 80 m does not respect 3 cm.
  */
+/**
+ * #119: THE LENS HALOS' WEIGHT. 1 is the halos as built, 0 removes them and leaves the ground pools.
+ *
+ * buildCarGlowGeometry's halo is a disc in the plane of the lens, a WORLD-SPACE disc facing along
+ * the car's axis. Nose-on it is a round glow; from a three-quarter camera it foreshortens toward its
+ * own edge, and a blind reviewer measured exactly that at fivepoints dusk and night - "two vertical
+ * bars stand in front of the red car's nose ... a 165-180 luma plateau about 20 px tall and 5 px
+ * wide". Glare belongs to the camera, which is why it is round in a photograph whatever the car's
+ * heading, and the post stack's bloom already makes it from the lens. The halos came in on
+ * 2026-09-14 with the ground pools; whether they still earn their place beside that bloom is an A/B,
+ * and this is its switch.
+ *
+ * Halo and pool are told apart by the vertex NORMAL, which the geometry carries and no other term
+ * reads: every halo vertex is on a disc normal to the car's z axis and every pool vertex on a
+ * horizontal plane. The seam is asserted, so a three upgrade that renames color_vertex throws here
+ * rather than rendering a switch that does nothing.
+ */
+const HALO_U = { uCarHalo: { value: 1 } };
+export function setCarHalo(k) {
+  HALO_U.uCarHalo.value = Math.min(1, Math.max(0, Number(k) || 0));
+  return carHalo();
+}
+export function carHalo() { return { value: HALO_U.uCarHalo.value }; }
+const HALO_SEAM = '#include <color_vertex>';
+
 export function carGlowMaterial() {
-  return new THREE.MeshBasicMaterial({
+  const m = new THREE.MeshBasicMaterial({
     color: 0xffffff,
     vertexColors: true,
     blending: THREE.AdditiveBlending,
@@ -2598,6 +2623,17 @@ export function carGlowMaterial() {
     polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6,
     fog: false,
   });
+  m.onBeforeCompile = (shader) => {
+    if (!shader.vertexShader.includes(HALO_SEAM)) {
+      throw new Error('carGlowMaterial: color_vertex seam not found; the halo switch would silently do nothing');
+    }
+    shader.uniforms.uCarHalo = HALO_U.uCarHalo;
+    shader.vertexShader = 'uniform float uCarHalo;\n' + shader.vertexShader.replace(HALO_SEAM,
+      `${HALO_SEAM}\n#if defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )\n` +
+      '\tvColor.rgb *= abs( normal.y ) < 0.5 ? uCarHalo : 1.0;\n#endif');
+  };
+  m.customProgramCacheKey = () => 'carGlowHalo1';
+  return m;
 }
 
 // ---------------------------------------------------------------- player car
