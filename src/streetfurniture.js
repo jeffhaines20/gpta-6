@@ -63,6 +63,7 @@ import { buildingStyle } from './facades.js';
 import { signPlanFor } from './signage.js';
 import { streetDirFor } from './geom.js';
 import { paintFamily, paintTone, ACHROMATIC_SHARE } from './carpaint.js';
+import { STATION_LINE } from './kerb.js';
 
 /**
  * The lightness a CHROMATIC parked car is drawn at, as a module constant so a gate can read it.
@@ -3957,7 +3958,7 @@ export class StreetFurniture {
    */
   _dressKerbs(emit, opts) {
     const d = this.d;
-    const KERB = opts.kerbOffset ?? 2.85;     // behind the parking lane
+    const KERB = opts.kerbOffset ?? STATION_LINE;   // behind the parking lane: src/kerb.js
     const BACK = opts.backOffset ?? 5.1;      // second row, only where it fits
     const TREE = opts.treeOffset ?? 3.9;
     const WIDE = opts.plazaOffset ?? 8.8;     // third row, only on real plazas

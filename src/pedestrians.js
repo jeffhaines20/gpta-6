@@ -130,6 +130,8 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { rng, hash32 } from './facades.js';
 import { throwDistance, slideDecel, pedFatalityRisk, ANCHORS } from './damage.js';
+import { KERB, STATION_LINE, kerbedEdge } from './kerb.js';
+import { ON_FOOT_RADIUS } from './player.js';
 
 // ------------------------------------------------------------------ skeleton
 // Metres, at height scale 1: a 1.70 m adult. Per-ped scale spreads the
@@ -420,11 +422,52 @@ export const ROAD_PUSH_PASSES = 6;
 const SPAWN_SLOTS_PER_FRAME = 20;          // bounded refill work per frame
 const SPAWN_TRIES = 6;                     // attempts per slot
 
-// Candidate sidewalk insets outward from the kerb, widest first. The kerb is at
-// half the baked street width; street lamps stand at +1.4 (district/main.js), so
-// 1.9 puts peds behind the lamp line against the shopfronts and 0.8 puts them at
-// the kerb edge. Whichever is clear of the buildings on that side wins.
-const INSETS = [1.9, 1.45, 1.05, 0.8];
+// Candidate sidewalk insets outward from the ribbon edge, widest first: the widest whose samples
+// clear the buildings on that side wins. THESE ARE FOR A STREET WITH NO KERB -- a service road, an
+// alley, a street under 5.5 m -- where the land pad runs up to the ribbon and the pavement starts
+// at half the baked width. They were written when that was true of every street: street lamps
+// stand at +1.4 (district/main.js), so 1.9 put peds behind the lamp line against the shopfronts
+// and 0.8 at the kerb edge. See KERB_INSETS for the streets where it stopped being true.
+export const INSETS = [1.9, 1.45, 1.05, 0.8];
+/**
+ * A KERBED STREET'S PAVEMENT STARTS 2.74 m OUT, AND FOR AS LONG AS THE KERB HAS EXISTED THE CROWD
+ * HAS BEEN WALKING IN THE PARKING LANE IN FRONT OF IT.
+ *
+ * src/kerb.js widened every street that carries a parking lane: from the ribbon edge outward it is
+ * shoulder to 0.55, PARKING LANE to 2.00, gutter pan to 2.50, kerb top to 2.64 and back chamfer to
+ * 2.74 -- "the parking lane the graph already assumes and the surface never drew". The insets
+ * above were not moved with it, so 1.9 m, the candidate every kerbed pavement took, is 0.10 m
+ * inside the parking lane's outer edge, and streetfurniture.js parks its cars centred at 1.30,
+ * which puts a 1.9 m car body over 0.35..2.25. Measured offline over 120 s of three foci, 96 peds,
+ * each walker against its OWN street's edge:
+ *
+ *     where a walker on a kerbed street stands    parking lane 51-56%   pan 22-24%   kerb 3-5%
+ *                                                 pavement 10-18%
+ *     inside one of the 44 cars the pool parks around the focus    6.9%, 8.8%, 10.1% of walker-frames
+ *
+ * So one walker in eleven was standing inside a parked car at any moment, which is what cabin v3's
+ * blind reviewer saw as a head poking up through a windscreen. #121 was filed as "the crowd cannot
+ * feel parked cars" and that was the symptom: the crowd was on the wrong side of the kerb.
+ *
+ * THE INSETS ARE DERIVED FROM THE SECTION, NOT PICKED. The floor puts the whole body on the
+ * pavement: the kerb's back chamfer plus a person's radius, 2.74 + 0.35 = 3.09. The first choice
+ * puts the walk line behind the KERB ROW, which stands on STATION_LINE 2.85: plus the row's p90
+ * solid radius 0.40 (measured 0.396 -- bollards are 755 of its 1,342 and p50 0.157, bins and news
+ * boxes set the tail) plus a person's radius, 3.60. The measurement agrees: across 28,514
+ * mid-segment kerbed stations the share of offsets where a walker would touch a solid prop or come
+ * within BUILDING_MARGIN of a wall is lowest at 3.6-3.7 m (8.9%), against 10.3% at 3.1 and 12.6%
+ * at 5.0, where the back row's benches and the walls take over. The middle candidate is halfway.
+ *
+ * A pavement too narrow for even the floor is a street whose building stands inside its own kerb
+ * section (about 4% of kerbed stations); it falls to `BLOCKED_TOLERANCE` like any other, rather
+ * than to the parking lane, because a walk laid in front of the kerb is the defect.
+ */
+const KERB_ROW_R = 0.40;
+export const KERB_INSETS = [
+  STATION_LINE + KERB_ROW_R + ON_FOOT_RADIUS,
+  (STATION_LINE + KERB_ROW_R + KERB.backOuter) / 2 + ON_FOOT_RADIUS,
+  KERB.backOuter + ON_FOOT_RADIUS,
+];
 const BLOCKED_TOLERANCE = 0.15;            // fraction of samples allowed to clip
 
 // The junction trim's sampling step, and therefore its own margin: the kept span is pulled back
@@ -1299,7 +1342,7 @@ export class Pedestrians {
     }
     let best = null;
     if (base.length >= 2) {
-      for (const inset of INSETS) {
+      for (const inset of this._insetsFor(e)) {
         const pts = this._offsetPolyline(base, (e.w / 2 + inset) * (side ? -1 : 1));
         const blocked = this._blockedFraction(pts);
         if (!best || blocked < best.blocked) best = { pts, blocked, inset };
@@ -1348,7 +1391,10 @@ export class Pedestrians {
   }
 
   /**
-   * CUT A PAVEMENT BACK FROM BOTH ENDS UNTIL IT IS CLEAR OF EVERY CARRIAGEWAY.
+   * CUT A PAVEMENT BACK FROM BOTH ENDS UNTIL IT IS CLEAR OF EVERY CARRIAGEWAY -- and of every
+   * kerbed street's parking lane and kerb, since #121: see `_inKerbSection`. At a junction that
+   * ends the pavement at the cross street's kerb back rather than at its travelled way, which is
+   * where the two pavements of one corner meet.
    *
    * Sampled at `TRIM_STEP_M`, and the kept span is pulled back ONE FURTHER SAMPLE at each end, so
    * the result is clear by at least the sampling step rather than up to it — the trim's margin is
@@ -1373,7 +1419,7 @@ export class Pedestrians {
     const clear = new Array(n + 1);
     for (let k = 0; k <= n; k++) {
       const p = pointAtArc(pts, acc, (k / n) * total);
-      clear[k] = !this._onCarriageway(p.x, p.z);
+      clear[k] = !this._inKerbSection(p.x, p.z);
     }
     let lo = 0; while (lo <= n && !clear[lo]) lo++;
     let hi = n; while (hi >= 0 && !clear[hi]) hi--;
@@ -1389,7 +1435,8 @@ export class Pedestrians {
     return out.length >= 2 ? out : null;
   }
 
-  /** The share of a polyline's samples that lie inside some carriageway. */
+  /** The share of a polyline's samples that lie inside some carriageway, or a kerbed street's kerb
+   *  section: see `_inKerbSection`. */
   _carriagewayFraction(pts) {
     let total = 0, bad = 0;
     for (let i = 0; i < pts.length - 1; i++) {
@@ -1399,7 +1446,7 @@ export class Pedestrians {
       for (let s = 0; s <= steps; s++) {
         const f = s / steps;
         total++;
-        if (this._onCarriageway(a.x + (b.x - a.x) * f, a.z + (b.z - a.z) * f)) bad++;
+        if (this._inKerbSection(a.x + (b.x - a.x) * f, a.z + (b.z - a.z) * f)) bad++;
       }
     }
     return total ? bad / total : 1;
@@ -1408,6 +1455,9 @@ export class Pedestrians {
   // Mitred offset: each vertex moves along the bisector of its two segment
   // normals, so the pavement stays parallel to the kerb through a bend instead
   // of pinching in and cutting the corner off.
+  /** Which candidate insets a street's pavement is laid at. See KERB_INSETS. */
+  _insetsFor(e) { return kerbedEdge(e) ? KERB_INSETS : INSETS; }
+
   _offsetPolyline(base, off) {
     const n = base.length;
     const seg = [];
@@ -1445,15 +1495,18 @@ export class Pedestrians {
     let n = 0;
     for (const e of this.d.edges) {
       const half = e.w / 2;
+      // The kerb section's outer edge: see `_inKerbSection`. Cells are inserted out to it, so a
+      // point inside either width finds its segment in its own cell.
+      const kerb = kerbedEdge(e) ? half + KERB.backOuter : half;
       for (let k = 0; k < e.v.length - 1; k++) {
         const a = this.d.verts[e.v[k]], b = this.d.verts[e.v[k + 1]];
         if (!a || !b) continue;
-        const seg = { ax: a.x, az: a.z, bx: b.x, bz: b.z, half };
+        const seg = { ax: a.x, az: a.z, bx: b.x, bz: b.z, half, kerb };
         n++;
-        const x0 = Math.floor((Math.min(a.x, b.x) - half) / CELL);
-        const x1 = Math.floor((Math.max(a.x, b.x) + half) / CELL);
-        const z0 = Math.floor((Math.min(a.z, b.z) - half) / CELL);
-        const z1 = Math.floor((Math.max(a.z, b.z) + half) / CELL);
+        const x0 = Math.floor((Math.min(a.x, b.x) - kerb) / CELL);
+        const x1 = Math.floor((Math.max(a.x, b.x) + kerb) / CELL);
+        const z0 = Math.floor((Math.min(a.z, b.z) - kerb) / CELL);
+        const z1 = Math.floor((Math.max(a.z, b.z) + kerb) / CELL);
         for (let cx = x0; cx <= x1; cx++) {
           for (let cz = z0; cz <= z1; cz++) {
             const kk = key(cx, cz);
@@ -1494,6 +1547,35 @@ export class Pedestrians {
   }
 
   /** Is (x, z) inside the drawn carriageway of ANY street? */
+  /**
+   * INSIDE A STREET'S KERB SECTION: the carriageway, and on a kerbed street the parking lane, gutter
+   * and kerb that src/kerb.js draws outboard of it, out to the back chamfer. This is the test a
+   * BAKED PAVEMENT is held to, and `_onCarriageway` is not, for one reason: a pavement laid at
+   * KERB_INSETS clears its OWN kerb by construction and nothing checked it against anybody else's.
+   * Measured against every one of the district's 2,569 parking slots, the kerbed walks at 3.60 m
+   * still put 422 of 65,998 samples (0.64%) inside a parked car's body, and 419 of the 422 were
+   * ANOTHER street's slot -- the inner pavement of a divided road, laid down the parking lane of
+   * the carriageway beside it, and walk ends at a junction reaching into the cross street's lane.
+   *
+   * The PUSH is still `_onCarriageway`: what it keeps a ped out of is traffic, and a ped standing in
+   * a parking lane between two cars is somewhere a person can stand.
+   */
+  _inKerbSection(x, z) {
+    const { g, CELL, key } = this._roadGrid();
+    const list = g.get(key(Math.floor(x / CELL), Math.floor(z / CELL)));
+    if (!list) return false;
+    for (let i = 0; i < list.length; i++) {
+      const sg = list[i];
+      const dx = sg.bx - sg.ax, dz = sg.bz - sg.az;
+      const s2 = dx * dx + dz * dz;
+      if (s2 < 1e-12) continue;
+      const f = Math.max(0, Math.min(1, ((x - sg.ax) * dx + (z - sg.az) * dz) / s2));
+      const px = sg.ax + dx * f, pz = sg.az + dz * f;
+      if (Math.hypot(x - px, z - pz) < sg.kerb) return true;
+    }
+    return false;
+  }
+
   _onCarriageway(x, z) {
     const { g, CELL, key } = this._roadGrid();
     const list = g.get(key(Math.floor(x / CELL), Math.floor(z / CELL)));
@@ -1699,8 +1781,25 @@ export class Pedestrians {
   // building side is covered by _pushOut. Peds walking the two directions take
   // separate bands, which is both what people do and what stops head-on pairs
   // from having to resolve every meeting through avoidance alone.
+  /**
+   * AND FOR HALF THE CROWD IT POINTED THE OTHER WAY, under the comment above, for as long as the
+   * lane has existed. The pavement is offset along the EDGE's normal; `_targetAt` applies this
+   * along the TRAVEL direction's normal, and for a ped walking the edge backwards those two are
+   * opposite. So `side ? -1 : 1` alone sent every backward walker TOWARD the road by its whole
+   * band, 0.48-0.90 m. Measured mid-walk, distance from the centreline minus the walk's own offset:
+   *
+   *     forward walkers    p10 +0.01   p50 +0.23   p90 +0.47 m     away from the road, as written
+   *     backward walkers   p10 -1.06   p50 -0.73   p90 -0.37 m     into it
+   *
+   * It was invisible while the pavements were in the parking lane, where 0.9 m toward the road is
+   * still parking lane. Behind the kerb it is the kerb itself: a 3.60 m walk less 0.90 is 2.70,
+   * which is the back chamfer, and the kerb row's bollards stand at 2.85. And it is a candidate for
+   * part of what `_pushOffRoad` was written to undo -- that comment measured three peds "1.29-1.54 m
+   * off their own walk line" on 2.8 m streets, whose pavement at inset 0.8 less this band is 0.1 m
+   * INSIDE the carriageway before separation has pushed anybody anywhere.
+   */
   _laneOf(ped) {
-    const away = ped.side ? -1 : 1;
+    const away = (ped.side ? -1 : 1) * (ped.forward ? 1 : -1);
     const band = ped.forward ? ped.laneJitter * 0.42 : 0.48 + ped.laneJitter * 0.42;
     return away * band;
   }

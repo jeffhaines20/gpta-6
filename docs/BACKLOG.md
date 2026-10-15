@@ -3880,6 +3880,77 @@ parked pool's retroreflector palette lights the tail texel and the headlamp texe
 (`writeRetroTexels`), so on a parked car nothing should be amber and lit. Not diagnosed: the first
 measurement is which pool the car at (720, 547) in the fivepoints frame belongs to.
 
+### #121 FIXED — the crowd walked in the PARKING LANE: its pavements never moved out with the kerb, and the lane pointed half of it into the road
+**"The crowd cannot feel parked cars" was the symptom. The crowd was on the wrong side of the kerb.**
+`src/kerb.js` widened every street that carries a parking lane: from the ribbon edge outward it is
+shoulder to 0.55 m, PARKING LANE to 2.00, gutter pan to 2.50, kerb top to 2.64 and back chamfer to 2.74
+— "the parking lane the graph already assumes and the surface never drew". `src/pedestrians.js`'s
+pavement insets, `[1.9, 1.45, 1.05, 0.8]` from the ribbon edge, were written when the kerb WAS the
+ribbon edge and were never moved, so every kerbed pavement baked at 1.9 m: 0.10 m inside the parking
+lane's outer edge, through cars `streetfurniture.js` parks centred at 1.30. Measured offline, 96 peds,
+120 s, the pool parked around each focus the way the game fills it, each walker against its OWN
+street's edge (`ped-arms`, three foci):
+
+    arm                        parking lane   pan      kerb    PAVEMENT   inside a pool car's BODY
+    before                       55-65%      22-24%   3-5%     10-18%       5.31 / 6.80 / 7.86%
+    insets only                   3-6%        9-12%   6-8%     74-80%       0.86 / 0.94 / 0.66%
+    personal-lane sign only      34-36%      30-33%   8-12%    21-28%       4.55 / 5.70 / 5.09%
+    insets + lane                0.5-2.2%    2-4%     1-4%     89-95%       0.04 / 0.04 / 0.03%
+    shipped, + kerb-section bake  0.2-1.7%   1.9-3.6% 2-4%     91-95%       0.05 / 0.00 / 0.04%
+
+So one walker-frame in fifteen was inside a parked car — which is what cabin v3's reviewer saw as a
+head through a windscreen, and what the bloom reviewer of the same week found again, unprompted, at
+corridor noon ("the right-kerb pedestrian's torso is drawn over the dark parked car's roof").
+
+**Three defects, and each was hiding the next.**
+
+1. **The insets** (`KERB_INSETS`, derived, not picked). The floor puts the whole body on the pavement:
+   `KERB.backOuter` + a person's radius, 2.74 + 0.35 = 3.09. The first choice puts the walk line behind
+   the kerb row on `STATION_LINE` 2.85 (now exported from `src/kerb.js` once, where three modules read
+   it): plus the row's p90 solid radius 0.40 (measured 0.396; bollards are 755 of its 1,342 at p50 0.157)
+   plus a person's radius, 3.60. The measurement agrees — across 28,514 mid-segment kerbed stations the
+   share of offsets where a walker touches a solid prop or comes within `BUILDING_MARGIN` of a wall is
+   lowest at 3.6-3.7 m (8.9%), against 10.3% at 3.1 and 12.6% at 5.0. Streets with no kerb keep the old
+   list, because there the pad does run to the ribbon.
+2. **The personal lane's sign.** `_laneOf` signed the displacement by SIDE; `_targetAt` applies it along
+   the TRAVEL direction's normal, and the pavement is offset along the EDGE's, so for a ped walking the
+   edge backwards the two are opposite: mid-walk, forward walkers sat p50 +0.23 m from their walk (away
+   from the road, as the comment said) and backward walkers p50 **-0.73** (p10 -1.06) — into it, under a
+   comment saying the lane "always points AWAY from the carriageway ... so nobody can be nudged into the
+   road". It was invisible in the parking lane, where 0.9 m toward the road is still parking lane. Behind
+   the kerb, 3.60 - 0.90 is the back chamfer. It is a candidate for part of what `_pushOffRoad` was
+   written to undo: at inset 0.8 a backward walker's band put them 0.1 m INSIDE the carriageway before
+   anybody had pushed them.
+3. **The bake held a pavement to the carriageway alone.** With 1 and 2 fixed, 422 of 65,998 kerbed
+   pavement samples still lay inside a parked car's body when every one of the district's 2,569 slots is
+   filled — and 419 of the 422 were ANOTHER street's slot: the inner pavement of a divided road, laid down
+   its neighbour's parking lane, and walk ends at a junction reaching into the cross street's lane.
+   `_inKerbSection` is the carriageway plus, on a kerbed street, everything out to the back chamfer; the
+   bake's trim and its mid-walk test use it, and the PUSH still uses the carriageway, because what that
+   keeps a ped out of is traffic. Now 0 of 56,538.
+
+**What it cost**: kerbed pavements baked 779 -> 689 of 884, and 34.85 -> 27.34 km of them after the
+junction trim; plain streets 852 -> 827. Of the 195 kerbed rejections, 102 are short connectors that
+nothing survives trimming back to both cross streets' kerbs (3.49 km), 53 run into buildings (3.78 km)
+and 40 still cross another street's kerb section mid-walk (3.56 km). The network kept is 1,516 of
+1,870, 81.1%, against `reaction-test`'s bound of 80% — close, and the bound is the right one: a
+pavement laid through a parking lane is the defect, not coverage.
+
+**Gated** in `reaction-test`'s "the crowd and the kerb", every check beside the pre-#121 crowd rebuilt on
+an instance as its known-bad: every kerbed pavement behind its own kerb by a body radius (nearest 3.090
+against 3.09; before 0.288), no pavement sample in any slot (0 of 56,538; before 36.8%), the lane away
+from the road in both directions (400 / 0; before 200 / 200), and a 48-ped crowd among the 44 cars the
+pool parks at the hero focus (0.000% of walker-frames inside one; before 6.87%). The offset check's count
+guard matters: under the kerb-section bake the old insets bake NO kerbed pavement, and a minimum over
+nothing is Infinity. `mutation-sweep` rows `ped-kerb-insets`, `ped-lane-sign`, `ped-kerb-section`.
+
+**And the road push's convergence check had to be rebuilt**, because it needed a ped inside TWO
+carriageways at once and the crowd supplied one only through defects 1 and 2: with both fixed the run's
+worst count was 1, and the check would have failed a resolver that works. It now builds the junction —
+a point a metre along each of two crossing streets from the hero junction's vertex — and asserts two
+passes and clear.
+
+#### THE ORIGINAL RECORD
 ### #121 OPEN — a pedestrian walks THROUGH a parked car: the crowd cannot feel parked cars at all
 From cabin v3's blind reviewer, in both arms, filed as "a pedestrian head drawn over the windscreen"
 at corridor dusk (205-265, 600-640): "the body is hidden behind the car, yet the head reads 12-38

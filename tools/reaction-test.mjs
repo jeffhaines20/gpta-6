@@ -23,7 +23,10 @@
 //   §7  a shunt with no building test, which knocks 0.8% of worst-case cars into a shopfront
 import fs from 'node:fs';
 import { Pedestrians, PED_FREE_MS, AVOID_R, PED_CLEAR_DIST_M,
-  ROAD_PUSH_PASSES } from '../src/pedestrians.js';
+  ROAD_PUSH_PASSES, INSETS } from '../src/pedestrians.js';
+// For the crowd-and-kerb section: the section the pavement has to stand behind, and a body.
+import { KERB, kerbedEdge } from '../src/kerb.js';
+import { ON_FOOT_RADIUS } from '../src/player.js';
 import { Traffic } from '../src/traffic.js';
 import { throwDistance, slideDecel, THROW, ANCHORS, pedFatalityRisk } from '../src/damage.js';
 import { BlockerIndex } from '../src/blockers.js';
@@ -1780,13 +1783,64 @@ console.log('\n§  the crowd and the carriageway');
      * bound is that the worst observed count leaves headroom in the budget rather than that it
      * is 1.
      */
-    console.log(`      worst resolve passes ${p.stats.roadPushWorstPasses} of a budget of `
+    console.log(`      worst resolve passes over that run ${p.stats.roadPushWorstPasses} of a budget of `
       + `${ROAD_PUSH_PASSES}`);
-    check('the road push converges well inside its pass budget',
-      p.stats.roadPushWorstPasses >= 2
-      && p.stats.roadPushWorstPasses <= ROAD_PUSH_PASSES - 2,
-      `${p.stats.roadPushWorstPasses} of ${ROAD_PUSH_PASSES} — above 1, because a junction puts `
-      + `a ped in two carriageways, and clear of the budget`);
+    /**
+     * RESTATED WITH #121, because the crowd stopped producing the case. The bound needs a ped
+     * inside TWO carriageways at once, and this run used to supply one only because pavements ran
+     * up to the cross street's travelled way and every backward walker's personal lane pointed
+     * into the road. With both fixed the run's worst count is 1, and a check that needs its
+     * subject to turn up by chance is the "assert the thing happened" trap in its quietest form:
+     * it would have read 1 and failed for a resolver that works. So the junction is BUILT: a point
+     * one metre along each of two crossing streets from the hero junction's vertex is inside both
+     * carriageways by construction, and clearing it takes two passes.
+     */
+    {
+      let jv = null, jd = Infinity;
+      const deg = new Map();
+      for (const e of district.edges) for (const v of [e.v[0], e.v[e.v.length - 1]]) deg.set(v, (deg.get(v) ?? 0) + 1);
+      for (const [v, n] of deg) {
+        if (n < 3) continue;
+        const q = district.verts[v], d = Math.hypot(q.x - FOCUS.x, q.z - FOCUS.z);
+        if (d < jd) { jd = d; jv = v; }
+      }
+      const arms = [];
+      for (const e of district.edges) {
+        const at0 = e.v[0] === jv, at1 = e.v[e.v.length - 1] === jv;
+        if (!at0 && !at1) continue;
+        const a = district.verts[jv], b = district.verts[at0 ? e.v[1] : e.v[e.v.length - 2]];
+        const l = Math.hypot(b.x - a.x, b.z - a.z);
+        if (l > 2) arms.push({ e, dx: (b.x - a.x) / l, dz: (b.z - a.z) / l });
+      }
+      let pair = null;
+      for (let i = 0; i < arms.length && !pair; i++) {
+        for (let j = i + 1; j < arms.length; j++) {
+          if (Math.abs(arms[i].dx * arms[j].dz - arms[i].dz * arms[j].dx) > 0.7) { pair = [arms[i], arms[j]]; break; }
+        }
+      }
+      const v0 = district.verts[jv];
+      const ped = pair ? { x: v0.x + pair[0].dx + pair[1].dx, z: v0.z + pair[0].dz + pair[1].dz } : null;
+      const inside = (e, x, z) => {
+        for (let k = 0; k < e.v.length - 1; k++) {
+          const a = district.verts[e.v[k]], b = district.verts[e.v[k + 1]];
+          const dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz;
+          const f = Math.max(0, Math.min(1, l2 > 0 ? ((x - a.x) * dx + (z - a.z) * dz) / l2 : 0));
+          if (Math.hypot(x - (a.x + dx * f), z - (a.z + dz * f)) < e.w / 2) return true;
+        }
+        return false;
+      };
+      const both = !!ped && inside(pair[0].e, ped.x, ped.z) && inside(pair[1].e, ped.x, ped.z);
+      const q = new Pedestrians(scene, district, { count: 0 });
+      if (ped) q._pushOffRoad(ped);
+      const clear = !!ped && !q._onCarriageway(ped.x, ped.z);
+      console.log(`      a ped inside two carriageways at the junction ${jd.toFixed(1)} m from the focus: `
+        + `${q.stats.roadPushWorstPasses} passes, ${clear ? 'clear' : 'STILL IN THE ROAD'} after`);
+      check('the road push converges well inside its pass budget',
+        both && clear && q.stats.roadPushWorstPasses >= 2
+        && q.stats.roadPushWorstPasses <= ROAD_PUSH_PASSES - 2,
+        `${q.stats.roadPushWorstPasses} of ${ROAD_PUSH_PASSES} — above 1, because a junction puts `
+        + `a ped in two carriageways, and clear of the budget; in both at the start: ${both}`);
+    }
   }
 
   // --- the push out of the road, both directions
@@ -1853,6 +1907,186 @@ console.log('\n§  the crowd and the carriageway');
  * sample run 1.40 to 3.50 m, so 4.5 m is on the pavement of every road in it. The band it named
  * "carriageway" is mostly pavement, which is exactly what the four rows above say was happening.
  */
+console.log('\n§  the crowd and the kerb');
+/**
+ * #121, filed as "a pedestrian walks THROUGH a parked car: the crowd cannot feel parked cars at
+ * all". That was the symptom. src/kerb.js widened every street that carries a parking lane —
+ * shoulder, parking lane, gutter pan and kerb run out to 2.74 m beyond the ribbon edge — and the
+ * crowd's pavement insets were never moved with it, so on a kerbed street the crowd walked at
+ * 1.9 m: in the parking lane, through the cars streetfurniture.js parks centred at 1.30. Under it
+ * sat a second defect, the personal lane pointing every BACKWARD walker toward the road, and a
+ * third, the bake holding a pavement to the CARRIAGEWAY alone, so the inner pavement of a divided
+ * road ran down its neighbour's parking lane.
+ *
+ * Every arm here carries the pre-#121 crowd beside the shipped one, rebuilt on an instance — the
+ * old insets, the bake held to the carriageway, the lane signed by side only — so each check has
+ * a known-bad that is the code as it was, not an invented break.
+ */
+{
+  const before = (p) => {
+    p._insetsFor = () => INSETS;
+    p._inKerbSection = (x, z) => p._onCarriageway(x, z);
+    p._laneOf = (ped) => (ped.side ? -1 : 1)
+      * (ped.forward ? ped.laneJitter * 0.42 : 0.48 + ped.laneJitter * 0.42);
+    return p;
+  };
+  const fu = new StreetFurniture(new THREE.Scene(), { max: 1200 });
+  fu.commit();
+  fu.dressDistrict(district, { audit: false });
+  fu.buildParkedCars();
+  // Each shell's own half extents, off the buffer the pool draws rather than a nominal car.
+  const ext = fu.parked.meshes.map((m) => {
+    m.geometry.computeBoundingBox();
+    const b = m.geometry.boundingBox;
+    return { hx: Math.max(-b.min.x, b.max.x), hz: Math.max(-b.min.z, b.max.z) };
+  });
+  const slots = [];
+  for (const l of fu._parkCells.values()) for (const s of l) slots.push(s);
+  const CELL = 8, grid = new Map();
+  for (const s of slots) {
+    const k = Math.floor(s.x / CELL) * 100003 + Math.floor(s.z / CELL);
+    if (!grid.has(k)) grid.set(k, []);
+    grid.get(k).push(s);
+  }
+  /** The parked car whose body (grown by `pad`) holds (x, z), from `only` if given, else null. */
+  const carAt = (x, z, pad, only) => {
+    const gx = Math.floor(x / CELL), gz = Math.floor(z / CELL);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        for (const s of grid.get((gx + dx) * 100003 + gz + dz) ?? []) {
+          if (only && !only.has(s)) continue;
+          const e = ext[s.shell ?? 0] ?? ext[0];
+          const ux = x - s.x, uz = z - s.z, sy = Math.sin(s.yaw), cy = Math.cos(s.yaw);
+          if (Math.abs(ux * sy + uz * cy) < e.hz + pad && Math.abs(ux * cy - uz * sy) < e.hx + pad) return s;
+        }
+      }
+    }
+    return null;
+  };
+  /** Offset outboard of a street's OWN ribbon edge — its own, not the nearest street's. */
+  const ownO = (e, x, z) => {
+    let best = Infinity;
+    for (let k = 0; k < e.v.length - 1; k++) {
+      const a = district.verts[e.v[k]], b = district.verts[e.v[k + 1]];
+      const dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz;
+      const t = Math.max(0, Math.min(1, l2 > 0 ? ((x - a.x) * dx + (z - a.z) * dz) / l2 : 0));
+      best = Math.min(best, Math.hypot(x - (a.x + dx * t), z - (a.z + dz * t)));
+    }
+    return best - e.w / 2;
+  };
+  console.log(`    ${slots.length} parking slots; shells ${ext.map((e) => `${(2 * e.hx).toFixed(2)} x `
+    + `${(2 * e.hz).toFixed(2)}`).join(', ')} m off the buffer`);
+
+  // --- the baked pavements, against the section and against EVERY slot in the district.
+  const audit = (p) => {
+    let walks = 0, kerbed = 0, minO = Infinity, samples = 0, inCar = 0;
+    for (let ei = 0; ei < district.edges.length; ei++) {
+      const e = district.edges[ei];
+      if (!kerbedEdge(e)) continue;
+      for (const side of [0, 1]) {
+        kerbed++;
+        const w = p._walk(ei, side);
+        if (!w) continue;
+        walks++;
+        for (const q of w.pts) minO = Math.min(minO, ownO(e, q.x, q.z));
+        for (let k = 0; k < w.pts.length - 1; k++) {
+          const a = w.pts[k], b = w.pts[k + 1];
+          const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.5));
+          for (let j = 0; j <= n; j++) {
+            samples++;
+            if (carAt(a.x + (b.x - a.x) * j / n, a.z + (b.z - a.z) * j / n, ON_FOOT_RADIUS)) inCar++;
+          }
+        }
+      }
+    }
+    return { walks, kerbed, minO, samples, inCar };
+  };
+  const now = audit(new Pedestrians(scene, district, { count: 0 }));
+  const old = audit(before(new Pedestrians(scene, district, { count: 0 })));
+  const floor = KERB.backOuter + ON_FOOT_RADIUS;
+  console.log(`    kerbed pavements baked ${now.walks} of ${now.kerbed} (before #121 ${old.walks}); `
+    + `nearest point to its own ribbon edge ${now.minO.toFixed(3)} m against a floor of `
+    + `${floor.toFixed(2)} (before ${old.minO.toFixed(3)}, which is the parking lane)`);
+  console.log(`    pavement samples inside a parked car, every one of ${slots.length} slots filled: `
+    + `${now.inCar} of ${now.samples} (before ${old.inCar} of ${old.samples}, `
+    + `${(100 * old.inCar / Math.max(1, old.samples)).toFixed(1)}%)`);
+  /**
+   * The count guard is what makes the offset check fail for a reverted inset: the bake now holds a
+   * pavement to the kerb section, so the old insets on a kerbed street bake NOTHING, and a minimum
+   * over no points is Infinity — the flattering answer. 600 of 884 is under the 689 shipped.
+   */
+  check('every kerbed pavement lies behind its own kerb by a body radius',
+    now.walks > 600 && now.minO >= floor - 1e-6,
+    `${now.walks} walks, nearest ${now.minO.toFixed(4)} m against ${floor.toFixed(2)}`);
+  check('KNOWN-BAD: before #121 they lay in the parking lane',
+    old.walks > 600 && old.minO < KERB.laneOuter, `${old.walks} walks, nearest ${old.minO.toFixed(3)} m`);
+  check('no kerbed pavement passes through any parking slot in the district',
+    now.samples > 30000 && now.inCar === 0, `${now.inCar} of ${now.samples}`);
+  check('KNOWN-BAD: before #121 a third of the samples did',
+    old.inCar / Math.max(1, old.samples) > 0.25, `${old.inCar} of ${old.samples}`);
+
+  // --- the personal lane, exactly: for every walk and both directions, the target a ped steers
+  // for is further from its own road than the node it is displaced from.
+  const lanes = (p) => {
+    let away = 0, toward = 0;
+    for (let ei = 0; ei < district.edges.length && away + toward < 400; ei++) {
+      const e = district.edges[ei];
+      if (!kerbedEdge(e)) continue;
+      for (const side of [0, 1]) {
+        for (const forward of [true, false]) {
+          const w = p._walk(ei, side);
+          if (!w || w.pts.length < 3) continue;
+          const ped = { side, forward, walk: w, laneJitter: 1 };
+          ped.lateral = p._laneOf(ped);
+          const node = p._node(ped, 1), tgt = p._targetAt(ped, 1, { x: 0, z: 0 });
+          if (ownO(e, tgt.x, tgt.z) > ownO(e, node.x, node.z) + 1e-6) away++; else toward++;
+        }
+      }
+    }
+    return { away, toward };
+  };
+  const ln = lanes(new Pedestrians(scene, district, { count: 0 }));
+  const lb = lanes(before(new Pedestrians(scene, district, { count: 0 })));
+  console.log(`    personal lane, kerbed walks x both directions: away from the road ${ln.away}, `
+    + `toward it ${ln.toward} (before ${lb.away} / ${lb.toward})`);
+  check('the personal lane points away from the road in both directions of travel',
+    ln.away >= 200 && ln.toward === 0, `${ln.away} away, ${ln.toward} toward`);
+  check('KNOWN-BAD: before, every backward walker\'s pointed into it',
+    lb.toward === lb.away && lb.toward > 0, `${lb.away} away, ${lb.toward} toward`);
+
+  // --- the crowd, with the pool parked around the focus the way the game fills it.
+  fu.refreshParked(FOCUS.x, FOCUS.z, true);
+  const pool = new Set(fu._parkCand.slice(0, fu.parked.filled));
+  const run = (p) => {
+    let pf = 0, body = 0, kf = 0, pave = 0;
+    for (let k = 0; k < 60 * 40; k++) {
+      p.update(DT, FOCUS);
+      if (k < 300) continue;
+      for (const c of p.positions()) {
+        const ped = p.peds[c.i];
+        if (!ped || ped.down) continue;
+        pf++;
+        if (carAt(c.x, c.z, 0, pool)) body++;
+        const e = ped.edge != null ? district.edges[ped.edge] : null;
+        if (e && kerbedEdge(e)) { kf++; if (ownO(e, c.x, c.z) >= KERB.backOuter) pave++; }
+      }
+    }
+    return { pf, body, share: body / Math.max(1, pf), pave: pave / Math.max(1, kf) };
+  };
+  const cn = run(new Pedestrians(scene, district, { count: 48 }));
+  const cb = run(before(new Pedestrians(scene, district, { count: 48 })));
+  console.log(`    48 peds for 35 s among ${pool.size} parked cars: standing inside one on ${cn.body} of `
+    + `${cn.pf} walker-frames (${(100 * cn.share).toFixed(3)}%), before ${cb.body} `
+    + `(${(100 * cb.share).toFixed(3)}%); on the pavement ${(100 * cn.pave).toFixed(1)}%, before `
+    + `${(100 * cb.pave).toFixed(1)}%`);
+  check('the crowd stands inside a parked car on almost no frame',
+    pool.size > 20 && cn.pf > 50000 && cn.share < 0.002, `${(100 * cn.share).toFixed(3)}% of ${cn.pf}`);
+  check('KNOWN-BAD: before #121 it was one walker-frame in twenty',
+    cb.share > 0.02, `${(100 * cb.share).toFixed(3)}%`);
+  check('and a walker on a kerbed street is on the pavement',
+    cn.pave > 0.85, `${(100 * cn.pave).toFixed(1)}% (before ${(100 * cb.pave).toFixed(1)}%)`);
+}
+
 console.log('\n§  the route, the kerb and the follower');
 {
   const p = new Pedestrians(scene, district, { count: 0 });

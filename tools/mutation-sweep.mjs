@@ -1547,6 +1547,49 @@ const MUTATIONS = [
   },
   {
     /**
+     * #121: THE PAVEMENT GOES BACK IN FRONT OF THE KERB. src/kerb.js widened every street with a
+     * parking lane to 2.74 m past the ribbon and the crowd's insets stayed where the kerb used to
+     * be, so every kerbed pavement was laid at 1.9 m — in the parking lane, through the cars
+     * streetfurniture.js parks at 1.30. Measured over three foci: 51-56% of walker-frames on a
+     * kerbed street in the parking lane, 6.9-10.1% inside one of the pool's 44 cars.
+     *
+     * Under the kerb-section bake the old insets bake NO kerbed pavement at all, so the offset
+     * check alone would pass on a minimum over nothing; its count guard is what catches this.
+     */
+    id: 'ped-kerb-insets', file: 'src/pedestrians.js',
+    find: '  _insetsFor(e) { return kerbedEdge(e) ? KERB_INSETS : INSETS; }',
+    to: '  _insetsFor(e) { return INSETS; }',
+    why: 'every kerbed street\'s pavement goes back to the parking lane, through the parked cars',
+  },
+  {
+    /**
+     * #121's second defect: THE PERSONAL LANE POINTS BACKWARD WALKERS INTO THE ROAD. `_targetAt`
+     * applies the lane along the TRAVEL direction's normal and the pavement is offset along the
+     * EDGE's, so signing it by side alone sent every backward walker toward the road by its whole
+     * 0.48-0.90 m band, under a comment saying it "always points AWAY from the carriageway".
+     * Measured mid-walk: forward p50 +0.23 m, backward p50 -0.73. Behind the kerb, 3.60 less 0.90
+     * is the back chamfer, and the kerb row's bollards stand at 2.85.
+     */
+    id: 'ped-lane-sign', file: 'src/pedestrians.js',
+    find: '    const away = (ped.side ? -1 : 1) * (ped.forward ? 1 : -1);',
+    to: '    const away = ped.side ? -1 : 1;',
+    why: 'half the crowd walks 0.48-0.90 m on the road side of its pavement, onto the kerb',
+  },
+  {
+    /**
+     * #121's third: A PAVEMENT IS HELD TO THE CARRIAGEWAY ALONE. With the insets fixed, 422 of
+     * 65,998 kerbed pavement samples still sat inside a parked car's body, 419 of them ANOTHER
+     * street's slot: the inner pavement of a divided road laid down its neighbour's parking lane,
+     * and walk ends reaching into a cross street's lane. Shrinking the kerb section back to the
+     * travelled way is exactly that build.
+     */
+    id: 'ped-kerb-section', file: 'src/pedestrians.js',
+    find: '      if (Math.hypot(x - px, z - pz) < sg.kerb) return true;',
+    to: '      if (Math.hypot(x - px, z - pz) < sg.half) return true;',
+    why: 'pavements run down the parking lane of the street beside them, through its cars',
+  },
+  {
+    /**
      * THE JAM CLOCK RESETS ON EVERY CONTACT-FREE STEP, which is how `_trackJam` was first
      * written and it NEVER FIRED. A wedged car rocks: measured at 120 Hz in a 4 m bay, a body
      * sample is corrected on 77.0% of steps and the contact-free gaps run p50 0.0167 s, p95 and

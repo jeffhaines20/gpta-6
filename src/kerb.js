@@ -138,6 +138,17 @@ export function kerbBackFor(width) { return width / 2 + KERB.backOuter; }
  */
 export function kerbedEdge(e) { return e.r <= 5 && e.w >= 5.5; }
 
+/**
+ * streetfurniture.js's KERB ROW, measured outboard of the ribbon edge like everything in KERB:
+ * bollards, bins, hydrants, news boxes and bike racks stand on this line. It is one of the datums
+ * the section above is pinned against -- the assembly stops 0.11 m short of it -- and it is now
+ * read by three modules: the furniture pass stands the row on it, tools/kerb-cost.mjs asserts the
+ * section stops short of it, and src/pedestrians.js lays a kerbed street's pavement BEHIND it.
+ * A number copied into a second file is the recurring defect shape in this repo, so it lives
+ * here once.
+ */
+export const STATION_LINE = 2.85;
+
 // ------------------------------------------------------------------- section
 //
 // Each panel is [o0, y0] -> [o1, y1] walking OUTBOARD, plus its normal in the

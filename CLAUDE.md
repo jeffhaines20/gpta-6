@@ -1150,6 +1150,44 @@ check, because when that fires it explains all of them. A wreck clock left ticki
 arm is otherwise a 17.6 m teleport that reports itself as "0 run-overs" — the feature looking
 broken because the harness moved the subject.
 
+## A surface that moves takes everything positioned against it, including what was never "placed"
+
+#121 was filed as "the crowd cannot feel parked cars". The crowd was on the wrong side of the kerb.
+`src/kerb.js` widened every street with a parking lane out to 2.74 m past the ribbon edge, and wrote
+down every datum it was pinned against — the ribbon, the pad, the parked cars' ground, the signage
+plates at 1.10 and 1.30, the kerb row at 2.85: "every offset in the section is pinned by something
+already placed". The crowd was not on the list because the crowd is not PLACED, it is simulated, and its
+pavement insets lived in another module beside a comment reading "the kerb is at half the baked street
+width". Every kerbed pavement baked at 1.9 m, in the parking lane, and one walker-frame in fifteen stood
+inside a parked car.
+
+**When a change moves a surface, grep for the expression that located things on the OLD surface** —
+here `e.w / 2 + inset` — not for the things you remember putting there. The list you remember is the
+list of what was placed; the defect was in what moves.
+
+**And the first fix exposed a defect the first defect had been hiding.** `_laneOf` signed a ped's
+personal lane by side while `_targetAt` applies it along the TRAVEL normal, so every backward walker was
+displaced 0.48-0.90 m toward the road under a comment saying it "always points AWAY". In the parking
+lane, 0.9 m toward the road is still parking lane; behind the kerb it is the kerb. Isolated, neither fix
+does it — walker-frames inside a parked car's body:
+
+    before      insets only     lane only       both
+    5.3-7.9%    0.66-0.94%      4.6-5.7%        0.03-0.04%
+
+A defect that sits inside another one's slack cannot be found by looking at the build, only by fixing
+the outer one and measuring again. Measure after every fix in a chain, not once at the end.
+
+**Own and other, a third time.** With both fixed, 419 of the 422 remaining pavement samples inside a
+parked car were ANOTHER street's slot: the bake held a pavement to its own kerb by construction and to
+nobody else's, so the inner pavement of a divided road ran down its neighbour's parking lane. #104's
+alley pavement down a tertiary road was the same shape with the carriageway instead of the kerb.
+
+**And a fix can starve a check of its subject.** `reaction-test`'s road-push convergence bound needed a
+ped inside two carriageways at once, and the crowd had been supplying one only through the two defects
+above; fixed, the run's worst count was 1 and the check would have failed a resolver that works. Its
+subject is built now. When a check reads "the thing happened" off a population, ask what makes it happen
+and whether your change removes that.
+
 ## The geometry LEADING INTO a point is what caused the error there, not the geometry AT it
 
 #104 ruled out the crowd, the contact test and the router and left "it is `followPath` leaving its

@@ -15,7 +15,7 @@
 //   node tools/kerb-cost.mjs
 //   node tools/kerb-cost.mjs --selftest
 import fs from 'node:fs';
-import { planKerbs, kerbedEdge, runCost, KERB, KERB_REVEAL, sectionY } from '../src/kerb.js';
+import { planKerbs, kerbedEdge, runCost, KERB, KERB_REVEAL, sectionY, STATION_LINE } from '../src/kerb.js';
 
 const ARGS = process.argv.slice(2);
 
@@ -43,14 +43,14 @@ if (ARGS.includes('--selftest')) {
 
   // The section is the thing being priced, so its shape is asserted here too: a
   // reveal in the 100-150 mm band, a kerb top proud of the pad, a gutter invert
-  // below it, and the whole assembly inboard of streetfurniture.js's 2.85 m
-  // station line.
+  // below it, and the whole assembly inboard of the kerb row's station line
+  // (src/kerb.js STATION_LINE, which streetfurniture.js stands the row on).
   if (!(KERB_REVEAL >= 0.10 && KERB_REVEAL <= 0.15)) {
     fails.push(`reveal ${KERB_REVEAL.toFixed(3)} m is outside 0.10-0.15`);
   }
   if (!(KERB.topY > KERB.padY)) fails.push('kerb top is not proud of the pad');
   if (!(KERB.invertY < KERB.padY)) fails.push('gutter invert is not below the pad');
-  if (!(KERB.backOuter < 2.85)) fails.push(`assembly reaches ${KERB.backOuter} m, past the 2.85 m prop line`);
+  if (!(KERB.backOuter < STATION_LINE)) fails.push(`assembly reaches ${KERB.backOuter} m, past the ${STATION_LINE} m prop line`);
   if (Math.abs(sectionY(-KERB.lap) - (KERB.roadY - KERB.lapDrop)) > 1e-9) {
     fails.push('section does not start on the ribbon');
   }
