@@ -1,0 +1,40 @@
+{
+ "generated": "2026-10-15T02:29:06.602Z",
+ "left": "plate-plate0",
+ "right": "plate-plate1",
+ "salt": "f3050ada8181",
+ "unpairedLeft": [],
+ "unpairedRight": [],
+ "pairs": [
+  {
+   "id": "corridor-dusk",
+   "A": "plate-plate0",
+   "B": "plate-plate1"
+  },
+  {
+   "id": "corridor-night",
+   "A": "plate-plate0",
+   "B": "plate-plate1"
+  },
+  {
+   "id": "corridor-noon",
+   "A": "plate-plate1",
+   "B": "plate-plate0"
+  },
+  {
+   "id": "fivepoints-dusk",
+   "A": "plate-plate1",
+   "B": "plate-plate0"
+  },
+  {
+   "id": "fivepoints-night",
+   "A": "plate-plate1",
+   "B": "plate-plate0"
+  },
+  {
+   "id": "fivepoints-noon",
+   "A": "plate-plate0",
+   "B": "plate-plate1"
+  }
+ ]
+}

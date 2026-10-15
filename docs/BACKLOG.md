@@ -42,6 +42,13 @@ closed and item 7's tone half is closed:
    by instance), four filtered samples a pixel, so a plate 16 m away integrates to the same face as
    one 6 m away (0.779 of the blank against 0.761) and no pixel there reaches a stroke's darkness
    (0.52 against 0.066 near); one sharp sample a pixel reads 0.346 and 0.050. `tools/car-detail`.
+   *Blind review: the face in six pairs of six* (`docs/shots/blind-key-plate-plate0-plate-plate1.json`),
+   found by the reviewer from a difference map before looking for it, confidence 4 on all three
+   corridor pairs: "A reads as a real plate ... B is a featureless grey-white tag"; character rows
+   33-41% darker than the blank in linear light, the emblem rgb 151,80,29, "it does not look pasted
+   on" — darkening concentrated in the middle rows on every plate, and the deepest pixel 82-93% darker
+   on a 22 px plate against 34-73% on the far ones, "what a filtered texture does as it shrinks".
+   Untested by the frames, and said so: shimmer in motion, whether registrations differ, orientation.
 3. **Tail lights are dark painted rectangles**, 1.11x the darkest paint on the same car.
    *SHIPPED 2026-10-15 with the headlamps, pending its blind review* — and the headlamps were the
    worse half. The cabin's blind reviewer measured a parked car's unlit headlamps as "flat white
@@ -3669,3 +3676,26 @@ sun's ortho shadow box with the player's car every frame with no snap to the map
 (0.117 m), so any sub-texel motion of the focus re-rasterises every caster at a new phase — and it
 sets the sun's height as an ABSOLUTE `sin(el) * 400` while the target takes the car's own y, so the
 light's direction itself tilts with the car's height on its suspension.
+
+### #118 OPEN — at dusk and night a lamp-lit plate BLOOMS: the night bright-pass catches diffuse surfaces
+From the plate's blind reviewer, in both arms: "Unclipped plates bloom at dusk and night. The halo is
+the same on all four sides (about 19% left and right, 13% above, 39% below at 4-8 px) and is zero at
+noon. At night a plate at only about sRGB 87 still spreads light 12-14 px onto the bodywork, and at
+noon a plate at about sRGB 144 spreads none. A photograph does not glare around a mid-grey diffuse
+surface." At dusk the blank plate read "a uniform glowing peach panel (24x its own paint)", the paint
+2 px off it +36% brighter than in the face arm and still +2% at 14 px.
+
+The mechanism reads straight off `daynight.js`: night's bloomThreshold is 0.118 in EXPOSED units,
+derived as "0.6325 nits ... Same radiance, new units — which matters most here, because at night
+everything that blooms is an emitter". A white plate under a street lamp is a few nits; so are lit
+pavement and white paint near a lamp. The premise is what the plates falsify: at night a lamp-lit
+DIFFUSE surface clears the threshold too, and gets a halo no camera gives it.
+
+Not retuned here, because the same comment records why the threshold sits where it does: moved in
+display units it "would have switched the lit windows out of the bloom" — the emitters and the brightest
+lit surfaces overlap in radiance, so a threshold alone may not separate them. The candidate that does
+not depend on separating them is #114's own tag: every lit material already writes the share of its
+radiance that is EMITTED into the scene target's alpha, and weighting the bright pass by it at night
+blooms what emits and not what is lit. Measure first: the radiance of lit windows, lamp heads and car
+lamps against lamp-lit plates, pavement and paint at the night hero cameras.
+
