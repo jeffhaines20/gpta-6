@@ -779,15 +779,126 @@ check('and it does reach zero where the lane is blocked', Math.min(...amts) === 
    * car's own edge counts as turning round, and when every route turns round the path says so
    * (`turnsBack`) for the caller to stop first.
    */
-  const dead = g.path(645, -260, 250, 2, { spacing: 4, smoothPasses: 2, heading: 2.17, speed: 11 });
-  const deadBlind = g.path(645, -260, 250, 2, { spacing: 4, smoothPasses: 2 });
-  console.log(`    a car pointing up a one-way dead end at (645, -260): turnsBack ${dead.turnsBack}, `
+  /*
+   * RESTATED BY #131. The subject was (645, -260), heading 2.17 up one-way alley edge 762, and it read
+   * as a dead end only because the shortest route out of its far vertex opened with a hairpin. The
+   * turn-limited router takes edge 87 there instead — a turn the car can make — so that car now has
+   * a route ahead (711 m, the follower arrives in 41.4 s at dv 0), which is what the next check
+   * keeps. The subject for "no route ahead" is a REAL dead end: alley edge 3, 62 m, whose far vertex
+   * has no other link. Every one of the district's 48 dead-end spurs over 40 m reads turnsBack.
+   */
+  const dead = g.path(704.6, -53.1, 250, 2, { spacing: 4, smoothPasses: 2, heading: 1.57, speed: 11 });
+  const deadBlind = g.path(704.6, -53.1, 250, 2, { spacing: 4, smoothPasses: 2 });
+  console.log(`    a car heading into dead-end alley edge 3 at (704.6, -53.1): turnsBack ${dead.turnsBack}, `
     + `${dead.length.toFixed(0)} m against ${deadBlind.length.toFixed(0)} m routed blind`);
   check('a moving car with no route ahead is TOLD so, not sent to the dead end to turn round there',
     dead.turnsBack === true && JSON.stringify(dead.points) === JSON.stringify(deadBlind.points),
     `turnsBack ${dead.turnsBack}, ${dead.length.toFixed(0)} m against ${deadBlind.length.toFixed(0)} m`);
   check('and a caller that gives no heading is told nothing', blind.turnsBack === false && deadBlind.turnsBack === false,
     `${blind.turnsBack} / ${deadBlind.turnsBack}`);
+  const was = g.path(645, -260, 250, 2, { spacing: 4, smoothPasses: 2, heading: 2.17, speed: 11 });
+  check('and the old subject, which only LOOKED like a dead end, is routed ahead by a turn the car can make (#131)',
+    was.turnsBack === false && was.hairpin === false && was.edges[0]?.e === 87,
+    `turnsBack ${was.turnsBack}, hairpin ${was.hairpin}, first edge ${was.edges[0]?.e}, ${was.length.toFixed(0)} m`);
+}
+
+// ---------------------------------------------------------------------------
+// §6d  The router's turn limit (#131).
+// ---------------------------------------------------------------------------
+/**
+ * The router was a vertex search over length, so a 139-degree hairpin from a 6.6 m road into a 2.8 m
+ * alley was as good as a straight on, and the follower spent 200 s of a 240 s timeout reversing at
+ * its mouth. It is a search over LINKS now, with src/roadpath.js's TURN_LIMIT_RAD (120 degrees, read
+ * off a drive through every turn the graph offers) as a preference that falls back to the unlimited
+ * route only when nothing gentler reaches. The turns here are this gate's OWN arithmetic off the
+ * district's edges, not RoadGraph.turn, so the router's rule is not checked by itself.
+ */
+console.log('\n§6d The router\'s turn limit (#131)');
+{
+  const LIMIT = 120;
+  const travel = (e, forward, atEnd) => {
+    const v = forward ? district.edges[e].v : [...district.edges[e].v].reverse();
+    const p = district.verts[v[atEnd ? v.length - 2 : 0]], q = district.verts[v[atEnd ? v.length - 1 : 1]];
+    const l = Math.hypot(q.x - p.x, q.z - p.z) || 1;
+    return [(q.x - p.x) / l, (q.z - p.z) / l];
+  };
+  const worstTurnDeg = (r) => {
+    let w = 0;
+    for (let i = 1; i < r.edges.length; i++) {
+      const [ax, az] = travel(r.edges[i - 1].e, r.edges[i - 1].forward, true);
+      const [bx, bz] = travel(r.edges[i].e, r.edges[i].forward, false);
+      w = Math.max(w, Math.abs(Math.atan2(ax * bz - az * bx, ax * bx + az * bz)) * 180 / Math.PI);
+    }
+    return w;
+  };
+  let seed = 131;
+  const rnd = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 4294967296);
+  const verts = [...g.out.keys()];
+  let pairs = 0, limited = 0, overLimit = 0, unlimitedOver = 0, fallbacks = 0, fallbackPair = null, lost = 0;
+  for (let k = 0; k < 200; k++) {
+    const a = verts[Math.floor(rnd() * verts.length)], b = verts[Math.floor(rnd() * verts.length)];
+    const r = g.route(a, b), r0 = g.route(a, b, { turnLimit: Infinity });
+    if (!r0) continue;
+    // A pair the unlimited search can route and the router cannot is a REFUSAL, which is the thing
+    // the fallback exists to prevent — counted, not skipped, or a router that refused would pass.
+    if (!r) { lost++; continue; }
+    pairs++;
+    if (worstTurnDeg(r0) >= LIMIT) unlimitedOver++;
+    if (r.hairpin) { fallbacks++; fallbackPair ??= [a, b]; continue; }
+    limited++;
+    if (worstTurnDeg(r) >= LIMIT) overLimit++;
+  }
+  console.log(`    ${pairs} random pairs: the unlimited search turns ${LIMIT} deg or more on ${unlimitedOver}; `
+    + `the router on ${overLimit} of its ${limited} limited routes, and fell back on ${fallbacks}`);
+  check('no route the router calls limited turns 120 degrees or more at any junction',
+    limited > 150 && overLimit === 0, `${overLimit} of ${limited}`);
+  check('KNOWN-BAD: the unlimited search does, on the same pairs', unlimitedOver > 5, `${unlimitedOver} of ${pairs}`);
+  check('and where nothing gentler reaches, it still routes, flagged as a hairpin rather than refused',
+    lost === 0 && fallbacks > 0 && g.route(fallbackPair[0], fallbackPair[1])?.hairpin === true,
+    `${lost} refused, ${fallbacks} fell back${fallbackPair ? `, e.g. ${fallbackPair.join(' -> ')}` : ''}`);
+
+  /*
+   * The reported turn: 139 degrees at vertex 95 from edge 33 (6.6 m) into alley 350 (2.8 m), where
+   * the follower spent 200 s of a 240 s timeout. From a point on 33 to a point on 350 either side of
+   * it, the shortest route has NO edges at all — the walk in and the walk out meet at the vertex —
+   * so the turn lived in the one place `route` returned early without pricing it.
+   */
+  const at = (ei, u, s2) => {
+    const e = district.edges[ei], v = e.v[0] === u ? e.v : [...e.v].reverse();
+    let acc = 0;
+    for (let k = 1; k < v.length; k++) {
+      const p = district.verts[v[k - 1]], q = district.verts[v[k]], L = Math.hypot(q.x - p.x, q.z - p.z);
+      if (acc + L >= s2) { const t = (s2 - acc) / L; return [p.x + (q.x - p.x) * t, p.z + (q.z - p.z) * t]; }
+      acc += L;
+    }
+    return null;
+  };
+  const [sx, sz] = at(33, 95, 30), [tx, tz] = at(350, 95, 30);
+  const leg = g.path(sx, sz, tx, tz, { spacing: 4, offset: ROUTE_LANE_M });
+  const legOld = g.path(sx, sz, tx, tz, { spacing: 4, offset: ROUTE_LANE_M, turnLimit: Infinity });
+  const driveLeg = (pts) => {
+    const v = new Vehicle(); v.blockers = blockers;
+    v.position.set(pts[0][0], 0.55, pts[0][1]);
+    v.quaternion.setFromAxisAngle({ x: 0, y: 1, z: 0 }, Math.atan2(pts[2][0] - pts[0][0], pts[2][1] - pts[0][1]));
+    const st = { i: 0 }, gr = new FlatGround(0);
+    for (let s2 = 0; s2 < 120 * 240; s2++) {
+      const q = v.quaternion, yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
+      const f = followPath(pts, { x: v.position.x, z: v.position.z, yaw, speed: v.speed }, st, { maxSpeed: 22, dt: 1 / 120 });
+      if (f.done) return s2 / 120;
+      v.setControls(f.controls); v.stepFixed(1 / 120, gr, 120);
+    }
+    return Infinity;
+  };
+  const tNew = driveLeg(leg.points), tOld = driveLeg(legOld.points);
+  console.log(`    33 -> 350 at vertex 95: unlimited ${legOld.length.toFixed(0)} m, ${legOld.edges.length} edges, `
+    + `${Number.isFinite(tOld) ? `arrives in ${tOld.toFixed(1)} s` : 'TIMES OUT at 240 s'}; limited `
+    + `${leg.length.toFixed(0)} m round the block, ${leg.edges.length} edges, `
+    + `${Number.isFinite(tNew) ? `arrives in ${tNew.toFixed(1)} s` : 'TIMES OUT'}`);
+  check('the #131 turn is taken round the block, not as a hairpin at the vertex',
+    legOld.edges.length === 0 && leg.edges.length > 0 && leg.hairpin === false,
+    `unlimited ${legOld.edges.length} edges, limited ${leg.edges.length}, hairpin ${leg.hairpin}`);
+  check('and the follower arrives on it, where through the hairpin it never does',
+    Number.isFinite(tNew) && !Number.isFinite(tOld), `${tNew.toFixed(1)} s against ${tOld}`);
 }
 
 // ---------------------------------------------------------------------------

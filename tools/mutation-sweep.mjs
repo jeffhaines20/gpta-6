@@ -2837,6 +2837,37 @@ const MUTATIONS = [
   },
   // ---- #132: nothing that stands on the pavement stands in front of the kerb. Each is a placer, or the
   // guard, or the query they share, reverted to what put 750 posts in the road.
+  // ---- #131: the router's turn limit. Each is a hairpin the follower cannot make, routed again.
+  {
+    id: 'route-turn-off', file: 'src/roadpath.js',
+    find: '    const limit = opts.turnLimit ?? TURN_LIMIT_RAD;\n    if (fromVertex === toVertex) {',
+    to: '    const limit = opts.turnLimit ?? Infinity;\n    if (fromVertex === toVertex) {',
+    why: 'every hairpin is as good as a straight again: 8 of 193 random routes turn 120 degrees or more, and 33 -> 350 times out',
+  },
+  {
+    id: 'route-no-fallback', file: 'src/roadpath.js',
+    find: '    if (r || !Number.isFinite(limit)) return r;',
+    to: '    return r;',
+    why: 'a target only a hairpin reaches is refused instead of routed: a preference turned into a wall',
+  },
+  {
+    id: 'route-zero-edge', file: 'src/roadpath.js',
+    find: '      if (!a || !b || RoadGraph.turnBetween(a, b) < limit) {',
+    to: '      if (true) {',
+    why: 'the route of no edges is never priced, and #131\'s own turn lived there: walk in on 33, walk out on 350',
+  },
+  {
+    id: 'route-ends-blind', file: 'src/roadpath.js',
+    find: '          arrive: dirAt(this._walkAlong(a, from, spacing), true),\n          leave: dirAt(this._walkAlong(b, to, spacing, true), false),',
+    to: '          arrive: null,\n          leave: null,',
+    why: 'the limit sees only the junctions inside a route, not the two where the walks join it',
+  },
+  {
+    id: 'route-hairpin-equal', file: 'src/roadpath.js',
+    find: '        const hp = !!r.hairpin, bestHp = best ? !!best.hairpin : true;',
+    to: '        const hp = false, bestHp = false;',
+    why: 'a candidate that had to take a hairpin competes on length with one that did not',
+  },
   {
     id: 'kerb-lamp-front', file: 'src/streetfurniture.js',
     find: '          const kb = this.kerbFace.behind(x + nx * off, z + nz * off, LAMP_POLE_R);',

@@ -4452,6 +4452,28 @@ follower's line through that bend by a few tens of centimetres, and the budget g
 course at the same cap. The lever the measurement points at is a WIDTH term in the speed limit — the
 follower reads curvature and nothing about how much road there is — but nothing has been tried.
 
+**And it is not one site, measured by driving every junction turn at speed (#131's census).** From
+rest 40 m out, every turn of 90-120 degrees completes. With a run-up — from rest up to 200 m before the
+junction, so the follower reaches its own speed — and, as a second protocol, placed at 18 m/s 80 m out:
+
+    |deflection|   not completed          completed with a charged contact (dv > 2.2)
+                   run-up    placed       run-up    placed
+      60 - 90      1 of 722  2 of 722       51        62
+      90 - 100     4 of 626  2 of 626       33        54
+     100 - 120     2 of 68   4 of 68         4         3
+    the worst, placed: dv 11.47 into a 2.8 m alley at 90.5 degrees; 9.51, 8.77, 8.29, 7.91 at right angles
+
+Two protocols that agree on the shape — a few failures and dozens of charged contacts at ordinary
+junctions, none of them a geometry the car cannot make from rest — is what makes it a finding rather
+than an artefact of placing a car at speed.
+
+So the follower's speed control into a junction is the defect, and it is the same one as the alley
+bend: it brakes for the CURVATURE ahead and knows nothing of how much road there is, so it arrives at
+a right angle into an alley at a speed the alley's width cannot hold. #131's one regressing leg is
+the extreme of it — a 114.6-degree corner completed from rest in 12.1 s, reached at 76 km/h after a
+straight-line brake, placed wrong for a corner tighter than its own turning circle, and lost to the
+reversing cycle.
+
 ### #129 FIXED — a route that opened behind a moving car is the last resort now, and where every route turns round the harness stops first
 **What shipped.** `RoadGraph.path` takes the car's `heading` and `speed`, and for a car at or above
 1.0 m/s (src/wanted.js's SCENE_STOP_MS) it prefers any of its four start/end combinations that does
@@ -4516,6 +4538,61 @@ occlusion term does at the depth step between a pane and what stands behind it, 
 the same family as #114 and #115. Not measured: the first reading is the AO buffer over one such pane
 with the pedestrian present and absent.
 
+### #131 FIXED — the router does not route through a turn the car cannot make from a standstill, unless nothing else reaches
+**Measured first, by driving every turn the graph offers.** 2,294 directed junction turns; for each,
+the course `path()` would build through it (lane offset, smoothing) from 40 m before the junction to
+40 m after, driven by the shipped follower from rest with the walls solid:
+
+    |deflection|    completed in 60 s
+        < 120 deg      674 of 674
+      120 - 130         29 of 30
+      130 - 140         14 of 20
+      140 - 150          4 of 14
+      150 - 180          9 of 18
+
+Every failure the same: no contact, two thirds of a minute in reverse, cycling at the mouth. The
+deflection is read off each edge's own end segment, at the junction; over 5 or 10 m of each edge the
+boundary is the same, over 20 m it smears (two failures at 110 and 119). So `TURN_LIMIT_RAD` is
+120 degrees, read off the data — the deflection below which the car never fails from a standstill.
+
+**The router is a search over LINKS now** (`RoadGraph.route`), because the cost of leaving a junction
+depends on how it was entered. A turn at or over the limit is not taken; when nothing under it
+reaches, the unlimited route comes back flagged `hairpin` — a preference, never a refusal. It took
+three more things to make the limit mean what it says:
+
+- **the route's two ENDS are turns too**: `path()` passes the direction its walk along the start edge
+  arrives in and the one its walk along the target edge leaves in, and `tour()` passes each leg the
+  last one's. Without them two legs in thirty still failed at the target.
+- **the route of no edges is a turn too**, and #131's own example was one: from a point on 33 to a
+  point on 350, the shortest route has no edges — the walk in and the walk out meet at vertex 95,
+  139 degrees apart — and `route` returned before pricing it. Over the limit it is now the shortest
+  loop round the block that arrives back the right way: 226 m against 52, and the follower arrives
+  in 24.8 s where through the hairpin it times out at 240.
+- **`path()` prefers a candidate that took no hairpin before comparing lengths**, one rung below
+  #129's "opens behind" preference.
+
+    387 seeded legs   29 change; median +8.1% length (p90 +33%)
+                      the follower arrives on 28 of the 29, against 11 on the unlimited routes
+    the tour          unchanged: 818 points, 88 contacts, byte-identical drive
+    path() cost       p50 3.1 ms, max 17.7 over 60 random paths, against 5.2 / 19.8 for the old
+                      vertex search — on a binary heap, because the first link search scanned for
+                      its minimum and ran p50 19.9 / max 142.7, a visible hitch when the HUD replans
+
+**The one leg that regresses is not the router's.** 190 -> 489 arrives on the unlimited route and not
+on the limited one, whose new path turns 114.6 degrees at vertex 106 (208 -> 35). That turn completes
+from rest in 12.1 s; the car reaches it at 76 km/h, brakes in a straight line, arrives slow but
+placed for a corner tighter than its turning circle, and falls into the reversing cycle. Recorded
+under #128.
+
+`roadpath-test` §6d (5 checks): no limited route turns 120 degrees or more over 193 random pairs (by
+the gate's own arithmetic, not `RoadGraph.turn`), the unlimited search does on 8, nothing is
+refused, and the reported turn goes round the block and arrives where the hairpin times out. §6c's
+"no route ahead" subject moved to a real dead end, because the old one only looked like one: the
+turn-limited router finds edge 87 out of it, 711 m, arriving in 41.4 s at dv 0. Five `mutation-sweep`
+rows, `route-turn-off`, `route-no-fallback`, `route-zero-edge`, `route-ends-blind` and
+`route-hairpin-equal`.
+
+#### THE ORIGINAL RECORD
 ### #131 OPEN — the router takes turns the car cannot make: 121 degrees from a 6.6 m road into a 2.8 m alley, and the follower cycles at the mouth for the whole timeout
 Found as #129's timeouts. The route from (13, −13) to (66, −164) turns −121 degrees at course index 37,
 from edge 33 (6.6 m, tertiary) into edge 350 (2.8 m, service — the alley of #128), and the follower

@@ -77,6 +77,39 @@ const OPENS_M = 2.0;
 const LANE_MARGIN_M = 1.5;
 
 /**
+ * THE SHARPEST TURN `route` TAKES AT A JUNCTION, unless nothing gentler reaches the target (#131).
+ * The router was a vertex Dijkstra over edge length, so a 139-degree hairpin from a 6.6 m road into
+ * a 2.8 m alley was exactly as good as a straight on, and the follower spent 200 s of a 240 s
+ * timeout reversing at its mouth. Measured by driving the shipped follower through EVERY turn the
+ * graph offers, from rest 40 m before the junction to 40 m after it, walls solid — the deflection
+ * read at the junction itself, off each edge's own end segment:
+ *
+ *     |deflection|    completed in 60 s
+ *        < 120 deg       674 of 674
+ *      120 - 130          29 of 30
+ *      130 - 140          14 of 20
+ *      140 - 150           4 of 14
+ *      150 - 180           9 of 18
+ *
+ * Every failure is the same: no contact, two thirds of a minute in reverse, cycling at the mouth.
+ * So 120 is read off the data rather than picked — the deflection below which the car never fails
+ * to make the turn from a standstill — and the measured deflection over 5 or 10 m of each edge
+ * gives the same boundary (over 20 m it smears: two failures at 110 and 119).
+ *
+ * WHAT IT BUYS, over 387 seeded legs through path(): 29 change, at a median +8.1% of length (p90
+ * +33%), and the follower arrives on 28 of them against 11 on the unlimited routes. Some targets
+ * have no route under the limit at all (1 of 193 random vertex pairs), so it is a PREFERENCE with a
+ * fallback, never a refusal.
+ *
+ * WHAT IT DOES NOT: a turn the car can make from rest it may still fail at speed. Driven from rest
+ * with up to 200 m of run-up — the speed the follower chooses for itself — 7 of 1,416 turns under
+ * 120 deg are not completed and 88 are completed with a charged contact (placed at 18 m/s 80 m out,
+ * 8 and 119). That is the follower's speed control into a junction, which reads curvature and not
+ * how much road there is: #128's, not the router's.
+ */
+const TURN_LIMIT_RAD = (120 * Math.PI) / 180;
+
+/**
  * HOW FAR RIGHT THE ROUTE LINE A PLAYER FOLLOWS SHOULD SIT, and it is neither 0 nor the lane the
  * fleet uses. district/main.js drew the line on the CENTRELINE, which is the one place on a
  * two-way street that meets both directions of traffic: a playtester measured 16 of 30 cars
@@ -157,9 +190,20 @@ export class RoadGraph {
     // that decides whether an edge is driveable at all. See laneOffsets().
     this.blockers = opts.blockers ?? null;
     this.carRadius = carRadius;
+    // Each link carries its direction of travel where it LEAVES its start vertex and where it
+    // ARRIVES at its end one, off its own end segments, so `route` can price the turn between two
+    // (#131). The junction's own geometry, not a chord: see TURN_LIMIT_RAD.
+    const travel = (e, forward, atEnd) => {
+      const v = district.edges[e].v;
+      const n = v.length;
+      const [i, j] = forward ? (atEnd ? [n - 2, n - 1] : [0, 1]) : (atEnd ? [1, 0] : [n - 1, n - 2]);
+      const p = district.verts[v[i]], q = district.verts[v[j]];
+      const l = Math.hypot(q.x - p.x, q.z - p.z) || 1;
+      return [(q.x - p.x) / l, (q.z - p.z) / l];
+    };
     const add = (v, e, forward, to, len) => {
       if (!this.out.has(v)) this.out.set(v, []);
-      this.out.get(v).push({ e, forward, to, len });
+      this.out.get(v).push({ e, forward, to, len, dIn: travel(e, forward, false), dOut: travel(e, forward, true) });
     };
     let blockedLen = 0;
     district.edges.forEach((e, i) => {
@@ -315,35 +359,109 @@ export class RoadGraph {
    * minimum is measured in the gate at well under a millisecond, and a wrong heap is a
    * class of bug this does not need.
    */
-  route(fromVertex, toVertex) {
-    if (fromVertex === toVertex) return { edges: [], vertices: [fromVertex], length: 0 };
-    const dist = new Map([[fromVertex, 0]]);
-    const prev = new Map();
-    const done = new Set();
-    for (;;) {
-      let u = -1, best = Infinity;
-      for (const [v, dv] of dist) if (!done.has(v) && dv < best) { best = dv; u = v; }
-      if (u === -1) return null;
-      if (u === toVertex) break;
-      done.add(u);
-      for (const link of this.out.get(u) ?? []) {
-        const nd = best + link.len;
-        if (nd < (dist.get(link.to) ?? Infinity)) {
-          dist.set(link.to, nd);
-          prev.set(link.to, { from: u, ...link });
+  /**
+   * The shortest route between two vertices that never turns harder than TURN_LIMIT_RAD at a
+   * junction, or — when no such route exists — the shortest route at all, flagged `hairpin: true`
+   * (#131). `opts.turnLimit` overrides the limit; `Infinity` is the unlimited search.
+   *
+   * A SEARCH OVER LINKS, NOT VERTICES, because the cost of leaving a junction depends on how it was
+   * entered: two routes reaching the same vertex are not interchangeable when one of them can only
+   * leave by a hairpin. With no limit it finds the vertex search's lengths exactly, since a turn
+   * then costs nothing. A link straight back along the edge it arrived by is never taken — it is a
+   * 180-degree turn, and it is never the shortest way anywhere either.
+   *
+   * AND THE TWO ENDS ARE TURNS TOO. `opts.arrive` is the direction the car is travelling as it
+   * reaches `fromVertex` and `opts.leave` the one it must leave `toVertex` in — path()'s walk along
+   * the start and target edges, tour()'s previous leg — because a limit that only sees the junctions
+   * INSIDE a route let two legs in thirty fail at the target: the last link into a dead-end spur,
+   * then a hairpin onto the tail.
+   */
+  route(fromVertex, toVertex, opts = {}) {
+    const limit = opts.turnLimit ?? TURN_LIMIT_RAD;
+    if (fromVertex === toVertex) {
+      // THE ROUTE OF NO EDGES IS A TURN TOO, and #131's own leg was one: the car walks in along its
+      // edge and out along the target's at the same vertex, 139 degrees apart. Under the limit it
+      // costs nothing; over it, the shortest loop round the block that arrives back the right way,
+      // and only when there is none the hairpin itself, flagged.
+      const a = opts.arrive, b = opts.leave;
+      if (!a || !b || RoadGraph.turnBetween(a, b) < limit) {
+        return { edges: [], vertices: [fromVertex], length: 0, hairpin: false };
+      }
+      return this._routeLinks(fromVertex, toVertex, limit, a, b)
+        ?? { edges: [], vertices: [fromVertex], length: 0, hairpin: true };
+    }
+    const r = this._routeLinks(fromVertex, toVertex, limit, opts.arrive, opts.leave);
+    if (r || !Number.isFinite(limit)) return r;
+    const any = this._routeLinks(fromVertex, toVertex, Infinity);
+    if (any) any.hairpin = true;
+    return any;
+  }
+
+  /** The turn between arriving by link A and leaving by link B, in radians, 0 to pi. */
+  static turn(A, B) {
+    return RoadGraph.turnBetween(A.dOut, B.dIn);
+  }
+
+  /** The turn from travelling along unit vector `a` to travelling along unit vector `b`. */
+  static turnBetween([ax, az], [bx, bz]) {
+    return Math.abs(Math.atan2(ax * bz - az * bx, ax * bx + az * bz));
+  }
+
+  /**
+   * ON A BINARY HEAP, because the link search scans 1,467 states where the vertex search scanned
+   * 676, and a linear scan for the minimum made the HUD's route line 4x slower to plan: over 60
+   * random paths, p50 5.2 -> 19.9 ms and max 19.8 -> 142.7 ms, which is a visible hitch on the
+   * frame that replans it. Entries are pushed again rather than decreased; a stale one is skipped
+   * when it surfaces.
+   */
+  _routeLinks(fromVertex, toVertex, limit, arrive = null, leave = null) {
+    const dist = new Map(), prev = new Map(), done = new Set();
+    const heap = [];
+    const push = (d, L) => {
+      heap.push([d, L]);
+      for (let i = heap.length - 1; i > 0;) {
+        const j = (i - 1) >> 1;
+        if (heap[j][0] <= heap[i][0]) break;
+        [heap[i], heap[j]] = [heap[j], heap[i]]; i = j;
+      }
+    };
+    const pop = () => {
+      const top = heap[0], last = heap.pop();
+      if (heap.length) {
+        heap[0] = last;
+        for (let i = 0; ;) {
+          const l = 2 * i + 1, r = l + 1;
+          let m = i;
+          if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+          if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+          if (m === i) break;
+          [heap[i], heap[m]] = [heap[m], heap[i]]; i = m;
         }
       }
+      return top;
+    };
+    for (const L of this.out.get(fromVertex) ?? []) {
+      if (arrive && RoadGraph.turnBetween(arrive, L.dIn) >= limit) continue;
+      if (L.len < (dist.get(L) ?? Infinity)) { dist.set(L, L.len); prev.set(L, null); push(L.len, L); }
     }
-    const edges = [], vertices = [toVertex];
-    let cur = toVertex;
-    while (cur !== fromVertex) {
-      const p = prev.get(cur);
-      edges.push({ e: p.e, forward: p.forward });
-      cur = p.from;
-      vertices.push(cur);
+    let goal = null;
+    while (heap.length) {
+      const [best, cur] = pop();
+      if (done.has(cur) || best > dist.get(cur)) continue;
+      if (cur.to === toVertex && (!leave || RoadGraph.turnBetween(cur.dOut, leave) < limit)) { goal = cur; break; }
+      done.add(cur);
+      for (const M of this.out.get(cur.to) ?? []) {
+        if (M.e === cur.e || RoadGraph.turn(cur, M) >= limit) continue;
+        const nd = best + M.len;
+        if (nd < (dist.get(M) ?? Infinity)) { dist.set(M, nd); prev.set(M, cur); push(nd, M); }
+      }
     }
-    edges.reverse(); vertices.reverse();
-    return { edges, vertices, length: dist.get(toVertex) };
+    if (!goal) return null;
+    const links = [];
+    for (let L = goal; L; L = prev.get(L)) links.push(L);
+    links.reverse();
+    return { edges: links.map((L) => ({ e: L.e, forward: L.forward })),
+      vertices: [fromVertex, ...links.map((L) => L.to)], length: dist.get(goal), hairpin: false };
   }
 
   /**
@@ -391,7 +509,7 @@ export class RoadGraph {
    * a per-point right-hand normal of the local direction rather than by offsetting each
    * edge, which keeps the corners continuous.
    */
-  path(x0, z0, x1, z1, { spacing = 5, offset = 0, smoothPasses = 2, heading = null, speed = 0 } = {}) {
+  path(x0, z0, x1, z1, { spacing = 5, offset = 0, smoothPasses = 2, heading = null, speed = 0, turnLimit } = {}) {
     const a = this.nearestOn(x0, z0), b = this.nearestOn(x1, z1);
     if (!a || !b) return null;
     /**
@@ -445,9 +563,20 @@ export class RoadGraph {
       for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
       return L;
     };
+    // The direction a walk is travelling at one end, if it is long enough to have one.
+    const dirAt = (pts, atEnd) => {
+      if (pts.length < 2) return null;
+      const [p, q] = atEnd ? [pts[pts.length - 2], pts[pts.length - 1]] : [pts[0], pts[1]];
+      const l = Math.hypot(q[0] - p[0], q[1] - p[1]);
+      return l > 0.5 ? [(q[0] - p[0]) / l, (q[1] - p[1]) / l] : null;
+    };
     for (const from of [a.v0, a.v1]) {
       for (const to of [b.v0, b.v1]) {
-        const r = this.route(from, to);
+        const r = this.route(from, to, {
+          arrive: dirAt(this._walkAlong(a, from, spacing), true),
+          leave: dirAt(this._walkAlong(b, to, spacing, true), false),
+          turnLimit,
+        });
         if (!r) continue;
         const leadIn = this._walkAlong(a, from, spacing);
         const score = r.length + walkLen(leadIn) + walkLen(this._walkAlong(b, to, spacing, true));
@@ -457,7 +586,10 @@ export class RoadGraph {
         // follower cannot do either: 10 timeouts in 30 legs where the U-turn at the car had 2.
         const doublesBack = moving && r.edges.length > 0 && r.edges[0].e === a.edge;
         const behind = doublesBack || opensBehind(moving ? [...leadIn, ...this.densify(r.edges, spacing)] : leadIn);
-        if (behind < bestBehind || (behind === bestBehind && score < bestScore)) {
+        // #131: a candidate that had to take a hairpin loses to any that did not, before length —
+        // the same shape as #129's preference, one rung below it.
+        const hp = !!r.hairpin, bestHp = best ? !!best.hairpin : true;
+        if (behind < bestBehind || (behind === bestBehind && (hp < bestHp || (hp === bestHp && score < bestScore)))) {
           bestScore = score; best = r; bestBehind = behind;
         }
       }
@@ -534,7 +666,9 @@ export class RoadGraph {
     // doubles back along the edge it is on — which is a dead end or a one-way street the wrong way
     // round. False whenever no heading was given, so a caller that does not ask is told nothing.
     return { points: pts, length: len, graphLength: best.length, edges: best.edges,
-      start: a, end: b, endVertex: best.vertices[best.vertices.length - 1], turnsBack: moving && bestBehind };
+      start: a, end: b, endVertex: best.vertices[best.vertices.length - 1], turnsBack: moving && bestBehind,
+      // #131: no route reached the target under TURN_LIMIT_RAD, so this one takes a hairpin.
+      hairpin: !!best.hairpin };
   }
 
   /**
@@ -651,12 +785,14 @@ export class RoadGraph {
     const legs = [];
     let bestStart = null;
     for (const v0 of [snaps[0].v0, snaps[0].v1]) {
-      let cur = v0, total = 0, edges = [], marks = [], ok = true;
+      let cur = v0, total = 0, edges = [], marks = [], ok = true, arrive = null;
       for (let i = 1; i <= snaps.length; i++) {
         const target = snaps[i % snaps.length];
         let leg = null;
         for (const to of [target.v0, target.v1]) {
-          const r = this.route(cur, to);
+          // Each leg is told how the last one arrived, so a hairpin between two legs is priced the
+          // way one inside a leg is (#131).
+          const r = this.route(cur, to, { arrive });
           if (r && (!leg || r.length < leg.length)) leg = r;
         }
         if (!leg) { ok = false; break; }
@@ -664,6 +800,12 @@ export class RoadGraph {
         edges = edges.concat(leg.edges);
         total += leg.length;
         cur = leg.vertices[leg.vertices.length - 1];
+        if (leg.edges.length) {
+          const last = leg.edges[leg.edges.length - 1];
+          const link = (this.out.get(leg.vertices[leg.vertices.length - 2]) ?? [])
+            .find((L) => L.e === last.e && L.forward === last.forward);
+          if (link) arrive = link.dOut;
+        }
       }
       if (ok && (!bestStart || total < bestStart.total)) bestStart = { v0, total, edges, marks, endVertex: cur };
     }

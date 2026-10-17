@@ -2061,6 +2061,35 @@ because the seeds reach only the fleet and the crowd — this file's "n=1 wearin
 arriving as a CONTROL. Before reading a column across a sweep, locate its events; a total that one
 site supplies says nothing about the parameter being swept.
 
+## A constraint inside a search does not see the search's own ends, and #131's example lived there
+
+The router was a vertex search over length, so a 139-degree hairpin into a 2.8 m alley was as good
+as a straight on. The limit that fixes it was READ OFF A DRIVE THROUGH EVERY TURN THE GRAPH OFFERS
+— 674 of 674 under 120 degrees completed from rest, 56 of 82 at or over it — rather than picked, and
+the router became a search over links so a turn could be priced at all.
+
+**The first version priced every junction INSIDE a route and none at its ends.** `path()` joins a
+walk along the start edge to the first link and the last link to a walk along the target edge, and
+those two joins are turns; and when start and target sit either side of one vertex the route has NO
+edges and the whole turn is the join — which is exactly #131's reported case, 33 into 350 at vertex
+95, the one place `route` returned before looking. Two legs in thirty still failed at the target
+until the ends were priced. **When you add a constraint to a search, list every place the answer is
+assembled outside it**, and check the example that motivated the change against each.
+
+Two more shapes, both measured on the way:
+
+- **A census from rest is not a census at speed.** From rest 40 m out no turn of 90-120 degrees
+  fails; with up to 200 m of run-up, 7 of 1,416 under 120 do and 88 complete with a charged
+  contact (placing the car at 18 m/s instead gives 8 and 119 — two protocols, one shape). The
+  router's limit is the first number; the second is the follower's speed control, which reads
+  curvature and not road width (#128). Say which condition a feasibility number was measured under
+  before another subsystem leans on it — and I first quoted the second protocol's charged count as
+  117 where its own bins sum to 119, so add the bins up before quoting their total.
+- **Price a change at its call site, not in its own loop.** The first link search scanned for its
+  minimum like the vertex search it replaced, over twice the states: `path()` went from p50 5.2 to
+  19.9 ms and max 19.8 to 142.7 — a hitch on the frame the HUD replans. A heap made it 3.1 / 17.7,
+  faster than before. The gates were green at 142.7 ms; only a timing loop could see it.
+
 ## A model integrated at the game's dt is measured at the harness's
 
 The pedestrian throw distance is `v^2 / (2 mu g)` — a real reconstruction figure, checked
