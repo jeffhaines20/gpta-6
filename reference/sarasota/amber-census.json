@@ -14,18 +14,18 @@
  "caveats": [
   "This is photographed luminance, not albedo. The lens is a glossy curved plastic over a reflector, and its reading depends on what it mirrors (sky, ground, the next car) as much as on its colour. Paint carries clearcoat sheen and, on dark metallics, mirrors the sky: the Tacoma's grey fender reads bluish, mean sRGB 40,50,69.",
   "The rows order by paint tone, so white cars read below 1 and dark cars above. That is the signature of a ratio whose denominator varies far more than its numerator. The family field is not optional context; it is half of the number.",
-  "Lit lamps: a daylight-lit amber would read near-clipped and saturated. Only one kept lens clips at all: the Compass, 2.8% of its box, a specular highlight visible on the crop. All three moving cars (Accord, CX-30, Rogue) read below their paint, which is consistent with unlit lenses. A dim lit element cannot be excluded.",
-  "Box size: the lens boxes hold 12-50 px. A box under about 4x4 px is dominated by JPEG 4:2:0 chroma subsampling, which smears a 4 px element's colour over about 8 px; such elements were refused (CR-V 7x4, Tesla strip 3-4 px tall).",
+  "Lit lamps: a daylight-lit amber would read near-clipped and saturated. Only one kept lens clips at all: the Jeep Compass, 2.8% of its box, a specular highlight visible on the crop. All three moving cars (Accord, CX-30, Rogue) read below their paint, which is consistent with unlit lenses. A dim lit element cannot be excluded.",
+  "Box size: the kept lens boxes hold 20-50 px. A box under about 4x4 px is dominated by JPEG 4:2:0 chroma subsampling, which smears a 4 px element's colour over about 8 px; such elements were refused (CR-V 7x4, Tesla strip 3-4 px tall).",
   "JPEG floor: at L < ~0.03-0.05 (deep shade, black paint) a 1-code change is several percent of the reading, and black paint mirrors the ground. Both black cars with visible amber were refused for this.",
   "Clipping: white paint in direct sun clips, and a ratio against it is only an upper bound (the Sequoia was refused).",
   "The presence test cannot work on red or orange paint, whose own hue falls in the amber band (red Wrangler, GR86).",
-  "Wide rows (25-47% placement spread) come from elements only 4-5 px thick, or diagonal ones (Mazda5 right side, Tacoma, Tundra, Rogue, Compass). Their first decimal place is the claim; the second is not.",
+  "Wide rows (25-47% placement spread): Compass (a specular highlight on the lens); Mazda5 left side (a blurred outline); Mazda5 right side (a diagonal stripe 4-5 px thick); Tacoma (a strip 4-5 px tall over paint near the dark floor); Tundra (an 8x7 core inside a peach lens, over dark paint); Rogue (a diagonal band with dark gaps). Their first decimal place is the claim; the second is not.",
   "The second paint box moves a ratio by 1-18% (median 15%). That is the size of \"which part of the panel counts as beside it\", separate from the +-1 px placement range.",
   "Families are by eye. The Mazda5 is a warm silver (mean sRGB 151,134,117 in sun) and could be called champagne. Model names are identifications by eye, given only to help find the car.",
   "Sizes are apparent. Side-view rows see the headlamp side-on, with its front foreshortened, so the amber/headlamp ratios mix viewpoints and come with no distances.",
   "Sample: 9 measured cars from one ~1.5 km downtown corridor (Bayfront to Five Points) on one day (2024-10-13, one 360-camera rig), mostly 2015+ vehicles. No black or red car and no pre-2010 car survived measurement."
  ],
- "measuredBy": "a census subagent, 2026-10-15",
+ "measuredBy": "a census subagent, 2026-10-15 (summary recomputed from the lists and every row re-measured through the unchanged tool, 2026-10-17)",
  "instrument": {
   "tool": "tools/paint-tone.mjs --sample (and --grid for placement)",
   "toolSha256Prefix": "89edc2df54156d06",
@@ -33,78 +33,25 @@
   "boxFormat": "[x, y, w, h] in the original image's pixels"
  },
  "summary": {
+  "derivation": "Every count, median and quoted number in this summary is computed from the rows, noAmber and refused lists in this file when it is written; an independent audit re-derives each one.",
   "imagesSurveyed": "229: 202 equirectangular 2048x1024 panoramas (2024-10-13) and 27 flat frames (2014-2021)",
-  "carsWithAnAnswerToQ1": 32,
+  "measuredRows": 10,
+  "measuredCars": 9,
+  "amberVisibleNotMeasurable": 7,
   "amberVisible": 16,
-  "amberVisibleBreakdown": "9 measured (10 rows: the Mazda5 on both sides) + 7 visible but refused",
   "noAmberVisible": 16,
-  "noAmberBreakdown": "13 with the corner's side face in view + 3 head-on, which can only answer for the front face",
+  "noAmberFrontFaceOnly": 3,
+  "carsWithAnAnswerToQ1": 32,
   "presenceUncertain": 4,
   "unresolved": 23,
+  "duplicateViewsRefused": 2,
+  "amberVisibleBreakdown": "9 measured (10 rows: the Mazda5 on both sides) + 7 visible but refused",
+  "noAmberBreakdown": "13 with the corner's side face in view + 3 head-on, which can only answer for the front face",
   "shareWithAmber": "16 of 32 (50%); 16 of 29 (55%) counting only the views that show the corner's side face; 16-20 of 36 if the 4 uncertain go either way",
-  "lensOverPaintByFamilyAndLight": {
-   "blue / sun": {
-    "n": 1,
-    "min": 2.748,
-    "median": 2.748,
-    "max": 2.748,
-    "values": [
-     2.748
-    ]
-   },
-   "grey / shade": {
-    "n": 1,
-    "min": 1.775,
-    "median": 1.775,
-    "max": 1.775,
-    "values": [
-     1.775
-    ]
-   },
-   "silver / shade": {
-    "n": 1,
-    "min": 1.048,
-    "median": 1.048,
-    "max": 1.048,
-    "values": [
-     1.048
-    ]
-   },
-   "silver / sun": {
-    "n": 3,
-    "min": 1.283,
-    "median": 1.404,
-    "max": 1.409,
-    "values": [
-     1.283,
-     1.404,
-     1.409
-    ]
-   },
-   "white / shade": {
-    "n": 3,
-    "min": 0.431,
-    "median": 0.746,
-    "max": 0.944,
-    "values": [
-     0.431,
-     0.746,
-     0.944
-    ]
-   },
-   "white / sun": {
-    "n": 1,
-    "min": 0.599,
-    "median": 0.599,
-    "max": 0.599,
-    "values": [
-     0.599
-    ]
-   }
-  },
   "lensOverPaintByFamily": {
    "blue": {
-    "n": 1,
+    "nRows": 1,
+    "nCars": 1,
     "min": 2.748,
     "median": 2.748,
     "max": 2.748,
@@ -113,7 +60,8 @@
     ]
    },
    "grey": {
-    "n": 1,
+    "nRows": 1,
+    "nCars": 1,
     "min": 1.775,
     "median": 1.775,
     "max": 1.775,
@@ -122,7 +70,8 @@
     ]
    },
    "silver": {
-    "n": 4,
+    "nRows": 4,
+    "nCars": 3,
     "min": 1.048,
     "median": 1.344,
     "max": 1.409,
@@ -134,7 +83,8 @@
     ]
    },
    "white": {
-    "n": 4,
+    "nRows": 4,
+    "nCars": 4,
     "min": 0.431,
     "median": 0.673,
     "max": 0.944,
@@ -143,6 +93,72 @@
      0.599,
      0.746,
      0.944
+    ]
+   }
+  },
+  "lensOverPaintByFamilyAndLight": {
+   "blue / sun": {
+    "nRows": 1,
+    "nCars": 1,
+    "min": 2.748,
+    "median": 2.748,
+    "max": 2.748,
+    "values": [
+     2.748
+    ]
+   },
+   "grey / shade": {
+    "nRows": 1,
+    "nCars": 1,
+    "min": 1.775,
+    "median": 1.775,
+    "max": 1.775,
+    "values": [
+     1.775
+    ]
+   },
+   "silver / shade": {
+    "nRows": 1,
+    "nCars": 1,
+    "min": 1.048,
+    "median": 1.048,
+    "max": 1.048,
+    "values": [
+     1.048
+    ]
+   },
+   "silver / sun": {
+    "nRows": 3,
+    "nCars": 3,
+    "min": 1.283,
+    "median": 1.404,
+    "max": 1.409,
+    "values": [
+     1.283,
+     1.404,
+     1.409
+    ]
+   },
+   "white / shade": {
+    "nRows": 3,
+    "nCars": 3,
+    "min": 0.431,
+    "median": 0.746,
+    "max": 0.944,
+    "values": [
+     0.431,
+     0.746,
+     0.944
+    ]
+   },
+   "white / sun": {
+    "nRows": 1,
+    "nCars": 1,
+    "min": 0.599,
+    "median": 0.599,
+    "max": 0.599,
+    "values": [
+     0.599
     ]
    }
   },
@@ -168,7 +184,7 @@
     "spreadPct": 9.5
    }
   ],
-  "placementWide_25to47pct": [
+  "placementWide_25to50pct": [
    {
     "id": "compass-silver-L",
     "lensOverPaint": 1.4037,
@@ -200,7 +216,7 @@
     "spreadPct": 39.9
    }
   ],
-  "secondPaintBoxMovesTheRatio": {
+  "secondPaintBoxMovesTheRatioPct": {
    "n": 10,
    "min": 1.233,
    "median": 14.628,
@@ -216,8 +232,7 @@
     16.434,
     17.777,
     18.059
-   ],
-   "unit": "percent"
+   ]
   },
   "lensP90overP50": {
    "n": 10,
@@ -259,37 +274,37 @@
    "width": {
     "n": 10,
     "min": 0.17,
-    "median": 0.405,
+    "median": 0.406,
     "max": 0.6,
     "values": [
      0.17,
      0.25,
-     0.31,
+     0.308,
      0.31,
      0.4,
-     0.41,
-     0.42,
-     0.46,
-     0.52,
+     0.412,
+     0.423,
+     0.459,
+     0.517,
      0.6
     ]
    },
    "height": {
     "n": 10,
-    "min": 0.16,
+    "min": 0.161,
     "median": 0.5,
-    "max": 0.88,
+    "max": 0.875,
     "values": [
-     0.16,
-     0.24,
-     0.29,
-     0.31,
+     0.161,
+     0.241,
+     0.286,
+     0.312,
      0.5,
      0.5,
-     0.53,
-     0.61,
-     0.83,
-     0.88
+     0.533,
+     0.611,
+     0.833,
+     0.875
     ]
    },
    "amberPixelsOverHeadlampBboxArea": {
@@ -309,11 +324,14 @@
      0.165
     ]
    },
-   "note": "apparent sizes in the same frame. The amber bbox is about 0.4 of the headlamp's apparent width and 0.5 of its height. Its pixel count is only about a tenth of the headlamp bbox area, because it is a strip, chevron or corner wedge rather than a block."
+   "eyeReadAmberBbox": [
+    "mazda5-silver-L"
+   ],
+   "note": "Apparent sizes in the same frame, from the raw pixel sizes of each row (not the rounded per-row ratios). The amber bounding box is a median 0.41 of the headlamp's apparent width and 0.50 of its height (n = 10 rows). Its pixel count is a median 0.082 of the headlamp bounding-box area (n = 9): a strip, chevron or corner wedge rather than a block. mazda5-silver-L is an eye-read bounding box, because its connected cluster leaks into a warm ground reflection along the bumper; it has no pixel count and is not in the area figure."
   },
   "readThisFirst": [
-   "lensOverPaint orders by paint tone: white 0.43-0.94 < silver 1.05-1.41 < dark grey 1.78 < dark blue 2.75. That is what a lens whose brightness depends far less on the body colour than the paint does would produce. A single number across families is therefore not a property of the lens. Compare within a family, or multiply by the family's own paint reflectance. The independence is an inference from the ordering: absolute lens values cannot be compared across frames, because each frame has its own exposure.",
-   "Light moves it as much as family does within a family. The same Mazda5 reads 1.41 on its sunlit side and 1.05 on its shaded side.",
+   "lensOverPaint orders by paint tone: white 0.43-0.94 < silver 1.05-1.41 < dark grey 1.77 < dark blue 2.75 (white 4 rows / 4 cars, silver 4 rows / 3 cars, dark grey 1 row / 1 car, dark blue 1 row / 1 car). That is what a lens whose brightness depends far less on the body colour than the paint does would produce. A single number across families is therefore not a property of the lens. Compare within a family, or multiply by the family's own paint reflectance. The independence is an inference from the ordering: absolute lens values cannot be compared across frames, because each frame has its own exposure.",
+   "Light moves it too. The same Mazda5 reads 1.41 on its sunlit side and 1.05 on its shaded side, a factor of 1.34 on one car, so compare rows within a family AND a light.",
    "No black or red car survived. On black paint the reference is at the JPEG floor and reflects the ground. On red or orange paint the paint itself falls inside the amber hue band.",
    "A head-on view misses the side marker. The Expedition shows no amber on its front face but has an amber side marker; the 3 head-on \"no\" cars are front-face answers only."
   ]
@@ -400,7 +418,8 @@
     "bboxArea": 0.078,
     "amberPixelsOverHeadlampBbox": 0.062
    },
-   "boxesTried": "4x3 core [384,663,4,3] 0.7135 (0.676-0.840); 6x4 [382,663,6,4] 0.7439 (0.711-0.807); 5x5 kept = the whole sat>=0.25 blob"
+   "boxesTried": "4x3 core [384,663,4,3] 0.7135 (0.676-0.840); 6x4 [382,663,6,4] 0.7439 (0.711-0.807); 5x5 kept = the whole sat>=0.25 blob",
+   "vehicle": "accord-white"
   },
   {
    "id": "cx30-white-L",
@@ -483,7 +502,8 @@
     "bboxArea": 0.259,
     "amberPixelsOverHeadlampBbox": 0.165
    },
-   "boxesTried": "6x3 core [349,716,6,3] 0.453 (0.435-0.520); 9x5 kept"
+   "boxesTried": "6x3 core [349,716,6,3] 0.453 (0.435-0.520); 9x5 kept",
+   "vehicle": "cx30-white"
   },
   {
    "id": "compass-silver-L",
@@ -567,7 +587,8 @@
     "amberPixelsOverHeadlampBbox": 0.095
    },
    "boxesTried": "6x6 only; a second alternate paint box at the corner where the fascia turns into shade [652,653,8,5] read 0.152 (ratio 2.47) and was rejected as a different orientation",
-   "note": "the same car is in mly-1349590039583660.jpg (5 m away); its side marker there is refused (see refused)"
+   "note": "the same car is in mly-1349590039583660.jpg (5 m away); its side marker there is refused (see refused)",
+   "vehicle": "compass-silver"
   },
   {
    "id": "mazda5-silver-L",
@@ -649,7 +670,8 @@
     "height": 0.5,
     "bboxArea": 0.3
    },
-   "boxesTried": "10x5 only"
+   "boxesTried": "10x5 only",
+   "vehicle": "mazda5-silver"
   },
   {
    "id": "mazda5-silver-R",
@@ -732,7 +754,8 @@
     "bboxArea": 0.35,
     "amberPixelsOverHeadlampBbox": 0.128
    },
-   "boxesTried": "6x4 kept 1.048 (0.924-1.352, 41%); 6x3 [708,690,6,3] 1.166 (0.924-1.951, 88%); 8x6 [706,690,8,6] 1.115 (0.961-1.538, 52%). All three centre on 1.05-1.17; the kept one has the smallest spread, which is a selection, said here"
+   "boxesTried": "6x4 kept 1.048 (0.924-1.352, 41%); 6x3 [708,690,6,3] 1.166 (0.924-1.951, 88%); 8x6 [706,690,8,6] 1.115 (0.961-1.538, 52%). All three centre on 1.05-1.17; the kept one has the smallest spread, which is a selection, said here",
+   "vehicle": "mazda5-silver"
   },
   {
    "id": "tacoma-grey-L",
@@ -815,7 +838,8 @@
     "bboxArea": 0.074,
     "amberPixelsOverHeadlampBbox": 0.06
    },
-   "boxesTried": "11x3 only; the strip is 4-5 px tall"
+   "boxesTried": "11x3 only; the strip is 4-5 px tall",
+   "vehicle": "tacoma-grey"
   },
   {
    "id": "tundra-blue-L",
@@ -898,7 +922,8 @@
     "bboxArea": 0.074,
     "amberPixelsOverHeadlampBbox": 0.049
    },
-   "boxesTried": "6x5 only"
+   "boxesTried": "6x5 only",
+   "vehicle": "tundra-blue"
   },
   {
    "id": "camry-silver-R",
@@ -982,7 +1007,8 @@
     "amberPixelsOverHeadlampBbox": 0.061
    },
    "boxesTried": "6x5 only",
-   "note": "the same car appears in mly-625020687029490.jpg (left side); that frame clips both lamp and fender, refused"
+   "note": "the same car appears in mly-625020687029490.jpg (left side); that frame clips both lamp and fender, refused",
+   "vehicle": "camry-silver"
   },
   {
    "id": "expedition-white-L",
@@ -1066,7 +1092,8 @@
     "amberPixelsOverHeadlampBbox": 0.082
    },
    "boxesTried": "6x4 only",
-   "note": "the same vehicle head-on in mly-1867535034058720.jpg shows no amber on its front face: a head-on view misses this marker"
+   "note": "the same vehicle head-on in mly-1867535034058720.jpg shows no amber on its front face: a head-on view misses this marker",
+   "vehicle": "expedition-white"
   },
   {
    "id": "rogue-white-R",
@@ -1149,7 +1176,8 @@
     "bboxArea": 0.343,
     "amberPixelsOverHeadlampBbox": 0.137
    },
-   "boxesTried": "5x4 only; lens p10 0.083 shows the box touches a dark gap"
+   "boxesTried": "5x4 only; lens p10 0.083 shows the box touches a dark gap",
+   "vehicle": "rogue-white"
   }
  ],
  "noAmber": [
@@ -1167,7 +1195,8 @@
    "view": "front 3/4 (front face + one side)",
    "headlamp": "30 x 10",
    "amberPx": 5,
-   "largestCluster": 4
+   "largestCluster": 4,
+   "sideFaceInView": true
   },
   {
    "car": "white Honda Pilot (2016-22)",
@@ -1183,7 +1212,8 @@
    "view": "near head-on: FRONT FACE ONLY",
    "headlamp": "35 x 13",
    "amberPx": 6,
-   "largestCluster": 4
+   "largestCluster": 4,
+   "sideFaceInView": false
   },
   {
    "car": "grey VW Atlas Cross Sport",
@@ -1200,7 +1230,8 @@
    "headlamp": "33 x 11",
    "amberPx": 28,
    "largestCluster": 21,
-   "note": "the 21-px cluster is the wheel-arch edge reflecting the ground, checked on a x10 view"
+   "note": "the 21-px cluster is the wheel-arch edge reflecting the ground, checked on a x10 view",
+   "sideFaceInView": true
   },
   {
    "car": "silver Lincoln Corsair",
@@ -1217,7 +1248,8 @@
    "headlamp": "52 x 17",
    "amberPx": 39,
    "largestCluster": 18,
-   "note": "the 18-px cluster is the wheel-arch edge, checked on a x7 view"
+   "note": "the 18-px cluster is the wheel-arch edge, checked on a x7 view",
+   "sideFaceInView": true
   },
   {
    "car": "white Audi Q3 (2019+); one car seen in three frames",
@@ -1234,7 +1266,8 @@
    "headlamp": "30 x 18",
    "amberPx": 6,
    "largestCluster": 6,
-   "note": "head-on boxes: 5 px / 4 px largest, and 75 px / 20 px largest where the box meets the dark background"
+   "note": "head-on boxes: 5 px / 4 px largest, and 75 px / 20 px largest where the box meets the dark background",
+   "sideFaceInView": true
   },
   {
    "car": "white BMW X5 (G05); one car seen in four frames",
@@ -1250,7 +1283,8 @@
    "view": "front 3/4",
    "headlamp": "57 x 14",
    "amberPx": 5,
-   "largestCluster": 1
+   "largestCluster": 1,
+   "sideFaceInView": true
   },
   {
    "car": "white Chevrolet Suburban (2021+)",
@@ -1267,7 +1301,8 @@
    "headlamp": "48 x 12",
    "amberPx": 150,
    "largestCluster": 123,
-   "note": "the cluster is a bush behind the car at x566-579, outside the lamp; the lamp itself is clean"
+   "note": "the cluster is a bush behind the car at x566-579, outside the lamp; the lamp itself is clean",
+   "sideFaceInView": true
   },
   {
    "car": "white Toyota Prius (2016-22)",
@@ -1284,7 +1319,8 @@
    "headlamp": "52 x 18",
    "amberPx": 1,
    "largestCluster": 1,
-   "note": "a saturated patch in the lamp at x1643-1658 y696-705 is hue 340-358 (magenta-red) at L < 0.03: a dark reflection, not amber"
+   "note": "a saturated patch in the lamp at x1643-1658 y696-705 is hue 340-358 (magenta-red) at L < 0.03: a dark reflection, not amber",
+   "sideFaceInView": true
   },
   {
    "car": "grey VW Atlas (2021+ facelift)",
@@ -1301,7 +1337,8 @@
    "headlamp": "30 x 10",
    "amberPx": 9,
    "largestCluster": 4,
-   "note": "the 2018-20 Atlas in mly-1328081225548925.jpg DOES show an amber marker (refused); a different car, 400 m away"
+   "note": "the 2018-20 Atlas in mly-1328081225548925.jpg DOES show an amber marker (refused); a different car, 400 m away",
+   "sideFaceInView": true
   },
   {
    "car": "white Lexus RX (2013-15)",
@@ -1317,7 +1354,8 @@
    "view": "front 3/4",
    "headlamp": "40 x 14",
    "amberPx": 8,
-   "largestCluster": 6
+   "largestCluster": 6,
+   "sideFaceInView": true
   },
   {
    "car": "grey Ford Ranger (2019+)",
@@ -1334,7 +1372,8 @@
    "headlamp": "45 x 16",
    "amberPx": 340,
    "largestCluster": 297,
-   "note": "the cluster is leaves behind the truck at x1688-1704; both lamps are clean"
+   "note": "the cluster is leaves behind the truck at x1688-1704; both lamps are clean",
+   "sideFaceInView": false
   },
   {
    "car": "silver BMW i4",
@@ -1350,7 +1389,8 @@
    "view": "front 3/4",
    "headlamp": "45 x 15",
    "amberPx": 0,
-   "largestCluster": 0
+   "largestCluster": 0,
+   "sideFaceInView": true
   },
   {
    "car": "silver Ford Edge (2019+)",
@@ -1367,7 +1407,8 @@
    "headlamp": "28 x 9",
    "amberPx": 4,
    "largestCluster": 3,
-   "note": "the smallest headlamp accepted as a \"no\""
+   "note": "the smallest headlamp accepted as a \"no\"",
+   "sideFaceInView": true
   },
   {
    "car": "champagne Mercedes-Benz CLA/A-class",
@@ -1384,7 +1425,8 @@
    "headlamp": "33 x 17",
    "amberPx": 44,
    "largestCluster": 9,
-   "note": "the 9-px cluster sits on the box edge, in the background"
+   "note": "the 9-px cluster sits on the box edge, in the background",
+   "sideFaceInView": true
   },
   {
    "car": "white Chevrolet Traverse (2018+)",
@@ -1401,7 +1443,8 @@
    "headlamp": "30 x 15",
    "amberPx": 0,
    "largestCluster": 0,
-   "note": "the element at the lamp's outer end is a desaturated mauve: the tool reads [824,613,6,6] at mean sRGB 130,108,109"
+   "note": "the element at the lamp's outer end is a desaturated mauve: the tool reads [824,613,6,6] at mean sRGB 130,108,109",
+   "sideFaceInView": true
   },
   {
    "car": "dark grey BMW X7",
@@ -1417,7 +1460,8 @@
    "view": "head-on: FRONT FACE ONLY",
    "headlamp": "~25 x 14",
    "amberPx": 0,
-   "largestCluster": 0
+   "largestCluster": 0,
+   "sideFaceInView": false
   }
  ],
  "refused": [
