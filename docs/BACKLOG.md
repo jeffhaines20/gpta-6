@@ -4140,3 +4140,35 @@ draws the 45 px disc (a halo sprite would carry no #114 tag and count as untagge
 - Foliage alpha-cut with leaf clusters floating free of branches, trunks as stretched ribbons
   (corridor right trunk, about 1430-1600 x 0-700), blocky pedestrians — the same as #124's.
 None measured beyond the reviewer's own pixel reads.
+
+### #126 OPEN — the car drives through every parked car, lamp post, tree and bollard in the district
+Found reading the call graph while fixing #64's drive, not by playing. The car's body collider is
+`vehicle.blockers`, a `BlockerIndex` built from `district.buildings` and nothing else
+(src/blockers.js's constructor), and the moving-body contact pass in district/main.js tests three
+lists: `traffic._lastPositions`, `peds.positions()` and the pursuit units. Nothing else is solid to
+the car. Censused off the page's own builders (the lamp loop copied from district/main.js, then
+`dressDistrict` with `audit: true` and `buildParkedCars`):
+
+    parked-car slots   2,280   (the page's pool draws the nearest 30: `buildParkedCars({ count: 30 })`)
+    lamp poles           543
+    placed props       8,214   bollard 1,497, bin 570, bench 518, meter 514, planter 402,
+                               newsbox 379, bikerack 320, tree 307, cabinet 268, signal 237,
+                               hydrant 172, utilityPole 140, ... and flush castings (manhole 331,
+                               gully 206) that are rightly not obstacles
+
+The crowd learned to feel parked cars and props in #121 (`peds.setProps`); the car never did. So a
+player who mounts the pavement, or swerves into the parking lane, drives straight through a row of
+parked cars and a lamp post at full speed with no contact, no damage and no crime — in a game whose
+whole wanted ladder is built on what a collision costs.
+
+**It does not reach the budget drive, measured rather than assumed:** of the road course's 818
+points, the car body (the collider's 0.95 m) overlaps a parked slot at 0 and a lamp pole at 0; the 10
+prop overlaps are gullies and manholes, which are flush with the road. So making these solid would
+not move #64's course.
+
+Not designed yet. Three classes want three answers, and the order is by how glaring each is:
+parked cars (a 1,400 kg body the player can see, and the obvious one), rigid street furniture
+(poles, trees, signals, hydrants — a crash, like a wall), and light props (bins, newsboxes, cafe
+chairs — knocked aside in every game of this genre, which needs per-prop state this module does not
+keep). The first measurement is how often a player's line actually crosses each class, from the
+playtest harness's own driving, before choosing what to charge for it.
