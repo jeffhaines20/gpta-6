@@ -360,13 +360,59 @@ export function buildBlockers(district, opts) { return new BlockerIndex(district
  * it sideways, up to a car's width in one frame, and charge the damage model for a collision that
  * never happened. So a box is solid only once it has been clear of the body.
  */
+/** The static furniture grid's cell, and the largest radius any static may carry (#126 part 2). */
+const STATIC_CELL = 8;
+const STATIC_MAX_R = 1.0;
+
 export class CarBlockers {
   constructor(base) {
     this.base = base;
     this.boxes = [];
     this._solidKeys = new Set();
     this._scratch = [];
-    this.stats = { boxes: 0, refills: 0, ghosted: 0, solidified: 0, contacts: 0 };
+    // #126 part 2: the street furniture a car stops against — lamp poles, trees, signals, hydrants,
+    // utility poles, bollards — as STATIC circles in a grid, set once at load (`setStatic`).
+    this.statics = [];
+    this._grid = new Map();
+    this._near = [];
+    this.stats = { boxes: 0, refills: 0, ghosted: 0, solidified: 0, contacts: 0,
+      statics: 0, staticContacts: 0, staticGhosted: 0 };
+  }
+
+  /**
+   * The rigid street furniture, once: `[{ x, z, r, kind }, ...]`, each a circle at the height a car's
+   * body occupies (src/streetfurniture.js `rigidSolids`). A grid of STATIC_CELL metres keeps the
+   * per-frame `anyNear` to a handful of lookups. They ghost and settle exactly as a parked box
+   * does, so a car PUT onto a bollard by a respawn or a harness is not thrown off it.
+   */
+  setStatic(list) {
+    this.statics = list.map((c, i) => ({ x: c.x, z: c.z, r: c.r, kind: c.kind ?? 'prop', key: i, solid: true }));
+    this._grid.clear();
+    for (const c of this.statics) {
+      const k = `${Math.floor(c.x / STATIC_CELL)},${Math.floor(c.z / STATIC_CELL)}`;
+      let cell = this._grid.get(k);
+      if (!cell) this._grid.set(k, cell = []);
+      cell.push(c);
+    }
+    this.stats.statics = this.statics.length;
+  }
+
+  /** Statics whose circle could reach a circle of radius r at (x, z), into `this._near`. */
+  _staticsNear(x, z, r) {
+    const out = this._near;
+    out.length = 0;
+    if (!this.statics.length) return out;
+    const reach = r + STATIC_MAX_R;
+    const i0 = Math.floor((x - reach) / STATIC_CELL), i1 = Math.floor((x + reach) / STATIC_CELL);
+    const j0 = Math.floor((z - reach) / STATIC_CELL), j1 = Math.floor((z + reach) / STATIC_CELL);
+    for (let i = i0; i <= i1; i++) {
+      for (let j = j0; j <= j1; j++) {
+        const cell = this._grid.get(`${i},${j}`);
+        if (!cell) continue;
+        for (const c of cell) if (Math.hypot(x - c.x, z - c.z) < c.r + r) out.push(c);
+      }
+    }
+    return out;
   }
 
   /**
@@ -409,6 +455,14 @@ export class CarBlockers {
       this.stats.ghosted++;
       n++;
     }
+    for (const [x, z] of body) {
+      for (const c of this._staticsNear(x, z, r)) {
+        if (!c.solid) continue;
+        c.solid = false;
+        this.stats.staticGhosted++;
+        n++;
+      }
+    }
     return n;
   }
 
@@ -420,6 +474,16 @@ export class CarBlockers {
       this._solidKeys.add(b.key);
       this.stats.solidified++;
     }
+    // A ghost static is solid again once no sample overlaps it. Only the cells round the body can
+    // hold one the body was put on, but a ghost the car has driven far from is just as well
+    // settled, so the whole (short) list of ghosts is walked.
+    if (this.stats.staticGhosted > 0) {
+      for (const c of this.statics) {
+        if (c.solid) continue;
+        if (body.some(([x, z]) => Math.hypot(x - c.x, z - c.z) < c.r + r)) continue;
+        c.solid = true;
+      }
+    }
   }
 
   anyNear(x, z, r) {
@@ -427,6 +491,7 @@ export class CarBlockers {
     for (const b of this.boxes) {
       if (b.solid && Math.hypot(x - b.x, z - b.z) < b.reach + r) return true;
     }
+    for (const c of this._staticsNear(x, z, r)) if (c.solid) return true;
     return false;
   }
 
@@ -462,12 +527,33 @@ export class CarBlockers {
   resolveCircle(x, z, r, maxIters = 4) {
     const w = this.base ? this.base.resolveCircle(x, z, r, maxIters) : null;
     let px = w ? w.x : x, pz = w ? w.z : z;
+    // The static furniture next, before the boxes and the walls' last word, by the same rule: a
+    // circle out of a circle along the line of centres, overshooting by EPS so it terminates.
+    let prop;
+    {
+      let deep = 0;
+      for (let it = 0; it < maxIters; it++) {
+        let best = null, bestPen = EPS;
+        for (const c of this._staticsNear(px, pz, r)) {
+          if (!c.solid) continue;
+          const pen = c.r + r - Math.hypot(px - c.x, pz - c.z);
+          if (pen > bestPen) { bestPen = pen; best = c; }
+        }
+        if (!best) break;
+        let nx = px - best.x, nz = pz - best.z;
+        const d = Math.hypot(nx, nz);
+        if (d > 1e-9) { nx /= d; nz /= d; } else { nx = 1; nz = 0; }
+        px += nx * (bestPen + EPS); pz += nz * (bestPen + EPS);
+        if (bestPen > deep) { deep = bestPen; prop = best; }
+      }
+    }
+    // The boxes are gathered AFTER the static pass, so a push off a bollard into a parked car's
+    // flank is still a box candidate.
     const cand = this._scratch;
     cand.length = 0;
     for (const b of this.boxes) {
       if (b.solid && Math.hypot(px - b.x, pz - b.z) < b.reach + r) cand.push(b);
     }
-    if (!cand.length) return w;
     let hit = null, deepest = 0, iters = 0;
     for (; iters < maxIters; iters++) {
       let best = null, bb = null;
@@ -481,17 +567,22 @@ export class CarBlockers {
       px += best.nx * (best.pen + EPS); pz += best.nz * (best.pen + EPS);
       if (best.pen > deepest) { deepest = best.pen; hit = bb; }
     }
-    if (!hit) return w;
+    // ONE EXIT for a box, a static or both: an early return on "no box hit" would drop a push the
+    // static pass had already made.
+    if (!hit && !prop) return w;
     const w2 = this.base ? this.base.resolveCircle(px, pz, r, maxIters) : null;
     if (w2) { px = w2.x; pz = w2.z; }
     const mx = px - x, mz = pz - z;
     const depth = Math.hypot(mx, mz);
     if (!(depth > EPS)) return w;
-    this.stats.contacts++;
+    if (hit) this.stats.contacts++;
+    if (prop) this.stats.staticContacts++;
     const inv = 1 / depth;
     return { x: px, z: pz, nx: mx * inv, nz: mz * inv, depth,
       seg: w ? w.seg : (w2 ? w2.seg : -1), iters,
-      recovered: w ? w.recovered : -1, box: hit.key };
+      recovered: w ? w.recovered : -1,
+      ...(hit ? { box: hit.key } : {}),
+      ...(prop ? { prop: prop.kind, propKey: prop.key } : {}) };
   }
 
   // The rest of BlockerIndex's surface, delegated, so nothing that reaches `vehicle.blockers` for

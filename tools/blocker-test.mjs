@@ -1283,6 +1283,99 @@ console.log('\n§ parked cars are solid (#126)');
 }
 
 /**
+ * §  THE STREET FURNITURE IS SOLID (#126 part 2). Lamp poles, signal masts, bollards, hydrants, utility
+ * poles and tree trunks, as static circles at a bumper's height. The resolver first, then the real
+ * car into a pole, then the real builder's census against its own dressing counts — the last is what
+ * says the slice found every prop rather than the 3 of 325 trees the vertex version did.
+ */
+console.log('\n§ the street furniture is solid (#126 part 2)');
+{
+  const R = BODY_RADIUS;
+  const empty = new BlockerIndex({ buildings: [] });
+  const pole = (r = 0.155) => { const cb = new CarBlockers(empty); cb.setStatic([{ x: 0, z: 0, r, kind: 'lamp' }]); return cb; };
+  const side = pole().resolveCircle(0.9, 0, R);
+  check('a circle against a pole is pushed out to exactly r + the pole\'s r, along the line of centres',
+    side && near(side.x, 0.155 + R, 1e-5) && near(side.z, 0, 1e-9) && near(side.nx, 1, 1e-9) && side.prop === 'lamp',
+    side ? `(${side.x.toFixed(6)}, ${side.z.toFixed(6)}) n (${side.nx.toFixed(3)}, ${side.nz.toFixed(3)}) prop ${side.prop}` : 'null');
+  const again = side ? pole().resolveCircle(side.x, side.z, R) : 'n/a';
+  check('a resolved position resolves to clear, so the static pass terminates as the others do',
+    again === null, again === null ? 'null' : JSON.stringify(again));
+  check('clear of the pole is clear, and anyNear agrees: true beside it, false 30 m off',
+    pole().resolveCircle(2, 0, R) === null && pole().anyNear(1.0, 0, R) === true && pole().anyNear(30, 0, R) === false,
+    'resolve at 2 m, anyNear at 1.0 and 30 m');
+  // Dead centre on the pole: no line of centres, and it must still come out rather than return NaN.
+  const dead = pole().resolveCircle(0, 0, R);
+  check('a sample centred exactly on a pole still comes out, finite',
+    dead && Number.isFinite(dead.x) && Number.isFinite(dead.z) && near(Math.hypot(dead.x, dead.z), 0.155 + R, 1e-5),
+    dead ? `(${dead.x.toFixed(4)}, ${dead.z.toFixed(4)})` : 'null');
+  // The ghost rule, which a car PUT on a bollard needs as much as one put on a parked car.
+  const g = pole(0.105);
+  const rel = g.release([[0.3, 0]], R);
+  const ghosted = g.resolveCircle(0.3, 0, R) === null;
+  g.settle([[0.3, 0]], R);
+  const stillGhost = g.resolveCircle(0.3, 0, R) === null;
+  g.settle([[5, 0]], R);
+  const solidAgain = g.resolveCircle(0.9, 0, R) !== null;
+  check('a car PUT on a bollard is released, stays a ghost while it overlaps, and is solid once it leaves',
+    rel === 1 && ghosted && stillGhost && solidAgain,
+    `released ${rel}, ghost ${ghosted}/${stillGhost}, solid after ${solidAgain}`);
+
+  // The real car into a lamp pole at 30 km/h, and the same drive with no statics.
+  const HZd = 120, DTd = 1 / HZd, ground = new FlatGround(0);
+  const run = (solid) => {
+    const v = new Vehicle(), dm = new DamageModel();
+    v.damage = dm;
+    const kinds = {};
+    const real = dm.impact.bind(dm);
+    dm.impact = (ev) => { const r = real(ev); if (r.applied) kinds[ev.kind] = (kinds[ev.kind] ?? 0) + 1; return r; };
+    const cb = new CarBlockers(empty);
+    if (solid) cb.setStatic([{ x: 0.3, z: 14, r: 0.155, kind: 'lamp' }]);
+    v.blockers = cb;
+    v.position.set(0, v.position.y, 0);
+    v.quaternion.setFromAxisAngle({ x: 0, y: 1, z: 0 }, 0);
+    v.velocity.set(0, 0, 30 / 3.6);
+    let maxZ = 0;
+    for (let i = 0; i < 4 * HZd; i++) {
+      v.setControls({ throttle: 0.4, brake: 0, steer: 0 });
+      v.step(DTd, ground);
+      maxZ = Math.max(maxZ, v.position.z);
+    }
+    return { maxZ, contacts: v.contacts, health: dm.health, kinds };
+  };
+  const hit = run(true), through = run(false);
+  console.log(`    into a lamp pole at 30 km/h: centre stops at ${hit.maxZ.toFixed(2)} m against a pole at 14, `
+    + `health ${hit.health.toFixed(3)}, ${JSON.stringify(hit.kinds)}; with no statics ${through.maxZ.toFixed(1)} m`);
+  check('the car stops at a lamp pole instead of driving through it, and the hit is filed as a prop',
+    hit.maxZ < 14 && hit.contacts > 0 && hit.health < 1 && hit.kinds.prop > 0 && !hit.kinds.wall,
+    `centre ${hit.maxZ.toFixed(2)}, health ${hit.health.toFixed(3)}, ${JSON.stringify(hit.kinds)}`);
+  check('KNOWN-BAD: with no statics the same car drives straight through it, untouched',
+    through.maxZ > 16 && through.contacts === 0 && through.health === 1,
+    `${through.maxZ.toFixed(1)} m, ${through.contacts} contacts`);
+
+  // The real builder: every rigid prop it dressed has a circle, and each circle is a TRUNK, not a pit.
+  const THREE = await import('../vendor/three.module.min.js');
+  const { StreetFurniture } = await import('../src/streetfurniture.js');
+  const fu = new StreetFurniture(new THREE.Scene(), { max: 1200 });
+  fu.addLamp(-5, -5, 0); fu.addLamp(5, 5, 1);
+  fu.commit();
+  fu.dressDistrict(district, { audit: false });
+  const sol = fu.rigidSolids();
+  const by = {};
+  for (const c of sol) by[c.kind] = (by[c.kind] ?? 0) + 1;
+  const rigidKinds = ['bollard', 'tree', 'signal', 'hydrant', 'utilityPole'];
+  const missing = rigidKinds.filter((k) => (by[k] ?? 0) !== (fu.props[k] ?? 0));
+  console.log(`    rigidSolids: ${sol.length} — ${JSON.stringify(by)}; dressed ${JSON.stringify(Object.fromEntries(rigidKinds.map((k) => [k, fu.props[k] ?? 0])))}`);
+  check('every rigid prop the builder dressed has exactly one collider, and so does every lamp',
+    missing.length === 0 && by.lamp === 2 && rigidKinds.every((k) => (by[k] ?? 0) > 0),
+    missing.length ? `missing on ${missing.join(', ')}` : `${sol.length} solids`);
+  const trees = sol.filter((c) => c.kind === 'tree').map((c) => c.r).sort((a, b) => a - b);
+  const p50 = trees[Math.floor(trees.length / 2)];
+  check('a tree\'s collider is its trunk at bumper height, not its 0.46 m mulch pit',
+    p50 > 0.1 && p50 < 0.35 && sol.every((c) => c.r > 0 && c.r <= 1.0),
+    `tree r p50 ${p50?.toFixed(3)} m, ${trees.length} trees, every r in (0, 1]`);
+}
+
+/**
  * AND THE BOXES ARE THE CARS THE POOL DRAWS. `parkedSolids()` builds each box from the slot and the
  * shell's own bounding box; the pool draws each car from an instance matrix. Two derivations of one
  * car, so they are checked against each other corner for corner: every plan corner of every drawn

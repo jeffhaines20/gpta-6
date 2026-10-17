@@ -1186,6 +1186,12 @@ const blockers = new BlockerIndex(district);
  * any of them.
  */
 carBlockers = new CarBlockers(blockers);
+/**
+ * AND THE STREET FURNITURE A CAR STOPS AGAINST (#126 part 2) — every lamp pole, signal mast, bollard,
+ * hydrant, utility pole and tree trunk, 2,896 circles at bumper height — once, because none of it
+ * moves. The knock-aside props (bins, newsboxes, cafe chairs) are not in it.
+ */
+carBlockers.setStatic(furniture.rigidSolids());
 let parkedSerial = -1;
 
 /**

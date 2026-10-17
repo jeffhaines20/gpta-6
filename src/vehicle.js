@@ -494,7 +494,7 @@ export class Vehicle {
 
     const fwd = _cf.set(0, 0, 1).applyQuaternion(this.quaternion);
     const right = _cr.set(1, 0, 0).applyQuaternion(this.quaternion);
-    let worstDv = 0, worstLocalZ = 1, worstLocalX = 0, any = false, worstBox;
+    let worstDv = 0, worstLocalZ = 1, worstLocalX = 0, any = false, worstBox, worstProp;
 
     for (const sz of BODY_SAMPLES) {
       const sx = this.position.x + fwd.x * sz;
@@ -530,6 +530,7 @@ export class Vehicle {
       if (imp.dv > worstDv) {
         worstDv = imp.dv;
         worstBox = res.box;
+        worstProp = res.prop;
         // Body-space direction from the centre toward the contact.
         worstLocalX = ox * right.x + oz * right.z;
         worstLocalZ = ox * fwd.x + oz * fwd.z;
@@ -537,15 +538,16 @@ export class Vehicle {
     }
     if (!any) return;
     this.contacts++;
-    // WHAT IT HIT, for the record and for the crime: a contact whose deepest push came out of a
-    // parked car's box (src/blockers.js CarBlockers, which returns that box's key) is `parked`, and
+    // WHAT IT HIT, for the record and for the crime: a contact whose push came out of a parked car's
+    // box (src/blockers.js CarBlockers, which returns that box's key) is `parked`, one out of the rigid
+    // street furniture (a pole, a tree, a bollard, which it returns as `prop`) is `prop`, and
     // everything else this resolver can push the car out of is a building. It used to be `wall` for
-    // both, so every instrument that counts by kind read a parked car as a facade (#126). The crime
-    // is the same — src/damage.js files both as property damage — so this moves no charge.
+    // all of them, so every instrument that counts by kind read a parked car as a facade (#126). The
+    // crime is the same — src/damage.js files all three as property damage — so no charge moves.
     this.lastContact = { dv: worstDv, localX: worstLocalX, localZ: worstLocalZ,
       x: this.position.x, z: this.position.z,
       movedX: this.position.x - px, movedZ: this.position.z - pz,
-      kind: worstBox !== undefined ? 'parked' : 'wall', box: worstBox };
+      kind: worstBox !== undefined ? 'parked' : worstProp !== undefined ? 'prop' : 'wall', box: worstBox };
     if (this.damage && worstDv > 0) {
       const rec = this.damage.impact({ dv: worstDv, kind: this.lastContact.kind,
         dirX: worstLocalX, dirZ: worstLocalZ, speed: speedIn });

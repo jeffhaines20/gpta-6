@@ -3182,6 +3182,17 @@ function wallStandpipe(buf, f, k) {                                  // 24 tris
 
 // ---------------------------------------------------------------- lookups
 /**
+ * #126 part 2: the furniture a car stops against, as a wall stops it, and the height its collider is
+ * measured at — above the prop's own lowest vertex, a bumper's height. A pit, a base plate or a grate
+ * is below it; a crown is above it. RIGID_MAX_R is CarBlockers' grid reach (src/blockers.js
+ * STATIC_MAX_R).
+ */
+const RIGID_KINDS = new Set(['bollard', 'tree', 'signal', 'hydrant', 'utilityPole']);
+const RIGID_SLICE = 0.6;
+const RIGID_MAX_R = 1.0;
+const LAMP_POLE_R = 0.155;
+
+/**
  * Uniform grid over line segments and polygons. Everything in this file needs
  * the same two questions answered a few thousand times at load — "how far is
  * this point from the nearest carriageway" and "how far is it from the nearest
@@ -3381,6 +3392,9 @@ export class StreetFurniture {
     this.heads.setMatrixAt(i, this._m);
     this.poles.count = this.arms.count = this.heads.count = this.count;
     this._lampGrid.insert([x, z], x, z, x, z);
+    // A pole the car stops against (#126 part 2). The pole's own geometry, at its base: the bbox is
+    // +/-0.147 across and -0.125..0.155 along, so 0.155 covers it.
+    (this._lampSolids ??= []).push({ x, z, r: LAMP_POLE_R, kind: 'lamp' });
     return { x: x + Math.cos(yaw) * 2.2, y: 7.7, z: z - Math.sin(yaw) * 2.2 };
   }
 
@@ -3443,6 +3457,9 @@ export class StreetFurniture {
     // district against the road graph and the baked footprints. Off by default —
     // it is 7,000 entries of pure verification ballast — and on for tooling.
     this.placed = opts.audit ? [] : null;
+    // The rigid furniture a car stops against (#126 part 2), recorded whatever `audit` says because
+    // the page needs it: see RIGID_KINDS and `rigidSolids()`.
+    this.rigid = [];
     // Where a prop already stands. The frontage row runs LAST and 0.7-2.2 m off
     // the building line, which is close enough to the _dressWalls frontage row
     // at 2.0 m to interpenetrate it; without this a bistro chair and a bench
@@ -3453,8 +3470,41 @@ export class StreetFurniture {
       const buf = bucketFor(kind, ax, az);
       const v0 = buf.pos.length;
       const i0 = this.placed ? buf.idx.length : 0;
+      const ri0 = buf.idx.length;
       fn(buf);
       if (buf.pos.length === v0) return false;
+      if (RIGID_KINDS.has(kind)) {
+        /**
+         * THE SHAPE A CAR HITS, NOT THE FOOTPRINT, AND MEASURED BY SLICING, NOT BY VERTICES. The
+         * audit's footprint is the plan extent within 0.25 m of the lowest vertex, and for a palm that
+         * is its 0.46 m mulch pit, flush with the pavement. A car's body meets a prop at RIGID_SLICE
+         * above its own base, so the collider is the cross-section there: every triangle edge that
+         * crosses that height, cut at it. Vertices alone cannot do it — a pole or a trunk is a ruled
+         * surface with vertices only at its two ends, and the first version, which kept the vertices
+         * inside a band, found 3 of 325 trees, no signals and no utility poles at all.
+         */
+        let lo = Infinity;
+        for (let i = v0 + 1; i < buf.pos.length; i += 3) if (buf.pos[i] < lo) lo = buf.pos[i];
+        const h = lo + RIGID_SLICE;
+        let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+        const cut = (a, b) => {
+          const ya = buf.pos[a * 3 + 1], yb = buf.pos[b * 3 + 1];
+          if ((ya - h) * (yb - h) > 0 || ya === yb) return;
+          const t = (h - ya) / (yb - ya);
+          const x = buf.pos[a * 3] + (buf.pos[b * 3] - buf.pos[a * 3]) * t;
+          const z = buf.pos[a * 3 + 2] + (buf.pos[b * 3 + 2] - buf.pos[a * 3 + 2]) * t;
+          if (x < x0) x0 = x; if (x > x1) x1 = x;
+          if (z < z0) z0 = z; if (z > z1) z1 = z;
+        };
+        for (let t = ri0; t + 2 < buf.idx.length; t += 3) {
+          const a = buf.idx[t], b = buf.idx[t + 1], c = buf.idx[t + 2];
+          cut(a, b); cut(b, c); cut(c, a);
+        }
+        if (x1 >= x0) {
+          this.rigid.push({ kind, x: (x0 + x1) / 2, z: (z0 + z1) / 2,
+            r: Math.min(RIGID_MAX_R, Math.max(x1 - x0, z1 - z0) / 2) });
+        }
+      }
       if (this.placed) {
         // The FOOTPRINT, not the whole assembly. A signal mast is supposed to
         // reach out over the carriageway, so the bounding box of the whole thing
@@ -4926,6 +4976,16 @@ export class StreetFurniture {
      */
     if (this._parkedLegacy) this.recolourParked(true);
     return i;
+  }
+
+  /**
+   * THE STREET FURNITURE A CAR STOPS AGAINST (#126 part 2): `[{ x, z, r, kind }, ...]`, a circle for
+   * every lamp pole and every prop of RIGID_KINDS, at the height a car's body occupies. Static, so
+   * a host hands it to src/blockers.js CarBlockers once (`setStatic`). The knock-aside props — bins,
+   * newsboxes, cafe chairs — are not in it: they want per-prop state, which is a different change.
+   */
+  rigidSolids() {
+    return [...(this._lampSolids ?? []), ...(this.rigid ?? [])];
   }
 
   /**

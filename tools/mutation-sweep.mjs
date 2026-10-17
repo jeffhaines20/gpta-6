@@ -570,11 +570,26 @@ const MUTATIONS = [
     // #126's label put back: a parked-car contact is filed as a wall again, which charges nothing
     // differently and leaves every instrument that counts by kind reading a car as a facade.
     id: 'parked-kind', file: 'src/vehicle.js',
-    find: "      kind: worstBox !== undefined ? 'parked' : 'wall', box: worstBox };",
-    to: "      kind: 'wall', box: worstBox };",
+    find: "      kind: worstBox !== undefined ? 'parked' : worstProp !== undefined ? 'prop' : 'wall', box: worstBox };",
+    to: "      kind: worstProp !== undefined ? 'prop' : 'wall', box: worstBox };",
     why: 'a parked car is filed as a building, so no instrument can tell which one the car hit',
   },
   // ---- src/blockers.js
+  {
+    // #126 part 2 undone: the static layer accepts its list and keeps none of it, so every pole,
+    // signal, bollard, hydrant and trunk is a ghost again — and nothing visible changes.
+    id: 'static-off', file: 'src/blockers.js',
+    find: "    this.statics = list.map((c, i) => ({ x: c.x, z: c.z, r: c.r, kind: c.kind ?? 'prop', key: i, solid: true }));",
+    to: '    this.statics = [];',
+    why: 'the car drives through every lamp pole, tree and bollard again, and looks no different',
+  },
+  {
+    // A car PUT on a bollard — a respawn, a harness teleport — is thrown off it as if it had crashed.
+    id: 'static-ghost', file: 'src/blockers.js',
+    find: '        if (!c.solid) continue;\n        c.solid = false;',
+    to: '        if (!c.solid) continue;\n        continue;',
+    why: 'a car put down on a bollard is charged a collision that never happened',
+  },
   {
     id: 'resolve-eps', file: 'src/blockers.js',
     find: 'const EPS = 1e-6;',

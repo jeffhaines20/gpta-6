@@ -1956,6 +1956,26 @@ if (state.global && state.frames > 2) {
       placed: +placed.toFixed(3), minD: +minD.toFixed(3), frames, topKmh: +topKmh.toFixed(1),
       boxContacts: d.carBlockers.stats.contacts - box0, carContacts: v.contacts - car0,
       health0, health: d.damage.health, ghosted: d.carBlockers.stats.ghosted };
+    // #126 part 2: the rigid street furniture reaches the SAME index. No drive — the car into a pole
+    // is blocker-test's, against a car it builds — only the wire: the page's CarBlockers holds the
+    // builder's own list, and a probe circle on a lamp pole is pushed off it and named a prop.
+    const solids = d.furniture.rigidSolids();
+    const kinds = {};
+    for (const c of solids) kinds[c.kind] = (kinds[c.kind] ?? 0) + 1;
+    // Off the pole TOWARDS ITS ROAD, so the push cannot land against the building behind the
+    // pavement and be walked back into the pole by the walls' last word.
+    let pole = null, ux = 0, uz = 0;
+    for (const c of solids) {
+      if (c.kind !== 'lamp') continue;
+      const r = d.nearestRoad(c.x, c.z);
+      if (!r || !(r.dist > 1)) continue;
+      pole = c; ux = (r.x - c.x) / r.dist; uz = (r.z - c.z) / r.dist;
+      break;
+    }
+    const probe = pole ? d.carBlockers.resolveCircle(pole.x + 0.5 * ux, pole.z + 0.5 * uz, 0.95) : null;
+    out.statics = { held: d.carBlockers.stats.statics, built: solids.length, kinds,
+      probe: probe ? { prop: probe.prop ?? null, depth: +probe.depth.toFixed(3),
+        clear: +(Math.hypot(probe.x - pole.x, probe.z - pole.z) - pole.r - 0.95).toFixed(4) } : null };
     d.setAutopilot(null);
     d.repairCar();
     d.clearWanted('boot-check');
@@ -1981,6 +2001,15 @@ if (state.global && state.frames > 2) {
     pk.target ? `closest ${pk.minD} m against ${(pk.target.hx + 1.5).toFixed(2)} (hx + 1.5)` : 'no target');
   check('and the hit is charged, as a wall\'s would be',
     pk.target && pk.health < pk.health0, pk.target ? `health ${pk.health0} -> ${pk.health}` : 'no target');
+  const st = pk.statics ?? {};
+  console.log(`  street furniture solids: ${st.held} held of ${st.built} built, ${JSON.stringify(st.kinds)}; `
+    + `a body circle 0.5 m off a lamp pole -> ${JSON.stringify(st.probe)}`);
+  check('the car\'s blockers hold the street furniture the page built, every one of it (#126 part 2)',
+    st.built > 0 && st.held === st.built && (st.kinds?.lamp ?? 0) > 0 && (st.kinds?.tree ?? 0) > 0,
+    `${st.held} held, ${st.built} built`);
+  check('and a body circle on a lamp pole is pushed clear of it and named a prop',
+    st.probe && st.probe.prop === 'lamp' && st.probe.clear >= 0 && st.probe.clear < 0.01,
+    JSON.stringify(st.probe));
 }
 
 
