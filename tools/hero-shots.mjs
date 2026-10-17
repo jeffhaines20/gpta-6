@@ -7,7 +7,7 @@ import { ensureServer } from './serve.mjs';
 import { ARM_STATE, setArm, proveArmsDiffer } from './ground-albedo.mjs';
 // The framings, their placement and the frame/streamer settle live in hero-cams.mjs so a probe can
 // stand at exactly these cameras without copying them; see that file.
-import { HERO_FRAMINGS, FRAME_SETTLE, settleFrames, placeHeroCam } from './hero-cams.mjs';
+import { HERO_FRAMINGS, HERO_EXTRA_FRAMINGS, FRAME_SETTLE, settleFrames, placeHeroCam } from './hero-cams.mjs';
 import fs from 'node:fs';
 
 const OUT = 'docs/shots';
@@ -127,15 +127,29 @@ const shots = HERO_FRAMINGS;
 // restarted mid-run, losing an eight-frame arm each time; being able to ask for
 // one camera turns a lost round into a lost frame.
 const ONLY = (process.env.HERO_SHOTS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
-const chosen = ONLY.length ? shots.filter((s) => ONLY.includes(s.name)) : shots;
+// The opt-in framings (see hero-cams.mjs) are reachable by name only.
+const named = [...shots, ...HERO_EXTRA_FRAMINGS];
+const chosen = ONLY.length ? named.filter((s) => ONLY.includes(s.name)) : shots;
 if (ONLY.length && chosen.length !== ONLY.length) {
   // A typo here would silently capture nothing and read as a completed run.
-  throw new Error(`HERO_SHOTS names no such framing: ${ONLY.filter((n) => !shots.some((s) => s.name === n)).join(', ')}` +
-    `  (have: ${shots.map((s) => s.name).join(', ')})`);
+  throw new Error(`HERO_SHOTS names no such framing: ${ONLY.filter((n) => !named.some((s) => s.name === n)).join(', ')}` +
+    `  (have: ${named.map((s) => s.name).join(', ')})`);
 }
 
+/**
+ * HERO_ALTERNATE=1 REVERSES THE ARM ORDER ON EVERY OTHER (framing, hour), so the arm shot first is
+ * not the same arm every time. Without it the loop below always captures ARMS[0] first, and a
+ * blind reviewer of the cabin driver said so in as many words: "P was shot first in every pair",
+ * so build and capture order were ONE partition and a first-versus-second-capture effect — a car
+ * that crept, a pedestrian that walked — could not be told from the change. Alternated, the two
+ * come apart: a difference that follows the BUILD across pairs is the change, and one that follows
+ * the ORDER is the world moving. The order each frame was shot in is recorded in the results.
+ */
+const ALTERNATE = process.env.HERO_ALTERNATE === '1';
 const results = [];
+let fi = -1;
 for (const s of chosen) {
+  fi++;
   const placed = await placeHeroCam(page, s);
   console.log(`${s.name}: camera at (${placed.x}, ${placed.z}), back ${placed.back}, ` +
     `${placed.clearance} m clear of the nearest footprint` +
@@ -143,7 +157,7 @@ for (const s of chosen) {
     (placed.stillInside >= 0 ? `  WARNING: still inside building ${placed.stillInside}` : ''));
   await settleFrames(page, FRAME_SETTLE, `camera ${s.name}`);
 
-  for (const tod of TIMES) {
+  for (const [ti, tod] of TIMES.entries()) {
     // HERO_AO=radius/intensity/strength overrides the SSAO parameters for the
     // whole capture, so a before/after on a post-pass number can be shot in ONE
     // session off ONE build. The same argument as HERO_ARMS: capturing a
@@ -166,7 +180,9 @@ for (const s of chosen) {
     // capturing a lighting A/B by editing the source between two runs only
     // measures that edit if nothing else in src/ moved in between, and in a tree
     // with three agents in it something usually did.
-    for (const arm of (ARMS.length ? ARMS : [null])) {
+    const order = !ARMS.length ? [null]
+      : ALTERNATE && (fi + ti) % 2 === 1 ? ARMS.slice().reverse() : ARMS;
+    for (const [shotIndex, arm] of order.entries()) {
       let applied = null;
       if (arm) {
         applied = await setArm(page, arm);
@@ -327,7 +343,7 @@ for (const s of chosen) {
           })(),
         };
       });
-      results.push({ shot: s.name, tod, arm, uniforms: applied, file, audit });
+      results.push({ shot: s.name, tod, arm, shotIndex, uniforms: applied, file, audit });
       const pop = audit.population;
       console.log(`${s.name}/${tod}${arm ? `/${arm}` : ''}: draw ${audit.drawCalls}, tris ${audit.triangles}, ` +
         `lights ${audit.lightCount}, lit lamps ${audit.litPointLights}, ` +

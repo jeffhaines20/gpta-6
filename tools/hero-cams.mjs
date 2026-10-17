@@ -113,7 +113,23 @@ export const HERO_FRAMINGS = [
   { name: 'fivepoints', wpA: 3, wpB: 4, back: 26, side: 7, height: 3.0, fov: 48, tgtY: 12, fwd: 200 },
 ];
 
+/**
+ * OPT-IN FRAMINGS, reachable only by name through HERO_SHOTS, so a default capture is not made longer
+ * by a camera built for one question.
+ *
+ * `cabin` is the cabin driver's re-review, whose blind reviewer asked for "a car side-on within about
+ * 15 m": the corridor pairs had no traffic car in frame and fivepoints resolved the driver on about
+ * 45 px of one car. The subject is the PLAYER's car, because it is the one car a capture can place —
+ * the fleet is unseeded — and `uCabinDriver` reaches its cabin too. Waypoint 3 is the west end of
+ * Main Street east; the car stands there nose north (yaw 0 is +z) and the camera 11 m to its +x,
+ * which in the car frame is the LEFT, Florida's driver's side, at eye height and looking at the cabin.
+ */
+export const HERO_EXTRA_FRAMINGS = [
+  { name: 'cabin', wpA: 3, look: 'car', carSide: 11, height: 1.6, fov: 40, tgtY: 1.1 },
+];
+
 export function placeHeroCam(page, cfg) {
+  if (cfg.look === 'car') return placeCarCam(page, cfg);
   return page.evaluate((cfg) => {
     const r = __district.district.meta.route;
     const a = r[cfg.wpA], b = r[cfg.wpB];
@@ -190,5 +206,33 @@ export function placeHeroCam(page, cfg) {
     for (let i = 0; i < 900; i++) __district.world.update(__district.vehicle.position);
     return { back, requestedBack: cfg.back, x: +px.toFixed(1), z: +pz.toFixed(1),
       clearance: +cl.d.toFixed(1), stillInside: cl.d >= MIN_CLEAR ? -1 : hit };
+  }, cfg);
+}
+
+/**
+ * The car-facing placement: the player's car at the waypoint, nose north, and the camera `carSide`
+ * metres to its +x looking at the cabin. Reports the same fields as placeHeroCam, and the camera's
+ * clearance from the nearest footprint by the same in-ring test, so hero-shots' warning still fires.
+ */
+function placeCarCam(page, cfg) {
+  return page.evaluate((cfg) => {
+    const a = __district.district.meta.route[cfg.wpA];
+    const px = a.x + cfg.carSide, pz = a.z;
+    let inside = -1;
+    for (const [bi, b] of __district.district.buildings.entries()) {
+      const ring = b.p;
+      let inRing = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const xi = ring[i][0], zi = ring[i][1], xj = ring[j][0], zj = ring[j][1];
+        if ((zi > pz) !== (zj > pz) && px < ((xj - xi) * (pz - zi)) / (zj - zi) + xi) inRing = !inRing;
+      }
+      if (inRing) { inside = bi; break; }
+    }
+    __district.placeAt(a.x, a.z, 0);
+    __district.setAutopilot(() => {});
+    __district.freeCam([px, cfg.height, pz], [a.x, cfg.tgtY, a.z], cfg.fov);
+    for (let i = 0; i < 900; i++) __district.world.update(__district.vehicle.position);
+    return { back: 0, requestedBack: 0, x: +px.toFixed(1), z: +pz.toFixed(1),
+      clearance: inside >= 0 ? 0 : 99, stillInside: inside };
   }, cfg);
 }

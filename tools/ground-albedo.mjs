@@ -520,6 +520,10 @@ export const ARM_STATE = {
   cfix0: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [1, 1, 0.15, 1, 0, 0] },
   cfix1: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [1, 1, 0.15, 1, 1, 0] },
   cdrv1: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [1, 1, 0.15, 1, 1, 1] },
+  // The driver alone, on the SHIPPED cabin. cfix1 lost its own review, so the driver's re-review
+  // (its reviewer's protocol: a car side-on near the camera, capture order alternated) is cfix0
+  // against this: one term, the driver, and nothing of the fix in either arm.
+  cdrv0: { albedo: null, skyProxy: false, nightGlowLux: 0, carCabin: [1, 1, 0.15, 1, 0, 1] },
 
   // #118, LIT LIGHT'S OWN BLOOM BAR (src/post.js brightSplit): `bloomLit` 0 is the single-threshold
   // bright pass, 1 the bar the HOUR's preset names - noon's threshold at dusk and night, none at noon
