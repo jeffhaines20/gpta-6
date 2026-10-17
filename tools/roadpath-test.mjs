@@ -899,6 +899,17 @@ console.log('\n§6d The router\'s turn limit (#131)');
     `unlimited ${legOld.edges.length} edges, limited ${leg.edges.length}, hairpin ${leg.hairpin}`);
   check('and the follower arrives on it, where through the hairpin it never does',
     Number.isFinite(tNew) && !Number.isFinite(tOld), `${tNew.toFixed(1)} s against ${tOld}`);
+  /*
+   * AND path() PREFERS A CANDIDATE THAT TOOK NO HAIRPIN BEFORE COMPARING LENGTHS. Of its four
+   * start/end vertex combinations one may only have reached its target through the fallback; over
+   * 2,927 random point-to-point paths, 92 differ when that candidate competes on length alone, and
+   * every one of them then takes the hairpin because it is shorter. Two of them, as subjects.
+   */
+  for (const [[x0, z0], [x1, z1]] of [[[-31.3, 185], [-409.9, -59.1]], [[108.1, 102.3], [-19.2, -251.8]]]) {
+    const p = g.path(x0, z0, x1, z1, { spacing: 4, offset: ROUTE_LANE_M });
+    check(`(${x0}, ${z0}) -> (${x1}, ${z1}) takes the longer route without a hairpin over a shorter one with`,
+      p && p.hairpin === false, p ? `hairpin ${p.hairpin}, ${p.length.toFixed(0)} m` : 'no path');
+  }
 }
 
 // ---------------------------------------------------------------------------
