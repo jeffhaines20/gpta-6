@@ -181,15 +181,143 @@ await page.evaluate(({ circuits, roadCourse }) => {
     const tour = __district.tourRoute();
     const pts = tour.points;
     window.__courseLength = tour.length;
-    let lap = 0, stuckFor = 0;
+    let lap = 0, stuckFor = 0, holdFor = 0;
     const state = { i: 0 };
     __district.placeAt(pts[0][0], pts[0][1],
       Math.atan2(pts[3][0] - pts[0][0], pts[3][1] - pts[0][1]));
     window.__routeState = () => ({ wp: state.i, lap });
+    /**
+     * THE GAME MUST NOT BE ABLE TO TAKE THE CAR AWAY, AND IF IT DOES THE DRIVE STOPS.
+     *
+     * The first road-course baseline ran its whole 25-minute net and counted no lap, with 19.9 km
+     * driven on a 3.26 km course. The track says why. At 41 s the car hit something at 76 km/h and
+     * stopped dead, and at 53.7 s it was at the district's spawn — 434 m from where it had been, in
+     * one sample. Replayed with an event log on every sim step, the first 120 s held THREE WRECKS
+     * AND ONE BUST, each followed by the game's own `respawnCar()`: `followPath` has no
+     * car-following term, the fleet is in its lane, and with the walls solid every contact charges
+     * damage and files a crime. (The replay's track is not the baseline's, because the fleet and
+     * the crowd run for a wall-clock-dependent number of frames before the drive starts; the
+     * mechanism is the same.) The autopilot's progress index never knew the car had moved, so it
+     * went on aiming at a point on the far side of the city: pure pursuit to an aim 800 m away asks
+     * for a radius of d/(2 sin a), which is the better part of a kilometre, so the car drove circles
+     * that size at the path's own speed limit. Twice the stuck-nudge happened to teleport it back
+     * onto the course. The third time, at 276 s, it circled out of the district at a constant
+     * 62.9 km/h, the stuck-nudge never fired because there was nothing out there to be stuck on, and
+     * the median triangle count of the "baseline" was 156,445 — the empty ground outside the map.
+     * Its triangle and draw-call rows both read PASS.
+     *
+     * Three parts, and only the first is about driving:
+     *
+     *   CAR-FOLLOWING, because a driver does not rear-end the car in front at 79 km/h. A fleet car
+     *   is a leader when it is on the course ahead (see followCap); the speed cap is the leader's
+     *   own speed along the course plus what a comfortable 5 m/s2 can shed over the gap, and under
+     *   1 m/s the car HOLDS on the brake. A hold is not being stuck, so neither stuck detector
+     *   counts it.
+     *
+     *   A SAFETY NET THAT IS COUNTED, not hidden. Any heat is cleared and any damage repaired, every
+     *   step, so a contact the following misses cannot end in a bust or a wreck. This gate measures
+     *   what the FRAME costs along the course; police units and a respawn are a different course.
+     *   Every firing is in `drive_ledger`, so a run that leaned on the net says so.
+     *
+     *   AND A STOP. If the game moves the car anyway — a respawn or a bust the net did not prevent —
+     *   or the car is ever 40 m off its own course, the drive ENDS and says why. That would have
+     *   ended the first baseline at 53.7 s of sim instead of 1,204.
+     */
+    const FOLLOW_AHEAD_M = 40;   // braking from 22 m/s at 5 m/s2 takes 48 m; the cap grades in before that
+    const FOLLOW_HALF_W = 2.2;   // a fleet car's centre this near our line: 0.95 + 0.95 + 0.3 of margin
+    const FOLLOW_LEN_M = 4.5;    // centre to centre less half of each: our 2.15 + the longest shell's 2.34
+    const FOLLOW_GAP_M = 3.0;    // the bumper-to-bumper gap the cap stops at
+    const FOLLOW_DECEL = 5.0;    // m/s2; the car brakes at 11 (src/roadpath.js's measured figure)
+    const HOLD_V = 1.0;          // a cap under this is a hold on the brake, not a crawl
+    const LOST_M = 40;           // off the course by this much is not "wide on a corner"
+    const L = window.__driveLedger = { holds: 0, holdS: 0, longestHoldS: 0, impatient: 0, wantedClears: 0,
+      maxHeat: 0, maxStars: 0, repairs: 0, minHealth: 1, worstOffLine: 0, end: null,
+      respawns0: __district.wreckReport().respawns, busts0: __district.bustReport().busts,
+      wrecks0: __district.wreckReport().wrecks, damage0: __district.damageReport() };
+    /**
+     * A leader is a fleet car within FOLLOW_HALF_W of the COURSE AHEAD, not of a straight line off
+     * the bonnet. Through a junction the bonnet's line sweeps across the street being turned into,
+     * where cars wait at the mouth of the junction for it to clear — and holding for a car that is
+     * holding for you never ends. The course knows which lane the car is about to be in.
+     */
+    /**
+     * AND A LEADER IS GOING OUR WAY. The first verification lap held for its whole 300 s, 26 m in,
+     * behind fleet car 8 on Main Street: stopped at the mouth of junction 493 with its heading
+     * exactly opposite the course's (-0.738 against 2.404 rad), 6.0 m ahead, because the course
+     * turns across its lane there. It had stopped for US — src/traffic.js makes the player a leader
+     * to any car whose lane the player's body is in, and a turning car's body spans the lane — and
+     * we held for it. A driver turning across a car that has stopped to let them through goes.
+     *
+     * And past the fleet's own gridlock limit a hold is a deadlock, not a queue: src/traffic.js
+     * recovers a car stationary for `stuckLimitS`, so a leader held behind longer than that is
+     * ignored for as long again, and every time it happens is counted (`impatient`).
+     */
+    const PATIENCE_S = __district.trafficReport()?.stuckLimitS ?? 20;
+    const ignoreUntil = new Map();
+    let simT = 0;
+    const followCap = (x, z) => {
+      const near = [];
+      for (const p of __district.trafficPositions()) {
+        if ((ignoreUntil.get(p.id) ?? -1) > simT) continue;
+        if (Math.hypot(p.x - x, p.z - z) < FOLLOW_AHEAD_M + FOLLOW_HALF_W) near.push(p);
+      }
+      if (!near.length) return { cap: Infinity, id: null };
+      const best = new Array(near.length).fill(Infinity);
+      const dirOf = new Array(near.length).fill(0);
+      // Arc length is measured from the car's own projection, not from the segment's start, which
+      // can be a whole 4 m segment behind it — in the direction that reads a leader as further off.
+      const a0 = pts[state.i], b0 = pts[Math.min(state.i + 1, pts.length - 1)];
+      const ex0 = b0[0] - a0[0], ez0 = b0[1] - a0[1], L0 = Math.hypot(ex0, ez0);
+      const t0 = L0 > 0 ? Math.max(0, Math.min(1, ((x - a0[0]) * ex0 + (z - a0[1]) * ez0) / (L0 * L0))) : 0;
+      let arc = -t0 * L0;
+      for (let k = state.i; k < pts.length - 1 && arc < FOLLOW_AHEAD_M; k++) {
+        const ax = pts[k][0], az = pts[k][1], ex = pts[k + 1][0] - ax, ez = pts[k + 1][1] - az;
+        const L = Math.hypot(ex, ez);
+        if (!(L > 0)) continue;
+        for (let n = 0; n < near.length; n++) {
+          const p = near[n];
+          const t = Math.max(0, Math.min(1, ((p.x - ax) * ex + (p.z - az) * ez) / (L * L)));
+          const d = Math.hypot(p.x - (ax + ex * t), p.z - (az + ez * t));
+          if (d < FOLLOW_HALF_W && arc + t * L < best[n]) { best[n] = arc + t * L; dirOf[n] = Math.atan2(ex, ez); }
+        }
+        arc += L;
+      }
+      let cap = Infinity, id = null;
+      for (let n = 0; n < near.length; n++) {
+        // Not on the course ahead, or level with the car or behind it: not a leader.
+        if (!(Number.isFinite(best[n]) && best[n] > 0)) continue;
+        const p = near[n];
+        // `heading`, not `yaw`: the drawn yaw carries a shunt's spin, and a velocity needs the
+        // direction of travel — src/traffic.js says so where it publishes both. Measured against
+        // the COURSE's direction where the car sits, which is the lane it is in.
+        const cosH = Math.cos((p.heading ?? p.yaw ?? dirOf[n]) - dirOf[n]);
+        if (!(cosH > 0)) continue;                     // oncoming, or crossing square: not a leader
+        const vAlong = (p.v ?? 0) * cosH;
+        const room = Math.max(0, best[n] - FOLLOW_LEN_M - FOLLOW_GAP_M);
+        const c = vAlong + Math.sqrt(2 * FOLLOW_DECEL * room);
+        if (c < cap) { cap = c; id = p.id; }
+      }
+      return { cap, id };
+    };
+    let holdId = null;
     __district.setAutopilot((dt) => {
       if (window.__jitterTick) window.__jitterTick();
+      if (L.end) { v.setControls({ throttle: 0, brake: 1, steer: 0, handbrake: false }); return; }
+      const w = __district.wanted;
+      if (w.heat > 0 || w.stars > 0) {
+        L.maxHeat = Math.max(L.maxHeat, w.heat); L.maxStars = Math.max(L.maxStars, w.stars);
+        L.wantedClears++; __district.clearWanted('budget drive');
+      }
+      const health = __district.damage.health;
+      if (health < 1) { L.minHealth = Math.min(L.minHealth, health); L.repairs++; __district.repairCar(); }
+      if (__district.wreckReport().respawns !== L.respawns0) { L.end = 'the game respawned the car'; return; }
+      if (__district.bustReport().busts !== L.busts0) { L.end = 'the game busted the car'; return; }
       const q = v.quaternion;
       const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
+      simT += dt;
+      const lead = followCap(v.position.x, v.position.z);
+      const cap = lead.cap;
+      const holding = cap < HOLD_V;
       /**
        * `dt` arms followPath's own progress anchor, which now backs the car out of a blockage —
        * see STUCK_M / STUCK_S in src/roadpath.js. The teleport below stays as a safety net, and it
@@ -198,11 +326,24 @@ await page.evaluate(({ circuits, roadCourse }) => {
        * road-course run that leans on it is a run to read before trusting. The follower tries to
        * recover first, so the count is only the places it could not.
        */
+      // A hold passes no dt, so followPath's own progress anchor does not read waiting behind a
+      // car as being wedged and start backing out of the queue.
       const f = __district.followPath(pts, { x: v.position.x, z: v.position.z, yaw, speed: v.speed },
-        state, { maxSpeed: 22, dt });
+        state, { maxSpeed: Math.min(22, cap), dt: holding ? 0 : dt });
       if (f.done) { state.i = 0; lap++; window.__lapCount = lap; return; }
-      v.setControls(f.controls);
-      if (v.speed < 0.6 && !f.backing) { stuckFor += dt; if (stuckFor > 2.5) { __district.placeAt(f.aim[0], f.aim[1]); stuckFor = 0; window.__teleports = (window.__teleports ?? 0) + 1; } }
+      if (f.offLine > L.worstOffLine) L.worstOffLine = f.offLine;
+      if (f.offLine > LOST_M) { L.end = `left the course, ${f.offLine.toFixed(1)} m off it`; return; }
+      if (holding) {
+        if (holdFor === 0 || lead.id !== holdId) { L.holds++; holdFor = 0; holdId = lead.id; }
+        holdFor += dt; L.holdS += dt;
+        if (holdFor > L.longestHoldS) L.longestHoldS = holdFor;
+        if (holdFor > PATIENCE_S) { ignoreUntil.set(lead.id, simT + PATIENCE_S); L.impatient++; holdFor = 0; }
+        v.setControls({ throttle: 0, brake: 1, steer: f.controls.steer, handbrake: false });
+      } else {
+        holdFor = 0; holdId = null;
+        v.setControls(f.controls);
+      }
+      if (v.speed < 0.6 && !f.backing && !holding) { stuckFor += dt; if (stuckFor > 2.5) { __district.placeAt(f.aim[0], f.aim[1]); stuckFor = 0; window.__teleports = (window.__teleports ?? 0) + 1; } }
       else stuckFor = 0;
       window.__lapCount = lap;
     });
@@ -316,12 +457,13 @@ await page.evaluate(() => __district.startRecording());
 const LAPS_WANTED = ROAD_COURSE ? 1 : CIRCUITS;
 const CAP_MS = ROAD_COURSE ? 1500000 : 300000;
 const t0 = Date.now();
-let laps = 0;
-while (laps < LAPS_WANTED && Date.now() - t0 < CAP_MS) {
+let laps = 0, stopped = null;
+while (laps < LAPS_WANTED && !stopped && Date.now() - t0 < CAP_MS) {
   await page.waitForTimeout(4000);
-  laps = await page.evaluate(() => window.__lapCount ?? 0);
+  ({ laps, stopped } = await page.evaluate(() => ({ laps: window.__lapCount ?? 0,
+    stopped: window.__driveLedger ? window.__driveLedger.end : null })));
 }
-const ended = laps >= LAPS_WANTED ? 'course driven' : 'wall-clock net';
+const ended = stopped ?? (laps >= LAPS_WANTED ? 'course driven' : 'wall-clock net');
 console.log(`ended on: ${ended} (${laps} of ${LAPS_WANTED} laps, ${((Date.now() - t0) / 1000).toFixed(0)} s of wall clock)`);
 const samples = await page.evaluate(() => __district.stopRecording());
 const jitterRaw = JITTER ? await page.evaluate(() => window.__jitterStop()) : null;
@@ -333,6 +475,28 @@ const heapAfter = await page.evaluate(() => {
 const world = await page.evaluate(() => __district.worldReport());
 const courseLength = await page.evaluate(() => window.__courseLength ?? null);
 const teleports = await page.evaluate(() => window.__teleports ?? 0);
+/**
+ * What the drive did to the world, and what the world did to the drive. Read once at the end:
+ * the net's counters are cumulative, and the game's own are read as deltas from the drive's start
+ * so an earlier page event cannot be charged to it.
+ */
+const ledger = await page.evaluate(() => {
+  const L = window.__driveLedger;
+  if (!L) return null;
+  const d = __district.damageReport(), wr = __district.wreckReport(), br = __district.bustReport();
+  const r3 = (n) => +n.toFixed(3);
+  return { follow_holds: L.holds, follow_hold_s: r3(L.holdS), longest_hold_s: r3(L.longestHoldS),
+    impatient: L.impatient,
+    wanted_clears: L.wantedClears, max_heat: r3(L.maxHeat), max_stars: L.maxStars,
+    repairs: L.repairs, min_health: r3(L.minHealth), worst_off_line_m: r3(L.worstOffLine),
+    wrecks: wr.wrecks - L.wrecks0, respawns: wr.respawns - L.respawns0, busts: br.busts - L.busts0,
+    crimes_filed: d.crimesReported - L.damage0.crimesReported,
+    knockdowns: d.crowd ? d.crowd.knockdowns - (L.damage0.crowd?.knockdowns ?? 0) : null,
+    shunted_cars: d.fleet ? d.fleet.shuntCars - (L.damage0.fleet?.shuntCars ?? 0) : null,
+    car_hit_frames: d.dynamic.carHitFrames - L.damage0.dynamic.carHitFrames,
+    ped_hit_frames: d.dynamic.pedHitFrames - L.damage0.dynamic.pedHitFrames,
+    end: L.end };
+});
 const trafficReport = await page.evaluate(() => __district.trafficReport());
 // The screenshot is an artifact, not a measurement, and it must not be able to
 // destroy one. Two rounds hit this independently and each fixed one half of it;
@@ -387,6 +551,9 @@ const result = {
   // Every stuck-nudge teleport: on the straight course a wrecked car was teleported round the
   // route once every 2.65 s, so a drive with many of these is not the drive it claims to be.
   stuck_teleports: teleports,
+  // The road course's car-following, its safety net and its stop: see the autopilot. Null on the
+  // straight course, which has none of the three.
+  drive_ledger: ledger,
   frames_sampled: samples.length,
   route_duration_s: +durationS.toFixed(1),
   distance_driven_m: Math.round(samples.reduce((a, s, i) =>
@@ -422,12 +589,32 @@ const g = gate([
   { name: 'chunk stall ms', value: result.worst_chunk_build_ms, spec: BUDGET.chunkStallMs },
   { name: 'heap growth MB', value: result.heap_growth_mb ?? 0, spec: BUDGET.heapGrowthMb },
 ]);
+/**
+ * A DRIVE THAT DID NOT DRIVE ITS COURSE CANNOT PASS. Every row above is a percentile over the
+ * samples the drive produced, so a run stopped by the net, a respawn or a lost course prints a
+ * complete-looking table about part of a traversal — or, as the first road-course baseline did, a
+ * p50 of 156,445 over the empty ground outside the map. The straight course is exempt because it
+ * was always a fixed-wall-time sample and its artifacts say so.
+ */
+if (ROAD_COURSE && ended !== 'course driven') {
+  g.status = 'FAIL';
+  g.traversal = `the drive did not complete its course: ${ended}`;
+}
 result.budget_gate = g;
 
 const file = `docs/drive${WITH_TRAFFIC ? '-traffic' : ''}.json`;
 fs.writeFileSync(file, JSON.stringify({ result, samples }, null, 1));
 console.log(JSON.stringify(result, null, 2));
 printGate(g);
+if (g.traversal) console.log(`  FAIL ${g.traversal}`);
+if (ledger) {
+  console.log(`drive: ${ledger.follow_holds} holds behind the fleet (${ledger.follow_hold_s} s, longest ` +
+    `${ledger.longest_hold_s} s, ${ledger.impatient} past the fleet's gridlock limit), ` +
+    `${ledger.crimes_filed} crimes, ${ledger.knockdowns} knockdowns, ` +
+    `${ledger.shunted_cars} cars shunted; the net cleared heat ${ledger.wanted_clears}x (max ` +
+    `${ledger.max_heat}) and repaired ${ledger.repairs}x (min health ${ledger.min_health}); ` +
+    `${ledger.respawns} respawns, ${ledger.busts} busts, worst ${ledger.worst_off_line_m} m off the course`);
+}
 if (result.jitter) {
   const j = result.jitter;
   console.log(`jitter: a fixed ${j.base.toFixed(1)} ms workload sampled ${j.n} times — p50 ` +

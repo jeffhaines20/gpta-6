@@ -341,6 +341,167 @@ export class BlockerIndex {
 export function buildBlockers(district, opts) { return new BlockerIndex(district, opts); }
 
 /**
+ * WHAT THE CAR'S BODY HITS THAT IS NOT A BUILDING (#126). The building index above was the car's
+ * whole idea of a solid world, and the moving-body contact pass in district/main.js tests the fleet,
+ * the crowd and the pursuit units — so every parked car in the district was a picture the car drove
+ * straight through, at any speed, with no contact, no damage and no crime.
+ *
+ * This wraps the building index and adds ORIENTED BOXES the host hands it: the parked cars the pool
+ * is actually drawing. It answers the same two questions src/vehicle.js asks of `blockers` —
+ * `anyNear` and `resolveCircle`, with the same return shape and the same epsilon — so the car's
+ * contact physics, its damage charge and its crime wire are the walls' own and nothing about them
+ * is copied. Only `vehicle.blockers` gets this object: the router, the respawn's clear test, the
+ * crowd and the fleet all keep the building index, because a parked car is not a wall to any of
+ * them (the crowd has its own props, #121).
+ *
+ * A BOX THAT ARRIVES ON TOP OF THE CAR IS A GHOST UNTIL THE CAR HAS LEFT IT. The pool refills by
+ * distance from the camera, so a slot can become a drawn car while the player's car is sitting in
+ * it — the parking lane is drivable. Made solid at once, the resolver would push the car out of
+ * it sideways, up to a car's width in one frame, and charge the damage model for a collision that
+ * never happened. So a box is solid only once it has been clear of the body.
+ */
+export class CarBlockers {
+  constructor(base) {
+    this.base = base;
+    this.boxes = [];
+    this._solidKeys = new Set();
+    this._scratch = [];
+    this.stats = { boxes: 0, refills: 0, ghosted: 0, solidified: 0, contacts: 0 };
+  }
+
+  /**
+   * The boxes the car can hit, replacing the last set. Each is `{ x, z, yaw, hx, hz, key }`:
+   * centre, heading (local +z is (sin yaw, cos yaw), the convention every car here uses), half
+   * width across and half length along, and an identity that survives a refill — a slot that
+   * stays drawn stays solid. `body` is the car's sample circles at this instant, `[[x, z], ...]`
+   * with radius `r`, so a box that arrives on top of the car is born a ghost.
+   */
+  setBoxes(list, body = [], r = 0) {
+    this.stats.refills++;
+    const keep = new Set();
+    this.boxes.length = 0;
+    for (const b of list) {
+      const s = Math.sin(b.yaw), c = Math.cos(b.yaw);
+      const box = { x: b.x, z: b.z, s, c, hx: b.hx, hz: b.hz, key: b.key ?? b,
+        reach: Math.hypot(b.hx, b.hz), solid: true };
+      if (!this._solidKeys.has(box.key) && body.some(([x, z]) => this._push(x, z, r, box))) {
+        box.solid = false;
+        this.stats.ghosted++;
+      }
+      if (box.solid) keep.add(box.key);
+      this.boxes.push(box);
+    }
+    this._solidKeys = keep;
+    this.stats.boxes = this.boxes.length;
+  }
+
+  /**
+   * The car was PUT somewhere — a respawn, a harness teleport — not driven there. Whatever it now
+   * overlaps did not arrive by a collision, so it is a ghost until the car leaves it, exactly as a
+   * box that arrives on top of the car is. Returns how many it released.
+   */
+  release(body = [], r = 0) {
+    let n = 0;
+    for (const b of this.boxes) {
+      if (!b.solid || !body.some(([x, z]) => this._push(x, z, r, b))) continue;
+      b.solid = false;
+      this._solidKeys.delete(b.key);
+      this.stats.ghosted++;
+      n++;
+    }
+    return n;
+  }
+
+  /** Once a frame: a ghost the body no longer touches becomes solid. */
+  settle(body = [], r = 0) {
+    for (const b of this.boxes) {
+      if (b.solid || body.some(([x, z]) => this._push(x, z, r, b))) continue;
+      b.solid = true;
+      this._solidKeys.add(b.key);
+      this.stats.solidified++;
+    }
+  }
+
+  anyNear(x, z, r) {
+    if (this.base && this.base.anyNear(x, z, r)) return true;
+    for (const b of this.boxes) {
+      if (b.solid && Math.hypot(x - b.x, z - b.z) < b.reach + r) return true;
+    }
+    return false;
+  }
+
+  /**
+   * How far a circle at (x, z) is inside a box, and which way out: `{ nx, nz, pen }` or null.
+   * A centre inside the box leaves by the nearest face; otherwise it leaves away from the
+   * closest point on the box, which is what makes a corner hit come off at a diagonal.
+   */
+  _push(x, z, r, b) {
+    const ux = x - b.x, uz = z - b.z;
+    const la = ux * b.c - uz * b.s;              // across: local +x is (cos yaw, -sin yaw)
+    const lf = ux * b.s + uz * b.c;              // along:  local +z is (sin yaw,  cos yaw)
+    const ca = clamp(la, -b.hx, b.hx), cf = clamp(lf, -b.hz, b.hz);
+    let na, nf, pen;
+    if (ca === la && cf === lf) {
+      const da = b.hx - Math.abs(la), df = b.hz - Math.abs(lf);
+      if (da < df) { na = la >= 0 ? 1 : -1; nf = 0; pen = da + r; }
+      else { na = 0; nf = lf >= 0 ? 1 : -1; pen = df + r; }
+    } else {
+      const dA = la - ca, dF = lf - cf;
+      const d = Math.hypot(dA, dF);
+      if (d >= r - EPS) return null;
+      na = dA / d; nf = dF / d; pen = r - d;
+    }
+    return { nx: na * b.c + nf * b.s, nz: -na * b.s + nf * b.c, pen };
+  }
+
+  /**
+   * The building index's answer, then out of any solid box, then the walls once more — a push out
+   * of a parked car can land against the building behind the pavement. Same shape as
+   * BlockerIndex.resolveCircle, plus `box`: the key of the deepest box, or undefined.
+   */
+  resolveCircle(x, z, r, maxIters = 4) {
+    const w = this.base ? this.base.resolveCircle(x, z, r, maxIters) : null;
+    let px = w ? w.x : x, pz = w ? w.z : z;
+    const cand = this._scratch;
+    cand.length = 0;
+    for (const b of this.boxes) {
+      if (b.solid && Math.hypot(px - b.x, pz - b.z) < b.reach + r) cand.push(b);
+    }
+    if (!cand.length) return w;
+    let hit = null, deepest = 0, iters = 0;
+    for (; iters < maxIters; iters++) {
+      let best = null, bb = null;
+      for (const b of cand) {
+        const p = this._push(px, pz, r, b);
+        if (p && p.pen > EPS && (!best || p.pen > best.pen)) { best = p; bb = b; }
+      }
+      if (!best) break;
+      // The same overshoot BlockerIndex uses, for the same reason: a circle pushed to exactly r
+      // is, in floating point, a hair short of clear and would re-collide next pass for ever.
+      px += best.nx * (best.pen + EPS); pz += best.nz * (best.pen + EPS);
+      if (best.pen > deepest) { deepest = best.pen; hit = bb; }
+    }
+    if (!hit) return w;
+    const w2 = this.base ? this.base.resolveCircle(px, pz, r, maxIters) : null;
+    if (w2) { px = w2.x; pz = w2.z; }
+    const mx = px - x, mz = pz - z;
+    const depth = Math.hypot(mx, mz);
+    if (!(depth > EPS)) return w;
+    this.stats.contacts++;
+    const inv = 1 / depth;
+    return { x: px, z: pz, nx: mx * inv, nz: mz * inv, depth,
+      seg: w ? w.seg : (w2 ? w2.seg : -1), iters,
+      recovered: w ? w.recovered : -1, box: hit.key };
+  }
+
+  // The rest of BlockerIndex's surface, delegated, so nothing that reaches `vehicle.blockers` for
+  // a building question gets a different answer.
+  near(x, z, r, out) { return this.base.near(x, z, r, out); }
+  insideAny(x, z) { return this.base.insideAny(x, z); }
+  report() { return { ...this.base.report(), carBoxes: { ...this.stats } }; }
+}
+
+/**
  * The collision response for a circle sample on a rigid body, as plain numbers.
  *
  * Returns the impulse to apply at the contact and the normal delta-v the damage model

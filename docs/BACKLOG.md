@@ -4141,6 +4141,46 @@ draws the 45 px disc (a halo sprite would carry no #114 tag and count as untagge
   (corridor right trunk, about 1430-1600 x 0-700), blocky pedestrians — the same as #124's.
 None measured beyond the reviewer's own pixel reads.
 
+### #126 PART 1 FIXED — parked cars are solid to the car and to the player on foot; poles, trees and bollards are still not
+**What shipped.** `src/blockers.js` `CarBlockers` wraps the building index and adds ORIENTED BOXES,
+answering the same two questions src/vehicle.js asks (`anyNear`, `resolveCircle`, same return
+shape, same epsilon), so the car's contact impulse, its damage charge and its crime wire are the
+walls' own and nothing about them is copied. `src/streetfurniture.js` `parkedSolids()` hands over
+the cars the pool is DRAWING — `cand[0 .. filled)`, each a box centred on its shell's own bounding
+box — and district/main.js re-hands the list whenever the pool refills (`fillSerial`). Only the car
+and the walker get the layer: the router, the respawn's clear test, the crowd and the fleet keep
+the building index, because a parked car is not a wall to any of them.
+
+**A box that arrives on top of a body is a ghost until the body has left it.** The pool refills by
+distance from the camera and the parking lane is drivable, so a slot can become a drawn car with
+the player's car in it; made solid at once, the resolver throws the car sideways out of a collision
+that never happened and charges it. `release()` does the same for a car that was PUT somewhere — a
+respawn, a harness teleport. Both bodies are tested, because the car is stepped on foot too.
+
+**Measured.**
+
+    into a parked car at 30 km/h (blocker-test, the real Vehicle and DamageModel)
+      stops with its centre at 9.55 m against a bumper at 11.70; dv 11.10 m/s; health 0.372
+      the shipped collider, same drive: 42.8 m, 0 contacts, health 1.000
+    the boxes are the drawn cars: 120 buffer corners through their own instance matrices lie on
+      their box to 7.1e-6 m (Float32 matrices); a box symmetric about the slot is 0.1795 m off
+    the page (boot-check, twice): 30 parked cars drawn; driven into one's side from the road at up to
+      13.3 km/h, from 6.195 m off its centre to a closest 3.195 m against a 2.54 m bound;
+      31 box contacts; health 1.000 -> 0.928
+
+Gates: `blocker-test` §"parked cars are solid" (16 checks) and §"the parked boxes are the drawn
+cars" (3), 99 -> 118, `boot-check`'s host-wire arm (4), and five `mutation-sweep` rows — `car-box-frame`,
+`car-box-ghost`, `car-box-release`, `car-box-wallpass` and the browser-only `car-box-wire`.
+
+**Still open, in the order the entry gave:** rigid street furniture (543 lamp poles, 307 trees,
+237 signals, 172 hydrants, 140 utility poles, 1,497 bollards) — a crash, like a wall, and the
+obvious next layer of the same class; and light props (bins, newsboxes, cafe chairs), which want
+knocking aside and so need per-prop state. Two more things this does not do: a parked car is an
+immovable box rather than a 1,400 kg body that shoves, and **`tools/playtest.mjs` builds no
+street furniture at all**, so the harness has no parked cars for its car or its crowd — a
+divergence this entry adds a reason to close.
+
+#### THE ORIGINAL RECORD
 ### #126 OPEN — the car drives through every parked car, lamp post, tree and bollard in the district
 Found reading the call graph while fixing #64's drive, not by playing. The car's body collider is
 `vehicle.blockers`, a `BlockerIndex` built from `district.buildings` and nothing else

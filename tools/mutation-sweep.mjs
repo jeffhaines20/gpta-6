@@ -1614,6 +1614,52 @@ const MUTATIONS = [
   },
   {
     /**
+     * #126: THE PARKED CARS' LOCAL FRAME WITH ONE SIGN FLIPPED. The box keeps its size and loses its
+     * orientation, so on every street that is not axis-aligned the solid car sits beside the drawn
+     * one, and a car turned a quarter has its length across. Nothing visible changes.
+     */
+    id: 'car-box-frame', file: 'src/blockers.js',
+    find: '    const la = ux * b.c - uz * b.s;              // across: local +x is (cos yaw, -sin yaw)',
+    to: '    const la = ux * b.c + uz * b.s;              // across: local +x is (cos yaw, -sin yaw)',
+    why: 'a parked car is solid beside where it is drawn on every street that is not axis-aligned',
+  },
+  {
+    /**
+     * #126: NO GHOST. A parked car the pool draws on top of the player's car is solid at once, and
+     * the resolver throws the car sideways out of a collision that never happened — and charges it.
+     */
+    id: 'car-box-ghost', file: 'src/blockers.js',
+    find: '        box.solid = false;',
+    to: '        box.solid = true;',
+    why: 'a parked car that pops in under the player throws the car sideways and charges a crash',
+  },
+  {
+    /** #126: a teleport onto a parked car is charged as driving into it. */
+    id: 'car-box-release', file: 'src/blockers.js',
+    find: '  release(body = [], r = 0) {\n    let n = 0;',
+    to: '  release(body = [], r = 0) {\n    let n = 0; return n;',
+    why: 'a respawn or a harness teleport beside a parked car is charged as a crash',
+  },
+  {
+    /** #126: the push out of a parked car can end inside the building behind the pavement. */
+    id: 'car-box-wallpass', file: 'src/blockers.js',
+    find: '    const w2 = this.base ? this.base.resolveCircle(px, pz, r, maxIters) : null;',
+    to: '    const w2 = null;',
+    why: 'squeezed between a parked car and a wall, the car is pushed into the wall',
+  },
+  {
+    /**
+     * #126: THE HOST WIRE. The car keeps the building index and the parked cars are pictures again —
+     * every offline check of CarBlockers stays green, because they construct it themselves.
+     */
+    id: 'car-box-wire', file: 'district/main.js',
+    find: 'vehicle.blockers = carBlockers;\nvehicle.damage = damage;',
+    to: 'vehicle.blockers = blockers;\nvehicle.damage = damage;',
+    why: 'the car drives through every parked car in the district again',
+    browser: true,
+  },
+  {
+    /**
      * THE JAM CLOCK RESETS ON EVERY CONTACT-FREE STEP, which is how `_trackJam` was first
      * written and it NEVER FIRED. A wedged car rocks: measured at 120 Hz in a 4 m bay, a body
      * sample is corrected on 77.0% of steps and the contact-free gaps run p50 0.0167 s, p95 and

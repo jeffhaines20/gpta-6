@@ -7,7 +7,7 @@ import * as THREE from '../vendor/three.module.min.js';
 import { Input } from '../src/input.js';
 import { Vehicle, BODY_SAMPLES, BODY_RADIUS, BODY_ENCLOSING,
   composeStuck } from '../src/vehicle.js';
-import { BlockerIndex, districtBounds, worldFence, composeFence } from '../src/blockers.js';
+import { BlockerIndex, CarBlockers, districtBounds, worldFence, composeFence } from '../src/blockers.js';
 import { DamageModel, IMPACT, dynamicContact, Garage, composeGarage } from '../src/damage.js';
 import { RoadGraph, followPath, ROUTE_LANE_M } from '../src/roadpath.js';
 import { ChaseCamera } from '../src/camera.js';
@@ -376,11 +376,25 @@ tod.setFurniture(furniture, lightPool);
 // same ground interface it used on the flat test block.
 const vehicle = new Vehicle();
 const ROUTE = district.meta.route ?? null;
+/**
+ * The car's body as its five collision circles, `[[x, z], ...]`, for CarBlockers' ghost test (#126).
+ * Declared here, ABOVE placeAt, and `carBlockers` with it as a `let`: placeAt runs at module
+ * evaluation, hundreds of lines before the wall index exists, and a `const` read there is the
+ * temporal dead zone that stopped this page rendering for three commits (CLAUDE.md, fab3e2d).
+ */
+let carBlockers = null;
+const _bodyFwd = new THREE.Vector3();
+function carBody() {
+  _bodyFwd.set(0, 0, 1).applyQuaternion(vehicle.quaternion);
+  return BODY_SAMPLES.map((sz) => [vehicle.position.x + _bodyFwd.x * sz, vehicle.position.z + _bodyFwd.z * sz]);
+}
 function placeAt(x, z, yaw = 0) {
   vehicle.position.set(x, 0.55, z);
   vehicle.velocity.set(0, 0, 0);
   vehicle.angularVelocity.set(0, 0, 0);
   vehicle.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+  // Put, not driven: anything parked under the car now is not a collision (CarBlockers.release).
+  if (carBlockers) carBlockers.release(carBody(), BODY_RADIUS);
 }
 placeAt(district.meta.spawn?.x ?? 0, district.meta.spawn?.z ?? 0);
 
@@ -693,6 +707,8 @@ function respawnCar() {
   vehicle.velocity.set(0, 0, 0);
   vehicle.angularVelocity.set(0, 0, 0);
   vehicle.quaternion.setFromAxisAngle(_wreckAxis.set(0, 1, 0), yaw);
+  // The replacement is put on a road, not driven there (CarBlockers.release, #126).
+  if (carBlockers) carBlockers.release(carBody(), BODY_RADIUS);
   wreckStats.lastAt = { x: +x.toFixed(1), z: +z.toFixed(1) };
   wreckStats.lastAtT = simTime;
   respawnHistory.push({ x, z, t: simTime });
@@ -1163,6 +1179,14 @@ const ENTER_TIME = 0.45;
  * with it the whole time.
  */
 const blockers = new BlockerIndex(district);
+/**
+ * AND WHAT THE CAR HITS THAT IS NOT A BUILDING (#126): the building index plus the parked cars the
+ * pool is drawing, handed over in the frame loop below. Only the CAR gets this object; the router,
+ * the respawn test, the crowd and the fleet keep `blockers`, because a parked car is not a wall to
+ * any of them.
+ */
+carBlockers = new CarBlockers(blockers);
+let parkedSerial = -1;
 
 /**
  * THE GARAGE, AT (-67.9, 60.3).
@@ -1261,7 +1285,7 @@ damage.onImpact = (rec) => {
     audioImpactsSilent++;
   }
 };
-vehicle.blockers = blockers;
+vehicle.blockers = carBlockers;
 vehicle.damage = damage;
 
 /**
@@ -1927,6 +1951,28 @@ function animate(now) {
     lastThrottle = fenced.controls.throttle ?? 0;
   }
 
+  /**
+   * THE PARKED CARS THE CAR CAN HIT, once a frame (#126). The pool refills on its own rAF, by
+   * distance from the camera, so its drawn set is read here and handed to CarBlockers only when it
+   * changed; between refills, a ghost — a car that arrived on top of ours — turns solid once our
+   * body has left it.
+   */
+  {
+    // BOTH bodies the boxes can hit: the car is stepped on foot as well ("still in the world,
+    // parked, while you walk about"), so a car that pops in on top of the PARKED player's car must
+    // be a ghost too, or the resolver throws it sideways and charges it while nobody is in it.
+    // The walker is tested at the car's radius, which is conservative for a 0.35 m body.
+    const body = carBody();
+    if (mode === 'foot') body.push([player.position.x, player.position.z]);
+    const ps = furniture.parkedSolids();
+    if (ps.serial !== parkedSerial) {
+      parkedSerial = ps.serial;
+      carBlockers.setBoxes(ps.boxes, body, BODY_RADIUS);
+    } else {
+      carBlockers.settle(body, BODY_RADIUS);
+    }
+  }
+
   // timeScale exists for the headless harness only: it advances sim + streaming
   // several times per rendered frame so a software renderer can still cover a
   // 2.6 km route. Every rate metric is reported against simulated time.
@@ -1934,7 +1980,8 @@ function animate(now) {
     if (autopilot) autopilot(dt);
     if (mode === 'foot') {
       carCollider.x = vehicle.position.x; carCollider.z = vehicle.position.z;
-      player.update(dt, input, chase.yaw, world, footColliders, blockers);
+      // carBlockers, not blockers: a parked car is solid on foot as well (#126).
+      player.update(dt, input, chase.yaw, world, footColliders, carBlockers);
     }
     vehicle.stepFixed(dt, world);
     // The damage clock runs on simulated time, like everything else in this loop, so
@@ -2645,6 +2692,8 @@ window.__district = {
   // page by hand. `crash()` is the one that matters: it is how you see a crash without
   // needing to steer into a building in a headless browser at under one frame a second.
   damage, blockers,
+  // The car's own collision world: `blockers` plus the drawn parked cars (#126). See CarBlockers.
+  carBlockers,
   damageReport: () => ({
     ...damage.report(),
     contacts: vehicle.contacts,
@@ -2700,7 +2749,7 @@ window.__district = {
    * — and it is not the gate's default yet because making it so needs a fresh baseline.
    */
   setBodyCollision(on) {
-    vehicle.blockers = on ? blockers : null;
+    vehicle.blockers = on ? carBlockers : null;
     return !!vehicle.blockers;
   },
   bodyCollision: () => !!vehicle.blockers,

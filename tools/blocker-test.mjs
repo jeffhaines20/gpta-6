@@ -23,11 +23,11 @@
 //       that clips a building corner. The gate builds the shortcut and measures the
 //       error.
 import fs from 'node:fs';
-import { BlockerIndex, insideRing, ringArea, contactImpulse,
+import { BlockerIndex, CarBlockers, insideRing, ringArea, contactImpulse,
   districtBounds, worldFence, WORLD_MARGIN_M,
   FENCE_FULL_M, FENCE_BRAKE_MS, FENCE_CRAWL_MS, composeFence } from '../src/blockers.js';
 import { Vehicle, composeStuck, STUCK_HOLD_S, STUCK_THROTTLE,
-  STUCK_SPEED_MS, STUCK_CONTACT_GRACE_S } from '../src/vehicle.js';
+  STUCK_SPEED_MS, STUCK_CONTACT_GRACE_S, BODY_SAMPLES, BODY_RADIUS } from '../src/vehicle.js';
 import { FlatGround } from '../src/ground.js';
 import { edgesOf, ringArea as facadeRingArea } from '../src/facades.js';
 // One import for both the contact-impulse section and the fence sweep: the file used to pull it
@@ -1130,6 +1130,200 @@ console.log('\n=== 12. the fence names the control that works');
       { throttle: 0, brake: 0, steer: 0 })) === null);
   check('and `ownSubtitle` is set, or HOLDS_MISSION_SUBTITLE eats the verb during a mission',
     near && near.ownSubtitle === true, `ownSubtitle ${near && near.ownSubtitle}`);
+}
+
+// ---------------------------------------------------------------------------
+/**
+ * #126: THE CAR DROVE THROUGH EVERY PARKED CAR IN THE DISTRICT. Its body collider was this file's
+ * building index and nothing else, so a parked car was a picture. CarBlockers adds the drawn
+ * parked cars as oriented boxes behind the same two questions src/vehicle.js asks, and every check
+ * below that can carry a known-bad carries the shipped build: the same car, the same drive, with
+ * the building index alone.
+ */
+console.log('\n§ parked cars are solid (#126)');
+{
+  const HX = 0.95, HZ = 2.3, R = BODY_RADIUS;
+  const empty = new BlockerIndex({ buildings: [] });
+  const one = (yaw, x = 0, z = 0) => {
+    const cb = new CarBlockers(empty);
+    cb.setBoxes([{ x, z, yaw, hx: HX, hz: HZ, key: 'k' }]);
+    return cb;
+  };
+  // Side, end, corner and centre-inside, on an unrotated box and on one turned a quarter.
+  const side = one(0).resolveCircle(1.5, 0, R);
+  check('a circle against the side of a box is pushed out to exactly hx + r, along the side normal',
+    side && near(side.x, HX + R, 1e-5) && near(side.z, 0, 1e-9) && near(side.nx, 1, 1e-9),
+    side ? `(${side.x.toFixed(6)}, ${side.z.toFixed(6)}) n (${side.nx.toFixed(3)}, ${side.nz.toFixed(3)})` : 'null');
+  // Turned a quarter, the car's length lies along world x: forward is (sin yaw, cos yaw) = (1, 0),
+  // the convention src/streetfurniture.js draws the pool with (makeRotationY) and reaction-test's
+  // crowd audit reads it with. A sign error in the local frame puts the length across.
+  const end = one(Math.PI / 2).resolveCircle(2.8, 0, R);
+  check('turned a quarter, the box\'s LENGTH lies along world x: an end hit leaves at hz + r',
+    end && near(end.x, HZ + R, 1e-5) && near(end.z, 0, 1e-9),
+    end ? `x ${end.x.toFixed(6)} against ${HZ + R}` : 'null — the length is across, or the box is missing');
+  const across = one(Math.PI / 2).resolveCircle(0, -1.5, R);
+  check('and its WIDTH across world z: a side hit leaves at hx + r',
+    across && near(across.z, -(HX + R), 1e-5) && near(across.x, 0, 1e-9),
+    across ? `z ${across.z.toFixed(6)} against ${-(HX + R)}` : 'null');
+  const corner = one(0).resolveCircle(HX + 0.35, HZ + 0.4, R);
+  const cn = corner ? Math.hypot(corner.x - HX, corner.z - HZ) : null;
+  check('a corner hit comes off along the diagonal, to exactly r from the corner',
+    corner && near(cn, R, 1e-5) && corner.nx > 0.3 && corner.nz > 0.3,
+    corner ? `${cn.toFixed(6)} m from the corner, n (${corner.nx.toFixed(3)}, ${corner.nz.toFixed(3)})` : 'null');
+  const inside = one(0).resolveCircle(0.5, 1.0, R);
+  check('a centre inside the box leaves by the NEAREST face, plus the radius',
+    inside && near(inside.x, HX + R, 1e-5) && near(inside.z, 1.0, 1e-9),
+    inside ? `(${inside.x.toFixed(4)}, ${inside.z.toFixed(4)})` : 'null');
+  check('clear of the box is clear: null, which is what the body\'s early out relies on',
+    one(0).resolveCircle(3.0, 0, R) === null && one(0).anyNear(3.0, 0, R) === true
+    && one(0).anyNear(30, 0, R) === false,
+    'resolve at 3.0 m, anyNear at 3.0 and 30 m');
+  // A resolved position resolves to clear, and the epsilon terminates it in one pass.
+  const again = side ? one(0).resolveCircle(side.x, side.z, R) : 'n/a';
+  check('a resolved position resolves to clear (the epsilon terminates it, as BlockerIndex does)',
+    again === null, again === null ? 'null' : JSON.stringify(again));
+
+  // The ghost: a box that arrives on top of the car is not a collision.
+  const body = [[0, 0]];
+  const cb = new CarBlockers(empty);
+  cb.setBoxes([{ x: 0.5, z: 0, yaw: 0, hx: HX, hz: HZ, key: 'g' }], body, R);
+  const ghostHit = cb.resolveCircle(0, 0, R);
+  check('a parked car that ARRIVES on top of the car is a ghost: no contact, no push',
+    ghostHit === null && cb.stats.ghosted === 1, `resolve ${JSON.stringify(ghostHit)}, ghosted ${cb.stats.ghosted}`);
+  cb.settle([[0, 0]], R);
+  const stillGhost = cb.resolveCircle(0, 0, R) === null;
+  cb.settle([[5, 0]], R);
+  const solidNow = cb.resolveCircle(0.5 + HX + 0.5, 0, R);
+  check('it stays a ghost while the body overlaps it, and turns solid once the body has left',
+    stillGhost && solidNow && cb.stats.solidified === 1,
+    `ghost while overlapping ${stillGhost}, solid after ${!!solidNow}, solidified ${cb.stats.solidified}`);
+  // A refill must not re-ghost a car the body is already pressed against: same key, still solid.
+  cb.setBoxes([{ x: 0.5, z: 0, yaw: 0, hx: HX, hz: HZ, key: 'g' }], [[0.5 + HX + 0.5, 0]], R);
+  check('a refill keeps a car that stayed drawn solid even with the body against it (the key survives)',
+    cb.resolveCircle(0.5 + HX + 0.5, 0, R) !== null, `boxes ${cb.boxes.length}, solid ${cb.boxes[0]?.solid}`);
+  const rel = cb.release([[0.5, 0]], R);
+  check('and a teleport onto it releases it: `release` ghosts what the body was PUT on',
+    rel === 1 && cb.resolveCircle(0.5, 0, R) === null, `released ${rel}`);
+
+  // A wall behind the pavement: the push out of a parked car must not end inside a building.
+  const wallIx = new BlockerIndex({ buildings: [{ p: [[-20, 3.6], [20, 3.6], [20, 10], [-20, 10]] }] });
+  const both = new CarBlockers(wallIx);
+  both.setBoxes([{ x: 0, z: 0, yaw: Math.PI / 2, hx: HX, hz: HZ, key: 'w' }]);
+  const pinch = both.resolveCircle(0, 0.6, R);
+  const inWall = pinch ? wallIx.resolveCircle(pinch.x, pinch.z, R) : 'n/a';
+  check('pushed out of a parked car toward a wall, the result is not left inside the wall',
+    pinch && inWall === null, pinch ? `(${pinch.x.toFixed(3)}, ${pinch.z.toFixed(3)}), wall ${JSON.stringify(inWall)}` : 'null');
+  check('and the delegated building questions answer exactly as the index does',
+    both.insideAny(0, 5) === wallIx.insideAny(0, 5) && both.near(0, 5, 2).length === wallIx.near(0, 5, 2).length,
+    `insideAny ${both.insideAny(0, 5)} / ${wallIx.insideAny(0, 5)}`);
+
+  // The car itself, driven into a parked car at 30 km/h, against the shipped build.
+  const HZd = 120, DTd = 1 / HZd;
+  const ground = new FlatGround(0);
+  const run = (withCars) => {
+    const v = new Vehicle();
+    const dm = new DamageModel();
+    v.damage = dm;
+    const parked = { x: 0, z: 14, yaw: 0, hx: HX, hz: HZ, key: 'p' };
+    if (withCars) {
+      const c = new CarBlockers(empty);
+      c.setBoxes([parked]);
+      v.blockers = c;
+    } else {
+      v.blockers = empty;
+    }
+    v.position.set(0, v.position.y, 0);
+    v.quaternion.setFromAxisAngle({ x: 0, y: 1, z: 0 }, 0);
+    v.velocity.set(0, 0, 30 / 3.6);
+    // The WORST contact, not the last: the throttle keeps the car leaning on the bumper after the
+    // hit, and `lastContact` then holds that 0.01 m/s settle rather than the crash.
+    let maxZ = 0, dv = 0, front = null;
+    for (let i = 0; i < 4 * HZd; i++) {
+      v.setControls({ throttle: 0.4, brake: 0, steer: 0 });
+      const c0 = v.contacts;
+      v.step(DTd, ground);
+      maxZ = Math.max(maxZ, v.position.z);
+      if (v.contacts > c0 && v.lastContact.dv > dv) { dv = v.lastContact.dv; front = v.lastContact.localZ; }
+    }
+    return { maxZ, contacts: v.contacts, dv, health: dm.health, front };
+  };
+  const hit = run(true), ghost = run(false);
+  // The nose is 2.15 m ahead of the centre (src/damage.js HALF_EXTENT.z) and the collider's front
+  // circle reaches 1.2 + 0.95: the car stops with its centre about 2.15 m short of the bumper.
+  const bumper = 14 - HZ;
+  console.log(`    into a parked car at 30 km/h: centre stops at ${hit.maxZ.toFixed(2)} m against a bumper at `
+    + `${bumper.toFixed(2)}, ${hit.contacts} contact steps, dv ${hit.dv.toFixed(2)} m/s, health ${hit.health.toFixed(3)}`);
+  console.log(`    the shipped build, same drive: ${ghost.maxZ.toFixed(1)} m, ${ghost.contacts} contacts, `
+    + `health ${ghost.health.toFixed(3)}`);
+  check('the car stops at a parked car\'s bumper instead of driving through it',
+    hit.maxZ < bumper - BODY_SAMPLES[BODY_SAMPLES.length - 1] - R + 0.25 && hit.contacts > 0,
+    `centre ${hit.maxZ.toFixed(2)} against ${(bumper - 1.2 - R).toFixed(2)}`);
+  check('and the hit is charged as a FRONT impact the damage model takes',
+    hit.dv > 2.2 && hit.health < 1 && hit.front > 0, `dv ${hit.dv.toFixed(2)}, health ${hit.health.toFixed(3)}, localZ ${hit.front}`);
+  check('KNOWN-BAD: the shipped collider drives straight through the same car, untouched',
+    ghost.maxZ > 14 + HZ && ghost.contacts === 0 && ghost.health === 1,
+    `${ghost.maxZ.toFixed(1)} m, ${ghost.contacts} contacts`);
+}
+
+/**
+ * AND THE BOXES ARE THE CARS THE POOL DRAWS. `parkedSolids()` builds each box from the slot and the
+ * shell's own bounding box; the pool draws each car from an instance matrix. Two derivations of one
+ * car, so they are checked against each other corner for corner: every plan corner of every drawn
+ * car's buffer, taken through its OWN instance matrix, lies on its box's boundary. A box that was
+ * off by the shell's front/rear asymmetry, or turned the wrong way, fails here offline.
+ */
+console.log('\n§ the parked boxes are the drawn cars (#126)');
+{
+  const THREE = await import('../vendor/three.module.min.js');
+  const { StreetFurniture } = await import('../src/streetfurniture.js');
+  const fu = new StreetFurniture(new THREE.Scene(), { max: 1200 });
+  fu.commit();
+  fu.dressDistrict(district, { audit: false });
+  fu.buildParkedCars({ count: 30 });
+  fu.refreshParked(-150, -160, true);
+  const { boxes } = fu.parkedSolids();
+  const m = new THREE.Matrix4(), v = new THREE.Vector3();
+  const offBy = (list) => {
+    let corners = 0, worst = 0;
+    list.forEach((b, k) => {
+      const { mesh, li } = fu._parkedPaint[k];
+      mesh.getMatrixAt(li, m);
+      mesh.geometry.computeBoundingBox();
+      const bb = mesh.geometry.boundingBox;
+      const s = Math.sin(b.yaw), c = Math.cos(b.yaw);
+      for (const [x, z] of [[bb.min.x, bb.min.z], [bb.max.x, bb.min.z], [bb.min.x, bb.max.z], [bb.max.x, bb.max.z]]) {
+        v.set(x, 0, z).applyMatrix4(m);
+        const ux = v.x - b.x, uz = v.z - b.z;
+        const la = Math.abs(ux * c - uz * s), lf = Math.abs(ux * s + uz * c);
+        worst = Math.max(worst, Math.abs(la - b.hx), Math.abs(lf - b.hz));
+        corners++;
+      }
+    });
+    return { corners, worst };
+  };
+  const got = offBy(boxes);
+  // The box a first draft would build: on the slot, symmetric about it — max(|min|, max).
+  const sym = offBy(boxes.map((b, k) => {
+    const bb = fu._parkedPaint[k].mesh.geometry.boundingBox, sl = b.key;
+    return { x: sl.x, z: sl.z, yaw: b.yaw, hx: Math.max(-bb.min.x, bb.max.x), hz: Math.max(-bb.min.z, bb.max.z) };
+  }));
+  /**
+   * The tolerance is measured: the instance matrices are Float32, so a corner at district
+   * coordinates comes back ~7e-6 m from where float64 puts it. The smallest real error this
+   * exists to catch is the coupe's front/rear asymmetry, 0.0215 m. 1e-4 is 14x the one and 215x
+   * below the other, with nothing in between for it to be wrong at.
+   */
+  console.log(`    ${boxes.length} drawn cars, ${got.corners} buffer corners through their own instance matrices: `
+    + `worst ${got.worst.toExponential(2)} m off their box's boundary; a box symmetric about the slot `
+    + `would be ${sym.worst.toFixed(4)} m off`);
+  check('every drawn parked car\'s buffer corners lie on its box (the box IS the drawn car)',
+    boxes.length > 20 && got.corners === boxes.length * 4 && got.worst < 1e-4,
+    `${boxes.length} boxes, worst ${got.worst.toExponential(2)} m against 1e-4`);
+  check('KNOWN-BAD: a box symmetric about the slot is off by the shell\'s own asymmetry, and fails it',
+    sym.worst > 0.02, `${sym.worst.toFixed(4)} m`);
+  const asym = fu._parkExt.map((e) => e.cz);
+  check('and the boxes carry each shell\'s front/rear asymmetry rather than a symmetric length',
+    asym.every((cz) => Math.abs(cz) > 0.01), `centre offsets along the car ${asym.map((x) => x.toFixed(3)).join(', ')} m`);
 }
 
 // ---------------------------------------------------------------------------

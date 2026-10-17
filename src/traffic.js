@@ -2058,6 +2058,9 @@ export class Traffic {
     }
     return {
       fleet: this.count,
+      // Published so a harness that waits on the fleet can bound its patience by the fleet's own
+      // gridlock rule rather than a number of its own (tools/drive-through.mjs).
+      stuckLimitS: this.stuckLimitS,
       // The lamp spill is one extra draw call and glowSlotsUsed x glowTriangles
       // triangles, and it is zero of both whenever the lamps are off.
       glow: { slots: this.glowSlots, used: this.stats.glowSlotsUsed,

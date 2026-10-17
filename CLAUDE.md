@@ -4164,6 +4164,30 @@ count is exactly what nobody reads. `grep -n 'process.exit' <gate>` before appen
 one command, and the general rule stands restated — **the last ARM is the end of a gate file, not
 the verdict.**
 
+### And an arm that was ALREADY below the verdict, for ten days, while that paragraph was written
+
+When #106's arm was moved above the exit, the arm that had been sitting below it the whole time was
+not looked for. `boot-check`'s wedged-car cue — three checks, and the only gate that sees
+`composeStuck`'s line reach the page — was moved under `process.exit` by #89's commit (`e6504de`,
+2026-10-07: removed from line 656, re-added at 1431, four lines below the exit) and stayed
+unreachable until 2026-10-17. Every boot-check run in between printed PASS with a count three lower
+than its arms, the paragraph above was written ABOUT that file in the middle of it, and `grep -n
+'process.exit'` would have shown it to whoever ran it — nobody did, because the lesson was framed
+as "before appending", and this was not an append.
+
+Found while placing #126's arm, by reading where the verdict was instead of assuming it was last.
+**A lesson framed as a precaution for the next edit does not audit the edits already made.** So it
+is a lint now rather than a habit: `check-syntax` fails any `tools/*.mjs` with a `check(` call after
+its last column-0 `process.exit(`, proven against HEAD's boot-check (3 dead calls, rc 1) before it
+was trusted. And the revived arm failed its first run on a car that never touched the wall: the
+arrest arm now above it ends on "busted", the band read BUSTED as this arm placed its car, and the
+fade's `respawnCar()` then moved the car to a road, where full throttle met nothing for 420 s. Three
+repairs, every one of them this file's own lesson: drain an inherited hold before placing (the holds
+run on sim time, so a raised timeScale clears one in ten frames), read `wreckReport().wrecks` as a
+DELTA rather than a level, and assert the band's TENANT (`bandReport().from`) rather than a text the
+HUD may simply not have redrawn. **Code that has not run in ten days has drifted ten days**, whether
+or not anybody touched it.
+
 ## A browser arm can read a field before its writer runs, and the tell is a right answer in a wrong wrapper
 
 #106's arm read `abortReport().offer` as `null` and the prompt panel's `pv-on` as `false` while

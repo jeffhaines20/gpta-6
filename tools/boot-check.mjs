@@ -1754,6 +1754,236 @@ if (state.global && state.frames > 2) {
 }
 
 
+/**
+ * THE WEDGED-CAR CUE, WHICH ONLY THIS GATE CAN SEE REACH THE PAGE.
+ *
+ * `src/vehicle.js` owns the detector and `tools/blocker-test.mjs` gates it against real geometry:
+ * a car crept into a 4 m bay travels 0.305 m under full throttle, pressing the wall 92 times a
+ * second, and reverse covers 63.18 m from the same pin — x207. `src/hud.js`'s `composeBand` owns
+ * the precedence and hud-cue's ladder gates that. What lives ONLY in district/main.js is the one
+ * line that passes `composeStuck(vehicle)` into the band, and nothing offline imports that file.
+ *
+ * READ OFF THE DOM, like the arm above it, because the state object is not what a player sees:
+ * the `stuck` tenant sets `ownSubtitle`, and the whole content of the line is the one word in the
+ * subtitle, so a build that composed it correctly and failed to paint it would be invisible to a
+ * check on `state.subtitle`.
+ *
+ * AT A REAL PIN IN THE SHIPPED DISTRICT, and the first version of this arm was void for an
+ * instructive reason: it set `vehicle.stuckFor` directly, and `_trackJam` runs every physics step
+ * and zeroed it before the band was composed. The injection failing is the detector working — but
+ * it is not a measurement, so it is replaced rather than worked around.
+ *
+ * (132.89, 221.48) was found by gridding the district at 5 m for clear spots with most of sixteen
+ * directions blocked within 6 m and then testing each by creeping in and holding full throttle:
+ * 388 candidates, 5 real pins. Offline it gives forward 0.183 m against reverse 28.7 m with 94
+ * contacts a second, which is the playtester's 0.34 m and ~96/s. tools/blocker-test.mjs asserts
+ * that; what is asserted HERE is only that the line reaches the page.
+ *
+ * BOUNDED BY THE STATE, NOT THE WALL CLOCK, the way the run-over arm above is. district/main.js
+ * clamps dt to 0.05 and `stepFixed` caps at 16 substeps of 1/120, so the physics advances at most
+ * 0.133 s per rendered frame however long the frame takes — `setTimeScale` cannot buy more than
+ * that. The run ends when `stuckFor` clears the dwell, with a generous wall-clock backstop that
+ * never decides a pass, and the reason it ended is reported.
+ */
+{
+  const jam = await page.evaluate(async () => {
+    const d = __district;
+    const v = d.vehicle;
+    const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+    const read = () => {
+      const h = d.hud();
+      return { obj: h.elObjText ? h.elObjText.textContent : '',
+        sub: h.elSub ? h.elSub.textContent : '' };
+    };
+    d.setMode('car');
+    d.clearWanted('boot-check');
+    d.setBodyCollision(true);
+    /**
+     * THE ARM OWNS THE CAR'S WRECK STATE, AND READS WRECKS AS A DELTA. It sat below the verdict,
+     * unreachable, from #89's commit until 2026-10-17, and the file grew a dozen arms above it in
+     * that time. `wreckReport().wrecks` is cumulative since page load, so any earlier arm that
+     * wrecked the car would have ended this one on its first frame reading "wrecked" — CLAUDE.md's
+     * "a level where a delta was meant". And a car handed over damaged pulls to one side.
+     */
+    d.repairCar();
+    /**
+     * AND IT WAITS OUT A HOLD IT DID NOT START. Revived, its first run failed both checks on a car
+     * that never touched the wall: the arrest arm above ends on "busted", the band read "BUSTED"
+     * as this arm placed its car, and the fade then ran `respawnCar()` — which put the car on a
+     * road away from the pin, where full throttle met nothing for 420 s. The holds run on SIM
+     * time, so a raised timeScale drains one in a few frames; the count is reported.
+     */
+    d.setAutopilot(() => v.setControls({ throttle: 0, brake: 1, steer: 0, handbrake: false }));
+    d.setTimeScale(8);
+    let drained = 0;
+    while ((d.bustReport().fadeFor > 0 || d.wreckReport().heldFor > 0) && drained < 80) {
+      await frame();
+      drained++;
+    }
+    d.setTimeScale(1);
+    d.clearWanted('boot-check');
+    d.repairCar();
+    const wrecks0 = d.wreckReport().wrecks;
+    d.placeAt(132.89, 221.48, 1.571);
+    for (let i = 0; i < 3; i++) await frame();
+    const quiet = read();
+    // Crept in at 0.35 so the impact is gentle: a hard nose-in WRECKS the car, and a wreck is a
+    // different tenant with its own cue. Then full throttle, which is the state under test.
+    let phase = 'creep';
+    d.setAutopilot(() => {
+      v.setControls({ throttle: phase === 'creep' ? 0.35 : 1, brake: 0, steer: 0,
+        handbrake: false });
+    });
+    const t0 = Date.now();
+    let why = 'stuck';
+    for (let i = 0; i < 400; i++) {
+      await frame();
+      if (phase === 'creep' && v.contacts > 20) phase = 'push';
+      if (v.stuckFor >= 4.0) break;
+      if (d.wreckReport().wrecks > wrecks0) { why = 'wrecked'; break; }
+      /**
+       * THE WALL CLOCK IS A SAFETY NET AGAINST A HANG, NOT A BUDGET, AND AT 240 s IT WAS BOTH.
+       *
+       * This arm waits on the CAR TO TRAVEL, so `setTimeScale` cannot buy it anything —
+       * `stepFixed` caps the physics at 0.133 s of sim per rendered frame however long the frame
+       * takes (see CLAUDE.md). Its real bound is the 400-frame budget above. At roughly 0.6 s a
+       * frame through SwiftShader, 400 frames IS 240 s, so the two bounds were numerically
+       * coincident on this box and which one fired was decided by how fast the machine felt.
+       * It fired the clock at `stuckFor 3.80` against a 4.0 threshold — 5% short — and reported
+       * "wall clock", which is the one thing that stopped this being read as a behaviour change.
+       *
+       * 420 s is 400 frames at 1.05 s a frame, which is a slow box rather than a hung one. On a
+       * healthy box the loop still exits on the STATE and costs nothing extra; this only changes
+       * which bound is reachable. CLAUDE.md: "a check that compares against an absolute number
+       * needs the same sweep a measurement does", and "bound such an arm on the STATE rather than
+       * the wall clock, and report which of the two ended the run" — it does report, and that is
+       * what made this diagnosable in one run.
+       */
+      if (Date.now() - t0 > 420000) { why = 'wall clock'; break; }
+    }
+    const nose = read();
+    const stuckFor = v.stuckFor, contacts = v.contacts, frames = d.frames;
+    // Freed: brake off the wall in reverse, and the line must go.
+    d.setAutopilot(() => {
+      v.setControls({ throttle: -1, brake: 0, steer: 0, handbrake: false });
+    });
+    for (let i = 0; i < 60 && v.stuckFor > 0; i++) await frame();
+    // One more frame, so the band has been composed from the cleared clock; then the TENANT as well
+    // as the text, because the HUD dirty-flags its panels and a text that is no longer composed is
+    // not necessarily a text that has been cleared (CLAUDE.md: assert the tenant, not the screen).
+    await frame();
+    const after = read();
+    const fromAfter = d.bandReport().from, stuckAfter = v.stuckFor;
+    d.setAutopilot(null);
+    return { quiet, nose, after, fromAfter, stuckAfter, stuckFor, contacts, frames, why, drained,
+      wrecks: d.wreckReport().wrecks - wrecks0 };
+  });
+  console.log(`  wedged at the pin: "${jam.quiet.obj}" -> "${jam.nose.obj}" / "${jam.nose.sub}", `
+    + `then "${jam.after.obj}"`);
+  console.log(`    ended on "${jam.why}" with stuckFor ${jam.stuckFor.toFixed(2)} s, `
+    + `${jam.contacts} contacts, ${jam.wrecks} wrecks; an earlier arm's hold drained in ${jam.drained} frames`);
+  check('the car got itself wedged on the page rather than wrecked or timed out',
+    jam.why === 'stuck' && jam.wrecks === 0 && jam.stuckFor >= 4.0,
+    `ended on "${jam.why}", stuckFor ${jam.stuckFor.toFixed(2)} s, wrecks ${jam.wrecks}`);
+  check('a wedged car reaches the page, with the one word that gets it out',
+    jam.nose.obj.includes('WEDGED') && jam.nose.sub === 'reverse',
+    `"${jam.nose.obj}" / "${jam.nose.sub}"`);
+  check('KNOWN-BAD: and it is gone once the car frees itself, so it is not a stuck panel',
+    !jam.quiet.obj.includes('WEDGED') && jam.fromAfter !== 'stuck' && !(jam.stuckAfter > 0),
+    `before "${jam.quiet.obj}", after: the band is composed by "${jam.fromAfter}" with stuckFor `
+    + `${jam.stuckAfter}, its text "${jam.after.obj}"`);
+}
+
+
+// -------------------------------------------------------- parked cars are solid (#126)
+/**
+ * THE HOST WIRE FOR #126, which no offline gate can reach. `tools/blocker-test.mjs` gates
+ * CarBlockers and the car's response to it against a car the test builds itself; what only this
+ * page has is the wire — that `vehicle.blockers` IS the CarBlockers, and that the frame loop hands
+ * it the cars the parked pool is actually DRAWING. Either can be lost with every offline check
+ * green, and the car is back to driving through every parked car in the district.
+ *
+ * It drives into the SIDE of a drawn parked car from the carriageway, which is the one approach
+ * with no other parked car in the way, and asserts the car stopped at it and that the contact was
+ * the box's — `carBlockers.stats.contacts` counts only box contacts, so a fleet car crossing in
+ * front cannot pass for it. The street is the car's own: the direction to the nearest road must
+ * be square to the parked car's length, or a junction's other road has been picked.
+ *
+ * It charges a crash and a crime, so it restores the page: repaired, cleared, back at the spawn.
+ */
+{
+  const pk = await page.evaluate(async () => {
+    const d = __district, v = d.vehicle;
+    const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+    d.setMode('car');
+    d.clearWanted('boot-check');
+    d.setBodyCollision(true);
+    d.repairCar();
+    d.setAutopilot(() => v.setControls({ throttle: 0, brake: 1, steer: 0, handbrake: false }));
+    for (let i = 0; i < 3; i++) await frame();
+    const drawn = d.furniture.parkedSolids().boxes;
+    let target = null;
+    for (const b of drawn) {
+      const r = d.nearestRoad(b.x, b.z);
+      if (!r || !(r.dist > 2 && r.dist < 9)) continue;
+      const nx = (r.x - b.x) / r.dist, nz = (r.z - b.z) / r.dist;
+      const along = Math.abs(nx * Math.sin(b.yaw) + nz * Math.cos(b.yaw));
+      if (along > 0.3) continue;                       // not square to its length: another road
+      const dd = Math.hypot(b.x - v.position.x, b.z - v.position.z);
+      if (!target || dd < target.dd) target = { b, nx, nz, dd, roadDist: r.dist, along };
+    }
+    if (!target) return { drawn: drawn.length, target: null };
+    const { b, nx, nz } = target;
+    const gap = 3.0;
+    const startD = b.hx + 2.15 + gap;                  // our nose is 2.15 m ahead of our centre
+    d.placeAt(b.x + nx * startD, b.z + nz * startD, Math.atan2(-nx, -nz));
+    for (let i = 0; i < 3; i++) await frame();
+    const signed = () => (v.position.x - b.x) * nx + (v.position.z - b.z) * nz;
+    const box0 = d.carBlockers.stats.contacts, car0 = v.contacts, health0 = d.damage.health;
+    const placed = signed();
+    let minD = placed, frames = 0, topKmh = 0;
+    d.setAutopilot(() => v.setControls({ throttle: 0.5, brake: 0, steer: 0, handbrake: false }));
+    const t0 = Date.now();
+    for (; frames < 90; frames++) {
+      await frame();
+      minD = Math.min(minD, signed());
+      topKmh = Math.max(topKmh, v.speed * 3.6);
+      if (d.carBlockers.stats.contacts > box0 + 30) break;
+      if (Date.now() - t0 > 180000) break;
+    }
+    const out = { drawn: drawn.length, target: { x: +b.x.toFixed(2), z: +b.z.toFixed(2), hx: +b.hx.toFixed(3),
+        hz: +b.hz.toFixed(3), roadDist: +target.roadDist.toFixed(2), along: +target.along.toFixed(3) },
+      placed: +placed.toFixed(3), minD: +minD.toFixed(3), frames, topKmh: +topKmh.toFixed(1),
+      boxContacts: d.carBlockers.stats.contacts - box0, carContacts: v.contacts - car0,
+      health0, health: d.damage.health, ghosted: d.carBlockers.stats.ghosted };
+    d.setAutopilot(null);
+    d.repairCar();
+    d.clearWanted('boot-check');
+    d.placeAt(d.district.meta.spawn.x, d.district.meta.spawn.z, 0);
+    for (let i = 0; i < 2; i++) await frame();
+    return out;
+  });
+  console.log(`  parked cars: ${pk.drawn} drawn; target ${JSON.stringify(pk.target)}`);
+  if (pk.target) {
+    console.log(`    from ${pk.placed} m off its centre to a closest ${pk.minD} m in ${pk.frames} frames, `
+      + `top ${pk.topKmh} km/h; ${pk.boxContacts} box contacts, ${pk.carContacts} car contact steps, `
+      + `health ${pk.health0.toFixed(3)} -> ${pk.health.toFixed(3)}`);
+  }
+  check('the page draws parked cars and one has its own street beside it to approach from',
+    pk.drawn > 0 && pk.target !== null, `${pk.drawn} drawn, target ${JSON.stringify(pk.target)}`);
+  check('driven into its side, the car touches the PARKED CAR — a box contact, not a fleet car',
+    pk.target && pk.boxContacts > 0 && pk.carContacts > 0,
+    `box contacts ${pk.boxContacts}, car contact steps ${pk.carContacts}`);
+  // Against the side the car's centre stops at hx + the nose's 2.15 m; through it, this goes to
+  // zero and then negative, which is the shipped build's answer and `car-box-wire`'s.
+  check('and stops at its side: the car\'s centre never gets nearer than its nose allows',
+    pk.target && pk.minD > pk.target.hx + 1.5,
+    pk.target ? `closest ${pk.minD} m against ${(pk.target.hx + 1.5).toFixed(2)} (hx + 1.5)` : 'no target');
+  check('and the hit is charged, as a wall\'s would be',
+    pk.target && pk.health < pk.health0, pk.target ? `health ${pk.health0} -> ${pk.health}` : 'no target');
+}
+
+
 // -------------------------------------------------------- handing a job back (#106)
 /**
  * THE HOST WIRE FOR #106, which is the only part of it no offline gate can reach.
@@ -1984,112 +2214,3 @@ await browser.close();
 console.log(`\nBOOT: ${fail ? `FAIL — ${fail} of ${pass + fail}` : `PASS — ${pass} checks`} ` +
   `in ${((Date.now() - t0) / 1000).toFixed(0)} s`);
 process.exit(fail ? 1 : 0);
-
-
-/**
- * THE WEDGED-CAR CUE, WHICH ONLY THIS GATE CAN SEE REACH THE PAGE.
- *
- * `src/vehicle.js` owns the detector and `tools/blocker-test.mjs` gates it against real geometry:
- * a car crept into a 4 m bay travels 0.305 m under full throttle, pressing the wall 92 times a
- * second, and reverse covers 63.18 m from the same pin — x207. `src/hud.js`'s `composeBand` owns
- * the precedence and hud-cue's ladder gates that. What lives ONLY in district/main.js is the one
- * line that passes `composeStuck(vehicle)` into the band, and nothing offline imports that file.
- *
- * READ OFF THE DOM, like the arm above it, because the state object is not what a player sees:
- * the `stuck` tenant sets `ownSubtitle`, and the whole content of the line is the one word in the
- * subtitle, so a build that composed it correctly and failed to paint it would be invisible to a
- * check on `state.subtitle`.
- *
- * AT A REAL PIN IN THE SHIPPED DISTRICT, and the first version of this arm was void for an
- * instructive reason: it set `vehicle.stuckFor` directly, and `_trackJam` runs every physics step
- * and zeroed it before the band was composed. The injection failing is the detector working — but
- * it is not a measurement, so it is replaced rather than worked around.
- *
- * (132.89, 221.48) was found by gridding the district at 5 m for clear spots with most of sixteen
- * directions blocked within 6 m and then testing each by creeping in and holding full throttle:
- * 388 candidates, 5 real pins. Offline it gives forward 0.183 m against reverse 28.7 m with 94
- * contacts a second, which is the playtester's 0.34 m and ~96/s. tools/blocker-test.mjs asserts
- * that; what is asserted HERE is only that the line reaches the page.
- *
- * BOUNDED BY THE STATE, NOT THE WALL CLOCK, the way the run-over arm above is. district/main.js
- * clamps dt to 0.05 and `stepFixed` caps at 16 substeps of 1/120, so the physics advances at most
- * 0.133 s per rendered frame however long the frame takes — `setTimeScale` cannot buy more than
- * that. The run ends when `stuckFor` clears the dwell, with a generous wall-clock backstop that
- * never decides a pass, and the reason it ended is reported.
- */
-{
-  const jam = await page.evaluate(async () => {
-    const d = __district;
-    const v = d.vehicle;
-    const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
-    const read = () => {
-      const h = d.hud();
-      return { obj: h.elObjText ? h.elObjText.textContent : '',
-        sub: h.elSub ? h.elSub.textContent : '' };
-    };
-    d.setMode('car');
-    d.clearWanted('boot-check');
-    d.setBodyCollision(true);
-    d.placeAt(132.89, 221.48, 1.571);
-    for (let i = 0; i < 3; i++) await frame();
-    const quiet = read();
-    // Crept in at 0.35 so the impact is gentle: a hard nose-in WRECKS the car, and a wreck is a
-    // different tenant with its own cue. Then full throttle, which is the state under test.
-    let phase = 'creep';
-    d.setAutopilot(() => {
-      v.setControls({ throttle: phase === 'creep' ? 0.35 : 1, brake: 0, steer: 0,
-        handbrake: false });
-    });
-    const t0 = Date.now();
-    let why = 'stuck';
-    for (let i = 0; i < 400; i++) {
-      await frame();
-      if (phase === 'creep' && v.contacts > 20) phase = 'push';
-      if (v.stuckFor >= 4.0) break;
-      if (d.wreckReport().wrecks > 0) { why = 'wrecked'; break; }
-      /**
-       * THE WALL CLOCK IS A SAFETY NET AGAINST A HANG, NOT A BUDGET, AND AT 240 s IT WAS BOTH.
-       *
-       * This arm waits on the CAR TO TRAVEL, so `setTimeScale` cannot buy it anything —
-       * `stepFixed` caps the physics at 0.133 s of sim per rendered frame however long the frame
-       * takes (see CLAUDE.md). Its real bound is the 400-frame budget above. At roughly 0.6 s a
-       * frame through SwiftShader, 400 frames IS 240 s, so the two bounds were numerically
-       * coincident on this box and which one fired was decided by how fast the machine felt.
-       * It fired the clock at `stuckFor 3.80` against a 4.0 threshold — 5% short — and reported
-       * "wall clock", which is the one thing that stopped this being read as a behaviour change.
-       *
-       * 420 s is 400 frames at 1.05 s a frame, which is a slow box rather than a hung one. On a
-       * healthy box the loop still exits on the STATE and costs nothing extra; this only changes
-       * which bound is reachable. CLAUDE.md: "a check that compares against an absolute number
-       * needs the same sweep a measurement does", and "bound such an arm on the STATE rather than
-       * the wall clock, and report which of the two ended the run" — it does report, and that is
-       * what made this diagnosable in one run.
-       */
-      if (Date.now() - t0 > 420000) { why = 'wall clock'; break; }
-    }
-    const nose = read();
-    const stuckFor = v.stuckFor, contacts = v.contacts, frames = d.frames;
-    // Freed: brake off the wall in reverse, and the line must go.
-    d.setAutopilot(() => {
-      v.setControls({ throttle: -1, brake: 0, steer: 0, handbrake: false });
-    });
-    for (let i = 0; i < 60 && v.stuckFor > 0; i++) await frame();
-    const after = read();
-    d.setAutopilot(null);
-    return { quiet, nose, after, stuckFor, contacts, frames, why,
-      wrecks: d.wreckReport().wrecks };
-  });
-  console.log(`  wedged at the pin: "${jam.quiet.obj}" -> "${jam.nose.obj}" / "${jam.nose.sub}", `
-    + `then "${jam.after.obj}"`);
-  console.log(`    ended on "${jam.why}" with stuckFor ${jam.stuckFor.toFixed(2)} s, `
-    + `${jam.contacts} contacts, ${jam.wrecks} wrecks`);
-  check('the car got itself wedged on the page rather than wrecked or timed out',
-    jam.why === 'stuck' && jam.wrecks === 0 && jam.stuckFor >= 4.0,
-    `ended on "${jam.why}", stuckFor ${jam.stuckFor.toFixed(2)} s, wrecks ${jam.wrecks}`);
-  check('a wedged car reaches the page, with the one word that gets it out',
-    jam.nose.obj.includes('WEDGED') && jam.nose.sub === 'reverse',
-    `"${jam.nose.obj}" / "${jam.nose.sub}"`);
-  check('KNOWN-BAD: and it is gone once the car frees itself, so it is not a stuck panel',
-    !jam.quiet.obj.includes('WEDGED') && !jam.after.obj.includes('WEDGED'),
-    `before "${jam.quiet.obj}", after "${jam.after.obj}"`);
-}

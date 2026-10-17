@@ -4913,6 +4913,8 @@ export class StreetFurniture {
     }
     p.filled = i;
     p.perShell = used.slice();
+    // Moves on every fill, so a reader of `parkedSolids()` can tell a new pool from the old one.
+    p.fillSerial = (p.fillSerial ?? 0) + 1;
     /**
      * AND AN A/B ARM SURVIVES A RE-SEED. The pool re-fills whenever the camera moves far enough,
      * and a fill repaints every car from the shipped rule — so an arm set before a refill would
@@ -4924,6 +4926,49 @@ export class StreetFurniture {
      */
     if (this._parkedLegacy) this.recolourParked(true);
     return i;
+  }
+
+  /**
+   * THE PARKED CARS THE POOL IS DRAWING, as boxes the player's car can hit (#126). src/blockers.js's
+   * CarBlockers takes them; until it did, every car this pool drew was a picture the player drove
+   * through.
+   *
+   * Only the DRAWN ones, `cand[0 .. filled)`: an empty slot is a gap in the kerb, and a solid one
+   * would be an invisible car. The pool fills by distance from the camera, which follows the
+   * player, so every slot within a car's length of the player is among the drawn — at 30 cars the
+   * nearest-30 radius on the narrowest street is tens of metres. Half extents are each shell's own
+   * bounding box off the buffer the pool draws, the same way tools/reaction-test.mjs measures the
+   * crowd against them, so the two cannot disagree about where a car ends.
+   *
+   * Returns `{ serial, boxes }`; `serial` moves on every fill and `key` is the slot object, which
+   * survives a refill, so a car that stays drawn stays the same car.
+   */
+  parkedSolids() {
+    const p = this.parked;
+    if (!p) return { serial: 0, boxes: [] };
+    if (!this._parkExt) {
+      // The box's own centre, not the slot's: every shell's buffer runs further back than forward
+      // (coupe -2.268 / +2.225, wagon -2.434 / +2.255), so a box symmetric about the slot would be
+      // up to 0.18 m long at the nose and short at the tail.
+      this._parkExt = p.meshes.map((m) => {
+        m.geometry.computeBoundingBox();
+        const b = m.geometry.boundingBox;
+        return { hx: (b.max.x - b.min.x) / 2, hz: (b.max.z - b.min.z) / 2,
+          cx: (b.max.x + b.min.x) / 2, cz: (b.max.z + b.min.z) / 2 };
+      });
+    }
+    const serial = p.fillSerial ?? 0;
+    if (this._solidSerial !== serial || !this._solids) {
+      this._solidSerial = serial;
+      this._solids = (this._parkCand ?? []).slice(0, p.filled ?? 0).map((s) => {
+        const e = this._parkExt[s.shell ?? 0] ?? this._parkExt[0];
+        const sn = Math.sin(s.yaw), cs = Math.cos(s.yaw);
+        // local +x is (cos yaw, -sin yaw) and local +z is (sin yaw, cos yaw), as makeRotationY draws it
+        return { x: s.x + e.cx * cs + e.cz * sn, z: s.z - e.cx * sn + e.cz * cs, yaw: s.yaw,
+          hx: e.hx, hz: e.hz, key: s };
+      });
+    }
+    return { serial, boxes: this._solids };
   }
 
   /**
