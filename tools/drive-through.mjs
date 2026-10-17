@@ -255,6 +255,29 @@ await page.evaluate(({ circuits, roadCourse }) => {
     const PATIENCE_S = __district.trafficReport()?.stuckLimitS ?? 20;
     const ignoreUntil = new Map();
     let simT = 0;
+    /**
+     * AND WHAT THE NET REPAIRED, BY KIND. The first lap on the right side of the road (#127) read 14
+     * repairs, a minimum health of 0.348 and 5 stuck-teleports, and the artifact could not say what
+     * had hit the car — walls, parked cars (solid since #126), the crowd. Every APPLIED impact is
+     * counted by kind and the first forty are kept with where they happened on the course, so the
+     * next reading of a net that fired is a reading and not a guess.
+     */
+    L.impactKinds = {}; L.impacts = []; L.teleports = [];
+    {
+      const dmg = __district.damage, real = dmg.impact.bind(dmg);
+      dmg.impact = (ev) => {
+        const r = real(ev);
+        if (r && r.applied) {
+          const k = ev.kind ?? '?';
+          L.impactKinds[k] = (L.impactKinds[k] ?? 0) + 1;
+          if (L.impacts.length < 40) {
+            L.impacts.push({ t: +simT.toFixed(1), kind: k, dv: +(ev.dv ?? 0).toFixed(2), i: state.i,
+              x: +v.position.x.toFixed(1), z: +v.position.z.toFixed(1), kmh: +(v.speed * 3.6).toFixed(0) });
+          }
+        }
+        return r;
+      };
+    }
     const followCap = (x, z) => {
       const near = [];
       for (const p of __district.trafficPositions()) {
@@ -343,7 +366,10 @@ await page.evaluate(({ circuits, roadCourse }) => {
         holdFor = 0; holdId = null;
         v.setControls(f.controls);
       }
-      if (v.speed < 0.6 && !f.backing && !holding) { stuckFor += dt; if (stuckFor > 2.5) { __district.placeAt(f.aim[0], f.aim[1]); stuckFor = 0; window.__teleports = (window.__teleports ?? 0) + 1; } }
+      if (v.speed < 0.6 && !f.backing && !holding) { stuckFor += dt; if (stuckFor > 2.5) {
+        if (L.teleports.length < 20) L.teleports.push({ t: +simT.toFixed(1), i: state.i,
+          from: [+v.position.x.toFixed(1), +v.position.z.toFixed(1)], to: [+f.aim[0].toFixed(1), +f.aim[1].toFixed(1)] });
+        __district.placeAt(f.aim[0], f.aim[1]); stuckFor = 0; window.__teleports = (window.__teleports ?? 0) + 1; } }
       else stuckFor = 0;
       window.__lapCount = lap;
     });
@@ -495,6 +521,7 @@ const ledger = await page.evaluate(() => {
     shunted_cars: d.fleet ? d.fleet.shuntCars - (L.damage0.fleet?.shuntCars ?? 0) : null,
     car_hit_frames: d.dynamic.carHitFrames - L.damage0.dynamic.carHitFrames,
     ped_hit_frames: d.dynamic.pedHitFrames - L.damage0.dynamic.pedHitFrames,
+    impact_kinds: L.impactKinds, impacts: L.impacts, teleports: L.teleports,
     end: L.end };
 });
 const trafficReport = await page.evaluate(() => __district.trafficReport());
@@ -614,6 +641,10 @@ if (ledger) {
     `${ledger.shunted_cars} cars shunted; the net cleared heat ${ledger.wanted_clears}x (max ` +
     `${ledger.max_heat}) and repaired ${ledger.repairs}x (min health ${ledger.min_health}); ` +
     `${ledger.respawns} respawns, ${ledger.busts} busts, worst ${ledger.worst_off_line_m} m off the course`);
+  if (ledger.impact_kinds) {
+    console.log(`  applied impacts by kind: ${JSON.stringify(ledger.impact_kinds)}; `
+      + `stuck-teleports at course index ${(ledger.teleports ?? []).map((t) => t.i).join(', ') || 'none'}`);
+  }
 }
 if (result.jitter) {
   const j = result.jitter;
