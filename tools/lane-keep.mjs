@@ -13,6 +13,11 @@
 //     where the course is within the car's envelope   p50 0.089 m   p90 1.298   body past the lane  6.4%
 //     where it is TIGHTER than the car can turn       p50 1.266     p90 3.052   body past the lane 26.0%
 //
+// (Measured with every lane on the driver's LEFT, which is where `offsetRight` put it until #127.
+// On the right: within the envelope p50 0.087 p90 1.286, 6.1% past the lane; tighter p50 1.289
+// p90 2.996, 27.7%; and 443 of the 526 samples past the lane, 84%, at corners it cannot follow.
+// The finding is the same finding, a few hundredths apart.)
+//
 // 411 of the 500 samples that put the body past the lane are at corners the car PHYSICALLY CANNOT
 // FOLLOW — 82%. On course it can follow, the follower holds its lane to 9 cm at the median. So the
 // lever is the course's corner geometry, which is `tour()`/the router, not the controller; and
@@ -27,6 +32,11 @@
 // It is saturated, and the shipped value is the WORST of the seven. Smoothing pins its endpoints
 // and redistributes a turn rather than widening it, so it cannot manufacture a radius the graph
 // does not have. §4 gates that so the next round does not re-derive it.
+//
+// (That row is the LEFT side's too. On the right it reads 4.6 / 3.7 / 4.4 / 4.2 / 4.2 / 4.3 / 4.3%:
+// still saturated from 2 passes up, 0 is the worst rather than 2, and ONE pass is the lowest —
+// 3.7%, with a p10 corner of 8.8 m against the shipped 8.1. That is a lever this table had no
+// reason to show before, worth measuring on the drive before anybody takes it.)
 //
 // TWO INSTRUMENT ERRORS ON THE WAY, and the second is #104's own defect recurring inside the
 // probe for it:
@@ -252,8 +262,10 @@ if (!SELFTEST && IS_MAIN) {
 
   console.log('\n=== (4) AND MORE SMOOTHING IS REFUSED ===\n');
   console.log('  passes   points   length    radius p10   under R_min(0)     CAR BODY blocked');
+  const fracs = [];
   for (const p of [0, 1, 2, 3, 5, 8, 12]) {
     const c = courseShape(p);
+    fracs.push({ p, frac: c.frac });
     const finite = [...c.rad].slice(1, -1).filter((r) => Number.isFinite(r));
     console.log(`  ${String(p).padStart(6)}   ${String(c.pts.length).padStart(6)}`
       + `   ${c.length.toFixed(0).padStart(6)} m`
@@ -261,9 +273,17 @@ if (!SELFTEST && IS_MAIN) {
       + `   ${String(c.under).padStart(4)} of ${String(c.n).padStart(4)} ${(100 * c.frac).toFixed(1).padStart(5)}%`
       + `   ${String(c.bodyBlocked).padStart(5)} of ${String(c.pts.length).padStart(4)}`);
   }
-  console.log('\n  Saturated, and the SHIPPED value of 2 is the worst of the seven. Smoothing pins its');
-  console.log('  endpoints and redistributes a turn rather than widening it, so it cannot');
-  console.log('  manufacture a radius the graph does not have.');
+  // COMPUTED, because the sentence it replaces — "the SHIPPED value of 2 is the worst of the
+  // seven" — was a reading of the course with every lane on the driver's LEFT, and the first run
+  // on the right side made it false (#127). A conclusion printed as a literal is a check that
+  // cannot fail.
+  const worst = fracs.reduce((a, b) => (b.frac > a.frac ? b : a));
+  const best = fracs.reduce((a, b) => (b.frac < a.frac ? b : a));
+  const spread = (worst.frac - best.frac) * 100;
+  console.log(`\n  ${spread.toFixed(1)} points between the best (${best.p} passes, ${(100 * best.frac).toFixed(1)}%)`
+    + ` and the worst (${worst.p}, ${(100 * worst.frac).toFixed(1)}%). Smoothing pins its endpoints and`);
+  console.log('  redistributes a turn rather than widening it, so it cannot manufacture a radius the');
+  console.log('  graph does not have.');
 }
 
 // ------------------------------------------------------------------------------------- selftest
@@ -332,18 +352,28 @@ if (SELFTEST && IS_MAIN) {
   //        ACHIEVABLE band p90          1.187      1.169     unmoved
   //        achievable, body past lane   6.5%       6.5%      88 of ~1361 BOTH times
   //
+  //    RESTATED BY #127 — the table above is the driver's LEFT. On the right, the row re-run:
+  //
+  //                                    shipped   corner-now
+  //        forced band p90              2.996      7.609     x2.5
+  //        forced band max              4.531      9.741     x2.1
+  //        forced, body past the lane   27.7%      44.5%
+  //        ACHIEVABLE band p90          1.286      1.314     unmoved to 0.03
+  //        achievable, body past lane   6.1%       6.4%
+  //
   //    The achievable half being byte-for-byte unmoved is what says the ceiling is about corners
   //    the car cannot geometrically make, which is the crawl-floor argument from the other side.
   //
   //    The bound is 5.0 m and it is PICKED, in the middle of a measured 2.3x gap with nothing in
   //    between: the drive is deterministic (no RNG, fixed course and start) and reproduces
   //    p90 3.051808 / max 4.410706 to six decimals across runs, so the shipped side carries no
-  //    spread at all. That is the only kind of absolute bound this project considers writable,
+  //    spread at all. (On the right side: p90 2.995835 / max 4.530818, twice, and the gap is 2.5x —
+  //    5.0 is x1.67 above the shipped figure and x1.52 below corner-now's.) That is the only kind of absolute bound this project considers writable,
   //    and both figures are printed beside it so a retune has to come here and restate them.
   const fP90 = q(forced, 0.9);
   check('the forced band stays under the ceiling the corner-speed term holds it to',
-    fP90 < 5.0, `p90 ${fP90.toFixed(3)} m against 5.0; shipped reads 3.052 and `
-    + `corner-now reads 7.065, so the bound sits in a 2.3x gap`);
+    fP90 < 5.0, `p90 ${fP90.toFixed(3)} m against 5.0; shipped reads 2.996 and `
+    + `corner-now reads 7.609, so the bound sits in a 2.5x gap`);
 
   // 8. THE SMOOTHING REFUSAL, gated so a future round does not re-derive it. Measured 4.3% at 0
   //    passes and 4.4% at 12, with the shipped 2 the worst at 4.9%.

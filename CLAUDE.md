@@ -1274,6 +1274,10 @@ across runs. The shipped side has no spread, the gap to the mutation is 2.3x, an
 middle of it with nothing in between — which is the only kind of absolute bound this file considers
 worth writing down. Both figures are printed beside it so a retune has to come here and restate them.
 
+(Every figure in this section was measured with the route lane on the driver's LEFT, which is where
+`offsetRight` put it until #127. On the right the same drive reads p90 2.995835 / max 4.530818,
+corner-now 7.609 / 9.741, and the 5.0 bound sits in a 2.5x gap. The argument is unchanged.)
+
 ### And a tool that runs its report on IMPORT cannot be built on
 
 `lane-keep` gated its report on `!SELFTEST`, so `import { drive } from './lane-keep.mjs'` printed

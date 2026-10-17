@@ -139,7 +139,8 @@ const OFFLINE = [
   // It has a seventh check now, on the forced band's own magnitude, measured both ways:
   //     forced p90   3.052 shipped   7.065 under corner-now   x2.3
   //     achievable p90 1.187 shipped 1.169 under corner-now   unmoved, 88 of ~1361 over the lane
-  // and it does catch it: FAIL at 7.065, PASS at 3.052.
+  // and it does catch it: FAIL at 7.065, PASS at 3.052. (Those are the driver's LEFT, where every
+  // lane sat until #127; re-run on the right it is FAIL at 7.609, PASS at 2.996.)
   'lane-keep --selftest',
   // 10.0 s, which is what makes it affordable here: 27 minutes over this table's 164 rows,
   // against playtest --selftest's 11.0 s and traffic-selftest's 23.4 s already on the list. I
