@@ -1205,8 +1205,13 @@ console.log('\n§ parked cars are solid (#126)');
   check('and a teleport onto it releases it: `release` ghosts what the body was PUT on',
     rel === 1 && cb.resolveCircle(0.5, 0, R) === null, `released ${rel}`);
 
-  // A wall behind the pavement: the push out of a parked car must not end inside a building.
-  const wallIx = new BlockerIndex({ buildings: [{ p: [[-20, 3.6], [20, 3.6], [20, 10], [-20, 10]] }] });
+  // A wall behind the pavement: the push out of a parked car must not end inside a building. The
+  // gap is deliberately too narrow for the body (2.2 m wall, 0.95 m box face, a 1.9 m circle), so
+  // the box's push lands the circle 0.65 m inside the wall and only the wall pass after it can say
+  // which wins. The WALL wins: a box the next step resolves again is recoverable, a body inside a
+  // building is not. The first version had the wall at 3.6 m, where the box's push never reached
+  // it — and `car-box-wallpass`, which deletes that pass, came back MISSED.
+  const wallIx = new BlockerIndex({ buildings: [{ p: [[-20, 2.2], [20, 2.2], [20, 10], [-20, 10]] }] });
   const both = new CarBlockers(wallIx);
   both.setBoxes([{ x: 0, z: 0, yaw: Math.PI / 2, hx: HX, hz: HZ, key: 'w' }]);
   const pinch = both.resolveCircle(0, 0.6, R);
