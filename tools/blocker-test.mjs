@@ -1225,17 +1225,23 @@ console.log('\n§ parked cars are solid (#126)');
   // The car itself, driven into a parked car at 30 km/h, against the shipped build.
   const HZd = 120, DTd = 1 / HZd;
   const ground = new FlatGround(0);
-  const run = (withCars) => {
+  const run = (withCars, wallAt = null) => {
     const v = new Vehicle();
     const dm = new DamageModel();
     v.damage = dm;
+    // The KIND of every applied impact, read off what the damage model was handed (#126).
+    const kinds = {};
+    const real = dm.impact.bind(dm);
+    dm.impact = (ev) => { const r = real(ev); if (r.applied) kinds[ev.kind] = (kinds[ev.kind] ?? 0) + 1; return r; };
     const parked = { x: 0, z: 14, yaw: 0, hx: HX, hz: HZ, key: 'p' };
+    const base = wallAt === null ? empty
+      : new BlockerIndex({ buildings: [{ p: [[-20, wallAt], [20, wallAt], [20, wallAt + 8], [-20, wallAt + 8]] }] });
     if (withCars) {
-      const c = new CarBlockers(empty);
+      const c = new CarBlockers(base);
       c.setBoxes([parked]);
       v.blockers = c;
     } else {
-      v.blockers = empty;
+      v.blockers = base;
     }
     v.position.set(0, v.position.y, 0);
     v.quaternion.setFromAxisAngle({ x: 0, y: 1, z: 0 }, 0);
@@ -1250,9 +1256,9 @@ console.log('\n§ parked cars are solid (#126)');
       maxZ = Math.max(maxZ, v.position.z);
       if (v.contacts > c0 && v.lastContact.dv > dv) { dv = v.lastContact.dv; front = v.lastContact.localZ; }
     }
-    return { maxZ, contacts: v.contacts, dv, health: dm.health, front };
+    return { maxZ, contacts: v.contacts, dv, health: dm.health, front, kinds };
   };
-  const hit = run(true), ghost = run(false);
+  const hit = run(true), ghost = run(false), wallOnly = run(false, 14 - HZ);
   // The nose is 2.15 m ahead of the centre (src/damage.js HALF_EXTENT.z) and the collider's front
   // circle reaches 1.2 + 0.95: the car stops with its centre about 2.15 m short of the bumper.
   const bumper = 14 - HZ;
@@ -1268,6 +1274,12 @@ console.log('\n§ parked cars are solid (#126)');
   check('KNOWN-BAD: the shipped collider drives straight through the same car, untouched',
     ghost.maxZ > 14 + HZ && ghost.contacts === 0 && ghost.health === 1,
     `${ghost.maxZ.toFixed(1)} m, ${ghost.contacts} contacts`);
+  // And it is filed as what it is. Every body contact was `wall` until #126's ledger read thirteen
+  // walls in the north parking lane of Main Street east; the control is the same drive into a
+  // building face at the bumper's z, which must stay `wall`, so the label is not a constant.
+  check('the hit is filed as a PARKED car, and the same drive into a building face as a wall',
+    hit.kinds.parked > 0 && !hit.kinds.wall && wallOnly.kinds.wall > 0 && !wallOnly.kinds.parked,
+    `parked car ${JSON.stringify(hit.kinds)}, building ${JSON.stringify(wallOnly.kinds)}`);
 }
 
 /**

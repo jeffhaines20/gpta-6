@@ -566,6 +566,14 @@ const MUTATIONS = [
     to: '        const doublesBack = false;',
     why: 'a moving car is sent up a dead end to turn round at its end, which it cannot do either',
   },
+  {
+    // #126's label put back: a parked-car contact is filed as a wall again, which charges nothing
+    // differently and leaves every instrument that counts by kind reading a car as a facade.
+    id: 'parked-kind', file: 'src/vehicle.js',
+    find: "      kind: worstBox !== undefined ? 'parked' : 'wall', box: worstBox };",
+    to: "      kind: 'wall', box: worstBox };",
+    why: 'a parked car is filed as a building, so no instrument can tell which one the car hit',
+  },
   // ---- src/blockers.js
   {
     id: 'resolve-eps', file: 'src/blockers.js',

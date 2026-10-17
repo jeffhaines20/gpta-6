@@ -4265,8 +4265,11 @@ divergence this entry adds a reason to close.
 it files and every instrument that counts by kind see a facade. Found when the budget drive's new
 impact ledger (#64) read thirteen applied impacts, all `wall`, at z -156.2 to -158.7 on Main Street
 east against a course at -161.4 — which is the north parking lane, not a building line.
-`resolveCircle` already returns the box's key, so the contact can say what it hit; what it should
-then charge (a parked car is property with nobody in it) is the decision that goes with it.
+`resolveCircle` already returned the box's key, so the contact can say what it hit: **it does now** —
+`IMPACT.parked`, filed as property damage exactly as a wall is, so no charge moves; `lastContact`
+carries the kind and the box. `blocker-test` drives the real car into a parked car and into a
+building face at the same z and requires `parked` for one and `wall` for the other, and
+`mutation-sweep`'s `parked-kind` puts the old label back.
 
 #### THE ORIGINAL RECORD
 ### #126 OPEN — the car drives through every parked car, lamp post, tree and bollard in the district

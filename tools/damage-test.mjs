@@ -273,6 +273,7 @@ const crimeRows = [
   ['wall at 3 km/h',        { dv: kmh(3), kind: IMPACT.wall },                     null],
   ['wall at 20 km/h',       { dv: kmh(20), kind: IMPACT.wall },                    'propertyDamage'],
   ['prop at 20 km/h',       { dv: kmh(20), kind: IMPACT.prop },                    'propertyDamage'],
+  ['parked car at 20 km/h', { dv: kmh(20), kind: IMPACT.parked },                  'propertyDamage'],
   ['civilian car',          { dv: kmh(20), kind: IMPACT.vehicle },                 'civilianCollision'],
   ['police car',            { dv: kmh(20), kind: IMPACT.police },                  'policeProperty'],
   ['roadblock',             { dv: kmh(30), kind: IMPACT.roadblock },               'roadblockRun'],

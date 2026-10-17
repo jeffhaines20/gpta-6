@@ -74,6 +74,7 @@ const finite = (v) => typeof v === 'number' && v - v === 0;
 export const IMPACT = Object.freeze({
   wall: 'wall',               // a building, a retaining wall: immovable
   prop: 'prop',               // street furniture, a sign, a hydrant
+  parked: 'parked',           // a parked car: property with nobody in it (#126)
   vehicle: 'vehicle',         // civilian traffic
   police: 'police',           // a pursuit unit
   roadblock: 'roadblock',     // a police roadblock
@@ -351,7 +352,7 @@ export class DamageModel {
       case IMPACT.police: return 'policeProperty';
       case IMPACT.roadblock: return 'roadblockRun';
       case IMPACT.vehicle: return 'civilianCollision';
-      case IMPACT.wall: case IMPACT.prop: return 'propertyDamage';
+      case IMPACT.wall: case IMPACT.prop: case IMPACT.parked: return 'propertyDamage';
       default: return null;
     }
   }
