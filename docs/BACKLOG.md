@@ -285,6 +285,38 @@ headlamps are flat white fields, 2.6x its sunlit hood at noon with no lens or re
 the number plates are blank fields; and noon canopy shade carries soft ~0.5 m squares that change
 between two captures half a second apart, which is #117.
 
+**v3.1: the three caveats as two exact switches, each blind-reviewed, and neither earns its default.**
+Both off one page load (`tools/ground-albedo.mjs`'s `cfix0` / `cfix1` / `cdrv1`), six pairs each.
+
+- *`uCabinFix`* — the wheel and the mirror's back on the DASH's albedo, the mirror's face from behind
+  (`docs/shots/blind-key-cab31-cfix0-cab31-cfix1.json`). The reviewer recovered the partition by a
+  sign test, 2,699 changed cabin pixels with no exception in any pair, and preferred the UNFIXED arm
+  in corridor noon, confidence 2 — "its cabin holds a recognisable wheel; A's reads as glass with
+  headrests and nothing else" — with no preference in the other five. **The fix does what it says
+  and that is why it loses:** a wheel on the dash's albedo matches the dark cabin behind it, so the
+  measured defect (the ring 1.35x its surround at noon) was the only thing making the wheel legible.
+  It stays at 0; a wheel that is both dark AND legible needs something the cabin does not have — a
+  rim catching the light through the glass — and nothing has been tried.
+- *`uCabinDriver`* — a driver in the moving fleet and the player's car
+  (`docs/shots/blind-key-cab31-cfix1-cab31-cdrv1.json`). The corridor's three pairs have no traffic
+  car in frame and every car pixel identical, so they cannot show it. At fivepoints the reviewer found
+  the driver arm in 3 of 3, by a cross-hour correlation on a stopped car's cabin (r +0.952 / −0.946 /
+  −0.906; 30 pixels the same sign at all three hours for this partition against 0, 0 and 1 for the
+  other three), and preferred it at noon (confidence 2) and dusk (1), none at night: "a car waiting
+  at a light shows a driver; B's cabin is empty", and "invisible at 1:1 ... a featureless smudge".
+  **It named its own confound:** the non-driver arm was shot first in every pair, so build and
+  capture order are one partition. A direction, on about 45 px of one car. Held at 0 for the
+  reviewer's own protocol: a traffic car stopped side-on within ~15 m at noon, with the order of the
+  two captures alternated. It costs no triangle — two ray-cast ellipsoids in the cabin pass — so it
+  is independent of #64's baseline.
+
+**Both arms, from these two reviews** — the glazing and the paint first, and each is a sighting of
+something already numbered: the side glass a flat, pale panel at 3.0-8.8x its own car's paint
+(p95/p50 1.05 against a canopy at 26.5) and paint like "satin clay", p10-p90 x1.25 on a bonnet beside
+road at x13, which are #36 and #54; octagonal tyres, cartoon headlamps and a warm ring round the arches,
+#125; three dusty pink or mauve cars in ten, which is #94's priced refusal seen from the street; the
+night stars as glyphs, #124. And one that has now been reported three times and had no number: #130.
+
 ### #56 FIXED — per-shell body length, and the 0.289 m price was the wrong one for half the sites
 Offline half landed (2aca6c5): three shells, length range 0.196 m, 1,050 triangles each.
 Visual half run; it found and fixed a shipped regression (the shells' side windows were 95.1%
@@ -4318,3 +4350,18 @@ by then the forward circle looks achievable to a test that cannot see the street
 harness that chains `driveTo` legs meets it wherever a path opens behind the car. Two levers, neither
 tried: `driveTo` arriving at rest, or the turn rule preferring the reverse whenever the forward
 circle does not fit the corridor.
+
+### #130 OPEN — a pedestrian behind a car darkens its glass: a dark cloud on the pane, and a torso that reads as somebody inside
+Reported by three blind reviewers in two rounds, in both arms every time, so independent of what each
+round changed. Cabin v3's: a pedestrian behind the near-left car is drawn over its windscreen "with
+none of the glass's reflection" and "a dark halo onto the glass", 12-38 where the glass reads about
+110-154. Cabin v3.1's, once per build: at corridor dusk a pedestrian at the foreground car's front
+corner darkens the windscreen beside them "in a soft cloud" — 0.057 linear at (218-250, 628-660)
+against 0.139 with nobody there, 2.4x darker, fading over about 60 px, with a light fringe round the
+shoulder — and at corridor noon a torso over the right near car's rear screen reads solid navy
+(12,18,25) where that glass reads (116,140,173), "a person inside the car". The shape — dark where
+the glass should still be reflecting, fading with distance from the edge — is what a screen-space
+occlusion term does at the depth step between a pane and what stands behind it, which would make it
+the same family as #114 and #115. Not measured: the first reading is the AO buffer over one such pane
+with the pedestrian present and absent.
+

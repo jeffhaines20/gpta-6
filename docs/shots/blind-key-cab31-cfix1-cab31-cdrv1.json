@@ -1,0 +1,40 @@
+{
+ "generated": "2026-10-17T17:29:07.610Z",
+ "left": "cab31-cfix1",
+ "right": "cab31-cdrv1",
+ "salt": "3c756f819ae5",
+ "unpairedLeft": [],
+ "unpairedRight": [],
+ "pairs": [
+  {
+   "id": "corridor-dusk",
+   "A": "cab31-cfix1",
+   "B": "cab31-cdrv1"
+  },
+  {
+   "id": "corridor-night",
+   "A": "cab31-cfix1",
+   "B": "cab31-cdrv1"
+  },
+  {
+   "id": "corridor-noon",
+   "A": "cab31-cdrv1",
+   "B": "cab31-cfix1"
+  },
+  {
+   "id": "fivepoints-dusk",
+   "A": "cab31-cdrv1",
+   "B": "cab31-cfix1"
+  },
+  {
+   "id": "fivepoints-night",
+   "A": "cab31-cfix1",
+   "B": "cab31-cdrv1"
+  },
+  {
+   "id": "fivepoints-noon",
+   "A": "cab31-cdrv1",
+   "B": "cab31-cfix1"
+  }
+ ]
+}
