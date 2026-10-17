@@ -366,10 +366,21 @@ await page.evaluate(({ circuits, roadCourse }) => {
         holdFor = 0; holdId = null;
         v.setControls(f.controls);
       }
+      /**
+       * AND IT PUTS THE CAR DOWN POINTING ALONG THE COURSE. `placeAt`'s yaw defaults to 0, which is
+       * due north, so every teleport handed the follower a car facing whichever way north happened
+       * to be. Measured on the first lap the ledger could read (#127's right side): one wall contact
+       * at a one-way jog on Main Street east, then FOUR more 30-50 m apart along it, each at z
+       * -157.5 against a course at -161.4 — the teleported car facing north, 3.9 m from the parking
+       * lane, driving into it before it could turn, being stuck, and being teleported again. Five
+       * teleports and nine of thirteen applied impacts were the net feeding itself.
+       */
       if (v.speed < 0.6 && !f.backing && !holding) { stuckFor += dt; if (stuckFor > 2.5) {
-        if (L.teleports.length < 20) L.teleports.push({ t: +simT.toFixed(1), i: state.i,
+        const k1 = Math.min(state.i + 1, pts.length - 1), k0 = Math.max(0, k1 - 1);
+        const yawHere = Math.atan2(pts[k1][0] - pts[k0][0], pts[k1][1] - pts[k0][1]);
+        if (L.teleports.length < 20) L.teleports.push({ t: +simT.toFixed(1), i: state.i, yaw: +yawHere.toFixed(2),
           from: [+v.position.x.toFixed(1), +v.position.z.toFixed(1)], to: [+f.aim[0].toFixed(1), +f.aim[1].toFixed(1)] });
-        __district.placeAt(f.aim[0], f.aim[1]); stuckFor = 0; window.__teleports = (window.__teleports ?? 0) + 1; } }
+        __district.placeAt(f.aim[0], f.aim[1], yawHere); stuckFor = 0; window.__teleports = (window.__teleports ?? 0) + 1; } }
       else stuckFor = 0;
       window.__lapCount = lap;
     });
