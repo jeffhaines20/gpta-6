@@ -2485,10 +2485,9 @@ export function buildWheelGeometry(opts = {}) {
  *   4 ground pools  - two red behind the tail lamps, two warm-white ahead of the
  *                     headlamps, lying on the road, brightest at the bumper and
  *                     black at every outer vertex.
- *   4 lamp halos    - a small quad standing at each lens with a bright centre
- *                     and black corners. This is the "no bloom, hard rectangular
- *                     edges" half of the complaint: the halo puts real light
- *                     immediately outside the lens, where a lens's glow is.
+ * There were also 4 lamp halos, discs standing at each lens, until #119's blind
+ * review removed them: seen from anywhere but nose-on they were upright bars. See
+ * the note where they were built.
  *
  * WHAT IS NOT IN IT, and it is a refusal rather than an oversight: the lens
  * itself still has no INTERNAL gradient. Emission here is read from a 16x1
@@ -2565,34 +2564,13 @@ export function buildCarGlowGeometry(opts = {}) {
       }
     }
   };
-  /**
-   * A halo at a lens: centre bright, four corners black. Four triangles, and the
-   * material is DoubleSide so neither this nor the pools depend on a winding.
-   */
-  const halo = (cx, cy, cz, hx, hy, colour, lvl, n = 8) => {
-    _c.copy(colour).multiplyScalar(lvl);
-    const c0 = b.vert(cx, cy, cz, _c, SURFACE.paint);
-    const rim = [];
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2;
-      rim.push(b.vert(cx + Math.cos(a) * hx, cy + Math.sin(a) * hy, cz, black, SURFACE.paint));
-    }
-    for (let i = 0; i < n; i++) b.tri(c0, rim[i], rim[(i + 1) % n]);
-  };
-
-  // Lamp centres, read off the same silhouette tags the lenses are built from:
-  // the tail band spans tailHi (y 0.052) to tailLo (-0.072) at z about -2.25,
-  // the head band lampLo (0.062, z 2.214) to lampHi (0.192, z 2.062).
-  //
-  // THESE ARE CAR-LOCAL Y, WHERE THE ROAD IS AT CAR.ground = -0.717, and the
-  // first cut of this block had them as +0.717 - the value they take in the
-  // INSTANCE frame, after buildTrafficCarGeometry's translate. That put both
-  // halos 1.42 m above the road, a clear half-metre over the roof, glowing in
-  // mid-air. Nothing would have thrown, no count would have changed, and the
-  // frames would simply have shown a car with two lights floating above it.
-  // silhouette() authors in CAR-local; everything in this function must too.
+  // Lamp positions, read off the same silhouette tags the lenses are built from:
+  // the tail band at z about -2.25, the head band between z 2.214 and 2.062.
+  // CAR-LOCAL, where the road is at CAR.ground = -0.717: the first cut of the
+  // (since removed) lens halos took their heights in the INSTANCE frame and put
+  // them 1.42 m above the road, glowing in mid-air, with nothing thrown and no
+  // count changed. silhouette() authors in CAR-local; everything here must too.
   const TAIL_Z = -2.25, HEAD_Z = 2.16;
-  const TAIL_Y = -0.010, HEAD_Y = 0.127;
   const LAMP_X = 0.53;
   for (const s of [-1, 1]) {
     // Tail: a short, wide pool - a tail lamp is a low-output lamp close to the
@@ -2603,42 +2581,27 @@ export function buildCarGlowGeometry(opts = {}) {
     // road rather than spilled onto it.
     pool(s * LAMP_X, HEAD_Z, 1,
       [[0.35, 0.45, 1.0], [2.40, 0.95, 0.46], [7.00, 1.85, 0.0]], headLit);
-    // Halo size against the LENS it belongs to, not picked. The tail band spans
-    // u 0.32-0.88 of a half-width of 0.879 (x 0.28-0.77, half-width 0.245) and y
-    // 0.052 to -0.072 (half-height 0.062); the halo is 1.4x that in x and 2.4x
-    // in y. The vertical figure is deliberately the larger: a lens's glare is
-    // round, and the lens is three times as wide as it is tall, so an isotropic
-    // halo has to be the taller multiple of the two.
-    //
-    // The headlamp halo's top edge reaches 0.287 in car-local, which is ABOVE
-    // the nose profile at the z it stands on - the bonnet's leading edge is at
-    // y 0.06 there. That is left as it is: additive geometry cannot darken, the
-    // rim is black, and a headlamp glowing into the air above its own lens is
-    // what a headlamp does. The first cut had it at 0.26 half-height and reached
-    // 1.10 m, which is most of the way up the windscreen, and that is a fog bank
-    // rather than a lamp.
-    // EIGHT rim vertices, not four, and 18 cm proud of the lens rather than 6.
-    //
-    // The four-vertex version is visible as a LOZENGE in the probe's tail frame:
-    // a fan with four rim points has four straight edges, and at the sizes a
-    // lamp occupies that reads as a diamond decal stuck on the car rather than
-    // as glare. Eight costs 4 triangles a halo, 16 a car, and the slot count
-    // below was cut from 12 to 8 to pay for it.
-    //
-    // The 18 cm stand-off is not cosmetic either. The tail is a lofted surface
-    // that draws in toward the corners, so a flat quad 6 cm behind the lens has
-    // its OUTER half inside the bodywork, where the depth test removes it - the
-    // half of the halo that matters, since the inner half only brightens a lens
-    // that is already clipped. The first cut measured the lens centre rising
-    // 0.172 -> 0.185 while the surround did not move, which is that failure.
-    halo(s * LAMP_X, TAIL_Y, TAIL_Z - 0.18, 0.62, 0.34, tailLit, 0.55);
-    halo(s * LAMP_X, HEAD_Y, HEAD_Z + 0.18, 0.64, 0.36, headLit, 0.55);
+    /**
+     * NO LENS HALOS, since #119's blind review. There was a disc standing 18 cm proud of each lens,
+     * 8 triangles a lamp, in the plane of the lens: a WORLD-SPACE disc facing along the car's axis.
+     * Nose-on it is a round glow; from anywhere else it foreshortens toward its own edge, and the
+     * only way any capture showed it was side-on. The reviewer found it by measurement in the two
+     * pairs that had a lit car in frame — "two pale translucent vertical posts in front of the red
+     * car's headlamps", a red ellipse behind the tail "cut by a hard vertical edge exactly where the
+     * body begins", 1-px hairlines on a car seen more exactly side-on — and preferred the arm
+     * without it at both dusk and night, confidence 3 and 3, recovering which arm carried it from
+     * the pixels both times. Glare belongs to the camera, which is why it is round in a photograph
+     * whatever the car's heading, and the post stack's bloom already makes it from the lens: the
+     * reviewer's own words were that the cards "add shape rather than brightness" on top of "the
+     * round bloom both arms share". What it cost to lose, said by the same reviewer: on a car seen
+     * side-on at night the tail halo was the only cue its taillight was lit, beyond the road spill.
+     * That is a lens that does not wrap round the corner of the body, filed with the review.
+     */
   }
 
   const g = b.geometry();
-  // The halo quads stand in the car's own YZ plane and the pools lie flat; both
-  // are unlit (MeshBasicMaterial), so the normals computeVertexNormals() derives
-  // are never read. They are left rather than stripped because a geometry
+  // The pools lie flat and are unlit (MeshBasicMaterial), so the normals
+  // computeVertexNormals() derives are never read. They are left rather than stripped because a geometry
   // without them is a trap for any future caller that puts a lit material on it.
   if (opts.groundY !== undefined) g.translate(0, opts.groundY - P.ground, 0);
   g.computeBoundingSphere();
@@ -2662,31 +2625,6 @@ export function buildCarGlowGeometry(opts = {}) {
  * polygonOffset because the ground pools lie 3 cm over a road that is itself
  * carrying markings at 8 mm, and depth precision at 80 m does not respect 3 cm.
  */
-/**
- * #119: THE LENS HALOS' WEIGHT. 1 is the halos as built, 0 removes them and leaves the ground pools.
- *
- * buildCarGlowGeometry's halo is a disc in the plane of the lens, a WORLD-SPACE disc facing along
- * the car's axis. Nose-on it is a round glow; from a three-quarter camera it foreshortens toward its
- * own edge, and a blind reviewer measured exactly that at fivepoints dusk and night - "two vertical
- * bars stand in front of the red car's nose ... a 165-180 luma plateau about 20 px tall and 5 px
- * wide". Glare belongs to the camera, which is why it is round in a photograph whatever the car's
- * heading, and the post stack's bloom already makes it from the lens. The halos came in on
- * 2026-09-14 with the ground pools; whether they still earn their place beside that bloom is an A/B,
- * and this is its switch.
- *
- * Halo and pool are told apart by the vertex NORMAL, which the geometry carries and no other term
- * reads: every halo vertex is on a disc normal to the car's z axis and every pool vertex on a
- * horizontal plane. The seam is asserted, so a three upgrade that renames color_vertex throws here
- * rather than rendering a switch that does nothing.
- */
-const HALO_U = { uCarHalo: { value: 1 } };
-export function setCarHalo(k) {
-  HALO_U.uCarHalo.value = Math.min(1, Math.max(0, Number(k) || 0));
-  return carHalo();
-}
-export function carHalo() { return { value: HALO_U.uCarHalo.value }; }
-const HALO_SEAM = '#include <color_vertex>';
-
 export function carGlowMaterial() {
   const m = new THREE.MeshBasicMaterial({
     color: 0xffffff,
@@ -2698,16 +2636,6 @@ export function carGlowMaterial() {
     polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6,
     fog: false,
   });
-  m.onBeforeCompile = (shader) => {
-    if (!shader.vertexShader.includes(HALO_SEAM)) {
-      throw new Error('carGlowMaterial: color_vertex seam not found; the halo switch would silently do nothing');
-    }
-    shader.uniforms.uCarHalo = HALO_U.uCarHalo;
-    shader.vertexShader = 'uniform float uCarHalo;\n' + shader.vertexShader.replace(HALO_SEAM,
-      `${HALO_SEAM}\n#if defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR )\n` +
-      '\tvColor.rgb *= abs( normal.y ) < 0.5 ? uCarHalo : 1.0;\n#endif');
-  };
-  m.customProgramCacheKey = () => 'carGlowHalo1';
   return m;
 }
 

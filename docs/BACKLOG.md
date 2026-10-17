@@ -3871,6 +3871,36 @@ blooms what emits and not what is lit. Measure first: the radiance of lit window
 lamps against lamp-lit plates, pavement and paint at the night hero cameras.
 
 
+### #119 FIXED — the lens halos removed: a blind reviewer preferred no halos in both pairs that showed them
+**The blind review (2026-10-17, r12b, halo0 against bloom1 = everything shipped; key
+`docs/shots/blind-key-r12b-halo0-r12b-bloom1.json`).** The reviewer found the term by measurement — "a
+set of glow cards on the lamps of the two lit TRAFFIC cars at the fivepoints junction ... nothing
+else in any frame belongs to the term" — and said which letter carried it from the pixels alone,
+both times correctly:
+
+    pair              preferred        confidence   strongest reason
+    fivepoints dusk   no halos         3            "two pale translucent vertical posts in front of the
+                                                    red car's headlamps ... light standing in the air"
+    fivepoints night  no halos         3            "two bright vertical bars (peak +93) on top of the
+                                                    round bloom both arms share"
+    the other four    neither          1            no lit traffic car in frame, or noon
+
+Measured inside the four lamp boxes, |diff| >= 4: 810 px at dusk and 1,222 at night, with 0-1 px
+differing in a building strip as the registration control. The shapes: two 5 x 22-25 px ellipses
+before the headlamps, a 9 x 20 px red ellipse behind the tail "cut by a hard vertical edge exactly
+where the body begins", and 1-px hairlines on a car seen more exactly side-on — the disc's own
+edge, as this entry guessed. The reviewer's one cost: on a side-on car at night the tail halo was
+"the only cue that the taillight is lit" beyond the road spill, because the tail lens does not wrap
+round the corner of the body (#125). Their caveat: no lit car faced the camera, so the halos were only
+ever judged edge-on.
+
+**So the halos are gone from `buildCarGlowGeometry`, not switched off**: hiding geometry is not the
+same as not paying for it (CLAUDE.md), and a switch left on a build with nothing to switch is an arm
+pair of one build twice. 64 -> 32 triangles a car in the glow mesh, which draws at most 6 cars and
+casts no shadow; the ground pools are untouched. `setCarHalo`/`carHalo`, the shader injection, its
+cache key and `ground-albedo`'s `halo0` arm went with them.
+
+#### THE ORIGINAL RECORD
 ### #119 OPEN — a moving car's lit lamps stand upright BARS in front of it at dusk and night
 From the lamp face's blind reviewer, in BOTH arms, so independent of the face: at fivepoints dusk and
 night "two vertical bars stand in front of the red car's nose at x643-660 y560-590; at x652 there is a
@@ -3894,6 +3924,28 @@ the car's z axis, every pool vertex on a horizontal plane), and `halo0` pairs wi
 everything shipped. Smoke-tested in the district: the switch reads back 0 and 1, six glow programs
 compiled under the new cache key, no shader error. The pair is in the 2026-10-15 r12 capture.
 
+### #120 OPEN — the "amber blocks" were not located, the earlier diagnosis was wrong, and the census turns the question round
+**Two corrections to the record below, both mine.** "`buildTrafficCarGeometry` paints it `0xd8801e`" is
+false: that colour is `buildPlayerCar`'s indicator and the traffic/parked builder has no indicator
+band and no amber anywhere — `git log -S` finds none in its history either. And the "parked wagon,
+slot 8" was located by projecting cars' BOUNDING BOXES, which hold whatever stands behind a car as
+well as the car. Scanning the reviewer's own lamp frames and the r12b frames for saturated orange
+clusters (hue 15-45 deg, saturation over 0.55, twice their surround or more) that are not orange at
+noon finds 47 clusters at dusk and ~313 at night — warm lamp-lit surfaces under the street lights —
+and none within 20 px of either reported box. So what the reviewer saw is unlocated; the likeliest
+candidate on the code is the lamp face's outboard chrome bowl reflecting the warm-lit street
+(metalness 1, F0 0.62), which is a guess and is recorded as one.
+
+**And the census (`reference/sarasota/amber-census.json`, 2026-10-15/17) says the fleet's defect is the
+opposite one.** Real cars carry an amber element at the front corner on **16 of 32** (50%; 16 of 29
+counting only views that show the side face) — and this fleet carries none. Where it is present: lens
+over the paint beside it white 0.673 (n 4), silver 1.344 (n 4), dark grey 1.775 and dark blue 2.748
+(n 1 each), tracking paint tone inversely; 0.41 of the headlamp's width and 0.50 of its height,
+0.082 of its bounding-box area (a strip, chevron or corner wedge, not a block); a muted orange-red
+to salmon, hue 8-28 deg. No black or red car survived measurement. That is a target for a feature
+— side markers on about half the fleet, which instanceColor cannot gate per car — not a fix.
+
+#### THE ORIGINAL RECORD
 ### #120 OPEN — amber blocks on parked cars' front corners at dusk and night, "lit parking lamps"
 Same reviewer, both arms: at fivepoints "x720-724 y547-553 are 8.1x their surroundings at dusk and 8.6x
 at night; x734-738 y541-545, 3.6x and 3.4x. They read as lit parking or indicator lamps", absent at noon.
@@ -4074,3 +4126,17 @@ draws the 45 px disc (a halo sprite would carry no #114 tag and count as untagge
 - At corridor noon the cornice's cast-shadow edge on the brick re-rasterises between two captures with
   no light change: 56 px along (12,340)-(439,430), 1-6 codes, so in motion it would shimmer. The
   sun's shadow box is #117's; the first question is what moved between the two captures.
+
+### #125 OPEN — what #119's reviewer found wrong in BOTH arms, cars first
+- No lit taillight on a side-on traffic car at night except the road spill: the tail lens does not
+  wrap round the corner of the body, and the halo that stood in for it is gone (#119).
+- Polygonal wheels on the nearest cars: the corridor near-left car's front wheel is octagonal at about
+  (285-335, 760-860), and the fivepoints white parked car's rim at (1060-1100, 600-640).
+- "Cartoon headlamps" on the corridor near-left car: the pods read as eyes, black rings with white
+  centres on flat dark plates at about (10-60, 765-785) and (160-230, 765-785) — the lamp face's
+  bowls at the nearest distance any capture shows them.
+- A warm dark ring round the wheel arches that reads as dirt or scorch rather than shadow: (91,86,74)
+  against the flank's (142,143,142) on the white car, an olive smudge on the corridor car.
+- Foliage alpha-cut with leaf clusters floating free of branches, trunks as stretched ribbons
+  (corridor right trunk, about 1430-1600 x 0-700), blocky pedestrians — the same as #124's.
+None measured beyond the reviewer's own pixel reads.

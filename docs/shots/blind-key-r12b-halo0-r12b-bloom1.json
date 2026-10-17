@@ -1,0 +1,40 @@
+{
+ "generated": "2026-10-15T05:13:21.054Z",
+ "left": "r12b-halo0",
+ "right": "r12b-bloom1",
+ "salt": "da8799b1de8b",
+ "unpairedLeft": [],
+ "unpairedRight": [],
+ "pairs": [
+  {
+   "id": "corridor-dusk",
+   "A": "r12b-halo0",
+   "B": "r12b-bloom1"
+  },
+  {
+   "id": "corridor-night",
+   "A": "r12b-halo0",
+   "B": "r12b-bloom1"
+  },
+  {
+   "id": "corridor-noon",
+   "A": "r12b-bloom1",
+   "B": "r12b-halo0"
+  },
+  {
+   "id": "fivepoints-dusk",
+   "A": "r12b-halo0",
+   "B": "r12b-bloom1"
+  },
+  {
+   "id": "fivepoints-night",
+   "A": "r12b-bloom1",
+   "B": "r12b-halo0"
+  },
+  {
+   "id": "fivepoints-noon",
+   "A": "r12b-bloom1",
+   "B": "r12b-halo0"
+  }
+ ]
+}

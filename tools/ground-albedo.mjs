@@ -527,10 +527,8 @@ export const ARM_STATE = {
   bloom0: { albedo: null, skyProxy: false, nightGlowLux: 0, bloomLit: 0 },
   bloom1: { albedo: null, skyProxy: false, nightGlowLux: 0, bloomLit: 1 },
 
-  // #119, THE LIT LAMPS' LENS HALOS (src/carbody.js HALO_U): `carHalo` 0 removes the world-space discs
-  // and keeps the ground pools; an arm that does not name it gets the build's own 1, so halo0 pairs
-  // with bloom1 (everything shipped) and differs from it in this term alone.
-  halo0: { albedo: null, skyProxy: false, nightGlowLux: 0, carHalo: 0 },
+  // #119's halo0 arm was here: it removed the lit lamps' lens halos, a blind reviewer preferred it in
+  // both pairs where a lit car was in frame, and the halos went out of src/carbody.js with the switch.
 };
 
 /**
@@ -766,11 +764,6 @@ export async function setArm(page, name) {
       if (window.__armSavedLamp === undefined) window.__armSavedLamp = D.carLamps().value;
       carLamp = D.setCarLamps(s.carLamp ?? window.__armSavedLamp);
     }
-    let carHalo = null;
-    if (D && D.setCarHalo) {
-      if (window.__armSavedHalo === undefined) window.__armSavedHalo = D.carHalo().value;
-      carHalo = D.setCarHalo(s.carHalo ?? window.__armSavedHalo);
-    }
     let carTone = null;
     if (D && D.setCarTone) {
       // The build's own state is "not legacy", and there is nothing to read back off the app for
@@ -858,8 +851,6 @@ export async function setArm(page, name) {
       carPlate: carPlate ? carPlate.value : null,
       // IN THE KEY: the lamp arms differ in nothing else. Twelfth time.
       carLamp: carLamp ? carLamp.value : null,
-      // IN THE KEY: the halo arm differs from bloom1 in nothing else. Fourteenth time.
-      carHalo: carHalo ? carHalo.value : null,
       // IN THE KEY: the bloom arms differ in nothing else. Thirteenth time. Read back off the
       // post stack's own params, which is what its render() pushes into the bright pass.
       bloomLit: (window.__district && window.__district.postParams)
@@ -905,7 +896,7 @@ export async function proveArmsDiffer(page, arms) {
   // a hash.
   const EXACT = ['albedo', 'skyIlluminance', 'msWhitenAnti', 'ao', 'carLens', 'carProfile', 'carGlass',
     'carFront', 'carTyre', 'carFinish', 'carHub', 'carAlbedo', 'carGlassAlbedo', 'carGlassEnv', 'carShells',
-    'carPaintTint', 'aoKernel', 'aoEmit', 'carCabin', 'carPlate', 'carLamp', 'bloomLit', 'carHalo'];
+    'carPaintTint', 'aoKernel', 'aoEmit', 'carCabin', 'carPlate', 'carLamp', 'bloomLit'];
   const toneClass = (t) => (Array.isArray(t) ? t.map((v) => (v === null ? null : v > 5 ? 'census' : 'legacy')) : t);
   const near = (a, b) => (Number.isFinite(a) && Number.isFinite(b)
     ? Math.abs(a - b) <= 0.05 * Math.max(Math.abs(a), Math.abs(b), 1e-9) : a === b);

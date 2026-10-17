@@ -32,7 +32,7 @@ import {
 import { buildingStyle } from '../src/facades.js';
 import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubScale,
   setTrafficLampAlbedo, setGlassAlbedo, setGlassEnv, glassEnv, setCarLensArm, setShellNames, shellNames,
-  setCabinGain, cabinGain, setPlateText, plateText, setLampDetail, lampDetail, setCarHalo, carHalo,
+  setCabinGain, cabinGain, setPlateText, plateText, setLampDetail, lampDetail,
   carLensArm, setFrontLensScale, frontLensScale, frontLensLuma,
   setLensFinish, lensFinish,
   setLensProfile, lensProfile,
@@ -2966,9 +2966,6 @@ window.__district = {
   // THE LAMPS' FACES BY DAY (src/carbody.js LAMP_U): one uniform on every car material, 0 the flat lamp.
   setCarLamps: (k) => setLampDetail(k),
   carLamps: () => lampDetail(),
-  // #119: the lit lamps' world-space lens halos, 1 as built and 0 gone (src/carbody.js HALO_U).
-  setCarHalo: (k) => setCarHalo(k),
-  carHalo: () => carHalo(),
   /**
    * THE TWO HALVES OF #1, AS SWEEPABLE ARMS off one page load.
    *
