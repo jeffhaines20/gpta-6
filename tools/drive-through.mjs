@@ -139,36 +139,34 @@ if (process.env.DRIVE_HUD === 'off') {
 }
 
 /**
- * BODY COLLISION OFF, DELIBERATELY, AND THIS LINE IS THE WHOLE REASON THE GATE STILL
- * MEANS ANYTHING.
+ * THE COURSE IS THE ROAD GRAPH, WITH BODY COLLISION ON — since 2026-10-17 (#64).
  *
- * The autopilot below steers in a straight line at route waypoints 75 to 512 m apart.
- * Measured against the wall index: 829 m of that 2,528 m course is inside a building —
- * 32.8% of it, with individual legs at 59%, 50% and 47%. That cost nothing until body
- * collision existed. With walls solid the car is wrecked 10.6 s in at 89 km/h and 55
- * degrees of incidence, after which it has no engine power, and the stuck-nudge below
- * teleports it round the remaining route once every 2.65 s — 23 teleports per circuit.
- * The drive would still finish and the gate would still print numbers, and they would be
- * numbers about a different traversal than every committed baseline.
+ * The first autopilot steered in a straight line at route waypoints 75 to 512 m apart, and
+ * measured against the wall index 829 m of that 2,528 m course is inside a building — 32.8% of
+ * it, with individual legs at 59%, 50% and 47%. That cost nothing until body collision existed;
+ * with walls solid the car was wrecked 10.6 s in at 89 km/h and teleported round the rest of the
+ * route by the stuck-nudge, so every baseline from then on was taken with collision OFF, about a
+ * traversal no player could make. src/roadpath.js is the course a player can drive: the same
+ * route's waypoints joined on the road graph, 0 of 851 points blocked even for the full car body,
+ * followed by the router's own controller. It was not the default only because changing what a
+ * gate measures needs a fresh baseline, and the baseline was waiting on the triangle threshold's
+ * derivation; #64 settled that (the capability bound, see tools/budget.mjs), so both moved
+ * together.
  *
- * tools/route-drive.mjs is the offline record of both arms, and src/roadpath.js is the
- * real fix: a course on the road graph with 0 of 851 points blocked even for the full car
- * body. It is not this gate's course yet, because changing what the gate measures
- * requires a fresh baseline and the triangle p95 WARN is unresolved.
+ * DRIVE_COURSE=straight keeps the old course, collision off, so an artifact from before can still
+ * be re-measured like for like. Every artifact records which course it drove and whether the walls
+ * were solid, because a number about a different traversal is a different number.
  */
-const ROAD_COURSE = process.env.DRIVE_COURSE === 'roads';
+const COURSE = process.env.DRIVE_COURSE === 'straight' ? 'straight' : 'roads';
+const ROAD_COURSE = COURSE === 'roads';
 const collisionWas = await page.evaluate((on) =>
   (__district.setBodyCollision ? __district.setBodyCollision(on) : null), ROAD_COURSE);
 if (ROAD_COURSE) {
-  console.log('body collision: ON, and the course is the ROAD GRAPH (DRIVE_COURSE=roads).');
-  console.log('  This is NOT the committed baseline\'s traversal. tools/route-drive.mjs measures');
-  console.log('  it offline: 3 circuits, health 1.000, no applied impacts, no stuck-nudges, and');
-  console.log('  every contact under the FMVSS free threshold. It is a better drive and a');
-  console.log('  different one, so a run with it needs its own baseline.');
+  console.log('course: the ROAD GRAPH (src/roadpath.js), body collision ON. DRIVE_COURSE=straight');
+  console.log('  drives the pre-2026-10-17 straight-line course instead, collision off.');
 } else {
-  console.log(`body collision: OFF for this run (was ${collisionWas === null ? 'unavailable' : 'on'})`);
-  console.log('  the straight-line course is 32.8% inside buildings; see the comment above.');
-  console.log('  DRIVE_COURSE=roads drives the road graph with collision on instead.');
+  console.log(`course: STRAIGHT LINES between route waypoints, body collision OFF (was ${collisionWas === null ? 'unavailable' : 'on'})`);
+  console.log('  32.8% of this course is inside buildings; it is kept to re-measure old artifacts.');
 }
 
 // Install the autopilot: steer toward the next waypoint, advance on arrival.
@@ -182,6 +180,7 @@ await page.evaluate(({ circuits, roadCourse }) => {
     // the CIRCUITS loop below is unchanged.
     const tour = __district.tourRoute();
     const pts = tour.points;
+    window.__courseLength = tour.length;
     let lap = 0, stuckFor = 0;
     const state = { i: 0 };
     __district.placeAt(pts[0][0], pts[0][1],
@@ -193,19 +192,17 @@ await page.evaluate(({ circuits, roadCourse }) => {
       const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
       /**
        * `dt` arms followPath's own progress anchor, which now backs the car out of a blockage —
-       * see STUCK_M / STUCK_S in src/roadpath.js. THE TELEPORT BELOW STAYS, and it is the reason
-       * no gate ever saw the stall the anchor fixes: CLAUDE.md records that 32.8% of this gate's
-       * own course is inside a building, so the nudge fires every 2.65 s on a wrecked car and the
-       * gate finishes and prints numbers about a traversal no player could make. Removing it would
-       * change what this gate measures, and that needs a fresh baseline while the triangle WARN is
-       * unresolved. What IS new is that the follower tries to recover first, so the teleport counts
-       * only the places it could not.
+       * see STUCK_M / STUCK_S in src/roadpath.js. The teleport below stays as a safety net, and it
+       * is COUNTED (`stuck_teleports` in the artifact): on the straight course it fired every 2.65 s
+       * on a wrecked car and the gate printed numbers about a traversal no player could make, so a
+       * road-course run that leans on it is a run to read before trusting. The follower tries to
+       * recover first, so the count is only the places it could not.
        */
       const f = __district.followPath(pts, { x: v.position.x, z: v.position.z, yaw, speed: v.speed },
         state, { maxSpeed: 22, dt });
       if (f.done) { state.i = 0; lap++; window.__lapCount = lap; return; }
       v.setControls(f.controls);
-      if (v.speed < 0.6 && !f.backing) { stuckFor += dt; if (stuckFor > 2.5) { __district.placeAt(f.aim[0], f.aim[1]); stuckFor = 0; } }
+      if (v.speed < 0.6 && !f.backing) { stuckFor += dt; if (stuckFor > 2.5) { __district.placeAt(f.aim[0], f.aim[1]); stuckFor = 0; window.__teleports = (window.__teleports ?? 0) + 1; } }
       else stuckFor = 0;
       window.__lapCount = lap;
     });
@@ -214,6 +211,7 @@ await page.evaluate(({ circuits, roadCourse }) => {
     return;
   }
   __district.placeAt(route[1].x, route[1].z);
+  window.__courseLength = 2654;          // the straight course's nominal length, as every old artifact records it
   let wp = 2, lap = 0, stuckFor = 0;
   window.__routeState = () => ({ wp, lap });
   __district.setAutopilot((dt) => {
@@ -237,7 +235,7 @@ await page.evaluate(({ circuits, roadCourse }) => {
     const throttle = Math.abs(err) > 0.9 ? 0.32 : Math.abs(err) > 0.45 ? 0.55 : 1;
     v.setControls({ throttle, brake: 0, steer, handbrake: false });
     // Nudge free if wedged against a kerb, so one snag cannot end the run.
-    if (v.speed < 0.6) { stuckFor += dt; if (stuckFor > 2.5) { __district.placeAt(target.x, target.z); stuckFor = 0; } }
+    if (v.speed < 0.6) { stuckFor += dt; if (stuckFor > 2.5) { __district.placeAt(target.x, target.z); stuckFor = 0; window.__teleports = (window.__teleports ?? 0) + 1; } }
     else stuckFor = 0;
     window.__lapCount = lap;
   });
@@ -303,14 +301,28 @@ if (JITTER) {
 }
 await page.evaluate(() => __district.startRecording());
 
-// Run until three circuits complete, or the wall-clock cap is hit.
-const CAP_MS = 300000;
+/**
+ * Run until the course is driven, or the wall-clock net is hit — and RECORD WHICH ENDED IT.
+ *
+ * The straight course never finished its three circuits either: its committed baselines read
+ * `laps_completed: 1`, 3,112 m of a 2,654 m route at a p50 of 122 km/h, so the 300 s cap was the
+ * stop every time and the gate was a fixed-wall-time sample of the route's first lap. The road
+ * course drives the way a player can, p50 39 km/h, and its first run covered 1,075 m of 3,264 in
+ * the same 300 s: a third of the route, which is not the route. So the road course runs ONE full
+ * lap, with a net set where a slow box rather than a hung one ends — about 300 s of sim at 0.33 s
+ * of sim per wall second is 15 minutes — and `ended` says whether the lap or the net stopped it.
+ * A gate whose run ends on the net has measured part of its course, and says so.
+ */
+const LAPS_WANTED = ROAD_COURSE ? 1 : CIRCUITS;
+const CAP_MS = ROAD_COURSE ? 1500000 : 300000;
 const t0 = Date.now();
 let laps = 0;
-while (laps < CIRCUITS && Date.now() - t0 < CAP_MS) {
+while (laps < LAPS_WANTED && Date.now() - t0 < CAP_MS) {
   await page.waitForTimeout(4000);
   laps = await page.evaluate(() => window.__lapCount ?? 0);
 }
+const ended = laps >= LAPS_WANTED ? 'course driven' : 'wall-clock net';
+console.log(`ended on: ${ended} (${laps} of ${LAPS_WANTED} laps, ${((Date.now() - t0) / 1000).toFixed(0)} s of wall clock)`);
 const samples = await page.evaluate(() => __district.stopRecording());
 const jitterRaw = JITTER ? await page.evaluate(() => window.__jitterStop()) : null;
 const heapAfter = await page.evaluate(() => {
@@ -319,6 +331,8 @@ const heapAfter = await page.evaluate(() => {
 });
 
 const world = await page.evaluate(() => __district.worldReport());
+const courseLength = await page.evaluate(() => window.__courseLength ?? null);
+const teleports = await page.evaluate(() => window.__teleports ?? 0);
 const trafficReport = await page.evaluate(() => __district.trafficReport());
 // The screenshot is an artifact, not a measurement, and it must not be able to
 // destroy one. Two rounds hit this independently and each fixed one half of it;
@@ -364,8 +378,15 @@ const unloadsTotal = samples.length ? samples[samples.length - 1].unloads - samp
 
 const result = {
   mode: WITH_TRAFFIC ? 'with 30 stub vehicles' : 'no traffic',
+  course: COURSE,
+  body_collision: ROAD_COURSE,
   laps_completed: laps,
-  route_length_m: 2654,
+  laps_wanted: LAPS_WANTED,
+  ended,
+  route_length_m: courseLength === null ? null : Math.round(courseLength),
+  // Every stuck-nudge teleport: on the straight course a wrecked car was teleported round the
+  // route once every 2.65 s, so a drive with many of these is not the drive it claims to be.
+  stuck_teleports: teleports,
   frames_sampled: samples.length,
   route_duration_s: +durationS.toFixed(1),
   distance_driven_m: Math.round(samples.reduce((a, s, i) =>
