@@ -1638,6 +1638,12 @@ recomputation. **No threshold is moved** — choosing between a capability bound
 detector is the decision `budget.mjs`'s own last paragraph deferred, and this file's rule is that
 a gate is never loosened silently.
 
+**DECIDED 2026-10-17 (#64): the owner chose the capability bound**, and the gate's course moved to
+the road graph with the walls solid in the same change, so (a) is taken over three runs of THAT
+course: warn 1,400,000, fail 2,180,000. It is a loosening and it is not a silent one — the decision,
+the three runs and the arithmetic sit in `tools/budget.mjs` as `BASELINE` beside the typed
+thresholds, and its selftest fails if either moves without the other. Draw calls stay at (b).
+
 - **`ao-sweep`'s subject is whichever pavement slot qualifies first, and it is not
   the same slot twice.** Two runs of one unchanged configuration — same camera,
   same tod, same `--peds 96` — picked a 24.4 px body 9 m out and a 7.9 px body
@@ -1846,6 +1852,22 @@ a car-sized obstruction on their own centreline and 7 have their centreline INSI
 footprint; every one is class `service`, a 2.8 m alley, and the worst is 36 m long with 23
 of its 24 samples inside a building. The router excludes 11 of them, 1.2% of the network
 and 317 m. No follower can steer out of a road that is inside a building.
+
+### A safety net that re-places the subject has to put it down the way it was going
+
+The road course's drive keeps a stuck-teleport as a net, and it is counted. On the first lap with
+an impact ledger it fired five times inside 160 m of Main Street east, and the ledger said why: one
+wall contact at a one-way jog, then four more 30-50 m apart, each at z -157.5 against a course at
+-161.4. `placeAt(x, z)` defaults its yaw to 0, which is north, so every teleport handed the follower a
+car pointing 90 degrees off the course, 3.9 m from the parking lane. It drove into the lane before
+it could turn, stuck, and was teleported again. **Nine of thirteen applied impacts and four of five
+teleports were the net feeding itself**, and the gate's row read PASS over a stretch the car spent
+55 s of sim crawling through.
+
+Two rules, and the second is the cheap one. **A default argument on a placement call is a decision
+about orientation**, so a recovery path should pass every degree of freedom it means to restore.
+And **count WHERE a net fires, not only how often**: five teleports is a number, and five teleports
+at course indices 175, 183, 194, 202 and 215 is a diagnosis.
 
 ## Nine ways a path follower reports everything nominal while driving into a wall
 

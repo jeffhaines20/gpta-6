@@ -3342,6 +3342,8 @@ something, and the thing it says is the control that moves the car.
 ## Budget and rendering
 
 ### #75 MEASURED — derivation (b) cannot fire if it is recomputed, so it fires only by being frozen
+**DECIDED 2026-10-17 (#64): (a), the capability bound, on a road-course baseline — warn 1,400,000, fail 2,180,000.**
+
 `detail lost` beyond the subject line, so the entry is reconstructed from `tools/budget.mjs`'s own
 header and the committed artifact. Nothing was run for this: both numbers are in `docs/drive-traffic.json`.
 
@@ -3389,6 +3391,52 @@ had the fail figure. It prints the warn figure first and signed now, so an over-
 `-2.7% of warn`. This file's own history contains a round that explained a WARN away; a gate
 printing 53.9% next to it was helping.
 
+### #64 FIXED — the budget gate drives the road course, and its triangle threshold is the capability bound
+**Decided by the owner on 2026-10-17: derivation (a).** #75 had settled what (b) is — recomputed it
+always lands 14% above the p95 it comes from, so it fires only by being frozen — and the choice
+between a capability bound and a growth detector was the owner's, not a measurement.
+
+**The course moved in the same change, as this entry said it should.** `drive-through` drives the road
+graph (src/roadpath.js's tour of the same route, its own follower), body collision ON, for ONE full
+lap; `DRIVE_COURSE=straight` keeps the old course for re-measuring old artifacts. The lap is the
+stop now because the straight course never finished its three circuits either (its baselines read
+`laps_completed: 1`), and the road course, at a p50 of 39 km/h, covered 1,075 m of
+3,264 in the old 300 s cap: a third of the route. A full lap is 660-709 s of wall clock on an idle
+box, and every artifact records `course`, `body_collision`, `ended`, `route_length_m`,
+`stuck_teleports` and a `drive_ledger` of everything the net did.
+
+**Two defects were in the way, and the verification laps found both.** The first lap held for its
+whole net behind an oncoming fleet car in the same physical lane — every route lane was on the
+driver's LEFT, which is #127. With that fixed the lap completed, and the ledger's new impact log
+showed the net feeding itself: one contact at a one-way jog on Main Street east, then four more as
+each stuck-teleport put the car down facing due north (`placeAt`'s default yaw) 3.9 m from the
+parking lane. Teleporting along the course took that lap's 5 teleports and 13 applied impacts to 1
+and 3-5 in the three baseline runs. What is left is three sites, all filed as `wall` — course index
+111-112 north of Five Points, the jog's exit at 174, and index 370 at (653.5, -346.9) at dv 11.1 —
+and src/vehicle.js files a parked-car contact as a wall too (#126), so which of them are cars is
+not yet known.
+
+Three runs on an idle box, at commit 6b47266, with the course on the right side of the road (#127):
+
+    run   ended            frames   m driven   teleports   tri p95    tri max    draw p95 / max
+    1     course driven      277     3,158           1    832,174    872,882   225 / 252
+    2     course driven      261     3,153           1    834,484    875,880   225 / 253
+    3     course driven      270     3,128           1    845,957    861,880   236 / 243
+
+    run   the drive's net: repairs (min health), heat clears, holds, knockdowns; applied impacts by kind
+    1     4 (0.372), 6, 1, 1; wall 4
+    2     6 (0.341), 10, 0, 2; vehicle 1, wall 5
+    3     3 (0.374), 3, 0, 0; wall 3
+
+    triangles  warn 1,400,000  fail 2,180,000   1.6x and 2.5x the worst max 875,880, rounded DOWN to 10,000
+    draw calls warn 275       fail 440        unchanged: (b), and the decision was about triangles
+
+The p95 spread across the three runs is 13,783 — within one session, which CLAUDE.md says is
+the only kind of comparison this gate supports. `tools/budget.mjs` carries the three runs as
+`BASELINE` and types the thresholds beside them; its selftest re-derives them, so a hand edit to
+either fails it.
+
+#### THE BLOCKED RECORD
 ### #64 Re-baseline the budget gate on the road course — STILL BLOCKED, and on a decision not a measurement
 `src/roadpath.js` is the real fix for the autopilot driving through a third of the city, and it
 is not the gate's course yet, because changing what a gate measures needs a fresh baseline and
@@ -4211,6 +4259,14 @@ knocking aside and so need per-prop state. Two more things this does not do: a p
 immovable box rather than a 1,400 kg body that shoves, and **`tools/playtest.mjs` builds no
 street furniture at all**, so the harness has no parked cars for its car or its crowd — a
 divergence this entry adds a reason to close.
+
+**And a parked-car contact is filed as a WALL.** src/vehicle.js charges every body contact as
+`kind: 'wall'`, and `CarBlockers` answers through the same resolver, so the damage model, the crime
+it files and every instrument that counts by kind see a facade. Found when the budget drive's new
+impact ledger (#64) read thirteen applied impacts, all `wall`, at z -156.2 to -158.7 on Main Street
+east against a course at -161.4 — which is the north parking lane, not a building line.
+`resolveCircle` already returns the box's key, so the contact can say what it hit; what it should
+then charge (a parked car is property with nobody in it) is the decision that goes with it.
 
 #### THE ORIGINAL RECORD
 ### #126 OPEN — the car drives through every parked car, lamp post, tree and bollard in the district

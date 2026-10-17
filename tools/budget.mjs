@@ -40,9 +40,34 @@
 // on the OLD metric, so that threshold was close to firing on ordinary content
 // growth before any of this. Whether the gate should be tightened further is a
 // separate decision from counting the pass it was missing, and is not made here.
+//
+// DECIDED 2026-10-17 (#64): TRIANGLES ARE BOUNDED BY DERIVATION (a), THE CAPABILITY BOUND, on a new
+// baseline. The owner chose (a) after #75 showed that (b) recomputed always lands 14% above the p95
+// it is derived from, so it can fire only by being frozen: a growth detector with a date on it,
+// not a bound on anything. The baseline moved in the same change, because the course did:
+// drive-through drives the road graph now, body collision on, one full lap (see its header), on the
+// right side of the road (#127). Three runs of it on an idle box, at commit 6b47266, measured
+//
+//   triangles   p95 832,174 / 834,484 / 845,957   max 872,882 / 875,880 / 861,880
+//   draw calls  p95 225 / 225 / 236   max 252 / 253 / 243
+//   frames 277 / 261 / 270, 3,158 / 3,153 / 3,128 m driven, 1 / 1 / 1 stuck-teleports
+//   the drive's net repaired 4 / 6 / 3 times and cleared heat 6 / 10 / 3 times; the artifacts say why
+//
+// so warn = 1.6 x the worst max and fail = 2.5 x it, ROUNDED DOWN to 10,000 so the rounding cannot
+// loosen it further: 1,400,000 / 2,180,000. The thresholds are typed below beside the BASELINE they
+// come from, and the selftest re-derives them, so a hand edit to either fails it.
+//
+// DRAW CALLS ARE NOT MOVED. The decision was about triangles; draw calls are the metric this header
+// names as the wall, they are still derivation (b), and on the new course their p95 sits under the
+// 275 warn. Whether they should follow is a separate call, and it is not made here.
+export const BASELINE = Object.freeze({
+  date: '2026-10-17', course: 'roads', bodyCollision: true, runs: 3,
+  triangles: Object.freeze({ p95: Object.freeze([832174, 834484, 845957]), max: Object.freeze([872882, 875880, 861880]) }),
+  drawCalls: Object.freeze({ p95: Object.freeze([225, 225, 236]), max: Object.freeze([252, 253, 243]) }),
+});
 export const BUDGET = {
   drawCalls:      { warn: 275, fail: 440 },
-  triangles:      { warn: 830000, fail: 1850000 },
+  triangles:      { warn: 1400000, fail: 2180000 },   // (a) of BASELINE, rounded down; see above
   chunkStallMs:   { warn: 8, fail: 16 },      // one frame at 60 Hz is 16.7 ms
   heapGrowthMb:   { warn: 40, fail: 120 },    // across three full circuits
 };
@@ -235,13 +260,29 @@ if (process.argv.includes('--selftest')
       `(b) warn ${d.b.warn} vs 830,000; (a) warn ${d.a.warn} vs 1,217,000; `
       + `(a) fail ${d.a.fail} vs 1,902,000`);
   }
+  /**
+   * #64, DECIDED: THE SHIPPED TRIANGLE THRESHOLDS ARE DERIVATION (a) OF THE RECORDED BASELINE. Typed
+   * literals against recorded data, so this fails when either is edited without the other — which is
+   * the point: a re-baseline is a diff to BASELINE that this check forces to carry the thresholds
+   * with it, and a hand-tuned threshold is a diff to BUDGET that it refuses.
+   */
   {
-    const d = derivations(852605, 864708);
-    check('and (a) is the looser of the two on this content, so the shipped choice is (b)',
-      d.a.warn > d.b.warn, `(a) ${d.a.warn} against (b) ${d.b.warn}`);
-    check('both derivations sit ABOVE the shipped frozen warn, which is why it fires',
-      d.a.warn > BUDGET.triangles.warn && d.b.warn > BUDGET.triangles.warn,
-      `shipped ${BUDGET.triangles.warn}, (a) ${d.a.warn}, (b) ${d.b.warn}`);
+    const worst = Math.max(...BASELINE.triangles.max);
+    const d = derivations(Math.max(...BASELINE.triangles.p95), worst);
+    const floor10k = (v) => Math.floor(v / 10000) * 10000;
+    check('the shipped triangle thresholds ARE derivation (a) of the recorded baseline, rounded down',
+      BUDGET.triangles.warn === floor10k(d.a.warn) && BUDGET.triangles.fail === floor10k(d.a.fail),
+      `warn ${BUDGET.triangles.warn} against ${floor10k(d.a.warn)}, fail ${BUDGET.triangles.fail} `
+      + `against ${floor10k(d.a.fail)}, from a worst max of ${worst}`);
+    check('and the baseline was taken on the course the gate drives, with the walls solid',
+      BASELINE.course === 'roads' && BASELINE.bodyCollision === true && BASELINE.runs === 3
+      && BASELINE.triangles.p95.length === 3 && BASELINE.triangles.max.length === 3,
+      `${BASELINE.course}, collision ${BASELINE.bodyCollision}, ${BASELINE.runs} runs`);
+    // Arithmetic about the frozen threshold this replaced, printed rather than counted: four
+    // recorded numbers against a literal cannot fail for any edit to any source file.
+    console.log(`  note: the frozen 2026-09-01 warn, 830,000, against this baseline's p95s `
+      + `${BASELINE.triangles.p95.join(' / ')}; (b) recomputed on it is ${d.b.warn}, `
+      + `${(100 * (d.b.warn / Math.max(...BASELINE.triangles.p95) - 1)).toFixed(1)}% above its own p95`);
   }
 
   console.log(`\nBUDGET SELFTEST: ${fail ? 'FAIL' : 'PASS'} — ${pass + fail} checks, ${fail} failed`);
