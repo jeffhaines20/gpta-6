@@ -27,6 +27,14 @@
 // them at one 8.3 m corner the car needs 8.9 m for. The straight-line arm, run for contrast,
 // still wrecks the car ten seconds in and gets hand-carried round by the stuck-nudge.
 //
+// ON THE RIGHT SIDE OF THE ROAD (#127), which is where it should always have been: three
+// circuits in 745.9 s at a mean of 47.2 km/h, health 1.000, 0 applied impacts, 0 stuck-nudges,
+// 5.06 m off the line at worst, and 88 body contacts with the worst charged at 1.987 m/s. The
+// figures above were measured with every lane on the driver's LEFT. Getting here took two fixes
+// on top of the side: the lane fit's clearance from the bare body radius to LANE_MARGIN_M, which
+// went from 1.2 to 1.5, and the circuits driven as one polyline (both are written up where they
+// are made).
+//
 // It took nine distinct bugs to get there, four in the course and five in the controller, and
 // each one is written up where it was fixed. CLAUDE.md collects them: they all have the same
 // shape, which is that the instrument reads nominal because it is computed from the same
@@ -46,7 +54,23 @@ import { RoadGraph, followPath, minRadius, worstGap, cornerSpeed, RESPONSE } fro
  */
 const LANE_OFFSET = 3;
 
-/** 22 m/s is 79 km/h: a downtown grid with junctions every 80 m. See followPath. */
+/**
+ * 22 m/s is 79 km/h: a downtown grid with junctions every 80 m. See followPath.
+ *
+ * AND ON THE RIGHT SIDE OF THE ROAD IT HOLDS WITH 0.5 m/s TO SPARE, which is worth knowing before
+ * anything moves the follower (#127, #128). The worst charged contact against the speed, with
+ * the circuits joined and LANE_MARGIN_M at 1.5:
+ *
+ *     m/s      18     20     21     21.5   22     22.5   23
+ *     dv     0.85   0.81   1.52   1.82   1.99   2.34   3.03     the free band ends at 2.2
+ *
+ * Everything from 21 up is ONE site — the 30-degree bend at course index 66-72 into the 2.8 m
+ * service alley, taken 2.9 m wide at 20 m/s, so the car crosses its line and scrapes the far side
+ * at index 75-76. The crawl corner at 561-563 — 8.52 m on this side, against the 9.07 m the car
+ * needs at its 2.2 m/s crawl — reads 0.68-0.81 at every speed, free by construction. The drive
+ * is deterministic, so this cannot flake; it can be TIPPED, by any change that moves the
+ * follower's line through that bend by a few tens of centimetres.
+ */
 const MAX_SPEED = Number(process.env.RD_MAX_SPEED ?? 22);
 
 const NO_COLLISION = process.argv.includes('--no-collision');
@@ -109,10 +133,25 @@ const CAP_STEPS = HZ * 60 * 30;         // 30 minutes of simulated time
 // ONE CONTINUOUS PATH, not eight. See RoadGraph.tour(): following the legs
 // independently makes every leg boundary a blind corner, and that was the entire cause
 // of the three impacts this file spent an afternoon attributing to speed.
-let graph = null, tour = null, follow = null;
+let graph = null, tour = null, follow = null, course = null, lapPts = 0;
 if (MODE === 'roads') {
   graph = new RoadGraph(district, { blockers, carRadius: BODY_RADIUS });
   tour = graph.tour(route.slice(1), { spacing: 4, offset: LANE_OFFSET });
+  /**
+   * AND THE CIRCUITS ARE ONE POLYLINE TOO, for the same reason the legs are. This loop used to
+   * hand followPath the ring and reset its state at `done`, and `pathSpeedLimit` scans forward
+   * to the END OF THE ARRAY: so the last 25-plus metres of every lap were driven blind to the
+   * corner beyond the seam, which is a junction turning 64 degrees. The car reached it at full
+   * speed on every lap but the first, which starts from rest. It was latent for as long as the
+   * lane sat on the driver's left (#127), where that corner is taken on its outside; on the
+   * right it is taken on its inside and the car hit the kerb-side building at 22, 18 and 16 m/s
+   * alike, on lap 2 every time. The ring repeats its first point as its last, so each later lap
+   * joins without it. A lap is complete when the follower's index passes a multiple of the
+   * ring's own length.
+   */
+  lapPts = tour.points.length - 1;
+  course = tour.points.slice();
+  for (let k = 1; k < CIRCUITS; k++) course = course.concat(tour.points.slice(1));
   pathPts = tour.points.length;
   pathLen = tour.length;
   for (const [x, z] of tour.points) if (blockers.resolveCircle(x, z, BODY_RADIUS)) blockedPts++;
@@ -144,9 +183,10 @@ while (lap < CIRCUITS && steps < CAP_STEPS) {
     const q = v.quaternion;
     const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
     // `dt` arms followPath's progress anchor; without it the stuck detector is inert.
-    const f = followPath(tour.points, { x: v.position.x, z: v.position.z, yaw, speed: v.speed },
+    const f = followPath(course, { x: v.position.x, z: v.position.z, yaw, speed: v.speed },
       follow.state, { maxSpeed: MAX_SPEED, dt: DT });
-    if (f.done) { follow.state = { i: 0 }; lap++; steps++; continue; }
+    if (f.done) { lap = CIRCUITS; steps++; continue; }
+    lap = Math.min(CIRCUITS - 1, Math.floor(f.i / lapPts));
     if (f.reversing) reverseFrames++;
     v.setControls(f.controls);
     target = { x: f.aim[0], z: f.aim[1] };
@@ -154,8 +194,8 @@ while (lap < CIRCUITS && steps < CAP_STEPS) {
     // is what distinguishes "it clipped a kerb" from "it lost the path completely".
     if (steps % 30 === 0) {
       let off = Infinity;
-      for (let k = Math.max(0, f.i - 40); k < Math.min(tour.points.length, f.i + 40); k++) {
-        off = Math.min(off, Math.hypot(tour.points[k][0] - v.position.x, tour.points[k][1] - v.position.z));
+      for (let k = Math.max(0, f.i - 40); k < Math.min(course.length, f.i + 40); k++) {
+        off = Math.min(off, Math.hypot(course[k][0] - v.position.x, course[k][1] - v.position.z));
       }
       if (off > worstOffPath) worstOffPath = off;
     }
@@ -262,6 +302,18 @@ if (nudges) {
  * FMVSS threshold src/damage.js takes its free band from. It costs nothing, and no controller
  * can fix it: R_min at a standstill is 8.446 m, so a corner of 8.3 m is beyond the car at any
  * speed. Widening the line through it is a racing-line problem, not a tracking one.
+ */
+/*
+ * RESTATED BY #127. The paragraph above is a record of the LEFT side of the road, where every lane
+ * sat until rightOf was fixed. On the right the 88 contacts are TWO sites, and the corner is the
+ * cheaper of them:
+ *
+ *     path index   contacts   worst dv    what it is
+ *     561-563          64       0.812     the same corner, 8.52 m on this side, crawled, free
+ *     75-76            24       1.987     the alley entry at 20 m/s — see MAX_SPEED and #128
+ *
+ * The budgets below did not move. The contact budget is 300 against 88, and the free band is
+ * 2.2 against 1.987, which is the one that is close and is said so beside MAX_SPEED.
  */
 const EXPECT = { contacts: 300, applied: 0, nudges: 0, offLine: 12, freeDv: 2.2,
   voicesPerMin: 6, voiceBurst: 6 };
@@ -383,7 +435,7 @@ if (MODE === 'straight') {
     `${nudgeAt.filter((nn) => nn.inside).length}`);
   check('the collider never holds the car deeper than 5 cm', worstOff < 0.05,
     `${worstOff.toFixed(4)} m`);
-  console.log(`    mean speed ${(3 * pathLen / simSeconds * 3.6).toFixed(1)} km/h over ${CIRCUITS} circuits`);
+  console.log(`    mean speed ${(CIRCUITS * pathLen / simSeconds * 3.6).toFixed(1)} km/h over ${CIRCUITS} circuits`);
 }
 // Determinism, because the gate's whole argument depends on the drive being repeatable.
 check('the path is finite everywhere', path.every(([x, z]) => Number.isFinite(x) && Number.isFinite(z)));

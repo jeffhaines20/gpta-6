@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import { RoadGraph, followPath, pathSpeedLimit, steerableSpeed, gripSpeed, cornerSpeed,
   minTurnRadius, steerForRadius, RESPONSE,
   resample, smooth, minRadius, worstGap, offsetRight, pathCurvature, ARC_WINDOW,
-  laneOffsetFor, laneOffsets, ROUTE_LANE_M } from '../src/roadpath.js';
+  laneOffsetFor, laneOffsets, ROUTE_LANE_M, rightOf } from '../src/roadpath.js';
 import { Vehicle } from '../src/vehicle.js';
 import { FlatGround } from '../src/ground.js';
 import { BlockerIndex } from '../src/blockers.js';
@@ -511,14 +511,79 @@ check('the floor is at or under the damage model\'s free threshold, so a contact
 // §6  The lane offset, and the road that is narrower than it.
 // ---------------------------------------------------------------------------
 console.log('\n§6  The lane offset');
+/**
+ * WHICH SIDE IS RIGHT, ASKED OF SOMETHING THAT IS NOT THIS MODULE (#127). The two checks that stood
+ * here were `right of a +x heading is -z` and `right of a +z heading is +x`: literals, written from
+ * the same graph-paper intuition as the code, so they could only ever agree with it — and the code
+ * put every route lane on the driver's LEFT. Two oracles now, neither of them a number typed in:
+ *
+ *   - three.js's own projection. A camera looking along the heading, as the chase camera does,
+ *     must see the offset lane on the right half of its screen. Swept over sixteen headings, so a
+ *     convention that is right only on an axis cannot pass.
+ *   - the fleet. src/traffic.js places its cars at `+lane` along its own normal and its fleet
+ *     drives on the right; a settled fleet's cars must sit on the POSITIVE side of `rightOf` their
+ *     own heading, measured from the centreline of the edge they are on.
+ */
+const THREE = await import('../vendor/three.module.min.js');
+const screenSide = (heading) => {
+  const cam = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 200);
+  const fx = Math.sin(heading), fz = Math.cos(heading);
+  cam.position.set(0, 1.5, 0);
+  cam.lookAt(fx * 20, 1.5, fz * 20);
+  cam.updateMatrixWorld();
+  cam.updateProjectionMatrix();
+  const line = [[0, 0, 0], [fx * 10, fz * 10, 0], [fx * 20, fz * 20, 0]];
+  const lane = offsetRight(line, 3)[1];
+  return new THREE.Vector3(lane[0], 0, lane[1]).project(cam).x;
+};
+const sides = Array.from({ length: 16 }, (_, k) => screenSide((k / 16) * Math.PI * 2));
+console.log(`    the offset lane on a driver's screen, NDC x over 16 headings: `
+  + `min ${Math.min(...sides).toFixed(3)}, max ${Math.max(...sides).toFixed(3)}`);
+check('an offset lane is on the RIGHT of a driver\'s screen at every heading (three.js projection)',
+  sides.every((x) => x > 0.05), `NDC x ${sides.map((x) => x.toFixed(2)).join(' ')}`);
+// The formula the lane used to have, through the same oracle: it must fail it, or the oracle is
+// not an oracle.
+{
+  const cam = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 200);
+  cam.position.set(0, 1.5, 0); cam.lookAt(0, 1.5, 20); cam.updateMatrixWorld(); cam.updateProjectionMatrix();
+  const old = new THREE.Vector3(+3, 0, 10).project(cam).x;    // (dz, -dx) * 3 for a +z heading
+  check('KNOWN-BAD: the convention the lane used to have, (dz, -dx), lands on the LEFT',
+    old < -0.05, `NDC x ${old.toFixed(3)}`);
+}
+{
+  const { Traffic } = await import('../src/traffic.js');
+  const scene = { add() {}, remove() {} };
+  const tr = new Traffic(scene, district, { count: 12 });
+  for (let k = 0; k < 120; k++) tr.update(1 / 30, { x: -150, z: -160 });
+  let n = 0, positive = 0, worst = Infinity;
+  for (const p of tr._lastPositions ?? []) {
+    if (!Number.isFinite(p.heading) || p.box || p.shunted) continue;
+    const e = district.edges[p.edge];
+    let best = null;
+    for (let k = 0; k < e.v.length - 1; k++) {
+      const a = district.verts[e.v[k]], b = district.verts[e.v[k + 1]];
+      const dx = b.x - a.x, dz = b.z - a.z, L2 = dx * dx + dz * dz;
+      const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / L2));
+      const qx = a.x + dx * t, qz = a.z + dz * t, d = Math.hypot(p.x - qx, p.z - qz);
+      if (!best || d < best.d) best = { d, qx, qz };
+    }
+    const [rx, rz] = rightOf(Math.sin(p.heading), Math.cos(p.heading));
+    const side = (p.x - best.qx) * rx + (p.z - best.qz) * rz;
+    if (Math.abs(side) < 0.2) continue;        // a car on a single-track edge has no side to read
+    n++;
+    if (side > 0) positive++;
+    worst = Math.min(worst, side);
+  }
+  console.log(`    the fleet against rightOf its own heading: ${positive} of ${n} cars on the positive side`);
+  check('and the fleet\'s cars sit on the positive side of rightOf their own heading — one convention',
+    n >= 5 && positive === n, `${positive} of ${n}, worst ${worst.toFixed(2)} m`);
+}
 const straight = [[0, 0, 0], [4, 0, 0], [8, 0, 0], [12, 0, 0]];
 const right = offsetRight(straight, 3);
 console.log(`    a line along +x offset 3 m right: (${right[1][0]}, ${right[1][1]})`);
-check('right of a +x heading is -z', near(right[1][1], -3, 1e-9), `${right[1][1]}`);
-const shifted = offsetRight([[0, 0, 0], [0, 4, 0], [0, 8, 0]], 3);
-check('right of a +z heading is +x', near(shifted[1][0], 3, 1e-9), `${shifted[1][0]}`);
 check('the per-point form is used where given',
-  near(offsetRight(straight, 3, () => 1)[1][1], -1, 1e-9));
+  near(offsetRight(straight, 3, () => 1)[1][1], right[1][1] / 3, 1e-9),
+  `${offsetRight(straight, 3, () => 1)[1][1]} against ${right[1][1] / 3}`);
 // The district: the offset must never push the course into a building, at any request.
 console.log('    course clearance to the nearest wall, by requested offset:');
 for (const off of [0, 1, 2, 3, 6]) {
@@ -598,7 +663,7 @@ const oldCap = laneCensus(capOld, false);
 console.log(`    ${fitOn.pts} lane samples over ${district.edges.length} edges`);
 console.log(`      cap w * lanes / 2 - 1.2, no fit   ${String(oldCap.laneBad).padStart(5)} blocked` +
   `  (${oldCap.laneOnly} of them on a clear centreline, ${oldCap.edges} edges)`);
-console.log(`      cap w / 2 - 1.2, no fit           ${String(widthOnly.laneBad).padStart(5)} blocked` +
+console.log(`      cap w / 2 - margin, no fit        ${String(widthOnly.laneBad).padStart(5)} blocked` +
   `  (${widthOnly.laneOnly} of them on a clear centreline, ${widthOnly.edges} edges)`);
 console.log(`      fitted against the blockers       ${String(fitOn.laneBad).padStart(5)} blocked` +
   `  (${fitOn.laneOnly} of them on a clear centreline, ${fitOn.edges} edges)`);
@@ -620,7 +685,8 @@ check('the fit always takes the longest clear rung',
 // And the slope limiter: a step in the offset is a kink in the path.
 const strip = [];
 for (let i = 0; i < 40; i++) strip.push([i * 4, 0, 0]);
-const halfBlocked = (x, z) => !(x > 60 && x < 100 && z < -0.5);
+// Blocked on the side the lane goes to: the driver's right of a +x heading is +z (rightOf(1, 0)).
+const halfBlocked = (x, z) => !(x > 60 && x < 100 && z > 0.5);
 const amts = laneOffsets(strip, 3, () => ({ w: 20, lanes: 1 }), halfBlocked, 4);
 let worstStep = 0;
 for (let i = 1; i < amts.length; i++) worstStep = Math.max(worstStep, Math.abs(amts[i] - amts[i - 1]));
@@ -632,12 +698,12 @@ check('and it does reach zero where the lane is blocked', Math.min(...amts) === 
   `min ${Math.min(...amts).toFixed(2)}, max ${Math.max(...amts).toFixed(2)}`);
 
 /**
- * THE ROUTE LANE. The line a player follows is 1.5 m right of the centreline, chosen by sweeping
- * it against the collision rate rather than by reasoning — 2.17 shunts/km against the centreline's
- * 3.81 and the fleet's own lane's 18.44, over six legs of the district's route and three fleet
- * states. What this section owes is the property that makes ONE constant the right shape for it:
- * that the request is honoured as asked on every two-way road, rather than silently capped on
- * some and not others.
+ * THE ROUTE LANE. The line a player follows is 1.5 m right of the centreline. It was chosen by a
+ * sweep against the collision rate that turned out to be measured on the driver's LEFT, and on the
+ * right the same sweep cannot tell 0 to 2.2 m apart — so it is kept rather than re-chosen; see
+ * ROUTE_LANE_M (#127). What this section owes is the property that makes ONE constant the right
+ * shape for it: that the request is honoured as asked on every two-way road, rather than silently
+ * capped on some and not others.
  */
 {
   let capped = 0, twoWay = 0, narrow = 0;

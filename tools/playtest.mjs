@@ -1529,8 +1529,8 @@ export function driveTo(session, x, z,
   const from = session.vehicle.position;
   /**
    * THE SAME LANE district/main.js DRAWS, which is now 1.5 m right of the centreline rather than
-   * on it: see ROUTE_LANE_M for the sweep that chose it — 2.17 shunts/km against the centreline's
-   * 3.81 and the fleet's own lane's 18.44. What follows is why it was 0 for one round.
+   * on it: see ROUTE_LANE_M, whose first sweep (2.17 shunts/km against 3.81 and 18.44) was measured
+   * on the driver's LEFT and is restated there — #127. What follows is why it was 0 for one round.
    *
    * IT WAS `offset: 3` — a right-hand lane —
    * and on this district's own roads a flat 3 m offset leaves the carriageway: both playtesters

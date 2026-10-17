@@ -22,6 +22,23 @@
  * over 11 distinct cars, 23.5 frames each, worst 50 frames on ONE car. "19 against 0" is one
  * to three CARS against none, so the entry's magnitude is out by a factor of 23.
  *
+ * RESTATED BY #127, AND IT RETIRES EVERY TABLE BELOW THIS ONE. All of them were driven on the
+ * driver's LEFT: `offsetRight` put the route lane there, so the follower drove `ROUTE_LANE_M`
+ * into the ONCOMING stream. "The car is AHEAD, and it is STOPPED, 258 of 258" was an oncoming
+ * car that had stopped for a player in its lane, with the follower grinding into it head-on —
+ * not a rammed car held by its own shunt rule. The same arms on the right side of the road:
+ *
+ *     ARM A  5 seeds x 9 speeds, 22-72 km/h    1 car and 2 frames in 45 drives, at 43 km/h:
+ *                                              a car doing 2.89 m/s, rear-ended at 12.02
+ *     ARM B  no fleet                          unchanged, 0 wall contacts at every speed
+ *     ARM C  3 seeds x 6 speeds x 3 fleets     1 car at x0.6 / 61 km/h, 1 at x1.0 / 43, 0 at x1.5
+ *
+ * So the contact rate #87 was filed about is a wrong-side artifact as well as a frame count: on
+ * the right side there is no rate to be monotonic or otherwise. What survives below is the
+ * instrument — two counters, the seed reaching the fleet, a position taken from where the module
+ * publishes it — and the frame/car ratio, which is ~2 for a brief rear-end where it was 23.5 for
+ * a head-on grind. The selftest asserts the right-side shape.
+ *
  * AND THE SHAPE IS NOT REAL EITHER, WHICH TOOK THREE READINGS OF ONE TABLE:
  *
  *     1. five seeds,    events 3,1,0,0,2,2,1,2      "not a signal"         right, badly argued
@@ -408,10 +425,16 @@ if (SELFTEST && IS_MAIN) {
     const a = agg(rows);
     check('a shunt happens at all, so the geometry rows below have a subject',
       a.cars > 0, `${a.cars} cars over ${a.frames} frames, 3 seeds at 43 km/h`);
-    check('and the frame counter multiplies the event count several times over',
-      a.frames / Math.max(1, a.cars) > 5,
-      `${(a.frames / Math.max(1, a.cars)).toFixed(2)} frames per car; the sweep's own worst `
-      + `single car was 50`);
+    /**
+     * RESTATED BY #127. This read "the frame counter multiplies the event count several times
+     * over", at 23.5 frames a car, and it was a property of WHERE the harness drove: every route
+     * lane sat on the driver's LEFT, oncoming cars stopped for a player in their lane, and the
+     * follower ground on them. On the right side of the road a contact is a brief rear-end and
+     * the ratio is ~2 — still more than one, which is all the rename needed, and stated as that.
+     */
+    check('and the frame counter counts more than the event count, so the rename is not cosmetic',
+      a.frames / Math.max(1, a.cars) > 1,
+      `${(a.frames / Math.max(1, a.cars)).toFixed(2)} frames per car`);
     /**
      * 6. THE MECHANISM. Both of these were measured wrong first — see the header — so they are
      * asserted off `_lastPositions` and the hosts' own forward convention, and a missing
@@ -423,8 +446,11 @@ if (SELFTEST && IS_MAIN) {
       + `round, from car.x, which does not exist`);
     const carV = q(a.all.map((e) => e.carV), 0.5);
     const plV = q(a.all.map((e) => e.plV), 0.5);
-    check('and it is stopped, held there by its own shunt rule, while the player is not',
-      carV < 0.5 && plV > 1, `car p50 ${carV.toFixed(2)} m/s, player p50 ${plV.toFixed(2)} m/s`);
+    // RESTATED BY #127: "it is stopped, held there by its own shunt rule" was a car that had
+    // stopped for a wrong-side player. On the right side the fleet car ahead is MOVING, slower
+    // than a follower that has no car-following term: a rear-end, not a head-on.
+    check('and it is slower than the player: a rear-end by a follower with no car-following term',
+      carV < plV && plV > 1, `car p50 ${carV.toFixed(2)} m/s, player p50 ${plV.toFixed(2)} m/s`);
   }
 
   console.log(`\nSHUNT RATE SELFTEST: ${fail ? 'FAIL' : 'PASS'} — ${pass + fail} checks, ${fail} failed`);
@@ -529,16 +555,21 @@ if (IS_MAIN) {
   }
 
   console.log('\nARM C  hold the fleet, sweep the player. "Matches the flow" says the clean band MOVES.');
+  let armCcars = 0, armCdrives = 0;
   for (const k of [0.6, 1.0, 1.5]) {
     const sd = [0, 1, 2];
     const out = [6, 8, 10, 12, 14, 17].map((v) => {
       const a = agg(sd.map((seed) => drive({ maxSpeed: v, seed, fleetScale: k, timeout: 300 })));
+      armCcars += a.cars; armCdrives += sd.length;
       return { v, a };
     });
     console.log(`  fleet x${k.toFixed(1)}  (mean ${(out.reduce((s, o) => s + o.a.fleetKmh, 0) / out.length).toFixed(0)} km/h)`
       + `   frames ` + out.map((o) => `${Math.round(o.v * 3.6)}:${o.a.frames}`).join('  ')
       + `   cars ` + out.map((o) => o.a.cars).join(','));
   }
-  console.log('\nThe x0.6 row is the refutation: zero at EVERY player speed, including the largest');
-  console.log('relative speed in the table. What moves is how much road the fleet covers.');
+  // COMPUTED, not printed as a conclusion. This line read "the x0.6 row is the refutation: zero at
+  // EVERY player speed", which was true of the wrong side of the road and false the first time
+  // the arms ran on the right one — a sentence a run cannot fail is a check that cannot fail.
+  console.log(`\nArm C shunted ${armCcars} distinct car${armCcars === 1 ? '' : 's'} over ${armCdrives} drives`
+    + ' (arm A on the driver\'s LEFT, before #127: 11 cars over 40 drives, 258 frames).');
 }

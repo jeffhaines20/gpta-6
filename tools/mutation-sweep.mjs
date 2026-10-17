@@ -528,6 +528,27 @@ const MUTATIONS = [
     to: '  return Math.min(gripSpeed(radius), steerableSpeed(radius));',
     why: 'an impossible corner stops the car dead instead of letting it creep round',
   },
+  {
+    /**
+     * #127, PUT BACK. Every route lane returns to the driver's LEFT — the oncoming lane — and
+     * NOTHING ELSE MOVES: offsetRight and laneOffsets read the same function, so the lane and its
+     * clearance test agree with each other exactly as they did for as long as the defect shipped.
+     * Only a check with an oracle OUTSIDE this module can see it, which is why roadpath-test
+     * projects the offset through three.js's own camera and asks a fleet car which side it is on.
+     */
+    id: 'route-side', file: 'src/roadpath.js',
+    find: '  return L > 0 ? [-dz / L, dx / L] : [0, 0];',
+    to: '  return L > 0 ? [dz / L, -dx / L] : [0, 0];',
+    why: 'every route lane drives on the driver\'s left, in the oncoming lane, and agrees with itself',
+  },
+  {
+    // The margin's own derivation, given teeth: at 1.2 the follower clips building 51 at 21 m/s
+    // on the first lap and the steering pull it leaves wrecks the car ten seconds later.
+    id: 'lane-margin', file: 'src/roadpath.js',
+    find: 'const LANE_MARGIN_M = 1.5;',
+    to: 'const LANE_MARGIN_M = 1.2;',
+    why: 'the lane fit leaves a quarter metre of slop and the follower at 22 m/s spends it on a wall',
+  },
   // ---- src/blockers.js
   {
     id: 'resolve-eps', file: 'src/blockers.js',

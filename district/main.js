@@ -1315,7 +1315,8 @@ function routeToMarker(wp) {
   if (movedTo || strayed || !routeLine) {
     // THE RIGHT-HAND LANE, not the centreline. See ROUTE_LANE_M: the centreline is the one place
     // on a two-way street that meets both directions, and a playtester measured 16 of 30 cars
-    // within 0.95 m of the line this function draws. 2.17 shunts/km against 3.81.
+    // within 0.95 m of the line this function draws. (Until #127 this line was drawn 1.5 m to the
+    // driver's LEFT — the oncoming lane — and the sweep quoted here was measured there.)
     const p = roads.path(focusX, focusZ, wp.x, wp.z,
       { spacing: 8, offset: ROUTE_LANE_M, smoothPasses: 1 });
     routeLine = p ? p.points : null;

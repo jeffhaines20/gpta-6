@@ -38,8 +38,35 @@ const clamp = (v, lo, hi) => (v > lo ? (v > hi ? hi : v) : lo);
 
 /** Narrower than this and there is no second lane to sit in. src/traffic.js's own threshold. */
 const TWO_WAY_MIN_W = 3.8;
-/** Clearance from the kerb line: the car's 0.95 m body radius plus a quarter metre of slop. */
-const LANE_MARGIN_M = 1.2;
+/**
+ * Clearance from the kerb line and from a wall: the car's 0.95 m body radius plus 0.55 m for the
+ * follower's own error.
+ *
+ * IT WAS 1.2 — "a quarter metre of slop" — and a quarter metre was never measured; the wall fit
+ * did not use it at all, and tested the bare 0.95 m body radius. Both held while every lane sat on
+ * the driver's LEFT (see rightOf). On the right, the tour passes building 51's corner on Main
+ * Street's east side, 2.84 m right of the centreline, and a fit at 1.2 puts the lane exactly 1.2 m
+ * off it. route-drive's course driven as ONE continuous three-lap polyline, so the ring's seam is
+ * not in the reading (route-drive's own header says why), wrecked or not:
+ *
+ *     margin      20 m/s      22 m/s           23 m/s          24 m/s
+ *     1.20        wrecked     wrecked at 17 s  wrecked         wrecked
+ *     1.25        clean       3 impacts        wrecked         wrecked
+ *     1.30        clean       clean            wrecked         wrecked
+ *     1.35        clean       clean            wrecked         wrecked
+ *     1.45        clean       clean            4, health 0.77  wrecked
+ *     1.50        clean       clean            3, health 0.96  wrecked
+ *
+ * At 1.2 the car tracks its line to 0.18 m at 21 m/s, its body still reaches the corner, and a
+ * dv 4.24 glancing contact leaves the steering pull that puts it into a wall at 20 m/s ten
+ * seconds later. So the follower at the 22 m/s every harness drives needs more than 0.30 m of
+ * slop. The top of the range is not free either: `laneOffsetFor` caps a lane at `w / 2 - margin`,
+ * and the narrowest two-way road here is 6.0 m, so 1.5 is the LARGEST margin that still honours
+ * ROUTE_LANE_M everywhere (3.0 - 1.5 = 1.5) — `roadpath-test` asserts that. Taking the top of the
+ * bracket buys 0.55 m against a measured need of 0.30-0.35, and nothing faster than 22 m/s is a
+ * margin question: 24 m/s wrecks at every value in the table.
+ */
+const LANE_MARGIN_M = 1.5;
 
 /**
  * HOW FAR RIGHT THE ROUTE LINE A PLAYER FOLLOWS SHOULD SIT, and it is neither 0 nor the lane the
@@ -61,9 +88,31 @@ const LANE_MARGIN_M = 1.2;
  * 2.05-2.2 m, so a route THERE drives up the queue it is following, while the centreline meets
  * the oncoming stream head-on. 1.5 threads between the two.
  *
- * It is also below `w / 2 - LANE_MARGIN_M` on every two-way road in the district, so the request
- * is honoured as asked rather than capped — which is what makes one constant the right shape for
- * it. `roadpath-test` asserts that.
+ * RESTATED BY #127, AND THAT SWEEP NO LONGER CHOOSES ANYTHING. It was measured with every lane on
+ * the driver's LEFT (see rightOf), and its "shunts/km" was the frame counter CLAUDE.md records at
+ * 23x the event count — so its 2.20 m row was the car head-on in the ONCOMING stream, and "drives
+ * up the queue it is following" was a story fitted to it. Re-run on the right side, counting
+ * distinct shunted CARS, with LANE_MARGIN_M at 1.5 and every leg started from rest and pointed
+ * along its path (chained at speed, one leg opens with a U-turn the follower cannot make and
+ * circles into a building at every offset, centreline included — #129, and it was every wall
+ * hit in the table):
+ *
+ *     offset              0.00    0.75    1.50    2.20
+ *     cars/km, seeds 0-5  1.33    1.35    1.53    0.67     36 legs each
+ *       wrecks               0       1       0       1
+ *     cars/km, seeds 6-17                 1.33    1.29     72 legs each
+ *       wrecks                               1       1
+ *
+ * The 2.20 row's 0.67 did not survive its own replication, and the fleet cannot tell the offsets
+ * apart. On this side of the road there is no reason it should: every one of them is behind the
+ * same-direction stream rather than across the oncoming one. So 1.5 is KEPT, not re-chosen —
+ * the right half of the road, 0.55-0.70 m inboard of the fleet's own line rather than on it —
+ * and nothing in the sweep says to move it.
+ *
+ * It is also AT OR BELOW `w / 2 - LANE_MARGIN_M` on every two-way road in the district — equal on
+ * the narrowest, 6.0 m, which is what sets LANE_MARGIN_M's top — so the request is honoured as
+ * asked rather than capped, which is what makes one constant the right shape for it.
+ * `roadpath-test` asserts that.
  */
 export const ROUTE_LANE_M = 1.5;
 
@@ -430,7 +479,11 @@ export class RoadGraph {
       const amt = laneOffsets(pts, offset, (i) => {
         const ei = pts[i][2];
         return ei >= 0 ? this.d.edges[ei] : null;
-      }, (x, z) => this.clearAt(x, z), spacing);
+      // The width rule's margin against a real wall too: LANE_MARGIN_M is the body radius plus the
+      // follower's measured error, and `w / 2 - LANE_MARGIN_M` already holds a drawn kerb at it. A
+      // fit at the bare 0.95 m radius cleared Main Street's east facade by 0.01 m at point 34 of
+      // the tour; at 1.2 the follower at 22 m/s still reached building 51 (see LANE_MARGIN_M).
+      }, (x, z) => this.clearAt(x, z, LANE_MARGIN_M), spacing);
       pts = offsetRight(pts, offset, (i) => amt[i]);
     }
     let len = 0;
@@ -597,7 +650,7 @@ export class RoadGraph {
       const amt = laneOffsets(pts, offset, (i) => {
         const ei = pts[i][2];
         return ei >= 0 ? this.d.edges[ei] : null;
-      }, (x, z) => this.clearAt(x, z), spacing, { closed: true });
+      }, (x, z) => this.clearAt(x, z, LANE_MARGIN_M), spacing, { closed: true });
       pts = offsetRight(pts, offset, (i) => amt[i], true);
     }
     // Opened: the follower needs a last point to reach, and it is the first one again, so a
@@ -783,6 +836,8 @@ export function laneOffsetFor(e, offset) {
  * 5 of 6 starting headings. Sweeping the actual clearance along that stretch of Main Street —
  * edge 303, `w: 6.6`, so a nominal kerb at 3.30 m:
  *
+ * (Measured on the side the lane then sat on, which was the driver's LEFT — see rightOf.)
+ *
  *     i=76   wall 3.10 m right of centre        i=82   wall 2.90 m
  *     i=78   wall 3.05 m                        i=84   wall 2.85 m
  *     i=80   wall 2.95 m                        i=86   wall 4.25 m (clear)
@@ -812,6 +867,9 @@ export function laneOffsetFor(e, offset) {
  * can only ever REDUCE an amount, so every point the fit cleared stays clear — which is what
  * makes it safe to apply after the fit rather than before.
  */
+/** Where along the tangent laneOffsets tests a lane, in spacings: the point and two either side. */
+const SWEEP_STEPS = [0, -0.5, -0.25, 0.25, 0.5];
+
 export function laneOffsets(pts, offset, edgeOf, clearAt, spacing, opts = {}) {
   const { maxSlope = 0.25, closed = false, rungs = [1, 0.75, 0.5, 0.25] } = opts;
   const n = pts.length;
@@ -828,12 +886,29 @@ export function laneOffsets(pts, offset, edgeOf, clearAt, spacing, opts = {}) {
     const b = pts[closed ? (i + 1) % n : Math.min(n - 1, i + 1)];
     const dx = b[0] - a[0], dz = b[1] - a[1], L = Math.hypot(dx, dz);
     if (!(L > 0)) continue;
-    const nx = dz / L, nz = -dx / L;
-    if (clearAt(pts[i][0] + nx * want, pts[i][1] + nz * want)) continue;
+    const [nx, nz] = rightOf(dx, dz);
+    /**
+     * CLEAR ALONG THE STRETCH THIS POINT STANDS FOR, NOT ONLY AT THE POINT. Moving the lane to the
+     * driver's right put the course along the other side of every street, and on Main Street's
+     * east side a facade starts BETWEEN two course points: building 51's corner at (-218.7,
+     * -59.8), 2.84 m right of the centreline, 2 m past point 27. A 0.95 m circle at each point 4 m
+     * apart held a 2.10 m lane clear at both points while the car, swept between them, put its
+     * body 0.21 m into the facade — at 62.5 km/h on the line, dv 9.00. So each rung is tested at
+     * the point and a quarter and a half of a spacing either side along the tangent.
+     */
+    const tx = dx / L, tz = dz / L;
+    const clearLane = (t) => {
+      for (const u of SWEEP_STEPS) {
+        const s = u * spacing;
+        if (!clearAt(pts[i][0] + nx * t + tx * s, pts[i][1] + nz * t + tz * s)) return false;
+      }
+      return true;
+    };
+    if (clearLane(want)) continue;
     let chosen = 0;
     for (const f of rungs) {
       const t = want * f;
-      if (clearAt(pts[i][0] + nx * t, pts[i][1] + nz * t)) { chosen = t; break; }
+      if (clearLane(t)) { chosen = t; break; }
     }
     amt[i] = chosen;
     fitted++;
@@ -913,6 +988,38 @@ export function trimSpur(pts, maxTurn = 2.09) {
   return out;
 }
 
+/**
+ * THE DRIVER'S RIGHT OF A HEADING (dx, dz), as a unit vector: (-dz, dx) / |d|.
+ *
+ * IT WAS (dz, -dx) — THE DRIVER'S LEFT — FOR AS LONG AS ROUTES HAVE HAD A LANE, under a comment
+ * reading "where +x is right of +z". That is true on graph paper with z drawn upward and false in
+ * this world: three.js is right-handed with y up, so a camera looking along +z has world -x on its
+ * right. Projected through the vendored three.js, a point 2 m to world +x of a heading-+z camera
+ * lands at NDC x -0.195 — the left of the screen. src/traffic.js's lane normal is (-dz, dx), and
+ * its fleet drives on the right as a Sarasota fleet should; every route with an offset drove on
+ * the other side, in the oncoming lane:
+ *
+ *   - the HUD's route line to a mission marker, drawn 1.5 m LEFT of the centreline (district/main.js);
+ *   - the budget gate's road course, whose first lap on Main Street ran in the same physical lane
+ *     as an oncoming fleet car, head-on: its lateral -2.10 m against the car's -2.19, opposite
+ *     headings, and each stopped for the other until the run's net (#64);
+ *   - every harness that drives `ROUTE_LANE_M` — playtest's driveTo, clear-time, shunt-rate,
+ *     reaction-test's lane audit — and route-drive and lane-keep's course.
+ *
+ * ROUTE_LANE_M's own sweep is the cleanest symptom: at 2.20 m it read 18.44 shunts/km and wrecked
+ * the car, explained as "a route there drives up the queue it is following". It was driving
+ * head-on into the oncoming stream, which sits exactly there.
+ *
+ * ONE FUNCTION for every lateral decision on a route — offsetRight places the lane, laneOffsets
+ * tests its clearance — so the two cannot disagree about which side they mean; they agreed with
+ * each other the whole time, which is why nothing inside this module could see it.
+ * `roadpath-test` asserts the side against three.js's own projection and against a fleet car.
+ */
+export function rightOf(dx, dz) {
+  const L = Math.hypot(dx, dz);
+  return L > 0 ? [-dz / L, dx / L] : [0, 0];
+}
+
 export function offsetRight(pts, d, perPoint = null, closed = false) {
   const out = [];
   const n0 = pts.length;
@@ -922,10 +1029,9 @@ export function offsetRight(pts, d, perPoint = null, closed = false) {
     const a = pts[closed ? (i - 1 + n0) % n0 : Math.max(0, i - 1)];
     const b = pts[closed ? (i + 1) % n0 : Math.min(n0 - 1, i + 1)];
     const dx = b[0] - a[0], dz = b[1] - a[1];
-    const L = Math.hypot(dx, dz);
-    if (!(L > 0)) { out.push([p[0], p[1], p[2]]); continue; }
-    // Right of a heading (dx, dz) in this coordinate frame, where +x is right of +z.
-    out.push([p[0] + (dz / L) * amt, p[1] - (dx / L) * amt, p[2]]);
+    if (!(Math.hypot(dx, dz) > 0)) { out.push([p[0], p[1], p[2]]); continue; }
+    const [rx, rz] = rightOf(dx, dz);
+    out.push([p[0] + rx * amt, p[1] + rz * amt, p[2]]);
   }
   return out;
 }

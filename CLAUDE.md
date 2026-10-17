@@ -1952,6 +1952,54 @@ floor speed is free **by construction**. That is what makes it a derivation and 
 the finished drive's 264 contacts are all at one 8.3 m corner against a 8.9 m minimum, at a
 worst charged delta-v of 1.425 m/s, and they cost exactly nothing.
 
+## Two modules disagreed about which side is RIGHT, and the checks were written from the same picture as the bug
+
+`src/roadpath.js`'s `offsetRight` took the right of a heading (dx, dz) as (dz, −dx), under a comment
+reading "where +x is right of +z". That is true on graph paper with z drawn upward and false here:
+three.js is right-handed with y up, so a camera looking along +z has world −x on its right.
+`src/traffic.js` uses (−dz, dx) and its fleet drives on the right. So for as long as routes have had
+a lane, every one of them — the HUD's line to a marker, the budget gate's road course, every harness
+that drives `ROUTE_LANE_M` — drove in the ONCOMING lane. It surfaced as the budget course meeting a
+fleet car head-on in the same physical lane, lateral −2.10 m against the car's −2.19, each stopped
+for the other until the run's net.
+
+**The checks could not see it because they were derived from the same mental rotation.**
+`roadpath-test` asserted that a line along +x offset 3 m right lands at (4, −3) — a literal worked out
+by the same intuition that wrote the code, so it encoded the defect rather than testing it. And the
+module's two lateral decisions, placing the lane and testing its clearance, read one convention and
+agreed with each other perfectly. **Internal consistency is not evidence about a convention.**
+
+**An oracle outside the module is the only kind of check that can fail here, and two were cheap.**
+Project the offset point through three.js's own camera — the renderer is the definition of "the
+right of the screen" — and ask the sibling module that already drives on the right which side its own
+cars are on. Each disagrees with the old code in one line; `mutation-sweep`'s `route-side` row is the
+old convention put back.
+
+**And a defect on one side of a symmetry hides the defects only the other side exercises.** Mirrored,
+the course passes different walls. The flip exposed two latent defects that had been there since the
+code was written: the lane fit's "quarter metre of slop", never measured, left 0.32 m of a building's
+corner on the right side and the follower spent it at 21 m/s; and `route-drive`'s lap reset hid a
+seam corner from the speed scan, harmless while that corner was taken on its outside. This file's "a
+defect that sits inside another one's slack", where the slack was geometry.
+
+**And it rewrote the history of every finding measured through it.** #87's mechanism — "258 of 258
+contacts with a STOPPED car ahead" — was the follower grinding head-on into oncoming cars that had
+stopped for it; `ROUTE_LANE_M`'s sweep, which chose 1.5 m as the minimum of a U-shaped curve, was
+measured in the oncoming lane, and on the right side the fleet cannot tell 0 to 2.2 m apart.
+Both stories were coherent, and coherence is what a consistent wrong frame produces. **When a
+convention flips, list every recorded number that was measured through it**, the convincing ones
+first.
+
+### A column dominated by one site is a site, not a rate
+
+`ROUTE_LANE_M`'s re-run read wall hits 11 / 4 / 19 / 21 across four offsets, which looked like a
+U-curve with a minimum at 0.75 m. With the fleet removed, every one of them was ONE place: leg 7 opens
+with a U-turn behind a car arriving at 11 m/s, and the follower circles into a building at every
+offset, centreline included (#129). And the no-fleet arm's three seeds produced byte-identical hits,
+because the seeds reach only the fleet and the crowd — this file's "n=1 wearing n=16's clothes",
+arriving as a CONTROL. Before reading a column across a sweep, locate its events; a total that one
+site supplies says nothing about the parameter being swept.
+
 ## A model integrated at the game's dt is measured at the harness's
 
 The pedestrian throw distance is `v^2 / (2 mu g)` — a real reconstruction figure, checked

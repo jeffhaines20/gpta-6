@@ -4212,3 +4212,109 @@ parked cars (a 1,400 kg body the player can see, and the obvious one), rigid str
 chairs — knocked aside in every game of this genre, which needs per-prop state this module does not
 keep). The first measurement is how often a player's line actually crosses each class, from the
 playtest harness's own driving, before choosing what to charge for it.
+
+### #127 FIXED — every route lane was on the driver's LEFT: the HUD line, the budget course and every harness drove in the oncoming lane
+**Found while fixing #64's drive.** The budget gate's first road-course lap on Main Street met an
+oncoming fleet car head-on IN THE SAME PHYSICAL LANE — its lateral −2.10 m against the car's −2.19,
+opposite headings — and each stopped for the other until the run's net. `src/roadpath.js`'s
+`offsetRight` took the right of a heading (dx, dz) as (dz, −dx), "where +x is right of +z", which is
+true on graph paper with z drawn upward and false in this world: three.js is right-handed with y up,
+so a camera looking along +z has world −x on its right. Projected through the vendored three.js, a
+point 2 m to world +x of a heading-+z camera lands at NDC x −0.195, the left of the screen.
+`src/traffic.js`'s lane normal is (−dz, dx) and its fleet drives on the right, so every route with
+an offset drove against it:
+
+- the HUD's route line to a mission marker, drawn 1.5 m LEFT of the centreline;
+- the budget gate's road course, 3 m;
+- every harness that drives `ROUTE_LANE_M` — playtest's `driveTo`, `clear-time`, `shunt-rate`,
+  `reaction-test`'s lane audit — and `route-drive` and `lane-keep`'s course.
+
+**Why nothing inside the module could see it.** `offsetRight` places the lane and `laneOffsets`
+tests its clearance, both read one convention, and so they agreed with each other the whole time.
+And `roadpath-test`'s handedness checks were LITERALS written from the same intuition as the code —
+"a line along +x offset 3 m right lands at (4, −3)" encoded the bug rather than testing it. They
+are an oracle now: the offset projected through three.js's own camera at 16 headings (NDC x +0.292
+at every one), the old convention kept as a KNOWN-BAD that lands left, and a 12-car `Traffic` asked
+which side its own cars are on (6 of 6 on the positive side of `rightOf`). `rightOf` is the one
+function every lateral decision on a route reads, and `mutation-sweep`'s `route-side` puts the old
+one back.
+
+**What it retired — every one of these was a statement about the wrong side of the road.**
+
+- **#87's mechanism.** "The car is AHEAD and STOPPED, 258 of 258" was an ONCOMING car that had
+  stopped for a player in its lane, with the follower grinding into it head-on. On the right side
+  `shunt-rate`'s arm A reads 1 car and 2 frames in 45 drives, a car doing 2.89 m/s rear-ended at
+  12.02. There is no contact rate left to be monotonic or otherwise.
+- **`ROUTE_LANE_M`'s sweep** (3.81 / 4.69 / 2.17 / 18.44 "shunts/km", a frame counter). Re-run on the
+  right side, counting distinct cars, every leg from rest, six seeds and then twelve more on the two
+  contenders: 1.33 / 1.35 / 1.53 / 0.67 over seeds 0-5 and 1.33 / 1.29 for 1.5 and 2.2 over seeds
+  6-17. The 0.67 did not survive its own replication. **The fleet cannot tell 0 to 2.2 m apart, so
+  1.5 is kept, not re-chosen.**
+- **`lane-keep`'s recorded figures** — the forced band's p90 3.052 → 2.996 m.
+
+**And the flip exposed two latent defects the wrong side had been hiding.** `route-drive` at its
+22 m/s wrecked the car 17 s in:
+
+    LANE_MARGIN_M   20 m/s    22 m/s           23 m/s          24 m/s
+    1.20            wrecked   wrecked at 17 s  wrecked         wrecked
+    1.25            clean     3 impacts        wrecked         wrecked
+    1.30 - 1.35     clean     clean            wrecked         wrecked
+    1.50            clean     clean            3, health 0.96  wrecked
+
+- **The margin.** On the right the tour passes building 51's corner on Main Street's east side,
+  2.84 m right of the centreline, and the fit put the lane exactly 1.2 m off it — "a quarter metre
+  of slop", never measured. The car tracked its line to 0.18 m at 21 m/s, its body still reached the
+  corner, and a dv 4.24 glancing contact left the steering pull that put it into a wall at 20 m/s ten
+  seconds later. **1.5** is the top of the bracket: it is the largest margin at which `ROUTE_LANE_M`
+  is still honoured on the narrowest two-way road (6.0 m: 3.0 − 1.5 = 1.5), and it buys 0.55 m
+  against a measured need of 0.30-0.35.
+- **The seam.** `route-drive` handed `followPath` the ring and reset its state at `done`, and
+  `pathSpeedLimit` scans to the END OF THE ARRAY, so the last 25-plus metres of every lap were driven
+  blind to the 64-degree junction beyond the seam. Latent while that corner was taken on its outside;
+  on the right it is taken on its inside, and the car hit the kerb-side building at 22, 18 and 16 m/s
+  alike, on lap 2 every time. The circuits are one polyline now.
+
+With both, three circuits in 745.9 s at 47.2 km/h, health 1.000, 0 applied impacts, 88 free
+contacts with the worst at 1.987 m/s — against 1.425 on the left side, and see #128 for what binds.
+
+#### THE ORIGINAL RECORD
+Filed as task 45 in the session that found it, not in this file: "the route lane is on the
+driver's LEFT: fix offsetRight and restate every gate it moves".
+
+### #128 OPEN — `route-drive` holds its 22 m/s by 0.5 m/s, and what binds is a 2.8 m alley taken at 72 km/h
+On the right side of the road the worst charged contact climbs with the speed cap and leaves the
+2.2 m/s free band between 22 and 22.5:
+
+    m/s      18     20     21     21.5   22     22.5   23
+    dv     0.85   0.81   1.52   1.82   1.99   2.34   3.03
+
+Everything from 21 up is ONE site: the 30-degree bend at course index 66-72 from edge 32 (6.6 m)
+into service alley edge 350 (2.8 m, single-track, so the lane drops to the centreline). The
+follower takes it at its corner-speed limit, 19.6-20.0 m/s, runs 2.5-2.9 m wide through it, crosses
+its line at index 73 and overshoots to 1.84 m on the far side, where the body scrapes the alley wall
+at index 75-76. The crawl corner at 561-563 (8.52 m on this side, where the car needs 9.07 m at its
+2.2 m/s crawl) reads 0.68-0.81 at every speed, free by construction.
+
+`route-drive` is deterministic, so this cannot flake. It can be TIPPED by any change that moves the
+follower's line through that bend by a few tens of centimetres, and the budget gate drives the same
+course at the same cap. The lever the measurement points at is a WIDTH term in the speed limit — the
+follower reads curvature and nothing about how much road there is — but nothing has been tried.
+
+### #129 OPEN — a path that starts behind a moving car: the follower circles forward 44 m off its line into a building
+Found as the whole of `ROUTE_LANE_M`'s re-run wall column (#127), which it had made unreadable: in
+the sweep's no-fleet control, 18 legs per offset, every applied wall impact was ONE site, at every
+offset including the centreline. Leg 7 of the district's route, chained at speed in playtest's `driveTo`: leg 6 arrives at
+(208.5, −381.4) doing 11 m/s heading −z, and leg 7's path starts up service alley edge 574 heading +z.
+Traced at 30 Hz:
+
+    t+0.0 - 1.1 s   the three-point-turn rule fires: reverse throttle, i.e. braking, 11.0 -> 2.7 m/s
+    t+1.3 s         reqRadius has grown past 0.95 R_min(v), so it COMMITS FORWARD on full lock
+    t+1.3 - 9.6 s   a ~22 m circle, off the line 9.5 -> 44.0 m, out of the street
+    t+9.75 s        dv 11.42 into a wall at (167.5, −368.6), 41 m off the line, then pinned there
+
+followPath's comment says its rule was traced "both times a `driveTo` from a standstill", and from
+rest it works. At speed the reverse is a brake, the car comes to rest pointing the wrong way, and
+by then the forward circle looks achievable to a test that cannot see the street is 6 m wide. Every
+harness that chains `driveTo` legs meets it wherever a path opens behind the car. Two levers, neither
+tried: `driveTo` arriving at rest, or the turn rule preferring the reverse whenever the forward
+circle does not fit the corridor.
