@@ -1,0 +1,25 @@
+{
+ "generated": "2026-10-17T21:40:12.143Z",
+ "left": "cabd-cfix0",
+ "right": "cabd-cdrv0",
+ "salt": "2e8fa6b404cc",
+ "unpairedLeft": [],
+ "unpairedRight": [],
+ "pairs": [
+  {
+   "id": "cabin-dusk",
+   "A": "cabd-cfix0",
+   "B": "cabd-cdrv0"
+  },
+  {
+   "id": "cabin-night",
+   "A": "cabd-cdrv0",
+   "B": "cabd-cfix0"
+  },
+  {
+   "id": "cabin-noon",
+   "A": "cabd-cfix0",
+   "B": "cabd-cdrv0"
+  }
+ ]
+}

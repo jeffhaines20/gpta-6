@@ -310,6 +310,36 @@ Both off one page load (`tools/ground-albedo.mjs`'s `cfix0` / `cfix1` / `cdrv1`)
   two captures alternated. It costs no triangle — two ray-cast ellipsoids in the cabin pass — so it
   is independent of #64's baseline.
 
+  **RE-REVIEWED ON ITS OWN PROTOCOL, AND IT SHIPS AT 1.** `cabd-cfix0` against `cabd-cdrv0`: the
+  driver alone on the shipped cabin, the player's car side-on at 11 m (`hero-shots`' `cabin` framing),
+  noon / dusk / night, capture order alternated so the driver arm went SECOND at noon and night and
+  FIRST at dusk (`docs/shots/blind-key-cabd-cfix0-cabd-cdrv0.json`). The head is about 60 x 50 px, so
+  `blind-compare` was given `--roi 720,405,860,460 --min-signal 4`: the arms are not the same build
+  twice (arm-diff max 144 at the car, every other band identical), they differ in one small object.
+  The reviewer recovered the partition from a per-frame ratio — the cap of the head over the glass
+  beside it, linear luma, 0.603 / 0.493 / 0.417 with the driver against 0.988 / 1.062 / 1.041 without
+  — and preferred the driver at **all three hours: noon 3, dusk 4, night 2** ("someone at the wheel
+  of a car stopped in the road, at a believable size and place ... the only thing in either frame
+  that makes the side glass read as glass with a space behind it"). Preferred in both capture
+  orders, so the confound the first review named is not what it was measuring. `car-cabin` now
+  asserts the build ships the driver ON and the fix OFF — its rows set both switches themselves, so
+  nothing else would see either decision reverted — and `cabin-driver-default` is that mutation.
+
+  What it still gets wrong, from the same report: the head is an egg with a dead-flat hairline where
+  the side glass's two tones meet (y 440 at noon) and no profile; at noon its upper half matches the
+  glass above it to 3 levels, so it reads as a dark cap over a pale blob; at night it is visible
+  only under magnification.
+
+  **Both arms, from the same review**, most important first: the side glass is two flat painted
+  tones with a one-pixel step between them and nothing reflected or seen through (at dusk a pale
+  lilac 14x the door below it — #36 and #54's territory); the hero car shows no cabin at all side-on,
+  where the parked cars behind it show headrests; the headlamp and tail-lamp pools are hard-edged
+  car-width carpets with no visible source on the car; the tyres are near-black (p50 linear 0.0033,
+  1/14 of the door) and the rims dark dishes with no spoke openings; low-poly facets show in the
+  rocker and quarter; **the wing mirror shows its GLASS to a side-on camera** ([731,450,756,465],
+  noon), where a real door mirror shows the housing — new, and filed below as #133; and, off the
+  car, **the street-name blades are blank** ([1235,85,1495,210], noon), #134.
+
 **Both arms, from these two reviews** — the glazing and the paint first, and each is a sighting of
 something already numbered: the side glass a flat, pale panel at 3.0-8.8x its own car's paint
 (p95/p50 1.05 against a canopy at 26.5) and paint like "satin clay", p10-p90 x1.25 on a bonnet beside
@@ -4466,3 +4496,20 @@ trapped cars sit at five places, two of them twice — (−86, −111) and (−6
 handful of junctions rather than a rate. The lever is a turn cost, which needs an edge-based
 search (the cost of leaving a vertex depends on how it was entered); not tried.
 
+
+### #133 OPEN — the player car's wing mirror shows its glass to a camera beside the car
+From the driver's re-review (cabin v3.1), both arms: side-on at 11 m, noon, the door mirror at
+[731,450,756,465] is a red-framed rectangle holding a sky-over-pavement reflection. A real door
+mirror's glass faces BACKWARDS, so from beside the car what reads is the body-coloured housing; a
+mirror whose face shows sideways reads as a little window stuck on the door. Seen in
+`docs/shots/cabd-cfix0-cabin-noon.png` at 6x. Not measured: the mirror's face normal off the player
+car's own buffer (`buildPlayerCar`), which says in one number whether the glass is turned outward.
+
+### #134 OPEN — the street-name blades are blank from one side
+From the same review, both arms: a blade assembly at [1235,85,1495,210], noon, shows two grey-green
+faces with no lettering. `appendStreetSignage` draws each blade double-sided with
+`backRect: streetRect('misc', 'bladeBack')`, a blank, so from the side the name faces away from the
+blade reads as an unpainted plate — and with two blades at right angles there is a whole quadrant
+round every corner from which BOTH are blank. A real street-name blade carries the name on both
+faces. The lever is the back's rect; the thing to check first is whether a reused name rect comes
+out mirrored on the back face.

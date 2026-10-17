@@ -328,7 +328,14 @@ const CABIN_U = { uCabinDetail: { value: 1 }, uCabinGain: { value: 1 }, uCabinLe
   //   uCabinFix     the wheel and the mirror's back on the DASH's albedo, and the mirror's glass face
   //                 seen from behind (see cabinAlbedo)
   //   uCabinDriver  a driver at the wheel, on the materials that ask for one (CABIN_DRIVER)
-  uCabinFix: { value: 0 }, uCabinDriver: { value: 0 } };
+  //
+  // THE DRIVER SHIPS AT 1, on its re-review's own protocol (docs/BACKLOG.md, cabin v3.1): the
+  // player's car side-on at 11 m, the driver alone against the shipped cabin (cfix0 / cdrv0), capture
+  // order alternated so the arm went second at noon and night and first at dusk. The blind reviewer
+  // recovered the partition by a per-frame ratio — the head's cap over the glass beside it, 0.603 /
+  // 0.493 / 0.417 with the driver against 0.988 / 1.062 / 1.041 without — and preferred the driver
+  // at all three hours, confidence 3 / 4 / 2. The fix stays at 0: it lost its own review.
+  uCabinFix: { value: 0 }, uCabinDriver: { value: 1 } };
 export function setCabinGain(k, opts = {}) {
   CABIN_U.uCabinGain.value = Math.min(1, Math.max(0, k));
   if (opts.level !== undefined) CABIN_U.uCabinLevel.value = Math.max(0, opts.level);

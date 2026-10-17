@@ -2819,6 +2819,12 @@ const MUTATIONS = [
     browser: true,
   },
   {
+    id: 'cabin-driver-default', file: 'src/carbody.js',
+    find: '  uCabinFix: { value: 0 }, uCabinDriver: { value: 1 } };',
+    to: '  uCabinFix: { value: 0 }, uCabinDriver: { value: 0 } };',
+    why: 'the reviewed decision quietly reverted: an empty cabin in every moving car, and car-cabin\'s own rows set the switch themselves, so only its "ships v3.1 as reviewed" check sees it',
+  },
+  {
     id: 'cabin-driver-parked', file: 'src/streetfurniture.js',
     find: '    const material = trafficCarMaterial({ emissiveMap: retroEmissiveMap() });',
     to: '    const material = trafficCarMaterial({ emissiveMap: retroEmissiveMap(), driver: true });',

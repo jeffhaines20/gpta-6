@@ -39,7 +39,7 @@ for (const a of argv) {
 }
 
 /** Fixed, so a check cannot vanish when a population is empty. */
-export const CHECK_COUNT = 26;
+export const CHECK_COUNT = 27;
 
 /** The order the page renders in: [gain, level, through] per tile, rows top to bottom. */
 export function plannedReadback(level, through, detail = 1, fix = 0, driver = 0) {
@@ -72,6 +72,12 @@ export function verdict(r) {
   // And at v3's detail: the detail row sets 0 and 1 itself, so without this a build shipping 0 passes.
   add('the build ships the cabin ON, at its detail', num(r.shipped?.value) === 1 && num(r.shipped?.detail) === 1,
     `shipped gain ${r.shipped?.value}, level ${r.shipped?.level}, transmission ${r.shipped?.through}, detail ${r.shipped?.detail}`);
+  // And v3.1's two switches at the values their blind reviews chose: the driver ON (re-reviewed on its
+  // own protocol and preferred at all three hours) and the fix OFF (it lost). The rows below set both
+  // themselves, so without this a build that quietly reverted either decision would pass.
+  add('and ships v3.1 as reviewed: the driver ON, the wheel-and-mirror fix OFF',
+    num(r.shipped?.driver) === 1 && num(r.shipped?.fix) === 0,
+    `driver ${r.shipped?.driver}, fix ${r.shipped?.fix}`);
   const want = plannedReadback(r.level, r.through, num(r.shipped?.detail) ?? 1, num(r.shipped?.fix) ?? 0, num(r.shipped?.driver) ?? 0);
   const got = r.readback ?? [];
   add('every render\'s uniforms are what it asked for, read back off the material\'s own uniform objects',
@@ -228,8 +234,8 @@ if (argv.includes('--selftest')) {
   const view = (g, gc, oc, l, rr) => ({ glassPx: g, glassChanged: gc, otherPx: 135000, otherChanged: oc,
     otherChanged2: 0, otherMax: oc ? 1 : 0, left: mod(l), right: mod(rr), paintP50: 0.13 });
   const good = {
-    shipped: { value: 1, level: 1, through: 0.15, detail: 1 }, level: 1, through: 0.15,
-    readback: plannedReadback(1, 0.15, 1),
+    shipped: { value: 1, level: 1, through: 0.15, detail: 1, fix: 0, driver: 1 }, level: 1, through: 0.15,
+    readback: plannedReadback(1, 0.15, 1, 0, 1),
     views: { front34: view(3283, 3128, 0, 1.513, 1.553), side: view(1447, 1299, 13, 1.056, 1.792),
       rear34: view(3817, 3739, 0, 2.052, 1.936) },
     split: { glassPx: 3283, throughPx: 2196, interiorChanged: 2995 },
@@ -297,6 +303,9 @@ if (argv.includes('--selftest')) {
     ['no driver at the wheel', (c) => { c.driverFront.moved2 = 0; c.driverSide.moved2 = 0; }, 'head-on'],
     ['a driver that fills the windscreen', (c) => { c.driverFront.moved2 = 3000; }, 'head-on'],
     ['a driver drawn off the glass', (c) => { c.driverSide.otherChanged2 = 120; }, 'v3.1\'s rows moves anything outside'],
+    // The decisions themselves, reverted: the rows set both switches, so only this check sees them.
+    ['the driver reverted to off', (c) => { c.shipped.driver = 0; c.readback = plannedReadback(1, 0.15, 1, 0, 0); }, 'as reviewed'],
+    ['the losing fix shipped', (c) => { c.shipped.fix = 1; c.readback = plannedReadback(1, 0.15, 1, 1, 1); }, 'as reviewed'],
   ]) {
     const r = bad(fn);
     say(fails(r, needle), `KNOWN-BAD: ${what} fails`, failing(r).join(' | '));
