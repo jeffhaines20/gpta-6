@@ -182,6 +182,10 @@ const OFFLINE = [
   // the bright pass's two arms off one load. Nothing else compiles BRIGHT_FRAG, so every bloom row
   // above is invisible to the rest of this list.
   'bloom-lit',
+  // About 1 s. #132's census: every lamp, mast, utility pole, sign post and pavement prop against the
+  // kerb face the streamer draws, by a classifier of its own. Nothing else on this list asks where
+  // anything STANDS relative to the kerb — geom-audit asks whether it floats.
+  'kerb-stand',
 ];
 
 /**
@@ -2830,6 +2834,56 @@ const MUTATIONS = [
     to: '    const material = trafficCarMaterial({ emissiveMap: retroEmissiveMap(), driver: true });',
     why: 'every parked car has somebody sitting in it, for ever',
     browser: true,
+  },
+  // ---- #132: nothing that stands on the pavement stands in front of the kerb. Each is a placer, or the
+  // guard, or the query they share, reverted to what put 750 posts in the road.
+  {
+    id: 'kerb-lamp-front', file: 'src/streetfurniture.js',
+    find: '          const kb = this.kerbFace.behind(x + nx * off, z + nz * off, LAMP_POLE_R);',
+    to: '          const kb = { x: x + nx * off, z: z + nz * off, moved: 0, o: null };',
+    why: 'the lamp line back at w/2 + 1.4: 472 posts in the parking lane, which no lamp-reading gate measures',
+  },
+  {
+    id: 'kerb-lamp-unsettled', file: 'src/streetfurniture.js',
+    find: "            if (this.buildingClearance(kb.x, kb.z) < LAMP_POLE_R\n              || kb.o < KERB_BACK + LAMP_POLE_R - 0.01) { out.refused++; continue; }",
+    to: "            if (this.buildingClearance(kb.x, kb.z) < LAMP_POLE_R) { out.refused++; continue; }",
+    why: 'a post pushed between two faces that each send it in front of the other is placed anyway: one lamp at -0.21 m',
+  },
+  {
+    id: 'kerb-mast-front', file: 'src/streetfurniture.js',
+    find: '        const kb = this.kerbFace.behind(p.x + ux * setback + rx * off, p.z + uz * setback + rz * off,\n          (nx, nz) => SIGNAL_FOOT_HALF * (Math.abs(nx * ux + nz * uz) + Math.abs(nx * rx + nz * rz)));',
+    to: '        const kb = { x: p.x + ux * setback + rx * off, z: p.z + uz * setback + rz * off, moved: 0, o: null };',
+    why: 'the masts back at w/2 + 1.35, where the guard then refuses most of them: a junction with no signals, which reads as a choice',
+  },
+  {
+    id: 'kerb-mast-unturned', file: 'src/streetfurniture.js',
+    find: '          (nx, nz) => SIGNAL_FOOT_HALF * (Math.abs(nx * ux + nz * uz) + Math.abs(nx * rx + nz * rz)));',
+    to: '          () => SIGNAL_FOOT_HALF);',
+    why: 'the footing cleared by its half-width whatever way it is turned: square to its approach and not to a corner return, its corners on the back chamfer',
+  },
+  {
+    id: 'kerb-utility-front', file: 'src/streetfurniture.js',
+    find: '          const { x, z, moved, o } = this.kerbFace.behind(a.x + ax * t - az * side * off,\n            a.z + az * t + ax * side * off, UTILITY_POLE_R);',
+    to: '          const x = a.x + ax * t - az * side * off, z = a.z + az * t + ax * side * off, moved = 0, o = 0;',
+    why: 'the utility poles back at w/2 + 1.5, where the guard refuses the kerbed ones: 84 poles and their spans gone',
+  },
+  {
+    id: 'kerb-guard-off', file: 'src/streetfurniture.js',
+    find: '      if (!IN_ROAD_KINDS.has(kind)) {\n        // The test is on the FOOTPRINT THAT WAS EMITTED',
+    to: '      if (false) {\n        // The test is on the FOOTPRINT THAT WAS EMITTED',
+    why: 'every prop whose station falls at a corner or a run end stands in the road again: about 250 of them',
+  },
+  {
+    id: 'kerb-face-unclamped', file: 'src/kerb.js',
+    find: '      t = t < 0 ? 0 : t > 1 ? 1 : t;\n      const cx = s.ax + dx * t, cz = s.az + dz * t;',
+    to: '      if (t < 0 || t > 1) continue;\n      const cx = s.ax + dx * t, cz = s.az + dz * t;',
+    why: 'the query blind at a corner return\'s vertices, which is where the probe that found #132 first went wrong: corner masts read as having no kerb',
+  },
+  {
+    id: 'kerb-sign-front', file: 'src/signage.js',
+    find: '    const kb = face.behind(sgn.x, sgn.z, SIGN_POST_R);',
+    to: '    const kb = { x: sgn.x, z: sgn.z, moved: 0, o: null };',
+    why: 'every stop, one-way and parking plate back in the parking lane, which kerb.js\'s header had called "a post in the ground"',
   },
   {
     id: 'lamp-face-off', file: 'src/carbody.js',

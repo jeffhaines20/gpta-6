@@ -42,7 +42,9 @@
 import fs from 'node:fs';
 import { Vehicle, BODY_RADIUS, BODY_SAMPLES } from '../src/vehicle.js';
 import { FlatGround } from '../src/ground.js';
-import { BlockerIndex } from '../src/blockers.js';
+import { BlockerIndex, CarBlockers } from '../src/blockers.js';
+import * as THREE from '../vendor/three.module.min.js';
+import { StreetFurniture } from '../src/streetfurniture.js';
 import { DamageModel } from '../src/damage.js';
 import { RoadGraph, followPath, minRadius, worstGap, cornerSpeed, RESPONSE } from '../src/roadpath.js';
 
@@ -82,6 +84,20 @@ const check = (name, ok, detail) => { checks.push({ name, ok: !!ok, detail }); r
 const district = JSON.parse(fs.readFileSync(new URL('../data/district.json', import.meta.url), 'utf8'));
 const route = district.meta.route;
 const blockers = new BlockerIndex(district);
+/**
+ * AND THE STREET FURNITURE THE PAGE STANDS, SOLID AS IT IS THERE (#126, #132). The page's car hits
+ * every lamp, mast, bollard, hydrant, utility pole and tree trunk, so a drive that does not is a
+ * drive of a different city — this file's own "a gate that constructs the subject itself has to
+ * construct it the way the game does". It is built by the module's own placement, lamps included,
+ * and it found the defect it is here for on its first run: a signal mast standing 3.0 m in front
+ * of a corner kerb, hit on every lap at 5.6 m/s, health 1.000 -> 0.572 over three circuits.
+ */
+const furniture = new StreetFurniture(new THREE.Scene(), { max: 1200 });
+furniture.placeStreetLamps(district);
+furniture.commit();
+furniture.dressDistrict(district, { audit: false });
+const carBlockers = new CarBlockers(blockers);
+carBlockers.setStatic(furniture.rigidSolids());
 
 console.log(`ROUTE DRIVE${NO_COLLISION ? ' (walls OFF)' : ''}`);
 console.log('='.repeat(78));
@@ -100,7 +116,7 @@ let voiceRate = { perMin: 0, burst: 0 };
     return r;
   };
 }
-if (!NO_COLLISION) { v.blockers = blockers; v.damage = damage; }
+if (!NO_COLLISION) { v.blockers = carBlockers; v.damage = damage; }
 const ground = new FlatGround(0);
 v.position.set(route[1].x, 0.55, route[1].z);
 
@@ -412,6 +428,12 @@ if (MODE === 'straight') {
   check('no gap in the course exceeds twice the spacing', wg.gap < 8, `${wg.gap.toFixed(2)} m`);
   check('the router excluded the impassable service edges',
     graph.stats.blockedEdges === 11, `${graph.stats.blockedEdges}`);
+  // #132: the follower keeps to the road, so it touches none of what stands beside it. Asserted
+  // as a count of contacts rather than as health, because a 1 m/s brush with a bollard is free
+  // and would pass a health check while being exactly the defect.
+  check('the street furniture is solid, and the drive touches none of it',
+    carBlockers.stats.statics > 2000 && carBlockers.stats.staticContacts === 0,
+    `${carBlockers.stats.staticContacts} contact steps against ${carBlockers.stats.statics} solids`);
 
   // --- the drive.
   console.log('\n  THE DRIVE:');

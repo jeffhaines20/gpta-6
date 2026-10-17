@@ -705,9 +705,15 @@ console.log('\n§3c A body stops at the street furniture');
   // does rather than a rounder one, so the two cannot drift.
   const BUILDING_MARGIN = 0.28;
   const fu = new StreetFurniture(new THREE.Scene(), { max: 1200 });
+  // The lamps as the page stands them (#132): they are on the pavement now, so they are in the
+  // crowd's obstacle list, and a crowd built without them is not the page's crowd.
+  fu.placeStreetLamps(district);
   fu.commit();
   fu.dressDistrict(district, { audit: true, shopFrontage: true });
   const props = fu.placed ?? [];
+  check('the obstacle list carries the street lamps the page stands',
+    props.filter((q) => q.kind === 'lamp').length === fu.count && fu.count > 400,
+    `${props.filter((q) => q.kind === 'lamp').length} lamp records of ${fu.count} posts`);
   const probe = crowd(48, 90);
   const n = probe.setProps(props);
   console.log(`    ${props.length} placements audited, ${n} solid enough to walk into`);

@@ -426,8 +426,9 @@ const SPAWN_TRIES = 6;                     // attempts per slot
 // clear the buildings on that side wins. THESE ARE FOR A STREET WITH NO KERB -- a service road, an
 // alley, a street under 5.5 m -- where the land pad runs up to the ribbon and the pavement starts
 // at half the baked width. They were written when that was true of every street: street lamps
-// stand at +1.4 (district/main.js), so 1.9 put peds behind the lamp line against the shopfronts
-// and 0.8 at the kerb edge. See KERB_INSETS for the streets where it stopped being true.
+// stand at +1.4 (src/streetfurniture.js placeStreetLamps; behind the kerb instead where there is
+// one, #132), so 1.9 put peds behind the lamp line against the shopfronts and 0.8 at the kerb
+// edge. See KERB_INSETS for the streets where it stopped being true.
 export const INSETS = [1.9, 1.45, 1.05, 0.8];
 /**
  * A KERBED STREET'S PAVEMENT STARTS 2.74 m OUT, AND FOR AS LONG AS THE KERB HAS EXISTED THE CROWD

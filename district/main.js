@@ -30,6 +30,7 @@ import {
   setSignageTime, spillMaterial, soffitMaterial, setSpillScale, setSoffitScale, spillScaleOf,
 } from '../src/signage.js';
 import { buildingStyle } from '../src/facades.js';
+import { KerbFace } from '../src/kerb.js';
 import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubScale,
   setTrafficLampAlbedo, setGlassAlbedo, setGlassEnv, glassEnv, setCarLensArm, setShellNames, shellNames,
   setCabinGain, cabinGain, setPlateText, plateText, setLampDetail, lampDetail,
@@ -69,7 +70,9 @@ const hud = document.getElementById('hud');
 hud.textContent = 'loading district…';
 
 const loading = new LoadingScreen({ title: 'SARASOTA' });
-let district, world, tod, post, sky, weather;
+// `kerbFace` with them, for the same reason: it is assigned inside a loading stage and read by
+// the furniture block after it (#132), and a later `let` would be a read out of the TDZ.
+let district, world, tod, post, sky, weather, kerbFace;
 let signageRoot = null, signageStats = null, hud2 = null;
 let hudEnabled = true;
 let loadReport = null;
@@ -147,7 +150,11 @@ await loading
     // which is what makes the four measurement arms one page load rather than
     // four.
     const _sq = new URLSearchParams(location.search);
+    // THE KERB EVERY PLACER STANDS BEHIND (#132), from the streamer's own plan, so it is the kerb
+    // that is drawn: the sign posts here and the lamps, masts and props below all ask it.
+    kerbFace = new KerbFace(district, { plan: world._kerbPlan() ?? undefined });
     const { buckets, street, spill, glow, stats } = districtSignageBuffers(district, {
+      kerbFace,
       spill: !_sq.has('nospill'),
       soffit: !_sq.has('nosoffit'),
       styleOf: (b) => world._capStyle(buildingStyle(b), b),
@@ -227,8 +234,9 @@ await loading
 // number actually placed is 543, and the two files now quote that. The
 // estimate was high because the loop places Math.floor(len / 26) lamps per
 // POLYLINE SEGMENT, and 1141 of the district's 1476 drivable segments are
-// shorter than 26 m and so get none - re-derive it with the loop below
-// against data/district.json rather than trusting either figure.
+// shorter than 26 m and so get none - re-derive it with placeStreetLamps
+// (src/streetfurniture.js) against data/district.json rather than trusting
+// either figure.
 //
 // Two blind night critics independently made "there is no street lighting" their
 // single highest-leverage note. Measured, they were right, and not in the way the
@@ -252,33 +260,14 @@ const furniture = new StreetFurniture(scene, { max: 1200 });
 let furnitureProps = null;
 const lightPool = new LightPool(scene, { size: 10, maxDistance: 130 });
 {
-  // Every drivable edge, not just the named ones, and no slice: an unnamed
-  // service street is still a street the player drives down at night.
-  const arterials = district.edges
-    .map((e, i) => ({ e, i }))
-    .filter(({ e }) => e.r <= 6);
-  let placed = 0;
-  for (const { e } of arterials) {
-    for (let k = 0; k < e.v.length - 1 && placed < 1100; k++) {
-      const a = district.verts[e.v[k]], b = district.verts[e.v[k + 1]];
-      const len = Math.hypot(b.x - a.x, b.z - a.z);
-      const n = Math.floor(len / 26);
-      for (let s = 1; s <= n && placed < 1100; s++) {
-        const f = s / (n + 1);
-        const x = a.x + (b.x - a.x) * f, z = a.z + (b.z - a.z) * f;
-        const side = s % 2 ? 1 : -1;
-        const nx = -(b.z - a.z) / len, nz = (b.x - a.x) / len;
-        const off = (e.w / 2 + 1.4) * side;
-        // Point the arm back over the roadway.
-        const yaw = Math.atan2(-nx * side, -nz * side);
-        const head = furniture.addLamp(x + nx * off, z + nz * off, yaw);
-        if (head) lightPool.addEmitter(head.x, head.y, head.z, 900, 0xffc98a, 46);
-        placed++;
-      }
-    }
-  }
+  // The placement loop lives in src/streetfurniture.js now (#132), so the furniture pass, the
+  // crowd and every offline gate stand the same posts this page does; it is the loop that was
+  // here, with each post moved behind the kerb src/kerb.js draws.
+  const lamps = furniture.placeStreetLamps(district, { kerbFace });
+  for (const head of lamps.heads) lightPool.addEmitter(head.x, head.y, head.z, 900, 0xffc98a, 46);
   furniture.commit();
-  console.log(`placed ${placed} street lamps (pool ${lightPool.size})`);
+  console.log(`placed ${lamps.placed} street lamps, ${lamps.behind} moved behind the kerb, `
+    + `${lamps.refused} with no room there (pool ${lightPool.size})`);
 
   // ---- everything else on the street.
   //
@@ -325,6 +314,7 @@ const lightPool = new LightPool(scene, { size: 10, maxDistance: 130 });
    */
   furniture.dressDistrict(district, {
     audit: true,
+    kerbFace,
     shopFrontage: !_q.has('nofrontage'),
     ...(_q.has('shadowreach') ? { shadowReach: Number(_q.get('shadowreach')) } : {}),
   });

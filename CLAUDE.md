@@ -1204,6 +1204,41 @@ been pushed.** A count of events and a bound on each one says nothing about a su
 state for ever; the quantity was the unbroken RUN per subject, and it is gated now. This is "a frame
 counter is not an event counter" from the other side: count the episodes, and time them.
 
+### And what WAS placed was not moved either, for as long as nothing could hit it
+
+#121 was the crowd, which is simulated. #132 is the furniture, which is placed, and was in the list
+`src/kerb.js` says it was pinned against: "every lamp, bin, bench, planter and signal still stands
+on the flat pad". True of the furniture's kerb ROW, which stands on STATION_LINE and moved with the
+kerb. False of everything placed by its own offset from a centreline — measured against the drawn
+face, 472 of 543 lamps at -1.10 m, 199 of 237 signal masts, 84 utility poles, every sign post and
+about 250 corner props, all in the road. The header had even noted the sign posts were now in its
+parking lane and filed them as "a post in the ground".
+
+**It was found by making the furniture solid**, not by looking: the route follower hit a mast 3 m in
+front of a corner kerb on every lap. A prop nothing can collide with is a prop nothing measures, so
+**the first collider you give a class of object is the first census of where that class stands** —
+run the census before the collider, not after it finds the answer for you.
+
+Three things the fix got wrong on the way, each found by the gate rather than by looking, and each a
+general shape:
+
+- **A radius is not a footprint.** A square footing reaches its half-width along a normal it is
+  square to and its corner (x1.41) along one at 45 degrees. The half-width left 64 corner footings
+  on a kerb's chamfer; the corner refused 23 masts on medians that hold them squarely. Neither
+  number describes a turned square, so the footprint is its points.
+- **A centre is not a footprint either.** Pushed clear of face A, a footing's corner stood 0.18 m in
+  front of face B. Each point has to answer to the face nearest IT.
+- **A picked reach is a classifier, and it fails silently.** "No kerb within 4 m" was a number I
+  chose; a mast 4.08 m in front of a corner return, on asphalt, read as having no kerb at all. The
+  geometry gives the bound: a perpendicular corner's apron runs (2.5 + 4.5) x 1.41 - 4.5 = 5.4 m.
+  And **a box in world axes cannot measure a turned footing**: it reads a square at 45 degrees as
+  1.41x itself in every direction, so the gate asks the module for the emitted points.
+
+And `git checkout -- src/kerb.js`, to undo an experiment, reverted the whole uncommitted `KerbFace`
+with it — this file's "`git checkout -- file` on an UNCOMMITTED file reverts your own work", again,
+by the person who had read it that morning. Restored from the session; **a `git diff > patch` in the
+scratchpad before any experiment on an uncommitted file** costs one command.
+
 ## The geometry LEADING INTO a point is what caused the error there, not the geometry AT it
 
 #104 ruled out the crowd, the contact test and the router and left "it is `followPath` leaving its
@@ -3029,8 +3064,10 @@ only gate that compiles a lit material's shader and reads what the composite doe
 `shadow-stable` and `shadow-stable --selftest` (the sun's shadow box, offline, 0.05 s),
 `car-detail` and `car-detail --selftest` (a purpose-built car page from behind, about 3 s),
 `bloom-lit` and `bloom-lit --selftest` (five panels through the real PostStack's bright pass, 2.0 s),
-`bloom-source --selftest` (the bright pass's arithmetic, offline).
-The offline ones together take **127 s**, measured end to end rather than guessed — this line
+`bloom-source --selftest` (the bright pass's arithmetic, offline),
+`kerb-stand` and `kerb-stand --selftest` (#132: every lamp, mast, utility pole, sign post and
+pavement prop against the kerb face the streamer draws, 3.7 s).
+The offline ones together take **132 s**, measured end to end rather than guessed — this line
 said "under a minute" for several rounds and three gates now account for 60% of it:
 `pursuit-test` 24.1 s, `traffic-selftest` 23.6, `reaction-test` 23.3, then `playtest --selftest`
 12.3, `shunt-rate --selftest` 11.2, `check-syntax` 7.2 and twenty-odd others under 4 s each.

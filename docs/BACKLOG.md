@@ -4251,6 +4251,37 @@ draws the 45 px disc (a halo sprite would carry no #114 tag and count as untagge
   (corridor right trunk, about 1430-1600 x 0-700), blocky pedestrians — the same as #124's.
 None measured beyond the reviewer's own pixel reads.
 
+### #126 PART 2 FIXED — the rigid street furniture is solid to the car, and making it so found #132
+Every lamp pole, signal mast, bollard, hydrant, utility pole and tree trunk is a static circle in
+`CarBlockers` (`setStatic`, a grid of 8 m cells): 2,728 on the page after #132, set once at load
+because none of it moves. A contact out of one is filed `prop`, beside `parked` and `wall`, all three
+property damage, so no charge moves. They ghost and settle by the parked boxes' rule, so a car PUT on
+a bollard by a respawn is not thrown off it. The knock-aside props — bins, newsboxes, cafe chairs —
+are not in it: they want per-prop state.
+
+**The collider is the cross-section a car hits, measured by slicing.** A palm's audit footprint is
+its 0.46 m mulch pit, flush with the pavement; the car meets the trunk. So each circle is the extent
+of every triangle edge that crosses 0.6 m above the prop's own lowest vertex. The first version kept
+the vertices inside a band and found 3 of 325 trees and no signals or utility poles at all: a pole is
+a ruled surface with vertices only at its ends — CLAUDE.md's "measure coverage of emitted geometry by
+connectivity, not by vertex proximity", arriving as a collider.
+
+    a real Vehicle into a lamp pole at 30 km/h       stops 13.40 m short, health 0.386, filed `prop`
+      KNOWN-BAD, no statics                           42.8 m, untouched
+    boot-check: the page's CarBlockers holds every solid the page built, and a body circle on a
+      lamp pole is pushed clear and named a prop
+
+**And the original entry's "it does not reach the budget drive" was true of the COURSE and not of the
+DRIVE.** It censused the planned points — 0 within a body of a lamp pole — and the follower cuts
+corners: on every lap it hit a signal mast at (-148.6, -418.8), 2.96 m from the nearest course point,
+at 5.6 m/s, health 1.000 -> 0.572 over three circuits. The mast stood 3.0 m in front of the drawn
+corner kerb, in the road. That is #132, and with it fixed `route-drive` — which now drives among the
+page's furniture, built by the module's own placement — reads 3 of 3 circuits, 88 contacts, all
+walls, health 1.000: byte-identical to the drive with no furniture at all.
+
+Gates: `blocker-test` 99 -> 128, `route-drive`'s "touches none of it", `boot-check`'s two wire checks,
+and `mutation-sweep`'s `static-off` and `static-ghost`, both caught by blocker-test.
+
 ### #126 PART 1 FIXED — parked cars are solid to the car and to the player on foot; poles, trees and bollards are still not
 **What shipped.** `src/blockers.js` `CarBlockers` wraps the building index and adds ORIENTED BOXES,
 answering the same two questions src/vehicle.js asks (`anyNear`, `resolveCircle`, same return
@@ -4496,6 +4527,69 @@ trapped cars sit at five places, two of them twice — (−86, −111) and (−6
 handful of junctions rather than a rate. The lever is a turn cost, which needs an edge-based
 search (the cost of leaving a vertex depends on how it was entered); not tried.
 
+
+### #132 FIXED — the lamps, the signal masts, the utility poles and the street signs stood in front of the kerb
+Found by #126 part 2's first drive among solid furniture: the route follower hit a signal mast on
+every lap, and the mast was 3.0 m in front of the corner kerb it should have stood behind. Censused
+against the face the streamer draws (`planKerbs`, the face at `panOuter` past each run's anchor):
+
+    lamp posts       472 of 543 in front of the face, every one at -1.10 m: district/main.js's w/2 + 1.4
+    signal masts     199 of 237: 108 at -1.15 (w/2 + 1.35), the rest up to 3.8 m out in a junction
+    utility poles     84 of 140 at -1.00 (w/2 + 1.5), on the r = 5 streets that are kerbed
+    sign posts       every stop, one-way and parking plate (w/2 + 1.1, 1.3) and the corner blades
+    pavement props   about 250 — bollards, meters, bins, trees — at corners and run ends
+
+`src/kerb.js` widened every kerbed street by 2.74 m and its header said "every lamp, bin, bench,
+planter and signal still stands on the flat pad". That was true of the furniture's kerb ROW, which
+stands on STATION_LINE and was moved with the kerb, and of nothing placed anywhere else; the same
+header noted that the sign posts now stood in its parking lane and called them "a post in the
+ground". Nothing could fail on it, because nothing collided with a lamp — CLAUDE.md's "a surface that
+moves takes everything positioned against it", the crowd's lesson in #121, for the furniture.
+
+**The fix is one question asked of the drawn kerb**, `KerbFace` in src/kerb.js: how far a point is
+behind the face nearest it, and a footprint's points moved out until each clears the back chamfer of
+the face nearest IT. Every placer asks it: the lamps (their loop moved out of district/main.js into
+`placeStreetLamps`, so the dress pass, the crowd and every offline gate stand the page's posts), the
+masts (their arm grows by however far the mast moved off its own carriageway, so the heads hang where
+they did), the utility poles and their spans, the four kinds of sign post, and a guard in the dress
+pass's `emit` that refuses any other prop whose emitted footprint centres in front of the face. The
+host builds the face ONCE, from the streamer's own plan, so what every placer measures is the kerb on
+screen.
+
+    lamps          543 -> 509   441 moved behind the kerb, 34 with no room (a building, or two faces)
+    signal masts   237 -> 233
+    utility poles  140 -> 140   and their spans 46 -> 49
+    sign posts     523 moved, 15 with no room (blades 114 -> 110, stops 111 -> 109, parking 260 -> 256)
+    props          8,214 -> 7,889; the guard refused 249 standing in the road
+    prop triangles 327,414 -> 312,707, district-wide (resident share ~40%, x1.28: under 8k of gate units)
+    parking slots  2,280 -> 2,568: the "lampClearance < 3.2" rule existed because the lamp line ran
+                   through the parking lane; it is a body-overlap test now, which no post behind a
+                   kerb can fail
+    rigid solids   2,896 -> 2,728
+
+**Three wrong versions of the footprint, each found by the gate.** A radius of the footing's
+half-width left 64 corner masts' footing corners on the back chamfer, because a footing is square to
+its approach and not to a corner return. Its corner radius (x1.41) refused the 23 masts on divided
+roads' medians, where two faces 1.21 m apart hold a footing turned square to both with 0.065 m to
+spare. And a centre pushed clear of face A stood its corner 0.18 m in front of face B. So a footprint
+is POINTS, each against the face nearest it (`behindPoints`; a round post is its rim). And the
+query's reach was 4 m, picked: a mast 4.08 m in front of a corner return, on the asphalt the return
+rounds off, read as having no kerb at all. A perpendicular corner's apron runs 5.4 m out; it is 8.
+
+**Gate: `tools/kerb-stand.mjs`** (9 checks, 1 s, selftest 5): every lamp, mast, utility pole and sign
+post with its whole footprint behind the back chamfer — a footing measured by its own emitted points
+(`auditFoot`), because a world-axis box reads a square at 45 degrees as 1.41x itself — and every
+other prop with its centre behind the face. Its classifier is its own, not `KerbFace`, which is the
+placers'; the selftest pins it on synthetic faces, including the corner-vertex case an unclamped
+projection gets wrong, and its KNOWN-BAD replays the old lamp line from the recorded expression: 475
+of 477 kerbed posts in front. `mutation-sweep` has eight rows, one per placer, the guard and the query.
+reaction-test's crowd now walks round the lamps (183 checks), and route-drive drives among them.
+
+**Not done:** the 206 gullies sit 0.34 m inside the travelled way, placed against the old ribbon-edge
+kerb, where the gutter they drain is 2.0-2.5 m further out. Moving them into the pan needs the pan's
+13% fall under a flat grate, so it is recorded here rather than widened into this change. And a lamp's
+head moved out with its post, over the parking lane rather than the travelled way — a change to the
+night street that only a capture can judge.
 
 ### #133 OPEN — the player car's wing mirror shows its glass to a camera beside the car
 From the driver's re-review (cabin v3.1), both arms: side-on at 11 m, noon, the door mirror at

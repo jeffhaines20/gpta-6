@@ -65,14 +65,20 @@
 //                    A continuously falling lane (the shape a crowned street
 //                    really has) was measured at +-52 mm across the same car and
 //                    rejected for it: the car body is rigid.
-//   s = 1.10, 1.30   signage.js stands parking plates, one-way plates and stop
+//   s = 1.10, 1.30   signage.js stood parking plates, one-way plates and stop
 //                    signs here, with their bases on the pad at -0.050. The lane
 //                    at -0.040 SINKS them 10 mm. geom-audit only fails floats,
-//                    and a post sunk 10 mm is a post in the ground.
+//                    and a post sunk 10 mm is a post in the ground. -- WRONG
+//                    QUESTION: a post at 1.10 is a post in the PARKING LANE, and
+//                    they stand behind the kerb now (#132, KerbFace below).
 //   s <= 2.74        the whole assembly stops 0.11 m short of
 //                    streetfurniture.js's kerb station line at w/2 + 2.85, so
 //                    every lamp, bin, bench, planter and signal still stands on
-//                    the flat pad.
+//                    the flat pad. -- TRUE OF THE KERB ROW AND OF NOTHING ELSE,
+//                    and nothing checked it: the lamps stood at w/2 + 1.4 (a
+//                    loop in district/main.js), the masts at w/2 + 1.35 and the
+//                    utility poles at w/2 + 1.5, all in this section's parking
+//                    lane. See KerbFace, and tools/kerb-stand.mjs, which counts.
 //
 // Measured over the district: 96.2% of sampled kerb stations have at least
 // 2.85 m between the road edge and the nearest building footprint (p5 = 3.46 m),
@@ -805,4 +811,151 @@ export function runCost(run) {
     nearKerb: segs * KERB_CONCRETE.length * 2,
     far: segs * 2 + fan,
   };
+}
+
+// ------------------------------------------------------------- the face, as a query
+//
+// WHERE A THING STANDS AGAINST THE KERB THE PLAYER SEES (#132). This section widened every kerbed
+// street out to 2.74 m past the ribbon edge, and its header says "every lamp, bin, bench, planter
+// and signal still stands on the flat pad". That was true of the furniture's KERB ROW at
+// STATION_LINE and of nothing placed anywhere else. Measured against the drawn face:
+//
+//     lamp poles        472 of 543 in front of it, every one at -1.10 m: district/main.js's w/2 + 1.4
+//     signal masts      199 of 237, 108 of them at -1.15 (w/2 + 1.35) and the rest up to 3.8 m
+//                       out in a junction's corner, in front of the corner return
+//     utility poles      84 of 140, at -1.00: w/2 + 1.5
+//     and about 250 pavement props, bins, meters, bollards, trees, at corners and run ends
+//
+// So the lamps stood in the parking lane and the masts in the road, against the surface this
+// module replaced. Nothing noticed, because nothing collided with them, until #126 made the
+// furniture solid and the route follower hit a mast 3 m in front of a corner kerb on every lap.
+//
+// The answer is one question every placer asks of the SAME geometry the streamer draws, rather
+// than each module carrying its own offset from the centreline: `at(x, z)` is how far a point is
+// BEHIND the face (negative in front of it) and which way is outboard, measured to the nearest
+// face segment of `planKerbs` — straight runs and corner returns alike, which a lateral offset
+// from a centreline cannot see. `behindPoints(x, z, pts)` moves a footprint back until every point
+// of it clears the kerb's back chamfer, each against the face nearest IT. Past FACE_REACH there is
+// no kerb to stand behind, and a point there is left alone: a service road's pavement starts at its
+// ribbon edge.
+//
+// FACE_REACH IS 8 m BECAUSE A JUNCTION'S CORNER IS DEEP. It was 4, picked, and a mast stood 4.08 m
+// in front of a corner return — 1.35 m outside both carriageway ribbons, on the asphalt the return
+// rounds off — where neither the query nor the guard saw a kerb at all. A perpendicular corner's
+// apron reaches 5.4 m in front of its return ((2.5 + 4.5) x 1.41 - 4.5), and an acute one further.
+
+/** From the face to the toe of the back chamfer: where a footprint stops overlapping the kerb. */
+export const KERB_BACK = KERB.backOuter - KERB.panOuter;
+const FACE_CELL = 8;
+const FACE_REACH = 8;
+
+export class KerbFace {
+  /**
+   * @param {object} d parsed data/district.json
+   * @param {{plan?:object}} opts `plan` reuses a planKerbs() result; otherwise it is planned here,
+   *   with the streamer's own options, so the face is the one that is drawn.
+   */
+  constructor(d, opts = {}) {
+    const plan = opts.plan ?? planKerbs(d);
+    this.segs = [];
+    this.grid = new Map();
+    const face = (s) => [s.ax + s.nx * K.panOuter, s.az + s.nz * K.panOuter];
+    const add = (run) => {
+      for (let i = 1; i < run.length; i++) {
+        const a = run[i - 1], b = run[i];
+        const [ax, az] = face(a), [bx, bz] = face(b);
+        if (Math.hypot(bx - ax, bz - az) < 1e-6) continue;
+        const s = { ax, az, bx, bz, anx: a.nx, anz: a.nz, bnx: b.nx, bnz: b.nz };
+        const k = this.segs.length;
+        this.segs.push(s);
+        const i0 = Math.floor((Math.min(ax, bx) - FACE_REACH) / FACE_CELL);
+        const i1 = Math.floor((Math.max(ax, bx) + FACE_REACH) / FACE_CELL);
+        const j0 = Math.floor((Math.min(az, bz) - FACE_REACH) / FACE_CELL);
+        const j1 = Math.floor((Math.max(az, bz) + FACE_REACH) / FACE_CELL);
+        for (let ci = i0; ci <= i1; ci++) {
+          for (let cj = j0; cj <= j1; cj++) {
+            const key = `${ci},${cj}`;
+            let l = this.grid.get(key);
+            if (!l) this.grid.set(key, (l = []));
+            l.push(k);
+          }
+        }
+      }
+    };
+    for (const er of plan.edgeRuns) if (er) for (const side of er) for (const piece of side) add(piece);
+    for (const [, runs] of plan.vertexRuns) for (const run of runs) add(run);
+  }
+
+  /**
+   * The nearest face segment within FACE_REACH: `{ o, d, nx, nz }`, `o` in metres BEHIND the face
+   * (negative in front of it, in the road), `d` the distance to it, (nx, nz) outboard. Null where
+   * there is no kerb. The projection is CLAMPED to the segment: a corner return is a polyline, and
+   * a point nearest one of its vertices projects outside both segments that meet there.
+   */
+  at(x, z) {
+    const list = this.grid.get(`${Math.floor(x / FACE_CELL)},${Math.floor(z / FACE_CELL)}`);
+    if (!list) return null;
+    let best = null;
+    for (const k of list) {
+      const s = this.segs[k];
+      const dx = s.bx - s.ax, dz = s.bz - s.az;
+      let t = ((x - s.ax) * dx + (z - s.az) * dz) / (dx * dx + dz * dz);
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const cx = s.ax + dx * t, cz = s.az + dz * t;
+      const d = Math.hypot(x - cx, z - cz);
+      if (d > FACE_REACH || (best && d >= best.d)) continue;
+      let nx = s.anx + (s.bnx - s.anx) * t, nz = s.anz + (s.bnz - s.anz) * t;
+      const nl = Math.hypot(nx, nz) || 1;
+      nx /= nl; nz /= nl;
+      best = { o: (x - cx) * nx + (z - cz) * nz, d, nx, nz };
+    }
+    return best;
+  }
+
+  /**
+   * A footprint given as POINTS around (x, z), moved out until every point clears the back chamfer
+   * of the face nearest THAT point: `{ x, z, moved, worst }`, `worst` the smallest clearance past
+   * the chamfer's toe over the points (negative: still on the kerb or in front of it), MEASURED where
+   * it ended. Points rather than a radius, because a footing near a corner return clears face A with
+   * its centre and stands 0.18 m in front of face B with its corner; and a square footing reaches
+   * its half-width along a normal it is square to and its corner along one at 45 degrees, so a median
+   * between two faces 1.21 m apart holds one turned square to both and no radius describes it.
+   * Each pass pushes along the worst point's own normal; between two faces that send it in front of
+   * each other there is no answer, the worst stays negative, and the caller refuses.
+   */
+  behindPoints(x, z, pts) {
+    let px = x, pz = z;
+    const worstAt = () => {
+      let w = null;
+      for (const [dx, dz] of pts) {
+        const k = this.at(px + dx, pz + dz);
+        if (k && (!w || k.o < w.o)) w = k;
+      }
+      return w;
+    };
+    for (let it = 0; it < 8; it++) {
+      const w = worstAt();
+      if (!w || w.o >= KERB_BACK - 1e-9) break;
+      px += w.nx * (KERB_BACK - w.o); pz += w.nz * (KERB_BACK - w.o);
+    }
+    const w = worstAt();
+    return { x: px, z: pz, moved: Math.hypot(px - x, pz - z), worst: w ? w.o - KERB_BACK : null };
+  }
+
+  /** A round footprint of radius r: its centre and eight points on its rim. */
+  behind(x, z, r) { return this.behindPoints(x, z, ringOf(r)); }
+}
+
+/** Eight points on a circle of radius r, and its centre, as offsets: a round footprint for behindPoints. */
+export function ringOf(r) {
+  const out = [[0, 0]];
+  for (let k = 0; k < 8; k++) out.push([r * Math.cos(k * Math.PI / 4), r * Math.sin(k * Math.PI / 4)]);
+  return out;
+}
+
+/** A square footing of half-width h turned to the axes (ux, uz) and (vx, vz): a 3 x 3 grid of it. */
+export function squareOf(h, ux, uz, vx, vz) {
+  const out = [];
+  for (const a of [-h, 0, h]) for (const b of [-h, 0, h]) out.push([a * ux + b * vx, a * uz + b * vz]);
+  return out;
 }

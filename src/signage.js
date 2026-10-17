@@ -34,6 +34,7 @@
 // from data/district.json, which tools/bake/fictionalize.mjs already replaced.
 
 import * as THREE from '../vendor/three.module.min.js';
+import { KerbFace } from './kerb.js';
 import {
   hash32, rng, seedOf, edgesOf, facingEdges, TRIM, box, awningFrame,
   AWNING_SEGS, awningProfile, lotPlanFor,
@@ -2902,8 +2903,51 @@ export function planStreetSignage(district, opts = {}) {
       acc = Math.max(0, t - len);
     }
   }
-  return { blades, stops, oneWays, parking };
+
+  /**
+   * BEHIND THE KERB (#132). Every offset above was written when the kerb was the ribbon edge:
+   * src/kerb.js moved the face 2.5 m out and said in its own header that these posts would stand
+   * in its parking lane, "sunk 10 mm ... a post in the ground". They stood in the road, then — in
+   * the lane cars park in, and the corner blades in front of the corner return. Each post is moved
+   * behind the face the streamer draws, by the same query the furniture uses, and a post with no
+   * room there (a building at the kerb, or a refuge too narrow for a footing) is not placed.
+   */
+  const face = opts.kerbFace ?? new KerbFace(district);
+  const rings = (district.buildings ?? []).map((b) => {
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const [x, z] of b.p) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+    return { ring: b.p, x0, x1, z0, z1 };
+  });
+  const inside = (x, z, r) => rings.some(({ ring, x0, x1, z0, z1 }) => {
+    if (x < x0 - r || x > x1 + r || z < z0 - r || z > z1 + r) return false;
+    let inR = false, near = Infinity;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, zi] = ring[i], [xj, zj] = ring[j];
+      if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inR = !inR;
+      const vx = xj - xi, vz = zj - zi, l2 = vx * vx + vz * vz;
+      const t = l2 ? Math.max(0, Math.min(1, ((x - xi) * vx + (z - zi) * vz) / l2)) : 0;
+      near = Math.min(near, Math.hypot(x - xi - vx * t, z - zi - vz * t));
+    }
+    return inR || near < r;
+  });
+  const kerb = { moved: 0, refused: 0 };
+  const settle = (list) => list.filter((sgn) => {
+    const kb = face.behind(sgn.x, sgn.z, SIGN_POST_R);
+    if (!(kb.moved > 0)) return true;
+    if (kb.worst < -0.01 || inside(kb.x, kb.z, SIGN_POST_R)) {
+      kerb.refused++;
+      return false;
+    }
+    sgn.x = kb.x; sgn.z = kb.z;
+    kerb.moved++;
+    return true;
+  });
+  return { blades: settle(blades), stops: settle(stops), oneWays: settle(oneWays),
+    parking: settle(parking), kerb };
 }
+
+/** A sign post's footprint: the blade assembly's 0.085 m half-width post, to its corner. */
+const SIGN_POST_R = 0.12;
 
 /**
  * Every sign in the district, bucketed into a handful of spatial cells.

@@ -63,7 +63,7 @@ import { buildingStyle } from './facades.js';
 import { signPlanFor } from './signage.js';
 import { streetDirFor } from './geom.js';
 import { paintFamily, paintTone, ACHROMATIC_SHARE } from './carpaint.js';
-import { STATION_LINE } from './kerb.js';
+import { STATION_LINE, KerbFace, squareOf } from './kerb.js';
 
 /**
  * The lightness a CHROMATIC parked car is drawn at, as a module constant so a gate can read it.
@@ -3191,6 +3191,22 @@ const RIGID_KINDS = new Set(['bollard', 'tree', 'signal', 'hydrant', 'utilityPol
 const RIGID_SLICE = 0.6;
 const RIGID_MAX_R = 1.0;
 const LAMP_POLE_R = 0.155;
+/**
+ * #132: the footprints the three pole-like placers move behind the drawn kerb (src/kerb.js
+ * KerbFace). A lamp's is its pole, above; a utility pole's the base of its 0.19 m prism; a signal's
+ * is its 0.6 m square footing (`_signalMast`), whose reach toward a face depends on how it is turned
+ * to it — its half-width along a normal it is square to, its corner (x1.41) along one at 45 degrees.
+ * Both wrong answers were tried: the half-width left 64 footings' corners on a corner return's back
+ * chamfer, and the corner refused the 23 masts on divided roads' medians, where two faces 1.21 m
+ * apart hold a footing square to both with 0.065 m to spare.
+ */
+const SIGNAL_FOOT_HALF = 0.3;
+const UTILITY_POLE_R = 0.19;
+/**
+ * And the kinds that legitimately stand IN FRONT of the face, which the dress pass's guard leaves
+ * alone: a gully and a manhole are castings in the road, a span is a wire overhead.
+ */
+const IN_ROAD_KINDS = new Set(['gully', 'manhole', 'span']);
 
 /**
  * Uniform grid over line segments and polygons. Everything in this file needs
@@ -3398,6 +3414,74 @@ export class StreetFurniture {
     return { x: x + Math.cos(yaw) * 2.2, y: 7.7, z: z - Math.sin(yaw) * 2.2 };
   }
 
+  /**
+   * The geometry every placer asks about — the district, the road and building indices, and the
+   * kerb face (#132) — built once, whichever of placeStreetLamps and dressDistrict runs first.
+   */
+  _prepare(district, face) {
+    if (this.d === district && this.kerbFace) return;
+    this.d = district;
+    this._buildIndices();
+    // The host hands over the face it built from the streamer's plan, so every placer on the page
+    // measures against the kerb that is drawn; a tool that does not gets the same plan made here.
+    this.kerbFace = face ?? new KerbFace(district);
+  }
+
+  /**
+   * THE STREET LAMPS, which district/main.js used to place with its own loop (#132). That loop is
+   * here now, verbatim but for one thing, so the dress pass, the crowd and every offline gate
+   * stand the same posts the page does: reaction-test's crowd had never met a lamp, because the
+   * furniture it built had none.
+   *
+   * The one thing: on a kerbed street the post stood at w/2 + 1.4, which src/kerb.js turned into
+   * the middle of the parking lane, 1.10 m in front of the kerb face, on 472 of the 543 posts. It
+   * stands behind the kerb now, measured against the face the streamer draws (`KerbFace.behind`),
+   * with its base clear of the back chamfer. The arm is the same 2.2 m, so the head moves out with
+   * the post and hangs over the parking lane rather than the travelled way. A post that would have
+   * to stand in a building to clear the kerb is not placed: a lamp in the road is the defect.
+   *
+   * Returns the heads, for the host's LightPool, and what the move did.
+   */
+  placeStreetLamps(district, opts = {}) {
+    this._prepare(district, opts.kerbFace);
+    const out = { heads: [], placed: 0, behind: 0, refused: 0 };
+    // Every drivable edge, not just the named ones, and no slice: an unnamed service street is
+    // still a street the player drives down at night. See district/main.js for the history of the
+    // count (233 lamps lit nothing; this is one every 26 m of centreline, alternating sides).
+    for (const e of district.edges) {
+      if (e.r > 6) continue;
+      for (let k = 0; k < e.v.length - 1 && out.placed < 1100; k++) {
+        const a = district.verts[e.v[k]], b = district.verts[e.v[k + 1]];
+        const len = Math.hypot(b.x - a.x, b.z - a.z);
+        const n = Math.floor(len / 26);
+        for (let s = 1; s <= n && out.placed < 1100; s++) {
+          const f = s / (n + 1);
+          const x = a.x + (b.x - a.x) * f, z = a.z + (b.z - a.z) * f;
+          const side = s % 2 ? 1 : -1;
+          const nx = -(b.z - a.z) / len, nz = (b.x - a.x) / len;
+          const off = (e.w / 2 + 1.4) * side;
+          // Point the arm back over the roadway.
+          const yaw = Math.atan2(-nx * side, -nz * side);
+          const kb = this.kerbFace.behind(x + nx * off, z + nz * off, LAMP_POLE_R);
+          if (kb.moved > 0) {
+            // No room: the post would stand in a building, or between two faces that each push it
+            // in front of the other (a refuge too narrow for a footing) — measured where it ended.
+            if (this.buildingClearance(kb.x, kb.z) < LAMP_POLE_R || kb.worst < -0.01) {
+              out.refused++;
+              continue;
+            }
+            out.behind++;
+          }
+          const head = this.addLamp(kb.x, kb.z, yaw);
+          if (head) out.heads.push(head);
+          out.placed++;
+        }
+      }
+    }
+    this.lampPlan = { placed: out.placed, behind: out.behind, refused: out.refused };
+    return out;
+  }
+
   commit() {
     for (const m of [this.poles, this.arms, this.heads]) m.instanceMatrix.needsUpdate = true;
   }
@@ -3414,7 +3498,7 @@ export class StreetFurniture {
    */
   dressDistrict(district, opts = {}) {
     const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
-    this.d = district;
+    this._prepare(district, opts.kerbFace);
     // The census is indexed by arc length along the hero route, so the tree
     // species and the tree DENSITY both need the route before anything is
     // placed. Handed over here rather than read from a module-level import, so
@@ -3448,7 +3532,6 @@ export class StreetFurniture {
       if (!b) t.bufs.set(k, (b = newBuf()));
       return b;
     };
-    this._buildIndices();
 
     // Emission wrapper that MEASURES the floating-prop class rather than
     // asserting it away. Every ground-standing prop declares the surface it
@@ -3457,9 +3540,30 @@ export class StreetFurniture {
     // district against the road graph and the baked footprints. Off by default —
     // it is 7,000 entries of pure verification ballast — and on for tooling.
     this.placed = opts.audit ? [] : null;
+    // The lamps stand on the pavement now (#132), so the crowd has to be able to walk round them:
+    // `placed` is the list district/main.js hands the crowd as its obstacles, and lamps were never
+    // in it because they stood in the parking lane, where nobody walks.
+    if (this.placed) {
+      for (const L of this._lampSolids ?? []) {
+        this.placed.push({ kind: 'lamp', x: L.x, z: L.z, rx: L.r, rz: L.r, lowY: BASE_Y, hostY: PAD_Y });
+      }
+    }
     // The rigid furniture a car stops against (#126 part 2), recorded whatever `audit` says because
     // the page needs it: see RIGID_KINDS and `rigidSolids()`.
     this.rigid = [];
+    /**
+     * #132: NOTHING THAT STANDS ON THE PAVEMENT STANDS IN FRONT OF THE KERB THE PLAYER SEES. Every
+     * pass below places against the road graph — a station along a centreline, an offset from a
+     * ribbon edge — and src/kerb.js moved the pavement 2.5 m further out than every one of those
+     * offsets was written for. The row passes were moved with it (STATION_LINE); what was left in
+     * the road was the props whose station falls where a straight row meets a corner return or a
+     * run's end: 51 bollards, 46 meters, 22 trees, 18 news boxes, 16 shop pots, 15 bins and ~60
+     * others, every one centred in the gutter, the parking lane or the junction. They are refused
+     * here, by the face the streamer draws, and counted by kind. The signal masts and utility poles
+     * stood in front of the face BY CONSTRUCTION, so their placers move them instead (see
+     * SIGNAL_FOOT_HALF); a gully, a manhole and a span belong in the road.
+     */
+    this.kerbRefused = {};
     // Where a prop already stands. The frontage row runs LAST and 0.7-2.2 m off
     // the building line, which is close enough to the _dressWalls frontage row
     // at 2.0 m to interpenetrate it; without this a bistro chair and a bench
@@ -3473,6 +3577,29 @@ export class StreetFurniture {
       const ri0 = buf.idx.length;
       fn(buf);
       if (buf.pos.length === v0) return false;
+      if (!IN_ROAD_KINDS.has(kind)) {
+        // The test is on the FOOTPRINT THAT WAS EMITTED — the plan extent of the vertices within
+        // 0.25 m of the lowest, the same record the audit keeps — not on the anchor the pass was
+        // called with: a tree's anchor sat behind the face while its pit straddled it by 0.1 m, and
+        // a gate reading the footprint found it. Refused means rolled back, every attribute.
+        let lo = Infinity;
+        for (let i = v0 + 1; i < buf.pos.length; i += 3) if (buf.pos[i] < lo) lo = buf.pos[i];
+        let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+        for (let i = v0; i < buf.pos.length; i += 3) {
+          if (buf.pos[i + 1] > lo + 0.25) continue;
+          const x = buf.pos[i], z = buf.pos[i + 2];
+          if (x < x0) x0 = x; if (x > x1) x1 = x;
+          if (z < z0) z0 = z; if (z > z1) z1 = z;
+        }
+        const k = this.kerbFace.at((x0 + x1) / 2, (z0 + z1) / 2);
+        if (k && k.o < 0) {
+          buf.pos.length = buf.nrm.length = buf.col.length = v0;
+          buf.uv.length = (v0 / 3) * 2;
+          buf.idx.length = ri0;
+          this.kerbRefused[kind] = (this.kerbRefused[kind] ?? 0) + 1;
+          return false;
+        }
+      }
       if (RIGID_KINDS.has(kind)) {
         /**
          * THE SHAPE A CAR HITS, NOT THE FOOTPRINT, AND MEASURED BY SLICING, NOT BY VERTICES. The
@@ -3523,9 +3650,22 @@ export class StreetFurniture {
           if (x < x0) x0 = x; if (x > x1) x1 = x;
           if (z < z0) z0 = z; if (z > z1) z1 = z;
         }
-        this.placed.push({ kind, x: (x0 + x1) / 2, z: (z0 + z1) / 2,
+        const rec = { kind, x: (x0 + x1) / 2, z: (z0 + z1) / 2,
           rx: (x1 - x0) / 2, rz: (z1 - z0) / 2, lowY: lo, hostY,
-          wind: windingOf(buf, i0) });
+          wind: windingOf(buf, i0) };
+        // `auditFoot`: the footprint's own points, for a gate that has to ask where a TURNED footing
+        // reaches (tools/kerb-stand.mjs). A box in world axes cannot: a square footing at 45 degrees
+        // has a box 1.41x wider than itself in every direction. Off on the page, which needs none.
+        if (opts.auditFoot) {
+          const pts = new Map();
+          for (let i = v0 / 3; i < buf.pos.length / 3; i++) {
+            if (buf.pos[i * 3 + 1] > lo + 0.25) continue;
+            const px = buf.pos[i * 3], pz = buf.pos[i * 3 + 2];
+            pts.set(`${Math.round(px * 1000)},${Math.round(pz * 1000)}`, [px, pz]);
+          }
+          rec.foot = [...pts.values()];
+        }
+        this.placed.push(rec);
       }
       if (hostY !== null) {
         let lo = Infinity;
@@ -3736,6 +3876,17 @@ export class StreetFurniture {
     return best;
   }
 
+  /** Whether a lamp post's footprint reaches into a box of half extents (halfLen along (ax, az),
+   *  halfWid across it) centred at (x, z). */
+  _lampUnder(x, z, ax, az, halfLen, halfWid) {
+    for (const p of this._lampGrid.near(x, z, this._scratch)) {
+      const dx = p[0] - x, dz = p[1] - z;
+      if (Math.abs(dx * ax + dz * az) < halfLen + LAMP_POLE_R
+        && Math.abs(-dx * az + dz * ax) < halfWid + LAMP_POLE_R) return true;
+    }
+    return false;
+  }
+
   lampClearance(x, z) {
     const list = this._lampGrid.near(x, z, this._scratch);
     let best = 99;
@@ -3903,14 +4054,27 @@ export class StreetFurniture {
         const rx = uz, rz = -ux;                   // driver's right on approach
         const setback = widest / 2 + 2.0;
         const off = e.w / 2 + 1.35;
-        const bx = p.x + ux * setback + rx * off;
-        const bz = p.z + uz * setback + rz * off;
+        /**
+         * BEHIND THE KERB (#132). w/2 + 1.35 was a kerb-side offset when the kerb was the ribbon
+         * edge; src/kerb.js put the face 2.5 m out, which left 108 masts in the parking lane and
+         * the corner ones up to 3.8 m out in the junction, in front of the corner return. The
+         * footing goes behind the face the streamer draws, and the arm grows by however far the
+         * move took the mast away from its own carriageway, so the heads hang where they did.
+         */
+        const kb = this.kerbFace.behindPoints(p.x + ux * setback + rx * off, p.z + uz * setback + rz * off,
+          squareOf(SIGNAL_FOOT_HALF, ux, uz, rx, rz));
+        const bx = kb.x, bz = kb.z;
+        // Measured where it ended, as the lamps are: between two faces that each push it in front of
+        // the other there is no footing's worth of pavement, and the corner gets its crossing only.
+        const settled = !(kb.moved > 0) || kb.worst >= -0.01;
+        const reach = Math.max(0, kb.moved > 0
+          ? (bx - (p.x + ux * setback + rx * off)) * rx + (bz - (p.z + uz * setback + rz * off)) * rz : 0);
         const green = L.axis === greenAxis;
         // Never in another street, never inside a building. A corner that has no
         // room for a mast still gets its crossing painted.
-        if (this.roadClearance(bx, bz) >= 1.0 && this.buildingClearance(bx, bz) >= 1.0) {
+        if (settled && this.roadClearance(bx, bz) >= 1.0 && this.buildingClearance(bx, bz) >= 1.0) {
           const f = frame(bx, bz, -rx, -rz, ux, uz);   // +x back down the approach
-          const armLen = off * 0.55 + e.w * 0.38;
+          const armLen = off * 0.55 + e.w * 0.38 + reach;
           if (emit('signal', bx, bz, PAD_Y,
             (buf) => this._signalMast(buf, f, armLen, green, v * 8 + L.axis))) masts++;
         }
@@ -4588,9 +4752,14 @@ export class StreetFurniture {
         for (let s = 0; s <= n && poles < maxPoles; s++) {
           const t = 4 + s * step;
           if (t > len - 4) break;
-          const x = a.x + ax * t - az * side * off, z = a.z + az * t + ax * side * off;
+          // Behind the kerb where the street has one (#132): w/2 + 1.5 stood 84 of these in the
+          // parking lane of the r = 5 streets that are kerbed. The span to the previous pole is
+          // strung from the moved position, so the wires follow.
+          const { x, z, moved, worst } = this.kerbFace.behind(a.x + ax * t - az * side * off,
+            a.z + az * t + ax * side * off, UTILITY_POLE_R);
           if (this.roadClearance(x, z) < 0.9 || this.buildingClearance(x, z) < 0.9 ||
-              this.lampClearance(x, z) < 4) { prev = null; continue; }
+              this.lampClearance(x, z) < 4 ||
+              (moved > 0 && worst < -0.01)) { prev = null; continue; }
           const f = frame(x, z, ax * side, az * side, -az * side, ax * side);
           const top = 8.4 + rnd01('ut', ei, k, s) * 1.2;
           emit('utilityPole', x, z, PAD_Y, (bf) => {
@@ -4661,6 +4830,7 @@ export class StreetFurniture {
      * it holds would park two of them inside each other along a whole street.
      */
     const CAR_LEN = 4.9, GAP = 1.5;
+    const PARK_HALF_W = 1.0;                 // a shell is 1.9 m wide: half of it, and 5 cm
     const off = opts.parkOffset ?? 1.3;      // beyond the ribbon edge, at the kerb
     let slots = 0;
 
@@ -4712,11 +4882,15 @@ export class StreetFurniture {
             const x = a.x + ax * t + ox * (e.w / 2 + off);
             const z = a.z + az * t + oz * (e.w / 2 + off);
             // Not in another street, not in a building, and not on top of a
-            // lamp post — the lamp line runs through the parking lane, so the
-            // posts stand in the gaps between cars, which is where they belong.
+            // lamp post. This was `lampClearance < 3.2`, because the lamp line ran
+            // through the parking lane and the posts stood in the gaps between the
+            // cars. They stand behind the kerb now (#132), so the question is the
+            // one the rule was for: would this car's BODY stand on a post — which,
+            // with the posts behind the kerb, only one on a street without a kerb
+            // nearby can still do.
             if (this.roadClearance(x, z, ei) < 1.05) continue;
             if (this.buildingClearance(x, z) < 1.4) continue;
-            if (this.lampClearance(x, z) < 3.2) continue;
+            if (this._lampUnder(x, z, ax, az, CAR_LEN / 2, PARK_HALF_W)) continue;
             const yaw = side > 0 ? Math.atan2(ax, az) : Math.atan2(-ax, -az);
             // Numeric cell key. This map is walked every time the pool re-seeds,
             // which during the drive-through gate is once a frame; building 49
