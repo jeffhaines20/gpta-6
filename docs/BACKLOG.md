@@ -4332,6 +4332,37 @@ follower's line through that bend by a few tens of centimetres, and the budget g
 course at the same cap. The lever the measurement points at is a WIDTH term in the speed limit — the
 follower reads curvature and nothing about how much road there is — but nothing has been tried.
 
+### #129 FIXED — a route that opened behind a moving car is the last resort now, and where every route turns round the harness stops first
+**What shipped.** `RoadGraph.path` takes the car's `heading` and `speed`, and for a car at or above
+1.0 m/s (src/wanted.js's SCENE_STOP_MS) it prefers any of its four start/end combinations that does
+not TURN ROUND — open behind the nose, or double back along the edge the car is on, which is what a
+route to a dead end does — and the shortest within each class. A preference, not a penalty, so there
+is no number in it. When every combination turns round it says so (`turnsBack`), and playtest's
+`driveTo` brakes to a stop first, because followPath's three-point turn was traced from a standstill
+and works there. A caller that passes no heading is routed exactly as before; the HUD's line is one.
+
+**Measured.** Over 1,415 chained random legs arriving along each path's own last segment, routed
+blind, 894 opened behind the car (63.2%); with the heading 225, and those 225 are routes no
+alternative avoids — dead-end 2.8 m alleys and one-way streets. What it costs where it chose
+differently: p50 +37 m, p90 +171, max +742. And on the follower, 60 such legs driven by `driveTo`
+arriving at 11 m/s with no fleet:
+
+                                      arrived   wrecked   applied wall hits   timeouts
+    a route opens ahead      blind       19         8            40              3
+                             heading     22         1             9              7
+    no route opens ahead     blind       15        14            57              1
+                             heading     27         0             8              3
+
+Leg 7 itself opens at cos −1.00 to the nose blind and +0.88 with the heading, for 3 m more route.
+**The timeouts went UP, 4 → 10, and that is #131, not this:** the forward routes reach junctions the
+blind ones avoided, and one of them turns 121 degrees into the 2.8 m alley of #128.
+
+The first version of the doubling-back term compared `r.edges[0] === a.edge`, and a route's edges
+are `{ e, forward }` OBJECTS, so it never fired — the leg it was written for still timed out, and
+the trace said so before any table did. Gates: `roadpath-test` §6c (5 checks) and
+`mutation-sweep`'s `path-uturn` and `path-spur`.
+
+#### THE ORIGINAL RECORD
 ### #129 OPEN — a path that starts behind a moving car: the follower circles forward 44 m off its line into a building
 Found as the whole of `ROUTE_LANE_M`'s re-run wall column (#127), which it had made unreadable: in
 the sweep's no-fleet control, 18 legs per offset, every applied wall impact was ONE site, at every
@@ -4364,4 +4395,15 @@ the glass should still be reflecting, fading with distance from the edge — is 
 occlusion term does at the depth step between a pane and what stands behind it, which would make it
 the same family as #114 and #115. Not measured: the first reading is the AO buffer over one such pane
 with the pedestrian present and absent.
+
+### #131 OPEN — the router takes turns the car cannot make: 121 degrees from a 6.6 m road into a 2.8 m alley, and the follower cycles at the mouth for the whole timeout
+Found as #129's timeouts. The route from (13, −13) to (66, −164) turns −121 degrees at course index 37,
+from edge 33 (6.6 m, tertiary) into edge 350 (2.8 m, service — the alley of #128), and the follower
+arrives at (−88, −117) at 0.5 m/s and spends the remaining 200 s of a 240 s timeout reversing and
+re-entering: off its line 3-7 m, never past index 36, never 'wedged' because each cycle moves it
+more than STUCK_M. The router is a vertex Dijkstra over edge length and has no turn cost, so a
+hairpin into an alley is as good as a straight. Of the seven timeouts in #129's first set, the
+trapped cars sit at five places, two of them twice — (−86, −111) and (−652, −76) — so it is a
+handful of junctions rather than a rate. The lever is a turn cost, which needs an edge-based
+search (the cost of leaving a vertex depends on how it was entered); not tried.
 

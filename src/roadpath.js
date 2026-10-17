@@ -39,6 +39,14 @@ const clamp = (v, lo, hi) => (v > lo ? (v > hi ? hi : v) : lo);
 /** Narrower than this and there is no second lane to sit in. src/traffic.js's own threshold. */
 const TWO_WAY_MIN_W = 3.8;
 /**
+ * #129, `path`'s heading preference. A car at or above MOVING_MS is moving — src/wanted.js's
+ * SCENE_STOP_MS, the speed below which the game itself calls a car stopped — and a route "opens"
+ * in the direction of its first point OPENS_M from the start, which is past the lead-in's shortest
+ * shape-point spacing and well inside one 4 m resample step of any real turn.
+ */
+const MOVING_MS = 1.0;
+const OPENS_M = 2.0;
+/**
  * Clearance from the kerb line and from a wall: the car's 0.95 m body radius plus 0.55 m for the
  * follower's own error.
  *
@@ -383,9 +391,32 @@ export class RoadGraph {
    * a per-point right-hand normal of the local direction rather than by offsetting each
    * edge, which keeps the corners continuous.
    */
-  path(x0, z0, x1, z1, { spacing = 5, offset = 0, smoothPasses = 2 } = {}) {
+  path(x0, z0, x1, z1, { spacing = 5, offset = 0, smoothPasses = 2, heading = null, speed = 0 } = {}) {
     const a = this.nearestOn(x0, z0), b = this.nearestOn(x1, z1);
     if (!a || !b) return null;
+    /**
+     * #129: A ROUTE THAT OPENS BEHIND A MOVING CAR IS ONE THE FOLLOWER CANNOT DRIVE, so a caller that
+     * passes the car's `heading` (yaw: forward is (sin, cos)) and `speed` gets any candidate that
+     * opens AHEAD before any that opens behind, and the shortest within each. Measured on the
+     * district's own route, leg 7 chained at speed: the car arrives doing 11 m/s heading -z, the
+     * shortest route opens 36 m up the alley it came down, followPath's three-point-turn rule brakes
+     * in reverse while the car rolls 10 m on, and by then a forward circle of 22 m "reaches" the aim
+     * — so it commits to one, leaves a 6 m street and hits a wall 41 m off its line at dv 11.4, at
+     * every lane offset including the centreline. The turn rule was traced from a standstill and
+     * works there, so a car under 1.0 m/s (src/wanted.js's SCENE_STOP_MS, the game's own "stopped")
+     * is routed exactly as before. A preference rather than a penalty, so there is no number in it:
+     * a moving car that has no route opening ahead still gets the shortest one behind.
+     */
+    const moving = Number.isFinite(heading) && Number.isFinite(speed) && speed >= MOVING_MS;
+    const fwdX = moving ? Math.sin(heading) : 0, fwdZ = moving ? Math.cos(heading) : 0;
+    const opensBehind = (pts) => {
+      if (!moving) return false;
+      for (let i = 1; i < pts.length; i++) {
+        const dx = pts[i][0] - pts[0][0], dz = pts[i][1] - pts[0][1];
+        if (Math.hypot(dx, dz) >= OPENS_M) return dx * fwdX + dz * fwdZ < 0;
+      }
+      return false;
+    };
     // From the far end of the start edge toward the target, and into the near end of the
     // destination edge. Four combinations, and the shortest wins — picking the "obvious"
     // endpoint sends a car the wrong way up a street whenever the projection landed past
@@ -408,7 +439,7 @@ export class RoadGraph {
      * every number the follower reported looked nominal. Adding the two walks to the score is
      * both more honest and, here, decisive.
      */
-    let best = null, bestScore = Infinity;
+    let best = null, bestScore = Infinity, bestBehind = true;
     const walkLen = (pts) => {
       let L = 0;
       for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
@@ -418,9 +449,17 @@ export class RoadGraph {
       for (const to of [b.v0, b.v1]) {
         const r = this.route(from, to);
         if (!r) continue;
-        const score = r.length + walkLen(this._walkAlong(a, from, spacing))
-          + walkLen(this._walkAlong(b, to, spacing, true));
-        if (score < bestScore) { bestScore = score; best = r; }
+        const leadIn = this._walkAlong(a, from, spacing);
+        const score = r.length + walkLen(leadIn) + walkLen(this._walkAlong(b, to, spacing, true));
+        // AND A ROUTE WHOSE FIRST EDGE IS THE ONE THE CAR IS ON DOUBLES BACK ALONG IT: it opens ahead,
+        // drives to `from` and turns round there. Measured, the preference without this term sent a
+        // car 27 m up a one-way 2.8 m dead-end alley at 11 m/s to reverse at its end, which the
+        // follower cannot do either: 10 timeouts in 30 legs where the U-turn at the car had 2.
+        const doublesBack = moving && r.edges.length > 0 && r.edges[0].e === a.edge;
+        const behind = doublesBack || opensBehind(moving ? [...leadIn, ...this.densify(r.edges, spacing)] : leadIn);
+        if (behind < bestBehind || (behind === bestBehind && score < bestScore)) {
+          bestScore = score; best = r; bestBehind = behind;
+        }
       }
     }
     if (!best) return null;
@@ -467,7 +506,10 @@ export class RoadGraph {
       for (let i = 1; i < pts.length; i++) {
         pl += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
       }
-      if (dl < pl) pts = direct;
+      // The same preference as the four combinations above, and before the length: a direct walk
+      // that opens behind a moving car loses to a routed one that opens ahead (#129).
+      const db = opensBehind(direct), pb = bestBehind;
+      if (db < pb || (db === pb && dl < pl)) { pts = direct; bestBehind = db; }
     }
     pts = trimSpur(pts);
     // Belt and braces: resample the whole polyline uniformly, so no joining mistake
@@ -488,8 +530,11 @@ export class RoadGraph {
     }
     let len = 0;
     for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    // `turnsBack`: the caller said the car is moving and EVERY route turns round — opens behind it, or
+    // doubles back along the edge it is on — which is a dead end or a one-way street the wrong way
+    // round. False whenever no heading was given, so a caller that does not ask is told nothing.
     return { points: pts, length: len, graphLength: best.length, edges: best.edges,
-      start: a, end: b, endVertex: best.vertices[best.vertices.length - 1] };
+      start: a, end: b, endVertex: best.vertices[best.vertices.length - 1], turnsBack: moving && bestBehind };
   }
 
   /**

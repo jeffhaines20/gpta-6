@@ -739,6 +739,57 @@ check('and it does reach zero where the lane is blocked', Math.min(...amts) === 
     `${ROUTE_LANE_M} m against the fleet's 2.05-2.20`);
 }
 
+/**
+ * §6c  THE ROUTE A MOVING CAR IS GIVEN (#129). Leg 7 of the district's route, as playtest's driveTo
+ * chained it: the car arrives at (208.5, -381.4) doing 11 m/s heading -z, and the shortest route to
+ * waypoint 7 opens 36 m up the alley it came down. The follower cannot turn round in a street at
+ * speed — it circled into a building 41 m off its line at every lane offset — so `path` takes the
+ * car's heading and speed and prefers any route that opens ahead. Asserted both ways, plus the
+ * stopped case, which must be routed exactly as it was.
+ */
+{
+  const opening = (p, yaw) => {
+    const P = p.points, fx = Math.sin(yaw), fz = Math.cos(yaw);
+    for (let i = 1; i < P.length; i++) {
+      const dx = P[i][0] - P[0][0], dz = P[i][1] - P[0][1];
+      if (Math.hypot(dx, dz) >= 2) return (dx * fx + dz * fz) / Math.hypot(dx, dz);
+    }
+    return NaN;
+  };
+  const car = { x: 208.5, z: -381.4, yaw: 3.08 }, to = district.meta.route[7];
+  const blind = g.path(car.x, car.z, to.x, to.z, { spacing: 4, offset: ROUTE_LANE_M, smoothPasses: 2 });
+  const moving = g.path(car.x, car.z, to.x, to.z, { spacing: 4, offset: ROUTE_LANE_M, smoothPasses: 2,
+    heading: car.yaw, speed: 11 });
+  const stopped = g.path(car.x, car.z, to.x, to.z, { spacing: 4, offset: ROUTE_LANE_M, smoothPasses: 2,
+    heading: car.yaw, speed: 0.5 });
+  const ob = opening(blind, car.yaw), om = opening(moving, car.yaw);
+  console.log(`\n§6c The route a moving car is given`);
+  console.log(`    leg 7 from (208.5, -381.4) heading -z: without a heading it opens at cos ${ob.toFixed(2)} `
+    + `to the nose over ${blind.length.toFixed(0)} m; at 11 m/s at cos ${om.toFixed(2)} over ${moving.length.toFixed(0)} m`);
+  check('KNOWN-BAD: routed blind, leg 7 opens BEHIND the car', ob < 0, `cos ${ob.toFixed(3)}`);
+  check('given the heading of a moving car, it opens ahead', om > 0, `cos ${om.toFixed(3)}`);
+  check('and a STOPPED car is routed exactly as before, so the three-point turn still has its case',
+    JSON.stringify(stopped.points) === JSON.stringify(blind.points),
+    `${stopped.points.length} points against ${blind.points.length}`);
+  /**
+   * AND A ROUTE THAT OPENS AHEAD CAN STILL TURN ROUND. A car at (645, -260) on one-way alley edge 762,
+   * pointing at its dead end: the route that "opens ahead" drives 27 m to the end and comes back down
+   * the same edge, which the follower cannot do either — measured, the preference without this term
+   * took 10 timeouts in 30 legs where the U-turn at the car took 2. So doubling back along the
+   * car's own edge counts as turning round, and when every route turns round the path says so
+   * (`turnsBack`) for the caller to stop first.
+   */
+  const dead = g.path(645, -260, 250, 2, { spacing: 4, smoothPasses: 2, heading: 2.17, speed: 11 });
+  const deadBlind = g.path(645, -260, 250, 2, { spacing: 4, smoothPasses: 2 });
+  console.log(`    a car pointing up a one-way dead end at (645, -260): turnsBack ${dead.turnsBack}, `
+    + `${dead.length.toFixed(0)} m against ${deadBlind.length.toFixed(0)} m routed blind`);
+  check('a moving car with no route ahead is TOLD so, not sent to the dead end to turn round there',
+    dead.turnsBack === true && JSON.stringify(dead.points) === JSON.stringify(deadBlind.points),
+    `turnsBack ${dead.turnsBack}, ${dead.length.toFixed(0)} m against ${deadBlind.length.toFixed(0)} m`);
+  check('and a caller that gives no heading is told nothing', blind.turnsBack === false && deadBlind.turnsBack === false,
+    `${blind.turnsBack} / ${deadBlind.turnsBack}`);
+}
+
 // ---------------------------------------------------------------------------
 // §7  Smoothing, determinism and cost.
 // ---------------------------------------------------------------------------

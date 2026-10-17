@@ -1546,7 +1546,27 @@ export function driveTo(session, x, z,
    * The offset itself is fixed in src/roadpath.js (see the cap on `path`'s per-point width);
    * this default is 0 because that is what a player is shown.
    */
-  const path = session.roads.path(from.x, from.z, x, z, { spacing: 4, offset, smoothPasses: 2 });
+  // The car's heading and speed, so a route that would open behind a MOVING car is the last resort
+  // rather than the shortest (#129): chained legs arrive at speed, and the follower cannot turn round
+  // in a street.
+  const plan = () => session.roads.path(session.vehicle.position.x, session.vehicle.position.z, x, z,
+    { spacing: 4, offset, smoothPasses: 2, heading: session._yaw(), speed: session.vehicle.speed });
+  let path = plan();
+  /**
+   * AND WHERE EVERY ROUTE TURNS ROUND, STOP FIRST. A dead-end alley or a one-way street leaves only
+   * routes that open behind the car or double back along its edge (`turnsBack`), and followPath's
+   * three-point turn was traced from a standstill and works there —
+   * at speed its reverse is a brake and the car rolls on past the point it was turning for. So the
+   * car brakes to under 1.0 m/s, bounded at 10 s of sim, and is routed again from where it stopped,
+   * which, stopped, is exactly the route it would always have had.
+   */
+  if (path && path.turnsBack) {
+    const t0 = session.t;
+    while (session.vehicle.speed >= 1.0 && session.t - t0 < 10) {
+      session.drive({ throttle: 0, brake: 1, steer: 0, handbrake: false }).step(DT * 8);
+    }
+    path = plan();
+  }
   if (!path || !path.points || path.points.length < 2) return { arrived: false, why: 'no route' };
   /**
    * AND IT SAYS SO WHEN THE ROUTE IS INSIDE A BUILDING, rather than driving into it and

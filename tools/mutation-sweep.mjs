@@ -550,6 +550,22 @@ const MUTATIONS = [
     to: 'const LANE_MARGIN_M = 1.2;',
     why: 'the lane fit leaves a quarter metre of slop and the follower at 22 m/s spends it on a wall',
   },
+  {
+    // #129 put back: the router ignores the car's heading, so a chained leg opens with a U-turn
+    // behind a car doing 11 m/s and the follower circles into a building 41 m off its line.
+    id: 'path-uturn', file: 'src/roadpath.js',
+    find: '    const moving = Number.isFinite(heading) && Number.isFinite(speed) && speed >= MOVING_MS;',
+    to: '    const moving = false;',
+    why: 'a route opens behind a moving car and the follower cannot turn round in a street',
+  },
+  {
+    // #129's second term put back: a route that opens ahead and doubles back along the car's own
+    // edge — a dead end — reads as fine, so the car is sent to the end to turn round there.
+    id: 'path-spur', file: 'src/roadpath.js',
+    find: '        const doublesBack = moving && r.edges.length > 0 && r.edges[0].e === a.edge;',
+    to: '        const doublesBack = false;',
+    why: 'a moving car is sent up a dead end to turn round at its end, which it cannot do either',
+  },
   // ---- src/blockers.js
   {
     id: 'resolve-eps', file: 'src/blockers.js',
