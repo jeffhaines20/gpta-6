@@ -743,7 +743,8 @@ export class Pedestrians {
 
     this.stats = {
       spawns: 0, despawns: 0, spawnFailures: 0, frames: 0, pedFrames: 0,
-      corners: 0, deadEndTurns: 0, uTurnsWhenStuck: 0, stuckDespawns: 0,
+      corners: 0, deadEndTurns: 0, uTurnsWhenStuck: 0, stuckDespawns: 0, crossingsRefused: 0,
+      laneClamps: 0,
       buildingPushes: 0, avoidBrakeFrames: 0, orphanPedFrames: 0,
       overlapFrames: 0, bodyOverlapFrames: 0, closestApproachM: Infinity,
       sidewalksBaked: 0, sidewalksRejected: 0, propBrushes: 0,
@@ -1663,6 +1664,7 @@ export class Pedestrians {
     const opts = this.out.get(v) ?? [];
     const here = this._node(ped, this._nodeCount(ped) - 1) ?? { x: ped.x, z: ped.z };
     const fx = Math.sin(ped.yaw), fz = Math.cos(ped.yaw);
+    const leave = this._leavingDir(ped);
 
     let best = null, bestScore = -Infinity;
     for (const o of opts) {
@@ -1675,6 +1677,19 @@ export class Pedestrians {
         // Anything this far away is on the far pavement across the road.
         if (corner > 16) continue;
         const q2 = o.forward ? walk.pts[1] : walk.pts[walk.pts.length - 2];
+        /**
+         * #122: AND SO IS ANYTHING NEARER WHOSE WAY THERE CROSSES A CARRIAGEWAY. The 16 m above was
+         * standing in for this, and a narrow street's far pavement is nearer than that — 6.6 m of
+         * road plus two 3.6 m insets is 13.8. `_pushOffRoad` will not let a ped into a carriageway,
+         * and it clears the stuck clock while it holds them, so a ped handed a pavement across the
+         * road walked into the kerb for the rest of the session: 67 of 96 at the hero focus within
+         * 120 s, every one heading across a road. The path tested is the one `_enter` will give
+         * the ped — round the corner when `_cornerBetween` finds one, straight otherwise.
+         */
+        if (this._handoverCrosses(ped.x, ped.z, leave, q, q2)) {
+          this.stats.crossingsRefused++;
+          continue;
+        }
         const dx = q2.x - q.x, dz = q2.z - q.z;
         const l = Math.hypot(dx, dz) || 1;
         const straight = fx * (dx / l) + fz * (dz / l);
@@ -1737,19 +1752,47 @@ export class Pedestrians {
     return { x: cx, z: cz };
   }
 
-  _enter(ped, next) {
-    const walk = this._walk(next.e, next.side);
-    if (!walk) return false;
-    // The direction the ped is leaving on, from the pavement it is ON, before that is overwritten.
+  /** The direction a ped is leaving its pavement on: the walk's last segment, else its heading.
+   *  One function so `_chooseNext` tests the same handover `_enter` then builds. */
+  _leavingDir(ped) {
     const n0 = this._nodeCount(ped);
     const prevA = n0 >= 2 ? this._node(ped, n0 - 2) : null;
     const prevB = n0 >= 1 ? this._node(ped, n0 - 1) : null;
-    const fromX = ped.x, fromZ = ped.z;
     let fdx = Math.sin(ped.yaw), fdz = Math.cos(ped.yaw);
     if (prevA && prevB) {
       const l = Math.hypot(prevB.x - prevA.x, prevB.z - prevA.z);
       if (l > 1e-4) { fdx = (prevB.x - prevA.x) / l; fdz = (prevB.z - prevA.z) / l; }
     }
+    return { fdx, fdz };
+  }
+
+  /** Does the handover from (fx, fz) to a pavement starting at q, heading for q2, cross a
+   *  carriageway? Round the corner `_enter` would route it by, straight when there is none. */
+  _handoverCrosses(fx, fz, leave, q, q2) {
+    const dx = q2.x - q.x, dz = q2.z - q.z;
+    const l = Math.hypot(dx, dz);
+    const c = l > 1e-4 ? this._cornerBetween(fx, fz, leave.fdx, leave.fdz, q, dx / l, dz / l) : null;
+    return c
+      ? this._segmentOnCarriageway(fx, fz, c.x, c.z) || this._segmentOnCarriageway(c.x, c.z, q.x, q.z)
+      : this._segmentOnCarriageway(fx, fz, q.x, q.z);
+  }
+
+  /** Any sample of a straight segment, at the trim's own step, inside a carriageway. */
+  _segmentOnCarriageway(ax, az, bx, bz) {
+    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / TRIM_STEP_M));
+    for (let k = 0; k <= n; k++) {
+      const f = k / n;
+      if (this._onCarriageway(ax + (bx - ax) * f, az + (bz - az) * f)) return true;
+    }
+    return false;
+  }
+
+  _enter(ped, next) {
+    const walk = this._walk(next.e, next.side);
+    if (!walk) return false;
+    // The direction the ped is leaving on, from the pavement it is ON, before that is overwritten.
+    const { fdx, fdz } = this._leavingDir(ped);
+    const fromX = ped.x, fromZ = ped.z;
     ped.edge = next.e;
     ped.forward = next.forward;
     ped.side = next.side;
@@ -1817,6 +1860,15 @@ export class Pedestrians {
     if (l < 1e-4) { out.x = p.x; out.z = p.z; return out; }
     out.x = p.x + (-dz / l) * ped.lateral;
     out.z = p.z + (dx / l) * ped.lateral;
+    /**
+     * #122's second half: THE LANE POINTS AWAY FROM THE PED'S OWN ROAD, AND ANOTHER STREET CAN BE
+     * ON THAT SIDE. Where an alley runs right beside a pavement, the displaced target lands in the
+     * alley's carriageway and `_pushOffRoad` holds the ped at its edge for as long as it keeps
+     * walking at it — measured, one ped pressed against an alley for 38 s of a 60 s run, the one
+     * survivor of the crossing fix above. The node itself is clear by the bake, so that is the
+     * target there: the ped walks its pavement's own line where the pavement has no room beside it.
+     */
+    if (this._onCarriageway(out.x, out.z)) { out.x = p.x; out.z = p.z; this.stats.laneClamps++; }
     return out;
   }
 

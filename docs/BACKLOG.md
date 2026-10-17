@@ -4002,6 +4002,34 @@ the same count for the furniture props the crowd does feel — and the lever, if
 body collider's own idea: a car as three circles along its axis, handed to `setProps` beside the
 furniture, so a walker veers round it as it veers round a planter.
 
+### #122 FIXED — two thirds of the crowd ended up stuck at a kerb for good: a walker handed a pavement across the road could never cross and never gave up
+**Two causes, and the second was the one survivor of the fix for the first.**
+
+1. `_chooseNext` now refuses a continuation whose handover crosses a carriageway — the path `_enter`
+   will give the ped, round the corner when `_cornerBetween` finds one, straight otherwise, sampled
+   at the trim's own step — and the existing about-face catches a ped with nowhere left, which is
+   what its own comment ("every continuation is across the road") had always said it was for.
+2. With that in, ONE ped at `reaction-test`'s focus was still held for 38.2 s of 60: mid-walk, its
+   personal lane — which since #121 points away from the ped's own road in both directions — had
+   put its target inside an ALLEY running right beside the pavement, so the push held it at the
+   alley's edge. `_targetAt` falls back to the walk's own node when the displaced target is in a
+   carriageway (the node is clear by the bake): 4,688 of ~172,800 targets in that run, 2.7%.
+
+        at the hero focus, 96 peds, 120 s     held at a kerb ever   still held   road pushes
+        before                                       67                 67        32% of ped-frames
+        after                                         0                  0         0
+        at reaction-test's focus, 48 peds, 60 s   worst spell    held at the end   pushes
+        before                                      58.4 s             20           43,864
+        after                                        2.2 s              0              184
+
+The crowd turns more corners (235 -> 450 in the 120 s run) and refuses 1,158 crossings, with 0
+dead-end turns and 0 stuck despawns. `reaction-test` gates the longest unbroken push (under 5 s,
+against the pre-#122 choice of pavement at 58.4 s), and `mutation-sweep` rows `ped-cross-refuse`
+and `ped-lane-clamp` are each caught by it. The crowd still never crosses a road, which is the rule
+this module already meant; a pedestrian crossing is a feature (signals, traffic that yields), not a
+fix.
+
+#### THE ORIGINAL RECORD
 ### #122 OPEN — two thirds of the crowd ends up stuck at a kerb for good: a walker that picks a pavement across the road can never cross and never gives up
 Found measuring #121, and it predates it. At the hero focus, 96 peds, 120 s, wrapping `_pushOffRoad`:
 

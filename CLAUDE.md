@@ -1188,6 +1188,22 @@ above; fixed, the run's worst count was 1 and the check would have failed a reso
 subject is built now. When a check reads "the thing happened" off a population, ask what makes it happen
 and whether your change removes that.
 
+### Two right rules made an absorbing state, and the gate counted the events and never their length
+
+Measuring #121 turned up #122: two thirds of the crowd ending up stood at a kerb for good. `_chooseNext`
+admitted any next pavement within 16 m — "anything this far away is on the far pavement across the
+road", a distance standing in for the real question — and a narrow street's far pavement is nearer.
+`_pushOffRoad` then held the ped at the kerb, and CLEARED ITS STUCK CLOCK, on the stated argument that a
+ped "walking the kerb line with the crowd leaning on it is making progress". Each rule is right about
+the case it was written for. Together a ped walking INTO the kerb was neither allowed across nor ever
+turned round: 67 of 96 at the hero focus within 120 s, and none came back.
+
+`reaction-test` had bounded the push's SIZE and its iteration count and asserted nobody was standing in
+the road — all true, all passing, over 46,957 pushes a minute. **None of it asked how long one ped had
+been pushed.** A count of events and a bound on each one says nothing about a subject that is in the
+state for ever; the quantity was the unbroken RUN per subject, and it is gated now. This is "a frame
+counter is not an event counter" from the other side: count the episodes, and time them.
+
 ## The geometry LEADING INTO a point is what caused the error there, not the geometry AT it
 
 #104 ruled out the crowd, the contact test and the router and left "it is `followPath` leaving its

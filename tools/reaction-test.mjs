@@ -661,13 +661,26 @@ console.log('\n§3  The slide stops at a wall');
   // casualty arm to 0.17 m.
   ctrl._spawn = () => false;
   cw.x = cx0 + 0.5; cw.z = cz0;
-  for (let k = 0; k < 60 * 2; k++) ctrl.update(DT, FOCUS);
+  /**
+   * WALKED is a path length, not a displacement. The control is a walker put 0.5 m from a spot
+   * that is not on its own path, and it then heads for its own next waypoint, which can lie back
+   * past that spot: #122 changed which peds the seeded crowd hands this arm, and the new control
+   * covered its 2 s at 0.4-1.2 m/s while ending 0.76 m from the spot, failing a `> 1 m` written as
+   * "it walked". The comparison below stays a displacement, because that is the quantity the body
+   * acts on; the guard is about whether anybody moved.
+   */
+  let ctrlPath = 0, cpx = cw.x, cpz = cw.z;
+  for (let k = 0; k < 60 * 2; k++) {
+    ctrl.update(DT, FOCUS);
+    ctrlPath += Math.hypot(cw.x - cpx, cw.z - cpz);
+    cpx = cw.x; cpz = cw.z;
+  }
   const ctrlD = Math.hypot(cw.x - cx0, cw.z - cz0);
   console.log(`    a walker put 0.50 m from a body: it left at ${d1.toFixed(2)} m, ` +
     `against ${ctrlD.toFixed(2)} m with nothing there`);
   console.log(`    the body moved ${Math.hypot(ped.x - x0, ped.z - z0).toExponential(1)} m`);
-  check('the control walker walked, so the comparison means something', ctrlD > 1,
-    `${ctrlD.toFixed(2)} m`);
+  check('the control walker walked, so the comparison means something', ctrlPath > 1,
+    `${ctrlPath.toFixed(2)} m walked, ending ${ctrlD.toFixed(2)} m from the spot`);
   check('the body pushed the walker further off than empty ground does', d1 > ctrlD + 0.05,
     `${d1.toFixed(3)} against ${ctrlD.toFixed(3)}`);
   check('and the crowd cannot move a body on the ground', ped.x === x0 && ped.z === z0,
@@ -1741,6 +1754,26 @@ console.log('\n§  the crowd and the carriageway');
    * of hopping clear — which is why the bound here is on the SIZE and not on the number.
    */
   {
+    /**
+     * AND HOW LONG ANY ONE PED IS HELD THERE, which is #122. The push clears the stuck clock — "a
+     * ped walking the kerb line with the crowd leaning on it is making progress" — so a ped walking
+     * INTO the kerb is never turned round by anything: handed a pavement across the road, 67 of 96
+     * at the hero focus were held for the rest of a 120 s run, and one ped walked 38 s into an alley
+     * beside its pavement after its personal lane put its target there. An unbroken run of pushed
+     * frames is the quantity both share, so it is measured on the same run as the push's size.
+     */
+    const heldSpells = (p) => {
+      const run = new Map();
+      let worst = 0;
+      const real = p._pushOffRoad.bind(p);
+      p._pushOffRoad = (ped) => {
+        const r = real(ped);
+        if (r) { const n = (run.get(ped.id) ?? 0) + 1; run.set(ped.id, n); worst = Math.max(worst, n); }
+        else run.delete(ped.id);
+        return r;
+      };
+      return () => ({ worstS: worst * DT, heldAtEnd: [...run.values()].filter((n) => n * DT > 5).length });
+    };
     const p = new Pedestrians(scene, district, { count: 48 });
     const mags = [];
     const real = p._pushOffRoad.bind(p);
@@ -1750,7 +1783,22 @@ console.log('\n§  the crowd and the carriageway');
       if (r) mags.push(Math.hypot(ped.x - x, ped.z - z));
       return r;
     };
+    const spells = heldSpells(p);
     for (let k = 0; k < 60 * 60; k++) p.update(DT, FOCUS);
+    const crossing = new Pedestrians(scene, district, { count: 48 });
+    crossing._handoverCrosses = () => false;              // the pre-#122 choice of next pavement
+    const crossSpells = heldSpells(crossing);
+    for (let k = 0; k < 60 * 60; k++) crossing.update(DT, FOCUS);
+    const held = spells(), heldBefore = crossSpells();
+    console.log(`    the longest any ped is held at a kerb in 60 s: ${held.worstS.toFixed(1)} s, `
+      + `${held.heldAtEnd} still held at the end (offered pavements across the road: `
+      + `${heldBefore.worstS.toFixed(1)} s, ${heldBefore.heldAtEnd}); ${p.stats.crossingsRefused} `
+      + `crossings refused, ${p.stats.laneClamps} lane targets clamped to the walk`);
+    check('no pedestrian is held at a kerb: the longest unbroken push is under 5 s',
+      held.worstS < 5 && held.heldAtEnd === 0, `${held.worstS.toFixed(1)} s, ${held.heldAtEnd} held`);
+    check('KNOWN-BAD: offered a pavement across the road, peds walk into the kerb for the rest of the run',
+      heldBefore.worstS > 30 && heldBefore.heldAtEnd >= 5,
+      `${heldBefore.worstS.toFixed(1)} s, ${heldBefore.heldAtEnd} held at the end`);
     mags.sort((a, b) => a - b);
     const q = (f) => (mags.length ? mags[Math.min(mags.length - 1, Math.floor(f * mags.length))] : NaN);
     const step = 1.6 * DT;                      // one walk step at a middling pace
@@ -2027,9 +2075,15 @@ console.log('\n§  the crowd and the kerb');
 
   // --- the personal lane, exactly: for every walk and both directions, the target a ped steers
   // for is further from its own road than the node it is displaced from.
+  /**
+   * Per DIRECTION, and a target `_targetAt` snapped back to its node is counted apart: since #122
+   * a displaced target that lands in another street's carriageway is clamped to the walk line, and
+   * that is neither away nor toward. The first version of this audit counted it as "toward" and
+   * read 199/201 for a known-bad that is exactly half and half.
+   */
   const lanes = (p) => {
-    let away = 0, toward = 0;
-    for (let ei = 0; ei < district.edges.length && away + toward < 400; ei++) {
+    const n = { fwdAway: 0, fwdToward: 0, backAway: 0, backToward: 0, clamped: 0 };
+    for (let ei = 0; ei < district.edges.length && n.fwdAway + n.fwdToward + n.backAway + n.backToward < 400; ei++) {
       const e = district.edges[ei];
       if (!kerbedEdge(e)) continue;
       for (const side of [0, 1]) {
@@ -2039,20 +2093,24 @@ console.log('\n§  the crowd and the kerb');
           const ped = { side, forward, walk: w, laneJitter: 1 };
           ped.lateral = p._laneOf(ped);
           const node = p._node(ped, 1), tgt = p._targetAt(ped, 1, { x: 0, z: 0 });
-          if (ownO(e, tgt.x, tgt.z) > ownO(e, node.x, node.z) + 1e-6) away++; else toward++;
+          if (tgt.x === node.x && tgt.z === node.z) { n.clamped++; continue; }
+          const away = ownO(e, tgt.x, tgt.z) > ownO(e, node.x, node.z) + 1e-6;
+          n[(forward ? 'fwd' : 'back') + (away ? 'Away' : 'Toward')]++;
         }
       }
     }
-    return { away, toward };
+    return n;
   };
   const ln = lanes(new Pedestrians(scene, district, { count: 0 }));
   const lb = lanes(before(new Pedestrians(scene, district, { count: 0 })));
-  console.log(`    personal lane, kerbed walks x both directions: away from the road ${ln.away}, `
-    + `toward it ${ln.toward} (before ${lb.away} / ${lb.toward})`);
+  const fmt = (n) => `forward ${n.fwdAway} away / ${n.fwdToward} toward, backward ${n.backAway} / `
+    + `${n.backToward}, ${n.clamped} clamped to the walk`;
+  console.log(`    personal lane, kerbed walks x both directions: ${fmt(ln)}`);
+  console.log(`      before #121: ${fmt(lb)}`);
   check('the personal lane points away from the road in both directions of travel',
-    ln.away >= 200 && ln.toward === 0, `${ln.away} away, ${ln.toward} toward`);
+    ln.fwdAway >= 100 && ln.backAway >= 100 && ln.fwdToward === 0 && ln.backToward === 0, fmt(ln));
   check('KNOWN-BAD: before, every backward walker\'s pointed into it',
-    lb.toward === lb.away && lb.toward > 0, `${lb.away} away, ${lb.toward} toward`);
+    lb.backToward >= 100 && lb.backAway === 0 && lb.fwdToward === 0, fmt(lb));
 
   // --- the crowd, with the pool parked around the focus the way the game fills it.
   fu.refreshParked(FOCUS.x, FOCUS.z, true);

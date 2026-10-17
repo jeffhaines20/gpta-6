@@ -1590,6 +1590,30 @@ const MUTATIONS = [
   },
   {
     /**
+     * #122: A PED IS HANDED A PAVEMENT ACROSS THE ROAD. `_chooseNext` admitted anything within 16 m
+     * and a narrow street's far pavement is nearer, `_pushOffRoad` holds the ped at the kerb, and
+     * the push clears the stuck clock — so the ped walks into the kerb for good. 67 of 96 at the
+     * hero focus within 120 s, every one heading across a road.
+     */
+    id: 'ped-cross-refuse', file: 'src/pedestrians.js',
+    find: '        if (this._handoverCrosses(ped.x, ped.z, leave, q, q2)) {',
+    to: '        if (false) {',
+    why: 'two thirds of the crowd ends up standing at a kerb for the rest of the session',
+  },
+  {
+    /**
+     * #122's second half: THE LANE TARGET IS NOT CLAMPED. The personal lane points away from the
+     * ped's own road and an alley can run right beside the pavement on that side; the displaced
+     * target lands in its carriageway and the push holds the ped at its edge. One ped, 38 s of a
+     * 60 s run, at `reaction-test`'s own focus.
+     */
+    id: 'ped-lane-clamp', file: 'src/pedestrians.js',
+    find: '    if (this._onCarriageway(out.x, out.z)) { out.x = p.x; out.z = p.z; this.stats.laneClamps++; }',
+    to: '',
+    why: 'a ped beside an alley walks into the alley\'s kerb and stays there',
+  },
+  {
+    /**
      * THE JAM CLOCK RESETS ON EVERY CONTACT-FREE STEP, which is how `_trackJam` was first
      * written and it NEVER FIRED. A wedged car rocks: measured at 120 Hz in a 4 m bay, a body
      * sample is corrected on 77.0% of steps and the contact-free gaps run p50 0.0167 s, p95 and
