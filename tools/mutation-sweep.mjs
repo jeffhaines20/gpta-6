@@ -189,6 +189,12 @@ const OFFLINE = [
   // BACK face, which is where #134 was, so nothing above sees `blade-back-blank`.
   'sign-orient',
   'sign-orient --selftest',
+  // Under half a second. The body shells off the built buffers — equal cost, the base shell
+  // byte-identical, real variance, the window visible, the plate vertical, and since #125 the
+  // wheels round. It was on CLAUDE.md's gate list and NOT on this one, so nothing it asserts had
+  // ever been swept: `wheel-octagon` came back MISSED against a check written to catch it.
+  'car-shapes',
+  'car-shapes --selftest',
   // #118's page, the same kind as ao-emit: five panels at known radiances through the real PostStack,
   // the bright pass's two arms off one load. Nothing else compiles BRIGHT_FRAG, so every bloom row
   // above is invisible to the rest of this list.
