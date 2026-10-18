@@ -4816,6 +4816,21 @@ out to be. And its "clouds moved between the paired captures" is the harness: ea
 at its own load time (17.945 s and 30.662 s), so a two-tree pair carried 12.7 s of drift — hero-shots
 pins one time now.
 
+### #138 OPEN — the AO's depth-step leak darkens anything standing behind something nearer, and #130 only took the glass out
+Found by #130's page, `tools/glass-ao.html`, in the arm #130 does not touch. A pedestrian-sized block
+1.5 m in front of a car darkens the car's PAINT beside its outline to 0.708 of AO-off (0-8 px), 0.869
+(8-16) and 0.858 (16-32), against 0.989 with no block — the same cloud the reviewers saw on the glass,
+on a bonnet, and at a 1600 x 1000 render it is a plain dark smudge beside the block. The mechanism is
+the range check, `smoothstep(0, 1, rs / dz)` with `rs = radius = 0.6 m` at `aoRangeScale` 0: it passes
+35% of an occluder 1.5 m proud and 10% of one 3 m proud, and pow(ao, 8.5) turns a few such hits into
+a halo round every silhouette that stands in front of a lit surface — people, posts, cars against
+walls. The lever exists (`aoRangeScale`, or a hard cut past 2 rs) and src/post.js's own table shows
+what it did to the seam (the wrong way, by a little); its price on the protected metrics — foot
+contact, the parked-car umbra and its edge, prop contact, the window reveal, the halo extinction —
+has never been taken, and that is the first job: `ao-sweep`, `prop-ground` and `ao-noise --live`,
+one page load each, with and without. The page carries the leak's own before and after already, so
+a candidate can be checked against it in seconds.
+
 ### #133 FIXED — the player car's door mirrors were laid on their side, glass outward
 
 Measured off `buildPlayerCar`'s own body buffer, which is the one number the entry asked for: every

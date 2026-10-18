@@ -31,8 +31,9 @@ import { PostStack } from '../src/post.js';
 import { buildTrafficCarGeometry, trafficCarMaterial, SHAPES, SURFACE, paletteU,
   setGlassAoExempt, glassAoExempt, buildPlayerCar, CAR } from '../src/carbody.js';
 
-const W = 512, H = 320;
 const qs = new URLSearchParams(location.search);
+// The gate runs at 512 x 320; a review frame asks for more pixels of the same scene with ?w=&h=.
+const W = Number(qs.get('w') ?? 512), H = Number(qs.get('h') ?? 320);
 // How far IN FRONT of the windscreen the block stands, along the view ray. 1.5 m is the reviewer's case.
 const PROUD = Number(qs.get('proud') ?? 1.5);
 try {
@@ -150,6 +151,14 @@ try {
   q.debugEmitShare = false;
   setGlassAoExempt(shipped);
   block.visible = true;
+  // FRAMES ONLY, for a review set at a size where the brute-force distance below would take hours.
+  if (qs.get('stats') === '0') {
+    const b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode(...u8.subarray(i, i + 8192)); return btoa(s); };
+    window.__glassAoFrames = Object.fromEntries(Object.entries(arms).map(([k, a]) => [k, b64(a.rgb)]));
+    window.__glassAo = { framesOnly: true, size: { w: W, h: H }, arms: Object.fromEntries(Object.entries(arms).map(([k, a]) =>
+      [k, { strength: a.strength, exempt: a.exempt, withBlock: a.withBlock, uStrength: a.uStrength, uExempt: a.uExempt }])) };
+    throw { framesOnly: true };
+  }
 
   // THE MASK. Glass and paint by the palette u the material reads finish with; the block flat; the
   // rest of the car and the ground their own IDs. Drawn straight to the canvas, no post, no MSAA.
@@ -247,6 +256,6 @@ try {
     window.__glassAoFrames = Object.fromEntries([...Object.entries(arms).map(([k, a]) => [k, b64(a.rgb)]), ['mask', b64(maskRgb)]]);
   }
 } catch (e) {
-  window.__glassAo = { error: String(e && e.stack || e) };
+  if (!(e && e.framesOnly)) window.__glassAo = { error: String(e && e.stack || e) };
 }
 </script>
