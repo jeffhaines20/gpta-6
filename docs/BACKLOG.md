@@ -4746,7 +4746,35 @@ out to be. And its "clouds moved between the paired captures" is the harness: ea
 at its own load time (17.945 s and 30.662 s), so a two-tree pair carried 12.7 s of drift — hero-shots
 pins one time now.
 
-### #133 OPEN — the player car's wing mirror shows its glass to a camera beside the car
+### #133 FIXED — the player car's door mirrors were laid on their side, glass outward
+
+Measured off `buildPlayerCar`'s own body buffer, which is the one number the entry asked for: every
+glazing-slot triangle on that material is mirror glass (its panes are on `carGlassMaterial`), and the
+glass's big face had a normal of **(0.99, 0, 0.16)** on the +x side — outward and a little forward. The
+housing was 8.8 cm across and 19.6 cm fore and aft, so the whole mirror was turned through 90 degrees,
+and the glass was a closed slab on the housing's OUTBOARD face:
+
+                                     before                   after
+    glass a side                     349.1 cm2, 12 tris       139.8 cm2, 2 tris
+    projected toward a camera
+      beside the car (outboard)      144.2 cm2                0.0
+      behind it                      33.4, most of it buried  137.1
+      ahead of it                    33.4                     0.0
+    outer edge, |x|                  1.085 m                  1.085 m   12 cm past the body's widest point
+    body triangles                   2,806                    2,786
+
+The housing is 18 cm wide and 8.8 cm deep now, its outer end swept back by 0.2 rad, and the glass is one
+quad 2 mm proud of its back face, toed in toward the cabin — so from beside the car what reads is the
+body-coloured housing, and from behind the glass. The outer edge did not move, by construction.
+
+**Gated in `car-detail`**, which already reads the player's plate off the same builder: "the player's
+door mirrors show their glass to the back of the car, and none of it to the side" — 0.9 of the area
+toward the back (a toe-in up to 26 degrees), 5% to the side (a toe-OUT shows sin(0.2) = 20%), 100 cm2 a
+side so a car with no glass cannot pass. Its selftest carries the shipped-before numbers, a wrong-way
+toe, no glass and one mirror as known-bads; `mutation-sweep`'s `mirror-sideways` puts the old slab
+back and `mirror-toe-out` flips the toe.
+
+#### #133 (as filed)
 From the driver's re-review (cabin v3.1), both arms: side-on at 11 m, noon, the door mirror at
 [731,450,756,465] is a red-framed rectangle holding a sky-over-pavement reflection. A real door
 mirror's glass faces BACKWARDS, so from beside the car what reads is the body-coloured housing; a
@@ -4754,7 +4782,33 @@ mirror whose face shows sideways reads as a little window stuck on the door. See
 `docs/shots/cabd-cfix0-cabin-noon.png` at 6x. Not measured: the mirror's face normal off the player
 car's own buffer (`buildPlayerCar`), which says in one number whether the glass is turned outward.
 
-### #134 OPEN — the street-name blades are blank from one side
+### #134 FIXED — the street-name blades were blank from one side, and the census could not see a blade at all
+
+`streetBladeAssembly` passed `backRect: bladeBack`, a blank, from when `signPanel`'s default back was
+the u-swapped rect and would have MIRRORED the name. That default was fixed long ago — the front's own
+rect on the back face reads forwards from behind, which `sign-orient --selftest` has asserted since —
+and the blank stayed on. The entry's "check first" question answers itself off that selftest: the
+same rect on the back face reads `fwd / fwd`, and a u-swapped one reads mirrored. Note `postSign`'s
+own default back is `signBack`, another blank, so dropping the option would not have fixed it; the
+blade passes its own name.
+
+**And the instrument that should have seen it could not.** `tools/sign-orient.mjs` censuses lettered
+faces by rect, and its TEXT set was the shop atlas only, so the street buffer printed no row — 55
+blank blade backs, district-wide, were invisible to the one tool about which way signs face. It also
+printed its table and exited 0 whatever it said. Both fixed:
+
+                                     before        after
+    lettered blade faces             55            110     for 55 blades planned, owed 110
+    blank blade backs                55            0
+    mirrored, blades / district-wide 0 / 0         0 / 0
+
+It is a gate now (0.8 s, three checks against the plan's OWN blade count, so a blank back fails — a
+classifier that only counted mirrored faces would pass the shipped defect, because a blank is not
+text). Its selftest builds the shipped assembly, a blank back and a u-swapped back on two real baked
+names; `mutation-sweep`'s `blade-back-blank` is the defect put back. Same triangles: the back face was
+always emitted.
+
+#### #134 (as filed)
 From the same review, both arms: a blade assembly at [1235,85,1495,210], noon, shows two grey-green
 faces with no lettering. `appendStreetSignage` draws each blade double-sided with
 `backRect: streetRect('misc', 'bladeBack')`, a blank, so from the side the name faces away from the

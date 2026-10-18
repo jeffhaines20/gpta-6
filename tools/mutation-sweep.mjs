@@ -176,8 +176,14 @@ const OFFLINE = [
   // list built a shadow camera at all.
   'shadow-stable',
   // About 3 s, the same kind of page as car-cabin, from behind: the plate's face is a fragment-shader
-  // pattern on one slot, and its geometry is read off the builders before the browser starts.
+  // pattern on one slot, and its geometry is read off the builders before the browser starts — as
+  // is the player's door mirrors' (#133), which nothing else on this list builds.
   'car-detail',
+  // Under a second, offline. The lettering census over every sign face in the district, and since
+  // #134 the street-name blades against the plan's own count: the only thing that reads a sign's
+  // BACK face, which is where #134 was, so nothing above sees `blade-back-blank`.
+  'sign-orient',
+  'sign-orient --selftest',
   // #118's page, the same kind as ao-emit: five panels at known radiances through the real PostStack,
   // the bright pass's two arms off one load. Nothing else compiles BRIGHT_FRAG, so every bloom row
   // above is invisible to the rest of this list.
@@ -2651,6 +2657,24 @@ const MUTATIONS = [
     find: "  if (opts.cabin === false) m.defines = { ...(m.defines ?? {}), CAR_NO_CABIN: '' };",
     to: '',
     why: "the player's door mirrors grow seats",
+  },
+  {
+    id: 'mirror-sideways', file: 'src/carbody.js',
+    find: '    b.quad(gv(MG.x, -MG.y), gv(-MG.x, -MG.y), gv(-MG.x, MG.y), gv(MG.x, MG.y));',
+    to: '    boxAt(b, s * (flank + 0.190), mirrorY + 0.034, mirrorZ - 0.020, 0.006, 0.044, 0.082, dark, SURFACE.glassy, s * 0.16);',
+    why: "#133 put back: the door-mirror glass a slab on the housing's outboard face, a little window on the door from beside the car",
+  },
+  {
+    id: 'mirror-toe-out', file: 'src/carbody.js',
+    find: '    const yaw = -s * MIRROR_TOE;',
+    to: '    const yaw = s * MIRROR_TOE;',
+    why: 'the mirror toed out rather than in: its outer end swept forward and sin(toe), 20% of its glass, turned to a camera beside the car',
+  },
+  {
+    id: 'blade-back-blank', file: 'src/signage.js',
+    find: '        backRect: streetNameRect(name) });',
+    to: "        backRect: streetRect('misc', 'bladeBack') });",
+    why: '#134 put back: every street-name blade a blank plate from the side its name faces away from',
   },
   {
     id: 'cabin-shipped-off', file: 'src/carbody.js',

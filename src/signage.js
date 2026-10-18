@@ -1947,8 +1947,9 @@ export function signPanel(c, rt, up, w, h, rect, pos, nrm, uv, idx, opts = {}) {
     // read `mir`, with this one both read `fwd`.
     //
     // Callers that want a genuinely blank back still pass backRect (postSign
-    // passes signBack, streetBladeAssembly passes bladeBack) -- the shop atlas
-    // has no back cell, and a shop blade really is lettered on both faces.
+    // passes signBack) -- the shop atlas has no back cell, and a shop blade
+    // really is lettered on both faces. So is a street-name blade, which passed
+    // bladeBack until #134 and now passes its own name.
     const back = opts.backRect ?? q;
     quad(pos, nrm, uv, idx, P(1, -1), P(-1, -1), P(-1, 1), P(1, 1),
       [-n[0], -n[1], -n[2]], back, opts.col, opts.tint);
@@ -2320,9 +2321,16 @@ export function streetBladeAssembly(x, z, yaw, names, sign, trim, opts = {}) {
   names.slice(0, 2).forEach((name, i) => {
     const a = yaw + i * Math.PI / 2;
     // post: false — the assembly carries ONE pole for both blades, below.
+    //
+    // Lettered on BOTH faces (#134). This passed `backRect: bladeBack`, a blank, from when
+    // signPanel's default back was the u-swapped rect and would have mirrored the name; once the
+    // default became the front's own rect, which reads forwards from behind, the blank stayed on.
+    // So from the side a name faced away from, a blade was an unpainted plate, and with two blades
+    // at right angles a whole quadrant round every corner saw both blank. A real street-name blade
+    // carries the name on both faces. Same triangles: the back face was always emitted.
     postSign(x, z, a, y - i * (h + 0.07), w, h, streetNameRect(name), sign, null,
       { doubleSided: true, offset: 0, post: false, tint: opts.tint,
-        backRect: streetRect('misc', 'bladeBack') });
+        backRect: streetNameRect(name) });
   });
   hardware(sign, trim, streetRect('misc', 'postBand'),
     x, (y + 0.3 - GROUND_EMBED) / 2, z, 0.085, y + 0.3 + GROUND_EMBED, 0.085, opts.tint);

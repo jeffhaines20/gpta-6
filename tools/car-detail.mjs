@@ -10,7 +10,10 @@
 //
 //   OFFLINE, off the built buffers: every fleet shell and the player's car carries a plate of
 //   exactly 0.3048 x 0.1524 m, flat, whose uv.y runs 0 at its foot to 1 at its head (the face's own
-//   coordinate), and no body vertex stands behind it inside its outline.
+//   coordinate), and no body vertex stands behind it inside its outline. And the player's door
+//   mirrors show their glass to the back of the car and none of it to the side (#133): the first
+//   build laid the mirror on its side, so a camera beside the car saw 144 cm2 of glass and one
+//   behind it 33 cm2, most of that a face buried in the housing.
 //
 //   IN THE PAGE, through the real instanced material, from behind at street height:
 //     the face is there      most of the near plate changes, and some of it becomes ink
@@ -51,7 +54,7 @@ for (const a of argv) {
 }
 
 /** Fixed, so a check cannot vanish when a population is empty. */
-export const CHECK_COUNT = 21;
+export const CHECK_COUNT = 22;
 /** The render order: [which face, its value] per tile, rows top to bottom (see car-detail.html). */
 export const PLANNED = [...Array(4)].flatMap(() => [['plate', 0], ['plate', 1]])
   .concat([...Array(5)].flatMap(() => [['lamp', 0], ['lamp', 1]]));
@@ -82,6 +85,39 @@ export function plateGeometry() {
   return out;
 }
 
+/**
+ * THE DOOR MIRRORS' GLASS, per side, off the player's BODY buffer: the only glazing-slot texels on
+ * that material are mirror glass, because its panes are on their own `carGlassMaterial` (src/carbody.js
+ * says so where it defines CAR_NO_CABIN). For each side, the glass's whole area and how much of it a
+ * camera BESIDE the car (outboard, along +-x), BEHIND it (along -z) and AHEAD of it (along +z) sees,
+ * each as the area projected on that direction. A triangle counts as glass only if all three corners
+ * are on the slot, so a mixed one cannot leak in.
+ */
+export function mirrorGeometry() {
+  const g = buildPlayerCar().bodyMesh.geometry;
+  const pos = g.getAttribute('position'), uv = g.getAttribute('uv'), idx = g.getIndex();
+  const n = idx ? idx.count / 3 : pos.count / 3;
+  const at = (t, k) => (idx ? idx.getX(3 * t + k) : 3 * t + k);
+  const slot = (i) => Math.floor(uv.getX(i) * 16);
+  const sides = { 1: { side: 1, tris: 0, area: 0, beside: 0, behind: 0, ahead: 0 },
+    [-1]: { side: -1, tris: 0, area: 0, beside: 0, behind: 0, ahead: 0 } };
+  for (let t = 0; t < n; t++) {
+    const v = [0, 1, 2].map((k) => at(t, k));
+    if (!v.every((i) => slot(i) === SURFACE.glassy)) continue;
+    const [a, b, c] = v.map((i) => [pos.getX(i), pos.getY(i), pos.getZ(i)]);
+    const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    // Half the cross product: its length is the area and its direction the face normal (CCW = front).
+    const cr = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]].map((q) => q / 2);
+    const s = sides[(a[0] + b[0] + c[0]) > 0 ? 1 : -1];
+    s.tris++;
+    s.area += Math.hypot(...cr);
+    s.beside += Math.max(0, cr[0] * s.side);
+    s.behind += Math.max(0, -cr[2]);
+    s.ahead += Math.max(0, cr[2]);
+  }
+  return [sides[1], sides[-1]];
+}
+
 /** The verdict as a pure function of the report, so the selftest can feed it known-bads. */
 export function verdict(r) {
   const checks = [];
@@ -96,6 +132,17 @@ export function verdict(r) {
   add('flat, centred, carrying its own vertical in uv.y, with no body standing behind it',
     G.length === 4 && G.every((g) => g.zSpread < 1e-6 && Math.abs(g.cx) < 1e-6 && g.vOk && g.behind === 0),
     G.map((g) => `${g.name} z-spread ${num(g.zSpread)?.toExponential(1)} v ${g.vOk} behind ${g.behind}`).join(', '));
+  /**
+   * #133. 0.9 of the glass toward the back allows a toe-in up to 26 degrees (the build's is 11.5); 5% to
+   * the side refuses a toe the wrong way, which shows the outboard camera sin(toe) of the glass — 20% at
+   * the build's own angle. And at least 100 cm2 a side, so a car with no mirror glass cannot pass.
+   */
+  const M = Array.isArray(r.mirrors) ? r.mirrors : [];
+  const cm2 = (v) => (num(v) === null ? 'n/a' : (v * 1e4).toFixed(1));
+  add('the player\'s door mirrors show their glass to the back of the car, and none of it to the side',
+    M.length === 2 && M.every((m) => num(m.area) >= 0.01 && num(m.behind) >= 0.9 * m.area
+      && num(m.beside) <= 0.05 * m.area && num(m.ahead) === 0),
+    M.map((m) => `${m.side > 0 ? '+x' : '-x'}: ${cm2(m.area)} cm2, behind ${cm2(m.behind)}, beside ${cm2(m.beside)}, ahead ${cm2(m.ahead)}`).join('; '));
 
   add('the build ships the face ON', num(r.shipped) === 1, `shipped ${r.shipped}`);
   const rb = r.readback ?? [];
@@ -203,6 +250,8 @@ if (argv.includes('--selftest')) {
   /** A REAL REPORT, from a passing run of the page at noon. */
   const good = {
     geometry: ['coupe', 'saloon', 'wagon', 'player'].map(g),
+    // Measured off the build that fixed #133: 139.8 cm2 a side, 137.1 of it toward the back.
+    mirrors: [1, -1].map((side) => ({ side, tris: 2, area: 0.01398, behind: 0.01371, beside: 0, ahead: 0 })),
     shipped: 1, readback: PLANNED.map((k) => [...k]), after: 1,
     near: row(230, 158, 0.174, 0.4581, 0.066), far: row(21, 20, 0, 0.4690, 0.522),
     other: row(230, 145, 0.152, 0.4708, 0.044), player: row(230, 158, 0.174, 0.4581, 0.066),
@@ -236,6 +285,13 @@ if (argv.includes('--selftest')) {
     ['the player\'s plate left on the old band', (c) => { c.geometry[3].zSpread = 0.063; c.geometry[3].vOk = false; }, 'flat, centred'],
     ['a plate buried in its bumper', (c) => { c.geometry[1].behind = 6; }, 'flat, centred'],
     ['a shell with no plate', (c) => { c.geometry[2].verts = 0; }, 'carries a plate'],
+    // The mirror as it shipped before #133, measured off that build: the whole slab, 349.1 cm2 a side.
+    ['a door mirror laid on its side, its glass on the outboard face', (c) => {
+      c.mirrors = [1, -1].map((side) => ({ side, tris: 12, area: 0.03491, behind: 0.00334, beside: 0.01442, ahead: 0.00334 })); }, 'door mirrors'],
+    ['a mirror toed the wrong way, showing sin(toe) of its glass to the side', (c) => {
+      c.mirrors[0].beside = 0.199 * c.mirrors[0].area; }, 'door mirrors'],
+    ['a car with no mirror glass at all', (c) => { c.mirrors = c.mirrors.map((m) => ({ ...m, tris: 0, area: 0, behind: 0 })); }, 'door mirrors'],
+    ['one mirror missing', (c) => { c.mirrors = c.mirrors.slice(0, 1); }, 'door mirrors'],
     ['the face shipped off', (c) => { c.shipped = 0; c.after = 0; }, 'ships the face ON'],
     ['a switch that never reaches the material', (c) => { c.readback[1] = ['plate', 0]; }, 'switch is what it asked for'],
     ['a lamp switch that never reaches the material', (c) => { c.readback[9] = ['lamp', 0]; }, 'switch is what it asked for'],
@@ -266,9 +322,10 @@ if (argv.includes('--selftest')) {
   }
   // And the geometry checks read the REAL builders, so they are run here too: a selftest that only
   // fed the verdict invented numbers would pass on a build whose plate had already regressed.
-  const real = plateGeometry();
-  const geo = verdict({ ...good, geometry: real }).slice(0, 3);
-  say(geo.every((c) => c.ok), 'the shipped builders\' plates pass the three geometry checks', geo.filter((c) => !c.ok).map((c) => c.detail).join(' | '));
+  const real = plateGeometry(), realMirrors = mirrorGeometry();
+  const geo = verdict({ ...good, geometry: real, mirrors: realMirrors }).slice(0, 4);
+  say(geo.length === 4 && geo.every((c) => c.ok), 'the shipped builders pass the four geometry checks, the plates and the mirrors',
+    geo.filter((c) => !c.ok).map((c) => c.detail).join(' | '));
   console.log(`\nCAR-DETAIL SELFTEST: ${fail ? 'FAIL' : 'PASS'} — ${pass + fail} checks${fail ? `, ${fail} failed` : ''}`);
   process.exit(fail ? 1 : 0);
 }
@@ -298,6 +355,7 @@ if (!report || report.error) {
   process.exit(1);
 }
 report.geometry = geometry;
+report.mirrors = mirrorGeometry();
 if (argv.includes('--json')) console.log(JSON.stringify(report, null, 1));
 
 console.log(`CAR-DETAIL — the number plate, built and drawn (${report.tod})\n`);

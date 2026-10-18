@@ -48,7 +48,8 @@ if (typeof document === 'undefined') {
 }
 if (typeof performance === 'undefined') globalThis.performance = { now: () => Date.now() };
 
-const { districtSignageBuffers, buffers, signPanel, fasciaPlate, shopRect, orientRect } =
+const { districtSignageBuffers, buffers, signPanel, fasciaPlate, shopRect, orientRect,
+  planStreetSignage, streetBladeAssembly, postSign, streetNameRect, streetRect, hasStreetName } =
   await import('../src/signage.js');
 const { edgesOf } = await import('../src/facades.js');
 
@@ -135,6 +136,45 @@ function census(buf, tag, out) {
   }
 }
 
+/**
+ * THE STREET-NAME BLADES (#134), which the census above cannot see: TEXT is the shop atlas, so a
+ * blade's name rect is not in it and the street buffer printed no row at all. Every vertical panel in
+ * the street buffer is classified by its rect — a name, the blank `bladeBack`, or anything else —
+ * and a name face by which way it reads.
+ *
+ * What a blade owes is BOTH faces lettered and both forwards, so the census is checked against the
+ * plan's own count: an assembly carries min(2, baked names) blades and each blade two faces. A
+ * classifier that only counted mirrored faces would pass a build whose backs were blank, because a
+ * blank is not text — which is exactly the shipped defect, and why the expected count is in it.
+ */
+const rectKey = (r) => `${Math.min(r[0], r[2]).toFixed(6)},${Math.max(r[0], r[2]).toFixed(6)},` +
+  `${Math.min(r[1], r[3]).toFixed(6)},${Math.max(r[1], r[3]).toFixed(6)}`;
+function bladeCensus(street, names) {
+  const nameKeys = new Set(names.map((nm) => rectKey(streetNameRect(nm))));
+  const blankKey = rectKey(streetRect('misc', 'bladeBack'));
+  const out = { forwards: 0, mirrored: 0, blank: 0 };
+  for (let v = 0; (v + 3) * 3 + 2 < street.pos.length; v += 4) {
+    const o = quadOrientation(street.pos, street.nrm, street.uv, v);
+    if (!o) continue;
+    const k = rectKey(o.rect);
+    if (k === blankKey) out.blank++;
+    else if (nameKeys.has(k)) out[o.forwards ? 'forwards' : 'mirrored']++;
+  }
+  return out;
+}
+/** Blades the plan asks for: min(2, baked names) an assembly, as appendStreetSignage emits them. */
+function bladesPlanned(plan) {
+  return plan.blades.reduce((a, b) => a + Math.min(2, b.names.filter((nm) => hasStreetName(nm)).length), 0);
+}
+function bladeChecks(c, planned) {
+  return [
+    ['every street-name blade carries its name on both faces', c.forwards + c.mirrored === 2 * planned && c.blank === 0,
+      `${c.forwards + c.mirrored} lettered faces for ${planned} blades (owed ${2 * planned}), ${c.blank} blank`],
+    ['and every one of those faces reads forwards', c.mirrored === 0 && c.forwards > 0,
+      `${c.forwards} forwards, ${c.mirrored} mirrored`],
+  ];
+}
+
 function selftest() {
   // A wall edge in each winding. edgesOf() flips the normal by ring winding, so
   // these two rings produce the two handednesses the district actually contains.
@@ -218,6 +258,26 @@ function selftest() {
     console.log(`  ${name.padEnd(4)} orientRect, s=+1/-1:  ${show(fixed)}` +
       `  ${fixOK ? '(both forwards -- the fix)' : 'STILL MIRRORED'}`);
   }
+  // The blade census on known input: the shipped assembly, and the two ways a blade can be wrong.
+  // Real names, because a name the atlas did not bake falls back to cell 0 and is not this test.
+  const names = planStreetSignage(district).blades.flatMap((b) => b.names).filter((nm) => hasStreetName(nm));
+  const pair = [...new Set(names)].slice(0, 2);
+  const one = (build) => { const m = buffers(); build(m); return bladeCensus(m, pair); };
+  const shipped = one((m) => streetBladeAssembly(0, 0, 0.3, pair, m, null));
+  const blank = one((m) => postSign(0, 0, 0.3, 3, 1.55, 0.235, streetNameRect(pair[0]), m, null,
+    { doubleSided: true, post: false, backRect: streetRect('misc', 'bladeBack') }));
+  const r = streetNameRect(pair[0]);
+  const mirrored = one((m) => postSign(0, 0, 0.3, 3, 1.55, 0.235, r, m, null,
+    { doubleSided: true, post: false, backRect: [r[2], r[1], r[0], r[3]] }));
+  const verdictOf = (c, n) => bladeChecks(c, n).every(([, ok]) => ok);
+  const bt = [
+    [pair.length === 2, `two baked names to test with: ${pair.join(' / ')}`],
+    [verdictOf(shipped, 2), `the shipped assembly passes: ${JSON.stringify(shipped)} for 2 blades`],
+    [!verdictOf(blank, 1) && blank.blank === 1, `KNOWN-BAD, a blank back (as shipped before #134) fails: ${JSON.stringify(blank)}`],
+    [!verdictOf(mirrored, 1) && mirrored.mirrored === 1, `KNOWN-BAD, a u-swapped back fails: ${JSON.stringify(mirrored)}`],
+    [!verdictOf(shipped, 3), 'KNOWN-BAD, a plan owed more blades than were built fails'],
+  ];
+  for (const [ok, what] of bt) { if (!ok) fail++; console.log(`  ${ok ? 'ok  ' : 'FAIL'} blades: ${what}`); }
   console.log(fail ? `\nSELFTEST FAILED (${fail})` : '\nSELFTEST PASSED');
   return fail;
 }
@@ -239,3 +299,19 @@ for (const [k, v] of rows) {
   console.log(`${k.padEnd(20)} ${String(v.forwards).padStart(8)} ${String(v.mirrored).padStart(9)}${flag}`);
 }
 console.log(`${'TOTAL'.padEnd(20)} ${String(F).padStart(8)} ${String(M).padStart(9)}   ${(100 * M / (F + M)).toFixed(1)}% mirrored`);
+
+// The blades, against the plan's own count. A gate since #134: this tool printed a table and exited 0
+// whatever it said, and the street buffer had no row in it.
+const plan = planStreetSignage(district);
+const planned = bladesPlanned(plan);
+const blades = bladeCensus(res.street, plan.blades.flatMap((b) => b.names).filter((nm) => hasStreetName(nm)));
+console.log(`\nstreet-name blades       ${String(blades.forwards).padStart(8)} ${String(blades.mirrored).padStart(9)}   ${blades.blank} blank, ${planned} blades planned`);
+const checks = [
+  ['no lettered face anywhere in the district reads mirrored', M === 0 && F > 0, `${F} forwards, ${M} mirrored`],
+  ...bladeChecks(blades, planned),
+];
+console.log('');
+for (const [name, ok, detail] of checks) console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${name}  ${detail}`);
+const failed = checks.filter(([, ok]) => !ok).length;
+console.log(`\nSIGN-ORIENT: ${failed ? 'FAIL' : 'PASS'} — ${checks.length} checks${failed ? `, ${failed} failed` : ''}`);
+process.exit(failed ? 1 : 0);

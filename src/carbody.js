@@ -2785,16 +2785,38 @@ export function buildPlayerCar(opts = {}) {
       s, 0.006, SURFACE.chrome, chrome);
   }
 
-  // --- wing mirrors: stalk plus housing plus a reflective face.
-  const mirrorZ = 0.47, mirrorY = 0.335;
+  // --- wing mirrors: an arm, a housing, and the glass on the housing's BACK.
+  //
+  // #133: the first build laid the mirror on its side. The housing was 8.8 cm across and 19.6 cm
+  // fore and aft, and the glass was a slab on its OUTBOARD face, so read off this buffer the glass's
+  // big face had a normal of (0.99, 0, 0.16) - outward and a little forward. A camera beside the car
+  // saw 144 cm2 of mirror glass and one behind it 33 cm2, most of that a face buried inside the
+  // housing: a little window stuck on the door, which is what the driver's re-review saw side-on at
+  // 11 m. A door mirror's glass faces the driver, so it is rearward and toed in, and from beside the
+  // car what reads is the body-coloured housing.
+  //
+  // The outer edge stays where it was, 12 cm past the body's widest point, which is what real door
+  // mirrors add; the housing is 18 cm wide and 8.8 deep where it was 8.8 across and 19.6 long, its
+  // outer end is swept back (yaw -s * MIRROR_TOE, so the glass is toed in toward the cabin), and the
+  // glass is ONE quad 2 mm proud of the back face rather than a box, so no glass edge shows from the
+  // side either. Read back: 139.8 cm2 a side, 137.1 of it toward the back and none to the side.
+  // tools/car-detail.mjs asserts that, and is 20 triangles cheaper than the slab it replaced.
+  const mirrorZ = 0.47, mirrorY = 0.335, MIRROR_TOE = 0.2;
   const flank = flankX(shell.capPoly, shell.faces, mirrorZ, mirrorY);
+  const MH = { x: 0.09, y: 0.058, z: 0.044 };          // housing half-extents
+  const MG = { x: 0.076, y: 0.046, proud: 0.002 };     // glass half-extents, inset in the back face
   for (const s of [-1, 1]) {
-    boxAt(b, s * (flank + 0.055), mirrorY + 0.012, mirrorZ, 0.055, 0.022, 0.030,
+    const yaw = -s * MIRROR_TOE;
+    const hx = s * (flank + 0.022 + MH.x), hy = mirrorY + 0.034, hz = mirrorZ - 0.015;
+    boxAt(b, s * (flank + 0.025), mirrorY + 0.012, mirrorZ - 0.010, 0.025, 0.022, 0.030,
       trim, SURFACE.matte);
-    boxAt(b, s * (flank + 0.148), mirrorY + 0.034, mirrorZ - 0.015, 0.044, 0.058, 0.098,
-      paint, SURFACE.paint, s * 0.16);
-    boxAt(b, s * (flank + 0.190), mirrorY + 0.034, mirrorZ - 0.020, 0.006, 0.044, 0.082,
-      dark, SURFACE.glassy, s * 0.16);
+    boxAt(b, hx, hy, hz, MH.x, MH.y, MH.z, paint, SURFACE.paint, yaw);
+    // The glass, in the housing's own frame and turned by the same yaw. Wound like boxAt's -z face.
+    const sn = Math.sin(yaw), cs = Math.cos(yaw);
+    const gz = -MH.z - MG.proud, gx0 = s * 0.004;      // a hair outboard: the arm end is thicker
+    const gv = (px, py) => b.vert(hx + (gx0 + px) * cs - gz * sn, hy + py,
+      hz + (gx0 + px) * sn + gz * cs, dark, SURFACE.glassy);
+    b.quad(gv(MG.x, -MG.y), gv(-MG.x, -MG.y), gv(-MG.x, MG.y), gv(MG.x, MG.y));
   }
   // --- twin exhausts under the rear valance. No interior is MODELLED: the
   // glazing is opaque by design and the cabin is a picture drawn on it (see
