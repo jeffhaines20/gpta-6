@@ -453,7 +453,7 @@ export class Traffic {
     // rather than lights or emissive decals.
     //
     // NEAREST-N, NOT THE WHOLE FLEET, and the precedent is in this codebase:
-    // src/lightpool.js serves 543 street lamps from ten real PointLights on the
+    // src/lightpool.js serves 1,228 street lamps from ten real PointLights on the
     // same argument. A pool of light on the road is a near-field effect - at
     // 80 m a tail lamp's puddle is under two pixels - and an InstancedMesh is
     // billed by renderer.info at count x geometry, so the slot limit is the

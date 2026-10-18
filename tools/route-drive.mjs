@@ -44,7 +44,7 @@ import { Vehicle, BODY_RADIUS, BODY_SAMPLES } from '../src/vehicle.js';
 import { FlatGround } from '../src/ground.js';
 import { BlockerIndex, CarBlockers } from '../src/blockers.js';
 import * as THREE from '../vendor/three.module.min.js';
-import { StreetFurniture } from '../src/streetfurniture.js';
+import { StreetFurniture, LAMP_POOL } from '../src/streetfurniture.js';
 import { DamageModel } from '../src/damage.js';
 import { RoadGraph, followPath, minRadius, worstGap, cornerSpeed, RESPONSE } from '../src/roadpath.js';
 
@@ -92,7 +92,7 @@ const blockers = new BlockerIndex(district);
  * and it found the defect it is here for on its first run: a signal mast standing 3.0 m in front
  * of a corner kerb, hit on every lap at 5.6 m/s, health 1.000 -> 0.572 over three circuits.
  */
-const furniture = new StreetFurniture(new THREE.Scene(), { max: 1200 });
+const furniture = new StreetFurniture(new THREE.Scene(), { max: LAMP_POOL });
 furniture.placeStreetLamps(district);
 furniture.commit();
 furniture.dressDistrict(district, { audit: false });

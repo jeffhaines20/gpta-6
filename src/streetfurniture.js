@@ -63,7 +63,7 @@ import { buildingStyle } from './facades.js';
 import { signPlanFor } from './signage.js';
 import { streetDirFor } from './geom.js';
 import { paintFamily, paintTone, ACHROMATIC_SHARE } from './carpaint.js';
-import { STATION_LINE, KerbFace, squareOf } from './kerb.js';
+import { STATION_LINE, KerbFace, squareOf, kerbedEdge, kerbBackFor, planKerbs, KERB } from './kerb.js';
 
 /**
  * The lightness a CHROMATIC parked car is drawn at, as a module constant so a gate can read it.
@@ -3192,6 +3192,56 @@ const RIGID_SLICE = 0.6;
 const RIGID_MAX_R = 1.0;
 const LAMP_POLE_R = 0.155;
 /**
+ * The street lamp's bracket, in the fixture's own frame: the outer globe hangs LAMP_ARM out along
+ * local +x at LAMP_HEAD_Y, and that point is the emitter the host hands the LightPool. One
+ * definition, read by the geometry, by addLamp's returned head and by the gates (#135).
+ */
+export const LAMP_ARM = 2.2;
+export const LAMP_HEAD_Y = 7.7;
+/**
+ * #137: metres of centreline between consecutive street lamps, the sides alternating, so each
+ * pavement has one every 2 x 26 m and no point of a street is more than 26 m along it from a lamp
+ * on either side. This is the figure the old loop documented ("one every 26 m of centreline,
+ * alternating sides") and it is KEPT, after checking it against the reference, which shows a
+ * DIFFERENT SYSTEM rather than a different spacing of this one:
+ *
+ *   - 02-Worth's Block, both standards in frame: single frosted globes on post tops at about
+ *     second-floor sill height, no bracket and no arm. The twin-globe fixture in that photo is a
+ *     wall sconce on the brick.
+ *   - 03-Five Points: shepherd's-crook posts, one arm each, a pendant globe at its end.
+ *   - Main St east (x 260-460), mosaicked from the 2024 Mapillary panoramas into an elevation of
+ *     each pavement so a post lands at its true x: 4 m post-top lanterns at 269.0, 280.0, 288.7,
+ *     298.2, 307.5, 316.7, 325.9, 336.1, 344.5 on the north side — 8.7 to 11.0 m apart along built
+ *     frontage — and pairs about 9 m apart with 19-27 m gaps on the south, where trees and
+ *     driveways interrupt the row.
+ *
+ * So the real street is lit by a PEDESTRIAN system, five times this density per side, from 4 m
+ * lanterns; this fixture is an 8.2 m standard with a 2.2 m arm over the road, a roadway light,
+ * and 26 m staggered is 3.4 times its 7.7 m mounting height. Matching the reference's ~10 m per
+ * side with this fixture would be about 27,223 x 2 / 10 = 5,400 lamps, 784,000 of the budget
+ * gate's triangles (72 a lamp, x2 for the sun's shadow map) where the old loop's 509 were 73,000 —
+ * which takes the worst 2026-10-17 baseline p95, 845,957, to about 1,557,000, past the 1,400,000
+ * warn — and would still be the wrong fixture. The fixture's own comment, which says both
+ * photographs show "a black post carrying two frosted spheres on brackets", is not what they show.
+ */
+export const LAMP_SPACING = 26;
+/**
+ * The lamp pool: every lamp is an instance of three InstancedMeshes sized once, in the constructor,
+ * before anything is planned. The page and every tool build with THIS, so the pool cannot differ
+ * between them (it was `{ max: 1200 }` typed at eight call sites). It holds every station the plan
+ * proposes before any is skipped as redundant, dropped or refused — 1,546, and 1,793 for the draft
+ * without the corner clearance — so no choice the placer makes can run it out; a plan that outgrows it is `overflow` in placeStreetLamps' report, and
+ * kerb-stand fails on that rather than on lamps that silently do not draw. Unused slots cost
+ * memory, not frame: each mesh draws `count` instances.
+ */
+export const LAMP_POOL = 1800;
+/**
+ * Where a street lamp's post stands, in metres from its road's centreline (#137): behind the kerb's
+ * back chamfer with the pole's whole radius clear of it where src/kerb.js draws a kerb (#132), and
+ * w/2 + 1.4 where it does not — the old loop's own offset, which every unkerbed post still keeps.
+ */
+function lampLine(e) { return kerbedEdge(e) ? kerbBackFor(e.w) + LAMP_POLE_R : e.w / 2 + 1.4; }
+/**
  * #132: the footprints the three pole-like placers move behind the drawn kerb (src/kerb.js
  * KerbFace). A lamp's is its pole, above; a utility pole's the base of its 0.19 m prism; a signal's
  * is its 0.6 m square footing (`_signalMast`), whose reach toward a face depends on how it is turned
@@ -3348,11 +3398,11 @@ export class StreetFurniture {
     const poleGeo = new THREE.CylinderGeometry(0.085, 0.155, 8.2 + EMBED, 5);
     poleGeo.translate(0, (8.2 - EMBED) / 2, 0);
     // One bracket spanning the post, from the pavement-side globe to the
-    // roadway-side one: -1.0 to +2.2, so it is one box and not two.
-    const armGeo = new THREE.BoxGeometry(3.2, 0.13, 0.115);
-    armGeo.translate(0.6, 7.44, 0);
+    // roadway-side one: -1.0 to +LAMP_ARM (2.2), so it is one box and not two.
+    const armGeo = new THREE.BoxGeometry(LAMP_ARM + 1.0, 0.13, 0.115);
+    armGeo.translate((LAMP_ARM - 1.0) / 2, 7.44, 0);
     const headGeo = mergeGeos([
-      translated(new THREE.SphereGeometry(0.25, 5, 3), 2.2, 7.70, 0),
+      translated(new THREE.SphereGeometry(0.25, 5, 3), LAMP_ARM, LAMP_HEAD_Y, 0),
       translated(new THREE.SphereGeometry(0.22, 5, 3), -1.0, 7.66, 0),
     ]);
 
@@ -3411,7 +3461,7 @@ export class StreetFurniture {
     // A pole the car stops against (#126 part 2). The pole's own geometry, at its base: the bbox is
     // +/-0.147 across and -0.125..0.155 along, so 0.155 covers it.
     (this._lampSolids ??= []).push({ x, z, r: LAMP_POLE_R, kind: 'lamp' });
-    return { x: x + Math.cos(yaw) * 2.2, y: 7.7, z: z - Math.sin(yaw) * 2.2 };
+    return { x: x + Math.cos(yaw) * LAMP_ARM, y: LAMP_HEAD_Y, z: z - Math.sin(yaw) * LAMP_ARM };
   }
 
   /**
@@ -3428,58 +3478,296 @@ export class StreetFurniture {
   }
 
   /**
-   * THE STREET LAMPS, which district/main.js used to place with its own loop (#132). That loop is
-   * here now, verbatim but for one thing, so the dress pass, the crowd and every offline gate
-   * stand the same posts the page does: reaction-test's crowd had never met a lamp, because the
-   * furniture it built had none.
+   * THE STREET LAMPS, which district/main.js used to place with its own loop (#132), so the dress
+   * pass, the crowd and every offline gate stand the same posts the page does. Each post stands
+   * behind the kerb the streamer draws (`KerbFace.behind`, #132), and is not placed where it would
+   * have to stand in a building or between two faces to get there: a lamp in the road is the defect.
    *
-   * The one thing: on a kerbed street the post stood at w/2 + 1.4, which src/kerb.js turned into
-   * the middle of the parking lane, 1.10 m in front of the kerb face, on 472 of the 543 posts. It
-   * stands behind the kerb now, measured against the face the streamer draws (`KerbFace.behind`),
-   * with its base clear of the back chamfer. The arm is the same 2.2 m, so the head moves out with
-   * the post and hangs over the parking lane rather than the travelled way. A post that would have
-   * to stand in a building to clear the kerb is not placed: a lamp in the road is the defect.
+   * #137: BY ARC LENGTH ALONG EACH WHOLE EDGE. The loop this replaces placed `floor(len / 26)` lamps
+   * per POLYLINE SEGMENT, alternating by `s % 2` and restarting at s = 1 on every segment, so the
+   * 1,141 segments under 26 m got none (35.4% of the street) and the 217 that got one always put it
+   * on side +1 (398 lamps against 145). See `_lampStations` for what replaced it.
    *
-   * Returns the heads, for the host's LightPool, and what the move did.
+   * #135: THE ARM OVER THE ROADWAY. See the yaw in `_lampStations`.
+   *
+   * Returns the heads, for the host's LightPool, every lamp with the edge and side it was planned
+   * for, and the accounting: `planned` stations; `placed` lamps drawn; `redundant`, not placed
+   * because a lamp already lit their side; `dropped`, with no usable spot on their side; `refused`,
+   * whose every usable spot the #132 settle refused; and `overflow`, for want of an instance slot —
+   * which addLamp() signals by returning null, and which is counted rather than folded into
+   * `placed`, so a pool too small for the plan is a number a gate reads instead of lamps that
+   * silently do not draw.
    */
   placeStreetLamps(district, opts = {}) {
     this._prepare(district, opts.kerbFace);
-    const out = { heads: [], placed: 0, behind: 0, refused: 0 };
-    // Every drivable edge, not just the named ones, and no slice: an unnamed service street is
-    // still a street the player drives down at night. See district/main.js for the history of the
-    // count (233 lamps lit nothing; this is one every 26 m of centreline, alternating sides).
-    for (const e of district.edges) {
-      if (e.r > 6) continue;
-      for (let k = 0; k < e.v.length - 1 && out.placed < 1100; k++) {
-        const a = district.verts[e.v[k]], b = district.verts[e.v[k + 1]];
-        const len = Math.hypot(b.x - a.x, b.z - a.z);
-        const n = Math.floor(len / 26);
-        for (let s = 1; s <= n && out.placed < 1100; s++) {
-          const f = s / (n + 1);
-          const x = a.x + (b.x - a.x) * f, z = a.z + (b.z - a.z) * f;
-          const side = s % 2 ? 1 : -1;
-          const nx = -(b.z - a.z) / len, nz = (b.x - a.x) / len;
-          const off = (e.w / 2 + 1.4) * side;
-          // Point the arm back over the roadway.
-          const yaw = Math.atan2(-nx * side, -nz * side);
-          const kb = this.kerbFace.behind(x + nx * off, z + nz * off, LAMP_POLE_R);
-          if (kb.moved > 0) {
-            // No room: the post would stand in a building, or between two faces that each push it
-            // in front of the other (a refuge too narrow for a footing) — measured where it ended.
-            if (this.buildingClearance(kb.x, kb.z) < LAMP_POLE_R || kb.worst < -0.01) {
-              out.refused++;
-              continue;
-            }
-            out.behind++;
+    const out = { heads: [], lamps: [], placed: 0, overflow: 0 };
+    const plan = this.kerbFace.plan ?? planKerbs(district);
+    const st = this._lampStations(district, plan, opts.spacing ?? LAMP_SPACING);
+    for (const { ei, s, side, x, z, yaw } of st.stations) {
+      const head = this.addLamp(x, z, yaw);
+      if (!head) { out.overflow++; continue; }
+      out.heads.push(head);
+      out.lamps.push({ ei, s, side, x, z, yaw, head });
+      out.placed++;
+    }
+    Object.assign(out, st.stats);
+    this.lampPlan = { placed: out.placed, overflow: out.overflow, ...st.stats };
+    return out;
+  }
+
+  /**
+   * #137: WHERE ALONG EACH DRIVABLE EDGE A LAMP STANDS, AND ON WHICH SIDE.
+   *
+   * A spot at arc length s on side `side` is USABLE when
+   *   - on a kerbed edge, the drawn kerb runs STRAIGHT there on that side: `planKerbs`' straight
+   *     pieces begin at each corner return's tangent point and are cut at every alley mouth, so they
+   *     are the junction mouths as the streamer draws them, side by side — at a T the far side runs
+   *     straight through and keeps its lamps, where any radius about the junction would clear both
+   *     sides alike. Each piece is assigned to a side by its own anchors' lateral sign, not by a
+   *     mapping between the two modules' side conventions, which are opposite;
+   *   - and no road comes nearer the post, on the line it ends up on, than its own road does: every
+   *     road keeps its own lamp line (`lampLine`) clear, the kerb's back chamfer plus the pole where
+   *     src/kerb.js draws a kerb and w/2 + 1.4 where it does not. That is the whole test on an
+   *     unkerbed edge, and on a kerbed one it catches what the straights' own cut (the FACE against a
+   *     carriageway) leaves 0.4 m short of the post line. The first version kept only each road's
+   *     CORRIDOR clear — on an unkerbed road, its carriageway — and stood posts 0.26 and 0.40 m off
+   *     the ribbon of a narrow one-way carriageway at a fork (edges 254, 268, 274), where route-drive's
+   *     follower hit both at 13-16 m/s on its first lap: a post may not stand nearer somebody else's
+   *     road than the 1.4 m it keeps from its own;
+   *   - and a road that TURNS off at either end of the edge keeps a corner clear as well, KERB.cornerR
+   *     past its lamp line, where `planKerbs` draws no corner return between the two — see `turning`.
+   * All three read the geometry; none is a number picked for the clearance.
+   *
+   * The stations run from the first usable s to the last, `ceil(span / spacing) + 1` of them,
+   * evenly, with the sides alternating along the whole edge: so no two are more than a spacing
+   * apart and each end of the usable span — the corner, where the drawn kerb turns — has one. An
+   * edge too short for one gap therefore gets one lamp each side. Measured against the
+   * alternatives over the district (26 m, coverage as kerb-stand defines it):
+   *
+   *                                           lamps  both sides  neither  one-sided  same-side pairs
+   *                                                       lit                  edges   under 13 m (3 m)
+   *     one per gap, centred, short edge one   1,030     67.1%      2.7%      102         65 (18)
+   *     one per gap, centred, short edge two   1,183     75.7%      2.5%       48        109 (21)
+   *     both ends anchored, as here            1,439     86.3%      1.4%       29        225 (85)
+   *     ... and a side already lit is skipped  1,228     85.2%      1.6%       36         10  (0)
+   *
+   * THE LAST ROW IS WHAT SHIPS. Anchoring both ends of every edge stands a lamp at every corner, and
+   * where short edges meet — a junction complex, Five Points — it stood them 2 to 5 m apart, each
+   * edge anchoring its own beside its neighbour's. So the edges are placed LONGEST FIRST and a station
+   * is skipped when its own side already has a lamp within half a spacing of it: half, because the
+   * layout's own same-side gaps run from one spacing to two, so the rule can never thin one edge's
+   * own rhythm, only the duplicates where edges meet. Swept: within 0.25 / 0.5 / 0.75 / 1.0 spacing
+   * it leaves 1,328 / 1,228 / 1,129 / 1,075 lamps at 86.0 / 85.2 / 83.1 / 81.2%, and 97 / 10 / 8 / 7
+   * crowded pairs — 211 lamps for 1.1 points at a half, where the crowding has gone and after which
+   * the coverage falls faster than the count. Every row is kerb-stand's coverage on these
+   * usable-spot rules. An earlier draft without the lamp-line and corner rules read 91.2% anchored
+   * and 89.9% with the skip, at 1,710 and 1,295 lamps, and route-drive's follower hit three of its
+   * lamps on the first lap (and, once damaged, a signal mast); with the lamp line alone, one more.
+   *
+   * Each station looks for a spot on its own side, nearest first, within one gap of where it fell,
+   * and keeps the first that the #132 settle accepts: behind the kerb, in no building and not between
+   * two faces. One that finds none is dropped or refused, and counted.
+   */
+  _lampStations(d, plan, spacing) {
+    const STEP = 0.25;
+    const stations = [];
+    const stats = { planned: 0, redundant: 0, snapped: 0, dropped: 0, refused: 0, behind: 0,
+      edges: 0, streetM: 0, bareEdges: 0, bareM: 0 };
+    const lit = new Grid(16);
+    const edgeLength = (e) => {
+      let l = 0;
+      for (let k = 1; k < e.v.length; k++) {
+        l += Math.hypot(d.verts[e.v[k]].x - d.verts[e.v[k - 1]].x, d.verts[e.v[k]].z - d.verts[e.v[k - 1]].z);
+      }
+      return l;
+    };
+    const order = [];
+    d.edges.forEach((e, ei) => { if (e.r <= 6) order.push({ ei, L: edgeLength(e) }); });
+    // Every road leaving each junction vertex, and which way: what decides whether a road meeting an
+    // edge's end TURNS off it or carries straight on.
+    const leaving = new Map();
+    d.edges.forEach((e, ei) => {
+      for (const [v0, v1] of [[e.v[0], e.v[1]], [e.v[e.v.length - 1], e.v[e.v.length - 2]]]) {
+        const a = d.verts[v0], b = d.verts[v1], l = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+        if (!leaving.has(v0)) leaving.set(v0, []);
+        leaving.get(v0).push({ ei, dx: (b.x - a.x) / l, dz: (b.z - a.z) / l });
+      }
+    });
+    const straightOn = Math.cos((180 - KERB.flatGapDeg) * Math.PI / 180);
+    order.sort((p, q) => q.L - p.L || p.ei - q.ei);
+    let odd = 1;
+    for (const { ei } of order) {
+      const e = d.edges[ei];
+      const pts = e.v.map((vi) => d.verts[vi]);
+      const cum = [0];
+      for (let k = 1; k < pts.length; k++) {
+        cum.push(cum[k - 1] + Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z));
+      }
+      const L = cum[cum.length - 1];
+      stats.edges++;
+      stats.streetM += L;
+      if (L < 1e-6) continue;
+      // The centreline point and its unit normal at arc length s, (nx, nz) = (-dz, dx) as the loop
+      // this replaced had it, so "side +1" means what it did there.
+      const at = (s) => {
+        let k = 1;
+        while (k < pts.length - 1 && cum[k] < s) k++;
+        const a = pts[k - 1], b = pts[k], len = (cum[k] - cum[k - 1]) || 1e-9;
+        const t = Math.max(0, Math.min(1, (s - cum[k - 1]) / len));
+        return { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t, nx: -(b.z - a.z) / len, nz: (b.x - a.x) / len };
+      };
+      const proj = (x, z) => {
+        let best = Infinity, bs = 0, lat = 0;
+        for (let k = 1; k < pts.length; k++) {
+          const a = pts[k - 1], b = pts[k];
+          const dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz;
+          let t = l2 ? ((x - a.x) * dx + (z - a.z) * dz) / l2 : 0;
+          t = Math.max(0, Math.min(1, t));
+          const q = Math.hypot(x - a.x - dx * t, z - a.z - dz * t);
+          if (q < best) {
+            best = q;
+            bs = cum[k - 1] + t * (cum[k] - cum[k - 1]);
+            lat = ((x - a.x) * -dz + (z - a.z) * dx) / (Math.sqrt(l2) || 1);
           }
-          const head = this.addLamp(kb.x, kb.z, yaw);
-          if (head) out.heads.push(head);
-          out.placed++;
+        }
+        return { s: bs, lat };
+      };
+      const kerbed = kerbedEdge(e);
+      const line = lampLine(e);
+      const straight = { [1]: [], [-1]: [] };
+      if (kerbed) {
+        for (const side of plan.edgeRuns[ei] ?? []) {
+          for (const piece of side ?? []) {
+            const p0 = proj(piece[0].ax, piece[0].az);
+            const p1 = proj(piece[piece.length - 1].ax, piece[piece.length - 1].az);
+            straight[p0.lat + p1.lat >= 0 ? 1 : -1].push([Math.min(p0.s, p1.s), Math.max(p0.s, p1.s)]);
+          }
         }
       }
+      // The other roads whose corridor can reach this edge's post lines at all, found once per edge:
+      // the test runs at every sample of both sides, and almost none of them has a road near it.
+      let bx0 = Infinity, bx1 = -Infinity, bz0 = Infinity, bz1 = -Infinity;
+      for (const p of pts) {
+        if (p.x < bx0) bx0 = p.x; if (p.x > bx1) bx1 = p.x;
+        if (p.z < bz0) bz0 = p.z; if (p.z > bz1) bz1 = p.z;
+      }
+      // THE ROADS THAT TURN OFF AT EITHER END keep a corner clear as well as their lamp line: kerb.js's
+      // own return radius, KERB.cornerR, the room a corner gives a car turning between the two. Where
+      // both roads are kerbed `planKerbs` draws that return and its straights start past it; where an
+      // unkerbed road joins, it draws none, and the first version stood a post 1.6 m off a 2.8 m
+      // alley's ribbon in the inside corner of the left turn into it (edge 107 into service 350, by
+      // Five Points), which route-drive's follower then took at 12 m/s. Between two kerbed roads it is
+      // not added again: the straights already start past the drawn return, and adding the radius on
+      // top of it cost 4.3 points of the street lit on both sides (80.9% against 85.2%) and left 129
+      // edges with no lamp at all against 90, for no contact route-drive could see. A road carrying
+      // STRAIGHT ON — within kerb.js's flatGapDeg of a straight line, where it draws no corner either —
+      // is the same street continuing, and gets no corner: that would open a gap at every vertex.
+      const turning = new Set();
+      for (const v of [e.v[0], e.v[e.v.length - 1]]) {
+        const mine = leaving.get(v).find((q) => q.ei === ei);
+        for (const q of leaving.get(v)) {
+          if (q.ei !== ei && mine.dx * q.dx + mine.dz * q.dz > straightOn
+            && !(kerbed && kerbedEdge(d.edges[q.ei]))) turning.add(q.ei);
+        }
+      }
+      const reachOf = line + 0.5 + KERB.cornerR;
+      // ITS OWN ROAD COUNTS TOO, past a bend: a post square to one segment stands inside the corridor
+      // of the next one on the inside of a sharp turn. Edges 179 and 180 turn about 82 degrees at a
+      // shape point with no radius, and the first version stood a post there 3.9 m from the next
+      // segment's centreline — in its parking lane, where kerb.js's own face folds (its header
+      // records the fold) — with an arm aimed across the segment before the bend.
+      const others = this.segs.filter((g) => Math.max(g.x0, g.x1) + g.lamp + reachOf >= bx0
+        && Math.min(g.x0, g.x1) - g.lamp - reachOf <= bx1
+        && Math.max(g.z0, g.z1) + g.lamp + reachOf >= bz0 && Math.min(g.z0, g.z1) - g.lamp - reachOf <= bz1);
+      const usable = (s, side) => {
+        if (kerbed && !straight[side].some(([a, b]) => s >= a - 1e-6 && s <= b + 1e-6)) return false;
+        const c = at(s);
+        const x = c.x + c.nx * line * side, z = c.z + c.nz * line * side;
+        for (const g of others) {
+          // The segment the station stands square to is the one its post line is drawn from.
+          if (g.ei === ei && segDist(c.x, c.z, g.x0, g.z0, g.x1, g.z1) < 1e-6) continue;
+          const clear = g.lamp + (turning.has(g.ei) ? KERB.cornerR : 0);
+          if (segDist(x, z, g.x0, g.z0, g.x1, g.z1) < clear - 1e-6) return false;
+        }
+        return true;
+      };
+      const N = Math.max(1, Math.ceil(L / STEP));
+      const ok = { [1]: new Uint8Array(N + 1), [-1]: new Uint8Array(N + 1) };
+      let A = -1, B = -1;
+      for (let i = 0; i <= N; i++) {
+        for (const side of [1, -1]) {
+          if (usable((L * i) / N, side)) {
+            ok[side][i] = 1;
+            if (A < 0) A = i;
+            B = i;
+          }
+        }
+      }
+      if (A < 0) { stats.bareEdges++; stats.bareM += L; continue; }
+      const span = ((B - A) * L) / N;
+      const n = span < STEP ? 1 : Math.ceil(span / spacing) + 1;
+      const gap = n > 1 ? (B - A) / (n - 1) : 0;          // in samples
+      // Which side the first station takes: the one usable at the start, or, for an odd count, the
+      // one usable at the end; otherwise a side that alternates district-wide, so no side is the
+      // default — the loop this replaced gave every lone lamp to +1. What is left of the split is
+      // geometry: the left of a one-way carriageway is often its median, where no post has room.
+      // kerb-stand prints the two-way and one-way splits apart.
+      let first;
+      const a1 = ok[1][A], a2 = ok[-1][A], b1 = ok[1][B], b2 = ok[-1][B];
+      if (a1 !== a2) first = a1 ? 1 : -1;
+      else if (n % 2 === 1 && b1 !== b2) first = b1 ? 1 : -1;
+      else { first = odd; odd = -odd; }
+      const reach = Math.max(1, Math.round(n > 1 ? gap : B - A));
+      for (let k = 0; k < n; k++) {
+        const side = k % 2 ? -first : first;
+        const i0 = Math.round(A + k * gap);
+        stats.planned++;
+        // Already lit: a lamp on this side within half a spacing, from an edge placed before — asked
+        // where the station falls and again where it ends up, since the search can move it a gap.
+        const litAt = (c0) => {
+          for (const p of lit.near(c0.x, c0.z, [])) {
+            const dx = p.x - c0.x, dz = p.z - c0.z;
+            const lat = dx * c0.nx + dz * c0.nz, along = dx * c0.nz - dz * c0.nx;
+            if (lat * side > 0 && lat * side <= line + 3 && Math.abs(along) < spacing / 2) return true;
+          }
+          return false;
+        };
+        if (litAt(at((L * i0) / N))) { stats.redundant++; continue; }
+        let found = null, usableSeen = false;
+        for (let r = 0; r <= reach && !found; r++) {
+          for (const i of r ? [i0 - r, i0 + r] : [i0]) {
+            if (i < 0 || i > N || !ok[side][i]) continue;
+            usableSeen = true;
+            const s = (L * i) / N, c = at(s);
+            const off = (e.w / 2 + 1.4) * side;
+            const kb = this.kerbFace.behind(c.x + c.nx * off, c.z + c.nz * off, LAMP_POLE_R);
+            // No room: the post would stand in a building, or between two faces that each push it
+            // in front of the other (a refuge too narrow for a footing) — measured where it ended.
+            if (kb.moved > 0 && (this.buildingClearance(kb.x, kb.z) < LAMP_POLE_R || kb.worst < -0.01)) continue;
+            found = { i, s, c, kb };
+            break;
+          }
+        }
+        if (!found) { if (usableSeen) stats.refused++; else stats.dropped++; continue; }
+        if (found.i !== i0 && litAt(found.c)) { stats.redundant++; continue; }
+        if (found.i !== i0) stats.snapped++;
+        if (found.kb.moved > 0) stats.behind++;
+        const { c, kb } = found;
+        // #135: THE ARM OVER THE ROADWAY. The bracket and both globes are on the fixture's local +x,
+        // which a yaw about +y sends to (cos yaw, -sin yaw). The post stands at +side * (nx, nz) from
+        // the centreline, so the road is -side * (nx, nz) from it: cos yaw = -nx * side and
+        // sin yaw = nz * side. The loop this replaced wrote atan2(-nx * side, -nz * side) under the
+        // comment "point the arm back over the roadway", which sends +x to (-nz * side, nx * side) —
+        // the edge's own direction — and every one of its 509 arms ran along the street, the
+        // "roadway" globe and the emitter 2.2 m along the pavement at the post's own offset.
+        // kerb-stand measures the head against the post off the instance matrices.
+        const yaw = Math.atan2(c.nz * side, -c.nx * side);
+        stations.push({ ei, s: found.s, side, x: kb.x, z: kb.z, yaw });
+        const p = { x: kb.x, z: kb.z };
+        lit.insert(p, p.x, p.z, p.x, p.z);
+      }
     }
-    this.lampPlan = { placed: out.placed, behind: out.behind, refused: out.refused };
-    return out;
+    return { stations, stats };
   }
 
   commit() {
@@ -3820,7 +4108,10 @@ export class StreetFurniture {
     d.edges.forEach((e, ei) => {
       for (let k = 0; k < e.v.length - 1; k++) {
         const a = d.verts[e.v[k]], b = d.verts[e.v[k + 1]];
-        const s = { x0: a.x, z0: a.z, x1: b.x, z1: b.z, hw: e.w / 2, ei };
+        // `lamp` is the line a street lamp keeps from this road's centreline (#137): behind the kerb's
+        // back chamfer where src/kerb.js draws one, w/2 + 1.4 where it does not. No road may come
+        // nearer a lamp post than the post's own road does — see `_lampStations`.
+        const s = { x0: a.x, z0: a.z, x1: b.x, z1: b.z, hw: e.w / 2, lamp: lampLine(e), ei };
         this.segs.push(s);
         const pad = e.w / 2 + 8;
         this.roadGrid.insert(s,

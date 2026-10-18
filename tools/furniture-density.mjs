@@ -18,7 +18,7 @@
 // harness dresses a district the page never renders.
 import * as THREE from '../vendor/three.module.min.js';
 import fs from 'node:fs';
-import { StreetFurniture } from '../src/streetfurniture.js';
+import { StreetFurniture, LAMP_POOL } from '../src/streetfurniture.js';
 
 const arg = (k, dflt) => {
   const i = process.argv.indexOf(`--${k}`);
@@ -51,7 +51,7 @@ function instrument(fu) {
 
 function dress() {
   const d = JSON.parse(fs.readFileSync('data/district.json', 'utf8'));
-  const fu = new StreetFurniture(new THREE.Scene(), { max: 1200 });
+  const fu = new StreetFurniture(new THREE.Scene(), { max: LAMP_POOL });
   let placed = 0;
   for (const e of d.edges) {
     if (e.r > 6) continue;

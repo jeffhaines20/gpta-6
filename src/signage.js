@@ -1006,7 +1006,7 @@ function drawStripe(L, x, y, size, i, r) {
 // unlit street. facades.js buildTrimEmissive's `spill` comment states the limit
 // this lifts: "the public pavement beyond it is a different material ... putting
 // light on it would need either a real emitter - the pool is ten slots against
-// 543 lamps, so no - or a new quad per bay, which is triangles this budget does
+// 1,228 lamps, so no - or a new quad per bay, which is triangles this budget does
 // not have". The quad is per TENANCY, not per bay, and only where a tenancy is
 // actually lit and has room in front of it: 714 quads, 1,428 triangles, priced
 // offline by tools/shop-spill.mjs --census.

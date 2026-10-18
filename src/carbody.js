@@ -2474,7 +2474,7 @@ export function buildWheelGeometry(opts = {}) {
  * loudest remaining "this is not a car" cue in the district.
  *
  * WHY IT IS GEOMETRY AND NOT A LIGHT. src/lightpool.js is a nearest-N pool of
- * ten real PointLights serving 543 street lamps; a fleet of 30 cars with two
+ * ten real PointLights serving 1,228 street lamps; a fleet of 30 cars with two
  * lamps each cannot have any of those slots, and adding lights would cost a
  * per-fragment lighting evaluation across the whole district for an effect that
  * is a few metres across.

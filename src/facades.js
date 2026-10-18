@@ -1898,7 +1898,7 @@ function buildTrimEmissive(E) {
   // the glass line out to the wall line, 0.42-0.88 m of recess floor depending on
   // the lot. The public pavement beyond it is a different material owned by
   // src/materials.js' ground, and putting light on it would need either a real
-  // emitter - the pool is ten slots against 543 lamps, so no - or a new quad per
+  // emitter - the pool is ten slots against 1,228 lamps, so no - or a new quad per
   // bay, which is triangles this budget does not have.
   const spill = (state, k) => {
     const { x, y } = at(TRIM.bulkhead, state);

@@ -35,7 +35,7 @@ import { BODY_ENCLOSING, BODY_RADIUS as BODY_RADIUS_CAR } from '../src/vehicle.j
 import { RoadGraph, ROUTE_LANE_M } from '../src/roadpath.js';
 import { HALF_EXTENT } from '../src/damage.js';
 import * as THREE from '../vendor/three.module.min.js';
-import { StreetFurniture } from '../src/streetfurniture.js';
+import { StreetFurniture, LAMP_POOL } from '../src/streetfurniture.js';
 
 const checks = [];
 const check = (name, ok, detail) => { checks.push({ name, ok: !!ok, detail }); return !!ok; };
@@ -704,7 +704,7 @@ console.log('\n§3c A body stops at the street furniture');
   // src/pedestrians.js's own margin, which is not exported; the gate uses the same figure it
   // does rather than a rounder one, so the two cannot drift.
   const BUILDING_MARGIN = 0.28;
-  const fu = new StreetFurniture(new THREE.Scene(), { max: 1200 });
+  const fu = new StreetFurniture(new THREE.Scene(), { max: LAMP_POOL });
   // The lamps as the page stands them (#132): they are on the pavement now, so they are in the
   // crowd's obstacle list, and a crowd built without them is not the page's crowd.
   fu.placeStreetLamps(district);
@@ -1984,7 +1984,7 @@ console.log('\n§  the crowd and the kerb');
       * (ped.forward ? ped.laneJitter * 0.42 : 0.48 + ped.laneJitter * 0.42);
     return p;
   };
-  const fu = new StreetFurniture(new THREE.Scene(), { max: 1200 });
+  const fu = new StreetFurniture(new THREE.Scene(), { max: LAMP_POOL });
   fu.commit();
   fu.dressDistrict(district, { audit: false });
   fu.buildParkedCars();
