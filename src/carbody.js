@@ -1197,6 +1197,7 @@ function patchLensFalloff(m) {
     shader.uniforms.uLensPow = LENS_PROFILE.uLensPow;
     shader.uniforms.uLensGain = LENS_PROFILE.uLensGain;
     shader.uniforms.uGlassEnvExtra = GLASS_ENV.uGlassEnvExtra;
+    shader.uniforms.uGlassAoExempt = GLASS_AO.uGlassAoExempt;
     if (!shader.fragmentShader.includes(EMISSIVE_DECL)) {
       throw new Error('carSurfaceMaterial: emissive declaration not found; lens falloff would silently no-op');
     }
@@ -1215,7 +1216,6 @@ function patchLensFalloff(m) {
     if (!shader.fragmentShader.includes(OPAQUE_FRAGMENT_DECL)) {
       throw new Error('carSurfaceMaterial: opaque_fragment include not found; the glazing would silently stay under the AO (#130)');
     }
-    shader.uniforms.uGlassAoExempt = GLASS_AO.uGlassAoExempt;
     shader.uniforms.uCabinFix = CABIN_U.uCabinFix;
     shader.uniforms.uCabinDriver = CABIN_U.uCabinDriver;
     shader.uniforms.uCabinGain = CABIN_U.uCabinGain;
