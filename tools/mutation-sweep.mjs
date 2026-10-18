@@ -528,10 +528,45 @@ const MUTATIONS = [
   },
   // ---- src/roadpath.js
   {
+    // Repointed by #128: the floor is CRAWL_MS now, derived, where it was a literal 2.2.
     id: 'crawl-floor', file: 'src/roadpath.js',
-    find: '  return Math.max(2.2, Math.min(gripSpeed(radius), steerableSpeed(radius)));',
+    find: '  return Math.max(CRAWL_MS, Math.min(gripSpeed(radius), steerableSpeed(radius)));',
     to: '  return Math.min(gripSpeed(radius), steerableSpeed(radius));',
     why: 'an impossible corner stops the car dead instead of letting it creep round',
+  },
+  {
+    /**
+     * #128, PUT BACK: the floor a SPEED equal to the free DELTA-V, which is what "free by
+     * construction" claimed for as long as it shipped. Only a check that holds the crawl and
+     * charges a clip at it can see the difference — the old check compared the two numbers.
+     */
+    id: 'crawl-floor-old', file: 'src/roadpath.js',
+    find: 'export const CRAWL_MS = FREE_DV / (1 + WALL_E) - SPEED_DEADBAND - CRAWL_OVERRUN;',
+    to: 'export const CRAWL_MS = FREE_DV;',
+    why: 'the crawl is held at 2.5 m/s and a head-on clip there charges 2.88 against a free 2.2',
+  },
+  {
+    id: 'crawl-no-overrun', file: 'src/roadpath.js',
+    find: 'export const CRAWL_MS = FREE_DV / (1 + WALL_E) - SPEED_DEADBAND - CRAWL_OVERRUN;',
+    to: 'export const CRAWL_MS = FREE_DV / (1 + WALL_E) - SPEED_DEADBAND;',
+    why: 'the loop runs one control step past its deadband, so at a coarse step the clip charges 2.23',
+  },
+  {
+    id: 'crawl-deadband', file: 'src/roadpath.js',
+    find: '  if (over > SPEED_DEADBAND) brake = clamp(over / 3, 0.15, 1);',
+    to: '  if (over > 0.6) brake = clamp(over / 3, 0.15, 1);',
+    why: 'the loop holds its target plus a deadband the floor was not derived from',
+  },
+  {
+    /**
+     * #128, PUT BACK: the look-ahead tuned for the flat-gain steering. Every budget route-drive had
+     * passed it — 88 contacts against 300, 1.987 against a free 2.2 — so only the headroom drive
+     * (the course at cap + 4 m/s) can fail it, which is why that check exists.
+     */
+    id: 'follow-lookahead-old', file: 'src/roadpath.js',
+    find: '  const lookAhead = clamp(2 + speed * 0.7, 3, 28);',
+    to: '  const lookAhead = clamp(6 + speed * 0.9, 8, 28);',
+    why: 'pure pursuit turns in early and cuts every junction; route-drive scrapes and has no headroom',
   },
   {
     /**
