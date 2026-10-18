@@ -126,6 +126,10 @@ export const HERO_FRAMINGS = [
  */
 export const HERO_EXTRA_FRAMINGS = [
   { name: 'cabin', wpA: 3, look: 'car', carSide: 11, height: 1.6, fov: 40, tgtY: 1.1 },
+  // #133's other half: the same car from behind and to its left, 6 m back and 2.4 m out on North
+  // Lemon Avenue, where a door mirror's glass is what a camera should see. The side-on `cabin`
+  // framing shows the half that was wrong; this one shows the half that was missing.
+  { name: 'mirrorback', wpA: 3, look: 'car', carSide: 2.4, carBack: 6.0, height: 1.25, fov: 34, tgtY: 0.9 },
 ];
 
 export function placeHeroCam(page, cfg) {
@@ -217,7 +221,7 @@ export function placeHeroCam(page, cfg) {
 function placeCarCam(page, cfg) {
   return page.evaluate((cfg) => {
     const a = __district.district.meta.route[cfg.wpA];
-    const px = a.x + cfg.carSide, pz = a.z;
+    const px = a.x + cfg.carSide, pz = a.z - (cfg.carBack ?? 0);
     let inside = -1;
     for (const [bi, b] of __district.district.buildings.entries()) {
       const ring = b.p;
