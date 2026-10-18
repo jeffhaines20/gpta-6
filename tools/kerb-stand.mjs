@@ -41,7 +41,7 @@
 // Both instruments are pure functions with selftest arms on synthetic streets.
 import fs from 'node:fs';
 import * as THREE from '../vendor/three.module.min.js';
-import { planKerbs, KERB } from '../src/kerb.js';
+import { planKerbs, KERB, kerbedEdge } from '../src/kerb.js';
 import { StreetFurniture, LAMP_POOL, LAMP_ARM, LAMP_SPACING } from '../src/streetfurniture.js';
 import { planStreetSignage } from '../src/signage.js';
 
@@ -541,6 +541,45 @@ if (!SELFTEST && IS_MAIN) {
       + `${oldOverRoad} of ${kerbedLamps} heads over the road`);
   check('and the placer\'s side for every lamp is the side its post stands on', sideAgrees === lamps.lamps.length,
     `${sideAgrees} of ${lamps.lamps.length}`);
+
+  /**
+   * NO POST STANDS NEARER SOMEBODY ELSE'S ROAD THAN ITS OWN. A post beside an unkerbed road keeps a
+   * clearance from that road's carriageway, measured here off the posts themselves (their median),
+   * and no post may stand nearer any OTHER unkerbed carriageway than that. A kerbed road's own kerb
+   * already keeps every post behind it — the checks above. The placer's first plan stood posts 0.26
+   * and 0.40 m off a narrow one-way carriageway at a fork, which route-drive's follower hit; with its
+   * corner clearance in place route-drive's course passes none of the rest, and without this census
+   * `lamp-line-carriageway` came back MISSED while it stood 10 posts within 1.4 m of another road,
+   * the nearest 0.19 m off it. Measured with this file's own segment distance, not the placer's rule.
+   */
+  const segDistXZ = (x, z, a, b) => {
+    const dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz;
+    let t = l2 ? ((x - a.x) * dx + (z - a.z) * dz) / l2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(x - a.x - dx * t, z - a.z - dz * t);
+  };
+  const roadClear = (p, ei) => {
+    const e = district.edges[ei];
+    let best = Infinity;
+    for (let k = 1; k < e.v.length; k++) best = Math.min(best, segDistXZ(p.x, p.z, district.verts[e.v[k - 1]], district.verts[e.v[k]]));
+    return best - e.w / 2;
+  };
+  const ownUnkerbed = [];
+  lamps.lamps.forEach((L, i) => { if (!kerbedEdge(district.edges[L.ei])) ownUnkerbed.push(roadClear(posts[i], L.ei)); });
+  const ownRef = sorted(ownUnkerbed)[ownUnkerbed.length >> 1];
+  let nearOther = 0, nearest = { c: Infinity };
+  lamps.lamps.forEach((L, i) => {
+    district.edges.forEach((o, oi) => {
+      if (oi === L.ei || kerbedEdge(o)) return;
+      const c = roadClear(posts[i], oi);
+      if (c < ownRef - 1e-3) nearOther++;
+      if (c < nearest.c) nearest = { c, i, oi };
+    });
+  });
+  console.log(`    an unkerbed road's own posts stand ${ownRef.toFixed(3)} m off its carriageway (median of ${ownUnkerbed.length}); `
+    + `the nearest any post stands to ANOTHER unkerbed carriageway is ${nearest.c.toFixed(3)} m (lamp ${nearest.i}, edge ${nearest.oi})`);
+  check('and no post stands nearer another unkerbed road\'s carriageway than unkerbed posts stand to their own',
+    ownUnkerbed.length > 50 && nearOther === 0, `${nearOther} posts nearer than ${ownRef.toFixed(3)} m; nearest ${nearest.c.toFixed(3)} m`);
 
   /**
    * #137: THE STREET, LIT ON BOTH SIDES. `lampCoverage` over every drivable edge (r <= 6, the
