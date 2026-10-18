@@ -1,0 +1,30 @@
+{
+ "generated": "2026-10-17T23:20:44.032Z",
+ "left": "k132b-cdrv0",
+ "right": "k132-cdrv0",
+ "salt": "3113c9c7896a",
+ "unpairedLeft": [],
+ "unpairedRight": [],
+ "pairs": [
+  {
+   "id": "corridor-night",
+   "A": "k132b-cdrv0",
+   "B": "k132-cdrv0"
+  },
+  {
+   "id": "corridor-noon",
+   "A": "k132b-cdrv0",
+   "B": "k132-cdrv0"
+  },
+  {
+   "id": "fivepoints-night",
+   "A": "k132-cdrv0",
+   "B": "k132b-cdrv0"
+  },
+  {
+   "id": "fivepoints-noon",
+   "A": "k132-cdrv0",
+   "B": "k132b-cdrv0"
+  }
+ ]
+}

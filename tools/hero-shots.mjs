@@ -74,8 +74,17 @@ if (process.env.HERO_SHOW_HUD !== '1') {
 //
 // So every arm pair this tool has ever produced carried a sky offset proportional to
 // how far apart its arms were shot. One frozen deck serves them all.
+//
+// AT A FIXED TIME, NOT AT WHENEVER THE PAGE GOT HERE. Frozen at "now", one page load's
+// arms share a sky and two trees' do not: #132's two-tree pair froze at 17.945 s and
+// 30.662 s, and its blind reviewer measured the sky boxes 2.5-4.0 levels apart in all
+// four pairs and filed it as a harness clock, correctly. A two-tree pair is how a build
+// change is captured here, so the deck is pinned at HERO_CLOUD_T seconds of drift
+// (20 by default, about where the load-time freezes used to land).
 if (process.env.HERO_CLOUDS !== 'live') {
-  const froze = await page.evaluate(() => (__district.freezeClouds ? __district.freezeClouds() : null));
+  const cloudT = Number(process.env.HERO_CLOUD_T ?? 20);
+  if (!Number.isFinite(cloudT)) throw new Error(`HERO_CLOUD_T is not a number: ${process.env.HERO_CLOUD_T}`);
+  const froze = await page.evaluate((t) => (__district.freezeClouds ? __district.freezeClouds(t) : null), cloudT);
   console.log(`cloud deck: ${froze ? `frozen at ${froze.atSeconds}s` : 'NOT FROZEN - no hook in this tree'}`);
 }
 

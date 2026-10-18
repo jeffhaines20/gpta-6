@@ -4668,6 +4668,37 @@ kerb, where the gutter they drain is 2.0-2.5 m further out. Moving them into the
 head moved out with its post, over the parking lane rather than the travelled way — a change to the
 night street that only a capture can judge.
 
+**Blind review: the shipped build preferred in all four pairs, and the grouping recovered from the
+data.** Two trees (e5e812e against 1e64f4d, one arm, corridor and fivepoints, noon and night), set
+`k132b-cdrv0` / `k132-cdrv0`, scrambled per pair. The reviewer preferred the after frame at
+corridor-noon (confidence 4), corridor-night (4), fivepoints-noon (5) and fivepoints-night (4), and put
+the four after frames together by two quantities that agree: the ground under each base — 13 of 15
+before-build bases on mostly asphalt, 7 of 9 after-build bases on mostly brick — and the base's
+signed offset from the kerb line, -0.05 to -0.69 of a camera height in front against -0.06 to +2.2
+behind, with every matched item 0.55-1.02 further into the road in the before build. Frames, key
+and audits are committed (`docs/shots/k132*-cdrv0-*`, `docs/k132-audits.json`).
+
+**Three of its "still wrong in the shipped build" findings were checked and two are its instrument.**
+Projecting the shipped positions through the hero camera (fov 55, 1600x900, the framing's own pose):
+
+    "the P sign stands mid-footway, 1.44 u behind the kerb"    the sign is at o 0.36 m — the back
+        chamfer plus its post, as designed — and its base projects to (437, 658); the reviewer read
+        the base at (438, 604), 54 px up the post, which is where 1.44 u comes from
+    "a portal post at the back of the footway against the shops"   nothing placed stands there but a
+        cafe's menu case (o 5.16); the nearest mast, (176.6, -156.9), is at o 0.54 and projects 14 px
+        lower than the base the reviewer took
+    "base plates oversized, overhanging the kerb stone"   the plinth is the 0.6 m square the
+        footprint is settled with (SIGNAL_FOOT_HALF), and at 6x it abuts the back chamfer rather than
+        crossing it — kerb-stand's nine-point footprint rule. Its size is a style call, not #132
+
+The reviewer's observations were right about what is in the frame; what failed was reading a base
+that is hidden, which this file already records for the ground-contact metric ("a prop 46 m out is ~2
+pixels of ground contact"). The third finding is real and is not this change: see #135-#137, which
+are what the review's "a light with no fixture" and "almost no street lighting as a system" turned
+out to be. And its "clouds moved between the paired captures" is the harness: each tree froze the deck
+at its own load time (17.945 s and 30.662 s), so a two-tree pair carried 12.7 s of drift — hero-shots
+pins one time now.
+
 ### #133 OPEN — the player car's wing mirror shows its glass to a camera beside the car
 From the driver's re-review (cabin v3.1), both arms: side-on at 11 m, noon, the door mirror at
 [731,450,756,465] is a red-framed rectangle holding a sky-over-pavement reflection. A real door
@@ -4684,3 +4715,51 @@ blade reads as an unpainted plate — and with two blades at right angles there 
 round every corner from which BOTH are blank. A real street-name blade carries the name on both
 faces. The lever is the back's rect; the thing to check first is whether a reused name rect comes
 out mirrored on the back face.
+
+### #135 OPEN — every lamp's arm points along the street, not over the roadway
+Found chasing #132's blind review. `placeStreetLamps` (and district/main.js's loop before it, since
+c109275 on 2026-08-31) sets `yaw = atan2(-nx * side, -nz * side)` under a comment "Point the arm back
+over the roadway". The bracket and both globes are on the fixture's local +x, which a yaw about +y
+sends to `(cos yaw, -sin yaw)` = `(-nz * side, nx * side)` — the edge's own direction. Measured off
+the instance matrices at the page's pool size: **509 of 509 arms run along the street** (|cos| to the
+nearest centreline 1.00 on every one), 0 toward the road. So the "roadway" globe and the emitter the
+LightPool lights hang 2.2 m along the pavement from the post, at the post's own lateral offset —
+behind the kerb since #132 — and the second, "pavement-side" globe hangs 1.0 m the other way along the
+same line. The fixture's own comment says "what a real roadway/pavement twin does"; neither globe is
+over the road. The fix is the yaw (`atan2(nz * side, -nx * side)`), and it moves every lamp light
+2.2 m toward the carriageway, which is a night-look change for a capture and a blind review.
+
+### #136 OPEN — a lamp's reflection outshines the lamp: the globe emits about 1/2,600 of what its light implies
+The review's "a light with no fixture" — a warm disc on the corridor's right facade at second-floor
+height at night, nothing mounted there at noon, 12 px apart between the two builds — is the specular
+lobe of lamp 483's point light on building 18's facade. The light is 5.03 m from the wall; its mirror
+image across the wall projects to (969, 455) against the disc's measured centre (975, 454), and with
+the post 1.1 m further out (the build before #132) to (980, 455) against (988, 454) — the same 11-13 px
+shift. And the light pool's ten live lights, read off the page at that camera, are all at lamp heads;
+none is at the disc. In linear light, the after frame:
+
+    the disc     [957,443,1002,466]  mean 0.4965 over 1,104 px, core clipped at 255
+    its lamp     [860,446,878,462]   mean 0.0588, one pixel at 0.84
+
+so the reflection carries about 29x the light of its own source as the camera sees it, which no
+passive surface can do. The mismatch is in the units: the light is 900 cd, which over a 0.25 m
+globe's 0.196 m2 of projected area is ~4,600 cd/m2, and the globe's material emits `emissive`
+0xffd9a0 at `emissiveIntensity` 2.4 — a luminance of about 1.75 in the same units. Not measured: the
+roughness of the facade where the lobe lands, which decides its size, and what bloom does with a
+globe raised by three orders of magnitude. Either lever changes the whole night frame.
+
+### #137 OPEN — the lamp loop lights 65% of the street length, and puts 73% of its lamps on one side
+The review's top "wrong in both builds": "there is almost no street lighting as a system" — the
+corridor's left side has no lamp in frame and three of the four corners at fivepoints have none. The
+loop walks each edge's POLYLINE SEGMENTS and places `floor(len / 26)` lamps per segment, alternating
+sides by `s % 2` and restarting at s = 1 on every segment. Over the district's 1,476 drivable segments:
+
+    segments shorter than 26 m, given no lamp         1,141   9,627 m of 27,223 m — 35.4% of the street
+    segments given exactly one lamp, always side +1     217
+    lamps on side +1 against side -1                 398 / 145   73.3% on one side
+    lit edges lit on one side only                    163 of 276, 9,757 m of street
+
+At the corridor camera the left side's nearest lamps are 6 m behind the lens and 210 m ahead. The lever
+is to space by arc length along the whole EDGE and alternate (or pair) continuously, which roughly
+doubles the count — a price in the gate's units, since lamps are three never-culled InstancedMeshes
+in both passes (72 triangles a lamp, x2), and a night-look change for a blind review alongside #135.
