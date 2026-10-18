@@ -1,0 +1,252 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>glass-ao</title>
+<!--
+  BACKLOG #130: A PEDESTRIAN IN FRONT OF A CAR DARKENED ITS GLASS.
+
+  Three blind reviewers, two rounds, both arms every time: beside a pedestrian standing at a car's
+  front corner the windscreen went dark "in a soft cloud", 0.057 linear against 0.139 with nobody
+  there. The shape is the screen-space AO's depth-step leak — its range check is
+  smoothstep(0, 1, radius / dz), which at radius 0.6 m passes 35% of an occluder 1.5 m proud — and on
+  glass it is wrong twice, because nothing a pane sends is ambient light.
+
+  The district cannot isolate it: its crowd is placed by the simulation and moves between arms. So this
+  is the smallest scene that has the defect in it, through the REAL PostStack and the REAL fleet
+  material: one car, the sun and a sky, and a pedestrian-sized block standing in front of the
+  windscreen's left edge. Five arms off ONE page, ONE camera:
+
+      off        AO strength 0, the block present        what the glass is with no occlusion at all
+      before     AO on, uGlassAoExempt 0, block present   the build before #130, bit for bit
+      after      AO on, uGlassAoExempt 1, block present   shipped
+      bare0      AO on, uGlassAoExempt 0, no block        what the AO does to the glass by itself
+      bare1      AO on, uGlassAoExempt 1, no block
+
+  and a mask pass: glass, paint, the block, other car, ground. Statistics are per surface and split by
+  distance from the block's silhouette in pixels, so the halo is a profile rather than a box.
+-->
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+<script type="module">
+import * as THREE from '../vendor/three.module.min.js';
+import { PostStack } from '../src/post.js';
+import { buildTrafficCarGeometry, trafficCarMaterial, SHAPES, SURFACE, paletteU,
+  setGlassAoExempt, glassAoExempt, buildPlayerCar, CAR } from '../src/carbody.js';
+
+const W = 512, H = 320;
+const qs = new URLSearchParams(location.search);
+// How far IN FRONT of the windscreen the block stands, along the view ray. 1.5 m is the reviewer's case.
+const PROUD = Number(qs.get('proud') ?? 1.5);
+try {
+  const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(W, H);
+  document.body.appendChild(renderer.domElement);
+
+  // A sky for the glass to reflect, as tools/car-cabin.html builds it: the windscreen's light is the
+  // environment, so a scene without one has nothing on the glass for an occlusion term to darken.
+  const SKY = 0.15;
+  const skyScene = new THREE.Scene();
+  const skyGeo = new THREE.SphereGeometry(50, 32, 16);
+  const cols = [];
+  const sp = skyGeo.getAttribute('position');
+  for (let i = 0; i < sp.count; i++) {
+    const y = sp.getY(i) / 50;
+    const c = y >= 0
+      ? new THREE.Color().lerpColors(new THREE.Color(SKY, SKY, SKY * 1.06),
+        new THREE.Color(SKY * 0.22, SKY * 0.34, SKY * 0.69), Math.pow(y, 0.6))
+      : new THREE.Color(SKY * 0.19, SKY * 0.19, SKY * 0.18);
+    cols.push(c.r, c.g, c.b);
+  }
+  skyGeo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  skyScene.add(new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+  const env = new THREE.PMREMGenerator(renderer).fromScene(skyScene, 0.02).texture;
+
+  const scene = new THREE.Scene();
+  scene.environment = env;
+  scene.background = new THREE.Color(0x8fa6c4);
+  const sun = new THREE.DirectionalLight(0xffffff, 3.0);
+  sun.position.set(-4, 9, 5);
+  scene.add(sun);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+
+  const camera = new THREE.PerspectiveCamera(30, W / H, 0.2, 400);
+  camera.position.set(3.2, 1.55, 8.4);
+  const LOOK = new THREE.Vector3(0.2, 1.0, 0.6);
+  camera.lookAt(LOOK);
+  camera.updateMatrixWorld(true);
+
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80),
+    new THREE.MeshStandardMaterial({ color: 0x5a5a58, roughness: 0.95 }));
+  ground.rotation.x = -Math.PI / 2;
+  scene.add(ground);
+
+  // The fleet's own car and material, a light car as in car-cabin (the glass band is a light-car band).
+  const geo = buildTrafficCarGeometry({ groundY: 0, shape: SHAPES.saloon });
+  const car = new THREE.InstancedMesh(geo, trafficCarMaterial({ driver: false }), 1);
+  car.setMatrixAt(0, new THREE.Matrix4());
+  car.setColorAt(0, new THREE.Color(0.75, 0.75, 0.75));
+  car.instanceMatrix.needsUpdate = true;
+  scene.add(car);
+
+  // THE PLAYER'S CAR, behind and to the left: its panes are their own material (carGlassMaterial),
+  // so the fleet's exemption says nothing about them. Only its TAG is read, through the debug view.
+  const playerCar = buildPlayerCar();
+  playerCar.group.position.set(-3.4, -CAR.ground, -2.6);
+  playerCar.group.rotation.y = 0.5;
+  playerCar.group.updateMatrixWorld(true);
+  scene.add(playerCar.group);
+
+  // THE BLOCK, a pedestrian's size: 0.46 x 1.72 x 0.30 m, dark clothing. It stands on the ground on the
+  // ray from the camera to a point on the windscreen's left edge, PROUD metres in front of the glass,
+  // so its silhouette crosses the pane and leaves glass beside it.
+  const glassPoint = new THREE.Vector3(0.62, 1.12, 0.78);
+  const ray = glassPoint.clone().sub(camera.position).normalize();
+  const foot = glassPoint.clone().addScaledVector(ray, -PROUD);
+  const block = new THREE.Mesh(new THREE.BoxGeometry(0.46, 1.72, 0.30),
+    new THREE.MeshStandardMaterial({ color: 0x1c2433, roughness: 0.8 }));
+  block.position.set(foot.x, 0.86, foot.z);
+  block.rotation.y = Math.atan2(camera.position.x - foot.x, camera.position.z - foot.z);
+  scene.add(block);
+
+  const post = new PostStack(renderer, scene, camera);
+  post.setSize(W, H);
+  const q = post.params;
+  // ONE TERM: bloom and fog are identical across arms but can push a pixel to a ceiling.
+  q.bloomStrength = 0;
+  q.fogDensity = 0;
+  q.exposure = Number(qs.get('exposure') ?? 1.6);
+
+  const gl = renderer.getContext();
+  const grab = () => {
+    const px = new Uint8Array(W * H * 4);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const out = new Uint8Array(W * H * 3);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const s = ((H - 1 - y) * W + x) * 4, d = (y * W + x) * 3;
+      out[d] = px[s]; out[d + 1] = px[s + 1]; out[d + 2] = px[s + 2];
+    }
+    return out;
+  };
+  const arm = (strength, exempt, withBlock) => {
+    q.aoEnabled = true;
+    q.aoStrength = strength;
+    setGlassAoExempt(exempt);
+    block.visible = withBlock;
+    post.render();
+    // Read back what the material and the composite were GIVEN: an arm whose switch never reached the
+    // shader is two identical frames and a confident "no change".
+    return { strength, exempt, withBlock, uStrength: post.compositeMat.uniforms.aoStrength.value,
+      uExempt: glassAoExempt(), rgb: grab() };
+  };
+  const shipped = glassAoExempt();
+  const arms = {
+    off: arm(0, 1, true), before: arm(1, 0, true), after: arm(1, 1, true),
+    bare0: arm(1, 0, false), bare1: arm(1, 1, false),
+  };
+  // THE TAG ITSELF, through the composite's own debug view (src/post.js debugEmitShare draws the
+  // decoded share as grey): the luminance arms say the glass got brighter, these say WHY — the pane
+  // decodes as exempt with the fix and as untagged without, and the paint as untagged in both.
+  q.debugEmitShare = true;
+  const shareArms = { share0: arm(1, 0, true), share1: arm(1, 1, true) };
+  q.debugEmitShare = false;
+  setGlassAoExempt(shipped);
+  block.visible = true;
+
+  // THE MASK. Glass and paint by the palette u the material reads finish with; the block flat; the
+  // rest of the car and the ground their own IDs. Drawn straight to the canvas, no post, no MSAA.
+  const glassU = paletteU(SURFACE.glassy), paintU = paletteU(SURFACE.paint);
+  const carMask = new THREE.Mesh(geo, new THREE.ShaderMaterial({
+    uniforms: { uGlassU: { value: glassU }, uPaintU: { value: paintU } },
+    vertexShader: 'varying float vU; void main() { vU = uv.x; gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }',
+    fragmentShader: 'uniform float uGlassU; uniform float uPaintU; varying float vU; void main() { float g = abs( vU - uGlassU ) < 0.01 ? 1.0 : 0.0; float p = abs( vU - uPaintU ) < 0.01 ? 1.0 : 0.0; gl_FragColor = vec4( g, p, 1.0 - g - p, 1.0 ); }',
+  }));
+  const maskScene = new THREE.Scene();
+  maskScene.background = new THREE.Color(0, 0, 0);
+  maskScene.add(carMask);
+  const bm = new THREE.Mesh(block.geometry, new THREE.MeshBasicMaterial({ color: 0xffff00 }));
+  bm.position.copy(block.position); bm.rotation.copy(block.rotation);
+  maskScene.add(bm);
+  // The player's body in black, so a pane behind it is not counted, and its glass in its own colour.
+  const pg = new THREE.Group();
+  pg.position.copy(playerCar.group.position); pg.rotation.copy(playerCar.group.rotation);
+  pg.add(new THREE.Mesh(playerCar.bodyMesh.geometry, new THREE.MeshBasicMaterial({ color: 0x000000 })));
+  pg.add(new THREE.Mesh(playerCar.glassMesh.geometry, new THREE.MeshBasicMaterial({ color: 0x00ffff })));
+  maskScene.add(pg);
+  const gm = new THREE.Mesh(ground.geometry, new THREE.MeshBasicMaterial({ color: 0xff00ff }));
+  gm.rotation.copy(ground.rotation);
+  maskScene.add(gm);
+  renderer.setRenderTarget(null);
+  renderer.render(maskScene, camera);
+  const maskRgb = grab();
+  const ID = { glass: [1, 0, 0], paint: [0, 1, 0], carOther: [0, 0, 1], block: [1, 1, 0], ground: [1, 0, 1],
+    playerGlass: [0, 1, 1] };
+  const names = Object.keys(ID);
+  const raw = new Array(W * H).fill(null);
+  for (let i = 0; i < W * H; i++) {
+    const r = maskRgb[i * 3] > 127 ? 1 : 0, g = maskRgb[i * 3 + 1] > 127 ? 1 : 0, b = maskRgb[i * 3 + 2] > 127 ? 1 : 0;
+    raw[i] = names.find((k) => ID[k][0] === r && ID[k][1] === g && ID[k][2] === b) ?? null;
+  }
+  // Eroded: a pixel counts only if its four neighbours agree, because the scene pass's edges blend.
+  const mask = new Array(W * H).fill(null);
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+    const i = y * W + x, k = raw[i];
+    if (k && raw[i - 1] === k && raw[i + 1] === k && raw[i - W] === k && raw[i + W] === k) mask[i] = k;
+  }
+  // Distance in pixels to the nearest BLOCK pixel, by brute force over the block's own pixels.
+  const blockPx = [];
+  for (let i = 0; i < W * H; i++) if (raw[i] === 'block') blockPx.push([i % W, (i / W) | 0]);
+  const distToBlock = (x, y) => {
+    let best = Infinity;
+    for (const [bx, by] of blockPx) { const d = (bx - x) ** 2 + (by - y) ** 2; if (d < best) best = d; }
+    return Math.sqrt(best);
+  };
+
+  const lin = new Float64Array(256);
+  for (let i = 0; i < 256; i++) { const c = i / 255; lin[i] = c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }
+  const luma = (rgb, i) => 0.2126 * lin[rgb[i * 3]] + 0.7152 * lin[rgb[i * 3 + 1]] + 0.0722 * lin[rgb[i * 3 + 2]];
+
+  // Per surface, per distance band: the median of each arm over AO-off.
+  const BANDS = [[0, 8], [8, 16], [16, 32], [32, 64], [64, 9999]];
+  const acc = {};
+  let clipped = 0;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x, k = mask[i];
+    if (k !== 'glass' && k !== 'paint') continue;
+    const d = distToBlock(x, y);
+    const band = BANDS.findIndex(([a, b]) => d >= a && d < b);
+    const off = luma(arms.off.rgb, i);
+    if (arms.off.rgb[i * 3] === 255 || arms.off.rgb[i * 3 + 1] === 255 || arms.off.rgb[i * 3 + 2] === 255) clipped++;
+    if (!(off > 1e-4)) continue;
+    const row = ((acc[k] ??= BANDS.map(() => ({ n: 0, before: [], after: [], bare0: [], bare1: [] })))[band]);
+    row.n++;
+    for (const a of ['before', 'after', 'bare0', 'bare1']) row[a].push(luma(arms[a].rgb, i) / off);
+  }
+  const med = (a) => { if (!a.length) return null; const s = [...a].sort((p, r) => p - r); return s[(s.length - 1) >> 1]; };
+  // The decoded share per surface, as the debug view drew it: one channel, 0..255 over 0..1.
+  const share = {};
+  for (const k of ['glass', 'paint', 'block', 'ground', 'playerGlass']) {
+    const v = { share0: [], share1: [] };
+    for (let i = 0; i < W * H; i++) if (mask[i] === k) for (const a of ['share0', 'share1']) v[a].push(shareArms[a].rgb[i * 3] / 255);
+    share[k] = { share0: med(v.share0), share1: med(v.share1),
+      share1Min: v.share1.length ? Math.min(...v.share1) : null };
+  }
+  const surfaces = {};
+  for (const [k, rows] of Object.entries(acc)) {
+    surfaces[k] = rows.map((r, b) => ({ band: BANDS[b], n: r.n,
+      before: med(r.before), after: med(r.after), bare0: med(r.bare0), bare1: med(r.bare1) }));
+  }
+  window.__glassAo = {
+    size: { w: W, h: H }, proud: PROUD, exposure: q.exposure, shipped,
+    arms: Object.fromEntries(Object.entries(arms).map(([k, a]) =>
+      [k, { strength: a.strength, exempt: a.exempt, withBlock: a.withBlock, uStrength: a.uStrength, uExempt: a.uExempt }])),
+    pixels: Object.fromEntries(names.map((k) => [k, mask.filter((m) => m === k).length])),
+    blockPx: blockPx.length, clipped, surfaces, share,
+    shareArms: Object.fromEntries(Object.entries(shareArms).map(([k, a]) => [k, { exempt: a.exempt, uExempt: a.uExempt }])),
+  };
+  if (qs.get('debug') === '1') {
+    const b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode(...u8.subarray(i, i + 8192)); return btoa(s); };
+    window.__glassAoFrames = Object.fromEntries([...Object.entries(arms).map(([k, a]) => [k, b64(a.rgb)]), ['mask', b64(maskRgb)]]);
+  }
+} catch (e) {
+  window.__glassAo = { error: String(e && e.stack || e) };
+}
+</script>

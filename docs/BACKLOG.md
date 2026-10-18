@@ -4596,7 +4596,52 @@ harness that chains `driveTo` legs meets it wherever a path opens behind the car
 tried: `driveTo` arriving at rest, or the turn rule preferring the reverse whenever the forward
 circle does not fit the corridor.
 
-### #130 OPEN — a pedestrian behind a car darkens its glass: a dark cloud on the pane, and a torso that reads as somebody inside
+### #130 FIXED (the cloud) — the glazing is exempt from the screen-space AO; the torso is unsettled, and the leak on everything else is the range check's
+
+**The reported cloud reproduces, off the committed frames and then on a purpose-built page.** The dusk
+box the reviewer quoted, (218-250, 628-660), reads 0.0570 linear in `cab31-cfix1-corridor-dusk` and
+0.1389 / 0.1427 in the other two arms, which is their 0.057 against 0.139; at 3x the pedestrian is
+standing IN FRONT of the car's corner, between camera and windscreen, and the dark haze spreads from
+their outline onto the glass. That is the AO's depth-step leak: the range check is
+`smoothstep(0, 1, radius / dz)`, and at the shipped radius 0.6 m with `aoRangeScale` 0 it still passes
+35% of an occluder 1.5 m proud of the surface, which the 8.5 exponent turns into a halo.
+
+`tools/glass-ao.html`: one fleet car and the player's car through the real PostStack and the real
+materials, and a pedestrian-sized block 1.5 m in front of the windscreen, five arms off one page:
+
+    glass, over AO-off, by distance from the block's outline
+                 0-8 px   8-16    16-32   32-64      with no block
+    before        0.488   0.702   0.944   1.000      1.000
+    after         1.000   1.000   1.000   1.000      1.000
+
+    paint beside the same block, before and after   0.708 0.869 0.858 0.979   (no block 0.989)
+
+**The fix is the glass, not the estimator.** Nothing a pane sends is ambient light it could be
+occluded from — it is the environment's reflection (gained x6 by `uGlassEnvExtra`) and the picture of
+what is behind it (the cabin, and the street through the far window) — so the glazing tags itself
+fully exempt through #114's alpha tag, the way an emitter does, in BOTH car materials (the fleet's by
+the same pack-alpha test the cabin and the environment gain use; the player's panes are their own
+material, every texel glass). The tag is read back through the composite's own `debugEmitShare`: every
+glass pixel 0 -> 1, the player's 1,139 too, and paint, block and ground 0 in both.
+
+**What it does not fix, on purpose.** The paint beside the block is darkened to 0.708 by the same leak,
+and so is anything else with a nearer object standing in front of it — that is the estimator, and its
+lever is `aoRangeScale`, which every contact shadow in the district is priced against (src/post.js's
+own table shows it moving the seam the wrong way; its price on the protected metrics was never taken).
+A different round. And the glazing loses whatever AO it had in its own creases: 12 glass pixels on the
+page, at a pillar, 0.554 -> 1.000.
+
+**The torso is unsettled.** The noon "person inside the car", (12,18,25) over a rear screen, is a
+pedestrian whose silhouette overlaps the screen; from the PNG alone it is either somebody standing at
+the car's rear corner, correctly drawn in front of the glass, or a depth fault, and only the depth
+buffer can say which. The glass is opaque by design (its far window is the environment, not the
+scene), so a pedestrian BEYOND the car cannot show through it.
+
+Gated by `glass-ao` (11 checks, selftest 15 with the build before #130 as the first known-bad);
+`mutation-sweep`'s `glass-ao-off`, `glass-ao-fleet-seam`, `glass-ao-player-seam` and
+`glass-ao-whole-car`.
+
+#### #130 (as filed)
 Reported by three blind reviewers in two rounds, in both arms every time, so independent of what each
 round changed. Cabin v3's: a pedestrian behind the near-left car is drawn over its windscreen "with
 none of the glass's reflection" and "a dark halo onto the glass", 12-38 where the glass reads about

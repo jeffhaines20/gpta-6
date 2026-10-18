@@ -167,6 +167,11 @@ const OFFLINE = [
   // in three's lit materials plus one line in a composite shader, and nothing offline compiles
   // either: every row below is invisible to the other entries on this list by construction.
   'ao-emit',
+  // About 3 s, the same kind of page: one fleet car, the player's car and a pedestrian-sized block in
+  // front of a windscreen through the real PostStack (#130). The glazing's AO exemption is a block
+  // after opaque_fragment in two car materials, and nothing else on this list renders AO over a car.
+  'glass-ao',
+  'glass-ao --selftest',
   // 2.8 s, the same kind of page as car-pixel: one traffic car through the REAL instanced material
   // from three sides at street height. The cabin is a ray cast inside that material's fragment
   // shader, so nothing else on this list can see any of the rows below it.
@@ -2657,6 +2662,30 @@ const MUTATIONS = [
     find: "  if (opts.cabin === false) m.defines = { ...(m.defines ?? {}), CAR_NO_CABIN: '' };",
     to: '',
     why: "the player's door mirrors grow seats",
+  },
+  {
+    id: 'glass-ao-off', file: 'src/carbody.js',
+    find: 'const GLASS_AO = { uGlassAoExempt: { value: 1 } };',
+    to: 'const GLASS_AO = { uGlassAoExempt: { value: 0 } };',
+    why: '#130 shipped off: every pedestrian in front of a car darkens its glass in a soft cloud again',
+  },
+  {
+    id: 'glass-ao-fleet-seam', file: 'src/carbody.js',
+    find: "      .replace(OPAQUE_FRAGMENT_DECL, glassAoTag('1.0 - texture2D( roughnessMap, vRoughnessMapUv ).a'))",
+    to: '      .replace(OPAQUE_FRAGMENT_DECL, OPAQUE_FRAGMENT_DECL)',
+    why: "the fleet's glazing never tags itself: the uniform reads 1 and the parked and moving cars' glass is under the AO",
+  },
+  {
+    id: 'glass-ao-player-seam', file: 'src/carbody.js',
+    find: "      .replace(OPAQUE_FRAGMENT_DECL, glassAoTag('1.0'))",
+    to: '      .replace(OPAQUE_FRAGMENT_DECL, OPAQUE_FRAGMENT_DECL)',
+    why: "the fix on the fleet's material and not its sibling: the player's own panes keep the halo",
+  },
+  {
+    id: 'glass-ao-whole-car', file: 'src/carbody.js',
+    find: "      .replace(OPAQUE_FRAGMENT_DECL, glassAoTag('1.0 - texture2D( roughnessMap, vRoughnessMapUv ).a'))",
+    to: "      .replace(OPAQUE_FRAGMENT_DECL, glassAoTag('1.0'))",
+    why: 'the whole car exempt, paint and tyres included: every car loses its contact darkening, which no glass check sees',
   },
   {
     id: 'mirror-sideways', file: 'src/carbody.js',

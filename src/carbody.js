@@ -781,6 +781,43 @@ vec4 lampFace( vec3 p, float slot, float px, out float chrome ) {
 }
 
 const GLASS_ENV = { uGlassEnvExtra: { value: 5 } };
+/**
+ * #130: THE GLAZING IS EXEMPT FROM THE SCREEN-SPACE AO, through #114's tag (src/post.js).
+ *
+ * Three blind reviewers, in two rounds and in both arms every time, saw a pedestrian darken a car's
+ * glass beside them "in a soft cloud", 0.057 linear against 0.139 with nobody there. That is the AO's
+ * depth-step leak: its range check is smoothstep(0, 1, radius / dz), which at the shipped radius of
+ * 0.6 m and aoRangeScale 0 still passes 35% of an occluder standing 1.5 m proud of the surface, and
+ * the 8.5 exponent amplifies a few such hits into a halo. On a matte panel that halo is the estimator
+ * being wrong about ambient light the panel does receive; on glass it is wrong twice, because nothing
+ * a pane sends is ambient it could be occluded from — it is the environment's reflection (gained by
+ * uGlassEnvExtra) and the picture of what is behind it (the cabin, and the street through the far
+ * window). So the glazing tags itself fully exempt, the way an emitter does, and the composite leaves
+ * it alone. tools/glass-ao.mjs measures the halo with and without, off one page load.
+ *
+ * The estimator's leak on everything that is NOT glass is left as it is: its fix is the range check,
+ * which every contact shadow in the district is priced against (src/post.js aoRangeScale), and that
+ * is a different round. 1 ships; 0 is the build before #130, bit for bit.
+ */
+const GLASS_AO = { uGlassAoExempt: { value: 1 } };
+export function setGlassAoExempt(k) {
+  GLASS_AO.uGlassAoExempt.value = Math.min(1, Math.max(0, k));
+  return GLASS_AO.uGlassAoExempt.value;
+}
+export function glassAoExempt() { return GLASS_AO.uGlassAoExempt.value; }
+// Where the #114 tag has just been written: opaque_fragment is top-level in meshphysical_frag, and
+// src/post.js patches the tag into the END of that chunk, so a line after the include runs after it.
+const OPAQUE_FRAGMENT_DECL = '#include <opaque_fragment>';
+/** Raise the tag's exempt share to at least `glassExpr` — never lower it, so an emitter stays one. */
+const glassAoTag = (glassExpr) => `${OPAQUE_FRAGMENT_DECL}
+#if defined( OPAQUE )
+	{
+		// #130. The tag is -(1 + share); decode it the way the composite does, take the larger share.
+		float aoTagShare = -gl_FragColor.a - 1.0;
+		aoTagShare = aoTagShare >= 0.0 ? min( aoTagShare, 1.0 ) : 0.0;
+		gl_FragColor.a = -1.0 - max( aoTagShare, clamp( ${glassExpr}, 0.0, 1.0 ) * uGlassAoExempt );
+	}
+#endif`;
 export function setGlassEnv(k) {
   GLASS_ENV.uGlassEnvExtra.value = Math.max(0, k);
   return { extra: GLASS_ENV.uGlassEnvExtra.value,
@@ -1175,6 +1212,10 @@ function patchLensFalloff(m) {
     if (!shader.fragmentShader.includes(METALNESS_DECL)) {
       throw new Error('carSurfaceMaterial: metalnessmap_fragment include not found; the lamps\' chrome would silently be paint');
     }
+    if (!shader.fragmentShader.includes(OPAQUE_FRAGMENT_DECL)) {
+      throw new Error('carSurfaceMaterial: opaque_fragment include not found; the glazing would silently stay under the AO (#130)');
+    }
+    shader.uniforms.uGlassAoExempt = GLASS_AO.uGlassAoExempt;
     shader.uniforms.uCabinFix = CABIN_U.uCabinFix;
     shader.uniforms.uCabinDriver = CABIN_U.uCabinDriver;
     shader.uniforms.uCabinGain = CABIN_U.uCabinGain;
@@ -1245,6 +1286,7 @@ void main() {`);
 uniform float uLensPow;
 uniform float uLensGain;
 uniform float uGlassEnvExtra;
+uniform float uGlassAoExempt;
 ${cabinGLSL()}
 ${plateGLSL()}
 ${lampGLSL()}
@@ -1302,6 +1344,8 @@ void main() {`)
       .replace(METALNESS_DECL, `${METALNESS_DECL}
 	metalnessFactor = mix( metalnessFactor, 1.0, lampChrome );
 	roughnessFactor = mix( roughnessFactor, 0.16, lampChrome );`)
+      // The glazing slot, by the same pack-alpha test the environment gain and the cabin use.
+      .replace(OPAQUE_FRAGMENT_DECL, glassAoTag('1.0 - texture2D( roughnessMap, vRoughnessMapUv ).a'))
       .replace(EMISSIVE_DECL, `float lensRho = clamp( vEmissiveMapUv.y, 0.0, 1.0 );
 	float lensDome = pow( max( 0.0, 1.0 - lensRho * lensRho ), uLensPow );
 	${EMISSIVE_DECL.replace('emissive;', 'emissive * uLensGain * mix( uLensEdge, 1.0, lensDome );')}`);
@@ -1319,7 +1363,8 @@ void main() {`)
   // BUMPED FOR THE CABIN: a new uniform, two varyings and an injection on each side.
   // BUMPED FOR THE PLATE'S FACE: a uniform, a varying, and a block on each side.
   // BUMPED FOR THE LAMPS' FACES: a uniform, a define and a fragment block.
-  m.customProgramCacheKey = () => 'carLensFalloff9cabin31';
+  // BUMPED FOR #130: a uniform and a block after opaque_fragment.
+  m.customProgramCacheKey = () => 'carLensFalloff9cabin31ao130';
   return m;
 }
 
@@ -1670,7 +1715,11 @@ function patchPlayerGlass(m) {
       !shader.vertexShader.includes(PROJECT_VERTEX_DECL)) {
       throw new Error('carGlassMaterial: a cabin / environment seam was not found; the player glass would silently be the old hole');
     }
+    if (!shader.fragmentShader.includes(OPAQUE_FRAGMENT_DECL)) {
+      throw new Error('carGlassMaterial: opaque_fragment include not found; the player glass would silently stay under the AO (#130)');
+    }
     shader.uniforms.uGlassEnvExtra = GLASS_ENV.uGlassEnvExtra;
+    shader.uniforms.uGlassAoExempt = GLASS_AO.uGlassAoExempt;
     shader.uniforms.uCabinFix = CABIN_U.uCabinFix;
     shader.uniforms.uCabinDriver = CABIN_U.uCabinDriver;
     shader.uniforms.uCabinGain = CABIN_U.uCabinGain;
@@ -1687,8 +1736,11 @@ varying vec3 vCabinEye;
 void main() {`);
     shader.fragmentShader = shader.fragmentShader
       .replace('void main() {', `uniform float uGlassEnvExtra;
+uniform float uGlassAoExempt;
 ${cabinGLSL()}
 void main() {`)
+      // Every texel of this material is glass.
+      .replace(OPAQUE_FRAGMENT_DECL, glassAoTag('1.0'))
       .replace(COLOR_FRAGMENT_DECL, `${COLOR_FRAGMENT_DECL}
 	float cabinThroughW = 0.0;
 	vec3 cabinTint = mix( vec3( 1.0 ), diffuseColor.rgb / max( dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) ), 1e-6 ), 0.5 );
@@ -1711,7 +1763,7 @@ void main() {`)
 	}
 #endif`);
   };
-  m.customProgramCacheKey = () => 'carGlassCabin31';
+  m.customProgramCacheKey = () => 'carGlassCabin31ao130';
   return m;
 }
 
