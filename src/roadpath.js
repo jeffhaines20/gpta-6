@@ -274,8 +274,9 @@ export class RoadGraph {
    *
    * A penetration under that is a road that runs tight to a building, which is what a
    * downtown alley does and is drivable with care. The 0.5 threshold admits the 3 edges
-   * whose worst reading is 0.34, 0.11 and 0.10 m (all long streets, 158/151/143 m) and
-   * refuses the 11 whose worst is 0.95 m or more.
+   * whose worst reading is 0.34, 0.11 and 0.10 m (edges 475, 563 and 2: 2.8 m service
+   * alleys of 158/151/143 m, each pinched at ONE point) and refuses the 11 whose worst is
+   * 0.95 m or more.
    */
   /**
    * ONE DEFINITION OF PASSABLE, used for the centreline and for the lane offset alike. A
@@ -292,10 +293,16 @@ export class RoadGraph {
   /**
    * STRICTLY CLEAR, which is a different question from passable, and the difference is the whole
    * reason the lane fit uses this one. A centreline is allowed to penetrate a wall by up to half
-   * the car's radius because three of this district's long streets do and there is no alternative
-   * route — refusing them would disconnect the network. A LANE OFFSET always has an alternative:
-   * zero. So a lane is only taken where the body is completely clear, and the 0.475 m of tolerated
-   * overlap that keeps a tight street driveable is not extended to a choice nobody has to make.
+   * the car's radius because three of this district's alleys do, at one pinch each, and that is a
+   * scrape for a driver taking care. A LANE OFFSET always has an alternative: zero. So a lane is
+   * only taken where the body is completely clear, and the 0.475 m of tolerated overlap that keeps
+   * a tight alley driveable is not extended to a choice nobody has to make.
+   *
+   * THIS SAID "refusing them would disconnect the network", and measured it does not (#128's
+   * residual). Over the directed graph, strongly connected components with and without each: edge
+   * 2 changes nothing at all (the largest component stays 637 vertices), and 475 and 563 each lose
+   * ONE vertex from it — 1090 and 1259, their dead-end far ends. So the three are admitted for the
+   * reason above, and refusing them would cost 452 m of alley and two dead ends, not the network.
    */
   clearAt(x, z, carRadius = this.carRadius) {
     return !this.blockers || !this.blockers.resolveCircle(x, z, carRadius);

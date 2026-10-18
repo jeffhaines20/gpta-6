@@ -4475,9 +4475,34 @@ crawl). And `clear-time`'s own measurement moved: 2-star escapes 27 -> 17 of 160
 ~22 s against ~47, property-damage crimes 1.57 -> 0.20 a run in the bare world. The old follower got
 its distance by cutting junctions through buildings; a harness driver is a model of a player.
 
-**Residual, 15 turns on seven alley edges** (55, 563, 475, 1, 2, 756, 3) whose own course passes
-within a body's half-width of a wall — edge 55's course point is blocked by 9 mm. That is the road
-inside the building, for the router's exclusion test or a room term, not the follower.
+**Residual, 15 turns on seven alley edges** (55, 563, 475, 1, 2, 756, 3), all 2.8 m `service`.
+The first reading of it, kept: "whose own course passes within a body's half-width of a wall — edge
+55's course point is blocked by 9 mm. That is the road inside the building, for the router's exclusion
+test or a room term, not the follower."
+
+**RE-MEASURED, and that is two-thirds wrong.** Only three of the seven have a centreline a 0.95 m
+body circle touches at all (475 by 0.343 m, 563 by 0.110, 2 by 0.101, each at ONE pinch), and the
+wall-to-wall gap is 5.5-9.6 m on every one of the seven — no alley is narrower than the car. Placed
+against each turn's own course:
+
+    contact 33-159 m before the course ends, mid-alley, at 4.7-21.2 m/s    14 of 15
+    contact 1.7 m from the end of a dead-end course, at 15.3 m/s            1     522:239:475, wrecked
+
+So the fourteen are the follower's own tracking at speed against the margin the lane fit leaves it
+(the lane takes a 1.5 m-radius clear point, so a 0.95 m body has 0.55 m), which is a room term in the
+SPEED control — `pathSpeedLimit` reads curvature and not room, as #131 recorded. And the fifteenth is
+a different defect: **`pathSpeedLimit` has no term for the end of the path**, so a drive to a
+destination arrives at full speed, which at a dead end is the wall. That one is real for every harness
+drive that ends somewhere, and it is priced rather than taken: `playtest`'s `driveTo` arriving while
+still rolling is documented behaviour with a dependent (`--selftest` §5b's negative arm needs the car
+rolling into a pickup), so a stop at the end restates the harness, not just the follower.
+
+**And the router's justification for admitting the three pinched alleys was false.** Its comment said
+"refusing them would disconnect the network". Strongly connected components over the directed graph,
+with and without each: edge 2 changes nothing (the largest stays 637 vertices), and 475 and 563 each
+lose ONE vertex from it, their dead-end far ends (1090, 1259). The tolerance stands on its other
+reason — a 0.10-0.34 m pinch at one point is a scrape for a driver taking care — and the comment says
+that now.
 
 #### THE ORIGINAL RECORD
 ### #128 OPEN — `route-drive` holds its 22 m/s by 0.5 m/s, and what binds is a 2.8 m alley taken at 72 km/h
