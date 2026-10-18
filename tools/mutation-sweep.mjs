@@ -195,6 +195,10 @@ const OFFLINE = [
   // ever been swept: `wheel-octagon` came back MISSED against a check written to catch it.
   'car-shapes',
   'car-shapes --selftest',
+  // About 4 s, a purpose-built page: the real Sky at the night preset through the real PostStack
+  // (#124). The star field is GLSL in the sky dome, and nothing else on this list draws a star.
+  'star-strokes',
+  'star-strokes --selftest',
   // #118's page, the same kind as ao-emit: five panels at known radiances through the real PostStack,
   // the bright pass's two arms off one load. Nothing else compiles BRIGHT_FRAG, so every bloom row
   // above is invisible to the rest of this list.
@@ -2692,6 +2696,18 @@ const MUTATIONS = [
     find: "      .replace(OPAQUE_FRAGMENT_DECL, glassAoTag('1.0 - texture2D( roughnessMap, vRoughnessMapUv ).a'))",
     to: "      .replace(OPAQUE_FRAGMENT_DECL, glassAoTag('1.0'))",
     why: 'the whole car exempt, paint and tyres included: every car loses its contact darkening, which no glass check sees',
+  },
+  {
+    id: 'star-aa-off', file: 'src/sky.js',
+    find: 'const STAR_AA = { uStarAA: { value: 1 } };',
+    to: 'const STAR_AA = { uStarAA: { value: 0 } };',
+    why: '#124 shipped off: every occupied star cell draws its own faces as 1-px strokes',
+  },
+  {
+    id: 'star-aa-fwidth', file: 'src/sky.js',
+    find: '  float w = max(mix(fwidth(dist), wSmooth, uStarAA), 1e-4);',
+    to: '  float w = max(fwidth(dist), 1e-4);',
+    why: 'the derivative of a jump is the jump: the strokes come back whatever the switch says',
   },
   {
     id: 'wheel-octagon', file: 'src/carbody.js',

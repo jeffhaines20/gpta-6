@@ -742,6 +742,7 @@ uniform float uSunDiscRadiance;
 uniform float uMoonRadiance;
 uniform float uMoonPhase;
 uniform float uStarIntensity;
+uniform float uStarAA;           // 1: the star's pixel size off the continuous lattice coordinate (#124)
 uniform float uStarKeep;         // fraction of lattice cells that host NO star
 uniform float uStarGain;         // nits at magnitude 1
 uniform float uMilkyWay;
@@ -806,7 +807,8 @@ vec3 stars(vec3 d) {
   vec3 cell = floor(s);
   float h = hash13(cell);
   vec3 offset = vec3(h, hash13(cell + 11.7), hash13(cell + 23.1)) - 0.5;
-  float dist = length(fract(s) - 0.5 - offset * 0.7);
+  vec3 rel = fract(s) - 0.5 - offset * 0.7;
+  float dist = length(rel);
   float exists = step(uStarKeep, hash13(cell + 41.3));
   // pow 11: a steep magnitude distribution, so a handful read as genuinely bright
   // and the bulk sit near the noise floor.
@@ -819,7 +821,18 @@ vec3 stars(vec3 d) {
   // hard-edged 2x2 block: the size was the pixel grid, not the star. Working in
   // pixels lets a bright star be genuinely bigger and carry a real point spread,
   // and the whole spread still fits inside one 0.49-degree cell.
-  float w = max(fwidth(dist), 1e-4);
+  //
+  // AND fwidth(dist) WAS ITSELF THE BRACKETS (#124). dist is measured inside the star's own cell, so
+  // it JUMPS at every cell face, and the derivative of a jump is the jump: across the one row of pixels
+  // that straddles a face the pixel read as a whole cell wide, px fell toward 0, and that row lit at
+  // the star's full core. An occupied cell drew its own faces as 1-px lines, nearly straight because a
+  // plane through a sphere is, over a few pixels - the strokes #118's reviewer measured round two stars
+  // at fivepoints night. Differentiated through the CONTINUOUS coordinate instead: dist's gradient in
+  // cell space is rel / dist, and s = d * 118 has no jump anywhere, so the chain rule gives the same
+  // number wherever dist was smooth - every star the size it was - and nothing at a face.
+  vec3 relDir = rel / max(dist, 1e-6);
+  float wSmooth = abs(dot(relDir, dFdx(s))) + abs(dot(relDir, dFdy(s)));
+  float w = max(mix(fwidth(dist), wSmooth, uStarAA), 1e-4);
   float px = dist / w;
   float size = 0.55 + 1.75 * pow(mag, 0.33);
   float core = 1.0 - smoothstep(size * 0.70, size * 1.45, px);
@@ -1060,6 +1073,15 @@ function fullscreenTriangle() {
   g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 2, 0, 0, 2], 2));
   return g;
 }
+
+/**
+ * #124: how a star's pixel size is measured. 1 ships, off the continuous lattice coordinate; 0 is
+ * fwidth(dist), which drew every occupied cell's faces as 1-px strokes. Module-level and shared into
+ * every dome, so tools/star-strokes.html can render both off one page load.
+ */
+const STAR_AA = { uStarAA: { value: 1 } };
+export function setStarAA(k) { STAR_AA.uStarAA.value = k ? 1 : 0; return STAR_AA.uStarAA.value; }
+export function starAA() { return STAR_AA.uStarAA.value; }
 
 export class Sky {
   /**
@@ -1461,6 +1483,7 @@ export class Sky {
         uMoonRadiance: { value: 0 },
         uMoonPhase: { value: 1 },
         uStarIntensity: { value: opts.stars === false ? 0 : 1 },
+        uStarAA: STAR_AA.uStarAA,
         uStarKeep: { value: 0 },
         uStarGain: { value: 0 },
         uMilkyWay: { value: 0 },

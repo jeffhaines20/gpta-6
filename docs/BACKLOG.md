@@ -4227,7 +4227,35 @@ glares from a bright CORE with a long falloff. Not diagnosed; the first measurem
 emitter's own exposed radiance and on-screen size against the bright pass's night threshold, and what
 draws the 45 px disc (a halo sprite would carry no #114 tag and count as untagged).
 
-### #124 OPEN — four things #118's reviewer found wrong in BOTH arms, none measured
+### #124 PART 1 FIXED — the star strokes were fwidth() across the star field's own cell faces; three items remain
+**The night-sky strokes.** At 8x the reviewer's two boxes in `r12b-bloom1-fivepoints-night`, (241-252,
+56-67) and (271-283, 66-74), are two stars each wearing 1-px straight lines — an L and a bracket.
+`src/sky.js` draws one star per occupied cell of a 3D lattice over the view direction and measured its
+size in pixels as `dist / fwidth(dist)`; `dist` is measured inside the star's own cell, so it JUMPS at
+every cell face, and the derivative of a jump is the jump. Across the row of pixels straddling a face
+the pixel read as a whole cell wide, `px` fell toward 0, and the row lit at the star's full core: an
+occupied cell drew its own faces. The fix differentiates `dist` through the continuous coordinate —
+its cell-space gradient is `rel / dist` and `s = d * 118` has no jump — which is the same number
+wherever `dist` was smooth, so every star keeps its size.
+
+`tools/star-strokes.html`, the real Sky at the night preset through the real PostStack, looking up
+away from the city, both arms off one page (`uStarAA` 0 and 1):
+
+                               before     after
+    bright components               79        27     the strokes were fragments
+    stroke-shaped (>= 4 px, < half full)  5    1
+    longest component, px           9         7
+    matched stars, median peak after/before   0.937 over 47 stars
+
+**The one left is a different, smaller defect:** a star near a face has its OWN glow cut by that face,
+a dim straight edge rather than a lit line (one 3-px triangle on the page). Each star is evaluated in
+its own cell only, and at the hero framings a cell is about 9 px while the brightest star's spread is
+about 5 px in radius, so the comment's "the whole spread still fits inside one 0.49-degree cell" is not
+true for the bright ones. The fix is the 2 x 2 x 2 block of cells round the fragment, about 8x the star
+cost on every sky pixel; not taken until a reviewer can see the edge. Gated by `star-strokes` (5
+checks, selftest 10); `mutation-sweep`'s `star-aa-off` and `star-aa-fwidth`.
+
+The remaining three, as filed:
 - Night-sky specks carry 1-px straight bracket-like strokes: fivepoints night (241-248, 56-66) and
   (271-283, 66-74).
 - The green signal lens is a flat square emitter (about 464-476, 400-414).
