@@ -390,10 +390,17 @@ if (SELFTEST && IS_MAIN) {
 
   // 7. And the drive is over the limit, which is the finding. A build whose follower respected the
   //    declared limit would read 0% here and the whole entry would be moot.
+  //
+  //    RESTATED BY #128. The bound was `of > 0.5`, a picked half, and it read 79.5% — until the
+  //    follower stopped cutting corners and dropped to 46.2%. The finding was never "over half": it
+  //    was that the limit is this district's NORMAL and the player is the anomaly, so the bound is the
+  //    fleet's own over-limit share, measured above on the same module.
   const drv = driveSamples(3, 60);
   const of = drv.samples.filter((s) => s.excess > 0).length / drv.samples.length;
-  check('the shipped follower exceeds the declared limit', of > 0.5,
-    `${(of * 100).toFixed(1)}% of ${drv.samples.length} samples, ${drv.dist.toFixed(0)} m`);
+  const fleetOver = fleet.ratios.filter((r) => r > 1).length / fleet.ratios.length;
+  check('the shipped follower exceeds the declared limit more often than the fleet does', of > fleetOver,
+    `${(of * 100).toFixed(1)}% of ${drv.samples.length} samples, ${drv.dist.toFixed(0)} m, against the fleet's ` +
+    `${(fleetOver * 100).toFixed(1)}% of ${fleet.ratios.length}`);
 
   // 8. And an empty population throws rather than reporting a percentile of nothing.
   let threw = false;

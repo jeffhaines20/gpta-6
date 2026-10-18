@@ -2631,7 +2631,34 @@ if (!IS_MAIN) {
           pts.push([qx, qz]);
         }
         if (!ok || pts.length < 20) continue;
-        spot = { x: px, z: pz, yaw: Math.atan2(-nx, -nz), pts };
+        /**
+         * THE POSE, RESTATED BY #128. It was the car 3.2 m off the facade with its nose straight into
+         * it and the route 10 m further out, and the follower's look-ahead was clamp(6 + 0.9 v, 8, 28).
+         * At 3 m the look-ahead puts the aim close, so the arc it asks for is tighter than the car's
+         * own turning circle and the GEOMETRIC reverse (REVERSE_ERR) backs it out with no anchor at
+         * all: 60 of 60 poses of that family — six facades, five yaws, two route offsets — finished
+         * without it. A fix that removes the subject leaves this arm passing a KNOWN-BAD that no
+         * longer happens, so the subject is rebuilt from geometry, not from the outcome:
+         *
+         *   the car 1.6 m off the facade, its nose turned 30 degrees from the wall toward the route's
+         *   direction of travel, and the route 3.1 m off the facade — 1.5 m outward of the car
+         *
+         * which is the round-5 playtester's "nose against a wall with a route alongside it". It pins
+         * the shipped follower on five of the first six facades this search finds (i 5-6 of 26, about
+         * 9,850 contacts in 400 s), and the anchor backs four of those five out in 33.5-73 s. The
+         * sixth wedges both ways — backing 259 frames and never free — and is not this arm's subject.
+         */
+        const hx = -nx * Math.cos(Math.PI / 6) + seg.tx * Math.sin(Math.PI / 6);
+        const hz = -nz * Math.cos(Math.PI / 6) + seg.tz * Math.sin(Math.PI / 6);
+        const near = [];
+        let clear = true;
+        for (let d = -40; d <= 160 && clear; d += 8) {
+          const qx = mx + nx * 3.1 + seg.tx * d, qz = mz + nz * 3.1 + seg.tz * d;
+          if (probe.blockers.resolveCircle(qx, qz, R)) clear = false;
+          near.push([qx, qz]);
+        }
+        if (!clear) continue;
+        spot = { x: mx + nx * 1.6, z: mz + nz * 1.6, yaw: Math.atan2(hx, hz), pts: near };
         break;
       }
     }
@@ -2649,24 +2676,24 @@ if (!IS_MAIN) {
         s.placeAt(spot.x, spot.z, spot.yaw);
         const st = { i: 0 };
         const p0 = { x: s.vehicle.position.x, z: s.vehicle.position.z };
-        let backing = 0, n = 0, doneAt = null;
+        let backing = 0, n = 0, doneAt = null, atBacking = null;
         for (let k = 0; k < 400 / STEP; k++) {
           const v = s.vehicle;
           const f = followPath(spot.pts, { x: v.position.x, z: v.position.z, yaw: s._yaw(),
             speed: v.speed }, st, { maxSpeed: 12, dt: armDt ? STEP : undefined });
           if (f.done) { doneAt = +(k * STEP).toFixed(1); break; }
-          if (f.backing) backing++;
+          if (f.backing) { backing++; if (atBacking === null) atBacking = v.contacts; }
           n++;
           s.drive(f.controls).step(STEP);
         }
         const v = s.vehicle;
-        return { i: st.i, of: spot.pts.length, doneAt, backing, n,
+        return { i: st.i, of: spot.pts.length, doneAt, backing, n, atBacking,
           moved: Math.hypot(v.position.x - p0.x, v.position.z - p0.z),
           contacts: v.contacts, health: s.damage.health, seconds: +(n * STEP).toFixed(1) };
       };
       const off = arm(false), on = arm(true);
-      console.log(`    nose into a facade at (${spot.x.toFixed(1)}, ${spot.z.toFixed(1)}), ` +
-        `${spot.pts.length}-point clear route alongside`);
+      console.log(`    nose 30 degrees into a facade at (${spot.x.toFixed(1)}, ${spot.z.toFixed(1)}), ` +
+        `${spot.pts.length}-point clear route 1.5 m outward of it`);
       console.log(`      detector off: i ${off.i}/${off.of}, moved ${off.moved.toFixed(2)} m, ` +
         `${off.contacts} contacts (${(off.contacts / Math.max(off.seconds, 1)).toFixed(0)}/s), ` +
         `done ${off.doneAt ?? 'never'}`);
@@ -2682,8 +2709,18 @@ if (!IS_MAIN) {
         on.doneAt !== null, `done at ${on.doneAt ?? 'never'} s`);
       check('the recovery is the backing manoeuvre and not luck',
         on.backing > 0 && off.backing === 0, `${on.backing} frames against ${off.backing}`);
-      check('and the contacts collapse, because the car stops pushing',
-        on.contacts < off.contacts / 10, `${on.contacts} against ${off.contacts}`);
+      /**
+       * RESTATED BY #128 to the mechanism its name gives. It was `on.contacts < off.contacts / 10`,
+       * which is a ratio of two WINDOW LENGTHS — the anchored car pushes for STUCK_S, the other for
+       * the whole 400 s — and the old pose read 90 against 9,853 because that car barely touched.
+       * On the restated pose every one of the anchored arm's 1,010 contacts falls inside the 9.5 s
+       * window, at about 106 a second, and NONE after it backs out: the car stops pushing, which is
+       * the claim. So the check is that, against the unanchored arm's whole drive beside it.
+       */
+      check('and the contacts collapse, because the car stops pushing: none once it has backed out',
+        on.atBacking !== null && on.atBacking > 0 && on.contacts - on.atBacking <= on.atBacking * 0.01
+          && on.contacts < off.contacts,
+        `${on.atBacking} before backing, ${on.contacts - (on.atBacking ?? 0)} after; ${off.contacts} unanchored`);
     }
   }
 

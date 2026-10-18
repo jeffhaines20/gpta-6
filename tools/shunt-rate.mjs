@@ -379,8 +379,15 @@ if (SELFTEST && IS_MAIN) {
     });
     const base = drive({ maxSpeed: 10, seed: 0, fleetScale: 1, traffic: 12, peds: 0, timeout: 90 });
     const lo = seen[0].kmh / base.fleetKmh, hi = seen[1].kmh / base.fleetKmh;
+    /**
+     * RESTATED BY #128. The bound was `lo < 0.85 && hi > 1.15`, picked, and x1.5 read x1.11 once the
+     * follower stopped cutting corners — the player's car is a leader in the fleet's car-following
+     * term, so how the player drives moves how fast a scaled fleet can go. What the check is FOR is
+     * the wiring, and the drive is deterministic for a seed: an override that did not reach the fleet
+     * reads exactly x1.000 at both scales. So the bound only has to exclude 1, in each direction.
+     */
     check('the fleet-scale override reaches the fleet, and in the right direction',
-      lo < 0.85 && hi > 1.15, `x0.6 -> x${lo.toFixed(2)} of the unscaled fleet, `
+      lo < 0.99 && hi > 1.01, `x0.6 -> x${lo.toFixed(2)} of the unscaled fleet, `
       + `x1.5 -> x${hi.toFixed(2)} (${seen[0].kmh} / ${base.fleetKmh} / ${seen[1].kmh} km/h)`);
     check('and the scaled fleet never exceeds its own jitter ceiling',
       seen[1].kmh <= base.fleetKmh * 1.5 * 1.15 + 1e-9,
@@ -417,14 +424,21 @@ if (SELFTEST && IS_MAIN) {
 
   /**
    * 5. A SHUNT ACTUALLY HAPPENS, and the frame counter really does multiply. Without the
-   * second clause the rename is cosmetic; with it, the factor is the finding. 12 m/s is picked
-   * because it is above the cliff arm A finds between 10.5 and 11 m/s.
+   * second clause the rename is cosmetic; with it, the factor is the finding.
+   *
+   * RESTATED BY #128. This drove 12 m/s "because it is above the cliff arm A finds between 10.5 and
+   * 11 m/s", and after the follower's look-ahead change there is no cliff: arm A reads 0-2 shunted
+   * cars per five drives at every speed from 6 to 20 m/s, and 12 m/s over these seeds reads none —
+   * a subject removed by a fix, which this file's CLAUDE.md records is a check passing on nothing.
+   * At 20 m/s seeds 0-4 shunt two cars over 15 frames, every frame a rear-end into a STOPPED car
+   * (car p50 0.00 m/s), so that is the subject. The one exception seen anywhere is a single frame
+   * at 14 m/s, seed 1, with the car beside the player rather than ahead of it.
    */
   {
-    const rows = [0, 1, 2].map((seed) => drive({ maxSpeed: 12, seed, timeout: 300 }));
+    const rows = [0, 1, 2, 3, 4].map((seed) => drive({ maxSpeed: 20, seed, timeout: 300 }));
     const a = agg(rows);
     check('a shunt happens at all, so the geometry rows below have a subject',
-      a.cars > 0, `${a.cars} cars over ${a.frames} frames, 3 seeds at 43 km/h`);
+      a.cars > 0, `${a.cars} cars over ${a.frames} frames, 5 seeds at 72 km/h`);
     /**
      * RESTATED BY #127. This read "the frame counter multiplies the event count several times
      * over", at 23.5 frames a car, and it was a property of WHERE the harness drove: every route

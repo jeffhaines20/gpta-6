@@ -1318,11 +1318,47 @@ export function cornerSpeed(radius) {
    * because a graph junction is a point and a right-angle turn across it reads as 2 m.
    *
    * A real driver in an alley too tight for the turning circle does not stop; they creep
-   * round and clip the kerb. 2.2 m/s is 8 km/h, which is the FMVSS bumper threshold in
-   * src/damage.js — so a contact taken at the floor speed is, by construction, free.
+   * round and clip the kerb. The floor is the speed at which that clip is free: see CRAWL_MS.
    */
-  return Math.max(2.2, Math.min(gripSpeed(radius), steerableSpeed(radius)));
+  return Math.max(CRAWL_MS, Math.min(gripSpeed(radius), steerableSpeed(radius)));
 }
+
+/**
+ * THE SPEED LOOP'S DEADBAND: followPath brakes only once the car is this far over its target,
+ * and below it the throttle law `0.2 - over / 4` is still positive — so the car does not hold a
+ * target, it holds the target PLUS this. Traced at the crawl: target 2.20 m/s, speed 2.49-2.50.
+ */
+export const SPEED_DEADBAND = 0.3;
+
+/**
+ * THE CRAWL FLOOR, AND "FREE BY CONSTRUCTION" WAS TRUE OF A DIFFERENT NUMBER (#128).
+ *
+ * The floor was 2.2 m/s under a comment saying a contact at it is free because 2.2 is
+ * src/damage.js's FMVSS threshold. Two things stand between those: the threshold is a DELTA-V,
+ * and a wall reverses the normal velocity by (1 + e) — src/blockers.js `contactImpulse`, e = 0.15
+ * on the car — so a head-on clip at speed v charges 1.15 v; and the car never drives at its
+ * target, it drives at target + SPEED_DEADBAND. A clip at the floor charged 2.50 x 1.15 = 2.88,
+ * and 14 of the 30 junction turns still charging after the look-ahead fix below did exactly that,
+ * at 2.49-2.50 m/s, 2.6-2.8 of delta-v.
+ *
+ * So the floor is the target whose HELD speed charges the threshold head-on:
+ *
+ *     CRAWL_MS = freeDv / (1 + e) - SPEED_DEADBAND - CRAWL_OVERRUN = 2.2 / 1.15 - 0.3 - 0.03 = 1.583 m/s
+ *
+ * The last term is the loop running ONE CONTROL STEP past the deadband before the brake comes
+ * on, at the throttle the deadband edge leaves (0.125): measured past target + deadband by 0.0034
+ * m/s at a 1/120 s control step, 0.0065 at 1/60, 0.0122 at 1/30, 0.0193 at 1/20 — 0.39 m/s2 times
+ * the step. The coarsest step any caller drives it at is clear-time's 1/15 s, 0.026, so 0.03.
+ * Without it a clip at the measured held speed charged 2.2039 at 1/120 and 2.2222 at 1/20.
+ *
+ * Mirrored rather than imported — this module imports nothing — and `roadpath-test` asserts the
+ * relation against DamageModel and Vehicle's own fields, measures the held speed at the coarsest
+ * step, and drives that speed into a wall and reads the charge off the damage model.
+ */
+const FREE_DV = 2.2;            // src/damage.js ANCHORS.freeDv
+const WALL_E = 0.15;            // src/vehicle.js wallRestitution
+export const CRAWL_OVERRUN = 0.03;
+export const CRAWL_MS = FREE_DV / (1 + WALL_E) - SPEED_DEADBAND - CRAWL_OVERRUN;
 
 /**
  * The turn and the arc over a window of at least `minArc` metres forward of `from`.
@@ -1458,7 +1494,45 @@ const STUCK_S = 9.5;                      // 1.5x the measured 6.30 s worst hone
 
 export function followPath(points, { x, z, yaw, speed }, state = { i: 0 }, opts = {}) {
   const maxSpeed = opts.maxSpeed ?? 22;
-  const lookAhead = clamp(6 + speed * 0.9, 8, 28);
+  /**
+   * THE LOOK-AHEAD WAS TUNED FOR A STEERING MODEL THIS FOLLOWER NO LONGER HAS (#128). It was
+   * `clamp(6 + 0.9 v, 8, 28)`, set in the commit that introduced the follower, when the steering
+   * was a flat gain on the heading error and then bicycle geometry — "short enough to take a
+   * junction at 20 km/h is short enough to weave at 90" was true of THAT car. The same day the
+   * steering became the exact inversion of the measured response (steerForRadius), and nobody
+   * re-measured the look-ahead.
+   *
+   * Pure pursuit's error at a junction is the look-ahead's: the aim point rounds the corner while
+   * the car is still on the approach, so it turns in early by an amount set by L, not by the
+   * speed. Walls off, a right-angle corner of 12 m radius was cut by 1.74 m at a 3 m/s cap and
+   * 3.20 m at 22 — and at 8 m the floor alone is two thirds of a junction's radius.
+   *
+   * Re-measured, over the 1,416 junction turns of 60-120 degrees the router allows, each driven
+   * with up to 200 m of run-up, walls on — one term at a time, because the crawl floor (CRAWL_MS)
+   * moved in the same change:
+   *
+   *     look-ahead          floor    charged turns   not completed   median turn time
+   *     6 + 0.9 v, >= 8     2.2           93               7              9.9 s     both old
+   *     6 + 0.9 v, >= 8     1.613         90               7             10.6 s
+   *     2 + 0.7 v, >= 3     2.2           30               1             12.6 s
+   *     2 + 0.7 v, >= 3     1.613         15               1             14.3 s     shipped
+   *     4 + 0.5 v, >= 4     1.613         16               1             13.2 s
+   *
+   * The look-ahead carries the corner-cutting and the floor carries the clips at a crawl; neither
+   * alone gets under 30.
+   *
+   * and over a 60-law grid the optimum is a look-ahead of 9-12 m at 10-15 m/s approach speeds,
+   * with too short (0.5 v) worse again. It is not a weave: from a 1 m start offset on a straight
+   * this law crosses the line twice at 22 m/s and four times at 28-35, overshoot 0.12-0.16 m,
+   * settled in 1.5-1.6 s, against 0.08-0.15 m for the old one. And `route-drive`, which held its
+   * 22 m/s cap by 0.5 m/s at an alley entry, drives three laps with NO body contact at every cap
+   * from 22 to 28 m/s — including the 8.3 m corner its gate called beyond any controller.
+   *
+   * What it costs is speed: it follows the corners as drawn instead of cutting them, and the
+   * route-drive lap runs at 39.4 km/h against 47.2 — 34.8 with CRAWL_MS's lower floor as well. That
+   * is the price of a line the walls allow.
+   */
+  const lookAhead = clamp(2 + speed * 0.7, 3, 28);
 
   /**
    * PROGRESS IS THE CLOSEST POINT AHEAD, NOT A PROXIMITY TEST, and the aim is measured in
@@ -1582,7 +1656,7 @@ export function followPath(points, { x, z, yaw, speed }, state = { i: 0 }, opts 
     cornerSpeed(reqRadius));
   const over = speed - target;
   let throttle = 0, brake = 0;
-  if (over > 0.3) brake = clamp(over / 3, 0.15, 1);
+  if (over > SPEED_DEADBAND) brake = clamp(over / 3, 0.15, 1);
   else throttle = clamp(-over / 4 + 0.2, 0, 1);
 
   /**

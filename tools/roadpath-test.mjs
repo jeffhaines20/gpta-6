@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import { RoadGraph, followPath, pathSpeedLimit, steerableSpeed, gripSpeed, cornerSpeed,
   minTurnRadius, steerForRadius, RESPONSE,
   resample, smooth, minRadius, worstGap, offsetRight, pathCurvature, ARC_WINDOW,
-  laneOffsetFor, laneOffsets, ROUTE_LANE_M, rightOf } from '../src/roadpath.js';
+  laneOffsetFor, laneOffsets, ROUTE_LANE_M, rightOf, CRAWL_MS, SPEED_DEADBAND, CRAWL_OVERRUN } from '../src/roadpath.js';
 import { Vehicle } from '../src/vehicle.js';
 import { FlatGround } from '../src/ground.js';
 import { BlockerIndex } from '../src/blockers.js';
@@ -500,12 +500,91 @@ for (let x = 200; x >= 0; x -= 4) nearTouch.push([x, 1.6, 0]);
     Math.hypot(tour.points[n - 1][0] - tour.points[0][0], tour.points[n - 1][1] - tour.points[0][1]) < 1e-6);
 }
 
-// (e) The crawl floor, which is a design decision and not a fudge.
-console.log(`    cornerSpeed floor: ${(cornerSpeed(1) * 3.6).toFixed(1)} km/h for a corner the car cannot hold`);
-check('an impossible corner still gets a crawl speed, not a standstill', cornerSpeed(1) > 2,
-  `${cornerSpeed(1)}`);
-check('the floor is at or under the damage model\'s free threshold, so a contact there is free',
-  cornerSpeed(1) <= 2.2 + 1e-9, `${cornerSpeed(1)}`);
+// (e) The crawl floor, which is a design decision and not a fudge — and whose "free by
+// construction" was true of a different number until #128 measured it.
+//
+// The old check here was `cornerSpeed(1) <= 2.2`, "so a contact there is free". It compared a
+// SPEED with src/damage.js's free DELTA-V, and two things stand between them: a wall reverses the
+// normal velocity by (1 + e), and the speed loop holds its target PLUS a deadband. Fourteen junction
+// turns in #128's census charged 2.6-2.8 m/s clipping a wall at 2.49-2.50 under a floor of 2.2, with
+// this check green. So the floor is now derived from both, and both halves are MEASURED below rather
+// than asserted from the constants that define them.
+{
+  const freeDv = new DamageModel().freeDv;
+  const wallE = new Vehicle().wallRestitution;
+  const BODY_L = 2 * HALF_EXTENT.z;
+  const STUCK_S = 9.5;                      // src/roadpath.js STUCK_S, asserted in the progress-anchor section
+  console.log(`    cornerSpeed floor: ${(cornerSpeed(1) * 3.6).toFixed(2)} km/h for a corner the car cannot hold ` +
+    `(CRAWL_MS ${CRAWL_MS.toFixed(4)}, deadband ${SPEED_DEADBAND}, overrun ${CRAWL_OVERRUN}, e ${wallE}, free ${freeDv})`);
+  check('an impossible corner still gets a crawl, not a standstill: a body length in under half the stuck window',
+    cornerSpeed(1) === CRAWL_MS && CRAWL_MS * (STUCK_S / 2) > BODY_L,
+    `${(CRAWL_MS * STUCK_S / 2).toFixed(2)} m in ${STUCK_S / 2} s against ${BODY_L} m`);
+  check('the floor is the target whose HELD speed, overrun included, charges the free threshold head-on',
+    Math.abs((CRAWL_MS + SPEED_DEADBAND + CRAWL_OVERRUN) * (1 + wallE) - freeDv) < 1e-9,
+    `(${CRAWL_MS.toFixed(4)} + ${SPEED_DEADBAND} + ${CRAWL_OVERRUN}) x ${1 + wallE}`);
+
+  // 1. THE HELD SPEED, measured: a right-angle corner of 2 m radius on open ground, which no speed
+  //    can follow, so the follower crawls it at the floor. The deadband and the overrun are claims
+  //    about the loop, so they are read off it — at 1/120 s and at clear-time's 1/15 s, the
+  //    coarsest control step any caller drives the follower at, because the overrun is one step.
+  const HZ = 120, DT = 1 / HZ, yawOf = (q) => Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
+  const corner = [];
+  for (let z = 0; z <= 40; z += 2) corner.push([0, z]);
+  for (let a = 10; a <= 90; a += 10) corner.push([-2 + 2 * Math.cos(a * Math.PI / 180), 40 + 2 * Math.sin(a * Math.PI / 180)]);
+  for (let s = 2; s <= 40; s += 2) corner.push([-2 - s, 42]);
+  const held = (ctrl) => {
+    const per = Math.round(ctrl / DT);
+    const car = new Vehicle(), ground = new FlatGround(0), st = { i: 0 };
+    car.position.set(0, 0.55, 0);
+    let atFloor = 0, heldMax = 0, f = null;
+    for (let s = 0; s < HZ * 60; s++) {
+      if (s % per === 0) {
+        f = followPath(corner, { x: car.position.x, z: car.position.z, yaw: yawOf(car.quaternion), speed: car.speed }, st, { dt: ctrl });
+        if (f.done) break;
+        if (Math.abs(f.target - CRAWL_MS) < 1e-9) atFloor++;
+        car.setControls(f.controls);
+      }
+      if (atFloor * ctrl > 1 && Math.abs(f.target - CRAWL_MS) < 1e-9) heldMax = Math.max(heldMax, car.speed);
+      car.stepFixed(DT, ground, HZ);
+    }
+    return { seconds: atFloor * ctrl, heldMax };
+  };
+  const fine = held(1 / 120), coarse = held(1 / 15);
+  console.log(`    held at the floor: ${fine.seconds.toFixed(1)} s there; held up to ${fine.heldMax.toFixed(4)} m/s at a 1/120 s ` +
+    `step and ${coarse.heldMax.toFixed(4)} at 1/15 s, against floor + deadband ${(CRAWL_MS + SPEED_DEADBAND).toFixed(4)}`);
+  check('the follower crawls an impossible corner at the floor for long enough to measure', fine.seconds > 3,
+    `${fine.seconds.toFixed(1)} s`);
+  check('and the speed it HOLDS there is the floor plus the deadband, not the floor',
+    fine.heldMax > CRAWL_MS + SPEED_DEADBAND * 0.8, `held up to ${fine.heldMax.toFixed(4)}`);
+  check('and runs past that by less than CRAWL_OVERRUN even at the coarsest control step a caller uses',
+    coarse.heldMax <= CRAWL_MS + SPEED_DEADBAND + CRAWL_OVERRUN && coarse.heldMax > fine.heldMax,
+    `${(coarse.heldMax - CRAWL_MS - SPEED_DEADBAND).toFixed(4)} at 1/15 s against ${CRAWL_OVERRUN}`);
+
+  // 2. THE CLIP, measured: the car square to a wall at the speed MEASURED above, charged by the
+  //    damage model — not at the speed the formula says, which is the substitution that hid this.
+  const clip = (v) => {
+    const wall = new BlockerIndex({ buildings: [{ p: [[-20, 10], [20, 10], [20, 30], [-20, 30]], h: 10 }] });
+    const c = new Vehicle(), dmg = new DamageModel(), ground = new FlatGround(0);
+    c.blockers = wall; c.damage = dmg;
+    let worst = 0, charged = 0;
+    const real = dmg.impact.bind(dmg);
+    dmg.impact = (ev) => { const r = real(ev); if (ev.dv > worst) worst = ev.dv; if (r.applied) charged++; return r; };
+    c.position.set(0, 0.55, 0);
+    for (let s = 0; s < HZ * 8 && c.contacts === 0; s++) {
+      c.setControls({ throttle: 0, brake: 0, steer: 0, handbrake: false });
+      c.velocity.set(0, c.velocity.y, v);            // held to the wall, as the crawl holds it
+      c.stepFixed(DT, ground, HZ);
+    }
+    return { contacts: c.contacts, worst, charged };
+  };
+  const now = clip(coarse.heldMax), old = clip(2.2 + SPEED_DEADBAND);
+  console.log(`    head-on at the measured held crawl ${coarse.heldMax.toFixed(4)} m/s: dv ${now.worst.toFixed(4)}, ` +
+    `charged ${now.charged}; KNOWN-BAD at the old held ${(2.2 + SPEED_DEADBAND).toFixed(2)}: dv ${old.worst.toFixed(3)}, charged ${old.charged}`);
+  check('a head-on clip at the measured held crawl HAPPENS and is free', now.contacts > 0 && now.worst > 0 && now.charged === 0,
+    `contacts ${now.contacts}, dv ${now.worst.toFixed(4)} against ${freeDv}`);
+  check('KNOWN-BAD: the old floor of 2.2, held at 2.5, is charged', old.contacts > 0 && old.charged > 0,
+    `dv ${old.worst.toFixed(3)}`);
+}
 
 // ---------------------------------------------------------------------------
 // §6  The lane offset, and the road that is narrower than it.

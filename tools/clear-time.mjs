@@ -45,7 +45,7 @@ import { RESPONSE } from '../src/wanted.js';
 // arrest fix runs this same file against a tree that has no ARREST_PACE_MS, and a named import
 // that does not exist is a SyntaxError rather than an undefined.
 import { RUN_SPEED } from '../src/player.js';
-import { followPath, ROUTE_LANE_M } from '../src/roadpath.js';
+import { followPath, ROUTE_LANE_M, CRAWL_MS, SPEED_DEADBAND } from '../src/roadpath.js';
 import { Session } from './playtest.mjs';
 import { roadPoints, spotsOf } from './response-iso.mjs';
 
@@ -319,9 +319,19 @@ if (IS_MAIN && SELFTEST) {
     parked ? `reason "${parked.reason}" at ${parked.at.toFixed(1)} s, busts ${parked.busts}` : 'none cleared');
 
   // 3. A real drive: it moves, it re-plans, and in the bare world nothing files a crime.
+  //
+  //    RESTATED BY #128. This was `metres > 300`, and the follower that stopped cutting junctions
+  //    through buildings drives this chase 150 m and is ARRESTED at 25.4 s, crawling a corner at
+  //    1.83 m/s with a unit alongside — a legitimate end, which a distance bound reads as "did not
+  //    drive". What the check is for is the U-turn defect the header records, "46 m driven in 17.6 s",
+  //    a car going nowhere at 2.6 m/s. So it is a RATE over the chase's own duration, against twice
+  //    the speed the follower holds at its crawl floor: a car that only crawled could not pass it.
   const r = chase({ spot: spots[1], seed: 2, policy: 'far', world: 'bare', seconds: 90, points });
-  check('the follower actually drives', r.metres > 300 && r.legs >= 1,
-    `${r.metres.toFixed(0)} m over ${r.legs} legs`);
+  const dur = r.t ?? 90, crawlHeld = CRAWL_MS + SPEED_DEADBAND;
+  check('the follower actually drives: faster over the chase than twice its own crawl',
+    r.legs >= 1 && r.metres / dur > 2 * crawlHeld,
+    `${r.metres.toFixed(0)} m over ${r.legs} legs in ${dur.toFixed(1)} s (${r.outcome}), ` +
+    `${(r.metres / dur).toFixed(2)} m/s against ${(2 * crawlHeld).toFixed(2)}`);
   const kinds = Object.keys(r.crimeTypes);
   check('the bare world files only crimes against walls and the police — no person, no civilian car',
     kinds.every((k) => k === 'propertyDamage' || k === 'policeProperty'),

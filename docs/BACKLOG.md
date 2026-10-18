@@ -4433,6 +4433,53 @@ contacts with the worst at 1.987 m/s — against 1.425 on the left side, and see
 Filed as task 45 in the session that found it, not in this file: "the route lane is on the
 driver's LEFT: fix offsetRight and restate every gate it moves".
 
+### #128 FIXED — the follower cut every junction with a look-ahead tuned for a steering model it no longer had, and its crawl was not free
+**What shipped**, two terms in `src/roadpath.js`, measured one at a time over the 1,416 junction
+turns of 60-120 degrees the router allows, each driven with up to 200 m of run-up, walls on:
+
+    look-ahead          crawl floor   charged turns   not completed   median turn time   worst dv
+    6 + 0.9 v, >= 8        2.2             93               7              9.9 s          24.37
+    6 + 0.9 v, >= 8        1.613           90               7             10.6 s
+    2 + 0.7 v, >= 3        2.2             30               1             12.6 s          15.64
+    2 + 0.7 v, >= 3        1.583           15               1             14.4 s          18.07   shipped
+
+- **The look-ahead.** `clamp(6 + 0.9 v, 8, 28)` was set when the steering was a flat gain and then
+  bicycle geometry, and never re-measured after it became the measured-response inversion. Traced,
+  the entry contacts were pure pursuit turning in about 20 m early at 18 m/s and clipping the inside
+  building; the exit ones were the car accelerating out of a crawl corner with 18 degrees of heading
+  still on and overshooting into the alley's far wall. A 60-law grid puts the optimum at 9-12 m of
+  look-ahead at 10-15 m/s; too short (0.5 v) is worse again. Not a weave: from a 1 m offset it
+  crosses the line twice at 22 m/s and four times at 28-35, overshoot 0.12-0.16 m against the old
+  0.08-0.15. Turn-in braking (brake to the corner speed by the time the AIM reaches the corner) was
+  measured too — 93 to 49 alone, and nothing over the short look-ahead (33 and 28 against 30 and 26)
+  at more time — and not shipped.
+- **The crawl floor.** "Free by construction" compared a speed with a delta-v: the loop holds target
+  + 0.3, and a wall charges (1 + e) = 1.15 of the normal speed, so a head-on clip at the 2.2 floor
+  charged 2.88. `CRAWL_MS = 2.2 / 1.15 - 0.3 - 0.03` = 1.583, the last term the loop's one-step
+  overrun at the coarsest control step a caller uses (clear-time's 1/15 s). `roadpath-test` measures
+  the held speed at that step (1.9112 against 1.883 + 0.03) and charges a clip at it (2.1967, free),
+  with the old floor's clip as the KNOWN-BAD (2.873, charged).
+
+**route-drive**: 88 body contacts at a worst 1.987 -> **none**, at every cap from 22 to 28 m/s — the
+8.52 m corner its comment called beyond any controller included. Mean speed 47.2 -> 34.8 km/h, which
+is the price of a line the walls allow. The headroom #128 was about is a check now: the course again
+at cap + 4 m/s must be undamaged; the old look-ahead charged 3 impacts at 24.
+
+**What it moved**, each restated in the same commit: `roadpath-test`'s crawl checks (two that could
+not fail, six measured); `playtest` §7's pinning pose (the old one backs out by the geometric
+reverse now — 60 of 60 of its family); `shunt-rate` §5 (no shunt at 12 m/s any more; 20 m/s, five
+seeds) and its fleet-scale bound (the drive is deterministic, so a mis-wired override reads x1.000);
+`speed-limit`'s over-the-limit bound (79.5% -> 63.7% over, now bounded by the fleet's 21%, not a
+picked half); `clear-time`'s "the follower drives" (an arrest at 150 m is a drive; a rate against the
+crawl). And `clear-time`'s own measurement moved: 2-star escapes 27 -> 17 of 160, arrests at p50
+~22 s against ~47, property-damage crimes 1.57 -> 0.20 a run in the bare world. The old follower got
+its distance by cutting junctions through buildings; a harness driver is a model of a player.
+
+**Residual, 15 turns on seven alley edges** (55, 563, 475, 1, 2, 756, 3) whose own course passes
+within a body's half-width of a wall — edge 55's course point is blocked by 9 mm. That is the road
+inside the building, for the router's exclusion test or a room term, not the follower.
+
+#### THE ORIGINAL RECORD
 ### #128 OPEN — `route-drive` holds its 22 m/s by 0.5 m/s, and what binds is a 2.8 m alley taken at 72 km/h
 On the right side of the road the worst charged contact climbs with the speed cap and leaves the
 2.2 m/s free band between 22 and 22.5:

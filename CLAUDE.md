@@ -1508,7 +1508,9 @@ it first.**
 
 And it doubles as the second protocol. The fleet drives at x0.90 of the declared limit and the
 shipped follower at x1.70, over it on 79.5% of samples against the fleet's 21.8% — so the limit is
-this district's normal and the PLAYER is the anomaly. Measuring only the player would have left
+this district's normal and the PLAYER is the anomaly. (That follower cut its junctions; after #128
+re-measured its look-ahead it is over on 63.7%, still three times the fleet, and `speed-limit`'s
+check reads the fleet's share as its bound rather than a picked half.) Measuring only the player would have left
 "the limit is too low" as a live reading; measuring both closes it.
 
 ### A tolerance can degenerate into the instrument's own cap
@@ -2012,6 +2014,51 @@ The floor is 2.2 m/s, which is `damage.js`'s FMVSS free threshold, so a contact 
 floor speed is free **by construction**. That is what makes it a derivation and not a fudge:
 the finished drive's 264 contacts are all at one 8.3 m corner against a 8.9 m minimum, at a
 worst charged delta-v of 1.425 m/s, and they cost exactly nothing.
+
+**That derivation compared a SPEED with a DELTA-V, and #128 measured the gap.** The threshold is
+delta-v, a wall reverses the normal velocity by (1 + e) = 1.15, and the speed loop holds its target
+PLUS its 0.3 m/s deadband — so a head-on clip "at the floor" charged 2.50 x 1.15 = 2.88, and 14 of
+the 30 junction turns still charging after the look-ahead fix were exactly that, at 2.49-2.50 m/s.
+The 264 contacts above were free because they were GLANCING, not because of the floor. The floor is
+now `CRAWL_MS = freeDv / (1 + e) - deadband - overrun` = 1.583 m/s, where the overrun is the loop
+running one control step past its deadband (0.39 m/s2 x the coarsest step a caller uses), and
+`roadpath-test` measures the held speed at that step and charges a clip at it. The old check,
+`cornerSpeed(1) <= 2.2`, could not fail on any of this: **a bound that compares two quantities in
+different units passes for the reason nobody wrote down.**
+
+## A constant tuned against a model the code no longer has is a magic number twice over (#128)
+
+The follower's look-ahead was `clamp(6 + 0.9 v, 8, 28)`, chosen in the commit that introduced it,
+when the steering was a flat gain on the heading error and then bicycle geometry — "short enough to
+take a junction at 20 km/h is short enough to weave at 90" was true of THAT car. The same day the
+steering became the exact inversion of the measured response, and nobody re-measured the
+look-ahead. Pure pursuit's error at a junction is set by L, not by the speed: walls off, a
+right-angle corner of 12 m radius was cut by 1.74 m at a 3 m/s cap. Re-measured over the 1,416
+junction turns the router allows, one term at a time:
+
+    look-ahead          crawl floor   charged turns   not completed   median turn time
+    6 + 0.9 v, >= 8        2.2             93               7              9.9 s
+    2 + 0.7 v, >= 3        2.2             30               1             12.6 s
+    2 + 0.7 v, >= 3        1.583           15               1             14.4 s     shipped
+
+and `route-drive`, which held its cap by 0.5 m/s at one alley entry, is contact-free from 22 to
+28 m/s — including the 8.3 m corner its own comment called beyond any controller. It was the
+look-ahead cutting it. **When a module's model of the world is replaced, list the constants that
+were tuned against the old one, and re-measure them in the same round** — they read as decisions
+and they are leftovers.
+
+Two more things it cost, both already in this file and both found by the gates:
+
+- **A fix that removes a subject leaves its KNOWN-BAD passing on nothing — twice in one change.**
+  `playtest` §7's car nosed into a facade with its route 10 m out no longer pins (60 of 60 poses of
+  that family back out by the geometric reverse, because a 3 m look-ahead puts the aim close), and
+  `shunt-rate` §5's 12 m/s drive no longer shunts anything. Both subjects were rebuilt from geometry
+  — the round-5 playtester's "route alongside", the speed where arm A finds a shunt — not deleted.
+- **Every harness number measured through the follower moved, and some read as gameplay.**
+  `clear-time`'s 2-star escapes fell from 27 to 17 of 160 and its arrests came at p50 ~22 s against
+  ~47 — because the old follower got its distance by cutting junctions through buildings (1.57
+  property-damage crimes and 0.23 wrecks a run in a world with no traffic). A harness's driver is a
+  MODEL of a player; say which model a number was measured with.
 
 ## Two modules disagreed about which side is RIGHT, and the checks were written from the same picture as the bug
 

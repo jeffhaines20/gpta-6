@@ -59,8 +59,9 @@ const LANE_OFFSET = 3;
 /**
  * 22 m/s is 79 km/h: a downtown grid with junctions every 80 m. See followPath.
  *
- * AND ON THE RIGHT SIDE OF THE ROAD IT HOLDS WITH 0.5 m/s TO SPARE, which is worth knowing before
- * anything moves the follower (#127, #128). The worst charged contact against the speed, with
+ * AND ON THE RIGHT SIDE OF THE ROAD IT HELD WITH 0.5 m/s TO SPARE (#127, #128) — a record of the
+ * follower before #128 re-measured its look-ahead; it is contact-free from 22 to 28 m/s now and the
+ * headroom is checked after the drive. The worst charged contact against the speed, then, with
  * the circuits joined and LANE_MARGIN_M at 1.5:
  *
  *     m/s      18     20     21     21.5   22     22.5   23
@@ -320,6 +321,16 @@ if (nudges) {
  * speed. Widening the line through it is a racing-line problem, not a tracking one.
  */
 /*
+ * RESTATED BY #128. Both paragraphs below this one are records of a follower whose look-ahead was
+ * `clamp(6 + 0.9 v, 8, 28)` and whose crawl floor was 2.2 m/s. With the look-ahead re-measured and
+ * the floor derived (src/roadpath.js CRAWL_MS), the drive makes NO body contact at all — not at the
+ * alley entry, and not at the 8.52 m corner either, which the first paragraph says no controller can
+ * fix: it was the look-ahead cutting it, not the corner being beyond the car. Mean speed 47.2 ->
+ * 39.4 km/h from the look-ahead and 34.8 with the lower floor, which is what a line the walls allow
+ * costs. The budgets below are kept, and the
+ * headroom that #128 was about is now a check of its own after the drive.
+ */
+/*
  * RESTATED BY #127. The paragraph above is a record of the LEFT side of the road, where every lane
  * sat until rightOf was fixed. On the right the 88 contacts are TWO sites, and the corner is the
  * cheaper of them:
@@ -458,6 +469,42 @@ if (MODE === 'straight') {
   check('the collider never holds the car deeper than 5 cm', worstOff < 0.05,
     `${worstOff.toFixed(4)} m`);
   console.log(`    mean speed ${(CIRCUITS * pathLen / simSeconds * 3.6).toFixed(1)} km/h over ${CIRCUITS} circuits`);
+
+  /**
+   * THE HEADROOM, GATED (#128). This drive held its cap by 0.5 m/s: one alley entry at 20 m/s, and
+   * every budget above passed with the car scraping 88 times at a worst charged 1.987 against 2.2.
+   * A follower change that moved its line through that bend by a few tens of centimetres would have
+   * tipped it, and none of the budgets would have said which way the margin was going — they were
+   * written around the scrapes. So the margin is a check of its own: the same course again, with
+   * the cap 4 m/s higher, must still be taken with the car undamaged. The old look-ahead charged
+   * 3 impacts at 24 m/s and failed this at 22.5; the shipped one is contact-free from 22 to 28.
+   * Run last, on its own car and damage model, so nothing above reads a counter it moved.
+   */
+  const HEAD = 4;
+  const hv = new Vehicle(), hd = new DamageModel();
+  hv.blockers = carBlockers; hv.damage = hd;
+  hv.position.set(course[0][0], 0.55, course[0][1]);
+  const h1 = course[Math.min(3, course.length - 1)];
+  hv.quaternion.setFromAxisAngle({ x: 0, y: 1, z: 0 }, Math.atan2(h1[0] - hv.position.x, h1[1] - hv.position.z));
+  const hs = { i: 0 };
+  let hSteps = 0, hDone = false;
+  for (; hSteps < CAP_STEPS; hSteps++) {
+    const q = hv.quaternion;
+    const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
+    const f = followPath(course, { x: hv.position.x, z: hv.position.z, yaw, speed: hv.speed }, hs,
+      { maxSpeed: MAX_SPEED + HEAD, dt: DT });
+    if (f.done) { hDone = true; break; }
+    hv.setControls(f.controls);
+    hv.stepFixed(DT, ground, HZ);
+    hd.update(DT);
+  }
+  const hr = hd.report();
+  console.log(`    at ${MAX_SPEED + HEAD} m/s, ${HEAD} over the cap: ${hDone ? 'finished' : 'DID NOT FINISH'} in ` +
+    `${(hSteps * DT).toFixed(0)} s, ${hv.contacts} body contacts, worst charged ${hr.stats.worstDv.toFixed(3)} m/s, ` +
+    `health ${hr.health.toFixed(4)}`);
+  check(`and with ${HEAD} m/s of headroom over the cap the course is still taken undamaged (#128)`,
+    hDone && hr.health === 1 && hr.stats.applied === 0 && hr.stats.worstDv < EXPECT.freeDv,
+    `${hv.contacts} contacts, ${hr.stats.applied} applied, worst ${hr.stats.worstDv.toFixed(3)} at ${MAX_SPEED + HEAD} m/s`);
 }
 // Determinism, because the gate's whole argument depends on the drive being repeatable.
 check('the path is finite everywhere', path.every(([x, z]) => Number.isFinite(x) && Number.isFinite(z)));
