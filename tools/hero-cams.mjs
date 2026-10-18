@@ -130,10 +130,16 @@ export const HERO_EXTRA_FRAMINGS = [
   // Lemon Avenue, where a door mirror's glass is what a camera should see. The side-on `cabin`
   // framing shows the half that was wrong; this one shows the half that was missing.
   { name: 'mirrorback', wpA: 3, look: 'car', carSide: 2.4, carBack: 6.0, height: 1.25, fov: 34, tgtY: 0.9 },
+  // #134: the North Lemon Avenue blade at Five Points, from the north-east, where what reads is its
+  // BACK — the face that was a blank plate. Offsets are from waypoint 3; the blade's plan position is
+  // (+7.4, -7.4) from it and its name faces south. The car stands on Main Street 30 m east, behind
+  // the camera.
+  { name: 'blade', wpA: 3, look: 'point', cam: [15.5, 2.0, 1.8], at: [7.4, 3.0, -7.4], fov: 30, carAt: [30, 0] },
 ];
 
 export function placeHeroCam(page, cfg) {
   if (cfg.look === 'car') return placeCarCam(page, cfg);
+  if (cfg.look === 'point') return placePointCam(page, cfg);
   return page.evaluate((cfg) => {
     const r = __district.district.meta.route;
     const a = r[cfg.wpA], b = r[cfg.wpB];
@@ -218,6 +224,33 @@ export function placeHeroCam(page, cfg) {
  * metres to its +x looking at the cabin. Reports the same fields as placeHeroCam, and the camera's
  * clearance from the nearest footprint by the same in-ring test, so hero-shots' warning still fires.
  */
+// A camera and a target given as offsets from a waypoint, for a subject that is a fixed thing in the
+// world (a sign) rather than a road axis or the car. The car goes `carAt` from the waypoint, out of
+// shot but NEAR: the streamer is centred on the vehicle, so a car parked far away would leave the
+// subject's street at the far LOD.
+function placePointCam(page, cfg) {
+  return page.evaluate((cfg) => {
+    const a = __district.district.meta.route[cfg.wpA];
+    const px = a.x + cfg.cam[0], pz = a.z + cfg.cam[2];
+    let inside = -1;
+    for (const [bi, b] of __district.district.buildings.entries()) {
+      const ring = b.p;
+      let inRing = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const xi = ring[i][0], zi = ring[i][1], xj = ring[j][0], zj = ring[j][1];
+        if ((zi > pz) !== (zj > pz) && px < ((xj - xi) * (pz - zi)) / (zj - zi) + xi) inRing = !inRing;
+      }
+      if (inRing) { inside = bi; break; }
+    }
+    __district.placeAt(a.x + cfg.carAt[0], a.z + cfg.carAt[1], 0);
+    __district.setAutopilot(() => {});
+    __district.freeCam([px, cfg.cam[1], pz], [a.x + cfg.at[0], cfg.at[1], a.z + cfg.at[2]], cfg.fov);
+    for (let i = 0; i < 900; i++) __district.world.update(__district.vehicle.position);
+    return { back: 0, requestedBack: 0, x: +px.toFixed(1), z: +pz.toFixed(1),
+      clearance: inside >= 0 ? 0 : 99, stillInside: inside };
+  }, cfg);
+}
+
 function placeCarCam(page, cfg) {
   return page.evaluate((cfg) => {
     const a = __district.district.meta.route[cfg.wpA];
