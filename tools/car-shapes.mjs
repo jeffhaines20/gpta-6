@@ -28,7 +28,7 @@
 //                  exists for.
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
-import { buildTrafficCarGeometry, SHAPES, SHAPE_NAMES, CAR,
+import { buildTrafficCarGeometry, SHAPES, SHAPE_NAMES, CAR, SURFACE,
   shellNames, setShellNames, stretchZ, archHalfSpan,
   SIDE_GLASS, SIDE_GLASS_PRETRIM, setSideGlass } from '../src/carbody.js';
 
@@ -264,6 +264,33 @@ export function breakRing(st, authored) {
     if (d < bestD) { bestD = d; best = z; }
   }
   return { z: best, offBy: bestD };
+}
+
+/**
+ * HOW ROUND IS A WHEEL, off the buffer (#125). The tread ring of the +x front wheel: every tyre-slot
+ * vertex on that wheel, its axle centre from the ring's own extent, and the largest angle between two
+ * neighbouring vertices of the OUTERMOST ring. A polygon's flats sit r(1 - cos(gap / 2)) inside the
+ * circle through its corners, and that fraction is the number a reviewer sees as "octagonal": 7.6% at
+ * 8 sides, 3.4% at 12, 1.9% at 16.
+ */
+function wheelRoundness(g) {
+  const pos = g.getAttribute('position'), uv = g.getAttribute('uv');
+  const pts = [];
+  for (let i = 0; i < pos.count; i++) {
+    if (Math.floor(uv.getX(i) * 16) !== SURFACE.tyre) continue;
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    if (x > 0 && z > 0) pts.push([y, z]);
+  }
+  if (pts.length < 6) return { verts: pts.length, flat: NaN, sides: 0 };
+  const ys = pts.map((p) => p[0]), zs = pts.map((p) => p[1]);
+  const cy = (Math.min(...ys) + Math.max(...ys)) / 2, cz = (Math.min(...zs) + Math.max(...zs)) / 2;
+  const r = pts.map(([y, z]) => Math.hypot(y - cy, z - cz));
+  const R = Math.max(...r);
+  const ang = [...new Set(pts.filter((_, i) => r[i] > R - 1e-3)
+    .map(([y, z]) => +Math.atan2(y - cy, z - cz).toFixed(6)))].sort((a, b) => a - b);
+  let gap = ang.length ? ang[0] + 2 * Math.PI - ang[ang.length - 1] : 2 * Math.PI;
+  for (let k = 1; k < ang.length; k++) gap = Math.max(gap, ang[k] - ang[k - 1]);
+  return { verts: pts.length, sides: ang.length, R, flat: 1 - Math.cos(gap / 2) };
 }
 
 function census() {
@@ -509,6 +536,29 @@ function census() {
   } else {
     fail++;
     console.log(`  FAIL the known-bad arm does not reproduce: ${wasDeg.toFixed(1)} deg, sky ${wasSky.toFixed(3)}`);
+  }
+
+  /**
+   * THE WHEELS ARE ROUND ENOUGH AT THE NEAREST CAR ANY CAMERA SHOWS (#125). A blind reviewer found the
+   * corridor's near-left car's front wheel octagonal at about 100 px tall, where an 8-gon's flats are
+   * 3.8 px inside the circle. The bar is 4% of the radius, which a 12-gon (3.4%) clears and an 8-gon
+   * (7.6%) does not, and the 8-gon is built as the known-bad rather than remembered.
+   */
+  console.log(`\n  the wheels are round: a flat's depth inside the tread circle, 4% of the radius is the bar`);
+  let roundBad = 0;
+  for (const name of SHAPE_NAMES) {
+    const w = wheelRoundness(buildTrafficCarGeometry({ shape: SHAPES[name] }));
+    if (!(w.flat <= 0.04)) roundBad++;
+    console.log(`    ${name.padEnd(8)} ${w.sides} sides, flats ${(100 * w.flat).toFixed(2)}% of r ${w.R?.toFixed(3)} m`);
+  }
+  const oct = wheelRoundness(buildTrafficCarGeometry({ wheelSegments: 8 }));
+  if (roundBad) { fail++; console.log(`  FAIL ${roundBad} shell(s) carry a wheel whose flats are deeper than 4% of its radius`); }
+  else console.log(`  ok  every shell's wheel is round to 4% of its radius`);
+  if (oct.sides === 8 && oct.flat > 0.04) {
+    console.log(`  ok  KNOWN-BAD: the 8-gon that shipped before #125 has ${oct.sides} sides and flats ${(100 * oct.flat).toFixed(2)}% in`);
+  } else {
+    fail++;
+    console.log(`  FAIL the known-bad arm did not bite: ${oct.sides} sides, flats ${(100 * oct.flat).toFixed(2)}%`);
   }
 
   console.log(fail ? `\nCAR-SHAPES: FAIL (${fail})` : '\nCAR-SHAPES: PASS');

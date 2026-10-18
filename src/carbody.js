@@ -3534,7 +3534,7 @@ export function buildTrafficCarGeometry(opts = {}) {
   // buildWheelGeometry's five-lobed relief - where the lobe is BOTH a depth and a
   // brightness, so spokes read without any cut geometry. 80 triangles a wheel
   // against 64: +64 per car, +5,760 across the 90 cars a frame can hold.
-  // seg 8 / 4 spokes, NOT 10 / 5, and the reason is arithmetic rather than taste.
+  // seg 8 / 4 spokes, NOT 10 / 5, and the reason was arithmetic rather than taste.
   // The wheel costs 8*seg triangles, so seg 8 is 64 a wheel - exactly what the
   // old flat-disc wheel cost - and the whole rebuild lands at zero. At seg 10 it
   // would be 80 a wheel, +64 a car, +5,760 across 90 cars, against a frame that
@@ -3542,7 +3542,19 @@ export function buildTrafficCarGeometry(opts = {}) {
   // 38 px tall and 8 px WIDE - a kerbside car is seen nearly end-on from the
   // carriageway - so neither the 8-gon's faceting nor the fifth spoke was ever
   // going to resolve. The relief still buys the rim/tyre step, which does.
-  const seg = 8;               // even, because the lobes must alternate
+  //
+  // SEG 12 NOW (#125), and both halves of that argument moved. The headroom was against the old
+  // 830,000 warn; the gate warns at the capability bound now, 1,400,000 (#64), with the drive's p95
+  // near 870,000. And the hero framing is not the only camera: a blind reviewer found the NEAREST
+  // car's front wheel octagonal in the corridor, about 100 px tall, where an 8-gon's flats sit
+  // r(1 - cos(pi/8)) = 7.6% of the radius in from the circle — 3.8 px — and a 12-gon's 3.4%, 1.7 px.
+  // Read off the buffer, the wheels are 320 of a car's 1,050 triangles at seg 8 and 480 at 12: +160
+  // a car, +9,600 over the 30 moving and 30 parked, and vehicles bill x2.00 in the gate's units
+  // (shadow-bill), so +19,200 there. 16 would be +38,400 for 1.0 px. Four spokes still land on
+  // samples at 12 — cos(4a) at 30-degree steps is 1, -0.5, -0.5 — so each spoke is one ring sample
+  // and each gap two.
+  // `opts.wheelSegments` exists for the gate's known-bad (tools/car-shapes.mjs builds the 8-gon).
+  const seg = opts.wheelSegments ?? 12;   // a multiple of SPOKES, so every spoke lands on a sample
   const SPOKES = 4;
   const staticSuspLen = 0.257;
   for (const [wx, wz] of [

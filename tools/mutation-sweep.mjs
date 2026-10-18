@@ -2688,6 +2688,12 @@ const MUTATIONS = [
     why: 'the whole car exempt, paint and tyres included: every car loses its contact darkening, which no glass check sees',
   },
   {
+    id: 'wheel-octagon', file: 'src/carbody.js',
+    find: '  const seg = opts.wheelSegments ?? 12;   // a multiple of SPOKES, so every spoke lands on a sample',
+    to: '  const seg = opts.wheelSegments ?? 8;   // a multiple of SPOKES, so every spoke lands on a sample',
+    why: '#125 put back: every fleet and parked wheel an octagon, its flats 3.8 px in at the nearest car a camera shows',
+  },
+  {
     id: 'mirror-sideways', file: 'src/carbody.js',
     find: '    b.quad(gv(MG.x, -MG.y), gv(-MG.x, -MG.y), gv(-MG.x, MG.y), gv(MG.x, MG.y));',
     to: '    boxAt(b, s * (flank + 0.190), mirrorY + 0.034, mirrorZ - 0.020, 0.006, 0.044, 0.082, dark, SURFACE.glassy, s * 0.16);',
