@@ -215,7 +215,7 @@ function bladeStreets(street, plan, district) {
     const l = Math.hypot(b.x - a.x, b.z - a.z) || 1;
     return [(b.x - a.x) / l, (b.z - a.z) / l];
   };
-  const out = { faces: 0, worstDeg: 0, across: 0, twice: 0, unplaced: 0 };
+  const out = { faces: 0, worstDeg: 0, across: 0, twice: 0, wrongHalf: 0, halves: 0, unplaced: 0 };
   const namesAt = new Map();
   const P = (v, k) => [street.pos[(v + k) * 3], street.pos[(v + k) * 3 + 1], street.pos[(v + k) * 3 + 2]];
   for (let v = 0; (v + 3) * 3 + 2 < street.pos.length; v += 4) {
@@ -239,6 +239,17 @@ function bladeStreets(street, plan, district) {
     const key = streetOf(name);
     const arms = (incAt.get(post.vertex) ?? []).filter(({ ei }) => edges[ei].n && streetOf(edges[ei].n) === key);
     const c = Math.max(0, ...arms.map(({ ei, end }) => { const [dx, dz] = dirOf(edges[ei], end); return Math.abs(dx * ux + dz * uz) / ul; }));
+    // AND THE HALF ON THE POST'S OWN CORNER, where the street changes name at the junction: of the
+    // street's arms, the one pointing most nearly at the post is the half the post stands beside.
+    if (new Set(arms.map(({ ei }) => edges[ei].n)).size > 1) {
+      out.halves++;
+      const ox = post.x - verts[post.vertex].x, oz = post.z - verts[post.vertex].z;
+      const side = arms.reduce((m, { ei, end }) => {
+        const [dx, dz] = dirOf(edges[ei], end), d = dx * ox + dz * oz;
+        return d > m.d ? { d, name: edges[ei].n } : m;
+      }, { d: -Infinity, name: null });
+      if (side.name !== name) out.wrongHalf++;
+    }
     const deg = Math.acos(Math.min(1, c)) * 180 / Math.PI;
     out.faces++;
     if (deg > out.worstDeg) out.worstDeg = deg;
@@ -258,6 +269,8 @@ function streetChecks(s, planned) {
     ['no corner post names one street twice', s.twice === 0, `${s.twice} posts with two halves of one street`],
     ['every blade runs along the street it names', s.faces === 2 * planned && s.worstDeg <= 0.5 && s.across === 0,
       `${s.faces} lettered faces measured (owed ${2 * planned}), worst ${s.worstDeg} deg off its street, ${s.across} across it`],
+    ['and where its street changes name at the junction, it names the half on its own corner',
+      s.halves > 0 && s.wrongHalf === 0, `${s.wrongHalf} of ${s.halves} such faces name the other half`],
   ];
 }
 /** The planner as it shipped before #134's review: names in the order the junction's edges are listed, no per-blade yaw. */
