@@ -4857,6 +4857,25 @@ The light pool: emitters 509 -> 1,228, and at the corridor camera the pool light
 the view frustum (`illuminating`) went 5 -> 10 of 10 at both hours; Five Points 10 both. Before,
 half the pool was on and lighting nothing in shot.
 
+RESIDUAL, found after the captures and not fixed: the small roundabout at (259, -164), dead ahead of
+the corridor camera at about 147 m, stands THREE posts on its island — #1209, #1210 and #1214, one on
+the inner side of each of the one-way ring edges 767, 768 and 772 (13.6-15.0 m long), 4.35, 4.43 and
+5.70 m apart. A ring edge is shorter than one gap, so it is anchored on both sides; the outer side is
+all junction mouth and is dropped, the inner side is the island's straight kerb and is kept; and the
+skip that thins a crowded side tests a lamp within half a spacing on ITS OWN edge's side, which on a
+9 m ring is a different frame from the next edge's — so kerb-stand's same-side count, taken in each
+lamp's own street's frame, does not see it either. Posts nearer than R to ANY other post, any street,
+any side, district-wide:
+
+                 under 3 m   under 5 m   under 8 m   groups of 3+ within 5 m
+    before (509)         5           7          10        0
+    after (1,228)        0           7          63        1, this island
+
+The other 8 m groups are pairs across a junction (6.6-7.7 m), which the density brings. The lever is
+the skip measured as plain distance between posts, or one post for a ring's island, with kerb-stand's
+crowding check restated to count any street's posts. It changes the plan the captures show, so it
+waits for their blind review rather than going in under it.
+
 ### #137 (as filed) the lamp loop lights 65% of the street length, and puts 73% of its lamps on one side
 The review's top "wrong in both builds": "there is almost no street lighting as a system" — the
 corridor's left side has no lamp in frame and three of the four corners at fivepoints have none. The
