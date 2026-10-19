@@ -4710,6 +4710,16 @@ Gated by `glass-ao` (11 checks, selftest 15 with the build before #130 as the fi
 `mutation-sweep`'s `glass-ao-off`, `glass-ao-fleet-seam`, `glass-ao-player-seam` and
 `glass-ao-whole-car`.
 
+**Blind review, 2026-10-19: preferred in both pairs that isolate it.** On the glass-ao page (4/5) the
+other build's windscreen "darkens in a gradient toward the block's edge... B/A falls to 0.46-0.58 at
+x~800 and 0.26 at (800,472)", "a reflection of the block would be sharp-edged, not a gradient". In
+blade-noon the same reviewer independently found it on four street cars' windscreens behind
+pedestrians (B/A 1.31-1.69 beside a head) and called the darkening "an artifact". One thing reads the
+other way and is worth having. Without the AO on the glass, window BASES are no longer darkened, and
+the reviewer half-preferred the darker base in two pairs because "real rear windows have a black frit
+band and parcel shelf exactly there". So the AO had been faking a frit band, and the glazing has no real
+one. That is a feature, not a reason to put the leak back (#125).
+
 #### #130 (as filed)
 Reported by three blind reviewers in two rounds, in both arms every time, so independent of what each
 round changed. Cabin v3's: a pedestrian behind the near-left car is drawn over its windscreen "with
@@ -4900,6 +4910,35 @@ has never been taken, and that is the first job: `ao-sweep`, `prop-ground` and `
 one page load each, with and without. The page carries the leak's own before and after already, so
 a candidate can be checked against it in seconds.
 
+### #139 OPEN — the new lamps stand in palms: a post up a trunk, a globe inside a crown
+From #135/#137's blind review, new build only. At corridor dusk a lamp post runs up the left palm's
+trunk at x 683-688 to the same base row. A far post's arm crosses another palm's trunk, and a globe sits
+inside that palm's crown. At night the post in the palm "lights the fronds from inside": mean 0.161, p90
+0.52 against 0.009 in the other build. A crown edge reads p50 0.81, brighter than the nearest globe's
+peak of 0.67.
+
+**The mechanism, from the placer's own numbers. NOT yet a census.** A street tree is kept 3.4 m from
+the nearest lamp POST at its base (`lampClearance(st.treeX, st.treeZ) >= 3.4`). A palm's crown centre
+sways up to `PALM_SWAY_CAP` 1.15 m off that base, and its radius reaches `PALM_CROWN_CAP` 3.55 m (queen)
+or 2.90 m (sabal), with the crown at 5.5-12.6 m of trunk where the lamp head is at 7.7 m and 2.2 m out
+from its post. So the test the placer runs can pass with the crown overlapping the post by up to 1.3 m,
+and the head inside it. #137 more than doubled the lamps, 509 -> 1,228, which is why the review saw it
+now.
+
+The measurement: per lamp, the head's and the post's distance from every palm's crown centre at height,
+against that palm's R. Then the fix belongs in the placer: a palm keeps its CROWN clear of a lamp's head
+and post, and the clearance must not be the base distance.
+
+### #140 OPEN — the lamp globes are icosahedra, and a near one reads as a hexagon
+From the same review. At fivepoints dusk the near-left globe at (134,183)-(163,212), 29 px across,
+holds its left edge at x 134-135 for 20 rows and its right at x 163 for 15. A globe is 20 triangles,
+and #137's report prices a lamp at 72 (pole 20, bracket 12, globes 20 + 20). A subdivision to 80 each
+costs 1,228 x 2 x 60 = 147,360 triangles in the colour pass and the same again in the sun's map
+(lamps bill x2.00 in their own `street lamps` bucket since f330afa): 294,720 of the gate's units, more
+than #137 itself. Cheaper levers, unpriced: globes out of the shadow map (a 0.25 m sphere's shadow is
+under a pixel past a few metres), or a camera-facing impostor with a sphere normal, which is 2 triangles
+and round at any distance.
+
 ### #133 FIXED — the player car's door mirrors were laid on their side, glass outward
 
 Measured off `buildPlayerCar`'s own body buffer, which is the one number the entry asked for: every
@@ -4927,6 +4966,18 @@ toward the back (a toe-in up to 26 degrees), 5% to the side (a toe-OUT shows sin
 side so a car with no glass cannot pass. Its selftest carries the shipped-before numbers, a wrong-way
 toe, no glass and one mirror as known-bads; `mutation-sweep`'s `mirror-sideways` puts the old slab
 back and `mirror-toe-out` flips the toe.
+
+**Blind review, 2026-10-19: the new mirror preferred in all four car pairs.** One reviewer, six pairs
+scrambled per pair, told nothing about the change. Side-on (cabin noon 3/5, dusk 3/5) it preferred the
+build whose mirror reads as "a body-coloured box... no glass": "a real door mirror's glass faces
+rearward and is turned toward the driver, so from outboard you see only the housing". The other build's
+"framed glass face" was "a small screen facing the camera", which is the defect as filed. From behind
+(mirrorback noon 4/5, dusk 3/5) it preferred the build that shows glass, at 0.20-0.28 m of housing
+width. The reviewer could not reconcile its own model: "B's mirror shows glass both from behind and
+face-on from the side, which a single rear-facing pane can't do". B was a different build in those
+pairs, so the per-pair scramble was working as designed. Noted against both builds: the traffic cars'
+mirrors are plain cubes with no glass (only the player's car changed), and the new glass reads flat at
+0.073-0.077 with no structure.
 
 #### #133 (as filed)
 From the driver's re-review (cabin v3.1), both arms: side-on at 11 m, noon, the door mirror at
@@ -4962,6 +5013,27 @@ text). Its selftest builds the shipped assembly, a blank back and a u-swapped ba
 names; `mutation-sweep`'s `blade-back-blank` is the defect put back. Same triangles: the back face was
 always emitted.
 
+**Blind review, 2026-10-19: preferred at 5/5.** "Blank slabs with no legend" against white legends at
+about 9:1 to the plate. Two things the reviewer read off the fixed build were real defects in the PLANNER,
+fixed in b6eb6f2 and gated by `sign-orient` (6 checks), measured off the emitted faces:
+
+    lettered faces whose blade hangs ACROSS the street it names   216 of 432 -> 0, worst 0 deg
+    corner posts naming one street twice (its North/South halves)    4 of 108 -> 0
+    faces beside a name change naming the far half                   8 of 18 -> 0 of 10
+    blades the gate could see at all                                 55 of 216 -> 216
+
+Names were handed out in the order a junction's edges happened to be listed, while blade i was turned
+to yaw + i*pi/2 off the widest arm. `bladePick` now puts the widest road's street on the upper blade and
+the most important OTHER street below it, each turned to its own street's arm on the post's corner and
+named for that arm's half. Pairing by importance is what removed the doubled posts. The `streetKey`
+dedupe added beside it turned out to be a guard this district does not exercise: the plan is
+byte-identical without it, so `blade-halves` is an inert row with that measurement. The gate had
+been building the module's twelve-name fallback atlas, so it saw 55 of 216 blades; it now bakes the
+district's names as the page does. Still open, recorded rather than fixed: the two blades on one post
+differ in colour, because the plate's colourway is hashed from the NAME into the name's own atlas cell,
+and colouring by post would need a cell per (name, colourway). The lower blade's shadowed segment also
+reads 3-5% of its own lit face, where the post beside it shades to 26%.
+
 #### #134 (as filed)
 From the same review, both arms: a blade assembly at [1235,85,1495,210], noon, shows two grey-green
 faces with no lettering. `appendStreetSignage` draws each blade double-sided with
@@ -4993,6 +5065,23 @@ the lamp's own street's straight kerb, read off `planKerbs` by edge, not off the
 
 Every lamp light moved 2.2 m toward its road, onto the parking lane on a kerbed street: see the
 captures under #137.
+
+**Blind review, 2026-10-19: the new lamps preferred in all four pairs** (corridor dusk 2/5, night 3/5,
+fivepoints dusk 2/5, night 4/5), scrambled per pair. The reviewer recovered which frames were one build
+from the frames themselves and said so, so the four preferences are ONE judgement, driven by the night
+pairs. At fivepoints night the road under the junction read x31 brighter (0.151 against 0.0048, the old
+build "0.17x the sky, which is what asphalt reflects from skylight alone"). At dusk the old arms, which
+ran along the street, read end-on from down the street as "post-top lanterns", and the new ones read as
+"a twin-arm post". What it found WRONG in the new build, each filed:
+- **Posts through palms, globes in crowns** (#139): "a dark post runs exactly up the palm trunk", and at
+  night "B's post through the palm lights the fronds from inside", the fronds outshining the lamp.
+- **Hexagonal globes** (#140): the near-left globe at five points holds a straight left edge for 20 rows.
+- **A glow on a corner pilaster with no fixture**, 4x the nearest globe's area. That is #136's
+  mechanism on one of the new lamps.
+And in both builds: wall glows brighter than any lamp (#136); lamps no brighter than what they light,
+with no globe clipping (#136); square signal lenses (#124); the stars' bracket strokes and the octagonal
+wheel (fixed in main since this branch was cut, 433f304 and 298290a); flat card canopies; and a uniform
+road-crack network to the horizon.
 
 ### #135 (as filed) every lamp's arm points along the street, not over the roadway
 Found chasing #132's blind review. `placeStreetLamps` (and district/main.js's loop before it, since

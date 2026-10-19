@@ -1,0 +1,30 @@
+{
+ "generated": "2026-10-19T18:05:09.171Z",
+ "left": "l135b-cdrv0",
+ "right": "l135-cdrv0",
+ "salt": "4ba425164d5c",
+ "unpairedLeft": [],
+ "unpairedRight": [],
+ "pairs": [
+  {
+   "id": "corridor-dusk",
+   "A": "l135-cdrv0",
+   "B": "l135b-cdrv0"
+  },
+  {
+   "id": "corridor-night",
+   "A": "l135b-cdrv0",
+   "B": "l135-cdrv0"
+  },
+  {
+   "id": "fivepoints-dusk",
+   "A": "l135b-cdrv0",
+   "B": "l135-cdrv0"
+  },
+  {
+   "id": "fivepoints-night",
+   "A": "l135-cdrv0",
+   "B": "l135b-cdrv0"
+  }
+ ]
+}
