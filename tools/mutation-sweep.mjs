@@ -2746,6 +2746,24 @@ const MUTATIONS = [
     why: 'the species census counts the kerb trees the face refused: 261 trees where 245 stand',
   },
   {
+    id: 'lens-square', file: 'src/streetfurniture.js',
+    find: '      lensDisc(buf, f, 0, y, hz, 0.13, 0.185, LENS_SIDES,',
+    to: '      plate(buf, f, 0, y, hz, 0.13, 0.13, 0.185,',
+    why: '#124 put back: every signal aspect lens a square plate again, roundness 0.707 where the octagon reads 0.924',
+  },
+  {
+    id: 'lens-hexagon', file: 'src/streetfurniture.js',
+    find: 'export const LENS_SIDES = 8;',
+    to: 'export const LENS_SIDES = 6;',
+    why: 'a hexagon lens reads 0.866, between the square and the octagon: the 0.9 bound is what says a lens is round',
+  },
+  {
+    id: 'lens-winding-hand', file: 'src/streetfurniture.js',
+    find: '    if (hand < 0) buf.idx.push(ci, i, j); else buf.idx.push(ci, j, i);',
+    to: '    if (hand < 0) buf.idx.push(ci, i, j); else buf.idx.push(ci, i, j);',
+    why: "the lens fan wound one way in both frames: right in one hand and facing into the head in the other, so a gate building only one frame passes it",
+  },
+  {
     id: 'blade-yaw-pair', file: 'src/signage.js',
     find: '    const a = opts.yaws && Number.isFinite(opts.yaws[i]) ? opts.yaws[i] : yaw + i * Math.PI / 2;',
     to: '    const a = yaw + i * Math.PI / 2;',
