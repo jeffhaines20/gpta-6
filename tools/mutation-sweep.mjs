@@ -2729,8 +2729,8 @@ const MUTATIONS = [
   },
   {
     id: 'blade-back-blank', file: 'src/signage.js',
-    find: '        backRect: streetNameRect(name) });',
-    to: "        backRect: streetRect('misc', 'bladeBack') });",
+    find: '      { doubleSided: true, offset: 0, post: false, tint: opts.tint, backRect: rect });',
+    to: "      { doubleSided: true, offset: 0, post: false, tint: opts.tint, backRect: streetRect('misc', 'bladeBack') });",
     why: '#134 put back: every street-name blade a blank plate from the side its name faces away from',
   },
   {
@@ -2768,6 +2768,18 @@ const MUTATIONS = [
     find: '    const a = opts.yaws && Number.isFinite(opts.yaws[i]) ? opts.yaws[i] : yaw + i * Math.PI / 2;',
     to: '    const a = yaw + i * Math.PI / 2;',
     why: 'the blades back at right angles off the widest arm: every street-name blade the planner names for its own arm hangs across another street',
+  },
+  {
+    id: 'blade-plate-own', file: 'src/signage.js',
+    find: '  const plateOf = (name) => (Number.isInteger(opts.plate) ? opts.plate : bladePlate(name));',
+    to: '  const plateOf = (name) => bladePlate(name);',
+    why: "#134's colour put back: each blade in its own street's colourway, so 80 of 108 posts carry two colours",
+  },
+  {
+    id: 'blade-plate-name', file: 'src/signage.js',
+    find: "export function bladePlate(name) { return hash32('plate', streetKey(name)) % BLADE_PLATES.length; }",
+    to: "export function bladePlate(name) { return hash32('plate', name) % BLADE_PLATES.length; }",
+    why: "a post's colourway hashed on its upper blade's NAME rather than its street: the two halves of a street that changes name at a junction head posts in two colourways",
   },
   {
     id: 'blade-halves', file: 'src/signage.js',

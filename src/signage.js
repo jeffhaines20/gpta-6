@@ -392,6 +392,7 @@ function memo(key, fn) {
   if (!cache.has(key)) cache.set(key, fn());
   return cache.get(key);
 }
+const memoHas = (key) => cache.has(key);
 function canvas(w, h) {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
@@ -1223,17 +1224,32 @@ export function splitStreetName(name) {
   return { prefix, body, suffix };
 }
 
-// Three municipal colourways, assigned by name hash. Real cities colour blades by
-// district; one colour everywhere is flatter than the world it sits in.
+// Three municipal colourways. Real cities colour blades by district; one colour everywhere is flatter
+// than the world it sits in.
+//
+// A COLOURWAY BELONGS TO A POST, NOT TO A NAME (#134's review). This was `hash32('plate', name)` per
+// blade, so the two blades on one post took two colours whenever their names hashed apart -- 73 of the
+// district's 108 posts, and the reviewer's "the two blades on one post differ in colour". No city
+// colours the two halves of one corner sign differently. So a post takes the colourway of the street
+// on its UPPER blade, which bladePick makes the junction's widest, and the lower blade is drawn in it:
+// a junction reads one colour and a street that carries its junctions keeps it along its length. It is
+// hashed on `streetKey`, not on the name, because the upper blade at a junction where a street changes
+// half ("N LEMON" / "S LEMON") names whichever half the post stands on, and the two halves are one
+// street. The atlas therefore holds a cell per (name, colourway) the plan USES, not one per name; see
+// bladeCells.
 const BLADE_PLATES = [
   { bg: '#1d5237', fg: '#f2f4ef' },   // Sarasota municipal green
   { bg: '#1b4256', fg: '#eef4f6' },   // bayfront teal
   { bg: '#4d2028', fg: '#f4ece6' },   // historic core maroon
 ];
 
-function drawStreetBlade(L, x, y, w, h, name) {
+/** The colourway a post whose upper blade names `name` is drawn in: an index into BLADE_PLATES. */
+export function bladePlate(name) { return hash32('plate', streetKey(name)) % BLADE_PLATES.length; }
+
+function drawStreetBlade(L, x, y, w, h, name, plateIdx) {
   const g = L.al.g, e = L.em.g;
-  const plate = BLADE_PLATES[hash32('plate', name) % BLADE_PLATES.length];
+  const plate = BLADE_PLATES[plateIdx];
+  if (!plate) throw new Error(`signage: no blade colourway ${plateIdx} for "${name}"`);
   plateFill(L, x, y, w, h, plate.bg, 0.44, 0.12);
   const { prefix, body, suffix } = splitStreetName(name);
   g.save(); e.save();
@@ -1548,10 +1564,10 @@ function buildShopAtlas() {
   return { L, packer: p, W: SHOP_W, H };
 }
 
-function buildStreetAtlas(streetNames) {
+function buildStreetAtlas(streetNames, cells) {
   const names = streetNames.slice();
   const p = new ShelfPacker(STREET_W, PAD);
-  for (let i = 0; i < names.length; i++) p.add(`street:${i}`, ...SCELL.blade);
+  for (let i = 0; i < cells.length; i++) p.add(`street:${i}`, ...SCELL.blade);
   p.newShelf();
   // reg and tall are the same cell height, so they share a shelf; breaking
   // between them would cost a whole 136 px row for four signs.
@@ -1568,15 +1584,15 @@ function buildStreetAtlas(streetNames) {
   L.em.g.fillStyle = '#000'; L.em.g.fillRect(0, 0, STREET_W, H);
   L.rm.g.fillStyle = rmColor(0.5, 0.4); L.rm.g.fillRect(0, 0, STREET_W, H);
 
-  names.forEach((name, i) => {
+  cells.forEach(([name, plate], i) => {
     const c = p.rects.get(`street:${i}`);
-    drawStreetBlade(L, c.x, c.y, c.w, c.h, name);
+    drawStreetBlade(L, c.x, c.y, c.w, c.h, name, plate);
   });
   for (const k of REG_SIGNS) { const c = p.rects.get(`reg:${k}`); drawRegulatory(L, k, c.x, c.y, c.w, c.h); }
   for (const k of TALL_SIGNS) { const c = p.rects.get(`reg:${k}`); drawTallSign(L, k, c.x, c.y, c.w, c.h); }
   for (const k of WIDE_SIGNS) { const c = p.rects.get(`reg:${k}`); drawWideSign(L, k, c.x, c.y, c.w, c.h); }
   for (const k of SMISC) { const c = p.rects.get(`misc:${k}`); drawMisc(L, k, c.x, c.y, c.w); }
-  return { L, packer: p, W: STREET_W, H, names };
+  return { L, packer: p, W: STREET_W, H, names, cells };
 }
 
 // ------------------------------------------------------------------- textures
@@ -1596,6 +1612,9 @@ function toTexture(c, srgb) {
 
 /** Names baked into the street atlas. Callers pass district.json's streetNames. */
 let streetNameList = null;
+/** The (name, colourway) blade cells it bakes, from bladeCells(plan); null bakes each name in its own. */
+let streetCellList = null;
+const cellKey = (name, plate) => `${name}\u0001${plate}`;
 
 /**
  * The shop atlas: every business wordmark, valance, blade, mark and awning
@@ -1617,23 +1636,55 @@ export function shopAtlas() {
 }
 
 /**
- * The street atlas: one blade per invented street name plus the regulatory set.
+ * The street atlas: a blade cell per (name, colourway) the plan uses, plus the regulatory set.
  *
  * @param {string[]} [names]  invented street names; only read on first call
+ * @param {Array<[string, number]>} [cells]  bladeCells(plan); only read on first call. Without it each
+ *   name is baked once, in the colourway its own street would give a post (a lab, a tool).
  */
-export function streetAtlas(names) {
+export function streetAtlas(names, cells) {
   if (names && !streetNameList) streetNameList = dedupe(names);
-  return memo('atlas:street', () => {
-    const a = buildStreetAtlas(streetNameList ?? FALLBACK_STREETS);
+  const built = memoHas('atlas:street');
+  if (cells && !streetCellList && !built) streetCellList = dedupeCells(cells);
+  const a = memo('atlas:street', () => {
+    const list = streetNameList ?? FALLBACK_STREETS;
+    const cellList = streetCellList ?? list.map((n) => [n, bladePlate(n)]);
+    const b = buildStreetAtlas(list, cellList);
     return {
-      map: toTexture(a.L.al.c, true),
-      emissiveMap: toTexture(a.L.em.c, true),
-      rmMap: toTexture(a.L.rm.c, false),
-      rects: a.packer.rects, W: a.W, H: a.H, util: a.packer.utilisation,
-      names: a.names, index: new Map(a.names.map((n, i) => [n, i])),
-      canvases: a.L,
+      map: toTexture(b.L.al.c, true),
+      emissiveMap: toTexture(b.L.em.c, true),
+      rmMap: toTexture(b.L.rm.c, false),
+      rects: b.packer.rects, W: b.W, H: b.H, util: b.packer.utilisation,
+      names: b.names, index: new Map(b.names.map((n, i) => [n, i])),
+      cells: b.cells, cellIndex: new Map(b.cells.map(([n, pl], i) => [cellKey(n, pl), i])),
+      canvases: b.L,
     };
   });
+  // Cells handed over AFTER the atlas was baked are a wiring error, not a request: the blade they
+  // were for would come out in a cell that does not exist. Say so rather than drop them.
+  if (cells && built) {
+    const missing = cells.filter(([n, pl]) => !a.cellIndex.has(cellKey(n, pl)));
+    if (missing.length) {
+      throw new Error(`signage: the street atlas was baked before its blade cells were known; ` +
+        `${missing.length} missing, e.g. "${missing[0][0]}" in colourway ${missing[0][1]}`);
+    }
+  }
+  return a;
+}
+
+/** The (name, colourway) cells a plan's blades need, once each: what streetAtlas must bake. */
+export function bladeCells(plan) {
+  const out = [];
+  for (const b of plan.blades) {
+    for (const nm of b.names.slice(0, 2)) if (nm) out.push([nm, b.plate ?? bladePlate(nm)]);
+  }
+  return dedupeCells(out);
+}
+
+function dedupeCells(cells) {
+  const seen = new Map();
+  for (const [n, pl] of cells) if (!seen.has(cellKey(n, pl))) seen.set(cellKey(n, pl), [n, pl]);
+  return [...seen.values()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] - b[1]));
 }
 
 function dedupe(list) {
@@ -1804,11 +1855,11 @@ export function spillScaleOf() { return { spill: spillScale, soffit: soffitScale
  *
  * @param {{streetNames?: string[]}} opts  values of district.json's streetNames
  */
-export function generateSignageLibrary({ streetNames } = {}) {
+export function generateSignageLibrary({ streetNames, bladeCells: cells } = {}) {
   const t0 = performance.now();
   const shop = shopAtlas();
   const tShop = performance.now();
-  const street = streetAtlas(streetNames);
+  const street = streetAtlas(streetNames, cells);
   const t1 = performance.now();
   const mb = (w, h) => +((w * h * 4) / 1048576).toFixed(2);
   return {
@@ -1817,7 +1868,7 @@ export function generateSignageLibrary({ streetNames } = {}) {
     streetMs: +(t1 - tShop).toFixed(1),
     shop: { w: shop.W, h: shop.H, cells: shop.rects.size, util: +(shop.util * 100).toFixed(1) },
     street: { w: street.W, h: street.H, cells: street.rects.size, util: +(street.util * 100).toFixed(1),
-              names: street.names.length },
+              names: street.names.length, blades: street.cells.length },
     businesses: BUSINESSES.length,
     // Albedo full res, emissive half (a quarter of the texels), rm quarter (a
     // sixteenth) — a glow and a material mask carry no high-frequency detail
@@ -1849,11 +1900,20 @@ export function streetRect(kind, key) {
   return uvOf(r, a.W, a.H);
 }
 
-/** UV rect for a named street's blade; falls back to the first blade. */
-export function streetNameRect(name) {
+/**
+ * UV rect for a named street's blade in a colourway (default: the one its own street gives a post).
+ * An unbaked NAME falls back to the first blade, as it always has, and every caller gates on
+ * hasStreetName first. A baked name in a colourway the atlas does not hold is a wiring error -- the
+ * atlas was primed without the plan's bladeCells -- and throws, because the fallback would draw the
+ * blade confidently in the wrong colour or with the wrong name.
+ */
+export function streetNameRect(name, plate = bladePlate(name)) {
   const a = streetAtlas();
-  const i = a.index.has(name) ? a.index.get(name) : 0;
-  return streetRect('street', i);
+  const i = a.cellIndex.get(cellKey(name, plate));
+  if (i !== undefined) return streetRect('street', i);
+  if (!a.index.has(name)) return streetRect('street', 0);
+  throw new Error(`signage: no blade cell for "${name}" in colourway ${plate}; ` +
+    `prime streetAtlas with bladeCells(plan) before building the blades`);
 }
 
 /** Is a street name present in the baked atlas? */
@@ -2317,6 +2377,9 @@ export function postSign(x, z, yaw, yMid, w, h, rect, sign, trim, opts = {}) {
  */
 export function streetBladeAssembly(x, z, yaw, names, sign, trim, opts = {}) {
   const y = opts.height ?? 3.15;
+  // One colourway for the post (see BLADE_PLATES). A caller that names none gets each blade in its
+  // own street's, which is the old behaviour and the KNOWN-BAD sign-orient builds.
+  const plateOf = (name) => (Number.isInteger(opts.plate) ? opts.plate : bladePlate(name));
   const w = opts.width ?? 1.55, h = opts.bladeHeight ?? 0.235;
   names.slice(0, 2).forEach((name, i) => {
     if (!name) return;                     // an unbaked name: no blade, and the other keeps its turn
@@ -2331,9 +2394,9 @@ export function streetBladeAssembly(x, z, yaw, names, sign, trim, opts = {}) {
     // So from the side a name faced away from, a blade was an unpainted plate, and with two blades
     // at right angles a whole quadrant round every corner saw both blank. A real street-name blade
     // carries the name on both faces. Same triangles: the back face was always emitted.
-    postSign(x, z, a, y - i * (h + 0.07), w, h, streetNameRect(name), sign, null,
-      { doubleSided: true, offset: 0, post: false, tint: opts.tint,
-        backRect: streetNameRect(name) });
+    const rect = streetNameRect(name, plateOf(name));
+    postSign(x, z, a, y - i * (h + 0.07), w, h, rect, sign, null,
+      { doubleSided: true, offset: 0, post: false, tint: opts.tint, backRect: rect });
   });
   hardware(sign, trim, streetRect('misc', 'postBand'),
     x, (y + 0.3 - GROUND_EMBED) / 2, z, 0.085, y + 0.3 + GROUND_EMBED, 0.085, opts.tint);
@@ -2906,7 +2969,8 @@ export function planStreetSignage(district, opts = {}) {
     const yaw = Math.atan2(dx, dz);
     const px = p.x + (dx - dz) * off, pz = p.z + (dz + dx) * off;
     const pick = bladePick(streets, best.e.n ? streetKey(best.e.n) : null, px - p.x, pz - p.z);
-    blades.push({ x: px, z: pz, yaw, names: pick.names, yaws: pick.yaws, vertex: v });
+    blades.push({ x: px, z: pz, yaw, names: pick.names, yaws: pick.yaws, vertex: v,
+      plate: bladePlate(pick.names[0]) });
 
     // Stop signs face the driver arriving on the minor road, so they are placed
     // on the approach and turned back along it.
@@ -3183,7 +3247,7 @@ export function appendStreetSignage(plan, sign, trim, opts = {}) {
     // the first slot would hang it across the street it names.
     const names = b.names.slice(0, 2).map((nm) => (hasStreetName(nm) ? nm : null));
     if (!names.some(Boolean)) continue;
-    streetBladeAssembly(b.x, b.z, b.yaw, names, sign, trim, b.yaws ? { ...opts, yaws: b.yaws } : opts);
+    streetBladeAssembly(b.x, b.z, b.yaw, names, sign, trim, { ...opts, yaws: b.yaws, plate: b.plate });
     n += names.filter(Boolean).length;
   }
   for (const s of plan.stops) { regulatorySign(s.x, s.z, s.yaw, 'stop', sign, trim, opts); n++; }

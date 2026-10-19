@@ -25,10 +25,15 @@ import { readFileSync } from 'node:fs';
 // Same no-op 2D context tools/geom-audit.mjs and tools/frontage-stats.mjs install.
 if (typeof document === 'undefined') {
   const grad = { addColorStop() {} };
-  const ctx = () => new Proxy({}, {
+  // fillRect is RECORDED, with the fillStyle it painted in: the blade-colour check below reads a cell's
+  // plate colour off what the drawing code filled it with, not off the module's own colourway index.
+  const ctx = () => new Proxy({ __fills: [] }, {
     get(t, k) {
       if (k in t) return t[k];
       if (k === 'canvas') return { width: 1, height: 1 };
+      if (k === 'fillRect') {
+        return (t[k] = (x, y, w, h) => { t.__fills.push({ style: t.fillStyle, x, y, w, h }); });
+      }
       return (t[k] = (...a) => {
         if (k === 'measureText') return { width: String(a[0] ?? '').length * 8 };
         if (k === 'createLinearGradient' || k === 'createRadialGradient' ||
@@ -50,7 +55,7 @@ if (typeof performance === 'undefined') globalThis.performance = { now: () => Da
 
 const { districtSignageBuffers, buffers, signPanel, fasciaPlate, shopRect, orientRect,
   planStreetSignage, streetBladeAssembly, postSign, streetNameRect, streetRect, hasStreetName,
-  streetAtlas, appendStreetSignage } =
+  streetAtlas, appendStreetSignage, bladeCells, bladePlate } =
   await import('../src/signage.js');
 const { edgesOf } = await import('../src/facades.js');
 
@@ -150,8 +155,19 @@ function census(buf, tag, out) {
  */
 const rectKey = (r) => `${Math.min(r[0], r[2]).toFixed(6)},${Math.max(r[0], r[2]).toFixed(6)},` +
   `${Math.min(r[1], r[3]).toFixed(6)},${Math.max(r[1], r[3]).toFixed(6)}`;
+/**
+ * Every blade cell the atlas baked, by rect, to the name it carries. A name has a cell per colourway a
+ * post draws it in since #134's colour fix, so looking a face up by `streetNameRect(name)` -- the
+ * name's OWN colourway -- found only the blades whose post happened to share it: 272 of 432 faces.
+ */
+function cellNames() {
+  const a = streetAtlas(), out = new Map();
+  a.cells.forEach(([nm], i) => out.set(rectKey(streetRect('street', i)), nm));
+  return out;
+}
 function bladeCensus(street, names) {
-  const nameKeys = new Set(names.map((nm) => rectKey(streetNameRect(nm))));
+  const want = new Set(names);
+  const nameKeys = new Set([...cellNames()].filter(([, nm]) => want.has(nm)).map(([k]) => k));
   const blankKey = rectKey(streetRect('misc', 'bladeBack'));
   const out = { forwards: 0, mirrored: 0, blank: 0 };
   for (let v = 0; (v + 3) * 3 + 2 < street.pos.length; v += 4) {
@@ -200,8 +216,8 @@ const streetOf = (name) => name.toLowerCase().replace(/^(north|south|east|west)\
   .replace(/\s+(north|south|east|west)$/, '').replace(/[^a-z0-9]/g, '');
 function bladeStreets(street, plan, district) {
   const { verts, edges } = district;
-  const byRect = new Map();
-  for (const b of plan.blades) for (const nm of b.names) if (nm && hasStreetName(nm)) byRect.set(rectKey(streetNameRect(nm)), nm);
+  const named = new Set(plan.blades.flatMap((b) => b.names).filter((nm) => nm && hasStreetName(nm)));
+  const byRect = new Map([...cellNames()].filter(([, nm]) => named.has(nm)));
   const incAt = new Map();
   edges.forEach((e, ei) => {
     for (const end of [0, e.v.length - 1]) {
@@ -285,6 +301,79 @@ function legacyPlan(plan, district) {
     return { x: b.x, z: b.z, yaw: b.yaw, vertex: b.vertex, names: names.slice(0, 2) };
   }) };
 }
+
+/**
+ * ONE COLOURWAY A POST (#134's review: "the two blades on one post differ in colour"). Each lettered
+ * blade face is matched to its post by position, as bladeStreets does, and its colour is READ OFF THE
+ * ATLAS DRAWING: the first fill the atlas painted over that face's cell that is not the whole-atlas
+ * ground, which is the plate's own fill. Not the plan's `plate` and not the module's `bladePlate`, so a
+ * build that stamps the right index and draws the wrong colour, or draws one blade from another cell,
+ * reads as what it draws. Then two properties a viewer can see:
+ *   - `mixed`: posts whose faces carry more than one colour -- the filed defect;
+ *   - `streetSplit`: streets whose posts, where they name the UPPER blade, carry more than one colour.
+ *     A post takes its upper street's colourway, so a street keeps it along its length. Grouped by the
+ *     gate's own `streetOf`, so the two halves of a street that changes name are one street here.
+ */
+function bladeColours(street, plan) {
+  const a = streetAtlas();
+  const fills = a.canvases.al.g.__fills;
+  const colourOf = new Map();                    // rectKey of a street cell -> the colour painted under it
+  for (const [k, r] of a.rects) {
+    if (!k.startsWith('street:')) continue;
+    const f = fills.find((q) => !(q.w >= a.W && q.h >= a.H) && q.x <= r.x && q.y <= r.y &&
+      q.x + q.w >= r.x + r.w && q.y + q.h >= r.y + r.h);
+    colourOf.set(rectKey(streetRect('street', Number(k.slice(7)))), f ? String(f.style) : null);
+  }
+  const byPost = new Map(), names = cellNames();
+  const out = { faces: 0, unread: 0, posts: 0, mixed: 0, colours: 0, streetSplit: 0, streets: 0 };
+  const P = (v, k) => [street.pos[(v + k) * 3], street.pos[(v + k) * 3 + 1], street.pos[(v + k) * 3 + 2]];
+  for (let v = 0; (v + 3) * 3 + 2 < street.pos.length; v += 4) {
+    const o = quadOrientation(street.pos, street.nrm, street.uv, v);
+    if (!o) continue;
+    const k = rectKey(o.rect);
+    if (!colourOf.has(k)) continue;
+    out.faces++;
+    const colour = colourOf.get(k);
+    if (!colour) { out.unread++; continue; }
+    const cx = (P(v, 0)[0] + P(v, 1)[0] + P(v, 2)[0] + P(v, 3)[0]) / 4;
+    const cy = (P(v, 0)[1] + P(v, 1)[1] + P(v, 2)[1] + P(v, 3)[1]) / 4;
+    const cz = (P(v, 0)[2] + P(v, 1)[2] + P(v, 2)[2] + P(v, 3)[2]) / 4;
+    let post = null, pd = Infinity;
+    for (const b of plan.blades) { const d = Math.hypot(b.x - cx, b.z - cz); if (d < pd) { pd = d; post = b; } }
+    if (!post || pd > 1.5) { out.unread++; continue; }
+    if (!byPost.has(post)) byPost.set(post, []);
+    byPost.get(post).push({ colour, y: cy, name: names.get(k) });
+  }
+  const used = new Set(), byStreet = new Map();
+  for (const faces of byPost.values()) {
+    out.posts++;
+    const cs = new Set(faces.map((f) => f.colour));
+    for (const c of cs) used.add(c);
+    if (cs.size > 1) out.mixed++;
+    const top = Math.max(...faces.map((f) => f.y));
+    for (const f of faces) {
+      if (f.y < top - 0.05) continue;
+      const key = streetOf(f.name);
+      if (!byStreet.has(key)) byStreet.set(key, new Set());
+      byStreet.get(key).add(f.colour);
+    }
+  }
+  out.colours = used.size;
+  out.streets = byStreet.size;
+  for (const cs of byStreet.values()) if (cs.size > 1) out.streetSplit++;
+  return out;
+}
+function colourChecks(c, planned) {
+  return [
+    ['both blades on a corner post are one colourway', c.mixed === 0 && c.posts > 0 && c.faces === 2 * planned &&
+      c.unread === 0, `${c.mixed} of ${c.posts} posts carry two, ${c.faces} faces read (owed ${2 * planned}), ${c.unread} unread`],
+    ['and a street keeps its colourway at every post it heads, its two halves included', c.streetSplit === 0 &&
+      c.streets > 0, `${c.streetSplit} of ${c.streets} streets head posts in two colourways`],
+    ['and the district still carries more than one', c.colours > 1, `${c.colours} colourways in use`],
+  ];
+}
+/** The plan with no colourway on its posts: each blade in its own street's, as the planner shipped. */
+const unplated = (plan) => ({ ...plan, blades: plan.blades.map(({ plate, ...b }) => b) });
 
 function selftest() {
   // A wall edge in each winding. edgesOf() flips the normal by ring winding, so
@@ -398,6 +487,15 @@ function selftest() {
     [!passes(old, legacyPlan(plan, district)) && old.twice > 0 && old.across > 0,
       `KNOWN-BAD, the planner before #134's review fails: ${JSON.stringify(old)}`],
   );
+  // One colourway a post: the shipped plan, against the same plan with its posts' colourway taken off,
+  // which draws each blade in its own street's -- the build the review found.
+  const coloursOf = (p) => { const m = buffers(); appendStreetSignage(p, m, null); return bladeColours(m, p); };
+  const cNow = coloursOf(plan), cOld = coloursOf(unplated(plan));
+  const cPasses = (c) => colourChecks(c, bladesPlanned(plan)).every(([, ok]) => ok);
+  bt.push(
+    [cPasses(cNow), `the shipped posts pass: ${JSON.stringify(cNow)}`],
+    [!cPasses(cOld) && cOld.mixed > 0, `KNOWN-BAD, each blade in its own street's colourway fails: ${JSON.stringify(cOld)}`],
+  );
   for (const [ok, what] of bt) { if (!ok) fail++; console.log(`  ${ok ? 'ok  ' : 'FAIL'} blades: ${what}`); }
   console.log(fail ? `\nSELFTEST FAILED (${fail})` : '\nSELFTEST PASSED');
   return fail;
@@ -407,7 +505,13 @@ const district = JSON.parse(readFileSync(new URL('../data/district.json', import
 // THE PAGE BAKES THE DISTRICT'S OWN NAMES (district/main.js, generateSignageLibrary), and this tool used
 // the module's twelve-name fallback, so it censused 55 of the district's 216 blades: the ones whose names
 // happen to be in that list. Primed the way the page primes it, before anything memoises the atlas.
-streetAtlas(Object.values(district.streetNames ?? {}));
+//
+// And with the PLAN'S (name, colourway) cells, as the page primes it since #134's colour fix, plus every
+// name in its own street's colourway, which is what the KNOWN-BAD -- a post with no colourway -- draws.
+{
+  const names = Object.values(district.streetNames ?? {});
+  streetAtlas(names, [...bladeCells(planStreetSignage(district)), ...names.map((n) => [n, bladePlate(n)])]);
+}
 if (process.argv.includes('--selftest')) {
   process.exit(selftest() ? 1 : 0);
 }
@@ -432,10 +536,17 @@ const planned = bladesPlanned(plan);
 const blades = bladeCensus(res.street, plan.blades.flatMap((b) => b.names).filter((nm) => hasStreetName(nm)));
 console.log(`\nstreet-name blades       ${String(blades.forwards).padStart(8)} ${String(blades.mirrored).padStart(9)}   ${blades.blank} blank, ${planned} blades planned`);
 const named = bladeStreets(res.street, plan, district);
+const colours = bladeColours(res.street, plan);
+const coloursOld = (() => { const m = buffers(); appendStreetSignage(unplated(plan), m, null); return bladeColours(m, plan); })();
+console.log(`blade colourways: ${colours.mixed} of ${colours.posts} posts carry two, ${colours.colours} in use, ` +
+  `${colours.streetSplit} of ${colours.streets} streets split; each blade in its own street's: ${coloursOld.mixed} of ${coloursOld.posts}`);
 const checks = [
   ['no lettered face anywhere in the district reads mirrored', M === 0 && F > 0, `${F} forwards, ${M} mirrored`],
   ...bladeChecks(blades, planned),
   ...streetChecks(named, planned),
+  ...colourChecks(colours, planned),
+  ['KNOWN-BAD: each blade in its own street\'s colourway, as shipped before, mixes posts', coloursOld.mixed > 0,
+    `${coloursOld.mixed} of ${coloursOld.posts} posts`],
 ];
 console.log('');
 for (const [name, ok, detail] of checks) console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${name}  ${detail}`);

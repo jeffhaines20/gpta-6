@@ -27,6 +27,7 @@ import { Sky, SKY_PRESETS } from '../src/sky.js';
 import { Weather } from '../src/weather.js';
 import {
   generateSignageLibrary, districtSignageBuffers, signMaterial, streetSignMaterial,
+  planStreetSignage, bladeCells,
   setSignageTime, spillMaterial, soffitMaterial, setSpillScale, setSoffitScale, spillScaleOf,
 } from '../src/signage.js';
 import { buildingStyle } from '../src/facades.js';
@@ -141,7 +142,14 @@ await loading
     weather.bindMaterials(world.registry);
   })
   .add('signage', async () => {
-    generateSignageLibrary({ streetNames: Object.values(district.streetNames ?? {}) });
+    // THE KERB EVERY PLACER STANDS BEHIND (#132), from the streamer's own plan, so it is the kerb
+    // that is drawn: the sign posts here and the lamps, masts and props below all ask it.
+    kerbFace = new KerbFace(district, { plan: world._kerbPlan() ?? undefined });
+    // The street plan BEFORE the atlas: a post's two blades share one colourway (#134's review), so
+    // the atlas bakes a cell per (name, colourway) the plan uses, and only the plan knows which.
+    const streetPlan = planStreetSignage(district, { kerbFace });
+    generateSignageLibrary({ streetNames: Object.values(district.streetNames ?? {}),
+      bladeCells: bladeCells(streetPlan) });
     // ?nospill=1 and ?nosoffit=1 build the district WITHOUT issue #45's two
     // terms, so their TRIANGLE cost can be priced from one build on one port --
     // the same reason ?nofrontage=1 exists, and the same four-hour review round
@@ -150,11 +158,8 @@ await loading
     // which is what makes the four measurement arms one page load rather than
     // four.
     const _sq = new URLSearchParams(location.search);
-    // THE KERB EVERY PLACER STANDS BEHIND (#132), from the streamer's own plan, so it is the kerb
-    // that is drawn: the sign posts here and the lamps, masts and props below all ask it.
-    kerbFace = new KerbFace(district, { plan: world._kerbPlan() ?? undefined });
     const { buckets, street, spill, glow, stats } = districtSignageBuffers(district, {
-      kerbFace,
+      kerbFace, streetPlan,
       spill: !_sq.has('nospill'),
       soffit: !_sq.has('nosoffit'),
       styleOf: (b) => world._capStyle(buildingStyle(b), b),

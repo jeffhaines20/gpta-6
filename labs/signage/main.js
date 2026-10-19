@@ -20,7 +20,7 @@ import {
   generateSignageLibrary, signMaterial, streetSignMaterial, setSignageTime,
   buffers as signBuffers, appendBuildingSignage, signPlanFor,
   streetBladeAssembly, regulatorySign, parkingSign, wideSign, planStreetSignage,
-  districtSignageBuffers,
+  districtSignageBuffers, bladeCells, bladePlate,
   shopAtlas, streetAtlas, BUSINESSES, REG_SIGNS, TALL_SIGNS, WIDE_SIGNS,
 } from '../../src/signage.js';
 
@@ -106,8 +106,13 @@ const facingLots = FACING.map((l) => {
 
 // ---------------------------------------------------------------- generation
 const genFacade = generateFacadeLibrary();
+// The planner run against the real baked graph, BEFORE the atlas: a post's two blades share one
+// colourway, so the atlas bakes the plan's (name, colourway) cells, and this lab's demo rows, which
+// pass no colourway, need every name in its own street's as well.
+const streetPlan = district ? planStreetSignage(district) : null;
 const tSign0 = performance.now();
-const genSign = generateSignageLibrary({ streetNames });
+const genSign = generateSignageLibrary({ streetNames, bladeCells: streetNames ? [
+  ...(streetPlan ? bladeCells(streetPlan) : []), ...streetNames.map((n) => [n, bladePlate(n)])] : undefined });
 const signMs = performance.now() - tSign0;
 
 const facadeMats = {};
@@ -188,10 +193,8 @@ wideSign(rowLength * 0.62 - 3.4, 10.0, Math.PI, 'oneWayRight', streetBuf, trimBu
 parkingSign(rowLength * 0.30, 10.0, Math.PI, 'parking', streetBuf, trimBuf);
 parkingSign(rowLength * 0.84, 10.0, Math.PI, 'noParking', streetBuf, trimBuf);
 
-// The planner run against the real baked graph. Nothing here is drawn — the
-// point is to prove the plan comes out of district.json with sane counts before
-// the streamer wires it in.
-const streetPlan = district ? planStreetSignage(district) : null;
+// The plan above is not drawn here — the point is to prove it comes out of district.json with sane
+// counts before the streamer wires it in.
 
 // What signage actually costs the district, measured rather than asserted. Both
 // integration routes are built for real against data/district.json so the number
