@@ -2988,7 +2988,23 @@ const MUTATIONS = [
     why: 'a candidate that had to take a hairpin competes on length with one that did not',
   },
   // ---- #61: the route's junction turns rounded to the car's turning circle. Each is one term of
-  // the round put back, so that a sweep says which gate sees which term.
+  // the round put back, so that a sweep says which gate sees which term. Swept one at a time, in the
+  // commit that added them:
+  //
+  //     fillet-off          roadpath-test route-drive reaction-test lane-keep shunt-rate
+  //     fillet-right-hold   roadpath-test route-drive lane-keep
+  //     fillet-window-old   roadpath-test ALONE, and only its reading of a circle: the drive the
+  //                         reading decides (8 of 194 seeded legs into an alley corner at 37 km/h)
+  //                         is on no gate, because none of them drives those legs
+  //     fillet-merge-off    roadpath-test route-drive reaction-test lane-keep shunt-rate
+  //     fillet-clear-off    MISSED first, against every gate — no tour corner is short for clearance,
+  //                         so the tour reads byte-identically without the predicate — and caught by
+  //                         roadpath-test 6e(7b) once that drove a district corner the ladder decides
+  //     cusp-reaim          roadpath-test (its in-place reversal arm, and #131's unrounded hairpin)
+  //     cusp-any-behind     shunt-rate ALONE: its 72 km/h subject goes from one shunted car to none
+  //
+  // and fillet-off's first sweep had roadpath-test THROWING on a null `fillet` rather than failing,
+  // which is fixed: it prints eight FAIL lines now.
   {
     id: 'fillet-off', file: 'src/roadpath.js',
     find: 'export const FILLET_R = minTurnRadius(FREE_DV / (1 + WALL_E));',
