@@ -3118,7 +3118,7 @@ const MUTATIONS = [
   },
   {
     id: 'kerb-guard-off', file: 'src/streetfurniture.js',
-    find: '      if (!IN_ROAD_KINDS.has(kind)) {\n        // The test is on the FOOTPRINT THAT WAS EMITTED',
+    find: '      if (!IN_ROAD_KINDS.has(kind) && !inherit) {\n        // The test is on the FOOTPRINT THAT WAS EMITTED',
     to: '      if (false) {\n        // The test is on the FOOTPRINT THAT WAS EMITTED',
     why: 'every prop whose station falls at a corner or a run end stands in the road again: about 250 of them',
   },
