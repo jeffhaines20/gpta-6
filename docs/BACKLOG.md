@@ -5038,6 +5038,14 @@ pairs, so the per-pair scramble was working as designed. Noted against both buil
 mirrors are plain cubes with no glass (only the player's car changed), and the new glass reads flat at
 0.073-0.077 with no structure.
 
+**The fleet's mirrors: FIXED (008c4bf).** Each traffic, parked and police car's mirror box carries one
+glass quad on its back face, 2 mm proud and inset a centimetre, facing straight back (an 11.5-degree toe
+on a 9 cm pane is under a pixel at fleet distance). `car-detail` measures it off each shell's buffer,
+isolating the mirror glass by position (every corner outboard of 0.94 m; no shell's side glass reaches
+past 0.924): 57.6 cm2 a mirror on all three shells, all of it to the back. 1,210 -> 1,214 triangles a
+shell, +8 gate units a drawn car. `mutation-sweep`'s `fleet-mirror-bare` caught by car-detail. The flat
+glass is still open, and not reviewed blind.
+
 #### #133 (as filed)
 From the driver's re-review (cabin v3.1), both arms: side-on at 11 m, noon, the door mirror at
 [731,450,756,465] is a red-framed rectangle holding a sky-over-pavement reflection. A real door
