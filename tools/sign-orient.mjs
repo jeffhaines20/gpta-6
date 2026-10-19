@@ -49,7 +49,8 @@ if (typeof document === 'undefined') {
 if (typeof performance === 'undefined') globalThis.performance = { now: () => Date.now() };
 
 const { districtSignageBuffers, buffers, signPanel, fasciaPlate, shopRect, orientRect,
-  planStreetSignage, streetBladeAssembly, postSign, streetNameRect, streetRect, hasStreetName } =
+  planStreetSignage, streetBladeAssembly, postSign, streetNameRect, streetRect, hasStreetName,
+  streetAtlas, streetKey, appendStreetSignage } =
   await import('../src/signage.js');
 const { edgesOf } = await import('../src/facades.js');
 
@@ -175,6 +176,92 @@ function bladeChecks(c, planned) {
   ];
 }
 
+/**
+ * WHICH STREET A BLADE RUNS ALONG (#134's review): a blade is mounted parallel to the street it names,
+ * so a driver on the cross street reads it face-on. Read off the EMITTED faces like everything above:
+ * each lettered face's reading direction (the world direction of increasing u) against the arms of the
+ * street its rect names, at the junction of the post it hangs on. The planner handed names out in the
+ * order a junction's edges were listed while the assembly turned blade i to yaw + i*pi/2, so about half
+ * the blades hung across the street they named, and four posts named one street twice (its North and
+ * South halves, "N LEMON AVE" over "S LEMON" at Five Points). `worstDeg` is the largest angle between a
+ * face and the nearest arm of its street; `across` counts faces past 45 degrees, the line two blades at
+ * right angles split the round between.
+ */
+function bladeStreets(street, plan, district) {
+  const { verts, edges } = district;
+  const byRect = new Map();
+  for (const b of plan.blades) for (const nm of b.names) if (nm && hasStreetName(nm)) byRect.set(rectKey(streetNameRect(nm)), nm);
+  const incAt = new Map();
+  edges.forEach((e, ei) => {
+    for (const end of [0, e.v.length - 1]) {
+      const v = e.v[end];
+      if (!incAt.has(v)) incAt.set(v, []);
+      incAt.get(v).push({ ei, end });
+    }
+  });
+  const dirOf = (e, end) => {
+    const a = verts[end === 0 ? e.v[0] : e.v[e.v.length - 1]], b = verts[end === 0 ? e.v[1] : e.v[e.v.length - 2]];
+    const l = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+    return [(b.x - a.x) / l, (b.z - a.z) / l];
+  };
+  const out = { faces: 0, worstDeg: 0, across: 0, twice: 0, unplaced: 0 };
+  const namesAt = new Map();
+  const P = (v, k) => [street.pos[(v + k) * 3], street.pos[(v + k) * 3 + 1], street.pos[(v + k) * 3 + 2]];
+  for (let v = 0; (v + 3) * 3 + 2 < street.pos.length; v += 4) {
+    const o = quadOrientation(street.pos, street.nrm, street.uv, v);
+    if (!o) continue;
+    const name = byRect.get(rectKey(o.rect));
+    if (!name) continue;
+    // The face's centre and its u axis, off the four corners and their uvs.
+    const cx = (P(v, 0)[0] + P(v, 1)[0] + P(v, 2)[0] + P(v, 3)[0]) / 4;
+    const cz = (P(v, 0)[2] + P(v, 1)[2] + P(v, 2)[2] + P(v, 3)[2]) / 4;
+    let lo = 0, hi = 0;
+    for (let k = 1; k < 4; k++) {
+      if (street.uv[(v + k) * 2] < street.uv[(v + lo) * 2]) lo = k;
+      if (street.uv[(v + k) * 2] > street.uv[(v + hi) * 2]) hi = k;
+    }
+    const ux = P(v, hi)[0] - P(v, lo)[0], uz = P(v, hi)[2] - P(v, lo)[2], ul = Math.hypot(ux, uz) || 1;
+    // The post it hangs on: the plan's nearest, which a 1.55 m blade's centre is within a metre of.
+    let post = null, pd = Infinity;
+    for (const b of plan.blades) { const d = Math.hypot(b.x - cx, b.z - cz); if (d < pd) { pd = d; post = b; } }
+    if (!post || pd > 1.5) { out.unplaced++; continue; }
+    const key = streetKey(name);
+    const arms = (incAt.get(post.vertex) ?? []).filter(({ ei }) => edges[ei].n && streetKey(edges[ei].n) === key);
+    const c = Math.max(0, ...arms.map(({ ei, end }) => { const [dx, dz] = dirOf(edges[ei], end); return Math.abs(dx * ux + dz * uz) / ul; }));
+    const deg = Math.acos(Math.min(1, c)) * 180 / Math.PI;
+    out.faces++;
+    if (deg > out.worstDeg) out.worstDeg = deg;
+    if (deg > 45) out.across++;
+    if (!namesAt.has(post)) namesAt.set(post, new Set());
+    namesAt.get(post).add(name);
+  }
+  for (const set of namesAt.values()) {
+    const ks = [...set].map(streetKey);
+    if (ks.length >= 2 && new Set(ks).size < ks.length) out.twice++;
+  }
+  out.worstDeg = +out.worstDeg.toFixed(3);
+  return out;
+}
+function streetChecks(s, planned) {
+  return [
+    ['no corner post names one street twice', s.twice === 0, `${s.twice} posts with two halves of one street`],
+    ['every blade runs along the street it names', s.faces === 2 * planned && s.worstDeg <= 0.5 && s.across === 0,
+      `${s.faces} lettered faces measured (owed ${2 * planned}), worst ${s.worstDeg} deg off its street, ${s.across} across it`],
+  ];
+}
+/** The planner as it shipped before #134's review: names in the order the junction's edges are listed, no per-blade yaw. */
+function legacyPlan(plan, district) {
+  const at = new Map();
+  district.edges.forEach((e, ei) => {
+    for (const end of [0, e.v.length - 1]) { const v = e.v[end]; if (!at.has(v)) at.set(v, []); at.get(v).push(ei); }
+  });
+  return { ...plan, blades: plan.blades.map((b) => {
+    const names = [];
+    for (const ei of at.get(b.vertex) ?? []) { const n = district.edges[ei].n; if (n && !names.includes(n)) names.push(n); }
+    return { x: b.x, z: b.z, yaw: b.yaw, vertex: b.vertex, names: names.slice(0, 2) };
+  }) };
+}
+
 function selftest() {
   // A wall edge in each winding. edgesOf() flips the normal by ring winding, so
   // these two rings produce the two handednesses the district actually contains.
@@ -277,12 +364,26 @@ function selftest() {
     [!verdictOf(mirrored, 1) && mirrored.mirrored === 1, `KNOWN-BAD, a u-swapped back fails: ${JSON.stringify(mirrored)}`],
     [!verdictOf(shipped, 3), 'KNOWN-BAD, a plan owed more blades than were built fails'],
   ];
+  // Which street each blade names, on the district's own plan: shipped against the planner it replaced.
+  const plan = planStreetSignage(district);
+  const streetsOf = (p) => { const m = buffers(); appendStreetSignage(p, m, null); return bladeStreets(m, p, district); };
+  const now = streetsOf(plan), old = streetsOf(legacyPlan(plan, district));
+  const passes = (s, p) => streetChecks(s, bladesPlanned(p)).every(([, ok]) => ok);
+  bt.push(
+    [passes(now, plan), `the shipped planner passes: ${JSON.stringify(now)}`],
+    [!passes(old, legacyPlan(plan, district)) && old.twice > 0 && old.across > 0,
+      `KNOWN-BAD, the planner before #134's review fails: ${JSON.stringify(old)}`],
+  );
   for (const [ok, what] of bt) { if (!ok) fail++; console.log(`  ${ok ? 'ok  ' : 'FAIL'} blades: ${what}`); }
   console.log(fail ? `\nSELFTEST FAILED (${fail})` : '\nSELFTEST PASSED');
   return fail;
 }
 
 const district = JSON.parse(readFileSync(new URL('../data/district.json', import.meta.url), 'utf8'));
+// THE PAGE BAKES THE DISTRICT'S OWN NAMES (district/main.js, generateSignageLibrary), and this tool used
+// the module's twelve-name fallback, so it censused 55 of the district's 216 blades: the ones whose names
+// happen to be in that list. Primed the way the page primes it, before anything memoises the atlas.
+streetAtlas(Object.values(district.streetNames ?? {}));
 if (process.argv.includes('--selftest')) {
   process.exit(selftest() ? 1 : 0);
 }
@@ -306,9 +407,11 @@ const plan = planStreetSignage(district);
 const planned = bladesPlanned(plan);
 const blades = bladeCensus(res.street, plan.blades.flatMap((b) => b.names).filter((nm) => hasStreetName(nm)));
 console.log(`\nstreet-name blades       ${String(blades.forwards).padStart(8)} ${String(blades.mirrored).padStart(9)}   ${blades.blank} blank, ${planned} blades planned`);
+const named = bladeStreets(res.street, plan, district);
 const checks = [
   ['no lettered face anywhere in the district reads mirrored', M === 0 && F > 0, `${F} forwards, ${M} mirrored`],
   ...bladeChecks(blades, planned),
+  ...streetChecks(named, planned),
 ];
 console.log('');
 for (const [name, ok, detail] of checks) console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${name}  ${detail}`);

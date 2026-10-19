@@ -2734,6 +2734,18 @@ const MUTATIONS = [
     why: '#134 put back: every street-name blade a blank plate from the side its name faces away from',
   },
   {
+    id: 'blade-yaw-pair', file: 'src/signage.js',
+    find: '    const a = opts.yaws && Number.isFinite(opts.yaws[i]) ? opts.yaws[i] : yaw + i * Math.PI / 2;',
+    to: '    const a = yaw + i * Math.PI / 2;',
+    why: 'the blades back at right angles off the widest arm: every street-name blade the planner names for its own arm hangs across another street',
+  },
+  {
+    id: 'blade-halves', file: 'src/signage.js',
+    find: "  return `${body.replace(/\\s+/g, '').toLowerCase()}|${suffix}`;",
+    to: '  return name;',
+    why: 'North and South halves of one street count as two: a corner post names Lemon twice, "N LEMON AVE" over "S LEMON"',
+  },
+  {
     id: 'cabin-shipped-off', file: 'src/carbody.js',
     find: ' uCabinGain: { value: 1 },',
     to: ' uCabinGain: { value: 0 },',

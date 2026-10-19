@@ -2319,7 +2319,10 @@ export function streetBladeAssembly(x, z, yaw, names, sign, trim, opts = {}) {
   const y = opts.height ?? 3.15;
   const w = opts.width ?? 1.55, h = opts.bladeHeight ?? 0.235;
   names.slice(0, 2).forEach((name, i) => {
-    const a = yaw + i * Math.PI / 2;
+    if (!name) return;                     // an unbaked name: no blade, and the other keeps its turn
+    // Each blade's own yaw when the plan gives one (its street's arm, see bladePick); a caller that
+    // passes none gets the old pair at right angles.
+    const a = opts.yaws && Number.isFinite(opts.yaws[i]) ? opts.yaws[i] : yaw + i * Math.PI / 2;
     // post: false — the assembly carries ONE pole for both blades, below.
     //
     // Lettered on BOTH faces (#134). This passed `backRect: bladeBack`, a blank, from when
@@ -2801,6 +2804,52 @@ function hslToRgb(h, s, l) {
  * @param {{maxAssemblies?:number, maxSigns?:number}} opts
  * @returns {{blades:Array, stops:Array, oneWays:Array, parking:Array}}
  */
+/**
+ * Which street a name belongs to, whichever half of it the name is for: "North Lemon Avenue" and
+ * "South Lemon Avenue" are one street that changes prefix at Main, and so are "Gulf Stream Avenue
+ * South" and "North Gulfstream Avenue", which the bake also spells two ways. A corner post names two
+ * DIFFERENT streets, and before this four posts named one street twice (#134's review).
+ */
+export function streetKey(name) {
+  const bare = name.replace(/^(North|South|East|West)\s+(?=\S+\s)/, '').replace(/\s+(North|South|East|West)$/, '');
+  const { body, suffix } = splitStreetName(bare);
+  return `${body.replace(/\s+/g, '').toLowerCase()}|${suffix}`;
+}
+
+/**
+ * THE NAME A BLADE CARRIES IS THE STREET IT RUNS ALONG, AND THE BLADE IS TURNED TO THAT STREET. A
+ * blade is mounted parallel to the street it names, so a driver on the cross street reads it face-on.
+ * `postSign` lays a plate's long axis on rt = (cos a, -sin a), square to the yaw it is given, and the
+ * assembly used to turn blade i to `yaw + i * pi/2` off the widest arm while the planner handed the
+ * names out in the order the junction's edges happened to be listed: 109 of 216 blades hung ACROSS
+ * the street they named, and #134's review found the post at Five Points reading "N LEMON AVE" over
+ * "S LEMON" at right angles. Handing the names out by orientation fixed all but four, at oblique
+ * junctions where no blade at right angles to the widest arm can follow the other street, 49-64
+ * degrees off. So each blade takes its own street's arm instead: the widest road's street on the
+ * upper blade, the most important OTHER street below it (rank, then width, then name, so the choice
+ * is stable), each turned so its long axis runs along that street's arm on the post's own corner,
+ * and named for that arm's half of a street that changes prefix there. (ox, oz) is the post's offset
+ * from the junction.
+ */
+function bladePick(streets, widestKey, ox, oz) {
+  const list = [...streets.entries()].sort((a, b) => (b[1].rank - a[1].rank) || (b[1].w - a[1].w)
+    || (a[0] < b[0] ? -1 : 1));
+  const first = streets.has(widestKey) ? widestKey : list[0][0];
+  const second = list.find(([k]) => k !== first)[0];
+  const armOn = (s) => s.arms.reduce((m, arm) => {
+    const d = arm.dir[0] * ox + arm.dir[1] * oz;
+    return d > m.d ? { d, arm } : m;
+  }, { d: -Infinity, arm: s.arms[0] }).arm;
+  const out = { names: [], yaws: [] };
+  for (const k of [first, second]) {
+    const arm = armOn(streets.get(k));
+    out.names.push(arm.name);
+    // Long axis along (dx, dz): a = atan2(dx, dz) + pi/2 puts rt = (-dx, -dz).
+    out.yaws.push(Math.atan2(arm.dir[0], arm.dir[1]) + Math.PI / 2);
+  }
+  return out;
+}
+
 export function planStreetSignage(district, opts = {}) {
   const maxA = opts.maxAssemblies ?? 140;
   const maxS = opts.maxSigns ?? 260;
@@ -2833,24 +2882,31 @@ export function planStreetSignage(district, opts = {}) {
   for (const v of keys) {
     const inc = at.get(v);
     if (inc.length < 3) continue;
-    const names = [];
+    // ONE STREET IS ONE STREET, whichever half of it an edge is named for (#134's review): the
+    // junction's streets keyed by `streetKey`, each with the incident edges that carry it.
+    const streets = new Map();
     let widest = 0, best = null;
     for (const { ei, end } of inc) {
       const e = edges[ei];
-      if (e.n && !names.includes(e.n)) names.push(e.n);
       if (e.w > widest) { widest = e.w; best = { e, end }; }
+      if (!e.n) continue;
+      const k = streetKey(e.n);
+      if (!streets.has(k)) streets.set(k, { arms: [], rank: 0, w: 0 });
+      const s = streets.get(k);
+      s.arms.push({ name: e.n, dir: dirOf(e, end) });
+      s.rank = Math.max(s.rank, RANK[e.c] ?? 0);
+      s.w = Math.max(s.w, e.w);
     }
-    if (names.length < 2 || !best) continue;
+    if (streets.size < 2 || !best) continue;
     if (blades.length >= maxA) break;
     const p = verts[v];
     const [dx, dz] = dirOf(best.e, best.end);
     // Set the pole back on the corner, off the carriageway of both approaches.
     const off = (widest / 2 + 1.6) * 0.707;   // diagonal, so both approaches clear
     const yaw = Math.atan2(dx, dz);
-    blades.push({
-      x: p.x + (dx - dz) * off, z: p.z + (dz + dx) * off,
-      yaw, names: names.slice(0, 2), vertex: v,
-    });
+    const px = p.x + (dx - dz) * off, pz = p.z + (dz + dx) * off;
+    const pick = bladePick(streets, best.e.n ? streetKey(best.e.n) : null, px - p.x, pz - p.z);
+    blades.push({ x: px, z: pz, yaw, names: pick.names, yaws: pick.yaws, vertex: v });
 
     // Stop signs face the driver arriving on the minor road, so they are placed
     // on the approach and turned back along it.
@@ -3122,10 +3178,13 @@ export function appendStreetSignage(plan, sign, trim, opts = {}) {
   for (const b of plan.blades) {
     // Only names the atlas actually baked: streetNameRect falls back to cell 0,
     // and a blade confidently labelled with the wrong street is worse than none.
-    const names = b.names.filter((nm) => hasStreetName(nm));
-    if (!names.length) continue;
-    streetBladeAssembly(b.x, b.z, b.yaw, names, sign, trim, opts);
-    n += Math.min(2, names.length);
+    // An unbaked name leaves its blade OUT rather than closing the gap: a blade's
+    // place in the list is the way it is turned, so the second name moving up into
+    // the first slot would hang it across the street it names.
+    const names = b.names.slice(0, 2).map((nm) => (hasStreetName(nm) ? nm : null));
+    if (!names.some(Boolean)) continue;
+    streetBladeAssembly(b.x, b.z, b.yaw, names, sign, trim, b.yaws ? { ...opts, yaws: b.yaws } : opts);
+    n += names.filter(Boolean).length;
   }
   for (const s of plan.stops) { regulatorySign(s.x, s.z, s.yaw, 'stop', sign, trim, opts); n++; }
   for (const o of plan.oneWays) { wideSign(o.x, o.z, o.yaw, o.key, sign, trim, opts); n++; }
