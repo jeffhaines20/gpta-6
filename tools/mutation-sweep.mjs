@@ -2743,7 +2743,8 @@ const MUTATIONS = [
     id: 'blade-halves', file: 'src/signage.js',
     find: "  return `${body.replace(/\\s+/g, '').toLowerCase()}|${suffix}`;",
     to: '  return name;',
-    why: 'North and South halves of one street count as two: a corner post names Lemon twice, "N LEMON AVE" over "S LEMON"',
+    why: 'North and South halves of one street count as two: a junction where only the two halves meet gets a post naming both, and a post can name the half across the junction from it',
+    inert: 'measured 2026-10-19: the blade plan is byte-identical under this mutation, 0 of 108 posts differ. bladePick never pairs two halves in this district, and the alphabetical tie between a street\'s halves lands on the half each of the 5 posts beside a name change stands next to. A guard for a district this one is not; sign-orient checks both properties, so a district that needs it will catch it',
   },
   {
     id: 'cabin-shipped-off', file: 'src/carbody.js',
