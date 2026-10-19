@@ -885,6 +885,33 @@ function plate(buf, f, cx, cy, cz, hz, hy, off, hex, surf) {
     handOf(f));
 }
 
+/**
+ * A ROUND LENS, vertical and facing outward (+x of the frame): an n-gon fan in plate()'s plane and
+ * winding. #124's review measured the green aspect filling 0.98 of its 15 px box where a disc fills
+ * 0.785: the lens was plate(), a square emitter at every distance. An octagon's flats sit 7.6% of its
+ * radius inside the circle, half a pixel on a 15 px lens and one on a 26 px one, which is a signal
+ * head at 10 m; 6 triangles more than the quad. The first vertex is turned half a step, so the fan
+ * has a flat at the top and the bottom like the visor above it.
+ */
+function lensDisc(buf, f, cx, cy, cz, r, off, n, hex, surf) {
+  const P = (lz, ly) => [wx(f, cx + off, cz + lz), cy + ly, wz(f, cx + off, cz + lz)];
+  const N = [f.ox, 0, f.oz];
+  const c = P(0, 0);
+  const ci = vert(buf, c[0], c[1], c[2], N[0], N[1], N[2], hex, surf);
+  for (let k = 0; k < n; k++) {
+    const a = ((k + 0.5) / n) * Math.PI * 2;
+    const p = P(Math.cos(a) * r, Math.sin(a) * r);
+    vert(buf, p[0], p[1], p[2], N[0], N[1], N[2], hex, surf);
+  }
+  // Increasing angle runs (z, y) the way plate()'s a -> b -> c does, so the same hand rule applies.
+  const hand = handOf(f);
+  for (let k = 0; k < n; k++) {
+    const i = ci + 1 + k, j = ci + 1 + ((k + 1) % n);
+    if (hand < 0) buf.idx.push(ci, i, j); else buf.idx.push(ci, j, i);
+  }
+}
+export const LENS_SIDES = 8;
+
 /** A thin triangular tube between two world points: overhead cable spans. No
  *  frame, so no handedness — the ring is built from an orthonormal (u, p, u x p)
  *  triple in world space, which is right-handed by construction, and quad()'s
@@ -4432,7 +4459,7 @@ export class StreetFurniture {
   //     belongs and frames the stack, and each lens carries a visor: both read
   //     in silhouette from every angle, so a head facing away still reads as a
   //     traffic signal rather than as an unexplained dark box.
-  _signalMast(buf, f, armLen, green, k) {                           // 134 tris
+  _signalMast(buf, f, armLen, green, k) {                           // 152 tris
     const POLE = 0x2b3630;
     const CASE = 0x14181a;               // backplate / visor: near black, matte
     const hz = armLen;
@@ -4461,7 +4488,7 @@ export class StreetFurniture {
     for (let i = 0; i < 3; i++) {
       const on = green ? i === 2 : i === 0;
       const y = HEAD_Y + (1 - i) * 0.38;
-      plate(buf, f, 0, y, hz, 0.13, 0.13, 0.185,
+      lensDisc(buf, f, 0, y, hz, 0.13, 0.185, LENS_SIDES,
         on ? litHue[i] : dark[i], on ? live : S.lensOff);
       // Visor. Reads in silhouette from the side and from behind, and shades
       // the unlit lenses from the low sun that was lighting them up.
@@ -5771,7 +5798,7 @@ export class StreetFurniture {
 // arithmetic by hand. tools/geom-audit.mjs learned that lesson the hard way —
 // a second copy of the maths drifts from the geometry it is meant to audit.
 export const __kit = {
-  newBuf, frame, box, prism, slab, plate, tube, blob, quad, vert, handOf,
+  newBuf, frame, box, prism, slab, plate, tube, blob, quad, vert, handOf, lensDisc,
   propTree, propTreeDetail, treeParams, palmFrond, palmTrunk, frondAt, rng32, FROND,
   // The oak half, for tools/oak-audit.mjs and tools/oak-profile.mjs. setOakRoute
   // is the one piece of state a tools-side replay has to set for itself: without

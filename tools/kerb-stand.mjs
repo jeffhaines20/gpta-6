@@ -764,6 +764,84 @@ if (!SELFTEST && IS_MAIN) {
   check('and the species census counts the trees that stand, not the ones the kerb refused',
     counted === treesR.length, `${counted} counted, ${treesR.length} standing`);
 
+  /**
+   * #124: THE SIGNAL LENS IS ROUND. A blind review measured the lit green aspect filling 0.98 of its
+   * 15 px box where a disc fills 0.785: the lens was a square plate. Built here from the module's own
+   * `_signalMast`, in a frame of each handedness, and measured off the buffer: each aspect lens is the
+   * connected set of triangles on a lens surface above 4 m (the pedestrian head, which is square in
+   * the street too, is at 2.86), and its roundness is the nearest point of its OUTLINE over its
+   * farthest vertex -- edge midpoints, because a square's four corners are all one distance from its
+   * centre and a vertex-only measure reads it as a circle. A regular n-gon reads cos(pi/n): a square
+   * 0.707, a hexagon 0.866, the octagon 0.924. And every lens triangle faces the way its normal does.
+   */
+  const K = __kit;
+  const lensSurfs = new Set([K.S.lensRed, K.S.lensGreen, K.S.lensAmber, K.S.lensOff].filter((v) => v !== undefined)
+    .map((sf) => K.paletteU(sf)));
+  const lensesOf = (buf) => {
+    const isLens = (i) => lensSurfs.has(buf.uv[i * 2]) && buf.pos[i * 3 + 1] > 4;
+    const tris = [];
+    for (let t = 0; t + 2 < buf.idx.length; t += 3) {
+      const a = buf.idx[t], b = buf.idx[t + 1], c = buf.idx[t + 2];
+      if (isLens(a) && isLens(b) && isLens(c)) tris.push([a, b, c]);
+    }
+    // Components by shared vertices.
+    const parent = new Map(), find = (x) => { while (parent.get(x) !== x) x = parent.get(x); return x; };
+    for (const t of tris) for (const v of t) if (!parent.has(v)) parent.set(v, v);
+    for (const [a, b, c] of tris) { parent.set(find(b), find(a)); parent.set(find(c), find(a)); }
+    const groups = new Map();
+    for (const t of tris) { const r = find(t[0]); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(t); }
+    const P = (i) => [buf.pos[i * 3], buf.pos[i * 3 + 1], buf.pos[i * 3 + 2]];
+    return [...groups.values()].map((ts) => {
+      const vs = [...new Set(ts.flat())];
+      const c = vs.reduce((m, i) => { const p = P(i); return [m[0] + p[0] / vs.length, m[1] + p[1] / vs.length, m[2] + p[2] / vs.length]; }, [0, 0, 0]);
+      const d = (p) => Math.hypot(p[0] - c[0], p[1] - c[1], p[2] - c[2]);
+      const edges = new Map();
+      for (const [a, b, cc] of ts) for (const [u, v] of [[a, b], [b, cc], [cc, a]]) {
+        const k = u < v ? `${u},${v}` : `${v},${u}`;
+        edges.set(k, (edges.get(k) ?? 0) + 1);
+      }
+      let rimMin = Infinity, far = 0, bad = 0;
+      for (const [k, n] of edges) {
+        if (n !== 1) continue;                                  // interior edge of the fan
+        const [u, v] = k.split(',').map(Number), pu = P(u), pv = P(v);
+        rimMin = Math.min(rimMin, d([(pu[0] + pv[0]) / 2, (pu[1] + pv[1]) / 2, (pu[2] + pv[2]) / 2]));
+      }
+      for (const i of vs) far = Math.max(far, d(P(i)));
+      for (const [a, b, cc] of ts) {
+        const pa = P(a), pb = P(b), pc = P(cc);
+        const u = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]], v = [pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]];
+        const g = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+        const n = [buf.nrm[a * 3], buf.nrm[a * 3 + 1], buf.nrm[a * 3 + 2]];
+        if (g[0] * n[0] + g[1] * n[1] + g[2] * n[2] <= 0) bad++;
+      }
+      return { round: rimMin / far, tris: ts.length, bad };
+    });
+  };
+  const mastLenses = (det) => {
+    const buf = K.newBuf();
+    const f = det > 0 ? K.frame(0, 0, 0, 1, 1, 0) : K.frame(0, 0, 0, -1, 1, 0);
+    StreetFurniture.prototype._signalMast.call({}, buf, f, 4, true, 1);
+    return lensesOf(buf);
+  };
+  const lensRows = [...mastLenses(1), ...mastLenses(-1)];
+  const worstRound = Math.min(...lensRows.map((r) => r.round)), lensBad = lensRows.reduce((a, r) => a + r.bad, 0);
+  // KNOWN-BAD: the lens as it shipped, a plate of the same half-size.
+  const sq = K.newBuf();
+  K.plate(sq, K.frame(0, 0, 0, 1, 1, 0), 0, 5.1, 4, 0.13, 0.13, 0.185, 0x073a16, K.S.lensGreen);
+  const squareRound = lensesOf(sq)[0]?.round ?? null;
+  console.log(`\n  #124 signal lenses: ${lensRows.length} aspect lenses over two frames, roundness worst ` +
+    `${worstRound.toFixed(3)}, ${lensBad} triangles facing away; the square plate reads ${squareRound?.toFixed(3)}`);
+  check('every signal aspect lens is round, three to a head, in a frame of either hand',
+    lensRows.length === 6 && worstRound >= 0.9, `${lensRows.length} lenses, worst roundness ${worstRound.toFixed(3)} against 0.9`);
+  check('and faces the way its normal does', lensBad === 0, `${lensBad} of ${lensRows.reduce((a, r) => a + r.tris, 0)} triangles`);
+  check('KNOWN-BAD: the square plate it replaced reads as a square', squareRound !== null && squareRound < 0.75,
+    `${squareRound?.toFixed(3)}`);
+  // And every triangle the dress pass emitted faces the way its normal does (the audit's winding).
+  const wind = (fu.placed ?? []).reduce((a, p) => ({ bad: a.bad + (p.wind ? p.wind.bad : 0), tris: a.tris + (p.wind ? p.wind.tris : 0) }), { bad: 0, tris: 0 });
+  console.log(`  dress pass winding: ${wind.bad} of ${wind.tris} triangles face away from their own normal`);
+  check('no triangle the dress pass emits faces away from its own normal', wind.tris > 0 && wind.bad === 0,
+    `${wind.bad} of ${wind.tris}`);
+
   const failed = checks.filter((k) => !k.ok);
   console.log(`\n${'='.repeat(78)}\n\nKERB STAND: ${failed.length ? 'FAIL' : 'PASS'} — ${checks.length} checks`);
   process.exit(failed.length ? 1 : 0);
