@@ -4532,6 +4532,47 @@ lose ONE vertex from it, their dead-end far ends (1090, 1259). The tolerance sta
 reason — a 0.10-0.34 m pinch at one point is a scrape for a driver taking care — and the comment says
 that now.
 
+**The budget gate on this follower**, two runs on 2026-10-19, against the #64 baseline (three runs
+at 6b47266, the old follower):
+
+                         baseline (3 runs)      run 1, 14b5383       run 2, d06c7ee
+    triangles p95        832,174 - 845,957      822,195 PASS         827,333 PASS    warn 1,400,000
+    draw calls p95       225 - 236              229 PASS             226 PASS        warn 275
+    chunk stall ms       10 (kept artifact)     306.6 FAIL           9.3 WARN        warn 8 / fail 16
+    lap, s of sim        295.5                  390.9                366.3
+    applied impacts      3 walls (kept one)     0 in the lap         0
+    repairs / crimes     3-6 / 3                1 / 1 after the lap  0 / 0
+    stuck-teleports      1, at index 175        2, at 635 and 654    2, at 635 and 654
+
+Run 2 carries #125's wheels and #124's stars as well, which the triangle row cannot resolve from
+sampling (CLAUDE.md: under ~20,000 is not the gate's to confirm).
+
+- **Run 1's 306.6 ms stall did not reproduce.** Run 2 read 9.3 ms, inside #42's clean-box spread of
+  8.0-17.2, with the jitter probe on: worst preemption stretch 12.9 ms, 4 samples past x5. Run 1 was
+  the first browser on a container that had just restarted, and for five minutes of it a builder's
+  offline probes were building the district's furniture beside it; it had no jitter probe, so the
+  306.6 is unattributed, not explained.
+- **The follower costs the lap 24-32% more sim time and no damage.** 0 applied impacts in either lap
+  against 3 wall hits in the baseline's, p50 speed 19.5-25.3 km/h against 33.8 — the crawl corners.
+- **Run 1's repair and crime were the HARNESS.** The runner polls the lap count every 4 s of wall
+  clock, several seconds of sim at time scale 22, and the autopilot drove on through them with its
+  progress index back at 0, turning for the start of the ring it had just finished at 76 km/h: a
+  16.37 m/s write-off into a prop 2.3 s after the lap, charged to it. Since d06c7ee the car brakes
+  once the lap is driven (`lap_end_t`); run 2's last contact is a 0.62 m/s free graze under that brake.
+- **The two stuck-teleports are a PARKED CAR, the same two in both runs**, which run 2's ledger could
+  say because d06c7ee counts free contacts too: 225 and 262 frames against a parked car at a worst
+  2.06 m/s — under the 2.2 free line, as `CRAWL_MS` was derived to keep it — with the car 3.6-3.8 m
+  wide of its line and stopped. The course's own radius there is **3.2 m at index 633 and 2.6 m at
+  653**, against the car's standstill minimum of 8.45, both right turns with the kerbside row on the
+  outside. That is #104's "router emitting corners under the car's turning circle", which #104
+  deferred to a fresh baseline; #64 has since moved the baseline, so the lever — rounding `tour()`'s
+  junction turns to `R_min` — is unblocked, and these two stops are its first deterministic subjects
+  on the gate's own course. The old follower cut both corners inside, so it was not stopped there and
+  hit walls instead; the baseline's one teleport, at 175 (a 4.3 m corner), is now driven.
+
+The artifacts are `docs/drive-traffic-128a.json` and `-128b.json`; `docs/drive-traffic.json` stays
+the #64 baseline.
+
 #### THE ORIGINAL RECORD
 ### #128 OPEN — `route-drive` holds its 22 m/s by 0.5 m/s, and what binds is a 2.8 m alley taken at 72 km/h
 On the right side of the road the worst charged contact climbs with the speed cap and leaves the
