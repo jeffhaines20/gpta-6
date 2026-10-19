@@ -74,7 +74,7 @@ const OPENS_M = 2.0;
  * bracket buys 0.55 m against a measured need of 0.30-0.35, and nothing faster than 22 m/s is a
  * margin question: 24 m/s wrecks at every value in the table.
  */
-const LANE_MARGIN_M = 1.5;
+export const LANE_MARGIN_M = 1.5;
 
 /**
  * THE SHARPEST TURN `route` TAKES AT A JUNCTION, unless nothing gentler reaches the target (#131).

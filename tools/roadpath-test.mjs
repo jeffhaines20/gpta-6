@@ -20,7 +20,7 @@ import { RoadGraph, followPath, pathSpeedLimit, steerableSpeed, gripSpeed, corne
   minTurnRadius, steerForRadius, RESPONSE,
   resample, smooth, minRadius, worstGap, offsetRight, pathCurvature, ARC_WINDOW,
   laneOffsetFor, laneOffsets, ROUTE_LANE_M, rightOf, CRAWL_MS, SPEED_DEADBAND, CRAWL_OVERRUN,
-  filletCorners, FILLET_R, FILLET_RUNGS, JUNCTION_TURN_RAD } from '../src/roadpath.js';
+  filletCorners, FILLET_R, FILLET_RUNGS, JUNCTION_TURN_RAD, LANE_MARGIN_M } from '../src/roadpath.js';
 import { Vehicle } from '../src/vehicle.js';
 import { FlatGround } from '../src/ground.js';
 import { BlockerIndex } from '../src/blockers.js';
@@ -1231,6 +1231,42 @@ console.log('\n§6e The route\'s corners (#61)');
     check('#128\'s two corners, where the gate\'s drive stopped twice, are right turns rounded at the full radius',
       s635 && s654 && s635.deg > 0 && s654.deg > 0 && s635.R >= FILLET_R - 1e-9 && s654.R >= FILLET_R - 1e-9,
       `${JSON.stringify(s635)} ${JSON.stringify(s654)}`);
+  }
+  // 7b. THE CLEARANCE LADDER DECIDES SOMETHING IN THE DISTRICT, and this is the check that says so.
+  //     No corner of the tour is short for clearance, so a pipeline that stopped passing the lane
+  //     fit's predicate to the fillet reads byte-identically there — mutation-sweep's
+  //     `fillet-clear-off` came back MISSED against every gate on exactly that. Over 780 seeded
+  //     path()s the predicate cuts 44 corners; this is the first of them, a left turn at
+  //     (139, -474.4) on a route from vertex 1161 to 292, which the ladder takes at its 0.9 rung.
+  {
+    const a = district.verts[1161], b = district.verts[292];
+    const p = g.path(a.x, a.z, b.x, b.z, { spacing: 4, offset: ROUTE_LANE_M });
+    const c = (p?.fillet?.list ?? []).find((q) => Math.hypot(q.x - 139, q.z + 474.4) < 1.5);
+    const arcPts = (A, R, cx, cz) => {
+      const n = Math.max(2, Math.ceil(R * Math.abs(A.sweep) / 0.25)), o = [];
+      for (let k = 0; k <= n; k++) {
+        const ph = A.phi0 + A.sweep * k / n;
+        o.push([cx + R * Math.cos(ph), cz + R * Math.sin(ph)]);
+      }
+      return o;
+    };
+    let shippedClear = false, fullBlocked = false, detail = 'no fillet corner within 1.5 m of (139, -474.4)';
+    if (c && c.arc) {
+      const A = c.arc;
+      shippedClear = arcPts(A, A.R, A.cx, A.cz).every(([x, z]) => g.clearAt(x, z, LANE_MARGIN_M));
+      // The full-radius arc of the same corner: tangent to the same legs, so its centre slides out
+      // along the same bisector in proportion to the radius, and it starts and ends at the same angles.
+      const k = c.want / A.R;
+      fullBlocked = arcPts(A, c.want, c.x + (A.cx - c.x) * k, c.z + (A.cz - c.z) * k)
+        .some(([x, z]) => !g.clearAt(x, z, LANE_MARGIN_M));
+      detail = `${c.deg} deg, R ${c.R} of ${c.want}, clearLimited ${c.clearLimited}, the arc that ships `
+        + `${shippedClear ? 'clear' : 'NOT clear'} at the lane fit's ${LANE_MARGIN_M} m`;
+    }
+    console.log(`    the ladder in the district: ${detail}; at the full radius ${fullBlocked ? 'blocked' : 'clear'}`);
+    check('where the lane fit\'s predicate blocks the full fillet, the corner steps down to an arc it clears',
+      !!(c && c.clearLimited && c.R > 0 && c.R < c.want && shippedClear), detail);
+    check('KNOWN-BAD: the full-radius arc of that corner is not clear, so the step down was the predicate\'s',
+      fullBlocked, `${fullBlocked ? 'blocked' : 'clear'} at ${c ? c.want : '?'} m`);
   }
   // 8. THE HOLDS. A right junction arc is driven ON the centreline arc, which the lane fit would
   //    otherwise put inside it; a left one rides outside it by up to the narrower road's offset (the
