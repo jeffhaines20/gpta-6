@@ -50,7 +50,7 @@ if (typeof performance === 'undefined') globalThis.performance = { now: () => Da
 
 const { districtSignageBuffers, buffers, signPanel, fasciaPlate, shopRect, orientRect,
   planStreetSignage, streetBladeAssembly, postSign, streetNameRect, streetRect, hasStreetName,
-  streetAtlas, streetKey, appendStreetSignage } =
+  streetAtlas, appendStreetSignage } =
   await import('../src/signage.js');
 const { edgesOf } = await import('../src/facades.js');
 
@@ -187,6 +187,17 @@ function bladeChecks(c, planned) {
  * face and the nearest arm of its street; `across` counts faces past 45 degrees, the line two blades at
  * right angles split the round between.
  */
+/**
+ * THE GATE'S OWN "WHICH STREET", NOT THE MODULE'S. The first version compared names with
+ * src/signage.js's `streetKey`, so mutation-sweep's `blade-halves` (streetKey returning the whole name)
+ * took out the fix and the check in one edit: the main run read 0 posts naming a street twice and only
+ * the selftest's KNOWN-BAD noticed. Asserting a rule with the function that implements it is the
+ * self-validation this repo records under the shunt-fit ladder. So this is a second definition on
+ * purpose: drop a leading or trailing compass word, keep the letters, and ignore case and spacing, so
+ * "Gulf Stream Avenue South" and "North Gulfstream Avenue" are one street here as they must be there.
+ */
+const streetOf = (name) => name.toLowerCase().replace(/^(north|south|east|west)\s+(?=\S+\s)/, '')
+  .replace(/\s+(north|south|east|west)$/, '').replace(/[^a-z0-9]/g, '');
 function bladeStreets(street, plan, district) {
   const { verts, edges } = district;
   const byRect = new Map();
@@ -225,8 +236,8 @@ function bladeStreets(street, plan, district) {
     let post = null, pd = Infinity;
     for (const b of plan.blades) { const d = Math.hypot(b.x - cx, b.z - cz); if (d < pd) { pd = d; post = b; } }
     if (!post || pd > 1.5) { out.unplaced++; continue; }
-    const key = streetKey(name);
-    const arms = (incAt.get(post.vertex) ?? []).filter(({ ei }) => edges[ei].n && streetKey(edges[ei].n) === key);
+    const key = streetOf(name);
+    const arms = (incAt.get(post.vertex) ?? []).filter(({ ei }) => edges[ei].n && streetOf(edges[ei].n) === key);
     const c = Math.max(0, ...arms.map(({ ei, end }) => { const [dx, dz] = dirOf(edges[ei], end); return Math.abs(dx * ux + dz * uz) / ul; }));
     const deg = Math.acos(Math.min(1, c)) * 180 / Math.PI;
     out.faces++;
@@ -236,7 +247,7 @@ function bladeStreets(street, plan, district) {
     namesAt.get(post).add(name);
   }
   for (const set of namesAt.values()) {
-    const ks = [...set].map(streetKey);
+    const ks = [...set].map(streetOf);
     if (ks.length >= 2 && new Set(ks).size < ks.length) out.twice++;
   }
   out.worstDeg = +out.worstDeg.toFixed(3);
