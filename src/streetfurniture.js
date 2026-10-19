@@ -3378,8 +3378,11 @@ export class StreetFurniture {
     // district was getting wrong about where it is.
     //
     // IT IS PAID FOR OUT OF THE POLE. Lamps are three InstancedMeshes with
-    // frustumCulled = false, so all 1,100 of them are submitted every frame in
-    // BOTH the colour and the shadow pass: a triangle here costs 2,200. The
+    // frustumCulled = false, so every placed lamp is submitted every frame in
+    // BOTH the colour and the shadow pass: at #137's 1,228 a triangle here costs
+    // 2,456. (`count` follows the fill, not LAMP_POOL. This read "all 1,100 of
+    // them ... 2,200" from 2026-09-02, when 1,100 was the loop's cap and 543
+    // were placed.) The
     // 8-sided capped cylinder spent 32 triangles on something under 3 px wide at
     // any distance a player sees it from; a 6-sided one is 24 and shades
     // identically, because CylinderGeometry's normals are radial and a 6-gon
@@ -3410,7 +3413,8 @@ export class StreetFurniture {
     // 0.254 m and a 0.13 m arm could not survive PCF; at 0.078 m/texel the arm is
     // 1.7 texels and the head 5.4, and a post that throws a shadow while the
     // luminaire hanging over the carriageway throws none reads as a mistake. Two
-    // more meshes in the shadow pass, 13k triangles between them.
+    // more meshes in the shadow pass: 52 of a lamp's 72 triangles, 63,856 at
+    // 1,228 lamps (13k when this was written: 543 lamps and a 12-triangle head).
     this.poles = this._instanced(poleGeo, metal, true);
     this.arms = this._instanced(armGeo, metal, true);
     this.heads = this._instanced(headGeo, this.headMat, true);
