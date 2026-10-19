@@ -305,6 +305,13 @@ And one trap in the sweep itself: `runGate` built `tools/${name}.mjs`, so adding
 non-zero is how the sweep spells "caught" — so every mutation in the table would
 have reported itself caught by a gate that never ran.
 
+**A TIMEOUT IS THE THIRD MOUTH, after the ENOENT and a throw.** `runGate` gave every gate 600 s and
+boot-check grew to 771 s on an idle box, so `--browser`'s control at HEAD was killed and read
+"RED (0 failed)" on a tree whose boot-check passes; inside a row the same kill reads "caught by
+boot-check". A timed-out gate is its own outcome now (`TIMED OUT`, neither caught nor clean) and
+boot-check's budget is 2,400 s. When a tool reads an exit code, list every way a process exits
+non-zero without the thing you care about having happened.
+
 ## An unnamed mesh is invisible to every instrument that buckets by name
 
 `tri-breakdown` reported an `unnamed` row of 31,548 triangles, 9.4% of the colour
@@ -324,6 +331,11 @@ you add it; an instrument that cannot attribute a tenth of its own number should
 at least say what it could not attribute, which that tool now does.
 
 ### It happened again in the sibling pool, and the second one did not announce itself
+
+(And a THIRD time, in the same parent, found by the builder that more than doubled the pool: #137's
+1,228 street lamps are three unnamed InstancedMeshes under `furniture`, 88,416 triangles that bill
+x2.00 read in a row priced x1.28. Named `lamp:*` and bucketed `street lamps` in f330afa, with the
+car pools' boot-check arm extended to them. **When a module gains a pool, it gains a name.**)
 
 `src/traffic.js` got that fix. **`src/streetfurniture.js`'s parked pool did not, and
 its three shell meshes carried 31,500 triangles into the WRONG BUCKET for every
@@ -2693,6 +2705,11 @@ operational rule, which no guard replaces: **commit before running any tool that
 
 ### And the other direction: `git add -A` while a sweep is running COMMITS the mutation
 
+(And a third, harmless only because the guard held: editing ANY file in the tree a sweep runs in.
+An edit to `tools/mutation-sweep.mjs` itself, mid-row, left the tree dirty after the row's restore,
+so the sweep stopped with "did not come back clean" and the next row refused to start. A sweep owns
+its whole tree for as long as it runs; make your edits in another one.)
+
 The sibling of the above, found an hour later and worse, because it ships. A sweep was running in
 the background with `knee-clip` applied — `floorlessCharge` reverted to `Math.min(raw, cap)` —
 when a commit went in for something else. `git add -A` staged the mutation, the commit carried it,
@@ -3142,8 +3159,17 @@ only gate that compiles a lit material's shader and reads what the composite doe
 `bloom-lit` and `bloom-lit --selftest` (five panels through the real PostStack's bright pass, 2.0 s),
 `bloom-source --selftest` (the bright pass's arithmetic, offline),
 `kerb-stand` and `kerb-stand --selftest` (#132: every lamp, mast, utility pole, sign post and
-pavement prop against the kerb face the streamer draws, 3.7 s).
-The offline ones together take **132 s**, measured end to end rather than guessed — this line
+pavement prop against the kerb face the streamer draws, 3.7 s; #135/#137's lamp arms and coverage),
+`sign-orient` and `sign-orient --selftest` (every lettered face reads forwards, every street-name
+blade lettered on both faces, and named for the street it runs along; 0.7 s),
+`glass-ao` and `glass-ao --selftest` (#130: a purpose-built page, the AO cloud on car glass, 8 s),
+`star-strokes` and `star-strokes --selftest` (#124: the night sky's stars as connected components, 3.3 s).
+**Fifty-six entries in 241 s** on 2026-10-19, run alone. **Add a new gate to BOTH lists** — this one
+and `mutation-sweep`'s offline list: `car-shapes` sat on this one and not the sweep's, so nothing it
+asserted had ever been swept, and a row written for a new car-shapes check came back MISSED against
+a check written to catch it. When a row misses a check you believe catches it, grep the sweep's
+list for the gate before writing a second check.
+The offline ones together took **132 s** before that, measured end to end rather than guessed — this line
 said "under a minute" for several rounds and three gates now account for 60% of it:
 `pursuit-test` 24.1 s, `traffic-selftest` 23.6, `reaction-test` 23.3, then `playtest --selftest`
 12.3, `shunt-rate --selftest` 11.2, `check-syntax` 7.2 and twenty-odd others under 4 s each.
@@ -3182,9 +3208,10 @@ well the thing works, and the first version of that probe read zero at every inp
 the code was correct; and **the last pass drawn is up to `eps * exp(rate*dt)` short of the
 target**, because `update()` damps first and tests after, which is 0.82 px where the naive
 0.69 px bound fails. `boot-check` needs a browser and
-takes **about five and a half minutes** — it was twenty seconds, then about a minute once the
-busted flow and the run-over wire went in, 209 s with the wedged-car cue and 319 s with the
-garage. Every one of those is a host rule nothing offline imports, and the expensive ones are
+takes **about thirteen minutes, 771 s on an idle box (2026-10-19)** — it was twenty seconds, then
+about a minute once the busted flow and the run-over wire went in, 209 s with the wedged-car cue,
+319 s with the garage, and five and a half minutes for several rounds after that, which is what this
+line said while the gate's own runs read 13 and `mutation-sweep`'s 600 s budget killed it. Every one of those is a host rule nothing offline imports, and the expensive ones are
 expensive because they have to let a DWELL run: `district/main.js` clamps dt to 0.05 and
 `stepFixed` caps at 16 substeps of 1/120, so the PHYSICS advances at most **0.133 s of sim per
 rendered frame however long the frame takes**, and `setTimeScale` cannot buy more than that. A
@@ -3787,6 +3814,12 @@ not.
 
 ## Scramble a blind pair PER HOUR, and let the reviewer recover the assignment from the data
 
+(Seen from the reviewer's side on 2026-10-19: one assumed B was one build across pairs and reported
+that "B's mirror shows glass both from behind and face-on from the side, which a single rear-facing
+pane can't do". B was a different build in those pairs. **A reviewer's model contradicting itself
+across pairs is the scramble doing its job**, and their per-pair preferences, decoded, were all for
+one build.)
+
 A pair handed to a blind critic as `armA`/`armB` leaks its direction the moment the critic guesses
 that A is always the before. Assigning them **differently at each hour** removes that: the critic
 has to answer per hour, and whether their two answers agree is then information rather than
@@ -4233,6 +4266,60 @@ carries ~20k of noise and cannot arbitrate.
 0.0002% of a 60 fps frame. Keep the change if it is free and correct; do not
 report it as performance. Saying "this is real and it does not matter" is a
 result, and it stops the next person spending a day on it.
+
+## A harness that drives on after its course is over charges the course for what happens next
+
+The budget drive polls its lap count every four seconds of WALL clock, which at time scale 22 is
+several seconds of sim, and the autopilot kept driving through them: progress index back to 0, the
+follower turning for the start of the ring it had just closed, at the 76 km/h of the closing
+straight. #128's first run read 0 applied impacts in the lap and a 16.37 m/s write-off 2.3 s after
+it, and the ledger charged the repair, the crime and a minimum health of 0 to the lap. The car brakes
+when its lap is driven now. **The end of a measured interval is a boundary the harness has to own,
+not wherever the poll next lands.**
+
+And the same run's two stuck-teleports could not be explained from the ledger, because a contact
+under the free threshold is not APPLIED and was not recorded. Counting free contacts by kind said
+"a parked car, 225 frames at 2.06 m/s" in one run. **Record the events the net exists to prevent,
+not only the ones that cost something.**
+
+## Two choices that must agree, made by two modules from two different orderings
+
+A street-name blade names the street it runs along. The planner handed names out in the order a
+junction's edges happened to be listed; the assembly turned blade i to `yaw + i*pi/2` off the widest
+arm. Two independent orderings, so half the blades agreed by chance: **216 of 432 lettered faces hung
+across the street they named**, for as long as blades existed. A blind reviewer saw only the visible
+symptom, a post reading "N LEMON AVE" over "S LEMON", and nothing in the repo measured which way a
+blade ran. The gate that should have seen it was building a twelve-name fallback atlas, so it
+censused 55 of 216 blades (the fourth instance here of "a gate that constructs the subject has to
+construct it the way the game does"). Its first naming check then borrowed the module's own
+`streetKey`, so one mutation took out the fix and the check together. And the row written for the
+dedupe came back MISSED, because in this district it is byte-identical: pairing by importance never
+pairs two halves. It is an inert row with that measurement in it now, not a deleted one.
+
+## Six small ones from the wheels, stars and #128 round
+
+- **A comment's "otherwise X breaks" is a measurement nobody took.** `src/roadpath.js` admitted three
+  pinched alleys because "refusing them would disconnect the network". Strongly connected components
+  with and without each: one changes nothing, two lose a dead-end vertex. The tolerance survived on
+  its other reason, and the comment says so now.
+- **The brightest pixel of a frame is a statistic about one pixel.** `star-strokes` first asserted the
+  fix did not dim the stars by the frame's brightest pixel, 0.563 -> 0.464; the 0.563 was a STROKE
+  pixel lit at the core's full value, i.e. the defect. Matched star by star the median was 0.937. Ask
+  the question per subject.
+- **A derivative of a discontinuous quantity lights the discontinuity.** `fwidth(dist)` where `dist`
+  is measured inside each star's own cell jumps at every cell face, the derivative of the jump is the
+  jump, and the pixel-size estimate collapsed to zero along the faces: an occupied cell drew its own
+  outline. Differentiate through the continuous coordinate (`dot(rel / dist, dFdx(s))`).
+- **Classify a residual by WHERE it happened before naming its mechanism.** #128's census residual
+  was written up as "the road inside the building". Placed against each turn's own course, 14 of 15
+  contacts were 33-159 m before the course ended and the fifteenth 1.7 m from a dead end the follower
+  reaches at full speed. One distance-to-end column split one story into three.
+- **A JS template literal holds the shader, so a backtick in a GLSL comment ends it.** check-syntax
+  caught it; keep shader comments ASCII as well.
+- **A per-turn budget derived from a speed must be checked against the corners it is driven
+  through.** The crawl floor is free BY CONSTRUCTION, and the budget drive still stopped at two
+  corners of 3.2 and 2.6 m radius against the car's 8.45: a free contact against a parked car
+  stops a car at crawl speed. Free is a statement about damage, not about progress.
 
 ## Committing
 
