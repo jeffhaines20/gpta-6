@@ -4227,7 +4227,7 @@ glares from a bright CORE with a long falloff. Not diagnosed; the first measurem
 emitter's own exposed radiance and on-screen size against the bright pass's night threshold, and what
 draws the 45 px disc (a halo sprite would carry no #114 tag and count as untagged).
 
-### #124 PART 1 FIXED — the star strokes were fwidth() across the star field's own cell faces; three items remain
+### #124 PARTS 1 AND 2 FIXED — the star strokes were fwidth() across the star field's own cell faces, and the signal lens was a square plate; two items remain
 **The night-sky strokes.** At 8x the reviewer's two boxes in `r12b-bloom1-fivepoints-night`, (241-252,
 56-67) and (271-283, 66-74), are two stars each wearing 1-px straight lines — an L and a bracket.
 `src/sky.js` draws one star per occupied cell of a 3D lattice over the view direction and measured its
@@ -4254,6 +4254,27 @@ about 5 px in radius, so the comment's "the whole spread still fits inside one 0
 true for the bright ones. The fix is the 2 x 2 x 2 block of cells round the fragment, about 8x the star
 cost on every sky pixel; not taken until a reviewer can see the edge. Gated by `star-strokes` (5
 checks, selftest 10); `mutation-sweep`'s `star-aa-off` and `star-aa-fwidth`.
+
+**Part 2, the square signal lens (ff96583).** Every aspect lens in `_signalMast` was `plate()`, a square
+emitter at any distance, which is what the reviewer's 0.98 fill of a 15 px box was. `lensDisc()` is an
+n-gon fan in plate()'s own plane and winding, `LENS_SIDES` 8, with a flat at the top and bottom like
+the visor over it; an octagon's flats sit 7.6% of its radius inside the circle, half a pixel on that
+lens. `kerb-stand` builds the module's own `_signalMast` in a frame of each handedness and measures each
+lens off the buffer: the nearest point of its OUTLINE (edge midpoints, because a square's four corners
+are one distance from its centre and a vertex-only measure reads it as a circle) over its farthest
+vertex, which is cos(pi/n) for a regular n-gon:
+
+                                       roundness   lens triangles facing away
+    the plate, rebuilt as KNOWN-BAD       0.707
+    the octagon, both hands               0.924     0 of 48           bound 0.9
+    every triangle the dress pass emits             0 of 299,332      (a new district-wide check)
+
+Price: +6 triangles a lens and three lenses a head, so 134 -> 152 a mast, over the 233 masts that stand:
++4,194 geometry district-wide, in the furniture bucket (x1.28 in shadow-bill) before the resident share.
+`mutation-sweep` rows, each run alone: `lens-square` caught by kerb-stand and blocker-test,
+`lens-hexagon` (0.866, between the square and the bound) and `lens-winding-hand` (the fan wound one way
+in both frames, right in one hand only) caught by kerb-stand. The pedestrian head stays a plate. Not
+reviewed blind yet; the hero framings hold the lens at about 15 px.
 
 The remaining three, as filed:
 - Night-sky specks carry 1-px straight bracket-like strokes: fivepoints night (241-248, 56-66) and
