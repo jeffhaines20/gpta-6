@@ -37,7 +37,9 @@
 //   - every station accounted for, overflow included, which the module used to fold into `placed`.
 //   - how much of the street has a lamp within the spacing on EACH side (`lampCoverage`), and the
 //     side split. Before #137 the per-segment loop lit both sides of 25.5% of the street, neither of
-//     26.1%, and stood 73.3% of its lamps on side +1; the KNOWN-BAD replays it from its expression.
+//     26.1%, and stood 73.3% of its lamps on side +1; the KNOWN-BAD replays it from its expression,
+//     at its pre-#132 line. The 509 the build shipped after #132's refusals measured worse through
+//     the same function: 22.0% both, 29.0% neither, 72.7% on +1 (docs/BACKLOG.md #137).
 // Both instruments are pure functions with selftest arms on synthetic streets.
 import fs from 'node:fs';
 import * as THREE from '../vendor/three.module.min.js';

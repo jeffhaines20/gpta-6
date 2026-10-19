@@ -4785,15 +4785,22 @@ road turning off at either end keeps `KERB.cornerR` clear if kerb.js draws no re
                                        before      after
     lamps                                 509      1,228   of 1,546 stations: 217 skipped as lit,
                                                            86 with no usable spot, 11 refused
-    street lit on both sides            25.5%      85.2%
-    on one side only                    48.5%      13.2%
-    on neither                          26.1%       1.6%
-    lamps on side +1                    73.3%      53.7%   two-way streets 50.0%, one-way 58.1%:
-                                                           the left of a one-way carriageway is
-                                                           often its median, with no room
+    street lit on both sides            22.0%      85.2%
+    on one side only                    49.0%      13.2%
+    on neither                          29.0%       1.6%
+    lamps on side +1                    72.7%      53.7%   two-way streets 71.2% -> 50.0%, one-way
+                                                           74.4% -> 58.1%: the left of a one-way
+                                                           carriageway is often its median
     same-side pairs under 13 m              -         10   (225 with the skip removed)
     corridor framing, x 112-320       0 left / 3 right   6 left / 5 right
     Five Points, within 30 m          2, in 2 quadrants  6, in all four
+
+The before column is the 509 posts 08ba1bc draws, read off its pole instances, with their sides from
+its own loop replayed station by station (3.2e-5 m from every drawn post). kerb-stand's KNOWN-BAD
+replays that loop at its pre-#132 line, 543 posts, and reads 25.5 / 48.5 / 26.1% and 73.3% on +1: the
+34 posts #132 refused at the kerb (28 of them on side +1) left the shipped build a little worse lit
+than the loop it came from, and the same measure on the after plan reproduces kerb-stand's 85.2 /
+13.2 / 1.6% exactly.
 
 THE PRICE, in the gate's units. Lamps are three InstancedMeshes, never culled, all casting: 72
 triangles a lamp in the colour pass and again in the sun's shadow map. 509 -> 1,228 is +719 lamps,
