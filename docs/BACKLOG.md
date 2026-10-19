@@ -5088,10 +5088,25 @@ named for that arm's half. Pairing by importance is what removed the doubled pos
 dedupe added beside it turned out to be a guard this district does not exercise: the plan is
 byte-identical without it, so `blade-halves` is an inert row with that measurement. The gate had
 been building the module's twelve-name fallback atlas, so it saw 55 of 216 blades; it now bakes the
-district's names as the page does. Still open, recorded rather than fixed: the two blades on one post
-differ in colour, because the plate's colourway is hashed from the NAME into the name's own atlas cell,
-and colouring by post would need a cell per (name, colourway). The lower blade's shadowed segment also
-reads 3-5% of its own lit face, where the post beside it shades to 26%.
+district's names as the page does. The lower blade's shadowed segment also reads 3-5% of its own lit
+face, where the post beside it shades to 26%: still open, not measured beyond the reviewer's read.
+
+**The two blades on one post differ in colour: FIXED (2170431).** The colourway was hashed from each
+blade's NAME, so a post took two colours whenever its names hashed apart: 73 of 108 posts. A post now
+takes the colourway of its UPPER blade's street (the junction's widest), the lower blade is drawn in it,
+and the hash is on `streetKey` so the two halves of a street that changes name are one colour. The atlas
+bakes a cell per (name, colourway) the PLAN uses, so the page plans the signage before baking it: 84
+cells for the 50 names on a blade, where it baked all 98 names, and the street atlas goes from 1,024 x
+1,280 to 1,024 x 1,088. `sign-orient` reads each lettered face's colour off the atlas DRAWING (its canvas
+shim records every fill with the colour it painted) and matches faces to posts by position:
+
+    posts carrying two colourways                      0 of 108    each blade in its own street's: 80
+    streets heading posts in two colourways            0 of 29     hashed on the name instead: 3
+    colourways in use                                  3
+
+Rows: `blade-plate-own` and `blade-plate-name` caught by sign-orient and its selftest; `blade-halves` is
+no longer inert, because the halves now split three streets' colour; `blade-back-blank` repointed.
+Not reviewed blind.
 
 #### #134 (as filed)
 From the same review, both arms: a blade assembly at [1235,85,1495,210], noon, shows two grey-green
