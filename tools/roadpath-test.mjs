@@ -19,7 +19,8 @@ import fs from 'node:fs';
 import { RoadGraph, followPath, pathSpeedLimit, steerableSpeed, gripSpeed, cornerSpeed,
   minTurnRadius, steerForRadius, RESPONSE,
   resample, smooth, minRadius, worstGap, offsetRight, pathCurvature, ARC_WINDOW,
-  laneOffsetFor, laneOffsets, ROUTE_LANE_M, rightOf, CRAWL_MS, SPEED_DEADBAND, CRAWL_OVERRUN } from '../src/roadpath.js';
+  laneOffsetFor, laneOffsets, ROUTE_LANE_M, rightOf, CRAWL_MS, SPEED_DEADBAND, CRAWL_OVERRUN,
+  filletCorners, FILLET_R, FILLET_RUNGS, JUNCTION_TURN_RAD } from '../src/roadpath.js';
 import { Vehicle } from '../src/vehicle.js';
 import { FlatGround } from '../src/ground.js';
 import { BlockerIndex } from '../src/blockers.js';
@@ -437,6 +438,44 @@ for (let x = 200; x >= 0; x -= 4) nearTouch.push([x, 1.6, 0]);
     `err ${g.err.toFixed(2)}, steer ${g.controls.steer.toFixed(2)}, reversing ${g.reversing}`);
 }
 
+// (b2) A CUSP AHEAD IS DRIVEN TO, NOT REVERSED FROM (#61). An in-place reversal — out along a line
+// and straight back, which is what two legs joined at a stop look like — approached the way the
+// speed limit brings the car in: slowly. Before the rule the look-ahead folded back behind the car
+// while the cusp was still ahead, the reverse manoeuvre above backed it away, and it orbited one
+// segment short for ever: on exactly this arm, 6 of the 10 runs never arrived, and the four that did
+// were 60 m run-ups carrying enough speed to overrun the cusp. That is how abort-cost's shakedown
+// drive went from 69.0 s to its 240 s cap the moment #61's curvature reading slowed the approach.
+// The KNOWN-BAD is mutation-sweep's `cusp-reaim`, which takes the rule out; this arm cannot run the
+// old follower beside the new one.
+{
+  const DT = 1 / 120, rows = [];
+  for (const last of [1, 2.5, 4, 4.65, 5]) {
+    for (const L of [40, 60]) {
+      const pts = [];
+      for (let z = 0; z < L - last - 1e-9; z += 5) pts.push([0, z, -1]);
+      pts.push([0, L, -1]);
+      for (let z = L - 5; z >= -0.001; z -= 5) pts.push([0, z, -1]);
+      const v = new Vehicle(), gr = new FlatGround(0), st = { i: 0 };
+      v.position.set(0, 0.55, 0);
+      let t = null;
+      for (let k = 0; k < 120 * 120; k++) {
+        const q = v.quaternion, yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
+        const f = followPath(pts, { x: v.position.x, z: v.position.z, yaw, speed: v.speed }, st, { dt: DT });
+        if (f.done) { t = k * DT; break; }
+        v.setControls(f.controls); v.stepFixed(DT, gr, 120);
+      }
+      rows.push({ last, L, t });
+    }
+  }
+  const never = rows.filter((r) => r.t === null);
+  console.log(`    an in-place reversal at the end of a 40 m and a 60 m run, last segment 1-5 m: `
+    + `${rows.length - never.length} of ${rows.length} completed, slowest `
+    + `${Math.max(...rows.filter((r) => r.t !== null).map((r) => r.t)).toFixed(1)} s`);
+  check('a cusp ahead is driven to and turned at, whatever the last segment before it',
+    never.length === 0, never.length ? never.map((r) => `${r.L} m / ${r.last} m never arrived`).join(', ')
+      : `${rows.length} of ${rows.length}`);
+}
+
 // (c) THE TURN THE CAR IS IN IS ALSO A CEILING. pathSpeedLimit looks forward only, so once
 // the apex is behind the index it sees the straight beyond and the target jumps.
 {
@@ -536,7 +575,7 @@ for (let x = 200; x >= 0; x -= 4) nearTouch.push([x, 1.6, 0]);
     const per = Math.round(ctrl / DT);
     const car = new Vehicle(), ground = new FlatGround(0), st = { i: 0 };
     car.position.set(0, 0.55, 0);
-    let atFloor = 0, heldMax = 0, f = null;
+    let atFloor = 0, heldMax = 0, f = null, holding = false;
     for (let s = 0; s < HZ * 60; s++) {
       if (s % per === 0) {
         f = followPath(corner, { x: car.position.x, z: car.position.z, yaw: yawOf(car.quaternion), speed: car.speed }, st, { dt: ctrl });
@@ -544,7 +583,18 @@ for (let x = 200; x >= 0; x -= 4) nearTouch.push([x, 1.6, 0]);
         if (Math.abs(f.target - CRAWL_MS) < 1e-9) atFloor++;
         car.setControls(f.controls);
       }
-      if (atFloor * ctrl > 1 && Math.abs(f.target - CRAWL_MS) < 1e-9) heldMax = Math.max(heldMax, car.speed);
+      /*
+       * HOLDING, NOT "A SECOND AT THE FLOOR" (#61). This sampled from 1 s after the target first
+       * reached the floor, standing in for "the loop has stopped braking down to it". #61's honest
+       * curvature window sees this corner 0.24 s sooner, at 9.1 m/s, so 1 s after the floor the car
+       * was still braking and the first sample read 1.9738 — a deceleration tail, not a held speed;
+       * the held speed itself was 1.867-1.884 m/s in both builds. So the state is asserted directly:
+       * sample once the speed has first come down into the band the loop holds.
+       */
+      if (Math.abs(f.target - CRAWL_MS) < 1e-9) {
+        if (!holding && atFloor * ctrl > 1 && car.speed <= CRAWL_MS + SPEED_DEADBAND) holding = true;
+        if (holding) heldMax = Math.max(heldMax, car.speed);
+      }
       car.stepFixed(DT, ground, HZ);
     }
     return { seconds: atFloor * ctrl, heldMax };
@@ -968,16 +1018,35 @@ console.log('\n§6d The router\'s turn limit (#131)');
     }
     return Infinity;
   };
-  const tNew = driveLeg(leg.points), tOld = driveLeg(legOld.points);
+  /*
+   * RESTATED BY #61, TWICE, WHICH MADE THIS HAIRPIN DRIVEABLE TWO WAYS. Rounded, the same route's 30 m
+   * legs take a full fillet and the follower arrives through it, faster than round the block. And
+   * UNROUNDED — the 139-degree point corner exactly as the pipeline shipped before #61 — it timed out
+   * at 240 s because the car came in slowly, found the look-ahead folded back behind it with the cusp
+   * still ahead, and orbited one segment short of it (followPath's "a cusp ahead is driven to, not
+   * reversed from"). With that rule it drives to the cusp and three-point-turns there, so the old
+   * KNOWN-BAD is now the cusp rule's own check: take the rule out and this reads 240 s again.
+   * Both arrival times are printed and neither is compared with the limited route's, because #131's
+   * 120-degree limit was read off a drive through every turn with the corners as points and the
+   * follower stalling at cusps, and whether it should move now is a census of its own, not a side
+   * effect of this one. The router still prefers round the block, which is a statement about where
+   * a car should go, and the check above it is unchanged.
+   */
+  const legOld0 = g.path(sx, sz, tx, tz, { spacing: 4, offset: ROUTE_LANE_M, turnLimit: Infinity, filletR: 0 });
+  const tNew = driveLeg(leg.points), tOld = driveLeg(legOld0.points), tOldRounded = driveLeg(legOld.points);
   console.log(`    33 -> 350 at vertex 95: unlimited ${legOld.length.toFixed(0)} m, ${legOld.edges.length} edges, `
-    + `${Number.isFinite(tOld) ? `arrives in ${tOld.toFixed(1)} s` : 'TIMES OUT at 240 s'}; limited `
+    + `${Number.isFinite(tOld) ? `arrives in ${tOld.toFixed(1)} s` : 'TIMES OUT at 240 s'} as shipped before #61 and `
+    + `${Number.isFinite(tOldRounded) ? `arrives in ${tOldRounded.toFixed(1)} s` : 'TIMES OUT'} rounded; limited `
     + `${leg.length.toFixed(0)} m round the block, ${leg.edges.length} edges, `
     + `${Number.isFinite(tNew) ? `arrives in ${tNew.toFixed(1)} s` : 'TIMES OUT'}`);
   check('the #131 turn is taken round the block, not as a hairpin at the vertex',
     legOld.edges.length === 0 && leg.edges.length > 0 && leg.hairpin === false,
     `unlimited ${legOld.edges.length} edges, limited ${leg.edges.length}, hairpin ${leg.hairpin}`);
-  check('and the follower arrives on it, where through the hairpin it never does',
-    Number.isFinite(tNew) && !Number.isFinite(tOld), `${tNew.toFixed(1)} s against ${tOld}`);
+  check('and the follower arrives on it', Number.isFinite(tNew), `${tNew.toFixed(1)} s`);
+  check('and through the unrounded 139-degree hairpin as well, by a three-point turn at the cusp, '
+    + 'where before #61 it timed out at 240 s', Number.isFinite(tOld) && Number.isFinite(tOldRounded),
+    `unrounded ${Number.isFinite(tOld) ? `${tOld.toFixed(1)} s` : 'TIMES OUT'}, rounded `
+    + `${Number.isFinite(tOldRounded) ? `${tOldRounded.toFixed(1)} s` : 'TIMES OUT'}`);
   /*
    * AND path() PREFERS A CANDIDATE THAT TOOK NO HAIRPIN BEFORE COMPARING LENGTHS. Of its four
    * start/end vertex combinations one may only have reached its target through the fallback; over
@@ -988,6 +1057,256 @@ console.log('\n§6d The router\'s turn limit (#131)');
     const p = g.path(x0, z0, x1, z1, { spacing: 4, offset: ROUTE_LANE_M });
     check(`(${x0}, ${z0}) -> (${x1}, ${z1}) takes the longer route without a hairpin over a shorter one with`,
       p && p.hairpin === false, p ? `hairpin ${p.hairpin}, ${p.length.toFixed(0)} m` : 'no path');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// §6e  The route's corners, rounded to the car's turning circle (#61).
+// ---------------------------------------------------------------------------
+/**
+ * A graph junction is a point, so a routed corner is one too, and Chaikin can only redistribute the
+ * turn at it: #104 measured 0 to 12 passes all leaving 4.3-4.9% of the tour under the car's
+ * standstill minimum. `filletCorners` replaces each corner with an arc tangent to both legs at
+ * FILLET_R, where the lane fit's own predicate holds; `RoadGraph._shape` then holds a junction arc's
+ * lane — none on a right turn, the narrower road's on a left. THE KNOWN-BAD FOR THE DISTRICT HALF IS
+ * THE PIPELINE EXACTLY AS IT SHIPPED: the same calls with `filletR: 0`.
+ */
+console.log('\n§6e The route\'s corners (#61)');
+{
+  const R0 = minTurnRadius(0), RC = minTurnRadius(CRAWL_MS);
+  // lane-keep's own three-point radius, over interior points.
+  const radii = (P) => {
+    const out = [];
+    for (let i = 1; i < P.length - 1; i++) {
+      const a = P[i - 1], b = P[i], c = P[i + 1];
+      const ab = Math.hypot(b[0] - a[0], b[1] - a[1]), bc = Math.hypot(c[0] - b[0], c[1] - b[1]);
+      if (ab < 1e-6 || bc < 1e-6) continue;
+      const t = Math.abs(Math.atan2((b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]),
+        (b[0] - a[0]) * (c[0] - b[0]) + (b[1] - a[1]) * (c[1] - b[1])));
+      out.push(t > 1e-4 ? (ab + bc) / 2 / t : Infinity);
+    }
+    return out;
+  };
+  const pct = (xs, f) => { const s = xs.filter(Number.isFinite).sort((a, b) => a - b); return s[Math.round(f * (s.length - 1))]; };
+  const line = (corners, step = 4) => {
+    const o = [];
+    for (let k = 0; k < corners.length - 1; k++) {
+      const [a, b] = [corners[k], corners[k + 1]], L = Math.hypot(b[0] - a[0], b[1] - a[1]), m = Math.ceil(L / step);
+      for (let s = 0; s < m; s++) o.push([a[0] + (b[0] - a[0]) * s / m, a[1] + (b[1] - a[1]) * s / m, k]);
+    }
+    o.push([...corners[corners.length - 1], corners.length - 2]);
+    return o;
+  };
+
+  // 0. THE RADIUS, which is derived: the tightest the car holds at the speed it HOLDS at the floor.
+  const held = CRAWL_MS + SPEED_DEADBAND + CRAWL_OVERRUN;
+  console.log(`    FILLET_R ${FILLET_R.toFixed(3)} m = R_min at the held crawl ${held.toFixed(3)} m/s; `
+    + `R_min(0) ${R0.toFixed(3)}, R_min(CRAWL_MS) ${RC.toFixed(3)}`);
+  check('the fillet radius is the car\'s minimum at the speed it holds at the crawl floor, so full lock there and no tighter',
+    Math.abs(FILLET_R - minTurnRadius(held)) < 1e-9 && FILLET_R > RC && Math.abs(steerForRadius(held, FILLET_R) - 1) < 1e-9,
+    `${FILLET_R.toFixed(4)} m, steer ${steerForRadius(held, FILLET_R).toFixed(6)} at ${held.toFixed(4)} m/s`);
+
+  // 1. THE CONSTRUCTION, on shapes whose answer is known. An L along +x then +z: the driver's right
+  //    of +x is +z (rightOf), so a RIGHT turn, and its centre must be on that side.
+  const R = 9;
+  {
+    const f = filletCorners(line([[0, 0], [40, 0], [40, 40]]), { radiusFor: () => R });
+    const c = f.stats.list[0], a = c.arc;
+    const arcPts = f.points.filter((p) => p[0] > 31 + 1e-6 && p[1] < 9 - 1e-6);
+    const worstR = Math.max(...arcPts.map((p) => Math.abs(Math.hypot(p[0] - a.cx, p[1] - a.cz) - R)));
+    const [rx, rz] = rightOf(1, 0);
+    console.log(`    an L, +x then +z: turn ${c.deg} deg, R ${c.R}, centre (${a.cx.toFixed(2)}, ${a.cz.toFixed(2)}), `
+      + `${arcPts.length} arc points, worst radius error ${worstR.toExponential(1)} m`);
+    check('a fillet is a circular arc of the radius asked for', c.R === R && arcPts.length > 10 && worstR < 1e-9,
+      `R ${c.R}, worst error ${worstR.toExponential(2)} m over ${arcPts.length} points`);
+    check('and a right turn by rightOf has its centre on the driver\'s right', c.deg > 0 && a.right
+      && ((a.cx - 31) * rx + (a.cz - 0) * rz) > 0, `turn ${c.deg}, centre ${a.cx.toFixed(1)}, ${a.cz.toFixed(1)}`);
+    check('tangent at both ends: the arc starts and finishes on the legs, R from the corner',
+      Math.abs(a.first[0] - 31) < 1e-9 && Math.abs(a.first[1]) < 1e-9 && Math.abs(a.last[0] - 40) < 1e-9 && Math.abs(a.last[1] - 9) < 1e-9,
+      `(${a.first[0].toFixed(3)}, ${a.first[1].toFixed(3)}) and (${a.last[0].toFixed(3)}, ${a.last[1].toFixed(3)})`);
+    check('the ends of an open line are pinned and nothing in it opens a gap',
+      f.points[0][0] === 0 && f.points[0][1] === 0 && f.points.at(-1)[0] === 40 && f.points.at(-1)[1] === 40
+      && worstGap(f.points).gap <= 4 + 1e-9, `gap ${worstGap(f.points).gap.toFixed(2)} m`);
+    const left = filletCorners(line([[0, 0], [40, 0], [40, -40]]), { radiusFor: () => R }).stats.list[0];
+    check('and a left turn is signed left, its centre on the left', left.deg < 0 && !left.arc.right && left.arc.cz < 0,
+      `turn ${left.deg}, centre z ${left.arc.cz.toFixed(2)}`);
+  }
+  // 2. MERGING. Two 36-degree turns 3 m apart are one junction drawn as two kinks; per vertex, the 3 m
+  //    leg between them holds each to 4.6 m.
+  {
+    const t = 36 * Math.PI / 180, p2 = [30 + 3 * Math.cos(t), 3 * Math.sin(t)];
+    const pts = line([[0, 0], [30, 0], p2, [p2[0] + 30 * Math.cos(2 * t), p2[1] + 30 * Math.sin(2 * t)]]);
+    const m = filletCorners(pts, { radiusFor: () => R }).stats, apart = filletCorners(pts, { radiusFor: () => R, maxOutside: -1 }).stats;
+    console.log(`    two 36-degree kinks 3 m apart: merged ${JSON.stringify(m.list.map((c) => [c.deg, c.R]))}; `
+      + `KNOWN-BAD unmerged ${JSON.stringify(apart.list.map((c) => [c.deg, c.R]))}`);
+    check('two kinks of one corner merge into one turn at the full radius', m.corners === 1 && m.merged === 1
+      && Math.abs(m.list[0].deg - 72) < 0.1 && m.list[0].R === R, JSON.stringify(m.list));
+    check('KNOWN-BAD: filleted one at a time, the leg between them holds both well under it',
+      apart.corners === 2 && apart.list.every((c) => c.R < R * 0.6 && c.legLimited), JSON.stringify(apart.list.map((c) => c.R)));
+  }
+  // 3. A KINK OF THE OTHER HAND. #128's own corner had a -1.8 degree shape point 8.7 m before it, which
+  //    took its share of the leg and held an 11 m corner to 8.27 m. It lies 0.27 m OUTSIDE the legs.
+  {
+    const k = -1.8 * Math.PI / 180, b = [21.3 + 8.7 * Math.cos(k), 8.7 * Math.sin(k)];
+    const out = k + (92.2 * Math.PI / 180);
+    const pts = line([[0, 0], [21.3, 0], b, [b[0] + 40 * Math.cos(out), b[1] + 40 * Math.sin(out)]]);
+    const want = 11;
+    const m = filletCorners(pts, { radiusFor: () => want }).stats, tight = filletCorners(pts, { radiusFor: () => want, maxOutside: 0 }).stats;
+    const big = (s) => s.list.reduce((x, c) => (Math.abs(c.deg) > Math.abs(x.deg) ? c : x));
+    console.log(`    a -1.8 degree kink 8.7 m before a 92-degree corner: R ${big(m).R} merged ${big(m).merged}; `
+      + `KNOWN-BAD with nothing allowed outside the legs: R ${big(tight).R.toFixed(2)}`);
+    check('a small kink of the other hand is absorbed into the corner, which gets its full radius',
+      big(m).merged && big(m).R === want, JSON.stringify(big(m)));
+    check('KNOWN-BAD: refused, it holds the corner short by its share of the leg', big(tight).R < want - 1 && big(tight).legLimited,
+      `${big(tight).R.toFixed(2)} m of ${want}`);
+  }
+  // 4. THE LADDER: an inside corner blocked within 6.5 m of the vertex. The fit owes the LONGEST clear
+  //    rung, so the rung above the one taken must be genuinely blocked — checked with an arc built
+  //    here, not by asking the function that chose it.
+  {
+    // A pillar of 1 m radius on the INSIDE of the turn, 4.52 m from the vertex along its bisector. An
+    // arc of radius r comes 0.414 r from the vertex there, so anything over 8.5 m touches it: the
+    // full 9 m fillet does (0.79 m from its centre), one rung down at 8.1 m clears it by 0.17 m. A box
+    // corner was the first version, and it grazed the arc by less than one sample step.
+    const blocked = (x, z) => Math.hypot(x - (40 - 4.52 / Math.SQRT2), z - 4.52 / Math.SQRT2) < 1.0;
+    const clearAt = (x, z) => !blocked(x, z);
+    const s = filletCorners(line([[0, 0], [40, 0], [40, 40]]), { radiusFor: () => R, clearAt }).stats;
+    const c = s.list[0];
+    const arc = (rho) => { const o = []; for (let j = 0; j <= 40; j++) { const ph = -Math.PI / 2 + (Math.PI / 2) * j / 40; o.push([40 - rho + rho * Math.cos(ph), rho + rho * Math.sin(ph)]); } return o; };
+    const rung = FILLET_RUNGS.findIndex((f) => Math.abs(R * f - c.R) < 1e-9);
+    const takenClear = arc(c.R).every(([x, z]) => clearAt(x, z));
+    const aboveBlocked = rung > 0 && !arc(R * FILLET_RUNGS[rung - 1]).every(([x, z]) => clearAt(x, z));
+    console.log(`    an inside corner blocked: R ${c.R.toFixed(2)} (rung ${rung}), clear ${takenClear}, the rung above blocked ${aboveBlocked}`);
+    check('a fillet that is not clear steps down, and takes the LONGEST clear rung', c.clearLimited && takenClear && aboveBlocked,
+      `R ${c.R.toFixed(2)} at rung ${rung} of ${FILLET_RUNGS.length}`);
+  }
+  // 5. A RING: opened on a straight, filleted all round, and back to start where it started.
+  {
+    const sq = line([[0, 0], [100, 0], [100, 100], [0, 100], [0, 0]]);
+    const f = filletCorners(sq, { closed: true, radiusFor: () => R });
+    const r = radii([...f.points, f.points[0], f.points[1]]);
+    console.log(`    a 100 m square ring: ${f.stats.full} of ${f.stats.corners} corners full, starts at `
+      + `(${f.points[0][0].toFixed(2)}, ${f.points[0][1].toFixed(2)}), tightest ${Math.min(...r).toFixed(3)} m`);
+    // A 0.5 m-chord arc reads R (1 - th^2 / 24) on three points, 8.9988 for 9 m: the sampling, not the arc.
+    check('a ring is filleted all the way round, the seam included', f.stats.corners === 4 && f.stats.full === 4 && Math.min(...r) > R * (1 - 1e-3),
+      `${f.stats.full} of ${f.stats.corners}, tightest ${Math.min(...r).toFixed(3)}`);
+    check('and starts where it started: on the arc that replaced its first point', Math.hypot(f.points[0][0], f.points[0][1]) < R * 0.5,
+      `${Math.hypot(f.points[0][0], f.points[0][1]).toFixed(2)} m from (0, 0)`);
+  }
+
+  // 6. THE DISTRICT. The tour every gate drives, both pipelines.
+  const route = district.meta.route.slice(1);
+  const was = g.tour(route, { spacing: 4, offset: 3, filletR: 0 }), now = g.tour(route, { spacing: 4, offset: 3 });
+  const rw = radii(was.points), rn = radii(now.points);
+  const u = (r, lim) => r.filter((x) => x < lim).length;
+  console.log(`    the tour, as shipped: ${u(rw, R0)} of ${rw.length} points under R_min(0), ${u(rw, RC)} under R_min(crawl), p10 ${pct(rw, 0.1).toFixed(2)} m`);
+  console.log(`    the tour, filleted:   ${u(rn, R0)} of ${rn.length} points under R_min(0), ${u(rn, RC)} under R_min(crawl), p10 ${pct(rn, 0.1).toFixed(2)} m`);
+  /*
+   * The bound is the floor of #104's smoothing sweep: no pass count from 0 to 12 got under 3.7% of
+   * points under R_min(0). Under a third of that is a result no amount of smoothing reached; the
+   * shipped pipeline reads 4.4 and the filleted 0.5, so 1.2% sits in a 3.7x gap from both sides.
+   */
+  check('the filleted tour leaves under a third of the smoothing floor of points tighter than the car can turn',
+    u(rn, R0) / rn.length < 0.012 && u(rn, RC) / rn.length < 0.012,
+    `${(100 * u(rn, R0) / rn.length).toFixed(2)}% under R_min(0), ${(100 * u(rn, RC) / rn.length).toFixed(2)}% under R_min(crawl)`);
+  check('KNOWN-BAD: the pipeline as it shipped leaves more than the smoothing floor', u(rw, R0) / rw.length > 0.037,
+    `${(100 * u(rw, R0) / rw.length).toFixed(2)}%`);
+  check('and the filleted tour\'s tenth-percentile corner is one the car can hold at its crawl', pct(rn, 0.1) > RC && pct(rw, 0.1) < R0,
+    `p10 ${pct(rn, 0.1).toFixed(2)} m against ${RC.toFixed(2)}; shipped ${pct(rw, 0.1).toFixed(2)}`);
+
+  // 7. EVERY JUNCTION CORNER IS FULL OR SHORT FOR A NAMED REASON, and #128's own two are full.
+  {
+    const J = now.fillet.list.filter((c) => Math.abs(c.deg) >= JUNCTION_TURN_RAD * 180 / Math.PI);
+    const short = J.filter((c) => c.R < c.want - 1e-9);
+    console.log(`    junction corners on the tour: ${J.length}, ${J.length - short.length} at the full ${FILLET_R.toFixed(2)} m; short:`);
+    for (const c of short) console.log(`      (${c.x}, ${c.z}) ${c.deg} deg: R ${c.R.toFixed(2)} — ${c.legLimited ? 'its legs' : ''}${c.clearLimited ? ' not clear' : ''}`);
+    check('every junction corner short of the full fillet is short for a recorded reason',
+      J.length > 15 && short.every((c) => c.legLimited || c.clearLimited), `${short.length} short of ${J.length}`);
+    // #128: the budget gate's drive stopped dead twice in both runs at course indices 635 and 654 —
+    // right turns whose own three-point radius was 3.2 and 2.6 m. The corners, by their vertices.
+    const site = (x, z) => J.find((c) => Math.hypot(c.x - x, c.z - z) < 2);
+    const s635 = site(-143.3, -423.7), s654 = site(-144.0, -342.0);
+    check('#128\'s two corners, where the gate\'s drive stopped twice, are right turns rounded at the full radius',
+      s635 && s654 && s635.deg > 0 && s654.deg > 0 && s635.R >= FILLET_R - 1e-9 && s654.R >= FILLET_R - 1e-9,
+      `${JSON.stringify(s635)} ${JSON.stringify(s654)}`);
+  }
+  // 8. THE HOLDS. A right junction arc is driven ON the centreline arc, which the lane fit would
+  //    otherwise put inside it; a left one rides outside it by up to the narrower road's offset (the
+  //    fit may still pull it in, which on a left turn only ever brings it toward R). Read at each
+  //    arc's own midpoint, by the course point nearest it, so a course passing near itself cannot
+  //    hand the check somebody else's point.
+  {
+    const P = now.points;
+    const rows = [];
+    for (const c of now.fillet.list) {
+      const a = c.arc;
+      if (!a || Math.abs(a.sweep) < JUNCTION_TURN_RAD) continue;
+      const ph = a.phi0 + a.sweep / 2, mx = a.cx + a.R * Math.cos(ph), mz = a.cz + a.R * Math.sin(ph);
+      let q = null, qd = Infinity;
+      for (const p of P) { const dd = Math.hypot(p[0] - mx, p[1] - mz); if (dd < qd) { qd = dd; q = p; } }
+      const cap = a.right ? 0 : Math.min(laneOffsetFor(district.edges[a.eIn], 3), laneOffsetFor(district.edges[a.eOut], 3));
+      const want = Math.max(laneOffsetFor(district.edges[a.eIn], 3), laneOffsetFor(district.edges[a.eOut], 3));
+      rows.push({ right: a.right, near: qd, dr: Math.hypot(q[0] - a.cx, q[1] - a.cz) - a.R, cap, want });
+    }
+    const R_ = rows.filter((r) => r.right), L_ = rows.filter((r) => !r.right);
+    const worstR = Math.max(...R_.map((r) => Math.abs(r.dr))), worstL = Math.max(...L_.map((r) => Math.max(-r.dr, r.dr - r.cap)));
+    const wantR = Math.max(...R_.map((r) => r.want)), nearW = Math.max(...rows.map((r) => r.near));
+    console.log(`    the tour's junction arcs at their midpoints: ${R_.length} right, worst ${worstR.toFixed(3)} m off the centreline arc `
+      + `(the roads either side would put the lane up to ${wantR.toFixed(2)} m inside it); ${L_.length} left, worst ${worstL.toFixed(3)} m `
+      + `outside [R, R + offset]; nearest course point within ${nearW.toFixed(2)} m of each midpoint`);
+    check('a right junction turn is driven on its centreline arc, not the lane inside it',
+      R_.length >= 8 && nearW < 2.5 && worstR < 0.25 && wantR > 1, `${R_.length} arcs, worst ${worstR.toFixed(3)} m; unheld, up to ${wantR.toFixed(2)} m inside`);
+    check('and a left one outside it by no more than the narrower road\'s offset, so no ramp runs through the turn',
+      L_.length >= 8 && worstL < 0.25, `${L_.length} arcs, worst ${worstL.toFixed(3)} m`);
+  }
+  // 9. PATH(), the sibling: the HUD's line and every harness's driveTo share the pipeline.
+  {
+    let seed = 61, nw = 0, uw = 0, nn = 0, un = 0, routes = 0;
+    const rnd = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 4294967296);
+    const vs = [...g.out.keys()];
+    const ms = [];
+    for (let k = 0; k < 80; k++) {
+      const a = district.verts[vs[Math.floor(rnd() * vs.length)]], b = district.verts[vs[Math.floor(rnd() * vs.length)]];
+      const pw = g.path(a.x, a.z, b.x, b.z, { spacing: 4, offset: ROUTE_LANE_M, filletR: 0 });
+      const t0 = process.hrtime.bigint();
+      const pn = g.path(a.x, a.z, b.x, b.z, { spacing: 4, offset: ROUTE_LANE_M });
+      ms.push(Number(process.hrtime.bigint() - t0) / 1e6);
+      if (!pw || !pn) continue;
+      routes++;
+      const a1 = radii(pw.points), a2 = radii(pn.points);
+      nw += a1.length; uw += u(a1, R0); nn += a2.length; un += u(a2, R0);
+    }
+    ms.sort((x, y) => x - y);
+    console.log(`    ${routes} seeded path()s: ${(100 * uw / nw).toFixed(2)}% of points under R_min(0) as shipped, `
+      + `${(100 * un / nn).toFixed(2)}% filleted; path() p50 ${ms[ms.length >> 1].toFixed(1)} ms, max ${ms[ms.length - 1].toFixed(1)} ms`);
+    check('path() gets the same rounding as the tour — the sibling is not left behind', routes > 60 && un / nn < 0.012 && uw / nw > 0.025,
+      `${(100 * un / nn).toFixed(2)}% against ${(100 * uw / nw).toFixed(2)}% shipped`);
+  }
+  // 10. THE CURVATURE WINDOW, which read every smooth curve 1.5x too wide at 4 m (see windowTurn).
+  {
+    const ring = [];
+    const th = 2 * Math.asin(4 / (2 * R));
+    for (let a = 0; a < Math.PI * 1.5; a += th) ring.push([R * Math.cos(a), R * Math.sin(a), 0]);
+    // The old reading, reproduced so the defect is in the file: the turn over n segments' full length.
+    const old = (pts) => {
+      let worst = Infinity;
+      for (let k = 0; k < pts.length - 2; k++) {
+        let arc = Math.hypot(pts[k + 1][0] - pts[k][0], pts[k + 1][1] - pts[k][1]), j = k + 1;
+        while (j < pts.length - 1 && (arc < ARC_WINDOW || j === k + 1)) { arc += Math.hypot(pts[j + 1][0] - pts[j][0], pts[j + 1][1] - pts[j][1]); j++; }
+        const h0 = Math.atan2(pts[k + 1][0] - pts[k][0], pts[k + 1][1] - pts[k][1]), h1 = Math.atan2(pts[j][0] - pts[j - 1][0], pts[j][1] - pts[j - 1][1]);
+        let t = h1 - h0; while (t > Math.PI) t -= 2 * Math.PI; while (t < -Math.PI) t += 2 * Math.PI;
+        if (Math.abs(t) > 1e-4) worst = Math.min(worst, arc / Math.abs(t));
+      }
+      return worst;
+    };
+    const L = []; for (let x = 0; x <= 40; x += 4) L.push([x, 0, 0]); for (let z = 4; z <= 40; z += 4) L.push([40, z, 0]);
+    const nowR = minRadius(ring).radius, oldR = old(ring);
+    console.log(`    a ${R} m circle at 4 m chords: the window reads ${nowR.toFixed(2)} m; KNOWN-BAD the old reading ${oldR.toFixed(2)} m; `
+      + `a right angle reads ${minRadius(L).radius.toFixed(2)} both ways (${old(L).toFixed(2)})`);
+    check('the curvature window reads a circle\'s own radius', Math.abs(nowR - R) / R < 0.015, `${nowR.toFixed(3)} m of ${R}`);
+    check('KNOWN-BAD: the reading it replaces made it 1.5 times wider than it is', oldR / R > 1.4, `${oldR.toFixed(2)} m, x${(oldR / R).toFixed(2)}`);
+    check('and a point-corner reads exactly as it did, which is why nothing saw it', Math.abs(minRadius(L).radius - old(L)) < 1e-9,
+      `${minRadius(L).radius.toFixed(3)} and ${old(L).toFixed(3)}`);
   }
 }
 

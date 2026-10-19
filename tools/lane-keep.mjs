@@ -38,6 +38,21 @@
 // 3.7%, with a p10 corner of 8.8 m against the shipped 8.1. That is a lever this table had no
 // reason to show before, worth measuring on the drive before anybody takes it.)
 //
+// RESTATED BY #61, WHICH ACTED ON THIS FILE'S FINDING. The lever it names — the course's corner
+// geometry — is `filletCorners` now: every corner rounded to the car's turning circle at the speed
+// it holds at the crawl, right turns driven on the centreline. On this file's own drive:
+//
+//                                         before #61          after
+//     forced band p90                       2.778 m           0.958 m
+//     forced, body past the lane            15.8%             0.0%
+//     samples putting the body past it      414               0
+//     course points under R_min(0)          36 of 816, 4.4%   4 of 801, 0.5%
+//
+// (The "before" column is the right side of the road and #128's follower; the tables above it are
+// older still.) What survives is a relation — the forced band is still worse than the achievable
+// one, p50 0.450 against 0.036 — and the smoothing refusal, which §4 now measures with the fillet
+// off because smoothing alone is what it refuses, with the fillet's column printed beside it.
+//
 // TWO INSTRUMENT ERRORS ON THE WAY, and the second is #104's own defect recurring inside the
 // probe for it:
 //
@@ -64,7 +79,7 @@
 // at 50 km/h. The first is a property of the course; the second is why the error is spread much
 // wider than the tight points are.
 import { readFileSync } from 'node:fs';
-import { RoadGraph, followPath, minTurnRadius, ROUTE_LANE_M } from '../src/roadpath.js';
+import { RoadGraph, followPath, minTurnRadius, ROUTE_LANE_M, FILLET_R } from '../src/roadpath.js';
 import { Vehicle, BODY_RADIUS, BODY_SAMPLES } from '../src/vehicle.js';
 import { FlatGround } from '../src/ground.js';
 import { BlockerIndex } from '../src/blockers.js';
@@ -131,10 +146,14 @@ export function crossTrack(pts, x, z, i, win = 8) {
   return { d: best, i: bestI };
 }
 
-/** How many points of a course turn tighter than the car's standstill minimum, and the clearance. */
-export function courseShape(smoothPasses) {
+/**
+ * How many points of a course turn tighter than the car's standstill minimum, and the clearance.
+ * `filletR` 0 is the pipeline as it shipped before #61 — smoothing alone — which is what §4's
+ * refusal is a statement about.
+ */
+export function courseShape(smoothPasses, filletR = FILLET_R) {
   const graph = new RoadGraph(district, { blockers, carRadius: BODY_RADIUS });
-  const tour = graph.tour(district.meta.route.slice(1), { spacing: 4, offset: LANE_OFFSET, smoothPasses });
+  const tour = graph.tour(district.meta.route.slice(1), { spacing: 4, offset: LANE_OFFSET, smoothPasses, filletR });
   const pts = tour.points;
   const rad = radiiOf(pts);
   const finite = [...rad].slice(1, -1);
@@ -260,18 +279,22 @@ if (!SELFTEST && IS_MAIN) {
   console.log('  geometry — `tour()` and the router — and CLAUDE.md already records why those');
   console.log('  corners exist and already derives the crawl floor as the response to them.');
 
-  console.log('\n=== (4) AND MORE SMOOTHING IS REFUSED ===\n');
-  console.log('  passes   points   length    radius p10   under R_min(0)     CAR BODY blocked');
+  console.log('\n=== (4) AND MORE SMOOTHING IS REFUSED — the fillet does what it could not (#61) ===\n');
+  console.log('                 SMOOTHING ALONE (as shipped before #61)            WITH THE FILLET');
+  console.log('  passes   points   radius p10   under R_min(0)   body blocked    radius p10   under R_min(0)   body blocked');
   const fracs = [];
   for (const p of [0, 1, 2, 3, 5, 8, 12]) {
-    const c = courseShape(p);
+    const c = courseShape(p, 0), f = courseShape(p);
     fracs.push({ p, frac: c.frac });
     const finite = [...c.rad].slice(1, -1).filter((r) => Number.isFinite(r));
+    const ffin = [...f.rad].slice(1, -1).filter((r) => Number.isFinite(r));
     console.log(`  ${String(p).padStart(6)}   ${String(c.pts.length).padStart(6)}`
-      + `   ${c.length.toFixed(0).padStart(6)} m`
       + `   ${q(finite, 0.1).toFixed(1).padStart(9)}`
-      + `   ${String(c.under).padStart(4)} of ${String(c.n).padStart(4)} ${(100 * c.frac).toFixed(1).padStart(5)}%`
-      + `   ${String(c.bodyBlocked).padStart(5)} of ${String(c.pts.length).padStart(4)}`);
+      + `   ${String(c.under).padStart(4)} of ${String(c.n).padStart(4)} ${(100 * c.frac).toFixed(1).padStart(4)}%`
+      + `   ${String(c.bodyBlocked).padStart(5)}`
+      + `        ${q(ffin, 0.1).toFixed(1).padStart(9)}`
+      + `   ${String(f.under).padStart(4)} of ${String(f.n).padStart(4)} ${(100 * f.frac).toFixed(1).padStart(4)}%`
+      + `   ${String(f.bodyBlocked).padStart(5)}`);
   }
   // COMPUTED, because the sentence it replaces — "the SHIPPED value of 2 is the worst of the
   // seven" — was a reading of the course with every lane on the driver's LEFT, and the first run
@@ -370,14 +393,27 @@ if (SELFTEST && IS_MAIN) {
   //    spread at all. (On the right side: p90 2.995835 / max 4.530818, twice, and the gap is 2.5x —
   //    5.0 is x1.67 above the shipped figure and x1.52 below corner-now's.) That is the only kind of absolute bound this project considers writable,
   //    and both figures are printed beside it so a retune has to come here and restate them.
+  //
+  //    RESTATED BY #61, WHICH TOOK THIS CHECK'S TEETH. With the corners rounded to the car's turning
+  //    circle the forced band shrinks both ways, and `corner-now` reads p90 1.854 — UNDER the old
+  //    5.0, so the bound that existed to catch it passed it. Re-measured, same deterministic drive:
+  //
+  //                                    shipped (#61)   corner-now
+  //        forced band p90                 0.958          1.854     x1.94
+  //
+  //    1.35 sits in that gap with nothing in between, x1.41 above the shipped figure and x1.37 below
+  //    the mutation's — the same kind of bound, restated rather than loosened, in the commit that
+  //    moved both sides of it.
   const fP90 = q(forced, 0.9);
   check('the forced band stays under the ceiling the corner-speed term holds it to',
-    fP90 < 5.0, `p90 ${fP90.toFixed(3)} m against 5.0; shipped reads 2.996 and `
-    + `corner-now reads 7.609, so the bound sits in a 2.5x gap`);
+    fP90 < 1.35, `p90 ${fP90.toFixed(3)} m against 1.35; with #61's fillet shipped reads 0.958 and `
+    + `corner-now reads 1.854, so the bound sits in a 1.94x gap`);
 
   // 8. THE SMOOTHING REFUSAL, gated so a future round does not re-derive it. Measured 4.3% at 0
-  //    passes and 4.4% at 12, with the shipped 2 the worst at 4.9%.
-  const s0 = courseShape(0), s2 = courseShape(2), s12 = courseShape(12);
+  //    passes and 4.4% at 12, with the shipped 2 the worst at 4.9%. It is a statement about
+  //    smoothing ALONE, so it is measured with #61's fillet off (`filletR` 0): with it on, these
+  //    three read 0.9 / 0.5 / 0.7% and say nothing about Chaikin.
+  const s0 = courseShape(0, 0), s2 = courseShape(2, 0), s12 = courseShape(12, 0);
   check('more smoothing does not reduce the sub-R_min corners',
     s12.frac > s0.frac * 0.8,
     `${(100 * s0.frac).toFixed(1)}% at 0 passes, ${(100 * s2.frac).toFixed(1)}% at 2 (shipped), `
@@ -385,6 +421,15 @@ if (SELFTEST && IS_MAIN) {
   check('and no amount of it puts the car body through a wall either, so the refusal is not a trade',
     s0.bodyBlocked === 0 && s12.bodyBlocked === 0,
     `${s0.bodyBlocked} and ${s12.bodyBlocked} body-blocked points`);
+  // 8b. AND THE FILLET DOES WHAT IT COULD NOT (#61): under a third of the best smoothing count's
+  //     fraction, at the shipped two passes, with the car body still clear of every wall. The
+  //     smoothing column is the KNOWN-BAD, measured in the same breath.
+  const f2 = courseShape(2);
+  const bestSmooth = Math.min(s0.frac, s2.frac, s12.frac, courseShape(1, 0).frac);
+  check('the fillet takes the course under a third of what any amount of smoothing reached, and clear',
+    f2.frac < bestSmooth / 3 && f2.bodyBlocked === 0,
+    `${(100 * f2.frac).toFixed(2)}% filleted against smoothing's best ${(100 * bestSmooth).toFixed(1)}%, `
+    + `${f2.bodyBlocked} body-blocked points`);
 
   // 9. An empty population throws rather than reporting a percentile of nothing.
   let threw = false;

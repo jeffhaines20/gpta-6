@@ -3053,6 +3053,11 @@ if (!IS_MAIN) {
        * out of the zone before the hold could have finished whatever the rule says, and a brake
        * drag that crept under 1.0 m/s would repair the car and read as the rule being broken.
        * 0.42 of throttle gave 3.50 s, which is the first version of this arm and is void.
+       *
+       * RESTATED BY #61. The approach is the route's last point outside the zone, and the junction
+       * fillets moved it from 15.7 m out to 20.4 m. A longer run-up at the same throttle crosses the
+       * zone faster: 4.75 s inside over 19 frames, so the margin over the 4 s hold went from 1.75 s
+       * to 0.75 s. Still a margin; the next change to the route's last 20 m should come here.
        */
       past.drive({ throttle: 0.18, brake: 0, steer: 0 }).step(0.25);
       if (past.garage.report().inside) insideFrames++;

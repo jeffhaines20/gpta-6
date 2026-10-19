@@ -392,7 +392,10 @@ if (SELFTEST && IS_MAIN) {
   //    declared limit would read 0% here and the whole entry would be moot.
   //
   //    RESTATED BY #128. The bound was `of > 0.5`, a picked half, and it read 79.5% — until the
-  //    follower stopped cutting corners and dropped to 46.2%. The finding was never "over half": it
+  //    follower stopped cutting corners and dropped to 46.2%. (And 58.2% after #61, over 2,302 m of
+  //    driving where it was 1,850 in the same 1,800 samples: the second of these three routes starts at
+  //    vertex 719, whose hairpin held the car for 54.3 of its 60 s as shipped and 18.0 with followPath's
+  //    cusp rule. The 46.2% was two routes and a car standing still.) The finding was never "over half": it
   //    was that the limit is this district's NORMAL and the player is the anomaly, so the bound is the
   //    fleet's own over-limit share, measured above on the same module.
   const drv = driveSamples(3, 60);

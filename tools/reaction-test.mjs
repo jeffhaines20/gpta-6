@@ -25,14 +25,14 @@ import fs from 'node:fs';
 import { Pedestrians, PED_FREE_MS, AVOID_R, PED_CLEAR_DIST_M,
   ROAD_PUSH_PASSES, INSETS } from '../src/pedestrians.js';
 // For the crowd-and-kerb section: the section the pavement has to stand behind, and a body.
-import { KERB, kerbedEdge } from '../src/kerb.js';
+import { KERB, kerbedEdge, KerbFace } from '../src/kerb.js';
 import { ON_FOOT_RADIUS } from '../src/player.js';
 import { Traffic } from '../src/traffic.js';
 import { throwDistance, slideDecel, THROW, ANCHORS, pedFatalityRisk } from '../src/damage.js';
 import { BlockerIndex } from '../src/blockers.js';
 import { BODY_ENCLOSING, BODY_RADIUS as BODY_RADIUS_CAR } from '../src/vehicle.js';
 // For the route-against-the-kerb section: the router and the lane offset the harness drives at.
-import { RoadGraph, ROUTE_LANE_M } from '../src/roadpath.js';
+import { RoadGraph, ROUTE_LANE_M, JUNCTION_TURN_RAD } from '../src/roadpath.js';
 import { HALF_EXTENT } from '../src/damage.js';
 import * as THREE from '../vendor/three.module.min.js';
 import { StreetFurniture, LAMP_POOL } from '../src/streetfurniture.js';
@@ -2183,38 +2183,117 @@ console.log('\n§  the route, the kerb and the follower');
   // routes are the ones `driveTo` actually produces rather than a lattice nobody visits.
   const SPOTS = [{ x: 19, z: -6 }, { x: -308.9, z: 40 }, { x: 57, z: -164 },
     { x: -471, z: 205 }, { x: -242.3, z: 68.6 }];
-  const pts = [];
-  let routes = 0;
-  for (let i = 0; i < SPOTS.length; i++) {
-    for (let j = 0; j < SPOTS.length; j++) {
-      if (i === j) continue;
-      const r = roads.path(SPOTS[i].x, SPOTS[i].z, SPOTS[j].x, SPOTS[j].z,
-        { spacing: 4, offset: ROUTE_LANE_M });
-      if (!r) continue;
-      routes++;
-      for (const q of r.points) { const h = half(q[0], q[1]); if (h) pts.push(h); }
+  /**
+   * RESTATED BY #61, which rounds the route's junction turns to the car's own turning circle. The
+   * two checks below read "no lane point puts the car's CENTRE on the pavement" and "almost none
+   * puts its BODY over the kerb", and the first fillets put 9 of 2,004 points 0.01-0.15 m past the
+   * ribbon and 42 bodies over it (3 before). EVERY ONE OF THE 9 IS ON A JUNCTION ARC, and the
+   * geometry says why it has to be: a fillet of radius R on a turn of D sits R(1 - cos(D/2)) inside
+   * its legs at the apex — 2.64 m for R 9 on a right angle — and the four corners here join a
+   * 2.8-3.0 m alley to something, so no arc the car can drive (R_min 8.45 m at rest) fits inside the
+   * ribbon there. Before #61 the ROUTE stayed inside and the CAR did not: it could not turn that
+   * tight, ran wide, and that is what this section's own header blames the follower for.
+   *
+   * So the split is by where the point is, and each half keeps a bound with teeth:
+   *
+   *   OFF every junction fillet  centre 0 of 1,918, body 5      the old checks, unchanged in force
+   *   ON a junction fillet       9 of 86 past the ribbon, by at most 0.15 m — 4 of them in front of
+   *                              a drawn kerb face (asphalt the kerbed street's corner return rounds
+   *                              off), 5 at one alley-alley corner where no kerb is drawn, by 0.01-0.03
+   *
+   * and the bound on the ON half is the arc's own depth, which the radius decides: the same routes
+   * read 0.64 m at R 10.5 (a fillet sized for 26 km/h) and 1.22 at R 12, so 0.30 sits with a factor
+   * of two either side of the shipped 0.15 and is a KNOWN-BAD arm below. The control is the pipeline
+   * as it shipped before #61 (`filletR: 0`), which must still read no point past the ribbon at all.
+   *
+   * WHAT DECIDED IT WAS THE CAR, NOT THE ROUTE. Driven over the same 20 routes by the shipped
+   * follower on the shipped car with the walls solid, the CAR's centre was past the ribbon for
+   * 199 m of 7.8 km before the fillet and 160 m after it (-20%), its body for 671 m and 569 m:
+   * better at three of the four corners (29.2 -> 23.2 m, 53.5 -> 34.4, 29.6 -> 23.2) and WORSE at
+   * the alley-alley one (41.0 -> 56.3 m, deepest 1.04 -> 1.25 m), where the car now holds a line a
+   * few centimetres outside a 2.8 m ribbon instead of swinging across it. That drive was measured
+   * once by a probe and is not gated here — this section is offline and instant, and a drive would
+   * make it neither.
+   */
+  const face = new KerbFace(district);
+  const onArc = (q, a) => {
+    // On the arc itself: its radius, give or take the lane the hold leaves on it, and inside its
+    // sweep. The arc is the non-enumerable `arc` filletCorners publishes on each corner it rounded.
+    if (Math.abs(Math.hypot(q[0] - a.cx, q[1] - a.cz) - a.R) > ROUTE_LANE_M + 0.5) return false;
+    let t = Math.atan2(q[1] - a.cz, q[0] - a.cx) - a.phi0;
+    while (t > Math.PI) t -= 2 * Math.PI;
+    while (t <= -Math.PI) t += 2 * Math.PI;
+    const f = t / a.sweep;
+    return f >= -0.05 && f <= 1.05;
+  };
+  const laneSplit = (filletR) => {
+    const on = [], off = [];
+    let routes = 0, arcs = 0;
+    for (let i = 0; i < SPOTS.length; i++) {
+      for (let j = 0; j < SPOTS.length; j++) {
+        if (i === j) continue;
+        const opts = { spacing: 4, offset: ROUTE_LANE_M };
+        if (filletR !== undefined) opts.filletR = filletR;
+        const r = roads.path(SPOTS[i].x, SPOTS[i].z, SPOTS[j].x, SPOTS[j].z, opts);
+        if (!r) continue;
+        routes++;
+        const js = (r.fillet?.list ?? []).filter((c) => c.arc
+          && Math.abs(c.deg) * Math.PI / 180 >= JUNCTION_TURN_RAD).map((c) => c.arc);
+        arcs += js.length;
+        for (const q of r.points) {
+          const h = half(q[0], q[1]);
+          if (!h) continue;
+          const k = face.at(q[0], q[1]);
+          (js.some((a) => onArc(q, a)) ? on : off).push({ ...h, kerbFront: k ? k.o < 0 : null });
+        }
+      }
     }
-  }
+    return { routes, arcs, on, off, pts: on.concat(off) };
+  };
+  const lanes = laneSplit();
+  const { routes, pts } = lanes;
   const qq = (a, k) => a.slice().sort((x, y) => x - y)[Math.floor((a.length - 1) * k)];
   const outs = pts.map((o) => o.out);
-  const centreOut = pts.filter((o) => o.out > 0);
-  const bodyOut = pts.filter((o) => o.out > -BODY_RADIUS_CAR);
+  const deepest = (a) => (a.length ? Math.max(...a.map((o) => o.out)) : -Infinity);
+  const offCentre = lanes.off.filter((o) => o.out > 0);
+  const offBody = lanes.off.filter((o) => o.out > -BODY_RADIUS_CAR);
+  const onCentre = lanes.on.filter((o) => o.out > 0);
+  const onBody = lanes.on.filter((o) => o.out > -BODY_RADIUS_CAR);
+  const onDeep = deepest(lanes.on);
   console.log(`    ${pts.length} lane points over ${routes} routes at offset ${ROUTE_LANE_M} m: `
     + `outside the carriageway p50 ${qq(outs, 0.5).toFixed(2)}, p95 ${qq(outs, 0.95).toFixed(2)}, `
     + `max ${Math.max(...outs).toFixed(2)} m`);
-  console.log(`    centre on the pavement ${centreOut.length}, body over the kerb `
-    + `${bodyOut.length} of ${pts.length}`);
+  console.log(`    off every junction fillet: centre on the pavement ${offCentre.length}, body over the kerb `
+    + `${offBody.length} of ${lanes.off.length}`);
+  console.log(`    on ${lanes.arcs} junction fillets: ${lanes.on.length} points, centre past the ribbon `
+    + `${onCentre.length} (deepest ${onDeep.toFixed(2)} m; ${onCentre.filter((o) => o.kerbFront === true).length} `
+    + `in front of a drawn kerb face, ${onCentre.filter((o) => o.kerbFront === null).length} where no kerb is `
+    + `drawn), body over its edge ${onBody.length}`);
   /**
    * BOTH SIDES OF THE ARM FIRST, because "no lane point is on the pavement" passes for the most
    * flattering possible reason over an empty route set — this file's own standing lesson.
    */
   check('the routes a player drives between exist at all', routes >= 10 && pts.length > 500,
     `${routes} routes, ${pts.length} points`);
-  check('no lane point puts the car\'s CENTRE on the pavement', centreOut.length === 0,
-    `${centreOut.length} of ${pts.length}`);
-  check('and almost none puts its BODY over the kerb', bodyOut.length <= pts.length * 0.01,
-    `${bodyOut.length} of ${pts.length} (${(100 * bodyOut.length / pts.length).toFixed(1)}%), `
+  check('off the junction fillets, no lane point puts the car\'s CENTRE on the pavement (#61)',
+    offCentre.length === 0, `${offCentre.length} of ${lanes.off.length}`);
+  check('and almost none puts its BODY over the kerb', offBody.length <= lanes.off.length * 0.01,
+    `${offBody.length} of ${lanes.off.length} (${(100 * offBody.length / lanes.off.length).toFixed(1)}%), `
     + `against a body half width of ${BODY_RADIUS_CAR}`);
+  check('the junction fillets the split is about are in these routes, so the ON half has a subject',
+    lanes.arcs >= 10 && lanes.on.length >= 40, `${lanes.arcs} arcs, ${lanes.on.length} points on them`);
+  check('on a junction fillet the centre leaves the ribbon by centimetres, where the car\'s turning '
+    + 'circle does not fit inside it', onDeep < 0.30,
+    `deepest ${onDeep.toFixed(3)} m against 0.30, ${onCentre.length} of ${lanes.on.length} points past it`);
+  {
+    const before = laneSplit(0), wide = laneSplit(10.5);
+    check('CONTROL: the pipeline as it shipped before #61 (filletR 0) never leaves the ribbon at all',
+      before.arcs === 0 && before.pts.length > 500 && deepest(before.pts) <= 0,
+      `${before.arcs} arcs, deepest ${deepest(before.pts).toFixed(2)} m over ${before.pts.length} points`);
+    check('KNOWN-BAD: a fillet sized for 26 km/h (R 10.5) leaves it by more than that bound, so the bound '
+      + 'reads the radius', deepest(wide.on) >= 0.30,
+      `deepest ${deepest(wide.on).toFixed(3)} m on ${wide.arcs} arcs`);
+  }
   check('the lane sits about its own offset inside the kerb, not at it',
     qq(outs, 0.5) < -1.0, `p50 ${qq(outs, 0.5).toFixed(2)} m inside`);
   /**

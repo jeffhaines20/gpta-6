@@ -314,7 +314,10 @@ const tourLive = await page.evaluate(() => {
 });
 console.log(`    the whole route as a driveable tour: ${tourLive.points} points, ${tourLive.length} m, ` +
   `${tourLive.blocked} blocked for a car`);
-check('the live tour matches the offline figure', tourLive.points === 818, `${tourLive.points}`);
+// The offline figure is route-drive's "tour: 8 legs joined into one path, ... N points", built the
+// way main.js builds it. RESTATED BY #61: 818 before the junction fillets, 803 with them — the
+// arcs are shorter than the corners they replace, 3,260 m -> 3,218 m at the same 4 m spacing.
+check('the live tour matches the offline figure', tourLive.points === 803, `${tourLive.points}`);
 check('no point of the live tour is blocked', tourLive.blocked === 0, `${tourLive.blocked}`);
 
 // The route line only has a source while a mission is running, so start one.
