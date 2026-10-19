@@ -159,6 +159,8 @@ if (process.env.DRIVE_HUD === 'off') {
  */
 const COURSE = process.env.DRIVE_COURSE === 'straight' ? 'straight' : 'roads';
 const ROAD_COURSE = COURSE === 'roads';
+// One lap of the road course, three circuits of the straight one: see the runner below for why.
+const LAPS_WANTED = ROAD_COURSE ? 1 : CIRCUITS;
 const collisionWas = await page.evaluate((on) =>
   (__district.setBodyCollision ? __district.setBodyCollision(on) : null), ROAD_COURSE);
 if (ROAD_COURSE) {
@@ -172,7 +174,7 @@ if (ROAD_COURSE) {
 // Install the autopilot: steer toward the next waypoint, advance on arrival.
 // Because the sim is fixed-step, this behaves the same however slowly the
 // software renderer produces frames.
-await page.evaluate(({ circuits, roadCourse }) => {
+await page.evaluate(({ circuits, roadCourse, lapsWanted }) => {
   const route = __district.district.meta.route;
   const v = __district.vehicle;
   if (roadCourse) {
@@ -231,7 +233,7 @@ await page.evaluate(({ circuits, roadCourse }) => {
     const HOLD_V = 1.0;          // a cap under this is a hold on the brake, not a crawl
     const LOST_M = 40;           // off the course by this much is not "wide on a corner"
     const L = window.__driveLedger = { holds: 0, holdS: 0, longestHoldS: 0, impatient: 0, wantedClears: 0,
-      maxHeat: 0, maxStars: 0, repairs: 0, minHealth: 1, worstOffLine: 0, end: null,
+      maxHeat: 0, maxStars: 0, repairs: 0, minHealth: 1, worstOffLine: 0, end: null, lapEndT: null,
       respawns0: __district.wreckReport().respawns, busts0: __district.bustReport().busts,
       wrecks0: __district.wreckReport().wrecks, damage0: __district.damageReport() };
     /**
@@ -263,18 +265,42 @@ await page.evaluate(({ circuits, roadCourse }) => {
      * next reading of a net that fired is a reading and not a guess.
      */
     L.impactKinds = {}; L.impacts = []; L.teleports = [];
+    /**
+     * AND WHAT IT TOUCHED FOR FREE. The first lap on #128's follower read 0 applied impacts and 2
+     * stuck-teleports, both at a crawl through a right turn with the car stopped 3.6-3.8 m wide of
+     * its line — and the ledger could not say what had stopped it, because a contact under the
+     * damage model's free threshold is not APPLIED and was not recorded. So every contact is
+     * counted by kind whether it was applied or not, contiguous frames of one kind are kept as one
+     * EPISODE (first forty, with where on the course it began), and a teleport carries the last
+     * contact before it.
+     */
+    L.freeKinds = {}; L.contacts = []; L.contactEpisodes = 0;
+    let episode = null, lastContact = null;
     {
       const dmg = __district.damage, real = dmg.impact.bind(dmg);
       dmg.impact = (ev) => {
         const r = real(ev);
+        const k = ev.kind ?? '?', dv = Number.isFinite(ev.dv) ? ev.dv : 0;
         if (r && r.applied) {
-          const k = ev.kind ?? '?';
           L.impactKinds[k] = (L.impactKinds[k] ?? 0) + 1;
           if (L.impacts.length < 40) {
-            L.impacts.push({ t: +simT.toFixed(1), kind: k, dv: +(ev.dv ?? 0).toFixed(2), i: state.i,
+            L.impacts.push({ t: +simT.toFixed(1), kind: k, dv: +dv.toFixed(2), i: state.i,
               x: +v.position.x.toFixed(1), z: +v.position.z.toFixed(1), kmh: +(v.speed * 3.6).toFixed(0) });
           }
+        } else {
+          L.freeKinds[k] = (L.freeKinds[k] ?? 0) + 1;
         }
+        // One episode is one kind of contact with no gap over a second of sim.
+        if (!episode || episode.kind !== k || simT - episode.tEnd > 1.0) {
+          L.contactEpisodes++;
+          episode = { t: +simT.toFixed(1), tEnd: simT, kind: k, frames: 0, worstDv: 0, applied: 0,
+            i: state.i, x: +v.position.x.toFixed(1), z: +v.position.z.toFixed(1), kmh: +(v.speed * 3.6).toFixed(0) };
+          if (L.contacts.length < 40) L.contacts.push(episode);
+        }
+        episode.tEnd = simT; episode.frames++;
+        if (dv > episode.worstDv) episode.worstDv = +dv.toFixed(2);
+        if (r && r.applied) episode.applied++;
+        lastContact = { t: simT, kind: k, dv };
         return r;
       };
     }
@@ -326,6 +352,20 @@ await page.evaluate(({ circuits, roadCourse }) => {
     __district.setAutopilot((dt) => {
       if (window.__jitterTick) window.__jitterTick();
       if (L.end) { v.setControls({ throttle: 0, brake: 1, steer: 0, handbrake: false }); return; }
+      /**
+       * AND ONCE THE COURSE IS DRIVEN, THE CAR STOPS. The runner polls the lap count every four
+       * seconds of wall clock, which at this time scale is several seconds of sim, and until #128
+       * the autopilot went on driving through them: the progress index went back to 0 and the
+       * follower turned for the start of a ring it had just finished, at the 76 km/h the closing
+       * straight is driven at. Its first lap read 0 applied impacts in the lap and a 16.37 m/s
+       * write-off into a prop 2 s AFTER it, which the ledger charged to the lap — a repair, a
+       * crime and a minimum health of 0. Nothing after the last lap is the course.
+       */
+      if (lap >= lapsWanted) {
+        if (L.lapEndT === null) L.lapEndT = +simT.toFixed(1);
+        v.setControls({ throttle: 0, brake: 1, steer: 0, handbrake: false });
+        return;
+      }
       const w = __district.wanted;
       if (w.heat > 0 || w.stars > 0) {
         L.maxHeat = Math.max(L.maxHeat, w.heat); L.maxStars = Math.max(L.maxStars, w.stars);
@@ -378,8 +418,11 @@ await page.evaluate(({ circuits, roadCourse }) => {
       if (v.speed < 0.6 && !f.backing && !holding) { stuckFor += dt; if (stuckFor > 2.5) {
         const k1 = Math.min(state.i + 1, pts.length - 1), k0 = Math.max(0, k1 - 1);
         const yawHere = Math.atan2(pts[k1][0] - pts[k0][0], pts[k1][1] - pts[k0][1]);
+        const touched = lastContact && simT - lastContact.t < 3.0
+          ? { kind: lastContact.kind, dv: +lastContact.dv.toFixed(2), ago: +(simT - lastContact.t).toFixed(1) } : null;
         if (L.teleports.length < 20) L.teleports.push({ t: +simT.toFixed(1), i: state.i, yaw: +yawHere.toFixed(2),
-          from: [+v.position.x.toFixed(1), +v.position.z.toFixed(1)], to: [+f.aim[0].toFixed(1), +f.aim[1].toFixed(1)] });
+          from: [+v.position.x.toFixed(1), +v.position.z.toFixed(1)], to: [+f.aim[0].toFixed(1), +f.aim[1].toFixed(1)],
+          touched });
         __district.placeAt(f.aim[0], f.aim[1], yawHere); stuckFor = 0; window.__teleports = (window.__teleports ?? 0) + 1; } }
       else stuckFor = 0;
       window.__lapCount = lap;
@@ -419,7 +462,7 @@ await page.evaluate(({ circuits, roadCourse }) => {
   });
   window.__lapCount = 0;
   __district.setTimeScale(22);
-}, { circuits: CIRCUITS, roadCourse: ROAD_COURSE });
+}, { circuits: CIRCUITS, roadCourse: ROAD_COURSE, lapsWanted: LAPS_WANTED });
 
 // Warm up so first-load chunk building is not counted as steady-state churn.
 await page.waitForTimeout(6000);
@@ -491,7 +534,6 @@ await page.evaluate(() => __district.startRecording());
  * of sim per wall second is 15 minutes — and `ended` says whether the lap or the net stopped it.
  * A gate whose run ends on the net has measured part of its course, and says so.
  */
-const LAPS_WANTED = ROAD_COURSE ? 1 : CIRCUITS;
 const CAP_MS = ROAD_COURSE ? 1500000 : 300000;
 const t0 = Date.now();
 let laps = 0, stopped = null;
@@ -533,7 +575,9 @@ const ledger = await page.evaluate(() => {
     car_hit_frames: d.dynamic.carHitFrames - L.damage0.dynamic.carHitFrames,
     ped_hit_frames: d.dynamic.pedHitFrames - L.damage0.dynamic.pedHitFrames,
     impact_kinds: L.impactKinds, impacts: L.impacts, teleports: L.teleports,
-    end: L.end };
+    free_contact_kinds: L.freeKinds ?? null, contact_episodes: L.contactEpisodes ?? null,
+    contacts: (L.contacts ?? []).map(({ tEnd, ...e }) => ({ ...e, s: +(tEnd - e.t).toFixed(1) })),
+    lap_end_t: L.lapEndT ?? null, end: L.end };
 });
 const trafficReport = await page.evaluate(() => __district.trafficReport());
 // The screenshot is an artifact, not a measurement, and it must not be able to
@@ -655,6 +699,9 @@ if (ledger) {
   if (ledger.impact_kinds) {
     console.log(`  applied impacts by kind: ${JSON.stringify(ledger.impact_kinds)}; `
       + `stuck-teleports at course index ${(ledger.teleports ?? []).map((t) => t.i).join(', ') || 'none'}`);
+    console.log(`  every contact by kind, free ones included: ${JSON.stringify(ledger.free_contact_kinds)} free, `
+      + `${ledger.contact_episodes} episodes; what each teleport last touched: `
+      + `${(ledger.teleports ?? []).map((t) => (t.touched ? `${t.touched.kind} ${t.touched.dv} m/s ${t.touched.ago} s before` : 'nothing within 3 s')).join('; ') || 'no teleports'}`);
   }
 }
 if (result.jitter) {
