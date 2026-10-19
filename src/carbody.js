@@ -3508,11 +3508,19 @@ export function buildTrafficCarGeometry(opts = {}) {
       [[0.90, 0.014], [-0.72, 0.048], [-0.72, 0.076], [0.90, 0.042]], s,
       0.005, SURFACE.paint, swageC);
   }
-  // --- wing mirrors. 24 triangles for the pair, and the only thing in this list
+  // --- wing mirrors. 28 triangles for the pair, and the only thing in this list
   // that changes the SILHOUETTE rather than the surface: a car with nothing
   // sticking out of it reads as a soap bar however well it is shaded.
+  //
+  // And the glass on each housing's BACK (#133's review, on the fleet: "the traffic cars' mirrors are
+  // plain cubes with no glass"). A door mirror's glass faces the driver, so it is the box's -z face
+  // that carries it: one quad 2 mm proud, inset a centimetre from the housing's edges, wound like
+  // boxAt's -z face, 2 triangles a mirror. The player's car toes its glass in (MIRROR_TOE); at fleet
+  // distance an 11.5-degree toe on a 9 cm pane is under a pixel, so this one faces straight back.
   for (const s of [-1, 1]) {
     boxAt(b, s * 0.99, 0.318, 0.47, 0.055, 0.042, 0.035, trimC, SURFACE.trim);
+    const gv = (px, py) => b.vert(s * 0.99 + px, 0.318 + py, 0.47 - 0.035 - 0.002, glassC, SURFACE.glassy);
+    b.quad(gv(0.045, -0.032), gv(-0.045, -0.032), gv(-0.045, 0.032), gv(0.045, 0.032));
   }
 
   // Static wheels. Traffic cars have no suspension to read, so they are baked in

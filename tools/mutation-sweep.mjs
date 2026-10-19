@@ -2728,6 +2728,12 @@ const MUTATIONS = [
     why: 'the mirror toed out rather than in: its outer end swept forward and sin(toe), 20% of its glass, turned to a camera beside the car',
   },
   {
+    id: 'fleet-mirror-bare', file: 'src/carbody.js',
+    find: '    b.quad(gv(0.045, -0.032), gv(-0.045, -0.032), gv(-0.045, 0.032), gv(0.045, 0.032));',
+    to: '',
+    why: "#133's fleet half put back: every traffic, parked and police car's door mirror a plain box with no glass on its back",
+  },
+  {
     id: 'blade-back-blank', file: 'src/signage.js',
     find: '      { doubleSided: true, offset: 0, post: false, tint: opts.tint, backRect: rect });',
     to: "      { doubleSided: true, offset: 0, post: false, tint: opts.tint, backRect: streetRect('misc', 'bladeBack') });",
