@@ -3190,9 +3190,20 @@ const tracked = (f) => {
  */
 const GATE_ENV = { ...process.env, BOOT_PORT: String(treePort(ROOT)) };
 
+/**
+ * AND A TIMEOUT IS NOT A CAUGHT MUTATION EITHER, the third way after an ENOENT and a throw to exit
+ * non-zero without a gate having noticed anything. Every gate had 600 s, and boot-check now takes 771 s
+ * on an idle box (13 minutes, against the 5.5 CLAUDE.md quotes: the arms have grown, and so has the
+ * page). So execFileSync killed the browser control at HEAD, the control read "RED (0 failed)", and the
+ * sweep refused a row on a tree whose boot-check passes. Inside a row the same kill would have read as
+ * "caught by boot-check". A timed-out gate is reported as such and counts as neither caught nor clean,
+ * and boot-check gets the budget its own runs measure.
+ */
+const GATE_TIMEOUT_MS = { 'boot-check': 2400000 };
+
 function runGate(name) {
   const t0 = Date.now();
-  let out = '', rc = 0;
+  let out = '', rc = 0, timedOut = false;
   // A gate may carry its own flags -- `crowd-bill --selftest` is one tool and one
   // argument, not a file called "crowd-bill --selftest.mjs". Without this split the
   // entry silently becomes an ENOENT, which exits non-zero and would have read as
@@ -3200,11 +3211,12 @@ function runGate(name) {
   const [tool, ...flags] = name.split(/\s+/);
   try {
     out = execFileSync('node', [`tools/${tool}.mjs`, ...flags], {
-      cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 600000,
-      env: GATE_ENV,
+      cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: GATE_TIMEOUT_MS[tool] ?? 600000, env: GATE_ENV,
     });
   } catch (e) {
     rc = e.status ?? 1;
+    timedOut = e.code === 'ETIMEDOUT' || (e.status == null && e.signal === 'SIGTERM');
     out = `${e.stdout ?? ''}${e.stderr ?? ''}`;
   }
   /**
@@ -3232,7 +3244,7 @@ function runGate(name) {
    * follow its own checks cannot be trusted about any row, not just this one.
    */
   const brokenAccounting = rc === 0 && failed.length > 0;
-  return { name, rc, threw, failed, brokenAccounting, ms: Date.now() - t0 };
+  return { name, rc, threw, failed, brokenAccounting, timedOut, ms: Date.now() - t0 };
 }
 
 function playtestSelftest() {
@@ -3506,6 +3518,13 @@ console.log(`tree ${execSync('git rev-parse --short HEAD', { cwd: ROOT, encoding
 if (browser && list.some((m) => m.browser)) {
   process.stdout.write('  control         boot-check at HEAD ... ');
   const ctl = runGate('boot-check');
+  if (ctl.timedOut) {
+    console.log(`TIMED OUT after ${(ctl.ms / 1000).toFixed(0)} s`);
+    console.error('\nREFUSING: boot-check did not finish inside its budget at HEAD, which says nothing');
+    console.error('about the build and leaves nothing for a [browser] row to be compared with.');
+    console.error('Run it alone and read how long it takes before raising GATE_TIMEOUT_MS.');
+    process.exit(2);
+  }
   if (ctl.rc !== 0) {
     console.log(`RED (${ctl.threw ? 'threw' : `${ctl.failed.length} failed`})`);
     console.error('\nREFUSING: the browser gate does not pass at HEAD, so it cannot tell a');
@@ -3537,7 +3556,8 @@ for (const m of list) {
   gates.push(playtestSelftest());
   if (browser && m.browser) gates.push(runGate('boot-check'));
   restore(m);
-  const caught = gates.filter((g) => g.rc !== 0);
+  const timed = gates.filter((g) => g.timedOut);
+  const caught = gates.filter((g) => g.rc !== 0 && !g.timedOut);
   /**
    * SURFACED ON THE ROW, because a gate that printed FAIL and exited 0 makes every verdict on
    * this row meaningless — including a `caught` from some other gate, which may be masking the
@@ -3561,9 +3581,10 @@ for (const m of list) {
    * finding too, because the note claiming it changes nothing has stopped being true.
    */
   const verdict = caught.length ? (m.inert ? 'caught-but-noted-inert' : 'caught')
-    : (m.inert ? 'inert' : 'MISSED');
+    : timed.length ? 'TIMED OUT' : (m.inert ? 'inert' : 'MISSED');
   rows.push({ m, verdict, gates: caught });
-  console.log(`${verdict}${caught.length ? ` by ${caught.map((g) => g.name + (g.threw ? '(threw)' : '')).join(', ')}` : ''}`);
+  console.log(`${verdict}${caught.length ? ` by ${caught.map((g) => g.name + (g.threw ? '(threw)' : '')).join(', ')}` : ''}` +
+    `${timed.length ? `${caught.length ? ';' : ''} ${timed.map((g) => g.name).join(', ')} timed out` : ''}`);
   if (!gitClean()) {
     console.error(`\nSTOPPING: the tree did not come back clean after ${m.id}. Inspect it by hand.`);
     process.exit(2);
@@ -3576,9 +3597,14 @@ const missed = rows.filter((r) => r.verdict === 'MISSED');
 const stale = rows.filter((r) => r.verdict === 'STALE' || r.verdict === 'AMBIGUOUS');
 const caught = rows.filter((r) => r.verdict.startsWith('caught'));
 const inert = rows.filter((r) => r.verdict === 'inert');
+const timedOutRows = rows.filter((r) => r.verdict === 'TIMED OUT');
 const wrongNote = rows.filter((r) => r.verdict === 'caught-but-noted-inert');
 console.log(`caught ${caught.length}   MISSED ${missed.length}   inert ${inert.length}` +
-  `   stale/ambiguous ${stale.length}   of ${rows.length}`);
+  `   stale/ambiguous ${stale.length}${timedOutRows.length ? `   TIMED OUT ${timedOutRows.length}` : ''}   of ${rows.length}`);
+if (timedOutRows.length) {
+  console.log('\nTIMED OUT — a gate ran out of time and caught nothing else, so the row is unmeasured:');
+  for (const r of timedOutRows) console.log(`  ${r.m.id}`);
+}
 if (inert.length) {
   console.log('\nINERT — measured to change nothing at HEAD, so there is nothing for a gate to see:');
   for (const r of inert) console.log(`  ${r.m.id}  ${r.m.inert}`);
