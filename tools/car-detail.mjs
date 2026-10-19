@@ -45,8 +45,17 @@ import { buildTrafficCarGeometry, buildPlayerCar, SHAPES, SURFACE, paletteU } fr
 const US_PLATE = { w: 12 * 0.0254, h: 6 * 0.0254 };
 
 const argv = process.argv.slice(2);
+/**
+ * THE GATE RUNS ONLY AS THE MAIN MODULE. It ran on import: `import { fleetMirrorGeometry }` from a
+ * one-line probe launched the browser, served the page and printed the whole report, and the flag
+ * check below would have exited an importer that took a flag of its own. CLAUDE.md's "a tool that runs
+ * its report on IMPORT cannot be built on", and its sibling: the selftest is guarded too, because
+ * `--selftest` is on process.argv, which every module in the process shares. Matched with the
+ * leading slash, so an importer named `detail.mjs` is not taken for this file.
+ */
+const IS_MAIN = !!process.argv[1] && import.meta.url.endsWith('/' + process.argv[1].split('/').pop());
 const KNOWN = new Set(['--selftest', '--json']);
-for (const a of argv) {
+for (const a of IS_MAIN ? argv : []) {
   if (a.startsWith('--') && !KNOWN.has(a)) {
     console.error(`unknown flag: ${a}\n\nusage: node tools/car-detail.mjs [--selftest] [--json]`);
     process.exit(2);
@@ -278,7 +287,7 @@ export function verdict(r) {
 }
 
 // ------------------------------------------------------------------------------------- selftest
-if (argv.includes('--selftest')) {
+if (IS_MAIN && argv.includes('--selftest')) {
   let pass = 0, fail = 0;
   const say = (ok, what, detail = '') => {
     console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${what}${detail ? `  ${detail}` : ''}`);
@@ -380,49 +389,51 @@ if (argv.includes('--selftest')) {
 }
 
 // ----------------------------------------------------------------------------------- the gate
-const geometry = plateGeometry();
-const ROOT = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
-const PORT = Number(process.env.CAR_DETAIL_PORT ?? treePort(ROOT));
-await ensureServer(PORT, 20000, { root: ROOT });
-const browser = await chromium.launch(launchOptions());
-const page = await browser.newPage({ viewport: { width: 1000, height: 2740 } });
-const logs = [];
-page.on('console', (m) => { if (!/Failed to load resource/.test(m.text())) logs.push(`${m.type()}: ${m.text()}`); });
-page.on('pageerror', (e) => logs.push(`pageerror: ${e.message}`));
-page.on('requestfailed', (r) => logs.push(`requestfailed: ${r.url()} — ${r.failure()?.errorText}`));
-page.on('response', (r) => { if (r.status() >= 400 && !r.url().endsWith('/favicon.ico')) logs.push(`http ${r.status()}: ${r.url()}`); });
-await page.goto(`http://127.0.0.1:${PORT}/tools/car-detail.html`);
-let report = null, err = null;
-try {
-  await page.waitForFunction('window.__carDetail', null, { timeout: 90000 });
-  report = await page.evaluate(() => window.__carDetail);
-} catch (e) { err = e.message; }
-await browser.close();
-if (!report || report.error) {
-  console.error(`the page did not publish a report: ${report ? report.error : err}`);
-  if (logs.length) console.error('console:\n' + logs.join('\n'));
-  process.exit(1);
-}
-report.geometry = geometry;
-report.mirrors = mirrorGeometry();
-report.fleetMirrors = fleetMirrorGeometry();
-if (argv.includes('--json')) console.log(JSON.stringify(report, null, 1));
+if (IS_MAIN) {
+  const geometry = plateGeometry();
+  const ROOT = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
+  const PORT = Number(process.env.CAR_DETAIL_PORT ?? treePort(ROOT));
+  await ensureServer(PORT, 20000, { root: ROOT });
+  const browser = await chromium.launch(launchOptions());
+  const page = await browser.newPage({ viewport: { width: 1000, height: 2740 } });
+  const logs = [];
+  page.on('console', (m) => { if (!/Failed to load resource/.test(m.text())) logs.push(`${m.type()}: ${m.text()}`); });
+  page.on('pageerror', (e) => logs.push(`pageerror: ${e.message}`));
+  page.on('requestfailed', (r) => logs.push(`requestfailed: ${r.url()} — ${r.failure()?.errorText}`));
+  page.on('response', (r) => { if (r.status() >= 400 && !r.url().endsWith('/favicon.ico')) logs.push(`http ${r.status()}: ${r.url()}`); });
+  await page.goto(`http://127.0.0.1:${PORT}/tools/car-detail.html`);
+  let report = null, err = null;
+  try {
+    await page.waitForFunction('window.__carDetail', null, { timeout: 90000 });
+    report = await page.evaluate(() => window.__carDetail);
+  } catch (e) { err = e.message; }
+  await browser.close();
+  if (!report || report.error) {
+    console.error(`the page did not publish a report: ${report ? report.error : err}`);
+    if (logs.length) console.error('console:\n' + logs.join('\n'));
+    process.exit(1);
+  }
+  report.geometry = geometry;
+  report.mirrors = mirrorGeometry();
+  report.fleetMirrors = fleetMirrorGeometry();
+  if (argv.includes('--json')) console.log(JSON.stringify(report, null, 1));
 
-console.log(`CAR-DETAIL — the number plate, built and drawn (${report.tod})\n`);
-console.log('  plate      w x h (m)          flat   uv.y   behind');
-for (const g of geometry) {
-  console.log(`  ${g.name.padEnd(9)} ${g.w?.toFixed(4)} x ${g.h?.toFixed(4)}   ${g.zSpread < 1e-6 ? 'yes ' : 'NO  '}   ${g.vOk ? 'yes' : 'NO '}    ${g.behind}`);
+  console.log(`CAR-DETAIL — the number plate, built and drawn (${report.tod})\n`);
+  console.log('  plate      w x h (m)          flat   uv.y   behind');
+  for (const g of geometry) {
+    console.log(`  ${g.name.padEnd(9)} ${g.w?.toFixed(4)} x ${g.h?.toFixed(4)}   ${g.zSpread < 1e-6 ? 'yes ' : 'NO  '}   ${g.vOk ? 'yes' : 'NO '}    ${g.behind}`);
+  }
+  console.log('\n  row      plate px  changed   ink     mean on/blank   darkest on/blank');
+  for (const k of ['near', 'far', 'other', 'player']) {
+    const x = report[k];
+    console.log(`  ${k.padEnd(8)} ${String(x.platePx).padStart(8)}  ${String(x.plateChanged).padStart(7)}   ${(100 * x.inkFrac).toFixed(1).padStart(5)}%` +
+      `   ${(x.meanOn / x.meanOff).toFixed(3).padStart(10)}       ${x.minOnRatio?.toFixed(3)}`);
+  }
+  console.log('');
+  const checks = verdict(report);
+  for (const c of checks) console.log(`  ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? `  ${c.detail}` : ''}`);
+  const failed = checks.filter((c) => !c.ok);
+  if (logs.length) console.log('\nconsole:\n' + logs.join('\n'));
+  console.log(`\nCAR-DETAIL: ${failed.length ? 'FAIL' : 'PASS'} — ${checks.length} checks` + (failed.length ? `, ${failed.length} failed` : ''));
+  process.exit(failed.length ? 1 : 0);
 }
-console.log('\n  row      plate px  changed   ink     mean on/blank   darkest on/blank');
-for (const k of ['near', 'far', 'other', 'player']) {
-  const x = report[k];
-  console.log(`  ${k.padEnd(8)} ${String(x.platePx).padStart(8)}  ${String(x.plateChanged).padStart(7)}   ${(100 * x.inkFrac).toFixed(1).padStart(5)}%` +
-    `   ${(x.meanOn / x.meanOff).toFixed(3).padStart(10)}       ${x.minOnRatio?.toFixed(3)}`);
-}
-console.log('');
-const checks = verdict(report);
-for (const c of checks) console.log(`  ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? `  ${c.detail}` : ''}`);
-const failed = checks.filter((c) => !c.ok);
-if (logs.length) console.log('\nconsole:\n' + logs.join('\n'));
-console.log(`\nCAR-DETAIL: ${failed.length ? 'FAIL' : 'PASS'} — ${checks.length} checks` + (failed.length ? `, ${failed.length} failed` : ''));
-process.exit(failed.length ? 1 : 0);
