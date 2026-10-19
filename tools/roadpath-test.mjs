@@ -1216,7 +1216,9 @@ console.log('\n§6e The route\'s corners (#61)');
 
   // 7. EVERY JUNCTION CORNER IS FULL OR SHORT FOR A NAMED REASON, and #128's own two are full.
   {
-    const J = now.fillet.list.filter((c) => Math.abs(c.deg) >= JUNCTION_TURN_RAD * 180 / Math.PI);
+    // Through `?.`, because a build that stops filleting returns `fillet: null`, and a gate asked
+    // about the fillet has to say that in FAIL lines rather than die on it (fillet-off threw here).
+    const J = (now.fillet?.list ?? []).filter((c) => Math.abs(c.deg) >= JUNCTION_TURN_RAD * 180 / Math.PI);
     const short = J.filter((c) => c.R < c.want - 1e-9);
     console.log(`    junction corners on the tour: ${J.length}, ${J.length - short.length} at the full ${FILLET_R.toFixed(2)} m; short:`);
     for (const c of short) console.log(`      (${c.x}, ${c.z}) ${c.deg} deg: R ${c.R.toFixed(2)} — ${c.legLimited ? 'its legs' : ''}${c.clearLimited ? ' not clear' : ''}`);
@@ -1238,7 +1240,7 @@ console.log('\n§6e The route\'s corners (#61)');
   {
     const P = now.points;
     const rows = [];
-    for (const c of now.fillet.list) {
+    for (const c of now.fillet?.list ?? []) {
       const a = c.arc;
       if (!a || Math.abs(a.sweep) < JUNCTION_TURN_RAD) continue;
       const ph = a.phi0 + a.sweep / 2, mx = a.cx + a.R * Math.cos(ph), mz = a.cz + a.R * Math.sin(ph);
