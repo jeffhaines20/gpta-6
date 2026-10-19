@@ -1889,8 +1889,16 @@ if (state.global && state.frames > 2) {
        * needs the same sweep a measurement does", and "bound such an arm on the STATE rather than
        * the wall clock, and report which of the two ended the run" — it does report, and that is
        * what made this diagnosable in one run.
+       *
+       * AND 420 s WAS STILL A BUDGET, the second time for this arm. On 2026-10-19 the merged tree
+       * (1,228 lamps since #137) ran on a box with two builders' browsers alive, frames ran slower
+       * than 1.05 s, and the clock fired at `stuckFor 3.85`, 4% short; the band then showed whatever
+       * else was up, and the cue check failed as a cascade. The lamp builder's own boot-check on the
+       * same lamps, on a quieter box, passed all 113. A net exists for a HANG, so it is half an hour
+       * now: twice the slowest whole-gate run measured (847 s), a figure no healthy frame rate
+       * reaches inside 400 frames. The 400-frame budget above is the bound; this is not a second one.
        */
-      if (Date.now() - t0 > 420000) { why = 'wall clock'; break; }
+      if (Date.now() - t0 > 1800000) { why = 'wall clock'; break; }
     }
     const nose = read();
     const stuckFor = v.stuckFor, contacts = v.contacts, frames = d.frames;
