@@ -4783,8 +4783,9 @@ road turning off at either end keeps `KERB.cornerR` clear if kerb.js draws no re
 26 m along it, any edge's lamp counting):
 
                                        before      after
-    lamps                                 509      1,228   of 1,546 stations: 217 skipped as lit,
-                                                           86 with no usable spot, 11 refused
+    lamps                                 509      1,228   of 1,546 stations: 221 skipped as lit,
+                                                           86 with no usable spot, 11 refused,
+                                                           0 past the pool
     street lit on both sides            22.0%      85.2%
     on one side only                    49.0%      13.2%
     on neither                          29.0%       1.6%
