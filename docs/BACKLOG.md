@@ -4910,6 +4910,44 @@ has never been taken, and that is the first job: `ao-sweep`, `prop-ground` and `
 one page load each, with and without. The page carries the leak's own before and after already, so
 a candidate can be checked against it in seconds.
 
+### #139 MEASURED — no lamp stands in a palm; the census found a refused tree drawing half of itself
+**The census, every lamp against every palm.** It uses each palm's own parameters (`treeParams`),
+placed by the frame the dress pass used (`treeSites`). A crown is a sphere of its radius R round the
+trunk top; the head 2.2 m out at 7.7 m; the post a vertical line to 8.2 m; the trunk its plan segment,
+base to top:
+
+    lamp heads inside a crown          0 of 1,228    nearest 1.62 m outside its radius
+    posts through a crown              0
+    posts through a trunk              0             nearest 2.39 m clear
+
+The review's posts "up a trunk" were screen overlap at two depths, which it said it could not rule
+out ("inferred, not measured in depth"). Its fronds "lit from inside" and brighter than the globe are
+#136: a 900 cd light 2-3 m from a crown lights it several times its own globe's luminance. No placer
+change.
+
+**What it found instead was the tree placer.** A tree is two emits, the far tier (`tree`: trunk,
+even fronds) and the near tier (`treeDetail`: odd fronds, boot plates), and each was judged against
+the kerb face on its OWN footprint:
+
+    trees planted                          261
+    refused by the kerb face                16
+      ...whose near half drew anyway         5    odd fronds and boot plates, no trunk under them
+    accepted trees whose near half was refused   1
+    counted in treeSpecies                 261    (245 stand)
+
+`_plantTree` makes the halves one verdict: the near half is emitted only for a tree that stands, and
+inherits its verdict. The species are counted from what stands (245: sabal 130, queen 104, oak 11).
+Each standing tree's key and frame are kept, and its halves' identity rides on the audit record.
+kerb-stand 21 -> 25 checks:
+- the crown census, with a palm planted 0.8 m from a lamp post as its KNOWN-BAD;
+- the halves paired by identity. Pairing by footprint within 1.5 m read two oaks as orphans: an oak's
+  near half is its canopy, whose lowest point is 2-3 m up and 1.8-2.0 m off its pit;
+- the species against what stands.
+
+A tree's near half is no longer tallied as a pavement prop. mutation-sweep rows: `tree-halves-split`
+and `tree-species-refused`, both caught by kerb-stand.
+
+#### #139 (as filed)
 ### #139 OPEN — the new lamps stand in palms: a post up a trunk, a globe inside a crown
 From #135/#137's blind review, new build only. At corridor dusk a lamp post runs up the left palm's
 trunk at x 683-688 to the same base row. A far post's arm crosses another palm's trunk, and a globe sits
