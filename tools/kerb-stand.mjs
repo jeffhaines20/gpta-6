@@ -44,7 +44,7 @@
 import fs from 'node:fs';
 import * as THREE from '../vendor/three.module.min.js';
 import { planKerbs, KERB, kerbedEdge } from '../src/kerb.js';
-import { StreetFurniture, LAMP_POOL, LAMP_ARM, LAMP_SPACING } from '../src/streetfurniture.js';
+import { StreetFurniture, LAMP_POOL, LAMP_ARM, LAMP_SPACING, LAMP_HEAD_Y, __kit } from '../src/streetfurniture.js';
 import { planStreetSignage } from '../src/signage.js';
 
 const SELFTEST = process.argv.includes('--selftest');
@@ -330,6 +330,10 @@ if (!SELFTEST && IS_MAIN) {
   };
   for (const p of fu.placed) {
     if (IN_ROAD.has(p.kind)) { row(p.kind).n++; continue; }
+    // A tree's near half is judged by its tree (#139: the two halves are one verdict), and its own
+    // "footprint" is the lowest point of what it draws -- for an oak, the canopy, 2-3 m up and out over
+    // the road by design. The tree it belongs to is tallied as a 'tree'; this would be the canopy.
+    if (p.kind === 'treeDetail') { row(p.kind).n++; continue; }
     tally(p.kind, p.x, p.z, Math.max(p.rx, p.rz), MOVED.has(p.kind) ? 'footprint' : 'centre', p.foot);
   }
   // The lamps are instanced posts, not emitted geometry: round, and measured on their rim above.
@@ -687,6 +691,78 @@ if (!SELFTEST && IS_MAIN) {
   check('KNOWN-BAD: the per-segment loop leaves most of the street lit on one side or none, its lamps on one side',
     covOld.both / covOld.total < 0.5 && covOld.none / covOld.total > 0.1 && oldPlus / (oldPlus + oldMinus) > 0.7,
     `both ${pct(covOld.both, covOld.total)}%, neither ${pct(covOld.none, covOld.total)}%, ${pct(oldPlus, oldPlus + oldMinus)}% on +1`);
+
+  /**
+   * #139: THE LAMPS AGAINST THE PALMS, AND EACH TREE AS ONE TREE. #137's blind review read lamp posts
+   * running up palm trunks and globes inside crowns. Measured, it is neither: every head clears every
+   * palm crown and every post clears every trunk line. What the census found instead was the tree
+   * placer itself: a tree is two emits (the far tier and the near-tier `treeDetail`), each judged
+   * against the kerb face on its own footprint, so 5 of the 16 trees refused there still drew their
+   * near half -- fronds and boot plates with no trunk -- one accepted tree lost its own, and all 16
+   * were counted in `treeSpecies`.
+   *
+   * The crown is the palm's own parameters (`treeParams`) placed by the frame the dress pass used
+   * (`treeSites`): a sphere of the crown's radius R round the trunk top. The head is 2.2 m out over
+   * the road at LAMP_HEAD_Y; the post a vertical line to 8.2 m; the trunk the plan segment from base
+   * to top, as thick as its own radius plus the pole's.
+   */
+  const POLE_R = 0.155, POLE_TOP = 8.2;
+  const palmsOf = (sites) => sites.map(({ key, f }) => ({ key, f, p: __kit.treeParams(key, f.x, f.z) }))
+    .filter(({ p }) => !p.oak).map(({ f, p }) => ({
+      bx: f.x, bz: f.z, h: p.trunkH, R: p.R, tr: p.trunkR,
+      cx: f.x + p.tiltX * f.ox + p.tiltZ * f.ax, cz: f.z + p.tiltX * f.oz + p.tiltZ * f.az,
+    }));
+  const segDist = (px, pz, ax, az, bx, bz) => {
+    const ex = bx - ax, ez = bz - az, l2 = ex * ex + ez * ez;
+    const t = l2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * ex + (pz - az) * ez) / l2)) : 0;
+    return Math.hypot(px - (ax + ex * t), pz - (az + ez * t));
+  };
+  const crownCensus = (palms) => {
+    let head = 0, post = 0, trunk = 0, headGap = Infinity, trunkGap = Infinity;
+    for (const L of lamps.lamps) {
+      for (const q of palms) {
+        if (Math.hypot(q.cx - L.x, q.cz - L.z) > q.R + 8) continue;
+        const dh = Math.hypot(L.head.x - q.cx, LAMP_HEAD_Y - q.h, L.head.z - q.cz) - q.R;
+        const dp = Math.hypot(Math.hypot(L.x - q.cx, L.z - q.cz), Math.max(0, q.h - POLE_TOP)) - q.R;
+        const dt = segDist(L.x, L.z, q.bx, q.bz, q.cx, q.cz) - q.tr - POLE_R;
+        if (dh < 0) head++;
+        if (dp < 0) post++;
+        if (dt < 0) trunk++;
+        headGap = Math.min(headGap, dh); trunkGap = Math.min(trunkGap, dt);
+      }
+    }
+    return { head, post, trunk, headGap: +headGap.toFixed(2), trunkGap: +trunkGap.toFixed(2) };
+  };
+  const palms = palmsOf(fu.treeSites ?? []);
+  const cc = crownCensus(palms);
+  // KNOWN-BAD: the same census with one real palm moved under a real lamp's head.
+  const L0 = lamps.lamps[0], s0 = (fu.treeSites ?? []).find(({ key, f }) => !__kit.treeParams(key, f.x, f.z).oak);
+  const planted = s0 ? palmsOf([{ key: s0.key, f: { ...s0.f, x: L0.x + 0.8, z: L0.z } }]) : [];
+  const ccBad = crownCensus(planted);
+  console.log(`\n  #139: ${palms.length} palms against ${lamps.lamps.length} lamps: ${cc.head} heads in a crown, ` +
+    `${cc.post} posts through one, ${cc.trunk} through a trunk; nearest head ${cc.headGap} m outside a crown, ` +
+    `nearest trunk ${cc.trunkGap} m clear of a post`);
+  check('no lamp head is inside a palm crown, and no post runs through a crown or a trunk',
+    palms.length > 0 && cc.head === 0 && cc.post === 0 && cc.trunk === 0,
+    `${cc.head} / ${cc.post} / ${cc.trunk} over ${palms.length} palms; margins ${cc.headGap} m and ${cc.trunkGap} m`);
+  check('KNOWN-BAD: a palm planted 0.8 m from a lamp post is seen by the census',
+    ccBad.post + ccBad.trunk + ccBad.head > 0, JSON.stringify(ccBad));
+  // Each tree as one tree, paired by IDENTITY (the audit record's tag, the tree's key): every near
+  // half has its tree and every tree its near half. Not by footprint: the first version paired within
+  // 1.5 m, a radius picked rather than read, and an oak's near tier is its canopy, whose lowest point
+  // is 2-3 m up and 1.8-2.0 m off the pit -- two oaks read as orphans of a build that has none.
+  const recs = fu.placed ?? [];
+  const treesR = recs.filter((r) => r.kind === 'tree'), details = recs.filter((r) => r.kind === 'treeDetail');
+  const tTags = new Set(treesR.map((r) => r.tag)), dTags = new Set(details.map((r) => r.tag));
+  const orphans = details.filter((d) => d.tag === undefined || !tTags.has(d.tag)).length;
+  const bare = treesR.filter((t) => t.tag === undefined || !dTags.has(t.tag)).length;
+  const counted = Object.values(fu.treeSpecies ?? {}).reduce((a, b) => a + b, 0);
+  console.log(`  trees standing ${treesR.length}, near halves ${details.length}: ${orphans} near halves with no tree, ` +
+    `${bare} trees with no near half; ${counted} counted in treeSpecies`);
+  check('every tree that stands has its near half, and no near half stands without its tree',
+    treesR.length > 0 && orphans === 0 && bare === 0, `${orphans} orphan halves, ${bare} bare trees of ${treesR.length}`);
+  check('and the species census counts the trees that stand, not the ones the kerb refused',
+    counted === treesR.length, `${counted} counted, ${treesR.length} standing`);
 
   const failed = checks.filter((k) => !k.ok);
   console.log(`\n${'='.repeat(78)}\n\nKERB STAND: ${failed.length ? 'FAIL' : 'PASS'} — ${checks.length} checks`);

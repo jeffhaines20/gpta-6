@@ -2734,6 +2734,18 @@ const MUTATIONS = [
     why: '#134 put back: every street-name blade a blank plate from the side its name faces away from',
   },
   {
+    id: 'tree-halves-split', file: 'src/streetfurniture.js',
+    find: "    if (!emit('tree', f.x, f.z, PAD_Y, (b) => propTree(b, f, key), false, key)) return false;",
+    to: "    emit('tree', f.x, f.z, PAD_Y, (b) => propTree(b, f, key), false, key);",
+    why: '#139 put back: a tree the kerb face refused still draws its near half, odd fronds and boot plates with no trunk under them, and is counted in the species',
+  },
+  {
+    id: 'tree-species-refused', file: 'src/streetfurniture.js',
+    find: '        if (this._plantTree(emit, st.key, tf)) this._countSpecies(st.key, st.treeX, st.treeZ);',
+    to: '        this._plantTree(emit, st.key, tf); this._countSpecies(st.key, st.treeX, st.treeZ);',
+    why: 'the species census counts the kerb trees the face refused: 261 trees where 245 stand',
+  },
+  {
     id: 'blade-yaw-pair', file: 'src/signage.js',
     find: '    const a = opts.yaws && Number.isFinite(opts.yaws[i]) ? opts.yaws[i] : yaw + i * Math.PI / 2;',
     to: '    const a = yaw + i * Math.PI / 2;',

@@ -3442,6 +3442,8 @@ export class StreetFurniture {
 
     this.props = {};                     // per-kind counts, reported
     this.treeSpecies = {};               // oak / sabal / queen, counted where planted
+    // Every tree that stands, with its key and frame, so a tool can rebuild its crown (#139).
+    this.treeSites = [];
     this.propTris = 0;
     this.propMeshes = [];
     this.worstFloat = -Infinity;         // max(prop base y - host y), audited
@@ -3872,14 +3874,18 @@ export class StreetFurniture {
     // occupy the same cubic metre and neither of the two passes can see it.
     // Points, not footprints, on the same reasoning as lampClearance.
     this._propGrid = new Grid(8);
-    const emit = (kind, ax, az, hostY, fn) => {
+    // `inherit`: the prop is the second half of one that has already been judged (a tree's near
+    // tier), so it takes that verdict instead of asking the kerb face again (#139's census). `tag`
+    // rides on the audit record, so a gate can pair a tree's two halves by identity: by footprint it
+    // cannot, because an oak's near tier is its canopy, whose lowest point is 2-3 m up and 2 m off.
+    const emit = (kind, ax, az, hostY, fn, inherit = false, tag = null) => {
       const buf = bucketFor(kind, ax, az);
       const v0 = buf.pos.length;
       const i0 = this.placed ? buf.idx.length : 0;
       const ri0 = buf.idx.length;
       fn(buf);
       if (buf.pos.length === v0) return false;
-      if (!IN_ROAD_KINDS.has(kind)) {
+      if (!IN_ROAD_KINDS.has(kind) && !inherit) {
         // The test is on the FOOTPRINT THAT WAS EMITTED — the plan extent of the vertices within
         // 0.25 m of the lowest, the same record the audit keeps — not on the anchor the pass was
         // called with: a tree's anchor sat behind the face while its pit straddled it by 0.1 m, and
@@ -3955,6 +3961,7 @@ export class StreetFurniture {
         const rec = { kind, x: (x0 + x1) / 2, z: (z0 + z1) / 2,
           rx: (x1 - x0) / 2, rz: (z1 - z0) / 2, lowY: lo, hostY,
           wind: windingOf(buf, i0) };
+        if (tag !== null) rec.tag = tag;
         // `auditFoot`: the footprint's own points, for a gate that has to ask where a TURNED footing
         // reaches (tools/kerb-stand.mjs). A box in world axes cannot: a square footing at 45 degrees
         // has a box 1.41x wider than itself in every direction. Off on the page, which needs none.
@@ -4535,6 +4542,25 @@ export class StreetFurniture {
    * this project has learned to measure instead. report().treeSpecies is that
    * measurement, and it costs one extra treeParams call per tree at load.
    */
+  /**
+   * ONE TREE, TWO HALVES, ONE VERDICT (#139's census). A tree is two emits: the far tier ('tree',
+   * trunk and even fronds) and the near tier ('treeDetail', odd fronds and boot plates). Each was
+   * asked separately whether its footprint stood behind the kerb face, and the two footprints
+   * differ: a pit straddling the face refused the tree while its plates, higher up the trunk, passed.
+   * Of 261 trees planted, 16 were refused, 5 of those still drew their near half (fronds and plates
+   * with no trunk under them), 1 accepted tree lost its own, and all 16 refused trees were counted
+   * in `treeSpecies`. So the near half is emitted only for a tree that stands, and it inherits that
+   * verdict; the species are counted from what stands.
+   */
+  _plantTree(emit, key, f) {
+    if (!emit('tree', f.x, f.z, PAD_Y, (b) => propTree(b, f, key), false, key)) return false;
+    // The near-tier half of the SAME tree. hostY is null: fringe clumps hang
+    // in the crown by design and have no business in the float audit.
+    emit('treeDetail', f.x, f.z, null, (b) => propTreeDetail(b, f, key), true, key);
+    this.treeSites.push({ key, f });
+    return true;
+  }
+
   _countSpecies(key, x, z) {
     const p = treeParams(key, x, z);
     const name = p.oak ? 'oak' : p.sabal ? 'sabal' : 'queen';
@@ -4565,9 +4591,7 @@ export class StreetFurniture {
       const pr = (st.key >>> 17) % 100;
       const W = [st.wideX, st.wideZ];
       if (pr < 17) {
-        emit('tree', W[0], W[1], PAD_Y, (b) => propTree(b, pf, st.key + 7));
-        emit('treeDetail', W[0], W[1], null, (b) => propTreeDetail(b, pf, st.key + 7));
-        this._countSpecies(st.key + 7, st.wideX, st.wideZ);
+        if (this._plantTree(emit, st.key + 7, pf)) this._countSpecies(st.key + 7, st.wideX, st.wideZ);
       } else if (pr < 37) emit('planter', W[0], W[1], PAD_Y, (b) => propPlanter(b, pf, st.key + 7));
       else if (pr < 54) emit('bench', W[0], W[1], PAD_Y, (b) => propBench(b, pf, st.key + 7));
       else if (pr < 72) emit('bin', W[0], W[1], PAD_Y, (b) => propBin(b, pf, st.key + 7));
@@ -4612,11 +4636,7 @@ export class StreetFurniture {
       if (bc >= 2.6 && this.roadClearance(st.treeX, st.treeZ) >= 2.2 &&
           this.lampClearance(st.treeX, st.treeZ) >= 3.4) {
         const tf = frame(st.treeX, st.treeZ, st.ax, st.az, st.ox, st.oz);
-        emit('tree', st.treeX, st.treeZ, PAD_Y, (b) => propTree(b, tf, st.key));
-        // The near-tier half of the SAME tree. hostY is null: fringe clumps hang
-        // in the crown by design and have no business in the float audit.
-        emit('treeDetail', st.treeX, st.treeZ, null, (b) => propTreeDetail(b, tf, st.key));
-        this._countSpecies(st.key, st.treeX, st.treeZ);
+        if (this._plantTree(emit, st.key, tf)) this._countSpecies(st.key, st.treeX, st.treeZ);
         return;
       }
     }
