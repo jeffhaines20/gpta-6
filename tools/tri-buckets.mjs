@@ -28,6 +28,7 @@ export function bucketOf(o) {
   if (/^road/.test(part)) return 'roads';
   if (/^kerb/.test(part)) return 'kerbs (near LOD)';
   if (/^zone/.test(part)) return 'ground zones';
+  if (/^lamp:/.test(name)) return 'street lamps';
   if (/furniture|prop/i.test(name)) return 'street furniture + trees';
   if (/sign/i.test(name)) return 'signage';
   if (/ped|crowd|character/i.test(name)) return 'pedestrians';
@@ -63,6 +64,8 @@ if (process.argv.includes('--selftest')) {
     ['kerbFace', 'kerbs (near LOD)'],
     ['zoneGrass', 'ground zones'],
     ['furnitureProps', 'street furniture + trees'],
+    ['lamp:pole', 'street lamps'],
+    ['lamp:head', 'street lamps'],
     ['signage', 'signage'],
     ['pedestrians', 'pedestrians'],
     ['trafficCar:coupe', 'vehicles'],
@@ -96,6 +99,11 @@ if (process.argv.includes('--selftest')) {
   ok(bucketOf({ name: 'parkedCar:coupe', parent: mesh('furniture') }) === 'vehicles',
     '...is only a vehicle once it says so, even under the same parent',
     bucketOf({ name: 'parkedCar:coupe', parent: mesh('furniture') }));
+  // The street lamps were the third pool under `furniture` with no name (#137): 1,228 lamps, every
+  // mesh a caster and never culled, so x2.00 where the furniture row prices x1.28.
+  ok(bucketOf({ name: 'lamp:arm', parent: mesh('furniture') }) === 'street lamps',
+    '...and a street lamp is a street lamp once it says so, under the same parent',
+    bucketOf({ name: 'lamp:arm', parent: mesh('furniture') }));
 
   console.log('  -- known bad: the source must be injectable --');
   const rebuilt = new Function(`return (${bucketSource})`)();

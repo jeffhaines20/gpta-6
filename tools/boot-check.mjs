@@ -238,6 +238,37 @@ if (state.global && state.frames > 2) {
     `traffic ${tr.filter((r) => r.driver).length}/${tr.length} with a driver, parked ${pk.filter((r) => r.driver).length}/${pk.length}`);
 }
 
+/**
+ * AND EVERY STREET LAMP IS PRICED AS A STREET LAMP (#137). The lamp pool is the third set of meshes
+ * that sat unnamed under `furniture`, after the parked shells: 1,228 lamps, three InstancedMeshes
+ * that are never culled and all cast, so they bill x2.00 where the furniture row they read as prices
+ * x1.28. Same rule as the car pools above: the handles come from the module, and the bucket is
+ * asserted only after the meshes are shown to be in the scene and drawing.
+ */
+{
+  const lamps = await page.evaluate(([bSrc, tSrc]) => {
+    const bucketOf = eval(`(${bSrc})`);
+    const trisOf = eval(`(${tSrc})`);
+    const f = window.__district.furniture;
+    const meshes = f ? [f.poles, f.arms, f.heads].filter(Boolean) : [];
+    return meshes.map((m) => ({ name: m.name || '', bucket: bucketOf(m), inst: m.count ?? 0,
+      drawn: trisOf(m.geometry, m.count ?? 0), caster: !!m.castShadow,
+      inScene: (() => { let n = m; while (n.parent) n = n.parent; return !!n.isScene; })() }));
+  }, [bucketSource, trisSource]);
+  for (const r of lamps) {
+    console.log(`    lamps    ${(r.name || '<unnamed>').padEnd(20)} ${String(r.drawn).padStart(6)} tris x${r.inst}  -> ${r.bucket}`);
+  }
+  const lampTris = lamps.reduce((a, r) => a + r.drawn, 0);
+  check('the lamp pool is reachable, in the scene and drawing, so the next check has weight',
+    lamps.length === 3 && lamps.every((r) => r.inScene && r.inst > 0 && r.drawn > 0),
+    `${lamps.length} meshes, ${lampTris} triangles`);
+  const strayLamps = lamps.filter((r) => r.bucket !== 'street lamps');
+  check('every lamp mesh is priced as a street lamp, not as the furniture that contains it',
+    lamps.length > 0 && strayLamps.length === 0,
+    strayLamps.length ? strayLamps.map((r) => `${r.name || '<unnamed>'} -> ${r.bucket}`).join('; ')
+      : `${lamps.length} meshes, ${lampTris} triangles, all in "street lamps"`);
+}
+
 
 /**
  * WHAT THE HUD IS ACTUALLY FED, which only this gate can see.

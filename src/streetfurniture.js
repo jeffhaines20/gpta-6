@@ -3418,6 +3418,16 @@ export class StreetFurniture {
     this.poles = this._instanced(poleGeo, metal, true);
     this.arms = this._instanced(armGeo, metal, true);
     this.heads = this._instanced(headGeo, this.headMat, true);
+    /**
+     * NAMED, because tools/tri-buckets.mjs buckets a mesh by its first named ancestor and these three
+     * were unnamed under `furniture`: #137's 1,228 lamps are 88,416 triangles that bill x2.00 (three
+     * InstancedMeshes, never culled, every one a caster), and the furniture row they read as prices at
+     * x1.28 — 66,263 of the gate's units quoted for 103,536 of cost (#137's report). The parked pool's
+     * shells were the same defect under the same parent; `boot-check` walks these handles too.
+     */
+    this.poles.name = 'lamp:pole';
+    this.arms.name = 'lamp:arm';
+    this.heads.name = 'lamp:head';
     this.count = 0;
     this._m = new THREE.Matrix4();
     this._q = new THREE.Quaternion();

@@ -2945,6 +2945,19 @@ const MUTATIONS = [
     why: 'every edge anchors its own ends beside its neighbour\'s: 211 more lamps, 85 pairs under 3 m apart at the junctions',
   },
   {
+    /**
+     * THE LAMP POOL FORGETS ITS NAME. Nothing visible changes: every lamp draws where it did. What
+     * changes is the price every instrument that buckets by name quotes for it — tri-breakdown and
+     * shadow-bill read the three meshes as `street furniture + trees`, at that row's x1.28 where they
+     * bill x2.00 — and only a gate over the live graph can see a pool that does not name itself.
+     */
+    id: 'lamp-unnamed', file: 'src/streetfurniture.js',
+    find: "    this.heads.name = 'lamp:head';",
+    to: "    this.heads.name = '';",
+    why: 'the lamp globes are billed as street furniture at x1.28 where they cost x2.00, and every table that buckets by name says so with a straight face',
+    browser: true,
+  },
+  {
     id: 'kerb-mast-front', file: 'src/streetfurniture.js',
     find: '        const kb = this.kerbFace.behindPoints(p.x + ux * setback + rx * off, p.z + uz * setback + rz * off,\n          squareOf(SIGNAL_FOOT_HALF, ux, uz, rx, rz));',
     to: '        const kb = { x: p.x + ux * setback + rx * off, z: p.z + uz * setback + rz * off, moved: 0, worst: null };',
