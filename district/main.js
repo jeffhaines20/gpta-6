@@ -15,7 +15,7 @@ import { StreamingWorld } from '../src/streaming.js';
 import { TrafficStub } from '../src/traffic.js';
 import { Pedestrians } from '../src/pedestrians.js';
 import { PursuitUnits, arrestSeconds } from '../src/pursuit.js';
-import { StreetFurniture } from '../src/streetfurniture.js';
+import { StreetFurniture, LAMP_POOL } from '../src/streetfurniture.js';
 import { LightPool } from '../src/lightpool.js';
 import { Player } from '../src/player.js';
 import { Character } from '../src/character.js';
@@ -231,12 +231,14 @@ await loading
 // real hardware. Geometry is instanced (3 draw calls total) and only the nearest
 // LIGHT_POOL_SIZE emitters are ever real lights.
 // 2026-08-30: lamp coverage raised from 233. "~1000" was the estimate; the
-// number actually placed is 543, and the two files now quote that. The
-// estimate was high because the loop places Math.floor(len / 26) lamps per
-// POLYLINE SEGMENT, and 1141 of the district's 1476 drivable segments are
-// shorter than 26 m and so get none - re-derive it with placeStreetLamps
-// (src/streetfurniture.js) against data/district.json rather than trusting
-// either figure.
+// number actually placed was 543, then 509 once #132 stood each post behind the
+// kerb. The estimate was high because that loop placed Math.floor(len / 26) lamps
+// per POLYLINE SEGMENT, and 1141 of the district's 1476 drivable segments are
+// shorter than 26 m and so got none (#137): 35.4% of the street had no lamp and
+// 73.3% of the lamps stood on one side. It places by arc length along each whole
+// edge now, sides alternating, and stands 1,228 — read `lamps.placed` below, or
+// re-derive it with placeStreetLamps (src/streetfurniture.js) against
+// data/district.json, rather than trusting any figure quoted in a comment.
 //
 // Two blind night critics independently made "there is no street lighting" their
 // single highest-leverage note. Measured, they were right, and not in the way the
@@ -255,7 +257,7 @@ await loading
 // Lamps cost 3 draw calls at any count (they are InstancedMeshes) and the pool
 // still promotes only 10 emitters to real lights, so the price of this is
 // triangles and nothing else.
-const furniture = new StreetFurniture(scene, { max: 1200 });
+const furniture = new StreetFurniture(scene, { max: LAMP_POOL });
 // Every prop's ground footprint, kept for the crowd's collider set. See dressDistrict below.
 let furnitureProps = null;
 const lightPool = new LightPool(scene, { size: 10, maxDistance: 130 });
@@ -266,8 +268,9 @@ const lightPool = new LightPool(scene, { size: 10, maxDistance: 130 });
   const lamps = furniture.placeStreetLamps(district, { kerbFace });
   for (const head of lamps.heads) lightPool.addEmitter(head.x, head.y, head.z, 900, 0xffc98a, 46);
   furniture.commit();
-  console.log(`placed ${lamps.placed} street lamps, ${lamps.behind} moved behind the kerb, `
-    + `${lamps.refused} with no room there (pool ${lightPool.size})`);
+  console.log(`placed ${lamps.placed} street lamps of ${lamps.planned} stations: ${lamps.behind} moved behind `
+    + `the kerb, ${lamps.redundant} on a side already lit, ${lamps.dropped + lamps.refused} with no room, `
+    + `${lamps.overflow} past the pool (light pool ${lightPool.size})`);
 
   // ---- everything else on the street.
   //
@@ -2180,7 +2183,7 @@ function animate(now) {
 
   // AFTER chase.update, and with the camera itself rather than its position.
   //
-  // The pool has ten slots for 543 emitters and used to choose by horizontal
+  // The pool has ten slots for 1,228 emitters and used to choose by horizontal
   // distance alone, which spent six of them on lamps behind the corridor camera
   // at night - lighting nothing the player could see, while the lamps down the
   // street the player WAS looking at glowed with no pool of light under them

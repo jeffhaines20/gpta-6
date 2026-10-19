@@ -4971,7 +4971,30 @@ round every corner from which BOTH are blank. A real street-name blade carries t
 faces. The lever is the back's rect; the thing to check first is whether a reused name rect comes
 out mirrored on the back face.
 
-### #135 OPEN — every lamp's arm points along the street, not over the roadway
+### #135 FIXED — every lamp's arm hangs over its own carriageway
+The yaw is `atan2(nz * side, -nx * side)`: the post stands at `+side * n` from the centreline, so
+the road is `-side * n` from it, and the fixture's local +x (bracket and both globes) goes to
+`(cos yaw, -sin yaw)`. Measured by `kerb-stand` off the pole and head instance matrices, with the
+globes' centres read off the head mesh's own buffer (its poles' midpoint: a five-sided sphere's
+bounding box is lopsided and read the outer globe 21 mm short):
+
+    every outer globe nearer its OWN carriageway than its post   1,228 of 1,228, by exactly 2.200 m
+    on a kerbed street, in front of its own kerb face             1,007 of 1,007, the inner globe behind
+    the emitter the LightPool lights is the drawn outer globe     worst 3.4e-5 m (float32 instances)
+    KNOWN-BAD, the recorded yaw on the same posts                 0 of 1,228 gain half the arm, median 0.000
+
+"Its own carriageway", not the nearest one: against the nearest road a lamp near a corner is read
+against the cross street, which credited 15 of the old along-the-street arms with a gain over half
+an arm and would have let the KNOWN-BAD read partly fixed. Two more nearest-X traps in the same
+instrument on the way: each globe against its own nearest kerb face, then all three against the
+post's nearest face, both of which put 43 posts' frames on a side street's kerb. The face is now
+the lamp's own street's straight kerb, read off `planKerbs` by edge, not off the arm. Mutation row
+`lamp-yaw-along`, caught by kerb-stand.
+
+Every lamp light moved 2.2 m toward its road, onto the parking lane on a kerbed street: see the
+captures under #137.
+
+### #135 (as filed) every lamp's arm points along the street, not over the roadway
 Found chasing #132's blind review. `placeStreetLamps` (and district/main.js's loop before it, since
 c109275 on 2026-08-31) sets `yaw = atan2(-nx * side, -nz * side)` under a comment "Point the arm back
 over the roadway". The bracket and both globes are on the fixture's local +x, which a yaw about +y
@@ -5003,7 +5026,113 @@ globe's 0.196 m2 of projected area is ~4,600 cd/m2, and the globe's material emi
 roughness of the facade where the lobe lands, which decides its size, and what bloom does with a
 globe raised by three orders of magnitude. Either lever changes the whole night frame.
 
-### #137 OPEN — the lamp loop lights 65% of the street length, and puts 73% of its lamps on one side
+### #137 FIXED — lamps by arc length along each whole edge, both sides lit on 85% of the street
+`placeStreetLamps` places along each whole drivable edge now (`_lampStations`): `ceil(span / 26) + 1`
+stations evenly over the edge's usable span, sides alternating along the whole edge, both ends
+anchored, so an edge too short for one gap gets a lamp each side; edges longest first, and a station
+skipped where its side already has a lamp within half a spacing. A spot is usable where `planKerbs`'
+kerb runs STRAIGHT on that side (the junction mouths as drawn, side by side: the far side of a T
+keeps its lamps), where no road comes nearer the post than its own road's lamp line, and where a
+road turning off at either end keeps `KERB.cornerR` clear if kerb.js draws no return there. Every
+#132 rule kept. kerb-stand's `lampCoverage` (a lamp on that side of THIS street's pavement within
+26 m along it, any edge's lamp counting):
+
+                                       before      after
+    lamps                                 509      1,228   of 1,546 stations: 221 skipped as lit,
+                                                           86 with no usable spot, 11 refused,
+                                                           0 past the pool
+    street lit on both sides            22.0%      85.2%
+    on one side only                    49.0%      13.2%
+    on neither                          29.0%       1.6%
+    lamps on side +1                    72.7%      53.7%   two-way streets 71.2% -> 50.0%, one-way
+                                                           74.4% -> 58.1%: the left of a one-way
+                                                           carriageway is often its median
+    same-side pairs under 13 m              -         10   (225 with the skip removed)
+    corridor framing, x 112-320       0 left / 3 right   6 left / 5 right
+    Five Points, within 30 m          2, in 2 quadrants  6, in all four
+
+The before column is the 509 posts 08ba1bc draws, read off its pole instances, with their sides from
+its own loop replayed station by station (3.2e-5 m from every drawn post). kerb-stand's KNOWN-BAD
+replays that loop at its pre-#132 line, 543 posts, and reads 25.5 / 48.5 / 26.1% and 73.3% on +1: the
+34 posts #132 refused at the kerb (28 of them on side +1) left the shipped build a little worse lit
+than the loop it came from, and the same measure on the after plan reproduces kerb-stand's 85.2 /
+13.2 / 1.6% exactly.
+
+THE PRICE, in the gate's units. Lamps are three InstancedMeshes, never culled, all casting: 72
+triangles a lamp in the colour pass and again in the sun's shadow map. 509 -> 1,228 is +719 lamps,
++103,536 of the budget gate's triangles; the worst 2026-10-17 baseline p95 (845,957) goes to about
+949,500, 67.8% of the 1,400,000 warn. Measured live at the boot preset (dusk) by toggling the three
+meshes ABBA and reading the post stack's scene count: 75,417 before and 175,354 after, x2.06 and
+x1.98 per lamp per pass against x2 by construction — the residue is streamer drift. Draw calls do
+not move (three meshes at any count). The dress pass stands 253 fewer props (lampClearance: trees
+-40, benches -35, meters -35, bollards -34), -16,985 prop triangles district-wide; parking slots
+2,568 both.
+
+The 26 m was checked against the reference before it was kept, and the reference shows a different
+system: 02-Worth's Block's standards are single post-top globes and its twin globe is a wall sconce;
+03-Five Points has shepherd's-crook posts with pendant globes; and Main St east, mosaicked from the
+2024 panoramas into an elevation of each pavement, has 4 m lanterns 8.7-11.0 m apart along built
+frontage. That density with this 8.2 m roadway standard would be about 5,400 lamps and take the
+worst baseline p95 past the warn. LAMP_SPACING carries the measurement.
+
+Three drafts route-drive caught, each fixed in the placer: posts 0.26-0.40 m off a narrow one-way
+carriageway at a fork (every road keeps its lamp line clear), a post in the inside corner of the
+turn from edge 107 into service alley 350 (the corner clearance), and a post past the unradiused
+82-degree fold on edges 179/180 (the own road's other segments count). `lamp-line-carriageway`
+came back MISSED once the corner clearance existed — 10 posts within 1.4 m of another unkerbed
+carriageway, none on route-drive's course — so kerb-stand censuses it. Mutation rows
+`lamp-per-segment`, `lamp-corner-off`, `lamp-line-carriageway`, `lamp-own-bend`,
+`lamp-overflow-hidden`, `lamp-skip-off`: all caught.
+
+The pool is LAMP_POOL (1,800, every station the plan can propose) at all eight sites that typed
+`{ max: 1200 }`, and a lamp past it is `overflow`, which the module used to count as placed.
+
+THE CAPTURES, `hero-shots` arm cdrv0, corridor and fivepoints at dusk and night, no pedestrians:
+BEFORE at 08ba1bc (tag l135b, port 8212), AFTER at 563a77e (tag l135, port 8211), both logs opening
+"cloud deck: frozen at 20s", both rc 0 with 4 captures and no shot errors. Each pair agrees on every
+residency count the audit carries — draw calls 184 / 171 / 207 / 193, 83 chunks at 16 near and 67
+far, 346 plain and 11 instanced meshes, 102-103 shadow casters — and on exposure and sun, so the
+delta is the build's and not the streamer's:
+
+    frame               before     after      delta    less the lamps' own +103,536
+    corridor/dusk      616,413   709,541    +93,128    -10,408
+    corridor/night     611,117   702,503    +91,386    -12,150
+    fivepoints/dusk    664,491   756,559    +92,068    -11,468
+    fivepoints/night   643,112   734,204    +91,092    -12,444
+
+The night deltas are within 2% of dusk's: the directional light's shadow map is still drawn at night
+(sunLux 0.6, shadow map on in all four audits), so the lamps bill x2 at every hour. The 10-12k under
+the lamps' own price is NOT isolated. The same audits show the lamps' clearance taking dressing out of
+the district — trees 305 -> 261 (sabal 160 -> 137, queen 134 -> 113, oak 11 both) and props
+7,600 -> 7,387, by the page's own count — which is the only other content change they can see; but
+no tri-breakdown was run on the pair, and the bound is loose: the offline dress probe's 16,985 prop
+triangles district-wide (it removes 253 props where the page removes 213, so it is not the page's
+dress exactly) at furniture's x1.28 is at most about 21,700, and only if every one were resident.
+
+The light pool: emitters 509 -> 1,228, and at the corridor camera the pool lights whose reach meets
+the view frustum (`illuminating`) went 5 -> 10 of 10 at both hours; Five Points 10 both. Before,
+half the pool was on and lighting nothing in shot.
+
+RESIDUAL, found after the captures and not fixed: the small roundabout at (259, -164), dead ahead of
+the corridor camera at about 147 m, stands THREE posts on its island — #1209, #1210 and #1214, one on
+the inner side of each of the one-way ring edges 767, 768 and 772 (13.6-15.0 m long), 4.35, 4.43 and
+5.70 m apart. A ring edge is shorter than one gap, so it is anchored on both sides; the outer side is
+all junction mouth and is dropped, the inner side is the island's straight kerb and is kept; and the
+skip that thins a crowded side tests a lamp within half a spacing on ITS OWN edge's side, which on a
+9 m ring is a different frame from the next edge's — so kerb-stand's same-side count, taken in each
+lamp's own street's frame, does not see it either. Posts nearer than R to ANY other post, any street,
+any side, district-wide:
+
+                 under 3 m   under 5 m   under 8 m   groups of 3+ within 5 m
+    before (509)         5           7          10        0
+    after (1,228)        0           7          63        1, this island
+
+The other 8 m groups are pairs across a junction (6.6-7.7 m), which the density brings. The lever is
+the skip measured as plain distance between posts, or one post for a ring's island, with kerb-stand's
+crowding check restated to count any street's posts. It changes the plan the captures show, so it
+waits for their blind review rather than going in under it.
+
+### #137 (as filed) the lamp loop lights 65% of the street length, and puts 73% of its lamps on one side
 The review's top "wrong in both builds": "there is almost no street lighting as a system" — the
 corridor's left side has no lamp in frame and three of the four corners at fivepoints have none. The
 loop walks each edge's POLYLINE SEGMENTS and places `floor(len / 26)` lamps per segment, alternating

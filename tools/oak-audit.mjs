@@ -35,7 +35,7 @@
 //                nobody has watched work is the trap this repo has paid for.
 import * as THREE from '../vendor/three.module.min.js';
 import fs from 'node:fs';
-import { StreetFurniture, __kit } from '../src/streetfurniture.js';
+import { StreetFurniture, __kit, LAMP_POOL } from '../src/streetfurniture.js';
 
 const has = (k) => process.argv.includes(`--${k}`);
 const arg = (k, d) => {
@@ -147,7 +147,7 @@ function windingOf(buf, i0 = 0) {
 function dress(withRoute) {
   const d = JSON.parse(fs.readFileSync('data/district.json', 'utf8'));
   if (!withRoute) d.meta = { ...d.meta, route: null };
-  const fu = new StreetFurniture(new THREE.Scene(), { max: 1200 });
+  const fu = new StreetFurniture(new THREE.Scene(), { max: LAMP_POOL });
   // THE LAMPS FIRST, exactly as district/main.js places them.
   //
   // Without them this harness dressed a district with no lamps in it, and the

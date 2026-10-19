@@ -1354,8 +1354,8 @@ console.log('\n§ the street furniture is solid (#126 part 2)');
 
   // The real builder: every rigid prop it dressed has a circle, and each circle is a TRUNK, not a pit.
   const THREE = await import('../vendor/three.module.min.js');
-  const { StreetFurniture } = await import('../src/streetfurniture.js');
-  const fu = new StreetFurniture(new THREE.Scene(), { max: 1200 });
+  const { StreetFurniture, LAMP_POOL } = await import('../src/streetfurniture.js');
+  const fu = new StreetFurniture(new THREE.Scene(), { max: LAMP_POOL });
   fu.addLamp(-5, -5, 0); fu.addLamp(5, 5, 1);
   fu.commit();
   fu.dressDistrict(district, { audit: false });
@@ -1385,8 +1385,8 @@ console.log('\n§ the street furniture is solid (#126 part 2)');
 console.log('\n§ the parked boxes are the drawn cars (#126)');
 {
   const THREE = await import('../vendor/three.module.min.js');
-  const { StreetFurniture } = await import('../src/streetfurniture.js');
-  const fu = new StreetFurniture(new THREE.Scene(), { max: 1200 });
+  const { StreetFurniture, LAMP_POOL } = await import('../src/streetfurniture.js');
+  const fu = new StreetFurniture(new THREE.Scene(), { max: LAMP_POOL });
   fu.commit();
   fu.dressDistrict(district, { audit: false });
   fu.buildParkedCars({ count: 30 });

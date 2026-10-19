@@ -857,6 +857,11 @@ export class KerbFace {
    */
   constructor(d, opts = {}) {
     const plan = opts.plan ?? planKerbs(d);
+    // Kept, because the face is not the only thing a placer needs from it: the street lamps stand
+    // only where this plan's kerb runs STRAIGHT (#137), and the straights are the one record of
+    // where each side's corner return and alley mouth begin. Reading them off the face's own plan
+    // is what keeps the lamps and the drawn kerb from disagreeing about where a junction starts.
+    this.plan = plan;
     this.segs = [];
     this.grid = new Map();
     const face = (s) => [s.ax + s.nx * K.panOuter, s.az + s.nz * K.panOuter];
