@@ -867,13 +867,40 @@ if (state.global && state.frames > 2) {
       .map((p) => ({ ...p, dist: Math.hypot(p.x - v.position.x, p.z - v.position.z) }))
       .filter((p) => !p.down && p.dist < 60)
       .sort((a, b) => a.dist - b.dist);
-    let spot = null, approach = 0;
+    /**
+     * AND CLEAR OF THE CROWD, NOT ONLY OF WALLS. The run-up was chosen clear of buildings and of
+     * nothing else, so a LIVE pedestrian could walk into it during the drive. On 2026-10-20 one did:
+     * the car knocked down #35 (person 346) three seconds into its run, rolled over that body seven
+     * frames just short of its own staged #68, and the identity check below failed with every
+     * geometry check passing -- 2.822 m along, 0.01 m to the side, one damage impact across the drive.
+     * A walker covers about 4 m in the drive's ~3 s of sim at 1.4 m/s, so a run-up with another
+     * living pedestrian within RUNUP_REACH_M of it can be crossed. Among the wall-clear run-ups of the
+     * nearest 24 standing pedestrians, take the one with the FEWEST others in reach (ties to the
+     * nearer subject, then the first heading), and say how many there were.
+     */
+    const RUNUP_REACH_M = 1.3 + 5.2;   // the contact window plus a walker's ~4 m and a metre over
+    const live = peds.positions().filter((p) => !p.down);
+    const othersNear = (c, h) => {
+      const ex = c.x + Math.sin(h) * 14, ez = c.z + Math.cos(h) * 14;
+      const vx = ex - c.x, vz = ez - c.z, L2 = vx * vx + vz * vz;
+      let n = 0;
+      for (const p of live) {
+        if (p.i === c.i) continue;
+        const t = Math.max(0, Math.min(1, ((p.x - c.x) * vx + (p.z - c.z) * vz) / L2));
+        if (Math.hypot(p.x - (c.x + vx * t), p.z - (c.z + vz * t)) < RUNUP_REACH_M) n++;
+      }
+      return n;
+    };
+    let spot = null, approach = 0, others = Infinity, zeroRuns = 0, clearRuns = 0;
     for (const c of near.slice(0, 24)) {
       for (let k = 0; k < 24; k++) {
         const h = (k / 24) * Math.PI * 2;
-        if (clearRun(c.x, c.z, h)) { spot = c; approach = h; break; }
+        if (!clearRun(c.x, c.z, h)) continue;
+        clearRuns++;
+        const n = othersNear(c, h);
+        if (n === 0) zeroRuns++;
+        if (n < others) { spot = c; approach = h; others = n; }
       }
-      if (spot) break;
     }
     if (!spot) {
       d.setTimeScale(1);
@@ -964,6 +991,7 @@ if (state.global && state.frames > 2) {
     const impacts0 = d.damageReport().stats ? d.damageReport().stats.impacts : null;
     const respawns0 = d.wreckReport().respawns;
     const dyn0 = d.damageReport().dynamic;
+    const knock0 = dyn0.pedKnockdowns;
     d.setAutopilot(() => {
       /**
        * OVER src/pedestrians.js's `PED_FREE_MS` (2.2 m/s) AND FAR UNDER `pedKillSpeed` (21.3).
@@ -1049,7 +1077,7 @@ if (state.global && state.frames > 2) {
     return { seen, overs, repeats, bodyDown, stars: d.wanted.stars,
       why, travelled: +travelled.toFixed(1), frames, wallS: +((Date.now() - t1) / 1000).toFixed(1),
       along: RUN_M, side: +spot.dist.toFixed(1), approach: +(approach * 180 / Math.PI).toFixed(0),
-      subject: spot.i,
+      subject: spot.i, others, zeroRuns, clearRuns, reachM: RUNUP_REACH_M, knock0,
       coarseOnly, bothClear, track, carBefore,
       respawns0, respawns1: d.wreckReport().respawns,
       healthEnd: d.damage.health,
@@ -1112,6 +1140,19 @@ if (state.global && state.frames > 2) {
     check('the car was not respawned during the drive, which would move it bodily',
       ro.respawns1 === ro.respawns0,
       `respawns ${ro.respawns0} -> ${ro.respawns1}; the spawn is where the car ends up`);
+    /**
+     * AND NOBODY STEPPED INTO THE RUN-UP, second for the same reason: when it fires it explains the
+     * identity check below. `pedKnockdowns` counts only what the CAR's contact pass knocks down --
+     * the arm's own staged kill goes through `peds.hit` directly and is not in it -- so a rise across
+     * the drive is a live pedestrian struck on the way, an independent signal from the run-over
+     * record. The selection above makes it rare; this says so when it was not.
+     */
+    console.log(`    the run-up: ${ro.others} other living pedestrians within ${ro.reachM} m of it at staging; `
+      + `${ro.zeroRuns} of ${ro.clearRuns} wall-clear run-ups had none`);
+    check('nobody stepped into the run-up: the car knocked down no live pedestrian on the way',
+      Number.isFinite(ro.knock) && ro.knock === ro.knock0,
+      `${ro.knock - ro.knock0} knockdowns across the drive; ${ro.others} others were within `
+      + `${ro.reachM} m of the run-up when it was chosen`);
     /**
      * RESTATED: `repairCar` CLEARS THE WRECKED FLAG AND NOT THE CLOCK. The first version of this
      * check also demanded `heldFor === 0` and failed three runs of three at a frozen 1.75 s of 4
