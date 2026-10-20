@@ -1162,6 +1162,18 @@ check, because when that fires it explains all of them. A wreck clock left ticki
 arm is otherwise a 17.6 m teleport that reports itself as "0 run-overs" — the feature looking
 broken because the harness moved the subject.
 
+**"Deterministic" was a statement about the staging, and the crowd is not staged.** On 2026-10-20 the
+identity check failed again — "ran over #35, staged #68" — with every geometry check passing: 2.822 m
+along, 0.01 m to the side. The arm's own lines named it: one damage impact across the drive, and all
+seven run-over frames REPEATS of a body "you knocked down yourself". A live pedestrian had walked into
+the 14 m run-up three seconds in. The run-up was chosen clear of WALLS, and walls are the one thing in
+the corridor that cannot move. It is now chosen with the fewest living pedestrians within 6.5 m of it
+(the contact window plus a walker's reach over the drive), and a second check — the car knocked
+nobody down on the way, read off `pedKnockdowns`, which the staged kill does not touch — names an
+intrusion when there is one. **Clear a staged subject's corridor of what MOVES, not only of what is
+placed**, which is this file's "a surface that moves takes everything positioned against it" from
+the harness's side.
+
 ## A surface that moves takes everything positioned against it, including what was never "placed"
 
 #121 was filed as "the crowd cannot feel parked cars". The crowd was on the wrong side of the kerb.
@@ -4696,6 +4708,16 @@ Two rules:
   re-measured rather than asserted — the playtester's own circle protocol now arrests **3 of 3 at
   every speed from 2.8 to 19.9 km/h** where they measured 0 of 3 from 4.8 km/h up, with the drift
   column printed beside it to say the circle held rather than the car escaping.
+
+**And the tool that reads the convention rotted under it.** `tools/backlog-audit.mjs` knows a
+preserved record by its marker's words — a LIST, "original record / kept verbatim / the round that
+measured" — and the file's markers grew past it: `#### #139 (as filed)` and `#### THE BLOCKED RECORD`
+read as nothing, so two closed entries counted as open. Adding the two phrases then hid THREE live
+FIXED entries, because a marker over a record with no heading kept its flag up until the next `### #`,
+which is the next live entry; the old phrase list had been hiding #128 FIXED the same way all along. A
+marker preserves the heading directly under it or nothing now, and a heading with a resolved word that
+still says OPEN or "remain" is a partial entry and counts as open. Same shape as "a rule beats a
+list", arriving in the instrument for the rule this section writes down.
 
 ### And the field the naming rule was written about still had the wrong name
 
