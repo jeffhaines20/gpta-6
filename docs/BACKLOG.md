@@ -5196,6 +5196,99 @@ same line. The fixture's own comment says "what a real roadway/pavement twin doe
 over the road. The fix is the yaw (`atan2(nz * side, -nx * side)`), and it moves every lamp light
 2.2 m toward the carriageway, which is a night-look change for a capture and a blind review.
 
+### #136 FIXED FOR EVERYTHING A LEVEL CAN ORDER — the globe draws at 1/30 of its light's flux; window glass is not a level's to fix
+**The tie.** `src/streetfurniture.js` holds the lamp's light as `LAMP_CANDELA` 900, `LAMP_LIGHT_COLOR` 0xffc98a
+and `LAMP_REACH` 46 beside `LAMP_HEAD_Y`, and `district/main.js` reads them where it typed them. The globe's
+luminance is derived from them: a Lambertian emitter of area S radiates pi L S lumens and an isotropic point
+4 pi I, so the globe that radiates its own light's flux has L = I / (S/4), S/4 being the mean projected area
+(Cauchy). Off the head mesh's own buffer the outer globe is 20 facets, S = 0.592 m2, S/4 = 0.1480 m2 — 75% of
+pi 0.25^2 — and I is 900 cd times the colour's luminance 0.6487 that three multiplies it by:
+
+    physical globe     583.8 cd / 0.1480 m2 = 3,944.7 nits
+    the old globe      2.4 x luma(0xffd9a0) = 1.762 nits      1/2,239 of it
+
+(1/2,600 as filed took the candela without its colour and the sphere without its facets.) `LAMP_GLOBE_LEVEL`
+is the fraction of the physical luminance the globe draws at; `setLit` derives `emissiveIntensity` from it
+and `setGlobeLevel` is a tool's lever, which reads back what the material holds.
+
+**In the district, at the old level** (`tools/globe-order.mjs`, new): both hero cameras at night, traffic and
+crowd off, every pixel's lamp light read as the difference of two HDR reads with the LightPool's ten lights at
+full and at intensity 0 (kept visible, so nothing recompiles), over the globe's luminance read off the
+material. A ratio of two radiances in one frame, so no exposure enters it, and linear in the level. The
+globe's own pixels read back 1.762 to four figures, every globe in frame.
+
+                                       corridor          fivepoints
+    pixels a lamp lit over its globe     7,784             8,730       (x10: 52 and 542)
+    window glass, a mirror               x334.6            x2,259      the reviews' "light with no fixture"
+                                                            x380.4      the red parked car's windscreen
+    car paint                            x18.5             x30.1       the white parked car's roof
+    the lamp's own inner globe           x6.95                         lit from 3.2 m by its twin
+    oak leaves, awnings, walls           x5.1, x1.5        x2.5, x1.6
+
+Classified by looking at each component's box in the frame: the probe cannot tell glass by itself. At dusk
+the same ratios to a few hundredths (the lamp light does not depend on the hour), from noisier reads.
+
+**On a page** (`tools/globe-level.html`, new, the gate): the module's own lamp, its light through the real
+LightPool and the real PostStack at the night bars, and the surfaces the reviews named at the distances the
+district has them: the facade atlas' WALL cell (roughness 0.220, F0 0.18, `src/materials.js` GLAZING's
+table) 5.03 m behind the light, as building 18 is; its GLASS cell; a pilaster at 2.2 m; a palm frond at
+#139's nearest crown, 1.62 m; the lamp's own inner globe; the road. Lamp light over the globe, night:
+
+    level      globe nits   wall lobe  pilaster   frond   inner   glass    glare / globe radius
+                            15 m cam                      globe   58 m     15 m  29 m  58 m  100 m
+    1/2,239        1.76      x57.75    x15.75    x5.88    x7.57   x238      -     -     -     -
+    1/150         26.3       x3.87     x1.06     x0.39    x0.51   x16.0    1.2   0.8    -     -
+    1/50          78.9       x1.29     x0.35     x0.13    x0.17   x5.32    1.7   2.1    -     -
+    1/30         131.5       x0.77     x0.21     x0.08    x0.10   x3.19    1.9   2.5   2.7    -
+    1/20         197.2       x0.52     x0.14     x0.05    x0.07   x2.13    2.0   2.7   3.5    -
+    1/9.4        420.1       x0.24     x0.07     x0.02    x0.03   x1.00    2.2   3.1   4.5   5.0
+    1             3944.7     x0.03     x0.01     x0.00    x0.00   x0.11    2.6   3.9   6.5   9.4
+
+"Glare / globe radius" is the radius of the disc the globe's OWN glare takes to white (>= 1 exposed, black to
+display 0.80), read off the bloom target with the light off so nothing lit is in it, the twin globe's half
+excluded, over the globe's projected radius at that camera. The displayed globe at night: 0.72-0.83 of white
+at the old level, 0.999-1.000 from 1/50 up — "no globe clips" was one of the reviews' findings.
+
+**The level is 1/30, 131.5 nits, x74.6 the old globe.** The binding case of everything a level CAN order is
+the wall cell's lobe seen from 15 m down the street, which needs 1/38.8; 1/30 orders it with 29% to spare and
+every other page surface and every non-glass component of both hero frames (worst x0.40, the white car) with
+more. Its price is a white disc 1.9-2.7 globe radii wide at 15-58 m and none at 100 m; the physical globe's is
+6.5 at 58 m and 9.4 at 100 m — a 1.9 px globe 100 m off is an 18 px white ball, on every one of 1,228 lamps.
+
+**Not fixed, and not a level's to fix: window glass.** Glass reflects the LIGHT, which is physical whatever the
+globe draws at, and a point light has no size, so three's GGX lobe on glazing roughness 0.03-0.13
+concentrates it: the page's glass needs 1/9.4 and fivepoints' pane 1.01 of the PHYSICAL globe. At 1/30 the
+window reflections are still brighter than their globes in the HDR target; both are past the display's white
+at night, and how the two read side by side is for the captures and the review, not measured here. The lever
+is the light's own size: widen each pool light's lobe
+by the globe it stands for (Karis' sphere-light normalisation, alpha' = alpha + R / 2d with R = sqrt(I / (pi
+L)) from the globe's own luminance), which orders a mirror's reflection at F x the globe by construction at
+any level. It is a patch to every lit material's punctual-light term and is not taken here.
+
+**Not fixed: three lamps hang their globe against a wall.** Every lamp light against every building footprint
+tall enough to reach 7.7 m: lamps 571, 197 and 198 stand 0.224, 0.254 and 0.484 m from a wall (571's globe,
+r 0.25, intersects it); the next is 0.95 m, the p1 2.0 m, the p50 18.9 m. A wall 0.22 m from a 900 cd light
+is lit to about 1,300 nits by the light alone, ten times the shipped globe. It is a placer change, #139's shape
+for walls rather than crowns.
+
+**At dusk** the globe is 0.068 exposed (1/1,947), a dim warm dot against the sky where the old one was 0.0009,
+black. One physical luminance cannot also be bright against a dusk sky without being 30 times further over
+white at night; holding the globe at a fixed EXPOSED level (carbody.js's lampEmissive) would make dusk a
+second term, and it was not taken.
+
+**Gated.** `globe-level` (12 checks, about 27 s): the page's lamp is the module's and so is its light; the
+module's luminance is the page's own derivation off the buffer; the instrument reads the material back to 1%;
+KNOWN-BAD live, the old globe outshone by the wall lobe, the pilaster, the frond and its own twin; THE FIX at
+every camera; the shipped level within x1.0-1.5 of the minimum read off the old arm; the halo under x3.0 at
+every camera with the physical globe's measured over it as a second known-bad; the glass named as the one
+surface still over, at a level the bound refuses; and the globe reaching white at night. Its selftest feeds
+a real report and eleven known-bads. `globe-order --selftest` (11) holds the arithmetic both tools and
+boot-check share. `boot-check` +2: every emitter the live pool holds carries the module's light, one per lamp,
+and the globe the page draws is the module's level of the physical luminance recomputed off the buffer.
+`mutation-sweep` rows `globe-level-old`, `globe-level-physical`, `globe-area-typed`,
+`globe-light-uncoloured`, `globe-setlit-literal`, and `lamp-candela-typed` [browser].
+
+#### #136 (as filed)
 ### #136 OPEN — a lamp's reflection outshines the lamp: the globe emits about 1/2,600 of what its light implies
 The review's "a light with no fixture" — a warm disc on the corridor's right facade at second-floor
 height at night, nothing mounted there at noon, 12 px apart between the two builds — is the specular

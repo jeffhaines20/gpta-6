@@ -1,0 +1,319 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>globe-level</title>
+<!--
+  BACKLOG #136: A STREET LAMP WAS DIMMER THAN WHAT IT LIT.
+
+  The LightPool hangs a 900 cd PointLight at each outer globe and the globe drew at 1.76 nits, about
+  1/2,239 of the luminance that radiates that light's flux (src/streetfurniture.js LAMP_CANDELA). So
+  the light lit a facade's specular lobe, a pilaster, palm fronds and the lamp's own pavement-side
+  globe brighter than the globe hanging in front of them, and three blind reviews filed the result as
+  "a light with no fixture" and "lamps no brighter than what they light".
+
+  This page is the smallest scene that has it, through the REAL module, the REAL LightPool and the REAL
+  PostStack at the shipped night (and dusk) bars:
+
+      the lamp       StreetFurniture.addLamp, its own pole, bracket and both globes, setLit(true)
+      the light      LightPool.addEmitter(LAMP_CANDELA, LAMP_LIGHT_COLOR, LAMP_REACH) at the head
+      facade         a wall 5.03 m behind the light, the facade atlas' WALL cell (roughness 0.220,
+                     metalness 0.302, F0 0.18 — src/materials.js GLAZING's table), which is where
+                     the corridor's disc is: building 18 stands 5.03 m from lamp 483's light
+      glass          a window band in that wall, the atlas' GLASS cell (0.129, 0.549, F0 0.06)
+      frond          a palm-frond card, its centre FROND_D from the light: #139's census put the
+                     nearest crown 1.62 m outside a lamp head
+      pilaster       a cream column whose near face is PILASTER_D from the light
+      road           the ground under it
+
+  Every surface but the globes is lit by the lamp alone (no sun, no sky, no ambient), so what a
+  surface sends is what the lamp's light makes of it. Each arm renders twice, the pool ON and the
+  pool's light at intensity 0, and the difference is the lamp's light; a flat-colour ID pass makes the
+  masks, eroded by one pixel because the scene pass is multisampled and the mask is not.
+
+  ARMS: the globe at each of `levels` (fractions of the physical luminance, ?levels=), from ONE page
+  load, at each hour in ?hours= and at each camera in CAMS. The statistics are ratios of two
+  radiances in one HDR frame, so neither the exposure nor the tonemap enters them; the bloom footprint
+  is read off the bloom target itself, in exposed units, about the globe's projected centre.
+-->
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+<script type="module">
+import * as THREE from '../vendor/three.module.min.js';
+import { PostStack } from '../src/post.js';
+import { PRESETS } from '../src/daynight.js';
+import { LightPool } from '../src/lightpool.js';
+import { StreetFurniture, LAMP_CANDELA, LAMP_LIGHT_COLOR, LAMP_REACH, LAMP_GLOBE_LEVEL, LAMP_ARM, LAMP_HEAD_Y }
+  from '../src/streetfurniture.js';
+import { halfToFloat } from './bloom-math.mjs';
+import { luma, triangleArea, physicalLuminance, radialProfile, footprint, footprintArea } from './globe-math.mjs';
+
+const W = 1600, H = 900;
+const qs = new URLSearchParams(location.search);
+const OLD_INTENSITY = 2.4;          // the emissiveIntensity setLit wrote before #136
+try {
+  const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(W, H);
+  document.body.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0, 0, 0);
+  // The corridor hero's lens: fov 55 at 1600 x 900, so a globe and its bloom cover the pixels they
+  // cover in the frames the reviews measured.
+  const camera = new THREE.PerspectiveCamera(55, W / H, 0.1, 400);
+
+  // ---- THE LAMP: the module's own fixture, its outer globe at the origin.
+  const fur = new StreetFurniture(scene, { max: 4 });
+  const head = fur.addLamp(0, -LAMP_ARM, -Math.PI / 2);
+  fur.commit();
+  fur.setLit(true);
+  const pool = new LightPool(scene, { size: 2, maxDistance: 400 });
+  pool.addEmitter(head.x, head.y, head.z, LAMP_CANDELA, LAMP_LIGHT_COLOR, LAMP_REACH);
+
+  // ---- THE SURFACES. Distances are from the light, which is at (0, LAMP_HEAD_Y, 0).
+  const FACADE_D = 5.03, FROND_D = Number(qs.get('frond') ?? 1.62), PILASTER_D = Number(qs.get('pilaster') ?? 2.2);
+  const lin = (v) => new THREE.Color().setRGB(v, v, v, THREE.LinearSRGBColorSpace);
+  const mats = {
+    // The facade atlas' wall cell: F0 0.18 at metalness 0.302 means a colour of 0.504.
+    facade: new THREE.MeshStandardMaterial({ color: lin(0.504), roughness: 0.220, metalness: 0.302 }),
+    // Its glass cell: F0 0.06 at metalness 0.549 means a colour of 0.076.
+    glass: new THREE.MeshStandardMaterial({ color: lin(0.076), roughness: 0.129, metalness: 0.549 }),
+    frond: new THREE.MeshStandardMaterial({ color: new THREE.Color(0x4f6b2a), roughness: 0.75, metalness: 0,
+      side: THREE.DoubleSide }),
+    pilaster: new THREE.MeshStandardMaterial({ color: new THREE.Color(0xe6dccb), roughness: 0.9, metalness: 0 }),
+    road: new THREE.MeshStandardMaterial({ color: new THREE.Color(0x3a3a3a), roughness: 0.92, metalness: 0 }),
+  };
+  const ids = [];
+  const add = (name, geo, pos, rotY = 0, rotX = 0) => {
+    const m = new THREE.Mesh(geo, mats[name]);
+    m.position.set(...pos); m.rotation.y = rotY; m.rotation.x = rotX;
+    m.name = name;
+    scene.add(m); ids.push([m, name]);
+    return m;
+  };
+  add('facade', new THREE.PlaneGeometry(80, 18), [10, 9, -FACADE_D]);
+  // A run of windows in the wall, proud of it by a centimetre so the mask can tell them apart, placed
+  // where the far camera's mirror point lands (x 17.5, y 6.0), so one camera reads the glass at its
+  // peak and the other two read the wall cell at theirs.
+  add('glass', new THREE.PlaneGeometry(12, 2.8), [18, 6.0, -FACADE_D + 0.01]);
+  // The frond: a card facing the light, BEYOND it from every camera, so the face the light reaches is the
+  // face the camera sees (the first version put it on the camera's side and every camera read its back).
+  {
+    const dir = new THREE.Vector3(-0.6, -0.3, -0.74).normalize();
+    const c = dir.clone().multiplyScalar(FROND_D).add(new THREE.Vector3(0, LAMP_HEAD_Y, 0));
+    const f = add('frond', new THREE.PlaneGeometry(1.2, 0.5), [c.x, c.y, c.z]);
+    f.lookAt(0, LAMP_HEAD_Y, 0);
+  }
+  // The pilaster: a 0.5 m square column against the facade, its near face PILASTER_D from the light.
+  add('pilaster', new THREE.BoxGeometry(0.5, 12, 0.5), [-PILASTER_D - 0.25, 6, -0.6]);
+  add('road', new THREE.PlaneGeometry(200, 200), [0, 0, 0], 0, -Math.PI / 2);
+  // The pole and the bracket are one ID (the mask has seven), and the head mesh is both globes: they are
+  // told apart below by which projected centre a pixel is nearer.
+  for (const [k, m] of [['fixture', fur.poles], ['fixture', fur.arms], ['globe', fur.heads]]) ids.push([m, k]);
+
+  const post = new PostStack(renderer, scene, camera);
+  post.setSize(W, H);
+  const q = post.params;
+  q.aoEnabled = false;      // the AO multiplies lit light in the composite; the ratios are taken before it
+  q.fogDensity = 0;
+
+  // The cameras: the corridor's angle on a facade, down the street, at four distances from the globe —
+  // the hero frames hold their nearest globes at 16-22 m and the rest out past 100 m, and a far globe is
+  // where a bloom's blown core is largest against the globe it belongs to.
+  //
+  // The gate renders the first three; far100 is a sweep's (?cams=...), because at the shipped level its
+  // globe has no white disc at all and its ratios bind nothing, and every arm costs two 1600 x 900 renders
+  // on every row of mutation-sweep's table.
+  const ALL_CAMS = [
+    { name: 'near15', pos: [14, 2.4, 4.5], at: [0, 7.0, -1] },
+    { name: 'street29', pos: [28, 2.4, 4], at: [0, 6.6, -1.5] },
+    { name: 'far58', pos: [56, 2.4, 6], at: [0, 6.0, -2] },
+    { name: 'far100', pos: [98, 2.4, 7], at: [0, 6.0, -2] },
+  ];
+  const CAMS = ALL_CAMS.filter((c) => (qs.get('cams') ? qs.get('cams').split(',').includes(c.name) : c.name !== 'far100'));
+
+  const meanArea = triangleArea(fur.heads.geometry.attributes.position.array, (x) => x > 0);
+  const lc = new THREE.Color(LAMP_LIGHT_COLOR);
+  const Lphys = physicalLuminance(LAMP_CANDELA, [lc.r, lc.g, lc.b], meanArea.area / 4);
+  const lumE = luma(fur.headMat.emissive.r, fur.headMat.emissive.g, fur.headMat.emissive.b);
+  const shipped = fur.globeReport();
+  const levels = (qs.get('levels') ?? '').split(',').filter(Boolean).map(Number);
+  const LEVELS = levels.length ? levels : [OLD_INTENSITY * lumE / Lphys, LAMP_GLOBE_LEVEL, 1];
+  const HOURS = (qs.get('hours') ?? 'night').split(',');
+
+  // Every half-float bit pattern decoded once: a readback is then a table lookup per channel, which is
+  // what keeps sixteen arms of four 1600 x 900 reads inside a minute on this rasteriser.
+  const HALF = new Float32Array(65536);
+  for (let v = 0; v < 65536; v++) HALF[v] = halfToFloat(v);
+  const readHalf = (rt) => {
+    const w = rt.width, h = rt.height, raw = new Uint16Array(w * h * 4);
+    renderer.readRenderTargetPixels(rt, 0, 0, w, h, raw);
+    const f = new Float32Array(w * h * 4);
+    for (let i = 0; i < f.length; i++) f[i] = HALF[raw[i]];
+    return { w, h, f };
+  };
+  const gl = renderer.getContext();
+  const grab = () => {
+    const px = new Uint8Array(W * H * 4);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    return px;           // bottom-up rows, as every readback here
+  };
+  const srgbLin = new Float64Array(256);
+  for (let i = 0; i < 256; i++) { const c = i / 255; srgbLin[i] = c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }
+
+  // Per camera, once: the mask pass and the globes' projections.
+  const names = [...new Set(ids.map(([, n]) => n))];
+  const instance = new THREE.Matrix4().compose(new THREE.Vector3(0, 0, -LAMP_ARM),
+    new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2), new THREE.Vector3(1, 1, 1));
+  const inner = triangleArea(fur.heads.geometry.attributes.position.array, (x) => x < 0);
+  const camState = (cam) => {
+    camera.position.set(...cam.pos);
+    camera.lookAt(...cam.at);
+    camera.updateMatrixWorld(true);
+    pool.update(camera.position, 1, camera);
+    const light = pool.lights[pool.assigned.findIndex((a) => a === 0)];
+    // THE MASK PASS, flat colours drawn straight to the canvas with no MSAA.
+    const saved = ids.map(([m]) => m.material);
+    ids.forEach(([m, n]) => {
+      const k = names.indexOf(n) + 1;
+      m.material = new THREE.MeshBasicMaterial({ color: new THREE.Color((k & 1) ? 1 : 0, (k & 2) ? 1 : 0, (k & 4) ? 1 : 0),
+        side: THREE.DoubleSide });
+    });
+    post.enabled = false;
+    post.render();
+    const maskPx = grab();
+    ids.forEach(([m], i) => { m.material = saved[i]; });
+    post.enabled = true;
+    const raw = new Int8Array(W * H).fill(-1);
+    for (let i = 0; i < W * H; i++) {
+      const k = (maskPx[i * 4] > 127 ? 1 : 0) | (maskPx[i * 4 + 1] > 127 ? 2 : 0) | (maskPx[i * 4 + 2] > 127 ? 4 : 0);
+      raw[i] = k - 1;
+    }
+    const mask = new Int8Array(W * H).fill(-1);
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      const i = y * W + x, k = raw[i];
+      if (k >= 0 && raw[i - 1] === k && raw[i + 1] === k && raw[i - W] === k && raw[i + W] === k) mask[i] = k;
+    }
+    // The outer globe's projected centre and radius off the head mesh's own buffer, and the twin's centre.
+    const gc = new THREE.Vector3(...meanArea.centre).applyMatrix4(instance);
+    const ndc = gc.clone().project(camera);
+    const sx = (ndc.x + 1) / 2 * W, sy = (1 - ndc.y) / 2 * H;
+    const depth = -gc.clone().applyMatrix4(camera.matrixWorldInverse).z;
+    const rpx = Math.sqrt(meanArea.area / 4 / Math.PI) * (H / 2) / (Math.tan(camera.fov * Math.PI / 360) * depth);
+    const ic = new THREE.Vector3(...inner.centre).applyMatrix4(instance);
+    const indc = ic.clone().project(camera);
+    const isx = (indc.x + 1) / 2 * W, isy = (1 - indc.y) / 2 * H;
+    return { cam, light, mask, sx, sy, depth, rpx, isx, isy, globeWorld: gc.toArray() };
+  };
+  const states = CAMS.map(camState);
+
+  const runArm = (st, hour, level) => {
+    const { cam, light, mask, sx, sy, depth, rpx, isx, isy } = st;
+    camera.position.set(...cam.pos);
+    camera.lookAt(...cam.at);
+    camera.updateMatrixWorld(true);
+    const pr = PRESETS[hour].post;
+    q.exposure = PRESETS[hour].exposure;
+    q.bloomThreshold = pr.bloomThreshold;
+    q.bloomThresholdLit = pr.bloomThresholdLit ?? 0;
+    q.bloomStrength = pr.bloomStrength;
+    const rep = fur.setGlobeLevel(level);
+    const Lemit = lumE * fur.headMat.emissiveIntensity;
+    light.intensity = LAMP_CANDELA;
+    post.render();
+    const on = readHalf(post.hdr);
+    const disp = grab();
+    light.intensity = 0;
+    post.render();
+    const off = readHalf(post.hdr);
+    // The globe's OWN glare: with its light off nothing in the scene is lit, so everything the bloom target
+    // holds is the globes'. Read with the light on, the facade's lobe — lit light past the lit bar, which
+    // blooms — sat inside the profile and read as the globe's halo.
+    const bloomRT = readHalf(post.blurB);
+    light.intensity = LAMP_CANDELA;
+
+    const per = {};
+    const sub = [...names.filter((n) => n !== 'globe'), 'globe', 'innerGlobe'];
+    for (const n of sub) per[n] = { px: 0, litMax: 0, litSum: 0, emit: 0, nEmit: 0 };
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;             // bottom-up, like the readbacks; the mask was grabbed the same way
+      const k = mask[i];
+      if (k < 0) continue;
+      let n = names[k];
+      if (n === 'globe') {
+        const ty = H - 1 - y;
+        if (Math.hypot(x + 0.5 - isx, ty + 0.5 - isy) < Math.hypot(x + 0.5 - sx, ty + 0.5 - sy)) n = 'innerGlobe';
+      }
+      const s = per[n];
+      const o = i * 4;
+      const lOn = luma(on.f[o], on.f[o + 1], on.f[o + 2]);
+      const lit = Math.max(0, lOn - luma(off.f[o], off.f[o + 1], off.f[o + 2]));
+      s.px++;
+      s.litSum += lit;
+      if (lit > s.litMax) s.litMax = lit;
+      const tag = -on.f[o + 3] - 1;
+      if (tag >= 0 && tag <= 1) { s.emit += tag * lOn; s.nEmit++; }
+    }
+    const surfaces = {};
+    for (const n of sub) {
+      const s = per[n];
+      surfaces[n] = { px: s.px, litMax: s.litMax, litMean: s.px ? s.litSum / s.px : null,
+        emitMean: s.nEmit ? s.emit / s.nEmit : null, ratioMax: s.litMax / Lemit };
+    }
+    // The bloom the composite adds, in exposed luminance (nearest half-resolution texel), and its area.
+    const bw = bloomRT.w, bh = bloomRT.h;
+    const plane = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const k = (Math.min(bh - 1, y >> 1) * bw + Math.min(bw - 1, x >> 1)) * 4;
+      plane[y * W + x] = luma(bloomRT.f[k], bloomRT.f[k + 1], bloomRT.f[k + 2]) * q.bloomStrength * q.exposure;
+    }
+    // The displayed globe: the brightest canvas pixel inside its projected disc, in display-linear.
+    let gPeak = 0;
+    for (let y = Math.floor(sy - rpx); y <= Math.ceil(sy + rpx); y++) for (let x = Math.floor(sx - rpx); x <= Math.ceil(sx + rpx); x++) {
+      if (Math.hypot(x + 0.5 - sx, y + 0.5 - sy) > rpx * 0.7) continue;
+      const o = ((H - 1 - y) * W + x) * 4;
+      gPeak = Math.max(gPeak, luma(srgbLin[disp[o]], srgbLin[disp[o + 1]], srgbLin[disp[o + 2]]));
+    }
+    const glare = footprintArea(plane, W, H, sx, sy, 90, [1, 0.1, 0.01], [isx, isy]);
+    return { cam: cam.name, hour, level, report: rep, Lemit, exposure: q.exposure,
+      bloom: { threshold: q.bloomThreshold, thresholdLit: q.bloomThresholdLit, strength: q.bloomStrength },
+      globeScreen: { sx, sy, depth, rpx }, surfaces,
+      worstRatio: Math.max(...ORDERED.map((n) => (surfaces[n] && surfaces[n].px ? surfaces[n].ratioMax : 0))),
+      glare: glare.map((v) => +v.toFixed(2)), glareOverGlobe: glare.map((v) => +(v / rpx).toFixed(3)),
+      bloomPeak: radialProfile(plane, W, H, sx, sy, 0)[0], displayedGlobe: { peak: gPeak } };
+  };
+
+  // What a level CAN order: every lit surface but the mirror. The glazing is measured beside them and is
+  // the subject of its own arm.
+  const ORDERED = ['facade', 'frond', 'pilaster', 'innerGlobe', 'road', 'fixture'];
+  const runs = [];
+  const oldLevel = OLD_INTENSITY * lumE / Lphys;
+  let minLevel = null, glassLevel = null;
+  if (levels.length) {
+    for (const st of states) for (const hour of HOURS) for (const level of levels) runs.push(runArm(st, hour, level));
+  } else {
+    // THE GATE'S ARMS. The old globe first, at every camera; the level that would just order everything a
+    // level can order, and the one that would order the glass, are then READ OFF it — the ratio is linear
+    // in the level — and the glass level is rendered as its own arm, so its price is measured rather
+    // than argued. Then the shipped level and the physical one.
+    const old = states.map((st) => runArm(st, 'night', oldLevel));
+    runs.push(...old);
+    minLevel = oldLevel * Math.max(...old.map((r) => r.worstRatio));
+    glassLevel = oldLevel * Math.max(...old.map((r) => (r.surfaces.glass && r.surfaces.glass.px ? r.surfaces.glass.ratioMax : 0)));
+    for (const level of [LAMP_GLOBE_LEVEL, glassLevel, 1]) for (const st of states) runs.push(runArm(st, 'night', level));
+  }
+  fur.setGlobeLevel(LAMP_GLOBE_LEVEL);
+  window.__globeLevel = {
+    size: { w: W, h: H },
+    module: { candela: LAMP_CANDELA, color: LAMP_LIGHT_COLOR, reach: LAMP_REACH, level: LAMP_GLOBE_LEVEL, shipped },
+    buffer: { area: meanArea.area, meanArea: meanArea.area / 4, triangles: meanArea.triangles, radius: meanArea.radius,
+      centre: meanArea.centre },
+    emitter: { x: head.x, y: head.y, z: head.z, candela: pool.emitters[0].candela, color: pool.emitters[0].color,
+      distance: pool.emitters[0].distance },
+    Lphys, lumE, oldLevel, minLevel, glassLevel, levels: LEVELS, ordered: ORDERED,
+    globeWorld: states[0] ? states[0].globeWorld : null,
+    presets: Object.fromEntries(HOURS.map((h) => [h, { exposure: PRESETS[h].exposure, ...PRESETS[h].post }])),
+    runs,
+  };
+} catch (e) {
+  window.__globeLevel = { error: String(e && e.stack || e) };
+}
+</script>

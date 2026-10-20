@@ -15,7 +15,7 @@ import { StreamingWorld } from '../src/streaming.js';
 import { TrafficStub } from '../src/traffic.js';
 import { Pedestrians } from '../src/pedestrians.js';
 import { PursuitUnits, arrestSeconds } from '../src/pursuit.js';
-import { StreetFurniture, LAMP_POOL } from '../src/streetfurniture.js';
+import { StreetFurniture, LAMP_POOL, LAMP_CANDELA, LAMP_LIGHT_COLOR, LAMP_REACH } from '../src/streetfurniture.js';
 import { LightPool } from '../src/lightpool.js';
 import { Player } from '../src/player.js';
 import { Character } from '../src/character.js';
@@ -271,7 +271,9 @@ const lightPool = new LightPool(scene, { size: 10, maxDistance: 130 });
   // crowd and every offline gate stand the same posts this page does; it is the loop that was
   // here, with each post moved behind the kerb src/kerb.js draws.
   const lamps = furniture.placeStreetLamps(district, { kerbFace });
-  for (const head of lamps.heads) lightPool.addEmitter(head.x, head.y, head.z, 900, 0xffc98a, 46);
+  // #136: the light is the module's, so the globe it derives its luminance from and the light the
+  // pool places are one definition (src/streetfurniture.js LAMP_CANDELA).
+  for (const head of lamps.heads) lightPool.addEmitter(head.x, head.y, head.z, LAMP_CANDELA, LAMP_LIGHT_COLOR, LAMP_REACH);
   furniture.commit();
   console.log(`placed ${lamps.placed} street lamps of ${lamps.planned} stations: ${lamps.behind} moved behind `
     + `the kerb, ${lamps.redundant} on a side already lit, ${lamps.dropped + lamps.refused} with no room, `
