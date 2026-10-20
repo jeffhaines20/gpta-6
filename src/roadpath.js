@@ -715,7 +715,7 @@ export class RoadGraph {
    * blockers) vertex 719's 125 + 35 degree hairpin came out as one 147-degree vertex, and the
    * follower — which had already spent 183 of its 236.5 s at that hairpin as shipped — never left it.
    * The fix for that is in the follower, where the defect was: see followPath's "a cusp ahead is
-   * driven to, not reversed from", after which the same route takes 85.0 s.
+   * driven to, not reversed from", after which the same route takes 81.1 s.
    *
    * WHAT IT ALL CAME TO, with the curvature-window fix (see windowTurn) and FILLET_R, over #61's
    * 194 seeded legs — the page's walls, furniture and parked pool solid — and one lap of the tour:
