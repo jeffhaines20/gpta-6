@@ -21,8 +21,14 @@ import fs from 'node:fs';
 const SELFTEST = process.argv.includes('--selftest');
 const IS_MAIN = process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop());
 
-/** A `#### ` line that announces a preserved copy of an older entry. */
-const PRESERVED = /^#### .*(original record|kept verbatim|the round that measured)/i;
+/**
+ * A `#### ` line that announces a preserved copy of an older entry. A LIST of the phrases the file
+ * uses, and the file's phrasing grew past it: `#### #139 (as filed)` and `#### THE BLOCKED RECORD`
+ * (#64) were read as nothing, so their verbatim records -- headed OPEN and STILL BLOCKED, as filed --
+ * counted as two of eleven open entries where both were closed. "(as filed)" on the MARKER is the
+ * form 2026-10-19's entries use; the record under it keeps its original heading word for word.
+ */
+const PRESERVED = /^#### .*(original record|kept verbatim|the round that measured|\(as filed\)|blocked record)/i;
 /** A status word in a live heading. `(original record)` is self-labelling and counts too. */
 const RESOLVED = /FIXED|CLOSED|MEASURED|REFUSED|PRICED|SHIPPED|NARROWED|working as designed|\((the )?original record\)|\(as filed\)|\(the investigation that got there\)/i;
 
@@ -34,7 +40,14 @@ export function audit(text) {
     // A new top-level section ends whatever preserved block we were in.
     if (L.startsWith('## ')) { preserved = false; return; }
     const m = /^### (#\d+)\b(.*)/.exec(L);
-    if (!m) return;
+    /**
+     * A MARKER PRESERVES THE HEADING DIRECTLY UNDER IT, OR NOTHING. Some records keep their heading
+     * (`#### #139 (as filed)` then `### #139 OPEN — ...`) and some are body text only (`#### #133
+     * (as filed)` then "From the driver's re-review..."). For the second shape the flag used to
+     * stay up until the next `### #`, which is the next LIVE entry: teaching this list "(as filed)"
+     * first skipped #131, #134 and #135, all FIXED, along with the two records it was meant to find.
+     */
+    if (!m) { if (preserved && L.trim()) preserved = false; return; }
     /**
      * A MARKER PRESERVES ONE RECORD, NOT THE REST OF THE SECTION. The first version left
      * `preserved` on until the next `####` or `##` line, so every live entry written after a
@@ -97,6 +110,23 @@ if (SELFTEST && IS_MAIN) {
     naive.length === 6 && naiveOpen.length === 4,
     `${naive.length} headings / ${naiveOpen.length} open, against this tool's `
     + `${a.live.length} / ${a.open.length}`);
+  /**
+   * THE MARKER FORMS THE FILE GREW INTO. `#### #N (as filed)` over a verbatim `### #N OPEN — ...`,
+   * and `#### THE BLOCKED RECORD` over a `### #N ... STILL BLOCKED`: both records must be skipped and
+   * the live entry after each must still count. The phrase list missed both until 2026-10-20.
+   */
+  const c = audit(['### #7 MEASURED — closed', '#### #7 (as filed)', '### #7 OPEN — as reported',
+    '### #8 FIXED — done', '#### THE BLOCKED RECORD', '### #8 STILL BLOCKED, on a decision',
+    '### #11 a live one after both'].join('\n'));
+  check('a `#### #N (as filed)` marker and a `#### THE BLOCKED RECORD` marker each preserve their record',
+    c.skipped === 2 && c.open.length === 1 && c.open[0].id === '#11',
+    `skipped ${c.skipped}, open ${c.open.map((h) => h.id).join(',') || 'none'}`);
+  /** And a marker whose record has NO heading preserves nothing: the entry after it is live. */
+  const d = audit(['#### #12 (as filed)', 'From the review, the record as body text only.', '',
+    '### #13 FIXED — the next live entry', '### #14 open'].join('\n'));
+  check('KNOWN-BAD: a marker over a record with no heading does not swallow the next live entry',
+    d.skipped === 0 && d.live.length === 2 && d.open.length === 1 && d.open[0].id === '#14',
+    `skipped ${d.skipped}, live ${d.live.map((h) => h.id).join(',')}`);
   /** A `## ` ends a preserved block, so a heading after one is live again. */
   const b = audit(['#### THE ORIGINAL RECORD', '### #9 old', '## New section', '### #10 new'].join('\n'));
   check('a new top-level section ends the preserved block',
