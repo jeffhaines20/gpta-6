@@ -4286,7 +4286,25 @@ The remaining three, as filed:
   no light change: 56 px along (12,340)-(439,430), 1-6 codes, so in motion it would shimmer. The
   sun's shadow box is #117's; the first question is what moved between the two captures.
 
-### #125 OPEN — what #119's reviewer found wrong in BOTH arms, cars first
+### #125 TWO OF FIVE FIXED, THREE OPEN — what #119's reviewer found wrong in BOTH arms, cars first
+**The side-on taillight: FIXED (0812a0e).** `overlayBand` lays the tail lens flat across the rear
+profile, so every lens triangle faced straight back. Off the buffers, 0.0 cm2 of tail lens faced either
+side on all three shells AND on the player's car, the lens stopping 6-10 cm inboard of the flank. Real
+tail lamps wrap the corner, and a US car carries a red rear side marker there (FMVSS 108).
+`tailWrap()` puts the lens's own height, 0.14 m of it, on each flank at the rear corner, on the same
+slot, so the night palette lights it: 173.6 cm2 facing each side on every build. The saloon's and
+wagon's flanks taper at the corner, so about 144 cm2 of their wrap also faces back. `car-detail` gates
+it off the buffers (every build and side at least 100 cm2; KNOWN-BADs for the rear-only lens and for
+the fleet wrapped without the player's car). Rows `tail-wrap-fleet-off` and `tail-wrap-player-off`,
+both caught by car-detail. +4 triangles a car. Not reviewed blind.
+
+**The polygonal wheels: FIXED (298290a)**, recorded here late: the fleet's and the parked cars' wheels
+are 12-gons, a wheel's flats 3.4% of its radius inside the circle where the 8-gon's were 7.6%, +160
+triangles a car (320 -> 480 of the wheels), gated by `car-shapes`' roundness check.
+
+Still open, as filed: the cartoon headlamps, the dark ring round the wheel arches, and the foliage.
+
+#### #125 (as filed)
 - No lit taillight on a side-on traffic car at night except the road spill: the tail lens does not
   wrap round the corner of the body, and the halo that stood in for it is gone (#119).
 - Polygonal wheels on the nearest cars: the corridor near-left car's front wheel is octagonal at about

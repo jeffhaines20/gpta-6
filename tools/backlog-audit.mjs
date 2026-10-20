@@ -32,6 +32,13 @@ const PRESERVED = /^#### .*(original record|kept verbatim|the round that measure
 /** A status word in a live heading. `(original record)` is self-labelling and counts too. */
 const RESOLVED = /FIXED|CLOSED|MEASURED|REFUSED|PRICED|SHIPPED|NARROWED|working as designed|\((the )?original record\)|\(as filed\)|\(the investigation that got there\)/i;
 
+/**
+ * A PARTIAL ENTRY. A heading that carries a resolved word AND says items are still open is open:
+ * "#124 PARTS 1 AND 2 FIXED — ...; two items remain" read as closed while two items stood, because
+ * one word of status settled it. On the 2026-10-20 file this flips exactly that one heading.
+ */
+const PARTIAL = /\bOPEN\b|\bremains?\b/i;
+
 export function audit(text) {
   const live = [];
   let preserved = false, skipped = 0;
@@ -56,7 +63,7 @@ export function audit(text) {
      * convention is one `### #N` record under each marker, so the marker is consumed by it.
      */
     if (preserved) { skipped++; preserved = false; return; }
-    live.push({ line: i + 1, id: m[1], rest: m[2].trim(), open: !RESOLVED.test(m[2]) });
+    live.push({ line: i + 1, id: m[1], rest: m[2].trim(), open: !RESOLVED.test(m[2]) || PARTIAL.test(m[2]) });
   });
   return { live, skipped, open: live.filter((h) => h.open) };
 }
@@ -121,6 +128,12 @@ if (SELFTEST && IS_MAIN) {
   check('a `#### #N (as filed)` marker and a `#### THE BLOCKED RECORD` marker each preserve their record',
     c.skipped === 2 && c.open.length === 1 && c.open[0].id === '#11',
     `skipped ${c.skipped}, open ${c.open.map((h) => h.id).join(',') || 'none'}`);
+  /** A heading that is resolved in part says so, and counts as open until the rest is. */
+  const e = audit(['### #20 PARTS 1 AND 2 FIXED — two items remain', '### #21 TWO OF FIVE FIXED, THREE OPEN — x',
+    '### #22 FIXED — done, nothing left'].join('\n'));
+  check('a partly fixed heading that says items remain or are open counts as open, a whole fix does not',
+    e.open.length === 2 && e.open[0].id === '#20' && e.open[1].id === '#21',
+    e.open.map((h) => h.id).join(',') || 'none');
   /** And a marker whose record has NO heading preserves nothing: the entry after it is live. */
   const d = audit(['#### #12 (as filed)', 'From the review, the record as body text only.', '',
     '### #13 FIXED — the next live entry', '### #14 open'].join('\n'));
@@ -141,7 +154,7 @@ if (!SELFTEST && IS_MAIN) {
   const path = new URL('../docs/BACKLOG.md', import.meta.url);
   const r = audit(fs.readFileSync(path, 'utf8'));
   console.log(`BACKLOG: ${r.live.length} live headings, ${r.skipped} preserved records skipped, `
-    + `${r.open.length} without a resolved status\n`);
+    + `${r.open.length} open (no resolved status, or resolved in part)\n`);
   for (const h of r.open) console.log(`  ${h.id.padEnd(6)} line ${String(h.line).padStart(5)}  ${h.rest.slice(0, 92)}`);
   if (!r.open.length) console.log('  (none)');
   /**
