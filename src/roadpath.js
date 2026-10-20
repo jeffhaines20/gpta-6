@@ -74,7 +74,7 @@ const OPENS_M = 2.0;
  * bracket buys 0.55 m against a measured need of 0.30-0.35, and nothing faster than 22 m/s is a
  * margin question: 24 m/s wrecks at every value in the table.
  */
-const LANE_MARGIN_M = 1.5;
+export const LANE_MARGIN_M = 1.5;
 
 /**
  * THE SHARPEST TURN `route` TAKES AT A JUNCTION, unless nothing gentler reaches the target (#131).
@@ -515,8 +515,12 @@ export class RoadGraph {
    * of a 14 m carriageway is a path down the middle of the oncoming traffic. Applied as
    * a per-point right-hand normal of the local direction rather than by offsetting each
    * edge, which keeps the corners continuous.
+   *
+   * `filletR` is the radius every corner is rounded to (#61, FILLET_R, and see `_shape`). Passing 0
+   * replays the pipeline exactly as it shipped before #61, which is what the gates' KNOWN-BADs do.
    */
-  path(x0, z0, x1, z1, { spacing = 5, offset = 0, smoothPasses = 2, heading = null, speed = 0, turnLimit } = {}) {
+  path(x0, z0, x1, z1, { spacing = 5, offset = 0, smoothPasses = 2, heading = null, speed = 0, turnLimit,
+    filletR = FILLET_R } = {}) {
     const a = this.nearestOn(x0, z0), b = this.nearestOn(x1, z1);
     if (!a || !b) return null;
     /**
@@ -651,22 +655,8 @@ export class RoadGraph {
       if (db < pb || (db === pb && dl < pl)) { pts = direct; bestBehind = db; }
     }
     pts = trimSpur(pts);
-    // Belt and braces: resample the whole polyline uniformly, so no joining mistake
-    // anywhere above can leave a gap a look-ahead could swallow.
-    pts = resample(pts, spacing);
-    // Round the junctions, then resample again so the spacing survives the smoothing.
-    if (smoothPasses > 0) pts = resample(smooth(pts, smoothPasses), spacing);
-    if (offset) {
-      const amt = laneOffsets(pts, offset, (i) => {
-        const ei = pts[i][2];
-        return ei >= 0 ? this.d.edges[ei] : null;
-      // The width rule's margin against a real wall too: LANE_MARGIN_M is the body radius plus the
-      // follower's measured error, and `w / 2 - LANE_MARGIN_M` already holds a drawn kerb at it. A
-      // fit at the bare 0.95 m radius cleared Main Street's east facade by 0.01 m at point 34 of
-      // the tour; at 1.2 the follower at 22 m/s still reached building 51 (see LANE_MARGIN_M).
-      }, (x, z) => this.clearAt(x, z, LANE_MARGIN_M), spacing);
-      pts = offsetRight(pts, offset, (i) => amt[i]);
-    }
+    const shaped = this._shape(pts, { spacing, offset, smoothPasses, closed: false, filletR });
+    pts = shaped.points;
     let len = 0;
     for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
     // `turnsBack`: the caller said the car is moving and EVERY route turns round — opens behind it, or
@@ -675,7 +665,133 @@ export class RoadGraph {
     return { points: pts, length: len, graphLength: best.length, edges: best.edges,
       start: a, end: b, endVertex: best.vertices[best.vertices.length - 1], turnsBack: moving && bestBehind,
       // #131: no route reached the target under TURN_LIMIT_RAD, so this one takes a hairpin.
-      hairpin: !!best.hairpin };
+      hairpin: !!best.hairpin, fillet: shaped.fillet };
+  }
+
+  /**
+   * THE ONE PIPELINE path() AND tour() SHARE (#61). They carried it as two copies of the same six
+   * lines, and a change to one of a pair and not the other is this repo's recurring shape of defect;
+   * so the corner rounding below went into one function that both call.
+   *
+   *   resample -> smooth -> resample -> FILLET THE CENTRELINE -> resample -> lane fit -> offset
+   *
+   * WHY THE FILLET IS HERE AND NOT ON THE LANE, which is the first thing #61 had to decide, because
+   * the offset moves a right turn's radius and a left turn's in opposite directions: the lane is on
+   * the RIGHT, so it is the inside of a right turn (a lane arc is the centreline's radius minus the
+   * offset) and the outside of a left one (plus the offset). Each placement was built and driven at
+   * a 9 m radius, before the curvature-window fix below, with the page's parked cars solid:
+   *
+   *     placement                        tour points      one lap of the tour,   39 seeded legs,
+   *                                      under R_min(0)   parked-car contacts    charged impacts
+   *     no fillet (as shipped)            36 of 816        188, all free            4
+   *     on the LANE, after the offset      8               94, 1 charged           12
+   *     on the CENTRELINE, lane inside    11              355, 2 charged           10
+   *     ... and every right turn held      7                0                       6
+   *
+   * The lane placement has ONE lever, the radius, and where the lane's arc is not clear it can only
+   * give up: it left #128's own corner (-143.3, -423.9) unrounded, R 0, because a 9 m arc tangent to
+   * that lane passes the building on the inside. On the centreline there are TWO levers: the lane fit
+   * can still pull the offset in where the lane is blocked, and on a right turn that only ever makes
+   * the radius LARGER — so the same corner rounds at full radius and the lane gives way to it.
+   *
+   * A RIGHT TURN IS DRIVEN ON THE CENTRELINE, A LEFT ONE AT THE NARROWER ROAD'S OFFSET
+   * (JUNCTION_TURN_RAD). With the lane inside, the arc cuts toward the right-hand parking lane, and
+   * the follower — braking into a corner it must crawl, its look-ahead of 2 + 0.7 v reaching onto the
+   * arc 13 m early — turns in by 0.6-1.1 m: the 355 contact steps above, on the inside of right turns.
+   * On the centreline the car passes those cars at about 2.3 m where the inside lane passed them at
+   * 0.6 (arithmetic off the parking plan's 11 m setback), and the contacts went to none. A left
+   * turn's lane is on its outside, so it keeps one, held across the arc so that no offset ramp runs
+   * through a turn: a ramp inward during a turn adds its own curvature, and was reading 6.4 m at
+   * corners between roads of different widths.
+   *
+   * AFTER THE SMOOTHING AND NOT BEFORE IT: Chaikin after a fillet shrinks the arc it is handed, by my
+   * arithmetic 0.17 m at 4 m spacing and 0.69 m at the HUD's 8 m — and measured, filleting first left
+   * 23 of the tour's points under R_min(crawl) where filleting after left 13. Coming after, the
+   * fillet sees a corner's points spread by the smoothing and merges them; and a corner it cannot
+   * round, R 0, is left as the smoothing made it. NOT ALWAYS AS SHARP, THOUGH, and I wrote "not a
+   * sharper one" here first: the resample after the fillet cuts its own chords, and where a hairpin's
+   * turn is split across two vertices and only the gentler one can be rounded, the chord across the
+   * pair can come out sharper than either. On a plain graph (wreck-cost's routes, which carry no
+   * blockers) vertex 719's 125 + 35 degree hairpin came out as one 147-degree vertex, and the
+   * follower — which had already spent 183 of its 236.5 s at that hairpin as shipped — never left it.
+   * The fix for that is in the follower, where the defect was: see followPath's "a cusp ahead is
+   * driven to, not reversed from", after which the same route takes 81.1 s.
+   *
+   * WHAT IT ALL CAME TO, with the curvature-window fix (see windowTurn) and FILLET_R, over #61's
+   * 194 seeded legs — the page's walls, furniture and parked pool solid — and one lap of the tour:
+   *
+   *                                    shipped        #61
+   *     legs arriving                  188 of 194     191
+   *     charged impacts                 12              9
+   *     parked-car contact steps     22,697          2,473
+   *     a lap of the tour             337.7 s,        336.0 s,
+   *                                   188 contacts    none
+   *
+   * and route-drive's three laps, parked cars in: 1,929 contact steps and 6 stuck-nudges as shipped,
+   * none and none with #61. The four legs that never arrived as shipped all stalled one segment short
+   * of a 119-171 degree turn; the fillet alone took them to 0 here, and followPath's cusp rule, which
+   * changes nothing on the tour or on these 191, is what keeps the hairpins nobody can round from
+   * stalling (194 legs with the curvature fix and no fillet: 189 arriving without the rule, 192 with).
+   * Of the three that still do not arrive, two wedge on the same street (z -253) in both builds,
+   * and the third is NEW AND NOT THE FILLET'S: its route ends on a dead-end vertex against a wall, the
+   * follower does not brake for the end of a path, and the car hits that wall at 55 km/h in both
+   * builds (dv 15.70 shipped, 15.78 here) — the shipped one slid on past its last point, this one
+   * stopped 1.1 m short of it.
+   */
+  _shape(pts, { spacing, offset, smoothPasses, closed, filletR = FILLET_R }) {
+    const edgeOf = (ei) => (ei >= 0 ? this.d.edges[ei] : null);
+    const clear = (x, z) => this.clearAt(x, z, LANE_MARGIN_M);
+    // Belt and braces: resample the whole polyline uniformly, so no joining mistake
+    // anywhere above can leave a gap a look-ahead could swallow.
+    pts = resample(pts, spacing, closed);
+    // Round the junctions, then resample again so the spacing survives the smoothing.
+    if (smoothPasses > 0) pts = resample(smooth(pts, smoothPasses, closed), spacing, closed);
+    let fillet = null, capAt = null;
+    if (filletR > 0) {
+      // The lane fit's own predicate, so a corner is rounded only where a lane could be taken.
+      const f = filletCorners(pts, { closed, clearAt: clear, radiusFor: () => filletR });
+      fillet = f.stats;
+      const out = f.points;
+      // THE HOLDS, located by arc length along the fillet's own output, because exactly one
+      // resample stands between here and the fit and resample() emits its points at known arc
+      // lengths: every `spacing` from the start on an open line, `total / count` apart on a ring.
+      // A geometric test against the arc's circle was the first version, and missed the pad at the
+      // HUD's 8 m spacing, where the first point past a tangent is 3 m off the circle.
+      const S = [0];
+      for (let i = 1; i < out.length; i++) S.push(S[i - 1] + Math.hypot(out[i][0] - out[i - 1][0], out[i][1] - out[i - 1][1]));
+      const total = S[out.length - 1] + (closed ? Math.hypot(out[0][0] - out[out.length - 1][0], out[0][1] - out[out.length - 1][1]) : 0);
+      const holds = [];
+      for (const c of f.stats.list) {
+        const a = c.arc;
+        if (!a || Math.abs(a.sweep) < JUNCTION_TURN_RAD) continue;
+        const s0 = S[a.iFrom], s1 = S[a.iTo] + (a.iTo < a.iFrom ? total : 0);
+        holds.push({ s0: s0 - spacing, s1: s1 + spacing,
+          cap: a.right ? 0 : Math.min(laneOffsetFor(edgeOf(a.eIn), offset), laneOffsetFor(edgeOf(a.eOut), offset)) });
+      }
+      pts = resample(out, spacing, closed);
+      const n = pts.length, step = closed ? total / n : spacing;
+      const sOf = (i) => (!closed && i === n - 1 ? total : i * step);
+      capAt = (i) => {
+        const s = sOf(i);
+        let cap = Infinity;
+        for (const h of holds) {
+          for (const w of closed ? [s - total, s, s + total] : [s]) {
+            if (w >= h.s0 && w <= h.s1) cap = Math.min(cap, h.cap);
+          }
+        }
+        return cap;
+      };
+    }
+    if (offset) {
+      const amt = laneOffsets(pts, offset, (i) => edgeOf(pts[i][2]),
+      // The width rule's margin against a real wall too: LANE_MARGIN_M is the body radius plus the
+      // follower's measured error, and `w / 2 - LANE_MARGIN_M` already holds a drawn kerb at it. A
+      // fit at the bare 0.95 m radius cleared Main Street's east facade by 0.01 m at point 34 of
+      // the tour; at 1.2 the follower at 22 m/s still reached building 51 (see LANE_MARGIN_M).
+        clear, spacing, { closed, capAt });
+      pts = offsetRight(pts, offset, (i) => amt[i], closed);
+    }
+    return { points: pts, fillet };
   }
 
   /**
@@ -758,7 +874,7 @@ export class RoadGraph {
    * which is what the braking-distance scan was written to do.
    */
   tour(waypoints, opts = {}) {
-    const { spacing = 5, offset = 0, smoothPasses = 2 } = opts;
+    const { spacing = 5, offset = 0, smoothPasses = 2, filletR = FILLET_R } = opts;
     /**
      * ONE EDGE LIST FOR THE WHOLE ROUTE, densified once.
      *
@@ -837,16 +953,9 @@ export class RoadGraph {
     // A RING THROUGHOUT, opened only at the very end. Every step — resample, smooth,
     // resample — treats the seam as one more segment, so it ends up rounded exactly like
     // every other junction instead of being the one corner nothing touched.
-    let pts = this.densify(bestStart.edges, spacing);
-    pts = resample(pts, spacing, true);
-    if (smoothPasses > 0) pts = resample(smooth(pts, smoothPasses, true), spacing, true);
-    if (offset) {
-      const amt = laneOffsets(pts, offset, (i) => {
-        const ei = pts[i][2];
-        return ei >= 0 ? this.d.edges[ei] : null;
-      }, (x, z) => this.clearAt(x, z, LANE_MARGIN_M), spacing, { closed: true });
-      pts = offsetRight(pts, offset, (i) => amt[i], true);
-    }
+    const shaped = this._shape(this.densify(bestStart.edges, spacing),
+      { spacing, offset, smoothPasses, closed: true, filletR });
+    const pts = shaped.points;
     // Opened: the follower needs a last point to reach, and it is the first one again, so a
     // lap ends exactly where the next one begins and the reset to index 0 is a no-op in space.
     pts.push([pts[0][0], pts[0][1], pts[0][2]]);
@@ -854,7 +963,7 @@ export class RoadGraph {
     for (let i = 1; i < pts.length; i++) {
       len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
     }
-    return { points: pts, legs, length: len, failed: 0, edges: bestStart.edges, closed: true };
+    return { points: pts, legs, length: len, failed: 0, edges: bestStart.edges, closed: true, fillet: shaped.fillet };
   }
 }
 
@@ -972,6 +1081,254 @@ export function smooth(pts, passes = 1, closed = false) {
   return cur;
 }
 
+
+/**
+ * ROUND EVERY CORNER OF A POLYLINE TO A CIRCULAR ARC TANGENT TO BOTH LEGS — a fillet (#61).
+ *
+ * WHY SMOOTHING COULD NOT. A graph junction is a point, and Chaikin can only redistribute the turn
+ * at it: #104 measured `smoothPasses` saturated, 0 to 12 passes all leaving 4.3-4.9% of the tour's
+ * points tighter than the car's standstill minimum, and the shipped 2 among the worst. A fillet does
+ * what smoothing cannot, which is choose the radius. `radiusFor(corner)` gives it — corner is
+ * `{ turn, right, eIn, eOut }`, `turn` signed and positive for a RIGHT turn by `rightOf`, `eIn`/`eOut`
+ * the edge tags either side — and `clearAt(x, z)`, given, has to hold at every sample of the arc.
+ *
+ * THE LEGS ARE SHARED. A fillet of radius R on a deflection D needs R tan(D/2) of straight on each
+ * side; where two corners want more of the leg between them than it has, it is split in proportion to
+ * what each wants, and an open line's pinned ends lend a whole leg to the one corner beside them.
+ *
+ * NEIGHBOURS MERGE when their tangents overlap and the result still describes the same road: one
+ * corner at the intersection of the group's outer legs, provided every vertex it swallows lies within
+ * `maxOutside` (0.5 m) of those legs on the OUTSIDE of the turn. That takes a junction drawn as two
+ * kinks 3 m apart, or a turn spread over several points by the smoothing upstream; and it takes a
+ * small kink of the other hand that would otherwise eat the leg — a -1.8 degree shape point 8.7 m
+ * before #128's own corner held that 11 m corner to 8.27 m until it merged. A real S-bend does not
+ * merge, because its middle stands metres outside the legs.
+ *
+ * NOT CLEAR, THEN SMALLER. An arc that fails the predicate steps down FILLET_RUNGS and takes the
+ * LONGEST clear rung, as the lane fit does; past the last one the corner is left exactly as it came
+ * in. So the worst a fillet can do is nothing.
+ *
+ * A RING is opened half way along its longest straight, so its two pinned ends constrain no corner,
+ * and rotated back to start where it started (on an arc, if the ring started on a corner).
+ *
+ * `stats` counts `corners`, `full` (the radius wanted), `legs` (held short by its legs), `clear`
+ * (held short by the predicate), `none` (left as it was) and `merged`; `stats.list` has one entry
+ * per corner, and a filleted one carries a non-enumerable `arc` — centre, radius, sweep, the edge
+ * tags either side and the arc's first and last index in the output — for a caller that needs to
+ * know which of its points lie on which turn (RoadGraph._shape does).
+ */
+export function filletCorners(pts, { closed = false, radiusFor = null, clearAt = null,
+  rungs = FILLET_RUNGS, arcStep = 0.5, minTurn = 1e-3, maxMergeTurn = (150 * Math.PI) / 180,
+  maxOutside = 0.5 } = {}) {
+  const stats = { corners: 0, full: 0, legs: 0, clear: 0, none: 0, merged: 0, list: [] };
+  // De-duplicate, and on a ring drop a repeated closing point.
+  let P = [];
+  for (const p of pts) {
+    const l = P[P.length - 1];
+    if (!l || Math.hypot(p[0] - l[0], p[1] - l[1]) > 1e-6) P.push(p);
+  }
+  if (closed && P.length > 1 && Math.hypot(P[0][0] - P[P.length - 1][0], P[0][1] - P[P.length - 1][1]) <= 1e-6) P.pop();
+  if (P.length < 3 || !radiusFor) return { points: P.map((p) => p.slice()), stats };
+
+  const turnAt = (a, b, c) => {
+    const ux = b[0] - a[0], uz = b[1] - a[1], wx = c[0] - b[0], wz = c[1] - b[1];
+    const lu = Math.hypot(ux, uz), lw = Math.hypot(wx, wz);
+    const cross = (ux * wz - uz * wx) / (lu * lw), dot = (ux * wx + uz * wz) / (lu * lw);
+    return { turn: Math.atan2(cross, dot), ux: ux / lu, uz: uz / lu, wx: wx / lw, wz: wz / lw };
+  };
+
+  // A RING IS OPENED mid-way along its longest straight run, so its two pinned ends constrain no
+  // corner, and the result is rotated back to start where the ring did.
+  let rotS0 = 0, total = 0;
+  if (closed) {
+    const n0 = P.length;
+    const cum = [0];
+    for (let i = 1; i <= n0; i++) cum.push(cum[i - 1] + Math.hypot(P[i % n0][0] - P[i - 1][0], P[i % n0][1] - P[i - 1][1]));
+    total = cum[n0];
+    const isC = [];
+    for (let i = 0; i < n0; i++) {
+      if (Math.abs(turnAt(P[(i - 1 + n0) % n0], P[i], P[(i + 1) % n0]).turn) > minTurn) isC.push(i);
+    }
+    if (!isC.length) return { points: P.map((p) => p.slice()), stats };
+    let best = -1, bestGap = -1;
+    for (let k = 0; k < isC.length; k++) {
+      const a = isC[k], b = isC[(k + 1) % isC.length];
+      let gap = cum[b] - cum[a];
+      if (gap <= 0) gap += total;
+      if (gap > bestGap) { bestGap = gap; best = a; }
+    }
+    let sMid = cum[best] + bestGap / 2;
+    if (sMid >= total) sMid -= total;
+    // The segment holding sMid, and the point on it.
+    let j = 0;
+    while (j < n0 - 1 && cum[j + 1] <= sMid) j++;
+    const a = P[j], b = P[(j + 1) % n0];
+    const L = cum[j + 1] - cum[j] || 1;
+    const t = (sMid - cum[j]) / L;
+    const mid = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, b[2]];
+    const rot = [mid];
+    for (let k = 1; k <= n0; k++) rot.push(P[(j + k) % n0]);
+    rot.push(mid.slice());
+    // Where the ring's own first point lies along the opened line.
+    rotS0 = (total - sMid) % total;
+    P = rot.filter((p, i) => i === 0 || Math.hypot(p[0] - rot[i - 1][0], p[1] - rot[i - 1][1]) > 1e-6);
+  }
+  const n = P.length;
+  const S = [0];
+  for (let i = 1; i < n; i++) S.push(S[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]));
+
+  // 1. Corners at the polyline's own vertices.
+  let C = [];
+  for (let i = 1; i < n - 1; i++) {
+    const t = turnAt(P[i - 1], P[i], P[i + 1]);
+    if (Math.abs(t.turn) <= minTurn) continue;
+    C.push({ i0: i, i1: i, x: P[i][0], z: P[i][1], ...t, dIn: 0, dOut: 0, merged: false });
+  }
+  const tagIn = (c) => P[c.i0][2];
+  const tagOut = (c) => P[Math.min(n - 1, c.i1 + 1)][2];
+  const wantR = (c) => radiusFor({ turn: c.turn, right: c.turn > 0, eIn: tagIn(c), eOut: tagOut(c) });
+  const wantT = (c) => wantR(c) * Math.tan(Math.abs(c.turn) / 2);
+  // 2. MERGE two neighbouring corners whose tangents would overlap into one at the intersection of
+  //    the group's outer legs — when that is still a description of the same road: every vertex the
+  //    merge swallows lies within `maxOutside` of the two legs on the OUTSIDE of the turn.
+  const mergeOf = (a, b) => {
+    const det = a.ux * b.wz - a.uz * b.wx;
+    if (Math.abs(det) < 1e-9) return null;
+    const dx = b.x - a.x, dz = b.z - a.z;
+    const t = (dx * b.wz - dz * b.wx) / det, s = (a.ux * dz - a.uz * dx) / det;
+    if (!(t >= -maxOutside && s >= -maxOutside)) return null;
+    const turn = Math.atan2(a.ux * b.wz - a.uz * b.wx, a.ux * b.wx + a.uz * b.wz);
+    if (!(Math.abs(turn) > minTurn) || Math.abs(turn) > maxMergeTurn) return null;
+    const x = a.x + a.ux * t, z = a.z + a.uz * t, sg = turn > 0 ? 1 : -1;
+    for (let i = a.i0; i <= b.i1; i++) {
+      const ex = P[i][0] - x, ez = P[i][1] - z;
+      // Right of a heading (ux, uz) is (-uz, ux): positive is the inside of a right turn.
+      const e1 = (-a.uz * ex + a.ux * ez) * sg, e2 = (-b.wz * ex + b.wx * ez) * sg;
+      if (Math.max(-e1, -e2) > maxOutside) return null;
+    }
+    return { i0: a.i0, i1: b.i1, x, z, turn,
+      ux: a.ux, uz: a.uz, wx: b.wx, wz: b.wz, dIn: a.dIn + t, dOut: b.dOut + s, merged: true };
+  };
+  for (let changed = true; changed;) {
+    changed = false;
+    for (let k = 0; k + 1 < C.length; k++) {
+      const a = C[k], b = C[k + 1];
+      if (wantT(a) + wantT(b) <= Math.hypot(b.x - a.x, b.z - a.z)) continue;
+      const m = mergeOf(a, b);
+      if (!m || wantT(m) < Math.max(m.dIn, m.dOut)) continue;
+      C.splice(k, 2, m);
+      changed = true;
+      break;
+    }
+  }
+  // 3. TANGENTS: a leg two corners share is split in proportion to what each wants.
+  const K = C.length;
+  const want = C.map(wantT);
+  const T = want.slice();
+  for (let k = 0; k <= K; k++) {
+    const a = k > 0 ? C[k - 1] : null, b = k < K ? C[k] : null;
+    const ax = a ? a.x : P[0][0], az = a ? a.z : P[0][1];
+    const bx = b ? b.x : P[n - 1][0], bz = b ? b.z : P[n - 1][1];
+    const L = Math.hypot(bx - ax, bz - az);
+    const wa = a ? want[k - 1] : 0, wb = b ? want[k] : 0;
+    if (wa + wb <= L) continue;
+    if (a) T[k - 1] = Math.min(T[k - 1], L * wa / (wa + wb));
+    if (b) T[k] = Math.min(T[k], L * wb / (wa + wb));
+  }
+  // 4. CLEARANCE, by the caller's predicate, down the rungs.
+  const arcOf = (c, R) => {
+    const tt = R * Math.tan(Math.abs(c.turn) / 2);
+    const px = c.x - c.ux * tt, pz = c.z - c.uz * tt;
+    const sg = c.turn > 0 ? 1 : -1;
+    // The centre is R along the in-leg's right normal (rightOf) for a right turn, its left for a left.
+    const cx = px - c.uz * R * sg, cz = pz + c.ux * R * sg;
+    const phi0 = Math.atan2(pz - cz, px - cx);
+    const m = Math.max(2, Math.ceil((R * Math.abs(c.turn)) / arcStep));
+    const out = [];
+    for (let j = 0; j <= m; j++) {
+      const ph = phi0 + sg * Math.abs(c.turn) * (j / m);
+      out.push([cx + R * Math.cos(ph), cz + R * Math.sin(ph)]);
+    }
+    return out;
+  };
+  const chosenR = new Array(K).fill(0);
+  for (let k = 0; k < K; k++) {
+    const c = C[k];
+    const tanH = Math.tan(Math.abs(c.turn) / 2);
+    const Rw = wantR(c);
+    const R0 = tanH > 0 ? T[k] / tanH : 0;
+    let got = 0, rung = -1;
+    if (R0 > 0) {
+      for (let r = 0; r < rungs.length; r++) {
+        const R = R0 * rungs[r];
+        if (c.merged && R * tanH < Math.max(c.dIn, c.dOut) - 1e-9) break;
+        if (!clearAt || arcOf(c, R).every(([x, z]) => clearAt(x, z))) { got = R; rung = r; break; }
+      }
+    }
+    chosenR[k] = got;
+    const legLimited = T[k] < want[k] - 1e-9;
+    const clearLimited = R0 > 0 && rung !== 0;
+    stats.corners++;
+    if (c.merged) stats.merged++;
+    if (got >= Rw * (1 - 1e-9)) stats.full++;
+    else if (got === 0) stats.none++;
+    else if (clearLimited) stats.clear++;
+    else if (legLimited) stats.legs++;
+    const entry = { x: +c.x.toFixed(2), z: +c.z.toFixed(2), deg: +(c.turn * 180 / Math.PI).toFixed(1),
+      want: +Rw.toFixed(2), R: +got.toFixed(2), legLimited, clearLimited, merged: c.merged };
+    if (got > 0) {
+      // The arc itself, for a caller that needs to know which points lie on it.
+      const a = arcOf(c, got);
+      const tt = got * tanH, px = c.x - c.ux * tt, pz = c.z - c.uz * tt, sg = c.turn > 0 ? 1 : -1;
+      const cx = px - c.uz * got * sg, cz = pz + c.ux * got * sg;
+      Object.defineProperty(entry, 'arc', { value: { cx, cz, R: got, phi0: Math.atan2(pz - cz, px - cx),
+        sweep: sg * Math.abs(c.turn), right: c.turn > 0, first: a[0], last: a[a.length - 1],
+        eIn: tagIn(c), eOut: tagOut(c) } });
+    }
+    stats.list.push(entry);
+  }
+  // 5. EMIT: original points outside every arc, and each arc in place of what it replaces.
+  const out = [], src = [];
+  let k = 0;
+  const act = [];
+  for (let j = 0; j < K; j++) {
+    if (!(chosenR[j] > 0)) continue;
+    const c = C[j], tt = chosenR[j] * Math.tan(Math.abs(c.turn) / 2);
+    act.push({ c, j, R: chosenR[j], sIn: S[c.i0] - (tt - c.dIn), sOut: S[c.i1] + (tt - c.dOut) });
+  }
+  for (let i = 0; i < n;) {
+    const a = act[k];
+    if (a && S[i] >= a.sIn - 1e-9) {
+      const arc = arcOf(a.c, a.R), m = arc.length - 1;
+      const eIn = tagIn(a.c), eOut = tagOut(a.c);
+      const info = stats.list[a.j].arc;
+      info.iFrom = out.length;
+      arc.forEach(([x, z], j) => {
+        out.push([x, z, j <= m / 2 ? eIn : eOut]);
+        src.push(a.sIn + (a.sOut - a.sIn) * (j / m));
+      });
+      info.iTo = out.length - 1;
+      while (i < n && S[i] <= a.sOut + 1e-9) i++;
+      k++;
+      continue;
+    }
+    out.push(P[i].slice()); src.push(S[i]);
+    i++;
+  }
+  if (!closed) return { points: out, stats };
+  // Back to a ring: drop the repeated end, and start where the ring started.
+  out.pop(); src.pop();
+  let start = src.findIndex((s) => s >= rotS0 - 1e-9);
+  if (start < 0) start = 0;
+  const no = out.length;
+  for (const e of stats.list) {
+    if (!e.arc) continue;
+    e.arc.iFrom = (e.arc.iFrom - start + no) % no;
+    e.arc.iTo = (e.arc.iTo - start + no) % no;
+  }
+  return { points: [...out.slice(start), ...out.slice(0, start)], stats };
+}
+
 /**
  * The tightest corner radius anywhere on a polyline, over a three-point window. The
  * instrument for the paragraph above: a path whose minimum is under the car's turning
@@ -1064,13 +1421,20 @@ export function laneOffsetFor(e, offset) {
 /** Where along the tangent laneOffsets tests a lane, in spacings: the point and two either side. */
 const SWEEP_STEPS = [0, -0.5, -0.25, 0.25, 0.5];
 
+/*
+ * `opts.capAt(i)`, when given, is a ceiling on point i's offset before the fit and the slope limiter
+ * — the lane a junction arc holds (#61, see RoadGraph._shape). Like the fit it can only REDUCE an
+ * amount, so it cannot unclear a point the fit cleared, and the limiter then ramps the lane to it
+ * outside the arc rather than through it.
+ */
+
 export function laneOffsets(pts, offset, edgeOf, clearAt, spacing, opts = {}) {
-  const { maxSlope = 0.25, closed = false, rungs = [1, 0.75, 0.5, 0.25] } = opts;
+  const { maxSlope = 0.25, closed = false, rungs = [1, 0.75, 0.5, 0.25], capAt = null } = opts;
   const n = pts.length;
   const amt = new Array(n).fill(0);
   let fitted = 0, dropped = 0;
   for (let i = 0; i < n; i++) {
-    const want = laneOffsetFor(edgeOf(i), offset);
+    const want = Math.min(laneOffsetFor(edgeOf(i), offset), capAt ? capAt(i) : Infinity);
     amt[i] = want;
     if (!(want > 0) || !clearAt) continue;
     // The same wrapped tangent offsetRight uses, for the same reason: on a ring the seam's
@@ -1368,6 +1732,45 @@ export const CRAWL_OVERRUN = 0.03;
 export const CRAWL_MS = FREE_DV / (1 + WALL_E) - SPEED_DEADBAND - CRAWL_OVERRUN;
 
 /**
+ * THE RADIUS A ROUTE'S CORNER IS ROUNDED TO (#61): the tightest the car can hold at the speed it
+ * actually HOLDS at the crawl floor — CRAWL_MS plus the deadband plus the overrun, which is
+ * FREE_DV / (1 + e) by construction — so a corner of this radius is crawled at full lock and no
+ * tighter than that. 8.987 m, against the standstill minimum of 8.446 and R_min(CRAWL_MS) of 8.893.
+ *
+ * DERIVED, AND THEN DRIVEN AGAINST LARGER ONES, because a bigger fillet is faster and every rounding
+ * is a choice: with the rest of #61 in place, over the 194 seeded legs of #61's probe (the page's
+ * walls, furniture and parked pool all solid) and route-drive's three laps,
+ *
+ *     radius     route-drive    its headroom lap    legs, charged impacts    legs, sim time
+ *      8.987       1024 s       0 contacts                9                     14,359 s
+ *     10.5          943 s       9 contacts                12                     13,761 s
+ *     12            823 s     330 contacts, FAILS         42                     12,505 s
+ *
+ * A bigger arc starts the turn further out and the follower cuts into what stands beside it. So the
+ * derived minimum is also the cleanest of the three, and there is nothing picked in it.
+ */
+export const FILLET_R = minTurnRadius(FREE_DV / (1 + WALL_E));
+
+/**
+ * A TURN OF AT LEAST THIS MUCH IS A JUNCTION TURN, and its arc holds ONE lane offset from end to end:
+ * none on a right turn, the narrower road's on a left (see RoadGraph._shape). Read off the corners
+ * rather than picked — the right-hand corners of the tour and 400 seeded paths, by deflection:
+ *
+ *     0-10 deg   10,550     30-40    56      60-70    87      90-100   212
+ *    10-20          956     40-50    40      70-80    25      100+      26
+ *    20-30          315     50-60   110      80-90   387
+ *
+ * Bends of a polyline below 30 degrees, junction turns from 50, and a trough between them that 45 sits
+ * in. Measured across it, over 39 seeded legs and a lap of the tour with the parked cars solid, every
+ * threshold from 30 to 75 degrees gives the same contacts to the step; 0 — holding the offset round
+ * every two-degree kink as well — broke the tour's seam with a 52-degree kink and slowed the drive.
+ */
+export const JUNCTION_TURN_RAD = (45 * Math.PI) / 180;
+
+/** The rungs a fillet's radius steps down through when its arc is not clear (filletCorners). */
+export const FILLET_RUNGS = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2];
+
+/**
  * The turn and the arc over a window of at least `minArc` metres forward of `from`.
  * Returns null past the end.
  *
@@ -1387,16 +1790,47 @@ function windowTurn(points, from, minArc) {
   if (from >= points.length - 2) return null;
   const a = points[from], b = points[from + 1];
   let h0 = Math.atan2(b[0] - a[0], b[1] - a[1]);
-  let arc = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  const first = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  let arc = first, last = first;
   let k = from + 1;
+  /**
+   * THE ARC IS MEASURED BETWEEN THE MIDPOINTS OF THE FIRST AND LAST SEGMENTS (#61), because that
+   * is the arc the turn is measured over. The turn is the change from the first segment's heading
+   * to the last one's — n-1 vertex turns in a window of n segments — and this used to divide it
+   * into all n segment lengths, so on any SMOOTH curve the radius read n/(n-1) too large. On a
+   * circle, by the spacing a polyline is sampled at, with this module's 10 m window:
+   *
+   *     spacing                 2 m     4 m     5 m     8 m
+   *     the old reading        1.20    1.49    1.48    1.93   x the true radius
+   *     between the midpoints  1.00    0.99    0.99    0.97   x — the chord over its turn, which
+   *                                                            is the three-point reading as well
+   *
+   * IT WAS INVISIBLE FOR AS LONG AS THE COURSE'S CORNERS WERE POINTS. A right angle concentrates its
+   * whole turn at one vertex inside every window it is in, and reads 7.64 m at 4 m spacing both
+   * ways. It stopped being invisible the day the corners became arcs: pathSpeedLimit read a 9 m
+   * fillet as 13.4 m — a corner speed of 37.4 km/h for a radius the car holds at 6.9 — so the car
+   * met the arc at about 50 km/h, its 13 m look-ahead reached onto it early, and it turned in 0.9 m
+   * and struck the building on the inside of one alley corner on 8 of #61's 194 seeded legs.
+   *
+   * Isolated one term at a time over those 194 legs, charged impacts: 12 shipped; 20 with this fix
+   * and no fillet; 29 with the fillet and not this; 9 with both. ALONE IT IS WORSE, and the reason I
+   * believe — consistent with the traces, not separately measured — is that on corners the car
+   * cannot follow at all, the over-read made it arrive faster and turn in sooner, which is what a
+   * car with a 9 m turning circle needs at a 3 m corner. Once the corners are ones it can follow, the
+   * early turn-in is the defect and the honest reading is the fix. CLAUDE.md's "a constant tuned
+   * against a model the code no longer has": right about the course it was written against, and #61
+   * changed the course.
+   */
+  const mid = () => arc - first / 2 - last / 2;
   // AT LEAST TWO SEGMENTS, ALWAYS. If the first segment alone exceeds minArc the loop below
   // never runs, the end heading is read off the same segment as the start heading, and the
   // turn is exactly zero — so a polyline whose segments are longer than the window reads as
   // dead straight however sharply it corners. Found by this module's own gate, on a 10 m
   // square: minRadius returned Infinity for a shape made entirely of right angles.
-  while (k < points.length - 1 && (arc < minArc || k === from + 1)) {
+  while (k < points.length - 1 && (mid() < minArc || k === from + 1)) {
     const p = points[k], q = points[k + 1];
-    arc += Math.hypot(q[0] - p[0], q[1] - p[1]);
+    last = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    arc += last;
     k++;
   }
   if (k >= points.length - 1 && arc < minArc * 0.5) return null;
@@ -1405,7 +1839,7 @@ function windowTurn(points, from, minArc) {
   let turn = h1 - h0;
   while (turn > Math.PI) turn -= Math.PI * 2;
   while (turn < -Math.PI) turn += Math.PI * 2;
-  return { turn: Math.abs(turn), arc, to: k };
+  return { turn: Math.abs(turn), arc: mid(), to: k };
 }
 
 /** The arc window every curvature reading in this module uses, in metres. */
@@ -1604,11 +2038,49 @@ export function followPath(points, { x, z, yaw, speed }, state = { i: 0 }, opts 
     acc += Math.hypot(points[j + 1][0] - points[j][0], points[j + 1][1] - points[j][1]);
     if (acc >= lookAhead) break;
   }
-  const aim = points[Math.min(j + 1, points.length - 1)];
-  const dx = aim[0] - x, dz = aim[1] - z;
+  let aim = points[Math.min(j + 1, points.length - 1)];
+  let dx = aim[0] - x, dz = aim[1] - z;
   let err = Math.atan2(dx, dz) - yaw;
   while (err > Math.PI) err -= Math.PI * 2;
   while (err < -Math.PI) err += Math.PI * 2;
+  /**
+   * A CUSP AHEAD IS DRIVEN TO, NOT REVERSED FROM (#61). Where the path turns back on itself — a
+   * hairpin the router could not avoid, or two legs joined end to end at a stop — the look-ahead
+   * runs PAST the cusp and folds back down the other side of it, so a car that comes in slowly
+   * finds its aim point behind it while the cusp is still ahead. The reverse manoeuvre below then
+   * backs it away from the cusp, the aim swings ahead again, it creeps forward, and round it goes:
+   * the progress index can only advance by passing the cusp, and the car never gets there.
+   *
+   * It was carried by SPEED. Measured on 194 seeded legs at HEAD, four never arrived, and in every
+   * one the car was parked one segment short of a 119-171 degree turn for the whole 240 s; abort-cost
+   * drove shakedown's stop b — two legs joined at a dead stop, a 180-degree turn in place — in
+   * 69.0 s only because the car arrived at 10 m/s, braked late and overran the cusp, which let the
+   * index advance. #61's honest curvature reading (windowTurn) brings it in slowly, as it should,
+   * and it stopped 1.5 m short and orbited there until the cap; with no cusp in it, the same drive
+   * arrives with the last segment cut to 1-4 m and not at 4.65.
+   *
+   * So when the look-ahead aim is behind the car because the walk to it went ROUND A CUSP — a vertex
+   * turning back by more than REVERSE_ERR — and that cusp is not behind the car, the cusp is the
+   * aim: the car drives up to it and through it, the index advances, and from there the three-point
+   * turn below is the one that was traced from a standstill and works. It is the CUSP that is the
+   * condition, not the aim being behind. The first version re-aimed at the next vertex whenever the
+   * look-ahead was behind, and that also fired where there is no cusp at all: a car at the spawn,
+   * standing beside the start of a route that leaves at 120 degrees to its nose, had its three-point
+   * turn swapped for full lock forward toward a point at 92 degrees, which is a worse three-point
+   * turn, and shunt-rate's 72 km/h subject went from one shunted car to none.
+   */
+  if (Math.abs(err) > REVERSE_ERR) {
+    for (let k = i + 1; k <= Math.min(j, points.length - 2); k++) {
+      const p0 = points[k - 1], p1 = points[k], p2 = points[k + 1];
+      const ux = p1[0] - p0[0], uz = p1[1] - p0[1], wx = p2[0] - p1[0], wz = p2[1] - p1[1];
+      if (Math.abs(Math.atan2(ux * wz - uz * wx, ux * wx + uz * wz)) <= REVERSE_ERR) continue;
+      let e2 = Math.atan2(p1[0] - x, p1[1] - z) - yaw;
+      while (e2 > Math.PI) e2 -= Math.PI * 2;
+      while (e2 < -Math.PI) e2 += Math.PI * 2;
+      if (Math.abs(e2) <= REVERSE_ERR) { aim = p1; dx = p1[0] - x; dz = p1[1] - z; err = e2; }
+      break;
+    }
+  }
 
   /**
    * PURE PURSUIT FOR THE GEOMETRY, THE MEASURED RESPONSE FOR THE ACTUATOR.

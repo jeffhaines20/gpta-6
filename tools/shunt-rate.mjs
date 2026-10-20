@@ -385,6 +385,7 @@ if (SELFTEST && IS_MAIN) {
      * term, so how the player drives moves how fast a scaled fleet can go. What the check is FOR is
      * the wiring, and the drive is deterministic for a seed: an override that did not reach the fleet
      * reads exactly x1.000 at both scales. So the bound only has to exclude 1, in each direction.
+     * (#61's junction fillets moved it again, to x0.65 and x1.33: the same wiring, a different drive.)
      */
     check('the fleet-scale override reaches the fleet, and in the right direction',
       lo < 0.99 && hi > 1.01, `x0.6 -> x${lo.toFixed(2)} of the unscaled fleet, `
@@ -433,6 +434,11 @@ if (SELFTEST && IS_MAIN) {
    * At 20 m/s seeds 0-4 shunt two cars over 15 frames, every frame a rear-end into a STOPPED car
    * (car p50 0.00 m/s), so that is the subject. The one exception seen anywhere is a single frame
    * at 14 m/s, seed 1, with the car beside the player rather than ahead of it.
+   *
+   * RESTATED BY #61, NOT RE-SUBJECTED. The junction fillets change the course these seeds drive, and
+   * the subject thinned to ONE car over 9 frames (still a rear-end into a stopped car, still ahead
+   * of the player). The check needs one and has one; the next change to the route should look here
+   * before it looks anywhere else, because one car is the least a subject can be.
    */
   {
     const rows = [0, 1, 2, 3, 4].map((seed) => drive({ maxSpeed: 20, seed, timeout: 300 }));

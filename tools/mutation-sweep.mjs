@@ -140,7 +140,10 @@ const OFFLINE = [
   //     forced p90   3.052 shipped   7.065 under corner-now   x2.3
   //     achievable p90 1.187 shipped 1.169 under corner-now   unmoved, 88 of ~1361 over the lane
   // and it does catch it: FAIL at 7.065, PASS at 3.052. (Those are the driver's LEFT, where every
-  // lane sat until #127; re-run on the right it is FAIL at 7.609, PASS at 2.996.)
+  // lane sat until #127; re-run on the right it is FAIL at 7.609, PASS at 2.996.) RESTATED BY #61:
+  // with the junctions rounded to the car's turning circle the forced band reads 0.958 shipped and
+  // 1.854 under corner-now, so the bound moved from 5.0 to 1.35 in the same commit, and an eighth
+  // check says the fillet takes the course under a third of what any smoothing reached.
   'lane-keep --selftest',
   // 10.0 s, which is what makes it affordable here: 27 minutes over this table's 164 rows,
   // against playtest --selftest's 11.0 s and traffic-selftest's 23.4 s already on the list. I
@@ -3055,6 +3058,68 @@ const MUTATIONS = [
     find: '        const hp = !!r.hairpin, bestHp = best ? !!best.hairpin : true;',
     to: '        const hp = false, bestHp = false;',
     why: 'a candidate that had to take a hairpin competes on length with one that did not',
+  },
+  // ---- #61: the route's junction turns rounded to the car's turning circle. Each is one term of
+  // the round put back, so that a sweep says which gate sees which term. Swept one at a time, in the
+  // commit that added them:
+  //
+  //     fillet-off          roadpath-test route-drive reaction-test lane-keep shunt-rate
+  //     fillet-right-hold   roadpath-test route-drive lane-keep
+  //     fillet-window-old   roadpath-test ALONE, and only its reading of a circle: the drive the
+  //                         reading decides (8 of 194 seeded legs into an alley corner at 37 km/h)
+  //                         is on no gate, because none of them drives those legs
+  //     fillet-merge-off    roadpath-test route-drive reaction-test lane-keep shunt-rate
+  //     fillet-clear-off    MISSED first, against every gate — no tour corner is short for clearance,
+  //                         so the tour reads byte-identically without the predicate — and caught by
+  //                         roadpath-test 6e(7b) once that drove a district corner the ladder decides
+  //     cusp-reaim          roadpath-test (its in-place reversal arm, and #131's unrounded hairpin)
+  //     cusp-any-behind     shunt-rate ALONE: its 72 km/h subject goes from one shunted car to none
+  //
+  // and fillet-off's first sweep had roadpath-test THROWING on a null `fillet` rather than failing,
+  // which is fixed: it prints eight FAIL lines now.
+  {
+    id: 'fillet-off', file: 'src/roadpath.js',
+    find: 'export const FILLET_R = minTurnRadius(FREE_DV / (1 + WALL_E));',
+    to: 'export const FILLET_R = 0;',
+    why: 'every junction is a point again: 36 of the tour\'s 816 points under the car\'s standstill radius, and the parked cars at the budget gate\'s two stops are hit on every lap',
+  },
+  {
+    id: 'fillet-right-hold', file: 'src/roadpath.js',
+    find: 'cap: a.right ? 0 : Math.min(laneOffsetFor(edgeOf(a.eIn), offset), laneOffsetFor(edgeOf(a.eOut), offset)) });',
+    to: 'cap: Math.min(laneOffsetFor(edgeOf(a.eIn), offset), laneOffsetFor(edgeOf(a.eOut), offset)) });',
+    why: 'a right turn is driven in its own lane, on the inside of the arc, and the follower cuts it toward the parked cars on the right',
+  },
+  {
+    id: 'fillet-window-old', file: 'src/roadpath.js',
+    find: '  const mid = () => arc - first / 2 - last / 2;',
+    to: '  const mid = () => arc;',
+    why: 'the curvature window divides n-1 vertex turns into n segment lengths again, reads a 9 m fillet as 13.4 m and lets the car into it at 37 km/h',
+  },
+  {
+    id: 'fillet-merge-off', file: 'src/roadpath.js',
+    find: '  maxOutside = 0.5 } = {}) {',
+    to: '  maxOutside = 0 } = {}) {',
+    why: 'a corner split by a two-degree kink is rounded as two short arcs, and #128\'s own right turn takes 8.27 m where the car needs 8.99',
+  },
+  {
+    id: 'fillet-clear-off', file: 'src/roadpath.js',
+    find: '      const f = filletCorners(pts, { closed, clearAt: clear, radiusFor: () => filletR });',
+    to: '      const f = filletCorners(pts, { closed, clearAt: null, radiusFor: () => filletR });',
+    why: 'a fillet is taken at full radius whatever stands on the inside of the corner',
+  },
+  {
+    id: 'cusp-reaim', file: 'src/roadpath.js',
+    find: '  if (Math.abs(err) > REVERSE_ERR) {',
+    to: '  if (false) {',
+    why: 'a car that comes slowly to a cusp finds its aim folded back behind it and orbits one segment short for ever',
+  },
+  {
+    // The rule's first version, put back: it re-aimed at the next vertex whenever the look-ahead was
+    // behind, cusp or no cusp, which also swapped a standing three-point turn for full lock forward.
+    id: 'cusp-any-behind', file: 'src/roadpath.js',
+    find: '      if (Math.abs(Math.atan2(ux * wz - uz * wx, ux * wx + uz * wz)) <= REVERSE_ERR) continue;',
+    to: '',
+    why: 'a car beside the start of a route that leaves behind it drives forward at full lock instead of backing round',
   },
   {
     // Repointed by intent when #137 rewrote the loop round it: the post's settle behind the kerb.

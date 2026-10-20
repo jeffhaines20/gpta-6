@@ -322,7 +322,8 @@ if (IS_MAIN && SELFTEST) {
   //
   //    RESTATED BY #128. This was `metres > 300`, and the follower that stopped cutting junctions
   //    through buildings drives this chase 150 m and is ARRESTED at 25.4 s, crawling a corner at
-  //    1.83 m/s with a unit alongside — a legitimate end, which a distance bound reads as "did not
+  //    1.83 m/s with a unit alongside (with #61's junction fillets, 143 m and arrested at 22.1 s,
+  //    6.49 m/s over the chase where it was 5.91) — a legitimate end, which a distance bound reads as "did not
   //    drive". What the check is for is the U-turn defect the header records, "46 m driven in 17.6 s",
   //    a car going nowhere at 2.6 m/s. So it is a RATE over the chase's own duration, against twice
   //    the speed the follower holds at its crawl floor: a car that only crawled could not pass it.

@@ -35,6 +35,15 @@
 // went from 1.2 to 1.5, and the circuits driven as one polyline (both are written up where they
 // are made).
 //
+// AND WITH ITS CORNERS ROUNDED TO THE CAR'S TURNING CIRCLE (#61), driven with the page's parked cars
+// solid for the first time: three circuits in 1014.9 s at a mean of 34.2 km/h, health 1.000, no body
+// contact of any kind — walls, furniture or parked cars — 2.49 m off the line at worst, and the
+// headroom lap at 26 m/s contact-free in 982 s. The same drive on the course as it shipped before
+// #61, parked cars and all, is 1191.2 s, 1,929 contact steps and 6 stuck-nudges: the budget gate's
+// two parked-car stops at 635 and 654, reproduced offline, which this file could not see while it
+// had no parked cars. (Before #61 and without them it read 1012.3 s, 34.8 km/h, 4.35 m off the line
+// and 0 contacts — the number that was not wrong, only blind.)
+//
 // It took nine distinct bugs to get there, four in the course and five in the controller, and
 // each one is written up where it was fixed. CLAUDE.md collects them: they all have the same
 // shape, which is that the instrument reads nominal because it is computed from the same
@@ -99,6 +108,35 @@ furniture.commit();
 furniture.dressDistrict(district, { audit: false });
 const carBlockers = new CarBlockers(blockers);
 carBlockers.setStatic(furniture.rigidSolids());
+/**
+ * AND THE PARKED CARS, SOLID AS THE PAGE HAS THEM (#126, #61). This drive had no parked cars, and
+ * that is the whole reason it could not see what stopped the budget gate's drive twice in both of
+ * #128's runs: the car crawling 3.6-3.8 m wide of a right turn into a parked car on the far side, at
+ * course indices 635 and 654. Wired the way district/main.js wires it — the module's own 30-car
+ * pool, re-seeded around the car, `setBoxes` on a new fill and `settle` otherwise — except that the
+ * re-seed is FORCED on the page's own 20 m distance trigger, because `refreshParked`'s other trigger
+ * is 110 ms of wall clock, and a drive that runs a lap in seconds would otherwise re-seed according
+ * to how fast the box felt. With it, the shipped course of the round before #61 reproduced the gate's
+ * ledger site for site — parked contacts at 339, 367, 634-635 and 654, worst 2.04, all free — where
+ * without it this drive read 0 contacts over the same three laps.
+ */
+furniture.buildParkedCars({ count: 30 });
+function parkedAround(car) {
+  const body = () => {
+    const q = car.quaternion, fx = 2 * (q.x * q.z + q.w * q.y), fz = 1 - 2 * (q.x * q.x + q.y * q.y);
+    return BODY_SAMPLES.map((sz) => [car.position.x + fx * sz, car.position.z + fz * sz]);
+  };
+  let at = null, serial = -1;
+  return () => {
+    if (!at || Math.hypot(car.position.x - at[0], car.position.z - at[1]) >= 20) {
+      furniture.refreshParked(car.position.x, car.position.z, true);
+      at = [car.position.x, car.position.z];
+    }
+    const ps = furniture.parkedSolids();
+    if (ps.serial !== serial) { serial = ps.serial; carBlockers.setBoxes(ps.boxes, body(), BODY_RADIUS); }
+    else carBlockers.settle(body(), BODY_RADIUS);
+  };
+}
 
 console.log(`ROUTE DRIVE${NO_COLLISION ? ' (walls OFF)' : ''}`);
 console.log('='.repeat(78));
@@ -118,6 +156,7 @@ let voiceRate = { perMin: 0, burst: 0 };
   };
 }
 if (!NO_COLLISION) { v.blockers = carBlockers; v.damage = damage; }
+const parkMain = parkedAround(v);
 const ground = new FlatGround(0);
 v.position.set(route[1].x, 0.55, route[1].z);
 
@@ -233,6 +272,7 @@ while (lap < CIRCUITS && steps < CAP_STEPS) {
     v.setControls({ throttle: Math.abs(err) > 0.9 ? 0.32 : Math.abs(err) > 0.45 ? 0.55 : 1,
       brake: 0, steer: Math.max(-1, Math.min(1, err * 1.6)), handbrake: false });
   }
+  if (!NO_COLLISION) parkMain();
   v.stepFixed(DT, ground, HZ);
   damage.update(DT);
   if (v.speed < 0.6) {
@@ -246,6 +286,11 @@ while (lap < CIRCUITS && steps < CAP_STEPS) {
         inside: blockers.insideAny(v.position.x, v.position.z) >= 0 });
       v.position.set(target.x, 0.55, target.z);
       v.velocity.set(0, 0, 0);
+      // Put, not driven, so whatever it lands on is not a collision — district/main.js's placeAt.
+      if (!NO_COLLISION) {
+        const q = v.quaternion, fx = 2 * (q.x * q.z + q.w * q.y), fz = 1 - 2 * (q.x * q.x + q.y * q.y);
+        carBlockers.release(BODY_SAMPLES.map((sz) => [v.position.x + fx * sz, v.position.z + fz * sz]), BODY_RADIUS);
+      }
       stuckFor = 0;
     }
   } else stuckFor = 0;
@@ -341,6 +386,13 @@ if (nudges) {
  *
  * The budgets below did not move. The contact budget is 300 against 88, and the free band is
  * 2.2 against 1.987, which is the one that is close and is said so beside MAX_SPEED.
+ */
+/*
+ * RESTATED BY #61, which rounds the course's corners and gives this drive the parked cars. The
+ * drive makes no body contact at all now — 0 against the 300 below — so the contact budget has
+ * nothing to bound on the shipped course; it is kept because the course as it shipped before #61
+ * reads 1,929 against it with the parked cars in (and 6 nudges against 0), so it still fails the
+ * build it exists to fail. The parked-car count is the sharper check and has its own line above.
  */
 const EXPECT = { contacts: 300, applied: 0, nudges: 0, offLine: 12, freeDv: 2.2,
   voicesPerMin: 6, voiceBurst: 6 };
@@ -445,6 +497,16 @@ if (MODE === 'straight') {
   check('the street furniture is solid, and the drive touches none of it',
     carBlockers.stats.statics > 2000 && carBlockers.stats.staticContacts === 0,
     `${carBlockers.stats.staticContacts} contact steps against ${carBlockers.stats.statics} solids`);
+  /**
+   * #61: AND THE PARKED CARS, the same way and for the same reason. Before #61 rounded the corners
+   * this read 188 contact steps on one lap at the gate's own two sites — all free, so no health or
+   * charge check above could see them, and the gate's drive stopped dead on both. A count, then,
+   * as the furniture's is. `refills` says the pool really moved with the car, so a pool that never
+   * filled cannot pass this for the most flattering reason.
+   */
+  check('the parked cars are solid, the pool follows the car, and the drive touches none of them (#61)',
+    carBlockers.stats.refills > 20 && carBlockers.stats.boxes > 0 && carBlockers.stats.contacts === 0,
+    `${carBlockers.stats.contacts} contact steps, ${carBlockers.stats.refills} refills, ${carBlockers.stats.boxes} boxes in the last`);
 
   // --- the drive.
   console.log('\n  THE DRIVE:');
@@ -482,6 +544,9 @@ if (MODE === 'straight') {
    */
   const HEAD = 4;
   const hv = new Vehicle(), hd = new DamageModel();
+  // Its own pool around its own car: the main drive's last fill is wherever that drive ended.
+  const parkHead = parkedAround(hv);
+  const headParked0 = carBlockers.stats.contacts;
   hv.blockers = carBlockers; hv.damage = hd;
   hv.position.set(course[0][0], 0.55, course[0][1]);
   const h1 = course[Math.min(3, course.length - 1)];
@@ -495,13 +560,14 @@ if (MODE === 'straight') {
       { maxSpeed: MAX_SPEED + HEAD, dt: DT });
     if (f.done) { hDone = true; break; }
     hv.setControls(f.controls);
+    parkHead();
     hv.stepFixed(DT, ground, HZ);
     hd.update(DT);
   }
   const hr = hd.report();
   console.log(`    at ${MAX_SPEED + HEAD} m/s, ${HEAD} over the cap: ${hDone ? 'finished' : 'DID NOT FINISH'} in ` +
-    `${(hSteps * DT).toFixed(0)} s, ${hv.contacts} body contacts, worst charged ${hr.stats.worstDv.toFixed(3)} m/s, ` +
-    `health ${hr.health.toFixed(4)}`);
+    `${(hSteps * DT).toFixed(0)} s, ${hv.contacts} body contacts (${carBlockers.stats.contacts - headParked0} of them ` +
+    `parked cars), worst charged ${hr.stats.worstDv.toFixed(3)} m/s, health ${hr.health.toFixed(4)}`);
   check(`and with ${HEAD} m/s of headroom over the cap the course is still taken undamaged (#128)`,
     hDone && hr.health === 1 && hr.stats.applied === 0 && hr.stats.worstDv < EXPECT.freeDv,
     `${hv.contacts} contacts, ${hr.stats.applied} applied, worst ${hr.stats.worstDv.toFixed(3)} at ${MAX_SPEED + HEAD} m/s`);
