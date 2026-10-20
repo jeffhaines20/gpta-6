@@ -2728,6 +2728,18 @@ const MUTATIONS = [
     why: 'the mirror toed out rather than in: its outer end swept forward and sin(toe), 20% of its glass, turned to a camera beside the car',
   },
   {
+    id: 'tail-wrap-fleet-off', file: 'src/carbody.js',
+    find: '    tailWrap(b, shell, pts, iTailHi, iTailLo, TAIL_WRAP_M, 0.012, tailC);',
+    to: '',
+    why: "#125's taillight half put back for the fleet: a side-on traffic, parked or police car shows no tail lens at all, 0.0 cm2 to either side",
+  },
+  {
+    id: 'tail-wrap-player-off', file: 'src/carbody.js',
+    find: '    tailWrap(b, shell, pts, iTailHi, iTailLo, TAIL_WRAP_M, 0.012, tailCol);',
+    to: '',
+    why: "the wrap on the fleet and not on the player's car: patching one builder and leaving its sibling",
+  },
+  {
     id: 'fleet-mirror-bare', file: 'src/carbody.js',
     find: '    b.quad(gv(0.045, -0.032), gv(-0.045, -0.032), gv(-0.045, 0.032), gv(0.045, 0.032));',
     to: '',

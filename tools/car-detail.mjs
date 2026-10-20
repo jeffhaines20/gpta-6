@@ -63,7 +63,7 @@ for (const a of IS_MAIN ? argv : []) {
 }
 
 /** Fixed, so a check cannot vanish when a population is empty. */
-export const CHECK_COUNT = 23;
+export const CHECK_COUNT = 24;
 /** The render order: [which face, its value] per tile, rows top to bottom (see car-detail.html). */
 export const PLANNED = [...Array(4)].flatMap(() => [['plate', 0], ['plate', 1]])
   .concat([...Array(5)].flatMap(() => [['lamp', 0], ['lamp', 1]]));
@@ -162,6 +162,35 @@ export function fleetMirrorGeometry() {
   return out;
 }
 
+/**
+ * THE TAIL LAMPS FROM THE SIDE, per build and side: the tail-lens area a camera BESIDE the car sees,
+ * as the area projected on the outboard axis. #119's reviewer: "no lit taillight on a side-on traffic
+ * car at night except the road spill: the tail lens does not wrap round the corner of the body".
+ * Measured before the wrap: 0.0 cm2 on every shell and on the player's car, the lens stopping 6-10 cm
+ * inboard of the flank. Off the buffers, so it needs no page.
+ */
+export function tailWrapGeometry() {
+  const one = (name, geo) => {
+    const pos = geo.getAttribute('position'), uv = geo.getAttribute('uv'), idx = geo.getIndex();
+    const n = idx ? idx.count / 3 : pos.count / 3;
+    const at = (t, k) => (idx ? idx.getX(3 * t + k) : 3 * t + k);
+    const slot = (i) => Math.floor(uv.getX(i) * 16);
+    const sides = { 1: { name, side: 1, beside: 0 }, [-1]: { name, side: -1, beside: 0 } };
+    for (let t = 0; t < n; t++) {
+      const v = [0, 1, 2].map((k) => at(t, k));
+      if (!v.every((i) => slot(i) === SURFACE.taillight)) continue;
+      const [a, b, c] = v.map((i) => [pos.getX(i), pos.getY(i), pos.getZ(i)]);
+      const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+      const crx = (e1[1] * e2[2] - e1[2] * e2[1]) / 2;
+      const sd = sides[a[0] + b[0] + c[0] > 0 ? 1 : -1];
+      sd.beside += Math.max(0, crx * sd.side);
+    }
+    return [sides[1], sides[-1]];
+  };
+  const out = ['coupe', 'saloon', 'wagon'].flatMap((s) => one(s, buildTrafficCarGeometry({ groundY: 0, shape: SHAPES[s] })));
+  return out.concat(one('player', buildPlayerCar().bodyMesh.geometry));
+}
+
 /** The verdict as a pure function of the report, so the selftest can feed it known-bads. */
 export function verdict(r) {
   const checks = [];
@@ -187,6 +216,12 @@ export function verdict(r) {
     M.length === 2 && M.every((m) => num(m.area) >= 0.01 && num(m.behind) >= 0.9 * m.area
       && num(m.beside) <= 0.05 * m.area && num(m.ahead) === 0),
     M.map((m) => `${m.side > 0 ? '+x' : '-x'}: ${cm2(m.area)} cm2, behind ${cm2(m.behind)}, beside ${cm2(m.beside)}, ahead ${cm2(m.ahead)}`).join('; '));
+  // The tail lens from the side: every shell and the player's car, both sides, at least 100 cm2 (the wrap
+  // is 14 cm of a 12.9 cm lens, 173.6 cm2 a side as built).
+  const TW = Array.isArray(r.tailWrap) ? r.tailWrap : [];
+  add('every car\'s tail lamps wrap the rear corner, so a camera beside it sees lens',
+    TW.length === 8 && TW.every((t) => num(t.beside) >= 0.01),
+    TW.map((t) => `${t.name} ${t.side > 0 ? '+x' : '-x'} ${cm2(t.beside)}`).join(', ') || 'none');
   // The fleet's: every shell, both sides, at least 50 cm2 (the pane is 9 x 6.4 cm), all of it to the back.
   const FM = Array.isArray(r.fleetMirrors) ? r.fleetMirrors : [];
   add('every fleet shell\'s door mirrors carry glass, and it faces the back of the car',
@@ -305,6 +340,9 @@ if (IS_MAIN && argv.includes('--selftest')) {
     // The fleet's, measured off the build that gave them glass: 57.6 cm2 a mirror, all of it to the back.
     fleetMirrors: ['coupe', 'saloon', 'wagon'].flatMap((shape) => [1, -1].map((side) =>
       ({ shape, side, tris: 2, area: 0.00576, behind: 0.00576, beside: 0, ahead: 0 }))),
+    // And the tail wrap, measured off the build that added it: 173.6 cm2 a side on all four cars.
+    tailWrap: ['coupe', 'saloon', 'wagon', 'player'].flatMap((name) => [1, -1].map((side) =>
+      ({ name, side, beside: 0.01736 }))),
     shipped: 1, readback: PLANNED.map((k) => [...k]), after: 1,
     near: row(230, 158, 0.174, 0.4581, 0.066), far: row(21, 20, 0, 0.4690, 0.522),
     other: row(230, 145, 0.152, 0.4708, 0.044), player: row(230, 158, 0.174, 0.4581, 0.066),
@@ -348,6 +386,11 @@ if (IS_MAIN && argv.includes('--selftest')) {
     // The fleet's mirrors as they shipped before: plain boxes, no glazing outboard of the body at all.
     ['the fleet\'s mirrors plain boxes with no glass, as shipped before', (c) => {
       c.fleetMirrors = c.fleetMirrors.map((m) => ({ ...m, tris: 0, area: 0, behind: 0 })); }, 'fleet shell'],
+    // The tail lamps as they shipped before the wrap: lens on the rear face only, 0.0 cm2 to either side.
+    ['tail lamps that face only backwards, as shipped before', (c) => {
+      c.tailWrap = c.tailWrap.map((t) => ({ ...t, beside: 0 })); }, 'wrap the rear corner'],
+    ['the player\'s car without the wrap the fleet has', (c) => {
+      c.tailWrap = c.tailWrap.map((t) => (t.name === 'player' ? { ...t, beside: 0 } : t)); }, 'wrap the rear corner'],
     ['one shell\'s mirror glass on the FRONT of its housing', (c) => {
       Object.assign(c.fleetMirrors[2], { behind: 0, ahead: c.fleetMirrors[2].area }); }, 'fleet shell'],
     ['the face shipped off', (c) => { c.shipped = 0; c.after = 0; }, 'ships the face ON'],
@@ -381,8 +424,9 @@ if (IS_MAIN && argv.includes('--selftest')) {
   // And the geometry checks read the REAL builders, so they are run here too: a selftest that only
   // fed the verdict invented numbers would pass on a build whose plate had already regressed.
   const real = plateGeometry(), realMirrors = mirrorGeometry(), realFleet = fleetMirrorGeometry();
-  const geo = verdict({ ...good, geometry: real, mirrors: realMirrors, fleetMirrors: realFleet }).slice(0, 5);
-  say(geo.length === 5 && geo.every((c) => c.ok), 'the shipped builders pass the five geometry checks, the plates and both cars\' mirrors',
+  const geo = verdict({ ...good, geometry: real, mirrors: realMirrors, fleetMirrors: realFleet,
+    tailWrap: tailWrapGeometry() }).slice(0, 6);
+  say(geo.length === 6 && geo.every((c) => c.ok), 'the shipped builders pass the six geometry checks: plates, both cars\' mirrors, the tail wrap',
     geo.filter((c) => !c.ok).map((c) => c.detail).join(' | '));
   console.log(`\nCAR-DETAIL SELFTEST: ${fail ? 'FAIL' : 'PASS'} — ${pass + fail} checks${fail ? `, ${fail} failed` : ''}`);
   process.exit(fail ? 1 : 0);
@@ -416,6 +460,7 @@ if (IS_MAIN) {
   report.geometry = geometry;
   report.mirrors = mirrorGeometry();
   report.fleetMirrors = fleetMirrorGeometry();
+  report.tailWrap = tailWrapGeometry();
   if (argv.includes('--json')) console.log(JSON.stringify(report, null, 1));
 
   console.log(`CAR-DETAIL — the number plate, built and drawn (${report.tod})\n`);

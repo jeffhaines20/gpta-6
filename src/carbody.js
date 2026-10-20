@@ -2319,6 +2319,32 @@ function flankX(capPoly, faces, z, y) {
   return halfWidth(z, y);
 }
 
+/**
+ * A TAIL LAMP'S WRAP ONTO THE REAR QUARTER. #119's reviewer, both builds: "no lit taillight on a
+ * side-on traffic car at night except the road spill: the tail lens does not wrap round the corner of
+ * the body". `overlayBand` lays the lens flat across the rear profile (x = u * half-width), so every
+ * lens triangle faced straight back: read off the buffers, 0.0 cm2 of tail lens faced either side on
+ * all three shells and the player's car, and the lens stopped 6-10 cm inboard of the flank. A real
+ * car's tail lamp wraps the corner, and a US car carries a red rear side marker there by law
+ * (FMVSS 108) -- the lamp a driver on the cross street sees.
+ *
+ * So each flank gets the lens's own height, `len` metres of it forward from the rear face, on the
+ * same slot: the night palette lights it and the lamp face reads its position like any other lens
+ * texel. It starts a centimetre forward of the LEAST rearward row of the band, so at every height it
+ * is on the flank and not hanging behind a slanted rear face. 2 triangles a side.
+ */
+export const TAIL_WRAP_M = 0.14;
+function tailWrap(b, shell, pts, iHi, iLo, len, off, colour) {
+  const zs = [], ys = [];
+  for (let i = iHi; i <= iLo; i++) { zs.push(pts[i].z); ys.push(pts[i].y); }
+  const yLo = Math.min(...ys), yHi = Math.max(...ys);
+  const z0 = Math.max(...zs) + 0.01, z1 = z0 + len;
+  for (const side of [-1, 1]) {
+    flankPanel(b, shell.capPoly, shell.faces, [[z0, yLo], [z1, yLo], [z1, yHi], [z0, yHi]], side, off,
+      SURFACE.taillight, colour);
+  }
+}
+
 // A panel floated on the swept surface between two silhouette points: headlamps,
 // grille, tail lamps, number plate. Follows the body exactly, so it never floats.
 //
@@ -2757,6 +2783,7 @@ export function buildPlayerCar(opts = {}) {
     }
     overlayBand(b, pts, nrm, iTailHi, iTailLo, -0.34, 0.34, 0.010,
       SURFACE.trim, trim, 3);
+    tailWrap(b, shell, pts, iTailHi, iTailLo, TAIL_WRAP_M, 0.012, tailCol);
   }
   // --- number plate: a flat US plate, 12 x 6 in, the fleet's construction (see
   // the traffic car's, and PLATE). It followed the bumper's curve as a band of
@@ -3335,6 +3362,7 @@ export function buildTrafficCarGeometry(opts = {}) {
     }
     overlayBand(b, pts, nrm, iTailHi, iTailLo, -0.30, 0.30, 0.009,
       SURFACE.trim, trimC, 1);
+    tailWrap(b, shell, pts, iTailHi, iTailLo, TAIL_WRAP_M, 0.012, tailC);
   }
   /**
    * --- number plate. Two triangles, and it is the cheapest "this is a car" cue
