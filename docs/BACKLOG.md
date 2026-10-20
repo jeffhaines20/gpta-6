@@ -1773,7 +1773,8 @@ the body edge past the lane at a p50 of 0.089 m, which is a real but small lane-
 The large half is the router emitting corners under the car's turning circle, and fixing that means
 rounding junction turns to `R_min` — a change to `tour()` that moves what `route-drive` and
 `drive-through` measure, so it needs a fresh baseline and belongs with **#64** exactly as the entry
-below already said. `lane-keep --selftest` is 10 checks in 4.1 s, on the offline gate list and `mutation-sweep`'s,
+below already said. (Done as **#61**, after #64 moved the baseline: tour points under `R_min(0)` 36 of
+816 -> 4 of 801, and lane-keep's forced band p90 2.778 -> 0.958 m.) `lane-keep --selftest` is 10 checks in 4.1 s, on the offline gate list and `mutation-sweep`'s,
 with the smoothing refusal gated so the next round does not re-derive it.
 
 **And the gate did not catch the mutation it was written next to, until it was run.** The first
@@ -4608,6 +4609,9 @@ sampling (CLAUDE.md: under ~20,000 is not the gate's to confirm).
   junction turns to `R_min` — is unblocked, and these two stops are its first deterministic subjects
   on the gate's own course. The old follower cut both corners inside, so it was not stopped there and
   hit walls instead; the baseline's one teleport, at 175 (a 4.3 m corner), is now driven.
+  **Taken as #61** (merged e4bb67b): route-drive with the page's parked pool reproduces these two
+  stops on the shipped course and reads 0 parked contacts and 0 nudges on the filleted one. The gate's
+  own lap on it is not yet measured.
 
 The artifacts are `docs/drive-traffic-128a.json` and `-128b.json`; `docs/drive-traffic.json` stays
 the #64 baseline.
@@ -4653,6 +4657,77 @@ a right angle into an alley at a speed the alley's width cannot hold. #131's one
 the extreme of it — a 114.6-degree corner completed from rest in 12.1 s, reached at 76 km/h after a
 straight-line brake, placed wrong for a corner tighter than its own turning circle, and lost to the
 reversing cycle.
+
+### #61 FIXED — the route's junction turns are rounded to the car's turning circle, and #128's two parked-car stops are gone from route-drive
+The lever #104 deferred ("rounding junction turns to `R_min` — a change to `tour()` ... needs a fresh
+baseline"), built after #64 moved the baseline, by a builder on `fillet-61` and merged in e4bb67b.
+
+**What shipped (`src/roadpath.js`).** `_shape` is now the ONE pipeline `path()` and `tour()` share —
+resample, smooth, resample, fillet the centreline, resample, lane fit, offset — where they had carried
+two copies of it. `filletCorners` puts an arc tangent to both legs at every junction turn over
+`JUNCTION_TURN_RAD` (45 degrees, read off the trough in the turn histogram; every threshold from 30 to
+75 gives the same contacts), at `FILLET_R` = the car's own `R_min` at the held crawl speed, 8.987 m,
+and steps the radius down a ladder until the arc is clear by the lane fit's own predicate,
+`clearAt(x, z, LANE_MARGIN_M)`. Neighbouring corners share their legs, and every corner is counted:
+full, short by its legs, short by clearance, none, merged. `windowTurn`, which reads a corner's radius,
+read every smooth curve n/(n-1) too wide: a 9 m circle read 13.39 m, and reads 8.92 now.
+
+**The lane offset moves a right turn and a left turn's radius in opposite directions, so where the
+fillet goes was measured, not argued** (9 m radius, parked cars solid):
+
+    placement                          tour points under R_min(0)   parked-contact steps   charged impacts (39 legs)
+    shipped, no fillet                            36                        188                    4
+    fillet on the lane                             8                         94                   12
+    on the centreline, lane inside                11                        355                   10
+    on the centreline, right turns held            7                          0                    6     shipped
+
+Right turns are held on the centreline arc (10 on the tour, worst 0.005 m off it), left turns at the
+narrower road's offset across the arc (14, worst 0.003 m outside [R, R + offset]).
+
+    tour points under R_min(0)        36 of 816 -> 4 of 801       under R_min(crawl)  40 -> 7
+    p10 radius                        8.10 -> 9.14 m              the ring's seam     66.7 -> 25.5 deg
+    junction corners                  24: 20 at the full radius, 4 short by their LEGS (three at the
+                                      roundabout, one S-bend at (-356.9, -341.1)), 0 by clearance
+    path() points under R_min(0)      78 gated routes 3.07% -> 0.74%; 196 probed, drive 3.26 -> 0.72%
+    lane-keep's forced band           p90 2.778 -> 0.958 m, body past the lane 15.8% -> 0.0%
+                                      (its absolute bound restated 5.0 -> 1.35; corner-now reads 1.854)
+
+**route-drive now carries the page's parked pool, and that answers #128's question.** The budget gate
+stopped twice in both #128 runs at course indices 635 and 654, against parked cars on the outside of
+2.6-3.2 m corners, and route-drive could not see it because it had no parked cars. With the pool, the
+SHIPPED course reproduces the gate's own contact sites — 1,929 parked-contact steps and 6 stuck-nudges
+at indices 339, 367, 634-635 and 654 — and #61's course reads 0 contacts and 0 nudges over three laps,
+1014.9 s at 34.2 km/h, worst 2.49 m off the line (1012.3 s, 34.8 km/h, 4.35 m before #61, without the
+pool). Over 194 seeded legs with walls, props and parked cars solid: arrived 188 -> 191, charged
+impacts 12 -> 9, parked-contact steps 22,697 -> 2,473. Each term ALONE was worse than both: the window
+fix alone 20 charged impacts, the fillet alone 29.
+
+**And a rule beyond the brief, in `followPath`: a cusp ahead is driven to, not reversed from.** The
+honest radius reading brought the car slowly into abort-cost's in-place reversal, where it then circled
+1.5 m short until the 240 s cap — a stall already present at HEAD on 4 of the 194 legs and for 183 s at
+wreck-cost's vertex-719 hairpin. Byte-identical on a path without a cusp (route-drive, lane-keep and
+shunt-rate). abort-cost shakedown 69.0 -> 70.9 s; wreck-cost vertex 719 236.5 -> 81.1 s, garage p50
+81.6 -> 73.0 s, 12 of 12 routes arrive; speed-limit's follower share 46.2% -> 58.2% (one of its three
+routes is that hairpin, where the car stood for 54.3 of its 60 s).
+
+**One check split rather than loosened.** reaction-test's "no lane point puts the car's centre on the
+pavement" reads 0 of 1,918 off the fillets, as strict as before, and 9 of 86 points 0.01-0.15 m past
+the road ribbon ON them, at four alley corners where no arc the car can drive fits inside the ribbon:
+bound 0.30 m, with a fillet sized for 26 km/h as the KNOWN-BAD (0.64) and `filletR: 0` as the control.
+
+Gates: roadpath-test 125 -> 153, route-drive 25 -> 26, reaction-test 183 -> 187, lane-keep 10 -> 11.
+`mutation-sweep`, seven rows each run alone: `fillet-off`, `fillet-right-hold`, `fillet-window-old`,
+`fillet-merge-off`, `fillet-clear-off` (MISSED until a district clearance-ladder check went in),
+`cusp-reaim` and `cusp-any-behind`, all caught.
+
+**Not measured, and what stands on it.** The budget gate's full lap: the builder's run hit its own
+1,500 s wall clock half a lap in on a box running three boot-checks (1,595 of 3,218 m in 159.1 s of sim,
+where #128's run covered the same stretch in 163.1 s; 0 teleports, 0 applied impacts, 0 parked contacts
+on it), so "the 635/654 stops are gone ON THE GATE" is route-drive's reading, not the gate's. damage-live
+is restated (tour 818 -> 803 points) and not run. abort-cost, wreck-cost and speed-limit build their graph
+without walls, so their fillets are not clearance-limited. #131's 120-degree turn limit was not
+re-derived now that a cusp is driveable. And on a merged corner that cannot be rounded, the per-corner
+`clearLimited` flag reads true when the cause was its legs; the category counts are right.
 
 ### #129 FIXED — a route that opened behind a moving car is the last resort now, and where every route turns round the harness stops first
 **What shipped.** `RoadGraph.path` takes the car's `heading` and `speed`, and for a car at or above
