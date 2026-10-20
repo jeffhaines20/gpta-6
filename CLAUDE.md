@@ -4453,7 +4453,13 @@ Found while placing #126's arm, by reading where the verdict was instead of assu
 **A lesson framed as a precaution for the next edit does not audit the edits already made.** So it
 is a lint now rather than a habit: `check-syntax` fails any `tools/*.mjs` with a `check(` call after
 its last column-0 `process.exit(`, proven against HEAD's boot-check (3 dead calls, rc 1) before it
-was trusted. And the revived arm failed its first run on a car that never touched the wall: the
+was trusted. **And the lint had the lesson's own blind spot**: a gate guarded on being the main
+module — `if (IS_MAIN) { ... process.exit(...) }`, which this file tells every tool to do — has no
+column-0 exit, so 24 of the gates with checks in them were exempt, and a check planted below
+kerb-stand's indented verdict passed it. Since 0cf3a18 a verdict is any statement that starts with
+`process.exit(`, at any indentation, and a check after it before its block closes is dead: the
+planted one reads rc 1 at line 847. **A lint written from one instance fits that instance's
+indentation.** And the revived arm failed its first run on a car that never touched the wall: the
 arrest arm now above it ends on "busted", the band read BUSTED as this arm placed its car, and the
 fade's `respawnCar()` then moved the car to a road, where full throttle met nothing for 420 s. Three
 repairs, every one of them this file's own lesson: drain an inherited hold before placing (the holds
