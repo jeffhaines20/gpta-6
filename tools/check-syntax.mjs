@@ -32,17 +32,32 @@ for (const f of files) {
  * wedged-car cue — three checks, the only gate that sees that line reach the page — was moved below
  * the verdict by #89's commit (e6504de) and stayed unreachable for ten days, through every boot-check
  * run since, with the check count simply three lower. Nothing errors, so the only symptom is a count
- * nobody reads; this reads it. A top-level `process.exit(` at column 0 is the verdict; any
- * `check(` after the last one is dead.
+ * nobody reads; this reads it.
+ *
+ * AT ANY INDENTATION. The first version took only a column-0 `process.exit(` as the verdict, and a gate
+ * guarded on being the main module -- `if (IS_MAIN) { ... process.exit(...) }`, which is what
+ * CLAUDE.md tells a tool to do -- has none, so 24 of the gates with `check(` calls were exempt: a
+ * check planted below kerb-stand's verdict passed it. Now a statement that STARTS with
+ * `process.exit(` is unconditional within its block, and any `check(` after it before the block
+ * closes (a non-blank, non-comment line indented less than the exit) is dead. A column-0 exit's block
+ * is the file, so the old rule is the special case.
  */
 const dead = [];
+const indentOf = (l) => l.match(/^\s*/)[0].length;
 for (const f of files.filter((f) => f.startsWith(`tools${path.sep}`) && f.endsWith('.mjs'))) {
   const lines = fs.readFileSync(f, 'utf8').split('\n');
-  let exitAt = -1;
-  lines.forEach((l, i) => { if (/^process\.exit\(/.test(l)) exitAt = i; });
-  if (exitAt < 0) continue;
-  const after = lines.slice(exitAt + 1).filter((l) => /\bcheck\(/.test(l)).length;
-  if (after) dead.push({ file: f, line: exitAt + 1, after });
+  lines.forEach((l, i) => {
+    if (!/^\s*process\.exit\(/.test(l)) return;
+    const k = indentOf(l);
+    let after = 0;
+    for (let j = i + 1; j < lines.length; j++) {
+      const t = lines[j];
+      if (!t.trim() || /^\s*(\/\/|\*|\/\*)/.test(t)) continue;
+      if (indentOf(t) < k) break;
+      if (/\bcheck\(/.test(t)) after++;
+    }
+    if (after) dead.push({ file: f, line: i + 1, after });
+  });
 }
 if (bad.length || dead.length) {
   if (bad.length) console.error(`SYNTAX: FAIL — ${bad.length}/${files.length}`);
