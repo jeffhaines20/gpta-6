@@ -534,7 +534,11 @@ await page.evaluate(() => __district.startRecording());
  * of sim per wall second is 15 minutes — and `ended` says whether the lap or the net stopped it.
  * A gate whose run ends on the net has measured part of its course, and says so.
  */
-const CAP_MS = ROAD_COURSE ? 1500000 : 300000;
+// `DRIVE_CAP_S` raises the net for a MEASUREMENT on a loaded box, never for the gate: on 2026-10-20 a
+// builder's run with three boot-checks alive got 159 s of sim in its 1,500 s and stopped half a lap
+// in, so the question it was run for (#61: are #128's two stops gone) went unanswered. `ended`
+// still says which stopped the run.
+const CAP_MS = Number(process.env.DRIVE_CAP_S ?? (ROAD_COURSE ? 1500 : 300)) * 1000;
 const t0 = Date.now();
 let laps = 0, stopped = null;
 while (laps < LAPS_WANTED && !stopped && Date.now() - t0 < CAP_MS) {
