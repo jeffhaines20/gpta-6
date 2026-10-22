@@ -1,0 +1,426 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>car-arch</title>
+<!--
+  THE RING ROUND THE WHEEL ARCHES (#125's fourth item) — the measurement page, and the gate's page.
+
+  #119's blind reviewer: "a warm dark ring round the wheel arches that reads as dirt or scorch rather
+  than shadow: (91,86,74) against the flank's (142,143,142) on the white car". It is on every car, so
+  this page draws one car at a time, side-on at street height, through the REAL lighting: src/sky.js's
+  dome and its PMREM (whose lower hemisphere is the lit ground), src/daynight.js's sun, shadow and
+  district bounce at the preset's own numbers, and src/post.js's composite with its AO and exposure.
+  Nothing here is a stand-in light, because the defect is a colour the LIGHT puts on a surface.
+
+  The cars are the game's, each built the way its pool builds it:
+    traffic  src/traffic.js's own mesh (geometry and material taken off a constructed Traffic)
+    parked   src/streetfurniture.js's own mesh (off a constructed StreetFurniture's parked pool)
+    player   buildPlayerCar(), on its wheels from a resting Vehicle
+  and every ARM rebuilds the same car with buildTrafficCarGeometry / buildPlayerCar's `arch` option on
+  the SAME material, so an arm differs from the shipped car in its arch and nothing else. The page
+  asserts that its own default build is byte-identical to the module's, which is what licenses that.
+
+  Per arm, car and side: the composite's frame and a class mask (paint facing sideways, other paint,
+  the wheel, dark non-paint, glass, lens) drawn with no AA, read on the flank plane round each arch's
+  circle centre over the top 140 degrees of the arch:
+    a RADIAL PROFILE   linear luma and (R-B)/luma per 1 cm of radius
+    the BANDS          every pixel of the well (2-6 cm inside the circle), the lip (the 8.5 cm the chamfer
+                       took) and the flank just past it, as medians
+    the REFERENCES     the door between the shuts in the same frame (its median, p10/p90, and the p10/p90
+                       of its (R-B)/luma), and the tyre's sidewall under the same arch
+  and, against the first arm, every pixel that changed: inside or outside the arch's zone, by class, and
+  whether a triangle with a corner in the arch covers it or a neighbour (*). With ?flat=1 the AO, the
+  bloom and the sun's shadow map are off, and outside the arch's reach nothing may change at all.
+
+  ?arms=none,shipped   ?cars=traffic,parked,player   ?sides=1,-1   ?tod=noon   ?flat=1   ?w=&h=   ?debug=1
+  An arm is a name from ARMS below: `none` is the arch before #125, `shipped` the module's own build.
+-->
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+<script type="module">
+import * as THREE from '../vendor/three.module.min.js';
+import { buildTrafficCarGeometry, buildPlayerCar, SHAPES, SURFACE, CAR } from '../src/carbody.js';
+import { Vehicle } from '../src/vehicle.js';
+import { TimeOfDay } from '../src/daynight.js';
+import { Sky } from '../src/sky.js';
+import { PostStack } from '../src/post.js';
+import { Traffic } from '../src/traffic.js';
+import { StreetFurniture, LAMP_POOL, PARKED_GROUND_Y } from '../src/streetfurniture.js';
+
+const q = new URLSearchParams(location.search);
+const W = Number(q.get('w') ?? 960), H = Number(q.get('h') ?? 540);
+const TOD = q.get('tod') ?? 'noon';
+const ARMS = {
+  shipped: { arch: undefined, ao: true },
+  none: { arch: false, ao: true },
+  // One lever at a time from the shell every round measured...
+  split: { arch: { split: true, liner: false, bevel: 1 }, ao: true },
+  liner: { arch: { split: false, liner: true, bevel: 1 }, ao: true },
+  bevel: { arch: { split: false, liner: false, bevel: 0 }, ao: true },
+  // ...and one lever at a time out of the shipped arch.
+  noSplit: { arch: { split: false, liner: true, bevel: 0 }, ao: true },
+  noLiner: { arch: { split: true, liner: false, bevel: 0 }, ao: true },
+  noBevel: { arch: { split: true, liner: true, bevel: 1 }, ao: true },
+  quarter: { arch: { split: true, liner: true, bevel: 0.25 }, ao: true },
+  // The composite's AO, which is a scalar on linear colour and so can darken a surface but not warm it.
+  aoOff: { arch: undefined, ao: false },
+  noneAoOff: { arch: false, ao: false },
+};
+const armNames = (q.get('arms') ?? 'none,shipped').split(',').filter(Boolean);
+const carNames = (q.get('cars') ?? 'traffic,parked,player').split(',').filter(Boolean);
+const sides = (q.get('sides') ?? '1,-1').split(',').map(Number);
+const FLAT = q.get('flat') === '1';
+const WHITE = 0.80;   // a white car's paint, linear (src/carpaint.js: "A white car's paint is about 0.80")
+
+const out = { tod: TOD, size: [W, H], flat: FLAT, arms: armNames, cars: carNames, sides, runs: [], ms: {} };
+const T0 = performance.now();
+const lap = (k) => { out.ms[k] = Math.round(performance.now() - T0); };
+try {
+  for (const a of armNames) if (!ARMS[a]) throw new Error(`unknown arm ${a}`);
+  const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(W, H);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  document.body.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(28, W / H, 0.2, 1400);
+  const sky = new Sky(renderer, scene);
+  sky.freezeCloudDrift(0);
+  const tod = new TimeOfDay(scene, renderer);
+  const post = new PostStack(renderer, scene, camera);
+  post.setSize(W, H);
+  tod.attachPost(post);
+  tod.setSky(sky, null);
+  tod.apply(TOD);
+  tod.follow(new THREE.Vector3(0, 0, 0));
+  lap('lighting');
+
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400),
+    new THREE.MeshStandardMaterial({ color: 0x5a5a58, roughness: 0.95 }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // ---- the cars, each through its own module.
+  const district = await (await fetch('../data/district.json')).json();
+  const sink = { add() {} };
+  const traffic = new Traffic(sink, district, { count: 30, seed: 0 });
+  const tMesh = traffic.meshes.find((m) => m.name === 'trafficCar:coupe') ?? traffic.meshes[0];
+  const furniture = new StreetFurniture(new THREE.Scene(), { max: LAMP_POOL });
+  furniture.buildParkedCars({ count: 30 });
+  const pMesh = furniture.parked.meshes[0];
+  const pkMat = pMesh.material, trMat = tMesh.material;
+  // The page's own default builds against the modules': an arm is only "the shipped car with a
+  // different arch" if the page's shipped car IS the module's.
+  const same = (g1, g2) => ['position', 'normal', 'color', 'uv'].every((n) => {
+    const a = g1.getAttribute(n).array, b = g2.getAttribute(n).array;
+    return a.length === b.length && a.every((v, i) => v === b[i]);
+  }) && g1.index.array.length === g2.index.array.length && g1.index.array.every((v, i) => v === g2.index.array[i]);
+  lap('modules');
+  out.moduleIdentity = {
+    traffic: same(buildTrafficCarGeometry({ groundY: 0, shape: SHAPES.coupe }), tMesh.geometry),
+    parked: same(buildTrafficCarGeometry({ groundY: PARKED_GROUND_Y, shape: SHAPES.coupe }), pMesh.geometry),
+  };
+
+  const mkInst = (geo, mat, y) => {
+    const m = new THREE.InstancedMesh(geo, mat, 1);
+    m.setMatrixAt(0, new THREE.Matrix4().makeTranslation(0, y, 0));
+    m.setColorAt(0, new THREE.Color(WHITE, WHITE, WHITE));
+    m.castShadow = true;
+    m.frustumCulled = false;
+    return m;
+  };
+  // Contact patches 2 cm under the ground, as the game's are under its road ribbon and its pad.
+  const TRAFFIC_Y = -0.02, PARKED_Y = 0.05;
+  const resting = new Vehicle();
+  for (const w of resting.wheels) w.suspLen = -0.10 - CAR.ground - resting.wheelRadius;
+  const cars = {};
+  const buildCar = (name, arch) => {
+    if (name === 'traffic') {
+      const geo = arch === undefined ? tMesh.geometry : buildTrafficCarGeometry({ groundY: 0, shape: SHAPES.coupe, arch });
+      return { obj: mkInst(geo, trMat, TRAFFIC_Y), geos: [geo], archY: CAR.archCy - CAR.ground + TRAFFIC_Y };
+    }
+    if (name === 'parked') {
+      const geo = arch === undefined ? pMesh.geometry : buildTrafficCarGeometry({ groundY: PARKED_GROUND_Y, shape: SHAPES.coupe, arch });
+      return { obj: mkInst(geo, pkMat, PARKED_Y), geos: [geo], archY: CAR.archCy - CAR.ground + PARKED_GROUND_Y + PARKED_Y };
+    }
+    const pc = buildPlayerCar(arch === undefined ? {} : { arch });
+    pc.setPaint(0xe7e7e7);    // sRGB 0xe7 is linear 0.80, the fleet's white
+    pc.group.position.set(0, -CAR.ground - 0.02, 0);
+    pc.updateWheels(resting);
+    pc.group.updateMatrixWorld(true);
+    return { obj: pc.group, geos: [pc.bodyMesh.geometry], archY: CAR.archCy - CAR.ground - 0.02, player: pc };
+  };
+
+  // ---- the mask: per fragment, from the palette slot the material reads and the face's own normal.
+  const maskMat = new THREE.ShaderMaterial({
+    vertexShader: `attribute float touch; varying float vU; varying vec3 vW; varying float vT;
+      void main() {
+        vU = uv.x;
+        vT = touch;
+        vec4 w = vec4( position, 1.0 );
+        #ifdef USE_INSTANCING
+          w = instanceMatrix * w;
+        #endif
+        w = modelMatrix * w;
+        vW = w.xyz;
+        gl_Position = projectionMatrix * viewMatrix * w;
+      }`,
+    fragmentShader: `varying float vU; varying vec3 vW; varying float vT;
+      void main() {
+        float s = floor( vU * 16.0 );
+        vec3 n = normalize( cross( dFdx( vW ), dFdy( vW ) ) );
+        float c = 200.0;
+        if ( s == 8.0 || s == 9.0 || s == 13.0 ) c = 40.0;
+        else if ( s == 10.0 ) c = 80.0;
+        else if ( s == 0.0 ) c = abs( n.x ) >= 0.9 ? 120.0 : 160.0;
+        else if ( s >= 4.0 && s <= 6.0 ) c = 240.0;
+        gl_FragColor = vec4( c / 255.0, abs( n.x ), vT > 0.0 ? 1.0 : 0.0, 1.0 );
+      }`,
+  });
+  const maskScene = new THREE.Scene();
+  maskScene.background = new THREE.Color(0, 0, 0);
+  // THE TRIANGLES AN ARCH LEVER CAN REACH, conservatively: every vertex within the notch and its inset
+  // (archR + edge, plus a centimetre) of either arch circle's centre is marked, whatever it belongs to, and
+  // a triangle with a marked corner is "touched" over its whole interior. A pixel of an untouched triangle
+  // can change only through something screen-space (the AO), so with the AO off it must not change at all.
+  const withTouch = (geo, yOff) => {
+    const g = geo.clone(), pos = g.getAttribute('position');
+    const t = new Float32Array(pos.count);
+    const reach = CAR.archR + CAR.edge + 0.01;
+    for (let i = 0; i < pos.count; i++) {
+      const y = pos.getY(i) - yOff, z = pos.getZ(i);
+      if (Object.values(AXLES).some((az) => Math.hypot(z - az, y - CAR.archCy) <= reach)) t[i] = 1;
+    }
+    g.setAttribute('touch', new THREE.BufferAttribute(t, 1));
+    return g;
+  };
+
+  const gl = renderer.getContext();
+  const grab = () => {
+    const px = new Uint8Array(W * H * 4);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const o = new Uint8Array(W * H * 3);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const s = ((H - 1 - y) * W + x) * 4, d = (y * W + x) * 3;
+      o[d] = px[s]; o[d + 1] = px[s + 1]; o[d + 2] = px[s + 2];
+    }
+    return o;
+  };
+  const lin = new Float64Array(256);
+  for (let i = 0; i < 256; i++) { const c = i / 255; lin[i] = c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }
+  const med = (v) => { if (!v.length) return null; const s = Float64Array.from(v).sort(); return s[s.length >> 1]; };
+  const pct = (v, f) => { if (!v.length) return null; const s = Float64Array.from(v).sort(); return s[Math.min(s.length - 1, Math.floor(f * (s.length - 1) + 0.5))]; };
+  const CLS = { 0: 'bg', 40: 'wheel', 80: 'glass', 120: 'flank', 160: 'paint', 200: 'dark', 240: 'lens' };
+
+  const XF = 0.96;   // the flank plane the profile is read on, |x| in metres (the arch lip's flank is 0.955-0.97)
+  const AXLES = { rear: CAR.rearAxleZ, front: CAR.frontAxleZ };
+  const SECTOR = 70 * Math.PI / 180;
+  const R0 = 0.20, R1 = 0.80, DR = 0.01;
+  const ZONE = 0.62;   // the notch's 0.445 m, the 8.5 cm inset, and a 9 cm margin for the projection
+  const NB = Math.round((R1 - R0) / DR);
+
+  const measure = (rgb, mask, side, archY) => {
+    camera.updateMatrixWorld(true);
+    const inv = camera.projectionMatrixInverse, cw = camera.matrixWorld;
+    const o = camera.position;
+    const v = new THREE.Vector3();
+    const flank = { L: [], w: [] };
+    const bins = { rear: [], front: [] };
+    // THE BANDS the gate reads, from the arch's own numbers: the WELL above the tyre (2 to 6 cm inside the
+    // notch, clear of its antialiased edge), the LIP (the 8.5 cm the chamfer used to take, a centimetre
+    // in from each edge), and the flank just past it. Every pixel in the band, not a median of bins.
+    const BANDS = { well: [CAR.archR - 0.06, CAR.archR - 0.02], lip: [CAR.archR + 0.01, CAR.archR + CAR.edge - 0.01],
+      near: [CAR.archR + CAR.edge + 0.01, CAR.archR + CAR.edge + 0.10] };
+    const bandPx = { rear: {}, front: {} };
+    for (const k of Object.keys(bandPx)) for (const b of Object.keys(BANDS)) bandPx[k][b] = { L: [], w: [] };
+    // THE TYRE beside it, the darkest thing under the arch and in the same shadow: wheel pixels between
+    // 2 cm outside the alloy's rim and 5 cm inside the tread, measured from the arch centre (the wheel's
+    // is 2.3 cm below it, so this is sidewall at every angle of the sector).
+    const TYRE = [CAR.rimR + 0.02, CAR.wheelR - 0.05];
+    const tyrePx = { rear: [], front: [] };
+    for (const k of Object.keys(bins)) for (let b = 0; b < NB; b++) bins[k].push({ L: [], w: [], cls: {} });
+    const doorH = [];   // flank luma by height on the door, 2 cm bands
+    // THE ARCH ZONE, per pixel: within ZONE of either arch circle's centre on the flank plane. Every
+    // vertex an arch lever can move belongs to an arch point, whose rings all lie within the notch and
+    // its 8.5 cm inset, so a pixel outside it can change only through a triangle that reaches in.
+    const zone = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      v.set((x + 0.5) / W * 2 - 1, 1 - (y + 0.5) / H * 2, 0.5).applyMatrix4(inv).applyMatrix4(cw).sub(o);
+      if (Math.abs(v.x) < 1e-9) continue;
+      const t = (side * XF - o.x) / v.x;
+      if (t <= 0) continue;
+      const py = o.y + t * v.y, pz = o.z + t * v.z;
+      for (const az of Object.values(AXLES)) if (Math.hypot(pz - az, py - archY) < ZONE) zone[i] = 1;
+    }
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      const i = y * W + x;
+      const c = mask[i * 3];
+      if (c === 0) continue;
+      const R = lin[rgb[i * 3]], G = lin[rgb[i * 3 + 1]], B = lin[rgb[i * 3 + 2]];
+      const L = 0.2126 * R + 0.7152 * G + 0.0722 * B;
+      const wm = L > 1e-6 ? (R - B) / L : 0;
+      v.set((x + 0.5) / W * 2 - 1, 1 - (y + 0.5) / H * 2, 0.5).applyMatrix4(inv).applyMatrix4(cw).sub(o);
+      if (Math.abs(v.x) < 1e-9) continue;
+      const t = (side * XF - o.x) / v.x;
+      if (t <= 0) continue;
+      const py = o.y + t * v.y, pz = o.z + t * v.z;
+      // An interior pixel of one class, so an antialiased edge cannot carry two surfaces' colours.
+      let pure = true;
+      for (let dy = -1; dy <= 1 && pure; dy++) for (let dx = -1; dx <= 1; dx++) if (mask[(i + dy * W + dx) * 3] !== c) { pure = false; break; }
+      // THE FLANK REFERENCE: the door between the shuts, below the belt and above the sill, off the
+      // swage line. Taken on the same plane, so it is the same surface the profile runs out onto.
+      const yc = py - (archY - CAR.archCy);   // back into the car's own frame
+      if (c === 120 && pure && pz > -0.55 && pz < 0.55 && yc > -0.40 && yc < 0.25 && !(yc > -0.01 && yc < 0.10)) {
+        flank.L.push(L); flank.w.push(wm);
+        const hb = Math.floor((yc + 0.40) / 0.02);
+        (doorH[hb] ??= []).push(L);
+      }
+      for (const [k, az] of Object.entries(AXLES)) {
+        const dz = pz - az, dy = py - archY;
+        const r = Math.hypot(dz, dy);
+        if (r < R0 || r >= R1) continue;
+        const th = Math.atan2(dz, dy);
+        if (Math.abs(th) > SECTOR) continue;
+        const b = bins[k][Math.floor((r - R0) / DR)];
+        b.cls[CLS[c]] = (b.cls[CLS[c]] ?? 0) + 1;
+        if (c === 40 && pure && r >= TYRE[0] && r < TYRE[1]) tyrePx[k].push(L);
+        if (c === 40 || c === 80 || c === 240) continue;     // the wheel, the glass and a lens are not the ring
+        b.L.push(L); b.w.push(wm);
+        for (const [bn, [a0, a1]] of Object.entries(BANDS)) if (r >= a0 && r < a1) { bandPx[k][bn].L.push(L); bandPx[k][bn].w.push(wm); }
+      }
+    }
+    const fL = med(flank.L), fw = med(flank.w);
+    const prof = {};
+    for (const [k, list] of Object.entries(bins)) {
+      prof[k] = list.map((b, j) => ({ r: +(R0 + (j + 0.5) * DR).toFixed(3), n: b.L.length,
+        L: med(b.L), w: med(b.w), Lr: b.L.length && fL ? med(b.L) / fL : null,
+        dw: b.w.length && fw != null ? med(b.w) - fw : null,
+        p10: pct(b.L, 0.1), p90: pct(b.L, 0.9), cls: b.cls }));
+    }
+    return { tyre: Object.fromEntries(Object.entries(tyrePx).map(([k, v]) => [k, { n: v.length, Lr: v.length && fL ? med(v) / fL : null }])),
+      flank: { n: flank.L.length, L: fL, w: fw, p10: pct(flank.L, 0.1), p90: pct(flank.L, 0.9),
+        w10: pct(flank.w, 0.1), w90: pct(flank.w, 0.9),
+      byHeight: doorH.map((v, j) => (v ? { y: +(-0.40 + (j + 0.5) * 0.02).toFixed(2), n: v.length, L: med(v) } : null)).filter(Boolean) },
+      prof, zone,
+      bands: Object.fromEntries(Object.entries(bandPx).map(([k, o]) => [k, Object.fromEntries(Object.entries(o).map(([bn, v]) => [bn, {
+        n: v.L.length, Lr: v.L.length && fL ? med(v.L) / fL : null, dw: v.w.length && fw != null ? med(v.w) - fw : null,
+        p90r: v.L.length && fL ? pct(v.L, 0.9) / fL : null }]))])) };
+  };
+  // AGAINST THE FIRST ARM, per pixel: how many changed at all, by the first arm's class and by zone.
+  // A pixel is REACHED (*) if a touched triangle covers it or any of its eight neighbours: the colour pass
+  // is multisampled and the mask is not, so a pixel whose centre lies in an untouched triangle still
+  // blends the samples of a touched one beside it.
+  const diff = (base, rgb) => {
+    const out2 = {};
+    const tm = base.mask;
+    const reached = (i) => {
+      const x = i % W, y = (i / W) | 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const xx = x + dx, yy = y + dy;
+        if (xx >= 0 && yy >= 0 && xx < W && yy < H && tm[(yy * W + xx) * 3 + 2] > 127) return true;
+      }
+      return false;
+    };
+    for (let i = 0; i < W * H; i++) {
+      let d = 0;
+      for (let k = 0; k < 3; k++) d = Math.max(d, Math.abs(base.rgb[i * 3 + k] - rgb[i * 3 + k]));
+      const key = `${base.zone[i] ? 'arch' : 'rest'}:${CLS[base.mask[i * 3]] ?? 'other'}${reached(i) ? '*' : ''}`;
+      const e = (out2[key] ??= { px: 0, changed: 0, max: 0 });
+      e.px++;
+      if (d > 0) { e.changed++; e.max = Math.max(e.max, d); }
+    }
+    return out2;
+  };
+  const baseline = new Map();
+
+  const frames = {};
+  for (const armName of armNames) {
+    const arm = ARMS[armName];
+    for (const carName of carNames) {
+      const car = buildCar(carName, arm.arch);
+      scene.add(car.obj);
+      // The mask geometry's y offset back into CAR's frame: the fleet's shells are built standing on their
+      // groundY, the player's body in CAR's own frame.
+      const yOff = carName === 'traffic' ? -CAR.ground : carName === 'parked' ? PARKED_GROUND_Y - CAR.ground : 0;
+      const mobj = carName === 'player'
+        ? new THREE.Mesh(withTouch(car.player.bodyMesh.geometry, 0), maskMat)
+        : new THREE.InstancedMesh(withTouch(car.obj.geometry, yOff), maskMat, 1);
+      if (carName === 'player') { mobj.position.copy(car.obj.position); }
+      else { mobj.instanceMatrix = car.obj.instanceMatrix; }
+      maskScene.add(mobj);
+      // The player's wheels are a separate mesh: mask them as wheel.
+      let mw = null, mg = null;
+      if (carName === 'player') {
+        // A raw ShaderMaterial, as the mask is: a MeshBasicMaterial's colour would be sRGB-encoded on the way out.
+        mg = new THREE.Mesh(car.player.glassMesh.geometry, new THREE.ShaderMaterial({
+          vertexShader: 'void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }',
+          fragmentShader: 'void main() { gl_FragColor = vec4( 80.0 / 255.0, 0.0, 0.0, 1.0 ); }' }));
+        mg.position.copy(car.obj.position);
+        maskScene.add(mg);
+        mw = new THREE.InstancedMesh(withTouch(car.player.wheelMesh.geometry, Infinity), maskMat, 4);
+        mw.instanceMatrix = car.player.wheelMesh.instanceMatrix;
+        mw.position.copy(car.obj.position);
+        mw.frustumCulled = false;
+        maskScene.add(mw);
+      }
+      for (const side of sides) {
+        // Side-on, street height: 7 m out from the car's axis, eye at 1.5 m, aimed at mid-flank.
+        camera.position.set(side * 7.0, 1.5, -0.1);
+        camera.lookAt(0, 0.55, -0.1);
+        camera.updateMatrixWorld(true);
+        sky.updateView(camera);
+        // ?flat=1 turns off every term that can carry a change across the screen or the scene: the AO
+        // and the bloom (screen-space) and the sun's shadow map (scene-space). The confinement check runs
+        // flat; what a viewer sees runs with all three.
+        post.params.aoEnabled = arm.ao && !FLAT;
+        const bloom0 = post.params.bloomStrength;
+        if (FLAT) post.params.bloomStrength = 0;
+        renderer.shadowMap.enabled = !FLAT;
+        post.enabled = true;
+        const tq = performance.now();
+        post.render();
+        const rgb = grab();
+        out.ms.render = (out.ms.render ?? 0) + Math.round(performance.now() - tq);
+        (out.ms.each ??= []).push(Math.round(performance.now() - tq));
+        post.params.aoEnabled = true;
+        post.params.bloomStrength = bloom0;
+        renderer.shadowMap.enabled = true;
+        renderer.setRenderTarget(null);
+        renderer.setClearColor(0x000000, 1);
+        renderer.clear();
+        renderer.render(maskScene, camera);
+        const mask = grab();
+        const tr = performance.now();
+        const { zone, ...m } = measure(rgb, mask, side, car.archY);
+        out.ms.measure = (out.ms.measure ?? 0) + Math.round(performance.now() - tr);
+        const bk = `${carName}|${side}`;
+        const first = !baseline.has(bk);
+        if (first) baseline.set(bk, { arm: armName, rgb, mask, zone });
+        const b0 = baseline.get(bk);
+        const g = car.geos[0];
+        out.runs.push({ arm: armName, car: carName, side, ...m,
+          geometry: { tris: g.index.count / 3, verts: g.getAttribute('position').count },
+          vsFirst: first ? null : { against: b0.arm, ...diff(b0, rgb) } });
+        if (q.get('debug') === '1') {
+          const b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode(...u8.subarray(i, i + 8192)); return btoa(s); };
+          frames[`${armName}-${carName}-${side > 0 ? 'px' : 'nx'}`] = { rgb: b64(rgb), mask: b64(mask) };
+        }
+      }
+      scene.remove(car.obj);
+      maskScene.remove(mobj);
+      if (mw) maskScene.remove(mw);
+      if (mg) maskScene.remove(mg);
+    }
+  }
+  lap('total');
+  out.light = { exposure: post.params.exposure, aoStrength: post.params.aoStrength, preset: tod.presetName,
+    sun: tod.sun.intensity, bounce: tod.bounce.intensity, envIntensity: scene.environmentIntensity,
+    sunDir: tod.sunDirection().toArray().map((x) => +x.toFixed(4)) };
+  window.__carArch = out;
+  if (q.get('debug') === '1') window.__carArchFrames = frames;
+} catch (e) {
+  window.__carArch = { error: String(e && e.stack || e) };
+}
+</script>

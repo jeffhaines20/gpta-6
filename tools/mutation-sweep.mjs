@@ -210,6 +210,12 @@ const OFFLINE = [
   // kerb face the streamer draws, by a classifier of its own. Nothing else on this list asks where
   // anything STANDS relative to the kerb — geom-audit asks whether it floats.
   'kerb-stand',
+  // 22-33 s on a loaded box, the dearest page here, and priced before it was added this time: about an
+  // hour over the table. #125's wheel arch: every car pool's buffers through its own module (half a
+  // second), then one fleet car and the player's through the real noon light. Nothing else on this
+  // list renders a car under the district's own sky, and `arch-bevel-on` passes every buffer check.
+  'car-arch',
+  'car-arch --selftest',
 ];
 
 /**
@@ -2747,6 +2753,68 @@ const MUTATIONS = [
     find: '    b.quad(gv(0.045, -0.032), gv(-0.045, -0.032), gv(-0.045, 0.032), gv(0.045, 0.032));',
     to: '',
     why: "#133's fleet half put back: every traffic, parked and police car's door mirror a plain box with no glass on its back",
+  },
+  // #125's arch. Each lever alone, the whole of it, and the two places the fix could quietly stop being
+  // confined or stop reaching a builder.
+  {
+    id: 'arch-none', file: 'src/carbody.js',
+    find: 'const ARCH_SHIPPED = Object.freeze({ split: true, liner: true, bevel: 0 });',
+    to: 'const ARCH_SHIPPED = ARCH_NONE;',
+    why: "#125's arch put back whole: the warm ring round every wheel arch on every pool, the painted well and the 8.5 cm chamfer facing the pavement",
+  },
+  {
+    id: 'arch-liner-off', file: 'src/carbody.js',
+    find: 'const ARCH_SHIPPED = Object.freeze({ split: true, liner: true, bevel: 0 });',
+    to: 'const ARCH_SHIPPED = Object.freeze({ split: true, liner: false, bevel: 0 });',
+    why: 'the well painted again behind a flush lip: white paint lit by the warm ground, 0.01-0.36 of the flank and up to +0.57 warmer',
+  },
+  {
+    id: 'arch-bevel-on', file: 'src/carbody.js',
+    find: 'const ARCH_SHIPPED = Object.freeze({ split: true, liner: true, bevel: 0 });',
+    to: 'const ARCH_SHIPPED = Object.freeze({ split: true, liner: true, bevel: 1 });',
+    why: "the chamfer back round a black well: every buffer check holds (the well is plastic, the cap's normal its own, nothing outside moved) and the lip reads +0.31 to +0.50 warm. Only the page sees it",
+  },
+  {
+    id: 'arch-split-off', file: 'src/carbody.js',
+    find: 'const ARCH_SHIPPED = Object.freeze({ split: true, liner: true, bevel: 0 });',
+    to: 'const ARCH_SHIPPED = Object.freeze({ split: false, liner: true, bevel: 0 });',
+    why: "the flank's arch edge shared with the lip again: the arch's two feet keep their chamfer and bleed 29 degrees into the flank",
+  },
+  {
+    id: 'arch-feet-bevel', file: 'src/carbody.js',
+    find: '  const bevel = (i) => (isArch[i] && isArch[(i + N - 1) % N] && isArch[(i + 1) % N] ? arch.bevel ?? 1 : 1);',
+    to: '  const bevel = (i) => (isArch[i] ? arch.bevel ?? 1 : 1);',
+    why: "the bevel reaching the arch's feet too: their faces into the sill move, so the sill's own normals do, outside the arch",
+  },
+  {
+    id: 'arch-liner-paint-slot', file: 'src/carbody.js',
+    find: 'function archPlan(want, linerColour, linerPal = SURFACE.matte) {',
+    to: 'function archPlan(want, linerColour, linerPal = SURFACE.paint) {',
+    why: "the liner on the paint slot: dark plastic's colour, but the instance colour tints it and its finish is paint's",
+  },
+  {
+    id: 'arch-liner-white', file: 'src/carbody.js',
+    find: "  const shell = buildShell(b, pts, P, white, trimC, 'coarse', archPlan(opts.arch, trimC));",
+    to: "  const shell = buildShell(b, pts, P, white, trimC, 'coarse', archPlan(opts.arch, white));",
+    why: "the fleet's liner in the body's own white on the matte slot: an unpainted well, but not the car's plastic, lit warm by the ground",
+  },
+  {
+    id: 'arch-player-off', file: 'src/carbody.js',
+    find: "  const shell = buildShell(b, pts, P, paint, trim, 'fine', archPlan(opts.arch, trim));",
+    to: "  const shell = buildShell(b, pts, P, paint, trim, 'fine', archPlan(false, trim));",
+    why: "the fix in the fleet's builder and not the player's: patching one builder and leaving its sibling",
+  },
+  {
+    id: 'arch-rail-shared', file: 'src/carbody.js',
+    find: '    const vx = inner && wellAt.size ? (i, kk) => wellAt.get(kk * N + i) ?? at(i, kk) : at;',
+    to: '    const vx = at;',
+    why: "the well's copy of the lip's rail made and never used: the well's first row is the paint vertex, so the liner starts in the body colour",
+  },
+  {
+    id: 'arch-cap-copies-unused', file: 'src/carbody.js',
+    find: '  const cv = (t, k) => capAt.get(k * N + t) ?? at(t, k);',
+    to: '  const cv = at;',
+    why: "the cap's copies made and never used: the flank's arch edge shares the lip's vertices again and the feet tilt it",
   },
   {
     id: 'parked-frame-off', file: 'src/streetfurniture.js',

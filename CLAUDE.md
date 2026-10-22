@@ -3184,7 +3184,9 @@ pavement prop against the kerb face the streamer draws, 3.7 s; #135/#137's lamp 
 `sign-orient` and `sign-orient --selftest` (every lettered face reads forwards, every street-name
 blade lettered on both faces, and named for the street it runs along; 0.7 s),
 `glass-ao` and `glass-ao --selftest` (#130: a purpose-built page, the AO cloud on car glass, 8 s),
-`star-strokes` and `star-strokes --selftest` (#124: the night sky's stars as connected components, 3.3 s).
+`star-strokes` and `star-strokes --selftest` (#124: the night sky's stars as connected components, 3.3 s),
+`car-arch` and `car-arch --selftest` (#125: every car pool's buffers through its own module, then a purpose-built
+page through the real noon light; 22-33 s on a loaded box, the selftest 0.3 s).
 **Fifty-six entries in 241 s** on 2026-10-19, run alone. **Add a new gate to BOTH lists** — this one
 and `mutation-sweep`'s offline list: `car-shapes` sat on this one and not the sweep's, so nothing it
 asserted had ever been swept, and a row written for a new car-shapes check came back MISSED against
