@@ -44,12 +44,19 @@ const CAR_R = 0.95;          // the body half-width src/vehicle.js's inertia box
 
 console.log('STATIC BLOCKER GATE');
 console.log('='.repeat(78));
-const tBuild = process.hrtime.bigint();
+// THE BUILD IS TIMED IN PROCESS CPU TIME, with wall time printed beside it. One cold build timed on the
+// wall clock read 18.0, 26.8, 28.7 and 71.7 ms on unchanged code at load 12 (2026-10-22), against a
+// 100 ms bound, and mutation-sweep had already reported this gate "catching" a row it then passed
+// twelve times running. CPU time is the same cold build and is not counted while another process
+// holds the core; a minimum over warm rebuilds would have measured a different quantity.
+const tBuild = process.hrtime.bigint(), cBuild = process.cpuUsage();
 const ix = new BlockerIndex(district);
-const buildMs = Number(process.hrtime.bigint() - tBuild) / 1e6;
+const cpu = process.cpuUsage(cBuild);
+const buildMs = (cpu.user + cpu.system) / 1000;
+const buildWallMs = Number(process.hrtime.bigint() - tBuild) / 1e6;
 console.log(`\nindex: ${JSON.stringify(ix.report())}`);
-console.log(`built in ${buildMs.toFixed(1)} ms`);
-check('the index built in under 100 ms', buildMs < 100, `${buildMs.toFixed(1)} ms`);
+console.log(`built in ${buildMs.toFixed(1)} ms of CPU (${buildWallMs.toFixed(1)} ms of wall clock)`);
+check('the index built in under 100 ms', buildMs < 100, `${buildMs.toFixed(1)} ms of CPU, ${buildWallMs.toFixed(1)} ms of wall clock`);
 
 // ---------------------------------------------------------------------------
 // §1  The segments are the build's own edges.
