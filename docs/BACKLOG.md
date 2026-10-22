@@ -5319,15 +5319,17 @@ recomputed off the buffer. `mutation-sweep` rows `globe-level-old`, `globe-level
 Swept 2026-10-22 at 677733c, one `--only` row at a time against the 42-entry offline list: all five offline rows
 caught by `globe-level`. `globe-setlit-literal` also read "caught by blocker-test", and that did not reproduce:
 blocker-test with the mutation applied in an export passes 128 of 128 twice (8.2 and 8.7 s), and the clean tree
-passes too. The likely cause is one of its two wall-clock bounds (the index built under 100 ms, 43.4 ms on that
-control; resolveCircle under 20 us) at a load average of 9-10 on four cores, and it is only likely: the sweep
-keeps no FAIL lines, so neither that nor which bound is established. `lamp-candela-typed` was NOT run through
-`mutation-sweep --browser`, which would have cost two whole boot-checks (31 minutes each at that load);
-boot-check's own two assertions were run instead against a page served from an export carrying the mutation:
-"every lamp's light is the module's" FAILS there (1,228 of 1,228 emitters at 1,800 cd against the module's 900)
-and the globe check still passes, which is what the row's comment predicts (only the wire check can see it); the
-same probe on this tree passes both. Its first attempt 404'd: `ensureServer` had served the probe's cwd rather
-than the export it was given, for every caller, which b3d7bb7 fixes in `tools/serve.mjs`.
+passes too, and eight more clean runs at load 10-14 all pass. Its only checks that read the clock are two
+wall-clock bounds (lines 52 and 423), and those eight runs read them well inside (the index built in 20-32 ms of
+100, resolveCircle in contact 4.5-7.8 us of 20), so the cause is NOT established: the sweep keeps no FAIL lines
+(b8bf8c4 on the shipped branch records the same shape in crash-test, where the failing line was a timing).
+`lamp-candela-typed` was NOT run through `mutation-sweep --browser`, which would have cost two whole boot-checks
+(31 minutes each at that load); boot-check's own two assertions were run instead against a page served from an
+export carrying the mutation: "every lamp's light is the module's" FAILS there (1,228 of 1,228 emitters at 1,800
+cd against the module's 900) and the globe check still passes, which is what the row's comment predicts (only
+the wire check can see it); the same probe on this tree passes both. Its first attempt 404'd: `ensureServer` had
+served the probe's cwd rather than the export it was given, for every caller, which b3d7bb7 fixes in
+`tools/serve.mjs`.
 
 #### #136 (as filed)
 ### #136 OPEN — a lamp's reflection outshines the lamp: the globe emits about 1/2,600 of what its light implies
