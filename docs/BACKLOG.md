@@ -5225,8 +5225,12 @@ globe's own pixels read back 1.762 to four figures, every globe in frame.
     the lamp's own inner globe           x6.95                         lit from 3.2 m by its twin
     oak leaves, awnings, walls           x5.1, x1.5        x2.5, x1.6
 
-Classified by looking at each component's box in the frame: the probe cannot tell glass by itself. At dusk
-the same ratios to a few hundredths (the lamp light does not depend on the hour), from noisier reads.
+Classified by looking at each component's box in the frame: the probe cannot tell glass by itself. At dusk,
+corridor only, the same ratios to a few hundredths (the lamp light does not depend on the hour), from noisier
+reads. The fourth run, fivepoints at dusk, died when its browser closed under it ("Target page, context or
+browser has been closed" in `settleFrames`), so `docs/globeord0.json` holds three runs and says `partial: true`.
+These are all at the OLD level; the ratios at 1/30 are those divided by x74.6, by linearity, not re-measured in
+the district.
 
 **On a page** (`tools/globe-level.html`, new, the gate): the module's own lamp, its light through the real
 LightPool and the real PostStack at the night bars, and the surfaces the reviews named at the distances the
