@@ -4287,7 +4287,7 @@ The remaining three, as filed:
   no light change: 56 px along (12,340)-(439,430), 1-6 codes, so in motion it would shimmer. The
   sun's shadow box is #117's; the first question is what moved between the two captures.
 
-### #125 TWO OF FIVE FIXED, THREE OPEN — what #119's reviewer found wrong in BOTH arms, cars first
+### #125 TWO OF FIVE FIXED, THE HEADLAMPS' FRAME FIXED (NOT REVIEWED), TWO OPEN — what #119's reviewer found wrong in BOTH arms, cars first
 **The side-on taillight: FIXED (0812a0e).** `overlayBand` lays the tail lens flat across the rear
 profile, so every lens triangle faced straight back. Off the buffers, 0.0 cm2 of tail lens faced either
 side on all three shells AND on the player's car, the lens stopping 6-10 cm inboard of the flank. Real
@@ -4303,7 +4303,40 @@ both caught by car-detail. +4 triangles a car. Not reviewed blind.
 are 12-gons, a wheel's flats 3.4% of its radius inside the circle where the 8-gon's were 7.6%, +160
 triangles a car (320 -> 480 of the wheels), gated by `car-shapes`' roundness check.
 
-Still open, as filed: the cartoon headlamps, the dark ring round the wheel arches, and the foliage.
+**The cartoon headlamps: a FRAME error on every parked car, FIXED (c2bea44), not reviewed blind.** The
+reviewer's car is the corridor's near-left one, a PARKED car, and cropped at 6x its lamps are flat
+plates with the two bowls clipped at their TOP edge and no light guide at all. `src/streetfurniture.js`
+builds the parked shells at `groundY = PAD_Y - 0.02 = -0.07` and the fleet at 0, and the material
+declared no `CAR_FRAME_Y`, while the shader draws the lamps' face AND the cabin by position in the
+fleet's frame. Off the buffers, in each build's own frame:
+
+    parked head plate          0.713-0.850   the face is laid out for 0.783-0.920
+    its bowls, rings to 3.8 cm 0.794-0.870   clipped by the plate's top at 0.850
+    its light guide            0.879-0.895   45 mm ABOVE the plate: never drawn
+    its tail lens, LED bars    0.573-0.702 against 0.643-0.772, the reverse insert clipped
+    its cabin's belt           77 mm under the side glass (fleet: 7 mm), so the lowest 7 cm of every
+                               far window read as door
+
+Fixed once: `CAR_FRAME_Y` lifts the cabin varyings in the vertex shader, so the face and the cabin read
+one frame; `trafficCarMaterial` takes the `groundY` its geometry was built at; the parked pool passes
+`PARKED_GROUND_Y` to both. The face's GLSL is generated from an exported `LAMP_FACE`, byte-identical
+apart from the moved fallback define. `car-detail` now builds every pool the page builds THROUGH ITS
+OWN MODULE — Traffic, the parked pool, PursuitUnits, the player — and checks in the frame each
+material declares that `LAMP_FACE` fits that pool's own plates and the cabin's belt sits on its own side
+glass: every pool now reads head 0.783-0.920 (player 0.787), tail 0.643-0.772, side glass 1.077. Every
+tile car-detail renders is built at groundY 0, which is why it never saw this: the fourth time the
+parked pool's 0.07 m has bitten after `car-lens`'s bonnet rows and `car-probe`'s projection. 24 -> 26
+checks, selftest 37 -> 43. Rows `parked-frame-off`, `parked-frame-sign` and `cabin-frame-vertex-off`, each
+run alone, all caught by car-detail (the third by its rendered player-lamp tile, as its `why` says;
+the offline check reads the define). The first row also read "caught by crash-test": a 25 us
+wall-clock bound that timed 27.68 us on a box at load 9, against 9.54 a minute earlier on the same
+code. crash-test now takes the fastest of sixteen short trials (3f2c32f), 8.5-10.9 us over four runs at
+load 9.2, bound unchanged. Two existing rows went stale on the lines this changed and were repointed
+by intent. Whether the face still reads as "eyes" now that it sits where it was drawn for is for the
+next blind review.
+
+Still open, as filed: the dark ring round the wheel arches (#138's AO is the first suspect), and the
+foliage.
 
 #### #125 (as filed)
 - No lit taillight on a side-on traffic car at night except the road spill: the tail lens does not
@@ -5009,7 +5042,8 @@ out to be. And its "clouds moved between the paired captures" is the harness: ea
 at its own load time (17.945 s and 30.662 s), so a two-tree pair carried 12.7 s of drift — hero-shots
 pins one time now.
 
-### #138 OPEN — the AO's depth-step leak darkens anything standing behind something nearer, and #130 only took the glass out
+### #138 OPEN, BUILT ON aorange-138 AND HELD — the AO's depth-step leak darkens anything standing behind something nearer, and #130 only took the glass out
+(aoThickness 0.6 is built and trial-merged clean; its blind review split 2-2 and found #141 underneath. See #141.)
 Found by #130's page, `tools/glass-ao.html`, in the arm #130 does not touch. A pedestrian-sized block
 1.5 m in front of a car darkens the car's PAINT beside its outline to 0.708 of AO-off (0-8 px), 0.869
 (8-16) and 0.858 (16-32), against 0.989 with no block — the same cloud the reviewers saw on the glass,
@@ -5411,3 +5445,53 @@ At the corridor camera the left side's nearest lamps are 6 m behind the lens and
 is to space by arc length along the whole EDGE and alternate (or pair) continuously, which roughly
 doubles the count — a price in the gate's units, since lamps are three never-culled InstancedMeshes
 in both passes (72 triangles a lamp, x2), and a night-look change for a blind review alongside #135.
+
+### #141 OPEN — the sun's depth bias is 0.54 m along its ray at every hour, so at noon nothing within 0.58 m of the ground can shadow it: the road under every car is sunlit
+**Found by #138's blind review (2026-10-22), decoded against `blind-key-r138b-r138.json` on aorange-138.**
+The reviewer found one term, a darkening along concave junctions and object bases with no
+opposite-sign pixels (1 px in the registered noon corridor pair), and it was the BEFORE arm every time:
+the leak #138 removes. Per pair:
+
+    pair              preferred          confidence   strongest reason
+    corridor noon     #138 (no leak)     ~60/40       a smudge on sunlit brick beside the parked car,
+                                                      0.430 of the same brick 30 px out; pavement seen
+                                                      through holes in a trunk at 0.49
+    corridor night    #138               low          the same smudge at 0.269 and the trunk holes at
+                                                      0.311, on lamp pools
+    fivepoints noon   BEFORE             ~65/35       "the road under all three cars reads sunlit, so
+                                                      the cars look lifted": under the red car's sill
+                                                      0.283 of open road against 0.037
+    fivepoints night  BEFORE             ~55/45       the leak "seats the red car": 0.203 against 0.017
+
+Two of four each way, all low confidence, and the reviewer named the mechanism it could not see: "the
+cars' shadow does not cover the road under the cars ... the term arm hides this rather than fixing
+it." #138 is therefore held, not refused: its own defect was confirmed blind where it is visible, and
+its loss is a different defect it uncovered.
+
+**The mechanism, off the shipped config and the buffers.** `src/daynight.js` sets `bias = -0.0006`, in
+normalised depth over near 1 / far 900, which is 0.54 m along the light ray, with `normalBias` 0.06 m;
+its comment sizes it for golden hour's 8 degrees, one texel over tan(elevation) at a 0.078 m texel (the
+map is 2048 over +/-120 m now, 0.117 m). three's PCF pass draws a FrontSide material's BACK faces
+(the vendored rule is `side = shadowSide ?? flip(side)`), so what the map holds over a car is its
+FLOOR: 8.36 m2 facing down at an area-weighted 0.192 m on the coupe. The vertical tolerance is
+`0.54 * sin(elevation) + 0.06`:
+
+    noon     75.6 deg   0.58 m    the floor cannot shadow the road 0.19 m beneath it
+    night    51.6 deg   0.48 m    (and the street lamps cast no shadow at all)
+    golden    8.0 deg   0.14 m    the floor does
+    dusk      3.2 deg   0.09 m
+
+So at noon a car's only shadow is what its far-side panels throw past its flank (a 1.0 m beltline
+casts 0.26 m at 75.6 degrees), and the road under the car is lit. On #138's own page the AO under a
+car reads 0.035 of AO-off as shipped and 0.089 with the guard: the leak was standing in for the
+missing shadow. The same tolerance governs every noon contact: a pedestrian's feet, a bollard, a bench.
+
+**What a fix has to price.** The ground needs about one texel times cot(elevation) along the ray —
+0.03 m at noon, 0.83 m at 8 degrees — and a wall at noon about one texel times tan(75.6) = 0.46 m, which
+is why one large constant works for walls and peter-pans everything near the ground. Levers: a
+constant set from the preset's elevation, a larger `normalBias` (the slope-aware term) with a small
+constant, or both; the costs are acne on the ground at low sun, on sunlit walls at noon and on car
+bodies. Map size and extent are untouched, so `shadow-stable` and the chunk-stall history are not in
+play. And at night nothing darkens the road under a car once #138's guard stops the AO reaching it
+through the sill: the lamps cast no shadow, so a contact term for cars (an occlusion footprint) is the
+candidate there. Order: #141 first, then #138 re-reviewed with both arms carrying it.
