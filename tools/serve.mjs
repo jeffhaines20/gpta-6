@@ -69,18 +69,37 @@ export async function ensureServer(port = 8123, timeoutMs = 20000, opts = {}) {
       '  Give this run its own port (the capture tools take one via env or --port)\n' +
       '  and run it with this tree as the working directory.');
   }
-  // `-s .` is relative to the child's cwd, so the root is set explicitly rather
-  // than inherited - a caller that passes `root` gets that root even when it is
-  // invoked from somewhere else.
-  const child = spawn('npx', ['--yes', 'http-server', '-p', String(port), '-s', root],
-    { detached: true, stdio: 'ignore' });
+  // THE ROOT GOES FIRST, BECAUSE `-s` TOOK IT. This read `-p <port> -s <root>` under a comment
+  // saying the root "is set explicitly rather than inherited", and it never was: http-server 14
+  // parses its argv with minimist and declares no booleans, so `-s <root>` came out as
+  // `{ s: '<root>' }` with no positional at all, and http-server fell back to `./` — the CHILD'S
+  // CWD. Every tool here passes `root` and every one was served its cwd; that is the same
+  // directory when a tool runs from its own tree's root, which is why nothing noticed. Measured
+  // 2026-10-22 (#136): a server started for scratchpad/g136/mut-tree from cwd scratchpad/g136
+  // answered `/` with "Index of /" listing mut-tree/ itself and 404'd /district/ — loudly, by luck
+  // of the cwd having no district/. From another TREE's root it would have served that tree, and
+  // a probe of a mutation would have measured the shipped build.
+  //
+  // So: the root is the positional and `-s` is last, the child also runs IN the root, and a fresh
+  // server has to hand back this tree's token before it is used — the reuse path above always
+  // checked, and a server this function started itself was trusted because it answered at all.
+  const child = spawn('npx', ['--yes', 'http-server', root, '-p', String(port), '-s'],
+    { detached: true, stdio: 'ignore', cwd: root });
+  // A root that does not exist is now a spawn error rather than a server quietly rooted elsewhere,
+  // and an unheard 'error' event would kill the caller with an unhandled exception instead.
+  let spawnErr = null;
+  child.on('error', (e) => { spawnErr = e; });
   child.unref();
   const deadline = Date.now() + timeoutMs;
+  let up = false;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 500));
-    if (await alive()) return { started: true, port, root };
+    if (!up) up = await alive();
+    if (up && await servesThisTree(port, root)) return { started: true, port, root };
   }
-  throw new Error(`static server did not come up on :${port}`);
+  throw new Error(up
+    ? `the server started on :${port} answers but does not serve ${root} (its token never came back)`
+    : `static server did not come up on :${port}${spawnErr ? ` (${spawnErr.message})` : ''}`);
 }
 
 /**
