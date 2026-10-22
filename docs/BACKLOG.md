@@ -5304,17 +5304,30 @@ over their globes at 1/30 by linearity — corridor's pane x4.48, fivepoints' pa
 x5.10 — have the same white counts in both arms (80 of 80, 1,118 of 2,604, 123 of 234 px): on the display at
 night they and their globes are now alike white.
 
-**Gated.** `globe-level` (12 checks, about 27 s): the page's lamp is the module's and so is its light; the
-module's luminance is the page's own derivation off the buffer; the instrument reads the material back to 1%;
-KNOWN-BAD live, the old globe outshone by the wall lobe, the pilaster, the frond and its own twin; THE FIX at
-every camera; the shipped level within x1.0-1.5 of the minimum read off the old arm; the halo under x3.0 at
-every camera with the physical globe's measured over it as a second known-bad; the glass named as the one
-surface still over, at a level the bound refuses; and the globe reaching white at night. Its selftest feeds
-a real report and eleven known-bads. `globe-order --selftest` (11) holds the arithmetic both tools and
-boot-check share. `boot-check` +2: every emitter the live pool holds carries the module's light, one per lamp,
-and the globe the page draws is the module's level of the physical luminance recomputed off the buffer.
-`mutation-sweep` rows `globe-level-old`, `globe-level-physical`, `globe-area-typed`,
+**Gated.** `globe-level` (12 checks; 16 s on the box at rest, 27 s at load 6, 44 s at load 10): the page's lamp
+is the module's and so is its light; the module's luminance is the page's own derivation off the buffer; the
+instrument reads the material back to 1%; KNOWN-BAD live, the old globe outshone by the wall lobe, the pilaster,
+the frond and its own twin; THE FIX at every camera; the shipped level within x1.0-1.5 of the minimum read off
+the old arm; the halo under x3.0 at every camera with the physical globe's measured over it as a second
+known-bad; the glass named as the one surface still over, at a level the bound refuses; and the globe reaching
+white at night. Its selftest feeds a real report and eleven known-bads. `globe-order --selftest` (11) holds the
+arithmetic both tools and boot-check share. `boot-check` +2: every emitter the live pool holds carries the
+module's light, one per lamp, and the globe the page draws is the module's level of the physical luminance
+recomputed off the buffer. `mutation-sweep` rows `globe-level-old`, `globe-level-physical`, `globe-area-typed`,
 `globe-light-uncoloured`, `globe-setlit-literal`, and `lamp-candela-typed` [browser].
+
+Swept 2026-10-22 at 677733c, one `--only` row at a time against the 42-entry offline list: all five offline rows
+caught by `globe-level`. `globe-setlit-literal` also read "caught by blocker-test", and that did not reproduce:
+blocker-test with the mutation applied in an export passes 128 of 128 twice (8.2 and 8.7 s), and the clean tree
+passes too. The likely cause is one of its two wall-clock bounds (the index built under 100 ms, 43.4 ms on that
+control; resolveCircle under 20 us) at a load average of 9-10 on four cores, and it is only likely: the sweep
+keeps no FAIL lines, so neither that nor which bound is established. `lamp-candela-typed` was NOT run through
+`mutation-sweep --browser`, which would have cost two whole boot-checks (31 minutes each at that load);
+boot-check's own two assertions were run instead against a page served from an export carrying the mutation:
+"every lamp's light is the module's" FAILS there (1,228 of 1,228 emitters at 1,800 cd against the module's 900)
+and the globe check still passes, which is what the row's comment predicts (only the wire check can see it); the
+same probe on this tree passes both. Its first attempt 404'd: `ensureServer` had served the probe's cwd rather
+than the export it was given, for every caller, which b3d7bb7 fixes in `tools/serve.mjs`.
 
 #### #136 (as filed)
 ### #136 OPEN — a lamp's reflection outshines the lamp: the globe emits about 1/2,600 of what its light implies
