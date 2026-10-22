@@ -2660,8 +2660,8 @@ const MUTATIONS = [
      * from a camera kilometres away in its own frame. Only the rigid-transform row can see it.
      */
     id: 'cabin-eye-world', file: 'src/carbody.js',
-    find: '\t\tvCabinEye = ( inverse( cabinToWorld ) * vec4( cameraPosition, 1.0 ) ).xyz;',
-    to: '\t\tvCabinEye = cameraPosition;',
+    find: '\t\tvCabinEye = ( inverse( cabinToWorld ) * vec4( cameraPosition, 1.0 ) ).xyz + vec3( 0.0, CAR_FRAME_Y, 0.0 );',
+    to: '\t\tvCabinEye = cameraPosition + vec3( 0.0, CAR_FRAME_Y, 0.0 );',
     why: 'every real car ray-casts its cabin from the wrong eye; only a car away from the origin shows it',
   },
   {
@@ -3039,8 +3039,8 @@ const MUTATIONS = [
   },
   {
     id: 'cabin-driver-parked', file: 'src/streetfurniture.js',
-    find: '    const material = trafficCarMaterial({ emissiveMap: retroEmissiveMap() });',
-    to: '    const material = trafficCarMaterial({ emissiveMap: retroEmissiveMap(), driver: true });',
+    find: '    const material = trafficCarMaterial({ emissiveMap: retroEmissiveMap(), groundY: PARKED_GROUND_Y });',
+    to: '    const material = trafficCarMaterial({ emissiveMap: retroEmissiveMap(), groundY: PARKED_GROUND_Y, driver: true });',
     why: 'every parked car has somebody sitting in it, for ever',
     browser: true,
   },
