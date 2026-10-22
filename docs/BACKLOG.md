@@ -4691,7 +4691,7 @@ the extreme of it — a 114.6-degree corner completed from rest in 12.1 s, reach
 straight-line brake, placed wrong for a corner tighter than its own turning circle, and lost to the
 reversing cycle.
 
-### #61 FIXED — the route's junction turns are rounded to the car's turning circle, and #128's two parked-car stops are gone from route-drive
+### #61 FIXED — the route's junction turns are rounded to the car's turning circle, and #128's two parked-car stops are gone from route-drive and from the gate
 The lever #104 deferred ("rounding junction turns to `R_min` — a change to `tour()` ... needs a fresh
 baseline"), built after #64 moved the baseline, by a builder on `fillet-61` and merged in e4bb67b.
 
@@ -4753,10 +4753,19 @@ Gates: roadpath-test 125 -> 153, route-drive 25 -> 26, reaction-test 183 -> 187,
 `fillet-merge-off`, `fillet-clear-off` (MISSED until a district clearance-ladder check went in),
 `cusp-reaim` and `cusp-any-behind`, all caught.
 
-**Not measured, and what stands on it.** The budget gate's full lap: the builder's run hit its own
-1,500 s wall clock half a lap in on a box running three boot-checks (1,595 of 3,218 m in 159.1 s of sim,
-where #128's run covered the same stretch in 163.1 s; 0 teleports, 0 applied impacts, 0 parked contacts
-on it), so "the 635/654 stops are gone ON THE GATE" is route-drive's reading, not the gate's. damage-live
+**The gate's full lap, measured afterwards (2026-10-22, `docs/drive-traffic-61b.json`).** The builder's
+run hit its own 1,500 s wall clock half a lap in (1,595 of 3,218 m in 159.1 s of sim, where #128's run
+covered the same stretch in 163.1 s), so `drive-through` took `DRIVE_CAP_S` (ea7d005) and the lap was run
+whole at 4,200 s on a box at load 9. One lap, 3,169 m in 377.7 s of sim, **0 stuck-teleports where both
+of #128's runs stopped at 635 and 654**, 0 applied impacts, 0 parked contacts. The only contacts are
+248 free frames against traffic in three episodes (indices 333, 438, 447; worst 0.99 m/s; the longest
+9.8 s at 33 km/h beside a car at (317, -342)), and one 7.7 s hold behind the fleet; worst 1.79 m off the
+course. Against the #64 baseline's 295.5 s the lap is slower, and that is #128's corner speeds, not
+#61: the half-lap above matched #128's pace. The gate read FAIL on chunk stall, 43.4 ms, with the jitter
+probe measuring 32.5 ms of preemption beside it: contention, which CLAUDE.md records as the one thing
+that metric cannot be read through. Triangles p95 929,986 against the 1.4M warn.
+
+**Not measured, and what stands on it.** damage-live
 is restated (tour 818 -> 803 points) and not run. abort-cost, wreck-cost and speed-limit build their graph
 without walls, so their fillets are not clearance-limited. #131's 120-degree turn limit was not
 re-derived now that a cusp is driveable. And on a merged corner that cannot be rounded, the per-corner
