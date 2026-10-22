@@ -726,9 +726,26 @@ vec3 plateFaceAA( vec2 q, vec2 qx, vec2 qy, float seed, vec3 base ) {
  * are antialiased over one screen pixel measured in metres. The insert is masked out of the tail's
  * EMISSION, because a reverse lamp is not lit while the car is driving forward.
  *
- * `uLampDetail` 0 is the flat lamp, bit for bit; the player's car reads the same pattern through
- * CAR_FRAME_Y, its frame's offset from the fleet's.
+ * `uLampDetail` 0 is the flat lamp, bit for bit; the player's car and the parked pool read the same
+ * pattern through CAR_FRAME_Y, their frame's offset from the fleet's (#125: the parked pool is built
+ * 0.07 m lower, declared nothing, and drew its bowls clipped at the top of its lamps with the light
+ * guide off them altogether).
+ *
+ * LAMP_FACE is the layout the shader draws, in the fleet's frame, exported so a gate can put it on
+ * each pool's own lamp plate off the built buffers (tools/car-detail.mjs) rather than trusting a
+ * frame nobody measured.
  */
+export const LAMP_FACE = {
+  head: {
+    bowlX: [0.44, 0.63], bowlY: 0.832,   // two reflector bowls
+    ring: [0.027, 0.038], core: 0.017,   // a chrome ring round a dark projector core
+    strip: { y: [0.879, 0.895], x: [0.36, 0.72] },   // the light guide above them
+  },
+  tail: {
+    y0: 0.643, h: 0.129,                 // the lens the three LED bars run over
+    insert: { x: 0.39, y: [0.669, 0.746] },   // the clear reverse insert, inboard of x
+  },
+};
 const LAMP_U = { uLampDetail: { value: 1 } };
 export function setLampDetail(k) {
   LAMP_U.uLampDetail.value = Math.min(1, Math.max(0, k));
@@ -737,11 +754,9 @@ export function setLampDetail(k) {
 export function lampDetail() { return { value: LAMP_U.uLampDetail.value }; }
 
 function lampGLSL() {
+  const H = LAMP_FACE.head, T = LAMP_FACE.tail;
   return `
 uniform float uLampDetail;
-#ifndef CAR_FRAME_Y
-#define CAR_FRAME_Y 0.0
-#endif
 // One edge, antialiased over w (a screen pixel in the same units as d and e).
 float lampEdge( float e, float d, float w ) { return smoothstep( e - w, e + w, d ); }
 // The lamp's face at p (the fleet's frame, metres) on slot 4 (head) or 5 (tail): albedo in rgb, and
@@ -753,26 +768,26 @@ vec4 lampFace( vec3 p, float slot, float px, out float chrome ) {
 	const vec3 CHROME = vec3( 0.62, 0.63, 0.65 );                      // a polished reflector's F0
 	if ( slot < 4.5 ) {
 		vec3 col = vec3( 0.088, 0.093, 0.105 );                         // the housing, through the cover
-		// The light guide above the bowls, y 0.879 - 0.895.
-		float strip = lampEdge( 0.879, p.y, px ) * ( 1.0 - lampEdge( 0.895, p.y, px ) )
-			* lampEdge( 0.36, ax, px ) * ( 1.0 - lampEdge( 0.72, ax, px ) );
+		// The light guide above the bowls, y ${H.strip.y[0]} - ${H.strip.y[1]}.
+		float strip = lampEdge( ${H.strip.y[0]}, p.y, px ) * ( 1.0 - lampEdge( ${H.strip.y[1]}, p.y, px ) )
+			* lampEdge( ${H.strip.x[0]}, ax, px ) * ( 1.0 - lampEdge( ${H.strip.x[1]}, ax, px ) );
 		chrome = strip;
 		// Two reflector bowls, radius 3.8 cm: a chrome ring round a dark projector core.
 		for ( int i = 0; i < 2; i++ ) {
-			float r = length( vec2( ax - ( i == 0 ? 0.44 : 0.63 ), p.y - 0.832 ) );
-			float ring = lampEdge( 0.027, r, px ) * ( 1.0 - lampEdge( 0.038, r, px ) );
+			float r = length( vec2( ax - ( i == 0 ? ${H.bowlX[0]} : ${H.bowlX[1]} ), p.y - ${H.bowlY} ) );
+			float ring = lampEdge( ${H.ring[0]}, r, px ) * ( 1.0 - lampEdge( ${H.ring[1]}, r, px ) );
 			chrome = max( chrome, ring );
-			float core = 1.0 - lampEdge( 0.017, r, px );
+			float core = 1.0 - lampEdge( ${H.core}, r, px );
 			col = mix( col, vec3( 0.020 ), core );
 		}
 		col = mix( col, CHROME, chrome );
 		return vec4( col, 1.0 );
 	}
-	float v = clamp( ( p.y - 0.643 ) / 0.129, 0.0, 1.0 );
+	float v = clamp( ( p.y - ${T.y0} ) / ${T.h}, 0.0, 1.0 );
 	vec3 col = vec3( 0.200, 0.0075, 0.005 ) * ( 0.88 + 0.12 * sin( v * 18.85 ) );   // three soft LED bars
 	// The clear reverse insert, a lens over a chrome reflector: the inboard 9 cm of each lamp, its
 	// middle 60%.
-	float insert = ( 1.0 - lampEdge( 0.39, ax, px ) ) * lampEdge( 0.669, p.y, px ) * ( 1.0 - lampEdge( 0.746, p.y, px ) );
+	float insert = ( 1.0 - lampEdge( ${T.insert.x}, ax, px ) ) * lampEdge( ${T.insert.y[0]}, p.y, px ) * ( 1.0 - lampEdge( ${T.insert.y[1]}, p.y, px ) );
 	chrome = insert;
 	col = mix( col, CHROME, insert );
 	return vec4( col, 1.0 - insert );
@@ -1237,9 +1252,13 @@ function patchLensFalloff(m) {
 #if defined( USE_COLOR ) && defined( USE_INSTANCING_COLOR )
 	vColor.xyz = mix( vColor.xyz, color.xyz, uPaintTintOnly * step( 0.5, floor( uv.x * 16.0 ) ) );
 #endif`)
-      // THE CABIN'S RAY, in the car's own frame: this vertex as built, and the camera carried back
-      // through the instance's and the mesh's transforms. Per vertex, so the fragment interpolates
-      // two points rather than inverting a matrix per pixel.
+      // THE CABIN'S RAY, in the FLEET's frame: this vertex as built and the camera carried back
+      // through the instance's and the mesh's transforms, both lifted by CAR_FRAME_Y, this material's
+      // offset from the fleet's. Per vertex, so the fragment interpolates two points rather than
+      // inverting a matrix per pixel. The lift is HERE, once, because two things are drawn by
+      // position in this frame — the cabin and the lamps' faces — and the parked pool, built 0.07 m
+      // lower than the fleet (streetfurniture.js PARKED_GROUND_Y), had both 7 cm off its own body
+      // while only the lamp read the offset and only the player's car declared one (#125).
       .replace(PROJECT_VERTEX_DECL, `${PROJECT_VERTEX_DECL}
 	{
 	#ifdef USE_INSTANCING
@@ -1247,8 +1266,8 @@ function patchLensFalloff(m) {
 	#else
 		mat4 cabinToWorld = modelMatrix;
 	#endif
-		vCabinPos = transformed;
-		vCabinEye = ( inverse( cabinToWorld ) * vec4( cameraPosition, 1.0 ) ).xyz;
+		vCabinPos = transformed + vec3( 0.0, CAR_FRAME_Y, 0.0 );
+		vCabinEye = ( inverse( cabinToWorld ) * vec4( cameraPosition, 1.0 ) ).xyz + vec3( 0.0, CAR_FRAME_Y, 0.0 );
 	}
 	// The plate's characters differ per car: the instance is the car.
 	#ifdef USE_INSTANCING
@@ -1257,6 +1276,9 @@ function patchLensFalloff(m) {
 		vCarSeed = 0.0;
 	#endif`)
       .replace('void main() {', `uniform float uPaintTintOnly;
+#ifndef CAR_FRAME_Y
+#define CAR_FRAME_Y 0.0
+#endif
 varying vec3 vCabinPos;
 varying vec3 vCabinEye;
 varying float vCarSeed;
@@ -1324,11 +1346,12 @@ void main() {`)
 			diffuseColor.rgb = mix( diffuseColor.rgb, plateFaceAA( plateQ, plateQx, plateQy, vCarSeed, diffuseColor.rgb ), uPlateText );
 		}
 	}
-	// THE LAMPS' FACES, on slots 4 and 5, in the fleet's frame (CAR_FRAME_Y lifts the player's car into
-	// it). The pixel's size in metres is taken before the branch, for the same reason as the plate's.
+	// THE LAMPS' FACES, on slots 4 and 5, in the fleet's frame (vCabinPos is already in it: CAR_FRAME_Y
+	// lifts the player's car and the parked pool into it, in the vertex shader). The pixel's size in
+	// metres is taken before the branch, for the same reason as the plate's.
 	float lampChrome = 0.0;
 	{
-		vec3 lampP = vCabinPos + vec3( 0.0, CAR_FRAME_Y, 0.0 );
+		vec3 lampP = vCabinPos;
 		float lampPx = max( length( dFdx( lampP ) ), length( dFdy( lampP ) ) );
 		float lampSlot = floor( vRoughnessMapUv.x * 16.0 );
 		if ( uLampDetail > 0.0 && lampSlot > 3.5 && lampSlot < 5.5 ) {
@@ -1364,7 +1387,8 @@ void main() {`)
   // BUMPED FOR THE PLATE'S FACE: a uniform, a varying, and a block on each side.
   // BUMPED FOR THE LAMPS' FACES: a uniform, a define and a fragment block.
   // BUMPED FOR #130: a uniform and a block after opaque_fragment.
-  m.customProgramCacheKey = () => 'carLensFalloff9cabin31ao130';
+  // BUMPED FOR #125: CAR_FRAME_Y moved into the vertex shader's cabin varyings.
+  m.customProgramCacheKey = () => 'carLensFalloff9cabin31ao130frame125';
   return m;
 }
 
@@ -1392,7 +1416,9 @@ export function carSurfaceMaterial(opts = {}) {
   // apart by three's own key.
   if (opts.cabin === false) m.defines = { ...(m.defines ?? {}), CAR_NO_CABIN: '' };
   // The offset of this material's car frame from the fleet's, for anything drawn by position in it
-  // (the lamps' faces): 0 for every fleet shell, PLAYER_CABIN_Y for the player's body.
+  // (the lamps' faces and the cabin): 0 for a shell built at groundY 0 (the traffic fleet and the
+  // police), -groundY for one built elsewhere (the parked pool: trafficCarMaterial takes the groundY
+  // its geometry was built at), PLAYER_CABIN_Y for the player's body.
   if (opts.frameY) m.defines = { ...(m.defines ?? {}), CAR_FRAME_Y: Number(opts.frameY).toFixed(4) };
   // A DRIVER IN THE CABIN (uCabinDriver), for a fleet that is moving. The parked pool does not ask:
   // a parked car is empty, and its headrests are what a camera at the kerb should see.
@@ -3978,11 +4004,18 @@ export function setTrafficHubScale(geo, k) {
 }
 
 /** The material a traffic/pursuit InstancedMesh needs to read the palette. */
+/**
+ * `opts.groundY` is the groundY the geometry was built at (buildTrafficCarGeometry), passed as the
+ * SAME number to both, so the material draws the lamps' faces and the cabin in the frame that
+ * geometry is actually in. #125: the parked pool built at PAD_Y - 0.02 and told the material nothing,
+ * so every parked car wore its lamp face 7 cm high and its cabin 7 cm up its own windows.
+ */
 export function trafficCarMaterial(opts = {}) {
   const m = carSurfaceMaterial({
     envMapIntensity: opts.envMapIntensity ?? 1.2,
     emissiveMap: opts.emissiveMap,
     driver: opts.driver,
+    frameY: -(opts.groundY ?? 0),
   });
   m.color.setHex(opts.color ?? 0xffffff);
   return m;

@@ -81,6 +81,12 @@ const PAD_Y = -0.05;        // streaming.js land pad, the surface the player see
 const ROAD_Y = 0.02;        // streaming.js road ribbon, stacked on the pad
 const BASE_Y = -0.09;       // every standing prop's lowest vertex
 const DECAL_Y = ROAD_Y + 0.012;   // painted markings, lifted off the ribbon
+// The parked cars' contact patch, 2 cm under the pad so a tyre never floats over it. ONE constant,
+// passed to the geometry AND to the material: the material draws the lamps' faces and the cabin by
+// position in the fleet's frame, and #125 was this pool building at PAD_Y - 0.02 and telling the
+// material nothing, so every parked car wore its lamp face 7 cm high and its cabin 7 cm up its own
+// windows. (src/kerb.js `parkY` carries a copy of the number.)
+export const PARKED_GROUND_Y = PAD_Y - 0.02;
 
 // ---------------------------------------------------------------- the palette
 // Same idea as carbody.js SURFACE: UV.x selects a texel, the texel carries
@@ -5292,7 +5298,7 @@ export class StreetFurniture {
     // material, and giving each shell its own would mean every such write
     // silently reaching a third of the fleet.
     const geos = shellNames().map((n) =>
-      buildTrafficCarGeometry({ groundY: PAD_Y - 0.02, shape: SHAPES[n] }));
+      buildTrafficCarGeometry({ groundY: PARKED_GROUND_Y, shape: SHAPES[n] }));
     const geo = geos[0];
     // THE PARKED POOL EMITS FROM A DIFFERENT PALETTE TO EVERY OTHER CAR, and the
     // reason is that `emissive` is ONE colour over the whole material: with the
@@ -5301,7 +5307,7 @@ export class StreetFurniture {
     // reported and _applyEmissive below removed. retroEmissiveMap() is the same
     // 16x1 palette with every texel but the tail lens zeroed, so the level this
     // pool runs at CANNOT reach a headlamp however it is tuned later.
-    const material = trafficCarMaterial({ emissiveMap: retroEmissiveMap() });
+    const material = trafficCarMaterial({ emissiveMap: retroEmissiveMap(), groundY: PARKED_GROUND_Y });
     // EACH SHELL GETS THE FULL POOL CAPACITY, and it is not waste. The fill
     // takes the nearest slots in distance order and their shells fall wherever
     // the slot hashes put them, so any one shell can take every place in a given

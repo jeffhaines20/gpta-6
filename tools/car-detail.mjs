@@ -35,7 +35,7 @@
 import { chromium } from 'playwright';
 import { launchOptions } from './browser.mjs';
 import { ensureServer, treePort } from './serve.mjs';
-import { buildTrafficCarGeometry, buildPlayerCar, SHAPES, SURFACE, paletteU } from '../src/carbody.js';
+import { buildTrafficCarGeometry, buildPlayerCar, SHAPES, SURFACE, paletteU, LAMP_FACE, CABIN } from '../src/carbody.js';
 
 /**
  * A US plate is 12 x 6 inches, WRITTEN OUT HERE rather than imported: comparing the build against
@@ -63,7 +63,7 @@ for (const a of IS_MAIN ? argv : []) {
 }
 
 /** Fixed, so a check cannot vanish when a population is empty. */
-export const CHECK_COUNT = 24;
+export const CHECK_COUNT = 26;
 /** The render order: [which face, its value] per tile, rows top to bottom (see car-detail.html). */
 export const PLANNED = [...Array(4)].flatMap(() => [['plate', 0], ['plate', 1]])
   .concat([...Array(5)].flatMap(() => [['lamp', 0], ['lamp', 1]]));
@@ -191,6 +191,78 @@ export function tailWrapGeometry() {
   return out.concat(one('player', buildPlayerCar().bodyMesh.geometry));
 }
 
+/**
+ * #125: EVERY CAR POOL THE PAGE BUILDS, each through its OWN module, and where the lamps' face and
+ * the cabin land on its own body. The shader draws both by POSITION in the fleet's frame (carbody.js
+ * LAMP_FACE and CABIN), and each material declares its offset from that frame as CAR_FRAME_Y. So for
+ * each pool's own buffers, carried by the frame its own material declares: the lamp plates' extent,
+ * and the side glass's lower edge, which is where the cabin's belt has to be.
+ *
+ * The parked pool is the reason. It builds at PAD_Y - 0.02 = -0.07 and declared nothing, so its bowls
+ * sat clipped at the top of the head lamp, its light guide 3-5 cm above the lamp altogether, and its
+ * cabin 7 cm up its own windows — on 30 cars on every street, and on no car the rendered tiles below
+ * look at, because every one of them is built here at groundY 0. A blind reviewer saw the result as
+ * "cartoon headlamps: the pods read as eyes". Taken from the modules rather than rebuilt, because a
+ * gate that constructs the subject itself has to construct it the way the game does (CLAUDE.md), and
+ * this defect is exactly a pool the gate's own builder did not construct.
+ */
+export async function lampFrameGeometry() {
+  const THREE = await import('../vendor/three.module.min.js');
+  const { readFileSync } = await import('node:fs');
+  const district = JSON.parse(readFileSync(new URL('../data/district.json', import.meta.url), 'utf8'));
+  const { StreetFurniture, LAMP_POOL } = await import('../src/streetfurniture.js');
+  const { Traffic } = await import('../src/traffic.js');
+  const { PursuitUnits } = await import('../src/pursuit.js');
+  const sink = { add() {} };
+  const furniture = new StreetFurniture(new THREE.Scene(), { max: LAMP_POOL });
+  furniture.buildParkedCars({ count: 30 });
+  const traffic = new Traffic(sink, district, { count: 30, seed: 0 });
+  const police = new PursuitUnits(sink, district, { count: 8, seed: 0 });
+  const meshes = [
+    ...traffic.meshes.map((m) => ['traffic', m]),
+    ...furniture.parked.meshes.map((m) => ['parked', m]),
+    ['police', police.mesh],
+    ['player', buildPlayerCar().bodyMesh],
+  ];
+  return meshes.map(([pool, mesh]) => {
+    const g = mesh.geometry, defs = mesh.material.defines ?? {};
+    const pos = g.getAttribute('position'), uv = g.getAttribute('uv'), idx = g.getIndex();
+    const slot = (i) => Math.floor(uv.getX(i) * 16);
+    const extent = (s) => {
+      let y0 = Infinity, y1 = -Infinity, x0 = Infinity, x1 = -Infinity;
+      for (let i = 0; i < pos.count; i++) {
+        if (slot(i) !== s) continue;
+        const ax = Math.abs(pos.getX(i)), y = pos.getY(i);
+        y0 = Math.min(y0, y); y1 = Math.max(y1, y); x0 = Math.min(x0, ax); x1 = Math.max(x1, ax);
+      }
+      return Number.isFinite(y0) ? { y0, y1, x0, x1 } : null;
+    };
+    // The side glass's lower edge: glazing triangles whose normal is mostly ACROSS the car, so neither
+    // the windscreen and backlight (normals 0.81-0.94 up) nor the door mirrors' glass (straight back)
+    // can set it. By WHICH WAY IT FACES and not by where it is: the saloon's and the wagon's side panes
+    // reach |x| 0.948 and 0.955, past the 0.94 that fleetMirrorGeometry's mirror test starts at.
+    let sideLow = Infinity;
+    const n = idx ? idx.count / 3 : pos.count / 3;
+    const at = (t, k) => (idx ? idx.getX(3 * t + k) : 3 * t + k);
+    for (let t = 0; t < n; t++) {
+      const v = [0, 1, 2].map((k) => at(t, k));
+      if (!v.every((i) => slot(i) === SURFACE.glassy)) continue;
+      const [a, b, c] = v.map((i) => [pos.getX(i), pos.getY(i), pos.getZ(i)]);
+      const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+      const cr = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+      if (Math.abs(cr[0]) < 0.7 * Math.hypot(...cr)) continue;
+      sideLow = Math.min(sideLow, a[1], b[1], c[1]);
+    }
+    return {
+      pool, name: mesh.name || pool,
+      frame: Number(defs.CAR_FRAME_Y ?? 0),
+      cabin: !('CAR_NO_CABIN' in defs),
+      head: extent(SURFACE.headlight), tail: extent(SURFACE.taillight),
+      sideLow: Number.isFinite(sideLow) ? sideLow : null,
+    };
+  });
+}
+
 /** The verdict as a pure function of the report, so the selftest can feed it known-bads. */
 export function verdict(r) {
   const checks = [];
@@ -228,6 +300,40 @@ export function verdict(r) {
     FM.length === 6 && FM.every((m) => num(m.area) >= 0.005 && num(m.behind) >= 0.99 * m.area
       && num(m.beside) <= 0.01 * m.area && num(m.ahead) === 0),
     FM.map((m) => `${m.shape} ${m.side > 0 ? '+x' : '-x'} ${cm2(m.area)} cm2, behind ${cm2(m.behind)}`).join('; ') || 'none');
+  /**
+   * #125, per pool and shell (lampFrameGeometry), in the frame each pool's own material declares. The
+   * face is LAMP_FACE, the layout the shader is built from; the plates are each pool's own buffers.
+   *   head   the bowls' outer rings and the light guide inside the head plate: shipped, the guide's top
+   *          25 mm under the plate's on every pool; the parked pool before #125, 45 mm ABOVE it
+   *   tail   the plate IS the lens the LED bars are laid over, to 5 mm at both ends, and the insert
+   *          inboard of the plate's inner edge: the parked pool before, 70 mm off at both ends
+   *   cabin  the belt within 20 mm of the side glass's lower edge: shipped 7 mm under it on every shell
+   *          that has a cabin; the parked pool before, 77 mm under it, so the lowest 7 cm of every far
+   *          window read as door
+   * Exact geometry, so no noise: the bounds sit between the shipped figure and the defect's.
+   */
+  const LF = Array.isArray(r.lampFrames) ? r.lampFrames : [];
+  const HF = LAMP_FACE.head, TF = LAMP_FACE.tail;
+  const mm = (v) => (Number.isFinite(v) ? `${(v * 1000).toFixed(0)} mm` : 'n/a');
+  const faceFits = (f) => {
+    const k = num(f?.frame), h = f?.head, t = f?.tail;
+    if (k === null || !h || !t) return false;
+    return h.y0 + k <= HF.bowlY - HF.ring[1] && h.y1 + k >= HF.strip.y[1]
+      && h.x0 <= Math.min(HF.bowlX[0] - HF.ring[1], HF.strip.x[0])
+      && h.x1 >= Math.max(HF.bowlX[1] + HF.ring[1], HF.strip.x[1])
+      && Math.abs(t.y0 + k - TF.y0) <= 0.005 && Math.abs(t.y1 + k - (TF.y0 + TF.h)) <= 0.005
+      && t.x0 <= TF.insert.x;
+  };
+  const pools = new Set(LF.map((f) => f?.pool));
+  add('every car pool the page builds draws its lamps\' face on its own lamps, in the frame its material declares (#125)',
+    LF.length === 8 && ['traffic', 'parked', 'police', 'player'].every((p) => pools.has(p)) && LF.every(faceFits),
+    LF.map((f) => `${f?.name} frame ${num(f?.frame)?.toFixed(3)}: guide ${mm(f?.head?.y1 + f?.frame - HF.strip.y[1])} under the plate's top, `
+      + `tail lens ${mm(f?.tail?.y0 + f?.frame - TF.y0)} off`).join('; ') || 'none');
+  const withCabin = LF.filter((f) => f?.cabin);
+  add('and its cabin\'s belt on its own side glass, on every pool that draws a cabin',
+    withCabin.length === 7 && withCabin.every((f) => num(f.sideLow) !== null && num(f.frame) !== null
+      && Math.abs(CABIN.belt - (f.sideLow + f.frame)) <= 0.02),
+    withCabin.map((f) => `${f.name} ${mm(f.sideLow + f.frame - CABIN.belt)}`).join(', ') || 'none');
 
   add('the build ships the face ON', num(r.shipped) === 1, `shipped ${r.shipped}`);
   const rb = r.readback ?? [];
@@ -343,6 +449,18 @@ if (IS_MAIN && argv.includes('--selftest')) {
     // And the tail wrap, measured off the build that added it: 173.6 cm2 a side on all four cars.
     tailWrap: ['coupe', 'saloon', 'wagon', 'player'].flatMap((name) => [1, -1].map((side) =>
       ({ name, side, beside: 0.01736 }))),
+    // #125, measured off the build that fixed it (2026-10-22): every pool's plates in its declared frame.
+    lampFrames: [
+      ...['traffic', 'parked'].flatMap((pool) => [['coupe', 0.769, 0.897], ['saloon', 0.813, 0.949], ['wagon', 0.816, 0.954]]
+        .map(([s, hx1, tx1]) => ({ pool, name: `${pool}Car:${s}`, frame: pool === 'parked' ? 0.07 : 0, cabin: true,
+          head: { y0: 0.783 - (pool === 'parked' ? 0.07 : 0), y1: 0.920 - (pool === 'parked' ? 0.07 : 0), x0: 0.300, x1: hx1 },
+          tail: { y0: 0.643 - (pool === 'parked' ? 0.07 : 0), y1: 0.772 - (pool === 'parked' ? 0.07 : 0), x0: 0.281, x1: tx1 },
+          sideLow: 1.077 - (pool === 'parked' ? 0.07 : 0) }))),
+      { pool: 'police', name: 'police', frame: 0, cabin: true, head: { y0: 0.783, y1: 0.920, x0: 0.300, x1: 0.769 },
+        tail: { y0: 0.643, y1: 0.772, x0: 0.281, x1: 0.897 }, sideLow: 1.077 },
+      { pool: 'player', name: 'player', frame: 0.717, cabin: false, head: { y0: 0.070, y1: 0.203, x0: 0.300, x1: 0.733 },
+        tail: { y0: -0.074, y1: 0.053, x0: 0.299, x1: 0.898 }, sideLow: null },
+    ],
     shipped: 1, readback: PLANNED.map((k) => [...k]), after: 1,
     near: row(230, 158, 0.174, 0.4581, 0.066), far: row(21, 20, 0, 0.4690, 0.522),
     other: row(230, 145, 0.152, 0.4708, 0.044), player: row(230, 158, 0.174, 0.4581, 0.066),
@@ -393,6 +511,17 @@ if (IS_MAIN && argv.includes('--selftest')) {
       c.tailWrap = c.tailWrap.map((t) => (t.name === 'player' ? { ...t, beside: 0 } : t)); }, 'wrap the rear corner'],
     ['one shell\'s mirror glass on the FRONT of its housing', (c) => {
       Object.assign(c.fleetMirrors[2], { behind: 0, ahead: c.fleetMirrors[2].area }); }, 'fleet shell'],
+    // #125 as it shipped: the parked pool built 0.07 m low and its material declaring no frame.
+    ['the parked pool built 0.07 m low and declaring no frame, as shipped before #125', (c) => {
+      c.lampFrames.filter((f) => f.pool === 'parked').forEach((f) => { f.frame = 0; }); }, 'lamps\' face on its own lamps'],
+    ['and its cabin 7 cm up its windows, the same defect read by the belt', (c) => {
+      c.lampFrames.filter((f) => f.pool === 'parked').forEach((f) => { f.frame = 0; }); }, 'cabin\'s belt'],
+    ['the parked frame applied the wrong way round', (c) => {
+      c.lampFrames.filter((f) => f.pool === 'parked').forEach((f) => { f.frame = -0.07; }); }, 'lamps\' face on its own lamps'],
+    ['a pool the gate never built: the parked pool left out, every row it has passing', (c) => {
+      c.lampFrames = c.lampFrames.filter((f) => f.pool !== 'parked'); }, 'lamps\' face on its own lamps'],
+    ['the player\'s body declaring no frame', (c) => { c.lampFrames.find((f) => f.pool === 'player').frame = 0; }, 'lamps\' face on its own lamps'],
+    ['a pool whose cabin reads no side glass at all', (c) => { c.lampFrames.find((f) => f.pool === 'police').sideLow = null; }, 'cabin\'s belt'],
     ['the face shipped off', (c) => { c.shipped = 0; c.after = 0; }, 'ships the face ON'],
     ['a switch that never reaches the material', (c) => { c.readback[1] = ['plate', 0]; }, 'switch is what it asked for'],
     ['a lamp switch that never reaches the material', (c) => { c.readback[9] = ['lamp', 0]; }, 'switch is what it asked for'],
@@ -425,8 +554,9 @@ if (IS_MAIN && argv.includes('--selftest')) {
   // fed the verdict invented numbers would pass on a build whose plate had already regressed.
   const real = plateGeometry(), realMirrors = mirrorGeometry(), realFleet = fleetMirrorGeometry();
   const geo = verdict({ ...good, geometry: real, mirrors: realMirrors, fleetMirrors: realFleet,
-    tailWrap: tailWrapGeometry() }).slice(0, 6);
-  say(geo.length === 6 && geo.every((c) => c.ok), 'the shipped builders pass the six geometry checks: plates, both cars\' mirrors, the tail wrap',
+    tailWrap: tailWrapGeometry(), lampFrames: await lampFrameGeometry() }).slice(0, 8);
+  say(geo.length === 8 && geo.every((c) => c.ok),
+    'the shipped builders pass the eight geometry checks: plates, both cars\' mirrors, the tail wrap, every pool\'s lamp and cabin frame',
     geo.filter((c) => !c.ok).map((c) => c.detail).join(' | '));
   console.log(`\nCAR-DETAIL SELFTEST: ${fail ? 'FAIL' : 'PASS'} — ${pass + fail} checks${fail ? `, ${fail} failed` : ''}`);
   process.exit(fail ? 1 : 0);
@@ -461,12 +591,18 @@ if (IS_MAIN) {
   report.mirrors = mirrorGeometry();
   report.fleetMirrors = fleetMirrorGeometry();
   report.tailWrap = tailWrapGeometry();
+  report.lampFrames = await lampFrameGeometry();
   if (argv.includes('--json')) console.log(JSON.stringify(report, null, 1));
 
   console.log(`CAR-DETAIL — the number plate, built and drawn (${report.tod})\n`);
   console.log('  plate      w x h (m)          flat   uv.y   behind');
   for (const g of geometry) {
     console.log(`  ${g.name.padEnd(9)} ${g.w?.toFixed(4)} x ${g.h?.toFixed(4)}   ${g.zSpread < 1e-6 ? 'yes ' : 'NO  '}   ${g.vOk ? 'yes' : 'NO '}    ${g.behind}`);
+  }
+  console.log('\n  pool, shell (#125)       frame    head plate y      tail plate y    side glass low   (in the declared frame)');
+  for (const f of report.lampFrames) {
+    const k = f.frame, y = (v) => (Number.isFinite(v) ? (v + k).toFixed(3) : '  -  ');
+    console.log(`  ${f.name.padEnd(24)} ${k.toFixed(3)}   ${y(f.head?.y0)}-${y(f.head?.y1)}     ${y(f.tail?.y0)}-${y(f.tail?.y1)}       ${f.cabin ? y(f.sideLow) : 'no cabin'}`);
   }
   console.log('\n  row      plate px  changed   ink     mean on/blank   darkest on/blank');
   for (const k of ['near', 'far', 'other', 'player']) {

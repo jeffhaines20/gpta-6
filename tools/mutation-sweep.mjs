@@ -2749,6 +2749,24 @@ const MUTATIONS = [
     why: "#133's fleet half put back: every traffic, parked and police car's door mirror a plain box with no glass on its back",
   },
   {
+    id: 'parked-frame-off', file: 'src/streetfurniture.js',
+    find: '    const material = trafficCarMaterial({ emissiveMap: retroEmissiveMap(), groundY: PARKED_GROUND_Y });',
+    to: '    const material = trafficCarMaterial({ emissiveMap: retroEmissiveMap() });',
+    why: "#125 put back: the parked pool builds 0.07 m low and tells its material nothing, so every parked car wears its lamps' face 7 cm high (the light guide off the lamp) and its cabin 7 cm up its windows. Only the pool's own construction shows it; every rendered tile is built at groundY 0",
+  },
+  {
+    id: 'parked-frame-sign', file: 'src/carbody.js',
+    find: '    frameY: -(opts.groundY ?? 0),',
+    to: '    frameY: (opts.groundY ?? 0),',
+    why: "the frame declared the wrong way round: the parked pool's face 14 cm high instead of 7, a sign nothing about the traffic fleet or the police (groundY 0) can see",
+  },
+  {
+    id: 'cabin-frame-vertex-off', file: 'src/carbody.js',
+    find: '\t\tvCabinPos = transformed + vec3( 0.0, CAR_FRAME_Y, 0.0 );',
+    to: '\t\tvCabinPos = transformed;',
+    why: "the frame declared and never applied: the material carries CAR_FRAME_Y and the shader draws the lamps' face and the cabin as if it were 0, so the player's lamps are a bare housing 0.717 m off their face. The offline frame check reads the DEFINE and cannot see this; only a page that renders the player's lamps can",
+  },
+  {
     id: 'blade-back-blank', file: 'src/signage.js',
     find: '      { doubleSided: true, offset: 0, post: false, tint: opts.tint, backRect: rect });',
     to: "      { doubleSided: true, offset: 0, post: false, tint: opts.tint, backRect: streetRect('misc', 'bladeBack') });",
