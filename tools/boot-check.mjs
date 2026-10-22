@@ -2024,15 +2024,22 @@ if (state.global && state.frames > 2) {
     let minD = placed, frames = 0, topKmh = 0;
     d.setAutopilot(() => v.setControls({ throttle: 0.5, brake: 0, steer: 0, handbrake: false }));
     const t0 = Date.now();
+    // WHICH BOUND ENDED THE DRIVE, and the wall clock is a hang detector rather than a second budget.
+    // It was 180 s, and on 2026-10-22 at load 10 the page ran 6.2 s a frame: the drive stopped after 29
+    // of its 90 frames, 0.9 m short of the parked car, and read as "0 box contacts" — a collision
+    // failure the arm never got near enough to test, with nothing in the output saying the clock had
+    // ended it. 90 frames at that rate is 558 s; 900 s sits above it.
+    let why = 'frameCap';
     for (; frames < 90; frames++) {
       await frame();
       minD = Math.min(minD, signed());
       topKmh = Math.max(topKmh, v.speed * 3.6);
-      if (d.carBlockers.stats.contacts > box0 + 30) break;
-      if (Date.now() - t0 > 180000) break;
+      if (d.carBlockers.stats.contacts > box0 + 30) { why = 'contact'; break; }
+      if (Date.now() - t0 > 900000) { why = 'wallClock'; break; }
     }
     const out = { drawn: drawn.length, target: { x: +b.x.toFixed(2), z: +b.z.toFixed(2), hx: +b.hx.toFixed(3),
         hz: +b.hz.toFixed(3), roadDist: +target.roadDist.toFixed(2), along: +target.along.toFixed(3) },
+      why, wallS: +((Date.now() - t0) / 1000).toFixed(1),
       placed: +placed.toFixed(3), minD: +minD.toFixed(3), frames, topKmh: +topKmh.toFixed(1),
       boxContacts: d.carBlockers.stats.contacts - box0, carContacts: v.contacts - car0,
       health0, health: d.damage.health, ghosted: d.carBlockers.stats.ghosted };
@@ -2065,7 +2072,8 @@ if (state.global && state.frames > 2) {
   });
   console.log(`  parked cars: ${pk.drawn} drawn; target ${JSON.stringify(pk.target)}`);
   if (pk.target) {
-    console.log(`    from ${pk.placed} m off its centre to a closest ${pk.minD} m in ${pk.frames} frames, `
+    console.log(`    from ${pk.placed} m off its centre to a closest ${pk.minD} m in ${pk.frames} frames `
+      + `(ended on "${pk.why}" after ${pk.wallS} s of wall clock), `
       + `top ${pk.topKmh} km/h; ${pk.boxContacts} box contacts, ${pk.carContacts} car contact steps, `
       + `health ${pk.health0.toFixed(3)} -> ${pk.health.toFixed(3)}`);
   }
@@ -2073,7 +2081,7 @@ if (state.global && state.frames > 2) {
     pk.drawn > 0 && pk.target !== null, `${pk.drawn} drawn, target ${JSON.stringify(pk.target)}`);
   check('driven into its side, the car touches the PARKED CAR — a box contact, not a fleet car',
     pk.target && pk.boxContacts > 0 && pk.carContacts > 0,
-    `box contacts ${pk.boxContacts}, car contact steps ${pk.carContacts}`);
+    `box contacts ${pk.boxContacts}, car contact steps ${pk.carContacts}, the drive ended on "${pk.why}"`);
   // Against the side the car's centre stops at hx + the nose's 2.15 m; through it, this goes to
   // zero and then negative, which is the shipped build's answer and `car-box-wire`'s.
   check('and stops at its side: the car\'s centre never gets nearer than its nose allows',
