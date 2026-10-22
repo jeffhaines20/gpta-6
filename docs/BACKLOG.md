@@ -5256,14 +5256,15 @@ more. Its price is a white disc 1.9-2.7 globe radii wide at 15-58 m and none at 
 6.5 at 58 m and 9.4 at 100 m — a 1.9 px globe 100 m off is an 18 px white ball, on every one of 1,228 lamps.
 
 **Not fixed, and not a level's to fix: window glass.** Glass reflects the LIGHT, which is physical whatever the
-globe draws at, and a point light has no size, so three's GGX lobe on glazing roughness 0.03-0.13
+globe draws at, and a point light has no size, so three's GGX lobe on glazing roughness 0.030-0.124
+(`src/materials.js` GLAZING: coated 0.030-0.092, shop 0.040-0.124; the module's comment quotes the coated range)
 concentrates it: the page's glass needs 1/9.4 and fivepoints' pane 1.01 of the PHYSICAL globe. At 1/30 the
-window reflections are still brighter than their globes in the HDR target; both are past the display's white
-at night, and how the two read side by side is for the captures and the review, not measured here. The lever
-is the light's own size: widen each pool light's lobe
-by the globe it stands for (Karis' sphere-light normalisation, alpha' = alpha + R / 2d with R = sqrt(I / (pi
-L)) from the globe's own luminance), which orders a mirror's reflection at F x the globe by construction at
-any level. It is a patch to every lit material's punctual-light term and is not taken here.
+window reflections are still brighter than their globes in the HDR target; both are past the display's white at
+night, and how the two read side by side is for the captures and the review, not measured here. The lever is the
+light's own size: widen each pool light's lobe by the globe it stands for (Karis' sphere-light normalisation,
+alpha' = alpha + R / 2d with R = sqrt(I / (pi L)) from the globe's own luminance), which orders a mirror's
+reflection at F x the globe by construction at any level. It is a patch to every lit material's punctual-light
+term and is not taken here.
 
 **Not fixed: three lamps hang their globe against a wall.** Every lamp light against every building footprint
 tall enough to reach 7.7 m: lamps 571, 197 and 198 stand 0.224, 0.254 and 0.484 m from a wall (571's globe,
@@ -5275,6 +5276,20 @@ for walls rather than crowns.
 black. One physical luminance cannot also be bright against a dusk sky without being 30 times further over
 white at night; holding the globe at a fixed EXPOSED level (carbody.js's lampEmissive) would make dusk a
 second term, and it was not taken.
+
+**The captures.** `hero-shots`, corridor and fivepoints at dusk and night, no pedestrians, `traffic=0`, settle
+15 frames: BEFORE from an export of e4bb67b (tag g136b, port 8244), AFTER from cf761b5 (tag g136, port 8245),
+one after the other. Both logs open "cloud deck: frozen at 20s", both rc 0 with 4 captures, no errors and no
+shot errors. Each capture's audit agrees with its pair's on all 203 fields but the file name, timings and the
+frame counter (91/86, 112/107, 148/142, 169/162). The GROUND band is identical to within 1 of 255 in all four
+pairs (max |d| 0, 1, 0, 0): the lamps' light did not change, so their pools did not, which is the pair's
+built-in control. What differs is 4 to 41 compact components, 0.03-2.05% of the pixels, the largest on the near
+globes and their glare at peak |d| 50-60 at dusk and 170-221 at night; the smaller ones were not attributed one
+by one. So `blind-compare` refused the set on its 8% line — best band 0.06%, 2.65%, 0.33% and 2.72% of samples
+over 4/255 for corridor-dusk, corridor-night, fivepoints-dusk and fivepoints-night — and since one `--roi`
+rectangle serves every pair and the two framings' globes do not share one, it was built with `--force`. The
+tagged frames sit beside `docs/shots/blind/` byte for byte, so a reviewer should be handed a copy of that
+directory alone.
 
 **Gated.** `globe-level` (12 checks, about 27 s): the page's lamp is the module's and so is its light; the
 module's luminance is the page's own derivation off the buffer; the instrument reads the material back to 1%;
