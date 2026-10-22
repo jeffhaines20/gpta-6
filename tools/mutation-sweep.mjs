@@ -3344,6 +3344,19 @@ const GATE_ENV = { ...process.env, BOOT_PORT: String(treePort(ROOT)) };
  */
 const GATE_TIMEOUT_MS = { 'boot-check': 2400000 };
 
+/**
+ * A CATCH BY A TIMING CHECK IS A STATEMENT ABOUT THE BOX. On 2026-10-22 parked-frame-off read "caught by
+ * crash-test car-detail": crash-test's only failure was `step() ... in contact is under 25 us [27.68
+ * us]`, on a box at load 9, and it passed on the unmutated tree a minute later. The table said two
+ * gates; the row's coverage was one. So each catcher's first FAIL line is printed under its row, and
+ * a catcher whose every failure is a wall-clock bound is marked, so the reader can see which catches
+ * are the row's and which are the neighbours'. A mark, not a verdict: the line is still a failure.
+ */
+const TIMING_LINE = /\b(under|over|below|within)\s+[\d.,]+\s*(us|ms|ns|\u00b5s)\b|\bwall[- ]clock\b/i;
+function timingOnly(g) {
+  return g.failed.length > 0 && g.failed.every((l) => TIMING_LINE.test(l));
+}
+
 function runGate(name) {
   const t0 = Date.now();
   let out = '', rc = 0, timedOut = false;
@@ -3621,6 +3634,16 @@ if (has('--selftest')) {
   say(!/^\s+at .+:\d+:\d+\)?$/m.test('  FAIL  some check — 3 against 4'),
     'and a FAIL line does not');
 
+  // 6. A catch by a wall-clock bound is the box's, on the two real lines that put a phantom catcher in
+  // this table on 2026-10-22, and a real check failure beside one is not excused by it.
+  const gateOf = (failed) => ({ failed });
+  const crashLine = 'FAIL  step() with collision ON, in contact is under 25 us  [27.68 us]';
+  say(timingOnly(gateOf([crashLine])) && timingOnly(gateOf(['FAIL the index built in under 100 ms  71.7 ms of wall clock'])),
+    'a catcher whose only failures are wall-clock bounds reads as timing only');
+  say(!timingOnly(gateOf([crashLine, "FAIL every car pool the page builds draws its lamps' face on its own lamps (#125)"]))
+    && !timingOnly(gateOf([])),
+    'and one real check failure beside them, or no FAIL line at all, does not');
+
   console.log('MUTATION SWEEP SELFTEST');
   for (const c of checks) console.log(`  ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);
   const bad2 = checks.filter((c) => !c.ok).length;
@@ -3728,6 +3751,11 @@ for (const m of list) {
   rows.push({ m, verdict, gates: caught });
   console.log(`${verdict}${caught.length ? ` by ${caught.map((g) => g.name + (g.threw ? '(threw)' : '')).join(', ')}` : ''}` +
     `${timed.length ? `${caught.length ? ';' : ''} ${timed.map((g) => g.name).join(', ')} timed out` : ''}`);
+  for (const g of caught) {
+    const first = g.failed[0] ?? (g.threw ? '(threw before any FAIL line)' : '(non-zero exit, no FAIL line)');
+    console.log(`    ${g.name}: ${first.slice(0, 160)}${g.failed.length > 1 ? `  (+${g.failed.length - 1} more)` : ''}` +
+      `${timingOnly(g) ? '   <- TIMING ONLY: a statement about the box' : ''}`);
+  }
   if (!gitClean()) {
     console.error(`\nSTOPPING: the tree did not come back clean after ${m.id}. Inspect it by hand.`);
     process.exit(2);
@@ -3783,9 +3811,15 @@ if (threwOnly.length) {
     console.log(`  ${r.m.id}  ${r.gates.map((g) => g.name).join(', ')}`);
   }
 }
+const timingCaught = caught.filter((r) => r.gates.length && r.gates.every((g) => timingOnly(g)));
+if (timingCaught.length) {
+  console.log('\nCAUGHT ONLY BY A TIMING CHECK — every catcher failed a wall-clock bound and nothing else,');
+  console.log('which a loaded box does on its own. Rerun those gates on the clean tree before counting it:');
+  for (const r of timingCaught) console.log(`  ${r.m.id}  ${r.gates.map((g) => g.name).join(', ')}`);
+}
 console.log('\nper mutation:');
 for (const r of rows) {
-  const by = r.gates.map((g) => `${g.name}${g.threw ? '(threw)' : ''}`).join(' ');
+  const by = r.gates.map((g) => `${g.name}${g.threw ? '(threw)' : ''}${timingOnly(g) ? '(timing)' : ''}`).join(' ');
   console.log(`  ${r.verdict.padEnd(10)} ${r.m.id.padEnd(16)} ${by}`);
 }
 // The sweep is a report, not a gate: a MISS is information, and failing the command on one would
