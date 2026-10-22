@@ -37,10 +37,15 @@
 // `frames` is also now recorded in the audit, so registration is checkable after
 // the fact instead of having to be inferred from the pixels.
 export const FRAME_SETTLE = Number(process.env.HERO_SETTLE_FRAMES ?? 30);
+// The wait for those frames is a HANG DETECTOR, and HERO_SETTLE_TIMEOUT (ms) raises it on a loaded box
+// without changing what is captured. At the default 600 s a 30-frame settle needs under 20 s a frame,
+// and on 2026-10-22 at load 12 a capture's fivepoints settle did not get there and threw, losing the arm
+// three frames from its end. The frame count is unchanged, so a pair still settles alike.
+const SETTLE_TIMEOUT_MS = Number(process.env.HERO_SETTLE_TIMEOUT ?? 600000);
 export async function settleFrames(page, n = FRAME_SETTLE, why = '') {
   const f0 = await page.evaluate(() => __district.frames);
   await page.waitForFunction((t) => __district.frames >= t, f0 + n,
-    { timeout: 600000, polling: 250 });
+    { timeout: SETTLE_TIMEOUT_MS, polling: 250 });
 
   // AND WAIT FOR THE STREAMER TO GO QUIET, which frames alone do not give you.
   //
@@ -66,7 +71,7 @@ export async function settleFrames(page, n = FRAME_SETTLE, why = '') {
     const idle = (w.queued | 0) === 0 && (w.pendingUnload | 0) === 0;
     window.__quietRun = idle ? (window.__quietRun ?? 0) + 1 : 0;
     return window.__quietRun >= 5;
-  }, null, { timeout: 600000, polling: 200 }).then(() => true).catch(() => false);
+  }, null, { timeout: SETTLE_TIMEOUT_MS, polling: 200 }).then(() => true).catch(() => false);
   await page.evaluate(() => { window.__quietRun = 0; });
 
   const f1 = await page.evaluate(() => __district.frames);
