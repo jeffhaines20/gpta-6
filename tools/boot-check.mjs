@@ -104,7 +104,7 @@ if (state.global && state.frames > 2) {
   // scene, and "it booted" would then be true and useless.
   const f0 = state.frames;
   await new Promise((r) => setTimeout(r, 6000));
-  const live = await page.evaluate(() => {
+  const readLive = () => page.evaluate(() => {
     const d = __district;
     return {
       frames: d.frames,
@@ -128,7 +128,20 @@ if (state.global && state.frames > 2) {
       })(),
     };
   });
-  console.log(`  ${JSON.stringify(live)}`);
+  // WAIT ON THE CROWD, NOT ON THE CLOCK. Six seconds after boot is a statement about the box: on
+  // 2026-10-22 at load 12 the page had streamed 1 chunk by then, 63 people were alive and none was
+  // within the near tier's reach of the camera, and "the near tier is populated here" failed on a
+  // build whose earlier run that day passed it. So the read is repeated until somebody is near, under
+  // a net that is a hang detector, and the line says how long it took — a near tier still empty after
+  // the net is a finding, not the streamer being slow.
+  let live = await readLive();
+  const tCrowd = Date.now();
+  while (live.tiers && live.tiers.nearLive === 0 && Date.now() - tCrowd < 300000) {
+    await new Promise((r) => setTimeout(r, 5000));
+    live = await readLive();
+  }
+  const crowdWaitS = (Date.now() - tCrowd) / 1000;
+  console.log(`  ${JSON.stringify(live)} (crowd read after a further ${crowdWaitS.toFixed(1)} s)`);
   check('frames keep coming', live.frames > f0, `${f0} -> ${live.frames}`);
   check('the scene has geometry in it', live.tris === null || live.tris > 10000,
     `${live.tris} triangles`);
@@ -147,7 +160,7 @@ if (state.global && state.frames > 2) {
     // A packing that never packs anything would pass all three above, so say whether
     // the saving is actually being taken on this page.
     check('and the near tier is populated here, so the packing is doing something',
-      t.nearLive > 0, `${t.nearLive} near, saving ${t.nearLive * 616} triangles`);
+      t.nearLive > 0, `${t.nearLive} near, saving ${t.nearLive * 616} triangles, read ${crowdWaitS.toFixed(1)} s after the first look`);
   }
   check('the fleet is alive', live.fleet === null || live.fleet > 0, `${live.fleet} cars`);
   // The jobs a player can start. A board with nothing on it is the defect the playtest round
