@@ -312,6 +312,15 @@ boot-check". A timed-out gate is its own outcome now (`TIMED OUT`, neither caugh
 boot-check's budget is 2,400 s. When a tool reads an exit code, list every way a process exits
 non-zero without the thing you care about having happened.
 
+**A WALL-CLOCK CHECK IS THE FOURTH, and it fires on the box rather than the row.** A row that only
+removed a material option came back "caught by crash-test car-detail" on 2026-10-22. crash-test's
+`step() in contact is under 25 us` had timed 27.68 us on a box at load 9, against 9.54 us on the same
+code a minute earlier; it passed on the unmutated tree straight after. So the row's real coverage was
+car-detail alone, and the table said two gates. The check now takes the fastest of sixteen short trials
+(8.5-10.9 us over four runs at load 9.2, bound unchanged). Before quoting which gates caught a row,
+read WHICH check failed in each catcher: a timing line is a statement about the neighbours, and a
+catcher whose only failure is one is the box, not the row.
+
 ## An unnamed mesh is invisible to every instrument that buckets by name
 
 `tri-breakdown` reported an `unnamed` row of 31,548 triangles, 9.4% of the colour
