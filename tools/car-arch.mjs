@@ -354,8 +354,8 @@ export function printProfile(run, { step = 2, r0 = 0.30, r1 = 0.80 } = {}) {
 
 // ------------------------------------------------------------------------------------------- selftest
 function selftest() {
-  let fails = 0;
-  const chk = (name, ok, got) => { console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${name}: ${got}`); if (!ok) fails++; };
+  let fails = 0, n = 0;
+  const chk = (name, ok, got) => { n++; console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${name}: ${got}`); if (!ok) fails++; };
   // THE INSTRUMENTS, on real buffers: they must see the defect and not invent one.
   const before = archBuffer(buildTrafficCarGeometry({ groundY: 0, arch: false }), -CAR.ground);
   const now = archBuffer(buildTrafficCarGeometry({ groundY: 0 }), -CAR.ground);
@@ -418,7 +418,7 @@ function selftest() {
   try { n0 = verdict({}, {}).length; } catch { threw2 = true; }
   chk('an empty report is a full set of FAILs, not a crash', !threw2 && n0 === CHECK_COUNT && verdict({}, {}).every((c) => !c.ok),
     `threw ${threw2}, ${n0} checks`);
-  console.log(fails ? `\nCAR-ARCH SELFTEST: FAIL (${fails})` : '\nCAR-ARCH SELFTEST: PASS');
+  console.log(fails ? `\nCAR-ARCH SELFTEST: FAIL — ${fails} of ${n} checks` : `\nCAR-ARCH SELFTEST: PASS — ${n} checks`);
   return fails === 0;
 }
 
