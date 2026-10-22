@@ -34,6 +34,10 @@ import { chromium } from 'playwright';
 import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
 import { bucketSource, trisSource } from './tri-buckets.mjs';
+import { luma, triangleArea, physicalLuminance } from './globe-math.mjs';
+// #136's arithmetic as SOURCE for page.evaluate, one IIFE so the functions share a scope.
+const globeMathSource = `(() => { const luma = ${luma.toString()}; const triangleArea = ${triangleArea.toString()};\n`
+  + `const physicalLuminance = ${physicalLuminance.toString()}; return { luma, triangleArea, physicalLuminance }; })()`;
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const PORT = Number(process.env.BOOT_PORT ?? 8123);
@@ -280,6 +284,45 @@ if (state.global && state.frames > 2) {
     lamps.length > 0 && strayLamps.length === 0,
     strayLamps.length ? strayLamps.map((r) => `${r.name || '<unnamed>'} -> ${r.bucket}`).join('; ')
       : `${lamps.length} meshes, ${lampTris} triangles, all in "street lamps"`);
+}
+
+/**
+ * AND EACH LAMP'S LIGHT AND ITS GLOBE ARE ONE DEFINITION (#136). The globe's luminance is derived
+ * from the light the LightPool places — src/streetfurniture.js LAMP_CANDELA — and the light is placed
+ * by district/main.js, which is imported by no offline gate. So the wire is asserted here, off the
+ * live page: every emitter the pool holds carries the module's candela, colour and reach (main.js
+ * typed 900, 0xffc98a and 46 for as long as lamps have existed), there is one per lamp, and the globe
+ * the page draws at the boot preset (dusk, lamps on) is the level the module declares — its
+ * luminance read back off the material and the physical one recomputed here off the head mesh's own
+ * buffer, not taken from the module's report.
+ */
+{
+  const gs = await page.evaluate((gmSrc) => {
+    const M = eval(gmSrc);   // eslint-disable-line no-eval
+    const d = window.__district, f = d.furniture, lp = d.lightPool;
+    if (!f || !lp || !f.globeReport) return null;
+    const rep = f.globeReport();
+    const em = lp.emitters;
+    const off = em.filter((e) => e.candela !== rep.candela || e.color !== rep.color || e.distance !== rep.reach);
+    const Color = f.headMat.emissive.constructor;
+    const lc = new Color(rep.color);
+    const g = M.triangleArea(f.heads.geometry.attributes.position.array, (x) => x > 0);
+    const physical = M.physicalLuminance(rep.candela, [lc.r, lc.g, lc.b], g.area / 4);
+    const e = f.headMat.emissive;
+    const luminance = M.luma(e.r, e.g, e.b) * f.headMat.emissiveIntensity;
+    return { lamps: f.count, emitters: em.length, off: off.length, sample: em[0] ?? null, rep,
+      physical, luminance, lampsOn: !!(d.tod && d.tod.preset && d.tod.preset.lampsOn), triangles: g.triangles };
+  }, globeMathSource);
+  console.log(`    globes   ${gs ? `${gs.emitters} emitters for ${gs.lamps} lamps, ${gs.off} off the module's light; ` +
+    `globe ${gs.luminance.toFixed(3)} nits against ${gs.physical.toFixed(1)} physical (${gs.triangles} triangles off the buffer), ` +
+    `level 1/${(gs.physical / gs.luminance).toFixed(1)} drawn, 1/${(1 / gs.rep.level).toFixed(1)} declared` : 'no report'}`);
+  check('every lamp\'s light is the module\'s: one emitter a lamp, each at LAMP_CANDELA, its colour and its reach',
+    gs && gs.lamps > 0 && gs.emitters === gs.lamps && gs.off === 0,
+    gs ? `${gs.emitters} emitters, ${gs.lamps} lamps, ${gs.off} off; first ${JSON.stringify(gs.sample)} against ` +
+      `${gs.rep.candela} cd ${gs.rep.color} ${gs.rep.reach} m` : 'no report');
+  check('and the globe the page draws, lamps on, is the module\'s level of the physical luminance off the buffer',
+    gs && gs.lampsOn && gs.physical > 0 && Math.abs(gs.luminance / (gs.rep.level * gs.physical) - 1) < 1e-4,
+    gs ? `drawn ${gs.luminance.toFixed(4)} nits, declared ${(gs.rep.level * gs.physical).toFixed(4)}, lamps on ${gs.lampsOn}` : 'no report');
 }
 
 

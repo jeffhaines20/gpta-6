@@ -210,6 +210,18 @@ const OFFLINE = [
   // kerb face the streamer draws, by a classifier of its own. Nothing else on this list asks where
   // anything STANDS relative to the kerb — geom-audit asks whether it floats.
   'kerb-stand',
+  // #136's page: the module's own street lamp, its light through the real LightPool and the real
+  // PostStack at the night bars, at the old globe, the shipped one, the level that would order the glass
+  // and the physical one. THE DEAREST ENTRY ON THIS LIST: 27 s a run measured with the box at load 6
+  // (twelve arms, each two 1600 x 900 renders, because a bloom's footprint is in pixels and only the
+  // hero's own resolution prices it), so about 75 minutes over this table's ~165 rows. It is here because
+  // nothing else on the list draws a lamp's globe or lights anything with its light: every globe row
+  // below is invisible to the rest of it, and boot-check sees only the wire.
+  'globe-level',
+  'globe-level --selftest',
+  // Milliseconds: the arithmetic globe-level, globe-order and boot-check's globe arm share
+  // (tools/globe-math.mjs) — the area off a buffer, the flux identity, a footprint.
+  'globe-order --selftest',
 ];
 
 /**
@@ -3293,6 +3305,51 @@ const MUTATIONS = [
     find: '    roughness: PALETTE[SURFACE.glassy][0], metalness: PALETTE[SURFACE.glassy][1],',
     to: '    roughness: 0.045, metalness: 0.88,',
     why: "the player's glass goes back to the 1% reflector slot 10 records fixing for the fleet",
+  },
+  // ---- #136: the street lamp's globe against its own light. globe-level measures the ordering and the
+  //      halo on its page; boot-check owns the one wire district/main.js holds.
+  {
+    id: 'globe-level-old', file: 'src/streetfurniture.js',
+    find: 'export const LAMP_GLOBE_LEVEL = 1 / 30;',
+    to: 'export const LAMP_GLOBE_LEVEL = 4.4673e-4;',
+    why: '#136 back: the globe at 1.76 nits, 1/2,239 of its light, outshone by the facade\'s lobe x57.75 and by its own twin',
+  },
+  {
+    id: 'globe-level-physical', file: 'src/streetfurniture.js',
+    find: 'export const LAMP_GLOBE_LEVEL = 1 / 30;',
+    to: 'export const LAMP_GLOBE_LEVEL = 1;',
+    why: 'every globe at the luminance that radiates its light\'s flux: ordered, and a white disc 6.5 of its own radius at 58 m',
+  },
+  {
+    id: 'globe-area-typed', file: 'src/streetfurniture.js',
+    find: '  return S / 4;',
+    to: '  return Math.PI * 0.25 * 0.25;',
+    why: 'the globe\'s area typed off the SphereGeometry call rather than read off its 20 facets: 33% too big, so the globe draws 25% too dim',
+  },
+  {
+    id: 'globe-light-uncoloured', file: 'src/streetfurniture.js',
+    find: '  return LAMP_CANDELA * colourLuma(new THREE.Color(LAMP_LIGHT_COLOR)) / meanArea;',
+    to: '  return LAMP_CANDELA / meanArea;',
+    why: 'the light\'s candela without its colour, which three multiplies by it: a globe x1.54 brighter than the light it stands for',
+  },
+  {
+    id: 'globe-setlit-literal', file: 'src/streetfurniture.js',
+    find: '    this.headMat.emissiveIntensity = on ? this.globeIntensity() : 0;',
+    to: '    this.headMat.emissiveIntensity = on ? 2.4 : 0;',
+    why: 'the old literal back in setLit alone: the module still DECLARES 1/30 and the page draws 1/2,239 at every hour change',
+  },
+  {
+    /**
+     * The one wire that lives in district/main.js. Behaviour-preserving for every offline gate, which build
+     * their own LightPool from the module's constant, so only boot-check can see it — and it reads as
+     * nothing in a frame either, because the globe derives from LAMP_CANDELA and would no longer match a
+     * light the page placed at a different number.
+     */
+    id: 'lamp-candela-typed', file: 'district/main.js',
+    find: '  for (const head of lamps.heads) lightPool.addEmitter(head.x, head.y, head.z, LAMP_CANDELA, LAMP_LIGHT_COLOR, LAMP_REACH);',
+    to: '  for (const head of lamps.heads) lightPool.addEmitter(head.x, head.y, head.z, 1800, LAMP_LIGHT_COLOR, LAMP_REACH);',
+    why: 'the page types its own candela again: a light twice what the globe in front of it was derived from',
+    browser: true,
   },
 ];
 

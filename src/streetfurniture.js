@@ -3232,6 +3232,116 @@ const LAMP_POLE_R = 0.155;
 export const LAMP_ARM = 2.2;
 export const LAMP_HEAD_Y = 7.7;
 /**
+ * #136: THE LAMP'S LIGHT, AND THE GLOBE THAT IS SUPPOSED TO BE MAKING IT, AS ONE DEFINITION.
+ *
+ * A street lamp is two objects the renderer keeps apart: a PointLight the LightPool places at the
+ * outer globe's centre (district/main.js hands it LAMP_CANDELA, LAMP_LIGHT_COLOR and LAMP_REACH,
+ * which it typed as 900, 0xffc98a and 46), and the globe, an emissive mesh in `headMat`. Nothing
+ * tied the two together, and they disagreed by three orders of magnitude: the globe drew at
+ * emissiveIntensity 2.4 of 0xffd9a0, a luminance of 1.762 nits, while its own light put a
+ * specular disc on the corridor's facade that a blind reviewer measured at about 29x the lamp as
+ * the camera sees it, and lit palm fronds, a corner pilaster and the lamp's own pavement-side
+ * globe brighter than the globe hanging in front of them.
+ *
+ * The tie is energy. A Lambertian emitter of luminance L and surface area S radiates pi L S
+ * lumens; an isotropic point source of intensity I radiates 4 pi I. So the globe that radiates its
+ * own light's flux has L = I / (S / 4), and S / 4 is the mean projected area of a convex body
+ * (Cauchy) — pi r^2 for a sphere, and 0.148 m2 for the 20-triangle globe this file draws, which
+ * `globeMeanArea` reads off the head geometry's own buffer rather than off the 0.25 typed into the
+ * SphereGeometry call (the facets cut 25% of the sphere's area). I is the light's candela times
+ * its colour's luminance, because three multiplies the two: 900 x 0.6487 = 583.8 cd. So:
+ *
+ *     physical globe   583.8 / 0.14800 = 3,944.7 nits
+ *     the old globe    2.4 x luma(0xffd9a0) = 2.4 x 0.7342 = 1.762 nits    1/2,239 of that
+ *
+ * (#136 as filed says 1/2,600: 900 cd over pi 0.25^2 against the same 1.76, which takes the
+ * light's candela without its colour and the sphere's area without its facets. The two
+ * corrections nearly cancel; the flux identity above is the one with nothing left out.)
+ *
+ * The globe keeps its own colour: only its luminance is tied to the light, so a level is one
+ * number and nothing about the globe's hue moves with it. LAMP_GLOBE_LEVEL is the fraction of the
+ * physical luminance the globe draws at, and why it is not 1 is the bloom — see its own comment.
+ */
+export const LAMP_CANDELA = 900;
+export const LAMP_LIGHT_COLOR = 0xffc98a;
+export const LAMP_REACH = 46;
+/**
+ * #136: THE GLOBE DRAWS AT 1/30 OF THE LUMINANCE THAT RADIATES ITS LIGHT'S FLUX — 131.5 nits, x74.6
+ * the 1.762 it drew. Measured, not picked; tools/globe-level.html is the page and the gate.
+ *
+ * Every number below is a ratio of two radiances in ONE HDR frame — what the lamp's light adds to a
+ * surface over the globe's own luminance — so no exposure and no tonemap enters it, and it is LINEAR in
+ * the level: the level at which a globe would equal a surface is the old level times that surface's
+ * ratio at the old level. In the district (tools/globe-order.mjs, both hero cameras at night, the
+ * pool's light isolated as the difference of two reads), at the old level:
+ *
+ *     class                      worst ratio    where                                   level it needs
+ *     window glass, a mirror        x2,259      fivepoints, a pane by the brick corner   1.01 (!)
+ *                                     x380.4    fivepoints, the red parked car's screen  1/5.9
+ *                                     x334.6    corridor, building 18's window           1/6.7
+ *     car paint                       x30.1     fivepoints, the white parked car         1/74
+ *     the lamp's own inner globe       x6.95    corridor, lit from 3.2 m by its twin     1/322
+ *     oak leaves, awnings, walls       x5.1     corridor                                 1/440
+ *
+ * and on the page, the facade atlas' WALL cell (roughness 0.220, F0 0.18) 5.03 m behind the light —
+ * the corridor's own geometry — seen from 15 m down the street reads x57.75: the lobe of the cell
+ * every atlas facade is made of, and the binding case of everything a level CAN order. It needs 1/38.8;
+ * 1/30 orders it with 29% to spare, and the page's pilaster at 2.2 m (x0.21), a palm frond at #139's
+ * nearest crown, 1.62 m (x0.08), the inner globe (x0.10) and every component the district probe lists
+ * in either hero frame that is not a window or a windscreen (worst x0.40, the white car) with more.
+ * Classified by looking at each component's box in the frame; the probe cannot tell glass by itself.
+ *
+ * WHAT NO LEVEL ORDERS, AND WHY IT IS NOT THIS NUMBER'S JOB. Glass reflects the LIGHT, and the light
+ * is physical: a mirror's reflection of a 900 cd source is about F x 3,945 nits whatever the globe in
+ * front of it draws at, and a point light has no size, so three's GGX lobe on 0.03-0.09 roughness can
+ * concentrate it past even that (fivepoints reads 1.01 of the PHYSICAL globe). Ordering glass by the
+ * globe would need the globe at ~1/9 to 1 of physical, and the cost is the next table.
+ *
+ * WHY NOT PHYSICAL: THE BLOOM. A globe at 3,945 nits is 733x white at night and the bright pass hands
+ * the blur nearly all of it. The globe's own glare, read off the bloom target with its light off (so
+ * nothing lit contributes), as the radius of the disc it whitens (>= 1 exposed: black taken to display
+ * 0.80) against the globe's own projected radius, night, corridor lens:
+ *
+ *     camera   globe r    1/2238    1/50    1/30    1/20    1/10      1/1
+ *     15 m     12.0 px      none    1.7x    1.9x    2.0x    2.2x     2.6x
+ *     29 m      6.5 px      none    2.1x    2.5x    2.7x    3.1x     3.9x
+ *     58 m      3.3 px      none    none    2.7x    3.5x    4.4x     6.5x
+ *    100 m      1.9 px      none    none    none    none    4.8x     9.4x
+ *
+ * A distant lamp is where it bites: at physical, a 1.9 px globe 100 m off is an 18 px white ball, and a
+ * street of them is the "large blown halo" on every one of 1,228 lamps. At 1/30 no globe's white disc
+ * passes 2.7 of its own radius and the far ones have none; the globe reaches the display's white at
+ * night (0.999 against 0.72-0.83 before — "no globe clips" was one of the reviews' findings).
+ *
+ * AT DUSK it is 0.068 exposed (1/1,947), a dim warm dot against the sky where the old globe was
+ * 0.0009, black. One physical luminance cannot also be bright against a dusk sky without being 30
+ * times further over white at night; holding the globe at a fixed EXPOSED level instead (as
+ * carbody.js's lampEmissive does) would make dusk a second term, and it is not taken here.
+ */
+export const LAMP_GLOBE_LEVEL = 1 / 30;
+/** Rec. 709 luminance of a three Color, in the working (linear) space it holds. */
+function colourLuma(c) { return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b; }
+/**
+ * The OUTER globe's mean projected area, off a head geometry's own position buffer: S / 4 over the
+ * triangles on the road side of the post (+x), which is the globe the LightPool's emitter sits in.
+ * Non-indexed, as mergeGeos builds it.
+ */
+export function globeMeanArea(headGeo) {
+  const p = headGeo.attributes.position.array;
+  let S = 0;
+  for (let i = 0; i + 8 < p.length; i += 9) {
+    if (!(p[i] > 0 && p[i + 3] > 0 && p[i + 6] > 0)) continue;
+    const ux = p[i + 3] - p[i], uy = p[i + 4] - p[i + 1], uz = p[i + 5] - p[i + 2];
+    const vx = p[i + 6] - p[i], vy = p[i + 7] - p[i + 1], vz = p[i + 8] - p[i + 2];
+    S += Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2;
+  }
+  return S / 4;
+}
+/** The luminance, in nits, of a globe of mean projected area `meanArea` that radiates its light's flux. */
+export function physicalGlobeLuminance(meanArea) {
+  return LAMP_CANDELA * colourLuma(new THREE.Color(LAMP_LIGHT_COLOR)) / meanArea;
+}
+/**
  * #137: metres of centreline between consecutive street lamps, the sides alternating, so each
  * pavement has one every 2 x 26 m and no point of a street is more than 26 m along it from a lamp
  * on either side. This is the figure the old loop documented ("one every 26 m of centreline,
@@ -3441,6 +3551,10 @@ export class StreetFurniture {
       translated(new THREE.SphereGeometry(0.25, 5, 3), LAMP_ARM, LAMP_HEAD_Y, 0),
       translated(new THREE.SphereGeometry(0.22, 5, 3), -1.0, 7.66, 0),
     ]);
+    // #136: the globe's luminance is derived from its light and from this buffer, not typed. See
+    // LAMP_CANDELA. `level` is the one number a tool may move (setGlobeLevel), and every reader
+    // reads the luminance it produces back off the material.
+    this.globe = { meanArea: globeMeanArea(headGeo), level: LAMP_GLOBE_LEVEL };
 
     // All three cast. The arm and the head were excluded when a shadow texel was
     // 0.254 m and a 0.13 m arm could not survive PCF; at 0.078 m/texel the arm is
@@ -5735,9 +5849,37 @@ export class StreetFurniture {
   // Emissive on the fixture itself tracks whether the lamps are on, independently
   // of whether a LightPool slot currently reaches this one.
   setLit(on) {
-    this.headMat.emissiveIntensity = on ? 2.4 : 0;
+    this.headMat.emissiveIntensity = on ? this.globeIntensity() : 0;
     this._lit = on;
     this._applyEmissive();
+  }
+
+  /**
+   * #136: the emissiveIntensity that puts the globe at `level` of the luminance radiating its own
+   * light's flux. Divided by the emissive colour's own luminance, so the level is a luminance and
+   * the globe's hue does not enter it.
+   */
+  globeIntensity(level = this.globe.level) {
+    return level * physicalGlobeLuminance(this.globe.meanArea) / colourLuma(this.headMat.emissive);
+  }
+
+  /**
+   * A tool's lever on the globe, for a sweep off one page load. Returns what the MATERIAL now holds,
+   * read back rather than echoed, so a sweep that did not land says so.
+   */
+  setGlobeLevel(level) {
+    if (!(level >= 0) || !Number.isFinite(level)) throw new Error(`setGlobeLevel: not a level: ${level}`);
+    this.globe.level = level;
+    if (this._lit) this.headMat.emissiveIntensity = this.globeIntensity();
+    return this.globeReport();
+  }
+
+  globeReport() {
+    const physical = physicalGlobeLuminance(this.globe.meanArea);
+    const luminance = colourLuma(this.headMat.emissive) * this.headMat.emissiveIntensity;
+    return { candela: LAMP_CANDELA, color: LAMP_LIGHT_COLOR, reach: LAMP_REACH,
+      meanArea: this.globe.meanArea, physical, level: this.globe.level, lit: this._lit,
+      emissiveIntensity: this.headMat.emissiveIntensity, luminance, drawnLevel: luminance / physical };
   }
 
   report() {
