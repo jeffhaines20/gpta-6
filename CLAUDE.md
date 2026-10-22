@@ -3184,8 +3184,10 @@ pavement prop against the kerb face the streamer draws, 3.7 s; #135/#137's lamp 
 `sign-orient` and `sign-orient --selftest` (every lettered face reads forwards, every street-name
 blade lettered on both faces, and named for the street it runs along; 0.7 s),
 `glass-ao` and `glass-ao --selftest` (#130: a purpose-built page, the AO cloud on car glass, 8 s),
-`star-strokes` and `star-strokes --selftest` (#124: the night sky's stars as connected components, 3.3 s).
-**Fifty-six entries in 241 s** on 2026-10-19, run alone. **Add a new gate to BOTH lists** — this one
+`star-strokes` and `star-strokes --selftest` (#124: the night sky's stars as connected components, 3.3 s),
+`globe-level`, `globe-level --selftest` and `globe-order --selftest` (#136: the lamp's globe against what its
+own light reaches, a purpose-built page through the real LightPool and PostStack, 16 s idle, 44 s at load 10).
+**Fifty-six entries in 241 s** on 2026-10-19, run alone; fifty-nine in 607 s on 2026-10-22 at load 12. **Add a new gate to BOTH lists** — this one
 and `mutation-sweep`'s offline list: `car-shapes` sat on this one and not the sweep's, so nothing it
 asserted had ever been swept, and a row written for a new car-shapes check came back MISSED against
 a check written to catch it. When a row misses a check you believe catches it, grep the sweep's

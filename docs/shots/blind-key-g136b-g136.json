@@ -1,0 +1,30 @@
+{
+ "generated": "2026-10-22T15:15:48.129Z",
+ "left": "g136b",
+ "right": "g136",
+ "salt": "0f74449cfb58",
+ "unpairedLeft": [],
+ "unpairedRight": [],
+ "pairs": [
+  {
+   "id": "corridor-dusk",
+   "A": "g136",
+   "B": "g136b"
+  },
+  {
+   "id": "corridor-night",
+   "A": "g136",
+   "B": "g136b"
+  },
+  {
+   "id": "fivepoints-dusk",
+   "A": "g136b",
+   "B": "g136"
+  },
+  {
+   "id": "fivepoints-night",
+   "A": "g136b",
+   "B": "g136"
+  }
+ ]
+}

@@ -4228,6 +4228,13 @@ glares from a bright CORE with a long falloff. Not diagnosed; the first measurem
 emitter's own exposed radiance and on-screen size against the bright pass's night threshold, and what
 draws the 45 px disc (a halo sprite would carry no #114 tag and count as untagged).
 
+**Measured by #136's blind reviewer (2026-10-22), in both arms.** Every night glow is a compact disc with no
+tail: at fivepoints night, row y=274, the clipped wall lamp's glow drops 0.275 -> 0.061 between x=1174 and
+x=1176, and the recess 31-43 px from it reads 0.04-0.08 where a lens's glare would lift it; #136's lantern
+glows return to x1.00 by r ~ 40 px and their radius grows only as (head size)^0.37 (35 px at a 15.1 px head,
+18 px at 2.5). And the green signal does not clip (core 0.708, sRGB 75,245,196) and its glow is gone within
+~13 px while every lit lamp clips: one camera exposure would clip an LED signal too.
+
 ### #124 PARTS 1 AND 2 FIXED — the star strokes were fwidth() across the star field's own cell faces, and the signal lens was a square plate; two items remain
 **The night-sky strokes.** At 8x the reviewer's two boxes in `r12b-bloom1-fivepoints-night`, (241-252,
 56-67) and (271-283, 66-74), are two stars each wearing 1-px straight lines — an L and a bracket.
@@ -5314,7 +5321,7 @@ same line. The fixture's own comment says "what a real roadway/pavement twin doe
 over the road. The fix is the yaw (`atan2(nz * side, -nx * side)`), and it moves every lamp light
 2.2 m toward the carriageway, which is a night-look change for a capture and a blind review.
 
-### #136 FIXED FOR EVERYTHING A LEVEL CAN ORDER — the globe draws at 1/30 of its light's flux; window glass is not a level's to fix
+### #136 FIXED FOR EVERYTHING A LEVEL CAN ORDER, BLIND REVIEW PREFERRED IT 4 OF 4 — the globe draws at 1/30 of its light's flux; window glass is not a level's to fix
 **The tie.** `src/streetfurniture.js` holds the lamp's light as `LAMP_CANDELA` 900, `LAMP_LIGHT_COLOR` 0xffc98a
 and `LAMP_REACH` 46 beside `LAMP_HEAD_Y`, and `district/main.js` reads them where it typed them. The globe's
 luminance is derived from them: a Lambertian emitter of area S radiates pi L S lumens and an isotropic point
@@ -5448,6 +5455,42 @@ cd against the module's 900) and the globe check still passes, which is what the
 the wire check can see it); the same probe on this tree passes both. Its first attempt 404'd: `ensureServer` had
 served the probe's cwd rather than the export it was given, for every caller, which b3d7bb7 fixes in
 `tools/serve.mjs`.
+
+**The blind review (2026-10-22, `docs/shots/blind-key-g136b-g136.json`; merged 7ed73fb).** Four pairs, corridor
+and fivepoints at dusk and night, traffic and crowd off, every control box B/A 1.00000 with 0 pixels differing,
+and the two lamps this change does not touch (corridor's low lamp, fivepoints' wall lamp) 0 pixels differing.
+The reviewer found the one term — "the builds disagree only about how bright the lamp itself looks", the light
+the lamps throw byte-identical — and preferred the brighter arm every time; decoded, that arm is #136 in all four:
+
+    pair              preferred   confidence   strongest reason
+    corridor night    #136            4        "in the dim arm the lantern is dimmer than the leaves it lights":
+                                               14.3% of a lit-leaf box brighter than the old lantern, none
+                                               brighter than the new one
+    fivepoints night  #136            4        the old lanterns (0.62-0.69) dimmer than the green signal
+                                               (0.708) and the pole they hang on (0.78)
+    corridor dusk     #136            2        the new globe evenly filled and frosted, the old an opaque
+    fivepoints dusk   #136            2        orange ball; "you only see it by flipping between the frames"
+
+The dusk pairs are confidence 2 on a question the reviewer could not settle from the pixels — whether the lamps
+should be on at that hour at all (corridor's low lamp is dark at dusk while fivepoints' wall lamp glints) — and
+that question is the follow-up below, not a reason to doubt the night verdict.
+
+**What the review found in BOTH arms**, filed where it belongs:
+- **Dusk globes read as painted balls darker than the sky behind them**: 0.59-0.79 of the sky ring at
+  fivepoints, (R-B)/L 0.83-1.22 against the sky's 0.17-0.37, in both arms. The level is one fraction of the
+  physical luminance at every hour; a physical globe at the dusk exposure (1/1947) would clip. OPEN as a
+  follow-up: whether the lamps are lit at dusk, and at what level.
+- **Every night glow is a compact disc with no tail**, and the green signal neither clips (0.708, sRGB
+  75,245,196) nor glows past ~13 px while the lamps clip: recorded under #123.
+- **Nothing reflects the lantern faces**: glass, paint and road are byte-identical while the faces change
+  x1.5-2.2, so the clipped lamps in the new arm have no mirror images. Expected (the environment holds the sky,
+  not the globes; the specular a lamp leaves on glass is its LightPool light), and it is #54's family.
+- **Tree canopies are hard alpha cut-outs**: 86% and 83% of leaf-to-sky transitions are one-pixel steps in two
+  corridor canopy boxes, against 27% on a facade and 2% on the road — the foliage item #124 and #125 carry.
+- **A zero-mean speckle on the red car at fivepoints**, dusk and night: 10.8% and 18.0% of its pixels differ,
+  mean |dL| 0.21-0.30% of its luma, a sub-pixel-shift fit R2 0.001-0.007, every other car byte-identical. NOT
+  explained. That car sits in the junction with its headlamps lit and nothing else moves between two page
+  loads, so the first suspect is the player's car settling differently on its suspension per load; unmeasured.
 
 #### #136 (as filed)
 ### #136 OPEN — a lamp's reflection outshines the lamp: the globe emits about 1/2,600 of what its light implies
@@ -5640,3 +5683,14 @@ bodies. Map size and extent are untouched, so `shadow-stable` and the chunk-stal
 play. And at night nothing darkens the road under a car once #138's guard stops the AO reaching it
 through the sill: the lamps cast no shadow, so a contact term for cars (an occlusion footprint) is the
 candidate there. Order: #141 first, then #138 re-reviewed with both arms carrying it.
+
+### #142 OPEN — dusk lamp globes read as painted balls darker than the sky behind them, and nothing says whether a lamp is lit at dusk
+From #136's blind reviewer (2026-10-22), in BOTH arms, so not #136's doing: at fivepoints dusk the lantern
+globes are 0.59-0.79 of the sky ring around them, with (R-B)/L 0.83-1.22 against the sky's 0.17-0.37 — an
+orange ball, not a lit frosted globe. #136 sets the globe at one fraction (1/30) of its physical luminance at
+every hour, and the dusk exposure is 1/1947, so the globe exposes to about 0.068 where a physical one would
+clip. The reviewer could not decide either dusk pair with confidence above 2 because the frame contradicts
+itself on the prior question: corridor's low lamp is dark at dusk while fivepoints' wall lamp glints (peak
+0.72). Two questions, in this order: which lamps a photocell has switched on at the dusk preset's sun
+elevation (3.2 degrees), and then the level a lit globe draws at that exposure, priced against #119's halo
+refusal the way #136 priced the night.
