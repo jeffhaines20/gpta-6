@@ -5295,6 +5295,15 @@ rectangle serves every pair and the two framings' globes do not share one, it wa
 tagged frames sit beside `docs/shots/blind/` byte for byte, so a reviewer should be handed a copy of that
 directory alone.
 
+Read off the captured NIGHT frames with two one-off probes (no selftest, not committed): round the nine near
+globes globe-order located in those frames, the white disc — display-linear luminance >= 0.80, which is what 1.0
+exposed over black displays as and so the gate's white, connected to the globe's brightest pixel — is 1.02 to
+2.48 globe radii after (#831 at 22.0 m the widest; #284 at 43.7 m reads 0.11, one white pixel, not looked into),
+and there is none before, where no globe's brightest pixel reached 0.80 (0.48-0.71). The three components still
+over their globes at 1/30 by linearity — corridor's pane x4.48, fivepoints' pane x30.3, the red car's windscreen
+x5.10 — have the same white counts in both arms (80 of 80, 1,118 of 2,604, 123 of 234 px): on the display at
+night they and their globes are now alike white.
+
 **Gated.** `globe-level` (12 checks, about 27 s): the page's lamp is the module's and so is its light; the
 module's luminance is the page's own derivation off the buffer; the instrument reads the material back to 1%;
 KNOWN-BAD live, the old globe outshone by the wall lobe, the pilaster, the frond and its own twin; THE FIX at
