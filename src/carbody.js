@@ -2295,8 +2295,15 @@ function triangulate(poly2d) {
  * Paint facing down is lit almost wholly by the PMREM's lower hemisphere, which is sky.js's lit ground
  * at uGroundAlbedo 0x807866 (warm), and the AO then takes it to brown: a white panel turned to the
  * pavement is a tan one, and in a crease it is (91,86,74). The other reading, the flank's edge normals
- * bleeding the chamfer's tilt into the flank (up to 41 degrees at the arch's cap vertices), is real and
- * small: it softens the edge over about 2 cm and moves the flank there by about 10% of luma.
+ * bleeding the chamfer's tilt into the flank (up to 41 degrees at the arch's cap vertices), is real, and
+ * it is NOT confined to the edge. The cap has no interior vertices, so an arch vertex's tilt rides the
+ * long ear-clipped triangles that fan from it across the door: the fix moves the flank's shading normal
+ * by more than 1 degree over 51-53% of a fleet shell's cap (45-46% of the door's columns), by more than
+ * 5 over 14-16% (5-6%), the worst 33.6 degrees and 8.8 on the door; the door then reads 3.8% brighter
+ * and 0.065 cooler in (R-B)/luma on the sunlit side, 2.8% darker and 0.10 cooler on the shaded one. The
+ * player's finer cap moves 13.6% and 2.5%. And most of the cap's tilt is not the arch's: every boundary
+ * vertex shares its normal with the chamfer the same way, so 97-99% of a fleet cap is shaded more than
+ * 1 degree off its own face before #125 and 85-87% after, which #125 leaves as it found it.
  *
  * Three levers, measured one at a time out of the shipped arch (same cars, sides and bands):
  *   liner   the rings inboard of the lip's rail are the car's own unpainted plastic on SURFACE.matte
