@@ -20,7 +20,8 @@
 //   the well is not paint     every body triangle inside the arch circle is on SURFACE.matte, in a colour
 //                             the build's own trim slot carries (its unpainted plastic)
 //   the flank's own normal    every vertex a flank-cap face uses within the arch's reach is shaded with the
-//                             cap faces' own normal (the chamfer used to tilt it 33 degrees)
+//                             cap faces' own normal (the chamfer used to tilt it up to 41.3 degrees on a
+//                             fleet shell, 18.5 on the player's)
 //   confined                  every vertex record outside the arch's reach is byte-identical to the arch
 //                             before #125 (`arch: false`), so no other edge's shading can have moved
 //   free                      the triangle count is the arch-before-#125's, and the shells stay equal-cost
@@ -29,6 +30,19 @@
 //                             warmer than its warmest tenth
 //   the well is not dirt      the well above the tyre is no warmer than the door's warmest tenth
 // Every one has a KNOWN-BAD: the arch before #125, built by the same builders, must fail it.
+//
+// WHAT IT DOES NOT SEE, measured rather than assumed:
+//   - the page is NOON only. --measure took dusk and night (the lip 1.03-1.65 and 1.10-1.32 of the door,
+//     off the profile bins), and nothing re-checks them.
+//   - the page renders the fleet's coupe and the player's car. The parked pool reaches it only through
+//     its buffers and `moduleIdentity`; rendered at the same ground contact it reads every band equal to
+//     the fleet's to three decimals, which is why the gate does not pay for a third car.
+//   - the well bands are MEDIANS. The player's front arch carries a crescent of flank paint inside the
+//     arch circle (its cap polygon crosses itself just above the arch, in both arms): median 0.003-0.004
+//     of the door, p90 0.56-0.79. A median check passes it; see #125 in docs/BACKLOG.md.
+//   - the rest of the flank's normal. Every cap vertex shares its normal with the chamfer, so most of a
+//     cap is shaded off its own face before and after #125; the gate holds the arch's share to its own
+//     faces and the rest byte-identical, and says nothing about whether the rest is right.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
