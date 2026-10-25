@@ -4287,7 +4287,7 @@ The remaining three, as filed:
   no light change: 56 px along (12,340)-(439,430), 1-6 codes, so in motion it would shimmer. The
   sun's shadow box is #117's; the first question is what moved between the two captures.
 
-### #125 TWO OF FIVE FIXED, THE HEADLAMPS' FRAME FIXED (NOT REVIEWED), TWO OPEN — what #119's reviewer found wrong in BOTH arms, cars first
+### #125 TWO OF FIVE FIXED, THE HEADLAMPS' FRAME AND THE ARCHES FIXED (NOT REVIEWED), ONE OPEN — what #119's reviewer found wrong in BOTH arms, cars first
 **The side-on taillight: FIXED (0812a0e).** `overlayBand` lays the tail lens flat across the rear
 profile, so every lens triangle faced straight back. Off the buffers, 0.0 cm2 of tail lens faced either
 side on all three shells AND on the player's car, the lens stopping 6-10 cm inboard of the flank. Real
@@ -4335,8 +4335,143 @@ load 9.2, bound unchanged. Two existing rows went stale on the lines this change
 by intent. Whether the face still reads as "eyes" now that it sits where it was drawn for is for the
 next blind review.
 
-Still open, as filed: the dark ring round the wheel arches (#138's AO is the first suspect), and the
-foliage.
+**The warm dark ring round the wheel arches: FIXED (ef480c4), not reviewed blind — and the AO was not
+the cause.** `tools/car-arch.html` is a purpose-built page that stands a white car side-on at street
+height under the REAL noon light (sky.js's dome and its PMREM, daynight.js's sun and bounce, post.js's
+composite), builds the fleet's coupe through `Traffic`, the parked pool's through `StreetFurniture` at
+`PARKED_GROUND_Y` and the player's through `buildPlayerCar`, and reads two bands round each arch's crown
+and shoulders (within 70 degrees of its top) against the door of the same car in the same frame, in
+linear light, as ratios. Twelve arches a row — three cars, both sides, both arches:
+
+                                                 luma / door    (R-B)/luma over the door's
+    before  the lip, the 8.5 cm 45-degree chamfer    0.43-1.03      +0.16 to +0.31
+            the roof of the well above the tyre      0.01-0.12      +0.18 to +0.44
+            both, with the composite's AO off        0.77-1.09      +0.11 to +0.37
+    after   the lip, flush and square                1.04-1.08      -0.09 to -0.04
+            the well, the car's unpainted plastic    0.003-0.017    -0.63 to  0.00
+
+**Reading 2 is the defect.** The ring was two PAINTED surfaces facing the pavement — the arch's own
+chamfer and the roof of the well — lit almost wholly by the PMREM's lower hemisphere, which is sky.js's
+lit ground at `uGroundAlbedo` 0x807866, a warm grey. With the AO off they are as bright as the door and
+still warmer than it; the AO takes them to brown. So the WARMTH is the light's and the darkness is the
+AO's, and the AO was darkening a surface that should not have been painted: a white panel turned to the
+pavement is a tan one, and in a crease it is (91,86,74).
+
+**Reading 1 is real too, and it reached across the door, not 2 cm of edge.** The flank cap shared its
+arch vertices with the chamfer, so `computeVertexNormals` pulled the flank's normal there toward the
+pavement — 41.3 / 38.7 / 37.8 degrees at worst on the coupe / saloon / wagon and 18.5 on the player's car,
+off the buffers. (The coupe's worst is the front foot on its -x flank; the same foot on +x reads 29.1,
+so the two flanks were not even shaded alike.) The cap has no interior vertices, so that tilt rides
+the ear-clipped triangles that fan from an arch point across the door. The interpolated normal over
+the cap's own faces, against each face's normal, `{ arch: false }` against shipped:
+
+    moved by the fix          > 1 deg        > 5 deg        worst
+    a fleet shell's cap       51.3-53.3%     14.1-16.1%     33.6 deg at a sample point
+      its door columns        44.9-46.4%      5.3-6.2%       8.8
+    the player's cap          13.6%           2.5%          18.1
+
+and the page's door reads 3.8% brighter and 0.065 cooler in (R-B)/luma on the sunlit side, 2.8% darker
+and 0.10 cooler on the shaded one. So a blind pair moves every flank of every car, not only the arch,
+and that is the bleed going away.
+
+**Three levers, each 0 triangles, measured one at a time out of the shipped arch** (the same twelve
+arches and bands):
+
+    arm                                  lip: luma / warmth          well: luma / warmth
+    shipped: liner, flush lip, split     1.04-1.08  -0.09 to -0.04   0.003-0.017  -0.63 to  0.00
+      without the liner                  0.80-1.10  -0.08 to +0.24   0.014-0.364  +0.18 to +0.57
+      the chamfer kept (bevel 1)         0.41-1.03  +0.31 to +0.50   0.003-0.009  -0.63 to -0.22
+      the chamfer at a quarter           0.77-1.11  +0.13 to +0.29   0.003-0.016  -0.63 to -0.01
+      without the split                  1.05-1.08  -0.19 to -0.07   0.003-0.017  -0.63 to  0.00
+
+- **liner**: the rings inboard of the lip's rail are the car's own unpainted plastic (its trim colour)
+  on `SURFACE.matte`, the slot written down for "wells". It is what takes the well out of the paint.
+- **bevel 0**: how far the arch's chamfer cuts into the body, as a fraction of the shell's. 0 brings the
+  flank down flush to the arch circle with a square edge, so no painted band faces the pavement. Only the
+  cut is scaled, never the inset, so the flank cap's own ring never moves and its ear clipping is the
+  same; and the arch's two FEET, where it meets the sill, keep the chamfer they share with it, so no face
+  the sill's vertices touch moves.
+- **split**: the flank caps carry their own copy of each arch point's vertex. Once the lip is flush it
+  buys under 3% of luma in the lip; it is kept for the feet, which keep their chamfer and without it
+  still bleed 29.1 degrees into the flank.
+
+**Price: 0 triangles; +56 vertices a traffic car (749 -> 805), +96 the player's (1,538 -> 1,634).** All
+three fleet shells stay 1,218 triangles and 805 vertices, so car-shapes' equal-cost statement holds as
+written. **Confined:** every vertex record — position, normal, colour, uv — outside the arch's reach
+(arch radius + chamfer + 1 cm) is byte-identical on all eight pool meshes the page builds; with the
+composite flat (AO, bloom and the shadow map off) no pixel changes off the triangles that touch an arch,
+dilated one pixel for the MSAA; every shell's and the player's bounding box and sphere are identical;
+`{ arch: false }` rebuilds the pre-#125 shells and the player's body byte for byte. The parked coupe
+renders every band equal to the fleet's to three decimals at the same ground contact, which says the
+pool's own construction reaches the same build. Off the profile bins, the lip reads 1.03-1.65 of the door
+at dusk (0.42-0.67 before) and 1.10-1.32 at night (0.61-1.00).
+
+**Gated** by `tools/car-arch.mjs`, on both lists: every car pool's buffers through its own module, then
+the page through the real noon light. 16 checks, 20-33 s; `--selftest` 22 checks, 0.3 s. KNOWN-BADs on
+both halves — the pre-#125 build fails the well, the tilt, the lip and the warmth; a white liner fails the
+plastic check; a shell 1 mm wider moves every flank vertex, so the confinement comparator can see a change
+at all. Ten rows, each run alone, all caught, and each catch a real check rather than a timing line:
+
+    arch-none                car-arch (6 FAILs, "the well is not paint" first), car-arch --selftest
+    arch-liner-off           car-arch, "the well is not paint" (+3)
+    arch-bevel-on            car-arch, ONLY the page's "the lip reads as the flank", as its `why` says
+    arch-split-off           car-arch's tilt check; the selftest's census reads 29.1265 deg at the feet
+    arch-feet-bevel          car-arch, "confined"
+    arch-liner-paint-slot    car-arch, "the well is not paint" (+1)
+    arch-liner-white         car-arch, "the car's own unpainted plastic" (+1)
+    arch-player-off          car-arch, "the well is not paint" (+5)
+    arch-rail-shared         car-arch (+3), and car-cabin: the well's first row then spans slot 0 to 11,
+                             so it renders slots 1-10 across itself, glass among them
+    arch-cap-copies-unused   car-arch's tilt check, car-arch --selftest at 29.1265 deg
+
+The offline list (58 entries, CLAUDE.md's with car-arch) ran 0 non-zero in 450 s. `boot-check` read 116
+checks three times: the tip FAILED 1 in 812 s, then PASSED 116 in 907 s, and the base 3c53814 PASSED 116
+in 899 s. The one failure is #108's arrest arm 57.4 m from a road — "the arrest FIRES" — which ran out of
+clock frames with 9.9 s of a 25.2 s clock advanced, on the run whose network best approach read 57.436 m
+(57.457 in both passes). Nothing that arm drives is touched here — src/carbody.js's shells, 0 triangles,
+bounds identical — so it is that arm's own intermittency, one fail in three runs on this box, recorded
+rather than restated.
+
+**Captures**, `hero-shots`, corridor and fivepoints at noon, dusk and night, no fleet (`?traffic=0`), no
+crowd, clouds frozen at 20 s, one job per framing with `HERO_SETTLE_TIMEOUT` 2,400,000: BEFORE at 3c53814
+(tag a125b, port 8275), AFTER at 61b11e3 (tag a125, port 8271). Every log opens "cloud deck: frozen at 20s"
+and ends rc 0 with three captures; each pair agrees on draw calls, triangles (the change is 0 of them),
+83 chunks at 16 near and 67 far, 346 plain and 7 instanced meshes and exposure, so the delta is the
+build's. Moved pixels (> 2 levels) sit on the cars and nowhere else: 0.57-1.32% of a corridor frame,
+0.33-0.50% of a fivepoints one, plus noon's under-1% flecks of foliage shadow, the clock CLAUDE.md
+records as unpinned. In the reviewer's own box round the fivepoints white car at noon, the pixels within
+12 levels of (91,86,74) go from a mean of (89,85,77) to (94,91,87) and the warm-dark population (under
+0.4 of the box's bright flank and warmer than +0.15) from 2,427 to 1,737. blind-compare REFUSED all six
+pairs at its 8% line (0.41-2.19% in the best band) and no single `--roi` can carry both framings' cars,
+so the set was built with `--force`, the arms having been shown different by the counts above. The set is
+docs/shots/blind; its key was not read.
+
+**Found while measuring it, NOT fixed:**
+- **The feet's residual band.** The last segment above each foot is a tapered painted chamfer, because the
+  feet keep theirs. car-arch reads 0-70 degrees from the crown; `--measure --sector 70,120` reads the rest:
+  the lip there is 0.47-0.75 of the door and +0.07 to +0.21 warmer, against 0.25-0.58 and +0.08 to +0.27
+  before, beside a flank reading 0.44-0.64 and -0.03 to +0.10 in both arms — so about 0.1 warmer than the
+  flank next to it where it was about 0.2 warmer and half as bright. In the fivepoints capture it is the
+  tan stripe down the rear edge of the white car's arch. Flushing the feet moves the sill's faces (row
+  arch-feet-bevel, caught as "confined"); a separate flush copy of the foot leaves a gap that needs fill
+  triangles at each of a car's eight feet, so it is a follow-up to be priced off the buffer, not part of
+  a 0-triangle change.
+- **Most of the flank's normal is not its own, everywhere.** Every boundary vertex of the cap shares its
+  normal with the chamfer the way the arch's did, and the cap has no interior vertices, so before #125
+  97.1-98.7% of a fleet shell's cap was shaded more than 1 degree off its own face, 38.9-51.6% more than 5
+  and 19.0-30.1% more than 10; after it 84.9-86.9 / 35.0-48.4 / 16.2-27.1. The door's luma runs x2.1 to
+  x4.5 from its foot to its shoulder in both arms. Splitting the whole cap off the chamfer is the same
+  lever and moves every car's flank everywhere, so it wants its own measurement and review.
+- **The flank cap's inset polygon crosses itself**: three segment pairs on every fleet shell, at the nose
+  (z 1.92, 0.86 m up) and the tail (z -1.88), and four on the player's, one of them just above the front
+  arch (z 1.56) — the 8.5 cm inset folds past itself where the silhouette is tight. Identical in both
+  arms. On the player's front arch it leaves a crescent of flank paint inside the arch circle: the well
+  band's median reads 0.003-0.004 of the door and its p90 0.56-0.79 (0.65-0.91 before), and car-arch
+  asserts the median, so it does not see it. Moving the arch's cap ring onto the silhouette takes the
+  crossings to 1 and 2 and changes 7 of 42 fleet cap faces and 5 of 60 of the player's, far from the arch,
+  so it is not a confined lever.
+
+Still open, as filed: the foliage.
 
 #### #125 (as filed)
 - No lit taillight on a side-on traffic car at night except the road spill: the tail lens does not
