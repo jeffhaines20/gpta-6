@@ -4235,7 +4235,7 @@ glows return to x1.00 by r ~ 40 px and their radius grows only as (head size)^0.
 18 px at 2.5). And the green signal does not clip (core 0.708, sRGB 75,245,196) and its glow is gone within
 ~13 px while every lit lamp clips: one camera exposure would clip an LED signal too.
 
-### #124 PARTS 1 AND 2 FIXED — the star strokes were fwidth() across the star field's own cell faces, and the signal lens was a square plate; two items remain
+### #124 PARTS 1 AND 2 FIXED AND PREFERRED BLIND, 6 OF 6 — the star strokes were fwidth() across the star field's own cell faces, and the signal lens was a square plate; two items remain
 **The night-sky strokes.** At 8x the reviewer's two boxes in `r12b-bloom1-fivepoints-night`, (241-252,
 56-67) and (271-283, 66-74), are two stars each wearing 1-px straight lines — an L and a bracket.
 `src/sky.js` draws one star per occupied cell of a 3D lattice over the view direction and measured its
@@ -4281,8 +4281,15 @@ Price: +6 triangles a lens and three lenses a head, so 134 -> 152 a mast, over t
 +4,194 geometry district-wide, in the furniture bucket (x1.28 in shadow-bill) before the resident share.
 `mutation-sweep` rows, each run alone: `lens-square` caught by kerb-stand and blocker-test,
 `lens-hexagon` (0.866, between the square and the bound) and `lens-winding-hand` (the fan wound one way
-in both frames, right in one hand only) caught by kerb-stand. The pedestrian head stays a plate. Not
-reviewed blind yet; the hero framings hold the lens at about 15 px.
+in both frames, right in one hand only) caught by kerb-stand. The pedestrian head stays a plate.
+
+**Both parts preferred in the 2026-10-25 batch review**, recorded in full under #125: the round lens at
+confidence 5 in all six pairs (fivepoints' lit green lens fills 0.85 of its box with its corners at
+0.01-0.46 of the lens mean, against 0.98-1.00 and 0.72-1.00 for the plate, which also emitted 1.20-1.37x
+the light), and the stars at 5 in both night pairs (17 and 26 line-like components with the strokes,
+against 2 and 1 without). From the same reviewer, low confidence, both arms: the brightest star at
+fivepoints night peaks at 0.103 linear, level with the lit pavement at 0.107, where a camera exposed for
+a street-lit downtown would barely record stars.
 
 The remaining three, as filed:
 - Night-sky specks carry 1-px straight bracket-like strokes: fivepoints night (241-248, 56-66) and
@@ -4294,7 +4301,7 @@ The remaining three, as filed:
   no light change: 56 px along (12,340)-(439,430), 1-6 codes, so in motion it would shimmer. The
   sun's shadow box is #117's; the first question is what moved between the two captures.
 
-### #125 FOUR OF FIVE FIXED, THE ARCHES PREFERRED 6 OF 6 BLIND, THE HEADLAMPS' FRAME NOT YET REVIEWED, THE FOLIAGE OPEN — what #119's reviewer found wrong in BOTH arms, cars first
+### #125 FOUR OF FIVE FIXED AND PREFERRED BLIND (THE ARCHES 6 OF 6, THE OTHER THREE IN THE BATCH 6 OF 6), THE FOLIAGE OPEN — what #119's reviewer found wrong in BOTH arms, cars first
 **The side-on taillight: FIXED (0812a0e).** `overlayBand` lays the tail lens flat across the rear
 profile, so every lens triangle faced straight back. Off the buffers, 0.0 cm2 of tail lens faced either
 side on all three shells AND on the player's car, the lens stopping 6-10 cm inboard of the flank. Real
@@ -4304,13 +4311,14 @@ slot, so the night palette lights it: 173.6 cm2 facing each side on every build.
 wagon's flanks taper at the corner, so about 144 cm2 of their wrap also faces back. `car-detail` gates
 it off the buffers (every build and side at least 100 cm2; KNOWN-BADs for the rear-only lens and for
 the fleet wrapped without the player's car). Rows `tail-wrap-fleet-off` and `tail-wrap-player-off`,
-both caught by car-detail. +4 triangles a car. Not reviewed blind.
+both caught by car-detail. +4 triangles a car. Preferred blind in the 2026-10-25 batch (below).
 
 **The polygonal wheels: FIXED (298290a)**, recorded here late: the fleet's and the parked cars' wheels
 are 12-gons, a wheel's flats 3.4% of its radius inside the circle where the 8-gon's were 7.6%, +160
 triangles a car (320 -> 480 of the wheels), gated by `car-shapes`' roundness check.
 
-**The cartoon headlamps: a FRAME error on every parked car, FIXED (c2bea44), not reviewed blind.** The
+**The cartoon headlamps: a FRAME error on every parked car, FIXED (c2bea44), preferred blind in the 2026-10-25
+batch (below).** The
 reviewer's car is the corridor's near-left one, a PARKED car, and cropped at 6x its lamps are flat
 plates with the two bowls clipped at their TOP edge and no light guide at all. `src/streetfurniture.js`
 builds the parked shells at `groundY = PAD_Y - 0.02 = -0.07` and the fleet at 0, and the material
@@ -4341,6 +4349,32 @@ code. crash-test now takes the fastest of sixteen short trials (3f2c32f), 8.5-10
 load 9.2, bound unchanged. Two existing rows went stale on the lines this changed and were repointed
 by intent. Whether the face still reads as "eyes" now that it sits where it was drawn for is for the
 next blind review.
+
+**The batch blind review, 2026-10-25: every change in it preferred, in all six pairs.** One reviewer,
+corridor and fivepoints at noon, dusk and night, BEFORE = the batch's seven src/district changes reversed on
+29b45da (`batch-before`), AFTER = 29b45da, traffic and pedestrians live and unregistered (said so in the
+brief), pairs scrambled per pair. It recovered the grouping in every pair off the signal lens and then
+found every other difference falling into the same arm "with no exceptions", 94-98% of each frame
+byte-identical and its control boxes reading 0 px different. Per kind, the preferred version in brackets:
+
+    the signal lens            round [after]       5      #124, recorded there
+    the night stars            no strokes [after]  5      #124
+    parked lamp face           in its frame        4      displaced (+12, -17) px and sliced by the panel's top
+                                                          edge at row 762 in the old build, identical at every hour
+    rear side marker           present [after]     4      the tail wrap: red chroma 0.63-0.95 on the flank where
+                                                          the old build reads body colour
+    a traffic car's tail lamp  lit, dusk/night     4      R 0.872 against 0.161, its road streak byte-identical
+    fleet mirror glass         reflects [after]    3      #133: 10-16x the old face's luma, which was black
+    wheel polygons             12-gon [after]      4      8-fold harmonic 0.30-0.73% of the radius against 2.25-3.32%
+    cabin height               the frame fix       3      headrests 7 px higher in the old build; its own projection
+                                                          estimate, with assumed car dimensions, says so
+    blade colour               one per post        2      #134: navy on both blades against plum and green
+
+What it found in BOTH arms, the first new: **the parked cars' headlamps read black at noon** — the near-left
+car's lens core 0.024 linear against its bonnet's 0.345, 7-10%, where a clear lens over a chrome reflector
+reads silvery in daylight (filed as #143); the 12-gon still shows about 1.5 px of flat on a 94 px wheel,
+which the arch review found independently on the same car; the corridor's tree limbs as flat pale ribbons
+brighter than the sunlit bonnet; and the stars as bright as the lit pavement (#124).
 
 **The warm dark ring round the wheel arches: FIXED (ef480c4, merged 71ed408), blind review preferred it 6 of 6
 — and the AO was not the cause.** `tools/car-arch.html` is a purpose-built page that stands a white car side-on at street
@@ -5371,8 +5405,10 @@ glass quad on its back face, 2 mm proud and inset a centimetre, facing straight 
 on a 9 cm pane is under a pixel at fleet distance). `car-detail` measures it off each shell's buffer,
 isolating the mirror glass by position (every corner outboard of 0.94 m; no shell's side glass reaches
 past 0.924): 57.6 cm2 a mirror on all three shells, all of it to the back. 1,210 -> 1,214 triangles a
-shell, +8 gate units a drawn car. `mutation-sweep`'s `fleet-mirror-bare` caught by car-detail. The flat
-glass is still open, and not reviewed blind.
+shell, +8 gate units a drawn car. `mutation-sweep`'s `fleet-mirror-bare` caught by car-detail. Preferred
+blind in the 2026-10-25 batch review (#125) at confidence 3: the corridor's near-right parked car seen from
+behind, the mirror face at 0.079 / 0.055 / 0.006 linear (noon, dusk, night) against the bare box's 0.005 /
+0.005 / 0.001. The flat glass is still open.
 
 #### #133 (as filed)
 From the driver's re-review (cabin v3.1), both arms: side-on at 11 m, noon, the door mirror at
@@ -5439,6 +5475,9 @@ shim records every fill with the colour it painted) and matches faces to posts b
     posts carrying two colourways                      0 of 108    each blade in its own street's: 80
     streets heading posts in two colourways            0 of 29     hashed on the name instead: 3
     colourways in use                                  3
+
+Preferred blind in the 2026-10-25 batch review (#125) at confidence 2: both of fivepoints' LEMON blades navy
+against plum over green, the reviewer adding that it cannot know the real sign's colour.
 
 Rows: `blade-plate-own` and `blade-plate-name` caught by sign-orient and its selftest; `blade-halves` is
 no longer inert, because the halves now split three streets' colour; `blade-back-blank` repointed.
@@ -5887,3 +5926,13 @@ few tens of lux at most, so by the game's own meter the street is about a hundre
 photocell to have lit these lamps. Read that way, today's dusk globe is a LIT globe drawn too dim to read
 as lit, and an UNLIT one would be correct, but it would need to be the colour of frosted glass under a low
 sun and a bright sky, not the orange the emissive term adds. Neither reading has been measured.
+
+### #143 OPEN — a parked car's headlamps read black at noon
+From the 2026-10-25 batch reviewer, in BOTH arms (#125's record): at corridor noon the near-left parked
+car's headlamp lens core reads 0.024 linear (0.036 in the old build) against its own bonnet's 0.345 — 7-10%
+of the paint beside it. A real headlamp is a clear polycarbonate lens over a chrome reflector, so in
+daylight it reads silvery, as bright as or brighter than the body round it; #37 removed the "flat white
+fields" this lamp face used to draw, and the face now draws its bowls dark. Not measured: the lamp face's
+response by hour on its own page (`tools/car-detail.html` draws the fleet's lamps from behind; nothing
+draws a parked car's headlamps at noon), and a photographed lamp in sun to set the target against, the way
+`glass-census` set the glazing's.
