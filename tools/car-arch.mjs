@@ -4,7 +4,7 @@
 //   node tools/car-arch.mjs --selftest   the verdict on known-bad reports, and the instruments on known-bad
 //                                        buffers; no browser
 //   node tools/car-arch.mjs --measure [--arms a,b] [--cars traffic,parked,player] [--sides 1,-1] [--tod noon]
-//                                     [--flat] [--frames <dir>] [--json <file>]
+//                                     [--flat] [--frames <dir>] [--json <file>] [--sector 0,70]
 //                                        the measurement: every arm's radial profile round each arch
 //
 // #119's blind reviewer: "a warm dark ring round the wheel arches that reads as dirt or scorch rather than
@@ -56,7 +56,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const IS_MAIN = !!process.argv[1] && import.meta.url.endsWith('/' + process.argv[1].split('/').pop());
 const argv = process.argv.slice(2);
 const arg = (name, def) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : def; };
-const KNOWN = new Set(['--selftest', '--measure', '--flat', '--json', '--frames', '--arms', '--cars', '--sides', '--tod', '--w', '--h']);
+const KNOWN = new Set(['--selftest', '--measure', '--flat', '--json', '--frames', '--arms', '--cars', '--sides', '--tod', '--w', '--h',
+  '--sector']);
 for (const a of IS_MAIN ? argv : []) {
   if (a.startsWith('--') && !KNOWN.has(a)) {
     console.error(`unknown flag: ${a}\n\nusage: node tools/car-arch.mjs [--selftest | --measure ...]`);
@@ -211,7 +212,7 @@ export async function bufferReport() {
 
 // ------------------------------------------------------------------------------------------- the page
 /** Run the page and return its report (and frames, when asked). */
-export async function runPage({ arms, cars, sides, tod = 'noon', debug = false, flat = false, w, h, port } = {}) {
+export async function runPage({ arms, cars, sides, tod = 'noon', debug = false, flat = false, w, h, sector, port } = {}) {
   const { chromium } = await import('playwright');
   const { launchOptions } = await import('./browser.mjs');
   const { ensureServer, treePort } = await import('./serve.mjs');
@@ -224,7 +225,7 @@ export async function runPage({ arms, cars, sides, tod = 'noon', debug = false, 
     page.on('pageerror', (e) => errors.push(String(e)));
     const qs = new URLSearchParams({ tod, ...(arms ? { arms } : {}), ...(cars ? { cars } : {}),
       ...(sides ? { sides } : {}), ...(debug ? { debug: '1' } : {}), ...(flat ? { flat: '1' } : {}),
-      ...(w ? { w: String(w) } : {}), ...(h ? { h: String(h) } : {}) });
+      ...(w ? { w: String(w) } : {}), ...(h ? { h: String(h) } : {}), ...(sector ? { sector } : {}) });
     await page.goto(`http://127.0.0.1:${PORT}/tools/car-arch.html?${qs}`);
     await page.waitForFunction('window.__carArch', null, { timeout: 900000 });
     const report = await page.evaluate(() => window.__carArch);
@@ -443,7 +444,8 @@ if (IS_MAIN && argv.includes('--selftest')) {
   const { writePNG } = await import('./crop.mjs');
   const t0 = Date.now();
   const { report, frames, errors } = await runPage({ arms: arg('--arms'), cars: arg('--cars'), sides: arg('--sides'),
-    tod: arg('--tod', 'noon'), debug: !!arg('--frames'), flat: argv.includes('--flat'), w: arg('--w'), h: arg('--h') });
+    tod: arg('--tod', 'noon'), debug: !!arg('--frames'), flat: argv.includes('--flat'), w: arg('--w'), h: arg('--h'),
+    sector: arg('--sector') });
   if (errors.length) console.log('page errors:', errors.join('\n'));
   if (report.error) { console.log('PAGE ERROR', report.error); process.exit(1); }
   console.log(`car-arch: ${report.runs.length} runs in ${((Date.now() - t0) / 1000).toFixed(1)} s, light ${JSON.stringify(report.light)}`);

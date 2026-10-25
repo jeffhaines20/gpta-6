@@ -68,9 +68,14 @@ const armNames = (q.get('arms') ?? 'none,shipped').split(',').filter(Boolean);
 const carNames = (q.get('cars') ?? 'traffic,parked,player').split(',').filter(Boolean);
 const sides = (q.get('sides') ?? '1,-1').split(',').map(Number);
 const FLAT = q.get('flat') === '1';
+// THE SECTOR, in degrees from the top of the arch: |angle| in [a, b]. The gate reads 0-70, the arch's
+// crown and shoulders; 70-120 is where the arch comes down to its FEET, which keep their chamfer (see
+// src/carbody.js's ARCH), and --measure --sector 70,120 is how that residual is read.
+const SECTOR_DEG = (q.get('sector') ?? '0,70').split(',').map(Number);
+if (SECTOR_DEG.length !== 2 || !SECTOR_DEG.every(Number.isFinite) || SECTOR_DEG[0] >= SECTOR_DEG[1]) throw new Error(`bad sector ${q.get('sector')}`);
 const WHITE = 0.80;   // a white car's paint, linear (src/carpaint.js: "A white car's paint is about 0.80")
 
-const out = { tod: TOD, size: [W, H], flat: FLAT, arms: armNames, cars: carNames, sides, runs: [], ms: {} };
+const out = { tod: TOD, size: [W, H], flat: FLAT, sector: SECTOR_DEG, arms: armNames, cars: carNames, sides, runs: [], ms: {} };
 const T0 = performance.now();
 const lap = (k) => { out.ms[k] = Math.round(performance.now() - T0); };
 try {
@@ -215,7 +220,7 @@ try {
 
   const XF = 0.96;   // the flank plane the profile is read on, |x| in metres (the arch lip's flank is 0.955-0.97)
   const AXLES = { rear: CAR.rearAxleZ, front: CAR.frontAxleZ };
-  const SECTOR = 70 * Math.PI / 180;
+  const [S0, S1] = SECTOR_DEG.map((d) => d * Math.PI / 180);
   const R0 = 0.20, R1 = 0.80, DR = 0.01;
   const ZONE = 0.62;   // the notch's 0.445 m, the 8.5 cm inset, and a 9 cm margin for the projection
   const NB = Math.round((R1 - R0) / DR);
@@ -282,7 +287,7 @@ try {
         const r = Math.hypot(dz, dy);
         if (r < R0 || r >= R1) continue;
         const th = Math.atan2(dz, dy);
-        if (Math.abs(th) > SECTOR) continue;
+        if (Math.abs(th) < S0 || Math.abs(th) > S1) continue;
         const b = bins[k][Math.floor((r - R0) / DR)];
         b.cls[CLS[c]] = (b.cls[CLS[c]] ?? 0) + 1;
         if (c === 40 && pure && r >= TYRE[0] && r < TYRE[1]) tyrePx[k].push(L);
