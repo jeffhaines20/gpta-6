@@ -12,10 +12,11 @@
 // sills (tumblehome), and the nose and tail draw in (plan-view taper). The loft's
 // two end caps ARE the flanks of the car, and because the widths vary they come out
 // curved, not flat. Rings near each flank are inset along the 2D normal so every
-// edge - roof rail, bonnet shut, bumper, arch lip - carries a real chamfer instead
-// of a hard 90 degrees. Wheel arches are concave notches in the silhouette whose
-// depth fades to zero on the inboard rings, which is what turns a full-width slot
-// into a wheel well with a floor pan between the two sides.
+// edge - roof rail, bonnet shut, bumper - carries a real chamfer instead of a hard
+// 90 degrees. Wheel arches are concave notches in the silhouette whose depth fades
+// to zero on the inboard rings, which is what turns a full-width slot into a wheel
+// well with a floor pan between the two sides. The arch's own lip is the exception:
+// square, with the well behind it in black plastic (ARCH, and #125 for why).
 //
 // Draw calls, which is the other hard constraint (warn 200 / fail 320 district-wide):
 //   1. body      - paint, plastic trim, chrome, grille, lamps, plate, mirrors
@@ -2256,11 +2257,14 @@ function ringPlan(P, quality) {
   return rings;
 }
 
-function ringVertex(pt, nrm, ring) {
+// `e` scales how far this point's chamfer cuts INTO the body (its `dx`), and leaves its inset alone,
+// so the flank cap's own ring never moves; 1 is the shell every round measured, and multiplying by 1
+// is exact, so a point that is not scaled comes out bit for bit as it did.
+function ringVertex(pt, nrm, ring, e = 1) {
   const arched = pt.y0 + (pt.y - pt.y0) * ring.arch;
   const z = pt.z - nrm.z * ring.in;
   let y = arched - nrm.y * ring.in;
-  const x = ring.side * Math.max(0, pt.w * ring.f + ring.dx);
+  const x = ring.side * Math.max(0, pt.w * ring.f + ring.dx * e);
   // Crown domes the horizontal panels toward the centreline. Zero at the flank,
   // full on the centre ring, so bonnet, roof and boot are not flat plates.
   if (pt.crown) y += pt.crown * (1 - (x / (pt.w || 1)) ** 2);
@@ -2276,29 +2280,106 @@ function triangulate(poly2d) {
 }
 
 /**
+ * THE WHEEL ARCH (#125's fourth item). #119's blind reviewer: "a warm dark ring round the wheel arches
+ * that reads as dirt or scorch rather than shadow: (91,86,74) against the flank's (142,143,142) on the
+ * white car". tools/car-arch.mjs measures it on a white car side-on at street height through the REAL
+ * noon light (sky.js's dome and its PMREM, daynight.js's sun and bounce, post.js's composite): two bands
+ * round the arch against the flank on the door in the same frame, over the fleet's coupe, the parked
+ * pool's and the player's car from both sides. The ring was two PAINTED surfaces facing the pavement:
+ *
+ *                                          luma / flank   (R-B)/luma over the flank's
+ *   the lip, the 8.5 cm 45-degree chamfer    0.43-1.03       +0.16 to +0.31
+ *   the well's roof above the tyre           0.01-0.12       +0.18 to +0.44
+ *   both again with the composite's AO off   0.77-1.09       +0.11 to +0.37     the WARMTH is the light's
+ *
+ * Paint facing down is lit almost wholly by the PMREM's lower hemisphere, which is sky.js's lit ground
+ * at uGroundAlbedo 0x807866 (warm), and the AO then takes it to brown: a white panel turned to the
+ * pavement is a tan one, and in a crease it is (91,86,74). The other reading, the flank's edge normals
+ * bleeding the chamfer's tilt into the flank (up to 41 degrees at the arch's cap vertices), is real, and
+ * it is NOT confined to the edge. The cap has no interior vertices, so an arch vertex's tilt rides the
+ * long ear-clipped triangles that fan from it across the door: the fix moves the flank's shading normal
+ * by more than 1 degree over 51-53% of a fleet shell's cap (45-46% of the door's columns), by more than
+ * 5 over 14-16% (5-6%), the worst 33.6 degrees and 8.8 on the door; the door then reads 3.8% brighter
+ * and 0.065 cooler in (R-B)/luma on the sunlit side, 2.8% darker and 0.10 cooler on the shaded one. The
+ * player's finer cap moves 13.6% and 2.5%. And most of the cap's tilt is not the arch's: every boundary
+ * vertex shares its normal with the chamfer the same way, so 97-99% of a fleet cap is shaded more than
+ * 1 degree off its own face before #125 and 85-87% after, which #125 leaves as it found it.
+ *
+ * Three levers, measured one at a time out of the shipped arch (same cars, sides and bands):
+ *   liner   the rings inboard of the lip's rail are the car's own unpainted plastic on SURFACE.matte
+ *           (the slot was written down for "wells"): the well reads 0.003-0.017 of the flank and no
+ *           warmer than it. Without it, 0.01-0.36 and +0.18 to +0.57.
+ *   bevel   how far the arch's chamfer cuts into the body, as a fraction of the shell's: 0 brings the
+ *           flank down flush to the arch circle and leaves a square edge, so no painted band faces the
+ *           pavement and the lip reads 1.04-1.08 of the flank, 0.04-0.09 COOLER. Kept at 1, +0.31 to
+ *           +0.50; at a quarter, still +0.13 to +0.29. Only the inset is kept, so the flank cap's own ring
+ *           never moves; and an arch's two FEET, where it meets the sill, keep the chamfer they share
+ *           with it, so the sill's vertices see no face move.
+ *   split   the flank caps carry their own copy of each arch point's vertex, so the flank's normal there
+ *           is the cap's own. Once the bevel is flush it buys under 3% of luma in the lip and moves its
+ *           warmth by at most 0.10; it is kept for the feet, which keep their chamfer and without it
+ *           still bleed 29 degrees into the flank.
+ * All three are 0 triangles. The vertices: +56 a traffic car, +96 the player's. Nothing outside the
+ * arch's reach moves, to the byte, which car-arch asserts on every pool's buffer.
+ */
+const ARCH_NONE = Object.freeze({ split: false, liner: false, bevel: 1 });
+const ARCH_SHIPPED = Object.freeze({ split: true, liner: true, bevel: 0 });
+function archPlan(want, linerColour, linerPal = SURFACE.matte) {
+  const a = want === false ? ARCH_NONE : { ...ARCH_SHIPPED, ...(want ?? {}) };
+  const L = a.liner;
+  const c = L && L.colour != null ? L.colour : linerColour;
+  return { split: !!a.split, bevel: a.bevel ?? 1,
+    liner: L ? { colour: typeof c === 'number' ? col(c) : c, pal: L.pal ?? linerPal } : null };
+}
+
+/**
  * Appends the body shell to `b`. Returns the flank triangulation
  * { faces, capPoly, ringCount, pointCount }, which the caller needs to place
  * side glass and flank trim exactly on the (curved) flank surface.
  */
-function buildShell(b, pts, P, paintCol, trimCol, quality) {
+function buildShell(b, pts, P, paintCol, trimCol, quality, arch = ARCH_NONE) {
   const nrm = silhouetteNormals(pts);
   const rings = ringPlan(P, quality);
   const N = pts.length, K = rings.length;
   const base = b.count;
+  const isArch = pts.map((p) => p.tag === 'arch');
+  // The bevel reaches an arch point only if both its neighbours are arch points too: see ARCH.
+  const bevel = (i) => (isArch[i] && isArch[(i + N - 1) % N] && isArch[(i + 1) % N] ? arch.bevel ?? 1 : 1);
+  // The lip's inner rail on each side: the last ring of the chamfer, the one ON the silhouette.
+  const rails = [];
+  for (let k = 0; k < K; k++) if (rings[k].f === 1 && rings[k].in === 0) rails.push(k);
+  const liner = arch.liner ?? null;
+  const inboard = (k) => k > rails[0] && k < rails[1];
 
   for (let k = 0; k < K; k++) {
     for (let i = 0; i < N; i++) {
-      const v = ringVertex(pts[i], nrm[i], rings[k]);
-      b.vert(v.x, v.y, v.z, pts[i].dark ? trimCol : paintCol, pts[i].pal);
+      const v = ringVertex(pts[i], nrm[i], rings[k], bevel(i));
+      const lined = liner && isArch[i] && inboard(k);
+      b.vert(v.x, v.y, v.z, lined ? liner.colour : (pts[i].dark ? trimCol : paintCol),
+        lined ? liner.pal : pts[i].pal);
     }
   }
   const at = (i, k) => base + k * N + i;
+  // The WELL'S copy of each arch point's rail vertex, so the chamfer keeps the paint to its rail and
+  // the liner starts there with its own normal; and the CAP'S copy of each arch point on the two
+  // flank rings, so the flank's normal there is the flank's. See ARCH.
+  const wellAt = new Map(), capAt = new Map();
+  if (liner) for (const k of rails) for (let i = 0; i < N; i++) if (isArch[i]) {
+    const v = ringVertex(pts[i], nrm[i], rings[k], bevel(i));
+    wellAt.set(k * N + i, b.vert(v.x, v.y, v.z, liner.colour, liner.pal));
+  }
+  if (arch.split) for (const k of [0, K - 1]) for (let i = 0; i < N; i++) if (isArch[i]) {
+    const v = ringVertex(pts[i], nrm[i], rings[k]);
+    capAt.set(k * N + i, b.vert(v.x, v.y, v.z, pts[i].dark ? trimCol : paintCol, pts[i].pal));
+  }
   for (let k = 0; k < K - 1; k++) {
+    const inner = k >= rails[0] && k < rails[1];
+    const vx = inner && wellAt.size ? (i, kk) => wellAt.get(kk * N + i) ?? at(i, kk) : at;
     for (let i = 0; i < N; i++) {
       const j = (i + 1) % N;
       // Winding derived once: (ring direction) x (silhouette direction) is outward.
-      b.tri(at(i, k), at(i, k + 1), at(j, k));
-      b.tri(at(i, k + 1), at(j, k + 1), at(j, k));
+      b.tri(vx(i, k), vx(i, k + 1), vx(j, k));
+      b.tri(vx(i, k + 1), vx(j, k + 1), vx(j, k));
     }
   }
 
@@ -2312,13 +2393,14 @@ function buildShell(b, pts, P, paintCol, trimCol, quality) {
     const a = capPoly[t[0]], c = capPoly[t[1]], d = capPoly[t[2]];
     return (c.z - a.z) * (d.y - a.y) - (c.y - a.y) * (d.z - a.z);
   };
+  const cv = (t, k) => capAt.get(k * N + t) ?? at(t, k);
   for (const t of faces) {
     // +X flank wants normal_x > 0, which is a clockwise triangle in (z, y).
     const cw = cross(t) < 0;
-    if (cw) b.tri(at(t[0], K - 1), at(t[1], K - 1), at(t[2], K - 1));
-    else b.tri(at(t[0], K - 1), at(t[2], K - 1), at(t[1], K - 1));
-    if (cw) b.tri(at(t[0], 0), at(t[2], 0), at(t[1], 0));
-    else b.tri(at(t[0], 0), at(t[1], 0), at(t[2], 0));
+    if (cw) b.tri(cv(t[0], K - 1), cv(t[1], K - 1), cv(t[2], K - 1));
+    else b.tri(cv(t[0], K - 1), cv(t[2], K - 1), cv(t[1], K - 1));
+    if (cw) b.tri(cv(t[0], 0), cv(t[2], 0), cv(t[1], 0));
+    else b.tri(cv(t[0], 0), cv(t[1], 0), cv(t[2], 0));
   }
 
   return { faces, capPoly, ringCount: K, pointCount: N };
@@ -2772,7 +2854,7 @@ export function buildPlayerCar(opts = {}) {
   const b = new Builder();
   const pts = silhouette(P);
   const nrm = silhouetteNormals(pts);
-  const shell = buildShell(b, pts, P, paint, trim, 'fine');
+  const shell = buildShell(b, pts, P, paint, trim, 'fine', archPlan(opts.arch, trim));
   const shellVerts = b.count;
 
   const tagIndex = (name) => pts.findIndex((p) => p.tag === name);
@@ -3334,7 +3416,7 @@ export function buildTrafficCarGeometry(opts = {}) {
   const b = new Builder();
   const pts = silhouette(P, { archSegments: 6, decimate: true });
   const nrm = silhouetteNormals(pts);
-  const shell = buildShell(b, pts, P, white, trimC, 'coarse');
+  const shell = buildShell(b, pts, P, white, trimC, 'coarse', archPlan(opts.arch, trimC));
 
   const tagIndex = (name) => pts.findIndex((p) => p.tag === name);
   const iLampLo = tagIndex('lampLo'), iLampHi = tagIndex('lampHi');
