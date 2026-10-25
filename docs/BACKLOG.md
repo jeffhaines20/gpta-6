@@ -5141,6 +5141,31 @@ than #137 itself. Cheaper levers, unpriced: globes out of the shadow map (a 0.25
 under a pixel past a few metres), or a camera-facing impostor with a sphere normal, which is 2 triangles
 and round at any distance.
 
+**Priced offline (2026-10-25), not built.** The globe is `SphereGeometry(0.25, 5, 3)`, not an
+icosahedron, which is why it is 20 triangles. Its silhouette — the convex hull of the projected
+vertices, from elevations -10 to 60 degrees at every 6 degrees of azimuth — against a circle:
+
+    globe              tris   hull sides p50   (rmax-rmin)/rmax p50 / max   at a 29 px globe
+    Sphere(5,3) today    20         8               0.245 / 0.299             3.6 / 4.3 px
+    Icosahedron(1)       80        12               0.055 / 0.066             0.8 / 1.0 px
+    Sphere(8,6)          80        16               0.077 / 0.103             1.1 / 1.5 px
+    Sphere(12,8)        168        24               0.040 / 0.050             0.6 / 0.7 px
+
+So the reviewer's 29 px globe sits 3.6 px off round, and at 80 triangles an icosphere is the rounder of
+the two equal-cost subdivisions. Two globes a lamp, 1,228 lamps, the `street lamps` bucket at x2.00:
+
+    80 a globe                                    colour +147,360   gate +294,720
+    today's globes out of the sun map             colour        0   gate  -49,120
+    an impostor, 2 a globe, casting a disc        colour  -44,208   gate  -88,416
+    an impostor that casts nothing                colour  -44,208   gate  -93,328
+
+**The entry's shadow claim does not survive arithmetic and is not measured**: a 0.25 m globe 7.7 m up
+throws a disc about 0.5 m across at noon, which is 15-30 px from 10-20 m, not "under a pixel". A
+camera-facing impostor in the sun's pass faces the SUN, so with its own depth material
+(`src/pedestrians.js:661` is the precedent for an instanced one) it casts a round shadow for 2 triangles.
+Any lever moves `globeMeanArea`, which #136's luminance is derived from (0.148 m2 today against
+pi r^2 = 0.196 for a true sphere), so the level has to be restated with it.
+
 ### #133 FIXED — the player car's door mirrors were laid on their side, glass outward
 
 Measured off `buildPlayerCar`'s own body buffer, which is the one number the entry asked for: every
@@ -5694,3 +5719,11 @@ itself on the prior question: corridor's low lamp is dark at dusk while fivepoin
 0.72). Two questions, in this order: which lamps a photocell has switched on at the dusk preset's sun
 elevation (3.2 degrees), and then the level a lit globe draws at that exposure, priced against #119's halo
 refusal the way #136 priced the night.
+
+**The first question has a number in the code already (2026-10-25), not yet checked on the page.**
+`src/daynight.js`'s dusk preset records its light meter at **1,764 lux at the corridor camera**, sun, both
+sky paths and the lamps together, and sets `lampsOn: true`. A street-light photocontrol switches on at a
+few tens of lux at most, so by the game's own meter the street is about a hundred times too bright for a
+photocell to have lit these lamps. Read that way, today's dusk globe is a LIT globe drawn too dim to read
+as lit, and an UNLIT one would be correct, but it would need to be the colour of frosted glass under a low
+sun and a bright sky, not the orange the emissive term adds. Neither reading has been measured.
