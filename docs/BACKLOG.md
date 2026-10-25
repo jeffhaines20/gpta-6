@@ -4294,7 +4294,7 @@ The remaining three, as filed:
   no light change: 56 px along (12,340)-(439,430), 1-6 codes, so in motion it would shimmer. The
   sun's shadow box is #117's; the first question is what moved between the two captures.
 
-### #125 TWO OF FIVE FIXED, THE HEADLAMPS' FRAME AND THE ARCHES FIXED (NOT REVIEWED), ONE OPEN — what #119's reviewer found wrong in BOTH arms, cars first
+### #125 FOUR OF FIVE FIXED, THE ARCHES PREFERRED 6 OF 6 BLIND, THE HEADLAMPS' FRAME NOT YET REVIEWED, THE FOLIAGE OPEN — what #119's reviewer found wrong in BOTH arms, cars first
 **The side-on taillight: FIXED (0812a0e).** `overlayBand` lays the tail lens flat across the rear
 profile, so every lens triangle faced straight back. Off the buffers, 0.0 cm2 of tail lens faced either
 side on all three shells AND on the player's car, the lens stopping 6-10 cm inboard of the flank. Real
@@ -4342,8 +4342,8 @@ load 9.2, bound unchanged. Two existing rows went stale on the lines this change
 by intent. Whether the face still reads as "eyes" now that it sits where it was drawn for is for the
 next blind review.
 
-**The warm dark ring round the wheel arches: FIXED (ef480c4), not reviewed blind — and the AO was not
-the cause.** `tools/car-arch.html` is a purpose-built page that stands a white car side-on at street
+**The warm dark ring round the wheel arches: FIXED (ef480c4, merged 71ed408), blind review preferred it 6 of 6
+— and the AO was not the cause.** `tools/car-arch.html` is a purpose-built page that stands a white car side-on at street
 height under the REAL noon light (sky.js's dome and its PMREM, daynight.js's sun and bounce, post.js's
 composite), builds the fleet's coupe through `Traffic`, the parked pool's through `StreetFurniture` at
 `PARKED_GROUND_Y` and the player's through `buildPlayerCar`, and reads two bands round each arch's crown
@@ -4452,6 +4452,31 @@ records as unpinned. In the reviewer's own box round the fivepoints white car at
 pairs at its 8% line (0.41-2.19% in the best band) and no single `--roi` can carry both framings' cars,
 so the set was built with `--force`, the arms having been shown different by the counts above. The set is
 docs/shots/blind; its key was not read.
+
+**Blind review, 2026-10-25: the fixed arch preferred in all six pairs** (corridor and fivepoints at noon,
+dusk and night; confidence 5, 5, 3, 5, 5, 4, night at the corridor the weakest because its differences are 1-10
+sRGB levels). One reviewer, told nothing about the change, pairs scrambled per pair; it recovered the
+grouping from the data in every pair and called the two builds CRISP and SMUDGE. Its SMUDGE is the defect
+as filed, in its own words and numbers: the well lit and tinted toward the body colour (the white car's
+well chroma -0.13 -> +0.43, the pink and red cars' wells 0.19 -> 1.00 and 0.01 -> 1.29: "a shadowed
+wheel-well liner does not take on the body colour"), a dark ring on the paint where the lip should be (the
+corridor near car's front arch at 0.22-0.27 of CRISP within 2 px, its lip-to-well step 16:1 against 1.7:1
+at noon), and "whole adjacent panels" reshaded "in straight-edged bands" following the facets (the upper
+door 0.79-0.90, a rear quarter 1.10-1.35) — which is reading 1, the flank's normals, seen from outside
+without being told it exists. Its control boxes read 1.0000 at every hour and outside the car bands
+0.002-0.017% of pixels differ, nearly all by one level.
+
+What it found wrong in BOTH arms, the first two already on the record: the nearest car's arch and rim are
+still polygons at that size (a flat arch top from (330,745) to (350,748) with corners of about 45 degrees,
+rim edges straight between (313,777), (322,776) and (330,790) — the 12-gon wheel at about 50 px, and the
+arch ring's own segments); hard-edged foliage (92-94% of sky-to-leaf steps with no intermediate pixel in
+corridor noon's canopy boxes); a glare blob on the car in the fivepoints junction at night, core
+[515,552,545,565] at 0.70 linear and 2.3% clipped, 55 times the door paint below it and spread about 55 x 27
+px over its glass and pillar (not diagnosed: the likely source is a lamp's specular image in the glass,
+which #136 records as physical, passed through the bloom); and that car changing body between the noon,
+dusk and night frames of one capture (a saloon with two side windows, then one long side window): each
+pair is still internally identical, so it does not touch the verdict, and what re-dealt that car between
+hours is not diagnosed.
 
 **Found while measuring it, NOT fixed:**
 - **The feet's residual band.** The last segment above each foot is a tapered painted chamfer, because the
