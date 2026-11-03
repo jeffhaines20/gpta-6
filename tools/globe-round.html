@@ -343,7 +343,11 @@ try {
     const inner = cardMat.onBeforeCompile;
     cardMat.onBeforeCompile = (sh, r) => {
       inner(sh, r);
-      if (!sh.fragmentShader.includes('gl_FragDepth = globeDepth;')) throw new Error('globe-round: no depth write to take out of the card');
+      // NO THROW when there is no write to take out. Then the SHIPPED shader has none either, which is the
+      // very defect the depth check exists for, so the check has to run and fail rather than the page die:
+      // the first version threw here, and mutation-sweep's globe-card-depth row read "caught by
+      // globe-round(threw)" — a catch by accident. A strip that took nothing out is still caught, by the
+      // known-bad's own liveness bound (a card over 10 cm off the sphere's front).
       sh.fragmentShader = sh.fragmentShader.replace('gl_FragDepth = globeDepth;', '');
     };
     cardMat.customProgramCacheKey = () => 'globeRoundCardKnownBad';
