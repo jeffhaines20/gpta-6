@@ -443,9 +443,13 @@ if (IS_MAIN && argv.includes('--district')) {
           // The difference, and its connected pieces.
           const diff = new Float32Array(W * H);
           let drift = 0;
+          let nonFinite = 0;
           for (let i = 0; i < W * H; i++) {
             diff[i] = off[i] - on[i];
-            drift = Math.max(drift, Math.abs(back[i] - on[i]));
+            // The scene target carries a few non-finite texels (the composite sanitises them); a NaN here
+            // made the first run's drift read NaN, so they are counted and left out.
+            const dd = Math.abs(back[i] - on[i]);
+            if (Number.isFinite(dd)) drift = Math.max(drift, dd); else nonFinite++;
           }
           const lab = new Int32Array(W * H).fill(-1);
           const comps = [];
@@ -480,7 +484,7 @@ if (IS_MAIN && argv.includes('--district')) {
           let changed = 0;
           for (let i = 0; i < W * H; i++) if (diff[i] > 1e-4) changed++;
           shadow = { sun: [s.x, s.y, s.z], predicted: pred, comps: comps.slice(0, 30), compCount: comps.length, changed,
-            drift: +drift.toExponential(3) };
+            drift: +drift.toExponential(3), nonFinite };
         }
         return { W, H, fov: cam.fov, inFrame: list.length, globes, shadow,
           level: fur.globeReport ? fur.globeReport() : null };
@@ -527,7 +531,7 @@ if (IS_MAIN && argv.includes('--district')) {
       }
       if (r.shadow) {
         console.log(`  noon shadows: ${r.shadow.predicted.length} predicted in frame, ${r.shadow.compCount} pieces changed, ` +
-          `${r.shadow.changed} px over 1e-4; frame-to-frame drift ${r.shadow.drift}`);
+          `${r.shadow.changed} px over 1e-4; frame-to-frame drift ${r.shadow.drift} (${r.shadow.nonFinite} non-finite texels left out)`);
         for (const p of r.shadow.predicted.sort((a, b) => a.depth - b.depth).slice(0, 12)) {
           console.log(`    #${p.lamp} ${p.which.padEnd(5)} at (${p.sx}, ${p.sy}) ${p.depth} m, ${p.pxAcross} x ${p.pxAlong} px predicted; ` +
             (p.nearest ? `nearest piece ${p.nearest.d} px off: ${p.nearest.area} px, box ${p.nearest.box.join(',')}, ` +
