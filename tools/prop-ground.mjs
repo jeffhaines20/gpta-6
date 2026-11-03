@@ -815,10 +815,17 @@ const out = await page.evaluate(async ([armNames, boxes, minpx, wpx, hpx, wantSh
     // aoIntensity=5.5" sets those post params and nothing else. Named arms
     // above still win; this only fires for a name the table does not have.
     for (const q of parts) {
-      if (APPLY[q] || !/^ao:/.test(q)) continue;
+      if (APPLY[q] || !/^(ao|sh):/.test(q)) continue;
       const kv = q.slice(3).split(';').map((t) => t.split('='));
       if (kv.some(([k, v]) => !k || v === undefined || !isFinite(Number(v)))) continue;
-      APPLY[q] = () => { for (const [k, v] of kv) D.post.params[k] = Number(v); };
+      // "sh:bias=0;normalBias=0.12" sets the sun's shadow terms the same way (#141), and only the
+      // two it names: a key the light does not have is refused rather than set on nothing.
+      if (q.startsWith('sh:')) {
+        if (kv.some(([k]) => !['bias', 'normalBias'].includes(k))) continue;
+        APPLY[q] = () => { for (const [k, v] of kv) sun.shadow[k] = Number(v); };
+      } else {
+        APPLY[q] = () => { for (const [k, v] of kv) D.post.params[k] = Number(v); };
+      }
     }
     if (parts.some((q) => !APPLY[q])) { results[name] = { error: 'unknown arm' }; continue; }
     reset();

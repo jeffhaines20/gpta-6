@@ -32,6 +32,7 @@ import {
 } from '../src/signage.js';
 import { buildingStyle } from '../src/facades.js';
 import { KerbFace } from '../src/kerb.js';
+import { CarContact, planFromCar } from '../src/carcontact.js';
 import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubScale,
   setTrafficLampAlbedo, setGlassAlbedo, setGlassEnv, glassEnv, setCarLensArm, setShellNames, shellNames,
   setCabinGain, cabinGain, setPlateText, plateText, setLampDetail, lampDetail,
@@ -409,6 +410,28 @@ placeAt(district.meta.spawn?.x ?? 0, district.meta.spawn?.z ?? 0);
 const carMesh = buildPlayerCar({ paint: 0x9e2b20 });
 scene.add(carMesh.group);
 console.log('player car', JSON.stringify(carMesh.report()));
+
+// #141's night half: the lamps cast no shadow, so the road under a car is lit as if it were not
+// there. One footprint per car, ONE draw call for every pool, drawn while the lamps are lit — see
+// src/carcontact.js for the profile and why it is off by day. The sources are reused objects,
+// because this runs every frame and an object per car per frame is how this repo has met a GC spike.
+const carContact = new CarContact(scene);
+const _contactSources = [];
+const _contactOf = new WeakMap();
+const _playerContact = { object: carMesh.group, plan: planFromCar() };
+const contactSource = (mesh) => {
+  let s = _contactOf.get(mesh);
+  if (!s) { s = { mesh }; _contactOf.set(mesh, s); }
+  return s;
+};
+function placeCarContact() {
+  _contactSources.length = 0;
+  if (furniture && furniture.parked) for (const m of furniture.parked.meshes) _contactSources.push(contactSource(m));
+  if (traffic) for (const m of traffic.meshes) _contactSources.push(contactSource(m));
+  if (pursuit && pursuit.mesh.visible) _contactSources.push(contactSource(pursuit.mesh));
+  _contactSources.push(_playerContact);
+  return carContact.update(_contactSources);
+}
 
 let pursuit = null;
 // Risk 5 chase harness: max traffic + active pursuit + streaming churn, run
@@ -2210,6 +2233,10 @@ function animate(now) {
   // so a lens reads as blown out at dusk AND at night rather than at neither.
   carMesh.setLights(tod.preset.lampsOn, post.params.exposure);
   if (traffic) traffic.setLights(tod.preset.lampsOn, post.params.exposure);
+  // After every pool has written this frame's matrices: the parked pool re-seeds round the camera,
+  // the fleet moves, the player's group was placed above.
+  carContact.setLit(tod.preset.lampsOn);
+  if (carContact.mesh.visible) placeCarContact();
   if (pursuit && pursuit.mesh.visible) pursuit.setLights(tod.preset.lampsOn, post.params.exposure);
 
   // Audio, only once the player has actually pressed something. Until then this
@@ -2632,7 +2659,8 @@ function __districtSkyFreeze(atSeconds) {
 window.__district = {
   district, world, vehicle, traffic: () => traffic, tod, post, renderer, scene, camera, chase, metrics,
   loadReport: () => loadReport,
-  furniture, lightPool, car: carMesh,
+  furniture, lightPool, car: carMesh, carContact,
+  carContactReport: () => carContact.report(),
   get frames() { return metrics.frames; },
   setTraffic,
   setPursuit,

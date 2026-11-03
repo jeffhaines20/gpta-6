@@ -3189,6 +3189,8 @@ blade lettered on both faces, and named for the street it runs along; 0.7 s),
 own light reaches, a purpose-built page through the real LightPool and PostStack, 16 s idle, 44 s at load 10).
 `car-arch` and `car-arch --selftest` (#125: every car pool's buffers through its own module, then a purpose-built
 page through the real noon light; 22-33 s on a loaded box, the selftest 0.3 s).
+`shadow-floor` and `shadow-floor --selftest` (#141, offline, 0.2 s),
+`shadow-bias --selftest` (#141's probe, offline).
 **Fifty-six entries in 241 s** on 2026-10-19, run alone; fifty-nine in 607 s on 2026-10-22 at load 12. **Add a new gate to BOTH lists** — this one
 and `mutation-sweep`'s offline list: `car-shapes` sat on this one and not the sweep's, so nothing it
 asserted had ever been swept, and a row written for a new car-shapes check came back MISSED against

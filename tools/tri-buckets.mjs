@@ -29,6 +29,9 @@ export function bucketOf(o) {
   if (/^kerb/.test(part)) return 'kerbs (near LOD)';
   if (/^zone/.test(part)) return 'ground zones';
   if (/^lamp:/.test(name)) return 'street lamps';
+  // #141's footprint under every car: it casts nothing, so it must not sit in `vehicles`, which
+  // bills x2.00 in the shadow pass. Before the car rule, because its name says "cars".
+  if (/^contactShadow/.test(name)) return 'contact shadows';
   if (/furniture|prop/i.test(name)) return 'street furniture + trees';
   if (/sign/i.test(name)) return 'signage';
   if (/ped|crowd|character/i.test(name)) return 'pedestrians';
@@ -48,7 +51,13 @@ export function trisOf(geometry, instances = 1) {
 }
 export const trisSource = trisOf.toString();
 
-if (process.argv.includes('--selftest')) {
+// THE MAIN MODULE, not merely the flag: `--selftest` is on process.argv, which every module in the
+// process shares, so `node tools/shadow-bias.mjs --selftest` ran THIS selftest on import, printed
+// "28/28 checks passed" under the importer's command, and would have exited 1 for the importer on a
+// failure of a gate nobody asked for. CLAUDE.md, "A tool's SELFTEST needs the same import guard as
+// its REPORT".
+const IS_MAIN = process.argv[1] && import.meta.url.endsWith(`/${process.argv[1].split('/').pop()}`);
+if (IS_MAIN && process.argv.includes('--selftest')) {
   let checks = 0, failed = 0;
   const ok = (cond, label, got) => {
     checks++;
@@ -72,6 +81,7 @@ if (process.argv.includes('--selftest')) {
     ['parkedCar:wagon', 'vehicles'],
     ['playerCar', 'vehicles'],
     ['skyDome', 'sky dome'],
+    ['contactShadow:cars', 'contact shadows'],
   ];
   for (const [name, want] of cases) ok(bucketOf(mesh(name)) === want, `${name} -> ${want}`, bucketOf(mesh(name)));
 
