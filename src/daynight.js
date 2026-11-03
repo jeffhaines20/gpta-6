@@ -897,6 +897,13 @@ const _sunAxisX = new THREE.Vector3();
 const _sunAxisY = new THREE.Vector3();
 const _sunDirScratch = new THREE.Vector3();
 
+/**
+ * The sun's shadow map and its offsets, exported because src/sheetshadow.js derives a sheet's push from
+ * the same map and the same normalBias (#141 round 2): a copy of either would drift. See the constructor
+ * for why the bias is 0 and the offset 0.06.
+ */
+export const SUN_SHADOW = Object.freeze({ mapSize: 2048, half: 120, bias: 0, normalBias: 0.06 });
+
 export class TimeOfDay {
   constructor(scene, renderer) {
     this.scene = scene;
@@ -977,7 +984,7 @@ export class TimeOfDay {
     // 2048 a texel is 240/2048 = 0.117 m, still 2.17x finer than the 0.254 m that
     // made a pedestrian 2 texels wide and therefore un-castable. A pedestrian is
     // now ~4.3 texels and a bollard ~1.3.
-    const SHADOW_MAP = 2048, S = 120;
+    const SHADOW_MAP = SUN_SHADOW.mapSize, S = SUN_SHADOW.half;
     this.sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
     Object.assign(this.sun.shadow.camera,
       { left: -S, right: S, top: S, bottom: -S, near: 1, far: 900 });
@@ -1054,8 +1061,8 @@ export class TimeOfDay {
     // no offset at all. tools/shadow-floor.mjs gates both sides of that trade
     // offline, and at night src/carcontact.js does what no sun bias can: the
     // lamps cast no shadow at all.
-    this.sun.shadow.bias = 0;
-    this.sun.shadow.normalBias = 0.06;
+    this.sun.shadow.bias = SUN_SHADOW.bias;
+    this.sun.shadow.normalBias = SUN_SHADOW.normalBias;
     scene.add(this.sun, this.sun.target);
 
     // A HemisphereLight is a crude sky-plus-ground-bounce approximation, and next

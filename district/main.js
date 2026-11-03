@@ -33,6 +33,7 @@ import {
 import { buildingStyle } from '../src/facades.js';
 import { KerbFace } from '../src/kerb.js';
 import { CarContact, planFromCar } from '../src/carcontact.js';
+import { castAsSheet } from '../src/sheetshadow.js';
 import { buildPlayerCar, setTrafficRimScale, setTrafficTyreScale, setTrafficHubScale,
   setTrafficLampAlbedo, setGlassAlbedo, setGlassEnv, glassEnv, setCarLensArm, setShellNames, shellNames,
   setCabinGain, cabinGain, setPlateText, plateText, setLampDetail, lampDetail,
@@ -185,11 +186,14 @@ await loading
       m.castShadow = true; m.receiveShadow = true;
       return m;
     };
+    // Both kits are double SHEETS — an awning's top over its own underside, a valance's front over its
+    // back, a blade lettered on both faces — so they cast into the sun's map with the sheet depth
+    // (#141 round 2, src/sheetshadow.js): without it every sun-facing awning stripes at noon.
     for (const bk of buckets) {
-      const m = meshOf(bk.sign, signMaterial({ time: 'dusk' }));
+      const m = castAsSheet(meshOf(bk.sign, signMaterial({ time: 'dusk' })));
       if (m) signageRoot.add(m);
     }
-    const sm = meshOf(street, streetSignMaterial({ time: 'dusk' }));
+    const sm = castAsSheet(meshOf(street, streetSignMaterial({ time: 'dusk' })));
     if (sm) signageRoot.add(sm);
     // Issue #45: the pavement pools and the awning-soffit glow. One mesh each,
     // one draw call each, and neither casts or receives a shadow -- they are not

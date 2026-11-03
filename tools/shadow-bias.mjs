@@ -88,13 +88,28 @@ export function parseArm(name, elevation) {
   if (['shipped', 'noShadow', 'noSun', 'ref', 'ref2', 'repeat', 'noContact'].includes(name)) return { name, kind: name };
   let m = /^b([0-9.]+)n([0-9.]+)$/.exec(name);
   if (m) return { name, kind: 'bias', b: Number(m[1]), nb: Number(m[2]) };
+  // ROUND 2 (#141's awning acne): a lever applied to ONE family of materials on top of the shipped
+  // light. `r` is a RECEIVER-side extra normal offset (the material's own lookup into the sun's map is
+  // pushed X metres further along its normal than normalBias does); `c` is a CASTER-side offset (the
+  // family's geometry is drawn into the map X metres along its own normals, so a back sheet lying on
+  // a front sheet stands X behind it). `s` is the shop signage (signMaterial and the street signs),
+  // `t` the facade trim.
+  // `k` and `l` are the same two sides SLOPE-SCALED, X in shadow-map texels: `k` widens the receiver's
+  // offset to X texels times the sine of its angle to the sun (less normalBias, never below it), `l`
+  // pushes the caster's depth X texels times the tangent of ITS angle further along the sun's ray, so
+  // its silhouette in the map does not move — which is what `c` gives up, since moving a face along
+  // its normal moves its edge.
+  m = /^([rckl])([st])([0-9.]+)$/.exec(name);
+  if (m) return { name, kind: 'sheet', mode: m[1], who: m[2], x: Number(m[3]) };
+  // `a+b`: levers together, each parsed as itself (a bias part and sheet parts, or two sheet parts).
+  if (name.includes('+')) return { name, kind: 'combo', parts: name.split('+').map((p) => parseArm(p, elevation)) };
   m = /^e([0-9.]+)n([0-9.]+)$/.exec(name);
   if (m) {
     const T = Number(m[1]), nb = Number(m[2]);
     if (!(elevation > 0)) throw new Error(`arm ${name} needs a positive sun elevation, got ${elevation}`);
     return { name, kind: 'bias', b: Math.max(0, T - nb) / Math.sin(elevation), nb, tolerance: T };
   }
-  throw new Error(`unknown arm "${name}" (named: shipped noShadow noSun ref ref2; or bXnY; or eTnY)`);
+  throw new Error(`unknown arm "${name}" (named: shipped noShadow noSun ref ref2; or bXnY; or eTnY; or rsX rtX csX ctX ksX ktX lsX ltX)`);
 }
 
 /** The fraction of the sun's direct light reaching a pixel, or null where it cannot be read. */
@@ -129,7 +144,7 @@ export function meanOf(vals) {
 export function census(group, inRef, L0, Lns, Lref, Lbase, L, minShare, nGroups) {
   var out = [];
   for (var g = 0; g < nGroups; g++) {
-    out.push({ n: 0, sumF: 0, refLit: 0, refDark: 0, acne: 0, leak: 0, darker: 0, lighter: 0 });
+    out.push({ n: 0, sumF: 0, refLit: 0, refDark: 0, acne: 0, leak: 0, darker: 0, lighter: 0, darkSum: 0, partial: 0 });
   }
   for (var i = 0; i < group.length; i++) {
     if (!inRef[i]) continue;
@@ -141,7 +156,14 @@ export function census(group, inRef, L0, Lns, Lref, Lbase, L, minShare, nGroups)
     if (!(f === f) || !(fr === fr) || !(fb === fb)) continue;
     var o = out[gi];
     o.n++; o.sumF += f;
-    if (fr >= 0.9) { o.refLit++; if (f <= 0.5) o.acne++; }
+    // ROUND 2: acne on a sheet is PARTIAL — the reviewer's awning stripes were valances 4-13% darker,
+    // which `f <= 0.5` never counts. So the census also carries how much of the reference's light a
+    // lit pixel lost (darkSum, a mean once divided by refLit) and how many lost more than 0.15 of it.
+    if (fr >= 0.9) {
+      o.refLit++; if (f <= 0.5) o.acne++;
+      if (fr - f > 0) o.darkSum += fr - f;
+      if (f < fr - 0.15) o.partial++;
+    }
     if (fr <= 0.1) { o.refDark++; if (f >= 0.5) o.leak++; }
     if (f < fb - 0.3) o.darker++;
     if (f > fb + 0.3) o.lighter++;
@@ -151,12 +173,17 @@ export function census(group, inRef, L0, Lns, Lref, Lbase, L, minShare, nGroups)
 export const censusSource = census.toString();
 
 /** The surface groups the census reports, from tools/tri-buckets.mjs's buckets. */
-export const GROUPS = ['background', 'car', 'ped', 'facade', 'furniture', 'ground', 'sky', 'other'];
+// 'signage' was inside 'furniture' in round 1; it is its own group now because the shop signage's
+// awnings are where the acne a reviewer saw lives. Appended, so every other index is round 1's.
+export const GROUPS = ['background', 'car', 'ped', 'facade', 'furniture', 'ground', 'sky', 'other', 'signage', 'trim'];
 export function groupOfBucket(b) {
   if (b === 'vehicles') return 1;
   if (b === 'pedestrians') return 2;
-  if (b === 'facade (near LOD)' || b === 'facade trim (near LOD)') return 3;
-  if (b === 'street furniture + trees' || b === 'street lamps' || b === 'signage') return 4;
+  if (b === 'facade (near LOD)') return 3;
+  // The facade TRIM apart from the walls since round 2: the facade kit's own awnings live in it.
+  if (b === 'facade trim (near LOD)') return 9;
+  if (b === 'signage') return 8;
+  if (b === 'street furniture + trees' || b === 'street lamps') return 4;
   // 'other: district' is the streamer's LAND PAD and its water, the two unnamed children of its root:
   // the pad is the pavement every pedestrian stands on (src/pedestrians.js places soles against it).
   if (b === 'roads' || b === 'kerbs (near LOD)' || b === 'ground zones' || b === 'buildings (far LOD)' ||
@@ -170,8 +197,63 @@ export const groupSource = groupOfBucket.toString();
 export function rates(o) {
   const r = (a, b) => (b > 0 ? a / b : null);
   return { n: o.n, meanF: r(o.sumF, o.n), acne: r(o.acne, o.refLit), leak: r(o.leak, o.refDark),
-    darker: r(o.darker, o.n), lighter: r(o.lighter, o.n), refLit: o.refLit, refDark: o.refDark };
+    darker: r(o.darker, o.n), lighter: r(o.lighter, o.n), refLit: o.refLit, refDark: o.refDark,
+    dark: r(o.darkSum, o.refLit), partial: r(o.partial, o.refLit) };
 }
+
+/**
+ * THE REVIEWER'S STRIPE STATISTIC (#141's blind review, 2026-11-03): the standard deviation, over a
+ * box, of L / box5(L), where box5 is the 5x5 mean round each pixel — a high-pass that is a RATIO,
+ * so a uniform change of exposure cancels and only structure finer than five pixels survives. The
+ * awning acne is a 4 px stripe, so it lands in this band; the fabric's own stripes, at tens of
+ * pixels, mostly do not. The reviewer read it as x2.66 and x3.11 between the arms.
+ *
+ *   L     luma, row 0 the top of the screen, any monotone encoding (the reviewer's was the PNG's)
+ *   box   [x0, y0, x1, y1], inclusive-exclusive, in the frame's own pixels
+ *
+ * Pixels whose 5x5 window leaves the frame are skipped. Returns { n, std } or null where nothing
+ * could be read, never 0, because a box off the frame must not read as "no stripes".
+ *
+ *   mask  optional, one entry per pixel: a pixel counts only when its WHOLE 5x5 window is in the
+ *         mask. The full box reads x1.0 between round 1's arms in all three of the reviewer's boxes
+ *         (0.95, 0.93, 0.99), because the box holds lettering, shut lines and the canopy's own
+ *         edges, whose high-pass dwarfs a 4-13% stripe; on the fabric alone the same frames read
+ *         x2.09. So the reviewer's number is a fabric number, and the probe reports both.
+ */
+export function stripeEnergy(L, W, H, box, mask) {
+  var x0 = Math.max(2, box[0]), y0 = Math.max(2, box[1]), x1 = Math.min(W - 2, box[2]), y1 = Math.min(H - 2, box[3]);
+  var n = 0, s = 0, s2 = 0;
+  for (var y = y0; y < y1; y++) {
+    for (var x = x0; x < x1; x++) {
+      if (mask) {
+        var inside = true;
+        for (var my = -2; my <= 2 && inside; my++) for (var mx = -2; mx <= 2; mx++) if (!mask[(y + my) * W + x + mx]) { inside = false; break; }
+        if (!inside) continue;
+      }
+      var m = 0;
+      for (var dy = -2; dy <= 2; dy++) for (var dx = -2; dx <= 2; dx++) m += L[(y + dy) * W + x + dx];
+      m /= 25;
+      if (!(m > 0)) continue;
+      var r = L[y * W + x] / m;
+      if (!(r === r)) continue;
+      n++; s += r; s2 += r * r;
+    }
+  }
+  if (n < 2) return null;
+  var mu = s / n;
+  return { n: n, std: Math.sqrt(Math.max(0, s2 / n - mu * mu)) };
+}
+export const stripeSource = stripeEnergy.toString();
+
+/**
+ * The reviewer's boxes, in the hero frames' own 1600 x 900 pixels, by framing: three awnings at noon
+ * where the stripe energy read x2.66 (Tinsmith Deli, corridor; Marrow & Vine, fivepoints) and x3.11
+ * (Corvid Coffee's yellow canopy, fivepoints). `--boxes name:x0,y0,x1,y1;...` replaces them.
+ */
+export const BOXES = {
+  corridor: { tinsmith: [1200, 425, 1450, 470] },
+  fivepoints: { marrowVine: [1100, 355, 1290, 425], corv: [1290, 420, 1380, 475] },
+};
 
 // ------------------------------------------------------------------------------------- selftest
 function selftest() {
@@ -244,6 +326,85 @@ function selftest() {
   say('the group map: a parked car is a car, a road is ground, a lamp is furniture, the land pad is ground',
     gi('vehicles') === 1 && gi('roads') === 5 && gi('street lamps') === 4 && gi('pedestrians') === 2 &&
     gi('other: district') === 5);
+  say('and a shop sign is signage, apart from the furniture it sat in for round 1',
+    gi('signage') === 8 && GROUPS[8] === 'signage' && gi('street furniture + trees') === 4);
+
+  // ROUND 2: partial acne, which `f <= 0.5` cannot see.
+  {
+    const g2 = new Uint8Array([8, 8, 8]), in2 = new Uint8Array([1, 1, 1]);
+    const z = new Float32Array(3).fill(1), ns = new Float32Array(3).fill(11);
+    const ref = new Float32Array([11, 11, 11]);
+    const arm = new Float32Array([8, 11, 11]);         // one lit pixel at f 0.7: 0.3 of its sun lost
+    const c3 = census(g2, in2, z, ns, ref, ref, arm, 0.25, GROUPS.length);
+    say('KNOWN-BAD: a lit pixel at f 0.7 is no acne by the 0.5 threshold and IS partial acne',
+      c3[8].acne === 0 && c3[8].partial === 1 && Math.abs(c3[8].darkSum - 0.3) < 1e-6,
+      `acne ${c3[8].acne}, partial ${c3[8].partial}, darkSum ${c3[8].darkSum.toFixed(3)}`);
+    const c4 = census(g2, in2, z, ns, ref, ref, ref, 0.25, GROUPS.length);
+    say('and the reference against itself loses nothing', c4[8].partial === 0 && c4[8].darkSum === 0);
+    const rr2 = rates(c3[8]);
+    say('the rates carry it as a mean over the lit pixels', Math.abs(rr2.dark - 0.1) < 1e-6 && Math.abs(rr2.partial - 1 / 3) < 1e-9,
+      `dark ${rr2.dark?.toFixed(3)}, partial ${rr2.partial?.toFixed(3)}`);
+  }
+
+  // ROUND 2: the stripe statistic on frames whose answer is known.
+  {
+    const W = 40, H = 20, box = [5, 5, 35, 15];
+    const flat = new Float32Array(W * H).fill(100);
+    const st = new Float32Array(W * H), ramp = new Float32Array(W * H), wide = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      st[y * W + x] = 100 * (1 + 0.1 * Math.sin(2 * Math.PI * (x + y) / 4));        // 4 px, diagonal
+      ramp[y * W + x] = 50 + 2 * x;                                                    // a smooth gradient
+      wide[y * W + x] = 100 * (1 + 0.1 * Math.sin(2 * Math.PI * x / 40));            // a 40 px band
+    }
+    const eF = stripeEnergy(flat, W, H, box), eS = stripeEnergy(st, W, H, box);
+    const eR = stripeEnergy(ramp, W, H, box), eW = stripeEnergy(wide, W, H, box);
+    const st3 = st.map((v) => v * 3);
+    say('a flat box has no stripe energy', eF && eF.std < 1e-6, `${eF?.std}`);
+    say('a 4 px diagonal stripe of +-10% reads it', eS && eS.std > 0.05, `${eS?.std.toFixed(4)}`);
+    say('a smooth ramp and a 40 px band read far less than the 4 px stripe',
+      eR.std < eS.std / 10 && eW.std < eS.std / 5, `ramp ${eR.std.toFixed(4)}, 40 px ${eW.std.toFixed(4)}`);
+    say('it is a ratio: three times the exposure reads the same', Math.abs(stripeEnergy(st3, W, H, box).std - eS.std) < 1e-6);
+    say('KNOWN-BAD: a box off the frame reads null, not "no stripes"', stripeEnergy(st, W, H, [100, 100, 120, 120]) === null);
+    const inj2 = new Function(`return (${stripeSource})`)();
+    say('the stringified statistic behaves like the original', Math.abs(inj2(st, W, H, box).std - eS.std) < 1e-12);
+    say('the reviewer\'s boxes are on the frame', Object.values(BOXES).every((bx) => Object.values(bx).every(
+      (b) => b[0] >= 0 && b[2] <= 1600 && b[1] >= 0 && b[3] <= 900 && b[2] > b[0] && b[3] > b[1])));
+    // The mask: fabric carrying the 4 px stripe, with a hard dark LETTER in the middle of it that is
+    // not fabric. Over the whole box the letter's edges swamp the stripe; inside the mask they do not,
+    // and a pixel whose window merely TOUCHES the letter is out as well.
+    const lettered = st.slice(), plain = flat.slice(), mask = new Uint8Array(W * H).fill(1);
+    for (let y = 8; y < 12; y++) for (let x = 18; x < 22; x++) { lettered[y * W + x] = 10; plain[y * W + x] = 10; mask[y * W + x] = 0; }
+    const fullL = stripeEnergy(lettered, W, H, box), fullP = stripeEnergy(plain, W, H, box);
+    const mL = stripeEnergy(lettered, W, H, box, mask), mP = stripeEnergy(plain, W, H, box, mask);
+    say('KNOWN-BAD: over the full box a letter hides the stripe — lettered over plain reads under x2',
+      fullL.std / fullP.std < 2, `x${(fullL.std / fullP.std).toFixed(2)}`);
+    say('inside the fabric mask the stripe reads as itself and the plain fabric as nothing',
+      Math.abs(mL.std - eS.std) < 0.25 * eS.std && mP.std < 1e-6, `stripe ${mL.std.toFixed(4)} against ${eS.std.toFixed(4)}, plain ${mP.std}`);
+    let touching = 0;
+    for (let y = box[1]; y < box[3]; y++) for (let x = box[0]; x < box[2]; x++) {
+      let all = true;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (!mask[(y + dy) * W + x + dx]) all = false;
+      if (all) touching++;
+    }
+    say('a pixel counts only when its whole window is fabric', mL.n === touching && mL.n === 30 * 10 - 8 * 8,
+      `n ${mL.n}, expected ${30 * 10 - 8 * 8}`);
+    say('KNOWN-BAD: an empty mask reads null, not "no stripes"', stripeEnergy(st, W, H, box, new Uint8Array(W * H)) === null);
+    say('and the stringified statistic takes the mask the same way', Math.abs(inj2(lettered, W, H, box, mask).std - mL.std) < 1e-12);
+  }
+  for (const [nm, want] of [['rs0.1', ['r', 's', 0.1]], ['ct0.06', ['c', 't', 0.06]], ['ks2', ['k', 's', 2]], ['lt1.5', ['l', 't', 1.5]]]) {
+    const q = parseArm(nm, 1);
+    const side = { r: 'receiver', c: 'caster', k: 'slope-scaled receiver', l: 'slope-scaled caster' }[want[0]];
+    say(`${nm} parses as a ${side} lever on the ${want[1] === 's' ? 'signage' : 'trim'}`,
+      q.kind === 'sheet' && q.mode === want[0] && q.who === want[1] && q.x === want[2]);
+  }
+  {
+    const q = parseArm('rs0.06+ct0.03', 1);
+    say('a combo parses into its parts, each as itself', q.kind === 'combo' && q.parts.length === 2
+      && q.parts[0].mode === 'r' && q.parts[0].who === 's' && q.parts[1].mode === 'c' && q.parts[1].who === 't');
+    let threw = false;
+    try { parseArm('rs0.06+zz1', 1); } catch { threw = true; }
+    say('KNOWN-BAD: a combo with a malformed part throws rather than dropping it', threw);
+  }
   console.log(`\nSHADOW-BIAS SELFTEST: ${fail ? 'FAIL' : 'PASS'} — ${n} checks${fail ? `, ${fail} failed` : ''}`);
   process.exit(fail ? 1 : 0);
 }
@@ -258,13 +419,15 @@ if (IS_MAIN && has('selftest')) selftest();
  * and every arm, inside one task. Self-contained (page.evaluate serialises it).
  */
 async function measureInPage(args) {
-  const { armSpecs, refHalf, minShare, bucketSrc, censusSrc, groupSrc, nGroups, compositeArms, wantShots, mapArms } = args;
+  const { armSpecs, refHalf, minShare, bucketSrc, censusSrc, groupSrc, nGroups, compositeArms, wantShots, mapArms,
+    boxes, stripeSrc } = args;
   const THREE = await import('/vendor/three.module.min.js');
   const D = window.__district, scene = D.scene, cam = D.camera, r = D.renderer, post = D.post;
   const sun = D.tod.sun, sc = sun.shadow.camera;
   const bucketOf = new Function(`return (${bucketSrc})`)();
   const censusFn = new Function(`return (${censusSrc})`)();
   const groupOf = new Function(`return (${groupSrc})`)();
+  const stripeOf = new Function(`return (${stripeSrc})`)();
   const t0 = performance.now();
   scene.updateMatrixWorld(true);
   cam.updateMatrixWorld();
@@ -295,17 +458,21 @@ async function measureInPage(args) {
   const u8 = new Uint8Array(W * H * 4);
   const SRGB = new Float32Array(256);
   for (let i = 0; i < 256; i++) { const c = i / 255; SRGB[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
-  /** The composited frame, sRGB-decoded luma: what the viewer sees, AO and tone curve included. */
+  /** The composited frame, sRGB-decoded luma: what the viewer sees, AO and tone curve included.
+   *  `enc` is the same frame's luma on the ENCODED bytes, which is what a reviewer reading a PNG
+   *  computes, and what the stripe statistic is taken on. */
   const readLDR = () => {
     gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, u8);
-    const out = new Float32Array(W * H);
+    const out = new Float32Array(W * H), enc = new Float32Array(W * H);
     for (let y = 0; y < H; y++) {
       const src = (H - 1 - y) * W * 4, dst = y * W;
       for (let x = 0; x < W; x++) {
         const i = src + x * 4;
         out[dst + x] = 0.2126 * SRGB[u8[i]] + 0.7152 * SRGB[u8[i + 1]] + 0.0722 * SRGB[u8[i + 2]];
+        enc[dst + x] = 0.2126 * u8[i] + 0.7152 * u8[i + 1] + 0.0722 * u8[i + 2];
       }
     }
+    out.enc = enc;
     return out;
   };
   const pngOf = () => {
@@ -558,6 +725,92 @@ async function measureInPage(args) {
       screen: [Math.round(q.x), Math.round(q.y)], ray, pxPerM: +(Math.hypot(b.x - a.x, b.y - a.y) / Math.hypot(0.5, 0.5)).toFixed(1) });
   }
 
+  // ---------------------------------------------------------------- ROUND 2: the sheet levers
+  // Installed ONCE per page and reused by every hour, because a second wrap would declare the uniform
+  // twice and fail to compile (src/materials.js's patch() says the same). Each family gets one
+  // receiver uniform (an extra normal offset in its own shadow lookup) and one caster uniform (its
+  // geometry drawn into the map along its own normals); both 0 is the shipped program exactly, and
+  // the `repeat` arm checks that against `shipped` every run.
+  const fams = { s: 'signage', t: 'facade trim (near LOD)' };
+  if (!window.__sheetLever) {
+    const u0 = () => ({ s: { value: 0 }, t: { value: 0 } });
+    const lev = { r: u0(), c: u0(), k: u0(), l: u0(), texel: { value: 0 }, nb: { value: 0 }, mats: { s: 0, t: 0 }, meshes: { s: 0, t: 0 },
+      shipped: { s: null, t: null }, shippedK: { s: null, t: null } };
+    const SEAM = 'directionalLightShadows[ i ].shadowNormalBias';
+    const chunk = THREE.ShaderChunk.shadowmap_vertex;
+    if (!chunk.includes(SEAM)) throw new Error('shadowmap_vertex has no shadowNormalBias seam: the receiver lever would measure nothing');
+    const patched = new Set();
+    const depthMats = {};
+    for (const who of ['s', 't']) {
+      const dm = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+      dm.onBeforeCompile = (shader) => {
+        if (!shader.vertexShader.includes('#include <begin_vertex>')) throw new Error('depth material has no begin_vertex seam');
+        if (!shader.vertexShader.includes('#include <project_vertex>')) throw new Error('depth material has no project_vertex seam');
+        shader.uniforms.uCasterOff = lev.c[who];
+        shader.uniforms.uCasterK = lev.l[who];
+        shader.uniforms.uSheetTexel = lev.texel;
+        shader.uniforms.uSheetNBc = lev.nb;
+        // `l`: in the light's own view space the ray is -z, so pushing mvPosition.z is a depth offset
+        // that leaves the face's (u, v) — its silhouette in the map — exactly where it was. It pushes
+        // only what the receiver's own normalBias does not already cover, K texels of slope less
+        // normalBias / cos, so a face within ~15 degrees of the light is not moved at all; and the
+        // angle is clamped where the sun lights a quarter of its beam (cos 0.25), past which acne is
+        // not visible and a tangent would only grow.
+        shader.vertexShader = 'uniform float uCasterOff;\nuniform float uCasterK;\nuniform float uSheetTexel;\nuniform float uSheetNBc;\n' + shader.vertexShader
+          .replace('#include <begin_vertex>', '#include <begin_vertex>\n\ttransformed += normalize( normal ) * uCasterOff;')
+          .replace('#include <project_vertex>', ['#include <project_vertex>',
+            '\tif ( uCasterK > 0.0 ) {',
+            '\t\tvec3 sheetN = normalize( mat3( modelViewMatrix ) * normal );',
+            '\t\tfloat sheetC = clamp( abs( sheetN.z ), 0.25, 1.0 );',
+            '\t\tmvPosition.z -= max( 0.0, uCasterK * uSheetTexel * sqrt( 1.0 - sheetC * sheetC ) / sheetC - uSheetNBc / sheetC );',
+            '\t\tgl_Position = projectionMatrix * mvPosition;',
+            '\t}'].join('\n'));
+      };
+      dm.customProgramCacheKey = () => `casterOff:${who}`;
+      depthMats[who] = dm;
+    }
+    scene.traverse((m) => {
+      if (!m.isMesh || m.isInstancedMesh) return;
+      const b = bucketOf(m);
+      const who = b === fams.s ? 's' : b === fams.t ? 't' : null;
+      if (!who) return;
+      // A mesh the page already casts with src/sheetshadow.js's material keeps it: the `shipped` arm has
+      // to be the shipped program, not this file's transcription of it. Its K is what an `l` arm on that
+      // family sets (`ls0` is round 1's map on the same page), and a `c` arm on it is refused below.
+      const shipped = m.customDepthMaterial && m.customDepthMaterial.userData && m.customDepthMaterial.userData.sheet;
+      if (m.castShadow && shipped) { lev.shipped[who] = shipped.uniforms; lev.shippedK[who] = shipped.uniforms.uSheetK.value; lev.meshes[who]++; }
+      else if (m.castShadow) { m.customDepthMaterial = depthMats[who]; lev.meshes[who]++; }
+      if (!m.receiveShadow) return;
+      for (const mat of (Array.isArray(m.material) ? m.material : [m.material])) {
+        if (!mat || !mat.isMeshStandardMaterial || patched.has(mat)) continue;
+        patched.add(mat);
+        const prev = mat.onBeforeCompile, prevKey = mat.customProgramCacheKey;
+        mat.onBeforeCompile = (shader, rr) => {
+          if (prev) prev.call(mat, shader, rr);
+          if (!shader.vertexShader.includes('#include <shadowmap_vertex>')) throw new Error('no shadowmap_vertex include to patch');
+          shader.uniforms.uSheetNB = lev.r[who];
+          shader.uniforms.uSheetK = lev.k[who];
+          shader.uniforms.uSheetTexel = lev.texel;
+          // `k`: the sun's direction is the depth row of the shadow matrix, which IS in the vertex
+          // shader, where the light's own direction uniform is not.
+          const fn = ['uniform float uSheetNB;', 'uniform float uSheetK;', 'uniform float uSheetTexel;',
+            'float sheetNormalBias( float nb, vec3 n, mat4 M ) {',
+            '\tvec3 ld = normalize( vec3( M[ 0 ][ 2 ], M[ 1 ][ 2 ], M[ 2 ][ 2 ] ) );',
+            '\tfloat c = clamp( abs( dot( normalize( n ), ld ) ), 0.0, 1.0 );',
+            '\treturn nb + uSheetNB + max( 0.0, uSheetK * uSheetTexel * sqrt( 1.0 - c * c ) - nb );',
+            '}', ''].join('\n');
+          shader.vertexShader = fn + shader.vertexShader.replace('#include <shadowmap_vertex>',
+            chunk.split(SEAM).join(`sheetNormalBias( ${SEAM}, shadowWorldNormal, directionalShadowMatrix[ i ] )`));
+        };
+        mat.customProgramCacheKey = () => `${prevKey ? prevKey.call(mat) : ''}|sheetNB:${who}`;
+        mat.needsUpdate = true;
+        lev.mats[who]++;
+      }
+    });
+    window.__sheetLever = lev;
+  }
+  const lever = window.__sheetLever;
+
   // ---------------------------------------------------------------- the arms
   const keep = {
     bias: sun.shadow.bias, normalBias: sun.shadow.normalBias, intensity: sun.intensity,
@@ -588,6 +841,18 @@ async function measureInPage(args) {
     sun.position.copy(keep.pos); sun.target.position.copy(keep.tgt);
     sun.target.updateMatrixWorld(); sun.updateMatrixWorld();
     if (D.carContact) D.carContact.mesh.visible = keep.contact;
+    for (const who of ['s', 't']) for (const md of ['r', 'c', 'k', 'l']) lever[md][who].value = 0;
+    for (const who of ['s', 't']) if (lever.shipped[who]) lever.shipped[who].uSheetK.value = lever.shippedK[who];
+    // The slope-scaled levers are in texels of the SHIPPED map; no arm moves the map and a sheet lever
+    // together, since the references never carry one.
+    lever.texel.value = (keep.box[1] - keep.box[0]) / keep.mapSize;
+    lever.nb.value = keep.normalBias;
+  };
+  const setSheet = (p) => {
+    const sh = lever.shipped[p.who];
+    if (sh && p.mode === 'l') { sh.uSheetK.value = p.x; return; }
+    if (sh && p.mode === 'c') throw new Error(`arm ${p.name}: the page casts that family with the shipped sheet depth, which has no normal offset`);
+    lever[p.mode][p.who].value = p.x;
   };
   const apply = (spec) => {
     reset();
@@ -600,6 +865,14 @@ async function measureInPage(args) {
     else if (spec.kind === 'ref') { setMap(4096, refHalf, F); sun.shadow.bias = -0.01 / span; sun.shadow.normalBias = 0.02; }
     else if (spec.kind === 'ref2') { setMap(4096, refHalf / 2, F); sun.shadow.bias = -0.005 / span; sun.shadow.normalBias = 0.01; }
     else if (spec.kind === 'bias') { sun.shadow.bias = -spec.b / span; sun.shadow.normalBias = spec.nb; }
+    else if (spec.kind === 'sheet') setSheet(spec);
+    else if (spec.kind === 'combo') {
+      for (const p of spec.parts) {
+        if (p.kind === 'sheet') setSheet(p);
+        else if (p.kind === 'bias') { sun.shadow.bias = -p.b / span; sun.shadow.normalBias = p.nb; }
+        else throw new Error(`a combo takes bias and sheet parts, not ${p.kind}`);
+      }
+    }
     sun.shadow.needsUpdate = true;
   };
   const renderArm = (composite) => {
@@ -610,6 +883,7 @@ async function measureInPage(args) {
 
   const L = {};
   const ldr = {};
+  const stripes = {};
   const timings = {};
   const shots = {};
   const order = ['noShadow', 'noSun', 'shipped', 'ref', 'ref2'];
@@ -638,6 +912,40 @@ async function measureInPage(args) {
   }
   reset();
   sun.shadow.needsUpdate = true;
+  // The stripe statistic, once every arm is in: three masks over the reviewer's boxes. `full` is the
+  // reviewer's statistic as stated; `fabric` keeps pixels of the shop signage or the facade trim that
+  // face the sun; `flat` keeps those of them whose own 5x5 neighbourhood is flat in the UNSHADOWED
+  // composited frame (L/box5(L) within 4% of 1), so lettering and shut lines are out and what is left
+  // can only gain structure from the shadow.
+  if (boxes && ldr.noShadow) {
+    const fab = new Uint8Array(W * H), flat = new Uint8Array(W * H);
+    const E = ldr.noShadow.enc;
+    for (let k = 0; k < W * H; k++) {
+      if (group[k] !== 8 && group[k] !== 9) continue;
+      const L0 = L.noSun[k], Lns = L.noShadow[k], sunPart = Lns - L0;
+      if (Lns > 0 && sunPart > 0 && sunPart / Lns >= minShare) fab[k] = 1;
+    }
+    for (let y = 2; y < H - 2; y++) for (let x = 2; x < W - 2; x++) {
+      const k = y * W + x;
+      if (!fab[k]) continue;
+      let m = 0;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) m += E[(y + dy) * W + x + dx];
+      m /= 25;
+      if (m > 0 && Math.abs(E[k] / m - 1) < 0.04) flat[k] = 1;
+    }
+    for (const name of Object.keys(ldr)) {
+      const enc = ldr[name].enc;
+      stripes[name] = {};
+      for (const [bn, bx] of Object.entries(boxes)) {
+        const read = (mask) => { const e = stripeOf(enc, W, H, bx, mask); return e ? { std: +e.std.toFixed(5), n: e.n } : null; };
+        // The box's mean encoded luma beside it, so a lever that darkened the whole canopy cannot pass
+        // for one that removed the stripes.
+        let sm = 0, sn = 0;
+        for (let y = bx[1]; y < bx[3]; y++) for (let x = bx[0]; x < bx[2]; x++) { sm += enc[y * W + x]; sn++; }
+        stripes[name][bn] = { full: read(null), fabric: read(fab), flat: read(flat), mean: +(sm / sn).toFixed(2) };
+      }
+    }
+  }
   results.shipped.census = censusFn(group, inRef, L.noSun, L.noShadow, L.ref, L.shipped, L.shipped, minShare, nGroups);
   // ref against ref2 inside ref2's box: the reference's own convergence.
   results.ref2.census = censusFn(group, inRef2, L.noSun, L.noShadow, L.ref, L.ref, L.ref2, minShare, nGroups);
@@ -663,7 +971,9 @@ async function measureInPage(args) {
       const L0 = L.noSun[k], Lns = L.noShadow[k], sun = Lns - L0;
       if (inRef[k] && Lns > 0 && sun > 0 && sun / Lns >= minShare) {
         const f = (A[k] - L0) / sun, fr = (L.ref[k] - L0) / sun;
-        if (fr >= 0.9 && f <= 0.5) { rr = 30; gg = 60; bb = 255; }
+        // Round 2 marks PARTIAL acne, lit in the reference and losing over 0.15 of it, since that is
+        // what a sheet's stripes are; leak as before.
+        if (fr >= 0.9 && f < fr - 0.15) { rr = 30; gg = 60; bb = 255; }
         else if (fr <= 0.1 && f >= 0.5) { rr = 255; gg = 40; bb = 30; }
       }
       im.data[k * 4] = rr; im.data[k * 4 + 1] = gg; im.data[k * 4 + 2] = bb; im.data[k * 4 + 3] = 255;
@@ -731,7 +1041,8 @@ async function measureInPage(args) {
     groupCount, inRefCount: inRef.reduce((a, b) => a + b, 0), inRef2Count: inRef2.reduce((a, b) => a + b, 0),
     buckets: bucketNames.map((b, i) => ({ bucket: b, group: groupOf(b), px: bucketPx[i] })).filter((b) => b.px > 0)
       .sort((a, b) => b.px - a.px),
-    registration: { maxRelDiff: regMax }, timings, subjects: subjectsOut,
+    registration: { maxRelDiff: regMax }, timings, subjects: subjectsOut, stripes,
+    sheetLever: { mats: lever.mats, meshes: lever.meshes, shippedK: lever.shippedK },
     census: Object.fromEntries(Object.entries(results).map(([k, v]) => [k, { config: v.config, census: v.census ?? null }])),
     shots, maps, seconds: +((performance.now() - t0) / 1000).toFixed(1),
   };
@@ -758,6 +1069,17 @@ if (IS_MAIN && !has('selftest')) {
   const OUT = arg('out', 'docs');
   fs.mkdirSync(`${OUT}/shots`, { recursive: true });
   const SETTLE = Number(arg('settle', 6));
+  // ROUND 2: --stripes measures the reviewer's stripe statistic in the reviewer's boxes for this
+  // framing (or --boxes name:x0,y0,x1,y1;...), and composites EVERY arm so each one has a frame.
+  const STRIPES = has('stripes') || !!arg('boxes', null);
+  const BOX = arg('boxes', null)
+    ? Object.fromEntries(arg('boxes', '').split(';').filter(Boolean).map((t) => {
+      const [nm, v] = t.split(':'); const b = v.split(',').map(Number);
+      if (b.length !== 4 || !b.every(Number.isFinite)) { console.error(`bad --boxes entry ${t}`); process.exit(2); }
+      return [nm, b];
+    }))
+    : (STRIPES ? BOXES[CAM] ?? null : null);
+  if (STRIPES && !BOX) { console.error(`no stripe boxes for --cam ${CAM}; pass --boxes`); process.exit(2); }
   const framing = HERO_FRAMINGS.find((f) => f.name === CAM);
   if (!framing) { console.error(`unknown --cam ${CAM}`); process.exit(2); }
   for (const t of TODS) if (!PRESETS[t]) { console.error(`unknown tod ${t}`); process.exit(2); }
@@ -789,7 +1111,9 @@ if (IS_MAIN && !has('selftest')) {
     const t0 = Date.now();
     const out = await page.evaluate(measureInPage, {
       armSpecs, refHalf: REF, minShare, bucketSrc: bucketSource, censusSrc: censusSource, groupSrc: groupSource,
-      nGroups: GROUPS.length, compositeArms: COMPOSITE, wantShots: SHOTS, mapArms: MAPS,
+      nGroups: GROUPS.length, wantShots: SHOTS, mapArms: MAPS,
+      compositeArms: STRIPES ? ['noShadow', 'noSun', 'shipped', 'ref', 'ref2', ...ARMS, 'repeat'] : COMPOSITE,
+      boxes: BOX, stripeSrc: stripeSource,
     });
     console.log(`\n=== ${CAM} / ${tod}  (sun ${out.elevationDeg} deg, ${((Date.now() - t0) / 1000).toFixed(0)} s, ` +
       `registration max rel diff ${out.registration.maxRelDiff.toExponential(2)})`);
@@ -822,13 +1146,14 @@ if (IS_MAIN && !has('selftest')) {
         for (const [name, a] of Object.entries(s.arms)) console.log(`    ${name.padEnd(12)} ` + idx.map(([, i]) => String(a[i] ?? '-').padStart(7)).join(''));
       }
     }
-    // ACNE / LEAK
+    // ACNE / LEAK. The printed groups are round 1's five plus signage, which is where the awnings are.
+    const PG = [1, 2, 3, 9, 4, 5, 8];
     console.log('\n  census over sun-facing pixels inside the reference box (acne: lit in ref, f<=0.5; leak: dark in ref, f>=0.5)');
-    console.log('    arm            ' + GROUPS.slice(1, 6).map((g) => g.padStart(26)).join(''));
+    console.log('    arm            ' + PG.map((g) => GROUPS[g].padStart(26)).join(''));
     for (const [name, c] of Object.entries(out.census)) {
       if (!c.census) continue;
-      const cells = GROUPS.slice(1, 6).map((g, gi) => {
-        const rr = rates(c.census[gi + 1]);
+      const cells = PG.map((g) => {
+        const rr = rates(c.census[g]);
         const p = (v) => (v === null ? '  -  ' : (100 * v).toFixed(1).padStart(5));
         return `${p(rr.acne)}/${p(rr.leak)} f${rr.meanF === null ? ' -  ' : rr.meanF.toFixed(2)} n${String(rr.n).padStart(6)}`.padStart(26);
       });
@@ -837,12 +1162,54 @@ if (IS_MAIN && !has('selftest')) {
     console.log('  the same in pixels, acne/refLit  leak/refDark:');
     for (const [name, c] of Object.entries(out.census)) {
       if (!c.census) continue;
-      const cells = GROUPS.slice(1, 6).map((g, gi) => {
-        const o = c.census[gi + 1];
+      const cells = PG.map((g) => {
+        const o = c.census[g];
         return `${o.acne}/${o.refLit} ${o.leak}/${o.refDark}`.padStart(26);
       });
-      const tot = GROUPS.slice(1, 6).reduce((a, g, gi) => a + c.census[gi + 1].acne + c.census[gi + 1].leak, 0);
+      const tot = PG.reduce((a, g) => a + c.census[g].acne + c.census[g].leak, 0);
       console.log(`    ${name.padEnd(13)} ${cells.join('')}   errors ${tot}`);
+    }
+    // ROUND 2: partial acne — how much of the reference's sun a LIT pixel loses, mean over the lit
+    // pixels, and the share of them that lose more than 0.15 of it.
+    console.log('  partial acne on lit pixels (mean sun lost x1000 / % losing over 0.15):');
+    console.log('    arm            ' + PG.map((g) => GROUPS[g].padStart(16)).join(''));
+    for (const [name, c] of Object.entries(out.census)) {
+      if (!c.census) continue;
+      const cells = PG.map((g) => {
+        const rr = rates(c.census[g]);
+        return (rr.dark === null ? '-' : `${(1000 * rr.dark).toFixed(1)} / ${(100 * rr.partial).toFixed(2)}%`).padStart(16);
+      });
+      console.log(`    ${name.padEnd(13)} ${cells.join('')}`);
+    }
+    if (out.stripes && Object.keys(out.stripes).length) {
+      const names = Object.keys(out.stripes);
+      const bn = Object.keys(out.stripes[names[0]] ?? {});
+      // The BEFORE build's bias, when the run carries it, is the reviewer's own comparison: their
+      // x2.66 and x3.11 were AFTER over BEFORE. The reference can carry legitimate structure of its
+      // own (a crisper shadow edge across the box), so both ratios are printed.
+      const refS = out.stripes.ref ?? {}, befS = out.stripes['b0.5394n0.06'] ?? null;
+      console.log(`\n  STRIPE ENERGY, the reviewer's statistic (std of L/box5(L) on the composited frame's encoded luma),`);
+      console.log(`  in the reviewer's boxes: over the FULL box, over the sun-facing FABRIC (signage or trim, whole`);
+      console.log(`  5x5 window), and over the fabric that is FLAT in the unshadowed frame; x is against the`);
+      console.log(`  4096-texel reference arm, which has no acne, b against the BEFORE build's bias (0.5394 m) when`);
+      console.log(`  the run carries it, and the box's mean luma is last`);
+      for (const b of bn) {
+        console.log(`    ${b}`);
+        console.log(`      arm              ${['full', 'fabric', 'flat'].map((m) => m.padStart(31)).join('')}     L`);
+        for (const name of names) {
+          const e = out.stripes[name][b];
+          if (!e) { console.log(`      ${name.padEnd(16)} -`); continue; }
+          const cells = ['full', 'fabric', 'flat'].map((m) => {
+            const v = e[m], r = refS[b]?.[m], bb = befS?.[b]?.[m];
+            if (!v) return '-'.padStart(31);
+            const x = r && r.std > 0 ? (v.std / r.std).toFixed(2) : '-';
+            const xb = bb && bb.std > 0 ? ` b${(v.std / bb.std).toFixed(2)}` : '';
+            return `${v.std.toFixed(4)} x${x}${xb} n${v.n}`.padStart(31);
+          });
+          console.log(`      ${name.padEnd(16)} ${cells.join('')}  ${String(e.mean).padStart(6)}`);
+        }
+      }
+      console.log(`  sheet lever installed on: ${JSON.stringify(out.sheetLever)}`);
     }
     if (SHOTS) {
       for (const [name, url] of Object.entries(out.shots)) {

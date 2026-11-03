@@ -54,12 +54,57 @@
 //             (a parked car's lane is 3 cm above its tyres' patch, a fleet car's road 2 cm), skips a
 //             hidden pool slot, draws nothing until the lamps are lit, casts nothing, writes no
 //             depth, and buckets as its own row rather than as x2.00 vehicles
+//
+// AND THE SHEETS (#141 round 2). The acne check above is sized for a CLOSED caster, whose back face is a
+// body's thickness behind the lit one. A shop awning is a top sheet over its own underside and a valance
+// front over its own back, on the same vertices, so over a lit sheet the map holds its TWIN at its own
+// depth — the 4 px stripes #141's blind reviewer refused at noon. src/sheetshadow.js pushes the twin
+// along the sun's ray; this half reads the sheets off the signage the district builds and asks:
+//
+//   sheets    the subject exists: the signage carries coincident, opposite-facing twins, and the sun
+//             lights some of them at ACNE_COS or more at noon
+//   reach     the twin's depth is clear of three's PCF_SOFT kernel: the reach is DERIVED here from the
+//             vendored kernel's own taps (SHEET_PARTIAL), and every lit sheet at every preset stands
+//             that far in front of its pushed twin. Round 1's setting fails it at noon — the KNOWN-BAD
+//   cost      the push is zero where normalBias already covers the slope (a fascia's or a parapet cap's
+//             underside at noon is not moved, so the contact under it stays attached) and stops growing
+//             past ACNE_COS, where acne cannot be seen
+//   material  the depth material carries it: its seam is found and its uniforms are the module's
+//             constants and the sun's own map and normalBias
 import * as THREE from '../vendor/three.module.min.js';
+import fs from 'node:fs';
 import { PRESETS } from '../src/daynight.js';
 import { buildTrafficCarGeometry, buildPlayerCar, SHAPES, CAR } from '../src/carbody.js';
 import { CarContact, CONTACT, planOf, planFromCar } from '../src/carcontact.js';
 import { bucketOf } from './tri-buckets.mjs';
 import { makeTod } from './shadow-stable.mjs';
+import { SUN_SHADOW } from '../src/daynight.js';
+import { SHEET_TEXELS, SHEET_COS, sheetDepthOffset, sheetDepthMaterial, SHEET_SEAM, SHEET_GLSL } from '../src/sheetshadow.js';
+
+// signage.js paints its atlases at import; positions never depend on a pixel. The same no-op 2D context
+// tools/sign-orient.mjs and tools/frontage-stats.mjs install, before the import that needs it.
+if (typeof document === 'undefined') {
+  const grad = { addColorStop() {} };
+  const ctx = () => new Proxy({}, {
+    get(t, k) {
+      if (k in t) return t[k];
+      if (k === 'canvas') return { width: 1, height: 1 };
+      return (t[k] = (...a) => {
+        if (k === 'measureText') return { width: String(a[0] ?? '').length * 8 };
+        if (k === 'createLinearGradient' || k === 'createRadialGradient' ||
+            k === 'createPattern' || k === 'createConicGradient') return grad;
+        if (k === 'getImageData') {
+          const w = a[2] | 0 || 1, h = a[3] | 0 || 1;
+          return { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) };
+        }
+        return undefined;
+      });
+    },
+    set(t, k, v) { t[k] = v; return true; },
+  });
+  globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext: () => ctx(), toDataURL: () => '' }) };
+}
+const { districtSignageBuffers, streetAtlas, bladeCells, planStreetSignage, bladePlate } = await import('../src/signage.js');
 
 const argv = process.argv.slice(2);
 const KNOWN = new Set(['--selftest']);
@@ -71,7 +116,12 @@ for (const a of argv) {
 }
 
 /** Fixed, so a check cannot vanish when a population is empty (CLAUDE.md, car-pixel). */
-export const CHECK_COUNT = 11;
+export const CHECK_COUNT = 15;
+/**
+ * The loss of sun a lit pixel must exceed for tools/shadow-bias.mjs to count it as partial acne: the
+ * census the sheet push was measured with, so the kernel's reach is derived against the same line.
+ */
+export const SHEET_PARTIAL = 0.15;
 /** The sun's share of its own beam below which a receiver's acne is not visible: cos(theta) = 0.25. */
 export const ACNE_COS = 0.25;
 /**
@@ -249,9 +299,182 @@ export function measureContact(floors, C = CONTACT, opts = {}) {
   };
 }
 
+/**
+ * three r180's PCF_SOFT kernel, one lookup (shadowmap_pars_fragment, transcribed): the lookup snaps to
+ * base = uv - f, f = fract(uv * size + 0.5), and reads sixteen texel CENTRES at base + (i, j), i and j in
+ * -1..2, the outer rows and columns bilinear in f, nine weights in all. Returns [dx, dy, w] in texels from
+ * the lookup point.
+ */
+export function pcfTaps(fx, fy) {
+  const t = [];
+  const add = (i, j, w) => { if (w > 0) t.push([i - fx, j - fy, w]); };
+  add(0, 0, 1); add(1, 0, 1); add(0, 1, 1); add(1, 1, 1);
+  add(-1, 0, 1 - fx); add(2, 0, fx); add(-1, 1, 1 - fx); add(2, 1, fx);
+  add(0, -1, 1 - fy); add(0, 2, fy); add(1, -1, 1 - fy); add(1, 2, fy);
+  add(-1, -1, (1 - fx) * (1 - fy)); add(2, -1, fx * (1 - fy)); add(-1, 2, (1 - fx) * fy); add(2, 2, fx * fy);
+  return t;
+}
+
+/**
+ * The worst share of the sun a lit sheet loses to its own twin when the twin stands `m` texels of slope
+ * behind it, over every sub-texel phase and every direction the slope can run across the map. A tap is
+ * dark when it lies more than m texels uphill (toward the light).
+ */
+export function pcfWorstLoss(m, phases = 24, dirs = 48) {
+  let worst = 0;
+  for (let a = 0; a < dirs; a++) {
+    const c = Math.cos((2 * Math.PI * a) / dirs), s = Math.sin((2 * Math.PI * a) / dirs);
+    for (let i = 0; i < phases; i++) for (let j = 0; j < phases; j++) {
+      let lost = 0;
+      for (const [dx, dy, w] of pcfTaps((i + 0.5) / phases, (j + 0.5) / phases)) if (dx * c + dy * s > m) lost += w;
+      if (lost / 9 > worst) worst = lost / 9;
+    }
+  }
+  return worst;
+}
+
+/** The smallest margin, in texels of slope, at which no lit sheet loses over `partial` of its sun. */
+export function pcfReach(partial = SHEET_PARTIAL) {
+  let lo = 0, hi = 3;
+  for (let k = 0; k < 24; k++) { const mid = (lo + hi) / 2; if (pcfWorstLoss(mid) <= partial) hi = mid; else lo = mid; }
+  return hi;
+}
+
+/**
+ * Zero-thickness sheets in a buffer: triangles with an OPPOSITE-facing triangle in the same plane that
+ * covers its centroid. Not a vertex match: a quad and its reverse are cut along different diagonals, so
+ * a top sheet's triangles and its underside's share no three vertices. Returns the unit normals of every
+ * triangle that has a twin (both members of a pair), and the counts.
+ */
+export function twinFaces(buf) {
+  const P = buf.pos, I = buf.idx, nT = I.length / 3;
+  const tris = [];
+  const byPlane = new Map();
+  for (let t = 0; t < nT; t++) {
+    const a = I[3 * t] * 3, b = I[3 * t + 1] * 3, c = I[3 * t + 2] * 3;
+    const A = [P[a], P[a + 1], P[a + 2]], B = [P[b], P[b + 1], P[b + 2]], C = [P[c], P[c + 1], P[c + 2]];
+    const e1 = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], e2 = [C[0] - A[0], C[1] - A[1], C[2] - A[2]];
+    const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+    const len = Math.hypot(n[0], n[1], n[2]);
+    if (!(len > 1e-8)) continue;
+    n[0] /= len; n[1] /= len; n[2] /= len;
+    // The plane, sign-canonical, so a face and its twin share a key.
+    const sg = (Math.abs(n[0]) > 1e-6 ? n[0] : Math.abs(n[1]) > 1e-6 ? n[1] : n[2]) > 0 ? 1 : -1;
+    const d = n[0] * A[0] + n[1] * A[1] + n[2] * A[2];
+    const key = [n[0] * sg, n[1] * sg, n[2] * sg, d * sg].map((v) => Math.round(v * 200)).join(',');
+    const tri = { A, B, C, n, sg, cen: [(A[0] + B[0] + C[0]) / 3, (A[1] + B[1] + C[1]) / 3, (A[2] + B[2] + C[2]) / 3] };
+    tris.push(tri);
+    if (!byPlane.has(key)) byPlane.set(key, []);
+    byPlane.get(key).push(tri);
+  }
+  // Barycentric containment of a point already in the plane.
+  const inside = (q, t) => {
+    const v0 = t.B.map((v, i) => v - t.A[i]), v1 = t.C.map((v, i) => v - t.A[i]), v2 = q.map((v, i) => v - t.A[i]);
+    const dot = (x, y) => x[0] * y[0] + x[1] * y[1] + x[2] * y[2];
+    const d00 = dot(v0, v0), d01 = dot(v0, v1), d11 = dot(v1, v1), d20 = dot(v2, v0), d21 = dot(v2, v1);
+    const den = d00 * d11 - d01 * d01;
+    if (!(Math.abs(den) > 1e-14)) return false;
+    const v = (d11 * d20 - d01 * d21) / den, w = (d00 * d21 - d01 * d20) / den;
+    return v >= -1e-6 && w >= -1e-6 && v + w <= 1 + 1e-6;
+  };
+  const normals = [];
+  let twins = 0;
+  for (const group of byPlane.values()) {
+    if (group.length < 2) continue;
+    for (const t of group) {
+      if (group.some((o) => o !== t && o.sg !== t.sg && inside(t.cen, o))) { twins++; normals.push(t.n); }
+    }
+  }
+  return { tris: tris.length, twins, normals };
+}
+
+/** Every sheet the district's signage carries: the shop kit and the street-name blades, as the page builds them. */
+export function sheetCensus() {
+  const district = JSON.parse(fs.readFileSync(new URL('../data/district.json', import.meta.url), 'utf8'));
+  // The blades are lettered from an atlas the page bakes from the district's own names; primed the way
+  // tools/sign-orient.mjs primes it, before anything memoises it.
+  const names = Object.values(district.streetNames ?? {});
+  streetAtlas(names, [...bladeCells(planStreetSignage(district)), ...names.map((n) => [n, bladePlate(n)])]);
+  const res = districtSignageBuffers(district);
+  const shop = { tris: 0, twins: 0, normals: [] };
+  for (const bk of res.buckets) {
+    const f = twinFaces(bk.sign);
+    shop.tris += f.tris; shop.twins += f.twins; shop.normals.push(...f.normals);
+  }
+  const street = twinFaces(res.street);
+  return { shop, street, normals: [...shop.normals, ...street.normals] };
+}
+
+/**
+ * The sheet terms at one preset: every twin the sun lights at ACNE_COS or more, its margin against the
+ * kernel's reach, and the same margin over EVERY angle in that range whether or not a sheet sits at it.
+ * `push` is the module's own function unless a selftest hands in a known-bad one.
+ */
+export function sheetTerms(sun, texel, b, nb, normals, reach, push = sheetDepthOffset) {
+  const marginAt = (c) => {
+    const tan = Math.sqrt(Math.max(0, 1 - c * c)) / c;
+    return push(c, texel, nb) + b + nb / c - reach * texel * tan;
+  };
+  let lit = 0, worst = Infinity, worstCos = null;
+  for (const n of normals) {
+    const c = n[0] * sun.x + n[1] * sun.y + n[2] * sun.z;
+    if (c < ACNE_COS) continue;
+    lit++;
+    const m = marginAt(c);
+    if (m < worst) { worst = m; worstCos = c; }
+  }
+  let any = Infinity, anyCos = null;
+  for (let i = 0; i <= 400; i++) {
+    const c = ACNE_COS + ((1 - ACNE_COS) * i) / 400;
+    const m = marginAt(c);
+    if (m < any) { any = m; anyCos = c; }
+  }
+  return { lit, worst: lit ? worst : null, worstDeg: worstCos === null ? null : Math.acos(worstCos) * 180 / Math.PI,
+    any, anyDeg: Math.acos(anyCos) * 180 / Math.PI };
+}
+
+/** The push as a function, swept: where it is zero and where it stops growing. */
+export function pushShape(texel, nb, push = sheetDepthOffset) {
+  let maxPush = 0;
+  const atAcne = push(ACNE_COS, texel, nb);
+  // Zero while normalBias alone covers the reach: SHEET_TEXELS * texel * sin(theta) <= nb.
+  const covered = Math.asin(Math.min(1, nb / (SHEET_TEXELS * texel)));
+  let worstCovered = 0;
+  for (let i = 0; i <= 2000; i++) {
+    const c = i / 2000, th = Math.acos(c), p = push(c, texel, nb);
+    // A push that is not a number fails the bound rather than slipping under it: NaN > x is false.
+    if (!Number.isFinite(p)) { maxPush = Infinity; worstCovered = th <= covered ? Infinity : worstCovered; continue; }
+    if (p > maxPush) maxPush = p;
+    if (th <= covered - 1e-9 && p > worstCovered) worstCovered = p;
+  }
+  return { coveredDeg: covered * 180 / Math.PI, worstCovered, maxPush, atAcne };
+}
+
+/** The depth material, compiled offline against three's own depth vertex shader. */
+export function sheetMaterialTerms(material = sheetDepthMaterial()) {
+  const shader = { vertexShader: THREE.ShaderLib.depth.vertexShader, fragmentShader: THREE.ShaderLib.depth.fragmentShader, uniforms: {} };
+  let threw = null;
+  try { material.onBeforeCompile(shader); } catch (e) { threw = e.message; }
+  const u = shader.uniforms;
+  const val = (k) => (u[k] ? u[k].value : null);
+  return {
+    threw, seam: shader.vertexShader.includes(`${SHEET_SEAM}\n${SHEET_GLSL}`),
+    declared: ['uSheetK', 'uSheetCos', 'uSheetNB', 'uSheetMap'].every((k) => shader.vertexShader.includes(`uniform float ${k};`)),
+    K: val('uSheetK'), cos: val('uSheetCos'), nb: val('uSheetNB'), map: val('uSheetMap'),
+    rgba: material.depthPacking === THREE.RGBADepthPacking,
+  };
+}
+
 /** The light's terms at every preset, read off a TimeOfDay after apply(), in metres. */
-export function measure(tod, floors = carFloors(), contact = null) {
-  const out = { floors, presets: {}, contact: contact ?? measureContact(floors) };
+// Both are a property of the build, not of the light, so a selftest's dozen known-bads pay for them once.
+let _census = null, _reach = null;
+export function measure(tod, floors = carFloors(), contact = null, sheets = null) {
+  const census = sheets?.census ?? (_census ??= sheetCensus());
+  const reach = sheets?.reach ?? (_reach ??= pcfReach());
+  const push = sheets?.push ?? sheetDepthOffset;
+  const out = { floors, presets: {}, contact: contact ?? measureContact(floors),
+    sheets: { census: { shop: census.shop.twins, shopTris: census.shop.tris, street: census.street.twins, streetTris: census.street.tris },
+      reach, K: SHEET_TEXELS, presets: {}, material: sheets?.material ?? sheetMaterialTerms() } };
   for (const name of Object.keys(PRESETS)) {
     tod.apply(name);
     const s = tod.sun.shadow, cam = s.camera;
@@ -273,7 +496,10 @@ export function measure(tod, floors = carFloors(), contact = null) {
       tolerance: b * Math.sin(el) + nb, acneWorst: worst, acneWorstDeg: worstAt * 180 / Math.PI,
       strip: b * Math.cos(el),
     };
+    out.sheets.presets[name] = sheetTerms(tod.sunDirection(new THREE.Vector3()), texel, b, nb, census.normals, reach, push);
+    if (name === Object.keys(PRESETS)[0]) out.sheets.shape = pushShape(texel, nb, push);
   }
+  out.sheets.light = { map: tod.sun.shadow.mapSize.x, nb: tod.sun.shadow.normalBias };
   return out;
 }
 
@@ -335,6 +561,28 @@ export function verdict(m) {
     `${Number.isFinite(M.yMin) ? M.yMin.toFixed(3) : '-'}..${Number.isFinite(M.yMax) ? M.yMax.toFixed(3) : '-'} m over its own contact patch, ` +
     `hidden ${M.hiddenAtStart}/${M.darkHidden}, lit ${M.litVisible}, cast ${M.castShadow}, depthWrite ${M.depthWrite}, ` +
     `multiply ${M.multiply}, bucket "${M.bucket}"`);
+  // ---- the sheets (#141 round 2): src/sheetshadow.js
+  const S = m.sheets ?? {};
+  const SP = Object.entries(S.presets ?? {});
+  const cen = S.census ?? {};
+  const noonLit = S.presets?.noon?.lit ?? 0;
+  add(`SHEETS: the district's signage carries zero-thickness twins, and at noon the sun lights some at ${ACNE_COS * 100}% of its beam or more`,
+    (cen.shop ?? 0) + (cen.street ?? 0) >= 100 && noonLit > 0,
+    `shop ${cen.shop}/${cen.shopTris} triangles in a twin, street ${cen.street}/${cen.streetTris}; lit at noon ${noonLit}`);
+  const fmt = (v) => (Number.isFinite(v) ? v.toFixed(4) : '-');
+  add(`SHEETS: every sheet the sun lights at ${ACNE_COS * 100}% or more stands the PCF_SOFT kernel's reach (${fmt(S.reach)} texels of slope) in front of its twin, at every preset`,
+    SP.length >= 4 && Number.isFinite(S.reach) && S.K >= S.reach &&
+      SP.every(([, q]) => (q.worst === null || q.worst >= -1e-9) && q.any >= -1e-9),
+    `K ${S.K}; ` + SP.map(([k, q]) => `${k} ${q.lit} lit, worst ${fmt(q.worst)} m${q.worstDeg === null ? '' : ` at ${q.worstDeg.toFixed(1)} deg`}, any angle ${fmt(q.any)} m at ${q.anyDeg.toFixed(1)}`).join('; '));
+  const sh = S.shape ?? {};
+  add(`SHEETS: the push is zero where normalBias already covers the reach (within ${fmt(sh.coveredDeg)} deg of the sun) and stops growing past ${ACNE_COS * 100}% of the beam`,
+    sh.worstCovered === 0 && Number.isFinite(sh.maxPush) && sh.atAcne > 0 && sh.maxPush <= sh.atAcne + 1e-12,
+    `inside ${fmt(sh.coveredDeg)} deg it moves a twin ${fmt(sh.worstCovered)} m; at most ${fmt(sh.maxPush)} m, ${fmt(sh.atAcne)} m at ACNE_COS`);
+  const mt = S.material ?? {}, lt = S.light ?? {};
+  add('SHEETS: the depth material carries the push: its seam is found, its uniforms are the module\'s K and clamp and the sun\'s own map and normalBias, RGBA packed',
+    mt.threw === null && mt.seam && mt.declared && mt.rgba && mt.K === SHEET_TEXELS && mt.cos === SHEET_COS &&
+      mt.nb === lt.nb && mt.map === lt.map && S.K === SHEET_TEXELS,
+    `threw ${mt.threw}, seam ${mt.seam}, declared ${mt.declared}, rgba ${mt.rgba}, K ${mt.K}, cos ${mt.cos}, nb ${mt.nb} (sun ${lt.nb}), map ${mt.map} (sun ${lt.map})`);
   return checks;
 }
 
@@ -410,6 +658,42 @@ if (IS_MAIN && argv.includes('--selftest')) {
   r = { v: verdict(measure(makeTod(), floors, none)) };
   say(r.v.some((c) => !c.ok && c.name.includes('one footprint per live car')), 'KNOWN-BAD: a module that places nothing fails',
     r.v.filter((c) => !c.ok).map((c) => c.name).join(' | '));
+  // ---- the sheets. One census and one reach for every known-bad, so the selftest pays for them once.
+  const census = sheetCensus();
+  const reach = pcfReach();
+  const material = sheetMaterialTerms();
+  const sheetRun = (push, mat = material, cz = census) => verdict(measure(makeTod(), floors, null, { census: cz, reach, push, material: mat }));
+  const failsSheet = (v, needle) => ({ hit: v.some((c) => !c.ok && c.name.includes(needle)), failing: v.filter((c) => !c.ok).map((c) => c.name) });
+  // KNOWN-BAD 10: ROUND 1's SETTING, bias 0 / normalBias 0.06 with no push: the reviewer's stripes.
+  r = failsSheet(sheetRun(() => 0), 'reach');
+  say(r.hit, 'KNOWN-BAD: round 1\'s map, no push, leaves the awnings\' twins inside the kernel at noon', r.failing.join(' | '));
+  // KNOWN-BAD 11: a push of one texel: the reviewer's boxes read clean from 1 up, and the census does not.
+  r = failsSheet(sheetRun((c, t, nb) => sheetDepthOffset(c, t, nb, 1)), 'reach');
+  say(r.hit, 'KNOWN-BAD: a push of 1 texel fails the reach (13.2% of the lit signage against a 10.1% floor)', r.failing.join(' | '));
+  // KNOWN-BAD 12: no normalBias credit moves the faces normalBias covers: the contact under a fascia.
+  r = failsSheet(sheetRun((c, t) => sheetDepthOffset(c, t, 0)), 'push is zero');
+  say(r.hit, 'KNOWN-BAD: a push that does not credit normalBias moves a fascia\'s underside at noon', r.failing.join(' | '));
+  // KNOWN-BAD 13: no clamp: an edge-on twin pushed 4.7 m along the ray.
+  r = failsSheet(sheetRun((c, t, nb) => sheetDepthOffset(c, t, nb, SHEET_TEXELS, 0.05)), 'stops growing');
+  say(r.hit, 'KNOWN-BAD: a push with no clamp keeps growing past the visible range', r.failing.join(' | '));
+  // KNOWN-BAD 14: a depth material with no push in it, and a census that found no sheets.
+  r = failsSheet(sheetRun(sheetDepthOffset, sheetMaterialTerms(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }))), 'depth material carries');
+  say(r.hit, 'KNOWN-BAD: a plain depth material on the signage fails the material check', r.failing.join(' | '));
+  r = failsSheet(sheetRun(sheetDepthOffset, material, { shop: { tris: 10, twins: 0, normals: [] }, street: { tris: 10, twins: 0, normals: [] }, normals: [] }), 'carries zero-thickness');
+  say(r.hit, 'KNOWN-BAD: a census that finds no sheets fails, rather than passing every margin over nothing', r.failing.join(' | '));
+  // The kernel against what it must read, and the twin finder against shapes whose answer is known.
+  const l1 = pcfWorstLoss(1), l2 = pcfWorstLoss(2), lc = pcfWorstLoss(2 * Math.SQRT2 + 0.01);
+  say(l1 > 0.3 && l2 > 0 && l2 < SHEET_PARTIAL && lc === 0 && reach > 1.5 && reach < 1.7,
+    'the kernel: a twin 1 texel behind loses a third of the sun, 2 texels a sliver, past the corner tap nothing; reach between 1.5 and 1.7',
+    `loss ${l1.toFixed(4)} / ${l2.toFixed(4)} / ${lc}, reach ${reach.toFixed(4)}`);
+  const qb = { pos: [0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1], idx: [0, 1, 2, 0, 2, 3, 3, 2, 1, 3, 1, 0] };
+  const single = { pos: qb.pos, idx: [0, 1, 2, 0, 2, 3] };
+  const box = new THREE.BoxGeometry(1, 0.2, 1);
+  const boxBuf = { pos: [...box.getAttribute('position').array], idx: [...box.getIndex().array] };
+  const tq = twinFaces(qb), ts = twinFaces(single), tb = twinFaces(boxBuf);
+  say(tq.twins === 4 && ts.twins === 0 && tb.twins === 0,
+    'twinFaces: a quad over its reverse (cut on the other diagonal) is 4 twins; a lone quad and a closed slab are none',
+    `${tq.twins} / ${ts.twins} / ${tb.twins}`);
   // The floor reader against a hand-built slab whose answer is known.
   const slab = new THREE.BoxGeometry(1.4, 0.1, 1.6); slab.translate(0, 0.25, 0);
   const fs = floorPan(slab, 0);

@@ -2993,22 +2993,24 @@ const MUTATIONS = [
   // ---- src/daynight.js: the sun's depth bias (#141). Every one of these renders a frame a reviewer
   // can only call "the cars look lifted" or "the lamp posts are speckled"; tools/shadow-floor.mjs
   // prices both sides of the trade offline, off the light the page builds and the cars it draws.
+  // (Round 2 moved the two values into SUN_SHADOW, which src/sheetshadow.js reads as well, so these
+  // three mutate the export: the same intent, one definition.)
   {
     id: 'shadow-bias-constant', file: 'src/daynight.js',
-    find: '    this.sun.shadow.bias = 0;',
-    to: '    this.sun.shadow.bias = -0.0006;',
+    find: 'export const SUN_SHADOW = Object.freeze({ mapSize: 2048, half: 120, bias: 0, normalBias: 0.06 });',
+    to: 'export const SUN_SHADOW = Object.freeze({ mapSize: 2048, half: 120, bias: -0.0006, normalBias: 0.06 });',
     why: '#141 reverted: 0.54 m along the ray, the road under every car sunlit at noon and a strip at every wall foot',
   },
   {
     id: 'shadow-normal-off', file: 'src/daynight.js',
-    find: '    this.sun.shadow.normalBias = 0.06;',
-    to: '    this.sun.shadow.normalBias = 0;',
+    find: 'export const SUN_SHADOW = Object.freeze({ mapSize: 2048, half: 120, bias: 0, normalBias: 0.06 });',
+    to: 'export const SUN_SHADOW = Object.freeze({ mapSize: 2048, half: 120, bias: 0, normalBias: 0 });',
     why: 'no bias at all: 4,028 px of street furniture self-shadow at fivepoints noon, every lamp post striped',
   },
   {
     id: 'shadow-normal-wide', file: 'src/daynight.js',
-    find: '    this.sun.shadow.normalBias = 0.06;',
-    to: '    this.sun.shadow.normalBias = 0.15;',
+    find: 'export const SUN_SHADOW = Object.freeze({ mapSize: 2048, half: 120, bias: 0, normalBias: 0.06 });',
+    to: 'export const SUN_SHADOW = Object.freeze({ mapSize: 2048, half: 120, bias: 0, normalBias: 0.15 });',
     why: 'acne bought back with the contact: the road under the red car a quarter sunlit again (0.262)',
   },
   {
@@ -3020,6 +3022,40 @@ const MUTATIONS = [
     to: '    this.sun.color.setHex(p.sunColor);\n' +
       '    this.sun.shadow.bias = -(0.04 / Math.sin(p.elevation)) / 899;',
     why: 'a bias set from the hour: contact held at 0.10 m, a 0.7 m lit strip at every wall foot at dusk',
+  },
+  // ---- src/sheetshadow.js: the awning's twin pushed along the sun's ray (#141 round 2). Each of these
+  // renders a noon frame a reviewer can only call "the awnings are striped" or "the shadow under the
+  // fascia let go"; tools/shadow-floor.mjs reads the push off the same expression the shader compiles,
+  // against the reach of three's own PCF taps, over every twin the district's signage carries.
+  {
+    id: 'sheet-push-off', file: 'src/sheetshadow.js',
+    find: 'export const SHEET_TEXELS = 2;',
+    to: 'export const SHEET_TEXELS = 0;',
+    why: 'round 1\'s map: every sun-facing awning top and valance striped at noon, 80% of the lit signage losing over 0.15 of its sun',
+  },
+  {
+    id: 'sheet-push-one', file: 'src/sheetshadow.js',
+    find: 'export const SHEET_TEXELS = 2;',
+    to: 'export const SHEET_TEXELS = 1;',
+    why: 'a push of one texel: the reviewer\'s three boxes read clean and the district does not, 13.2% of the lit signage against a 10.1% floor',
+  },
+  {
+    id: 'sheet-push-no-credit', file: 'src/sheetshadow.js',
+    find: "export const SHEET_PUSH_EXPR = 'max( 0.0, K * texel * sqrt( 1.0 - c * c ) / c - nb / c )';",
+    to: "export const SHEET_PUSH_EXPR = 'max( 0.0, K * texel * sqrt( 1.0 - c * c ) / c )';",
+    why: 'the push ignores what normalBias already stands: a fascia\'s underside at noon is moved, and the shadow attached under it lets go',
+  },
+  {
+    id: 'sheet-cos-open', file: 'src/sheetshadow.js',
+    find: 'export const SHEET_COS = 0.25;',
+    to: 'export const SHEET_COS = 0.05;',
+    why: 'no clamp worth the name: an edge-on twin pushed 4.7 m along the ray, every shadow it casts on anything that far behind it gone',
+  },
+  {
+    id: 'sheet-host-unwired', file: 'district/main.js', browser: true,
+    find: "      const m = castAsSheet(meshOf(bk.sign, signMaterial({ time: 'dusk' })));",
+    to: "      const m = meshOf(bk.sign, signMaterial({ time: 'dusk' }));",
+    why: 'the module is right and the host never casts the shop signage with it: every awning on the page striped at noon again',
   },
   // ---- src/carcontact.js: the lamps' shadow under every car (#141's night half). Each draws a
   // perfectly plausible footprint somewhere; only shadow-floor puts it back in the car's own frame.

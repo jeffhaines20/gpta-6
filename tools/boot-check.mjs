@@ -371,8 +371,28 @@ if (state.global && state.frames > 2) {
     if (d.car && d.car.bodyMesh) carMats.push(d.car.bodyMesh.material);
     const sun = { bias: sh.bias, normalBias: sh.normalBias, pcfSoft: d.renderer.shadowMap.type === THREE.PCFSoftShadowMap,
       carMats: carMats.length, frontSide: carMats.every((mt) => mt && mt.side === THREE.FrontSide && mt.shadowSide == null) };
+    // ROUND 2: THE SHEETS. Every caster in the signage bucket casts with src/sheetshadow.js's depth
+    // material — the module's own instance, not one that looks like it — at the module's constants, and
+    // the facade trim does not (the push on the trim was measured and refused). The lists are counted
+    // so "every signage caster" cannot pass over an empty one.
+    const SS = await import('/src/sheetshadow.js');
+    const DN = await import('/src/daynight.js');
+    const sheetMat = SS.sheetDepthMaterial();
+    const sheets = { signage: 0, signageSheet: 0, trim: 0, trimSheet: 0, other: 0 };
+    d.scene.traverse((o) => {
+      if (!o.isMesh || !o.castShadow) return;
+      const b = bucketOf(o), isSheet = o.customDepthMaterial === sheetMat;
+      if (b === 'signage') { sheets.signage++; if (isSheet) sheets.signageSheet++; }
+      else if (b === 'facade trim (near LOD)') { sheets.trim++; if (isSheet) sheets.trimSheet++; }
+      else if (isSheet) sheets.other++;
+    });
+    const u = sheetMat.userData.sheet && sheetMat.userData.sheet.uniforms;
+    sheets.uniforms = u ? { K: u.uSheetK.value, cos: u.uSheetCos.value, nb: u.uSheetNB.value, map: u.uSheetMap.value } : null;
+    sheets.module = { K: SS.SHEET_TEXELS, cos: SS.SHEET_COS };
+    sheets.sun = { map: sh.mapSize.x, half: sh.camera.right, nb: sh.normalBias, bias: sh.bias };
+    sheets.declared = { map: DN.SUN_SHADOW.mapSize, half: DN.SUN_SHADOW.half, nb: DN.SUN_SHADOW.normalBias, bias: DN.SUN_SHADOW.bias };
     return { boot, back: d.tod.presetName, lamps0, r0, c0, rNoon, r1, c1, inScene: !!n.isScene,
-      bucket: bucketOf(m), cast: m.castShadow, depthWrite: m.material.depthWrite, sun };
+      bucket: bucketOf(m), cast: m.castShadow, depthWrite: m.material.depthWrite, sun, sheets };
   }, [bucketSource]);
   console.log(`  car contact: ${JSON.stringify(cc)}`);
   check('the footprint under the cars is on the page, casts nothing, writes no depth, and is its own bucket',
@@ -387,6 +407,15 @@ if (state.global && state.frames > 2) {
   check('the page\'s sun is the one shadow-floor priced: bias 0, normalBias 0.06, PCF, car bodies FrontSide with no shadowSide',
     !!cc && cc.sun.bias === 0 && cc.sun.normalBias === 0.06 && cc.sun.pcfSoft && cc.sun.carMats >= 4 && cc.sun.frontSide,
     cc ? JSON.stringify(cc.sun) : '-');
+  const sx = cc && cc.sheets;
+  check('every signage caster casts as a SHEET, with the module\'s own depth material, and no trim or other caster does',
+    !!sx && sx.signage >= 2 && sx.signageSheet === sx.signage && sx.trim >= 1 && sx.trimSheet === 0 && sx.other === 0,
+    sx ? `signage ${sx.signageSheet}/${sx.signage}, trim ${sx.trimSheet}/${sx.trim}, other ${sx.other}` : '-');
+  check('and the sheet push is the one shadow-floor priced: the module\'s K and clamp, the sun\'s own map and normalBias',
+    !!sx && !!sx.uniforms && sx.uniforms.K === sx.module.K && sx.uniforms.cos === sx.module.cos && sx.module.K > 0 &&
+      sx.uniforms.map === sx.sun.map && sx.uniforms.nb === sx.sun.nb && sx.sun.map === sx.declared.map &&
+      sx.sun.half === sx.declared.half && sx.sun.nb === sx.declared.nb && sx.sun.bias === sx.declared.bias,
+    sx ? JSON.stringify({ u: sx.uniforms, module: sx.module, sun: sx.sun }) : '-');
   check('by day it draws nothing, and back at the boot hour it draws every car again',
     !!cc && cc.rNoon.visible === false && cc.rNoon.triangles === 0 && cc.r1.visible === true && cc.back === cc.boot &&
       cc.r1.placed === cc.c1.parked + cc.c1.fleet + 1,
