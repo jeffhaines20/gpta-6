@@ -304,9 +304,17 @@ if (IS_MAIN && argv.includes('--district')) {
         // THE GLOBES, OFF THE HEAD BUFFER: a globe's centre is its poles' midpoint (tools/kerb-stand.mjs
         // found its bounding box lopsided), its radius the farthest vertex from that centre.
         const hp = fur.heads.geometry.attributes.position;
+        // #140's cards put every corner AT the centre and carry the radius in `lampGlobe`, so the poles'
+        // midpoint is the centre and the farthest vertex is 0 m out: read the radius off the attribute,
+        // and there are no facets for a hull to be taken of.
+        const card = fur.heads.geometry.attributes.lampGlobe ?? null;
         const sides = { o: [], i: [] };
-        for (let q = 0; q < hp.count; q++) sides[hp.getX(q) > 0 ? 'o' : 'i'].push([hp.getX(q), hp.getY(q), hp.getZ(q)]);
+        for (let q = 0; q < hp.count; q++) sides[hp.getX(q) > 0 ? 'o' : 'i'].push([hp.getX(q), hp.getY(q), hp.getZ(q), card ? card.getZ(q) : 0]);
         const globeDef = (vs) => {
+          if (card) {
+            const c = [0, 1, 2].map((a) => vs.reduce((s, v) => s + v[a], 0) / vs.length);
+            return { c, r: Math.max(...vs.map((v) => v[3])), verts: null };
+          }
           let top = vs[0], bot = vs[0];
           for (const v of vs) { if (v[1] > top[1]) top = v; if (v[1] < bot[1]) bot = v; }
           const c = [(top[0] + bot[0]) / 2, (top[1] + bot[1]) / 2, (top[2] + bot[2]) / 2];
@@ -391,8 +399,9 @@ if (IS_MAIN && argv.includes('--district')) {
           const mk = maskOf(g);
           const S = M.silhouetteProfile(mk.mask, mk.w, mk.h, mk.crop, g.view, g.r);
           // THE SECOND PROTOCOL: the hull of the globe's own vertices, carried into view space.
-          const verts = defs[g.which].verts.map((v) => { const q = new V3(...v).applyMatrix4(g.m).applyMatrix4(view); return [q.x, q.y, q.z]; });
-          const Hh = M.hullRoundness(verts, g.view);
+          const Hh = defs[g.which].verts
+            ? M.hullRoundness(defs[g.which].verts.map((v) => { const q = new V3(v[0], v[1], v[2]).applyMatrix4(g.m).applyMatrix4(view); return [q.x, q.y, q.z]; }), g.view)
+            : { sides: null, dev: null };
           const E = M.radialEdge(lum, W, H, { ...camInfo, k: 1, x0: 0, y0: 0 }, g.view, g.r);
           // A small picture of the mask, top-down, one native pixel a k-block, for looking at.
           let bin = '';
@@ -522,11 +531,11 @@ if (IS_MAIN && argv.includes('--district')) {
         console.log(`  #${g.lamp} ${g.which.padEnd(5)} ${String(g.dist).padStart(6)} m, ${String(g.theta).padStart(5)} deg off axis, ` +
           `at (${g.sx}, ${g.sy}), ${g.rTan} x ${g.rRad} px`);
         console.log(`      mask x${K}: dev ${f(g.mask.dev)} fitDev ${f(g.mask.fitDev)} size ${f(g.mask.size)}  ` +
-          `hull: ${g.hull.sides} sides dev ${f(g.hull.dev)}  ` +
+          `hull: ${g.hull.sides ?? '-'} sides dev ${f(g.hull.dev)}  ` +
           `hdr: dev ${f(g.hdr.dev)} size ${f(g.hdr.size)}${g.hdr.refused ? ` REFUSED ${g.hdr.refused}` : ''}  ` +
           `frame: dev ${f(g.png?.dev)} size ${f(g.png?.size)}${g.png?.refused ? ` REFUSED ${g.png.refused}` : ''}` +
           `${g.mask.refused ? `  MASK REFUSED ${g.mask.refused}` : ''}`);
-        console.log(`      in px at the globe's tangential radius: mask ${f(g.mask.dev * g.rTan, 2)}, hull ${f(g.hull.dev * g.rTan, 2)}, ` +
+        console.log(`      in px at the globe's tangential radius: mask ${f(g.mask.dev * g.rTan, 2)}, hull ${f(g.hull.dev === null ? NaN : g.hull.dev * g.rTan, 2)}, ` +
           `hdr ${f(g.hdr.dev * g.rTan, 2)}, frame ${f(g.png?.dev * g.rTan, 2)}`);
       }
       if (r.shadow) {
