@@ -5252,8 +5252,9 @@ out to be. And its "clouds moved between the paired captures" is the harness: ea
 at its own load time (17.945 s and 30.662 s), so a two-tree pair carried 12.7 s of drift — hero-shots
 pins one time now.
 
-### #138 OPEN, BUILT ON aorange-138 AND HELD — the AO's depth-step leak darkens anything standing behind something nearer, and #130 only took the glass out
-(aoThickness 0.6 is built and trial-merged clean; its blind review split 2-2 and found #141 underneath. See #141.)
+### #138 OPEN, aoThickness 0.6 REFUSED BY A SECOND BLIND REVIEW — the AO's depth-step leak darkens anything standing behind something nearer, and #130 only took the glass out
+(aoThickness 0.6 was built on aorange-138; its first blind review split 2-2 and found #141 underneath; the
+second, with #141 under it, preferred the OLD AO in all eight pairs. See #141's 2026-11-03 review.)
 Found by #130's page, `tools/glass-ao.html`, in the arm #130 does not touch. A pedestrian-sized block
 1.5 m in front of a car darkens the car's PAINT beside its outline to 0.708 of AO-off (0-8 px), 0.869
 (8-16) and 0.858 (16-32), against 0.989 with no block — the same cloud the reviewers saw on the glass,
@@ -5858,7 +5859,44 @@ is to space by arc length along the whole EDGE and alternate (or pair) continuou
 doubles the count — a price in the gate's units, since lamps are three never-culled InstancedMeshes
 in both passes (72 triangles a lamp, x2), and a night-look change for a blind review alongside #135.
 
-### #141 OPEN — the sun's depth bias is 0.54 m along its ray at every hour, so at noon nothing within 0.58 m of the ground can shadow it: the road under every car is sunlit
+### #141 OPEN, BUILT ON bias-141 AND REFUSED AS BUILT (8 OF 8 FOR THE OLD BUILD, PER KIND: THE CONTACT KEPT, THE ACNE AND #138 NOT) — the sun's depth bias is 0.54 m along its ray at every hour, so at noon nothing within 0.58 m of the ground can shadow it: the road under every car is sunlit
+**Built on `bias-141` (e94dfb8, unmerged; the builder's full record is that branch's BACKLOG): `sun.shadow.bias`
+0 with `normalBias` 0.06 kept, and `src/carcontact.js`, an 18-triangle footprint under every car drawn only while
+the lamps are lit; on top of #138's aoThickness 0.6. Trial-merged into main as 0447c84 (offline 64 of 64, boot-check
+122 checks). NOT merged, because the blind review preferred the build without it in every pair.**
+
+**Blind review, 2026-11-03: BEFORE (29b45da, neither #138 nor #141) preferred in all eight pairs** (corridor and
+fivepoints at noon, golden, dusk and night, traffic and pedestrians live; confidence 3, 4, 4, 4 at the corridor
+and 2, 3, 3, 3 at fivepoints). Decoded against `blind-key-r141b-r141.json`. The reviewer separated three kinds
+of difference, always in the same split, and they do not point the same way:
+
+    kind                                             in       reviewer prefers      conf   its reading
+    1  broad soft crevice and contact darkening     BEFORE   WITH it               4 (3)  walls under every awning
+       (walls under awnings, column tops, ground                                         0.86-0.89 of the other arm,
+       beside cars, pole bases, canopy interiors)                                        CORV pilaster 0.34-0.43, ground
+                                                                                         beside a car 0.44-0.68; its
+                                                                                         one fault the post halo on the
+                                                                                         white car, 0.36-0.49
+    2a fine diagonal stripes, period about 4 px,     AFTER    WITHOUT them          4      noon only: stripe energy x2.66
+       on sun-facing awning tops and valances                                            on Tinsmith and Marrow & Vine,
+                                                                                         x3.11 on CORV, x1.00 at every
+                                                                                         other hour
+    2b shadow attached into the gaps under car        AFTER    WITH it               3      the red car's gap 3.65x brighter
+       sills, a parapet cap, a sign fascia                                                in BEFORE at noon (a lit gap),
+                                                                                         the pink car's 3.03x
+
+So the three readings are: **#141's purpose, the attached contact shadow, preferred**; **#141's price, acne on
+the awnings at noon, refused** — the builder's acne census measured sunlit walls at noon, open ground at golden
+and dusk, furniture and bodies, and never a sloped sun-facing fabric, which is where it shows; and **#138's AO
+thickness refused**, because the darkening it removes along with the halo is the darkening a photograph's sky
+occlusion makes. The first round's split (corridor for #138, fivepoints against) had blamed the floating cars
+on #141's bias; with the bias fixed under it, the AO change still lost everywhere.
+
+Both arms, from the same reviewer: foliage as binary alpha cut-outs (86% of leaf/sky boundary pixels with no
+partial coverage at corridor noon), trunks as untextured ribbons, a brown ring round the light cars' wheel arches
+(the frames predate #125's arch fix, 71ed408), flat hexagonal lamp globes with no hotspot (#140), rims at 10-12
+sides on the nearest car, deep noon tree shade at 0.109 of the sunlit road, and brick smearing at grazing angles.
+
 **Found by #138's blind review (2026-10-22), decoded against `blind-key-r138b-r138.json` on aorange-138.**
 The reviewer found one term, a darkening along concave junctions and object bases with no
 opposite-sign pixels (1 px in the registered noon corridor pair), and it was the BEFORE arm every time:
