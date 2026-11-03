@@ -388,7 +388,13 @@ export function twinFaces(buf) {
   return { tris: tris.length, twins, normals };
 }
 
-/** Every sheet the district's signage carries: the shop kit and the street-name blades, as the page builds them. */
+/**
+ * Every sheet the district's signage carries: the shop kit and the street-name blades, through the
+ * module's own builder at its DEFAULT selection (what tools/sign-orient.mjs censuses), not the page's
+ * capped styles, so the counts are the kit's and not the page's tenancy for tenancy. Nothing in the
+ * verdict leans on the count being complete: the reach is also asserted at every angle the sun lights,
+ * whether or not a sheet sits there, and the census is what says the subject exists and is lit.
+ */
 export function sheetCensus() {
   const district = JSON.parse(fs.readFileSync(new URL('../data/district.json', import.meta.url), 'utf8'));
   // The blades are lettered from an atlas the page bakes from the district's own names; primed the way
