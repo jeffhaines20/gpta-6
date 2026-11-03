@@ -5859,7 +5859,64 @@ is to space by arc length along the whole EDGE and alternate (or pair) continuou
 doubles the count — a price in the gate's units, since lamps are three never-culled InstancedMeshes
 in both passes (72 triangles a lamp, x2), and a night-look change for a blind review alongside #135.
 
-### #141 OPEN, BUILT ON bias-141 AND REFUSED AS BUILT (8 OF 8 FOR THE OLD BUILD, PER KIND: THE CONTACT KEPT, THE ACNE AND #138 NOT) — the sun's depth bias is 0.54 m along its ray at every hour, so at noon nothing within 0.58 m of the ground can shadow it: the road under every car is sunlit
+### #141 OPEN, ROUND 2 BUILT ON bias2-141 FOR A SECOND BLIND REVIEW (THE SIGNAGE CASTS AS SHEETS; NO #138); ROUND 1 BUILT ON bias-141 AND REFUSED AS BUILT (8 OF 8 FOR THE OLD BUILD, PER KIND: THE CONTACT KEPT, THE ACNE AND #138 NOT) — the sun's depth bias is 0.54 m along its ray at every hour, so at noon nothing within 0.58 m of the ground can shadow it: the road under every car is sunlit
+**Round 2, 2026-11-03, on `bias2-141` from main 6e89247 (unmerged): round 1's bias 0 / normalBias 0.06,
+`src/carcontact.js`, their gates, rows and boot-check arm, WITHOUT #138's aoThickness; and the awning acne
+the review refused, fixed where it lives.** Before choosing a lever, how the awning enters the sun's map:
+`src/signage.js` builds the barrel as a top sheet over an underside on the SAME vertices and the valance as
+a front over a back on the same four (a street-name blade, lettered on both faces, the same way), with a
+FrontSide material, so three's PCF pass draws the back sheet into the map AT the lit sheet's depth. Round 1's
+acne census priced closed casters, whose back face is a body's thickness behind; a sheet has none, and
+`tools/shadow-floor.mjs` now reads 11,884 of the shop kit's 82,560 triangles and 3,352 of the street kit's
+12,112 as such twins off the district's own buffers. The facade kit's awnings are the same double sheet and
+are not built on the shipped path (`awnings: true` only), so every awning a player sees is signage.
+
+`tools/shadow-bias.mjs`, noon, one page load a camera, one term an arm, against a 4096-texel map that carries
+the shipped rule at its own texel (an unpushed reference has sheet acne of its own and read every arm 4-6
+points clean). Acne is the share of the shop signage lit in the reference that loses over 0.15 of its sun;
+stripes the reviewer's statistic on the fabric flat in the unshadowed frame, over BEFORE's:
+
+    arm, fivepoints noon                  signage acne   signage leak   furniture leak   stripes M&V / CORV
+    round 1, bias 0 / nb 0.06                90.6%           147             157           x2.94 / x2.25
+    the old constant, 0.54 m                 14.0%           168             566           x1.00 / x1.00
+    receiver: + 0.12 m normal offset          3.1%           830             157           x1.08 / x1.13
+    receiver: slope-scaled, 2 texels          2.7%         1,134             157           x0.93 / x1.06
+    caster: twin 0.12 m on its normal       (10.2%)         (153)              -    ground leak 645 -> 1,751 (unpushed ref)
+    caster: twin pushed along the ray, 2     16.0%           151             157           x1.00 / x1.00
+    caster: pushed along the ray, 2.5        14.3%           151             158           x1.00 / x1.00   SHIPPED
+    corridor noon, acne: round 1 67.0%, 1.5 texels 19.7%, 2 -> 11.1%, 2.5 and 3 -> 5.3%, old constant 5.3%;
+    Tinsmith's stripes x2.32 in round 1, x1.00 from 1.5 texels; furniture leak 556 -> 597 (+41, a 4 px
+    strip beside one street-sign post at the frame's left edge)
+
+A receiver lever peter-pans whatever the signage receives (a neighbour's or the building's shadow on an
+awning lets go near its caster, 6-8x the leak); moving the twin along its own normal moves its edge (the
+awning's shadow on the pavement shrank by the offset). Pushing it along the sun's RAY leaves its (u, v) in the
+map, so every shadow the sign casts keeps its shape, and changes only the depth a receiver is compared with:
+`src/sheetshadow.js`, a depth material cast by the shop and street signage only (`district/main.js`), pushing
+a face `max(0, 2.5 texels x tan(theta) - nb / cos(theta))` along the ray, clamped at cos 0.25. Zero within
+11.8 degrees of the light (a horizontal underside at noon moves 1.3 cm, so the attached contact under a fascia
+stays), 0.89 m at most. 2.5 is measured — the smallest push that reaches the old constant's level at both
+cameras, 3 adding nothing — over a 1.52-texel reach `shadow-floor` derives from three's own PCF_SOFT taps for
+the census's 0.15 line. The push is written ONCE as two expressions the shader compiles and the gate
+evaluates. Clamping at 0.15 or 0.1 instead moved nothing. Against round 1, pixels changing by more than
+4/255 at 2.5 texels: fivepoints noon 0.58% of the frame, every one in the awning band; golden 11 px; dusk and
+night 0. Corridor golden 787 px, all at the frame's left edge where a sign's acne goes the way the old constant
+had it, with the census there identical. The moon striped the awnings at night too (57% of the lit signage at
+fivepoints) at under a tenth of the light, so it never showed; the push takes it to 5.6%.
+
+The trim was tried and refused: the same push on the whole trim mesh buys 12.2% -> 11.2% for 765 px of leak
+against 116, a lit line along the foot of a shopfront; the trim's acne at bias 0 is thin closed pieces. Still
+open from round 1 and not flagged by either review: partial acne on thin closed casters at bias 0 — at
+fivepoints noon peds 12-25% against the old constant's 3-10%, furniture 6.4% against 1.9%, trim 12.0%
+against 8.2% — because round 1's half-texel bound was calibrated on furniture's binary acne, not on a 0.15
+loss. Restated on main's AO, without #138: the red car's road at fivepoints noon composites 0.080 -> 0.017
+(0.214 -> 0.029 on #138's), and at night the footprint moves it 0.045 -> 0.037 composited (0.112 -> 0.039),
+because main's AO already darkens most of the gap under a car; the HDR figures, before the AO, are unchanged.
+The reviewer's statistic over the FULL box reads x1.0 between round 1's arms in all three of their boxes —
+lettering and shut lines dwarf a 4 px stripe — so the probe reports it on fabric that is flat in the
+unshadowed frame, where it reads x2.26-2.95.
+
+**Round 1 (the record as filed):**
 **Built on `bias-141` (e94dfb8, unmerged; the builder's full record is that branch's BACKLOG): `sun.shadow.bias`
 0 with `normalBias` 0.06 kept, and `src/carcontact.js`, an 18-triangle footprint under every car drawn only while
 the lamps are lit; on top of #138's aoThickness 0.6. Trial-merged into main as 0447c84 (offline 64 of 64, boot-check
