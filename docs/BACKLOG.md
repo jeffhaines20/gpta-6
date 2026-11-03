@@ -5325,6 +5325,196 @@ The measurement: per lamp, the head's and the post's distance from every palm's 
 against that palm's R. Then the fix belongs in the placer: a palm keeps its CROWN clear of a lamp's head
 and post, and the clearance must not be the base distance.
 
+### #140 FIXED (not yet blind-reviewed) — the globe is a ray-cast sphere on a two-triangle card: round at every distance, -88,416 of the gate's units, and the shadow it throws is kept
+
+`src/streetfurniture.js` draws each globe as a camera-facing card — `buildGlobeCards`, two triangles a
+globe with every corner AT the centre and the radius in a `lampGlobe` attribute — and `patchGlobeImpostor`
+turns the card into the sphere: the vertex shader moves the corners out to cover the sphere's silhouette
+cone (`r d / sqrt(d^2 - r^2)` in the plane through the centre, across the eye ray), the fragment shader
+intersects its own ray with the sphere, discards a miss, and writes the hit's normal and its depth. The
+sun's pass casts the cards through `globeDepthMaterial`, an instanced `customDepthMaterial` after
+`src/pedestrians.js`'s, with `shadowSide = DoubleSide`, so the shadow is the disc a sphere throws. The
+globes' centres and radii are one table, `LAMP_GLOBES`, which the buffer carries and everything reads back.
+
+**Step 1, measured before changing anything** — the reviewer's globe found in the district (lamp #171's
+outer globe at fivepoints: 19.77 m, 34.7 degrees off the lens axis, at (147.8, 197.8) where the review
+boxed (134,183)-(163,212)), and on a purpose-built page (`tools/globe-round.html`: two of the district's
+own lamps through the hero cameras that saw them, the real `headMat`, PostStack at night). The OUTLINE is
+an 8x mask of the head mesh alone through the district camera, read in the ANGULAR frame (a gnomonic
+projection about the centre ray, where a sphere's outline is exactly a circle of radius tan(asin(r/d)));
+read in screen pixels instead, an exact sphere 35 degrees off axis is an ellipse x1.22 long and reads 19%
+out of round, which is the instrument's own known-bad. The second protocol is the convex hull of the
+globe's own vertices projected the same way, and the two agree to 0.01 of the radius at every globe:
+
+    district, BEFORE (4448dd7)     dist    on screen        outline from round    hull of the vertices
+    fivepoints #171 outer        19.8 m   15.5 x 18.9 px      0.290 = 4.50 px      7 sides, 4.52 px
+    fivepoints #831 inner        19.7 m   11.8 x 12.3 px      0.235 = 2.77 px      7 sides, 2.77 px
+    fivepoints #831 outer        22.8 m   11.5 x 11.8 px      0.228 = 2.61 px      7 sides, 2.57 px
+    fivepoints #837 outer        28.5 m   11.1 x 13.8 px      0.180 = 1.99 px      6 sides, 2.02 px
+    corridor   #283 outer        22.5 m    9.9 x 10.3 px      0.215 = 2.14 px      7 sides, 2.14 px
+    corridor   #284 outer        43.9 m    4.9 x  5.0 px      0.260 = 1.28 px      7 sides, 1.29 px
+
+So the reviewer's globe sits 4.5 px off round, a 7-gon; the offline estimate in the record below (3.6 px at
+p50, 4.3 at max, for a 29 px globe) was the right size of thing. The globe's SIZE is wrong too: the facets'
+outline fits a circle of 0.877-0.885 of the radius typed into them, the polygon being inscribed.
+
+The noon shadow the entry called "under a pixel" — the frame with the head mesh casting against the same
+frame with `heads.castShadow` false, nothing else moved, through the hero cameras:
+
+    fivepoints  #831 inner at 17.0 m    259 px of road (48 x 8 box), darkening peak 0.60, mean 0.19
+                #831 outer at 20.1 m     91 px          (36 x 4),                  0.40,      0.16
+    corridor    #283 outer at 19.6 m    113 px          (31 x 5),                  0.72,      0.21
+
+So "out of the sun map" would have deleted a shadow a player can see, and it is not taken.
+
+**The levers, one at a time, on the page** (the reviewer's camera; every other camera in the gate's table):
+
+    lever                      head tris    colour     gate units   outline at     noon shading   noon shadow
+                               a lamp       x1,228     at x2.00     #171           p95 vs a       area vs a
+                                                                                    96x64 sphere   sphere's
+    the 20 facets (before)         40            0           0      4.50 px          100%           x0.674
+    Icosahedron(1), 80 a globe    160     +147,360    +294,720      1.02 px           13%           x0.928
+    facets out of the sun map      40            0     -49,120      4.50 px          100%           none
+    the impostor (shipped)          4      -44,208     -88,416      0.13 px          0.8%           x1.001
+    96x64 sphere (reference)   24,192                               0.12 px            -            x0.999
+
+The impostor is the only lever that is round, cheaper, and keeps the shadow; it reads the same as the
+24,192-triangle reference sphere at every camera (0.12-0.13 px, which is the mask's own resolution), its
+fitted size is 0.999-1.001 of the radius, its depth is within 3.3 mm of the sphere's front over every
+globe pixel (8.4 mm at the worst camera; a card through the centre is 21-25 cm off, which is what the AO,
+the fog and the bracket would meet without `gl_FragDepth`), and its shading under the noon sun matches the
+reference to 0.8% at p95 (the facets 100-431%, the icosphere 13-45%). At night the globe is emissive and
+every arm's shading agrees to 0.000; the outline is the only difference left, and it is the one the
+reviewer saw.
+
+**What the impostor costs that the reference does not: its edge is not anti-aliased.** A `discard` edge is
+one coverage decision a pixel, where the 4x MSAA a mesh gets resolves four. Read off the drawn scene target
+at night with the globe alone, native resolution: the shipped globe's edge departs from round by 0.86 px,
+the 96x64 sphere's by 0.45 px, the facets' by 4.45 px. Alpha-to-coverage would buy it back and is
+incompatible with #114's emit tag, which the material's alpha carries and which needs it opaque. Gated at a
+pixel, priced here, and not chased.
+
+**#136's luminance: the LEVEL is restated, not the luminance. 1/30 -> 1/22.6.** The level is a fraction of
+the physical luminance, `I / (S / 4)`, and the sphere's mean projected area is pi 0.25^2 = 0.1963 m2
+against the facets' 0.1480, so the physical luminance falls from 3,944.7 to 2,973.3 nits. Held at 1/30 —
+which holds the INTEGRATED output, luminance x area — the globe draws 99.1 nits, and globe-level measured
+what that undoes:
+
+    level     nits    facade lobe at 15 m    glare / globe radius at 58 m   (bound x3.0)
+    1/30      99.1         x1.027 FAILS              2.29
+    1/29.2   101.8         x1.000                     2.30      the minimum that orders it
+    1/22.6   131.6         x0.774                     2.80      shipped: 30 x 0.1480 / 0.1963 = 22.6
+    1/20     148.7         x0.68                      2.93
+    1/18     165.2         x0.62                      3.06 FAILS
+
+#136 chose its level on a PER-PIXEL comparison — the facade cell's lobe against the globe's own pixels —
+and the lobe is the light's and the wall's, whatever shape the globe is. So the luminance #136 decided is
+kept, with its 29% to spare, and the halo grows from 2.70 radii (the facets at 131.5 nits) to 2.80 of a
+globe that is now 15% bigger on screen, inside #136's bound. The price is the flux: x1.33 the facets', 4.4%
+of physical where it was 3.3%. Restated in the same commit (8f183aa): globe-level's page reads the area off
+either kind of buffer (`globeArea` in `tools/globe-math.mjs`), its fixture is re-recorded and its typed-area
+known-bad turned round; globe-order reads `globeArea`; boot-check's globe arm; three mutation rows.
+
+**The district, AFTER** (`tools/globe-round.mjs --district` at 1e0aa20, the same instrument, the same
+eight globes picked the same way, every hour):
+
+    outline from round, 8x mask       BEFORE (4448dd7)          AFTER
+    fivepoints #171 outer             4.50 px, size 0.877       0.13 px, size 1.000     the reviewer's
+    fivepoints #831 inner             2.77 px, 0.882            0.12 px, 1.000
+    fivepoints #831 outer             2.61 px, 0.884            0.13 px, 1.000
+    fivepoints #837 outer             1.99 px, 0.885            0.14 px, 1.000
+    corridor   #283 outer             2.14 px, 0.882            0.14 px, 1.000
+    corridor   #283 inner             1.54 px, 0.881            0.13 px, 1.000
+    corridor   #284 outer             1.28 px, 0.880            0.13 px, 1.000
+    corridor   #284 inner             1.01 px, 0.884            0.13 px, 1.001
+
+What the frame shows, three ways, each only where it can resolve the globe:
+
+- **The scene target as drawn at night** (before the bloom), the reviewer's globe with its bracket in the
+  frame: 0.2859 = 4.44 px BEFORE, 0.1021 = 1.59 px AFTER. The page reads the same lamp through the same
+  camera at 0.2861 and 0.1019, so the page and the district agree on both builds to 0.0002; with the
+  bracket hidden the page reads 0.0551 = 0.86 px, against 0.45 px for the 96x64 sphere (the aliased edge
+  above).
+- **The displayed dusk frame, read the reviewer's way** (each row's left and right edge, against that
+  row's own sky and globe, mapped into the angular frame): #171 3.68 px and a fitted size of 0.873 BEFORE,
+  0.71 px and 1.005 AFTER; #837 1.61 px, 0.880 -> 0.75 px, 1.001. Only these two are quoted: at night the
+  displayed edge is the bloom's (a disc 1.16-1.31 of the globe in both builds), at noon the sunlit top
+  and the shaded underside sit either side of the sky's level so a row reader finds the terminator, and
+  in front of a facade or a palm it reads the surround — it puts the shipped corridor sphere 2.6 px out
+  of round. That reader is a scratch script, not a gate, for those reasons. The radial frame reader the
+  gate uses refuses every one of these district frames (over half its rays leave the globe onto a
+  bracket, a frond or a facade) and is quoted only on the page.
+- **The noon shadow**, the head mesh casting against not, nothing else moved:
+
+      fivepoints #831 inner at 17.0 m   259 px, 48 x 8, peak 0.60, mean 0.19  ->  357 px, 52 x 10, 0.81, 0.26
+      fivepoints #831 outer at 20.1 m    91 px, 36 x 4,       0.40,      0.16  ->  151 px, 41 x 7,  0.55, 0.21
+      corridor   #283 outer at 19.6 m   113 px, 31 x 5,       0.72,      0.21  ->  137 px, 38 x 5,  0.82, 0.29
+
+  bigger and darker, as the page's x0.674 -> x1.001 of a sphere's area says it must be. (The run's
+  frame-to-frame drift is a max over single texels — 271.6 and 1,896, sun glints — with 128 and 149
+  non-finite texels left out; the pieces quoted sit 0.4-4.6 px from where the sun's ray puts each globe.)
+
+The reviewer's globe is 34.7 degrees off the lens axis, so its outline on the screen is an ellipse 1.22
+times longer toward the image centre than across. That is a pinhole camera's projection of a sphere — the
+facets had it too (15.5 x 18.9 px), and the 96x64 reference draws the identical ellipse — and a reviewer
+may read it as an egg. Every roundness figure above is in the angular frame for exactly that reason.
+
+**Gates.** `globe-round` (13 checks, the page; on both lists) and `globe-round --selftest` (14 instrument
+checks on synthetic frames, including the screen-space known-bad and a bracket-and-facade frame read only
+off the rays that leave onto the sky, and 14 on recorded reports). KNOWN-BAD, live on the page every run:
+the 20 facets depart from round by over half a pixel at every camera and by over 3 px at the reviewer's,
+their shadow is outside x0.95-x1.05 of a sphere's, a card's own depth is over 10 cm off the sphere's front,
+and their noon shading is over 10% off. At a1eb6a3 the offline list ran 46 of 46 green and the rest of
+CLAUDE.md's list 18 of 18 (`mutation-sweep --selftest` 19 checks); at 1e0aa20, which changed only the
+district mode, `globe-round --selftest` read 28 of 28 again and `boot-check` read
+`BOOT: PASS — 118 checks in 1040 s` on its own port, with the price on the live page: `lamp:head` 4,912
+triangles (4 a lamp at 1,228), the lamp pool 44,208 where #137 measured 88,416, and the globe drawn at
+131.5638 nits against 2,973.3 physical, level 1/22.6 drawn and declared.
+
+**Wrong on the way, in order.**
+
+- The first frame reader read the reviewer's globe at "0.53" in the district: along a ray that leaves the
+  globe onto its own bracket, the crossing is the bracket's far edge. A ray is now read only where it
+  leaves straight onto the background, and the selftest carries a synthetic bracket-and-facade frame that
+  reads 0.3565 the naive way and 0.0468 this way.
+- A per-ray local level, written to rescue the district's dusk and noon frames, failed that same synthetic
+  frame at 0.1727 against its 0.06 bound. Reverted rather than the bound moved, so the radial reader is
+  quoted on the page only.
+- The page's first night frame read included the black bracket across the globe's foot; the frame pass
+  hides the pole and bracket now and prints the bracketed read beside it.
+- A top-down camera on a layer of its own, to photograph the noon shadow, would have stopped every caster:
+  three's shadow pass tests a caster's layers against the RENDERING camera's. The camera sits 3 m up,
+  under the globes, on the default layer.
+- Held at 1/30, which is what holding the integrated output means, `globe-level` failed THE FIX at x1.027
+  and its minimum-level check. That failure is the measurement the luminance decision above rests on.
+- `globe-level`'s selftest known-bad "a typed sphere area" stopped failing the moment the buffer WAS the
+  sphere; it is turned round to the facets' typed 0.1480.
+- The district mode read #140's cards as globes of radius 0 m — it found a globe by its vertices' poles,
+  and every corner of a card sits at the centre. Caught by reading the code before the AFTER run, not by
+  the run (1e0aa20).
+- The first district run's shadow drift printed NaN (a few non-finite texels in the scene target); they
+  are counted and left out (a1eb6a3).
+- My offline runner captured each gate through a pipe and cut `mission-test`'s log 44 lines short of its
+  verdict, at rc 0. Run to a file: `MISSION: PASS — 194 checks`.
+- To read `mutation-sweep`'s table I ran `node -e "import('./tools/mutation-sweep.mjs')"` — which is the
+  CLI with no arguments, a FULL sweep, in the background, while `boot-check` was running from the same
+  tree. Stopped after about two and a half minutes; it left its first row's mutation in the tree
+  (`src/traffic.js`, `_playerGap`'s reach to 0) and its lock. With no owner alive, the diff read and then
+  restored, the lock removed. `boot-check`'s page had loaded its modules at 20:08 and the mutation landed
+  at 20:10:44, and boot-check reads no source on the node side, so its PASS stands. CLAUDE.md's "a tool
+  that runs its report on IMPORT cannot be built on" was the warning; importing a tool to read its table
+  is the same act from the other side.
+
+**Not measured.** The shadow bill's multiplier on the shipped build: the gate units above assume the
+street lamps bucket's x2.00 from `shadow-bill`'s last run, and the cards still submit every instance to
+the sun's map (an instanced caster, never culled), but no `shadow-bill` was run on this tree. The
+icosphere and "out of the sun map" only on the page, not in the district. The impostor's aliased edge only
+on the page (0.86 px against the reference's 0.45). The displayed frame's outline at noon, at night and in
+front of a facade or a palm, for the reasons given above, and the radial reader on any district frame. And
+#142's question, which this does not touch: the globe draws the nits it drew, so at dusk it still exposes
+to about 0.07.
+
+#### #140 (as filed)
 ### #140 OPEN — the lamp globes are icosahedra, and a near one reads as a hexagon
 From the same review. At fivepoints dusk the near-left globe at (134,183)-(163,212), 29 px across,
 holds its left edge at x 134-135 for 20 rows and its right at x 163 for 15. A globe is 20 triangles,
