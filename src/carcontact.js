@@ -10,12 +10,16 @@
 //
 //                              HDR scene target, before AO       composited, AO and tone curve in
 //                              without      with                 without      with
-//     the red car, 26.9 m       0.773       0.323                 0.112       0.039
-//     a parked coupe, 22.3 m    0.826       0.389                 0.125       0.099
+//     the red car, 26.9 m       0.773       0.326                 0.045       0.037
+//     a parked coupe, 22.3 m    0.836       0.394                 0.101       0.091
 //
-// and 0.14% of the frame changes by more than 4/255, every pixel of it under a car. The moon is the
-// sun's light at night and #141's bias already shadows it there; it is under a tenth of the light on
-// these roads, which is why taking the old bias back moves the red car's 0.323 to 0.328 and no more.
+// and 0.12% of the frame changes by more than 4/255, every pixel of it in the rows the cars stand in.
+// (First measured on #138's aoThickness 0.6, which a blind review refused: the composited pairs read
+// 0.112 -> 0.039 and 0.125 -> 0.099 there, 0.14% of the frame. On main's AO, which already darkens most
+// of the gap under a car, the footprint moves the red car's road 18% as composited and not 65%; the
+// HDR pairs are before the AO and did not move.) The moon is the sun's light at night and #141's bias
+// already shadows it there; it is under a tenth of the light on these roads, which is why taking the
+// old bias back moves the red car's 0.326 to 0.330 and no more.
 //
 // A shadow map per lamp is six renders a lamp, so the honest cheap thing is the occluder the lamps
 // cannot see: a footprint under each car that MULTIPLIES what is under the body, because under the

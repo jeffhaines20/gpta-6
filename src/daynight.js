@@ -1013,7 +1013,11 @@ export class TimeOfDay {
     //
     //     shipped 0.995   reference 0.000   bias 0: 0.001
     //     road under the car over the road round it, HDR    0.811 -> 0.139 (ref 0.139)
-    //     ... and as composited, AO and tone curve in        0.214 -> 0.029
+    //     ... and as composited, AO and tone curve in        0.080 -> 0.017 (ref 0.017)
+    //
+    // (The composited pair read 0.214 -> 0.029 when this was first measured on #138's
+    // aoThickness 0.6, which a blind review refused; the HDR pair is before the AO and
+    // did not move.)
     //
     // ONE TERM AT A TIME, errors = pixels the reference has lit that an arm
     // darkens past half (acne) plus pixels it has dark that an arm lights past
@@ -1061,6 +1065,12 @@ export class TimeOfDay {
     // no offset at all. tools/shadow-floor.mjs gates both sides of that trade
     // offline, and at night src/carcontact.js does what no sun bias can: the
     // lamps cast no shadow at all.
+    //
+    // The trade above is sized for CLOSED casters, whose back face is a body's
+    // thickness behind the lit one. The shop signage is double SHEETS, an
+    // awning's top over its own underside, and at this bias they stripe at noon:
+    // they cast with their own depth push instead (src/sheetshadow.js, #141
+    // round 2), which reads SUN_SHADOW for the map and this normalBias.
     this.sun.shadow.bias = SUN_SHADOW.bias;
     this.sun.shadow.normalBias = SUN_SHADOW.normalBias;
     scene.add(this.sun, this.sun.target);

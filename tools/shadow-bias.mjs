@@ -101,6 +101,10 @@ export function parseArm(name, elevation) {
   // its normal moves its edge.
   m = /^([rckl])([st])([0-9.]+)$/.exec(name);
   if (m) return { name, kind: 'sheet', mode: m[1], who: m[2], x: Number(m[3]) };
+  // `q`: on a page that casts the family with src/sheetshadow.js's material, the cosine its push stops
+  // growing at (SHEET_COS), so the clamp can be swept one term at a time like K.
+  m = /^q([st])([0-9.]+)$/.exec(name);
+  if (m) return { name, kind: 'sheet', mode: 'q', who: m[1], x: Number(m[2]) };
   // `a+b`: levers together, each parsed as itself (a bias part and sheet parts, or two sheet parts).
   if (name.includes('+')) return { name, kind: 'combo', parts: name.split('+').map((p) => parseArm(p, elevation)) };
   m = /^e([0-9.]+)n([0-9.]+)$/.exec(name);
@@ -391,9 +395,10 @@ function selftest() {
     say('KNOWN-BAD: an empty mask reads null, not "no stripes"', stripeEnergy(st, W, H, box, new Uint8Array(W * H)) === null);
     say('and the stringified statistic takes the mask the same way', Math.abs(inj2(lettered, W, H, box, mask).std - mL.std) < 1e-12);
   }
-  for (const [nm, want] of [['rs0.1', ['r', 's', 0.1]], ['ct0.06', ['c', 't', 0.06]], ['ks2', ['k', 's', 2]], ['lt1.5', ['l', 't', 1.5]]]) {
+  for (const [nm, want] of [['rs0.1', ['r', 's', 0.1]], ['ct0.06', ['c', 't', 0.06]], ['ks2', ['k', 's', 2]], ['lt1.5', ['l', 't', 1.5]],
+    ['qs0.15', ['q', 's', 0.15]]]) {
     const q = parseArm(nm, 1);
-    const side = { r: 'receiver', c: 'caster', k: 'slope-scaled receiver', l: 'slope-scaled caster' }[want[0]];
+    const side = { r: 'receiver', c: 'caster', k: 'slope-scaled receiver', l: 'slope-scaled caster', q: 'clamp' }[want[0]];
     say(`${nm} parses as a ${side} lever on the ${want[1] === 's' ? 'signage' : 'trim'}`,
       q.kind === 'sheet' && q.mode === want[0] && q.who === want[1] && q.x === want[2]);
   }
@@ -735,7 +740,7 @@ async function measureInPage(args) {
   if (!window.__sheetLever) {
     const u0 = () => ({ s: { value: 0 }, t: { value: 0 } });
     const lev = { r: u0(), c: u0(), k: u0(), l: u0(), texel: { value: 0 }, nb: { value: 0 }, mats: { s: 0, t: 0 }, meshes: { s: 0, t: 0 },
-      shipped: { s: null, t: null }, shippedK: { s: null, t: null } };
+      shipped: { s: null, t: null }, shippedK: { s: null, t: null }, shippedCos: { s: null, t: null } };
     const SEAM = 'directionalLightShadows[ i ].shadowNormalBias';
     const chunk = THREE.ShaderChunk.shadowmap_vertex;
     if (!chunk.includes(SEAM)) throw new Error('shadowmap_vertex has no shadowNormalBias seam: the receiver lever would measure nothing');
@@ -778,7 +783,10 @@ async function measureInPage(args) {
       // to be the shipped program, not this file's transcription of it. Its K is what an `l` arm on that
       // family sets (`ls0` is round 1's map on the same page), and a `c` arm on it is refused below.
       const shipped = m.customDepthMaterial && m.customDepthMaterial.userData && m.customDepthMaterial.userData.sheet;
-      if (m.castShadow && shipped) { lev.shipped[who] = shipped.uniforms; lev.shippedK[who] = shipped.uniforms.uSheetK.value; lev.meshes[who]++; }
+      if (m.castShadow && shipped) {
+        lev.shipped[who] = shipped.uniforms; lev.shippedK[who] = shipped.uniforms.uSheetK.value;
+        lev.shippedCos[who] = shipped.uniforms.uSheetCos.value; lev.meshes[who]++;
+      }
       else if (m.castShadow) { m.customDepthMaterial = depthMats[who]; lev.meshes[who]++; }
       if (!m.receiveShadow) return;
       for (const mat of (Array.isArray(m.material) ? m.material : [m.material])) {
@@ -842,15 +850,39 @@ async function measureInPage(args) {
     sun.target.updateMatrixWorld(); sun.updateMatrixWorld();
     if (D.carContact) D.carContact.mesh.visible = keep.contact;
     for (const who of ['s', 't']) for (const md of ['r', 'c', 'k', 'l']) lever[md][who].value = 0;
-    for (const who of ['s', 't']) if (lever.shipped[who]) lever.shipped[who].uSheetK.value = lever.shippedK[who];
+    for (const who of ['s', 't']) {
+      const sh = lever.shipped[who];
+      if (!sh) continue;
+      sh.uSheetK.value = lever.shippedK[who];
+      sh.uSheetCos.value = lever.shippedCos[who];
+      sh.uSheetMap.value = keep.mapSize;
+      sh.uSheetNB.value = keep.normalBias;
+    }
     // The slope-scaled levers are in texels of the SHIPPED map; no arm moves the map and a sheet lever
     // together, since the references never carry one.
     lever.texel.value = (keep.box[1] - keep.box[0]) / keep.mapSize;
     lever.nb.value = keep.normalBias;
   };
+  // THE REFERENCES CARRY THE SHIPPED SHEET RULE AT THEIR OWN MAP. A reference with no push has sheet
+  // acne of its own — its 0.01 m bias and 0.02 normalBias are under its own kernel's reach on a grazing
+  // valance — which flatters every arm measured against it (the same arms read 4-6 points cleaner
+  // against it than against a pushed reference). So under ref and ref2 the page's own sheet material
+  // reads the reference's map size and normalBias: the same rule, six and twelve times finer.
+  const refSheets = () => {
+    for (const who of ['s', 't']) {
+      const sh = lever.shipped[who];
+      if (!sh) continue;
+      sh.uSheetMap.value = sun.shadow.mapSize.x;
+      sh.uSheetNB.value = sun.shadow.normalBias;
+    }
+  };
   const setSheet = (p) => {
     const sh = lever.shipped[p.who];
     if (sh && p.mode === 'l') { sh.uSheetK.value = p.x; return; }
+    if (p.mode === 'q') {
+      if (!sh) throw new Error(`arm ${p.name}: the page does not cast that family with the shipped sheet depth`);
+      sh.uSheetCos.value = p.x; return;
+    }
     if (sh && p.mode === 'c') throw new Error(`arm ${p.name}: the page casts that family with the shipped sheet depth, which has no normal offset`);
     lever[p.mode][p.who].value = p.x;
   };
@@ -862,8 +894,8 @@ async function measureInPage(args) {
     // with the lamps' shadow taken away. It multiplies L, L_noSun and L_noShadow alike, so the
     // shadow factor f cannot see it and the luma ratios are what this arm is for.
     else if (spec.kind === 'noContact') { if (D.carContact) D.carContact.mesh.visible = false; }
-    else if (spec.kind === 'ref') { setMap(4096, refHalf, F); sun.shadow.bias = -0.01 / span; sun.shadow.normalBias = 0.02; }
-    else if (spec.kind === 'ref2') { setMap(4096, refHalf / 2, F); sun.shadow.bias = -0.005 / span; sun.shadow.normalBias = 0.01; }
+    else if (spec.kind === 'ref') { setMap(4096, refHalf, F); sun.shadow.bias = -0.01 / span; sun.shadow.normalBias = 0.02; refSheets(); }
+    else if (spec.kind === 'ref2') { setMap(4096, refHalf / 2, F); sun.shadow.bias = -0.005 / span; sun.shadow.normalBias = 0.01; refSheets(); }
     else if (spec.kind === 'bias') { sun.shadow.bias = -spec.b / span; sun.shadow.normalBias = spec.nb; }
     else if (spec.kind === 'sheet') setSheet(spec);
     else if (spec.kind === 'combo') {

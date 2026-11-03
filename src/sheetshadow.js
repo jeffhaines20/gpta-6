@@ -13,49 +13,51 @@
 //     vanishes there
 //
 // where the depth of a plane tilted theta from the sun has moved by that many texels times tan(theta).
-// normalBias stands nb / cos(theta) of it. tools/shadow-floor.mjs runs those taps and finds that a twin
-// under 1.52 texels of slope behind its sheet costs it over 0.15 of the sun at some phase (a third at 1
-// texel, 0.04 at 2), and at bias 0 / nb 0.06 that is every sheet tilted more than 19.7 degrees from the
-// sun: the reviewer's 4 px diagonal stripes on sun-facing awning tops and valances at noon (#141's
-// blind review: stripe energy x2.66 and x3.11 in their boxes, valances 4-13% darker). Measured with
-// tools/shadow-bias.mjs at fivepoints noon against a 4096-texel map over +-40 m: of the shop signage the
-// reference has lit, 80.3% loses over 0.15 of its sun at bias 0, against 10.1% under the old 0.54 m
-// constant — and 10.1% is the old constant's floor, the 2048 map's softer edges, not acne.
+// normalBias stands nb / cos(theta) of it. tools/shadow-floor.mjs runs those taps: a twin under 1.52
+// texels of slope behind its sheet costs it over 0.15 of the sun at some phase (a third at 1 texel,
+// 0.16 at 1.5, 0.04 at 2, 0.006 at 2.5, nothing past 2.83), and at bias 0 / nb 0.06 that is every sheet
+// tilted more than 19.7 degrees from the sun: the reviewer's 4 px diagonal stripes on sun-facing awning
+// tops and valances at noon (#141's blind review: stripe energy x2.66 and x3.11 in their boxes,
+// valances 4-13% darker).
 //
-// THE LEVER IS THE TWIN'S DEPTH, ALONG THE SUN'S RAY, AND ONLY ON THE SIGNAGE. One term at a time, at
-// that camera, each family's own pixels, against the reference (partial acne: lit there and losing over
-// 0.15 of the sun here; leak: dark there and over half lit here; stripes: the reviewer's statistic on
-// Marrow & Vine's fabric where it is flat in the unshadowed frame, over the BEFORE build's). Two page
-// loads, the receiver and normal rows in one and the rest in the other; the rows both carry agree to a
-// pixel:
+// THE LEVER IS THE TWIN'S DEPTH, ALONG THE SUN'S RAY, AND ONLY ON THE SIGNAGE. tools/shadow-bias.mjs at
+// noon, one page load a camera, each arm one term, against a 4096-texel map over +-40 m that carries this
+// same rule at its own texel and offsets (a reference with no push has sheet acne of its own, and read
+// every arm 4-6 points clean). Acne: of the shop signage the reference has lit, the share losing over
+// 0.15 of its sun; leak: dark there and over half lit here; stripes: the reviewer's statistic on the
+// fabric that is flat in the unshadowed frame, over the BEFORE build's. Fivepoints:
 //
-//     arm                                  signage acne   signage leak   facade leak   ground leak   stripes
-//     bias 0 / nb 0.06, round 1               80.3%           147            121            644        x2.93
-//     the old constant, 0.54 m                10.1%           168          1,127          3,260        x1.00
-//     receiver: + 0.12 m normal offset         2.2%           830            122            645        x1.08
-//     receiver: slope-scaled, 2 texels         2.0%         1,134            122            645        x0.93
-//     caster: twin moved 0.12 m on its normal 10.2%           153            121          1,751        x1.09
-//     caster: twin pushed along the RAY        10.3%           151            122            644        x1.00   <- this
+//     arm                                 signage acne   signage leak   furniture leak   stripes (M&V)
+//     bias 0 / nb 0.06, round 1              90.6%           147             157            x2.94
+//     the old constant, 0.54 m               14.0%           168             566            x1.00
+//     receiver: + 0.12 m normal offset        3.1%           830             157            x1.08
+//     receiver: slope-scaled, 2 texels        2.7%         1,134             157            x0.93
+//     caster: pushed along the RAY, 2        16.0%           151             157            x1.00
+//     caster: pushed along the RAY, 2.5      14.3%           151             158            x1.00   <- SHIPPED
+//
+// and at the corridor (Tinsmith's stripes x2.32 in round 1, x1.00 from 1.5 texels up), the acne goes
+// 67.0% round 1, 19.7% at 1.5 texels, 11.1% at 2, 5.3% at 2.5 and 3, against the old constant's 5.3%,
+// for 41 px of furniture leak: a 4 px strip beside one street-sign post at the frame's edge.
 //
 // Every RECEIVER lever peter-pans whatever the signage receives: a shadow falling on an awning from its
 // neighbour or from the building lets go near its caster, 6-8x the leak. Moving the twin along its own
-// NORMAL moves its EDGE, so the awning's shadow on the pavement shrank by the offset (ground leak x2.7).
-// Pushing it along the sun's ray leaves its (u, v) in the map exactly where it was — the silhouette, so
-// every shadow the sign casts keeps its shape — and changes only the depth a receiver is compared with.
-// It reaches the old constant's floor on the signage and costs nothing anywhere else.
+// NORMAL (0.12 m, measured against an unpushed reference: 10.2% acne) moves its EDGE, and the awning's
+// shadow on the pavement shrank by the offset — ground leak 645 -> 1,751. Pushing it along the sun's ray
+// leaves its (u, v) in the map exactly where it was — the silhouette, so every shadow the sign casts
+// keeps its shape — and changes only the depth a receiver is compared with.
 //
 // HOW FAR, AND WHERE IT STOPS. The push is SHEET_TEXELS of slope, less what normalBias already stands:
 //
 //     max(0, SHEET_TEXELS * texel * tan(theta) - nb / cos(theta))        metres along the sun's ray
 //
-// 2 texels, the kernel's reach along an axis, over the 1.52 the gate derives for the census's 0.15 line.
-// It is ZERO for a face within 14.8 degrees of the light: the underside of a fascia or a parapet cap at
-// noon is not moved at all, so the shadow attached into the gap under it — what the same reviewer
-// preferred in #141's build — stays attached. theta is clamped where the sun lights a quarter of its beam
-// (SHEET_COS, tools/shadow-floor.mjs's ACNE_COS), because past that a sheet's acne cannot be seen and the
-// tangent would only grow: 0.67 m at most. Measured one value at a time at fivepoints noon: 1 texel ->
-// 13.2% of the lit signage, 1.5 -> 11.9%, 2 -> 10.3%, against the 10.1% floor; the reviewer's boxes read
-// the BEFORE build's stripe energy exactly from 1 up.
+// 2.5 texels, measured: the smallest push at which the lit signage reaches the old constant's level at
+// both cameras, 3 adding nothing; past the 1.52 the gate derives for the census's 0.15 line, and where
+// the kernel's worst loss is 0.006. It is ZERO for a face within 11.8 degrees of the light, and a
+// horizontal underside at noon (14.4 degrees) moves 1.3 cm: the shadow attached into the gap under a
+// fascia or a parapet cap — what the same reviewer preferred in #141's build — stays attached. theta is
+// clamped where the sun lights a quarter of its beam (SHEET_COS, tools/shadow-floor.mjs's ACNE_COS),
+// because past that a sheet's acne cannot be seen and the tangent would only grow: 0.89 m at most.
+// Clamping at 0.15 or 0.1 instead moves nothing at either camera (measured at 2 texels).
 //
 // NOT THE FACADE TRIM. Its awning kit is the same double sheet and is not built on the shipped path
 // (src/facades.js builds it only for a caller that passes `awnings: true`, which no shipped caller does),
@@ -70,8 +72,8 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { SUN_SHADOW } from './daynight.js';
 
-/** Texels of depth slope a lit sheet stands in front of its twin: the PCF_SOFT kernel's reach along an axis. */
-export const SHEET_TEXELS = 2;
+/** Texels of depth slope a lit sheet stands in front of its twin: measured, see the header. */
+export const SHEET_TEXELS = 2.5;
 /** The angle the push stops growing at: where the sun lights a quarter of its beam. */
 export const SHEET_COS = 0.25;
 

@@ -3029,21 +3029,21 @@ const MUTATIONS = [
   // against the reach of three's own PCF taps, over every twin the district's signage carries.
   {
     id: 'sheet-push-off', file: 'src/sheetshadow.js',
-    find: 'export const SHEET_TEXELS = 2;',
+    find: 'export const SHEET_TEXELS = 2.5;',
     to: 'export const SHEET_TEXELS = 0;',
-    why: 'round 1\'s map: every sun-facing awning top and valance striped at noon, 80% of the lit signage losing over 0.15 of its sun',
+    why: 'round 1\'s map: every sun-facing awning top and valance striped at noon, 90.6% of the lit signage losing over 0.15 of its sun',
   },
   {
     id: 'sheet-push-one', file: 'src/sheetshadow.js',
-    find: 'export const SHEET_TEXELS = 2;',
+    find: 'export const SHEET_TEXELS = 2.5;',
     to: 'export const SHEET_TEXELS = 1;',
-    why: 'a push of one texel: the reviewer\'s three boxes read clean and the district does not, 13.2% of the lit signage against a 10.1% floor',
+    why: 'a push of one texel, under the kernel\'s 1.52: the twin costs a lit sheet a third of its sun at the worst phase',
   },
   {
     id: 'sheet-push-no-credit', file: 'src/sheetshadow.js',
     find: "export const SHEET_PUSH_EXPR = 'max( 0.0, K * texel * sqrt( 1.0 - c * c ) / c - nb / c )';",
     to: "export const SHEET_PUSH_EXPR = 'max( 0.0, K * texel * sqrt( 1.0 - c * c ) / c )';",
-    why: 'the push ignores what normalBias already stands: a fascia\'s underside at noon is moved, and the shadow attached under it lets go',
+    why: 'the push ignores what normalBias already stands: every face moves, a fascia\'s underside at noon 7.5 cm against 1.3, and the shadow attached under it lets go',
   },
   {
     id: 'sheet-cos-open', file: 'src/sheetshadow.js',

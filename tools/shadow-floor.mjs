@@ -66,9 +66,9 @@
 //   reach     the twin's depth is clear of three's PCF_SOFT kernel: the reach is DERIVED here from the
 //             vendored kernel's own taps (SHEET_PARTIAL), and every lit sheet at every preset stands
 //             that far in front of its pushed twin. Round 1's setting fails it at noon — the KNOWN-BAD
-//   cost      the push is zero where normalBias already covers the slope (a fascia's or a parapet cap's
-//             underside at noon is not moved, so the contact under it stays attached) and stops growing
-//             past ACNE_COS, where acne cannot be seen
+//   cost      the push is zero where normalBias alone stands its slope (within 11.8 degrees of the sun;
+//             a horizontal underside at noon, 14.4 degrees, moves 1.3 cm, so the contact under a fascia
+//             or a parapet cap stays attached) and stops growing past ACNE_COS, where acne cannot be seen
 //   material  the depth material carries it: its seam is found and its uniforms are the module's
 //             constants and the sun's own map and normalBias
 import * as THREE from '../vendor/three.module.min.js';
@@ -575,7 +575,7 @@ export function verdict(m) {
       SP.every(([, q]) => (q.worst === null || q.worst >= -1e-9) && q.any >= -1e-9),
     `K ${S.K}; ` + SP.map(([k, q]) => `${k} ${q.lit} lit, worst ${fmt(q.worst)} m${q.worstDeg === null ? '' : ` at ${q.worstDeg.toFixed(1)} deg`}, any angle ${fmt(q.any)} m at ${q.anyDeg.toFixed(1)}`).join('; '));
   const sh = S.shape ?? {};
-  add(`SHEETS: the push is zero where normalBias already covers the reach (within ${fmt(sh.coveredDeg)} deg of the sun) and stops growing past ${ACNE_COS * 100}% of the beam`,
+  add(`SHEETS: the push is zero where normalBias alone stands its K texels of slope (within ${fmt(sh.coveredDeg)} deg of the sun) and stops growing past ${ACNE_COS * 100}% of the beam`,
     sh.worstCovered === 0 && Number.isFinite(sh.maxPush) && sh.atAcne > 0 && sh.maxPush <= sh.atAcne + 1e-12,
     `inside ${fmt(sh.coveredDeg)} deg it moves a twin ${fmt(sh.worstCovered)} m; at most ${fmt(sh.maxPush)} m, ${fmt(sh.atAcne)} m at ACNE_COS`);
   const mt = S.material ?? {}, lt = S.light ?? {};
@@ -667,12 +667,12 @@ if (IS_MAIN && argv.includes('--selftest')) {
   // KNOWN-BAD 10: ROUND 1's SETTING, bias 0 / normalBias 0.06 with no push: the reviewer's stripes.
   r = failsSheet(sheetRun(() => 0), 'reach');
   say(r.hit, 'KNOWN-BAD: round 1\'s map, no push, leaves the awnings\' twins inside the kernel at noon', r.failing.join(' | '));
-  // KNOWN-BAD 11: a push of one texel: the reviewer's boxes read clean from 1 up, and the census does not.
+  // KNOWN-BAD 11: a push of one texel, under the kernel's 1.52-texel reach.
   r = failsSheet(sheetRun((c, t, nb) => sheetDepthOffset(c, t, nb, 1)), 'reach');
-  say(r.hit, 'KNOWN-BAD: a push of 1 texel fails the reach (13.2% of the lit signage against a 10.1% floor)', r.failing.join(' | '));
+  say(r.hit, 'KNOWN-BAD: a push of 1 texel fails the reach (the reviewer\'s boxes read clean from 1.5 up; the kernel loses a third of the sun at 1)', r.failing.join(' | '));
   // KNOWN-BAD 12: no normalBias credit moves the faces normalBias covers: the contact under a fascia.
   r = failsSheet(sheetRun((c, t) => sheetDepthOffset(c, t, 0)), 'push is zero');
-  say(r.hit, 'KNOWN-BAD: a push that does not credit normalBias moves a fascia\'s underside at noon', r.failing.join(' | '));
+  say(r.hit, 'KNOWN-BAD: a push that does not credit normalBias moves every face, a fascia\'s underside at noon 7.5 cm against 1.3', r.failing.join(' | '));
   // KNOWN-BAD 13: no clamp: an edge-on twin pushed 4.7 m along the ray.
   r = failsSheet(sheetRun((c, t, nb) => sheetDepthOffset(c, t, nb, SHEET_TEXELS, 0.05)), 'stops growing');
   say(r.hit, 'KNOWN-BAD: a push with no clamp keeps growing past the visible range', r.failing.join(' | '));
