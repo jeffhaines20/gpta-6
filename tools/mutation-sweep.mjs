@@ -222,6 +222,13 @@ const OFFLINE = [
   // Milliseconds: the arithmetic globe-level, globe-order and boot-check's globe arm share
   // (tools/globe-math.mjs) — the area off a buffer, the flux identity, a footprint.
   'globe-order --selftest',
+  // #140's page, 29 s on an idle box: two of the district's own lamps through the hero cameras that saw
+  // them, the globe's outline off a magnified mask, its depth, its shading under each hour and its noon
+  // shadow, against the 20 facets it replaced and a 96x64 sphere. The globe is drawn by a shader patch on
+  // a degenerate buffer, and nothing else on this list renders it as anything but its light (globe-level)
+  // or reads where its depth, its outline or its shadow are. The selftest is the instrument and the verdict.
+  'globe-round',
+  'globe-round --selftest',
   // 22-33 s on a loaded box, as dear as globe-level above, and priced before it was added this time: about
   // an hour over the table. #125's wheel arch: every car pool's buffers through its own module (half a
   // second), then one fleet car and the player's through the real noon light. Nothing else on this
@@ -3377,22 +3384,27 @@ const MUTATIONS = [
   // ---- #136: the street lamp's globe against its own light. globe-level measures the ordering and the
   //      halo on its page; boot-check owns the one wire district/main.js holds.
   {
+    // RESTATED BY #140: the level is a fraction of a SPHERE's physical luminance now (2,973.3 nits, where
+    // the facets' was 3,944.7), so the old 1.762 nits is 5.9266e-4 of it; 4.4673e-4 was that luminance
+    // at the facets' area.
     id: 'globe-level-old', file: 'src/streetfurniture.js',
-    find: 'export const LAMP_GLOBE_LEVEL = 1 / 30;',
-    to: 'export const LAMP_GLOBE_LEVEL = 4.4673e-4;',
-    why: '#136 back: the globe at 1.76 nits, 1/2,239 of its light, outshone by the facade\'s lobe x57.75 and by its own twin',
+    find: 'export const LAMP_GLOBE_LEVEL = 1 / 22.6;',
+    to: 'export const LAMP_GLOBE_LEVEL = 5.9266e-4;',
+    why: '#136 back: the globe at 1.76 nits, 1/1,687 of its light, outshone by the facade\'s lobe x57.75 and by its own twin',
   },
   {
     id: 'globe-level-physical', file: 'src/streetfurniture.js',
-    find: 'export const LAMP_GLOBE_LEVEL = 1 / 30;',
+    find: 'export const LAMP_GLOBE_LEVEL = 1 / 22.6;',
     to: 'export const LAMP_GLOBE_LEVEL = 1;',
-    why: 'every globe at the luminance that radiates its light\'s flux: ordered, and a white disc 6.5 of its own radius at 58 m',
+    why: 'every globe at the luminance that radiates its light\'s flux: ordered, and a white disc 5.6 of its own radius at 58 m',
   },
   {
+    // RESTATED BY #140: the buffer is cards carrying a radius, so the area the shipped build reads is
+    // pi r^2 off them, and the 20 facets' S / 4 is now the TYPED number a regression would reach for.
     id: 'globe-area-typed', file: 'src/streetfurniture.js',
-    find: '  return S / 4;',
-    to: '  return Math.PI * 0.25 * 0.25;',
-    why: 'the globe\'s area typed off the SphereGeometry call rather than read off its 20 facets: 33% too big, so the globe draws 25% too dim',
+    find: '    return Math.PI * r * r;',
+    to: '    return 0.1480;',
+    why: 'the facets\' area typed where the sphere\'s is read off the cards: 25% too small, so the globe draws x1.33 too bright',
   },
   {
     id: 'globe-light-uncoloured', file: 'src/streetfurniture.js',
@@ -3404,7 +3416,51 @@ const MUTATIONS = [
     id: 'globe-setlit-literal', file: 'src/streetfurniture.js',
     find: '    this.headMat.emissiveIntensity = on ? this.globeIntensity() : 0;',
     to: '    this.headMat.emissiveIntensity = on ? 2.4 : 0;',
-    why: 'the old literal back in setLit alone: the module still DECLARES 1/30 and the page draws 1/2,239 at every hour change',
+    why: 'the old literal back in setLit alone: the module still DECLARES 1/22.6 and the page draws 1/1,687 at every hour change',
+  },
+  // ---- #140: the globe is a ray-cast sphere on a camera-facing card. globe-round reads its outline, its
+  //      depth, its shading and its shadow; globe-level its luminance off the same buffer.
+  {
+    id: 'globe-unpatched', file: 'src/streetfurniture.js',
+    find: '    this.headMat = patchGlobeImpostor(new THREE.MeshStandardMaterial({',
+    to: '    this.headMat = (new THREE.MeshStandardMaterial({',
+    why: 'the patch dropped: the head buffer\'s degenerate cards draw as nothing, and every globe in the district is gone',
+  },
+  {
+    id: 'globe-no-discard', file: 'src/streetfurniture.js',
+    find: '\tif ( globeD2 > globeR2 ) discard;',
+    to: '\tif ( globeD2 > globeR2 ) globeD2 = globeR2;',
+    why: 'a card that never discards: every globe a square, 1 - 1/sqrt 2 out of round, and a square shadow',
+  },
+  {
+    id: 'globe-card-depth', file: 'src/streetfurniture.js',
+    find: '\tgl_FragDepth = globeDepth;',
+    to: '',
+    why: 'the card\'s own depth: a flat disc through the centre to the AO, the fog and the bracket, up to a radius behind the sphere\'s front',
+  },
+  {
+    id: 'globe-shadow-depthmat', file: 'src/streetfurniture.js',
+    find: '    this.heads.customDepthMaterial = globeDepthMaterial();',
+    to: '',
+    why: 'the sun draws the cards through three\'s own depth material, which draws a degenerate triangle as nothing: no globe casts',
+  },
+  {
+    id: 'globe-shadow-side', file: 'src/streetfurniture.js',
+    find: '    this.headMat.shadowSide = THREE.DoubleSide;',
+    to: '',
+    why: 'the sun\'s pass draws a FrontSide material\'s BACK faces, and a card turned to the sun has none to draw: no globe casts',
+  },
+  {
+    id: 'globe-normal-card', file: 'src/streetfurniture.js',
+    find: 'vec3 normal = globeNormal;',
+    to: 'vec3 normal = vec3( 0.0, 0.0, 1.0 );',
+    why: 'the card\'s own normal: every globe a flat disc under the sun, one colour edge to edge',
+  },
+  {
+    id: 'globe-radius-facets', file: 'src/streetfurniture.js',
+    find: '      card.set([cx, cy, g.r], v * 3);',
+    to: '      card.set([cx, cy, g.r * 0.88], v * 3);',
+    why: 'every globe drawn at 0.88 of its radius, the size the 20 facets read: round, consistent with its own area, and smaller than LAMP_GLOBES says',
   },
   {
     /**

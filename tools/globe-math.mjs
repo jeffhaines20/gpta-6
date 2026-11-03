@@ -45,6 +45,30 @@ export function triangleArea(pos, pick = null) {
 }
 
 /**
+ * #140: THE GLOBE A HEAD BUFFER DRAWS, for either kind of buffer — its mean projected area (S / 4), its
+ * centre, its radius and the triangles it costs. A triangle list is S / 4 of its kept triangles, by
+ * triangleArea. #140's cards are degenerate triangles that carry the globe's radius in a `lampGlobe`
+ * attribute (corner x, corner y, radius) with every corner AT the centre, and the shader draws exactly
+ * that sphere, so S / 4 is pi r^2 and the centre is the cards' own position. `pos` and `card` are the two
+ * attributes' arrays (itemSize 3); `pick(x, y, z)` keeps one globe of a merged pair, as triangleArea's
+ * does. Read off the buffer here rather than taken from the module, so a module that typed its area
+ * would disagree with this.
+ */
+export function globeArea(pos, card = null, pick = null) {
+  if (!card) {
+    const t = triangleArea(pos, pick);
+    return { meanArea: t.area / 4, centre: t.centre, radius: t.radius, triangles: t.triangles, kind: 'mesh' };
+  }
+  let r = 0, cx = 0, cy = 0, cz = 0, n = 0;
+  for (let i = 0; i + 2 < pos.length; i += 3) {
+    if (pick && !pick(pos[i], pos[i + 1], pos[i + 2])) continue;
+    r = Math.max(r, card[i + 2]); cx += pos[i]; cy += pos[i + 1]; cz += pos[i + 2]; n++;
+  }
+  if (!n) return { meanArea: 0, centre: null, radius: 0, triangles: 0, kind: 'sphere' };
+  return { meanArea: Math.PI * r * r, centre: [cx / n, cy / n, cz / n], radius: r, triangles: n / 3, kind: 'sphere' };
+}
+
+/**
  * The luminance a globe of mean projected area `meanArea` (m^2) must have to radiate the flux of a
  * point light of `candela` in colour `lightRGB` (linear). The light's luminous intensity is its
  * candela times its colour's luminance, because three multiplies the two.

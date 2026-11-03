@@ -40,10 +40,10 @@ import * as THREE from '../vendor/three.module.min.js';
 import { PostStack } from '../src/post.js';
 import { PRESETS } from '../src/daynight.js';
 import { LightPool } from '../src/lightpool.js';
-import { StreetFurniture, LAMP_CANDELA, LAMP_LIGHT_COLOR, LAMP_REACH, LAMP_GLOBE_LEVEL, LAMP_ARM, LAMP_HEAD_Y }
-  from '../src/streetfurniture.js';
+import { StreetFurniture, LAMP_CANDELA, LAMP_LIGHT_COLOR, LAMP_REACH, LAMP_GLOBE_LEVEL, LAMP_ARM, LAMP_HEAD_Y,
+  patchGlobeImpostor } from '../src/streetfurniture.js';
 import { halfToFloat } from './bloom-math.mjs';
-import { luma, triangleArea, physicalLuminance, radialProfile, footprint, footprintArea } from './globe-math.mjs';
+import { luma, globeArea, physicalLuminance, radialProfile, footprint, footprintArea } from './globe-math.mjs';
 
 const W = 1600, H = 900;
 const qs = new URLSearchParams(location.search);
@@ -130,9 +130,13 @@ try {
   ];
   const CAMS = ALL_CAMS.filter((c) => (qs.get('cams') ? qs.get('cams').split(',').includes(c.name) : c.name !== 'far100'));
 
-  const meanArea = triangleArea(fur.heads.geometry.attributes.position.array, (x) => x > 0);
+  // #140: the globe off the head buffer, whichever kind it is — facets (S / 4 of them) or the cards whose
+  // radius the shader draws a sphere of (pi r^2). Read here, not taken from the module.
+  const headG = fur.heads.geometry;
+  const cardsOf = () => (headG.attributes.lampGlobe ? headG.attributes.lampGlobe.array : null);
+  const meanArea = globeArea(headG.attributes.position.array, cardsOf(), (x) => x > 0);
   const lc = new THREE.Color(LAMP_LIGHT_COLOR);
-  const Lphys = physicalLuminance(LAMP_CANDELA, [lc.r, lc.g, lc.b], meanArea.area / 4);
+  const Lphys = physicalLuminance(LAMP_CANDELA, [lc.r, lc.g, lc.b], meanArea.meanArea);
   const lumE = luma(fur.headMat.emissive.r, fur.headMat.emissive.g, fur.headMat.emissive.b);
   const shipped = fur.globeReport();
   const levels = (qs.get('levels') ?? '').split(',').filter(Boolean).map(Number);
@@ -163,7 +167,7 @@ try {
   const names = [...new Set(ids.map(([, n]) => n))];
   const instance = new THREE.Matrix4().compose(new THREE.Vector3(0, 0, -LAMP_ARM),
     new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2), new THREE.Vector3(1, 1, 1));
-  const inner = triangleArea(fur.heads.geometry.attributes.position.array, (x) => x < 0);
+  const inner = globeArea(headG.attributes.position.array, cardsOf(), (x) => x < 0);
   const camState = (cam) => {
     camera.position.set(...cam.pos);
     camera.lookAt(...cam.at);
@@ -174,8 +178,11 @@ try {
     const saved = ids.map(([m]) => m.material);
     ids.forEach(([m, n]) => {
       const k = names.indexOf(n) + 1;
-      m.material = new THREE.MeshBasicMaterial({ color: new THREE.Color((k & 1) ? 1 : 0, (k & 2) ? 1 : 0, (k & 4) ? 1 : 0),
+      const flat = new THREE.MeshBasicMaterial({ color: new THREE.Color((k & 1) ? 1 : 0, (k & 2) ? 1 : 0, (k & 4) ? 1 : 0),
         side: THREE.DoubleSide });
+      // #140: the head buffer is cards the shader makes spheres of, and an unpatched material draws its
+      // degenerate triangles as nothing — so the ID pass draws the globe the way the module does.
+      m.material = m.geometry.attributes.lampGlobe ? patchGlobeImpostor(flat) : flat;
     });
     post.enabled = false;
     post.render();
@@ -197,7 +204,7 @@ try {
     const ndc = gc.clone().project(camera);
     const sx = (ndc.x + 1) / 2 * W, sy = (1 - ndc.y) / 2 * H;
     const depth = -gc.clone().applyMatrix4(camera.matrixWorldInverse).z;
-    const rpx = Math.sqrt(meanArea.area / 4 / Math.PI) * (H / 2) / (Math.tan(camera.fov * Math.PI / 360) * depth);
+    const rpx = Math.sqrt(meanArea.meanArea / Math.PI) * (H / 2) / (Math.tan(camera.fov * Math.PI / 360) * depth);
     const ic = new THREE.Vector3(...inner.centre).applyMatrix4(instance);
     const indc = ic.clone().project(camera);
     const isx = (indc.x + 1) / 2 * W, isy = (1 - indc.y) / 2 * H;
@@ -304,7 +311,7 @@ try {
   window.__globeLevel = {
     size: { w: W, h: H },
     module: { candela: LAMP_CANDELA, color: LAMP_LIGHT_COLOR, reach: LAMP_REACH, level: LAMP_GLOBE_LEVEL, shipped },
-    buffer: { area: meanArea.area, meanArea: meanArea.area / 4, triangles: meanArea.triangles, radius: meanArea.radius,
+    buffer: { meanArea: meanArea.meanArea, kind: meanArea.kind, triangles: meanArea.triangles, radius: meanArea.radius,
       centre: meanArea.centre },
     emitter: { x: head.x, y: head.y, z: head.z, candela: pool.emitters[0].candela, color: pool.emitters[0].color,
       distance: pool.emitters[0].distance },

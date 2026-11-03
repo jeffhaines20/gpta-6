@@ -33,7 +33,7 @@
 // comparison a viewer makes, since every globe is the same luminance.
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { luma, triangleArea, physicalLuminance, radialProfile, footprint, quantilesOf } from './globe-math.mjs';
+import { luma, triangleArea, globeArea, physicalLuminance, radialProfile, footprint, quantilesOf } from './globe-math.mjs';
 
 const IS_MAIN = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 const SELFTEST = IS_MAIN && process.argv.includes('--selftest');
@@ -98,12 +98,26 @@ if (SELFTEST) {
   const tooShort = footprint([5, 4, 3, 2], [1]);
   check('a profile that never falls under a level within its length reads Infinity, not a radius',
     tooShort[0] === Infinity, `${tooShort}`);
+  // #140: globeArea reads either kind of head buffer — the cards' radius, or the facets through triangleArea.
+  const cards = [], radii = [];
+  for (const [x, y, z, r] of [[2.2, 7.7, 0, 0.25], [-1, 7.66, 0, 0.22]]) {
+    for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, -1], [1, 1], [-1, 1]]) { cards.push(x, y, z); radii.push(u, v, r); }
+  }
+  const ca = globeArea(cards, radii, (x) => x > 0);
+  check('#140: a card buffer is the sphere its shader draws: pi r^2 off its radius, at its own position, 2 triangles a globe',
+    Math.abs(ca.meanArea - Math.PI * 0.0625) < 1e-12 && Math.hypot(ca.centre[0] - 2.2, ca.centre[1] - 7.7, ca.centre[2]) < 1e-9 &&
+      ca.triangles === 2 && ca.kind === 'sphere',
+    JSON.stringify(ca));
+  const fa = globeArea(pair, null, (x) => x > 0.6);
+  check('...and a facet buffer through it is triangleArea\'s S / 4, so the two kinds of globe answer in one unit',
+    Math.abs(fa.meanArea - outer.area / 4) < 1e-12 && fa.triangles === 20 && fa.kind === 'mesh',
+    `${fa.meanArea.toFixed(5)} against ${(outer.area / 4).toFixed(5)}`);
   const q = quantilesOf([1, 2, 3, 4]);
   check('quantiles: p50 of 1..4 is the third sample (floor index), max 4, n 4', q.p50 === 3 && q.max === 4 && q.n === 4);
   check('the map: under 0.1 black, 1 is red, 100 and over yellow',
     ratioColour(0.05).join() === '0,0,0' && ratioColour(1).join() === '255,0,0' && ratioColour(1e4).join() === '255,255,0');
   const failed = checks.filter((x) => !x.ok).length;
-  const CHECK_COUNT = 11;
+  const CHECK_COUNT = 13;
   const counted = checks.length === CHECK_COUNT;
   console.log(`\nGLOBE ORDER SELFTEST: ${failed || !counted ? 'FAIL' : 'PASS'} — ${checks.length} checks` +
     `${counted ? '' : ` (expected ${CHECK_COUNT})`}, ${failed} failed`);
@@ -143,7 +157,7 @@ if (IS_MAIN && !SELFTEST) {
   await page.evaluate(() => (__district.freezeClouds ? __district.freezeClouds(20) : null));
   await page.evaluate(() => __district.setPedestrians(0));
 
-  const FNS = [luma, triangleArea, physicalLuminance, radialProfile, footprint, quantilesOf, ratioColour];
+  const FNS = [luma, triangleArea, globeArea, physicalLuminance, radialProfile, footprint, quantilesOf, ratioColour];
   const SRC = `(() => {\n${FNS.map((f) => `const ${f.name} = ${f.toString()};`).join('\n')}\n` +
     `return { ${FNS.map((f) => f.name).join(', ')} };\n})()`;
 
@@ -167,12 +181,13 @@ if (IS_MAIN && !SELFTEST) {
           });
           const head = fur.headMat;
           const Color = head.emissive.constructor;
-          // The outer globe off the head mesh's own buffer: every triangle on the +x side of the post.
+          // The outer globe off the head mesh's own buffer, on the +x side of the post: its facets, or since
+          // #140 the cards whose radius the shader draws a sphere of.
           const geo = fur.heads.geometry;
-          const g = M.triangleArea(geo.attributes.position.array, (x) => x > 0);
+          const g = M.globeArea(geo.attributes.position.array, geo.attributes.lampGlobe ? geo.attributes.lampGlobe.array : null, (x) => x > 0);
           const e0 = lp.emitters[0];
           const lc = new Color(e0.color);
-          const Lphys = M.physicalLuminance(e0.candela, [lc.r, lc.g, lc.b], g.area / 4);
+          const Lphys = M.physicalLuminance(e0.candela, [lc.r, lc.g, lc.b], g.meanArea);
           const lumE = M.luma(head.emissive.r, head.emissive.g, head.emissive.b);
           const before = head.emissiveIntensity;
           if (level !== null) head.emissiveIntensity = level * Lphys / lumE;
@@ -332,7 +347,7 @@ if (IS_MAIN && !SELFTEST) {
           if (level !== null) head.emissiveIntensity = restored;
           return {
             w: W, h: H, poolOn, exposure: pp.exposure, bloomStrength: pp.bloomStrength,
-            globe: { triangles: g.triangles, area: g.area, meanArea: g.area / 4, radius: g.radius, centre: g.centre },
+            globe: { triangles: g.triangles, kind: g.kind, meanArea: g.meanArea, radius: g.radius, centre: g.centre },
             light: { candela: e0.candela, color: e0.color, lumColour: M.luma(lc.r, lc.g, lc.b), reach: e0.distance },
             Lphys, Lemit, level: Lemit / Lphys, emissiveIntensity: Lemit / lumE,
             globes, ratio: M.quantilesOf(pop), over1, over2, over10, comps: comps.slice(0, 16), candidates, dump,
@@ -352,7 +367,7 @@ if (IS_MAIN && !SELFTEST) {
         catch (e) { frameErr = e.message.split('\n')[0]; }
         console.log(`\n${s.name}/${tod} level ${r.level.toExponential(3)} of physical (globe ${r.Lemit.toFixed(3)} nits, ` +
           `physical ${r.Lphys.toFixed(1)}; emissiveIntensity ${r.emissiveIntensity.toFixed(3)}), pool lights on ${r.poolOn}`);
-        console.log(`  outer globe off the buffer: ${r.globe.triangles} triangles, S ${r.globe.area.toFixed(5)} m2, ` +
+        console.log(`  outer globe off the buffer: ${r.globe.triangles} triangles (${r.globe.kind}), ` +
           `S/4 ${r.globe.meanArea.toFixed(5)} m2, radius ${r.globe.radius.toFixed(4)} m; light ${r.light.candela} cd ` +
           `x luma ${r.light.lumColour.toFixed(4)}`);
         const Q = r.ratio;
