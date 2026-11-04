@@ -5471,6 +5471,63 @@ district mode, `globe-round --selftest` read 28 of 28 again and `boot-check` rea
 triangles (4 a lamp at 1,228), the lamp pool 44,208 where #137 measured 88,416, and the globe drawn at
 131.5638 nits against 2,973.3 physical, level 1/22.6 drawn and declared.
 
+**Mutation rows, each run alone** (`mutation-sweep --only`, foreground, tree clean before and after each;
+globe-unpatched and globe-no-discard at baee14c, the rest at ff6c764):
+
+    row                     mutation                                         caught by    the first FAIL
+    globe-unpatched         the patch dropped: degenerate cards, no globe    globe-level  pixels read 0.000 of the level
+                                                                             globe-round  the page's globe is not the module's
+    globe-no-discard        a card that never discards: a square             globe-level  glare x3.12 against x3
+                                                                             globe-round  THE FIX: 4.60 / 2.95 / ... / 3.74 px
+    globe-card-depth        gl_FragDepth taken out: the card's own depth     globe-round  the depth check (see below)
+    globe-shadow-depthmat   no customDepthMaterial: nothing casts            globe-round  wiring, +1
+    globe-shadow-side       no DoubleSide shadow side: nothing casts         globe-round  shadow x0.000, x0.000
+    globe-normal-card       the card's normal: a flat disc under the sun     globe-round  the shading check
+    globe-radius-facets     every globe at 0.88 of its radius                globe-level  x1.67 over the minimum level, bound x1.5
+                                                                             globe-round  wiring, +4
+    globe-level-old         #136's 1.762 nits back                           globe-level  THE FIX, x57.747
+    globe-level-physical    level 1, the physical luminance                  globe-level  x29.2 over the minimum level, bound x1.5
+    globe-area-typed        the facets' 0.1480 typed for the sphere's area   globe-level  S/4 0.148 module, 0.196 page
+    globe-light-uncoloured  the light's candela without its colour           globe-level  the derivation check
+    globe-setlit-literal    setLit writes the old literal 2.4                globe-level  the derivation check
+
+Twelve of twelve caught, none missed. Two things the rows found in the gate rather than in the module:
+
+- **globe-card-depth first came back "caught by globe-round(threw)"**, a catch by accident: the page
+  built its card known-bad by stripping that same `gl_FragDepth` line and threw when there was nothing to
+  strip, so the gate died before its depth check could fail on exactly the build the check is for. The
+  strip is unconditional now (ff6c764; a strip that takes nothing out is still caught, by the known-bad's
+  own liveness bound) and the row reads "caught by globe-round" on the depth check.
+- **globe-level-old's first run also listed globe-round, and that catch was not the row's.** globe-round
+  failed its pixels-against-hull check: the 20-facet arm read round at the corridor camera (0.0137, against
+  its own hull's 0.215 and its usual 2.13 px). Planted by hand the same mutation passes globe-round with
+  that arm at 0.2147, four unmutated runs read the table byte for byte, and the row re-run reads
+  "caught by globe-level" alone. So globe-round failed once in about seventeen runs, on its own
+  two-protocol check — which is what that check is for, since a mask that reads the wrong thing is exactly
+  what it compares the hull against — and the cause is not found. If it recurs, the mask pass is where to
+  look: a fresh render target per globe, read straight back, on a page with no await in its loop.
+
+**The captures for the blind review.** `hero-shots`, corridor and fivepoints at noon, dusk and night, no
+fleet (`HERO_QUERY=traffic=0`), no crowd (`HERO_PEDS=0`), clouds frozen at 20 s, one job a framing,
+`HERO_SETTLE_TIMEOUT` 2,400,000: BEFORE from a detached checkout of 4448dd7 (tag g140b, port 8284), AFTER
+from baee14c (tag g140, port 8285), one after the other. Every log opens "cloud deck: frozen at 20s" and
+ends rc 0 with three captures and no shot errors. Each pair's audits agree on every field but timings and
+the frame counter — draw calls, 83 chunks at 16 near and 67 far, 346 plain and 7 instanced meshes,
+exposure — except the triangles, which fall by **exactly 88,416 at every hour in both framings**
+(corridor 648,163 -> 559,747 at noon, fivepoints 709,427 -> 621,011 at dusk): the head's 44,208 in the colour
+pass and again in the sun's map, which the renderer draws at night as well. So the x2.00 the gate units
+assume is the renderer's own count, not an assumption. Moved pixels (over 2 levels): corridor 0.050% at
+noon and at dusk, fivepoints 0.20% and 0.19%, the largest pieces on the globes and the noon shadows; 1.3% and
+1.9% at night, the glare discs round the globes, which are a sphere's area at the same nits now. The hero
+frames register with the district run's to 0.08% of pixels, the largest pieces on the street below the
+globes, so the district measurements above are about these frames. `blind-compare` refused the set on its 8%
+line — best band 0.05% / 2.16% / 0.05% for corridor dusk / night / noon, 0.25% / 2.08% / 0.28% for
+fivepoints — and since one
+`--roi` serves every pair and the two framings' globes share none, it was built with `--force`, as #136's
+was; the audits above are what say the arms are two builds. Six pairs in `docs/shots/blind/`, the key
+beside it as `blind-key-g140b-g140.json`, unread. The tagged frames sit beside the blind directory byte for
+byte, so a reviewer should be handed a copy of that directory alone.
+
 **Wrong on the way, in order.**
 
 - The first frame reader read the reviewer's globe at "0.53" in the district: along a ray that leaves the
@@ -5505,14 +5562,13 @@ triangles (4 a lamp at 1,228), the lamp pool 44,208 where #137 measured 88,416, 
   that runs its report on IMPORT cannot be built on" was the warning; importing a tool to read its table
   is the same act from the other side.
 
-**Not measured.** The shadow bill's multiplier on the shipped build: the gate units above assume the
-street lamps bucket's x2.00 from `shadow-bill`'s last run, and the cards still submit every instance to
-the sun's map (an instanced caster, never culled), but no `shadow-bill` was run on this tree. The
+**Not measured.** `shadow-bill`'s per-subsystem table on this tree; the captures' audits measure the
+head's own x2.00 directly (88,416 = 2 x 44,208 at every hour), which is the figure the price needed. The
 icosphere and "out of the sun map" only on the page, not in the district. The impostor's aliased edge only
 on the page (0.86 px against the reference's 0.45). The displayed frame's outline at noon, at night and in
-front of a facade or a palm, for the reasons given above, and the radial reader on any district frame. And
-#142's question, which this does not touch: the globe draws the nits it drew, so at dusk it still exposes
-to about 0.07.
+front of a facade or a palm, for the reasons given above, and the radial reader on any district frame. The
+cause of globe-round's one spurious failure. And #142's question, which this does not touch: the globe
+draws the nits it drew, so at dusk it still exposes to about 0.07.
 
 #### #140 (as filed)
 ### #140 OPEN — the lamp globes are icosahedra, and a near one reads as a hexagon
