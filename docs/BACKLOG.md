@@ -6135,7 +6135,33 @@ is to space by arc length along the whole EDGE and alternate (or pair) continuou
 doubles the count — a price in the gate's units, since lamps are three never-culled InstancedMeshes
 in both passes (72 triangles a lamp, x2), and a night-look change for a blind review alongside #135.
 
-### #141 OPEN, ROUND 2 BUILT ON bias2-141 FOR A SECOND BLIND REVIEW (THE SIGNAGE CASTS AS SHEETS; NO #138); ROUND 1 BUILT ON bias-141 AND REFUSED AS BUILT (8 OF 8 FOR THE OLD BUILD, PER KIND: THE CONTACT KEPT, THE ACNE AND #138 NOT) — the sun's depth bias is 0.54 m along its ray at every hour, so at noon nothing within 0.58 m of the ground can shadow it: the road under every car is sunlit
+### #141 FIXED AND PREFERRED BLIND 5 OF 5 IN ROUND 2 (merged 87af65a: bias 0, THE SIGNAGE CASTS AS SHEETS, THE NIGHT FOOTPRINT; NO #138); ROUND 1 REFUSED AS BUILT (8 OF 8 FOR THE OLD BUILD, PER KIND: THE CONTACT KEPT, THE ACNE AND #138 NOT) — the sun's depth bias is 0.54 m along its ray at every hour, so at noon nothing within 0.58 m of the ground can shadow it: the road under every car is sunlit
+**Round 2's blind review, 2026-11-04: AFTER preferred in all five pairs, and merged as 87af65a.** Corridor
+noon and fivepoints at noon, golden, dusk and night (the corridor's golden, dusk and night pairs were left
+out on the builder's measurement that they carried 0.08-0.22% in their best band); traffic and pedestrians
+live and said so; confidence 3, 4, 2, 2, 3. Decoded against `blind-key-r141c-b-r141c.json`. The reviewer
+found ONE build difference, "occlusion darkening in creases and under cars", every static region of it the
+same sign, and **no stripes on any awning in either arm** — the acne round 1 lost on is gone at the awnings'
+own boxes, which were among its registration controls at 0.0% changed. Per kind:
+
+    kind                                         prefers the darker   conf   its strongest reading
+    the ground under and beside cars, wheel      yes                  4      the pink car's gap over its own
+    wells                                                                    door 1.22 old against 0.23 new at
+                                                                             noon; the night footprint 0.89
+                                                                             against 0.14 under the dark sedan
+    architectural creases: under cornices,       yes                  3      the rooftop parapet at 0.70-0.87
+    fascias and awnings, wall and post bases                                 and a column top at 0.63-0.69 of
+                                                                             the old build, "strong" on two
+                                                                             bright surfaces
+    inside canopies                              yes                  2      depth in the cut-out crowns
+
+Merged after the trial merge's offline list (66 of 66, 284 s) and boot-check (124 checks in 973 s), on main
+with #140 in it; the one conflict was CLAUDE.md's gate list, both sides kept. Both arms, from the same
+reviewer: the corridor's tree limbs as flat pale strips twice the sunlit brick's luma (the foliage item
+under #124/#125) and the night globes as flat saturated discs with no glare tail (#123). Unresolved by it:
+a possible one-pixel dark fringe at golden next to a one-pixel twig at x 621-622, which it could not assign
+to the facade or the twig.
+
 **Round 2, 2026-11-03, on `bias2-141` from main 6e89247 (unmerged): round 1's bias 0 / normalBias 0.06,
 `src/carcontact.js`, their gates, rows and boot-check arm, WITHOUT #138's aoThickness; and the awning acne
 the review refused, fixed where it lives.** Before choosing a lever, how the awning enters the sun's map:
