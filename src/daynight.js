@@ -897,6 +897,13 @@ const _sunAxisX = new THREE.Vector3();
 const _sunAxisY = new THREE.Vector3();
 const _sunDirScratch = new THREE.Vector3();
 
+/**
+ * The sun's shadow map and its offsets, exported because src/sheetshadow.js derives a sheet's push from
+ * the same map and the same normalBias (#141 round 2): a copy of either would drift. See the constructor
+ * for why the bias is 0 and the offset 0.06.
+ */
+export const SUN_SHADOW = Object.freeze({ mapSize: 2048, half: 120, bias: 0, normalBias: 0.06 });
+
 export class TimeOfDay {
   constructor(scene, renderer) {
     this.scene = scene;
@@ -977,18 +984,95 @@ export class TimeOfDay {
     // 2048 a texel is 240/2048 = 0.117 m, still 2.17x finer than the 0.254 m that
     // made a pedestrian 2 texels wide and therefore un-castable. A pedestrian is
     // now ~4.3 texels and a bollard ~1.3.
-    const SHADOW_MAP = 2048, S = 120;
+    const SHADOW_MAP = SUN_SHADOW.mapSize, S = SUN_SHADOW.half;
     this.sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
     Object.assign(this.sun.shadow.camera,
       { left: -S, right: S, top: S, bottom: -S, near: 1, far: 900 });
-    // Kept as authored. bias is in normalised depth, so against near 1 / far 900
-    // it is 0.0006 * 899 = 0.54 m along the light ray. The bias a receiver needs
-    // is about one texel divided by tan(elevation) - at golden hour's 8 deg and
-    // the new 0.078 m texel that is 0.55 m, which is what this already is. It
-    // was the 0.254 m texel that this bias was too small for, and PCF blur was
-    // covering the difference.
-    this.sun.shadow.bias = -0.0006;
-    this.sun.shadow.normalBias = 0.06;
+    // NO CONSTANT BIAS, AND THE NORMAL OFFSET AS SHIPPED (#141). The constant
+    // was -0.0006, which is NORMALISED depth: 0.0006 * 899 = 0.54 m along the
+    // light ray at every hour. Its own comment sized it for golden hour's 8
+    // degrees ("one texel over tan(elevation)"), and a constant along the ray is
+    // a different distance on the ground at every elevation. A horizontal
+    // receiver is unshadowed by anything within
+    //
+    //     bias_m * sin(elevation) + normalBias      vertically
+    //
+    // of it: 0.58 m at noon and 0.48 at night, and three's PCF pass puts a
+    // FrontSide body's BACK faces in the map, so over a car the map holds its
+    // floor pan, 0.19 m up (tools/shadow-floor.mjs reads it off the buffer). The
+    // road under every car was sunlit at noon — #138's blind reviewer saw "the
+    // cars look lifted" — and the leak in the AO had been standing in for the
+    // shadow. The same constant leaves a lit strip bias_m * cos(elevation) wide
+    // along the foot of every wall in shadow: 0.13 m at noon, 0.53 at golden.
+    //
+    // Measured, not modelled: tools/shadow-bias.mjs renders every arm inside one
+    // task, reads the HDR scene target before the AO, and takes the sun's share
+    // f = (L - L_noSun) / (L_noShadow - L_noSun) at each pixel against a map
+    // 6x finer (4096 over +-40 m, ref2 at +-20 agreeing to 72 px). At
+    // fivepoints noon the sun reaching the road under the red car:
+    //
+    //     shipped 0.995   reference 0.000   bias 0: 0.001
+    //     road under the car over the road round it, HDR    0.811 -> 0.139 (ref 0.139)
+    //     ... and as composited, AO and tone curve in        0.080 -> 0.017 (ref 0.017)
+    //
+    // (The composited pair read 0.214 -> 0.029 when this was first measured on #138's
+    // aoThickness 0.6, which a blind review refused; the HDR pair is before the AO and
+    // did not move.)
+    //
+    // ONE TERM AT A TIME, errors = pixels the reference has lit that an arm
+    // darkens past half (acne) plus pixels it has dark that an arm lights past
+    // half (leak), every surface group, inside the reference box, at the two
+    // hero cameras (dusk reads 0-2 in every arm at both: the streets are in
+    // building shade and a 1,200-lux sun 3 degrees up is too small a share of
+    // any pixel to read):
+    //
+    //     arm: bias m / normalBias m     fivepoints              corridor
+    //                                  noon golden night    noon   golden night
+    //     0.54 / 0.06  as it was       7602   380   170    28153   1098   302
+    //     0.27 / 0.06                  5756   306   159        -      -     -
+    //     0.10 / 0.06                  2699   271   147    13197   1008   142
+    //     0.05 / 0.06                  2034   256   145    11148    999   117
+    //     0.02 / 0.06                  1887   257   148    10690    983   109
+    //     0    / 0.06  SHIPPED         1826   260   149    10508    976   107
+    //     0    / 0     (4,028 px of furniture acne)   5559 290 184   14035 872 105
+    //     0    / 0.03                  1819   268   142     9960    922    97
+    //     0    / 0.09                  2272   258   152    12356   1044   128
+    //     0    / 0.12                  2972   277   159    15432   1135   152
+    //     0    / 0.15  (red car's road 0.262 lit)  3906 291 164   -      -     -
+    //     elevation-set: 0.04 / sin(el) with 0.06, a vertical tolerance of 0.10
+    //                                  1978   306   145    10975   1036   117
+    //
+    // 0 / 0.03 is 4.5% fewer errors over the six columns and buys it with more
+    // ACNE: 445 px of street furniture against 183 at fivepoints noon, 1,137
+    // against 828 at the corridor. Acne is a pattern ON a lit surface and the
+    // leak it trades for is an edge the 0.117 m texel already softens, so the
+    // offset stays where it was and one term moves.
+    //
+    // THE BIAS IS NOT A FUNCTION OF THE SUN, BECAUSE normalBias ALREADY IS. A
+    // constant along the ray detaches EVERY contact by that distance, and at a
+    // low sun it is the wall-foot strip above as well. The elevation-set
+    // constant (0.041 m along the ray at noon, 0.29 at golden) loses both ways:
+    // at noon in leak on cars and walls (fivepoints car 30 -> 78 px, facade
+    // 237 -> 360; corridor facade 1,258 -> 1,667), at golden in the strip
+    // (fivepoints facade leak 7 -> 44). What it buys is less furniture acne at
+    // noon (183 -> 123), the one thing a constant can buy. The normal offset is
+    // the slope-aware term — it moves a receiver nb / cos(theta) along the ray
+    // for a surface tilted theta from the sun, which is what a texel of depth
+    // slope asks for — and at 0.06 the six columns sum 4.7% above the measured
+    // minimum (0 / 0.03, above). Acne is what it costs, and it is
+    // small: at fivepoints noon 57 px of street furniture lit in the reference
+    // darken under the old constant and 183 here, of 22,031, against 4,028 with
+    // no offset at all. tools/shadow-floor.mjs gates both sides of that trade
+    // offline, and at night src/carcontact.js does what no sun bias can: the
+    // lamps cast no shadow at all.
+    //
+    // The trade above is sized for CLOSED casters, whose back face is a body's
+    // thickness behind the lit one. The shop signage is double SHEETS, an
+    // awning's top over its own underside, and at this bias they stripe at noon:
+    // they cast with their own depth push instead (src/sheetshadow.js, #141
+    // round 2), which reads SUN_SHADOW for the map and this normalBias.
+    this.sun.shadow.bias = SUN_SHADOW.bias;
+    this.sun.shadow.normalBias = SUN_SHADOW.normalBias;
     scene.add(this.sun, this.sun.target);
 
     // A HemisphereLight is a crude sky-plus-ground-bounce approximation, and next

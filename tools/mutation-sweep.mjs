@@ -183,6 +183,21 @@ const OFFLINE = [
   // GL. #117's shimmer was a shadow box that followed the car to the micron, and nothing on this
   // list built a shadow camera at all.
   'shadow-stable',
+  // A fifth of a second, offline (#141). The sun's depth bias at every preset against the floor of
+  // every car the game builds, read off the buffer, and the acne the bias has to buy off; and the
+  // footprint under every car at night against each body's own sill. Nothing else on this list reads
+  // a shadow bias, and nothing else builds src/carcontact.js.
+  'shadow-floor',
+  'shadow-floor --selftest',
+  // The probe that priced the bias, in the page; its selftest is the census and the shadow factor on
+  // inputs whose answers are known, which is what the numbers in daynight.js's comment rest on.
+  'shadow-bias --selftest',
+  // Under a second. ON CLAUDE.md's LIST AND NOT THIS ONE until #141, which is that file's "add a new
+  // gate to BOTH lists" arriving for an old gate: its selftest is the one definition of the buckets
+  // that tri-breakdown and shadow-bill inject, and `contact-bucket` below — the footprint billed as
+  // x2.00 vehicles — came back caught by shadow-floor alone, while tri-buckets' own case for the
+  // footprint failed under it (28/29) in a gate the sweep never ran.
+  'tri-buckets --selftest',
   // About 3 s, the same kind of page as car-cabin, from behind: the plate's face is a fragment-shader
   // pattern on one slot, and its geometry is read off the builders before the browser starts — as
   // is the player's door mirrors' (#133), which nothing else on this list builds.
@@ -2981,6 +2996,135 @@ const MUTATIONS = [
     find: '    this.sunDirection(q.sunDirection);',
     to: '    q.sunDirection.copy(this.sun.position).normalize();',
     why: 'the post stack\'s sun points from the world origin after any weather change',
+  },
+  // ---- src/daynight.js: the sun's depth bias (#141). Every one of these renders a frame a reviewer
+  // can only call "the cars look lifted" or "the lamp posts are speckled"; tools/shadow-floor.mjs
+  // prices both sides of the trade offline, off the light the page builds and the cars it draws.
+  // (Round 2 moved the two values into SUN_SHADOW, which src/sheetshadow.js reads as well, so these
+  // three mutate the export: the same intent, one definition.)
+  {
+    id: 'shadow-bias-constant', file: 'src/daynight.js',
+    find: 'export const SUN_SHADOW = Object.freeze({ mapSize: 2048, half: 120, bias: 0, normalBias: 0.06 });',
+    to: 'export const SUN_SHADOW = Object.freeze({ mapSize: 2048, half: 120, bias: -0.0006, normalBias: 0.06 });',
+    why: '#141 reverted: 0.54 m along the ray, the road under every car sunlit at noon and a strip at every wall foot',
+  },
+  {
+    id: 'shadow-normal-off', file: 'src/daynight.js',
+    find: 'export const SUN_SHADOW = Object.freeze({ mapSize: 2048, half: 120, bias: 0, normalBias: 0.06 });',
+    to: 'export const SUN_SHADOW = Object.freeze({ mapSize: 2048, half: 120, bias: 0, normalBias: 0 });',
+    why: 'no bias at all: 4,028 px of street furniture self-shadow at fivepoints noon, every lamp post striped',
+  },
+  {
+    id: 'shadow-normal-wide', file: 'src/daynight.js',
+    find: 'export const SUN_SHADOW = Object.freeze({ mapSize: 2048, half: 120, bias: 0, normalBias: 0.06 });',
+    to: 'export const SUN_SHADOW = Object.freeze({ mapSize: 2048, half: 120, bias: 0, normalBias: 0.15 });',
+    why: 'acne bought back with the contact: the road under the red car a quarter sunlit again (0.262)',
+  },
+  {
+    // THE CANDIDATE THE BRIEF NAMED FIRST, kept as a row because it is the obvious next idea and it
+    // loses: a constant set from the preset's elevation holds the tolerance at 0.10 m at every hour
+    // and is 0.73 m along the ray at dusk, so the strip at the foot of every wall in shadow comes back.
+    id: 'shadow-bias-elevation', file: 'src/daynight.js',
+    find: '    this.sun.color.setHex(p.sunColor);',
+    to: '    this.sun.color.setHex(p.sunColor);\n' +
+      '    this.sun.shadow.bias = -(0.04 / Math.sin(p.elevation)) / 899;',
+    why: 'a bias set from the hour: contact held at 0.10 m, a 0.7 m lit strip at every wall foot at dusk',
+  },
+  // ---- src/sheetshadow.js: the awning's twin pushed along the sun's ray (#141 round 2). Each of these
+  // renders a noon frame a reviewer can only call "the awnings are striped" or "the shadow under the
+  // fascia let go"; tools/shadow-floor.mjs reads the push off the same expression the shader compiles,
+  // against the reach of three's own PCF taps, over every twin the district's signage carries.
+  {
+    id: 'sheet-push-off', file: 'src/sheetshadow.js',
+    find: 'export const SHEET_TEXELS = 2.5;',
+    to: 'export const SHEET_TEXELS = 0;',
+    why: 'round 1\'s map: every sun-facing awning top and valance striped at noon, 90.6% of the lit signage losing over 0.15 of its sun',
+  },
+  {
+    id: 'sheet-push-one', file: 'src/sheetshadow.js',
+    find: 'export const SHEET_TEXELS = 2.5;',
+    to: 'export const SHEET_TEXELS = 1;',
+    why: 'a push of one texel, under the kernel\'s 1.52: the twin costs a lit sheet a third of its sun at the worst phase',
+  },
+  {
+    id: 'sheet-push-no-credit', file: 'src/sheetshadow.js',
+    find: "export const SHEET_PUSH_EXPR = 'max( 0.0, K * texel * sqrt( 1.0 - c * c ) / c - nb / c )';",
+    to: "export const SHEET_PUSH_EXPR = 'max( 0.0, K * texel * sqrt( 1.0 - c * c ) / c )';",
+    why: 'the push ignores what normalBias already stands: every face moves, a fascia\'s underside at noon 7.5 cm against 1.3, and the shadow attached under it lets go',
+  },
+  {
+    id: 'sheet-cos-open', file: 'src/sheetshadow.js',
+    find: 'export const SHEET_COS = 0.25;',
+    to: 'export const SHEET_COS = 0.05;',
+    why: 'no clamp worth the name: an edge-on twin pushed 4.7 m along the ray, every shadow it casts on anything that far behind it gone',
+  },
+  {
+    id: 'sheet-host-unwired', file: 'district/main.js', browser: true,
+    find: "      const m = castAsSheet(meshOf(bk.sign, signMaterial({ time: 'dusk' })));",
+    to: "      const m = meshOf(bk.sign, signMaterial({ time: 'dusk' }));",
+    why: 'the module is right and the host never casts the shop signage with it: every awning on the page striped at noon again',
+  },
+  // ---- src/carcontact.js: the lamps' shadow under every car (#141's night half). Each draws a
+  // perfectly plausible footprint somewhere; only shadow-floor puts it back in the car's own frame.
+  {
+    id: 'contact-yaw-swapped', file: 'src/carcontact.js',
+    find: '      const yaw = Math.atan2(e[8], e[10]);',
+    to: '      const yaw = Math.atan2(e[10], e[8]);',
+    why: 'the footprint turned off the car\'s heading: it darkens the road beside every car that is not facing 45 degrees',
+  },
+  {
+    id: 'contact-hidden-slot', file: 'src/carcontact.js',
+    find: '      if (!(sx > 1e-6) || n >= this.max) { skipped++; return; }',
+    to: '      if (n >= this.max) { skipped++; return; }',
+    why: 'a hidden pool slot gets a footprint: a dark rectangle on the road at the pool\'s parking spot for no car',
+  },
+  {
+    id: 'contact-always-on', file: 'src/carcontact.js',
+    find: '  setLit(on) { this.mesh.visible = !!on; }',
+    to: '  setLit(on) { this.mesh.visible = true; }',
+    why: 'on by day too: the golden-hour sun that shines under a car from its sun side is blacked out',
+  },
+  {
+    id: 'contact-under-road', file: 'src/carcontact.js',
+    find: '  lift: 0.045,',
+    to: '  lift: 0,',
+    why: 'the footprint drawn at the tyres\' contact patch, 3 cm under a parked car\'s lane: depth-tested away, a draw call for nothing',
+  },
+  {
+    id: 'contact-core-weak', file: 'src/carcontact.js',
+    find: '  core: 0.12,     // the multiplier deep under the body',
+    to: '  core: 0.5,     // the multiplier deep under the body',
+    why: 'half the lamplight under a car: brighter than the sky the gap under the sill can let in',
+  },
+  {
+    id: 'contact-arch-lips', file: 'src/carcontact.js',
+    find: 'export function planOf(geometry, archLip = 0.07) {',
+    to: 'export function planOf(geometry, archLip = 0) {',
+    why: 'the plan read to the wheel-arch lips: the footprint runs 5 cm past the sill and darkens the road beside the car',
+  },
+  {
+    id: 'contact-casts', file: 'src/carcontact.js',
+    find: '    this.mesh.castShadow = false;\n    this.mesh.receiveShadow = false;\n    this.mesh.frustumCulled = false;     // instances move',
+    to: '    this.mesh.castShadow = true;\n    this.mesh.receiveShadow = false;\n    this.mesh.frustumCulled = false;     // instances move',
+    why: 'a decal in the sun\'s map: a footprint\'s worth of depth 4 cm over every road a car stands on, billed x2.00',
+  },
+  {
+    id: 'contact-bucket', file: 'tools/tri-buckets.mjs',
+    find: "  if (/^contactShadow/.test(name)) return 'contact shadows';",
+    to: '',
+    why: 'the footprint billed in `vehicles` (its name says "cars"), whose shadow-bill row is x2.00 for a mesh that casts nothing',
+  },
+  {
+    id: 'contact-host-unlit', file: 'district/main.js', browser: true,
+    find: '  carContact.setLit(tod.preset.lampsOn);\n',
+    to: '',
+    why: 'the host never switches it on: the module is right and the road under every car at night is lamplit again',
+  },
+  {
+    id: 'contact-host-no-fleet', file: 'district/main.js', browser: true,
+    find: '  if (traffic) for (const m of traffic.meshes) _contactSources.push(contactSource(m));\n',
+    to: '',
+    why: 'the moving fleet is never fed to it: parked cars sit in their own shadow and every car driving past floats',
   },
   // ---- src/post.js and src/daynight.js: lit light's own bloom bar (#118). Every one of these renders
   // a frame nobody would call broken - a glow round a lamp-lit plate is "atmosphere" - and the only

@@ -328,6 +328,103 @@ if (state.global && state.frames > 2) {
     gs ? `drawn ${gs.luminance.toFixed(4)} nits, declared ${(gs.rep.level * gs.physical).toFixed(4)}, lamps on ${gs.lampsOn}` : 'no report');
 }
 
+/**
+ * THE LAMPS' SHADOW UNDER EVERY CAR (#141). src/carcontact.js is ONE InstancedMesh that the HOST feeds
+ * every frame from every pool and switches with the lamps. tools/shadow-floor.mjs proves the module
+ * offline — the footprint inside each body's sill, the profile, one per live car, hidden until lit —
+ * and nothing offline loads district/main.js, so the two wires are here: the lamps switch it, and
+ * every pool's live cars reach it. Asserted at the boot hour and across a round trip through noon,
+ * back to the preset this page booted in, so no later arm inherits a different hour.
+ */
+{
+  const cc = await page.evaluate(async ([bSrc]) => {
+    const bucketOf = eval(`(${bSrc})`);
+    const d = window.__district;
+    if (!d.carContact || !d.carContactReport) return null;
+    const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+    const count = () => {
+      let parked = 0, fleet = 0;
+      const pk = d.furniture && d.furniture.parked;
+      if (pk && pk.meshes) for (const m of pk.meshes) parked += m.count;
+      const tr = d.traffic && d.traffic();
+      if (tr && tr.meshes) for (const m of tr.meshes) fleet += m.count;
+      return { parked, fleet, pursuit: d.pursuitReport ? d.pursuitReport() !== null : null };
+    };
+    const boot = d.tod.presetName;
+    await frame(); await frame();
+    const lamps0 = !!d.tod.preset.lampsOn;
+    const r0 = d.carContactReport(); const c0 = count();
+    const m = d.carContact.mesh;
+    let n = m; while (n.parent) n = n.parent;
+    d.setTimeOfDay('noon'); await frame(); await frame();
+    const rNoon = d.carContactReport();
+    d.setTimeOfDay(boot); await frame(); await frame();
+    const r1 = d.carContactReport(); const c1 = count();
+    // AND THE SUN'S MAP AS tools/shadow-floor.mjs PRICED IT. That gate reads the light off a
+    // TimeOfDay it builds itself; this is the page's own light, after the host has had its say, and
+    // the two things the floor-pan argument stands on: PCF (VSM would draw FRONT faces and put the
+    // roof in the map over the road, not the floor) and car materials that leave shadowSide alone.
+    const THREE = await import('/vendor/three.module.min.js');
+    const sh = d.tod.sun.shadow;
+    const carMats = [];
+    const pk = d.furniture && d.furniture.parked;
+    if (pk && pk.meshes) for (const mm of pk.meshes) carMats.push(mm.material);
+    const tr = d.traffic && d.traffic();
+    if (tr && tr.meshes) for (const mm of tr.meshes) carMats.push(mm.material);
+    if (d.car && d.car.bodyMesh) carMats.push(d.car.bodyMesh.material);
+    const sun = { bias: sh.bias, normalBias: sh.normalBias, pcfSoft: d.renderer.shadowMap.type === THREE.PCFSoftShadowMap,
+      carMats: carMats.length, frontSide: carMats.every((mt) => mt && mt.side === THREE.FrontSide && mt.shadowSide == null) };
+    // ROUND 2: THE SHEETS. Every caster in the signage bucket casts with src/sheetshadow.js's depth
+    // material — the module's own instance, not one that looks like it — at the module's constants, and
+    // the facade trim does not (the push on the trim was measured and refused). The lists are counted
+    // so "every signage caster" cannot pass over an empty one.
+    const SS = await import('/src/sheetshadow.js');
+    const DN = await import('/src/daynight.js');
+    const sheetMat = SS.sheetDepthMaterial();
+    const sheets = { signage: 0, signageSheet: 0, trim: 0, trimSheet: 0, other: 0 };
+    d.scene.traverse((o) => {
+      if (!o.isMesh || !o.castShadow) return;
+      const b = bucketOf(o), isSheet = o.customDepthMaterial === sheetMat;
+      if (b === 'signage') { sheets.signage++; if (isSheet) sheets.signageSheet++; }
+      else if (b === 'facade trim (near LOD)') { sheets.trim++; if (isSheet) sheets.trimSheet++; }
+      else if (isSheet) sheets.other++;
+    });
+    const u = sheetMat.userData.sheet && sheetMat.userData.sheet.uniforms;
+    sheets.uniforms = u ? { K: u.uSheetK.value, cos: u.uSheetCos.value, nb: u.uSheetNB.value, map: u.uSheetMap.value } : null;
+    sheets.module = { K: SS.SHEET_TEXELS, cos: SS.SHEET_COS };
+    sheets.sun = { map: sh.mapSize.x, half: sh.camera.right, nb: sh.normalBias, bias: sh.bias };
+    sheets.declared = { map: DN.SUN_SHADOW.mapSize, half: DN.SUN_SHADOW.half, nb: DN.SUN_SHADOW.normalBias, bias: DN.SUN_SHADOW.bias };
+    return { boot, back: d.tod.presetName, lamps0, r0, c0, rNoon, r1, c1, inScene: !!n.isScene,
+      bucket: bucketOf(m), cast: m.castShadow, depthWrite: m.material.depthWrite, sun, sheets };
+  }, [bucketSource]);
+  console.log(`  car contact: ${JSON.stringify(cc)}`);
+  check('the footprint under the cars is on the page, casts nothing, writes no depth, and is its own bucket',
+    !!cc && cc.inScene && cc.cast === false && cc.depthWrite === false && cc.bucket === 'contact shadows',
+    cc ? `in scene ${cc.inScene}, cast ${cc.cast}, depthWrite ${cc.depthWrite}, "${cc.bucket}"` : 'no carContact on the page');
+  // BOTH SIDES NON-ZERO: both pools have cars, or "one footprint per car" passes over an empty list.
+  const want0 = cc ? cc.c0.parked + cc.c0.fleet + 1 : -1;
+  check('at the boot hour the lamps are lit and the host feeds it every parked car, every fleet car and the player\'s',
+    !!cc && cc.lamps0 && cc.r0.visible && cc.c0.parked > 0 && cc.c0.fleet > 0 && cc.c0.pursuit === false &&
+      cc.r0.placed === want0,
+    cc ? `${cc.boot}: lamps ${cc.lamps0}, visible ${cc.r0.visible}, placed ${cc.r0.placed} for ${cc.c0.parked} parked + ${cc.c0.fleet} fleet + 1` : '-');
+  check('the page\'s sun is the one shadow-floor priced: bias 0, normalBias 0.06, PCF, car bodies FrontSide with no shadowSide',
+    !!cc && cc.sun.bias === 0 && cc.sun.normalBias === 0.06 && cc.sun.pcfSoft && cc.sun.carMats >= 4 && cc.sun.frontSide,
+    cc ? JSON.stringify(cc.sun) : '-');
+  const sx = cc && cc.sheets;
+  check('every signage caster casts as a SHEET, with the module\'s own depth material, and no trim or other caster does',
+    !!sx && sx.signage >= 2 && sx.signageSheet === sx.signage && sx.trim >= 1 && sx.trimSheet === 0 && sx.other === 0,
+    sx ? `signage ${sx.signageSheet}/${sx.signage}, trim ${sx.trimSheet}/${sx.trim}, other ${sx.other}` : '-');
+  check('and the sheet push is the one shadow-floor priced: the module\'s K and clamp, the sun\'s own map and normalBias',
+    !!sx && !!sx.uniforms && sx.uniforms.K === sx.module.K && sx.uniforms.cos === sx.module.cos && sx.module.K > 0 &&
+      sx.uniforms.map === sx.sun.map && sx.uniforms.nb === sx.sun.nb && sx.sun.map === sx.declared.map &&
+      sx.sun.half === sx.declared.half && sx.sun.nb === sx.declared.nb && sx.sun.bias === sx.declared.bias,
+    sx ? JSON.stringify({ u: sx.uniforms, module: sx.module, sun: sx.sun }) : '-');
+  check('by day it draws nothing, and back at the boot hour it draws every car again',
+    !!cc && cc.rNoon.visible === false && cc.rNoon.triangles === 0 && cc.r1.visible === true && cc.back === cc.boot &&
+      cc.r1.placed === cc.c1.parked + cc.c1.fleet + 1,
+    cc ? `noon visible ${cc.rNoon.visible} (${cc.rNoon.triangles} tris), ${cc.back} visible ${cc.r1.visible}, placed ${cc.r1.placed}` : '-');
+}
+
 
 /**
  * WHAT THE HUD IS ACTUALLY FED, which only this gate can see.
