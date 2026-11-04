@@ -4235,6 +4235,13 @@ glows return to x1.00 by r ~ 40 px and their radius grows only as (head size)^0.
 18 px at 2.5). And the green signal does not clip (core 0.708, sRGB 75,245,196) and its glow is gone within
 ~13 px while every lit lamp clips: one camera exposure would clip an LED signal too.
 
+**And from #140's blind reviewer (2026-11-04), in both arms**: the glow stays at 0.9 or more of the clipped
+core for 6-8 px past the globe's edge and reaches the background about 25 px out, the same reach for an 11 px
+and a 17 px globe; beyond it the two arms were bit-identical although one source was 27% larger, so there is
+no faint outer tail at all. Each lamp reads as a soft ball 1.8-2.2 times its globe's diameter at half
+brightness, where a camera keeps the over-exposed globe as the distinct brightest disc inside a dimmer, wider
+glare.
+
 ### #124 PARTS 1 AND 2 FIXED AND PREFERRED BLIND, 6 OF 6 — the star strokes were fwidth() across the star field's own cell faces, and the signal lens was a square plate; two items remain
 **The night-sky strokes.** At 8x the reviewer's two boxes in `r12b-bloom1-fivepoints-night`, (241-252,
 56-67) and (271-283, 66-74), are two stars each wearing 1-px straight lines — an L and a bracket.
@@ -5326,7 +5333,7 @@ The measurement: per lamp, the head's and the post's distance from every palm's 
 against that palm's R. Then the fix belongs in the placer: a palm keeps its CROWN clear of a lamp's head
 and post, and the clearance must not be the base distance.
 
-### #140 FIXED (not yet blind-reviewed) — the globe is a ray-cast sphere on a two-triangle card: round at every distance, -88,416 of the gate's units, and the shadow it throws is kept
+### #140 FIXED AND PREFERRED BLIND, 6 OF 6 (merged 86b4799) — the globe is a ray-cast sphere on a two-triangle card: round at every distance, -88,416 of the gate's units, and the shadow it throws is kept
 
 `src/streetfurniture.js` draws each globe as a camera-facing card — `buildGlobeCards`, two triangles a
 globe with every corner AT the centre and the radius in a `lampGlobe` attribute — and `patchGlobeImpostor`
@@ -5570,6 +5577,29 @@ on the page (0.86 px against the reference's 0.45). The displayed frame's outlin
 front of a facade or a palm, for the reasons given above, and the radial reader on any district frame. The
 cause of globe-round's one spurious failure. And #142's question, which this does not touch: the globe
 draws the nits it drew, so at dusk it still exposes to about 0.07.
+
+**Blind review, 2026-11-04: the round globe preferred in all six pairs** (corridor and fivepoints at noon, dusk
+and night, no traffic and no pedestrians, registered; confidence 4, 3, 2 at the corridor and 5, 5, 2 at
+fivepoints, the night pairs the weakest because the bloom disc hides the outline). Decoded against
+`blind-key-g140b-g140.json`. The reviewer found one change, "one arm has a low-poly globe with a hexagonal
+outline and pointed vertices at the top and bottom, the other a round sphere", and measured it the way this
+round's gate does, as a harmonic of the silhouette: the 6-fold term of the radius read 0.038-0.052 of the mean
+radius on the old globe and 0.002-0.018 on the new, with the 2-fold term (the wide-angle stretch) equal in both.
+It saw the area change (x1.21-1.34, the facets inside the true sphere) and took no side on size; the noon
+shadows follow it, every differing shadow pixel darker under the round globe; and the night glows match when
+read outward from each globe's own edge. Its control boxes were bit-identical at noon and dusk and within one
+level at night, and globes and their shadows carried 98.8-100% of the absolute difference in every pair. The
+only other change it found was sub-visible noise on one traffic car's wheels at fivepoints (no rotation or
+shift reduces it), which does not touch the verdict.
+
+Merged as 86b4799 after the trial merge's offline list (63 of 63, 320 s) and boot-check (118 checks in
+967 s, the globe read back at 131.5638 nits against 2,973.3 physical, `lamp:head` 4,912 triangles).
+
+What it found in BOTH arms: a lamp's reflection as a saturated blob with no lamp at the corner of Marrow &
+Vine and beside the corridor's pole, which is #136's recorded compromise (the reflection is physical and the
+globe is not) and not new; lamps inside tree canopies leaving the leaves round them darker than the canopy
+further out (filed as #144); the night glow as a soft ball with no outer tail (recorded under #123); and hard
+one-pixel edges throughout, which makes a 1-3 px far globe appear or vanish with its pixel coverage.
 
 #### #140 (as filed)
 ### #140 OPEN — the lamp globes are icosahedra, and a near one reads as a hexagon
@@ -6220,3 +6250,12 @@ fields" this lamp face used to draw, and the face now draws its bowls dark. Not 
 response by hour on its own page (`tools/car-detail.html` draws the fleet's lamps from behind; nothing
 draws a parked car's headlamps at noon), and a photographed lamp in sun to set the target against, the way
 `glass-census` set the glazing's.
+
+### #144 OPEN — a lamp inside a tree canopy leaves the leaves round it darker than the canopy further out
+From #140's blind reviewer (2026-11-04), in BOTH arms. At corridor night the lamp hidden in the canopy at
+(665,398): leaves 3-20 px from it read a median 0.007-0.009 linear, against 0.013-0.014 for the same canopy
+40-90 px away. At fivepoints night, the lamp at (745,453): 0.0014-0.0016 against 0.0043. Leaves within a
+metre of a street lamp glow in a photograph, so the gradient runs the wrong way. Not diagnosed. Candidates,
+none measured: the leaf cards' material does not take the LightPool's lights, or takes them with normals
+facing away; or the AO (whose broad darkening #141's review preferred) darkens the inner canopy and nothing
+lifts it. #139 moved lamps out of palm crowns; which species these two canopies are is not checked.
