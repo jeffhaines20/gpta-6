@@ -3232,6 +3232,16 @@ const LAMP_POLE_R = 0.155;
 export const LAMP_ARM = 2.2;
 export const LAMP_HEAD_Y = 7.7;
 /**
+ * #140: THE TWO GLOBES, centre and radius in the fixture's own frame — the roadway globe the emitter
+ * sits in, and the pavement-side twin on the short bracket. One definition, read by the head geometry
+ * (buildGlobeCards writes each centre and radius into its buffer, which is where globeMeanArea and the
+ * gates read them back from), and by nothing that types them again.
+ */
+export const LAMP_GLOBES = Object.freeze([
+  Object.freeze({ x: LAMP_ARM, y: LAMP_HEAD_Y, z: 0, r: 0.25 }),
+  Object.freeze({ x: -1.0, y: 7.66, z: 0, r: 0.22 }),
+]);
+/**
  * #136: THE LAMP'S LIGHT, AND THE GLOBE THAT IS SUPPOSED TO BE MAKING IT, AS ONE DEFINITION.
  *
  * A street lamp is two objects the renderer keeps apart: a PointLight the LightPool places at the
@@ -3266,6 +3276,31 @@ export const LAMP_CANDELA = 900;
 export const LAMP_LIGHT_COLOR = 0xffc98a;
 export const LAMP_REACH = 46;
 /**
+ * #140 RESTATED THE LEVEL, NOT THE LUMINANCE: 1/22.6 of a SPHERE's physical luminance is the 131.5 nits
+ * #136 chose. The globe became a sphere (buildGlobeCards), so its mean projected area went from the 20
+ * facets' 0.1480 m2 to pi 0.25^2 = 0.1963 and the physical luminance from 3,944.7 to 2,973.3 nits. Held at
+ * 1/30 — which holds the globe's INTEGRATED output, luminance x area, because the level is a fraction of a
+ * flux — the globe would draw 99.1 nits, and tools/globe-level.mjs measured what that undoes:
+ *
+ *     level     nits    facade lobe at 15 m    glare / globe radius at 58 m    (bound x3.0)
+ *     1/30      99.1         x1.027 FAILS              2.29
+ *     1/29.2   101.8         x1.000                     2.30       the minimum that orders it
+ *     1/22.6   131.6         x0.774                     2.80       shipped
+ *     1/20     148.7         x0.68                      2.93
+ *     1/18     165.2         x0.62                      3.06 FAILS
+ *
+ * (the glare at 1/22.6 and 1/30 off the gate's own runs; the rest off a --sweep table, whose radii are
+ * printed to 0.1 px, so +-0.013)
+ *
+ * The level was chosen on a PER-PIXEL comparison — the wall's lobe against the globe's own pixels, at the
+ * binding camera — and the lobe is the light's and the wall's, whatever shape the globe is. So the
+ * luminance is what #136 decided and what is kept: the same 29% to spare over the minimum, and the halo
+ * grows from 2.70 (the facets at 131.5) to 2.80 radii of a globe that is now 15% bigger on screen, inside
+ * the bound #136 drew. The cost is the flux: the round globe at 131.5 nits radiates x1.33 the facets'
+ * (4.4% of physical where the facets were 3.3%), which reaches a distant globe as brightness and a near
+ * one as glare, and both are read by the gate's halo arm. Every number in #136's text below is at the
+ * facets' area: its nits are unchanged, its levels are x1.327 lower than this file's now.
+ *
  * #136: THE GLOBE DRAWS AT 1/30 OF THE LUMINANCE THAT RADIATES ITS LIGHT'S FLUX — 131.5 nits, x74.6
  * the 1.762 it drew. Measured, not picked; tools/globe-level.html is the page and the gate.
  *
@@ -3318,15 +3353,27 @@ export const LAMP_REACH = 46;
  * times further over white at night; holding the globe at a fixed EXPOSED level instead (as
  * carbody.js's lampEmissive does) would make dusk a second term, and it is not taken here.
  */
-export const LAMP_GLOBE_LEVEL = 1 / 30;
+export const LAMP_GLOBE_LEVEL = 1 / 22.6;
 /** Rec. 709 luminance of a three Color, in the working (linear) space it holds. */
 function colourLuma(c) { return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b; }
 /**
- * The OUTER globe's mean projected area, off a head geometry's own position buffer: S / 4 over the
- * triangles on the road side of the post (+x), which is the globe the LightPool's emitter sits in.
- * Non-indexed, as mergeGeos builds it.
+ * The OUTER globe's mean projected area, off a head geometry's own buffer: S / 4 (Cauchy), on the road
+ * side of the post (+x), which is the globe the LightPool's emitter sits in.
+ *
+ * #140's cards carry each globe's radius in `lampGlobe` and the shader draws exactly that sphere, so S / 4
+ * is pi r^2 with r read off those vertices — the buffer is still where the area comes from, it just holds
+ * a radius now rather than facets. A triangle mesh (the 20-facet globe before #140, which the gates still
+ * build as their known-bad) is S / 4 of its +x triangles, non-indexed as mergeGeos built it: 0.1480 m2,
+ * against pi 0.25^2 = 0.1963 for the sphere.
  */
 export function globeMeanArea(headGeo) {
+  const card = headGeo.attributes.lampGlobe;
+  if (card) {
+    const at = headGeo.attributes.position;
+    let r = 0;
+    for (let i = 0; i < card.count; i++) if (at.getX(i) > 0) r = Math.max(r, card.getZ(i));
+    return Math.PI * r * r;
+  }
   const p = headGeo.attributes.position.array;
   let S = 0;
   for (let i = 0; i + 8 < p.length; i += 9) {
@@ -3483,6 +3530,179 @@ function mergeGeos(list) {
   return out;
 }
 
+// ---------------------------------------------------------------- the globe (#140)
+/**
+ * #140: A LAMP'S GLOBE IS A SPHERE THE FRAGMENT SHADER RAY-CASTS, ON A CARD THE VERTEX SHADER TURNS
+ * TO WHOEVER IS LOOKING.
+ *
+ * It was SphereGeometry(0.25, 5, 3), 20 triangles, and #136's blind reviewer saw the near-left globe at
+ * fivepoints dusk hold its left edge in one column for 20 rows: a polygon. The buffer is now two
+ * triangles a globe whose four corners all sit AT the globe's centre, each carrying its corner (+-1, +-1)
+ * and the globe's radius in `lampGlobe`; the vertex shader moves the corners out to a square, in the
+ * plane through the centre square to the eye's ray, just big enough to hold the sphere's silhouette cone
+ * (r d / sqrt(d^2 - r^2) for a perspective eye, r for an orthographic one); the fragment shader
+ * intersects its ray with the sphere, discards a miss, and takes the hit's position, normal and DEPTH. So
+ * the outline is the sphere's at every distance and every angle — in a pinhole camera that is an ellipse
+ * stretched away from the image centre, and it is drawn as one, because it is the sphere's own outline —
+ * the lighting is a sphere's, and the bracket, the AO and the fog meet a sphere and not a card.
+ *
+ * The "eye" is whichever camera draws it: in the sun's pass the card faces the sun, so the globe casts the
+ * disc a sphere casts, through `globeDepthMaterial` (an instanced customDepthMaterial, after
+ * src/pedestrians.js's dilated one). Which kind of camera it is comes off the projection matrix
+ * (P[3][3] is 1 for an orthographic one), not off three's `isOrthographic` uniform: three sets that for
+ * lit and basic materials and NOT for MeshDepthMaterial, so a depth pass branching on it would ray-cast
+ * the sun's parallel rays as a perspective fan.
+ *
+ * Positions are the centres, so a tool reading the head buffer for "where are the globes" (kerb-stand's
+ * poles midpoint) reads exactly them; the triangles are degenerate in the buffer, so anything that
+ * draws this geometry WITHOUT the patch draws nothing — the patch is the geometry.
+ */
+export function buildGlobeCards(globes = LAMP_GLOBES) {
+  const corners = [[-1, -1], [1, -1], [1, 1], [-1, -1], [1, 1], [-1, 1]];
+  const n = globes.length * corners.length;
+  const pos = new Float32Array(n * 3), nrm = new Float32Array(n * 3), card = new Float32Array(n * 3);
+  let v = 0;
+  for (const g of globes) {
+    for (const [cx, cy] of corners) {
+      pos.set([g.x, g.y, g.z], v * 3);
+      nrm.set([0, 0, 1], v * 3);
+      card.set([cx, cy, g.r], v * 3);
+      v++;
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  geo.setAttribute('lampGlobe', new THREE.BufferAttribute(card, 3));
+  // The bounds of the SPHERES, which the degenerate positions alone understate by a radius.
+  const box = new THREE.Box3();
+  for (const g of globes) box.union(new THREE.Box3(new THREE.Vector3(g.x - g.r, g.y - g.r, g.z - g.r), new THREE.Vector3(g.x + g.r, g.y + g.r, g.z + g.r)));
+  geo.boundingBox = box;
+  geo.boundingSphere = box.getBoundingSphere(new THREE.Sphere());
+  return geo;
+}
+
+const GLOBE_VERT_PARS = `
+attribute vec3 lampGlobe;
+varying vec4 vGlobe;
+varying vec3 vGlobeCard;
+varying vec4 vGlobeDepthRow;
+`;
+/** Replaces three's `project_vertex`: the centre into view space, then the corner out to the card. */
+const GLOBE_PROJECT = `
+vec4 mvPosition = vec4( transformed, 1.0 );
+#ifdef USE_INSTANCING
+	mvPosition = instanceMatrix * mvPosition;
+#endif
+mvPosition = modelViewMatrix * mvPosition;
+{
+	bool globeOrtho = projectionMatrix[ 3 ][ 3 ] > 0.5;
+	vec3 gc = mvPosition.xyz;
+	float gr = lampGlobe.z;
+	float gd = length( gc );
+	vec3 gw = globeOrtho ? vec3( 0.0, 0.0, 1.0 ) : - gc / gd;
+	float gh = globeOrtho ? gr : gr * gd / sqrt( max( gd * gd - gr * gr, 1e-6 ) );
+	vec3 ga = abs( gw.y ) < 0.99 ? vec3( 0.0, 1.0, 0.0 ) : vec3( 1.0, 0.0, 0.0 );
+	vec3 gu = normalize( cross( ga, gw ) );
+	vec3 gv = cross( gw, gu );
+	vGlobe = vec4( gc, gr );
+	mvPosition.xyz = gc + ( lampGlobe.x * gu + lampGlobe.y * gv ) * gh;
+	vGlobeCard = mvPosition.xyz;
+	vGlobeDepthRow = vec4( projectionMatrix[ 2 ][ 2 ], projectionMatrix[ 3 ][ 2 ], projectionMatrix[ 2 ][ 3 ], projectionMatrix[ 3 ][ 3 ] );
+}
+gl_Position = projectionMatrix * mvPosition;
+`;
+const GLOBE_FRAG_PARS = `
+varying vec4 vGlobe;
+varying vec3 vGlobeCard;
+varying vec4 vGlobeDepthRow;
+`;
+/**
+ * The hit, at the top of main(): the ray through this fragment's point on the card against the sphere;
+ * a miss is discarded; the hit's view-space position, its normal and its depth, written to gl_FragDepth
+ * so every later reader of the depth buffer — the depth test, the AO, the fog — meets the sphere. The
+ * depth row (P[2][2], P[3][2], P[2][3], P[3][3]) is all of the projection a depth needs, in either kind
+ * of camera: clip z and w do not depend on view x or y in three's perspective or orthographic matrices.
+ */
+const GLOBE_HIT = `
+	bool globeOrtho = vGlobeDepthRow.w > 0.5;
+	vec3 globeRayO = globeOrtho ? vec3( vGlobeCard.xy, 0.0 ) : vec3( 0.0 );
+	vec3 globeRayD = globeOrtho ? vec3( 0.0, 0.0, - 1.0 ) : normalize( vGlobeCard );
+	vec3 globeL = vGlobe.xyz - globeRayO;
+	float globeTca = dot( globeL, globeRayD );
+	float globeD2 = dot( globeL, globeL ) - globeTca * globeTca;
+	float globeR2 = vGlobe.w * vGlobe.w;
+	if ( globeD2 > globeR2 ) discard;
+	vec3 globePos = globeRayO + globeRayD * ( globeTca - sqrt( globeR2 - globeD2 ) );
+	vec3 globeNormal = normalize( globePos - vGlobe.xyz );
+	float globeZW = ( vGlobeDepthRow.x * globePos.z + vGlobeDepthRow.y ) / ( vGlobeDepthRow.z * globePos.z + vGlobeDepthRow.w );
+	#ifdef USE_REVERSED_DEPTH_BUFFER
+		float globeDepth = globeZW;
+	#else
+		float globeDepth = 0.5 * globeZW + 0.5;
+	#endif
+	gl_FragDepth = globeDepth;
+`;
+/** The lit material's normal is the sphere's (replaces three's `normal_fragment_begin`). */
+const GLOBE_NORMAL = `
+float faceDirection = 1.0;
+vec3 normal = globeNormal;
+vec3 nonPerturbedNormal = normal;
+`;
+const GLOBE_POSITION_SEAM = 'vec3 geometryPosition = - vViewPosition;';
+const GLOBE_DEPTH_SEAM = 'float fragCoordZ = 0.5 * vHighPrecisionZW[ 0 ] / vHighPrecisionZW[ 1 ] + 0.5;';
+const GLOBE_DEPTH_SEAM_REVERSED = 'float fragCoordZ = vHighPrecisionZW[ 0 ] / vHighPrecisionZW[ 1 ];';
+
+/**
+ * Patch a material so it draws buildGlobeCards' geometry as spheres. A MeshStandardMaterial is lit as a
+ * sphere (its normal and its light vectors from the hit); a MeshDepthMaterial packs the hit's depth; any
+ * other material (a MeshBasicMaterial a tool draws an ID mask with) gets the outline and the depth. Every
+ * seam is asserted, because an injection that matches nothing renders a degenerate card — nothing at all
+ * — and a gate measuring it would report the globe missing rather than the patch (CLAUDE.md,
+ * "`onBeforeCompile` hands you UNRESOLVED includes": each seam below is top-level in the material's own
+ * shader, or is a line of a chunk this function inlines itself). Returns the material.
+ */
+export function patchGlobeImpostor(material) {
+  const kind = material.isMeshStandardMaterial ? 'lit' : material.isMeshDepthMaterial ? 'depth' : 'flat';
+  const prior = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    if (prior) prior(shader, renderer);
+    const need = (src, seam, what) => {
+      if (!src.includes(seam)) throw new Error(`patchGlobeImpostor (${kind}): no "${seam}" in the ${what}; the globe would draw nothing`);
+    };
+    need(shader.vertexShader, 'void main() {', 'vertex shader');
+    need(shader.vertexShader, '#include <project_vertex>', 'vertex shader');
+    shader.vertexShader = shader.vertexShader
+      .replace('void main() {', `${GLOBE_VERT_PARS}\nvoid main() {`)
+      .replace('#include <project_vertex>', GLOBE_PROJECT);
+    need(shader.fragmentShader, 'void main() {', 'fragment shader');
+    let fs = shader.fragmentShader.replace('void main() {', `${GLOBE_FRAG_PARS}\nvoid main() {\n${GLOBE_HIT}`);
+    if (kind === 'lit') {
+      need(fs, '#include <normal_fragment_begin>', 'fragment shader');
+      need(fs, '#include <lights_fragment_begin>', 'fragment shader');
+      const lights = THREE.ShaderChunk.lights_fragment_begin;
+      need(lights, GLOBE_POSITION_SEAM, 'lights_fragment_begin chunk');
+      fs = fs.replace('#include <normal_fragment_begin>', GLOBE_NORMAL)
+        .replace('#include <lights_fragment_begin>', lights.replace(GLOBE_POSITION_SEAM, 'vec3 geometryPosition = globePos;'));
+    } else if (kind === 'depth') {
+      need(fs, GLOBE_DEPTH_SEAM, 'depth fragment shader');
+      fs = fs.replace(GLOBE_DEPTH_SEAM, 'float fragCoordZ = globeDepth;').replace(GLOBE_DEPTH_SEAM_REVERSED, 'float fragCoordZ = globeDepth;');
+    }
+    shader.fragmentShader = fs;
+  };
+  // A program of its own: three would otherwise hand back an unpatched program of the same type. A prior
+  // patch's source goes into the key with it, so two different priors cannot share a program either.
+  const key = `lampGlobe140:${kind}${prior ? `+${prior.toString()}` : ''}`;
+  material.customProgramCacheKey = () => key;
+  material.userData.globeImpostor = kind;
+  return material;
+}
+
+/** The sun's view of a globe: a disc facing it, at the sphere's depth (RGBA packing, as three's own). */
+export function globeDepthMaterial() {
+  return patchGlobeImpostor(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }));
+}
+
 // ---------------------------------------------------------------- the module
 export class StreetFurniture {
   constructor(scene, opts = {}) {
@@ -3499,9 +3719,13 @@ export class StreetFurniture {
     const metal = new THREE.MeshStandardMaterial({ color: 0x1a1c1f, roughness: 0.62, metalness: 0.34 });
     // Lamp globes are emissive geometry; the actual illumination comes from the
     // LightPool, so these can be instanced freely.
-    this.headMat = new THREE.MeshStandardMaterial({
+    // #140: drawn as ray-cast spheres on camera-facing cards (buildGlobeCards, patchGlobeImpostor). Its
+    // shadow side is both, because in the sun's pass the card faces the sun and three would otherwise
+    // draw a FrontSide material's back faces there (`shadowSide ?? flip(side)` in the vendored build).
+    this.headMat = patchGlobeImpostor(new THREE.MeshStandardMaterial({
       color: 0xd8d2c4, emissive: 0xffd9a0, emissiveIntensity: 0,
-    });
+    }));
+    this.headMat.shadowSide = THREE.DoubleSide;
 
     // The pole is set INTO the pavement, not stood on top of it.
     //
@@ -3532,7 +3756,11 @@ export class StreetFurniture {
     // smooth-shaded reads round. That saving buys both globes.
     //
     //     was   pole 32 + arm 12 + head 12                            =  56
-    //     now   pole 20 + bracket 12 + globe 20 + globe 20            =  72
+    //     then  pole 20 + bracket 12 + globe 20 + globe 20            =  72
+    //     #140  pole 20 + bracket 12 + globe 2 + globe 2              =  36
+    //
+    // (#140: the globes are ray-cast spheres on cards, two triangles each, in both passes — 44,208
+    // triangles fewer at 1,228 lamps, x2.00 in the gate's units, -88,416. See buildGlobeCards.)
     //
     // THE OUTER GLOBE IS EXACTLY WHERE THE HEAD WAS, at (2.2, 7.7). addLamp()
     // returns that point and district/main.js hands it straight to the
@@ -3547,10 +3775,8 @@ export class StreetFurniture {
     // roadway-side one: -1.0 to +LAMP_ARM (2.2), so it is one box and not two.
     const armGeo = new THREE.BoxGeometry(LAMP_ARM + 1.0, 0.13, 0.115);
     armGeo.translate((LAMP_ARM - 1.0) / 2, 7.44, 0);
-    const headGeo = mergeGeos([
-      translated(new THREE.SphereGeometry(0.25, 5, 3), LAMP_ARM, LAMP_HEAD_Y, 0),
-      translated(new THREE.SphereGeometry(0.22, 5, 3), -1.0, 7.66, 0),
-    ]);
+    // #140: two cards, one a globe, each a sphere in the shader. See buildGlobeCards.
+    const headGeo = buildGlobeCards(LAMP_GLOBES);
     // #136: the globe's luminance is derived from its light and from this buffer, not typed. See
     // LAMP_CANDELA. `level` is the one number a tool may move (setGlobeLevel), and every reader
     // reads the luminance it produces back off the material.
@@ -3562,9 +3788,20 @@ export class StreetFurniture {
     // luminaire hanging over the carriageway throws none reads as a mistake. Two
     // more meshes in the shadow pass: 52 of a lamp's 72 triangles, 63,856 at
     // 1,228 lamps (13k when this was written: 543 lamps and a 12-triangle head).
+    // Since #140 the head is 4 of a lamp's 36, so those two meshes are 16 a lamp, 19,648 at 1,228.
+    //
+    // #140 MEASURED THE HEAD'S SHADOW BEFORE KEEPING IT, because "a 0.25 m globe's shadow is under a pixel
+    // past a few metres" had been written down and never checked. At noon from the hero cameras, the
+    // facets' shadow ON against OFF (tools/globe-round.mjs --district, 4448dd7): the fivepoints camera's
+    // nearest pair darken 259 and 91 px of road, 48 x 8 and 36 x 4 px (foreshortened from 3 m up), at a
+    // peak of 0.60 and 0.40; the corridor's nearest 113 px, 31 x 5, peak 0.72. A feature a reviewer can
+    // see, so the globes stay in the sun's map: 2 triangles a globe there too.
     this.poles = this._instanced(poleGeo, metal, true);
     this.arms = this._instanced(armGeo, metal, true);
     this.heads = this._instanced(headGeo, this.headMat, true);
+    // The sun sees each globe as the disc a sphere casts: the same card, faced to the sun, at the
+    // sphere's depth. Without it three's own depth material would draw the degenerate cards — no shadow.
+    this.heads.customDepthMaterial = globeDepthMaterial();
     /**
      * NAMED, because tools/tri-buckets.mjs buckets a mesh by its first named ancestor and these three
      * were unnamed under `furniture`: #137's 1,228 lamps are 88,416 triangles that bill x2.00 (three

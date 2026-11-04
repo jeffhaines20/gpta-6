@@ -34,10 +34,12 @@ import { chromium } from 'playwright';
 import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
 import { bucketSource, trisSource } from './tri-buckets.mjs';
-import { luma, triangleArea, physicalLuminance } from './globe-math.mjs';
-// #136's arithmetic as SOURCE for page.evaluate, one IIFE so the functions share a scope.
+import { luma, triangleArea, globeArea, physicalLuminance } from './globe-math.mjs';
+// #136's arithmetic as SOURCE for page.evaluate, one IIFE so the functions share a scope. globeArea (#140)
+// reads the head buffer whichever kind it is, and calls triangleArea for facets.
 const globeMathSource = `(() => { const luma = ${luma.toString()}; const triangleArea = ${triangleArea.toString()};\n`
-  + `const physicalLuminance = ${physicalLuminance.toString()}; return { luma, triangleArea, physicalLuminance }; })()`;
+  + `const globeArea = ${globeArea.toString()};\n`
+  + `const physicalLuminance = ${physicalLuminance.toString()}; return { luma, triangleArea, globeArea, physicalLuminance }; })()`;
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const PORT = Number(process.env.BOOT_PORT ?? 8123);
@@ -306,15 +308,16 @@ if (state.global && state.frames > 2) {
     const off = em.filter((e) => e.candela !== rep.candela || e.color !== rep.color || e.distance !== rep.reach);
     const Color = f.headMat.emissive.constructor;
     const lc = new Color(rep.color);
-    const g = M.triangleArea(f.heads.geometry.attributes.position.array, (x) => x > 0);
-    const physical = M.physicalLuminance(rep.candela, [lc.r, lc.g, lc.b], g.area / 4);
+    const hg = f.heads.geometry;
+    const g = M.globeArea(hg.attributes.position.array, hg.attributes.lampGlobe ? hg.attributes.lampGlobe.array : null, (x) => x > 0);
+    const physical = M.physicalLuminance(rep.candela, [lc.r, lc.g, lc.b], g.meanArea);
     const e = f.headMat.emissive;
     const luminance = M.luma(e.r, e.g, e.b) * f.headMat.emissiveIntensity;
     return { lamps: f.count, emitters: em.length, off: off.length, sample: em[0] ?? null, rep,
-      physical, luminance, lampsOn: !!(d.tod && d.tod.preset && d.tod.preset.lampsOn), triangles: g.triangles };
+      physical, luminance, lampsOn: !!(d.tod && d.tod.preset && d.tod.preset.lampsOn), triangles: g.triangles, kind: g.kind };
   }, globeMathSource);
   console.log(`    globes   ${gs ? `${gs.emitters} emitters for ${gs.lamps} lamps, ${gs.off} off the module's light; ` +
-    `globe ${gs.luminance.toFixed(3)} nits against ${gs.physical.toFixed(1)} physical (${gs.triangles} triangles off the buffer), ` +
+    `globe ${gs.luminance.toFixed(3)} nits against ${gs.physical.toFixed(1)} physical (${gs.kind}, ${gs.triangles} triangles off the buffer), ` +
     `level 1/${(gs.physical / gs.luminance).toFixed(1)} drawn, 1/${(1 / gs.rep.level).toFixed(1)} declared` : 'no report'}`);
   check('every lamp\'s light is the module\'s: one emitter a lamp, each at LAMP_CANDELA, its colour and its reach',
     gs && gs.lamps > 0 && gs.emitters === gs.lamps && gs.off === 0,

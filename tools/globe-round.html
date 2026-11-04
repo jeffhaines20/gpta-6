@@ -1,0 +1,529 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>globe-round</title>
+<!--
+  BACKLOG #140: IS A STREET LAMP'S GLOBE ROUND?
+
+  The page for tools/globe-round.mjs. Two of the district's own lamps, at their own positions and yaws,
+  seen through the hero cameras that saw them — lamp #171 from the fivepoints camera is the globe #136's
+  blind reviewer measured at (134,183)-(163,212), and lamp #283 is the corridor's nearest — plus a view
+  from under a lamp and one level with its globes. Every number is read off rendered pixels or off the
+  depth the renderer wrote, through ONE instrument (tools/globe-round-math.mjs), for each ARM:
+
+      shipped     the module's own head mesh and material, exactly as the district draws it
+      old         SphereGeometry(0.25, 5, 3) + (0.22, 5, 3), the head before #140 (KNOWN-BAD, typed here)
+      ico1        IcosahedronGeometry(r, 1) for both globes: the finer-globe lever, 80 triangles each
+      sphere      SphereGeometry(r, 96, 64): the reference a globe is meant to be
+
+  MEASURED, per arm and camera:
+      outline     a coverage mask of the arm's head mesh alone (a layer nothing else is on, its emissive
+                  forced, no light), rendered 8 times magnified with setViewOffset, its edge read in the
+                  angular frame where an exact sphere is an exact circle
+      frame       the scene target the PostStack drew at the night bars (multisampled, before bloom) and
+                  the canvas it displayed, read along rays for the edge
+      shading     the arm under each hour's sun and sky (no post), against the reference sphere, pixel for
+                  pixel inside both outlines: what the change does to the globe's look lit, half-lit, unlit
+      depth       the depth the renderer wrote over the globe, against the sphere's front surface — what
+                  the AO and the fog read
+      shadow      the head mesh alone casting the noon sun onto a white ground, seen from straight above,
+                  ON against OFF: the area it darkens against a sphere's, pi r^2 / sin(elevation)
+-->
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+<script type="module">
+import * as THREE from '../vendor/three.module.min.js';
+import { PostStack } from '../src/post.js';
+import { PRESETS } from '../src/daynight.js';
+import { StreetFurniture, LAMP_GLOBES, LAMP_GLOBE_LEVEL, globeMeanArea, patchGlobeImpostor } from '../src/streetfurniture.js';
+import * as RM from './globe-round-math.mjs';
+
+const W = 1600, H = 900, K = 8;
+const qs = new URLSearchParams(location.search);
+try {
+  const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(W, H);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  document.body.appendChild(renderer.domElement);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0, 0, 0);
+  const camera = new THREE.PerspectiveCamera(48, W / H, 0.1, 400);
+
+  // ---- THE LAMPS: the module's own fixture at two of the district's own posts (src/streetfurniture.js
+  // placeStreetLamps, read back off its instance matrices at 4448dd7: lamp 171 and lamp 283).
+  const LAMPS = [
+    { id: 171, x: 47.2009, z: -170.0043, yaw: -1.569892 },
+    { id: 283, x: 133.884, z: -157.2582, yaw: 1.566152 },
+  ];
+  const fur = new StreetFurniture(scene, { max: 4 });
+  for (const L of LAMPS) fur.addLamp(L.x, L.z, L.yaw);
+  fur.commit();
+  fur.setLit(true);
+
+  // ---- THE ARMS. `shipped` is the module's mesh; the others share its instance matrices.
+  const merged = (parts) => {
+    const geos = parts.map((g) => (g.index ? g.toNonIndexed() : g));
+    const out = new THREE.BufferGeometry();
+    for (const name of ['position', 'normal']) {
+      const n = geos.reduce((a, g) => a + g.attributes[name].array.length, 0);
+      const arr = new Float32Array(n);
+      let o = 0;
+      for (const g of geos) { arr.set(g.attributes[name].array, o); o += g.attributes[name].array.length; }
+      out.setAttribute(name, new THREE.BufferAttribute(arr, 3));
+    }
+    return out;
+  };
+  const at = (g, G) => g.translate(G.x, G.y, G.z);
+  const twoGlobes = (make) => merged(LAMP_GLOBES.map((G) => at(make(G.r), G)));
+  const plainMat = () => new THREE.MeshStandardMaterial({ color: 0xd8d2c4, emissive: 0xffd9a0, emissiveIntensity: 0 });
+  const arms = {
+    shipped: fur.heads,
+    old: new THREE.InstancedMesh(twoGlobes((r) => new THREE.SphereGeometry(r, 5, 3)), plainMat(), 4),
+    ico1: new THREE.InstancedMesh(twoGlobes((r) => new THREE.IcosahedronGeometry(r, 1)), plainMat(), 4),
+    sphere: new THREE.InstancedMesh(twoGlobes((r) => new THREE.SphereGeometry(r, 96, 64)), plainMat(), 4),
+  };
+  const m4 = new THREE.Matrix4();
+  for (const [name, m] of Object.entries(arms)) {
+    if (name === 'shipped') continue;
+    m.count = fur.heads.count;
+    for (let i = 0; i < m.count; i++) { fur.heads.getMatrixAt(i, m4); m.setMatrixAt(i, m4); }
+    m.instanceMatrix.needsUpdate = true;
+    m.frustumCulled = false;
+    m.castShadow = true;
+    m.name = `arm:${name}`;
+    scene.add(m);
+  }
+  const ARM_NAMES = Object.keys(arms);
+  const show = (only) => { for (const [n, m] of Object.entries(arms)) m.visible = n === only; };
+  const matOf = (n) => (n === 'shipped' ? fur.headMat : arms[n].material);
+  const setEmissive = (v) => { for (const n of ARM_NAMES) matOf(n).emissiveIntensity = v; };
+  // The triangles each arm's head buffer carries, a lamp: what the colour pass and the sun's map pay.
+  const trisOf = (m) => (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3;
+
+  // ---- THE CAMERAS. The hero framings' own poses (tools/hero-cams.mjs placeHeroCam, at 4448dd7), and two
+  // more about lamp 171: from under it and level with its globes.
+  const g171 = new THREE.Vector3(LAMP_GLOBES[0].x, LAMP_GLOBES[0].y, LAMP_GLOBES[0].z);
+  fur.heads.getMatrixAt(0, m4);
+  g171.applyMatrix4(m4);
+  const CAMS = [
+    { name: 'fp171', pos: [31.4507, 3, -156.8175], at: [257.45, 12, -163.8395], fov: 48, lamp: 0 },
+    { name: 'cor283', pos: [112.45, 2.4, -163.8254], at: [317.45, 16, -163.8454], fov: 55, lamp: 1 },
+    { name: 'under', pos: [g171.x - 4.5, 1.6, g171.z + 3.0], at: [g171.x, g171.y, g171.z], fov: 55, lamp: 0 },
+    { name: 'level', pos: [g171.x - 9.0, 7.7, g171.z + 9.0], at: [g171.x, g171.y, g171.z], fov: 55, lamp: 0 },
+  ];
+  const place = (c) => {
+    camera.fov = c.fov;
+    camera.position.set(...c.pos);
+    camera.lookAt(...c.at);
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld(true);
+  };
+  // Every globe of a camera's lamp that is in its frame, with where it is.
+  const globesIn = (c) => {
+    place(c);
+    fur.heads.getMatrixAt(c.lamp, m4);
+    const out = [];
+    for (const [gi, G] of LAMP_GLOBES.entries()) {
+      const v = new THREE.Vector3(G.x, G.y, G.z).applyMatrix4(m4).applyMatrix4(camera.matrixWorldInverse);
+      if (!(v.z < -0.5)) continue;
+      const on = RM.globeOnScreen([v.x, v.y, v.z], G.r, { W, H, fov: c.fov });
+      if (on.sx < on.rRad + 4 || on.sy < on.rRad + 4 || on.sx > W - on.rRad - 4 || on.sy > H - on.rRad - 4) continue;
+      out.push({ gi, r: G.r, view: [v.x, v.y, v.z], on });
+    }
+    return out;
+  };
+
+  // ---- THE OUTLINE: the arm's head mesh alone, magnified. Its own material, its emissive forced up so
+  // the globe saturates whatever it is lit by, and no light, because nothing on layer 31 is one.
+  const maskTarget = (w, h) => new THREE.WebGLRenderTarget(w, h);
+  const outline = (arm, c, g) => {
+    place(c);
+    const half = Math.ceil(g.on.rRad * 1.5) + 3;
+    const x0 = Math.floor(g.on.sx - half), y0 = Math.floor(g.on.sy - half), w = 2 * half * K, h = w;
+    const rt = maskTarget(w, h);
+    const m = arms[arm];
+    show(arm);
+    m.layers.enable(31);
+    camera.layers.set(31);
+    setEmissive(1000);
+    camera.setViewOffset(W * K, H * K, x0 * K, y0 * K, w, h);
+    renderer.setRenderTarget(rt);
+    renderer.setClearColor(0x000000, 1);
+    renderer.clear();
+    renderer.render(scene, camera);
+    const px = new Uint8Array(w * h * 4);
+    renderer.readRenderTargetPixels(rt, 0, 0, w, h, px);
+    renderer.setRenderTarget(null);
+    camera.clearViewOffset();
+    camera.layers.set(0);
+    m.layers.disable(31);
+    fur.setGlobeLevel(LAMP_GLOBE_LEVEL);
+    setEmissive(fur.headMat.emissiveIntensity);
+    rt.dispose();
+    const mask = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) mask[y * w + x] = px[((h - 1 - y) * w + x) * 4] > 127 ? 1 : 0;
+    const S = RM.silhouetteProfile(mask, w, h, { W, H, fov: c.fov, k: K, x0, y0 }, g.view, g.r);
+    return { dev: S.dev ?? null, fitDev: S.fitDev ?? null, rms: S.rms ?? null, size: S.size ?? null, off: S.off ?? null,
+      n: S.n ?? 0, refused: S.refused ?? null, profile: S.profile ?? null };
+  };
+  // The hull of an arm's own vertices for that globe, carried into view space: the second protocol.
+  const hullOf = (arm, c, g) => {
+    if (arm === 'shipped') return null;
+    place(c);
+    fur.heads.getMatrixAt(c.lamp, m4);
+    const p = arms[arm].geometry.attributes.position, G = LAMP_GLOBES[g.gi];
+    const verts = [];
+    const v = new THREE.Vector3();
+    for (let i = 0; i < p.count; i++) {
+      v.fromBufferAttribute(p, i);
+      if (Math.hypot(v.x - G.x, v.y - G.y, v.z - G.z) > G.r * 1.01) continue;
+      v.applyMatrix4(m4).applyMatrix4(camera.matrixWorldInverse);
+      verts.push([v.x, v.y, v.z]);
+    }
+    return RM.hullRoundness(verts, g.view);
+  };
+
+  // ---- THE FRAME, through the real PostStack at the night bars: the scene target as drawn and the
+  // canvas it displayed. The lamp's own light is not placed — globe-level measures that — so the scene is
+  // the fixture on black, which is what makes an edge readable at all.
+  const post = new PostStack(renderer, scene, camera);
+  post.setSize(W, H);
+  const q = post.params;
+  q.aoEnabled = false;
+  q.fogDensity = 0;
+  const HALF = new Float32Array(65536);
+  for (let v = 0; v < 65536; v++) {
+    const sg = (v & 0x8000) ? -1 : 1, e = (v >> 10) & 0x1f, f = v & 0x3ff;
+    HALF[v] = e === 0 ? sg * f * 5.9604644775390625e-8 : e === 31 ? (f ? NaN : sg * Infinity) : sg * Math.pow(2, e - 15) * (1 + f / 1024);
+  }
+  const luma = (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const hdrPlane = () => {
+    const rt = post.hdr, raw = new Uint16Array(rt.width * rt.height * 4);
+    renderer.readRenderTargetPixels(rt, 0, 0, rt.width, rt.height, raw);
+    const out = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const o = ((H - 1 - y) * W + x) * 4;
+      out[y * W + x] = luma(HALF[raw[o]], HALF[raw[o + 1]], HALF[raw[o + 2]]);
+    }
+    return out;
+  };
+  const srgbLin = new Float64Array(256);
+  for (let i = 0; i < 256; i++) { const c = i / 255; srgbLin[i] = c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }
+  const gl = renderer.getContext();
+  const canvasPlane = () => {
+    const px = new Uint8Array(W * H * 4);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const out = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const o = ((H - 1 - y) * W + x) * 4;
+      out[y * W + x] = luma(srgbLin[px[o]], srgbLin[px[o + 1]], srgbLin[px[o + 2]]);
+    }
+    return out;
+  };
+  const night = PRESETS.night;
+  // `fixture` false hides the post and the bracket: at night they are as black as the sky behind them, so
+  // where the bracket crosses the globe a ray reads its edge as the globe's and no test on the ray can
+  // tell the two blacks apart. Both are kept in the report; the gate reads the globe alone.
+  const frame = (arm, c, gs, fixture = false) => {
+    place(c);
+    show(arm);
+    fur.poles.visible = fur.arms.visible = fixture;
+    fur.setGlobeLevel(LAMP_GLOBE_LEVEL);
+    const lit = fur.headMat.emissiveIntensity;
+    setEmissive(lit);
+    q.exposure = night.exposure;
+    q.bloomThreshold = night.post.bloomThreshold;
+    q.bloomThresholdLit = night.post.bloomThresholdLit ?? 0;
+    q.bloomStrength = night.post.bloomStrength;
+    post.render();
+    const scenePlane = hdrPlane(), shown = canvasPlane();
+    return gs.map((g) => {
+      const crop = { W, H, fov: c.fov, k: 1, x0: 0, y0: 0 };
+      const A = RM.radialEdge(scenePlane, W, H, crop, g.view, g.r);
+      const B = RM.radialEdge(shown, W, H, crop, g.view, g.r, { minContrast: 0.05 });
+      const pick = (E) => ({ dev: E.dev ?? null, size: E.size ?? null, missed: E.missed ?? null, occluded: E.occluded ?? null,
+        refused: E.refused ?? null });
+      return { gi: g.gi, hdr: pick(A), shown: pick(B) };
+    });
+  };
+
+  // ---- THE SHADING, under each hour's sun and sky: every arm against the reference sphere, pixel for
+  // pixel over a crop round the globe, no post (linear radiance off a float target).
+  const sun = new THREE.DirectionalLight(0xffffff, 0);
+  const sky = new THREE.HemisphereLight(0xffffff, 0x777777, 0);
+  scene.add(sun, sun.target, sky);
+  const sunDir = (p) => new THREE.Vector3(Math.cos(p.azimuth) * Math.cos(p.elevation), Math.sin(p.elevation),
+    Math.sin(p.azimuth) * Math.cos(p.elevation));
+  const floatTarget = (w, h) => new THREE.WebGLRenderTarget(w, h, { type: THREE.FloatType });
+  const shadeCrop = (arm, c, g, hour) => {
+    const p = PRESETS[hour];
+    place(c);
+    show(arm);
+    fur.poles.visible = fur.arms.visible = false;
+    fur.setGlobeLevel(LAMP_GLOBE_LEVEL);
+    setEmissive(p.lampsOn ? fur.headMat.emissiveIntensity : 0);
+    if (!p.lampsOn) fur.headMat.emissiveIntensity = 0;
+    const d = sunDir(p);
+    sun.position.set(g171.x + d.x * 50, g171.y + d.y * 50, g171.z + d.z * 50);
+    sun.target.position.copy(g171);
+    sun.intensity = p.sunLux;
+    sun.castShadow = false;
+    sky.intensity = p.skyLux;
+    const half = Math.ceil(g.on.rRad * 1.4) + 3;
+    const x0 = Math.floor(g.on.sx - half), y0 = Math.floor(g.on.sy - half), w = 2 * half, h = w;
+    const rt = floatTarget(w, h);
+    camera.setViewOffset(W, H, x0, y0, w, h);
+    renderer.setRenderTarget(rt);
+    renderer.setClearColor(0x000000, 1);
+    renderer.clear();
+    renderer.render(scene, camera);
+    const f = new Float32Array(w * h * 4);
+    renderer.readRenderTargetPixels(rt, 0, 0, w, h, f);
+    renderer.setRenderTarget(null);
+    camera.clearViewOffset();
+    rt.dispose();
+    sun.intensity = 0;
+    sky.intensity = 0;
+    fur.setGlobeLevel(LAMP_GLOBE_LEVEL);
+    const L = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const o = ((h - 1 - y) * w + x) * 4;
+      L[y * w + x] = luma(f[o], f[o + 1], f[o + 2]);
+    }
+    return { L, w, h, x0, y0 };
+  };
+  const shading = (c, g, hour) => {
+    const ref = shadeCrop('sphere', c, g, hour);
+    const F = RM.rectFrame(g.view);
+    // Inside the sphere's outline by at least 1.5 pixels, judged off the geometry: the rim is where a
+    // multisample-free render of a polygon and of a sphere legitimately disagree by a pixel.
+    const inner = new Uint8Array(ref.w * ref.h);
+    const tanIn = Math.tan(Math.asin(g.r / Math.hypot(...g.view))) - 1.5 / g.on.rTan * Math.tan(Math.asin(g.r / Math.hypot(...g.view)));
+    for (let y = 0; y < ref.h; y++) for (let x = 0; x < ref.w; x++) {
+      const pp = RM.rectify(RM.cropRay(ref.x0 + x + 0.5, ref.y0 + y + 0.5, { W, H, fov: c.fov }), F);
+      inner[y * ref.w + x] = pp && Math.hypot(pp[0], pp[1]) <= tanIn ? 1 : 0;
+    }
+    const out = { refMedian: null };
+    const refVals = [];
+    for (let i = 0; i < inner.length; i++) if (inner[i]) refVals.push(ref.L[i]);
+    refVals.sort((a, b) => a - b);
+    out.refMedian = refVals.length ? refVals[refVals.length >> 1] : null;
+    out.refSpread = refVals.length ? refVals[Math.floor(refVals.length * 0.95)] / Math.max(1e-9, refVals[Math.floor(refVals.length * 0.05)]) : null;
+    out.px = refVals.length;
+    for (const arm of ['shipped', 'old', 'ico1']) {
+      const a = shadeCrop(arm, c, g, hour);
+      const rel = [];
+      let missing = 0;
+      for (let i = 0; i < inner.length; i++) {
+        if (!inner[i]) continue;
+        if (!(a.L[i] > 0) && ref.L[i] > 0) { missing++; continue; }
+        rel.push(Math.abs(a.L[i] - ref.L[i]) / Math.max(1e-9, ref.L[i]));
+      }
+      rel.sort((x, y) => x - y);
+      out[arm] = { p50: rel.length ? rel[rel.length >> 1] : null, p95: rel.length ? rel[Math.floor(rel.length * 0.95)] : null,
+        missing, n: rel.length };
+    }
+    return out;
+  };
+
+  // ---- THE DEPTH the renderer wrote over the globe, against the sphere's front surface.
+  const copyMat = new THREE.ShaderMaterial({
+    uniforms: { tDepth: { value: null } },
+    vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: 'uniform sampler2D tDepth; varying vec2 vUv; void main() { gl_FragColor = vec4(texture2D(tDepth, vUv).x, 0.0, 0.0, 1.0); }',
+    depthTest: false, depthWrite: false,
+  });
+  const copyScene = new THREE.Scene();
+  copyScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), copyMat));
+  const copyCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  // A CARD, the defect this check is for: the shipped material with its depth write taken out, typed here
+  // as a known-bad the way tools/globe-level.html types the old intensity.
+  const cardMat = patchGlobeImpostor(new THREE.MeshStandardMaterial({ color: 0xd8d2c4, emissive: 0xffd9a0, emissiveIntensity: 1 }));
+  {
+    const inner = cardMat.onBeforeCompile;
+    cardMat.onBeforeCompile = (sh, r) => {
+      inner(sh, r);
+      // NO THROW when there is no write to take out. Then the SHIPPED shader has none either, which is the
+      // very defect the depth check exists for, so the check has to run and fail rather than the page die:
+      // the first version threw here, and mutation-sweep's globe-card-depth row read "caught by
+      // globe-round(threw)" — a catch by accident. A strip that took nothing out is still caught, by the
+      // known-bad's own liveness bound (a card over 10 cm off the sphere's front).
+      sh.fragmentShader = sh.fragmentShader.replace('gl_FragDepth = globeDepth;', '');
+    };
+    cardMat.customProgramCacheKey = () => 'globeRoundCardKnownBad';
+  }
+  const depthError = (which, c, g) => {
+    place(c);
+    show('shipped');
+    fur.poles.visible = fur.arms.visible = false;
+    const saved = fur.heads.material;
+    if (which === 'card') fur.heads.material = cardMat;
+    const half = Math.ceil(g.on.rRad * 1.4) + 3;
+    const x0 = Math.floor(g.on.sx - half), y0 = Math.floor(g.on.sy - half), w = 2 * half, h = w;
+    const rt = new THREE.WebGLRenderTarget(w, h);
+    rt.depthTexture = new THREE.DepthTexture(w, h);
+    rt.depthTexture.type = THREE.FloatType;
+    camera.setViewOffset(W, H, x0, y0, w, h);
+    renderer.setRenderTarget(rt);
+    renderer.setClearColor(0x000000, 1);
+    renderer.clear();
+    renderer.render(scene, camera);
+    const out = floatTarget(w, h);
+    copyMat.uniforms.tDepth.value = rt.depthTexture;
+    renderer.setRenderTarget(out);
+    renderer.render(copyScene, copyCam);
+    const f = new Float32Array(w * h * 4);
+    renderer.readRenderTargetPixels(out, 0, 0, w, h, f);
+    renderer.setRenderTarget(null);
+    fur.heads.material = saved;
+    const P = camera.projectionMatrix.elements;   // column-major: P[10] = P22, P[14] = P32
+    camera.clearViewOffset();
+    rt.dispose(); out.dispose();
+    let worst = 0, n = 0, sumErr = 0;
+    const L = [g.view[0], g.view[1], g.view[2]], r2 = g.r * g.r;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const dd = f[((h - 1 - y) * w + x) * 4];
+      if (!(dd < 0.999999)) continue;
+      const ray = RM.cropRay(x0 + x + 0.5, y0 + y + 0.5, { W, H, fov: c.fov });
+      const rl = Math.hypot(...ray), D = ray.map((v) => v / rl);
+      const tca = L[0] * D[0] + L[1] * D[1] + L[2] * D[2];
+      const d2 = L[0] * L[0] + L[1] * L[1] + L[2] * L[2] - tca * tca;
+      if (d2 > r2) continue;                       // the sphere's own outline: outside it a card still draws
+      const zTrue = D[2] * (tca - Math.sqrt(r2 - d2));
+      const zRead = -P[14] / ((2 * dd - 1) + P[10]);
+      const e = Math.abs(zRead - zTrue);
+      worst = Math.max(worst, e); sumErr += e; n++;
+    }
+    return { worst, mean: n ? sumErr / n : null, n };
+  };
+
+  // ---- THE SHADOW at noon, from straight above: the head mesh alone casting onto a white ground.
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshLambertMaterial({ color: 0xffffff }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(g171.x, 0, g171.z);
+  ground.receiveShadow = true;
+  ground.visible = false;
+  scene.add(ground);
+  const shadowArm = (arm) => {
+    const p = PRESETS.noon, d = sunDir(p);
+    const lampGlobes = LAMP_GLOBES.map((G) => new THREE.Vector3(G.x, G.y, G.z).applyMatrix4((fur.heads.getMatrixAt(0, m4), m4)));
+    const mid = lampGlobes[0].clone().add(lampGlobes[1]).multiplyScalar(0.5);
+    const foot = (v) => new THREE.Vector3(v.x - d.x * v.y / d.y, 0, v.z - d.z * v.y / d.y);
+    const feet = lampGlobes.map(foot), fmid = foot(mid);
+    sun.position.copy(mid).addScaledVector(d, 60);
+    sun.target.position.copy(mid);
+    sun.target.updateMatrixWorld();
+    sun.intensity = 1;
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6, near: 1, far: 150 });
+    sun.shadow.camera.updateProjectionMatrix();
+    sun.shadow.bias = -0.0006;
+    sky.intensity = 0;
+    ground.visible = true;
+    show(arm);
+    fur.poles.visible = fur.arms.visible = false;
+    for (const n of ARM_NAMES) arms[n].castShadow = n === arm;
+    const S = 6, N = 600;
+    // Three metres up, looking straight down: the globes (7.4 m and up) are BEHIND it, so they cast in the
+    // sun's pass and are not drawn in this one. Hiding them by layer would not do: the vendored shadow pass
+    // tests a caster against the RENDERING camera's layers, so a globe off this camera's layer casts nothing.
+    const top = new THREE.OrthographicCamera(-S / 2, S / 2, S / 2, -S / 2, 0.5, 10);
+    top.position.set(fmid.x, 3, fmid.z);
+    top.up.set(0, 0, -1);
+    top.lookAt(fmid.x, 0, fmid.z);
+    top.updateMatrixWorld(true);
+    const rt = floatTarget(N, N);
+    const shot = () => {
+      renderer.setRenderTarget(rt);
+      renderer.setClearColor(0x000000, 1);
+      renderer.clear();
+      renderer.render(scene, top);
+      const f = new Float32Array(N * N * 4);
+      renderer.readRenderTargetPixels(rt, 0, 0, N, N, f);
+      renderer.setRenderTarget(null);
+      const L = new Float32Array(N * N);
+      for (let i = 0; i < N * N; i++) L[i] = luma(f[i * 4], f[i * 4 + 1], f[i * 4 + 2]);
+      return L;
+    };
+    const on = shot();
+    arms[arm].castShadow = false;
+    const off = shot();
+    arms[arm].castShadow = true;
+    rt.dispose();
+    ground.visible = false;
+    sun.castShadow = false;
+    sun.intensity = 0;
+    for (const n of ARM_NAMES) arms[n].castShadow = true;
+    // The darkened area a globe, within 1 m of where a sphere's shadow centre falls.
+    const px = S / N;
+    return feet.map((ft, gi) => {
+      let area = 0, peak = 0;
+      for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+        // the render target's rows are bottom-up; top's up is world -z, so row j from the bottom is
+        // world z = fmid.z + S/2 - (j + 0.5) * px, and column i is x = fmid.x - S/2 + (i + 0.5) * px
+        const wx = fmid.x - S / 2 + (i + 0.5) * px, wz = fmid.z + S / 2 - (j + 0.5) * px;
+        if (Math.hypot(wx - ft.x, wz - ft.z) > 1.0) continue;
+        const k = j * N + i;
+        if (!(off[k] > 0)) continue;
+        const occ = Math.max(0, 1 - on[k] / off[k]);
+        area += occ * px * px;
+        peak = Math.max(peak, occ);
+      }
+      const r = LAMP_GLOBES[gi].r;
+      const sphere = Math.PI * r * r / d.y;
+      return { gi, area, sphere, ratio: area / sphere, peak };
+    });
+  };
+
+  // ---- RUN.
+  const runs = [];
+  for (const c of CAMS) {
+    const gs = globesIn(c);
+    const frames = {}, fixtures = {};
+    for (const arm of ARM_NAMES) { frames[arm] = frame(arm, c, gs); fixtures[arm] = frame(arm, c, gs, true); }
+    for (const g of gs) {
+      const row = { cam: c.name, gi: g.gi, r: g.r, dist: g.on.dist, theta: g.on.theta * 180 / Math.PI,
+        sx: g.on.sx, sy: g.on.sy, rTan: g.on.rTan, rRad: g.on.rRad, arms: {} };
+      for (const arm of ARM_NAMES) {
+        const fr = frames[arm].find((x) => x.gi === g.gi), fx = fixtures[arm].find((x) => x.gi === g.gi);
+        row.arms[arm] = { outline: outline(arm, c, g), hull: hullOf(arm, c, g), hdr: fr ? fr.hdr : null, shown: fr ? fr.shown : null,
+          hdrFixture: fx ? fx.hdr : null };
+      }
+      if (c.name === 'fp171' || c.name === 'under') {
+        row.shading = {};
+        for (const hour of ['noon', 'dusk', 'night']) row.shading[hour] = shading(c, g, hour);
+        row.depth = { shipped: depthError('shipped', c, g), card: depthError('card', c, g) };
+      }
+      runs.push(row);
+    }
+  }
+  const shadows = {};
+  for (const arm of ['shipped', 'old', 'ico1', 'sphere']) shadows[arm] = shadowArm(arm);
+  fur.setGlobeLevel(LAMP_GLOBE_LEVEL);
+
+  // What the module's head buffer says about itself, read back rather than taken from the module.
+  const cardAttr = fur.heads.geometry.attributes.lampGlobe;
+  const posAttr = fur.heads.geometry.attributes.position;
+  const bufGlobes = [];
+  if (cardAttr) {
+    for (let i = 0; i < cardAttr.count; i++) {
+      const c = [posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i), cardAttr.getZ(i)];
+      if (!bufGlobes.some((b) => b.every((v, k) => Math.abs(v - c[k]) < 1e-6))) bufGlobes.push(c);
+    }
+  }
+  window.__globeRound = {
+    size: { w: W, h: H, k: K },
+    module: { globes: LAMP_GLOBES, level: LAMP_GLOBE_LEVEL, report: fur.globeReport(),
+      material: fur.headMat.userData.globeImpostor ?? null,
+      depthMaterial: fur.heads.customDepthMaterial ? (fur.heads.customDepthMaterial.userData.globeImpostor ?? 'unpatched') : null,
+      castShadow: !!fur.heads.castShadow, meanArea: globeMeanArea(fur.heads.geometry) },
+    buffer: { globes: bufGlobes, attributes: Object.keys(fur.heads.geometry.attributes) },
+    triangles: Object.fromEntries(ARM_NAMES.map((n) => [n, trisOf(arms[n])])),
+    runs, shadows,
+    noonSun: sunDir(PRESETS.noon).toArray(),
+  };
+} catch (e) {
+  window.__globeRound = { error: String(e && e.stack || e) };
+}
+</script>
