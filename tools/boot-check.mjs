@@ -289,6 +289,38 @@ if (state.global && state.frames > 2) {
 }
 
 /**
+ * AND THE PAGE DRAWS THE STENCIL'S CUT ZONES WITH COVERAGE (#145). tools/leaf-cover.mjs proves the
+ * material, the split and the depth material on a bucket the module welds itself; what it cannot see
+ * is the HOST: district/main.js builds the furniture with whatever `foliageCoverage` it passes, and
+ * `?foliage=` switches it. So the wire is read off the live page: the coverage material is the one
+ * the module ships (centred, with the bark rim), the buckets that carry it draw it as their second
+ * group beside the shared material, and every one of them casts through the foliage depth material.
+ */
+{
+  const fol = await page.evaluate(() => {
+    const f = window.__district.furniture;
+    if (!f || !f.foliageMat) return null;
+    const meshes = f.propMeshes ?? [];
+    const withFol = meshes.filter((m) => (Array.isArray(m.material) ? m.material.includes(f.foliageMat) : m.material === f.foliageMat));
+    return {
+      mode: f.foliageMat.userData.coverage, rim: f.foliageMat.userData.rim, a2c: f.foliageMat.alphaToCoverage,
+      buckets: meshes.length, coverageBuckets: f.coverageBuckets, withFol: withFol.length,
+      paired: withFol.filter((m) => !Array.isArray(m.material) || (m.material[0] === f.propMat && m.material[1] === f.foliageMat)).length,
+      depth: withFol.filter((m) => m.customDepthMaterial && m.customDepthMaterial.name === 'foliageDepth').length,
+      strayDepth: meshes.filter((m) => !withFol.includes(m) && m.customDepthMaterial).length,
+    };
+  });
+  console.log(`  foliage coverage: ${JSON.stringify(fol)}`);
+  check('the page draws the stencil\'s cut zones with the coverage the module ships (#145)',
+    fol && fol.mode === 'centred' && fol.rim === true && fol.a2c === true,
+    fol ? `mode ${fol.mode}, rim ${fol.rim}, alphaToCoverage ${fol.a2c}` : 'no furniture.foliageMat on the page');
+  check('and every bucket that carries it pairs it with the shared material and casts through the foliage depth material',
+    fol && fol.withFol > 0 && fol.withFol === fol.coverageBuckets && fol.paired === fol.withFol && fol.depth === fol.withFol && fol.strayDepth === 0,
+    fol ? `${fol.withFol} of ${fol.buckets} buckets carry it (module counts ${fol.coverageBuckets}), ${fol.paired} paired, `
+      + `${fol.depth} with the foliage depth material, ${fol.strayDepth} others with any custom depth` : 'absent');
+}
+
+/**
  * AND EACH LAMP'S LIGHT AND ITS GLOBE ARE ONE DEFINITION (#136). The globe's luminance is derived
  * from the light the LightPool places — src/streetfurniture.js LAMP_CANDELA — and the light is placed
  * by district/main.js, which is imported by no offline gate. So the wire is asserted here, off the

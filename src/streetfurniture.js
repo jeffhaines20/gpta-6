@@ -740,7 +740,7 @@ function weldBucket(b, mat, fol) {
 }
 
 /** The coverage material: `base` cloned, with alpha to coverage and the centred ramp. */
-function foliageMaterial(base, mode = 'centred') {
+function foliageMaterial(base, mode = 'centred', rim = true) {
   const m = base.clone();
   m.name = 'foliageCoverage';
   // The clone shares base's Color for nothing: emissive is set on both by _applyEmissive, and this
@@ -751,7 +751,7 @@ function foliageMaterial(base, mode = 'centred') {
     }
     shader.fragmentShader = shader.fragmentShader.replace(COVERAGE_SEAM, COVERAGE_GLSL);
   };
-  setCoverageMode(m, mode);
+  setCoverageMode(m, mode ?? 'centred', rim);
   return m;
 }
 function setCoverageMode(m, mode, rim = m.userData.rim ?? true) {
@@ -4572,7 +4572,7 @@ export class StreetFurniture {
     const mat = propMaterial();
     this.propMat = mat;
     // #145: the cut zones' own material. See foliageMaterial.
-    const fol = foliageMaterial(mat, opts.foliageCoverage ?? 'centred');
+    const fol = foliageMaterial(mat, opts.foliageCoverage);
     this.foliageMat = fol;
     this.coverageBuckets = 0;
     for (const t of tiers) {

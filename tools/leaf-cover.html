@@ -55,7 +55,9 @@ try {
   const benchAt = [AT[0] + 2.2, AT[1] + 1.2];
   K.props.bench(buf, K.frame(benchAt[0], benchAt[1], 0, 1, -1, 0), 7);
   const mat = K.propMaterial();
-  const fol = K.foliageMaterial(mat, 'centred');
+  // AS THE DISTRICT BUILDS IT: no mode passed, so what is read here is the module's own default.
+  const fol = K.foliageMaterial(mat);
+  const shippedMode = { mode: fol.userData.coverage, rim: fol.userData.rim, a2c: fol.alphaToCoverage };
   const { mesh, cut } = K.weldBucket(buf, mat, fol);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -186,7 +188,7 @@ try {
   const b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode(...u8.subarray(i, i + 8192)); return btoa(s); };
   const f32b64 = (f) => b64(new Uint8Array(f.buffer.slice(0)));
   const ARMS = (qs.get('arms') ?? 'merged,test,centred,three,rim,depth05').split(',');
-  const report = { size: { w: W, h: H }, cut, total: buf.idx.length / 3, key, exposure: q.exposure, arms: {} };
+  const report = { size: { w: W, h: H }, cut, total: buf.idx.length / 3, key, exposure: q.exposure, shipped: shippedMode, arms: {} };
   const frames = {};
   let shadowRef = null;
   for (const arm of ARMS) {

@@ -57,11 +57,28 @@ export const HDR_BOXES = {
   ],
 };
 
+/**
+ * THE DISTRICT PROBE: the arms on ONE page load at the hero cameras, switched at runtime on the one
+ * coverage material (furniture.setFoliageCoverage), with the frame, renderStats, the sun's map and
+ * the scene target's tags read back per arm.
+ *
+ *   test      the alpha test, as before #145 (the KNOWN-BAD: a cut edge is a step)
+ *   centred   alpha to coverage with the ramp centred on the test
+ *   rim       centred, and the bark fringe faded off the faces that look at the camera (shipped)
+ *   three     three's own coverage, smoothstep( test, test + fwidth, a ): 0 AT the test
+ *   depth05   rim, with the cut-zone buckets' custom depth material taken off, so three's shadow
+ *             pass cuts them at its forced 0.5 (the trap foliageDepthMaterial exists for)
+ *   merged    test, with every bucket on the ONE shared material and no groups: the pre-#145 draw,
+ *             for the draw-call price and to show the split itself moves no pixel
+ *   test2     test again: the noise floor of every comparison
+ *   nosun, nohemi, nobounce, noenv   the alpha-tested build with one light term taken out, for the
+ *             limbs: which term makes them pale, read at HDR_BOXES in exposed linear light
+ */
 async function district() {
   const port = Number(arg('port', 8252));
   const times = arg('times', 'noon,dusk,night').split(',');
   const shots = arg('shots', 'corridor,fivepoints').split(',');
-  const arms = arg('arms', 'test,centred,three,depth05,merged,test2').split(',');
+  const arms = arg('arms', 'test,centred,rim,three,depth05,merged,test2').split(',');
   const outDir = arg('out', 'docs/shots/leaf-cover');
   fs.mkdirSync(outDir, { recursive: true });
   await ensureServer(port);
@@ -114,13 +131,14 @@ async function district() {
         if (this._envI === undefined) this._envI = D.scene.environmentIntensity;
         D.scene.environmentIntensity = arm === 'noenv' ? 0 : this._envI;
         const light = ['nosun', 'nohemi', 'nobounce', 'noenv'].includes(arm);
-        const mode = arm === 'depth05' ? 'centred' : (arm === 'merged' || arm === 'test2' || light) ? 'test' : arm;
-        const got = F.setFoliageCoverage(mode);
+        const mode = (arm === 'depth05' || arm === 'rim') ? 'centred' : (arm === 'merged' || arm === 'test2' || light) ? 'test' : arm;
+        // The rim is its own term: on in the shipped arm and the depth arm only.
+        const got = F.setFoliageCoverage(mode, arm === 'rim' || arm === 'depth05');
         if (arm === 'depth05') for (const s of saved) s.m.customDepthMaterial = undefined;
         if (arm === 'merged') {
           for (const s of saved) { s.m.material = F.propMat; s.m.geometry.groups.length = 0; s.m.customDepthMaterial = undefined; }
         }
-        return { arm, mode: got, a2c: F.foliageMat.alphaToCoverage,
+        return { arm, mode: got, a2c: F.foliageMat.alphaToCoverage, rim: F.foliageMat.userData.rim,
           depthCustom: saved.filter((s) => s.m.customDepthMaterial).length,
           grouped: saved.filter((s) => s.m.geometry.groups.length).length };
       },
@@ -253,7 +271,7 @@ export const CROWN = [190, 50, 550, 250];
 /** The trunk between the crown and the bench, x0,y0,x1,y1, where the bark fringe's holes show. */
 export const TRUNK = [296, 268, 334, 318];
 /** Fixed, so a check cannot vanish when a population is empty. */
-export const CHECK_COUNT = 15;
+export const CHECK_COUNT = 16;
 
 /**
  * HOLES INSIDE A TUBE, off the coverage pass: per row of `box`, the uncovered pixels strictly between
@@ -290,7 +308,7 @@ function coverageImage(cov, w, h) {
  */
 export function summarise(report, frames) {
   const { w, h } = report.size;
-  const out = { size: report.size, cut: report.cut, total: report.total, arms: {} };
+  const out = { size: report.size, cut: report.cut, total: report.total, shipped: report.shipped, arms: {} };
   // The ID pass, eroded: a pixel counts only if its four neighbours agree, because nothing else in it is
   // resolved and the scene pass's edges blend.
   const id = frames.id?.rgb;
@@ -343,6 +361,9 @@ export function verdict(sm) {
     && (A[k].customDepth ?? null) === depth);
   add('every arm\'s switch reached the material, read back off the mesh', armsOk,
     Object.keys(want).map((k) => `${k} ${A[k]?.mode}/${A[k]?.a2c}/${A[k]?.rim}/${A[k]?.groups}/${A[k]?.customDepth}`).join(', '));
+  add('the module ships the coverage centred, with the rim, read off the material as the district builds it',
+    sm?.shipped?.mode === 'centred' && sm?.shipped?.rim === true && sm?.shipped?.a2c === true,
+    `mode ${sm?.shipped?.mode}, rim ${sm?.shipped?.rim}, alphaToCoverage ${sm?.shipped?.a2c}`);
   const cut = fin(sm?.cut), total = fin(sm?.total);
   add('the bucket is a real one: cut-zone and opaque triangles in one mesh, and steps to read',
     cut > 0 && total > cut && g('test', 'lit', 'steps') >= 1000 && fin(sm?.pixels?.opaque) >= 200 && fin(sm?.pixels?.cut) >= 2000,
