@@ -379,18 +379,42 @@ if (IS_MAIN && !SELFTEST) {
         meter.visible = false;
         d.scene.add(meter);
         meter.updateMatrixWorld(true);
-        // Its inner 40% on screen, so no edge pixel is read.
-        const corners = [[-S, -S], [S, -S], [S, S], [-S, S]].map(([u, v]) =>
-          new THREE.Vector3(meter.position.x + u * 0.4, meter.position.y, meter.position.z + v * 0.4).project(cam));
-        const mbox = [Math.ceil(Math.min(...corners.map((c) => (c.x + 1) / 2 * W))), Math.ceil(Math.min(...corners.map((c) => (1 - c.y) / 2 * H))),
-          Math.floor(Math.max(...corners.map((c) => (c.x + 1) / 2 * W))), Math.floor(Math.max(...corners.map((c) => (1 - c.y) / 2 * H)))];
+        // THE FILL PATCH: the same neutral albedo-1 surface standing VERTICAL and facing back down the lens,
+        // so it is lit by the half of the sky behind the camera — the light a globe's camera-facing side gets.
+        // Its colour is the colour of that light; its lux is the vertical illuminance toward the camera.
+        const fill = new THREE.Mesh(new THREE.PlaneGeometry(2 * S, 2 * S), mm);
+        fill.castShadow = false; fill.receiveShadow = false; fill.frustumCulled = false; fill.renderOrder = 999;
+        fill.position.fromArray(at(1.05, 0.62, 2.4));
+        fill.lookAt(fill.position.x + back[0], fill.position.y, fill.position.z + back[2]);   // +z (its normal) toward the lens
+        fill.visible = false;
+        d.scene.add(fill);
+        fill.updateMatrixWorld(true);
+        // Each patch's inner 40% on screen, so no edge pixel is read.
+        const boxOf = (mesh) => {
+          const cs = [[-S, -S], [S, -S], [S, S], [-S, S]].map(([u, v]) =>
+            new THREE.Vector3(u * 0.4, v * 0.4, 0).applyMatrix4(mesh.matrixWorld).project(cam));
+          return [Math.ceil(Math.min(...cs.map((c) => (c.x + 1) / 2 * W))), Math.ceil(Math.min(...cs.map((c) => (1 - c.y) / 2 * H))),
+            Math.floor(Math.max(...cs.map((c) => (c.x + 1) / 2 * W))), Math.floor(Math.max(...cs.map((c) => (1 - c.y) / 2 * H)))];
+        };
+        const mbox = boxOf(meter), fbox = boxOf(fill);
+        const rgbMean = (rgb, box) => {
+          const o = [0, 0, 0]; let k = 0;
+          for (let y = box[1]; y <= box[3]; y++) for (let x = box[0]; x <= box[2]; x++) {
+            const i = 3 * (y * W + x);
+            if (![rgb[i], rgb[i + 1], rgb[i + 2]].every(Number.isFinite)) continue;
+            o[0] += rgb[i]; o[1] += rgb[i + 1]; o[2] += rgb[i + 2]; k++;
+          }
+          return k ? o.map((v) => v / k) : null;
+        };
         const readMeter = async () => {
-          meter.visible = true;
+          meter.visible = true; fill.visible = true;
           await waitFrames(n);
           const st = readState();
-          meter.visible = false;
-          const b = M.boxMean(st.lum, W, H, mbox);
-          return { lux: b.mean === null ? null : Math.PI * b.mean, n: b.n, bad: b.bad };
+          meter.visible = false; fill.visible = false;
+          const b = M.boxMean(st.lum, W, H, mbox), f = M.boxMean(st.lum, W, H, fbox);
+          const fRGB = rgbMean(st.rgb, fbox);
+          return { lux: b.mean === null ? null : Math.PI * b.mean, n: b.n, bad: b.bad,
+            fillLux: f.mean === null ? null : Math.PI * f.mean, fillWarmth: fRGB ? M.warmthOf(fRGB) : null, fillRGB: fRGB };
         };
         const head = fur.headMat;
         const lumE = M.lumaOf(head.emissive.r, head.emissive.g, head.emissive.b);
@@ -423,9 +447,16 @@ if (IS_MAIN && !SELFTEST) {
         await waitFrames(n);
         const D = readState();
         poolOn();
+        // E: the globe lit by the SKY alone — emissive off and the sun off, the pool as shipped — so the sun's
+        // share of an unlit globe is 1 - E/C on the same pixels. The globes' InstancedMesh casts but does not
+        // RECEIVE shadows, so a globe in building shade still gets the sun's whole beam.
+        d.tod.sun.intensity = 0;
+        await waitFrames(n);
+        const E = readState();
+        d.tod.sun.intensity = sunI;
         head.emissiveIntensity = shippedEI;
         await waitFrames(n);
-        d.scene.remove(meter); mm.dispose(); meter.geometry.dispose();
+        d.scene.remove(meter); d.scene.remove(fill); mm.dispose(); meter.geometry.dispose(); fill.geometry.dispose();
 
         // ---- the meter, split
         const sunColLuma = M.lumaOf(d.tod.sun.color.r, d.tod.sun.color.g, d.tod.sun.color.b);
@@ -433,6 +464,8 @@ if (IS_MAIN && !SELFTEST) {
         const meterOut = {
           box: mbox, total: mA.lux, noPool: mB.lux, sky: mBnoSun.lux,
           pool: mA.lux - mB.lux, sun: mB.lux - mBnoSun.lux,
+          fill: { box: fbox, lux: mA.fillLux, luxNoPool: mB.fillLux, warmth: mA.fillWarmth, warmthNoPool: mB.fillWarmth,
+            rgb: mA.fillRGB, luxSkyOnly: mBnoSun.fillLux, warmthSkyOnly: mBnoSun.fillWarmth },
           sunClosedForm: sunI * sunColLuma * Math.max(0, Math.sin(el)),
           skyDelivery: d.tod.skyDelivery ? d.tod.skyDelivery() : null,
           px: mA.n, bad: mA.bad + mB.bad + mBnoSun.bad,
@@ -456,8 +489,13 @@ if (IS_MAIN && !SELFTEST) {
             const rpx = G.r * (H / 2) / (tanH * dep);
             if (rpx < 1.2) continue;
             const g = M.globeRead({ on: A.rgb, off: C.rgb, share: A.share, depth }, W, H, { sx, sy, r: rpx }, Lemit);
+            // The same core pixels against state E (sky only): its ratio to E's own sky ring, and its warmth.
+            const gE = M.globeRead({ on: A.rgb, off: E.rgb, share: A.share, depth }, W, H, { sx, sy, r: rpx }, Lemit);
+            const lumOf = (v) => 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
             globes.push({ lamp: li, globe: gi === 0 ? 'outer' : 'inner', world: [+wv.x.toFixed(2), +wv.y.toFixed(2), +wv.z.toFixed(2)],
-              sx: +sx.toFixed(1), sy: +sy.toFixed(1), depth: +dep.toFixed(1), rpx: +rpx.toFixed(2), ...g });
+              sx: +sx.toFixed(1), sy: +sy.toFixed(1), depth: +dep.toFixed(1), rpx: +rpx.toFixed(2), ...g,
+              skyOnlyOverSky: gE.offOverSky, warmthSkyOnly: gE.warmthOff,
+              sunShareUnlit: g.core && lumOf(g.coreOff) > 0 ? 1 - lumOf(gE.coreOff) / lumOf(g.coreOff) : null });
           }
         }
         globes.sort((a, b) => a.depth - b.depth);
@@ -592,6 +630,9 @@ if (IS_MAIN && !SELFTEST) {
         `pool ${m.pool?.toFixed(2)} + sun ${m.sun?.toFixed(2)} (closed form ${m.sunClosedForm.toFixed(2)}) + sky ${m.sky?.toFixed(2)}; ` +
         `the module's skyDelivery ${m.skyDelivery ? m.skyDelivery.totalLux : '-'} lux` +
         (r.photocell !== null ? `; the module's photocell ${JSON.stringify(r.photocell)}` : ''));
+      if (m.fill) console.log(`  FILL (vertical, facing the lens, neutral albedo 1): ${m.fill.lux?.toFixed(1)} lux, warmth ` +
+        `${m.fill.warmth?.toFixed(3)} (pool off ${m.fill.luxNoPool?.toFixed(1)} lux, ${m.fill.warmthNoPool?.toFixed(3)}; sky alone ` +
+        `${m.fill.luxSkyOnly?.toFixed(1)} lux, ${m.fill.warmthSkyOnly?.toFixed(3)}) — the light a globe's camera side gets`);
       console.log(`  globe: base ${r.globe.color}, emissive ${r.globe.emissive} x${r.globe.emissiveIntensity.toFixed(3)} ` +
         `= ${r.globe.Lemit.toFixed(3)} nits, ${(r.globe.Lemit * r.exposure).toFixed(4)} exposed`);
       const read = r.globes.filter((g) => g.onOverSky !== null);
@@ -601,7 +642,9 @@ if (IS_MAIN && !SELFTEST) {
           `  core ${g.core} ring ${g.ring}/${g.ringN}` +
           (g.onOverSky === null ? `  REFUSED: ${g.refused}` :
             `  on/sky ${g.onOverSky.toFixed(3)} off/sky ${g.offOverSky.toFixed(3)}  warmth on ${g.warmthOn.toFixed(3)} ` +
-            `off ${g.warmthOff.toFixed(3)} sky ${g.warmthSky.toFixed(3)}`));
+            `off ${g.warmthOff.toFixed(3)} sky ${g.warmthSky.toFixed(3)}` +
+            (g.sunShareUnlit === null || g.sunShareUnlit === undefined ? '' :
+              `  | sky-only ${g.skyOnlyOverSky?.toFixed(3)} warmth ${g.warmthSkyOnly?.toFixed(3)}, sun ${(100 * g.sunShareUnlit).toFixed(0)}% of the unlit globe`)));
       }
       console.log(`  POOL: adds ${(100 * r.pool.addsToFrame).toFixed(2)}% of the frame's luminance; pixels it lifts >5% ${r.pool.pxOver5pct}, ` +
         `>25% ${r.pool.pxOver25pct}, >100% ${r.pool.pxOver100pct}; brightest pieces:`);
