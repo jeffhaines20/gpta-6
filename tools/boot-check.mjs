@@ -1870,7 +1870,12 @@ if (state.global && state.frames > 2) {
        * step. `bustNeeds` was then the bust arm's 4 s, the budget was
        * ceil(4 / 0.2 x 2.5) = 50 frames = 10.0 s of sim against a 25.154 s walk, and the arm
        * ended on "clock frames" with the clock 9.933 s in — 1 run in 3 on 2026-11-02, every other
-       * line of the arm correct. So the budget is set from the clock's latched value once
+       * line of the arm correct. Reproduced on demand 2026-11-17 by a probe that ran this arm on a
+       * fresh page at `timeScale` 1 from frame 6, which makes every step the last of its frame: a
+       * unit held on frame 31 with the clock not started, `bustNeeds` read the default 4 s, the old
+       * budget came to 50 frames, and the arrest took 127. The same probe at `timeScale` 4 held on
+       * frame 12 with the clock already running and both budgets 315 frames, which is why the arm
+       * passed two runs in three. So the budget is set from the clock's latched value once
        * `bustHolds` has risen (in phase 1 or here) and re-set if it rises again (a clock that
        * resets and restarts is owed its whole length), with a short bound on the wait for the
        * latch itself and a cap on the whole, and the arm says which of the three ended it.
