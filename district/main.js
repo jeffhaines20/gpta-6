@@ -2228,13 +2228,22 @@ function animate(now) {
   // transform, so calling before it ranked against last frame's view - a lag the
   // player sees as the lit set trailing the turn. And post.render() is still
   // ahead of us, so the selection made here is the one that renders.
-  lightPool.update(camera.position, tod.preset.lampsOn ? 1 : 0, camera);
+  //
+  // #142: the street lamps' PHOTOCELL, which TimeOfDay.apply() reads off the hour's own sun and sky —
+  // not `lampsOn`, which at dusk says the cars' lamps are on while the light on the street is 87x a
+  // photocontrol's turn-on. This line used to re-light the pool every frame whatever apply() decided.
+  lightPool.update(camera.position, tod.streetLampsOn ? 1 : 0, camera);
 
   carMesh.group.position.copy(vehicle.position);
   carMesh.group.quaternion.copy(vehicle.quaternion);
   carMesh.updateWheels(vehicle);
   // Headlamps and tail lamps track the lamp schedule, divided by the camera stop
   // so a lens reads as blown out at dusk AND at night rather than at neither.
+  //
+  // `lampsOn`, NOT the street lamps' photocell (#142): UN R48's automatic dipped beams are ON under
+  // 1,000 lux and the driver's choice to 7,000, on the same horizontal light a photocell reads, and
+  // dusk's ~1,400 lux is inside that band where a photocell's 16 lux is far below it. So at dusk the
+  // cars are lit and the street lamps are not, which is what the two standards say about one light.
   carMesh.setLights(tod.preset.lampsOn, post.params.exposure);
   if (traffic) traffic.setLights(tod.preset.lampsOn, post.params.exposure);
   // After every pool has written this frame's matrices: the parked pool re-seeds round the camera,

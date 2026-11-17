@@ -752,6 +752,61 @@ export const PLAUSIBLE = {
   // light's intensity IS the lux it claims to deliver.
 };
 
+// #142: THE STREET LAMPS ARE ON A PHOTOCELL, AND THE CARS' LAMPS ARE NOT.
+//
+// `lampsOn` was one switch for everything that lights at night: the street lamps' globes and their
+// LightPool, the cars' lamps, the parked cars' reflectors and #141's footprint under every car. The
+// street lamps and the cars answer to two different standards, and at the dusk preset the two give
+// opposite answers about the same light, so one switch cannot be right for both.
+//
+//   A STREET LAMP switches on a photocontrol. Specified to ANSI C136.10 it turns on at 1.5 footcandles
+//   (16.1 lux) and off at no more than 1.5 times that, and it is blind to the lamps' own light: it
+//   reads the sun and the sky. Two independent statements of the figure, read 2026-11-17: Riverside
+//   (CA) Public Utilities Specification No. 1-6.3 rev. 3, "Outdoor Lighting Electronic Photocontrols
+//   for LED Street Lights" (2019), section 2 "shall meet ... ANSI C136.10", section 5 "Turn-on:
+//   instantaneous calibrated at 1.5 fc. Maximum ratio of Turn-Off to Turn-On is 1.5:1 ... Blind to
+//   LED and HID light, reacts only to sunlight"; and NSi Industries' TORK ZB124 photocontrol sheet,
+//   listed to ANSI C136.10-2010, "Turn On Light Level: 1.5fc Instant. Turn Off Light Level: 2.2fc".
+//   The standard's own text is not public and was not read.
+//
+//   A CAR'S DIPPED BEAMS, switched automatically, answer to UN Regulation No. 48, Annex 13 (OJ L 347,
+//   30.9.2021, 2021/1718): ON under 1,000 lux, OFF over 7,000 lux, the manufacturer's choice between,
+//   "measured on a horizontal surface, with a cosine corrected sensor". A driver switching by hand is
+//   bound by no lux at all; Florida's s. 316.217(1)(a) requires lighted lamps "at any time from sunset
+//   to sunrise including the twilight hours", and the dusk preset's sun is 3.2 degrees up.
+//
+// Both are the same quantity: the HORIZONTAL illuminance from the sun and the sky, which is exactly
+// what tools/sky-once.mjs's light meter reads and what bounceDelivery() calls E_h, the light on the
+// street. At the dusk preset the page's meter reads about 1,400 lux of it (tools/dusk-lamps.mjs, the
+// sun 3.2 degrees up and the sky the dome delivers): 87x a photocell's turn-on, so a real street
+// lamp is OFF, and inside R48's band, so a car may have its lamps on. At night it is 0.4 lux, a
+// fortieth of the turn-on: both on. At golden and noon, thousands of lux: both off. So the street
+// lamps follow the photocell computed off the light the hour delivers, and the cars keep `lampsOn`.
+export const FOOTCANDLE_LUX = 1 / (0.3048 * 0.3048);   // one lumen per square foot, in lux: 10.7639
+export const PHOTOCELL_ON_LUX = 1.5 * FOOTCANDLE_LUX;   // 16.15 lux: ANSI C136.10's 1.5 fc
+// The turn-off is at most 1.5x the turn-on (24.2 lux). Recorded, not used: a preset is one light, not a
+// falling one, and the hours sit 87x above and 40x below the turn-on, so no band between them decides.
+export const PHOTOCELL_OFF_RATIO = 1.5;
+// UN R48 Annex 13's automatic dipped-beam band, on the same horizontal illuminance.
+export const R48_ON_LUX = 1000;
+export const R48_OFF_LUX = 7000;
+
+/**
+ * The horizontal illuminance of the sun and the sky alone, in lux — what a photocontrol on a luminaire
+ * reads and what R48's sensor reads. `sunLux` is the DELIVERED direct-normal illuminance (intensity x
+ * the luminance of its colour; see the golden preset for why the two differ), `skyLux` the sky's
+ * delivered illuminance on a horizontal surface over every path that carries it (skyDelivery()).
+ */
+export function daylightLux(sunLux, elevation, skyLux) {
+  return sunLux * Math.sin(Math.max(elevation, 0)) + skyLux;
+}
+
+/** Would a photocontrol hold a street lamp on at this light? */
+export function photocellLit(lux) { return lux < PHOTOCELL_ON_LUX; }
+
+/** UN R48's automatic dipped-beam verdict at this light: 'on', 'either' or 'off'. */
+export function r48Band(lux) { return lux < R48_ON_LUX ? 'on' : lux > R48_OFF_LUX ? 'off' : 'either'; }
+
 // THE STREET, as two numbers, for the bounce light in TimeOfDay's constructor.
 //
 // DUPLICATED FROM src/materials.js GLAZING.canyon, DELIBERATELY AND VISIBLY.
@@ -1587,9 +1642,6 @@ export class TimeOfDay {
       this.scene.background = new THREE.Color(p.fog.color).multiplyScalar(p.skyLux / Math.PI);
     }
 
-    for (const { light, candela } of this.lamps) {
-      light.intensity = p.lampsOn ? candela : 0;
-    }
     if (this.skyDome) {
       this.skyDome.setTimeOfDay(name);
       this.skyDome.refresh({ force: true });
@@ -1610,7 +1662,14 @@ export class TimeOfDay {
     // PREVIOUS hour's sky, which is the same bug src/sky.js records against
     // uSkyIlluminance one level down.
     this._applyBounce();
-    if (this.furniture) this.furniture.setLit(p.lampsOn);
+    // #142: THE STREET LAMPS ANSWER TO THEIR PHOTOCELL, off the light this hour delivers — after the dome
+    // block and the hemisphere, because skyDelivery() is the sky as it is carried now, not as authored.
+    // The globes, the LightPool and any registered lamp follow it; the cars' lamps and #141's footprint
+    // under every car stay on `lampsOn` (district/main.js says why). See PHOTOCELL_ON_LUX.
+    this.photocell = this.photocellLux();
+    this.streetLampsOn = this.photocell.lit;
+    for (const { light, candela } of this.lamps) light.intensity = this.streetLampsOn ? candela : 0;
+    if (this.furniture) this.furniture.setLit(this.streetLampsOn);
     if (this.world && this.world.setFacadeTime) this.world.setFacadeTime(name);
     // Rescale the pool for the new time of day WITHOUT re-selecting which emitters
     // are lit. This used to pass { x: 0, y: 0, z: 0 }, so applying a preset re-pinned
@@ -1627,8 +1686,23 @@ export class TimeOfDay {
     // note. They were right, and the light-pool report - 233 emitters, 7 active -
     // said the system was healthy the whole time.
     if (this.lightPool) this.lightPool.update(this._followPos ?? { x: 0, y: 0, z: 0 },
-      p.lampsOn ? 1 : 0);
+      this.streetLampsOn ? 1 : 0);
     return p;
+  }
+
+  /**
+   * #142: what a photocontrol on a luminaire reads at this hour — the horizontal illuminance of the sun
+   * and the sky as this TimeOfDay delivers them, the lamps excluded (the cell is specified blind to
+   * them) — and whether it holds the street lamps on. `sun` is the beam on the horizontal, `sky` is
+   * skyDelivery(): the dome's own integral when its PMREM carries the sky, the HemisphereLight when there
+   * is no dome. The same E_h bounceDelivery() lights the street with, and the quantity UN R48's
+   * headlamp sensor reads, so `r48` is reported beside it.
+   */
+  photocellLux() {
+    const sunLux = this.sun.intensity * lum3(this.sun.color);
+    const sky = this.skyDelivery().totalLux;
+    const lux = daylightLux(sunLux, this.preset.elevation, sky);
+    return { lux, sun: lux - sky, sky, onLux: PHOTOCELL_ON_LUX, lit: photocellLit(lux), r48: r48Band(lux) };
   }
 
   /** The unit vector toward the sun, from the preset and nothing else. */
@@ -1831,8 +1905,16 @@ export class TimeOfDay {
         flags.push(`point light ${l.intensity} cd outside plausible ${lo}-${hi}`);
       }
     }
-    if (this.preset.lampsOn === false && lights.some((l) => l.type === 'PointLight' && l.intensity > 0)) {
-      flags.push('street lamps are lit at a time of day when they should be off');
+    // #142: against the PHOTOCELL, not against `lampsOn` — the cars' switch says nothing about whether a
+    // street lamp should be lit, and at dusk the two disagree. Every PointLight here is a street lamp
+    // (the LightPool's, or one registered), so a lit one at an hour its cell holds off is the defect.
+    const cell = this.photocellLux();
+    if (!cell.lit && lights.some((l) => l.type === 'PointLight' && l.intensity > 0)) {
+      flags.push(`street lamps are lit while their photocell reads ${cell.lux.toFixed(1)} lux, over its ` +
+        `${PHOTOCELL_ON_LUX.toFixed(1)} lux turn-on (ANSI C136.10's 1.5 fc)`);
+    }
+    if (this.furniture && this.furniture.globeReport && this.furniture.globeReport().lit !== cell.lit) {
+      flags.push(`the lamp globes are ${cell.lit ? 'dark' : 'lit'} where their photocell reads ${cell.lux.toFixed(1)} lux`);
     }
 
     if (this.post) {
@@ -1918,6 +2000,11 @@ export class TimeOfDay {
       // not the sky - see the bounce light in the constructor.
       bounceDelivery: bounce,
       litPointLights: lights.filter((l) => l.type === 'PointLight' && l.intensity > 0).length,
+      // #142: what the street lamps' photocell reads and decides, and the cars' switch beside it, so an
+      // artifact says which of the two lit what. `r48` is UN R48's band for the cars at the same light.
+      photocell: { lux: +cell.lux.toFixed(3), sun: +cell.sun.toFixed(3), sky: +cell.sky.toFixed(3),
+        onLux: +cell.onLux.toFixed(3), lit: cell.lit, r48: cell.r48 },
+      streetLampsOn: !!this.streetLampsOn, lampsOn: !!this.preset.lampsOn,
       lightPool: this.lightPool ? this.lightPool.report() : null,
       environmentIntensity: this.scene.environmentIntensity,
       hasEnvironment: !!this.scene.environment,

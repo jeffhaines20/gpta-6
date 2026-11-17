@@ -39,6 +39,7 @@
 //   node tools/dusk-lamps.mjs                      corridor and fivepoints, dusk and night
 //   DL_SHOTS=corridor DL_TIMES=dusk node tools/dusk-lamps.mjs
 //   DL_PORT=8283 DL_OUT=/abs/dir                   port, and where the frame captures go
+//   DL_ROOT=/abs/export                            serve another tree's page (the base commit's export)
 //   node tools/dusk-lamps.mjs --selftest           the pure half on synthetic planes, with known-bads
 //
 // Output: docs/dusk-lamps-<tag>.json (numbers only), and the A-state frame per (shot, hour) in DL_OUT.
@@ -279,7 +280,9 @@ if (IS_MAIN && !SELFTEST) {
   const { ensureServer, treePort } = await import('./serve.mjs');
   const { HERO_FRAMINGS, FRAME_SETTLE, settleFrames, placeHeroCam } = await import('./hero-cams.mjs');
 
-  const ROOT = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
+  // DL_ROOT serves ANOTHER tree's page (an export of the base commit, say) while this tool runs from
+  // this one: the page is all the measurement reads, so a base and a change can be probed by one tool.
+  const ROOT = process.env.DL_ROOT ?? new URL('..', import.meta.url).pathname.replace(/\/$/, '');
   const TIMES = (process.env.DL_TIMES ?? 'dusk,night').split(',').map((s) => s.trim()).filter(Boolean);
   const ONLY = (process.env.DL_SHOTS ?? 'corridor,fivepoints').split(',').map((s) => s.trim()).filter(Boolean);
   const shots = HERO_FRAMINGS.filter((s) => ONLY.includes(s.name));
