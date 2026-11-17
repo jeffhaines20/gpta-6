@@ -1,30 +1,25 @@
-// #145's district probe: what alpha to coverage does to the canopy, the sun's map and the scene
-// target's tags, read off ONE page load with the arms switched at runtime.
+// THE GATE FOR BACKLOG #145: a leaf's cut-out edge resolves to a partial pixel, the way a polygon edge
+// does, and nothing else the coverage could touch moves. See tools/leaf-cover.html for the scene.
 //
-//   node tools/leaf-cover.mjs --district [--port N] [--times noon,dusk,night] [--shots corridor,fivepoints]
-//                                         [--out DIR]
+//   node tools/leaf-cover.mjs              one oak and a bench through weldBucket and the real PostStack
+//   node tools/leaf-cover.mjs --selftest   prove the verdict on known-bad summaries, no browser
+//   node tools/leaf-cover.mjs --district   the same arms at the hero cameras, one page load (a probe)
 //
-// THE ARMS are src/streetfurniture.js's own switch, `furniture.setFoliageCoverage(mode)`, on the one
-// coverage material every cut-zone triangle is drawn with:
-//
-//   test      the alpha test, as before #145 (the KNOWN-BAD: a cut edge is a step)
-//   centred   alpha to coverage with the ramp centred on the test (shipped)
-//   three     three's own coverage, `smoothstep( test, test + fwidth, a )`: 0 AT the test
-//   depth05   centred, with the cut-zone buckets' custom depth material taken off, so three's
-//             shadow pass cuts them at its forced 0.5 (the trap foliageDepthMaterial exists for)
-//   merged    test, with every bucket put back on the ONE shared material and no groups: the
-//             pre-#145 draw, for the draw-call price and to show the split itself moves no pixel
-//   test2     test again: the noise floor of every comparison below
-//
-// Per arm it records the frame (a PNG in --out), renderStats, a hash of the sun's shadow map and
-// how many texels differ from the `test` arm's map, and at every hour the scene target's alpha and
-// luma: which pixels #114's tag stops covering and whether any of them is over the emitter's bloom
-// bar, which is where an untagged pixel is judged at dusk and night (src/post.js brightSplit).
+// WHAT IS ASSERTED, in the order that makes each check mean something:
+//   the thing happened   every arm's switch reached the material, the bucket carries both groups and the
+//                        custom depth material, and the crown has steps to read
+//   the defect is live   the alpha-tested arm's cut edges are steps (the KNOWN-BAD), on the lit frame
+//                        and on the coverage pass, every run
+//   the fix              the shipped arm's edges carry partial pixels, on both
+//   the price is zero    the leaves cover what they covered (the centring), the split moves no pixel,
+//                        the sun's map is the build-before's byte for byte, and the bench welded into
+//                        the same mesh keeps #114's tag
+//   and why each is so   three's own ramp erodes the crown, and three's own depth material moves the map
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
 import { launchOptions } from './browser.mjs';
-import { ensureServer } from './serve.mjs';
+import { ensureServer, treePort } from './serve.mjs';
 import { HERO_FRAMINGS, FRAME_SETTLE, settleFrames, placeHeroCam } from './hero-cams.mjs';
 import { readPNG } from './png.mjs';
 import { edgeStats, lumaPlanes, formatEdge } from './leaf-edge.mjs';
@@ -210,5 +205,218 @@ async function district() {
   await browser.close();
 }
 
+// ---------------------------------------------------------------------------------- the gate
+
+/** The crown on the page's fixed camera, x0,y0,x1,y1: sky above and round it, the trunk below. */
+export const CROWN = [190, 50, 550, 250];
+/** Fixed, so a check cannot vanish when a population is empty. */
+export const CHECK_COUNT = 12;
+
+const enc = (v) => {
+  const c = Math.max(0, Math.min(1, v));
+  return Math.round(255 * (c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055));
+};
+/** A coverage array (1 = leaf) as an RGB image the edge statistic reads: leaf black, sky white. */
+function coverageImage(cov, w, h) {
+  const data = new Uint8Array(w * h * 3);
+  for (let i = 0; i < w * h; i++) data[i * 3] = data[i * 3 + 1] = data[i * 3 + 2] = enc(1 - cov[i]);
+  return { width: w, height: h, channels: 3, data };
+}
+
+/**
+ * THE PAGE'S FRAMES REDUCED TO NUMBERS, the half a selftest can stand in for. Pure: no browser.
+ * `frames[arm]` = { rgb: Uint8Array, cov: Float32Array, alpha: Float32Array }, `frames.id.rgb`.
+ */
+export function summarise(report, frames) {
+  const { w, h } = report.size;
+  const out = { size: report.size, cut: report.cut, total: report.total, arms: {} };
+  // The ID pass, eroded: a pixel counts only if its four neighbours agree, because nothing else in it is
+  // resolved and the scene pass's edges blend.
+  const id = frames.id?.rgb;
+  const kind = (i) => (!id ? null : id[i * 3] > 127 ? 'cut' : id[i * 3 + 1] > 127 ? 'opaque' : null);
+  const inner = { cut: [], opaque: [] };
+  if (id) {
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x, k = kind(i);
+      if (k && kind(i - 1) === k && kind(i + 1) === k && kind(i - w) === k && kind(i + w) === k) inner[k].push(i);
+    }
+  }
+  out.pixels = { cut: inner.cut.length, opaque: inner.opaque.length };
+  const tagged = (a) => a >= -2.01 && a <= -0.99;
+  for (const [arm, fr] of Object.entries(frames)) {
+    if (arm === 'id') continue;
+    const lit = { width: w, height: h, channels: 3, data: fr.rgb };
+    const e = edgeStats(lit, CROWN);
+    const c = edgeStats(coverageImage(fr.cov, w, h), CROWN);
+    let mass = 0, partial = 0;
+    for (const v of fr.cov) { mass += v; if (v > 0.1 && v < 0.9) partial++; }
+    const share = (list, pred) => (list.length ? list.filter((i) => pred(fr.alpha[i])).length / list.length : null);
+    out.arms[arm] = {
+      ...report.arms[arm],
+      lit: { steps: e.steps, hardFrac: e.ok ? e.hardFrac : null, midShare: e.ok ? e.midShare : null },
+      cov: { steps: c.steps, hardFrac: c.ok ? c.hardFrac : null, midShare: c.ok ? c.midShare : null, mass, partial },
+      tags: { opaqueTagged: share(inner.opaque, tagged), cutTagged: share(inner.cut, tagged),
+        cutUntaggedFull: share(inner.cut, (a) => a >= 0.99 && a <= 1.01) },
+    };
+  }
+  const a = frames.merged?.rgb, b = frames.test?.rgb;
+  if (a && b) { let n = 0; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) n++; out.mergedVsTestBytes = n; }
+  return out;
+}
+
+/** THE VERDICT, as a pure function of the summary. Every read goes through an accessor (CLAUDE.md:
+ *  a check's arguments are evaluated before the check runs, so an absent number must FAIL, not throw). */
+export function verdict(sm) {
+  const checks = [];
+  const add = (name, ok, detail) => checks.push({ name, ok: !!ok, detail });
+  const fin = (v) => (Number.isFinite(v) ? v : null);
+  const A = sm?.arms ?? {};
+  const g = (arm, ...path) => { let v = A[arm]; for (const k of path) v = v?.[k]; return fin(v); };
+  const f = (v, d = 3) => (v === null ? 'absent' : v.toFixed(d));
+  const want = { merged: ['test', false, 1, null], test: ['test', false, 2, 'foliageDepth'],
+    centred: ['centred', true, 2, 'foliageDepth'], three: ['three', true, 2, 'foliageDepth'], depth05: ['centred', true, 2, null] };
+  const armsOk = Object.entries(want).every(([k, [mode, a2c, groups, depth]]) => A[k] && A[k].mode === mode
+    && A[k].a2c === a2c && (groups === 1 ? A[k].materials?.length === 1 : A[k].groups === groups) && (A[k].customDepth ?? null) === depth);
+  add('every arm\'s switch reached the material, read back off the mesh', armsOk,
+    Object.keys(want).map((k) => `${k} ${A[k]?.mode}/${A[k]?.a2c}/${A[k]?.groups}/${A[k]?.customDepth}`).join(', '));
+  const cut = fin(sm?.cut), total = fin(sm?.total);
+  add('the bucket is a real one: cut-zone and opaque triangles in one mesh, and steps to read',
+    cut > 0 && total > cut && g('test', 'lit', 'steps') >= 1000 && fin(sm?.pixels?.opaque) >= 200 && fin(sm?.pixels?.cut) >= 2000,
+    `${cut} of ${total} triangles cut-zone; ${g('test', 'lit', 'steps')} steps; ${sm?.pixels?.opaque} bench and ${sm?.pixels?.cut} leaf px`);
+  add('THE DEFECT IS LIVE: alpha-tested, the crown\'s edges are steps (the known-bad)',
+    g('test', 'lit', 'hardFrac') >= 0.8 && g('test', 'cov', 'hardFrac') >= 0.8,
+    `hardFrac ${f(g('test', 'lit', 'hardFrac'))} lit, ${f(g('test', 'cov', 'hardFrac'))} coverage`);
+  const dLit = (g('test', 'lit', 'hardFrac') ?? NaN) - (g('centred', 'lit', 'hardFrac') ?? NaN);
+  const dCov = (g('test', 'cov', 'hardFrac') ?? NaN) - (g('centred', 'cov', 'hardFrac') ?? NaN);
+  add('THE FIX: with coverage the crown\'s edges carry partial pixels, lit and in the coverage pass',
+    dLit >= 0.15 && dCov >= 0.15 && g('centred', 'cov', 'midShare') >= 2 * (g('test', 'cov', 'midShare') ?? Infinity),
+    `hardFrac ${f(g('centred', 'lit', 'hardFrac'))} lit / ${f(g('centred', 'cov', 'hardFrac'))} coverage; ` +
+    `midShare ${f(g('test', 'cov', 'midShare'))} -> ${f(g('centred', 'cov', 'midShare'))}`);
+  add('and the partial pixels are real coverage: the pass holds at least twice as many',
+    g('centred', 'cov', 'partial') >= 2 * (g('test', 'cov', 'partial') ?? Infinity),
+    `${g('test', 'cov', 'partial')} -> ${g('centred', 'cov', 'partial')} px between 0.1 and 0.9 covered`);
+  const mT = g('test', 'cov', 'mass'), mC = g('centred', 'cov', 'mass'), m3 = g('three', 'cov', 'mass');
+  add('the leaves cover what they covered: the ramp is centred on the test',
+    mT > 0 && mC !== null && Math.abs(mC - mT) <= 0.01 * mT, `${f(mT, 1)} -> ${f(mC, 1)} px of leaf (${f(mT ? (mC / mT - 1) * 100 : null, 2)}%)`);
+  add('KNOWN-BAD for the centring: three\'s own ramp, 0 at the test, erodes the crown',
+    mT > 0 && m3 !== null && m3 <= 0.97 * mT, `${f(m3, 1)} px, ${f(mT ? (m3 / mT - 1) * 100 : null, 2)}%`);
+  add('the split moves no pixel: one material and no groups draws the alpha-tested arm byte for byte',
+    sm?.mergedVsTestBytes === 0, `${sm?.mergedVsTestBytes} bytes differ`);
+  add('the sun\'s map is the build-before\'s byte for byte under the coverage',
+    g('centred', 'shadowDiff') === 0 && g('test', 'shadowDiff') === 0 && g('three', 'shadowDiff') === 0,
+    `texels differing from the one-material map: test ${g('test', 'shadowDiff')}, centred ${g('centred', 'shadowDiff')}, three ${g('three', 'shadowDiff')}`);
+  add('KNOWN-BAD for the depth material: three\'s own cuts the coverage material\'s map at 0.5',
+    g('depth05', 'shadowDiff') >= 200, `${g('depth05', 'shadowDiff')} texels move`);
+  add('the bench welded into the same mesh keeps #114\'s tag in every arm',
+    ['merged', 'test', 'centred', 'three'].every((k) => g(k, 'tags', 'opaqueTagged') >= 0.99),
+    ['merged', 'test', 'centred', 'three'].map((k) => `${k} ${f(g(k, 'tags', 'opaqueTagged'))}`).join(', '));
+  add('the mechanism: the leaves are tagged under the test and untagged under the coverage, which is not OPAQUE',
+    g('test', 'tags', 'cutTagged') >= 0.99 && g('centred', 'tags', 'cutUntaggedFull') >= 0.9,
+    `tagged ${f(g('test', 'tags', 'cutTagged'))} under the test; alpha 1 on ${f(g('centred', 'tags', 'cutUntaggedFull'))} under the coverage`);
+  return checks;
+}
+
+function selftest() {
+  let pass = 0, fail = 0;
+  const say = (ok, msg, detail = '') => { if (ok) pass++; else fail++; console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${msg}${detail ? `  ${detail}` : ''}`); };
+  console.log('LEAF-COVER SELFTEST — the verdict on known-bad summaries\n');
+  const arm = (mode, a2c, groups, depth, lit, cov, tags, shadowDiff) => ({ mode, a2c, groups,
+    materials: groups === 1 ? ['prop'] : ['prop', 'foliageCoverage'], customDepth: depth, shadowDiff, lit, cov, tags });
+  // A real run's numbers (2026-11-17), so the known-bads below are one edit from something that happened.
+  const good = {
+    size: { w: 640, h: 400 }, cut: 4096, total: 4132, pixels: { cut: 26000, opaque: 900 }, mergedVsTestBytes: 0,
+    arms: {
+      merged: arm('test', false, 1, null, { steps: 5236, hardFrac: 0.844, midShare: 0.080 },
+        { steps: 6227, hardFrac: 0.866, midShare: 0.070, mass: 30056.8, partial: 1460 }, { opaqueTagged: 1, cutTagged: 1, cutUntaggedFull: 0 }, null),
+      test: arm('test', false, 2, 'foliageDepth', { steps: 5236, hardFrac: 0.844, midShare: 0.080 },
+        { steps: 6227, hardFrac: 0.866, midShare: 0.070, mass: 30056.8, partial: 1460 }, { opaqueTagged: 1, cutTagged: 1, cutUntaggedFull: 0 }, 0),
+      centred: arm('centred', true, 2, 'foliageDepth', { steps: 3955, hardFrac: 0.605, midShare: 0.170 },
+        { steps: 5126, hardFrac: 0.606, midShare: 0.176, mass: 30001.5, partial: 4188 }, { opaqueTagged: 1, cutTagged: 0, cutUntaggedFull: 0.97 }, 0),
+      three: arm('three', true, 2, 'foliageDepth', { steps: 5312, hardFrac: 0.724, midShare: 0.132 },
+        { steps: 6336, hardFrac: 0.693, midShare: 0.148, mass: 26931.0, partial: 4444 }, { opaqueTagged: 1, cutTagged: 0, cutUntaggedFull: 0.97 }, 0),
+      depth05: arm('centred', true, 2, null, { steps: 3955, hardFrac: 0.605, midShare: 0.170 },
+        { steps: 5126, hardFrac: 0.606, midShare: 0.176, mass: 30001.5, partial: 4188 }, { opaqueTagged: 1, cutTagged: 0, cutUntaggedFull: 0.97 }, 5022),
+    },
+  };
+  const bad = (fn) => { const c = structuredClone(good); fn(c); return c; };
+  const failing = (r) => verdict(r).filter((c) => !c.ok).map((c) => c.name);
+  const fails = (r, needle) => failing(r).some((n) => n.includes(needle));
+  say(failing(good).length === 0, 'a real passing summary passes every check', failing(good).join(' | '));
+  say(verdict(good).length === CHECK_COUNT, 'and the check COUNT is fixed', `${verdict(good).length} of ${CHECK_COUNT}`);
+  say(verdict({}).length === CHECK_COUNT && failing({}).length === CHECK_COUNT,
+    'an EMPTY summary fails every check rather than throwing', `${failing({}).length} failed`);
+  const asTest = (c) => { for (const k of ['centred', 'three', 'depth05']) { c.arms[k].lit = { ...c.arms.test.lit }; c.arms[k].cov = { ...c.arms.test.cov }; } };
+  for (const [what, fn, needle] of [
+    ['the build before #145: every arm alpha-tested', asTest, 'THE FIX'],
+    ['a coverage that never reached the pixels (the switch read back, the frame unmoved)', (c) => { c.arms.centred.lit = { ...c.arms.test.lit }; c.arms.centred.cov = { ...c.arms.test.cov }; }, 'THE FIX'],
+    ['three\'s uncentred ramp shipped', (c) => { c.arms.centred.cov.mass = c.arms.three.cov.mass; }, 'cover what they covered'],
+    ['a page whose test arm already has partial pixels, so the fix is measured on nothing', (c) => { c.arms.test.lit.hardFrac = 0.6; }, 'DEFECT IS LIVE'],
+    ['the depth material dropped: the map moves under the coverage', (c) => { c.arms.centred.shadowDiff = 5022; }, 'sun\'s map'],
+    ['a page whose arms cannot move the map at all', (c) => { c.arms.depth05.shadowDiff = 0; }, 'depth material'],
+    ['the coverage on the shared material: the bench loses its tag', (c) => { c.arms.centred.tags.opaqueTagged = 0; }, 'keeps #114'],
+    ['the split reorders or recolours a pixel', (c) => { c.mergedVsTestBytes = 12; }, 'moves no pixel'],
+    ['a switch that never reached the material', (c) => { c.arms.centred.a2c = false; }, 'reached the material'],
+    ['a bucket with no cut zone', (c) => { c.cut = 0; }, 'real one'],
+    ['the bench out of frame', (c) => { c.pixels.opaque = 0; }, 'real one'],
+    ['a mechanism that tags the leaves under the coverage too', (c) => { c.arms.centred.tags.cutUntaggedFull = 0; }, 'mechanism'],
+  ]) {
+    const r = bad(fn);
+    say(fails(r, needle), `KNOWN-BAD: ${what} fails`, failing(r).join(' | '));
+  }
+  console.log(`\nLEAF-COVER SELFTEST: ${fail ? 'FAIL' : 'PASS'} — ${pass + fail} checks${fail ? `, ${fail} failed` : ''}`);
+  return fail;
+}
+
+async function gate() {
+  const ROOT = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
+  const PORT = Number(process.env.LEAF_COVER_PORT ?? treePort(ROOT));
+  await ensureServer(PORT, 20000, { root: ROOT });
+  const browser = await chromium.launch(launchOptions());
+  const page = await browser.newPage({ viewport: { width: 640, height: 400 } });
+  const logs = [];
+  page.on('console', (m) => { if (!/Failed to load resource|GPU stall due to ReadPixels/.test(m.text())) logs.push(`${m.type()}: ${m.text()}`); });
+  page.on('pageerror', (e) => logs.push(`pageerror: ${e.message}`));
+  await page.goto(`http://127.0.0.1:${PORT}/tools/leaf-cover.html`);
+  let report = null, frames = null, err = null;
+  try {
+    await page.waitForFunction('window.__leafCover', null, { timeout: 300000 });
+    report = await page.evaluate(() => window.__leafCover);
+    if (report && !report.error) frames = await page.evaluate(() => window.__leafCoverFrames);
+  } catch (e) { err = e.message; }
+  await browser.close();
+  if (!report || report.error) {
+    console.error(`the page did not publish a report: ${report ? report.error : err}`);
+    if (logs.length) console.error('console:\n' + logs.join('\n'));
+    return 1;
+  }
+  const dec = {};
+  for (const [arm, fr] of Object.entries(frames)) {
+    dec[arm] = { rgb: new Uint8Array(Buffer.from(fr.rgb, 'base64')) };
+    if (fr.cov) dec[arm].cov = new Float32Array(Buffer.from(fr.cov, 'base64').buffer.slice(0));
+    if (fr.alpha) dec[arm].alpha = new Float32Array(Buffer.from(fr.alpha, 'base64').buffer.slice(0));
+  }
+  const sm = summarise(report, dec);
+  if (has('json')) console.log(JSON.stringify(sm, null, 1));
+  console.log(`LEAF-COVER — one live oak (key ${report.key}) and a bench, welded into one bucket, through the real PostStack\n`);
+  console.log('  arm       lit: steps hardFrac midShare    coverage: steps hardFrac midShare   leaf px  partial   sun map');
+  for (const [k, a] of Object.entries(sm.arms)) {
+    const v = (x, d = 3) => (Number.isFinite(x) ? x.toFixed(d) : '  -  ');
+    console.log(`  ${k.padEnd(8)} ${String(a.lit.steps).padStart(10)}   ${v(a.lit.hardFrac)}   ${v(a.lit.midShare)}   ` +
+      `${String(a.cov.steps).padStart(14)}   ${v(a.cov.hardFrac)}   ${v(a.cov.midShare)}   ${v(a.cov.mass, 1).padStart(8)} ${String(a.cov.partial).padStart(7)}   ` +
+      `${a.shadowDiff === null || a.shadowDiff === undefined ? 'reference' : `${a.shadowDiff} texels`}`);
+  }
+  console.log('');
+  const checks = verdict(sm);
+  for (const c of checks) console.log(`  ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? `  ${c.detail}` : ''}`);
+  const failed = checks.filter((c) => !c.ok);
+  if (logs.length) console.log('\nconsole:\n' + logs.join('\n'));
+  console.log(`\nLEAF-COVER: ${failed.length ? 'FAIL' : 'PASS'} — ${checks.length} checks` + (failed.length ? `, ${failed.length} failed` : ''));
+  return failed.length ? 1 : 0;
+}
+
 const IS_MAIN = process.argv[1] && process.argv[1].endsWith('leaf-cover.mjs');
-if (IS_MAIN && has('district')) await district();
+if (IS_MAIN) {
+  if (has('selftest')) process.exit(selftest() ? 1 : 0);
+  else if (has('district')) await district();
+  else process.exit(await gate());
+}

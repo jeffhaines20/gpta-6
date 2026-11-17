@@ -641,13 +641,16 @@ const ALPHA_TEST = 0.42;
 // The coverage material is a CLONE: the same maps, the same palette, the same polygon offset. The
 // one switch `setFoliageCoverage` turns it back into the test on the same page, so the instrument
 // reads both arms off one load.
-export const COVERAGE_MODES = ['test', 'three', 'centred'];
+export const COVERAGE_MODES = ['test', 'three', 'centred', 'length'];
 const COVERAGE_SEAM = '#include <alphatest_fragment>';
 const COVERAGE_GLSL = `
 #ifdef USE_ALPHATEST
 	#ifdef ALPHA_TO_COVERAGE
-		#ifdef FOLIAGE_COVERAGE_THREE
+		#if defined( FOLIAGE_COVERAGE_THREE )
 		diffuseColor.a = smoothstep( alphaTest, alphaTest + fwidth( diffuseColor.a ), diffuseColor.a );
+		#elif defined( FOLIAGE_COVERAGE_LENGTH )
+		// The ramp one pixel wide ALONG THE GRADIENT, where fwidth's L1 sum is up to sqrt 2 too steep.
+		diffuseColor.a = clamp( ( diffuseColor.a - alphaTest ) / max( length( vec2( dFdx( diffuseColor.a ), dFdy( diffuseColor.a ) ) ), 1e-4 ) + 0.5, 0.0, 1.0 );
 		#else
 		// #145: the ramp is centred on the test, half a pixel each side of it.
 		diffuseColor.a = clamp( ( diffuseColor.a - alphaTest ) / max( fwidth( diffuseColor.a ), 1e-4 ) + 0.5, 0.0, 1.0 );
@@ -732,7 +735,7 @@ function foliageMaterial(base, mode = 'centred') {
 function setCoverageMode(m, mode) {
   if (!COVERAGE_MODES.includes(mode)) throw new Error(`foliage coverage mode "${mode}" is not one of ${COVERAGE_MODES.join(', ')}`);
   m.alphaToCoverage = mode !== 'test';
-  m.defines = mode === 'three' ? { FOLIAGE_COVERAGE_THREE: '' } : {};
+  m.defines = mode === 'three' ? { FOLIAGE_COVERAGE_THREE: '' } : mode === 'length' ? { FOLIAGE_COVERAGE_LENGTH: '' } : {};
   m.customProgramCacheKey = () => `foliageCoverage:1:${mode}`;
   m.userData.coverage = mode;
   m.needsUpdate = true;

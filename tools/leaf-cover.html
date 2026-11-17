@@ -169,7 +169,7 @@ try {
       mesh.customDepthMaterial = undefined;
     }
     if (arm === 'depth05') mesh.customDepthMaterial = undefined;
-    K.setCoverageMode(fol, arm === 'merged' || arm === 'test' ? 'test' : arm === 'three' ? 'three' : 'centred');
+    K.setCoverageMode(fol, arm === 'merged' || arm === 'test' ? 'test' : arm === 'depth05' ? 'centred' : arm);
     // Read back what the draw will be GIVEN: an arm whose switch never reached the material is two
     // identical frames and a confident "no change".
     return {
@@ -181,7 +181,7 @@ try {
 
   const b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode(...u8.subarray(i, i + 8192)); return btoa(s); };
   const f32b64 = (f) => b64(new Uint8Array(f.buffer.slice(0)));
-  const ARMS = ['merged', 'test', 'centred', 'three', 'depth05'];
+  const ARMS = (qs.get('arms') ?? 'merged,test,centred,three,depth05').split(',');
   const report = { size: { w: W, h: H }, cut, total: buf.idx.length / 3, key, exposure: q.exposure, arms: {} };
   const frames = {};
   let shadowRef = null;
