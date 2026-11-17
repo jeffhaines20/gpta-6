@@ -228,13 +228,15 @@ async function district() {
         const scene = await page.evaluate((k) => __leafCover.scene(k), keep);
         const stats = await page.evaluate(() => __leafCover.stats());
         const hdr = HDR_BOXES[name] ? await page.evaluate((b) => __leafCover.hdrBoxes(b), HDR_BOXES[name]) : [];
+        // A light arm is read off the scene target alone: its frame would only cost a screenshot.
+        const lightArm = ['nosun', 'nohemi', 'nobounce', 'noenv'].includes(arm);
         const file = path.join(outDir, `${name}-${tod}-${arm}.png`);
-        await page.screenshot({ path: file, timeout: 180000 });
-        const img = readPNG(file);
-        const planes = lumaPlanes(img);
-        const edges = (BOXES[name] ?? []).map((b) => ({ ...b, s: edgeStats(planes, b.box) }));
+        if (!lightArm) await page.screenshot({ path: file, timeout: Number(process.env.LEAF_SHOT_TIMEOUT ?? 1200000) });
+        const img = lightArm ? null : readPNG(file);
+        const planes = img ? lumaPlanes(img) : null;
+        const edges = planes ? (BOXES[name] ?? []).map((b) => ({ ...b, s: edgeStats(planes, b.box) })) : [];
         let diff = null;
-        if (ref) {
+        if (ref && img) {
           let n = 0, big = 0;
           for (let i = 0; i < img.data.length; i += img.channels) {
             let d = 0;
@@ -244,7 +246,7 @@ async function district() {
           }
           diff = { anyPx: n, over2: big };
         }
-        if (keep) ref = img;
+        if (keep && img) ref = img;
         const row = { name, tod, arm, set, frames: f0, stats, shadow, scene, diff, hdr, edges: edges.map((e) => ({ name: e.name, box: e.box, ...e.s })) };
         results.push(row);
         console.log(`  ${tod} ${arm.padEnd(8)} mode ${set.mode} a2c ${set.a2c} depthCustom ${set.depthCustom} grouped ${set.grouped}  ` +
