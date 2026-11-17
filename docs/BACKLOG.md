@@ -6358,11 +6358,12 @@ hierarchy already said the street lamps were not doing much.
 
 **The reviewer's corridor "low lamp" is not a lamp.** Its box [1025,405,1100,465] holds no globe (the nearest,
 lamp 285's inner, projects at x 903). Its brightest pixel, at (1056,437), is the midOffice facade 42.9 m out and
-5.7 m up — 589.5 nits at dusk and 589.7 at night, the same radiance at both hours because it is a LightPool
-light's specular lobe on the facade: with the pool off it reads 58.8 nits at dusk and 0.0 at night. It is the
-phenomenon #136 named "a light with no fixture" (#136's disc was at about (975,454) in its own frames; which
-light makes this one was not traced). At night it is 110 exposed and reads as a lamp;
-at dusk it is 0.30 exposed and reads as an unlit one. Nothing in that box is a fixture at either hour.
+5.7 m up: 648.4 nits at dusk, 58.8 of them left with the pool off, so the pool puts 589.5 nits there; at night
+it reads 589.7, and 0.0 with the pool off. The same light at both hours, because it is a LightPool light's
+specular lobe on the facade — the phenomenon #136 named "a light with no fixture" (#136's disc was at about
+(975,454) in its own frames; which light makes this one was not traced). At night it is 110 exposed and reads as
+a lamp; at dusk the pixel is 0.33 exposed, 0.30 of it the lobe, and reads as an unlit one. Nothing in that box is
+a fixture at either hour.
 
 **What the pool added at dusk.** At the corridor camera: 10.4 of the meter's 1,576 lux (0.66%), 0.11% of the
 frame's luminance, 2,119 pixels lifted over 5%, 49 over 25% — and its one visible piece is that lobe, x10.0 the
@@ -6438,7 +6439,7 @@ the corridor's figure to the hundredth (one dome, one PMREM: the base run's 876.
 box reads 229.679 nits, the base's pool-off mean exactly, its peak now open sky (620 nits) with lamp 831's lobe
 gone; the frame mean 294.374 against the base's state D 294.376. The globes, found by one read lit at the module's
 level and measured unlit, read 0.525-1.131 of their sky ring — the base run's state C to within 0.009 on every
-globe, the largest gap an inner globe its twin's pool light had lifted 1.4% in the base. So the base run's state
+globe, the largest gap on an inner globe its twin's pool light had lifted 1.4% in the base. So the base run's state
 C is the after build's globe, measured on pixels its own emission verified. (With the pool off in both reads, 69
 pixels still differ between two frames, all on the player's car: the speckle #136's review found and did not
 explain, not this change.)
