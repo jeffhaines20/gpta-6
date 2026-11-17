@@ -19,7 +19,9 @@
 // the globe would equal a pixel is the current level times that pixel's ratio.
 //
 //   node tools/globe-order.mjs                                   corridor + fivepoints at night
-//   GO_SHOTS=corridor GO_TIMES=night,dusk node tools/globe-order.mjs
+//   GO_SHOTS=corridor GO_TIMES=night,dusk node tools/globe-order.mjs    (#142: at DUSK the street lamps'
+//                                                                photocell holds the pool and the globes off,
+//                                                                so a dusk run reads no lamp light at all)
 //   GO_LEVELS=0.000447,0.01 node tools/globe-order.mjs           re-measure at globe levels (fractions
 //                                                                of physical) on the same page load
 //   node tools/globe-order.mjs --selftest                        the pure half, offline
