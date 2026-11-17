@@ -155,6 +155,11 @@ if (ONLY.length && chosen.length !== ONLY.length) {
  * the ORDER is the world moving. The order each frame was shot in is recorded in the results.
  */
 const ALTERNATE = process.env.HERO_ALTERNATE === '1';
+// HERO_SHOT_TIMEOUT (ms) raises the screenshot's bound on a loaded box, the way HERO_SETTLE_TIMEOUT
+// raises the settle's. #145's BEFORE capture lost corridor noon to the 180 s default on 2026-11-17 at
+// load 9 with three browser jobs on four cores; the frame it would have taken is the same frame at any
+// bound, so raising it changes what survives and not what is captured.
+const SHOT_TIMEOUT_MS = Number(process.env.HERO_SHOT_TIMEOUT ?? 180000);
 const results = [];
 let fi = -1;
 for (const s of chosen) {
@@ -220,7 +225,7 @@ for (const s of chosen) {
       // three other tools. See CLAUDE.md on patching one tool and leaving the
       // rest.
       try {
-        await page.screenshot({ path: file, timeout: 180000 });
+        await page.screenshot({ path: file, timeout: SHOT_TIMEOUT_MS });
       } catch (e) {
         shotErrors.push(`${file}: ${e.message.split('\n')[0]}`);
         console.log(`  SCREENSHOT FAILED (continuing): ${file}`);
