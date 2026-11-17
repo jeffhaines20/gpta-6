@@ -6343,7 +6343,7 @@ none measured: the leaf cards' material does not take the LightPool's lights, or
 facing away; or the AO (whose broad darkening #141's review preferred) darkens the inner canopy and nothing
 lifts it. #139 moved lamps out of palm crowns; which species these two canopies are is not checked.
 
-### #145 IN PROGRESS (MEASURED; THE EDGES AND THE TRUNKS FIXED ON foliage-145, NOT YET REVIEWED; THE BARK'S TONE NOT MOVED) — hard-edged foliage and pale trunks
+### #145 FIXED ON foliage-145, NOT YET BLIND-REVIEWED (A LEAF'S EDGE IS A PARTIAL PIXEL, THE TRUNKS ARE NOT LATTICES, A COVERED LEAF IS STILL LIT TO THE BLOOM; THE BARK'S TONE MEASURED AND NOT MOVED) — hard-edged foliage and pale trunks
 Filed 2026-11-17 from the month's blind reviews, every one of which listed it among the things wrong in
 BOTH builds, independently. The original record is kept verbatim under "#145 (as filed)".
 
@@ -6370,6 +6370,146 @@ the BEFORE corridor noon frame it reproduces the reviewers to the digit where th
 
 So a leaf's edge is a step in a frame whose polygon edges are four times softer: the target is the frame's own
 MSAA, not a number picked.
+
+**Why it was a step on a 4-sample target.** src/post.js renders the scene into a 4-sample HDR target, so every
+POLYGON edge resolves to a partial pixel. A leaf's outline is not a polygon edge: the stencil cuts it inside a
+polygon, where the fragment shader runs once at the pixel centre and the alpha test keeps all four samples or
+none. Alpha to coverage makes the alpha the sample mask instead, and three things in the vendored bundle decided
+whether that is a fix or a new defect, each measured:
+
+1. **The alpha is the coverage, so it cannot also be #114's tag.** three makes a coverage material non-OPAQUE
+   (`opaque: transparent === false && blending === NormalBlending && alphaToCoverage === false`), so the
+   `-(1 + share)` tag is never written, and a negative alpha would clamp to a mask of nothing anyway. Right for a
+   leaf, which emits nothing; wrong for the signal lenses on the same material. So the coverage is NOT a flag on
+   the shared material: `weldBucket` partitions each bucket by the stencil zone its triangles address, and the cut
+   zones (oak stamps, both palm combs, the bark fringe) draw as a second group with `foliageMaterial`, a clone of
+   `propMaterial`; every other triangle stays on `propMaterial`, in its own order.
+2. **three cuts a coverage material's shadow at 0.5.** Its shadow cache copies `alphaTest =
+   material.alphaToCoverage ? 0.5 : material.alphaTest`, onto a custom depth material as well, and 0.5 against
+   0.42 moves 5,022 texels of the sun's map under one oak. `foliageDepthMaterial` writes ALPHA_TEST into its
+   shader, and the map is the one-material build's byte for byte. In the district, without it (arm `depth05`),
+   the dappled canopy shadow on the corridor road moves everywhere: 148,723 pixels change by more than 2 levels
+   away from any edge, against 42,271 for the coverage alone, all of those inside the crowns.
+3. **three's own coverage is not centred.** `smoothstep( alphaTest, alphaTest + fwidth( a ), a )` is 0 AT the
+   test, so every cut edge moves half a pixel in: -9.68% of the oak's leaf on the gate page. COVERAGE_GLSL centres
+   the ramp on the test: -0.17%. Measured once and refused: the ramp one pixel wide along the GRADIENT (`length`
+   of the derivatives, where fwidth is their L1 sum), 3,598 partial pixels against fwidth's 4,188 at equal mass.
+
+**And the measurement found one nobody had filed: the trunks were lattices.** The bark fringe is cut at every
+vertex ray of a tube, on the argument that the silhouette is always on one. The rays that FACE the camera are cut
+the same way and the back faces are culled, so the background showed through: on the gate page 22.3% of the oak
+trunk's own span was uncovered, and in the corridor frame the reviewers' "torn, notched" ribbons were tubes with
+a hole down their middle, one limb drawn as two strips. `BARK_RIM` fades the cut out where the tube's radial
+normal looks at the camera (cosine 0.25 to 0.55; a front-facing ray of a three-sided limb is at worst 0.5), in
+the colour pass only, so the sun's map is cut as before: 0.1% uncovered, and the silhouette keeps its fringe.
+
+**The levers, one term at a time, on ONE page load a camera** (`tools/leaf-cover.mjs --district`, the arms switched
+at runtime on the one coverage material; the `test` arm reproduces the BEFORE build's corridor frame to 75 pixels
+of 1,440,000, 13 of them over 2 levels). hardFrac / midShare in the reviewers' boxes, and the leaf each box holds
+(display-linear, the test arm's sky at 0 and leaf at 1):
+
+    noon                         corridor A        corridor B        fivepoints        leaf held in A / B / fivepoints
+    test (BEFORE)                0.892 / 0.049     0.920 / 0.042     0.730 / 0.155     0.6440 / 0.5230 / 0.6115
+    centred                      0.579 / 0.168     0.498 / 0.184     0.531 / 0.221     0.6523 / 0.5293 / 0.6131
+    rim (centred + rim, SHIPPED) 0.561 / 0.174     0.499 / 0.184     0.532 / 0.221     0.6555 / 0.5297 / 0.6132
+    three (three's own ramp)     0.669 / 0.134     0.638 / 0.141     0.629 / 0.178     0.6016 / 0.4852 / 0.5905
+    the frame's polygon edges    mast 0.543 / 0.214, pole 0.439 / 0.226 (corridor); mast arm 0.450 / 0.143,
+                                 lamp pole 0.313 / 0.236 (fivepoints)
+
+So the shipped arm's leaves read like the frame's own MSAA edges, and three's ramp would have bought a third less
+of the edge for 3-7% of the crown. (The fivepoints controls are byte-identical in every arm; the corridor ones move
+by a few hundredths, because a leaf stands in the corner of each box.)
+
+**The price, in the units each gate reads.**
+
+    draw calls     +17 at corridor noon (159 -> 176, the shadow pass included: the probe's `merged` arm, one
+                   material and no groups, against the shipped one on the same page), +18 at fivepoints
+                   (179 -> 197): a bucket with a cut zone in view draws two groups. The budget gate's p95 was
+                   225-236 against a warn of 275.
+    triangles      0: the same buffers in a different order. The gate page's one-material arm and its
+                   alpha-tested split arm are byte-identical frames.
+    the sun's map  0 texels on the gate page under every coverage arm (the custom depth material). In the
+                   district the map's raw bytes differ between two runs of the SAME arm (test against test2:
+                   499,048 texels), so the district's evidence is the frame, where every moved pixel is inside
+                   a crown.
+    shader         the cut group only: one fwidth and a divide for the ramp, a normalize and a dot for the
+                   bark rim, a compare for the lit tag. Not timed: SwiftShader's frame time is not a result.
+    AO             unchanged: the composite decodes a partial coverage, a bare 1 and the lit tag below all as
+                   untagged, and the AO applies to an untagged texel as it did to an alpha-tested leaf (-1,
+                   share 0).
+    #114's tag     kept on every triangle outside the cut zones, which is what the split is for: the bench on
+                   the gate page, welded into the same mesh, reads 1.000 tagged in every arm.
+
+**And the first version bloomed at night, which only the dusk and night arms could see.** The coverage material is
+not OPAQUE, so a leaf carried no tag, and the bright pass (#118) holds an untagged texel to the EMITTER's bar: 0.118
+at night where a lit surface's is 1.331. Untagged leaf pixels over the emitter's bar: 18 at corridor dusk (worst
+0.6846 against 0.314), 13,588 at corridor night (worst 13.39 exposed), 4 at fivepoints dusk, 1,100 at fivepoints
+night, and the lamp-lit crown at corridor night (820,330) GLOWED where the alpha-tested build drew it crisp.
+
+A coverage fragment cannot carry the negative tag, so a FULLY covered one writes src/post.js COVERAGE_LIT_TAG, 4,
+and the bright pass reads it as lit, share 0, inside its own 0.01 band. Nothing else in the target can reach 4 (a
+normal blend leaves the band at an opacity of 0.0034, an additive one at 0.01, and the clear's 1 needs three stacked
+additive layers summing to exactly 3); it is exact in half float; and the composite needs nothing, -4 - 1 being
+outside [0, 1]. On the gate page the tag sits on 0.675 of the crown's inner pixels where the untagged arm reads a
+bare 1 on 0.677, and the GPU's bright target, read at bars of 0.001 and 1000 so no threshold arithmetic stands
+between the decode and the reading, takes 0.00 of 112.10 from the 1,712 covered texels with the tag and 111.05 of
+112.77 without it. The district, corridor night, one page load, the bright target summed over the frame:
+
+    arm                              bloom energy     untagged leaf px over the emitter's bar
+    test (alpha-tested, BEFORE)        19,914.08            -
+    rim, with the lit tag (SHIPPED)    20,886.14  x1.049     3,984   (worst 19.71: a leaf edge over a lamp globe)
+    notag (the first version)          23,420.89  x1.176    13,588   (reproduces the first run to the pixel)
+
+**The residual is a PARTIAL leaf, and it is priced, not fixed.** Its alpha IS its coverage, so it cannot carry the
+tag and keeps the emitter's bar, which is #118's rule for every untagged silhouette in the frame: a lit polygon's
+edge against the night sky is untagged too. The coverage makes many more of them: on the gate page 2,785 of 4,497
+interior leaf texels mix in a partial sample and hand on 88.49 of 157.48 at the extreme bars, against 1.97 of 258.97
+for the alpha-tested build. At corridor night that is +4.9% of the frame's bloom, seen as a faint halo on the
+lamp-lit crown's silhouette. Two levers were weighed and not taken: a second, depth-equal pass writing -1 into
+every covered SAMPLE would tag a partial leaf over another leaf, but not one over the sky (the resolve mixes it with
+the sky's +1, which #118 reads as untagged), at +1 draw call per cut bucket on top of the split's (the budget gate's
+p95 would sit within ~10 of its 275 warn); and reading an untagged alpha in (0, 1) as lit would also re-bar
+emitter silhouettes and normal-blended overlays across the whole frame, which is #118's decision, not #145's.
+
+**The bark: measured, and its tone NOT moved.** The light, one term out at a time on the BEFORE build (the probe's
+light arms, in exposed linear light off the scene target before the AO; the hemisphere light reads 0 at all five
+boxes, being off at noon):
+
+    corridor noon      total    sun (direct)     environment (sky + lit ground)   bounce
+    limb A            0.1372    0.0607  44%       0.0707  52%                       0.0091   7%
+    limb B            0.1227    0.0462  38%       0.0711  58%                       0.0087   7%
+    limb R (shaded)   0.0985    0                 0.0951  97%
+    sunlit brick      0.0904    0.0352  39%       0.0522  58%                       0.0044   5%
+
+A limb under the crown takes as much direct sun as a sunlit wall and MORE of the sky: nothing tells the environment
+term that a crown is over it, so the PMREM sky reaches a limb inside a canopy as it reaches an open wall, and the
+limb in full shade (R) is 97% environment. That part of "pale" is not the albedo, and its lever is priced and not
+built: the bark's IBL scaled by the crown's own sky view (about 0.45 under a closed crown) takes limb A from 0.1372
+to about 0.098, the sun's term untouched; it needs an occlusion term per vertex that the tree builder does not
+carry. Against a photograph, inside one frame each: a sunlit live oak trunk base (mly-688375340384481) reads 0.311
+display-linear against 0.635 for the sunlit road beside it, x0.49, at R:G:B 1.00 : 0.68 : 0.47; the BEFORE corridor's
+limb A reads 0.1951 against a sunlit road box xywh [700,560,60,30] at 0.2081, x0.94 (p50 against p50, x0.83), at
+1.00 : 0.99 : 0.94. So the shipped bark is paler than that trunk by x1.7-1.9 and nearly neutral where it is brown.
+One front-lit trunk is not a population (two boxes placed on a second panorama, mly-632026139822372, landed on sky
+and wall), and half of the measured excess is the environment term, which a darker albedo would hide rather than
+fix; so the vertex colour is left, and the measurement is here for the round that censuses trunks.
+
+**Gates.** `tools/leaf-edge.mjs --selftest` (9 checks: the statistic, the known-bad alpha test at three exposures, a
+box with no leaves refused); `tools/leaf-cover.mjs` (18 checks on a purpose-built page through the real PostStack:
+the defect live, the fix, the centring, the split byte-identical, the sun's map, #114 on the bench, the lattice and
+the rim, the tag on exactly the covered pixels, the GPU's bright pass reading it, and tools/bloom-math.mjs's copy of
+the decode agreeing with the GPU) and its `--selftest` (28: each check against a known-bad summary); `leaf-mask`'s
+split section; `bloom-source --selftest` (three more: the JS decode against the export); `boot-check`'s #145 arm
+(the page ships centred, the rim, the lit tag; every cut bucket paired and casting through the foliage depth
+material). Mutation rows: fol-a2c-off, fol-uncentred, fol-depth-off, fol-depth-uniform, fol-split-none,
+fol-split-all, fol-zone-bark, bark-rim-off, bark-rim-column, fol-lit-tag-off, bright-lit-tag-off; and
+bloom-share-inverted repointed by intent onto the decode this change extended.
+
+**Not measured.** FXAA over the MSAA (`msaa+fxaa`, which src/post.js keeps as an A/B): it would blur every edge in
+the frame and not only the leaves'. The "1-3 px far objects appear or disappear" a reviewer added: a temporal
+statement no single frame can measure. The night residual at fivepoints after the tag (its first-version count was
+1,100 against corridor's 13,588). Whether the lamp-lit crown should glow at all: a photograph says leaves within a
+metre of a street lamp do, and #118 says lit light blooms only over 1.331.
 
 #### #145 (as filed)
 - **Leaf edges are binary.** "86% of leaf/sky boundary pixels have no partial coverage" (corridor noon
