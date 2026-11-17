@@ -14,9 +14,10 @@
 
       merged     one material, no groups, three's own depth material: the build before #145
       test       the split, with the cut zones alpha-tested                 (the KNOWN-BAD)
-      centred    the split, alpha to coverage centred on the test           (shipped)
+      centred    the split, alpha to coverage centred on the test
       three      the split, three's own coverage, 0 AT the test             (why it is centred)
-      depth05    centred without the custom depth material: three cuts the sun's map at 0.5
+      rim        centred, and the bark fringe faded off the faces that look at the camera (shipped)
+      depth05    rim without the custom depth material: three cuts the sun's map at 0.5
 
   Per arm: the lit frame through the composite; a COVERAGE pass (no light, a white background, the same
   4-sample target, so a pixel's value is exactly the fraction of it the leaves cover); the sun's shadow
@@ -169,11 +170,14 @@ try {
       mesh.customDepthMaterial = undefined;
     }
     if (arm === 'depth05') mesh.customDepthMaterial = undefined;
-    K.setCoverageMode(fol, arm === 'merged' || arm === 'test' ? 'test' : arm === 'depth05' ? 'centred' : arm);
+    // The rim (src/streetfurniture.js BARK_RIM) is its own term: on in the shipped arm and the depth arm,
+    // off in every other, so 'centred' against 'rim' is the rim alone.
+    const rim = arm === 'rim' || arm === 'depth05';
+    K.setCoverageMode(fol, arm === 'merged' || arm === 'test' ? 'test' : (arm === 'depth05' || arm === 'rim') ? 'centred' : arm, rim);
     // Read back what the draw will be GIVEN: an arm whose switch never reached the material is two
     // identical frames and a confident "no change".
     return {
-      arm, mode: fol.userData.coverage, a2c: fol.alphaToCoverage,
+      arm, mode: fol.userData.coverage, a2c: fol.alphaToCoverage, rim: fol.userData.rim,
       materials: Array.isArray(mesh.material) ? mesh.material.map((m) => m.name || 'prop') : [mesh.material.name || 'prop'],
       groups: mesh.geometry.groups.length, customDepth: mesh.customDepthMaterial ? mesh.customDepthMaterial.name : null,
     };
@@ -181,7 +185,7 @@ try {
 
   const b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode(...u8.subarray(i, i + 8192)); return btoa(s); };
   const f32b64 = (f) => b64(new Uint8Array(f.buffer.slice(0)));
-  const ARMS = (qs.get('arms') ?? 'merged,test,centred,three,depth05').split(',');
+  const ARMS = (qs.get('arms') ?? 'merged,test,centred,three,rim,depth05').split(',');
   const report = { size: { w: W, h: H }, cut, total: buf.idx.length / 3, key, exposure: q.exposure, arms: {} };
   const frames = {};
   let shadowRef = null;

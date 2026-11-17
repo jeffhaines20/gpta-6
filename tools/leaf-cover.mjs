@@ -44,6 +44,19 @@ export const BOXES = {
   ],
 };
 
+/**
+ * Boxes read off the SCENE TARGET, x,y,w,h, for the bark: the reviewers' limb boxes and the sunlit
+ * surfaces they compared them with, in exposed linear light, so a light arm can say which term carries
+ * the limb.
+ */
+export const HDR_BOXES = {
+  corridor: [
+    { name: 'limb A', box: [292, 328, 10, 8] },
+    { name: 'limb B', box: [262, 350, 8, 8] },
+    { name: 'brick', box: [100, 282, 80, 14] },
+  ],
+};
+
 async function district() {
   const port = Number(arg('port', 8252));
   const times = arg('times', 'noon,dusk,night').split(',');
@@ -92,7 +105,16 @@ async function district() {
       buckets: F.propMeshes.length,
       setArm(arm) {
         restore();
-        const mode = arm === 'depth05' ? 'centred' : (arm === 'merged' || arm === 'test2') ? 'test' : arm;
+        // The LIGHT arms, for the bark: each takes one term out of the light on the alpha-tested build.
+        // Visibility, not intensity, because TimeOfDay.follow() re-derives the bounce every frame.
+        const T = D.tod;
+        T.sun.visible = arm !== 'nosun';
+        T.hemi.visible = arm !== 'nohemi';
+        T.bounce.visible = arm !== 'nobounce';
+        if (this._envI === undefined) this._envI = D.scene.environmentIntensity;
+        D.scene.environmentIntensity = arm === 'noenv' ? 0 : this._envI;
+        const light = ['nosun', 'nohemi', 'nobounce', 'noenv'].includes(arm);
+        const mode = arm === 'depth05' ? 'centred' : (arm === 'merged' || arm === 'test2' || light) ? 'test' : arm;
         const got = F.setFoliageCoverage(mode);
         if (arm === 'depth05') for (const s of saved) s.m.customDepthMaterial = undefined;
         if (arm === 'merged') {
@@ -148,6 +170,23 @@ async function district() {
         return out;
       },
       stats: () => D.renderStats(),
+      // Mean EXPOSED linear RGB of the scene target over boxes given x,y,w,h in screen pixels (top-down).
+      hdrBoxes(boxes) {
+        const rt = P.hdr, w = rt.width, h = rt.height, raw = new Uint16Array(w * h * 4);
+        R.readRenderTargetPixels(rt, 0, 0, w, h, raw);
+        const exp = P.params.exposure, sx = w / innerWidth, sy = h / innerHeight;
+        return boxes.map(({ name, box: [x, y, bw, bh] }) => {
+          let r = 0, g = 0, b = 0, n = 0;
+          for (let yy = Math.floor(y * sy); yy < Math.floor((y + bh) * sy); yy++) {
+            for (let xx = Math.floor(x * sx); xx < Math.floor((x + bw) * sx); xx++) {
+              const i = ((h - 1 - yy) * w + xx) * 4;
+              r += half(raw[i]); g += half(raw[i + 1]); b += half(raw[i + 2]); n++;
+            }
+          }
+          r *= exp / n; g *= exp / n; b *= exp / n;
+          return { name, n, rgb: [r, g, b], luma: 0.2126 * r + 0.7152 * g + 0.0722 * b };
+        });
+      },
     };
   });
 
@@ -170,6 +209,7 @@ async function district() {
         const shadow = await page.evaluate((k) => __leafCover.shadow(k), keep);
         const scene = await page.evaluate((k) => __leafCover.scene(k), keep);
         const stats = await page.evaluate(() => __leafCover.stats());
+        const hdr = HDR_BOXES[name] ? await page.evaluate((b) => __leafCover.hdrBoxes(b), HDR_BOXES[name]) : [];
         const file = path.join(outDir, `${name}-${tod}-${arm}.png`);
         await page.screenshot({ path: file, timeout: 180000 });
         const img = readPNG(file);
@@ -187,7 +227,7 @@ async function district() {
           diff = { anyPx: n, over2: big };
         }
         if (keep) ref = img;
-        const row = { name, tod, arm, set, frames: f0, stats, shadow, scene, diff, edges: edges.map((e) => ({ name: e.name, box: e.box, ...e.s })) };
+        const row = { name, tod, arm, set, frames: f0, stats, shadow, scene, diff, hdr, edges: edges.map((e) => ({ name: e.name, box: e.box, ...e.s })) };
         results.push(row);
         console.log(`  ${tod} ${arm.padEnd(8)} mode ${set.mode} a2c ${set.a2c} depthCustom ${set.depthCustom} grouped ${set.grouped}  ` +
           `calls ${stats.calls} scene ${stats.sceneCalls} tris ${stats.triangles}  ` +
@@ -195,6 +235,7 @@ async function district() {
           `tags ${scene.tagged}${scene.lost !== undefined ? ` lost ${scene.lost} gained ${scene.gained} lost>emitterBar ${scene.lostOverEmitter} (worst ${scene.worstLostLum.toFixed(4)} vs bar ${scene.threshold} / lit ${scene.thresholdLit})` : ''}  ` +
           `${diff ? `frame diff ${diff.anyPx} px (${diff.over2} > 2 levels)` : ''}`);
         for (const e of edges) console.log(formatEdge(`    ${e.name}`, e.box, e.s));
+        if (hdr.length) console.log('    exposed HDR  ' + hdr.map((x) => `${x.name} ${x.luma.toFixed(4)} (${x.rgb.map((v) => v.toFixed(3)).join(',')})`).join('  '));
       }
     }
   }
@@ -209,8 +250,28 @@ async function district() {
 
 /** The crown on the page's fixed camera, x0,y0,x1,y1: sky above and round it, the trunk below. */
 export const CROWN = [190, 50, 550, 250];
+/** The trunk between the crown and the bench, x0,y0,x1,y1, where the bark fringe's holes show. */
+export const TRUNK = [296, 268, 334, 318];
 /** Fixed, so a check cannot vanish when a population is empty. */
-export const CHECK_COUNT = 12;
+export const CHECK_COUNT = 15;
+
+/**
+ * HOLES INSIDE A TUBE, off the coverage pass: per row of `box`, the uncovered pixels strictly between
+ * the leftmost and the rightmost covered one. A tube is solid across itself, so every one of them is
+ * background seen through the bark.
+ */
+export function tubeGaps(cov, w, box) {
+  const [x0, y0, x1, y1] = box;
+  let gaps = 0, solid = 0, rows = 0;
+  for (let y = y0; y < y1; y++) {
+    let L = -1, R = -1;
+    for (let x = x0; x < x1; x++) if (cov[y * w + x] >= 0.5) { if (L < 0) L = x; R = x; }
+    if (L < 0 || R - L < 2) continue;
+    rows++;
+    for (let x = L; x <= R; x++) { if (cov[y * w + x] >= 0.5) solid++; else gaps++; }
+  }
+  return { rows, gaps, solid, gapFrac: gaps + solid ? gaps / (gaps + solid) : null };
+}
 
 const enc = (v) => {
   const c = Math.max(0, Math.min(1, v));
@@ -255,6 +316,7 @@ export function summarise(report, frames) {
       ...report.arms[arm],
       lit: { steps: e.steps, hardFrac: e.ok ? e.hardFrac : null, midShare: e.ok ? e.midShare : null },
       cov: { steps: c.steps, hardFrac: c.ok ? c.hardFrac : null, midShare: c.ok ? c.midShare : null, mass, partial },
+      trunk: tubeGaps(fr.cov, w, TRUNK),
       tags: { opaqueTagged: share(inner.opaque, tagged), cutTagged: share(inner.cut, tagged),
         cutUntaggedFull: share(inner.cut, (a) => a >= 0.99 && a <= 1.01) },
     };
@@ -273,12 +335,14 @@ export function verdict(sm) {
   const A = sm?.arms ?? {};
   const g = (arm, ...path) => { let v = A[arm]; for (const k of path) v = v?.[k]; return fin(v); };
   const f = (v, d = 3) => (v === null ? 'absent' : v.toFixed(d));
-  const want = { merged: ['test', false, 1, null], test: ['test', false, 2, 'foliageDepth'],
-    centred: ['centred', true, 2, 'foliageDepth'], three: ['three', true, 2, 'foliageDepth'], depth05: ['centred', true, 2, null] };
-  const armsOk = Object.entries(want).every(([k, [mode, a2c, groups, depth]]) => A[k] && A[k].mode === mode
-    && A[k].a2c === a2c && (groups === 1 ? A[k].materials?.length === 1 : A[k].groups === groups) && (A[k].customDepth ?? null) === depth);
+  const want = { merged: ['test', false, false, 1, null], test: ['test', false, false, 2, 'foliageDepth'],
+    centred: ['centred', true, false, 2, 'foliageDepth'], three: ['three', true, false, 2, 'foliageDepth'],
+    rim: ['centred', true, true, 2, 'foliageDepth'], depth05: ['centred', true, true, 2, null] };
+  const armsOk = Object.entries(want).every(([k, [mode, a2c, rim, groups, depth]]) => A[k] && A[k].mode === mode
+    && A[k].a2c === a2c && A[k].rim === rim && (groups === 1 ? A[k].materials?.length === 1 : A[k].groups === groups)
+    && (A[k].customDepth ?? null) === depth);
   add('every arm\'s switch reached the material, read back off the mesh', armsOk,
-    Object.keys(want).map((k) => `${k} ${A[k]?.mode}/${A[k]?.a2c}/${A[k]?.groups}/${A[k]?.customDepth}`).join(', '));
+    Object.keys(want).map((k) => `${k} ${A[k]?.mode}/${A[k]?.a2c}/${A[k]?.rim}/${A[k]?.groups}/${A[k]?.customDepth}`).join(', '));
   const cut = fin(sm?.cut), total = fin(sm?.total);
   add('the bucket is a real one: cut-zone and opaque triangles in one mesh, and steps to read',
     cut > 0 && total > cut && g('test', 'lit', 'steps') >= 1000 && fin(sm?.pixels?.opaque) >= 200 && fin(sm?.pixels?.cut) >= 2000,
@@ -303,16 +367,25 @@ export function verdict(sm) {
   add('the split moves no pixel: one material and no groups draws the alpha-tested arm byte for byte',
     sm?.mergedVsTestBytes === 0, `${sm?.mergedVsTestBytes} bytes differ`);
   add('the sun\'s map is the build-before\'s byte for byte under the coverage',
-    g('centred', 'shadowDiff') === 0 && g('test', 'shadowDiff') === 0 && g('three', 'shadowDiff') === 0,
-    `texels differing from the one-material map: test ${g('test', 'shadowDiff')}, centred ${g('centred', 'shadowDiff')}, three ${g('three', 'shadowDiff')}`);
+    ['test', 'centred', 'three', 'rim'].every((k) => g(k, 'shadowDiff') === 0),
+    'texels differing from the one-material map: ' + ['test', 'centred', 'three', 'rim'].map((k) => `${k} ${g(k, 'shadowDiff')}`).join(', '));
   add('KNOWN-BAD for the depth material: three\'s own cuts the coverage material\'s map at 0.5',
     g('depth05', 'shadowDiff') >= 200, `${g('depth05', 'shadowDiff')} texels move`);
   add('the bench welded into the same mesh keeps #114\'s tag in every arm',
-    ['merged', 'test', 'centred', 'three'].every((k) => g(k, 'tags', 'opaqueTagged') >= 0.99),
-    ['merged', 'test', 'centred', 'three'].map((k) => `${k} ${f(g(k, 'tags', 'opaqueTagged'))}`).join(', '));
+    ['merged', 'test', 'centred', 'three', 'rim'].every((k) => g(k, 'tags', 'opaqueTagged') >= 0.99),
+    ['merged', 'test', 'centred', 'three', 'rim'].map((k) => `${k} ${f(g(k, 'tags', 'opaqueTagged'))}`).join(', '));
+  const gT = g('test', 'trunk', 'gapFrac'), gC = g('centred', 'trunk', 'gapFrac'), gR = g('rim', 'trunk', 'gapFrac');
+  add('KNOWN-BAD for the bark: without the rim the trunk is a lattice, the background showing through it',
+    gT >= 0.05 && gC >= 0.05, `${f(gT)} of the trunk's span uncovered alpha-tested, ${f(gC)} with coverage alone`);
+  add('THE RIM: with the fringe faded off the faces that look at the camera, the trunk is solid across itself',
+    gR !== null && gR <= 0.01 && g('rim', 'trunk', 'rows') >= 30,
+    `${f(gR)} uncovered over ${g('rim', 'trunk', 'rows')} rows (${g('rim', 'trunk', 'gaps')} px)`);
+  add('and the rim leaves the crown\'s edges as the coverage drew them',
+    g('rim', 'cov', 'hardFrac') !== null && Math.abs(g('rim', 'cov', 'hardFrac') - (g('centred', 'cov', 'hardFrac') ?? NaN)) <= 0.03,
+    `coverage hardFrac ${f(g('centred', 'cov', 'hardFrac'))} -> ${f(g('rim', 'cov', 'hardFrac'))}`);
   add('the mechanism: the leaves are tagged under the test and untagged under the coverage, which is not OPAQUE',
-    g('test', 'tags', 'cutTagged') >= 0.99 && g('centred', 'tags', 'cutUntaggedFull') >= 0.9,
-    `tagged ${f(g('test', 'tags', 'cutTagged'))} under the test; alpha 1 on ${f(g('centred', 'tags', 'cutUntaggedFull'))} under the coverage`);
+    g('test', 'tags', 'cutTagged') >= 0.99 && g('rim', 'tags', 'cutUntaggedFull') >= 0.9,
+    `tagged ${f(g('test', 'tags', 'cutTagged'))} under the test; alpha 1 on ${f(g('rim', 'tags', 'cutUntaggedFull'))} under the coverage`);
   return checks;
 }
 

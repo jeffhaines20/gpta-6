@@ -642,9 +642,31 @@ const ALPHA_TEST = 0.42;
 // one switch `setFoliageCoverage` turns it back into the test on the same page, so the instrument
 // reads both arms off one load.
 export const COVERAGE_MODES = ['test', 'three', 'centred', 'length'];
+/**
+ * #145: WHERE THE BARK FRINGE MAY CUT, as the cosine between a tube's radial normal and the view.
+ *
+ * The fringe (BARK_P, the bark zone of the stencil) is built on the argument that a tube's silhouette
+ * is always on a vertex ray, so a fringe at every ray lands on the outline from every angle. The
+ * argument is right about the silhouette and silent about the rays that FACE the camera: they are cut
+ * the same way, the back faces are culled, and what shows through the cut is whatever stands behind the
+ * tree. 44.5% of the bark zone is cut (tools/leaf-mask.mjs), and the trunk of the oak on
+ * tools/leaf-cover.html is a lattice with the sky in it. A front-facing ray of a three-sided limb is
+ * at least 0.5 from the view at worst (two rays at +-60 degrees), so the cut is faded out between
+ * these two cosines and every such ray is solid; a five-sided trunk's rays at 72 degrees sit within the
+ * outer 5% of its width, which is the outline. Colour pass only: the sun's map is cut as before.
+ */
+const BARK_RIM = [0.25, 0.55];
 const COVERAGE_SEAM = '#include <alphatest_fragment>';
 const COVERAGE_GLSL = `
 #ifdef USE_ALPHATEST
+	#ifdef FOLIAGE_BARK_RIM
+	// #145: THE BARK FRINGE BELONGS ON THE SILHOUETTE, and the stencil alone cannot put it there. See
+	// BARK_RIM: a front-facing vertex ray is cut like a silhouette one, and the back faces are culled.
+	if ( floor( vAlphaMapUv.x * ${PAL_W}.0 ) == ${S.bark}.0 ) {
+		float facing = abs( dot( normalize( vNormal ), normalize( vViewPosition ) ) );
+		diffuseColor.a = mix( diffuseColor.a, 1.0, smoothstep( ${BARK_RIM[0].toFixed(2)}, ${BARK_RIM[1].toFixed(2)}, facing ) );
+	}
+	#endif
 	#ifdef ALPHA_TO_COVERAGE
 		#if defined( FOLIAGE_COVERAGE_THREE )
 		diffuseColor.a = smoothstep( alphaTest, alphaTest + fwidth( diffuseColor.a ), diffuseColor.a );
@@ -732,12 +754,14 @@ function foliageMaterial(base, mode = 'centred') {
   setCoverageMode(m, mode);
   return m;
 }
-function setCoverageMode(m, mode) {
+function setCoverageMode(m, mode, rim = m.userData.rim ?? true) {
   if (!COVERAGE_MODES.includes(mode)) throw new Error(`foliage coverage mode "${mode}" is not one of ${COVERAGE_MODES.join(', ')}`);
   m.alphaToCoverage = mode !== 'test';
   m.defines = mode === 'three' ? { FOLIAGE_COVERAGE_THREE: '' } : mode === 'length' ? { FOLIAGE_COVERAGE_LENGTH: '' } : {};
-  m.customProgramCacheKey = () => `foliageCoverage:1:${mode}`;
+  if (rim) m.defines.FOLIAGE_BARK_RIM = '';
+  m.customProgramCacheKey = () => `foliageCoverage:1:${mode}:${rim ? 'rim' : 'norim'}`;
   m.userData.coverage = mode;
+  m.userData.rim = !!rim;
   m.needsUpdate = true;
 }
 
@@ -6140,9 +6164,9 @@ export class StreetFurniture {
    * One switch on one material, so an A/B comes off one page load.
    * @returns {string} the mode the material now carries
    */
-  setFoliageCoverage(mode) {
+  setFoliageCoverage(mode, rim) {
     if (!this.foliageMat) return null;
-    setCoverageMode(this.foliageMat, mode);
+    setCoverageMode(this.foliageMat, mode, rim);
     return this.foliageMat.userData.coverage;
   }
 
@@ -6373,7 +6397,7 @@ export const __kit = {
   // #145's split, for tools/leaf-mask.mjs and tools/leaf-edge.html: the zone rule, the partition the
   // weld applies, the weld itself, and the two materials it draws with.
   CUT_ZONES, inCutZone, splitCutZones, weldBucket, foliageMaterial, foliageDepthMaterial, setCoverageMode,
-  COVERAGE_SEAM, COVERAGE_GLSL,
+  COVERAGE_SEAM, COVERAGE_GLSL, BARK_RIM,
   OAK_STAMPS, STAMP_H, QUEEN_V0, SABAL_V0, COMB_H, BARK_V0, BARK_H,
   // The SHIPPED material, so a bench frame is lit and cut by the same object
   // the district draws with. tools/oak-look.mjs builds its own lookalike, which
