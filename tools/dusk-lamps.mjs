@@ -584,6 +584,7 @@ if (IS_MAIN && !SELFTEST) {
           w: W, h: H, exposure, preset: d.tod.presetName, lampsOn: !!d.tod.preset.lampsOn,
           streetLampsOn: d.tod.streetLampsOn ?? null, photocell: d.tod.photocellLux ? d.tod.photocellLux() : null,
           globeLit: !!fur._lit, globe: { emissiveIntensity: shippedEI, Lemit, lumEmissive: lumE, color: `#${head.color.getHexString()}`,
+            castShadow: fur.heads.castShadow, receiveShadow: fur.heads.receiveShadow, roughness: head.roughness, metalness: head.metalness,
             emissive: `#${head.emissive.getHexString()}`, report: fur.globeReport ? fur.globeReport() : null },
           meter: meterOut, globes, pool, emitters, boxes: boxOut,
           frameMean: { A: stat(A.lum), B: stat(B.lum), C: stat(C.lum), D: stat(D.lum) },
@@ -633,6 +634,7 @@ if (IS_MAIN && !SELFTEST) {
       if (m.fill) console.log(`  FILL (vertical, facing the lens, neutral albedo 1): ${m.fill.lux?.toFixed(1)} lux, warmth ` +
         `${m.fill.warmth?.toFixed(3)} (pool off ${m.fill.luxNoPool?.toFixed(1)} lux, ${m.fill.warmthNoPool?.toFixed(3)}; sky alone ` +
         `${m.fill.luxSkyOnly?.toFixed(1)} lux, ${m.fill.warmthSkyOnly?.toFixed(3)}) — the light a globe's camera side gets`);
+      console.log(`  globe: casts ${r.globe.castShadow}, RECEIVES ${r.globe.receiveShadow}, roughness ${r.globe.roughness}, metalness ${r.globe.metalness}`);
       console.log(`  globe: base ${r.globe.color}, emissive ${r.globe.emissive} x${r.globe.emissiveIntensity.toFixed(3)} ` +
         `= ${r.globe.Lemit.toFixed(3)} nits, ${(r.globe.Lemit * r.exposure).toFixed(4)} exposed`);
       const read = r.globes.filter((g) => g.onOverSky !== null);
