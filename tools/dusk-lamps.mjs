@@ -552,6 +552,30 @@ if (IS_MAIN && !SELFTEST) {
           sky: { px: skyN, meanNits: skyN ? skyS / skyN : null },
         };
       }, { src: SRC, n: N, boxes: BOXES[s.name] ?? {} });
+      // DL_WEATHER=1: the photocell's quantity off the live lights in clear weather and under the heaviest
+      // state weather.js has (heavyRain: overcast 1, turbidity 4.4), snapped and snapped back. The cell is
+      // decided in apply(), not per frame, so this bounds how far weather can move the reading it decided on.
+      let weather = null;
+      if (process.env.DL_WEATHER === '1') {
+        weather = await page.evaluate(async () => {
+          const d = __district;
+          const frames = (k) => new Promise((res) => { const f0 = d.frames; const t = () => (d.frames >= f0 + k ? res() : setTimeout(t, 100)); t(); });
+          const read = () => {
+            const s = d.tod.sun, p = d.tod.preset, sd = d.tod.skyDelivery();
+            const sun = s.intensity * (0.2126 * s.color.r + 0.7152 * s.color.g + 0.0722 * s.color.b) * Math.sin(Math.max(p.elevation, 0));
+            return { lux: sun + sd.totalLux, sun, sky: sd.totalLux, weather: d.weather ? d.weather.stateName : null };
+          };
+          const clear = read();
+          d.setWeather('heavyRain', { immediate: true });
+          await frames(4);
+          const heavy = read();
+          d.setWeather('clear', { immediate: true });
+          await frames(4);
+          return { clear, heavy, back: read() };
+        });
+        console.log(`  WEATHER: clear ${weather.clear.lux.toFixed(2)} lux, heavyRain ${weather.heavy.lux.toFixed(2)} ` +
+          `(sun ${weather.heavy.sun.toFixed(2)}, sky ${weather.heavy.sky.toFixed(2)}), back ${weather.back.lux.toFixed(2)}`);
+      }
       let frameErr = null;
       if (OUT) {
         fs.mkdirSync(OUT, { recursive: true });
@@ -597,7 +621,7 @@ if (IS_MAIN && !SELFTEST) {
       }
       console.log(`  frame mean nits A ${r.frameMean.A.toFixed(3)} B ${r.frameMean.B.toFixed(3)} C ${r.frameMean.C.toFixed(3)} D ${r.frameMean.D.toFixed(3)}; ` +
         `sky ${r.sky.px} px at ${r.sky.meanNits?.toFixed(2)} nits`);
-      runs.push({ shot: s.name, tod, placed, frameErr, ...r });
+      runs.push({ shot: s.name, tod, placed, frameErr, weather, ...r });
       fs.writeFileSync(jsonPath, JSON.stringify({ tag: TAG, runs, pageErrors: errors, partial: true }, null, 1));
     }
     await browser.close();
