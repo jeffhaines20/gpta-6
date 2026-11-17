@@ -3146,8 +3146,10 @@ const MUTATIONS = [
   },
   {
     id: 'bloom-share-inverted', file: 'src/post.js',
-    find: '  float share = -s.a - 1.0;',
-    to: '  float share = s.a + 2.0;',
+    // Repointed by intent when #145 put the covered leaf's tag in front of the same decode: the share
+    // still reads upside down, and the leaf's branch is left alone (bright-lit-tag-off is that one).
+    find: '  float share = abs( s.a - ${COVERAGE_LIT_TAG.toFixed(1)} ) <= 0.01 ? 0.0 : -s.a - 1.0;',
+    to: '  float share = abs( s.a - ${COVERAGE_LIT_TAG.toFixed(1)} ) <= 0.01 ? 0.0 : s.a + 2.0;',
     why: 'the share read upside down: emitters lose their bloom and lit surfaces keep it',
   },
   {
