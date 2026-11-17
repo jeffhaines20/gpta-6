@@ -1,0 +1,1206 @@
+{
+ "tag": "sb142",
+ "cam": "fivepoints",
+ "port": 8287,
+ "placed": {
+  "back": 26,
+  "requestedBack": 26,
+  "x": 31.5,
+  "z": -156.8,
+  "clearance": 5.1,
+  "stillInside": -1
+ },
+ "arms": [
+  "shipped",
+  "noContact"
+ ],
+ "hours": {
+  "dusk": {
+   "W": 1600,
+   "H": 900,
+   "elevationDeg": 3.15,
+   "refHalf": 40,
+   "minShare": 0.25,
+   "F": [
+    49.4,
+    0.01,
+    -157.4
+   ],
+   "groupCount": [
+    395042,
+    28980,
+    15960,
+    236372,
+    82797,
+    393272,
+    0,
+    0,
+    67631,
+    219946
+   ],
+   "inRefCount": 1038891,
+   "inRef2Count": 1018451,
+   "buckets": [
+    {
+     "bucket": "facade (near LOD)",
+     "group": 3,
+     "px": 236372
+    },
+    {
+     "bucket": "roads",
+     "group": 5,
+     "px": 230184
+    },
+    {
+     "bucket": "facade trim (near LOD)",
+     "group": 9,
+     "px": 219946
+    },
+    {
+     "bucket": "other: district",
+     "group": 5,
+     "px": 147600
+    },
+    {
+     "bucket": "signage",
+     "group": 8,
+     "px": 67631
+    },
+    {
+     "bucket": "street furniture + trees",
+     "group": 4,
+     "px": 65262
+    },
+    {
+     "bucket": "vehicles",
+     "group": 1,
+     "px": 28980
+    },
+    {
+     "bucket": "street lamps",
+     "group": 4,
+     "px": 17535
+    },
+    {
+     "bucket": "pedestrians",
+     "group": 2,
+     "px": 15960
+    },
+    {
+     "bucket": "kerbs (near LOD)",
+     "group": 5,
+     "px": 14619
+    },
+    {
+     "bucket": "buildings (far LOD)",
+     "group": 5,
+     "px": 869
+    }
+   ],
+   "registration": {
+    "maxRelDiff": 0
+   },
+   "timings": {
+    "noShadow": 5.6,
+    "noSun": 5.6,
+    "shipped": 7.8,
+    "ref": 6.3,
+    "ref2": 6.4,
+    "noContact": 7.1,
+    "repeat": 5.7
+   },
+   "subjects": [
+    {
+     "kind": "car",
+     "name": "player",
+     "dist": 26.9,
+     "screen": [
+      560,
+      607
+     ],
+     "underbodyM": 0.192,
+     "nUnder": 394,
+     "nBand": 1992,
+     "nRing": 12661,
+     "nBandDark": 1,
+     "nRingLit": 0,
+     "arms": {
+      "noShadow": {
+       "fUnder": null,
+       "fBandDark": 1,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": 4.360576371862102,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": null,
+       "lUnderOverRingAll": 0.2465819152630883,
+       "ldrUnderOverRingAll": null
+      },
+      "noSun": {
+       "fUnder": null,
+       "fBandDark": 0,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": 5.773793361653013,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": null,
+       "lUnderOverRingAll": 0.2452368537604623,
+       "ldrUnderOverRingAll": null
+      },
+      "shipped": {
+       "fUnder": null,
+       "fBandDark": 0,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": 5.773793361653013,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": 0.4036221988628036,
+       "lUnderOverRingAll": 0.2452368537604623,
+       "ldrUnderOverRingAll": 0.0719417967138681
+      },
+      "ref": {
+       "fUnder": null,
+       "fBandDark": 0,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": 5.773793361653013,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": null,
+       "lUnderOverRingAll": 0.2452368537604623,
+       "ldrUnderOverRingAll": null
+      },
+      "ref2": {
+       "fUnder": null,
+       "fBandDark": 0,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": 5.773793361653013,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": null,
+       "lUnderOverRingAll": 0.2452368537604623,
+       "ldrUnderOverRingAll": null
+      },
+      "noContact": {
+       "fUnder": null,
+       "fBandDark": 0,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": 14.440634940571396,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": 0.45850097501455744,
+       "lUnderOverRingAll": 0.6133534155637411,
+       "ldrUnderOverRingAll": 0.08172341370356533
+      },
+      "repeat": {
+       "fUnder": null,
+       "fBandDark": 0,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": 5.773793361653013,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": null,
+       "lUnderOverRingAll": 0.2452368537604623,
+       "ldrUnderOverRingAll": null
+      }
+     },
+     "underByDepth": {
+      "shipped": [],
+      "ref": [],
+      "noContact": []
+     }
+    },
+    {
+     "kind": "car",
+     "name": "parked#1:parkedCar:coupe",
+     "dist": 22.3,
+     "screen": [
+      1135,
+      638
+     ],
+     "underbodyM": 0.192,
+     "nUnder": 253,
+     "nBand": 1735,
+     "nRing": 10176,
+     "nBandDark": 0,
+     "nRingLit": 0,
+     "arms": {
+      "noShadow": {
+       "fUnder": null,
+       "fBandDark": null,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": null,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": null,
+       "lUnderOverRingAll": 0.3831161259201405,
+       "ldrUnderOverRingAll": null
+      },
+      "noSun": {
+       "fUnder": null,
+       "fBandDark": null,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": null,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": null,
+       "lUnderOverRingAll": 0.37825846866806995,
+       "ldrUnderOverRingAll": null
+      },
+      "shipped": {
+       "fUnder": null,
+       "fBandDark": null,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": null,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": null,
+       "lUnderOverRingAll": 0.37825846866806995,
+       "ldrUnderOverRingAll": 0.1427573589392479
+      },
+      "ref": {
+       "fUnder": null,
+       "fBandDark": null,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": null,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": null,
+       "lUnderOverRingAll": 0.37825846866806995,
+       "ldrUnderOverRingAll": null
+      },
+      "ref2": {
+       "fUnder": null,
+       "fBandDark": null,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": null,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": null,
+       "lUnderOverRingAll": 0.37825846866806995,
+       "ldrUnderOverRingAll": null
+      },
+      "noContact": {
+       "fUnder": null,
+       "fBandDark": null,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": null,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": null,
+       "lUnderOverRingAll": 0.7700971835663953,
+       "ldrUnderOverRingAll": 0.1562234528270345
+      },
+      "repeat": {
+       "fUnder": null,
+       "fBandDark": null,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": null,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": null,
+       "lUnderOverRingAll": 0.37825846866806995,
+       "ldrUnderOverRingAll": null
+      }
+     },
+     "underByDepth": {
+      "shipped": [],
+      "ref": [],
+      "noContact": []
+     }
+    },
+    {
+     "kind": "car",
+     "name": "parked#5:parkedCar:wagon",
+     "dist": 33.1,
+     "screen": [
+      1260,
+      594
+     ],
+     "underbodyM": 0.192,
+     "nUnder": 0,
+     "nBand": 0,
+     "nRing": 0,
+     "nBandDark": 0,
+     "nRingLit": 0,
+     "arms": {
+      "noShadow": {
+       "fUnder": null,
+       "fBandDark": null,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": null,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": null,
+       "lUnderOverRingAll": null,
+       "ldrUnderOverRingAll": null
+      },
+      "noSun": {
+       "fUnder": null,
+       "fBandDark": null,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": null,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": null,
+       "lUnderOverRingAll": null,
+       "ldrUnderOverRingAll": null
+      },
+      "shipped": {
+       "fUnder": null,
+       "fBandDark": null,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": null,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": null,
+       "lUnderOverRingAll": null,
+       "ldrUnderOverRingAll": null
+      },
+      "ref": {
+       "fUnder": null,
+       "fBandDark": null,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": null,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": null,
+       "lUnderOverRingAll": null,
+       "ldrUnderOverRingAll": null
+      },
+      "ref2": {
+       "fUnder": null,
+       "fBandDark": null,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": null,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": null,
+       "lUnderOverRingAll": null,
+       "ldrUnderOverRingAll": null
+      },
+      "noContact": {
+       "fUnder": null,
+       "fBandDark": null,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": null,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": null,
+       "lUnderOverRingAll": null,
+       "ldrUnderOverRingAll": null
+      },
+      "repeat": {
+       "fUnder": null,
+       "fBandDark": null,
+       "fRingLit": null,
+       "lUnderOverRing": null,
+       "lUnderOverBand": null,
+       "ldrUnderOverRing": null,
+       "ldrUnderOverBand": null,
+       "lUnderOverRingAll": null,
+       "ldrUnderOverRingAll": null
+      }
+     },
+     "underByDepth": {
+      "shipped": [],
+      "ref": [],
+      "noContact": []
+     }
+    },
+    {
+     "kind": "ped",
+     "name": "ped#72",
+     "dist": 18.8,
+     "screen": [
+      920,
+      654
+     ],
+     "winGround": 27861,
+     "pxPerM": 34.9,
+     "ds": [
+      0.1,
+      0.2,
+      0.25,
+      0.3,
+      0.35,
+      0.75,
+      0.8,
+      0.85,
+      0.9,
+      0.95,
+      1.35,
+      1.4,
+      1.5
+     ],
+     "arms": {
+      "noShadow": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "noSun": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "shipped": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "ref": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "ref2": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "noContact": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "repeat": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ]
+     }
+    },
+    {
+     "kind": "ped",
+     "name": "ped#21",
+     "dist": 21.3,
+     "screen": [
+      1344,
+      653
+     ],
+     "winGround": 45,
+     "pxPerM": 20,
+     "ds": [],
+     "arms": {
+      "noShadow": [],
+      "noSun": [],
+      "shipped": [],
+      "ref": [],
+      "ref2": [],
+      "noContact": [],
+      "repeat": []
+     }
+    },
+    {
+     "kind": "ped",
+     "name": "ped#51",
+     "dist": 33.7,
+     "screen": [
+      1060,
+      584
+     ],
+     "winGround": 352,
+     "pxPerM": 17.1,
+     "ds": [
+      1.15,
+      1.2
+     ],
+     "arms": {
+      "noShadow": [
+       null,
+       null
+      ],
+      "noSun": [
+       null,
+       null
+      ],
+      "shipped": [
+       null,
+       null
+      ],
+      "ref": [
+       null,
+       null
+      ],
+      "ref2": [
+       null,
+       null
+      ],
+      "noContact": [
+       null,
+       null
+      ],
+      "repeat": [
+       null,
+       null
+      ]
+     }
+    },
+    {
+     "kind": "ped",
+     "name": "ped#40",
+     "dist": 34.5,
+     "screen": [
+      1152,
+      584
+     ],
+     "winGround": 0,
+     "pxPerM": 15.2,
+     "ds": [],
+     "arms": {
+      "noShadow": [],
+      "noSun": [],
+      "shipped": [],
+      "ref": [],
+      "ref2": [],
+      "noContact": [],
+      "repeat": []
+     }
+    }
+   ],
+   "stripes": {},
+   "sheetLever": {
+    "mats": {
+     "s": 2,
+     "t": 1
+    },
+    "meshes": {
+     "s": 8,
+     "t": 16
+    },
+    "shippedK": {
+     "s": 2.5,
+     "t": null
+    }
+   },
+   "census": {
+    "noShadow": {
+     "config": {
+      "bias": 0,
+      "normalBias": 0.06,
+      "mapSize": 2048,
+      "half": 120,
+      "biasMetres": 0
+     },
+     "census": null
+    },
+    "noSun": {
+     "config": {
+      "bias": 0,
+      "normalBias": 0.06,
+      "mapSize": 2048,
+      "half": 120,
+      "biasMetres": 0
+     },
+     "census": null
+    },
+    "shipped": {
+     "config": {
+      "bias": 0,
+      "normalBias": 0.06,
+      "mapSize": 2048,
+      "half": 120,
+      "biasMetres": 0
+     },
+     "census": [
+      {
+       "n": 0,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 0,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 2167,
+       "sumF": 1873.0361271795862,
+       "refLit": 1873,
+       "refDark": 294,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 370,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 370,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 2297,
+       "sumF": 0.07283795592597307,
+       "refLit": 0,
+       "refDark": 2297,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 2427,
+       "sumF": 45.924176639420196,
+       "refLit": 44,
+       "refDark": 2377,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 3,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 3,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 0,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 0,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 0,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 0,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 266,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 266,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 1015,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 1015,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      }
+     ]
+    },
+    "ref": {
+     "config": {
+      "bias": -0.000011123470522803115,
+      "normalBias": 0.02,
+      "mapSize": 4096,
+      "half": 40,
+      "biasMetres": 0.01
+     },
+     "census": null
+    },
+    "ref2": {
+     "config": {
+      "bias": -0.0000055617352614015575,
+      "normalBias": 0.01,
+      "mapSize": 4096,
+      "half": 20,
+      "biasMetres": 0.005
+     },
+     "census": [
+      {
+       "n": 0,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 0,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 2167,
+       "sumF": 1873.0361271795862,
+       "refLit": 1873,
+       "refDark": 294,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 367,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 367,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 2297,
+       "sumF": 0.07283795592597307,
+       "refLit": 0,
+       "refDark": 2297,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 2149,
+       "sumF": 43.58407963335255,
+       "refLit": 42,
+       "refDark": 2101,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 3,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 3,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 0,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 0,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 0,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 0,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 144,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 144,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 1015,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 1015,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      }
+     ]
+    },
+    "noContact": {
+     "config": {
+      "bias": 0,
+      "normalBias": 0.06,
+      "mapSize": 2048,
+      "half": 120,
+      "biasMetres": 0
+     },
+     "census": [
+      {
+       "n": 0,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 0,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 2167,
+       "sumF": 2175.214162922895,
+       "refLit": 1873,
+       "refDark": 294,
+       "acne": 0,
+       "leak": 13,
+       "darker": 0,
+       "lighter": 84,
+       "darkSum": 0.3002119967928163,
+       "partial": 1
+      },
+      {
+       "n": 370,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 370,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 2297,
+       "sumF": 0.07283795592597307,
+       "refLit": 0,
+       "refDark": 2297,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 2427,
+       "sumF": 45.924176639420196,
+       "refLit": 44,
+       "refDark": 2377,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 3,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 3,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 0,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 0,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 0,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 0,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 266,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 266,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 1015,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 1015,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      }
+     ]
+    },
+    "repeat": {
+     "config": {
+      "bias": 0,
+      "normalBias": 0.06,
+      "mapSize": 2048,
+      "half": 120,
+      "biasMetres": 0
+     },
+     "census": [
+      {
+       "n": 0,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 0,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 2167,
+       "sumF": 1873.0361271795862,
+       "refLit": 1873,
+       "refDark": 294,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 370,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 370,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 2297,
+       "sumF": 0.07283795592597307,
+       "refLit": 0,
+       "refDark": 2297,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 2427,
+       "sumF": 45.924176639420196,
+       "refLit": 44,
+       "refDark": 2377,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 3,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 3,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 0,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 0,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 0,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 0,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 266,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 266,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      },
+      {
+       "n": 1015,
+       "sumF": 0,
+       "refLit": 0,
+       "refDark": 1015,
+       "acne": 0,
+       "leak": 0,
+       "darker": 0,
+       "lighter": 0,
+       "darkSum": 0,
+       "partial": 0
+      }
+     ]
+    }
+   },
+   "seconds": 245.5
+  }
+ },
+ "errors": []
+}
