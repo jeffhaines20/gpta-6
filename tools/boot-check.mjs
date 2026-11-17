@@ -294,15 +294,41 @@ if (state.global && state.frames > 2) {
  * by district/main.js, which is imported by no offline gate. So the wire is asserted here, off the
  * live page: every emitter the pool holds carries the module's candela, colour and reach (main.js
  * typed 900, 0xffc98a and 46 for as long as lamps have existed), there is one per lamp, and the globe
- * the page draws at the boot preset (dusk, lamps on) is the level the module declares — its
- * luminance read back off the material and the physical one recomputed here off the head mesh's own
- * buffer, not taken from the module's report.
+ * the page draws where it is lit is the level the module declares — its luminance read back off the
+ * material and the physical one recomputed here off the head mesh's own buffer, not taken from the
+ * module's report.
+ *
+ * #142: "WHERE IT IS LIT" IS THE STREET LAMPS' PHOTOCELL, and at the boot preset (dusk) the cell holds
+ * them OFF — so the level is read at NIGHT, and the boot hour is asserted dark, both off the page's own
+ * light: here the sky is the DOME's (its PMREM carries it), where tools/photocell.mjs has only the
+ * HemisphereLight to read, so the two gates are two protocols for one rule. The arm goes to night and
+ * comes back to the boot hour, so no later arm inherits a different one.
  */
 {
-  const gs = await page.evaluate((gmSrc) => {
+  const gs = await page.evaluate(async (gmSrc) => {
     const M = eval(gmSrc);   // eslint-disable-line no-eval
     const d = window.__district, f = d.furniture, lp = d.lightPool;
     if (!f || !lp || !f.globeReport) return null;
+    const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+    // The street lamps as the page has them now: the cell's reading, the switch, the globe's emitted
+    // luminance, and how many of the pool's lights are on after the host's per-frame update has run.
+    const lamps = () => {
+      const cell = d.tod.photocellLux ? d.tod.photocellLux() : null;
+      const sd = d.tod.skyDelivery();
+      const e = f.headMat.emissive;
+      return { preset: d.tod.presetName, cell, sky: sd, streetLampsOn: d.tod.streetLampsOn ?? null,
+        lampsOn: !!d.tod.preset.lampsOn, globeLit: f.globeReport().lit,
+        luminance: M.luma(e.r, e.g, e.b) * f.headMat.emissiveIntensity,
+        poolActive: lp.lights.filter((l) => l.visible && l.intensity > 0).length,
+        flags: d.tod.audit().implausible.filter((x) => /photocell/.test(x)) };
+    };
+    const bootName = d.tod.presetName;
+    await frame(); await frame();
+    const atBoot = lamps();
+    d.setTimeOfDay('night'); await frame(); await frame(); await frame();
+    const atNight = lamps();
+    d.setTimeOfDay(bootName); await frame(); await frame(); await frame();
+    const back = lamps();
     const rep = f.globeReport();
     const em = lp.emitters;
     const off = em.filter((e) => e.candela !== rep.candela || e.color !== rep.color || e.distance !== rep.reach);
@@ -311,21 +337,42 @@ if (state.global && state.frames > 2) {
     const hg = f.heads.geometry;
     const g = M.globeArea(hg.attributes.position.array, hg.attributes.lampGlobe ? hg.attributes.lampGlobe.array : null, (x) => x > 0);
     const physical = M.physicalLuminance(rep.candela, [lc.r, lc.g, lc.b], g.meanArea);
-    const e = f.headMat.emissive;
-    const luminance = M.luma(e.r, e.g, e.b) * f.headMat.emissiveIntensity;
     return { lamps: f.count, emitters: em.length, off: off.length, sample: em[0] ?? null, rep,
-      physical, luminance, lampsOn: !!(d.tod && d.tod.preset && d.tod.preset.lampsOn), triangles: g.triangles, kind: g.kind };
+      physical, triangles: g.triangles, kind: g.kind, onLux: atBoot.cell ? atBoot.cell.onLux : null,
+      boot: atBoot, night: atNight, back };
   }, globeMathSource);
+  const lux = (v) => (v && v.cell ? v.cell.lux.toFixed(1) : '-');
   console.log(`    globes   ${gs ? `${gs.emitters} emitters for ${gs.lamps} lamps, ${gs.off} off the module's light; ` +
-    `globe ${gs.luminance.toFixed(3)} nits against ${gs.physical.toFixed(1)} physical (${gs.kind}, ${gs.triangles} triangles off the buffer), ` +
-    `level 1/${(gs.physical / gs.luminance).toFixed(1)} drawn, 1/${(1 / gs.rep.level).toFixed(1)} declared` : 'no report'}`);
+    `globe at night ${gs.night.luminance.toFixed(3)} nits against ${gs.physical.toFixed(1)} physical (${gs.kind}, ${gs.triangles} triangles off the buffer), ` +
+    `level 1/${(gs.physical / gs.night.luminance).toFixed(1)} drawn, 1/${(1 / gs.rep.level).toFixed(1)} declared` : 'no report'}`);
+  if (gs) {
+    for (const [k, v] of Object.entries({ boot: gs.boot, night: gs.night, back: gs.back })) {
+      console.log(`    photocell ${k.padEnd(5)} ${v.preset}: ${lux(v)} lux (sun ${v.cell ? v.cell.sun.toFixed(1) : '-'}, sky ${v.cell ? v.cell.sky.toFixed(1) : '-'} ` +
+        `via ${v.sky.paths} path${v.sky.paths === 1 ? '' : 's'}, environment ${v.sky.environmentLux}), street lamps ${v.streetLampsOn ? 'ON' : 'off'}, ` +
+        `cars ${v.lampsOn ? 'on' : 'off'}, globe ${v.luminance.toFixed(3)} nits, pool lights on ${v.poolActive}, flags ${v.flags.length}`);
+    }
+  }
   check('every lamp\'s light is the module\'s: one emitter a lamp, each at LAMP_CANDELA, its colour and its reach',
     gs && gs.lamps > 0 && gs.emitters === gs.lamps && gs.off === 0,
     gs ? `${gs.emitters} emitters, ${gs.lamps} lamps, ${gs.off} off; first ${JSON.stringify(gs.sample)} against ` +
       `${gs.rep.candela} cd ${gs.rep.color} ${gs.rep.reach} m` : 'no report');
-  check('and the globe the page draws, lamps on, is the module\'s level of the physical luminance off the buffer',
-    gs && gs.lampsOn && gs.physical > 0 && Math.abs(gs.luminance / (gs.rep.level * gs.physical) - 1) < 1e-4,
-    gs ? `drawn ${gs.luminance.toFixed(4)} nits, declared ${(gs.rep.level * gs.physical).toFixed(4)}, lamps on ${gs.lampsOn}` : 'no report');
+  check('and the globe the page draws where its photocell lights it (night) is the module\'s level of the physical luminance off the buffer',
+    gs && gs.night.streetLampsOn === true && gs.physical > 0 && Math.abs(gs.night.luminance / (gs.rep.level * gs.physical) - 1) < 1e-4,
+    gs ? `drawn ${gs.night.luminance.toFixed(4)} nits, declared ${(gs.rep.level * gs.physical).toFixed(4)}, street lamps ${gs.night.streetLampsOn}` : 'no report');
+  // #142, the page's side of tools/photocell.mjs: the sky through the DOME, one path, and the margin.
+  const b = gs && gs.boot;
+  check('#142: at the boot hour (dusk) the page\'s photocell reads the dome\'s sky, one path, at least x10 its 1.5 fc turn-on',
+    !!b && b.preset === 'dusk' && !!b.cell && b.cell.lux >= 10 * b.cell.onLux && b.sky.paths === 1 && b.sky.environmentLux > 0 &&
+      Math.abs(b.cell.sky - b.sky.totalLux) < 1e-6,
+    b && b.cell ? `${b.cell.lux.toFixed(1)} lux = sun ${b.cell.sun.toFixed(1)} + sky ${b.cell.sky.toFixed(1)} (environment ${b.sky.environmentLux}, ` +
+      `${b.sky.paths} path), x${(b.cell.lux / b.cell.onLux).toFixed(1)} the turn-on` : 'no photocell on the page');
+  check('...and holds every street lamp off there while the cars\' lamps stay on: globes dark, no pool light lit, no audit flag',
+    !!b && b.streetLampsOn === false && b.globeLit === false && b.luminance === 0 && b.poolActive === 0 && b.flags.length === 0 && b.lampsOn === true,
+    b ? `street lamps ${b.streetLampsOn}, globe ${b.luminance} nits, pool lights on ${b.poolActive}, flags ${JSON.stringify(b.flags)}, cars ${b.lampsOn}` : '-');
+  check('...lights them at night on the page (the pool lit by the host\'s own per-frame update), and is dark again back at the boot hour',
+    !!gs && gs.night.streetLampsOn === true && gs.night.poolActive > 0 && gs.night.flags.length === 0 &&
+      gs.back.preset === gs.boot.preset && gs.back.streetLampsOn === false && gs.back.poolActive === 0 && gs.back.luminance === 0,
+    gs ? `night: ${gs.night.poolActive} pool lights at ${lux(gs.night)} lux; back at ${gs.back.preset}: ${gs.back.poolActive} lit, globe ${gs.back.luminance}` : '-');
 }
 
 /**
@@ -403,7 +450,9 @@ if (state.global && state.frames > 2) {
     cc ? `in scene ${cc.inScene}, cast ${cc.cast}, depthWrite ${cc.depthWrite}, "${cc.bucket}"` : 'no carContact on the page');
   // BOTH SIDES NON-ZERO: both pools have cars, or "one footprint per car" passes over an empty list.
   const want0 = cc ? cc.c0.parked + cc.c0.fleet + 1 : -1;
-  check('at the boot hour the lamps are lit and the host feeds it every parked car, every fleet car and the player\'s',
+  // #142: `lampsOn` is the CARS' switch now; the street lamps are off at dusk by their photocell, and the
+  // footprint stays on with the cars — under a car at dusk it is the sky the floor pan blocks.
+  check('at the boot hour the cars\' lamps are lit (lampsOn, not the street lamps\' photocell) and the host feeds it every parked car, every fleet car and the player\'s',
     !!cc && cc.lamps0 && cc.r0.visible && cc.c0.parked > 0 && cc.c0.fleet > 0 && cc.c0.pursuit === false &&
       cc.r0.placed === want0,
     cc ? `${cc.boot}: lamps ${cc.lamps0}, visible ${cc.r0.visible}, placed ${cc.r0.placed} for ${cc.c0.parked} parked + ${cc.c0.fleet} fleet + 1` : '-');

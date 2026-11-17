@@ -32,7 +32,7 @@
 <script type="module">
 import * as THREE from '../vendor/three.module.min.js';
 import { PostStack } from '../src/post.js';
-import { PRESETS } from '../src/daynight.js';
+import { PRESETS, daylightLux, photocellLit } from '../src/daynight.js';
 import { StreetFurniture, LAMP_GLOBES, LAMP_GLOBE_LEVEL, globeMeanArea, patchGlobeImpostor } from '../src/streetfurniture.js';
 import * as RM from './globe-round-math.mjs';
 
@@ -261,8 +261,12 @@ try {
     show(arm);
     fur.poles.visible = fur.arms.visible = false;
     fur.setGlobeLevel(LAMP_GLOBE_LEVEL);
-    setEmissive(p.lampsOn ? fur.headMat.emissiveIntensity : 0);
-    if (!p.lampsOn) fur.headMat.emissiveIntensity = 0;
+    // #142: the globe is lit where the district's PHOTOCELL lights it, read off this page's own sun and sky
+    // (white, at the preset's sunLux and skyLux) — not by `lampsOn`, the cars' switch, which is on at dusk
+    // while the street lamps are not. So dusk shades an unlit globe, as the district now draws it.
+    const lit = photocellLit(daylightLux(p.sunLux, p.elevation, p.skyLux));
+    setEmissive(lit ? fur.headMat.emissiveIntensity : 0);
+    if (!lit) fur.headMat.emissiveIntensity = 0;
     const d = sunDir(p);
     sun.position.set(g171.x + d.x * 50, g171.y + d.y * 50, g171.z + d.z * 50);
     sun.target.position.copy(g171);

@@ -250,6 +250,12 @@ const OFFLINE = [
   // list renders a car under the district's own sky, and `arch-bevel-on` passes every buffer check.
   'car-arch',
   'car-arch --selftest',
+  // #142, a fifth of a second: the real TimeOfDay through every preset with a real StreetFurniture and
+  // LightPool in its scene — the street lamps' photocell, every switch that follows it, the cars' switch in
+  // UN R48's band and the audit's flag. Nothing else on this list asks WHICH hours light a street lamp:
+  // globe-level and globe-round light their own lamp whatever the hour, and boot-check sees the page's side.
+  'photocell',
+  'photocell --selftest',
 ];
 
 /**
@@ -3617,6 +3623,67 @@ const MUTATIONS = [
     find: '  for (const head of lamps.heads) lightPool.addEmitter(head.x, head.y, head.z, LAMP_CANDELA, LAMP_LIGHT_COLOR, LAMP_REACH);',
     to: '  for (const head of lamps.heads) lightPool.addEmitter(head.x, head.y, head.z, 1800, LAMP_LIGHT_COLOR, LAMP_REACH);',
     why: 'the page types its own candela again: a light twice what the globe in front of it was derived from',
+    browser: true,
+  },
+  // ---- #142: the street lamps answer to a photocell (ANSI C136.10's 1.5 fc, off the sun and the sky the hour
+  // delivers), the cars' lamps to `lampsOn` (inside UN R48's band). Each of these lights a street lamp at dusk
+  // again, or leaves the rule standing on a quantity that no longer means it; tools/photocell.mjs is the
+  // offline gate and boot-check the page's side.
+  {
+    id: 'photocell-lampson', file: 'src/daynight.js',
+    find: '    this.streetLampsOn = this.photocell.lit;',
+    to: '    this.streetLampsOn = !!p.lampsOn;',
+    why: 'the old switch back: the street lamps lit by the cars\' lampsOn, so dusk\'s globes and pool light at x87 a photocell\'s turn-on',
+  },
+  {
+    id: 'photocell-level', file: 'src/daynight.js',
+    find: 'export const PHOTOCELL_ON_LUX = 1.5 * FOOTCANDLE_LUX;',
+    to: 'export const PHOTOCELL_ON_LUX = 1.5;',
+    why: 'a turn-on typed in lux where the standard says footcandles: x10.8 low, and every hour still decides the same way, so only the unit can see it',
+  },
+  {
+    id: 'photocell-sun-only', file: 'src/daynight.js',
+    find: '    const sky = this.skyDelivery().totalLux;\n    const lux = daylightLux(sunLux, this.preset.elevation, sky);',
+    to: '    const sky = 0;\n    const lux = daylightLux(sunLux, this.preset.elevation, sky);',
+    why: 'a cell blind to the sky: dusk reads the sun\'s 27.5 lux alone, x1.7 the turn-on, and every verdict still lands',
+  },
+  {
+    id: 'photocell-apply-globe', file: 'src/daynight.js',
+    find: '    if (this.furniture) this.furniture.setLit(this.streetLampsOn);',
+    to: '    if (this.furniture) this.furniture.setLit(p.lampsOn);',
+    why: 'the globes switched by the cars\' lampsOn while the pool follows the cell: lit globes at dusk, lighting nothing',
+  },
+  {
+    id: 'photocell-apply-pool', file: 'src/daynight.js',
+    find: '      this.streetLampsOn ? 1 : 0);',
+    to: '      p.lampsOn ? 1 : 0);',
+    why: 'apply() re-lights the pool by lampsOn at dusk: ten 900 cd lights over dark globes until the host\'s next frame',
+  },
+  {
+    id: 'photocell-audit-deaf', file: 'src/daynight.js',
+    find: '    if (!cell.lit && lights.some((l) => l.type === \'PointLight\' && l.intensity > 0)) {',
+    to: '    if (this.preset.lampsOn === false && lights.some((l) => l.type === \'PointLight\' && l.intensity > 0)) {',
+    why: 'the audit asks the cars\' switch again: a street lamp lit at dusk raises no flag, because the cars are on',
+  },
+  {
+    id: 'dusk-cars-dark', file: 'src/daynight.js',
+    find: '    exposure: 1 / 1947,\n    lampsOn: true,',
+    to: '    exposure: 1 / 1947,\n    lampsOn: false,',
+    why: 'one switch again, off at dusk: the cars drive dark at the light R48 leaves to the maker and Florida lights from sunset',
+  },
+  {
+    /** Behaviour-preserving offline (no gate loads district/main.js): only boot-check sees the page re-light the pool. */
+    id: 'photocell-frame-pool', file: 'district/main.js',
+    find: '  lightPool.update(camera.position, tod.streetLampsOn ? 1 : 0, camera);',
+    to: '  lightPool.update(camera.position, tod.preset.lampsOn ? 1 : 0, camera);',
+    why: 'the host re-lights the pool every frame by lampsOn: apply() holds dusk dark and the next frame undoes it',
+    browser: true,
+  },
+  {
+    id: 'contact-follows-photocell', file: 'district/main.js',
+    find: '  carContact.setLit(tod.preset.lampsOn);\n',
+    to: '  carContact.setLit(tod.streetLampsOn);\n',
+    why: 'the footprint switched with the street lamps: at dusk the road under every car is lit by the sky the floor pan blocks',
     browser: true,
   },
 ];
