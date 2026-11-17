@@ -609,18 +609,27 @@ if (IS_MAIN && !SELFTEST) {
           const read = () => {
             const s = d.tod.sun, p = d.tod.preset, sd = d.tod.skyDelivery();
             const sun = s.intensity * (0.2126 * s.color.r + 0.7152 * s.color.g + 0.0722 * s.color.b) * Math.sin(Math.max(p.elevation, 0));
-            return { lux: sun + sd.totalLux, sun, sky: sd.totalLux, weather: d.weather ? d.weather.stateName : null };
+            return { lux: sun + sd.totalLux, sun, sky: sd.totalLux, weather: d.weather ? d.weather.stateName : null,
+              cell: d.tod.photocell ? { lux: d.tod.photocell.lux, lit: d.tod.photocell.lit } : null, streetLampsOn: d.tod.streetLampsOn ?? null };
           };
+          // A weather snap refreshes the sky ASYNCHRONOUSLY and leaves the scene's sun alone (the first version
+          // read 4 frames after the snap and saw nothing move), and the cell is decided in apply(), which
+          // refreshes the dome synchronously. So each snap is followed by re-applying the hour: the decision path.
+          const hour = d.tod.presetName;
           const clear = read();
           d.setWeather('heavyRain', { immediate: true });
+          d.setTimeOfDay(hour);
           await frames(4);
           const heavy = read();
           d.setWeather('clear', { immediate: true });
+          d.setTimeOfDay(hour);
           await frames(4);
           return { clear, heavy, back: read() };
         });
-        console.log(`  WEATHER: clear ${weather.clear.lux.toFixed(2)} lux, heavyRain ${weather.heavy.lux.toFixed(2)} ` +
-          `(sun ${weather.heavy.sun.toFixed(2)}, sky ${weather.heavy.sky.toFixed(2)}), back ${weather.back.lux.toFixed(2)}`);
+        const dec = (w) => (w.cell ? `, the cell ${w.cell.lux.toFixed(2)} lit ${w.cell.lit}` : '');
+        console.log(`  WEATHER (each snap re-applies the hour): clear ${weather.clear.lux.toFixed(2)} lux${dec(weather.clear)}; ` +
+          `heavyRain ${weather.heavy.lux.toFixed(2)} (sun ${weather.heavy.sun.toFixed(2)}, sky ${weather.heavy.sky.toFixed(2)})${dec(weather.heavy)}; ` +
+          `back ${weather.back.lux.toFixed(2)}${dec(weather.back)}`);
       }
       // The frame is opt-in (DL_SHOT=1): a screenshot needs a fresh frame, and at load 9 one timed out at
       // 180 s and cost three minutes a run for a picture hero-shots takes properly.
