@@ -6343,9 +6343,33 @@ none measured: the leaf cards' material does not take the LightPool's lights, or
 facing away; or the AO (whose broad darkening #141's review preferred) darkens the inner canopy and nothing
 lifts it. #139 moved lamps out of palm crowns; which species these two canopies are is not checked.
 
-### #145 OPEN — hard-edged foliage and pale trunks: the item every blind review lists in both arms
+### #145 IN PROGRESS (MEASURED; THE EDGES AND THE TRUNKS FIXED ON foliage-145, NOT YET REVIEWED; THE BARK'S TONE NOT MOVED) — hard-edged foliage and pale trunks
 Filed 2026-11-17 from the month's blind reviews, every one of which listed it among the things wrong in
-BOTH builds, independently. Kept verbatim under "#145 (as filed)"; nothing below it is measured yet.
+BOTH builds, independently. The original record is kept verbatim under "#145 (as filed)".
+
+**Measured first, on the BEFORE build (a2e0626), with the reviewers' own boxes.** `tools/leaf-edge.mjs` is
+their statistic as an instrument: Otsu on log luma per box, every crossing walked outward to its own local
+sky and leaf, an intermediate pixel inside a 15% deadband of that step's contrast. `hardFrac` is the share of
+steps with no intermediate pixel, `midShare` the intermediate pixels of every pixel a step's run touches, and
+the step count is always printed. The selftest runs synthetic canopies through linear HDR, ACES and the encode:
+the alpha-tested known-bad reads hardFrac 1.000 at every exposure, a 4-sample resolve 0.424 (0.377 / 0.745 a
+stop either way: the tone curve's shoulder pulls a mostly-sky pixel into the deadband, so two arms compare only
+at one exposure, and every reading prints its sky level), and a box with no leaves is refused, not scored. On
+the BEFORE corridor noon frame it reproduces the reviewers to the digit where they gave digits:
+
+    corridor noon                            hardFrac  midShare               quoted
+    canopy [640,240,760,320]                   0.892     0.049                "86% have no partial coverage"
+    canopy xywh [470,130,330,110]              0.920     0.042 (230/5,498)    "3.8% of 5,983 are in-between"
+    a signal mast against the sky (control)    0.543     0.214                polygon edges the 4 samples resolve
+    a pole against the sky (control)           0.439     0.226                "12-17% at a pole or building edge"
+    fivepoints noon [600,330,760,420]          0.730     0.155                "78%"
+    fivepoints mast arm / lamp pole (controls) 0.450 / 0.313   0.143 / 0.236
+    limb A xywh [292,328,10,8]     0.1951 linear, R:G:B 1.00:0.99:0.94      quoted 0.195, 1.00 : 0.99 : 0.94
+    limb B xywh [262,350,8,8]      0.1704                                   quoted 0.170
+    sunlit brick [100,282,80,14]   0.0913                                   quoted 0.091
+
+So a leaf's edge is a step in a frame whose polygon edges are four times softer: the target is the frame's own
+MSAA, not a number picked.
 
 #### #145 (as filed)
 - **Leaf edges are binary.** "86% of leaf/sky boundary pixels have no partial coverage" (corridor noon
