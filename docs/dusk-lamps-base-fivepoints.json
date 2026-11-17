@@ -1,0 +1,6043 @@
+{
+ "tag": "base-fivepoints",
+ "runs": [
+  {
+   "shot": "fivepoints",
+   "tod": "dusk",
+   "placed": {
+    "back": 26,
+    "requestedBack": 26,
+    "x": 31.5,
+    "z": -156.8,
+    "clearance": 5.1,
+    "stillInside": -1
+   },
+   "frameErr": null,
+   "weather": {
+    "clear": {
+     "lux": 1623.9412371651988,
+     "sun": 27.491237165198726,
+     "sky": 1596.45,
+     "weather": "clear"
+    },
+    "heavy": {
+     "lux": 1623.9412371651988,
+     "sun": 27.491237165198726,
+     "sky": 1596.45,
+     "weather": "heavyRain"
+    },
+    "back": {
+     "lux": 1623.9412371651988,
+     "sun": 27.491237165198726,
+     "sky": 1596.45,
+     "weather": "clear"
+    }
+   },
+   "w": 1600,
+   "h": 900,
+   "exposure": 0.0005136106831022085,
+   "preset": "dusk",
+   "lampsOn": true,
+   "streetLampsOn": null,
+   "photocell": null,
+   "globeLit": true,
+   "globe": {
+    "emissiveIntensity": 179.18422430333084,
+    "Lemit": 131.5638194221333,
+    "lumEmissive": 0.7342377373546922,
+    "color": "#d8d2c4",
+    "castShadow": true,
+    "receiveShadow": false,
+    "roughness": 1,
+    "metalness": 0,
+    "emissive": "#ffd9a0",
+    "report": {
+     "candela": 900,
+     "color": 16763274,
+     "reach": 46,
+     "meanArea": 0.19634954084936207,
+     "physical": 2973.3423189402124,
+     "level": 0.04424778761061947,
+     "lit": true,
+     "emissiveIntensity": 179.18422430333084,
+     "luminance": 131.5638194221333,
+     "drawnLevel": 0.04424778761061947
+    }
+   },
+   "meter": {
+    "box": [
+     318,
+     625,
+     391,
+     812
+    ],
+    "total": 876.9097956901549,
+    "noPool": 874.376803825566,
+    "sky": 859.754030671555,
+    "pool": 2.532991864588894,
+    "sun": 14.622773154010929,
+    "fill": {
+     "box": [
+      1166,
+      115,
+      1319,
+      264
+     ],
+     "lux": 2696.128084244576,
+     "luxNoPool": 2692.432149283764,
+     "warmth": 1.333889921892137,
+     "warmthNoPool": 1.3339708078297348,
+     "rgb": [
+      1557,
+      695.5,
+      412.25
+     ],
+     "luxSkyOnly": 2229.5179732335514,
+     "warmthSkyOnly": 1.1441815269356115
+    },
+    "sunClosedForm": 27.491237165198726,
+    "skyDelivery": {
+     "hemisphereLux": 0,
+     "environmentLux": 1596.45,
+     "totalLux": 1596.45,
+     "paths": 1
+    },
+    "px": 13912,
+    "bad": 0
+   },
+   "globes": [
+    {
+     "lamp": 171,
+     "globe": "outer",
+     "world": [
+      47.2,
+      7.7,
+      -167.8
+     ],
+     "sx": 147.8,
+     "sy": 197.8,
+     "depth": 16.3,
+     "rpx": 15.54,
+     "core": 374,
+     "coreOn": [
+      1079.2459893048128,
+      501.84692513368987,
+      249.7433155080214
+     ],
+     "coreOff": [
+      900.0441176470588,
+      377.5310828877005,
+      186.7543449197861
+     ],
+     "ring": 2019,
+     "ringN": 2180,
+     "ringRGB": [
+      1264.0453194650818,
+      818.7857850421001,
+      677.7868994551758
+     ],
+     "ringOff": [
+      1264.0453194650818,
+      818.7857850421001,
+      677.7868994551758
+     ],
+     "nonFinite": 0,
+     "onOverSky": 0.671340279167932,
+     "offOverSky": 0.5256948728197315,
+     "warmthOn": 1.3679131872626829,
+     "warmthOff": 1.5021583170487516,
+     "warmthSky": 0.6490416157998492,
+     "refused": null,
+     "skyOnlyOverSky": 0.42559889426638514,
+     "warmthSkyOnly": 1.3033129657018145,
+     "sunShareUnlit": 0.19040699030684805
+    },
+    {
+     "lamp": 831,
+     "globe": "inner",
+     "world": [
+      50.23,
+      7.66,
+      -153.33
+     ],
+     "sx": 1018.1,
+     "sy": 240,
+     "depth": 18.8,
+     "rpx": 11.8,
+     "core": 212,
+     "coreOn": [
+      952.4457547169811,
+      471.64622641509436,
+      252.2995283018868
+     ],
+     "coreOff": [
+      773.251179245283,
+      347.3119103773585,
+      189.3125
+     ],
+     "ring": 1125,
+     "ringN": 1261,
+     "ringRGB": [
+      832.782,
+      493.0572222222222,
+      319.38322222222223
+     ],
+     "ringOff": [
+      832.782,
+      493.0572222222222,
+      319.38322222222223
+     ],
+     "nonFinite": 0,
+     "onOverSky": 1.0095594572445916,
+     "offOverSky": 0.7715316096226336,
+     "warmthOn": 1.2546807887461167,
+     "warmthOff": 1.3692725969144808,
+     "warmthSky": 0.9288192929271478,
+     "refused": null,
+     "skyOnlyOverSky": 0.636931534964224,
+     "warmthSkyOnly": 1.1625092647015056,
+     "sunShareUnlit": 0.17445827621274546
+    },
+    {
+     "lamp": 831,
+     "globe": "outer",
+     "world": [
+      53.43,
+      7.7,
+      -153.33
+     ],
+     "sx": 991.3,
+     "sy": 274.5,
+     "depth": 22,
+     "rpx": 11.47,
+     "core": 150,
+     "coreOn": [
+      980.7283333333334,
+      497.2816666666667,
+      278.29
+     ],
+     "coreOff": [
+      801.52,
+      372.945,
+      215.30083333333334
+     ],
+     "ring": 572,
+     "ringN": 1185,
+     "ringRGB": [
+      842.4143356643357,
+      499.41783216783216,
+      322.63221153846155
+     ],
+     "ringOff": [
+      842.4143356643357,
+      499.41783216783216,
+      322.63221153846155
+     ],
+     "nonFinite": 0,
+     "onOverSky": 1.0440982247600104,
+     "offOverSky": 0.8089678110372875,
+     "warmthOn": 1.20228815561774,
+     "warmthOff": 1.295002165624436,
+     "warmthSky": 0.9288873784167159,
+     "refused": null,
+     "skyOnlyOverSky": 0.6811530969547388,
+     "warmthSkyOnly": 1.0973741168967475,
+     "sunShareUnlit": 0.1579975600448862
+    },
+    {
+     "lamp": 837,
+     "globe": "outer",
+     "world": [
+      53.57,
+      7.7,
+      -174.1
+     ],
+     "sx": 65.3,
+     "sy": 281.9,
+     "depth": 22.8,
+     "rpx": 11.07,
+     "core": 190,
+     "coreOn": [
+      1112.6763157894736,
+      520.6223684210527,
+      264.11842105263156
+     ],
+     "coreOff": [
+      933.5197368421053,
+      396.3046052631579,
+      201.13355263157894
+     ],
+     "ring": 1028,
+     "ringN": 1105,
+     "ringRGB": [
+      989.0058365758755,
+      745.4232733463035,
+      801.0566634241245
+     ],
+     "ringOff": [
+      989.0058365758755,
+      745.4232733463035,
+      801.0566634241245
+     ],
+     "nonFinite": 0,
+     "onOverSky": 0.7837660303362057,
+     "offOverSky": 0.6195822461090958,
+     "warmthOn": 1.3512639605717158,
+     "warmthOff": 1.4753203416419456,
+     "warmthSky": 0.2345770776277436,
+     "refused": null,
+     "skyOnlyOverSky": 0.5058780529071026,
+     "warmthSkyOnly": 1.2791755946922783,
+     "sunShareUnlit": 0.1835175134795134
+    },
+    {
+     "lamp": 832,
+     "globe": "outer",
+     "world": [
+      61.4,
+      7.7,
+      -138.82
+     ],
+     "sx": 1447.3,
+     "sy": 329.3,
+     "depth": 29.5,
+     "rpx": 8.55,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 656,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 832,
+     "globe": "inner",
+     "world": [
+      64.6,
+      7.66,
+      -138.81
+     ],
+     "sx": 1387.4,
+     "sy": 346.2,
+     "depth": 32.7,
+     "rpx": 6.79,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 411,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 280,
+     "globe": "outer",
+     "world": [
+      67.96,
+      7.7,
+      -167.75
+     ],
+     "sx": 532.3,
+     "sy": 361.7,
+     "depth": 37,
+     "rpx": 6.83,
+     "core": 71,
+     "coreOn": [
+      1142.7394366197184,
+      533.3450704225352,
+      273.1883802816901
+     ],
+     "coreOff": [
+      963.5669014084507,
+      409.00880281690144,
+      210.19454225352112
+     ],
+     "ring": 259,
+     "ringN": 422,
+     "ringRGB": [
+      1055.5675675675675,
+      745.949806949807,
+      757.2567567567568
+     ],
+     "ringOff": [
+      1055.5675675675675,
+      745.949806949807,
+      757.2567567567568
+     ],
+     "nonFinite": 0,
+     "onOverSky": 0.7926731593662573,
+     "offOverSky": 0.6307644622187228,
+     "warmthOn": 1.3499851064995367,
+     "warmthOff": 1.4698415104981966,
+     "warmthSky": 0.3671106938434971,
+     "refused": null,
+     "skyOnlyOverSky": 0.5167847460962416,
+     "warmthSkyOnly": 1.2761230539730286,
+     "sunShareUnlit": 0.18070091603061456
+    },
+    {
+     "lamp": 280,
+     "globe": "inner",
+     "world": [
+      67.98,
+      7.66,
+      -170.95
+     ],
+     "sx": 446,
+     "sy": 363.2,
+     "depth": 37.1,
+     "rpx": 5.99,
+     "core": 28,
+     "coreOn": [
+      1175.0892857142858,
+      545.1428571428571,
+      275.08035714285717
+     ],
+     "coreOff": [
+      995.9285714285714,
+      420.8794642857143,
+      212.08258928571428
+     ],
+     "ring": 140,
+     "ringN": 327,
+     "ringRGB": [
+      1056.4,
+      724.8,
+      717.8964285714286
+     ],
+     "ringOff": [
+      1056.4,
+      724.8,
+      717.8964285714286
+     ],
+     "nonFinite": 0,
+     "onOverSky": 0.8298580598126981,
+     "offOverSky": 0.6643935011270329,
+     "warmthOn": 1.3645369330796169,
+     "warmthOff": 1.4843887501794018,
+     "warmthSky": 0.4258979488768983,
+     "refused": null,
+     "skyOnlyOverSky": 0.5451989338803881,
+     "warmthSkyOnly": 1.2957096858144652,
+     "sunShareUnlit": 0.1794035718959489
+    },
+    {
+     "lamp": 281,
+     "globe": "inner",
+     "world": [
+      89.9,
+      7.66,
+      -156.46
+     ],
+     "sx": 837.5,
+     "sy": 409.7,
+     "depth": 58.5,
+     "rpx": 3.8,
+     "core": 14,
+     "coreOn": [
+      993.3571428571429,
+      502.30357142857144,
+      282.29464285714283
+     ],
+     "coreOff": [
+      814.2857142857143,
+      377.94642857142856,
+      219.30803571428572
+     ],
+     "ring": 80,
+     "ringN": 131,
+     "ringRGB": [
+      908.13125,
+      576.034375,
+      543.5875
+     ],
+     "ringOff": [
+      908.13125,
+      576.034375,
+      543.5875
+     ],
+     "nonFinite": 0,
+     "onOverSky": 0.9169967978050423,
+     "offOverSky": 0.7128071890847525,
+     "warmthOn": 1.2035242740308303,
+     "warmthOff": 1.295518142955156,
+     "warmthSky": 0.5658020992909883,
+     "refused": null,
+     "skyOnlyOverSky": 0.5965076809251458,
+     "warmthSkyOnly": 1.0897038558134957,
+     "sunShareUnlit": 0.16336076779515796
+    },
+    {
+     "lamp": 281,
+     "globe": "outer",
+     "world": [
+      89.92,
+      7.7,
+      -159.66
+     ],
+     "sx": 782.3,
+     "sy": 409.2,
+     "depth": 58.7,
+     "rpx": 4.31,
+     "core": 17,
+     "coreOn": [
+      1040.6470588235295,
+      524.6323529411765,
+      298.44117647058823
+     ],
+     "coreOff": [
+      861.4411764705883,
+      400.38235294117646,
+      235.45220588235293
+     ],
+     "ring": 0,
+     "ringN": 167,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.2009685836612705,
+     "warmthOff": 1.2867312601038605,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 167",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.0864610526509504,
+     "sunShareUnlit": 0.15883163589431826
+    },
+    {
+     "lamp": 282,
+     "globe": "outer",
+     "world": [
+      111.94,
+      7.7,
+      -167.55
+     ],
+     "sx": 697.2,
+     "sy": 431.5,
+     "depth": 80.9,
+     "rpx": 3.12,
+     "core": 16,
+     "coreOn": [
+      1086.34375,
+      521.296875,
+      278.15625
+     ],
+     "coreOff": [
+      907.125,
+      396.9609375,
+      215.1484375
+     ],
+     "ring": 8,
+     "ringN": 87,
+     "ringRGB": [
+      1319.1875,
+      712.34375,
+      416.03125
+     ],
+     "ringOff": [
+      1319.1875,
+      712.34375,
+      416.03125
+     ],
+     "nonFinite": 0,
+     "onOverSky": 0.7608509037295382,
+     "offOverSky": 0.600385349922914,
+     "warmthOn": 1.2954399012760789,
+     "warmthOff": 1.4056137604320043,
+     "warmthSky": 1.1014571163653752,
+     "refused": null,
+     "skyOnlyOverSky": 0.4954305393534533,
+     "warmthSkyOnly": 1.2058213304857615,
+     "sunShareUnlit": 0.17481241103390732
+    },
+    {
+     "lamp": 282,
+     "globe": "inner",
+     "world": [
+      111.96,
+      7.66,
+      -170.75
+     ],
+     "sx": 657.5,
+     "sy": 432.1,
+     "depth": 81,
+     "rpx": 2.74,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 68,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 283,
+     "globe": "inner",
+     "world": [
+      133.88,
+      7.66,
+      -156.26
+     ],
+     "sx": 836.9,
+     "sy": 444.2,
+     "depth": 102.5,
+     "rpx": 2.17,
+     "core": 7,
+     "coreOn": [
+      1013.1428571428571,
+      491.07142857142856,
+      258.875
+     ],
+     "coreOff": [
+      833.9285714285714,
+      366.73214285714283,
+      195.88392857142858
+     ],
+     "ring": 7,
+     "ringN": 44,
+     "ringRGB": [
+      606,
+      355.17857142857144,
+      255.30357142857142
+     ],
+     "ringOff": [
+      606,
+      355.17857142857144,
+      255.30357142857142
+     ],
+     "nonFinite": 0,
+     "onOverSky": 1.4585361620817392,
+     "offOverSky": 1.1306544860765657,
+     "warmthOn": 1.2886875904165869,
+     "warmthOff": 1.4062430959320302,
+     "warmthSky": 0.8739178097187368,
+     "refused": null,
+     "skyOnlyOverSky": 0.9301962574677244,
+     "warmthSkyOnly": 1.2032780849494282,
+     "sunShareUnlit": 0.17730954180679592
+    },
+    {
+     "lamp": 283,
+     "globe": "outer",
+     "world": [
+      133.89,
+      7.7,
+      -159.46
+     ],
+     "sx": 805.3,
+     "sy": 443.9,
+     "depth": 102.6,
+     "rpx": 2.46,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 57,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1099,
+     "globe": "inner",
+     "world": [
+      145.04,
+      7.66,
+      -244.89
+     ],
+     "sx": 66,
+     "sy": 449.7,
+     "depth": 116.4,
+     "rpx": 1.91,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 33,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1099,
+     "globe": "outer",
+     "world": [
+      145.04,
+      7.7,
+      -248.09
+     ],
+     "sx": 38.9,
+     "sy": 449.4,
+     "depth": 116.5,
+     "rpx": 2.17,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 46,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 284,
+     "globe": "outer",
+     "world": [
+      155.92,
+      7.7,
+      -167.35
+     ],
+     "sx": 746.1,
+     "sy": 452.1,
+     "depth": 124.8,
+     "rpx": 2.02,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 3,
+     "ringN": 35,
+     "ringRGB": [
+      254.16666666666666,
+      165.70833333333334,
+      163.125
+     ],
+     "ringOff": [
+      254.16666666666666,
+      165.70833333333334,
+      163.125
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": 0.4939110599322304,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 284,
+     "globe": "inner",
+     "world": [
+      155.94,
+      7.66,
+      -170.55
+     ],
+     "sx": 720.3,
+     "sy": 452.5,
+     "depth": 124.9,
+     "rpx": 1.78,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 27,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1108,
+     "globe": "outer",
+     "world": [
+      165.86,
+      7.7,
+      -77.75
+     ],
+     "sx": 1437.2,
+     "sy": 454.2,
+     "depth": 132,
+     "rpx": 1.91,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 32,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1108,
+     "globe": "inner",
+     "world": [
+      165.83,
+      7.66,
+      -80.95
+     ],
+     "sx": 1412.4,
+     "sy": 454.5,
+     "depth": 132,
+     "rpx": 1.68,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 24,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1051,
+     "globe": "outer",
+     "world": [
+      170.22,
+      7.7,
+      -255.52
+     ],
+     "sx": 127.7,
+     "sy": 456.7,
+     "depth": 141.8,
+     "rpx": 1.78,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 29,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1051,
+     "globe": "inner",
+     "world": [
+      170.22,
+      7.66,
+      -258.72
+     ],
+     "sx": 105.4,
+     "sy": 457,
+     "depth": 141.9,
+     "rpx": 1.57,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 22,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1109,
+     "globe": "inner",
+     "world": [
+      178.84,
+      7.66,
+      -67.28
+     ],
+     "sx": 1457.5,
+     "sy": 457.6,
+     "depth": 144.6,
+     "rpx": 1.54,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 22,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1109,
+     "globe": "outer",
+     "world": [
+      178.81,
+      7.7,
+      -70.48
+     ],
+     "sx": 1434.8,
+     "sy": 457.4,
+     "depth": 144.7,
+     "rpx": 1.75,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 28,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 285,
+     "globe": "inner",
+     "world": [
+      177.84,
+      7.66,
+      -156.01
+     ],
+     "sx": 837,
+     "sy": 458,
+     "depth": 146.4,
+     "rpx": 1.52,
+     "core": 2,
+     "coreOn": [
+      994,
+      463.25,
+      223.9375
+     ],
+     "coreOff": [
+      814.5,
+      338.875,
+      160.9375
+     ],
+     "ring": 5,
+     "ringN": 18,
+     "ringRGB": [
+      646.4,
+      380.6125,
+      271.225
+     ],
+     "ringOff": [
+      646.4,
+      380.6125,
+      271.225
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.3780421922719714,
+     "warmthOff": 1.5300689346023342,
+     "warmthSky": 0.8740832188032115,
+     "refused": "ring holds 5 sky px of 18",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.321444531112665,
+     "sunShareUnlit": 0.20309517859871196
+    },
+    {
+     "lamp": 285,
+     "globe": "outer",
+     "world": [
+      177.87,
+      7.7,
+      -159.21
+     ],
+     "sx": 814.9,
+     "sy": 457.8,
+     "depth": 146.5,
+     "rpx": 1.72,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 29,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 538,
+     "globe": "outer",
+     "world": [
+      190.4,
+      7.7,
+      -78
+     ],
+     "sx": 1340.7,
+     "sy": 459.9,
+     "depth": 156.5,
+     "rpx": 1.61,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 24,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 538,
+     "globe": "inner",
+     "world": [
+      190.35,
+      7.66,
+      -81.2
+     ],
+     "sx": 1319.9,
+     "sy": 460.1,
+     "depth": 156.5,
+     "rpx": 1.42,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 19,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1052,
+     "globe": "inner",
+     "world": [
+      190.36,
+      7.66,
+      -244.95
+     ],
+     "sx": 280,
+     "sy": 461.1,
+     "depth": 161.6,
+     "rpx": 1.38,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 20,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1052,
+     "globe": "outer",
+     "world": [
+      190.36,
+      7.7,
+      -248.15
+     ],
+     "sx": 260.3,
+     "sy": 460.8,
+     "depth": 161.7,
+     "rpx": 1.56,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 23,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 590,
+     "globe": "outer",
+     "world": [
+      204.9,
+      7.7,
+      -167.03
+     ],
+     "sx": 772,
+     "sy": 462.9,
+     "depth": 173.7,
+     "rpx": 1.45,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 19,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 590,
+     "globe": "inner",
+     "world": [
+      204.92,
+      7.66,
+      -170.23
+     ],
+     "sx": 753.4,
+     "sy": 463.1,
+     "depth": 173.9,
+     "rpx": 1.28,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 15,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 661,
+     "globe": "outer",
+     "world": [
+      202.28,
+      7.7,
+      -255.58
+     ],
+     "sx": 257,
+     "sy": 462.9,
+     "depth": 173.9,
+     "rpx": 1.45,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 20,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 661,
+     "globe": "inner",
+     "world": [
+      202.26,
+      7.66,
+      -258.78
+     ],
+     "sx": 238.7,
+     "sy": 463.1,
+     "depth": 173.9,
+     "rpx": 1.28,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 16,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 539,
+     "globe": "inner",
+     "world": [
+      209.79,
+      7.66,
+      -67.7
+     ],
+     "sx": 1344.8,
+     "sy": 463.4,
+     "depth": 175.5,
+     "rpx": 1.27,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 14,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 539,
+     "globe": "outer",
+     "world": [
+      209.74,
+      7.7,
+      -70.9
+     ],
+     "sx": 1326.2,
+     "sy": 463.2,
+     "depth": 175.6,
+     "rpx": 1.44,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 19,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 591,
+     "globe": "outer",
+     "world": [
+      224.15,
+      7.7,
+      -158.97
+     ],
+     "sx": 820.1,
+     "sy": 465.6,
+     "depth": 192.7,
+     "rpx": 1.31,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 16,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 540,
+     "globe": "outer",
+     "world": [
+      228.86,
+      7.7,
+      -78.58
+     ],
+     "sx": 1237.3,
+     "sy": 465.8,
+     "depth": 194.9,
+     "rpx": 1.3,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 17,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 662,
+     "globe": "outer",
+     "world": [
+      226.32,
+      7.7,
+      -248.35
+     ],
+     "sx": 363.1,
+     "sy": 466.2,
+     "depth": 197.6,
+     "rpx": 1.28,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 15,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    }
+   ],
+   "pool": {
+    "lights": 10,
+    "addsToFrame": 0.0011553586440607106,
+    "pxOver5pct": 1537,
+    "pxOver25pct": 401,
+    "pxOver100pct": 148,
+    "nonFinite": 0,
+    "glints": [
+     {
+      "area": 339,
+      "box": [
+       1132,
+       265,
+       1158,
+       280
+      ],
+      "peakNits": 3982.118,
+      "peakExposed": 2.0453,
+      "peakOverBase": 19.69,
+      "at": [
+       1133,
+       273
+      ],
+      "id": {
+       "what": "chunk:0,-2:lod0:facade:retailStrip",
+       "object": "chunk:0,-2:lod0:facade:retailStrip",
+       "material": "MeshStandardMaterial facade:retailStrip",
+       "emissive": "#ffffff x144.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 17.81,
+       "point": [
+        48.17,
+        6.57,
+        -151.83
+       ]
+      }
+     },
+     {
+      "area": 8,
+      "box": [
+       516,
+       557,
+       520,
+       559
+      ],
+      "peakNits": 653.51,
+      "peakExposed": 0.3356,
+      "peakOverBase": 3.1,
+      "at": [
+       517,
+       557
+      ],
+      "id": {
+       "what": "playerCar",
+       "object": "Mesh",
+       "material": "MeshStandardMaterial",
+       "emissive": "#000000 x1.000",
+       "roughness": 0.06,
+       "instance": null,
+       "dist": 26.48,
+       "point": [
+        56.68,
+        1.31,
+        -164.7
+       ]
+      }
+     },
+     {
+      "area": 8,
+      "box": [
+       527,
+       557,
+       531,
+       559
+      ],
+      "peakNits": 515.553,
+      "peakExposed": 0.2648,
+      "peakOverBase": 2.47,
+      "at": [
+       528,
+       558
+      ],
+      "id": {
+       "what": "playerCar",
+       "object": "Mesh",
+       "material": "MeshStandardMaterial",
+       "emissive": "#000000 x1.000",
+       "roughness": 0.06,
+       "instance": null,
+       "dist": 26.37,
+       "point": [
+        56.65,
+        1.29,
+        -164.41
+       ]
+      }
+     },
+     {
+      "area": 1,
+      "box": [
+       556,
+       550,
+       556,
+       550
+      ],
+      "peakNits": 466.357,
+      "peakExposed": 0.2395,
+      "peakOverBase": 0.64,
+      "at": [
+       556,
+       550
+      ],
+      "id": {
+       "what": "playerCar",
+       "object": "Mesh",
+       "material": "MeshStandardMaterial",
+       "emissive": "#ffffff x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 27.2,
+       "point": [
+        57.65,
+        1.43,
+        -163.98
+       ]
+      }
+     },
+     {
+      "area": 1,
+      "box": [
+       463,
+       581,
+       463,
+       581
+      ],
+      "peakNits": 192.375,
+      "peakExposed": 0.0988,
+      "peakOverBase": 0.3,
+      "at": [
+       463,
+       581
+      ],
+      "id": {
+       "what": "playerCar",
+       "object": "Mesh",
+       "material": "MeshStandardMaterial",
+       "emissive": "#ffffff x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 26.85,
+       "point": [
+        56.57,
+        0.72,
+        -166.02
+       ]
+      }
+     },
+     {
+      "area": 1,
+      "box": [
+       608,
+       587,
+       608,
+       587
+      ],
+      "peakNits": 58.718,
+      "peakExposed": 0.0302,
+      "peakOverBase": 3.82,
+      "at": [
+       608,
+       587
+      ],
+      "id": {
+       "what": "playerCar",
+       "object": "Mesh",
+       "material": "MeshStandardMaterial",
+       "emissive": "#000000 x1.000",
+       "roughness": 1,
+       "instance": 0,
+       "dist": 25.84,
+       "point": [
+        56.57,
+        0.58,
+        -162.37
+       ]
+      }
+     },
+     {
+      "area": 1,
+      "box": [
+       621,
+       566,
+       621,
+       566
+      ],
+      "peakNits": 57.184,
+      "peakExposed": 0.0294,
+      "peakOverBase": 0.29,
+      "at": [
+       621,
+       566
+      ],
+      "id": {
+       "what": "playerCar",
+       "object": "Mesh",
+       "material": "MeshStandardMaterial",
+       "emissive": "#ffffff x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 27.12,
+       "point": [
+        57.92,
+        1,
+        -162.33
+       ]
+      }
+     },
+     {
+      "area": 1,
+      "box": [
+       626,
+       566,
+       626,
+       566
+      ],
+      "peakNits": 52.087,
+      "peakExposed": 0.0268,
+      "peakOverBase": 0.38,
+      "at": [
+       626,
+       566
+      ],
+      "id": {
+       "what": "playerCar",
+       "object": "Mesh",
+       "material": "MeshStandardMaterial",
+       "emissive": "#ffffff x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 27.26,
+       "point": [
+        58.09,
+        0.99,
+        -162.23
+       ]
+      }
+     },
+     {
+      "area": 1,
+      "box": [
+       733,
+       599,
+       733,
+       599
+      ],
+      "peakNits": 51.712,
+      "peakExposed": 0.0266,
+      "peakOverBase": 3.67,
+      "at": [
+       733,
+       599
+      ],
+      "id": {
+       "what": "chunk:0,-2:lod0:road",
+       "object": "chunk:0,-2:lod0:road",
+       "material": "MeshStandardMaterial road",
+       "emissive": "#000000 x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 27.95,
+       "point": [
+        59.11,
+        0.02,
+        -159.49
+       ]
+      }
+     },
+     {
+      "area": 2,
+      "box": [
+       690,
+       600,
+       691,
+       600
+      ],
+      "peakNits": 50.699,
+      "peakExposed": 0.026,
+      "peakOverBase": 2.86,
+      "at": [
+       690,
+       600
+      ],
+      "id": {
+       "what": "chunk:0,-2:lod0:road",
+       "object": "chunk:0,-2:lod0:road",
+       "material": "MeshStandardMaterial road",
+       "emissive": "#000000 x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 27.8,
+       "point": [
+        58.82,
+        0.02,
+        -160.63
+       ]
+      }
+     },
+     {
+      "area": 1,
+      "box": [
+       583,
+       568,
+       583,
+       568
+      ],
+      "peakNits": 50.651,
+      "peakExposed": 0.026,
+      "peakOverBase": 0.31,
+      "at": [
+       583,
+       568
+      ],
+      "id": {
+       "what": "playerCar",
+       "object": "Mesh",
+       "material": "MeshStandardMaterial",
+       "emissive": "#ffffff x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 26.3,
+       "point": [
+        56.92,
+        1.02,
+        -163.08
+       ]
+      }
+     },
+     {
+      "area": 1,
+      "box": [
+       616,
+       565,
+       616,
+       565
+      ],
+      "peakNits": 46.923,
+      "peakExposed": 0.0241,
+      "peakOverBase": 0.27,
+      "at": [
+       616,
+       565
+      ],
+      "id": {
+       "what": "chunk:0,-2:lod0:road",
+       "object": "chunk:0,-2:lod0:road",
+       "material": "MeshStandardMaterial road",
+       "emissive": "#000000 x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 40.96,
+       "point": [
+        71.4,
+        0.02,
+        -165.33
+       ]
+      }
+     }
+    ]
+   },
+   "emitters": [
+    {
+     "area": 31,
+     "box": [
+      642,
+      569,
+      650,
+      574
+     ],
+     "peakNits": 9031.952,
+     "peakExposed": 4.6389,
+     "cOverA": 0.998,
+     "bOverA": 1,
+     "at": [
+      646,
+      571
+     ],
+     "id": {
+      "what": "playerCar",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 27.02,
+      "point": [
+       57.95,
+       0.87,
+       -161.67
+      ]
+     }
+    },
+    {
+     "area": 37,
+     "box": [
+      634,
+      572,
+      643,
+      578
+     ],
+     "peakNits": 8753.629,
+     "peakExposed": 4.496,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      639,
+      574
+     ],
+     "id": {
+      "what": "playerCar",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 26.08,
+      "point": [
+       56.99,
+       0.87,
+       -161.67
+      ]
+     }
+    },
+    {
+     "area": 160,
+     "box": [
+      417,
+      389,
+      430,
+      402
+     ],
+     "peakNits": 2716.981,
+     "peakExposed": 1.3955,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      427,
+      390
+     ],
+     "id": {
+      "what": "props:far:0,-1",
+      "object": "props:far:0,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 19.64,
+      "point": [
+       49.58,
+       4.81,
+       -164.17
+      ]
+     }
+    },
+    {
+     "area": 338,
+     "box": [
+      550,
+      549,
+      591,
+      567
+     ],
+     "peakNits": 2403.836,
+     "peakExposed": 1.2346,
+     "cOverA": 0.998,
+     "bOverA": 1,
+     "at": [
+      564,
+      550
+     ],
+     "id": {
+      "what": "playerCar",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial",
+      "emissive": "#000000 x1.000",
+      "roughness": 0.06,
+      "instance": null,
+      "dist": 27.49,
+      "point": [
+       57.98,
+       1.41,
+       -163.85
+      ]
+     }
+    },
+    {
+     "area": 423,
+     "box": [
+      1045,
+      567,
+      1087,
+      588
+     ],
+     "peakNits": 2317.944,
+     "peakExposed": 1.1905,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      1074,
+      567
+     ],
+     "id": {
+      "what": "chunk:1,-2:lod0:trim",
+      "object": "chunk:1,-2:lod0:trim",
+      "material": "MeshStandardMaterial trim",
+      "emissive": "#ffffff x144.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 37.24,
+      "point": [
+       67.59,
+       0.27,
+       -148.24
+      ]
+     }
+    },
+    {
+     "area": 26,
+     "box": [
+      618,
+      525,
+      623,
+      530
+     ],
+     "peakNits": 1116.61,
+     "peakExposed": 0.5735,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      620,
+      526
+     ],
+     "id": {
+      "what": "district",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial sidewalk",
+      "emissive": "#000000 x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 86.63,
+      "point": [
+       116.19,
+       -0.05,
+       -174.56
+      ]
+     }
+    },
+    {
+     "area": 60,
+     "box": [
+      543,
+      536,
+      553,
+      544
+     ],
+     "peakNits": 1062.87,
+     "peakExposed": 0.5459,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      545,
+      539
+     ],
+     "id": {
+      "what": "props:near:0,-1",
+      "object": "props:near:0,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 59.87,
+      "point": [
+       88.97,
+       0.18,
+       -173.18
+      ]
+     }
+    },
+    {
+     "area": 6,
+     "box": [
+      805,
+      523,
+      806,
+      526
+     ],
+     "peakNits": 968.047,
+     "peakExposed": 0.4972,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      805,
+      523
+     ],
+     "id": {
+      "what": "chunk:0,-2:lod0:road",
+      "object": "chunk:0,-2:lod0:road",
+      "material": "MeshStandardMaterial road",
+      "emissive": "#000000 x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 92.67,
+      "point": [
+       124.04,
+       -0.04,
+       -159.19
+      ]
+     }
+    },
+    {
+     "area": 274,
+     "box": [
+      493,
+      556,
+      523,
+      567
+     ],
+     "peakNits": 864.208,
+     "peakExposed": 0.4439,
+     "cOverA": 1.02,
+     "bOverA": 0.244,
+     "at": [
+      517,
+      557
+     ],
+     "id": {
+      "what": "playerCar",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial",
+      "emissive": "#000000 x1.000",
+      "roughness": 0.06,
+      "instance": null,
+      "dist": 26.48,
+      "point": [
+       56.68,
+       1.31,
+       -164.7
+      ]
+     }
+    },
+    {
+     "area": 39,
+     "box": [
+      461,
+      579,
+      467,
+      584
+     ],
+     "peakNits": 774.844,
+     "peakExposed": 0.398,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      466,
+      583
+     ],
+     "id": {
+      "what": "playerCar",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 26.82,
+      "point": [
+       56.56,
+       0.67,
+       -165.94
+      ]
+     }
+    },
+    {
+     "area": 2,
+     "box": [
+      792,
+      490,
+      792,
+      491
+     ],
+     "peakNits": 744.833,
+     "peakExposed": 0.3826,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      792,
+      490
+     ],
+     "id": {
+      "what": "props:far:0,-1",
+      "object": "props:far:0,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 225.19,
+      "point": [
+       256.48,
+       2.94,
+       -165.48
+      ]
+     }
+    },
+    {
+     "area": 3,
+     "box": [
+      830,
+      490,
+      831,
+      491
+     ],
+     "peakNits": 743.509,
+     "peakExposed": 0.3819,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      831,
+      490
+     ],
+     "id": {
+      "what": "props:far:0,-1",
+      "object": "props:far:0,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 90.16,
+      "point": [
+       121.61,
+       2.98,
+       -156.81
+      ]
+     }
+    },
+    {
+     "area": 29,
+     "box": [
+      789,
+      539,
+      796,
+      545
+     ],
+     "peakNits": 727.974,
+     "peakExposed": 0.3739,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      791,
+      540
+     ],
+     "id": {
+      "what": "chunk:0,-2:lod0:road",
+      "object": "chunk:0,-2:lod0:road",
+      "material": "MeshStandardMaterial road",
+      "emissive": "#000000 x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 61.42,
+      "point": [
+       92.75,
+       -0.04,
+       -159.24
+      ]
+     }
+    },
+    {
+     "area": 378,
+     "box": [
+      525,
+      556,
+      564,
+      567
+     ],
+     "peakNits": 724.612,
+     "peakExposed": 0.3722,
+     "cOverA": 1.031,
+     "bOverA": 0.289,
+     "at": [
+      528,
+      558
+     ],
+     "id": {
+      "what": "playerCar",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial",
+      "emissive": "#000000 x1.000",
+      "roughness": 0.06,
+      "instance": null,
+      "dist": 26.37,
+      "point": [
+       56.65,
+       1.29,
+       -164.41
+      ]
+     }
+    },
+    {
+     "area": 481,
+     "box": [
+      180,
+      540,
+      218,
+      556
+     ],
+     "peakNits": 344.774,
+     "peakExposed": 0.1771,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      207,
+      541
+     ],
+     "id": {
+      "what": "chunk:0,-2:lod0:trim",
+      "object": "chunk:0,-2:lod0:trim",
+      "material": "MeshStandardMaterial trim",
+      "emissive": "#ffffff x144.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 42.5,
+      "point": [
+       67.42,
+       1.15,
+       -179.37
+      ]
+     }
+    },
+    {
+     "area": 302,
+     "box": [
+      119,
+      549,
+      166,
+      556
+     ],
+     "peakNits": 273.293,
+     "peakExposed": 0.1404,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      122,
+      555
+     ],
+     "id": {
+      "what": "chunk:0,-2:lod0:trim",
+      "object": "chunk:0,-2:lod0:trim",
+      "material": "MeshStandardMaterial trim",
+      "emissive": "#ffffff x144.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 43.09,
+      "point": [
+       66.47,
+       0.7,
+       -181.82
+      ]
+     }
+    },
+    {
+     "area": 86,
+     "box": [
+      951,
+      430,
+      956,
+      444
+     ],
+     "peakNits": 266.744,
+     "peakExposed": 0.137,
+     "cOverA": 1,
+     "bOverA": 0.999,
+     "at": [
+      954,
+      437
+     ],
+     "id": {
+      "what": "signage",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x430.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 40.53,
+      "point": [
+       71.63,
+       5.09,
+       -151.94
+      ]
+     }
+    },
+    {
+     "area": 83,
+     "box": [
+      14,
+      539,
+      23,
+      552
+     ],
+     "peakNits": 260.958,
+     "peakExposed": 0.134,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      14,
+      540
+     ],
+     "id": {
+      "what": "chunk:0,-2:lod0:trim",
+      "object": "chunk:0,-2:lod0:trim",
+      "material": "MeshStandardMaterial trim",
+      "emissive": "#ffffff x144.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 44.47,
+      "point": [
+       65.71,
+       1.26,
+       -185.12
+      ]
+     }
+    },
+    {
+     "area": 534,
+     "box": [
+      493,
+      532,
+      540,
+      544
+     ],
+     "peakNits": 259.455,
+     "peakExposed": 0.1333,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      502,
+      533
+     ],
+     "id": {
+      "what": "chunk:0,-2:lod0:trim",
+      "object": "chunk:0,-2:lod0:trim",
+      "material": "MeshStandardMaterial trim",
+      "emissive": "#ffffff x144.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 59.4,
+      "point": [
+       87.85,
+       0.57,
+       -175.3
+      ]
+     }
+    },
+    {
+     "area": 183,
+     "box": [
+      776,
+      520,
+      803,
+      526
+     ],
+     "peakNits": 259.069,
+     "peakExposed": 0.1331,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      779,
+      521
+     ],
+     "id": {
+      "what": "chunk:0,-2:lod0:road",
+      "object": "chunk:0,-2:lod0:road",
+      "material": "MeshStandardMaterial road",
+      "emissive": "#000000 x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 96.66,
+      "point": [
+       127.94,
+       0.02,
+       -161.77
+      ]
+     }
+    },
+    {
+     "area": 318,
+     "box": [
+      581,
+      521,
+      615,
+      530
+     ],
+     "peakNits": 241.896,
+     "peakExposed": 0.1242,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      586,
+      522
+     ],
+     "id": {
+      "what": "props:near:0,-1",
+      "object": "props:near:0,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 72.72,
+      "point": [
+       102.07,
+       0.74,
+       -174.01
+      ]
+     }
+    },
+    {
+     "area": 44,
+     "box": [
+      478,
+      456,
+      481,
+      466
+     ],
+     "peakNits": 238.07,
+     "peakExposed": 0.1223,
+     "cOverA": 1,
+     "bOverA": 0.999,
+     "at": [
+      479,
+      460
+     ],
+     "id": {
+      "what": "signage",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x430.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 53.27,
+      "point": [
+       81.68,
+       4.49,
+       -174.49
+      ]
+     }
+    },
+    {
+     "area": 544,
+     "box": [
+      1084,
+      577,
+      1136,
+      589
+     ],
+     "peakNits": 238.043,
+     "peakExposed": 0.1223,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      1112,
+      589
+     ],
+     "id": {
+      "what": "district",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial sidewalk",
+      "emissive": "#000000 x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 32.81,
+      "point": [
+       62.96,
+       -0.05,
+       -148.18
+      ]
+     }
+    },
+    {
+     "area": 4,
+     "box": [
+      783,
+      472,
+      784,
+      473
+     ],
+     "peakNits": 219.811,
+     "peakExposed": 0.1129,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      784,
+      473
+     ],
+     "id": {
+      "what": "props:far:0,-1",
+      "object": "props:far:0,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 145.13,
+      "point": [
+       176.41,
+       5.4,
+       -163.55
+      ]
+     }
+    }
+   ],
+   "boxes": {
+    "wallLamp": {
+     "box": [
+      1095,
+      230,
+      1205,
+      315
+     ],
+     "meanA": 243.55804353266822,
+     "meanB": 229.67857029461496,
+     "meanC": 243.55804353266822,
+     "meanD": 229.67857029461496,
+     "peakA": 4184.38720703125,
+     "peakAt": [
+      1133,
+      273
+     ],
+     "peakExposed": 2.149145971767463,
+     "peakB": 202.2696533203125,
+     "peakC": 4184.38720703125,
+     "peakD": 202.2696533203125,
+     "peakShare": 0.0078125,
+     "emittedPeak": 60.73433303833008,
+     "emittedPeakAt": [
+      1197,
+      230
+     ],
+     "id": {
+      "what": "chunk:0,-2:lod0:facade:retailStrip",
+      "object": "chunk:0,-2:lod0:facade:retailStrip",
+      "material": "MeshStandardMaterial facade:retailStrip",
+      "emissive": "#ffffff x144.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 17.81,
+      "point": [
+       48.17,
+       6.57,
+       -151.83
+      ]
+     },
+     "idEmitted": {
+      "what": "chunk:0,-2:lod0:facade:retailStrip",
+      "object": "chunk:0,-2:lod0:facade:retailStrip",
+      "material": "MeshStandardMaterial facade:retailStrip",
+      "emissive": "#ffffff x144.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 15.57,
+      "point": [
+       45.68,
+       6.65,
+       -151.67
+      ]
+     }
+    }
+   },
+   "frameMean": {
+    "A": 294.93631226292666,
+    "B": 294.5984385316337,
+    "C": 294.7136612896158,
+    "D": 294.37581405477096
+   },
+   "sky": {
+    "px": 392714,
+    "meanNits": 712.2163763172397
+   }
+  },
+  {
+   "shot": "fivepoints",
+   "tod": "night",
+   "placed": {
+    "back": 26,
+    "requestedBack": 26,
+    "x": 31.5,
+    "z": -156.8,
+    "clearance": 5.1,
+    "stillInside": -1
+   },
+   "frameErr": null,
+   "weather": {
+    "clear": {
+     "lux": 0.41417884453709086,
+     "sun": 0.21717884453709085,
+     "sky": 0.197,
+     "weather": "clear"
+    },
+    "heavy": {
+     "lux": 0.41417884453709086,
+     "sun": 0.21717884453709085,
+     "sky": 0.197,
+     "weather": "heavyRain"
+    },
+    "back": {
+     "lux": 0.41417884453709086,
+     "sun": 0.21717884453709085,
+     "sky": 0.197,
+     "weather": "clear"
+    }
+   },
+   "w": 1600,
+   "h": 900,
+   "exposure": 0.1859427296392711,
+   "preset": "night",
+   "lampsOn": true,
+   "streetLampsOn": null,
+   "photocell": null,
+   "globeLit": true,
+   "globe": {
+    "emissiveIntensity": 179.18422430333084,
+    "Lemit": 131.5638194221333,
+    "lumEmissive": 0.7342377373546922,
+    "color": "#d8d2c4",
+    "castShadow": true,
+    "receiveShadow": false,
+    "roughness": 1,
+    "metalness": 0,
+    "emissive": "#ffd9a0",
+    "report": {
+     "candela": 900,
+     "color": 16763274,
+     "reach": 46,
+     "meanArea": 0.19634954084936207,
+     "physical": 2973.3423189402124,
+     "level": 0.04424778761061947,
+     "lit": true,
+     "emissiveIntensity": 179.18422430333084,
+     "luminance": 131.5638194221333,
+     "drawnLevel": 0.04424778761061947
+    }
+   },
+   "meter": {
+    "box": [
+     318,
+     625,
+     391,
+     812
+    ],
+    "total": 2.677851847766582,
+    "noPool": 0.2461192784315137,
+    "sky": 0.11997405889855628,
+    "pool": 2.431732569335068,
+    "sun": 0.12614521953295743,
+    "fill": {
+     "box": [
+      1166,
+      115,
+      1319,
+      264
+     ],
+     "lux": 4.448195745330575,
+     "luxNoPool": 0.6864933851478683,
+     "warmth": 0.9535782645969371,
+     "warmthNoPool": -0.12178115100393479,
+     "rgb": [
+      2.0965915854978356,
+      1.2811494690205627,
+      0.7464156562838203
+     ],
+     "luxSkyOnly": 0.5859841719757052,
+     "warmthSkyOnly": 0.0013088926427929884
+    },
+    "sunClosedForm": 0.21717884453709085,
+    "skyDelivery": {
+     "hemisphereLux": 0,
+     "environmentLux": 0.197,
+     "totalLux": 0.197,
+     "paths": 1
+    },
+    "px": 13912,
+    "bad": 0
+   },
+   "globes": [
+    {
+     "lamp": 171,
+     "globe": "outer",
+     "world": [
+      47.2,
+      7.7,
+      -167.8
+     ],
+     "sx": 147.8,
+     "sy": 197.8,
+     "depth": 16.3,
+     "rpx": 15.54,
+     "core": 374,
+     "coreOn": [
+      179.79010695187165,
+      124.694685828877,
+      63.21674465240642
+     ],
+     "coreOff": [
+      0.6052585540608288,
+      0.3604700425091912,
+      0.22673744568850268
+     ],
+     "ring": 2019,
+     "ringN": 2180,
+     "ringRGB": [
+      0.1715383543833581,
+      0.1234158066725483,
+      0.15062878000789376
+     ],
+     "ringOff": [
+      0.1715383543833581,
+      0.1234158066725483,
+      0.15062878000789376
+     ],
+     "nonFinite": 0,
+     "onOverSky": 973.1425898521799,
+     "offOverSky": 2.9706682232288935,
+     "warmthOn": 0.8833372095658832,
+     "warmthOff": 0.939592701191241,
+     "warmthSky": 0.15418739628060732,
+     "refused": null,
+     "skyOnlyOverSky": 2.937370657489442,
+     "warmthSkyOnly": 0.9560023507892174,
+     "sunShareUnlit": 0.011208779721371687
+    },
+    {
+     "lamp": 831,
+     "globe": "inner",
+     "world": [
+      50.23,
+      7.66,
+      -153.33
+     ],
+     "sx": 1018.1,
+     "sy": 240,
+     "depth": 18.8,
+     "rpx": 11.8,
+     "core": 212,
+     "coreOn": [
+      179.93632075471697,
+      124.7785966981132,
+      63.26031839622642
+     ],
+     "coreOff": [
+      0.7516744361733491,
+      0.44790016030365565,
+      0.27177515569722877
+     ],
+     "ring": 1125,
+     "ringN": 1261,
+     "ringRGB": [
+      0.4002267795138889,
+      0.2517348090277778,
+      0.19710015190972222
+     ],
+     "ringOff": [
+      0.4002267795138889,
+      0.2517348090277778,
+      0.19710015190972222
+     ],
+     "nonFinite": 0,
+     "onOverSky": 472.736640270658,
+     "offOverSky": 1.788971570408285,
+     "warmthOn": 0.883484038240669,
+     "warmthOff": 0.9602472921535724,
+     "warmthSky": 0.7271153107246611,
+     "refused": null,
+     "skyOnlyOverSky": 1.7289644922794196,
+     "warmthSkyOnly": 1.0133479120194036,
+     "sunShareUnlit": 0.033565008741909375
+    },
+    {
+     "lamp": 831,
+     "globe": "outer",
+     "world": [
+      53.43,
+      7.7,
+      -153.33
+     ],
+     "sx": 991.3,
+     "sy": 274.5,
+     "depth": 22,
+     "rpx": 11.47,
+     "core": 150,
+     "coreOn": [
+      180.095,
+      124.87125,
+      63.299791666666664
+     ],
+     "coreOff": [
+      0.9137532552083333,
+      0.54021240234375,
+      0.31136962890625
+     ],
+     "ring": 572,
+     "ringN": 1185,
+     "ringRGB": [
+      0.37997201772836536,
+      0.23922793515078672,
+      0.1869444947142701
+     ],
+     "ringOff": [
+      0.37997201772836536,
+      0.23922793515078672,
+      0.1869444947142701
+     ],
+     "nonFinite": 0,
+     "onOverSky": 498.0357197201406,
+     "offOverSky": 2.2726486759463342,
+     "warmthOn": 0.8836984567794265,
+     "warmthOff": 0.9988043318658342,
+     "warmthSky": 0.7273757208750264,
+     "refused": null,
+     "skyOnlyOverSky": 2.184757902489351,
+     "warmthSkyOnly": 1.0621926620667843,
+     "sunShareUnlit": 0.03875677366200947
+    },
+    {
+     "lamp": 837,
+     "globe": "outer",
+     "world": [
+      53.57,
+      7.7,
+      -174.1
+     ],
+     "sx": 65.3,
+     "sy": 281.9,
+     "depth": 22.8,
+     "rpx": 11.07,
+     "core": 190,
+     "coreOn": [
+      181.9782894736842,
+      125.89243421052632,
+      63.665789473684214
+     ],
+     "coreOff": [
+      2.7940275493421054,
+      1.5616365131578946,
+      0.6754034745065789
+     ],
+     "ring": 1028,
+     "ringN": 1105,
+     "ringRGB": [
+      0.14933049539647678,
+      0.11780141392570526,
+      0.17425186810326485
+     ],
+     "ringOff": [
+      0.14933049539647678,
+      0.11780141392570526,
+      0.17425186810326485
+     ],
+     "nonFinite": 0,
+     "onOverSky": 1036.8898410050497,
+     "offOverSky": 13.685284017642923,
+     "warmthOn": 0.8874090414121327,
+     "warmthOff": 1.203998443489254,
+     "warmthSky": -0.19381964672103194,
+     "refused": null,
+     "skyOnlyOverSky": 13.645498475511921,
+     "warmthSkyOnly": 1.2089984997741425,
+     "sunShareUnlit": 0.002907176941283174
+    },
+    {
+     "lamp": 832,
+     "globe": "outer",
+     "world": [
+      61.4,
+      7.7,
+      -138.82
+     ],
+     "sx": 1447.3,
+     "sy": 329.3,
+     "depth": 29.5,
+     "rpx": 8.55,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 656,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 832,
+     "globe": "inner",
+     "world": [
+      64.6,
+      7.66,
+      -138.81
+     ],
+     "sx": 1387.4,
+     "sy": 346.2,
+     "depth": 32.7,
+     "rpx": 6.79,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 411,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 280,
+     "globe": "outer",
+     "world": [
+      67.96,
+      7.7,
+      -167.75
+     ],
+     "sx": 532.3,
+     "sy": 361.7,
+     "depth": 37,
+     "rpx": 6.83,
+     "core": 71,
+     "coreOn": [
+      180.7112676056338,
+      125.20334507042253,
+      63.41549295774648
+     ],
+     "coreOff": [
+      1.5334094410211268,
+      0.873748349471831,
+      0.4245811784771127
+     ],
+     "ring": 259,
+     "ringN": 422,
+     "ringRGB": [
+      0.1623294786136583,
+      0.12888127036076255,
+      0.1928550690757722
+     ],
+     "ringOff": [
+      0.1623294786136583,
+      0.12888127036076255,
+      0.1928550690757722
+     ],
+     "nonFinite": 0,
+     "onOverSky": 942.6218015419244,
+     "offOverSky": 6.98068116323212,
+     "warmthOn": 0.884962287886797,
+     "warmthOff": 1.1296563836914995,
+     "warmthSky": -0.21709206495945654,
+     "refused": null,
+     "skyOnlyOverSky": 6.895063662262864,
+     "warmthSkyOnly": 1.1505676984002278,
+     "sunShareUnlit": 0.0122649207100608
+    },
+    {
+     "lamp": 280,
+     "globe": "inner",
+     "world": [
+      67.98,
+      7.66,
+      -170.95
+     ],
+     "sx": 446,
+     "sy": 363.2,
+     "depth": 37.1,
+     "rpx": 5.99,
+     "core": 28,
+     "coreOn": [
+      191.98660714285714,
+      131.37946428571428,
+      65.72544642857143
+     ],
+     "coreOff": [
+      12.811104910714286,
+      7.060686383928571,
+      2.7327706473214284
+     ],
+     "ring": 140,
+     "ringN": 327,
+     "ringRGB": [
+      0.16822073800223214,
+      0.13250034877232142,
+      0.19541364397321428
+     ],
+     "ringOff": [
+      0.16822073800223214,
+      0.13250034877232142,
+      0.19541364397321428
+     ],
+     "nonFinite": 0,
+     "onOverSky": 964.6527084884406,
+     "offOverSky": 55.10870990531092,
+     "warmthOn": 0.9049401438368644,
+     "warmthOff": 1.2644148238785222,
+     "warmthSky": -0.18800815425009568,
+     "refused": null,
+     "skyOnlyOverSky": 55.06709209668084,
+     "warmthSkyOnly": 1.265716362789922,
+     "sunShareUnlit": 0.0007551947541792892
+    },
+    {
+     "lamp": 281,
+     "globe": "inner",
+     "world": [
+      89.9,
+      7.66,
+      -156.46
+     ],
+     "sx": 837.5,
+     "sy": 409.7,
+     "depth": 58.5,
+     "rpx": 3.8,
+     "core": 14,
+     "coreOn": [
+      179.73214285714286,
+      124.67857142857143,
+      63.229910714285715
+     ],
+     "coreOff": [
+      0.5617152622767857,
+      0.34749930245535715,
+      0.23988560267857142
+     ],
+     "ring": 80,
+     "ringN": 131,
+     "ringRGB": [
+      0.1968475341796875,
+      0.1483684539794922,
+      0.20079803466796875
+     ],
+     "ringOff": [
+      0.1968475341796875,
+      0.1483684539794922,
+      0.20079803466796875
+     ],
+     "nonFinite": 0,
+     "onOverSky": 812.1749558591749,
+     "offOverSky": 2.3714801680873774,
+     "warmthOn": 0.8829514175272167,
+     "warmthOff": 0.8353312407701103,
+     "warmthSky": -0.02431667974385578,
+     "refused": null,
+     "skyOnlyOverSky": 2.2211043842758347,
+     "warmthSkyOnly": 0.9311704586151457,
+     "sunShareUnlit": 0.06381755511133502
+    },
+    {
+     "lamp": 281,
+     "globe": "outer",
+     "world": [
+      89.92,
+      7.7,
+      -159.66
+     ],
+     "sx": 782.3,
+     "sy": 409.2,
+     "depth": 58.7,
+     "rpx": 4.31,
+     "core": 17,
+     "coreOn": [
+      179.77941176470588,
+      124.69485294117646,
+      63.24080882352941
+     ],
+     "coreOff": [
+      0.5914091222426471,
+      0.3649471507352941,
+      0.2477740119485294
+     ],
+     "ring": 0,
+     "ringN": 167,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 0.883076609097367,
+     "warmthOff": 0.8492511853314814,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 167",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 0.9515364103956033,
+     "sunShareUnlit": 0.06709932621529657
+    },
+    {
+     "lamp": 282,
+     "globe": "outer",
+     "world": [
+      111.94,
+      7.7,
+      -167.55
+     ],
+     "sx": 697.2,
+     "sy": 431.5,
+     "depth": 80.9,
+     "rpx": 3.12,
+     "core": 16,
+     "coreOn": [
+      179.359375,
+      124.47265625,
+      63.140625
+     ],
+     "coreOff": [
+      0.17834091186523438,
+      0.13353347778320312,
+      0.1536712646484375
+     ],
+     "ring": 8,
+     "ringN": 87,
+     "ringRGB": [
+      0.2310028076171875,
+      0.1615447998046875,
+      0.1829071044921875
+     ],
+     "ringOff": [
+      0.2310028076171875,
+      0.1615447998046875,
+      0.1829071044921875
+     ],
+     "nonFinite": 0,
+     "onOverSky": 740.5706441697117,
+     "offOverSky": 0.8125403017022752,
+     "warmthOn": 0.8823608683702645,
+     "warmthOff": 0.17070826964021343,
+     "warmthSky": 0.2704224919034545,
+     "refused": null,
+     "skyOnlyOverSky": 0.7093714485599453,
+     "warmthSkyOnly": 0.27798886803646505,
+     "sunShareUnlit": 0.12697075200601227
+    },
+    {
+     "lamp": 282,
+     "globe": "inner",
+     "world": [
+      111.96,
+      7.66,
+      -170.75
+     ],
+     "sx": 657.5,
+     "sy": 432.1,
+     "depth": 81,
+     "rpx": 2.74,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 68,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 283,
+     "globe": "inner",
+     "world": [
+      133.88,
+      7.66,
+      -156.26
+     ],
+     "sx": 836.9,
+     "sy": 444.2,
+     "depth": 102.5,
+     "rpx": 2.17,
+     "core": 7,
+     "coreOn": [
+      179.375,
+      124.47321428571429,
+      63.138392857142854
+     ],
+     "coreOff": [
+      0.18736049107142858,
+      0.13800920758928573,
+      0.1553955078125
+     ],
+     "ring": 7,
+     "ringN": 44,
+     "ringRGB": [
+      0.22441755022321427,
+      0.15503801618303573,
+      0.16084507533482142
+     ],
+     "ringOff": [
+      0.22441755022321427,
+      0.15503801618303573,
+      0.16084507533482142
+     ],
+     "nonFinite": 0,
+     "onOverSky": 773.8616495517277,
+     "offOverSky": 0.8798477828462208,
+     "warmthOn": 0.8824725935099134,
+     "warmthOff": 0.2134462670972731,
+     "warmthSky": 0.3735001198776067,
+     "refused": null,
+     "skyOnlyOverSky": 0.7850046119342604,
+     "warmthSkyOnly": 0.31218535058926544,
+     "sunShareUnlit": 0.11243679783834493
+    },
+    {
+     "lamp": 283,
+     "globe": "outer",
+     "world": [
+      133.89,
+      7.7,
+      -159.46
+     ],
+     "sx": 805.3,
+     "sy": 443.9,
+     "depth": 102.6,
+     "rpx": 2.46,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 57,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1099,
+     "globe": "inner",
+     "world": [
+      145.04,
+      7.66,
+      -244.89
+     ],
+     "sx": 66,
+     "sy": 449.7,
+     "depth": 116.4,
+     "rpx": 1.91,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 33,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1099,
+     "globe": "outer",
+     "world": [
+      145.04,
+      7.7,
+      -248.09
+     ],
+     "sx": 38.9,
+     "sy": 449.4,
+     "depth": 116.5,
+     "rpx": 2.17,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 46,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 284,
+     "globe": "outer",
+     "world": [
+      155.92,
+      7.7,
+      -167.35
+     ],
+     "sx": 746.1,
+     "sy": 452.1,
+     "depth": 124.8,
+     "rpx": 2.02,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 3,
+     "ringN": 35,
+     "ringRGB": [
+      0.12443033854166667,
+      0.0933837890625,
+      0.10955810546875
+     ],
+     "ringOff": [
+      0.12443033854166667,
+      0.0933837890625,
+      0.10955810546875
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": 0.1470284583134899,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 284,
+     "globe": "inner",
+     "world": [
+      155.94,
+      7.66,
+      -170.55
+     ],
+     "sx": 720.3,
+     "sy": 452.5,
+     "depth": 124.9,
+     "rpx": 1.78,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 27,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1108,
+     "globe": "outer",
+     "world": [
+      165.86,
+      7.7,
+      -77.75
+     ],
+     "sx": 1437.2,
+     "sy": 454.2,
+     "depth": 132,
+     "rpx": 1.91,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 32,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1108,
+     "globe": "inner",
+     "world": [
+      165.83,
+      7.66,
+      -80.95
+     ],
+     "sx": 1412.4,
+     "sy": 454.5,
+     "depth": 132,
+     "rpx": 1.68,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 24,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1051,
+     "globe": "outer",
+     "world": [
+      170.22,
+      7.7,
+      -255.52
+     ],
+     "sx": 127.7,
+     "sy": 456.7,
+     "depth": 141.8,
+     "rpx": 1.78,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 29,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1051,
+     "globe": "inner",
+     "world": [
+      170.22,
+      7.66,
+      -258.72
+     ],
+     "sx": 105.4,
+     "sy": 457,
+     "depth": 141.9,
+     "rpx": 1.57,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 22,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1109,
+     "globe": "inner",
+     "world": [
+      178.84,
+      7.66,
+      -67.28
+     ],
+     "sx": 1457.5,
+     "sy": 457.6,
+     "depth": 144.6,
+     "rpx": 1.54,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 22,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1109,
+     "globe": "outer",
+     "world": [
+      178.81,
+      7.7,
+      -70.48
+     ],
+     "sx": 1434.8,
+     "sy": 457.4,
+     "depth": 144.7,
+     "rpx": 1.75,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 28,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 285,
+     "globe": "inner",
+     "world": [
+      177.84,
+      7.66,
+      -156.01
+     ],
+     "sx": 837,
+     "sy": 458,
+     "depth": 146.4,
+     "rpx": 1.52,
+     "core": 2,
+     "coreOn": [
+      179.375,
+      124.46875,
+      63.140625
+     ],
+     "coreOff": [
+      0.2012939453125,
+      0.14093017578125,
+      0.1495361328125
+     ],
+     "ring": 5,
+     "ringN": 18,
+     "ringRGB": [
+      0.24210205078125,
+      0.16673583984375,
+      0.178466796875
+     ],
+     "ringOff": [
+      0.24210205078125,
+      0.16673583984375,
+      0.178466796875
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 0.8824759587284536,
+     "warmthOff": 0.3352518595408568,
+     "warmthSky": 0.3465865374725734,
+     "refused": "ring holds 5 sky px of 18",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 0.37944261291655873,
+     "sunShareUnlit": 0.04769637693947948
+    },
+    {
+     "lamp": 285,
+     "globe": "outer",
+     "world": [
+      177.87,
+      7.7,
+      -159.21
+     ],
+     "sx": 814.9,
+     "sy": 457.8,
+     "depth": 146.5,
+     "rpx": 1.72,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 29,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 538,
+     "globe": "outer",
+     "world": [
+      190.4,
+      7.7,
+      -78
+     ],
+     "sx": 1340.7,
+     "sy": 459.9,
+     "depth": 156.5,
+     "rpx": 1.61,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 24,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 538,
+     "globe": "inner",
+     "world": [
+      190.35,
+      7.66,
+      -81.2
+     ],
+     "sx": 1319.9,
+     "sy": 460.1,
+     "depth": 156.5,
+     "rpx": 1.42,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 19,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1052,
+     "globe": "inner",
+     "world": [
+      190.36,
+      7.66,
+      -244.95
+     ],
+     "sx": 280,
+     "sy": 461.1,
+     "depth": 161.6,
+     "rpx": 1.38,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 20,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1052,
+     "globe": "outer",
+     "world": [
+      190.36,
+      7.7,
+      -248.15
+     ],
+     "sx": 260.3,
+     "sy": 460.8,
+     "depth": 161.7,
+     "rpx": 1.56,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 23,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 590,
+     "globe": "outer",
+     "world": [
+      204.9,
+      7.7,
+      -167.03
+     ],
+     "sx": 772,
+     "sy": 462.9,
+     "depth": 173.7,
+     "rpx": 1.45,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 19,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 590,
+     "globe": "inner",
+     "world": [
+      204.92,
+      7.66,
+      -170.23
+     ],
+     "sx": 753.4,
+     "sy": 463.1,
+     "depth": 173.9,
+     "rpx": 1.28,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 15,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 661,
+     "globe": "outer",
+     "world": [
+      202.28,
+      7.7,
+      -255.58
+     ],
+     "sx": 257,
+     "sy": 462.9,
+     "depth": 173.9,
+     "rpx": 1.45,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 20,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 661,
+     "globe": "inner",
+     "world": [
+      202.26,
+      7.66,
+      -258.78
+     ],
+     "sx": 238.7,
+     "sy": 463.1,
+     "depth": 173.9,
+     "rpx": 1.28,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 16,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 539,
+     "globe": "inner",
+     "world": [
+      209.79,
+      7.66,
+      -67.7
+     ],
+     "sx": 1344.8,
+     "sy": 463.4,
+     "depth": 175.5,
+     "rpx": 1.27,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 14,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 539,
+     "globe": "outer",
+     "world": [
+      209.74,
+      7.7,
+      -70.9
+     ],
+     "sx": 1326.2,
+     "sy": 463.2,
+     "depth": 175.6,
+     "rpx": 1.44,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 19,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 591,
+     "globe": "outer",
+     "world": [
+      224.15,
+      7.7,
+      -158.97
+     ],
+     "sx": 820.1,
+     "sy": 465.6,
+     "depth": 192.7,
+     "rpx": 1.31,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 16,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 540,
+     "globe": "outer",
+     "world": [
+      228.86,
+      7.7,
+      -78.58
+     ],
+     "sx": 1237.3,
+     "sy": 465.8,
+     "depth": 194.9,
+     "rpx": 1.3,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 17,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 662,
+     "globe": "outer",
+     "world": [
+      226.32,
+      7.7,
+      -248.35
+     ],
+     "sx": 363.1,
+     "sy": 466.2,
+     "depth": 197.6,
+     "rpx": 1.28,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 15,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    }
+   ],
+   "pool": {
+    "lights": 10,
+    "addsToFrame": 0.5025467922899058,
+    "pxOver5pct": 990639,
+    "pxOver25pct": 956681,
+    "pxOver100pct": 874012,
+    "nonFinite": 0,
+    "glints": [
+     {
+      "area": 878396,
+      "box": [
+       0,
+       0,
+       1599,
+       899
+      ],
+      "peakNits": 3981.163,
+      "peakExposed": 740.2683,
+      "peakOverBase": 3880.71,
+      "at": [
+       1133,
+       273
+      ],
+      "id": {
+       "what": "chunk:0,-2:lod0:facade:retailStrip",
+       "object": "chunk:0,-2:lod0:facade:retailStrip",
+       "material": "MeshStandardMaterial facade:retailStrip",
+       "emissive": "#ffffff x4.650",
+       "roughness": 1,
+       "instance": null,
+       "dist": 17.81,
+       "point": [
+        48.17,
+        6.57,
+        -151.83
+       ]
+      }
+     },
+     {
+      "area": 284,
+      "box": [
+       490,
+       585,
+       508,
+       605
+      ],
+      "peakNits": 3.14,
+      "peakExposed": 0.5839,
+      "peakOverBase": 50.2,
+      "at": [
+       502,
+       587
+      ],
+      "id": {
+       "what": "playerCar",
+       "object": "Mesh",
+       "material": "MeshStandardMaterial",
+       "emissive": "#000000 x1.000",
+       "roughness": 1,
+       "instance": 2,
+       "dist": 26.75,
+       "point": [
+        56.77,
+        0.55,
+        -165.1
+       ]
+      }
+     },
+     {
+      "area": 294,
+      "box": [
+       594,
+       586,
+       612,
+       606
+      ],
+      "peakNits": 3.003,
+      "peakExposed": 0.5584,
+      "peakOverBase": 67.28,
+      "at": [
+       609,
+       595
+      ],
+      "id": {
+       "what": "playerCar",
+       "object": "Mesh",
+       "material": "MeshStandardMaterial",
+       "emissive": "#000000 x1.000",
+       "roughness": 1,
+       "instance": 0,
+       "dist": 26.06,
+       "point": [
+        56.77,
+        0.36,
+        -162.39
+       ]
+      }
+     },
+     {
+      "area": 217,
+      "box": [
+       0,
+       218,
+       7,
+       390
+      ],
+      "peakNits": 2.548,
+      "peakExposed": 0.4737,
+      "peakOverBase": 40.24,
+      "at": [
+       0,
+       376
+      ],
+      "id": {
+       "what": "lamp:pole",
+       "object": "lamp:pole",
+       "material": "MeshStandardMaterial",
+       "emissive": "#000000 x1.000",
+       "roughness": 0.62,
+       "instance": 171,
+       "dist": 20.66,
+       "point": [
+        47.16,
+        4.82,
+        -170.11
+       ]
+      }
+     },
+     {
+      "area": 281,
+      "box": [
+       773,
+       523,
+       805,
+       538
+      ],
+      "peakNits": 1.831,
+      "peakExposed": 0.3405,
+      "peakOverBase": 30.4,
+      "at": [
+       776,
+       532
+      ],
+      "id": {
+       "what": "chunk:0,-2:lod0:road",
+       "object": "chunk:0,-2:lod0:road",
+       "material": "MeshStandardMaterial road",
+       "emissive": "#000000 x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 71.57,
+       "point": [
+        102.85,
+        0.02,
+        -160.69
+       ]
+      }
+     },
+     {
+      "area": 48,
+      "box": [
+       7,
+       167,
+       9,
+       209
+      ],
+      "peakNits": 0.864,
+      "peakExposed": 0.1607,
+      "peakOverBase": 148.18,
+      "at": [
+       8,
+       191
+      ],
+      "id": {
+       "what": "lamp:pole",
+       "object": "lamp:pole",
+       "material": "MeshStandardMaterial",
+       "emissive": "#000000 x1.000",
+       "roughness": 0.62,
+       "instance": 171,
+       "dist": 21.11,
+       "point": [
+        47.16,
+        7.81,
+        -170.07
+       ]
+      }
+     },
+     {
+      "area": 7,
+      "box": [
+       494,
+       354,
+       497,
+       356
+      ],
+      "peakNits": 0.605,
+      "peakExposed": 0.1126,
+      "peakOverBase": 25.37,
+      "at": [
+       496,
+       356
+      ],
+      "id": {
+       "what": "props:far:0,-1",
+       "object": "props:far:0,-1",
+       "material": "MeshStandardMaterial",
+       "emissive": "#ffffff x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 44.61,
+       "point": [
+        73.4,
+        8.63,
+        -170.91
+       ]
+      }
+     },
+     {
+      "area": 12,
+      "box": [
+       479,
+       354,
+       481,
+       359
+      ],
+      "peakNits": 0.464,
+      "peakExposed": 0.0864,
+      "peakOverBase": 15.3,
+      "at": [
+       481,
+       359
+      ],
+      "id": {
+       "what": "props:far:0,-1",
+       "object": "props:far:0,-1",
+       "material": "MeshStandardMaterial",
+       "emissive": "#ffffff x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 44.82,
+       "point": [
+        73.42,
+        8.5,
+        -171.55
+       ]
+      }
+     },
+     {
+      "area": 13,
+      "box": [
+       484,
+       351,
+       488,
+       355
+      ],
+      "peakNits": 0.433,
+      "peakExposed": 0.0806,
+      "peakOverBase": 15.15,
+      "at": [
+       485,
+       355
+      ],
+      "id": {
+       "what": "props:far:0,-1",
+       "object": "props:far:0,-1",
+       "material": "MeshStandardMaterial",
+       "emissive": "#ffffff x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 44.92,
+       "point": [
+        73.55,
+        8.69,
+        -171.43
+       ]
+      }
+     },
+     {
+      "area": 1,
+      "box": [
+       571,
+       405,
+       571,
+       405
+      ],
+      "peakNits": 0.396,
+      "peakExposed": 0.0736,
+      "peakOverBase": 22.5,
+      "at": [
+       571,
+       405
+      ],
+      "id": {
+       "what": "props:far:0,-1",
+       "object": "props:far:0,-1",
+       "material": "MeshStandardMaterial",
+       "emissive": "#ffffff x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 44.08,
+       "point": [
+        73.98,
+        6.6,
+        -167.86
+       ]
+      }
+     },
+     {
+      "area": 79,
+      "box": [
+       1071,
+       615,
+       1093,
+       638
+      ],
+      "peakNits": 0.321,
+      "peakExposed": 0.0598,
+      "peakOverBase": 4.89,
+      "at": [
+       1088,
+       635
+      ],
+      "id": {
+       "what": "chunk:0,-2:lod0:road",
+       "object": "chunk:0,-2:lod0:road",
+       "material": "MeshStandardMaterial road",
+       "emissive": "#000000 x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 22.35,
+       "point": [
+        52.93,
+        -0.04,
+        -151.44
+       ]
+      }
+     },
+     {
+      "area": 56,
+      "box": [
+       915,
+       440,
+       920,
+       450
+      ],
+      "peakNits": 0.305,
+      "peakExposed": 0.0568,
+      "peakOverBase": 2.87,
+      "at": [
+       917,
+       441
+      ],
+      "id": {
+       "what": "signage",
+       "object": "Mesh",
+       "material": "MeshStandardMaterial",
+       "emissive": "#ffffff x7.400",
+       "roughness": 1,
+       "instance": null,
+       "dist": 56.23,
+       "point": [
+        87.42,
+        5.69,
+        -152.06
+       ]
+      }
+     }
+    ]
+   },
+   "emitters": [
+    {
+     "area": 243,
+     "box": [
+      493,
+      556,
+      523,
+      567
+     ],
+     "peakNits": 709.081,
+     "peakExposed": 131.8484,
+     "cOverA": 0.999,
+     "bOverA": 0,
+     "at": [
+      517,
+      557
+     ],
+     "id": {
+      "what": "playerCar",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial",
+      "emissive": "#000000 x1.000",
+      "roughness": 0.06,
+      "instance": null,
+      "dist": 26.49,
+      "point": [
+       56.69,
+       1.31,
+       -164.7
+      ]
+     }
+    },
+    {
+     "area": 362,
+     "box": [
+      525,
+      556,
+      564,
+      567
+     ],
+     "peakNits": 590.888,
+     "peakExposed": 109.8714,
+     "cOverA": 1.017,
+     "bOverA": 0,
+     "at": [
+      528,
+      558
+     ],
+     "id": {
+      "what": "playerCar",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial",
+      "emissive": "#000000 x1.000",
+      "roughness": 0.06,
+      "instance": null,
+      "dist": 26.38,
+      "point": [
+       56.66,
+       1.29,
+       -164.41
+      ]
+     }
+    },
+    {
+     "area": 458,
+     "box": [
+      1006,
+      228,
+      1029,
+      251
+     ],
+     "peakNits": 131.684,
+     "peakExposed": 24.4856,
+     "cOverA": 0.014,
+     "bOverA": 0.987,
+     "at": [
+      1009,
+      248
+     ],
+     "id": {
+      "what": "lamp:pole",
+      "object": "lamp:pole",
+      "material": "MeshStandardMaterial",
+      "emissive": "#000000 x1.000",
+      "roughness": 0.62,
+      "instance": 831,
+      "dist": 20.56,
+      "point": [
+       51.16,
+       7.72,
+       -153.33
+      ]
+     }
+    },
+    {
+     "area": 70,
+     "box": [
+      445,
+      357,
+      451,
+      368
+     ],
+     "peakNits": 131.663,
+     "peakExposed": 24.4818,
+     "cOverA": 0.095,
+     "bOverA": 0.905,
+     "at": [
+      451,
+      364
+     ],
+     "id": {
+      "what": "street lamp globe (inner) of lamp 280",
+      "depth": 37.1
+     }
+    },
+    {
+     "area": 918,
+     "box": [
+      129,
+      182,
+      165,
+      213
+     ],
+     "peakNits": 131.658,
+     "peakExposed": 24.4808,
+     "cOverA": 0.004,
+     "bOverA": 0.997,
+     "at": [
+      156,
+      205
+     ],
+     "id": {
+      "what": "street lamp globe (outer) of lamp 171",
+      "depth": 16.3
+     }
+    },
+    {
+     "area": 302,
+     "box": [
+      980,
+      263,
+      1000,
+      285
+     ],
+     "peakNits": 131.658,
+     "peakExposed": 24.4808,
+     "cOverA": 0.004,
+     "bOverA": 0.997,
+     "at": [
+      988,
+      281
+     ],
+     "id": {
+      "what": "street lamp globe (outer) of lamp 831",
+      "depth": 22
+     }
+    },
+    {
+     "area": 455,
+     "box": [
+      52,
+      271,
+      78,
+      292
+     ],
+     "peakNits": 131.651,
+     "peakExposed": 24.4796,
+     "cOverA": 0.01,
+     "bOverA": 0.991,
+     "at": [
+      70,
+      289
+     ],
+     "id": {
+      "what": "street lamp globe (outer) of lamp 837",
+      "depth": 22.8
+     }
+    },
+    {
+     "area": 38,
+     "box": [
+      778,
+      405,
+      784,
+      412
+     ],
+     "peakNits": 131.642,
+     "peakExposed": 24.478,
+     "cOverA": 0.003,
+     "bOverA": 0.998,
+     "at": [
+      780,
+      408
+     ],
+     "id": {
+      "what": "street lamp globe (outer) of lamp 281",
+      "depth": 58.7
+     }
+    },
+    {
+     "area": 150,
+     "box": [
+      525,
+      355,
+      538,
+      368
+     ],
+     "peakNits": 131.64,
+     "peakExposed": 24.4775,
+     "cOverA": 0.003,
+     "bOverA": 0.997,
+     "at": [
+      538,
+      359
+     ],
+     "id": {
+      "what": "street lamp globe (outer) of lamp 280",
+      "depth": 37
+     }
+    },
+    {
+     "area": 32,
+     "box": [
+      834,
+      406,
+      838,
+      412
+     ],
+     "peakNits": 131.625,
+     "peakExposed": 24.4746,
+     "cOverA": 0.002,
+     "bOverA": 0.999,
+     "at": [
+      838,
+      412
+     ],
+     "id": {
+      "what": "street lamp globe (inner) of lamp 281",
+      "depth": 58.5
+     }
+    },
+    {
+     "area": 31,
+     "box": [
+      694,
+      428,
+      699,
+      434
+     ],
+     "peakNits": 131.609,
+     "peakExposed": 24.4717,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      696,
+      431
+     ],
+     "id": {
+      "what": "street lamp globe (outer) of lamp 282",
+      "depth": 80.9
+     }
+    },
+    {
+     "area": 14,
+     "box": [
+      835,
+      442,
+      838,
+      445
+     ],
+     "peakNits": 131.609,
+     "peakExposed": 24.4717,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      836,
+      444
+     ],
+     "id": {
+      "what": "street lamp globe (inner) of lamp 283",
+      "depth": 102.5
+     }
+    },
+    {
+     "area": 3,
+     "box": [
+      835,
+      458,
+      837,
+      458
+     ],
+     "peakNits": 131.609,
+     "peakExposed": 24.4717,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      836,
+      458
+     ],
+     "id": {
+      "what": "street lamp globe (inner) of lamp 285",
+      "depth": 146.4
+     }
+    },
+    {
+     "area": 1,
+     "box": [
+      807,
+      479,
+      807,
+      479
+     ],
+     "peakNits": 131.609,
+     "peakExposed": 24.4717,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      807,
+      479
+     ],
+     "id": {
+      "what": "nothing (sky)"
+     }
+    },
+    {
+     "area": 3,
+     "box": [
+      836,
+      465,
+      837,
+      466
+     ],
+     "peakNits": 131.607,
+     "peakExposed": 24.4713,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      836,
+      466
+     ],
+     "id": {
+      "what": "nothing (sky)"
+     }
+    },
+    {
+     "area": 1,
+     "box": [
+      804,
+      478,
+      804,
+      478
+     ],
+     "peakNits": 131.607,
+     "peakExposed": 24.4713,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      804,
+      478
+     ],
+     "id": {
+      "what": "props:far:1,-1",
+      "object": "props:far:1,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 512.24,
+      "point": [
+       543.47,
+       8.94,
+       -170.45
+      ]
+     }
+    },
+    {
+     "area": 2,
+     "box": [
+      834,
+      470,
+      834,
+      471
+     ],
+     "peakNits": 131.564,
+     "peakExposed": 24.4634,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      834,
+      470
+     ],
+     "id": {
+      "what": "props:far:0,-1",
+      "object": "props:far:0,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 359.6,
+      "point": [
+       390.98,
+       10.01,
+       -155.72
+      ]
+     }
+    },
+    {
+     "area": 1,
+     "box": [
+      833,
+      476,
+      833,
+      476
+     ],
+     "peakNits": 74.001,
+     "peakExposed": 13.76,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      833,
+      476
+     ],
+     "id": {
+      "what": "props:far:0,-1",
+      "object": "props:far:0,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 72.67,
+      "point": [
+       104.11,
+       3.99,
+       -156.67
+      ]
+     }
+    },
+    {
+     "area": 2,
+     "box": [
+      834,
+      473,
+      834,
+      474
+     ],
+     "peakNits": 74,
+     "peakExposed": 13.7597,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      834,
+      474
+     ],
+     "id": {
+      "what": "props:far:0,-1",
+      "object": "props:far:0,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 359.5,
+      "point": [
+       390.91,
+       8.59,
+       -155.72
+      ]
+     }
+    },
+    {
+     "area": 31,
+     "box": [
+      642,
+      568,
+      650,
+      574
+     ],
+     "peakNits": 24.901,
+     "peakExposed": 4.6301,
+     "cOverA": 0.999,
+     "bOverA": 0.989,
+     "at": [
+      646,
+      571
+     ],
+     "id": {
+      "what": "playerCar",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 27.03,
+      "point": [
+       57.96,
+       0.87,
+       -161.67
+      ]
+     }
+    },
+    {
+     "area": 35,
+     "box": [
+      634,
+      572,
+      643,
+      578
+     ],
+     "peakNits": 20.187,
+     "peakExposed": 3.7536,
+     "cOverA": 1.085,
+     "bOverA": 1.07,
+     "at": [
+      638,
+      574
+     ],
+     "id": {
+      "what": "playerCar",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 26.01,
+      "point": [
+       56.92,
+       0.88,
+       -161.69
+      ]
+     }
+    },
+    {
+     "area": 1,
+     "box": [
+      800,
+      479,
+      800,
+      479
+     ],
+     "peakNits": 8.238,
+     "peakExposed": 1.5318,
+     "cOverA": 0.002,
+     "bOverA": 1,
+     "at": [
+      800,
+      479
+     ],
+     "id": {
+      "what": "props:far:0,-1",
+      "object": "props:far:0,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 380.54,
+      "point": [
+       411.79,
+       7.04,
+       -168.45
+      ]
+     }
+    },
+    {
+     "area": 1,
+     "box": [
+      801,
+      477,
+      801,
+      477
+     ],
+     "peakNits": 8.238,
+     "peakExposed": 1.5318,
+     "cOverA": 0.002,
+     "bOverA": 1,
+     "at": [
+      801,
+      477
+     ],
+     "id": {
+      "what": "lamp:arm",
+      "object": "lamp:arm",
+      "material": "MeshStandardMaterial",
+      "emissive": "#000000 x1.000",
+      "roughness": 0.62,
+      "instance": 439,
+      "dist": 357.25,
+      "point": [
+       388.52,
+       7.49,
+       -167.38
+      ]
+     }
+    },
+    {
+     "area": 1,
+     "box": [
+      1001,
+      279,
+      1001,
+      279
+     ],
+     "peakNits": 8.229,
+     "peakExposed": 1.5301,
+     "cOverA": 0.005,
+     "bOverA": 0.997,
+     "at": [
+      1001,
+      279
+     ],
+     "id": {
+      "what": "street lamp globe (outer) of lamp 831",
+      "depth": 22
+     }
+    }
+   ],
+   "boxes": {
+    "wallLamp": {
+     "box": [
+      1095,
+      230,
+      1205,
+      315
+     ],
+     "meanA": 14.044593321762802,
+     "meanB": 0.16500410221202158,
+     "meanC": 14.044593321762802,
+     "meanD": 0.16500410221202158,
+     "peakA": 3982.188720703125,
+     "peakAt": [
+      1133,
+      273
+     ],
+     "peakExposed": 740.4590406662561,
+     "peakB": 1.0258851051330566,
+     "peakC": 3982.188720703125,
+     "peakD": 1.0258851051330566,
+     "peakShare": 0,
+     "emittedPeak": 1.7045602798461914,
+     "emittedPeakAt": [
+      1132,
+      230
+     ],
+     "id": {
+      "what": "chunk:0,-2:lod0:facade:retailStrip",
+      "object": "chunk:0,-2:lod0:facade:retailStrip",
+      "material": "MeshStandardMaterial facade:retailStrip",
+      "emissive": "#ffffff x4.650",
+      "roughness": 1,
+      "instance": null,
+      "dist": 17.81,
+      "point": [
+       48.17,
+       6.57,
+       -151.83
+      ]
+     },
+     "idEmitted": {
+      "what": "chunk:0,-2:lod0:facade:retailStrip",
+      "object": "chunk:0,-2:lod0:facade:retailStrip",
+      "material": "MeshStandardMaterial facade:retailStrip",
+      "emissive": "#ffffff x4.650",
+      "roughness": 1,
+      "instance": null,
+      "dist": 17.99,
+      "point": [
+       48.19,
+       7.3,
+       -151.83
+      ]
+     }
+    }
+   },
+   "frameMean": {
+    "A": 0.6749799402883767,
+    "B": 0.3357739412108236,
+    "C": 0.451869723126307,
+    "D": 0.11259817392391096
+   },
+   "sky": {
+    "px": 392714,
+    "meanNits": 0.17096688384962885
+   }
+  }
+ ],
+ "pageErrors": [],
+ "partial": false
+}
