@@ -219,8 +219,14 @@ for (const s of chosen) {
       // fixed one half here and both halves there, leaving the trap armed in
       // three other tools. See CLAUDE.md on patching one tool and leaving the
       // rest.
+      //
+      // HERO_SHOT_TIMEOUT, because 180 s is a bound for one box and not for this one: on 2026-11-17, four
+      // cores at load 13 with three headless browsers alive, both corridor frames of an arm failed at
+      // exactly 180 s while the page went on rendering about thirty frames through each wait, and a sibling
+      // tool on the same box (leaf-cover, LEAF_SHOT_TIMEOUT 1,200 s) was landing its frames about five
+      // minutes apart. The bound stays a bound and the catch stays; only its length moved off the source.
       try {
-        await page.screenshot({ path: file, timeout: 180000 });
+        await page.screenshot({ path: file, timeout: Number(process.env.HERO_SHOT_TIMEOUT ?? 180000) });
       } catch (e) {
         shotErrors.push(`${file}: ${e.message.split('\n')[0]}`);
         console.log(`  SCREENSHOT FAILED (continuing): ${file}`);
