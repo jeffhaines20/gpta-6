@@ -133,8 +133,9 @@ async function district() {
         T.sun.visible = arm !== 'nosun';
         T.hemi.visible = arm !== 'nohemi';
         T.bounce.visible = arm !== 'nobounce';
-        if (this._envI === undefined) this._envI = D.scene.environmentIntensity;
-        D.scene.environmentIntensity = arm === 'noenv' ? 0 : this._envI;
+        // Saved per use and restored on the next arm, never cached: apply() moves it with the hour.
+        if (this._envSaved !== undefined) { D.scene.environmentIntensity = this._envSaved; this._envSaved = undefined; }
+        if (arm === 'noenv') { this._envSaved = D.scene.environmentIntensity; D.scene.environmentIntensity = 0; }
         const light = ['nosun', 'nohemi', 'nobounce', 'noenv'].includes(arm);
         const mode = (arm === 'depth05' || arm === 'rim') ? 'centred' : (arm === 'merged' || arm === 'test2' || light) ? 'test' : arm;
         // The rim is its own term: on in the shipped arm and the depth arm only.
@@ -225,6 +226,8 @@ async function district() {
       await settleFrames(page, FRAME_SETTLE, `tod ${tod}`);
       let ref = null;
       for (const arm of arms) {
+        // The light arms exist for the limb boxes; a framing without any has nothing for them to read.
+        if (['nosun', 'nohemi', 'nobounce', 'noenv'].includes(arm) && !HDR_BOXES[name]) continue;
         const set = await page.evaluate((a) => __leafCover.setArm(a), arm);
         const f0 = await page.evaluate(() => __district.frames);
         await page.waitForFunction((f) => __district.frames > f + 4, f0, { timeout: 600000, polling: 100 });
