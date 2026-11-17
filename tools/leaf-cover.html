@@ -52,7 +52,9 @@ try {
   const f = K.frame(AT[0], AT[1], 0, 1, -1, 0);
   K.props.tree(buf, f, key);
   K.props.treeDetail(buf, f, key);
-  const benchAt = [AT[0] + 2.2, AT[1] + 1.2];
+  // In front of the trunk, toward the camera, so nothing of the tree can stand between them: the ID pass
+  // is drawn once, alpha-tested, and a bench behind the trunk would be read through holes the rim closes.
+  const benchAt = [AT[0] + 2.6, AT[1] + 4.2];
   K.props.bench(buf, K.frame(benchAt[0], benchAt[1], 0, 1, -1, 0), 7);
   const mat = K.propMaterial();
   // AS THE DISTRICT BUILDS IT: no mode passed, so what is read here is the module's own default.
@@ -224,6 +226,12 @@ try {
   renderer.setRenderTarget(null);
   renderer.render(idScene, camera);
   frames.id = { rgb: b64(grab()) };
+  // And again with the cut group SOLID: a bench pixel counts only where no triangle of the tree stands
+  // in front of it, holes or not, so a check on the bench cannot read the tree through a hole an arm
+  // closes (the rim does exactly that).
+  mesh.material = [idOpaque, new THREE.MeshBasicMaterial({ color: 0x0000ff })];
+  renderer.render(idScene, camera);
+  frames.idSolid = { rgb: b64(grab()) };
   scene.add(mesh);
   setArm('centred');
   report.ok = true;

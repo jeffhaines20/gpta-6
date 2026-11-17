@@ -335,8 +335,10 @@ export function summarise(report, frames) {
   const out = { size: report.size, cut: report.cut, total: report.total, shipped: report.shipped, arms: {} };
   // The ID pass, eroded: a pixel counts only if its four neighbours agree, because nothing else in it is
   // resolved and the scene pass's edges blend.
-  const id = frames.id?.rgb;
-  const kind = (i) => (!id ? null : id[i * 3] > 127 ? 'cut' : id[i * 3 + 1] > 127 ? 'opaque' : null);
+  const id = frames.id?.rgb, solid = frames.idSolid?.rgb;
+  // A cut pixel off the alpha-tested pass; an opaque (bench) pixel only where the SOLID pass agrees.
+  const kind = (i) => (!id ? null : id[i * 3] > 127 ? 'cut'
+    : id[i * 3 + 1] > 127 && solid && solid[i * 3 + 1] > 127 ? 'opaque' : null);
   const inner = { cut: [], opaque: [] };
   if (id) {
     for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
@@ -347,7 +349,7 @@ export function summarise(report, frames) {
   out.pixels = { cut: inner.cut.length, opaque: inner.opaque.length };
   const tagged = (a) => a >= -2.01 && a <= -0.99;
   for (const [arm, fr] of Object.entries(frames)) {
-    if (arm === 'id') continue;
+    if (arm === 'id' || arm === 'idSolid') continue;
     const lit = { width: w, height: h, channels: 3, data: fr.rgb };
     const e = edgeStats(lit, CROWN);
     const c = edgeStats(coverageImage(fr.cov, w, h), CROWN);
@@ -359,8 +361,10 @@ export function summarise(report, frames) {
       lit: { steps: e.steps, hardFrac: e.ok ? e.hardFrac : null, midShare: e.ok ? e.midShare : null },
       cov: { steps: c.steps, hardFrac: c.ok ? c.hardFrac : null, midShare: c.ok ? c.midShare : null, mass, partial },
       trunk: tubeGaps(fr.cov, w, TRUNK),
+      // Under the coverage a leaf's alpha is its coverage, so a pixel the test drew solid reads 1 inside the
+      // crown and a partial value within half a pixel of a cut: either way positive, i.e. NOT a tag.
       tags: { opaqueTagged: share(inner.opaque, tagged), cutTagged: share(inner.cut, tagged),
-        cutUntaggedFull: share(inner.cut, (a) => a >= 0.99 && a <= 1.01) },
+        cutUntagged: share(inner.cut, (a) => a > 0.01 && a <= 1.01) },
     };
   }
   const a = frames.merged?.rgb, b = frames.test?.rgb;
@@ -429,8 +433,8 @@ export function verdict(sm) {
     g('rim', 'cov', 'hardFrac') !== null && Math.abs(g('rim', 'cov', 'hardFrac') - (g('centred', 'cov', 'hardFrac') ?? NaN)) <= 0.03,
     `coverage hardFrac ${f(g('centred', 'cov', 'hardFrac'))} -> ${f(g('rim', 'cov', 'hardFrac'))}`);
   add('the mechanism: the leaves are tagged under the test and untagged under the coverage, which is not OPAQUE',
-    g('test', 'tags', 'cutTagged') >= 0.99 && g('rim', 'tags', 'cutUntaggedFull') >= 0.9,
-    `tagged ${f(g('test', 'tags', 'cutTagged'))} under the test; alpha 1 on ${f(g('rim', 'tags', 'cutUntaggedFull'))} under the coverage`);
+    g('test', 'tags', 'cutTagged') >= 0.99 && g('rim', 'tags', 'cutUntagged') >= 0.99,
+    `tagged ${f(g('test', 'tags', 'cutTagged'))} under the test; a positive alpha (its coverage) on ${f(g('rim', 'tags', 'cutUntagged'))} under the coverage`);
   return checks;
 }
 
@@ -438,22 +442,24 @@ function selftest() {
   let pass = 0, fail = 0;
   const say = (ok, msg, detail = '') => { if (ok) pass++; else fail++; console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${msg}${detail ? `  ${detail}` : ''}`); };
   console.log('LEAF-COVER SELFTEST — the verdict on known-bad summaries\n');
-  const arm = (mode, a2c, groups, depth, lit, cov, tags, shadowDiff) => ({ mode, a2c, groups,
-    materials: groups === 1 ? ['prop'] : ['prop', 'foliageCoverage'], customDepth: depth, shadowDiff, lit, cov, tags });
-  // A real run's numbers (2026-11-17), so the known-bads below are one edit from something that happened.
+  const arm = (mode, a2c, rim, groups, depth, shadowDiff, lit, cov, trunk, tags) => ({ mode, a2c, rim, groups,
+    materials: groups === 0 ? ['prop'] : ['prop', 'foliageCoverage'], customDepth: depth, shadowDiff, lit, cov, trunk, tags });
+  // A real run's summary (2026-11-17, tools/leaf-cover.html at its defaults), rounded, so each known-bad
+  // below is one edit away from something that happened.
+  const L = (steps, hardFrac, midShare) => ({ steps, hardFrac, midShare });
+  const C = (steps, hardFrac, midShare, mass, partial) => ({ steps, hardFrac, midShare, mass, partial });
+  const T = (gaps, solid) => ({ rows: 50, gaps, solid, gapFrac: gaps / (gaps + solid) });
+  const tagT = { opaqueTagged: 1, cutTagged: 0.997, cutUntagged: 0 }, tagC = { opaqueTagged: 1, cutTagged: 0, cutUntagged: 1 };
   const good = {
-    size: { w: 640, h: 400 }, cut: 4096, total: 4132, pixels: { cut: 26000, opaque: 900 }, mergedVsTestBytes: 0,
+    size: { w: 640, h: 400 }, cut: 1610, total: 1656, pixels: { cut: 22559, opaque: 4061 }, mergedVsTestBytes: 0,
+    shipped: { mode: 'centred', rim: true, a2c: true },
     arms: {
-      merged: arm('test', false, 1, null, { steps: 5236, hardFrac: 0.844, midShare: 0.080 },
-        { steps: 6227, hardFrac: 0.866, midShare: 0.070, mass: 30056.8, partial: 1460 }, { opaqueTagged: 1, cutTagged: 1, cutUntaggedFull: 0 }, null),
-      test: arm('test', false, 2, 'foliageDepth', { steps: 5236, hardFrac: 0.844, midShare: 0.080 },
-        { steps: 6227, hardFrac: 0.866, midShare: 0.070, mass: 30056.8, partial: 1460 }, { opaqueTagged: 1, cutTagged: 1, cutUntaggedFull: 0 }, 0),
-      centred: arm('centred', true, 2, 'foliageDepth', { steps: 3955, hardFrac: 0.605, midShare: 0.170 },
-        { steps: 5126, hardFrac: 0.606, midShare: 0.176, mass: 30001.5, partial: 4188 }, { opaqueTagged: 1, cutTagged: 0, cutUntaggedFull: 0.97 }, 0),
-      three: arm('three', true, 2, 'foliageDepth', { steps: 5312, hardFrac: 0.724, midShare: 0.132 },
-        { steps: 6336, hardFrac: 0.693, midShare: 0.148, mass: 26931.0, partial: 4444 }, { opaqueTagged: 1, cutTagged: 0, cutUntaggedFull: 0.97 }, 0),
-      depth05: arm('centred', true, 2, null, { steps: 3955, hardFrac: 0.605, midShare: 0.170 },
-        { steps: 5126, hardFrac: 0.606, midShare: 0.176, mass: 30001.5, partial: 4188 }, { opaqueTagged: 1, cutTagged: 0, cutUntaggedFull: 0.97 }, 5022),
+      merged: arm('test', false, false, 0, null, null, L(5236, 0.844, 0.080), C(6533, 0.819, 0.101, 32007.0, 1442), T(250, 872), tagT),
+      test: arm('test', false, false, 2, 'foliageDepth', 0, L(5236, 0.844, 0.080), C(6533, 0.819, 0.101, 32007.0, 1442), T(250, 872), tagT),
+      centred: arm('centred', true, false, 2, 'foliageDepth', 0, L(3955, 0.605, 0.170), C(6229, 0.511, 0.249, 31951.5, 4143), T(235, 893), tagC),
+      three: arm('three', true, false, 2, 'foliageDepth', 0, L(5312, 0.724, 0.132), C(7511, 0.600, 0.216, 28907.5, 4405), T(293, 806), tagC),
+      rim: arm('centred', true, true, 2, 'foliageDepth', 0, L(3884, 0.598, 0.171), C(6027, 0.515, 0.249, 32798.3, 3890), T(1, 1139), tagC),
+      depth05: arm('centred', true, true, 2, null, 5022, L(3884, 0.598, 0.171), C(6027, 0.515, 0.249, 32798.3, 3890), T(1, 1139), tagC),
     },
   };
   const bad = (fn) => { const c = structuredClone(good); fn(c); return c; };
@@ -463,20 +469,25 @@ function selftest() {
   say(verdict(good).length === CHECK_COUNT, 'and the check COUNT is fixed', `${verdict(good).length} of ${CHECK_COUNT}`);
   say(verdict({}).length === CHECK_COUNT && failing({}).length === CHECK_COUNT,
     'an EMPTY summary fails every check rather than throwing', `${failing({}).length} failed`);
-  const asTest = (c) => { for (const k of ['centred', 'three', 'depth05']) { c.arms[k].lit = { ...c.arms.test.lit }; c.arms[k].cov = { ...c.arms.test.cov }; } };
+  const asTest = (c) => { for (const k of ['centred', 'three', 'rim', 'depth05']) { c.arms[k].lit = { ...c.arms.test.lit }; c.arms[k].cov = { ...c.arms.test.cov }; } };
   for (const [what, fn, needle] of [
     ['the build before #145: every arm alpha-tested', asTest, 'THE FIX'],
     ['a coverage that never reached the pixels (the switch read back, the frame unmoved)', (c) => { c.arms.centred.lit = { ...c.arms.test.lit }; c.arms.centred.cov = { ...c.arms.test.cov }; }, 'THE FIX'],
     ['three\'s uncentred ramp shipped', (c) => { c.arms.centred.cov.mass = c.arms.three.cov.mass; }, 'cover what they covered'],
     ['a page whose test arm already has partial pixels, so the fix is measured on nothing', (c) => { c.arms.test.lit.hardFrac = 0.6; }, 'DEFECT IS LIVE'],
-    ['the depth material dropped: the map moves under the coverage', (c) => { c.arms.centred.shadowDiff = 5022; }, 'sun\'s map'],
+    ['the depth material dropped: the map moves under the coverage', (c) => { c.arms.rim.shadowDiff = 5022; }, 'sun\'s map'],
     ['a page whose arms cannot move the map at all', (c) => { c.arms.depth05.shadowDiff = 0; }, 'depth material'],
-    ['the coverage on the shared material: the bench loses its tag', (c) => { c.arms.centred.tags.opaqueTagged = 0; }, 'keeps #114'],
+    ['the coverage on the shared material: the bench loses its tag', (c) => { c.arms.rim.tags.opaqueTagged = 0; }, 'keeps #114'],
     ['the split reorders or recolours a pixel', (c) => { c.mergedVsTestBytes = 12; }, 'moves no pixel'],
     ['a switch that never reached the material', (c) => { c.arms.centred.a2c = false; }, 'reached the material'],
     ['a bucket with no cut zone', (c) => { c.cut = 0; }, 'real one'],
     ['the bench out of frame', (c) => { c.pixels.opaque = 0; }, 'real one'],
-    ['a mechanism that tags the leaves under the coverage too', (c) => { c.arms.centred.tags.cutUntaggedFull = 0; }, 'mechanism'],
+    ['a mechanism that tags the leaves under the coverage too', (c) => { c.arms.rim.tags.cutUntagged = 0; }, 'mechanism'],
+    ['the rim shipped off', (c) => { c.shipped.rim = false; }, 'ships the coverage centred'],
+    ['the coverage shipped as the test', (c) => { c.shipped = { mode: 'test', rim: true, a2c: false }; }, 'ships the coverage centred'],
+    ['a rim that leaves the trunk a lattice', (c) => { c.arms.rim.trunk = { ...c.arms.centred.trunk }; }, 'THE RIM'],
+    ['a trunk with no holes to close, so the rim is measured on nothing', (c) => { c.arms.test.trunk = { ...c.arms.rim.trunk }; c.arms.centred.trunk = { ...c.arms.rim.trunk }; }, 'KNOWN-BAD for the bark'],
+    ['a rim that reaches the leaves and closes the crown\'s edges', (c) => { c.arms.rim.cov.hardFrac = 0.70; }, 'rim leaves the crown'],
   ]) {
     const r = bad(fn);
     say(fails(r, needle), `KNOWN-BAD: ${what} fails`, failing(r).join(' | '));
