@@ -1777,6 +1777,24 @@ if (state.global && state.frames > 2) {
      */
     const busts0 = d.bustReport().busts;
     /**
+     * AND A BASELINE FOR THE CLOCK STARTING, for the same reason and with the same trap one level
+     * down. `bustNeeds` is LATCHED and survives the arrest that latched it, so until this arm's
+     * clock arms it holds the bust arm's 4 s; reading it as "the clock this arm is running" is a
+     * level where a delta was meant. `stats.bustHolds` counts clock starts, and `_watchBust`
+     * latches `bustNeeds` in the same call that increments it, so a rise in `bustHolds` is the one
+     * signal that says the `bustNeeds` beside it belongs to THIS arm.
+     */
+    const holds0 = d.wantedReport().stats.bustHolds ?? 0;
+    let armed = null, armedHolds = 0, frameNo = 0;
+    const noteArm = (w) => {
+      const holds = (w.stats.bustHolds ?? 0) - holds0;
+      if (holds <= armedHolds) return false;
+      armedHolds = holds;
+      if (!armed) armed = { frame: frameNo, needs: w.bustNeeds, holds };
+      else armed.holds = holds;
+      return true;
+    };
+    /**
      * TWO PHASES, because one `timeScale` cannot serve both. Bringing six units in from a
      * 130-390 m spawn band needs the sim run fast; reading a clock that is 8 s long needs it run
      * slow, and at 40 one rendered frame is 2 s of sim, so an 8 s arrest is four samples and can
@@ -1803,6 +1821,7 @@ if (state.global && state.frames > 2) {
     let trail = null;
     for (let i = 0; i < 220 && heldN === 0; i++) {
       await frame();
+      frameNo++;
       const f = d.wantedReport().fleet;
       heldN = Math.max(heldN, f ? (f.held ?? 0) : 0);
       const at = { x: d.vehicle.position.x, z: d.vehicle.position.z };
@@ -1812,13 +1831,18 @@ if (state.global && state.frames > 2) {
         hd = Math.min(hd, Math.hypot(u.x - at.x, u.z - at.z));
       }
       const w0 = d.wantedReport();
-      // THE LATCH FRAME, kept the FIRST time the clock is seen running rather than the last: the
-      // value it latched is decided there and `bustNeeds` never changes again during the hold.
-      if (!trail && (Number.isFinite(hd) || (w0.hud && w0.hud.bustIn != null))) {
+      noteArm(w0);
+      /**
+       * THE FIRST HOLDING UNIT, which is what `heldD` is for. This used to be "the latch frame" and
+       * recorded `bustNeeds` beside it, and the two are not one frame: `district/main.js` runs
+       * `wantedBridge.update` BEFORE `pursuit.update` inside each sim step, so a unit that becomes
+       * held in the LAST step of a rendered frame is reported held with the clock not yet started,
+       * and `bustNeeds` still reads the previous arrest's value. The latch is `armed`, above.
+       */
+      if (!trail && Number.isFinite(hd)) {
         trail = { carRoadD: d.roadDistance(at.x, at.z),
           drift: Math.hypot(at.x - spot.x, at.z - spot.z),
-          heldD: Number.isFinite(hd) ? +hd.toFixed(2) : null,
-          needsThen: w0.bustNeeds, bustIn: w0.hud ? w0.hud.bustIn : null, frame: i };
+          heldD: +hd.toFixed(2), frame: frameNo, armedYet: armed != null };
       }
       if (d.bustReport().busts > busts0) { why = 'busted before the clock could be read'; break; }
     }
@@ -1830,16 +1854,35 @@ if (state.global && state.frames > 2) {
        * than the quantity it measures is not a safety net, it is a second bound — CLAUDE.md's
        * "two bounds that are numerically coincident" with the coincidence gone the wrong way.
        *
-       * `timeScale` 4 is 0.2 s of sim a frame, the latch has already been captured by phase 1, so
-       * coarser is fine here; x2.5 of the needed frames is the margin, and the arm says which
-       * bound ended it either way.
+       * AND FROM THE CLOCK THIS ARM ARMED, which the second version was not. It took
+       * `bustNeeds` straight after phase 1, under a comment saying "the latch has already been
+       * captured by phase 1" — true when the unit came to a hold in steps 1-3 of a frame's four,
+       * false when it came in step 4, because the clock then starts in the NEXT frame's first
+       * step. `bustNeeds` was then the bust arm's 4 s, the budget was
+       * ceil(4 / 0.2 x 2.5) = 50 frames = 10.0 s of sim against a 25.154 s walk, and the arm
+       * ended on "clock frames" with the clock 9.933 s in — 1 run in 3 on 2026-11-02, every other
+       * line of the arm correct. So the budget is set from the clock's latched value once
+       * `bustHolds` has risen (in phase 1 or here) and re-set if it rises again (a clock that
+       * resets and restarts is owed its whole length), with a short bound on the wait for the
+       * latch itself and a cap on the whole, and the arm says which of the three ended it.
+       *
+       * `timeScale` 4 is 0.2 s of sim a frame; x2.5 of the needed frames is the margin.
        */
       d.setTimeScale(4);
-      const needFrames = Math.ceil((d.wantedReport().bustNeeds ?? 4) / (4 * 0.05) * 2.5);
-      why = 'clock frames';
-      for (let i = 0; i < needFrames; i++) {
+      const LATCH_WAIT = 20, CAP = 600;
+      const budget = (s) => Math.ceil(s / (4 * 0.05) * 2.5);
+      // The common case: the clock armed inside phase 1's last frame, so `noteArm` has already
+      // consumed that rise and will not report it again here.
+      let deadline = armed ? budget(armed.needs) : null;
+      why = 'latch frames';
+      for (let i = 0; i < CAP; i++) {
+        if (deadline === null && i >= LATCH_WAIT) break;
+        if (deadline !== null && i >= deadline) { why = 'clock frames'; break; }
+        if (i === CAP - 1) why = 'frame cap';
         await frame();
+        frameNo++;
         const w = d.wantedReport();
+        if (noteArm(w)) deadline = i + budget(w.bustNeeds);
         if (w.hud && w.hud.bustIn != null) {
           needs = Math.max(needs ?? 0, w.hud.bustIn);
           lastIn = w.hud.bustIn;      // the live countdown, for the rate printed below
@@ -1852,7 +1895,7 @@ if (state.global && state.frames > 2) {
     const units = (d.wantedReport().fleet || {});
     return { why, needs, heldN, reach, want, roadD: spot.roadD, bestFound,
       // Latched when the clock armed, and it survives the bust — see `bustNeeds` in src/wanted.js.
-      bustNeeds: after.bustNeeds ?? null, busts: d.bustReport().busts - busts0, trail, lastIn,
+      bustNeeds: after.bustNeeds ?? null, busts: d.bustReport().busts - busts0, trail, lastIn, armed,
       noWalk: (after.stats.bustNoWalk ?? 0) - noWalk0,
       best: units.bestApproach ?? null, stars: after.stars,
       at: { x: spot.x, z: spot.z } };
@@ -1902,8 +1945,10 @@ if (state.global && state.frames > 2) {
   console.log(`    at the arrest: car drifted ${walk.trail ? walk.trail.drift.toFixed(2) : 'n/a'} m `
     + `from where it was placed, ${walk.trail && walk.trail.carRoadD != null
       ? walk.trail.carRoadD.toFixed(1) : 'n/a'} m from a road, nearest HOLDING unit `
-    + `${walk.trail ? walk.trail.heldD : 'n/a'} m away, clock ${
-      walk.trail ? walk.trail.needsThen : 'n/a'} s on frame ${walk.trail ? walk.trail.frame : '-'}`);
+    + `${walk.trail ? walk.trail.heldD : 'n/a'} m away on frame ${walk.trail ? walk.trail.frame : '-'}`
+    + ` (clock ${walk.trail ? (walk.trail.armedYet ? 'already armed' : 'NOT yet armed') : 'n/a'} on`
+    + ` that frame); the clock armed on frame ${walk.armed ? walk.armed.frame : 'n/a'} and latched `
+    + `${walk.armed ? walk.armed.needs : 'n/a'} s, ${walk.armed ? walk.armed.holds : 0} start(s) in this arm`);
   console.log(`    the page's latched arrest clock ${walk.bustNeeds} s against this gate's own `
     + `arrestSeconds(held ${heldD == null ? 'n/a' : heldD.toFixed(2)} m) = `
     + `${wantS == null ? 'n/a' : wantS.toFixed(2)} s; the NETWORK gets within `
@@ -1937,9 +1982,17 @@ if (state.global && state.frames > 2) {
   console.log(`    the clock then advanced ${walk.bustNeeds != null && walk.lastIn != null
     ? (walk.bustNeeds - walk.lastIn).toFixed(3) : 'n/a'} s of its ${walk.bustNeeds} s over the `
     + `window, ending on "${walk.why}"`);
+  /**
+   * A DELTA, NOT A LEVEL. This read `trail.needsThen != null`, and `bustNeeds` is never null once
+   * any arrest has latched it — the bust arm earlier in this file always has — so it passed on
+   * 2026-11-02 reading "latched 4 s on frame 12": the bust arm's clock, on the frame a unit came to
+   * a hold one sim step before this arm's own clock started. `bustHolds` rising is the clock
+   * starting, in this arm and nowhere else.
+   */
   check('the clock armed at all, so the three checks below have a subject',
-    walk.trail != null && walk.trail.needsThen != null,
-    walk.trail ? `latched ${walk.trail.needsThen} s on frame ${walk.trail.frame}` : 'never armed');
+    walk.armed != null && walk.armed.holds > 0,
+    walk.armed ? `bustHolds +${walk.armed.holds}, latched ${walk.armed.needs} s on frame ${walk.armed.frame}`
+      : 'bustHolds never rose: the clock did not start in this arm');
   check('and the clock the page ran is the WALK, not the floor',
     walk.bustNeeds !== null && walk.bustNeeds > 4.0 + 0.5,
     `${walk.bustNeeds} s against a 4.0 s floor`);
