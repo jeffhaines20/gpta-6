@@ -6349,18 +6349,19 @@ read again with the globes' emissive off and with the pool off. Corridor, base b
     street-lamp globes                           131.6       0.068      the street lamps (`furniture.setLit`)
 
 Every component but the globes reads x1.000 with the globes' emissive off and x0.998-1.000 with the pool off, so
-none of them is a street lamp or lit by one. (Components the raycast names "lamp:pole" are globes under 1.2 px,
-which the probe's analytic globe test skips and a ray passes through to the pole; and the "pavement" ones the
-raycast lands on the sidewalk without naming the emitter drawn there. Neither changes the table.) So at dusk
-the street lamps' globes were the DIMMEST lit thing on the street, under every shop and signal: the frame's own
-hierarchy already said the street lamps were not doing anything.
+none of them is a street lamp or lit by one. (Two components the raycast names "lamp:pole", 178-381 nits at the
+foot of lamp 285's post, are not globes — they read x1.000 with the globes off and are not 131.6 — but an emitter
+behind the post that the ray stops short of; the "pavement" ones land on the sidewalk without naming the emitter
+drawn there. Neither is a street lamp.) So at dusk the street lamps' globes, at 131.6 nits, sat under every
+signal, shopfront and sign in the frame (only the lit office windows, 83 nits, were dimmer): the frame's own
+hierarchy already said the street lamps were not doing much.
 
 **The reviewer's corridor "low lamp" is not a lamp.** Its box [1025,405,1100,465] holds no globe (the nearest,
 lamp 285's inner, projects at x 903). Its brightest pixel, at (1056,437), is the midOffice facade 42.9 m out and
 5.7 m up — 589.5 nits at dusk and 589.7 at night, the same radiance at both hours because it is a LightPool
 light's specular lobe on the facade: with the pool off it reads 58.8 nits at dusk and 0.0 at night. It is the
-phenomenon #136 named "a light with no fixture" (which light makes this one was not traced; #136's disc sat at
-about (975,454) before #137 re-placed the lamps). At night it is 110 exposed and reads as a lamp;
+phenomenon #136 named "a light with no fixture" (#136's disc was at about (975,454) in its own frames; which
+light makes this one was not traced). At night it is 110 exposed and reads as a lamp;
 at dusk it is 0.30 exposed and reads as an unlit one. Nothing in that box is a fixture at either hour.
 
 **What the pool added at dusk.** At the corridor camera: 10.4 of the meter's 1,576 lux (0.66%), 0.11% of the
@@ -6369,7 +6370,7 @@ pixel without it. At night the same ten lights are 10.3 of 10.8 lux at the meter
 
 **The reviewer's fivepoints "wall lamp" is the same thing, brighter.** Its box [1095,230,1205,315] holds no globe
 either. Its brightest pixel, (1133,273), is the retailStrip facade 17.8 m out and 6.6 m up: 4,184 nits, 2.15
-exposed — which the tone curve takes to about the 0.72 the reviewer read — and 202 nits with the pool off. The
+exposed (the reviewer's "peak 0.72" is in their own units and was not reproduced), and 202 nits with the pool off. The
 nearest lamp head to that point is lamp 831's, 5.6 m away (placeStreetLamps offline, the page's own indices:
 lamp 831's two globes are the pair just left of the box). So the two lamps that "contradict each other" are one
 mechanism, a pool light's specular lobe on a facade, at two geometries: 0.30 exposed at corridor (dark) and 2.15
