@@ -3192,7 +3192,7 @@ page through the real noon light; 22-33 s on a loaded box, the selftest 0.3 s).
 `globe-round` and `globe-round --selftest` (#140: a purpose-built page, 29 s idle, 37 s at load 7; the selftest 1 s).
 `shadow-floor` and `shadow-floor --selftest` (#141, offline, 2 s and 5 s),
 `shadow-bias --selftest` (#141's probe, offline).
-`photocell` and `photocell --selftest` (#142, offline, 0.2 s and 0.5 s).
+`photocell` and `photocell --selftest` (#142, offline, about 0.2 s each).
 **Fifty-six entries in 241 s** on 2026-10-19, run alone; fifty-nine in 607 s on 2026-10-22 at load 12. **Add a new gate to BOTH lists** — this one
 and `mutation-sweep`'s offline list: `car-shapes` sat on this one and not the sweep's, so nothing it
 asserted had ever been swept, and a row written for a new car-shapes check came back MISSED against
