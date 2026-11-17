@@ -1,0 +1,7138 @@
+{
+ "tag": "after-corridor",
+ "runs": [
+  {
+   "shot": "corridor",
+   "tod": "dusk",
+   "placed": {
+    "back": -55,
+    "requestedBack": -55,
+    "x": 112.4,
+    "z": -163.8,
+    "clearance": 11.2,
+    "stillInside": -1
+   },
+   "frameErr": null,
+   "weather": {
+    "clear": {
+     "lux": 1623.9412371651988,
+     "sun": 27.491237165198726,
+     "sky": 1596.45,
+     "weather": "clear",
+     "cell": {
+      "lux": 1623.9412371651988,
+      "lit": false
+     },
+     "streetLampsOn": false
+    },
+    "heavy": {
+     "lux": 564.8092371651987,
+     "sun": 27.491237165198726,
+     "sky": 537.318,
+     "weather": "heavyRain",
+     "cell": {
+      "lux": 564.8092371651987,
+      "lit": false
+     },
+     "streetLampsOn": false
+    },
+    "back": {
+     "lux": 1623.9412371651988,
+     "sun": 27.491237165198726,
+     "sky": 1596.45,
+     "weather": "clear",
+     "cell": {
+      "lux": 1623.9412371651988,
+      "lit": false
+     },
+     "streetLampsOn": false
+    }
+   },
+   "w": 1600,
+   "h": 900,
+   "exposure": 0.0005136106831022085,
+   "preset": "dusk",
+   "lampsOn": true,
+   "streetLampsOn": false,
+   "photocell": {
+    "lux": 1623.9412371651988,
+    "sun": 27.491237165198754,
+    "sky": 1596.45,
+    "onLux": 16.145865625064584,
+    "lit": false,
+    "r48": "either"
+   },
+   "globeLit": false,
+   "globe": {
+    "emissiveIntensity": 0,
+    "Lemit": 0,
+    "lumEmissive": 0.7342377373546922,
+    "color": "#d8d2c4",
+    "castShadow": true,
+    "receiveShadow": false,
+    "roughness": 1,
+    "metalness": 0,
+    "emissive": "#ffd9a0",
+    "report": {
+     "candela": 900,
+     "color": 16763274,
+     "reach": 46,
+     "meanArea": 0.19634954084936207,
+     "physical": 2973.3423189402124,
+     "level": 0.04424778761061947,
+     "lit": false,
+     "emissiveIntensity": 0,
+     "luminance": 0,
+     "drawnLevel": 0
+    }
+   },
+   "meter": {
+    "box": [
+     322,
+     662,
+     508,
+     686
+    ],
+    "total": 1565.9425239606287,
+    "noPool": 1565.9425239606287,
+    "sky": 1534.9680003964447,
+    "pool": 0,
+    "sun": 30.974523564183983,
+    "fill": {
+     "box": [
+      1112,
+      164,
+      1245,
+      290
+     ],
+     "lux": 2665.9493132141074,
+     "luxNoPool": 2665.9493132141074,
+     "warmth": 1.3195293107260853,
+     "warmthNoPool": 1.3195293107260853,
+     "rgb": [
+      1532,
+      689.5,
+      412.25
+     ],
+     "luxSkyOnly": 2207.953654812652,
+     "warmthSkyOnly": 1.127610667694915
+    },
+    "sunClosedForm": 27.491237165198726,
+    "skyDelivery": {
+     "hemisphereLux": 0,
+     "environmentLux": 1596.45,
+     "totalLux": 1596.45,
+     "paths": 1
+    },
+    "px": 4675,
+    "bad": 0
+   },
+   "globes": [
+    {
+     "lamp": 283,
+     "globe": "outer",
+     "world": [
+      133.89,
+      7.7,
+      -159.46
+     ],
+     "sx": 973.7,
+     "sy": 296.2,
+     "depth": 21.7,
+     "rpx": 9.94,
+     "core": 152,
+     "coreOn": [
+      443.3110608552632,
+      203.60238486842104,
+      107.64237253289474
+     ],
+     "coreOff": [
+      443.3110608552632,
+      203.60238486842104,
+      107.64237253289474
+     ],
+     "ring": 423,
+     "ringN": 889,
+     "ringRGB": [
+      818.8578605200946,
+      485.52186761229314,
+      314.04698581560285
+     ],
+     "ringOff": [
+      818.8578605200946,
+      485.52186761229314,
+      314.04698581560285
+     ],
+     "nonFinite": 0,
+     "onOverSky": 0.4552062788460094,
+     "offOverSky": 0.4552062788460094,
+     "warmthOn": 1.3554915412452369,
+     "warmthOff": 1.3554915412452369,
+     "warmthSky": 0.9279464744116568,
+     "refused": null,
+     "skyOnlyOverSky": 0.37260071850967524,
+     "warmthSkyOnly": 1.1354919752604138,
+     "sunShareUnlit": 0.18146895067950353
+    },
+    {
+     "lamp": 283,
+     "globe": "inner",
+     "world": [
+      133.88,
+      7.66,
+      -156.26
+     ],
+     "sx": 1101.1,
+     "sy": 297.6,
+     "depth": 21.7,
+     "rpx": 8.75,
+     "core": 118,
+     "coreOn": [
+      463.2790651483051,
+      209.39850370762713,
+      112.36142743644068
+     ],
+     "coreOff": [
+      463.2790651483051,
+      209.39850370762713,
+      112.36142743644068
+     ],
+     "ring": 72,
+     "ringN": 690,
+     "ringRGB": [
+      763.9392361111111,
+      453.9895833333333,
+      293.0329861111111
+     ],
+     "ringOff": [
+      763.9392361111111,
+      453.9895833333333,
+      293.0329861111111
+     ],
+     "nonFinite": 0,
+     "onOverSky": 0.5043983606699504,
+     "offOverSky": 0.5043983606699504,
+     "warmthOn": 1.3688073871682283,
+     "warmthOff": 1.3688073871682283,
+     "warmthSky": 0.9264996597738256,
+     "refused": null,
+     "skyOnlyOverSky": 0.41809764163068047,
+     "warmthSkyOnly": 1.166785342301318,
+     "sunShareUnlit": 0.1711064205409163
+    },
+    {
+     "lamp": 284,
+     "globe": "outer",
+     "world": [
+      155.92,
+      7.7,
+      -167.35
+     ],
+     "sx": 730.5,
+     "sy": 402.3,
+     "depth": 43.7,
+     "rpx": 4.94,
+     "core": 37,
+     "coreOn": [
+      136.94130067567568,
+      66.58614864864865,
+      27.71927787162162
+     ],
+     "coreOff": [
+      136.94130067567568,
+      66.58614864864865,
+      27.71927787162162
+     ],
+     "ring": 50,
+     "ringN": 220,
+     "ringRGB": [
+      1008.59,
+      712.5475,
+      717.6725
+     ],
+     "ringOff": [
+      1008.59,
+      712.5475,
+      717.6725
+     ],
+     "nonFinite": 0,
+     "onOverSky": 0.10148461777857243,
+     "offOverSky": 0.10148461777857243,
+     "warmthOn": 1.387167107250743,
+     "warmthOff": 1.387167107250743,
+     "warmthSky": 0.3749631888113364,
+     "refused": null,
+     "skyOnlyOverSky": 0.09235282105107037,
+     "warmthSkyOnly": 1.2920077395730425,
+     "sunShareUnlit": 0.089982077357049
+    },
+    {
+     "lamp": 284,
+     "globe": "inner",
+     "world": [
+      155.94,
+      7.66,
+      -170.55
+     ],
+     "sx": 667.3,
+     "sy": 403.2,
+     "depth": 43.7,
+     "rpx": 4.35,
+     "core": 29,
+     "coreOn": [
+      154.48060344827587,
+      91.9375,
+      40.444504310344826
+     ],
+     "coreOff": [
+      154.48060344827587,
+      91.9375,
+      40.444504310344826
+     ],
+     "ring": 0,
+     "ringN": 169,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.1233272002806318,
+     "warmthOff": 1.1233272002806318,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 169",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.1222208519651946,
+     "sunShareUnlit": 0.0008113223552236315
+    },
+    {
+     "lamp": 285,
+     "globe": "outer",
+     "world": [
+      177.87,
+      7.7,
+      -159.21
+     ],
+     "sx": 860.9,
+     "sy": 437.4,
+     "depth": 65.6,
+     "rpx": 3.29,
+     "core": 16,
+     "coreOn": [
+      877.5,
+      384.7421875,
+      207.08203125
+     ],
+     "coreOff": [
+      877.5,
+      384.7421875,
+      207.08203125
+     ],
+     "ring": 69,
+     "ringN": 97,
+     "ringRGB": [
+      1042.786231884058,
+      643.1213768115942,
+      531.1376811594203
+     ],
+     "ringOff": [
+      1042.786231884058,
+      643.1213768115942,
+      531.1376811594203
+     ],
+     "nonFinite": 0,
+     "onOverSky": 0.6620447079138244,
+     "offOverSky": 0.6620447079138244,
+     "warmthOn": 1.4064453909403638,
+     "warmthOff": 1.4064453909403638,
+     "warmthSky": 0.7106181488206756,
+     "refused": null,
+     "skyOnlyOverSky": 0.5454537970208596,
+     "warmthSkyOnly": 1.2050981260048597,
+     "sunShareUnlit": 0.17633193603987185
+    },
+    {
+     "lamp": 285,
+     "globe": "inner",
+     "world": [
+      177.84,
+      7.66,
+      -156.01
+     ],
+     "sx": 903.1,
+     "sy": 437.9,
+     "depth": 65.6,
+     "rpx": 2.9,
+     "core": 13,
+     "coreOn": [
+      878.6538461538462,
+      392.40384615384613,
+      217.23557692307693
+     ],
+     "coreOff": [
+      878.6538461538462,
+      392.40384615384613,
+      217.23557692307693
+     ],
+     "ring": 20,
+     "ringN": 70,
+     "ringRGB": [
+      1609.325,
+      891.9,
+      480.55
+     ],
+     "ringOff": [
+      1609.325,
+      891.9,
+      480.55
+     ],
+     "nonFinite": 0,
+     "onOverSky": 0.47612250279136903,
+     "offOverSky": 0.47612250279136903,
+     "warmthOn": 1.3690177593372161,
+     "warmthOff": 1.3690177593372161,
+     "warmthSky": 1.1123948906811545,
+     "refused": null,
+     "skyOnlyOverSky": 0.39600496534032625,
+     "warmthSkyOnly": 1.1710307151365187,
+     "sunShareUnlit": 0.16827084832440553
+    },
+    {
+     "lamp": 590,
+     "globe": "outer",
+     "world": [
+      204.9,
+      7.7,
+      -167.03
+     ],
+     "sx": 770.2,
+     "sy": 457.8,
+     "depth": 92.6,
+     "rpx": 2.33,
+     "core": 8,
+     "coreOn": [
+      975.125,
+      424.71875,
+      230.546875
+     ],
+     "coreOff": [
+      975.125,
+      424.71875,
+      230.546875
+     ],
+     "ring": 48,
+     "ringN": 50,
+     "ringRGB": [
+      807.5911458333334,
+      455.2604166666667,
+      321.8059895833333
+     ],
+     "ringOff": [
+      807.5911458333334,
+      455.2604166666667,
+      321.8059895833333
+     ],
+     "nonFinite": 0,
+     "onOverSky": 1.0138039731506958,
+     "offOverSky": 1.0138039731506958,
+     "warmthOn": 1.4109450023628065,
+     "warmthOff": 1.4109450023628065,
+     "warmthSky": 0.9332500930039477,
+     "refused": null,
+     "skyOnlyOverSky": 0.8398723478556875,
+     "warmthSkyOnly": 1.2164537772448607,
+     "sunShareUnlit": 0.1718488731605715
+    },
+    {
+     "lamp": 590,
+     "globe": "inner",
+     "world": [
+      204.92,
+      7.66,
+      -170.23
+     ],
+     "sx": 740.3,
+     "sy": 458.1,
+     "depth": 92.6,
+     "rpx": 2.05,
+     "core": 7,
+     "coreOn": [
+      938.7857142857143,
+      405.0892857142857,
+      212.89285714285714
+     ],
+     "coreOff": [
+      938.7857142857143,
+      405.0892857142857,
+      212.89285714285714
+     ],
+     "ring": 37,
+     "ringN": 39,
+     "ringRGB": [
+      818.8716216216217,
+      475.39864864864865,
+      406.8293918918919
+     ],
+     "ringOff": [
+      818.8716216216217,
+      475.39864864864865,
+      406.8293918918919
+     ],
+     "nonFinite": 0,
+     "onOverSky": 0.9286184766484149,
+     "offOverSky": 0.9286184766484149,
+     "warmthOn": 1.4383328026539886,
+     "warmthOff": 1.4383328026539886,
+     "warmthSky": 0.7581688050603005,
+     "refused": null,
+     "skyOnlyOverSky": 0.7646743331609294,
+     "warmthSkyOnly": 1.2431442330079496,
+     "sunShareUnlit": 0.17688486596344688
+    },
+    {
+     "lamp": 591,
+     "globe": "outer",
+     "world": [
+      224.15,
+      7.7,
+      -158.97
+     ],
+     "sx": 837.6,
+     "sy": 466.3,
+     "depth": 111.8,
+     "rpx": 1.93,
+     "core": 6,
+     "coreOn": [
+      900.7083333333334,
+      397.4375,
+      216.60416666666666
+     ],
+     "coreOff": [
+      900.7083333333334,
+      397.4375,
+      216.60416666666666
+     ],
+     "ring": 34,
+     "ringN": 36,
+     "ringRGB": [
+      752.1764705882352,
+      421.8897058823529,
+      265.87683823529414
+     ],
+     "ringOff": [
+      752.1764705882352,
+      421.8897058823529,
+      265.87683823529414
+     ],
+     "nonFinite": 0,
+     "onOverSky": 1.0219034813606525,
+     "offOverSky": 1.0219034813606525,
+     "warmthOn": 1.3922193487479664,
+     "warmthOff": 1.3922193487479664,
+     "warmthSky": 1.0113448086652579,
+     "refused": null,
+     "skyOnlyOverSky": 0.849169627756206,
+     "warmthSkyOnly": 1.197356744810738,
+     "sunShareUnlit": 0.16955710855616368
+    },
+    {
+     "lamp": 591,
+     "globe": "inner",
+     "world": [
+      224.18,
+      7.66,
+      -155.77
+     ],
+     "sx": 862.4,
+     "sy": 466.6,
+     "depth": 111.8,
+     "rpx": 1.7,
+     "core": 5,
+     "coreOn": [
+      916.2,
+      408.95,
+      229.525
+     ],
+     "coreOff": [
+      916.2,
+      408.95,
+      229.525
+     ],
+     "ring": 23,
+     "ringN": 24,
+     "ringRGB": [
+      760.8260869565217,
+      427.9347826086956,
+      269.8451086956522
+     ],
+     "ringOff": [
+      760.8260869565217,
+      427.9347826086956,
+      269.8451086956522
+     ],
+     "nonFinite": 0,
+     "onOverSky": 1.0339497016826602,
+     "offOverSky": 1.0339497016826602,
+     "warmthOn": 1.362891538315681,
+     "warmthOff": 1.362891538315681,
+     "warmthSky": 1.0075674712780034,
+     "refused": null,
+     "skyOnlyOverSky": 0.8616467625674151,
+     "warmthSkyOnly": 1.1644623967924168,
+     "sunShareUnlit": 0.1674394697180407
+    },
+    {
+     "lamp": 662,
+     "globe": "outer",
+     "world": [
+      226.32,
+      7.7,
+      -248.35
+     ],
+     "sx": 159,
+     "sy": 467.1,
+     "depth": 114,
+     "rpx": 1.9,
+     "core": 4,
+     "coreOn": [
+      742.75,
+      337.3125,
+      184.28125
+     ],
+     "coreOff": [
+      742.75,
+      337.3125,
+      184.28125
+     ],
+     "ring": 0,
+     "ringN": 28,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.3539960612814481,
+     "warmthOff": 1.3539960612814481,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 28",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.3532875059192586,
+     "sunShareUnlit": 0.0008200802063292878
+    },
+    {
+     "lamp": 662,
+     "globe": "inner",
+     "world": [
+      226.34,
+      7.66,
+      -245.15
+     ],
+     "sx": 183.4,
+     "sy": 467.4,
+     "depth": 114,
+     "rpx": 1.67,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 24,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 540,
+     "globe": "inner",
+     "world": [
+      228.81,
+      7.66,
+      -81.78
+     ],
+     "sx": 1409.1,
+     "sy": 468.2,
+     "depth": 116.4,
+     "rpx": 1.63,
+     "core": 4,
+     "coreOn": [
+      565.875,
+      258.96875,
+      141.984375
+     ],
+     "coreOff": [
+      565.875,
+      258.96875,
+      141.984375
+     ],
+     "ring": 0,
+     "ringN": 24,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.3423999189126914,
+     "warmthOff": 1.3423999189126914,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 24",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.3418400791269662,
+     "sunShareUnlit": 0.0007997000276277477
+    },
+    {
+     "lamp": 540,
+     "globe": "outer",
+     "world": [
+      228.86,
+      7.7,
+      -78.58
+     ],
+     "sx": 1432.6,
+     "sy": 467.9,
+     "depth": 116.5,
+     "rpx": 1.86,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 31,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 592,
+     "globe": "outer",
+     "world": [
+      242.87,
+      7.7,
+      -167.11
+     ],
+     "sx": 778.3,
+     "sy": 472.2,
+     "depth": 130.5,
+     "rpx": 1.66,
+     "core": 4,
+     "coreOn": [
+      143.71875,
+      81.6875,
+      34.3671875
+     ],
+     "coreOff": [
+      143.71875,
+      81.6875,
+      34.3671875
+     ],
+     "ring": 0,
+     "ringN": 24,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.1956371825344956,
+     "warmthOff": 1.1956371825344956,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 24",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.1951486027360578,
+     "sunShareUnlit": 0.0006632937574038156
+    },
+    {
+     "lamp": 592,
+     "globe": "inner",
+     "world": [
+      242.88,
+      7.66,
+      -170.31
+     ],
+     "sx": 757.2,
+     "sy": 472.4,
+     "depth": 130.5,
+     "rpx": 1.46,
+     "core": 3,
+     "coreOn": [
+      999.3333333333334,
+      442.9166666666667,
+      249.58333333333334
+     ],
+     "coreOff": [
+      999.3333333333334,
+      442.9166666666667,
+      249.58333333333334
+     ],
+     "ring": 4,
+     "ringN": 18,
+     "ringRGB": [
+      523.6875,
+      339.9375,
+      372.75
+     ],
+     "ringOff": [
+      523.6875,
+      339.9375,
+      372.75
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.370026512152487,
+     "warmthOff": 1.370026512152487,
+     "warmthSky": 0.3957751859282993,
+     "refused": "ring holds 4 sky px of 18",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.1776074584344656,
+     "sunShareUnlit": 0.16433683483705308
+    },
+    {
+     "lamp": 541,
+     "globe": "outer",
+     "world": [
+      246.21,
+      7.7,
+      -71.45
+     ],
+     "sx": 1396.9,
+     "sy": 473,
+     "depth": 133.8,
+     "rpx": 1.62,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 23,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 541,
+     "globe": "inner",
+     "world": [
+      246.26,
+      7.66,
+      -68.25
+     ],
+     "sx": 1417.3,
+     "sy": 473.3,
+     "depth": 133.9,
+     "rpx": 1.42,
+     "core": 3,
+     "coreOn": [
+      731.8333333333334,
+      334.25,
+      185.125
+     ],
+     "coreOff": [
+      731.8333333333334,
+      334.25,
+      185.125
+     ],
+     "ring": 0,
+     "ringN": 18,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.339940561417224,
+     "warmthOff": 1.339940561417224,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 18",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.3384945935568888,
+     "sunShareUnlit": 0.0006745147022452214
+    },
+    {
+     "lamp": 1010,
+     "globe": "inner",
+     "world": [
+      249.68,
+      7.66,
+      -57.13
+     ],
+     "sx": 1472,
+     "sy": 474.2,
+     "depth": 137.3,
+     "rpx": 1.39,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 19,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 663,
+     "globe": "outer",
+     "world": [
+      250,
+      7.7,
+      -255.91
+     ],
+     "sx": 221.6,
+     "sy": 474,
+     "depth": 137.6,
+     "rpx": 1.57,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 22,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 663,
+     "globe": "inner",
+     "world": [
+      249.99,
+      7.66,
+      -259.11
+     ],
+     "sx": 201.5,
+     "sy": 474.2,
+     "depth": 137.6,
+     "rpx": 1.38,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 18,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 943,
+     "globe": "inner",
+     "world": [
+      251.34,
+      7.66,
+      -94.83
+     ],
+     "sx": 1229.4,
+     "sy": 474.5,
+     "depth": 138.9,
+     "rpx": 1.37,
+     "core": 2,
+     "coreOn": [
+      64.75,
+      40.59375,
+      21.703125
+     ],
+     "coreOff": [
+      64.75,
+      40.59375,
+      21.703125
+     ],
+     "ring": 0,
+     "ringN": 17,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 0.9702788958388172,
+     "warmthOff": 0.9702788958388172,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 17",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 0.9674092076054517,
+     "sunShareUnlit": 0.0014022731222039786
+    },
+    {
+     "lamp": 1009,
+     "globe": "inner",
+     "world": [
+      251.32,
+      7.66,
+      -201.9
+     ],
+     "sx": 563.1,
+     "sy": 474.5,
+     "depth": 138.9,
+     "rpx": 1.37,
+     "core": 2,
+     "coreOn": [
+      176,
+      91.875,
+      53.578125
+     ],
+     "coreOff": [
+      176,
+      91.875,
+      53.578125
+     ],
+     "ring": 0,
+     "ringN": 16,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.1441837743437693,
+     "warmthOff": 1.1441837743437693,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 16",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.14265351825488,
+     "sunShareUnlit": 0.0007056408420712534
+    },
+    {
+     "lamp": 702,
+     "globe": "inner",
+     "world": [
+      251.51,
+      7.66,
+      -274.86
+     ],
+     "sx": 110.1,
+     "sy": 474.6,
+     "depth": 139.1,
+     "rpx": 1.37,
+     "core": 2,
+     "coreOn": [
+      358.75,
+      158.9375,
+      84.0625
+     ],
+     "coreOff": [
+      358.75,
+      158.9375,
+      84.0625
+     ],
+     "ring": 0,
+     "ringN": 17,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.401383450844411,
+     "warmthOff": 1.401383450844411,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 17",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.400982949927437,
+     "sunShareUnlit": 0.000510715784577287
+    },
+    {
+     "lamp": 995,
+     "globe": "inner",
+     "world": [
+      251.52,
+      7.66,
+      -124.21
+     ],
+     "sx": 1046.2,
+     "sy": 474.6,
+     "depth": 139.1,
+     "rpx": 1.37,
+     "core": 3,
+     "coreOn": [
+      396.5,
+      110.16666666666667,
+      21.838541666666668
+     ],
+     "coreOff": [
+      396.5,
+      110.16666666666667,
+      21.838541666666668
+     ],
+     "ring": 0,
+     "ringN": 19,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 2.2753110347179595,
+     "warmthOff": 2.2753110347179595,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 19",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 2.2746217668517335,
+     "sunShareUnlit": 0.000809426836767213
+    },
+    {
+     "lamp": 1070,
+     "globe": "inner",
+     "world": [
+      251.51,
+      7.66,
+      -226.73
+     ],
+     "sx": 409.1,
+     "sy": 474.6,
+     "depth": 139.1,
+     "rpx": 1.37,
+     "core": 1,
+     "coreOn": [
+      677.5,
+      312.5,
+      176
+     ],
+     "coreOff": [
+      677.5,
+      312.5,
+      176
+     ],
+     "ring": 0,
+     "ringN": 17,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.3188910164718048,
+     "warmthOff": 1.3188910164718048,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 17",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.3179777896554838,
+     "sunShareUnlit": 0.0010530746466017593
+    },
+    {
+     "lamp": 1010,
+     "globe": "outer",
+     "world": [
+      252.88,
+      7.7,
+      -57.16
+     ],
+     "sx": 1456.5,
+     "sy": 474.7,
+     "depth": 140.5,
+     "rpx": 1.54,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 22,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 943,
+     "globe": "outer",
+     "world": [
+      254.54,
+      7.7,
+      -94.81
+     ],
+     "sx": 1219.9,
+     "sy": 475,
+     "depth": 142.1,
+     "rpx": 1.52,
+     "core": 4,
+     "coreOn": [
+      64.0390625,
+      40.0078125,
+      21.30078125
+     ],
+     "coreOff": [
+      64.0390625,
+      40.0078125,
+      21.30078125
+     ],
+     "ring": 0,
+     "ringN": 18,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 0.9765132192899891,
+     "warmthOff": 0.9765132192899891,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 18",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 0.9738965516125759,
+     "sunShareUnlit": 0.0013455729178335485
+    },
+    {
+     "lamp": 1009,
+     "globe": "outer",
+     "world": [
+      254.52,
+      7.7,
+      -201.91
+     ],
+     "sx": 568.4,
+     "sy": 475,
+     "depth": 142.1,
+     "rpx": 1.52,
+     "core": 4,
+     "coreOn": [
+      566,
+      276.46875,
+      160.59375
+     ],
+     "coreOff": [
+      566,
+      276.46875,
+      160.59375
+     ],
+     "ring": 0,
+     "ringN": 22,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.229782318955197,
+     "warmthOff": 1.229782318955197,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 22",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.2291081031503646,
+     "sunShareUnlit": 0.0007625920637528427
+    },
+    {
+     "lamp": 702,
+     "globe": "outer",
+     "world": [
+      254.71,
+      7.7,
+      -274.84
+     ],
+     "sx": 125.8,
+     "sy": 475.1,
+     "depth": 142.3,
+     "rpx": 1.52,
+     "core": 4,
+     "coreOn": [
+      173.625,
+      88.25,
+      48.40625
+     ],
+     "coreOff": [
+      173.625,
+      88.25,
+      48.40625
+     ],
+     "ring": 0,
+     "ringN": 21,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.2095624438800154,
+     "warmthOff": 1.2095624438800154,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 21",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.2080285596197287,
+     "sunShareUnlit": 0.0007292994420798893
+    },
+    {
+     "lamp": 995,
+     "globe": "outer",
+     "world": [
+      254.72,
+      7.7,
+      -124.2
+     ],
+     "sx": 1040.8,
+     "sy": 475.1,
+     "depth": 142.3,
+     "rpx": 1.52,
+     "core": 4,
+     "coreOn": [
+      557.5625,
+      198.71875,
+      78.5546875
+     ],
+     "coreOff": [
+      557.5625,
+      198.71875,
+      78.5546875
+     ],
+     "ring": 0,
+     "ringN": 21,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.7985291268408463,
+     "warmthOff": 1.7985291268408463,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 21",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.7977532404809335,
+     "sunShareUnlit": 0.0008982320217854056
+    },
+    {
+     "lamp": 1070,
+     "globe": "outer",
+     "world": [
+      254.71,
+      7.7,
+      -226.76
+     ],
+     "sx": 417.8,
+     "sy": 475.1,
+     "depth": 142.3,
+     "rpx": 1.52,
+     "core": 4,
+     "coreOn": [
+      711.5,
+      326.375,
+      180.5
+     ],
+     "coreOff": [
+      711.5,
+      326.375,
+      180.5
+     ],
+     "ring": 0,
+     "ringN": 21,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.3351087849655183,
+     "warmthOff": 1.3351087849655183,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 21",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.3340686792238823,
+     "sunShareUnlit": 0.0008105725781230033
+    },
+    {
+     "lamp": 1209,
+     "globe": "outer",
+     "world": [
+      256.81,
+      7.7,
+      -168.41
+     ],
+     "sx": 772.6,
+     "sy": 475.5,
+     "depth": 144.4,
+     "rpx": 1.5,
+     "core": 3,
+     "coreOn": [
+      97.85416666666667,
+      57.520833333333336,
+      24.046875
+     ],
+     "coreOff": [
+      97.85416666666667,
+      57.520833333333336,
+      24.046875
+     ],
+     "ring": 0,
+     "ringN": 24,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.1590544843941506,
+     "warmthOff": 1.1590544843941506,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 24",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.1578109218319335,
+     "sunShareUnlit": 0.000691997485757212
+    },
+    {
+     "lamp": 1209,
+     "globe": "inner",
+     "world": [
+      258.2,
+      7.66,
+      -165.53
+     ],
+     "sx": 790,
+     "sy": 476.1,
+     "depth": 145.8,
+     "rpx": 1.3,
+     "core": 4,
+     "coreOn": [
+      64.625,
+      38.10546875,
+      14.5
+     ],
+     "coreOff": [
+      64.625,
+      38.10546875,
+      14.5
+     ],
+     "ring": 0,
+     "ringN": 15,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.1923393534577025,
+     "warmthOff": 1.1923393534577025,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 15",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.191466777414074,
+     "sunShareUnlit": 0.0005154414636456828
+    },
+    {
+     "lamp": 1214,
+     "globe": "inner",
+     "world": [
+      258.63,
+      7.66,
+      -161.8
+     ],
+     "sx": 812,
+     "sy": 476.2,
+     "depth": 146.2,
+     "rpx": 1.3,
+     "core": 4,
+     "coreOn": [
+      67.75,
+      38.3671875,
+      18.6875
+     ],
+     "coreOff": [
+      67.75,
+      38.3671875,
+      18.6875
+     ],
+     "ring": 0,
+     "ringN": 16,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.135887444985426,
+     "warmthOff": 1.135887444985426,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 16",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.1349364117132386,
+     "sunShareUnlit": 0.0004369910934848287
+    },
+    {
+     "lamp": 1214,
+     "globe": "outer",
+     "world": [
+      258.8,
+      7.7,
+      -158.61
+     ],
+     "sx": 830.9,
+     "sy": 476,
+     "depth": 146.4,
+     "rpx": 1.48,
+     "core": 4,
+     "coreOn": [
+      926.375,
+      404.625,
+      217.25
+     ],
+     "coreOff": [
+      926.375,
+      404.625,
+      217.25
+     ],
+     "ring": 17,
+     "ringN": 18,
+     "ringRGB": [
+      508.4264705882353,
+      338.6029411764706,
+      366.47058823529414
+     ],
+     "ringOff": [
+      508.4264705882353,
+      338.6029411764706,
+      366.47058823529414
+     ],
+     "nonFinite": 0,
+     "onOverSky": 1.332611181831286,
+     "offOverSky": 1.332611181831286,
+     "warmthOn": 1.412541707080432,
+     "warmthOff": 1.412541707080432,
+     "warmthSky": 0.3768212013028668,
+     "refused": null,
+     "skyOnlyOverSky": 1.1012020664635775,
+     "warmthSkyOnly": 1.216043713754564,
+     "sunShareUnlit": 0.1736508882130976
+    },
+    {
+     "lamp": 1210,
+     "globe": "inner",
+     "world": [
+      260.54,
+      7.66,
+      -164
+     ],
+     "sx": 799,
+     "sy": 476.6,
+     "depth": 148.1,
+     "rpx": 1.28,
+     "core": 2,
+     "coreOn": [
+      45.390625,
+      21.703125,
+      11.921875
+     ],
+     "coreOff": [
+      45.390625,
+      21.703125,
+      11.921875
+     ],
+     "ring": 0,
+     "ringN": 16,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.2856337213922489,
+     "warmthOff": 1.2856337213922489,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 16",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.2851975140282221,
+     "sunShareUnlit": 0.00012760304816450407
+    },
+    {
+     "lamp": 944,
+     "globe": "outer",
+     "world": [
+      262.42,
+      7.7,
+      -80.3
+     ],
+     "sx": 1281.5,
+     "sy": 476.7,
+     "depth": 150,
+     "rpx": 1.44,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 20,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1071,
+     "globe": "outer",
+     "world": [
+      262.52,
+      7.7,
+      -252.04
+     ],
+     "sx": 292,
+     "sy": 476.8,
+     "depth": 150.1,
+     "rpx": 1.44,
+     "core": 4,
+     "coreOn": [
+      333.5625,
+      95.640625,
+      64.7109375
+     ],
+     "coreOff": [
+      333.5625,
+      95.640625,
+      64.7109375
+     ],
+     "ring": 0,
+     "ringN": 18,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.8671583945738826,
+     "warmthOff": 1.8671583945738826,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 18",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.865040602772778,
+     "sunShareUnlit": 0.0013372810551554037
+    },
+    {
+     "lamp": 1217,
+     "globe": "outer",
+     "world": [
+      262.56,
+      7.7,
+      -213.3
+     ],
+     "sx": 515.2,
+     "sy": 476.8,
+     "depth": 150.1,
+     "rpx": 1.44,
+     "core": 3,
+     "coreOn": [
+      106.83333333333333,
+      58.46875,
+      20.338541666666668
+     ],
+     "coreOff": [
+      106.83333333333333,
+      58.46875,
+      20.338541666666668
+     ],
+     "ring": 0,
+     "ringN": 17,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.3105656815635218,
+     "warmthOff": 1.3105656815635218,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 17",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.3097225218564637,
+     "sunShareUnlit": 0.0005613170096842035
+    },
+    {
+     "lamp": 942,
+     "globe": "outer",
+     "world": [
+      262.63,
+      7.7,
+      -109.2
+     ],
+     "sx": 1114.5,
+     "sy": 476.8,
+     "depth": 150.2,
+     "rpx": 1.44,
+     "core": 2,
+     "coreOn": [
+      93.625,
+      78.59375,
+      100.8125
+     ],
+     "coreOff": [
+      93.625,
+      78.59375,
+      100.8125
+     ],
+     "ring": 0,
+     "ringN": 19,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": -0.08618768199653241,
+     "warmthOff": -0.08618768199653241,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 19",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": -0.08814368425747049,
+     "sunShareUnlit": 0.0009343494186530021
+    },
+    {
+     "lamp": 1008,
+     "globe": "outer",
+     "world": [
+      262.63,
+      7.7,
+      -179.59
+     ],
+     "sx": 709.3,
+     "sy": 476.8,
+     "depth": 150.2,
+     "rpx": 1.44,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 18,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 994,
+     "globe": "outer",
+     "world": [
+      262.85,
+      7.7,
+      -148.32
+     ],
+     "sx": 889.2,
+     "sy": 476.8,
+     "depth": 150.4,
+     "rpx": 1.44,
+     "core": 2,
+     "coreOn": [
+      19.84375,
+      11.328125,
+      8.921875
+     ],
+     "coreOff": [
+      19.84375,
+      11.328125,
+      8.921875
+     ],
+     "ring": 0,
+     "ringN": 19,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 0.8424242438850728,
+     "warmthOff": 0.8424242438850728,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 19",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 0.6506382194559891,
+     "sunShareUnlit": 0.12756110829767386
+    },
+    {
+     "lamp": 703,
+     "globe": "outer",
+     "world": [
+      262.87,
+      7.7,
+      -298.99
+     ],
+     "sx": 23.5,
+     "sy": 476.8,
+     "depth": 150.5,
+     "rpx": 1.44,
+     "core": 2,
+     "coreOn": [
+      93,
+      55.234375,
+      22.9296875
+     ],
+     "coreOff": [
+      93,
+      55.234375,
+      22.9296875
+     ],
+     "ring": 0,
+     "ringN": 20,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.1499954341244945,
+     "warmthOff": 1.1499954341244945,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 20",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.1490434126997302,
+     "sunShareUnlit": 0.000510516425522356
+    },
+    {
+     "lamp": 1210,
+     "globe": "outer",
+     "world": [
+      263.72,
+      7.7,
+      -164.3
+     ],
+     "sx": 797.4,
+     "sy": 477,
+     "depth": 151.3,
+     "rpx": 1.43,
+     "core": 2,
+     "coreOn": [
+      124.84375,
+      67.515625,
+      25.328125
+     ],
+     "coreOff": [
+      124.84375,
+      67.515625,
+      25.328125
+     ],
+     "ring": 0,
+     "ringN": 16,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.2981826217842667,
+     "warmthOff": 1.2981826217842667,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 16",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.2976753969514194,
+     "sunShareUnlit": 0.0005515594558876957
+    },
+    {
+     "lamp": 1011,
+     "globe": "outer",
+     "world": [
+      264.31,
+      7.7,
+      -39.31
+     ],
+     "sx": 1508.9,
+     "sy": 477.1,
+     "depth": 151.9,
+     "rpx": 1.42,
+     "core": 4,
+     "coreOn": [
+      206.46875,
+      196.875,
+      241.03125
+     ],
+     "coreOff": [
+      206.46875,
+      196.875,
+      241.03125
+     ],
+     "ring": 0,
+     "ringN": 19,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": -0.17101452807072048,
+     "warmthOff": -0.17101452807072048,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 19",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": -0.17367198358852384,
+     "sunShareUnlit": 0.001056393540487588
+    },
+    {
+     "lamp": 944,
+     "globe": "inner",
+     "world": [
+      265.62,
+      7.66,
+      -80.28
+     ],
+     "sx": 1271.6,
+     "sy": 477.6,
+     "depth": 153.2,
+     "rpx": 1.24,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 13,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1071,
+     "globe": "inner",
+     "world": [
+      265.72,
+      7.66,
+      -252.06
+     ],
+     "sx": 302.5,
+     "sy": 477.6,
+     "depth": 153.3,
+     "rpx": 1.24,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 12,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1217,
+     "globe": "inner",
+     "world": [
+      265.76,
+      7.66,
+      -213.24
+     ],
+     "sx": 521.5,
+     "sy": 477.6,
+     "depth": 153.3,
+     "rpx": 1.24,
+     "core": 1,
+     "coreOn": [
+      114.6875,
+      58.4375,
+      19.34375
+     ],
+     "coreOff": [
+      114.6875,
+      58.4375,
+      19.34375
+     ],
+     "ring": 0,
+     "ringN": 13,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.4109598328269262,
+     "warmthOff": 1.4109598328269262,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 13",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.41077894338626,
+     "sunShareUnlit": 0.0005273872806804691
+    },
+    {
+     "lamp": 942,
+     "globe": "inner",
+     "world": [
+      265.83,
+      7.66,
+      -109.17
+     ],
+     "sx": 1108.1,
+     "sy": 477.6,
+     "depth": 153.4,
+     "rpx": 1.24,
+     "core": 2,
+     "coreOn": [
+      719,
+      324.5,
+      175.625
+     ],
+     "coreOff": [
+      719,
+      324.5,
+      175.625
+     ],
+     "ring": 0,
+     "ringN": 16,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.3665619671249265,
+     "warmthOff": 1.3665619671249265,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 16",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.3661833192729513,
+     "sunShareUnlit": 0.0008733799073076254
+    },
+    {
+     "lamp": 1008,
+     "globe": "inner",
+     "world": [
+      265.83,
+      7.66,
+      -179.68
+     ],
+     "sx": 710.7,
+     "sy": 477.6,
+     "depth": 153.4,
+     "rpx": 1.24,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 13,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 703,
+     "globe": "inner",
+     "world": [
+      266.07,
+      7.66,
+      -298.97
+     ],
+     "sx": 39.8,
+     "sy": 477.7,
+     "depth": 153.6,
+     "rpx": 1.24,
+     "core": 3,
+     "coreOn": [
+      82.25,
+      52.989583333333336,
+      23.963541666666668
+     ],
+     "coreOff": [
+      82.25,
+      52.989583333333336,
+      23.963541666666668
+     ],
+     "ring": 0,
+     "ringN": 13,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.0205164570156298,
+     "warmthOff": 1.0205164570156298,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 13",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.0195848635928333,
+     "sunShareUnlit": 0.0007856453832343346
+    },
+    {
+     "lamp": 994,
+     "globe": "inner",
+     "world": [
+      266.04,
+      7.66,
+      -148.27
+     ],
+     "sx": 887.6,
+     "sy": 477.7,
+     "depth": 153.6,
+     "rpx": 1.24,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 13,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1011,
+     "globe": "inner",
+     "world": [
+      267.5,
+      7.66,
+      -39.33
+     ],
+     "sx": 1494.1,
+     "sy": 478,
+     "depth": 155.1,
+     "rpx": 1.23,
+     "core": 4,
+     "coreOn": [
+      390.0625,
+      182.5,
+      104.765625
+     ],
+     "coreOff": [
+      390.0625,
+      182.5,
+      104.765625
+     ],
+     "ring": 0,
+     "ringN": 12,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 1.2908463363767537,
+     "warmthOff": 1.2908463363767537,
+     "warmthSky": null,
+     "refused": "ring holds 0 sky px of 12",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 1.2898782646966036,
+     "sunShareUnlit": 0.0007293186360333159
+    },
+    {
+     "lamp": 352,
+     "globe": "outer",
+     "world": [
+      274.11,
+      7.7,
+      -159.19
+     ],
+     "sx": 824.9,
+     "sy": 478.9,
+     "depth": 161.7,
+     "rpx": 1.34,
+     "core": 4,
+     "coreOn": [
+      908.375,
+      398.375,
+      215.21875
+     ],
+     "coreOff": [
+      908.375,
+      398.375,
+      215.21875
+     ],
+     "ring": 11,
+     "ringN": 16,
+     "ringRGB": [
+      520.9545454545455,
+      329.46590909090907,
+      306.02840909090907
+     ],
+     "ringOff": [
+      520.9545454545455,
+      329.46590909090907,
+      306.02840909090907
+     ],
+     "nonFinite": 0,
+     "onOverSky": 1.3394797148407445,
+     "offOverSky": 1.3394797148407445,
+     "warmthOn": 1.4043524784038623,
+     "warmthOff": 1.4043524784038623,
+     "warmthSky": 0.5832709599206612,
+     "refused": null,
+     "skyOnlyOverSky": 1.1085222598992195,
+     "warmthSkyOnly": 1.203969531967873,
+     "sunShareUnlit": 0.17475009825908794
+    }
+   ],
+   "pool": {
+    "lights": 0,
+    "addsToFrame": 0,
+    "pxOver5pct": 0,
+    "pxOver25pct": 0,
+    "pxOver100pct": 0,
+    "nonFinite": 0,
+    "glints": []
+   },
+   "emitters": [
+    {
+     "area": 12,
+     "box": [
+      893,
+      499,
+      895,
+      502
+     ],
+     "peakNits": 2933.609,
+     "peakExposed": 1.5067,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      894,
+      501
+     ],
+     "id": {
+      "what": "props:far:0,-1",
+      "object": "props:far:0,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 64.1,
+      "point": [
+       176.17,
+       2.83,
+       -156.88
+      ]
+     }
+    },
+    {
+     "area": 1409,
+     "box": [
+      633,
+      526,
+      737,
+      554
+     ],
+     "peakNits": 1515.913,
+     "peakExposed": 0.7786,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      690,
+      547
+     ],
+     "id": {
+      "what": "district",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial sidewalk",
+      "emissive": "#000000 x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 53.62,
+      "point": [
+       165.59,
+       -0.05,
+       -170.53
+      ]
+     }
+    },
+    {
+     "area": 20,
+     "box": [
+      874,
+      529,
+      880,
+      534
+     ],
+     "peakNits": 1121.596,
+     "peakExposed": 0.5761,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      879,
+      530
+     ],
+     "id": {
+      "what": "props:near:0,-1",
+      "object": "props:near:0,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 73.44,
+      "point": [
+       185.56,
+       0.45,
+       -157.14
+      ]
+     }
+    },
+    {
+     "area": 8,
+     "box": [
+      739,
+      528,
+      740,
+      533
+     ],
+     "peakNits": 1026.82,
+     "peakExposed": 0.5274,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      739,
+      530
+     ],
+     "id": {
+      "what": "district",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial sidewalk",
+      "emissive": "#000000 x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 92.3,
+      "point": [
+       204.49,
+       -0.05,
+       -170.25
+      ]
+     }
+    },
+    {
+     "area": 60,
+     "box": [
+      931,
+      547,
+      940,
+      554
+     ],
+     "peakNits": 965.264,
+     "peakExposed": 0.4958,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      934,
+      548
+     ],
+     "id": {
+      "what": "district",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial sidewalk",
+      "emissive": "#000000 x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 52.53,
+      "point": [
+       164.31,
+       -0.05,
+       -155.81
+      ]
+     }
+    },
+    {
+     "area": 12,
+     "box": [
+      801,
+      464,
+      804,
+      467
+     ],
+     "peakNits": 856.257,
+     "peakExposed": 0.4398,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      802,
+      464
+     ],
+     "id": {
+      "what": "props:far:0,-1",
+      "object": "props:far:0,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 64.04,
+      "point": [
+       176.41,
+       5.57,
+       -163.65
+      ]
+     }
+    },
+    {
+     "area": 399,
+     "box": [
+      1048,
+      585,
+      1077,
+      603
+     ],
+     "peakNits": 746.54,
+     "peakExposed": 0.3834,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      1053,
+      586
+     ],
+     "id": {
+      "what": "district",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial sidewalk",
+      "emissive": "#000000 x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 28.26,
+      "point": [
+       139.49,
+       -0.05,
+       -155.96
+      ]
+     }
+    },
+    {
+     "area": 2,
+     "box": [
+      824,
+      505,
+      825,
+      505
+     ],
+     "peakNits": 745.829,
+     "peakExposed": 0.3831,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      824,
+      505
+     ],
+     "id": {
+      "what": "props:far:0,-1",
+      "object": "props:far:0,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 250.09,
+      "point": [
+       362.44,
+       2.93,
+       -156.78
+      ]
+     }
+    },
+    {
+     "area": 5,
+     "box": [
+      789,
+      503,
+      790,
+      505
+     ],
+     "peakNits": 745.076,
+     "peakExposed": 0.3827,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      790,
+      504
+     ],
+     "id": {
+      "what": "props:far:0,-1",
+      "object": "props:far:0,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 144.04,
+      "point": [
+       256.48,
+       2.87,
+       -165.42
+      ]
+     }
+    },
+    {
+     "area": 119,
+     "box": [
+      971,
+      560,
+      984,
+      571
+     ],
+     "peakNits": 738.303,
+     "peakExposed": 0.3792,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      974,
+      561
+     ],
+     "id": {
+      "what": "district",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial sidewalk",
+      "emissive": "#000000 x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 40.31,
+      "point": [
+       151.9,
+       -0.05,
+       -155.92
+      ]
+     }
+    },
+    {
+     "area": 1373,
+     "box": [
+      395,
+      627,
+      459,
+      676
+     ],
+     "peakNits": 485.081,
+     "peakExposed": 0.2491,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      446,
+      628
+     ],
+     "id": {
+      "what": "district",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial sidewalk",
+      "emissive": "#000000 x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 19.27,
+      "point": [
+       130.17,
+       -0.05,
+       -170.99
+      ]
+     }
+    },
+    {
+     "area": 264,
+     "box": [
+      883,
+      526,
+      914,
+      534
+     ],
+     "peakNits": 380.792,
+     "peakExposed": 0.1956,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      889,
+      526
+     ],
+     "id": {
+      "what": "lamp:pole",
+      "object": "lamp:pole",
+      "material": "MeshStandardMaterial",
+      "emissive": "#000000 x1.000",
+      "roughness": 0.62,
+      "instance": 285,
+      "dist": 65.65,
+      "point": [
+       177.73,
+       0.96,
+       -157.1
+      ]
+     }
+    },
+    {
+     "area": 691,
+     "box": [
+      944,
+      540,
+      997,
+      555
+     ],
+     "peakNits": 378.036,
+     "peakExposed": 0.1942,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      945,
+      541
+     ],
+     "id": {
+      "what": "shopSpill",
+      "object": "shopSpill",
+      "material": "MeshBasicMaterial",
+      "emissive": null,
+      "roughness": null,
+      "instance": null,
+      "dist": 63.16,
+      "point": [
+       174.7,
+       -0.04,
+       -153.4
+      ]
+     }
+    },
+    {
+     "area": 3541,
+     "box": [
+      1083,
+      573,
+      1212,
+      607
+     ],
+     "peakNits": 361.442,
+     "peakExposed": 0.1856,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      1178,
+      575
+     ],
+     "id": {
+      "what": "chunk:1,-2:lod0:trim",
+      "object": "chunk:1,-2:lod0:trim",
+      "material": "MeshStandardMaterial trim",
+      "emissive": "#ffffff x144.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 30.86,
+      "point": [
+       140.68,
+       0.2,
+       -151.56
+      ]
+     }
+    },
+    {
+     "area": 184,
+     "box": [
+      1007,
+      320,
+      1018,
+      351
+     ],
+     "peakNits": 327.774,
+     "peakExposed": 0.1683,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      1015,
+      335
+     ],
+     "id": {
+      "what": "signage",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x430.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 49.78,
+      "point": [
+       159.84,
+       11.9,
+       -151.89
+      ]
+     }
+    },
+    {
+     "area": 77,
+     "box": [
+      958,
+      483,
+      973,
+      489
+     ],
+     "peakNits": 255.923,
+     "peakExposed": 0.1314,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      960,
+      486
+     ],
+     "id": {
+      "what": "signage",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x430.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 65.48,
+      "point": [
+       176.82,
+       3.95,
+       -151.89
+      ]
+     }
+    },
+    {
+     "area": 13405,
+     "box": [
+      140,
+      619,
+      387,
+      688
+     ],
+     "peakNits": 254.455,
+     "peakExposed": 0.1307,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      216,
+      621
+     ],
+     "id": {
+      "what": "chunk:0,-2:lod0:trim",
+      "object": "chunk:0,-2:lod0:trim",
+      "material": "MeshStandardMaterial trim",
+      "emissive": "#ffffff x144.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 21.68,
+      "point": [
+       130.38,
+       0.06,
+       -175.8
+      ]
+     }
+    },
+    {
+     "area": 29,
+     "box": [
+      922,
+      485,
+      931,
+      488
+     ],
+     "peakNits": 227.584,
+     "peakExposed": 0.1169,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      929,
+      486
+     ],
+     "id": {
+      "what": "signage",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x430.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 80.25,
+      "point": [
+       191.8,
+       4.31,
+       -151.95
+      ]
+     }
+    },
+    {
+     "area": 34,
+     "box": [
+      660,
+      486,
+      668,
+      491
+     ],
+     "peakNits": 225,
+     "peakExposed": 0.1156,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      661,
+      488
+     ],
+     "id": {
+      "what": "signage",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x430.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 80.03,
+      "point": [
+       191.46,
+       4.12,
+       -176.48
+      ]
+     }
+    },
+    {
+     "area": 102,
+     "box": [
+      0,
+      371,
+      9,
+      391
+     ],
+     "peakNits": 216.677,
+     "peakExposed": 0.1113,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      7,
+      381
+     ],
+     "id": {
+      "what": "signage",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x430.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 16.32,
+      "point": [
+       124.37,
+       4.14,
+       -174.84
+      ]
+     }
+    },
+    {
+     "area": 71,
+     "box": [
+      665,
+      467,
+      674,
+      480
+     ],
+     "peakNits": 187.727,
+     "peakExposed": 0.0964,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      670,
+      478
+     ],
+     "id": {
+      "what": "signage",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x430.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 81.74,
+      "point": [
+       193.24,
+       5.09,
+       -175.94
+      ]
+     }
+    },
+    {
+     "area": 3,
+     "box": [
+      825,
+      493,
+      826,
+      494
+     ],
+     "peakNits": 181.966,
+     "peakExposed": 0.0935,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      826,
+      493
+     ],
+     "id": {
+      "what": "props:near:1,-1",
+      "object": "props:near:1,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 281,
+      "point": [
+       393.29,
+       6.88,
+       -155.25
+      ]
+     }
+    },
+    {
+     "area": 1,
+     "box": [
+      785,
+      497,
+      785,
+      497
+     ],
+     "peakNits": 181.693,
+     "peakExposed": 0.0933,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      785,
+      497
+     ],
+     "id": {
+      "what": "nothing (sky)"
+     }
+    },
+    {
+     "area": 1483,
+     "box": [
+      995,
+      552,
+      1069,
+      572
+     ],
+     "peakNits": 177.902,
+     "peakExposed": 0.0914,
+     "cOverA": 1,
+     "bOverA": 1,
+     "at": [
+      1061,
+      570
+     ],
+     "id": {
+      "what": "lamp:pole",
+      "object": "lamp:pole",
+      "material": "MeshStandardMaterial",
+      "emissive": "#000000 x1.000",
+      "roughness": 0.62,
+      "instance": 283,
+      "dist": 22.44,
+      "point": [
+       133.89,
+       0.85,
+       -157.39
+      ]
+     }
+    }
+   ],
+   "boxes": {
+    "lowLamp": {
+     "box": [
+      1025,
+      405,
+      1100,
+      465
+     ],
+     "meanA": 108.38379566179873,
+     "meanB": 108.38379566179873,
+     "meanC": 108.38379566179873,
+     "meanD": 108.38379566179873,
+     "peakA": 442.5588073730469,
+     "peakAt": [
+      1098,
+      457
+     ],
+     "peakExposed": 0.22730293136776933,
+     "peakB": 442.5588073730469,
+     "peakC": 442.5588073730469,
+     "peakD": 442.5588073730469,
+     "peakShare": 0,
+     "emittedPeak": 83.07766723632812,
+     "emittedPeakAt": [
+      1084,
+      409
+     ],
+     "id": {
+      "what": "signage",
+      "object": "Mesh",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x430.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 33.51,
+      "point": [
+       144.07,
+       4.22,
+       -152.89
+      ]
+     },
+     "idEmitted": {
+      "what": "chunk:1,-2:lod0:facade:midOffice",
+      "object": "chunk:1,-2:lod0:facade:midOffice",
+      "material": "MeshStandardMaterial facade:midOffice",
+      "emissive": "#ffffff x105.600",
+      "roughness": 1,
+      "instance": null,
+      "dist": 39.57,
+      "point": [
+       149.8,
+       6.64,
+       -151.47
+      ]
+     }
+    }
+   },
+   "frameMean": {
+    "A": 181.96543426510885,
+    "B": 181.96543426510885,
+    "C": 181.96543426510885,
+    "D": 181.96543426510885
+   },
+   "sky": {
+    "px": 180001,
+    "meanNits": 709.7856733485635
+   }
+  },
+  {
+   "shot": "corridor",
+   "tod": "night",
+   "placed": {
+    "back": -55,
+    "requestedBack": -55,
+    "x": 112.4,
+    "z": -163.8,
+    "clearance": 11.2,
+    "stillInside": -1
+   },
+   "frameErr": null,
+   "weather": {
+    "clear": {
+     "lux": 0.41417884453709086,
+     "sun": 0.21717884453709085,
+     "sky": 0.197,
+     "weather": "clear",
+     "cell": {
+      "lux": 0.41417884453709086,
+      "lit": true
+     },
+     "streetLampsOn": true
+    },
+    "heavy": {
+     "lux": 0.6421788445370908,
+     "sun": 0.21717884453709085,
+     "sky": 0.425,
+     "weather": "heavyRain",
+     "cell": {
+      "lux": 0.6421788445370908,
+      "lit": true
+     },
+     "streetLampsOn": true
+    },
+    "back": {
+     "lux": 0.41417884453709086,
+     "sun": 0.21717884453709085,
+     "sky": 0.197,
+     "weather": "clear",
+     "cell": {
+      "lux": 0.41417884453709086,
+      "lit": true
+     },
+     "streetLampsOn": true
+    }
+   },
+   "w": 1600,
+   "h": 900,
+   "exposure": 0.1859427296392711,
+   "preset": "night",
+   "lampsOn": true,
+   "streetLampsOn": true,
+   "photocell": {
+    "lux": 0.41417884453709086,
+    "sun": 0.21717884453709085,
+    "sky": 0.197,
+    "onLux": 16.145865625064584,
+    "lit": true,
+    "r48": "on"
+   },
+   "globeLit": true,
+   "globe": {
+    "emissiveIntensity": 179.18422430333084,
+    "Lemit": 131.5638194221333,
+    "lumEmissive": 0.7342377373546922,
+    "color": "#d8d2c4",
+    "castShadow": true,
+    "receiveShadow": false,
+    "roughness": 1,
+    "metalness": 0,
+    "emissive": "#ffd9a0",
+    "report": {
+     "candela": 900,
+     "color": 16763274,
+     "reach": 46,
+     "meanArea": 0.19634954084936207,
+     "physical": 2973.3423189402124,
+     "level": 0.04424778761061947,
+     "lit": true,
+     "emissiveIntensity": 179.18422430333084,
+     "luminance": 131.5638194221333,
+     "drawnLevel": 0.04424778761061947
+    }
+   },
+   "meter": {
+    "box": [
+     322,
+     662,
+     508,
+     686
+    ],
+    "total": 10.785750687669841,
+    "noPool": 0.44189849132590264,
+    "sky": 0.21279128884559032,
+    "pool": 10.343852196343938,
+    "sun": 0.22910720248031233,
+    "fill": {
+     "box": [
+      1112,
+      164,
+      1245,
+      290
+     ],
+     "lux": 5.930521320328339,
+     "luxNoPool": 0.6909353193836872,
+     "warmth": 1.001125042519611,
+     "warmthNoPool": -0.1265486108736783,
+     "rgb": [
+      2.8228557630156303,
+      1.7061558556565108,
+      0.9329884051996415
+     ],
+     "luxSkyOnly": 0.585902669883673,
+     "warmthSkyOnly": 0.0006545373906448018
+    },
+    "sunClosedForm": 0.21717884453709085,
+    "skyDelivery": {
+     "hemisphereLux": 0,
+     "environmentLux": 0.197,
+     "totalLux": 0.197,
+     "paths": 1
+    },
+    "px": 4675,
+    "bad": 0
+   },
+   "globes": [
+    {
+     "lamp": 283,
+     "globe": "outer",
+     "world": [
+      133.89,
+      7.7,
+      -159.46
+     ],
+     "sx": 973.7,
+     "sy": 296.2,
+     "depth": 21.7,
+     "rpx": 9.94,
+     "core": 99,
+     "coreOn": [
+      179.6502525252525,
+      124.6155303030303,
+      63.196969696969695
+     ],
+     "coreOff": [
+      0.4654873934659091,
+      0.287411468197601,
+      0.20692027698863635
+     ],
+     "ring": 423,
+     "ringN": 889,
+     "ringRGB": [
+      0.40444838070700356,
+      0.25408848972185283,
+      0.19558939471594267
+     ],
+     "ringOff": [
+      0.40444838070700356,
+      0.25408848972185283,
+      0.19558939471594267
+     ],
+     "nonFinite": 0,
+     "onOverSky": 467.9446903338456,
+     "offOverSky": 1.1335109654427273,
+     "warmthOn": 0.8830145982626134,
+     "warmthOff": 0.809390752058282,
+     "warmthSky": 0.741077856442299,
+     "refused": null,
+     "skyOnlyOverSky": 1.0985081526253253,
+     "warmthSkyOnly": 0.8531194528401906,
+     "sunShareUnlit": 0.030893611298852153
+    },
+    {
+     "lamp": 283,
+     "globe": "inner",
+     "world": [
+      133.88,
+      7.66,
+      -156.26
+     ],
+     "sx": 1101.1,
+     "sy": 297.6,
+     "depth": 21.7,
+     "rpx": 8.75,
+     "core": 69,
+     "coreOn": [
+      183.05253623188406,
+      126.48460144927536,
+      63.89492753623188
+     ],
+     "coreOff": [
+      3.8614625792572466,
+      2.154006736865942,
+      0.9084578804347826
+     ],
+     "ring": 72,
+     "ringN": 690,
+     "ringRGB": [
+      0.3416392008463542,
+      0.2174038357204861,
+      0.1672210693359375
+     ],
+     "ringOff": [
+      0.3416392008463542,
+      0.2174038357204861,
+      0.1672210693359375
+     ],
+     "nonFinite": 0,
+     "onOverSky": 557.8510867220605,
+     "offOverSky": 10.104717569450399,
+     "warmthOn": 0.8892891772551254,
+     "warmthOff": 1.2166886873241316,
+     "warmthSky": 0.7261580246916092,
+     "refused": null,
+     "skyOnlyOverSky": 10.05042618419897,
+     "warmthSkyOnly": 1.2273593543111194,
+     "sunShareUnlit": 0.0059056996504420756
+    },
+    {
+     "lamp": 284,
+     "globe": "outer",
+     "world": [
+      155.92,
+      7.7,
+      -167.35
+     ],
+     "sx": 730.5,
+     "sy": 402.3,
+     "depth": 43.7,
+     "rpx": 4.94,
+     "core": 2,
+     "coreOn": [
+      179.625,
+      124.625,
+      63.1875
+     ],
+     "coreOff": [
+      0.473388671875,
+      0.2896728515625,
+      0.20135498046875
+     ],
+     "ring": 50,
+     "ringN": 220,
+     "ringRGB": [
+      0.1861767578125,
+      0.1427685546875,
+      0.1937646484375
+     ],
+     "ringOff": [
+      0.1861767578125,
+      0.1427685546875,
+      0.1937646484375
+     ],
+     "nonFinite": 0,
+     "onOverSky": 847.1416473472186,
+     "offOverSky": 2.070633594678716,
+     "warmthOn": 0.8828901016503646,
+     "warmthOff": 0.8438966204108317,
+     "warmthSky": -0.04874059998009968,
+     "refused": null,
+     "skyOnlyOverSky": 2.0113633078112594,
+     "warmthSkyOnly": 0.8845748009940609,
+     "sunShareUnlit": 0.028648216969702545
+    },
+    {
+     "lamp": 284,
+     "globe": "inner",
+     "world": [
+      155.94,
+      7.66,
+      -170.55
+     ],
+     "sx": 667.3,
+     "sy": 403.2,
+     "depth": 43.7,
+     "rpx": 4.35,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 169,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 285,
+     "globe": "outer",
+     "world": [
+      177.87,
+      7.7,
+      -159.21
+     ],
+     "sx": 860.9,
+     "sy": 437.4,
+     "depth": 65.6,
+     "rpx": 3.29,
+     "core": 16,
+     "coreOn": [
+      179.6328125,
+      124.609375,
+      63.197265625
+     ],
+     "coreOff": [
+      0.45074462890625,
+      0.28302764892578125,
+      0.20995330810546875
+     ],
+     "ring": 69,
+     "ringN": 97,
+     "ringRGB": [
+      0.1896530372509058,
+      0.1410438427026721,
+      0.18449202827785327
+     ],
+     "ringOff": [
+      0.1896530372509058,
+      0.1410438427026721,
+      0.18449202827785327
+     ],
+     "nonFinite": 0,
+     "onOverSky": 853.4660331950415,
+     "offOverSky": 2.0283343056545884,
+     "warmthOn": 0.8829342670389496,
+     "warmthOff": 0.7682990909756633,
+     "warmthSky": 0.033401320797739595,
+     "refused": null,
+     "skyOnlyOverSky": 1.9130808983518446,
+     "warmthSkyOnly": 0.8499470486760247,
+     "sunShareUnlit": 0.057654866844524255
+    },
+    {
+     "lamp": 285,
+     "globe": "inner",
+     "world": [
+      177.84,
+      7.66,
+      -156.01
+     ],
+     "sx": 903.1,
+     "sy": 437.9,
+     "depth": 65.6,
+     "rpx": 2.9,
+     "core": 13,
+     "coreOn": [
+      182.8653846153846,
+      126.39423076923077,
+      63.86298076923077
+     ],
+     "coreOff": [
+      3.6821664663461537,
+      2.0588097205528846,
+      0.8765305739182693
+     ],
+     "ring": 20,
+     "ringN": 70,
+     "ringRGB": [
+      0.225518798828125,
+      0.153472900390625,
+      0.161529541015625
+     ],
+     "ringOff": [
+      0.225518798828125,
+      0.153472900390625,
+      0.161529541015625
+     ],
+     "nonFinite": 0,
+     "onOverSky": 790.4824837773834,
+     "offOverSky": 13.689281580832674,
+     "warmthOn": 0.8888388460319722,
+     "warmthOff": 1.2100691683262228,
+     "warmthSky": 0.37780405637303555,
+     "refused": null,
+     "skyOnlyOverSky": 13.587189304827183,
+     "warmthSkyOnly": 1.2259797969577415,
+     "sunShareUnlit": 0.00877925595202289
+    },
+    {
+     "lamp": 590,
+     "globe": "outer",
+     "world": [
+      204.9,
+      7.7,
+      -167.03
+     ],
+     "sx": 770.2,
+     "sy": 457.8,
+     "depth": 92.6,
+     "rpx": 2.33,
+     "core": 8,
+     "coreOn": [
+      179.5,
+      124.546875,
+      63.17578125
+     ],
+     "coreOff": [
+      0.33404541015625,
+      0.2192840576171875,
+      0.1858062744140625
+     ],
+     "ring": 48,
+     "ringN": 50,
+     "ringRGB": [
+      0.258453369140625,
+      0.17582066853841147,
+      0.1849816640218099
+     ],
+     "ringOff": [
+      0.258453369140625,
+      0.17582066853841147,
+      0.1849816640218099
+     ],
+     "nonFinite": 0,
+     "onOverSky": 679.2014900755269,
+     "offOverSky": 1.2433159918215768,
+     "warmthOn": 0.8825885820748964,
+     "warmthOff": 0.6144239627040418,
+     "warmthSky": 0.37862292768229866,
+     "refused": null,
+     "skyOnlyOverSky": 1.1437553327409913,
+     "warmthSkyOnly": 0.7173660633966226,
+     "sunShareUnlit": 0.08019933367982246
+    },
+    {
+     "lamp": 590,
+     "globe": "inner",
+     "world": [
+      204.92,
+      7.66,
+      -170.23
+     ],
+     "sx": 740.3,
+     "sy": 458.1,
+     "depth": 92.6,
+     "rpx": 2.05,
+     "core": 7,
+     "coreOn": [
+      183.875,
+      126.91964285714286,
+      64.06696428571429
+     ],
+     "coreOff": [
+      4.661586216517857,
+      2.5933140345982144,
+      1.0717947823660714
+     ],
+     "ring": 37,
+     "ringN": 39,
+     "ringRGB": [
+      0.21680182379645271,
+      0.15769669816300674,
+      0.19757739917652026
+     ],
+     "ringOff": [
+      0.21680182379645271,
+      0.15769669816300674,
+      0.19757739917652026
+     ],
+     "nonFinite": 0,
+     "onOverSky": 776.7642568431145,
+     "offOverSky": 16.883123706893695,
+     "warmthOn": 0.8908297250530416,
+     "warmthOff": 1.2280453347139801,
+     "warmthSky": 0.11103281120371424,
+     "refused": null,
+     "skyOnlyOverSky": 16.79926305132003,
+     "warmthSkyOnly": 1.237553095735156,
+     "sunShareUnlit": 0.005166401213686389
+    },
+    {
+     "lamp": 591,
+     "globe": "outer",
+     "world": [
+      224.15,
+      7.7,
+      -158.97
+     ],
+     "sx": 837.6,
+     "sy": 466.3,
+     "depth": 111.8,
+     "rpx": 1.93,
+     "core": 6,
+     "coreOn": [
+      179.6875,
+      124.64583333333333,
+      63.208333333333336
+     ],
+     "coreOff": [
+      0.5175374348958334,
+      0.3197835286458333,
+      0.22357177734375
+     ],
+     "ring": 34,
+     "ringN": 36,
+     "ringRGB": [
+      0.27200496897977944,
+      0.18071701947380514,
+      0.17653521369485295
+     ],
+     "ringOff": [
+      0.27200496897977944,
+      0.18071701947380514,
+      0.17653521369485295
+     ],
+     "nonFinite": 0,
+     "onOverSky": 660.144041541014,
+     "offOverSky": 1.7759701257864855,
+     "warmthOn": 0.8830072418596793,
+     "warmthOff": 0.8283534000401377,
+     "warmthSky": 0.47777181670499064,
+     "refused": null,
+     "skyOnlyOverSky": 1.6837306255230844,
+     "warmthSkyOnly": 0.9052000942177401,
+     "sunShareUnlit": 0.052087967106555944
+    },
+    {
+     "lamp": 591,
+     "globe": "inner",
+     "world": [
+      224.18,
+      7.66,
+      -155.77
+     ],
+     "sx": 862.4,
+     "sy": 466.6,
+     "depth": 111.8,
+     "rpx": 1.7,
+     "core": 5,
+     "coreOn": [
+      179.6,
+      124.6,
+      63.2
+     ],
+     "coreOff": [
+      0.434033203125,
+      0.2750732421875,
+      0.208203125
+     ],
+     "ring": 23,
+     "ringN": 24,
+     "ringRGB": [
+      0.24255105723505435,
+      0.16284445057744565,
+      0.1644234035326087
+     ],
+     "ringOff": [
+      0.24255105723505435,
+      0.16284445057744565,
+      0.1644234035326087
+     ],
+     "nonFinite": 0,
+     "onOverSky": 732.9457078297079,
+     "offOverSky": 1.6900123384190329,
+     "warmthOn": 0.8827549720946289,
+     "warmthOff": 0.7427641045121932,
+     "warmthSky": 0.434273951053613,
+     "refused": null,
+     "skyOnlyOverSky": 1.5740530312989611,
+     "warmthSkyOnly": 0.8394311819760206,
+     "sunShareUnlit": 0.06885906647737106
+    },
+    {
+     "lamp": 662,
+     "globe": "outer",
+     "world": [
+      226.32,
+      7.7,
+      -248.35
+     ],
+     "sx": 159,
+     "sy": 467.1,
+     "depth": 114,
+     "rpx": 1.9,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 28,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 662,
+     "globe": "inner",
+     "world": [
+      226.34,
+      7.66,
+      -245.15
+     ],
+     "sx": 183.4,
+     "sy": 467.4,
+     "depth": 114,
+     "rpx": 1.67,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 24,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 540,
+     "globe": "inner",
+     "world": [
+      228.81,
+      7.66,
+      -81.78
+     ],
+     "sx": 1409.1,
+     "sy": 468.2,
+     "depth": 116.4,
+     "rpx": 1.63,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 24,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 540,
+     "globe": "outer",
+     "world": [
+      228.86,
+      7.7,
+      -78.58
+     ],
+     "sx": 1432.6,
+     "sy": 467.9,
+     "depth": 116.5,
+     "rpx": 1.86,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 31,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 592,
+     "globe": "outer",
+     "world": [
+      242.87,
+      7.7,
+      -167.11
+     ],
+     "sx": 778.3,
+     "sy": 472.2,
+     "depth": 130.5,
+     "rpx": 1.66,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 24,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 592,
+     "globe": "inner",
+     "world": [
+      242.88,
+      7.66,
+      -170.31
+     ],
+     "sx": 757.2,
+     "sy": 472.4,
+     "depth": 130.5,
+     "rpx": 1.46,
+     "core": 3,
+     "coreOn": [
+      179.375,
+      124.47916666666667,
+      63.145833333333336
+     ],
+     "coreOff": [
+      0.19425455729166666,
+      0.14481608072916666,
+      0.16109212239583334
+     ],
+     "ring": 4,
+     "ringN": 18,
+     "ringRGB": [
+      0.2530517578125,
+      0.1845703125,
+      0.232269287109375
+     ],
+     "ringOff": [
+      0.2530517578125,
+      0.1845703125,
+      0.232269287109375
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": 0.8823839873830002,
+     "warmthOff": 0.21189806325170177,
+     "warmthSky": 0.10259233196890051,
+     "refused": "ring holds 4 sky px of 18",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": 0.353703980717238,
+     "sunShareUnlit": 0.15319793177090368
+    },
+    {
+     "lamp": 541,
+     "globe": "outer",
+     "world": [
+      246.21,
+      7.7,
+      -71.45
+     ],
+     "sx": 1396.9,
+     "sy": 473,
+     "depth": 133.8,
+     "rpx": 1.62,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 23,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 541,
+     "globe": "inner",
+     "world": [
+      246.26,
+      7.66,
+      -68.25
+     ],
+     "sx": 1417.3,
+     "sy": 473.3,
+     "depth": 133.9,
+     "rpx": 1.42,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 18,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1010,
+     "globe": "inner",
+     "world": [
+      249.68,
+      7.66,
+      -57.13
+     ],
+     "sx": 1472,
+     "sy": 474.2,
+     "depth": 137.3,
+     "rpx": 1.39,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 19,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 663,
+     "globe": "outer",
+     "world": [
+      250,
+      7.7,
+      -255.91
+     ],
+     "sx": 221.6,
+     "sy": 474,
+     "depth": 137.6,
+     "rpx": 1.57,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 22,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 663,
+     "globe": "inner",
+     "world": [
+      249.99,
+      7.66,
+      -259.11
+     ],
+     "sx": 201.5,
+     "sy": 474.2,
+     "depth": 137.6,
+     "rpx": 1.38,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 18,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 943,
+     "globe": "inner",
+     "world": [
+      251.34,
+      7.66,
+      -94.83
+     ],
+     "sx": 1229.4,
+     "sy": 474.5,
+     "depth": 138.9,
+     "rpx": 1.37,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 17,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1009,
+     "globe": "inner",
+     "world": [
+      251.32,
+      7.66,
+      -201.9
+     ],
+     "sx": 563.1,
+     "sy": 474.5,
+     "depth": 138.9,
+     "rpx": 1.37,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 16,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 702,
+     "globe": "inner",
+     "world": [
+      251.51,
+      7.66,
+      -274.86
+     ],
+     "sx": 110.1,
+     "sy": 474.6,
+     "depth": 139.1,
+     "rpx": 1.37,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 17,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 995,
+     "globe": "inner",
+     "world": [
+      251.52,
+      7.66,
+      -124.21
+     ],
+     "sx": 1046.2,
+     "sy": 474.6,
+     "depth": 139.1,
+     "rpx": 1.37,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 19,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1070,
+     "globe": "inner",
+     "world": [
+      251.51,
+      7.66,
+      -226.73
+     ],
+     "sx": 409.1,
+     "sy": 474.6,
+     "depth": 139.1,
+     "rpx": 1.37,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 17,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1010,
+     "globe": "outer",
+     "world": [
+      252.88,
+      7.7,
+      -57.16
+     ],
+     "sx": 1456.5,
+     "sy": 474.7,
+     "depth": 140.5,
+     "rpx": 1.54,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 22,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 943,
+     "globe": "outer",
+     "world": [
+      254.54,
+      7.7,
+      -94.81
+     ],
+     "sx": 1219.9,
+     "sy": 475,
+     "depth": 142.1,
+     "rpx": 1.52,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 18,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1009,
+     "globe": "outer",
+     "world": [
+      254.52,
+      7.7,
+      -201.91
+     ],
+     "sx": 568.4,
+     "sy": 475,
+     "depth": 142.1,
+     "rpx": 1.52,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 22,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 702,
+     "globe": "outer",
+     "world": [
+      254.71,
+      7.7,
+      -274.84
+     ],
+     "sx": 125.8,
+     "sy": 475.1,
+     "depth": 142.3,
+     "rpx": 1.52,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 21,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 995,
+     "globe": "outer",
+     "world": [
+      254.72,
+      7.7,
+      -124.2
+     ],
+     "sx": 1040.8,
+     "sy": 475.1,
+     "depth": 142.3,
+     "rpx": 1.52,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 21,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1070,
+     "globe": "outer",
+     "world": [
+      254.71,
+      7.7,
+      -226.76
+     ],
+     "sx": 417.8,
+     "sy": 475.1,
+     "depth": 142.3,
+     "rpx": 1.52,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 21,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1209,
+     "globe": "outer",
+     "world": [
+      256.81,
+      7.7,
+      -168.41
+     ],
+     "sx": 772.6,
+     "sy": 475.5,
+     "depth": 144.4,
+     "rpx": 1.5,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 24,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1209,
+     "globe": "inner",
+     "world": [
+      258.2,
+      7.66,
+      -165.53
+     ],
+     "sx": 790,
+     "sy": 476.1,
+     "depth": 145.8,
+     "rpx": 1.3,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 15,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1214,
+     "globe": "inner",
+     "world": [
+      258.63,
+      7.66,
+      -161.8
+     ],
+     "sx": 812,
+     "sy": 476.2,
+     "depth": 146.2,
+     "rpx": 1.3,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 16,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1214,
+     "globe": "outer",
+     "world": [
+      258.8,
+      7.7,
+      -158.61
+     ],
+     "sx": 830.9,
+     "sy": 476,
+     "depth": 146.4,
+     "rpx": 1.48,
+     "core": 4,
+     "coreOn": [
+      179.375,
+      124.46875,
+      63.140625
+     ],
+     "coreOff": [
+      0.176971435546875,
+      0.1329193115234375,
+      0.153778076171875
+     ],
+     "ring": 17,
+     "ringN": 18,
+     "ringRGB": [
+      0.25753963694852944,
+      0.18693991268382354,
+      0.23272346047794118
+     ],
+     "ringOff": [
+      0.25753963694852944,
+      0.18693991268382354,
+      0.23272346047794118
+     ],
+     "nonFinite": 0,
+     "onOverSky": 641.7087864952769,
+     "offOverSky": 0.7005471513810444,
+     "warmthOn": 0.8824759587284536,
+     "warmthOff": 0.16129933233961624,
+     "warmthSky": 0.12090413455197249,
+     "refused": null,
+     "skyOnlyOverSky": 0.6103262979394689,
+     "warmthSkyOnly": 0.26870130641454576,
+     "sunShareUnlit": 0.1287862683671127
+    },
+    {
+     "lamp": 1210,
+     "globe": "inner",
+     "world": [
+      260.54,
+      7.66,
+      -164
+     ],
+     "sx": 799,
+     "sy": 476.6,
+     "depth": 148.1,
+     "rpx": 1.28,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 16,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 944,
+     "globe": "outer",
+     "world": [
+      262.42,
+      7.7,
+      -80.3
+     ],
+     "sx": 1281.5,
+     "sy": 476.7,
+     "depth": 150,
+     "rpx": 1.44,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 20,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1071,
+     "globe": "outer",
+     "world": [
+      262.52,
+      7.7,
+      -252.04
+     ],
+     "sx": 292,
+     "sy": 476.8,
+     "depth": 150.1,
+     "rpx": 1.44,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 18,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1217,
+     "globe": "outer",
+     "world": [
+      262.56,
+      7.7,
+      -213.3
+     ],
+     "sx": 515.2,
+     "sy": 476.8,
+     "depth": 150.1,
+     "rpx": 1.44,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 17,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 942,
+     "globe": "outer",
+     "world": [
+      262.63,
+      7.7,
+      -109.2
+     ],
+     "sx": 1114.5,
+     "sy": 476.8,
+     "depth": 150.2,
+     "rpx": 1.44,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 19,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1008,
+     "globe": "outer",
+     "world": [
+      262.63,
+      7.7,
+      -179.59
+     ],
+     "sx": 709.3,
+     "sy": 476.8,
+     "depth": 150.2,
+     "rpx": 1.44,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 18,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 994,
+     "globe": "outer",
+     "world": [
+      262.85,
+      7.7,
+      -148.32
+     ],
+     "sx": 889.2,
+     "sy": 476.8,
+     "depth": 150.4,
+     "rpx": 1.44,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 19,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 703,
+     "globe": "outer",
+     "world": [
+      262.87,
+      7.7,
+      -298.99
+     ],
+     "sx": 23.5,
+     "sy": 476.8,
+     "depth": 150.5,
+     "rpx": 1.44,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 20,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1210,
+     "globe": "outer",
+     "world": [
+      263.72,
+      7.7,
+      -164.3
+     ],
+     "sx": 797.4,
+     "sy": 477,
+     "depth": 151.3,
+     "rpx": 1.43,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 16,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1011,
+     "globe": "outer",
+     "world": [
+      264.31,
+      7.7,
+      -39.31
+     ],
+     "sx": 1508.9,
+     "sy": 477.1,
+     "depth": 151.9,
+     "rpx": 1.42,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 19,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 944,
+     "globe": "inner",
+     "world": [
+      265.62,
+      7.66,
+      -80.28
+     ],
+     "sx": 1271.6,
+     "sy": 477.6,
+     "depth": 153.2,
+     "rpx": 1.24,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 13,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1071,
+     "globe": "inner",
+     "world": [
+      265.72,
+      7.66,
+      -252.06
+     ],
+     "sx": 302.5,
+     "sy": 477.6,
+     "depth": 153.3,
+     "rpx": 1.24,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 12,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1217,
+     "globe": "inner",
+     "world": [
+      265.76,
+      7.66,
+      -213.24
+     ],
+     "sx": 521.5,
+     "sy": 477.6,
+     "depth": 153.3,
+     "rpx": 1.24,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 13,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 942,
+     "globe": "inner",
+     "world": [
+      265.83,
+      7.66,
+      -109.17
+     ],
+     "sx": 1108.1,
+     "sy": 477.6,
+     "depth": 153.4,
+     "rpx": 1.24,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 16,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1008,
+     "globe": "inner",
+     "world": [
+      265.83,
+      7.66,
+      -179.68
+     ],
+     "sx": 710.7,
+     "sy": 477.6,
+     "depth": 153.4,
+     "rpx": 1.24,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 13,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 703,
+     "globe": "inner",
+     "world": [
+      266.07,
+      7.66,
+      -298.97
+     ],
+     "sx": 39.8,
+     "sy": 477.7,
+     "depth": 153.6,
+     "rpx": 1.24,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 13,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 994,
+     "globe": "inner",
+     "world": [
+      266.04,
+      7.66,
+      -148.27
+     ],
+     "sx": 887.6,
+     "sy": 477.7,
+     "depth": 153.6,
+     "rpx": 1.24,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 13,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 1011,
+     "globe": "inner",
+     "world": [
+      267.5,
+      7.66,
+      -39.33
+     ],
+     "sx": 1494.1,
+     "sy": 478,
+     "depth": 155.1,
+     "rpx": 1.23,
+     "core": 0,
+     "coreOn": [
+      0,
+      0,
+      0
+     ],
+     "coreOff": [
+      0,
+      0,
+      0
+     ],
+     "ring": 0,
+     "ringN": 12,
+     "ringRGB": [
+      0,
+      0,
+      0
+     ],
+     "ringOff": [
+      0,
+      0,
+      0
+     ],
+     "nonFinite": 0,
+     "onOverSky": null,
+     "offOverSky": null,
+     "warmthOn": null,
+     "warmthOff": null,
+     "warmthSky": null,
+     "refused": "no core pixel carries the globe",
+     "skyOnlyOverSky": null,
+     "warmthSkyOnly": null,
+     "sunShareUnlit": null
+    },
+    {
+     "lamp": 352,
+     "globe": "outer",
+     "world": [
+      274.11,
+      7.7,
+      -159.19
+     ],
+     "sx": 824.9,
+     "sy": 478.9,
+     "depth": 161.7,
+     "rpx": 1.34,
+     "core": 4,
+     "coreOn": [
+      179.375,
+      124.46875,
+      63.140625
+     ],
+     "coreOff": [
+      0.175689697265625,
+      0.131317138671875,
+      0.151611328125
+     ],
+     "ring": 11,
+     "ringN": 16,
+     "ringRGB": [
+      0.23216663707386365,
+      0.16584361683238635,
+      0.19709639115767044
+     ],
+     "ringOff": [
+      0.23216663707386365,
+      0.16584361683238635,
+      0.19709639115767044
+     ],
+     "nonFinite": 0,
+     "onOverSky": 722.9071429128078,
+     "offOverSky": 0.7805473037974264,
+     "warmthOn": 0.8824759587284536,
+     "warmthOff": 0.16930845799392782,
+     "warmthSky": 0.19248177954623427,
+     "refused": null,
+     "skyOnlyOverSky": 0.6894515777097568,
+     "warmthSkyOnly": 0.26901518220320314,
+     "sunShareUnlit": 0.11936907213857861
+    }
+   ],
+   "pool": {
+    "lights": 10,
+    "addsToFrame": 0.6547887692736889,
+    "pxOver5pct": 1232649,
+    "pxOver25pct": 1205589,
+    "pxOver100pct": 1084481,
+    "nonFinite": 0,
+    "glints": [
+     {
+      "area": 1030271,
+      "box": [
+       0,
+       0,
+       1599,
+       899
+      ],
+      "peakNits": 589.627,
+      "peakExposed": 109.6368,
+      "peakOverBase": 24299.06,
+      "at": [
+       1056,
+       437
+      ],
+      "id": {
+       "what": "chunk:1,-2:lod0:facade:midOffice",
+       "object": "chunk:1,-2:lod0:facade:midOffice",
+       "material": "MeshStandardMaterial facade:midOffice",
+       "emissive": "#ffffff x3.410",
+       "roughness": 1,
+       "instance": null,
+       "dist": 42.87,
+       "point": [
+        153.41,
+        5.71,
+        -151.64
+       ]
+      }
+     },
+     {
+      "area": 7230,
+      "box": [
+       790,
+       277,
+       916,
+       389
+      ],
+      "peakNits": 8.958,
+      "peakExposed": 1.6657,
+      "peakOverBase": 445.6,
+      "at": [
+       907,
+       313
+      ],
+      "id": {
+       "what": "props:near:0,-1",
+       "object": "props:near:0,-1",
+       "material": "MeshStandardMaterial",
+       "emissive": "#ffffff x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 22.81,
+       "point": [
+        134.53,
+        7.4,
+        -161.05
+       ]
+      }
+     },
+     {
+      "area": 1,
+      "box": [
+       900,
+       337,
+       900,
+       337
+      ],
+      "peakNits": 6.734,
+      "peakExposed": 1.2521,
+      "peakOverBase": 286.4,
+      "at": [
+       900,
+       337
+      ],
+      "id": {
+       "what": "props:near:0,-1",
+       "object": "props:near:0,-1",
+       "material": "MeshStandardMaterial",
+       "emissive": "#ffffff x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 22.81,
+       "point": [
+        134.68,
+        6.81,
+        -161.21
+       ]
+      }
+     },
+     {
+      "area": 18,
+      "box": [
+       914,
+       352,
+       919,
+       358
+      ],
+      "peakNits": 3.685,
+      "peakExposed": 0.6852,
+      "peakOverBase": 163.4,
+      "at": [
+       915,
+       353
+      ],
+      "id": {
+       "what": "props:near:0,-1",
+       "object": "props:near:0,-1",
+       "material": "MeshStandardMaterial",
+       "emissive": "#ffffff x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 23.53,
+       "point": [
+        135.41,
+        6.52,
+        -160.73
+       ]
+      }
+     },
+     {
+      "area": 1,
+      "box": [
+       913,
+       356,
+       913,
+       356
+      ],
+      "peakNits": 3.655,
+      "peakExposed": 0.6796,
+      "peakOverBase": 156.46,
+      "at": [
+       913,
+       356
+      ],
+      "id": {
+       "what": "props:near:0,-1",
+       "object": "props:near:0,-1",
+       "material": "MeshStandardMaterial",
+       "emissive": "#ffffff x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 23.37,
+       "point": [
+        135.27,
+        6.41,
+        -160.8
+       ]
+      }
+     },
+     {
+      "area": 1,
+      "box": [
+       912,
+       357,
+       912,
+       357
+      ],
+      "peakNits": 3.457,
+      "peakExposed": 0.6429,
+      "peakOverBase": 146.4,
+      "at": [
+       912,
+       357
+      ],
+      "id": {
+       "what": "props:near:0,-1",
+       "object": "props:near:0,-1",
+       "material": "MeshStandardMaterial",
+       "emissive": "#ffffff x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 23.37,
+       "point": [
+        135.28,
+        6.39,
+        -160.83
+       ]
+      }
+     },
+     {
+      "area": 2,
+      "box": [
+       911,
+       358,
+       911,
+       359
+      ],
+      "peakNits": 3.264,
+      "peakExposed": 0.607,
+      "peakOverBase": 136.77,
+      "at": [
+       911,
+       358
+      ],
+      "id": {
+       "what": "props:near:0,-1",
+       "object": "props:near:0,-1",
+       "material": "MeshStandardMaterial",
+       "emissive": "#ffffff x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 23.38,
+       "point": [
+        135.29,
+        6.36,
+        -160.85
+       ]
+      }
+     },
+     {
+      "area": 261,
+      "box": [
+       928,
+       274,
+       981,
+       305
+      ],
+      "peakNits": 3.097,
+      "peakExposed": 0.5759,
+      "peakOverBase": 92.78,
+      "at": [
+       976,
+       294
+      ],
+      "id": {
+       "what": "street lamp globe (outer) of lamp 283",
+       "depth": 21.7
+      }
+     },
+     {
+      "area": 1,
+      "box": [
+       907,
+       330,
+       907,
+       330
+      ],
+      "peakNits": 3.033,
+      "peakExposed": 0.5639,
+      "peakOverBase": 54.54,
+      "at": [
+       907,
+       330
+      ],
+      "id": {
+       "what": "props:far:0,-1",
+       "object": "props:far:0,-1",
+       "material": "MeshStandardMaterial",
+       "emissive": "#ffffff x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 23.61,
+       "point": [
+        135.4,
+        7.14,
+        -160.94
+       ]
+      }
+     },
+     {
+      "area": 7,
+      "box": [
+       717,
+       460,
+       719,
+       464
+      ],
+      "peakNits": 2.394,
+      "peakExposed": 0.4452,
+      "peakOverBase": 91.69,
+      "at": [
+       717,
+       460
+      ],
+      "id": {
+       "what": "props:near:0,-1",
+       "object": "props:near:0,-1",
+       "material": "MeshStandardMaterial",
+       "emissive": "#ffffff x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 45.7,
+       "point": [
+        157.88,
+        4.86,
+        -168.17
+       ]
+      }
+     },
+     {
+      "area": 3,
+      "box": [
+       876,
+       288,
+       876,
+       290
+      ],
+      "peakNits": 1.933,
+      "peakExposed": 0.3595,
+      "peakOverBase": 14.57,
+      "at": [
+       876,
+       290
+      ],
+      "id": {
+       "what": "props:far:0,-1",
+       "object": "props:far:0,-1",
+       "material": "MeshStandardMaterial",
+       "emissive": "#ffffff x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 22.49,
+       "point": [
+        134.16,
+        7.91,
+        -161.88
+       ]
+      }
+     },
+     {
+      "area": 69,
+      "box": [
+       978,
+       240,
+       986,
+       252
+      ],
+      "peakNits": 1.904,
+      "peakExposed": 0.354,
+      "peakOverBase": 70.54,
+      "at": [
+       986,
+       243
+      ],
+      "id": {
+       "what": "props:far:0,-1",
+       "object": "props:far:0,-1",
+       "material": "MeshStandardMaterial",
+       "emissive": "#ffffff x1.000",
+       "roughness": 1,
+       "instance": null,
+       "dist": 10.35,
+       "point": [
+        122.12,
+        5.4,
+        -161.7
+       ]
+      }
+     }
+    ]
+   },
+   "emitters": [
+    {
+     "area": 31,
+     "box": [
+      1095,
+      299,
+      1104,
+      305
+     ],
+     "peakNits": 131.651,
+     "peakExposed": 24.4796,
+     "cOverA": 0.01,
+     "bOverA": 0.991,
+     "at": [
+      1101,
+      303
+     ],
+     "id": {
+      "what": "street lamp globe (inner) of lamp 283",
+      "depth": 21.7
+     }
+    },
+    {
+     "area": 237,
+     "box": [
+      964,
+      286,
+      983,
+      305
+     ],
+     "peakNits": 131.635,
+     "peakExposed": 24.4766,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      980,
+      302
+     ],
+     "id": {
+      "what": "street lamp globe (outer) of lamp 283",
+      "depth": 21.7
+     }
+    },
+    {
+     "area": 92,
+     "box": [
+      1099,
+      291,
+      1109,
+      302
+     ],
+     "peakNits": 131.635,
+     "peakExposed": 24.4766,
+     "cOverA": 0.001,
+     "bOverA": 0.999,
+     "at": [
+      1109,
+      297
+     ],
+     "id": {
+      "what": "street lamp globe (inner) of lamp 283",
+      "depth": 21.7
+     }
+    },
+    {
+     "area": 34,
+     "box": [
+      858,
+      434,
+      863,
+      440
+     ],
+     "peakNits": 131.627,
+     "peakExposed": 24.4751,
+     "cOverA": 0.002,
+     "bOverA": 0.999,
+     "at": [
+      859,
+      435
+     ],
+     "id": {
+      "what": "street lamp globe (outer) of lamp 285",
+      "depth": 65.6
+     }
+    },
+    {
+     "area": 9,
+     "box": [
+      861,
+      465,
+      863,
+      467
+     ],
+     "peakNits": 131.627,
+     "peakExposed": 24.4751,
+     "cOverA": 0.002,
+     "bOverA": 0.998,
+     "at": [
+      861,
+      465
+     ],
+     "id": {
+      "what": "street lamp globe (inner) of lamp 591",
+      "depth": 111.8
+     }
+    },
+    {
+     "area": 1,
+     "box": [
+      732,
+      400,
+      732,
+      400
+     ],
+     "peakNits": 131.625,
+     "peakExposed": 24.4746,
+     "cOverA": 0.002,
+     "bOverA": 0.999,
+     "at": [
+      732,
+      400
+     ],
+     "id": {
+      "what": "street lamp globe (outer) of lamp 284",
+      "depth": 43.7
+     }
+    },
+    {
+     "area": 1,
+     "box": [
+      732,
+      405,
+      732,
+      405
+     ],
+     "peakNits": 131.625,
+     "peakExposed": 24.4746,
+     "cOverA": 0.002,
+     "bOverA": 0.999,
+     "at": [
+      732,
+      405
+     ],
+     "id": {
+      "what": "street lamp globe (outer) of lamp 284",
+      "depth": 43.7
+     }
+    },
+    {
+     "area": 28,
+     "box": [
+      900,
+      435,
+      905,
+      440
+     ],
+     "peakNits": 131.625,
+     "peakExposed": 24.4746,
+     "cOverA": 0.002,
+     "bOverA": 0.999,
+     "at": [
+      903,
+      438
+     ],
+     "id": {
+      "what": "street lamp globe (inner) of lamp 285",
+      "depth": 65.6
+     }
+    },
+    {
+     "area": 9,
+     "box": [
+      836,
+      465,
+      838,
+      467
+     ],
+     "peakNits": 131.625,
+     "peakExposed": 24.4746,
+     "cOverA": 0.002,
+     "bOverA": 0.999,
+     "at": [
+      838,
+      466
+     ],
+     "id": {
+      "what": "street lamp globe (outer) of lamp 591",
+      "depth": 111.8
+     }
+    },
+    {
+     "area": 14,
+     "box": [
+      738,
+      456,
+      741,
+      459
+     ],
+     "peakNits": 131.617,
+     "peakExposed": 24.4733,
+     "cOverA": 0.055,
+     "bOverA": 0.946,
+     "at": [
+      741,
+      459
+     ],
+     "id": {
+      "what": "street lamp globe (inner) of lamp 590",
+      "depth": 92.6
+     }
+    },
+    {
+     "area": 1,
+     "box": [
+      665,
+      399,
+      665,
+      399
+     ],
+     "peakNits": 131.611,
+     "peakExposed": 24.4721,
+     "cOverA": 0.001,
+     "bOverA": 0.999,
+     "at": [
+      665,
+      399
+     ],
+     "id": {
+      "what": "street lamp globe (inner) of lamp 284",
+      "depth": 43.7
+     }
+    },
+    {
+     "area": 15,
+     "box": [
+      768,
+      456,
+      771,
+      459
+     ],
+     "peakNits": 131.611,
+     "peakExposed": 24.4721,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      768,
+      456
+     ],
+     "id": {
+      "what": "street lamp globe (outer) of lamp 590",
+      "depth": 92.6
+     }
+    },
+    {
+     "area": 6,
+     "box": [
+      756,
+      471,
+      757,
+      473
+     ],
+     "peakNits": 131.609,
+     "peakExposed": 24.4717,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      756,
+      472
+     ],
+     "id": {
+      "what": "street lamp globe (inner) of lamp 592",
+      "depth": 130.5
+     }
+    },
+    {
+     "area": 4,
+     "box": [
+      830,
+      475,
+      831,
+      476
+     ],
+     "peakNits": 131.609,
+     "peakExposed": 24.4717,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      830,
+      476
+     ],
+     "id": {
+      "what": "street lamp globe (outer) of lamp 1214",
+      "depth": 146.4
+     }
+    },
+    {
+     "area": 4,
+     "box": [
+      824,
+      478,
+      825,
+      479
+     ],
+     "peakNits": 131.609,
+     "peakExposed": 24.4717,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      824,
+      479
+     ],
+     "id": {
+      "what": "street lamp globe (outer) of lamp 352",
+      "depth": 161.7
+     }
+    },
+    {
+     "area": 4,
+     "box": [
+      841,
+      478,
+      842,
+      479
+     ],
+     "peakNits": 131.609,
+     "peakExposed": 24.4717,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      841,
+      479
+     ],
+     "id": {
+      "what": "nothing (sky)"
+     }
+    },
+    {
+     "area": 2,
+     "box": [
+      815,
+      489,
+      816,
+      489
+     ],
+     "peakNits": 131.609,
+     "peakExposed": 24.4717,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      815,
+      489
+     ],
+     "id": {
+      "what": "props:near:1,-1",
+      "object": "props:near:1,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 279.95,
+      "point": [
+       392.29,
+       8.16,
+       -158.84
+      ]
+     }
+    },
+    {
+     "area": 1,
+     "box": [
+      964,
+      292,
+      964,
+      292
+     ],
+     "peakNits": 131.582,
+     "peakExposed": 24.4668,
+     "cOverA": 0.002,
+     "bOverA": 0.999,
+     "at": [
+      964,
+      292
+     ],
+     "id": {
+      "what": "street lamp globe (outer) of lamp 283",
+      "depth": 21.7
+     }
+    },
+    {
+     "area": 1,
+     "box": [
+      832,
+      485,
+      832,
+      485
+     ],
+     "peakNits": 131.564,
+     "peakExposed": 24.4634,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      832,
+      485
+     ],
+     "id": {
+      "what": "chunk:3,-2:lod1:far",
+      "object": "chunk:3,-2:lod1:far",
+      "material": "MeshStandardMaterial buildingMerged",
+      "emissive": "#000000 x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 391.18,
+      "point": [
+       503.23,
+       12.25,
+       -149.18
+      ]
+     }
+    },
+    {
+     "area": 2,
+     "box": [
+      775,
+      487,
+      775,
+      488
+     ],
+     "peakNits": 131.564,
+     "peakExposed": 24.4634,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      775,
+      487
+     ],
+     "id": {
+      "what": "props:near:1,-1",
+      "object": "props:near:1,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 246.28,
+      "point": [
+       358.57,
+       8.03,
+       -170.82
+      ]
+     }
+    },
+    {
+     "area": 1,
+     "box": [
+      787,
+      487,
+      787,
+      487
+     ],
+     "peakNits": 131.564,
+     "peakExposed": 24.4634,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      787,
+      487
+     ],
+     "id": {
+      "what": "props:near:1,-1",
+      "object": "props:near:1,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 299.76,
+      "point": [
+       412.1,
+       9.26,
+       -168.18
+      ]
+     }
+    },
+    {
+     "area": 1,
+     "box": [
+      826,
+      489,
+      826,
+      489
+     ],
+     "peakNits": 131.564,
+     "peakExposed": 24.4634,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      826,
+      489
+     ],
+     "id": {
+      "what": "props:near:1,-1",
+      "object": "props:near:1,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 278.88,
+      "point": [
+       391.14,
+       8.14,
+       -155.32
+      ]
+     }
+    },
+    {
+     "area": 3,
+     "box": [
+      818,
+      484,
+      819,
+      485
+     ],
+     "peakNits": 131.562,
+     "peakExposed": 24.463,
+     "cOverA": 0.001,
+     "bOverA": 1,
+     "at": [
+      819,
+      485
+     ],
+     "id": {
+      "what": "props:near:1,-1",
+      "object": "props:near:1,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 278.47,
+      "point": [
+       390.76,
+       9.41,
+       -157.58
+      ]
+     }
+    },
+    {
+     "area": 1,
+     "box": [
+      1092,
+      295,
+      1092,
+      295
+     ],
+     "peakNits": 131.558,
+     "peakExposed": 24.4623,
+     "cOverA": 0.095,
+     "bOverA": 0.906,
+     "at": [
+      1092,
+      295
+     ],
+     "id": {
+      "what": "props:near:0,-1",
+      "object": "props:near:0,-1",
+      "material": "MeshStandardMaterial",
+      "emissive": "#ffffff x1.000",
+      "roughness": 1,
+      "instance": null,
+      "dist": 13.9,
+      "point": [
+       125.25,
+       5.57,
+       -159.43
+      ]
+     }
+    }
+   ],
+   "boxes": {
+    "lowLamp": {
+     "box": [
+      1025,
+      405,
+      1100,
+      465
+     ],
+     "meanA": 2.0001225274882253,
+     "meanB": 0.04897847840539561,
+     "meanC": 2.0001225274882253,
+     "meanD": 0.04897847840539561,
+     "peakA": 589.6508178710938,
+     "peakAt": [
+      1056,
+      437
+     ],
+     "peakExposed": 109.64128260897988,
+     "peakB": 0.024265408515930176,
+     "peakC": 589.6508178710938,
+     "peakD": 0.024265408515930176,
+     "peakShare": 0,
+     "emittedPeak": 0.04658982902765274,
+     "emittedPeakAt": [
+      1025,
+      441
+     ],
+     "id": {
+      "what": "chunk:1,-2:lod0:facade:midOffice",
+      "object": "chunk:1,-2:lod0:facade:midOffice",
+      "material": "MeshStandardMaterial facade:midOffice",
+      "emissive": "#ffffff x3.410",
+      "roughness": 1,
+      "instance": null,
+      "dist": 42.87,
+      "point": [
+       153.41,
+       5.71,
+       -151.64
+      ]
+     },
+     "idEmitted": {
+      "what": "chunk:1,-2:lod0:facade:midOffice",
+      "object": "chunk:1,-2:lod0:facade:midOffice",
+      "material": "MeshStandardMaterial facade:midOffice",
+      "emissive": "#ffffff x3.410",
+      "roughness": 1,
+      "instance": null,
+      "dist": 48.8,
+      "point": [
+       159.53,
+       5.99,
+       -151.51
+      ]
+     }
+    }
+   },
+   "frameMean": {
+    "A": 0.3185740322761472,
+    "B": 0.11000093014605732,
+    "C": 0.27243545321046014,
+    "D": 0.06386171414816494
+   },
+   "sky": {
+    "px": 180001,
+    "meanNits": 0.16196460396694387
+   }
+  }
+ ],
+ "pageErrors": [],
+ "partial": false
+}
