@@ -773,12 +773,12 @@ export const PLAUSIBLE = {
 //   30.9.2021, 2021/1718): ON under 1,000 lux, OFF over 7,000 lux, the manufacturer's choice between,
 //   "measured on a horizontal surface, with a cosine corrected sensor". A driver switching by hand is
 //   bound by no lux at all; Florida's s. 316.217(1)(a) requires lighted lamps "at any time from sunset
-//   to sunrise including the twilight hours", and the dusk preset's sun is 3.2 degrees up.
+//   to sunrise including the twilight hours", and the dusk preset's sun is 3.15 degrees up.
 //
 // Both are the same quantity: the HORIZONTAL illuminance from the sun and the sky, which is exactly
 // what tools/sky-once.mjs's light meter reads and what bounceDelivery() calls E_h, the light on the
 // street. At the dusk preset the page's meter reads about 1,400 lux of it (tools/dusk-lamps.mjs, the
-// sun 3.2 degrees up and the sky the dome delivers): 87x a photocell's turn-on, so a real street
+// sun 3.15 degrees up and the sky the dome delivers): 87x a photocell's turn-on, so a real street
 // lamp is OFF, and inside R48's band, so a car may have its lamps on. At night it is 0.4 lux, a
 // fortieth of the turn-on: both on. At golden and noon, thousands of lux: both off. So the street
 // lamps follow the photocell computed off the light the hour delivers, and the cars keep `lampsOn`.
