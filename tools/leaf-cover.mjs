@@ -38,6 +38,9 @@ export const BOXES = {
   corridor: [
     { name: 'canopy A (rev.)', box: [640, 240, 760, 320] },
     { name: 'canopy B (rev.)', box: [470, 130, 800, 240] },
+    // CONTROLS: a signal mast and a pole against the sky, polygon edges the 4 samples already resolve.
+    { name: 'mast (control)', box: [840, 440, 900, 500] },
+    { name: 'pole (control)', box: [1050, 300, 1075, 345] },
   ],
   fivepoints: [
     { name: 'canopy (rev.)', box: [600, 330, 760, 420] },
@@ -53,7 +56,9 @@ export const HDR_BOXES = {
   corridor: [
     { name: 'limb A', box: [292, 328, 10, 8] },
     { name: 'limb B', box: [262, 350, 8, 8] },
+    { name: 'limb R', box: [1440, 40, 12, 30] },
     { name: 'brick', box: [100, 282, 80, 14] },
+    { name: 'sky', box: [560, 40, 40, 30] },
   ],
 };
 
@@ -237,14 +242,28 @@ async function district() {
         const edges = planes ? (BOXES[name] ?? []).map((b) => ({ ...b, s: edgeStats(planes, b.box) })) : [];
         let diff = null;
         if (ref && img) {
-          let n = 0, big = 0;
-          for (let i = 0; i < img.data.length; i += img.channels) {
+          // WHERE a moved pixel is: beside an edge of the reference frame (a 5 x 5 neighbourhood whose
+          // luma spans over 40 of 255 levels) or out on a flat surface, where nothing the coverage does
+          // to an edge should reach.
+          const W = img.width, H = img.height, ch = img.channels;
+          const lum = (d, i) => 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+          let n = 0, big = 0, flat = 0;
+          for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+            const i = (y * W + x) * ch;
             let d = 0;
             for (let c = 0; c < 3; c++) d = Math.max(d, Math.abs(img.data[i + c] - ref.data[i + c]));
             if (d > 0) n++;
-            if (d > 2) big++;
+            if (d <= 2) continue;
+            big++;
+            let lo = 255, hi = 0;
+            for (let yy = Math.max(0, y - 2); yy <= Math.min(H - 1, y + 2); yy++) {
+              for (let xx = Math.max(0, x - 2); xx <= Math.min(W - 1, x + 2); xx++) {
+                const v = lum(ref.data, (yy * W + xx) * ch); if (v < lo) lo = v; if (v > hi) hi = v;
+              }
+            }
+            if (hi - lo <= 40) flat++;
           }
-          diff = { anyPx: n, over2: big };
+          diff = { anyPx: n, over2: big, over2Flat: flat };
         }
         if (keep && img) ref = img;
         const row = { name, tod, arm, set, frames: f0, stats, shadow, scene, diff, hdr, edges: edges.map((e) => ({ name: e.name, box: e.box, ...e.s })) };
@@ -253,7 +272,7 @@ async function district() {
           `calls ${stats.calls} scene ${stats.sceneCalls} tris ${stats.triangles}  ` +
           `shadow ${shadow ? `${shadow.hash} diff ${shadow.diffTexels}` : 'none'}  ` +
           `tags ${scene.tagged}${scene.lost !== undefined ? ` lost ${scene.lost} gained ${scene.gained} lost>emitterBar ${scene.lostOverEmitter} (worst ${scene.worstLostLum.toFixed(4)} vs bar ${scene.threshold} / lit ${scene.thresholdLit})` : ''}  ` +
-          `${diff ? `frame diff ${diff.anyPx} px (${diff.over2} > 2 levels)` : ''}`);
+          `${diff ? `frame diff ${diff.anyPx} px (${diff.over2} > 2 levels, ${diff.over2Flat} of them off any edge)` : ''}`);
         for (const e of edges) console.log(formatEdge(`    ${e.name}`, e.box, e.s));
         if (hdr.length) console.log('    exposed HDR  ' + hdr.map((x) => `${x.name} ${x.luma.toFixed(4)} (${x.rgb.map((v) => v.toFixed(3)).join(',')})`).join('  '));
       }
