@@ -389,10 +389,17 @@ if (IS_MAIN && !SELFTEST) {
         fill.visible = false;
         d.scene.add(fill);
         fill.updateMatrixWorld(true);
-        // Each patch's inner 40% on screen, so no edge pixel is read.
+        // Each patch's inner 40% on screen, so no edge pixel is read — off the patch's OWN vertices pulled 60%
+        // toward their centre. (The first version took the local XY plane for both: right for the fill, which
+        // lookAt() orients, and wrong for the meter, whose GEOMETRY was turned into XZ, so its box spanned
+        // pixels off the patch and read the fivepoints meter at 0.54 of the dome. The selftest cannot see a
+        // box; the page reads below are checked against skyDelivery() and the sun's closed form instead.)
         const boxOf = (mesh) => {
-          const cs = [[-S, -S], [S, -S], [S, S], [-S, S]].map(([u, v]) =>
-            new THREE.Vector3(u * 0.4, v * 0.4, 0).applyMatrix4(mesh.matrixWorld).project(cam));
+          const pa = mesh.geometry.attributes.position;
+          const vs = [];
+          for (let k = 0; k < pa.count; k++) vs.push(new THREE.Vector3().fromBufferAttribute(pa, k));
+          const c = vs.reduce((a, v) => a.add(v), new THREE.Vector3()).multiplyScalar(1 / vs.length);
+          const cs = vs.map((v) => v.clone().sub(c).multiplyScalar(0.4).add(c).applyMatrix4(mesh.matrixWorld).project(cam));
           return [Math.ceil(Math.min(...cs.map((c) => (c.x + 1) / 2 * W))), Math.ceil(Math.min(...cs.map((c) => (1 - c.y) / 2 * H))),
             Math.floor(Math.max(...cs.map((c) => (c.x + 1) / 2 * W))), Math.floor(Math.max(...cs.map((c) => (1 - c.y) / 2 * H)))];
         };
