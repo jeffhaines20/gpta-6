@@ -36,10 +36,15 @@
 // the road outside gets in. It stops AT the plan footprint: just outside the sill the car blocks the
 // lamps on its far side only, which is a directional shadow a symmetric footprint would get wrong.
 //
-// IT IS ON WHEN THE LAMPS ARE. By day the sun's shadow does this job, and does it better — it is
-// directional, and at golden hour the low sun genuinely reaches under a car from its sun side, which a
-// footprint would black out. At dusk the lamps are lit and the sun is 2% of the light on the road
-// (src/daynight.js), so the footprint costs that 2% under a car and buys the lamps' contact.
+// IT IS ON AT DUSK AND AT NIGHT, with the CARS' lamps (`lampsOn`), and NOT with the street lamps' photocell.
+// By day the sun's shadow does this job, and does it better — it is directional, and at golden hour the
+// low sun genuinely reaches under a car from its sun side, which a footprint would black out. At night the
+// lamps light the road. At dusk the street lamps are OFF since #142 — the light on the street is far over
+// a photocell's turn-on (src/daynight.js PHOTOCELL_ON_LUX) — and the sun is 2% of the light on the road, so
+// what the floor pan blocks there is the SKY, which no shadow map carries and which the profile above
+// already prices (its share through one side is sin^2(atan(h / d))). So the footprint stays on at dusk and
+// stands for the sky there rather than for the lamps; keyed to the photocell it would leave the road under
+// every car lit by a sky the car is standing between it and. Measured at dusk in BACKLOG #142.
 import * as THREE from '../vendor/three.module.min.js';
 import { CAR } from './carbody.js';
 

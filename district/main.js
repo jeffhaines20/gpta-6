@@ -416,8 +416,9 @@ scene.add(carMesh.group);
 console.log('player car', JSON.stringify(carMesh.report()));
 
 // #141's night half: the lamps cast no shadow, so the road under a car is lit as if it were not
-// there. One footprint per car, ONE draw call for every pool, drawn while the lamps are lit — see
-// src/carcontact.js for the profile and why it is off by day. The sources are reused objects,
+// there. One footprint per car, ONE draw call for every pool, drawn at dusk and night with the CARS' lamps
+// (`lampsOn`, not the street lamps' photocell: at dusk it stands for the sky the floor pan blocks, #142) —
+// see src/carcontact.js for the profile and why it is off by day. The sources are reused objects,
 // because this runs every frame and an object per car per frame is how this repo has met a GC spike.
 const carContact = new CarContact(scene);
 const _contactSources = [];
@@ -2247,7 +2248,8 @@ function animate(now) {
   carMesh.setLights(tod.preset.lampsOn, post.params.exposure);
   if (traffic) traffic.setLights(tod.preset.lampsOn, post.params.exposure);
   // After every pool has written this frame's matrices: the parked pool re-seeds round the camera,
-  // the fleet moves, the player's group was placed above.
+  // the fleet moves, the player's group was placed above. With the cars' switch, not tod.streetLampsOn:
+  // at dusk the street lamps are off and the floor pan still blocks the sky (src/carcontact.js).
   carContact.setLit(tod.preset.lampsOn);
   if (carContact.mesh.visible) placeCarContact();
   if (pursuit && pursuit.mesh.visible) pursuit.setLights(tod.preset.lampsOn, post.params.exposure);
