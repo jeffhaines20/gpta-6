@@ -3192,7 +3192,7 @@ page through the real noon light; 22-33 s on a loaded box, the selftest 0.3 s).
 `globe-round` and `globe-round --selftest` (#140: a purpose-built page, 29 s idle, 37 s at load 7; the selftest 1 s).
 `shadow-floor` and `shadow-floor --selftest` (#141, offline, 2 s and 5 s),
 `shadow-bias --selftest` (#141's probe, offline).
-`leaf-cover` and `leaf-cover --selftest` (#145: a purpose-built page, 15 s at load 9; the selftest under a second),
+`leaf-cover` and `leaf-cover --selftest` (#145: a purpose-built page, 22 s at load 12; the selftest about a second),
 `leaf-edge --selftest` (offline, under a second).
 **Fifty-six entries in 241 s** on 2026-10-19, run alone; fifty-nine in 607 s on 2026-10-22 at load 12. **Add a new gate to BOTH lists** — this one
 and `mutation-sweep`'s offline list: `car-shapes` sat on this one and not the sweep's, so nothing it

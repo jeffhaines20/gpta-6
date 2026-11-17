@@ -521,14 +521,16 @@ function selftest() {
   const L = (steps, hardFrac, midShare) => ({ steps, hardFrac, midShare });
   const C = (steps, hardFrac, midShare, mass, partial) => ({ steps, hardFrac, midShare, mass, partial });
   const T = (gaps, solid) => ({ rows: 50, gaps, solid, gapFrac: gaps / (gaps + solid) });
+  // The tags and the bright read are the 2026-11-17 22:44 run's, with the notag arm and the lit tag: the
+  // rim arm's figures stand for every coverage arm (three's real ones are 0.609 lit-tagged, 171.67 handed on).
   const tagT = { opaqueTagged: 1, cutTagged: 0.997, cutUntagged: 0, cutLit: 0, cutFull: 0 };
-  const tagC = { opaqueTagged: 1, cutTagged: 0, cutUntagged: 0.316, cutLit: 0.684, cutFull: 0 };
-  const tagN = { opaqueTagged: 1, cutTagged: 0, cutUntagged: 1, cutLit: 0, cutFull: 0.684 };
+  const tagC = { opaqueTagged: 1, cutTagged: 0, cutUntagged: 0.114, cutLit: 0.675, cutFull: 0.0005 };
+  const tagN = { opaqueTagged: 1, cutTagged: 0, cutUntagged: 1, cutLit: 0, cutFull: 0.677 };
   const U = { threshold: 0.001, thresholdLit: 1000, exposure: 1 };
   const K = (n, gpu, js, lum) => ({ n, gpu, js, lum });
-  const brT = { uniforms: U, classes: { tagged: K(3000, 0, 0, 1500), all: K(3000, 0, 0, 1500) } };
-  const brC = { uniforms: U, classes: { litTag: K(2000, 0, 0, 1000), mixed: K(1000, 450, 452, 500), all: K(3000, 450, 452, 1500) } };
-  const brN = { uniforms: U, classes: { coverage1: K(2000, 998, 998, 1000), mixed: K(1000, 450, 452, 500), all: K(3000, 1448, 1450, 1500) } };
+  const brT = { uniforms: U, classes: { tagged: K(4470, 0, 0, 255.60), mixed: K(27, 1.97, 1.97, 3.37), all: K(4497, 1.97, 1.97, 258.97) } };
+  const brC = { uniforms: U, classes: { litTag: K(1712, 0, 0, 112.10), mixed: K(2785, 88.49, 88.49, 157.48), all: K(4497, 88.49, 88.49, 269.58) } };
+  const brN = { uniforms: U, classes: { coverage1: K(1719, 111.05, 111.05, 112.77), mixed: K(2778, 154.03, 154.03, 156.81), all: K(4497, 265.08, 265.08, 269.58) } };
   const good = {
     size: { w: 640, h: 400 }, cut: 1610, total: 1656, pixels: { cut: 22559, opaque: 4061 }, mergedVsTestBytes: 0,
     shipped: { mode: 'centred', rim: true, a2c: true },
