@@ -6342,3 +6342,30 @@ metre of a street lamp glow in a photograph, so the gradient runs the wrong way.
 none measured: the leaf cards' material does not take the LightPool's lights, or takes them with normals
 facing away; or the AO (whose broad darkening #141's review preferred) darkens the inner canopy and nothing
 lifts it. #139 moved lamps out of palm crowns; which species these two canopies are is not checked.
+
+### #145 OPEN — hard-edged foliage and pale trunks: the item every blind review lists in both arms
+Filed 2026-11-17 from the month's blind reviews, every one of which listed it among the things wrong in
+BOTH builds, independently. Kept verbatim under "#145 (as filed)"; nothing below it is measured yet.
+
+#### #145 (as filed)
+- **Leaf edges are binary.** "86% of leaf/sky boundary pixels have no partial coverage" (corridor noon
+  [640,240,760,320]) and "78%" (fivepoints noon [600,330,760,420]); "only 3.8% of 5,983 leaf/sky edge
+  pixels are an in-between value" (corridor noon [470,130,330,110]) against 12-17% at a pole or building
+  edge; "92-94% of sky-to-leaf steps have no intermediate pixel" in three corridor canopy boxes (#125's
+  arch reviewer). One reviewer added that 1-3 px far objects "appear or disappear depending on which
+  pixels they cover". The boxes are in two conventions as quoted: the first two are x0,y0,x1,y1 and the
+  third is x,y,w,h (330 < 470 cannot be an x1).
+- **Trunks and limbs are flat pale ribbons.** "Flat, pale, colourless strips about 30 px wide" at
+  corridor noon from (20,520) to (480,180) and from (1170,150) to (1530,520); luma 0.195 and 0.170 at
+  [292,328,10,8] and [262,350,8,8] (x,y,w,h), RGB about 1.00 : 0.99 : 0.94, "twice as bright as the
+  sunlit brick wall [100,282,80,14] (0.091)". Another: "smooth untextured ribbons with torn, notched
+  edges"; another: a limb box at 0.437, "brighter than the sunlit bonnet (0.345) and road (0.287)".
+  (#125's batch reviewer: "the corridor's tree limbs as flat pale ribbons brighter than the sunlit
+  bonnet".)
+
+Unmeasured leads from reading the code: every static prop shares ONE material (`propMaterial()`,
+src/streetfurniture.js) whose `alphaMap` stencil is cut at `alphaTest` 0.42, and src/post.js renders
+the scene into a 4-sample MSAA target, so an alpha-tested cut-out edge is decided per PIXEL and gets no
+partial coverage however many samples the target carries; three's `alphaToCoverage` would turn the test
+into coverage. The bark's albedo is a vertex colour (`OAK_BARK`, sRGB 0x847f75-0x9a9488) whose comment
+calls live oak bark "PALE", and nothing has measured it against a photographed trunk.
