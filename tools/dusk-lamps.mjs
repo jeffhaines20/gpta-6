@@ -478,6 +478,22 @@ if (IS_MAIN && !SELFTEST) {
           px: mA.n, bad: mA.bad + mB.bad + mBnoSun.bad,
         };
 
+        // ---- WHICH PIXELS ARE GLOBE. globeRead finds a globe's core by its emission (the tag's share times the
+        // pixel's luminance equals the material's emitted luminance), and a build whose globes emit nothing at
+        // this hour has nothing to find them by: the test passes every non-emitting pixel in the disc, bracket
+        // and occluders included (the first AFTER run read lamp 284's outer globe at 0.101 of its sky off 37 such
+        // pixels, where the base run had found 2). So such a build gets ONE extra read with the globes lit at the
+        // module's own level, used only to mark the pixels; every number is still read off the unlit states.
+        let ID = A, idLemit = Lemit;
+        if (!(Lemit > 0)) {
+          head.emissiveIntensity = fur.globeIntensity();
+          await waitFrames(n);
+          ID = readState();
+          idLemit = lumE * head.emissiveIntensity;
+          head.emissiveIntensity = shippedEI;
+          await waitFrames(n);
+        }
+
         // ---- every globe in frame, both of each lamp's
         cam.updateMatrixWorld();
         const tanH = Math.tan((cam.fov * Math.PI / 180) / 2);
@@ -495,9 +511,11 @@ if (IS_MAIN && !SELFTEST) {
             const sx = (ndc.x + 1) / 2 * W, sy = (1 - ndc.y) / 2 * H;
             const rpx = G.r * (H / 2) / (tanH * dep);
             if (rpx < 1.2) continue;
-            const g = M.globeRead({ on: A.rgb, off: C.rgb, share: A.share, depth }, W, H, { sx, sy, r: rpx }, Lemit);
+            // `on` is the identifying read (A itself when the globes emit), so on/sky is the globe at the module's
+            // level and off/sky the globe unlit, both on pixels its own emission marked.
+            const g = M.globeRead({ on: ID.rgb, off: C.rgb, share: ID.share, depth }, W, H, { sx, sy, r: rpx }, idLemit);
             // The same core pixels against state E (sky only): its ratio to E's own sky ring, and its warmth.
-            const gE = M.globeRead({ on: A.rgb, off: E.rgb, share: A.share, depth }, W, H, { sx, sy, r: rpx }, Lemit);
+            const gE = M.globeRead({ on: ID.rgb, off: E.rgb, share: ID.share, depth }, W, H, { sx, sy, r: rpx }, idLemit);
             const lumOf = (v) => 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
             globes.push({ lamp: li, globe: gi === 0 ? 'outer' : 'inner', world: [+wv.x.toFixed(2), +wv.y.toFixed(2), +wv.z.toFixed(2)],
               sx: +sx.toFixed(1), sy: +sy.toFixed(1), depth: +dep.toFixed(1), rpx: +rpx.toFixed(2), ...g,
@@ -593,7 +611,7 @@ if (IS_MAIN && !SELFTEST) {
           globeLit: !!fur._lit, globe: { emissiveIntensity: shippedEI, Lemit, lumEmissive: lumE, color: `#${head.color.getHexString()}`,
             castShadow: fur.heads.castShadow, receiveShadow: fur.heads.receiveShadow, roughness: head.roughness, metalness: head.metalness,
             emissive: `#${head.emissive.getHexString()}`, report: fur.globeReport ? fur.globeReport() : null },
-          meter: meterOut, globes, pool, emitters, boxes: boxOut,
+          meter: meterOut, globes, pool, emitters, boxes: boxOut, globesFoundBy: ID === A ? 'their own emission' : 'one read lit at the module level',
           frameMean: { A: stat(A.lum), B: stat(B.lum), C: stat(C.lum), D: stat(D.lum) },
           sky: { px: skyN, meanNits: skyN ? skyS / skyN : null },
         };
