@@ -6305,6 +6305,267 @@ play. And at night nothing darkens the road under a car once #138's guard stops 
 through the sill: the lamps cast no shadow, so a contact term for cars (an occlusion footprint) is the
 candidate there. Order: #141 first, then #138 re-reviewed with both arms carrying it.
 
+### #142 FIXED (not yet blind-reviewed) — at the dusk preset a street lamp is OFF: the light on the street is x100 a photocell's turn-on, so the street lamps answer to a photocell and the cars keep their lamps
+
+**The first question, answered by the page.** `tools/dusk-lamps.mjs` (new) parks an albedo-1, specular-free
+(MeshPhysical, specularIntensity 0), unshadowed patch face up 2.4 m in front of each hero lens and reads pi
+times its radiance off the HDR scene target — the horizontal illuminance, which is the quantity both standards
+below are written in. At corridor dusk, base build (a2e0626, served from an export):
+
+    meter, corridor dusk     1,576.3 lux = pool 10.4 + sun 31.0 + sky 1,535.0
+    the module's quantity    1,623.9 lux = sun on the horizontal 27.5 + skyDelivery() 1,596.5 (the dome's integral)
+    ANSI C136.10 turn-on        16.1 lux (1.5 fc)          x100.6 under the light on the street
+
+(The meter's "sun" is 13% over the closed form because TimeOfDay.follow() recomputes the district bounce from
+the sun's intensity every frame, so switching the sun off also removes its share of the bounce. The meter's sky
+is 0.96 of the dome's own integral, the roughness-1 PMREM's usual shortfall.) The 1,764 lux the entry quotes is
+the meter from before the sky stopped being delivered twice; daynight.js's own table has 1,409 after it and the
+bounce has been added since.
+
+**The standards.** A street lamp switches on a photocontrol. Specified to ANSI C136.10, it turns on at 1.5 fc
+(16.1 lux), off at no more than 1.5x that, and reads only the sun and the sky: Riverside (CA) Public Utilities
+Specification No. 1-6.3 rev. 3 (2019), sections 2 and 5 ("Turn-on: instantaneous calibrated at 1.5 fc. Maximum
+ratio of Turn-Off to Turn-On is 1.5:1 ... Blind to LED and HID light, reacts only to sunlight"), and NSi
+Industries' TORK ZB124 sheet, listed to ANSI C136.10-2010 ("Turn On Light Level: 1.5fc Instant. Turn Off Light
+Level: 2.2fc"). The standard's own text is not public and was not read. A car's automatic dipped beams answer to
+UN Regulation No. 48, Annex 13 (OJ L 347, 30.9.2021): ON under 1,000 lux, OFF over 7,000, the maker's choice
+between, "measured on a horizontal surface, with a cosine corrected sensor"; Florida s. 316.217(1)(a) requires
+lighted lamps "at any time from sunset to sunrise including the twilight hours". The dusk preset's sun is 3.15
+degrees up (0.055 rad): 18 to 20 minutes before sunset at Sarasota's 27.3 N, where the sun falls 11.9-13.3
+degrees an hour at the horizon (15 cos(lat) cos(dec) sin(H0), equinox to solstice, sunset at -0.833).
+
+So at the same light the two standards part: the street lamps are off (x100 their turn-on) and the cars may be
+on (inside R48's band). One switch, `lampsOn`, was serving both.
+
+**What emits in the frame at dusk, and what switches it.** Every pixel whose emitted part (the #114 tag's share
+times its luminance) reaches 0.01 exposed, as connected components, each identified by a raycast at its peak and
+read again with the globes' emissive off and with the pool off. Corridor, base build:
+
+    what                                         peak nits   exposed   switched by
+    traffic-signal lenses (props, propMat)       745-2,934   0.38-1.51  always: "signal lenses burn day and night"
+    emitted light on the pavement by the shops   485-1,516   0.25-0.78  the hour (shop spill, src/signage.js)
+    shopfront trim, lit                          255-361     0.13-0.19  the hour (TRIM_EMISSIVE dusk 144)
+    shop signage                                 188-328     0.10-0.17  the hour (SIGN_EMISSIVE dusk 430)
+    street-lamp globes                           131.6       0.068      the street lamps (`furniture.setLit`)
+
+Every component but the globes reads x1.000 with the globes' emissive off and x0.998-1.000 with the pool off, so
+none of them is a street lamp or lit by one. (Components the raycast names "lamp:pole" are globes under 1.2 px,
+which the probe's analytic globe test skips and a ray passes through to the pole; and the "pavement" ones the
+raycast lands on the sidewalk without naming the emitter drawn there. Neither changes the table.) So at dusk
+the street lamps' globes were the DIMMEST lit thing on the street, under every shop and signal: the frame's own
+hierarchy already said the street lamps were not doing anything.
+
+**The reviewer's corridor "low lamp" is not a lamp.** Its box [1025,405,1100,465] holds no globe (the nearest,
+lamp 285's inner, projects at x 903). Its brightest pixel, at (1056,437), is the midOffice facade 42.9 m out and
+5.7 m up — 589.5 nits at dusk and 589.7 at night, the same radiance at both hours because it is a LightPool
+light's specular lobe on the facade: with the pool off it reads 58.8 nits at dusk and 0.0 at night. It is the
+phenomenon #136 named "a light with no fixture" (which light makes this one was not traced; #136's disc sat at
+about (975,454) before #137 re-placed the lamps). At night it is 110 exposed and reads as a lamp;
+at dusk it is 0.30 exposed and reads as an unlit one. Nothing in that box is a fixture at either hour.
+
+**What the pool added at dusk.** At the corridor camera: 10.4 of the meter's 1,576 lux (0.66%), 0.11% of the
+frame's luminance, 2,119 pixels lifted over 5%, 49 over 25% — and its one visible piece is that lobe, x10.0 the
+pixel without it. At night the same ten lights are 10.3 of 10.8 lux at the meter and 65% of the frame.
+
+**The reviewer's fivepoints "wall lamp" is the same thing, brighter.** Its box [1095,230,1205,315] holds no globe
+either. Its brightest pixel, (1133,273), is the retailStrip facade 17.8 m out and 6.6 m up: 4,184 nits, 2.15
+exposed — which the tone curve takes to about the 0.72 the reviewer read — and 202 nits with the pool off. The
+nearest lamp head to that point is lamp 831's, 5.6 m away (placeStreetLamps offline, the page's own indices:
+lamp 831's two globes are the pair just left of the box). So the two lamps that "contradict each other" are one
+mechanism, a pool light's specular lobe on a facade, at two geometries: 0.30 exposed at corridor (dark) and 2.15
+at fivepoints (glints). Neither is a fixture, and neither is the globe the review was about. The pool's next
+brightest pieces at fivepoints dusk are glints on the player's car glass (653 and 516 nits, x2.5-3.1 the pixel
+without the pool); over the frame it adds 0.12% of the luminance, 1,537 pixels over 5% and 148 over 100%.
+
+At fivepoints the same table of emitters holds, with one addition: the player's car's lamps, 9,032 nits (4.64
+exposed), lit by `lampsOn` and untouched by either switch (x0.998-1.000). The globes again draw 131.6 nits under
+the signals (2,717), the trim (2,318) and the car.
+
+**The second question: the globe, with its emissive on and off on the SAME pixels.** Every street-lamp globe in
+frame (both of each lamp's, off the module's own LAMP_GLOBES and each lamp's instance matrix), its core where the
+pixel carries the material's own emitted luminance to 10%, against a ring of sky 1.4-2.2 radii out — sky by the
+composite's own rule (depth >= 0.999999), so a facade or a frond behind the globe is not "sky". Luminance in the
+HDR target, so the ratio is exposure-free; warmth as (R-B)/luma:
+
+                                    globe / its sky ring                    (R-B)/luma
+                                emissive on   off      sky alone      on          off         ring
+    corridor, 11 globes          0.61-1.70    0.48-1.34     -       1.26-1.41   1.36-1.52   0.38-1.11
+      the 4 at r >= 3 px         0.85-1.08    0.66-0.83     -
+    fivepoints, 9 globes         0.67-1.46    0.53-1.13   0.43-0.93 1.20-1.37   1.30-1.50   0.24-1.10
+                                                          (sky alone: (R-B)/luma 1.09-1.30; the sun 16-19% of an unlit globe)
+
+**The emissive is not what makes the globe orange: switching it off makes the globe WARMER**, on every globe in
+both frames. 0xffd9a0 alone is (R-B)/luma 0.88, and it is added to a base that reads 1.30-1.52, so it dilutes the
+orange. The orange is the light the globe's visible side is lit by: a neutral albedo-1 patch standing vertical and
+facing the lens at fivepoints reads (R-B)/luma 1.33 under 2,696 lux, and 1.14 under the 2,230 of it the sky gives
+with the sun off. Both hero cameras look along +x down Main Street (waypoint 3 to 4) and the dusk sun stands
+155.9 degrees from that view, so the side of anything that faces them faces the sunset, while the ring of sky
+behind a globe is the sky away from it, 0.24-1.11. An unlit globe lit by the west and seen
+against the east is warmer than its sky and, being an opaque diffuser of albedo 0.65 (0xd8d2c4), mostly darker
+than it — which is what a pale object facing a sunset does. Two smaller terms on top, measured and not changed
+here: the base colour is itself warm (0xd8d2c4 is (R-B)/luma 0.21, where opal glass is near neutral), and the
+head mesh CASTS shadows but does not RECEIVE them (`StreetFurniture._instanced` sets castShadow only), so a globe
+in building shade still takes the 3-degree sun's whole beam — 16-19% of an unlit globe at fivepoints. Both are
+filed below rather than folded in: neither is a switch.
+
+**So the dusk globe is an unlit globe now**, at 0.53-0.83 of its sky ring for the near ones and warm, where the
+lit one was 0.67-1.08 and a little less warm. The level question does not arise. Had the lamps been lit, the same
+reads price it: for a near globe to read twice its sky ring at dusk the emissive would need 600-960 nits over its
+lit base, 1/3 to 1/5 of the physical luminance and x4.5-7.3 the shipped level; #136's own glare table puts 1/10
+at 4.4 globe radii at 58 m against its x3.0 bound, so one level cannot serve both hours, and a level per hour is
+the second term #136 refused.
+
+**After the change, the same probe on the same cameras** (the tree at 9f5d797, served live). Corridor dusk: the
+street lamps off by their cell (1,623.9 lux, R48 "either"), no pool light lit, the globes' emissive 0; the meter
+1,565.9 lux = sun 31.0 + sky 1,535.0 and nothing else, which is the base build's pool-off reading to the decimal;
+the reviewer's box reads 108.384 nits, the base build's pool-off mean to the third decimal, its peak now a shop
+sign (442.6 nits) with the lobe gone; the emitter list is the base build's, line for line; and the frame mean,
+181.965 nits, is the base build's state D (pool off and globes dark) to the third decimal — two page loads, so
+that equality is also the registration of the pair. (That run's globe ROWS are void: the probe found a globe's
+pixels by its emission, which an unlit build has none of; fixed at f6dd36d, and the base run's state C is the same
+light on pixels its emission verified.)
+
+**Weather cannot move the decision.** The cell is decided in apply(), so the probe snaps to heavyRain (overcast 1,
+turbidity 4.4), re-applies the hour — the synchronous dome refresh apply() does — and reads the cell: corridor dusk
+goes from 1,623.9 to 564.8 lux (sky 1,596.5 to 537.3), x35 the turn-on, still off, and back to 1,623.9 on clearing.
+The scene's sun keeps its 27.5 lux under overcast — no weather state dims the DirectionalLight, which is its own
+question — so the sky alone is 537 lux, x33. (A first version read 4 frames after an asynchronous snap without
+re-applying, and saw clear and heavy identical to the hundredth: not a measurement of weather.)
+
+Fivepoints dusk after the change (f6dd36d, the probe fixed): the meter reads 1,565.9 lux = sun 31.0 + sky 1,535.0,
+the corridor's figure to the hundredth (one dome, one PMREM: the base run's 876.9 there was the box); the reviewer's
+box reads 229.679 nits, the base's pool-off mean exactly, its peak now open sky (620 nits) with lamp 831's lobe
+gone; the frame mean 294.374 against the base's state D 294.376. The globes, found by one read lit at the module's
+level and measured unlit, read 0.525-1.131 of their sky ring — the base run's state C to within 0.009 on every
+globe, the largest gap an inner globe its twin's pool light had lifted 1.4% in the base. So the base run's state
+C is the after build's globe, measured on pixels its own emission verified. (With the pool off in both reads, 69
+pixels still differ between two frames, all on the player's car: the speckle #136's review found and did not
+explain, not this change.)
+
+**#141's footprint stays with the cars, and at dusk it is the sky's.** It keyed on `lampsOn` and its comment
+justified dusk by the street lamps. With them off, `tools/shadow-bias.mjs` at fivepoints dusk on the changed
+tree (915fd8c), arms `shipped` and `noContact`, one page.evaluate (registration max relative difference 0), the
+road under the body over its ring:
+
+                               HDR, before the AO           composited
+                               without     with            without    with
+    the red car, 26.9 m         0.613      0.245            0.082     0.072
+    a parked coupe, 22.3 m      0.770      0.378            0.156     0.143
+
+At dusk the sky lights the road under a car at 61-77% of the open road around it, because no shadow map carries the
+sky; the footprint takes it to 25-38%, which is the profile's own sky term (src/carcontact.js: the sky's share
+through one side is sin^2(atan(h/d))) doing at dusk what it does for the lamps at night (its night pairs were
+0.773/0.326 and 0.836/0.394). As at night, the composited pair moves less (-9 to -12%) because the AO already
+darkens most of the gap. Keyed to the photocell it would switch off exactly here, which is the row
+`contact-follows-photocell`. The comment says so now; the switch is unchanged.
+
+**The captures, the rows and the gates' lines** — pending, this round is still running them.
+
+**The decision.** The street lamps are OFF at the dusk preset, by a photocell computed off the light the hour
+delivers, because every number above says a real one would be: x100 its turn-on on the page, x35 under the
+heaviest weather, x24 even through the HemisphereLight's quarter of the sky offline. The cars keep `lampsOn`,
+because R48 leaves 1,000-7,000 lux to the maker and the page reads 1,624. That one decision answers the frame's
+contradiction (both "lamps" were the same lobe, and it is gone), removes nothing a player could miss (the pool
+was 0.11-0.12% of the dusk frame), and leaves every globe an unlit globe at dusk, lit by the sunset — warm,
+mostly darker than the sky behind it, and not orange because of the emissive, which it no longer has. Night does
+not move (the cell is lit there, every number identical), and noon and golden cannot (both switches off). The
+globe's level is untouched; it is the night's.
+
+**The change.** `src/daynight.js`: `FOOTCANDLE_LUX`, `PHOTOCELL_ON_LUX` (1.5 fc, 16.146 lux), `PHOTOCELL_OFF_RATIO`
+(1.5, recorded, unused: a preset is one light, not a falling one), `R48_ON_LUX`/`R48_OFF_LUX`, `daylightLux()`,
+`photocellLit()`, `r48Band()` (lines 785-808); `TimeOfDay.photocellLux()` (line 1701), the sun on the horizontal
+plus `skyDelivery()` — bounceDelivery's E_h, the dome's integral when its PMREM carries the sky and the
+HemisphereLight otherwise; `apply()` computes it after the dome block and the hemisphere and drives the globes
+(`furniture.setLit`), the LightPool and any registered lamp from it (lines 1665-1690), and the audit flags a lit
+street lamp or lit globes where the cell holds them off and reports the cell, R48's band and both switches
+(lines 1911-1918, 2005). `district/main.js`: the per-frame `lightPool.update` reads `tod.streetLampsOn` (line
+2236) — it re-lit the pool every frame whatever apply() decided, which is exactly the shape of the per-frame host
+line this file records twice; the cars (`setLights`, line 2248) and #141's footprint (line 2253) stay on
+`lampsOn`, with the reason at each. `src/carcontact.js`: the footprint's comment says why it stays on at dusk
+(the sky, line 39). Nothing else moves: facades and signage switch by hour (interior light and the shops'
+own timers, not street lighting), the traffic signals burn always, and the parked cars' tail reflectors were
+already keyed to the street lamps' flag (`StreetFurniture._lit`, "a reflector with nothing shining on it
+returns nothing"), so they go dark at dusk with the lamps — a visible change the captures carry.
+
+**Gated.** `tools/photocell.mjs` (new, on both lists, 11 checks, 0.2 s): the real TimeOfDay through every preset
+with a real StreetFurniture and LightPool in its scene. Offline the sky is the HemisphereLight's, so dusk reads
+382.4 lux (sun 27.5 + sky 354.9), x23.7 the turn-on, and night 0.225 lux, x1/72: the quantity recomputed off
+the lights, the verdict at every hour, every street-lamp switch following the CELL's reading (not the module's
+own flag), the cars inside R48's band at every hour, the margin at least x10, and KNOWN-BAD, live: `lampsOn`
+and the cell part at dusk and nowhere else; the audit flags each provocation alone and the shipped light
+neither. `--selftest` (13): the measured report, eleven doctored reports, and the real module doctored to switch
+by `lampsOn`. `boot-check` (+3, one restated): the globe's level is read at NIGHT now (the boot preset is dusk,
+which the cell holds dark), and at the boot hour the page's cell reads the DOME's sky on one path at least x10
+the turn-on, every street lamp is off while the cars are on, and the host lights the pool at night and darkens it
+again back at the boot hour. `globe-round.html` lights its globe per hour by the cell read off its own white sun
+and sky (dusk 966 lux off, night 0.62 on), so its dusk shading row is an unlit globe; its gated shading is noon's.
+`globe-order` says a dusk run now reads no lamp light. `daynight-sweep` gates on an empty implausible list at
+every hour, which the new flags keep (see its line below).
+
+**Wrong on the way, in order.**
+
+- **The previous attempt's photocell read a light the district does not have.** Its row said the old rule lit the
+  lamps "at dusk at 382 lux": that is the HemisphereLight's closed form (900 x luma(0x93a9d6) = 354.9) plus the sun
+  on the horizontal (27.5) — and in the district the HemisphereLight is at intensity 0, the dome's PMREM carrying
+  the sky at 1,596 lux. Same verdict, a quarter of the quantity. This round's cell reads skyDelivery(), which is
+  the dome when the dome carries the sky; offline there is no dome, the gate says so, and boot-check asserts the
+  page's path.
+- **The brief's and the entry's figure, 1,764 lux, is two re-derivations old** — the meter before the sky stopped
+  being delivered twice. The brief's 3.2 degrees is 3.15 (0.055 rad), corrected in the comment that had copied it.
+- **The hypothesis that the emissive makes the globe orange**, in the entry and in the brief, is refuted: off is
+  warmer on every globe in both frames.
+- **My first gate compared the globes and the pool against the module's own flag** (`streetLampsOn`) rather than
+  the cell's reading, so a module that set its flag wrong agreed with itself; and it built the pool outside the
+  TimeOfDay's scene, so the audit's flag could not see the injected light. Its selftest caught both before the
+  first commit (the doctored real module failed none of the three checks it was written for).
+- **The probe's selftest had three defects of its own**: an expected value off the colour's 0.9992 luma, a NaN
+  pixel planted 25 px out for a 14-22 px ring, and a hand-rolled stride known-bad that read 15% off against a 20%
+  bound. Rewritten to feed an RGBA plane through the function itself.
+- **A shell loop dropped `.mjs`**: nine gates read rc=1 as `tools/photocell` and its siblings, ENOENT every one —
+  CLAUDE.md's `runGate` trap, in my own loop, an hour after reading it. Rerun split into file and arguments: nine
+  of nine green.
+- **The probe's per-hour screenshot timed out at 180 s at load 9**, twice a run, which is most of why its evaluate
+  "looked stuck". Opt-in now (DL_SHOT=1); hero-shots takes the frames.
+- **The meter's box stood vertical through a horizontal patch** for the fivepoints base run, after I gave the fill
+  patch its own box off the local XY plane: right for the fill (lookAt orients it), wrong for the meter (its
+  geometry was turned into XZ). The meter read 876.9 lux with its sun at 0.53 of the closed form and its sky at
+  0.54 of the dome — one common factor, a box's signature rather than a light's. Corridor's base run predates the
+  edit. Fixed off the patch's own vertices (checked offline: old corners at y 1.62-1.98 round a patch at 1.80).
+- **The first weather read could not move.** Four frames after snapping to heavyRain it read clear and heavy
+  identical to the hundredth, because a snap refreshes the sky asynchronously, leaves the scene's sun alone, and the
+  cell is decided in apply(). Re-reads re-apply the hour now.
+- **Three waiters on one log, twice** — CLAUDE.md's "arm ONE waiter per subject". Harmless only because they
+  grepped a file rather than `pgrep`-ed a name. And a two-hour chain of four probes armed at the start would have
+  been killed during its last run; replaced by one job per run before it started any.
+- **A process slip**: boot-check's and globe-round's restatements landed one commit after the change they restate
+  (a58c97a after 1eee792), both pushed before any run, not in the same commit as CLAUDE.md asks.
+
+**Not measured.** A photographed unlit globe against open sky, to set the dusk globe a target the way
+`glass-census` set the glazing's: none in `reference/sarasota` resolves one (Worth's Block's globes all stand
+against facades; Five Points' are a few pixels). ANSI C136.10's own text, which is not public: the 1.5 fc figure is
+a utility's specification and a listed product's sheet, both citing it. Which pool light makes the corridor's lobe.
+The emitter behind the "pavement" components at corridor (the raycast lands on the sidewalk). The receive-shadow
+change and a neutral base colour, each priced above and neither made. The fivepoints base meter (void, see above).
+Noon and golden hour, which the change cannot reach (the cell and `lampsOn` both off there, before and after —
+the gate's noon and golden rows), so they were not captured.
+
+**Filed from this round, measured and not fixed** (inside #142 rather than as new numbers: another branch has
+already filed a #145):
+
+- **The lamp heads cast shadows and do not receive them** (`StreetFurniture._instanced` sets castShadow only). A
+  globe in building shade takes the 3-degree dusk sun's whole beam: 16-19% of every unlit globe at fivepoints, and
+  the warmest part of it. It also lights the globes at golden hour. Receiving shadows is one flag and moves every
+  hour's globe, so it wants its own pair.
+- **The globe's base colour is warm**: 0xd8d2c4 is (R-B)/luma 0.21 where opal glass is close to neutral, and it
+  adds to the sunset's warmth on an unlit globe. With the emissive gone at dusk, the base colour is the whole
+  globe at that hour.
+- **Weather does not reach the light on surfaces until the hour is re-applied.** A weather snap refreshes the sky
+  asynchronously without rebuilding the PMREM, and no weather state dims the scene's DirectionalLight: under
+  heavyRain the sun keeps its 27.5 lux on the horizontal at dusk while the sky model's own sun falls by
+  (1 - 0.93 x overcast). Found by this round's weather read, which had to re-apply the hour to see the sky move
+  at all. Not measured on any frame.
+
+#### #142 (as filed)
 ### #142 OPEN — dusk lamp globes read as painted balls darker than the sky behind them, and nothing says whether a lamp is lit at dusk
 From #136's blind reviewer (2026-10-22), in BOTH arms, so not #136's doing: at fivepoints dusk the lantern
 globes are 0.59-0.79 of the sky ring around them, with (R-B)/L 0.83-1.22 against the sky's 0.17-0.37 — an
