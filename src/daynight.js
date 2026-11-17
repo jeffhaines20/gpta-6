@@ -777,15 +777,18 @@ export const PLAUSIBLE = {
 //
 // Both are the same quantity: the HORIZONTAL illuminance from the sun and the sky, which is exactly
 // what tools/sky-once.mjs's light meter reads and what bounceDelivery() calls E_h, the light on the
-// street. At the dusk preset the page's meter reads about 1,400 lux of it (tools/dusk-lamps.mjs, the
-// sun 3.15 degrees up and the sky the dome delivers): 87x a photocell's turn-on, so a real street
-// lamp is OFF, and inside R48's band, so a car may have its lamps on. At night it is 0.4 lux, a
-// fortieth of the turn-on: both on. At golden and noon, thousands of lux: both off. So the street
-// lamps follow the photocell computed off the light the hour delivers, and the cars keep `lampsOn`.
+// street. On the page at the dusk preset the cell reads 1,623.9 lux (the sun's 27.5 on the horizontal,
+// 3.15 degrees up, and the dome's 1,596.5; an albedo-1 meter by the corridor lens reads 1,565.9 of sun
+// and sky), x100 a photocell's turn-on, and 564.8 under heavyRain, x35: a real street lamp is OFF. It is
+// inside R48's band, so a car may have its lamps on. At night the cell reads 0.41 lux, a thirty-ninth of
+// the turn-on: both on. At golden and noon, thousands of lux: both off. (tools/dusk-lamps.mjs; BACKLOG
+// #142.) So the street lamps follow the photocell computed off the light the hour delivers, and the
+// cars keep `lampsOn`.
 export const FOOTCANDLE_LUX = 1 / (0.3048 * 0.3048);   // one lumen per square foot, in lux: 10.7639
 export const PHOTOCELL_ON_LUX = 1.5 * FOOTCANDLE_LUX;   // 16.15 lux: ANSI C136.10's 1.5 fc
 // The turn-off is at most 1.5x the turn-on (24.2 lux). Recorded, not used: a preset is one light, not a
-// falling one, and the hours sit 87x above and 40x below the turn-on, so no band between them decides.
+// falling one, and the hours sit x100 above (dusk) and x39 below (night) the turn-on on the page, so no
+// band between them decides.
 export const PHOTOCELL_OFF_RATIO = 1.5;
 // UN R48 Annex 13's automatic dipped-beam band, on the same horizontal illuminance.
 export const R48_ON_LUX = 1000;

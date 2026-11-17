@@ -2231,8 +2231,9 @@ function animate(now) {
   // ahead of us, so the selection made here is the one that renders.
   //
   // #142: the street lamps' PHOTOCELL, which TimeOfDay.apply() reads off the hour's own sun and sky —
-  // not `lampsOn`, which at dusk says the cars' lamps are on while the light on the street is 87x a
-  // photocontrol's turn-on. This line used to re-light the pool every frame whatever apply() decided.
+  // not `lampsOn`, which at dusk says the cars' lamps are on while the light on the street is x100 a
+  // photocontrol's turn-on (1,623.9 lux against 16.1). This line used to re-light the pool every frame
+  // whatever apply() decided.
   lightPool.update(camera.position, tod.streetLampsOn ? 1 : 0, camera);
 
   carMesh.group.position.copy(vehicle.position);
@@ -2243,7 +2244,7 @@ function animate(now) {
   //
   // `lampsOn`, NOT the street lamps' photocell (#142): UN R48's automatic dipped beams are ON under
   // 1,000 lux and the driver's choice to 7,000, on the same horizontal light a photocell reads, and
-  // dusk's ~1,400 lux is inside that band where a photocell's 16 lux is far below it. So at dusk the
+  // dusk's 1,624 lux is inside that band where a photocell's 16 lux is far below it. So at dusk the
   // cars are lit and the street lamps are not, which is what the two standards say about one light.
   carMesh.setLights(tod.preset.lampsOn, post.params.exposure);
   if (traffic) traffic.setLights(tod.preset.lampsOn, post.params.exposure);
