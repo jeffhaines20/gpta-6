@@ -18,10 +18,14 @@
       three      the split, three's own coverage, 0 AT the test             (why it is centred)
       rim        centred, and the bark fringe faded off the faces that look at the camera (shipped)
       depth05    rim without the custom depth material: three cuts the sun's map at 0.5
+      notag      rim without the covered leaf's lit tag: its alpha is its coverage, which the bright
+                 pass reads as UNTAGGED and holds to the emitter's bar (src/post.js COVERAGE_LIT_TAG)
 
   Per arm: the lit frame through the composite; a COVERAGE pass (no light, a white background, the same
   4-sample target, so a pixel's value is exactly the fraction of it the leaves cover); the sun's shadow
-  map, byte for byte; and the scene target's alpha, which carries #114's tag. And once, an ID pass:
+  map, byte for byte; the scene target's alpha, which carries #114's tag; and the BRIGHT PASS over the
+  leaf, rendered again with the emitter's bar at 0.001 and the lit bar at 1000, so a leaf texel hands the
+  blur all of its light if the pass reads it untagged and none if it reads it lit. And once, an ID pass:
   which pixels the opaque group drew and which the coverage group drew.
 -->
 <style>html,body{margin:0;background:#000}canvas{display:block}</style>
@@ -29,6 +33,7 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { PostStack } from '../src/post.js';
 import { __kit as K } from '../src/streetfurniture.js';
+import { splitEnergy } from './bloom-math.mjs';
 
 const qs = new URLSearchParams(location.search);
 const W = Number(qs.get('w') ?? 640), H = Number(qs.get('h') ?? 400);
@@ -174,14 +179,16 @@ try {
       mesh.customDepthMaterial = undefined;
     }
     if (arm === 'depth05') mesh.customDepthMaterial = undefined;
-    // The rim (src/streetfurniture.js BARK_RIM) is its own term: on in the shipped arm and the depth arm,
-    // off in every other, so 'centred' against 'rim' is the rim alone.
-    const rim = arm === 'rim' || arm === 'depth05';
-    K.setCoverageMode(fol, arm === 'merged' || arm === 'test' ? 'test' : (arm === 'depth05' || arm === 'rim') ? 'centred' : arm, rim);
+    // The rim (src/streetfurniture.js BARK_RIM) is its own term: on in the shipped arm, the depth arm and
+    // the tag arm, off in every other, so 'centred' against 'rim' is the rim alone; and the lit tag is off
+    // in the tag arm only, so 'rim' against 'notag' is the tag alone.
+    const rim = arm === 'rim' || arm === 'depth05' || arm === 'notag';
+    K.setCoverageMode(fol, arm === 'merged' || arm === 'test' ? 'test' : (arm === 'depth05' || arm === 'rim' || arm === 'notag') ? 'centred' : arm,
+      rim, arm !== 'notag');
     // Read back what the draw will be GIVEN: an arm whose switch never reached the material is two
     // identical frames and a confident "no change".
     return {
-      arm, mode: fol.userData.coverage, a2c: fol.alphaToCoverage, rim: fol.userData.rim,
+      arm, mode: fol.userData.coverage, a2c: fol.alphaToCoverage, rim: fol.userData.rim, litTag: fol.userData.litTag,
       materials: Array.isArray(mesh.material) ? mesh.material.map((m) => m.name || 'prop') : [mesh.material.name || 'prop'],
       groups: mesh.geometry.groups.length, customDepth: mesh.customDepthMaterial ? mesh.customDepthMaterial.name : null,
     };
@@ -189,9 +196,83 @@ try {
 
   const b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode(...u8.subarray(i, i + 8192)); return btoa(s); };
   const f32b64 = (f) => b64(new Uint8Array(f.buffer.slice(0)));
-  const ARMS = (qs.get('arms') ?? 'merged,test,centred,three,rim,depth05').split(',');
-  const report = { size: { w: W, h: H }, cut, total: buf.idx.length / 3, key, exposure: q.exposure, shipped: shippedMode, arms: {} };
   const frames = {};
+
+  // THE ID PASS, once: the opaque group green, the coverage group red, cut by the stencil at the test.
+  const idOpaque = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+  const idCut = new THREE.MeshBasicMaterial({ color: 0xff0000, alphaMap: mat.alphaMap, alphaTest: K.ALPHA_TEST });
+  setArm('test');
+  mesh.material = [idOpaque, idCut];
+  const idScene = new THREE.Scene();
+  idScene.background = new THREE.Color(0, 0, 0);
+  idScene.add(mesh);
+  renderer.setRenderTarget(null);
+  renderer.render(idScene, camera);
+  const idPx = grab();
+  frames.id = { rgb: b64(idPx) };
+  // And again with the cut group SOLID: a bench pixel counts only where no triangle of the tree stands
+  // in front of it, holes or not, so a check on the bench cannot read the tree through a hole an arm
+  // closes (the rim does exactly that).
+  mesh.material = [idOpaque, new THREE.MeshBasicMaterial({ color: 0x0000ff })];
+  renderer.render(idScene, camera);
+  frames.idSolid = { rgb: b64(grab()) };
+  scene.add(mesh);
+
+  // THE LEAF, for the bright read: a half-resolution texel counts only where the 4 x 4 full-resolution
+  // window around its own 2 x 2 is ALL cut-zone in the alpha-tested ID pass, so no texel of the sky, the
+  // bench or a leaf's own edge is in it. Top-down, as grab() is; a half-res row j is full rows 2j, 2j+1.
+  const isCut = (x, y) => x >= 0 && y >= 0 && x < W && y < H && idPx[(y * W + x) * 3] > 127;
+  const leafBlocks = [];
+  for (let by = 0; by < H >> 1; by++) for (let bx = 0; bx < W >> 1; bx++) {
+    let all = true;
+    for (let y = 2 * by - 1; y <= 2 * by + 2 && all; y++) for (let x = 2 * bx - 1; x <= 2 * bx + 2 && all; x++) all = isCut(x, y);
+    if (all) leafBlocks.push([bx, by]);
+  }
+  // THE BRIGHT PASS OVER THE LEAF, per arm: the scene target as the arm drew it, through the real bright
+  // pass at exposure 1 with the emitter's bar at 0.001 and the lit bar at 1000. A texel the pass reads
+  // as untagged hands the blur nearly all its light; one it reads as lit hands it none. Each block is
+  // also classed by what its four texels carry, and run through tools/bloom-math.mjs's splitEnergy, the
+  // JS copy of the same decode, so the copy is compared with the GPU rather than trusted.
+  const BRIGHT = { exposure: 1, threshold: 0.001, thresholdLit: 1000 };
+  const readAll = (rt) => {
+    const w = rt.width, h = rt.height, raw = new Uint16Array(w * h * 4);
+    renderer.readRenderTargetPixels(rt, 0, 0, w, h, raw);
+    const out = new Float32Array(w * h * 4);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) for (let c = 0; c < 4; c++) {
+      out[(y * w + x) * 4 + c] = halfToFloat(raw[((h - 1 - y) * w + x) * 4 + c]);
+    }
+    return { w, h, f: out };
+  };
+  const brightOverLeaf = () => {
+    const saved = { exposure: q.exposure, threshold: q.bloomThreshold, thresholdLit: q.bloomThresholdLit };
+    Object.assign(q, { exposure: BRIGHT.exposure, bloomThreshold: BRIGHT.threshold, bloomThresholdLit: BRIGHT.thresholdLit });
+    post.render();
+    const u = post.brightMat.uniforms;
+    const uniforms = { threshold: u.threshold.value, thresholdLit: u.thresholdLit.value, exposure: u.exposure.value };
+    const hdr = readAll(post.hdr), br = readAll(post.brightRT);
+    Object.assign(q, { exposure: saved.exposure, bloomThreshold: saved.threshold, bloomThresholdLit: saved.thresholdLit });
+    if (br.w !== W >> 1 || br.h !== H >> 1) throw new Error(`bright target ${br.w}x${br.h}, expected ${W >> 1}x${H >> 1}`);
+    const L = (f, k) => 0.2126 * f[k] + 0.7152 * f[k + 1] + 0.0722 * f[k + 2];
+    const cls = {};
+    const add = (c, gpu, js, lum) => { const e = (cls[c] ??= { n: 0, gpu: 0, js: 0, lum: 0 }); e.n++; e.gpu += gpu; e.js += js; e.lum += lum; };
+    for (const [bx, by] of leafBlocks) {
+      const gpu = L(br.f, (by * br.w + bx) * 4);
+      let js = 0, lum = 0, nLit = 0, nOne = 0, nNeg = 0;
+      for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
+        const k = ((2 * by + dy) * W + 2 * bx + dx) * 4, a = hdr.f[k + 3];
+        js += splitEnergy(hdr.f[k], hdr.f[k + 1], hdr.f[k + 2], a, BRIGHT.exposure, BRIGHT.threshold, BRIGHT.thresholdLit, q.bloomSoftKnee).energy / 4;
+        lum += L(hdr.f, k) / 4;
+        if (Math.abs(a - 4) <= 0.01) nLit++; else if (Math.abs(a - 1) <= 0.001) nOne++; else if (a >= -2.01 && a <= -0.99) nNeg++;
+      }
+      const c = nLit === 4 ? 'litTag' : nOne === 4 ? 'coverage1' : nNeg === 4 ? 'tagged' : 'mixed';
+      add(c, gpu, js, lum);
+      add('all', gpu, js, lum);
+    }
+    return { uniforms, classes: cls };
+  };
+  const ARMS = (qs.get('arms') ?? 'merged,test,centred,three,rim,depth05,notag').split(',');
+  const report = { size: { w: W, h: H }, cut, total: buf.idx.length / 3, key, exposure: q.exposure, shipped: shippedMode,
+    leafBlocks: leafBlocks.length, bright: BRIGHT, arms: {} };
   let shadowRef = null;
   for (const arm of ARMS) {
     const set = setArm(arm);
@@ -211,28 +292,11 @@ try {
       }
     }
     const cov = coverage();
+    const bright = brightOverLeaf();
     frames[arm] = { rgb: b64(rgb), cov: f32b64(cov), alpha: f32b64(alpha) };
-    report.arms[arm] = { ...set, shadowDiff, shadowTexels: shadow.length / 4 };
+    report.arms[arm] = { ...set, shadowDiff, shadowTexels: shadow.length / 4, bright };
   }
 
-  // THE ID PASS, once: the opaque group green, the coverage group red, cut by the stencil at the test.
-  const idOpaque = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
-  const idCut = new THREE.MeshBasicMaterial({ color: 0xff0000, alphaMap: mat.alphaMap, alphaTest: K.ALPHA_TEST });
-  setArm('test');
-  mesh.material = [idOpaque, idCut];
-  const idScene = new THREE.Scene();
-  idScene.background = new THREE.Color(0, 0, 0);
-  idScene.add(mesh);
-  renderer.setRenderTarget(null);
-  renderer.render(idScene, camera);
-  frames.id = { rgb: b64(grab()) };
-  // And again with the cut group SOLID: a bench pixel counts only where no triangle of the tree stands
-  // in front of it, holes or not, so a check on the bench cannot read the tree through a hole an arm
-  // closes (the rim does exactly that).
-  mesh.material = [idOpaque, new THREE.MeshBasicMaterial({ color: 0x0000ff })];
-  renderer.render(idScene, camera);
-  frames.idSolid = { rgb: b64(grab()) };
-  scene.add(mesh);
   setArm('centred');
   report.ok = true;
   window.__leafCoverFrames = frames;

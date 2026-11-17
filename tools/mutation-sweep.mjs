@@ -3683,6 +3683,18 @@ const MUTATIONS = [
     to: '\tif ( floor( vAlphaMapUv.x * ${PAL_W}.0 ) == ${S.foliage}.0 ) {',
     why: "the rim on the leaves' column: the crown's holes close where it faces the camera and the trunk stays a lattice",
   },
+  {
+    id: 'fol-lit-tag-off', file: 'src/streetfurniture.js',
+    find: '\tif ( gl_FragColor.a >= 1.0 ) gl_FragColor.a = ${COVERAGE_LIT_TAG.toFixed(1)};',
+    to: '\t// the covered leaf keeps its coverage as its alpha',
+    why: "a fully covered leaf keeps a bare 1, which the bright pass reads as UNTAGGED: at night the crowns are held to the emitter's bar, 0.118 where the lit bar is 1.331, and bloom; nothing in a daylight frame moves",
+  },
+  {
+    id: 'bright-lit-tag-off', file: 'src/post.js',
+    find: '  float share = abs( s.a - ${COVERAGE_LIT_TAG.toFixed(1)} ) <= 0.01 ? 0.0 : -s.a - 1.0;',
+    to: '  float share = -s.a - 1.0;',
+    why: "the leaves carry their tag and the bright pass no longer reads it: the same night bloom as fol-lit-tag-off, with every alpha in the scene target still exactly what the gate's tag census expects",
+  },
 ];
 
 // --------------------------------------------------------------------------- mechanics

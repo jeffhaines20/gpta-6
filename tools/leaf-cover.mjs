@@ -12,9 +12,12 @@
 //                        and on the coverage pass, every run
 //   the fix              the shipped arm's edges carry partial pixels, on both
 //   the price is zero    the leaves cover what they covered (the centring), the split moves no pixel,
-//                        the sun's map is the build-before's byte for byte, and the bench welded into
-//                        the same mesh keeps #114's tag
-//   and why each is so   three's own ramp erodes the crown, and three's own depth material moves the map
+//                        the sun's map is the build-before's byte for byte, the bench welded into the
+//                        same mesh keeps #114's tag, and a fully covered leaf is still LIT to the bright
+//                        pass (its own tag, src/post.js COVERAGE_LIT_TAG), read off the GPU's bright
+//                        target and compared with tools/bloom-math.mjs's copy of the decode
+//   and why each is so   three's own ramp erodes the crown, three's own depth material moves the map,
+//                        and without the tag a covered leaf is held to the emitter's bar
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -23,6 +26,7 @@ import { ensureServer, treePort } from './serve.mjs';
 import { HERO_FRAMINGS, FRAME_SETTLE, settleFrames, placeHeroCam } from './hero-cams.mjs';
 import { readPNG } from './png.mjs';
 import { edgeStats, lumaPlanes, formatEdge } from './leaf-edge.mjs';
+import { COVERAGE_LIT_TAG } from '../src/post.js';
 
 const arg = (k, d) => {
   const i = process.argv.indexOf(`--${k}`);
@@ -76,6 +80,8 @@ export const HDR_BOXES = {
  *   merged    test, with every bucket on the ONE shared material and no groups: the pre-#145 draw,
  *             for the draw-call price and to show the split itself moves no pixel
  *   test2     test again: the noise floor of every comparison
+ *   notag     rim without the covered leaf's lit tag (src/post.js COVERAGE_LIT_TAG): the leaf's alpha
+ *             is then its coverage, untagged, and the bright pass holds it to the EMITTER's bar
  *   nosun, nohemi, nobounce, noenv   the alpha-tested build with one light term taken out, for the
  *             limbs: which term makes them pale, read at HDR_BOXES in exposed linear light
  */
@@ -137,14 +143,15 @@ async function district() {
         if (this._envSaved !== undefined) { D.scene.environmentIntensity = this._envSaved; this._envSaved = undefined; }
         if (arm === 'noenv') { this._envSaved = D.scene.environmentIntensity; D.scene.environmentIntensity = 0; }
         const light = ['nosun', 'nohemi', 'nobounce', 'noenv'].includes(arm);
-        const mode = (arm === 'depth05' || arm === 'rim') ? 'centred' : (arm === 'merged' || arm === 'test2' || light) ? 'test' : arm;
-        // The rim is its own term: on in the shipped arm and the depth arm only.
-        const got = F.setFoliageCoverage(mode, arm === 'rim' || arm === 'depth05');
+        const mode = (arm === 'depth05' || arm === 'rim' || arm === 'notag') ? 'centred' : (arm === 'merged' || arm === 'test2' || light) ? 'test' : arm;
+        // The rim is its own term: on in the shipped arm, the depth arm and the tag arm only; the lit
+        // tag is off in the tag arm only.
+        const got = F.setFoliageCoverage(mode, arm === 'rim' || arm === 'depth05' || arm === 'notag', arm !== 'notag');
         if (arm === 'depth05') for (const s of saved) s.m.customDepthMaterial = undefined;
         if (arm === 'merged') {
           for (const s of saved) { s.m.material = F.propMat; s.m.geometry.groups.length = 0; s.m.customDepthMaterial = undefined; }
         }
-        return { arm, mode: got, a2c: F.foliageMat.alphaToCoverage, rim: F.foliageMat.userData.rim,
+        return { arm, mode: got, a2c: F.foliageMat.alphaToCoverage, rim: F.foliageMat.userData.rim, litTag: F.foliageMat.userData.litTag,
           depthCustom: saved.filter((s) => s.m.customDepthMaterial).length,
           grouped: saved.filter((s) => s.m.geometry.groups.length).length };
       },
@@ -154,7 +161,9 @@ async function district() {
         const w = map.width, h = map.height, buf = new Uint8Array(w * h * 4);
         R.readRenderTargetPixels(map, 0, 0, w, h, buf);
         let diff = null;
-        if (this._shadowRef) {
+        // Against the last KEPT map only: a kept arm starts a new reference, and comparing it with the
+        // previous camera's or hour's is a number about nothing.
+        if (this._shadowRef && !keep) {
           diff = 0;
           for (let i = 0; i < buf.length; i += 4) {
             if (buf[i] !== this._shadowRef[i] || buf[i + 1] !== this._shadowRef[i + 1]
@@ -169,15 +178,19 @@ async function district() {
         const rt = P.hdr, w = rt.width, h = rt.height, raw = new Uint16Array(w * h * 4);
         R.readRenderTargetPixels(rt, 0, 0, w, h, raw);
         const exp = P.params.exposure, T = P.params.bloomThreshold, TL = P.params.bloomThresholdLit ?? 0;
+        // Tagged as the BRIGHT PASS reads it (src/post.js brightSplit): #114's -(1 + share), or #145's
+        // covered-leaf tag, which is lit.
         const tagged = new Uint8Array(w * h), lum = new Float32Array(w * h);
+        let litTag = 0;
         for (let i = 0; i < w * h; i++) {
           const r = half(raw[i * 4]), g = half(raw[i * 4 + 1]), b = half(raw[i * 4 + 2]), a = half(raw[i * 4 + 3]);
-          const share = -a - 1;
-          tagged[i] = share >= -0.01 && share <= 1.01 ? 1 : 0;
+          const share = -a - 1, leaf = Math.abs(a - 4) <= 0.01;
+          if (leaf) litTag++;
+          tagged[i] = leaf || (share >= -0.01 && share <= 1.01) ? 1 : 0;
           lum[i] = (0.2126 * r + 0.7152 * g + 0.0722 * b) * exp;
         }
-        let out = { w, h, exposure: exp, threshold: T, thresholdLit: TL, tagged: tagged.reduce((x, y) => x + y, 0) };
-        if (this._sceneRef) {
+        let out = { w, h, exposure: exp, threshold: T, thresholdLit: TL, tagged: tagged.reduce((x, y) => x + y, 0), litTag };
+        if (this._sceneRef && !keep) {
           const ref = this._sceneRef;
           let lost = 0, gained = 0, lostOverEmitter = 0, lostOverLit = 0, worst = 0;
           for (let i = 0; i < w * h; i++) {
@@ -194,6 +207,28 @@ async function district() {
         return out;
       },
       stats: () => D.renderStats(),
+      // THE BRIGHT TARGET as this frame's own bright pass wrote it, at the hour's own bars and exposure:
+      // what the bloom is made of. Luminance summed over the frame and over boxes x0,y0,x1,y1 given in
+      // screen pixels (top-down); the target is half resolution and bottom-up.
+      bright(boxes) {
+        const rt = P.brightRT, w = rt.width, h = rt.height, raw = new Uint16Array(w * h * 4);
+        R.readRenderTargetPixels(rt, 0, 0, w, h, raw);
+        const sx = w / innerWidth, sy = h / innerHeight;
+        const L = new Float32Array(w * h);
+        let total = 0, lit = 0;
+        for (let i = 0; i < w * h; i++) {
+          const v = 0.2126 * half(raw[i * 4]) + 0.7152 * half(raw[i * 4 + 1]) + 0.0722 * half(raw[i * 4 + 2]);
+          L[i] = v; total += v; if (v > 0) lit++;
+        }
+        const per = boxes.map(({ name, box: [x0, y0, x1, y1] }) => {
+          let s = 0, n = 0;
+          for (let yy = Math.floor(y0 * sy); yy < Math.floor(y1 * sy); yy++) {
+            for (let xx = Math.floor(x0 * sx); xx < Math.floor(x1 * sx); xx++) { s += L[(h - 1 - yy) * w + xx]; n++; }
+          }
+          return { name, n, sum: s };
+        });
+        return { w, h, total, texels: lit, boxes: per };
+      },
       // Mean EXPOSED linear RGB of the scene target over boxes given x,y,w,h in screen pixels (top-down).
       hdrBoxes(boxes) {
         const rt = P.hdr, w = rt.width, h = rt.height, raw = new Uint16Array(w * h * 4);
@@ -224,7 +259,7 @@ async function district() {
     for (const tod of times) {
       await page.evaluate((t) => __district.setTimeOfDay(t), tod);
       await settleFrames(page, FRAME_SETTLE, `tod ${tod}`);
-      let ref = null;
+      let ref = null, brightRef = null;
       for (const arm of arms) {
         // The light arms exist for the limb boxes; a framing without any has nothing for them to read.
         if (['nosun', 'nohemi', 'nobounce', 'noenv'].includes(arm) && !HDR_BOXES[name]) continue;
@@ -235,6 +270,7 @@ async function district() {
         const shadow = await page.evaluate((k) => __leafCover.shadow(k), keep);
         const scene = await page.evaluate((k) => __leafCover.scene(k), keep);
         const stats = await page.evaluate(() => __leafCover.stats());
+        const bright = await page.evaluate((b) => __leafCover.bright(b), (BOXES[name] ?? []).map(({ name: n, box }) => ({ name: n, box })));
         const hdr = HDR_BOXES[name] ? await page.evaluate((b) => __leafCover.hdrBoxes(b), HDR_BOXES[name]) : [];
         // A light arm is read off the scene target alone: its frame would only cost a screenshot.
         const lightArm = ['nosun', 'nohemi', 'nobounce', 'noenv'].includes(arm);
@@ -269,13 +305,17 @@ async function district() {
           diff = { anyPx: n, over2: big, over2Flat: flat };
         }
         if (keep && img) ref = img;
-        const row = { name, tod, arm, set, frames: f0, stats, shadow, scene, diff, hdr, edges: edges.map((e) => ({ name: e.name, box: e.box, ...e.s })) };
+        if (keep) brightRef = bright;
+        const row = { name, tod, arm, set, frames: f0, stats, shadow, scene, bright, diff, hdr, edges: edges.map((e) => ({ name: e.name, box: e.box, ...e.s })) };
         results.push(row);
         console.log(`  ${tod} ${arm.padEnd(8)} mode ${set.mode} a2c ${set.a2c} depthCustom ${set.depthCustom} grouped ${set.grouped}  ` +
           `calls ${stats.calls} scene ${stats.sceneCalls} tris ${stats.triangles}  ` +
           `shadow ${shadow ? `${shadow.hash} diff ${shadow.diffTexels}` : 'none'}  ` +
-          `tags ${scene.tagged}${scene.lost !== undefined ? ` lost ${scene.lost} gained ${scene.gained} lost>emitterBar ${scene.lostOverEmitter} (worst ${scene.worstLostLum.toFixed(4)} vs bar ${scene.threshold} / lit ${scene.thresholdLit})` : ''}  ` +
+          `tags ${scene.tagged} (leaf-lit ${scene.litTag})${scene.lost !== undefined ? ` lost ${scene.lost} gained ${scene.gained} lost>emitterBar ${scene.lostOverEmitter} (worst ${scene.worstLostLum.toFixed(4)} vs bar ${scene.threshold} / lit ${scene.thresholdLit})` : ''}  ` +
           `${diff ? `frame diff ${diff.anyPx} px (${diff.over2} > 2 levels, ${diff.over2Flat} of them off any edge)` : ''}`);
+        const rel = (v, r) => (r > 0 ? ` (x${(v / r).toFixed(3)} the test's)` : '');
+        console.log(`    bright pass  frame ${bright.total.toFixed(2)}${rel(bright.total, brightRef?.total)} over ${bright.texels} texels; ` +
+          bright.boxes.map((b, i) => `${b.name} ${b.sum.toFixed(3)}${rel(b.sum, brightRef?.boxes[i]?.sum)}`).join('; '));
         for (const e of edges) console.log(formatEdge(`    ${e.name}`, e.box, e.s));
         if (hdr.length) console.log('    exposed HDR  ' + hdr.map((x) => `${x.name} ${x.luma.toFixed(4)} (${x.rgb.map((v) => v.toFixed(3)).join(',')})`).join('  '));
       }
@@ -295,7 +335,7 @@ export const CROWN = [190, 50, 550, 250];
 /** The trunk between the crown and the bench, x0,y0,x1,y1, where the bark fringe's holes show. */
 export const TRUNK = [296, 268, 334, 318];
 /** Fixed, so a check cannot vanish when a population is empty. */
-export const CHECK_COUNT = 16;
+export const CHECK_COUNT = 18;
 
 /**
  * HOLES INSIDE A TUBE, off the coverage pass: per row of `box`, the uncovered pixels strictly between
@@ -362,9 +402,13 @@ export function summarise(report, frames) {
       cov: { steps: c.steps, hardFrac: c.ok ? c.hardFrac : null, midShare: c.ok ? c.midShare : null, mass, partial },
       trunk: tubeGaps(fr.cov, w, TRUNK),
       // Under the coverage a leaf's alpha is its coverage, so a pixel the test drew solid reads 1 inside the
-      // crown and a partial value within half a pixel of a cut: either way positive, i.e. NOT a tag.
+      // crown and a partial value within half a pixel of a cut: either way positive, i.e. NOT #114's tag.
+      // A FULLY covered one then carries its own lit tag instead of the 1 (COVERAGE_LIT_TAG); a partial
+      // one cannot, because there the alpha is the sample mask.
       tags: { opaqueTagged: share(inner.opaque, tagged), cutTagged: share(inner.cut, tagged),
-        cutUntagged: share(inner.cut, (a) => a > 0.01 && a <= 1.01) },
+        cutUntagged: share(inner.cut, (a) => a > 0.01 && a <= 1.01),
+        cutLit: share(inner.cut, (a) => Math.abs(a - COVERAGE_LIT_TAG) <= 0.01),
+        cutFull: share(inner.cut, (a) => Math.abs(a - 1) <= 0.001) },
     };
   }
   const a = frames.merged?.rgb, b = frames.test?.rgb;
@@ -383,12 +427,13 @@ export function verdict(sm) {
   const f = (v, d = 3) => (v === null ? 'absent' : v.toFixed(d));
   const want = { merged: ['test', false, false, 1, null], test: ['test', false, false, 2, 'foliageDepth'],
     centred: ['centred', true, false, 2, 'foliageDepth'], three: ['three', true, false, 2, 'foliageDepth'],
-    rim: ['centred', true, true, 2, 'foliageDepth'], depth05: ['centred', true, true, 2, null] };
+    rim: ['centred', true, true, 2, 'foliageDepth'], depth05: ['centred', true, true, 2, null],
+    notag: ['centred', true, true, 2, 'foliageDepth'] };
   const armsOk = Object.entries(want).every(([k, [mode, a2c, rim, groups, depth]]) => A[k] && A[k].mode === mode
     && A[k].a2c === a2c && A[k].rim === rim && (groups === 1 ? A[k].materials?.length === 1 : A[k].groups === groups)
-    && (A[k].customDepth ?? null) === depth);
+    && (A[k].customDepth ?? null) === depth && A[k].litTag === (k !== 'notag'));
   add('every arm\'s switch reached the material, read back off the mesh', armsOk,
-    Object.keys(want).map((k) => `${k} ${A[k]?.mode}/${A[k]?.a2c}/${A[k]?.rim}/${A[k]?.groups}/${A[k]?.customDepth}`).join(', '));
+    Object.keys(want).map((k) => `${k} ${A[k]?.mode}/${A[k]?.a2c}/${A[k]?.rim}/${A[k]?.groups}/${A[k]?.customDepth}/${A[k]?.litTag}`).join(', '));
   add('the module ships the coverage centred, with the rim, read off the material as the district builds it',
     sm?.shipped?.mode === 'centred' && sm?.shipped?.rim === true && sm?.shipped?.a2c === true,
     `mode ${sm?.shipped?.mode}, rim ${sm?.shipped?.rim}, alphaToCoverage ${sm?.shipped?.a2c}`);
@@ -416,13 +461,13 @@ export function verdict(sm) {
   add('the split moves no pixel: one material and no groups draws the alpha-tested arm byte for byte',
     sm?.mergedVsTestBytes === 0, `${sm?.mergedVsTestBytes} bytes differ`);
   add('the sun\'s map is the build-before\'s byte for byte under the coverage',
-    ['test', 'centred', 'three', 'rim'].every((k) => g(k, 'shadowDiff') === 0),
-    'texels differing from the one-material map: ' + ['test', 'centred', 'three', 'rim'].map((k) => `${k} ${g(k, 'shadowDiff')}`).join(', '));
+    ['test', 'centred', 'three', 'rim', 'notag'].every((k) => g(k, 'shadowDiff') === 0),
+    'texels differing from the one-material map: ' + ['test', 'centred', 'three', 'rim', 'notag'].map((k) => `${k} ${g(k, 'shadowDiff')}`).join(', '));
   add('KNOWN-BAD for the depth material: three\'s own cuts the coverage material\'s map at 0.5',
     g('depth05', 'shadowDiff') >= 200, `${g('depth05', 'shadowDiff')} texels move`);
   add('the bench welded into the same mesh keeps #114\'s tag in every arm',
-    ['merged', 'test', 'centred', 'three', 'rim'].every((k) => g(k, 'tags', 'opaqueTagged') >= 0.99),
-    ['merged', 'test', 'centred', 'three', 'rim'].map((k) => `${k} ${f(g(k, 'tags', 'opaqueTagged'))}`).join(', '));
+    ['merged', 'test', 'centred', 'three', 'rim', 'notag'].every((k) => g(k, 'tags', 'opaqueTagged') >= 0.99),
+    ['merged', 'test', 'centred', 'three', 'rim', 'notag'].map((k) => `${k} ${f(g(k, 'tags', 'opaqueTagged'))}`).join(', '));
   const gT = g('test', 'trunk', 'gapFrac'), gC = g('centred', 'trunk', 'gapFrac'), gR = g('rim', 'trunk', 'gapFrac');
   add('KNOWN-BAD for the bark: without the rim the trunk is a lattice, the background showing through it',
     gT >= 0.05 && gC >= 0.05, `${f(gT)} of the trunk's span uncovered alpha-tested, ${f(gC)} with coverage alone`);
@@ -432,9 +477,35 @@ export function verdict(sm) {
   add('and the rim leaves the crown\'s edges as the coverage drew them',
     g('rim', 'cov', 'hardFrac') !== null && Math.abs(g('rim', 'cov', 'hardFrac') - (g('centred', 'cov', 'hardFrac') ?? NaN)) <= 0.03,
     `coverage hardFrac ${f(g('centred', 'cov', 'hardFrac'))} -> ${f(g('rim', 'cov', 'hardFrac'))}`);
-  add('the mechanism: the leaves are tagged under the test and untagged under the coverage, which is not OPAQUE',
-    g('test', 'tags', 'cutTagged') >= 0.99 && g('rim', 'tags', 'cutUntagged') >= 0.99,
-    `tagged ${f(g('test', 'tags', 'cutTagged'))} under the test; a positive alpha (its coverage) on ${f(g('rim', 'tags', 'cutUntagged'))} under the coverage`);
+  // A fully covered leaf is the same pixel in both coverage arms, so the lit tag must sit on exactly the
+  // pixels that read a bare 1 without it, and on none that read a partial value.
+  const lit = g('rim', 'tags', 'cutLit'), full = g('notag', 'tags', 'cutFull');
+  add('the mechanism: tagged lit under the test; under the coverage, which is not OPAQUE, a fully covered leaf carries its own lit tag and a partial one its coverage',
+    g('test', 'tags', 'cutTagged') >= 0.99 && g('notag', 'tags', 'cutUntagged') >= 0.99 && lit >= 0.5 && full !== null
+      && Math.abs(lit - full) <= 0.01 && g('rim', 'tags', 'cutFull') !== null && g('rim', 'tags', 'cutFull') <= 0.001,
+    `tagged ${f(g('test', 'tags', 'cutTagged'))} under the test; under the coverage ${f(lit)} carry the lit tag where the ` +
+    `untagged arm reads a bare 1 on ${f(full)}, and ${f(g('rim', 'tags', 'cutFull'))} still read 1; a positive alpha on ` +
+    `${f(g('notag', 'tags', 'cutUntagged'))} without the tag`);
+  // THE BRIGHT PASS, on the GPU: at an emitter's bar of 0.001 and a lit bar of 1000, a texel read as lit
+  // hands on nothing and one read as untagged nearly all of its light, so the decode is read off the
+  // target with no threshold arithmetic in between.
+  const B = (arm, cls, k) => g(arm, 'bright', 'classes', cls, k);
+  const barsOk = ['rim', 'notag'].every((k) => g(k, 'bright', 'uniforms', 'threshold') === 0.001
+    && g(k, 'bright', 'uniforms', 'thresholdLit') === 1000 && g(k, 'bright', 'uniforms', 'exposure') === 1);
+  const nL = B('rim', 'litTag', 'n'), nO = B('notag', 'coverage1', 'n');
+  add('THE LIT TAG REACHES THE BRIGHT PASS: a fully covered leaf hands the blur none of its light, and without the tag nearly all of it (the known-bad)',
+    barsOk && nL >= 200 && nO !== null && Math.abs(nL - nO) <= 0.02 * nO
+      && B('rim', 'litTag', 'gpu') <= 1e-3 * (B('rim', 'litTag', 'lum') ?? NaN) && B('notag', 'coverage1', 'gpu') >= 0.9 * (B('notag', 'coverage1', 'lum') ?? Infinity),
+    `bars reached ${barsOk}; ${nL} leaf texels fully covered and tagged hand on ${f(B('rim', 'litTag', 'gpu'), 4)} of ` +
+    `${f(B('rim', 'litTag', 'lum'), 2)}; untagged, ${nO} hand on ${f(B('notag', 'coverage1', 'gpu'), 2)} of ${f(B('notag', 'coverage1', 'lum'), 2)}`);
+  // And tools/bloom-math.mjs, the JS copy every bloom probe runs, agrees with the target over EVERY leaf
+  // texel, mixed ones included, in the three arms that carry the three tags. The tolerance is a share of
+  // the known-bad's light, so an arm whose GPU sum is near zero cannot pass on a relative error of 0/0.
+  const scale = B('notag', 'all', 'gpu');
+  const errs = ['test', 'rim', 'notag'].map((k) => [k, B(k, 'all', 'gpu'), B(k, 'all', 'js')]);
+  add('and tools/bloom-math.mjs\'s copy of the decode agrees with the GPU over every leaf texel, in all three tags',
+    scale > 0 && errs.every(([, gp, js]) => gp !== null && js !== null && Math.abs(gp - js) <= 0.03 * scale),
+    errs.map(([k, gp, js]) => `${k} GPU ${f(gp, 2)} / JS ${f(js, 2)}`).join(', ') + ` (tolerance ${f(scale === null ? null : 0.03 * scale, 2)})`);
   return checks;
 }
 
@@ -442,24 +513,32 @@ function selftest() {
   let pass = 0, fail = 0;
   const say = (ok, msg, detail = '') => { if (ok) pass++; else fail++; console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${msg}${detail ? `  ${detail}` : ''}`); };
   console.log('LEAF-COVER SELFTEST — the verdict on known-bad summaries\n');
-  const arm = (mode, a2c, rim, groups, depth, shadowDiff, lit, cov, trunk, tags) => ({ mode, a2c, rim, groups,
-    materials: groups === 0 ? ['prop'] : ['prop', 'foliageCoverage'], customDepth: depth, shadowDiff, lit, cov, trunk, tags });
+  const arm = (mode, a2c, rim, groups, depth, shadowDiff, lit, cov, trunk, tags, bright, litTag = true) => ({ mode, a2c, rim, groups,
+    materials: groups === 0 ? ['prop'] : ['prop', 'foliageCoverage'], customDepth: depth, shadowDiff, lit, cov, trunk, tags, bright, litTag });
   // A real run's summary (2026-11-17, tools/leaf-cover.html at its defaults), rounded, so each known-bad
   // below is one edit away from something that happened.
   const L = (steps, hardFrac, midShare) => ({ steps, hardFrac, midShare });
   const C = (steps, hardFrac, midShare, mass, partial) => ({ steps, hardFrac, midShare, mass, partial });
   const T = (gaps, solid) => ({ rows: 50, gaps, solid, gapFrac: gaps / (gaps + solid) });
-  const tagT = { opaqueTagged: 1, cutTagged: 0.997, cutUntagged: 0 }, tagC = { opaqueTagged: 1, cutTagged: 0, cutUntagged: 1 };
+  const tagT = { opaqueTagged: 1, cutTagged: 0.997, cutUntagged: 0, cutLit: 0, cutFull: 0 };
+  const tagC = { opaqueTagged: 1, cutTagged: 0, cutUntagged: 0.316, cutLit: 0.684, cutFull: 0 };
+  const tagN = { opaqueTagged: 1, cutTagged: 0, cutUntagged: 1, cutLit: 0, cutFull: 0.684 };
+  const U = { threshold: 0.001, thresholdLit: 1000, exposure: 1 };
+  const K = (n, gpu, js, lum) => ({ n, gpu, js, lum });
+  const brT = { uniforms: U, classes: { tagged: K(3000, 0, 0, 1500), all: K(3000, 0, 0, 1500) } };
+  const brC = { uniforms: U, classes: { litTag: K(2000, 0, 0, 1000), mixed: K(1000, 450, 452, 500), all: K(3000, 450, 452, 1500) } };
+  const brN = { uniforms: U, classes: { coverage1: K(2000, 998, 998, 1000), mixed: K(1000, 450, 452, 500), all: K(3000, 1448, 1450, 1500) } };
   const good = {
     size: { w: 640, h: 400 }, cut: 1610, total: 1656, pixels: { cut: 22559, opaque: 4061 }, mergedVsTestBytes: 0,
     shipped: { mode: 'centred', rim: true, a2c: true },
     arms: {
-      merged: arm('test', false, false, 0, null, null, L(5236, 0.844, 0.080), C(6533, 0.819, 0.101, 32007.0, 1442), T(250, 872), tagT),
-      test: arm('test', false, false, 2, 'foliageDepth', 0, L(5236, 0.844, 0.080), C(6533, 0.819, 0.101, 32007.0, 1442), T(250, 872), tagT),
-      centred: arm('centred', true, false, 2, 'foliageDepth', 0, L(3955, 0.605, 0.170), C(6229, 0.511, 0.249, 31951.5, 4143), T(235, 893), tagC),
-      three: arm('three', true, false, 2, 'foliageDepth', 0, L(5312, 0.724, 0.132), C(7511, 0.600, 0.216, 28907.5, 4405), T(293, 806), tagC),
-      rim: arm('centred', true, true, 2, 'foliageDepth', 0, L(3884, 0.598, 0.171), C(6027, 0.515, 0.249, 32798.3, 3890), T(1, 1139), tagC),
-      depth05: arm('centred', true, true, 2, null, 5022, L(3884, 0.598, 0.171), C(6027, 0.515, 0.249, 32798.3, 3890), T(1, 1139), tagC),
+      merged: arm('test', false, false, 0, null, null, L(5236, 0.844, 0.080), C(6533, 0.819, 0.101, 32007.0, 1442), T(250, 872), tagT, brT),
+      test: arm('test', false, false, 2, 'foliageDepth', 0, L(5236, 0.844, 0.080), C(6533, 0.819, 0.101, 32007.0, 1442), T(250, 872), tagT, brT),
+      centred: arm('centred', true, false, 2, 'foliageDepth', 0, L(3955, 0.605, 0.170), C(6229, 0.511, 0.249, 31951.5, 4143), T(235, 893), tagC, brC),
+      three: arm('three', true, false, 2, 'foliageDepth', 0, L(5312, 0.724, 0.132), C(7511, 0.600, 0.216, 28907.5, 4405), T(293, 806), tagC, brC),
+      rim: arm('centred', true, true, 2, 'foliageDepth', 0, L(3884, 0.598, 0.171), C(6027, 0.515, 0.249, 32798.3, 3890), T(1, 1139), tagC, brC),
+      depth05: arm('centred', true, true, 2, null, 5022, L(3884, 0.598, 0.171), C(6027, 0.515, 0.249, 32798.3, 3890), T(1, 1139), tagC, brC),
+      notag: arm('centred', true, true, 2, 'foliageDepth', 0, L(3884, 0.598, 0.171), C(6027, 0.515, 0.249, 32798.3, 3890), T(1, 1139), tagN, brN, false),
     },
   };
   const bad = (fn) => { const c = structuredClone(good); fn(c); return c; };
@@ -482,7 +561,15 @@ function selftest() {
     ['a switch that never reached the material', (c) => { c.arms.centred.a2c = false; }, 'reached the material'],
     ['a bucket with no cut zone', (c) => { c.cut = 0; }, 'real one'],
     ['the bench out of frame', (c) => { c.pixels.opaque = 0; }, 'real one'],
-    ['a mechanism that tags the leaves under the coverage too', (c) => { c.arms.rim.tags.cutUntagged = 0; }, 'mechanism'],
+    ['a mechanism that tags the leaves under the coverage too', (c) => { c.arms.notag.tags.cutUntagged = 0; }, 'mechanism'],
+    ['the lit tag removed: a fully covered leaf reads a bare 1', (c) => { c.arms.rim.tags = { ...c.arms.notag.tags }; }, 'mechanism'],
+    ['a tag on the wrong pixels: on partial ones as well as the covered', (c) => { c.arms.rim.tags.cutLit = 0.9; }, 'mechanism'],
+    ['a bright pass that ignores the tag', (c) => { c.arms.rim.bright.classes.litTag.gpu = c.arms.rim.bright.classes.litTag.lum; }, 'REACHES THE BRIGHT PASS'],
+    ['an untagged arm the pass reads as lit, so the tag is measured on nothing', (c) => { c.arms.notag.bright.classes.coverage1.gpu = 0; }, 'REACHES THE BRIGHT PASS'],
+    ['bars that never reached the uniforms', (c) => { c.arms.rim.bright.uniforms.thresholdLit = 1.331; }, 'REACHES THE BRIGHT PASS'],
+    ['a bright read with no leaf in it', (c) => { c.arms.rim.bright.classes = { all: K(0, 0, 0, 0) }; }, 'REACHES THE BRIGHT PASS'],
+    ['a JS copy of the decode without the tag', (c) => { c.arms.rim.bright.classes.all.js += c.arms.rim.bright.classes.litTag.lum; }, 'agrees with the GPU'],
+    ['the tag arm left the tag on', (c) => { c.arms.notag.litTag = true; }, 'reached the material'],
     ['the rim shipped off', (c) => { c.shipped.rim = false; }, 'ships the coverage centred'],
     ['the coverage shipped as the test', (c) => { c.shipped = { mode: 'test', rim: true, a2c: false }; }, 'ships the coverage centred'],
     ['a rim that leaves the trunk a lattice', (c) => { c.arms.rim.trunk = { ...c.arms.centred.trunk }; }, 'THE RIM'],
@@ -533,6 +620,12 @@ async function gate() {
     console.log(`  ${k.padEnd(8)} ${String(a.lit.steps).padStart(10)}   ${v(a.lit.hardFrac)}   ${v(a.lit.midShare)}   ` +
       `${String(a.cov.steps).padStart(14)}   ${v(a.cov.hardFrac)}   ${v(a.cov.midShare)}   ${v(a.cov.mass, 1).padStart(8)} ${String(a.cov.partial).padStart(7)}   ` +
       `${a.shadowDiff === null || a.shadowDiff === undefined ? 'reference' : `${a.shadowDiff} texels`}`);
+  }
+  console.log('\n  the bright pass over the leaf (emitter bar 0.001, lit bar 1000, exposure 1): blocks / GPU / JS / light');
+  for (const [k, a] of Object.entries(sm.arms)) {
+    const c = a.bright?.classes ?? {};
+    console.log(`  ${k.padEnd(8)} ` + ['tagged', 'litTag', 'coverage1', 'mixed', 'all'].filter((x) => c[x])
+      .map((x) => `${x} ${c[x].n} / ${c[x].gpu.toFixed(2)} / ${c[x].js.toFixed(2)} / ${c[x].lum.toFixed(2)}`).join('   '));
   }
   console.log('');
   const checks = verdict(sm);

@@ -60,6 +60,7 @@ import { buildTrafficCarGeometry, trafficCarMaterial, lampEmissive,
 // the only way to be sure the chairs stand under the cafe's own sign rather than
 // under the barber's. Neither module imports this one, so there is no cycle.
 import { buildingStyle } from './facades.js';
+import { COVERAGE_LIT_TAG } from './post.js';
 import { signPlanFor } from './signage.js';
 import { streetDirFor } from './geom.js';
 import { paintFamily, paintTone, ACHROMATIC_SHARE } from './carpaint.js';
@@ -739,6 +740,17 @@ function weldBucket(b, mat, fol) {
   return { mesh, cut };
 }
 
+/**
+ * #145: WHERE A FULLY COVERED LEAF SAYS IT IS LIT. Top-level in the material's own shader (CLAUDE.md:
+ * `onBeforeCompile` hands you unresolved includes), and after it, because opaque_fragment is the line
+ * that writes the colour out. See COVERAGE_LIT_TAG in src/post.js for the value and why it is safe.
+ */
+const LIT_TAG_SEAM = '#include <opaque_fragment>';
+const LIT_TAG_GLSL = `${LIT_TAG_SEAM}
+#if defined( ALPHA_TO_COVERAGE ) && ! defined( FOLIAGE_NO_LIT_TAG )
+	if ( gl_FragColor.a >= 1.0 ) gl_FragColor.a = ${COVERAGE_LIT_TAG.toFixed(1)};
+#endif`;
+
 /** The coverage material: `base` cloned, with alpha to coverage and the centred ramp. */
 function foliageMaterial(base, mode = 'centred', rim = true) {
   const m = base.clone();
@@ -749,19 +761,25 @@ function foliageMaterial(base, mode = 'centred', rim = true) {
     if (!shader.fragmentShader.includes(COVERAGE_SEAM)) {
       throw new Error(`foliageMaterial: no "${COVERAGE_SEAM}" in the fragment shader; the coverage would silently be three's`);
     }
-    shader.fragmentShader = shader.fragmentShader.replace(COVERAGE_SEAM, COVERAGE_GLSL);
+    if (!shader.fragmentShader.includes(LIT_TAG_SEAM)) {
+      throw new Error(`foliageMaterial: no "${LIT_TAG_SEAM}" in the fragment shader; a covered leaf would bloom at the emitter's bar`);
+    }
+    shader.fragmentShader = shader.fragmentShader.replace(COVERAGE_SEAM, COVERAGE_GLSL).replace(LIT_TAG_SEAM, LIT_TAG_GLSL);
   };
   setCoverageMode(m, mode ?? 'centred', rim);
   return m;
 }
-function setCoverageMode(m, mode, rim = m.userData.rim ?? true) {
+function setCoverageMode(m, mode, rim = m.userData.rim ?? true, litTag = m.userData.litTag ?? true) {
   if (!COVERAGE_MODES.includes(mode)) throw new Error(`foliage coverage mode "${mode}" is not one of ${COVERAGE_MODES.join(', ')}`);
   m.alphaToCoverage = mode !== 'test';
   m.defines = mode === 'three' ? { FOLIAGE_COVERAGE_THREE: '' } : mode === 'length' ? { FOLIAGE_COVERAGE_LENGTH: '' } : {};
   if (rim) m.defines.FOLIAGE_BARK_RIM = '';
-  m.customProgramCacheKey = () => `foliageCoverage:1:${mode}:${rim ? 'rim' : 'norim'}`;
+  // The lit tag is switchable only so a gate can draw its known-bad: a covered leaf left untagged.
+  if (!litTag) m.defines.FOLIAGE_NO_LIT_TAG = '';
+  m.customProgramCacheKey = () => `foliageCoverage:2:${mode}:${rim ? 'rim' : 'norim'}:${litTag ? 'tag' : 'notag'}`;
   m.userData.coverage = mode;
   m.userData.rim = !!rim;
+  m.userData.litTag = !!litTag;
   m.needsUpdate = true;
 }
 
@@ -6161,12 +6179,14 @@ export class StreetFurniture {
   /**
    * #145: how the cut zones are drawn — 'centred' (shipped: alpha to coverage, the ramp centred on
    * the test), 'three' (three's own uncentred coverage) or 'test' (the alpha test, as before #145).
-   * One switch on one material, so an A/B comes off one page load.
+   * One switch on one material, so an A/B comes off one page load. `rim` and `litTag` default to the
+   * SHIPPED state rather than to whatever the last call left, so an arm that switches one of them off
+   * cannot leak into the arm after it.
    * @returns {string} the mode the material now carries
    */
-  setFoliageCoverage(mode, rim) {
+  setFoliageCoverage(mode, rim = true, litTag = true) {
     if (!this.foliageMat) return null;
-    setCoverageMode(this.foliageMat, mode, rim);
+    setCoverageMode(this.foliageMat, mode, rim, litTag);
     return this.foliageMat.userData.coverage;
   }
 
@@ -6397,7 +6417,7 @@ export const __kit = {
   // #145's split, for tools/leaf-mask.mjs and tools/leaf-edge.html: the zone rule, the partition the
   // weld applies, the weld itself, and the two materials it draws with.
   CUT_ZONES, inCutZone, splitCutZones, weldBucket, foliageMaterial, foliageDepthMaterial, setCoverageMode,
-  COVERAGE_SEAM, COVERAGE_GLSL, BARK_RIM,
+  COVERAGE_SEAM, COVERAGE_GLSL, BARK_RIM, LIT_TAG_GLSL,
   OAK_STAMPS, STAMP_H, QUEEN_V0, SABAL_V0, COMB_H, BARK_V0, BARK_H,
   // The SHIPPED material, so a bench frame is lit and cut by the same object
   // the district draws with. tools/oak-look.mjs builds its own lookalike, which
