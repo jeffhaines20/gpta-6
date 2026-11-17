@@ -3633,7 +3633,7 @@ const MUTATIONS = [
     id: 'photocell-lampson', file: 'src/daynight.js',
     find: '    this.streetLampsOn = this.photocell.lit;',
     to: '    this.streetLampsOn = !!p.lampsOn;',
-    why: 'the old switch back: the street lamps lit by the cars\' lampsOn, so dusk\'s globes and pool light at x87 a photocell\'s turn-on',
+    why: 'the old switch back: the street lamps lit by the cars\' lampsOn, so dusk\'s globes and pool light at x100 a photocell\'s turn-on (the page\'s 1,624 lux)',
   },
   {
     id: 'photocell-level', file: 'src/daynight.js',
