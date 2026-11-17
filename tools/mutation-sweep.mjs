@@ -213,6 +213,10 @@ const OFFLINE = [
   // ever been swept: `wheel-octagon` came back MISSED against a check written to catch it.
   'car-shapes',
   'car-shapes --selftest',
+  // Milliseconds, offline: #143's probe (tools/car-lamp.html) measures a headlamp against paint at its
+  // own tilt, and its selftest is the proof the box, the interior rule and the stride are what they say.
+  // It reads no src/ module, so it catches no row; it is here for the reason shadow-bias's is.
+  'car-lamp --selftest',
   // About 4 s, a purpose-built page: the real Sky at the night preset through the real PostStack
   // (#124). The star field is GLSL in the sky dome, and nothing else on this list draws a star.
   'star-strokes',

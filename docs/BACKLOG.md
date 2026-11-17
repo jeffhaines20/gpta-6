@@ -6324,6 +6324,59 @@ photocell to have lit these lamps. Read that way, today's dusk globe is a LIT gl
 as lit, and an UNLIT one would be correct, but it would need to be the colour of frosted glass under a low
 sun and a bright sky, not the orange the emissive term adds. Neither reading has been measured.
 
+### #143 MEASURED — the black is the projector cores; at noon the lamp body sits inside the photographed range, and from sun to shade it runs the wrong way
+**The reviewer's number is a core, against a bonnet.** Sampled with `paint-tone --sample` on the corridor-noon
+frame of the lamps-by-day round (`docs/shots/lamp-lamp1-corridor-noon.png`, the same near-left parked car):
+
+    a projector core (albedo 0.020, by design)    168,765,4,3     0.0252 linear    the reviewer's 0.024
+    the lamp body between the bowls               181,778,6,12    0.1263
+    the lamp body outboard of them                212,772,8,14    0.1298
+    the bumper paint under the lamp               170,808,60,15   0.0724
+    the bonnet                                    120,742,60,12   0.2936
+
+The lamp is not black: its body is brighter than the bumper paint under it and 0.44 of the bonnet. What reads
+black is the two projector cores, a dark disc of radius 1.7 cm inside each 3.8 cm bowl.
+On the current build (`docs/shots/l143-lamp1-corridor-noon.png`, 2026-11-17, after #125's frame fix lowered
+the bowls and drew the light guide) the same car reads the same: core 157,782,4,3 at 0.0202, the body
+173,782,6,10 and 204,778,12,14 at 0.1218 and 0.1244, the bumper 0.0724, the bonnet 0.2936.
+
+**And the bonnet is a measurement of the sky, which this car makes worse than usual.** The census compares a
+lamp's median with the same car's paint "facing the same way". These bodies lean their headlamps back
+48.6-50.2 degrees (area-weighted, off every shell's buffer), the bumper under them stands within 7 degrees of
+vertical, and the bonnet faces up: at noon, with the sun 75.6 degrees high, three different skies. The like
+for like denominator is the nose paint BESIDE the lamp at its own tilt, the strip between the two lamps.
+
+`tools/car-lamp.html` stands one car at a time from its own pool's module under the real light (src/sky.js's
+dome and PMREM, src/daynight.js's sun and bounce, src/post.js's composite), as `car-arch.html` does, and
+turns it so the sun is in front of, behind or beside the nose. A class mask by palette slot and face normal
+separates the lamp, the paint at its tilt, the bumper and the bonnet. `car-lamp --selftest` proves the
+boxes, the interior rule and the stride on synthetic frames (10 checks, each mutation-tested). On a white
+car (0.80), lamp median over paint, the traffic, parked and player cars:
+
+                               paint at the lamp's   the bumper under it   census, white cars
+                               own tilt, beside it   (near vertical)
+    noon, any sun bearing      0.24 - 0.36           0.49 - 0.99           0.14 - 0.53
+    golden, sun on the face    0.32 - 0.38           0.24 - 0.33           0.14 - 0.17 in sun
+    golden, sun behind it      0.15 - 0.19           0.17 - 0.28           0.21 - 0.53 in shade
+
+The parked pool's rows are byte-identical to the fleet's, which is #125's frame fix holding. At noon, the
+reviewer's hour, the lamp is inside the photographed range against paint at its own tilt and above it
+against the bumper. **No change at noon.**
+
+**What the census does say, and the build gets backwards.** A real lamp BRIGHTENS against its paint going into
+shade (0.14-0.17 in sun, 0.39 and 0.53 self-shaded); the shipped face DIMS (0.32-0.38 to 0.15-0.19 at
+golden). The census describes a glossy housing behind a clear cover whose brightness is reflected
+surroundings, which the sun does not reach. This housing is a diffuse 0.09 that the sun lights like the paint.
+One lever, measured: the housing as a metal (albedo x3, metalness 1, roughness 0.35) takes golden hour to
+0.17-0.27 in sun and 0.21-0.24 in shade, toward the census. At noon, straight on, it mirrors the dome's lit
+ground into the white panel #37 removed: 0.97-1.02 of the paint beside it, 0.84-0.90 linear. **Refused.** A
+flat face reflects one direction, and a real reflector is a curved bowl, so a finish alone is the wrong
+lever. The lever stays in `src/carbody.js` (`setLampHousing`; weight 0 is the build bit for bit, 12 page
+runs identical to the byte) so a later round sweeps rather than rebuilds. Two caveats: the census has two
+sun rows and three shade rows for white cars and records no sun elevation, and golden hour's low sun leaves
+the dome's ground dim, which no photograph in it is known to share.
+
+#### #143 (as filed)
 ### #143 OPEN — a parked car's headlamps read black at noon
 From the 2026-10-25 batch reviewer, in BOTH arms (#125's record): at corridor noon the near-left parked
 car's headlamp lens core reads 0.024 linear (0.036 in the old build) against its own bonnet's 0.345 — 7-10%

@@ -748,6 +748,32 @@ export const LAMP_FACE = {
   },
 };
 const LAMP_U = { uLampDetail: { value: 1 } };
+/**
+ * THE HOUSING'S FINISH, as a lever (#143), the way LENS_FINISH is the slot's. `uLampHousing` is
+ * (albedo scale, metalness, roughness, weight) for the part of a headlamp's face that is neither chrome
+ * nor a projector core, and its weight is 0 here: every mix it enters returns its first argument
+ * exactly, so the default is today's build bit for bit (12 runs of tools/car-lamp.html identical to the
+ * byte) and an arm that sets it differs in the housing and nothing else.
+ *
+ * WHY IT SHIPS OFF. The census of photographed lamps says a real lamp BRIGHTENS against its own paint
+ * going into shade (white cars 0.14-0.17 in sun, 0.39-0.53 self-shaded), because what you see is a
+ * glossy housing behind a clear cover reflecting its surroundings, which the sun does not reach. This
+ * housing is a diffuse 0.09 the sun lights like the paint, so at golden hour it runs the other way:
+ * 0.32-0.38 in sun, 0.15-0.19 in shade, against paint at the lamp's own 49-degree tilt beside it. A
+ * metal housing (albedo x3, metalness 1, roughness 0.35) moves golden hour toward the census, 0.17-0.27
+ * and 0.21-0.24, and at noon straight on mirrors the dome's lit ground into the white panel #37 took
+ * out: 0.97-1.02 of the paint beside it. A flat face reflects one direction and a real reflector is a
+ * curved bowl, so a finish alone is the wrong lever. See BACKLOG #143.
+ */
+const LAMP_HOUSING = { uLampHousing: { value: new THREE.Vector4(1, 0.03, 0.07, 0) } };
+export function setLampHousing({ albedo = 1, metal = 0.03, rough = 0.07, on = 1 } = {}) {
+  LAMP_HOUSING.uLampHousing.value.set(albedo, metal, rough, on ? 1 : 0);
+  return lampHousing();
+}
+export function lampHousing() {
+  const v = LAMP_HOUSING.uLampHousing.value;
+  return { albedo: v.x, metal: v.y, rough: v.z, on: v.w };
+}
 export function setLampDetail(k) {
   LAMP_U.uLampDetail.value = Math.min(1, Math.max(0, k));
   return lampDetail();
@@ -758,13 +784,14 @@ function lampGLSL() {
   const H = LAMP_FACE.head, T = LAMP_FACE.tail;
   return `
 uniform float uLampDetail;
+uniform vec4 uLampHousing;   // (albedo scale, metalness, roughness, weight); weight 0 is the build before it
 // One edge, antialiased over w (a screen pixel in the same units as d and e).
 float lampEdge( float e, float d, float w ) { return smoothstep( e - w, e + w, d ); }
 // The lamp's face at p (the fleet's frame, metres) on slot 4 (head) or 5 (tail): albedo in rgb, and
 // in a the share of the slot's emission this point keeps. The out chrome is how much of this point is a
 // polished METAL reflector: its brightness is the surroundings it reflects, not the light falling
 // on it, which is the census's own reading of why real lamps stay bright in shade.
-vec4 lampFace( vec3 p, float slot, float px, out float chrome ) {
+vec4 lampFace( vec3 p, float slot, float px, out float chrome, out float housing ) {
 	float ax = abs( p.x );
 	const vec3 CHROME = vec3( 0.62, 0.63, 0.65 );                      // a polished reflector's F0
 	if ( slot < 4.5 ) {
@@ -773,15 +800,18 @@ vec4 lampFace( vec3 p, float slot, float px, out float chrome ) {
 		float strip = lampEdge( ${H.strip.y[0]}, p.y, px ) * ( 1.0 - lampEdge( ${H.strip.y[1]}, p.y, px ) )
 			* lampEdge( ${H.strip.x[0]}, ax, px ) * ( 1.0 - lampEdge( ${H.strip.x[1]}, ax, px ) );
 		chrome = strip;
+		float coreW = 0.0;
 		// Two reflector bowls, radius 3.8 cm: a chrome ring round a dark projector core.
 		for ( int i = 0; i < 2; i++ ) {
 			float r = length( vec2( ax - ( i == 0 ? ${H.bowlX[0]} : ${H.bowlX[1]} ), p.y - ${H.bowlY} ) );
 			float ring = lampEdge( ${H.ring[0]}, r, px ) * ( 1.0 - lampEdge( ${H.ring[1]}, r, px ) );
 			chrome = max( chrome, ring );
 			float core = 1.0 - lampEdge( ${H.core}, r, px );
+			coreW = max( coreW, core );
 			col = mix( col, vec3( 0.020 ), core );
 		}
 		col = mix( col, CHROME, chrome );
+		housing = ( 1.0 - chrome ) * ( 1.0 - coreW );
 		return vec4( col, 1.0 );
 	}
 	float v = clamp( ( p.y - ${T.y0} ) / ${T.h}, 0.0, 1.0 );
@@ -790,6 +820,7 @@ vec4 lampFace( vec3 p, float slot, float px, out float chrome ) {
 	// middle 60%.
 	float insert = ( 1.0 - lampEdge( ${T.insert.x}, ax, px ) ) * lampEdge( ${T.insert.y[0]}, p.y, px ) * ( 1.0 - lampEdge( ${T.insert.y[1]}, p.y, px ) );
 	chrome = insert;
+	housing = 0.0;
 	col = mix( col, CHROME, insert );
 	return vec4( col, 1.0 - insert );
 }
@@ -1241,6 +1272,7 @@ function patchLensFalloff(m) {
     shader.uniforms.uPaintTintOnly = PAINT_TINT.uPaintTintOnly;
     shader.uniforms.uPlateText = PLATE_U.uPlateText;
     shader.uniforms.uLampDetail = LAMP_U.uLampDetail;
+    shader.uniforms.uLampHousing = LAMP_HOUSING.uLampHousing;
     // THE PAINT-SLOT TINT. `paletteU(i)` is `(i + 0.5) / 16`, so `floor( uv.x * 16 )` is the slot
     // this vertex points the palette at - exact in float32 for every slot, since (i + 0.5) / 16
     // is a dyadic rational. step(0.5, slot) is 0 on slot 0 and 1 everywhere else, so the mix
@@ -1350,15 +1382,17 @@ void main() {`)
 	// THE LAMPS' FACES, on slots 4 and 5, in the fleet's frame (vCabinPos is already in it: CAR_FRAME_Y
 	// lifts the player's car and the parked pool into it, in the vertex shader). The pixel's size in
 	// metres is taken before the branch, for the same reason as the plate's.
-	float lampChrome = 0.0;
+	float lampChrome = 0.0, lampHousing = 0.0;
 	{
 		vec3 lampP = vCabinPos;
 		float lampPx = max( length( dFdx( lampP ) ), length( dFdy( lampP ) ) );
 		float lampSlot = floor( vRoughnessMapUv.x * 16.0 );
 		if ( uLampDetail > 0.0 && lampSlot > 3.5 && lampSlot < 5.5 ) {
-			vec4 lampD = lampFace( lampP, lampSlot, lampPx, lampChrome );
+			vec4 lampD = lampFace( lampP, lampSlot, lampPx, lampChrome, lampHousing );
 			lampChrome *= uLampDetail;
+			lampHousing *= uLampDetail * uLampHousing.w;
 			diffuseColor.rgb = mix( diffuseColor.rgb, lampD.rgb, uLampDetail );
+			diffuseColor.rgb *= mix( 1.0, uLampHousing.x, lampHousing );
 			// totalEmissiveRadiance is declared above color_fragment, and the emissive map multiplies
 			// it below: a product, so masking it here is the same as masking it there.
 			totalEmissiveRadiance *= mix( 1.0, lampD.a, uLampDetail );
@@ -1367,7 +1401,9 @@ void main() {`)
       // The lamps' chrome: a polished metal where the face says so (see lampFace).
       .replace(METALNESS_DECL, `${METALNESS_DECL}
 	metalnessFactor = mix( metalnessFactor, 1.0, lampChrome );
-	roughnessFactor = mix( roughnessFactor, 0.16, lampChrome );`)
+	roughnessFactor = mix( roughnessFactor, 0.16, lampChrome );
+	metalnessFactor = mix( metalnessFactor, uLampHousing.y, lampHousing );
+	roughnessFactor = mix( roughnessFactor, uLampHousing.z, lampHousing );`)
       // The glazing slot, by the same pack-alpha test the environment gain and the cabin use.
       .replace(OPAQUE_FRAGMENT_DECL, glassAoTag('1.0 - texture2D( roughnessMap, vRoughnessMapUv ).a'))
       .replace(EMISSIVE_DECL, `float lensRho = clamp( vEmissiveMapUv.y, 0.0, 1.0 );
@@ -1389,7 +1425,7 @@ void main() {`)
   // BUMPED FOR THE LAMPS' FACES: a uniform, a define and a fragment block.
   // BUMPED FOR #130: a uniform and a block after opaque_fragment.
   // BUMPED FOR #125: CAR_FRAME_Y moved into the vertex shader's cabin varyings.
-  m.customProgramCacheKey = () => 'carLensFalloff9cabin31ao130frame125';
+  m.customProgramCacheKey = () => 'carLensFalloff9cabin31ao130frame125housing143';
   return m;
 }
 

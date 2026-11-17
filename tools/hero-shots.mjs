@@ -219,8 +219,11 @@ for (const s of chosen) {
       // fixed one half here and both halves there, leaving the trap armed in
       // three other tools. See CLAUDE.md on patching one tool and leaving the
       // rest.
+      // HERO_SHOT_TIMEOUT (ms) raises the bound on a loaded box, as HERO_SETTLE_TIMEOUT raises the
+      // settle's: it is a hang detector and changes nothing captured. On 2026-11-17 at load 13 both arms
+      // of a one-framing noon capture timed out at 180 s.
       try {
-        await page.screenshot({ path: file, timeout: 180000 });
+        await page.screenshot({ path: file, timeout: Number(process.env.HERO_SHOT_TIMEOUT ?? 180000) });
       } catch (e) {
         shotErrors.push(`${file}: ${e.message.split('\n')[0]}`);
         console.log(`  SCREENSHOT FAILED (continuing): ${file}`);
