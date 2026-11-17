@@ -38,7 +38,7 @@
 //
 //   node tools/dusk-lamps.mjs                      corridor and fivepoints, dusk and night
 //   DL_SHOTS=corridor DL_TIMES=dusk node tools/dusk-lamps.mjs
-//   DL_PORT=8283 DL_OUT=/abs/dir                   port, and where the frame captures go
+//   DL_PORT=8283 DL_OUT=/abs/dir DL_SHOT=1         port, and a frame capture per hour into that dir
 //   DL_ROOT=/abs/export                            serve another tree's page (the base commit's export)
 //   node tools/dusk-lamps.mjs --selftest           the pure half on synthetic planes, with known-bads
 //
@@ -576,8 +576,10 @@ if (IS_MAIN && !SELFTEST) {
         console.log(`  WEATHER: clear ${weather.clear.lux.toFixed(2)} lux, heavyRain ${weather.heavy.lux.toFixed(2)} ` +
           `(sun ${weather.heavy.sun.toFixed(2)}, sky ${weather.heavy.sky.toFixed(2)}), back ${weather.back.lux.toFixed(2)}`);
       }
+      // The frame is opt-in (DL_SHOT=1): a screenshot needs a fresh frame, and at load 9 one timed out at
+      // 180 s and cost three minutes a run for a picture hero-shots takes properly.
       let frameErr = null;
-      if (OUT) {
+      if (OUT && process.env.DL_SHOT === '1') {
         fs.mkdirSync(OUT, { recursive: true });
         try { await page.screenshot({ path: `${OUT}/dusklamps-${TAG}-${s.name}-${tod}.png`, timeout: 180000 }); }
         catch (e) { frameErr = e.message.split('\n')[0]; }
