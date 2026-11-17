@@ -304,6 +304,7 @@ if (state.global && state.frames > 2) {
     const withFol = meshes.filter((m) => (Array.isArray(m.material) ? m.material.includes(f.foliageMat) : m.material === f.foliageMat));
     return {
       mode: f.foliageMat.userData.coverage, rim: f.foliageMat.userData.rim, a2c: f.foliageMat.alphaToCoverage,
+      litTag: f.foliageMat.userData.litTag, noTagDefine: 'FOLIAGE_NO_LIT_TAG' in (f.foliageMat.defines ?? {}),
       buckets: meshes.length, coverageBuckets: f.coverageBuckets, withFol: withFol.length,
       paired: withFol.filter((m) => !Array.isArray(m.material) || (m.material[0] === f.propMat && m.material[1] === f.foliageMat)).length,
       depth: withFol.filter((m) => m.customDepthMaterial && m.customDepthMaterial.name === 'foliageDepth').length,
@@ -312,8 +313,9 @@ if (state.global && state.frames > 2) {
   });
   console.log(`  foliage coverage: ${JSON.stringify(fol)}`);
   check('the page draws the stencil\'s cut zones with the coverage the module ships (#145)',
-    fol && fol.mode === 'centred' && fol.rim === true && fol.a2c === true,
-    fol ? `mode ${fol.mode}, rim ${fol.rim}, alphaToCoverage ${fol.a2c}` : 'no furniture.foliageMat on the page');
+    fol && fol.mode === 'centred' && fol.rim === true && fol.a2c === true && fol.litTag === true && fol.noTagDefine === false,
+    fol ? `mode ${fol.mode}, rim ${fol.rim}, alphaToCoverage ${fol.a2c}, a covered leaf's lit tag ${fol.litTag} (define off: ${!fol.noTagDefine})`
+      : 'no furniture.foliageMat on the page');
   check('and every bucket that carries it pairs it with the shared material and casts through the foliage depth material',
     fol && fol.withFol > 0 && fol.withFol === fol.coverageBuckets && fol.paired === fol.withFol && fol.depth === fol.withFol && fol.strayDepth === 0,
     fol ? `${fol.withFol} of ${fol.buckets} buckets carry it (module counts ${fol.coverageBuckets}), ${fol.paired} paired, `

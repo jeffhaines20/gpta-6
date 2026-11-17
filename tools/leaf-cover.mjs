@@ -272,8 +272,9 @@ async function district() {
         const stats = await page.evaluate(() => __leafCover.stats());
         const bright = await page.evaluate((b) => __leafCover.bright(b), (BOXES[name] ?? []).map(({ name: n, box }) => ({ name: n, box })));
         const hdr = HDR_BOXES[name] ? await page.evaluate((b) => __leafCover.hdrBoxes(b), HDR_BOXES[name]) : [];
-        // A light arm is read off the scene target alone: its frame would only cost a screenshot.
-        const lightArm = ['nosun', 'nohemi', 'nobounce', 'noenv'].includes(arm);
+        // A light arm is read off the scene target alone, and the tag arm off the targets alone (its
+        // quantity is the bright pass): a frame would only cost a screenshot.
+        const lightArm = ['nosun', 'nohemi', 'nobounce', 'noenv', 'notag'].includes(arm);
         const file = path.join(outDir, `${name}-${tod}-${arm}.png`);
         if (!lightArm) await page.screenshot({ path: file, timeout: Number(process.env.LEAF_SHOT_TIMEOUT ?? 1200000) });
         const img = lightArm ? null : readPNG(file);
