@@ -1726,6 +1726,15 @@ if (state.global && state.frames > 2) {
     const want = reach * 2;
     const base = d.district.meta.spawn;
     let spot = null, bestFound = 0;
+    /**
+     * A ZERO REACH IS A HANG, NOT A FAILURE. district/main.js builds the pursuit on the first wanted
+     * level and `pursuitReach()` reads 0 until then, so the search below would step by 0 for ever and
+     * freeze the page with nothing printed — found by a probe that ran this arm on a fresh page and
+     * sat for 30 minutes. Here the bust arm earlier in the file has always built it; that is a fact
+     * about file order, so it is checked rather than assumed, and it fails as the subject check.
+     */
+    if (!(reach > 0)) return { why: 'no pursuit to read a reach from', reach, want: 0, bestFound,
+      heldN: 0, needs: null, noWalk: 0, best: null, stars: 0, at: null, roadD: null };
     for (let step = want; step <= want * 4 && !spot; step += reach) {
       for (let ang = 0; ang < 24 && !spot; ang++) {
         const a = ang * Math.PI / 12;
