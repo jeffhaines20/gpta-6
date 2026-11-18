@@ -7152,6 +7152,33 @@ globe there: A reads (133,100,99), which is wall and facade, whereas the frame's
 (159..194, 115..149, 90..117). This is the source of B's dusk hotspot. Of the 13 lamps in this frame, it is
 the one with no visible head."
 
+### #149 FIXED — a car the rest hold keeps still no longer turns its wheels (40d34e8)
+
+**Measured first, offline.** A vehicle.js car on flat ground, held by #146's rest hold for 60 s: the body
+moved 0.000 mm and the hold fired on every step, and the wheels turned anyway - at the game's 1/120 step
+29.7 / 60.4 / 30.8 / 0.0 deg with no input and 29.7 / -121.3 / -88.6 / 237.7 deg with the brake on, the
+wheels turning against each other; at 1/60 exactly twice those, so it is a per-step quantity and not
+motion. The reading below was right: the wheel loop turns each wheel by the step's vLong, and the hold
+then discards the velocity that vLong came from.
+
+**The fix** restores, when the hold fires, the angle each wheel started the step from (`spinPrev`,
+refreshed at the top of the wheel loop). It is exact and it is the same statement as clearing the
+velocity: the car did not move. After it the same probe reads 0.00 deg on every wheel at both steps.
+
+**Gates.** physics-test 7b, three checks: the held wheels move 0 rad free at four headings over 115 s and
+braked over 60 s, with the hold asserted on every step (6900 of 6900, 3600 of 3600); a car driving away
+from the hold turns every wheel through 0.994-0.996 of the distance it covers; and a car that coasts
+until the hold takes it (64.8 s, 65.5 rad of turn on the way) keeps its angle exactly on that step - a
+fixed 2 s wait after the coast was the first version, and it measured the coast's own last 117 mm of
+viscous roll as a snap. Mutation rows `rest-hold-wheels` (the restore removed: caught by physics-test)
+and `rest-hold-wheels-stale` (a stale starting angle, the wheels snapping back 65 rad: written, NOT yet
+run - the session was paused before it). mutation-sweep --selftest PASS 19. Not run on this change: the
+offline list and boot-check; CI's static gates and budget drive run on the push.
+
+**Still open:** whether the reviewers' red car IS the player's car. If it is a traffic or parked car its
+rims change for another reason, and this fix, while real, is not that one.
+
+#### THE ORIGINAL RECORD, kept verbatim
 ### #149 OPEN — a stopped car's rims turn between two captures while its body does not
 
 From #36's blind reviewer (2026-11-18), in both fivepoints pairs (noon and golden) and in both builds: the stopped
