@@ -3195,6 +3195,7 @@ page through the real noon light; 22-33 s on a loaded box, the selftest 0.3 s).
 `leaf-cover` and `leaf-cover --selftest` (#145: a purpose-built page, 22 s at load 12; the selftest about a second),
 `leaf-edge --selftest` (offline, under a second).
 `photocell` and `photocell --selftest` (#142, offline, about 0.2 s each).
+`globe-glass` and `globe-glass --selftest` (#142 round 2: a purpose-built page, about 5 s; the selftest under a second).
 **Fifty-six entries in 241 s** on 2026-10-19, run alone; fifty-nine in 607 s on 2026-10-22 at load 12. **Add a new gate to BOTH lists** — this one
 and `mutation-sweep`'s offline list: `car-shapes` sat on this one and not the sweep's, so nothing it
 asserted had ever been swept, and a row written for a new car-shapes check came back MISSED against

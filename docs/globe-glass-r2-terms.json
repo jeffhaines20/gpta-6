@@ -1,0 +1,2007 @@
+{
+ "root": "/tmp/claude-0/-home-user-gpta-6/481b6aa3-9372-53ec-9397-cb1259b5e6bf/scratchpad/wt-g142",
+ "cap": 0.4,
+ "occluder": 0.25,
+ "edge": 0.7,
+ "errors": [],
+ "runs": [
+  {
+   "shot": "corridor",
+   "tod": "dusk",
+   "preset": "dusk",
+   "streetLampsOn": false,
+   "picks": [
+    {
+     "box": "main",
+     "lamp": 283,
+     "globe": "outer",
+     "sx": 973.6746826633013,
+     "sy": 296.21621147242575,
+     "rpx": 9.937219092186583,
+     "depth": 21.74758222390197,
+     "dd": 0.3906133258930993
+    }
+   ],
+   "rows": [
+    {
+     "finish": "before",
+     "got": {
+      "shadow": false,
+      "color": 14209732,
+      "transmit": 0
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 206,
+        "occluded": 60,
+        "top": 43,
+        "under": 64,
+        "topY": 0.29496900865658393,
+        "underY": 0.14383015999963772,
+        "underOverTop": 0.4876110905844051,
+        "cast": 0.5311443350313111,
+        "globeOverSky": 0.5542930525377552,
+        "skyY": 0.42652746561671534
+       }
+      }
+     ]
+    },
+    {
+     "finish": "+shadow",
+     "got": {
+      "shadow": true,
+      "color": 14209732,
+      "transmit": 0
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 206,
+        "occluded": 60,
+        "top": 43,
+        "under": 64,
+        "topY": 0.2634958810197732,
+        "underY": 0.11128367662872761,
+        "underOverTop": 0.4223355454287981,
+        "cast": 0.4739373289070116,
+        "globeOverSky": 0.46651534802877975,
+        "skyY": 0.4264123552563232
+       }
+      }
+     ]
+    },
+    {
+     "finish": "+neutral",
+     "got": {
+      "shadow": false,
+      "color": 13816530,
+      "transmit": 0
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 206,
+        "occluded": 60,
+        "top": 43,
+        "under": 64,
+        "topY": 0.29351612145067507,
+        "underY": 0.14129973085770361,
+        "underOverTop": 0.4814036454261638,
+        "cast": 0.48058119286491,
+        "globeOverSky": 0.5487264490817785,
+        "skyY": 0.42652746561671534
+       }
+      }
+     ]
+    },
+    {
+     "finish": "+transmit",
+     "got": {
+      "shadow": false,
+      "color": 14209732,
+      "transmit": 0.55
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 206,
+        "occluded": 60,
+        "top": 43,
+        "under": 64,
+        "topY": 0.37712605454324405,
+        "underY": 0.2782154672239066,
+        "underOverTop": 0.7377253941281439,
+        "cast": 0.3615420807350569,
+        "globeOverSky": 0.8157258392031821,
+        "skyY": 0.42674595443432217
+       }
+      }
+     ]
+    },
+    {
+     "finish": "all three",
+     "got": {
+      "shadow": true,
+      "color": 13816530,
+      "transmit": 0.55
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 206,
+        "occluded": 60,
+        "top": 43,
+        "under": 64,
+        "topY": 0.3443056324393263,
+        "underY": 0.23739370171315485,
+        "underOverTop": 0.6894853855026274,
+        "cast": 0.24782861606134504,
+        "globeOverSky": 0.7203481510862292,
+        "skyY": 0.4266585453711862
+       }
+      }
+     ]
+    },
+    {
+     "finish": "before, lit",
+     "got": {
+      "shadow": false,
+      "color": 14209732,
+      "transmit": 0
+     },
+     "lit": true,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 206,
+        "occluded": 60,
+        "top": 43,
+        "under": 64,
+        "topY": 0.3651311308665064,
+        "underY": 0.25375086719811485,
+        "underOverTop": 0.6949581828203175,
+        "cast": 0.43261897605513205,
+        "globeOverSky": 0.769538102362631,
+        "skyY": 0.42673748651451865
+       }
+      }
+     ]
+    },
+    {
+     "finish": "all three, lit",
+     "got": {
+      "shadow": true,
+      "color": 13816530,
+      "transmit": 0.55
+     },
+     "lit": true,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 206,
+        "occluded": 60,
+        "top": 43,
+        "under": 64,
+        "topY": 0.407936707921641,
+        "underY": 0.34045781778403544,
+        "underOverTop": 0.8345849029340912,
+        "cast": 0.23731753385049018,
+        "globeOverSky": 0.9184321414187735,
+        "skyY": 0.42674595443432217
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "shot": "corridor",
+   "tod": "golden",
+   "preset": "golden",
+   "streetLampsOn": false,
+   "picks": [
+    {
+     "box": "main",
+     "lamp": 283,
+     "globe": "outer",
+     "sx": 973.6746826633013,
+     "sy": 296.21621147242575,
+     "rpx": 9.937219092186583,
+     "depth": 21.74758222390197,
+     "dd": 0.3906133258930993
+    }
+   ],
+   "rows": [
+    {
+     "finish": "before",
+     "got": {
+      "shadow": false,
+      "color": 14209732,
+      "transmit": 0
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 206,
+        "occluded": 60,
+        "top": 43,
+        "under": 64,
+        "topY": 0.2158448170692853,
+        "underY": 0.1154241457535771,
+        "underOverTop": 0.5347552344355178,
+        "cast": 0.31176431747571487,
+        "globeOverSky": 0.33567705483999155,
+        "skyY": 0.5141533537847878
+       }
+      }
+     ]
+    },
+    {
+     "finish": "+shadow",
+     "got": {
+      "shadow": true,
+      "color": 14209732,
+      "transmit": 0
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 206,
+        "occluded": 60,
+        "top": 43,
+        "under": 64,
+        "topY": 0.2156248404628087,
+        "underY": 0.1140677227622591,
+        "underOverTop": 0.529010120157903,
+        "cast": 0.31031188965674467,
+        "globeOverSky": 0.33009130908089007,
+        "skyY": 0.5141030370262486
+       }
+      }
+     ]
+    },
+    {
+     "finish": "+neutral",
+     "got": {
+      "shadow": false,
+      "color": 13816530,
+      "transmit": 0
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 206,
+        "occluded": 60,
+        "top": 43,
+        "under": 64,
+        "topY": 0.21575117168219482,
+        "underY": 0.1141599981554002,
+        "underOverTop": 0.5291280564796182,
+        "cast": 0.23804858300791024,
+        "globeOverSky": 0.3339987763735579,
+        "skyY": 0.5141533537847878
+       }
+      }
+     ]
+    },
+    {
+     "finish": "+transmit",
+     "got": {
+      "shadow": false,
+      "color": 14209732,
+      "transmit": 0.55
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 206,
+        "occluded": 60,
+        "top": 43,
+        "under": 64,
+        "topY": 0.4203298244675319,
+        "underY": 0.4105112142443568,
+        "underOverTop": 0.9766407005840874,
+        "cast": 0.25522388846453,
+        "globeOverSky": 0.8402810932694034,
+        "skyY": 0.514833263380222
+       }
+      }
+     ]
+    },
+    {
+     "finish": "all three",
+     "got": {
+      "shadow": true,
+      "color": 13816530,
+      "transmit": 0.55
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 206,
+        "occluded": 60,
+        "top": 43,
+        "under": 64,
+        "topY": 0.32966906969079807,
+        "underY": 0.27687092699692434,
+        "underOverTop": 0.8398450217261997,
+        "cast": 0.1365640713362497,
+        "globeOverSky": 0.613964814771151,
+        "skyY": 0.5141422502517089
+       }
+      }
+     ]
+    },
+    {
+     "finish": "before, lit",
+     "got": {
+      "shadow": false,
+      "color": 14209732,
+      "transmit": 0
+     },
+     "lit": true,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 206,
+        "occluded": 60,
+        "top": 43,
+        "under": 64,
+        "topY": 0.2339712848402289,
+        "underY": 0.13869070470599096,
+        "underOverTop": 0.5927680604083453,
+        "cast": 0.31838067343221116,
+        "globeOverSky": 0.37796578638361644,
+        "skyY": 0.5141533537847878
+       }
+      }
+     ]
+    },
+    {
+     "finish": "all three, lit",
+     "got": {
+      "shadow": true,
+      "color": 13816530,
+      "transmit": 0.55
+     },
+     "lit": true,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 206,
+        "occluded": 60,
+        "top": 43,
+        "under": 64,
+        "topY": 0.34421246906246955,
+        "underY": 0.29832768867017906,
+        "underOverTop": 0.8666963445070228,
+        "cast": 0.14434387949300315,
+        "globeOverSky": 0.6499289021213034,
+        "skyY": 0.5141422502517089
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "shot": "corridor",
+   "tod": "night",
+   "preset": "night",
+   "streetLampsOn": true,
+   "picks": [
+    {
+     "box": "main",
+     "lamp": 283,
+     "globe": "outer",
+     "sx": 973.6746826633013,
+     "sy": 296.21621147242575,
+     "rpx": 9.937219092186583,
+     "depth": 21.74758222390197,
+     "dd": 0.3906133258930993
+    }
+   ],
+   "rows": [
+    {
+     "finish": "before",
+     "got": {
+      "shadow": false,
+      "color": 14209732,
+      "transmit": 0
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 266,
+        "occluded": 0,
+        "top": 60,
+        "under": 64,
+        "topY": 0.9864706407869709,
+        "underY": 0.9961388165201599,
+        "underOverTop": 1.0098007739241748,
+        "cast": 0.003071962823121676,
+        "globeOverSky": 1.0594866153532785,
+        "skyY": 0.9342945294557272
+       }
+      }
+     ]
+    },
+    {
+     "finish": "+shadow",
+     "got": {
+      "shadow": true,
+      "color": 14209732,
+      "transmit": 0
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 266,
+        "occluded": 0,
+        "top": 60,
+        "under": 64,
+        "topY": 0.9864706407869709,
+        "underY": 0.9961388165201599,
+        "underOverTop": 1.0098007739241748,
+        "cast": 0.003071962823121676,
+        "globeOverSky": 1.0594866153532785,
+        "skyY": 0.9342945294557272
+       }
+      }
+     ]
+    },
+    {
+     "finish": "+neutral",
+     "got": {
+      "shadow": false,
+      "color": 13816530,
+      "transmit": 0
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 266,
+        "occluded": 0,
+        "top": 60,
+        "under": 64,
+        "topY": 0.9864706407869709,
+        "underY": 0.9961388165201599,
+        "underOverTop": 1.0098007739241748,
+        "cast": 0.003071962823121676,
+        "globeOverSky": 1.0594866153532785,
+        "skyY": 0.9342945294557272
+       }
+      }
+     ]
+    },
+    {
+     "finish": "+transmit",
+     "got": {
+      "shadow": false,
+      "color": 14209732,
+      "transmit": 0.55
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 266,
+        "occluded": 0,
+        "top": 60,
+        "under": 64,
+        "topY": 0.9864809592139702,
+        "underY": 0.9961388165201599,
+        "underOverTop": 1.0097902115757866,
+        "cast": 0.003071962823121676,
+        "globeOverSky": 1.0594891064999814,
+        "skyY": 0.9342945294557272
+       }
+      }
+     ]
+    },
+    {
+     "finish": "all three",
+     "got": {
+      "shadow": true,
+      "color": 13816530,
+      "transmit": 0.55
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 266,
+        "occluded": 0,
+        "top": 60,
+        "under": 64,
+        "topY": 0.9864809592139702,
+        "underY": 0.9961388165201599,
+        "underOverTop": 1.0097902115757866,
+        "cast": 0.003071962823121676,
+        "globeOverSky": 1.0594891064999814,
+        "skyY": 0.9342945294557272
+       }
+      }
+     ]
+    },
+    {
+     "finish": "before, lit",
+     "got": {
+      "shadow": false,
+      "color": 14209732,
+      "transmit": 0
+     },
+     "lit": true,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 266,
+        "occluded": 0,
+        "top": 60,
+        "under": 64,
+        "topY": 0.9864706407869709,
+        "underY": 0.9961388165201599,
+        "underOverTop": 1.0098007739241748,
+        "cast": 0.003071962823121676,
+        "globeOverSky": 1.0594866153532785,
+        "skyY": 0.9342945294557272
+       }
+      }
+     ]
+    },
+    {
+     "finish": "all three, lit",
+     "got": {
+      "shadow": true,
+      "color": 13816530,
+      "transmit": 0.55
+     },
+     "lit": true,
+     "per": [
+      {
+       "box": "main",
+       "lamp": 283,
+       "globe": "outer",
+       "at": [
+        973.7,
+        296.2
+       ],
+       "rpx": 9.94,
+       "stats": {
+        "n": 266,
+        "occluded": 0,
+        "top": 60,
+        "under": 64,
+        "topY": 0.9864809592139702,
+        "underY": 0.9961388165201599,
+        "underOverTop": 1.0097902115757866,
+        "cast": 0.003071962823121676,
+        "globeOverSky": 1.0594891064999814,
+        "skyY": 0.9342945294557272
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "shot": "fivepoints",
+   "tod": "dusk",
+   "preset": "dusk",
+   "streetLampsOn": false,
+   "picks": [
+    {
+     "box": "top-left",
+     "lamp": 171,
+     "globe": "outer",
+     "sx": 147.80319237916606,
+     "sy": 197.84901210590047,
+     "rpx": 15.539900328808418,
+     "depth": 16.260023019311056,
+     "dd": 0.3387077840100349
+    },
+    {
+     "box": "left",
+     "lamp": 831,
+     "globe": "outer",
+     "sx": 65.27179469412721,
+     "sy": 281.8877910349209,
+     "rpx": 11.073289455159383,
+     "depth": 22.818796355629757,
+     "dd": 0.25430004615142726
+    }
+   ],
+   "rows": [
+    {
+     "finish": "before",
+     "got": {
+      "shadow": false,
+      "color": 14209732,
+      "transmit": 0
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 679,
+        "occluded": 16,
+        "top": 177,
+        "under": 154,
+        "topY": 0.4909499497980305,
+        "underY": 0.1811084426785902,
+        "underOverTop": 0.3688939020221827,
+        "cast": 0.550895868235795,
+        "globeOverSky": 0.5435978189094093,
+        "skyY": 0.6555054284301716
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 289,
+        "occluded": 8,
+        "top": 49,
+        "under": 58,
+        "topY": 0.45528858753150586,
+        "underY": 0.20476921136509962,
+        "underOverTop": 0.44975696069019006,
+        "cast": 0.4894184525652476,
+        "globeOverSky": 0.5122295243661055,
+        "skyY": 0.6555054284301716
+       }
+      }
+     ]
+    },
+    {
+     "finish": "+shadow",
+     "got": {
+      "shadow": true,
+      "color": 14209732,
+      "transmit": 0
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 673,
+        "occluded": 22,
+        "top": 177,
+        "under": 148,
+        "topY": 0.45325482354009006,
+        "underY": 0.14006767324222577,
+        "underOverTop": 0.3090263268424696,
+        "cast": 0.5032285504772097,
+        "globeOverSky": 0.4773091304062532,
+        "skyY": 0.6555054284301716
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 289,
+        "occluded": 8,
+        "top": 49,
+        "under": 58,
+        "topY": 0.41604545002432003,
+        "underY": 0.1647658155730053,
+        "underOverTop": 0.3960284040202191,
+        "cast": 0.4436760329861374,
+        "globeOverSky": 0.448987581524374,
+        "skyY": 0.6555054284301716
+       }
+      }
+     ]
+    },
+    {
+     "finish": "+neutral",
+     "got": {
+      "shadow": false,
+      "color": 13816530,
+      "transmit": 0
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 679,
+        "occluded": 16,
+        "top": 177,
+        "under": 154,
+        "topY": 0.4907741657453066,
+        "underY": 0.17835857075786837,
+        "underOverTop": 0.36342290040268704,
+        "cast": 0.5081599090078557,
+        "globeOverSky": 0.5412030446828278,
+        "skyY": 0.6555054284301716
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 289,
+        "occluded": 8,
+        "top": 49,
+        "under": 58,
+        "topY": 0.45456113616073185,
+        "underY": 0.20238405166182769,
+        "underOverTop": 0.4452295534351734,
+        "cast": 0.45177759891784786,
+        "globeOverSky": 0.5095629237721147,
+        "skyY": 0.6555054284301716
+       }
+      }
+     ]
+    },
+    {
+     "finish": "+transmit",
+     "got": {
+      "shadow": false,
+      "color": 14209732,
+      "transmit": 0.55
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 694,
+        "occluded": 1,
+        "top": 177,
+        "under": 169,
+        "topY": 0.5645138111248097,
+        "underY": 0.3048824409156,
+        "underOverTop": 0.5400796843360008,
+        "cast": 0.3704967486529751,
+        "globeOverSky": 0.6893418140150959,
+        "skyY": 0.6555054284301716
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 290,
+        "occluded": 7,
+        "top": 49,
+        "under": 59,
+        "topY": 0.5324687876012196,
+        "underY": 0.3048200219591485,
+        "underOverTop": 0.5724655210916071,
+        "cast": 0.3608737938159059,
+        "globeOverSky": 0.6426637002613202,
+        "skyY": 0.6555054284301716
+       }
+      }
+     ]
+    },
+    {
+     "finish": "all three",
+     "got": {
+      "shadow": true,
+      "color": 13816530,
+      "transmit": 0.55
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 694,
+        "occluded": 1,
+        "top": 177,
+        "under": 169,
+        "topY": 0.5312077415757085,
+        "underY": 0.25894306898013036,
+        "underOverTop": 0.4874610227103127,
+        "cast": 0.2662746058145662,
+        "globeOverSky": 0.623354152214742,
+        "skyY": 0.6555054284301716
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 290,
+        "occluded": 7,
+        "top": 49,
+        "under": 59,
+        "topY": 0.4966087233455723,
+        "underY": 0.261900746351545,
+        "underOverTop": 0.5273784652576422,
+        "cast": 0.26852058655154276,
+        "globeOverSky": 0.5801720896703852,
+        "skyY": 0.6555054284301716
+       }
+      }
+     ]
+    },
+    {
+     "finish": "before, lit",
+     "got": {
+      "shadow": false,
+      "color": 14209732,
+      "transmit": 0
+     },
+     "lit": true,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 694,
+        "occluded": 1,
+        "top": 177,
+        "under": 169,
+        "topY": 0.5487853929196989,
+        "underY": 0.27896853629282325,
+        "underOverTop": 0.508338122501091,
+        "cast": 0.4431944273827461,
+        "globeOverSky": 0.6571881413157216,
+        "skyY": 0.6555054284301716
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 290,
+        "occluded": 7,
+        "top": 49,
+        "under": 59,
+        "topY": 0.5191612209577855,
+        "underY": 0.3028560899741277,
+        "underOverTop": 0.58335653309274,
+        "cast": 0.4115230294755438,
+        "globeOverSky": 0.6361458372550647,
+        "skyY": 0.6555054284301716
+       }
+      }
+     ]
+    },
+    {
+     "finish": "all three, lit",
+     "got": {
+      "shadow": true,
+      "color": 13816530,
+      "transmit": 0.55
+     },
+     "lit": true,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 694,
+        "occluded": 1,
+        "top": 177,
+        "under": 169,
+        "topY": 0.5829848299856164,
+        "underY": 0.3587894375154176,
+        "underOverTop": 0.6154352893269448,
+        "cast": 0.2462752087081441,
+        "globeOverSky": 0.7355537049102262,
+        "skyY": 0.6555054284301716
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 290,
+        "occluded": 7,
+        "top": 49,
+        "under": 59,
+        "topY": 0.5541370770065093,
+        "underY": 0.35674805939629894,
+        "underOverTop": 0.643790271756366,
+        "cast": 0.24579144455266633,
+        "globeOverSky": 0.6973194028124862,
+        "skyY": 0.6555054284301716
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "shot": "fivepoints",
+   "tod": "golden",
+   "preset": "golden",
+   "streetLampsOn": false,
+   "picks": [
+    {
+     "box": "top-left",
+     "lamp": 171,
+     "globe": "outer",
+     "sx": 147.80319237916606,
+     "sy": 197.84901210590047,
+     "rpx": 15.539900328808418,
+     "depth": 16.260023019311056,
+     "dd": 0.3387077840100349
+    },
+    {
+     "box": "left",
+     "lamp": 831,
+     "globe": "outer",
+     "sx": 65.27179469412721,
+     "sy": 281.8877910349209,
+     "rpx": 11.073289455159383,
+     "depth": 22.818796355629757,
+     "dd": 0.25430004615142726
+    }
+   ],
+   "rows": [
+    {
+     "finish": "before",
+     "got": {
+      "shadow": false,
+      "color": 14209732,
+      "transmit": 0
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 683,
+        "occluded": 12,
+        "top": 177,
+        "under": 158,
+        "topY": 0.4017164135389315,
+        "underY": 0.2072346150689527,
+        "underOverTop": 0.5158729095565546,
+        "cast": 0.32141913437930203,
+        "globeOverSky": 0.5070122069874057,
+        "skyY": 0.6389855271649424
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 283,
+        "occluded": 14,
+        "top": 49,
+        "under": 63,
+        "topY": 0.4131607447727625,
+        "underY": 0.2259623690936791,
+        "underOverTop": 0.5469115155602643,
+        "cast": 0.29966528236080053,
+        "globeOverSky": 0.5198839760178117,
+        "skyY": 0.6389855271649424
+       }
+      }
+     ]
+    },
+    {
+     "finish": "+shadow",
+     "got": {
+      "shadow": true,
+      "color": 14209732,
+      "transmit": 0
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 683,
+        "occluded": 12,
+        "top": 177,
+        "under": 158,
+        "topY": 0.38925410097933627,
+        "underY": 0.1952779171243109,
+        "underOverTop": 0.5016720867757211,
+        "cast": 0.32730605835174337,
+        "globeOverSky": 0.48815041345511534,
+        "skyY": 0.6389434719335073
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 283,
+        "occluded": 14,
+        "top": 49,
+        "under": 63,
+        "topY": 0.39892281524522466,
+        "underY": 0.21126007611561307,
+        "underOverTop": 0.5295763191326821,
+        "cast": 0.306093562224644,
+        "globeOverSky": 0.49638754430231496,
+        "skyY": 0.6389434719335073
+       }
+      }
+     ]
+    },
+    {
+     "finish": "+neutral",
+     "got": {
+      "shadow": false,
+      "color": 13816530,
+      "transmit": 0
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 683,
+        "occluded": 12,
+        "top": 177,
+        "under": 158,
+        "topY": 0.4011246601374082,
+        "underY": 0.20532675286586033,
+        "underOverTop": 0.511877661162802,
+        "cast": 0.2628607415167433,
+        "globeOverSky": 0.5053953473139677,
+        "skyY": 0.6389786800246822
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 283,
+        "occluded": 14,
+        "top": 49,
+        "under": 63,
+        "topY": 0.41254873289842414,
+        "underY": 0.22472072752628583,
+        "underOverTop": 0.5447131686661016,
+        "cast": 0.25043066617714155,
+        "globeOverSky": 0.5184414584251124,
+        "skyY": 0.6389786800246822
+       }
+      }
+     ]
+    },
+    {
+     "finish": "+transmit",
+     "got": {
+      "shadow": false,
+      "color": 14209732,
+      "transmit": 0.55
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 695,
+        "occluded": 0,
+        "top": 177,
+        "under": 170,
+        "topY": 0.6011106626496173,
+        "underY": 0.46692891771877665,
+        "underOverTop": 0.776776967589653,
+        "cast": 0.23977836182075093,
+        "globeOverSky": 0.8601117763067703,
+        "skyY": 0.6395229673243222
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 297,
+        "occluded": 0,
+        "top": 49,
+        "under": 66,
+        "topY": 0.5959024100782406,
+        "underY": 0.4038265703157977,
+        "underOverTop": 0.6776723226589673,
+        "cast": 0.23987813027108873,
+        "globeOverSky": 0.7839279369175707,
+        "skyY": 0.6395229673243222
+       }
+      }
+     ]
+    },
+    {
+     "finish": "all three",
+     "got": {
+      "shadow": true,
+      "color": 13816530,
+      "transmit": 0.55
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 695,
+        "occluded": 0,
+        "top": 177,
+        "under": 170,
+        "topY": 0.5934049173492751,
+        "underY": 0.45884792288095294,
+        "underOverTop": 0.7732459058994912,
+        "cast": 0.1895051121056686,
+        "globeOverSky": 0.8480012076491412,
+        "skyY": 0.6393721080899188
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 297,
+        "occluded": 0,
+        "top": 49,
+        "under": 66,
+        "topY": 0.5873419112876257,
+        "underY": 0.39354272078671504,
+        "underOverTop": 0.6700402495097856,
+        "cast": 0.19405688016495154,
+        "globeOverSky": 0.769074012856951,
+        "skyY": 0.6393721080899188
+       }
+      }
+     ]
+    },
+    {
+     "finish": "before, lit",
+     "got": {
+      "shadow": false,
+      "color": 14209732,
+      "transmit": 0
+     },
+     "lit": true,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 693,
+        "occluded": 2,
+        "top": 177,
+        "under": 168,
+        "topY": 0.4188550666160047,
+        "underY": 0.21989425204996793,
+        "underOverTop": 0.5249888793909737,
+        "cast": 0.32038337216544666,
+        "globeOverSky": 0.531011253541234,
+        "skyY": 0.6390236487402611
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 290,
+        "occluded": 7,
+        "top": 49,
+        "under": 66,
+        "topY": 0.4298922000746939,
+        "underY": 0.23657087363482102,
+        "underOverTop": 0.5503027819386273,
+        "cast": 0.29608299361588664,
+        "globeOverSky": 0.5376399931894851,
+        "skyY": 0.6390236487402611
+       }
+      }
+     ]
+    },
+    {
+     "finish": "all three, lit",
+     "got": {
+      "shadow": true,
+      "color": 13816530,
+      "transmit": 0.55
+     },
+     "lit": true,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 695,
+        "occluded": 0,
+        "top": 177,
+        "under": 170,
+        "topY": 0.603283740889285,
+        "underY": 0.4737958728819788,
+        "underOverTop": 0.7853615815728242,
+        "cast": 0.18728357267384804,
+        "globeOverSky": 0.8665519715590337,
+        "skyY": 0.6393965317028761
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 297,
+        "occluded": 0,
+        "top": 49,
+        "under": 66,
+        "topY": 0.5974644854353214,
+        "underY": 0.40801429396641364,
+        "underOverTop": 0.6829097024388462,
+        "cast": 0.19218545672321022,
+        "globeOverSky": 0.7894499974441309,
+        "skyY": 0.6393965317028761
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "shot": "fivepoints",
+   "tod": "night",
+   "preset": "night",
+   "streetLampsOn": true,
+   "picks": [
+    {
+     "box": "top-left",
+     "lamp": 171,
+     "globe": "outer",
+     "sx": 147.80319237916606,
+     "sy": 197.84901210590047,
+     "rpx": 15.539900328808418,
+     "depth": 16.260023019311056,
+     "dd": 0.3387077840100349
+    },
+    {
+     "box": "left",
+     "lamp": 831,
+     "globe": "outer",
+     "sx": 65.27179469412721,
+     "sy": 281.8877910349209,
+     "rpx": 11.073289455159383,
+     "depth": 22.818796355629757,
+     "dd": 0.25430004615142726
+    }
+   ],
+   "rows": [
+    {
+     "finish": "before",
+     "got": {
+      "shadow": false,
+      "color": 14209732,
+      "transmit": 0
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 695,
+        "occluded": 0,
+        "top": 177,
+        "under": 170,
+        "topY": 0.997116282790496,
+        "underY": 0.9972223043084865,
+        "underOverTop": 1.0001063281382727,
+        "cast": 0.0026792680717101242,
+        "globeOverSky": 4.100215805289806,
+        "skyY": 0.24325040952355895
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 297,
+        "occluded": 0,
+        "top": 49,
+        "under": 66,
+        "topY": 0.9964647957114502,
+        "underY": 0.9943194264457232,
+        "underOverTop": 0.997847019508406,
+        "cast": 0.0036936200280639386,
+        "globeOverSky": 4.096011387341467,
+        "skyY": 0.24325040952355895
+       }
+      }
+     ]
+    },
+    {
+     "finish": "+shadow",
+     "got": {
+      "shadow": true,
+      "color": 14209732,
+      "transmit": 0
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 695,
+        "occluded": 0,
+        "top": 177,
+        "under": 170,
+        "topY": 0.997116282790496,
+        "underY": 0.9972223043084865,
+        "underOverTop": 1.0001063281382727,
+        "cast": 0.0026792680717101242,
+        "globeOverSky": 4.100215805289806,
+        "skyY": 0.24325040952355895
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 297,
+        "occluded": 0,
+        "top": 49,
+        "under": 66,
+        "topY": 0.9964647957114502,
+        "underY": 0.9943194264457232,
+        "underOverTop": 0.997847019508406,
+        "cast": 0.0036936200280639386,
+        "globeOverSky": 4.096011387341467,
+        "skyY": 0.24325040952355895
+       }
+      }
+     ]
+    },
+    {
+     "finish": "+neutral",
+     "got": {
+      "shadow": false,
+      "color": 13816530,
+      "transmit": 0
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 695,
+        "occluded": 0,
+        "top": 177,
+        "under": 170,
+        "topY": 0.997116282790496,
+        "underY": 0.997226063612472,
+        "underOverTop": 1.0001100983143798,
+        "cast": 0.002661793056073699,
+        "globeOverSky": 4.100150439552106,
+        "skyY": 0.24325473720430854
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 297,
+        "occluded": 0,
+        "top": 49,
+        "under": 66,
+        "topY": 0.9964647957114502,
+        "underY": 0.9943194264457232,
+        "underOverTop": 0.997847019508406,
+        "cast": 0.0036936200280639386,
+        "globeOverSky": 4.095938516285245,
+        "skyY": 0.24325473720430854
+       }
+      }
+     ]
+    },
+    {
+     "finish": "+transmit",
+     "got": {
+      "shadow": false,
+      "color": 14209732,
+      "transmit": 0.55
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 695,
+        "occluded": 0,
+        "top": 177,
+        "under": 170,
+        "topY": 0.997116282790496,
+        "underY": 0.997226063612472,
+        "underOverTop": 1.0001100983143798,
+        "cast": 0.002661793056073699,
+        "globeOverSky": 4.100214752512987,
+        "skyY": 0.2432509216889411
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 297,
+        "occluded": 0,
+        "top": 49,
+        "under": 66,
+        "topY": 0.9964647957114502,
+        "underY": 0.9943194264457232,
+        "underOverTop": 0.997847019508406,
+        "cast": 0.0036936200280639386,
+        "globeOverSky": 4.096002763179951,
+        "skyY": 0.2432509216889411
+       }
+      }
+     ]
+    },
+    {
+     "finish": "all three",
+     "got": {
+      "shadow": true,
+      "color": 13816530,
+      "transmit": 0.55
+     },
+     "lit": false,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 695,
+        "occluded": 0,
+        "top": 177,
+        "under": 170,
+        "topY": 0.997116282790496,
+        "underY": 0.9972298426041684,
+        "underOverTop": 1.000113888235136,
+        "cast": 0.0026442271365876863,
+        "globeOverSky": 4.100110686401449,
+        "skyY": 0.24325754660592214
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 297,
+        "occluded": 0,
+        "top": 49,
+        "under": 66,
+        "topY": 0.9964647957114502,
+        "underY": 0.9943194264457232,
+        "underOverTop": 0.997847019508406,
+        "cast": 0.0036936200280639386,
+        "globeOverSky": 4.095891211951063,
+        "skyY": 0.24325754660592214
+       }
+      }
+     ]
+    },
+    {
+     "finish": "before, lit",
+     "got": {
+      "shadow": false,
+      "color": 14209732,
+      "transmit": 0
+     },
+     "lit": true,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 695,
+        "occluded": 0,
+        "top": 177,
+        "under": 170,
+        "topY": 0.997116282790496,
+        "underY": 0.9972223043084865,
+        "underOverTop": 1.0001063281382727,
+        "cast": 0.0026792680717101242,
+        "globeOverSky": 4.100215805289806,
+        "skyY": 0.24325040952355895
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 297,
+        "occluded": 0,
+        "top": 49,
+        "under": 66,
+        "topY": 0.9964647957114502,
+        "underY": 0.9943194264457232,
+        "underOverTop": 0.997847019508406,
+        "cast": 0.0036936200280639386,
+        "globeOverSky": 4.096011387341467,
+        "skyY": 0.24325040952355895
+       }
+      }
+     ]
+    },
+    {
+     "finish": "all three, lit",
+     "got": {
+      "shadow": true,
+      "color": 13816530,
+      "transmit": 0.55
+     },
+     "lit": true,
+     "per": [
+      {
+       "box": "top-left",
+       "lamp": 171,
+       "globe": "outer",
+       "at": [
+        147.8,
+        197.8
+       ],
+       "rpx": 15.54,
+       "stats": {
+        "n": 695,
+        "occluded": 0,
+        "top": 177,
+        "under": 170,
+        "topY": 0.997116282790496,
+        "underY": 0.9972298426041684,
+        "underOverTop": 1.000113888235136,
+        "cast": 0.0026442271365876863,
+        "globeOverSky": 4.100110686401449,
+        "skyY": 0.24325754660592214
+       }
+      },
+      {
+       "box": "left",
+       "lamp": 831,
+       "globe": "outer",
+       "at": [
+        65.3,
+        281.9
+       ],
+       "rpx": 11.07,
+       "stats": {
+        "n": 297,
+        "occluded": 0,
+        "top": 49,
+        "under": 66,
+        "topY": 0.9964647957114502,
+        "underY": 0.9943194264457232,
+        "underOverTop": 0.997847019508406,
+        "cast": 0.0036936200280639386,
+        "globeOverSky": 4.095891211951063,
+        "skyY": 0.24325754660592214
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

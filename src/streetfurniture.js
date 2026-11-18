@@ -3787,6 +3787,7 @@ attribute vec3 lampGlobe;
 varying vec4 vGlobe;
 varying vec3 vGlobeCard;
 varying vec4 vGlobeDepthRow;
+varying vec3 vGlobeWorld;
 `;
 /** Replaces three's `project_vertex`: the centre into view space, then the corner out to the card. */
 const GLOBE_PROJECT = `
@@ -3794,6 +3795,7 @@ vec4 mvPosition = vec4( transformed, 1.0 );
 #ifdef USE_INSTANCING
 	mvPosition = instanceMatrix * mvPosition;
 #endif
+vGlobeWorld = ( modelMatrix * mvPosition ).xyz;
 mvPosition = modelViewMatrix * mvPosition;
 {
 	bool globeOrtho = projectionMatrix[ 3 ][ 3 ] > 0.5;
@@ -3816,6 +3818,7 @@ const GLOBE_FRAG_PARS = `
 varying vec4 vGlobe;
 varying vec3 vGlobeCard;
 varying vec4 vGlobeDepthRow;
+varying vec3 vGlobeWorld;
 `;
 /**
  * The hit, at the top of main(): the ray through this fragment's point on the card against the sphere;
@@ -3849,6 +3852,73 @@ float faceDirection = 1.0;
 vec3 normal = globeNormal;
 vec3 nonPerturbedNormal = normal;
 `;
+/**
+ * #142 round 2: A FROSTED SHELL, NOT A MATTE BALL. Three terms, each its own lever (StreetFurniture's
+ * setGlobeFinish), measured one at a time in BACKLOG #142:
+ *
+ *   - THE SHADOW AT THE HIT. A head that receives shadows would look the sun up at its vertex, and every
+ *     vertex of a globe card sits at the globe's CENTRE — inside the sphere, behind the disc the globe itself
+ *     casts — so the whole globe would read as shadowed in full sun. The lookup is moved to the ray's hit,
+ *     offset along the sphere's normal by the shadow's own normalBias, the way three offsets a vertex. Off
+ *     (`heads.receiveShadow` false) the coordinate is never read, which is the build before this round.
+ *   - THE TRANSMITTED LIGHT. Opal glass passes light through the shell as well as reflecting it, so the
+ *     side away from the light is lit from inside. Modelled as a uniform glow: `uGlobeTransmit` x the
+ *     shell's diffuse colour x the MEAN irradiance over the sphere (the environment and the hemisphere
+ *     lights at the six axes, and a quarter of each direct beam, shadowed at the pole that faces it) /
+ *     pi. A thin diffusing shell of reflectance R and transmittance T, with the light that enters
+ *     multiply reflected inside, glows at T^2 / (1 - R) of that mean, so `uGlobeTransmit` x R stands for
+ *     T^2 / (1 - R). Its value is DERIVED, not picked: globeShellGain() below. 0 adds nothing, which is
+ *     the build before.
+ *   - (the third term, a neutral base colour, is the material's colour and needs no shader.)
+ */
+const GLOBE_LIT_PARS = `
+uniform float uGlobeTransmit;
+#if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0
+	uniform mat4 directionalShadowMatrix[ NUM_DIR_LIGHT_SHADOWS ];
+#endif
+`;
+/** The hit and its normal in WORLD space, for the shadow lookups (the view matrix is rigid, so its inverse rotation is its transpose). */
+const GLOBE_WORLD = `
+mat3 globeV2W = transpose( mat3( viewMatrix ) );
+vec3 globeWorldHit = vGlobeWorld + globeV2W * ( globePos - vGlobe.xyz );
+vec3 globeWorldNormal = globeV2W * globeNormal;
+`;
+const GLOBE_SHADOW_SEAM = 'vDirectionalShadowCoord[ i ] )';
+const GLOBE_SHADOW_AT_HIT = '( directionalShadowMatrix[ i ] * vec4( globeWorldHit + globeWorldNormal * directionalLightShadow.shadowNormalBias, 1.0 ) ) )';
+const GLOBE_TRANSMIT_SEAM = '#include <lights_fragment_end>';
+const GLOBE_TRANSMIT = `#include <lights_fragment_end>
+if ( uGlobeTransmit > 0.0 ) {
+	vec3 globeMean = vec3( 0.0 );
+	vec3 globeAxes[ 6 ];
+	globeAxes[ 0 ] = mat3( viewMatrix ) * vec3( 1.0, 0.0, 0.0 );
+	globeAxes[ 1 ] = - globeAxes[ 0 ];
+	globeAxes[ 2 ] = mat3( viewMatrix ) * vec3( 0.0, 1.0, 0.0 );
+	globeAxes[ 3 ] = - globeAxes[ 2 ];
+	globeAxes[ 4 ] = mat3( viewMatrix ) * vec3( 0.0, 0.0, 1.0 );
+	globeAxes[ 5 ] = - globeAxes[ 4 ];
+	for ( int a = 0; a < 6; a ++ ) {
+		#if defined( USE_ENVMAP ) && defined( STANDARD ) && defined( ENVMAP_TYPE_CUBE_UV )
+			globeMean += getIBLIrradiance( globeAxes[ a ] ) / 6.0;
+		#endif
+		#if NUM_HEMI_LIGHTS > 0
+			for ( int h = 0; h < NUM_HEMI_LIGHTS; h ++ ) globeMean += getHemisphereLightIrradiance( hemisphereLights[ h ], globeAxes[ a ] ) / 6.0;
+		#endif
+	}
+	#if NUM_DIR_LIGHTS > 0
+		float globeBeam;
+		#pragma unroll_loop_start
+		for ( int i = 0; i < NUM_DIR_LIGHTS; i ++ ) {
+			globeBeam = 0.25;
+			#if defined( USE_SHADOWMAP ) && ( UNROLLED_LOOP_INDEX < NUM_DIR_LIGHT_SHADOWS )
+			if ( receiveShadow ) globeBeam *= getShadow( directionalShadowMap[ i ], directionalLightShadows[ i ].shadowMapSize, directionalLightShadows[ i ].shadowIntensity, directionalLightShadows[ i ].shadowBias, directionalLightShadows[ i ].shadowRadius, directionalShadowMatrix[ i ] * vec4( vGlobeWorld + globeV2W * directionalLights[ i ].direction * ( vGlobe.w + directionalLightShadows[ i ].shadowNormalBias ), 1.0 ) );
+			#endif
+			globeMean += directionalLights[ i ].color * globeBeam;
+		}
+		#pragma unroll_loop_end
+	#endif
+	reflectedLight.indirectDiffuse += uGlobeTransmit * globeMean * BRDF_Lambert( material.diffuseColor );
+}
+`;
 const GLOBE_POSITION_SEAM = 'vec3 geometryPosition = - vViewPosition;';
 const GLOBE_DEPTH_SEAM = 'float fragCoordZ = 0.5 * vHighPrecisionZW[ 0 ] / vHighPrecisionZW[ 1 ] + 0.5;';
 const GLOBE_DEPTH_SEAM_REVERSED = 'float fragCoordZ = vHighPrecisionZW[ 0 ] / vHighPrecisionZW[ 1 ];';
@@ -3876,14 +3946,22 @@ export function patchGlobeImpostor(material) {
       .replace('void main() {', `${GLOBE_VERT_PARS}\nvoid main() {`)
       .replace('#include <project_vertex>', GLOBE_PROJECT);
     need(shader.fragmentShader, 'void main() {', 'fragment shader');
-    let fs = shader.fragmentShader.replace('void main() {', `${GLOBE_FRAG_PARS}\nvoid main() {\n${GLOBE_HIT}`);
+    let fs = shader.fragmentShader.replace('void main() {',
+      `${GLOBE_FRAG_PARS}${kind === 'lit' ? GLOBE_LIT_PARS : ''}\nvoid main() {\n${GLOBE_HIT}`);
     if (kind === 'lit') {
       need(fs, '#include <normal_fragment_begin>', 'fragment shader');
       need(fs, '#include <lights_fragment_begin>', 'fragment shader');
+      need(fs, GLOBE_TRANSMIT_SEAM, 'fragment shader');
       const lights = THREE.ShaderChunk.lights_fragment_begin;
       need(lights, GLOBE_POSITION_SEAM, 'lights_fragment_begin chunk');
-      fs = fs.replace('#include <normal_fragment_begin>', GLOBE_NORMAL)
-        .replace('#include <lights_fragment_begin>', lights.replace(GLOBE_POSITION_SEAM, 'vec3 geometryPosition = globePos;'));
+      need(lights, GLOBE_SHADOW_SEAM, 'lights_fragment_begin chunk');
+      if (lights.split(GLOBE_SHADOW_SEAM).length !== 2) throw new Error('patchGlobeImpostor (lit): the directional shadow seam is not unique');
+      fs = fs.replace('#include <normal_fragment_begin>', GLOBE_NORMAL + GLOBE_WORLD)
+        .replace('#include <lights_fragment_begin>', lights.replace(GLOBE_POSITION_SEAM, 'vec3 geometryPosition = globePos;')
+          .replace(GLOBE_SHADOW_SEAM, GLOBE_SHADOW_AT_HIT))
+        .replace(GLOBE_TRANSMIT_SEAM, GLOBE_TRANSMIT);
+      const u = material.userData.globeUniforms ?? (material.userData.globeUniforms = { uGlobeTransmit: { value: 0 } });
+      shader.uniforms.uGlobeTransmit = u.uGlobeTransmit;
     } else if (kind === 'depth') {
       need(fs, GLOBE_DEPTH_SEAM, 'depth fragment shader');
       fs = fs.replace(GLOBE_DEPTH_SEAM, 'float fragCoordZ = globeDepth;').replace(GLOBE_DEPTH_SEAM_REVERSED, 'float fragCoordZ = globeDepth;');
@@ -3892,11 +3970,44 @@ export function patchGlobeImpostor(material) {
   };
   // A program of its own: three would otherwise hand back an unpatched program of the same type. A prior
   // patch's source goes into the key with it, so two different priors cannot share a program either.
-  const key = `lampGlobe140:${kind}${prior ? `+${prior.toString()}` : ''}`;
+  const key = `lampGlobe142:${kind}${prior ? `+${prior.toString()}` : ''}`;
   material.customProgramCacheKey = () => key;
   material.userData.globeImpostor = kind;
   return material;
 }
+
+/**
+ * #142 round 2: the globe's finish by day, three terms and each its own lever (see GLOBE_LIT_PARS). An unlit
+ * globe — every daylight hour, and dusk since the street lamps answer to a photocell — read in blind review as
+ * "orange, opaque balls" beside the lit build's "glass": darker under than over like a matte ball, more orange
+ * underneath than any light in the frame throws onto white, and darker than the sky beside it. GLOBE_FINISH is
+ * what ships; GLOBE_FINISH_BEFORE is the build before this round, kept as a value so a tool can draw it.
+ *   shadow    the head receives the sun's shadow, looked up at the ray's hit (a globe in a building's shade
+ *             takes no direct sun; before, every globe took the whole beam wherever it stood)
+ *   color     the shell's diffuse colour: 0xd2d2d2 is 0xd8d2c4's luminance with its warmth taken out
+ *   transmit  the light the shell passes through, as a uniform glow off the mean irradiance (uGlobeTransmit),
+ *             at the lossless gain for that colour (globeShellGain, 0.5516)
+ */
+export const GLOBE_FINISH_BEFORE = Object.freeze({ shadow: false, color: 0xd8d2c4, transmit: 0 });
+/**
+ * The transmitted light's gain, off the shell's own colour. A shell that absorbs nothing transmits what it
+ * does not reflect, T = 1 - R, and then T^2 / (1 - R) = 1 - R, so `uGlobeTransmit` x R = 1 - R and the gain is
+ * (1 - R) / R. At that gain the sphere hands back exactly the light it receives — R x E(N) reflected plus
+ * (1 - R) x the mean, and E(N) averages to the mean over a sphere — so in a uniform field it is as bright as a
+ * white ball (tools/globe-glass.mjs asserts that, the furnace arm). It is the brightest glow a shell of this
+ * reflectance can have: real opal glass absorbs some of what it does not reflect, and how much is not
+ * measured here, so the absorption taken is 0 and the gain an upper bound. R is the colour's linear luminance
+ * (setHex converts out of sRGB); for a grey that is every channel's.
+ */
+export function globeShellGain(hex) {
+  const c = new THREE.Color().setHex(hex);
+  const R = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+  if (!(R > 0 && R < 1)) throw new Error(`globeShellGain: a shell reflects between none and all of its light, not ${R}`);
+  return (1 - R) / R;
+}
+/** 0xd8d2c4's luminance with its warmth taken out: linear 0.6445 against 0.6468, cast (R-B)/(R+G+B) 0 against 0.0715. */
+export const GLOBE_SHELL = 0xd2d2d2;
+export const GLOBE_FINISH = Object.freeze({ shadow: true, color: GLOBE_SHELL, transmit: globeShellGain(GLOBE_SHELL) });
 
 /** The sun's view of a globe: a disc facing it, at the sphere's depth (RGBA packing, as three's own). */
 export function globeDepthMaterial() {
@@ -3922,9 +4033,13 @@ export class StreetFurniture {
     // #140: drawn as ray-cast spheres on camera-facing cards (buildGlobeCards, patchGlobeImpostor). Its
     // shadow side is both, because in the sun's pass the card faces the sun and three would otherwise
     // draw a FrontSide material's back faces there (`shadowSide ?? flip(side)` in the vendored build).
-    this.headMat = patchGlobeImpostor(new THREE.MeshStandardMaterial({
-      color: 0xd8d2c4, emissive: 0xffd9a0, emissiveIntensity: 0,
-    }));
+    this.headMat = new THREE.MeshStandardMaterial({
+      color: GLOBE_FINISH.color, emissive: 0xffd9a0, emissiveIntensity: 0,
+    });
+    // #142 round 2: the transmitted light's uniform, made here so setGlobeFinish holds the object the
+    // compiled program reads (patchGlobeImpostor adopts it rather than making its own).
+    this.headMat.userData.globeUniforms = { uGlobeTransmit: { value: GLOBE_FINISH.transmit } };
+    patchGlobeImpostor(this.headMat);
     this.headMat.shadowSide = THREE.DoubleSide;
 
     // The pole is set INTO the pavement, not stood on top of it.
@@ -4002,6 +4117,8 @@ export class StreetFurniture {
     // The sun sees each globe as the disc a sphere casts: the same card, faced to the sun, at the
     // sphere's depth. Without it three's own depth material would draw the degenerate cards — no shadow.
     this.heads.customDepthMaterial = globeDepthMaterial();
+    // #142 round 2: the globe receives the sun's shadow, at the hit (GLOBE_LIT_PARS says why not at the vertex).
+    this.heads.receiveShadow = GLOBE_FINISH.shadow;
     /**
      * NAMED, because tools/tri-buckets.mjs buckets a mesh by its first named ancestor and these three
      * were unnamed under `furniture`: #137's 1,228 lamps are 88,416 triangles that bill x2.00 (three
@@ -6340,6 +6457,31 @@ export class StreetFurniture {
     this.globe.level = level;
     if (this._lit) this.headMat.emissiveIntensity = this.globeIntensity();
     return this.globeReport();
+  }
+
+  /**
+   * #142 round 2: the globe's finish by day, a lever per term for a tool that isolates them off one page load.
+   * Takes any of { shadow, color, transmit }; returns what the material and the mesh now HOLD, read back.
+   */
+  setGlobeFinish(f = {}) {
+    if (f.shadow !== undefined) {
+      if (typeof f.shadow !== 'boolean') throw new Error(`setGlobeFinish: shadow is a boolean, not ${f.shadow}`);
+      this.heads.receiveShadow = f.shadow;
+    }
+    if (f.color !== undefined) {
+      if (!Number.isInteger(f.color) || f.color < 0 || f.color > 0xffffff) throw new Error(`setGlobeFinish: color is a 24-bit integer, not ${f.color}`);
+      this.headMat.color.setHex(f.color);
+    }
+    if (f.transmit !== undefined) {
+      if (!(f.transmit >= 0) || !Number.isFinite(f.transmit)) throw new Error(`setGlobeFinish: transmit is a finite number >= 0, not ${f.transmit}`);
+      this.headMat.userData.globeUniforms.uGlobeTransmit.value = f.transmit;
+    }
+    return this.globeFinishReport();
+  }
+
+  globeFinishReport() {
+    return { shadow: this.heads.receiveShadow, color: this.headMat.color.getHex(),
+      transmit: this.headMat.userData.globeUniforms.uGlobeTransmit.value };
   }
 
   globeReport() {

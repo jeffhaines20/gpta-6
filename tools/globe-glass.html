@@ -1,0 +1,232 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>globe-glass</title>
+<!--
+  BACKLOG #142 round 2: IS AN UNLIT STREET-LAMP GLOBE FROSTED GLASS OR A MATTE BALL?
+
+  The page for tools/globe-glass.mjs. One of the module's own lamps (StreetFurniture.addLamp: its own head
+  mesh, material and impostor patch, its own finish lever setGlobeFinish), and beside its outer globe a WHITE
+  BALL of the same radius in plain MeshStandardMaterial: the opaque Lambert reference, under exactly the same
+  light, so every statistic is read against the thing the blind reviewer's bounds are about (an opaque white
+  ball; white under this frame's light).
+
+  THE LIGHT is the dusk preset's, in its colours and at its sun elevation (src/daynight.js PRESETS.dusk): its
+  sun, low, from the camera's right and in front, casting with the district's own shadow settings (SUN_SHADOW:
+  the 2048 map over +/-120 m, so a texel is the district's 0.117 m, and its normalBias); its sky and ground
+  colours as a HemisphereLight and as a gradient dome that is both the environment (PMREM) and the visible
+  background. Drawn with no tone mapping into the canvas's sRGB bytes, every light scaled so nothing clips, and
+  read with the instrument the reviewer's boxes are read with (tools/globe-glass-stats.mjs).
+
+  window.__run({ finish, wall, lit, night, furnace, ballColor, ballShadow }) -> the globe's and the ball's statistics, the sun-side
+  luminance of each, and the frame's brightest byte. `finish` is 'shipped', 'before' or an object for
+  setGlobeFinish; `wall` stands an invisible caster between the sun and both subjects; `night` drops every
+  light to 0.4% and reads through LinearToneMapping at an exposure that puts the LIT globe mid-scale, so a lit
+  globe is measured below the clip; `furnace` lights the pair with a uniform environment alone.
+-->
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+<script type="module">
+import * as THREE from '../vendor/three.module.min.js';
+import { PRESETS, SUN_SHADOW } from '../src/daynight.js';
+import { StreetFurniture, LAMP_GLOBES, GLOBE_FINISH, GLOBE_FINISH_BEFORE } from '../src/streetfurniture.js';
+import { globeStats, decodeLUT, CAP, OCCLUDER, EDGE } from './globe-glass-stats.mjs';
+
+const W = 640, H = 400;
+try {
+  const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(W, H);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.NoToneMapping;
+  renderer.shadowMap.enabled = true;
+  document.body.appendChild(renderer.domElement);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0, 0, 0);
+
+  const P = PRESETS.dusk;
+  const lin = (hex) => new THREE.Color().setHex(hex);   // sRGB hex -> the linear working space
+  const SKY = lin(P.skyColor), GROUND = lin(P.groundColor), SUNC = lin(P.sunColor);
+  // Page units: the preset's lux x K, so a white ball's brightest point stays well under the clip.
+  const K = 1 / 2600;
+
+  // ---- THE SKY: a gradient dome, the preset's sky colour above and its ground colour below. The SAME dome is
+  // the environment (through PMREM) and the visible background, so the sky box beside the globe shows the
+  // radiance the globe's environment term reads.
+  const domeShader = (uniformColour) => new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false,
+    uniforms: { sky: { value: SKY.clone() }, ground: { value: GROUND.clone() }, uFlat: { value: uniformColour ? 1 : 0 }, gain: { value: 1 } },
+    vertexShader: 'varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `uniform vec3 sky; uniform vec3 ground; uniform float uFlat; uniform float gain; varying vec3 vDir;
+      void main() {
+        float y = vDir.y;
+        vec3 horizon = mix(sky, ground, 0.35);
+        vec3 c = y > 0.0 ? mix(horizon, sky, pow(y, 0.5)) : mix(horizon, ground, min(1.0, -y * 3.0));
+        if (uFlat > 0.5) c = vec3(0.30);
+        gl_FragColor = vec4(c * gain, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+  });
+  const SKY_RADIANCE = 900 * K / Math.PI;   // the preset's sky lux as a dome radiance, in page units
+  const makeEnv = (flat) => {
+    const s = new THREE.Scene();
+    const m = domeShader(flat);
+    if (!flat) m.uniforms.gain.value = SKY_RADIANCE / Math.max(1e-6, 0.2126 * SKY.r + 0.7152 * SKY.g + 0.0722 * SKY.b);
+    s.add(new THREE.Mesh(new THREE.SphereGeometry(100, 64, 32), m));
+    const pm = new THREE.PMREMGenerator(renderer);
+    const t = pm.fromScene(s, 0, 0.1, 300).texture;
+    pm.dispose();
+    return { texture: t, gain: m.uniforms.gain.value };
+  };
+  const envSky = makeEnv(false), envFurnace = makeEnv(true);
+  const skyDomeMat = domeShader(false);
+  skyDomeMat.uniforms.gain.value = envSky.gain;
+  const skyDome = new THREE.Mesh(new THREE.SphereGeometry(100, 64, 32), skyDomeMat);
+  skyDome.renderOrder = -1; skyDome.frustumCulled = false;
+  scene.add(skyDome);
+
+  // ---- THE SUN: the preset's colour and elevation, from the camera's right and in front, casting with the
+  // district's own shadow settings.
+  const sun = new THREE.DirectionalLight(SUNC, P.sunLux * K);
+  const EL = P.elevation, AZ = Math.PI / 4;   // horizontal direction (sin AZ, 0, cos AZ): right and toward the camera
+  const SUN = new THREE.Vector3(Math.sin(AZ) * Math.cos(EL), Math.sin(EL), Math.cos(AZ) * Math.cos(EL)).normalize();
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(SUN_SHADOW.mapSize, SUN_SHADOW.mapSize);
+  const sc = sun.shadow.camera;
+  sc.left = -SUN_SHADOW.half; sc.right = SUN_SHADOW.half; sc.top = SUN_SHADOW.half; sc.bottom = -SUN_SHADOW.half;
+  sc.near = 1; sc.far = 400;
+  sun.shadow.bias = SUN_SHADOW.bias; sun.shadow.normalBias = SUN_SHADOW.normalBias;
+  scene.add(sun); scene.add(sun.target);
+  // ---- THE SKY AND GROUND AS A HEMISPHERE LIGHT, the preset's own pair
+  const hemi = new THREE.HemisphereLight(SKY, GROUND, P.skyLux * K);
+  scene.add(hemi);
+
+  // ---- THE LAMP, the module's own fixture, its pole and arm hidden (they stand off-frame to the left, and a
+  // pixel of arm over the top cap would be read as globe), and THE WHITE BALL beside its outer globe.
+  const fur = new StreetFurniture(scene, { max: 2 });
+  fur.addLamp(0, 0, 0);
+  fur.commit();
+  fur.poles.visible = false; fur.arms.visible = false;
+  const im = new THREE.Matrix4();
+  fur.heads.getMatrixAt(0, im);
+  const G = LAMP_GLOBES[0];
+  const gw = new THREE.Vector3(G.x, G.y, G.z).applyMatrix4(im);
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(G.r, 128, 96), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0 }));
+  ball.position.set(gw.x + 1.0, gw.y, gw.z);     // 4 radii to the right: the sun, right and in front, shades neither from the other
+  ball.castShadow = true; ball.receiveShadow = true;
+  scene.add(ball);
+  const mid = new THREE.Vector3().addVectors(gw, ball.position).multiplyScalar(0.5);
+  // ---- THE WALL: an invisible caster 3 m toward the sun, square to it, 6 m by 6 m.
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(6, 6, 0.1), new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }));
+  wall.position.copy(mid).addScaledVector(SUN, 3);
+  wall.lookAt(mid);
+  wall.castShadow = true; wall.visible = false;
+  scene.add(wall);
+  sun.position.copy(mid).addScaledVector(SUN, 150);
+  sun.target.position.copy(mid);
+
+  // ---- THE CAMERAS: one per subject, each level with it and 5 m straight back along +z, so the globe and the ball
+  // are each seen head on and the sun stands at the same angle to both views. (One camera between them saw the
+  // globe 5.7 degrees from its sunward side and the ball 5.7 degrees from the other, which read as 0.03 of cast
+  // between two identical neutral materials.)
+  const makeCam = (p) => {
+    const c = new THREE.PerspectiveCamera(20, W / H, 0.1, 400);
+    c.position.set(p.x, p.y, p.z + 5);
+    c.lookAt(p);
+    c.updateMatrixWorld();
+    return c;
+  };
+  const camG = makeCam(gw), camB = makeCam(ball.position);
+  const project = (camera, p, r) => {
+    const v = p.clone().project(camera);
+    const dep = -p.clone().applyMatrix4(camera.matrixWorldInverse).z;
+    return { cx: (v.x + 1) / 2 * W, cy: (1 - v.y) / 2 * H, r: r * (H / 2) / (Math.tan(camera.fov * Math.PI / 360) * dep) };
+  };
+  const pg = project(camG, gw, G.r), pb = project(camB, ball.position, G.r);
+  // the sky beside each subject, at its height and on its right, at the same offset in both frames: the district's
+  // boxes stand beside their globes the same way (the ball, in the globe's frame, is further right than this box)
+  const skyOf = (c) => [Math.ceil(c.cx + c.r * 1.6), Math.ceil(c.cx + c.r * 2.6), Math.floor(c.cy - c.r * 0.4), Math.ceil(c.cy + c.r * 0.4)];
+  const skyG = skyOf(pg), skyB = skyOf(pb);
+  const LUT = decodeLUT();
+  const grab = (camera) => {
+    renderer.render(scene, camera);
+    const gl = renderer.getContext();
+    const px = new Uint8Array(W * H * 4);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const top = new Uint8Array(W * H * 4);
+    for (let y = 0; y < H; y++) top.set(px.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);
+    return { width: W, height: H, channels: 4, data: top };
+  };
+  // the sun side: the right third of a disc (the sun stands to the camera's right)
+  const sunSide = (img, c) => {
+    let s = 0, n = 0;
+    for (let y = Math.floor(c.cy - c.r); y <= Math.ceil(c.cy + c.r); y++) for (let x = Math.floor(c.cx + c.r / 3); x <= Math.ceil(c.cx + c.r); x++) {
+      const dx = (x + 0.5 - c.cx) / c.r, dy = (y + 0.5 - c.cy) / c.r;
+      if (Math.hypot(dx, dy) > 1 - EDGE / c.r) continue;
+      const i = (y * W + x) * 4;
+      const Y = 0.2126 * LUT[img.data[i]] + 0.7152 * LUT[img.data[i + 1]] + 0.0722 * LUT[img.data[i + 2]];
+      if (!Number.isFinite(Y)) throw new Error(`sunSide: non-finite at ${x},${y}`);
+      s += Y; n++;
+    }
+    return n ? s / n : null;
+  };
+  const opts = { lut: LUT, cap: CAP, occluder: OCCLUDER, edge: EDGE };
+  const luma = (c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+  window.__run = (cfg = {}) => {
+    const f = cfg.finish === 'before' ? GLOBE_FINISH_BEFORE : cfg.finish && typeof cfg.finish === 'object' ? cfg.finish : GLOBE_FINISH;
+    const got = fur.setGlobeFinish({ ...f });
+    // the reference ball is white unless an arm asks for a grey of the shell's own luminance: with the same
+    // albedo the two share the same specular SHARE, so a cast left between them is the shell's colour alone
+    ball.material.color.setHex(Number.isInteger(cfg.ballColor) ? cfg.ballColor : 0xffffff);
+    // and takes the sun's shadow unless an arm holds the shadow off on both subjects: the shell looks its shadow
+    // up at the ray's hit and the ball through three's own vertex path, and near the terminator the two differ
+    // by a couple of percent of the under cap's sun, which is 0.01 of cast on a warm low sun
+    ball.receiveShadow = cfg.ballShadow !== false;
+    wall.visible = !!cfg.wall;
+    fur.setLit(!!cfg.lit);
+    const k = cfg.night ? 0.004 : 1;
+    const furnace = !!cfg.furnace;
+    sun.intensity = furnace ? 0 : P.sunLux * K * k;
+    hemi.intensity = furnace ? 0 : P.skyLux * K * k;
+    scene.environment = furnace ? envFurnace.texture : envSky.texture;
+    scene.environmentIntensity = k;
+    skyDomeMat.uniforms.uFlat.value = furnace ? 1 : 0;
+    skyDomeMat.uniforms.gain.value = (furnace ? 1 : envSky.gain) * k;
+    // NIGHT reads through a linear tone map at an exposure that puts the LIT globe's emission near 0.4 of the
+    // display: below the clip, so a lit globe's change is a number and not two 255s.
+    let exposure = 1;
+    if (cfg.night) {
+      const litY = luma(fur.headMat.emissive) * fur.globeIntensity();
+      exposure = 0.4 / litY;
+      renderer.toneMapping = THREE.LinearToneMapping;
+      renderer.toneMappingExposure = exposure;
+    } else {
+      renderer.toneMapping = THREE.NoToneMapping;
+      renderer.toneMappingExposure = 1;
+    }
+    const imgG = grab(camG), imgB = grab(camB);
+    let maxByte = 0;
+    for (const img of [imgG, imgB]) for (let i = 0; i < img.data.length; i++) if ((i & 3) !== 3 && img.data[i] > maxByte) maxByte = img.data[i];
+    return {
+      cfg: { finish: typeof cfg.finish === 'string' ? cfg.finish : cfg.finish ? 'custom' : 'shipped', wall: !!cfg.wall, lit: !!cfg.lit, night: !!cfg.night, furnace,
+        ballColor: ball.material.color.getHex(), ballShadow: ball.receiveShadow },
+      got, exposure, emissiveIntensity: fur.headMat.emissiveIntensity,
+      globe: globeStats(imgG, pg, skyG, opts),
+      ball: globeStats(imgB, pb, skyB, opts),
+      globeSun: sunSide(imgG, pg), ballSun: sunSide(imgB, pb),
+      maxByte,
+    };
+  };
+  window.__meta = {
+    W, H, globe: pg, ball: pb, skyGlobe: skyG, skyBall: skyB, sun: SUN.toArray(), elevation: EL,
+    shipped: { ...GLOBE_FINISH }, before: { ...GLOBE_FINISH_BEFORE },
+    headCastShadow: fur.heads.castShadow, headReceiveShadow: fur.heads.receiveShadow,
+    impostor: fur.headMat.userData.globeImpostor ?? null,
+    cacheKey: fur.headMat.customProgramCacheKey ? fur.headMat.customProgramCacheKey() : null,
+    shadow: { mapSize: sun.shadow.mapSize.x, half: sc.right, bias: sun.shadow.bias, normalBias: sun.shadow.normalBias },
+  };
+  window.__ready = true;
+} catch (e) {
+  window.__error = String(e && e.stack || e);
+  window.__ready = true;
+}
+</script>

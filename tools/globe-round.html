@@ -33,7 +33,7 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { PostStack } from '../src/post.js';
 import { PRESETS, daylightLux, photocellLit } from '../src/daynight.js';
-import { StreetFurniture, LAMP_GLOBES, LAMP_GLOBE_LEVEL, globeMeanArea, patchGlobeImpostor } from '../src/streetfurniture.js';
+import { StreetFurniture, LAMP_GLOBES, LAMP_GLOBE_LEVEL, GLOBE_FINISH_BEFORE, globeMeanArea, patchGlobeImpostor } from '../src/streetfurniture.js';
 import * as RM from './globe-round-math.mjs';
 
 const W = 1600, H = 900, K = 8;
@@ -277,6 +277,12 @@ try {
     const x0 = Math.floor(g.on.sx - half), y0 = Math.floor(g.on.sy - half), w = 2 * half, h = w;
     const rt = floatTarget(w, h);
     camera.setViewOffset(W, H, x0, y0, w, h);
+    // #142 round 2: this compares GEOMETRY, the impostor against a 96x64 sphere in a plain material, so the
+    // shipped head is drawn in the finish that plain material has: GLOBE_FINISH_BEFORE, 0xd8d2c4 with no
+    // transmitted light (the sun casts nothing here, so the shadow term is moot). The shipped finish is
+    // tools/globe-glass.mjs's to judge, against a white ball.
+    const finish = fur.globeFinishReport();
+    if (arm === 'shipped') fur.setGlobeFinish(GLOBE_FINISH_BEFORE);
     renderer.setRenderTarget(rt);
     renderer.setClearColor(0x000000, 1);
     renderer.clear();
@@ -284,6 +290,7 @@ try {
     const f = new Float32Array(w * h * 4);
     renderer.readRenderTargetPixels(rt, 0, 0, w, h, f);
     renderer.setRenderTarget(null);
+    fur.setGlobeFinish(finish);
     camera.clearViewOffset();
     rt.dispose();
     sun.intensity = 0;

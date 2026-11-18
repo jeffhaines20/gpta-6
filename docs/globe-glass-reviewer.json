@@ -1,0 +1,212 @@
+{
+ "cap": 0.4,
+ "occluder": 0.25,
+ "edge": 0.7,
+ "pair": [
+  "d142b",
+  "d142"
+ ],
+ "hours": [
+  "dusk"
+ ],
+ "rows": [
+  {
+   "shot": "corridor",
+   "name": "main",
+   "box": [
+    965,
+    982,
+    287,
+    304
+   ],
+   "sky": [
+    984,
+    988,
+    296,
+    302
+   ],
+   "lamp": 283,
+   "globe": "outer",
+   "hour": "dusk",
+   "arm": "lit",
+   "tag": "d142b",
+   "stats": {
+    "n": 191,
+    "occluded": 74,
+    "top": 35,
+    "under": 63,
+    "topY": 0.4423691440599195,
+    "underY": 0.2534850913236254,
+    "underOverTop": 0.5730171164227732,
+    "cast": 0.43487414860660545,
+    "globeOverSky": 0.813879749893147,
+    "skyY": 0.42674595443432217
+   }
+  },
+  {
+   "shot": "corridor",
+   "name": "main",
+   "box": [
+    965,
+    982,
+    287,
+    304
+   ],
+   "sky": [
+    984,
+    988,
+    296,
+    302
+   ],
+   "lamp": 283,
+   "globe": "outer",
+   "hour": "dusk",
+   "arm": "unlit",
+   "tag": "d142",
+   "stats": {
+    "n": 191,
+    "occluded": 74,
+    "top": 35,
+    "under": 63,
+    "topY": 0.3614378279725778,
+    "underY": 0.14363743217525798,
+    "underOverTop": 0.39740564229529324,
+    "cast": 0.534913582793626,
+    "globeOverSky": 0.5880076288357751,
+    "skyY": 0.42669809256286434
+   }
+  },
+  {
+   "shot": "fivepoints",
+   "name": "top-left",
+   "box": [
+    130,
+    164,
+    183,
+    212
+   ],
+   "sky": [
+    172,
+    199,
+    182,
+    207
+   ],
+   "lamp": 171,
+   "globe": "outer",
+   "hour": "dusk",
+   "arm": "lit",
+   "tag": "d142b",
+   "stats": {
+    "n": 693,
+    "occluded": 0,
+    "top": 179,
+    "under": 166,
+    "topY": 0.5489065877983593,
+    "underY": 0.27940915153385665,
+    "underOverTop": 0.5090285993005744,
+    "cast": 0.44411252254087363,
+    "globeOverSky": 0.659033586000688,
+    "skyY": 0.6555054284301716
+   }
+  },
+  {
+   "shot": "fivepoints",
+   "name": "top-left",
+   "box": [
+    130,
+    164,
+    183,
+    212
+   ],
+   "sky": [
+    172,
+    199,
+    182,
+    207
+   ],
+   "lamp": 171,
+   "globe": "outer",
+   "hour": "dusk",
+   "arm": "unlit",
+   "tag": "d142",
+   "stats": {
+    "n": 678,
+    "occluded": 15,
+    "top": 179,
+    "under": 151,
+    "topY": 0.49100158581454645,
+    "underY": 0.18163325114971363,
+    "underOverTop": 0.3699239603236584,
+    "cast": 0.552496830953952,
+    "globeOverSky": 0.5455855098638385,
+    "skyY": 0.6555054284301716
+   }
+  },
+  {
+   "shot": "fivepoints",
+   "name": "left",
+   "box": [
+    55,
+    75,
+    274,
+    289
+   ],
+   "sky": [
+    172,
+    199,
+    182,
+    207
+   ],
+   "lamp": 837,
+   "globe": "outer",
+   "hour": "dusk",
+   "arm": "lit",
+   "tag": "d142b",
+   "stats": {
+    "n": 289,
+    "occluded": 7,
+    "top": 49,
+    "under": 59,
+    "topY": 0.5198367558435031,
+    "underY": 0.3034548326865987,
+    "underOverTop": 0.5837502432743593,
+    "cast": 0.41147531437032525,
+    "globeOverSky": 0.637230681825089,
+    "skyY": 0.6555054284301716
+   }
+  },
+  {
+   "shot": "fivepoints",
+   "name": "left",
+   "box": [
+    55,
+    75,
+    274,
+    289
+   ],
+   "sky": [
+    172,
+    199,
+    182,
+    207
+   ],
+   "lamp": 837,
+   "globe": "outer",
+   "hour": "dusk",
+   "arm": "unlit",
+   "tag": "d142",
+   "stats": {
+    "n": 288,
+    "occluded": 8,
+    "top": 49,
+    "under": 58,
+    "topY": 0.45528858753150586,
+    "underY": 0.2047692113650996,
+    "underOverTop": 0.44975696069018994,
+    "cast": 0.4894184525652476,
+    "globeOverSky": 0.5124550351180968,
+    "skyY": 0.6555054284301716
+   }
+  }
+ ]
+}

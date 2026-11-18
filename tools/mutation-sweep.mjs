@@ -260,6 +260,12 @@ const OFFLINE = [
   // globe-level and globe-round light their own lamp whatever the hour, and boot-check sees the page's side.
   'photocell',
   'photocell --selftest',
+  // #142 round 2's page, a few seconds: the module's own lamp beside a white ball under the dusk preset's light,
+  // thirteen arms off one load, each term of the unlit globe's finish against its own known-bad. Nothing else on
+  // this list reads an UNLIT globe: globe-level lights it, and globe-round compares its geometry in the plain
+  // material's finish on purpose. The selftest is the instrument and the verdict on doctored reports.
+  'globe-glass',
+  'globe-glass --selftest',
   // #145's page, a few seconds: one live oak and a bench welded into one bucket by the module's own
   // weldBucket, through the real PostStack at 4 samples, arm by arm. Nothing else on this list renders a
   // leaf: leaf-mask reads the stencil and the split off the buffers, and every row below that changes
@@ -3656,8 +3662,10 @@ const MUTATIONS = [
   //      depth, its shading and its shadow; globe-level its luminance off the same buffer.
   {
     id: 'globe-unpatched', file: 'src/streetfurniture.js',
-    find: '    this.headMat = patchGlobeImpostor(new THREE.MeshStandardMaterial({',
-    to: '    this.headMat = (new THREE.MeshStandardMaterial({',
+    // repointed by #142 round 2, which builds the material first and patches it on its own line (the finish's
+    // uniform has to be on the material before the patch adopts it): the intent is unchanged, the patch dropped
+    find: '    patchGlobeImpostor(this.headMat);\n',
+    to: '',
     why: 'the patch dropped: the head buffer\'s degenerate cards draw as nothing, and every globe in the district is gone',
   },
   {
@@ -3769,6 +3777,40 @@ const MUTATIONS = [
     to: '  carContact.setLit(tod.streetLampsOn);\n',
     why: 'the footprint switched with the street lamps: at dusk the road under every car is lit by the sky the floor pan blocks',
     browser: true,
+  },
+  // ---- #142 round 2: an unlit globe is a frosted shell, not a matte ball. One row per term of GLOBE_FINISH, and the
+  // two ways the shader half of a term can go wrong while its constant still reads right. tools/globe-glass.mjs is
+  // the gate (the module's lamp beside a white ball under the dusk preset's light); nothing else on the list reads
+  // an unlit globe's colour, its underside or its shadow.
+  {
+    id: 'globe-shadow-off', file: 'src/streetfurniture.js',
+    find: 'export const GLOBE_FINISH = Object.freeze({ shadow: true, color: GLOBE_SHELL, transmit: globeShellGain(GLOBE_SHELL) });',
+    to: 'export const GLOBE_FINISH = Object.freeze({ shadow: false, color: GLOBE_SHELL, transmit: globeShellGain(GLOBE_SHELL) });',
+    why: 'the heads cast and do not receive again: a globe in a building\'s shade takes the whole low sun, 16-19% of an unlit globe at dusk',
+  },
+  {
+    id: 'globe-shadow-centre', file: 'src/streetfurniture.js',
+    find: "          .replace(GLOBE_SHADOW_SEAM, GLOBE_SHADOW_AT_HIT))",
+    to: "          )",
+    why: 'the shadow looked up where three looks it up, at the vertex: every card vertex is the globe\'s centre, behind the disc the globe casts, so it shades itself in full sun',
+  },
+  {
+    id: 'globe-warm', file: 'src/streetfurniture.js',
+    find: 'export const GLOBE_SHELL = 0xd2d2d2;',
+    to: 'export const GLOBE_SHELL = 0xd8d2c4;',
+    why: 'the warm shell back: 0.0715 more orange than white under any light, and the gain still derives cleanly off it',
+  },
+  {
+    id: 'globe-transmit-off', file: 'src/streetfurniture.js',
+    find: 'export const GLOBE_FINISH = Object.freeze({ shadow: true, color: GLOBE_SHELL, transmit: globeShellGain(GLOBE_SHELL) });',
+    to: 'export const GLOBE_FINISH = Object.freeze({ shadow: true, color: GLOBE_SHELL, transmit: 0 });',
+    why: 'no light through the shell: the matte ball the reviewer saw, dark underneath, with the shadow and the colour still right',
+  },
+  {
+    id: 'globe-transmit-mean', file: 'src/streetfurniture.js',
+    find: '\t\t\tglobeMean += getIBLIrradiance( globeAxes[ a ] ) / 6.0;',
+    to: '\t\t\tglobeMean += getIBLIrradiance( globeAxes[ a ] );',
+    why: 'the sky summed over six axes rather than averaged: x6 the environment\'s share of the glow, a shell handing back more light than it receives',
   },
   // ---- #145: the stencil's cut zones drawn with alpha to coverage, on their own material.
   {
