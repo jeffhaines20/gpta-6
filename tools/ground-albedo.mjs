@@ -534,13 +534,15 @@ export const ARM_STATE = {
   // #119's halo0 arm was here: it removed the lit lamps' lens halos, a blind reviewer preferred it in
   // both pairs where a lit car was in frame, and the halos went out of src/carbody.js with the switch.
 
-  // #36, THE ROOM BEHIND THE FACADE GLASS (src/materials.js applyGlassRoom). `facadeGlass` is
-  // { room, mirror, rough, k }, pushed through __district.setFacadeGlass. glass0 is the build before
-  // #36 bit for bit (tools/glass-room.mjs asserts it against a replica of the old material, whole
-  // frame, max |d| 0); glass1 is the shipped levers, NAMED rather than left to the default, so a
-  // reader of the pair does not have to know which way round the build falls.
-  glass0: { albedo: null, skyProxy: false, nightGlowLux: 0, facadeGlass: { room: 0, mirror: 1, rough: 1, k: 0.15 } },
-  glass1: { albedo: null, skyProxy: false, nightGlowLux: 0, facadeGlass: { room: 1, mirror: 0.4, rough: 1, k: 0.15 } },
+  // #36, THE ROOM BEHIND THE FACADE GLASS (src/materials.js applyGlassRoom). `facadeGlass` is a
+  // PRESET NAME pushed through __district.setFacadeGlass - 'off' or 'candidate' - so the numbers live
+  // in one place (GLASS_ROOM_CANDIDATE) and the arm's key below holds what the uniforms read back.
+  // glass0 is the build before #36 bit for bit and is also what ships (tools/glass-room.mjs renders
+  // the untouched default and the switched-off material against a replica of the old one, whole
+  // frame, max |d| 0); glass1 is the candidate a blind pair compares. Both are NAMED rather than left
+  // to the default, so a reader of the pair does not have to know which way round the build falls.
+  glass0: { albedo: null, skyProxy: false, nightGlowLux: 0, facadeGlass: 'off' },
+  glass1: { albedo: null, skyProxy: false, nightGlowLux: 0, facadeGlass: 'candidate' },
 };
 
 /**
@@ -790,7 +792,7 @@ export async function setArm(page, name) {
     if (D && D.setFacadeGlass) {
       if (window.__armSavedFacadeGlass === undefined) window.__armSavedFacadeGlass = D.facadeGlass();
       const fg = s.facadeGlass ?? window.__armSavedFacadeGlass;
-      facadeGlass = D.setFacadeGlass({ room: fg.room, mirror: fg.mirror, rough: fg.rough, k: fg.k });
+      facadeGlass = D.setFacadeGlass(typeof fg === 'string' ? fg : { room: fg.room, mirror: fg.mirror, rough: fg.rough, k: fg.k });
     }
     let carFinish = null;
     if (D && D.setCarLensFinish) {

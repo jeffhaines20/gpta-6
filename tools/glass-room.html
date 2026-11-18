@@ -13,15 +13,17 @@
   the glass texels - pane-audit's test, which is also the shader's mask.
 
   Arms per recipe, all off ONE page and ONE camera:
-    ship    the build as shipped (#36 on at its derived levels)
-    off     the same material with setGlassRoom({ room: 0, mirror: 1, rough: 1 })
+    dflt    the build as shipped: the uniforms as the module boots, rendered for every recipe BEFORE
+            any setGlassRoom call. #36 ships OFF, so this must be the build before, bit for bit.
+    cand    GLASS_ROOM_CANDIDATE, the arm a blind pair compares (#36 on)
+    off     the same material after setGlassRoom('off'), following every other arm
     pre     a REPLICA of facadeMaterial before #36: the same maps on a MeshStandardMaterial with
-            applyGlazingEnv and nothing else. off must equal it bit for bit.
-    k0      the shipped levers with the room's light at zero, so ship - k0 IS the room's light: the
+            applyGlazingEnv and nothing else. dflt AND off must equal it bit for bit.
+    k0      the candidate with the room's light at zero, so cand - k0 IS the room's light: the
             two differ in that one term and the specular in both is the same
-    mirror  the mirror levers alone (room 0, F0 and roughness at their shipped values)
-    dark    ship with the sun and the environment off: a room lit by its window is black
-    shipUp, k0Up   ship and k0 with the wall AND the camera moved up 7.3 m, a non-multiple of every
+    mirror  the mirror levers alone (room 0, F0 and roughness at the candidate's values)
+    dark    cand with the sun and the environment off: a room lit by its window is black
+    candUp, k0Up   cand and k0 with the wall AND the camera moved up 7.3 m, a non-multiple of every
             recipe's floor height. The room is registered to the texture's own floor bands, so its
             light must not move; one computed off world height would.
 
@@ -31,7 +33,7 @@
 <script type="module">
 import * as THREE from '../vendor/three.module.min.js';
 import { facadeMaterial, facadeMaps, RECIPES, glassRoomGeometry } from '../src/facades.js';
-import { applyGlazingEnv, setGlassRoom, glassRoomState, GLASS_ROOM_U } from '../src/materials.js';
+import { applyGlazingEnv, setGlassRoom, glassRoomState, GLASS_ROOM_U, GLASS_ROOM_CANDIDATE } from '../src/materials.js';
 
 const W = 320, H = 240;
 const q = new URLSearchParams(location.search);
@@ -109,7 +111,9 @@ try {
     return m;
   }
 
-  const SHIP = glassRoomState();
+  // Read before any setter runs: this IS the shipped state.
+  const DEFAULT = glassRoomState();
+  const CAND = GLASS_ROOM_CANDIDATE;
   const frames = {};
   const read = (target) => {
     const buf = new Float32Array(W * H * 4);
@@ -135,7 +139,16 @@ try {
     return out;
   };
 
-  const report = { ship: SHIP, recipes: {}, w: W, h: H, programs: null };
+  const report = { ship: DEFAULT, candidate: null, recipes: {}, w: W, h: H, programs: null };
+  // THE SHIPPED BUILD, untouched: every recipe drawn under the uniforms the module booted with,
+  // before a single setGlassRoom call, so "the default is the build before" is a statement about
+  // the default and not about the setter's idea of it.
+  const dfltFrames = {};
+  for (const name of RECIPE_LIST) {
+    const wall = wallFor(name, facadeMaterial(name, { time: 'noon' }), 0);
+    aimAt(0, wall);
+    dfltFrames[name] = render(wall);
+  }
   for (const name of RECIPE_LIST) {
     const rec = RECIPES[name];
     const mat = facadeMaterial(name, { time: 'noon' });
@@ -179,29 +192,30 @@ try {
 
     const wall = wallFor(name, mat, 0);
     aimAt(0, wall);
-    setGlassRoom({ room: SHIP.room, mirror: SHIP.mirror, rough: SHIP.rough, k: SHIP.k });
-    const ship = render(wall);
+    report.candidate = setGlassRoom('candidate');
+    const cand = render(wall);
     const dark = render(wall, false);
-    setGlassRoom({ room: SHIP.room, mirror: SHIP.mirror, rough: SHIP.rough, k: 0 });
+    setGlassRoom({ ...CAND, k: 0 });
     const k0 = render(wall);
-    setGlassRoom({ room: 0, mirror: SHIP.mirror, rough: SHIP.rough, k: SHIP.k });
+    setGlassRoom({ ...CAND, room: 0 });
     const mirror = render(wall);
-    setGlassRoom({ room: 0, mirror: 1, rough: 1, k: SHIP.k });
+    setGlassRoom('off');
     const off = render(wall);
     const offRead = glassRoomState();
     const pre = render(wallFor(name, replicaFor(name), 0));
+    const dflt = dfltFrames[name];
     const wallUp = wallFor(name, mat, UP);
     aimAt(UP, wallUp);
-    setGlassRoom({ room: SHIP.room, mirror: SHIP.mirror, rough: SHIP.rough, k: SHIP.k });
-    const shipUp = render(wallUp);
-    setGlassRoom({ room: SHIP.room, mirror: SHIP.mirror, rough: SHIP.rough, k: 0 });
+    setGlassRoom('candidate');
+    const candUp = render(wallUp);
+    setGlassRoom({ ...CAND, k: 0 });
     const k0Up = render(wallUp);
-    setGlassRoom({ room: SHIP.room, mirror: SHIP.mirror, rough: SHIP.rough, k: SHIP.k });
+    setGlassRoom('off');
 
     // ---- statistics, all in scene-linear float
     const Y = (b, i) => 0.2126 * b[i * 4] + 0.7152 * b[i * 4 + 1] + 0.0722 * b[i * 4 + 2];
     let glassPx = 0, wallPx = 0;
-    const st = { offVsPreMax: 0, offVsPreDiffer: 0, shipWallMax: 0, shipWallDiffer: 0, glassChanged: 0,
+    const st = { offVsPreMax: 0, offVsPreDiffer: 0, dfltVsPreMax: 0, dfltVsPreDiffer: 0, candWallMax: 0, candWallDiffer: 0, glassChanged: 0,
       mirrorWallMax: 0, mirrorGlassDrop: 0, darkGlassMax: 0, darkGlassFinite: true,
       upRoomMaxRel: 0, roomSum: [0, 0, 0], roomLumMean: 0, nonFinite: 0 };
     const roomLum = new Float64Array(W * H).fill(NaN), roomRel = new Float64Array(W * H).fill(NaN);
@@ -209,27 +223,30 @@ try {
     for (let i = 0; i < W * H; i++) {
       for (let c = 0; c < 4; c++) {
         const d = Math.abs(off[i * 4 + c] - pre[i * 4 + c]);
-        if (!Number.isFinite(off[i * 4 + c]) || !Number.isFinite(ship[i * 4 + c])) st.nonFinite++;
+        const dd = Math.abs(dflt[i * 4 + c] - pre[i * 4 + c]);
+        if (!Number.isFinite(off[i * 4 + c]) || !Number.isFinite(cand[i * 4 + c]) || !Number.isFinite(dflt[i * 4 + c])) st.nonFinite++;
         if (d > st.offVsPreMax) st.offVsPreMax = d;
         if (d !== 0) st.offVsPreDiffer++;
+        if (dd > st.dfltVsPreMax) st.dfltVsPreMax = dd;
+        if (dd !== 0) st.dfltVsPreDiffer++;
       }
       if (cls[i] === 2) {
         wallPx++;
         for (let c = 0; c < 3; c++) {
-          const d = Math.abs(ship[i * 4 + c] - off[i * 4 + c]);
-          if (d > st.shipWallMax) st.shipWallMax = d;
-          if (d !== 0) st.shipWallDiffer++;
+          const d = Math.abs(cand[i * 4 + c] - off[i * 4 + c]);
+          if (d > st.candWallMax) st.candWallMax = d;
+          if (d !== 0) st.candWallDiffer++;
           st.mirrorWallMax = Math.max(st.mirrorWallMax, Math.abs(mirror[i * 4 + c] - off[i * 4 + c]));
         }
       } else if (cls[i] === 1) {
         glassPx++;
-        if (Y(ship, i) !== Y(off, i)) st.glassChanged++;
+        if (Y(cand, i) !== Y(off, i)) st.glassChanged++;
         mirGlass += Y(mirror, i); offGlass += Y(off, i);
         const dk = Math.max(dark[i * 4], dark[i * 4 + 1], dark[i * 4 + 2]);
         if (!Number.isFinite(dk)) st.darkGlassFinite = false; else st.darkGlassMax = Math.max(st.darkGlassMax, dk);
-        // The room's own light: ship - k0, the one term those two differ in.
-        const rr = [0, 1, 2].map((c) => ship[i * 4 + c] - k0[i * 4 + c]);
-        const ru = [0, 1, 2].map((c) => shipUp[i * 4 + c] - k0Up[i * 4 + c]);
+        // The room's own light: cand - k0, the one term those two differ in.
+        const rr = [0, 1, 2].map((c) => cand[i * 4 + c] - k0[i * 4 + c]);
+        const ru = [0, 1, 2].map((c) => candUp[i * 4 + c] - k0Up[i * 4 + c]);
         st.roomSum[0] += rr[0]; st.roomSum[1] += rr[1]; st.roomSum[2] += rr[2];
         const l = 0.2126 * rr[0] + 0.7152 * rr[1] + 0.0722 * rr[2];
         const lu = 0.2126 * ru[0] + 0.7152 * ru[1] + 0.0722 * ru[2];
@@ -240,7 +257,7 @@ try {
     }
     st.mirrorGlassDrop = offGlass > 0 ? mirGlass / offGlass : null;
     st.roomLumMean = roomN ? roomLum.reduce((a, v) => a + (Number.isFinite(v) ? v : 0), 0) / roomN : 0;
-    // Against the frame's MEAN room light, not each pixel's own: the room is ship - k0, and where it
+    // Against the frame's MEAN room light, not each pixel's own: the room is cand - k0, and where it
     // is a hair of a bright reflection the subtraction's rounding is most of it. Per pixel that read
     // 1e-3 on a build where nothing moved; a room hung off world height moves by its own size.
     st.upRoomMaxRel = st.roomLumMean > 0 ? (st.upRoomMaxAbs ?? 0) / st.roomLumMean : null;
@@ -272,7 +289,7 @@ try {
     st.roomPaneCV = means.length ? Math.sqrt(means.reduce((a, b) => a + (b - mu) ** 2, 0) / means.length) / Math.max(mu, 1e-9) : null;
     r.glassPx = glassPx; r.wallPx = wallPx; r.stats = st; r.offRead = offRead;
     report.recipes[name] = r;
-    if (DEBUG) frames[name] = { ship, off, pre, k0, mirror, dark, shipUp, k0Up, cls };
+    if (DEBUG) frames[name] = { dflt, cand, off, pre, k0, mirror, dark, candUp, k0Up, cls };
   }
   // WHICH PROGRAM EACH RECIPE'S MATERIAL DRAWS WITH, by identity. Counting cache keys that mention
   // glassRoom read 2 for one program: the dark arm hides the sun, and three compiles a second
@@ -283,8 +300,7 @@ try {
   report.programs = { glassRoom: used.has(undefined) ? null : used.size, total: progs.length,
     keysMentioning: progs.filter((k) => k.includes('glassRoom')).length };
   report.shaderErrors = window.__shaderErrors ?? [];
-  setGlassRoom({ room: SHIP.room, mirror: SHIP.mirror, rough: SHIP.rough, k: SHIP.k });
-  report.restored = glassRoomState();
+  report.restored = setGlassRoom(DEFAULT);
   report.uniformObjects = Object.keys(GLASS_ROOM_U);
   window.__report = report;
   if (DEBUG) window.__frames = frames;

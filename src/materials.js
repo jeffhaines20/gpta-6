@@ -2560,14 +2560,40 @@ float geHash( vec2 c ) { return fract( sin( dot( c, vec2( 91.7, 47.3 ) ) ) * 246
 // The room's geometry rides in on uGlassRoomGeo / uGlassRoomDim, one object per
 // material, and the three levers are shared objects so one assignment switches
 // the district.
+//
+// IT SHIPS OFF. The defaults below ARE the build before #36, bit for bit
+// (tools/glass-room.mjs renders the untouched default against a replica of the
+// pre-#36 material and asserts max |d| 0 over the whole frame). The candidate a
+// blind pair compares is GLASS_ROOM_CANDIDATE, reached with
+// setGlassRoom('candidate') - ground-albedo's glass1 arm - and it is switched on
+// by changing uGlassRoom's default only after that review is back.
 export const GLASS_ROOM_U = {
-  uGlassRoom: { value: 1 },
+  uGlassRoom: { value: 0 },
   uGlassMirror: { value: 1 },
   uGlassRough: { value: 1 },
-  uGlassRoomK: { value: 0.15 },
+  // The room's light, as a fraction of the exterior irradiance on the pane that
+  // reaches the room's surfaces at the glass line (exp(-depth / 2.4 m) after it).
+  // Only read when uGlassRoom > 0; held at the candidate's value so {room: 1}
+  // alone lights the candidate's room.
+  uGlassRoomK: { value: 0.3 },
   // Visible transmittance of the stock: a tinted or low-e unit passes 0.4-0.7.
   uGlassRoomT: { value: 0.55 },
 };
+/**
+ * THE CANDIDATE, from two physical anchors and not from the B/R it was meant to
+ * close (docs/BACKLOG.md #36 has the sweep and why it cannot be closed this way):
+ *   mirror 0.4  the shipped coatings' mid-pane F0 of 0.18-0.27 to 0.07-0.11, the
+ *               reflectance of tinted and low-e stock rather than of a coated mirror
+ *   k 0.3       a sidelit room's surfaces at the glass line take of the order of a
+ *               third of the facade's irradiance, and a tenth of it 3 m in
+ *   rough 1     unchanged: a rougher pane has no physical anchor, and the sweep
+ *               bought noon B/R with golden's
+ */
+export const GLASS_ROOM_CANDIDATE = Object.freeze({ room: 1, mirror: 0.4, rough: 1, k: 0.3 });
+const GLASS_ROOM_DEFAULT = Object.freeze({
+  room: GLASS_ROOM_U.uGlassRoom.value, mirror: GLASS_ROOM_U.uGlassMirror.value,
+  rough: GLASS_ROOM_U.uGlassRough.value, k: GLASS_ROOM_U.uGlassRoomK.value,
+});
 const GLASS_ROOM_SEAM_PHYS = '#include <lights_physical_fragment>';
 const GLASS_ROOM_SEAM_END = '#include <lights_fragment_end>';
 
@@ -2676,10 +2702,16 @@ float grHash( vec2 c ) { return fract( sin( dot( c, vec2( 41.3, 289.1 ) ) ) * 15
 
 /**
  * The district's switch for #36, one call for every facade material (the levers are shared
- * uniform objects). Returns what the uniforms now HOLD, read back, so an A/B arm records what it
- * reached rather than what it asked for.
+ * uniform objects). Takes 'off' (the defaults: the build before), 'candidate' (GLASS_ROOM_CANDIDATE)
+ * or any subset of { room, mirror, rough, k }. Returns what the uniforms now HOLD, read back, so an
+ * A/B arm records what it reached rather than what it asked for.
  */
-export function setGlassRoom({ room, mirror, rough, k } = {}) {
+export function setGlassRoom(opts = {}) {
+  const preset = { off: GLASS_ROOM_DEFAULT, candidate: GLASS_ROOM_CANDIDATE };
+  if (typeof opts === 'string' && !(opts in preset)) {
+    throw new Error(`setGlassRoom: unknown preset '${opts}' (want ${Object.keys(preset).join(' or ')})`);
+  }
+  const { room, mirror, rough, k } = typeof opts === 'string' ? preset[opts] : (opts ?? {});
   const U = GLASS_ROOM_U;
   const fin = (v, name) => {
     if (v === undefined) return;

@@ -3702,10 +3702,28 @@ const MUTATIONS = [
     why: 'the glass mask dropped: every wall texel of every facade replaced by a room, the masonry turned to windows',
   },
   {
-    id: 'glass-room-default-off', file: 'src/materials.js',
-    find: '  uGlassRoom: { value: 1 },',
-    to: '  uGlassRoom: { value: 0 },',
-    why: 'the fix quietly shipped off: every check that sets the lever itself still passes, so only "ships #36 ON" sees it',
+    id: 'glass-room-default-on', file: 'src/materials.js',
+    find: '  uGlassRoom: { value: 0 },',
+    to: '  uGlassRoom: { value: 1 },',
+    why: 'the candidate switched on for the whole district before its blind review: every check that sets the lever itself still passes, so only "ships #36 OFF" and the untouched default against the replica see it',
+  },
+  {
+    id: 'glass-mirror-default', file: 'src/materials.js',
+    find: '  uGlassMirror: { value: 1 },',
+    to: '  uGlassMirror: { value: 0.4 },',
+    why: 'the build before quietly darkened: the room is still off so nothing reads as switched on, and every pane in the district has the candidate\'s F0; only the defaults check and the untouched default against the replica see it',
+  },
+  {
+    id: 'glass-mirror-ignored', file: 'src/materials.js',
+    find: '  material.specularColor *= 1.0 - grMask0 * ( 1.0 - uGlassMirror );',
+    to: '  material.specularColor *= 1.0;',
+    why: 'the mirror lever cut: the candidate\'s room still lights and every arm still differs, so a blind pair would compare a room against no room and credit the mirror; only "the mirror lever alone darkens the glass" sees it',
+  },
+  {
+    id: 'glass-candidate-retuned', file: 'src/materials.js',
+    find: 'export const GLASS_ROOM_CANDIDATE = Object.freeze({ room: 1, mirror: 0.4, rough: 1, k: 0.3 });',
+    to: 'export const GLASS_ROOM_CANDIDATE = Object.freeze({ room: 1, mirror: 0.6, rough: 1, k: 0.3 });',
+    why: 'the candidate quietly retuned after the measurement that chose it: every behaviour check still passes at 0.6, so only the restated levels see it',
   },
   {
     id: 'glass-room-unlit', file: 'src/materials.js',

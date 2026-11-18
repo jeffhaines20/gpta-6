@@ -14,11 +14,13 @@
 // (tools/glaz-probe.mjs GLZ_ARMS, tools/pane-tint.mjs --truth) and is recorded in docs/BACKLOG.md
 // #36. What is asserted here holds at any sky:
 //
-//   the thing happened    the build ships #36 on at the levels the sweep chose, every facade
-//                         material carries the patch, glass and wall both in every frame
-//   off is the build before   the shipped material switched off renders a replica of the pre-#36
-//                         material bit for bit, over the whole frame
-//   and nothing else      with #36 on, no WALL texel moves at all; the mirror lever moves only glass
+//   the thing happened    every facade material carries the patch, glass and wall in every frame
+//   it ships off          the module boots with #36 OFF at its documented defaults, and the
+//                         candidate a blind pair compares holds its documented levels
+//   off is the build before   the untouched default, and the material switched off after every
+//                         other arm, both render a replica of the pre-#36 material bit for bit
+//   and nothing else      with the candidate on, no WALL texel moves at all; the mirror lever moves
+//                         only glass
 //   it reaches the glass  nearly every glass texel changes
 //   lit by its window     with the sun and the sky off, the glass is black: the room has no light
 //                         of its own, so it cannot glow at night over the lit-window emissive
@@ -47,13 +49,16 @@ for (const a of argv) {
 }
 
 /**
- * THE SHIPPED LEVELS, restated here rather than read off the module, so a quiet retune of either
- * fails this gate instead of moving it. Where they come from is docs/BACKLOG.md #36's sweep.
+ * THE SHIPPED LEVELS AND THE CANDIDATE, restated here rather than read off the module, so a quiet
+ * retune of either fails this gate instead of moving it. #36 ships OFF - the build before - until a
+ * blind review of the candidate is back; where the candidate's numbers come from is
+ * docs/BACKLOG.md #36 and GLASS_ROOM_CANDIDATE's comment in src/materials.js.
  */
-export const SHIPPED = { room: 1, mirror: 0.4, rough: 1, k: 0.15 };
+export const SHIPPED = { room: 0, mirror: 1, rough: 1, k: 0.3 };
+export const CANDIDATE = { room: 1, mirror: 0.4, rough: 1, k: 0.3 };
 export const RECIPES_DRAWN = ['retailStrip', 'midOffice', 'bayTower', 'warehouse'];
 /** Fixed, so a check cannot vanish when a population is empty. */
-export const CHECK_COUNT = 16;
+export const CHECK_COUNT = 17;
 
 /**
  * THE VERDICT, AS A PURE FUNCTION OF THE PAGE'S REPORT. Every read goes through `num`, because a
@@ -73,11 +78,13 @@ export function verdict(r, recipeTable = RECIPES) {
   add('the page rendered every recipe, and each frame holds both glass and wall',
     !r?.error && names.every((n) => (num(R[n]?.glassPx) ?? 0) >= 1500 && (num(R[n]?.wallPx) ?? 0) >= 3000),
     r?.error ? `page error: ${String(r.error).split('\n')[0]}` : list((n) => `${R[n]?.glassPx ?? '?'} glass / ${R[n]?.wallPx ?? '?'} wall`));
-  add('the build ships #36 ON, at the levels the sweep chose',
-    num(r?.ship?.room) === SHIPPED.room && num(r?.ship?.mirror) === SHIPPED.mirror
-      && num(r?.ship?.rough) === SHIPPED.rough && num(r?.ship?.k) === SHIPPED.k,
-    `room ${r?.ship?.room}, mirror ${r?.ship?.mirror}, rough ${r?.ship?.rough}, k ${r?.ship?.k}  `
-      + `(want ${SHIPPED.room} / ${SHIPPED.mirror} / ${SHIPPED.rough} / ${SHIPPED.k})`);
+  const levels = (got, want) => ['room', 'mirror', 'rough', 'k'].every((k) => num(got?.[k]) === want[k]);
+  const say = (got, want) => `room ${got?.room}, mirror ${got?.mirror}, rough ${got?.rough}, k ${got?.k}  `
+    + `(want ${want.room} / ${want.mirror} / ${want.rough} / ${want.k})`;
+  add('the build ships #36 OFF - the build before - at its documented defaults',
+    levels(r?.ship, SHIPPED), say(r?.ship, SHIPPED));
+  add('and the candidate a blind pair compares holds its documented levels',
+    levels(r?.candidate, CANDIDATE), say(r?.candidate, CANDIDATE));
   add('every facade material drawn carries the patch, after applyGlazingEnv',
     names.every((n) => R[n]?.tags === 'glazeEnv|glassRoom'), list((n) => R[n]?.tags ?? 'none'));
   add('ONE compiled program serves every recipe - which is why the room\'s per-recipe numbers are uniforms',
@@ -104,11 +111,11 @@ export function verdict(r, recipeTable = RECIPES) {
     reg.length >= 6 && reg.every((x) => x.ok),
     reg.map((x) => `${x.n} ${x.g.floor.toFixed(2)}<${x.g.sill.toFixed(2)}..${x.g.head.toFixed(2)}<${x.g.ceiling.toFixed(2)}`).join(' '));
 
-  add('OFF IS THE BUILD BEFORE, BIT FOR BIT: the shipped material switched off renders the pre-#36 replica exactly, whole frame',
-    each((n, s) => num(s.offVsPreMax) === 0 && num(s.nonFinite) === 0).every(Boolean),
-    list((n, s) => `max |d| ${s.offVsPreMax}, ${s.offVsPreDiffer ?? '?'} values differ, ${s.nonFinite ?? '?'} non-finite`));
-  add('and #36 ON moves no WALL texel at all - the room and the mirror stay on the glass',
-    each((n, s) => num(s.shipWallMax) === 0).every(Boolean), list((n, s) => `max |d| ${s.shipWallMax}`));
+  add('OFF IS THE BUILD BEFORE, BIT FOR BIT: the untouched default AND the material switched off after every arm render the pre-#36 replica exactly, whole frame',
+    each((n, s) => num(s.offVsPreMax) === 0 && num(s.dfltVsPreMax) === 0 && num(s.nonFinite) === 0).every(Boolean),
+    list((n, s) => `default max |d| ${s.dfltVsPreMax} (${s.dfltVsPreDiffer ?? '?'} differ), off ${s.offVsPreMax} (${s.offVsPreDiffer ?? '?'}), ${s.nonFinite ?? '?'} non-finite`));
+  add('and the candidate moves no WALL texel at all - the room and the mirror stay on the glass',
+    each((n, s) => num(s.candWallMax) === 0).every(Boolean), list((n, s) => `max |d| ${s.candWallMax}`));
   const reach = (n, s) => (num(s.glassChanged) ?? 0) / Math.max(1, num(R[n]?.glassPx) ?? 0);
   add('it reaches the glass: at least 90% of glass texels change',
     each((n, s) => reach(n, s) >= 0.9).every(Boolean), list((n, s) => `${(100 * reach(n, s)).toFixed(1)}%`));
@@ -144,14 +151,14 @@ function goodReport() {
       glassPx: 9000, wallPx: 30000, tags: 'glazeEnv|glassRoom',
       uniforms: { geo: [g.floorM, g.floor, g.ceiling, g.tileV], dim: [g.width, g.depth] },
       stats: {
-        offVsPreMax: 0, offVsPreDiffer: 0, nonFinite: 0, shipWallMax: 0, glassChanged: 8950,
+        offVsPreMax: 0, offVsPreDiffer: 0, dfltVsPreMax: 0, dfltVsPreDiffer: 0, nonFinite: 0, candWallMax: 0, glassChanged: 8950,
         mirrorWallMax: 0, mirrorGlassDrop: 0.62, darkGlassFinite: true, darkGlassMax: 0, roomLumMean: 0.004,
         upRoomMaxRel: 4e-5, roomModMedian: 2.4, panes: 12, roomPaneCV: 0.3,
         roomBR: n === 'bayTower' ? 1.4 : n === 'midOffice' ? 0.7 : 0.95,
       },
     };
   }
-  return { ship: { ...SHIPPED }, recipes, programs: { glassRoom: 1, total: 9 } };
+  return { ship: { ...SHIPPED }, candidate: { ...CANDIDATE }, recipes, programs: { glassRoom: 1, total: 9 } };
 }
 function selftest() {
   const fails = [];
@@ -168,14 +175,18 @@ function selftest() {
     ck(`KNOWN-BAD ${label} fails "${wantFail.slice(0, 48)}..."`, hit && v.length === CHECK_COUNT,
       failed.length ? failed.map((n) => n.slice(0, 40)).join(' | ') : 'nothing failed');
   };
-  bad('the fix shipped off', (r) => { r.ship.room = 0; }, 'the build ships #36 ON');
-  bad('a quietly retuned mirror', (r) => { r.ship.mirror = 0.6; }, 'the build ships #36 ON');
+  bad('the candidate switched on by default before its review', (r) => { r.ship.room = 1; }, 'the build ships #36 OFF');
+  bad('a default mirror below 1', (r) => { r.ship.mirror = 0.4; }, 'the build ships #36 OFF');
+  bad('a quietly retuned candidate', (r) => { r.candidate.mirror = 0.6; }, 'and the candidate a blind pair');
+  bad('a candidate whose room is off', (r) => { r.candidate.room = 0; }, 'and the candidate a blind pair');
   bad('the patch missing from one material', (r) => { r.recipes.bayTower.tags = 'glazeEnv'; }, 'every facade material drawn');
   bad('one program per recipe (constants baked into the source)', (r) => { r.programs.glassRoom = 4; }, 'ONE compiled program');
   bad('every recipe given retailStrip\'s room', (r) => { for (const n of RECIPES_DRAWN) r.recipes[n].uniforms = JSON.parse(JSON.stringify(r.recipes.retailStrip.uniforms)); }, 'each material holds ITS OWN');
   bad('off differing from the build before by one value', (r) => { r.recipes.midOffice.stats.offVsPreMax = 1e-7; r.recipes.midOffice.stats.offVsPreDiffer = 1; }, 'OFF IS THE BUILD BEFORE');
+  bad('the untouched default differing from the build before', (r) => { r.recipes.bayTower.stats.dfltVsPreMax = 2e-3; r.recipes.bayTower.stats.dfltVsPreDiffer = 40; }, 'OFF IS THE BUILD BEFORE');
+  bad('a default the page never measured', (r) => { delete r.recipes.retailStrip.stats.dfltVsPreMax; }, 'OFF IS THE BUILD BEFORE');
   bad('a NaN in an off frame', (r) => { r.recipes.warehouse.stats.nonFinite = 3; }, 'OFF IS THE BUILD BEFORE');
-  bad('the room leaking onto the wall', (r) => { r.recipes.retailStrip.stats.shipWallMax = 0.002; }, 'and #36 ON moves no WALL');
+  bad('the room leaking onto the wall', (r) => { r.recipes.retailStrip.stats.candWallMax = 0.002; }, 'and the candidate moves no WALL');
   bad('the room reaching a third of the glass', (r) => { r.recipes.bayTower.stats.glassChanged = 3000; }, 'it reaches the glass');
   bad('a mirror lever that does nothing', (r) => { r.recipes.midOffice.stats.mirrorGlassDrop = 1.0; }, 'the mirror lever alone');
   bad('a room that glows with the lights off', (r) => { r.recipes.midOffice.stats.darkGlassMax = 0.003; }, 'a room LIT BY ITS WINDOW');
