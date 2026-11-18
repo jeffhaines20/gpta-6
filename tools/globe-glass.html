@@ -177,9 +177,11 @@ try {
     // the reference ball is white unless an arm asks for a grey of the shell's own luminance: with the same
     // albedo the two share the same specular SHARE, so a cast left between them is the shell's colour alone
     ball.material.color.setHex(Number.isInteger(cfg.ballColor) ? cfg.ballColor : 0xffffff);
-    // and takes the sun's shadow unless an arm holds the shadow off on both subjects: the shell looks its shadow
-    // up at the ray's hit and the ball through three's own vertex path, and near the terminator the two differ
-    // by a couple of percent of the under cap's sun, which is 0.01 of cast on a warm low sun
+    // and takes the sun's shadow unless an arm holds the shadow off on both subjects. The two do not shade alike:
+    // the shell compares its hit with its OWN front surface in the sun's map (globeDepthMaterial), where three
+    // draws a mesh's back faces, so near its terminator the shell shades itself and the ball does not. Head on,
+    // transmitted light off, in open sun: the shell's top cap -1.7%, its underside -3.9%, 0.021 of cast bluer;
+    // the ball identical with its shadow on and off.
     ball.receiveShadow = cfg.ballShadow !== false;
     wall.visible = !!cfg.wall;
     fur.setLit(!!cfg.lit);

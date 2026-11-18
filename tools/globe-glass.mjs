@@ -290,9 +290,11 @@ export function gateArms(F, B) {
     noShadow: { finish: { ...F, shadow: false } },
     // The colour arms read the shell against a NEUTRAL GREY BALL of the shipped shell's luminance, typed here and
     // not taken from F, so a warm F cannot bring its reference with it: same albedo, same specular share. They
-    // hold the transmitted light and the sun's shadow off on BOTH subjects (the shell's shadow lookup and the
-    // ball's are different paths, measured 0.010 of cast apart on this light), so the cast left between them
-    // is the shell's own colour.
+    // hold the transmitted light and the sun's shadow off on BOTH subjects, because in open sun the shell's
+    // lookup shades its own terminator and the ball's does not (0.021 of cast apart, head on: see the page), so
+    // the cast left between them is the shell's own colour: -0.0001 measured, where 0xd8d2c4 is +0.069.
+    // (This comment first said 0.010, read off ONE camera between the two subjects: that was +0.031 of view
+    // asymmetry and -0.021 of shadow, two terms of opposite sign summing to a small one.)
     noTransmit: { finish: { ...F, transmit: 0, shadow: false }, ballColor: GREY_REFERENCE, ballShadow: false },
     warmNoTransmit: { finish: { ...F, color: B.color, transmit: 0, shadow: false }, ballColor: GREY_REFERENCE, ballShadow: false },
     shipWall: { finish: { ...F }, wall: true },
