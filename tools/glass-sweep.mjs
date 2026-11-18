@@ -89,6 +89,64 @@ export function frameStats(L, cls, w, h) {
     sums: { gR: G[0], gB: G[2], gY: G[3], gN: G[4], wR: W2[0], wB: W2[2], wY: W2[3], wN: W2[4] },
   };
 }
+/**
+ * WHERE A PANE'S COLOUR COMES FROM, read off the shot arms rather than modelled. With the room on at
+ * K 0 the coating's diffuse is replaced by nothing, so r1k0 IS the specular; r1k0 - r3k0 is (1 - s1) of
+ * the F0 reflection (the specular is linear in s through F0 * DFG.x); the rest of r1k0 is the F90 rise
+ * no F0 scale reaches; off - r1k0 is the diffuse the room replaces; (r1k5 - r1k0) / K1 is the room per
+ * unit K at F0 x1. Channel SUMS over the glass texels above the horizon - and the wall's, for a shift -
+ * so views pool by adding them. `negF0` counts glass channels whose F0 part came out below -1e-4: a
+ * clean capture reads ~0, two corners captured under each other's names read the whole population.
+ */
+export function decomposeSums(arms, cls, w, h, { s1 = 0.3, K1 = 0.5 } = {}) {
+  const hr = Math.round(horizonRow(h));
+  const keys = ['off', 'spec', 'f0', 'f90', 'diff', 'roomK', 'r1k0', 'r1k5', 'r3k0', 'r3k5', 'wall'];
+  const T = Object.fromEntries(keys.map((k) => [k, { r: 0, g: 0, b: 0 }]));
+  T.n = 0; T.negF0 = 0;
+  for (let i = 0; i < w * h; i++) {
+    if (((i / w) | 0) > hr) continue;
+    if (cls[i] === 2) { for (const ch of ['r', 'g', 'b']) T.wall[ch] += arms.off[ch][i]; continue; }
+    if (cls[i] !== 1) continue;
+    T.n++;
+    for (const ch of ['r', 'g', 'b']) {
+      const off = arms.off[ch][i], a1 = arms.r1k0[ch][i], a3 = arms.r3k0[ch][i];
+      const f0 = (a1 - a3) / (1 - s1);
+      if (f0 < -1e-4) T.negF0++;
+      T.off[ch] += off; T.spec[ch] += a1; T.f0[ch] += f0; T.f90[ch] += a1 - f0; T.diff[ch] += off - a1;
+      T.roomK[ch] += (arms.r1k5[ch][i] - a1) / K1;
+      T.r1k0[ch] += a1; T.r3k0[ch] += a3; T.r1k5[ch] += arms.r1k5[ch][i]; T.r3k5[ch] += arms.r3k5[ch][i];
+    }
+  }
+  return T;
+}
+/** Add decomposeSums results, view by view, into one pool. */
+export function poolSums(list) {
+  const out = {};
+  for (const T of list) {
+    for (const [k, v] of Object.entries(T)) {
+      if (typeof v === 'number') out[k] = (out[k] ?? 0) + v;
+      else { out[k] ??= { r: 0, g: 0, b: 0 }; for (const ch of ['r', 'g', 'b']) out[k][ch] += v[ch]; }
+    }
+  }
+  return out;
+}
+/**
+ * THE ROOM A POOLED PANE WOULD NEED. At F0 scale s the pane is A(s) + K R(s) channel by channel, so its
+ * B/R runs monotonically from A's own (K 0) to R's own (K -> infinity) and the K that lands a target is
+ * closed form. Returns null when no K can: a target outside that interval is not "a big K", and a room
+ * whose own light is bluer than the target can never warm a pane down to it.
+ */
+export function roomNeeded(T, s, target, { s1 = 0.3, K1 = 0.5 } = {}) {
+  const u = (1 - s) / (1 - s1);
+  const A = (ch) => T.r1k0[ch] + u * (T.r3k0[ch] - T.r1k0[ch]);
+  const R = (ch) => ((T.r1k5[ch] - T.r1k0[ch]) + u * ((T.r3k5[ch] - T.r3k0[ch]) - (T.r1k5[ch] - T.r1k0[ch]))) / K1;
+  const br0 = A('b') / A('r'), brInf = R('b') / R('r');
+  const lum = (f) => 0.2126 * f('r') + 0.7152 * f('g') + 0.0722 * f('b');
+  const K = (target - br0) * (target - brInf) < 0 ? (target * A('r') - A('b')) / (R('b') - target * R('r')) : null;
+  return { K, br0, brInf, roomOverReflection: K === null ? null : (K * lum(R)) / lum(A),
+    shareAt: (k) => (k * lum(R)) / (lum(A) + k * lum(R)), brAt: (k) => (A('b') + k * R('b')) / (A('r') + k * R('r')) };
+}
+
 /** Pixel-pooled glass B/R, shift and pane:wall over a list of frameStats results. */
 export function pooled(list) {
   const t = { gR: 0, gB: 0, gY: 0, gN: 0, wR: 0, wB: 0, wY: 0, wN: 0 };
@@ -245,6 +303,40 @@ function selftest() {
     ck('KNOWN-BAD a detector with no panes reads NaN precision and recall 0, not 100%',
       Number.isNaN(none.precision) && none.recall === 0, `${none.precision} / ${none.recall}`);
   }
+  // decomposeSums and roomNeeded on arms whose terms are KNOWN: per pixel F0 reflection f, F90 rise q,
+  // coating diffuse d and a room per unit K of m1 at F0 x1 and m3 at x0.3, every arm built from them.
+  {
+    const dw = 10, dh = 8, nn = dw * dh, dcls = new Uint8Array(nn).fill(1);
+    for (let i = 0; i < nn; i += 4) dcls[i] = 2;                       // a wall texel in every four
+    const rnd2 = (k) => { const x = Math.sin(k * 78.233) * 43758.5453; return x - Math.floor(x); };
+    const terms = (i, c) => ({ f: 0.05 + 0.05 * rnd2(i * 5 + c), q: 0.02 * rnd2(i * 7 + c), d: 0.03 * rnd2(i * 3 + c),
+      m1: 0.04 * rnd2(i * 11 + c), m3: 0.045 * rnd2(i * 13 + c) });
+    const mk = (fn) => { const o = { r: new Float64Array(nn), g: new Float64Array(nn), b: new Float64Array(nn), n: nn };
+      for (let i = 0; i < nn; i++) for (const [c, ch] of [[0, 'r'], [1, 'g'], [2, 'b']]) o[ch][i] = fn(terms(i, c)); return o; };
+    const A2 = { off: mk((t) => t.f + t.q + t.d), r1k0: mk((t) => t.f + t.q), r3k0: mk((t) => 0.3 * t.f + t.q),
+      r1k5: mk((t) => t.f + t.q + 0.5 * t.m1), r3k5: mk((t) => 0.3 * t.f + t.q + 0.5 * t.m3) };
+    const T = decomposeSums(A2, dcls, dw, dh);
+    let want = { f: 0, q: 0, d: 0, m1: 0 }, worst = 0;
+    const hr = Math.round(horizonRow(dh));
+    for (const ch of ['r', 'g', 'b']) {
+      want = { f: 0, q: 0, d: 0, m1: 0 };
+      for (let i = 0; i < nn; i++) { if (dcls[i] !== 1 || ((i / dw) | 0) > hr) continue; const t = terms(i, ['r', 'g', 'b'].indexOf(ch)); want.f += t.f; want.q += t.q; want.d += t.d; want.m1 += t.m1; }
+      worst = Math.max(worst, Math.abs(T.f0[ch] - want.f), Math.abs(T.f90[ch] - want.q), Math.abs(T.diff[ch] - want.d), Math.abs(T.roomK[ch] - want.m1));
+    }
+    ck('decomposeSums recovers the F0, F90, diffuse and room terms an arm set was built from, to 1e-12',
+      worst < 1e-12 && T.negF0 === 0 && T.n > 0, `worst ${worst.toExponential(2)}, ${T.n} glass px, negF0 ${T.negF0}`);
+    // KNOWN-BAD: the two K-0 corners captured under each other's names - every F0 part goes negative.
+    const Tsw = decomposeSums({ ...A2, r1k0: A2.r3k0, r3k0: A2.r1k0 }, dcls, dw, dh);
+    ck('KNOWN-BAD the K-0 corners swapped: every glass channel\'s F0 part reads negative, and says so',
+      Tsw.negF0 === 3 * Tsw.n, `${Tsw.negF0} of ${3 * Tsw.n}`);
+    // roomNeeded: the K it returns must land the target exactly, and a target outside reach is null.
+    const r0 = roomNeeded(T, 0.4, 0.0);
+    const mid = (r0.br0 + r0.brInf) / 2, got = roomNeeded(T, 0.4, mid);
+    ck('roomNeeded: the K it returns lands the target B/R to 1e-12', got.K !== null && Math.abs(got.brAt(got.K) - mid) < 1e-12,
+      `target ${mid.toFixed(4)}, K ${got.K?.toFixed(4)}, lands ${got.K === null ? 'n/a' : got.brAt(got.K).toFixed(6)}`);
+    const beyond = roomNeeded(T, 0.4, r0.brInf - 0.5 * Math.abs(r0.br0 - r0.brInf) * Math.sign(r0.br0 - r0.brInf));
+    ck('KNOWN-BAD a target past the room\'s own colour is unreachable (null), never a big K', beyond.K === null, String(beyond.K));
+  }
   // The forward encode must be what TRANSFER.aces inverts, or every detector reading is off by the
   // mismatch: round-trip a range of ACES inputs, inside 2% where 8 bits can resolve it.
   let rt = 0;
@@ -293,6 +385,7 @@ if (IS_MAIN && !process.argv.includes('--selftest')) {
     const row = { station: st, tod: st.endsWith('-noon') ? 'noon' : 'golden', measured: {}, grid: {} };
     for (const a of Object.keys(arms)) row.measured[a] = frameStats(arms[a], cls, cap.w, cap.h);
     row.predictedMid = frameStats(S(0.5, 0.25), cls, cap.w, cap.h);
+    row.decomp = decomposeSums(arms, cls, cap.w, cap.h, { s1: S1, K1 });
     for (const s of grid.s) for (const K of grid.K) row.grid[`${s}|${K}`] = frameStats(S(s, K), cls, cap.w, cap.h);
     // The photograph's own detector, like for like, on the measured off arm and on each picked point.
     row.detect = { off: detectLinear(arms.off, cap.w, cap.h, 2, cls) };
@@ -360,6 +453,25 @@ if (IS_MAIN && !process.argv.includes('--selftest')) {
           + `modulation ${f3(t('modulation'))}  flat ${(100 * t('flatFrac')).toFixed(0)}%  cv ${f3(t('paneCV'))}`
           + `   pooled ${f3(P.glassBR)} / ${f3(P.shift)} / ${f3(P.paneWall)}`);
       }
+    }
+  }
+  // Where the colour comes from, pooled by pixel, and the room that would be needed to warm it.
+  for (const tod of ['noon', 'golden']) {
+    const P = poolSums(rows.filter((r) => r.tod === tod).map((r) => r.decomp));
+    if (!P.off) continue;
+    const Yc = (t) => Yl(t.r, t.g, t.b), yo = Yc(P.off);
+    console.log(`\nWHERE THE COLOUR COMES FROM, ${tod}: ${P.n} glass px pooled (share of the off arm's light, and each term's own B/R)`);
+    for (const [k, label] of [['spec', 'specular'], ['f0', '  of which F0'], ['f90', '  of which F90'], ['diff', 'coating diffuse'], ['roomK', 'room, per unit K']]) {
+      console.log(`  ${label.padEnd(18)} share ${(Yc(P[k]) / yo).toFixed(3)}   B/R ${(P[k].b / P[k].r).toFixed(3)}`);
+    }
+    console.log(`  channels whose F0 part came out negative: ${P.negF0} of ${3 * P.n}`);
+    const wallBR = P.wall.b / P.wall.r;
+    const rn = roomNeeded(P, 0.4, 1.2, { s1: S1, K1 });
+    console.log(`  at F0 x0.4: pane B/R ${rn.br0.toFixed(3)} with no room, the room's own ${rn.brInf.toFixed(3)}, wall ${wallBR.toFixed(3)}; `
+      + `at K 0.3 the room is ${(100 * rn.shareAt(0.3)).toFixed(1)}% of the pane's light and the pane reads ${rn.brAt(0.3).toFixed(3)}`);
+    for (const [label, target] of [['B/R 1.2', 1.2], ['B/R 1.0', 1.0], [`the photographs' shift (0.973 x ${wallBR.toFixed(3)})`, 0.973 * wallBR], ["the photographs' B/R 0.807", 0.807]]) {
+      const q = roomNeeded(P, 0.4, target, { s1: S1, K1 });
+      console.log(`    K for ${label.padEnd(40)} ${q.K === null ? 'unreachable at any K' : `${q.K.toFixed(2)}  (the room ${q.roomOverReflection.toFixed(1)}x the reflection's light)`}`);
     }
   }
   const out = path.join(dir, `${TAG}-surface.json`);
