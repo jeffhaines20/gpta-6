@@ -6537,7 +6537,19 @@ Every offline row is caught by the new gate and by nothing else in the list, whi
 reads looks like — so its coverage rests on one file, and the page-side second protocol is boot-check's arm, which
 these runs did not include (`--browser` was not passed; the two host rows below are boot-check runs of their own).
 
-**Still to land in this entry** — the two host rows, boot-check against a one-line mutant export of each.
+The two host rows, each a full `boot-check` run against an export of this tree differing from it in one line of
+district/main.js, on its own port:
+
+    photocell-frame-pool       :8288  BOOT: FAIL — 2 of 127 in 868 s, exactly the two checks written for it:
+                                      "...holds every street lamp off there" (10 pool lights on at the boot hour,
+                                      and the audit's own flag up: "street lamps are lit while their photocell reads
+                                      1602.6 lux") and "...is dark again back at the boot hour" (10 lit)
+    contact-follows-photocell  :8289  BOOT: FAIL — 2 of 127 in 757 s: the footprint's "at the boot hour the cars'
+                                      lamps are lit ... and the host feeds it every parked car" (visible false at
+                                      dusk) and "by day it draws nothing, and back at the boot hour it draws every
+                                      car again" (dusk visible false)
+
+So nine rows, nine caught, none by a timing line, and the tree clean after every one.
 
 **The decision.** The street lamps are OFF at the dusk preset, by a photocell computed off the light the hour
 delivers, because every number above says a real one would be: x100 its turn-on on the page, x35 under the
