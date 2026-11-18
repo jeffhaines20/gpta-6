@@ -3654,6 +3654,12 @@ const MUTATIONS = [
     find: 'if ( diffuseColor.a < ${ALPHA_TEST.toFixed(6)} ) discard;',
     to: 'if ( diffuseColor.a < alphaTest ) discard;',
     why: 'the custom depth material kept and its literal dropped: it reads the uniform three sets to 0.5 for a coverage material',
+    inert: "MEASURED INERT AT 5d5fef1: swept alone it was caught by nothing, and leaf-cover's sun map stayed byte-identical "
+      + "(0 texels). three does write alphaTest onto a CUSTOM depth material on every draw (getDepthMaterial in the vendored "
+      + "bundle: 0.5 for the coverage group, 0.42 for the opaque one), and, read off the renderer rather than measured, "
+      + "refreshes a material's uniforms only when the material changes; each bucket draws its opaque group first, so the "
+      + "cut group inherits 0.42. The literal stays because it does not lean on that draw order: a bucket with no opaque "
+      + "triangles, or a three that refreshes per draw, would cut the shadow at 0.5 (5,022 texels under one oak, depth05).",
   },
   {
     id: 'fol-split-none', file: 'src/streetfurniture.js',

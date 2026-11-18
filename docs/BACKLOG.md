@@ -6343,7 +6343,7 @@ none measured: the leaf cards' material does not take the LightPool's lights, or
 facing away; or the AO (whose broad darkening #141's review preferred) darkens the inner canopy and nothing
 lifts it. #139 moved lamps out of palm crowns; which species these two canopies are is not checked.
 
-### #145 FIXED ON foliage-145, NOT YET BLIND-REVIEWED (A LEAF'S EDGE IS A PARTIAL PIXEL, THE TRUNKS ARE NOT LATTICES, A COVERED LEAF IS STILL LIT TO THE BLOOM; THE BARK'S TONE MEASURED AND NOT MOVED) — hard-edged foliage and pale trunks
+### #145 FIXED ON foliage-145, BLIND SET BUILT AND NOT YET REVIEWED (A LEAF'S EDGE IS A PARTIAL PIXEL, THE TRUNKS ARE NOT LATTICES, A COVERED LEAF IS STILL LIT TO THE BLOOM; THE BARK'S TONE MEASURED AND NOT MOVED) — hard-edged foliage and pale trunks
 Filed 2026-11-17 from the month's blind reviews, every one of which listed it among the things wrong in
 BOTH builds, independently. The original record is kept verbatim under "#145 (as filed)".
 
@@ -6501,9 +6501,56 @@ the rim, the tag on exactly the covered pixels, the GPU's bright pass reading it
 the decode agreeing with the GPU) and its `--selftest` (28: each check against a known-bad summary); `leaf-mask`'s
 split section; `bloom-source --selftest` (three more: the JS decode against the export); `boot-check`'s #145 arm
 (the page ships centred, the rim, the lit tag; every cut bucket paired and casting through the foliage depth
-material). Mutation rows: fol-a2c-off, fol-uncentred, fol-depth-off, fol-depth-uniform, fol-split-none,
-fol-split-all, fol-zone-bark, bark-rim-off, bark-rim-column, fol-lit-tag-off, bright-lit-tag-off; and
-bloom-share-inverted repointed by intent onto the decode this change extended.
+material). Every entry of the gate list passes on this branch: the 45 offline entries (2026-11-18 01:34-01:36, at
+nice 10 beside a capture), the 24 browser ones (02:48-02:51, `leaf-cover` PASS 18 in 16.1 s, `bloom-lit` PASS 14,
+`mutation-sweep --selftest` PASS 19), and `boot-check` BOOT: PASS, 126 checks in 847 s on BOOT_PORT 8253
+(2026-11-17 23:41, on the code at HEAD; nothing under src/, district/ or the gate has changed since). Not run:
+`daynight-sweep` and the budget drive; the draw-call price is the deterministic +16..+18 below, against a budget p95
+of 225-236 and a warn of 275.
+
+**The mutation rows, each run alone on the committed tree** (`mutation-sweep --only`, 180-242 s a row, the tree clean
+after every one):
+
+    fol-a2c-off           caught by leaf-cover          the switch reads back unchanged and the frame does not move
+    fol-uncentred         caught by leaf-cover          THE FIX (hardFrac 0.724 / 0.600) and the centring
+    fol-depth-off         caught by leaf-cover          no custom depth material on the buckets, the sun's map moves
+    fol-depth-uniform     INERT, recorded with its measurement: the sun's map stays byte-identical, because three
+                          writes alphaTest onto the custom depth material per draw and each bucket's opaque group
+                          (0.42) draws before its cut group; the literal is kept so the shadow does not lean on that
+                          order (a bucket with no opaque triangles would be cut at 0.5)
+    fol-split-none        caught by leaf-mask and leaf-cover
+    fol-split-all         caught by leaf-mask and leaf-cover (13,656 of 13,656 non-tree triangles on the coverage)
+    fol-zone-bark         caught by leaf-mask and leaf-cover
+    bark-rim-off          caught by leaf-cover          the module ships the rim off
+    bark-rim-column       caught by leaf-cover          the trunk 0.209 uncovered
+    fol-lit-tag-off       caught by leaf-cover          the mechanism: a covered leaf left at a bare 1
+    bright-lit-tag-off    caught by leaf-cover          THE LIT TAG REACHES THE BRIGHT PASS
+    bloom-share-inverted  caught by bloom-lit and leaf-cover (repointed by intent onto the decode this change extended)
+
+**The round's captures (2026-11-18).** `f145b` is a2e0626, served from a git archive of it on its own port; `f145`
+is this branch. Corridor and fivepoints at noon, golden and dusk, `?traffic=0`, no pedestrians, clouds frozen, one
+hero-shots job per framing; both tags' audits are committed (docs/f145b-audits.json, docs/f145-audits.json), and the
+triangles are identical in all six pairs:
+
+    draw calls          corridor noon/golden/dusk     fivepoints noon/golden/dusk
+    f145b (BEFORE)        159 / 171 / 177               179 / 191 / 200
+    f145  (AFTER)         176 / 188 / 193               197 / 209 / 218      +16..+18
+    triangles             559,747 / 574,265 / 573,413   592,278 / 606,796 / 621,569   both arms
+
+The reviewers' boxes on the captures themselves, hardFrac / midShare, BEFORE -> AFTER:
+
+    corridor [640,240,760,320]          noon 0.892/0.049 -> 0.561/0.174   golden 0.916/0.034 -> 0.578/0.152
+                                        dusk 0.912/0.038 -> 0.565/0.158
+    corridor xywh [470,130,330,110]     noon 0.920/0.042 -> 0.499/0.184   golden 0.911/0.038 -> 0.491/0.188
+                                        dusk 0.917/0.038 -> 0.517/0.175
+    fivepoints [600,330,760,420]        noon 0.730/0.155 -> 0.532/0.221
+    corridor mast / pole (controls)     noon 0.543/0.214 -> 0.505/0.224 and 0.439/0.226 -> 0.345/0.254 (a leaf in each)
+    limb A, limb B, brick, sunlit road  byte-identical in both arms: the bark's tone is not moved
+
+`blind-compare f145b f145` refused the three fivepoints pairs for low signal (1.31 to 2.03% of facade-band samples
+over 4/255, the upper and ground bands 0%): the change is confined to leaf edges and limbs, and the arms are different
+builds by their own audits (179 against 197 draw calls). Built with `--force`; the set is docs/shots/blind
+(gitignored), and its key stays out of git until the review is back.
 
 **Not measured.** FXAA over the MSAA (`msaa+fxaa`, which src/post.js keeps as an A/B): it would blur every edge in
 the frame and not only the leaves'. The "1-3 px far objects appear or disappear" a reviewer added: a temporal
